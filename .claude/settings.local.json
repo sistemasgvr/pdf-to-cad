@@ -1,0 +1,35 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(python -c ' *)",
+      "Bash(python digitize.py \"C:/Users/USER/Desktop/8-4-25_Parte3.pdf\" \"C:/Users/USER/Desktop/PROYECTOS/GVR/pdf-to-cad/8-4-25_Parte3.dxf\")",
+      "Bash(PYTHONIOENCODING=utf-8 python digitize.py \"C:/Users/USER/Desktop/8-4-25_Parte3.pdf\" \"C:/Users/USER/Desktop/PROYECTOS/GVR/pdf-to-cad/8-4-25_Parte3.dxf\")",
+      "Bash(PYTHONIOENCODING=utf-8 python -c ' *)",
+      "Bash(python -c \"import fitz, ezdxf, shapely; print\\('fitz', fitz.__doc__.split\\(chr\\(10\\)\\)[0] if fitz.__doc__ else 'ok'\\); print\\('ezdxf', ezdxf.__version__\\)\")",
+      "Bash(python digitize_universal.py \"C:\\\\Users\\\\Deyvy\\\\Downloads\\\\8-4-25_Parte3.pdf\" \"C:\\\\Users\\\\Deyvy\\\\Downloads\\\\8-4-25_Parte3.dxf\")",
+      "Bash(ls -la \"C:\\\\Users\\\\Deyvy\\\\Downloads\\\\8-4-25_Parte3.dxf\" 2>/dev/null; echo \"---output dirs---\"; ls -d \"D:\\\\GVR\\\\Proyectos_DEV\\\\EEUU\\\\pdf-to-cad\\\\output\" 2>/dev/null; ls \"D:\\\\GVR\\\\Proyectos_DEV\\\\EEUU\\\\pdf-to-cad\" 2>/dev/null)",
+      "Bash(python digitize_universal.py \"C:\\\\Users\\\\Deyvy\\\\Downloads\\\\8-4-25_Parte3.pdf\" \"D:\\\\GVR\\\\Proyectos_DEV\\\\EEUU\\\\pdf-to-cad\\\\output\\\\8-4-25_Parte3.dxf\")",
+      "Bash(python digitize.py \"C:\\\\Users\\\\Deyvy\\\\Downloads\\\\8-4-25_Parte3.pdf\" \"D:\\\\GVR\\\\Proyectos_DEV\\\\EEUU\\\\pdf-to-cad\\\\output\\\\8-4-25_Parte3.dxf\")",
+      "Bash(python digitize.py \"C:\\\\Users\\\\Deyvy\\\\Downloads\\\\8-4-25_Parte3.pdf\" \"D:\\\\GVR\\\\Proyectos_DEV\\\\EEUU\\\\pdf-to-cad\\\\output\\\\8-4-25_Parte3_proyecto.dxf\")",
+      "Bash(python digitize.py \"C:\\\\Users\\\\Deyvy\\\\Downloads\\\\8-4-25_Parte3.pdf\" \"D:\\\\GVR\\\\Proyectos_DEV\\\\EEUU\\\\pdf-to-cad\\\\output\\\\8-4-25_Parte3_sin_utilidades.dxf\")",
+      "Bash(python -c \"import cv2; print\\('cv2', cv2.__version__\\)\")",
+      "Bash(python -c \"import pytesseract, shutil; print\\('tesseract bin:', shutil.which\\('tesseract'\\)\\)\")",
+      "Bash(python digitize.py \"C:\\\\Users\\\\Deyvy\\\\Downloads\\\\la000828537.pdf\" \"D:\\\\GVR\\\\Proyectos_DEV\\\\EEUU\\\\pdf-to-cad\\\\output\\\\la000828537.dxf\")",
+      "PowerShell(scoop install tesseract 2>&1)",
+      "PowerShell($env:Path = [System.Environment]::GetEnvironmentVariable\\(\"Path\",\"User\"\\) + \";\" + [System.Environment]::GetEnvironmentVariable\\(\"Path\",\"Machine\"\\); \\(Get-Command tesseract\\).Source; tesseract --version 2>&1 | Select-Object -First 2)",
+      "PowerShell($td = \"$env:USERPROFILE\\\\scoop\\\\apps\\\\tesseract\\\\current\\\\tessdata\"; Write-Output \"TESSDATA: $td\"; Get-ChildItem $td -ErrorAction SilentlyContinue | Select-Object Name; Write-Output \"--- persisted ---\"; Get-ChildItem \"$env:USERPROFILE\\\\scoop\\\\persist\\\\tesseract\\\\tessdata\" -ErrorAction SilentlyContinue | Select-Object Name)",
+      "PowerShell($td = \"$env:USERPROFILE\\\\scoop\\\\apps\\\\tesseract\\\\current\\\\tessdata\"; $url=\"https://github.com/tesseract-ocr/tessdata_fast/raw/main/eng.traineddata\"; Invoke-WebRequest -Uri $url -OutFile \"$td\\\\eng.traineddata\"; Get-Item \"$td\\\\eng.traineddata\" | Select-Object Name,Length)",
+      "Bash(python -c \"import matplotlib; print\\('matplotlib', matplotlib.__version__\\)\")",
+      "Bash(rm -f scratch_marks_xfile.py)",
+      "Bash(PYTHONUTF8=1 python -c ' *)",
+      "PowerShell(winget search --id ODA.ODAFileConverter --accept-source-agreements 2>$null)",
+      "PowerShell(choco search libredwg 2>$null)",
+      "PowerShell(choco search oda-file-converter 2>$null)",
+      "PowerShell(scoop search oda 2>&1)",
+      "PowerShell(winget install --id ODA.ODAFileConverter -e --accept-package-agreements --accept-source-agreements --silent 2>&1)",
+      "PowerShell($in = \"$env:TEMP\\\\dwgin\"; $out = \"$env:TEMP\\\\dwgout\"; New-Item -ItemType Directory -Force $in,$out | Out-Null; Copy-Item \"C:\\\\Users\\\\Deyvy\\\\Downloads\\\\PUNTOS A PROBAR.dwg\" $in -Force; $exe = \"C:\\\\Program Files\\\\ODA\\\\ODAFileConverter 27.1.0\\\\ODAFileConverter.exe\"; & $exe $in $out \"ACAD2018\" \"DXF\" \"0\" \"1\" 2>$null; Start-Sleep -Seconds 3; Get-ChildItem $out)",
+      "Bash(sed -i 's/ensure_layer\\(dxf, \"TEXTO\"\\)/ensure_layer\\(dxf, \"ANOTACION\"\\)/; s/\"layer\": \"TEXTO\", \"style\": \"CAD_TEXT\", \"rotation\": rot/\"layer\": \"ANOTACION\", \"style\": \"CAD_TEXT\", \"rotation\": rot/' callout_ocr.py)",
+      "Bash(sed -i 's/ensure_layer\\(dxf, \"TEXTO\"\\)/ensure_layer\\(dxf, \"ANOTACION\"\\)/; s/\"layer\": \"TEXTO\", \"style\": \"CAD_TEXT\",/\"layer\": \"ANOTACION\", \"style\": \"CAD_TEXT\",/; s/te.dxf.layer != \"TEXTO\"/te.dxf.layer != \"ANOTACION\"/' vector_pipeline.py)"
+    ]
+  }
+}

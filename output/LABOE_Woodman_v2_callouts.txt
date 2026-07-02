@@ -1,0 +1,123 @@
+==============================================================================
+REPORTE DE NOMENCLATURA DE CALLOUTS
+==============================================================================
+PDF origen      : LABOE subs177-157-3 Woodman.pdf
+Escala          : 1" = 20'
+Callouts leídos : 457
+Con nomenclatura: 16
+
+Campos detectados por callout: ✓ = presente
+------------------------------------------------------------------------------
+  #   Diám Mat Dueño Dist Estac Elem  Texto
+------------------------------------------------------------------------------
+  1      ·   ·     ✓    ·     ·    ·  CITY OF LOS ANGELES
+  2      ·   ✓     ·    ·     ·    ✓  Sewer 8° VCP
+  3      ·   ·     ·    ·     ·    ✓  Sewer 8 WP
+  4      ✓   ·     ·    ·     ·    ·  ewer 8" CP
+  5      ·   ·     ✓    ·     ·    ·  SCG
+  6      ·   ·     ✓    ·     ·    ·  SCG 2°S1/ Wo
+  7      ✓   ✓     ·    ·     ·    ✓  Sewer 30" VCP
+  8      ·   ✓     ·    ·     ·    ✓  Sewer 8°VCP
+  9      ✓   ·     ·    ·     ·    ·  30" 30°
+ 10      ·   ·     ✓    ·     ·    ·  SCG
+ 11      ✓   ✓     ·    ·     ·    ·  $e er 2&7" VCP D&idd
+ 12      ·   ✓     ·    ·     ·    ·  CMP P17FEZ
+ 13      ·   ·     ✓    ·     ·    ·  SCG
+ 14      ·   ✓     ·    ·     ·    ✓  Sewer § VCP DPHIES
+ 15      ·   ✓     ·    ·     ·    ·  8°VCP 8282
+ 16      ·   ·     ✓    ·     ·    ·  DWP WS
+
+==============================================================================
+DETALLE POR CALLOUT
+==============================================================================
+
+[1] "CITY OF LOS ANGELES"
+     Ubicación CAD : (904.2, 71.8) ft
+     Dueño        : Ciudad de Los Ángeles
+
+[2] "Sewer 8° VCP"
+     Ubicación CAD : (112.7, 102.7) ft
+     Material     : Arcilla vitrificada (VCP)
+     Elemento     : Alcantarillado
+
+[3] "Sewer 8 WP"
+     Ubicación CAD : (238.9, 546.4) ft
+     Elemento     : Alcantarillado
+
+[4] "ewer 8" CP"
+     Ubicación CAD : (361.4, 655.6) ft
+     Diámetro     : 8"
+
+[5] "SCG"
+     Ubicación CAD : (787.7, 221.7) ft
+     Dueño        : SoCal Gas
+
+[6] "SCG 2°S1/ Wo"
+     Ubicación CAD : (97.7, 57.8) ft
+     Dueño        : SoCal Gas
+
+[7] "Sewer 30" VCP"
+     Ubicación CAD : (237.1, 309.9) ft
+     Diámetro     : 30"
+     Material     : Arcilla vitrificada (VCP)
+     Elemento     : Alcantarillado
+
+[8] "Sewer 8°VCP"
+     Ubicación CAD : (95.3, 589.4) ft
+     Material     : Arcilla vitrificada (VCP)
+     Elemento     : Alcantarillado
+
+[9] "30" 30°"
+     Ubicación CAD : (336.4, 674.4) ft
+     Diámetro     : 30"
+
+[10] "SCG"
+     Ubicación CAD : (230.8, 115.2) ft
+     Dueño        : SoCal Gas
+
+[11] "$e er 2&7" VCP D&idd"
+     Ubicación CAD : (243.4, 523.8) ft
+     Diámetro     : 7"
+     Material     : Arcilla vitrificada (VCP)
+
+[12] "CMP P17FEZ"
+     Ubicación CAD : (153.2, 524.4) ft
+     Material     : Metal corrugado (CMP)
+
+[13] "SCG"
+     Ubicación CAD : (795.9, 385.3) ft
+     Dueño        : SoCal Gas
+
+[14] "Sewer § VCP DPHIES"
+     Ubicación CAD : (787.4, 164.7) ft
+     Material     : Arcilla vitrificada (VCP)
+     Elemento     : Alcantarillado
+
+[15] "8°VCP 8282"
+     Ubicación CAD : (525.0, 504.2) ft
+     Material     : Arcilla vitrificada (VCP)
+
+[16] "DWP WS"
+     Ubicación CAD : (680.1, 503.1) ft
+     Dueño        : LADWP
+
+==============================================================================
+RESUMEN
+==============================================================================
+
+Diámetros:
+     2 × 30"
+     1 × 8"
+     1 × 7"
+
+Materiales:
+     6 × Arcilla vitrificada (VCP)
+     1 × Metal corrugado (CMP)
+
+Dueños / utilidades:
+     4 × SoCal Gas
+     1 × Ciudad de Los Ángeles
+     1 × LADWP
+
+Elementos:
+     5 × Alcantarillado

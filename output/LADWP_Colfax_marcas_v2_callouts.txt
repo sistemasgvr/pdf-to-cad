@@ -1,0 +1,662 @@
+==============================================================================
+REPORTE DE NOMENCLATURA DE CALLOUTS
+==============================================================================
+PDF origen      : LADWP Water Colfax - Hollywood Park MTA as built_04_13_2018 (1) (1).pdf
+Escala          : 1" = 20'
+Callouts leídos : 259
+Con nomenclatura: 107
+
+Campos detectados por callout: ✓ = presente
+------------------------------------------------------------------------------
+  #   Diám Mat Dueño Dist Estac Elem  Texto
+------------------------------------------------------------------------------
+  1      ·   ·     ·    ·     ·    ✓  CURB
+  2      ·   ·     ·    ·     ·    ✓  CURB
+  3      ·   ·     ·    ·     ·    ✓  GAS
+  4      ·   ·     ·    ·     ·    ✓  DEPARTMENT OF WATER AND POWER
+  5      ✓   ✓     ·    ·     ·    ·  24" HDPE SD
+  6      ✓   ·     ·    ·     ·    ✓  12" SEWER
+  7      ✓   ·     ·    ·     ·    ·  18" COMM DUCT
+  8      ✓   ·     ·    ·     ·    ✓  8" SEWER
+  9      ✓   ✓     ·    ·     ·    ·  24" HDPE SD
+ 10      ·   ·     ·    ·     ·    ✓  FH 63114
+ 11      ✓   ✓     ·    ·     ·    ·  24" HDPE SD
+ 12      ·   ·     ·    ·     ·    ✓  N. HOLLYWOOD RECYCLE WATER
+ 13      ✓   ·     ·    ·     ·    ·  18" COMM
+ 14      ·   ·     ✓    ·     ·    ·  CITY OF LOS ANGELES
+ 15      ✓   ·     ·    ·     ·    ·  INSTALL 6"
+ 16      ✓   ·     ·    ·     ·    ·  INSTALL 6"
+ 17      ✓   ·     ·    ·     ·    ✓  IN 16" CSG
+ 18      ·   ·     ·    ·     ·    ✓  FH 52150
+ 19      ·   ·     ·    ·     ·    ✓  WATER DISTRIBUTION BUSINESS UNIT
+ 20      ✓   ·     ·    ·     ·    ✓  645 4" GAS IN 6" CSG
+ 21      ✓   ✓     ·    ·     ·    ✓  8" STL RECYCLED WATER PIPE
+ 22      ·   ·     ·    ·     ·    ✓  45° BEND HORZ
+ 23      ✓   ·     ·    ·     ·    ·  INSTALL 8"
+ 24      ·   ·     ·    ✓     ·    ·  18' E/O CL COLFAX AVE
+ 25      ✓   ·     ✓    ✓     ·    ·  12" DWPWS 23' W OF CL
+ 26      ·   ·     ·    ·     ·    ✓  45° BEND HORZ
+ 27      ·   ·     ✓    ·     ·    ·  BANK MTA DBC5002
+ 28      ·   ·     ·    ·     ·    ✓  45° BEND HORZ
+ 29      ✓   ·     ✓    ✓     ·    ·  8" SCG 22' E OF CL
+ 30      ✓   ·     ✓    ✓     ·    ·  8" SCG 19' N OF CL
+ 31      ·   ·     ·    ·     ✓    ·  STA 148+71
+ 32      ·   ·     ·    ·     ·    ✓  FH 52151
+ 33      ✓   ✓     ·    ·     ·    ·  INSTALL 8" RW DI. PIPE
+ 34      ✓   ·     ·    ·     ·    ✓  8" MECH CPLG
+ 35      ✓   ·     ✓    ·     ✓    ·  6" DWPWS 148+07
+ 36      ✓   ✓     ·    ·     ·    ·  16" STL
+ 37      ✓   ✓     ·    ·     ·    ✓  INSTALL 8" STL WATER
+ 38      ·   ·     ·    ✓     ·    ·  14' E/O CL COLFAX AVE
+ 39      ✓   ·     ·    ·     ·    ✓  8" 45° BEND HORZ)
+ 40      ·   ✓     ·    ·     ·    ·  REPLACE CONC
+ 41      ·   ·     ✓    ·     ·    ·  WITHIN MTA R/W
+ 42      ·   ·     ·    ·     ·    ✓  45 BEND
+ 43      ·   ·     ·    ·     ✓    ·  148+71
+ 44      ·   ·     ✓    ·     ·    ·  MTA BIC6029
+ 45      ✓   ·     ·    ·     ·    ✓  12" SEWER VARIES
+ 46      ✓   ·     ·    ·     ·    ✓  8" 45° BEND HORZ
+ 47      ✓   ·     ✓    ✓     ·    ·  4" SCG 22' E OF C/L (ABAND)
+ 48      ·   ·     ·    ·     ·    ✓  45° BEND HORIZ
+ 49      ·   ·     ·    ·     ·    ✓  6 GV
+ 50      ·   ·     ·    ·     ·    ✓  12' CURB
+ 51      ·   ·     ·    ✓     ·    ·  AT 14' E/O CL
+ 52      ·   ·     ·    ·     ·    ✓  CASING SECT.
+ 53      ·   ·     ·    ·     ·    ✓  12° CURB
+ 54      ·   ✓     ·    ·     ·    ·  RW DI. PIPE
+ 55      ✓   ·     ·    ·     ·    ✓  6" GV
+ 56      ·   ·     ✓    ·     ·    ·  MTA DBC1061 & DBC5002
+ 57      ·   ·     ·    ·     ·    ✓  CASING SECT.
+ 58      ·   ·     ✓    ·     ·    ·  BRT C/L
+ 59      ·   ·     ·    ·     ✓    ·  148+69
+ 60      ·   ·     ·    ·     ✓    ·  148+00
+ 61      ✓   ✓     ·    ·     ·    ✓  8" D.I. IN 16" STL CASING
+ 62      ✓   ·     ·    ·     ·    ✓  8" MECH CPLG 48'P
+ 63      ·   ·     ·    ·     ·    ✓  12' CURB
+ 64      ✓   ·     ✓    ✓     ·    ·  12" DWPWS 23' W OF CL
+ 65      ✓   ✓     ·    ·     ·    ·  8" R.W STL PIPE
+ 66      ·   ·     ·    ·     ·    ✓  12' CURB
+ 67      ·   ·     ·    ·     ✓    ·  148+67
+ 68      ·   ✓     ·    ·     ·    ·  RW DI. PIPE
+ 69      ✓   ·     ·    ·     ·    ✓  6" WATER IN 6 §
+ 70      ✓   ·     ·    ·     ·    ✓  8" MECH CPLG 68'P
+ 71      ·   ·     ·    ·     ·    ✓  12° CURB
+ 72      ✓   ·     ·    ·     ·    ✓  8" MECH CPLG 48'P
+ 73      ·   ·     ·    ·     ·    ✓  12° CURB
+ 74      ✓   ✓     ·    ·     ·    ·  6" RW DI. PIPE
+ 75      ✓   ·     ✓    ✓     ·    ·  4" SCG 34' E OF C/L
+ 76      ✓   ·     ✓    ✓     ·    ·  8" DWPWS 9' N OF C/L
+ 77      ✓   ✓     ·    ·     ·    ·  8" RW DI. PIPE
+ 78      ✓   ✓     ·    ·     ·    ·  INSTALL 6" RW DI. PIPE
+ 79      ✓   ·     ·    ·     ·    ·  INSTALL 6" RW D./. PIPE
+ 80      ✓   ·     ✓    ✓     ·    ·  2" SCG 22' N OF CAL
+ 81      ✓   ·     ✓    ✓     ·    ·  3" SCG 15' N OF C/A. (ABAND)
+ 82      ·   ·     ·    ·     ·    ✓  CASING: L=60, 9=16"
+ 83      ✓   ·     ✓    ·     ·    ·  8" SCG 19° N OF CAL
+ 84      ·   ·     ✓    ·     ·    ·  BRT C/A.
+ 85      ·   ·     ·    ✓     ·    ✓  SEWER 14' W OF C/A
+ 86      ·   ✓     ·    ·     ·    ·  RW DI PIPE
+ 87      ·   ·     ·    ·     ✓    ·  148+71
+ 88      ·   ✓     ·    ·     ·    ·  CONC ENCASED
+ 89      ✓   ·     ·    ✓     ·    ✓  8 6" REDUCER-44'E OF C/A.
+ 90      ·   ·     ·    ·     ·    ✓  TRAFFIC SIGNAL
+ 91      ·   ·     ·    ✓     ·    ·  51' E/O CL
+ 92      ✓   ✓     ·    ·     ·    ✓  16% STL CASING 8" DI 68"P
+ 93      ·   ✓     ·    ·     ·    ·  RW DI. PIPE
+ 94      ✓   ·     ·    ·     ·    ·  SCALE 7 "=40° HORIZONTAL
+ 95      ·   ·     ·    ·     ·    ✓  TRAFFIC SIGNAL
+ 96      ✓   ·     ·    ·     ·    ✓  8" CSG(ABND)
+ 97      ✓   ·     ✓    ·     ·    ·  12" DWPWS 18° W OF CL
+ 98      ✓   ·     ·    ·     ·    ✓  8"x " TEE
+ 99      ·   ·     ·    ·     ·    ✓  6°GV
+100      ·   ·     ·    ✓     ·    ·  51' E OF CA
+101      ✓   ·     ·    ·     ·    ✓  8°x6"" REDUCER
+102      ✓   ✓     ·    ·     ·    ·  ING 8" DI 50'P
+103      ✓   ·     ·    ·     ·    ·  29" 0 CL
+104      ·   ·     ·    ·     ·    ✓  CASING L=60, #=16"
+105      ·   ·     ✓    ·     ·    ·  MTA STA.
+106      ·   ·     ·    ·     ✓    ·  147+59
+107      ✓   ·     ·    ·     ·    ·  8°x6" TE
+
+==============================================================================
+DETALLE POR CALLOUT
+==============================================================================
+
+[1] "CURB"
+     Ubicación CAD : (256.6, 170.0) ft
+     Elemento     : Bordillo
+
+[2] "CURB"
+     Ubicación CAD : (256.6, 155.2) ft
+     Elemento     : Bordillo
+
+[3] "GAS"
+     Ubicación CAD : (360.8, 49.0) ft
+     Elemento     : Gas
+
+[4] "DEPARTMENT OF WATER AND POWER"
+     Ubicación CAD : (401.1, 59.7) ft
+     Elemento     : Agua
+
+[5] "24" HDPE SD"
+     Ubicación CAD : (237.5, 47.1) ft
+     Diámetro     : 24"
+     Material     : HDPE
+
+[6] "12" SEWER"
+     Ubicación CAD : (326.3, 232.2) ft
+     Diámetro     : 12"
+     Elemento     : Alcantarillado
+
+[7] "18" COMM DUCT"
+     Ubicación CAD : (227.2, 89.8) ft
+     Diámetro     : 18"
+
+[8] "8" SEWER"
+     Ubicación CAD : (80.2, 238.5) ft
+     Diámetro     : 8"
+     Elemento     : Alcantarillado
+
+[9] "24" HDPE SD"
+     Ubicación CAD : (398.0, 231.5) ft
+     Diámetro     : 24"
+     Material     : HDPE
+
+[10] "FH 63114"
+     Ubicación CAD : (275.5, 218.2) ft
+     Elemento     : Hidrante
+
+[11] "24" HDPE SD"
+     Ubicación CAD : (202.4, 170.7) ft
+     Diámetro     : 24"
+     Material     : HDPE
+
+[12] "N. HOLLYWOOD RECYCLE WATER"
+     Ubicación CAD : (394.2, 45.5) ft
+     Elemento     : Agua
+
+[13] "18" COMM"
+     Ubicación CAD : (202.6, 154.4) ft
+     Diámetro     : 18"
+
+[14] "CITY OF LOS ANGELES"
+     Ubicación CAD : (401.2, 61.4) ft
+     Dueño        : Ciudad de Los Ángeles
+
+[15] "INSTALL 6""
+     Ubicación CAD : (79.6, 258.3) ft
+     Diámetro     : 6"
+
+[16] "INSTALL 6""
+     Ubicación CAD : (236.5, 258.2) ft
+     Diámetro     : 6"
+
+[17] "IN 16" CSG"
+     Ubicación CAD : (403.4, 246.5) ft
+     Diámetro     : 16"
+     Elemento     : Encamisado / Casing
+
+[18] "FH 52150"
+     Ubicación CAD : (85.1, 116.9) ft
+     Elemento     : Hidrante
+
+[19] "WATER DISTRIBUTION BUSINESS UNIT"
+     Ubicación CAD : (401.1, 55.8) ft
+     Elemento     : Agua
+
+[20] "645 4" GAS IN 6" CSG"
+     Ubicación CAD : (403.8, 254.6) ft
+     Diámetro     : 4"
+     Elemento     : Encamisado / Casing; Gas
+
+[21] "8" STL RECYCLED WATER PIPE"
+     Ubicación CAD : (204.1, 44.0) ft
+     Diámetro     : 8"
+     Material     : Acero (STL)
+     Elemento     : Agua
+
+[22] "45° BEND HORZ"
+     Ubicación CAD : (163.8, 92.0) ft
+     Elemento     : Codo
+
+[23] "INSTALL 8""
+     Ubicación CAD : (172.5, 275.7) ft
+     Diámetro     : 8"
+
+[24] "18' E/O CL COLFAX AVE"
+     Ubicación CAD : (181.8, 243.4) ft
+     Distancia    : 18' E de CL
+
+[25] "12" DWPWS 23' W OF CL"
+     Ubicación CAD : (78.6, 278.3) ft
+     Diámetro     : 12"
+     Dueño        : LADWP (agua)
+     Distancia    : 23' W de CL
+
+[26] "45° BEND HORZ"
+     Ubicación CAD : (185.9, 250.9) ft
+     Elemento     : Codo
+
+[27] "BANK MTA DBC5002"
+     Ubicación CAD : (228.6, 87.5) ft
+     Dueño        : MTA
+
+[28] "45° BEND HORZ"
+     Ubicación CAD : (185.9, 245.8) ft
+     Elemento     : Codo
+
+[29] "8" SCG 22' E OF CL"
+     Ubicación CAD : (188.2, 280.0) ft
+     Diámetro     : 8"
+     Dueño        : SoCal Gas
+     Distancia    : 22' E de CL
+
+[30] "8" SCG 19' N OF CL"
+     Ubicación CAD : (230.0, 93.5) ft
+     Diámetro     : 8"
+     Dueño        : SoCal Gas
+     Distancia    : 19' N de CL
+
+[31] "STA 148+71"
+     Ubicación CAD : (364.9, 223.1) ft
+     Estación     : 148+71
+
+[32] "FH 52151"
+     Ubicación CAD : (89.8, 209.1) ft
+     Elemento     : Hidrante
+
+[33] "INSTALL 8" RW DI. PIPE"
+     Ubicación CAD : (86.6, 91.7) ft
+     Diámetro     : 8"
+     Material     : Hierro dúctil (DI)
+
+[34] "8" MECH CPLG"
+     Ubicación CAD : (174.1, 219.4) ft
+     Diámetro     : 8"
+     Elemento     : Acople mecánico
+
+[35] "6" DWPWS 148+07"
+     Ubicación CAD : (250.3, 103.4) ft
+     Diámetro     : 6"
+     Dueño        : LADWP (agua)
+     Estación     : 148+07
+
+[36] "16" STL"
+     Ubicación CAD : (153.1, 178.0) ft
+     Diámetro     : 16"
+     Material     : Acero (STL)
+
+[37] "INSTALL 8" STL WATER"
+     Ubicación CAD : (407.6, 249.8) ft
+     Diámetro     : 8"
+     Material     : Acero (STL)
+     Elemento     : Agua
+
+[38] "14' E/O CL COLFAX AVE"
+     Ubicación CAD : (181.8, 248.5) ft
+     Distancia    : 14' E de CL
+
+[39] "8" 45° BEND HORZ)"
+     Ubicación CAD : (74.5, 226.8) ft
+     Diámetro     : 8"
+     Elemento     : Codo
+
+[40] "REPLACE CONC"
+     Ubicación CAD : (325.8, 114.1) ft
+     Material     : Concreto
+
+[41] "WITHIN MTA R/W"
+     Ubicación CAD : (392.4, 32.9) ft
+     Dueño        : MTA
+
+[42] "45 BEND"
+     Ubicación CAD : (108.3, 273.1) ft
+     Codo         : 45°
+     Elemento     : Codo
+
+[43] "148+71"
+     Ubicación CAD : (366.8, 271.2) ft
+     Estación     : 148+71
+
+[44] "MTA BIC6029"
+     Ubicación CAD : (237.1, 43.8) ft
+     Dueño        : MTA
+
+[45] "12" SEWER VARIES"
+     Ubicación CAD : (84.8, 99.3) ft
+     Diámetro     : 12"
+     Elemento     : Alcantarillado
+
+[46] "8" 45° BEND HORZ"
+     Ubicación CAD : (74.6, 219.0) ft
+     Diámetro     : 8"
+     Elemento     : Codo
+
+[47] "4" SCG 22' E OF C/L (ABAND)"
+     Ubicación CAD : (187.9, 228.8) ft
+     Diámetro     : 4"
+     Dueño        : SoCal Gas
+     Distancia    : 22' E de CL
+     Estado       : Abandonado
+
+[48] "45° BEND HORIZ"
+     Ubicación CAD : (165.3, 98.3) ft
+     Elemento     : Codo
+
+[49] "6 GV"
+     Ubicación CAD : (95.8, 155.5) ft
+     Elemento     : Válvula de compuerta
+
+[50] "12' CURB"
+     Ubicación CAD : (149.7, 79.2) ft
+     Elemento     : Bordillo
+
+[51] "AT 14' E/O CL"
+     Ubicación CAD : (260.0, 31.9) ft
+     Distancia    : 14' E de CL
+
+[52] "CASING SECT."
+     Ubicación CAD : (193.1, 62.4) ft
+     Elemento     : Encamisado / Casing
+
+[53] "12° CURB"
+     Ubicación CAD : (103.7, 218.3) ft
+     Elemento     : Bordillo
+
+[54] "RW DI. PIPE"
+     Ubicación CAD : (238.0, 255.2) ft
+     Material     : Hierro dúctil (DI)
+
+[55] "6" GV"
+     Ubicación CAD : (177.4, 213.8) ft
+     Diámetro     : 6"
+     Elemento     : Válvula de compuerta
+
+[56] "MTA DBC1061 & DBC5002"
+     Ubicación CAD : (213.8, 151.6) ft
+     Dueño        : MTA
+
+[57] "CASING SECT."
+     Ubicación CAD : (395.2, 182.4) ft
+     Elemento     : Encamisado / Casing
+
+[58] "BRT C/L"
+     Ubicación CAD : (281.0, 168.3) ft
+     Dueño        : BRT / Metro
+
+[59] "148+69"
+     Ubicación CAD : (153.4, 111.6) ft
+     Estación     : 148+69
+
+[60] "148+00"
+     Ubicación CAD : (267.4, 51.8) ft
+     Estación     : 148+00
+
+[61] "8" D.I. IN 16" STL CASING"
+     Ubicación CAD : (394.0, 36.9) ft
+     Diámetro     : 8"
+     Material     : Acero (STL)
+     Elemento     : Encamisado / Casing
+
+[62] "8" MECH CPLG 48'P"
+     Ubicación CAD : (163.7, 114.8) ft
+     Diámetro     : 8"
+     Elemento     : Acople mecánico
+
+[63] "12' CURB"
+     Ubicación CAD : (201.7, 206.9) ft
+     Elemento     : Bordillo
+
+[64] "12" DWPWS 23' W OF CL"
+     Ubicación CAD : (82.1, 105.0) ft
+     Diámetro     : 12"
+     Dueño        : LADWP (agua)
+     Distancia    : 23' W de CL
+
+[65] "8" R.W STL PIPE"
+     Ubicación CAD : (400.4, 173.1) ft
+     Diámetro     : 8"
+     Material     : Acero (STL)
+
+[66] "12' CURB"
+     Ubicación CAD : (67.6, 207.6) ft
+     Elemento     : Bordillo
+
+[67] "148+67"
+     Ubicación CAD : (222.1, 84.9) ft
+     Estación     : 148+67
+
+[68] "RW DI. PIPE"
+     Ubicación CAD : (81.1, 255.3) ft
+     Material     : Hierro dúctil (DI)
+
+[69] "6" WATER IN 6 §"
+     Ubicación CAD : (330.9, 255.1) ft
+     Diámetro     : 6"
+     Elemento     : Agua
+
+[70] "8" MECH CPLG 68'P"
+     Ubicación CAD : (163.6, 143.7) ft
+     Diámetro     : 8"
+     Elemento     : Acople mecánico
+
+[71] "12° CURB"
+     Ubicación CAD : (78.1, 123.2) ft
+     Elemento     : Bordillo
+
+[72] "8" MECH CPLG 48'P"
+     Ubicación CAD : (163.7, 108.1) ft
+     Diámetro     : 8"
+     Elemento     : Acople mecánico
+
+[73] "12° CURB"
+     Ubicación CAD : (105.2, 82.3) ft
+     Elemento     : Bordillo
+
+[74] "6" RW DI. PIPE"
+     Ubicación CAD : (314.4, 108.5) ft
+     Diámetro     : 6"
+     Material     : Hierro dúctil (DI)
+
+[75] "4" SCG 34' E OF C/L"
+     Ubicación CAD : (179.5, 223.0) ft
+     Diámetro     : 4"
+     Dueño        : SoCal Gas
+     Distancia    : 34' E de CL
+
+[76] "8" DWPWS 9' N OF C/L"
+     Ubicación CAD : (249.5, 229.7) ft
+     Diámetro     : 8"
+     Dueño        : LADWP (agua)
+     Distancia    : 9' N de CL
+
+[77] "8" RW DI. PIPE"
+     Ubicación CAD : (392.0, 82.5) ft
+     Diámetro     : 8"
+     Material     : Hierro dúctil (DI)
+
+[78] "INSTALL 6" RW DI. PIPE"
+     Ubicación CAD : (58.7, 101.4) ft
+     Diámetro     : 6"
+     Material     : Hierro dúctil (DI)
+
+[79] "INSTALL 6" RW D./. PIPE"
+     Ubicación CAD : (245.4, 229.2) ft
+     Diámetro     : 6"
+
+[80] "2" SCG 22' N OF CAL"
+     Ubicación CAD : (254.6, 228.6) ft
+     Diámetro     : 2"
+     Dueño        : SoCal Gas
+     Distancia    : 22' N de CL
+
+[81] "3" SCG 15' N OF C/A. (ABAND)"
+     Ubicación CAD : (259.4, 234.7) ft
+     Diámetro     : 3"
+     Dueño        : SoCal Gas
+     Distancia    : 15' N de CL
+     Estado       : Abandonado
+
+[82] "CASING: L=60, 9=16""
+     Ubicación CAD : (403.8, 169.7) ft
+     Elemento     : Encamisado / Casing
+
+[83] "8" SCG 19° N OF CAL"
+     Ubicación CAD : (52.8, 101.5) ft
+     Diámetro     : 8"
+     Dueño        : SoCal Gas
+
+[84] "BRT C/A."
+     Ubicación CAD : (338.2, 268.8) ft
+     Dueño        : BRT / Metro
+
+[85] "SEWER 14' W OF C/A"
+     Ubicación CAD : (75.6, 193.4) ft
+     Distancia    : 14' W de CL
+     Elemento     : Alcantarillado
+
+[86] "RW DI PIPE"
+     Ubicación CAD : (296.6, 61.1) ft
+     Material     : Hierro dúctil (DI)
+
+[87] "148+71"
+     Ubicación CAD : (234.3, 41.0) ft
+     Estación     : 148+71
+
+[88] "CONC ENCASED"
+     Ubicación CAD : (328.8, 228.4) ft
+     Material     : Concreto
+
+[89] "8 6" REDUCER-44'E OF C/A."
+     Ubicación CAD : (176.2, 182.3) ft
+     Diámetro     : 6"
+     Distancia    : 44' E de CL
+     Elemento     : Reductor
+
+[90] "TRAFFIC SIGNAL"
+     Ubicación CAD : (89.0, 109.9) ft
+     Elemento     : Señal de tráfico
+
+[91] "51' E/O CL"
+     Ubicación CAD : (235.3, 273.5) ft
+     Distancia    : 51' E de CL
+
+[92] "16% STL CASING 8" DI 68"P"
+     Ubicación CAD : (165.7, 156.2) ft
+     Diámetro     : 8"
+     Material     : Hierro dúctil (DI)
+     Elemento     : Encamisado / Casing
+
+[93] "RW DI. PIPE"
+     Ubicación CAD : (173.9, 272.6) ft
+     Material     : Hierro dúctil (DI)
+
+[94] "SCALE 7 "=40° HORIZONTAL"
+     Ubicación CAD : (189.6, 234.5) ft
+     Diámetro     : 7"
+
+[95] "TRAFFIC SIGNAL"
+     Ubicación CAD : (183.0, 208.2) ft
+     Elemento     : Señal de tráfico
+
+[96] "8" CSG(ABND)"
+     Ubicación CAD : (327.5, 251.1) ft
+     Diámetro     : 8"
+     Elemento     : Encamisado / Casing
+     Estado       : Abandonado
+
+[97] "12" DWPWS 18° W OF CL"
+     Ubicación CAD : (81.3, 82.4) ft
+     Diámetro     : 12"
+     Dueño        : LADWP (agua)
+
+[98] "8"x " TEE"
+     Ubicación CAD : (140.8, 272.9) ft
+     Diámetro     : 8"
+     Elemento     : Tee
+
+[99] "6°GV"
+     Ubicación CAD : (231.3, 276.1) ft
+     Elemento     : Válvula de compuerta
+
+[100] "51' E OF CA"
+     Ubicación CAD : (180.4, 211.0) ft
+     Distancia    : 51' E de CL
+
+[101] "8°x6"" REDUCER"
+     Ubicación CAD : (230.8, 251.4) ft
+     Diámetro     : 6"
+     Elemento     : Reductor
+
+[102] "ING 8" DI 50'P"
+     Ubicación CAD : (172.9, 178.6) ft
+     Diámetro     : 8"
+     Material     : Hierro dúctil (DI)
+
+[103] "29" 0 CL"
+     Ubicación CAD : (112.2, 246.8) ft
+     Diámetro     : 29"
+
+[104] "CASING L=60, #=16""
+     Ubicación CAD : (199.4, 40.8) ft
+     Elemento     : Encamisado / Casing
+
+[105] "MTA STA."
+     Ubicación CAD : (322.3, 218.1) ft
+     Dueño        : MTA
+
+[106] "147+59"
+     Ubicación CAD : (158.6, 95.2) ft
+     Estación     : 147+59
+
+[107] "8°x6" TE"
+     Ubicación CAD : (240.6, 59.4) ft
+     Diámetro     : 6"
+
+==============================================================================
+RESUMEN
+==============================================================================
+
+Diámetros:
+    22 × 8"
+    11 × 6"
+     5 × 12"
+     3 × 24"
+     3 × 4"
+     2 × 18"
+     2 × 16"
+     1 × 2"
+     1 × 3"
+     1 × 7"
+     1 × 29"
+
+Materiales:
+    10 × Hierro dúctil (DI)
+     5 × Acero (STL)
+     3 × HDPE
+     2 × Concreto
+
+Dueños / utilidades:
+     7 × SoCal Gas
+     5 × LADWP (agua)
+     5 × MTA
+     2 × BRT / Metro
+     1 × Ciudad de Los Ángeles
+
+Elementos:
+     8 × Bordillo
+     8 × Encamisado / Casing
+     7 × Codo
+     6 × Agua
+     4 × Alcantarillado
+     4 × Acople mecánico
+     3 × Hidrante
+     3 × Válvula de compuerta
+     2 × Reductor
+     2 × Señal de tráfico
+     1 × Gas
+     1 × Encamisado / Casing; Gas
+     1 × Tee
+
+Estaciones referenciadas:
+   147+59, 148+00, 148+07, 148+67, 148+69, 148+71

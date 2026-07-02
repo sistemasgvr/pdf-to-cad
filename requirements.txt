@@ -1,0 +1,13 @@
+# Núcleo (siempre necesario)
+pymupdf>=1.24
+ezdxf>=1.1
+shapely>=2.0
+
+# Ruta rasterizada (solo si procesas escaneos / PDFs imagen)
+opencv-python>=4.8
+numpy>=1.24
+pytesseract>=0.3.10   # requiere binario Tesseract-OCR instalado en el sistema
+pillow>=10.0
+
+# Vista previa opcional
+matplotlib>=3.7
