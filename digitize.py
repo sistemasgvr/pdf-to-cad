@@ -36,11 +36,68 @@ from detect import classify_page
 # ─────────────────────────────────────────────────────────────────────────────
 # Capas de utilidad: al menos UNA debe tener geometría (un plano puede ser de
 # una sola utilidad, p.ej. mapa de agua -> no exigir gas ni alcantarillado).
-UTILITY_LAYERS = ["AGUA", "ALCANTARILLADO", "GAS", "ELECTRICO", "TELECOM"]
+UTILITY_LAYERS = ["AGUA", "ALCANTARILLADO", "DRENAJE_PLUVIAL", "GAS",
+                  "ELECTRICO", "ELECTRICO_AEREO", "TELECOM", "TELECOM_AEREO"]
+
+# Capas que representan geometría/anotación del PLANO (no metadata). Si alguna de
+# estas entidades cae dentro de una zona de exclusión = zona contaminada.
+_PLAN_LAYERS_FOR_CONTAMINATION = set(UTILITY_LAYERS) | {
+    "EJE_VIA", "METRO_RW", "TOPO", "ESTRUCTURAS", "PREDIOS",
+    "LIMITE_MAPA", "ANOTACION", "TEXTO", C.FALLBACK_LAYER,
+}
+
+# Términos que NUNCA deben aparecer como TEXTO del plano (son leyenda de pothole
+# o campos del membrete). Si aparecen -> capa contaminada.
+_FORBIDDEN_TEXT_TERMS = [k.upper() for k in (
+    getattr(C, "POTHOLE_LEGEND_KEYWORDS", []) +
+    getattr(C, "TITLEBLOCK_FIELD_KEYWORDS", [])
+)]
 
 
-def validate(msp):
+def _entity_point(e):
+    """Punto representativo de una entidad (para test dentro de zona)."""
+    t = e.dxftype()
+    try:
+        if t in ("TEXT", "MTEXT"):
+            return (e.dxf.insert.x, e.dxf.insert.y)
+        if t == "LINE":
+            return ((e.dxf.start.x + e.dxf.end.x) / 2.0,
+                    (e.dxf.start.y + e.dxf.end.y) / 2.0)
+        if t == "LWPOLYLINE":
+            pts = [(p[0], p[1]) for p in e.get_points()]
+            if pts:
+                return (sum(p[0] for p in pts) / len(pts),
+                        sum(p[1] for p in pts) / len(pts))
+        if t in ("CIRCLE", "ARC", "POINT"):
+            return (e.dxf.center.x, e.dxf.center.y) if t != "POINT" else (e.dxf.location.x, e.dxf.location.y)
+    except Exception:
+        return None
+    return None
+
+
+def _entity_text(e):
+    t = e.dxftype()
+    try:
+        if t == "TEXT":
+            return (e.dxf.text or "")
+        if t == "MTEXT":
+            return (e.text or "")
+    except Exception:
+        return ""
+    return ""
+
+
+def _in_zone(pt, zones):
+    x, y = pt
+    for _tag, (x0, y0, x1, y1) in zones:
+        if x0 <= x <= x1 and y0 <= y <= y1:
+            return _tag
+    return None
+
+
+def validate(msp, zones=None):
     warnings = []
+    zones = zones or []
     counts = Counter(e.dxf.layer for e in msp)
     total = sum(counts.values())
 
@@ -60,6 +117,44 @@ def validate(msp):
             f"ALTO {C.FALLBACK_LAYER}: {fb}/{total} "
             f"({fb/total*100:.0f}%) — revisa LAYER_TOKENS en config.py"
         )
+
+    # ── Regla de CAPA CONTAMINADA ────────────────────────────────────────────
+    # (a) Geometría/anotación del plano DENTRO de una zona de exclusión
+    #     (leyenda de pothole / membrete): debería ser CERO.
+    if zones:
+        by_tag = Counter()
+        for e in msp:
+            if e.dxf.layer not in _PLAN_LAYERS_FOR_CONTAMINATION:
+                continue
+            pt = _entity_point(e)
+            if pt is None:
+                continue
+            tag = _in_zone(pt, zones)
+            if tag:
+                by_tag[tag] += 1
+        for tag, n in by_tag.items():
+            warnings.append(
+                f"CONTAMINADA: {n} entidad(es) dentro de la zona de exclusión "
+                f"'{tag}' (leyenda/membrete NO debe digitalizarse)")
+
+    # (b) TEXTO con términos de leyenda de pothole o campos del membrete que se
+    #     hayan colado en capas del plano (utilities/anotación).
+    if _FORBIDDEN_TEXT_TERMS:
+        leaked = Counter()
+        for e in msp:
+            if e.dxftype() not in ("TEXT", "MTEXT"):
+                continue
+            if e.dxf.layer not in _PLAN_LAYERS_FOR_CONTAMINATION:
+                continue
+            up = _entity_text(e).upper()
+            if any(term in up for term in _FORBIDDEN_TEXT_TERMS):
+                leaked[e.dxf.layer] += 1
+        if leaked:
+            det = ", ".join(f"{lyr}:{n}" for lyr, n in leaked.items())
+            warnings.append(
+                f"CONTAMINADA: texto de leyenda/membrete en capas del plano ({det}) "
+                f"— revisa zonas de exclusión / LAYER_TOKENS")
+
     return warnings, counts
 
 
@@ -85,6 +180,7 @@ def main(pdf_path, dxf_out, force=None, verbose=True):
     log(f"PDF: {pdf_path}  ({len(doc)} pág.)")
 
     all_callouts = []
+    all_zones = []
     last_scale = C.DEFAULT_SCALE_FT_PER_PT
     for i, page in enumerate(doc):
         kind, info = classify_page(page)
@@ -102,6 +198,7 @@ def main(pdf_path, dxf_out, force=None, verbose=True):
             stats = raster_pipeline.run(page, dxf_doc)
         page_callouts = stats.pop("callouts", None) or []
         all_callouts.extend(page_callouts)
+        all_zones.extend(stats.pop("exclusion_zones_cad", None) or [])
         last_scale = stats.get("scale_ft_per_pt", last_scale)
         log("   ", stats)
 
@@ -118,7 +215,7 @@ def main(pdf_path, dxf_out, force=None, verbose=True):
         log(f"✓ Reporte de callouts: {report_path}  "
             f"({n_nom}/{n_tot} con nomenclatura)")
 
-    warnings, counts = validate(msp)
+    warnings, counts = validate(msp, all_zones)
     log("\n── Entidades por capa ──")
     for layer in sorted(counts):
         log(f"   {layer:18s} {counts[layer]}")

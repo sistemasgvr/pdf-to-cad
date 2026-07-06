@@ -1,0 +1,5 @@
+# Archivos de compilación de Python (PyInstaller)
+build/
+dist/
+*.exe
+*.pkg

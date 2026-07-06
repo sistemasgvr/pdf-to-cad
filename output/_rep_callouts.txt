@@ -1,0 +1,136 @@
+==============================================================================
+REPORTE DE NOMENCLATURA DE CALLOUTS
+==============================================================================
+PDF origen      : la000828537.pdf
+Escala          : 1" = 20'
+Callouts leídos : 297
+Con nomenclatura: 20
+
+Campos detectados por callout: ✓ = presente
+------------------------------------------------------------------------------
+  #   Diám Mat Dueño Dist Estac Elem  Texto
+------------------------------------------------------------------------------
+  1      ·   ·     ·    ·     ·    ✓  GV ME
+  2      ✓   ·     ·    ·     ·    ·  7" a
+  3      ✓   ·     ·    ·     ·    ·  O! 5"
+  4      ·   ·     ·    ·     ·    ✓  fh
+  5      ✓   ·     ·    ·     ·    ·  7" (ME
+  6      ·   ·     ·    ·     ·    ✓  tee
+  7      ·   ·     ·    ·     ·    ✓  gv
+  8      ·   ·     ✓    ·     ·    ·  CITY OF LOS AN
+  9      ·   ·     ·    ·     ·    ✓  OF SEWER
+ 10      ·   ·     ·    ·     ·    ✓  OXNARD STREET AND COLFAX AVENUE SEWER DI
+ 11      ·   ·     ✓    ·     ·    ·  LLOYD ALDRICH, CITY ENGIN
+ 12      ·   ·     ·    ·     ·    ✓  L.N FT 12° EXTRA STRENGTH PIPE SEWER INC
+ 13      ·   ·     ✓    ·     ·    ·  CITY TS
+ 14      ·   ·     ✓    ·     ·    ·  City Ha If
+ 15      ·   ·     ·    ·     ·    ✓  PLAt OF SEWER th
+ 16      ✓   ·     ·    ·     ·    ·  8" EXTRA
+ 17      ✓   ·     ·    ·     ·    ·  6" ST'G
+ 18      ✓   ·     ·    ·     ·    ·  > 4")
+ 19      ·   ·     ·    ·     ·    ✓  ieee nae tee ee
+ 20      ·   ·     ·    ·     ·    ✓  ean te rete tee tr
+
+==============================================================================
+DETALLE POR CALLOUT
+==============================================================================
+
+[1] "GV ME"
+     Ubicación CAD : (80.5, 437.9) ft
+     Elemento     : Válvula de compuerta
+
+[2] "7" a"
+     Ubicación CAD : (85.8, 305.0) ft
+     Diámetro     : 7"
+
+[3] "O! 5""
+     Ubicación CAD : (496.6, 47.1) ft
+     Diámetro     : 5"
+
+[4] "fh"
+     Ubicación CAD : (287.0, 339.2) ft
+     Elemento     : Hidrante
+
+[5] "7" (ME"
+     Ubicación CAD : (82.0, 292.9) ft
+     Diámetro     : 7"
+
+[6] "tee"
+     Ubicación CAD : (244.8, 441.3) ft
+     Elemento     : Tee
+
+[7] "gv"
+     Ubicación CAD : (494.0, 301.8) ft
+     Elemento     : Válvula de compuerta
+
+[8] "CITY OF LOS AN"
+     Ubicación CAD : (213.0, 420.7) ft
+     Dueño        : Ciudad de Los Ángeles
+
+[9] "OF SEWER"
+     Ubicación CAD : (197.6, 329.0) ft
+     Elemento     : Alcantarillado
+
+[10] "OXNARD STREET AND COLFAX AVENUE SEWER DIST"
+     Ubicación CAD : (534.6, 422.8) ft
+     Elemento     : Alcantarillado
+
+[11] "LLOYD ALDRICH, CITY ENGIN"
+     Ubicación CAD : (216.1, 423.5) ft
+     Dueño        : Ciudad de Los Ángeles
+
+[12] "L.N FT 12° EXTRA STRENGTH PIPE SEWER INCL"
+     Ubicación CAD : (172.2, 320.7) ft
+     Elemento     : Alcantarillado
+
+[13] "CITY TS"
+     Ubicación CAD : (505.2, 293.1) ft
+     Dueño        : Ciudad de Los Ángeles
+
+[14] "City Ha If"
+     Ubicación CAD : (344.6, 400.4) ft
+     Dueño        : Ciudad de Los Ángeles
+
+[15] "PLAt OF SEWER th"
+     Ubicación CAD : (163.7, 424.5) ft
+     Elemento     : Alcantarillado
+
+[16] "8" EXTRA"
+     Ubicación CAD : (187.4, 305.4) ft
+     Diámetro     : 8"
+
+[17] "6" ST'G"
+     Ubicación CAD : (194.7, 304.2) ft
+     Diámetro     : 6"
+
+[18] "> 4")"
+     Ubicación CAD : (341.2, 200.1) ft
+     Diámetro     : 4"
+
+[19] "ieee nae tee ee"
+     Ubicación CAD : (145.4, 441.5) ft
+     Elemento     : Tee
+
+[20] "ean te rete tee tr"
+     Ubicación CAD : (554.8, 421.9) ft
+     Elemento     : Tee
+
+==============================================================================
+RESUMEN
+==============================================================================
+
+Diámetros:
+     2 × 7"
+     1 × 5"
+     1 × 8"
+     1 × 6"
+     1 × 4"
+
+Dueños / utilidades:
+     4 × Ciudad de Los Ángeles
+
+Elementos:
+     4 × Alcantarillado
+     3 × Tee
+     2 × Válvula de compuerta
+     1 × Hidrante

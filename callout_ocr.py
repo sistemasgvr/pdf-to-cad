@@ -124,8 +124,21 @@ def is_dimension(text):
 
 
 def utility_class(text):
-    """Capa de utilidad implícita en el texto del callout (o None)."""
+    """Capa de utilidad implícita en el texto del callout (o None).
+
+    Primero intenta reconocer un TOKEN de línea de servicio (--W--, --SS--,
+    --E(OH)--…) tolerante a variaciones de OCR; si no, cae a las palabras clave."""
     t = clean_text(text).upper()
+    # Token de línea de servicio (--W--, - SS -, ─G─, T(OH)…): mapea a su capa.
+    try:
+        from vector_pipeline import normalize_service_token, service_line_layer
+        tok = normalize_service_token(t)
+        if tok:
+            layer = service_line_layer(tok)
+            if layer:
+                return layer
+    except Exception:
+        pass
     for kw, layer in C.UTILITY_KEYWORDS:
         if re.search(r'\b' + re.escape(kw) + r'\b', t):
             return layer

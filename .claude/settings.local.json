@@ -29,7 +29,25 @@
       "PowerShell(winget install --id ODA.ODAFileConverter -e --accept-package-agreements --accept-source-agreements --silent 2>&1)",
       "PowerShell($in = \"$env:TEMP\\\\dwgin\"; $out = \"$env:TEMP\\\\dwgout\"; New-Item -ItemType Directory -Force $in,$out | Out-Null; Copy-Item \"C:\\\\Users\\\\Deyvy\\\\Downloads\\\\PUNTOS A PROBAR.dwg\" $in -Force; $exe = \"C:\\\\Program Files\\\\ODA\\\\ODAFileConverter 27.1.0\\\\ODAFileConverter.exe\"; & $exe $in $out \"ACAD2018\" \"DXF\" \"0\" \"1\" 2>$null; Start-Sleep -Seconds 3; Get-ChildItem $out)",
       "Bash(sed -i 's/ensure_layer\\(dxf, \"TEXTO\"\\)/ensure_layer\\(dxf, \"ANOTACION\"\\)/; s/\"layer\": \"TEXTO\", \"style\": \"CAD_TEXT\", \"rotation\": rot/\"layer\": \"ANOTACION\", \"style\": \"CAD_TEXT\", \"rotation\": rot/' callout_ocr.py)",
-      "Bash(sed -i 's/ensure_layer\\(dxf, \"TEXTO\"\\)/ensure_layer\\(dxf, \"ANOTACION\"\\)/; s/\"layer\": \"TEXTO\", \"style\": \"CAD_TEXT\",/\"layer\": \"ANOTACION\", \"style\": \"CAD_TEXT\",/; s/te.dxf.layer != \"TEXTO\"/te.dxf.layer != \"ANOTACION\"/' vector_pipeline.py)"
+      "Bash(sed -i 's/ensure_layer\\(dxf, \"TEXTO\"\\)/ensure_layer\\(dxf, \"ANOTACION\"\\)/; s/\"layer\": \"TEXTO\", \"style\": \"CAD_TEXT\",/\"layer\": \"ANOTACION\", \"style\": \"CAD_TEXT\",/; s/te.dxf.layer != \"TEXTO\"/te.dxf.layer != \"ANOTACION\"/' vector_pipeline.py)",
+      "Bash(python -)",
+      "Bash(pip install *)",
+      "Bash(python -c \"import PySide6; print\\('PySide6', PySide6.__version__\\)\")",
+      "Bash(python -c \"from PySide6 import QtWidgets, QtGui, QtCore; print\\('Qt widgets OK', QtCore.__version__\\)\")",
+      "Bash(QT_QPA_PLATFORM=offscreen C:/Users/Deyvy/AppData/Local/Programs/Python/Python312/python.exe -c ' *)",
+      "Bash(taskkill //F //FI \"WINDOWTITLE eq *\" //IM python.exe)",
+      "Bash(jobs)",
+      "Bash(npm run *)",
+      "Bash(rm -rf node_modules/.vite dist)",
+      "Bash(npx vue-tsc *)",
+      "Bash(grep -q \"^\\\\.env$\" .gitignore)",
+      "Bash(rm -rf src/presentation/modules/landing)",
+      "Bash(rm -f src/presentation/views/NotFoundView.vue.bak)",
+      "Bash(npm install *)",
+      "Bash(rm -rf dist)",
+      "Bash(mkdir -p \"/d/proyectos-z/front-investments/.claude\")",
+      "Bash(taskkill //PID 9040 //F)",
+      "Bash(rm -f \"/d/GVR/Proyectos_DEV/EEUU/pdf-to-cad/.claude/launch.json\")"
     ]
   }
 }

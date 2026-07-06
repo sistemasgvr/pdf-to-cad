@@ -256,7 +256,10 @@ def lsd_segments(gray, scale, min_len):
     inv = 1.0 / (scale or 1.0)
     out = []
     for l in lines:
-        x0, y0, x1, y1 = (float(v) * inv for v in l[0])
+        v = np.ravel(np.asarray(l))   # robusto a (1,4) o (4,) según versión de OpenCV
+        if v.size < 4:
+            continue
+        x0, y0, x1, y1 = float(v[0]) * inv, float(v[1]) * inv, float(v[2]) * inv, float(v[3]) * inv
         if math.hypot(x1 - x0, y1 - y0) >= min_len:
             out.append((x0, y0, x1, y1))
     return out
@@ -317,7 +320,7 @@ def run(page, dxf_doc):
     color (RASTER_COLOR_RANGES); si es monocromo (B&N), usa la tubería basada
     en forma: OCR borra texto -> LSD vectoriza líneas -> se unen y clasifican."""
     _require_cv()
-    from vector_pipeline import detect_scale, setup_linetypes
+    from vector_pipeline import detect_scale, setup_linetypes, CoordTransform
     setup_linetypes(dxf_doc)
 
     img, zoom = rasterize(page)
@@ -326,8 +329,15 @@ def run(page, dxf_doc):
     sat_mean = float(cv2.cvtColor(img, cv2.COLOR_BGR2HSV)[:, :, 1].mean())
 
     scale = detect_scale(page)
+    # MISMO mapeo que el pipeline vector y la app de marcado (px de imagen ->
+    # punto display -> mediabox (derotación) -> CAD). Así los 3 coinciden en
+    # coordenadas para cualquier rotación de página.
+    T = CoordTransform(page, scale)
+    derot = page.derotation_matrix
+
     def to_cad(px, py):
-        return (px / zoom) * scale, ((h_px - py) / zoom) * scale
+        mp = fitz.Point(px / zoom, py / zoom) * derot
+        return T.point(mp.x, mp.y)
 
     if sat_mean >= C.RASTER_BW_SAT_THRESH:
         print(f"   escaneo a COLOR (sat={sat_mean:.1f}) -> separación por color")
@@ -364,65 +374,30 @@ def _run_bw(page, dxf_doc, gray, zoom, to_cad, scale):
                               getattr(C, "RASTER_DOUBLE_MAX_GAP_PX", 6.0))
     print(f"   Líneas: {n_before} -> {len(merged)} (colapso de bordes dobles)")
 
-    # 4) Identificar tuberías: centroides de callouts tipo 10"Pipe / W.M.
-    pipe_pts = []
-    for b in boxes:
-        up = b["txt"].upper()
-        if any(tok in up for tok in C.RASTER_PIPE_TOKENS):
-            pipe_pts.append((b["cx"], b["cy"]))
-
-    # 5) Dibujar líneas, asignando AGUA si pasan junto a un callout de tubería.
-    for lyr in ("EJE_VIA", "AGUA"):
-        ensure_layer(dxf_doc, lyr)
-    per_layer = defaultdict(int)
+    # 4) Solo geometría: coser los segmentos en polilíneas y CERRAR las cuadras
+    #    (una cuadra es una geometría que se cierra). Sin clasificar tipos ni color.
+    from vector_pipeline import ensure_layer, chain_pieces
+    ensure_layer(dxf_doc, "EJE_VIA")
+    tol = getattr(C, "RASTER_MERGE_MAX_BRIDGE_PX", 26.0)
+    chains = chain_pieces([[p0, p1] for (p0, p1) in merged], tol)
     n_geom = 0
-    for (p0, p1) in merged:
-        layer = "EJE_VIA"
-        for (qx, qy) in pipe_pts:
-            if _pt_seg_dist(qx, qy, p0[0], p0[1], p1[0], p1[1]) <= C.RASTER_PIPE_NEAR_PX:
-                layer = "AGUA"
-                break
-        msp.add_line(to_cad(*p0), to_cad(*p1), dxfattribs={"layer": layer})
-        per_layer[layer] += 1
-        n_geom += 1
-
-    # 5b) Capturar overlays vectoriales amarillos (línea de agua resaltada) -> AGUA.
-    #     Muchos as-builts escaneados llevan la utilidad principal resaltada como
-    #     trazo vectorial encima del escaneo.
-    from vector_pipeline import CoordTransform
-    T = CoordTransform(page, scale)
-    n_water = 0
-    for path in page.get_drawings():
-        col = path.get("color")
-        if col is None or tuple(round(c, 2) for c in col) != (1.0, 1.0, 0.0):
+    n_closed = 0
+    for ch in chains:
+        if len(ch) < 2:
             continue
-        for it in path.get("items", []):
-            if it[0] == "l":
-                msp.add_line(T.pt(it[1]), T.pt(it[2]), dxfattribs={"layer": "AGUA"})
-                per_layer["AGUA"] += 1; n_geom += 1; n_water += 1
-            elif it[0] == "c":
-                msp.add_line(T.pt(it[1]), T.pt(it[4]), dxfattribs={"layer": "AGUA"})
-                per_layer["AGUA"] += 1; n_geom += 1; n_water += 1
-    if n_water:
-        print(f"   Overlay de agua (amarillo) capturado: {n_water} segmentos -> AGUA")
-
-    # 6) Texto -> MISMO módulo de alta calidad del pipeline vectorial:
-    #    separación texto/gráficos (CC) + OCR multi-orientación + anti-basura +
-    #    quita-cotas + posición/ángulo fieles. Luego clasificación flecha+texto.
-    import callout_ocr
-    from vector_pipeline import classify_utilities
-    detected = callout_ocr.extract_callouts(page, T)
-    callouts = callout_ocr.dedupe_for_placement(detected, C.VECTOR_OCR_MIN_CONF, [])
-    n_text = callout_ocr.add_text_layer(msp, dxf_doc, callouts)
-    n_clf = classify_utilities(msp, dxf_doc, T, callouts)
-    if callouts:
-        print(f"   OCR de callouts: {len(detected)} suprimidos, {len(callouts)} colocadas; "
-              f"clasificadas {dict(n_clf)}")
+        closed = len(ch) >= 4 and math.hypot(ch[0][0] - ch[-1][0], ch[0][1] - ch[-1][1]) <= tol * 1.5
+        pts = [to_cad(x, y) for (x, y) in ch]
+        e = msp.add_lwpolyline(pts, dxfattribs={"layer": "EJE_VIA"})
+        if closed:
+            e.close(True)
+            n_closed += 1
+        n_geom += 1
+    print(f"   Contornos: {n_geom} polilíneas ({n_closed} cerradas como cuadra)")
 
     return {
-        "scale_ft_per_pt": scale, "dpi": C.RASTER_DPI, "mode": "bw_lsd",
-        "n_geometry": n_geom, "per_layer": dict(per_layer), "n_text": n_text,
-        "callouts": callouts,
+        "scale_ft_per_pt": scale, "dpi": C.RASTER_DPI, "mode": "bw_plain",
+        "n_geometry": n_geom, "per_layer": {"EJE_VIA": n_geom}, "n_text": 0,
+        "callouts": [],
     }
 
 

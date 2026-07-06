@@ -19,6 +19,57 @@ import config as C
 
 
 # ─────────────────────────────────────────────────────────────────────────────
+# Tokens de línea de servicio  (--W--, --SS--, --E(OH)--, ...)
+# ─────────────────────────────────────────────────────────────────────────────
+# Token base delimitado por guiones/espacios (no por letras), con sufijo aéreo
+# "(OH)" opcional. Tolerante a variaciones de OCR: guiones largos (– — ―), espacios
+# extra, may/min y puntos ("O.H."). SD/SS van antes que las de una letra.
+_SERVICE_TOKEN_RE = re.compile(
+    r'(?<![A-Za-z])'                    # no precedido por letra (evita palabras)
+    r'(SD|SS|W|G|E|T)'                  # token base
+    r'\s*(\(\s*O\.?\s*H\.?\s*\))?'      # sufijo aéreo (OH) opcional
+    r'(?![A-Za-z])',                    # no seguido por letra
+    re.I,
+)
+
+
+def normalize_service_token(text):
+    """Reconoce un token de línea de servicio ('--W--', '- SS -', '─G─', 'T(OH)',
+    'E (OH)') tolerante a variaciones de OCR y devuelve el token canónico de
+    C.SERVICE_LINE_COLORS (W/SS/SD/G/E/T/E(OH)/T(OH)) o None."""
+    if not text:
+        return None
+    s = str(text).upper().replace("–", "-").replace("—", "-").replace("―", "-")
+    m = _SERVICE_TOKEN_RE.search(s)
+    if not m:
+        return None
+    base = m.group(1).upper()
+    overhead = m.group(2) is not None
+    if overhead and base in ("E", "T"):
+        return f"{base}(OH)"
+    return base
+
+
+def service_line_layer(token):
+    """Token canónico -> capa DXF (según C.SERVICE_LINE_COLORS), o None."""
+    info = getattr(C, "SERVICE_LINE_COLORS", {}).get(token)
+    return info[0] if info else None
+
+
+def is_abandoned_ocg(ocg):
+    """True si el nombre OCG marca una utilidad ABANDONADA (ej. …-EXIS-ABAND)."""
+    if not getattr(C, "ABANDONED_ENABLED", False):
+        return False
+    up = (ocg or "").upper()
+    return any(tok.upper() in up for tok in getattr(C, "ABANDONED_OCG_TOKENS", []))
+
+
+def abandoned_layer(layer):
+    """Nombre de la capa gris de abandono para una capa de utilidad."""
+    return layer + getattr(C, "ABANDONED_LAYER_SUFFIX", "_ABANDONADO")
+
+
+# ─────────────────────────────────────────────────────────────────────────────
 # Resolución de capa
 # ─────────────────────────────────────────────────────────────────────────────
 def layer_for(ocg):
@@ -27,6 +78,13 @@ def layer_for(ocg):
     for tok, layer in C.LAYER_TOKENS:
         if tok.upper() in up:
             return layer
+    # Fallback: si el nombre OCG trae un token de línea de servicio (--W--, --SD--,
+    # --E(OH)--) sin haber coincidido arriba, clasificar por ese token.
+    tok = normalize_service_token(up)
+    if tok:
+        mapped = service_line_layer(tok)
+        if mapped:
+            return mapped
     return C.FALLBACK_LAYER
 
 
@@ -85,6 +143,49 @@ def overlay_layer_for(color):
     return None
 
 
+def thin_fill_centerline(path):
+    """Si el path es un relleno DELGADO y ALARGADO (una línea gruesa dibujada como
+    su cuerpo/contorno), devuelve su EJE (dos puntos) para trazar UNA sola línea
+    en vez del contorno doble. Devuelve None si no aplica."""
+    r = path.get("rect")
+    if r is None:
+        return None
+    w, h = r.x1 - r.x0, r.y1 - r.y0
+    lo, hi = min(w, h), max(w, h)
+    thr = getattr(C, "THIN_FILL_MAX_WIDTH_PT", 6.0)
+    if hi < 3 or lo > thr or hi < 2.5 * lo:      # ni diminuto, ni ancho, ni poco alargado
+        return None
+    if path.get("fill") is None and path.get("color") is not None:
+        return None                              # trazo simple (ya es eje) -> no tocar
+    pts = []
+    for it in path.get("items", []):
+        c = it[0]
+        if c == "l":
+            pts += [(it[1].x, it[1].y), (it[2].x, it[2].y)]
+        elif c == "c":
+            pts += [(it[1].x, it[1].y), (it[4].x, it[4].y)]
+        elif c == "re":
+            rr = it[1]
+            pts += [(rr.x0, rr.y0), (rr.x1, rr.y0), (rr.x1, rr.y1), (rr.x0, rr.y1)]
+        elif c == "qu":
+            q = it[1]
+            pts += [(q.ul.x, q.ul.y), (q.ur.x, q.ur.y), (q.lr.x, q.lr.y), (q.ll.x, q.ll.y)]
+    if len(pts) < 2:
+        return None
+    cx = sum(p[0] for p in pts) / len(pts)
+    cy = sum(p[1] for p in pts) / len(pts)
+    sxx = syy = sxy = 0.0
+    for px, py in pts:
+        dx, dy = px - cx, py - cy
+        sxx += dx * dx; syy += dy * dy; sxy += dx * dy
+    ang = 0.5 * math.atan2(2 * sxy, sxx - syy)   # eje principal (PCA)
+    ax, ay = math.cos(ang), math.sin(ang)
+    ts = [(px - cx) * ax + (py - cy) * ay for px, py in pts]
+    tmin, tmax = min(ts), max(ts)
+    return (fitz.Point(cx + tmin * ax, cy + tmin * ay),
+            fitz.Point(cx + tmax * ax, cy + tmax * ay))
+
+
 def is_fill_glyph(path):
     """True si el trazo es una LETRA dibujada como relleno (vector aplanado sin
     texto vivo): solo-relleno, sin borde, bbox pequeño y con CURVAS o muchos
@@ -124,22 +225,30 @@ def setup_linetypes(dxf):
         dxf.styles.add("LTSTD", font=C.TEXT_FONT)
 
     d, g, h = C.UTIL_LT_DASH, C.UTIL_LT_GAP, C.UTIL_LT_TEXT_H
-    total = d + g + g
-    for lt_name, letter in C.UTIL_LINETYPE_MARKERS.items():
+
+    def glyph(txt, gap):
+        """Segmento [texto] centrado en un hueco de tamaño `gap`."""
+        xo = -(gap * 0.5 + h * 0.3 * len(txt))
+        return f'["{txt}",LTSTD,S={h},R=0.0,X={xo:.2f},Y={-h/2:.2f}]'
+
+    for lt_name, marker in C.UTIL_LINETYPE_MARKERS.items():
         if lt_name in dxf.linetypes:
             continue
-        # Patrón complejo AutoCAD: raya, hueco, [texto], hueco.
-        x_off = -(g * 0.5 + h * 0.3 * len(letter))   # centra la letra en el hueco
-        pattern = (
-            f'A,{d},-{g},["{letter}",LTSTD,S={h},R=0.0,'
-            f'X={x_off:.2f},Y={-h/2:.2f}],-{g}'
-        )
+        if lt_name.endswith("_AB"):
+            # Abandonado: ──/── letra ──  (el slash es un glifo propio en el
+            # tramo ANTERIOR a la letra; la letra varía según la utilidad).
+            letter = marker.lstrip("/") or marker
+            pattern = (f'A,{d},-{g},{glyph("/", g)},-{g},'
+                       f'{d},-{g},{glyph(letter, g)},-{g}')
+            total = 2 * d + 4 * g
+            desc = f"Abandonado {letter} " + "-" * 4 + "/" + "-" * 4 + letter + "-" * 4
+        else:
+            letter = marker
+            pattern = f'A,{d},-{g},{glyph(letter, g)},-{g}'
+            total = d + g + g
+            desc = f"Utilidad {letter} " + "-" * 6 + letter + "-" * 6
         try:
-            dxf.linetypes.add(
-                lt_name, pattern=pattern,
-                description=f"Utilidad {letter} " + "-" * 6 + letter + "-" * 6,
-                length=total,
-            )
+            dxf.linetypes.add(lt_name, pattern=pattern, description=desc, length=total)
         except Exception:
             # Fallback: linetype discontinuo simple si el complejo falla.
             dxf.linetypes.add(lt_name, pattern=[total, d, -(total - d)],
@@ -148,11 +257,22 @@ def setup_linetypes(dxf):
 
 def ensure_layer(dxf, name):
     if name and name not in dxf.layers:
-        ltype = C.LAYER_LINETYPE.get(name, "CONTINUOUS")
-        # Los UTIL_* (letra) dependen del interruptor; los ESTÁNDAR (DASHED,
-        # CENTER2, ...) se aplican siempre si existen en el documento.
-        if ltype.startswith("UTIL_") and not C.USE_CUSTOM_LINETYPES:
+        # Capas de líneas ABANDONADAS (…_ABANDONADO): gris, CONTINUOUS.
+        suffix = getattr(C, "ABANDONED_LAYER_SUFFIX", "_ABANDONADO")
+        if suffix and name.endswith(suffix):
+            dxf.layers.add(name, color=getattr(C, "ABANDONED_COLOR", 8),
+                           linetype="CONTINUOUS")
+            return
+        # Modo fiel: TODAS las capas salen CONTINUOUS (el aspecto discontinuo lo dan
+        # los propios trazos del PDF, no un linetype de capa).
+        if getattr(C, "VECTOR_FAITHFUL_GEOMETRY", False):
             ltype = "CONTINUOUS"
+        else:
+            ltype = C.LAYER_LINETYPE.get(name, "CONTINUOUS")
+            # Los UTIL_* (letra) dependen del interruptor; los ESTÁNDAR (DASHED,
+            # CENTER2, ...) se aplican siempre si existen en el documento.
+            if ltype.startswith("UTIL_") and not C.USE_CUSTOM_LINETYPES:
+                ltype = "CONTINUOUS"
         if ltype not in dxf.linetypes:
             ltype = "CONTINUOUS"       # seguridad: el linetype debe existir
         dxf.layers.add(name, color=C.OUTPUT_LAYERS.get(name, 7), linetype=ltype)
@@ -304,19 +424,27 @@ class LayerSegmentCollector:
     def flush(self, msp, dxf, T):
         n = 0
         drop = getattr(C, "DROP_LAYERS", set())
-        noise_pt = getattr(C, "VECTOR_NOISE_MIN_PT", 0.0)
+        # Modo fiel: NO filtrar por ruido — se conservan las tramas/gráficos de
+        # trazos diminutos (p.ej. domo truncado, achurados) tal cual el PDF.
+        if getattr(C, "VECTOR_FAITHFUL_GEOMETRY", False):
+            noise_pt = 0.0
+        else:
+            noise_pt = getattr(C, "VECTOR_NOISE_MIN_PT", 0.0)
         noise_ft = noise_pt * T.scale
         util_layers = getattr(C, "UTILITY_LINE_LAYERS", set())
 
         std_scale = getattr(C, "LINETYPE_STD_SCALE", 30.0)
         tol = max(getattr(C, "STITCH_TOL_PT", 12.0) * T.scale, 1.0)
+        faithful = getattr(C, "VECTOR_FAITHFUL_GEOMETRY", False)
 
-        # Guiones fusionados -> piezas CAD por capa.
+        # Guiones fusionados -> piezas CAD por capa. (En modo fiel self.segments
+        # está vacío: todo entró como polilíneas sin fusionar.)
         seg_pieces = defaultdict(list)
         for layer, segs in self.segments.items():
             if layer in drop:
                 continue
-            clean_markers = (C.CLEAN_UTILITY_MARKERS and layer in C.UTILITY_CLEAN_LAYERS)
+            clean_markers = (C.CLEAN_UTILITY_MARKERS and not faithful
+                             and layer in C.UTILITY_CLEAN_LAYERS)
             for (a, b, count, span) in merge_collinear_segments(segs):
                 if (clean_markers and count <= C.MARKER_MAX_SEGMENTS
                         and span < C.MARKER_MAX_LEN_PT):
@@ -339,7 +467,7 @@ class LayerSegmentCollector:
             if layer in drop:
                 continue
             ensure_layer(dxf, layer)
-            if layer in util_layers:
+            if layer in util_layers and not faithful:
                 # TUBERÍA: coser guiones + polilíneas en UN elemento (letra por linetype de capa).
                 pcs = list(seg_pieces.get(layer, []))
                 for pts, _lt in self.polylines.get(layer, []):
@@ -447,11 +575,25 @@ def _inside_text_box(path, text_boxes, margin=3.0):
     return False
 
 
-def process_path(collector, path, dxf, T, has_ocg=True, text_boxes=None):
-    if is_shx_glyph(path):
+def process_path(collector, path, dxf, T, has_ocg=True, text_boxes=None, zones=None):
+    faithful = getattr(C, "VECTOR_FAITHFUL_GEOMETRY", False)
+    # Modo fiel: NO suprimir glifos de letra (W/G/SS…) — se dibujan como en el PDF.
+    if is_shx_glyph(path) and not faithful:
+        return
+    # Zona de exclusión (leyenda de pothole / membrete): no digitalizar su geometría.
+    if _path_in_zones(path, zones):
         return
     ocg = path.get("layer", "") or ""
-    if has_ocg:
+    if getattr(C, "PLAIN_MODE", False):
+        # Modo plano: solo digitalizar. Todo a una capa neutra, sin clasificar ni
+        # colorear ni linetypes de letra. NO se dibujan los resaltados/marcas de
+        # color (amarillo, etc.) ni los glifos de texto (contornos).
+        if overlay_layer_for(path.get("color")) is not None:
+            return
+        if is_fill_glyph(path):
+            return
+        layer = "EJE_VIA"
+    elif has_ocg:
         layer = layer_for(ocg)
     else:
         # Las MARCAS de color (overlays) NO se dibujan: se usan aparte para
@@ -467,21 +609,31 @@ def process_path(collector, path, dxf, T, has_ocg=True, text_boxes=None):
         layer = color_layer(path.get("color"))
     if layer is None:
         return
+    # Utilidad ABANDONADA (OCG …-ABAND): enrutar a su capa gris dedicada.
+    if layer in getattr(C, "UTILITY_LINE_LAYERS", set()) and is_abandoned_ocg(ocg):
+        layer = abandoned_layer(layer)
     # Suprimir marcadores de letra en las capas de tubería (los fragmentaban).
-    if layer in getattr(C, "UTILITY_LINE_LAYERS", set()) and is_marker_glyph(path):
+    # En modo fiel NO se suprimen: las letras y ticks se dibujan como en el PDF.
+    if (not faithful and layer in getattr(C, "UTILITY_LINE_LAYERS", set())
+            and is_marker_glyph(path)):
         return
     items = path.get("items", [])
     if not items:
         return
     cmds = [i[0] for i in items]
-    # No fusionar: tramas/símbolos, o geometría sin clasificar (as-builts planos
-    # donde el texto está dibujado como trazos y se dañaría al fusionar).
-    no_merge = (layer == C.FALLBACK_LAYER or
+    # No fusionar: en modo fiel NADA se fusiona; si no, solo tramas/símbolos o
+    # geometría sin clasificar (as-builts planos donde el texto son trazos).
+    no_merge = (faithful or layer == C.FALLBACK_LAYER or
                 any(tok.upper() in ocg.upper() for tok in C.NO_MERGE_TOKENS))
     # Linetype real (dashed/center/…) SOLO para líneas no personalizadas; las de
-    # tubería usan su linetype de letra (UTIL_*) por capa.
-    plt = None if layer in getattr(C, "UTILITY_LINE_LAYERS", set()) \
-        else classify_linetype_from_dashes(path)
+    # tubería usan su linetype de letra (UTIL_*) por capa. En modo fiel se honra el
+    # patrón de guiones del propio trazo (normalmente CONTINUOUS, ya que cada dash
+    # es un segmento aparte).
+    if faithful:
+        plt = classify_linetype_from_dashes(path)
+    else:
+        plt = None if layer in getattr(C, "UTILITY_LINE_LAYERS", set()) \
+            else classify_linetype_from_dashes(path)
 
     # Caso rápido: todo segmentos rectos
     if all(c == "l" for c in cmds):
@@ -577,19 +729,33 @@ def plan_drawing_bbox(page):
     )
 
 
-def build_text_filter(page):
+def build_text_filter(page, zones=None, consumed_text=None):
     """Umbrales de exclusión de anotación calculados por PDF.
 
     Estrategia principal: descartar el texto que cae FUERA del área del dibujo
     (ahí está el membrete). Fallback a umbral fraccional si no hay geometría.
+    Además descarta el texto dentro de las zonas de exclusión (leyenda de pothole
+    / membrete), las marcas de agua diagonales (PROGRESS SET…) y el texto ya
+    representado como MTEXT de un multileader (consumed_text).
     """
     bbox = plan_drawing_bbox(page)
 
     mb = page.mediabox
     disp_x_dim = mb.height if page.rotation in (90, 270) else mb.width
     title_oy = C.TEXT_TITLE_OY_FRAC * disp_x_dim
+    watermarks = [k.upper() for k in getattr(C, "TITLEBLOCK_WATERMARK_KEYWORDS", [])]
+    consumed = consumed_text or []
 
     def is_annotation(txt, ox, oy, size):
+        # 0) Texto ya emitido como MTEXT de un multileader -> no duplicar.
+        for (bx0, by0, bx1, by1) in consumed:
+            if bx0 - 1.0 <= ox <= bx1 + 1.0 and by0 - 1.0 <= oy <= by1 + 1.0:
+                return True
+        # 0b) Dentro de una zona de exclusión (pothole / membrete) o watermark
+        if _pt_in_zones(ox, oy, zones or []):
+            return True
+        if watermarks and any(k in txt.upper() for k in watermarks):
+            return True
         # 1) Fuera del área del dibujo -> membrete / leyenda / marco
         if bbox is not None:
             if not (bbox[0] <= ox <= bbox[2] and bbox[1] <= oy <= bbox[3]):
@@ -786,7 +952,7 @@ def expand_abbrev(text):
 def callout_target_layers(txt):
     up = txt.upper()
     if "STORM" in up or re.search(r'\bSD\b', up):
-        return {"DRENAJE"}
+        return {"DRENAJE_PLUVIAL"}
     if "SEWER" in up or "VCP" in up or re.search(r'\bSS\b', up):
         return {"ALCANTARILLADO"}
     if "GAS" in up:
@@ -1004,6 +1170,522 @@ def classify_utilities(msp, dxf, T, callouts):
 
 
 # ─────────────────────────────────────────────────────────────────────────────
+# Zonas de exclusión por contenido  (POTHOLE LEGEND + membrete de título)
+# ─────────────────────────────────────────────────────────────────────────────
+def _text_spans(page):
+    """Genera (texto, bbox_pdf) de cada span de texto VIVO de la página."""
+    try:
+        blocks = page.get_text("dict", flags=fitz.TEXT_PRESERVE_WHITESPACE)["blocks"]
+    except Exception:
+        return
+    for b in blocks:
+        if b.get("type") != 0:
+            continue
+        for line in b["lines"]:
+            for span in line["spans"]:
+                t = (span.get("text") or "").strip()
+                if t:
+                    yield t, tuple(span["bbox"])
+
+
+def _union_box(boxes):
+    return (min(b[0] for b in boxes), min(b[1] for b in boxes),
+            max(b[2] for b in boxes), max(b[3] for b in boxes))
+
+
+def _box_gap(a, b):
+    """Distancia (pt) entre dos bboxes; 0 si se solapan/tocan."""
+    dx = max(0.0, a[0] - b[2], b[0] - a[2])
+    dy = max(0.0, a[1] - b[3], b[1] - a[3])
+    return math.hypot(dx, dy)
+
+
+def _cluster_boxes(boxes, gap):
+    """Agrupa bboxes por cercanía (single-linkage) con umbral 'gap'. Devuelve la
+    lista de bboxes-unión, uno por cluster."""
+    n = len(boxes)
+    parent = list(range(n))
+
+    def find(i):
+        while parent[i] != i:
+            parent[i] = parent[parent[i]]
+            i = parent[i]
+        return i
+
+    for i in range(n):
+        for j in range(i + 1, n):
+            if _box_gap(boxes[i], boxes[j]) <= gap:
+                parent[find(i)] = find(j)
+    groups = defaultdict(list)
+    for i in range(n):
+        groups[find(i)].append(boxes[i])
+    return [_union_box(g) for g in groups.values()]
+
+
+def build_exclusion_zones(page):
+    """Devuelve zonas de exclusión en coords PDF: la leyenda de POTHOLE y el/los
+    bloque(s) de membrete de título, detectados por CONTENIDO del texto vivo.
+    Toda geometría/anotación con centro dentro de una zona se descarta.
+
+    Robusto al layout (no depende de posiciones fijas): ancla en las palabras
+    clave del contenido y expande su bbox. Las marcas de agua diagonales
+    (PROGRESS SET…) NO definen zona (su bbox cubriría el dibujo)."""
+    if not getattr(C, "EXCLUDE_ZONES_ENABLED", False):
+        return []
+    spans = list(_text_spans(page))
+    if not spans:
+        return []   # PDF aplanado sin texto vivo: fuera de alcance aquí
+
+    margin = getattr(C, "EXCLUDE_ZONE_MARGIN_PT", 28.0)
+    pot_kw = [k.upper() for k in getattr(C, "POTHOLE_LEGEND_KEYWORDS", [])]
+    tb_kw = [k.upper() for k in getattr(C, "TITLEBLOCK_FIELD_KEYWORDS", [])]
+    gap = getattr(C, "TITLEBLOCK_CLUSTER_GAP_PT", 140.0)
+
+    page_area = abs(page.mediabox.width * page.mediabox.height) or 1.0
+    max_frac = getattr(C, "EXCLUDE_ZONE_MAX_PAGE_FRAC", 0.28)
+
+    zones = []
+
+    # 1) Leyenda de pothole: cluster único (siempre es un recuadro compacto).
+    pot_boxes = [bb for (t, bb) in spans if any(k in t.upper() for k in pot_kw)]
+    if pot_boxes:
+        for z in _cluster_boxes(pot_boxes, gap):
+            zones.append(("POTHOLE_LEGEND", z))
+
+    # 2) Membrete: campos típicos, agrupados por cercanía -> uno o varios cajetines.
+    tb_boxes = [bb for (t, bb) in spans if any(k in t.upper() for k in tb_kw)]
+    if tb_boxes:
+        for z in _cluster_boxes(tb_boxes, gap):
+            if (z[2] - z[0]) * (z[3] - z[1]) <= max_frac * page_area:
+                zones.append(("TITLEBLOCK", z))
+
+    # Expandir por el margen configurado.
+    out = []
+    for tag, (x0, y0, x1, y1) in zones:
+        out.append((tag, (x0 - margin, y0 - margin, x1 + margin, y1 + margin)))
+    return out
+
+
+def _pt_in_zones(x, y, zones):
+    for _tag, (x0, y0, x1, y1) in zones:
+        if x0 <= x <= x1 and y0 <= y <= y1:
+            return True
+    return False
+
+
+def _path_in_zones(path, zones):
+    """True si el centro del bbox del trazo cae dentro de alguna zona de exclusión."""
+    if not zones:
+        return False
+    r = path.get("rect")
+    if r is None:
+        return False
+    return _pt_in_zones((r.x0 + r.x1) / 2.0, (r.y0 + r.y1) / 2.0, zones)
+
+
+def zones_to_cad(zones, T):
+    """Convierte las zonas (bbox PDF) a bbox CAD (ft) usando la transformación de
+    página. Devuelve [(tag, (x0,y0,x1,y1))] para el QA de capa contaminada."""
+    out = []
+    for tag, (x0, y0, x1, y1) in zones:
+        cs = [T.point(x0, y0), T.point(x1, y0), T.point(x1, y1), T.point(x0, y1)]
+        xs = [c[0] for c in cs]
+        ys = [c[1] for c in cs]
+        out.append((tag, (min(xs), min(ys), max(xs), max(ys))))
+    return out
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Metadata del membrete (se LEE aunque el cajetín no se dibuje)
+# ─────────────────────────────────────────────────────────────────────────────
+# Palabras que son ETIQUETAS del membrete, no valores: si un patrón las captura
+# como "valor" es porque en el texto rotado la etiqueta siguiente quedó pegada a
+# la anterior (sin el valor real en medio) -> se descarta (mejor omitir que mentir).
+_METADATA_STOPWORDS = {
+    "DRAWING", "SHEET", "CONTRACT", "SCALE", "DESIGNED", "DRAWN", "CHECKED",
+    "APPROVED", "PROJECT", "TITLE", "DATE", "REV", "REVISION", "SUBMITTAL",
+    "BY", "NO", "OF", "NAME",
+}
+
+
+def extract_titleblock_metadata(page):
+    """Extrae metadata del membrete (contrato, dibujo, hoja, escala, fecha) del
+    texto vivo de la página. Devuelve dict (solo campos hallados y fiables).
+
+    Conservador: si un patrón captura como valor otra ETIQUETA del membrete
+    (DRAWING, SHEET…), se descarta ese campo — preferimos omitir a reportar mal."""
+    if not getattr(C, "METADATA_ENABLED", False):
+        return {}
+    try:
+        txt = page.get_text()
+    except Exception:
+        return {}
+    md = {}
+    for key, patterns in getattr(C, "METADATA_PATTERNS", {}).items():
+        for pat in patterns:
+            m = pat.search(txt)
+            if not m:
+                continue
+            val = m.group(1).strip()
+            if not val or val.upper() in _METADATA_STOPWORDS:
+                continue
+            md[key] = val
+            break
+    return md
+
+
+def add_metadata_entity(msp, dxf, T, page, md):
+    """Guarda la metadata del membrete como XDATA sobre una entidad TEXT en la capa
+    METADATA (esquina del dibujo). El cajetín NO se dibuja como geometría; solo
+    esta anotación de metadata."""
+    if not md:
+        return 0
+    layer = getattr(C, "METADATA_LAYER", "METADATA")
+    ensure_layer(dxf, layer)
+    if "CAD_TEXT" not in dxf.styles:
+        dxf.styles.add("CAD_TEXT", font=C.TEXT_FONT)
+    try:
+        dxf.appids.add("PDFCAD")
+    except Exception:
+        pass
+    mb = page.mediabox
+    pos = T.point(mb.x0, mb.y0)     # esquina de la hoja en CAD
+    label = " | ".join(f"{k}={v}" for k, v in md.items())
+    ent = msp.add_text(label, height=max(2.0, C.TEXT_MIN_HEIGHT_FT), dxfattribs={
+        "layer": layer, "style": "CAD_TEXT", "insert": pos, "rotation": 0})
+    try:
+        ent.set_xdata("PDFCAD", [(1000, f"{k}={v}"[:240]) for k, v in md.items()])
+    except Exception:
+        pass
+    return 1
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Líneas abandonadas -> gris (extensión por proximidad)
+# ─────────────────────────────────────────────────────────────────────────────
+def _entity_dir_mid(pts):
+    """(ángulo 0-180, longitud, punto medio) del segmento extremo-a-extremo."""
+    ax, ay = pts[0]
+    bx, by = pts[-1]
+    dx, dy = bx - ax, by - ay
+    L = math.hypot(dx, dy)
+    ang = math.degrees(math.atan2(dy, dx)) % 180.0
+    return ang, L, ((ax + bx) / 2.0, (ay + by) / 2.0)
+
+
+def recolor_abandoned(msp, dxf, T):
+    """Colorea GRIS las líneas de utilidad ABANDONADAS. Detección por señal
+    universal: los ticks "/" (segmentos cortos y diagonales que cruzan la tubería)
+    y las marcas del OCG …-ABAND (ya enrutadas a la capa gris). Toda la CORRIDA
+    colineal de la tubería que contiene un tick se mueve a la capa …_ABANDONADO
+    (arrastra rayas y letras). Devuelve nº de entidades reasignadas.
+
+    No depende del OCG (el agua no trae -ABAND); funciona por geometría, así que
+    aplica a cualquier utilidad marcada con ticks."""
+    if not getattr(C, "ABANDONED_ENABLED", False):
+        return 0
+    suffix = getattr(C, "ABANDONED_LAYER_SUFFIX", "_ABANDONADO")
+    util = getattr(C, "UTILITY_LINE_LAYERS", set())
+    s = T.scale
+    tick_min = getattr(C, "ABANDONED_TICK_MIN_PT", 4.0) * s
+    tick_max = getattr(C, "ABANDONED_TICK_MAX_PT", 40.0) * s
+    ang_min = getattr(C, "ABANDONED_TICK_ANGLE_MIN", 18.0)
+    perp_tol = getattr(C, "ABANDONED_RUN_PERP_TOL_PT", 4.0) * s
+    ang_tol = getattr(C, "MERGE_ANGLE_TOL_DEG", 3.0)
+    detect_ticks = getattr(C, "ABANDONED_DETECT_TICKS", True)
+    min_ticks = max(1, getattr(C, "ABANDONED_MIN_TICKS", 2))
+
+    from collections import defaultdict
+    # Entidades por capa base de utilidad (incluye las ya grises como ancla).
+    ents_by = defaultdict(list)
+    for e in msp:
+        lyr = e.dxf.layer
+        base = lyr[:-len(suffix)] if lyr.endswith(suffix) else lyr
+        if base in util:
+            pts = _ent_points(e)
+            if pts and len(pts) >= 2:
+                ents_by[base].append((e, pts))
+
+    n = 0
+    for base, items in ents_by.items():
+        anchors = []                       # puntos ancla (ticks + marcas -ABAND)
+        runs = defaultdict(list)           # (akey,pkey) -> [(e, tmin, tmax)]
+        run_geom = {}                      # (akey,pkey) -> (ang,perp,nx,ny,ux,uy)
+        for e, pts in items:
+            ang, L, mid = _entity_dir_mid(pts)
+            if L < 1e-9:
+                continue
+            already = e.dxf.layer.endswith(suffix)
+            aa = ang % 90.0
+            # Un tick "/" es UN solo segmento (2 puntos), corto y diagonal. Las
+            # LETRAS (W/G/SS) son polilíneas multi-vértice -> NO son ticks.
+            is_tick = (detect_ticks and len(pts) == 2 and tick_min <= L <= tick_max
+                       and ang_min < aa < (90.0 - ang_min))
+            if already or is_tick:
+                anchors.append(mid)        # ancla de abandono
+                continue
+            # Raya/letra ortogonal-ish -> agrupar en su corrida colineal.
+            ux, uy = math.cos(math.radians(ang)), math.sin(math.radians(ang))
+            nx, ny = -uy, ux
+            perp = pts[0][0] * nx + pts[0][1] * ny
+            akey, pkey = round(ang / ang_tol), round(perp / max(perp_tol, 1e-6))
+            proj = [p[0] * ux + p[1] * uy for p in pts]
+            runs[(akey, pkey)].append((e, min(proj), max(proj)))
+            run_geom.setdefault((akey, pkey), (ang, perp, nx, ny, ux, uy))
+        if not anchors:
+            continue
+
+        # Corridas con >= min_ticks anclas ENCIMA (ticks periódicos) -> abandonadas.
+        # Una diagonal suelta (lateral) no basta: evita agrisar líneas activas.
+        aband_lines = []
+        for key, members in runs.items():
+            ang, perp, nx, ny, ux, uy = run_geom[key]
+            tmin = min(m[1] for m in members)
+            tmax = max(m[2] for m in members)
+            cnt = 0
+            for (mx, my) in anchors:
+                mp = mx * nx + my * ny
+                mt = mx * ux + my * uy
+                if abs(mp - perp) <= perp_tol and tmin - perp_tol <= mt <= tmax + perp_tol:
+                    cnt += 1
+                    if cnt >= min_ticks:
+                        break
+            if cnt >= min_ticks:
+                aband_lines.append((perp, nx, ny, ux, uy, tmin, tmax))
+        if not aband_lines:
+            continue
+
+        # Segunda pasada: agrisar TODA entidad de la capa (rayas, letras, ticks)
+        # que caiga sobre una línea abandonada (perp <= tol y dentro de la corrida).
+        newl = abandoned_layer(base)
+        for e, pts in items:
+            if e.dxf.layer.endswith(suffix):
+                continue
+            hit = False
+            for (perp, nx, ny, ux, uy, tmin, tmax) in aband_lines:
+                for (px, py) in pts:
+                    if (abs(px * nx + py * ny - perp) <= perp_tol
+                            and tmin - perp_tol <= px * ux + py * uy <= tmax + perp_tol):
+                        hit = True
+                        break
+                if hit:
+                    break
+            if hit:
+                ensure_layer(dxf, newl)
+                e.dxf.layer = newl
+                n += 1
+    return n
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# LEADERS / MULTILEADERS  (flecha + texto)  — entidades CAD nativas
+# ─────────────────────────────────────────────────────────────────────────────
+def _leader_points_pdf(path):
+    """Puntos (pdf) de la polilínea del leader, en orden."""
+    pts = []
+    for it in path.get("items", []):
+        if it[0] == "l":
+            if not pts:
+                pts.append((it[1].x, it[1].y))
+            pts.append((it[2].x, it[2].y))
+        elif it[0] == "c":
+            if not pts:
+                pts.append((it[1].x, it[1].y))
+            pts.append((it[4].x, it[4].y))
+    return pts
+
+
+def _text_lines_pdf(page):
+    """Líneas de texto vivo: [{text, bbox, size}] en coords PDF."""
+    out = []
+    try:
+        blocks = page.get_text("dict", flags=fitz.TEXT_PRESERVE_WHITESPACE)["blocks"]
+    except Exception:
+        return out
+    for b in blocks:
+        if b.get("type") != 0:
+            continue
+        for line in b["lines"]:
+            spans = [s for s in line["spans"] if (s.get("text") or "").strip()]
+            if not spans:
+                continue
+            txt = " ".join((s["text"] or "").strip() for s in spans)
+            x0 = min(s["bbox"][0] for s in spans)
+            y0 = min(s["bbox"][1] for s in spans)
+            x1 = max(s["bbox"][2] for s in spans)
+            y1 = max(s["bbox"][3] for s in spans)
+            out.append({"text": txt, "bbox": (x0, y0, x1, y1), "size": spans[0].get("size", 8)})
+    return out
+
+
+def _pt_box_dist(pt, box):
+    x, y = pt
+    dx = max(box[0] - x, 0.0, x - box[2])
+    dy = max(box[1] - y, 0.0, y - box[3])
+    return math.hypot(dx, dy)
+
+
+def _setup_leader_dimstyle(dxf, arrow_ft):
+    """Crea/ajusta un DIMSTYLE para los LEADER con flecha de 'arrow_ft' pies."""
+    name = "PDFCAD_LDR"
+    try:
+        if name not in dxf.dimstyles:
+            dxf.dimstyles.duplicate_entry("Standard", name)
+        ds = dxf.dimstyles.get(name)
+        ds.dxf.dimasz = arrow_ft       # tamaño de flecha (pies)
+        ds.dxf.dimscale = 1.0
+        return name
+    except Exception:
+        return "Standard"
+
+
+def _setup_mleader_style(dxf, arrow_ft):
+    """Ajusta el estilo de mleader 'Standard' (tamaño de flecha en pies)."""
+    try:
+        st = dxf.mleader_styles.get("Standard")
+        st.dxf.arrow_size = arrow_ft
+    except Exception:
+        pass
+    return "Standard"
+
+
+def build_multileaders(paths, page, msp, dxf, T):
+    """Reconstruye los callouts del PDF como entidades leader NATIVAS, respetando
+    la geometría del PDF (no reflow).
+
+    Modo C.MLEADER_MODE:
+      · "leader" (def): una entidad LEADER con los VÉRTICES EXACTOS del PDF (flecha
+        en la punta que apunta a la utilidad). El TEXTO se deja tal cual (lo coloca
+        add_text en su posición/rotación del PDF) -> fiel.
+      · "multileader": MULTILEADER con auto-layout (agrupa flecha+texto, pero NO
+        respeta la geometría/rotación del PDF; útil solo si se quiere reflowar).
+      · "off": no reconstruir (la línea guía + punta quedan como geometría fiel).
+
+    Empareja cada línea guía con su punta de flecha (path relleno pequeño cercano a
+    un extremo). Devuelve (n_multileader, n_leader, indices_consumidos, cajas_texto).
+    """
+    mode = getattr(C, "MLEADER_MODE", "leader")
+    if not getattr(C, "VECTOR_BUILD_MLEADERS", False) or mode == "off":
+        return 0, 0, set(), []
+
+    tokens = getattr(C, "MLEADER_LEADER_TOKENS", [])
+    arrow_max = getattr(C, "MLEADER_ARROW_MAX_PT", 18.0)
+    pair_tol = getattr(C, "MLEADER_PAIR_TOL_PT", 16.0)
+    snap = getattr(C, "MLEADER_TEXT_SNAP_PT", 55.0)
+    layer = getattr(C, "MLEADER_LAYER", "ANOTACION")
+    arrow_ft = getattr(C, "MLEADER_ARROW_SIZE_FT", 3.0)
+    ensure_layer(dxf, layer)
+
+    # Separar puntas de flecha (paths rellenos pequeños) y líneas guía.
+    arrows, lines = [], []
+    for i, p in enumerate(paths):
+        if not any(t in (p.get("layer") or "") for t in tokens):
+            continue
+        r = p.get("rect")
+        if r is None:
+            continue
+        maxdim = max(r.x1 - r.x0, r.y1 - r.y0)
+        if p.get("fill") is not None and maxdim <= arrow_max:
+            arrows.append((i, ((r.x0 + r.x1) / 2.0, (r.y0 + r.y1) / 2.0)))
+        else:
+            pts = _leader_points_pdf(p)
+            if len(pts) >= 2:
+                lines.append((i, pts))
+
+    consumed_paths, consumed_text = set(), []
+    n_ml = n_ld = 0
+
+    def nearest_arrow(pt):
+        best, bd = None, pair_tol
+        for ai, a in arrows:
+            d = math.hypot(pt[0] - a[0], pt[1] - a[1])
+            if d < bd:
+                bd, best = d, ai
+        return best, bd
+
+    # ── Modo LEADER (fiel a la geometría del PDF) ────────────────────────────
+    if mode == "leader":
+        ldr_style = _setup_leader_dimstyle(dxf, arrow_ft)
+        for (li, pts) in lines:
+            a0, d0 = nearest_arrow(pts[0])
+            a1, d1 = nearest_arrow(pts[-1])
+            if a0 is None and a1 is None:
+                continue                    # sin flecha -> no es leader
+            # Ordenar [punta(flecha), ..., landing]: la flecha va en el 1er vértice.
+            if a0 is not None and (a1 is None or d0 <= d1):
+                verts, arr = list(pts), a0            # flecha en pts[0]
+            else:
+                verts, arr = list(reversed(pts)), a1  # flecha en pts[-1]
+            cad_v = [T.point(x, y) for (x, y) in verts]   # [punta, codo, landing]
+            try:
+                msp.add_leader(cad_v, dxfattribs={"layer": layer, "dimstyle": ldr_style})
+                n_ld += 1
+                consumed_paths.add(li)
+                if arr is not None:
+                    consumed_paths.add(arr)
+            except Exception:
+                pass
+        return 0, n_ld, consumed_paths, consumed_text   # texto se deja tal cual (fiel)
+
+    # ── Modo MULTILEADER (auto-layout; NO fiel) ──────────────────────────────
+    try:
+        from ezdxf.math import Vec2
+        from ezdxf.render.mleader import ConnectionSide, TextAlignment
+    except Exception:
+        return 0, 0, set(), []
+    style = _setup_mleader_style(dxf, arrow_ft)
+    tlines = _text_lines_pdf(page)
+    for (li, pts) in lines:
+        a0, d0 = nearest_arrow(pts[0])
+        a1, d1 = nearest_arrow(pts[-1])
+        if a0 is None and a1 is None:
+            continue
+        if a0 is not None and (a1 is None or d0 <= d1):
+            verts, arr = list(reversed(pts)), a0
+        else:
+            verts, arr = list(pts), a1
+        cad_v = [T.point(x, y) for (x, y) in verts]     # [landing, ..., tip]
+        insert, tip = cad_v[0], cad_v[-1]
+        best, bd = None, snap
+        for tl in tlines:
+            d = _pt_box_dist(verts[0], tl["bbox"])
+            if d < bd:
+                bd, best = d, tl
+        side = ConnectionSide.left if tip[0] < insert[0] else ConnectionSide.right
+        leader_pts = [Vec2(x, y) for (x, y) in cad_v[1:]]
+        ok = False
+        if best is not None:
+            ch = max(best["size"] * T.scale * C.TEXT_SCALE_FACTOR, C.TEXT_MIN_HEIGHT_FT)
+            align = TextAlignment.left if side == ConnectionSide.right else TextAlignment.right
+            try:
+                mb = msp.add_multileader_mtext(style)
+                mb.set_content(best["text"], char_height=ch, alignment=align)
+                mb.add_leader_line(side, leader_pts)
+                mb.build(insert=Vec2(insert[0], insert[1]))
+                try:
+                    mb.multileader.dxf.layer = layer
+                except Exception:
+                    pass
+                consumed_text.append(best["bbox"])
+                n_ml += 1
+                ok = True
+            except Exception:
+                ok = False
+        if not ok and best is None:
+            try:
+                msp.add_leader([tuple(p) for p in cad_v], dxfattribs={"layer": layer})
+                n_ld += 1
+                ok = True
+            except Exception:
+                ok = False
+        if ok:
+            consumed_paths.add(li)
+            if arr is not None:
+                consumed_paths.add(arr)
+    return n_ml, n_ld, consumed_paths, consumed_text
+
+
+# ─────────────────────────────────────────────────────────────────────────────
 # Entrada principal de la ruta vectorizada
 # ─────────────────────────────────────────────────────────────────────────────
 def run(page, dxf_doc):
@@ -1017,6 +1699,16 @@ def run(page, dxf_doc):
     collector = LayerSegmentCollector()
     paths = page.get_drawings()
     has_ocg = any(p.get("layer") for p in paths)
+
+    # Zonas de exclusión por contenido (leyenda de pothole + membrete de título):
+    # su geometría y anotación NO se digitalizan. La metadata del membrete SÍ se lee.
+    zones = build_exclusion_zones(page)
+    if zones:
+        tags = ", ".join(sorted({t for t, _ in zones}))
+        print(f"   Zonas de exclusión detectadas: {len(zones)} ({tags})")
+    metadata = extract_titleblock_metadata(page)
+    if metadata:
+        print(f"   Metadata del membrete: {metadata}")
 
     # PDF aplanado sin texto vivo: leer los callouts por OCR ANTES de la geometría,
     # para poder suprimir los trazos del texto original con sus cajas.
@@ -1036,12 +1728,27 @@ def run(page, dxf_doc):
             # leídos los filtra is_garbage por contenido.
             callouts = callout_ocr.dedupe_for_placement(detected, C.VECTOR_OCR_MIN_CONF, [])
 
-    for path in paths:
-        process_path(collector, path, dxf_doc, T, has_ocg, text_boxes)
+    # LEADERS / MULTILEADERS: reconstruir los callouts (flecha + texto) como
+    # entidades CAD nativas ANTES de dibujar geometría/texto, para no duplicarlos.
+    ml_paths, ml_text = set(), []
+    if getattr(C, "VECTOR_BUILD_MLEADERS", False) and has_ocg and live_text:
+        n_ml, n_ld, ml_paths, ml_text = build_multileaders(paths, page, msp, dxf_doc, T)
+        if n_ml or n_ld:
+            print(f"   Leaders reconstruidos (modo {getattr(C,'MLEADER_MODE','leader')}): "
+                  f"{n_ld} LEADER, {n_ml} MULTILEADER  (texto: "
+                  f"{'fiel del PDF' if not ml_text else 'MTEXT del multileader'})")
+
+    for i, path in enumerate(paths):
+        if i in ml_paths:
+            continue                       # ya representado como (multi)leader
+        process_path(collector, path, dxf_doc, T, has_ocg, text_boxes, zones)
     n_geom = collector.flush(msp, dxf_doc, T)
 
-    is_annotation = build_text_filter(page)
+    is_annotation = build_text_filter(page, zones, ml_text)
     n_text = add_text(msp, page, dxf_doc, T, is_annotation)
+
+    # Metadata del membrete -> XDATA en capa METADATA (el cajetín no se dibuja).
+    add_metadata_entity(msp, dxf_doc, T, page, metadata)
 
     # Adjuntar la nomenclatura (validada/expandida) a la línea de tubería cercana.
     n_xd = attach_callout_xdata(msp, dxf_doc, T)
@@ -1051,7 +1758,6 @@ def run(page, dxf_doc):
     if callouts:
         import callout_ocr
         n_text = callout_ocr.add_text_layer(msp, dxf_doc, callouts)
-        n_clf = classify_utilities(msp, dxf_doc, T, callouts)
         print(f"   OCR de callouts: {len(text_boxes)} textos suprimidos, "
               f"{len(callouts)} etiquetas colocadas (cotas omitidas)")
         print(f"   Utilidades clasificadas por flecha+texto: {dict(n_clf)}")
@@ -1062,6 +1768,11 @@ def run(page, dxf_doc):
         if overlays:
             n_ov = reassign_under_overlays(msp, dxf_doc, T, overlays)
             print(f"   Marcas de color transferidas a la línea de abajo: {dict(n_ov)}")
+
+    # Líneas ABANDONADAS -> extender el gris a las rayas EXIS vecinas.
+    n_ab = recolor_abandoned(msp, dxf_doc, T)
+    if n_ab:
+        print(f"   Líneas abandonadas -> gris: {n_ab} entidades arrastradas por proximidad")
 
     mb = page.mediabox
     if page.rotation in (90, 270):
@@ -1076,4 +1787,6 @@ def run(page, dxf_doc):
         "n_text": n_text,
         "extent_ft": (round(disp_w_ft), round(disp_h_ft)),
         "callouts": callouts,
+        "exclusion_zones_cad": zones_to_cad(zones, T),
+        "metadata": metadata,
     }
