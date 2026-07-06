@@ -16,7 +16,7 @@ from PySide6 import QtCore, QtGui, QtWidgets
 import config as C
 import vector_pipeline as VP
 
-VERSION = "0.3.0"
+VERSION = "0.3.1"
 
 TIPOS = [
     ("Agua (W)", "AGUA"), ("Alcantarillado (SS)", "ALCANTARILLADO"),
@@ -35,6 +35,17 @@ BTN_OFF = "background:#3c5a99;color:white;padding:8px;border-radius:4px;"
 Z_PDF, Z_ERASE, Z_MARK, Z_HANDLE = 0, 1, 5, 8
 
 CHANGELOG = [
+    ("0.3.1", [
+        ("added", "En el cambiador de páginas se puede escribir un número de página y dar Enter."),
+        ("fixed", "El editor de texto es una caja flotante: Enter aplica y clic fuera también dibuja el texto."),
+        ("fixed", "El botón de aumentar la altura del texto ya funciona (se agregaron botones − / +)."),
+        ("fixed", "Multileader vertical y horizontal ahora son perfectamente rectos y la punta de flecha sale recta."),
+        ("fixed", "La landing del Multileader se adapta al largo del texto."),
+        ("fixed", "En Diagonal el texto ya no se cruza con la landing (queda encima)."),
+        ("fixed", "Editar Multileader: Ctrl+Shift+Enter hace salto de línea al otro lado de la landing."),
+        ("fixed", "Al cambiar de hoja los textos y Multileaders ya no se dibujan gigantes (tamaño acotado)."),
+        ("fixed", "Extender desde un vértice (forma de F) tolera el temblor del ratón al hacer clic."),
+    ]),
     ("0.3.0", [
         ("fixed", "Navegación de páginas con botones ◀ ▶ (ya no hay que escribir el número primero)."),
         ("fixed", "El texto libre se agrega con Enter; ya no depende de hacer clic en el panel."),
@@ -283,7 +294,7 @@ class Main(QtWidgets.QMainWindow):
         self.canvas = Canvas(self); self.canvas.clicked.connect(self.on_click)
         self.canvas.dbl.connect(self.on_dblclick); self.setCentralWidget(self.canvas)
         self.zoom = 3.5; self.scale = 20 / 72.0; self.rot = 0; self.W = 0; self.H = 0
-        self.derot = fitz.Matrix(1, 0, 0, 1, 0, 0); self.gray = None; self.page_idx = 0
+        self.derot = fitz.Matrix(1, 0, 0, 1, 0, 0); self.gray = None; self.page_idx = 0; self.pageH_px = 0
         self.pdf_path = None; self.doc = None; self.project_path = None; self.leader_hpx = 40
         self.cur_pts = []; self.pipes = []; self.leaders = []; self.text_marks = []
         self.erase_regions = []; self._erase_pts = []
@@ -292,7 +303,7 @@ class Main(QtWidgets.QMainWindow):
         self.show_text_boxes = False; self.ocr_boxes = []; self._tess_boxes = []; self._icr_boxes = []
         self.sel_pipe = -1; self.sel_leader = -1; self.sel_region = -1; self.sel_text = -1; self._no_center = False
         self._move0 = None; self._drag_vertex = None; self._edit_pts = None; self._edit_closed = False
-        self._move_kind = None; self._moved = False
+        self._move_kind = None; self._moved = False; self._press_xy = None; self._last_xy = None
         self._extending = False; self._ext_layer = None
         self._editor = None; self._undo, self._redo, self._overlay = [], [], []
         self._dirty = False; self._style_guard = False
@@ -321,8 +332,11 @@ class Main(QtWidgets.QMainWindow):
         tb = self.addToolBar("Vista")
         self.btn_prev = QtWidgets.QPushButton("◀"); self.btn_prev.setFixedWidth(36); self.btn_prev.clicked.connect(self._prev_page)
         self.btn_next = QtWidgets.QPushButton("▶"); self.btn_next.setFixedWidth(36); self.btn_next.clicked.connect(self._next_page)
-        self.lbl_page = QtWidgets.QLabel(" Página — / — ")
-        tb.addWidget(self.btn_prev); tb.addWidget(self.lbl_page); tb.addWidget(self.btn_next)
+        tb.addWidget(QtWidgets.QLabel(" Página ")); tb.addWidget(self.btn_prev)
+        self.page_edit = QtWidgets.QLineEdit(); self.page_edit.setFixedWidth(48); self.page_edit.setAlignment(QtCore.Qt.AlignCenter)
+        self.page_edit.setToolTip("Escribe un número de página y pulsa Enter")
+        self.page_edit.returnPressed.connect(self._goto_page_edit); tb.addWidget(self.page_edit)
+        self.lbl_page = QtWidgets.QLabel(" / — "); tb.addWidget(self.lbl_page); tb.addWidget(self.btn_next)
         tb.addSeparator()
         self.chk_snap = QtWidgets.QCheckBox("Imán al trazo"); self.chk_snap.toggled.connect(lambda v: setattr(self, "snap", v))
         tb.addWidget(self.chk_snap)
@@ -359,8 +373,12 @@ class Main(QtWidgets.QMainWindow):
         self.font_combo = QtWidgets.QFontComboBox(); self.font_combo.setCurrentFont(QtGui.QFont(C.TEXT_FONT))
         self.font_combo.currentFontChanged.connect(lambda _: self._style_changed())
         r = QtWidgets.QHBoxLayout(); r.addWidget(QtWidgets.QLabel("Altura (pies):"))
+        b_minus = QtWidgets.QPushButton("−"); b_minus.setFixedWidth(30); b_minus.clicked.connect(lambda: self._bump_size(-0.5))
         self.size_spin = QtWidgets.QDoubleSpinBox(); self.size_spin.setRange(0.5, 200); self.size_spin.setValue(3.0)
-        self.size_spin.valueChanged.connect(lambda _: self._style_changed()); r.addWidget(self.size_spin)
+        self.size_spin.setSingleStep(0.5); self.size_spin.setMinimumHeight(28)
+        self.size_spin.valueChanged.connect(lambda _: self._style_changed())
+        b_plus = QtWidgets.QPushButton("+"); b_plus.setFixedWidth(30); b_plus.clicked.connect(lambda: self._bump_size(0.5))
+        r.addWidget(b_minus); r.addWidget(self.size_spin); r.addWidget(b_plus)
         self.chk_bold = QtWidgets.QCheckBox("Negrita"); self.chk_bold.toggled.connect(lambda _: self._style_changed())
         lgx.addWidget(self.font_combo); lgx.addLayout(r); lgx.addWidget(self.chk_bold)
         lgx.addWidget(QtWidgets.QLabel("<i>Enter aplica · Ctrl+Shift+Enter salta de línea</i>"))
@@ -439,11 +457,24 @@ class Main(QtWidgets.QMainWindow):
     # ─────────────────────────── páginas ───────────────────────────
     def _update_page_label(self):
         if self.doc:
-            self.lbl_page.setText(f" Página {self.page_idx + 1} / {self.doc.page_count} ")
+            self.page_edit.setText(str(self.page_idx + 1)); self.lbl_page.setText(f" / {self.doc.page_count} ")
+            self.page_edit.setEnabled(True)
             self.btn_prev.setEnabled(self.page_idx > 0)
             self.btn_next.setEnabled(self.page_idx < self.doc.page_count - 1)
         else:
-            self.lbl_page.setText(" Página — / — "); self.btn_prev.setEnabled(False); self.btn_next.setEnabled(False)
+            self.page_edit.setText(""); self.page_edit.setEnabled(False); self.lbl_page.setText(" / — ")
+            self.btn_prev.setEnabled(False); self.btn_next.setEnabled(False)
+
+    def _goto_page_edit(self):
+        if not self.doc: return
+        try: n = int(self.page_edit.text()) - 1
+        except ValueError: self._update_page_label(); return
+        n = max(0, min(n, self.doc.page_count - 1))
+        if n != self.page_idx:
+            if not self._confirm_discard(): self._update_page_label(); return
+            self.page_idx = n; self._load_page(n)
+        else:
+            self._update_page_label()
 
     def _prev_page(self):
         if self.doc and self.page_idx > 0:
@@ -567,15 +598,19 @@ class Main(QtWidgets.QMainWindow):
         finally: self._unbusy()
 
     def _load_page(self, idx):
+        self._close_editor()
         page = self.doc[idx]; self.page_idx = idx; self.scale = VP.detect_scale(page)
         self.rot = page.rotation; mbx = page.mediabox; self.W, self.H = mbx.width, mbx.height
-        self.derot = page.derotation_matrix; self.leader_hpx = LEADER_TEXT_FT / self.scale * self.zoom
+        self.derot = page.derotation_matrix
         pix = page.get_pixmap(matrix=fitz.Matrix(self.zoom, self.zoom), alpha=False)
+        self.pageH_px = pix.height
+        # tamaño de marca acotado: evita textos/Multileaders gigantes por escala mal detectada
+        self.leader_hpx = max(14.0, min(LEADER_TEXT_FT / self.scale * self.zoom, self.pageH_px * 0.05))
         buf = bytes(pix.samples)
         qimg = QtGui.QImage(buf, pix.width, pix.height, pix.stride, QtGui.QImage.Format_RGB888).copy()
         arr = np.frombuffer(buf, np.uint8).reshape(pix.height, pix.stride)[:, :pix.width * 3].reshape(pix.height, pix.width, 3)
         self.gray = (0.299 * arr[:, :, 0] + 0.587 * arr[:, :, 1] + 0.114 * arr[:, :, 2]).astype(np.uint8)
-        self._overlay = []; self._editor = None
+        self._overlay = []
         self.canvas.set_image(qimg)
         self._reset_model(); self._update_page_label(); self._info(f"Página {idx + 1} · escala 1\"={self.scale*72:.0f}'")
 
@@ -583,7 +618,7 @@ class Main(QtWidgets.QMainWindow):
         self.cur_pts = []; self.pipes = []; self.leaders = []; self.text_marks = []
         self.erase_regions = []; self._erase_pts = []
         self.sel_pipe = self.sel_leader = self.sel_region = self.sel_text = -1
-        self._overlay = []; self._editor = None; self._dirty = False; self._extending = False
+        self._overlay = []; self._close_editor(); self._dirty = False; self._extending = False
         self._undo.clear(); self._redo.clear(); self.ocr_boxes = []; self._tess_boxes = []; self._icr_boxes = []
         self.set_mode("idle"); self._refresh_lists(); self._redraw()
 
@@ -627,11 +662,12 @@ class Main(QtWidgets.QMainWindow):
             with zipfile.ZipFile(path) as z:
                 model = json.loads(z.read("model.json")); png = z.read("page.png")
             qimg = QtGui.QImage.fromData(png, "PNG")
-            self._overlay = []; self._editor = None
+            self._overlay = []; self._close_editor()
             self.canvas.set_image(qimg); self.gray = qimage_to_gray(qimg)
             tf = model["tf"]; self.scale = tf["scale"]; self.zoom = tf["zoom"]; self.rot = tf["rot"]
             self.W, self.H = tf["W"], tf["H"]; self.derot = fitz.Matrix(*tf["derot"])
-            self.leader_hpx = LEADER_TEXT_FT / self.scale * self.zoom
+            self.pageH_px = qimg.height()
+            self.leader_hpx = max(14.0, min(LEADER_TEXT_FT / self.scale * self.zoom, self.pageH_px * 0.05))
             self.pdf_path = None; self.doc = None; self.project_path = path; self.page_idx = 0
             self.pipes = model.get("pipes", []); self.leaders = model.get("leaders", [])
             self.text_marks = model.get("text_marks", [])
@@ -662,7 +698,7 @@ class Main(QtWidgets.QMainWindow):
         self.canvas.scene().clear(); self.canvas.pixmap_item = None
         self.pdf_path = None; self.doc = None; self.project_path = None; self.gray = None
         self.pipes = []; self.leaders = []; self.text_marks = []; self.erase_regions = []
-        self.cur_pts = []; self._erase_pts = []; self._overlay = []; self._editor = None
+        self.cur_pts = []; self._erase_pts = []; self._overlay = []; self._close_editor()
         self.sel_pipe = self.sel_leader = self.sel_region = self.sel_text = -1
         self.ocr_boxes = []; self._tess_boxes = []; self._icr_boxes = []
         self._undo.clear(); self._redo.clear(); self._dirty = False; self.show_text_boxes = False
@@ -688,6 +724,7 @@ class Main(QtWidgets.QMainWindow):
         elif self.mode == "erase":
             self._erase_pts.append((x, y)); self._update_ui(); self._redraw()
         elif self.mode == "text":
+            if self._editor is not None: return   # el clic confirma el texto abierto (no abre otro)
             self._new_free_text(x, y)
         elif self.mode == "leader1":
             self._pending["arrow"] = self._snap(x, y); self.mode = "leader2"; self._update_ui()
@@ -701,16 +738,21 @@ class Main(QtWidgets.QMainWindow):
         if self.mode not in ("idle", "move"): return
         thr = 14.0 / max(1e-6, self.canvas.transform().m11())
         for i, ld in enumerate(self.leaders):
-            if ld.get("tp") and math.hypot(ld["tp"][0] - x, ld["tp"][1] - y) < thr:
+            if not (ld.get("arrow") and ld.get("tp")): continue
+            geo = self._leader_geo(ld); lx, ly = geo["label_pos"]; H = geo["H"]
+            lines = ld["text"].split("\n"); tw = max((len(s) for s in lines), default=1) * H * 0.55; th = len(lines) * H
+            hit_text = (lx - 8 <= x <= lx + tw + 8 and ly - 8 <= y <= ly + th + 8)
+            if hit_text or math.hypot(ld["tp"][0] - x, ld["tp"][1] - y) < thr:
                 self._edit_leader_text(i); return
         for i, tm in enumerate(self.text_marks):
             if self._text_hit(tm, x, y):
                 self._edit_text_mark(i); return
 
     def _text_hit(self, tm, x, y):
-        h = tm.get("h", 16); lines = tm["text"].split("\n")
+        h = self._px_for_ft(tm["size_ft"]) if "size_ft" in tm else tm.get("h", 16)
+        lines = tm["text"].split("\n")
         w = max((len(s) for s in lines), default=1) * h * 0.55; th = len(lines) * h
-        px, py = tm["pos"]; return px - 4 <= x <= px + w + 4 and py - 4 <= y <= py + th + 4
+        px, py = tm["pos"]; return px - 6 <= x <= px + w + 6 and py - 6 <= y <= py + th + 6
 
     def _pick(self, x, y):
         for i, tm in enumerate(self.text_marks):        # textos primero (blancos pequeños)
@@ -755,7 +797,8 @@ class Main(QtWidgets.QMainWindow):
     def begin_move(self, x, y):
         kind = self._current_kind()
         if not kind: return
-        self._push(); self._moved = False; self._move_kind = kind; thr = self._thr()
+        self._push(); self._moved = False; self._move_kind = kind
+        self._press_xy = (x, y); self._last_xy = (x, y); thr = self._thr()
         if kind == "text":
             self._move0 = (x, y); self._drag_vertex = None; self._edit_pts = None; return
         pts = self.pipes[self.sel_pipe]["pts"] if kind == "pipe" else self.erase_regions[self.sel_region]["pts"]
@@ -776,7 +819,7 @@ class Main(QtWidgets.QMainWindow):
         self._drag_vertex = None; self._move0 = (x, y)
 
     def do_move(self, x, y):
-        self._moved = True
+        self._moved = True; self._last_xy = (x, y)
         if self._move_kind == "text" and 0 <= self.sel_text < len(self.text_marks):
             if self._move0:
                 dx, dy = x - self._move0[0], y - self._move0[1]; self._move0 = (x, y)
@@ -793,8 +836,10 @@ class Main(QtWidgets.QMainWindow):
             self._redraw()
 
     def end_move(self):
-        # clic (sin arrastrar) sobre un vértice de una tubería → extender en forma de F
-        if (self._move_kind == "pipe" and not self._moved and self._drag_vertex is not None
+        # clic (casi sin arrastrar) sobre un vértice de una tubería → extender en forma de F
+        dist = math.hypot(self._last_xy[0] - self._press_xy[0], self._last_xy[1] - self._press_xy[1]) \
+            if (self._last_xy and self._press_xy) else 0
+        if (self._move_kind == "pipe" and self._drag_vertex is not None and dist < 6
                 and 0 <= self.sel_pipe < len(self.pipes)):
             vpos = self.pipes[self.sel_pipe]["pts"][self._drag_vertex]
             self._ext_layer = self.pipes[self.sel_pipe]["layer"]; self._extending = True
@@ -858,6 +903,14 @@ class Main(QtWidgets.QMainWindow):
         r = self.region_list.row(item)
         if 0 <= r < len(self.erase_regions):
             self.erase_regions[r]["enabled"] = (item.checkState() == QtCore.Qt.Checked); self._dirty = True; self._redraw()
+
+    def _bump_size(self, delta):
+        self.size_spin.setValue(round(max(0.5, self.size_spin.value() + delta), 2))
+
+    def _px_for_ft(self, ft):
+        raw = ft / self.scale * self.zoom if self.scale else ft * self.zoom
+        cap = self.pageH_px * 0.06 if self.pageH_px else 200
+        return max(8.0, min(raw, cap))
 
     def _style_changed(self):
         if self._style_guard: return
@@ -941,28 +994,34 @@ class Main(QtWidgets.QMainWindow):
         self._open_editor(tp[0], tp[1] - self.leader_hpx, ld["text"], commit)
 
     def _leader_geo(self, ld):
-        """Geometría del Multileader (px). Devuelve dict con: segs (preview),
-        label_pos, rot (texto), side (conexión CAD), verts_px (línea de la flecha),
-        insert_px (texto), dogleg (pies), H."""
+        """Geometría del Multileader (px). Devuelve: segs (preview), label_pos, rot,
+        side (conexión CAD), verts_px (línea de la flecha), insert_px, dogleg (pies), H.
+        La punta de flecha se orienta con segs[0][1] (el punto contiguo a la flecha)."""
         ax, ay = ld["arrow"]; tx, ty = ld["tp"]; H = self.leader_hpx
-        maxlen = max((len(s) for s in ld["text"].split("\n")), default=1); nlines = ld["text"].count("\n") + 1
-        tw = maxlen * H * 0.55; th = nlines * H; gap = H * 0.4; orient = ld.get("orient", "h")
-        if orient == "v":                            # recto vertical, texto vertical pegado
-            side = "top" if ty < ay else "bottom"
-            lbl = (ax + H * 0.15, ty) if side == "top" else (ax - H * 0.15, ty)
-            return dict(segs=[[(ax, ay), (ax, ty)]], label_pos=lbl, rot=-90, side=side,
-                        verts_px=[(ax, ay)], insert_px=(ax, ty), dogleg=0.0, H=H)
-        if orient == "h":                            # recto horizontal
-            right = tx >= ax; ex = (tx, ay)
-            side = "right" if right else "left"
-            lbl = (ex[0] + gap, ay - th / 2) if right else (ex[0] - gap - tw, ay - th / 2)
-            return dict(segs=[[(ax, ay), ex]], label_pos=lbl, rot=0, side=side,
-                        verts_px=[(ax, ay)], insert_px=(ex[0] + (gap if right else -gap), ay), dogleg=0.0, H=H)
-        # diagonal con landing (comportamiento anterior del "horizontal")
-        right = tx >= ax; sgn = 1 if right else -1; lx = tx + sgn * tw; ly = ty
+        lines = ld["text"].split("\n"); maxlen = max((len(s) for s in lines), default=1); nlines = len(lines)
+        tw = max(maxlen * H * 0.55, H); th = nlines * H; gap = H * 0.45; orient = ld.get("orient", "h")
+        if orient == "v":                                  # recto vertical, texto vertical pegado
+            signY = -1 if ty < ay else 1
+            length = max(abs(ty - ay), tw + gap)           # la landing se adapta al texto
+            ey = ay + signY * length
+            side = "top" if signY < 0 else "bottom"
+            lbl = (ax + gap, ey + (tw if signY < 0 else 0))
+            return dict(segs=[[(ax, ay), (ax, ey)]], label_pos=lbl, rot=-90, side=side,
+                        verts_px=[(ax, ay)], insert_px=(ax, ey), dogleg=0.0, H=H)
+        if orient == "h":                                  # recto horizontal
+            signX = 1 if tx >= ax else -1
+            length = max(abs(tx - ax), tw + gap)
+            ex = ax + signX * length; side = "right" if signX > 0 else "left"
+            lbl = (ex + gap, ay - th / 2) if signX > 0 else (ex - gap - tw, ay - th / 2)
+            return dict(segs=[[(ax, ay), (ex, ay)]], label_pos=lbl, rot=0, side=side,
+                        verts_px=[(ax, ay)], insert_px=(ex + signX * gap, ay), dogleg=0.0, H=H)
+        # diagonal: flecha → 2º clic → landing horizontal → texto ENCIMA del landing
+        right = tx >= ax; sgn = 1 if right else -1
+        lx = tx + sgn * (tw + gap); text_x = min(tx, lx) + gap
         side = "right" if right else "left"
-        lbl = (tx + gap, ty - th) if right else (tx - gap - tw, ty - th)   # encima del landing
-        return dict(segs=[[(ax, ay), (tx, ty), (lx, ly)]], label_pos=lbl, rot=0, side=side,
+        # la 1ª línea queda ENCIMA del landing; las líneas extra caen al otro lado
+        lbl = (text_x, ty - H - gap * 0.7)
+        return dict(segs=[[(ax, ay), (tx, ty), (lx, ty)]], label_pos=lbl, rot=0, side=side,
                     verts_px=[(ax, ay), (tx, ty)], insert_px=(tx + sgn * gap, ty), dogleg=LEADER_TEXT_FT * 1.5, H=H)
 
     # ─────────────────────────── texto libre ───────────────────────────
@@ -988,16 +1047,20 @@ class Main(QtWidgets.QMainWindow):
         self._open_editor(tm["pos"][0], tm["pos"][1], tm["text"], commit)
 
     def _open_editor(self, x, y, initial, on_commit, w=220):
+        # Caja flotante hija del viewport (no escala con el zoom y recibe el teclado
+        # de forma fiable: Enter aplica, Ctrl+Shift+Enter salta de línea, clic fuera aplica).
         self._close_editor()
-        ed = InlineEdit(initial); ed.setFixedWidth(w); ed.setFixedHeight(70)
-        proxy = self.canvas.scene().addWidget(ed); proxy.setPos(x, y); proxy.setZValue(Z_HANDLE + 1)
-        ed.committed.connect(on_commit); self._editor = proxy
+        ed = InlineEdit(initial); ed.setParent(self.canvas.viewport())
+        ed.setFixedWidth(w); ed.setFixedHeight(64)
+        vp = self.canvas.mapFromScene(QtCore.QPointF(x, y))
+        ed.move(vp); ed.show(); ed.raise_()
+        ed.committed.connect(on_commit); self._editor = ed
         ed.setFocus(QtCore.Qt.OtherFocusReason); ed.selectAll()
 
     def _close_editor(self):
         if self._editor:
             ed = self._editor; self._editor = None
-            try: self.canvas.scene().removeItem(ed)
+            try: ed.hide(); ed.deleteLater()
             except Exception: pass
 
     # ─────────────────────────── OCR / ICR ───────────────────────────
@@ -1094,7 +1157,7 @@ class Main(QtWidgets.QMainWindow):
             col = QtGui.QColor(120, 220, 120) if i == self.sel_leader else anno
             geo = self._leader_geo(ld)
             for s in geo["segs"]: self._poly(s, col, 1.6, z=Z_MARK)
-            self._arrow(ld["arrow"], geo["verts_px"][-1] if len(geo["verts_px"]) > 1 else ld["tp"], col)
+            self._arrow(ld["arrow"], geo["segs"][0][1], col)   # punta orientada a lo largo de la línea
             t = sc.addText(ld["text"]); t.setDefaultTextColor(col)
             f = t.font(); f.setPixelSize(int(geo["H"])); t.setFont(f)
             if geo["rot"]: t.setRotation(geo["rot"])
@@ -1106,10 +1169,9 @@ class Main(QtWidgets.QMainWindow):
                 it = sc.addRect(rect, pen); it.setZValue(Z_MARK); self._overlay.append(it)
         # textos
         for i, tm in enumerate(self.text_marks):
-            t = sc.addText(tm["text"])
-            col = QtGui.QColor(120, 220, 120) if i == self.sel_text and self.tabs.currentIndex() == 2 else QtGui.QColor(120, 220, 120)
-            t.setDefaultTextColor(col)
-            f = t.font(); f.setPixelSize(int(tm.get("h", 16)))
+            t = sc.addText(tm["text"]); t.setDefaultTextColor(QtGui.QColor(120, 220, 120))
+            hpx = self._px_for_ft(tm["size_ft"]) if "size_ft" in tm else tm.get("h", 16)
+            f = t.font(); f.setPixelSize(max(6, int(hpx)))
             if tm.get("font"): f.setFamily(tm["font"])
             f.setBold(bool(tm.get("bold"))); t.setFont(f)
             t.setPos(tm["pos"][0], tm["pos"][1]); t.setZValue(Z_MARK); self._overlay.append(t)
@@ -1250,8 +1312,8 @@ class Main(QtWidgets.QMainWindow):
         geo = self._leader_geo(ld); ents = []
         for s in geo["segs"]:
             ents.append(msp.add_lwpolyline([self._to_cad(x, y) for (x, y) in s], dxfattribs={"layer": "ANOTACION"}))
-        a = self._to_cad(*ld["arrow"]); nxt = geo["verts_px"][-1] if len(geo["verts_px"]) > 1 else ld["tp"]
-        b = self._to_cad(*nxt); ang = math.atan2(a[1] - b[1], a[0] - b[0]); L = LEADER_TEXT_FT * 0.8
+        a = self._to_cad(*ld["arrow"]); b = self._to_cad(*geo["segs"][0][1])
+        ang = math.atan2(a[1] - b[1], a[0] - b[0]); L = LEADER_TEXT_FT * 0.8
         p1 = (a[0] - L * math.cos(ang - 0.4), a[1] - L * math.sin(ang - 0.4))
         p2 = (a[0] - L * math.cos(ang + 0.4), a[1] - L * math.sin(ang + 0.4))
         ents.append(msp.add_solid([a, p1, p2, a], dxfattribs={"layer": "ANOTACION"}))
