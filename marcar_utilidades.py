@@ -16,7 +16,7 @@ from PySide6 import QtCore, QtGui, QtWidgets
 import config as C
 import vector_pipeline as VP
 
-VERSION = "0.5.0"
+VERSION = "0.5.1"
 
 TIPOS = [
     ("Agua (W)", "AGUA"), ("Alcantarillado (SS)", "ALCANTARILLADO"),
@@ -35,6 +35,9 @@ BTN_OFF = "background:#3c5a99;color:white;padding:8px;border-radius:4px;"
 Z_PDF, Z_ERASE, Z_MARK, Z_HANDLE = 0, 1, 5, 8
 
 CHANGELOG = [
+    ("0.5.1", [
+        ("added", "El tipo de utilidad ahora es un menú desplegable (con su color), más compacto."),
+    ]),
     ("0.5.0", [
         ("added", "El Multileader tiene estilo de texto propio (fuente, altura, negrita) editable, y se exporta a CAD con ese estilo."),
         ("added", "Extender vértice sin ventana emergente: casilla 'continuar la misma utilidad' (si es un extremo) o rama nueva."),
@@ -404,15 +407,14 @@ class Main(QtWidgets.QMainWindow):
         # 3) Tipo de utilidad
         section("Tipo de utilidad")
         self.gt = QtWidgets.QWidget(); lgt = QtWidgets.QVBoxLayout(self.gt); lgt.setContentsMargins(0, 0, 0, 0)
-        self.type_list = QtWidgets.QListWidget(); self.type_list.setMaximumHeight(180)
+        self.type_combo = QtWidgets.QComboBox()
         for label, layer in TIPOS:
-            it = QtWidgets.QListWidgetItem(swatch_icon(layer_qcolor(layer)), label)
-            it.setData(QtCore.Qt.UserRole, layer); it.setForeground(QtGui.QColor("white")); self.type_list.addItem(it)
-        self.type_list.setCurrentRow(0); self.type_list.currentRowChanged.connect(lambda _: self._redraw())
+            self.type_combo.addItem(swatch_icon(layer_qcolor(layer)), label, layer)
+        self.type_combo.setCurrentIndex(0); self.type_combo.currentIndexChanged.connect(lambda _: self._redraw())
         self.chk_ab = QtWidgets.QCheckBox("Abandonado (línea ──/── W ──)")
         self.chk_ext_same = QtWidgets.QCheckBox("Al extender un extremo: continuar la misma utilidad")
         self.chk_ext_same.setChecked(True)
-        lgt.addWidget(self.type_list); lgt.addWidget(self.chk_ab); lgt.addWidget(self.chk_ext_same); v.addWidget(self.gt)
+        lgt.addWidget(self.type_combo); lgt.addWidget(self.chk_ab); lgt.addWidget(self.chk_ext_same); v.addWidget(self.gt)
 
         # 4) Panel de Multileader
         self.ga = QtWidgets.QGroupBox("Multileader"); lga = QtWidgets.QVBoxLayout(self.ga)
@@ -648,7 +650,7 @@ class Main(QtWidgets.QMainWindow):
     def toggle_text_mode(self): self.set_mode("idle" if self.mode == "text" else "text")
     def toggle_erase(self): self.set_mode("idle" if self.mode == "erase" else "erase")
     def active_layer(self):
-        it = self.type_list.currentItem(); return it.data(QtCore.Qt.UserRole) if it else "AGUA"
+        d = self.type_combo.currentData(); return d if d else "AGUA"
 
     def _toggle_custom(self, on):
         self.txt_edit.setEnabled(on); self.text_list.setEnabled(not on)
