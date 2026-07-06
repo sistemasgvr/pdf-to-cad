@@ -12,26 +12,50 @@ Hay dos perfiles:
 # ─────────────────────────────────────────────────────────────────────────────
 # ESQUEMA DE CAPAS DE SALIDA (DXF)
 # ─────────────────────────────────────────────────────────────────────────────
-# Nombre de capa de destino -> color ACI de AutoCAD.
-# Colores alineados con la convención pedida:
-#   azul=agua, café=alcantarillado, amarillo=gas, negro=vía.
-# Convención de color pedida por utilidad:
-#   Agua = celeste (cian, ACI 4) · Desagüe/Alcantarillado = amarillo (ACI 2)
-#   Drenaje/Storm = verde (ACI 3)
-# Convención de color + linetype pedida por utilidad (ver LAYER_LINETYPE):
-#   W  Agua            = Azul     · SS Alcantarillado = Verde
-#   G  Gas             = Amarillo · E  Eléctrico       = Rojo
-#   T  Telefonía       = Naranja  · T(OH) Tel. aérea   = Naranja (linetype distinto)
-#   E(OH) Eléc. aérea  = Rojo (linetype distinto) · SD Drenaje = Verde (linetype distinto)
+# ╔═══════════════════════════════════════════════════════════════════════════╗
+# ║  TABLA MAESTRA — TOKEN DE LÍNEA DE SERVICIO -> CAPA DXF -> COLOR ACI        ║
+# ║  (referencia para el próximo ajuste; editar aquí, no en vector_pipeline.py) ║
+# ╠═══════════════════════════════════════════════════════════════════════════╣
+# ║  Token      Servicio                          Capa DXF          Color ACI  ║
+# ║  --W--      Agua potable                       AGUA              Azul   (5) ║
+# ║  --SS--     Alcantarillado sanitario           ALCANTARILLADO    Verde  (3) ║
+# ║  --SD--     Drenaje pluvial (storm drain)       DRENAJE_PLUVIAL   Verde  (3) ║
+# ║  --G--      Gas                                 GAS               Amaril.(2) ║
+# ║  --E--      Electricidad subterránea            ELECTRICO         Rojo   (1) ║
+# ║  --E(OH)--  Electricidad aérea (overhead)        ELECTRICO_AEREO   Rojo   (1) ║
+# ║  --T--      Telecom/teléfono subterránea         TELECOM           Naranja(30)║
+# ║  --T(OH)--  Telecom/teléfono aérea (overhead)    TELECOM_AEREO     Naranja(30)║
+# ╠═══════════════════════════════════════════════════════════════════════════╣
+# ║  · SS y SD comparten color (verde) pero van a CAPAS DISTINTAS.              ║
+# ║  · Los pares subterráneo/aéreo (E/E(OH), T/T(OH)) comparten color pero van  ║
+# ║    a capas separadas y se distinguen por LINETYPE (ver LAYER_LINETYPE):     ║
+# ║    subterráneo = trazo con letra continua; aéreo = variante discontinua.    ║
+# ╚═══════════════════════════════════════════════════════════════════════════╝
+
+# Constantes de color ACI (única fuente de verdad; no hardcodear números sueltos).
+ACI_AZUL     = 5    # agua
+ACI_VERDE    = 3    # alcantarillado + drenaje pluvial
+ACI_AMARILLO = 2    # gas
+ACI_ROJO     = 1    # eléctrico (subterráneo + aéreo)
+ACI_NARANJA  = 30   # telecom (subterráneo + aéreo)
+
+# Tabla canónica: token de línea de servicio -> (capa DXF, color ACI).
+# La usa vector_pipeline.py para clasificar por token (OCG / leader / linetype).
+SERVICE_LINE_COLORS = {
+    "W":     ("AGUA",            ACI_AZUL),
+    "SS":    ("ALCANTARILLADO",  ACI_VERDE),
+    "SD":    ("DRENAJE_PLUVIAL", ACI_VERDE),
+    "G":     ("GAS",             ACI_AMARILLO),
+    "E":     ("ELECTRICO",       ACI_ROJO),
+    "E(OH)": ("ELECTRICO_AEREO", ACI_ROJO),
+    "T":     ("TELECOM",         ACI_NARANJA),
+    "T(OH)": ("TELECOM_AEREO",   ACI_NARANJA),
+}
+
+# Nombre de capa de destino -> color ACI de AutoCAD. Los colores de las capas de
+# servicio se derivan de SERVICE_LINE_COLORS (fuente única); el resto son fijos.
 OUTPUT_LAYERS = {
-    "AGUA":            5,    # W  azul
-    "ALCANTARILLADO":  3,    # SS verde
-    "DRENAJE":         3,    # SD verde (linetype DASHED)
-    "GAS":             2,    # G  amarillo
-    "ELECTRICO":       1,    # E  rojo
-    "ELECTRICO_AEREO": 1,    # E(OH) rojo (linetype DASHED)
-    "TELECOM":         30,   # T  naranja
-    "TELECOM_AEREO":   30,   # T(OH) naranja (linetype DASHED)
+    **{layer: aci for (layer, aci) in SERVICE_LINE_COLORS.values()},
     "AGUA_HIERRO":     4,    # (marca) agua hierro - celeste
     "CABLEADO":        6,    # (marca) cableado - magenta
     "EJE_VIA":         7,    # blanco/negro (base: calles, lotes, topografía)
@@ -42,6 +66,7 @@ OUTPUT_LAYERS = {
     "LIMITE_MAPA":     250,  # gris oscuro
     "LEADER":          7,    # blanco (líneas guía + punta de flecha)
     "ANOTACION":       8,    # gris (texto + leaders: capa ocultable)
+    "METADATA":        8,    # gris (metadata del membrete: contrato, escala, fecha)
     "DIGITALIZADO":    7,    # blanco
     "TEXTO":           7,    # texto / labels
 }
@@ -67,7 +92,7 @@ USE_CUSTOM_LINETYPES = True
 LAYER_LINETYPE = {
     "AGUA":            "UTIL_W",     # ─W─W─
     "ALCANTARILLADO":  "UTIL_SS",    # ─SS─SS─
-    "DRENAJE":         "UTIL_SD",    # ─SD─SD─
+    "DRENAJE_PLUVIAL": "UTIL_SD",    # ─SD─SD─
     "GAS":             "UTIL_G",     # ─G─G─
     "ELECTRICO":       "UTIL_E",     # ─E─E─
     "ELECTRICO_AEREO": "UTIL_EOH",   # ─E(OH)─
@@ -155,9 +180,9 @@ LAYER_TOKENS = [
     ("C-UTIL-SS",             "ALCANTARILLADO"),
     ("SSWR",                  "ALCANTARILLADO"),
     # --- Drenaje pluvial / storm drain (SD) ---
-    ("C-UTIL-SD",             "DRENAJE"),
-    ("STRM-MHOL",             "DRENAJE"),
-    ("STRM-INLT",             "DRENAJE"),
+    ("C-UTIL-SD",             "DRENAJE_PLUVIAL"),
+    ("STRM-MHOL",             "DRENAJE_PLUVIAL"),
+    ("STRM-INLT",             "DRENAJE_PLUVIAL"),
 
     # --- Gas (G) ---
     ("C-UTIL-G-EXIS",         "GAS"),
@@ -309,9 +334,9 @@ VECTOR_NOISE_MIN_PT = 1.5
 # y recibe la nomenclatura (diámetro/material/dueño/…) en XDATA.
 # Palabra clave del callout -> capa destino.
 UTILITY_KEYWORDS = [
-    ("SD",          "DRENAJE"),         # storm drain
-    ("STORM",       "DRENAJE"),
-    ("HDPE",        "DRENAJE"),         # en este plano el HDPE es el SD
+    ("SD",          "DRENAJE_PLUVIAL"),  # storm drain
+    ("STORM",       "DRENAJE_PLUVIAL"),
+    ("HDPE",        "DRENAJE_PLUVIAL"),  # en este plano el HDPE es el SD
     ("SEWER",       "ALCANTARILLADO"),
     ("SS",          "ALCANTARILLADO"),
     ("GAS",         "GAS"),
@@ -330,6 +355,32 @@ LEADER_MIN_LEN_PT    = 8.0    # longitud mínima de un leader
 CLASSIFY_RADIUS_PT   = 40.0   # radio para asociar la punta del leader a una tubería
 ARROWHEAD_LEN_PT     = 7.0    # tamaño de la punta de flecha reconstruida
 DRAW_ARROWHEADS      = True
+
+# ─────────────────────────────────────────────────────────────────────────────
+# LEADERS / MULTILEADERS  (flecha + texto)  — flujo vectorizado
+# ─────────────────────────────────────────────────────────────────────────────
+# Los callouts del plano son leaders: una línea guía con punta de flecha que
+# apunta a la utilidad, y (casi siempre) un texto al final. Se reconstruyen como
+# entidades CAD NATIVAS:
+#   · MULTILEADER (flecha + MTEXT)  si hay texto asociado al landing.
+#   · LEADER (solo flecha)          si no hay texto.
+# Así en Civil 3D son objetos leader reales (editables), no líneas+texto sueltos.
+VECTOR_BUILD_MLEADERS = True
+# Modo de reconstrucción (fidelidad al PDF):
+#   "leader"      -> entidad LEADER con los VÉRTICES EXACTOS del PDF (flecha en la
+#                    punta); el texto se deja tal cual (posición/rotación del PDF).
+#                    FIEL — respeta las líneas del plano. (recomendado)
+#   "multileader" -> MULTILEADER con auto-layout: agrupa flecha+texto pero REFLOWA
+#                    (no respeta la geometría ni la rotación del texto del PDF).
+#   "off"         -> no reconstruir; la línea guía + punta quedan como geometría fiel.
+MLEADER_MODE = "leader"
+# Tokens OCG cuyos trazos son leaders/callouts (línea guía + punta de flecha).
+MLEADER_LEADER_TOKENS = ["C-UTIL-CALLOUT", "C-ANNO-IDEN", "WGS_LEADER"]
+MLEADER_ARROW_MAX_PT = 18.0    # lado máx. del path de la punta de flecha (relleno)
+MLEADER_PAIR_TOL_PT  = 16.0    # dist. máx. punta de flecha <-> extremo de la línea
+MLEADER_TEXT_SNAP_PT = 55.0    # radio landing <-> texto para asociarlos (pt PDF)
+MLEADER_LAYER = "ANOTACION"    # capa de los (multi)leaders
+MLEADER_ARROW_SIZE_FT = 3.0    # tamaño de la punta de flecha del mleader (pies)
 
 # ─────────────────────────────────────────────────────────────────────────────
 # ESCALA
@@ -372,6 +423,66 @@ TEXT_PLAN_BBOX_PCT_HI = 0.995     # percentil superior
 TEXT_TITLE_OY_FRAC = 0.78         # fallback si no hay geometría suficiente
 
 # ─────────────────────────────────────────────────────────────────────────────
+# ZONAS DE EXCLUSIÓN POR CONTENIDO  (ruta vectorizada)
+# ─────────────────────────────────────────────────────────────────────────────
+# Bloques que NO son geometría de utilities y NO deben digitalizarse: la LEYENDA
+# DE POTHOLE y el MEMBRETE / cajetín de título. Se detectan por CONTENIDO (texto),
+# se calcula su bounding box y se descarta toda la geometría/anotación dentro.
+# Robusto al layout: no depende de posiciones fijas en píxeles.
+EXCLUDE_ZONES_ENABLED = True
+
+# Leyenda de pothole: cualquier span de texto que contenga uno de estos términos
+# ancla la zona; el bbox se expande para capturar los símbolos del recuadro.
+POTHOLE_LEGEND_KEYWORDS = [
+    "POTHOLE LEGEND", "POTHOLE INVESTIGATION POINT", "POTHOLE INVESTIGATION",
+    "DIPPING MH", "RELOCATION APPROACH",
+]
+
+# Membrete / cajetín de título: campos típicos que SOLO aparecen en el cajetín
+# (no en el cuerpo del dibujo). Su presencia marca la región como membrete.
+TITLEBLOCK_FIELD_KEYWORDS = [
+    "DESIGNED BY", "DRAWN BY", "CHECKED BY", "SHEET NO", "SHEET NO.",
+    "CONTRACT NO", "CONTRACT NO.", "DRAWING NO", "DRAWING NO.", "SUBMITTAL",
+    "APPROVED BY", "SHEET TITLE", "PROJECT NO", "PROJECT NO.",
+]
+
+# Marcas de agua (watermark) diagonales que cruzan toda la hoja: se descartan como
+# TEXTO pero NO definen una zona de exclusión (su bbox es enorme y borraría el
+# dibujo). Se filtran por keyword al colocar anotación.
+TITLEBLOCK_WATERMARK_KEYWORDS = [
+    "PROGRESS SET", "NOT FOR CONSTRUCTION", "FOR INFORMATION ONLY",
+    "PRELIMINARY", "FOR REVIEW ONLY",
+]
+
+# Margen (pt PDF) alrededor del bbox de cada zona detectada.
+EXCLUDE_ZONE_MARGIN_PT = 28.0
+# Campos de membrete a <= esta distancia (pt) se agrupan en la MISMA zona; más
+# lejos abren una zona nueva. Evita fusionar cajetines separados con el dibujo.
+TITLEBLOCK_CLUSTER_GAP_PT = 140.0
+# Una zona de membrete no puede cubrir más de esta fracción del área de la página
+# (salvaguarda: si un cluster degenerado creciera demasiado, se descarta).
+EXCLUDE_ZONE_MAX_PAGE_FRAC = 0.28
+
+# ─────────────────────────────────────────────────────────────────────────────
+# METADATA DEL MEMBRETE  (se LEE aunque el cajetín no se dibuje)
+# ─────────────────────────────────────────────────────────────────────────────
+# El membrete no se digitaliza como geometría, pero su información sí se extrae
+# y se guarda como XDATA sobre una entidad en la capa METADATA. Cada campo es
+# (clave_salida, [regex]) evaluado sobre el texto completo de la página.
+METADATA_ENABLED = True
+METADATA_LAYER = "METADATA"
+import re as _re
+METADATA_PATTERNS = {
+    "contrato": [_re.compile(r'CONTRACT\s*NO\.?\s*[:\-]?\s*([A-Z0-9\-]+)', _re.I)],
+    "dibujo":   [_re.compile(r'DRAWING\s*NO\.?\s*[:\-]?\s*([A-Z0-9\-\./]+)', _re.I)],
+    "hoja":     [_re.compile(r'SHEET\s*NO\.?\s*[:\-]?\s*([A-Z0-9\-\./]+)', _re.I)],
+    "escala":   [_re.compile(r'(1\s*["\']?\s*=\s*\d+(?:\.\d+)?\s*[\'`]?)', _re.I),
+                 _re.compile(r'SCALE\s*[:\-]?\s*(1\s*[:=]\s*\d+)', _re.I)],
+    "fecha":    [_re.compile(r'\b(\d{1,2}[/\-]\d{1,2}[/\-]\d{2,4})\b'),
+                 _re.compile(r'\b(\d{4}[/\-]\d{1,2}[/\-]\d{1,2})\b')],
+}
+
+# ─────────────────────────────────────────────────────────────────────────────
 # SUPRESIÓN DE GLIFOS SHX  (marcadores de letra W/G/SS/T sobre las líneas)
 # ─────────────────────────────────────────────────────────────────────────────
 # Ventana de área (pt²) en la que viven los glifos de letra de linetype CAD.
@@ -385,7 +496,7 @@ SHX_AREA_MAX = 80.0
 # de la tubería son de 1 segmento y no se tocan; las curvas son grandes).
 MARKER_GLYPH_MAX_DIM_PT = 17.0
 UTILITY_LINE_LAYERS = {
-    "AGUA", "ALCANTARILLADO", "DRENAJE", "GAS",
+    "AGUA", "ALCANTARILLADO", "DRENAJE_PLUVIAL", "GAS",
     "ELECTRICO", "ELECTRICO_AEREO", "TELECOM", "TELECOM_AEREO",
 }
 
@@ -399,7 +510,56 @@ UTILITY_LINE_LAYERS = {
 DROP_LAYERS = set()
 
 # ─────────────────────────────────────────────────────────────────────────────
+# DIBUJO FIEL A LA GEOMETRÍA DEL PDF  ("tal cual el vectorizado")
+# ─────────────────────────────────────────────────────────────────────────────
+# Cuando es True, cada trazo del PDF se dibuja EXACTAMENTE como está, sin:
+#   · fusionar los guiones (dashes) en corridas largas,
+#   · coser piezas en una sola polilínea,
+#   · eliminar los ticks diagonales "/" (que en la convención marcan las líneas
+#     ABANDONADAS) ni las letras (W/G/SS…),
+#   · aplicar los linetypes personalizados con letra (UTIL_W, UTIL_SS, …).
+# Cada dash, cada tick y cada letra quedan como en el PDF, en su capa y color; las
+# capas usan linetype CONTINUOUS (el aspecto discontinuo lo dan los propios trazos).
+# Úsalo cuando necesites la geometría 1:1 (p.ej. para identificar/separar después
+# las líneas abandonadas por sus ticks "/").
+#
+# Cuando es False, se usa el pipeline "inteligente" (fusiona/cose/limpia y aplica
+# los linetypes con letra) para obtener polilíneas limpias por tubería.
+VECTOR_FAITHFUL_GEOMETRY = True
+
+# ─────────────────────────────────────────────────────────────────────────────
+# LÍNEAS ABANDONADAS -> COLOR GRIS
+# ─────────────────────────────────────────────────────────────────────────────
+# Las utilidades ABANDONADAS (dibujadas con ticks "/" — p.ej. --/-- g ----) se
+# marcan en el PDF con un OCG que contiene un token de abandono (ej.
+# "C-UTIL-G-EXIS-ABAND") y/o con las propias marcas "/" sobre la tubería.
+# Su geometría se pinta GRIS (ACI 8) en una capa dedicada por servicio
+# (ej. GAS_ABANDONADO) para separarla de las líneas activas.
+ABANDONED_ENABLED = True
+# Tokens (subcadena, sin distinguir may/min) que en el nombre OCG marcan abandono.
+ABANDONED_OCG_TOKENS = ["ABAND", "ABND"]
+ABANDONED_COLOR = 8               # gris (ACI 8)
+ABANDONED_LAYER_SUFFIX = "_ABANDONADO"
+
+# Detección por TICKS "/" (señal universal, no depende del OCG): un tick es un
+# segmento CORTO y DIAGONAL (cruza la tubería en ~45°). Toda la corrida colineal
+# de la tubería que contiene un tick se considera ABANDONADA -> gris (incluye sus
+# rayas y letras). También cuentan como ancla las marcas del OCG …-ABAND.
+ABANDONED_DETECT_TICKS = True
+ABANDONED_TICK_MIN_PT = 4.0       # longitud mín. de un tick (pt PDF)
+ABANDONED_TICK_MAX_PT = 30.0      # longitud máx. (más largo = tubería/lateral, no tick)
+ABANDONED_TICK_ANGLE_MIN = 18.0   # ángulo mín. respecto al eje de la tubería (grados)
+ABANDONED_RUN_PERP_TOL_PT = 4.0   # tolerancia perpendicular para agrupar la corrida
+# El abandono se dibuja con ticks PERIÓDICOS (varios "/" a lo largo de la línea).
+# Una corrida se marca abandonada solo si tiene AL MENOS este nº de ticks encima;
+# así una diagonal suelta (lateral de servicio, conexión) NO agrisa toda la línea.
+ABANDONED_MIN_TICKS = 2
+# (compat) proximidad simple desde marcas -ABAND; la detección por ticks la reemplaza.
+ABANDONED_SNAP_PT = 30.0
+
+# ─────────────────────────────────────────────────────────────────────────────
 # UNIÓN DE SEGMENTOS COLINEALES -> POLILÍNEAS  (ruta vectorizada)
+# (solo se aplica cuando VECTOR_FAITHFUL_GEOMETRY = False)
 # ─────────────────────────────────────────────────────────────────────────────
 MERGE_MAX_BRIDGE_PT = 20.0   # puentea huecos (dejados por marcadores SHX) hasta 20pt
 # Cosido de piezas en UNA polilínea por tubería (capas de utilidad): une extremos
@@ -428,7 +588,7 @@ DEGENERATE_EPS_PT = 0.1
 # guiones en corridas largas de tubería, los ticks quedan como trazos CORTOS y
 # AISLADOS (no se fusionan con nada). Se eliminan por longitud + aislamiento.
 CLEAN_UTILITY_MARKERS = True
-UTILITY_CLEAN_LAYERS = {"AGUA", "GAS", "ALCANTARILLADO", "DRENAJE", "ELECTRICO",
+UTILITY_CLEAN_LAYERS = {"AGUA", "GAS", "ALCANTARILLADO", "DRENAJE_PLUVIAL", "ELECTRICO",
                         "ELECTRICO_AEREO", "TELECOM", "TELECOM_AEREO"}
 MARKER_MAX_SEGMENTS = 1     # se descarta si lo forman <= N segmentos (aislado)
 MARKER_MAX_LEN_PT = 50.0    # ...y su longitud total es menor a esto (corto)
