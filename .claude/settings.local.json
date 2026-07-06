@@ -47,7 +47,8 @@
       "Bash(rm -rf dist)",
       "Bash(mkdir -p \"/d/proyectos-z/front-investments/.claude\")",
       "Bash(taskkill //PID 9040 //F)",
-      "Bash(rm -f \"/d/GVR/Proyectos_DEV/EEUU/pdf-to-cad/.claude/launch.json\")"
+      "Bash(rm -f \"/d/GVR/Proyectos_DEV/EEUU/pdf-to-cad/.claude/launch.json\")",
+      "Bash(C:/Users/Deyvy/AppData/Local/Programs/Python/Python312/python.exe -c ' *)"
     ]
   }
 }

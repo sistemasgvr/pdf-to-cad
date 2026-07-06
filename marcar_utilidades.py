@@ -1,12 +1,10 @@
 """
 marcar_utilidades.py — Digitalizar planos y marcar utilidades.
 
-App de escritorio (PySide6) para ingenieros civiles: abre el PDF de un plano,
-marca utilidades (agua, alcantarillado, gas, eléctrico, telefonía…), coloca
-multilíderes con nomenclatura, escribe texto libre, borra zonas y exporta un
-único DXF (base digitalizada + tu marcado) en las mismas coordenadas.
-
-Ver menú Ayuda → Manual de usuario para el paso a paso.
+App de escritorio (PySide6) para ingeniería civil: abre el PDF de un plano,
+marca utilidades, coloca Multileaders con nomenclatura, escribe texto libre,
+borra zonas y exporta un único DXF (base digitalizada + tu marcado) en las
+mismas coordenadas. Ver menú Ayuda → Manual de usuario.
 """
 import sys, os, copy, math, json, zipfile
 import fitz
@@ -18,7 +16,7 @@ from PySide6 import QtCore, QtGui, QtWidgets
 import config as C
 import vector_pipeline as VP
 
-VERSION = "0.2.0"
+VERSION = "0.3.0"
 
 TIPOS = [
     ("Agua (W)", "AGUA"), ("Alcantarillado (SS)", "ALCANTARILLADO"),
@@ -31,31 +29,39 @@ ACI_RGB = {1: (255, 60, 60), 2: (235, 215, 40), 3: (60, 210, 60), 4: (60, 210, 2
            30: (255, 150, 40)}
 LEADER_TEXT_FT = 3.0
 DOWNLOADS = os.path.join(os.path.expanduser("~"), "Downloads")
-LEADER_STYLES = [("landing", "Con landing"), ("plain", "Sin landing")]
-LEADER_ORIENT = [("h", "Horizontal", 0.0), ("v", "Vertical", 90.0), ("d", "Diagonal", 45.0)]
+LEADER_ORIENT = [("h", "Horizontal (recto)"), ("v", "Vertical (recto)"), ("d", "Diagonal (con landing)")]
 BTN_ON = "background:#2e9e4f;color:white;font-weight:bold;padding:8px;border-radius:4px;"
 BTN_OFF = "background:#3c5a99;color:white;padding:8px;border-radius:4px;"
+Z_PDF, Z_ERASE, Z_MARK, Z_HANDLE = 0, 1, 5, 8
 
-# Historial de versiones (la más reciente primero → la más antigua queda abajo).
-# Estados: added (verde) · removed (rojo) · fixed (celeste) · base (gris).
 CHANGELOG = [
+    ("0.3.0", [
+        ("fixed", "Navegación de páginas con botones ◀ ▶ (ya no hay que escribir el número primero)."),
+        ("fixed", "El texto libre se agrega con Enter; ya no depende de hacer clic en el panel."),
+        ("added", "Enter aplica el texto/Multileader; Ctrl+Shift+Enter (o Shift+Enter) hace salto de línea."),
+        ("added", "Textos seleccionables, editables (doble clic) y movibles, con estilo modificable después de crearlos."),
+        ("added", "Multileader editable (doble clic) con saltos de línea."),
+        ("fixed", "Horizontal ahora es recto (sin quiebre); la opción con landing pasó a Diagonal."),
+        ("added", "Vertical recto con texto vertical pegado a la línea."),
+        ("added", "Extender desde un vértice: clic en un vértice y luego en el dibujo para ramificar (forma de F)."),
+        ("added", "Los Multileader se digitalizan como entidad MULTILEADER de CAD (no como grupo)."),
+        ("fixed", "Los polígonos de borrado quedan detrás de las tuberías (solo tapan el plano)."),
+        ("added", "El área de listas se puede agrandar arrastrando el separador."),
+        ("added", "Se renombró todo a 'Multileader'."),
+    ]),
     ("0.2.0", [
-        ("fixed", "Se corrige el error al abrir un proyecto (objetos gráficos ya eliminados y zonas guardadas en formato antiguo)."),
+        ("fixed", "Error al abrir un proyecto (objetos gráficos ya eliminados y zonas en formato antiguo)."),
         ("fixed", "Enter finaliza de forma fiable la utilidad que estás dibujando."),
-        ("added", "Cerrar proyecto (Archivo → Cerrar proyecto): pregunta si deseas guardar los cambios."),
+        ("added", "Cerrar proyecto: pregunta si deseas guardar los cambios."),
         ("added", "Aviso de cambios sin guardar al cerrar la aplicación."),
-        ("added", "Historial de versiones desplegable por versión en 'Acerca de' (trazabilidad)."),
+        ("added", "Historial de versiones desplegable en 'Acerca de'."),
     ]),
     ("0.1.0", [
         ("added", "Utilidad abandonada con línea ──/── W ──."),
-        ("added", "Multilíder vertical recto: el texto va a un lado según la dirección."),
-        ("added", "Editar el texto del multilíder (doble clic) con saltos de línea."),
-        ("added", "Texto libre con fuente, altura y negrita."),
-        ("added", "Panel de zonas borradas: ver, activar/desactivar, editar y eliminar."),
-        ("added", "Seleccionar por clic en el dibujo sin mover la vista; centrar al seleccionar desde una lista."),
-        ("added", "Guardar el progreso en el mismo archivo de proyecto abierto."),
+        ("added", "Multileader vertical; edición de texto; texto libre con estilos."),
+        ("added", "Panel de zonas borradas; selección por clic; guardar en el mismo archivo."),
         ("added", "Menús Archivo / Edición / Ayuda con manual y atajos."),
-        ("base", "Dibujar utilidades, multilíderes, texto, borrar zonas, OCR/ICR, proyectos .digproj y export a DXF."),
+        ("base", "Dibujar utilidades, Multileaders, texto, borrar zonas, OCR/ICR, proyectos y export a DXF."),
     ]),
     ("0.0.0", [
         ("base", "Primera versión interna: digitalización PDF→DXF y marcado básico de utilidades."),
@@ -91,21 +97,30 @@ def point_in_poly(x, y, poly):
 
 
 class InlineEdit(QtWidgets.QTextEdit):
-    """Editor multilínea embebido. Enter = salto de línea; aplica al perder foco.
-    El commit se difiere con un timer para no destruir el widget dentro de su
-    propio evento (eso provocaba el cierre inesperado de la app)."""
+    """Editor embebido. Enter = aplicar; Ctrl+Shift+Enter o Shift+Enter = salto de
+    línea. El commit se difiere con un timer para no destruir el widget dentro de
+    su propio evento (eso provocaba cierres inesperados)."""
     committed = QtCore.Signal(str)
 
     def __init__(self, text):
         super().__init__(); self.setPlainText(text); self._done = False
         self.setStyleSheet("background:#111;color:#7f7;border:1px solid #7f7;")
 
-    def focusOutEvent(self, e):
-        super().focusOutEvent(e)
+    def _commit(self):
         if not self._done:
-            self._done = True
-            txt = self.toPlainText()
+            self._done = True; txt = self.toPlainText()
             QtCore.QTimer.singleShot(0, lambda: self.committed.emit(txt))
+
+    def keyPressEvent(self, e):
+        if e.key() in (QtCore.Qt.Key_Return, QtCore.Qt.Key_Enter):
+            m = e.modifiers()
+            if (m & QtCore.Qt.ShiftModifier):     # Shift(+Ctrl)+Enter → salto de línea
+                self.insertPlainText("\n"); return
+            self._commit(); return
+        super().keyPressEvent(e)
+
+    def focusOutEvent(self, e):
+        super().focusOutEvent(e); self._commit()
 
 
 class PipelineWorker(QtCore.QThread):
@@ -166,7 +181,6 @@ class OcrWorker(QtCore.QThread):
 
 
 class IcrWorker(QtCore.QThread):
-    """Reconocimiento de texto MANUSCRITO con EasyOCR (offline). Import perezoso."""
     done = QtCore.Signal(object, str)
 
     def __init__(self, gray): super().__init__(); self.gray = gray
@@ -203,18 +217,19 @@ class Canvas(QtWidgets.QGraphicsView):
         self.setFocusPolicy(QtCore.Qt.StrongFocus)
         self.pixmap_item = None; self._pan = False; self._pan0 = None; self._moving = False
 
+    def set_image(self, qimg):
+        self.scene().clear()
+        self.pixmap_item = self.scene().addPixmap(QtGui.QPixmap.fromImage(qimg))
+        self.pixmap_item.setZValue(Z_PDF)
+        self.setSceneRect(self.pixmap_item.boundingRect())
+        self.resetTransform(); self.fitInView(self.pixmap_item, QtCore.Qt.KeepAspectRatio)
+
     def keyPressEvent(self, e):
         if e.key() in (QtCore.Qt.Key_Return, QtCore.Qt.Key_Enter):
             self.win._on_enter(); e.accept(); return
         if e.key() == QtCore.Qt.Key_Escape:
             self.win._on_escape(); e.accept(); return
         super().keyPressEvent(e)
-
-    def set_image(self, qimg):
-        self.scene().clear()
-        self.pixmap_item = self.scene().addPixmap(QtGui.QPixmap.fromImage(qimg))
-        self.setSceneRect(self.pixmap_item.boundingRect())
-        self.resetTransform(); self.fitInView(self.pixmap_item, QtCore.Qt.KeepAspectRatio)
 
     def wheelEvent(self, e):
         if self.pixmap_item:
@@ -224,7 +239,7 @@ class Canvas(QtWidgets.QGraphicsView):
         if e.button() == QtCore.Qt.MiddleButton:
             self._pan = True; self._pan0 = e.position(); self.setCursor(QtCore.Qt.ClosedHandCursor); return
         if not self.pixmap_item: return super().mousePressEvent(e)
-        self.setFocus(QtCore.Qt.MouseFocusReason)     # así Enter/Esc llegan al lienzo
+        self.setFocus(QtCore.Qt.MouseFocusReason)
         sp = self.mapToScene(e.position().toPoint())
         if self.win.mode == "move" and e.button() == QtCore.Qt.LeftButton:
             self._moving = True; self.win.begin_move(sp.x(), sp.y()); return
@@ -263,22 +278,24 @@ class Canvas(QtWidgets.QGraphicsView):
 class Main(QtWidgets.QMainWindow):
     def __init__(self):
         super().__init__()
-        self.setWindowTitle(f"Digitalizador de planos — utilidades  (v{VERSION})"); self.resize(1450, 920)
+        self.setWindowTitle(f"Digitalizador de planos — utilidades  (v{VERSION})"); self.resize(1480, 940)
         self.setAcceptDrops(True)
         self.canvas = Canvas(self); self.canvas.clicked.connect(self.on_click)
         self.canvas.dbl.connect(self.on_dblclick); self.setCentralWidget(self.canvas)
         self.zoom = 3.5; self.scale = 20 / 72.0; self.rot = 0; self.W = 0; self.H = 0
-        self.derot = fitz.Matrix(1, 0, 0, 1, 0, 0); self.gray = None
+        self.derot = fitz.Matrix(1, 0, 0, 1, 0, 0); self.gray = None; self.page_idx = 0
         self.pdf_path = None; self.doc = None; self.project_path = None; self.leader_hpx = 40
         self.cur_pts = []; self.pipes = []; self.leaders = []; self.text_marks = []
         self.erase_regions = []; self._erase_pts = []
         self.mode = "idle"; self._pending = None
         self.snap = False; self.snap_r = 14
         self.show_text_boxes = False; self.ocr_boxes = []; self._tess_boxes = []; self._icr_boxes = []
-        self.sel_pipe = -1; self.sel_leader = -1; self.sel_region = -1; self._no_center = False
+        self.sel_pipe = -1; self.sel_leader = -1; self.sel_region = -1; self.sel_text = -1; self._no_center = False
         self._move0 = None; self._drag_vertex = None; self._edit_pts = None; self._edit_closed = False
+        self._move_kind = None; self._moved = False
+        self._extending = False; self._ext_layer = None
         self._editor = None; self._undo, self._redo, self._overlay = [], [], []
-        self._dirty = False
+        self._dirty = False; self._style_guard = False
         self._build_ui(); self._apply_style(); self._shortcuts(); self._update_ui()
 
     # ─────────────────────────── UI ───────────────────────────
@@ -301,24 +318,30 @@ class Main(QtWidgets.QMainWindow):
         self._menu_act(mhelp, "Manual de usuario", self.show_manual)
         self._menu_act(mhelp, "Atajos de teclado", self.show_shortcuts)
 
-        tb = self.addToolBar("Vista"); tb.addWidget(QtWidgets.QLabel(" Página: "))
-        self.page_spin = QtWidgets.QSpinBox(); self.page_spin.valueChanged.connect(self._reload_page); tb.addWidget(self.page_spin)
+        tb = self.addToolBar("Vista")
+        self.btn_prev = QtWidgets.QPushButton("◀"); self.btn_prev.setFixedWidth(36); self.btn_prev.clicked.connect(self._prev_page)
+        self.btn_next = QtWidgets.QPushButton("▶"); self.btn_next.setFixedWidth(36); self.btn_next.clicked.connect(self._next_page)
+        self.lbl_page = QtWidgets.QLabel(" Página — / — ")
+        tb.addWidget(self.btn_prev); tb.addWidget(self.lbl_page); tb.addWidget(self.btn_next)
         tb.addSeparator()
         self.chk_snap = QtWidgets.QCheckBox("Imán al trazo"); self.chk_snap.toggled.connect(lambda v: setattr(self, "snap", v))
         tb.addWidget(self.chk_snap)
 
         dock = QtWidgets.QDockWidget("Herramientas", self); dock.setFeatures(QtWidgets.QDockWidget.NoDockWidgetFeatures)
+        container = QtWidgets.QWidget(); cv = QtWidgets.QVBoxLayout(container)
+        splitter = QtWidgets.QSplitter(QtCore.Qt.Vertical)
+
         scroll = QtWidgets.QScrollArea(); scroll.setWidgetResizable(True)
-        root = QtWidgets.QWidget(); v = QtWidgets.QVBoxLayout(root)
+        top = QtWidgets.QWidget(); v = QtWidgets.QVBoxLayout(top)
 
         gm = QtWidgets.QGroupBox("¿Qué quieres hacer?"); lm = QtWidgets.QVBoxLayout(gm)
         self.btn_pipe = QtWidgets.QPushButton("✏  Dibujar utilidad"); self.btn_pipe.clicked.connect(self.toggle_pipe)
-        self.btn_leader = QtWidgets.QPushButton("↳  Colocar multilíder"); self.btn_leader.clicked.connect(self.start_leader)
+        self.btn_leader = QtWidgets.QPushButton("↳  Colocar Multileader"); self.btn_leader.clicked.connect(self.start_leader)
         self.btn_text = QtWidgets.QPushButton("T  Texto libre"); self.btn_text.clicked.connect(self.toggle_text_mode)
         self.btn_erase = QtWidgets.QPushButton("▭  Borrar zona (polígono)"); self.btn_erase.clicked.connect(self.toggle_erase)
         self.chk_txt = QtWidgets.QCheckBox("Ayudar con textos impresos (OCR)"); self.chk_txt.toggled.connect(self.toggle_text_boxes)
         self.chk_icr = QtWidgets.QCheckBox("ICR manuscrita (EasyOCR, offline)"); self.chk_icr.toggled.connect(self.toggle_icr)
-        self.lbl_mode = QtWidgets.QLabel("Modo: inactivo"); self.lbl_mode.setStyleSheet("color:#9cf;")
+        self.lbl_mode = QtWidgets.QLabel("Modo: inactivo"); self.lbl_mode.setStyleSheet("color:#9cf;"); self.lbl_mode.setWordWrap(True)
         for w in (self.btn_pipe, self.btn_leader, self.btn_text, self.btn_erase, self.chk_txt, self.chk_icr, self.lbl_mode): lm.addWidget(w)
         v.addWidget(gm)
 
@@ -332,25 +355,26 @@ class Main(QtWidgets.QMainWindow):
         self.chk_ab = QtWidgets.QCheckBox("Abandonado (línea ──/── W ──)")
         lgt.addWidget(self.chk_ab); v.addWidget(self.gt)
 
-        self.gtxt = QtWidgets.QGroupBox("Estilo de texto libre"); lgx = QtWidgets.QVBoxLayout(self.gtxt)
+        self.gtxt = QtWidgets.QGroupBox("Estilo de texto"); lgx = QtWidgets.QVBoxLayout(self.gtxt)
         self.font_combo = QtWidgets.QFontComboBox(); self.font_combo.setCurrentFont(QtGui.QFont(C.TEXT_FONT))
+        self.font_combo.currentFontChanged.connect(lambda _: self._style_changed())
         r = QtWidgets.QHBoxLayout(); r.addWidget(QtWidgets.QLabel("Altura (pies):"))
-        self.size_spin = QtWidgets.QDoubleSpinBox(); self.size_spin.setRange(0.5, 200); self.size_spin.setValue(3.0); r.addWidget(self.size_spin)
-        self.chk_bold = QtWidgets.QCheckBox("Negrita")
-        lgx.addWidget(self.font_combo); lgx.addLayout(r); lgx.addWidget(self.chk_bold); v.addWidget(self.gtxt)
+        self.size_spin = QtWidgets.QDoubleSpinBox(); self.size_spin.setRange(0.5, 200); self.size_spin.setValue(3.0)
+        self.size_spin.valueChanged.connect(lambda _: self._style_changed()); r.addWidget(self.size_spin)
+        self.chk_bold = QtWidgets.QCheckBox("Negrita"); self.chk_bold.toggled.connect(lambda _: self._style_changed())
+        lgx.addWidget(self.font_combo); lgx.addLayout(r); lgx.addWidget(self.chk_bold)
+        lgx.addWidget(QtWidgets.QLabel("<i>Enter aplica · Ctrl+Shift+Enter salta de línea</i>"))
+        v.addWidget(self.gtxt)
 
         self.gcur = QtWidgets.QGroupBox("En curso"); lc = QtWidgets.QHBoxLayout(self.gcur)
         self.btn_fin = QtWidgets.QPushButton("Finalizar (Enter)"); self.btn_fin.clicked.connect(self._on_enter)
         b_up = QtWidgets.QPushButton("Deshacer punto"); b_up.clicked.connect(self.undo)
         lc.addWidget(self.btn_fin); lc.addWidget(b_up); v.addWidget(self.gcur)
 
-        self.ga = QtWidgets.QGroupBox("Multilíder"); lga = QtWidgets.QVBoxLayout(self.ga)
-        r2 = QtWidgets.QHBoxLayout()
-        self.style_combo = QtWidgets.QComboBox()
-        for sid, lbl in LEADER_STYLES: self.style_combo.addItem(lbl, sid)
+        self.ga = QtWidgets.QGroupBox("Multileader"); lga = QtWidgets.QVBoxLayout(self.ga)
         self.orient_combo = QtWidgets.QComboBox()
-        for oid, lbl, ang in LEADER_ORIENT: self.orient_combo.addItem(lbl, oid)
-        r2.addWidget(self.style_combo); r2.addWidget(self.orient_combo); lga.addLayout(r2)
+        for oid, lbl in LEADER_ORIENT: self.orient_combo.addItem(lbl, oid)
+        lga.addWidget(QtWidgets.QLabel("Orientación:")); lga.addWidget(self.orient_combo)
         self.chk_custom = QtWidgets.QCheckBox("Usar texto personalizado"); self.chk_custom.toggled.connect(self._toggle_custom)
         lga.addWidget(self.chk_custom)
         self.txt_edit = QtWidgets.QLineEdit(); self.txt_edit.setPlaceholderText("texto personalizado…"); self.txt_edit.setEnabled(False)
@@ -358,27 +382,33 @@ class Main(QtWidgets.QMainWindow):
         lga.addWidget(QtWidgets.QLabel("Textos (columna TEXTO del Excel):"))
         self.text_list = QtWidgets.QListWidget(); lga.addWidget(self.text_list); v.addWidget(self.ga, 1)
 
-        ge = QtWidgets.QGroupBox("Marcado (clic en el dibujo o en la lista para seleccionar)"); lge = QtWidgets.QVBoxLayout(ge)
+        scroll.setWidget(top); splitter.addWidget(scroll)
+
+        ge = QtWidgets.QGroupBox("Marcado (arrastra el separador para agrandar)"); lge = QtWidgets.QVBoxLayout(ge)
         self.tabs = QtWidgets.QTabWidget()
         self.pipe_list = QtWidgets.QListWidget(); self.pipe_list.currentRowChanged.connect(self._sel_pipe)
         self.lead_list = QtWidgets.QListWidget(); self.lead_list.currentRowChanged.connect(self._sel_leader)
+        self.txt_marks_list = QtWidgets.QListWidget(); self.txt_marks_list.currentRowChanged.connect(self._sel_text)
         self.region_list = QtWidgets.QListWidget(); self.region_list.currentRowChanged.connect(self._sel_region)
         self.region_list.itemChanged.connect(self._region_toggled)
-        self.tabs.addTab(self.pipe_list, "Utilidades"); self.tabs.addTab(self.lead_list, "Multilíderes")
-        self.tabs.addTab(self.region_list, "Zonas borradas")
+        self.tabs.addTab(self.pipe_list, "Utilidades"); self.tabs.addTab(self.lead_list, "Multileaders")
+        self.tabs.addTab(self.txt_marks_list, "Textos"); self.tabs.addTab(self.region_list, "Zonas borradas")
         self.tabs.currentChanged.connect(self._tab_changed); lge.addWidget(self.tabs)
         rr = QtWidgets.QHBoxLayout()
         self.btn_ct = QtWidgets.QPushButton("Cambiar tipo"); self.btn_ct.clicked.connect(self.change_pipe_type)
-        self.btn_mv = QtWidgets.QPushButton("Editar vértices (Ctrl+T)"); self.btn_mv.clicked.connect(self.enter_move)
+        self.btn_mv = QtWidgets.QPushButton("Editar/mover (Ctrl+T)"); self.btn_mv.clicked.connect(self.enter_move)
+        self.btn_edit = QtWidgets.QPushButton("Editar texto"); self.btn_edit.clicked.connect(self.edit_selected_text)
         self.btn_del = QtWidgets.QPushButton("Eliminar"); self.btn_del.clicked.connect(self.delete_selected)
-        for b in (self.btn_ct, self.btn_mv, self.btn_del): rr.addWidget(b)
-        lge.addLayout(rr); v.addWidget(ge, 1)
+        for b in (self.btn_ct, self.btn_mv, self.btn_edit, self.btn_del): rr.addWidget(b)
+        lge.addLayout(rr); splitter.addWidget(ge)
+        splitter.setStretchFactor(0, 3); splitter.setStretchFactor(1, 2); splitter.setSizes([560, 320])
+        cv.addWidget(splitter, 1)
 
         gs = QtWidgets.QGroupBox("Salida"); lgs = QtWidgets.QVBoxLayout(gs)
         b = QtWidgets.QPushButton("Digitalizar plano + exportar DXF"); b.setStyleSheet("font-weight:bold;padding:10px;")
-        b.clicked.connect(self.run_pipeline); lgs.addWidget(b); v.addWidget(gs)
+        b.clicked.connect(self.run_pipeline); lgs.addWidget(b); cv.addWidget(gs)
 
-        scroll.setWidget(root); dock.setWidget(scroll); dock.setMinimumWidth(340)
+        dock.setWidget(container); dock.setMinimumWidth(350)
         self.addDockWidget(QtCore.Qt.RightDockWidgetArea, dock)
         self.status = self.statusBar(); self._info("Abre o arrastra un PDF/proyecto.")
 
@@ -396,7 +426,8 @@ class Main(QtWidgets.QMainWindow):
             QListWidget,QLineEdit,QComboBox,QSpinBox,QDoubleSpinBox,QFontComboBox,QTabWidget::pane{background:#333;color:#eee;border:1px solid #555;}
             QTabBar::tab{background:#333;color:#ccc;padding:5px;} QTabBar::tab:selected{background:#3c5a99;color:white;}
             QPushButton{background:#3c5a99;color:white;border:none;padding:6px;border-radius:4px;}
-            QPushButton:hover{background:#4a6fbf;} QLabel,QCheckBox{color:#ddd;font-weight:normal;}""")
+            QPushButton:hover{background:#4a6fbf;} QLabel,QCheckBox{color:#ddd;font-weight:normal;}
+            QSplitter::handle{background:#555;height:6px;}""")
         self.chk_snap.setChecked(False)
 
     def _shortcuts(self):
@@ -405,6 +436,25 @@ class Main(QtWidgets.QMainWindow):
             QtGui.QShortcut(QtGui.QKeySequence(k), self, self._on_enter)
         QtGui.QShortcut(QtGui.QKeySequence(QtCore.Qt.Key_Escape), self, self._on_escape)
 
+    # ─────────────────────────── páginas ───────────────────────────
+    def _update_page_label(self):
+        if self.doc:
+            self.lbl_page.setText(f" Página {self.page_idx + 1} / {self.doc.page_count} ")
+            self.btn_prev.setEnabled(self.page_idx > 0)
+            self.btn_next.setEnabled(self.page_idx < self.doc.page_count - 1)
+        else:
+            self.lbl_page.setText(" Página — / — "); self.btn_prev.setEnabled(False); self.btn_next.setEnabled(False)
+
+    def _prev_page(self):
+        if self.doc and self.page_idx > 0:
+            if not self._confirm_discard(): return
+            self.page_idx -= 1; self._load_page(self.page_idx)
+
+    def _next_page(self):
+        if self.doc and self.page_idx < self.doc.page_count - 1:
+            if not self._confirm_discard(): return
+            self.page_idx += 1; self._load_page(self.page_idx)
+
     # ─────────────────────────── Estado / modos ───────────────────────────
     def _on_enter(self):
         if self.mode == "pipe": self.finish_pipe()
@@ -412,20 +462,20 @@ class Main(QtWidgets.QMainWindow):
 
     def _on_escape(self):
         if self.mode == "pipe" and self.cur_pts:
-            self._push(); self.cur_pts = []; self._update_ui(); self._redraw(); self._info("Puntos cancelados")
+            self._push(); self.cur_pts = []; self._extending = False; self._update_ui(); self._redraw(); self._info("Puntos cancelados")
         elif self.mode == "erase" and self._erase_pts:
             self._erase_pts = []; self._redraw(); self._info("Zona cancelada")
-        elif self.sel_pipe >= 0 or self.sel_leader >= 0 or self.sel_region >= 0:
+        elif self.sel_pipe >= 0 or self.sel_leader >= 0 or self.sel_region >= 0 or self.sel_text >= 0:
             self._deselect_all(); self._info("Selección quitada")
         else:
             self.set_mode("idle"); self._info("Salió del modo")
 
     def _deselect_all(self):
-        self.sel_pipe = self.sel_leader = self.sel_region = -1
-        for lst in (self.pipe_list, self.lead_list, self.region_list):
+        self.sel_pipe = self.sel_leader = self.sel_region = self.sel_text = -1
+        for lst in (self.pipe_list, self.lead_list, self.txt_marks_list, self.region_list):
             lst.blockSignals(True); lst.setCurrentRow(-1); lst.clearSelection(); lst.blockSignals(False)
         if self.mode == "move": self.set_mode("idle")
-        self._redraw()
+        self._update_ui(); self._redraw()
 
     def _info(self, m): self.status.showMessage(m)
 
@@ -435,24 +485,27 @@ class Main(QtWidgets.QMainWindow):
         st(self.btn_pipe, m == "pipe"); st(self.btn_leader, m in ("leader1", "leader2"))
         st(self.btn_text, m == "text"); st(self.btn_erase, m == "erase")
         self.btn_pipe.setText("■  Salir de dibujar utilidad" if m == "pipe" else "✏  Dibujar utilidad")
-        self.btn_leader.setText("●  Coloque multilíder…" if m in ("leader1", "leader2") else "↳  Colocar multilíder")
+        self.btn_leader.setText("●  Coloque Multileader…" if m in ("leader1", "leader2") else "↳  Colocar Multileader")
         self.btn_erase.setText("■  Terminar zona (Enter)" if m == "erase" else "▭  Borrar zona (polígono)")
-        self.gt.setVisible(m in ("pipe", "move")); self.gtxt.setVisible(m == "text")
+        self.gt.setVisible(m in ("pipe", "move"))
+        self.gtxt.setVisible(m == "text" or (self.tabs.currentIndex() == 2 and self.sel_text >= 0))
         self.gcur.setVisible((m == "pipe" and len(self.cur_pts) >= 1) or (m == "erase" and len(self._erase_pts) >= 1))
         self.btn_fin.setEnabled((m == "pipe" and len(self.cur_pts) >= 2) or (m == "erase" and len(self._erase_pts) >= 3))
         ti = self.tabs.currentIndex()
-        self.btn_ct.setVisible(ti == 0); self.btn_mv.setVisible(ti in (0, 2))
-        self.lbl_mode.setText({"idle": "Modo: inactivo  ·  clic en una utilidad para seleccionarla",
-                               "pipe": "Modo: dibujar utilidad  ·  Enter finaliza",
-                               "leader1": "Modo: multilíder — clic en la PUNTA (a qué señala)",
-                               "leader2": "Modo: multilíder — clic dónde va el TEXTO",
-                               "text": "Modo: texto libre — clic donde escribir",
+        self.btn_ct.setVisible(ti == 0); self.btn_mv.setVisible(ti in (0, 2, 3)); self.btn_edit.setVisible(ti in (1, 2))
+        self.lbl_mode.setText({"idle": "Modo: inactivo  ·  clic en el dibujo para seleccionar",
+                               "pipe": ("Modo: EXTENDIENDO desde el vértice — clic agrega puntos, Enter finaliza"
+                                        if self._extending else "Modo: dibujar utilidad  ·  Enter finaliza"),
+                               "leader1": "Modo: Multileader — clic en la PUNTA (a qué señala)",
+                               "leader2": "Modo: Multileader — clic dónde va el TEXTO",
+                               "text": "Modo: texto libre — clic donde escribir · Enter aplica",
                                "erase": "Modo: borrar zona — clic para el polígono, Enter cierra",
-                               "move": "Modo: editar vértices — arrastra / inserta / clic derecho elimina"}.get(m, ""))
+                               "move": "Modo: editar — arrastra vértice · clic en tramo inserta · clic-en-vértice extiende (F) · clic derecho elimina"}.get(m, ""))
 
     def set_mode(self, m):
         if m not in ("leader1", "leader2"): self._pending = None
         if m != "erase": self._erase_pts = []
+        if m != "pipe": self._extending = False
         self.mode = m; self._update_ui(); self._redraw()
 
     def _tab_changed(self, _): self._update_ui(); self._redraw()
@@ -463,8 +516,6 @@ class Main(QtWidgets.QMainWindow):
         it = self.type_list.currentItem(); return it.data(QtCore.Qt.UserRole) if it else "AGUA"
 
     def _toggle_custom(self, on):
-        # personalizado ON: se ignora y deselecciona el texto del Excel.
-        # personalizado OFF: se ignora el texto escrito, hay que elegir del Excel.
         self.txt_edit.setEnabled(on); self.text_list.setEnabled(not on)
         if on:
             self.text_list.blockSignals(True); self.text_list.setCurrentRow(-1); self.text_list.clearSelection(); self.text_list.blockSignals(False)
@@ -508,17 +559,15 @@ class Main(QtWidgets.QMainWindow):
         if path: self._open_pdf_path(path)
 
     def _open_pdf_path(self, path):
+        if not self._confirm_discard(): return
         self._busy("Abriendo PDF…")
         try:
             self.pdf_path = path; self.project_path = None; self.doc = fitz.open(path)
-            self.page_spin.setMaximum(self.doc.page_count - 1); self.page_spin.setValue(0); self._load_page(0)
+            self.page_idx = 0; self._load_page(0)
         finally: self._unbusy()
 
-    def _reload_page(self, i):
-        if self.doc: self._load_page(i)
-
     def _load_page(self, idx):
-        page = self.doc[idx]; self.scale = VP.detect_scale(page)
+        page = self.doc[idx]; self.page_idx = idx; self.scale = VP.detect_scale(page)
         self.rot = page.rotation; mbx = page.mediabox; self.W, self.H = mbx.width, mbx.height
         self.derot = page.derotation_matrix; self.leader_hpx = LEADER_TEXT_FT / self.scale * self.zoom
         pix = page.get_pixmap(matrix=fitz.Matrix(self.zoom, self.zoom), alpha=False)
@@ -526,14 +575,15 @@ class Main(QtWidgets.QMainWindow):
         qimg = QtGui.QImage(buf, pix.width, pix.height, pix.stride, QtGui.QImage.Format_RGB888).copy()
         arr = np.frombuffer(buf, np.uint8).reshape(pix.height, pix.stride)[:, :pix.width * 3].reshape(pix.height, pix.width, 3)
         self.gray = (0.299 * arr[:, :, 0] + 0.587 * arr[:, :, 1] + 0.114 * arr[:, :, 2]).astype(np.uint8)
+        self._overlay = []; self._editor = None
         self.canvas.set_image(qimg)
-        self._reset_model(); self._info(f"Página {idx} · escala 1\"={self.scale*72:.0f}'")
+        self._reset_model(); self._update_page_label(); self._info(f"Página {idx + 1} · escala 1\"={self.scale*72:.0f}'")
 
     def _reset_model(self):
         self.cur_pts = []; self.pipes = []; self.leaders = []; self.text_marks = []
         self.erase_regions = []; self._erase_pts = []
-        self.sel_pipe = self.sel_leader = self.sel_region = -1
-        self._overlay = []; self._editor = None; self._dirty = False
+        self.sel_pipe = self.sel_leader = self.sel_region = self.sel_text = -1
+        self._overlay = []; self._editor = None; self._dirty = False; self._extending = False
         self._undo.clear(); self._redo.clear(); self.ocr_boxes = []; self._tess_boxes = []; self._icr_boxes = []
         self.set_mode("idle"); self._refresh_lists(); self._redraw()
 
@@ -556,10 +606,8 @@ class Main(QtWidgets.QMainWindow):
     def save_project(self):
         if self.canvas.pixmap_item is None:
             QtWidgets.QMessageBox.information(self, "Nada que guardar", "Abre un PDF o proyecto primero."); return
-        if self.project_path:                 # actualiza el mismo archivo abierto
-            self._write_project(self.project_path)
-        else:
-            self.save_project_as()
+        if self.project_path: self._write_project(self.project_path)
+        else: self.save_project_as()
 
     def save_project_as(self):
         if self.canvas.pixmap_item is None:
@@ -573,61 +621,54 @@ class Main(QtWidgets.QMainWindow):
         if path: self._open_project_path(path)
 
     def _open_project_path(self, path):
+        if not self._confirm_discard(): return
         self._busy("Abriendo proyecto…")
         try:
             with zipfile.ZipFile(path) as z:
                 model = json.loads(z.read("model.json")); png = z.read("page.png")
             qimg = QtGui.QImage.fromData(png, "PNG")
-            self._overlay = []; self._editor = None          # la escena se recrea: refs viejas mueren
+            self._overlay = []; self._editor = None
             self.canvas.set_image(qimg); self.gray = qimage_to_gray(qimg)
             tf = model["tf"]; self.scale = tf["scale"]; self.zoom = tf["zoom"]; self.rot = tf["rot"]
             self.W, self.H = tf["W"], tf["H"]; self.derot = fitz.Matrix(*tf["derot"])
             self.leader_hpx = LEADER_TEXT_FT / self.scale * self.zoom
-            self.pdf_path = None; self.doc = None; self.project_path = path
+            self.pdf_path = None; self.doc = None; self.project_path = path; self.page_idx = 0
             self.pipes = model.get("pipes", []); self.leaders = model.get("leaders", [])
             self.text_marks = model.get("text_marks", [])
-            # Compatibilidad: zonas antiguas eran una lista de puntos; ahora son {pts, enabled}.
             self.erase_regions = [r if isinstance(r, dict) else {"pts": r, "enabled": True}
                                   for r in model.get("erase_regions", [])]
-            self.cur_pts = []; self._erase_pts = []; self.sel_pipe = self.sel_leader = self.sel_region = -1
+            self.cur_pts = []; self._erase_pts = []; self.sel_pipe = self.sel_leader = self.sel_region = self.sel_text = -1
             self._undo.clear(); self._redo.clear(); self._dirty = False
             self.ocr_boxes = []; self._tess_boxes = []; self._icr_boxes = []
-            self.set_mode("idle"); self._refresh_lists(); self._redraw()
+            self.set_mode("idle"); self._refresh_lists(); self._update_page_label(); self._redraw()
             self._info(f"Proyecto abierto ({len(self.pipes)} utilidades). Ctrl+S guarda en este mismo archivo.")
         except Exception as e:
             QtWidgets.QMessageBox.critical(self, "Error", str(e))
         finally: self._unbusy()
 
     def _confirm_discard(self):
-        """Devuelve True si se puede continuar (cerrar/limpiar), False si el
-        usuario cancela. Ofrece guardar si hay cambios sin guardar."""
-        if not self._dirty or self.canvas.pixmap_item is None:
-            return True
+        if not self._dirty or self.canvas.pixmap_item is None: return True
         r = QtWidgets.QMessageBox.question(
             self, "Cambios sin guardar", "Hay cambios sin guardar. ¿Deseas guardarlos?",
             QtWidgets.QMessageBox.Save | QtWidgets.QMessageBox.Discard | QtWidgets.QMessageBox.Cancel)
-        if r == QtWidgets.QMessageBox.Cancel:
-            return False
+        if r == QtWidgets.QMessageBox.Cancel: return False
         if r == QtWidgets.QMessageBox.Save:
-            self.save_project()
-            return not self._dirty       # si el guardado se canceló, no cerrar
+            self.save_project(); return not self._dirty
         return True
 
     def close_project(self):
-        if self.canvas.pixmap_item is None:
-            return
-        if not self._confirm_discard():
-            return
+        if self.canvas.pixmap_item is None: return
+        if not self._confirm_discard(): return
         self.canvas.scene().clear(); self.canvas.pixmap_item = None
         self.pdf_path = None; self.doc = None; self.project_path = None; self.gray = None
         self.pipes = []; self.leaders = []; self.text_marks = []; self.erase_regions = []
         self.cur_pts = []; self._erase_pts = []; self._overlay = []; self._editor = None
-        self.sel_pipe = self.sel_leader = self.sel_region = -1
+        self.sel_pipe = self.sel_leader = self.sel_region = self.sel_text = -1
         self.ocr_boxes = []; self._tess_boxes = []; self._icr_boxes = []
         self._undo.clear(); self._redo.clear(); self._dirty = False; self.show_text_boxes = False
         for chk in (self.chk_txt, self.chk_icr):
             chk.blockSignals(True); chk.setChecked(False); chk.blockSignals(False)
-        self.set_mode("idle"); self._refresh_lists(); self._info("Proyecto cerrado.")
+        self.set_mode("idle"); self._refresh_lists(); self._update_page_label(); self._info("Proyecto cerrado.")
 
     def closeEvent(self, e):
         if self._confirm_discard(): e.accept()
@@ -652,9 +693,9 @@ class Main(QtWidgets.QMainWindow):
             self._pending["arrow"] = self._snap(x, y); self.mode = "leader2"; self._update_ui()
         elif self.mode == "leader2":
             self._push(); self._pending["tp"] = (x, y); self.leaders.append(self._pending)
-            self._pending = None; self.set_mode("idle"); self._refresh_lists(); self._info("Multilíder colocado")
+            self._pending = None; self.set_mode("idle"); self._refresh_lists(); self._info("Multileader colocado")
         elif self.mode == "idle":
-            self._pick_pipe(x, y)
+            self._pick(x, y)
 
     def on_dblclick(self, x, y):
         if self.mode not in ("idle", "move"): return
@@ -662,17 +703,27 @@ class Main(QtWidgets.QMainWindow):
         for i, ld in enumerate(self.leaders):
             if ld.get("tp") and math.hypot(ld["tp"][0] - x, ld["tp"][1] - y) < thr:
                 self._edit_leader_text(i); return
+        for i, tm in enumerate(self.text_marks):
+            if self._text_hit(tm, x, y):
+                self._edit_text_mark(i); return
 
-    def _pick_pipe(self, x, y):
-        thr = 10.0 / max(1e-6, self.canvas.transform().m11())
-        best, bd = -1, thr
+    def _text_hit(self, tm, x, y):
+        h = tm.get("h", 16); lines = tm["text"].split("\n")
+        w = max((len(s) for s in lines), default=1) * h * 0.55; th = len(lines) * h
+        px, py = tm["pos"]; return px - 4 <= x <= px + w + 4 and py - 4 <= y <= py + th + 4
+
+    def _pick(self, x, y):
+        for i, tm in enumerate(self.text_marks):        # textos primero (blancos pequeños)
+            if self._text_hit(tm, x, y):
+                self._no_center = True; self.tabs.setCurrentIndex(2); self.txt_marks_list.setCurrentRow(i)
+                self._no_center = False; return
+        thr = 10.0 / max(1e-6, self.canvas.transform().m11()); best, bd = -1, thr
         for i, p in enumerate(self.pipes):
             for a, b in zip(p["pts"], p["pts"][1:]):
                 d = VP._pt_seg_dist(x, y, a[0], a[1], b[0], b[1])
                 if d < bd: bd, best = d, i
         if best >= 0:
-            self._no_center = True                       # clic en el dibujo NO mueve la vista
-            self.tabs.setCurrentIndex(0); self.pipe_list.setCurrentRow(best)
+            self._no_center = True; self.tabs.setCurrentIndex(0); self.pipe_list.setCurrentRow(best)
             self._no_center = False
 
     def _snap(self, x, y):
@@ -682,17 +733,17 @@ class Main(QtWidgets.QMainWindow):
         if not win.any(): return (x, y)
         ys, xs = np.nonzero(win); return (max(0, xi - r) + xs.mean(), max(0, yi - r) + ys.mean())
 
-    # ─────────────────────────── editar vértices / mover ───────────────────────────
-    def _edit_target(self):
+    # ─────────────────────────── editar / mover ───────────────────────────
+    def _current_kind(self):
         ti = self.tabs.currentIndex()
-        if ti == 0 and 0 <= self.sel_pipe < len(self.pipes): return self.pipes[self.sel_pipe]["pts"], False
-        if ti == 2 and 0 <= self.sel_region < len(self.erase_regions): return self.erase_regions[self.sel_region]["pts"], True
-        return None, False
+        if ti == 0 and 0 <= self.sel_pipe < len(self.pipes): return "pipe"
+        if ti == 2 and 0 <= self.sel_text < len(self.text_marks): return "text"
+        if ti == 3 and 0 <= self.sel_region < len(self.erase_regions): return "region"
+        return None
 
     def enter_move(self):
-        pts, _ = self._edit_target()
-        if pts is not None: self.set_mode("move"); self._info("Arrastra un vértice · clic en un tramo inserta · clic derecho elimina")
-        else: self._info("Selecciona primero una utilidad o una zona")
+        if self._current_kind(): self.set_mode("move"); self._info("Arrastra para mover · clic en vértice extiende (F) · clic derecho elimina")
+        else: self._info("Selecciona primero una utilidad, texto o zona")
 
     def _thr(self): return 12.0 / max(1e-6, self.canvas.transform().m11())
 
@@ -702,9 +753,13 @@ class Main(QtWidgets.QMainWindow):
         return segs
 
     def begin_move(self, x, y):
-        pts, closed = self._edit_target()
-        if pts is None: return
-        self._push(); self._edit_pts = pts; self._edit_closed = closed; thr = self._thr()
+        kind = self._current_kind()
+        if not kind: return
+        self._push(); self._moved = False; self._move_kind = kind; thr = self._thr()
+        if kind == "text":
+            self._move0 = (x, y); self._drag_vertex = None; self._edit_pts = None; return
+        pts = self.pipes[self.sel_pipe]["pts"] if kind == "pipe" else self.erase_regions[self.sel_region]["pts"]
+        self._edit_pts = pts; self._edit_closed = (kind == "region")
         vi, vd = -1, thr
         for i, (px, py) in enumerate(pts):
             d = math.hypot(px - x, py - y)
@@ -712,15 +767,22 @@ class Main(QtWidgets.QMainWindow):
         if vi >= 0:
             self._drag_vertex = vi; self._move0 = None; return
         si, sd = -1, thr
-        for idx, a, b in self._segments(pts, closed):
+        for idx, a, b in self._segments(pts, self._edit_closed):
             d = VP._pt_seg_dist(x, y, a[0], a[1], b[0], b[1])
             if d < sd: sd, si = d, idx
         if si >= 0:
-            pts.insert(si + 1, (x, y)); self._drag_vertex = si + 1; self._move0 = None
+            pts.insert(si + 1, (x, y)); self._drag_vertex = si + 1; self._move0 = None; self._moved = True
             self._refresh_lists(); return
-        self._drag_vertex = None; self._move0 = (x, y)      # mover todo
+        self._drag_vertex = None; self._move0 = (x, y)
 
     def do_move(self, x, y):
+        self._moved = True
+        if self._move_kind == "text" and 0 <= self.sel_text < len(self.text_marks):
+            if self._move0:
+                dx, dy = x - self._move0[0], y - self._move0[1]; self._move0 = (x, y)
+                px, py = self.text_marks[self.sel_text]["pos"]
+                self.text_marks[self.sel_text]["pos"] = (px + dx, py + dy); self._redraw()
+            return
         pts = self._edit_pts
         if pts is None: return
         if self._drag_vertex is not None:
@@ -730,12 +792,21 @@ class Main(QtWidgets.QMainWindow):
             for i in range(len(pts)): pts[i] = (pts[i][0] + dx, pts[i][1] + dy)
             self._redraw()
 
-    def end_move(self): self._move0 = None; self._drag_vertex = None
+    def end_move(self):
+        # clic (sin arrastrar) sobre un vértice de una tubería → extender en forma de F
+        if (self._move_kind == "pipe" and not self._moved and self._drag_vertex is not None
+                and 0 <= self.sel_pipe < len(self.pipes)):
+            vpos = self.pipes[self.sel_pipe]["pts"][self._drag_vertex]
+            self._ext_layer = self.pipes[self.sel_pipe]["layer"]; self._extending = True
+            self.cur_pts = [tuple(vpos)]; self.set_mode("pipe")
+            self._info("Extendiendo desde el vértice: clic para agregar puntos, Enter finaliza")
+        self._move0 = None; self._drag_vertex = None; self._move_kind = None
 
     def _delete_vertex(self, x, y):
-        pts, closed = self._edit_target()
-        if pts is None: return
-        floor = 3 if closed else 2
+        kind = self._current_kind()
+        if kind not in ("pipe", "region"): return
+        pts = self.pipes[self.sel_pipe]["pts"] if kind == "pipe" else self.erase_regions[self.sel_region]["pts"]
+        floor = 3 if kind == "region" else 2
         if len(pts) <= floor: self._info(f"Necesita al menos {floor} puntos"); return
         thr = self._thr(); vi, vd = -1, thr
         for i, (px, py) in enumerate(pts):
@@ -747,39 +818,64 @@ class Main(QtWidgets.QMainWindow):
     # ─────────────────────────── utilidades ───────────────────────────
     def finish_pipe(self):
         if len(self.cur_pts) >= 2:
-            self._push(); self.pipes.append({"layer": self.active_layer(), "pts": self.cur_pts[:], "ab": self.chk_ab.isChecked()})
-            self.cur_pts = []; self._refresh_lists(); self._update_ui(); self._redraw()
+            layer = self._ext_layer if self._extending else self.active_layer()
+            ab = False if self._extending else self.chk_ab.isChecked()
+            self._push(); self.pipes.append({"layer": layer, "pts": self.cur_pts[:], "ab": ab})
+        self.cur_pts = []; self._extending = False; self._ext_layer = None
+        self._refresh_lists(); self._update_ui(); self._redraw()
 
     def _sel_pipe(self, r):
         self.sel_pipe = r
         if not self._no_center and 0 <= r < len(self.pipes):
             pts = self.pipes[r]["pts"]; mid = pts[len(pts) // 2]; self.canvas.centerOn(mid[0], mid[1])
-        self._redraw()
+        self._update_ui(); self._redraw()
 
     def _sel_leader(self, r):
         self.sel_leader = r
         if not self._no_center and 0 <= r < len(self.leaders) and self.leaders[r].get("tp"):
             tp = self.leaders[r]["tp"]; self.canvas.centerOn(tp[0], tp[1])
-        self._redraw()
+        self._update_ui(); self._redraw()
+
+    def _sel_text(self, r):
+        self.sel_text = r
+        if 0 <= r < len(self.text_marks):
+            tm = self.text_marks[r]
+            if not self._no_center: self.canvas.centerOn(tm["pos"][0], tm["pos"][1])
+            self._style_guard = True
+            self.font_combo.setCurrentFont(QtGui.QFont(tm.get("font", C.TEXT_FONT)))
+            self.size_spin.setValue(tm.get("size_ft", 3.0)); self.chk_bold.setChecked(bool(tm.get("bold")))
+            self._style_guard = False
+        self._update_ui(); self._redraw()
 
     def _sel_region(self, r):
         self.sel_region = r
         if not self._no_center and 0 <= r < len(self.erase_regions):
             pts = self.erase_regions[r]["pts"]
-            cx = sum(p[0] for p in pts) / len(pts); cy = sum(p[1] for p in pts) / len(pts)
-            self.canvas.centerOn(cx, cy)
-        self._redraw()
+            cx = sum(p[0] for p in pts) / len(pts); cy = sum(p[1] for p in pts) / len(pts); self.canvas.centerOn(cx, cy)
+        self._update_ui(); self._redraw()
 
     def _region_toggled(self, item):
         r = self.region_list.row(item)
         if 0 <= r < len(self.erase_regions):
-            self.erase_regions[r]["enabled"] = (item.checkState() == QtCore.Qt.Checked)
-            self._dirty = True; self._redraw()
+            self.erase_regions[r]["enabled"] = (item.checkState() == QtCore.Qt.Checked); self._dirty = True; self._redraw()
+
+    def _style_changed(self):
+        if self._style_guard: return
+        if self.tabs.currentIndex() == 2 and 0 <= self.sel_text < len(self.text_marks):
+            tm = self.text_marks[self.sel_text]; self._push()
+            tm["font"] = self.font_combo.currentFont().family(); tm["size_ft"] = self.size_spin.value()
+            tm["bold"] = self.chk_bold.isChecked(); tm["h"] = tm["size_ft"] / self.scale * self.zoom
+            self._redraw()
 
     def change_pipe_type(self):
         if 0 <= self.sel_pipe < len(self.pipes):
             self._push(); self.pipes[self.sel_pipe]["layer"] = self.active_layer()
             self.pipes[self.sel_pipe]["ab"] = self.chk_ab.isChecked(); self._refresh_lists(); self._redraw()
+
+    def edit_selected_text(self):
+        ti = self.tabs.currentIndex()
+        if ti == 1 and 0 <= self.sel_leader < len(self.leaders): self._edit_leader_text(self.sel_leader)
+        elif ti == 2 and 0 <= self.sel_text < len(self.text_marks): self._edit_text_mark(self.sel_text)
 
     def delete_selected(self):
         ti = self.tabs.currentIndex()
@@ -787,7 +883,9 @@ class Main(QtWidgets.QMainWindow):
             self._push(); self.pipes.pop(self.sel_pipe); self.sel_pipe = -1
         elif ti == 1 and 0 <= self.sel_leader < len(self.leaders):
             self._push(); self.leaders.pop(self.sel_leader); self.sel_leader = -1
-        elif ti == 2 and 0 <= self.sel_region < len(self.erase_regions):
+        elif ti == 2 and 0 <= self.sel_text < len(self.text_marks):
+            self._push(); self.text_marks.pop(self.sel_text); self.sel_text = -1
+        elif ti == 3 and 0 <= self.sel_region < len(self.erase_regions):
             self._push(); self.erase_regions.pop(self.sel_region); self.sel_region = -1
         self._refresh_lists(); self._redraw()
 
@@ -801,6 +899,9 @@ class Main(QtWidgets.QMainWindow):
         self.lead_list.blockSignals(True); self.lead_list.clear()
         for i, ld in enumerate(self.leaders, 1): self.lead_list.addItem(f"{i}. {ld['text'][:28].replace(chr(10), ' / ')}")
         self.lead_list.blockSignals(False)
+        self.txt_marks_list.blockSignals(True); self.txt_marks_list.clear()
+        for i, tm in enumerate(self.text_marks, 1): self.txt_marks_list.addItem(f"{i}. {tm['text'][:28].replace(chr(10), ' / ')}")
+        self.txt_marks_list.blockSignals(False)
         self.region_list.blockSignals(True); self.region_list.clear()
         for i, rg in enumerate(self.erase_regions, 1):
             it = QtWidgets.QListWidgetItem(f"Zona {i} ({len(rg['pts'])} vértices)")
@@ -819,7 +920,7 @@ class Main(QtWidgets.QMainWindow):
         self._erase_pts = []; self.set_mode("idle"); self._refresh_lists()
         self._info("Zona agregada: al exportar también se borra la geometría base del plano dentro de ella.")
 
-    # ─────────────────────────── multilíder ───────────────────────────
+    # ─────────────────────────── Multileader ───────────────────────────
     def start_leader(self):
         if self.chk_custom.isChecked():
             txt = self.txt_edit.text().strip()
@@ -828,48 +929,41 @@ class Main(QtWidgets.QMainWindow):
         if not txt:
             QtWidgets.QMessageBox.information(self, "Sin texto",
                 "Activa 'texto personalizado' y escribe, o desactívalo y selecciona un texto del Excel."); return
-        self._pending = {"text": txt, "style": self.style_combo.currentData(),
-                         "orient": self.orient_combo.currentData(), "arrow": None, "tp": None}
+        self._pending = {"text": txt, "orient": self.orient_combo.currentData(), "arrow": None, "tp": None}
         self.set_mode("leader1"); self._info("Clic en la PUNTA (a qué señala)")
 
     def _edit_leader_text(self, idx):
         ld = self.leaders[idx]; tp = ld["tp"]
         def commit(val):
             self._close_editor()
-            if val.strip():
-                self._push(); ld["text"] = val.rstrip("\n"); self._refresh_lists()
+            if val.strip(): self._push(); ld["text"] = val.rstrip("\n"); self._refresh_lists()
             self._redraw()
         self._open_editor(tp[0], tp[1] - self.leader_hpx, ld["text"], commit)
 
     def _leader_geo(self, ld):
-        """Devuelve dict: segs, anchor(px del texto), attach(punto de anclaje MTEXT),
-        H. Vertical = línea recta, texto a un lado según la dirección. Horizontal =
-        landing. El texto se ancla en el MEDIO para que las líneas extra caigan al
-        otro lado del landing."""
+        """Geometría del Multileader (px). Devuelve dict con: segs (preview),
+        label_pos, rot (texto), side (conexión CAD), verts_px (línea de la flecha),
+        insert_px (texto), dogleg (pies), H."""
         ax, ay = ld["arrow"]; tx, ty = ld["tp"]; H = self.leader_hpx
-        orient = ld.get("orient", "h")
-        maxlen = max((len(s) for s in ld["text"].split("\n")), default=1)
-        wtxt = max(maxlen * H * 0.55, H); gap = H * 0.4
-        if orient == "v":
-            if ty < ay:      # texto arriba → a la IZQUIERDA
-                return dict(segs=[[(ax, ay), (tx, ty)]], anchor=(tx - gap, ty), attach=6, H=H)
-            else:            # texto abajo → a la DERECHA
-                return dict(segs=[[(ax, ay), (tx, ty)]], anchor=(tx + gap, ty), attach=4, H=H)
-        right = tx >= ax
-        if orient == "d" or ld.get("style") == "plain":
-            if right: return dict(segs=[[(ax, ay), (tx, ty)]], anchor=(tx + gap, ty), attach=4, H=H)
-            return dict(segs=[[(ax, ay), (tx, ty)]], anchor=(tx - gap, ty), attach=6, H=H)
-        # horizontal con landing
-        sgn = 1 if right else -1; lx, ly = tx + sgn * wtxt, ty
-        if right: return dict(segs=[[(ax, ay), (tx, ty), (lx, ly)]], anchor=(tx + gap, ty), attach=4, H=H)
-        return dict(segs=[[(ax, ay), (tx, ty), (lx, ly)]], anchor=(tx - gap, ty), attach=6, H=H)
-
-    def _text_topleft(self, geo, text):
-        ax, ay = geo["anchor"]; H = geo["H"]
-        n = text.count("\n") + 1; maxlen = max((len(s) for s in text.split("\n")), default=1)
-        tw = maxlen * H * 0.55; th = n * H
-        x = ax if geo["attach"] == 4 else ax - tw
-        return x, ay - th / 2
+        maxlen = max((len(s) for s in ld["text"].split("\n")), default=1); nlines = ld["text"].count("\n") + 1
+        tw = maxlen * H * 0.55; th = nlines * H; gap = H * 0.4; orient = ld.get("orient", "h")
+        if orient == "v":                            # recto vertical, texto vertical pegado
+            side = "top" if ty < ay else "bottom"
+            lbl = (ax + H * 0.15, ty) if side == "top" else (ax - H * 0.15, ty)
+            return dict(segs=[[(ax, ay), (ax, ty)]], label_pos=lbl, rot=-90, side=side,
+                        verts_px=[(ax, ay)], insert_px=(ax, ty), dogleg=0.0, H=H)
+        if orient == "h":                            # recto horizontal
+            right = tx >= ax; ex = (tx, ay)
+            side = "right" if right else "left"
+            lbl = (ex[0] + gap, ay - th / 2) if right else (ex[0] - gap - tw, ay - th / 2)
+            return dict(segs=[[(ax, ay), ex]], label_pos=lbl, rot=0, side=side,
+                        verts_px=[(ax, ay)], insert_px=(ex[0] + (gap if right else -gap), ay), dogleg=0.0, H=H)
+        # diagonal con landing (comportamiento anterior del "horizontal")
+        right = tx >= ax; sgn = 1 if right else -1; lx = tx + sgn * tw; ly = ty
+        side = "right" if right else "left"
+        lbl = (tx + gap, ty - th) if right else (tx - gap - tw, ty - th)   # encima del landing
+        return dict(segs=[[(ax, ay), (tx, ty), (lx, ly)]], label_pos=lbl, rot=0, side=side,
+                    verts_px=[(ax, ay), (tx, ty)], insert_px=(tx + sgn * gap, ty), dogleg=LEADER_TEXT_FT * 1.5, H=H)
 
     # ─────────────────────────── texto libre ───────────────────────────
     def _new_free_text(self, x, y):
@@ -881,20 +975,28 @@ class Main(QtWidgets.QMainWindow):
                                         "h": self.size_spin.value() / self.scale * self.zoom,
                                         "size_ft": self.size_spin.value(), "font": self.font_combo.currentFont().family(),
                                         "bold": self.chk_bold.isChecked(), "free": True})
+                self._refresh_lists()
             self._redraw()
         self._open_editor(x, y, "", commit)
+
+    def _edit_text_mark(self, idx):
+        tm = self.text_marks[idx]
+        def commit(val):
+            self._close_editor()
+            if val.strip(): self._push(); tm["text"] = val.rstrip("\n"); self._refresh_lists()
+            self._redraw()
+        self._open_editor(tm["pos"][0], tm["pos"][1], tm["text"], commit)
 
     def _open_editor(self, x, y, initial, on_commit, w=220):
         self._close_editor()
         ed = InlineEdit(initial); ed.setFixedWidth(w); ed.setFixedHeight(70)
-        proxy = self.canvas.scene().addWidget(ed); proxy.setPos(x, y)
+        proxy = self.canvas.scene().addWidget(ed); proxy.setPos(x, y); proxy.setZValue(Z_HANDLE + 1)
         ed.committed.connect(on_commit); self._editor = proxy
         ed.setFocus(QtCore.Qt.OtherFocusReason); ed.selectAll()
 
     def _close_editor(self):
         if self._editor:
-            ed = self._editor
-            self._editor = None
+            ed = self._editor; self._editor = None
             try: self.canvas.scene().removeItem(ed)
             except Exception: pass
 
@@ -951,6 +1053,7 @@ class Main(QtWidgets.QMainWindow):
                         self._push()
                         self.text_marks.append({"pos": (rect.center().x(), rect.center().y()), "text": val.rstrip("\n"),
                                                 "h": rect.height(), "box": (rect.x(), rect.y(), rect.width(), rect.height())})
+                        self._refresh_lists()
                     self._redraw()
                 self._open_editor(rect.x(), rect.y(), txt, commit, max(160, int(rect.width())))
                 return True
@@ -961,27 +1064,12 @@ class Main(QtWidgets.QMainWindow):
         sc = self.canvas.scene()
         for it in self._overlay:
             try: sc.removeItem(it)
-            except (RuntimeError, ValueError): pass      # item ya destruido por scene.clear()
+            except (RuntimeError, ValueError): pass
         self._overlay = []
         if self.canvas.pixmap_item is None: return
-        for i, p in enumerate(self.pipes):
-            sel = (i == self.sel_pipe)
-            self._poly(p["pts"], layer_qcolor(p["layer"]), 4.0 if sel else 2.0)
-            if sel and self.mode == "move": self._handles(p["pts"])
-        self._poly(self.cur_pts, layer_qcolor(self.active_layer()), 2.0, dots=True)
-        anno = aci_qcolor(8)
-        for i, ld in enumerate(self.leaders):
-            if not (ld.get("arrow") and ld.get("tp")): continue
-            col = QtGui.QColor(120, 220, 120) if i == self.sel_leader else anno
-            geo = self._leader_geo(ld)
-            for s in geo["segs"]: self._poly(s, col, 1.6)
-            self._arrow(ld["arrow"], ld["tp"], col)
-            t = sc.addText(ld["text"]); t.setDefaultTextColor(col)
-            f = t.font(); f.setPixelSize(int(geo["H"])); t.setFont(f)
-            tx, ty = self._text_topleft(geo, ld["text"]); t.setPos(tx, ty); self._overlay.append(t)
-        # zonas de borrado
+        # zonas de borrado — DETRÁS de todo (solo tapan el PDF)
         if self._erase_pts:
-            self._poly(self._erase_pts, QtGui.QColor(255, 220, 0), 1.8, dots=True)
+            self._poly(self._erase_pts, QtGui.QColor(255, 220, 0), 1.8, dots=True, z=Z_MARK)
         for i, rg in enumerate(self.erase_regions):
             qp = QtGui.QPolygonF([QtCore.QPointF(px, py) for (px, py) in rg["pts"]])
             enabled = rg.get("enabled", True); sel = (i == self.sel_region)
@@ -991,35 +1079,64 @@ class Main(QtWidgets.QMainWindow):
                 pen = QtGui.QPen(QtGui.QColor(255, 40, 40), 2.0); brush = QtGui.QBrush(QtGui.QColor(255, 255, 255, 128))
             else:
                 pen = QtGui.QPen(QtGui.QColor(255, 255, 255), 1.6); brush = QtGui.QBrush(QtGui.QColor(255, 255, 255, 255))
-            pen.setCosmetic(True); self._overlay.append(sc.addPolygon(qp, pen, brush))
+            pen.setCosmetic(True); it = sc.addPolygon(qp, pen, brush); it.setZValue(Z_ERASE); self._overlay.append(it)
             if sel and self.mode == "move": self._handles(rg["pts"])
+        # utilidades
+        for i, p in enumerate(self.pipes):
+            sel = (i == self.sel_pipe)
+            self._poly(p["pts"], layer_qcolor(p["layer"]), 4.0 if sel else 2.0, z=Z_MARK)
+            if sel and self.mode == "move": self._handles(p["pts"])
+        self._poly(self.cur_pts, layer_qcolor(self._ext_layer or self.active_layer()), 2.0, dots=True, z=Z_MARK)
+        # multileaders
+        anno = aci_qcolor(8)
+        for i, ld in enumerate(self.leaders):
+            if not (ld.get("arrow") and ld.get("tp")): continue
+            col = QtGui.QColor(120, 220, 120) if i == self.sel_leader else anno
+            geo = self._leader_geo(ld)
+            for s in geo["segs"]: self._poly(s, col, 1.6, z=Z_MARK)
+            self._arrow(ld["arrow"], geo["verts_px"][-1] if len(geo["verts_px"]) > 1 else ld["tp"], col)
+            t = sc.addText(ld["text"]); t.setDefaultTextColor(col)
+            f = t.font(); f.setPixelSize(int(geo["H"])); t.setFont(f)
+            if geo["rot"]: t.setRotation(geo["rot"])
+            t.setPos(geo["label_pos"][0], geo["label_pos"][1]); t.setZValue(Z_MARK); self._overlay.append(t)
+        # cajas OCR/ICR
         if self.show_text_boxes:
             pen = QtGui.QPen(QtGui.QColor(255, 200, 0), 1); pen.setCosmetic(True)
-            for rect, _ in self.ocr_boxes: self._overlay.append(sc.addRect(rect, pen))
-        for tm in self.text_marks:
-            t = sc.addText(tm["text"]); t.setDefaultTextColor(QtGui.QColor(120, 220, 120))
+            for rect, _ in self.ocr_boxes:
+                it = sc.addRect(rect, pen); it.setZValue(Z_MARK); self._overlay.append(it)
+        # textos
+        for i, tm in enumerate(self.text_marks):
+            t = sc.addText(tm["text"])
+            col = QtGui.QColor(120, 220, 120) if i == self.sel_text and self.tabs.currentIndex() == 2 else QtGui.QColor(120, 220, 120)
+            t.setDefaultTextColor(col)
             f = t.font(); f.setPixelSize(int(tm.get("h", 16)))
             if tm.get("font"): f.setFamily(tm["font"])
             f.setBold(bool(tm.get("bold"))); t.setFont(f)
-            t.setPos(tm["pos"][0], tm["pos"][1]); self._overlay.append(t)
+            t.setPos(tm["pos"][0], tm["pos"][1]); t.setZValue(Z_MARK); self._overlay.append(t)
+            if i == self.sel_text and self.tabs.currentIndex() == 2:
+                br = t.boundingRect(); pen = QtGui.QPen(QtGui.QColor(255, 180, 40)); pen.setCosmetic(True)
+                rit = sc.addRect(tm["pos"][0], tm["pos"][1], br.width(), br.height(), pen); rit.setZValue(Z_MARK); self._overlay.append(rit)
 
     def _handles(self, pts):
         sc = self.canvas.scene(); pen = QtGui.QPen(QtGui.QColor(255, 255, 255)); pen.setCosmetic(True)
         for (vx, vy) in pts:
-            self._overlay.append(sc.addRect(vx - 5, vy - 5, 10, 10, pen, QtGui.QBrush(QtGui.QColor(255, 180, 40))))
+            it = sc.addRect(vx - 5, vy - 5, 10, 10, pen, QtGui.QBrush(QtGui.QColor(255, 180, 40)))
+            it.setZValue(Z_HANDLE); self._overlay.append(it)
 
-    def _poly(self, pts, color, width, dots=False):
+    def _poly(self, pts, color, width, dots=False, z=Z_MARK):
         sc = self.canvas.scene(); pen = QtGui.QPen(color, width); pen.setCosmetic(True)
-        for a, b in zip(pts, pts[1:]): self._overlay.append(sc.addLine(a[0], a[1], b[0], b[1], pen))
+        for a, b in zip(pts, pts[1:]):
+            it = sc.addLine(a[0], a[1], b[0], b[1], pen); it.setZValue(z); self._overlay.append(it)
         if dots:
-            for (x, y) in pts: self._overlay.append(sc.addEllipse(x - 3, y - 3, 6, 6, pen, QtGui.QBrush(color)))
+            for (x, y) in pts:
+                it = sc.addEllipse(x - 3, y - 3, 6, 6, pen, QtGui.QBrush(color)); it.setZValue(z); self._overlay.append(it)
 
     def _arrow(self, a, b, color):
         ang = math.atan2(a[1] - b[1], a[0] - b[0]); L = self.leader_hpx * 0.8
         p1 = (a[0] - L * math.cos(ang - 0.4), a[1] - L * math.sin(ang - 0.4))
         p2 = (a[0] - L * math.cos(ang + 0.4), a[1] - L * math.sin(ang + 0.4))
         poly = QtGui.QPolygonF([QtCore.QPointF(*a), QtCore.QPointF(*p1), QtCore.QPointF(*p2)])
-        self._overlay.append(self.canvas.scene().addPolygon(poly, QtGui.QPen(color), QtGui.QBrush(color)))
+        it = self.canvas.scene().addPolygon(poly, QtGui.QPen(color), QtGui.QBrush(color)); it.setZValue(Z_MARK); self._overlay.append(it)
 
     # ─────────────────────────── coords ───────────────────────────
     def _to_cad(self, x, y):
@@ -1060,7 +1177,7 @@ class Main(QtWidgets.QMainWindow):
             if os.path.exists(tmp): os.remove(tmp)
             nreg = sum(1 for r in self.erase_regions if r.get("enabled", True))
             QtWidgets.QMessageBox.information(self, "Listo",
-                f"Exportado:\n{self._out}\n\n{len(self.pipes)} utilidades, {len(self.leaders)} multilíderes, "
+                f"Exportado:\n{self._out}\n\n{len(self.pipes)} utilidades, {len(self.leaders)} Multileaders, "
                 f"{len(self.text_marks)} textos, {nreg} zonas borradas.")
             self._info("DXF completo exportado.")
         except Exception as e:
@@ -1078,7 +1195,7 @@ class Main(QtWidgets.QMainWindow):
         VP.ensure_layer(doc, "ANOTACION")
         if "CAD_TEXT" not in doc.styles: doc.styles.add("CAD_TEXT", font=C.TEXT_FONT)
         for ld in self.leaders:
-            if ld.get("arrow") and ld.get("tp"): self._add_leader_group(doc, msp, ld)
+            if ld.get("arrow") and ld.get("tp"): self._add_leader(doc, msp, ld)
         for tm in self.text_marks:
             if tm.get("free"): self._add_free_text(doc, msp, tm)
             else: self._replace_text(doc, msp, tm)
@@ -1100,24 +1217,47 @@ class Main(QtWidgets.QMainWindow):
                     ins = e.dxf.insert; hit = inside((ins.x, ins.y))
                 elif t in ("CIRCLE", "ARC"):
                     c = e.dxf.center; hit = inside((c.x, c.y))
-                else:
-                    hit = False
+                else: hit = False
                 if hit: msp.delete_entity(e)
-            except Exception:
-                continue
+            except Exception: continue
+
+    def _add_leader(self, doc, msp, ld):
+        """Exporta como entidad MULTILEADER de CAD. Si falla, cae al grupo."""
+        try:
+            from ezdxf.math import Vec2
+            from ezdxf.render.mleader import ConnectionSide
+            geo = self._leader_geo(ld)
+            verts = [Vec2(*self._to_cad(*p)) for p in geo["verts_px"]]
+            insert = Vec2(*self._to_cad(*geo["insert_px"]))
+            smap = {"right": ConnectionSide.right, "left": ConnectionSide.left,
+                    "top": ConnectionSide.top, "bottom": ConnectionSide.bottom}
+            content = ld["text"].replace("\n", "\\P")
+            for side in (smap[geo["side"]], ConnectionSide.right, ConnectionSide.left):
+                try:
+                    b = msp.add_multileader_mtext("Standard")
+                    b.set_content(content, char_height=LEADER_TEXT_FT)
+                    b.set_connection_properties(dogleg_length=geo["dogleg"])
+                    b.add_leader_line(side, verts)
+                    b.build(insert=insert)
+                    return
+                except Exception:
+                    continue
+        except Exception:
+            pass
+        self._add_leader_group(doc, msp, ld)
 
     def _add_leader_group(self, doc, msp, ld):
         geo = self._leader_geo(ld); ents = []
         for s in geo["segs"]:
             ents.append(msp.add_lwpolyline([self._to_cad(x, y) for (x, y) in s], dxfattribs={"layer": "ANOTACION"}))
-        a = self._to_cad(*ld["arrow"]); b = self._to_cad(*ld["tp"])
-        ang = math.atan2(a[1] - b[1], a[0] - b[0]); L = LEADER_TEXT_FT * 0.8
+        a = self._to_cad(*ld["arrow"]); nxt = geo["verts_px"][-1] if len(geo["verts_px"]) > 1 else ld["tp"]
+        b = self._to_cad(*nxt); ang = math.atan2(a[1] - b[1], a[0] - b[0]); L = LEADER_TEXT_FT * 0.8
         p1 = (a[0] - L * math.cos(ang - 0.4), a[1] - L * math.sin(ang - 0.4))
         p2 = (a[0] - L * math.cos(ang + 0.4), a[1] - L * math.sin(ang + 0.4))
         ents.append(msp.add_solid([a, p1, p2, a], dxfattribs={"layer": "ANOTACION"}))
         m = msp.add_mtext(ld["text"].replace("\n", "\\P"),
                           dxfattribs={"layer": "ANOTACION", "style": "CAD_TEXT", "char_height": LEADER_TEXT_FT})
-        m.set_location(self._to_cad(*geo["anchor"]), attachment_point=geo["attach"]); ents.append(m)
+        m.set_location(self._to_cad(*ld["tp"]), attachment_point=4); ents.append(m)
         try:
             g = doc.groups.new()
             with g.edit_data() as data: data.extend(ents)
@@ -1166,8 +1306,8 @@ class Main(QtWidgets.QMainWindow):
                         if hc: break
                     if hc is None: continue
                     for row in ws.iter_rows(min_row=hr + 1, min_col=hc, max_col=hc):
-                        v = row[0].value
-                        if v is not None and str(v).strip(): texts.append(str(v).strip())
+                        val = row[0].value
+                        if val is not None and str(val).strip(): texts.append(str(val).strip())
                 except Exception: continue
             self.text_list.clear(); self.text_list.addItems(texts)
             self._info(f"Excel: {len(texts)} textos de la columna TEXTO." if texts else "No hallé columna TEXTO/TEXTOS.")
@@ -1176,7 +1316,7 @@ class Main(QtWidgets.QMainWindow):
         finally: self._unbusy()
 
     # ─────────────────────────── Ayuda ───────────────────────────
-    def _show_html(self, title, html, w=760, h=640):
+    def _show_html(self, title, html, w=780, h=660):
         dlg = QtWidgets.QDialog(self); dlg.setWindowTitle(title); dlg.resize(w, h)
         lay = QtWidgets.QVBoxLayout(dlg); tb = QtWidgets.QTextBrowser(); tb.setOpenExternalLinks(True)
         tb.setStyleSheet("background:#1e1e1e;color:#e8e8e8;font-size:14px;"); tb.setHtml(html)
@@ -1184,13 +1324,13 @@ class Main(QtWidgets.QMainWindow):
         lay.addWidget(tb); lay.addWidget(btn); dlg.exec()
 
     def show_about(self):
-        dlg = QtWidgets.QDialog(self); dlg.setWindowTitle("Acerca de"); dlg.resize(740, 660)
+        dlg = QtWidgets.QDialog(self); dlg.setWindowTitle("Acerca de"); dlg.resize(760, 680)
         lay = QtWidgets.QVBoxLayout(dlg)
         head = QtWidgets.QLabel(
             f"<h2>Digitalizador de planos — utilidades</h2>"
             f"<p><b>Versión {VERSION}</b> · para ingeniería civil (agua, alcantarillado, gas, "
             f"eléctrico, telefonía, drenaje).</p>"
-            f"<p>Convierte un PDF de plano a DXF y te deja marcar utilidades, multilíderes y notas "
+            f"<p>Convierte un PDF de plano a DXF y te deja marcar utilidades, Multileaders y notas "
             f"sobre la imagen, exportando todo en las mismas coordenadas.</p>"
             f"<p style='color:#888;'>Historial de versiones (la más reciente arriba, la más antigua "
             f"abajo). Haz clic en cada versión para desplegarla.</p>")
@@ -1202,8 +1342,7 @@ class Main(QtWidgets.QMainWindow):
                 "fixed": ("#6cc5e0", "✎ corregida"), "base": ("#cfcfcf", "•")}
         for ver, items in CHANGELOG:
             tb = QtWidgets.QTextBrowser(); tb.setStyleSheet("background:#1e1e1e;color:#e8e8e8;border:none;")
-            lis = "".join(f'<li style="color:{icon[s][0]};margin-bottom:4px;">'
-                          f'<b>[{icon[s][1]}]</b> {t}</li>' for s, t in items)
+            lis = "".join(f'<li style="color:{icon[s][0]};margin-bottom:4px;"><b>[{icon[s][1]}]</b> {t}</li>' for s, t in items)
             tb.setHtml(f"<ul>{lis}</ul>"); box.addItem(tb, f"v{ver}")
         lay.addWidget(box, 1)
         btn = QtWidgets.QPushButton("Cerrar"); btn.clicked.connect(dlg.accept); lay.addWidget(btn)
@@ -1213,88 +1352,79 @@ class Main(QtWidgets.QMainWindow):
         html = """
         <h2>Manual de usuario</h2>
         <h3>1. Abrir el plano</h3>
-        <p><b>Archivo → Abrir PDF…</b> (o arrastra el PDF a la ventana). Se muestra la página y
-        se detecta la escala automáticamente. Cambia de página con el selector <b>Página</b> arriba.
-        Puedes también arrastrar un <b>Excel</b> para cargar sus textos.</p>
-        <h3>2. Dibujar una utilidad (tubería/línea)</h3>
+        <p><b>Archivo → Abrir PDF…</b> (o arrastra el PDF). Navega entre páginas con los botones
+        <b>◀ ▶</b> de la barra superior. Puedes arrastrar un <b>Excel</b> para cargar sus textos.</p>
+        <h3>2. Dibujar una utilidad</h3>
         <ol>
-          <li>En <b>Tipo de utilidad</b> elige el servicio (agua, gas, etc.). Cada uno tiene su color.</li>
-          <li>Pulsa <b>✏ Dibujar utilidad</b> (el botón se pone verde = modo activo).</li>
-          <li>Haz clic en el plano punto por punto siguiendo el trazo. Cada clic agrega un vértice.</li>
-          <li>Pulsa <b>Enter</b> (o clic derecho / doble clic) para finalizar la línea.</li>
-          <li>Marca <b>Abandonado</b> antes de finalizar si la utilidad está fuera de servicio
-              (se dibuja con la línea ──/── W ──).</li>
+          <li>Elige el <b>Tipo de utilidad</b> (color por servicio).</li>
+          <li>Pulsa <b>✏ Dibujar utilidad</b> (se pone verde) y haz clic punto por punto.</li>
+          <li>Pulsa <b>Enter</b> (o clic derecho / doble clic) para finalizar.</li>
+          <li>Marca <b>Abandonado</b> para la línea ──/── W ──.</li>
         </ol>
-        <p>Activa <b>Imán al trazo</b> (arriba) si quieres que los clics se peguen a la línea del plano.</p>
-        <h3>3. Colocar un multilíder (flecha con texto)</h3>
+        <h3>3. Colocar un Multileader</h3>
         <ol>
-          <li>Elige el estilo (<b>Con landing</b> / <b>Sin landing</b>) y la orientación
-              (<b>Horizontal</b>, <b>Vertical</b>, <b>Diagonal</b>).</li>
-          <li>Para el texto: marca <b>Usar texto personalizado</b> y escríbelo, o déjalo sin marcar
-              y selecciona un texto de la lista del Excel.</li>
-          <li>Pulsa <b>↳ Colocar multilíder</b>, haz clic en la <b>punta</b> (a qué señala) y luego
-              clic en dónde va el <b>texto</b>.</li>
-          <li>En <b>vertical</b>: si colocas el texto por encima de la punta, la línea sube y el texto
-              queda a la izquierda; si lo colocas por debajo, baja y el texto queda a la derecha.</li>
-          <li>Para editarlo: <b>doble clic</b> sobre el texto del multilíder. Con <b>Enter</b> haces
-              saltos de línea (las líneas extra caen al otro lado del landing).</li>
+          <li>Elige la orientación: <b>Horizontal</b> (recto), <b>Vertical</b> (recto, texto vertical
+              pegado a la línea) o <b>Diagonal</b> (con landing/quiebre).</li>
+          <li>Marca <b>Usar texto personalizado</b> y escríbelo, o selecciona un texto del Excel.</li>
+          <li>Pulsa <b>↳ Colocar Multileader</b>, clic en la <b>punta</b> y luego dónde va el <b>texto</b>.
+              El lado (izq/der o arriba/abajo) lo decide el segundo clic.</li>
+          <li>Para editarlo: <b>doble clic</b> sobre el texto. <b>Enter</b> aplica, <b>Ctrl+Shift+Enter</b>
+              hace salto de línea.</li>
         </ol>
+        <p>Al exportar, cada Multileader se digitaliza como una <b>entidad MULTILEADER</b> de CAD.</p>
         <h3>4. Texto libre</h3>
-        <p>Pulsa <b>T Texto libre</b>, ajusta fuente, altura y negrita, haz clic donde quieras escribir,
-        teclea el texto y haz clic fuera para confirmarlo.</p>
-        <h3>5. Ayuda con textos (OCR) e ICR manuscrita</h3>
-        <p>Marca <b>Ayudar con textos impresos (OCR)</b> para que reconozca el texto impreso, o
-        <b>ICR manuscrita</b> para el texto a mano. Aparecen recuadros amarillos: haz clic en uno,
-        corrige el texto y confírmalo. El texto corregido reemplaza al del plano en esa zona.</p>
-        <h3>6. Borrar una zona</h3>
         <ol>
-          <li>Pulsa <b>▭ Borrar zona</b>, haz clic marcando el polígono y pulsa <b>Enter</b> para cerrarlo.</li>
-          <li>La zona se rellena de blanco. Al exportar, la geometría del plano dentro de esa zona se elimina.</li>
-          <li>En la pestaña <b>Zonas borradas</b> puedes activarla/desactivarla con su casilla, editar sus
-              vértices o eliminarla.</li>
+          <li>Pulsa <b>T Texto libre</b>, ajusta fuente, altura y negrita (puedes cambiarlos también
+              mientras escribes o después, con el texto seleccionado).</li>
+          <li>Haz clic donde escribir, teclea y pulsa <b>Enter</b> para agregarlo
+              (<b>Ctrl+Shift+Enter</b> = salto de línea).</li>
+          <li>Los textos son <b>seleccionables</b> (clic), <b>editables</b> (doble clic) y
+              <b>movibles</b> (Editar/mover). Su estilo se cambia al seleccionarlos.</li>
         </ol>
-        <h3>7. Editar y seleccionar</h3>
+        <h3>5. OCR e ICR</h3>
+        <p>Marca <b>Ayudar con textos impresos (OCR)</b> o <b>ICR manuscrita</b>. Aparecen recuadros:
+        clic en uno, corrige y confirma con Enter.</p>
+        <h3>6. Borrar una zona</h3>
+        <p>Pulsa <b>▭ Borrar zona</b>, marca el polígono y pulsa <b>Enter</b>. Se rellena de blanco y
+        queda <b>detrás de las tuberías</b> (solo tapa el plano). Al exportar borra la geometría base
+        dentro. En la pestaña <b>Zonas borradas</b> puedes activarla/desactivarla, editarla o eliminarla.</p>
+        <h3>7. Editar, mover y extender</h3>
         <ul>
-          <li>Haz clic sobre una utilidad en el dibujo para seleccionarla (la vista no se mueve).</li>
-          <li>Selecciónala en las listas de la derecha para que la vista se <b>centre</b> en ella.</li>
-          <li>Con algo seleccionado, pulsa <b>Editar vértices</b> (Ctrl+T): arrastra un vértice para
-              moverlo, haz clic en un tramo para insertar uno nuevo, y clic derecho sobre un vértice
-              para eliminarlo. Arrastrando lejos de los vértices mueves todo.</li>
-          <li><b>Escape</b> quita la selección; púlsalo de nuevo para salir del modo.</li>
+          <li>Clic en el dibujo selecciona (sin mover la vista); desde las listas la vista se centra.</li>
+          <li><b>Editar/mover</b> (Ctrl+T): arrastra un vértice, clic en un tramo inserta un vértice,
+              clic derecho sobre un vértice lo elimina, y arrastrar lejos mueve todo.</li>
+          <li><b>Extender en forma de F</b>: en editar, haz un clic sobre un vértice (sin arrastrar) y
+              luego clic en el dibujo para dibujar una nueva rama desde ese vértice.</li>
+          <li><b>Escape</b> quita la selección; de nuevo sale del modo.</li>
         </ul>
-        <h3>8. Guardar el trabajo</h3>
+        <h3>8. Guardar y exportar</h3>
         <ul>
-          <li><b>Archivo → Guardar proyecto</b> (Ctrl+S): guarda todo (imagen + marcado) en un
-              archivo <b>.digproj</b>. Si abriste un proyecto, actualiza ese mismo archivo.</li>
-          <li>El .digproj se puede compartir y abrir en otra PC <b>sin necesitar el PDF</b>.</li>
-          <li><b>Digitalizar plano + exportar DXF</b>: genera el DXF final con el plano base
-              digitalizado más tu marcado.</li>
-          <li><b>Archivo → Cerrar proyecto</b> (Ctrl+W): cierra el plano actual. Si hay cambios
-              sin guardar, te pregunta si quieres guardarlos antes. Lo mismo ocurre al cerrar la app.</li>
+          <li><b>Guardar proyecto</b> (Ctrl+S): guarda todo en un <b>.digproj</b> (se comparte y abre
+              sin el PDF). Si abriste un proyecto, actualiza ese mismo archivo.</li>
+          <li><b>Digitalizar plano + exportar DXF</b>: genera el DXF final (plano base + tu marcado).</li>
+          <li><b>Cerrar proyecto</b> (Ctrl+W): pregunta si hay cambios sin guardar.</li>
         </ul>
         <h3>9. Historial de versiones</h3>
-        <p>En <b>Ayuda → Acerca de</b> encontrarás la versión actual y un historial desplegable por
-        versión (la más reciente arriba), con lo que se agregó (verde), se corrigió (celeste) o se
-        quitó (rojo) en cada una.</p>
+        <p><b>Ayuda → Acerca de</b>: versión actual e historial desplegable por versión (verde=nueva,
+        celeste=corregida, rojo=quitada).</p>
         """
-        self._show_html("Manual de usuario", html, 820, 720)
+        self._show_html("Manual de usuario", html, 840, 740)
 
     def show_shortcuts(self):
-        rows = [("Ctrl+Z", "Deshacer"), ("Ctrl+Shift+Z", "Rehacer"),
-                ("Enter", "Finalizar la utilidad o cerrar la zona en curso"),
-                ("Escape", "Quitar la selección; si no hay selección, salir del modo"),
-                ("Ctrl+T", "Editar vértices de lo seleccionado"),
-                ("Ctrl+S", "Guardar proyecto (en el mismo archivo abierto)"),
-                ("Ctrl+Shift+S", "Guardar proyecto como…"),
-                ("Ctrl+W", "Cerrar proyecto (pregunta si hay cambios sin guardar)"),
-                ("Doble clic", "Sobre un multilíder: editar su texto"),
-                ("Clic derecho", "Finaliza línea/zona; en editar vértices, elimina el vértice"),
-                ("Rueda del ratón", "Acercar / alejar (zoom)"),
-                ("Botón central + arrastrar", "Desplazar la vista (pan)")]
+        rows = [("Ctrl+Z / Ctrl+Shift+Z", "Deshacer / Rehacer"),
+                ("Enter", "Aplicar: finaliza utilidad/zona, o agrega texto/edición"),
+                ("Ctrl+Shift+Enter", "Salto de línea dentro de un texto o Multileader"),
+                ("Escape", "Quitar la selección; si no hay, salir del modo"),
+                ("Ctrl+T", "Editar/mover lo seleccionado"),
+                ("Ctrl+S / Ctrl+Shift+S", "Guardar proyecto / Guardar como…"),
+                ("Ctrl+W", "Cerrar proyecto (pregunta si hay cambios)"),
+                ("Doble clic", "Sobre un Multileader o texto: editarlo"),
+                ("Clic derecho", "Finaliza línea/zona; en editar, elimina el vértice"),
+                ("◀ ▶", "Página anterior / siguiente"),
+                ("Rueda", "Zoom · Botón central + arrastrar: desplazar")]
         body = "".join(f'<tr><td style="padding:4px 14px;color:#8bd;"><b>{k}</b></td>'
                        f'<td style="padding:4px;">{d}</td></tr>' for k, d in rows)
-        html = f"<h2>Atajos de teclado</h2><table>{body}</table>"
-        self._show_html("Atajos de teclado", html, 620, 480)
+        self._show_html("Atajos de teclado", f"<h2>Atajos de teclado</h2><table>{body}</table>", 640, 500)
 
     # ─────────────────────────── drag & drop ───────────────────────────
     def dragEnterEvent(self, e):
