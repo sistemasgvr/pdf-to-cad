@@ -16,7 +16,7 @@ from PySide6 import QtCore, QtGui, QtWidgets
 import config as C
 import vector_pipeline as VP
 
-VERSION = "0.5.1"
+VERSION = "0.5.2"
 
 TIPOS = [
     ("Agua (W)", "AGUA"), ("Alcantarillado (SS)", "ALCANTARILLADO"),
@@ -35,6 +35,10 @@ BTN_OFF = "background:#3c5a99;color:white;padding:8px;border-radius:4px;"
 Z_PDF, Z_ERASE, Z_MARK, Z_HANDLE = 0, 1, 5, 8
 
 CHANGELOG = [
+    ("0.5.2", [
+        ("fixed", "El texto del Multileader vertical ahora queda pegado a la línea (antes salía muy separado)."),
+        ("fixed", "Al digitalizar, la entidad MULTILEADER sigue exactamente la línea dibujada (no reencamina las diagonales/verticales)."),
+    ]),
     ("0.5.1", [
         ("added", "El tipo de utilidad ahora es un menú desplegable (con su color), más compacto."),
     ]),
@@ -1207,29 +1211,31 @@ class Main(QtWidgets.QMainWindow):
         H = self._px_for_ft(ftsize)
         lines = ld["text"].split("\n"); maxlen = max((len(s) for s in lines), default=1); nlines = len(lines)
         tw = max(maxlen * H * 0.6, H * 2); th = nlines * H; gap = H * 0.5; near = H * 0.22
-        cad_tail = max(maxlen * ftsize * 0.6, ftsize * 2)   # cola en pies (para el MULTILEADER)
         orient = ld.get("orient", "h")
         if orient == "v":                                  # recto vertical; texto vertical junto a la cola
             signY = -1 if ty < ay else 1
             L = max(abs(ty - ay), tw + gap); ey = ay + signY * L; my = (ay + ey) / 2
             side = "top" if signY < 0 else "bottom"
-            lbl = (ax + near, my + tw / 2)                 # rot -90, centrado a lo largo, pegado
-            return dict(segs=[[(ax, ay), (ax, ey)]], label_pos=lbl, rot=-90, side=side,
-                        verts_px=[(ax, ay)], insert_px=(ax, ey), dogleg=cad_tail, H=H, cad_h=ftsize)
+            lbl = (ax + H * 0.08, my + tw / 2)              # rot -90, centrado a lo largo, pegado a la línea
+            segs = [[(ax, ay), (ax, ey)]]
+            return dict(segs=segs, label_pos=lbl, rot=-90, side=side,
+                        verts_px=segs[0], insert_px=(ax, ey), dogleg=0.0, H=H, cad_h=ftsize)
         if orient == "h":                                  # recto horizontal; texto encima de la cola
             signX = 1 if tx >= ax else -1
             L = max(abs(tx - ax), tw + gap); ex = ax + signX * L
             lblx = ex - tw if signX > 0 else ex
             side = "right" if signX > 0 else "left"
-            return dict(segs=[[(ax, ay), (ex, ay)]], label_pos=(lblx, ay - th - near), rot=0, side=side,
-                        verts_px=[(ax, ay)], insert_px=(ex, ay), dogleg=cad_tail, H=H, cad_h=ftsize)
+            segs = [[(ax, ay), (ex, ay)]]
+            return dict(segs=segs, label_pos=(lblx, ay - th - near), rot=0, side=side,
+                        verts_px=segs[0], insert_px=(ex, ay), dogleg=0.0, H=H, cad_h=ftsize)
         # diagonal: flecha → 2º clic → landing horizontal → texto encima del landing
         right = tx >= ax; sgn = 1 if right else -1
         lx = tx + sgn * (tw + gap); text_x = min(tx, lx) + gap
         side = "right" if right else "left"
         lbl = (text_x, ty - H - near)                      # 1ª línea encima; extras al otro lado
-        return dict(segs=[[(ax, ay), (tx, ty), (lx, ty)]], label_pos=lbl, rot=0, side=side,
-                    verts_px=[(ax, ay), (tx, ty)], insert_px=(tx + sgn * gap, ty), dogleg=cad_tail, H=H, cad_h=ftsize)
+        segs = [[(ax, ay), (tx, ty), (lx, ty)]]
+        return dict(segs=segs, label_pos=lbl, rot=0, side=side,
+                    verts_px=segs[0], insert_px=(lx, ty), dogleg=0.0, H=H, cad_h=ftsize)
 
     # ─────────────────────────── texto libre ───────────────────────────
     def _new_free_text(self, x, y):
@@ -1364,7 +1370,7 @@ class Main(QtWidgets.QMainWindow):
             geo = self._leader_geo(ld)
             for s in geo["segs"]: self._poly(s, col, 1.6, z=Z_MARK)
             self._arrow(ld["arrow"], geo["segs"][0][1], col)   # punta orientada a lo largo de la línea
-            t = sc.addText(ld["text"]); t.setDefaultTextColor(col)
+            t = sc.addText(ld["text"]); t.setDefaultTextColor(col); t.document().setDocumentMargin(0)
             f = t.font(); f.setPixelSize(int(geo["H"])); t.setFont(f)
             if geo["rot"]: t.setRotation(geo["rot"])
             t.setPos(geo["label_pos"][0], geo["label_pos"][1]); t.setZValue(Z_MARK); self._overlay.append(t)
@@ -1375,7 +1381,7 @@ class Main(QtWidgets.QMainWindow):
                 it = sc.addRect(rect, pen); it.setZValue(Z_MARK); self._overlay.append(it)
         # textos
         for i, tm in enumerate(self.text_marks):
-            t = sc.addText(tm["text"]); t.setDefaultTextColor(QtGui.QColor(120, 220, 120))
+            t = sc.addText(tm["text"]); t.setDefaultTextColor(QtGui.QColor(120, 220, 120)); t.document().setDocumentMargin(0)
             hpx = self._px_for_ft(tm["size_ft"]) if "size_ft" in tm else tm.get("h", 16)
             f = t.font(); f.setPixelSize(max(6, int(hpx)))
             if tm.get("font"): f.setFamily(tm["font"])
