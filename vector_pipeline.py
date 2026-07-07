@@ -583,6 +583,11 @@ def process_path(collector, path, dxf, T, has_ocg=True, text_boxes=None, zones=N
     # Zona de exclusión (leyenda de pothole / membrete): no digitalizar su geometría.
     if _path_in_zones(path, zones):
         return
+    # Resaltador / anotaciones: los rellenos SEMITRANSPARENTES no son parte del plano.
+    if getattr(C, "SKIP_HIGHLIGHTER", True) and path.get("fill") is not None:
+        fo = path.get("fill_opacity", 1.0)
+        if fo is not None and fo < getattr(C, "HIGHLIGHTER_MAX_OPACITY", 0.9):
+            return
     ocg = path.get("layer", "") or ""
     if getattr(C, "PLAIN_MODE", False):
         # Modo plano: solo digitalizar. Todo a una capa neutra, sin clasificar ni

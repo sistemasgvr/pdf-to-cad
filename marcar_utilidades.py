@@ -16,7 +16,7 @@ from PySide6 import QtCore, QtGui, QtWidgets
 import config as C
 import vector_pipeline as VP
 
-VERSION = "0.5.2"
+VERSION = "0.6.1"
 
 TIPOS = [
     ("Agua (W)", "AGUA"), ("Alcantarillado (SS)", "ALCANTARILLADO"),
@@ -35,6 +35,15 @@ BTN_OFF = "background:#3c5a99;color:white;padding:8px;border-radius:4px;"
 Z_PDF, Z_ERASE, Z_MARK, Z_HANDLE = 0, 1, 5, 8
 
 CHANGELOG = [
+    ("0.6.1", [
+        ("added", "El botón Exportar DXF es un desplegable: PDF + anotaciones, solo el PDF, o solo las anotaciones."),
+        ("added", "Nueva herramienta 'Colocar Leader': una directriz recta simple (punta → texto), aparte del Multileader."),
+    ]),
+    ("0.6.0", [
+        ("fixed", "El plano base ya NO se restilea: el linetype con letra (─ W ─) se aplica solo a la utilidad que dibujas (por entidad), no a la capa."),
+        ("fixed", "El resaltador/anotaciones del PDF (rellenos semitransparentes) ya no se digitalizan."),
+        ("fixed", "El Multileader se digitaliza como geometría exacta (línea + punta + texto) agrupada, igual que en la vista previa: el texto y la cola ya salen bien."),
+    ]),
     ("0.5.2", [
         ("fixed", "El texto del Multileader vertical ahora queda pegado a la línea (antes salía muy separado)."),
         ("fixed", "Al digitalizar, la entidad MULTILEADER sigue exactamente la línea dibujada (no reencamina las diagonales/verticales)."),
@@ -374,9 +383,15 @@ class Main(QtWidgets.QMainWindow):
         tb.addSeparator()
         self.chk_snap = QtWidgets.QCheckBox("Imán al trazo"); self.chk_snap.toggled.connect(self._toggle_snap); tb.addWidget(self.chk_snap)
         spacer = QtWidgets.QWidget(); spacer.setSizePolicy(QtWidgets.QSizePolicy.Expanding, QtWidgets.QSizePolicy.Preferred); tb.addWidget(spacer)
-        self.btn_export = QtWidgets.QPushButton("⭳  Exportar DXF")
-        self.btn_export.setStyleSheet("background:#4d8eff;color:#00285d;font-weight:bold;padding:5px 14px;border-radius:4px;")
-        self.btn_export.clicked.connect(self.run_pipeline); tb.addWidget(self.btn_export)
+        self.btn_export = QtWidgets.QToolButton()
+        self.btn_export.setText("⭳  Exportar DXF  ▾")
+        self.btn_export.setPopupMode(QtWidgets.QToolButton.InstantPopup)
+        self.btn_export.setStyleSheet("QToolButton{background:#4d8eff;color:#00285d;font-weight:bold;padding:5px 14px;border-radius:4px;}")
+        exp_menu = QtWidgets.QMenu(self.btn_export)
+        exp_menu.addAction("PDF + anotaciones (todo)", lambda: self.run_pipeline("todo"))
+        exp_menu.addAction("Solo el PDF digitalizado", lambda: self.run_pipeline("pdf"))
+        exp_menu.addAction("Solo las anotaciones", lambda: self.run_pipeline("anot"))
+        self.btn_export.setMenu(exp_menu); tb.addWidget(self.btn_export)
 
         # ── DOCK IZQUIERDO: herramientas y flujo de trabajo ──
         ldock = QtWidgets.QDockWidget("Herramientas", self); ldock.setFeatures(QtWidgets.QDockWidget.NoDockWidgetFeatures)
@@ -403,10 +418,11 @@ class Main(QtWidgets.QMainWindow):
         # 2) Acciones principales (qué quieres hacer)
         section("Acción / herramienta")
         self.btn_pipe = QtWidgets.QPushButton("✏  Dibujar utilidad"); self.btn_pipe.clicked.connect(self.toggle_pipe)
-        self.btn_leader = QtWidgets.QPushButton("↳  Colocar Multileader"); self.btn_leader.clicked.connect(self.start_leader)
+        self.btn_leader = QtWidgets.QPushButton("↳  Colocar Multileader"); self.btn_leader.clicked.connect(lambda: self.start_leader(False))
+        self.btn_leader_simple = QtWidgets.QPushButton("↘  Colocar Leader"); self.btn_leader_simple.clicked.connect(lambda: self.start_leader(True))
         self.btn_text = QtWidgets.QPushButton("T  Texto libre"); self.btn_text.clicked.connect(self.toggle_text_mode)
         self.btn_erase = QtWidgets.QPushButton("▭  Borrar zona"); self.btn_erase.clicked.connect(self.toggle_erase)
-        for b in (self.btn_pipe, self.btn_leader, self.btn_text, self.btn_erase): v.addWidget(b)
+        for b in (self.btn_pipe, self.btn_leader, self.btn_leader_simple, self.btn_text, self.btn_erase): v.addWidget(b)
 
         # 3) Tipo de utilidad
         section("Tipo de utilidad")
@@ -616,10 +632,13 @@ class Main(QtWidgets.QMainWindow):
     def _update_ui(self):
         m = self.mode
         def st(btn, on): btn.setStyleSheet(BTN_ON if on else BTN_OFF)
-        st(self.btn_pipe, m == "pipe"); st(self.btn_leader, m in ("leader1", "leader2"))
+        in_leader = m in ("leader1", "leader2"); simple = bool(self._pending and self._pending.get("simple"))
+        st(self.btn_pipe, m == "pipe"); st(self.btn_leader, in_leader and not simple)
+        st(self.btn_leader_simple, in_leader and simple)
         st(self.btn_text, m == "text"); st(self.btn_erase, m == "erase")
         self.btn_pipe.setText("■  Salir de dibujar utilidad" if m == "pipe" else "✏  Dibujar utilidad")
-        self.btn_leader.setText("●  Coloque Multileader…" if m in ("leader1", "leader2") else "↳  Colocar Multileader")
+        self.btn_leader.setText("●  Coloque Multileader…" if (in_leader and not simple) else "↳  Colocar Multileader")
+        self.btn_leader_simple.setText("●  Coloque Leader…" if (in_leader and simple) else "↘  Colocar Leader")
         self.btn_erase.setText("■  Terminar zona (Enter)" if m == "erase" else "▭  Borrar zona (polígono)")
         ti = self.tabs.currentIndex()
         self.gt.setVisible(m in ("pipe", "move"))
@@ -848,6 +867,7 @@ class Main(QtWidgets.QMainWindow):
                 self._pending = {"arrow": None}; self.mode = "leader1"; self._update_ui(); return
             self._push()
             self.leaders.append({"text": txt, "orient": self.orient_combo.currentData(),
+                                 "simple": bool(self._pending.get("simple")),
                                  "arrow": self._pending["arrow"], "tp": (x, y),
                                  "font": self.font_combo.currentFont().family(),
                                  "size_ft": self.size_spin.value(), "bold": self.chk_bold.isChecked()})
@@ -1159,7 +1179,9 @@ class Main(QtWidgets.QMainWindow):
             it.setForeground(QtGui.QColor("white")); self.pipe_list.addItem(it)
         self.pipe_list.blockSignals(False)
         self.lead_list.blockSignals(True); self.lead_list.clear()
-        for i, ld in enumerate(self.leaders, 1): self.lead_list.addItem(f"{i}. {ld['text'][:28].replace(chr(10), ' / ')}")
+        for i, ld in enumerate(self.leaders, 1):
+            kind = "Leader" if ld.get("simple") else "MLeader"
+            self.lead_list.addItem(f"{i}. [{kind}] {ld['text'][:24].replace(chr(10), ' / ')}")
         self.lead_list.blockSignals(False)
         self.txt_marks_list.blockSignals(True); self.txt_marks_list.clear()
         for i, tm in enumerate(self.text_marks, 1): self.txt_marks_list.addItem(f"{i}. {tm['text'][:28].replace(chr(10), ' / ')}")
@@ -1188,12 +1210,13 @@ class Main(QtWidgets.QMainWindow):
         it = self.text_list.currentItem()
         return it.text() if it and self.text_list.currentRow() >= 0 else ""
 
-    def start_leader(self):
-        # No se captura nada al entrar: la orientación y el texto se leen al COLOCAR,
-        # así puedes cambiarlos dentro del modo.
-        self._pending = {"arrow": None}
+    def start_leader(self, simple=False):
+        # No se captura nada al entrar: la orientación y el texto se leen al COLOCAR.
+        # simple=True → Leader recto punta→texto (sin cola); False → Multileader.
+        self._pending = {"arrow": None, "simple": bool(simple)}
         self.set_mode("leader1")
-        self._info("Elige orientación y texto; clic en la PUNTA y luego dónde va el TEXTO. Esc para salir.")
+        que = "Leader" if simple else "Multileader"
+        self._info(f"{que}: elige el texto; clic en la PUNTA y luego dónde va el TEXTO. Esc para salir.")
 
     def _edit_leader_text(self, idx):
         ld = self.leaders[idx]; tp = ld["tp"]
@@ -1211,6 +1234,13 @@ class Main(QtWidgets.QMainWindow):
         H = self._px_for_ft(ftsize)
         lines = ld["text"].split("\n"); maxlen = max((len(s) for s in lines), default=1); nlines = len(lines)
         tw = max(maxlen * H * 0.6, H * 2); th = nlines * H; gap = H * 0.5; near = H * 0.22
+        if ld.get("simple"):                               # LEADER simple: recta punta→texto, sin cola
+            right = tx >= ax
+            lblx = tx + near if right else tx - near - tw
+            side = "right" if right else "left"
+            segs = [[(ax, ay), (tx, ty)]]
+            return dict(segs=segs, label_pos=(lblx, ty - th / 2), rot=0, side=side, verts_px=segs[0], insert_px=(tx, ty),
+                        dogleg=0.0, H=H, cad_h=ftsize, tcenter_px=(lblx + tw / 2, ty), cad_rot=0)
         orient = ld.get("orient", "h")
         if orient == "v":                                  # recto vertical; texto vertical junto a la cola
             signY = -1 if ty < ay else 1
@@ -1218,24 +1248,24 @@ class Main(QtWidgets.QMainWindow):
             side = "top" if signY < 0 else "bottom"
             lbl = (ax + H * 0.08, my + tw / 2)              # rot -90, centrado a lo largo, pegado a la línea
             segs = [[(ax, ay), (ax, ey)]]
-            return dict(segs=segs, label_pos=lbl, rot=-90, side=side,
-                        verts_px=segs[0], insert_px=(ax, ey), dogleg=0.0, H=H, cad_h=ftsize)
+            return dict(segs=segs, label_pos=lbl, rot=-90, side=side, verts_px=segs[0], insert_px=(ax, ey),
+                        dogleg=0.0, H=H, cad_h=ftsize, tcenter_px=(ax + th / 2 + H * 0.08, my), cad_rot=90)
         if orient == "h":                                  # recto horizontal; texto encima de la cola
             signX = 1 if tx >= ax else -1
             L = max(abs(tx - ax), tw + gap); ex = ax + signX * L
             lblx = ex - tw if signX > 0 else ex
             side = "right" if signX > 0 else "left"
             segs = [[(ax, ay), (ex, ay)]]
-            return dict(segs=segs, label_pos=(lblx, ay - th - near), rot=0, side=side,
-                        verts_px=segs[0], insert_px=(ex, ay), dogleg=0.0, H=H, cad_h=ftsize)
+            return dict(segs=segs, label_pos=(lblx, ay - th - near), rot=0, side=side, verts_px=segs[0], insert_px=(ex, ay),
+                        dogleg=0.0, H=H, cad_h=ftsize, tcenter_px=(lblx + tw / 2, ay - near - th / 2), cad_rot=0)
         # diagonal: flecha → 2º clic → landing horizontal → texto encima del landing
         right = tx >= ax; sgn = 1 if right else -1
         lx = tx + sgn * (tw + gap); text_x = min(tx, lx) + gap
         side = "right" if right else "left"
         lbl = (text_x, ty - H - near)                      # 1ª línea encima; extras al otro lado
         segs = [[(ax, ay), (tx, ty), (lx, ty)]]
-        return dict(segs=segs, label_pos=lbl, rot=0, side=side,
-                    verts_px=segs[0], insert_px=(lx, ty), dogleg=0.0, H=H, cad_h=ftsize)
+        return dict(segs=segs, label_pos=lbl, rot=0, side=side, verts_px=segs[0], insert_px=(lx, ty),
+                    dogleg=0.0, H=H, cad_h=ftsize, tcenter_px=(text_x + tw / 2, ty - H - near + th / 2), cad_rot=0)
 
     # ─────────────────────────── texto libre ───────────────────────────
     def _new_free_text(self, x, y):
@@ -1424,18 +1454,26 @@ class Main(QtWidgets.QMainWindow):
         return (py * s, px * s)
 
     # ─────────────────────────── exportar ───────────────────────────
-    def run_pipeline(self):
+    def run_pipeline(self, mode="todo"):
+        """mode: 'todo' = PDF digitalizado + anotaciones · 'pdf' = solo el PDF ·
+        'anot' = solo las anotaciones dibujadas en el programa."""
         if self.canvas.pixmap_item is None:
             QtWidgets.QMessageBox.information(self, "Nada", "Abre un PDF o proyecto."); return
-        name = os.path.splitext(os.path.basename(self.pdf_path))[0] if self.pdf_path else "proyecto"
-        out, _ = QtWidgets.QFileDialog.getSaveFileName(self, "Guardar DXF", os.path.join(DOWNLOADS, name + "_completo.dxf"), "DXF (*.dxf)")
+        need_pdf = mode in ("todo", "pdf")
+        if need_pdf and not self.pdf_path:
+            QtWidgets.QMessageBox.information(self, "Sin PDF",
+                "No hay un PDF cargado para digitalizar. Se exportarán solo las anotaciones."); mode = "anot"; need_pdf = False
+        base = os.path.splitext(os.path.basename(self.pdf_path))[0] if self.pdf_path else "proyecto"
+        suffix = {"todo": "_completo", "pdf": "_plano", "anot": "_anotaciones"}[mode]
+        out, _ = QtWidgets.QFileDialog.getSaveFileName(self, "Guardar DXF", os.path.join(DOWNLOADS, base + suffix + ".dxf"), "DXF (*.dxf)")
         if not out: return
-        self._out = out
-        if not self.pdf_path:
+        self._out = out; self._mode = mode
+        if not need_pdf:                                   # solo anotaciones: sin pipeline
             try:
                 doc = ezdxf.new("R2010", setup=True); doc.header["$INSUNITS"] = C.INSUNITS
-                self._merge_into(doc); doc.saveas(out)
-                QtWidgets.QMessageBox.information(self, "Listo", f"Exportado (sin plano base):\n{out}")
+                self._merge_into(doc, marks=True); doc.saveas(out)
+                QtWidgets.QMessageBox.information(self, "Listo", f"Exportado (solo anotaciones):\n{out}")
+                self._info("DXF de anotaciones exportado.")
             except Exception as e:
                 QtWidgets.QMessageBox.critical(self, "Error", str(e))
             return
@@ -1449,13 +1487,16 @@ class Main(QtWidgets.QMainWindow):
         if getattr(self, "_prog", None): self._prog.close()
         if err: QtWidgets.QMessageBox.critical(self, "Error al digitalizar", err); return
         try:
-            doc = ezdxf.readfile(tmp); self._merge_into(doc); doc.saveas(self._out)
+            marks = (self._mode == "todo")               # 'pdf' = solo el plano, sin anotaciones
+            doc = ezdxf.readfile(tmp); self._merge_into(doc, marks=marks); doc.saveas(self._out)
             if os.path.exists(tmp): os.remove(tmp)
-            nreg = sum(1 for r in self.erase_regions if r.get("enabled", True))
-            QtWidgets.QMessageBox.information(self, "Listo",
-                f"Exportado:\n{self._out}\n\n{len(self.pipes)} utilidades, {len(self.leaders)} Multileaders, "
-                f"{len(self.text_marks)} textos, {nreg} zonas borradas.")
-            self._info("DXF completo exportado.")
+            if marks:
+                nreg = sum(1 for r in self.erase_regions if r.get("enabled", True))
+                msg = (f"Exportado (PDF + anotaciones):\n{self._out}\n\n{len(self.pipes)} utilidades, "
+                       f"{len(self.leaders)} leaders/multileaders, {len(self.text_marks)} textos, {nreg} zonas borradas.")
+            else:
+                msg = f"Exportado (solo el PDF digitalizado):\n{self._out}"
+            QtWidgets.QMessageBox.information(self, "Listo", msg); self._info("DXF exportado.")
         except Exception as e:
             import traceback; QtWidgets.QMessageBox.critical(self, "Error al guardar", f"{e}\n{traceback.format_exc()}")
 
@@ -1466,21 +1507,19 @@ class Main(QtWidgets.QMainWindow):
             except Exception: return "CAD_TEXT"
         return name
 
-    def _merge_into(self, doc):
+    def _merge_into(self, doc, marks=True):
         VP.setup_linetypes(doc); msp = doc.modelspace()
+        self._apply_erase(msp)                            # las zonas de borrado recortan el plano base
+        if not marks:                                     # 'solo PDF': no agregar utilidades/leaders/textos
+            return
         if "PDFCAD" not in doc.appids: doc.appids.add("PDFCAD")   # para XDATA de propiedades
-        self._apply_erase(msp)
         for p in self.pipes:
             layer = p["layer"]; VP.ensure_layer(doc, layer)
-            # Las utilidades marcadas SIEMPRE llevan su linetype con letra (─ W ─, ─ SS ─…),
-            # aunque el plano base se digitalice en modo fiel (VECTOR_FAITHFUL_GEOMETRY).
-            base_lt = C.LAYER_LINETYPE.get(layer)
-            if base_lt and base_lt in doc.linetypes:
-                doc.layers.get(layer).dxf.linetype = base_lt
+            # El linetype con letra (─ W ─, ─ SS ─…) se aplica SOLO a la entidad que dibujas,
+            # NO a la capa: así el contenido del plano base (en la misma capa) no se restilea.
+            lt = C.LAYER_LINETYPE_AB.get(layer) if p.get("ab") else C.LAYER_LINETYPE.get(layer)
             att = {"layer": layer}
-            if p.get("ab"):
-                lt = C.LAYER_LINETYPE_AB.get(layer)         # abandonado: ─/─ W ─ (override por entidad)
-                if lt and lt in doc.linetypes: att["linetype"] = lt
+            if lt and lt in doc.linetypes: att["linetype"] = lt
             poly = msp.add_lwpolyline([self._to_cad(x, y) for (x, y) in p["pts"]], dxfattribs=att)
             # Propiedades de la utilidad como dato (XDATA)
             if p.get("name") or p.get("diam"):
@@ -1517,45 +1556,25 @@ class Main(QtWidgets.QMainWindow):
             except Exception: continue
 
     def _add_leader(self, doc, msp, ld):
-        """Exporta como entidad MULTILEADER de CAD. Si falla, cae al grupo."""
-        try:
-            from ezdxf.math import Vec2
-            from ezdxf.render.mleader import ConnectionSide
-            geo = self._leader_geo(ld)
-            verts = [Vec2(*self._to_cad(*p)) for p in geo["verts_px"]]
-            insert = Vec2(*self._to_cad(*geo["insert_px"]))
-            smap = {"right": ConnectionSide.right, "left": ConnectionSide.left,
-                    "top": ConnectionSide.top, "bottom": ConnectionSide.bottom}
-            font = ld.get("font", C.TEXT_FONT); bold = bool(ld.get("bold")); ch = geo.get("cad_h", LEADER_TEXT_FT)
-            style = self._text_style(doc, font, bold)
-            content = ld["text"].replace("\n", "\\P")
-            if bold: content = f"{{\\f{font}|b1;{content}}}"
-            for side in (smap[geo["side"]], ConnectionSide.right, ConnectionSide.left):
-                try:
-                    b = msp.add_multileader_mtext("Standard")
-                    b.set_content(content, char_height=ch, style=style)
-                    b.set_connection_properties(dogleg_length=geo["dogleg"])
-                    b.add_leader_line(side, verts)
-                    b.build(insert=insert)
-                    return
-                except Exception:
-                    continue
-        except Exception:
-            pass
-        self._add_leader_group(doc, msp, ld)
-
-    def _add_leader_group(self, doc, msp, ld):
+        """Exporta el Multileader como geometría exacta (línea + punta + texto), igual que
+        en la vista previa, agrupada en un GROUP para seleccionarlo como una unidad. La
+        entidad MULTILEADER nativa no permitía a la vez seguir el trazo y colocar bien el
+        texto/landing, por eso se dibuja explícito."""
         geo = self._leader_geo(ld); ents = []
         for s in geo["segs"]:
             ents.append(msp.add_lwpolyline([self._to_cad(x, y) for (x, y) in s], dxfattribs={"layer": "ANOTACION"}))
         a = self._to_cad(*ld["arrow"]); b = self._to_cad(*geo["segs"][0][1])
-        ang = math.atan2(a[1] - b[1], a[0] - b[0]); L = LEADER_TEXT_FT * 0.8
-        p1 = (a[0] - L * math.cos(ang - 0.4), a[1] - L * math.sin(ang - 0.4))
-        p2 = (a[0] - L * math.cos(ang + 0.4), a[1] - L * math.sin(ang + 0.4))
+        ang = math.atan2(a[1] - b[1], a[0] - b[0]); L = geo.get("cad_h", LEADER_TEXT_FT) * 0.9
+        p1 = (a[0] - L * math.cos(ang - 0.28), a[1] - L * math.sin(ang - 0.28))
+        p2 = (a[0] - L * math.cos(ang + 0.28), a[1] - L * math.sin(ang + 0.28))
         ents.append(msp.add_solid([a, p1, p2, a], dxfattribs={"layer": "ANOTACION"}))
-        m = msp.add_mtext(ld["text"].replace("\n", "\\P"),
-                          dxfattribs={"layer": "ANOTACION", "style": "CAD_TEXT", "char_height": LEADER_TEXT_FT})
-        m.set_location(self._to_cad(*ld["tp"]), attachment_point=4); ents.append(m)
+        font = ld.get("font", C.TEXT_FONT); bold = bool(ld.get("bold")); ch = geo.get("cad_h", LEADER_TEXT_FT)
+        style = self._text_style(doc, font, bold)
+        content = ld["text"].replace("\n", "\\P")
+        if bold: content = f"{{\\f{font}|b1;{content}}}"
+        m = msp.add_mtext(content, dxfattribs={"layer": "ANOTACION", "style": style, "char_height": ch})
+        m.set_location(self._to_cad(*geo["tcenter_px"]), rotation=float(geo.get("cad_rot", 0)), attachment_point=5)
+        ents.append(m)
         try:
             g = doc.groups.new()
             with g.edit_data() as data: data.extend(ents)

@@ -542,6 +542,11 @@ DROP_LAYERS = set()
 # los linetypes con letra) para obtener polilíneas limpias por tubería.
 VECTOR_FAITHFUL_GEOMETRY = True
 
+# Resaltador / anotaciones dentro del PDF: los rellenos semitransparentes (típicos del
+# marcador de resaltado) NO forman parte del plano y no se digitalizan.
+SKIP_HIGHLIGHTER = True
+HIGHLIGHTER_MAX_OPACITY = 0.9      # relleno con opacidad < este valor => resaltado
+
 # ─────────────────────────────────────────────────────────────────────────────
 # LÍNEAS ABANDONADAS -> COLOR GRIS
 # ─────────────────────────────────────────────────────────────────────────────
