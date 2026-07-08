@@ -16,7 +16,7 @@ from PySide6 import QtCore, QtGui, QtWidgets
 import config as C
 import vector_pipeline as VP
 
-VERSION = "0.6.1"
+VERSION = "0.6.7"
 
 TIPOS = [
     ("Agua (W)", "AGUA"), ("Alcantarillado (SS)", "ALCANTARILLADO"),
@@ -29,12 +29,38 @@ ACI_RGB = {1: (255, 60, 60), 2: (235, 215, 40), 3: (60, 210, 60), 4: (60, 210, 2
            30: (255, 150, 40)}
 LEADER_TEXT_FT = 3.0
 DOWNLOADS = os.path.join(os.path.expanduser("~"), "Downloads")
-LEADER_ORIENT = [("h", "Horizontal (recto)"), ("v", "Vertical (recto)"), ("d", "Diagonal (con landing)")]
+LEADER_ORIENT = [("h", "Horizontal"), ("v", "Vertical"), ("d", "Diagonal")]
 BTN_ON = "background:#2e9e4f;color:white;font-weight:bold;padding:8px;border-radius:4px;"
 BTN_OFF = "background:#3c5a99;color:white;padding:8px;border-radius:4px;"
 Z_PDF, Z_ERASE, Z_MARK, Z_HANDLE = 0, 1, 5, 8
+# Índices de las pestañas del inventario (derecha)
+TAB_PIPE, TAB_ML, TAB_LEADER, TAB_TEXT, TAB_REGION = 0, 1, 2, 3, 4
 
 CHANGELOG = [
+    ("0.6.7", [
+        ("changed", "Al exportar a DXF, cada Multileader se escribe como entidad MULTILEADER nativa (flecha + directriz + texto); si el visor no lo soporta, se dibuja explícito como respaldo."),
+        ("fixed", "Ayuda → 'Acerca de…' ya no aparecía en blanco (fallaba al mostrar entradas de tipo 'changed' del historial)."),
+    ]),
+    ("0.6.6", [
+        ("added", "Con un Leader seleccionado, Ctrl+T entra directo a editar sus vértices (posición/longitud)."),
+        ("changed", "Al exportar a DXF, los Leaders simples se escriben como entidad LEADER nativa (con punta de flecha) siguiendo sus vértices; si el visor no lo soporta, se dibujan explícitos como respaldo."),
+    ]),
+    ("0.6.5", [
+        ("added", "Pestaña de inventario 'Leaders' independiente de 'Multileaders'."),
+        ("added", "Editar Leaders (horizontal/vertical/diagonal): selecciona el Leader, pulsa 'Editar/mover' y arrastra sus vértices (posición y longitud) o el trazo completo. Enter/Esc termina la edición."),
+    ]),
+    ("0.6.4", [
+        ("added", "Leader diagonal con landing (3 clics): cabeza de flecha → inicio del landing (bisagra) → final del cuerpo."),
+        ("added", "En modo Leader, Enter finaliza el comando (además de Esc)."),
+    ]),
+    ("0.6.3", [
+        ("added", "'Colocar Leader' tiene orientación (Horizontal/Vertical/Diagonal): 1er clic = cabeza de flecha, 2º clic = final del cuerpo. En Horizontal/Vertical el cuerpo se mantiene recto al eje."),
+        ("changed", "En modo Leader el panel se titula 'Leader' y muestra solo la Orientación; se oculta el estilo de texto (el Leader no lleva texto)."),
+    ]),
+    ("0.6.2", [
+        ("changed", "'Colocar Leader' ahora coloca solo la flecha, sin texto: 1er clic = cabeza de flecha, 2º clic = final del cuerpo."),
+        ("fixed", "El Leader simple ya no se mezclaba con el Multileader al encadenar colocaciones (se perdía el modo)."),
+    ]),
     ("0.6.1", [
         ("added", "El botón Exportar DXF es un desplegable: PDF + anotaciones, solo el PDF, o solo las anotaciones."),
         ("added", "Nueva herramienta 'Colocar Leader': una directriz recta simple (punta → texto), aparte del Multileader."),
@@ -347,7 +373,7 @@ class Main(QtWidgets.QMainWindow):
         self.snap = False; self.snap_r = 14
         self.show_text_boxes = False; self.ocr_boxes = []; self._tess_boxes = []; self._icr_boxes = []
         self.sel_pipe = -1; self.sel_leader = -1; self.sel_region = -1; self.sel_text = -1; self._no_center = False
-        self._move0 = None; self._drag_vertex = None; self._edit_pts = None; self._edit_closed = False
+        self._move0 = None; self._drag_vertex = None; self._edit_pts = None; self._edit_closed = False; self._edit_leader = None
         self._move_kind = None; self._moved = False; self._press_xy = None; self._last_xy = None
         self._extending = False; self._ext_layer = None; self._ext_pipe = None; self._ext_at = None
         self._editor = None; self._undo, self._redo, self._overlay = [], [], []
@@ -440,14 +466,15 @@ class Main(QtWidgets.QMainWindow):
         self.ga = QtWidgets.QGroupBox("Multileader"); lga = QtWidgets.QVBoxLayout(self.ga)
         self.orient_combo = QtWidgets.QComboBox()
         for oid, lbl in LEADER_ORIENT: self.orient_combo.addItem(lbl, oid)
+        self.orient_combo.currentIndexChanged.connect(lambda _: self._update_ui())
         lga.addWidget(QtWidgets.QLabel("Orientación:")); lga.addWidget(self.orient_combo)
         self.chk_custom = QtWidgets.QCheckBox("Usar texto personalizado"); self.chk_custom.toggled.connect(self._toggle_custom)
         lga.addWidget(self.chk_custom)
         self.txt_edit = QtWidgets.QLineEdit(); self.txt_edit.setPlaceholderText("texto personalizado…"); self.txt_edit.setEnabled(False)
         lga.addWidget(self.txt_edit)
-        lga.addWidget(QtWidgets.QLabel("Textos (columna TEXTO del Excel):"))
+        self.lbl_textos = QtWidgets.QLabel("Textos (columna TEXTO del Excel):"); lga.addWidget(self.lbl_textos)
         self.text_list = QtWidgets.QListWidget(); self.text_list.setMaximumHeight(140); lga.addWidget(self.text_list)
-        lga.addWidget(QtWidgets.QLabel("<i>Colocas varios seguidos; Esc para salir.</i>"))
+        self.lbl_lead_hint = QtWidgets.QLabel("<i>Colocas varios seguidos; Esc para salir.</i>"); lga.addWidget(self.lbl_lead_hint)
         v.addWidget(self.ga)
 
         # 5) Estilo de texto
@@ -497,10 +524,12 @@ class Main(QtWidgets.QMainWindow):
         self.tabs = QtWidgets.QTabWidget()
         self.pipe_list = QtWidgets.QListWidget(); self.pipe_list.currentRowChanged.connect(self._sel_pipe)
         self.lead_list = QtWidgets.QListWidget(); self.lead_list.currentRowChanged.connect(self._sel_leader)
+        self.sleader_list = QtWidgets.QListWidget(); self.sleader_list.currentRowChanged.connect(self._sel_sleader)
         self.txt_marks_list = QtWidgets.QListWidget(); self.txt_marks_list.currentRowChanged.connect(self._sel_text)
         self.region_list = QtWidgets.QListWidget(); self.region_list.currentRowChanged.connect(self._sel_region)
         self.region_list.itemChanged.connect(self._region_toggled)
         self.tabs.addTab(self.pipe_list, "Utilidades"); self.tabs.addTab(self.lead_list, "Multileaders")
+        self.tabs.addTab(self.sleader_list, "Leaders")
         self.tabs.addTab(self.txt_marks_list, "Textos"); self.tabs.addTab(self.region_list, "Zonas")
         self.tabs.currentChanged.connect(self._tab_changed); rv.addWidget(self.tabs, 1)
         # Propiedades de la utilidad seleccionada (nombre, diámetro, unidad) → XDATA en el DXF
@@ -597,6 +626,10 @@ class Main(QtWidgets.QMainWindow):
     def _on_enter(self):
         if self.mode == "pipe": self.finish_pipe()
         elif self.mode == "erase": self.finish_erase()
+        elif self.mode in ("leader1", "leader2", "leader3"):
+            self.set_mode("idle"); self._info("Comando Leader finalizado (Enter)")
+        elif self.mode == "move":
+            self.set_mode("idle"); self._info("Edición terminada (Enter)")
 
     def _on_escape(self):
         if self.mode == "pipe" and self.cur_pts:
@@ -611,7 +644,7 @@ class Main(QtWidgets.QMainWindow):
 
     def _deselect_all(self):
         self.sel_pipe = self.sel_leader = self.sel_region = self.sel_text = -1
-        for lst in (self.pipe_list, self.lead_list, self.txt_marks_list, self.region_list):
+        for lst in (self.pipe_list, self.lead_list, self.sleader_list, self.txt_marks_list, self.region_list):
             lst.blockSignals(True); lst.setCurrentRow(-1); lst.clearSelection(); lst.blockSignals(False)
         if self.mode == "move": self.set_mode("idle")
         self._update_ui(); self._redraw()
@@ -632,7 +665,7 @@ class Main(QtWidgets.QMainWindow):
     def _update_ui(self):
         m = self.mode
         def st(btn, on): btn.setStyleSheet(BTN_ON if on else BTN_OFF)
-        in_leader = m in ("leader1", "leader2"); simple = bool(self._pending and self._pending.get("simple"))
+        in_leader = m in ("leader1", "leader2", "leader3"); simple = bool(self._pending and self._pending.get("simple"))
         st(self.btn_pipe, m == "pipe"); st(self.btn_leader, in_leader and not simple)
         st(self.btn_leader_simple, in_leader and simple)
         st(self.btn_text, m == "text"); st(self.btn_erase, m == "erase")
@@ -642,33 +675,57 @@ class Main(QtWidgets.QMainWindow):
         self.btn_erase.setText("■  Terminar zona (Enter)" if m == "erase" else "▭  Borrar zona (polígono)")
         ti = self.tabs.currentIndex()
         self.gt.setVisible(m in ("pipe", "move"))
-        # el panel de estilo sirve para texto libre y para el Multileader
-        txt_ctx = (m == "text") or (ti == 2 and self.sel_text >= 0)
-        lead_ctx = (m in ("leader1", "leader2")) or (ti == 1 and self.sel_leader >= 0)
-        self.gtxt.setVisible(txt_ctx or lead_ctx)
+        # Leader simple (solo flecha): el panel muestra únicamente la orientación y se titula "Leader"
+        sel_ld_simple = ti == TAB_LEADER and 0 <= self.sel_leader < len(self.leaders) and self.leaders[self.sel_leader].get("simple")
+        lead_simple = (in_leader and simple) or bool(sel_ld_simple)
+        self.ga.setTitle("Leader" if lead_simple else "Multileader")
+        for w in (self.chk_custom, self.txt_edit, self.lbl_textos, self.text_list, self.lbl_lead_hint):
+            w.setVisible(not lead_simple)
+        # el panel de estilo sirve para texto libre y para el Multileader; el Leader simple no lo usa
+        txt_ctx = (m == "text") or (ti == TAB_TEXT and self.sel_text >= 0)
+        lead_ctx = (m in ("leader1", "leader2", "leader3")) or (ti in (TAB_ML, TAB_LEADER) and self.sel_leader >= 0)
+        self.gtxt.setVisible((txt_ctx or lead_ctx) and not lead_simple)
         self.gtxt.setTitle("Estilo del Multileader" if (lead_ctx and not txt_ctx) else "Estilo de texto")
         self.rot_row.setVisible(txt_ctx)                 # la rotación solo aplica a textos libres
-        self.gprop.setVisible(ti == 0 and self.sel_pipe >= 0)
+        self.gprop.setVisible(ti == TAB_PIPE and self.sel_pipe >= 0)
         self.gcur.setVisible((m == "pipe" and len(self.cur_pts) >= 1) or (m == "erase" and len(self._erase_pts) >= 1))
         self.btn_fin.setEnabled((m == "pipe" and len(self.cur_pts) >= 2) or (m == "erase" and len(self._erase_pts) >= 3))
         ti = self.tabs.currentIndex()
-        self.btn_ct.setVisible(ti == 0); self.btn_mv.setVisible(ti in (0, 2, 3)); self.btn_edit.setVisible(ti in (1, 2))
+        self.btn_ct.setVisible(ti == TAB_PIPE)
+        self.btn_mv.setVisible(ti in (TAB_PIPE, TAB_LEADER, TAB_TEXT, TAB_REGION))
+        self.btn_edit.setVisible(ti in (TAB_ML, TAB_TEXT))
+        if simple:                                       # Leader (solo flecha)
+            diag = self.orient_combo.currentData() == "d"
+            lead1 = "Modo: Leader — clic en la cabeza de flecha (dónde señala)"
+            lead2 = ("Modo: Leader — clic en el inicio del landing (bisagra)" if diag
+                     else "Modo: Leader — clic en el final del cuerpo")
+            lead3 = "Modo: Leader — clic en el final del cuerpo"
+        else:
+            lead1 = "Modo: Multileader — clic en la PUNTA (a qué señala)"
+            lead2 = "Modo: Multileader — clic dónde va el TEXTO"
+            lead3 = ""
         self.lbl_mode.setText({"idle": "Modo: inactivo  ·  clic en el dibujo para seleccionar",
                                "pipe": ("Modo: EXTENDIENDO desde el vértice — clic agrega puntos, Enter finaliza"
                                         if self._extending else "Modo: dibujar utilidad  ·  Enter finaliza"),
-                               "leader1": "Modo: Multileader — clic en la PUNTA (a qué señala)",
-                               "leader2": "Modo: Multileader — clic dónde va el TEXTO",
+                               "leader1": lead1,
+                               "leader2": lead2,
+                               "leader3": lead3,
                                "text": "Modo: texto libre — clic donde escribir · Enter aplica",
                                "erase": "Modo: borrar zona — clic para el polígono, Enter cierra",
                                "move": "Modo: editar — arrastra vértice · clic en tramo inserta · clic-en-vértice extiende (F) · clic derecho elimina"}.get(m, ""))
 
     def set_mode(self, m):
-        if m not in ("leader1", "leader2"): self._pending = None
+        if m not in ("leader1", "leader2", "leader3"): self._pending = None
         if m != "erase": self._erase_pts = []
         if m != "pipe": self._extending = False
         self.mode = m; self._update_ui(); self._redraw()
 
-    def _tab_changed(self, _): self._update_ui(); self._redraw()
+    def _tab_changed(self, _):
+        ti = self.tabs.currentIndex()               # sel_leader se comparte entre ML y Leaders: re-sincronizar
+        if ti == TAB_ML: self.sel_leader = self._leader_at_row(self.lead_list, self.lead_list.currentRow())
+        elif ti == TAB_LEADER: self.sel_leader = self._leader_at_row(self.sleader_list, self.sleader_list.currentRow())
+        if self.mode == "move": self.set_mode("idle")   # no seguir editando al cambiar de pestaña
+        self._update_ui(); self._redraw()
     def toggle_pipe(self): self.set_mode("idle" if self.mode == "pipe" else "pipe")
     def toggle_text_mode(self): self.set_mode("idle" if self.mode == "text" else "text")
     def toggle_erase(self): self.set_mode("idle" if self.mode == "erase" else "erase")
@@ -861,21 +918,45 @@ class Main(QtWidgets.QMainWindow):
         elif self.mode == "leader1":
             self._pending["arrow"] = self._snap(x, y); self.mode = "leader2"; self._update_ui()
         elif self.mode == "leader2":
+            simple = bool(self._pending.get("simple"))
+            if simple:
+                hx, hy = self._pending["arrow"]; o = self.orient_combo.currentData()
+                if o == "d":                                 # diagonal: 2º clic = inicio del landing (bisagra)
+                    self._pending["landing"] = self._snap(x, y); self.mode = "leader3"; self._update_ui(); return
+                tail = (x, hy) if o == "h" else (hx, y)      # h/v: 2º clic = final del cuerpo, recto al eje
+                self._add_simple_leader((hx, hy), tail, o); return
             txt = self._read_leader_text()
             if not txt:
                 self._info("Selecciona un texto (o activa 'texto personalizado') antes de colocar.")
-                self._pending = {"arrow": None}; self.mode = "leader1"; self._update_ui(); return
+                self._pending = {"arrow": None, "simple": False}
+                self.mode = "leader1"; self._update_ui(); return
             self._push()
             self.leaders.append({"text": txt, "orient": self.orient_combo.currentData(),
-                                 "simple": bool(self._pending.get("simple")),
+                                 "simple": False,
                                  "arrow": self._pending["arrow"], "tp": (x, y),
                                  "font": self.font_combo.currentFont().family(),
                                  "size_ft": self.size_spin.value(), "bold": self.chk_bold.isChecked()})
-            self._pending = {"arrow": None}; self.mode = "leader1"
+            self._pending = {"arrow": None, "simple": False}; self.mode = "leader1"
             self._refresh_lists(); self._update_ui(); self._redraw()      # se ve al instante
             self._info("Multileader colocado. Clic en la PUNTA del siguiente (Esc para salir).")
+        elif self.mode == "leader3":                         # Leader diagonal: 3er clic = final del cuerpo
+            self._add_simple_leader(self._pending["arrow"], (x, y), "d",
+                                    landing=self._pending.get("landing")); return
         elif self.mode == "idle":
             self._pick(x, y)
+
+    def _add_simple_leader(self, head, tail, orient, landing=None):
+        """Coloca un Leader simple (solo flecha, sin texto) y queda listo para el siguiente.
+        orient 'h'/'v' → 2 clics (cabeza→final del cuerpo, recto al eje).
+        orient 'd'     → 3 clics (cabeza → inicio del landing/bisagra → final del cuerpo)."""
+        self._push()
+        self.leaders.append({"text": "", "orient": orient, "simple": True,
+                             "arrow": head, "tp": tail if tail else head, "landing": landing,
+                             "font": self.font_combo.currentFont().family(),
+                             "size_ft": self.size_spin.value(), "bold": self.chk_bold.isChecked()})
+        self._pending = {"arrow": None, "simple": True}; self.mode = "leader1"
+        self._refresh_lists(); self._update_ui(); self._redraw()
+        self._info("Leader colocado. Clic en la cabeza de flecha del siguiente (Esc para salir).")
 
     def on_dblclick(self, x, y):
         if self.mode not in ("idle", "move"): return
@@ -901,9 +982,9 @@ class Main(QtWidgets.QMainWindow):
         thr = 10.0 / max(1e-6, self.canvas.transform().m11())
         for i, tm in enumerate(self.text_marks):        # textos primero (blancos pequeños)
             if self._text_hit(tm, x, y):
-                self._no_center = True; self.tabs.setCurrentIndex(2); self.txt_marks_list.setCurrentRow(i)
+                self._no_center = True; self.tabs.setCurrentIndex(TAB_TEXT); self.txt_marks_list.setCurrentRow(i)
                 self._no_center = False; return
-        for i, ld in enumerate(self.leaders):           # Multileaders: por la línea o el texto
+        for i, ld in enumerate(self.leaders):           # leaders/multileaders: por la línea o el texto
             if not (ld.get("arrow") and ld.get("tp")): continue
             geo = self._leader_geo(ld); hit = False
             for s in geo["segs"]:
@@ -914,15 +995,14 @@ class Main(QtWidgets.QMainWindow):
             tw = max((len(t) for t in ld["text"].split("\n")), default=1) * H * 0.6; tt = ld["text"].count("\n") + 1
             if not hit and lx - 8 <= x <= lx + tw + 8 and ly - 8 <= y <= ly + tt * H + 8: hit = True
             if hit:
-                self._no_center = True; self.tabs.setCurrentIndex(1); self.lead_list.setCurrentRow(i)
-                self._no_center = False; return
+                self._select_leader(i); return
         best, bd = -1, thr
         for i, p in enumerate(self.pipes):
             for a, b in zip(p["pts"], p["pts"][1:]):
                 d = VP._pt_seg_dist(x, y, a[0], a[1], b[0], b[1])
                 if d < bd: bd, best = d, i
         if best >= 0:
-            self._no_center = True; self.tabs.setCurrentIndex(0); self.pipe_list.setCurrentRow(best)
+            self._no_center = True; self.tabs.setCurrentIndex(TAB_PIPE); self.pipe_list.setCurrentRow(best)
             self._no_center = False
 
     def _snap(self, x, y):
@@ -935,14 +1015,23 @@ class Main(QtWidgets.QMainWindow):
     # ─────────────────────────── editar / mover ───────────────────────────
     def _current_kind(self):
         ti = self.tabs.currentIndex()
-        if ti == 0 and 0 <= self.sel_pipe < len(self.pipes): return "pipe"
-        if ti == 2 and 0 <= self.sel_text < len(self.text_marks): return "text"
-        if ti == 3 and 0 <= self.sel_region < len(self.erase_regions): return "region"
+        if ti == TAB_PIPE and 0 <= self.sel_pipe < len(self.pipes): return "pipe"
+        if ti == TAB_LEADER and 0 <= self.sel_leader < len(self.leaders) and self.leaders[self.sel_leader].get("simple"): return "leader"
+        if ti == TAB_TEXT and 0 <= self.sel_text < len(self.text_marks): return "text"
+        if ti == TAB_REGION and 0 <= self.sel_region < len(self.erase_regions): return "region"
         return None
 
     def enter_move(self):
-        if self._current_kind(): self.set_mode("move"); self._info("Arrastra para mover · clic en vértice extiende (F) · clic derecho elimina")
-        else: self._info("Selecciona primero una utilidad, texto o zona")
+        kind = self._current_kind()
+        # Ctrl+T con un Leader simple seleccionado: asegura la pestaña Leaders y entra a editar sus vértices
+        if not kind and 0 <= self.sel_leader < len(self.leaders) and self.leaders[self.sel_leader].get("simple"):
+            self._select_leader(self.sel_leader, center=True); kind = "leader"
+        if kind == "leader":
+            self.set_mode("move"); self._info("Editar Leader: arrastra un vértice (posición/longitud) o el trazo para mover. Enter/Esc termina.")
+        elif kind:
+            self.set_mode("move"); self._info("Arrastra para mover · clic en vértice extiende (F) · clic derecho elimina")
+        else:
+            self._info("Selecciona primero una utilidad, Leader, texto o zona")
 
     def _thr(self): return 12.0 / max(1e-6, self.canvas.transform().m11())
 
@@ -958,6 +1047,18 @@ class Main(QtWidgets.QMainWindow):
         self._press_xy = (x, y); self._last_xy = (x, y); thr = self._thr()
         if kind == "text":
             self._move0 = (x, y); self._drag_vertex = None; self._edit_pts = None; return
+        if kind == "leader":
+            ld = self.leaders[self.sel_leader]; self._edit_leader = ld
+            pts = [tuple(ld["arrow"])]
+            if ld.get("landing"): pts.append(tuple(ld["landing"]))
+            pts.append(tuple(ld["tp"]))
+            self._edit_pts = pts; self._edit_closed = False
+            vi, vd = -1, thr
+            for i, (px, py) in enumerate(pts):
+                d = math.hypot(px - x, py - y)
+                if d < vd: vd, vi = d, i
+            self._drag_vertex = vi if vi >= 0 else None       # vértice cercano → arrastra; si no, mueve todo
+            self._move0 = None if vi >= 0 else (x, y); return
         pts = self.pipes[self.sel_pipe]["pts"] if kind == "pipe" else self.erase_regions[self.sel_region]["pts"]
         self._edit_pts = pts; self._edit_closed = (kind == "region")
         vi, vd = -1, thr
@@ -983,6 +1084,17 @@ class Main(QtWidgets.QMainWindow):
                 px, py = self.text_marks[self.sel_text]["pos"]
                 self.text_marks[self.sel_text]["pos"] = (px + dx, py + dy); self._redraw()
             return
+        if self._move_kind == "leader":
+            pts = self._edit_pts
+            if pts is None: return
+            if self._drag_vertex is not None:
+                pts[self._drag_vertex] = (x, y)               # mueve un vértice (posición/longitud)
+            elif self._move0 is not None:
+                dx, dy = x - self._move0[0], y - self._move0[1]; self._move0 = (x, y)
+                for i in range(len(pts)): pts[i] = (pts[i][0] + dx, pts[i][1] + dy)
+            else:
+                return
+            self._sync_leader(); self._redraw(); return
         pts = self._edit_pts
         if pts is None: return
         if self._drag_vertex is not None:
@@ -1000,7 +1112,15 @@ class Main(QtWidgets.QMainWindow):
                 and 0 <= self.sel_pipe < len(self.pipes)):
             self._move0 = None; self._move_kind = None
             self._start_extension(self.sel_pipe, self._drag_vertex); self._drag_vertex = None; return
-        self._move0 = None; self._drag_vertex = None; self._move_kind = None
+        self._move0 = None; self._drag_vertex = None; self._move_kind = None; self._edit_leader = None
+
+    def _sync_leader(self):
+        """Vuelca los vértices editados (self._edit_pts) al leader (arrow / landing / tp)."""
+        ld = self._edit_leader; pts = self._edit_pts
+        if not ld or not pts: return
+        ld["arrow"] = pts[0]
+        if ld.get("landing"): ld["landing"] = pts[1]; ld["tp"] = pts[2]
+        else: ld["tp"] = pts[-1]
 
     def _start_extension(self, pi, vi):
         # Sin ventana emergente: la casilla 'continuar la misma utilidad' decide.
@@ -1057,16 +1177,38 @@ class Main(QtWidgets.QMainWindow):
             self.prop_unit.setCurrentText(p.get("unit", "pulg")); self._prop_guard = False
         self._update_ui(); self._redraw()
 
-    def _sel_leader(self, r):
-        self.sel_leader = r
-        if 0 <= r < len(self.leaders):
-            ld = self.leaders[r]
+    def _leader_at_row(self, lst, r):
+        """Índice real en self.leaders del item de la fila r (o -1)."""
+        it = lst.item(r) if r is not None and r >= 0 else None
+        return it.data(QtCore.Qt.UserRole) if it is not None else -1
+
+    def _sel_leader(self, r):                              # pestaña Multileaders
+        i = self._leader_at_row(self.lead_list, r); self.sel_leader = i
+        if 0 <= i < len(self.leaders):
+            ld = self.leaders[i]
             if not self._no_center and ld.get("tp"): self.canvas.centerOn(ld["tp"][0], ld["tp"][1])
             self._style_guard = True
             self.font_combo.setCurrentFont(QtGui.QFont(ld.get("font", C.TEXT_FONT)))
             self.size_spin.setValue(ld.get("size_ft", LEADER_TEXT_FT)); self.chk_bold.setChecked(bool(ld.get("bold")))
             self._style_guard = False
         self._update_ui(); self._redraw()
+
+    def _sel_sleader(self, r):                             # pestaña Leaders (solo flechas)
+        i = self._leader_at_row(self.sleader_list, r); self.sel_leader = i
+        if 0 <= i < len(self.leaders):
+            ld = self.leaders[i]
+            if not self._no_center and ld.get("tp"): self.canvas.centerOn(ld["tp"][0], ld["tp"][1])
+        self._update_ui(); self._redraw()
+
+    def _select_leader(self, i, center=False):
+        """Selecciona el leader nº i en la pestaña que le corresponde (ML o Leaders)."""
+        if not (0 <= i < len(self.leaders)): return
+        simple = self.leaders[i].get("simple")
+        lst = self.sleader_list if simple else self.lead_list
+        row = next((r for r in range(lst.count()) if lst.item(r).data(QtCore.Qt.UserRole) == i), -1)
+        self._no_center = not center
+        self.tabs.setCurrentIndex(TAB_LEADER if simple else TAB_ML); lst.setCurrentRow(row)
+        self._no_center = False
 
     def _sel_text(self, r):
         self.sel_text = r
@@ -1107,12 +1249,12 @@ class Main(QtWidgets.QMainWindow):
     def _style_changed(self):
         if self._style_guard: return
         ti = self.tabs.currentIndex()
-        if ti == 2 and 0 <= self.sel_text < len(self.text_marks):
+        if ti == TAB_TEXT and 0 <= self.sel_text < len(self.text_marks):
             tm = self.text_marks[self.sel_text]; self._push()
             tm["font"] = self.font_combo.currentFont().family(); tm["size_ft"] = self.size_spin.value()
             tm["bold"] = self.chk_bold.isChecked(); tm["rot"] = self._snap45(self.rot_spin.value())
             self._redraw()
-        elif ti == 1 and 0 <= self.sel_leader < len(self.leaders):
+        elif ti == TAB_ML and 0 <= self.sel_leader < len(self.leaders):
             ld = self.leaders[self.sel_leader]; self._push()
             ld["font"] = self.font_combo.currentFont().family(); ld["size_ft"] = self.size_spin.value()
             ld["bold"] = self.chk_bold.isChecked()
@@ -1120,7 +1262,7 @@ class Main(QtWidgets.QMainWindow):
 
     def _prop_changed(self):
         if self._prop_guard: return
-        if self.tabs.currentIndex() == 0 and 0 <= self.sel_pipe < len(self.pipes):
+        if self.tabs.currentIndex() == TAB_PIPE and 0 <= self.sel_pipe < len(self.pipes):
             p = self.pipes[self.sel_pipe]; self._push()
             p["name"] = self.prop_name.text().strip(); p["diam"] = self.prop_diam.value()
             p["unit"] = self.prop_unit.currentText(); self._refresh_lists()
@@ -1132,26 +1274,26 @@ class Main(QtWidgets.QMainWindow):
 
     def edit_selected_text(self):
         ti = self.tabs.currentIndex()
-        if ti == 1 and 0 <= self.sel_leader < len(self.leaders): self._edit_leader_text(self.sel_leader)
-        elif ti == 2 and 0 <= self.sel_text < len(self.text_marks): self._edit_text_mark(self.sel_text)
+        if ti == TAB_ML and 0 <= self.sel_leader < len(self.leaders): self._edit_leader_text(self.sel_leader)
+        elif ti == TAB_TEXT and 0 <= self.sel_text < len(self.text_marks): self._edit_text_mark(self.sel_text)
 
     def delete_selected(self):
         ti = self.tabs.currentIndex()
-        if ti == 0 and 0 <= self.sel_pipe < len(self.pipes):
+        if ti == TAB_PIPE and 0 <= self.sel_pipe < len(self.pipes):
             self._push(); self.pipes.pop(self.sel_pipe); self.sel_pipe = -1
-        elif ti == 1 and 0 <= self.sel_leader < len(self.leaders):
+        elif ti in (TAB_ML, TAB_LEADER) and 0 <= self.sel_leader < len(self.leaders):
             self._push(); self.leaders.pop(self.sel_leader); self.sel_leader = -1
-        elif ti == 2 and 0 <= self.sel_text < len(self.text_marks):
+        elif ti == TAB_TEXT and 0 <= self.sel_text < len(self.text_marks):
             self._push(); self.text_marks.pop(self.sel_text); self.sel_text = -1
-        elif ti == 3 and 0 <= self.sel_region < len(self.erase_regions):
+        elif ti == TAB_REGION and 0 <= self.sel_region < len(self.erase_regions):
             self._push(); self.erase_regions.pop(self.sel_region); self.sel_region = -1
         self._refresh_lists(); self._redraw()
 
     def _copy_sel(self):
         ti = self.tabs.currentIndex()
-        if ti == 1 and 0 <= self.sel_leader < len(self.leaders): self._clip = ("leader", copy.deepcopy(self.leaders[self.sel_leader]))
-        elif ti == 0 and 0 <= self.sel_pipe < len(self.pipes): self._clip = ("pipe", copy.deepcopy(self.pipes[self.sel_pipe]))
-        elif ti == 2 and 0 <= self.sel_text < len(self.text_marks): self._clip = ("text", copy.deepcopy(self.text_marks[self.sel_text]))
+        if ti in (TAB_ML, TAB_LEADER) and 0 <= self.sel_leader < len(self.leaders): self._clip = ("leader", copy.deepcopy(self.leaders[self.sel_leader]))
+        elif ti == TAB_PIPE and 0 <= self.sel_pipe < len(self.pipes): self._clip = ("pipe", copy.deepcopy(self.pipes[self.sel_pipe]))
+        elif ti == TAB_TEXT and 0 <= self.sel_text < len(self.text_marks): self._clip = ("text", copy.deepcopy(self.text_marks[self.sel_text]))
         else: self._info("Selecciona algo para copiar."); return
         self._info("Copiado. Ctrl+V para pegar una copia.")
 
@@ -1160,14 +1302,15 @@ class Main(QtWidgets.QMainWindow):
         kind, obj = self._clip; o = copy.deepcopy(obj); d = 30; self._push()
         if kind == "leader":
             if o.get("arrow"): o["arrow"] = (o["arrow"][0] + d, o["arrow"][1] + d)
+            if o.get("landing"): o["landing"] = (o["landing"][0] + d, o["landing"][1] + d)
             if o.get("tp"): o["tp"] = (o["tp"][0] + d, o["tp"][1] + d)
-            self.leaders.append(o); self.tabs.setCurrentIndex(1); self._refresh_lists(); self.lead_list.setCurrentRow(len(self.leaders) - 1)
+            self.leaders.append(o); self._refresh_lists(); self._select_leader(len(self.leaders) - 1)
         elif kind == "pipe":
             o["pts"] = [(x + d, y + d) for (x, y) in o["pts"]]; self.pipes.append(o)
-            self.tabs.setCurrentIndex(0); self._refresh_lists(); self.pipe_list.setCurrentRow(len(self.pipes) - 1)
+            self.tabs.setCurrentIndex(TAB_PIPE); self._refresh_lists(); self.pipe_list.setCurrentRow(len(self.pipes) - 1)
         elif kind == "text":
             o["pos"] = (o["pos"][0] + d, o["pos"][1] + d); self.text_marks.append(o)
-            self.tabs.setCurrentIndex(2); self._refresh_lists(); self.txt_marks_list.setCurrentRow(len(self.text_marks) - 1)
+            self.tabs.setCurrentIndex(TAB_TEXT); self._refresh_lists(); self.txt_marks_list.setCurrentRow(len(self.text_marks) - 1)
         self._redraw(); self._info("Pegado (copia desplazada).")
 
     def _refresh_lists(self):
@@ -1179,10 +1322,17 @@ class Main(QtWidgets.QMainWindow):
             it.setForeground(QtGui.QColor("white")); self.pipe_list.addItem(it)
         self.pipe_list.blockSignals(False)
         self.lead_list.blockSignals(True); self.lead_list.clear()
-        for i, ld in enumerate(self.leaders, 1):
-            kind = "Leader" if ld.get("simple") else "MLeader"
-            self.lead_list.addItem(f"{i}. [{kind}] {ld['text'][:24].replace(chr(10), ' / ')}")
-        self.lead_list.blockSignals(False)
+        self.sleader_list.blockSignals(True); self.sleader_list.clear()
+        nml = ns = 0
+        for i, ld in enumerate(self.leaders):
+            if ld.get("simple"):
+                ns += 1; o = {"h": "horizontal", "v": "vertical", "d": "diagonal"}.get(ld.get("orient", "d"), "")
+                it = QtWidgets.QListWidgetItem(f"{ns}. Leader {o}".rstrip())
+                it.setData(QtCore.Qt.UserRole, i); self.sleader_list.addItem(it)
+            else:
+                nml += 1; it = QtWidgets.QListWidgetItem(f"{nml}. {ld['text'][:24].replace(chr(10), ' / ')}")
+                it.setData(QtCore.Qt.UserRole, i); self.lead_list.addItem(it)
+        self.lead_list.blockSignals(False); self.sleader_list.blockSignals(False)
         self.txt_marks_list.blockSignals(True); self.txt_marks_list.clear()
         for i, tm in enumerate(self.text_marks, 1): self.txt_marks_list.addItem(f"{i}. {tm['text'][:28].replace(chr(10), ' / ')}")
         self.txt_marks_list.blockSignals(False)
@@ -1212,14 +1362,21 @@ class Main(QtWidgets.QMainWindow):
 
     def start_leader(self, simple=False):
         # No se captura nada al entrar: la orientación y el texto se leen al COLOCAR.
-        # simple=True → Leader recto punta→texto (sin cola); False → Multileader.
+        # simple=True → Leader (solo flecha, sin texto); False → Multileader.
         self._pending = {"arrow": None, "simple": bool(simple)}
         self.set_mode("leader1")
-        que = "Leader" if simple else "Multileader"
-        self._info(f"{que}: elige el texto; clic en la PUNTA y luego dónde va el TEXTO. Esc para salir.")
+        if simple:
+            if self.orient_combo.currentData() == "d":
+                self._info("Leader diagonal: cabeza → inicio del landing (bisagra) → final del cuerpo. Enter/Esc para salir.")
+            else:
+                self._info("Leader: cabeza de flecha → final del cuerpo. Enter/Esc para salir.")
+        else:
+            self._info("Multileader: elige el texto; clic en la PUNTA y luego dónde va el TEXTO. Esc para salir.")
 
     def _edit_leader_text(self, idx):
         ld = self.leaders[idx]; tp = ld["tp"]
+        if ld.get("simple"):                                 # el Leader simple no tiene texto que editar
+            self._info("El Leader simple no lleva texto."); return
         def commit(val):
             self._close_editor()
             if val.strip(): self._push(); ld["text"] = val.rstrip("\n"); self._refresh_lists()
@@ -1234,13 +1391,15 @@ class Main(QtWidgets.QMainWindow):
         H = self._px_for_ft(ftsize)
         lines = ld["text"].split("\n"); maxlen = max((len(s) for s in lines), default=1); nlines = len(lines)
         tw = max(maxlen * H * 0.6, H * 2); th = nlines * H; gap = H * 0.5; near = H * 0.22
-        if ld.get("simple"):                               # LEADER simple: recta punta→texto, sin cola
-            right = tx >= ax
-            lblx = tx + near if right else tx - near - tw
-            side = "right" if right else "left"
-            segs = [[(ax, ay), (tx, ty)]]
-            return dict(segs=segs, label_pos=(lblx, ty - th / 2), rot=0, side=side, verts_px=segs[0], insert_px=(tx, ty),
-                        dogleg=0.0, H=H, cad_h=ftsize, tcenter_px=(lblx + tw / 2, ty), cad_rot=0)
+        if ld.get("simple"):                               # LEADER simple: solo flecha, sin texto
+            lp = ld.get("landing")
+            if lp:                                         # diagonal con landing: cabeza → bisagra → final
+                segs = [[(ax, ay), (lp[0], lp[1]), (tx, ty)]]
+            else:                                          # recto h/v: cabeza → final del cuerpo
+                segs = [[(ax, ay), (tx, ty)]]
+            end = segs[0][-1]
+            return dict(segs=segs, label_pos=end, rot=0, side="right", verts_px=segs[0], insert_px=end,
+                        dogleg=0.0, H=H, cad_h=ftsize, tcenter_px=end, cad_rot=0)
         orient = ld.get("orient", "h")
         if orient == "v":                                  # recto vertical; texto vertical junto a la cola
             signY = -1 if ty < ay else 1
@@ -1400,10 +1559,13 @@ class Main(QtWidgets.QMainWindow):
             geo = self._leader_geo(ld)
             for s in geo["segs"]: self._poly(s, col, 1.6, z=Z_MARK)
             self._arrow(ld["arrow"], geo["segs"][0][1], col)   # punta orientada a lo largo de la línea
-            t = sc.addText(ld["text"]); t.setDefaultTextColor(col); t.document().setDocumentMargin(0)
-            f = t.font(); f.setPixelSize(int(geo["H"])); t.setFont(f)
-            if geo["rot"]: t.setRotation(geo["rot"])
-            t.setPos(geo["label_pos"][0], geo["label_pos"][1]); t.setZValue(Z_MARK); self._overlay.append(t)
+            if i == self.sel_leader and self.mode == "move" and ld.get("simple"):
+                self._handles(geo["segs"][0])                  # vértices editables (cabeza / bisagra / final)
+            if ld["text"]:                                     # Leader simple no lleva texto
+                t = sc.addText(ld["text"]); t.setDefaultTextColor(col); t.document().setDocumentMargin(0)
+                f = t.font(); f.setPixelSize(int(geo["H"])); t.setFont(f)
+                if geo["rot"]: t.setRotation(geo["rot"])
+                t.setPos(geo["label_pos"][0], geo["label_pos"][1]); t.setZValue(Z_MARK); self._overlay.append(t)
         # cajas OCR/ICR
         if self.show_text_boxes:
             pen = QtGui.QPen(QtGui.QColor(255, 200, 0), 1); pen.setCosmetic(True)
@@ -1419,7 +1581,7 @@ class Main(QtWidgets.QMainWindow):
             t.setPos(tm["pos"][0], tm["pos"][1])
             if tm.get("rot"): t.setRotation(-tm["rot"])       # rot en grados CCW; Qt gira en sentido horario
             t.setZValue(Z_MARK); self._overlay.append(t)
-            if i == self.sel_text and self.tabs.currentIndex() == 2:
+            if i == self.sel_text and self.tabs.currentIndex() == TAB_TEXT:
                 br = t.boundingRect(); pen = QtGui.QPen(QtGui.QColor(255, 180, 40)); pen.setCosmetic(True)
                 rit = sc.addRect(tm["pos"][0], tm["pos"][1], br.width(), br.height(), pen); rit.setZValue(Z_MARK); self._overlay.append(rit)
 
@@ -1556,11 +1718,74 @@ class Main(QtWidgets.QMainWindow):
             except Exception: continue
 
     def _add_leader(self, doc, msp, ld):
-        """Exporta el Multileader como geometría exacta (línea + punta + texto), igual que
-        en la vista previa, agrupada en un GROUP para seleccionarlo como una unidad. La
-        entidad MULTILEADER nativa no permitía a la vez seguir el trazo y colocar bien el
-        texto/landing, por eso se dibuja explícito."""
-        geo = self._leader_geo(ld); ents = []
+        geo = self._leader_geo(ld)
+        if ld.get("simple"):                                 # Leader simple → entidad LEADER nativa
+            if self._add_simple_leader_dxf(doc, msp, ld, geo): return
+        else:                                                # Multileader → entidad MULTILEADER nativa
+            if self._add_multileader_dxf(doc, msp, ld, geo): return
+        # si el visor/plantilla no soporta la entidad nativa, se dibuja explícito como respaldo
+        self._add_leader_explicit(doc, msp, ld, geo)
+
+    def _mleader_style(self, doc, arrow_ft, char_ft):
+        """Estilo MLEADER propio con el tamaño de flecha/altura de texto dados (pies)."""
+        name = f"PDFCAD_ML_{int(round(arrow_ft * 10))}_{int(round(char_ft * 10))}"
+        try:
+            if name not in doc.mleader_styles:
+                doc.mleader_styles.duplicate_entry("Standard", name)
+            st = doc.mleader_styles.get(name)
+            st.dxf.arrow_head_size = arrow_ft; st.dxf.char_height = char_ft
+            return name
+        except Exception:
+            return "Standard"
+
+    def _add_multileader_dxf(self, doc, msp, ld, geo):
+        """Exporta el Multileader como entidad MULTILEADER nativa (flecha + directriz + texto).
+        Devuelve True si se creó."""
+        if not ld.get("text"): return False
+        try:
+            from ezdxf.math import Vec2
+            from ezdxf.render.mleader import ConnectionSide, TextAlignment
+        except Exception:
+            return False
+        ch = max(0.1, geo.get("cad_h", LEADER_TEXT_FT))
+        asz = max(0.05, ch * 0.6)
+        style = self._mleader_style(doc, asz, ch)
+        # segs[0] va [punta(flecha) … landing]; el MULTILEADER quiere [insert(landing) … punta]
+        cad_v = [self._to_cad(x, y) for (x, y) in geo["segs"][0]][::-1]
+        if len(cad_v) < 2: return False
+        insert, tip = cad_v[0], cad_v[-1]
+        side = ConnectionSide.left if tip[0] < insert[0] else ConnectionSide.right
+        align = TextAlignment.left if side == ConnectionSide.right else TextAlignment.right
+        leader_pts = [Vec2(x, y) for (x, y) in cad_v[1:]]
+        try:
+            mb = msp.add_multileader_mtext(style)
+            mb.set_content(ld["text"], char_height=ch, alignment=align)
+            mb.add_leader_line(side, leader_pts)
+            mb.build(insert=Vec2(insert[0], insert[1]))
+            try: mb.multileader.dxf.layer = "ANOTACION"
+            except Exception: pass
+            return True
+        except Exception:
+            return False
+
+    def _add_simple_leader_dxf(self, doc, msp, ld, geo):
+        """Exporta el Leader simple como entidad LEADER (con punta de flecha) siguiendo
+        sus vértices: cabeza → (bisagra) → final. Devuelve True si se creó."""
+        verts = [self._to_cad(x, y) for (x, y) in geo["segs"][0]]   # el 1er vértice lleva la flecha
+        asz = max(0.05, geo.get("cad_h", LEADER_TEXT_FT) * 0.6)     # tamaño de la punta (unidades CAD)
+        dimstyle = "EZDXF" if "EZDXF" in doc.dimstyles else ("Standard" if "Standard" in doc.dimstyles else None)
+        if dimstyle is None: return False
+        try:
+            msp.add_leader(verts, dimstyle=dimstyle, override={"dimasz": asz, "dimscale": 1.0},
+                           dxfattribs={"layer": "ANOTACION"})
+            return True
+        except Exception:
+            return False
+
+    def _add_leader_explicit(self, doc, msp, ld, geo):
+        """Multileader (o respaldo del Leader simple): geometría exacta (línea + punta + texto)
+        agrupada en un GROUP, igual que en la vista previa."""
+        ents = []
         for s in geo["segs"]:
             ents.append(msp.add_lwpolyline([self._to_cad(x, y) for (x, y) in s], dxfattribs={"layer": "ANOTACION"}))
         a = self._to_cad(*ld["arrow"]); b = self._to_cad(*geo["segs"][0][1])
@@ -1568,13 +1793,14 @@ class Main(QtWidgets.QMainWindow):
         p1 = (a[0] - L * math.cos(ang - 0.28), a[1] - L * math.sin(ang - 0.28))
         p2 = (a[0] - L * math.cos(ang + 0.28), a[1] - L * math.sin(ang + 0.28))
         ents.append(msp.add_solid([a, p1, p2, a], dxfattribs={"layer": "ANOTACION"}))
-        font = ld.get("font", C.TEXT_FONT); bold = bool(ld.get("bold")); ch = geo.get("cad_h", LEADER_TEXT_FT)
-        style = self._text_style(doc, font, bold)
-        content = ld["text"].replace("\n", "\\P")
-        if bold: content = f"{{\\f{font}|b1;{content}}}"
-        m = msp.add_mtext(content, dxfattribs={"layer": "ANOTACION", "style": style, "char_height": ch})
-        m.set_location(self._to_cad(*geo["tcenter_px"]), rotation=float(geo.get("cad_rot", 0)), attachment_point=5)
-        ents.append(m)
+        if ld["text"]:                                       # Leader simple: solo línea + punta, sin texto
+            font = ld.get("font", C.TEXT_FONT); bold = bool(ld.get("bold")); ch = geo.get("cad_h", LEADER_TEXT_FT)
+            style = self._text_style(doc, font, bold)
+            content = ld["text"].replace("\n", "\\P")
+            if bold: content = f"{{\\f{font}|b1;{content}}}"
+            m = msp.add_mtext(content, dxfattribs={"layer": "ANOTACION", "style": style, "char_height": ch})
+            m.set_location(self._to_cad(*geo["tcenter_px"]), rotation=float(geo.get("cad_rot", 0)), attachment_point=5)
+            ents.append(m)
         try:
             g = doc.groups.new()
             with g.edit_data() as data: data.extend(ents)
@@ -1653,10 +1879,13 @@ class Main(QtWidgets.QMainWindow):
         box.setStyleSheet("QToolBox::tab{background:#333;color:#ddd;border:1px solid #555;}"
                           "QToolBox::tab:selected{background:#3c5a99;color:white;font-weight:bold;}")
         icon = {"added": ("#5fd35f", "✚ nueva"), "removed": ("#e06060", "✖ quitada"),
-                "fixed": ("#6cc5e0", "✎ corregida"), "base": ("#cfcfcf", "•")}
+                "fixed": ("#6cc5e0", "✎ corregida"), "changed": ("#e0c060", "↻ cambiada"),
+                "base": ("#cfcfcf", "•")}
+        default = ("#cfcfcf", "•")
         for ver, items in CHANGELOG:
             tb = QtWidgets.QTextBrowser(); tb.setStyleSheet("background:#1e1e1e;color:#e8e8e8;border:none;")
-            lis = "".join(f'<li style="color:{icon[s][0]};margin-bottom:4px;"><b>[{icon[s][1]}]</b> {t}</li>' for s, t in items)
+            lis = "".join(f'<li style="color:{icon.get(s, default)[0]};margin-bottom:4px;">'
+                          f'<b>[{icon.get(s, default)[1]}]</b> {t}</li>' for s, t in items)
             tb.setHtml(f"<ul>{lis}</ul>"); box.addItem(tb, f"v{ver}")
         lay.addWidget(box, 1)
         btn = QtWidgets.QPushButton("Cerrar"); btn.clicked.connect(dlg.accept); lay.addWidget(btn)
