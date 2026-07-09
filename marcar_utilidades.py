@@ -296,13 +296,19 @@ class Canvas(QtWidgets.QGraphicsView):
         self.setFocusPolicy(QtCore.Qt.StrongFocus)
         self.setMouseTracking(True); self.viewport().setMouseTracking(True)
         self.pixmap_item = None; self._pan = False; self._pan0 = None; self._moving = False
+        self.pdf_opacity = 1.0
 
     def set_image(self, qimg):
         self.scene().clear()
         self.pixmap_item = self.scene().addPixmap(QtGui.QPixmap.fromImage(qimg))
         self.pixmap_item.setZValue(Z_PDF)
+        self.pixmap_item.setOpacity(self.pdf_opacity)
         self.setSceneRect(self.pixmap_item.boundingRect())
         self.resetTransform(); self.fitInView(self.pixmap_item, QtCore.Qt.KeepAspectRatio)
+
+    def set_pdf_opacity(self, val):
+        self.pdf_opacity = max(0.1, min(1.0, val))
+        if self.pixmap_item: self.pixmap_item.setOpacity(self.pdf_opacity)
 
     def keyPressEvent(self, e):
         if e.key() in (QtCore.Qt.Key_Return, QtCore.Qt.Key_Enter):
@@ -441,6 +447,15 @@ class Main(QtWidgets.QMainWindow):
         lp.addWidget(self.btn_prev); lp.addWidget(self.page_edit, 1); lp.addWidget(self.lbl_page); lp.addWidget(self.btn_next)
         v.addWidget(gp)
 
+        # 1b) Transparencia del PDF de fondo
+        section("Transparencia del PDF")
+        gtr = QtWidgets.QWidget(); ltr = QtWidgets.QHBoxLayout(gtr); ltr.setContentsMargins(0, 0, 0, 0)
+        tb_l = QtWidgets.QPushButton("−"); tb_l.setFixedWidth(30); tb_l.setToolTip("Más translúcido"); tb_l.clicked.connect(lambda: self._bump_opacity(-10))
+        self.lbl_opacity = QtWidgets.QLabel("100%"); self.lbl_opacity.setAlignment(QtCore.Qt.AlignCenter)
+        tb_r = QtWidgets.QPushButton("+"); tb_r.setFixedWidth(30); tb_r.setToolTip("Más opaco"); tb_r.clicked.connect(lambda: self._bump_opacity(10))
+        ltr.addWidget(tb_l); ltr.addWidget(self.lbl_opacity, 1); ltr.addWidget(tb_r)
+        v.addWidget(gtr)
+
         # 2) Acciones principales (qué quieres hacer)
         section("Acción / herramienta")
         self.btn_pipe = QtWidgets.QPushButton("✏  Dibujar utilidad"); self.btn_pipe.clicked.connect(self.toggle_pipe)
@@ -490,13 +505,13 @@ class Main(QtWidgets.QMainWindow):
         r.addWidget(b_minus); r.addWidget(self.size_spin); r.addWidget(b_plus)
         self.chk_bold = QtWidgets.QCheckBox("Negrita"); self.chk_bold.toggled.connect(lambda _: self._style_changed())
         lgx.addWidget(self.font_combo); lgx.addLayout(r); lgx.addWidget(self.chk_bold)
-        # Rotación (solo textos) con imán a 45°
+        # Rotación (solo textos): giro libre 0–360, botones de 1 en 1
         self.rot_row = QtWidgets.QWidget(); rr2 = QtWidgets.QHBoxLayout(self.rot_row); rr2.setContentsMargins(0, 0, 0, 0)
         rr2.addWidget(QtWidgets.QLabel("Rotación (°):"))
-        rb_l = QtWidgets.QPushButton("⟲"); rb_l.setFixedWidth(30); rb_l.clicked.connect(lambda: self._bump_rot(-45))
-        self.rot_spin = QtWidgets.QSpinBox(); self.rot_spin.setRange(0, 360); self.rot_spin.setSingleStep(45); self.rot_spin.setWrapping(True)
+        rb_l = QtWidgets.QPushButton("⟲"); rb_l.setFixedWidth(30); rb_l.clicked.connect(lambda: self._bump_rot(-1))
+        self.rot_spin = QtWidgets.QSpinBox(); self.rot_spin.setRange(0, 360); self.rot_spin.setSingleStep(1); self.rot_spin.setWrapping(True)
         self.rot_spin.setButtonSymbols(QtWidgets.QAbstractSpinBox.NoButtons); self.rot_spin.valueChanged.connect(lambda _: self._style_changed())
-        rb_r = QtWidgets.QPushButton("⟳"); rb_r.setFixedWidth(30); rb_r.clicked.connect(lambda: self._bump_rot(45))
+        rb_r = QtWidgets.QPushButton("⟳"); rb_r.setFixedWidth(30); rb_r.clicked.connect(lambda: self._bump_rot(1))
         rr2.addWidget(rb_l); rr2.addWidget(self.rot_spin); rr2.addWidget(rb_r)
         lgx.addWidget(self.rot_row)
         lgx.addWidget(QtWidgets.QLabel("<i>Enter aplica · Ctrl+Shift+Enter salta de línea</i>"))
@@ -531,6 +546,13 @@ class Main(QtWidgets.QMainWindow):
         self.tabs.addTab(self.pipe_list, "Utilidades"); self.tabs.addTab(self.lead_list, "Multileaders")
         self.tabs.addTab(self.sleader_list, "Leaders")
         self.tabs.addTab(self.txt_marks_list, "Textos"); self.tabs.addTab(self.region_list, "Zonas")
+        # Menú contextual (clic derecho) en cada lista del inventario
+        for listw, tab_idx in ((self.pipe_list, TAB_PIPE), (self.lead_list, TAB_ML),
+                               (self.sleader_list, TAB_LEADER), (self.txt_marks_list, TAB_TEXT),
+                               (self.region_list, TAB_REGION)):
+            listw.setContextMenuPolicy(QtCore.Qt.CustomContextMenu)
+            listw.customContextMenuRequested.connect(
+                lambda pos, lw=listw, ti=tab_idx: self._list_context_menu(lw, ti, pos))
         self.tabs.currentChanged.connect(self._tab_changed); rv.addWidget(self.tabs, 1)
         # Propiedades de la utilidad seleccionada (nombre, diámetro, unidad) → XDATA en el DXF
         self.gprop = QtWidgets.QGroupBox("Propiedades de la utilidad"); fpr = QtWidgets.QFormLayout(self.gprop)
@@ -589,6 +611,14 @@ class Main(QtWidgets.QMainWindow):
         QtGui.QShortcut(QtGui.QKeySequence(QtCore.Qt.Key_Escape), self, self._on_escape)
         QtGui.QShortcut(QtGui.QKeySequence("Ctrl+C"), self, self._copy_sel)
         QtGui.QShortcut(QtGui.QKeySequence("Ctrl+V"), self, self._paste_sel)
+        QtGui.QShortcut(QtGui.QKeySequence(QtCore.Qt.Key_Delete), self, self._delete_shortcut)
+
+    def _delete_shortcut(self):
+        # Suprimir borra el elemento seleccionado, salvo mientras se escribe texto
+        if self._editor is not None: return
+        fw = QtWidgets.QApplication.focusWidget()
+        if isinstance(fw, (QtWidgets.QLineEdit, QtWidgets.QTextEdit, QtWidgets.QAbstractSpinBox)): return
+        self.delete_selected()
 
     # ─────────────────────────── páginas ───────────────────────────
     def _update_page_label(self):
@@ -693,6 +723,7 @@ class Main(QtWidgets.QMainWindow):
         ti = self.tabs.currentIndex()
         self.btn_ct.setVisible(ti == TAB_PIPE)
         self.btn_mv.setVisible(ti in (TAB_PIPE, TAB_LEADER, TAB_TEXT, TAB_REGION))
+        self.btn_mv.setText("Mover" if ti == TAB_TEXT else "Editar/mover")
         self.btn_edit.setVisible(ti in (TAB_ML, TAB_TEXT))
         if simple:                                       # Leader (solo flecha)
             diag = self.orient_combo.currentData() == "d"
@@ -1218,7 +1249,7 @@ class Main(QtWidgets.QMainWindow):
             self._style_guard = True
             self.font_combo.setCurrentFont(QtGui.QFont(tm.get("font", C.TEXT_FONT)))
             self.size_spin.setValue(tm.get("size_ft", 3.0)); self.chk_bold.setChecked(bool(tm.get("bold")))
-            self.rot_spin.setValue(self._snap45(tm.get("rot", 0))); self._style_guard = False
+            self.rot_spin.setValue(int(tm.get("rot", 0)) % 360); self._style_guard = False
         self._update_ui(); self._redraw()
 
     def _sel_region(self, r):
@@ -1236,10 +1267,13 @@ class Main(QtWidgets.QMainWindow):
     def _bump_size(self, delta):
         self.size_spin.setValue(round(max(0.5, self.size_spin.value() + delta), 2))
 
-    def _snap45(self, v): return int(round(v / 45.0) * 45) % 360
-
     def _bump_rot(self, delta):
-        self.rot_spin.setValue(self._snap45(self.rot_spin.value() + delta))
+        self.rot_spin.setValue((self.rot_spin.value() + delta) % 360)
+
+    def _bump_opacity(self, delta_pct):
+        val = self.canvas.pdf_opacity + delta_pct / 100.0
+        self.canvas.set_pdf_opacity(val)
+        self.lbl_opacity.setText(f"{round(self.canvas.pdf_opacity * 100)}%")
 
     def _px_for_ft(self, ft):
         raw = ft / self.scale * self.zoom if self.scale else ft * self.zoom
@@ -1252,7 +1286,7 @@ class Main(QtWidgets.QMainWindow):
         if ti == TAB_TEXT and 0 <= self.sel_text < len(self.text_marks):
             tm = self.text_marks[self.sel_text]; self._push()
             tm["font"] = self.font_combo.currentFont().family(); tm["size_ft"] = self.size_spin.value()
-            tm["bold"] = self.chk_bold.isChecked(); tm["rot"] = self._snap45(self.rot_spin.value())
+            tm["bold"] = self.chk_bold.isChecked(); tm["rot"] = self.rot_spin.value() % 360
             self._redraw()
         elif ti == TAB_ML and 0 <= self.sel_leader < len(self.leaders):
             ld = self.leaders[self.sel_leader]; self._push()
@@ -1276,6 +1310,28 @@ class Main(QtWidgets.QMainWindow):
         ti = self.tabs.currentIndex()
         if ti == TAB_ML and 0 <= self.sel_leader < len(self.leaders): self._edit_leader_text(self.sel_leader)
         elif ti == TAB_TEXT and 0 <= self.sel_text < len(self.text_marks): self._edit_text_mark(self.sel_text)
+
+    def _list_context_menu(self, listw, tab_idx, pos):
+        item = listw.itemAt(pos)
+        if item is None: return
+        if self.tabs.currentIndex() != tab_idx: self.tabs.setCurrentIndex(tab_idx)
+        listw.setCurrentRow(listw.row(item))          # selecciona la fila bajo el cursor
+        menu = QtWidgets.QMenu(self)
+        if tab_idx == TAB_PIPE:
+            self._menu_act(menu, "Cambiar tipo", self.change_pipe_type)
+            self._menu_act(menu, "Editar/mover", self.enter_move)
+        elif tab_idx == TAB_ML:
+            self._menu_act(menu, "Editar texto", self.edit_selected_text)
+        elif tab_idx == TAB_LEADER:
+            self._menu_act(menu, "Editar/mover", self.enter_move)
+        elif tab_idx == TAB_TEXT:
+            self._menu_act(menu, "Mover", self.enter_move)
+            self._menu_act(menu, "Editar texto", self.edit_selected_text)
+        elif tab_idx == TAB_REGION:
+            self._menu_act(menu, "Editar/mover", self.enter_move)
+        menu.addSeparator()
+        self._menu_act(menu, "Eliminar", self.delete_selected)
+        menu.exec(listw.viewport().mapToGlobal(pos))
 
     def delete_selected(self):
         ti = self.tabs.currentIndex()
@@ -1434,7 +1490,7 @@ class Main(QtWidgets.QMainWindow):
                 self._push()
                 self.text_marks.append({"pos": (x, y), "text": val.rstrip("\n"),
                                         "size_ft": self.size_spin.value(), "font": self.font_combo.currentFont().family(),
-                                        "bold": self.chk_bold.isChecked(), "rot": self._snap45(self.rot_spin.value()), "free": True})
+                                        "bold": self.chk_bold.isChecked(), "rot": self.rot_spin.value() % 360, "free": True})
                 self._refresh_lists()
             self._redraw()
         self._open_editor(x, y, "", commit)
