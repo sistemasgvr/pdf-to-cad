@@ -6,6 +6,22 @@ metro) en un **DXF por capas** listo para AutoCAD / Civil 3D.
 Detecta automáticamente si el PDF es **vectorizado** (extrae geometría exacta con
 PyMuPDF) o **rasterizado/escaneo** (vectoriza con OpenCV + OCR).
 
+## Georreferenciación (coordenadas de mundo reales)
+
+La app de marcado (`app/`) permite **georreferenciar** el plano por puntos de
+control (menú **Georreferencia → Georreferenciar…**): se calza sobre imagen
+satelital (Esri) / calles (OSM) en un mapa embebido y se obtienen coordenadas
+**UTM** reales, las mismas que usa Civil 3D. Con la georreferencia activa, tanto el
+**DXF** como el **JSON de red** exportan esas X,Y en UTM.
+
+> ⚠️ **Advertencia:** calzar sobre imagen satelital da coordenadas **APROXIMADAS**
+> (metros de error), útiles para **trazado/anteproyecto**, **NO grado construcción**.
+> El dato topográfico real sigue viniendo del **levantamiento / Excel**.
+
+Requiere las dependencias opcionales `PySide6-WebEngine`, `pyproj` y `scikit-image`
+(ver `requirements.txt`). Si no están instaladas, la app abre igual y usa la escala
+del titleblock como hasta ahora.
+
 ## Instalación
 
 ```bash

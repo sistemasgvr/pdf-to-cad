@@ -57,7 +57,9 @@
       "Bash(python -c \"import ast; ast.parse\\(open\\('marcar_utilidades.py',encoding='utf-8'\\).read\\(\\)\\); print\\('OK'\\)\")",
       "Bash(\"C:/Users/Deyvy/AppData/Local/Programs/Python/Python312/python.exe\" \"C:/Users/Deyvy/AppData/Local/Temp/claude/D--GVR-Proyectos-DEV-EEUU-pdf-to-cad/9c908b71-3557-4bb4-b25a-c5b2835c156c/scratchpad/refactor.py\")",
       "Bash(\"C:/Users/Deyvy/AppData/Local/Programs/Python/Python312/python.exe\" -c \"import ast; ast.parse\\(open\\('app_window.py',encoding='utf-8'\\).read\\(\\)\\); print\\('app_window.py parses OK'\\)\")",
-      "Bash(\"C:/Users/Deyvy/AppData/Local/Programs/Python/Python312/python.exe\" -m py_compile main.py app_window.py model.py geometry.py ocr.py dxf_export.py sidecar_export.py marcar_utilidades.py)"
+      "Bash(\"C:/Users/Deyvy/AppData/Local/Programs/Python/Python312/python.exe\" -m py_compile main.py app_window.py model.py geometry.py ocr.py dxf_export.py sidecar_export.py marcar_utilidades.py)",
+      "Bash(\"C:/Users/Deyvy/AppData/Local/Programs/Python/Python312/python.exe\" -m py_compile app/main.py app/app_window.py app/model.py app/geometry.py app/ocr.py app/dxf_export.py app/sidecar_export.py app/excel_import.py app/export/__init__.py app/export/network_json.py marcar_utilidades.py)",
+      "Bash(ls README* readme*)"
     ]
   }
 }

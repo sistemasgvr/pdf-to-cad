@@ -12,11 +12,17 @@ Esquema de cada elemento (claves de los dicts):
   text   = {pos:(x,y), text:str, size_ft:float, font:str, bold:bool, rot:int, free:bool,
             box:(x,y,w,h)  # solo textos de corrección OCR}
   region = {pts:[(x,y)…], enabled:bool}
-Todas las coordenadas del modelo están en PÍXELES de la vista; se convierten a
-coordenadas de mundo CAD con geometry.to_cad al exportar.
+  pipe (red gravedad) añade: inv_start, inv_end (float|None), part(str), frm, to (cod buzón),
+        net(str nombre de red), world(bool), wstart/wend((x,y) reales si world)
+  struct = {cod, x, y, rim:float|None, sump:float|None, part:str, net:str, world:bool}
+Coordenadas DIBUJADAS en PÍXELES (se convierten con geometry.to_cad al exportar);
+coordenadas IMPORTADAS de Excel ya son reales de mundo (world=True → se usan tal cual).
 """
 
-VERSION = "0.7.0"
+VERSION = "0.9.0"
+
+# Capas de red por GRAVEDAD (tramos entre buzones, con invert inicio/fin).
+GRAVITY_LAYERS = {"ALCANTARILLADO", "DRENAJE"}
 
 TIPOS = [
     ("Agua (W)", "AGUA"), ("Alcantarillado (SS)", "ALCANTARILLADO"),
@@ -71,7 +77,26 @@ def new_region(pts, enabled=True):
     return {"pts": list(pts), "enabled": bool(enabled)}
 
 
+def new_structure(cod, x, y, rim=None, sump=None, part="", net="", world=False):
+    return {"cod": cod, "x": x, "y": y, "rim": rim, "sump": sump,
+            "part": part, "net": net, "world": bool(world)}
+
+
 CHANGELOG = [
+    ("0.9.0", [
+        ("added", "Georreferenciación por puntos de control (menú Georreferencia → Georreferenciar…): calza el plano sobre imagen satelital (Esri) / calles (OSM) con un mapa embebido y obtiene coordenadas de mundo reales en UTM."),
+        ("added", "Con georreferencia activa, TODA la exportación (DXF y JSON de red) usa las coordenadas UTM reales en vez de la escala del titleblock; el esquema del JSON no cambia (solo cambian las X,Y)."),
+        ("added", "Búsqueda de direcciones (Nominatim/OSM) y reproyección lon/lat↔UTM (pyproj); ajuste afín/similar con RMS (scikit-image)."),
+        ("added", "La barra de estado indica si el plano está georreferenciado y con qué EPSG; el .digproj guarda la georreferencia (los proyectos sin ella siguen abriendo con la escala de siempre)."),
+        ("changed", "AVISO: calzar sobre satélite da coordenadas APROXIMADAS (metros), útiles para trazado/anteproyecto, NO grado construcción; el dato topográfico real viene del levantamiento/Excel."),
+    ]),
+    ("0.8.0", [
+        ("added", "Cotas de red: en Propiedades de una utilidad de gravedad (alcantarillado/drenaje) puedes ingresar 'Invert inicio', 'Invert fin' y 'Part' (tipo de pieza)."),
+        ("added", "Gestión de buzones/nudos: detecta los buzones por los extremos de las tuberías (extremos compartidos = mismo buzón) y edita su Cod, rim, sump y part."),
+        ("added", "Importar Excel de red (hojas BUZONES/TUBERIAS, encabezados en la fila 5): vuelca cotas, diámetros y nombres al mismo modelo."),
+        ("added", "Exportar 'red 3D (JSON resuelto)' con el contrato utility-network/2.0 (una red por hoja/red), lista para el plugin C#."),
+        ("changed", "El .digproj ahora guarda también los buzones y las cotas (los proyectos antiguos siguen abriendo)."),
+    ]),
     ("0.7.0", [
         ("changed", "Refactor interno: el programa se dividió en módulos (app_window, model, geometry, ocr, dxf_export, sidecar_export). Mismo comportamiento y mismos proyectos .digproj."),
         ("added", "Nueva salida 'Exportar red 3D (JSON)': junto al DXF se escribe un archivo .utilities.json con la red (tipo, red a presión/gravedad/conducto, diámetro, vértices en coordenadas CAD y etiquetas) para reconstruir el 3D en Civil 3D."),

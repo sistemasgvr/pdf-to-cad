@@ -29,6 +29,7 @@ def merge_into(win, doc, marks=True):
         return
     if "PDFCAD" not in doc.appids: doc.appids.add("PDFCAD")   # para XDATA de propiedades
     for p in win.pipes:
+        if not p.get("pts"): continue                 # tramos importados (world): van al JSON de red, no al DXF
         layer = p["layer"]; VP.ensure_layer(doc, layer)
         # El linetype con letra (─ W ─, ─ SS ─…) se aplica SOLO a la entidad que dibujas,
         # NO a la capa: así el contenido del plano base (en la misma capa) no se restilea.

@@ -17,10 +17,13 @@ import vector_pipeline as VP
 import geometry as G
 import dxf_export
 import sidecar_export
+import excel_import
+from export.network_json import write_network_json
+from geo import georef as georef_mod
 from geometry import point_in_poly, qimage_to_gray
 from ocr import OcrWorker, IcrWorker
 from model import (VERSION, TIPOS, ACI_RGB, LEADER_TEXT_FT, LEADER_ORIENT,
-                   Z_PDF, Z_ERASE, Z_MARK, Z_HANDLE,
+                   Z_PDF, Z_ERASE, Z_MARK, Z_HANDLE, GRAVITY_LAYERS,
                    TAB_PIPE, TAB_ML, TAB_LEADER, TAB_TEXT, TAB_REGION, CHANGELOG)
 
 DOWNLOADS = os.path.join(os.path.expanduser("~"), "Downloads")
@@ -170,7 +173,7 @@ class Main(QtWidgets.QMainWindow):
         self.derot = fitz.Matrix(1, 0, 0, 1, 0, 0); self.gray = None; self.page_idx = 0; self.pageH_px = 0
         self.pdf_path = None; self.doc = None; self.project_path = None; self.leader_hpx = 40
         self.cur_pts = []; self.pipes = []; self.leaders = []; self.text_marks = []
-        self.erase_regions = []; self._erase_pts = []
+        self.erase_regions = []; self._erase_pts = []; self.structures = []
         self.mode = "idle"; self._pending = None
         self.snap = False; self.snap_r = 14
         self.show_text_boxes = False; self.ocr_boxes = []; self._tess_boxes = []; self._icr_boxes = []
@@ -180,6 +183,7 @@ class Main(QtWidgets.QMainWindow):
         self._extending = False; self._ext_layer = None; self._ext_pipe = None; self._ext_at = None
         self._editor = None; self._undo, self._redo, self._overlay = [], [], []
         self._dirty = False; self._style_guard = False; self._prop_guard = False; self._clip = None
+        self.georef = georef_mod.Georef()          # georreferenciación (píxel→UTM); inactiva por defecto
         self._build_ui(); self._apply_style(); self._shortcuts(); self._update_ui()
 
     # ─────────────────────────── UI ───────────────────────────
@@ -197,6 +201,9 @@ class Main(QtWidgets.QMainWindow):
         medit = mb.addMenu("&Edición")
         self._menu_act(medit, "Deshacer", self.undo, "Ctrl+Z")
         self._menu_act(medit, "Rehacer", self.redo, "Ctrl+Shift+Z")
+        mgeo = mb.addMenu("&Georreferencia")
+        self._menu_act(mgeo, "Georreferenciar…", self.open_georef)
+        self._menu_act(mgeo, "Quitar georreferencia", self.clear_georef)
         mhelp = mb.addMenu("A&yuda")
         self._menu_act(mhelp, "Acerca de…", self.show_about)
         self._menu_act(mhelp, "Manual de usuario", self.show_manual)
@@ -221,6 +228,7 @@ class Main(QtWidgets.QMainWindow):
         exp_menu.addAction("Solo las anotaciones", lambda: self.run_pipeline("anot"))
         exp_menu.addSeparator()
         exp_menu.addAction("Exportar red 3D (JSON)", lambda: self.run_pipeline("3d"))
+        exp_menu.addAction("Exportar red 3D (JSON resuelto)", self.export_network_json)
         self.btn_export.setMenu(exp_menu); tb.addWidget(self.btn_export)
 
         # ── DOCK IZQUIERDO: herramientas y flujo de trabajo ──
@@ -274,6 +282,12 @@ class Main(QtWidgets.QMainWindow):
         self.chk_ext_same = QtWidgets.QCheckBox("Al extender un extremo: continuar la misma utilidad")
         self.chk_ext_same.setChecked(True)
         lgt.addWidget(self.type_combo); lgt.addWidget(self.chk_ab); lgt.addWidget(self.chk_ext_same); v.addWidget(self.gt)
+
+        # 3b) Red 3D: buzones e importación de Excel
+        section("Red 3D (cotas)")
+        b_bz = QtWidgets.QPushButton("Gestionar buzones…"); b_bz.clicked.connect(self.manage_structures)
+        b_xls = QtWidgets.QPushButton("Importar Excel de red…"); b_xls.clicked.connect(self.import_network_excel)
+        v.addWidget(b_bz); v.addWidget(b_xls)
 
         # 4) Panel de Multileader
         self.ga = QtWidgets.QGroupBox("Multileader"); lga = QtWidgets.QVBoxLayout(self.ga)
@@ -359,6 +373,16 @@ class Main(QtWidgets.QMainWindow):
         self.prop_diam.setButtonSymbols(QtWidgets.QAbstractSpinBox.NoButtons); self.prop_diam.valueChanged.connect(lambda _: self._prop_changed())
         self.prop_unit = QtWidgets.QComboBox(); self.prop_unit.addItems(["pulg", "pies"]); self.prop_unit.currentTextChanged.connect(lambda _: self._prop_changed())
         fpr.addRow("Nombre:", self.prop_name); fpr.addRow("Diámetro:", self.prop_diam); fpr.addRow("Unidad:", self.prop_unit)
+        # Cotas de red (gravedad): invert inicio/fin (m) + tipo de pieza
+        self.prop_part = QtWidgets.QLineEdit(); self.prop_part.setPlaceholderText("p.ej. 900 mm Corrugated HDPE Pipe")
+        self.prop_part.editingFinished.connect(self._prop_changed)
+        self.prop_inv0 = QtWidgets.QDoubleSpinBox(); self.prop_inv1 = QtWidgets.QDoubleSpinBox()
+        for sp in (self.prop_inv0, self.prop_inv1):
+            sp.setRange(-100000, 100000); sp.setDecimals(3); sp.setButtonSymbols(QtWidgets.QAbstractSpinBox.NoButtons)
+            sp.valueChanged.connect(lambda _: self._prop_changed())
+        self.row_inv0 = fpr.addRow("Invert inicio (m):", self.prop_inv0)
+        fpr.addRow("Invert fin (m):", self.prop_inv1)
+        fpr.addRow("Part (pieza):", self.prop_part)
         rv.addWidget(self.gprop)
         rr = QtWidgets.QGridLayout()
         self.btn_ct = QtWidgets.QPushButton("Cambiar tipo"); self.btn_ct.clicked.connect(self.change_pipe_type)
@@ -378,10 +402,11 @@ class Main(QtWidgets.QMainWindow):
         self.status.addWidget(QtWidgets.QLabel("│"))
         self.lbl_info = QtWidgets.QLabel(""); self.lbl_info.setStyleSheet("color:#8c909f;"); self.status.addWidget(self.lbl_info, 1)
         self.lbl_snap = QtWidgets.QLabel("Imán: OFF"); self.lbl_coords = QtWidgets.QLabel("X —  Y —")
-        self.lbl_scale = QtWidgets.QLabel("Escala —")
-        for w in (self.lbl_snap, self.lbl_coords, self.lbl_scale):
+        self.lbl_scale = QtWidgets.QLabel("Escala —"); self.lbl_geo = QtWidgets.QLabel("Georref: no")
+        for w in (self.lbl_snap, self.lbl_coords, self.lbl_scale, self.lbl_geo):
             w.setStyleSheet("color:#c2c6d6;"); self.status.addPermanentWidget(w)
         self.canvas.moved.connect(self._update_coords)
+        self._update_geo_status()
         self._info("Abre o arrastra un PDF/proyecto.")
 
     def _menu_act(self, menu, text, fn, sc=None):
@@ -490,6 +515,15 @@ class Main(QtWidgets.QMainWindow):
         if self.canvas.pixmap_item is None: return
         cx, cy = self._to_cad(x, y); self.lbl_coords.setText(f"X {cx:,.1f}  Y {cy:,.1f}")
 
+    def _update_geo_status(self):
+        if self.georef.active():
+            rms = f" · RMS {self.georef.rms:.2f} m" if self.georef.rms is not None else ""
+            self.lbl_geo.setText(f"Georref: EPSG:{self.georef.epsg}{rms}")
+            self.lbl_geo.setStyleSheet("color:#5fd35f;")
+        else:
+            self.lbl_geo.setText("Georref: no (escala titleblock)")
+            self.lbl_geo.setStyleSheet("color:#e0c060;")
+
     def _update_ui(self):
         m = self.mode
         def st(btn, on): btn.setStyleSheet(BTN_ON if on else BTN_OFF)
@@ -571,7 +605,8 @@ class Main(QtWidgets.QMainWindow):
     # ─────────────────────────── undo/redo ───────────────────────────
     def _snap_state(self):
         return copy.deepcopy(dict(cur_pts=self.cur_pts, pipes=self.pipes, leaders=self.leaders,
-                                  text_marks=self.text_marks, erase_regions=self.erase_regions))
+                                  text_marks=self.text_marks, erase_regions=self.erase_regions,
+                                  structures=self.structures))
 
     def _push(self):
         self._undo.append(self._snap_state()); self._redo.clear(); self._dirty = True
@@ -581,6 +616,7 @@ class Main(QtWidgets.QMainWindow):
         self.cur_pts, self.pipes = s["cur_pts"], s["pipes"]
         self.leaders, self.text_marks = s["leaders"], s["text_marks"]
         self.erase_regions = s.get("erase_regions", [])
+        self.structures = s.get("structures", [])
         self._refresh_lists(); self._update_ui(); self._redraw()
 
     def undo(self):
@@ -633,18 +669,20 @@ class Main(QtWidgets.QMainWindow):
 
     def _reset_model(self):
         self.cur_pts = []; self.pipes = []; self.leaders = []; self.text_marks = []
-        self.erase_regions = []; self._erase_pts = []
+        self.erase_regions = []; self._erase_pts = []; self.structures = []
         self.sel_pipe = self.sel_leader = self.sel_region = self.sel_text = -1
         self._overlay = []; self._close_editor(); self._dirty = False; self._extending = False
+        self.georef = georef_mod.Georef()          # cada página/PDF nuevo empieza sin georreferencia
         self._undo.clear(); self._redo.clear(); self.ocr_boxes = []; self._tess_boxes = []; self._icr_boxes = []
-        self.set_mode("idle"); self._refresh_lists(); self._redraw()
+        self.set_mode("idle"); self._refresh_lists(); self._redraw(); self._update_geo_status()
 
     # ─────────────────────────── proyecto ───────────────────────────
     def _write_project(self, path):
         self._busy("Guardando proyecto…")
         try:
             model = dict(pipes=self.pipes, leaders=self.leaders, text_marks=self.text_marks,
-                         erase_regions=self.erase_regions,
+                         erase_regions=self.erase_regions, structures=self.structures,
+                         georef=self.georef.to_dict(),
                          tf=dict(scale=self.scale, zoom=self.zoom, rot=self.rot, W=self.W, H=self.H,
                                  derot=[self.derot.a, self.derot.b, self.derot.c, self.derot.d, self.derot.e, self.derot.f]),
                          pdf_name=os.path.basename(self.pdf_path or ""), version=VERSION)
@@ -690,11 +728,13 @@ class Main(QtWidgets.QMainWindow):
             self.text_marks = model.get("text_marks", [])
             self.erase_regions = [r if isinstance(r, dict) else {"pts": r, "enabled": True}
                                   for r in model.get("erase_regions", [])]
+            self.structures = model.get("structures", [])   # retrocompat: proyectos viejos sin buzones
+            self.georef = georef_mod.Georef.from_dict(model.get("georef"))   # retrocompat: sin georref → escala
             self.cur_pts = []; self._erase_pts = []; self.sel_pipe = self.sel_leader = self.sel_region = self.sel_text = -1
             self._undo.clear(); self._redo.clear(); self._dirty = False
             self.ocr_boxes = []; self._tess_boxes = []; self._icr_boxes = []
             self.set_mode("idle"); self._refresh_lists(); self._update_page_label(); self._redraw()
-            self.lbl_scale.setText(f"Escala 1\"={self.scale*72:.0f}'")
+            self.lbl_scale.setText(f"Escala 1\"={self.scale*72:.0f}'"); self._update_geo_status()
             self._info(f"Proyecto abierto ({len(self.pipes)} utilidades). Ctrl+S guarda en este mismo archivo.")
         except Exception as e:
             QtWidgets.QMessageBox.critical(self, "Error", str(e))
@@ -715,11 +755,12 @@ class Main(QtWidgets.QMainWindow):
         if not self._confirm_discard(): return
         self.canvas.scene().clear(); self.canvas.pixmap_item = None
         self.pdf_path = None; self.doc = None; self.project_path = None; self.gray = None
-        self.pipes = []; self.leaders = []; self.text_marks = []; self.erase_regions = []
+        self.pipes = []; self.leaders = []; self.text_marks = []; self.erase_regions = []; self.structures = []
         self.cur_pts = []; self._erase_pts = []; self._overlay = []; self._close_editor()
         self.sel_pipe = self.sel_leader = self.sel_region = self.sel_text = -1
         self.ocr_boxes = []; self._tess_boxes = []; self._icr_boxes = []
         self._undo.clear(); self._redo.clear(); self._dirty = False; self.show_text_boxes = False
+        self.georef = georef_mod.Georef()
         for chk in (self.chk_txt, self.chk_icr):
             chk.blockSignals(True); chk.setChecked(False); chk.blockSignals(False)
         self.set_mode("idle"); self._refresh_lists(); self._update_page_label(); self._info("Proyecto cerrado.")
@@ -827,6 +868,7 @@ class Main(QtWidgets.QMainWindow):
                 self._select_leader(i); return
         best, bd = -1, thr
         for i, p in enumerate(self.pipes):
+            if not p.get("pts"): continue               # tramos importados (world) no están en el lienzo
             for a, b in zip(p["pts"], p["pts"][1:]):
                 d = G.pt_seg_dist(x, y, a[0], a[1], b[0], b[1])
                 if d < bd: bd, best = d, i
@@ -886,6 +928,7 @@ class Main(QtWidgets.QMainWindow):
             self._drag_vertex = vi if vi >= 0 else None       # vértice cercano → arrastra; si no, mueve todo
             self._move0 = None if vi >= 0 else (x, y); return
         pts = self.pipes[self.sel_pipe]["pts"] if kind == "pipe" else self.erase_regions[self.sel_region]["pts"]
+        if not pts: return                              # tramo importado (world): no editable en el lienzo
         self._edit_pts = pts; self._edit_closed = (kind == "region")
         vi, vd = -1, thr
         for i, (px, py) in enumerate(pts):
@@ -995,12 +1038,14 @@ class Main(QtWidgets.QMainWindow):
     def _sel_pipe(self, r):
         self.sel_pipe = r
         if 0 <= r < len(self.pipes):
-            p = self.pipes[r]
-            if not self._no_center:
-                pts = p["pts"]; mid = pts[len(pts) // 2]; self.canvas.centerOn(mid[0], mid[1])
+            p = self.pipes[r]; pts = p.get("pts")
+            if not self._no_center and pts:                # los tramos importados (world) no tienen pts
+                mid = pts[len(pts) // 2]; self.canvas.centerOn(mid[0], mid[1])
             self._prop_guard = True
-            self.prop_name.setText(p.get("name", "")); self.prop_diam.setValue(p.get("diam", 0.0))
-            self.prop_unit.setCurrentText(p.get("unit", "pulg")); self._prop_guard = False
+            self.prop_name.setText(p.get("name", "")); self.prop_diam.setValue(p.get("diam", 0.0) or 0.0)
+            self.prop_unit.setCurrentText(p.get("unit", "pulg")); self.prop_part.setText(p.get("part", ""))
+            self.prop_inv0.setValue(p.get("inv_start") or 0.0); self.prop_inv1.setValue(p.get("inv_end") or 0.0)
+            self._prop_guard = False
         self._update_ui(); self._redraw()
 
     def _leader_at_row(self, lst, r):
@@ -1094,7 +1139,9 @@ class Main(QtWidgets.QMainWindow):
         if self.tabs.currentIndex() == TAB_PIPE and 0 <= self.sel_pipe < len(self.pipes):
             p = self.pipes[self.sel_pipe]; self._push()
             p["name"] = self.prop_name.text().strip(); p["diam"] = self.prop_diam.value()
-            p["unit"] = self.prop_unit.currentText(); self._refresh_lists()
+            p["unit"] = self.prop_unit.currentText(); p["part"] = self.prop_part.text().strip()
+            p["inv_start"] = self.prop_inv0.value(); p["inv_end"] = self.prop_inv1.value()
+            self._refresh_lists()
 
     def change_pipe_type(self):
         if 0 <= self.sel_pipe < len(self.pipes):
@@ -1169,7 +1216,9 @@ class Main(QtWidgets.QMainWindow):
         for i, p in enumerate(self.pipes, 1):
             tag = " (AB)" if p.get("ab") else ""
             nm = f" · {p['name']}" if p.get("name") else ""
-            it = QtWidgets.QListWidgetItem(swatch_icon(layer_qcolor(p["layer"])), f"{i}. {p['layer']}{tag}{nm} ({len(p['pts'])})")
+            n = len(p.get("pts") or [])
+            info = f"red:{p.get('net', '')}" if p.get("world") else str(n)
+            it = QtWidgets.QListWidgetItem(swatch_icon(layer_qcolor(p["layer"])), f"{i}. {p['layer']}{tag}{nm} ({info})")
             it.setForeground(QtGui.QColor("white")); self.pipe_list.addItem(it)
         self.pipe_list.blockSignals(False)
         self.lead_list.blockSignals(True); self.lead_list.clear()
@@ -1199,7 +1248,7 @@ class Main(QtWidgets.QMainWindow):
     def finish_erase(self):
         if len(self._erase_pts) < 3: return
         self._push(); poly = self._erase_pts[:]; self.erase_regions.append({"pts": poly, "enabled": True})
-        self.pipes = [p for p in self.pipes if not all(point_in_poly(px, py, poly) for (px, py) in p["pts"])]
+        self.pipes = [p for p in self.pipes if not (p.get("pts") and all(point_in_poly(px, py, poly) for (px, py) in p["pts"]))]
         self.leaders = [l for l in self.leaders if not (l.get("tp") and point_in_poly(l["tp"][0], l["tp"][1], poly))]
         self.text_marks = [t for t in self.text_marks if not point_in_poly(t["pos"][0], t["pos"][1], poly)]
         self._erase_pts = []; self.set_mode("idle"); self._refresh_lists()
@@ -1398,6 +1447,7 @@ class Main(QtWidgets.QMainWindow):
             if sel and self.mode == "move": self._handles(rg["pts"])
         # utilidades
         for i, p in enumerate(self.pipes):
+            if not p.get("pts"): continue               # tramos importados (world): no se dibujan
             sel = (i == self.sel_pipe)
             self._poly(p["pts"], layer_qcolor(p["layer"]), 4.0 if sel else 2.0, z=Z_MARK)
             if sel and self.mode == "move": self._handles(p["pts"])
@@ -1459,6 +1509,9 @@ class Main(QtWidgets.QMainWindow):
 
     # ─────────────────────────── coords ───────────────────────────
     def _to_cad(self, x, y):
+        # Compuerta única: si hay georreferencia activa, píxel→UTM real; si no, escala del titleblock.
+        if self.georef.active():
+            return self.georef.to_world(x, y)
         return G.to_cad(x, y, self.scale, self.rot, self.W, self.H, self.derot, self.zoom)
 
     # ─────────────────────────── exportar ───────────────────────────
@@ -1523,6 +1576,140 @@ class Main(QtWidgets.QMainWindow):
 
     def _merge_into(self, doc, marks=True):
         dxf_export.merge_into(self, doc, marks=marks)
+
+    # ─────────────────────────── Red 3D: buzones / cotas ───────────────────────────
+    def _rebuild_structures(self):
+        """Detecta buzones por los EXTREMOS de las tuberías de gravedad dibujadas.
+        Extremos compartidos (misma coord, con tolerancia) = un solo buzón. Preserva
+        las ediciones (cod/rim/sump/part) por coincidencia de coordenada. Los buzones
+        importados de Excel (world) se conservan aparte."""
+        tol = 14.0
+        def near(a, b): return math.hypot(a[0] - b[0], a[1] - b[1]) <= tol
+        old = [s for s in self.structures if not s.get("world")]
+        world = [s for s in self.structures if s.get("world")]
+        detected = []
+        for p in self.pipes:
+            if p.get("world") or p.get("layer") not in GRAVITY_LAYERS: continue
+            pts = p.get("pts")
+            if not pts or len(pts) < 2: continue
+            for end in (pts[0], pts[-1]):
+                if not any(near(end, (s["x"], s["y"])) for s in detected):
+                    detected.append({"cod": "", "x": end[0], "y": end[1], "rim": None,
+                                     "sump": None, "part": "", "net": "", "world": False})
+        for s in detected:                                 # reasigna ediciones previas por coordenada
+            for o in old:
+                if near((s["x"], s["y"]), (o.get("x", -1e9), o.get("y", -1e9))):
+                    s.update(cod=o.get("cod", ""), rim=o.get("rim"), sump=o.get("sump"),
+                             part=o.get("part", ""), net=o.get("net", "")); break
+        n = 1
+        for s in detected:
+            if not s["cod"]: s["cod"] = f"BZ-{n}"; n += 1
+        self.structures = world + detected; self._dirty = True
+
+    def manage_structures(self):
+        self._rebuild_structures()
+        dlg = QtWidgets.QDialog(self); dlg.setWindowTitle("Buzones / nudos"); dlg.resize(580, 440)
+        lay = QtWidgets.QVBoxLayout(dlg)
+        lay.addWidget(QtWidgets.QLabel("Buzones detectados por los extremos de las tuberías de gravedad "
+                                       "(extremos compartidos = un mismo buzón). Edita Cod, rim (tapa), sump (fondo) y part."))
+        tbl = QtWidgets.QTableWidget(len(self.structures), 5)
+        tbl.setHorizontalHeaderLabels(["Cod", "rim", "sump", "part", "origen"]); tbl.horizontalHeader().setStretchLastSection(True)
+        def setc(r, c, text, editable=True):
+            it = QtWidgets.QTableWidgetItem("" if text is None else str(text))
+            if not editable: it.setFlags(it.flags() & ~QtCore.Qt.ItemIsEditable)
+            tbl.setItem(r, c, it)
+        for r, s in enumerate(self.structures):
+            setc(r, 0, s.get("cod", "")); setc(r, 1, s.get("rim")); setc(r, 2, s.get("sump"))
+            setc(r, 3, s.get("part", "")); setc(r, 4, "Excel" if s.get("world") else "dibujo", editable=False)
+        lay.addWidget(tbl)
+        bb = QtWidgets.QDialogButtonBox(QtWidgets.QDialogButtonBox.Ok | QtWidgets.QDialogButtonBox.Cancel)
+        bb.accepted.connect(dlg.accept); bb.rejected.connect(dlg.reject); lay.addWidget(bb)
+        if dlg.exec() != QtWidgets.QDialog.Accepted: return
+        def fnum(t):
+            try: return float(t)
+            except (TypeError, ValueError): return None
+        self._push()
+        for r, s in enumerate(self.structures):
+            if tbl.item(r, 0): s["cod"] = tbl.item(r, 0).text().strip()
+            s["rim"] = fnum(tbl.item(r, 1).text() if tbl.item(r, 1) else None)
+            s["sump"] = fnum(tbl.item(r, 2).text() if tbl.item(r, 2) else None)
+            if tbl.item(r, 3): s["part"] = tbl.item(r, 3).text().strip()
+        self._info(f"{len(self.structures)} buzones guardados.")
+
+    def import_network_excel(self):
+        path, _ = QtWidgets.QFileDialog.getOpenFileName(self, "Importar Excel de red", DOWNLOADS, "Excel (*.xlsx *.xlsm)")
+        if not path: return
+        self._busy("Leyendo Excel de red…")
+        try:
+            nets, warns = excel_import.read_network_workbook(path)
+        except Exception as e:
+            self._unbusy(); QtWidgets.QMessageBox.critical(self, "Error al leer Excel", str(e)); return
+        self._unbusy(); self._push()
+        # reemplaza lo importado previamente (world); conserva lo dibujado
+        self.structures = [s for s in self.structures if not s.get("world")]
+        self.pipes = [p for p in self.pipes if not p.get("world")]
+        n_s = n_p = 0
+        for name, nd in nets.items():
+            for s in nd["structures"]:
+                self.structures.append({"cod": s["cod"], "x": s["x"], "y": s["y"], "rim": s["rim"],
+                                        "sump": s["sump"], "part": s["part"], "net": name, "world": True}); n_s += 1
+            for pp in nd["pipes"]:
+                self.pipes.append({"layer": "ALCANTARILLADO", "pts": [], "world": True, "net": name,
+                                   "wstart": (pp["xi"], pp["yi"]), "wend": (pp["xf"], pp["yf"]),
+                                   "from": pp["from"], "to": pp["to"], "id": pp["id"], "name": pp["id"],
+                                   "inv_start": pp["zi"], "inv_end": pp["zf"], "diam": pp["diam"] or 0.0,
+                                   "part": pp["part"]}); n_p += 1
+        self._refresh_lists(); self._redraw()
+        msg = f"Importado: {len(nets)} red(es), {n_s} buzones, {n_p} tuberías."
+        if warns: msg += "\n\nAvisos:\n- " + "\n- ".join(warns[:12])
+        QtWidgets.QMessageBox.information(self, "Importación de red", msg); self._info(msg.split(chr(10))[0])
+
+    def export_network_json(self):
+        has_grav = any(p.get("layer") in GRAVITY_LAYERS for p in self.pipes)
+        if not self.structures and not has_grav:
+            QtWidgets.QMessageBox.information(self, "Nada que exportar",
+                "No hay buzones ni tuberías de gravedad. Gestiona buzones o importa un Excel de red."); return
+        base = os.path.splitext(os.path.basename(self.pdf_path))[0] if self.pdf_path else "red"
+        out, _ = QtWidgets.QFileDialog.getSaveFileName(self, "Exportar red 3D (JSON resuelto)",
+                                                       os.path.join(DOWNLOADS, base + ".json"), "JSON (*.json)")
+        if not out: return
+        try:
+            paths, warns = write_network_json(self, out)
+        except Exception as e:
+            import traceback; QtWidgets.QMessageBox.critical(self, "Error", f"{e}\n{traceback.format_exc()}"); return
+        if not paths:
+            QtWidgets.QMessageBox.information(self, "Nada que exportar", warns[0] if warns else "Sin redes."); return
+        msg = "Redes exportadas:\n- " + "\n- ".join(os.path.basename(p) for p in paths)
+        if warns: msg += "\n\nAvisos (no bloqueantes):\n- " + "\n- ".join(warns[:15])
+        QtWidgets.QMessageBox.information(self, "Exportar red 3D (JSON)", msg); self._info(f"{len(paths)} red(es) exportada(s).")
+
+    # ─────────────────────────── Georreferenciación ───────────────────────────
+    def clear_georef(self):
+        if not self.georef.active():
+            self._info("El plano no está georreferenciado."); return
+        self._dirty = True; self.georef = georef_mod.Georef()
+        self._update_geo_status(); self._info("Georreferencia quitada; se usa la escala del titleblock.")
+
+    def open_georef(self):
+        if self.canvas.pixmap_item is None:
+            QtWidgets.QMessageBox.information(self, "Sin plano", "Abre un PDF o proyecto primero."); return
+        try:
+            from geo.georef_dialog import GeorefDialog
+        except Exception as e:
+            QtWidgets.QMessageBox.warning(self, "Falta un componente",
+                "La georreferenciación necesita PySide6-WebEngine, pyproj y scikit-image.\n\n"
+                "Instálalos con tu Python 3.12:\n"
+                r"  C:\Users\Deyvy\AppData\Local\Programs\Python\Python312\python.exe -m pip install "
+                "PySide6-WebEngine pyproj scikit-image" f"\n\nDetalle: {e}")
+            return
+        img = self.canvas.pixmap_item.pixmap().toImage()
+        dlg = GeorefDialog(self, img, self.georef)
+        if dlg.exec() == QtWidgets.QDialog.Accepted and dlg.result_georef is not None:
+            self.georef = dlg.result_georef; self._dirty = True
+            self._update_geo_status(); self._redraw()
+            rms = self.georef.rms if self.georef.rms is not None else 0.0
+            self._info(f"Georreferenciado (EPSG:{self.georef.epsg}, RMS {rms:.2f} m). "
+                       "Las coordenadas exportadas ahora son UTM reales (aproximadas).")
 
     # ─────────────────────────── Excel ───────────────────────────
     def open_excel(self):
@@ -1685,6 +1872,8 @@ class Main(QtWidgets.QMainWindow):
 
 
 def main():
+    # Necesario para QWebEngineView (mapa de georreferenciación); inofensivo si no se usa.
+    QtCore.QCoreApplication.setAttribute(QtCore.Qt.AA_ShareOpenGLContexts)
     app = QtWidgets.QApplication(sys.argv)
     win = Main(); win.show()
     if len(sys.argv) > 1:
