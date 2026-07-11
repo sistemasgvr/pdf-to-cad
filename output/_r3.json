@@ -1,0 +1,200 @@
+{
+  "schema": "utility-network/3.0",
+  "units": "m",
+  "networks": [
+    {
+      "name": "DRENAJE-1",
+      "kind": "gravity",
+      "has_structures": true,
+      "structures": [
+        {
+          "id": "BZ-1",
+          "part": null,
+          "x": 50.0,
+          "y": 250.0,
+          "rim": 15.0,
+          "sump": 10.0
+        },
+        {
+          "id": "BZ-2",
+          "part": null,
+          "x": 100.0,
+          "y": 250.0,
+          "rim": null,
+          "sump": null
+        },
+        {
+          "id": "BZ-3",
+          "part": null,
+          "x": 100.0,
+          "y": 200.0,
+          "rim": null,
+          "sump": null
+        },
+        {
+          "id": "BZ-4",
+          "part": null,
+          "x": 150.0,
+          "y": 200.0,
+          "rim": null,
+          "sump": null
+        }
+      ],
+      "pipes": [
+        {
+          "id": "T1",
+          "part": "900 mm HDPE",
+          "diameter": {
+            "value": 0.9,
+            "unit": "m"
+          },
+          "from": "BZ-1",
+          "to": "BZ-2",
+          "start": {
+            "x": 50.0,
+            "y": 250.0,
+            "invert": 10.5
+          },
+          "end": {
+            "x": 100.0,
+            "y": 250.0,
+            "invert": null
+          }
+        },
+        {
+          "id": "T2",
+          "part": "900 mm HDPE",
+          "diameter": {
+            "value": 0.9,
+            "unit": "m"
+          },
+          "from": "BZ-2",
+          "to": "BZ-3",
+          "start": {
+            "x": 100.0,
+            "y": 250.0,
+            "invert": null
+          },
+          "end": {
+            "x": 100.0,
+            "y": 200.0,
+            "invert": null
+          }
+        },
+        {
+          "id": "T3",
+          "part": "900 mm HDPE",
+          "diameter": {
+            "value": 0.9,
+            "unit": "m"
+          },
+          "from": "BZ-3",
+          "to": "BZ-4",
+          "start": {
+            "x": 100.0,
+            "y": 200.0,
+            "invert": null
+          },
+          "end": {
+            "x": 150.0,
+            "y": 200.0,
+            "invert": 9.9
+          }
+        }
+      ]
+    },
+    {
+      "name": "AGUA-1",
+      "kind": "pressure",
+      "has_structures": false,
+      "structures": [],
+      "pipes": [
+        {
+          "id": "T1",
+          "part": "8\" DIP",
+          "diameter": {
+            "value": 8.0,
+            "unit": "pulg"
+          },
+          "from": null,
+          "to": null,
+          "start": {
+            "x": 25.0,
+            "y": 150.0,
+            "invert": null
+          },
+          "end": {
+            "x": 75.0,
+            "y": 150.0,
+            "invert": null
+          }
+        },
+        {
+          "id": "T2",
+          "part": "8\" DIP",
+          "diameter": {
+            "value": 8.0,
+            "unit": "pulg"
+          },
+          "from": null,
+          "to": null,
+          "start": {
+            "x": 75.0,
+            "y": 150.0,
+            "invert": null
+          },
+          "end": {
+            "x": 125.0,
+            "y": 140.0,
+            "invert": null
+          }
+        }
+      ]
+    },
+    {
+      "name": "ALCANTARILLADO-Sec_Argentina",
+      "kind": "gravity",
+      "has_structures": true,
+      "structures": [
+        {
+          "id": "BZ-Sec-Argentina-1",
+          "part": null,
+          "x": 715007.71,
+          "y": 9109544.27,
+          "rim": null,
+          "sump": null
+        },
+        {
+          "id": "BZ-Sec-Argentina-2",
+          "part": null,
+          "x": 714977.02,
+          "y": 9109461.01,
+          "rim": null,
+          "sump": null
+        }
+      ],
+      "pipes": [
+        {
+          "id": "T-01",
+          "part": "900 mm HDPE",
+          "diameter": {
+            "value": 0.9,
+            "unit": "m"
+          },
+          "from": "BZ-Sec-Argentina-1",
+          "to": "BZ-Sec-Argentina-2",
+          "start": {
+            "x": 715007.71,
+            "y": 9109544.27,
+            "invert": 130.322
+          },
+          "end": {
+            "x": 714977.02,
+            "y": 9109461.01,
+            "invert": 129.168
+          }
+        }
+      ]
+    }
+  ]
+}

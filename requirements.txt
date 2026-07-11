@@ -22,6 +22,6 @@ matplotlib>=3.7
 # Georreferenciación (opcional) — menú "Georreferencia → Georreferenciar…"
 # Calzar sobre imagen satelital da coordenadas UTM APROXIMADAS (trazado/anteproyecto),
 # NO grado construcción; el dato topográfico real viene del levantamiento/Excel.
-PySide6-WebEngine>=6.5   # mapa Leaflet embebido (satélite Esri / calles OSM)
+#PySide6-WebEngine>=6.5   # mapa Leaflet embebido (satélite Esri / calles OSM)
 pyproj>=3.6              # reproyección lon/lat <-> UTM
 scikit-image>=0.22       # ajuste de la transformación por puntos de control

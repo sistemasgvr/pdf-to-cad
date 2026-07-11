@@ -16,7 +16,6 @@ import config as C
 import vector_pipeline as VP
 import geometry as G
 import dxf_export
-import sidecar_export
 import excel_import
 from export.network_json import write_network_json
 from geo import georef as georef_mod
@@ -227,52 +226,69 @@ class Main(QtWidgets.QMainWindow):
         exp_menu.addAction("Solo el PDF digitalizado", lambda: self.run_pipeline("pdf"))
         exp_menu.addAction("Solo las anotaciones", lambda: self.run_pipeline("anot"))
         exp_menu.addSeparator()
-        exp_menu.addAction("Exportar red 3D (JSON)", lambda: self.run_pipeline("3d"))
-        exp_menu.addAction("Exportar red 3D (JSON resuelto)", self.export_network_json)
+        exp_menu.addAction("Exportar red 3D (JSON)", self.export_network_json)
         self.btn_export.setMenu(exp_menu); tb.addWidget(self.btn_export)
 
-        # ── DOCK IZQUIERDO: herramientas y flujo de trabajo ──
-        ldock = QtWidgets.QDockWidget("Herramientas", self); ldock.setFeatures(QtWidgets.QDockWidget.NoDockWidgetFeatures)
-        lscroll = QtWidgets.QScrollArea(); lscroll.setWidgetResizable(True)
-        left = QtWidgets.QWidget(); v = QtWidgets.QVBoxLayout(left); v.setSpacing(8)
+        # ─────────────────────────── DOCK IZQUIERDO ───────────────────────────
+        # Aquí construimos el panel lateral izquierdo como un ACORDEÓN de secciones
+        # (QToolBox). Cada acción del usuario (Dibujar utilidad, Multileader, Leader,
+        # Texto libre, Borrar zona, Georreferenciar, Cotas/red 3D, OCR/ICR) es su
+        # propia sección. Solo UNA sección está abierta a la vez, así el usuario
+        # ve ÚNICAMENTE las opciones relevantes al paso en el que está.
+        #
+        # QToolBox = "acordeón" en Qt: contenedor con un botón-cabecera por página.
+        # Al hacer clic en una cabecera, esa página se despliega y las demás se
+        # colapsan. Es el mismo widget que usamos para el historial de "Acerca de".
+        ldock = QtWidgets.QDockWidget("Herramientas", self)
+        ldock.setFeatures(QtWidgets.QDockWidget.NoDockWidgetFeatures)     # no se puede sacar/flotar
+        left = QtWidgets.QWidget(); lv = QtWidgets.QVBoxLayout(left); lv.setContentsMargins(0, 0, 0, 0)
+        self.toolbox = QtWidgets.QToolBox()
+        # Guardamos por NOMBRE el índice de cada sección para poder abrirla desde código.
+        self._sec_idx = {}
 
-        def section(title):
-            lbl = QtWidgets.QLabel(title.upper()); lbl.setStyleSheet("color:#8c909f;font-size:10px;font-weight:600;letter-spacing:1px;margin-top:4px;")
-            v.addWidget(lbl)
+        # ── Helper de creación: crea una página del toolbox con su layout vertical ──
+        def _page(title, key):
+            page = QtWidgets.QWidget()
+            lay = QtWidgets.QVBoxLayout(page); lay.setSpacing(6)
+            self.toolbox.addItem(page, title)
+            self._sec_idx[key] = self.toolbox.count() - 1
+            return page, lay
 
-        # 1) Páginas
-        section("Páginas")
-        gp = QtWidgets.QWidget(); lp = QtWidgets.QHBoxLayout(gp); lp.setContentsMargins(0, 0, 0, 0)
+        # ═══════════════════════════════════════════════════════════════════════
+        # PRIMERO: creamos TODOS los widgets (una sola vez) — luego los repartimos
+        # en las secciones. Los que se comparten entre secciones (orient_combo,
+        # gtxt) los REPARENTAMOS al abrir cada sección (ver _on_toolbox_change).
+        # ═══════════════════════════════════════════════════════════════════════
+
+        # Fila de navegación de páginas del PDF
+        self.gp = QtWidgets.QWidget(); lp = QtWidgets.QHBoxLayout(self.gp); lp.setContentsMargins(0, 0, 0, 0)
         self.btn_prev = QtWidgets.QPushButton("◀"); self.btn_prev.setFixedWidth(34); self.btn_prev.clicked.connect(self._prev_page)
         self.btn_next = QtWidgets.QPushButton("▶"); self.btn_next.setFixedWidth(34); self.btn_next.clicked.connect(self._next_page)
         self.page_edit = QtWidgets.QLineEdit(); self.page_edit.setAlignment(QtCore.Qt.AlignCenter)
         self.page_edit.setToolTip("Escribe un número de página y pulsa Enter")
+        # returnPressed = Enter en un QLineEdit; editingFinished = perdió el foco también
         self.page_edit.returnPressed.connect(self._goto_page_edit)
         self.page_edit.editingFinished.connect(self._goto_page_edit)
         self.lbl_page = QtWidgets.QLabel(" / — ")
         lp.addWidget(self.btn_prev); lp.addWidget(self.page_edit, 1); lp.addWidget(self.lbl_page); lp.addWidget(self.btn_next)
-        v.addWidget(gp)
 
-        # 1b) Transparencia del PDF de fondo
-        section("Transparencia del PDF")
-        gtr = QtWidgets.QWidget(); ltr = QtWidgets.QHBoxLayout(gtr); ltr.setContentsMargins(0, 0, 0, 0)
+        # Fila de transparencia del PDF de fondo (para ver mejor el marcado encima)
+        self.gtr = QtWidgets.QWidget(); ltr = QtWidgets.QHBoxLayout(self.gtr); ltr.setContentsMargins(0, 0, 0, 0)
         tb_l = QtWidgets.QPushButton("−"); tb_l.setFixedWidth(30); tb_l.setToolTip("Más translúcido"); tb_l.clicked.connect(lambda: self._bump_opacity(-10))
         self.lbl_opacity = QtWidgets.QLabel("100%"); self.lbl_opacity.setAlignment(QtCore.Qt.AlignCenter)
         tb_r = QtWidgets.QPushButton("+"); tb_r.setFixedWidth(30); tb_r.setToolTip("Más opaco"); tb_r.clicked.connect(lambda: self._bump_opacity(10))
         ltr.addWidget(tb_l); ltr.addWidget(self.lbl_opacity, 1); ltr.addWidget(tb_r)
-        v.addWidget(gtr)
 
-        # 2) Acciones principales (qué quieres hacer)
-        section("Acción / herramienta")
+        # Botones de acción (uno por sección; el color verde/azul lo pone _update_ui)
         self.btn_pipe = QtWidgets.QPushButton("✏  Dibujar utilidad"); self.btn_pipe.clicked.connect(self.toggle_pipe)
         self.btn_leader = QtWidgets.QPushButton("↳  Colocar Multileader"); self.btn_leader.clicked.connect(lambda: self.start_leader(False))
         self.btn_leader_simple = QtWidgets.QPushButton("↘  Colocar Leader"); self.btn_leader_simple.clicked.connect(lambda: self.start_leader(True))
         self.btn_text = QtWidgets.QPushButton("T  Texto libre"); self.btn_text.clicked.connect(self.toggle_text_mode)
         self.btn_erase = QtWidgets.QPushButton("▭  Borrar zona"); self.btn_erase.clicked.connect(self.toggle_erase)
-        for b in (self.btn_pipe, self.btn_leader, self.btn_leader_simple, self.btn_text, self.btn_erase): v.addWidget(b)
 
-        # 3) Tipo de utilidad
-        section("Tipo de utilidad")
+        # Grupo "Tipo de utilidad" (usado al DIBUJAR una utilidad)
+        # QComboBox es la lista desplegable clásica. addItem(icono, texto, dato) le
+        # asocia a cada opción un "dato oculto" que recuperamos con currentData().
         self.gt = QtWidgets.QWidget(); lgt = QtWidgets.QVBoxLayout(self.gt); lgt.setContentsMargins(0, 0, 0, 0)
         self.type_combo = QtWidgets.QComboBox()
         for label, layer in TIPOS:
@@ -281,35 +297,36 @@ class Main(QtWidgets.QMainWindow):
         self.chk_ab = QtWidgets.QCheckBox("Abandonado (línea ──/── W ──)")
         self.chk_ext_same = QtWidgets.QCheckBox("Al extender un extremo: continuar la misma utilidad")
         self.chk_ext_same.setChecked(True)
-        lgt.addWidget(self.type_combo); lgt.addWidget(self.chk_ab); lgt.addWidget(self.chk_ext_same); v.addWidget(self.gt)
+        lgt.addWidget(self.type_combo); lgt.addWidget(self.chk_ab); lgt.addWidget(self.chk_ext_same)
 
-        # 3b) Red 3D: buzones e importación de Excel
-        section("Red 3D (cotas)")
-        b_bz = QtWidgets.QPushButton("Gestionar buzones…"); b_bz.clicked.connect(self.manage_structures)
-        b_xls = QtWidgets.QPushButton("Importar Excel de red…"); b_xls.clicked.connect(self.import_network_excel)
-        v.addWidget(b_bz); v.addWidget(b_xls)
-
-        # 4) Panel de Multileader
-        self.ga = QtWidgets.QGroupBox("Multileader"); lga = QtWidgets.QVBoxLayout(self.ga)
+        # Combo de ORIENTACIÓN — COMPARTIDO por Multileader y Leader.
+        # Cuando el usuario abre "Multileader" o "Leader" lo REPARENTAMOS al slot
+        # de esa sección (una única instancia; su estado —H/V/D— se mantiene).
         self.orient_combo = QtWidgets.QComboBox()
         for oid, lbl in LEADER_ORIENT: self.orient_combo.addItem(lbl, oid)
         self.orient_combo.currentIndexChanged.connect(lambda _: self._update_ui())
-        lga.addWidget(QtWidgets.QLabel("Orientación:")); lga.addWidget(self.orient_combo)
+
+        # Grupo "Contenido del Multileader" (checkbox + texto libre + lista Excel)
+        self.ga = QtWidgets.QGroupBox("Contenido del texto"); lga = QtWidgets.QVBoxLayout(self.ga)
         self.chk_custom = QtWidgets.QCheckBox("Usar texto personalizado"); self.chk_custom.toggled.connect(self._toggle_custom)
         lga.addWidget(self.chk_custom)
         self.txt_edit = QtWidgets.QLineEdit(); self.txt_edit.setPlaceholderText("texto personalizado…"); self.txt_edit.setEnabled(False)
         lga.addWidget(self.txt_edit)
         self.lbl_textos = QtWidgets.QLabel("Textos (columna TEXTO del Excel):"); lga.addWidget(self.lbl_textos)
+        # QListWidget es una lista simple de líneas de texto (una por fila).
         self.text_list = QtWidgets.QListWidget(); self.text_list.setMaximumHeight(140); lga.addWidget(self.text_list)
         self.lbl_lead_hint = QtWidgets.QLabel("<i>Colocas varios seguidos; Esc para salir.</i>"); lga.addWidget(self.lbl_lead_hint)
-        v.addWidget(self.ga)
 
-        # 5) Estilo de texto
+        # Grupo "Estilo de texto" (fuente, altura, negrita + rotación).
+        # COMPARTIDO por Multileader y Texto libre. La rotación solo aplica a
+        # textos libres; la mostramos/ocultamos según la sección abierta.
         self.gtxt = QtWidgets.QGroupBox("Estilo de texto"); lgx = QtWidgets.QVBoxLayout(self.gtxt)
+        # QFontComboBox = combo que lista todas las fuentes instaladas en el sistema.
         self.font_combo = QtWidgets.QFontComboBox(); self.font_combo.setCurrentFont(QtGui.QFont(C.TEXT_FONT))
         self.font_combo.currentFontChanged.connect(lambda _: self._style_changed())
         r = QtWidgets.QHBoxLayout(); r.addWidget(QtWidgets.QLabel("Altura (pies):"))
         b_minus = QtWidgets.QPushButton("−"); b_minus.setFixedWidth(30); b_minus.clicked.connect(lambda: self._bump_size(-0.5))
+        # QDoubleSpinBox = campo numérico decimal con incremento por flechas (aquí ocultas).
         self.size_spin = QtWidgets.QDoubleSpinBox(); self.size_spin.setRange(0.5, 200); self.size_spin.setValue(3.0)
         self.size_spin.setSingleStep(0.5); self.size_spin.setButtonSymbols(QtWidgets.QAbstractSpinBox.NoButtons)
         self.size_spin.valueChanged.connect(lambda _: self._style_changed())
@@ -317,7 +334,7 @@ class Main(QtWidgets.QMainWindow):
         r.addWidget(b_minus); r.addWidget(self.size_spin); r.addWidget(b_plus)
         self.chk_bold = QtWidgets.QCheckBox("Negrita"); self.chk_bold.toggled.connect(lambda _: self._style_changed())
         lgx.addWidget(self.font_combo); lgx.addLayout(r); lgx.addWidget(self.chk_bold)
-        # Rotación (solo textos): giro libre 0–360, botones de 1 en 1
+        # Rotación (0-360°) — solo se usa para textos libres.
         self.rot_row = QtWidgets.QWidget(); rr2 = QtWidgets.QHBoxLayout(self.rot_row); rr2.setContentsMargins(0, 0, 0, 0)
         rr2.addWidget(QtWidgets.QLabel("Rotación (°):"))
         rb_l = QtWidgets.QPushButton("⟲"); rb_l.setFixedWidth(30); rb_l.clicked.connect(lambda: self._bump_rot(-1))
@@ -327,23 +344,114 @@ class Main(QtWidgets.QMainWindow):
         rr2.addWidget(rb_l); rr2.addWidget(self.rot_spin); rr2.addWidget(rb_r)
         lgx.addWidget(self.rot_row)
         lgx.addWidget(QtWidgets.QLabel("<i>Enter aplica · Ctrl+Shift+Enter salta de línea</i>"))
-        v.addWidget(self.gtxt)
 
-        # 6) En curso
+        # Grupo "En curso" (aparece cuando estás dibujando una utilidad o zona)
         self.gcur = QtWidgets.QGroupBox("En curso"); lc = QtWidgets.QHBoxLayout(self.gcur)
         self.btn_fin = QtWidgets.QPushButton("Finalizar (Enter)"); self.btn_fin.clicked.connect(self._on_enter)
         b_up = QtWidgets.QPushButton("Deshacer punto"); b_up.clicked.connect(self.undo)
-        lc.addWidget(self.btn_fin); lc.addWidget(b_up); v.addWidget(self.gcur)
+        lc.addWidget(self.btn_fin); lc.addWidget(b_up)
 
-        # 7) Reconocimiento
-        section("Reconocimiento de texto")
+        # Botones de Cotas y red 3D
+        b_bz = QtWidgets.QPushButton("Gestionar buzones…"); b_bz.clicked.connect(self.manage_structures)
+        b_xls = QtWidgets.QPushButton("Importar Excel de red…"); b_xls.clicked.connect(self.import_network_excel)
+
+        # Botones de Georreferenciación
+        b_geo = QtWidgets.QPushButton("🌍  Georreferenciar…"); b_geo.clicked.connect(self.open_georef)
+        b_geo_off = QtWidgets.QPushButton("Quitar georreferencia"); b_geo_off.clicked.connect(self.clear_georef)
+
+        # Casillas de OCR/ICR
         self.chk_txt = QtWidgets.QCheckBox("Textos impresos (OCR)"); self.chk_txt.toggled.connect(self.toggle_text_boxes)
         self.chk_icr = QtWidgets.QCheckBox("Manuscrita (ICR, offline)"); self.chk_icr.toggled.connect(self.toggle_icr)
-        v.addWidget(self.chk_txt); v.addWidget(self.chk_icr)
-        v.addStretch(1)
 
-        lscroll.setWidget(left); ldock.setWidget(lscroll); ldock.setMinimumWidth(250)
+        # ═══════════════════════════════════════════════════════════════════════
+        # AHORA: creamos las secciones del acordeón y colocamos los widgets.
+        # Los "slots" (self._slot_*) son QVBoxLayouts vacíos que quedan reservados
+        # dentro de cada página para recibir los widgets compartidos por reparent.
+        # ═══════════════════════════════════════════════════════════════════════
+
+        # ── Sección: Vista y páginas ──
+        p, l = _page("📄  Vista y páginas", "view")
+        l.addWidget(QtWidgets.QLabel("Página:")); l.addWidget(self.gp)
+        l.addWidget(QtWidgets.QLabel("Transparencia del PDF:")); l.addWidget(self.gtr)
+        l.addStretch(1)
+
+        # ── Sección: Dibujar utilidad ──
+        p, l = _page("✏  Dibujar utilidad", "pipe")
+        l.addWidget(self.btn_pipe)
+        l.addWidget(QtWidgets.QLabel("Tipo de utilidad:"))
+        l.addWidget(self.gt)
+        self._slot_gcur_pipe = QtWidgets.QVBoxLayout(); l.addLayout(self._slot_gcur_pipe)   # slot: aquí va gcur al dibujar
+        l.addStretch(1)
+
+        # ── Sección: Multileader ──
+        # p, l = _page("↳  Multileader", "ml")
+        # l.addWidget(self.btn_leader)
+        # l.addWidget(QtWidgets.QLabel("Orientación:"))
+        # self._slot_orient_ml = QtWidgets.QVBoxLayout(); l.addLayout(self._slot_orient_ml)   # slot: orient_combo
+        # l.addWidget(self.ga)                                                                # contenido (texto)
+        # self._slot_style_ml = QtWidgets.QVBoxLayout(); l.addLayout(self._slot_style_ml)     # slot: gtxt (estilo)
+        # l.addStretch(1)
+
+        # ── Sección: Leader (flecha simple) ──
+        p, l = _page("↘  Leader (flecha simple)", "leader")
+        l.addWidget(self.btn_leader_simple)
+        l.addWidget(QtWidgets.QLabel("Orientación:"))
+        self._slot_orient_ld = QtWidgets.QVBoxLayout(); l.addLayout(self._slot_orient_ld)   # slot: orient_combo
+        l.addWidget(QtWidgets.QLabel("<i>El Leader es solo flecha, sin texto.</i>"))
+        l.addStretch(1)
+
+        # ── Sección: Texto libre ──
+        p, l = _page("T  Texto libre", "text")
+        l.addWidget(self.btn_text)
+        self._slot_style_tx = QtWidgets.QVBoxLayout(); l.addLayout(self._slot_style_tx)     # slot: gtxt (estilo)
+        l.addStretch(1)
+
+        # ── Sección: Borrar zona ──
+        p, l = _page("▭  Borrar zona", "erase")
+        l.addWidget(self.btn_erase)
+        l.addWidget(QtWidgets.QLabel("<i>Clic para agregar vértices, Enter cierra.\n"
+                                     "Al exportar borra el plano dentro del polígono.</i>"))
+        self._slot_gcur_erase = QtWidgets.QVBoxLayout(); l.addLayout(self._slot_gcur_erase)  # slot: gcur al borrar
+        l.addStretch(1)
+
+        # ── Sección: Georreferenciación ──
+        p, l = _page("🌍  Georreferenciación", "georef")
+        l.addWidget(b_geo); l.addWidget(b_geo_off)
+        l.addWidget(QtWidgets.QLabel(
+            "<i>Calzar el plano sobre imagen satelital te da coordenadas UTM <b>aproximadas</b> "
+            "(útiles para anteproyecto, NO grado construcción). El dato topográfico real "
+            "viene del levantamiento/Excel.</i>"))
+        l.addStretch(1)
+
+        # ── Sección: Cotas y red 3D ──
+        p, l = _page("📐  Cotas y red 3D", "net")
+        l.addWidget(b_bz); l.addWidget(b_xls)
+        l.addWidget(QtWidgets.QLabel(
+            "<i>Los buzones aparecen automáticamente al dibujar tuberías de gravedad "
+            "(alcantarillado/drenaje) — cada vértice es un buzón. Aquí gestionas su "
+            "Cod, rim (tapa) y sump (fondo). También puedes IMPORTAR un Excel con "
+            "hojas BUZONES y TUBERIAS (encabezados en fila 5).</i>"))
+        l.addStretch(1)
+
+        # ── Sección: Reconocimiento (OCR / ICR) ──
+        p, l = _page("🔤  Reconocimiento de texto", "ocr")
+        l.addWidget(self.chk_txt); l.addWidget(self.chk_icr)
+        l.addWidget(QtWidgets.QLabel(
+            "<i>OCR = texto impreso (Tesseract).  ICR = manuscrita (EasyOCR, offline).\n"
+            "Aparecen recuadros amarillos sobre el plano; clic en uno para corregir "
+            "el texto reconocido.</i>"))
+        l.addStretch(1)
+
+        # Al abrir una sección del acordeón: reparenta los widgets compartidos y
+        # regresa el modo a "idle" (así no quedan mezclados los estados).
+        self.toolbox.currentChanged.connect(self._on_toolbox_change)
+
+        lv.addWidget(self.toolbox, 1)
+        ldock.setWidget(left); ldock.setMinimumWidth(260)
         self.addDockWidget(QtCore.Qt.LeftDockWidgetArea, ldock)
+
+        # (La inicialización de los widgets compartidos ocurre al final de _build_ui,
+        # cuando el dock derecho —self.tabs, etc.— ya existe.)
 
         # ── DOCK DERECHO: inventario y selección ──
         rdock = QtWidgets.QDockWidget("Inventario", self); rdock.setFeatures(QtWidgets.QDockWidget.NoDockWidgetFeatures)
@@ -355,7 +463,7 @@ class Main(QtWidgets.QMainWindow):
         self.txt_marks_list = QtWidgets.QListWidget(); self.txt_marks_list.currentRowChanged.connect(self._sel_text)
         self.region_list = QtWidgets.QListWidget(); self.region_list.currentRowChanged.connect(self._sel_region)
         self.region_list.itemChanged.connect(self._region_toggled)
-        self.tabs.addTab(self.pipe_list, "Utilidades"); self.tabs.addTab(self.lead_list, "Multileaders")
+        self.tabs.addTab(self.pipe_list, "Utilidades"); #self.tabs.addTab(self.lead_list, "Multileaders")
         self.tabs.addTab(self.sleader_list, "Leaders")
         self.tabs.addTab(self.txt_marks_list, "Textos"); self.tabs.addTab(self.region_list, "Zonas")
         # Menú contextual (clic derecho) en cada lista del inventario
@@ -373,13 +481,28 @@ class Main(QtWidgets.QMainWindow):
         self.prop_diam.setButtonSymbols(QtWidgets.QAbstractSpinBox.NoButtons); self.prop_diam.valueChanged.connect(lambda _: self._prop_changed())
         self.prop_unit = QtWidgets.QComboBox(); self.prop_unit.addItems(["pulg", "pies"]); self.prop_unit.currentTextChanged.connect(lambda _: self._prop_changed())
         fpr.addRow("Nombre:", self.prop_name); fpr.addRow("Diámetro:", self.prop_diam); fpr.addRow("Unidad:", self.prop_unit)
-        # Cotas de red (gravedad): invert inicio/fin (m) + tipo de pieza
+        # Campos de la utilidad usados por el JSON de red 3.0 y por el DXF:
+        #   - material: texto libre (p.ej. "HDPE"); viaja al JSON como `material`.
+        #   - part (pieza): nombre del tipo de pieza; viaja al JSON como `part`.
+        #   - network_type: "auto" (=lo decide la capa) / "pipe" (con buzones)
+        #     / "pressure" (línea a presión). Viaja al JSON como `network_type`.
+        #   - invert inicio/fin (m): las COTAS de fondo de la tubería en cada
+        #     extremo; imprescindibles para reconstruir la red 3D.
+        self.prop_material = QtWidgets.QLineEdit(); self.prop_material.setPlaceholderText("p.ej. HDPE, PVC, Concreto…")
+        self.prop_material.editingFinished.connect(self._prop_changed)
         self.prop_part = QtWidgets.QLineEdit(); self.prop_part.setPlaceholderText("p.ej. 900 mm Corrugated HDPE Pipe")
         self.prop_part.editingFinished.connect(self._prop_changed)
+        self.prop_nettype = QtWidgets.QComboBox()
+        self.prop_nettype.addItem("Automático (según la capa)", "")
+        self.prop_nettype.addItem("Con buzones (pipe)", "pipe")
+        self.prop_nettype.addItem("A presión (pressure)", "pressure")
+        self.prop_nettype.currentIndexChanged.connect(lambda _: self._prop_changed())
         self.prop_inv0 = QtWidgets.QDoubleSpinBox(); self.prop_inv1 = QtWidgets.QDoubleSpinBox()
         for sp in (self.prop_inv0, self.prop_inv1):
             sp.setRange(-100000, 100000); sp.setDecimals(3); sp.setButtonSymbols(QtWidgets.QAbstractSpinBox.NoButtons)
             sp.valueChanged.connect(lambda _: self._prop_changed())
+        fpr.addRow("Material:", self.prop_material)
+        fpr.addRow("Tipo de red:", self.prop_nettype)
         self.row_inv0 = fpr.addRow("Invert inicio (m):", self.prop_inv0)
         fpr.addRow("Invert fin (m):", self.prop_inv1)
         fpr.addRow("Part (pieza):", self.prop_part)
@@ -408,6 +531,10 @@ class Main(QtWidgets.QMainWindow):
         self.canvas.moved.connect(self._update_coords)
         self._update_geo_status()
         self._info("Abre o arrastra un PDF/proyecto.")
+
+        # Todo listo: coloca los widgets compartidos del acordeón en la sección
+        # inicial (esto necesita que self.tabs, self.gprop y self.lbl_mode existan).
+        self._on_toolbox_change(self.toolbox.currentIndex())
 
     def _menu_act(self, menu, text, fn, sc=None):
         a = QtGui.QAction(text, self); a.triggered.connect(fn)
@@ -536,21 +663,16 @@ class Main(QtWidgets.QMainWindow):
         self.btn_leader_simple.setText("●  Coloque Leader…" if (in_leader and simple) else "↘  Colocar Leader")
         self.btn_erase.setText("■  Terminar zona (Enter)" if m == "erase" else "▭  Borrar zona (polígono)")
         ti = self.tabs.currentIndex()
-        self.gt.setVisible(m in ("pipe", "move"))
-        # Leader simple (solo flecha): el panel muestra únicamente la orientación y se titula "Leader"
-        sel_ld_simple = ti == TAB_LEADER and 0 <= self.sel_leader < len(self.leaders) and self.leaders[self.sel_leader].get("simple")
-        lead_simple = (in_leader and simple) or bool(sel_ld_simple)
-        self.ga.setTitle("Leader" if lead_simple else "Multileader")
-        for w in (self.chk_custom, self.txt_edit, self.lbl_textos, self.text_list, self.lbl_lead_hint):
-            w.setVisible(not lead_simple)
-        # el panel de estilo sirve para texto libre y para el Multileader; el Leader simple no lo usa
-        txt_ctx = (m == "text") or (ti == TAB_TEXT and self.sel_text >= 0)
-        lead_ctx = (m in ("leader1", "leader2", "leader3")) or (ti in (TAB_ML, TAB_LEADER) and self.sel_leader >= 0)
-        self.gtxt.setVisible((txt_ctx or lead_ctx) and not lead_simple)
-        self.gtxt.setTitle("Estilo del Multileader" if (lead_ctx and not txt_ctx) else "Estilo de texto")
-        self.rot_row.setVisible(txt_ctx)                 # la rotación solo aplica a textos libres
+        # Con el acordeón (QToolBox) la visibilidad de las opciones la controla la
+        # sección expandida — cada sección solo enseña lo suyo. Aquí ya no tenemos
+        # que ocultar/mostrar `gt`/`ga`/`gtxt` según el modo; solo ajustamos el
+        # título del grupo cuando el estilo es del Multileader vs Texto libre.
+        self.gtxt.setTitle("Estilo del Multileader" if m in ("leader1", "leader2", "leader3") else "Estilo de texto")
         self.gprop.setVisible(ti == TAB_PIPE and self.sel_pipe >= 0)
-        self.gcur.setVisible((m == "pipe" and len(self.cur_pts) >= 1) or (m == "erase" and len(self._erase_pts) >= 1))
+        # "En curso": solo mientras hay puntos en curso. gcur ya fue movido a la
+        # sección correcta por set_mode; aquí solo habilitamos Finalizar y mostramos.
+        active_draw = (m == "pipe" and len(self.cur_pts) >= 1) or (m == "erase" and len(self._erase_pts) >= 1)
+        self.gcur.setVisible(active_draw)
         self.btn_fin.setEnabled((m == "pipe" and len(self.cur_pts) >= 2) or (m == "erase" and len(self._erase_pts) >= 3))
         ti = self.tabs.currentIndex()
         self.btn_ct.setVisible(ti == TAB_PIPE)
@@ -578,10 +700,29 @@ class Main(QtWidgets.QMainWindow):
                                "move": "Modo: editar — arrastra vértice · clic en tramo inserta · clic-en-vértice extiende (F) · clic derecho elimina"}.get(m, ""))
 
     def set_mode(self, m):
+        """Cambia el "modo" del programa (qué está haciendo ahora el usuario):
+        pipe (dibujando utilidad), leader1/2/3 (colocando Multileader/Leader),
+        text (escribiendo texto libre), erase (borrando zona), move (editando),
+        idle (sin nada activo).
+
+        Además REPARENTA el grupo "En curso" (self.gcur) a la sección adecuada
+        del acordeón según el modo, para que los botones Finalizar/Deshacer
+        aparezcan DENTRO de la sección donde estás trabajando."""
         if m not in ("leader1", "leader2", "leader3"): self._pending = None
         if m != "erase": self._erase_pts = []
         if m != "pipe": self._extending = False
-        self.mode = m; self._update_ui(); self._redraw()
+        self.mode = m
+        # Colocar el panel "En curso" en su sección correspondiente (si existe)
+        if hasattr(self, "_slot_gcur_pipe"):
+            if m == "pipe":
+                self._place_widget(self.gcur, self._slot_gcur_pipe)
+                self.gcur.show()
+            elif m == "erase":
+                self._place_widget(self.gcur, self._slot_gcur_erase)
+                self.gcur.show()
+            else:
+                self.gcur.hide()
+        self._update_ui(); self._redraw()
 
     def _tab_changed(self, _):
         ti = self.tabs.currentIndex()               # sel_leader se comparte entre ML y Leaders: re-sincronizar
@@ -589,9 +730,17 @@ class Main(QtWidgets.QMainWindow):
         elif ti == TAB_LEADER: self.sel_leader = self._leader_at_row(self.sleader_list, self.sleader_list.currentRow())
         if self.mode == "move": self.set_mode("idle")   # no seguir editando al cambiar de pestaña
         self._update_ui(); self._redraw()
-    def toggle_pipe(self): self.set_mode("idle" if self.mode == "pipe" else "pipe")
-    def toggle_text_mode(self): self.set_mode("idle" if self.mode == "text" else "text")
-    def toggle_erase(self): self.set_mode("idle" if self.mode == "erase" else "erase")
+    # Los "toggle_*" alternan entre "modo activo" e "idle" (sin nada activo).
+    # Además abren su sección del acordeón para que las opciones sean visibles.
+    def toggle_pipe(self):
+        if self.mode == "pipe": self.set_mode("idle")
+        else: self._open_section("pipe"); self.set_mode("pipe")
+    def toggle_text_mode(self):
+        if self.mode == "text": self.set_mode("idle")
+        else: self._open_section("text"); self.set_mode("text")
+    def toggle_erase(self):
+        if self.mode == "erase": self.set_mode("idle")
+        else: self._open_section("erase"); self.set_mode("erase")
     def active_layer(self):
         d = self.type_combo.currentData(); return d if d else "AGUA"
 
@@ -1036,6 +1185,13 @@ class Main(QtWidgets.QMainWindow):
         self._refresh_lists(); self._update_ui(); self._redraw()
 
     def _sel_pipe(self, r):
+        """Se llama cuando el usuario selecciona una utilidad en el inventario
+        (lista derecha). Actualiza el panel de Propiedades con SUS datos.
+
+        `self._prop_guard` es un pequeño truco: bloquea temporalmente los
+        callbacks de los campos mientras los rellenamos con valores. Sin él,
+        `setValue`/`setText` dispararía `_prop_changed()` y guardaría los
+        datos ANTES de terminar de cargarlos (círculo vicioso)."""
         self.sel_pipe = r
         if 0 <= r < len(self.pipes):
             p = self.pipes[r]; pts = p.get("pts")
@@ -1045,6 +1201,11 @@ class Main(QtWidgets.QMainWindow):
             self.prop_name.setText(p.get("name", "")); self.prop_diam.setValue(p.get("diam", 0.0) or 0.0)
             self.prop_unit.setCurrentText(p.get("unit", "pulg")); self.prop_part.setText(p.get("part", ""))
             self.prop_inv0.setValue(p.get("inv_start") or 0.0); self.prop_inv1.setValue(p.get("inv_end") or 0.0)
+            self.prop_material.setText(p.get("material", "") or "")
+            # findData busca el índice del combo cuya "data" (dato oculto) coincide
+            # con "" | "pipe" | "pressure"; si no encuentra devuelve -1 → índice 0.
+            idx = self.prop_nettype.findData(p.get("net_type", "") or "")
+            self.prop_nettype.setCurrentIndex(idx if idx >= 0 else 0)
             self._prop_guard = False
         self._update_ui(); self._redraw()
 
@@ -1054,10 +1215,14 @@ class Main(QtWidgets.QMainWindow):
         return it.data(QtCore.Qt.UserRole) if it is not None else -1
 
     def _sel_leader(self, r):                              # pestaña Multileaders
+        """Al seleccionar un Multileader en el inventario derecho, abrimos la
+        sección Multileader del acordeón izquierdo — así el usuario ve el
+        estilo/orientación y puede editarlos."""
         i = self._leader_at_row(self.lead_list, r); self.sel_leader = i
         if 0 <= i < len(self.leaders):
             ld = self.leaders[i]
             if not self._no_center and ld.get("tp"): self.canvas.centerOn(ld["tp"][0], ld["tp"][1])
+            self._open_section("ml")
             self._style_guard = True
             self.font_combo.setCurrentFont(QtGui.QFont(ld.get("font", C.TEXT_FONT)))
             self.size_spin.setValue(ld.get("size_ft", LEADER_TEXT_FT)); self.chk_bold.setChecked(bool(ld.get("bold")))
@@ -1082,10 +1247,13 @@ class Main(QtWidgets.QMainWindow):
         self._no_center = False
 
     def _sel_text(self, r):
+        """Al seleccionar un texto libre, abrimos la sección Texto libre del
+        acordeón para que el estilo (fuente/altura/negrita/rotación) sea editable."""
         self.sel_text = r
         if 0 <= r < len(self.text_marks):
             tm = self.text_marks[r]
             if not self._no_center: self.canvas.centerOn(tm["pos"][0], tm["pos"][1])
+            self._open_section("text")
             self._style_guard = True
             self.font_combo.setCurrentFont(QtGui.QFont(tm.get("font", C.TEXT_FONT)))
             self.size_spin.setValue(tm.get("size_ft", 3.0)); self.chk_bold.setChecked(bool(tm.get("bold")))
@@ -1104,7 +1272,53 @@ class Main(QtWidgets.QMainWindow):
         if 0 <= r < len(self.erase_regions):
             self.erase_regions[r]["enabled"] = (item.checkState() == QtCore.Qt.Checked); self._dirty = True; self._redraw()
 
+    # ─────────────────────── Acordeón: cambios de sección ────────────────────────
+    def _place_widget(self, w, target_layout):
+        """Mueve un widget al layout indicado (Qt reasigna su padre automáticamente).
+        Es como "mover una caja" de un estante a otro. Si el widget ya estaba en un
+        layout, primero lo quitamos de ese layout (removeWidget). Si no hacemos esto,
+        Qt puede dejar celdas huérfanas o mostrar el widget en dos sitios."""
+        if w.parent() is not None:
+            pl = w.parent().layout()
+            if pl is not None:
+                pl.removeWidget(w)
+        target_layout.addWidget(w)
+
+    def _on_toolbox_change(self, idx):
+        """Al abrir una sección distinta del acordeón:
+          1) Salimos del modo activo (evita mezclar 'colocar Multileader' con
+             el usuario abriendo la sección Texto por error).
+          2) Reparentamos los widgets COMPARTIDOS a la sección correspondiente:
+             - orient_combo → Multileader o Leader (según sección)
+             - gtxt (estilo) → Multileader o Texto libre
+             - rot_row visible solo en Texto libre
+          3) Refrescamos la UI (etiqueta del modo, botones activos, etc.)."""
+        # Descubrimos qué sección ("key") corresponde al índice.
+        key = next((k for k, i in self._sec_idx.items() if i == idx), None)
+        if self.mode not in ("idle",):
+            self.set_mode("idle")
+        if key == "ml":
+            self._place_widget(self.orient_combo, self._slot_orient_ml)
+            self._place_widget(self.gtxt, self._slot_style_ml)
+            self.rot_row.setVisible(False)
+        elif key == "leader":
+            self._place_widget(self.orient_combo, self._slot_orient_ld)
+        elif key == "text":
+            self._place_widget(self.gtxt, self._slot_style_tx)
+            self.rot_row.setVisible(True)
+        self._update_ui()
+
+    def _open_section(self, key):
+        """Abre programáticamente una sección del acordeón por su nombre lógico.
+        La usamos p.ej. cuando el usuario selecciona un Multileader en el
+        inventario: abrimos automáticamente la sección Multileader para que
+        vea su estilo/orientación y pueda editarlos."""
+        i = self._sec_idx.get(key)
+        if i is not None and self.toolbox.currentIndex() != i:
+            self.toolbox.setCurrentIndex(i)
+
     def _bump_size(self, delta):
+        """Sube o baja la altura del texto en pasos de 0.5 pies."""
         self.size_spin.setValue(round(max(0.5, self.size_spin.value() + delta), 2))
 
     def _bump_rot(self, delta):
@@ -1135,12 +1349,18 @@ class Main(QtWidgets.QMainWindow):
             self._redraw()
 
     def _prop_changed(self):
+        """Callback: cualquier cambio en el panel Propiedades escribe al modelo.
+        `self._push()` guarda un snapshot para Ctrl+Z (deshacer)."""
         if self._prop_guard: return
         if self.tabs.currentIndex() == TAB_PIPE and 0 <= self.sel_pipe < len(self.pipes):
             p = self.pipes[self.sel_pipe]; self._push()
             p["name"] = self.prop_name.text().strip(); p["diam"] = self.prop_diam.value()
             p["unit"] = self.prop_unit.currentText(); p["part"] = self.prop_part.text().strip()
             p["inv_start"] = self.prop_inv0.value(); p["inv_end"] = self.prop_inv1.value()
+            p["material"] = self.prop_material.text().strip()
+            # currentData devuelve el "dato oculto" del ítem seleccionado del combo
+            # (asignado con addItem(texto, dato)). "" = auto; "pipe"/"pressure" = override.
+            p["net_type"] = self.prop_nettype.currentData() or ""
             self._refresh_lists()
 
     def change_pipe_type(self):
@@ -1261,9 +1481,12 @@ class Main(QtWidgets.QMainWindow):
         return it.text() if it and self.text_list.currentRow() >= 0 else ""
 
     def start_leader(self, simple=False):
-        # No se captura nada al entrar: la orientación y el texto se leen al COLOCAR.
-        # simple=True → Leader (solo flecha, sin texto); False → Multileader.
+        """Entra al modo de colocación (Multileader o Leader). No se captura la
+        orientación aquí: se lee de `orient_combo` AL MOMENTO del clic final,
+        para que el usuario pueda cambiarla dentro del modo."""
         self._pending = {"arrow": None, "simple": bool(simple)}
+        # Abrimos la sección correcta del acordeón según el tipo de leader
+        self._open_section("leader" if simple else "ml")
         self.set_mode("leader1")
         if simple:
             if self.orient_combo.currentData() == "d":
@@ -1517,18 +1740,16 @@ class Main(QtWidgets.QMainWindow):
     # ─────────────────────────── exportar ───────────────────────────
     def run_pipeline(self, mode="todo"):
         """mode: 'todo' = PDF digitalizado + anotaciones · 'pdf' = solo el PDF ·
-        'anot' = solo las anotaciones · '3d' = PDF + anotaciones + sidecar JSON de red 3D."""
+        'anot' = solo las anotaciones dibujadas en el programa."""
         if self.canvas.pixmap_item is None:
             QtWidgets.QMessageBox.information(self, "Nada", "Abre un PDF o proyecto."); return
-        self._sidecar = (mode == "3d")
-        need_pdf = mode in ("todo", "pdf", "3d")
+        need_pdf = mode in ("todo", "pdf")
         if need_pdf and not self.pdf_path:
             QtWidgets.QMessageBox.information(self, "Sin PDF",
                 "No hay un PDF cargado para digitalizar. Se exportarán solo las anotaciones.")
-            mode = "3d_anot" if mode == "3d" else "anot"; need_pdf = False
+            mode = "anot"; need_pdf = False
         base = os.path.splitext(os.path.basename(self.pdf_path))[0] if self.pdf_path else "proyecto"
-        suffix = {"todo": "_completo", "pdf": "_plano", "anot": "_anotaciones",
-                  "3d": "_completo", "3d_anot": "_anotaciones"}[mode]
+        suffix = {"todo": "_completo", "pdf": "_plano", "anot": "_anotaciones"}[mode]
         out, _ = QtWidgets.QFileDialog.getSaveFileName(self, "Guardar DXF", os.path.join(DOWNLOADS, base + suffix + ".dxf"), "DXF (*.dxf)")
         if not out: return
         self._out = out; self._mode = mode
@@ -1536,8 +1757,7 @@ class Main(QtWidgets.QMainWindow):
             try:
                 doc = ezdxf.new("R2010", setup=True); doc.header["$INSUNITS"] = C.INSUNITS
                 self._merge_into(doc, marks=True); doc.saveas(out)
-                extra = self._write_sidecar_if_needed(out)
-                QtWidgets.QMessageBox.information(self, "Listo", f"Exportado (solo anotaciones):\n{out}{extra}")
+                QtWidgets.QMessageBox.information(self, "Listo", f"Exportado (solo anotaciones):\n{out}")
                 self._info("DXF de anotaciones exportado.")
             except Exception as e:
                 QtWidgets.QMessageBox.critical(self, "Error", str(e))
@@ -1552,27 +1772,18 @@ class Main(QtWidgets.QMainWindow):
         if getattr(self, "_prog", None): self._prog.close()
         if err: QtWidgets.QMessageBox.critical(self, "Error al digitalizar", err); return
         try:
-            marks = (self._mode in ("todo", "3d"))       # 'pdf' = solo el plano, sin anotaciones
+            marks = (self._mode == "todo")               # 'pdf' = solo el plano, sin anotaciones
             doc = ezdxf.readfile(tmp); self._merge_into(doc, marks=marks); doc.saveas(self._out)
             if os.path.exists(tmp): os.remove(tmp)
-            extra = self._write_sidecar_if_needed(self._out)
             if marks:
                 nreg = sum(1 for r in self.erase_regions if r.get("enabled", True))
                 msg = (f"Exportado (PDF + anotaciones):\n{self._out}\n\n{len(self.pipes)} utilidades, "
-                       f"{len(self.leaders)} leaders/multileaders, {len(self.text_marks)} textos, {nreg} zonas borradas.{extra}")
+                       f"{len(self.leaders)} leaders/multileaders, {len(self.text_marks)} textos, {nreg} zonas borradas.")
             else:
                 msg = f"Exportado (solo el PDF digitalizado):\n{self._out}"
             QtWidgets.QMessageBox.information(self, "Listo", msg); self._info("DXF exportado.")
         except Exception as e:
             import traceback; QtWidgets.QMessageBox.critical(self, "Error al guardar", f"{e}\n{traceback.format_exc()}")
-
-    def _write_sidecar_if_needed(self, dxf_out):
-        """Si el modo es '3d', escribe el sidecar JSON junto al DXF (mismo nombre base)."""
-        if not getattr(self, "_sidecar", False):
-            return ""
-        json_path = os.path.splitext(dxf_out)[0] + ".utilities.json"
-        nu, nl = sidecar_export.write_sidecar(self, json_path)
-        return f"\n\nRed 3D (JSON): {os.path.basename(json_path)}  ({nu} utilidades, {nl} etiquetas)."
 
     def _merge_into(self, doc, marks=True):
         dxf_export.merge_into(self, doc, marks=marks)
@@ -1592,9 +1803,9 @@ class Main(QtWidgets.QMainWindow):
             if p.get("world") or p.get("layer") not in GRAVITY_LAYERS: continue
             pts = p.get("pts")
             if not pts or len(pts) < 2: continue
-            for end in (pts[0], pts[-1]):
-                if not any(near(end, (s["x"], s["y"])) for s in detected):
-                    detected.append({"cod": "", "x": end[0], "y": end[1], "rim": None,
+            for pt in pts:                              # todos los vértices (extremos + intermedios)
+                if not any(near(pt, (s["x"], s["y"])) for s in detected):
+                    detected.append({"cod": "", "x": pt[0], "y": pt[1], "rim": None,
                                      "sump": None, "part": "", "net": "", "world": False})
         for s in detected:                                 # reasigna ediciones previas por coordenada
             for o in old:
@@ -1665,23 +1876,29 @@ class Main(QtWidgets.QMainWindow):
         QtWidgets.QMessageBox.information(self, "Importación de red", msg); self._info(msg.split(chr(10))[0])
 
     def export_network_json(self):
-        has_grav = any(p.get("layer") in GRAVITY_LAYERS for p in self.pipes)
-        if not self.structures and not has_grav:
+        # Al menos alguna tubería con geometría (dibujada o importada)
+        if not any(p.get("pts") or (p.get("world") and p.get("wstart") and p.get("wend"))
+                   for p in self.pipes):
             QtWidgets.QMessageBox.information(self, "Nada que exportar",
-                "No hay buzones ni tuberías de gravedad. Gestiona buzones o importa un Excel de red."); return
+                "No hay tuberías. Dibuja alguna o importa un Excel de red."); return
+        # Antes de exportar, refrescar los buzones detectados desde los vértices dibujados
+        self._rebuild_structures()
         base = os.path.splitext(os.path.basename(self.pdf_path))[0] if self.pdf_path else "red"
-        out, _ = QtWidgets.QFileDialog.getSaveFileName(self, "Exportar red 3D (JSON resuelto)",
-                                                       os.path.join(DOWNLOADS, base + ".json"), "JSON (*.json)")
+        out, _ = QtWidgets.QFileDialog.getSaveFileName(self, "Exportar red 3D (JSON)",
+                                                       os.path.join(DOWNLOADS, base + ".network.json"), "JSON (*.json)")
         if not out: return
         try:
-            paths, warns = write_network_json(self, out)
+            path, warns = write_network_json(self, out)
         except Exception as e:
             import traceback; QtWidgets.QMessageBox.critical(self, "Error", f"{e}\n{traceback.format_exc()}"); return
-        if not paths:
+        if not path:
             QtWidgets.QMessageBox.information(self, "Nada que exportar", warns[0] if warns else "Sin redes."); return
-        msg = "Redes exportadas:\n- " + "\n- ".join(os.path.basename(p) for p in paths)
+        msg = f"Red exportada (utility-network/3.0):\n{path}"
+        if not self.georef.active():
+            msg += ("\n\nAviso: el plano NO está georreferenciado; las coordenadas x,y no coinciden "
+                    "con datos UTM externos. Usa Georreferencia → Georreferenciar… para calzarlo.")
         if warns: msg += "\n\nAvisos (no bloqueantes):\n- " + "\n- ".join(warns[:15])
-        QtWidgets.QMessageBox.information(self, "Exportar red 3D (JSON)", msg); self._info(f"{len(paths)} red(es) exportada(s).")
+        QtWidgets.QMessageBox.information(self, "Exportar red 3D (JSON)", msg); self._info("JSON de red exportado.")
 
     # ─────────────────────────── Georreferenciación ───────────────────────────
     def clear_georef(self):
@@ -1777,75 +1994,232 @@ class Main(QtWidgets.QMainWindow):
         dlg.exec()
 
     def show_manual(self):
+        """Ventana del manual de usuario. Es HTML sencillo dentro de un
+        QTextBrowser (visor de texto enriquecido); nada de red ni servidor."""
         html = """
         <h2>Manual de usuario</h2>
-        <h3>Disposición de la ventana</h3>
-        <p>A la <b>izquierda</b> están las herramientas y el flujo de trabajo (páginas, acción,
-        tipo de utilidad, Multileader, estilo de texto, reconocimiento). En el <b>centro</b> el plano.
-        A la <b>derecha</b> el inventario de lo que has marcado (Utilidades, Multileaders, Textos, Zonas)
-        con los botones para editar/eliminar. Arriba una barra de acción (zoom, deshacer/rehacer, imán,
-        Exportar DXF) y abajo la barra de estado con el modo, las coordenadas y la escala.</p>
-        <h3>1. Abrir el plano</h3>
-        <p><b>Archivo → Abrir PDF…</b> (o arrastra el PDF). Navega entre páginas con los botones
-        <b>◀ ▶</b> de la barra superior. Puedes arrastrar un <b>Excel</b> para cargar sus textos.</p>
-        <h3>2. Dibujar una utilidad</h3>
+        <p><i>Esta aplicación te permite marcar sobre un plano PDF (agua, alcantarillado,
+        drenaje, gas, eléctrico, telefonía) y exportar el resultado a AutoCAD (DXF) y/o
+        a un archivo JSON con la red 3D para Civil 3D. Está pensada para ingeniería civil.</i></p>
+
+        <h3>0. Disposición de la ventana</h3>
+        <ul>
+          <li><b>Barra superior (menús):</b> Archivo · Edición · Georreferencia · Ayuda. Y una
+              fila con Zoom, Deshacer/Rehacer, Imán al trazo, y el botón <b>Exportar DXF ▾</b>.</li>
+          <li><b>Panel izquierdo (acordeón):</b> una sección por herramienta. Al abrir una
+              sección solo se ven las opciones de ESA herramienta (evita confusión).</li>
+          <li><b>Lienzo central:</b> el plano.</li>
+          <li><b>Panel derecho (Inventario):</b> lo que has marcado (Utilidades, Multileaders,
+              Leaders, Textos, Zonas). Debajo, <b>Propiedades</b> de la utilidad seleccionada.</li>
+          <li><b>Barra de estado (inferior):</b> modo actual · coordenadas del cursor · escala ·
+              estado de imán · estado de georreferenciación.</li>
+        </ul>
+
+        <h3>1. Abrir el plano y navegar</h3>
         <ol>
-          <li>Elige el <b>Tipo de utilidad</b> (color por servicio).</li>
-          <li>Pulsa <b>✏ Dibujar utilidad</b> (se pone verde) y haz clic punto por punto.</li>
-          <li>Pulsa <b>Enter</b> (o clic derecho / doble clic) para finalizar.</li>
-          <li>Marca <b>Abandonado</b> para la línea ──/── W ──.</li>
+          <li><b>Archivo → Abrir PDF…</b> (o arrastra el PDF a la ventana).</li>
+          <li>En la sección <b>Vista y páginas</b> del acordeón izquierdo:
+              <ul>
+                <li>Cambia de página con <b>◀ ▶</b> o escribe el número y pulsa Enter.</li>
+                <li>Ajusta la <b>Transparencia del PDF</b> con − / + para ver mejor tu marcado
+                    (útil sobre planos oscuros o muy densos).</li>
+              </ul>
+          </li>
+          <li>Con la rueda haces <b>zoom</b>; con el botón central arrastras (pan).</li>
         </ol>
-        <h3>3. Colocar un Multileader</h3>
+
+        <h3>2. Dibujar una utilidad (tubería / línea)</h3>
+        <p>En el acordeón, abre la sección <b>✏ Dibujar utilidad</b>.</p>
         <ol>
-          <li>Elige la orientación: <b>Horizontal</b> (recto), <b>Vertical</b> (recto, texto vertical
-              pegado a la línea) o <b>Diagonal</b> (con landing/quiebre).</li>
-          <li>Marca <b>Usar texto personalizado</b> y escríbelo, o selecciona un texto del Excel.</li>
-          <li>Pulsa <b>↳ Colocar Multileader</b>, clic en la <b>punta</b> y luego dónde va el <b>texto</b>.
-              El lado (izq/der o arriba/abajo) lo decide el segundo clic. Queda listo para colocar
-              <b>otro</b> sin volver a pulsar el botón; pulsa <b>Esc</b> para salir.</li>
-          <li>Para editarlo: <b>doble clic</b> sobre el texto. <b>Enter</b> aplica, <b>Ctrl+Shift+Enter</b>
-              hace salto de línea.</li>
+          <li>Elige el <b>Tipo de utilidad</b> en el desplegable (cada tipo tiene su color).</li>
+          <li>Marca <b>Abandonado</b> si la línea está fuera de servicio (linetype ──/── W ──).</li>
+          <li>Pulsa <b>✏ Dibujar utilidad</b> (el botón se pone verde = modo activo).</li>
+          <li>Haz clic en el plano punto por punto para definir la polilínea.</li>
+          <li>Termina con <b>Enter</b>, clic derecho o doble clic.</li>
         </ol>
-        <p>Al exportar, cada Multileader se digitaliza como una <b>entidad MULTILEADER</b> de CAD.</p>
-        <h3>4. Texto libre</h3>
+        <p><b>Extender un extremo:</b> con una utilidad seleccionada, pulsa <b>Editar/mover</b>
+        (Ctrl+T) y haz un clic BREVE (sin arrastrar) sobre un vértice de extremo. Si la casilla
+        <b>Al extender un extremo: continuar la misma utilidad</b> está marcada, la nueva línea
+        prolonga la existente; si no, crea una rama nueva (forma de F).</p>
+
+        <h3>3. Propiedades de la utilidad (para exportar a la red 3D)</h3>
+        <p>Cuando seleccionas una utilidad en el inventario (panel derecho), aparecen sus
+        <b>Propiedades</b>:</p>
+        <ul>
+          <li><b>Nombre:</b> identificador libre (ej. "SD-A-01").</li>
+          <li><b>Diámetro y Unidad:</b> valor numérico y unidad (pulg / pies).</li>
+          <li><b>Material:</b> texto libre (ej. "HDPE", "PVC", "Concreto").</li>
+          <li><b>Tipo de red:</b>
+              <ul>
+                <li><i>Automático</i> — lo decide la capa (agua/gas → presión; el resto → con buzones).</li>
+                <li><i>Con buzones (pipe)</i> — fuerza red por gravedad con buzones.</li>
+                <li><i>A presión (pressure)</i> — fuerza línea a presión (sin buzones).</li>
+              </ul>
+          </li>
+          <li><b>Invert inicio / Invert fin (m):</b> cotas del fondo de la tubería (para
+              redes de gravedad). Se rellenan a mano o se importan del Excel.</li>
+          <li><b>Part (pieza):</b> nombre del tipo de pieza que el plugin de Civil 3D
+              emparejará por nombre (ej. "900 mm Corrugated HDPE Pipe").</li>
+        </ul>
+        <p>El <b>color</b> se hereda del tipo/capa y viaja en el JSON de red como
+        <code>{aci, name}</code> (índice ACI de AutoCAD + nombre en inglés).</p>
+
+        <h3>4. Multileader (flecha + texto)</h3>
+        <p>En el acordeón, abre <b>↳ Multileader</b>.</p>
         <ol>
-          <li>Pulsa <b>T Texto libre</b>, ajusta fuente, altura y negrita (puedes cambiarlos también
-              mientras escribes o después, con el texto seleccionado).</li>
-          <li>Haz clic donde escribir, teclea y pulsa <b>Enter</b> para agregarlo
-              (<b>Ctrl+Shift+Enter</b> = salto de línea).</li>
+          <li>Elige la <b>Orientación</b>: Horizontal (recto), Vertical (texto vertical pegado
+              a la línea) o Diagonal (con landing/quiebre).</li>
+          <li>Elige el TEXTO: marca <b>Usar texto personalizado</b> y escríbelo, o desactívalo
+              y selecciona uno de la lista (viene de la columna TEXTO/TEXTOS del Excel abierto).</li>
+          <li>Ajusta <b>Estilo</b> (fuente, altura, negrita) — se puede cambiar antes o después.</li>
+          <li>Pulsa <b>↳ Colocar Multileader</b>, clic en la <b>punta</b> (a qué señala) y luego
+              clic dónde va el <b>texto</b>. Queda armado para colocar otro; pulsa <b>Esc</b> para salir.</li>
+          <li>Para editar: <b>doble clic</b> sobre el texto. <b>Enter</b> aplica y
+              <b>Ctrl+Shift+Enter</b> hace salto de línea.</li>
+        </ol>
+        <p>Al exportar, cada Multileader se digitaliza como <b>entidad MULTILEADER nativa</b>
+        de CAD (flecha + directriz + texto).</p>
+
+        <h3>5. Leader (solo flecha, sin texto)</h3>
+        <p>En el acordeón, abre <b>↘ Leader (flecha simple)</b>.</p>
+        <ol>
+          <li>Elige la orientación (H/V/D).</li>
+          <li>Pulsa <b>↘ Colocar Leader</b>. En H/V son dos clics (cabeza y final del cuerpo).
+              En Diagonal son tres (cabeza → bisagra → final).</li>
+        </ol>
+        <p>Al exportar sale como entidad LEADER nativa de CAD.</p>
+
+        <h3>6. Texto libre</h3>
+        <p>En el acordeón, abre <b>T Texto libre</b>.</p>
+        <ol>
+          <li>Ajusta fuente, altura, negrita y <b>rotación</b> (giro libre 0–360°).</li>
+          <li>Pulsa <b>T Texto libre</b>, haz clic donde escribir, teclea y pulsa <b>Enter</b>
+              (Ctrl+Shift+Enter = salto de línea).</li>
           <li>Los textos son <b>seleccionables</b> (clic), <b>editables</b> (doble clic) y
-              <b>movibles</b> (Editar/mover). Su estilo se cambia al seleccionarlos.</li>
+              <b>movibles</b> (Editar/mover). Al seleccionar uno, la sección Texto libre se
+              abre sola y puedes cambiarle el estilo.</li>
         </ol>
-        <h3>5. OCR e ICR</h3>
-        <p>Marca <b>Ayudar con textos impresos (OCR)</b> o <b>ICR manuscrita</b>. Aparecen recuadros:
-        clic en uno, corrige y confirma con Enter.</p>
-        <h3>6. Borrar una zona</h3>
-        <p>Pulsa <b>▭ Borrar zona</b>, marca el polígono y pulsa <b>Enter</b>. Se rellena de blanco y
-        queda <b>detrás de las tuberías</b> (solo tapa el plano). Al exportar borra la geometría base
-        dentro. En la pestaña <b>Zonas borradas</b> puedes activarla/desactivarla, editarla o eliminarla.</p>
-        <h3>7. Editar, mover y extender</h3>
+
+        <h3>7. Borrar zona (tapar el plano)</h3>
+        <p>Abre <b>▭ Borrar zona</b>. Haz clics para marcar el polígono; <b>Enter</b> cierra la
+        zona. El interior se rellena de blanco y queda detrás de las tuberías (solo tapa el plano).
+        Al exportar se borra la geometría base dentro de esa zona. En la pestaña <b>Zonas</b> del
+        inventario puedes activarla/desactivarla, editar sus vértices o eliminarla.</p>
+
+        <h3>8. Reconocimiento de texto (OCR / ICR)</h3>
+        <p>Abre <b>🔤 Reconocimiento de texto</b>.</p>
         <ul>
-          <li>Clic en el dibujo selecciona (sin mover la vista); desde las listas la vista se centra.</li>
-          <li><b>Editar/mover</b> (Ctrl+T): arrastra un vértice, clic en un tramo inserta un vértice,
-              clic derecho sobre un vértice lo elimina, y arrastrar lejos mueve todo.</li>
-          <li><b>Extender un vértice</b>: en editar, haz un clic sobre un vértice (sin arrastrar). Te
-              preguntará si la extensión es de la <b>misma utilidad</b> (continúa la línea desde un
-              extremo) o una <b>utilidad nueva</b> (rama en forma de F). Luego clic en el dibujo para
-              agregar puntos y Enter para finalizar.</li>
-          <li><b>Escape</b> quita la selección; de nuevo sale del modo.</li>
+          <li><b>Textos impresos (OCR):</b> lee los textos impresos del plano con Tesseract.</li>
+          <li><b>Manuscrita (ICR, offline):</b> lee anotaciones a mano con EasyOCR (offline; la
+              primera vez descarga el modelo ~100 MB).</li>
         </ul>
-        <h3>8. Guardar y exportar</h3>
+        <p>Verás recuadros amarillos sobre el plano. Haz clic en uno, corrige el texto y confirma
+        con Enter — el texto corregido queda anotado en tu plano.</p>
+
+        <h3>9. Georreferenciación (coordenadas UTM reales)</h3>
+        <p>Abre <b>🌍 Georreferenciación</b> (o menú <b>Georreferencia → Georreferenciar…</b>).</p>
+        <ol>
+          <li>Se abre una ventana con el <b>PDF a la izquierda</b> y un <b>mapa</b> a la derecha
+              (satélite Esri o calles OSM, conmutable).</li>
+          <li><b>Busca la dirección</b> en el mapa (escribe y pulsa Enter — usa Nominatim/OSM).</li>
+          <li>Coloca <b>puntos de control</b>: clic en un punto identificable del PDF (una esquina,
+              cruce de calles, vértice de manzana) y luego el <b>mismo</b> punto en el mapa.
+              Mínimo 2 pares (ajuste "similarity"); 3–4 pares recomendados ("affine").</li>
+          <li>Indica la zona <b>EPSG UTM</b> (o déjala en <i>auto</i>: se calcula desde la longitud
+              del primer punto).</li>
+          <li>Pulsa <b>Calcular ajuste</b>. Verás el <b>RMS</b> (error cuadrático medio) en metros.
+              Si supera ~2 m, agrega puntos mejor repartidos o revisa los pares.</li>
+          <li>Acepta. La barra de estado muestra <b>Georref: EPSG:xxxxx · RMS y m</b>.</li>
+        </ol>
+        <p>Con georreferencia activa, TODA la exportación (DXF y JSON) usa esas coordenadas
+        <b>UTM reales</b>; sin ella se usa la escala detectada del titleblock y las X,Y NO
+        coincidirán con datos externos.</p>
+        <p><b>Aviso importante:</b> calzar sobre imagen satelital da coordenadas
+        <b>aproximadas</b> (metros de error). Sirve para trazado/anteproyecto, NO para grado
+        construcción. El dato topográfico real siempre viene del levantamiento/Excel.</p>
+
+        <h3>10. Cotas y red 3D — buzones e importación de Excel</h3>
+        <p>Abre <b>📐 Cotas y red 3D</b>.</p>
         <ul>
-          <li><b>Guardar proyecto</b> (Ctrl+S): guarda todo en un <b>.digproj</b> (se comparte y abre
-              sin el PDF). Si abriste un proyecto, actualiza ese mismo archivo.</li>
-          <li><b>Digitalizar plano + exportar DXF</b>: genera el DXF final (plano base + tu marcado).</li>
-          <li><b>Cerrar proyecto</b> (Ctrl+W): pregunta si hay cambios sin guardar.</li>
+          <li><b>Gestionar buzones…</b> — abre una tabla con los buzones detectados
+              automáticamente en los vértices de las tuberías de gravedad (alcantarillado,
+              drenaje). Edita <b>Cod</b>, <b>rim</b> (cota de tapa), <b>sump</b> (cota de fondo)
+              y <b>part</b> (pieza).</li>
+          <li><b>Importar Excel de red…</b> — lee un libro con hojas <b>BUZONES</b> y
+              <b>TUBERIAS</b> (encabezados en la fila 5). Las coordenadas del Excel son
+              <b>reales</b> (metros UTM) y se cargan tal cual; las cotas y diámetros pasan a las
+              utilidades correspondientes.</li>
         </ul>
-        <h3>9. Historial de versiones</h3>
-        <p><b>Ayuda → Acerca de</b>: versión actual e historial desplegable por versión (verde=nueva,
-        celeste=corregida, rojo=quitada).</p>
+        <p>Columnas esperadas:</p>
+        <ul>
+          <li><b>BUZONES:</b> X, Y, Z (=rim), C. SOLERA (=sump), Cod, Tipo Bz (=part).</li>
+          <li><b>TUBERIAS:</b> Cod. Tub ("A - B"), Xi, Yi, Zi, Xf, Yf, Zf, Altura (=diámetro),
+              Tipo Tub (=part).</li>
+        </ul>
+
+        <h3>11. Editar, mover, extender</h3>
+        <ul>
+          <li><b>Clic sobre el dibujo</b> selecciona el elemento más cercano (no mueve la vista).</li>
+          <li>Seleccionar desde la lista del inventario <b>centra la vista</b> en el elemento
+              y abre la sección del acordeón que corresponde para editarlo.</li>
+          <li><b>Editar/mover</b> (Ctrl+T): arrastra vértices, inserta uno haciendo clic sobre un
+              tramo, borra un vértice con clic derecho, o arrastra lejos de los vértices para
+              mover todo el elemento.</li>
+          <li><b>Escape</b> quita la selección; volver a pulsar sale del modo actual.</li>
+          <li><b>Ctrl+C / Ctrl+V:</b> copia y pega el elemento seleccionado (con un desplazamiento).</li>
+        </ul>
+
+        <h3>12. Guardar y exportar</h3>
+        <ul>
+          <li><b>Archivo → Guardar proyecto</b> (Ctrl+S): guarda TODO en un <code>.digproj</code>
+              (imagen del PDF + tu marcado + cotas + georreferencia). Se comparte y abre sin el PDF
+              original.</li>
+          <li><b>Exportar DXF ▾</b> (arriba a la derecha, en la barra de acción):
+              <ul>
+                <li><i>PDF + anotaciones</i> — el plano digitalizado + tu marcado (todo).</li>
+                <li><i>Solo el PDF digitalizado</i> — sin tu marcado.</li>
+                <li><i>Solo las anotaciones</i> — sin el plano base.</li>
+                <li><i>Exportar red 3D (JSON)</i> — archivo <code>.network.json</code> con el
+                    contrato <b>utility-network/3.0</b> (utilidades, buzones, cotas, diámetro,
+                    material, color, tipo de red) para el plugin de Civil 3D.</li>
+              </ul>
+          </li>
+          <li><b>Archivo → Cerrar proyecto</b> (Ctrl+W): pregunta si hay cambios sin guardar.</li>
+        </ul>
+
+        <h3>13. ¿Qué significa cada dato y de dónde sale?</h3>
+        <table cellpadding="4">
+          <tr><td><b>x, y (utilidades y buzones)</b></td>
+              <td>Coordenadas de mundo del dibujo. Con georreferencia activa: UTM real
+                  (en metros). Sin ella: escala del titleblock (NO son coordenadas UTM
+                  reales; no coinciden con datos externos).</td></tr>
+          <tr><td><b>rim, sump</b></td>
+              <td>Cotas del buzón (tapa y fondo, en metros). SE INGRESAN A MANO o se importan
+                  del Excel. La app NO las inventa; si no las das, van null.</td></tr>
+          <tr><td><b>invert inicio / fin</b></td>
+              <td>Cotas de fondo de la tubería en cada extremo (metros). Igual que rim/sump:
+                  dato externo, null si no se rellena.</td></tr>
+          <tr><td><b>diameter (value, unit)</b></td>
+              <td>Diámetro que escribes en Propiedades, con la unidad tal cual la usas
+                  (pulg / pies / m — importado desde Excel).</td></tr>
+          <tr><td><b>material</b></td>
+              <td>Texto libre en Propiedades (ej. "HDPE"). null si no lo rellenas.</td></tr>
+          <tr><td><b>color</b></td>
+              <td>Se deriva del tipo/capa: <code>{aci, name}</code>. Es el color de AutoCAD
+                  con el que se dibuja la utilidad.</td></tr>
+          <tr><td><b>network_type</b></td>
+              <td>"pipe" (con buzones) o "pressure" (a presión). Por defecto lo decide la capa
+                  (agua/gas → pressure, resto → pipe); puedes forzarlo en Propiedades.</td></tr>
+          <tr><td><b>part</b></td>
+              <td>Nombre del tipo de pieza que usa el plugin de Civil 3D para elegir el estilo
+                  3D. Texto libre; null si no se rellena.</td></tr>
+        </table>
+
+        <h3>14. Historial de versiones</h3>
+        <p><b>Ayuda → Acerca de…</b> muestra la versión actual y un historial desplegable por
+        versión (verde = nueva · celeste = corregida · ámbar = cambiada · rojo = quitada).</p>
         """
-        self._show_html("Manual de usuario", html, 840, 740)
+        self._show_html("Manual de usuario", html, 880, 780)
 
     def show_shortcuts(self):
         rows = [("Ctrl+Z / Ctrl+Shift+Z", "Deshacer / Rehacer"),

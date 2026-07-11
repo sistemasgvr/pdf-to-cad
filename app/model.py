@@ -19,7 +19,7 @@ Coordenadas DIBUJADAS en PÍXELES (se convierten con geometry.to_cad al exportar
 coordenadas IMPORTADAS de Excel ya son reales de mundo (world=True → se usan tal cual).
 """
 
-VERSION = "0.9.0"
+VERSION = "0.11.0"
 
 # Capas de red por GRAVEDAD (tramos entre buzones, con invert inicio/fin).
 GRAVITY_LAYERS = {"ALCANTARILLADO", "DRENAJE"}
@@ -33,23 +33,62 @@ TIPOS = [
 ACI_RGB = {1: (255, 60, 60), 2: (235, 215, 40), 3: (60, 210, 60), 4: (60, 210, 210),
            5: (90, 140, 255), 6: (230, 90, 230), 7: (235, 235, 235), 8: (150, 150, 150),
            30: (255, 150, 40)}
+# Nombre "amable" para los códigos ACI de AutoCAD.  ACI = AutoCAD Color Index:
+# es la paleta clásica numerada 1..255 con la que AutoCAD guarda los colores.
+# Usamos el nombre en inglés porque así lo consumen la mayoría de plugins CAD.
+ACI_NAME = {1: "red", 2: "yellow", 3: "green", 4: "cyan",
+            5: "blue", 6: "magenta", 7: "white", 8: "gray",
+            30: "orange"}
 LEADER_TEXT_FT = 3.0
 LEADER_ORIENT = [("h", "Horizontal"), ("v", "Vertical"), ("d", "Diagonal")]
 Z_PDF, Z_ERASE, Z_MARK, Z_HANDLE = 0, 1, 5, 8
 # Índices de las pestañas del inventario (derecha)
 TAB_PIPE, TAB_ML, TAB_LEADER, TAB_TEXT, TAB_REGION = 0, 1, 2, 3, 4
 
-# Tipo de red derivado de la capa de la utilidad (para el sidecar 3D).
+# Tipo de red derivado de la CAPA (agrupa las utilidades a nivel de red completa).
+#   gravity  → red por gravedad con buzones (alcantarillado, drenaje)
+#   pressure → red a presión (agua, gas)
+#   conduit  → red de conductos (eléctrico/telefonía; aérea o subterránea)
 NETWORK_KIND = {
     "AGUA": "pressure", "GAS": "pressure",
     "ALCANTARILLADO": "gravity", "DRENAJE": "gravity",
     "ELECTRICO": "conduit", "ELECTRICO_AEREO": "conduit",
     "TELECOM": "conduit", "TELECOM_AEREO": "conduit",
 }
+# Tipo por TUBERIA en el JSON de red 3.0:
+#   "pipe"     → tramo dentro de una red con buzones (típico de gravedad)
+#   "pressure" → línea a presión (sin buzones intermedios)
+# Los eléctricos/telefonía por defecto se tratan como "pipe" (el plugin C# los usa así).
+NETWORK_TYPE_DEFAULT = {
+    "AGUA": "pressure", "GAS": "pressure",
+    "ALCANTARILLADO": "pipe", "DRENAJE": "pipe",
+    "ELECTRICO": "pipe", "ELECTRICO_AEREO": "pipe",
+    "TELECOM": "pipe", "TELECOM_AEREO": "pipe",
+}
 
 
 def network_kind(layer):
+    """Devuelve gravity/pressure/conduit según la CAPA de la utilidad."""
     return NETWORK_KIND.get(layer, "unknown")
+
+
+def default_network_type(layer):
+    """Valor por defecto de 'network_type' para una utilidad (pipe|pressure)."""
+    return NETWORK_TYPE_DEFAULT.get(layer, "pipe")
+
+
+def layer_color_info(layer):
+    """Devuelve {'aci': <int>, 'name': '<en>'} para la capa. `aci` es el índice
+    de color en la paleta clásica de AutoCAD; `name` es una palabra en inglés
+    ('red', 'blue', ...) para que sea fácil de leer y consumir por el plugin C#.
+
+    Nota: importamos `config` aquí (dentro de la función) para evitar un
+    import circular a nivel de módulo. Es una técnica común en Python cuando
+    dos módulos necesitan valores el uno del otro pero no de golpe al importar.
+    """
+    import config as _c
+    aci = _c.OUTPUT_LAYERS.get(layer, 7)         # 7 = blanco (fallback neutro)
+    return {"aci": int(aci), "name": ACI_NAME.get(aci, "gray")}
 
 
 def diameter_unit(unit):
@@ -63,9 +102,23 @@ def normalize_regions(regs):
 
 
 # ── Factories: crean dicts con TODAS las claves (documentan el esquema) ──
-def new_pipe(layer, pts, ab=False, name="", diam=0.0, unit="pulg"):
+# En Python un "dict" es un mapa {clave: valor}; aquí lo usamos como si fuera
+# una "ficha" de la utilidad. Estas funciones son plantillas para que todos los
+# dicts nazcan con las mismas claves; los usamos como referencia rápida del
+# esquema (qué campos existen y su tipo). No es obligatorio pasar por ellas.
+def new_pipe(layer, pts, ab=False, name="", diam=0.0, unit="pulg",
+             material="", net_type=""):
+    """Crea el dict de una utilidad (tubería/línea).
+      layer     → capa del CAD (AGUA, DRENAJE, ...)
+      pts       → lista de vértices en píxeles [(x,y), (x,y), ...]
+      ab        → True si está abandonada (linetype con barra)
+      name/diam/unit → nombre, diámetro y unidad ("pulg" o "pies")
+      material  → texto libre (p.ej. "HDPE Corrugado")
+      net_type  → "" (=auto según capa) | "pipe" | "pressure"
+    """
     return {"layer": layer, "pts": list(pts), "ab": bool(ab),
-            "name": name, "diam": float(diam), "unit": unit}
+            "name": name, "diam": float(diam), "unit": unit,
+            "material": material, "net_type": net_type}
 
 
 def new_text(pos, text, size_ft, font, bold=False, rot=0, free=True):
@@ -83,6 +136,22 @@ def new_structure(cod, x, y, rim=None, sump=None, part="", net="", world=False):
 
 
 CHANGELOG = [
+    ("0.11.0", [
+        ("added", "El JSON de red 3.0 lleva ahora en cada tubería: material (texto libre del usuario), color (índice ACI + nombre de la capa) y network_type (pipe/pressure)."),
+        ("added", "Panel de Propiedades: se agregaron campos Material y Tipo de red (Automático / Con buzones / A presión). El diámetro ya viajaba desde 0.10; ahora también material y tipo."),
+        ("changed", "Panel de herramientas reorganizado como ACORDEÓN: cada acción (Dibujar utilidad, Multileader, Leader, Texto libre, Borrar zona, Georreferenciación, Cotas/red, OCR/ICR) tiene su propia sección. Al abrir una sección solo se ven sus opciones."),
+        ("changed", "Al seleccionar un Multileader o Texto en el inventario, se abre automáticamente su sección del acordeón para editarlo."),
+        ("changed", "Manual de usuario reescrito (Ayuda → Manual de usuario): cubre todas las funciones — georreferenciación, cotas, materiales/colores/tipo de red, importación Excel, exportación de red 3D — con una sección '¿Qué significa cada dato y de dónde sale?'."),
+        ("changed", "Comentarios pedagógicos añadidos al código nuevo y tocado (Qt, pyproj, scikit-image, ezdxf, openpyxl) para que sea fácil de mantener por alguien principiante."),
+    ]),
+    ("0.10.0", [
+        ("fixed", "Se eliminó la entrada de menú duplicada que decía 'Exportar red 3D (JSON)' pero exportaba un DXF; ahora hay UNA sola opción 'Exportar red 3D (JSON)' que emite el JSON."),
+        ("fixed", "El diámetro de la utilidad ya viaja siempre en cada tubería del JSON (antes se perdía)."),
+        ("changed", "Contrato único de red: schema utility-network/3.0. Un solo archivo con array 'networks[]' agrupado por (capa, red); nunca mezcla capas (agua con drenaje, etc.)."),
+        ("changed", "Cada polilínea con N vértices produce N−1 tramos consecutivos (antes se colapsaba a un solo tramo, con pérdida de datos)."),
+        ("added", "En redes por gravedad, cada vértice compartido entre tramos es una estructura (buzón); el panel Buzones ahora detecta también los vértices intermedios de las polilíneas."),
+        ("removed", "Se retiró la salida antigua schema 1.0 (sidecar '.utilities.json' junto al DXF)."),
+    ]),
     ("0.9.0", [
         ("added", "Georreferenciación por puntos de control (menú Georreferencia → Georreferenciar…): calza el plano sobre imagen satelital (Esri) / calles (OSM) con un mapa embebido y obtiene coordenadas de mundo reales en UTM."),
         ("added", "Con georreferencia activa, TODA la exportación (DXF y JSON de red) usa las coordenadas UTM reales en vez de la escala del titleblock; el esquema del JSON no cambia (solo cambian las X,Y)."),
