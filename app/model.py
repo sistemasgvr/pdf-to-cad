@@ -19,10 +19,20 @@ Coordenadas DIBUJADAS en PÍXELES (se convierten con geometry.to_cad al exportar
 coordenadas IMPORTADAS de Excel ya son reales de mundo (world=True → se usan tal cual).
 """
 
-VERSION = "0.11.0"
+VERSION = "0.12.0"
 
 # Capas de red por GRAVEDAD (tramos entre buzones, con invert inicio/fin).
 GRAVITY_LAYERS = {"ALCANTARILLADO", "DRENAJE"}
+
+# UNIDAD DE TRABAJO para la red 3D. Solo dos opciones — pies o pulgadas — porque
+# es lo que consume el plugin C# aguas abajo. NUNCA usar metros en el flujo de
+# red 3D (ni en la UI, ni en el JSON, ni al ingresar cotas/diámetros).
+WORK_UNITS = ("ft", "in")
+DEFAULT_WORK_UNIT = "ft"
+
+
+def is_valid_work_unit(u):
+    return u in WORK_UNITS
 
 TIPOS = [
     ("Agua (W)", "AGUA"), ("Alcantarillado (SS)", "ALCANTARILLADO"),
@@ -65,6 +75,30 @@ NETWORK_TYPE_DEFAULT = {
     "ELECTRICO": "pipe", "ELECTRICO_AEREO": "pipe",
     "TELECOM": "pipe", "TELECOM_AEREO": "pipe",
 }
+
+
+MANNINGS_N = {
+    "PVC": 0.009, "HDPE": 0.011, "PE": 0.011,
+    "RCP": 0.013, "CONCRETO": 0.013, "CONCRETE": 0.013,
+    "CLAY": 0.013, "ARCILLA": 0.013, "VCP": 0.013,
+    "DIP": 0.011, "DUCTILE": 0.011, "HIERRO": 0.012,
+    "CAST IRON": 0.012, "STEEL": 0.012, "ACERO": 0.012,
+    "CMP": 0.024, "CORRUGATED": 0.024,
+}
+COVER_MIN_FT = {
+    "AGUA": 3.0, "ALCANTARILLADO": 3.0, "DRENAJE": 2.5,
+    "GAS": 2.0, "ELECTRICO": 2.0, "ELECTRICO_AEREO": 0.0,
+    "TELECOM": 2.0, "TELECOM_AEREO": 0.0,
+}
+
+
+def mannings_n(material):
+    """Coeficiente de Manning por material (fuzzy match)."""
+    m = (material or "").upper().strip()
+    for k, v in MANNINGS_N.items():
+        if k in m:
+            return v
+    return 0.013
 
 
 def network_kind(layer):
@@ -136,6 +170,16 @@ def new_structure(cod, x, y, rim=None, sump=None, part="", net="", world=False):
 
 
 CHANGELOG = [
+    ("0.12.0", [
+        ("added", "Unidad de trabajo obligatoria para la red 3D: PIES (ft) o PULGADAS (in). Selector visible arriba y en la barra de estado. La misma unidad se usa para ingresar cotas/diámetros y aparece en el JSON como 'units'."),
+        ("changed", "El JSON de red exporta TODAS las coordenadas, cotas y diámetros en la unidad de trabajo del proyecto. Se retiró el uso de metros del flujo de red 3D."),
+        ("changed", "Etiquetas de campo dinámicas: Diámetro (ft/in), Invert inicio/fin (ft/in), y en el diálogo de Buzones rim/sump también muestran la unidad activa."),
+        ("changed", "Se quitó el combo per-pipe de unidad ('pulg'/'pies') en Propiedades: la unidad la fija el proyecto."),
+        ("changed", "Importar Excel de red: los metros del archivo se convierten a la unidad de trabajo del proyecto al importar (X, Y, Z, C.SOLERA, Zi, Zf, Altura)."),
+        ("fixed", "Cotas de recorrido, no por segmento: cuando una polilínea tiene N vértices, el invert de inicio se pone SOLO en el 1er vértice y el de fin SOLO en el último; los intermedios van null (el plugin C# los interpola)."),
+        ("added", "Validaciones no bloqueantes: aviso si un recorrido tiene invert de inicio sin fin (o viceversa) y si una utilidad de capa a presión (agua/gas) fue marcada como red con buzones."),
+        ("changed", "El .digproj guarda la unidad de trabajo (retrocompat: proyectos viejos se cargan detectando la unidad más común entre sus pipes)."),
+    ]),
     ("0.11.0", [
         ("added", "El JSON de red 3.0 lleva ahora en cada tubería: material (texto libre del usuario), color (índice ACI + nombre de la capa) y network_type (pipe/pressure)."),
         ("added", "Panel de Propiedades: se agregaron campos Material y Tipo de red (Automático / Con buzones / A presión). El diámetro ya viajaba desde 0.10; ahora también material y tipo."),

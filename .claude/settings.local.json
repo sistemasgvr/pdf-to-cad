@@ -61,7 +61,19 @@
       "Bash(\"C:/Users/Deyvy/AppData/Local/Programs/Python/Python312/python.exe\" -m py_compile app/main.py app/app_window.py app/model.py app/geometry.py app/ocr.py app/dxf_export.py app/sidecar_export.py app/excel_import.py app/export/__init__.py app/export/network_json.py marcar_utilidades.py)",
       "Bash(ls README* readme*)",
       "Bash(rm -rf app/__pycache__)",
-      "Bash(QT_QPA_PLATFORM=offscreen PYTHONIOENCODING=utf-8 C:/Users/Deyvy/AppData/Local/Programs/Python/Python312/python.exe -c ' *)"
+      "Bash(QT_QPA_PLATFORM=offscreen PYTHONIOENCODING=utf-8 C:/Users/Deyvy/AppData/Local/Programs/Python/Python312/python.exe -c ' *)",
+      "Bash(rtk git *)",
+      "Bash(\"C:\\\\Users\\\\Deyvy\\\\AppData\\\\Local\\\\Programs\\\\Python\\\\Python312\\\\python.exe\" -m py_compile app/geometry.py)",
+      "Bash(\"C:\\\\Users\\\\Deyvy\\\\AppData\\\\Local\\\\Programs\\\\Python\\\\Python312\\\\python.exe\" -m py_compile app/model.py)",
+      "Bash(\"C:\\\\Users\\\\Deyvy\\\\AppData\\\\Local\\\\Programs\\\\Python\\\\Python312\\\\python.exe\" -c \"import sys; sys.path.insert\\(0,'app'\\); sys.path.insert\\(0,'app/export'\\); import py_compile; py_compile.compile\\('app/export/network_json.py', doraise=True\\); print\\('network_json OK'\\)\")",
+      "Bash(\"C:\\\\Users\\\\Deyvy\\\\AppData\\\\Local\\\\Programs\\\\Python\\\\Python312\\\\python.exe\" -c \"import sys; sys.path.insert\\(0,'app'\\); import py_compile; py_compile.compile\\('app/app_window.py', doraise=True\\); print\\('app_window OK'\\)\")",
+      "Bash(\"C:\\\\Users\\\\Deyvy\\\\AppData\\\\Local\\\\Programs\\\\Python\\\\Python312\\\\python.exe\" -c \"import sys; sys.path.insert\\(0,'app'\\); import py_compile; py_compile.compile\\('app/dxf_export.py', doraise=True\\); print\\('dxf_export OK'\\)\")",
+      "Bash(rtk dotnet *)",
+      "Bash(rtk ls *)",
+      "Bash(\"C:\\\\Users\\\\Deyvy\\\\AppData\\\\Local\\\\Programs\\\\Python\\\\Python312\\\\python.exe\" -c \"import sys; sys.path.insert\\(0,'app'\\); import py_compile; py_compile.compile\\('app/app_window.py', doraise=True\\); print\\('OK'\\)\")",
+      "Bash(dotnet restore *)",
+      "Bash(rtk wc *)",
+      "Bash(rtk diff *)"
     ]
   }
 }

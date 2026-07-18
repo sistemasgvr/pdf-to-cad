@@ -1,0 +1,170 @@
+<UserControl x:Class="Civil3DBasico.PanelPresion"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             FontFamily="Segoe UI">
+
+    <UserControl.Resources>
+
+        <!-- ===== Paleta de colores ===== -->
+        <Color x:Key="cAzul">#FF1F6FEB</Color>
+        <Color x:Key="cAgua">#FF12A4A4</Color>
+        <Color x:Key="cAmbar">#FFE08A1E</Color>
+
+        <SolidColorBrush x:Key="brFondo"     Color="#FF0F1B2A"/>
+        <SolidColorBrush x:Key="brTarjeta"   Color="#FF1B2A3D"/>
+        <SolidColorBrush x:Key="brAzul"      Color="{StaticResource cAzul}"/>
+        <SolidColorBrush x:Key="brAgua"      Color="{StaticResource cAgua}"/>
+        <SolidColorBrush x:Key="brAmbar"     Color="{StaticResource cAmbar}"/>
+        <SolidColorBrush x:Key="brTexto"     Color="#FFEAF2FB"/>
+        <SolidColorBrush x:Key="brTextoTenue" Color="#FF8FA6BF"/>
+
+        <!-- ===== Estilo de botón (redondeado + hover) ===== -->
+        <Style x:Key="Boton" TargetType="Button">
+            <Setter Property="Foreground" Value="White"/>
+            <Setter Property="FontSize" Value="12.5"/>
+            <Setter Property="FontWeight" Value="SemiBold"/>
+            <Setter Property="Height" Value="34"/>
+            <Setter Property="Margin" Value="0,3"/>
+            <Setter Property="Cursor" Value="Hand"/>
+            <Setter Property="HorizontalContentAlignment" Value="Left"/>
+            <Setter Property="Background" Value="{StaticResource brAzul}"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="Button">
+                        <Grid>
+                            <Border x:Name="fondo" CornerRadius="7" Background="{TemplateBinding Background}"/>
+                            <Border x:Name="overlay" CornerRadius="7" Background="White" Opacity="0"/>
+                            <ContentPresenter Margin="12,0" VerticalAlignment="Center" HorizontalAlignment="Left"/>
+                        </Grid>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="overlay" Property="Opacity" Value="0.16"/>
+                            </Trigger>
+                            <Trigger Property="IsPressed" Value="True">
+                                <Setter TargetName="overlay" Property="Opacity" Value="0.30"/>
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
+        <!-- Título de cada sección -->
+        <Style x:Key="TituloSeccion" TargetType="TextBlock">
+            <Setter Property="Foreground" Value="{StaticResource brTexto}"/>
+            <Setter Property="FontSize" Value="12"/>
+            <Setter Property="FontWeight" Value="Bold"/>
+            <Setter Property="Margin" Value="2,0,0,6"/>
+        </Style>
+
+        <!-- Tarjeta contenedora -->
+        <Style x:Key="Tarjeta" TargetType="Border">
+            <Setter Property="Background" Value="{StaticResource brTarjeta}"/>
+            <Setter Property="CornerRadius" Value="10"/>
+            <Setter Property="Padding" Value="12"/>
+            <Setter Property="Margin" Value="0,0,0,12"/>
+        </Style>
+    </UserControl.Resources>
+
+    <!-- ===== Fondo general ===== -->
+    <Border Background="{StaticResource brFondo}">
+        <ScrollViewer VerticalScrollBarVisibility="Auto" Padding="14,14,10,14">
+            <StackPanel>
+
+                <!-- Cabecera -->
+                <StackPanel Margin="2,0,0,14">
+                    <StackPanel Orientation="Horizontal">
+                        <TextBlock Text="💧" FontSize="22" VerticalAlignment="Center" Margin="0,0,8,0"/>
+                        <TextBlock Text="Red a Presión" Foreground="{StaticResource brTexto}"
+                                   FontSize="19" FontWeight="Bold" VerticalAlignment="Center"/>
+                    </StackPanel>
+                    <TextBlock Text="Herramientas de diseño hidráulico · Civil 3D"
+                               Foreground="{StaticResource brTextoTenue}" FontSize="11" Margin="0,3,0,0"/>
+                    <Border Height="3" CornerRadius="2" Margin="0,10,0,0">
+                        <Border.Background>
+                            <LinearGradientBrush StartPoint="0,0" EndPoint="1,0">
+                                <GradientStop Color="{StaticResource cAzul}" Offset="0"/>
+                                <GradientStop Color="{StaticResource cAgua}" Offset="0.6"/>
+                                <GradientStop Color="{StaticResource cAmbar}" Offset="1"/>
+                            </LinearGradientBrush>
+                        </Border.Background>
+                    </Border>
+                </StackPanel>
+
+                <!-- 1) PREPARAR -->
+                <Border Style="{StaticResource Tarjeta}">
+                    <StackPanel>
+                        <TextBlock Style="{StaticResource TituloSeccion}" Text="① PREPARAR"/>
+                        <Button x:Name="btnCrearRed" Style="{StaticResource Boton}" Background="{StaticResource brAzul}"
+                                Content="🌐  Crear red a presión"/>
+                        <Button x:Name="btnListar"   Style="{StaticResource Boton}" Background="{StaticResource brAzul}"
+                                Content="📋  Listar piezas del catálogo"/>
+                    </StackPanel>
+                </Border>
+
+                <!-- 2) TRAZAR / COLOCAR -->
+                <Border Style="{StaticResource Tarjeta}">
+                    <StackPanel>
+                        <TextBlock Style="{StaticResource TituloSeccion}" Text="② TRAZAR Y COLOCAR"/>
+                        <Button x:Name="btnRun"     Style="{StaticResource Boton}" Background="{StaticResource brAgua}"
+                                Content="✏️  Crear red desde POLILÍNEA (2D/3D)"/>
+                        <Button x:Name="btnRunCogo" Style="{StaticResource Boton}" Background="{StaticResource brAgua}"
+                                Content="📍  Crear red desde COGOPOINTS"/>
+                        <Button x:Name="btnTubo"    Style="{StaticResource Boton}" Background="{StaticResource brAgua}"
+                                Content="➕  Agregar un tubo (2 puntos + cotas)"/>
+                        <Button x:Name="btnPerfil"  Style="{StaticResource Boton}" Background="{StaticResource brAgua}"
+                                Content="📉  Crear perfil de la red"/>
+                        <Button x:Name="btnInvEje"  Style="{StaticResource Boton}" Background="{StaticResource brAgua}"
+                                Content="🔄  Invertir dirección del eje"/>
+                        <Button x:Name="btnRasante" Style="{StaticResource Boton}" Background="{StaticResource brAgua}"
+                                Content="📈  Hacer que una línea siga una RASANTE"/>
+
+                        <TextBlock Text="Elemento a colocar:" Foreground="{StaticResource brTextoTenue}"
+                                   FontSize="11" Margin="2,10,0,3"/>
+                        <ComboBox x:Name="cboElemento" SelectedIndex="0" Height="28" FontSize="12" Padding="6,2">
+                            <ComboBoxItem>Codo</ComboBoxItem>
+                            <ComboBoxItem>Tee</ComboBoxItem>
+                            <ComboBoxItem>Cruz</ComboBoxItem>
+                            <ComboBoxItem>Reductor</ComboBoxItem>
+                            <ComboBoxItem>Tapon</ComboBoxItem>
+                            <ComboBoxItem>Union</ComboBoxItem>
+                            <ComboBoxItem>Wye</ComboBoxItem>
+                            <ComboBoxItem>Valvula</ComboBoxItem>
+                            <ComboBoxItem>Hidrante</ComboBoxItem>
+                        </ComboBox>
+                        <Button x:Name="btnElemento" Style="{StaticResource Boton}" Background="{StaticResource brAgua}"
+                                Content="🔧  Colocar elemento seleccionado" Margin="0,6,0,3"/>
+                        <Button x:Name="btnUnir"     Style="{StaticResource Boton}" Background="{StaticResource brAgua}"
+                                Content="🔗  Unir 2 tuberías (con accesorio)"/>
+                        <Button x:Name="btnUnirVarias" Style="{StaticResource Boton}" Background="{StaticResource brAgua}"
+                                Content="✳️  Unir 3-4 tuberías (Tee/Cruz)"/>
+                        <Button x:Name="btnRamificar" Style="{StaticResource Boton}" Background="{StaticResource brAgua}"
+                                Content="🚿  Ramificar (hidrante/válvula)"/>
+                        <Button x:Name="btnDescribir" Style="{StaticResource Boton}" Background="{StaticResource brAgua}"
+                                Content="🏷️  Nombrar pieza (descripción)"/>
+                    </StackPanel>
+                </Border>
+
+                <!-- 3) SALIDA -->
+                <Border Style="{StaticResource Tarjeta}">
+                    <StackPanel>
+                        <TextBlock Style="{StaticResource TituloSeccion}" Text="③ SALIDA"/>
+                        <Button x:Name="btnSolidos" Style="{StaticResource Boton}" Background="{StaticResource brAmbar}"
+                                Content="🧊  Extraer sólidos 3D (toda la red)"/>
+                        <Button x:Name="btnSolidoPieza" Style="{StaticResource Boton}" Background="{StaticResource brAmbar}"
+                                Content="🧊  Extraer sólido de piezas elegidas"/>
+                        <Button x:Name="btnExcel"   Style="{StaticResource Boton}" Background="{StaticResource brAmbar}"
+                                Content="📊  Exportar datos a Excel (CSV)"/>
+                        <Button x:Name="btnPropSet" Style="{StaticResource Boton}" Background="{StaticResource brAmbar}"
+                                Content="🏷️  Adjuntar Property Set (ventana)"/>
+                    </StackPanel>
+                </Border>
+
+                <TextBlock Text="Cada botón lanza su comando en el dibujo activo."
+                           Foreground="{StaticResource brTextoTenue}" FontSize="10.5"
+                           TextAlignment="Center" Margin="0,2,0,4"/>
+
+            </StackPanel>
+        </ScrollViewer>
+    </Border>
+</UserControl>

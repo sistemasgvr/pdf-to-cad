@@ -407,14 +407,14 @@ def _run_color(page, dxf_doc, img, zoom, to_cad, scale):
     msp = dxf_doc.modelspace()
     n_geom = 0
     per_layer = {}
-    for layer, ranges in C.RASTER_COLOR_RANGES.items():
-        ensure_layer(dxf_doc, layer)
+    ensure_layer(dxf_doc, "EJE_VIA")
+    for _layer, ranges in C.RASTER_COLOR_RANGES.items():
         mask = color_mask(hsv, ranges)
-        params = C.RASTER_HOUGH.get(layer, C.RASTER_HOUGH["default"])
+        params = C.RASTER_HOUGH.get(_layer, C.RASTER_HOUGH["default"])
         merged = merge_segments_px(detect_lines(mask, params))
-        per_layer[layer] = len(merged)
+        per_layer["EJE_VIA"] = per_layer.get("EJE_VIA", 0) + len(merged)
         for (p0, p1) in merged:
-            msp.add_line(to_cad(*p0), to_cad(*p1), dxfattribs={"layer": layer})
+            msp.add_line(to_cad(*p0), to_cad(*p1), dxfattribs={"layer": "EJE_VIA"})
             n_geom += 1
 
     ensure_layer(dxf_doc, "TEXTO")

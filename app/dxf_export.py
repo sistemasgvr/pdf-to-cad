@@ -11,7 +11,8 @@ import config as C
 import vector_pipeline as VP
 from ezdxf.enums import TextEntityAlignment
 from geometry import point_in_poly
-from model import LEADER_TEXT_FT
+from model import (LEADER_TEXT_FT, network_kind, default_network_type,
+                   mannings_n, COVER_MIN_FT)
 
 
 def text_style(doc, font, bold):
@@ -27,21 +28,41 @@ def merge_into(win, doc, marks=True):
     apply_erase(win, msp)                             # las zonas de borrado recortan el plano base
     if not marks:                                     # 'solo PDF': no agregar utilidades/leaders/textos
         return
-    if "PDFCAD" not in doc.appids: doc.appids.add("PDFCAD")   # para XDATA de propiedades
+    if "PDFCAD" not in doc.appids: doc.appids.add("PDFCAD")
+    work_unit = getattr(win, 'work_unit', 'ft')
     for p in win.pipes:
-        if not p.get("pts"): continue                 # tramos importados (world): van al JSON de red, no al DXF
         layer = p["layer"]; VP.ensure_layer(doc, layer)
-        # El linetype con letra (─ W ─, ─ SS ─…) se aplica SOLO a la entidad que dibujas,
-        # NO a la capa: así el contenido del plano base (en la misma capa) no se restilea.
-        lt = C.LAYER_LINETYPE_AB.get(layer) if p.get("ab") else C.LAYER_LINETYPE.get(layer)
         att = {"layer": layer}
-        if lt and lt in doc.linetypes: att["linetype"] = lt
-        poly = msp.add_lwpolyline([win._to_cad(x, y) for (x, y) in p["pts"]], dxfattribs=att)
-        # Propiedades de la utilidad como dato (XDATA)
-        if p.get("name") or p.get("diam"):
-            poly.set_xdata("PDFCAD", [(1000, f"NOMBRE={p.get('name', '')}"),
-                                      (1000, f"DIAMETRO={p.get('diam', 0)}"),
-                                      (1000, f"UNIDAD={p.get('unit', '')}")])
+        if p.get("world") and p.get("wstart") and p.get("wend"):
+            pts_cad = [tuple(p["wstart"]), tuple(p["wend"])]
+        elif p.get("pts"):
+            lt = C.LAYER_LINETYPE_AB.get(layer) if p.get("ab") else C.LAYER_LINETYPE.get(layer)
+            if lt and lt in doc.linetypes: att["linetype"] = lt
+            pts_cad = [win._to_cad(x, y) for (x, y) in p["pts"]]
+        else:
+            continue
+        poly = msp.add_lwpolyline(pts_cad, dxfattribs=att)
+        kind = network_kind(layer)
+        nt_raw = (p.get("net_type") or "").strip()
+        net_type = nt_raw if nt_raw in ("pipe", "pressure") else default_network_type(layer)
+        inv_s = p.get("inv_start")
+        inv_e = p.get("inv_end")
+        mat = p.get('material') or ''
+        manning = mannings_n(mat)
+        cover = COVER_MIN_FT.get(layer, 3.0)
+        poly.set_xdata("PDFCAD", [
+            (1000, "PDFCAD_PIPE"),
+            (1000, f"DIAMETER={p.get('diam') or 0}"),
+            (1000, f"UNIT={work_unit}"),
+            (1000, f"MATERIAL={mat}"),
+            (1000, f"NET_KIND={kind}"),
+            (1000, f"NET_TYPE={net_type}"),
+            (1000, f"INV_START={inv_s if inv_s is not None else ''}"),
+            (1000, f"INV_END={inv_e if inv_e is not None else ''}"),
+            (1000, f"MANNINGS_N={manning}"),
+            (1000, f"COVER_MIN={cover}"),
+        ])
+    _export_structures(win, doc, msp)
     VP.ensure_layer(doc, "ANOTACION")
     if "CAD_TEXT" not in doc.styles: doc.styles.add("CAD_TEXT", font=C.TEXT_FONT)
     for ld in win.leaders:
@@ -187,3 +208,22 @@ def replace_text(win, doc, msp, tm):
             if x0 <= ins.x <= x1 and y0 <= ins.y <= y1: msp.delete_entity(e)
     t = msp.add_text(tm["text"], height=LEADER_TEXT_FT, dxfattribs={"layer": "ANOTACION", "style": "CAD_TEXT"})
     t.set_placement(win._to_cad(tm["pos"][0], tm["pos"][1]), align=TextEntityAlignment.MIDDLE_CENTER)
+
+
+def _export_structures(win, doc, msp):
+    structs = getattr(win, 'structures', None)
+    if not structs: return
+    VP.ensure_layer(doc, "PDFCAD_BZ")
+    for s in structs:
+        x, y = s.get("x"), s.get("y")
+        if x is None or y is None: continue
+        cx, cy = (float(x), float(y)) if s.get("world") else win._to_cad(x, y)
+        pt = msp.add_point((cx, cy, 0), dxfattribs={"layer": "PDFCAD_BZ"})
+        rim, sump = s.get("rim"), s.get("sump")
+        pt.set_xdata("PDFCAD", [
+            (1000, "PDFCAD_STRUCT"),
+            (1000, f"STRUCT_ID={s.get('cod') or ''}"),
+            (1000, f"RIM={rim if rim is not None else ''}"),
+            (1000, f"SUMP={sump if sump is not None else ''}"),
+            (1000, f"PART={s.get('part') or ''}"),
+        ])

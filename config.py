@@ -96,7 +96,7 @@ USE_CUSTOM_LINETYPES = True
 LAYER_LINETYPE = {
     "AGUA":            "UTIL_W",     # ─W─W─
     "ALCANTARILLADO":  "UTIL_SS",    # ─SS─SS─
-    "DRENAJE_PLUVIAL": "UTIL_SD",    # ─SD─SD─
+    "DRENAJE":         "UTIL_SD",    # ─SD─SD─
     "GAS":             "UTIL_G",     # ─G─G─
     "ELECTRICO":       "UTIL_E",     # ─E─E─
     "ELECTRICO_AEREO": "UTIL_EOH",   # ─E(OH)─

@@ -1755,29 +1755,28 @@ def run(page, dxf_doc):
     # Metadata del membrete -> XDATA en capa METADATA (el cajetín no se dibuja).
     add_metadata_entity(msp, dxf_doc, T, page, metadata)
 
-    # Adjuntar la nomenclatura (validada/expandida) a la línea de tubería cercana.
-    n_xd = attach_callout_xdata(msp, dxf_doc, T)
-    if n_xd:
-        print(f"   Nomenclatura adjuntada a {n_xd} líneas (XDATA appid PDFCAD)")
+    # En PLAIN_MODE la clasificación de utilidades la hace el usuario manualmente
+    # en la interfaz; aquí solo se digitaliza la geometría tal cual.
+    if not getattr(C, "PLAIN_MODE", False):
+        n_xd = attach_callout_xdata(msp, dxf_doc, T)
+        if n_xd:
+            print(f"   Nomenclatura adjuntada a {n_xd} líneas (XDATA appid PDFCAD)")
 
-    if callouts:
-        import callout_ocr
-        n_text = callout_ocr.add_text_layer(msp, dxf_doc, callouts)
-        print(f"   OCR de callouts: {len(text_boxes)} textos suprimidos, "
-              f"{len(callouts)} etiquetas colocadas (cotas omitidas)")
-        print(f"   Utilidades clasificadas por flecha+texto: {dict(n_clf)}")
+        if callouts:
+            import callout_ocr
+            n_text = callout_ocr.add_text_layer(msp, dxf_doc, callouts)
+            print(f"   OCR de callouts: {len(text_boxes)} textos suprimidos, "
+                  f"{len(callouts)} etiquetas colocadas (cotas omitidas)")
 
-    # MARCAS de color -> transferir a la línea negra de abajo (autoritativo).
-    if not has_ocg:
-        overlays = collect_overlays(paths, T)
-        if overlays:
-            n_ov = reassign_under_overlays(msp, dxf_doc, T, overlays)
-            print(f"   Marcas de color transferidas a la línea de abajo: {dict(n_ov)}")
+        if not has_ocg:
+            overlays = collect_overlays(paths, T)
+            if overlays:
+                n_ov = reassign_under_overlays(msp, dxf_doc, T, overlays)
+                print(f"   Marcas de color transferidas a la línea de abajo: {dict(n_ov)}")
 
-    # Líneas ABANDONADAS -> extender el gris a las rayas EXIS vecinas.
-    n_ab = recolor_abandoned(msp, dxf_doc, T)
-    if n_ab:
-        print(f"   Líneas abandonadas -> gris: {n_ab} entidades arrastradas por proximidad")
+        n_ab = recolor_abandoned(msp, dxf_doc, T)
+        if n_ab:
+            print(f"   Líneas abandonadas -> gris: {n_ab} entidades arrastradas por proximidad")
 
     mb = page.mediabox
     if page.rotation in (90, 270):

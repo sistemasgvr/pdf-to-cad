@@ -1,0 +1,147 @@
+<UserControl x:Class="Civil3DBasico.PanelCorredor"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             FontFamily="Segoe UI">
+
+    <UserControl.Resources>
+        <Color x:Key="cIndigo">#FF4C6EF5</Color>
+        <Color x:Key="cViol">#FF8B5CF6</Color>
+        <Color x:Key="cNaranja">#FFE8590C</Color>
+
+        <SolidColorBrush x:Key="brFondo"      Color="#FF14162B"/>
+        <SolidColorBrush x:Key="brTarjeta"    Color="#FF232544"/>
+        <SolidColorBrush x:Key="brBorde"      Color="#FF33365C"/>
+        <SolidColorBrush x:Key="brIndigo"     Color="{StaticResource cIndigo}"/>
+        <SolidColorBrush x:Key="brViol"       Color="{StaticResource cViol}"/>
+        <SolidColorBrush x:Key="brNaranja"    Color="{StaticResource cNaranja}"/>
+        <SolidColorBrush x:Key="brTexto"      Color="#FFEDEFFB"/>
+        <SolidColorBrush x:Key="brTextoTenue" Color="#FF9AA0C7"/>
+
+        <Style x:Key="Boton" TargetType="Button">
+            <Setter Property="Foreground" Value="White"/>
+            <Setter Property="FontSize" Value="12.5"/>
+            <Setter Property="FontWeight" Value="SemiBold"/>
+            <Setter Property="Height" Value="36"/>
+            <Setter Property="Margin" Value="0,3"/>
+            <Setter Property="Cursor" Value="Hand"/>
+            <Setter Property="Background" Value="{StaticResource brIndigo}"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="Button">
+                        <Grid>
+                            <Border x:Name="fondo" CornerRadius="8" Background="{TemplateBinding Background}"/>
+                            <Border x:Name="ov" CornerRadius="8" Background="White" Opacity="0"/>
+                            <ContentPresenter Margin="13,0" VerticalAlignment="Center" HorizontalAlignment="Left"/>
+                        </Grid>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True"><Setter TargetName="ov" Property="Opacity" Value="0.16"/></Trigger>
+                            <Trigger Property="IsPressed" Value="True"><Setter TargetName="ov" Property="Opacity" Value="0.30"/></Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
+        <Style x:Key="Tarjeta" TargetType="Border">
+            <Setter Property="Background" Value="{StaticResource brTarjeta}"/>
+            <Setter Property="BorderBrush" Value="{StaticResource brBorde}"/>
+            <Setter Property="BorderThickness" Value="1"/>
+            <Setter Property="CornerRadius" Value="12"/>
+            <Setter Property="Padding" Value="13"/>
+            <Setter Property="Margin" Value="0,0,0,12"/>
+        </Style>
+    </UserControl.Resources>
+
+    <Border Background="{StaticResource brFondo}">
+        <ScrollViewer VerticalScrollBarVisibility="Auto" Padding="14,14,10,14">
+            <StackPanel>
+
+                <!-- Cabecera -->
+                <StackPanel Margin="2,0,0,14">
+                    <StackPanel Orientation="Horizontal">
+                        <TextBlock Text="🛣️" FontSize="23" VerticalAlignment="Center" Margin="0,0,9,0"/>
+                        <TextBlock Text="Corredores" Foreground="{StaticResource brTexto}"
+                                   FontSize="19" FontWeight="Bold" VerticalAlignment="Center"/>
+                    </StackPanel>
+                    <TextBlock Text="Obra lineal · eje + perfil automáticos"
+                               Foreground="{StaticResource brTextoTenue}" FontSize="11" Margin="0,3,0,0"/>
+                    <Border Height="3" CornerRadius="2" Margin="0,10,0,0">
+                        <Border.Background>
+                            <LinearGradientBrush StartPoint="0,0" EndPoint="1,0">
+                                <GradientStop Color="{StaticResource cIndigo}" Offset="0"/>
+                                <GradientStop Color="{StaticResource cViol}" Offset="0.6"/>
+                                <GradientStop Color="{StaticResource cNaranja}" Offset="1"/>
+                            </LinearGradientBrush>
+                        </Border.Background>
+                    </Border>
+                </StackPanel>
+
+                <!-- 1) CREAR CORREDOR -->
+                <Border Style="{StaticResource Tarjeta}">
+                    <StackPanel>
+                        <StackPanel Orientation="Horizontal" Margin="0,0,0,4">
+                            <Border Width="4" CornerRadius="2" Background="{StaticResource brIndigo}" Margin="0,1,9,1"/>
+                            <StackPanel>
+                                <TextBlock Text="1 · CREAR CORREDOR" Foreground="{StaticResource brTexto}" FontSize="12.5" FontWeight="Bold"/>
+                                <TextBlock Text="Crea eje + perfil y pide el assembly" Foreground="{StaticResource brTextoTenue}" FontSize="10.5"/>
+                            </StackPanel>
+                        </StackPanel>
+                        <Button x:Name="btnCorredor"     Style="{StaticResource Boton}" Background="{StaticResource brIndigo}"
+                                Content="⭐  Corredor (desde polilínea 2D/3D)"/>
+                        <Button x:Name="btnCorredorCogo" Style="{StaticResource Boton}" Background="{StaticResource brIndigo}"
+                                Content="📍  Corredor desde COGOPOINTS"/>
+                        <Button x:Name="btnTramos"       Style="{StaticResource Boton}" Background="{StaticResource brIndigo}"
+                                Content="📐  Corredor por TRAMOS (esquinas 90°)"/>
+                        <Button x:Name="btnRegiones"     Style="{StaticResource Boton}" Background="{StaticResource brIndigo}"
+                                Content="📏  Corredor por REGIONES"/>
+                    </StackPanel>
+                </Border>
+
+                <!-- 2) EJE Y PERFIL -->
+                <Border Style="{StaticResource Tarjeta}">
+                    <StackPanel>
+                        <StackPanel Orientation="Horizontal" Margin="0,0,0,4">
+                            <Border Width="4" CornerRadius="2" Background="{StaticResource brViol}" Margin="0,1,9,1"/>
+                            <StackPanel>
+                                <TextBlock Text="2 · EJE Y PERFIL" Foreground="{StaticResource brTexto}" FontSize="12.5" FontWeight="Bold"/>
+                                <TextBlock Text="Sentido del eje y perfiles" Foreground="{StaticResource brTextoTenue}" FontSize="10.5"/>
+                            </StackPanel>
+                        </StackPanel>
+                        <Button x:Name="btnInvEje"  Style="{StaticResource Boton}" Background="{StaticResource brViol}"
+                                Content="🔄  Invertir dirección del eje"/>
+                        <Button x:Name="btnPerfil"  Style="{StaticResource Boton}" Background="{StaticResource brViol}"
+                                Content="📉  Crear perfil (terreno + vista)"/>
+                        <Button x:Name="btnRasante" Style="{StaticResource Boton}" Background="{StaticResource brViol}"
+                                Content="📈  Dibujar rasante en la vista"/>
+                    </StackPanel>
+                </Border>
+
+                <!-- 3) TARGETS Y SALIDA -->
+                <Border Style="{StaticResource Tarjeta}">
+                    <StackPanel>
+                        <StackPanel Orientation="Horizontal" Margin="0,0,0,4">
+                            <Border Width="4" CornerRadius="2" Background="{StaticResource brNaranja}" Margin="0,1,9,1"/>
+                            <StackPanel>
+                                <TextBlock Text="3 · TARGETS Y SALIDA" Foreground="{StaticResource brTexto}" FontSize="12.5" FontWeight="Bold"/>
+                                <TextBlock Text="Objetivos, superficie y sólidos" Foreground="{StaticResource brTextoTenue}" FontSize="10.5"/>
+                            </StackPanel>
+                        </StackPanel>
+                        <Button x:Name="btnTargets" Style="{StaticResource Boton}" Background="{StaticResource brNaranja}"
+                                Content="🎯  Asignar targets a un corredor"/>
+                        <Button x:Name="btnSupCor"  Style="{StaticResource Boton}" Background="{StaticResource brNaranja}"
+                                Content="🗺️  Crear superficie del corredor"/>
+                        <Button x:Name="btnSolidos" Style="{StaticResource Boton}" Background="{StaticResource brNaranja}"
+                                Content="🧊  Extraer sólidos 3D"/>
+                        <Button x:Name="btnSolCsv"  Style="{StaticResource Boton}" Background="{StaticResource brNaranja}"
+                                Content="📊  Exportar relación de sólidos (CSV)"/>
+                    </StackPanel>
+                </Border>
+
+                <TextBlock Text="Cada botón lanza su comando en el dibujo activo."
+                           Foreground="{StaticResource brTextoTenue}" FontSize="10.5"
+                           TextAlignment="Center" Margin="0,2,0,4"/>
+
+            </StackPanel>
+        </ScrollViewer>
+    </Border>
+</UserControl>

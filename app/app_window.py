@@ -23,7 +23,8 @@ from geometry import point_in_poly, qimage_to_gray
 from ocr import OcrWorker, IcrWorker
 from model import (VERSION, TIPOS, ACI_RGB, LEADER_TEXT_FT, LEADER_ORIENT,
                    Z_PDF, Z_ERASE, Z_MARK, Z_HANDLE, GRAVITY_LAYERS,
-                   TAB_PIPE, TAB_ML, TAB_LEADER, TAB_TEXT, TAB_REGION, CHANGELOG)
+                   TAB_PIPE, TAB_ML, TAB_LEADER, TAB_TEXT, TAB_REGION,
+                   WORK_UNITS, DEFAULT_WORK_UNIT, is_valid_work_unit, CHANGELOG)
 
 DOWNLOADS = os.path.join(os.path.expanduser("~"), "Downloads")
 BTN_ON = "background:#2e9e4f;color:white;font-weight:bold;padding:8px;border-radius:4px;"
@@ -183,6 +184,7 @@ class Main(QtWidgets.QMainWindow):
         self._editor = None; self._undo, self._redo, self._overlay = [], [], []
         self._dirty = False; self._style_guard = False; self._prop_guard = False; self._clip = None
         self.georef = georef_mod.Georef()          # georreferenciación (píxel→UTM); inactiva por defecto
+        self.work_unit = DEFAULT_WORK_UNIT          # unidad de trabajo del proyecto: 'ft' o 'in' (obligatoria)
         self._build_ui(); self._apply_style(); self._shortcuts(); self._update_ui()
 
     # ─────────────────────────── UI ───────────────────────────
@@ -217,6 +219,16 @@ class Main(QtWidgets.QMainWindow):
         tb.addSeparator()
         self.chk_snap = QtWidgets.QCheckBox("Imán al trazo"); self.chk_snap.toggled.connect(self._toggle_snap); tb.addWidget(self.chk_snap)
         spacer = QtWidgets.QWidget(); spacer.setSizePolicy(QtWidgets.QSizePolicy.Expanding, QtWidgets.QSizePolicy.Preferred); tb.addWidget(spacer)
+        # Selector de UNIDAD DE TRABAJO (obligatorio para la red 3D): pies o pulgadas.
+        # QComboBox lista opciones ("addItem(texto, datoOculto)") y con currentData()
+        # leemos el "dato oculto" — aquí lo usamos como código corto ("ft"/"in").
+        tb.addWidget(QtWidgets.QLabel(" Unidad de red: "))
+        self.unit_combo = QtWidgets.QComboBox()
+        self.unit_combo.addItem("Pies (ft)", "ft"); self.unit_combo.addItem("Pulgadas (in)", "in")
+        self.unit_combo.setToolTip("Unidad en la que se ingresan cotas y diámetros, y en la que se exporta la red 3D (JSON). NO se usan metros.")
+        self.unit_combo.currentIndexChanged.connect(self._on_unit_change)
+        tb.addWidget(self.unit_combo)
+        tb.addSeparator()
         self.btn_export = QtWidgets.QToolButton()
         self.btn_export.setText("⭳  Exportar DXF  ▾")
         self.btn_export.setPopupMode(QtWidgets.QToolButton.InstantPopup)
@@ -291,6 +303,8 @@ class Main(QtWidgets.QMainWindow):
         # asocia a cada opción un "dato oculto" que recuperamos con currentData().
         self.gt = QtWidgets.QWidget(); lgt = QtWidgets.QVBoxLayout(self.gt); lgt.setContentsMargins(0, 0, 0, 0)
         self.type_combo = QtWidgets.QComboBox()
+        self.type_combo.setSizePolicy(QtWidgets.QSizePolicy.Ignored, QtWidgets.QSizePolicy.Fixed)
+        self.type_combo.setSizeAdjustPolicy(QtWidgets.QComboBox.AdjustToMinimumContentsLengthWithIcon)
         for label, layer in TIPOS:
             self.type_combo.addItem(swatch_icon(layer_qcolor(layer)), label, layer)
         self.type_combo.setCurrentIndex(0); self.type_combo.currentIndexChanged.connect(lambda _: self._redraw())
@@ -323,6 +337,7 @@ class Main(QtWidgets.QMainWindow):
         self.gtxt = QtWidgets.QGroupBox("Estilo de texto"); lgx = QtWidgets.QVBoxLayout(self.gtxt)
         # QFontComboBox = combo que lista todas las fuentes instaladas en el sistema.
         self.font_combo = QtWidgets.QFontComboBox(); self.font_combo.setCurrentFont(QtGui.QFont(C.TEXT_FONT))
+        self.font_combo.setSizePolicy(QtWidgets.QSizePolicy.Ignored, QtWidgets.QSizePolicy.Fixed)
         self.font_combo.currentFontChanged.connect(lambda _: self._style_changed())
         r = QtWidgets.QHBoxLayout(); r.addWidget(QtWidgets.QLabel("Altura (pies):"))
         b_minus = QtWidgets.QPushButton("−"); b_minus.setFixedWidth(30); b_minus.clicked.connect(lambda: self._bump_size(-0.5))
@@ -409,44 +424,52 @@ class Main(QtWidgets.QMainWindow):
         # ── Sección: Borrar zona ──
         p, l = _page("▭  Borrar zona", "erase")
         l.addWidget(self.btn_erase)
-        l.addWidget(QtWidgets.QLabel("<i>Clic para agregar vértices, Enter cierra.\n"
-                                     "Al exportar borra el plano dentro del polígono.</i>"))
+        _lbl = QtWidgets.QLabel("<i>Clic para agregar vértices, Enter cierra. "
+                                     "Al exportar borra el plano dentro del polígono.</i>")
+        _lbl.setWordWrap(True); l.addWidget(_lbl)
         self._slot_gcur_erase = QtWidgets.QVBoxLayout(); l.addLayout(self._slot_gcur_erase)  # slot: gcur al borrar
         l.addStretch(1)
 
         # ── Sección: Georreferenciación ──
         p, l = _page("🌍  Georreferenciación", "georef")
         l.addWidget(b_geo); l.addWidget(b_geo_off)
-        l.addWidget(QtWidgets.QLabel(
+        _lbl = QtWidgets.QLabel(
             "<i>Calzar el plano sobre imagen satelital te da coordenadas UTM <b>aproximadas</b> "
             "(útiles para anteproyecto, NO grado construcción). El dato topográfico real "
-            "viene del levantamiento/Excel.</i>"))
+            "viene del levantamiento/Excel.</i>")
+        _lbl.setWordWrap(True); l.addWidget(_lbl)
         l.addStretch(1)
 
         # ── Sección: Cotas y red 3D ──
         p, l = _page("📐  Cotas y red 3D", "net")
         l.addWidget(b_bz); l.addWidget(b_xls)
-        l.addWidget(QtWidgets.QLabel(
+        _lbl = QtWidgets.QLabel(
             "<i>Los buzones aparecen automáticamente al dibujar tuberías de gravedad "
             "(alcantarillado/drenaje) — cada vértice es un buzón. Aquí gestionas su "
             "Cod, rim (tapa) y sump (fondo). También puedes IMPORTAR un Excel con "
-            "hojas BUZONES y TUBERIAS (encabezados en fila 5).</i>"))
+            "hojas BUZONES y TUBERIAS (encabezados en fila 5).</i>")
+        _lbl.setWordWrap(True); l.addWidget(_lbl)
         l.addStretch(1)
 
         # ── Sección: Reconocimiento (OCR / ICR) ──
         p, l = _page("🔤  Reconocimiento de texto", "ocr")
         l.addWidget(self.chk_txt); l.addWidget(self.chk_icr)
-        l.addWidget(QtWidgets.QLabel(
-            "<i>OCR = texto impreso (Tesseract).  ICR = manuscrita (EasyOCR, offline).\n"
+        _lbl = QtWidgets.QLabel(
+            "<i>OCR = texto impreso (Tesseract).  ICR = manuscrita (EasyOCR, offline). "
             "Aparecen recuadros amarillos sobre el plano; clic en uno para corregir "
-            "el texto reconocido.</i>"))
+            "el texto reconocido.</i>")
+        _lbl.setWordWrap(True); l.addWidget(_lbl)
         l.addStretch(1)
 
         # Al abrir una sección del acordeón: reparenta los widgets compartidos y
         # regresa el modo a "idle" (así no quedan mezclados los estados).
         self.toolbox.currentChanged.connect(self._on_toolbox_change)
 
-        lv.addWidget(self.toolbox, 1)
+        scroll = QtWidgets.QScrollArea()
+        scroll.setWidget(self.toolbox)
+        scroll.setWidgetResizable(True)
+        scroll.setHorizontalScrollBarPolicy(QtCore.Qt.ScrollBarAlwaysOff)
+        lv.addWidget(scroll, 1)
         ldock.setWidget(left); ldock.setMinimumWidth(260)
         self.addDockWidget(QtCore.Qt.LeftDockWidgetArea, ldock)
 
@@ -479,8 +502,12 @@ class Main(QtWidgets.QMainWindow):
         self.prop_name = QtWidgets.QLineEdit(); self.prop_name.editingFinished.connect(self._prop_changed)
         self.prop_diam = QtWidgets.QDoubleSpinBox(); self.prop_diam.setRange(0, 100000); self.prop_diam.setDecimals(2)
         self.prop_diam.setButtonSymbols(QtWidgets.QAbstractSpinBox.NoButtons); self.prop_diam.valueChanged.connect(lambda _: self._prop_changed())
-        self.prop_unit = QtWidgets.QComboBox(); self.prop_unit.addItems(["pulg", "pies"]); self.prop_unit.currentTextChanged.connect(lambda _: self._prop_changed())
-        fpr.addRow("Nombre:", self.prop_name); fpr.addRow("Diámetro:", self.prop_diam); fpr.addRow("Unidad:", self.prop_unit)
+        # El diámetro va SIEMPRE en la unidad de trabajo del proyecto (ft o in) —
+        # ya no hay combo per-pipe: la unidad la manda self.work_unit. La label
+        # "Diámetro (ft):" / "(in):" se actualiza cuando el usuario cambia la
+        # unidad global (ver _refresh_unit_labels).
+        fpr.addRow("Nombre:", self.prop_name)
+        self.lbl_prop_diam = QtWidgets.QLabel("Diámetro (ft):"); fpr.addRow(self.lbl_prop_diam, self.prop_diam)
         # Campos de la utilidad usados por el JSON de red 3.0 y por el DXF:
         #   - material: texto libre (p.ej. "HDPE"); viaja al JSON como `material`.
         #   - part (pieza): nombre del tipo de pieza; viaja al JSON como `part`.
@@ -503,8 +530,9 @@ class Main(QtWidgets.QMainWindow):
             sp.valueChanged.connect(lambda _: self._prop_changed())
         fpr.addRow("Material:", self.prop_material)
         fpr.addRow("Tipo de red:", self.prop_nettype)
-        self.row_inv0 = fpr.addRow("Invert inicio (m):", self.prop_inv0)
-        fpr.addRow("Invert fin (m):", self.prop_inv1)
+        # Labels dinámicas: se recomponen al cambiar la unidad de trabajo.
+        self.lbl_prop_inv0 = QtWidgets.QLabel("Invert inicio (ft):"); fpr.addRow(self.lbl_prop_inv0, self.prop_inv0)
+        self.lbl_prop_inv1 = QtWidgets.QLabel("Invert fin (ft):");   fpr.addRow(self.lbl_prop_inv1, self.prop_inv1)
         fpr.addRow("Part (pieza):", self.prop_part)
         rv.addWidget(self.gprop)
         rr = QtWidgets.QGridLayout()
@@ -526,7 +554,8 @@ class Main(QtWidgets.QMainWindow):
         self.lbl_info = QtWidgets.QLabel(""); self.lbl_info.setStyleSheet("color:#8c909f;"); self.status.addWidget(self.lbl_info, 1)
         self.lbl_snap = QtWidgets.QLabel("Imán: OFF"); self.lbl_coords = QtWidgets.QLabel("X —  Y —")
         self.lbl_scale = QtWidgets.QLabel("Escala —"); self.lbl_geo = QtWidgets.QLabel("Georref: no")
-        for w in (self.lbl_snap, self.lbl_coords, self.lbl_scale, self.lbl_geo):
+        self.lbl_unit = QtWidgets.QLabel(f"Unidad: {self.work_unit}")
+        for w in (self.lbl_snap, self.lbl_coords, self.lbl_scale, self.lbl_geo, self.lbl_unit):
             w.setStyleSheet("color:#c2c6d6;"); self.status.addPermanentWidget(w)
         self.canvas.moved.connect(self._update_coords)
         self._update_geo_status()
@@ -535,6 +564,7 @@ class Main(QtWidgets.QMainWindow):
         # Todo listo: coloca los widgets compartidos del acordeón en la sección
         # inicial (esto necesita que self.tabs, self.gprop y self.lbl_mode existan).
         self._on_toolbox_change(self.toolbox.currentIndex())
+        self._refresh_unit_labels()                # etiquetas de campo con la unidad activa
 
     def _menu_act(self, menu, text, fn, sc=None):
         a = QtGui.QAction(text, self); a.triggered.connect(fn)
@@ -832,6 +862,7 @@ class Main(QtWidgets.QMainWindow):
             model = dict(pipes=self.pipes, leaders=self.leaders, text_marks=self.text_marks,
                          erase_regions=self.erase_regions, structures=self.structures,
                          georef=self.georef.to_dict(),
+                         work_unit=self.work_unit,                # unidad de trabajo del proyecto
                          tf=dict(scale=self.scale, zoom=self.zoom, rot=self.rot, W=self.W, H=self.H,
                                  derot=[self.derot.a, self.derot.b, self.derot.c, self.derot.d, self.derot.e, self.derot.f]),
                          pdf_name=os.path.basename(self.pdf_path or ""), version=VERSION)
@@ -839,8 +870,28 @@ class Main(QtWidgets.QMainWindow):
             self.canvas.pixmap_item.pixmap().save(buf, "PNG")
             with zipfile.ZipFile(path, "w", zipfile.ZIP_DEFLATED) as z:
                 z.writestr("model.json", json.dumps(model)); z.writestr("page.png", bytes(ba))
+                pdf_bytes = self._get_pdf_bytes()
+                if pdf_bytes:
+                    z.writestr("source.pdf", pdf_bytes)
             self.project_path = path; self._dirty = False; self._info(f"Proyecto guardado: {os.path.basename(path)}")
         finally: self._unbusy()
+
+    def _get_pdf_bytes(self):
+        if self.doc:
+            try: return self.doc.tobytes(deflate=True)
+            except Exception: pass
+        if self.pdf_path and os.path.isfile(self.pdf_path):
+            try:
+                with open(self.pdf_path, "rb") as f: return f.read()
+            except Exception: pass
+        return None
+
+    def _cleanup_tmp_pdf(self):
+        tmp = getattr(self, '_tmp_pdf', None)
+        if tmp and os.path.isfile(tmp):
+            try: os.remove(tmp)
+            except Exception: pass
+        self._tmp_pdf = None
 
     def save_project(self):
         if self.canvas.pixmap_item is None:
@@ -863,8 +914,15 @@ class Main(QtWidgets.QMainWindow):
         if not self._confirm_discard(): return
         self._busy("Abriendo proyecto…")
         try:
+            self._cleanup_tmp_pdf()
             with zipfile.ZipFile(path) as z:
                 model = json.loads(z.read("model.json")); png = z.read("page.png")
+                if "source.pdf" in z.namelist():
+                    tmp_pdf = path + ".src.pdf"
+                    with open(tmp_pdf, "wb") as fp: fp.write(z.read("source.pdf"))
+                    self._tmp_pdf = tmp_pdf
+                else:
+                    tmp_pdf = None
             qimg = QtGui.QImage.fromData(png, "PNG")
             self._overlay = []; self._close_editor()
             self.canvas.set_image(qimg); self.gray = qimage_to_gray(qimg)
@@ -872,18 +930,34 @@ class Main(QtWidgets.QMainWindow):
             self.W, self.H = tf["W"], tf["H"]; self.derot = fitz.Matrix(*tf["derot"])
             self.pageH_px = qimg.height()
             self.leader_hpx = max(14.0, min(LEADER_TEXT_FT / self.scale * self.zoom, self.pageH_px * 0.05))
-            self.pdf_path = None; self.doc = None; self.project_path = path; self.page_idx = 0
+            if tmp_pdf:
+                self.pdf_path = tmp_pdf; self.doc = fitz.open(tmp_pdf)
+            else:
+                self.pdf_path = None; self.doc = None
+            self.project_path = path; self.page_idx = 0
             self.pipes = model.get("pipes", []); self.leaders = model.get("leaders", [])
             self.text_marks = model.get("text_marks", [])
             self.erase_regions = [r if isinstance(r, dict) else {"pts": r, "enabled": True}
                                   for r in model.get("erase_regions", [])]
             self.structures = model.get("structures", [])   # retrocompat: proyectos viejos sin buzones
             self.georef = georef_mod.Georef.from_dict(model.get("georef"))   # retrocompat: sin georref → escala
+            # Retrocompat de unidad: proyectos anteriores a 0.12 no guardan work_unit.
+            # Si alguna pipe tenía unit="pulg"/"pies", elegimos la unidad más común
+            # para el proyecto (por defecto "ft"). No convertimos los valores.
+            wu = model.get("work_unit")
+            if not is_valid_work_unit(wu):
+                # Heurística: si más de la mitad de las pipes están en pulgadas, "in"; si no, "ft".
+                pulg = sum(1 for p in self.pipes if str(p.get("unit", "")).lower().startswith("pulg"))
+                wu = "in" if (self.pipes and pulg > len(self.pipes) / 2) else "ft"
+            self.work_unit = wu
+            # Anotamos el work_unit en cada pipe (uniforme: no per-pipe unit).
+            for p in self.pipes: p["unit"] = self.work_unit
             self.cur_pts = []; self._erase_pts = []; self.sel_pipe = self.sel_leader = self.sel_region = self.sel_text = -1
             self._undo.clear(); self._redo.clear(); self._dirty = False
             self.ocr_boxes = []; self._tess_boxes = []; self._icr_boxes = []
             self.set_mode("idle"); self._refresh_lists(); self._update_page_label(); self._redraw()
             self.lbl_scale.setText(f"Escala 1\"={self.scale*72:.0f}'"); self._update_geo_status()
+            self._refresh_unit_labels()
             self._info(f"Proyecto abierto ({len(self.pipes)} utilidades). Ctrl+S guarda en este mismo archivo.")
         except Exception as e:
             QtWidgets.QMessageBox.critical(self, "Error", str(e))
@@ -902,6 +976,7 @@ class Main(QtWidgets.QMainWindow):
     def close_project(self):
         if self.canvas.pixmap_item is None: return
         if not self._confirm_discard(): return
+        self._cleanup_tmp_pdf()
         self.canvas.scene().clear(); self.canvas.pixmap_item = None
         self.pdf_path = None; self.doc = None; self.project_path = None; self.gray = None
         self.pipes = []; self.leaders = []; self.text_marks = []; self.erase_regions = []; self.structures = []
@@ -915,7 +990,8 @@ class Main(QtWidgets.QMainWindow):
         self.set_mode("idle"); self._refresh_lists(); self._update_page_label(); self._info("Proyecto cerrado.")
 
     def closeEvent(self, e):
-        if self._confirm_discard(): e.accept()
+        if self._confirm_discard():
+            self._cleanup_tmp_pdf(); e.accept()
         else: e.ignore()
 
     # ─────────────────────────── clics ───────────────────────────
@@ -1199,7 +1275,7 @@ class Main(QtWidgets.QMainWindow):
                 mid = pts[len(pts) // 2]; self.canvas.centerOn(mid[0], mid[1])
             self._prop_guard = True
             self.prop_name.setText(p.get("name", "")); self.prop_diam.setValue(p.get("diam", 0.0) or 0.0)
-            self.prop_unit.setCurrentText(p.get("unit", "pulg")); self.prop_part.setText(p.get("part", ""))
+            self.prop_part.setText(p.get("part", ""))
             self.prop_inv0.setValue(p.get("inv_start") or 0.0); self.prop_inv1.setValue(p.get("inv_end") or 0.0)
             self.prop_material.setText(p.get("material", "") or "")
             # findData busca el índice del combo cuya "data" (dato oculto) coincide
@@ -1350,18 +1426,44 @@ class Main(QtWidgets.QMainWindow):
 
     def _prop_changed(self):
         """Callback: cualquier cambio en el panel Propiedades escribe al modelo.
-        `self._push()` guarda un snapshot para Ctrl+Z (deshacer)."""
+        `self._push()` guarda un snapshot para Ctrl+Z (deshacer).
+        La UNIDAD de diámetro/invert es la del proyecto (self.work_unit), no per-pipe."""
         if self._prop_guard: return
         if self.tabs.currentIndex() == TAB_PIPE and 0 <= self.sel_pipe < len(self.pipes):
             p = self.pipes[self.sel_pipe]; self._push()
             p["name"] = self.prop_name.text().strip(); p["diam"] = self.prop_diam.value()
-            p["unit"] = self.prop_unit.currentText(); p["part"] = self.prop_part.text().strip()
+            p["unit"] = self.work_unit                                  # unidad de trabajo del proyecto
+            p["part"] = self.prop_part.text().strip()
             p["inv_start"] = self.prop_inv0.value(); p["inv_end"] = self.prop_inv1.value()
             p["material"] = self.prop_material.text().strip()
             # currentData devuelve el "dato oculto" del ítem seleccionado del combo
             # (asignado con addItem(texto, dato)). "" = auto; "pipe"/"pressure" = override.
             p["net_type"] = self.prop_nettype.currentData() or ""
             self._refresh_lists()
+
+    # ────────── Unidad de trabajo (ft/in) — obligatoria para la red 3D ──────────
+    def _on_unit_change(self, _idx):
+        """El usuario cambió la unidad de trabajo en el combo de la barra.
+        Recomputamos las etiquetas ("(ft)"/"(in)") pero NO reescalamos datos
+        (el usuario debe ingresar los nuevos valores en la unidad activa)."""
+        new_u = self.unit_combo.currentData()
+        if not is_valid_work_unit(new_u) or new_u == self.work_unit: return
+        self.work_unit = new_u; self._dirty = True
+        self._refresh_unit_labels()
+        self._info(f"Unidad de trabajo cambiada a '{new_u}'. Ingresa cotas y diámetros en esta unidad.")
+
+    def _refresh_unit_labels(self):
+        """Vuelve a escribir las etiquetas de UI que dependen de la unidad activa."""
+        u = self.work_unit
+        if hasattr(self, "lbl_prop_diam"): self.lbl_prop_diam.setText(f"Diámetro ({u}):")
+        if hasattr(self, "lbl_prop_inv0"): self.lbl_prop_inv0.setText(f"Invert inicio ({u}):")
+        if hasattr(self, "lbl_prop_inv1"): self.lbl_prop_inv1.setText(f"Invert fin ({u}):")
+        if hasattr(self, "lbl_unit"): self.lbl_unit.setText(f"Unidad: {u}")
+        # Sincronizar el combo por si se llamó desde carga de proyecto (no del combo).
+        if hasattr(self, "unit_combo"):
+            i = self.unit_combo.findData(u)
+            if i >= 0 and self.unit_combo.currentIndex() != i:
+                self.unit_combo.blockSignals(True); self.unit_combo.setCurrentIndex(i); self.unit_combo.blockSignals(False)
 
     def change_pipe_type(self):
         if 0 <= self.sel_pipe < len(self.pipes):
@@ -1744,9 +1846,9 @@ class Main(QtWidgets.QMainWindow):
         if self.canvas.pixmap_item is None:
             QtWidgets.QMessageBox.information(self, "Nada", "Abre un PDF o proyecto."); return
         need_pdf = mode in ("todo", "pdf")
-        if need_pdf and not self.pdf_path:
+        if need_pdf and (not self.pdf_path or not os.path.isfile(self.pdf_path)):
             QtWidgets.QMessageBox.information(self, "Sin PDF",
-                "No hay un PDF cargado para digitalizar. Se exportarán solo las anotaciones.")
+                "No se encontró el PDF original. Se exportarán solo las anotaciones (utilidades, leaders, textos).")
             mode = "anot"; need_pdf = False
         base = os.path.splitext(os.path.basename(self.pdf_path))[0] if self.pdf_path else "proyecto"
         suffix = {"todo": "_completo", "pdf": "_plano", "anot": "_anotaciones"}[mode]
@@ -1824,7 +1926,8 @@ class Main(QtWidgets.QMainWindow):
         lay.addWidget(QtWidgets.QLabel("Buzones detectados por los extremos de las tuberías de gravedad "
                                        "(extremos compartidos = un mismo buzón). Edita Cod, rim (tapa), sump (fondo) y part."))
         tbl = QtWidgets.QTableWidget(len(self.structures), 5)
-        tbl.setHorizontalHeaderLabels(["Cod", "rim", "sump", "part", "origen"]); tbl.horizontalHeader().setStretchLastSection(True)
+        tbl.setHorizontalHeaderLabels(["Cod", f"rim ({self.work_unit})", f"sump ({self.work_unit})", "part", "origen"])
+        tbl.horizontalHeader().setStretchLastSection(True)
         def setc(r, c, text, editable=True):
             it = QtWidgets.QTableWidgetItem("" if text is None else str(text))
             if not editable: it.setFlags(it.flags() & ~QtCore.Qt.ItemIsEditable)
@@ -1860,16 +1963,26 @@ class Main(QtWidgets.QMainWindow):
         self.structures = [s for s in self.structures if not s.get("world")]
         self.pipes = [p for p in self.pipes if not p.get("world")]
         n_s = n_p = 0
+        # El Excel del cliente viene en METROS (estándar topográfico); pasamos
+        # coordenadas, cotas y diámetros a la unidad de trabajo del proyecto
+        # (ft o in) para que TODO en el modelo esté en la misma unidad que el JSON.
+        u = self.work_unit
+        def to_u(v): return G.convert_length(v, "m", u)
         for name, nd in nets.items():
             for s in nd["structures"]:
-                self.structures.append({"cod": s["cod"], "x": s["x"], "y": s["y"], "rim": s["rim"],
-                                        "sump": s["sump"], "part": s["part"], "net": name, "world": True}); n_s += 1
+                self.structures.append({
+                    "cod": s["cod"], "x": to_u(s["x"]), "y": to_u(s["y"]),
+                    "rim": to_u(s["rim"]), "sump": to_u(s["sump"]),
+                    "part": s["part"], "net": name, "world": True}); n_s += 1
             for pp in nd["pipes"]:
-                self.pipes.append({"layer": "ALCANTARILLADO", "pts": [], "world": True, "net": name,
-                                   "wstart": (pp["xi"], pp["yi"]), "wend": (pp["xf"], pp["yf"]),
-                                   "from": pp["from"], "to": pp["to"], "id": pp["id"], "name": pp["id"],
-                                   "inv_start": pp["zi"], "inv_end": pp["zf"], "diam": pp["diam"] or 0.0,
-                                   "part": pp["part"]}); n_p += 1
+                self.pipes.append({
+                    "layer": "ALCANTARILLADO", "pts": [], "world": True, "net": name,
+                    "wstart": (to_u(pp["xi"]), to_u(pp["yi"])),
+                    "wend":   (to_u(pp["xf"]), to_u(pp["yf"])),
+                    "from": pp["from"], "to": pp["to"], "id": pp["id"], "name": pp["id"],
+                    "inv_start": to_u(pp["zi"]), "inv_end": to_u(pp["zf"]),
+                    "diam": to_u(pp["diam"]) or 0.0, "unit": u,
+                    "part": pp["part"]}); n_p += 1
         self._refresh_lists(); self._redraw()
         msg = f"Importado: {len(nets)} red(es), {n_s} buzones, {n_p} tuberías."
         if warns: msg += "\n\nAvisos:\n- " + "\n- ".join(warns[:12])

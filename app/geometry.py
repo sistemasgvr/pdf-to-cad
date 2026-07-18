@@ -30,6 +30,25 @@ def pt_seg_dist(px, py, ax, ay, bx, by):
     return math.hypot(px - (ax + t * dx), py - (ay + t * dy))
 
 
+def convert_length(v, from_u, to_u):
+    """Convierte una longitud entre unidades.
+
+    Unidades soportadas: 'm' (metros), 'ft' (pies) y 'in' (pulgadas). Es la
+    conversión más simple posible: pasa el valor a metros y luego a la unidad
+    destino. Devuelve None si el valor de entrada es None (evita ensuciar el
+    JSON con ceros artificiales).
+
+    Ejemplos:
+        convert_length(10, 'ft', 'in') -> 120.0
+        convert_length(1, 'm', 'ft')   -> 3.28084…
+    """
+    if v is None:
+        return None
+    # Cuántos metros hay en 1 unidad; pasamos a metros y luego a la unidad destino.
+    m_per = {"m": 1.0, "ft": 0.3048, "in": 0.0254}
+    return v * m_per[from_u] / m_per[to_u]
+
+
 def qimage_to_gray(qimg):
     qimg = qimg.convertToFormat(QtGui.QImage.Format_Grayscale8)
     w, h = qimg.width(), qimg.height(); ptr = qimg.constBits()

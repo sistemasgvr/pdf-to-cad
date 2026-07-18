@@ -7,6 +7,10 @@ un archivo .json (formato JSON, texto plano legible) con la RED completa
 en C#) reconstruya el modelo 3D. El archivo NO reemplaza al DXF; es un
 "gemelo" con los datos de red bien estructurados.
 
+UNIDAD (obligatoria, ft o in): la unidad del proyecto (`win.work_unit`) se
+escribe en `"units"` del JSON y TODAS las coordenadas, cotas y diámetros
+salen en esa unidad. Nunca en metros.
+
 Salida ÚNICA en un solo archivo JSON, con array `networks[]` agrupado por
 (capa, nombre de red). Nunca mezcla capas: agua y drenaje van en redes
 distintas.
@@ -39,6 +43,7 @@ import math
 from collections import OrderedDict
 
 from model import network_kind, default_network_type, layer_color_info
+from geometry import convert_length
 
 
 def _f(v):
@@ -46,6 +51,17 @@ def _f(v):
     if v is None: return None
     try: return round(float(v), 4)
     except (TypeError, ValueError): return None
+
+
+def _project_xy(win, x_px, y_px):
+    """Convierte un punto (píxel de la vista) a coordenada de mundo en la unidad
+    del proyecto (ft o in). El paso intermedio:
+      1) win._to_cad devuelve METROS (si hay georreferencia) o PIES (si no).
+      2) Convertimos ese resultado a win.work_unit ('ft' o 'in')."""
+    xw, yw = win._to_cad(x_px, y_px)
+    src = "m" if win.georef.active() else "ft"
+    return (convert_length(xw, src, win.work_unit),
+            convert_length(yw, src, win.work_unit))
 
 
 def _clean(s):
@@ -82,13 +98,23 @@ def _network_key(p):
 def build_networks(win):
     """Agrupa `win.pipes` por (layer, net); cada polilínea N-vért → N−1 tramos."""
     groups = OrderedDict()
+    warnings = []
     for p in win.pipes:
         # descarta pipes sin geometría útil
         if not p.get("pts") and not (p.get("world") and p.get("wstart") and p.get("wend")):
             continue
         groups.setdefault(_network_key(p), []).append(p)
-
-    warnings = []
+        # Validaciones previas basadas en el modelo interno:
+        name = p.get("name") or p.get("id") or f"({p.get('layer')})"
+        has_s = p.get("inv_start") not in (None, "")
+        has_e = p.get("inv_end") not in (None, "")
+        if has_s and not has_e:
+            warnings.append(f"[{name}] tiene invert de INICIO pero no de FIN.")
+        elif has_e and not has_s:
+            warnings.append(f"[{name}] tiene invert de FIN pero no de INICIO.")
+        # Utilidad de presión (por su capa) marcada como gravedad ("pipe") por el usuario.
+        if network_kind(p["layer"]) == "pressure" and _clean(p.get("net_type")) == "pipe":
+            warnings.append(f"[{name}] es una capa a presión ({p['layer']}) marcada como red con buzones (pipe).")
     networks = []
     layer_counter = {}          # layer → cuántas redes auto-numeradas llevamos
 
@@ -147,7 +173,9 @@ def build_networks(win):
         layer_default_type = default_network_type(layer)
 
         for p in pipes:
-            diameter = {"value": _f(p.get("diam")), "unit": _clean(p.get("unit")) or "m"}
+            # DIÁMETRO: el usuario lo entra en la unidad del proyecto (win.work_unit).
+            # Aquí SIEMPRE va con esa unidad; ignoramos el 'unit' per-pipe legado.
+            diameter = {"value": _f(p.get("diam")), "unit": win.work_unit}
             part = _clean(p.get("part"))
             material = _clean(p.get("material"))          # texto libre del usuario, p.ej. "HDPE"
             # network_type: si el usuario eligió "pipe"/"pressure" lo respetamos;
@@ -160,13 +188,16 @@ def build_networks(win):
             is_world = bool(p.get("world"))
 
             if is_world:
+                # Los tramos importados de Excel ya están en la unidad del proyecto
+                # (convertidos a la unidad al momento de importar).
                 verts_world = [tuple(p["wstart"]), tuple(p["wend"])]
                 verts_native = verts_world
                 explicit = [_clean(p.get("from")), _clean(p.get("to"))]
             else:
                 pts = p["pts"]
                 verts_native = [tuple(pt) for pt in pts]
-                verts_world = [win._to_cad(pt[0], pt[1]) for pt in pts]
+                # Coordenadas en la unidad del proyecto (ft o in) — ver _project_xy.
+                verts_world = [_project_xy(win, pt[0], pt[1]) for pt in pts]
                 explicit = [None] * len(pts)
 
             # En gravedad, cada vértice (incl. los intermedios) es una estructura.
@@ -181,13 +212,12 @@ def build_networks(win):
             for i in range(n_seg):
                 pipe_ctr += 1
                 s_pt = verts_world[i]; e_pt = verts_world[i + 1]
-                # Los inverts del usuario van al 1er y último extremo de la polilínea
-                # (los vértices intermedios quedan null: se resuelven aparte).
-                if is_world:
-                    s_inv = _f(p.get("inv_start")); e_inv = _f(p.get("inv_end"))
-                else:
-                    s_inv = _f(p.get("inv_start")) if i == 0 else None
-                    e_inv = _f(p.get("inv_end")) if i == n_seg - 1 else None
+                # Cota de RECORRIDO (no por segmento): el invert del usuario se
+                # pega SOLO al 1er vértice del recorrido (start del tramo 0) y al
+                # último (end del último tramo). Los vértices intermedios van null
+                # — el plugin C# se encarga de interpolarlos si hace falta.
+                s_inv = _f(p.get("inv_start")) if i == 0 else None
+                e_inv = _f(p.get("inv_end")) if i == n_seg - 1 else None
                 pipe_id = p.get("id") if (is_world and p.get("id")) else f"T{pipe_ctr}"
                 pipe_out.append({
                     "id": pipe_id,
@@ -234,11 +264,14 @@ def build_networks(win):
 
 
 def write_network_json(win, out_path):
-    """Escribe el JSON schema utility-network/3.0. Devuelve (path, warnings)."""
+    """Escribe el JSON schema utility-network/3.0. Devuelve (path, warnings).
+
+    La UNIDAD del JSON es `win.work_unit` — 'ft' (pies) o 'in' (pulgadas). Todo
+    (coords, cotas, diámetros) queda en esa unidad."""
     networks, warnings = build_networks(win)
     if not networks:
         return None, warnings + ["No hay tuberías que exportar."]
-    data = {"schema": "utility-network/3.0", "units": "m", "networks": networks}
+    data = {"schema": "utility-network/3.0", "units": win.work_unit, "networks": networks}
     with open(out_path, "w", encoding="utf-8") as f:
         json.dump(data, f, indent=2, ensure_ascii=False)
     return out_path, warnings

@@ -1,0 +1,24 @@
+Begin Part Validation | AeccCircularDIPipe_Metric
+
+Begin Part Family self validation test
+Part Family self-validation complete, no errors found
+OK: Basic Table Row IDs validated
+OK: Part Domain parameter validated -- Pipe_Domain
+ERROR: Part Type parameter not validated
+OK: Part Subtype parameter validated -- Undefined
+OK: Part Description parameter validated -- Ductile Iron Pipe SI
+OK: Part Name parameter validated -- AeccCircularDIPipe_Metric
+OK: Part Size Name parameter found
+OK: Unique Part Family ID  validated -- 7D399987-F20F-47A4-8215-74CBED09D2AD
+OK: Data Version parameter validated, version = 2.0
+OK: Sample Expanded Table row successfully created
+ 
+Begin Calc Usage Validation
+OK: Calc Parameter PrtSN uses Context=Catalog_PartSizeName
+OK: Calc Parameter BdyD1 uses Context=BodyGeometry_Diameter
+ 
+
+Begin Pipe Component Table Validation | Type =  Pipe
+OK: Query validation successful
+
+OK: Part Validated | Circular Pipes\AeccCircularDIPipe_Metric.xml
