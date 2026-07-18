@@ -1,0 +1,49 @@
+<Window x:Class="Civil3DBasico.VentanaPropertySet"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="Adjuntar Property Set" Height="440" Width="380"
+        WindowStartupLocation="CenterScreen" ResizeMode="CanResizeWithGrip"
+        Background="#FF0F1B2A" FontFamily="Segoe UI">
+
+    <Window.Resources>
+        <Style x:Key="Boton" TargetType="Button">
+            <Setter Property="Foreground" Value="White"/>
+            <Setter Property="FontSize" Value="13"/>
+            <Setter Property="FontWeight" Value="SemiBold"/>
+            <Setter Property="Height" Value="38"/>
+            <Setter Property="Margin" Value="0,3"/>
+            <Setter Property="Cursor" Value="Hand"/>
+            <Setter Property="Background" Value="#FF1F6FEB"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="Button">
+                        <Grid>
+                            <Border x:Name="fondo" CornerRadius="8" Background="{TemplateBinding Background}"/>
+                            <Border x:Name="ov" CornerRadius="8" Background="White" Opacity="0"/>
+                            <ContentPresenter Margin="13,0" VerticalAlignment="Center" HorizontalAlignment="Left"/>
+                        </Grid>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True"><Setter TargetName="ov" Property="Opacity" Value="0.16"/></Trigger>
+                            <Trigger Property="IsPressed" Value="True"><Setter TargetName="ov" Property="Opacity" Value="0.30"/></Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+    </Window.Resources>
+
+    <DockPanel Margin="16">
+        <StackPanel DockPanel.Dock="Top" Margin="0,0,0,12">
+            <TextBlock Text="🏷️ Adjuntar Property Set" Foreground="#FFEAF2FB" FontSize="17" FontWeight="Bold"/>
+            <TextBlock Text="Elige el conjunto de propiedades a adjuntar a los objetos seleccionados."
+                       Foreground="#FF8FA6BF" FontSize="11.5" TextWrapping="Wrap" Margin="0,4,0,0"/>
+        </StackPanel>
+
+        <Button DockPanel.Dock="Bottom" x:Name="btnCancelar" Content="✖  Cancelar"
+                Style="{StaticResource Boton}" Background="#FF3A4657" HorizontalContentAlignment="Center" Margin="0,12,0,0"/>
+
+        <ScrollViewer VerticalScrollBarVisibility="Auto">
+            <StackPanel x:Name="pnlLista"/>
+        </ScrollViewer>
+    </DockPanel>
+</Window>

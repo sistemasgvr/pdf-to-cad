@@ -1,0 +1,26 @@
+Begin Part Validation | AeccHorizEllipticalConcretePipe_Metric
+
+Begin Part Family self validation test
+Part Family self-validation complete, no errors found
+OK: Basic Table Row IDs validated
+OK: Part Domain parameter validated -- Pipe_Domain
+ERROR: Part Type parameter not validated
+OK: Part Subtype parameter validated -- Undefined
+ERROR: Part Description parameter not found
+OK: Part Name parameter validated -- AeccHorizEllipticalConcretePipe_Metric
+OK: Part Size Name parameter found
+OK: Unique Part Family ID  validated -- D27E8546-4734-4B60-9B77-24D91EE3B947
+OK: Data Version parameter validated, version = 2.0
+OK: Sample Expanded Table row successfully created
+ 
+Begin Calc Usage Validation
+OK: Calc Parameter PrtSN uses Context=Catalog_PartSizeName
+OK: Calc Parameter CTest1 uses Context=Conditional_Test
+OK: Calc Parameter LenA1 uses Context=Geometry_Distance2D
+OK: Calc Parameter LenA2 uses Context=Geometry_Distance2D
+ 
+
+Begin Pipe Component Table Validation | Type =  Pipe
+ERROR: Table Data Validation Failed | C:\ProgramData\Autodesk\C3D 2023\enu\Pipes Catalog\Metric Pipes\Elliptical Pipes\AeccHorizEllipticalConcretePipe_Metric.xml
+
+ERROR: Part Validation Failed | Elliptical Pipes\AeccHorizEllipticalConcretePipe_Metric.xml

@@ -1,0 +1,787 @@
+using System;
+using System.Collections.Generic;
+using System.Globalization;
+using System.IO;
+using System.Linq;
+using Autodesk.AutoCAD.ApplicationServices;
+using Autodesk.AutoCAD.DatabaseServices;
+using Autodesk.AutoCAD.EditorInput;
+using Autodesk.AutoCAD.Geometry;
+using Autodesk.AutoCAD.Runtime;
+using Autodesk.Civil.ApplicationServices;
+using CivilDB = Autodesk.Civil.DatabaseServices;                 // alias: objetos de Civil 3D (Network, Structure, Pipe...)
+using PartsStyles = Autodesk.Civil.DatabaseServices.Styles;      // alias: catálogo (PartsList, PartFamily, PartSize...)
+using Exception = System.Exception;
+
+// ============================================================================
+//  GUÍA RÁPIDA (detalle en README.md, secciones 4 y 6)
+//  - [CommandMethod("X")] = comando que escribes en Civil 3D.
+//  - Patrón: doc/ed/db → Transaction → pedir datos (ed.Get...) → crear/leer → Commit.
+//  Anatomía de una red de tubería:
+//     Network  →  Structures (buzones)  +  Pipes (tuberías)
+//     La Parts List es el CATÁLOGO: qué familias (tipos) y tamaños se pueden usar.
+//  Ideas clave del catálogo:
+//    - civilDoc.Styles.PartsListSet                       → colección de Parts Lists
+//    - partsList.GetPartFamilyIdsByDomain(Structure/Pipe) → familias de la lista
+//    - family[i]                                          → un tamaño (PartSize) de la familia
+//    - una Parts List solo puede tener tamaños que el catálogo defina.
+// ============================================================================
+
+namespace Civil3DBasico
+{
+    /// <summary>
+    /// Redes de tuberías (Pipe Network). Archivo separado de los corredores.
+    /// Anatomía:  Network  →  Parts List (catálogo)  +  Structures (buzones)  +  Pipes (tuberías).
+    /// Comandos: crear red, listar/añadir piezas del catálogo, y crear la red desde CSV.
+    /// </summary>
+    public partial class ComandosRedes
+    {
+        // =====================================================================
+        // CREAR_RED — crea una Pipe Network vacía, le asigna una Parts List y,
+        //   opcionalmente, una superficie de referencia (para las cotas de tapa).
+        // =====================================================================
+        [CommandMethod("CREAR_RED")]
+        public void CrearRed()
+        {
+            Document doc = Application.DocumentManager.MdiActiveDocument;
+            Editor ed = doc.Editor;
+            Database db = doc.Database;
+            CivilDocument civilDoc = CivilApplication.ActiveDocument;
+
+            // Nombre de la red
+            PromptStringOptions pso = new PromptStringOptions("\nNombre de la Pipe Network:");
+            pso.AllowSpaces = true;
+            PromptResult pnr = ed.GetString(pso);
+            if (pnr.Status != PromptStatus.OK || string.IsNullOrWhiteSpace(pnr.StringResult)) return;
+            string nombre = pnr.StringResult.Trim();
+
+            // ¿Superficie de referencia para las cotas de tapa (rim)?
+            ObjectId surfId = ObjectId.Null;
+            PromptKeywordOptions pk = new PromptKeywordOptions("\n¿Superficie de referencia para las cotas de tapa? [Si/No] <No>:", "Si No");
+            pk.AllowNone = true;
+            PromptResult rk = ed.GetKeywords(pk);
+            if (rk.Status == PromptStatus.OK && rk.StringResult == "Si")
+            {
+                PromptEntityOptions peo = new PromptEntityOptions("\nSeleccione la superficie (TIN):");
+                peo.SetRejectMessage("\nDebe ser una superficie TIN.");
+                peo.AddAllowedClass(typeof(CivilDB.TinSurface), true);
+                PromptEntityResult per = ed.GetEntity(peo);
+                if (per.Status == PromptStatus.OK) surfId = per.ObjectId;
+            }
+
+            using (Transaction tr = db.TransactionManager.StartTransaction())
+            {
+                try
+                {
+                    // Recolectar las Parts Lists disponibles en el dibujo
+                    PartsStyles.PartsListCollection plSet = civilDoc.Styles.PartsListSet;
+                    if (plSet.Count == 0)
+                    {
+                        ed.WriteMessage("\nNo hay Parts Lists en el dibujo. Usa una plantilla de Civil 3D que las incluya.");
+                        tr.Abort();
+                        return;
+                    }
+                    var nombres = new List<string>();
+                    var idsPL = new List<ObjectId>();
+                    for (int i = 0; i < plSet.Count; i++)
+                    {
+                        PartsStyles.PartsList pl = tr.GetObject(plSet[i], OpenMode.ForRead) as PartsStyles.PartsList;
+                        nombres.Add(pl.Name);
+                        idsPL.Add(plSet[i]);
+                    }
+
+                    // Mostrarlas y dejar que el usuario elija (Enter = Standard)
+                    ed.WriteMessage("\nParts Lists disponibles: " + string.Join(", ", nombres));
+                    PromptStringOptions plo = new PromptStringOptions("\nParts List a usar (Enter = Standard):");
+                    plo.AllowSpaces = true;
+                    PromptResult plr = ed.GetString(plo);
+                    string pedida = (plr.Status == PromptStatus.OK && !string.IsNullOrWhiteSpace(plr.StringResult))
+                                        ? plr.StringResult.Trim() : "Standard";
+
+                    int idx = nombres.FindIndex(n => string.Equals(n, pedida, StringComparison.OrdinalIgnoreCase));
+                    if (idx < 0)
+                    {
+                        idx = 0;
+                        ed.WriteMessage($"\nNo se encontró la Parts List '{pedida}'. Uso la primera: '{nombres[0]}'.");
+                    }
+                    ObjectId partsListId = idsPL[idx];
+                    string plName = nombres[idx];
+
+                    // Crear la red (Create puede ajustar el nombre si ya existe -> por eso 'ref')
+                    string nm = nombre;
+                    ObjectId netId = CivilDB.Network.Create(civilDoc, ref nm);
+
+                    CivilDB.Network net = (CivilDB.Network)tr.GetObject(netId, OpenMode.ForWrite);
+                    net.PartsListId = partsListId;
+                    if (surfId != ObjectId.Null) net.ReferenceSurfaceId = surfId;
+
+                    tr.Commit();
+                    ed.WriteMessage($"\n✓ Pipe Network '{nm}' creada. Parts List: '{plName}'." +
+                                    (surfId != ObjectId.Null ? " Superficie de referencia asignada." : ""));
+                    ed.WriteMessage("\n  Siguiente (Fase 2): AGREGAR_ESTRUCTURA y AGREGAR_TUBERIA.");
+                }
+                catch (Exception ex)
+                {
+                    ed.WriteMessage($"\nError: {ex.Message}");
+                    tr.Abort();
+                }
+            }
+        }
+
+        // =====================================================================
+        // LISTAR_PIEZAS — muestra, para una Parts List, las FAMILIAS (tipos) y
+        //   TAMAÑOS disponibles de estructuras y de tuberías. Sirve para saber
+        //   qué valores de "tipo"/"tamaño" existen antes de armar la red.
+        //   Valida la navegación del catálogo (GetPartFamilyIdsByDomain + índices).
+        // =====================================================================
+        [CommandMethod("LISTAR_PIEZAS")]
+        public void ListarPiezas()
+        {
+            Document doc = Application.DocumentManager.MdiActiveDocument;
+            Editor ed = doc.Editor;
+            Database db = doc.Database;
+            CivilDocument civilDoc = CivilApplication.ActiveDocument;
+
+            using (Transaction tr = db.TransactionManager.StartTransaction())
+            {
+                try
+                {
+                    PartsStyles.PartsListCollection plSet = civilDoc.Styles.PartsListSet;
+                    if (plSet.Count == 0) { ed.WriteMessage("\nNo hay Parts Lists en el dibujo."); tr.Abort(); return; }
+
+                    // Parts List "Standard" si existe; si no, la primera
+                    ObjectId plId = plSet[0];
+                    for (int i = 0; i < plSet.Count; i++)
+                    {
+                        PartsStyles.PartsList p = tr.GetObject(plSet[i], OpenMode.ForRead) as PartsStyles.PartsList;
+                        if (string.Equals(p.Name, "Standard", StringComparison.OrdinalIgnoreCase)) { plId = plSet[i]; break; }
+                    }
+                    PartsStyles.PartsList partsList = (PartsStyles.PartsList)tr.GetObject(plId, OpenMode.ForRead);
+                    ed.WriteMessage($"\n=== Piezas en la Parts List '{partsList.Name}' ===");
+
+                    // Recorrer estructuras y tuberías
+                    foreach (CivilDB.DomainType dominio in new[] { CivilDB.DomainType.Structure, CivilDB.DomainType.Pipe })
+                    {
+                        ed.WriteMessage($"\n\n--- {(dominio == CivilDB.DomainType.Structure ? "ESTRUCTURAS (buzones)" : "TUBERÍAS")} ---");
+                        ObjectIdCollection famIds = partsList.GetPartFamilyIdsByDomain(dominio);
+                        if (famIds.Count == 0) { ed.WriteMessage("\n  (ninguna familia añadida a esta parts list)"); continue; }
+
+                        foreach (ObjectId famId in famIds)
+                        {
+                            PartsStyles.PartFamily fam = tr.GetObject(famId, OpenMode.ForRead) as PartsStyles.PartFamily;
+                            ed.WriteMessage($"\n  • {fam.Description}  ({fam.PartSizeCount} tamaño(s)):");
+                            for (int i = 0; i < fam.PartSizeCount; i++)
+                            {
+                                PartsStyles.PartSize size = tr.GetObject(fam[i], OpenMode.ForRead) as PartsStyles.PartSize;
+                                ed.WriteMessage($"\n       - {size.Name}");
+                            }
+                        }
+                    }
+                    ed.WriteMessage("\n===============================================");
+                    tr.Commit();
+                }
+                catch (Exception ex)
+                {
+                    ed.WriteMessage($"\nError: {ex.Message}");
+                    tr.Abort();
+                }
+            }
+        }
+
+        // =====================================================================
+        // CREAR_RED_DESDE_CSV — crea una Pipe Network desde un CSV de buzones.
+        //   CSV: Name, X, Y, CotaSup, CotaInf  (una fila por buzón, en orden).
+        //   - Buzón: tapa = CotaSup (o a ras de superficie si se da), fondo = CotaInf.
+        //   - Tubería entre buzones consecutivos: de CotaInf(i) a CotaInf(i+1),
+        //     CONECTADA a ambas estructuras.
+        //   Test: Parts List "Standard"; usa la 1ª familia/tamaño de estructura y tubería.
+        // =====================================================================
+        [CommandMethod("CREAR_RED_DESDE_CSV")]
+        public void CrearRedDesdeCsv()
+        {
+            Document doc = Application.DocumentManager.MdiActiveDocument;
+            Editor ed = doc.Editor;
+            Database db = doc.Database;
+            CivilDocument civilDoc = CivilApplication.ActiveDocument;
+
+            // Nombre de la red
+            PromptStringOptions pso = new PromptStringOptions("\nNombre de la Pipe Network:");
+            pso.AllowSpaces = true;
+            PromptResult pnr = ed.GetString(pso);
+            if (pnr.Status != PromptStatus.OK || string.IsNullOrWhiteSpace(pnr.StringResult)) return;
+            string nombre = pnr.StringResult.Trim();
+
+            // CSV
+            PromptOpenFileOptions pfo = new PromptOpenFileOptions("\nSeleccione el CSV (Name,X,Y,CotaSup,CotaInf):");
+            pfo.Filter = "CSV (*.csv)|*.csv|Todos (*.*)|*.*";
+            PromptFileNameResult pfr = ed.GetFileNameForOpen(pfo);
+            if (pfr.Status != PromptStatus.OK) return;
+
+            // ¿Superficie de referencia (tapas a ras)?
+            ObjectId surfId = ObjectId.Null;
+            PromptKeywordOptions pk = new PromptKeywordOptions("\n¿Superficie de referencia (tapas a ras)? [Si/No] <No>:", "Si No");
+            pk.AllowNone = true;
+            PromptResult rk = ed.GetKeywords(pk);
+            if (rk.Status == PromptStatus.OK && rk.StringResult == "Si")
+            {
+                PromptEntityOptions peo = new PromptEntityOptions("\nSeleccione la superficie (TIN):");
+                peo.SetRejectMessage("\nDebe ser una superficie TIN.");
+                peo.AddAllowedClass(typeof(CivilDB.TinSurface), true);
+                PromptEntityResult per = ed.GetEntity(peo);
+                if (per.Status == PromptStatus.OK) surfId = per.ObjectId;
+            }
+
+            // Leer y parsear el CSV (soporta separador ',' o ';' y decimal '.' o ',')
+            var filas = new List<(string name, double x, double y, double sup, double inf)>();
+            foreach (string ln in File.ReadAllLines(pfr.StringResult))
+            {
+                if (string.IsNullOrWhiteSpace(ln)) continue;
+                char sep = ln.Contains(";") ? ';' : ',';
+                string[] c = ln.Split(sep);
+                if (c.Length < 5) continue;
+                if (TryNum(c[1], out double x) && TryNum(c[2], out double y) &&
+                    TryNum(c[3], out double sup) && TryNum(c[4], out double inf))
+                    filas.Add((c[0].Trim(), x, y, sup, inf));
+                // si no parsea (p. ej. fila de encabezado) se ignora
+            }
+            if (filas.Count < 2)
+            {
+                ed.WriteMessage("\nEl CSV necesita al menos 2 buzones válidos (Name,X,Y,CotaSup,CotaInf).");
+                return;
+            }
+
+            using (Transaction tr = db.TransactionManager.StartTransaction())
+            {
+                try
+                {
+                    // Parts List "Standard" (o la primera)
+                    PartsStyles.PartsListCollection plSet = civilDoc.Styles.PartsListSet;
+                    if (plSet.Count == 0) { ed.WriteMessage("\nNo hay Parts Lists en el dibujo."); tr.Abort(); return; }
+                    ObjectId partsListId = plSet[0];
+                    for (int i = 0; i < plSet.Count; i++)
+                    {
+                        PartsStyles.PartsList p = tr.GetObject(plSet[i], OpenMode.ForRead) as PartsStyles.PartsList;
+                        if (string.Equals(p.Name, "Standard", StringComparison.OrdinalIgnoreCase)) { partsListId = plSet[i]; break; }
+                    }
+                    PartsStyles.PartsList partsList = (PartsStyles.PartsList)tr.GetObject(partsListId, OpenMode.ForRead);
+
+                    // 1ª familia/tamaño de estructura y de tubería
+                    if (!PrimeraPieza(tr, partsList, CivilDB.DomainType.Structure, out ObjectId structFamId, out ObjectId structSizeId, out string structNom))
+                    { ed.WriteMessage("\nLa Parts List no tiene familias de ESTRUCTURA. Añádelas (UI o AddPartFamily)."); tr.Abort(); return; }
+                    if (!PrimeraPieza(tr, partsList, CivilDB.DomainType.Pipe, out ObjectId pipeFamId, out ObjectId pipeSizeId, out string pipeNom))
+                    { ed.WriteMessage("\nLa Parts List no tiene familias de TUBERÍA. Añádelas (UI o AddPartFamily)."); tr.Abort(); return; }
+
+                    ed.WriteMessage($"\nUsando estructura: '{structNom}' | tubería: '{pipeNom}'.");
+
+                    // Crear la red
+                    string nm = nombre;
+                    ObjectId netId = CivilDB.Network.Create(civilDoc, ref nm);
+                    CivilDB.Network net = (CivilDB.Network)tr.GetObject(netId, OpenMode.ForWrite);
+                    net.PartsListId = partsListId;
+                    if (surfId != ObjectId.Null) net.ReferenceSurfaceId = surfId;
+
+                    // Crear estructuras
+                    var structIds = new List<ObjectId>();
+                    foreach (var f in filas)
+                    {
+                        ObjectId sid = ObjectId.Null;
+                        net.AddStructure(structFamId, structSizeId, new Point3d(f.x, f.y, f.sup), 0.0, ref sid, true);
+                        CivilDB.Structure st = (CivilDB.Structure)tr.GetObject(sid, OpenMode.ForWrite);
+                        if (surfId != ObjectId.Null) st.AutomaticRimSurfaceAdjustment = true;
+                        else st.RimElevation = f.sup;
+                        st.SumpElevation = f.inf;
+                        structIds.Add(sid);
+                    }
+
+                    // Crear tuberías entre consecutivos y conectarlas a las estructuras
+                    int nPipes = 0;
+                    for (int i = 0; i < filas.Count - 1; i++)
+                    {
+                        Point3d p1 = new Point3d(filas[i].x, filas[i].y, filas[i].inf);
+                        Point3d p2 = new Point3d(filas[i + 1].x, filas[i + 1].y, filas[i + 1].inf);
+                        ObjectId pid = ObjectId.Null;
+                        net.AddLinePipe(pipeFamId, pipeSizeId, new LineSegment3d(p1, p2), ref pid, true);
+                        CivilDB.Pipe pipe = (CivilDB.Pipe)tr.GetObject(pid, OpenMode.ForWrite);
+                        pipe.ConnectToStructure(CivilDB.ConnectorPositionType.Start, structIds[i], true);
+                        pipe.ConnectToStructure(CivilDB.ConnectorPositionType.End, structIds[i + 1], true);
+                        nPipes++;
+                    }
+
+                    tr.Commit();
+                    ed.WriteMessage($"\n✓ Red '{nm}' creada: {structIds.Count} buzones y {nPipes} tuberías (conectadas).");
+                }
+                catch (Exception ex)
+                {
+                    ed.WriteMessage($"\nError: {ex.Message}");
+                    tr.Abort();
+                }
+            }
+        }
+
+        // =====================================================================
+        // AGREGAR_FAMILIA — añade a la Parts List "Standard" una familia (tipo)
+        //   de estructura o tubería tomada del CATÁLOGO, e intenta agregar sus
+        //   tamaños. Requiere tener el catálogo seteado (LOMB o el de fábrica).
+        // =====================================================================
+        [CommandMethod("AGREGAR_FAMILIA")]
+        public void AgregarFamilia()
+        {
+            Document doc = Application.DocumentManager.MdiActiveDocument;
+            Editor ed = doc.Editor;
+            Database db = doc.Database;
+            CivilDocument civilDoc = CivilApplication.ActiveDocument;
+
+            // Dominio
+            PromptKeywordOptions pk = new PromptKeywordOptions("\n¿Qué familia añadir? [Estructura/Tuberia] <Estructura>:", "Estructura Tuberia");
+            pk.AllowNone = true;
+            PromptResult rk = ed.GetKeywords(pk);
+            if (rk.Status != PromptStatus.OK && rk.Status != PromptStatus.None) return;
+            CivilDB.DomainType dom = (rk.Status == PromptStatus.OK && rk.StringResult == "Tuberia")
+                                        ? CivilDB.DomainType.Pipe : CivilDB.DomainType.Structure;
+
+            using (Transaction tr = db.TransactionManager.StartTransaction())
+            {
+                try
+                {
+                    PartsStyles.PartsListCollection plSet = civilDoc.Styles.PartsListSet;
+                    if (plSet.Count == 0) { ed.WriteMessage("\nNo hay Parts Lists."); tr.Abort(); return; }
+                    ObjectId plId = plSet[0];
+                    for (int i = 0; i < plSet.Count; i++)
+                    {
+                        PartsStyles.PartsList p = tr.GetObject(plSet[i], OpenMode.ForRead) as PartsStyles.PartsList;
+                        if (string.Equals(p.Name, "Standard", StringComparison.OrdinalIgnoreCase)) { plId = plSet[i]; break; }
+                    }
+                    PartsStyles.PartsList partsList = (PartsStyles.PartsList)tr.GetObject(plId, OpenMode.ForWrite);
+
+                    // Familias disponibles en el catálogo para ese dominio
+                    PartsStyles.DataPartFamily[] disp = PartsStyles.PartsList.GetAvailablePartFamilies(dom);
+                    if (disp == null || disp.Length == 0)
+                    {
+                        ed.WriteMessage("\nNo hay familias en el catálogo para ese dominio. ¿Seteaste el catálogo (Set Pipe Network Catalog)?");
+                        tr.Abort(); return;
+                    }
+
+                    ed.WriteMessage($"\nFamilias disponibles ({disp.Length}):");
+                    for (int i = 0; i < disp.Length; i++)
+                        ed.WriteMessage($"\n  {i + 1}. {disp[i].Description}");
+
+                    // Elegir por número
+                    PromptIntegerOptions pio = new PromptIntegerOptions("\nNúmero de la familia a añadir:");
+                    pio.LowerLimit = 1; pio.UpperLimit = disp.Length;
+                    PromptIntegerResult pir = ed.GetInteger(pio);
+                    if (pir.Status != PromptStatus.OK) { tr.Abort(); return; }
+                    PartsStyles.DataPartFamily elegido = disp[pir.Value - 1];
+
+                    // Añadir la familia (si ya está, no es error: seguimos con los tamaños)
+                    try
+                    {
+                        partsList.AddPartFamilyByGuid(dom, elegido.GUID);
+                        ed.WriteMessage("\nFamilia añadida a la parts list.");
+                    }
+                    catch (Exception exAdd)
+                    {
+                        ed.WriteMessage($"\n(La familia ya estaba en la lista; continúo con los tamaños.)  [{exAdd.Message}]");
+                    }
+
+                    // Localizar la familia (por GUID) e intentar agregar tamaños
+                    int nSizes = 0;
+                    ObjectIdCollection fams = partsList.GetPartFamilyIdsByDomain(dom);
+                    foreach (ObjectId fid in fams)
+                    {
+                        PartsStyles.PartFamily fam = tr.GetObject(fid, OpenMode.ForWrite) as PartsStyles.PartFamily;
+                        if (fam == null || !string.Equals(fam.GUID, elegido.GUID, StringComparison.OrdinalIgnoreCase)) continue;
+
+                        try
+                        {
+                            PartsStyles.SizeFilterRecord filtro = new PartsStyles.SizeFilterRecord(fam);
+                            // Marcar selección MÚLTIPLE en cada parámetro de lista editable
+                            // -> AddPartSize agrega TODOS los tamaños disponibles (no solo el 1º).
+                            for (int i = 0; i < filtro.ParamCount; i++)
+                            {
+                                PartsStyles.SizeFilterField campo = filtro[i];
+                                if (campo != null && !campo.IsReadOnly && campo.IsFromList)
+                                    campo.IsMultipleSelect = true;
+                            }
+                            fam.AddPartSize(filtro);
+                        }
+                        catch (Exception exSize)
+                        {
+                            ed.WriteMessage($"\n(No se pudieron agregar tamaños automáticamente: {exSize.Message})");
+                        }
+                        nSizes = fam.PartSizeCount;
+                        break;
+                    }
+
+                    tr.Commit();
+                    ed.WriteMessage($"\n✓ Familia '{elegido.Description}' añadida a 'Standard'. Tamaños: {nSizes}.");
+                    if (nSizes == 0)
+                        ed.WriteMessage("\n(Sin tamaños: agrégalos con 'Add part size' en la UI, o dime y lo afinamos.)");
+                }
+                catch (Exception ex)
+                {
+                    ed.WriteMessage($"\nError: {ex.Message}");
+                    tr.Abort();
+                }
+            }
+        }
+
+        // =====================================================================
+        // AGREGAR_TAMANOS — añade diámetros ESPECÍFICOS a una familia de la
+        //   parts list (útil para tuberías paramétricas). Funciona si el campo
+        //   de diámetro admite el valor (rango/paramétrico). Si es lista fija,
+        //   solo entrarán los valores válidos del catálogo.
+        // =====================================================================
+        [CommandMethod("AGREGAR_TAMANOS")]
+        public void AgregarTamanos()
+        {
+            Document doc = Application.DocumentManager.MdiActiveDocument;
+            Editor ed = doc.Editor;
+            Database db = doc.Database;
+            CivilDocument civilDoc = CivilApplication.ActiveDocument;
+
+            PromptKeywordOptions pk = new PromptKeywordOptions("\n¿Familia de? [Estructura/Tuberia] <Tuberia>:", "Estructura Tuberia");
+            pk.AllowNone = true;
+            PromptResult rk = ed.GetKeywords(pk);
+            if (rk.Status != PromptStatus.OK && rk.Status != PromptStatus.None) return;
+            CivilDB.DomainType dom = (rk.Status == PromptStatus.OK && rk.StringResult == "Estructura")
+                                        ? CivilDB.DomainType.Structure : CivilDB.DomainType.Pipe;
+
+            using (Transaction tr = db.TransactionManager.StartTransaction())
+            {
+                try
+                {
+                    PartsStyles.PartsListCollection plSet = civilDoc.Styles.PartsListSet;
+                    if (plSet.Count == 0) { ed.WriteMessage("\nNo hay Parts Lists."); tr.Abort(); return; }
+                    ObjectId plId = plSet[0];
+                    for (int i = 0; i < plSet.Count; i++)
+                    {
+                        PartsStyles.PartsList p = tr.GetObject(plSet[i], OpenMode.ForRead) as PartsStyles.PartsList;
+                        if (string.Equals(p.Name, "Standard", StringComparison.OrdinalIgnoreCase)) { plId = plSet[i]; break; }
+                    }
+                    PartsStyles.PartsList partsList = (PartsStyles.PartsList)tr.GetObject(plId, OpenMode.ForRead);
+
+                    // Listar familias de la parts list
+                    ObjectIdCollection fams = partsList.GetPartFamilyIdsByDomain(dom);
+                    if (fams.Count == 0) { ed.WriteMessage("\nEsa parts list no tiene familias de ese dominio (usa AGREGAR_FAMILIA)."); tr.Abort(); return; }
+                    ed.WriteMessage("\nFamilias en la parts list:");
+                    for (int i = 0; i < fams.Count; i++)
+                    {
+                        PartsStyles.PartFamily fam = tr.GetObject(fams[i], OpenMode.ForRead) as PartsStyles.PartFamily;
+                        ed.WriteMessage($"\n  {i + 1}. {fam.Description}  ({fam.PartSizeCount} tamaños)");
+                    }
+
+                    PromptIntegerOptions pio = new PromptIntegerOptions("\nNúmero de la familia:");
+                    pio.LowerLimit = 1; pio.UpperLimit = fams.Count;
+                    PromptIntegerResult pir = ed.GetInteger(pio);
+                    if (pir.Status != PromptStatus.OK) { tr.Abort(); return; }
+                    ObjectId famId = fams[pir.Value - 1];
+
+                    // Diámetros a agregar
+                    PromptStringOptions pdo = new PromptStringOptions("\nDiámetros a agregar (separados por espacio, ej. '110 160 200'):");
+                    pdo.AllowSpaces = true;
+                    PromptResult pdr = ed.GetString(pdo);
+                    if (pdr.Status != PromptStatus.OK || string.IsNullOrWhiteSpace(pdr.StringResult)) { tr.Abort(); return; }
+                    var diams = new List<double>();
+                    foreach (string t in pdr.StringResult.Split(new[] { ' ', ',', ';', '\t' }, StringSplitOptions.RemoveEmptyEntries))
+                        if (TryNum(t, out double d)) diams.Add(d);
+                    if (diams.Count == 0) { ed.WriteMessage("\nNo se leyeron diámetros válidos."); tr.Abort(); return; }
+
+                    PartsStyles.PartFamily fam2 = (PartsStyles.PartFamily)tr.GetObject(famId, OpenMode.ForWrite);
+                    int antes = fam2.PartSizeCount;
+
+                    foreach (double d in diams)
+                    {
+                        try
+                        {
+                            PartsStyles.SizeFilterRecord filtro = new PartsStyles.SizeFilterRecord(fam2);
+                            // localizar el campo de "Diameter" editable
+                            PartsStyles.SizeFilterField campoD = null;
+                            for (int i = 0; i < filtro.ParamCount; i++)
+                            {
+                                PartsStyles.SizeFilterField f = filtro[i];
+                                if (f != null && !f.IsReadOnly && f.Context.ToString().IndexOf("Diameter", StringComparison.OrdinalIgnoreCase) >= 0)
+                                { campoD = f; break; }
+                            }
+                            if (campoD == null) { ed.WriteMessage("\n  No hallé un parámetro de diámetro editable en esta familia."); break; }
+
+                            campoD.Value = d;              // fijar el diámetro deseado
+                            fam2.AddPartSize(filtro);
+                        }
+                        catch (Exception exD)
+                        {
+                            ed.WriteMessage($"\n  Ø {d}: no se pudo agregar ({exD.Message})");
+                        }
+                    }
+
+                    int desp = fam2.PartSizeCount;
+                    tr.Commit();
+                    ed.WriteMessage($"\n✓ Tamaños: antes {antes}, ahora {desp} (agregados {desp - antes}). Revisa con LISTAR_PIEZAS.");
+                    if (desp == antes) ed.WriteMessage("\n(No entró ninguno: la familia usa lista fija del catálogo; esos diámetros no existen para ella.)");
+                }
+                catch (Exception ex)
+                {
+                    ed.WriteMessage($"\nError: {ex.Message}");
+                    tr.Abort();
+                }
+            }
+        }
+
+        // =====================================================================
+        // CREAR_RED_COMPLETA — red 100% desde datos: DOS CSV.
+        //   Buzones:  Name, X, Y, CotaSup, CotaInf, Type, Radius
+        //   Tuberías: Desde, Hasta, Material, Diametro
+        //   Cada tubería une dos buzones (por nombre), invert de CotaInf a CotaInf,
+        //   conectada a ambas estructuras.
+        // =====================================================================
+        [CommandMethod("CREAR_RED_COMPLETA")]
+        public void CrearRedCompleta()
+        {
+            Document doc = Application.DocumentManager.MdiActiveDocument;
+            Editor ed = doc.Editor;
+            Database db = doc.Database;
+            CivilDocument civilDoc = CivilApplication.ActiveDocument;
+
+            PromptStringOptions pso = new PromptStringOptions("\nNombre de la Pipe Network:");
+            pso.AllowSpaces = true;
+            PromptResult pnr = ed.GetString(pso);
+            if (pnr.Status != PromptStatus.OK || string.IsNullOrWhiteSpace(pnr.StringResult)) return;
+            string nombre = pnr.StringResult.Trim();
+
+            PromptOpenFileOptions pfoB = new PromptOpenFileOptions("\nCSV de BUZONES (Name,X,Y,CotaSup,CotaInf,Type,Radius):");
+            pfoB.Filter = "CSV (*.csv)|*.csv|Todos (*.*)|*.*";
+            PromptFileNameResult pfrB = ed.GetFileNameForOpen(pfoB);
+            if (pfrB.Status != PromptStatus.OK) return;
+
+            PromptOpenFileOptions pfoT = new PromptOpenFileOptions("\nCSV de TUBERÍAS (Desde,Hasta,Material,Diametro):");
+            pfoT.Filter = "CSV (*.csv)|*.csv|Todos (*.*)|*.*";
+            PromptFileNameResult pfrT = ed.GetFileNameForOpen(pfoT);
+            if (pfrT.Status != PromptStatus.OK) return;
+
+            ObjectId surfId = ObjectId.Null;
+            PromptKeywordOptions pk = new PromptKeywordOptions("\n¿Superficie de referencia (tapas a ras)? [Si/No] <No>:", "Si No");
+            pk.AllowNone = true;
+            PromptResult rk = ed.GetKeywords(pk);
+            if (rk.Status == PromptStatus.OK && rk.StringResult == "Si")
+            {
+                PromptEntityOptions peo = new PromptEntityOptions("\nSeleccione la superficie (TIN):");
+                peo.SetRejectMessage("\nDebe ser una superficie TIN.");
+                peo.AddAllowedClass(typeof(CivilDB.TinSurface), true);
+                PromptEntityResult per = ed.GetEntity(peo);
+                if (per.Status == PromptStatus.OK) surfId = per.ObjectId;
+            }
+
+            // Leer buzones
+            var buzones = new List<(string name, double x, double y, double sup, double inf, string tipo, string radio)>();
+            foreach (string ln in File.ReadAllLines(pfrB.StringResult))
+            {
+                if (string.IsNullOrWhiteSpace(ln)) continue;
+                char sep = ln.Contains(";") ? ';' : ',';
+                string[] c = ln.Split(sep);
+                if (c.Length < 5) continue;
+                if (!(TryNum(c[1], out double x) && TryNum(c[2], out double y) && TryNum(c[3], out double sup) && TryNum(c[4], out double inf))) continue;
+                buzones.Add((c[0].Trim(), x, y, sup, inf, c.Length > 5 ? c[5].Trim() : "", c.Length > 6 ? c[6].Trim() : ""));
+            }
+            if (buzones.Count < 2) { ed.WriteMessage("\nEl CSV de buzones necesita al menos 2 filas válidas."); return; }
+
+            // Leer tuberías
+            var tramos = new List<(string desde, string hasta, string material, string diam)>();
+            foreach (string ln in File.ReadAllLines(pfrT.StringResult))
+            {
+                if (string.IsNullOrWhiteSpace(ln)) continue;
+                char sep = ln.Contains(";") ? ';' : ',';
+                string[] c = ln.Split(sep);
+                if (c.Length < 2) continue;
+                if (string.Equals(c[0].Trim(), "Desde", StringComparison.OrdinalIgnoreCase)) continue; // encabezado
+                tramos.Add((c[0].Trim(), c[1].Trim(), c.Length > 2 ? c[2].Trim() : "", c.Length > 3 ? c[3].Trim() : ""));
+            }
+
+            using (Transaction tr = db.TransactionManager.StartTransaction())
+            {
+                try
+                {
+                    PartsStyles.PartsListCollection plSet = civilDoc.Styles.PartsListSet;
+                    if (plSet.Count == 0) { ed.WriteMessage("\nNo hay Parts Lists."); tr.Abort(); return; }
+                    ObjectId partsListId = plSet[0];
+                    for (int i = 0; i < plSet.Count; i++)
+                    {
+                        PartsStyles.PartsList p = tr.GetObject(plSet[i], OpenMode.ForRead) as PartsStyles.PartsList;
+                        if (string.Equals(p.Name, "Standard", StringComparison.OrdinalIgnoreCase)) { partsListId = plSet[i]; break; }
+                    }
+                    PartsStyles.PartsList partsList = (PartsStyles.PartsList)tr.GetObject(partsListId, OpenMode.ForRead);
+
+                    string nm = nombre;
+                    ObjectId netId = CivilDB.Network.Create(civilDoc, ref nm);
+                    CivilDB.Network net = (CivilDB.Network)tr.GetObject(netId, OpenMode.ForWrite);
+                    net.PartsListId = partsListId;
+                    if (surfId != ObjectId.Null) net.ReferenceSurfaceId = surfId;
+
+                    // Buzones
+                    var idByName = new Dictionary<string, ObjectId>(StringComparer.OrdinalIgnoreCase);
+                    var invByName = new Dictionary<string, Point3d>(StringComparer.OrdinalIgnoreCase);
+                    foreach (var f in buzones)
+                    {
+                        BuscarEstructura(tr, partsList, f.tipo, f.radio, out ObjectId sFam, out ObjectId sSize, out string sNom);
+                        if (sFam == ObjectId.Null) { ed.WriteMessage($"\n(Sin familia para buzón '{f.name}'.) Saltado."); continue; }
+                        ObjectId sid = ObjectId.Null;
+                        net.AddStructure(sFam, sSize, new Point3d(f.x, f.y, f.sup), 0.0, ref sid, true);
+                        CivilDB.Structure st = (CivilDB.Structure)tr.GetObject(sid, OpenMode.ForWrite);
+                        if (surfId != ObjectId.Null) st.AutomaticRimSurfaceAdjustment = true;
+                        else st.RimElevation = f.sup;
+                        st.SumpElevation = f.inf;
+                        idByName[f.name] = sid;
+                        invByName[f.name] = new Point3d(f.x, f.y, f.inf);
+                    }
+
+                    // Tuberías
+                    int nPipes = 0, saltadas = 0;
+                    foreach (var t in tramos)
+                    {
+                        if (!idByName.ContainsKey(t.desde) || !idByName.ContainsKey(t.hasta))
+                        { ed.WriteMessage($"\n(Tramo {t.desde}-{t.hasta}: buzón inexistente.) Saltado."); saltadas++; continue; }
+                        if (!BuscarTuberia(tr, partsList, t.material, t.diam, out ObjectId pFam, out ObjectId pSize, out string pNom))
+                        { ed.WriteMessage($"\n(Tramo {t.desde}-{t.hasta}: no hallé tubería '{t.material} {t.diam}'.) Saltado."); saltadas++; continue; }
+
+                        ObjectId pid = ObjectId.Null;
+                        net.AddLinePipe(pFam, pSize, new LineSegment3d(invByName[t.desde], invByName[t.hasta]), ref pid, true);
+                        CivilDB.Pipe pipe = (CivilDB.Pipe)tr.GetObject(pid, OpenMode.ForWrite);
+                        pipe.ConnectToStructure(CivilDB.ConnectorPositionType.Start, idByName[t.desde], true);
+                        pipe.ConnectToStructure(CivilDB.ConnectorPositionType.End, idByName[t.hasta], true);
+                        nPipes++;
+                        ed.WriteMessage($"\n  + {t.desde} → {t.hasta}  ({pNom})");
+                    }
+
+                    tr.Commit();
+                    ed.WriteMessage($"\n✓ Red '{nm}': {idByName.Count} buzones, {nPipes} tuberías creadas" + (saltadas > 0 ? $", {saltadas} tramo(s) saltado(s)." : "."));
+                }
+                catch (Exception ex)
+                {
+                    ed.WriteMessage($"\nError: {ex.Message}");
+                    tr.Abort();
+                }
+            }
+        }
+
+        // Busca familia de tubería por 'material' (en Description) y tamaño por 'diam' (1er token del Name).
+        private bool BuscarTuberia(Transaction tr, PartsStyles.PartsList partsList, string material, string diam,
+                                   out ObjectId familyId, out ObjectId sizeId, out string nombre)
+        {
+            familyId = ObjectId.Null; sizeId = ObjectId.Null; nombre = "";
+            string mN = Norm(material), dN = Norm(diam);
+            foreach (ObjectId fid in partsList.GetPartFamilyIdsByDomain(CivilDB.DomainType.Pipe))
+            {
+                PartsStyles.PartFamily fam = tr.GetObject(fid, OpenMode.ForRead) as PartsStyles.PartFamily;
+                if (fam == null || fam.PartSizeCount == 0) continue;
+                if (mN.Length > 0 && (fam.Description == null || !Norm(fam.Description).Contains(mN))) continue;
+                for (int i = 0; i < fam.PartSizeCount; i++)
+                {
+                    PartsStyles.PartSize sz = tr.GetObject(fam[i], OpenMode.ForRead) as PartsStyles.PartSize;
+                    string prim = (sz?.Name ?? "").Split(' ')[0];
+                    if (dN.Length == 0 || Norm(prim) == dN)
+                    {
+                        familyId = fid; sizeId = fam[i]; nombre = $"{fam.Description} / {sz?.Name}";
+                        return true;
+                    }
+                }
+            }
+            return false;
+        }
+
+        // Busca familia de estructura por 'tipo' (en Description) y tamaño por 'radio' (en Name).
+        // Coincidencia tolerante (ignora espacios/comas/mayúsculas). Cae en la 1ª real si no hay match.
+        private void BuscarEstructura(Transaction tr, PartsStyles.PartsList partsList, string tipo, string radio,
+                                      out ObjectId familyId, out ObjectId sizeId, out string nombre)
+        {
+            familyId = ObjectId.Null; sizeId = ObjectId.Null; nombre = "";
+            ObjectId anyFam = ObjectId.Null, anySize = ObjectId.Null; string anyNom = "";
+            string tNorm = Norm(tipo);
+
+            foreach (ObjectId fid in partsList.GetPartFamilyIdsByDomain(CivilDB.DomainType.Structure))
+            {
+                PartsStyles.PartFamily fam = tr.GetObject(fid, OpenMode.ForRead) as PartsStyles.PartFamily;
+                if (fam == null || fam.PartSizeCount == 0) continue;
+                if (fam.Description != null && fam.Description.IndexOf("Null", StringComparison.OrdinalIgnoreCase) >= 0) continue;
+
+                // elegir tamaño por 'radio' (o el primero)
+                ObjectId elegidoSize = fam[0];
+                string elegidoSizeName = (tr.GetObject(elegidoSize, OpenMode.ForRead) as PartsStyles.PartSize)?.Name;
+                if (!string.IsNullOrWhiteSpace(radio))
+                {
+                    string rNorm = Norm(radio);
+                    for (int i = 0; i < fam.PartSizeCount; i++)
+                    {
+                        PartsStyles.PartSize sz = tr.GetObject(fam[i], OpenMode.ForRead) as PartsStyles.PartSize;
+                        if (sz != null && Norm(sz.Name).Contains(rNorm)) { elegidoSize = fam[i]; elegidoSizeName = sz.Name; break; }
+                    }
+                }
+
+                string nom = $"{fam.Description} / {elegidoSizeName}";
+                if (anyFam == ObjectId.Null) { anyFam = fid; anySize = elegidoSize; anyNom = nom; }
+
+                bool famMatch = string.IsNullOrEmpty(tNorm) || (fam.Description != null && Norm(fam.Description).Contains(tNorm));
+                if (famMatch) { familyId = fid; sizeId = elegidoSize; nombre = nom; return; }
+            }
+            if (anyFam != ObjectId.Null) { familyId = anyFam; sizeId = anySize; nombre = anyNom; }
+        }
+
+        private static string Norm(string s) => (s ?? "").Replace(" ", "").Replace(",", "").ToLowerInvariant();
+
+        // Devuelve la 1ª familia y su 1er tamaño de un dominio (Structure/Pipe) de la parts list.
+        private bool PrimeraPieza(Transaction tr, PartsStyles.PartsList partsList, CivilDB.DomainType dominio,
+                                  out ObjectId familyId, out ObjectId sizeId, out string nombre)
+        {
+            familyId = ObjectId.Null; sizeId = ObjectId.Null; nombre = "";
+            ObjectId anyFam = ObjectId.Null, anySize = ObjectId.Null; string anyNom = "";     // respaldo: cualquiera no-nula
+            ObjectId prefFam = ObjectId.Null, prefSize = ObjectId.Null; string prefNom = "";  // preferida: buzón "real"
+            bool esEstructura = dominio == CivilDB.DomainType.Structure;
+
+            // Para buzones: descartar familias que NO son buzones (cabezales, culverts, aliviaderos...)
+            string[] noBuzon = { "Headwall", "End Section", "Flared", "Culvert", "Winged", "Wing", "Apron" };
+
+            ObjectIdCollection fams = partsList.GetPartFamilyIdsByDomain(dominio);
+            foreach (ObjectId fid in fams)
+            {
+                PartsStyles.PartFamily fam = tr.GetObject(fid, OpenMode.ForRead) as PartsStyles.PartFamily;
+                if (fam == null || fam.PartSizeCount == 0) continue;
+                string desc = fam.Description ?? "";
+                if (desc.IndexOf("Null", StringComparison.OrdinalIgnoreCase) >= 0) continue; // nunca "Null"
+
+                ObjectId sid = fam[0];
+                PartsStyles.PartSize sz = tr.GetObject(sid, OpenMode.ForRead) as PartsStyles.PartSize;
+                string nom = $"{fam.Description} / {sz?.Name}";
+
+                if (anyFam == ObjectId.Null) { anyFam = fid; anySize = sid; anyNom = nom; }
+
+                if (!esEstructura)
+                {
+                    // tubería: la primera válida sirve
+                    familyId = fid; sizeId = sid; nombre = nom;
+                    return true;
+                }
+
+                // estructura: saltar lo que no es buzón
+                bool esNoBuzon = noBuzon.Any(k => desc.IndexOf(k, StringComparison.OrdinalIgnoreCase) >= 0);
+                if (esNoBuzon) continue;
+
+                // preferir un "Junction" (buzón típico); si aparece, usarlo ya
+                if (desc.IndexOf("Junction", StringComparison.OrdinalIgnoreCase) >= 0)
+                {
+                    familyId = fid; sizeId = sid; nombre = nom;
+                    return true;
+                }
+                // si no, recordar el primer buzón válido (cilíndrico/rectangular/etc.)
+                if (prefFam == ObjectId.Null) { prefFam = fid; prefSize = sid; prefNom = nom; }
+            }
+
+            if (prefFam != ObjectId.Null) { familyId = prefFam; sizeId = prefSize; nombre = prefNom; return true; }
+            if (anyFam != ObjectId.Null) { familyId = anyFam; sizeId = anySize; nombre = anyNom; return true; }
+            return false;
+        }
+
+        // Parseo tolerante de número (acepta decimal con '.' o ',')
+        private static bool TryNum(string s, out double value)
+        {
+            s = (s ?? "").Trim().Replace(',', '.');
+            return double.TryParse(s, NumberStyles.Float, CultureInfo.InvariantCulture, out value);
+        }
+    }
+}
