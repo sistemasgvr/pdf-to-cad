@@ -173,9 +173,9 @@ def build_networks(win):
         layer_default_type = default_network_type(layer)
 
         for p in pipes:
-            # DIÁMETRO: el usuario lo entra en la unidad del proyecto (win.work_unit).
-            # Aquí SIEMPRE va con esa unidad; ignoramos el 'unit' per-pipe legado.
-            diameter = {"value": _f(p.get("diam")), "unit": win.work_unit}
+            # DIÁMETRO: SIEMPRE en pulgadas (lista fija del catálogo), independiente
+            # de la unidad de trabajo (que rige coordenadas/cotas).
+            diameter = {"value": _f(p.get("diam")), "unit": "in"}
             part = _clean(p.get("part"))
             material = _clean(p.get("material"))          # texto libre del usuario, p.ej. "HDPE"
             # network_type: si el usuario eligió "pipe"/"pressure" lo respetamos;

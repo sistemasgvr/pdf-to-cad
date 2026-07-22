@@ -18,31 +18,31 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <Reference Include="accoremgd">
-      <HintPath>..\..\..\..\..\..\..\Programas\AutoCAD 2025\accoremgd.dll</HintPath>
-    </Reference>
-    <Reference Include="Acdbmgd">
-      <HintPath>..\..\..\..\..\..\..\Programas\AutoCAD 2025\acdbmgd.dll</HintPath>
-    </Reference>
-    <Reference Include="Acmgd">
-      <HintPath>..\..\..\..\..\..\..\Programas\AutoCAD 2025\acmgd.dll</HintPath>
-    </Reference>
-    <Reference Include="AecBaseMgd">
-      <HintPath>..\..\..\..\..\..\..\Programas\AutoCAD 2025\ACA\AecBaseMgd.dll</HintPath>
-    </Reference>
-    <Reference Include="AeccDbMgd">
-      <HintPath>..\..\..\..\..\..\..\Programas\AutoCAD 2025\C3D\AeccDbMgd.dll</HintPath>
-    </Reference>
-    <Reference Include="AecPropDataMgd">
-      <HintPath>..\..\..\..\..\..\..\Programas\AutoCAD 2025\ACA\AecPropDataMgd.dll</HintPath>
-    </Reference>
-    <Reference Include="AeccPressurePipesMgd">
-      <HintPath>..\..\..\..\..\..\..\Programas\AutoCAD 2025\C3D\AeccPressurePipesMgd.dll</HintPath>
-    </Reference>
+    <PackageReference Include="ClosedXML" Version="0.104.2" />
   </ItemGroup>
 
   <ItemGroup>
-    <PackageReference Include="ClosedXML" Version="0.104.2" />
+    <Reference Include="accoremgd">
+      <HintPath>C:\Program Files\Autodesk\AutoCAD 2025\accoremgd.dll</HintPath>
+    </Reference>
+    <Reference Include="Acdbmgd">
+      <HintPath>C:\Program Files\Autodesk\AutoCAD 2025\acdbmgd.dll</HintPath>
+    </Reference>
+    <Reference Include="Acmgd">
+      <HintPath>C:\Program Files\Autodesk\AutoCAD 2025\acmgd.dll</HintPath>
+    </Reference>
+    <Reference Include="AecBaseMgd">
+      <HintPath>C:\Program Files\Autodesk\AutoCAD 2025\ACA\AecBaseMgd.dll</HintPath>
+    </Reference>
+    <Reference Include="AeccDbMgd">
+      <HintPath>C:\Program Files\Autodesk\AutoCAD 2025\C3D\AeccDbMgd.dll</HintPath>
+    </Reference>
+    <Reference Include="AeccPressurePipesMgd">
+      <HintPath>C:\Program Files\Autodesk\AutoCAD 2025\C3D\AeccPressurePipesMgd.dll</HintPath>
+    </Reference>
+    <Reference Include="AecPropDataMgd">
+      <HintPath>C:\Program Files\Autodesk\AutoCAD 2025\ACA\AecPropDataMgd.dll</HintPath>
+    </Reference>
   </ItemGroup>
 
 </Project>

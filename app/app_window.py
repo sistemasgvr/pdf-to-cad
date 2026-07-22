@@ -24,7 +24,9 @@ from ocr import OcrWorker, IcrWorker
 from model import (VERSION, TIPOS, ACI_RGB, LEADER_TEXT_FT, LEADER_ORIENT,
                    Z_PDF, Z_ERASE, Z_MARK, Z_HANDLE, GRAVITY_LAYERS,
                    TAB_PIPE, TAB_ML, TAB_LEADER, TAB_TEXT, TAB_REGION,
-                   WORK_UNITS, DEFAULT_WORK_UNIT, is_valid_work_unit, CHANGELOG)
+                   WORK_UNITS, DEFAULT_WORK_UNIT, is_valid_work_unit, CHANGELOG,
+                   PIPE_DIAMETERS_IN, PIPE_MATERIALS, DEFAULT_PIPE_MATERIAL,
+                   nearest_pipe_diameter)
 
 DOWNLOADS = os.path.join(os.path.expanduser("~"), "Downloads")
 BTN_ON = "background:#2e9e4f;color:white;font-weight:bold;padding:8px;border-radius:4px;"
@@ -500,14 +502,16 @@ class Main(QtWidgets.QMainWindow):
         # Propiedades de la utilidad seleccionada (nombre, diámetro, unidad) → XDATA en el DXF
         self.gprop = QtWidgets.QGroupBox("Propiedades de la utilidad"); fpr = QtWidgets.QFormLayout(self.gprop)
         self.prop_name = QtWidgets.QLineEdit(); self.prop_name.editingFinished.connect(self._prop_changed)
-        self.prop_diam = QtWidgets.QDoubleSpinBox(); self.prop_diam.setRange(0, 100000); self.prop_diam.setDecimals(2)
-        self.prop_diam.setButtonSymbols(QtWidgets.QAbstractSpinBox.NoButtons); self.prop_diam.valueChanged.connect(lambda _: self._prop_changed())
-        # El diámetro va SIEMPRE en la unidad de trabajo del proyecto (ft o in) —
-        # ya no hay combo per-pipe: la unidad la manda self.work_unit. La label
-        # "Diámetro (ft):" / "(in):" se actualiza cuando el usuario cambia la
-        # unidad global (ver _refresh_unit_labels).
+        # El diámetro va SIEMPRE en PULGADAS y SOLO de la lista estándar del
+        # catálogo (12,15,18,…): un desplegable NO editable, sin valores libres,
+        # para que coincida 1:1 con un tamaño real del catálogo de Civil 3D.
+        # Es independiente de la unidad de trabajo (que rige coordenadas/cotas).
+        self.prop_diam = QtWidgets.QComboBox()
+        for d in PIPE_DIAMETERS_IN:
+            self.prop_diam.addItem(f'{d}"', float(d))
+        self.prop_diam.currentIndexChanged.connect(lambda _: self._prop_changed())
         fpr.addRow("Nombre:", self.prop_name)
-        self.lbl_prop_diam = QtWidgets.QLabel("Diámetro (ft):"); fpr.addRow(self.lbl_prop_diam, self.prop_diam)
+        self.lbl_prop_diam = QtWidgets.QLabel("Diámetro (pulg):"); fpr.addRow(self.lbl_prop_diam, self.prop_diam)
         # Campos de la utilidad usados por el JSON de red 3.0 y por el DXF:
         #   - material: texto libre (p.ej. "HDPE"); viaja al JSON como `material`.
         #   - part (pieza): nombre del tipo de pieza; viaja al JSON como `part`.
@@ -515,8 +519,11 @@ class Main(QtWidgets.QMainWindow):
         #     / "pressure" (línea a presión). Viaja al JSON como `network_type`.
         #   - invert inicio/fin (m): las COTAS de fondo de la tubería en cada
         #     extremo; imprescindibles para reconstruir la red 3D.
-        self.prop_material = QtWidgets.QLineEdit(); self.prop_material.setPlaceholderText("p.ej. HDPE, PVC, Concreto…")
-        self.prop_material.editingFinished.connect(self._prop_changed)
+        # Material: desplegable con los valores exactos de Civil 3D (no texto libre).
+        self.prop_material = QtWidgets.QComboBox()
+        for m in PIPE_MATERIALS:
+            self.prop_material.addItem(m)
+        self.prop_material.currentIndexChanged.connect(lambda _: self._prop_changed())
         self.prop_part = QtWidgets.QLineEdit(); self.prop_part.setPlaceholderText("p.ej. 900 mm Corrugated HDPE Pipe")
         self.prop_part.editingFinished.connect(self._prop_changed)
         self.prop_nettype = QtWidgets.QComboBox()
@@ -1256,7 +1263,9 @@ class Main(QtWidgets.QMainWindow):
         elif len(self.cur_pts) >= 2:
             layer = self._ext_layer if self._extending else self.active_layer()
             ab = False if self._extending else self.chk_ab.isChecked()
-            self._push(); self.pipes.append({"layer": layer, "pts": self.cur_pts[:], "ab": ab})
+            self._push(); self.pipes.append({"layer": layer, "pts": self.cur_pts[:], "ab": ab,
+                                             "diam": float(PIPE_DIAMETERS_IN[0]), "diam_unit": "in",
+                                             "material": DEFAULT_PIPE_MATERIAL})
         self.cur_pts = []; self._extending = False; self._ext_layer = None; self._ext_pipe = None; self._ext_at = None
         self._refresh_lists(); self._update_ui(); self._redraw()
 
@@ -1274,10 +1283,16 @@ class Main(QtWidgets.QMainWindow):
             if not self._no_center and pts:                # los tramos importados (world) no tienen pts
                 mid = pts[len(pts) // 2]; self.canvas.centerOn(mid[0], mid[1])
             self._prop_guard = True
-            self.prop_name.setText(p.get("name", "")); self.prop_diam.setValue(p.get("diam", 0.0) or 0.0)
+            self.prop_name.setText(p.get("name", ""))
+            # Diámetro (pulg): buscar el tamaño exacto; si el proyecto es viejo y trae
+            # un valor no estándar, seleccionar el estándar más cercano.
+            di = self.prop_diam.findData(float(p.get("diam") or 0))
+            if di < 0: di = self.prop_diam.findData(float(nearest_pipe_diameter(p.get("diam"))))
+            self.prop_diam.setCurrentIndex(di if di >= 0 else 0)
             self.prop_part.setText(p.get("part", ""))
             self.prop_inv0.setValue(p.get("inv_start") or 0.0); self.prop_inv1.setValue(p.get("inv_end") or 0.0)
-            self.prop_material.setText(p.get("material", "") or "")
+            mi = self.prop_material.findText(p.get("material") or DEFAULT_PIPE_MATERIAL)
+            self.prop_material.setCurrentIndex(mi if mi >= 0 else 0)
             # findData busca el índice del combo cuya "data" (dato oculto) coincide
             # con "" | "pipe" | "pressure"; si no encuentra devuelve -1 → índice 0.
             idx = self.prop_nettype.findData(p.get("net_type", "") or "")
@@ -1431,11 +1446,13 @@ class Main(QtWidgets.QMainWindow):
         if self._prop_guard: return
         if self.tabs.currentIndex() == TAB_PIPE and 0 <= self.sel_pipe < len(self.pipes):
             p = self.pipes[self.sel_pipe]; self._push()
-            p["name"] = self.prop_name.text().strip(); p["diam"] = self.prop_diam.value()
-            p["unit"] = self.work_unit                                  # unidad de trabajo del proyecto
+            p["name"] = self.prop_name.text().strip()
+            p["diam"] = float(self.prop_diam.currentData() or 0)         # SIEMPRE en pulgadas
+            p["diam_unit"] = "in"                                        # el diámetro nunca va en pies
+            p["unit"] = self.work_unit                                  # unidad de trabajo (coords/cotas)
             p["part"] = self.prop_part.text().strip()
             p["inv_start"] = self.prop_inv0.value(); p["inv_end"] = self.prop_inv1.value()
-            p["material"] = self.prop_material.text().strip()
+            p["material"] = self.prop_material.currentText()
             # currentData devuelve el "dato oculto" del ítem seleccionado del combo
             # (asignado con addItem(texto, dato)). "" = auto; "pipe"/"pressure" = override.
             p["net_type"] = self.prop_nettype.currentData() or ""
@@ -1455,7 +1472,8 @@ class Main(QtWidgets.QMainWindow):
     def _refresh_unit_labels(self):
         """Vuelve a escribir las etiquetas de UI que dependen de la unidad activa."""
         u = self.work_unit
-        if hasattr(self, "lbl_prop_diam"): self.lbl_prop_diam.setText(f"Diámetro ({u}):")
+        # El diámetro NO depende de la unidad de trabajo: siempre en pulgadas.
+        if hasattr(self, "lbl_prop_diam"): self.lbl_prop_diam.setText("Diámetro (pulg):")
         if hasattr(self, "lbl_prop_inv0"): self.lbl_prop_inv0.setText(f"Invert inicio ({u}):")
         if hasattr(self, "lbl_prop_inv1"): self.lbl_prop_inv1.setText(f"Invert fin ({u}):")
         if hasattr(self, "lbl_unit"): self.lbl_unit.setText(f"Unidad: {u}")
@@ -1857,7 +1875,7 @@ class Main(QtWidgets.QMainWindow):
         self._out = out; self._mode = mode
         if not need_pdf:                                   # solo anotaciones: sin pipeline
             try:
-                doc = ezdxf.new("R2010", setup=True); doc.header["$INSUNITS"] = C.INSUNITS
+                doc = ezdxf.new("R2010", setup=True); C.apply_imperial_header(doc)
                 self._merge_into(doc, marks=True); doc.saveas(out)
                 QtWidgets.QMessageBox.information(self, "Listo", f"Exportado (solo anotaciones):\n{out}")
                 self._info("DXF de anotaciones exportado.")
@@ -1875,7 +1893,8 @@ class Main(QtWidgets.QMainWindow):
         if err: QtWidgets.QMessageBox.critical(self, "Error al digitalizar", err); return
         try:
             marks = (self._mode == "todo")               # 'pdf' = solo el plano, sin anotaciones
-            doc = ezdxf.readfile(tmp); self._merge_into(doc, marks=marks); doc.saveas(self._out)
+            doc = ezdxf.readfile(tmp); C.apply_imperial_header(doc)   # reafirma imperial ($MEASUREMENT=0) tras leer el plano base
+            self._merge_into(doc, marks=marks); doc.saveas(self._out)
             if os.path.exists(tmp): os.remove(tmp)
             if marks:
                 nreg = sum(1 for r in self.erase_regions if r.get("enabled", True))

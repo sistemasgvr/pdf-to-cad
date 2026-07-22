@@ -1,5 +1,0 @@
-Name,X,Y,CotaSup,CotaInf,Type,Radius
-B1,1000,5000,100.5,98.0,Cylindrical,1200
-B2,1050,5010,100.3,97.5,Cylindrical,1500
-B3,1100,5025,100.1,97.0,Rectangular,
-B4,1150,5030,100.0,96.5,Cylindrical,1200

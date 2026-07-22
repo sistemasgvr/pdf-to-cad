@@ -73,7 +73,28 @@
       "Bash(\"C:\\\\Users\\\\Deyvy\\\\AppData\\\\Local\\\\Programs\\\\Python\\\\Python312\\\\python.exe\" -c \"import sys; sys.path.insert\\(0,'app'\\); import py_compile; py_compile.compile\\('app/app_window.py', doraise=True\\); print\\('OK'\\)\")",
       "Bash(dotnet restore *)",
       "Bash(rtk wc *)",
-      "Bash(rtk diff *)"
+      "Bash(rtk diff *)",
+      "Bash(rtk grep *)",
+      "Bash(rtk find *)",
+      "Read(//d/DISCO C/DESCARGAS/**)",
+      "Bash(grep -vE \"INV_START=$\")",
+      "Bash(grep -vE \"DIAMETER=0$\")",
+      "Bash(python -c 'import ezdxf; d=ezdxf.new\\('\\\\''R2010'\\\\'', setup=True\\); print\\('\\\\''MEASUREMENT='\\\\'', d.header.get\\('\\\\''$MEASUREMENT'\\\\''\\)\\); print\\('\\\\''INSUNITS='\\\\'', d.header.get\\('\\\\''$INSUNITS'\\\\''\\)\\); print\\('\\\\''LUNITS='\\\\'', d.header.get\\('\\\\''$LUNITS'\\\\''\\)\\)')",
+      "Bash(py -3 -c 'import ezdxf; d=ezdxf.new\\('\\\\''R2010'\\\\'', setup=True\\); print\\('\\\\''MEASUREMENT='\\\\'', d.header.get\\('\\\\''$MEASUREMENT'\\\\''\\), '\\\\''INSUNITS='\\\\'', d.header.get\\('\\\\''$INSUNITS'\\\\''\\)\\)')",
+      "PowerShell(python -c \"import ezdxf; d=ezdxf.new\\('R2010', setup=True\\); print\\('MEASUREMENT=', d.header.get\\('`$MEASUREMENT'\\)\\); print\\('INSUNITS=', d.header.get\\('`$INSUNITS'\\)\\)\")",
+      "Bash(python -m py_compile config.py digitize.py app/app_window.py)",
+      "Bash(DXF=\"D:/DISCO C/DESCARGAS/2-proyecto.digproj.src_completo.dxf\"; echo \"=== Bloque XDATA completo de la 1a tubería \\(líneas 385205-385245\\) ===\"; sed -n '385205,385245p' \"$DXF\")",
+      "Bash(rtk read *)",
+      "Bash(DXF=\"D:/DISCO C/DESCARGAS/2-proyecto.digproj.src_completo.dxf\"; echo \"=== fecha de modificación ===\"; stat -c '%y' \"$DXF\" 2>/dev/null; ls -la \"$DXF\"; echo \"=== MEASUREMENT actual \\(línea 888\\) ===\"; sed -n '886,888p' \"$DXF\"; echo \"=== conteos ===\"; echo \"PIPES: $\\(grep -c PDFCAD_PIPE \"$DXF\"\\)  STRUCTS: $\\(grep -c PDFCAD_STRUCT \"$DXF\"\\)\"; echo \"=== INV / DIAMETER / NET_KIND \\(no vacíos?\\) ===\"; grep -E \"INV_START=|INV_END=|DIAMETER=|NET_KIND=|COVER_MIN=|RIM=|SUMP=\" \"$DXF\" | head -40)",
+      "Bash(echo \"=== tamaño ===\")",
+      "Bash(echo \"=== primeros bytes / formato ===\")",
+      "Read(//c/Users/User/Downloads/**)",
+      "Bash(echo)",
+      "Bash(python -m py_compile app/model.py app/app_window.py app/export/network_json.py config.py digitize.py)",
+      "WebSearch",
+      "WebFetch(domain:civapidocs.com)",
+      "WebFetch(domain:forum.dynamobim.com)",
+      "WebFetch(domain:www.autodesk.com)"
     ]
   }
 }

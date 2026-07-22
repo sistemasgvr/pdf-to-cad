@@ -45,6 +45,9 @@ namespace Civil3DBasico
             Database db = doc.Database;
             CivilDocument civilDoc = CivilApplication.ActiveDocument;
 
+            // ── 0. Forzar unidades imperiales (pies) antes de leer cotas ────
+            ComandosUnidades.ForzarImperial(db, ed, true);
+
             // ── 1. Escanear modelspace ──────────────────────────────────────
             var pipes = new List<ImportPipe>();
             var structs = new List<ImportStruct>();
@@ -71,29 +74,34 @@ namespace Civil3DBasico
                             verts.Add(poly.GetPoint2dAt(i));
                         if (verts.Count < 2) continue;
 
+                        string srcUnit = XdStr(xd, "UNIT", "ft");
+                        double k = FactorConversion(srcUnit, db);
+
                         pipes.Add(new ImportPipe
                         {
                             Layer = poly.Layer,
                             Vertices = verts,
                             Diameter = XdDouble(xd, "DIAMETER"),
-                            Unit = XdStr(xd, "UNIT", "ft"),
+                            Unit = srcUnit,
                             Material = XdStr(xd, "MATERIAL", ""),
                             NetKind = XdStr(xd, "NET_KIND", "gravity"),
                             NetType = XdStr(xd, "NET_TYPE", "pipe"),
-                            InvStart = XdNullDouble(xd, "INV_START"),
-                            InvEnd = XdNullDouble(xd, "INV_END"),
+                            InvStart = MulNull(XdNullDouble(xd, "INV_START"), k),
+                            InvEnd = MulNull(XdNullDouble(xd, "INV_END"), k),
                             ManningsN = XdDouble(xd, "MANNINGS_N"),
-                            CoverMin = XdDouble(xd, "COVER_MIN"),
+                            CoverMin = XdDouble(xd, "COVER_MIN") * k,
                         });
                     }
                     else if (marker == "PDFCAD_STRUCT" && ent is DBPoint pt)
                     {
+                        // Los STRUCT no traen UNIT en el XDATA; asumo la misma que las tuberías
+                        double k = pipes.Count > 0 ? FactorConversion(pipes[0].Unit, db) : 1.0;
                         structs.Add(new ImportStruct
                         {
                             Location = new Point2d(pt.Position.X, pt.Position.Y),
                             Id = XdStr(xd, "STRUCT_ID", ""),
-                            Rim = XdNullDouble(xd, "RIM"),
-                            Sump = XdNullDouble(xd, "SUMP"),
+                            Rim = MulNull(XdNullDouble(xd, "RIM"), k),
+                            Sump = MulNull(XdNullDouble(xd, "SUMP"), k),
                             Part = XdStr(xd, "PART", ""),
                         });
                     }
@@ -109,8 +117,11 @@ namespace Civil3DBasico
             }
 
             string unit = pipes[0].Unit;
+            double factor = FactorConversion(unit, db);
             ed.WriteMessage($"\n═══ IMPORTAR RED ═══");
-            ed.WriteMessage($"\nDetectadas: {pipes.Count} tubería(s), {structs.Count} buzón(es). Unidad: {unit}.");
+            ed.WriteMessage($"\nDetectadas: {pipes.Count} tubería(s), {structs.Count} buzón(es). Unidad XDATA: {unit} · dibujo: {db.Insunits}.");
+            if (Math.Abs(factor - 1.0) > 1e-9)
+                ed.WriteMessage($"\n  → Conversión de elevaciones {unit} → {db.Insunits}: ×{factor:F4}");
 
             // ── 2. Agrupar por capa ─────────────────────────────────────────
             var gravedad = new Dictionary<string, List<ImportPipe>>(StringComparer.OrdinalIgnoreCase);
@@ -174,6 +185,7 @@ namespace Civil3DBasico
             }
 
             // ── 5. Redes de PRESIÓN ─────────────────────────────────────────
+            var createdPresIds = new List<ObjectId>();
             foreach (var kv in presion)
             {
                 string netName = $"RED-{kv.Key}";
@@ -181,8 +193,9 @@ namespace Civil3DBasico
                 {
                     try
                     {
-                        CrearRedPresionCompleta(ed, db, civilDoc, tr, netName, surfId,
+                        ObjectId pnId = CrearRedPresionCompleta(ed, db, civilDoc, tr, netName, surfId,
                             defaultDepth, kv.Value);
+                        if (pnId != ObjectId.Null) createdPresIds.Add(pnId);
                         tr.Commit();
                     }
                     catch (Exception ex)
@@ -205,6 +218,13 @@ namespace Civil3DBasico
                     }
                     catch { trDiag.Abort(); }
                 }
+            }
+
+            // ── 7. Reporte CSV (para revisar cada elemento fuera de Civil) ───
+            using (Transaction trRep = db.TransactionManager.StartTransaction())
+            {
+                try { EscribirReporteRed(ed, trRep, createdNetIds, createdPresIds); trRep.Commit(); }
+                catch (Exception ex) { ed.WriteMessage($"\n(No se pudo escribir el reporte: {ex.Message})"); trRep.Abort(); }
             }
 
             ed.WriteMessage("\n═══ IMPORTAR RED — fin ═══");
@@ -255,6 +275,13 @@ namespace Civil3DBasico
             var createdStructs = new Dictionary<string, ObjectId>();
             int nPipes = 0;
             var trazaEje = new List<Point3d>();
+            // Cotas EXPLÍCITAS a reponer al final. Civil 3D, al conectar tuberías
+            // (ConnectToStructure), re-aplica reglas por defecto (pendiente ~1% +
+            // tapada) y, si la estructura tiene el ajuste automático de superficie
+            // activo, ignora el rim manual. Guardamos lo que el DXF trae y lo
+            // volvemos a fijar DESPUÉS de crear/conectar todo.
+            var explicitRimSump = new Dictionary<ObjectId, (double rim, double sump)>();
+            var explicitPipeInv = new List<(ObjectId id, double zStart, double zEnd)>();
 
             foreach (var ip in pipes)
             {
@@ -294,8 +321,15 @@ namespace Civil3DBasico
                         ObjectId sid = ObjectId.Null;
                         net.AddStructure(sFam, sSize, new Point3d(v.X, v.Y, rim), 0.0, ref sid, true);
                         CivilDB.Structure st = (CivilDB.Structure)tr.GetObject(sid, OpenMode.ForWrite);
-                        if (surfId != ObjectId.Null) st.AutomaticRimSurfaceAdjustment = true;
-                        else st.RimElevation = rim;
+                        // ¿Tenemos rim explícito? (siempre que no dependamos de una superficie).
+                        bool holdRim = surfId == ObjectId.Null || (match != null && match.Rim.HasValue);
+                        if (holdRim)
+                        {
+                            st.AutomaticRimSurfaceAdjustment = false;   // clave: si queda true, ignora el rim manual
+                            st.RimElevation = rim;
+                            explicitRimSump[sid] = (rim, sump);         // reponer al final (la conexión lo pisa)
+                        }
+                        else st.AutomaticRimSurfaceAdjustment = true;   // rim tomado de la superficie
                         st.SumpElevation = sump;
 
                         if (match != null && !string.IsNullOrWhiteSpace(match.Id))
@@ -317,6 +351,7 @@ namespace Civil3DBasico
                     CivilDB.Pipe pipe = (CivilDB.Pipe)tr.GetObject(pid, OpenMode.ForWrite);
                     pipe.ConnectToStructure(CivilDB.ConnectorPositionType.Start, vertStructIds[i], true);
                     pipe.ConnectToStructure(CivilDB.ConnectorPositionType.End, vertStructIds[i + 1], true);
+                    explicitPipeInv.Add((pid, zVerts[i], zVerts[i + 1]));   // reponer invert al final
 
                     if (!string.IsNullOrWhiteSpace(ip.Material))
                     { try { pipe.Description = ip.Material; } catch { } }
@@ -324,6 +359,45 @@ namespace Civil3DBasico
                     nPipes++;
                 }
             }
+
+            // ── Reponer cotas EXPLÍCITAS (Civil 3D las recalcula al conectar) ──
+            // Se hace AL FINAL, cuando ya no hay conexiones que las pisen. Primero las
+            // tuberías (fija la Z de cada extremo = invert capturado), luego rim/sump.
+            // Tuberías: fijar Z de cada extremo y LEER DE VUELTA para saber si pegó.
+            int pipeOk = 0, pipeErr = 0; string pipeMsg = "";
+            foreach (var pv in explicitPipeInv)
+            {
+                try
+                {
+                    var pp = (CivilDB.Pipe)tr.GetObject(pv.id, OpenMode.ForWrite);
+                    Point3d s = pp.StartPoint, e = pp.EndPoint;
+                    pp.StartPoint = new Point3d(s.X, s.Y, pv.zStart);
+                    pp.EndPoint = new Point3d(e.X, e.Y, pv.zEnd);
+                    double back = pp.StartPoint.Z;
+                    if (Math.Abs(back - pv.zStart) < 0.05) pipeOk++;
+                    else { pipeErr++; if (pipeMsg == "") pipeMsg = $"pedí {pv.zStart:F2}, quedó {back:F2}"; }
+                }
+                catch (Exception ex) { pipeErr++; if (pipeMsg == "") pipeMsg = "EXCEPCION " + ex.Message; }
+            }
+            ed.WriteMessage($"\n[DIAG] Pipe StartPoint.Z: ok={pipeOk} fallo={pipeErr}  {pipeMsg}");
+
+            // Estructuras: cada setter por separado para ver CUÁL falla, y leer de vuelta.
+            int stOk = 0, stErr = 0; string stMsg = "";
+            foreach (var kv in explicitRimSump)
+            {
+                try
+                {
+                    var st = (CivilDB.Structure)tr.GetObject(kv.Key, OpenMode.ForWrite);
+                    try { st.AutomaticRimSurfaceAdjustment = false; } catch (Exception e1) { if (stMsg == "") stMsg = "autoAdj→" + e1.Message; }
+                    try { st.RimElevation = kv.Value.rim; } catch (Exception e2) { if (stMsg == "") stMsg = "rim→" + e2.Message; }
+                    try { st.SumpElevation = kv.Value.sump; } catch (Exception e3) { if (stMsg == "") stMsg = "sump→" + e3.Message; }
+                    bool adj = st.AutomaticRimSurfaceAdjustment; double rb = st.RimElevation;
+                    if (!adj && Math.Abs(rb - kv.Value.rim) < 0.05) stOk++;
+                    else { stErr++; if (stMsg == "") stMsg = $"autoAdj quedó={adj}, rim pedí {kv.Value.rim:F2} quedó {rb:F2}"; }
+                }
+                catch (Exception ex) { stErr++; if (stMsg == "") stMsg = "EXCEPCION " + ex.Message; }
+            }
+            ed.WriteMessage($"\n[DIAG] Estructura rim/auto: ok={stOk} fallo={stErr}  {stMsg}");
 
             // Alineamiento (eje) para la red — permite después crear vistas de perfil
             ObjectId alignId = ComandosAlineamientos.CrearAlineamientoDesdePts(db, civilDoc, tr, trazaEje, nm + "-eje");
@@ -338,7 +412,7 @@ namespace Civil3DBasico
         // =================================================================
         //  RED DE PRESIÓN COMPLETA (per-pipe diameter + auto-connect + fittings)
         // =================================================================
-        private void CrearRedPresionCompleta(
+        private ObjectId CrearRedPresionCompleta(
             Editor ed, Database db, CivilDocument civilDoc, Transaction tr,
             string nombre, ObjectId surfId, double defaultDepth,
             List<ImportPipe> pipes)
@@ -346,14 +420,14 @@ namespace Civil3DBasico
             PresStyles.PressurePartListCollection plc =
                 PresStyles.StylesRootPressurePipesExtension.GetPressurePartLists(civilDoc.Styles);
             if (plc.Count == 0)
-            { ed.WriteMessage($"\n'{nombre}': no hay Parts Lists de presión."); return; }
+            { ed.WriteMessage($"\n'{nombre}': no hay Parts Lists de presión."); return ObjectId.Null; }
 
             ObjectId plId = plc[0];
             PresStyles.PressurePartList pl = (PresStyles.PressurePartList)tr.GetObject(plId, OpenMode.ForRead);
 
             var tubos = pl.GetParts(CivilDB.PressurePartDomainType.Pipe);
             if (tubos == null || tubos.Count == 0)
-            { ed.WriteMessage($"\n'{nombre}': sin tubos en la Parts List de presión."); return; }
+            { ed.WriteMessage($"\n'{nombre}': sin tubos en la Parts List de presión."); return ObjectId.Null; }
 
             ObjectId netId = CivilDB.PressurePipeNetwork.Create(db, nombre);
             CivilDB.PressurePipeNetwork net = (CivilDB.PressurePipeNetwork)tr.GetObject(netId, OpenMode.ForWrite);
@@ -370,7 +444,10 @@ namespace Civil3DBasico
                 PresStyles.PressurePartSize tuboElegido = MatchPresionTubo(tubos, ip.Diameter);
 
                 int nVerts = ip.Vertices.Count;
-                double zStart = ip.InvStart ?? -defaultDepth;
+                // Cota de rasante capturada. Antes caía a -defaultDepth (¡negativo!)
+                // cuando faltaba el dato; ahora 0 (neutro). En el flujo normal viene
+                // el invert del DXF (agua/gas también lo llevan).
+                double zStart = ip.InvStart ?? 0.0;
                 double zEnd = ip.InvEnd ?? zStart;
 
                 for (int i = 0; i < nVerts - 1; i++)
@@ -473,6 +550,23 @@ namespace Civil3DBasico
                 }
             }
 
+            // ── Reponer la cota (Z) de rasante en cada extremo ──────────────
+            // Igual que en gravedad: al conectar tubos/fittings Civil 3D recalcula
+            // las cotas. Aquí forzamos la Z capturada en el inicio/fin de cada tubo
+            // (conservando su XY actual tras la conexión) para que agua/gas muestren
+            // la elevación de rasante inicial/final que el DXF trae.
+            foreach (var pe in pipeEndpoints)
+            {
+                try
+                {
+                    var pp = (CivilDB.PressurePipe)tr.GetObject(pe.id, OpenMode.ForWrite);
+                    Point3d cs = pp.StartPoint, ce = pp.EndPoint;
+                    pp.StartPoint = new Point3d(cs.X, cs.Y, pe.start.Z);
+                    pp.EndPoint   = new Point3d(ce.X, ce.Y, pe.end.Z);
+                }
+                catch { }
+            }
+
             // Alineamiento (eje) para la red de presión — para vistas de perfil
             ObjectId alignId = ComandosAlineamientos.CrearAlineamientoDesdePts(db, civilDoc, tr, trazaEje, nombre + "-eje");
             if (alignId != ObjectId.Null)
@@ -490,6 +584,74 @@ namespace Civil3DBasico
 
             ed.WriteMessage($"\n✓ Red presión '{nombre}': {nPipes} tubería(s), {nFittings} fitting(s)" +
                             (alignId != ObjectId.Null ? " + eje." : "."));
+            return netId;
+        }
+
+        // =================================================================
+        //  REPORTE CSV — lee de vuelta cada elemento creado (para revisión)
+        //  Se escribe en Descargas\IMPORTAR_RED_reporte.csv. Todo lo que ve
+        //  Civil 3D en las propiedades, en texto plano.
+        // =================================================================
+        private void EscribirReporteRed(Editor ed, Transaction tr,
+            List<ObjectId> gravNets, List<ObjectId> presNets)
+        {
+            var sb = new System.Text.StringBuilder();
+            sb.AppendLine("TIPO,RED,NOMBRE,DIAM_in,MATERIAL_DESC,COTA_INI,COTA_FIN,PENDIENTE_%,LONGITUD,RIM,SUMP");
+
+            // ── Redes de gravedad: estructuras + tuberías ──
+            foreach (ObjectId nid in gravNets)
+            {
+                var net = tr.GetObject(nid, OpenMode.ForRead) as CivilDB.Network;
+                if (net == null) continue;
+                string rn = net.Name;
+                foreach (ObjectId sid in net.GetStructureIds())
+                {
+                    var st = tr.GetObject(sid, OpenMode.ForRead) as CivilDB.Structure;
+                    if (st == null) continue;
+                    sb.AppendLine($"ESTRUCTURA,{rn},{st.Name},{st.InnerDiameterOrWidth:F1},,,,,,{st.RimElevation:F3},{st.SumpElevation:F3}");
+                }
+                foreach (ObjectId pid in net.GetPipeIds())
+                {
+                    var p = tr.GetObject(pid, OpenMode.ForRead) as CivilDB.Pipe;
+                    if (p == null) continue;
+                    double d = p.InnerDiameterOrWidth;
+                    double invI = p.StartPoint.Z - d / 2.0;   // invert = eje - radio interior
+                    double invF = p.EndPoint.Z - d / 2.0;
+                    double len = p.StartPoint.DistanceTo(p.EndPoint);
+                    string desc = (p.Description ?? "").Replace(",", " ");
+                    sb.AppendLine($"TUBERIA_GRAV,{rn},{p.Name},{d:F1},{desc},{invI:F3},{invF:F3},{p.Slope * 100:F2},{len:F3},,");
+                }
+            }
+
+            // ── Redes de presión: tuberías (sin estructuras) ──
+            foreach (ObjectId nid in presNets)
+            {
+                try
+                {
+                    var net = tr.GetObject(nid, OpenMode.ForRead) as CivilDB.PressurePipeNetwork;
+                    if (net == null) continue;
+                    string rn = net.Name;
+                    foreach (ObjectId pid in net.GetPipeIds())
+                    {
+                        var p = tr.GetObject(pid, OpenMode.ForRead) as CivilDB.PressurePipe;
+                        if (p == null) continue;
+                        double zi = p.StartPoint.Z, zf = p.EndPoint.Z;
+                        double len = p.StartPoint.DistanceTo(p.EndPoint);
+                        double slope = len > 1e-6 ? (zi - zf) / len * 100.0 : 0.0;
+                        string desc = (p.Description ?? "").Replace(",", " ");
+                        sb.AppendLine($"TUBERIA_PRES,{rn},{p.Name},{p.NominalDiameter:F1},{desc},{zi:F3},{zf:F3},{slope:F2},{len:F3},,");
+                    }
+                }
+                catch { }
+            }
+
+            string dir = System.IO.Path.Combine(
+                Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), "Downloads");
+            if (!System.IO.Directory.Exists(dir))
+                dir = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
+            string path = System.IO.Path.Combine(dir, "IMPORTAR_RED_reporte.csv");
+            System.IO.File.WriteAllText(path, sb.ToString(), System.Text.Encoding.UTF8);
+            ed.WriteMessage($"\n📄 Reporte escrito: {path}");
         }
 
         // =================================================================
@@ -757,6 +919,56 @@ namespace Civil3DBasico
             }
             return 0.0;
         }
+
+        // Factor para convertir un valor en la unidad de origen (XDATA "UNIT")
+        // a las unidades del dibujo (db.Insunits). Devuelve 1.0 si no se puede determinar.
+        private static double FactorConversion(string srcUnit, Database db)
+        {
+            double src = UnitToMeters(srcUnit);
+            double dst = InsunitsToMeters(db.Insunits);
+            if (src <= 0 || dst <= 0) return 1.0;
+            return src / dst;
+        }
+
+        private static double UnitToMeters(string u)
+        {
+            switch ((u ?? "").Trim().ToLowerInvariant())
+            {
+                case "ft":
+                case "feet":
+                case "pie":
+                case "pies": return 0.3048;
+                case "in":
+                case "inch":
+                case "inches":
+                case "pulg": return 0.0254;
+                case "m":
+                case "meter":
+                case "metros": return 1.0;
+                case "mm": return 0.001;
+                case "cm": return 0.01;
+                default: return 0.3048; // por defecto: pies (pipeline pdf-to-cad exporta en ft)
+            }
+        }
+
+        private static double InsunitsToMeters(UnitsValue u)
+        {
+            switch (u)
+            {
+                case UnitsValue.Inches: return 0.0254;
+                case UnitsValue.Feet: return 0.3048;
+                case UnitsValue.Millimeters: return 0.001;
+                case UnitsValue.Centimeters: return 0.01;
+                case UnitsValue.Meters: return 1.0;
+                case UnitsValue.Yards: return 0.9144;
+                case UnitsValue.Kilometers: return 1000.0;
+                case UnitsValue.Miles: return 1609.344;
+                case UnitsValue.Undefined: return 0.3048; // por defecto: pies (US civil)
+                default: return 0.0;
+            }
+        }
+
+        private static double? MulNull(double? v, double k) => v.HasValue ? v.Value * k : (double?)null;
 
         private static double? XdNullDouble(Dictionary<string, string> xd, string key)
         {

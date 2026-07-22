@@ -34,6 +34,34 @@ DEFAULT_WORK_UNIT = "ft"
 def is_valid_work_unit(u):
     return u in WORK_UNITS
 
+
+# DIÁMETROS de tubería: SIEMPRE en PULGADAS y SOLO de esta lista (los tamaños
+# nominales del catálogo imperial de Civil 3D). No se permite un valor libre —
+# así lo que se elige aquí coincide 1:1 con un tamaño real del catálogo y no cae
+# al "más cercano" al importar. El diámetro es independiente de la unidad de
+# trabajo (que rige coordenadas/cotas): el diámetro nunca va en pies.
+PIPE_DIAMETERS_IN = [12, 15, 18, 21, 24, 30, 36, 42, 48, 54, 60, 66, 72, 78,
+                     84, 90, 96, 102, 108, 114, 120, 126, 132, 138, 144]
+
+# MATERIALES de tubería permitidos en la UI. Son exactamente los valores del
+# desplegable "Material" de Civil 3D, para que el plugin los setee 1:1 en la
+# propiedad Material de cada tubería/estructura.
+PIPE_MATERIALS = ["Material sin definir", "Hormigón armado", "Acero corrugado",
+                  "Plástico ABS", "Fundición dúctil", "PVC"]
+DEFAULT_PIPE_MATERIAL = "Material sin definir"
+
+
+def nearest_pipe_diameter(value):
+    """Devuelve el diámetro estándar (pulg) más cercano a `value` (para migrar
+    proyectos viejos cuyo diámetro no esté en la lista)."""
+    try:
+        v = float(value or 0)
+    except (TypeError, ValueError):
+        v = 0.0
+    if v <= 0:
+        return PIPE_DIAMETERS_IN[0]
+    return min(PIPE_DIAMETERS_IN, key=lambda d: abs(d - v))
+
 TIPOS = [
     ("Agua (W)", "AGUA"), ("Alcantarillado (SS)", "ALCANTARILLADO"),
     ("Drenaje (SD)", "DRENAJE"), ("Gas (G)", "GAS"),
@@ -93,8 +121,22 @@ COVER_MIN_FT = {
 
 
 def mannings_n(material):
-    """Coeficiente de Manning por material (fuzzy match)."""
+    """Coeficiente de Manning por material (fuzzy match).
+    Cubre también los nombres de material en español de la UI/Civil 3D
+    (Hormigón armado, Acero corrugado, Plástico ABS, Fundición dúctil, PVC)."""
     m = (material or "").upper().strip()
+    # "corrugado/corrugated" (CMP) primero: su n es alto y no debe perder contra "acero".
+    if "CORRUGAD" in m or "CMP" in m:
+        return 0.024
+    es = {
+        "HORMIG": 0.013, "CONCRET": 0.013,        # hormigón / concreto
+        "PVC": 0.009, "ABS": 0.011, "HDPE": 0.011,
+        "FUNDIC": 0.011, "DUCTIL": 0.011, "DÚCTIL": 0.011,  # fundición dúctil
+        "ACERO": 0.012, "STEEL": 0.012,
+    }
+    for k, v in es.items():
+        if k in m:
+            return v
     for k, v in MANNINGS_N.items():
         if k in m:
             return v

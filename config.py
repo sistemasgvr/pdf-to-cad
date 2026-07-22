@@ -404,6 +404,19 @@ MLEADER_ARROW_SIZE_FT = 3.0    # tamaño de la punta de flecha del mleader (pies
 # 1" = 20'  ->  20 / 72.
 DEFAULT_SCALE_FT_PER_PT = 20.0 / 72.0
 INSUNITS = 2  # 2 = pies (feet) en el encabezado DXF $INSUNITS
+# $MEASUREMENT: 0 = imperial (inglés), 1 = métrico. DEBE ser 0 y coincidir con
+# INSUNITS=pies. ezdxf deja 1 (métrico) por defecto; si no se fuerza a 0, Civil 3D
+# abre el dibujo en métrico: carga el catálogo de partes en mm y muestra cotas/
+# longitudes de tuberías en metros (aunque $INSUNITS diga pies).
+MEASUREMENT = 0
+
+
+def apply_imperial_header(doc):
+    """Marca el encabezado del DXF como IMPERIAL (pies) de forma consistente.
+    Sin esto, Civil 3D abriría el dibujo en métrico (catálogo en mm, cotas en m)."""
+    doc.header["$INSUNITS"] = INSUNITS
+    doc.header["$MEASUREMENT"] = MEASUREMENT
+    return doc
 
 # Override manual de escala (pies/punto). Si es None, se auto-detecta.
 # Ej. para forzar 1"=100':  100/72.0

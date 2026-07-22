@@ -110,7 +110,9 @@
                 <!-- CATÁLOGO -->
                 <Border Style="{StaticResource Tarjeta}">
                     <StackPanel>
-                        <TextBlock Style="{StaticResource TituloSeccion}" Text="① CATÁLOGO"/>
+                        <TextBlock Style="{StaticResource TituloSeccion}" Text="① CATÁLOGO Y UNIDADES"/>
+                        <Button x:Name="btnImperial" Style="{StaticResource Boton}" Background="{StaticResource brAzul}"
+                                Content="📏  Poner dibujo en Imperial (pies)"/>
                         <Button x:Name="btnListar" Style="{StaticResource Boton}" Background="{StaticResource brAzul}"
                                 Content="📋  Listar piezas del catálogo"/>
                     </StackPanel>

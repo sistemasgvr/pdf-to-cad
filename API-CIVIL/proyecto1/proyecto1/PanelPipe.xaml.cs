@@ -10,6 +10,7 @@ namespace Civil3DBasico
             InitializeComponent();
 
             btnImportar.Click  += (s, e) => Ejecutar("IMPORTAR_RED");
+            btnImperial.Click  += (s, e) => Ejecutar("USAR_IMPERIAL");
             btnListar.Click    += (s, e) => Ejecutar("LISTAR_PIEZAS_PRESION");
             btnElemento.Click  += (s, e) =>
             {

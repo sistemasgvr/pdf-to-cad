@@ -170,7 +170,7 @@ def main(pdf_path, dxf_out, force=None, verbose=True):
 
     doc = fitz.open(pdf_path)
     dxf_doc = ezdxf.new("R2010", setup=True)
-    dxf_doc.header["$INSUNITS"] = C.INSUNITS
+    C.apply_imperial_header(dxf_doc)   # $INSUNITS=pies + $MEASUREMENT=0 (imperial)
     msp = dxf_doc.modelspace()
 
     def log(*a):
