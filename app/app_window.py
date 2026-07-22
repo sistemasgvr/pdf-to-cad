@@ -240,6 +240,15 @@ class Main(QtWidgets.QMainWindow):
         exp_menu.addAction("Solo el PDF digitalizado", lambda: self.run_pipeline("pdf"))
         exp_menu.addAction("Solo las anotaciones", lambda: self.run_pipeline("anot"))
         exp_menu.addSeparator()
+        # Capas de referencia reales de LA (solo si el plano está georreferenciado a 2229).
+        self.act_la_ref = exp_menu.addAction("Incluir calles reales de LA (capa)"); self.act_la_ref.setCheckable(True)
+        self.act_la_ref.setToolTip("Descarga los ejes de calle de NavigateLA del área y los añade al DXF (requiere georref a EPSG:2229 e internet).")
+        self.act_la_parcels = exp_menu.addAction("Incluir parcelas de LA (capa)"); self.act_la_parcels.setCheckable(True)
+        self.act_la_parcels.setToolTip("Añade las parcelas de LA (pueden ser muchas). Requiere georref a 2229 e internet.")
+        exp_menu.addSeparator()
+        self.act_dwg = exp_menu.addAction("Guardar también en DWG (requiere ODA)"); self.act_dwg.setCheckable(True)
+        self.act_dwg.setToolTip("Además del DXF, genera un .dwg con el ODA File Converter (debe estar instalado).")
+        exp_menu.addSeparator()
         exp_menu.addAction("Exportar red 3D (JSON)", self.export_network_json)
         self.btn_export.setMenu(exp_menu); tb.addWidget(self.btn_export)
 
@@ -400,14 +409,9 @@ class Main(QtWidgets.QMainWindow):
         self._slot_gcur_pipe = QtWidgets.QVBoxLayout(); l.addLayout(self._slot_gcur_pipe)   # slot: aquí va gcur al dibujar
         l.addStretch(1)
 
-        # ── Sección: Multileader ──
-        # p, l = _page("↳  Multileader", "ml")
-        # l.addWidget(self.btn_leader)
-        # l.addWidget(QtWidgets.QLabel("Orientación:"))
-        # self._slot_orient_ml = QtWidgets.QVBoxLayout(); l.addLayout(self._slot_orient_ml)   # slot: orient_combo
-        # l.addWidget(self.ga)                                                                # contenido (texto)
-        # self._slot_style_ml = QtWidgets.QVBoxLayout(); l.addLayout(self._slot_style_ml)     # slot: gtxt (estilo)
-        # l.addStretch(1)
+        # (La sección "Multileader" del acordeón está deshabilitada; su tab del
+        # inventario también. La infraestructura de Multileader se conserva por si
+        # se reactiva, pero NO se muestra al usuario.)
 
         # ── Sección: Leader (flecha simple) ──
         p, l = _page("↘  Leader (flecha simple)", "leader")
@@ -491,8 +495,9 @@ class Main(QtWidgets.QMainWindow):
         self.tabs.addTab(self.pipe_list, "Utilidades"); #self.tabs.addTab(self.lead_list, "Multileaders")
         self.tabs.addTab(self.sleader_list, "Leaders")
         self.tabs.addTab(self.txt_marks_list, "Textos"); self.tabs.addTab(self.region_list, "Zonas")
-        # Menú contextual (clic derecho) en cada lista del inventario
-        for listw, tab_idx in ((self.pipe_list, TAB_PIPE), (self.lead_list, TAB_ML),
+        # Menú contextual (clic derecho) en cada lista visible del inventario
+        # (la lista de Multileaders no se registra porque su pestaña está oculta)
+        for listw, tab_idx in ((self.pipe_list, TAB_PIPE),
                                (self.sleader_list, TAB_LEADER), (self.txt_marks_list, TAB_TEXT),
                                (self.region_list, TAB_REGION)):
             listw.setContextMenuPolicy(QtCore.Qt.CustomContextMenu)
@@ -681,7 +686,8 @@ class Main(QtWidgets.QMainWindow):
 
     def _update_geo_status(self):
         if self.georef.active():
-            rms = f" · RMS {self.georef.rms:.2f} m" if self.georef.rms is not None else ""
+            unit = georef_mod.epsg_unit(self.georef.epsg)
+            rms = f" · RMS {self.georef.rms:.2f} {unit}" if self.georef.rms is not None else ""
             self.lbl_geo.setText(f"Georref: EPSG:{self.georef.epsg}{rms}")
             self.lbl_geo.setStyleSheet("color:#5fd35f;")
         else:
@@ -699,7 +705,7 @@ class Main(QtWidgets.QMainWindow):
         self.btn_leader.setText("●  Coloque Multileader…" if (in_leader and not simple) else "↳  Colocar Multileader")
         self.btn_leader_simple.setText("●  Coloque Leader…" if (in_leader and simple) else "↘  Colocar Leader")
         self.btn_erase.setText("■  Terminar zona (Enter)" if m == "erase" else "▭  Borrar zona (polígono)")
-        ti = self.tabs.currentIndex()
+        ti = self._current_tab()
         # Con el acordeón (QToolBox) la visibilidad de las opciones la controla la
         # sección expandida — cada sección solo enseña lo suyo. Aquí ya no tenemos
         # que ocultar/mostrar `gt`/`ga`/`gtxt` según el modo; solo ajustamos el
@@ -711,7 +717,7 @@ class Main(QtWidgets.QMainWindow):
         active_draw = (m == "pipe" and len(self.cur_pts) >= 1) or (m == "erase" and len(self._erase_pts) >= 1)
         self.gcur.setVisible(active_draw)
         self.btn_fin.setEnabled((m == "pipe" and len(self.cur_pts) >= 2) or (m == "erase" and len(self._erase_pts) >= 3))
-        ti = self.tabs.currentIndex()
+        ti = self._current_tab()
         self.btn_ct.setVisible(ti == TAB_PIPE)
         self.btn_mv.setVisible(ti in (TAB_PIPE, TAB_LEADER, TAB_TEXT, TAB_REGION))
         self.btn_mv.setText("Mover" if ti == TAB_TEXT else "Editar/mover")
@@ -761,8 +767,25 @@ class Main(QtWidgets.QMainWindow):
                 self.gcur.hide()
         self._update_ui(); self._redraw()
 
+    # El inventario usa IDs lógicos (TAB_PIPE, TAB_ML, …) que NO coinciden con la
+    # posición visible de la pestaña cuando alguna está oculta (p. ej. Multileaders).
+    # Estos helpers traducen widget↔constante, así el código es robusto ante
+    # pestañas ocultas o reordenadas.
+    def _tab_map(self):
+        return {self.pipe_list: TAB_PIPE, self.lead_list: TAB_ML, self.sleader_list: TAB_LEADER,
+                self.txt_marks_list: TAB_TEXT, self.region_list: TAB_REGION}
+
+    def _current_tab(self):
+        return self._tab_map().get(self.tabs.currentWidget(), TAB_PIPE)
+
+    def _show_tab(self, logical):
+        w = {v: k for k, v in self._tab_map().items()}.get(logical)
+        idx = self.tabs.indexOf(w) if w is not None else -1
+        if idx >= 0:
+            self.tabs.setCurrentIndex(idx)
+
     def _tab_changed(self, _):
-        ti = self.tabs.currentIndex()               # sel_leader se comparte entre ML y Leaders: re-sincronizar
+        ti = self._current_tab()                    # sel_leader se comparte entre ML y Leaders: re-sincronizar
         if ti == TAB_ML: self.sel_leader = self._leader_at_row(self.lead_list, self.lead_list.currentRow())
         elif ti == TAB_LEADER: self.sel_leader = self._leader_at_row(self.sleader_list, self.sleader_list.currentRow())
         if self.mode == "move": self.set_mode("idle")   # no seguir editando al cambiar de pestaña
@@ -1084,7 +1107,7 @@ class Main(QtWidgets.QMainWindow):
         thr = 10.0 / max(1e-6, self.canvas.transform().m11())
         for i, tm in enumerate(self.text_marks):        # textos primero (blancos pequeños)
             if self._text_hit(tm, x, y):
-                self._no_center = True; self.tabs.setCurrentIndex(TAB_TEXT); self.txt_marks_list.setCurrentRow(i)
+                self._no_center = True; self._show_tab(TAB_TEXT); self.txt_marks_list.setCurrentRow(i)
                 self._no_center = False; return
         for i, ld in enumerate(self.leaders):           # leaders/multileaders: por la línea o el texto
             if not (ld.get("arrow") and ld.get("tp")): continue
@@ -1105,7 +1128,7 @@ class Main(QtWidgets.QMainWindow):
                 d = G.pt_seg_dist(x, y, a[0], a[1], b[0], b[1])
                 if d < bd: bd, best = d, i
         if best >= 0:
-            self._no_center = True; self.tabs.setCurrentIndex(TAB_PIPE); self.pipe_list.setCurrentRow(best)
+            self._no_center = True; self._show_tab(TAB_PIPE); self.pipe_list.setCurrentRow(best)
             self._no_center = False
 
     def _snap(self, x, y):
@@ -1114,7 +1137,7 @@ class Main(QtWidgets.QMainWindow):
 
     # ─────────────────────────── editar / mover ───────────────────────────
     def _current_kind(self):
-        ti = self.tabs.currentIndex()
+        ti = self._current_tab()
         if ti == TAB_PIPE and 0 <= self.sel_pipe < len(self.pipes): return "pipe"
         if ti == TAB_LEADER and 0 <= self.sel_leader < len(self.leaders) and self.leaders[self.sel_leader].get("simple"): return "leader"
         if ti == TAB_TEXT and 0 <= self.sel_text < len(self.text_marks): return "text"
@@ -1334,7 +1357,7 @@ class Main(QtWidgets.QMainWindow):
         lst = self.sleader_list if simple else self.lead_list
         row = next((r for r in range(lst.count()) if lst.item(r).data(QtCore.Qt.UserRole) == i), -1)
         self._no_center = not center
-        self.tabs.setCurrentIndex(TAB_LEADER if simple else TAB_ML); lst.setCurrentRow(row)
+        self._show_tab(TAB_LEADER if simple else TAB_ML); lst.setCurrentRow(row)
         self._no_center = False
 
     def _sel_text(self, r):
@@ -1380,19 +1403,15 @@ class Main(QtWidgets.QMainWindow):
           1) Salimos del modo activo (evita mezclar 'colocar Multileader' con
              el usuario abriendo la sección Texto por error).
           2) Reparentamos los widgets COMPARTIDOS a la sección correspondiente:
-             - orient_combo → Multileader o Leader (según sección)
-             - gtxt (estilo) → Multileader o Texto libre
+             - orient_combo → Leader
+             - gtxt (estilo) → Texto libre
              - rot_row visible solo en Texto libre
           3) Refrescamos la UI (etiqueta del modo, botones activos, etc.)."""
         # Descubrimos qué sección ("key") corresponde al índice.
         key = next((k for k, i in self._sec_idx.items() if i == idx), None)
         if self.mode not in ("idle",):
             self.set_mode("idle")
-        if key == "ml":
-            self._place_widget(self.orient_combo, self._slot_orient_ml)
-            self._place_widget(self.gtxt, self._slot_style_ml)
-            self.rot_row.setVisible(False)
-        elif key == "leader":
+        if key == "leader":
             self._place_widget(self.orient_combo, self._slot_orient_ld)
         elif key == "text":
             self._place_widget(self.gtxt, self._slot_style_tx)
@@ -1427,7 +1446,7 @@ class Main(QtWidgets.QMainWindow):
 
     def _style_changed(self):
         if self._style_guard: return
-        ti = self.tabs.currentIndex()
+        ti = self._current_tab()
         if ti == TAB_TEXT and 0 <= self.sel_text < len(self.text_marks):
             tm = self.text_marks[self.sel_text]; self._push()
             tm["font"] = self.font_combo.currentFont().family(); tm["size_ft"] = self.size_spin.value()
@@ -1444,7 +1463,7 @@ class Main(QtWidgets.QMainWindow):
         `self._push()` guarda un snapshot para Ctrl+Z (deshacer).
         La UNIDAD de diámetro/invert es la del proyecto (self.work_unit), no per-pipe."""
         if self._prop_guard: return
-        if self.tabs.currentIndex() == TAB_PIPE and 0 <= self.sel_pipe < len(self.pipes):
+        if self._current_tab() == TAB_PIPE and 0 <= self.sel_pipe < len(self.pipes):
             p = self.pipes[self.sel_pipe]; self._push()
             p["name"] = self.prop_name.text().strip()
             p["diam"] = float(self.prop_diam.currentData() or 0)         # SIEMPRE en pulgadas
@@ -1489,14 +1508,14 @@ class Main(QtWidgets.QMainWindow):
             self.pipes[self.sel_pipe]["ab"] = self.chk_ab.isChecked(); self._refresh_lists(); self._redraw()
 
     def edit_selected_text(self):
-        ti = self.tabs.currentIndex()
+        ti = self._current_tab()
         if ti == TAB_ML and 0 <= self.sel_leader < len(self.leaders): self._edit_leader_text(self.sel_leader)
         elif ti == TAB_TEXT and 0 <= self.sel_text < len(self.text_marks): self._edit_text_mark(self.sel_text)
 
     def _list_context_menu(self, listw, tab_idx, pos):
         item = listw.itemAt(pos)
         if item is None: return
-        if self.tabs.currentIndex() != tab_idx: self.tabs.setCurrentIndex(tab_idx)
+        if self._current_tab() != tab_idx: self._show_tab(tab_idx)
         listw.setCurrentRow(listw.row(item))          # selecciona la fila bajo el cursor
         menu = QtWidgets.QMenu(self)
         if tab_idx == TAB_PIPE:
@@ -1516,7 +1535,7 @@ class Main(QtWidgets.QMainWindow):
         menu.exec(listw.viewport().mapToGlobal(pos))
 
     def delete_selected(self):
-        ti = self.tabs.currentIndex()
+        ti = self._current_tab()
         if ti == TAB_PIPE and 0 <= self.sel_pipe < len(self.pipes):
             self._push(); self.pipes.pop(self.sel_pipe); self.sel_pipe = -1
         elif ti in (TAB_ML, TAB_LEADER) and 0 <= self.sel_leader < len(self.leaders):
@@ -1528,7 +1547,7 @@ class Main(QtWidgets.QMainWindow):
         self._refresh_lists(); self._redraw()
 
     def _copy_sel(self):
-        ti = self.tabs.currentIndex()
+        ti = self._current_tab()
         if ti in (TAB_ML, TAB_LEADER) and 0 <= self.sel_leader < len(self.leaders): self._clip = ("leader", copy.deepcopy(self.leaders[self.sel_leader]))
         elif ti == TAB_PIPE and 0 <= self.sel_pipe < len(self.pipes): self._clip = ("pipe", copy.deepcopy(self.pipes[self.sel_pipe]))
         elif ti == TAB_TEXT and 0 <= self.sel_text < len(self.text_marks): self._clip = ("text", copy.deepcopy(self.text_marks[self.sel_text]))
@@ -1545,10 +1564,10 @@ class Main(QtWidgets.QMainWindow):
             self.leaders.append(o); self._refresh_lists(); self._select_leader(len(self.leaders) - 1)
         elif kind == "pipe":
             o["pts"] = [(x + d, y + d) for (x, y) in o["pts"]]; self.pipes.append(o)
-            self.tabs.setCurrentIndex(TAB_PIPE); self._refresh_lists(); self.pipe_list.setCurrentRow(len(self.pipes) - 1)
+            self._show_tab(TAB_PIPE); self._refresh_lists(); self.pipe_list.setCurrentRow(len(self.pipes) - 1)
         elif kind == "text":
             o["pos"] = (o["pos"][0] + d, o["pos"][1] + d); self.text_marks.append(o)
-            self.tabs.setCurrentIndex(TAB_TEXT); self._refresh_lists(); self.txt_marks_list.setCurrentRow(len(self.text_marks) - 1)
+            self._show_tab(TAB_TEXT); self._refresh_lists(); self.txt_marks_list.setCurrentRow(len(self.text_marks) - 1)
         self._redraw(); self._info("Pegado (copia desplazada).")
 
     def _refresh_lists(self):
@@ -1825,7 +1844,7 @@ class Main(QtWidgets.QMainWindow):
             t.setPos(tm["pos"][0], tm["pos"][1])
             if tm.get("rot"): t.setRotation(-tm["rot"])       # rot en grados CCW; Qt gira en sentido horario
             t.setZValue(Z_MARK); self._overlay.append(t)
-            if i == self.sel_text and self.tabs.currentIndex() == TAB_TEXT:
+            if i == self.sel_text and self._current_tab() == TAB_TEXT:
                 br = t.boundingRect(); pen = QtGui.QPen(QtGui.QColor(255, 180, 40)); pen.setCosmetic(True)
                 rit = sc.addRect(tm["pos"][0], tm["pos"][1], br.width(), br.height(), pen); rit.setZValue(Z_MARK); self._overlay.append(rit)
 
@@ -1857,6 +1876,110 @@ class Main(QtWidgets.QMainWindow):
             return self.georef.to_world(x, y)
         return G.to_cad(x, y, self.scale, self.rot, self.W, self.H, self.derot, self.zoom)
 
+    def _georef_base_doc(self, doc):
+        """Con georreferencia activa, transforma TODO el plano base al mismo sistema
+        REAL que las anotaciones. El plano base viene en coordenadas de titleblock
+        (G.to_cad sin georref); ajustamos una afín base→real muestreando 3 puntos
+        (base = G.to_cad(px), real = georef.to_world(px)) y la aplicamos a todas
+        las entidades del modelspace. Así base + anotaciones quedan alineados."""
+        from ezdxf.math import Matrix44
+        pm = self.canvas.pixmap_item.pixmap()
+        w, h = pm.width(), pm.height()
+        samples = [(0.1 * w, 0.1 * h), (0.9 * w, 0.15 * h), (0.15 * w, 0.9 * h)]
+        src = [G.to_cad(x, y, self.scale, self.rot, self.W, self.H, self.derot, self.zoom) for (x, y) in samples]
+        dst = [self.georef.to_world(x, y) for (x, y) in samples]
+        M, _, _ = georef_mod.fit(src, dst, "affine")
+        a, b, c = M[0]; d, e, f = M[1]
+        mat = Matrix44((a, d, 0, 0), (b, e, 0, 0), (0, 0, 1, 0), (c, f, 0, 1))
+        msp = doc.modelspace()
+        for ent in list(msp):
+            try:
+                ent.transform(mat)
+            except Exception:
+                pass                                     # entidad que no soporta transform: se deja
+
+    def _set_geodata(self, doc):
+        """Incrusta el sistema de coordenadas (NAD83 California Zona V, pies US =
+        EPSG:2229) como GeoData, para que el CAD reconozca el plano geolocalizado.
+        Best-effort: si algo falla, no rompe la exportación."""
+        if not self.georef.active() or int(self.georef.epsg) != 2229:
+            return
+        try:
+            from pyproj import Transformer
+            b = self._plan_bbox_real(); cx = (b[0] + b[2]) / 2.0; cy = (b[1] + b[3]) / 2.0
+            lon, lat = Transformer.from_crs(2229, 4326, always_xy=True).transform(cx, cy)
+            gd = doc.modelspace().new_geodata()
+            gd.coordinate_system_definition = "CA83VF"       # código Autodesk: NAD83 CA Zona V, pie US
+            gd.dxf.design_point = (cx, cy, 0)                # punto en coords del dibujo (pies 2229)
+            gd.dxf.reference_point = (lon, lat, 0)           # su lon/lat (grados)
+            gd.dxf.north_direction = (0, 1)
+            gd.dxf.coordinate_type = gd.PROJECTED_GRID
+        except Exception:
+            pass
+
+    def _set_plan_view(self, doc):
+        """Hace que el DXF se abra en vista de PLANTA (top) y encuadrado al dibujo,
+        para que no aparezca como una hoja inclinada ni diminuta al abrirlo."""
+        try:
+            from ezdxf import bbox
+            ext = bbox.extents(doc.modelspace())
+            if not ext.has_data:
+                return
+            cx = (ext.extmin.x + ext.extmax.x) / 2.0
+            cy = (ext.extmin.y + ext.extmax.y) / 2.0
+            h = (ext.extmax.y - ext.extmin.y) or (ext.extmax.x - ext.extmin.x) or 100.0
+            doc.set_modelspace_vport(h * 1.15, center=(cx, cy))   # vista top, centrada
+        except Exception:
+            pass
+
+    def _maybe_export_dwg(self, doc, out):
+        """Si el usuario lo activó, genera también un .dwg junto al .dxf usando el
+        ODA File Converter (ezdxf.addons.odafc). Si ODA no está, avisa y deja el DXF."""
+        if not (getattr(self, "act_dwg", None) and self.act_dwg.isChecked()):
+            return
+        dwg = os.path.splitext(out)[0] + ".dwg"
+        try:
+            from ezdxf.addons import odafc
+            if not odafc.is_installed():
+                QtWidgets.QMessageBox.information(self, "DWG",
+                    "Para generar DWG necesitas instalar el ODA File Converter (gratuito).\n"
+                    "Se guardó solo el DXF; ábrelo en tu CAD y «Guardar como DWG» si lo necesitas ahora.")
+                return
+            odafc.export_dwg(doc, dwg, replace=True)
+            self._info(f"DWG generado: {os.path.basename(dwg)}")
+        except Exception as e:
+            QtWidgets.QMessageBox.warning(self, "DWG", f"No se pudo generar el DWG (se conserva el DXF).\n\n{e}")
+
+    def _plan_bbox_real(self):
+        """Recuadro del plano en coordenadas reales (del georef), desde las esquinas
+        de la página. Devuelve (xmin, ymin, xmax, ymax)."""
+        pm = self.canvas.pixmap_item.pixmap()
+        w, h = pm.width(), pm.height()
+        cs = [self.georef.to_world(x, y) for (x, y) in ((0, 0), (w, 0), (w, h), (0, h))]
+        xs = [c[0] for c in cs]; ys = [c[1] for c in cs]
+        return (min(xs), min(ys), max(xs), max(ys))
+
+    def _maybe_add_la_reference(self, doc):
+        """Si el usuario lo activó y el plano está georreferenciado a EPSG:2229,
+        descarga de NavigateLA las calles (y opcional parcelas) del área y las
+        añade como capas de referencia. Falla en silencio con aviso."""
+        want_streets = getattr(self, "act_la_ref", None) and self.act_la_ref.isChecked()
+        want_parcels = getattr(self, "act_la_parcels", None) and self.act_la_parcels.isChecked()
+        if not (want_streets or want_parcels):
+            return
+        if not self.georef.active() or int(self.georef.epsg) != 2229:
+            QtWidgets.QMessageBox.information(self, "Capas de LA",
+                "Las capas reales de LA solo se pueden agregar si el plano está "
+                "georreferenciado a EPSG:2229 (State Plane de LA)."); return
+        try:
+            from geo.la_reference import add_reference_layers
+            nc, npa = add_reference_layers(doc, self._plan_bbox_real(),
+                                           streets=bool(want_streets), parcels=bool(want_parcels))
+            self._info(f"Capas de LA agregadas: {nc} tramos de calle, {npa} parcelas.")
+        except Exception as e:
+            QtWidgets.QMessageBox.warning(self, "Capas de LA",
+                f"No se pudieron descargar las capas de LA (¿internet?).\n\n{e}")
+
     # ─────────────────────────── exportar ───────────────────────────
     def run_pipeline(self, mode="todo"):
         """mode: 'todo' = PDF digitalizado + anotaciones · 'pdf' = solo el PDF ·
@@ -1876,7 +1999,12 @@ class Main(QtWidgets.QMainWindow):
         if not need_pdf:                                   # solo anotaciones: sin pipeline
             try:
                 doc = ezdxf.new("R2010", setup=True); C.apply_imperial_header(doc)
-                self._merge_into(doc, marks=True); doc.saveas(out)
+                self._merge_into(doc, marks=True)
+                self._maybe_add_la_reference(doc)        # capas reales de LA (si se activó)
+                self._set_geodata(doc)                   # geolocaliza el DXF en EPSG:2229
+                self._set_plan_view(doc)                 # abrir en vista 2D/planta, encuadrado
+                doc.saveas(out)
+                self._maybe_export_dwg(doc, out)         # además .dwg si se activó (ODA)
                 QtWidgets.QMessageBox.information(self, "Listo", f"Exportado (solo anotaciones):\n{out}")
                 self._info("DXF de anotaciones exportado.")
             except Exception as e:
@@ -1894,7 +2022,14 @@ class Main(QtWidgets.QMainWindow):
         try:
             marks = (self._mode == "todo")               # 'pdf' = solo el plano, sin anotaciones
             doc = ezdxf.readfile(tmp); C.apply_imperial_header(doc)   # reafirma imperial ($MEASUREMENT=0) tras leer el plano base
-            self._merge_into(doc, marks=marks); doc.saveas(self._out)
+            if self.georef.active():                     # lleva el plano base al mismo sistema REAL que las anotaciones
+                self._georef_base_doc(doc)
+            self._merge_into(doc, marks=marks)
+            self._maybe_add_la_reference(doc)            # capas reales de LA (si se activó)
+            self._set_geodata(doc)                       # geolocaliza el DXF en EPSG:2229
+            self._set_plan_view(doc)                     # abrir en vista 2D/planta, encuadrado
+            doc.saveas(self._out)
+            self._maybe_export_dwg(doc, self._out)       # además .dwg si se activó (ODA)
             if os.path.exists(tmp): os.remove(tmp)
             if marks:
                 nreg = sum(1 for r in self.erase_regions if r.get("enabled", True))
@@ -2056,9 +2191,13 @@ class Main(QtWidgets.QMainWindow):
         if dlg.exec() == QtWidgets.QDialog.Accepted and dlg.result_georef is not None:
             self.georef = dlg.result_georef; self._dirty = True
             self._update_geo_status(); self._redraw()
+            unit = georef_mod.epsg_unit(self.georef.epsg)
             rms = self.georef.rms if self.georef.rms is not None else 0.0
-            self._info(f"Georreferenciado (EPSG:{self.georef.epsg}, RMS {rms:.2f} m). "
-                       "Las coordenadas exportadas ahora son UTM reales (aproximadas).")
+            self._info(f"Georreferenciado (EPSG:{self.georef.epsg}, RMS {rms:.2f} {unit}). "
+                       "Las coordenadas exportadas ahora son reales.")
+            QtWidgets.QMessageBox.information(
+                self, "Georreferenciación",
+                f"✓ Plano georreferenciado\n\nEPSG: {self.georef.epsg}\nRMS: {rms:.2f} {unit}")
 
     # ─────────────────────────── Excel ───────────────────────────
     def open_excel(self):

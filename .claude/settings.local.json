@@ -94,7 +94,26 @@
       "WebSearch",
       "WebFetch(domain:civapidocs.com)",
       "WebFetch(domain:forum.dynamobim.com)",
-      "WebFetch(domain:www.autodesk.com)"
+      "WebFetch(domain:www.autodesk.com)",
+      "WebFetch(domain:maps.lacity.org)",
+      "Bash(python -c \"import ast; ast.parse\\(open\\('app/geo/georef_dialog.py',encoding='utf-8'\\).read\\(\\)\\); print\\('OK sintaxis georef_dialog'\\)\")",
+      "WebFetch(domain:unpkg.com)",
+      "Bash(python -c \"import ast; ast.parse\\(open\\('app/geo/georef_dialog.py',encoding='utf-8'\\).read\\(\\)\\); print\\('OK'\\)\")",
+      "Bash(python -m pip install --quiet pyproj)",
+      "Bash(python -c \"import ast; [ast.parse\\(open\\(f,encoding='utf-8'\\).read\\(\\)\\) for f in \\('app/geo/georef.py','app/geo/georef_dialog.py','app/app_window.py'\\)]; print\\('OK sintaxis \\(3 archivos\\)'\\)\")",
+      "Bash(python -c \"import ast; ast.parse\\(open\\('app/geo/georef_dialog.py',encoding='utf-8'\\).read\\(\\)\\); print\\('OK sintaxis'\\)\")",
+      "Bash(QT_QPA_PLATFORM=offscreen python -c ' *)",
+      "Bash(grep -v \"^$\")",
+      "Bash(rtk du *)",
+      "Bash(python -c \"import ast; [ast.parse\\(open\\(f,encoding='utf-8'\\).read\\(\\)\\) for f in \\('app/geo/georef_dialog.py','app/app_window.py'\\)]; print\\('OK sintaxis'\\)\")",
+      "Bash(python -c \"import ast; [ast.parse\\(open\\(f,encoding='utf-8'\\).read\\(\\)\\) for f in \\('app/geo/dwg_ref.py','app/geo/georef_dialog.py','app/app_window.py'\\)]; print\\('OK sintaxis \\(3\\)'\\)\")",
+      "Bash(python -c \"import ast; [ast.parse\\(open\\(f,encoding='utf-8'\\).read\\(\\)\\) for f in \\('app/geo/dwg_ref.py','app/geo/georef_dialog.py','app/geo/georef.py','app/app_window.py'\\)]; print\\('OK sintaxis \\(4 archivos\\)'\\)\")",
+      "Bash(python -c \"import ast; ast.parse\\(open\\('app/app_window.py',encoding='utf-8'\\).read\\(\\)\\); print\\('OK'\\)\")",
+      "Bash(python -c \"import ast; ast.parse\\(open\\('app/app_window.py',encoding='utf-8'\\).read\\(\\)\\); print\\('sintaxis OK'\\)\")",
+      "Bash(sed -n \"/def to_cad/,/return/p\" app/geometry.py)",
+      "Bash(python -c \"import ast; [ast.parse\\(open\\(f,encoding='utf-8'\\).read\\(\\)\\) for f in \\('app/geo/overlay.py','app/geo/georef_dialog.py','app/geo/la_reference.py'\\)]; print\\('sintaxis OK'\\)\")",
+      "Bash(python -c \"import ast; [ast.parse\\(open\\(f,encoding='utf-8'\\).read\\(\\)\\) for f in \\('app/app_window.py','app/geo/overlay.py','app/geo/georef_dialog.py','app/geo/la_reference.py'\\)]; print\\('sintaxis OK \\(4\\)'\\)\")",
+      "Bash(python -c \"import ast; [ast.parse\\(open\\(f,encoding='utf-8'\\).read\\(\\)\\) for f in \\('app/geo/overlay.py','app/geo/georef_dialog.py'\\)]; print\\('sintaxis OK'\\)\")"
     ]
   }
 }

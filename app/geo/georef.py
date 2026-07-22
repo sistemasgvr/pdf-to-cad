@@ -31,6 +31,17 @@ def utm_to_lonlat(e, n, epsg):
     return tr.transform(e, n)
 
 
+def epsg_unit(epsg):
+    """Unidad lineal del CRS: 'ft' si está en pies (p. ej. State Plane 2229),
+    si no 'm'. Usa pyproj si está; si no, heurística mínima."""
+    try:
+        from pyproj import CRS
+        name = (CRS.from_epsg(int(epsg)).axis_info[0].unit_name or "").lower()
+        return "ft" if ("foot" in name or "feet" in name) else "m"
+    except Exception:
+        return "ft" if int(epsg) == 2229 else "m"
+
+
 # ─────────────────────────── Ajuste de la transformación ───────────────────────────
 def _fit_numpy(src, dst, ttype):
     """Fallback sin scikit-image (mínimos cuadrados). Devuelve matriz 3x3."""
