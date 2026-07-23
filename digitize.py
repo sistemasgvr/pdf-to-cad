@@ -3,7 +3,7 @@ digitize.py — Router PDF -> DXF.
 
 Detecta automáticamente si cada página es vectorizada o rasterizada y
 despacha al pipeline correspondiente. Genera un único DXF con capas
-nombradas (AGUA, ALCANTARILLADO, GAS, EJE_VIA, METRO_RW, TEXTO, ...).
+nombradas (AGUA, ALCANTARILLADO, GAS, PDF_DIGITALIZADO, METRO_RW, TEXTO, ...).
 
 Uso:
     python digitize.py entrada.pdf salida.dxf
@@ -42,7 +42,7 @@ UTILITY_LAYERS = ["AGUA", "ALCANTARILLADO", "DRENAJE_PLUVIAL", "GAS",
 # Capas que representan geometría/anotación del PLANO (no metadata). Si alguna de
 # estas entidades cae dentro de una zona de exclusión = zona contaminada.
 _PLAN_LAYERS_FOR_CONTAMINATION = set(UTILITY_LAYERS) | {
-    "EJE_VIA", "METRO_RW", "TOPO", "ESTRUCTURAS", "PREDIOS",
+    "PDF_DIGITALIZADO", "METRO_RW", "TOPO", "ESTRUCTURAS", "PREDIOS",
     "LIMITE_MAPA", "ANOTACION", "TEXTO", C.FALLBACK_LAYER,
 }
 
@@ -179,7 +179,6 @@ def main(pdf_path, dxf_out, force=None, verbose=True):
 
     log(f"PDF: {pdf_path}  ({len(doc)} pág.)")
 
-    all_callouts = []
     all_zones = []
     last_scale = C.DEFAULT_SCALE_FT_PER_PT
     for i, page in enumerate(doc):
@@ -196,24 +195,13 @@ def main(pdf_path, dxf_out, force=None, verbose=True):
         else:
             import raster_pipeline
             stats = raster_pipeline.run(page, dxf_doc)
-        page_callouts = stats.pop("callouts", None) or []
-        all_callouts.extend(page_callouts)
+        stats.pop("callouts", None)                   # legacy: se ignora si aparece
         all_zones.extend(stats.pop("exclusion_zones_cad", None) or [])
         last_scale = stats.get("scale_ft_per_pt", last_scale)
         log("   ", stats)
 
     dxf_doc.saveas(dxf_out)
     log(f"\n✓ Guardado: {dxf_out}")
-
-    # Reporte de nomenclatura de callouts (si se leyó texto por OCR).
-    if all_callouts:
-        import os
-        import callout_ocr
-        report_path = os.path.splitext(dxf_out)[0] + "_callouts.txt"
-        n_tot, n_nom = callout_ocr.write_report(
-            all_callouts, report_path, os.path.basename(pdf_path), last_scale)
-        log(f"✓ Reporte de callouts: {report_path}  "
-            f"({n_nom}/{n_tot} con nomenclatura)")
 
     warnings, counts = validate(msp, all_zones)
     log("\n── Entidades por capa ──")

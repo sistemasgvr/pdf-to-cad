@@ -10,11 +10,7 @@ openpyxl>=3.1        # lectura de columna TEXTO/TEXTOS desde Excel
 # Ruta rasterizada (solo si procesas escaneos / PDFs imagen)
 opencv-python>=4.8
 numpy>=1.24
-pytesseract>=0.3.10   # requiere binario Tesseract-OCR instalado en el sistema
 pillow>=10.0
-
-# ICR manuscrita (opcional, offline) — solo si activas el checkbox "ICR manuscrita"
-easyocr>=1.7          # la primera ejecución descarga el modelo (~100 MB)
 
 # Vista previa opcional
 matplotlib>=3.7

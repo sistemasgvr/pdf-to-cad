@@ -580,16 +580,22 @@ def process_path(collector, path, dxf, T, has_ocg=True, text_boxes=None, zones=N
     # Modo fiel: NO suprimir glifos de letra (W/G/SS…) — se dibujan como en el PDF.
     if is_shx_glyph(path) and not faithful:
         return
-    # Zona de exclusión (leyenda de pothole / membrete): no digitalizar su geometría.
-    if _path_in_zones(path, zones):
+    # Zona de exclusión: TITLEBLOCK/MARCO/MEMBRETE_DENSIDAD -> capa MEMBRETE (ocultable).
+    # POTHOLE_LEGEND se sigue descartando (siempre estorba y ya está en el plano).
+    _zone_tag = _path_zone_tag(path, zones)
+    if _zone_tag == "POTHOLE_LEGEND":
         return
+    _to_membrete = _zone_tag in _MEMBRETE_TAGS
     # Resaltador / anotaciones: los rellenos SEMITRANSPARENTES no son parte del plano.
     if getattr(C, "SKIP_HIGHLIGHTER", True) and path.get("fill") is not None:
         fo = path.get("fill_opacity", 1.0)
         if fo is not None and fo < getattr(C, "HIGHLIGHTER_MAX_OPACITY", 0.9):
             return
     ocg = path.get("layer", "") or ""
-    if getattr(C, "PLAIN_MODE", False):
+    if _to_membrete:
+        # Todo lo del cajetín/marco va a la capa MEMBRETE (ocultable/borrable en CAD).
+        layer = "MEMBRETE"
+    elif getattr(C, "PLAIN_MODE", False):
         # Modo plano: solo digitalizar. Todo a una capa neutra, sin clasificar ni
         # colorear ni linetypes de letra. NO se dibujan los resaltados/marcas de
         # color (amarillo, etc.) ni los glifos de texto (contornos).
@@ -597,7 +603,7 @@ def process_path(collector, path, dxf, T, has_ocg=True, text_boxes=None, zones=N
             return
         if is_fill_glyph(path):
             return
-        layer = "EJE_VIA"
+        layer = "PDF_DIGITALIZADO"
     elif has_ocg:
         layer = layer_for(ocg)
     else:
@@ -1239,7 +1245,8 @@ def build_exclusion_zones(page):
         return []
     spans = list(_text_spans(page))
     if not spans:
-        return []   # PDF aplanado sin texto vivo: fuera de alcance aquí
+        # PDF aplanado sin texto vivo: la detección por keywords no aplica → respaldo geométrico.
+        return detect_geometric_membrete(page)
 
     margin = getattr(C, "EXCLUDE_ZONE_MARGIN_PT", 28.0)
     pot_kw = [k.upper() for k in getattr(C, "POTHOLE_LEGEND_KEYWORDS", [])]
@@ -1268,7 +1275,76 @@ def build_exclusion_zones(page):
     out = []
     for tag, (x0, y0, x1, y1) in zones:
         out.append((tag, (x0 - margin, y0 - margin, x1 + margin, y1 + margin)))
+
+    # Respaldo geométrico si NO hubo detección por texto (PDF con letras aplanadas).
+    if not out:
+        out.extend(detect_geometric_membrete(page))
     return out
+
+
+def detect_geometric_membrete(page):
+    """Detecta membrete / marco / viewport por GEOMETRÍA (sin texto vivo).
+    Devuelve zonas [(tag, bbox_pdf)]:
+      - MARCO_PAGINA: el rectángulo exterior de la página (borde del dibujo).
+      - MEMBRETE_DENSIDAD: cluster con densidad alta de glifos aplanados en una esquina.
+    """
+    W, H = float(page.mediabox.width), float(page.mediabox.height)
+    if W <= 0 or H <= 0:
+        return []
+    try:
+        paths = page.get_drawings()
+    except Exception:
+        return []
+    if not paths:
+        return []
+
+    out = []
+
+    # 1) Marco/borde de la página: SIEMPRE tratar como MARCO_PAGINA todo lo que
+    #    cae en las 4 franjas perimetrales (2% de cada lado). Cubre marcos
+    #    hechos de una sola polilínea grande o de segmentos sueltos.
+    inset = 0.02
+    x0, y0 = inset * W, inset * H
+    x1, y1 = (1 - inset) * W, (1 - inset) * H
+    out.append(("MARCO_PAGINA", (0, 0, W, y0)))            # abajo
+    out.append(("MARCO_PAGINA", (0, y1, W, H)))            # arriba
+    out.append(("MARCO_PAGINA", (0, 0, x0, H)))            # izquierda
+    out.append(("MARCO_PAGINA", (x1, 0, W, H)))            # derecha
+
+    # 2) Zona densa: grid 8x8, encontrar 1-2 celdas con densidad extrema (glifos aplanados).
+    gx_n, gy_n = 8, 8
+    grid = [[0] * gy_n for _ in range(gx_n)]
+    for p in paths:
+        r = p.get("rect")
+        if r is None:
+            continue
+        cx = (r.x0 + r.x1) / 2.0
+        cy = (r.y0 + r.y1) / 2.0
+        gx = min(gx_n - 1, max(0, int(cx * gx_n / W)))
+        gy = min(gy_n - 1, max(0, int(cy * gy_n / H)))
+        grid[gx][gy] += 1
+    total = sum(sum(col) for col in grid)
+    if total <= 0:
+        return out
+    # umbral: celda con densidad >= 6x el promedio (típico de un cajetín con muchos glifos)
+    avg = total / (gx_n * gy_n)
+    threshold = max(150, avg * 6.0)
+    for gx in range(gx_n):
+        for gy in range(gy_n):
+            if grid[gx][gy] < threshold:
+                continue
+            # bbox de la celda + margen
+            x0 = (gx / gx_n) * W - 30
+            y0 = (gy / gy_n) * H - 30
+            x1 = ((gx + 1) / gx_n) * W + 30
+            y1 = ((gy + 1) / gy_n) * H + 30
+            out.append(("MEMBRETE_DENSIDAD", (x0, y0, x1, y1)))
+
+    return out
+
+
+# Tags que se ENRUTAN a la capa MEMBRETE (no se descartan).
+_MEMBRETE_TAGS = {"TITLEBLOCK", "MARCO_PAGINA", "MEMBRETE_DENSIDAD"}
 
 
 def _pt_in_zones(x, y, zones):
@@ -1278,14 +1354,24 @@ def _pt_in_zones(x, y, zones):
     return False
 
 
-def _path_in_zones(path, zones):
-    """True si el centro del bbox del trazo cae dentro de alguna zona de exclusión."""
+def _path_zone_tag(path, zones):
+    """Tag de la zona que contiene el centro del trazo, o None. Si el centro no cae
+    en ninguna zona, devuelve None."""
     if not zones:
-        return False
+        return None
     r = path.get("rect")
     if r is None:
-        return False
-    return _pt_in_zones((r.x0 + r.x1) / 2.0, (r.y0 + r.y1) / 2.0, zones)
+        return None
+    cx, cy = (r.x0 + r.x1) / 2.0, (r.y0 + r.y1) / 2.0
+    for tag, (x0, y0, x1, y1) in zones:
+        if x0 <= cx <= x1 and y0 <= cy <= y1:
+            return tag
+    return None
+
+
+def _path_in_zones(path, zones):
+    """True si el centro del bbox del trazo cae dentro de alguna zona (compatibilidad)."""
+    return _path_zone_tag(path, zones) is not None
 
 
 def zones_to_cad(zones, T):
@@ -1483,214 +1569,6 @@ def recolor_abandoned(msp, dxf, T):
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# LEADERS / MULTILEADERS  (flecha + texto)  — entidades CAD nativas
-# ─────────────────────────────────────────────────────────────────────────────
-def _leader_points_pdf(path):
-    """Puntos (pdf) de la polilínea del leader, en orden."""
-    pts = []
-    for it in path.get("items", []):
-        if it[0] == "l":
-            if not pts:
-                pts.append((it[1].x, it[1].y))
-            pts.append((it[2].x, it[2].y))
-        elif it[0] == "c":
-            if not pts:
-                pts.append((it[1].x, it[1].y))
-            pts.append((it[4].x, it[4].y))
-    return pts
-
-
-def _text_lines_pdf(page):
-    """Líneas de texto vivo: [{text, bbox, size}] en coords PDF."""
-    out = []
-    try:
-        blocks = page.get_text("dict", flags=fitz.TEXT_PRESERVE_WHITESPACE)["blocks"]
-    except Exception:
-        return out
-    for b in blocks:
-        if b.get("type") != 0:
-            continue
-        for line in b["lines"]:
-            spans = [s for s in line["spans"] if (s.get("text") or "").strip()]
-            if not spans:
-                continue
-            txt = " ".join((s["text"] or "").strip() for s in spans)
-            x0 = min(s["bbox"][0] for s in spans)
-            y0 = min(s["bbox"][1] for s in spans)
-            x1 = max(s["bbox"][2] for s in spans)
-            y1 = max(s["bbox"][3] for s in spans)
-            out.append({"text": txt, "bbox": (x0, y0, x1, y1), "size": spans[0].get("size", 8)})
-    return out
-
-
-def _pt_box_dist(pt, box):
-    x, y = pt
-    dx = max(box[0] - x, 0.0, x - box[2])
-    dy = max(box[1] - y, 0.0, y - box[3])
-    return math.hypot(dx, dy)
-
-
-def _setup_leader_dimstyle(dxf, arrow_ft):
-    """Crea/ajusta un DIMSTYLE para los LEADER con flecha de 'arrow_ft' pies."""
-    name = "PDFCAD_LDR"
-    try:
-        if name not in dxf.dimstyles:
-            dxf.dimstyles.duplicate_entry("Standard", name)
-        ds = dxf.dimstyles.get(name)
-        ds.dxf.dimasz = arrow_ft       # tamaño de flecha (pies)
-        ds.dxf.dimscale = 1.0
-        return name
-    except Exception:
-        return "Standard"
-
-
-def _setup_mleader_style(dxf, arrow_ft):
-    """Ajusta el estilo de mleader 'Standard' (tamaño de flecha en pies)."""
-    try:
-        st = dxf.mleader_styles.get("Standard")
-        st.dxf.arrow_size = arrow_ft
-    except Exception:
-        pass
-    return "Standard"
-
-
-def build_multileaders(paths, page, msp, dxf, T):
-    """Reconstruye los callouts del PDF como entidades leader NATIVAS, respetando
-    la geometría del PDF (no reflow).
-
-    Modo C.MLEADER_MODE:
-      · "leader" (def): una entidad LEADER con los VÉRTICES EXACTOS del PDF (flecha
-        en la punta que apunta a la utilidad). El TEXTO se deja tal cual (lo coloca
-        add_text en su posición/rotación del PDF) -> fiel.
-      · "multileader": MULTILEADER con auto-layout (agrupa flecha+texto, pero NO
-        respeta la geometría/rotación del PDF; útil solo si se quiere reflowar).
-      · "off": no reconstruir (la línea guía + punta quedan como geometría fiel).
-
-    Empareja cada línea guía con su punta de flecha (path relleno pequeño cercano a
-    un extremo). Devuelve (n_multileader, n_leader, indices_consumidos, cajas_texto).
-    """
-    mode = getattr(C, "MLEADER_MODE", "leader")
-    if not getattr(C, "VECTOR_BUILD_MLEADERS", False) or mode == "off":
-        return 0, 0, set(), []
-
-    tokens = getattr(C, "MLEADER_LEADER_TOKENS", [])
-    arrow_max = getattr(C, "MLEADER_ARROW_MAX_PT", 18.0)
-    pair_tol = getattr(C, "MLEADER_PAIR_TOL_PT", 16.0)
-    snap = getattr(C, "MLEADER_TEXT_SNAP_PT", 55.0)
-    layer = getattr(C, "MLEADER_LAYER", "ANOTACION")
-    arrow_ft = getattr(C, "MLEADER_ARROW_SIZE_FT", 3.0)
-    ensure_layer(dxf, layer)
-
-    # Separar puntas de flecha (paths rellenos pequeños) y líneas guía.
-    arrows, lines = [], []
-    for i, p in enumerate(paths):
-        if not any(t in (p.get("layer") or "") for t in tokens):
-            continue
-        r = p.get("rect")
-        if r is None:
-            continue
-        maxdim = max(r.x1 - r.x0, r.y1 - r.y0)
-        if p.get("fill") is not None and maxdim <= arrow_max:
-            arrows.append((i, ((r.x0 + r.x1) / 2.0, (r.y0 + r.y1) / 2.0)))
-        else:
-            pts = _leader_points_pdf(p)
-            if len(pts) >= 2:
-                lines.append((i, pts))
-
-    consumed_paths, consumed_text = set(), []
-    n_ml = n_ld = 0
-
-    def nearest_arrow(pt):
-        best, bd = None, pair_tol
-        for ai, a in arrows:
-            d = math.hypot(pt[0] - a[0], pt[1] - a[1])
-            if d < bd:
-                bd, best = d, ai
-        return best, bd
-
-    # ── Modo LEADER (fiel a la geometría del PDF) ────────────────────────────
-    if mode == "leader":
-        ldr_style = _setup_leader_dimstyle(dxf, arrow_ft)
-        for (li, pts) in lines:
-            a0, d0 = nearest_arrow(pts[0])
-            a1, d1 = nearest_arrow(pts[-1])
-            if a0 is None and a1 is None:
-                continue                    # sin flecha -> no es leader
-            # Ordenar [punta(flecha), ..., landing]: la flecha va en el 1er vértice.
-            if a0 is not None and (a1 is None or d0 <= d1):
-                verts, arr = list(pts), a0            # flecha en pts[0]
-            else:
-                verts, arr = list(reversed(pts)), a1  # flecha en pts[-1]
-            cad_v = [T.point(x, y) for (x, y) in verts]   # [punta, codo, landing]
-            try:
-                msp.add_leader(cad_v, dxfattribs={"layer": layer, "dimstyle": ldr_style})
-                n_ld += 1
-                consumed_paths.add(li)
-                if arr is not None:
-                    consumed_paths.add(arr)
-            except Exception:
-                pass
-        return 0, n_ld, consumed_paths, consumed_text   # texto se deja tal cual (fiel)
-
-    # ── Modo MULTILEADER (auto-layout; NO fiel) ──────────────────────────────
-    try:
-        from ezdxf.math import Vec2
-        from ezdxf.render.mleader import ConnectionSide, TextAlignment
-    except Exception:
-        return 0, 0, set(), []
-    style = _setup_mleader_style(dxf, arrow_ft)
-    tlines = _text_lines_pdf(page)
-    for (li, pts) in lines:
-        a0, d0 = nearest_arrow(pts[0])
-        a1, d1 = nearest_arrow(pts[-1])
-        if a0 is None and a1 is None:
-            continue
-        if a0 is not None and (a1 is None or d0 <= d1):
-            verts, arr = list(reversed(pts)), a0
-        else:
-            verts, arr = list(pts), a1
-        cad_v = [T.point(x, y) for (x, y) in verts]     # [landing, ..., tip]
-        insert, tip = cad_v[0], cad_v[-1]
-        best, bd = None, snap
-        for tl in tlines:
-            d = _pt_box_dist(verts[0], tl["bbox"])
-            if d < bd:
-                bd, best = d, tl
-        side = ConnectionSide.left if tip[0] < insert[0] else ConnectionSide.right
-        leader_pts = [Vec2(x, y) for (x, y) in cad_v[1:]]
-        ok = False
-        if best is not None:
-            ch = max(best["size"] * T.scale * C.TEXT_SCALE_FACTOR, C.TEXT_MIN_HEIGHT_FT)
-            align = TextAlignment.left if side == ConnectionSide.right else TextAlignment.right
-            try:
-                mb = msp.add_multileader_mtext(style)
-                mb.set_content(best["text"], char_height=ch, alignment=align)
-                mb.add_leader_line(side, leader_pts)
-                mb.build(insert=Vec2(insert[0], insert[1]))
-                try:
-                    mb.multileader.dxf.layer = layer
-                except Exception:
-                    pass
-                consumed_text.append(best["bbox"])
-                n_ml += 1
-                ok = True
-            except Exception:
-                ok = False
-        if not ok and best is None:
-            try:
-                msp.add_leader([tuple(p) for p in cad_v], dxfattribs={"layer": layer})
-                n_ld += 1
-                ok = True
-            except Exception:
-                ok = False
-        if ok:
-            consumed_paths.add(li)
-            if arr is not None:
-                consumed_paths.add(arr)
-    return n_ml, n_ld, consumed_paths, consumed_text
-
-
-# ─────────────────────────────────────────────────────────────────────────────
 # Entrada principal de la ruta vectorizada
 # ─────────────────────────────────────────────────────────────────────────────
 def run(page, dxf_doc):
@@ -1715,41 +1593,16 @@ def run(page, dxf_doc):
     if metadata:
         print(f"   Metadata del membrete: {metadata}")
 
-    # PDF aplanado sin texto vivo: leer los callouts por OCR ANTES de la geometría,
-    # para poder suprimir los trazos del texto original con sus cajas.
-    callouts, text_boxes = [], []
+    text_boxes = []
     live_text = bool(page.get_text().strip())
     if not has_ocg:
         print("   PDF vectorial APLANADO (sin capas OCG) -> clasificación por color")
-        if not live_text and getattr(C, "VECTOR_OCR_CALLOUTS", False):
-            import callout_ocr
-            detected = callout_ocr.extract_callouts(page, T)
-            # TODAS las cajas (incluso poco fiables y cotas) suprimen el texto de
-            # fondo; solo se COLOCAN las de confianza alta, sin duplicados, sin cotas,
-            # sin basura y sin texto sobre símbolos circulares.
-            text_boxes = [c["mbox"] for c in detected]
-            # La exclusión por símbolos circulares se omite: detectaba demasiados
-            # falsos y borraba texto real cercano a tuberías. Los símbolos mal
-            # leídos los filtra is_garbage por contenido.
-            callouts = callout_ocr.dedupe_for_placement(detected, C.VECTOR_OCR_MIN_CONF, [])
 
-    # LEADERS / MULTILEADERS: reconstruir los callouts (flecha + texto) como
-    # entidades CAD nativas ANTES de dibujar geometría/texto, para no duplicarlos.
-    ml_paths, ml_text = set(), []
-    if getattr(C, "VECTOR_BUILD_MLEADERS", False) and has_ocg and live_text:
-        n_ml, n_ld, ml_paths, ml_text = build_multileaders(paths, page, msp, dxf_doc, T)
-        if n_ml or n_ld:
-            print(f"   Leaders reconstruidos (modo {getattr(C,'MLEADER_MODE','leader')}): "
-                  f"{n_ld} LEADER, {n_ml} MULTILEADER  (texto: "
-                  f"{'fiel del PDF' if not ml_text else 'MTEXT del multileader'})")
-
-    for i, path in enumerate(paths):
-        if i in ml_paths:
-            continue                       # ya representado como (multi)leader
+    for path in paths:
         process_path(collector, path, dxf_doc, T, has_ocg, text_boxes, zones)
     n_geom = collector.flush(msp, dxf_doc, T)
 
-    is_annotation = build_text_filter(page, zones, ml_text)
+    is_annotation = build_text_filter(page, zones, [])
     n_text = add_text(msp, page, dxf_doc, T, is_annotation)
 
     # Metadata del membrete -> XDATA en capa METADATA (el cajetín no se dibuja).
@@ -1761,12 +1614,6 @@ def run(page, dxf_doc):
         n_xd = attach_callout_xdata(msp, dxf_doc, T)
         if n_xd:
             print(f"   Nomenclatura adjuntada a {n_xd} líneas (XDATA appid PDFCAD)")
-
-        if callouts:
-            import callout_ocr
-            n_text = callout_ocr.add_text_layer(msp, dxf_doc, callouts)
-            print(f"   OCR de callouts: {len(text_boxes)} textos suprimidos, "
-                  f"{len(callouts)} etiquetas colocadas (cotas omitidas)")
 
         if not has_ocg:
             overlays = collect_overlays(paths, T)

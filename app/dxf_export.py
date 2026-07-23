@@ -96,56 +96,9 @@ def apply_erase(win, msp):
 
 def add_leader(win, doc, msp, ld):
     geo = win._leader_geo(ld)
-    if ld.get("simple"):                                 # Leader simple → entidad LEADER nativa
-        if add_simple_leader_dxf(win, doc, msp, ld, geo): return
-    else:                                                # Multileader → entidad MULTILEADER nativa
-        if add_multileader_dxf(win, doc, msp, ld, geo): return
-    # si el visor/plantilla no soporta la entidad nativa, se dibuja explícito como respaldo
+    if add_simple_leader_dxf(win, doc, msp, ld, geo): return
+    # si el visor/plantilla no soporta la entidad LEADER nativa, se dibuja explícito.
     add_leader_explicit(win, doc, msp, ld, geo)
-
-
-def mleader_style(doc, arrow_ft, char_ft):
-    """Estilo MLEADER propio con el tamaño de flecha/altura de texto dados (pies)."""
-    name = f"PDFCAD_ML_{int(round(arrow_ft * 10))}_{int(round(char_ft * 10))}"
-    try:
-        if name not in doc.mleader_styles:
-            doc.mleader_styles.duplicate_entry("Standard", name)
-        st = doc.mleader_styles.get(name)
-        st.dxf.arrow_head_size = arrow_ft; st.dxf.char_height = char_ft
-        return name
-    except Exception:
-        return "Standard"
-
-
-def add_multileader_dxf(win, doc, msp, ld, geo):
-    """Exporta el Multileader como entidad MULTILEADER nativa (flecha + directriz + texto).
-    Devuelve True si se creó."""
-    if not ld.get("text"): return False
-    try:
-        from ezdxf.math import Vec2
-        from ezdxf.render.mleader import ConnectionSide, TextAlignment
-    except Exception:
-        return False
-    ch = max(0.1, geo.get("cad_h", LEADER_TEXT_FT))
-    asz = max(0.05, ch * 0.6)
-    style = mleader_style(doc, asz, ch)
-    # segs[0] va [punta(flecha) … landing]; el MULTILEADER quiere [insert(landing) … punta]
-    cad_v = [win._to_cad(x, y) for (x, y) in geo["segs"][0]][::-1]
-    if len(cad_v) < 2: return False
-    insert, tip = cad_v[0], cad_v[-1]
-    side = ConnectionSide.left if tip[0] < insert[0] else ConnectionSide.right
-    align = TextAlignment.left if side == ConnectionSide.right else TextAlignment.right
-    leader_pts = [Vec2(x, y) for (x, y) in cad_v[1:]]
-    try:
-        mb = msp.add_multileader_mtext(style)
-        mb.set_content(ld["text"], char_height=ch, alignment=align)
-        mb.add_leader_line(side, leader_pts)
-        mb.build(insert=Vec2(insert[0], insert[1]))
-        try: mb.multileader.dxf.layer = "ANOTACION"
-        except Exception: pass
-        return True
-    except Exception:
-        return False
 
 
 def add_simple_leader_dxf(win, doc, msp, ld, geo):

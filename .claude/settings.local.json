@@ -113,7 +113,19 @@
       "Bash(sed -n \"/def to_cad/,/return/p\" app/geometry.py)",
       "Bash(python -c \"import ast; [ast.parse\\(open\\(f,encoding='utf-8'\\).read\\(\\)\\) for f in \\('app/geo/overlay.py','app/geo/georef_dialog.py','app/geo/la_reference.py'\\)]; print\\('sintaxis OK'\\)\")",
       "Bash(python -c \"import ast; [ast.parse\\(open\\(f,encoding='utf-8'\\).read\\(\\)\\) for f in \\('app/app_window.py','app/geo/overlay.py','app/geo/georef_dialog.py','app/geo/la_reference.py'\\)]; print\\('sintaxis OK \\(4\\)'\\)\")",
-      "Bash(python -c \"import ast; [ast.parse\\(open\\(f,encoding='utf-8'\\).read\\(\\)\\) for f in \\('app/geo/overlay.py','app/geo/georef_dialog.py'\\)]; print\\('sintaxis OK'\\)\")"
+      "Bash(python -c \"import ast; [ast.parse\\(open\\(f,encoding='utf-8'\\).read\\(\\)\\) for f in \\('app/geo/overlay.py','app/geo/georef_dialog.py'\\)]; print\\('sintaxis OK'\\)\")",
+      "Bash(python -m py_compile app/geo/overlay.py)",
+      "Read(//d/GVR/Proyectos_DEV/EEUU/**)",
+      "Bash(python -m py_compile app/geo/georef_dialog.py)",
+      "Bash(python -m py_compile app/geo/overlay.py app/geo/georef_dialog.py)",
+      "Bash(python -m py_compile app/app_window.py)",
+      "Bash(python -m py_compile app/app_window.py config.py digitize.py raster_pipeline.py vector_pipeline.py)",
+      "Bash(python \"C:/Users/User/AppData/Local/Temp/claude/D--GVR-Proyectos-DEV-EEUU-pdf-to-cad/1cb6d01a-b4f5-4761-a483-76f4f68e638f/scratchpad/count.py\")",
+      "Read(//c/Users/User/AppData/Local/Temp/claude/D--GVR-Proyectos-DEV-EEUU-pdf-to-cad/d7f766f9-4a81-42a7-9b94-0c5f465a5bd0/scratchpad/**)",
+      "Bash(python)",
+      "Bash(powershell -NoProfile -Command ' *)",
+      "Bash(python -c \"import vector_pipeline; print\\('imports ok'\\)\")",
+      "Read(//c/Users/User/AppData/Local/Temp/claude/D--GVR-Proyectos-DEV-EEUU-pdf-to-cad/d7f766f9-4a81-42a7-9b94-0c5f465a5bd0/scratchpad/proj/**)"
     ]
   }
 }

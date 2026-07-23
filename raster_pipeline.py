@@ -154,56 +154,8 @@ def merge_segments_px(segs):
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# OCR  (devuelve cajas completas: texto + bbox + confianza)
+# Limpieza del raster: eliminar componentes de tamaño de texto antes de vectorizar
 # ─────────────────────────────────────────────────────────────────────────────
-def ocr_boxes(gray):
-    """OCR con Tesseract en modo 'texto disperso' (--psm 11), apto para planos.
-    Devuelve [{txt, conf, x, y, w, h, cx, cy}] en píxeles. [] si no hay binario."""
-    if not C.RASTER_OCR_ENABLED:
-        return []
-    try:
-        import pytesseract
-        from pytesseract import Output
-    except ImportError:
-        return []
-    _require_cv()
-    try:
-        data = pytesseract.image_to_data(
-            gray, output_type=Output.DICT, config="--psm 11")
-    except (pytesseract.TesseractNotFoundError, EnvironmentError):
-        print("   ⚠ Tesseract no encontrado: se omite el OCR.")
-        return []
-    out = []
-    for i, txt in enumerate(data["text"]):
-        txt = (txt or "").strip()
-        if not txt:
-            continue
-        try:
-            conf = float(data["conf"][i])
-        except (ValueError, TypeError):
-            conf = -1
-        x, y, w, h = (data["left"][i], data["top"][i],
-                      data["width"][i], data["height"][i])
-        out.append({"txt": txt, "conf": conf, "x": x, "y": y, "w": w, "h": h,
-                    "cx": x + w / 2.0, "cy": y + h / 2.0})
-    return out
-
-
-# ─────────────────────────────────────────────────────────────────────────────
-# Limpieza del raster: borrar texto/símbolos y motas antes de vectorizar
-# ─────────────────────────────────────────────────────────────────────────────
-def erase_text(gray, boxes, pad, conf_min):
-    """Pinta de blanco (fondo) las cajas de texto OCR para que sus trazos no se
-    vectoricen como líneas. Devuelve copia limpia."""
-    out = gray.copy()
-    h, w = gray.shape
-    for b in boxes:
-        if b["conf"] < conf_min:
-            continue
-        x0 = max(0, b["x"] - pad); y0 = max(0, b["y"] - pad)
-        x1 = min(w, b["x"] + b["w"] + pad); y1 = min(h, b["y"] + b["h"] + pad)
-        out[y0:y1, x0:x1] = 255
-    return out
 
 
 def remove_text_cc(ink, char_max):
@@ -351,13 +303,8 @@ def _run_bw(page, dxf_doc, gray, zoom, to_cad, scale):
     from vector_pipeline import ensure_layer, parse_attributes
     msp = dxf_doc.modelspace()
 
-    # 1) OCR: detectar texto/marcas. Sirve para (a) borrarlas del raster y
-    #    (b) escribirlas como TEXT y (c) identificar tuberías por callout.
-    boxes = ocr_boxes(gray)
-
-    # 2) Borrar texto y binarizar la geometría restante.
-    clean = erase_text(gray, boxes, C.RASTER_TEXT_ERASE_PAD_PX, C.RASTER_TEXT_ERASE_CONF)
-    _, ink = cv2.threshold(clean, 0, 255, cv2.THRESH_BINARY_INV + cv2.THRESH_OTSU)
+    # 1) Binarizar y quitar componentes de tamaño-texto por CC (sin OCR).
+    _, ink = cv2.threshold(gray, 0, 255, cv2.THRESH_BINARY_INV + cv2.THRESH_OTSU)
     ink = remove_text_cc(ink, C.RASTER_TEXT_CC_MAX_PX)
     if getattr(C, "RASTER_SKELETONIZE", True):
         ink = skeletonize(ink)               # 1px de eje -> el LSD da UNA línea, no dos bordes
@@ -377,7 +324,7 @@ def _run_bw(page, dxf_doc, gray, zoom, to_cad, scale):
     # 4) Solo geometría: coser los segmentos en polilíneas y CERRAR las cuadras
     #    (una cuadra es una geometría que se cierra). Sin clasificar tipos ni color.
     from vector_pipeline import ensure_layer, chain_pieces
-    ensure_layer(dxf_doc, "EJE_VIA")
+    ensure_layer(dxf_doc, "PDF_DIGITALIZADO")
     tol = getattr(C, "RASTER_MERGE_MAX_BRIDGE_PX", 26.0)
     chains = chain_pieces([[p0, p1] for (p0, p1) in merged], tol)
     n_geom = 0
@@ -387,7 +334,7 @@ def _run_bw(page, dxf_doc, gray, zoom, to_cad, scale):
             continue
         closed = len(ch) >= 4 and math.hypot(ch[0][0] - ch[-1][0], ch[0][1] - ch[-1][1]) <= tol * 1.5
         pts = [to_cad(x, y) for (x, y) in ch]
-        e = msp.add_lwpolyline(pts, dxfattribs={"layer": "EJE_VIA"})
+        e = msp.add_lwpolyline(pts, dxfattribs={"layer": "PDF_DIGITALIZADO"})
         if closed:
             e.close(True)
             n_closed += 1
@@ -396,7 +343,7 @@ def _run_bw(page, dxf_doc, gray, zoom, to_cad, scale):
 
     return {
         "scale_ft_per_pt": scale, "dpi": C.RASTER_DPI, "mode": "bw_plain",
-        "n_geometry": n_geom, "per_layer": {"EJE_VIA": n_geom}, "n_text": 0,
+        "n_geometry": n_geom, "per_layer": {"PDF_DIGITALIZADO": n_geom}, "n_text": 0,
         "callouts": [],
     }
 
@@ -407,29 +354,17 @@ def _run_color(page, dxf_doc, img, zoom, to_cad, scale):
     msp = dxf_doc.modelspace()
     n_geom = 0
     per_layer = {}
-    ensure_layer(dxf_doc, "EJE_VIA")
+    ensure_layer(dxf_doc, "PDF_DIGITALIZADO")
     for _layer, ranges in C.RASTER_COLOR_RANGES.items():
         mask = color_mask(hsv, ranges)
         params = C.RASTER_HOUGH.get(_layer, C.RASTER_HOUGH["default"])
         merged = merge_segments_px(detect_lines(mask, params))
-        per_layer["EJE_VIA"] = per_layer.get("EJE_VIA", 0) + len(merged)
+        per_layer["PDF_DIGITALIZADO"] = per_layer.get("PDF_DIGITALIZADO", 0) + len(merged)
         for (p0, p1) in merged:
-            msp.add_line(to_cad(*p0), to_cad(*p1), dxfattribs={"layer": "EJE_VIA"})
+            msp.add_line(to_cad(*p0), to_cad(*p1), dxfattribs={"layer": "PDF_DIGITALIZADO"})
             n_geom += 1
-
-    ensure_layer(dxf_doc, "TEXTO")
-    from ezdxf.enums import TextEntityAlignment
-    n_text = 0
-    for b in ocr_boxes(cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)):
-        if b["conf"] < C.RASTER_OCR_MIN_CONF:
-            continue
-        cx, cy = to_cad(b["cx"], b["cy"])
-        h_ft = max((b["h"] / zoom) * scale * C.TEXT_SCALE_FACTOR, C.TEXT_MIN_HEIGHT_FT)
-        ent = msp.add_text(b["txt"], height=h_ft, dxfattribs={"layer": "TEXTO"})
-        ent.set_placement((cx, cy), align=TextEntityAlignment.MIDDLE_CENTER)
-        n_text += 1
 
     return {
         "scale_ft_per_pt": scale, "dpi": C.RASTER_DPI, "mode": "color",
-        "n_geometry": n_geom, "per_layer": per_layer, "n_text": n_text,
+        "n_geometry": n_geom, "per_layer": per_layer, "n_text": 0,
     }

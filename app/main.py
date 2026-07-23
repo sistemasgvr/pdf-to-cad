@@ -4,7 +4,6 @@ Módulos de la app (en esta carpeta app/):
   app_window.py     → la ventana Main (UI y eventos)
   model.py          → estructuras de datos y constantes
   geometry.py       → transformaciones de coordenadas y geometría
-  ocr.py            → OcrWorker / IcrWorker
   dxf_export.py     → exportación a DXF
   sidecar_export.py → salida JSON de red 3D
 Los módulos del pipeline (config, vector_pipeline, digitize, …) están en la raíz

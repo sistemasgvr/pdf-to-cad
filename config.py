@@ -58,7 +58,7 @@ OUTPUT_LAYERS = {
     **{layer: aci for (layer, aci) in SERVICE_LINE_COLORS.values()},
     "AGUA_HIERRO":     4,    # (marca) agua hierro - celeste
     "CABLEADO":        6,    # (marca) cableado - magenta
-    "EJE_VIA":         7,    # blanco/negro (base: calles, lotes, topografía)
+    "PDF_DIGITALIZADO":         7,    # blanco/negro (base: calles, lotes, topografía)
     "METRO_RW":        140,  # azul claro (vía férrea / LRT / derecho de vía)
     "TOPO":            8,    # gris
     "ESTRUCTURAS":     7,    # blanco (pozos, postes, válvulas, hidrantes)
@@ -69,6 +69,7 @@ OUTPUT_LAYERS = {
     "METADATA":        8,    # gris (metadata del membrete: contrato, escala, fecha)
     "DIGITALIZADO":    7,    # blanco
     "TEXTO":           7,    # texto / labels
+    "MEMBRETE":        253,  # gris muy oscuro (cajetín / marco / leyenda: capa ocultable)
 }
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -158,8 +159,8 @@ LAYER_TOKENS = [
     ("STNAMES",               "TEXTO"),         # nombres de calle
     ("TRACT_PM",              "PREDIOS"),       # tract / parcel map
     ("PROPERTY",              "PREDIOS"),       # líneas de propiedad
-    ("LANDBASE",              "EJE_VIA"),       # base cartográfica / calles
-    ("CENTERLINES",           "EJE_VIA"),       # ejes de calle (NO metro)
+    ("LANDBASE",              "PDF_DIGITALIZADO"),       # base cartográfica / calles
+    ("CENTERLINES",           "PDF_DIGITALIZADO"),       # ejes de calle (NO metro)
 
     # --- Líneas guía (leaders) de los callouts -> capa ANOTACION ---
     # Son las líneas que apuntan del texto del callout a la utilidad.
@@ -223,15 +224,15 @@ LAYER_TOKENS = [
     ("CENTERLINE",            "METRO_RW"),
 
     # --- Eje de vía / calzada ---
-    ("C-ROAD-CURB",           "EJE_VIA"),
-    ("C-ROAD-EG",             "EJE_VIA"),
-    ("C-ROAD-STAN",           "EJE_VIA"),
-    ("C-SAWCUT",              "EJE_VIA"),
-    ("C-ROAD-TRUNCATED",      "EJE_VIA"),
-    ("C-FENC-WIRE",           "EJE_VIA"),
-    ("ROAD-DRIV",            "EJE_VIA"),
-    ("ROAD-SIGN",            "EJE_VIA"),
-    ("C-ROAD",                "EJE_VIA"),
+    ("C-ROAD-CURB",           "PDF_DIGITALIZADO"),
+    ("C-ROAD-EG",             "PDF_DIGITALIZADO"),
+    ("C-ROAD-STAN",           "PDF_DIGITALIZADO"),
+    ("C-SAWCUT",              "PDF_DIGITALIZADO"),
+    ("C-ROAD-TRUNCATED",      "PDF_DIGITALIZADO"),
+    ("C-FENC-WIRE",           "PDF_DIGITALIZADO"),
+    ("ROAD-DRIV",            "PDF_DIGITALIZADO"),
+    ("ROAD-SIGN",            "PDF_DIGITALIZADO"),
+    ("C-ROAD",                "PDF_DIGITALIZADO"),
 
     # --- Topografía / superficie ---
     ("TOPO-BRKL",             "TOPO"),
@@ -275,7 +276,7 @@ FALLBACK_LAYER = "DIGITALIZADO"
 VECTOR_COLOR_LAYER_MAP = [
     ((0.0, 0.5, 0.0), "GAS"),             # verde oscuro (si el trazo es geometría real)
 ]
-VECTOR_COLOR_DEFAULT = "EJE_VIA"   # trazo negro / base cartográfica
+VECTOR_COLOR_DEFAULT = "PDF_DIGITALIZADO"   # trazo negro / base cartográfica
 VECTOR_COLOR_TOL = 0.25            # distancia máx. por componente RGB
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -303,34 +304,6 @@ VECTOR_OVERLAY_ANGLE_TOL = 22.0 # la línea debe ser paralela a la marca (grados
 VECTOR_FILL_GLYPH_MAX_AREA_PT = 300.0
 # Ancho máx. (pt) de un relleno para considerarlo "línea gruesa" y trazar su eje.
 THIN_FILL_MAX_WIDTH_PT = 6.0
-
-# OCR de CALLOUTS en PDFs vectoriales aplanados (sin texto vivo): se renderiza la
-# página, se lee el texto por OCR, se coloca en la capa TEXTO con sus atributos
-# (diámetro/material/dueño/distancia/estación) en XDATA, y se genera un reporte
-# .txt junto al DXF. Requiere Tesseract.
-VECTOR_OCR_CALLOUTS = True
-VECTOR_OCR_ZOOM = 4.167      # ~300 DPI (mejor cobertura de lectura en este plano)
-                              #  -> menos misreads. (vector: render nítido a cualquier DPI)
-VECTOR_OCR_BINARIZE = False   # binarizar empeoraba algunas lecturas en este plano
-# Separación TEXTO/GRÁFICOS antes del OCR (clave en PDFs aplanados donde el texto
-# son trazos mezclados con tuberías/símbolos): se conservan SOLO los componentes
-# conexos de tamaño de carácter; las líneas largas y símbolos grandes se quitan,
-# así Tesseract no inventa texto a partir de ellos.
-VECTOR_OCR_TEXT_CC = True
-VECTOR_OCR_CHAR_MIN_PX = 8    # lado menor de un carácter (px @ zoom). Menor = motas
-VECTOR_OCR_CHAR_MAX_PX = 75   # lado mayor de un carácter. Mayor = líneas/símbolos
-VECTOR_OCR_CHAR_FILL_MIN = 0.06  # densidad mín. (área/bbox): descarta trazos finos
-VECTOR_OCR_MIN_CONF = 20      # bajo: la cobertura la maximiza el filtro de contenido (is_garbage)
-                              #  (más alto = menos texto inexistente/basura)
-VECTOR_OCR_SUPPRESS_CONF = 8  # confianza mín. para SUPRIMIR el texto de fondo
-                              # (más bajo = borra más rótulo original, aunque no se
-                              #  pueda releer; evita que queden trazos de letra sueltos)
-# Excluir texto que cae sobre un SÍMBOLO circular (burbujas de nota, válvulas):
-# evita que esos símbolos se interpreten como texto. Radio máx. de símbolo (pt).
-VECTOR_SYMBOL_CIRCLE_MAX_PT = 30.0
-# OCR multi-orientación: lee la página también a 90° y 270° para capturar el
-# texto rotado (rótulos verticales) — mejora cobertura y suprime más fondo.
-VECTOR_OCR_ORIENTATIONS = (0, 90, 270)
 
 # No dibujar las COTAS (dimensiones): se omiten como etiquetas los textos que son
 # solo número/elevación/pie-pulgada. Las estaciones (149+10) y los callouts con
@@ -370,32 +343,6 @@ LEADER_MIN_LEN_PT    = 8.0    # longitud mínima de un leader
 CLASSIFY_RADIUS_PT   = 40.0   # radio para asociar la punta del leader a una tubería
 ARROWHEAD_LEN_PT     = 7.0    # tamaño de la punta de flecha reconstruida
 DRAW_ARROWHEADS      = True
-
-# ─────────────────────────────────────────────────────────────────────────────
-# LEADERS / MULTILEADERS  (flecha + texto)  — flujo vectorizado
-# ─────────────────────────────────────────────────────────────────────────────
-# Los callouts del plano son leaders: una línea guía con punta de flecha que
-# apunta a la utilidad, y (casi siempre) un texto al final. Se reconstruyen como
-# entidades CAD NATIVAS:
-#   · MULTILEADER (flecha + MTEXT)  si hay texto asociado al landing.
-#   · LEADER (solo flecha)          si no hay texto.
-# Así en Civil 3D son objetos leader reales (editables), no líneas+texto sueltos.
-VECTOR_BUILD_MLEADERS = True
-# Modo de reconstrucción (fidelidad al PDF):
-#   "leader"      -> entidad LEADER con los VÉRTICES EXACTOS del PDF (flecha en la
-#                    punta); el texto se deja tal cual (posición/rotación del PDF).
-#                    FIEL — respeta las líneas del plano. (recomendado)
-#   "multileader" -> MULTILEADER con auto-layout: agrupa flecha+texto pero REFLOWA
-#                    (no respeta la geometría ni la rotación del texto del PDF).
-#   "off"         -> no reconstruir; la línea guía + punta quedan como geometría fiel.
-MLEADER_MODE = "leader"
-# Tokens OCG cuyos trazos son leaders/callouts (línea guía + punta de flecha).
-MLEADER_LEADER_TOKENS = ["C-UTIL-CALLOUT", "C-ANNO-IDEN", "WGS_LEADER"]
-MLEADER_ARROW_MAX_PT = 18.0    # lado máx. del path de la punta de flecha (relleno)
-MLEADER_PAIR_TOL_PT  = 16.0    # dist. máx. punta de flecha <-> extremo de la línea
-MLEADER_TEXT_SNAP_PT = 55.0    # radio landing <-> texto para asociarlos (pt PDF)
-MLEADER_LAYER = "ANOTACION"    # capa de los (multi)leaders
-MLEADER_ARROW_SIZE_FT = 3.0    # tamaño de la punta de flecha del mleader (pies)
 
 # ─────────────────────────────────────────────────────────────────────────────
 # ESCALA
@@ -648,7 +595,7 @@ RASTER_COLOR_RANGES = {
     "AGUA":           [((90, 60, 40),  (130, 255, 255))],   # azul
     "ALCANTARILLADO": [((8, 60, 30),   (25, 200, 200))],    # café / marrón
     "GAS":            [((22, 80, 80),  (35, 255, 255))],    # amarillo
-    "EJE_VIA":        [((0, 0, 0),     (179, 60, 90))],     # negro (baja S, baja V)
+    "PDF_DIGITALIZADO":        [((0, 0, 0),     (179, 60, 90))],     # negro (baja S, baja V)
 }
 
 # Parámetros HoughLinesP por capa. Ajusta 'thickness' (grosor) según el plano.
@@ -658,7 +605,7 @@ RASTER_HOUGH = {
     "AGUA":           dict(threshold=50, minLineLength=40, maxLineGap=12, thickness=2),
     "ALCANTARILLADO": dict(threshold=50, minLineLength=40, maxLineGap=12, thickness=2),
     "GAS":            dict(threshold=45, minLineLength=35, maxLineGap=15, thickness=2),
-    "EJE_VIA":        dict(threshold=60, minLineLength=60, maxLineGap=6,  thickness=1),
+    "PDF_DIGITALIZADO":        dict(threshold=60, minLineLength=60, maxLineGap=6,  thickness=1),
 }
 
 # Unión de segmentos en la ruta raster (en píxeles).
@@ -680,21 +627,8 @@ RASTER_BW_SAT_THRESH   = 12      # si la saturación media < esto => tratar como
 RASTER_MIN_LINE_LEN_PX = 42      # descarta segmentos más cortos que esto (px @ DPI)
 RASTER_LSD_SCALE       = 0.8     # escala de trabajo del LSD (0.5–1.0; menor = más rápido)
 
-# Borrado de texto/símbolos antes de vectorizar (OCR Tesseract).
-RASTER_TEXT_ERASE_CONF = 25      # confianza mín. para BORRAR una caja de texto
-RASTER_TEXT_ERASE_PAD_PX = 4     # margen alrededor de la caja borrada (px)
-
 # Eliminación de texto por componentes conexos (independiente de la orientación):
 # un componente cuyo bbox cabe en CHAR_MAX x CHAR_MAX px (ambos lados) se trata
 # como glifo/marca "X" y se descarta. Las líneas (bbox alargado) se conservan.
 # Subir si queda texto; bajar si se comen segmentos cortos de dibujo.
 RASTER_TEXT_CC_MAX_PX = 64
-
-# Identificación de TUBERÍAS por callout: si una etiqueta OCR contiene estos
-# tokens (p.ej. 10"Pipe), las líneas cercanas se asignan a la capa AGUA.
-RASTER_PIPE_TOKENS = ("PIPE", "WATER", "W.M.", "WM", "MAIN")
-RASTER_PIPE_NEAR_PX = 60         # radio de asociación callout->línea (px)
-
-# OCR (pytesseract). Si no está instalado, se omite el texto en la ruta raster.
-RASTER_OCR_ENABLED = True
-RASTER_OCR_MIN_CONF = 40      # confianza mínima (0-100) para conservar un label

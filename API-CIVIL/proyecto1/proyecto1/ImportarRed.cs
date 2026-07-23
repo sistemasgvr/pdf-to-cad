@@ -241,9 +241,15 @@ namespace Civil3DBasico
             PartsStyles.PartsList partsList = ObtenerPartsList(civilDoc, tr);
             if (partsList == null) { ed.WriteMessage("\nNo hay Parts Lists en el dibujo."); return ObjectId.Null; }
 
+            // Si la Parts List no tiene un BUZÓN REAL (solo tiene la "Null Structure"),
+            // se agrega uno cilíndrico con tapa concéntrica del catálogo imperial.
+            // Sin esto, Civil crea una "Estructura nula" (Ø0) que en 3D se ve como esfera.
+            AsegurarBuzonReal(ed, tr, partsList);
+
             if (!PrimeraPieza(tr, partsList, CivilDB.DomainType.Structure,
                               out ObjectId defStructFam, out ObjectId defStructSize, out string defStructNom))
             { ed.WriteMessage($"\n'{nombre}': sin familias de ESTRUCTURA."); return ObjectId.Null; }
+            ed.WriteMessage($"\n  · Buzón por defecto: {defStructNom}");
 
             // Pre-scan: recolectar materiales/diámetros únicos y auto-poblar el catálogo
             var needed = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
@@ -309,7 +315,9 @@ namespace Civil3DBasico
                     if (match != null && match.Rim.HasValue && match.Sump.HasValue)
                     { rim = match.Rim.Value; sump = match.Sump.Value; structType = match.Part; }
                     else
-                    { sump = zInv; rim = zInv + depth; }
+                    { sump = zInv - 0.5; rim = zInv + depth; }   // sump 0.5' bajo la solera; rim = invert + tapada
+                    // Garantía: rim ARRIBA (mín. 1' sobre sump) y sump por debajo del invert.
+                    if (rim - sump < 1.0) rim = sump + Math.Max(depth, 3.0);
 
                     string key = $"{Math.Round(v.X, 2)}_{Math.Round(v.Y, 2)}";
                     if (!createdStructs.ContainsKey(key))
@@ -321,6 +329,8 @@ namespace Civil3DBasico
                         ObjectId sid = ObjectId.Null;
                         net.AddStructure(sFam, sSize, new Point3d(v.X, v.Y, rim), 0.0, ref sid, true);
                         CivilDB.Structure st = (CivilDB.Structure)tr.GetObject(sid, OpenMode.ForWrite);
+                        // Sump por ELEVACIÓN (si queda por profundidad, sump=rim−sumpDepth pisa lo nuestro).
+                        SetSumpControlByElevation(st);
                         // ¿Tenemos rim explícito? (siempre que no dependamos de una superficie).
                         bool holdRim = surfId == ObjectId.Null || (match != null && match.Rim.HasValue);
                         if (holdRim)
@@ -371,11 +381,16 @@ namespace Civil3DBasico
                 {
                     var pp = (CivilDB.Pipe)tr.GetObject(pv.id, OpenMode.ForWrite);
                     Point3d s = pp.StartPoint, e = pp.EndPoint;
-                    pp.StartPoint = new Point3d(s.X, s.Y, pv.zStart);
-                    pp.EndPoint = new Point3d(e.X, e.Y, pv.zEnd);
+                    // StartPoint.Z es el EJE del tubo; el invert (rasante) capturado
+                    // es la SOLERA. Eje = invert + radio interior, así la solera
+                    // mostrada = el invert capturado (sin el desfase de medio diámetro).
+                    double r = 0.0; try { r = pp.InnerDiameterOrWidth / 2.0; } catch { }
+                    double czS = pv.zStart + r, czE = pv.zEnd + r;
+                    pp.StartPoint = new Point3d(s.X, s.Y, czS);
+                    pp.EndPoint = new Point3d(e.X, e.Y, czE);
                     double back = pp.StartPoint.Z;
-                    if (Math.Abs(back - pv.zStart) < 0.05) pipeOk++;
-                    else { pipeErr++; if (pipeMsg == "") pipeMsg = $"pedí {pv.zStart:F2}, quedó {back:F2}"; }
+                    if (Math.Abs(back - czS) < 0.05) pipeOk++;
+                    else { pipeErr++; if (pipeMsg == "") pipeMsg = $"pedí {czS:F2}, quedó {back:F2}"; }
                 }
                 catch (Exception ex) { pipeErr++; if (pipeMsg == "") pipeMsg = "EXCEPCION " + ex.Message; }
             }
@@ -388,12 +403,25 @@ namespace Civil3DBasico
                 try
                 {
                     var st = (CivilDB.Structure)tr.GetObject(kv.Key, OpenMode.ForWrite);
+                    // 1) Apagar el ajuste automático a superficie (o el rim vuelve a la sup).
                     try { st.AutomaticRimSurfaceAdjustment = false; } catch (Exception e1) { if (stMsg == "") stMsg = "autoAdj→" + e1.Message; }
-                    try { st.RimElevation = kv.Value.rim; } catch (Exception e2) { if (stMsg == "") stMsg = "rim→" + e2.Message; }
+                    // 2) Cambiar "Controlar sumidero por" a POR ELEVACIÓN. Sin esto Civil
+                    //    calcula sump = rim − SumpDepth y anula SumpElevation.
+                    { string err = SetSumpControlByElevation(st); if (err != null && stMsg == "") stMsg = "ctrlSump→" + err; }
+                    // 3) Fijar sump primero (con ByElevation ya no lo pisa), luego rim.
                     try { st.SumpElevation = kv.Value.sump; } catch (Exception e3) { if (stMsg == "") stMsg = "sump→" + e3.Message; }
-                    bool adj = st.AutomaticRimSurfaceAdjustment; double rb = st.RimElevation;
-                    if (!adj && Math.Abs(rb - kv.Value.rim) < 0.05) stOk++;
-                    else { stErr++; if (stMsg == "") stMsg = $"autoAdj quedó={adj}, rim pedí {kv.Value.rim:F2} quedó {rb:F2}"; }
+                    try { st.RimElevation = kv.Value.rim; } catch (Exception e2) { if (stMsg == "") stMsg = "rim→" + e2.Message; }
+                    bool adj = st.AutomaticRimSurfaceAdjustment; double rb = st.RimElevation; double sb = st.SumpElevation;
+                    bool okRim = Math.Abs(rb - kv.Value.rim) < 0.05;
+                    bool okSump = Math.Abs(sb - kv.Value.sump) < 0.05;
+                    if (!adj && okRim && okSump) stOk++;
+                    else
+                    {
+                        stErr++;
+                        // Siempre muestra el read-back real; útil para saber SI hubo cambios aunque el rim quede pegado por el tamaño.
+                        string tag = $"rim pedí {kv.Value.rim:F2} quedó {rb:F2}, sump pedí {kv.Value.sump:F2} quedó {sb:F2}";
+                        if (stMsg == "" || stMsg.StartsWith("height")) stMsg = tag;
+                    }
                 }
                 catch (Exception ex) { stErr++; if (stMsg == "") stMsg = "EXCEPCION " + ex.Message; }
             }
@@ -449,11 +477,13 @@ namespace Civil3DBasico
                 // el invert del DXF (agua/gas también lo llevan).
                 double zStart = ip.InvStart ?? 0.0;
                 double zEnd = ip.InvEnd ?? zStart;
+                // Por DISTANCIA (pendiente uniforme), no por índice de vértice.
+                double[] zpv = ZalongByDistance(ip.Vertices, zStart, zEnd);
 
                 for (int i = 0; i < nVerts - 1; i++)
                 {
-                    double z1 = nVerts > 1 ? zStart + (zEnd - zStart) * i / (nVerts - 1) : zStart;
-                    double z2 = nVerts > 1 ? zStart + (zEnd - zStart) * (i + 1) / (nVerts - 1) : zStart;
+                    double z1 = zpv[i];
+                    double z2 = zpv[i + 1];
 
                     Point3d p1 = new Point3d(ip.Vertices[i].X, ip.Vertices[i].Y, z1);
                     Point3d p2 = new Point3d(ip.Vertices[i + 1].X, ip.Vertices[i + 1].Y, z2);
@@ -608,7 +638,7 @@ namespace Civil3DBasico
                 {
                     var st = tr.GetObject(sid, OpenMode.ForRead) as CivilDB.Structure;
                     if (st == null) continue;
-                    sb.AppendLine($"ESTRUCTURA,{rn},{st.Name},{st.InnerDiameterOrWidth:F1},,,,,,{st.RimElevation:F3},{st.SumpElevation:F3}");
+                    sb.AppendLine($"ESTRUCTURA,{rn},{st.Name},{st.InnerDiameterOrWidth * 12.0:F1},,,,,,{st.RimElevation:F3},{st.SumpElevation:F3}");
                 }
                 foreach (ObjectId pid in net.GetPipeIds())
                 {
@@ -619,7 +649,7 @@ namespace Civil3DBasico
                     double invF = p.EndPoint.Z - d / 2.0;
                     double len = p.StartPoint.DistanceTo(p.EndPoint);
                     string desc = (p.Description ?? "").Replace(",", " ");
-                    sb.AppendLine($"TUBERIA_GRAV,{rn},{p.Name},{d:F1},{desc},{invI:F3},{invF:F3},{p.Slope * 100:F2},{len:F3},,");
+                    sb.AppendLine($"TUBERIA_GRAV,{rn},{p.Name},{d * 12.0:F1},{desc},{invI:F3},{invF:F3},{p.Slope * 100:F2},{len:F3},,");
                 }
             }
 
@@ -639,7 +669,7 @@ namespace Civil3DBasico
                         double len = p.StartPoint.DistanceTo(p.EndPoint);
                         double slope = len > 1e-6 ? (zi - zf) / len * 100.0 : 0.0;
                         string desc = (p.Description ?? "").Replace(",", " ");
-                        sb.AppendLine($"TUBERIA_PRES,{rn},{p.Name},{p.NominalDiameter:F1},{desc},{zi:F3},{zf:F3},{slope:F2},{len:F3},,");
+                        sb.AppendLine($"TUBERIA_PRES,{rn},{p.Name},{p.NominalDiameter * 12.0:F1},{desc},{zi:F3},{zf:F3},{slope:F2},{len:F3},,");
                     }
                 }
                 catch { }
@@ -745,6 +775,155 @@ namespace Civil3DBasico
         }
 
         // =================================================================
+        //  ASEGURAR BUZÓN REAL — evita "Estructura nula" (esfera en 3D)
+        //  Si la Parts List NO tiene un buzón cilíndrico/rectangular con tapa,
+        //  agrega uno del catálogo imperial (preferido: "Concentric Cylindrical
+        //  Structure with Rectangular Frame" ≈ buzón estándar de saneamiento).
+        // =================================================================
+        // Setea Structure.ControlSumpBy = "ByElevation" por reflexión (el enum
+        // vive en un namespace de Civil que cambia por versión; así no lo hardcodeamos).
+        // Devuelve null si OK, o un mensaje de error corto si falló.
+        private static string SetSumpControlByElevation(CivilDB.Structure st)
+        {
+            try
+            {
+                var prop = st.GetType().GetProperty("ControlSumpBy");
+                if (prop == null) return "no-prop";
+                var enumType = prop.PropertyType;
+                if (!enumType.IsEnum) return "no-enum";
+                object val;
+                try { val = Enum.Parse(enumType, "ByElevation", true); }
+                catch { return "no-value"; }
+                prop.SetValue(st, val);
+                return null;
+            }
+            catch (Exception e) { return e.Message; }
+        }
+
+        // Setea Structure.RimToSumpHeight = altura (ft). Con eso Civil calcula
+        // rim = sump + RimToSumpHeight (respeta el barril variable de la familia).
+        // Devuelve null si OK, o un mensaje corto si falló.
+        private static string SetRimToSumpHeight(CivilDB.Structure st, double heightFt)
+        {
+            try
+            {
+                var prop = st.GetType().GetProperty("RimToSumpHeight");
+                if (prop == null) return "no-prop";
+                prop.SetValue(st, heightFt);
+                return null;
+            }
+            catch (Exception e) { return e.Message; }
+        }
+
+        private void AsegurarBuzonReal(Editor ed, Transaction tr, PartsStyles.PartsList partsList)
+        {
+            // Palabras (EN/ES) que indican estructura NO-buzón (nulo, cabezal, boca de descarga...)
+            string[] noBuzon = {
+                "Null", "Headwall", "End Section", "Flared", "Culvert", "Winged", "Wing", "Apron",
+                "nula", "cabecero", "cabezal", "boca", "aleta", "alcantarilla",
+            };
+            ObjectIdCollection fams = partsList.GetPartFamilyIdsByDomain(CivilDB.DomainType.Structure);
+            foreach (ObjectId fid in fams)
+            {
+                var fam = tr.GetObject(fid, OpenMode.ForRead) as PartsStyles.PartFamily;
+                if (fam == null || fam.PartSizeCount == 0) continue;
+                string d = fam.Description ?? "";
+                bool malo = false;
+                foreach (var k in noBuzon) if (d.IndexOf(k, StringComparison.OrdinalIgnoreCase) >= 0) { malo = true; break; }
+                if (!malo) return;   // ya hay un buzón real, no hago nada
+            }
+
+            // No hay: intento agregar del catálogo. Preferencias en orden (EN/ES).
+            try
+            {
+                PartsStyles.DataPartFamily[] disp =
+                    PartsStyles.PartsList.GetAvailablePartFamilies(CivilDB.DomainType.Structure);
+                if (disp == null || disp.Length == 0)
+                { ed.WriteMessage("\n⚠ Sin catálogo de estructuras; los buzones saldrán como 'nula'."); return; }
+
+                // Cada elemento es una lista de tokens que TODOS deben estar en la descripción.
+                // Así "cilíndrica concéntrica" matchea "Estructura cilíndrica concéntrica con marco rectangular".
+                string[][] pref = {
+                    new[]{"concentric","cylindrical","rectangular"},
+                    new[]{"concéntrica","cilíndrica","rectangular"},
+                    new[]{"concentrica","cilindrica","rectangular"},   // sin acentos
+                    new[]{"concentric","cylindrical"},
+                    new[]{"concéntrica","cilíndrica"},
+                    new[]{"concentrica","cilindrica"},
+                    new[]{"cylindrical","junction"},
+                    new[]{"cilíndrica","conexión"},
+                    new[]{"cilindrica","conexion"},
+                    new[]{"junction","structure"},
+                    new[]{"conexión"},
+                    new[]{"cilíndrica"},
+                    new[]{"cilindrica"},
+                    new[]{"cylindrical"},
+                    new[]{"rectangular","junction"},
+                    new[]{"rectangular","conexión"},
+                };
+                PartsStyles.DataPartFamily elegido = null;
+                foreach (var tokens in pref)
+                {
+                    foreach (var dpf in disp)
+                    {
+                        string desc = (dpf.Description ?? "");
+                        // saltar métricos (EN/ES) y no-buzones
+                        if (desc.IndexOf("Metric", StringComparison.OrdinalIgnoreCase) >= 0) continue;
+                        if (desc.IndexOf("métric", StringComparison.OrdinalIgnoreCase) >= 0) continue;
+                        if (desc.IndexOf("metric", StringComparison.OrdinalIgnoreCase) >= 0) continue;
+                        bool esNoBuzon = false;
+                        foreach (var k in noBuzon)
+                            if (desc.IndexOf(k, StringComparison.OrdinalIgnoreCase) >= 0) { esNoBuzon = true; break; }
+                        if (esNoBuzon) continue;
+                        bool todos = true;
+                        foreach (var tk in tokens)
+                            if (desc.IndexOf(tk, StringComparison.OrdinalIgnoreCase) < 0) { todos = false; break; }
+                        if (todos) { elegido = dpf; break; }
+                    }
+                    if (elegido != null) break;
+                }
+                if (elegido == null)
+                {
+                    ed.WriteMessage("\n⚠ No hallé un buzón imperial en el catálogo. Familias disponibles:");
+                    int shown = 0;
+                    foreach (var dpf in disp)
+                    {
+                        if (dpf?.Description == null) continue;
+                        ed.WriteMessage($"\n    · {dpf.Description}");
+                        if (++shown >= 12) { ed.WriteMessage("\n    ... (recortado)"); break; }
+                    }
+                    return;
+                }
+
+                partsList.UpgradeOpen();
+                try { partsList.AddPartFamilyByGuid(CivilDB.DomainType.Structure, elegido.GUID); } catch { }
+
+                // Agregar TODOS los tamaños disponibles de esa familia
+                foreach (ObjectId fid2 in partsList.GetPartFamilyIdsByDomain(CivilDB.DomainType.Structure))
+                {
+                    var fam = tr.GetObject(fid2, OpenMode.ForWrite) as PartsStyles.PartFamily;
+                    if (fam == null || !string.Equals(fam.GUID, elegido.GUID, StringComparison.OrdinalIgnoreCase)) continue;
+                    try
+                    {
+                        var filtro = new PartsStyles.SizeFilterRecord(fam);
+                        for (int i = 0; i < filtro.ParamCount; i++)
+                        {
+                            var campo = filtro[i];
+                            if (campo != null && !campo.IsReadOnly && campo.IsFromList)
+                                campo.IsMultipleSelect = true;
+                        }
+                        fam.AddPartSize(filtro);
+                    }
+                    catch (Exception exSize)
+                    { ed.WriteMessage($"\n  (No se pudieron agregar tamaños: {exSize.Message})"); }
+                    ed.WriteMessage($"\n  + Buzón '{elegido.Description}' agregado ({fam.PartSizeCount} tamaño(s)).");
+                    break;
+                }
+            }
+            catch (Exception ex) { ed.WriteMessage($"\n(No se pudo asegurar buzón real: {ex.Message})"); }
+        }
+
+        // =================================================================
         //  AUTO-POBLAR PARTS LIST DESDE CATÁLOGO (solo familias imperiales)
         // =================================================================
         private void AutoAgregarFamiliaCatalogo(Editor ed, Transaction tr,
@@ -817,11 +996,26 @@ namespace Civil3DBasico
 
         private static double[] InterpolateZ(ImportPipe ip, int nVerts)
         {
-            double[] z = new double[nVerts];
             double zStart = ip.InvStart ?? 0.0;
             double zEnd = ip.InvEnd ?? zStart;
-            for (int i = 0; i < nVerts; i++)
-                z[i] = nVerts > 1 ? zStart + (zEnd - zStart) * i / (nVerts - 1) : zStart;
+            return ZalongByDistance(ip.Vertices, zStart, zEnd);
+        }
+
+        // Invert por vértice interpolado por DISTANCIA acumulada 2D (pendiente
+        // uniforme). Repartir por índice de vértice daba pendientes absurdas en
+        // los tramos cortos de los quiebres.
+        private static double[] ZalongByDistance(List<Point2d> verts, double zStart, double zEnd)
+        {
+            int n = verts?.Count ?? 0;
+            double[] z = new double[n];
+            if (n == 0) return z;
+            if (n == 1) { z[0] = zStart; return z; }
+            double[] d = new double[n];
+            for (int i = 1; i < n; i++)
+                d[i] = d[i - 1] + verts[i - 1].GetDistanceTo(verts[i]);
+            double total = d[n - 1];
+            for (int i = 0; i < n; i++)
+                z[i] = total > 1e-9 ? zStart + (zEnd - zStart) * (d[i] / total) : zStart;
             return z;
         }
 

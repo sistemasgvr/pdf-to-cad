@@ -734,8 +734,11 @@ namespace Civil3DBasico
             ObjectId prefFam = ObjectId.Null, prefSize = ObjectId.Null; string prefNom = "";  // preferida: buzón "real"
             bool esEstructura = dominio == CivilDB.DomainType.Structure;
 
-            // Para buzones: descartar familias que NO son buzones (cabezales, culverts, aliviaderos...)
-            string[] noBuzon = { "Headwall", "End Section", "Flared", "Culvert", "Winged", "Wing", "Apron" };
+            // Para buzones: descartar familias que NO son buzones (cabezales, culverts, aliviaderos...) — EN/ES
+            string[] noBuzon = {
+                "Headwall", "End Section", "Flared", "Culvert", "Winged", "Wing", "Apron",
+                "cabecero", "cabezal", "boca", "aleta", "alcantarilla",
+            };
 
             ObjectIdCollection fams = partsList.GetPartFamilyIdsByDomain(dominio);
             foreach (ObjectId fid in fams)
@@ -743,7 +746,8 @@ namespace Civil3DBasico
                 PartsStyles.PartFamily fam = tr.GetObject(fid, OpenMode.ForRead) as PartsStyles.PartFamily;
                 if (fam == null || fam.PartSizeCount == 0) continue;
                 string desc = fam.Description ?? "";
-                if (desc.IndexOf("Null", StringComparison.OrdinalIgnoreCase) >= 0) continue; // nunca "Null"
+                if (desc.IndexOf("Null", StringComparison.OrdinalIgnoreCase) >= 0) continue; // "Null Structure"
+                if (desc.IndexOf("nula", StringComparison.OrdinalIgnoreCase) >= 0) continue; // "Estructura nula"
 
                 ObjectId sid = fam[0];
                 PartsStyles.PartSize sz = tr.GetObject(sid, OpenMode.ForRead) as PartsStyles.PartSize;
@@ -762,8 +766,21 @@ namespace Civil3DBasico
                 bool esNoBuzon = noBuzon.Any(k => desc.IndexOf(k, StringComparison.OrdinalIgnoreCase) >= 0);
                 if (esNoBuzon) continue;
 
-                // preferir un "Junction" (buzón típico); si aparece, usarlo ya
-                if (desc.IndexOf("Junction", StringComparison.OrdinalIgnoreCase) >= 0)
+                // preferir un buzón "Junction"/"Conexión" (buzón típico); si aparece, usarlo ya
+                if (desc.IndexOf("Junction", StringComparison.OrdinalIgnoreCase) >= 0 ||
+                    desc.IndexOf("Conexión", StringComparison.OrdinalIgnoreCase) >= 0 ||
+                    desc.IndexOf("Conexion", StringComparison.OrdinalIgnoreCase) >= 0)
+                {
+                    familyId = fid; sizeId = sid; nombre = nom;
+                    return true;
+                }
+                // preferir también cilíndrico/concéntrico (buzones estándar)
+                if (desc.IndexOf("Cylindrical", StringComparison.OrdinalIgnoreCase) >= 0 ||
+                    desc.IndexOf("Cilíndrica", StringComparison.OrdinalIgnoreCase) >= 0 ||
+                    desc.IndexOf("Cilindrica", StringComparison.OrdinalIgnoreCase) >= 0 ||
+                    desc.IndexOf("Concentric", StringComparison.OrdinalIgnoreCase) >= 0 ||
+                    desc.IndexOf("Concéntrica", StringComparison.OrdinalIgnoreCase) >= 0 ||
+                    desc.IndexOf("Concentrica", StringComparison.OrdinalIgnoreCase) >= 0)
                 {
                     familyId = fid; sizeId = sid; nombre = nom;
                     return true;

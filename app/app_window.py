@@ -2,7 +2,7 @@
 marcar_utilidades.py — Digitalizar planos y marcar utilidades.
 
 App de escritorio (PySide6) para ingeniería civil: abre el PDF de un plano,
-marca utilidades, coloca Multileaders con nomenclatura, escribe texto libre,
+marca utilidades, coloca Leaders (flechas), escribe texto libre,
 borra zonas y exporta un único DXF (base digitalizada + tu marcado) en las
 mismas coordenadas. Ver menú Ayuda → Manual de usuario.
 """
@@ -17,10 +17,8 @@ import vector_pipeline as VP
 import geometry as G
 import dxf_export
 import excel_import
-from export.network_json import write_network_json
 from geo import georef as georef_mod
 from geometry import point_in_poly, qimage_to_gray
-from ocr import OcrWorker, IcrWorker
 from model import (VERSION, TIPOS, ACI_RGB, LEADER_TEXT_FT, LEADER_ORIENT,
                    Z_PDF, Z_ERASE, Z_MARK, Z_HANDLE, GRAVITY_LAYERS,
                    TAB_PIPE, TAB_ML, TAB_LEADER, TAB_TEXT, TAB_REGION,
@@ -178,7 +176,6 @@ class Main(QtWidgets.QMainWindow):
         self.erase_regions = []; self._erase_pts = []; self.structures = []
         self.mode = "idle"; self._pending = None
         self.snap = False; self.snap_r = 14
-        self.show_text_boxes = False; self.ocr_boxes = []; self._tess_boxes = []; self._icr_boxes = []
         self.sel_pipe = -1; self.sel_leader = -1; self.sel_region = -1; self.sel_text = -1; self._no_center = False
         self._move0 = None; self._drag_vertex = None; self._edit_pts = None; self._edit_closed = False; self._edit_leader = None
         self._move_kind = None; self._moved = False; self._press_xy = None; self._last_xy = None
@@ -204,9 +201,12 @@ class Main(QtWidgets.QMainWindow):
         medit = mb.addMenu("&Edición")
         self._menu_act(medit, "Deshacer", self.undo, "Ctrl+Z")
         self._menu_act(medit, "Rehacer", self.redo, "Ctrl+Shift+Z")
-        mgeo = mb.addMenu("&Georreferencia")
-        self._menu_act(mgeo, "Georreferenciar…", self.open_georef)
-        self._menu_act(mgeo, "Quitar georreferencia", self.clear_georef)
+        mtools = mb.addMenu("&Herramientas")
+        self._menu_act(mtools, "Gestionar buzones…", self.manage_structures)
+        self._menu_act(mtools, "Importar Excel de red…", self.import_network_excel)
+        mtools.addSeparator()
+        self._menu_act(mtools, "Georreferenciar…", self.open_georef)
+        self._menu_act(mtools, "Quitar georreferencia", self.clear_georef)
         mhelp = mb.addMenu("A&yuda")
         self._menu_act(mhelp, "Acerca de…", self.show_about)
         self._menu_act(mhelp, "Manual de usuario", self.show_manual)
@@ -221,36 +221,16 @@ class Main(QtWidgets.QMainWindow):
         tb.addSeparator()
         self.chk_snap = QtWidgets.QCheckBox("Imán al trazo"); self.chk_snap.toggled.connect(self._toggle_snap); tb.addWidget(self.chk_snap)
         spacer = QtWidgets.QWidget(); spacer.setSizePolicy(QtWidgets.QSizePolicy.Expanding, QtWidgets.QSizePolicy.Preferred); tb.addWidget(spacer)
-        # Selector de UNIDAD DE TRABAJO (obligatorio para la red 3D): pies o pulgadas.
-        # QComboBox lista opciones ("addItem(texto, datoOculto)") y con currentData()
-        # leemos el "dato oculto" — aquí lo usamos como código corto ("ft"/"in").
-        tb.addWidget(QtWidgets.QLabel(" Unidad de red: "))
-        self.unit_combo = QtWidgets.QComboBox()
-        self.unit_combo.addItem("Pies (ft)", "ft"); self.unit_combo.addItem("Pulgadas (in)", "in")
-        self.unit_combo.setToolTip("Unidad en la que se ingresan cotas y diámetros, y en la que se exporta la red 3D (JSON). NO se usan metros.")
-        self.unit_combo.currentIndexChanged.connect(self._on_unit_change)
-        tb.addWidget(self.unit_combo)
+        # Sin selector de unidad: TODO va en pies por campo (cotas/coordenadas),
+        # salvo los diámetros que van siempre en pulgadas (lista fija del catálogo).
         tb.addSeparator()
-        self.btn_export = QtWidgets.QToolButton()
-        self.btn_export.setText("⭳  Exportar DXF  ▾")
-        self.btn_export.setPopupMode(QtWidgets.QToolButton.InstantPopup)
-        self.btn_export.setStyleSheet("QToolButton{background:#4d8eff;color:#00285d;font-weight:bold;padding:5px 14px;border-radius:4px;}")
-        exp_menu = QtWidgets.QMenu(self.btn_export)
-        exp_menu.addAction("PDF + anotaciones (todo)", lambda: self.run_pipeline("todo"))
-        exp_menu.addAction("Solo el PDF digitalizado", lambda: self.run_pipeline("pdf"))
-        exp_menu.addAction("Solo las anotaciones", lambda: self.run_pipeline("anot"))
-        exp_menu.addSeparator()
-        # Capas de referencia reales de LA (solo si el plano está georreferenciado a 2229).
-        self.act_la_ref = exp_menu.addAction("Incluir calles reales de LA (capa)"); self.act_la_ref.setCheckable(True)
-        self.act_la_ref.setToolTip("Descarga los ejes de calle de NavigateLA del área y los añade al DXF (requiere georref a EPSG:2229 e internet).")
-        self.act_la_parcels = exp_menu.addAction("Incluir parcelas de LA (capa)"); self.act_la_parcels.setCheckable(True)
-        self.act_la_parcels.setToolTip("Añade las parcelas de LA (pueden ser muchas). Requiere georref a 2229 e internet.")
-        exp_menu.addSeparator()
-        self.act_dwg = exp_menu.addAction("Guardar también en DWG (requiere ODA)"); self.act_dwg.setCheckable(True)
-        self.act_dwg.setToolTip("Además del DXF, genera un .dwg con el ODA File Converter (debe estar instalado).")
-        exp_menu.addSeparator()
-        exp_menu.addAction("Exportar red 3D (JSON)", self.export_network_json)
-        self.btn_export.setMenu(exp_menu); tb.addWidget(self.btn_export)
+        self.btn_export = QtWidgets.QPushButton("⭳  Exportar DXF")
+        self.btn_export.setStyleSheet("QPushButton{background:#4d8eff;color:#00285d;font-weight:bold;padding:5px 14px;border-radius:4px;} QPushButton:hover{background:#66a3ff;}")
+        self.btn_export.clicked.connect(lambda: self.run_pipeline("todo"))
+        tb.addWidget(self.btn_export)
+        # Capas de referencia reales de LA (checkables ocultas: se activan por menú Herramientas si hace falta).
+        self.act_la_ref = QtGui.QAction("Incluir calles reales de LA", self); self.act_la_ref.setCheckable(True)
+        self.act_la_parcels = QtGui.QAction("Incluir parcelas de LA", self); self.act_la_parcels.setCheckable(True)
 
         # ─────────────────────────── DOCK IZQUIERDO ───────────────────────────
         # Aquí construimos el panel lateral izquierdo como un ACORDEÓN de secciones
@@ -304,7 +284,6 @@ class Main(QtWidgets.QMainWindow):
 
         # Botones de acción (uno por sección; el color verde/azul lo pone _update_ui)
         self.btn_pipe = QtWidgets.QPushButton("✏  Dibujar utilidad"); self.btn_pipe.clicked.connect(self.toggle_pipe)
-        self.btn_leader = QtWidgets.QPushButton("↳  Colocar Multileader"); self.btn_leader.clicked.connect(lambda: self.start_leader(False))
         self.btn_leader_simple = QtWidgets.QPushButton("↘  Colocar Leader"); self.btn_leader_simple.clicked.connect(lambda: self.start_leader(True))
         self.btn_text = QtWidgets.QPushButton("T  Texto libre"); self.btn_text.clicked.connect(self.toggle_text_mode)
         self.btn_erase = QtWidgets.QPushButton("▭  Borrar zona"); self.btn_erase.clicked.connect(self.toggle_erase)
@@ -377,18 +356,6 @@ class Main(QtWidgets.QMainWindow):
         b_up = QtWidgets.QPushButton("Deshacer punto"); b_up.clicked.connect(self.undo)
         lc.addWidget(self.btn_fin); lc.addWidget(b_up)
 
-        # Botones de Cotas y red 3D
-        b_bz = QtWidgets.QPushButton("Gestionar buzones…"); b_bz.clicked.connect(self.manage_structures)
-        b_xls = QtWidgets.QPushButton("Importar Excel de red…"); b_xls.clicked.connect(self.import_network_excel)
-
-        # Botones de Georreferenciación
-        b_geo = QtWidgets.QPushButton("🌍  Georreferenciar…"); b_geo.clicked.connect(self.open_georef)
-        b_geo_off = QtWidgets.QPushButton("Quitar georreferencia"); b_geo_off.clicked.connect(self.clear_georef)
-
-        # Casillas de OCR/ICR
-        self.chk_txt = QtWidgets.QCheckBox("Textos impresos (OCR)"); self.chk_txt.toggled.connect(self.toggle_text_boxes)
-        self.chk_icr = QtWidgets.QCheckBox("Manuscrita (ICR, offline)"); self.chk_icr.toggled.connect(self.toggle_icr)
-
         # ═══════════════════════════════════════════════════════════════════════
         # AHORA: creamos las secciones del acordeón y colocamos los widgets.
         # Los "slots" (self._slot_*) son QVBoxLayouts vacíos que quedan reservados
@@ -436,36 +403,8 @@ class Main(QtWidgets.QMainWindow):
         self._slot_gcur_erase = QtWidgets.QVBoxLayout(); l.addLayout(self._slot_gcur_erase)  # slot: gcur al borrar
         l.addStretch(1)
 
-        # ── Sección: Georreferenciación ──
-        p, l = _page("🌍  Georreferenciación", "georef")
-        l.addWidget(b_geo); l.addWidget(b_geo_off)
-        _lbl = QtWidgets.QLabel(
-            "<i>Calzar el plano sobre imagen satelital te da coordenadas UTM <b>aproximadas</b> "
-            "(útiles para anteproyecto, NO grado construcción). El dato topográfico real "
-            "viene del levantamiento/Excel.</i>")
-        _lbl.setWordWrap(True); l.addWidget(_lbl)
-        l.addStretch(1)
-
-        # ── Sección: Cotas y red 3D ──
-        p, l = _page("📐  Cotas y red 3D", "net")
-        l.addWidget(b_bz); l.addWidget(b_xls)
-        _lbl = QtWidgets.QLabel(
-            "<i>Los buzones aparecen automáticamente al dibujar tuberías de gravedad "
-            "(alcantarillado/drenaje) — cada vértice es un buzón. Aquí gestionas su "
-            "Cod, rim (tapa) y sump (fondo). También puedes IMPORTAR un Excel con "
-            "hojas BUZONES y TUBERIAS (encabezados en fila 5).</i>")
-        _lbl.setWordWrap(True); l.addWidget(_lbl)
-        l.addStretch(1)
-
-        # ── Sección: Reconocimiento (OCR / ICR) ──
-        p, l = _page("🔤  Reconocimiento de texto", "ocr")
-        l.addWidget(self.chk_txt); l.addWidget(self.chk_icr)
-        _lbl = QtWidgets.QLabel(
-            "<i>OCR = texto impreso (Tesseract).  ICR = manuscrita (EasyOCR, offline). "
-            "Aparecen recuadros amarillos sobre el plano; clic en uno para corregir "
-            "el texto reconocido.</i>")
-        _lbl.setWordWrap(True); l.addWidget(_lbl)
-        l.addStretch(1)
+        # (Georreferenciación y Cotas/red 3D se hacen una vez por proyecto — se
+        #  mueven al menú "Herramientas" y menú "Georreferencia".)
 
         # Al abrir una sección del acordeón: reparenta los widgets compartidos y
         # regresa el modo a "idle" (así no quedan mezclados los estados).
@@ -543,8 +482,9 @@ class Main(QtWidgets.QMainWindow):
         fpr.addRow("Material:", self.prop_material)
         fpr.addRow("Tipo de red:", self.prop_nettype)
         # Labels dinámicas: se recomponen al cambiar la unidad de trabajo.
-        self.lbl_prop_inv0 = QtWidgets.QLabel("Invert inicio (ft):"); fpr.addRow(self.lbl_prop_inv0, self.prop_inv0)
-        self.lbl_prop_inv1 = QtWidgets.QLabel("Invert fin (ft):");   fpr.addRow(self.lbl_prop_inv1, self.prop_inv1)
+        # Nombre igual a Civil 3D: "Elevación de rasante" (no "Invert").
+        self.lbl_prop_inv0 = QtWidgets.QLabel("Elev. de rasante inicial (ft):"); fpr.addRow(self.lbl_prop_inv0, self.prop_inv0)
+        self.lbl_prop_inv1 = QtWidgets.QLabel("Elev. de rasante final (ft):");   fpr.addRow(self.lbl_prop_inv1, self.prop_inv1)
         fpr.addRow("Part (pieza):", self.prop_part)
         rv.addWidget(self.gprop)
         rr = QtWidgets.QGridLayout()
@@ -558,16 +498,18 @@ class Main(QtWidgets.QMainWindow):
         rdock.setWidget(right); rdock.setMinimumWidth(250)
         self.addDockWidget(QtCore.Qt.RightDockWidgetArea, rdock)
 
-        # ── Barra de estado: modo · coordenadas · escala · imán ──
+        # ── Barra de estado: modo · info · contadores en vivo · escala · georref ──
         self.status = self.statusBar(); self.status.setSizeGripEnabled(False)
         self.lbl_mode = QtWidgets.QLabel("Modo: inactivo"); self.lbl_mode.setStyleSheet("color:#adc6ff;")
         self.status.addWidget(self.lbl_mode)
         self.status.addWidget(QtWidgets.QLabel("│"))
         self.lbl_info = QtWidgets.QLabel(""); self.lbl_info.setStyleSheet("color:#8c909f;"); self.status.addWidget(self.lbl_info, 1)
         self.lbl_snap = QtWidgets.QLabel("Imán: OFF"); self.lbl_coords = QtWidgets.QLabel("X —  Y —")
+        # Contadores en vivo: N utilidades · N leaders · N textos · dirty
+        self.lbl_counts = QtWidgets.QLabel("—")
+        self.lbl_dirty = QtWidgets.QLabel("")   # muestra "●" cuando hay cambios sin guardar
         self.lbl_scale = QtWidgets.QLabel("Escala —"); self.lbl_geo = QtWidgets.QLabel("Georref: no")
-        self.lbl_unit = QtWidgets.QLabel(f"Unidad: {self.work_unit}")
-        for w in (self.lbl_snap, self.lbl_coords, self.lbl_scale, self.lbl_geo, self.lbl_unit):
+        for w in (self.lbl_snap, self.lbl_coords, self.lbl_counts, self.lbl_dirty, self.lbl_scale, self.lbl_geo):
             w.setStyleSheet("color:#c2c6d6;"); self.status.addPermanentWidget(w)
         self.canvas.moved.connect(self._update_coords)
         self._update_geo_status()
@@ -697,20 +639,15 @@ class Main(QtWidgets.QMainWindow):
     def _update_ui(self):
         m = self.mode
         def st(btn, on): btn.setStyleSheet(BTN_ON if on else BTN_OFF)
-        in_leader = m in ("leader1", "leader2", "leader3"); simple = bool(self._pending and self._pending.get("simple"))
-        st(self.btn_pipe, m == "pipe"); st(self.btn_leader, in_leader and not simple)
-        st(self.btn_leader_simple, in_leader and simple)
+        in_leader = m in ("leader1", "leader2", "leader3")
+        st(self.btn_pipe, m == "pipe")
+        st(self.btn_leader_simple, in_leader)
         st(self.btn_text, m == "text"); st(self.btn_erase, m == "erase")
         self.btn_pipe.setText("■  Salir de dibujar utilidad" if m == "pipe" else "✏  Dibujar utilidad")
-        self.btn_leader.setText("●  Coloque Multileader…" if (in_leader and not simple) else "↳  Colocar Multileader")
-        self.btn_leader_simple.setText("●  Coloque Leader…" if (in_leader and simple) else "↘  Colocar Leader")
+        self.btn_leader_simple.setText("●  Coloque Leader…" if in_leader else "↘  Colocar Leader")
         self.btn_erase.setText("■  Terminar zona (Enter)" if m == "erase" else "▭  Borrar zona (polígono)")
         ti = self._current_tab()
-        # Con el acordeón (QToolBox) la visibilidad de las opciones la controla la
-        # sección expandida — cada sección solo enseña lo suyo. Aquí ya no tenemos
-        # que ocultar/mostrar `gt`/`ga`/`gtxt` según el modo; solo ajustamos el
-        # título del grupo cuando el estilo es del Multileader vs Texto libre.
-        self.gtxt.setTitle("Estilo del Multileader" if m in ("leader1", "leader2", "leader3") else "Estilo de texto")
+        self.gtxt.setTitle("Estilo de texto")
         self.gprop.setVisible(ti == TAB_PIPE and self.sel_pipe >= 0)
         # "En curso": solo mientras hay puntos en curso. gcur ya fue movido a la
         # sección correcta por set_mode; aquí solo habilitamos Finalizar y mostramos.
@@ -722,16 +659,11 @@ class Main(QtWidgets.QMainWindow):
         self.btn_mv.setVisible(ti in (TAB_PIPE, TAB_LEADER, TAB_TEXT, TAB_REGION))
         self.btn_mv.setText("Mover" if ti == TAB_TEXT else "Editar/mover")
         self.btn_edit.setVisible(ti in (TAB_ML, TAB_TEXT))
-        if simple:                                       # Leader (solo flecha)
-            diag = self.orient_combo.currentData() == "d"
-            lead1 = "Modo: Leader — clic en la cabeza de flecha (dónde señala)"
-            lead2 = ("Modo: Leader — clic en el inicio del landing (bisagra)" if diag
-                     else "Modo: Leader — clic en el final del cuerpo")
-            lead3 = "Modo: Leader — clic en el final del cuerpo"
-        else:
-            lead1 = "Modo: Multileader — clic en la PUNTA (a qué señala)"
-            lead2 = "Modo: Multileader — clic dónde va el TEXTO"
-            lead3 = ""
+        diag = self.orient_combo.currentData() == "d"
+        lead1 = "Modo: Leader — clic en la cabeza de flecha (dónde señala)"
+        lead2 = ("Modo: Leader — clic en el inicio del landing (bisagra)" if diag
+                 else "Modo: Leader — clic en el final del cuerpo")
+        lead3 = "Modo: Leader — clic en el final del cuerpo"
         self.lbl_mode.setText({"idle": "Modo: inactivo  ·  clic en el dibujo para seleccionar",
                                "pipe": ("Modo: EXTENDIENDO desde el vértice — clic agrega puntos, Enter finaliza"
                                         if self._extending else "Modo: dibujar utilidad  ·  Enter finaliza"),
@@ -882,7 +814,7 @@ class Main(QtWidgets.QMainWindow):
         self.sel_pipe = self.sel_leader = self.sel_region = self.sel_text = -1
         self._overlay = []; self._close_editor(); self._dirty = False; self._extending = False
         self.georef = georef_mod.Georef()          # cada página/PDF nuevo empieza sin georreferencia
-        self._undo.clear(); self._redo.clear(); self.ocr_boxes = []; self._tess_boxes = []; self._icr_boxes = []
+        self._undo.clear(); self._redo.clear()
         self.set_mode("idle"); self._refresh_lists(); self._redraw(); self._update_geo_status()
 
     # ─────────────────────────── proyecto ───────────────────────────
@@ -971,20 +903,12 @@ class Main(QtWidgets.QMainWindow):
                                   for r in model.get("erase_regions", [])]
             self.structures = model.get("structures", [])   # retrocompat: proyectos viejos sin buzones
             self.georef = georef_mod.Georef.from_dict(model.get("georef"))   # retrocompat: sin georref → escala
-            # Retrocompat de unidad: proyectos anteriores a 0.12 no guardan work_unit.
-            # Si alguna pipe tenía unit="pulg"/"pies", elegimos la unidad más común
-            # para el proyecto (por defecto "ft"). No convertimos los valores.
-            wu = model.get("work_unit")
-            if not is_valid_work_unit(wu):
-                # Heurística: si más de la mitad de las pipes están en pulgadas, "in"; si no, "ft".
-                pulg = sum(1 for p in self.pipes if str(p.get("unit", "")).lower().startswith("pulg"))
-                wu = "in" if (self.pipes and pulg > len(self.pipes) / 2) else "ft"
-            self.work_unit = wu
-            # Anotamos el work_unit en cada pipe (uniforme: no per-pipe unit).
-            for p in self.pipes: p["unit"] = self.work_unit
+            # Unidad de trabajo SIEMPRE pies (los diámetros van en pulgadas, por campo).
+            # Ya no hay selector; ignoramos el work_unit guardado en proyectos viejos.
+            self.work_unit = "ft"
+            for p in self.pipes: p["unit"] = "ft"
             self.cur_pts = []; self._erase_pts = []; self.sel_pipe = self.sel_leader = self.sel_region = self.sel_text = -1
             self._undo.clear(); self._redo.clear(); self._dirty = False
-            self.ocr_boxes = []; self._tess_boxes = []; self._icr_boxes = []
             self.set_mode("idle"); self._refresh_lists(); self._update_page_label(); self._redraw()
             self.lbl_scale.setText(f"Escala 1\"={self.scale*72:.0f}'"); self._update_geo_status()
             self._refresh_unit_labels()
@@ -1012,11 +936,8 @@ class Main(QtWidgets.QMainWindow):
         self.pipes = []; self.leaders = []; self.text_marks = []; self.erase_regions = []; self.structures = []
         self.cur_pts = []; self._erase_pts = []; self._overlay = []; self._close_editor()
         self.sel_pipe = self.sel_leader = self.sel_region = self.sel_text = -1
-        self.ocr_boxes = []; self._tess_boxes = []; self._icr_boxes = []
-        self._undo.clear(); self._redo.clear(); self._dirty = False; self.show_text_boxes = False
+        self._undo.clear(); self._redo.clear(); self._dirty = False
         self.georef = georef_mod.Georef()
-        for chk in (self.chk_txt, self.chk_icr):
-            chk.blockSignals(True); chk.setChecked(False); chk.blockSignals(False)
         self.set_mode("idle"); self._refresh_lists(); self._update_page_label(); self._info("Proyecto cerrado.")
 
     def closeEvent(self, e):
@@ -1027,7 +948,6 @@ class Main(QtWidgets.QMainWindow):
     # ─────────────────────────── clics ───────────────────────────
     def on_click(self, x, y, button):
         if self.canvas.pixmap_item is None: return
-        if self.show_text_boxes and button == QtCore.Qt.LeftButton and self._click_box(x, y): return
         if button == QtCore.Qt.RightButton:
             if self.mode == "pipe": self.finish_pipe()
             elif self.mode == "erase": self.finish_erase()
@@ -1043,27 +963,11 @@ class Main(QtWidgets.QMainWindow):
         elif self.mode == "leader1":
             self._pending["arrow"] = self._snap(x, y); self.mode = "leader2"; self._update_ui()
         elif self.mode == "leader2":
-            simple = bool(self._pending.get("simple"))
-            if simple:
-                hx, hy = self._pending["arrow"]; o = self.orient_combo.currentData()
-                if o == "d":                                 # diagonal: 2º clic = inicio del landing (bisagra)
-                    self._pending["landing"] = self._snap(x, y); self.mode = "leader3"; self._update_ui(); return
-                tail = (x, hy) if o == "h" else (hx, y)      # h/v: 2º clic = final del cuerpo, recto al eje
-                self._add_simple_leader((hx, hy), tail, o); return
-            txt = self._read_leader_text()
-            if not txt:
-                self._info("Selecciona un texto (o activa 'texto personalizado') antes de colocar.")
-                self._pending = {"arrow": None, "simple": False}
-                self.mode = "leader1"; self._update_ui(); return
-            self._push()
-            self.leaders.append({"text": txt, "orient": self.orient_combo.currentData(),
-                                 "simple": False,
-                                 "arrow": self._pending["arrow"], "tp": (x, y),
-                                 "font": self.font_combo.currentFont().family(),
-                                 "size_ft": self.size_spin.value(), "bold": self.chk_bold.isChecked()})
-            self._pending = {"arrow": None, "simple": False}; self.mode = "leader1"
-            self._refresh_lists(); self._update_ui(); self._redraw()      # se ve al instante
-            self._info("Multileader colocado. Clic en la PUNTA del siguiente (Esc para salir).")
+            hx, hy = self._pending["arrow"]; o = self.orient_combo.currentData()
+            if o == "d":                                 # diagonal: 2º clic = inicio del landing (bisagra)
+                self._pending["landing"] = self._snap(x, y); self.mode = "leader3"; self._update_ui(); return
+            tail = (x, hy) if o == "h" else (hx, y)      # h/v: 2º clic = final del cuerpo, recto al eje
+            self._add_simple_leader((hx, hy), tail, o); return
         elif self.mode == "leader3":                         # Leader diagonal: 3er clic = final del cuerpo
             self._add_simple_leader(self._pending["arrow"], (x, y), "d",
                                     landing=self._pending.get("landing")); return
@@ -1109,7 +1013,7 @@ class Main(QtWidgets.QMainWindow):
             if self._text_hit(tm, x, y):
                 self._no_center = True; self._show_tab(TAB_TEXT); self.txt_marks_list.setCurrentRow(i)
                 self._no_center = False; return
-        for i, ld in enumerate(self.leaders):           # leaders/multileaders: por la línea o el texto
+        for i, ld in enumerate(self.leaders):           # leaders: por la línea o el texto
             if not (ld.get("arrow") and ld.get("tp")): continue
             geo = self._leader_geo(ld); hit = False
             for s in geo["segs"]:
@@ -1477,30 +1381,24 @@ class Main(QtWidgets.QMainWindow):
             p["net_type"] = self.prop_nettype.currentData() or ""
             self._refresh_lists()
 
-    # ────────── Unidad de trabajo (ft/in) — obligatoria para la red 3D ──────────
-    def _on_unit_change(self, _idx):
-        """El usuario cambió la unidad de trabajo en el combo de la barra.
-        Recomputamos las etiquetas ("(ft)"/"(in)") pero NO reescalamos datos
-        (el usuario debe ingresar los nuevos valores en la unidad activa)."""
-        new_u = self.unit_combo.currentData()
-        if not is_valid_work_unit(new_u) or new_u == self.work_unit: return
-        self.work_unit = new_u; self._dirty = True
-        self._refresh_unit_labels()
-        self._info(f"Unidad de trabajo cambiada a '{new_u}'. Ingresa cotas y diámetros en esta unidad.")
-
     def _refresh_unit_labels(self):
-        """Vuelve a escribir las etiquetas de UI que dependen de la unidad activa."""
-        u = self.work_unit
-        # El diámetro NO depende de la unidad de trabajo: siempre en pulgadas.
+        """Etiquetas de campo fijas: cotas en PIES, diámetro en PULGADAS.
+        (Ya no hay selector de unidad; todo va por campo.)"""
         if hasattr(self, "lbl_prop_diam"): self.lbl_prop_diam.setText("Diámetro (pulg):")
-        if hasattr(self, "lbl_prop_inv0"): self.lbl_prop_inv0.setText(f"Invert inicio ({u}):")
-        if hasattr(self, "lbl_prop_inv1"): self.lbl_prop_inv1.setText(f"Invert fin ({u}):")
-        if hasattr(self, "lbl_unit"): self.lbl_unit.setText(f"Unidad: {u}")
-        # Sincronizar el combo por si se llamó desde carga de proyecto (no del combo).
-        if hasattr(self, "unit_combo"):
-            i = self.unit_combo.findData(u)
-            if i >= 0 and self.unit_combo.currentIndex() != i:
-                self.unit_combo.blockSignals(True); self.unit_combo.setCurrentIndex(i); self.unit_combo.blockSignals(False)
+        if hasattr(self, "lbl_prop_inv0"): self.lbl_prop_inv0.setText("Elev. de rasante inicial (ft):")
+        if hasattr(self, "lbl_prop_inv1"): self.lbl_prop_inv1.setText("Elev. de rasante final (ft):")
+
+    def _refresh_counts(self):
+        """Contadores en vivo en la barra de estado: utilidades, leaders, textos, zonas."""
+        if not hasattr(self, "lbl_counts"): return
+        n_p = len(self.pipes); n_l = len(self.leaders); n_t = len(self.text_marks); n_z = len(self.erase_regions)
+        self.lbl_counts.setText(f"{n_p} util · {n_l} lead · {n_t} txt · {n_z} zona")
+        # marca de "sin guardar"
+        if hasattr(self, "lbl_dirty"):
+            if self._dirty:
+                self.lbl_dirty.setText("●"); self.lbl_dirty.setStyleSheet("color:#e0c060;")
+            else:
+                self.lbl_dirty.setText("")
 
     def change_pipe_type(self):
         if 0 <= self.sel_pipe < len(self.pipes):
@@ -1571,6 +1469,7 @@ class Main(QtWidgets.QMainWindow):
         self._redraw(); self._info("Pegado (copia desplazada).")
 
     def _refresh_lists(self):
+        self._refresh_counts()
         self.pipe_list.blockSignals(True); self.pipe_list.clear()
         for i, p in enumerate(self.pipes, 1):
             tag = " (AB)" if p.get("ab") else ""
@@ -1619,21 +1518,18 @@ class Main(QtWidgets.QMainWindow):
         it = self.text_list.currentItem()
         return it.text() if it and self.text_list.currentRow() >= 0 else ""
 
-    def start_leader(self, simple=False):
-        """Entra al modo de colocación (Multileader o Leader). No se captura la
-        orientación aquí: se lee de `orient_combo` AL MOMENTO del clic final,
-        para que el usuario pueda cambiarla dentro del modo."""
-        self._pending = {"arrow": None, "simple": bool(simple)}
-        # Abrimos la sección correcta del acordeón según el tipo de leader
-        self._open_section("leader" if simple else "ml")
+    def start_leader(self, simple=True):
+        """Entra al modo de colocación de Leader (solo flecha, sin texto). La
+        orientación se lee de `orient_combo` AL MOMENTO del clic final para que
+        el usuario pueda cambiarla dentro del modo. `simple` se mantiene solo
+        por retrocompat de callers antiguos; siempre es True ahora."""
+        self._pending = {"arrow": None, "simple": True}
+        self._open_section("leader")
         self.set_mode("leader1")
-        if simple:
-            if self.orient_combo.currentData() == "d":
-                self._info("Leader diagonal: cabeza → inicio del landing (bisagra) → final del cuerpo. Enter/Esc para salir.")
-            else:
-                self._info("Leader: cabeza de flecha → final del cuerpo. Enter/Esc para salir.")
+        if self.orient_combo.currentData() == "d":
+            self._info("Leader diagonal: cabeza → inicio del landing (bisagra) → final del cuerpo. Enter/Esc para salir.")
         else:
-            self._info("Multileader: elige el texto; clic en la PUNTA y luego dónde va el TEXTO. Esc para salir.")
+            self._info("Leader: cabeza de flecha → final del cuerpo. Enter/Esc para salir.")
 
     def _edit_leader_text(self, idx):
         ld = self.leaders[idx]; tp = ld["tp"]
@@ -1726,65 +1622,6 @@ class Main(QtWidgets.QMainWindow):
             try: ed.hide(); ed.deleteLater()
             except Exception: pass
 
-    # ─────────────────────────── OCR / ICR ───────────────────────────
-    def _sync_boxes(self):
-        self.ocr_boxes = self._tess_boxes + self._icr_boxes
-        self.show_text_boxes = self.chk_txt.isChecked() or self.chk_icr.isChecked()
-        self._redraw()
-
-    def toggle_text_boxes(self, on):
-        if on and not self._tess_boxes and self.gray is not None:
-            self._prog = QtWidgets.QProgressDialog("Detectando texto impreso (0/90/270°)…", None, 0, 0, self)
-            self._prog.setWindowTitle("OCR"); self._prog.setWindowModality(QtCore.Qt.WindowModal)
-            self._prog.setCancelButton(None); self._prog.show()
-            self._ocr = OcrWorker(self.gray); self._ocr.done.connect(self._ocr_done); self._ocr.start()
-        else: self._sync_boxes()
-
-    def _ocr_done(self, boxes, err):
-        if getattr(self, "_prog", None): self._prog.close()
-        if err: self._info(f"OCR no disponible: {err}"); return
-        self._tess_boxes = [(QtCore.QRectF(x, y, w, h), t) for (x, y, w, h, t) in boxes]
-        self._info(f"{len(self._tess_boxes)} zonas de texto impreso. Clic en una para corregirla."); self._sync_boxes()
-
-    def toggle_icr(self, on):
-        if on and not self._icr_boxes and self.gray is not None:
-            self._prog = QtWidgets.QProgressDialog("Reconociendo manuscrita (EasyOCR)…\n"
-                                                   "La 1ª vez descarga el modelo, puede tardar.", None, 0, 0, self)
-            self._prog.setWindowTitle("ICR"); self._prog.setWindowModality(QtCore.Qt.WindowModal)
-            self._prog.setCancelButton(None); self._prog.show()
-            self._icr = IcrWorker(self.gray); self._icr.done.connect(self._icr_done); self._icr.start()
-        else: self._sync_boxes()
-
-    def _icr_done(self, boxes, err):
-        if getattr(self, "_prog", None): self._prog.close()
-        if err == "missing":
-            self.chk_icr.blockSignals(True); self.chk_icr.setChecked(False); self.chk_icr.blockSignals(False)
-            QtWidgets.QMessageBox.information(self, "EasyOCR no instalado",
-                "Para la ICR manuscrita (offline) instala EasyOCR con tu Python 3.12:\n\n"
-                r'C:\Users\Deyvy\AppData\Local\Programs\Python\Python312\python.exe -m pip install easyocr'
-                "\n\nLa primera vez descargará el modelo (~100 MB) automáticamente.")
-            return
-        if err:
-            self.chk_icr.blockSignals(True); self.chk_icr.setChecked(False); self.chk_icr.blockSignals(False)
-            self._info(f"ICR no disponible: {err}"); return
-        self._icr_boxes = [(QtCore.QRectF(x, y, w, h), t) for (x, y, w, h, t) in boxes]
-        self._info(f"{len(self._icr_boxes)} zonas manuscritas. Clic en una para corregirla."); self._sync_boxes()
-
-    def _click_box(self, x, y):
-        for rect, txt in self.ocr_boxes:
-            if rect.contains(x, y):
-                def commit(val):
-                    self._close_editor()
-                    if val.strip():
-                        self._push()
-                        self.text_marks.append({"pos": (rect.center().x(), rect.center().y()), "text": val.rstrip("\n"),
-                                                "h": rect.height(), "box": (rect.x(), rect.y(), rect.width(), rect.height())})
-                        self._refresh_lists()
-                    self._redraw()
-                self._open_editor(rect.x(), rect.y(), txt, commit, max(160, int(rect.width())))
-                return True
-        return False
-
     # ─────────────────────────── dibujo ───────────────────────────
     def _redraw(self):
         sc = self.canvas.scene()
@@ -1814,7 +1651,7 @@ class Main(QtWidgets.QMainWindow):
             self._poly(p["pts"], layer_qcolor(p["layer"]), 4.0 if sel else 2.0, z=Z_MARK)
             if sel and self.mode == "move": self._handles(p["pts"])
         self._poly(self.cur_pts, layer_qcolor(self._ext_layer or self.active_layer()), 2.0, dots=True, z=Z_MARK)
-        # multileaders
+        # leaders
         anno = aci_qcolor(8)
         for i, ld in enumerate(self.leaders):
             if not (ld.get("arrow") and ld.get("tp")): continue
@@ -1829,11 +1666,6 @@ class Main(QtWidgets.QMainWindow):
                 f = t.font(); f.setPixelSize(int(geo["H"])); t.setFont(f)
                 if geo["rot"]: t.setRotation(geo["rot"])
                 t.setPos(geo["label_pos"][0], geo["label_pos"][1]); t.setZValue(Z_MARK); self._overlay.append(t)
-        # cajas OCR/ICR
-        if self.show_text_boxes:
-            pen = QtGui.QPen(QtGui.QColor(255, 200, 0), 1); pen.setCosmetic(True)
-            for rect, _ in self.ocr_boxes:
-                it = sc.addRect(rect, pen); it.setZValue(Z_MARK); self._overlay.append(it)
         # textos
         for i, tm in enumerate(self.text_marks):
             t = sc.addText(tm["text"]); t.setDefaultTextColor(QtGui.QColor(120, 220, 120)); t.document().setDocumentMargin(0)
@@ -2034,7 +1866,7 @@ class Main(QtWidgets.QMainWindow):
             if marks:
                 nreg = sum(1 for r in self.erase_regions if r.get("enabled", True))
                 msg = (f"Exportado (PDF + anotaciones):\n{self._out}\n\n{len(self.pipes)} utilidades, "
-                       f"{len(self.leaders)} leaders/multileaders, {len(self.text_marks)} textos, {nreg} zonas borradas.")
+                       f"{len(self.leaders)} leaders, {len(self.text_marks)} textos, {nreg} zonas borradas.")
             else:
                 msg = f"Exportado (solo el PDF digitalizado):\n{self._out}"
             QtWidgets.QMessageBox.information(self, "Listo", msg); self._info("DXF exportado.")
@@ -2142,31 +1974,6 @@ class Main(QtWidgets.QMainWindow):
         if warns: msg += "\n\nAvisos:\n- " + "\n- ".join(warns[:12])
         QtWidgets.QMessageBox.information(self, "Importación de red", msg); self._info(msg.split(chr(10))[0])
 
-    def export_network_json(self):
-        # Al menos alguna tubería con geometría (dibujada o importada)
-        if not any(p.get("pts") or (p.get("world") and p.get("wstart") and p.get("wend"))
-                   for p in self.pipes):
-            QtWidgets.QMessageBox.information(self, "Nada que exportar",
-                "No hay tuberías. Dibuja alguna o importa un Excel de red."); return
-        # Antes de exportar, refrescar los buzones detectados desde los vértices dibujados
-        self._rebuild_structures()
-        base = os.path.splitext(os.path.basename(self.pdf_path))[0] if self.pdf_path else "red"
-        out, _ = QtWidgets.QFileDialog.getSaveFileName(self, "Exportar red 3D (JSON)",
-                                                       os.path.join(DOWNLOADS, base + ".network.json"), "JSON (*.json)")
-        if not out: return
-        try:
-            path, warns = write_network_json(self, out)
-        except Exception as e:
-            import traceback; QtWidgets.QMessageBox.critical(self, "Error", f"{e}\n{traceback.format_exc()}"); return
-        if not path:
-            QtWidgets.QMessageBox.information(self, "Nada que exportar", warns[0] if warns else "Sin redes."); return
-        msg = f"Red exportada (utility-network/3.0):\n{path}"
-        if not self.georef.active():
-            msg += ("\n\nAviso: el plano NO está georreferenciado; las coordenadas x,y no coinciden "
-                    "con datos UTM externos. Usa Georreferencia → Georreferenciar… para calzarlo.")
-        if warns: msg += "\n\nAvisos (no bloqueantes):\n- " + "\n- ".join(warns[:15])
-        QtWidgets.QMessageBox.information(self, "Exportar red 3D (JSON)", msg); self._info("JSON de red exportado.")
-
     # ─────────────────────────── Georreferenciación ───────────────────────────
     def clear_georef(self):
         if not self.georef.active():
@@ -2268,239 +2075,65 @@ class Main(QtWidgets.QMainWindow):
         """Ventana del manual de usuario. Es HTML sencillo dentro de un
         QTextBrowser (visor de texto enriquecido); nada de red ni servidor."""
         html = """
-        <h2>Manual de usuario</h2>
-        <p><i>Esta aplicación te permite marcar sobre un plano PDF (agua, alcantarillado,
-        drenaje, gas, eléctrico, telefonía) y exportar el resultado a AutoCAD (DXF) y/o
-        a un archivo JSON con la red 3D para Civil 3D. Está pensada para ingeniería civil.</i></p>
+        <h2>Manual rapido</h2>
+        <p><i>App para marcar planos PDF (agua, alcantarillado, drenaje, gas, electricidad,
+        telefonia) y exportar a AutoCAD/Civil 3D via DXF con la red 3D como XDATA.</i></p>
 
-        <h3>0. Disposición de la ventana</h3>
+        <h3>1. Abrir plano</h3>
+        <p><b>Archivo -> Abrir PDF...</b> (o arrastralo). Cambia de pagina y ajusta
+        transparencia en la seccion <b>Vista y paginas</b>. Rueda = zoom, boton central = pan.</p>
+
+        <h3>2. Dibujar utilidad</h3>
+        <p>Acordeon <b>Dibujar utilidad</b> -> elige el tipo -> <b>Dibujar utilidad</b> ->
+        clic para cada vertice, <b>Enter</b> finaliza. Con "Imán" activo se pega a lineas del PDF.</p>
+
+        <h3>3. Propiedades de la tuberia</h3>
+        <p>Selecciona la utilidad en el inventario. En <b>Propiedades</b> pon:
+        <b>Diametro</b> (lista fija en pulgadas del catalogo imperial),
+        <b>Elev. de rasante inicial/final</b> (pies),
+        <b>Material</b> (lista fija que matchea Civil 3D). Sin esto la red 3D queda vacia.</p>
+
+        <h3>4. Leader (flecha)</h3>
+        <p>Acordeon <b>Leader</b> -> orientacion (H/V/D) -> clic en la cabeza -> clic en el final
+        del cuerpo (2 clics H/V, 3 clics D).</p>
+
+        <h3>5. Texto libre</h3>
+        <p>Acordeon <b>Texto libre</b>. Clic donde escribir, <b>Enter</b> aplica,
+        <b>Ctrl+Shift+Enter</b> = salto de linea. Editable con doble clic.</p>
+
+        <h3>6. Borrar zona / MEMBRETE</h3>
+        <p>Acordeon <b>Borrar zona</b>: polilinea, Enter cierra. Al exportar borra el plano
+        dentro de la zona. Ademas, el cajetin/marco del PDF se detecta automatico y va a la
+        capa <b>MEMBRETE</b> (congelable en CAD).</p>
+
+        <h3>7. Buzones y red 3D</h3>
+        <p><b>Herramientas -> Gestionar buzones...</b> Los buzones se crean automatico en los
+        vertices de tuberias de gravedad (alcantarillado, drenaje). El plugin de Civil 3D
+        (<code>IMPORTAR_RED</code>) los crea con estilo cilindrico y catalogo imperial.
+        Tambien puedes <b>Importar Excel de red</b> con hojas BUZONES y TUBERIAS.</p>
+
+        <h3>8. Georreferenciacion (opcional)</h3>
+        <p><b>Herramientas -> Georreferenciar...</b> Solo si necesitas coordenadas UTM aproximadas
+        para anteproyecto. El dato topografico real viene del levantamiento.</p>
+
+        <h3>9. Guardar y exportar</h3>
         <ul>
-          <li><b>Barra superior (menús):</b> Archivo · Edición · Georreferencia · Ayuda. Y una
-              fila con Zoom, Deshacer/Rehacer, Imán al trazo, y el botón <b>Exportar DXF ▾</b>.</li>
-          <li><b>Panel izquierdo (acordeón):</b> una sección por herramienta. Al abrir una
-              sección solo se ven las opciones de ESA herramienta (evita confusión).</li>
-          <li><b>Lienzo central:</b> el plano.</li>
-          <li><b>Panel derecho (Inventario):</b> lo que has marcado (Utilidades, Multileaders,
-              Leaders, Textos, Zonas). Debajo, <b>Propiedades</b> de la utilidad seleccionada.</li>
-          <li><b>Barra de estado (inferior):</b> modo actual · coordenadas del cursor · escala ·
-              estado de imán · estado de georreferenciación.</li>
+          <li><b>Ctrl+S</b> guarda el proyecto <code>.digproj</code> (recuperable con todo lo marcado).</li>
+          <li><b>Exportar DXF</b> genera el DXF completo (PDF digitalizado + tus marcados + red 3D
+              en XDATA). Se abre luego en Civil 3D con el comando <code>IMPORTAR_RED</code>.</li>
         </ul>
-
-        <h3>1. Abrir el plano y navegar</h3>
-        <ol>
-          <li><b>Archivo → Abrir PDF…</b> (o arrastra el PDF a la ventana).</li>
-          <li>En la sección <b>Vista y páginas</b> del acordeón izquierdo:
-              <ul>
-                <li>Cambia de página con <b>◀ ▶</b> o escribe el número y pulsa Enter.</li>
-                <li>Ajusta la <b>Transparencia del PDF</b> con − / + para ver mejor tu marcado
-                    (útil sobre planos oscuros o muy densos).</li>
-              </ul>
-          </li>
-          <li>Con la rueda haces <b>zoom</b>; con el botón central arrastras (pan).</li>
-        </ol>
-
-        <h3>2. Dibujar una utilidad (tubería / línea)</h3>
-        <p>En el acordeón, abre la sección <b>✏ Dibujar utilidad</b>.</p>
-        <ol>
-          <li>Elige el <b>Tipo de utilidad</b> en el desplegable (cada tipo tiene su color).</li>
-          <li>Marca <b>Abandonado</b> si la línea está fuera de servicio (linetype ──/── W ──).</li>
-          <li>Pulsa <b>✏ Dibujar utilidad</b> (el botón se pone verde = modo activo).</li>
-          <li>Haz clic en el plano punto por punto para definir la polilínea.</li>
-          <li>Termina con <b>Enter</b>, clic derecho o doble clic.</li>
-        </ol>
-        <p><b>Extender un extremo:</b> con una utilidad seleccionada, pulsa <b>Editar/mover</b>
-        (Ctrl+T) y haz un clic BREVE (sin arrastrar) sobre un vértice de extremo. Si la casilla
-        <b>Al extender un extremo: continuar la misma utilidad</b> está marcada, la nueva línea
-        prolonga la existente; si no, crea una rama nueva (forma de F).</p>
-
-        <h3>3. Propiedades de la utilidad (para exportar a la red 3D)</h3>
-        <p>Cuando seleccionas una utilidad en el inventario (panel derecho), aparecen sus
-        <b>Propiedades</b>:</p>
-        <ul>
-          <li><b>Nombre:</b> identificador libre (ej. "SD-A-01").</li>
-          <li><b>Diámetro y Unidad:</b> valor numérico y unidad (pulg / pies).</li>
-          <li><b>Material:</b> texto libre (ej. "HDPE", "PVC", "Concreto").</li>
-          <li><b>Tipo de red:</b>
-              <ul>
-                <li><i>Automático</i> — lo decide la capa (agua/gas → presión; el resto → con buzones).</li>
-                <li><i>Con buzones (pipe)</i> — fuerza red por gravedad con buzones.</li>
-                <li><i>A presión (pressure)</i> — fuerza línea a presión (sin buzones).</li>
-              </ul>
-          </li>
-          <li><b>Invert inicio / Invert fin (m):</b> cotas del fondo de la tubería (para
-              redes de gravedad). Se rellenan a mano o se importan del Excel.</li>
-          <li><b>Part (pieza):</b> nombre del tipo de pieza que el plugin de Civil 3D
-              emparejará por nombre (ej. "900 mm Corrugated HDPE Pipe").</li>
-        </ul>
-        <p>El <b>color</b> se hereda del tipo/capa y viaja en el JSON de red como
-        <code>{aci, name}</code> (índice ACI de AutoCAD + nombre en inglés).</p>
-
-        <h3>4. Multileader (flecha + texto)</h3>
-        <p>En el acordeón, abre <b>↳ Multileader</b>.</p>
-        <ol>
-          <li>Elige la <b>Orientación</b>: Horizontal (recto), Vertical (texto vertical pegado
-              a la línea) o Diagonal (con landing/quiebre).</li>
-          <li>Elige el TEXTO: marca <b>Usar texto personalizado</b> y escríbelo, o desactívalo
-              y selecciona uno de la lista (viene de la columna TEXTO/TEXTOS del Excel abierto).</li>
-          <li>Ajusta <b>Estilo</b> (fuente, altura, negrita) — se puede cambiar antes o después.</li>
-          <li>Pulsa <b>↳ Colocar Multileader</b>, clic en la <b>punta</b> (a qué señala) y luego
-              clic dónde va el <b>texto</b>. Queda armado para colocar otro; pulsa <b>Esc</b> para salir.</li>
-          <li>Para editar: <b>doble clic</b> sobre el texto. <b>Enter</b> aplica y
-              <b>Ctrl+Shift+Enter</b> hace salto de línea.</li>
-        </ol>
-        <p>Al exportar, cada Multileader se digitaliza como <b>entidad MULTILEADER nativa</b>
-        de CAD (flecha + directriz + texto).</p>
-
-        <h3>5. Leader (solo flecha, sin texto)</h3>
-        <p>En el acordeón, abre <b>↘ Leader (flecha simple)</b>.</p>
-        <ol>
-          <li>Elige la orientación (H/V/D).</li>
-          <li>Pulsa <b>↘ Colocar Leader</b>. En H/V son dos clics (cabeza y final del cuerpo).
-              En Diagonal son tres (cabeza → bisagra → final).</li>
-        </ol>
-        <p>Al exportar sale como entidad LEADER nativa de CAD.</p>
-
-        <h3>6. Texto libre</h3>
-        <p>En el acordeón, abre <b>T Texto libre</b>.</p>
-        <ol>
-          <li>Ajusta fuente, altura, negrita y <b>rotación</b> (giro libre 0–360°).</li>
-          <li>Pulsa <b>T Texto libre</b>, haz clic donde escribir, teclea y pulsa <b>Enter</b>
-              (Ctrl+Shift+Enter = salto de línea).</li>
-          <li>Los textos son <b>seleccionables</b> (clic), <b>editables</b> (doble clic) y
-              <b>movibles</b> (Editar/mover). Al seleccionar uno, la sección Texto libre se
-              abre sola y puedes cambiarle el estilo.</li>
-        </ol>
-
-        <h3>7. Borrar zona (tapar el plano)</h3>
-        <p>Abre <b>▭ Borrar zona</b>. Haz clics para marcar el polígono; <b>Enter</b> cierra la
-        zona. El interior se rellena de blanco y queda detrás de las tuberías (solo tapa el plano).
-        Al exportar se borra la geometría base dentro de esa zona. En la pestaña <b>Zonas</b> del
-        inventario puedes activarla/desactivarla, editar sus vértices o eliminarla.</p>
-
-        <h3>8. Reconocimiento de texto (OCR / ICR)</h3>
-        <p>Abre <b>🔤 Reconocimiento de texto</b>.</p>
-        <ul>
-          <li><b>Textos impresos (OCR):</b> lee los textos impresos del plano con Tesseract.</li>
-          <li><b>Manuscrita (ICR, offline):</b> lee anotaciones a mano con EasyOCR (offline; la
-              primera vez descarga el modelo ~100 MB).</li>
-        </ul>
-        <p>Verás recuadros amarillos sobre el plano. Haz clic en uno, corrige el texto y confirma
-        con Enter — el texto corregido queda anotado en tu plano.</p>
-
-        <h3>9. Georreferenciación (coordenadas UTM reales)</h3>
-        <p>Abre <b>🌍 Georreferenciación</b> (o menú <b>Georreferencia → Georreferenciar…</b>).</p>
-        <ol>
-          <li>Se abre una ventana con el <b>PDF a la izquierda</b> y un <b>mapa</b> a la derecha
-              (satélite Esri o calles OSM, conmutable).</li>
-          <li><b>Busca la dirección</b> en el mapa (escribe y pulsa Enter — usa Nominatim/OSM).</li>
-          <li>Coloca <b>puntos de control</b>: clic en un punto identificable del PDF (una esquina,
-              cruce de calles, vértice de manzana) y luego el <b>mismo</b> punto en el mapa.
-              Mínimo 2 pares (ajuste "similarity"); 3–4 pares recomendados ("affine").</li>
-          <li>Indica la zona <b>EPSG UTM</b> (o déjala en <i>auto</i>: se calcula desde la longitud
-              del primer punto).</li>
-          <li>Pulsa <b>Calcular ajuste</b>. Verás el <b>RMS</b> (error cuadrático medio) en metros.
-              Si supera ~2 m, agrega puntos mejor repartidos o revisa los pares.</li>
-          <li>Acepta. La barra de estado muestra <b>Georref: EPSG:xxxxx · RMS y m</b>.</li>
-        </ol>
-        <p>Con georreferencia activa, TODA la exportación (DXF y JSON) usa esas coordenadas
-        <b>UTM reales</b>; sin ella se usa la escala detectada del titleblock y las X,Y NO
-        coincidirán con datos externos.</p>
-        <p><b>Aviso importante:</b> calzar sobre imagen satelital da coordenadas
-        <b>aproximadas</b> (metros de error). Sirve para trazado/anteproyecto, NO para grado
-        construcción. El dato topográfico real siempre viene del levantamiento/Excel.</p>
-
-        <h3>10. Cotas y red 3D — buzones e importación de Excel</h3>
-        <p>Abre <b>📐 Cotas y red 3D</b>.</p>
-        <ul>
-          <li><b>Gestionar buzones…</b> — abre una tabla con los buzones detectados
-              automáticamente en los vértices de las tuberías de gravedad (alcantarillado,
-              drenaje). Edita <b>Cod</b>, <b>rim</b> (cota de tapa), <b>sump</b> (cota de fondo)
-              y <b>part</b> (pieza).</li>
-          <li><b>Importar Excel de red…</b> — lee un libro con hojas <b>BUZONES</b> y
-              <b>TUBERIAS</b> (encabezados en la fila 5). Las coordenadas del Excel son
-              <b>reales</b> (metros UTM) y se cargan tal cual; las cotas y diámetros pasan a las
-              utilidades correspondientes.</li>
-        </ul>
-        <p>Columnas esperadas:</p>
-        <ul>
-          <li><b>BUZONES:</b> X, Y, Z (=rim), C. SOLERA (=sump), Cod, Tipo Bz (=part).</li>
-          <li><b>TUBERIAS:</b> Cod. Tub ("A - B"), Xi, Yi, Zi, Xf, Yf, Zf, Altura (=diámetro),
-              Tipo Tub (=part).</li>
-        </ul>
-
-        <h3>11. Editar, mover, extender</h3>
-        <ul>
-          <li><b>Clic sobre el dibujo</b> selecciona el elemento más cercano (no mueve la vista).</li>
-          <li>Seleccionar desde la lista del inventario <b>centra la vista</b> en el elemento
-              y abre la sección del acordeón que corresponde para editarlo.</li>
-          <li><b>Editar/mover</b> (Ctrl+T): arrastra vértices, inserta uno haciendo clic sobre un
-              tramo, borra un vértice con clic derecho, o arrastra lejos de los vértices para
-              mover todo el elemento.</li>
-          <li><b>Escape</b> quita la selección; volver a pulsar sale del modo actual.</li>
-          <li><b>Ctrl+C / Ctrl+V:</b> copia y pega el elemento seleccionado (con un desplazamiento).</li>
-        </ul>
-
-        <h3>12. Guardar y exportar</h3>
-        <ul>
-          <li><b>Archivo → Guardar proyecto</b> (Ctrl+S): guarda TODO en un <code>.digproj</code>
-              (imagen del PDF + tu marcado + cotas + georreferencia). Se comparte y abre sin el PDF
-              original.</li>
-          <li><b>Exportar DXF ▾</b> (arriba a la derecha, en la barra de acción):
-              <ul>
-                <li><i>PDF + anotaciones</i> — el plano digitalizado + tu marcado (todo).</li>
-                <li><i>Solo el PDF digitalizado</i> — sin tu marcado.</li>
-                <li><i>Solo las anotaciones</i> — sin el plano base.</li>
-                <li><i>Exportar red 3D (JSON)</i> — archivo <code>.network.json</code> con el
-                    contrato <b>utility-network/3.0</b> (utilidades, buzones, cotas, diámetro,
-                    material, color, tipo de red) para el plugin de Civil 3D.</li>
-              </ul>
-          </li>
-          <li><b>Archivo → Cerrar proyecto</b> (Ctrl+W): pregunta si hay cambios sin guardar.</li>
-        </ul>
-
-        <h3>13. ¿Qué significa cada dato y de dónde sale?</h3>
-        <table cellpadding="4">
-          <tr><td><b>x, y (utilidades y buzones)</b></td>
-              <td>Coordenadas de mundo del dibujo. Con georreferencia activa: UTM real
-                  (en metros). Sin ella: escala del titleblock (NO son coordenadas UTM
-                  reales; no coinciden con datos externos).</td></tr>
-          <tr><td><b>rim, sump</b></td>
-              <td>Cotas del buzón (tapa y fondo, en metros). SE INGRESAN A MANO o se importan
-                  del Excel. La app NO las inventa; si no las das, van null.</td></tr>
-          <tr><td><b>invert inicio / fin</b></td>
-              <td>Cotas de fondo de la tubería en cada extremo (metros). Igual que rim/sump:
-                  dato externo, null si no se rellena.</td></tr>
-          <tr><td><b>diameter (value, unit)</b></td>
-              <td>Diámetro que escribes en Propiedades, con la unidad tal cual la usas
-                  (pulg / pies / m — importado desde Excel).</td></tr>
-          <tr><td><b>material</b></td>
-              <td>Texto libre en Propiedades (ej. "HDPE"). null si no lo rellenas.</td></tr>
-          <tr><td><b>color</b></td>
-              <td>Se deriva del tipo/capa: <code>{aci, name}</code>. Es el color de AutoCAD
-                  con el que se dibuja la utilidad.</td></tr>
-          <tr><td><b>network_type</b></td>
-              <td>"pipe" (con buzones) o "pressure" (a presión). Por defecto lo decide la capa
-                  (agua/gas → pressure, resto → pipe); puedes forzarlo en Propiedades.</td></tr>
-          <tr><td><b>part</b></td>
-              <td>Nombre del tipo de pieza que usa el plugin de Civil 3D para elegir el estilo
-                  3D. Texto libre; null si no se rellena.</td></tr>
-        </table>
-
-        <h3>14. Historial de versiones</h3>
-        <p><b>Ayuda → Acerca de…</b> muestra la versión actual y un historial desplegable por
-        versión (verde = nueva · celeste = corregida · ámbar = cambiada · rojo = quitada).</p>
         """
         self._show_html("Manual de usuario", html, 880, 780)
 
     def show_shortcuts(self):
         rows = [("Ctrl+Z / Ctrl+Shift+Z", "Deshacer / Rehacer"),
                 ("Enter", "Aplicar: finaliza utilidad/zona, o agrega texto/edición"),
-                ("Ctrl+Shift+Enter", "Salto de línea dentro de un texto o Multileader"),
+                ("Ctrl+Shift+Enter", "Salto de línea dentro de un texto"),
                 ("Escape", "Quitar la selección; si no hay, salir del modo"),
                 ("Ctrl+T", "Editar/mover lo seleccionado"),
                 ("Ctrl+S / Ctrl+Shift+S", "Guardar proyecto / Guardar como…"),
                 ("Ctrl+W", "Cerrar proyecto (pregunta si hay cambios)"),
-                ("Doble clic", "Sobre un Multileader o texto: editarlo"),
+                ("Doble clic", "Sobre un texto: editarlo"),
                 ("Clic derecho", "Finaliza línea/zona; en editar, elimina el vértice"),
                 ("◀ ▶", "Página anterior / siguiente"),
                 ("Rueda", "Zoom · Botón central + arrastrar: desplazar")]

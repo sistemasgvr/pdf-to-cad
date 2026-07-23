@@ -556,13 +556,17 @@ class GeorefDialog(QtWidgets.QDialog):
         thr = 3.0 if unit == "ft" else 2.0
         for r, p in enumerate(self.pairs):
             px = p["px"]; kind = p.get("kind")
-            if kind in ("mon", "dwg") and p.get("world"):
-                ref = f"X={p['world'][0]:.2f}  Y={p['world'][1]:.2f}"
-                origen = "Monumento LA (2229)" if kind == "mon" else "DWG referencia"
-            elif kind == "geo":
-                ll = p["lonlat"]; ref = f"{ll[0]:.6f}, {ll[1]:.6f}"; origen = "Intersección (buscador)"
+            ll = p.get("lonlat"); world = p.get("world")
+            # Defensivo: hay puntos sin lon/lat (overlay/dwg traen solo world real).
+            if world and (kind in ("mon", "dwg", "overlay") or not ll):
+                ref = f"X={world[0]:.2f}  Y={world[1]:.2f}"
+                origen = {"mon": "Monumento LA (2229)", "dwg": "DWG referencia",
+                          "overlay": "Superposición"}.get(kind, "Referencia (real)")
+            elif ll:
+                ref = f"{ll[0]:.6f}, {ll[1]:.6f}"
+                origen = "Intersección (buscador)" if kind == "geo" else "Mapa (clic)"
             else:
-                ll = p["lonlat"]; ref = f"{ll[0]:.6f}, {ll[1]:.6f}"; origen = "Mapa (clic)"
+                ref = "—"; origen = str(kind or "—")
             self.table.setItem(r, 0, QtWidgets.QTableWidgetItem(str(r + 1)))
             self.table.setItem(r, 1, QtWidgets.QTableWidgetItem(f"{px[0]:.1f}, {px[1]:.1f}"))
             self.table.setItem(r, 2, QtWidgets.QTableWidgetItem(ref))

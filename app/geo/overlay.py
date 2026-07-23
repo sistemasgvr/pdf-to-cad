@@ -40,7 +40,8 @@ class OverlayView(QtWidgets.QGraphicsView):
         self._tx, self._ty = 0.0, 0.0
         self._apply()
         self._align = None; self._await = None; self._cur_pixel = None
-        self._drag = None
+        self._drag = None            # arrastre con botón IZQUIERDO = mover el plano
+        self._pan = None             # arrastre con botón CENTRAL (scroll) = panear la vista (estilo AutoCAD)
         # Origen local: la escena se dibuja restando (ox,oy) para que las
         # coordenadas sean pequeñas (~±2000). Si se dibujara en 2229 absoluto
         # (~6.4 millones), Qt pierde precisión y NO renderiza los pixmaps.
@@ -188,11 +189,23 @@ class OverlayView(QtWidgets.QGraphicsView):
                 else:
                     self.alignHint.emit("Punto 2 · clic en OTRO punto reconocible del PLANO (bien separado del 1º).")
             e.accept(); return
+        # Botón CENTRAL (rueda) = panear la vista, como en AutoCAD (no mueve el plano).
+        if e.button() == QtCore.Qt.MiddleButton:
+            self._pan = e.position(); self.setCursor(QtCore.Qt.ClosedHandCursor)
+            e.accept(); return
         if e.button() == QtCore.Qt.LeftButton:
             self._drag = e.position(); e.accept(); return
         super().mousePressEvent(e)
 
     def mouseMoveEvent(self, e):
+        # Paneo con botón central: desplaza las barras de scroll por el delta en píxeles.
+        if self._pan is not None:
+            p = e.position()
+            dx = int(p.x() - self._pan.x()); dy = int(p.y() - self._pan.y())
+            self._pan = p
+            h = self.horizontalScrollBar(); v = self.verticalScrollBar()
+            h.setValue(h.value() - dx); v.setValue(v.value() - dy)
+            e.accept(); return
         if self._drag is not None:
             d0 = self.mapToScene(self._drag.toPoint()); d1 = self.mapToScene(e.position().toPoint())
             self.move(d1.x() - d0.x(), d1.y() - d0.y())
@@ -200,6 +213,8 @@ class OverlayView(QtWidgets.QGraphicsView):
         super().mouseMoveEvent(e)
 
     def mouseReleaseEvent(self, e):
+        if self._pan is not None and e.button() == QtCore.Qt.MiddleButton:
+            self._pan = None; self.unsetCursor(); e.accept(); return
         if self._drag is not None:
             self._drag = None; e.accept(); return
         super().mouseReleaseEvent(e)
