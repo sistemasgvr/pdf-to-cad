@@ -3,3 +3,5 @@ build/
 dist/
 *.exe
 *.pkg
+installer/
+bin/

@@ -125,7 +125,10 @@
       "Bash(python)",
       "Bash(powershell -NoProfile -Command ' *)",
       "Bash(python -c \"import vector_pipeline; print\\('imports ok'\\)\")",
-      "Read(//c/Users/User/AppData/Local/Temp/claude/D--GVR-Proyectos-DEV-EEUU-pdf-to-cad/d7f766f9-4a81-42a7-9b94-0c5f465a5bd0/scratchpad/proj/**)"
+      "Read(//c/Users/User/AppData/Local/Temp/claude/D--GVR-Proyectos-DEV-EEUU-pdf-to-cad/d7f766f9-4a81-42a7-9b94-0c5f465a5bd0/scratchpad/proj/**)",
+      "Bash(grep -iE \"\\\\.dll$|\\\\.xml$\")",
+      "Bash(grep -iE \"\\\\.xaml$\")",
+      "Bash(cmd //c \"installer\\\\\\\\build_plugin.bat\")"
     ]
   }
 }

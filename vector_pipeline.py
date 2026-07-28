@@ -1637,7 +1637,6 @@ def run(page, dxf_doc):
         "n_geometry": n_geom,
         "n_text": n_text,
         "extent_ft": (round(disp_w_ft), round(disp_h_ft)),
-        "callouts": callouts,
         "exclusion_zones_cad": zones_to_cad(zones, T),
         "metadata": metadata,
     }
