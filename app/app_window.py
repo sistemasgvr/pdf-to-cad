@@ -202,6 +202,7 @@ class Main(QtWidgets.QMainWindow):
         self._menu_act(medit, "Deshacer", self.undo, "Ctrl+Z")
         self._menu_act(medit, "Rehacer", self.redo, "Ctrl+Shift+Z")
         mtools = mb.addMenu("&Herramientas")
+        self._menu_act(mtools, "Insertar buzón en línea…", self.insert_manhole)
         self._menu_act(mtools, "Gestionar buzones…", self.manage_structures)
         self._menu_act(mtools, "Importar Excel de red…", self.import_network_excel)
         mtools.addSeparator()
@@ -601,6 +602,8 @@ class Main(QtWidgets.QMainWindow):
             self._update_ui(); self._redraw(); self._info("Puntos cancelados")
         elif self.mode == "erase" and self._erase_pts:
             self._erase_pts = []; self._redraw(); self._info("Zona cancelada")
+        elif self.mode == "insert_bz":
+            self.set_mode("idle"); self._info("Inserción de buzón cancelada")
         elif self.sel_pipe >= 0 or self.sel_leader >= 0 or self.sel_region >= 0 or self.sel_text >= 0:
             self._deselect_all(); self._info("Selección quitada")
         else:
@@ -971,6 +974,8 @@ class Main(QtWidgets.QMainWindow):
         elif self.mode == "leader3":                         # Leader diagonal: 3er clic = final del cuerpo
             self._add_simple_leader(self._pending["arrow"], (x, y), "d",
                                     landing=self._pending.get("landing")); return
+        elif self.mode == "insert_bz":
+            self._do_insert_manhole(x, y)
         elif self.mode == "idle":
             self._pick(x, y)
 
@@ -1877,29 +1882,63 @@ class Main(QtWidgets.QMainWindow):
         dxf_export.merge_into(self, doc, marks=marks)
 
     # ─────────────────────────── Red 3D: buzones / cotas ───────────────────────────
+    def insert_manhole(self):
+        """Activa el modo 'clic sobre una línea existente' para insertar un buzón en
+        ese punto. El buzón se materializa como un vértice extra en la polilínea (y
+        _rebuild_structures lo recoge como buzón nuevo)."""
+        if not self.pipes:
+            self._info("No hay líneas dibujadas para insertar un buzón.")
+            return
+        self.set_mode("insert_bz")
+        self._info("Clic sobre una línea para insertar un buzón (Esc para salir).")
+
+    def _do_insert_manhole(self, x, y):
+        thr = 14.0 / max(1e-6, self.canvas.transform().m11())
+        best = (None, -1, thr)                      # (pipe_index, seg_index, dist)
+        for pi, p in enumerate(self.pipes):
+            pts = p.get("pts")
+            if not pts or len(pts) < 2: continue    # tramos importados de Excel (world) no editables
+            for idx, a, b in self._segments(pts, False):
+                d = G.pt_seg_dist(x, y, a[0], a[1], b[0], b[1])
+                if d < best[2]: best = (pi, idx, d)
+        if best[0] is None:
+            self._info("Ningún trazo cerca del clic. Vuelve a intentar más cerca de la línea.")
+            return
+        self._push()
+        pi, si, _ = best
+        self.pipes[pi]["pts"].insert(si + 1, (x, y))
+        self._rebuild_structures()
+        self._refresh_lists(); self._redraw()
+        self._info("Buzón insertado. Edítalo desde Herramientas → Gestionar buzones.")
+        self.set_mode("idle")
+
     def _rebuild_structures(self):
-        """Detecta buzones por los EXTREMOS de las tuberías de gravedad dibujadas.
-        Extremos compartidos (misma coord, con tolerancia) = un solo buzón. Preserva
-        las ediciones (cod/rim/sump/part) por coincidencia de coordenada. Los buzones
-        importados de Excel (world) se conservan aparte."""
+        """Detecta buzones por los VÉRTICES (extremos + intermedios) de las tuberías
+        dibujadas. Los de pipes de gravedad se marcan net='gravity'; los de presión
+        (agua/gas) net='pressure' — el plugin C# los tratará como appurtenance. Preserva
+        ediciones (cod/rim/sump/part/covered/net) por coincidencia de coordenada. Los
+        buzones importados de Excel (world) se conservan aparte."""
         tol = 14.0
         def near(a, b): return math.hypot(a[0] - b[0], a[1] - b[1]) <= tol
         old = [s for s in self.structures if not s.get("world")]
         world = [s for s in self.structures if s.get("world")]
         detected = []
         for p in self.pipes:
-            if p.get("world") or p.get("layer") not in GRAVITY_LAYERS: continue
+            if p.get("world"): continue
             pts = p.get("pts")
             if not pts or len(pts) < 2: continue
+            net = "gravity" if p.get("layer") in GRAVITY_LAYERS else "pressure"
             for pt in pts:                              # todos los vértices (extremos + intermedios)
                 if not any(near(pt, (s["x"], s["y"])) for s in detected):
                     detected.append({"cod": "", "x": pt[0], "y": pt[1], "rim": None,
-                                     "sump": None, "part": "", "net": "", "world": False})
+                                     "sump": None, "part": "", "net": net,
+                                     "covered": True, "world": False})
         for s in detected:                                 # reasigna ediciones previas por coordenada
             for o in old:
                 if near((s["x"], s["y"]), (o.get("x", -1e9), o.get("y", -1e9))):
                     s.update(cod=o.get("cod", ""), rim=o.get("rim"), sump=o.get("sump"),
-                             part=o.get("part", ""), net=o.get("net", "")); break
+                             part=o.get("part", ""), net=o.get("net") or s["net"],
+                             covered=bool(o.get("covered", True))); break
         n = 1
         for s in detected:
             if not s["cod"]: s["cod"] = f"BZ-{n}"; n += 1
@@ -1907,20 +1946,28 @@ class Main(QtWidgets.QMainWindow):
 
     def manage_structures(self):
         self._rebuild_structures()
-        dlg = QtWidgets.QDialog(self); dlg.setWindowTitle("Buzones / nudos"); dlg.resize(580, 440)
+        dlg = QtWidgets.QDialog(self); dlg.setWindowTitle("Buzones / nudos"); dlg.resize(720, 460)
         lay = QtWidgets.QVBoxLayout(dlg)
-        lay.addWidget(QtWidgets.QLabel("Buzones detectados por los extremos de las tuberías de gravedad "
-                                       "(extremos compartidos = un mismo buzón). Edita Cod, rim (tapa), sump (fondo) y part."))
-        tbl = QtWidgets.QTableWidget(len(self.structures), 5)
-        tbl.setHorizontalHeaderLabels(["Cod", f"rim ({self.work_unit})", f"sump ({self.work_unit})", "part", "origen"])
+        lay.addWidget(QtWidgets.QLabel(
+            "Buzones detectados por los vértices de las tuberías dibujadas. Edita Cod, rim (tapa), "
+            "sump (fondo), part y si el buzón lleva tapa o no."))
+        tbl = QtWidgets.QTableWidget(len(self.structures), 7)
+        tbl.setHorizontalHeaderLabels(
+            ["Cod", f"rim ({self.work_unit})", f"sump ({self.work_unit})", "part", "Tapa", "Red", "origen"])
         tbl.horizontalHeader().setStretchLastSection(True)
         def setc(r, c, text, editable=True):
             it = QtWidgets.QTableWidgetItem("" if text is None else str(text))
             if not editable: it.setFlags(it.flags() & ~QtCore.Qt.ItemIsEditable)
             tbl.setItem(r, c, it)
+        combos_tapa = []
         for r, s in enumerate(self.structures):
             setc(r, 0, s.get("cod", "")); setc(r, 1, s.get("rim")); setc(r, 2, s.get("sump"))
-            setc(r, 3, s.get("part", "")); setc(r, 4, "Excel" if s.get("world") else "dibujo", editable=False)
+            setc(r, 3, s.get("part", ""))
+            cb = QtWidgets.QComboBox(); cb.addItems(["Sí", "No"])
+            cb.setCurrentIndex(0 if s.get("covered", True) else 1)
+            tbl.setCellWidget(r, 4, cb); combos_tapa.append(cb)
+            setc(r, 5, "presión" if s.get("net") == "pressure" else "gravedad", editable=False)
+            setc(r, 6, "Excel" if s.get("world") else "dibujo", editable=False)
         lay.addWidget(tbl)
         bb = QtWidgets.QDialogButtonBox(QtWidgets.QDialogButtonBox.Ok | QtWidgets.QDialogButtonBox.Cancel)
         bb.accepted.connect(dlg.accept); bb.rejected.connect(dlg.reject); lay.addWidget(bb)
@@ -1934,6 +1981,7 @@ class Main(QtWidgets.QMainWindow):
             s["rim"] = fnum(tbl.item(r, 1).text() if tbl.item(r, 1) else None)
             s["sump"] = fnum(tbl.item(r, 2).text() if tbl.item(r, 2) else None)
             if tbl.item(r, 3): s["part"] = tbl.item(r, 3).text().strip()
+            s["covered"] = (combos_tapa[r].currentIndex() == 0)
         self._info(f"{len(self.structures)} buzones guardados.")
 
     def import_network_excel(self):

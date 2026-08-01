@@ -103,6 +103,8 @@ namespace Civil3DBasico
                             Rim = MulNull(XdNullDouble(xd, "RIM"), k),
                             Sump = MulNull(XdNullDouble(xd, "SUMP"), k),
                             Part = XdStr(xd, "PART", ""),
+                            Covered = XdStr(xd, "COVERED", "1") != "0",
+                            NetKind = XdStr(xd, "NET_KIND", "gravity"),
                         });
                     }
                 }
@@ -162,6 +164,19 @@ namespace Civil3DBasico
             if (pipes.Count > 0 && pipes[0].CoverMin > 0)
                 defaultDepth = pipes[0].CoverMin;
 
+            // Separar structures según su red de origen. Las de NET_KIND=pressure NO
+            // van al flujo de Pipe Network (Civil 3D no admite Structures en pressure
+            // networks); se materializan aparte como DBPoint en su propia capa.
+            var structsGravedad = new List<ImportStruct>();
+            var structsPresion = new List<ImportStruct>();
+            foreach (var s in structs)
+            {
+                if (s.NetKind.Equals("pressure", StringComparison.OrdinalIgnoreCase))
+                    structsPresion.Add(s);
+                else
+                    structsGravedad.Add(s);
+            }
+
             // ── 4. Redes de GRAVEDAD ────────────────────────────────────────
             var createdNetIds = new List<ObjectId>();
             foreach (var kv in gravedad)
@@ -172,7 +187,7 @@ namespace Civil3DBasico
                     try
                     {
                         ObjectId netId = CrearRedGravedadCompleta(ed, db, civilDoc, tr,
-                            netName, surfId, defaultDepth, kv.Value, structs);
+                            netName, surfId, defaultDepth, kv.Value, structsGravedad);
                         if (netId != ObjectId.Null) createdNetIds.Add(netId);
                         tr.Commit();
                     }
@@ -183,6 +198,10 @@ namespace Civil3DBasico
                     }
                 }
             }
+
+            // Marcadores para los buzones de red de PRESIÓN (accesorios a colocar manualmente).
+            if (structsPresion.Count > 0)
+                ColocarMarcadoresPresion(ed, db, structsPresion);
 
             // ── 5. Redes de PRESIÓN ─────────────────────────────────────────
             var createdPresIds = new List<ObjectId>();
@@ -250,6 +269,13 @@ namespace Civil3DBasico
                               out ObjectId defStructFam, out ObjectId defStructSize, out string defStructNom))
             { ed.WriteMessage($"\n'{nombre}': sin familias de ESTRUCTURA."); return ObjectId.Null; }
             ed.WriteMessage($"\n  · Buzón por defecto: {defStructNom}");
+
+            // Familia para buzones "sin tapa" (Covered=0). Si el catálogo no la tiene,
+            // se cae a la con-tapa con warning.
+            bool haySinTapa = BuscarFamiliaSinTapa(tr, partsList,
+                out ObjectId defStructFamNoLid, out ObjectId defStructSizeNoLid, out string defStructNomNoLid);
+            if (haySinTapa)
+                ed.WriteMessage($"\n  · Buzón sin tapa: {defStructNomNoLid}");
 
             // Pre-scan: recolectar materiales/diámetros únicos y auto-poblar el catálogo
             var needed = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
@@ -322,9 +348,15 @@ namespace Civil3DBasico
                     string key = $"{Math.Round(v.X, 2)}_{Math.Round(v.Y, 2)}";
                     if (!createdStructs.ContainsKey(key))
                     {
-                        BuscarEstructura(tr, partsList, structType, "",
-                                         out ObjectId sFam, out ObjectId sSize, out _);
-                        if (sFam == ObjectId.Null) { sFam = defStructFam; sSize = defStructSize; }
+                        ObjectId sFam, sSize;
+                        if (match != null && !match.Covered && haySinTapa)
+                        { sFam = defStructFamNoLid; sSize = defStructSizeNoLid; }
+                        else
+                        {
+                            BuscarEstructura(tr, partsList, structType, "",
+                                             out sFam, out sSize, out _);
+                            if (sFam == ObjectId.Null) { sFam = defStructFam; sSize = defStructSize; }
+                        }
 
                         ObjectId sid = ObjectId.Null;
                         net.AddStructure(sFam, sSize, new Point3d(v.X, v.Y, rim), 0.0, ref sid, true);
@@ -815,59 +847,125 @@ namespace Civil3DBasico
             catch (Exception e) { return e.Message; }
         }
 
-        private void AsegurarBuzonReal(Editor ed, Transaction tr, PartsStyles.PartsList partsList)
+        // Coloca cada buzón asociado a red de PRESIÓN como DBPoint en la capa
+        // PDFCAD_BZ_PRES (color amarillo), con Description = STRUCT_ID. Civil 3D no
+        // admite Structures en Pressure Networks; el usuario debe convertirlos a
+        // Pressure Appurtenance manualmente. Este marcador les dice dónde estaban.
+        private void ColocarMarcadoresPresion(Editor ed, Database db, List<ImportStruct> lst)
         {
-            // Palabras (EN/ES) que indican estructura NO-buzón (nulo, cabezal, boca de descarga...)
-            string[] noBuzon = {
+            const string layerName = "PDFCAD_BZ_PRES";
+            using (Transaction tr = db.TransactionManager.StartTransaction())
+            {
+                try
+                {
+                    var lt = (LayerTable)tr.GetObject(db.LayerTableId, OpenMode.ForRead);
+                    ObjectId layerId;
+                    if (!lt.Has(layerName))
+                    {
+                        lt.UpgradeOpen();
+                        var lr = new LayerTableRecord { Name = layerName, Color = Autodesk.AutoCAD.Colors.Color.FromColorIndex(Autodesk.AutoCAD.Colors.ColorMethod.ByAci, 2) };
+                        layerId = lt.Add(lr);
+                        tr.AddNewlyCreatedDBObject(lr, true);
+                    }
+                    else layerId = lt[layerName];
+
+                    var ms = (BlockTableRecord)tr.GetObject(SymbolUtilityServices.GetBlockModelSpaceId(db), OpenMode.ForWrite);
+                    int n = 0;
+                    foreach (var s in lst)
+                    {
+                        double z = s.Sump ?? s.Rim ?? 0.0;
+                        var pt = new DBPoint(new Point3d(s.Location.X, s.Location.Y, z));
+                        pt.LayerId = layerId;
+                        ms.AppendEntity(pt); tr.AddNewlyCreatedDBObject(pt, true);
+                        n++;
+                    }
+                    ed.WriteMessage($"\n  · {n} buzón(es) de red de presión colocados en capa '{layerName}' (reemplazar por Pressure Appurtenance manualmente).");
+                    tr.Commit();
+                }
+                catch (Exception ex) { ed.WriteMessage($"\n(No se pudieron marcar buzones de presión: {ex.Message})"); tr.Abort(); }
+            }
+        }
+
+        // Tokens (EN/ES) que indican familia NO-buzón. Cuando 'incluirSinTapa' es true,
+        // se REMUEVEN los tokens de sin-tapa (headwall, cabecero, cabezal, boca, aleta)
+        // para permitir usarlos como estructura "sin tapa".
+        private static string[] NoBuzonTokens(bool incluirSinTapa)
+        {
+            if (incluirSinTapa) return new[] { "Null", "nula" };
+            return new[] {
                 "Null", "Headwall", "End Section", "Flared", "Culvert", "Winged", "Wing", "Apron",
                 "nula", "cabecero", "cabezal", "boca", "aleta", "alcantarilla",
             };
+        }
+
+        private void AsegurarBuzonReal(Editor ed, Transaction tr, PartsStyles.PartsList partsList)
+        {
+            // Cada elemento es una lista de tokens que TODOS deben estar en la descripción.
+            // Así "cilíndrica concéntrica" matchea "Estructura cilíndrica concéntrica con marco rectangular".
+            string[][] prefConTapa = {
+                new[]{"concentric","cylindrical","rectangular"},
+                new[]{"concéntrica","cilíndrica","rectangular"},
+                new[]{"concentrica","cilindrica","rectangular"},   // sin acentos
+                new[]{"concentric","cylindrical"},
+                new[]{"concéntrica","cilíndrica"},
+                new[]{"concentrica","cilindrica"},
+                new[]{"cylindrical","junction"},
+                new[]{"cilíndrica","conexión"},
+                new[]{"cilindrica","conexion"},
+                new[]{"junction","structure"},
+                new[]{"conexión"},
+                new[]{"cilíndrica"},
+                new[]{"cilindrica"},
+                new[]{"cylindrical"},
+                new[]{"rectangular","junction"},
+                new[]{"rectangular","conexión"},
+            };
+            // Familias típicas para buzón "sin tapa": junction structure without frame,
+            // headwalls, cabeceros/cabezales. Fallback: cualquier headwall/end section.
+            string[][] prefSinTapa = {
+                new[]{"junction","structure","without","frame"},
+                new[]{"structure","without","frame"},
+                new[]{"cylindrical","without","frame"},
+                new[]{"sin","marco"},
+                new[]{"cilíndrica","sin","tapa"},
+                new[]{"cilindrica","sin","tapa"},
+                new[]{"headwall"},
+                new[]{"cabecero"},
+                new[]{"cabezal"},
+                new[]{"end","section"},
+                new[]{"flared","end"},
+            };
+            AgregarFamiliaSiFalta(ed, tr, partsList, prefConTapa, incluirSinTapa: false, etiqueta: "con tapa");
+            AgregarFamiliaSiFalta(ed, tr, partsList, prefSinTapa, incluirSinTapa: true, etiqueta: "sin tapa");
+        }
+
+        // Agrega una familia al PartsList si NINGUNA familia existente coincide con las preferencias.
+        private void AgregarFamiliaSiFalta(Editor ed, Transaction tr, PartsStyles.PartsList partsList,
+                                            string[][] pref, bool incluirSinTapa, string etiqueta)
+        {
+            string[] noBuzon = NoBuzonTokens(incluirSinTapa);
+            // ¿Ya hay una familia que cumpla alguna preferencia?
             ObjectIdCollection fams = partsList.GetPartFamilyIdsByDomain(CivilDB.DomainType.Structure);
             foreach (ObjectId fid in fams)
             {
                 var fam = tr.GetObject(fid, OpenMode.ForRead) as PartsStyles.PartFamily;
                 if (fam == null || fam.PartSizeCount == 0) continue;
                 string d = fam.Description ?? "";
-                bool malo = false;
-                foreach (var k in noBuzon) if (d.IndexOf(k, StringComparison.OrdinalIgnoreCase) >= 0) { malo = true; break; }
-                if (!malo) return;   // ya hay un buzón real, no hago nada
+                if (CoincideAlgunaPref(d, pref, noBuzon)) return;
             }
-
-            // No hay: intento agregar del catálogo. Preferencias en orden (EN/ES).
             try
             {
                 PartsStyles.DataPartFamily[] disp =
                     PartsStyles.PartsList.GetAvailablePartFamilies(CivilDB.DomainType.Structure);
                 if (disp == null || disp.Length == 0)
-                { ed.WriteMessage("\n⚠ Sin catálogo de estructuras; los buzones saldrán como 'nula'."); return; }
+                { ed.WriteMessage($"\n⚠ Sin catálogo de estructuras ({etiqueta})."); return; }
 
-                // Cada elemento es una lista de tokens que TODOS deben estar en la descripción.
-                // Así "cilíndrica concéntrica" matchea "Estructura cilíndrica concéntrica con marco rectangular".
-                string[][] pref = {
-                    new[]{"concentric","cylindrical","rectangular"},
-                    new[]{"concéntrica","cilíndrica","rectangular"},
-                    new[]{"concentrica","cilindrica","rectangular"},   // sin acentos
-                    new[]{"concentric","cylindrical"},
-                    new[]{"concéntrica","cilíndrica"},
-                    new[]{"concentrica","cilindrica"},
-                    new[]{"cylindrical","junction"},
-                    new[]{"cilíndrica","conexión"},
-                    new[]{"cilindrica","conexion"},
-                    new[]{"junction","structure"},
-                    new[]{"conexión"},
-                    new[]{"cilíndrica"},
-                    new[]{"cilindrica"},
-                    new[]{"cylindrical"},
-                    new[]{"rectangular","junction"},
-                    new[]{"rectangular","conexión"},
-                };
                 PartsStyles.DataPartFamily elegido = null;
                 foreach (var tokens in pref)
                 {
                     foreach (var dpf in disp)
                     {
                         string desc = (dpf.Description ?? "");
-                        // saltar métricos (EN/ES) y no-buzones
                         if (desc.IndexOf("Metric", StringComparison.OrdinalIgnoreCase) >= 0) continue;
                         if (desc.IndexOf("métric", StringComparison.OrdinalIgnoreCase) >= 0) continue;
                         if (desc.IndexOf("metric", StringComparison.OrdinalIgnoreCase) >= 0) continue;
@@ -884,21 +982,13 @@ namespace Civil3DBasico
                 }
                 if (elegido == null)
                 {
-                    ed.WriteMessage("\n⚠ No hallé un buzón imperial en el catálogo. Familias disponibles:");
-                    int shown = 0;
-                    foreach (var dpf in disp)
-                    {
-                        if (dpf?.Description == null) continue;
-                        ed.WriteMessage($"\n    · {dpf.Description}");
-                        if (++shown >= 12) { ed.WriteMessage("\n    ... (recortado)"); break; }
-                    }
+                    ed.WriteMessage($"\n⚠ No hallé buzón '{etiqueta}' en el catálogo (buzones {etiqueta} usarán el default).");
                     return;
                 }
 
                 partsList.UpgradeOpen();
                 try { partsList.AddPartFamilyByGuid(CivilDB.DomainType.Structure, elegido.GUID); } catch { }
 
-                // Agregar TODOS los tamaños disponibles de esa familia
                 foreach (ObjectId fid2 in partsList.GetPartFamilyIdsByDomain(CivilDB.DomainType.Structure))
                 {
                     var fam = tr.GetObject(fid2, OpenMode.ForWrite) as PartsStyles.PartFamily;
@@ -916,11 +1006,60 @@ namespace Civil3DBasico
                     }
                     catch (Exception exSize)
                     { ed.WriteMessage($"\n  (No se pudieron agregar tamaños: {exSize.Message})"); }
-                    ed.WriteMessage($"\n  + Buzón '{elegido.Description}' agregado ({fam.PartSizeCount} tamaño(s)).");
+                    ed.WriteMessage($"\n  + Buzón '{etiqueta}' → '{elegido.Description}' agregado ({fam.PartSizeCount} tamaño(s)).");
                     break;
                 }
             }
-            catch (Exception ex) { ed.WriteMessage($"\n(No se pudo asegurar buzón real: {ex.Message})"); }
+            catch (Exception ex) { ed.WriteMessage($"\n(No se pudo asegurar buzón {etiqueta}: {ex.Message})"); }
+        }
+
+        private static bool CoincideAlgunaPref(string desc, string[][] pref, string[] noBuzon)
+        {
+            if (string.IsNullOrEmpty(desc)) return false;
+            foreach (var k in noBuzon)
+                if (desc.IndexOf(k, StringComparison.OrdinalIgnoreCase) >= 0) return false;
+            foreach (var tokens in pref)
+            {
+                bool todos = true;
+                foreach (var tk in tokens)
+                    if (desc.IndexOf(tk, StringComparison.OrdinalIgnoreCase) < 0) { todos = false; break; }
+                if (todos) return true;
+            }
+            return false;
+        }
+
+        // Busca en el PartsList la primera familia de estructura que corresponda a
+        // "sin tapa" (headwall / junction sin marco / cabecero…). Devuelve ObjectId.Null
+        // si no hay ninguna. Se usa para buzones con Covered=false.
+        private bool BuscarFamiliaSinTapa(Transaction tr, PartsStyles.PartsList partsList,
+                                          out ObjectId famId, out ObjectId sizeId, out string nombre)
+        {
+            famId = ObjectId.Null; sizeId = ObjectId.Null; nombre = "";
+            string[][] prefSinTapa = {
+                new[]{"junction","structure","without","frame"},
+                new[]{"structure","without","frame"},
+                new[]{"cylindrical","without","frame"},
+                new[]{"sin","marco"},
+                new[]{"sin","tapa"},
+                new[]{"headwall"},
+                new[]{"cabecero"},
+                new[]{"cabezal"},
+                new[]{"end","section"},
+                new[]{"flared","end"},
+            };
+            string[] noBuzon = { "Null", "nula" };
+            foreach (ObjectId fid in partsList.GetPartFamilyIdsByDomain(CivilDB.DomainType.Structure))
+            {
+                var fam = tr.GetObject(fid, OpenMode.ForRead) as PartsStyles.PartFamily;
+                if (fam == null || fam.PartSizeCount == 0) continue;
+                string d = fam.Description ?? "";
+                if (!CoincideAlgunaPref(d, prefSinTapa, noBuzon)) continue;
+                famId = fid;
+                nombre = d;
+                sizeId = fam[0];
+                return true;
+            }
+            return false;
         }
 
         // =================================================================
@@ -1209,6 +1348,8 @@ namespace Civil3DBasico
             public double? Rim;
             public double? Sump;
             public string Part;
+            public bool Covered = true;
+            public string NetKind = "gravity";      // "gravity" | "pressure"
         }
     }
 }
