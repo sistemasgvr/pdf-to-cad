@@ -167,6 +167,11 @@ def _export_structures(win, doc, msp):
     structs = getattr(win, 'structures', None)
     if not structs: return
     VP.ensure_layer(doc, "PDFCAD_BZ")
+    show_labels = bool(getattr(win, "show_bz_labels", False))
+    if show_labels:
+        VP.ensure_layer(doc, "ETIQUETAS_BUZONES")
+        if "CAD_TEXT" not in doc.styles:
+            doc.styles.add("CAD_TEXT", font=C.TEXT_FONT)
     for s in structs:
         x, y = s.get("x"), s.get("y")
         if x is None or y is None: continue
@@ -182,3 +187,8 @@ def _export_structures(win, doc, msp):
             (1000, f"COVERED={1 if s.get('covered', True) else 0}"),
             (1000, f"NET_KIND={s.get('net') or 'gravity'}"),
         ])
+        if show_labels and s.get("cod"):
+            h = LEADER_TEXT_FT                       # altura de texto en unidades del dibujo (pies)
+            t = msp.add_text(s["cod"], height=h,
+                             dxfattribs={"layer": "ETIQUETAS_BUZONES", "style": "CAD_TEXT"})
+            t.set_placement((cx + h * 0.8, cy + h * 0.4), align=TextEntityAlignment.LEFT)

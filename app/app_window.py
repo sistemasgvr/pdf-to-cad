@@ -184,6 +184,12 @@ class Main(QtWidgets.QMainWindow):
         self._dirty = False; self._style_guard = False; self._prop_guard = False; self._clip = None
         self.georef = georef_mod.Georef()          # georreferenciación (píxel→UTM); inactiva por defecto
         self.work_unit = DEFAULT_WORK_UNIT          # unidad de trabajo del proyecto: 'ft' o 'in' (obligatoria)
+        self.show_bz_labels = False                # ¿dibujar el código del buzón al lado del círculo?
+        # Detectar versiones de Civil 3D instaladas para escanear su catálogo imperial.
+        # civil_year = None si no hay ninguna (se usa igual sin dropdown de familias).
+        import civil_catalog as _cc
+        _vs = _cc.installed_versions()
+        self.civil_year = _vs[-1] if _vs else None
         self._build_ui(); self._apply_style(); self._shortcuts(); self._update_ui()
 
     # ─────────────────────────── UI ───────────────────────────
@@ -224,6 +230,20 @@ class Main(QtWidgets.QMainWindow):
         spacer = QtWidgets.QWidget(); spacer.setSizePolicy(QtWidgets.QSizePolicy.Expanding, QtWidgets.QSizePolicy.Preferred); tb.addWidget(spacer)
         # Sin selector de unidad: TODO va en pies por campo (cotas/coordenadas),
         # salvo los diámetros que van siempre en pulgadas (lista fija del catálogo).
+        tb.addSeparator()
+        tb.addWidget(QtWidgets.QLabel("Civil 3D:"))
+        self.cmb_civil = QtWidgets.QComboBox()
+        import civil_catalog as _cc
+        _all_years = list(_cc.SUPPORTED_YEARS); _inst = set(_cc.installed_versions())
+        for y in _all_years:
+            self.cmb_civil.addItem(f"{y}{'' if y in _inst else '  (no instalado)'}", y)
+        if self.civil_year is not None:
+            i = _all_years.index(self.civil_year); self.cmb_civil.setCurrentIndex(i)
+        self.cmb_civil.currentIndexChanged.connect(
+            lambda i: setattr(self, "civil_year", self.cmb_civil.itemData(i)))
+        self.cmb_civil.setToolTip("Versión de Civil 3D. El catálogo imperial se busca en\n"
+                                  "C:\\ProgramData\\Autodesk\\C3D <año>\\<idioma>\\Pipes Catalog\\US Imperial Structures")
+        tb.addWidget(self.cmb_civil)
         tb.addSeparator()
         self.btn_export = QtWidgets.QPushButton("⭳  Exportar DXF")
         self.btn_export.setStyleSheet("QPushButton{background:#4d8eff;color:#00285d;font-weight:bold;padding:5px 14px;border-radius:4px;} QPushButton:hover{background:#66a3ff;}")
@@ -1671,6 +1691,10 @@ class Main(QtWidgets.QMainWindow):
                 f = t.font(); f.setPixelSize(int(geo["H"])); t.setFont(f)
                 if geo["rot"]: t.setRotation(geo["rot"])
                 t.setPos(geo["label_pos"][0], geo["label_pos"][1]); t.setZValue(Z_MARK); self._overlay.append(t)
+        # buzones — círculo relleno con el color del pipe al que pertenecen.
+        # Se dibuja por encima de las utilidades (mismo z que MARK). Si show_bz_labels
+        # está activo, el código se dibuja al lado con una fuente pequeña blanca.
+        self._draw_structures()
         # textos
         for i, tm in enumerate(self.text_marks):
             t = sc.addText(tm["text"]); t.setDefaultTextColor(QtGui.QColor(120, 220, 120)); t.document().setDocumentMargin(0)
@@ -1684,6 +1708,42 @@ class Main(QtWidgets.QMainWindow):
             if i == self.sel_text and self._current_tab() == TAB_TEXT:
                 br = t.boundingRect(); pen = QtGui.QPen(QtGui.QColor(255, 180, 40)); pen.setCosmetic(True)
                 rit = sc.addRect(tm["pos"][0], tm["pos"][1], br.width(), br.height(), pen); rit.setZValue(Z_MARK); self._overlay.append(rit)
+
+    def _draw_structures(self):
+        """Dibuja cada buzón como un círculo relleno con el color del pipe al que
+        pertenece (mismo vértice). Si show_bz_labels está activo, escribe el código
+        del buzón al lado del círculo."""
+        if not self.structures: return
+        sc = self.canvas.scene(); tol2 = 14.0 ** 2
+        # Precomputa color por buzón: mira los pipes NO importados y toma el layer
+        # del primero cuyo vértice coincida (dist² ≤ tol²).
+        def _color_for(s):
+            sx, sy = s.get("x"), s.get("y")
+            if sx is None or sy is None: return QtGui.QColor(200, 200, 200)
+            if s.get("world") or s.get("net") == "pressure":
+                # Para presión (sin vértice de pipe dibujado) o buzones importados,
+                # gris claro (no hay línea de referencia visible).
+                pass
+            for p in self.pipes:
+                if p.get("world") or not p.get("pts"): continue
+                for (vx, vy) in p["pts"]:
+                    if (vx - sx) ** 2 + (vy - sy) ** 2 <= tol2:
+                        return layer_qcolor(p["layer"])
+            return QtGui.QColor(180, 180, 180)     # buzón sin pipe cercano (raro)
+        pen = QtGui.QPen(QtGui.QColor(255, 255, 255), 1.2); pen.setCosmetic(True)
+        R = 6.0                                     # radio en px (independiente del zoom por _cosmetic pen)
+        for s in self.structures:
+            sx, sy = s.get("x"), s.get("y")
+            if sx is None or sy is None: continue
+            if s.get("world"): continue             # los importados (Excel) están en coord mundo, no lienzo
+            col = _color_for(s); brush = QtGui.QBrush(col)
+            it = sc.addEllipse(sx - R, sy - R, 2 * R, 2 * R, pen, brush)
+            it.setZValue(Z_MARK + 1); self._overlay.append(it)
+            if self.show_bz_labels and s.get("cod"):
+                t = sc.addText(s["cod"]); t.setDefaultTextColor(QtGui.QColor(255, 255, 255))
+                t.document().setDocumentMargin(0)
+                f = t.font(); f.setPixelSize(11); f.setBold(True); t.setFont(f)
+                t.setPos(sx + R + 2, sy - R - 2); t.setZValue(Z_MARK + 1); self._overlay.append(t)
 
     def _handles(self, pts):
         sc = self.canvas.scene(); pen = QtGui.QPen(QtGui.QColor(255, 255, 255)); pen.setCosmetic(True)
@@ -1945,33 +2005,88 @@ class Main(QtWidgets.QMainWindow):
         self.structures = world + detected; self._dirty = True
 
     def manage_structures(self):
+        import civil_catalog as _cc
         self._rebuild_structures()
-        dlg = QtWidgets.QDialog(self); dlg.setWindowTitle("Buzones / nudos"); dlg.resize(720, 460)
+        dlg = QtWidgets.QDialog(self); dlg.setWindowTitle("Buzones / nudos"); dlg.resize(860, 480)
         lay = QtWidgets.QVBoxLayout(dlg)
         lay.addWidget(QtWidgets.QLabel(
             "Buzones detectados por los vértices de las tuberías dibujadas. Edita Cod, rim (tapa), "
-            "sump (fondo), part y si el buzón lleva tapa o no."))
+            "sump (fondo), tapa Sí/No y (solo gravedad) la familia del catálogo."))
+
+        # Encabezado: checkbox global de etiquetas.
+        head = QtWidgets.QHBoxLayout()
+        chk_lbl = QtWidgets.QCheckBox("Mostrar etiquetas (código de buzón) en el lienzo y en el DXF exportado")
+        chk_lbl.setChecked(bool(self.show_bz_labels))
+        def _toggle_labels(v):
+            self.show_bz_labels = bool(v); self._redraw()
+        chk_lbl.toggled.connect(_toggle_labels)
+        head.addWidget(chk_lbl); head.addStretch(1)
+        lay.addLayout(head)
+
+        # Catálogo de familias imperiales según la versión Civil 3D seleccionada.
+        fams = _cc.imperial_structures(self.civil_year) if self.civil_year else []
+        # Etiqueta de estado del catálogo, útil si la versión no está instalada.
+        if fams:
+            lay.addWidget(QtWidgets.QLabel(
+                f"Catálogo imperial Civil 3D {self.civil_year}: {len(fams)} familia(s) disponibles."))
+        elif self.civil_year:
+            lay.addWidget(QtWidgets.QLabel(
+                f"⚠ Catálogo Civil 3D {self.civil_year} no encontrado. Instala Civil 3D o cambia la versión en la barra superior."))
+        else:
+            lay.addWidget(QtWidgets.QLabel(
+                "⚠ No hay ninguna versión de Civil 3D instalada. La columna 'Familia' quedará como texto libre."))
+
         tbl = QtWidgets.QTableWidget(len(self.structures), 7)
         tbl.setHorizontalHeaderLabels(
-            ["Cod", f"rim ({self.work_unit})", f"sump ({self.work_unit})", "part", "Tapa", "Red", "origen"])
+            ["Cod", f"rim ({self.work_unit})", f"sump ({self.work_unit})", "Familia", "Tapa", "Red", "origen"])
         tbl.horizontalHeader().setStretchLastSection(True)
+        tbl.setColumnWidth(3, 280)
         def setc(r, c, text, editable=True):
             it = QtWidgets.QTableWidgetItem("" if text is None else str(text))
             if not editable: it.setFlags(it.flags() & ~QtCore.Qt.ItemIsEditable)
             tbl.setItem(r, c, it)
-        combos_tapa = []
+
+        combos_tapa = []; combos_fam = []
         for r, s in enumerate(self.structures):
             setc(r, 0, s.get("cod", "")); setc(r, 1, s.get("rim")); setc(r, 2, s.get("sump"))
-            setc(r, 3, s.get("part", ""))
+            # Familia: si gravedad + hay catálogo, dropdown; si no, texto libre.
+            is_gravity = (s.get("net") == "gravity")
+            if is_gravity and fams:
+                cbf = QtWidgets.QComboBox()
+                cbf.addItem("(por defecto)", "")
+                for fid, pretty, sub in fams:
+                    cbf.addItem(f"{pretty}  [{sub}]", fid)
+                # Seleccionar la familia guardada, si existe.
+                cur = s.get("part", "") or ""
+                idx = 0
+                for i in range(cbf.count()):
+                    if cbf.itemData(i) == cur: idx = i; break
+                cbf.setCurrentIndex(idx)
+                tbl.setCellWidget(r, 3, cbf); combos_fam.append(cbf)
+            else:
+                setc(r, 3, s.get("part", "")); combos_fam.append(None)
             cb = QtWidgets.QComboBox(); cb.addItems(["Sí", "No"])
             cb.setCurrentIndex(0 if s.get("covered", True) else 1)
             tbl.setCellWidget(r, 4, cb); combos_tapa.append(cb)
             setc(r, 5, "presión" if s.get("net") == "pressure" else "gravedad", editable=False)
             setc(r, 6, "Excel" if s.get("world") else "dibujo", editable=False)
+
+        # Al cambiar la fila seleccionada, centrar el lienzo en ese buzón.
+        def _on_row(cur_r, cur_c, prev_r, prev_c):
+            if 0 <= cur_r < len(self.structures):
+                s = self.structures[cur_r]
+                if s.get("world"): return       # coord mundo (UTM), no navegable en el lienzo PDF
+                x, y = s.get("x"), s.get("y")
+                if x is not None and y is not None:
+                    self.canvas.centerOn(float(x), float(y))
+        tbl.currentCellChanged.connect(_on_row)
+
         lay.addWidget(tbl)
         bb = QtWidgets.QDialogButtonBox(QtWidgets.QDialogButtonBox.Ok | QtWidgets.QDialogButtonBox.Cancel)
         bb.accepted.connect(dlg.accept); bb.rejected.connect(dlg.reject); lay.addWidget(bb)
-        if dlg.exec() != QtWidgets.QDialog.Accepted: return
+        if dlg.exec() != QtWidgets.QDialog.Accepted:
+            self._redraw(); return              # respeta el toggle de etiquetas pero descarta ediciones
+
         def fnum(t):
             try: return float(t)
             except (TypeError, ValueError): return None
@@ -1980,8 +2095,12 @@ class Main(QtWidgets.QMainWindow):
             if tbl.item(r, 0): s["cod"] = tbl.item(r, 0).text().strip()
             s["rim"] = fnum(tbl.item(r, 1).text() if tbl.item(r, 1) else None)
             s["sump"] = fnum(tbl.item(r, 2).text() if tbl.item(r, 2) else None)
-            if tbl.item(r, 3): s["part"] = tbl.item(r, 3).text().strip()
+            if combos_fam[r] is not None:
+                s["part"] = combos_fam[r].currentData() or ""
+            elif tbl.item(r, 3):
+                s["part"] = tbl.item(r, 3).text().strip()
             s["covered"] = (combos_tapa[r].currentIndex() == 0)
+        self._redraw()
         self._info(f"{len(self.structures)} buzones guardados.")
 
     def import_network_excel(self):
