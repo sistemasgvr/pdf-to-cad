@@ -70,6 +70,7 @@ OUTPUT_LAYERS = {
     "DIGITALIZADO":    7,    # blanco
     "TEXTO":           7,    # texto / labels
     "MEMBRETE":        253,  # gris muy oscuro (cajetín / marco / leyenda: capa ocultable)
+    "ETIQUETAS_BUZONES": 8,  # gris (código de buzón/nudo al lado del punto de estructura)
 }
 
 # ─────────────────────────────────────────────────────────────────────────────

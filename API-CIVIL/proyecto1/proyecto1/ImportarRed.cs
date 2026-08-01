@@ -103,6 +103,7 @@ namespace Civil3DBasico
                             Rim = MulNull(XdNullDouble(xd, "RIM"), k),
                             Sump = MulNull(XdNullDouble(xd, "SUMP"), k),
                             Part = XdStr(xd, "PART", ""),
+                            PartSize = XdStr(xd, "PART_SIZE", ""),
                             Covered = XdStr(xd, "COVERED", "1") != "0",
                             NetKind = XdStr(xd, "NET_KIND", "gravity"),
                         });
@@ -353,7 +354,8 @@ namespace Civil3DBasico
                         { sFam = defStructFamNoLid; sSize = defStructSizeNoLid; }
                         else
                         {
-                            BuscarEstructura(tr, partsList, structType, "",
+                            string sizeHint = match != null ? (match.PartSize ?? "") : "";
+                            BuscarEstructura(tr, partsList, structType, sizeHint,
                                              out sFam, out sSize, out _);
                             if (sFam == ObjectId.Null) { sFam = defStructFam; sSize = defStructSize; }
                         }
@@ -847,6 +849,17 @@ namespace Civil3DBasico
             catch (Exception e) { return e.Message; }
         }
 
+        // Registra un RegApp en la tabla del dibujo si aún no existe (necesario
+        // antes de escribir XData bajo ese nombre de aplicación).
+        private static void RegistrarAppId(Database db, Transaction tr, string appName)
+        {
+            var tbl = (RegAppTable)tr.GetObject(db.RegAppTableId, OpenMode.ForRead);
+            if (tbl.Has(appName)) return;
+            tbl.UpgradeOpen();
+            var rec = new RegAppTableRecord { Name = appName };
+            tbl.Add(rec); tr.AddNewlyCreatedDBObject(rec, true);
+        }
+
         // Coloca cada buzón asociado a red de PRESIÓN como DBPoint en la capa
         // PDFCAD_BZ_PRES (color amarillo), con Description = STRUCT_ID. Civil 3D no
         // admite Structures en Pressure Networks; el usuario debe convertirlos a
@@ -877,9 +890,20 @@ namespace Civil3DBasico
                         var pt = new DBPoint(new Point3d(s.Location.X, s.Location.Y, z));
                         pt.LayerId = layerId;
                         ms.AppendEntity(pt); tr.AddNewlyCreatedDBObject(pt, true);
+                        // Guardamos XDATA con el ID y la familia elegida, así el
+                        // usuario ve en Properties qué appurtenance debe colocar.
+                        if (!string.IsNullOrEmpty(s.Id) || !string.IsNullOrEmpty(s.Part))
+                        {
+                            RegistrarAppId(db, tr, "PDFCAD");
+                            pt.XData = new ResultBuffer(
+                                new TypedValue((int)DxfCode.ExtendedDataRegAppName, "PDFCAD"),
+                                new TypedValue((int)DxfCode.ExtendedDataAsciiString, $"NODO_ID={s.Id}"),
+                                new TypedValue((int)DxfCode.ExtendedDataAsciiString, $"FAMILY={s.Part}"),
+                                new TypedValue((int)DxfCode.ExtendedDataAsciiString, $"SIZE={s.PartSize}"));
+                        }
                         n++;
                     }
-                    ed.WriteMessage($"\n  · {n} buzón(es) de red de presión colocados en capa '{layerName}' (reemplazar por Pressure Appurtenance manualmente).");
+                    ed.WriteMessage($"\n  · {n} nodo(s) de red de presión colocados en capa '{layerName}' (reemplazar por Pressure Appurtenance manualmente).");
                     tr.Commit();
                 }
                 catch (Exception ex) { ed.WriteMessage($"\n(No se pudieron marcar buzones de presión: {ex.Message})"); tr.Abort(); }
@@ -1348,6 +1372,7 @@ namespace Civil3DBasico
             public double? Rim;
             public double? Sump;
             public string Part;
+            public string PartSize;                 // tamaño elegido en el diálogo (ej "48 in")
             public bool Covered = true;
             public string NetKind = "gravity";      // "gravity" | "pressure"
         }

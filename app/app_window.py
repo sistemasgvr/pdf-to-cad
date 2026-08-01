@@ -1740,7 +1740,7 @@ class Main(QtWidgets.QMainWindow):
             it = sc.addEllipse(sx - R, sy - R, 2 * R, 2 * R, pen, brush)
             it.setZValue(Z_MARK + 1); self._overlay.append(it)
             if self.show_bz_labels and s.get("cod"):
-                t = sc.addText(s["cod"]); t.setDefaultTextColor(QtGui.QColor(255, 255, 255))
+                t = sc.addText(s["cod"]); t.setDefaultTextColor(QtGui.QColor(180, 180, 180))
                 t.document().setDocumentMargin(0)
                 f = t.font(); f.setPixelSize(11); f.setBold(True); t.setFont(f)
                 t.setPos(sx + R + 2, sy - R - 2); t.setZValue(Z_MARK + 1); self._overlay.append(t)
@@ -1999,21 +1999,32 @@ class Main(QtWidgets.QMainWindow):
                     s.update(cod=o.get("cod", ""), rim=o.get("rim"), sump=o.get("sump"),
                              part=o.get("part", ""), net=o.get("net") or s["net"],
                              covered=bool(o.get("covered", True))); break
-        n = 1
+        # Contadores separados por tipo de red: BZ- para gravedad, NODO- para presión.
+        used = {s.get("cod", "") for s in world + detected if s.get("cod")}
+        ng = np_ = 1
         for s in detected:
-            if not s["cod"]: s["cod"] = f"BZ-{n}"; n += 1
+            if s.get("cod"): continue
+            prefix = "NODO-" if s.get("net") == "pressure" else "BZ-"
+            while True:
+                cod = f"{prefix}{np_ if prefix == 'NODO-' else ng}"
+                if cod not in used: break
+                if prefix == "NODO-": np_ += 1
+                else: ng += 1
+            s["cod"] = cod; used.add(cod)
+            if prefix == "NODO-": np_ += 1
+            else: ng += 1
         self.structures = world + detected; self._dirty = True
 
     def manage_structures(self):
         import civil_catalog as _cc
         self._rebuild_structures()
-        dlg = QtWidgets.QDialog(self); dlg.setWindowTitle("Buzones / nudos"); dlg.resize(860, 480)
+        dlg = QtWidgets.QDialog(self); dlg.setWindowTitle("Buzones / nudos"); dlg.resize(920, 520)
         lay = QtWidgets.QVBoxLayout(dlg)
         lay.addWidget(QtWidgets.QLabel(
-            "Buzones detectados por los vértices de las tuberías dibujadas. Edita Cod, rim (tapa), "
-            "sump (fondo), tapa Sí/No y (solo gravedad) la familia del catálogo."))
+            "Buzones (BZ-*) y nodos (NODO-*) detectados por los vértices de las tuberías. "
+            "Edita código, rim, sump, familia y tapa. Los códigos deben ser únicos."))
 
-        # Encabezado: checkbox global de etiquetas.
+        # Encabezado: checkbox global de etiquetas + botón agregar tamaño.
         head = QtWidgets.QHBoxLayout()
         chk_lbl = QtWidgets.QCheckBox("Mostrar etiquetas (código de buzón) en el lienzo y en el DXF exportado")
         chk_lbl.setChecked(bool(self.show_bz_labels))
@@ -2021,75 +2032,163 @@ class Main(QtWidgets.QMainWindow):
             self.show_bz_labels = bool(v); self._redraw()
         chk_lbl.toggled.connect(_toggle_labels)
         head.addWidget(chk_lbl); head.addStretch(1)
+        btn_add_size = QtWidgets.QPushButton("➕ Agregar tamaño personalizado…")
+        btn_add_size.setToolTip("Agrega un tamaño nuevo al catálogo Civil 3D de la familia\n"
+                                "seleccionada en la fila actual (solo gravedad).")
+        head.addWidget(btn_add_size)
         lay.addLayout(head)
 
-        # Catálogo de familias imperiales según la versión Civil 3D seleccionada.
-        fams = _cc.imperial_structures(self.civil_year) if self.civil_year else []
-        # Etiqueta de estado del catálogo, útil si la versión no está instalada.
-        if fams:
+        # Catálogos según versión Civil 3D seleccionada.
+        fams_g = _cc.imperial_structures(self.civil_year) if self.civil_year else []
+        fams_p = _cc.pressure_families(self.civil_year) if self.civil_year else []
+        if fams_g or fams_p:
             lay.addWidget(QtWidgets.QLabel(
-                f"Catálogo imperial Civil 3D {self.civil_year}: {len(fams)} familia(s) disponibles."))
+                f"Catálogo Civil 3D {self.civil_year}: {len(fams_g)} estructura(s) de gravedad, "
+                f"{len(fams_p)} accesorio(s) de presión. Pasa el cursor sobre una opción para ver la miniatura."))
         elif self.civil_year:
             lay.addWidget(QtWidgets.QLabel(
-                f"⚠ Catálogo Civil 3D {self.civil_year} no encontrado. Instala Civil 3D o cambia la versión en la barra superior."))
+                f"⚠ Catálogo Civil 3D {self.civil_year} no encontrado. Cambia la versión en la barra superior."))
         else:
             lay.addWidget(QtWidgets.QLabel(
-                "⚠ No hay ninguna versión de Civil 3D instalada. La columna 'Familia' quedará como texto libre."))
+                "⚠ No hay ninguna versión de Civil 3D instalada. La columna 'Familia' queda como texto libre."))
 
-        tbl = QtWidgets.QTableWidget(len(self.structures), 7)
+        tbl = QtWidgets.QTableWidget(len(self.structures), 8)
         tbl.setHorizontalHeaderLabels(
-            ["Cod", f"rim ({self.work_unit})", f"sump ({self.work_unit})", "Familia", "Tapa", "Red", "origen"])
+            ["Cod", f"rim ({self.work_unit})", f"sump ({self.work_unit})",
+             "Familia", "Tamaño", "Tapa", "Red", "origen"])
         tbl.horizontalHeader().setStretchLastSection(True)
-        tbl.setColumnWidth(3, 280)
+        tbl.setColumnWidth(3, 320); tbl.setColumnWidth(4, 130)
+
         def setc(r, c, text, editable=True):
             it = QtWidgets.QTableWidgetItem("" if text is None else str(text))
             if not editable: it.setFlags(it.flags() & ~QtCore.Qt.ItemIsEditable)
             tbl.setItem(r, c, it)
 
-        combos_tapa = []; combos_fam = []
+        def _tooltip_for(fam):
+            """HTML de tooltip con miniatura (o solo texto si no hay imagen)."""
+            title = f"<b>{fam['pretty']}</b><br><i>{fam['subfolder']}</i>"
+            img = fam.get("img_path")
+            if img:
+                # Qt admite file:/// en <img>; ancho fijo para uniformizar.
+                url = "file:///" + img.replace("\\", "/")
+                return f"<div>{title}<br><img src='{url}' width='220'></div>"
+            return title
+
+        combos_tapa = []; combos_fam = []; combos_size = []
+
+        def _load_sizes(cbs, net, fid, current):
+            """Repuebla el combo de tamaño según la familia seleccionada. Si no
+            hay familia, queda deshabilitado con placeholder."""
+            cbs.blockSignals(True); cbs.clear()
+            if not fid:
+                cbs.addItem("(sin familia)", ""); cbs.setEnabled(False)
+                cbs.blockSignals(False); return
+            sizes = (_cc.structure_sizes(self.civil_year, fid) if net == "gravity"
+                     else _cc.pressure_sizes(self.civil_year, fid))
+            if not sizes:
+                cbs.addItem("(sin tamaños detectados)", ""); cbs.setEnabled(False)
+            else:
+                cbs.setEnabled(True)
+                cbs.addItem("(por defecto)", "")
+                for sz in sizes: cbs.addItem(sz, sz)
+                if current:
+                    for i in range(cbs.count()):
+                        if cbs.itemData(i) == current: cbs.setCurrentIndex(i); break
+            cbs.blockSignals(False)
+
         for r, s in enumerate(self.structures):
             setc(r, 0, s.get("cod", "")); setc(r, 1, s.get("rim")); setc(r, 2, s.get("sump"))
-            # Familia: si gravedad + hay catálogo, dropdown; si no, texto libre.
-            is_gravity = (s.get("net") == "gravity")
-            if is_gravity and fams:
+            net = s.get("net") or "gravity"
+            cat = fams_g if net == "gravity" else fams_p
+
+            # Combo Tamaño (col 4). Se crea siempre, y se habilita/deshabilita según familia.
+            cbs = QtWidgets.QComboBox()
+            tbl.setCellWidget(r, 4, cbs); combos_size.append(cbs)
+
+            if cat:
                 cbf = QtWidgets.QComboBox()
                 cbf.addItem("(por defecto)", "")
-                for fid, pretty, sub in fams:
-                    cbf.addItem(f"{pretty}  [{sub}]", fid)
-                # Seleccionar la familia guardada, si existe.
+                for f in cat:
+                    idx = cbf.count()
+                    cbf.addItem(f"{f['pretty']}  [{f['subfolder']}]", f["id"])
+                    cbf.setItemData(idx, _tooltip_for(f), QtCore.Qt.ToolTipRole)
                 cur = s.get("part", "") or ""
-                idx = 0
+                sel = 0
                 for i in range(cbf.count()):
-                    if cbf.itemData(i) == cur: idx = i; break
-                cbf.setCurrentIndex(idx)
+                    if cbf.itemData(i) == cur: sel = i; break
+                cbf.setCurrentIndex(sel)
                 tbl.setCellWidget(r, 3, cbf); combos_fam.append(cbf)
+
+                # Cargar tamaños iniciales y reaccionar al cambio de familia.
+                _load_sizes(cbs, net, cur, s.get("part_size", "") or "")
+                def _mk_handler(_cbs, _net):
+                    def _on_fam_change(idx):
+                        fid_ = cbf.itemData(idx) if idx >= 0 else ""
+                        _load_sizes(_cbs, _net, fid_, "")
+                    return _on_fam_change
+                cbf.currentIndexChanged.connect(_mk_handler(cbs, net))
             else:
                 setc(r, 3, s.get("part", "")); combos_fam.append(None)
+                _load_sizes(cbs, net, "", "")
+
             cb = QtWidgets.QComboBox(); cb.addItems(["Sí", "No"])
             cb.setCurrentIndex(0 if s.get("covered", True) else 1)
-            tbl.setCellWidget(r, 4, cb); combos_tapa.append(cb)
-            setc(r, 5, "presión" if s.get("net") == "pressure" else "gravedad", editable=False)
-            setc(r, 6, "Excel" if s.get("world") else "dibujo", editable=False)
+            tbl.setCellWidget(r, 5, cb); combos_tapa.append(cb)
+            setc(r, 6, "presión" if net == "pressure" else "gravedad", editable=False)
+            setc(r, 7, "Excel" if s.get("world") else "dibujo", editable=False)
 
         # Al cambiar la fila seleccionada, centrar el lienzo en ese buzón.
         def _on_row(cur_r, cur_c, prev_r, prev_c):
             if 0 <= cur_r < len(self.structures):
                 s = self.structures[cur_r]
-                if s.get("world"): return       # coord mundo (UTM), no navegable en el lienzo PDF
+                if s.get("world"): return
                 x, y = s.get("x"), s.get("y")
                 if x is not None and y is not None:
                     self.canvas.centerOn(float(x), float(y))
         tbl.currentCellChanged.connect(_on_row)
 
+        def _add_custom_size():
+            r = tbl.currentRow()
+            if r < 0 or r >= len(self.structures):
+                QtWidgets.QMessageBox.information(dlg, "Selecciona un buzón",
+                    "Haz clic primero en el buzón al que quieres agregar el tamaño."); return
+            s = self.structures[r]
+            if s.get("net") == "pressure":
+                QtWidgets.QMessageBox.information(dlg, "Solo gravedad",
+                    "Agregar tamaños personalizados solo está disponible para buzones de gravedad."); return
+            if combos_fam[r] is None or not self.civil_year:
+                QtWidgets.QMessageBox.information(dlg, "Sin catálogo",
+                    "No hay catálogo Civil 3D disponible."); return
+            fid = combos_fam[r].currentData()
+            if not fid:
+                QtWidgets.QMessageBox.information(dlg, "Sin familia",
+                    "Elige primero una familia del catálogo en la columna 'Familia'."); return
+            self._add_structure_size_dialog(dlg, fid, combos_fam[r], combos_size[r])
+        btn_add_size.clicked.connect(_add_custom_size)
+
         lay.addWidget(tbl)
         bb = QtWidgets.QDialogButtonBox(QtWidgets.QDialogButtonBox.Ok | QtWidgets.QDialogButtonBox.Cancel)
         bb.accepted.connect(dlg.accept); bb.rejected.connect(dlg.reject); lay.addWidget(bb)
         if dlg.exec() != QtWidgets.QDialog.Accepted:
-            self._redraw(); return              # respeta el toggle de etiquetas pero descarta ediciones
+            self._redraw(); return
 
         def fnum(t):
             try: return float(t)
             except (TypeError, ValueError): return None
+        # Validación de duplicados antes de commitear.
+        new_cods = [(tbl.item(r, 0).text().strip() if tbl.item(r, 0) else "") for r in range(len(self.structures))]
+        seen = {}
+        dups = []
+        for i, c in enumerate(new_cods):
+            if not c: continue
+            if c in seen: dups.append(c)
+            else: seen[c] = i
+        if dups:
+            QtWidgets.QMessageBox.warning(self, "Códigos repetidos",
+                "Los siguientes códigos están duplicados; corrígelos antes de guardar:\n\n  · " +
+                "\n  · ".join(sorted(set(dups))))
+            return
+
         self._push()
         for r, s in enumerate(self.structures):
             if tbl.item(r, 0): s["cod"] = tbl.item(r, 0).text().strip()
@@ -2099,9 +2198,67 @@ class Main(QtWidgets.QMainWindow):
                 s["part"] = combos_fam[r].currentData() or ""
             elif tbl.item(r, 3):
                 s["part"] = tbl.item(r, 3).text().strip()
+            # Tamaño: solo se guarda si el combo está habilitado y no es placeholder.
+            csz = combos_size[r]
+            s["part_size"] = (csz.currentData() or "") if csz.isEnabled() else ""
             s["covered"] = (combos_tapa[r].currentIndex() == 0)
         self._redraw()
         self._info(f"{len(self.structures)} buzones guardados.")
+
+    def _add_structure_size_dialog(self, parent, fid, cbf, cbs):
+        """Abre un diálogo con un campo por cada parámetro de la familia (leído del
+        XML del catálogo). Al aceptar, escribe los nuevos <Item> en el .xml y refresca
+        los combos de familia (todos los que apunten a fid) y el combo de tamaño."""
+        import civil_catalog as _cc
+        params = _cc.structure_family_params(self.civil_year, fid)
+        if not params:
+            QtWidgets.QMessageBox.warning(parent, "Sin parámetros",
+                f"No pude leer parámetros del catálogo para {fid}."); return
+        dlg = QtWidgets.QDialog(parent); dlg.setWindowTitle("Agregar tamaño personalizado"); dlg.resize(560, 420)
+        v = QtWidgets.QVBoxLayout(dlg)
+        v.addWidget(QtWidgets.QLabel(
+            f"<b>{fid}</b><br>Ingresa el valor nuevo para cada parámetro. Deja en blanco "
+            f"los que quieras dejar en su valor por defecto (primer valor existente).<br>"
+            f"El tamaño quedará guardado en el catálogo Civil 3D y podrá reutilizarse en otros proyectos."))
+        form = QtWidgets.QFormLayout(); v.addLayout(form)
+        edits = {}
+        for p in params:
+            unit = p["unit"] or ""
+            label = f"{p['desc']} ({p['name']}, {unit})" if unit else f"{p['desc']} ({p['name']})"
+            le = QtWidgets.QLineEdit()
+            hint = ", ".join(sorted({f"{float(x):g}" for x in p["items"]},
+                                     key=lambda s: float(s))) if p["items"] else ""
+            if hint: le.setPlaceholderText(f"existentes: {hint}")
+            form.addRow(label, le); edits[p["name"]] = le
+        bb = QtWidgets.QDialogButtonBox(QtWidgets.QDialogButtonBox.Ok | QtWidgets.QDialogButtonBox.Cancel)
+        bb.accepted.connect(dlg.accept); bb.rejected.connect(dlg.reject); v.addWidget(bb)
+        if dlg.exec() != QtWidgets.QDialog.Accepted: return
+        values = {name: le.text().strip() for name, le in edits.items() if le.text().strip()}
+        if not values:
+            QtWidgets.QMessageBox.information(parent, "Nada que agregar",
+                "No ingresaste ningún valor."); return
+        res = _cc.add_structure_size(self.civil_year, fid, values)
+        if not res.get("ok"):
+            QtWidgets.QMessageBox.critical(parent, "Error", res.get("error", "?")); return
+        added = res.get("added") or {}
+        skipped = res.get("skipped") or {}
+        msg = []
+        if added:
+            msg.append("Agregado al catálogo:\n  · " +
+                       "\n  · ".join(f"{k} = {v}" for k, v in added.items()))
+        if skipped:
+            msg.append("Omitido:\n  · " +
+                       "\n  · ".join(f"{k}: {v}" for k, v in skipped.items()))
+        QtWidgets.QMessageBox.information(parent, "Catálogo actualizado", "\n\n".join(msg))
+        # Refrescar el combo de tamaño de la fila actual.
+        sizes = _cc.structure_sizes(self.civil_year, fid)
+        cbs.blockSignals(True); cbs.clear()
+        if sizes:
+            cbs.setEnabled(True); cbs.addItem("(por defecto)", "")
+            for sz in sizes: cbs.addItem(sz, sz)
+        else:
+            cbs.setEnabled(False); cbs.addItem("(sin tamaños detectados)", "")
+        cbs.blockSignals(False)
 
     def import_network_excel(self):
         path, _ = QtWidgets.QFileDialog.getOpenFileName(self, "Importar Excel de red", DOWNLOADS, "Excel (*.xlsx *.xlsm)")

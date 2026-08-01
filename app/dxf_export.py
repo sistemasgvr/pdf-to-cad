@@ -184,6 +184,7 @@ def _export_structures(win, doc, msp):
             (1000, f"RIM={rim if rim is not None else ''}"),
             (1000, f"SUMP={sump if sump is not None else ''}"),
             (1000, f"PART={s.get('part') or ''}"),
+            (1000, f"PART_SIZE={s.get('part_size') or ''}"),
             (1000, f"COVERED={1 if s.get('covered', True) else 0}"),
             (1000, f"NET_KIND={s.get('net') or 'gravity'}"),
         ])
