@@ -37,9 +37,25 @@ namespace Civil3DBasico
 {
     public partial class ComandosRedes
     {
+        // Log de depuración exhaustivo del flujo de asignación de familias/tamaños
+        // a los buzones. Se vuelca a un CSV en Descargas al final de IMPORTAR_RED.
+        private static readonly List<string> _dbg = new List<string>();
+        private static void Dbg(string tag, params (string k, object v)[] fields)
+        {
+            var sb = new System.Text.StringBuilder(tag);
+            foreach (var (k, v) in fields)
+            {
+                var s = (v ?? "").ToString().Replace(",", ";").Replace("\r", " ").Replace("\n", " ");
+                sb.Append(",").Append(k).Append("=").Append(s);
+            }
+            _dbg.Add(sb.ToString());
+        }
+
         [CommandMethod("IMPORTAR_RED")]
         public void ImportarRed()
         {
+            _dbg.Clear();
+            Dbg("IMPORTAR_RED_INICIO", ("timestamp", DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss")));
             Document doc = Application.DocumentManager.MdiActiveDocument;
             Editor ed = doc.Editor;
             Database db = doc.Database;
@@ -90,13 +106,15 @@ namespace Civil3DBasico
                             InvEnd = MulNull(XdNullDouble(xd, "INV_END"), k),
                             ManningsN = XdDouble(xd, "MANNINGS_N"),
                             CoverMin = XdDouble(xd, "COVER_MIN") * k,
+                            PipeFamily = XdStr(xd, "PIPE_FAMILY", ""),
+                            PipeSize = XdStr(xd, "PIPE_SIZE", ""),
                         });
                     }
                     else if (marker == "PDFCAD_STRUCT" && ent is DBPoint pt)
                     {
                         // Los STRUCT no traen UNIT en el XDATA; asumo la misma que las tuberías
                         double k = pipes.Count > 0 ? FactorConversion(pipes[0].Unit, db) : 1.0;
-                        structs.Add(new ImportStruct
+                        var newSt = new ImportStruct
                         {
                             Location = new Point2d(pt.Position.X, pt.Position.Y),
                             Id = XdStr(xd, "STRUCT_ID", ""),
@@ -106,7 +124,14 @@ namespace Civil3DBasico
                             PartSize = XdStr(xd, "PART_SIZE", ""),
                             Covered = XdStr(xd, "COVERED", "1") != "0",
                             NetKind = XdStr(xd, "NET_KIND", "gravity"),
-                        });
+                        };
+                        structs.Add(newSt);
+                        Dbg("XDATA_STRUCT", ("id", newSt.Id), ("x", pt.Position.X.ToString("F3")),
+                            ("y", pt.Position.Y.ToString("F3")), ("net", newSt.NetKind),
+                            ("part", newSt.Part), ("part_size", newSt.PartSize),
+                            ("covered", newSt.Covered ? "1" : "0"),
+                            ("rim", newSt.Rim?.ToString("F3") ?? ""),
+                            ("sump", newSt.Sump?.ToString("F3") ?? ""));
                     }
                 }
                 trScan.Commit();
@@ -130,10 +155,13 @@ namespace Civil3DBasico
             var gravedad = new Dictionary<string, List<ImportPipe>>(StringComparer.OrdinalIgnoreCase);
             var presion = new Dictionary<string, List<ImportPipe>>(StringComparer.OrdinalIgnoreCase);
 
+            var conduit = new Dictionary<string, List<ImportPipe>>(StringComparer.OrdinalIgnoreCase);
             foreach (var p in pipes)
             {
                 if (p.NetKind.Equals("pressure", StringComparison.OrdinalIgnoreCase))
                     DictAdd(presion, p.Layer, p);
+                else if (p.NetKind.Equals("conduit", StringComparison.OrdinalIgnoreCase))
+                    DictAdd(conduit, p.Layer, p);        // eléctrico/telecom → red sin buzones
                 else
                     DictAdd(gravedad, p.Layer, p);
             }
@@ -165,18 +193,21 @@ namespace Civil3DBasico
             if (pipes.Count > 0 && pipes[0].CoverMin > 0)
                 defaultDepth = pipes[0].CoverMin;
 
-            // Separar structures según su red de origen. Las de NET_KIND=pressure NO
-            // van al flujo de Pipe Network (Civil 3D no admite Structures en pressure
-            // networks); se materializan aparte como DBPoint en su propia capa.
+            // Solo procesamos buzones de gravedad. Las structures con NET_KIND != gravity
+            // se descartan con aviso — la app Python ya no las genera (proyectos viejos
+            // podrían traerlas). Presión y conduit no llevan buzones automáticos por
+            // criterio de ingeniería civil.
             var structsGravedad = new List<ImportStruct>();
-            var structsPresion = new List<ImportStruct>();
+            int nDescartadas = 0;
             foreach (var s in structs)
             {
-                if (s.NetKind.Equals("pressure", StringComparison.OrdinalIgnoreCase))
-                    structsPresion.Add(s);
-                else
+                if (s.NetKind.Equals("gravity", StringComparison.OrdinalIgnoreCase) ||
+                    string.IsNullOrEmpty(s.NetKind))
                     structsGravedad.Add(s);
+                else nDescartadas++;
             }
+            if (nDescartadas > 0)
+                ed.WriteMessage($"\n(Se descartaron {nDescartadas} buzón(es) no-gravedad — solo gravedad lleva buzones.)");
 
             // ── 4. Redes de GRAVEDAD ────────────────────────────────────────
             var createdNetIds = new List<ObjectId>();
@@ -200,9 +231,27 @@ namespace Civil3DBasico
                 }
             }
 
-            // Marcadores para los buzones de red de PRESIÓN (accesorios a colocar manualmente).
-            if (structsPresion.Count > 0)
-                ColocarMarcadoresPresion(ed, db, structsPresion);
+            // ── 4b. Redes de CONDUIT (eléctrico/telecom) — pipe network sin buzones ──
+            foreach (var kv in conduit)
+            {
+                string netName = $"RED-{kv.Key}";
+                using (Transaction tr = db.TransactionManager.StartTransaction())
+                {
+                    try
+                    {
+                        ObjectId netId = CrearRedGravedadCompleta(ed, db, civilDoc, tr,
+                            netName, surfId, defaultDepth, kv.Value,
+                            new List<ImportStruct>(), sinBuzones: true);
+                        if (netId != ObjectId.Null) createdNetIds.Add(netId);
+                        tr.Commit();
+                    }
+                    catch (Exception ex)
+                    {
+                        ed.WriteMessage($"\n✗ Error red conduit '{netName}': {ex.Message}");
+                        tr.Abort();
+                    }
+                }
+            }
 
             // ── 5. Redes de PRESIÓN ─────────────────────────────────────────
             var createdPresIds = new List<ObjectId>();
@@ -226,6 +275,13 @@ namespace Civil3DBasico
                 }
             }
 
+            // ── 5b. Borrar polylines DXF que ya se convirtieron a Networks ──
+            // Las polylines de gravedad y presión se transformaron en Pipe Networks
+            // y en Pressure Networks; sus polylines XDATA=PDFCAD_PIPE originales
+            // ya no aportan nada y solo generan ruido visual encima de las redes.
+            // Conduit (eléctrico/telecom) SÍ se conservan porque no se convirtió a red.
+            BorrarPolylinesConvertidas(ed, db);
+
             // ── 6. Diagnóstico inline ───────────────────────────────────────
             if (createdNetIds.Count > 0)
             {
@@ -247,6 +303,19 @@ namespace Civil3DBasico
                 catch (Exception ex) { ed.WriteMessage($"\n(No se pudo escribir el reporte: {ex.Message})"); trRep.Abort(); }
             }
 
+            // ── 8. Volcar log de depuración a CSV ───────────────────────────
+            try
+            {
+                string dbgDir = System.IO.Path.Combine(
+                    Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), "Downloads");
+                if (!System.IO.Directory.Exists(dbgDir))
+                    dbgDir = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
+                string dbgPath = System.IO.Path.Combine(dbgDir, "IMPORTAR_RED_debug.csv");
+                System.IO.File.WriteAllLines(dbgPath, _dbg, System.Text.Encoding.UTF8);
+                ed.WriteMessage($"\n📋 Log de depuración: {dbgPath}  ({_dbg.Count} eventos)");
+            }
+            catch (Exception ex) { ed.WriteMessage($"\n(No se pudo escribir log de depuración: {ex.Message})"); }
+
             ed.WriteMessage("\n═══ IMPORTAR RED — fin ═══");
         }
 
@@ -256,7 +325,7 @@ namespace Civil3DBasico
         private ObjectId CrearRedGravedadCompleta(
             Editor ed, Database db, CivilDocument civilDoc, Transaction tr,
             string nombre, ObjectId surfId, double defaultDepth,
-            List<ImportPipe> pipes, List<ImportStruct> structs)
+            List<ImportPipe> pipes, List<ImportStruct> structs, bool sinBuzones = false)
         {
             PartsStyles.PartsList partsList = ObtenerPartsList(civilDoc, tr);
             if (partsList == null) { ed.WriteMessage("\nNo hay Parts Lists en el dibujo."); return ObjectId.Null; }
@@ -264,19 +333,65 @@ namespace Civil3DBasico
             // Si la Parts List no tiene un BUZÓN REAL (solo tiene la "Null Structure"),
             // se agrega uno cilíndrico con tapa concéntrica del catálogo imperial.
             // Sin esto, Civil crea una "Estructura nula" (Ø0) que en 3D se ve como esfera.
-            AsegurarBuzonReal(ed, tr, partsList);
+            // Para conduits (sinBuzones=true) NO agregamos buzón real — usaremos Null.
+            if (!sinBuzones) AsegurarBuzonReal(ed, tr, partsList);
 
-            if (!PrimeraPieza(tr, partsList, CivilDB.DomainType.Structure,
-                              out ObjectId defStructFam, out ObjectId defStructSize, out string defStructNom))
-            { ed.WriteMessage($"\n'{nombre}': sin familias de ESTRUCTURA."); return ObjectId.Null; }
-            ed.WriteMessage($"\n  · Buzón por defecto: {defStructNom}");
+            // Log del estado del PartsList tras AsegurarBuzonReal
+            foreach (ObjectId fidLog in partsList.GetPartFamilyIdsByDomain(CivilDB.DomainType.Structure))
+            {
+                var famLog = tr.GetObject(fidLog, OpenMode.ForRead) as PartsStyles.PartFamily;
+                if (famLog == null) continue;
+                Dbg("PARTSLIST_STRUCT_FAM", ("red", nombre), ("descripcion", famLog.Description ?? ""),
+                    ("sizes", famLog.PartSizeCount));
+            }
 
-            // Familia para buzones "sin tapa" (Covered=0). Si el catálogo no la tiene,
-            // se cae a la con-tapa con warning.
-            bool haySinTapa = BuscarFamiliaSinTapa(tr, partsList,
-                out ObjectId defStructFamNoLid, out ObjectId defStructSizeNoLid, out string defStructNomNoLid);
-            if (haySinTapa)
-                ed.WriteMessage($"\n  · Buzón sin tapa: {defStructNomNoLid}");
+            ObjectId defStructFam, defStructSize; string defStructNom;
+            if (sinBuzones)
+            {
+                // Para conduit: usar la "Estructura nula" del template como default.
+                // Es una estructura invisible tamaño 0 que sirve para "cerrar" las
+                // pipes sin dibujar buzón real.
+                defStructFam = ObjectId.Null; defStructSize = ObjectId.Null; defStructNom = "";
+                foreach (ObjectId fid in partsList.GetPartFamilyIdsByDomain(CivilDB.DomainType.Structure))
+                {
+                    var fam = tr.GetObject(fid, OpenMode.ForRead) as PartsStyles.PartFamily;
+                    if (fam == null || fam.PartSizeCount == 0) continue;
+                    string d = fam.Description ?? "";
+                    if (d.IndexOf("Null", StringComparison.OrdinalIgnoreCase) < 0 &&
+                        d.IndexOf("nula", StringComparison.OrdinalIgnoreCase) < 0) continue;
+                    defStructFam = fid; defStructSize = fam[0]; defStructNom = d;
+                    break;
+                }
+                if (defStructFam == ObjectId.Null)
+                {
+                    // Sin Null Structure disponible: fallback a la primera real.
+                    if (!PrimeraPieza(tr, partsList, CivilDB.DomainType.Structure,
+                                      out defStructFam, out defStructSize, out defStructNom))
+                    { ed.WriteMessage($"\n'{nombre}': sin familias de ESTRUCTURA."); return ObjectId.Null; }
+                }
+                ed.WriteMessage($"\n  · Red sin buzones (conduit) usando: {defStructNom}");
+                Dbg("DEFAULT_STRUCT_CONDUIT", ("red", nombre), ("nom", defStructNom));
+            }
+            else
+            {
+                if (!PrimeraPieza(tr, partsList, CivilDB.DomainType.Structure,
+                                  out defStructFam, out defStructSize, out defStructNom))
+                { ed.WriteMessage($"\n'{nombre}': sin familias de ESTRUCTURA."); return ObjectId.Null; }
+                ed.WriteMessage($"\n  · Buzón por defecto: {defStructNom}");
+                Dbg("DEFAULT_STRUCT", ("red", nombre), ("nom", defStructNom));
+            }
+
+            // Familia para buzones "sin tapa" (Covered=0). Solo aplica en gravedad.
+            bool haySinTapa = false;
+            ObjectId defStructFamNoLid = ObjectId.Null, defStructSizeNoLid = ObjectId.Null;
+            string defStructNomNoLid = "";
+            if (!sinBuzones)
+            {
+                haySinTapa = BuscarFamiliaSinTapa(tr, partsList,
+                    out defStructFamNoLid, out defStructSizeNoLid, out defStructNomNoLid);
+                if (haySinTapa)
+                    ed.WriteMessage($"\n  · Buzón sin tapa: {defStructNomNoLid}");
+            }
 
             // Pre-scan: recolectar materiales/diámetros únicos y auto-poblar el catálogo
             var needed = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
@@ -305,6 +420,30 @@ namespace Civil3DBasico
             net.PartsListId = partsList.ObjectId;
             if (surfId != ObjectId.Null) net.ReferenceSurfaceId = surfId;
 
+            // Pre-scan: para cada Part único que llega del DXF (basename del .xml del catálogo),
+            // agregar esa familia específica al PartsList si aún no está. Sin esto,
+            // el buzón cae al default aunque el usuario haya elegido otra familia.
+            var partsPedidos = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            foreach (var st in structs)
+            {
+                if (!string.IsNullOrWhiteSpace(st.Part) &&
+                    st.Part.StartsWith("Aecc", StringComparison.OrdinalIgnoreCase))
+                    partsPedidos.Add(st.Part);
+            }
+            foreach (var pid in partsPedidos)
+                AsegurarFamiliaPorId(ed, tr, partsList, pid);
+
+            // Pre-scan de familias de TUBERÍA elegidas en Python (dominio Pipe).
+            var pipesPedidas = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            foreach (var ip2 in pipes)
+            {
+                if (!string.IsNullOrWhiteSpace(ip2.PipeFamily) &&
+                    ip2.PipeFamily.StartsWith("Aecc", StringComparison.OrdinalIgnoreCase))
+                    pipesPedidas.Add(ip2.PipeFamily);
+            }
+            foreach (var pid in pipesPedidas)
+                AsegurarFamiliaPorId(ed, tr, partsList, pid, CivilDB.DomainType.Pipe);
+
             var createdStructs = new Dictionary<string, ObjectId>();
             int nPipes = 0;
             var trazaEje = new List<Point3d>();
@@ -323,10 +462,29 @@ namespace Civil3DBasico
                 for (int i = 0; i < nVerts; i++)
                     trazaEje.Add(new Point3d(ip.Vertices[i].X, ip.Vertices[i].Y, zVerts[i]));
 
-                string diamStr = ip.Diameter.ToString("F0");
-                if (!BuscarTuberia(tr, partsList, ip.Material, diamStr,
-                                   out ObjectId pipeFam, out ObjectId pipeSize, out string pipeNom))
-                { pipeFam = defPipeFam; pipeSize = defPipeSize; pipeNom = defPipeNom; }
+                // Prioridad para elegir familia+tamaño de esta pipe:
+                //   1) PIPE_FAMILY del XDATA (elegida en Python del catálogo Civil 3D)
+                //   2) BuscarTuberia por material + diámetro
+                //   3) default
+                string diamStr = !string.IsNullOrWhiteSpace(ip.PipeSize)
+                    ? ip.PipeSize : ip.Diameter.ToString("F0");
+                ObjectId pipeFam = ObjectId.Null, pipeSize = ObjectId.Null; string pipeNom = "";
+                if (!string.IsNullOrWhiteSpace(ip.PipeFamily))
+                {
+                    // Se llama a BuscarTuberia con el catalogId como 'tipo' — el matcher
+                    // ya sabe interpretar 'AeccCircular...' vía MatchCatalogId.
+                    BuscarTuberia(tr, partsList, ip.PipeFamily, diamStr,
+                                  out pipeFam, out pipeSize, out pipeNom);
+                    Dbg("PIPE_FAMILY_MATCH", ("pedido", ip.PipeFamily), ("size", diamStr),
+                        ("encontrada", pipeFam != ObjectId.Null ? "true" : "false"),
+                        ("nombre", pipeNom));
+                }
+                if (pipeFam == ObjectId.Null)
+                {
+                    if (!BuscarTuberia(tr, partsList, ip.Material, diamStr,
+                                       out pipeFam, out pipeSize, out pipeNom))
+                    { pipeFam = defPipeFam; pipeSize = defPipeSize; pipeNom = defPipeNom; }
+                }
 
                 var vertStructIds = new List<ObjectId>();
                 for (int i = 0; i < nVerts; i++)
@@ -338,30 +496,86 @@ namespace Civil3DBasico
                     ImportStruct match = FindNearestStruct(structs, v, 1.0);
 
                     double rim, sump;
-                    string structType = "";
+                    string structType = match != null ? (match.Part ?? "") : "";  // ← siempre respeta la familia elegida
                     if (match != null && match.Rim.HasValue && match.Sump.HasValue)
-                    { rim = match.Rim.Value; sump = match.Sump.Value; structType = match.Part; }
+                    { rim = match.Rim.Value; sump = match.Sump.Value; }
                     else
                     { sump = zInv - 0.5; rim = zInv + depth; }   // sump 0.5' bajo la solera; rim = invert + tapada
                     // Garantía: rim ARRIBA (mín. 1' sobre sump) y sump por debajo del invert.
                     if (rim - sump < 1.0) rim = sump + Math.Max(depth, 3.0);
 
                     string key = $"{Math.Round(v.X, 2)}_{Math.Round(v.Y, 2)}";
+                    if (sinBuzones)
+                    {
+                        // Conduit: NO crear structure alguna. La pipe se agregará más
+                        // adelante con bAddDefaultConnections=false y sin ConnectToStructure.
+                        // Guardamos ObjectId.Null como marcador.
+                        if (!createdStructs.ContainsKey(key)) createdStructs[key] = ObjectId.Null;
+                        vertStructIds.Add(ObjectId.Null);
+                        continue;
+                    }
                     if (!createdStructs.ContainsKey(key))
                     {
                         ObjectId sFam, sSize;
+                        string ruta;
                         if (match != null && !match.Covered && haySinTapa)
-                        { sFam = defStructFamNoLid; sSize = defStructSizeNoLid; }
+                        { sFam = defStructFamNoLid; sSize = defStructSizeNoLid; ruta = "sin_tapa"; }
                         else
                         {
                             string sizeHint = match != null ? (match.PartSize ?? "") : "";
                             BuscarEstructura(tr, partsList, structType, sizeHint,
                                              out sFam, out sSize, out _);
-                            if (sFam == ObjectId.Null) { sFam = defStructFam; sSize = defStructSize; }
+                            if (sFam == ObjectId.Null)
+                            { sFam = defStructFam; sSize = defStructSize; ruta = "fallback_default"; }
+                            else ruta = "buscar_estructura_match";
                         }
+                        // Nombres reales para diagnóstico
+                        string realFamName = "?", realSizeName = "?";
+                        try
+                        {
+                            var famDbg = tr.GetObject(sFam, OpenMode.ForRead) as PartsStyles.PartFamily;
+                            realFamName = famDbg?.Description ?? "?";
+                            var szDbg = tr.GetObject(sSize, OpenMode.ForRead) as PartsStyles.PartSize;
+                            realSizeName = szDbg?.Name ?? "?";
+                        }
+                        catch { }
+                        Dbg("STRUCT_CREATE", ("id", match?.Id ?? ""),
+                            ("x", v.X.ToString("F3")), ("y", v.Y.ToString("F3")),
+                            ("pedido_part", structType), ("pedido_size", match?.PartSize ?? ""),
+                            ("ruta", ruta),
+                            ("usada_familia", realFamName), ("usada_size", realSizeName));
 
                         ObjectId sid = ObjectId.Null;
-                        net.AddStructure(sFam, sSize, new Point3d(v.X, v.Y, rim), 0.0, ref sid, true);
+                        try
+                        {
+                            net.AddStructure(sFam, sSize, new Point3d(v.X, v.Y, rim), 0.0, ref sid, true);
+                        }
+                        catch (Exception exAdd)
+                        {
+                            Dbg("STRUCT_ADD_FAIL", ("id", match?.Id ?? ""),
+                                ("familia_pedida", realFamName), ("tamano_pedido", realSizeName),
+                                ("error", exAdd.Message));
+                            // Fallback al buzón por defecto (que sí sabemos que funciona
+                            // porque PrimeraPieza lo eligió y AsegurarBuzonReal lo validó).
+                            try
+                            {
+                                net.AddStructure(defStructFam, defStructSize,
+                                                 new Point3d(v.X, v.Y, rim), 0.0, ref sid, true);
+                                Dbg("STRUCT_ADD_FALLBACK_OK", ("id", match?.Id ?? ""),
+                                    ("familia_usada", defStructNom));
+                            }
+                            catch (Exception exAdd2)
+                            {
+                                Dbg("STRUCT_ADD_FALLBACK_FAIL", ("id", match?.Id ?? ""),
+                                    ("error", exAdd2.Message));
+                                ed.WriteMessage($"\n⚠ No se pudo crear la estructura {match?.Id ?? "?"} en ({v.X:F2},{v.Y:F2}); se salta y sigue.");
+                                // Marcar el vértice como "sin structure" y seguir con el
+                                // siguiente vértice para no cortar la red entera.
+                                createdStructs[key] = ObjectId.Null;
+                                vertStructIds.Add(ObjectId.Null);
+                                continue;
+                            }
+                        }
                         CivilDB.Structure st = (CivilDB.Structure)tr.GetObject(sid, OpenMode.ForWrite);
                         // Sump por ELEVACIÓN (si queda por profundidad, sump=rim−sumpDepth pisa lo nuestro).
                         SetSumpControlByElevation(st);
@@ -391,10 +605,25 @@ namespace Civil3DBasico
                     if (p1.DistanceTo(p2) < 1e-6) continue;
 
                     ObjectId pid = ObjectId.Null;
-                    net.AddLinePipe(pipeFam, pipeSize, new LineSegment3d(p1, p2), ref pid, true);
+                    // Conduit (sinBuzones): sin auto-conexión ni structures. Solo la pipe pura.
+                    bool autoConexion = !sinBuzones;
+                    net.AddLinePipe(pipeFam, pipeSize, new LineSegment3d(p1, p2), ref pid, autoConexion);
                     CivilDB.Pipe pipe = (CivilDB.Pipe)tr.GetObject(pid, OpenMode.ForWrite);
-                    pipe.ConnectToStructure(CivilDB.ConnectorPositionType.Start, vertStructIds[i], true);
-                    pipe.ConnectToStructure(CivilDB.ConnectorPositionType.End, vertStructIds[i + 1], true);
+                    // Solo conectar si la estructura correspondiente se creó bien.
+                    // En modo conduit, vertStructIds[i] siempre es Null, así que no conecta.
+                    // Envuelto en try/catch: si la structure asignada no admite la
+                    // conexión (p.ej. una end-section que se elige por error), se
+                    // registra pero no aborta la red entera.
+                    if (vertStructIds[i] != ObjectId.Null)
+                    {
+                        try { pipe.ConnectToStructure(CivilDB.ConnectorPositionType.Start, vertStructIds[i], true); }
+                        catch (Exception exC) { Dbg("PIPE_CONNECT_FAIL", ("extremo", "start"), ("error", exC.Message)); }
+                    }
+                    if (vertStructIds[i + 1] != ObjectId.Null)
+                    {
+                        try { pipe.ConnectToStructure(CivilDB.ConnectorPositionType.End, vertStructIds[i + 1], true); }
+                        catch (Exception exC) { Dbg("PIPE_CONNECT_FAIL", ("extremo", "end"), ("error", exC.Message)); }
+                    }
                     explicitPipeInv.Add((pid, zVerts[i], zVerts[i + 1]));   // reponer invert al final
 
                     if (!string.IsNullOrWhiteSpace(ip.Material))
@@ -503,7 +732,10 @@ namespace Civil3DBasico
 
             foreach (var ip in pipes)
             {
-                PresStyles.PressurePartSize tuboElegido = MatchPresionTubo(tubos, ip.Diameter);
+                PresStyles.PressurePartSize tuboElegido = MatchPresionTubo(tubos, ip.Diameter, ip.PipeFamily);
+                Dbg("PIPE_PRES_MATCH", ("pedido_fam", ip.PipeFamily ?? ""),
+                    ("pedido_size", ip.PipeSize ?? ""), ("diam", ip.Diameter.ToString("F1")),
+                    ("elegida", tuboElegido?.Description ?? "?"));
 
                 int nVerts = ip.Vertices.Count;
                 // Cota de rasante capturada. Antes caía a -defaultDepth (¡negativo!)
@@ -660,7 +892,7 @@ namespace Civil3DBasico
             List<ObjectId> gravNets, List<ObjectId> presNets)
         {
             var sb = new System.Text.StringBuilder();
-            sb.AppendLine("TIPO,RED,NOMBRE,DIAM_in,MATERIAL_DESC,COTA_INI,COTA_FIN,PENDIENTE_%,LONGITUD,RIM,SUMP");
+            sb.AppendLine("TIPO,RED,NOMBRE,DIAM_in,MATERIAL_DESC,COTA_INI,COTA_FIN,PENDIENTE_%,LONGITUD,RIM,SUMP,FAMILIA,TAMANO");
 
             // ── Redes de gravedad: estructuras + tuberías ──
             foreach (ObjectId nid in gravNets)
@@ -672,7 +904,15 @@ namespace Civil3DBasico
                 {
                     var st = tr.GetObject(sid, OpenMode.ForRead) as CivilDB.Structure;
                     if (st == null) continue;
-                    sb.AppendLine($"ESTRUCTURA,{rn},{st.Name},{st.InnerDiameterOrWidth * 12.0:F1},,,,,,{st.RimElevation:F3},{st.SumpElevation:F3}");
+                    string famName = "?", sizeName = "?";
+                    try
+                    {
+                        var famDbg = tr.GetObject(st.PartFamilyId, OpenMode.ForRead) as PartsStyles.PartFamily;
+                        famName = (famDbg?.Description ?? "").Replace(",", " ");
+                        sizeName = (st.PartSizeName ?? "").Replace(",", " ");
+                    }
+                    catch { }
+                    sb.AppendLine($"ESTRUCTURA,{rn},{st.Name},{st.InnerDiameterOrWidth * 12.0:F1},,,,,,{st.RimElevation:F3},{st.SumpElevation:F3},{famName},{sizeName}");
                 }
                 foreach (ObjectId pid in net.GetPipeIds())
                 {
@@ -849,65 +1089,42 @@ namespace Civil3DBasico
             catch (Exception e) { return e.Message; }
         }
 
-        // Registra un RegApp en la tabla del dibujo si aún no existe (necesario
-        // antes de escribir XData bajo ese nombre de aplicación).
-        private static void RegistrarAppId(Database db, Transaction tr, string appName)
+        // Borra las polylines XDATA=PDFCAD_PIPE cuya NET_KIND sea 'gravity' o
+        // 'pressure' (ya se convirtieron a Pipe/Pressure Networks). Las de
+        // 'conduit' se conservan porque el plugin no las procesa.
+        private void BorrarPolylinesConvertidas(Editor ed, Database db)
         {
-            var tbl = (RegAppTable)tr.GetObject(db.RegAppTableId, OpenMode.ForRead);
-            if (tbl.Has(appName)) return;
-            tbl.UpgradeOpen();
-            var rec = new RegAppTableRecord { Name = appName };
-            tbl.Add(rec); tr.AddNewlyCreatedDBObject(rec, true);
-        }
-
-        // Coloca cada buzón asociado a red de PRESIÓN como DBPoint en la capa
-        // PDFCAD_BZ_PRES (color amarillo), con Description = STRUCT_ID. Civil 3D no
-        // admite Structures en Pressure Networks; el usuario debe convertirlos a
-        // Pressure Appurtenance manualmente. Este marcador les dice dónde estaban.
-        private void ColocarMarcadoresPresion(Editor ed, Database db, List<ImportStruct> lst)
-        {
-            const string layerName = "PDFCAD_BZ_PRES";
+            int nBorradas = 0;
             using (Transaction tr = db.TransactionManager.StartTransaction())
             {
                 try
                 {
-                    var lt = (LayerTable)tr.GetObject(db.LayerTableId, OpenMode.ForRead);
-                    ObjectId layerId;
-                    if (!lt.Has(layerName))
+                    var ms = (BlockTableRecord)tr.GetObject(
+                        SymbolUtilityServices.GetBlockModelSpaceId(db), OpenMode.ForRead);
+                    var toDelete = new List<ObjectId>();
+                    foreach (ObjectId eid in ms)
                     {
-                        lt.UpgradeOpen();
-                        var lr = new LayerTableRecord { Name = layerName, Color = Autodesk.AutoCAD.Colors.Color.FromColorIndex(Autodesk.AutoCAD.Colors.ColorMethod.ByAci, 2) };
-                        layerId = lt.Add(lr);
-                        tr.AddNewlyCreatedDBObject(lr, true);
+                        var ent = tr.GetObject(eid, OpenMode.ForRead) as Entity;
+                        if (ent is not Polyline) continue;
+                        var xd = LeerXdataPdfcad(ent);
+                        if (xd == null) continue;
+                        if (!xd.TryGetValue("_MARKER", out string marker) || marker != "PDFCAD_PIPE") continue;
+                        string netKind = XdStr(xd, "NET_KIND", "gravity");
+                        if (netKind.Equals("gravity", StringComparison.OrdinalIgnoreCase) ||
+                            netKind.Equals("pressure", StringComparison.OrdinalIgnoreCase))
+                            toDelete.Add(eid);
                     }
-                    else layerId = lt[layerName];
-
-                    var ms = (BlockTableRecord)tr.GetObject(SymbolUtilityServices.GetBlockModelSpaceId(db), OpenMode.ForWrite);
-                    int n = 0;
-                    foreach (var s in lst)
+                    foreach (var id in toDelete)
                     {
-                        double z = s.Sump ?? s.Rim ?? 0.0;
-                        var pt = new DBPoint(new Point3d(s.Location.X, s.Location.Y, z));
-                        pt.LayerId = layerId;
-                        ms.AppendEntity(pt); tr.AddNewlyCreatedDBObject(pt, true);
-                        // Guardamos XDATA con el ID y la familia elegida, así el
-                        // usuario ve en Properties qué appurtenance debe colocar.
-                        if (!string.IsNullOrEmpty(s.Id) || !string.IsNullOrEmpty(s.Part))
-                        {
-                            RegistrarAppId(db, tr, "PDFCAD");
-                            pt.XData = new ResultBuffer(
-                                new TypedValue((int)DxfCode.ExtendedDataRegAppName, "PDFCAD"),
-                                new TypedValue((int)DxfCode.ExtendedDataAsciiString, $"NODO_ID={s.Id}"),
-                                new TypedValue((int)DxfCode.ExtendedDataAsciiString, $"FAMILY={s.Part}"),
-                                new TypedValue((int)DxfCode.ExtendedDataAsciiString, $"SIZE={s.PartSize}"));
-                        }
-                        n++;
+                        var e = tr.GetObject(id, OpenMode.ForWrite) as Entity;
+                        if (e != null) { e.Erase(true); nBorradas++; }
                     }
-                    ed.WriteMessage($"\n  · {n} nodo(s) de red de presión colocados en capa '{layerName}' (reemplazar por Pressure Appurtenance manualmente).");
                     tr.Commit();
                 }
-                catch (Exception ex) { ed.WriteMessage($"\n(No se pudieron marcar buzones de presión: {ex.Message})"); tr.Abort(); }
+                catch (Exception ex) { ed.WriteMessage($"\n(No se pudieron borrar las polilíneas convertidas: {ex.Message})"); tr.Abort(); }
             }
+            if (nBorradas > 0)
+                ed.WriteMessage($"\n  · {nBorradas} polilínea(s) DXF de gravedad/presión eliminada(s) tras convertirse a redes.");
         }
 
         // Tokens (EN/ES) que indican familia NO-buzón. Cuando 'incluirSinTapa' es true,
@@ -919,7 +1136,82 @@ namespace Civil3DBasico
             return new[] {
                 "Null", "Headwall", "End Section", "Flared", "Culvert", "Winged", "Wing", "Apron",
                 "nula", "cabecero", "cabezal", "boca", "aleta", "alcantarilla",
+                // Términos ES adicionales (Civil 3D español):
+                "Embocadura", "embocadura",
+                "Sección final", "seccion final",
+                "en ala", "de ala",
+                "acampanada",
+                "O.D.T.",
             };
+        }
+
+        // Asegura que la familia identificada por su ID de catálogo (basename del .xml,
+        // p.ej. "AeccStructConcentricCylinderRectFrame_Imperial") esté en el PartsList
+        // del dibujo. Si no está, la busca en el catálogo disponible y la agrega con
+        // TODOS sus tamaños. Usa MatchCatalogId para comparar tokens EN↔ES entre el
+        // catalogId (CamelCase EN) y la Description de la familia (idioma real).
+        private void AsegurarFamiliaPorId(Editor ed, Transaction tr, PartsStyles.PartsList partsList,
+                                          string catalogId, CivilDB.DomainType dominio = CivilDB.DomainType.Structure)
+        {
+            if (string.IsNullOrWhiteSpace(catalogId)) { Dbg("ASEGURAR_FAM_SKIP", ("motivo", "vacio")); return; }
+            // ¿Ya está?
+            foreach (ObjectId fid in partsList.GetPartFamilyIdsByDomain(dominio))
+            {
+                var fam = tr.GetObject(fid, OpenMode.ForRead) as PartsStyles.PartFamily;
+                if (fam == null || fam.PartSizeCount == 0) continue;
+                bool m = MatchCatalogIdPublic(catalogId, fam.Description ?? "");
+                Dbg("ASEGURAR_FAM_CHECK", ("pedido", catalogId), ("dominio", dominio.ToString()),
+                    ("candidato", fam.Description ?? ""),
+                    ("match", m ? "true" : "false"), ("sizes", fam.PartSizeCount));
+                if (m) { Dbg("ASEGURAR_FAM_YA_ESTA", ("pedido", catalogId), ("descripcion", fam.Description ?? "")); return; }
+            }
+            try
+            {
+                PartsStyles.DataPartFamily[] disp =
+                    PartsStyles.PartsList.GetAvailablePartFamilies(dominio);
+                if (disp == null || disp.Length == 0) return;
+                PartsStyles.DataPartFamily elegido = null;
+                foreach (var dpf in disp)
+                {
+                    string desc = dpf.Description ?? "";
+                    if (desc.IndexOf("Metric", StringComparison.OrdinalIgnoreCase) >= 0) continue;
+                    if (desc.IndexOf("métric", StringComparison.OrdinalIgnoreCase) >= 0) continue;
+                    if (MatchCatalogIdPublic(catalogId, desc))
+                    { elegido = dpf; break; }
+                }
+                if (elegido == null)
+                {
+                    Dbg("ASEGURAR_FAM_NO_ENCONTRADA_EN_CATALOGO", ("pedido", catalogId),
+                        ("candidatos_en_catalogo", disp.Length));
+                    ed.WriteMessage($"\n⚠ Familia '{catalogId}' pedida desde Python no se encontró en el catálogo disponible.");
+                    return;
+                }
+                Dbg("ASEGURAR_FAM_AGREGANDO", ("pedido", catalogId), ("elegida", elegido.Description ?? ""),
+                    ("guid", elegido.GUID));
+                partsList.UpgradeOpen();
+                try { partsList.AddPartFamilyByGuid(dominio, elegido.GUID); } catch { }
+                foreach (ObjectId fid2 in partsList.GetPartFamilyIdsByDomain(dominio))
+                {
+                    var fam = tr.GetObject(fid2, OpenMode.ForWrite) as PartsStyles.PartFamily;
+                    if (fam == null || !string.Equals(fam.GUID, elegido.GUID, StringComparison.OrdinalIgnoreCase)) continue;
+                    try
+                    {
+                        var filtro = new PartsStyles.SizeFilterRecord(fam);
+                        for (int i = 0; i < filtro.ParamCount; i++)
+                        {
+                            var campo = filtro[i];
+                            if (campo != null && !campo.IsReadOnly && campo.IsFromList)
+                                campo.IsMultipleSelect = true;
+                        }
+                        fam.AddPartSize(filtro);
+                    }
+                    catch (Exception exSize)
+                    { ed.WriteMessage($"\n  (No se pudieron agregar tamaños para '{catalogId}': {exSize.Message})"); }
+                    ed.WriteMessage($"\n  + Familia solicitada '{elegido.Description}' agregada al PartsList ({fam.PartSizeCount} tamaño(s)).");
+                    break;
+                }
+            }
+            catch (Exception ex) { ed.WriteMessage($"\n(No se pudo asegurar familia '{catalogId}': {ex.Message})"); }
         }
 
         private void AsegurarBuzonReal(Editor ed, Transaction tr, PartsStyles.PartsList partsList)
@@ -1194,16 +1486,53 @@ namespace Civil3DBasico
             return best;
         }
 
-        private static PresStyles.PressurePartSize MatchPresionTubo(
-            List<PresStyles.PressurePartSize> tubos, double targetDiam)
+        // Extrae el primer número seguido de "in" (o solo el primero) de una
+        // descripción de PartSize. Ej "10 in Elbow 90°" → 10.0; "48 pulg. …" → 48.0.
+        private static double ExtractInchesFromDesc(string desc)
         {
-            PresStyles.PressurePartSize best = tubos[0];
-            if (targetDiam <= 0) return best;
-            string dStr = targetDiam.ToString("F0");
-            foreach (PresStyles.PressurePartSize t in tubos)
+            if (string.IsNullOrEmpty(desc)) return 0;
+            // Preferir el número que precede "in"/"pulg" para no capturar ángulos.
+            var m = System.Text.RegularExpressions.Regex.Match(
+                desc, @"(\d+(?:\.\d+)?)\s*(?:in|pulg|""|\bin\b)", System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+            if (m.Success) { double v; if (double.TryParse(m.Groups[1].Value,
+                System.Globalization.CultureInfo.InvariantCulture, out v)) return v; }
+            m = System.Text.RegularExpressions.Regex.Match(desc, @"(\d+(?:\.\d+)?)");
+            if (m.Success) { double v; if (double.TryParse(m.Groups[1].Value,
+                System.Globalization.CultureInfo.InvariantCulture, out v)) return v; }
+            return 0;
+        }
+
+        private static PresStyles.PressurePartSize MatchPresionTubo(
+            List<PresStyles.PressurePartSize> tubos, double targetDiam, string pipeFamily = "")
+        {
+            if (tubos == null || tubos.Count == 0) return null;
+
+            // 1) Si el usuario eligió una familia de Python (Imperial_AWWA_...|nombre),
+            // filtrar el catálogo a los tubos cuya Description contenga el
+            // PART_FAMILY_NAME (después del "|"). Compara tolerante a espacios/case.
+            List<PresStyles.PressurePartSize> pool = tubos;
+            if (!string.IsNullOrWhiteSpace(pipeFamily) && pipeFamily.Contains("|"))
             {
-                if (t.Description != null && t.Description.Contains(dStr))
-                    return t;
+                string famName = pipeFamily.Substring(pipeFamily.IndexOf('|') + 1).Trim();
+                string famNorm = famName.Replace(" ", "").Replace(",", "").ToLowerInvariant();
+                var filtrados = new List<PresStyles.PressurePartSize>();
+                foreach (var t in tubos)
+                {
+                    string dNorm = (t.Description ?? "").Replace(" ", "").Replace(",", "").ToLowerInvariant();
+                    if (dNorm.Contains(famNorm) || famNorm.Contains(dNorm)) filtrados.Add(t);
+                }
+                if (filtrados.Count > 0) pool = filtrados;
+            }
+
+            if (targetDiam <= 0) return pool[0];
+            // 2) De los tubos candidatos, elegir el NominalDiameter más cercano.
+            PresStyles.PressurePartSize best = pool[0];
+            double bestDiff = double.MaxValue;
+            foreach (PresStyles.PressurePartSize t in pool)
+            {
+                double d = ExtractInchesFromDesc(t.Description);
+                double diff = Math.Abs(d - targetDiam);
+                if (diff < bestDiff) { bestDiff = diff; best = t; }
             }
             return best;
         }
@@ -1212,29 +1541,38 @@ namespace Civil3DBasico
             List<PresStyles.PressurePartSize> fittings,
             CivilDB.PressurePartType tipo, double diam, double deflex)
         {
-            string dTxt = ((int)Math.Round(diam)).ToString();
-            string aTxt = ((int)Math.Round(deflex)).ToString();
+            // Recolectar candidatos del tipo pedido y usar su NominalDiameter
+            // numérico para elegir el MÁS CERCANO al diámetro de la pipe. Antes
+            // este método hacía match por substring en la descripción y, si no
+            // encontraba, devolvía el PRIMER fitting del tipo — que a menudo era
+            // el más grande del catálogo (Elbow 48"), generando codos gigantes.
+            var candidatos = new List<(PresStyles.PressurePartSize part, double diamF, double angleDiff)>();
+            foreach (PresStyles.PressurePartSize f in fittings)
+            {
+                if (f.PartType != tipo) continue;
+                double fDiam = ExtractInchesFromDesc(f.Description);
+                // Extraer ángulo de la descripción (para codos) para desempatar.
+                double fAng = 0;
+                var m = System.Text.RegularExpressions.Regex.Match(
+                    f.Description ?? "", @"(\d{2,3})\s*[°º]");
+                if (m.Success) double.TryParse(m.Groups[1].Value, out fAng);
+                double angleDiff = tipo == CivilDB.PressurePartType.Elbow
+                    ? Math.Abs(fAng - Math.Abs(deflex)) : 0;
+                candidatos.Add((f, fDiam, angleDiff));
+            }
+            if (candidatos.Count == 0) return null;
 
-            // Intento 1: tipo + diámetro + ángulo
-            foreach (PresStyles.PressurePartSize f in fittings)
+            // Preferencias:
+            //   1) Diámetro dentro de 0.01" del pedido (empate por ángulo cercano).
+            //   2) El más cercano al diámetro pedido; empate por ángulo.
+            double target = diam;
+            candidatos.Sort((a, b) =>
             {
-                if (f.PartType != tipo) continue;
-                string de = (f.Description ?? "").Replace(" ", "").Replace(",", "").ToLowerInvariant();
-                if (de.Contains(dTxt) && de.Contains(aTxt)) return f;
-            }
-            // Intento 2: tipo + diámetro
-            foreach (PresStyles.PressurePartSize f in fittings)
-            {
-                if (f.PartType != tipo) continue;
-                string de = (f.Description ?? "").Replace(" ", "").Replace(",", "").ToLowerInvariant();
-                if (de.Contains(dTxt)) return f;
-            }
-            // Intento 3: solo tipo
-            foreach (PresStyles.PressurePartSize f in fittings)
-            {
-                if (f.PartType == tipo) return f;
-            }
-            return null;
+                double dA = Math.Abs(a.diamF - target), dB = Math.Abs(b.diamF - target);
+                if (Math.Abs(dA - dB) > 0.01) return dA.CompareTo(dB);
+                return a.angleDiff.CompareTo(b.angleDiff);
+            });
+            return candidatos[0].part;
         }
 
         // =================================================================
@@ -1363,6 +1701,8 @@ namespace Civil3DBasico
             public double? InvEnd;
             public double ManningsN;
             public double CoverMin;
+            public string PipeFamily;     // catalogId elegido en Python (basename del .xml)
+            public string PipeSize;       // p.ej. "48 in"
         }
 
         private class ImportStruct

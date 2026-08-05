@@ -21,7 +21,7 @@ from geo import georef as georef_mod
 from geometry import point_in_poly, qimage_to_gray
 from model import (VERSION, TIPOS, ACI_RGB, LEADER_TEXT_FT, LEADER_ORIENT,
                    Z_PDF, Z_ERASE, Z_MARK, Z_HANDLE, GRAVITY_LAYERS,
-                   TAB_PIPE, TAB_ML, TAB_LEADER, TAB_TEXT, TAB_REGION,
+                   TAB_PIPE, TAB_ML, TAB_LEADER, TAB_TEXT, TAB_REGION, TAB_BZ,
                    WORK_UNITS, DEFAULT_WORK_UNIT, is_valid_work_unit, CHANGELOG,
                    PIPE_DIAMETERS_IN, PIPE_MATERIALS, DEFAULT_PIPE_MATERIAL,
                    nearest_pipe_diameter)
@@ -33,6 +33,15 @@ BTN_OFF = "background:#3c5a99;color:white;padding:8px;border-radius:4px;"
 
 def aci_qcolor(a): return QtGui.QColor(*ACI_RGB.get(a, (235, 235, 235)))
 def layer_qcolor(l): return aci_qcolor(C.OUTPUT_LAYERS.get(l, 7))
+
+
+def _extract_diam_from_size(size_str):
+    """Extrae el primer número de un tamaño del catálogo, p.ej. '24 in' → 24.0,
+    '12 in x 8 in' → 12.0. Retorna 0.0 si no encuentra número."""
+    import re as _re
+    if not size_str: return 0.0
+    m = _re.match(r"\s*(\d+(?:\.\d+)?)", str(size_str))
+    return float(m.group(1)) if m else 0.0
 
 
 def swatch_icon(color, size=14):
@@ -176,7 +185,8 @@ class Main(QtWidgets.QMainWindow):
         self.erase_regions = []; self._erase_pts = []; self.structures = []
         self.mode = "idle"; self._pending = None
         self.snap = False; self.snap_r = 14
-        self.sel_pipe = -1; self.sel_leader = -1; self.sel_region = -1; self.sel_text = -1; self._no_center = False
+        self.sel_pipe = -1; self.sel_leader = -1; self.sel_region = -1; self.sel_text = -1; self.sel_bz = -1
+        self._no_center = False
         self._move0 = None; self._drag_vertex = None; self._edit_pts = None; self._edit_closed = False; self._edit_leader = None
         self._move_kind = None; self._moved = False; self._press_xy = None; self._last_xy = None
         self._extending = False; self._ext_layer = None; self._ext_pipe = None; self._ext_at = None
@@ -209,7 +219,6 @@ class Main(QtWidgets.QMainWindow):
         self._menu_act(medit, "Rehacer", self.redo, "Ctrl+Shift+Z")
         mtools = mb.addMenu("&Herramientas")
         self._menu_act(mtools, "Insertar buzón en línea…", self.insert_manhole)
-        self._menu_act(mtools, "Gestionar buzones…", self.manage_structures)
         self._menu_act(mtools, "Importar Excel de red…", self.import_network_excel)
         mtools.addSeparator()
         self._menu_act(mtools, "Georreferenciar…", self.open_georef)
@@ -452,9 +461,11 @@ class Main(QtWidgets.QMainWindow):
         self.txt_marks_list = QtWidgets.QListWidget(); self.txt_marks_list.currentRowChanged.connect(self._sel_text)
         self.region_list = QtWidgets.QListWidget(); self.region_list.currentRowChanged.connect(self._sel_region)
         self.region_list.itemChanged.connect(self._region_toggled)
+        self.bz_list = QtWidgets.QListWidget(); self.bz_list.currentRowChanged.connect(self._sel_bz)
         self.tabs.addTab(self.pipe_list, "Utilidades"); #self.tabs.addTab(self.lead_list, "Multileaders")
         self.tabs.addTab(self.sleader_list, "Leaders")
         self.tabs.addTab(self.txt_marks_list, "Textos"); self.tabs.addTab(self.region_list, "Zonas")
+        self.tabs.addTab(self.bz_list, "Buzones")
         # Menú contextual (clic derecho) en cada lista visible del inventario
         # (la lista de Multileaders no se registra porque su pestaña está oculta)
         for listw, tab_idx in ((self.pipe_list, TAB_PIPE),
@@ -471,12 +482,9 @@ class Main(QtWidgets.QMainWindow):
         # catálogo (12,15,18,…): un desplegable NO editable, sin valores libres,
         # para que coincida 1:1 con un tamaño real del catálogo de Civil 3D.
         # Es independiente de la unidad de trabajo (que rige coordenadas/cotas).
-        self.prop_diam = QtWidgets.QComboBox()
-        for d in PIPE_DIAMETERS_IN:
-            self.prop_diam.addItem(f'{d}"', float(d))
-        self.prop_diam.currentIndexChanged.connect(lambda _: self._prop_changed())
+        # El diámetro ya no es un campo del UI: se deriva automáticamente del
+        # "Tamaño (catálogo)" elegido. p["diam"] se calcula al guardar propiedades.
         fpr.addRow("Nombre:", self.prop_name)
-        self.lbl_prop_diam = QtWidgets.QLabel("Diámetro (pulg):"); fpr.addRow(self.lbl_prop_diam, self.prop_diam)
         # Campos de la utilidad usados por el JSON de red 3.0 y por el DXF:
         #   - material: texto libre (p.ej. "HDPE"); viaja al JSON como `material`.
         #   - part (pieza): nombre del tipo de pieza; viaja al JSON como `part`.
@@ -507,7 +515,59 @@ class Main(QtWidgets.QMainWindow):
         self.lbl_prop_inv0 = QtWidgets.QLabel("Elev. de rasante inicial (ft):"); fpr.addRow(self.lbl_prop_inv0, self.prop_inv0)
         self.lbl_prop_inv1 = QtWidgets.QLabel("Elev. de rasante final (ft):");   fpr.addRow(self.lbl_prop_inv1, self.prop_inv1)
         fpr.addRow("Part (pieza):", self.prop_part)
+        # Familia + tamaño del catálogo Civil 3D para esta pipe (solo gravedad).
+        # Para presión y conduit no aplica: presión usa el sub-catálogo por material
+        # y conduit se deja como polyline simple.
+        self.prop_family = QtWidgets.QComboBox()
+        self.prop_family.currentIndexChanged.connect(self._pipe_family_changed)
+        self.prop_size = QtWidgets.QComboBox()
+        self.prop_size.currentIndexChanged.connect(lambda _: self._prop_changed())
+        self.lbl_prop_family = QtWidgets.QLabel("Familia (catálogo):")
+        self.lbl_prop_size = QtWidgets.QLabel("Tamaño (catálogo):")
+        fpr.addRow(self.lbl_prop_family, self.prop_family)
+        fpr.addRow(self.lbl_prop_size, self.prop_size)
         rv.addWidget(self.gprop)
+        # ── Propiedades del buzón seleccionado (tab Buzones) ───────────────────
+        self.gprop_bz = QtWidgets.QGroupBox("Propiedades del buzón"); fbz = QtWidgets.QFormLayout(self.gprop_bz)
+        self.bz_cod = QtWidgets.QLineEdit(); self.bz_cod.editingFinished.connect(self._bz_prop_changed)
+        self.bz_rim = QtWidgets.QDoubleSpinBox(); self.bz_sump = QtWidgets.QDoubleSpinBox()
+        for sp in (self.bz_rim, self.bz_sump):
+            sp.setRange(-100000, 100000); sp.setDecimals(3); sp.setButtonSymbols(QtWidgets.QAbstractSpinBox.NoButtons)
+            sp.valueChanged.connect(lambda _v: self._bz_prop_changed())
+        self.bz_family = QtWidgets.QComboBox(); self.bz_family.currentIndexChanged.connect(self._bz_family_changed)
+        self.bz_size = QtWidgets.QComboBox(); self.bz_size.currentIndexChanged.connect(self._bz_prop_changed)
+        self.bz_cover = QtWidgets.QComboBox(); self.bz_cover.addItems(["Sí", "No"])
+        self.bz_cover.currentIndexChanged.connect(self._bz_prop_changed)
+        self.bz_net_lbl = QtWidgets.QLabel("—")
+        self.bz_origin_lbl = QtWidgets.QLabel("—")
+        fbz.addRow("Código:", self.bz_cod)
+        self.bz_rim_lbl = QtWidgets.QLabel(f"Rim ({self.work_unit}):"); fbz.addRow(self.bz_rim_lbl, self.bz_rim)
+        self.bz_sump_lbl = QtWidgets.QLabel(f"Sump ({self.work_unit}):"); fbz.addRow(self.bz_sump_lbl, self.bz_sump)
+        fbz.addRow("Familia:", self.bz_family)
+        fbz.addRow("Tamaño:", self.bz_size)
+        fbz.addRow("Tapa:", self.bz_cover)
+        fbz.addRow("Red:", self.bz_net_lbl)
+        fbz.addRow("Origen:", self.bz_origin_lbl)
+        self.btn_bz_addsize = QtWidgets.QPushButton("➕ Agregar tamaño personalizado…")
+        self.btn_bz_addsize.clicked.connect(self._bz_add_custom_size_current)
+        fbz.addRow("", self.btn_bz_addsize)
+        # Checkbox de etiquetas — entre la lista de buzones (tab) y el panel de propiedades.
+        self.chk_bz_labels = QtWidgets.QCheckBox(
+            "Mostrar etiquetas (código) al lado del buzón en el lienzo y en el DXF exportado")
+        self.chk_bz_labels.setChecked(bool(self.show_bz_labels))
+        def _toggle_bz_labels(v):
+            self.show_bz_labels = bool(v); self._redraw()
+        self.chk_bz_labels.toggled.connect(_toggle_bz_labels)
+        rv.addWidget(self.chk_bz_labels)
+        rv.addWidget(self.gprop_bz)
+        # Mensaje guía cuando estás en la tab Buzones pero no seleccionaste nada.
+        self.lbl_bz_hint = QtWidgets.QLabel(
+            "Haz clic en un buzón de la lista (o en su círculo en el lienzo) para ver y editar sus propiedades.")
+        self.lbl_bz_hint.setWordWrap(True)
+        self.lbl_bz_hint.setStyleSheet("color:#f0d060; padding:8px; background:#333a4a; border-radius:4px;")
+        rv.addWidget(self.lbl_bz_hint)
+        self.gprop_bz.setVisible(False); self.lbl_bz_hint.setVisible(False)
+        self._bz_prop_guard = False                 # evita reentradas al setear valores desde el modelo
         rr = QtWidgets.QGridLayout()
         self.btn_ct = QtWidgets.QPushButton("Cambiar tipo"); self.btn_ct.clicked.connect(self.change_pipe_type)
         self.btn_mv = QtWidgets.QPushButton("Editar/mover"); self.btn_mv.clicked.connect(self.enter_move)
@@ -630,8 +690,10 @@ class Main(QtWidgets.QMainWindow):
             self.set_mode("idle"); self._info("Salió del modo")
 
     def _deselect_all(self):
-        self.sel_pipe = self.sel_leader = self.sel_region = self.sel_text = -1
-        for lst in (self.pipe_list, self.lead_list, self.sleader_list, self.txt_marks_list, self.region_list):
+        self.sel_pipe = self.sel_leader = self.sel_region = self.sel_text = self.sel_bz = -1
+        for lst in (self.pipe_list, self.lead_list, self.sleader_list, self.txt_marks_list, self.region_list,
+                    getattr(self, "bz_list", None)):
+            if lst is None: continue
             lst.blockSignals(True); lst.setCurrentRow(-1); lst.clearSelection(); lst.blockSignals(False)
         if self.mode == "move": self.set_mode("idle")
         self._update_ui(); self._redraw()
@@ -672,6 +734,12 @@ class Main(QtWidgets.QMainWindow):
         ti = self._current_tab()
         self.gtxt.setTitle("Estilo de texto")
         self.gprop.setVisible(ti == TAB_PIPE and self.sel_pipe >= 0)
+        # Panel de propiedades del buzón: visible en tab Buzones (aunque sin selección
+        # se muestra el groupbox con campos deshabilitados para que el user vea que existe).
+        if hasattr(self, "gprop_bz"):
+            self.gprop_bz.setVisible(ti == TAB_BZ)
+        if hasattr(self, "chk_bz_labels"):
+            self.chk_bz_labels.setVisible(ti == TAB_BZ)
         # "En curso": solo mientras hay puntos en curso. gcur ya fue movido a la
         # sección correcta por set_mode; aquí solo habilitamos Finalizar y mostramos.
         active_draw = (m == "pipe" and len(self.cur_pts) >= 1) or (m == "erase" and len(self._erase_pts) >= 1)
@@ -727,8 +795,10 @@ class Main(QtWidgets.QMainWindow):
     # Estos helpers traducen widget↔constante, así el código es robusto ante
     # pestañas ocultas o reordenadas.
     def _tab_map(self):
-        return {self.pipe_list: TAB_PIPE, self.lead_list: TAB_ML, self.sleader_list: TAB_LEADER,
-                self.txt_marks_list: TAB_TEXT, self.region_list: TAB_REGION}
+        m = {self.pipe_list: TAB_PIPE, self.lead_list: TAB_ML, self.sleader_list: TAB_LEADER,
+             self.txt_marks_list: TAB_TEXT, self.region_list: TAB_REGION}
+        if hasattr(self, "bz_list"): m[self.bz_list] = TAB_BZ
+        return m
 
     def _current_tab(self):
         return self._tab_map().get(self.tabs.currentWidget(), TAB_PIPE)
@@ -744,6 +814,7 @@ class Main(QtWidgets.QMainWindow):
         if ti == TAB_ML: self.sel_leader = self._leader_at_row(self.lead_list, self.lead_list.currentRow())
         elif ti == TAB_LEADER: self.sel_leader = self._leader_at_row(self.sleader_list, self.sleader_list.currentRow())
         if self.mode == "move": self.set_mode("idle")   # no seguir editando al cambiar de pestaña
+        if ti == TAB_BZ: self._sync_bz_panel()
         self._update_ui(); self._redraw()
     # Los "toggle_*" alternan entre "modo activo" e "idle" (sin nada activo).
     # Además abren su sección del acordeón para que las opciones sean visibles.
@@ -1034,6 +1105,18 @@ class Main(QtWidgets.QMainWindow):
 
     def _pick(self, x, y):
         thr = 10.0 / max(1e-6, self.canvas.transform().m11())
+        # buzones/intersecciones primero (círculo pequeño): dist ≤ 8 px del centro
+        bz_thr = 8.0 / max(1e-6, self.canvas.transform().m11())
+        best_bz, bd_bz = -1, bz_thr
+        for i, s in enumerate(self.structures):
+            if s.get("world"): continue                 # los importados no se dibujan en el lienzo
+            sx, sy = s.get("x"), s.get("y")
+            if sx is None or sy is None: continue
+            d = math.hypot(x - sx, y - sy)
+            if d < bd_bz: bd_bz, best_bz = d, i
+        if best_bz >= 0:
+            self._no_center = True; self._show_tab(TAB_BZ); self.bz_list.setCurrentRow(best_bz)
+            self._no_center = False; return
         for i, tm in enumerate(self.text_marks):        # textos primero (blancos pequeños)
             if self._text_hit(tm, x, y):
                 self._no_center = True; self._show_tab(TAB_TEXT); self.txt_marks_list.setCurrentRow(i)
@@ -1236,11 +1319,7 @@ class Main(QtWidgets.QMainWindow):
                 mid = pts[len(pts) // 2]; self.canvas.centerOn(mid[0], mid[1])
             self._prop_guard = True
             self.prop_name.setText(p.get("name", ""))
-            # Diámetro (pulg): buscar el tamaño exacto; si el proyecto es viejo y trae
-            # un valor no estándar, seleccionar el estándar más cercano.
-            di = self.prop_diam.findData(float(p.get("diam") or 0))
-            if di < 0: di = self.prop_diam.findData(float(nearest_pipe_diameter(p.get("diam"))))
-            self.prop_diam.setCurrentIndex(di if di >= 0 else 0)
+            # El diámetro se deriva del "Tamaño" del catálogo (elegido más abajo).
             self.prop_part.setText(p.get("part", ""))
             self.prop_inv0.setValue(p.get("inv_start") or 0.0); self.prop_inv1.setValue(p.get("inv_end") or 0.0)
             mi = self.prop_material.findText(p.get("material") or DEFAULT_PIPE_MATERIAL)
@@ -1249,8 +1328,73 @@ class Main(QtWidgets.QMainWindow):
             # con "" | "pipe" | "pressure"; si no encuentra devuelve -1 → índice 0.
             idx = self.prop_nettype.findData(p.get("net_type", "") or "")
             self.prop_nettype.setCurrentIndex(idx if idx >= 0 else 0)
+            self._reload_pipe_families(p)
             self._prop_guard = False
         self._update_ui(); self._redraw()
+
+    def _pipe_net_kind(self, p):
+        """Devuelve 'gravity' | 'pressure' | 'conduit' según la capa del pipe."""
+        from model import network_kind
+        return network_kind(p.get("layer") or "")
+
+    def _reload_pipe_families(self, p):
+        """Repuebla los combos prop_family y prop_size según la capa del pipe y el
+        catálogo Civil 3D seleccionado. Aplica para todos los tipos:
+          - gravity y conduit → catálogo imperial de pipes (PVC/HDPE/DI/concreto/CMP…)
+          - pressure → catálogo AWWA sub-material (Flanged/PushOn/PVC/HDPE/…)"""
+        import civil_catalog as _cc
+        self.prop_family.blockSignals(True); self.prop_family.clear()
+        self.prop_size.blockSignals(True); self.prop_size.clear()
+        kind = self._pipe_net_kind(p)
+        show = kind in ("gravity", "pressure", "conduit") and bool(self.civil_year)
+        self.lbl_prop_family.setVisible(show); self.prop_family.setVisible(show)
+        self.lbl_prop_size.setVisible(show); self.prop_size.setVisible(show)
+        if not show:
+            self.prop_family.blockSignals(False); self.prop_size.blockSignals(False); return
+        fams = (_cc.pressure_pipes(self.civil_year) if kind == "pressure"
+                else _cc.imperial_pipes(self.civil_year))
+        self.prop_family.addItem("(por defecto)", "")
+        for f in fams:
+            idx = self.prop_family.count()
+            self.prop_family.addItem(f"{f['pretty']}  [{f['subfolder']}]", f["id"])
+            img = f.get("img_path")
+            tip = f"<b>{f['pretty']}</b><br><i>{f['subfolder']}</i>"
+            if img: tip += f"<br><img src='file:///{img.replace(chr(92), '/')}' width='220'>"
+            self.prop_family.setItemData(idx, tip, QtCore.Qt.ToolTipRole)
+        cur = p.get("pipe_family", "") or ""
+        for i in range(self.prop_family.count()):
+            if self.prop_family.itemData(i) == cur:
+                self.prop_family.setCurrentIndex(i); break
+        self._load_pipe_sizes(kind, cur, p.get("pipe_size", "") or "")
+        self.prop_family.blockSignals(False); self.prop_size.blockSignals(False)
+
+    def _load_pipe_sizes(self, kind, fid, current):
+        import civil_catalog as _cc
+        self.prop_size.blockSignals(True); self.prop_size.clear()
+        if not fid or not self.civil_year:
+            self.prop_size.addItem("(sin familia)", ""); self.prop_size.setEnabled(False)
+            self.prop_size.blockSignals(False); return
+        sizes = (_cc.pressure_pipe_sizes(self.civil_year, fid) if kind == "pressure"
+                 else _cc.pipe_sizes(self.civil_year, fid))
+        if not sizes:
+            self.prop_size.addItem("(sin tamaños)", ""); self.prop_size.setEnabled(False)
+        else:
+            self.prop_size.setEnabled(True); self.prop_size.addItem("(por defecto)", "")
+            for sz in sizes: self.prop_size.addItem(sz, sz)
+            if current:
+                for i in range(self.prop_size.count()):
+                    if self.prop_size.itemData(i) == current:
+                        self.prop_size.setCurrentIndex(i); break
+        self.prop_size.blockSignals(False)
+
+    def _pipe_family_changed(self, _idx):
+        if self._prop_guard: return
+        if not (0 <= self.sel_pipe < len(self.pipes)): return
+        p = self.pipes[self.sel_pipe]
+        fid = self.prop_family.currentData() or ""
+        p["pipe_family"] = fid; p["pipe_size"] = ""
+        self._load_pipe_sizes(self._pipe_net_kind(p), fid, "")
+        self._dirty = True; self._redraw()
 
     def _leader_at_row(self, lst, r):
         """Índice real en self.leaders del item de la fila r (o -1)."""
@@ -1395,21 +1539,24 @@ class Main(QtWidgets.QMainWindow):
         if self._current_tab() == TAB_PIPE and 0 <= self.sel_pipe < len(self.pipes):
             p = self.pipes[self.sel_pipe]; self._push()
             p["name"] = self.prop_name.text().strip()
-            p["diam"] = float(self.prop_diam.currentData() or 0)         # SIEMPRE en pulgadas
             p["diam_unit"] = "in"                                        # el diámetro nunca va en pies
             p["unit"] = self.work_unit                                  # unidad de trabajo (coords/cotas)
             p["part"] = self.prop_part.text().strip()
             p["inv_start"] = self.prop_inv0.value(); p["inv_end"] = self.prop_inv1.value()
             p["material"] = self.prop_material.currentText()
-            # currentData devuelve el "dato oculto" del ítem seleccionado del combo
-            # (asignado con addItem(texto, dato)). "" = auto; "pipe"/"pressure" = override.
             p["net_type"] = self.prop_nettype.currentData() or ""
+            # Familia + tamaño del catálogo Civil 3D. El diámetro se deriva del tamaño.
+            if self.prop_family.isVisible():
+                p["pipe_family"] = self.prop_family.currentData() or ""
+                p["pipe_size"] = self.prop_size.currentData() or "" if self.prop_size.isEnabled() else ""
+            # p["diam"] se calcula del pipe_size (p.ej. "24 in" → 24.0). Sin tamaño → 0.
+            p["diam"] = _extract_diam_from_size(p.get("pipe_size", ""))
             self._refresh_lists()
 
     def _refresh_unit_labels(self):
         """Etiquetas de campo fijas: cotas en PIES, diámetro en PULGADAS.
         (Ya no hay selector de unidad; todo va por campo.)"""
-        if hasattr(self, "lbl_prop_diam"): self.lbl_prop_diam.setText("Diámetro (pulg):")
+        # (Diámetro se muestra vía combo de tamaño del catálogo, no necesita etiqueta aquí)
         if hasattr(self, "lbl_prop_inv0"): self.lbl_prop_inv0.setText("Elev. de rasante inicial (ft):")
         if hasattr(self, "lbl_prop_inv1"): self.lbl_prop_inv1.setText("Elev. de rasante final (ft):")
 
@@ -1526,6 +1673,16 @@ class Main(QtWidgets.QMainWindow):
             it.setCheckState(QtCore.Qt.Checked if rg.get("enabled", True) else QtCore.Qt.Unchecked)
             it.setForeground(QtGui.QColor("white")); self.region_list.addItem(it)
         self.region_list.blockSignals(False)
+        # Refrescar tab Buzones + panel de propiedades del buzón seleccionado.
+        self._rebuild_structures()
+        self.bz_list.blockSignals(True); self.bz_list.clear()
+        for i, s in enumerate(self.structures, 1):
+            fam = s.get("part") or "(sin familia)"
+            sz = f"  {s['part_size']}" if s.get("part_size") else ""
+            it = QtWidgets.QListWidgetItem(f"🔵 {s.get('cod', '?')}  ·  {fam}{sz}")
+            self.bz_list.addItem(it)
+        self.bz_list.blockSignals(False)
+        self._sync_bz_panel()
 
     # ─────────────────────────── borrar zona ───────────────────────────
     def finish_erase(self):
@@ -1731,13 +1888,16 @@ class Main(QtWidgets.QMainWindow):
                         return layer_qcolor(p["layer"])
             return QtGui.QColor(180, 180, 180)     # buzón sin pipe cercano (raro)
         pen = QtGui.QPen(QtGui.QColor(255, 255, 255), 1.2); pen.setCosmetic(True)
+        pen_sel = QtGui.QPen(QtGui.QColor(255, 220, 40), 2.5); pen_sel.setCosmetic(True)
         R = 6.0                                     # radio en px (independiente del zoom por _cosmetic pen)
-        for s in self.structures:
+        for i, s in enumerate(self.structures):
             sx, sy = s.get("x"), s.get("y")
             if sx is None or sy is None: continue
             if s.get("world"): continue             # los importados (Excel) están en coord mundo, no lienzo
             col = _color_for(s); brush = QtGui.QBrush(col)
-            it = sc.addEllipse(sx - R, sy - R, 2 * R, 2 * R, pen, brush)
+            use_pen = pen_sel if i == getattr(self, "sel_bz", -1) else pen
+            r_use = R + 1.5 if i == getattr(self, "sel_bz", -1) else R
+            it = sc.addEllipse(sx - r_use, sy - r_use, 2 * r_use, 2 * r_use, use_pen, brush)
             it.setZValue(Z_MARK + 1); self._overlay.append(it)
             if self.show_bz_labels and s.get("cod"):
                 t = sc.addText(s["cod"]); t.setDefaultTextColor(QtGui.QColor(180, 180, 180))
@@ -1958,252 +2118,195 @@ class Main(QtWidgets.QMainWindow):
         for pi, p in enumerate(self.pipes):
             pts = p.get("pts")
             if not pts or len(pts) < 2: continue    # tramos importados de Excel (world) no editables
+            if p.get("layer") not in GRAVITY_LAYERS: continue    # solo pipes de gravedad admiten buzones
             for idx, a, b in self._segments(pts, False):
                 d = G.pt_seg_dist(x, y, a[0], a[1], b[0], b[1])
                 if d < best[2]: best = (pi, idx, d)
         if best[0] is None:
-            self._info("Ningún trazo cerca del clic. Vuelve a intentar más cerca de la línea.")
-            return
+            self._info("Los buzones solo se insertan en redes por gravedad (alcantarillado/drenaje).")
+            self.set_mode("idle"); return
         self._push()
         pi, si, _ = best
         self.pipes[pi]["pts"].insert(si + 1, (x, y))
         self._rebuild_structures()
         self._refresh_lists(); self._redraw()
-        self._info("Buzón insertado. Edítalo desde Herramientas → Gestionar buzones.")
+        self._info("Buzón insertado. Edítalo en la tab Buzones.")
         self.set_mode("idle")
 
     def _rebuild_structures(self):
         """Detecta buzones por los VÉRTICES (extremos + intermedios) de las tuberías
-        dibujadas. Los de pipes de gravedad se marcan net='gravity'; los de presión
-        (agua/gas) net='pressure' — el plugin C# los tratará como appurtenance. Preserva
-        ediciones (cod/rim/sump/part/covered/net) por coincidencia de coordenada. Los
-        buzones importados de Excel (world) se conservan aparte."""
+        de GRAVEDAD dibujadas (SS/SD). Por criterio de ingeniería civil, las redes
+        de presión (agua, gas) y conduit (eléctrico, telecom) NO llevan buzones
+        automáticos en cada vértice — sus accesorios se colocan manualmente.
+        Preserva ediciones (cod/rim/sump/part/part_size/covered) por coincidencia
+        de coordenada. Los buzones importados de Excel (world) se conservan aparte."""
         tol = 14.0
         def near(a, b): return math.hypot(a[0] - b[0], a[1] - b[1]) <= tol
-        old = [s for s in self.structures if not s.get("world")]
+        # Descarta cualquier buzón espurio guardado de versiones previas cuya net no
+        # sea gravity (p.ej. proyectos viejos con nodos de agua/eléctrico).
+        old = [s for s in self.structures
+               if not s.get("world") and (s.get("net") or "gravity") == "gravity"]
         world = [s for s in self.structures if s.get("world")]
         detected = []
         for p in self.pipes:
             if p.get("world"): continue
+            if p.get("layer") not in GRAVITY_LAYERS: continue      # solo gravedad
             pts = p.get("pts")
             if not pts or len(pts) < 2: continue
-            net = "gravity" if p.get("layer") in GRAVITY_LAYERS else "pressure"
             for pt in pts:                              # todos los vértices (extremos + intermedios)
                 if not any(near(pt, (s["x"], s["y"])) for s in detected):
                     detected.append({"cod": "", "x": pt[0], "y": pt[1], "rim": None,
-                                     "sump": None, "part": "", "net": net,
-                                     "covered": True, "world": False})
+                                     "sump": None, "part": "", "part_size": "",
+                                     "net": "gravity", "covered": True, "world": False})
         for s in detected:                                 # reasigna ediciones previas por coordenada
             for o in old:
                 if near((s["x"], s["y"]), (o.get("x", -1e9), o.get("y", -1e9))):
                     s.update(cod=o.get("cod", ""), rim=o.get("rim"), sump=o.get("sump"),
-                             part=o.get("part", ""), net=o.get("net") or s["net"],
+                             part=o.get("part", ""), part_size=o.get("part_size", ""),
                              covered=bool(o.get("covered", True))); break
-        # Contadores separados por tipo de red: BZ- para gravedad, NODO- para presión.
+        # Códigos únicos: BZ-N (todos los buzones son de gravedad).
         used = {s.get("cod", "") for s in world + detected if s.get("cod")}
-        ng = np_ = 1
+        n = 1
         for s in detected:
             if s.get("cod"): continue
-            prefix = "NODO-" if s.get("net") == "pressure" else "BZ-"
-            while True:
-                cod = f"{prefix}{np_ if prefix == 'NODO-' else ng}"
-                if cod not in used: break
-                if prefix == "NODO-": np_ += 1
-                else: ng += 1
-            s["cod"] = cod; used.add(cod)
-            if prefix == "NODO-": np_ += 1
-            else: ng += 1
+            while f"BZ-{n}" in used: n += 1
+            s["cod"] = f"BZ-{n}"; used.add(s["cod"]); n += 1
         self.structures = world + detected; self._dirty = True
 
-    def manage_structures(self):
-        import civil_catalog as _cc
-        self._rebuild_structures()
-        dlg = QtWidgets.QDialog(self); dlg.setWindowTitle("Buzones / nudos"); dlg.resize(920, 520)
-        lay = QtWidgets.QVBoxLayout(dlg)
-        lay.addWidget(QtWidgets.QLabel(
-            "Buzones (BZ-*) y nodos (NODO-*) detectados por los vértices de las tuberías. "
-            "Edita código, rim, sump, familia y tapa. Los códigos deben ser únicos."))
-
-        # Encabezado: checkbox global de etiquetas + botón agregar tamaño.
-        head = QtWidgets.QHBoxLayout()
-        chk_lbl = QtWidgets.QCheckBox("Mostrar etiquetas (código de buzón) en el lienzo y en el DXF exportado")
-        chk_lbl.setChecked(bool(self.show_bz_labels))
-        def _toggle_labels(v):
-            self.show_bz_labels = bool(v); self._redraw()
-        chk_lbl.toggled.connect(_toggle_labels)
-        head.addWidget(chk_lbl); head.addStretch(1)
-        btn_add_size = QtWidgets.QPushButton("➕ Agregar tamaño personalizado…")
-        btn_add_size.setToolTip("Agrega un tamaño nuevo al catálogo Civil 3D de la familia\n"
-                                "seleccionada en la fila actual (solo gravedad).")
-        head.addWidget(btn_add_size)
-        lay.addLayout(head)
-
-        # Catálogos según versión Civil 3D seleccionada.
-        fams_g = _cc.imperial_structures(self.civil_year) if self.civil_year else []
-        fams_p = _cc.pressure_families(self.civil_year) if self.civil_year else []
-        if fams_g or fams_p:
-            lay.addWidget(QtWidgets.QLabel(
-                f"Catálogo Civil 3D {self.civil_year}: {len(fams_g)} estructura(s) de gravedad, "
-                f"{len(fams_p)} accesorio(s) de presión. Pasa el cursor sobre una opción para ver la miniatura."))
-        elif self.civil_year:
-            lay.addWidget(QtWidgets.QLabel(
-                f"⚠ Catálogo Civil 3D {self.civil_year} no encontrado. Cambia la versión en la barra superior."))
+    # ── Tab Buzones: selección, panel de propiedades y edición ──────────────
+    def _sel_bz(self, row):
+        """La selección en la lista de buzones cambió: sincroniza panel + canvas."""
+        if row < 0 or row >= len(self.structures):
+            self.sel_bz = -1
         else:
-            lay.addWidget(QtWidgets.QLabel(
-                "⚠ No hay ninguna versión de Civil 3D instalada. La columna 'Familia' queda como texto libre."))
-
-        tbl = QtWidgets.QTableWidget(len(self.structures), 8)
-        tbl.setHorizontalHeaderLabels(
-            ["Cod", f"rim ({self.work_unit})", f"sump ({self.work_unit})",
-             "Familia", "Tamaño", "Tapa", "Red", "origen"])
-        tbl.horizontalHeader().setStretchLastSection(True)
-        tbl.setColumnWidth(3, 320); tbl.setColumnWidth(4, 130)
-
-        def setc(r, c, text, editable=True):
-            it = QtWidgets.QTableWidgetItem("" if text is None else str(text))
-            if not editable: it.setFlags(it.flags() & ~QtCore.Qt.ItemIsEditable)
-            tbl.setItem(r, c, it)
-
-        def _tooltip_for(fam):
-            """HTML de tooltip con miniatura (o solo texto si no hay imagen)."""
-            title = f"<b>{fam['pretty']}</b><br><i>{fam['subfolder']}</i>"
-            img = fam.get("img_path")
-            if img:
-                # Qt admite file:/// en <img>; ancho fijo para uniformizar.
-                url = "file:///" + img.replace("\\", "/")
-                return f"<div>{title}<br><img src='{url}' width='220'></div>"
-            return title
-
-        combos_tapa = []; combos_fam = []; combos_size = []
-
-        def _load_sizes(cbs, net, fid, current):
-            """Repuebla el combo de tamaño según la familia seleccionada. Si no
-            hay familia, queda deshabilitado con placeholder."""
-            cbs.blockSignals(True); cbs.clear()
-            if not fid:
-                cbs.addItem("(sin familia)", ""); cbs.setEnabled(False)
-                cbs.blockSignals(False); return
-            sizes = (_cc.structure_sizes(self.civil_year, fid) if net == "gravity"
-                     else _cc.pressure_sizes(self.civil_year, fid))
-            if not sizes:
-                cbs.addItem("(sin tamaños detectados)", ""); cbs.setEnabled(False)
-            else:
-                cbs.setEnabled(True)
-                cbs.addItem("(por defecto)", "")
-                for sz in sizes: cbs.addItem(sz, sz)
-                if current:
-                    for i in range(cbs.count()):
-                        if cbs.itemData(i) == current: cbs.setCurrentIndex(i); break
-            cbs.blockSignals(False)
-
-        for r, s in enumerate(self.structures):
-            setc(r, 0, s.get("cod", "")); setc(r, 1, s.get("rim")); setc(r, 2, s.get("sump"))
-            net = s.get("net") or "gravity"
-            cat = fams_g if net == "gravity" else fams_p
-
-            # Combo Tamaño (col 4). Se crea siempre, y se habilita/deshabilita según familia.
-            cbs = QtWidgets.QComboBox()
-            tbl.setCellWidget(r, 4, cbs); combos_size.append(cbs)
-
-            if cat:
-                cbf = QtWidgets.QComboBox()
-                cbf.addItem("(por defecto)", "")
-                for f in cat:
-                    idx = cbf.count()
-                    cbf.addItem(f"{f['pretty']}  [{f['subfolder']}]", f["id"])
-                    cbf.setItemData(idx, _tooltip_for(f), QtCore.Qt.ToolTipRole)
-                cur = s.get("part", "") or ""
-                sel = 0
-                for i in range(cbf.count()):
-                    if cbf.itemData(i) == cur: sel = i; break
-                cbf.setCurrentIndex(sel)
-                tbl.setCellWidget(r, 3, cbf); combos_fam.append(cbf)
-
-                # Cargar tamaños iniciales y reaccionar al cambio de familia.
-                _load_sizes(cbs, net, cur, s.get("part_size", "") or "")
-                def _mk_handler(_cbs, _net):
-                    def _on_fam_change(idx):
-                        fid_ = cbf.itemData(idx) if idx >= 0 else ""
-                        _load_sizes(_cbs, _net, fid_, "")
-                    return _on_fam_change
-                cbf.currentIndexChanged.connect(_mk_handler(cbs, net))
-            else:
-                setc(r, 3, s.get("part", "")); combos_fam.append(None)
-                _load_sizes(cbs, net, "", "")
-
-            cb = QtWidgets.QComboBox(); cb.addItems(["Sí", "No"])
-            cb.setCurrentIndex(0 if s.get("covered", True) else 1)
-            tbl.setCellWidget(r, 5, cb); combos_tapa.append(cb)
-            setc(r, 6, "presión" if net == "pressure" else "gravedad", editable=False)
-            setc(r, 7, "Excel" if s.get("world") else "dibujo", editable=False)
-
-        # Al cambiar la fila seleccionada, centrar el lienzo en ese buzón.
-        def _on_row(cur_r, cur_c, prev_r, prev_c):
-            if 0 <= cur_r < len(self.structures):
-                s = self.structures[cur_r]
-                if s.get("world"): return
+            self.sel_bz = row
+            s = self.structures[row]
+            if not s.get("world") and not self._no_center:
                 x, y = s.get("x"), s.get("y")
                 if x is not None and y is not None:
                     self.canvas.centerOn(float(x), float(y))
-        tbl.currentCellChanged.connect(_on_row)
+        self._sync_bz_panel(); self._update_ui(); self._redraw()
 
-        def _add_custom_size():
-            r = tbl.currentRow()
-            if r < 0 or r >= len(self.structures):
-                QtWidgets.QMessageBox.information(dlg, "Selecciona un buzón",
-                    "Haz clic primero en el buzón al que quieres agregar el tamaño."); return
-            s = self.structures[r]
-            if s.get("net") == "pressure":
-                QtWidgets.QMessageBox.information(dlg, "Solo gravedad",
-                    "Agregar tamaños personalizados solo está disponible para buzones de gravedad."); return
-            if combos_fam[r] is None or not self.civil_year:
-                QtWidgets.QMessageBox.information(dlg, "Sin catálogo",
-                    "No hay catálogo Civil 3D disponible."); return
-            fid = combos_fam[r].currentData()
-            if not fid:
-                QtWidgets.QMessageBox.information(dlg, "Sin familia",
-                    "Elige primero una familia del catálogo en la columna 'Familia'."); return
-            self._add_structure_size_dialog(dlg, fid, combos_fam[r], combos_size[r])
-        btn_add_size.clicked.connect(_add_custom_size)
+    def _sync_bz_panel(self):
+        """Carga los valores del buzón self.sel_bz en el panel de propiedades."""
+        if not hasattr(self, "gprop_bz"): return
+        import civil_catalog as _cc
+        self._bz_prop_guard = True
+        try:
+            in_tab = self._current_tab() == TAB_BZ
+            self.gprop_bz.setVisible(in_tab)
+            has_sel = 0 <= self.sel_bz < len(self.structures)
+            # Habilitar/deshabilitar todos los controles del groupbox según haya selección
+            for w in (self.bz_cod, self.bz_rim, self.bz_sump, self.bz_family, self.bz_size,
+                      self.bz_cover, self.btn_bz_addsize):
+                w.setEnabled(has_sel)
+            if not has_sel:
+                self.gprop_bz.setTitle("Propiedades del buzón — selecciona uno de la lista")
+                return
+            self.gprop_bz.setTitle("Propiedades del buzón")
+            s = self.structures[self.sel_bz]
+            # Todos los buzones son de gravedad — presión/conduit no generan buzones automáticos.
+            self.bz_cod.setText(s.get("cod", ""))
+            self.bz_rim.setValue(float(s.get("rim") or 0.0))
+            self.bz_sump.setValue(float(s.get("sump") or 0.0))
+            self.bz_cover.setCurrentIndex(0 if s.get("covered", True) else 1)
+            self.bz_net_lbl.setText("gravedad")
+            self.bz_origin_lbl.setText("Excel" if s.get("world") else "dibujo")
+            # Familias del catálogo imperial de estructuras (gravedad).
+            self.bz_family.blockSignals(True); self.bz_family.clear()
+            fams = _cc.imperial_structures(self.civil_year) if self.civil_year else []
+            self.bz_family.addItem("(por defecto)", "")
+            for f in fams:
+                idx = self.bz_family.count()
+                self.bz_family.addItem(f"{f['pretty']}  [{f['subfolder']}]", f["id"])
+                img = f.get("img_path")
+                tip = f"<b>{f['pretty']}</b><br><i>{f['subfolder']}</i>"
+                if img:
+                    tip += f"<br><img src='file:///{img.replace(chr(92), '/')}' width='220'>"
+                self.bz_family.setItemData(idx, tip, QtCore.Qt.ToolTipRole)
+            cur_fid = s.get("part", "") or ""
+            for i in range(self.bz_family.count()):
+                if self.bz_family.itemData(i) == cur_fid:
+                    self.bz_family.setCurrentIndex(i); break
+            self.bz_family.blockSignals(False)
+            self._load_bz_sizes(cur_fid, s.get("part_size", "") or "")
+            self.btn_bz_addsize.setEnabled(bool(cur_fid))
+        finally:
+            self._bz_prop_guard = False
 
-        lay.addWidget(tbl)
-        bb = QtWidgets.QDialogButtonBox(QtWidgets.QDialogButtonBox.Ok | QtWidgets.QDialogButtonBox.Cancel)
-        bb.accepted.connect(dlg.accept); bb.rejected.connect(dlg.reject); lay.addWidget(bb)
-        if dlg.exec() != QtWidgets.QDialog.Accepted:
-            self._redraw(); return
+    def _load_bz_sizes(self, fid, current):
+        """Repuebla self.bz_size según la familia (siempre catálogo de gravedad)."""
+        import civil_catalog as _cc
+        self.bz_size.blockSignals(True); self.bz_size.clear()
+        if not fid or not self.civil_year:
+            self.bz_size.addItem("(sin familia)", ""); self.bz_size.setEnabled(False)
+            self.bz_size.blockSignals(False); return
+        sizes = _cc.structure_sizes(self.civil_year, fid)
+        if not sizes:
+            self.bz_size.addItem("(sin tamaños detectados)", ""); self.bz_size.setEnabled(False)
+        else:
+            self.bz_size.setEnabled(True); self.bz_size.addItem("(por defecto)", "")
+            for sz in sizes: self.bz_size.addItem(sz, sz)
+            if current:
+                for i in range(self.bz_size.count()):
+                    if self.bz_size.itemData(i) == current:
+                        self.bz_size.setCurrentIndex(i); break
+        self.bz_size.blockSignals(False)
 
-        def fnum(t):
-            try: return float(t)
-            except (TypeError, ValueError): return None
-        # Validación de duplicados antes de commitear.
-        new_cods = [(tbl.item(r, 0).text().strip() if tbl.item(r, 0) else "") for r in range(len(self.structures))]
-        seen = {}
-        dups = []
-        for i, c in enumerate(new_cods):
-            if not c: continue
-            if c in seen: dups.append(c)
-            else: seen[c] = i
-        if dups:
-            QtWidgets.QMessageBox.warning(self, "Códigos repetidos",
-                "Los siguientes códigos están duplicados; corrígelos antes de guardar:\n\n  · " +
-                "\n  · ".join(sorted(set(dups))))
-            return
-
-        self._push()
-        for r, s in enumerate(self.structures):
-            if tbl.item(r, 0): s["cod"] = tbl.item(r, 0).text().strip()
-            s["rim"] = fnum(tbl.item(r, 1).text() if tbl.item(r, 1) else None)
-            s["sump"] = fnum(tbl.item(r, 2).text() if tbl.item(r, 2) else None)
-            if combos_fam[r] is not None:
-                s["part"] = combos_fam[r].currentData() or ""
-            elif tbl.item(r, 3):
-                s["part"] = tbl.item(r, 3).text().strip()
-            # Tamaño: solo se guarda si el combo está habilitado y no es placeholder.
-            csz = combos_size[r]
-            s["part_size"] = (csz.currentData() or "") if csz.isEnabled() else ""
-            s["covered"] = (combos_tapa[r].currentIndex() == 0)
+    def _bz_family_changed(self, _idx):
+        if self._bz_prop_guard: return
+        if not (0 <= self.sel_bz < len(self.structures)): return
+        s = self.structures[self.sel_bz]
+        fid = self.bz_family.currentData() or ""
+        s["part"] = fid; s["part_size"] = ""      # al cambiar familia se resetea el tamaño
+        self._load_bz_sizes(fid, "")
+        self.btn_bz_addsize.setEnabled(bool(fid))
+        self._dirty = True
+        self._refresh_bz_list_item(self.sel_bz)
         self._redraw()
-        self._info(f"{len(self.structures)} buzones guardados.")
+
+    def _bz_prop_changed(self):
+        if self._bz_prop_guard: return
+        if not (0 <= self.sel_bz < len(self.structures)): return
+        s = self.structures[self.sel_bz]
+        cod_new = self.bz_cod.text().strip()
+        if cod_new and cod_new != s.get("cod", ""):
+            # Validar unicidad
+            if any(o.get("cod") == cod_new for i, o in enumerate(self.structures) if i != self.sel_bz):
+                QtWidgets.QMessageBox.warning(self, "Código repetido",
+                    f"Ya existe un buzón con código '{cod_new}'. Elige otro.")
+                self._bz_prop_guard = True; self.bz_cod.setText(s.get("cod", "")); self._bz_prop_guard = False
+                return
+            s["cod"] = cod_new
+        s["rim"] = float(self.bz_rim.value()) if self.bz_rim.value() != 0.0 else s.get("rim")
+        s["sump"] = float(self.bz_sump.value()) if self.bz_sump.value() != 0.0 else s.get("sump")
+        # Si el usuario dejó los spins en 0.0 pero el valor original era 0 o None, respetar 0.
+        s["rim"] = float(self.bz_rim.value()); s["sump"] = float(self.bz_sump.value())
+        if self.bz_size.isEnabled():
+            s["part_size"] = self.bz_size.currentData() or ""
+        s["covered"] = (self.bz_cover.currentIndex() == 0)
+        self._dirty = True
+        self._refresh_bz_list_item(self.sel_bz)
+        self._redraw()
+
+    def _refresh_bz_list_item(self, row):
+        if not (0 <= row < len(self.structures)): return
+        s = self.structures[row]
+        fam = s.get("part") or "(sin familia)"
+        sz = f"  {s['part_size']}" if s.get("part_size") else ""
+        item = self.bz_list.item(row)
+        if item: item.setText(f"🔵 {s.get('cod', '?')}  ·  {fam}{sz}")
+
+    def _bz_add_custom_size_current(self):
+        if not (0 <= self.sel_bz < len(self.structures)): return
+        s = self.structures[self.sel_bz]
+        fid = s.get("part") or ""
+        if not fid:
+            QtWidgets.QMessageBox.information(self, "Sin familia",
+                "Elige primero una familia para agregarle un tamaño."); return
+        self._add_structure_size_dialog(self, fid, self.bz_family, self.bz_size)
+        # Después de agregar, guardo el nuevo tamaño en el buzón actual.
+        self._bz_prop_changed()
 
     def _add_structure_size_dialog(self, parent, fid, cbf, cbs):
         """Abre un diálogo con un campo por cada parámetro de la familia (leído del

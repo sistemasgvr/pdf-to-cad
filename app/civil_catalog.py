@@ -35,6 +35,14 @@ STRUCTURE_SUBFOLDERS = (
     "Simple Shapes",
 )
 
+# Subcarpetas dentro de "US Imperial Pipes" que contienen los .xml de tubería.
+PIPE_SUBFOLDERS = (
+    "Circular Pipes",
+    "Egg-Shaped Pipes",
+    "Elliptical Pipes",
+    "Rectangular Pipes",
+)
+
 # Tablas relevantes dentro de cada .sqlite del catálogo de presión.
 PRESSURE_TABLES = (
     "WA_APPURTENANCE_MODEL",
@@ -65,6 +73,14 @@ def catalog_root(year):
     r = _lang_root(year)
     if r is None: return None
     p = os.path.join(r, "Pipes Catalog", "US Imperial Structures")
+    return p if os.path.isdir(p) else None
+
+
+def pipes_root(year):
+    """Carpeta 'US Imperial Pipes' de la versión indicada, o None."""
+    r = _lang_root(year)
+    if r is None: return None
+    p = os.path.join(r, "Pipes Catalog", "US Imperial Pipes")
     return p if os.path.isdir(p) else None
 
 
@@ -290,6 +306,79 @@ def pressure_sizes(year, fid):
     return [_pretty(s) for s in raw]
 
 
+def imperial_pipes(year):
+    """Familias del catálogo imperial de tuberías (para pipes de gravedad).
+    Cada elemento es dict con id/pretty/subfolder/img_path/kind='pipe'."""
+    root = pipes_root(year)
+    if root is None: return []
+    out = []
+    for sub in PIPE_SUBFOLDERS:
+        d = os.path.join(root, sub)
+        if not os.path.isdir(d): continue
+        for fn in sorted(os.listdir(d)):
+            if not fn.lower().endswith(".xml"): continue
+            fid = os.path.splitext(fn)[0]
+            bmp = os.path.join(d, fid + ".bmp")
+            out.append({
+                "id": fid,
+                "pretty": _pretty_from_filename(fn),
+                "subfolder": sub,
+                "img_path": bmp if os.path.isfile(bmp) else None,
+                "kind": "pipe",
+            })
+    return out
+
+
+def pipe_family_xml(year, fid):
+    """Ruta absoluta al .xml de la familia de tubería (o None)."""
+    root = pipes_root(year)
+    if root is None: return None
+    for sub in PIPE_SUBFOLDERS:
+        p = os.path.join(root, sub, fid + ".xml")
+        if os.path.isfile(p): return p
+    return None
+
+
+def pipe_sizes(year, fid):
+    """Tamaños disponibles de una familia de tubería. Los XML de pipes usan
+    <Column>/<Row> (a diferencia de las estructuras que usan ColumnConstList/Item).
+    Busca el diámetro interior (PID / PipeInnerDiameter) o el primer parámetro
+    con filas disponibles."""
+    path = pipe_family_xml(year, fid)
+    if path is None: return []
+    try:
+        tree = ET.parse(path); root_el = tree.getroot()
+    except ET.ParseError:
+        return []
+    preferred_contexts = ("PipeInnerDiameter", "PipeOuterDiameter",
+                          "PipeInnerHeight", "PipeInnerWidth")
+    def _fmt(v, unit):
+        try: x = float(v)
+        except (TypeError, ValueError): return str(v)
+        u = (unit or "").lower()
+        u = "in" if u in ("inch", "in", "\"") else ("ft" if u in ("foot", "feet", "ft", "'") else u)
+        s = f"{x:.4f}".rstrip("0").rstrip(".")
+        return f"{s} {u}" if u else s
+    def _extract(col, row_tag):
+        unit = col.get("unit", "")
+        vals = [it.text for it in col.findall(row_tag) if it.text]
+        seen, out = set(), []
+        for v in vals:
+            s = _fmt(v, unit)
+            if s in seen: continue
+            seen.add(s); out.append(s)
+        return out
+    for ctx in preferred_contexts:
+        for col in root_el.findall("Column"):
+            if col.get("context") == ctx:
+                sizes = _extract(col, "Row")
+                if sizes: return sizes
+    for col in root_el.findall("Column"):
+        sizes = _extract(col, "Row")
+        if sizes: return sizes
+    return []
+
+
 def imperial_structures(year):
     """Familias del catálogo imperial de estructuras (buzones de gravedad).
     Cada elemento es dict con id/pretty/subfolder/img_path/kind."""
@@ -317,6 +406,84 @@ def _pretty_pressure(family_name):
     """Convierte 'reducer (conc)-flanged-ductile iron-150 psi' → title case."""
     if not family_name: return "(sin nombre)"
     return family_name.strip()
+
+
+def pressure_pipes(year):
+    """Familias de TUBERÍAS de presión del catálogo por sub-material (WA_PIPE_MODEL).
+    Devuelve la misma estructura de dict que imperial_pipes/pressure_families."""
+    root = pressure_root(year)
+    if root is None: return []
+    out = []
+    for fn in sorted(os.listdir(root)):
+        if not fn.lower().endswith(".sqlite"): continue
+        subcat = os.path.splitext(fn)[0]
+        db_path = os.path.join(root, fn)
+        img_dir = os.path.join(root, subcat, "IMG")
+        try:
+            conn = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True); c = conn.cursor()
+        except Exception:
+            continue
+        try:
+            try:
+                c.execute(
+                    "SELECT PART_FAMILY_NAME, MIN(PART_FAMILY_ID) FROM WA_PIPE_MODEL "
+                    "WHERE PART_FAMILY_NAME IS NOT NULL "
+                    "GROUP BY PART_FAMILY_NAME ORDER BY PART_FAMILY_NAME"
+                )
+            except sqlite3.Error:
+                continue
+            for fam_name, fam_id in c.fetchall():
+                if not fam_name: continue
+                img = None
+                if fam_id:
+                    p = os.path.join(img_dir, f"{fam_id}.png")
+                    if os.path.isfile(p): img = p
+                out.append({
+                    "id": f"{subcat}|{fam_name}",
+                    "pretty": fam_name.strip(),
+                    "subfolder": subcat,
+                    "img_path": img,
+                    "kind": "pressure_pipe",
+                })
+        finally:
+            conn.close()
+    return out
+
+
+def pressure_pipe_sizes(year, fid):
+    """DIAMETER_NOMINAL únicos de una familia de tubería de presión."""
+    if "|" not in (fid or ""): return []
+    subcat, fam_name = fid.split("|", 1)
+    root = pressure_root(year)
+    if root is None: return []
+    db_path = os.path.join(root, subcat + ".sqlite")
+    if not os.path.isfile(db_path): return []
+    try:
+        conn = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True); c = conn.cursor()
+    except Exception:
+        return []
+    raw = []
+    try:
+        try:
+            c.execute(
+                "SELECT DISTINCT DIAMETER_NOMINAL FROM WA_PIPE_MODEL "
+                "WHERE PART_FAMILY_NAME=? AND DIAMETER_NOMINAL IS NOT NULL",
+                (fam_name,)
+            )
+        except sqlite3.Error:
+            return []
+        for (dn,) in c.fetchall():
+            if dn and dn not in raw: raw.append(dn)
+    finally:
+        conn.close()
+    def _key(s):
+        m = re.match(r"\s*(\d+(?:\.\d+)?)", str(s))
+        return float(m.group(1)) if m else 1e9
+    raw.sort(key=_key)
+    def _pretty(s):
+        s = str(s).strip()
+        return f"{s} in" if re.fullmatch(r"\d+(?:\.\d+)?", s) else s
+    return [_pretty(s) for s in raw]
 
 
 def pressure_families(year):

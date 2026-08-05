@@ -667,21 +667,36 @@ namespace Civil3DBasico
         {
             familyId = ObjectId.Null; sizeId = ObjectId.Null; nombre = "";
             string mN = Norm(material), dN = Norm(diam);
+            // Si el "material" pedido es en realidad un catalogId (Aecc...), usa el
+            // matcher CamelCase que sabe traducir EN↔ES (mismo que BuscarEstructura).
+            bool esCatalogId = !string.IsNullOrEmpty(material) &&
+                               material.StartsWith("Aecc", StringComparison.OrdinalIgnoreCase);
             foreach (ObjectId fid in partsList.GetPartFamilyIdsByDomain(CivilDB.DomainType.Pipe))
             {
                 PartsStyles.PartFamily fam = tr.GetObject(fid, OpenMode.ForRead) as PartsStyles.PartFamily;
                 if (fam == null || fam.PartSizeCount == 0) continue;
-                if (mN.Length > 0 && (fam.Description == null || !Norm(fam.Description).Contains(mN))) continue;
-                for (int i = 0; i < fam.PartSizeCount; i++)
+                bool famMatch;
+                if (esCatalogId)
+                    famMatch = fam.Description != null && MatchCatalogId(material, fam.Description);
+                else
+                    famMatch = mN.Length == 0 || (fam.Description != null && Norm(fam.Description).Contains(mN));
+                if (!famMatch) continue;
+                // Tamaño: coincidencia por primer token del PartSize.Name, o "contains" si no matchea exacto.
+                ObjectId sizeElegido = fam[0];
+                string sizeNombre = (tr.GetObject(sizeElegido, OpenMode.ForRead) as PartsStyles.PartSize)?.Name;
+                if (dN.Length > 0)
                 {
-                    PartsStyles.PartSize sz = tr.GetObject(fam[i], OpenMode.ForRead) as PartsStyles.PartSize;
-                    string prim = (sz?.Name ?? "").Split(' ')[0];
-                    if (dN.Length == 0 || Norm(prim) == dN)
+                    for (int i = 0; i < fam.PartSizeCount; i++)
                     {
-                        familyId = fid; sizeId = fam[i]; nombre = $"{fam.Description} / {sz?.Name}";
-                        return true;
+                        PartsStyles.PartSize sz = tr.GetObject(fam[i], OpenMode.ForRead) as PartsStyles.PartSize;
+                        string sn = Norm(sz?.Name ?? "");
+                        if (sn == dN || sn.Contains(dN))
+                        { sizeElegido = fam[i]; sizeNombre = sz?.Name; break; }
                     }
                 }
+                familyId = fid; sizeId = sizeElegido;
+                nombre = $"{fam.Description} / {sizeNombre}";
+                return true;
             }
             return false;
         }
@@ -699,7 +714,26 @@ namespace Civil3DBasico
             {
                 PartsStyles.PartFamily fam = tr.GetObject(fid, OpenMode.ForRead) as PartsStyles.PartFamily;
                 if (fam == null || fam.PartSizeCount == 0) continue;
-                if (fam.Description != null && fam.Description.IndexOf("Null", StringComparison.OrdinalIgnoreCase) >= 0) continue;
+                string descBz = fam.Description ?? "";
+                // Descartar Null/nula + no-buzones (headwall/embocadura/sección final/ala) EN/ES.
+                if (descBz.IndexOf("Null", StringComparison.OrdinalIgnoreCase) >= 0 ||
+                    descBz.IndexOf("nula", StringComparison.OrdinalIgnoreCase) >= 0 ||
+                    descBz.IndexOf("Headwall", StringComparison.OrdinalIgnoreCase) >= 0 ||
+                    descBz.IndexOf("Embocadura", StringComparison.OrdinalIgnoreCase) >= 0 ||
+                    descBz.IndexOf("End Section", StringComparison.OrdinalIgnoreCase) >= 0 ||
+                    descBz.IndexOf("Sección final", StringComparison.OrdinalIgnoreCase) >= 0 ||
+                    descBz.IndexOf("seccion final", StringComparison.OrdinalIgnoreCase) >= 0 ||
+                    descBz.IndexOf("Flared", StringComparison.OrdinalIgnoreCase) >= 0 ||
+                    descBz.IndexOf("acampanada", StringComparison.OrdinalIgnoreCase) >= 0 ||
+                    descBz.IndexOf("Winged", StringComparison.OrdinalIgnoreCase) >= 0 ||
+                    descBz.IndexOf("en ala", StringComparison.OrdinalIgnoreCase) >= 0 ||
+                    descBz.IndexOf("de ala", StringComparison.OrdinalIgnoreCase) >= 0 ||
+                    descBz.IndexOf("aleta", StringComparison.OrdinalIgnoreCase) >= 0 ||
+                    descBz.IndexOf("Culvert", StringComparison.OrdinalIgnoreCase) >= 0 ||
+                    descBz.IndexOf("O.D.T.", StringComparison.OrdinalIgnoreCase) >= 0 ||
+                    descBz.IndexOf("alcantarilla", StringComparison.OrdinalIgnoreCase) >= 0 ||
+                    descBz.IndexOf("cabecero", StringComparison.OrdinalIgnoreCase) >= 0 ||
+                    descBz.IndexOf("cabezal", StringComparison.OrdinalIgnoreCase) >= 0) continue;
 
                 // elegir tamaño por 'radio' (o el primero)
                 ObjectId elegidoSize = fam[0];
@@ -726,6 +760,10 @@ namespace Civil3DBasico
 
         private static string Norm(string s) => (s ?? "").Replace(" ", "").Replace(",", "").ToLowerInvariant();
 
+        // Wrapper público para que ImportarRed pueda usar el mismo matcher.
+        public static bool MatchCatalogIdPublic(string catalogId, string description)
+            => MatchCatalogId(catalogId, description);
+
         // Compara un identificador del catálogo (basename de archivo .xml, ej
         // "AeccStructConcentricCylinderRectFrame_Imperial") contra la Description
         // real de una PartFamily. Extrae tokens del CamelCase del basename y los
@@ -740,27 +778,59 @@ namespace Civil3DBasico
             if (s.EndsWith("_Imperial", StringComparison.OrdinalIgnoreCase))
                 s = s.Substring(0, s.Length - "_Imperial".Length);
 
+            // Exclusión "sin marco / without frame": si el catalogId NO tiene NF ni
+            // WithoutFrame, entonces las descripciones que lleven "sin marco" /
+            // "without frame" NO pueden matchear (evita que Concentric+Rect+Frame
+            // caiga a "concéntrica sin marco" solo porque "marco" ⊂ "sin marco").
+            bool pedidoSinMarco = s.IndexOf("NF", StringComparison.Ordinal) >= 0 ||
+                                  s.IndexOf("WithoutFrame", StringComparison.OrdinalIgnoreCase) >= 0;
+            string descLow = description.ToLowerInvariant();
+            if (!pedidoSinMarco &&
+                (descLow.Contains("sin marco") || descLow.Contains("without frame"))) return false;
+
             // Split CamelCase (y por '_') en tokens.
             var raw = System.Text.RegularExpressions.Regex.Split(
                 s, @"(?<!^)(?=[A-Z][a-z])|(?<=[a-z])(?=[A-Z])|(?<=[A-Z])(?=[A-Z][a-z])|_");
             var tokens = new List<string[]>();
+            int rawCount = 0;
             foreach (var r in raw)
             {
                 if (string.IsNullOrWhiteSpace(r)) continue;
+                rawCount++;
                 var opts = SinonimosCatalogo(r);
                 if (opts != null && opts.Length > 0) tokens.Add(opts);
             }
+            // Requerir al menos 2 tokens específicos (evita match débil como "rect"
+            // en "Sección final rectangular"). Excepción: si el catalogId completo
+            // se descompone en 1 solo token, aceptar ese.
             if (tokens.Count == 0) return false;
+            if (tokens.Count == 1 && rawCount >= 2) return false;
 
-            string desc = description.ToLowerInvariant();
+            string desc = StripAcentos(description.ToLowerInvariant());
             foreach (var opts in tokens)
             {
                 bool alguno = false;
                 foreach (var op in opts)
-                    if (desc.IndexOf(op, StringComparison.OrdinalIgnoreCase) >= 0) { alguno = true; break; }
+                    if (desc.IndexOf(StripAcentos(op.ToLowerInvariant()),
+                                     StringComparison.OrdinalIgnoreCase) >= 0)
+                    { alguno = true; break; }
                 if (!alguno) return false;
             }
             return true;
+        }
+
+        // Quita diacríticos: 'á' → 'a', 'ñ' → 'n', etc. Necesario para que el
+        // matcher del catálogo compare correctamente ES vs EN (p.ej. "cilíndrica"
+        // vs "cilindr"). System.Globalization + FormD descompone y filtra marcas.
+        private static string StripAcentos(string s)
+        {
+            if (string.IsNullOrEmpty(s)) return s;
+            var d = s.Normalize(System.Text.NormalizationForm.FormD);
+            var sb = new System.Text.StringBuilder(d.Length);
+            foreach (var c in d)
+                if (System.Globalization.CharUnicodeInfo.GetUnicodeCategory(c)
+                    != System.Globalization.UnicodeCategory.NonSpacingMark) sb.Append(c);
+            return sb.ToString();
         }
 
         // Cada token del catálogo (EN) mapea a una lista de sinónimos que TAMBIÉN
@@ -774,8 +844,8 @@ namespace Civil3DBasico
                 case "eccentric":   return new[] { "eccentric", "excéntric", "excentric" };
                 case "cylinder":
                 case "cylindrical": return new[] { "cylinder", "cylindrical", "cilíndric", "cilindric" };
-                case "rectangular": return new[] { "rectangular" };
-                case "rect":        return new[] { "rect", "rectangular" };
+                case "rectangular": return new[] { "rectangular", "marco" };   // "marco" matchea "O.D.T. marco de hormigón" (box culvert)
+                case "rect":        return new[] { "rect", "rectangular", "marco" };
                 case "frame":       return new[] { "frame", "marco" };
                 case "junction":    return new[] { "junction", "conexión", "conexion" };
                 case "structure":   return new[] { "structure", "estructura" };
@@ -790,9 +860,34 @@ namespace Civil3DBasico
                 case "top":         return new[] { "top", "superior" };
                 case "cyl":         return new[] { "cyl", "cilindr" };
                 case "culvert":     return new[] { "culvert", "alcantarilla" };
-                case "box":         return new[] { "box", "caja" };
+                // "box" está definido más abajo con más sinónimos (rectangular)
                 case "round":       return new[] { "round", "circular", "redond" };
-                case "cmp":         return new[] { "cmp" };
+                case "cmp":         return new[] { "cmp", "metal corrugado", "corrugated metal" };
+                // Términos estructurales adicionales
+                case "two":         return new[] { "two", "dos" };
+                case "tier":        return new[] { "tier", "nivel", "niveles" };
+                case "base":        return null;   // muy genérico, se ignora
+                case "simple":      return null;   // muy genérico, se ignora
+                case "box":         return new[] { "box", "caja", "rectangular" };
+                case "concentrictc": return null;
+                case "eccentrictc":  return null;
+                // Materiales de tuberías (dominio Pipe)
+                case "concrete":    return new[] { "concrete", "hormigón", "hormigon" };
+                case "corrugated":  return new[] { "corrugated", "corrugado" };
+                case "hdpe":        return new[] { "hdpe", "pead" };
+                case "pvc":         return new[] { "pvc" };
+                case "di":          return new[] { "di", "fundición dúctil", "fundicion ductil",
+                                                   "ductile iron", "fundición", "fundicion" };
+                case "ductile":     return new[] { "ductile", "dúctil", "ductil" };
+                case "iron":        return new[] { "iron", "hierro", "fundición", "fundicion" };
+                case "elliptical":  return new[] { "elliptical", "elíptic", "eliptic" };
+                case "egg":         return new[] { "egg", "sección ovalada", "seccion ovalada", "ovoide" };
+                case "arch":        return new[] { "arch", "arco" };
+                case "horizontal":  return new[] { "horizontal" };
+                case "vertical":    return new[] { "vertical" };
+                case "pipe":        return null;    // token genérico ("pipe"/"tubería" aparece en TODAS las descripciones)
+                case "circular":    return new[] { "circular", "redond" };
+                case "shaped":      return null;    // adjetivo genérico, se ignora
                 case "varht":
                 case "var":         return null;    // sin equivalente, se ignora
                 default:            return null;    // token no significativo: se salta
@@ -808,10 +903,17 @@ namespace Civil3DBasico
             ObjectId prefFam = ObjectId.Null, prefSize = ObjectId.Null; string prefNom = "";  // preferida: buzón "real"
             bool esEstructura = dominio == CivilDB.DomainType.Structure;
 
-            // Para buzones: descartar familias que NO son buzones (cabezales, culverts, aliviaderos...) — EN/ES
+            // Para buzones: descartar familias que NO son buzones (cabezales, culverts,
+            // aliviaderos, embocaduras…) — EN/ES. Estas familias se dibujan como triángulos
+            // con alas en planta y acortan la tubería al conectar, dañando el resultado.
             string[] noBuzon = {
                 "Headwall", "End Section", "Flared", "Culvert", "Winged", "Wing", "Apron",
                 "cabecero", "cabezal", "boca", "aleta", "alcantarilla",
+                "Embocadura", "embocadura",           // Headwall en español
+                "Sección final", "seccion final",     // End Section en español
+                "en ala", "de ala",                   // Winged en español
+                "acampanada",                          // Flared en español
+                "O.D.T.",                              // Overflow Discharge Tube (variante local)
             };
 
             ObjectIdCollection fams = partsList.GetPartFamilyIdsByDomain(dominio);

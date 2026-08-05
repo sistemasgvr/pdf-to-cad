@@ -65,8 +65,8 @@ def nearest_pipe_diameter(value):
 TIPOS = [
     ("Agua (W)", "AGUA"), ("Alcantarillado (SS)", "ALCANTARILLADO"),
     ("Drenaje (SD)", "DRENAJE"), ("Gas (G)", "GAS"),
-    ("Eléctrico (E)", "ELECTRICO"), ("Eléctrico aéreo E(OH)", "ELECTRICO_AEREO"),
-    ("Telefonía (T)", "TELECOM"), ("Telefonía aérea T(OH)", "TELECOM_AEREO"),
+    ("Eléctrico (E)", "ELECTRICO"),
+    ("Telefonía (T)", "TELECOM"),
 ]
 ACI_RGB = {1: (255, 60, 60), 2: (235, 215, 40), 3: (60, 210, 60), 4: (60, 210, 210),
            5: (90, 140, 255), 6: (230, 90, 230), 7: (235, 235, 235), 8: (150, 150, 150),
@@ -81,7 +81,7 @@ LEADER_TEXT_FT = 3.0
 LEADER_ORIENT = [("h", "Horizontal"), ("v", "Vertical"), ("d", "Diagonal")]
 Z_PDF, Z_ERASE, Z_MARK, Z_HANDLE = 0, 1, 5, 8
 # Índices de las pestañas del inventario (derecha)
-TAB_PIPE, TAB_ML, TAB_LEADER, TAB_TEXT, TAB_REGION = 0, 1, 2, 3, 4
+TAB_PIPE, TAB_ML, TAB_LEADER, TAB_TEXT, TAB_REGION, TAB_BZ = 0, 1, 2, 3, 4, 5
 
 # Tipo de red derivado de la CAPA (agrupa las utilidades a nivel de red completa).
 #   gravity  → red por gravedad con buzones (alcantarillado, drenaje)

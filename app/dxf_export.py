@@ -61,6 +61,8 @@ def merge_into(win, doc, marks=True):
             (1000, f"INV_END={inv_e if inv_e is not None else ''}"),
             (1000, f"MANNINGS_N={manning}"),
             (1000, f"COVER_MIN={cover}"),
+            (1000, f"PIPE_FAMILY={p.get('pipe_family') or ''}"),
+            (1000, f"PIPE_SIZE={p.get('pipe_size') or ''}"),
         ])
     _export_structures(win, doc, msp)
     VP.ensure_layer(doc, "ANOTACION")
@@ -173,6 +175,9 @@ def _export_structures(win, doc, msp):
         if "CAD_TEXT" not in doc.styles:
             doc.styles.add("CAD_TEXT", font=C.TEXT_FONT)
     for s in structs:
+        # Cinturón de seguridad: solo buzones de gravedad al DXF. Los que sean
+        # de agua/gas/eléctrico se ignoran (proyectos viejos pueden traer basura).
+        if (s.get("net") or "gravity") != "gravity": continue
         x, y = s.get("x"), s.get("y")
         if x is None or y is None: continue
         cx, cy = (float(x), float(y)) if s.get("world") else win._to_cad(x, y)
@@ -189,7 +194,7 @@ def _export_structures(win, doc, msp):
             (1000, f"NET_KIND={s.get('net') or 'gravity'}"),
         ])
         if show_labels and s.get("cod"):
-            h = LEADER_TEXT_FT                       # altura de texto en unidades del dibujo (pies)
+            h = LEADER_TEXT_FT * 0.3                 # etiquetas compactas al lado del buzón
             t = msp.add_text(s["cod"], height=h,
                              dxfattribs={"layer": "ETIQUETAS_BUZONES", "style": "CAD_TEXT"})
             t.set_placement((cx + h * 0.8, cy + h * 0.4), align=TextEntityAlignment.LEFT)
