@@ -419,15 +419,12 @@ namespace Civil3DBasico
             net.PartsListId = partsList.ObjectId;
             if (surfId != ObjectId.Null) net.ReferenceSurfaceId = surfId;
 
-            // Pre-scan: para cada Part único que llega del DXF (basename del .xml del catálogo),
-            // agregar esa familia específica al PartsList si aún no está. Sin esto,
-            // el buzón cae al default aunque el usuario haya elegido otra familia.
+            // Pre-scan: para cada Part único que llega del DXF (basename del .xml del catálogo
+            // o nombre custom del modelador), agregarlo al PartsList si aún no está.
             var partsPedidos = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
             foreach (var st in structs)
             {
-                if (!string.IsNullOrWhiteSpace(st.Part) &&
-                    st.Part.StartsWith("Aecc", StringComparison.OrdinalIgnoreCase))
-                    partsPedidos.Add(st.Part);
+                if (!string.IsNullOrWhiteSpace(st.Part)) partsPedidos.Add(st.Part);
             }
             foreach (var pid in partsPedidos)
                 AsegurarFamiliaPorId(ed, tr, partsList, pid);
@@ -436,9 +433,7 @@ namespace Civil3DBasico
             var pipesPedidas = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
             foreach (var ip2 in pipes)
             {
-                if (!string.IsNullOrWhiteSpace(ip2.PipeFamily) &&
-                    ip2.PipeFamily.StartsWith("Aecc", StringComparison.OrdinalIgnoreCase))
-                    pipesPedidas.Add(ip2.PipeFamily);
+                if (!string.IsNullOrWhiteSpace(ip2.PipeFamily)) pipesPedidas.Add(ip2.PipeFamily);
             }
             foreach (var pid in pipesPedidas)
                 AsegurarFamiliaPorId(ed, tr, partsList, pid, CivilDB.DomainType.Pipe);

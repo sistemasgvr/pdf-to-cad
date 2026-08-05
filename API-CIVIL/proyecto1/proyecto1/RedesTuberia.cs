@@ -772,7 +772,19 @@ namespace Civil3DBasico
         {
             if (string.IsNullOrEmpty(catalogId) || string.IsNullOrEmpty(description)) return false;
             string s = catalogId;
-            if (!s.StartsWith("Aecc", StringComparison.OrdinalIgnoreCase)) return false;
+            // Familias custom del modelador (nombres arbitrarios como "Buzon ICT Imperial"):
+            // matchear por igualdad case-insensitive contra la Description o su versión
+            // sin extensión "_Imperial". Es lo que espera un nombre custom bien pareado.
+            if (!s.StartsWith("Aecc", StringComparison.OrdinalIgnoreCase))
+            {
+                string a = s;
+                if (a.EndsWith("_Imperial", StringComparison.OrdinalIgnoreCase))
+                    a = a.Substring(0, a.Length - "_Imperial".Length);
+                if (string.Equals(description, s, StringComparison.OrdinalIgnoreCase)) return true;
+                if (string.Equals(description, a, StringComparison.OrdinalIgnoreCase)) return true;
+                if (description.IndexOf(a, StringComparison.OrdinalIgnoreCase) >= 0) return true;
+                return false;
+            }
             foreach (var pref in new[] { "AeccStruct", "Aecc" })
                 if (s.StartsWith(pref, StringComparison.OrdinalIgnoreCase)) { s = s.Substring(pref.Length); break; }
             if (s.EndsWith("_Imperial", StringComparison.OrdinalIgnoreCase))
