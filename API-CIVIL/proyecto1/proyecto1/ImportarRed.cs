@@ -193,21 +193,20 @@ namespace Civil3DBasico
             if (pipes.Count > 0 && pipes[0].CoverMin > 0)
                 defaultDepth = pipes[0].CoverMin;
 
-            // Solo procesamos buzones de gravedad. Las structures con NET_KIND != gravity
-            // se descartan con aviso — la app Python ya no las genera (proyectos viejos
-            // podrían traerlas). Presión y conduit no llevan buzones automáticos por
-            // criterio de ingeniería civil.
+            // Separar structures por red: gravedad (BZ-) y conduit (CAJA-).
+            // Las de presión se descartan (agua/gas no llevan nodos automáticos).
             var structsGravedad = new List<ImportStruct>();
+            var structsConduit = new List<ImportStruct>();
             int nDescartadas = 0;
             foreach (var s in structs)
             {
-                if (s.NetKind.Equals("gravity", StringComparison.OrdinalIgnoreCase) ||
-                    string.IsNullOrEmpty(s.NetKind))
-                    structsGravedad.Add(s);
+                string nk = (s.NetKind ?? "").ToLowerInvariant();
+                if (nk == "" || nk == "gravity") structsGravedad.Add(s);
+                else if (nk == "conduit") structsConduit.Add(s);
                 else nDescartadas++;
             }
             if (nDescartadas > 0)
-                ed.WriteMessage($"\n(Se descartaron {nDescartadas} buzón(es) no-gravedad — solo gravedad lleva buzones.)");
+                ed.WriteMessage($"\n(Se descartaron {nDescartadas} nodo(s) de presión — solo gravedad y conduit llevan nodos.)");
 
             // ── 4. Redes de GRAVEDAD ────────────────────────────────────────
             var createdNetIds = new List<ObjectId>();
@@ -241,7 +240,7 @@ namespace Civil3DBasico
                     {
                         ObjectId netId = CrearRedGravedadCompleta(ed, db, civilDoc, tr,
                             netName, surfId, defaultDepth, kv.Value,
-                            new List<ImportStruct>(), sinBuzones: true);
+                            structsConduit, sinBuzones: true);
                         if (netId != ObjectId.Null) createdNetIds.Add(netId);
                         tr.Commit();
                     }
@@ -507,12 +506,19 @@ namespace Civil3DBasico
                     string key = $"{Math.Round(v.X, 2)}_{Math.Round(v.Y, 2)}";
                     if (sinBuzones)
                     {
-                        // Conduit: NO crear structure alguna. La pipe se agregará más
-                        // adelante con bAddDefaultConnections=false y sin ConnectToStructure.
-                        // Guardamos ObjectId.Null como marcador.
-                        if (!createdStructs.ContainsKey(key)) createdStructs[key] = ObjectId.Null;
-                        vertStructIds.Add(ObjectId.Null);
-                        continue;
+                        // Conduit: si el usuario asignó familia (match.Part != ""), se
+                        // crea una CAJA real con esa familia (comportamiento cuasi-gravedad).
+                        // Si NO hay familia asignada, no se crea structure alguna y la
+                        // pipe se agrega con bAddDefaultConnections=false más adelante.
+                        bool tienePart = match != null && !string.IsNullOrWhiteSpace(match.Part);
+                        if (!tienePart)
+                        {
+                            if (!createdStructs.ContainsKey(key)) createdStructs[key] = ObjectId.Null;
+                            vertStructIds.Add(ObjectId.Null);
+                            continue;
+                        }
+                        // Cuando hay familia asignada, caemos al flujo normal de crear
+                        // structure más abajo — se desactiva sinBuzones para este vértice.
                     }
                     if (!createdStructs.ContainsKey(key))
                     {

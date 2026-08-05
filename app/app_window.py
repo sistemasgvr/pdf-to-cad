@@ -1679,7 +1679,8 @@ class Main(QtWidgets.QMainWindow):
         for i, s in enumerate(self.structures, 1):
             fam = s.get("part") or "(sin familia)"
             sz = f"  {s['part_size']}" if s.get("part_size") else ""
-            it = QtWidgets.QListWidgetItem(f"🔵 {s.get('cod', '?')}  ·  {fam}{sz}")
+            emoji = "🟠" if s.get("net") == "conduit" else "🔵"
+            it = QtWidgets.QListWidgetItem(f"{emoji} {s.get('cod', '?')}  ·  {fam}{sz}")
             self.bz_list.addItem(it)
         self.bz_list.blockSignals(False)
         self._sync_bz_panel()
@@ -2113,17 +2114,18 @@ class Main(QtWidgets.QMainWindow):
         self._info("Clic sobre una línea para insertar un buzón (Esc para salir).")
 
     def _do_insert_manhole(self, x, y):
+        from model import network_kind
         thr = 14.0 / max(1e-6, self.canvas.transform().m11())
         best = (None, -1, thr)                      # (pipe_index, seg_index, dist)
         for pi, p in enumerate(self.pipes):
             pts = p.get("pts")
             if not pts or len(pts) < 2: continue    # tramos importados de Excel (world) no editables
-            if p.get("layer") not in GRAVITY_LAYERS: continue    # solo pipes de gravedad admiten buzones
+            if network_kind(p.get("layer") or "") == "pressure": continue   # presión no lleva buzones
             for idx, a, b in self._segments(pts, False):
                 d = G.pt_seg_dist(x, y, a[0], a[1], b[0], b[1])
                 if d < best[2]: best = (pi, idx, d)
         if best[0] is None:
-            self._info("Los buzones solo se insertan en redes por gravedad (alcantarillado/drenaje).")
+            self._info("Los buzones/cajas solo se insertan en redes de gravedad o conduit (no en presión).")
             self.set_mode("idle"); return
         self._push()
         pi, si, _ = best
@@ -2135,42 +2137,49 @@ class Main(QtWidgets.QMainWindow):
 
     def _rebuild_structures(self):
         """Detecta buzones por los VÉRTICES (extremos + intermedios) de las tuberías
-        de GRAVEDAD dibujadas (SS/SD). Por criterio de ingeniería civil, las redes
-        de presión (agua, gas) y conduit (eléctrico, telecom) NO llevan buzones
-        automáticos en cada vértice — sus accesorios se colocan manualmente.
+        dibujadas:
+          - Gravedad (SS/SD) → prefijo BZ- (buzones cilíndricos con tapa).
+          - Conduit (eléctrico/telecom) → prefijo CAJA- (cajas de registro/vaults).
+          - Presión (agua/gas) → sin nodos automáticos.
         Preserva ediciones (cod/rim/sump/part/part_size/covered) por coincidencia
         de coordenada. Los buzones importados de Excel (world) se conservan aparte."""
+        from model import network_kind
         tol = 14.0
         def near(a, b): return math.hypot(a[0] - b[0], a[1] - b[1]) <= tol
-        # Descarta cualquier buzón espurio guardado de versiones previas cuya net no
-        # sea gravity (p.ej. proyectos viejos con nodos de agua/eléctrico).
+        # Descarta buzones espurios de versiones previas con net inválida (p.ej. "pressure").
         old = [s for s in self.structures
-               if not s.get("world") and (s.get("net") or "gravity") == "gravity"]
+               if not s.get("world") and (s.get("net") or "gravity") in ("gravity", "conduit")]
         world = [s for s in self.structures if s.get("world")]
         detected = []
         for p in self.pipes:
             if p.get("world"): continue
-            if p.get("layer") not in GRAVITY_LAYERS: continue      # solo gravedad
+            kind = network_kind(p.get("layer") or "")
+            if kind not in ("gravity", "conduit"): continue    # presión no lleva nodos automáticos
             pts = p.get("pts")
             if not pts or len(pts) < 2: continue
             for pt in pts:                              # todos los vértices (extremos + intermedios)
                 if not any(near(pt, (s["x"], s["y"])) for s in detected):
                     detected.append({"cod": "", "x": pt[0], "y": pt[1], "rim": None,
                                      "sump": None, "part": "", "part_size": "",
-                                     "net": "gravity", "covered": True, "world": False})
+                                     "net": kind, "covered": True, "world": False})
         for s in detected:                                 # reasigna ediciones previas por coordenada
             for o in old:
                 if near((s["x"], s["y"]), (o.get("x", -1e9), o.get("y", -1e9))):
                     s.update(cod=o.get("cod", ""), rim=o.get("rim"), sump=o.get("sump"),
                              part=o.get("part", ""), part_size=o.get("part_size", ""),
                              covered=bool(o.get("covered", True))); break
-        # Códigos únicos: BZ-N (todos los buzones son de gravedad).
+        # Códigos únicos: BZ-N para gravedad, CAJA-N para conduit.
         used = {s.get("cod", "") for s in world + detected if s.get("cod")}
-        n = 1
+        cnt_bz = cnt_caja = 1
         for s in detected:
             if s.get("cod"): continue
-            while f"BZ-{n}" in used: n += 1
-            s["cod"] = f"BZ-{n}"; used.add(s["cod"]); n += 1
+            prefix = "CAJA-" if s.get("net") == "conduit" else "BZ-"
+            if prefix == "BZ-":
+                while f"BZ-{cnt_bz}" in used: cnt_bz += 1
+                s["cod"] = f"BZ-{cnt_bz}"; used.add(s["cod"]); cnt_bz += 1
+            else:
+                while f"CAJA-{cnt_caja}" in used: cnt_caja += 1
+                s["cod"] = f"CAJA-{cnt_caja}"; used.add(s["cod"]); cnt_caja += 1
         self.structures = world + detected; self._dirty = True
 
     # ── Tab Buzones: selección, panel de propiedades y edición ──────────────
@@ -2203,14 +2212,15 @@ class Main(QtWidgets.QMainWindow):
             if not has_sel:
                 self.gprop_bz.setTitle("Propiedades del buzón — selecciona uno de la lista")
                 return
-            self.gprop_bz.setTitle("Propiedades del buzón")
             s = self.structures[self.sel_bz]
-            # Todos los buzones son de gravedad — presión/conduit no generan buzones automáticos.
+            net = s.get("net") or "gravity"
+            self.gprop_bz.setTitle("Propiedades de la caja" if net == "conduit"
+                                    else "Propiedades del buzón")
             self.bz_cod.setText(s.get("cod", ""))
             self.bz_rim.setValue(float(s.get("rim") or 0.0))
             self.bz_sump.setValue(float(s.get("sump") or 0.0))
             self.bz_cover.setCurrentIndex(0 if s.get("covered", True) else 1)
-            self.bz_net_lbl.setText("gravedad")
+            self.bz_net_lbl.setText("conduit (eléctrico/telecom)" if net == "conduit" else "gravedad")
             self.bz_origin_lbl.setText("Excel" if s.get("world") else "dibujo")
             # Familias del catálogo imperial de estructuras (gravedad).
             self.bz_family.blockSignals(True); self.bz_family.clear()
@@ -2294,8 +2304,9 @@ class Main(QtWidgets.QMainWindow):
         s = self.structures[row]
         fam = s.get("part") or "(sin familia)"
         sz = f"  {s['part_size']}" if s.get("part_size") else ""
+        emoji = "🟠" if s.get("net") == "conduit" else "🔵"
         item = self.bz_list.item(row)
-        if item: item.setText(f"🔵 {s.get('cod', '?')}  ·  {fam}{sz}")
+        if item: item.setText(f"{emoji} {s.get('cod', '?')}  ·  {fam}{sz}")
 
     def _bz_add_custom_size_current(self):
         if not (0 <= self.sel_bz < len(self.structures)): return

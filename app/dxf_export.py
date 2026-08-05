@@ -175,9 +175,9 @@ def _export_structures(win, doc, msp):
         if "CAD_TEXT" not in doc.styles:
             doc.styles.add("CAD_TEXT", font=C.TEXT_FONT)
     for s in structs:
-        # Cinturón de seguridad: solo buzones de gravedad al DXF. Los que sean
-        # de agua/gas/eléctrico se ignoran (proyectos viejos pueden traer basura).
-        if (s.get("net") or "gravity") != "gravity": continue
+        # Se exportan buzones de gravedad (BZ-N) y cajas de conduit (CAJA-N).
+        # Los de presión se filtran (no llevan nodos automáticos).
+        if (s.get("net") or "gravity") not in ("gravity", "conduit"): continue
         x, y = s.get("x"), s.get("y")
         if x is None or y is None: continue
         cx, cy = (float(x), float(y)) if s.get("world") else win._to_cad(x, y)

@@ -28,7 +28,9 @@ import xml.etree.ElementTree as ET
 SUPPORTED_YEARS = (2024, 2025, 2026, 2027)
 LANG_PREFERENCES = ("esp", "enu", "fra", "deu", "ita", "ptb")
 
+# Subcarpetas dentro de "US Imperial Structures"
 STRUCTURE_SUBFOLDERS = (
+    "BuzonesElectricas",
     "Junction Structures with Frames",
     "Junction Structures without Frames",
     "Inlet-Outlets",
@@ -41,6 +43,8 @@ PIPE_SUBFOLDERS = (
     "Egg-Shaped Pipes",
     "Elliptical Pipes",
     "Rectangular Pipes",
+    "Bancoductos",
+    "Bancos Tubos",
 )
 
 # Tablas relevantes dentro de cada .sqlite del catálogo de presión.

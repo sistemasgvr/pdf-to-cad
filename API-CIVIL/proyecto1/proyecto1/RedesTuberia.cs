@@ -800,11 +800,23 @@ namespace Civil3DBasico
                 var opts = SinonimosCatalogo(r);
                 if (opts != null && opts.Length > 0) tokens.Add(opts);
             }
-            // Requerir al menos 2 tokens específicos (evita match débil como "rect"
-            // en "Sección final rectangular"). Excepción: si el catalogId completo
-            // se descompone en 1 solo token, aceptar ese.
             if (tokens.Count == 0) return false;
-            if (tokens.Count == 1 && rawCount >= 2) return false;
+            // Regla anti-match-débil: si el catalogId tiene ≥3 tokens raw pero solo
+            // uno con sinónimo, y ese único es un adjetivo común (rect/tier), se
+            // rechaza. Tokens muy específicos (cm, hdpe, pvc, di, headwall) sí
+            // pueden matchear por sí solos porque discriminan bien.
+            if (tokens.Count == 1 && rawCount >= 3)
+            {
+                var only = tokens[0];
+                var specific = new HashSet<string>(new[] {
+                    "cm", "corrugated metal", "hdpe", "pead", "pvc", "di",
+                    "ductile", "iron", "headwall", "cabecero"
+                });
+                bool esEspecifico = false;
+                foreach (var op in only)
+                    if (specific.Contains(op.ToLowerInvariant())) { esEspecifico = true; break; }
+                if (!esEspecifico) return false;
+            }
 
             string desc = StripAcentos(description.ToLowerInvariant());
             foreach (var opts in tokens)
@@ -863,9 +875,13 @@ namespace Civil3DBasico
                 // "box" está definido más abajo con más sinónimos (rectangular)
                 case "round":       return new[] { "round", "circular", "redond" };
                 case "cmp":         return new[] { "cmp", "metal corrugado", "corrugated metal" };
-                // Términos estructurales adicionales
-                case "two":         return new[] { "two", "dos" };
-                case "tier":        return new[] { "tier", "nivel", "niveles" };
+                case "cm":          return new[] { "corrugated metal", "metal corrugado" };
+                // Términos estructurales adicionales — incluyen "2-Tier"/"3-Tier"
+                // que aparecen así en descripciones inglesas (con dígito, no palabra).
+                case "two":         return new[] { "two", "2-tier", "2 tier", "2-nivel", "dos" };
+                case "three":       return new[] { "three", "3-tier", "3 tier", "tres" };
+                case "four":        return new[] { "four", "4-tier", "4 tier", "cuatro" };
+                case "tier":        return new[] { "tier", "nivel", "niveles", "-tier" };
                 case "base":        return null;   // muy genérico, se ignora
                 case "simple":      return null;   // muy genérico, se ignora
                 case "box":         return new[] { "box", "caja", "rectangular" };
@@ -886,7 +902,10 @@ namespace Civil3DBasico
                 case "horizontal":  return new[] { "horizontal" };
                 case "vertical":    return new[] { "vertical" };
                 case "pipe":        return null;    // token genérico ("pipe"/"tubería" aparece en TODAS las descripciones)
-                case "circular":    return new[] { "circular", "redond" };
+                // "circular" también es genérico: los catálogos inglés/español usan
+                // "Concrete Pipe", "HDPE Pipe" sin la palabra "circular" (aunque
+                // están en la carpeta Circular Pipes). Discriminamos por material.
+                case "circular":    return null;
                 case "shaped":      return null;    // adjetivo genérico, se ignora
                 case "varht":
                 case "var":         return null;    // sin equivalente, se ignora
