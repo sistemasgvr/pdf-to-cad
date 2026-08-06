@@ -4,7 +4,7 @@
 library
 C#
 .cs
-D:\GVR\Proyectos_DEV\EEUU\pdf-to-cad\API-CIVIL\proyecto1\proyecto1\obj\x64\Debug\
+D:\Proyecto-Programacion\pdf-to-cad\API-CIVIL\proyecto1\proyecto1\obj\x64\Debug\
 proyecto1
 none
 false
@@ -12,8 +12,8 @@ TRACE;DEBUG;NET;NET8_0;NETCOREAPP;WINDOWS;WINDOWS7_0;NET5_0_OR_GREATER;NET6_0_OR
 
 4-1371494636
 
-20-1759835076
-2121415591454
+21-486700398
+2121831703370
 PanelCorredor.xaml;PanelPipe.xaml;PanelPresion.xaml;VentanaPropertySet.xaml;
 
 False

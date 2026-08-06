@@ -64,6 +64,22 @@ namespace Civil3DBasico
             // ── 0. Forzar unidades imperiales (pies) antes de leer cotas ────
             ComandosUnidades.ForzarImperial(db, ed, true);
 
+            // ── 0.b Añadir automáticamente Bancoductos / Bancos Tubos / Buzones
+            //        a la Parts List "Standard" (modo silencioso). Si algo falla
+            //        no bloquea la importación — solo avisa.
+            try
+            {
+                using (Transaction trBB = db.TransactionManager.StartTransaction())
+                {
+                    CatalogoBancos.AddBancosYBuzones(trBB, db, ed, verbose: false);
+                    trBB.Commit();
+                }
+            }
+            catch (Exception exBB)
+            {
+                ed.WriteMessage($"\n[Bancos/Buzones] omitido: {exBB.Message}");
+            }
+
             // ── 1. Escanear modelspace ──────────────────────────────────────
             var pipes = new List<ImportPipe>();
             var structs = new List<ImportStruct>();
@@ -93,6 +109,25 @@ namespace Civil3DBasico
                         string srcUnit = XdStr(xd, "UNIT", "ft");
                         double k = FactorConversion(srcUnit, db);
 
+                        var noMan = new HashSet<int>();
+                        string noManStr = XdStr(xd, "NO_MANHOLE_VERTS", "");
+                        if (!string.IsNullOrWhiteSpace(noManStr))
+                            foreach (string t in noManStr.Split(new[] { ',', ' ', ';' }, StringSplitOptions.RemoveEmptyEntries))
+                                if (int.TryParse(t.Trim(), out int vi)) noMan.Add(vi);
+
+                        // SEG_OVERRIDES: 'idx~family~size;idx~family~size'
+                        var segOv = new Dictionary<int, (string fam, string size)>();
+                        string segOvStr = XdStr(xd, "SEG_OVERRIDES", "");
+                        if (!string.IsNullOrWhiteSpace(segOvStr))
+                            foreach (string entry in segOvStr.Split(';'))
+                            {
+                                if (string.IsNullOrWhiteSpace(entry)) continue;
+                                var parts = entry.Split('~');
+                                if (parts.Length < 3) continue;
+                                if (!int.TryParse(parts[0], out int idx)) continue;
+                                segOv[idx] = (parts[1] ?? "", parts[2] ?? "");
+                            }
+
                         pipes.Add(new ImportPipe
                         {
                             Layer = poly.Layer,
@@ -108,6 +143,8 @@ namespace Civil3DBasico
                             CoverMin = XdDouble(xd, "COVER_MIN") * k,
                             PipeFamily = XdStr(xd, "PIPE_FAMILY", ""),
                             PipeSize = XdStr(xd, "PIPE_SIZE", ""),
+                            NoManholeVerts = noMan,
+                            SegOverrides = segOv,
                         });
                     }
                     else if (marker == "PDFCAD_STRUCT" && ent is DBPoint pt)
@@ -280,6 +317,14 @@ namespace Civil3DBasico
             // ya no aportan nada y solo generan ruido visual encima de las redes.
             // Conduit (eléctrico/telecom) SÍ se conservan porque no se convirtió a red.
             BorrarPolylinesConvertidas(ed, db);
+
+            // ── 5c. Limpiar duplicados "-N" con dimensiones idénticas al padre ──
+            // Debe correr DESPUÉS de crear las redes (pasos 4-5): CatalogoBancos.AddBancosYBuzones
+            // (paso 0.b) y el propio AddPartSize de Civil3D pueden dejar variantes "- N" al
+            // agregar tamaños del catálogo; limpiar antes (como estaba) no encontraba nada que limpiar.
+            // NOTA: BuscarEstructura/BuscarTuberia ya NO crean tamaños dinámicamente — solo
+            // eligen entre los que ya existen en el catálogo (ver RedesTuberia.cs, SizeMasCercano).
+            LimpiarDuplicadosPartSize(ed, db);
 
             // ── 6. Diagnóstico inline ───────────────────────────────────────
             if (createdNetIds.Count > 0)
@@ -483,6 +528,12 @@ namespace Civil3DBasico
                 var vertStructIds = new List<ObjectId>();
                 for (int i = 0; i < nVerts; i++)
                 {
+                    // Vértice intermedio marcado "sin buzón" por el usuario en la UI:
+                    // no crear structure aquí. Los pipes que llegan/salen simplemente
+                    // quedarán sin conectar en ese extremo (quiebre visual sin manhole).
+                    if (i > 0 && i < nVerts - 1 && ip.NoManholeVerts.Contains(i))
+                    { vertStructIds.Add(ObjectId.Null); continue; }
+
                     Point2d v = ip.Vertices[i];
                     double zInv = zVerts[i];
                     double depth = ip.CoverMin > 0 ? ip.CoverMin : defaultDepth;
@@ -599,16 +650,65 @@ namespace Civil3DBasico
                     vertStructIds.Add(createdStructs[key]);
                 }
 
+                // Solape visual en vértices "sin buzón": cada tubería se extiende
+                // un poco más allá del vértice para que las dos que se encuentran
+                // ahí se traslapen y el quiebre se lea continuo (fines ilustrativos).
+                double overlapFt = Math.Max(0.5, ip.Diameter / 24.0);   // ~½ diámetro en pies
+
                 for (int i = 0; i < nVerts - 1; i++)
                 {
                     Point3d p1 = new Point3d(ip.Vertices[i].X, ip.Vertices[i].Y, zVerts[i]);
                     Point3d p2 = new Point3d(ip.Vertices[i + 1].X, ip.Vertices[i + 1].Y, zVerts[i + 1]);
                     if (p1.DistanceTo(p2) < 1e-6) continue;
 
+                    // Si el extremo INICIAL de este tramo cae en un vértice "sin buzón",
+                    // retrocedemos p1 hacia el vértice previo → el tramo empieza ANTES
+                    // del vértice y se solapa con el tramo anterior que llega ahí.
+                    if (i > 0 && ip.NoManholeVerts.Contains(i))
+                    {
+                        var p0 = new Point3d(ip.Vertices[i - 1].X, ip.Vertices[i - 1].Y, zVerts[i - 1]);
+                        Vector3d back = p0 - p1;
+                        if (back.Length > 1e-6) p1 = p1 + back.GetNormal() * overlapFt;
+                    }
+                    // Si el extremo FINAL cae en un vértice "sin buzón", extendemos p2
+                    // hacia el vértice siguiente → el tramo se pasa un poco del vértice.
+                    if (i + 1 < nVerts - 1 && ip.NoManholeVerts.Contains(i + 1))
+                    {
+                        var p3 = new Point3d(ip.Vertices[i + 2].X, ip.Vertices[i + 2].Y, zVerts[i + 2]);
+                        Vector3d fwd = p3 - p2;
+                        if (fwd.Length > 1e-6) p2 = p2 + fwd.GetNormal() * overlapFt;
+                    }
+
+                    // Override por segmento: si Python marcó familia/tamaño distintos
+                    // para este tramo, los resolvemos ahora contra la PartsList; si no
+                    // se encuentra la familia, caemos a la global de la pipe.
+                    ObjectId segFam = pipeFam, segSize = pipeSize;
+                    if (ip.SegOverrides != null && ip.SegOverrides.TryGetValue(i, out var ov))
+                    {
+                        string ovFam = ov.fam ?? "";
+                        string ovSize = !string.IsNullOrWhiteSpace(ov.size) ? ov.size : ip.PipeSize;
+                        if (!string.IsNullOrWhiteSpace(ovFam))
+                        {
+                            ObjectId f2, s2; string nom2;
+                            if (BuscarTuberia(tr, partsList, ovFam, ovSize, out f2, out s2, out nom2))
+                            { segFam = f2; segSize = s2; }
+                            Dbg("PIPE_SEG_OVERRIDE", ("tramo", i.ToString()),
+                                ("fam", ovFam), ("size", ovSize),
+                                ("encontrada", (segFam != pipeFam || segSize != pipeSize) ? "true" : "false"));
+                        }
+                        else if (!string.IsNullOrWhiteSpace(ov.size))
+                        {
+                            // Solo cambia el tamaño (misma familia global).
+                            ObjectId f2, s2; string nom2;
+                            if (BuscarTuberia(tr, partsList, ip.PipeFamily, ov.size, out f2, out s2, out nom2))
+                            { segFam = f2; segSize = s2; }
+                        }
+                    }
+
                     ObjectId pid = ObjectId.Null;
                     // Conduit (sinBuzones): sin auto-conexión ni structures. Solo la pipe pura.
                     bool autoConexion = !sinBuzones;
-                    net.AddLinePipe(pipeFam, pipeSize, new LineSegment3d(p1, p2), ref pid, autoConexion);
+                    net.AddLinePipe(segFam, segSize, new LineSegment3d(p1, p2), ref pid, autoConexion);
                     CivilDB.Pipe pipe = (CivilDB.Pipe)tr.GetObject(pid, OpenMode.ForWrite);
                     // Solo conectar si la estructura correspondiente se creó bien.
                     // En modo conduit, vertStructIds[i] siempre es Null, así que no conecta.
@@ -1018,6 +1118,79 @@ namespace Civil3DBasico
                 ed.WriteMessage("\n✓ Diagnóstico: sin problemas detectados.");
             else
                 ed.WriteMessage($"\n— Diagnóstico: {problemas} aviso(s).");
+        }
+
+        // =================================================================
+        //  LIMPIAR DUPLICADOS PARTSIZE — quita variantes "Nombre - N"
+        //  cuando existe el "Nombre" base con las MISMAS dimensiones (W/H).
+        //  Estas variantes las genera Civil 3D al llamar AddPartSize sobre
+        //  familias donde los valores no se lograron cambiar; acumulan basura.
+        // =================================================================
+        private void LimpiarDuplicadosPartSize(Editor ed, Database db)
+        {
+            try
+            {
+                CivilDocument civilDoc = CivilApplication.ActiveDocument;
+                var plSet = civilDoc.Styles.PartsListSet;
+                int totalBorrados = 0;
+                using (Transaction tr = db.TransactionManager.StartTransaction())
+                {
+                    for (int i = 0; i < plSet.Count; i++)
+                    {
+                        var pl = tr.GetObject(plSet[i], OpenMode.ForWrite) as PartsStyles.PartsList;
+                        if (pl == null) continue;
+                        foreach (CivilDB.DomainType dom in new[] { CivilDB.DomainType.Pipe, CivilDB.DomainType.Structure })
+                        {
+                            foreach (ObjectId fid in pl.GetPartFamilyIdsByDomain(dom))
+                            {
+                                var fam = tr.GetObject(fid, OpenMode.ForWrite) as PartsStyles.PartFamily;
+                                if (fam == null || fam.PartSizeCount < 2) continue;
+                                // Estrategia: agrupar PartSizes por "nombre base" (quitando el
+                                // sufijo " - N"). En cada grupo con más de uno, dejar solo el
+                                // primero (o el que NO tenga sufijo) y borrar los demás.
+                                var rx = new System.Text.RegularExpressions.Regex(@"^(.*?)(\s-\s\d+)?$");
+                                var grupos = new Dictionary<string, List<ObjectId>>(StringComparer.OrdinalIgnoreCase);
+                                var keepPreferred = new Dictionary<string, ObjectId>(StringComparer.OrdinalIgnoreCase);
+                                for (int k = 0; k < fam.PartSizeCount; k++)
+                                {
+                                    var sz = tr.GetObject(fam[k], OpenMode.ForRead) as PartsStyles.PartSize;
+                                    string nm = sz?.Name ?? "";
+                                    var m = rx.Match(nm);
+                                    string baseName = m.Success ? m.Groups[1].Value : nm;
+                                    bool hasSuffix = m.Success && !string.IsNullOrEmpty(m.Groups[2].Value);
+                                    if (!grupos.ContainsKey(baseName)) grupos[baseName] = new List<ObjectId>();
+                                    grupos[baseName].Add(fam[k]);
+                                    // preferimos el que NO tenga sufijo; si todos lo tienen, el 1º
+                                    if (!keepPreferred.ContainsKey(baseName) || !hasSuffix)
+                                    {
+                                        if (!keepPreferred.ContainsKey(baseName) || !hasSuffix)
+                                            keepPreferred[baseName] = fam[k];
+                                    }
+                                }
+                                var aBorrar = new List<ObjectId>();
+                                foreach (var kv in grupos)
+                                {
+                                    if (kv.Value.Count < 2) continue;
+                                    ObjectId keep = keepPreferred[kv.Key];
+                                    foreach (var sid in kv.Value)
+                                        if (sid != keep) aBorrar.Add(sid);
+                                }
+                                foreach (var sid in aBorrar)
+                                {
+                                    try { fam.RemovePartSize(sid); totalBorrados++; } catch { }
+                                }
+                            }
+                        }
+                    }
+                    tr.Commit();
+                }
+                if (totalBorrados > 0)
+                    ed.WriteMessage($"\n  · Duplicados de PartSize borrados: {totalBorrados}");
+            }
+            catch (Exception ex)
+            {
+                ed.WriteMessage($"\n  · (limpieza de duplicados falló: {ex.Message})");
+            }
         }
 
         // =================================================================
@@ -1704,6 +1877,11 @@ namespace Civil3DBasico
             public double CoverMin;
             public string PipeFamily;     // catalogId elegido en Python (basename del .xml)
             public string PipeSize;       // p.ej. "48 in"
+            public HashSet<int> NoManholeVerts = new HashSet<int>();  // vértices intermedios sin structure
+            // Overrides opcionales por segmento (idx del tramo → familia y/o tamaño).
+            // Si un tramo no está aquí, usa PipeFamily/PipeSize globales.
+            public Dictionary<int, (string fam, string size)> SegOverrides
+                = new Dictionary<int, (string, string)>();
         }
 
         private class ImportStruct

@@ -221,6 +221,8 @@ class Main(QtWidgets.QMainWindow):
         self._menu_act(mtools, "Insertar buzón en línea…", self.insert_manhole)
         self._menu_act(mtools, "Importar Excel de red…", self.import_network_excel)
         mtools.addSeparator()
+        self._menu_act(mtools, "Editor de catálogo Civil 3D…", self.open_catalog_editor)
+        mtools.addSeparator()
         self._menu_act(mtools, "Georreferenciar…", self.open_georef)
         self._menu_act(mtools, "Quitar georreferencia", self.clear_georef)
         mhelp = mb.addMenu("A&yuda")
@@ -526,6 +528,26 @@ class Main(QtWidgets.QMainWindow):
         self.lbl_prop_size = QtWidgets.QLabel("Tamaño (catálogo):")
         fpr.addRow(self.lbl_prop_family, self.prop_family)
         fpr.addRow(self.lbl_prop_size, self.prop_size)
+
+        # Lista de vértices intermedios con checkbox "sin buzón aquí". Al marcarlo,
+        # el addin no insertará una structure en ese vértice (útil para quiebres
+        # donde el conducto sigue de largo sin manhole). Los extremos (primer y
+        # último vértice) SIEMPRE llevan structure y no se muestran aquí.
+        self.lbl_prop_noman = QtWidgets.QLabel("Vértices intermedios sin buzón:")
+        self.prop_noman = QtWidgets.QListWidget()
+        self.prop_noman.setMaximumHeight(110)
+        self.prop_noman.itemChanged.connect(self._pipe_noman_changed)
+        fpr.addRow(self.lbl_prop_noman, self.prop_noman)
+
+        # Override de familia/tamaño POR SEGMENTO (opcional). Por defecto todos los
+        # tramos usan la familia y el tamaño globales de arriba; este botón abre un
+        # diálogo para variar por tramo (útil para reducciones, cambios de material,
+        # o marcar un segmento como distinto sin dividir la utilidad).
+        self.btn_seg_override = QtWidgets.QPushButton("Editar por segmento…")
+        self.btn_seg_override.clicked.connect(self._open_seg_override_dialog)
+        self.lbl_seg_override = QtWidgets.QLabel("Variación por tramo:")
+        fpr.addRow(self.lbl_seg_override, self.btn_seg_override)
+
         rv.addWidget(self.gprop)
         # ── Propiedades del buzón seleccionado (tab Buzones) ───────────────────
         self.gprop_bz = QtWidgets.QGroupBox("Propiedades del buzón"); fbz = QtWidgets.QFormLayout(self.gprop_bz)
@@ -1329,8 +1351,141 @@ class Main(QtWidgets.QMainWindow):
             idx = self.prop_nettype.findData(p.get("net_type", "") or "")
             self.prop_nettype.setCurrentIndex(idx if idx >= 0 else 0)
             self._reload_pipe_families(p)
+            self._reload_pipe_noman(p)
             self._prop_guard = False
         self._update_ui(); self._redraw()
+
+    def _reload_pipe_noman(self, p):
+        """Repuebla la lista de vértices intermedios con checkbox 'sin buzón'.
+        Extremos (primer y último) no se muestran — siempre llevan structure.
+        También controla la visibilidad del botón de override por segmento."""
+        self.prop_noman.blockSignals(True); self.prop_noman.clear()
+        pts = p.get("pts") or []
+        n = len(pts)
+        sin = set(p.get("no_manhole_verts") or [])
+        # Mostrar solo si hay al menos un vértice intermedio (n >= 3).
+        show = n >= 3
+        self.lbl_prop_noman.setVisible(show); self.prop_noman.setVisible(show)
+        if show:
+            for i in range(1, n - 1):
+                it = QtWidgets.QListWidgetItem(f"Vértice {i + 1}  ({pts[i][0]:.0f}, {pts[i][1]:.0f})")
+                it.setFlags(it.flags() | QtCore.Qt.ItemIsUserCheckable)
+                it.setCheckState(QtCore.Qt.Checked if i in sin else QtCore.Qt.Unchecked)
+                it.setData(QtCore.Qt.UserRole, i)
+                self.prop_noman.addItem(it)
+        self.prop_noman.blockSignals(False)
+        # Override por segmento: solo tiene sentido si hay al menos 2 tramos.
+        show_seg = n >= 3
+        self.lbl_seg_override.setVisible(show_seg); self.btn_seg_override.setVisible(show_seg)
+        n_over = len(p.get("seg_overrides") or {})
+        self.btn_seg_override.setText(
+            f"Editar por segmento…  ({n_over} override{'s' if n_over != 1 else ''})"
+            if n_over else "Editar por segmento…")
+
+    def _open_seg_override_dialog(self):
+        """Diálogo con una fila por tramo (vertex i → i+1), un combo de familia y
+        otro de tamaño en cada una. La primera opción de cada combo es 'usar la de
+        la pipe' (sin override). Guarda en p['seg_overrides']."""
+        if not (0 <= self.sel_pipe < len(self.pipes)): return
+        import civil_catalog as _cc
+        p = self.pipes[self.sel_pipe]
+        pts = p.get("pts") or []
+        n_seg = len(pts) - 1
+        if n_seg < 1: return
+        kind = self._pipe_net_kind(p)
+        fams = ([] if not self.civil_year else
+                (_cc.pressure_pipes(self.civil_year) if kind == "pressure"
+                 else _cc.imperial_pipes(self.civil_year)))
+
+        dlg = QtWidgets.QDialog(self); dlg.setWindowTitle("Variar familia/tamaño por segmento")
+        dlg.resize(720, 480)
+        v = QtWidgets.QVBoxLayout(dlg)
+        v.addWidget(QtWidgets.QLabel(
+            "<i>Deja '(usar la de la pipe)' para heredar la familia/tamaño global. "
+            "Solo se envía al DXF lo que sí varíe.</i>"))
+        tbl = QtWidgets.QTableWidget(n_seg, 3)
+        tbl.setHorizontalHeaderLabels(["Tramo", "Familia", "Tamaño"])
+        tbl.verticalHeader().setVisible(False)
+        tbl.setEditTriggers(QtWidgets.QAbstractItemView.NoEditTriggers)
+        tbl.horizontalHeader().setStretchLastSection(True)
+        tbl.setColumnWidth(0, 100); tbl.setColumnWidth(1, 320)
+        v.addWidget(tbl, 1)
+
+        current = dict(p.get("seg_overrides") or {})
+        # Las keys pueden venir como strings si se cargaron desde JSON — normalizo.
+        current = {int(k): dict(v) for k, v in current.items()}
+
+        row_widgets = []
+        for i in range(n_seg):
+            lab = QtWidgets.QTableWidgetItem(f"{i + 1} → {i + 2}")
+            lab.setFlags(QtCore.Qt.ItemIsEnabled)
+            tbl.setItem(i, 0, lab)
+
+            cb_fam = QtWidgets.QComboBox()
+            cb_fam.addItem("(usar la de la pipe)", "")
+            for f in fams:
+                cb_fam.addItem(f"{f['pretty']}  [{f['subfolder']}]", f["id"])
+            cb_size = QtWidgets.QComboBox()
+            cb_size.addItem("(usar la de la pipe)", "")
+
+            tbl.setCellWidget(i, 1, cb_fam)
+            tbl.setCellWidget(i, 2, cb_size)
+            row_widgets.append((cb_fam, cb_size))
+
+            def _refill_sizes(cbf=cb_fam, cbs=cb_size, current_size=""):
+                fid = cbf.currentData() or ""
+                cbs.blockSignals(True); cbs.clear()
+                cbs.addItem("(usar la de la pipe)", "")
+                if fid:
+                    sz = (_cc.pressure_pipe_sizes(self.civil_year, fid) if kind == "pressure"
+                          else _cc.pipe_sizes(self.civil_year, fid))
+                    for s in sz: cbs.addItem(s, s)
+                if current_size:
+                    for j in range(cbs.count()):
+                        if cbs.itemData(j) == current_size: cbs.setCurrentIndex(j); break
+                cbs.blockSignals(False)
+
+            cb_fam.currentIndexChanged.connect(lambda _, f=_refill_sizes: f())
+
+            # Preseleccionar override existente para esta fila.
+            ov = current.get(i)
+            if ov and ov.get("pipe_family"):
+                for j in range(cb_fam.count()):
+                    if cb_fam.itemData(j) == ov["pipe_family"]:
+                        cb_fam.setCurrentIndex(j); break
+                _refill_sizes(current_size=ov.get("pipe_size", ""))
+
+        bb = QtWidgets.QDialogButtonBox(QtWidgets.QDialogButtonBox.Ok | QtWidgets.QDialogButtonBox.Cancel)
+        bb.accepted.connect(dlg.accept); bb.rejected.connect(dlg.reject); v.addWidget(bb)
+        if dlg.exec() != QtWidgets.QDialog.Accepted: return
+
+        # Recolectar overrides no vacíos.
+        self._push()
+        new_over = {}
+        for i, (cb_fam, cb_size) in enumerate(row_widgets):
+            fid = cb_fam.currentData() or ""
+            sz = cb_size.currentData() or ""
+            if fid or sz:
+                entry = {}
+                if fid: entry["pipe_family"] = fid
+                if sz:  entry["pipe_size"] = sz
+                new_over[i] = entry
+        p["seg_overrides"] = new_over
+        self._dirty = True
+        self._reload_pipe_noman(p)                   # actualiza el contador en el botón
+        self._redraw()
+
+    def _pipe_noman_changed(self, item):
+        if self._prop_guard: return
+        if not (0 <= self.sel_pipe < len(self.pipes)): return
+        p = self.pipes[self.sel_pipe]; self._push()
+        idx = item.data(QtCore.Qt.UserRole)
+        sin = set(p.get("no_manhole_verts") or [])
+        if item.checkState() == QtCore.Qt.Checked: sin.add(idx)
+        else: sin.discard(idx)
+        p["no_manhole_verts"] = sorted(sin)
+        self._dirty = True
+        self._redraw()
 
     def _pipe_net_kind(self, p):
         """Devuelve 'gravity' | 'pressure' | 'conduit' según la capa del pipe."""
@@ -1832,6 +1987,18 @@ class Main(QtWidgets.QMainWindow):
             if not p.get("pts"): continue               # tramos importados (world): no se dibujan
             sel = (i == self.sel_pipe)
             self._poly(p["pts"], layer_qcolor(p["layer"]), 4.0 if sel else 2.0, z=Z_MARK)
+            # Marcador magenta en los vértices "sin buzón" de la pipe seleccionada,
+            # para identificarlos de un vistazo (además del checkbox del panel).
+            if sel:
+                sin = set(p.get("no_manhole_verts") or [])
+                if sin:
+                    pen_nm = QtGui.QPen(QtGui.QColor(255, 40, 200), 2.0); pen_nm.setCosmetic(True)
+                    brush_nm = QtGui.QBrush(QtGui.QColor(255, 40, 200))
+                    for vi in sin:
+                        if 0 <= vi < len(p["pts"]):
+                            vx, vy = p["pts"][vi]
+                            it = sc.addEllipse(vx - 7, vy - 7, 14, 14, pen_nm, brush_nm)
+                            it.setZValue(Z_MARK + 2); self._overlay.append(it)
             if sel and self.mode == "move": self._handles(p["pts"])
         self._poly(self.cur_pts, layer_qcolor(self._ext_layer or self.active_layer()), 2.0, dots=True, z=Z_MARK)
         # leaders
@@ -2319,12 +2486,13 @@ class Main(QtWidgets.QMainWindow):
         # Después de agregar, guardo el nuevo tamaño en el buzón actual.
         self._bz_prop_changed()
 
-    def _add_structure_size_dialog(self, parent, fid, cbf, cbs):
+    def _add_structure_size_dialog(self, parent, fid, cbf, cbs, kind="structure"):
         """Abre un diálogo con un campo por cada parámetro de la familia (leído del
         XML del catálogo). Al aceptar, escribe los nuevos <Item> en el .xml y refresca
-        los combos de familia (todos los que apunten a fid) y el combo de tamaño."""
+        los combos de familia (todos los que apunten a fid) y el combo de tamaño.
+        `kind` es 'structure' o 'pipe' (Bancoductos/Bancos Tubos usan el mismo XML)."""
         import civil_catalog as _cc
-        params = _cc.structure_family_params(self.civil_year, fid)
+        params = _cc.family_params(self.civil_year, fid, kind)
         if not params:
             QtWidgets.QMessageBox.warning(parent, "Sin parámetros",
                 f"No pude leer parámetros del catálogo para {fid}."); return
@@ -2351,7 +2519,7 @@ class Main(QtWidgets.QMainWindow):
         if not values:
             QtWidgets.QMessageBox.information(parent, "Nada que agregar",
                 "No ingresaste ningún valor."); return
-        res = _cc.add_structure_size(self.civil_year, fid, values)
+        res = _cc.add_family_size(self.civil_year, fid, values, kind)
         if not res.get("ok"):
             QtWidgets.QMessageBox.critical(parent, "Error", res.get("error", "?")); return
         added = res.get("added") or {}
@@ -2364,15 +2532,122 @@ class Main(QtWidgets.QMainWindow):
             msg.append("Omitido:\n  · " +
                        "\n  · ".join(f"{k}: {v}" for k, v in skipped.items()))
         QtWidgets.QMessageBox.information(parent, "Catálogo actualizado", "\n\n".join(msg))
-        # Refrescar el combo de tamaño de la fila actual.
-        sizes = _cc.structure_sizes(self.civil_year, fid)
-        cbs.blockSignals(True); cbs.clear()
-        if sizes:
-            cbs.setEnabled(True); cbs.addItem("(por defecto)", "")
-            for sz in sizes: cbs.addItem(sz, sz)
-        else:
-            cbs.setEnabled(False); cbs.addItem("(sin tamaños detectados)", "")
-        cbs.blockSignals(False)
+        # Refrescar el combo de tamaño de la fila actual (si nos pasaron uno).
+        if cbs is not None:
+            sizes = (_cc.pipe_sizes(self.civil_year, fid) if kind == "pipe"
+                     else _cc.structure_sizes(self.civil_year, fid))
+            cbs.blockSignals(True); cbs.clear()
+            if sizes:
+                cbs.setEnabled(True); cbs.addItem("(por defecto)", "")
+                for sz in sizes: cbs.addItem(sz, sz)
+            else:
+                cbs.setEnabled(False); cbs.addItem("(sin tamaños detectados)", "")
+            cbs.blockSignals(False)
+
+    # ─────────────────────────── Editor de Catálogo Civil 3D ───────────────────────────
+    def open_catalog_editor(self):
+        """Diálogo para navegar el catálogo (US Imperial Pipes + Structures) de la
+        versión Civil 3D actual, ver los tamaños de cada familia y agregar tamaños
+        nuevos. Edita directamente los XML del catálogo (con backup .xml.bak)."""
+        import civil_catalog as _cc
+        if self.civil_year is None:
+            QtWidgets.QMessageBox.warning(self, "Sin Civil 3D",
+                "No detecté ninguna instalación de Civil 3D."); return
+
+        dlg = QtWidgets.QDialog(self)
+        dlg.setWindowTitle(f"Editor de catálogo — Civil 3D {self.civil_year}")
+        dlg.resize(880, 560)
+        lay = QtWidgets.QHBoxLayout(dlg)
+
+        # Árbol izquierdo: agrupado por subcarpeta.
+        tree = QtWidgets.QTreeWidget()
+        tree.setHeaderLabels(["Familia"])
+        tree.setMinimumWidth(360)
+        lay.addWidget(tree, 1)
+
+        pipes = _cc.imperial_pipes(self.civil_year)
+        structs = _cc.imperial_structures(self.civil_year)
+        # Agrupar por subfolder, marcando kind en el item para saber a qué XML apuntar.
+        groups = {}
+        for f in pipes:
+            groups.setdefault(("pipe", f["subfolder"]), []).append(f)
+        for f in structs:
+            groups.setdefault(("structure", f["subfolder"]), []).append(f)
+        for (kind, sub), fams in sorted(groups.items(), key=lambda kv: (kv[0][0], kv[0][1])):
+            head = QtWidgets.QTreeWidgetItem([f"{sub}  ({'tuberías' if kind=='pipe' else 'estructuras'})"])
+            head.setFlags(QtCore.Qt.ItemIsEnabled)
+            tree.addTopLevelItem(head)
+            for f in fams:
+                it = QtWidgets.QTreeWidgetItem([f["pretty"]])
+                it.setData(0, QtCore.Qt.UserRole, (kind, f["id"]))
+                head.addChild(it)
+            head.setExpanded(True)
+
+        # Panel derecho: detalles + tamaños actuales + botón agregar.
+        right = QtWidgets.QWidget(); rv = QtWidgets.QVBoxLayout(right)
+        lbl_fam = QtWidgets.QLabel("<i>Selecciona una familia a la izquierda.</i>")
+        lbl_fam.setWordWrap(True); rv.addWidget(lbl_fam)
+        rv.addWidget(QtWidgets.QLabel("Tamaños actuales:"))
+        sizes_list = QtWidgets.QListWidget(); rv.addWidget(sizes_list, 1)
+        btn_row = QtWidgets.QHBoxLayout()
+        btn_add = QtWidgets.QPushButton("Agregar tamaño…"); btn_add.setEnabled(False)
+        btn_row.addWidget(btn_add); btn_row.addStretch(1)
+        rv.addLayout(btn_row)
+        rv.addWidget(QtWidgets.QLabel(
+            "<i>Los tamaños agregados quedan en el XML del catálogo Civil 3D "
+            "(<code>ProgramData\\Autodesk\\C3D &lt;año&gt;\\...</code>). Para "
+            "que aparezcan en un dibujo, ábrelo en Civil 3D y añade la familia "
+            "a la Parts List (o usa el comando <code>AGREGAR_BANCOS_Y_BUZONES</code>).</i>"))
+        lay.addWidget(right, 1)
+
+        current = {"kind": None, "fid": None}
+
+        def _refresh_sizes():
+            sizes_list.clear()
+            k, fid = current["kind"], current["fid"]
+            if not fid: return
+            sz = (_cc.pipe_sizes(self.civil_year, fid) if k == "pipe"
+                  else _cc.structure_sizes(self.civil_year, fid))
+            if not sz:
+                sizes_list.addItem("(sin tamaños detectados)")
+            else:
+                for s in sz: sizes_list.addItem(s)
+
+        def _on_sel():
+            items = tree.selectedItems()
+            if not items:
+                current["kind"] = current["fid"] = None
+                lbl_fam.setText("<i>Selecciona una familia a la izquierda.</i>")
+                btn_add.setEnabled(False); sizes_list.clear(); return
+            it = items[0]; data = it.data(0, QtCore.Qt.UserRole)
+            if not data:
+                current["kind"] = current["fid"] = None
+                lbl_fam.setText("<i>Selecciona una familia (no un grupo).</i>")
+                btn_add.setEnabled(False); sizes_list.clear(); return
+            k, fid = data
+            current["kind"] = k; current["fid"] = fid
+            lbl_fam.setText(f"<b>{it.text(0)}</b><br>"
+                            f"Tipo: {'tubería' if k == 'pipe' else 'estructura'} · <code>{fid}</code>")
+            params = _cc.family_params(self.civil_year, fid, k)
+            btn_add.setEnabled(bool(params))
+            if not params and k == "pipe":
+                lbl_fam.setText(lbl_fam.text() + "<br><i>Esta familia usa parámetros continuos "
+                                                 "(no lista fija) — no editable desde aquí.</i>")
+            _refresh_sizes()
+
+        def _on_add():
+            k, fid = current["kind"], current["fid"]
+            if not fid: return
+            self._add_structure_size_dialog(dlg, fid, None, None, kind=k)
+            _refresh_sizes()
+
+        tree.itemSelectionChanged.connect(_on_sel)
+        btn_add.clicked.connect(_on_add)
+
+        bb = QtWidgets.QDialogButtonBox(QtWidgets.QDialogButtonBox.Close)
+        bb.rejected.connect(dlg.reject); bb.accepted.connect(dlg.accept)
+        rv.addWidget(bb)
+        dlg.exec()
 
     def import_network_excel(self):
         path, _ = QtWidgets.QFileDialog.getOpenFileName(self, "Importar Excel de red", DOWNLOADS, "Excel (*.xlsx *.xlsm)")

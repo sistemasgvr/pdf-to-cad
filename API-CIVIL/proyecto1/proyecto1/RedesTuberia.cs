@@ -684,6 +684,7 @@ namespace Civil3DBasico
                 // Tamaño: coincidencia por primer token del PartSize.Name, o "contains" si no matchea exacto.
                 ObjectId sizeElegido = fam[0];
                 string sizeNombre = (tr.GetObject(sizeElegido, OpenMode.ForRead) as PartsStyles.PartSize)?.Name;
+                bool exacto = false;
                 if (dN.Length > 0)
                 {
                     for (int i = 0; i < fam.PartSizeCount; i++)
@@ -691,8 +692,31 @@ namespace Civil3DBasico
                         PartsStyles.PartSize sz = tr.GetObject(fam[i], OpenMode.ForRead) as PartsStyles.PartSize;
                         string sn = Norm(sz?.Name ?? "");
                         if (sn == dN || sn.Contains(dN))
-                        { sizeElegido = fam[i]; sizeNombre = sz?.Name; break; }
+                        { sizeElegido = fam[i]; sizeNombre = sz?.Name; exacto = true; break; }
                     }
+                }
+                // Sin match exacto: NO se crea un tamaño nuevo en el catálogo — solo
+                // se permite elegir entre los que YA existen. Si el pedido es
+                // rectangular "W in x H in", buscamos el más cercano disponible;
+                // si no, avisamos y usamos el primero de la familia.
+                if (!exacto && dN.Length > 0)
+                {
+                    double? w, h;
+                    string aviso;
+                    if (TryParseRectSize(diam, out w, out h) && w.HasValue && h.HasValue)
+                    {
+                        ObjectId cercano = SizeMasCercano(tr, fam, w.Value, h.Value, out string nombreCercano);
+                        if (cercano != ObjectId.Null)
+                        {
+                            sizeElegido = cercano; sizeNombre = nombreCercano;
+                            aviso = $"\n⚠ Tamaño '{diam}' no existe en el catálogo de '{fam.Description}' — usando el más cercano disponible '{nombreCercano}'. Para la medida exacta, agrégala en Part Builder.";
+                        }
+                        else
+                            aviso = $"\n⚠ Tamaño '{diam}' no disponible en '{fam.Description}' — usando '{sizeNombre}' en su lugar. Para medidas personalizadas, usa Part Builder.";
+                    }
+                    else
+                        aviso = $"\n⚠ Tamaño '{diam}' no disponible en '{fam.Description}' — usando '{sizeNombre}' en su lugar. Para medidas personalizadas, usa Part Builder.";
+                    try { Application.DocumentManager.MdiActiveDocument?.Editor?.WriteMessage(aviso); } catch { }
                 }
                 familyId = fid; sizeId = sizeElegido;
                 nombre = $"{fam.Description} / {sizeNombre}";
@@ -735,25 +759,63 @@ namespace Civil3DBasico
                     descBz.IndexOf("cabecero", StringComparison.OrdinalIgnoreCase) >= 0 ||
                     descBz.IndexOf("cabezal", StringComparison.OrdinalIgnoreCase) >= 0) continue;
 
-                // elegir tamaño por 'radio' (o el primero)
+                // Tamaño por defecto (barato): el primero de la familia. Solo se usa
+                // de verdad si esta familia resulta ser la elegida (por 'tipo' o, en
+                // último caso, como fallback 'anyFam').
                 ObjectId elegidoSize = fam[0];
                 string elegidoSizeName = (tr.GetObject(elegidoSize, OpenMode.ForRead) as PartsStyles.PartSize)?.Name;
+                string nom = $"{fam.Description} / {elegidoSizeName}";
+                if (anyFam == ObjectId.Null) { anyFam = fid; anySize = elegidoSize; anyNom = nom; }
+
+                bool famMatch = string.IsNullOrEmpty(tNorm) || (fam.Description != null && Norm(fam.Description).Contains(tNorm));
+                if (!famMatch && fam.Description != null && MatchCatalogId(tipo, fam.Description)) famMatch = true;
+                // La búsqueda/creación de tamaño (cara, y muta la familia con
+                // AddPartSize/RemovePartSize) SOLO se intenta en la familia que
+                // realmente coincide con 'tipo' — antes corría para TODAS las
+                // familias de estructura en cada llamada (aunque no fueran a usarse),
+                // lo cual era lento y multiplicaba el riesgo de dejar tamaños
+                // "- N" huérfanos si algún RemovePartSize fallaba en una familia
+                // que ni siquiera era la elegida.
+                if (!famMatch) continue;
+
+                bool sizeExacto = false;
                 if (!string.IsNullOrWhiteSpace(radio))
                 {
                     string rNorm = Norm(radio);
                     for (int i = 0; i < fam.PartSizeCount; i++)
                     {
                         PartsStyles.PartSize sz = tr.GetObject(fam[i], OpenMode.ForRead) as PartsStyles.PartSize;
-                        if (sz != null && Norm(sz.Name).Contains(rNorm)) { elegidoSize = fam[i]; elegidoSizeName = sz.Name; break; }
+                        if (sz != null && Norm(sz.Name).Contains(rNorm)) { elegidoSize = fam[i]; elegidoSizeName = sz.Name; sizeExacto = true; break; }
                     }
                 }
+                // Sin match exacto: NO se crea un tamaño nuevo en el catálogo — solo
+                // se permite elegir entre los que YA existen en la familia. Si el
+                // 'radio' pedido tiene forma "W x L in", buscamos el más cercano
+                // disponible; si no hay ninguno parseable, avisamos y usamos el
+                // primero de la familia.
+                if (!sizeExacto && !string.IsNullOrWhiteSpace(radio))
+                {
+                    double? wS, lS;
+                    string aviso;
+                    if (TryParseRectSize(radio, out wS, out lS) && wS.HasValue && lS.HasValue)
+                    {
+                        ObjectId cercano = SizeMasCercano(tr, fam, wS.Value, lS.Value, out string nombreCercano);
+                        if (cercano != ObjectId.Null)
+                        {
+                            elegidoSize = cercano; elegidoSizeName = nombreCercano;
+                            aviso = $"\n⚠ Tamaño '{radio}' no existe en el catálogo de '{fam.Description}' — usando el más cercano disponible '{nombreCercano}'. Para la medida exacta, agrégala en Part Builder.";
+                        }
+                        else
+                            aviso = $"\n⚠ Tamaño '{radio}' no disponible en '{fam.Description}' — usando '{elegidoSizeName}' en su lugar. Para medidas personalizadas, usa Part Builder.";
+                    }
+                    else
+                        aviso = $"\n⚠ Tamaño '{radio}' no disponible en '{fam.Description}' — usando '{elegidoSizeName}' en su lugar. Para medidas personalizadas, usa Part Builder.";
+                    try { Application.DocumentManager.MdiActiveDocument?.Editor?.WriteMessage(aviso); } catch { }
+                }
 
-                string nom = $"{fam.Description} / {elegidoSizeName}";
-                if (anyFam == ObjectId.Null) { anyFam = fid; anySize = elegidoSize; anyNom = nom; }
-
-                bool famMatch = string.IsNullOrEmpty(tNorm) || (fam.Description != null && Norm(fam.Description).Contains(tNorm));
-                if (!famMatch && fam.Description != null && MatchCatalogId(tipo, fam.Description)) famMatch = true;
-                if (famMatch) { familyId = fid; sizeId = elegidoSize; nombre = nom; return; }
+                familyId = fid; sizeId = elegidoSize;
+                nombre = $"{fam.Description} / {elegidoSizeName}";
+                return;
             }
             if (anyFam != ObjectId.Null) { familyId = anyFam; sizeId = anySize; nombre = anyNom; }
         }
@@ -1006,6 +1068,38 @@ namespace Civil3DBasico
         {
             s = (s ?? "").Trim().Replace(',', '.');
             return double.TryParse(s, NumberStyles.Float, CultureInfo.InvariantCulture, out value);
+        }
+        // Parsea un tamaño rectangular tipo "W in x H in" o "W x H" (unidades opc.).
+        private static bool TryParseRectSize(string s, out double? w, out double? h)
+        {
+            w = null; h = null;
+            if (string.IsNullOrWhiteSpace(s)) return false;
+            var m = System.Text.RegularExpressions.Regex.Match(
+                s.ToLowerInvariant().Replace(",", "."),
+                @"([0-9]+(?:\.[0-9]+)?)\s*(?:in|inch|"")?\s*x\s*([0-9]+(?:\.[0-9]+)?)\s*(?:in|inch|"")?");
+            if (!m.Success) return false;
+            if (!double.TryParse(m.Groups[1].Value, NumberStyles.Float, CultureInfo.InvariantCulture, out double wv)) return false;
+            if (!double.TryParse(m.Groups[2].Value, NumberStyles.Float, CultureInfo.InvariantCulture, out double hv)) return false;
+            w = wv; h = hv; return true;
+        }
+
+        // Busca, entre los PartSize YA EXISTENTES de la familia (sin crear nada
+        // nuevo), el más cercano al W×H pedido. Devuelve ObjectId.Null si ningún
+        // tamaño de la familia se pudo interpretar como rectangular.
+        private static ObjectId SizeMasCercano(Transaction tr, PartsStyles.PartFamily fam, double w, double h, out string nombreOut)
+        {
+            nombreOut = "";
+            ObjectId mejor = ObjectId.Null;
+            double mejorDist = double.MaxValue;
+            for (int i = 0; i < fam.PartSizeCount; i++)
+            {
+                var sz = tr.GetObject(fam[i], OpenMode.ForRead) as PartsStyles.PartSize;
+                if (sz == null) continue;
+                if (!TryParseRectSize(sz.Name, out double? ew, out double? eh) || !ew.HasValue || !eh.HasValue) continue;
+                double dist = Math.Abs(ew.Value - w) + Math.Abs(eh.Value - h);
+                if (dist < mejorDist) { mejorDist = dist; mejor = fam[i]; nombreOut = sz.Name; }
+            }
+            return mejor;
         }
     }
 }

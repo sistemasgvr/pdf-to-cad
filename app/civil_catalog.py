@@ -152,13 +152,10 @@ def structure_family_params(year, fid):
     return out
 
 
-def add_structure_size(year, fid, values):
-    """Agrega nuevos valores a los <ColumnConstList> del XML de la familia. `values`
-    es un dict {name: value_str}. Se crea un backup .xml.bak la primera vez, y solo
-    se agrega el Item si ese valor no existía ya. Devuelve un dict con:
-      ok: bool | error: str | added: {name: value_agregado} | skipped: {name: motivo}"""
-    path = structure_family_xml(year, fid)
-    if path is None: return {"ok": False, "error": f"No existe el XML de {fid}"}
+def _add_size_to_xml(path, values):
+    """Núcleo compartido: agrega nuevos <Item> a los <ColumnConstList> del XML en
+    `path`, con backup .xml.bak. Ver add_structure_size / add_pipe_size."""
+    if path is None: return {"ok": False, "error": "XML no encontrado"}
     if not os.access(path, os.W_OK):
         return {"ok": False, "error": f"Sin permiso de escritura en {path}. "
                                        "Ejecuta la app como administrador y reintenta."}
@@ -220,6 +217,70 @@ def add_structure_size(year, fid, values):
     return {"ok": True, "added": added, "skipped": skipped}
 
 
+def add_structure_size(year, fid, values):
+    """Agrega nuevos valores al XML de una familia de ESTRUCTURA (buzón)."""
+    return _add_size_to_xml(structure_family_xml(year, fid), values)
+
+
+def add_pipe_size(year, fid, values):
+    """Agrega nuevos valores al XML de una familia de TUBERÍA (incluye Bancoductos
+    y Bancos Tubos, que usan el mismo formato <ColumnConstList>/<Item>)."""
+    return _add_size_to_xml(pipe_family_xml(year, fid), values)
+
+
+def pipe_family_params(year, fid):
+    """Igual que structure_family_params pero para el XML de una TUBERÍA. Devuelve
+    los <ColumnConstList> (Bancoductos/Bancos Tubos los usan). Si la familia usa
+    <Column>/<Row> paramétrica devuelve lista vacía (no soportado por este editor)."""
+    path = pipe_family_xml(year, fid)
+    if path is None: return []
+    try:
+        tree = ET.parse(path); root_el = tree.getroot()
+    except ET.ParseError:
+        return []
+    out = []
+    for col in root_el.findall("ColumnConstList"):
+        items = [it.text for it in col.findall("Item") if it.text is not None]
+        out.append({
+            "name": col.get("name", ""),
+            "desc": col.get("desc", col.get("context", "")),
+            "context": col.get("context", ""),
+            "unit": col.get("unit", ""),
+            "data_type": col.get("dataType", "float"),
+            "items": items,
+        })
+    return out
+
+
+def family_params(year, fid, kind):
+    """Wrapper que despacha a structure_family_params o pipe_family_params."""
+    return (pipe_family_params(year, fid) if kind == "pipe"
+            else structure_family_params(year, fid))
+
+
+def add_family_size(year, fid, values, kind):
+    """Wrapper que despacha a add_structure_size o add_pipe_size."""
+    return (add_pipe_size(year, fid, values) if kind == "pipe"
+            else add_structure_size(year, fid, values))
+
+
+def family_description(year, fid, kind):
+    """Lee el campo PrtD (Catalog_PartDesc) del XML de la familia — es la
+    'Description' que ve Civil 3D. Se usa para exportar al DXF, porque el
+    matcher del addin compara por Description real, no por basename del .xml.
+    Fallback: devuelve el fid si no encuentra PrtD."""
+    path = pipe_family_xml(year, fid) if kind == "pipe" else structure_family_xml(year, fid)
+    if path is None: return fid
+    try:
+        tree = ET.parse(path); root_el = tree.getroot()
+    except ET.ParseError:
+        return fid
+    for cc in root_el.findall("ColumnConst"):
+        if cc.get("context") == "Catalog_PartDesc" and cc.text:
+            return cc.text.strip()
+    return fid
+
+
 def structure_sizes(year, fid):
     """Devuelve la lista de tamaños de una familia de estructura de gravedad, como
     strings tipo "48 in", "60 in". Se toma el ColumnConstList con context que
@@ -258,6 +319,43 @@ def structure_sizes(year, fid):
             if s in seen: continue
             seen.add(s); out.append(s)
         return out
+    # Estructuras RECTANGULARES (buzones tipo Box): tienen StructInnerWidth +
+    # StructInnerLength en el XML. Civil 3D muestra las dimensiones EXTERIORES
+    # en el Part Size Name (fórmula típica: outer = inner + 2*WallThickness).
+    # Devolvemos el producto cartesiano usando outer, para que coincida con la UI.
+    by_ctx = {}
+    for col in root_el.findall("ColumnConstList"):
+        ctx = col.get("context", "")
+        if ctx in ("StructInnerWidth", "StructInnerLength"):
+            vals = [it.text for it in col.findall("Item") if it.text]
+            if vals: by_ctx[ctx] = (col.get("unit", ""), vals)
+    # WallThickness suele venir como ColumnConst (valor único).
+    wall_th = 0.0
+    for cc in root_el.findall("ColumnConst"):
+        if cc.get("context") == "WallThickness":
+            try: wall_th = float(cc.text or "0")
+            except (TypeError, ValueError): wall_th = 0.0
+            break
+    if "StructInnerWidth" in by_ctx and "StructInnerLength" in by_ctx:
+        uw, ws = by_ctx["StructInnerWidth"]
+        ul, ls = by_ctx["StructInnerLength"]
+        u = uw or ul
+        norm_u = "in" if (u or "").lower() in ("inch", "in", "\"") else \
+                 ("ft" if (u or "").lower() in ("foot", "feet", "ft", "'") else (u or ""))
+        def _outer(v):
+            try: return float(v) + 2.0 * wall_th
+            except (TypeError, ValueError): return None
+        def _n(x):
+            if x is None: return "?"
+            return f"{x:.4f}".rstrip("0").rstrip(".")
+        out, seen = [], set()
+        for w in ws:
+            for l in ls:
+                s = f"{_n(_outer(w))} x {_n(_outer(l))}" + (f" {norm_u}" if norm_u else "")
+                if s in seen: continue
+                seen.add(s); out.append(s)
+        return out
+
     for ctx in preferred_contexts:
         for col in root_el.findall("ColumnConstList"):
             if col.get("context") == ctx:
@@ -380,6 +478,45 @@ def pipe_sizes(year, fid):
     for col in root_el.findall("Column"):
         sizes = _extract(col, "Row")
         if sizes: return sizes
+
+    # Fallback: familias tipo Bancoductos usan <ColumnConstList>/<Item> igual que
+    # las estructuras. Si hay a la vez PipeInnerWidth + PipeInnerHeight (rectangular)
+    # devolvemos el producto cartesiano "W x H in". Si solo hay diámetro (circular),
+    # devolvemos esa lista sola.
+    cols_by_ctx = {}
+    for col in root_el.findall("ColumnConstList"):
+        ctx = col.get("context", "")
+        vals = [it.text for it in col.findall("Item") if it.text]
+        if vals: cols_by_ctx[ctx] = (col.get("unit", ""), vals)
+    if "PipeInnerWidth" in cols_by_ctx and "PipeInnerHeight" in cols_by_ctx:
+        uw, ws = cols_by_ctx["PipeInnerWidth"]
+        uh, hs = cols_by_ctx["PipeInnerHeight"]
+        u = uw or uh
+        def _n(v):
+            try: x = float(v); s = f"{x:.4f}".rstrip("0").rstrip(".")
+            except (TypeError, ValueError): s = str(v)
+            return s
+        norm_u = "in" if (u or "").lower() in ("inch", "in", "\"") else \
+                 ("ft" if (u or "").lower() in ("foot", "feet", "ft", "'") else (u or ""))
+        # Formato "{W} in x {H} in" — el mismo que el ColumnCalc del catálogo
+        # (p.ej. "Bancoducto BT 28 in x 10 in"). Necesario para que el matcher
+        # del addin (Norm + Contains) lo encuentre en el PartSize.Name.
+        out, seen = [], set()
+        for w in ws:
+            for h in hs:
+                if norm_u: s = f"{_n(w)} {norm_u} x {_n(h)} {norm_u}"
+                else:      s = f"{_n(w)} x {_n(h)}"
+                if s in seen: continue
+                seen.add(s); out.append(s)
+        return out
+    for ctx in preferred_contexts:
+        if ctx in cols_by_ctx:
+            unit, vals = cols_by_ctx[ctx]
+            fake_col = ET.Element("C"); fake_col.set("unit", unit)
+            for v in vals:
+                it = ET.SubElement(fake_col, "R"); it.text = v
+            sizes = _extract(fake_col, "R")
+            if sizes: return sizes
     return []
 
 

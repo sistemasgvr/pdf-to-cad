@@ -194,7 +194,12 @@ def new_pipe(layer, pts, ab=False, name="", diam=0.0, unit="pulg",
     """
     return {"layer": layer, "pts": list(pts), "ab": bool(ab),
             "name": name, "diam": float(diam), "unit": unit,
-            "material": material, "net_type": net_type}
+            "material": material, "net_type": net_type,
+            "no_manhole_verts": [],
+            # seg_overrides: {seg_idx (int): {"pipe_family": str, "pipe_size": str}}
+            # Cada seg_idx i representa el tramo de vertex[i] a vertex[i+1].
+            # Los ausentes usan pipe_family/pipe_size global de la pipe.
+            "seg_overrides": {}}
 
 
 def new_text(pos, text, size_ft, font, bold=False, rot=0, free=True):

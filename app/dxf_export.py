@@ -9,10 +9,42 @@ El comportamiento es idéntico al que tenían estos métodos dentro de Main.
 import math
 import config as C
 import vector_pipeline as VP
+import civil_catalog as _cc
 from ezdxf.enums import TextEntityAlignment
 from geometry import point_in_poly
 from model import (LEADER_TEXT_FT, network_kind, default_network_type,
                    mannings_n, COVER_MIN_FT)
+
+
+def _encode_seg_overrides(win, p):
+    """Serializa p['seg_overrides'] al formato XDATA: 'idx~family~size;idx~family~size'.
+    La familia se resuelve a Description real (misma lógica que _resolve_family),
+    para que el matcher del addin la encuentre por Description."""
+    ov = p.get("seg_overrides") or {}
+    if not ov: return ""
+    parts = []
+    for k in sorted(ov.keys(), key=lambda x: int(x)):
+        entry = ov[k] or {}
+        fid = entry.get("pipe_family") or ""
+        sz  = entry.get("pipe_size") or ""
+        fam = _resolve_family(win, fid, "pipe") if fid else ""
+        parts.append(f"{int(k)}~{fam}~{sz}")
+    return ";".join(parts)
+
+
+def _resolve_family(win, fid, kind):
+    """Traduce un fid (basename del .xml) a la Description real (PrtD) que ve
+    Civil 3D. Así el matcher del addin (compara por Description) encuentra la
+    familia correcta, incluso para familias custom como Bancoductos/BuzonesElectricas
+    donde el basename no comparte tokens con la Description.
+    Los fid de presión (formato '<subcat>|<name>') salen de un catálogo SQLite —
+    no tienen XML, se devuelven tal cual."""
+    if not fid: return ""
+    if "|" in fid: return fid                                  # presión: catálogo SQLite
+    year = getattr(win, "civil_year", None)
+    if year is None: return fid
+    try: return _cc.family_description(year, fid, kind) or fid
+    except Exception: return fid
 
 
 def text_style(doc, font, bold):
@@ -61,8 +93,10 @@ def merge_into(win, doc, marks=True):
             (1000, f"INV_END={inv_e if inv_e is not None else ''}"),
             (1000, f"MANNINGS_N={manning}"),
             (1000, f"COVER_MIN={cover}"),
-            (1000, f"PIPE_FAMILY={p.get('pipe_family') or ''}"),
+            (1000, f"PIPE_FAMILY={_resolve_family(win, p.get('pipe_family') or '', 'pipe')}"),
             (1000, f"PIPE_SIZE={p.get('pipe_size') or ''}"),
+            (1000, f"NO_MANHOLE_VERTS={','.join(str(i) for i in (p.get('no_manhole_verts') or []))}"),
+            (1000, f"SEG_OVERRIDES={_encode_seg_overrides(win, p)}"),
         ])
     _export_structures(win, doc, msp)
     VP.ensure_layer(doc, "ANOTACION")
@@ -188,7 +222,7 @@ def _export_structures(win, doc, msp):
             (1000, f"STRUCT_ID={s.get('cod') or ''}"),
             (1000, f"RIM={rim if rim is not None else ''}"),
             (1000, f"SUMP={sump if sump is not None else ''}"),
-            (1000, f"PART={s.get('part') or ''}"),
+            (1000, f"PART={_resolve_family(win, s.get('part') or '', 'structure')}"),
             (1000, f"PART_SIZE={s.get('part_size') or ''}"),
             (1000, f"COVERED={1 if s.get('covered', True) else 0}"),
             (1000, f"NET_KIND={s.get('net') or 'gravity'}"),
