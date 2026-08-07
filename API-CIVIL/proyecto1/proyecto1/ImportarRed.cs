@@ -791,12 +791,19 @@ namespace Civil3DBasico
             }
             ed.WriteMessage($"\n[DIAG] Estructura rim/auto: ok={stOk} fallo={stErr}  {stMsg}");
 
-            // Alineamiento (eje) para la red — permite después crear vistas de perfil
-            ObjectId alignId = ComandosAlineamientos.CrearAlineamientoDesdePts(db, civilDoc, tr, trazaEje, nm + "-eje");
-            if (alignId != ObjectId.Null)
-            { try { net.ReferenceAlignmentId = alignId; } catch { } }
+            // Alineamiento (eje) para la red — permite después crear vistas de perfil.
+            // En conduit (eléctrico/telecom) NO se crea alineamiento: si hay varias
+            // subredes desconectadas dentro de la misma capa, el eje las une con una
+            // polilínea fina que aparenta ser una conexión real.
+            ObjectId alignId = ObjectId.Null;
+            if (!sinBuzones)
+            {
+                alignId = ComandosAlineamientos.CrearAlineamientoDesdePts(db, civilDoc, tr, trazaEje, nm + "-eje");
+                if (alignId != ObjectId.Null)
+                { try { net.ReferenceAlignmentId = alignId; } catch { } }
+            }
 
-            ed.WriteMessage($"\n✓ Red gravedad '{nm}': {createdStructs.Count} buzones, {nPipes} tuberías" +
+            ed.WriteMessage($"\n✓ Red {(sinBuzones ? "conduit" : "gravedad")} '{nm}': {createdStructs.Count} nodos, {nPipes} tuberías" +
                             (alignId != ObjectId.Null ? " + eje." : "."));
             return netId;
         }

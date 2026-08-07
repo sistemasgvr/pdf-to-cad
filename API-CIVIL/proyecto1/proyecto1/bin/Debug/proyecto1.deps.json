@@ -13,8 +13,8 @@
           "acdbmgd": "25.0.0.0",
           "acmgd": "25.0.0.0",
           "AecBaseMgd": "8.7.49.0",
-          "AeccDbMgd": "13.7.0.145",
-          "AeccPressurePipesMgd": "13.7.0.145",
+          "AeccDbMgd": "13.7.0.1429",
+          "AeccPressurePipesMgd": "13.7.0.1429",
           "AecPropDataMgd": "8.7.49.0"
         },
         "runtime": {
@@ -114,8 +114,8 @@
           }
         },
         "resources": {
-          "en-US/acdbmgd.resources.dll": {
-            "locale": "en-US"
+          "es-ES/acdbmgd.resources.dll": {
+            "locale": "es-ES"
           }
         }
       },
@@ -135,24 +135,24 @@
           }
         },
         "resources": {
-          "en-US/AecBaseMgd.resources.dll": {
-            "locale": "en-US"
+          "es-ES/AecBaseMgd.resources.dll": {
+            "locale": "es-ES"
           }
         }
       },
-      "AeccDbMgd/13.7.0.145": {
+      "AeccDbMgd/13.7.0.1429": {
         "runtime": {
           "AeccDbMgd.dll": {
-            "assemblyVersion": "13.7.0.145",
-            "fileVersion": "13.7.145.0"
+            "assemblyVersion": "13.7.0.1429",
+            "fileVersion": "13.7.1429.0"
           }
         }
       },
-      "AeccPressurePipesMgd/13.7.0.145": {
+      "AeccPressurePipesMgd/13.7.0.1429": {
         "runtime": {
           "AeccPressurePipesMgd.dll": {
-            "assemblyVersion": "13.7.0.145",
-            "fileVersion": "13.7.145.0"
+            "assemblyVersion": "13.7.0.1429",
+            "fileVersion": "13.7.1429.0"
           }
         }
       },
@@ -180,8 +180,8 @@
           }
         },
         "resources": {
-          "en-US/AcDx.resources.dll": {
-            "locale": "en-US"
+          "es-ES/AcDx.resources.dll": {
+            "locale": "es-ES"
           }
         }
       },
@@ -193,8 +193,8 @@
           }
         },
         "resources": {
-          "en-US/AcDxPublishUi.resources.dll": {
-            "locale": "en-US"
+          "es-ES/AcDxPublishUi.resources.dll": {
+            "locale": "es-ES"
           }
         }
       },
@@ -206,8 +206,8 @@
           }
         },
         "resources": {
-          "en-US/AdWindows.resources.dll": {
-            "locale": "en-US"
+          "es-ES/AdWindows.resources.dll": {
+            "locale": "es-ES"
           }
         }
       },
@@ -227,8 +227,8 @@
           }
         },
         "resources": {
-          "en-US/AcCustomize.resources.dll": {
-            "locale": "en-US"
+          "es-ES/AcCustomize.resources.dll": {
+            "locale": "es-ES"
           }
         }
       },
@@ -240,8 +240,8 @@
           }
         },
         "resources": {
-          "en-US/AppHomeInterop.resources.dll": {
-            "locale": "en-US"
+          "es-ES/AppHomeInterop.resources.dll": {
+            "locale": "es-ES"
           }
         }
       },
@@ -253,8 +253,8 @@
           }
         },
         "resources": {
-          "en-US/AcMr.resources.dll": {
-            "locale": "en-US"
+          "es-ES/AcMr.resources.dll": {
+            "locale": "es-ES"
           }
         }
       },
@@ -274,8 +274,8 @@
           }
         },
         "resources": {
-          "en-US/AcWindows.resources.dll": {
-            "locale": "en-US"
+          "es-ES/AcWindows.resources.dll": {
+            "locale": "es-ES"
           }
         }
       },
@@ -299,7 +299,7 @@
         "runtime": {
           "AeccHydroCalcsMgd.dll": {
             "assemblyVersion": "0.0.0.0",
-            "fileVersion": "13.7.145.0"
+            "fileVersion": "13.7.1429.0"
           }
         }
       },
@@ -407,16 +407,16 @@
           }
         }
       },
-      "AeccHydroCalcsCS/13.7.145.0": {
+      "AeccHydroCalcsCS/13.7.1429.0": {
         "runtime": {
           "AeccHydroCalcsCS.dll": {
-            "assemblyVersion": "13.7.145.0",
-            "fileVersion": "13.7.145.0"
+            "assemblyVersion": "13.7.1429.0",
+            "fileVersion": "13.7.1429.0"
           }
         },
         "resources": {
-          "en-US/AeccHydroCalcsCS.resources.dll": {
-            "locale": "en-US"
+          "es-ES/AeccHydroCalcsCS.resources.dll": {
+            "locale": "es-ES"
           }
         }
       },
@@ -528,12 +528,12 @@
       "serviceable": false,
       "sha512": ""
     },
-    "AeccDbMgd/13.7.0.145": {
+    "AeccDbMgd/13.7.0.1429": {
       "type": "reference",
       "serviceable": false,
       "sha512": ""
     },
-    "AeccPressurePipesMgd/13.7.0.145": {
+    "AeccPressurePipesMgd/13.7.0.1429": {
       "type": "reference",
       "serviceable": false,
       "sha512": ""
@@ -673,7 +673,7 @@
       "serviceable": false,
       "sha512": ""
     },
-    "AeccHydroCalcsCS/13.7.145.0": {
+    "AeccHydroCalcsCS/13.7.1429.0": {
       "type": "reference",
       "serviceable": false,
       "sha512": ""

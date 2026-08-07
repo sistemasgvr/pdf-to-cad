@@ -297,24 +297,19 @@
     ]
   },
   "packageFolders": {
-    "C:\\Users\\USUARIO\\.nuget\\packages\\": {},
-    "C:\\Program Files (x86)\\Microsoft Visual Studio\\Shared\\NuGetPackages": {}
+    "C:\\Users\\User\\.nuget\\packages\\": {}
   },
   "project": {
     "version": "1.0.0",
     "restore": {
-      "projectUniqueName": "D:\\Proyecto-Programacion\\pdf-to-cad\\API-CIVIL\\proyecto1\\proyecto1\\proyecto1.csproj",
+      "projectUniqueName": "D:\\GVR\\Proyectos_DEV\\EEUU\\pdf-to-cad\\API-CIVIL\\proyecto1\\proyecto1\\proyecto1.csproj",
       "projectName": "proyecto1",
-      "projectPath": "D:\\Proyecto-Programacion\\pdf-to-cad\\API-CIVIL\\proyecto1\\proyecto1\\proyecto1.csproj",
-      "packagesPath": "C:\\Users\\USUARIO\\.nuget\\packages\\",
-      "outputPath": "D:\\Proyecto-Programacion\\pdf-to-cad\\API-CIVIL\\proyecto1\\proyecto1\\obj\\",
+      "projectPath": "D:\\GVR\\Proyectos_DEV\\EEUU\\pdf-to-cad\\API-CIVIL\\proyecto1\\proyecto1\\proyecto1.csproj",
+      "packagesPath": "C:\\Users\\User\\.nuget\\packages\\",
+      "outputPath": "D:\\GVR\\Proyectos_DEV\\EEUU\\pdf-to-cad\\API-CIVIL\\proyecto1\\proyecto1\\obj\\",
       "projectStyle": "PackageReference",
-      "fallbackFolders": [
-        "C:\\Program Files (x86)\\Microsoft Visual Studio\\Shared\\NuGetPackages"
-      ],
       "configFilePaths": [
-        "C:\\Users\\USUARIO\\AppData\\Roaming\\NuGet\\NuGet.Config",
-        "C:\\Program Files (x86)\\NuGet\\Config\\Microsoft.VisualStudio.FallbackLocation.config",
+        "C:\\Users\\User\\AppData\\Roaming\\NuGet\\NuGet.Config",
         "C:\\Program Files (x86)\\NuGet\\Config\\Microsoft.VisualStudio.Offline.config"
       ],
       "originalTargetFrameworks": [
@@ -322,7 +317,6 @@
       ],
       "sources": {
         "C:\\Program Files (x86)\\Microsoft SDKs\\NuGetPackages\\": {},
-        "C:\\Program Files\\dotnet\\library-packs": {},
         "https://api.nuget.org/v3/index.json": {}
       },
       "frameworks": {

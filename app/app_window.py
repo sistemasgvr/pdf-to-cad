@@ -250,8 +250,7 @@ class Main(QtWidgets.QMainWindow):
             self.cmb_civil.addItem(f"{y}{'' if y in _inst else '  (no instalado)'}", y)
         if self.civil_year is not None:
             i = _all_years.index(self.civil_year); self.cmb_civil.setCurrentIndex(i)
-        self.cmb_civil.currentIndexChanged.connect(
-            lambda i: setattr(self, "civil_year", self.cmb_civil.itemData(i)))
+        self.cmb_civil.currentIndexChanged.connect(self._on_civil_year_changed)
         self.cmb_civil.setToolTip("Versión de Civil 3D. El catálogo imperial se busca en\n"
                                   "C:\\ProgramData\\Autodesk\\C3D <año>\\<idioma>\\Pipes Catalog\\US Imperial Structures")
         tb.addWidget(self.cmb_civil)
@@ -1491,6 +1490,21 @@ class Main(QtWidgets.QMainWindow):
         """Devuelve 'gravity' | 'pressure' | 'conduit' según la capa del pipe."""
         from model import network_kind
         return network_kind(p.get("layer") or "")
+
+    def _on_civil_year_changed(self, i):
+        """Al cambiar la versión de Civil 3D en el toolbar, refresca inmediatamente
+        los combos de familias/tamaños del panel activo (pipes y buzones/cajas)
+        contra el catálogo de la versión seleccionada. Sin esto el panel seguía
+        mostrando las familias de la versión anterior hasta reabrir el archivo."""
+        self.civil_year = self.cmb_civil.itemData(i)
+        try:
+            if 0 <= getattr(self, "sel_pipe", -1) < len(self.pipes):
+                self._reload_pipe_families(self.pipes[self.sel_pipe])
+        except Exception: pass
+        try:
+            if 0 <= getattr(self, "sel_bz", -1) < len(self.structures):
+                self._sync_bz_panel()
+        except Exception: pass
 
     def _reload_pipe_families(self, p):
         """Repuebla los combos prop_family y prop_size según la capa del pipe y el
