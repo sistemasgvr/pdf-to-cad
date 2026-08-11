@@ -50,13 +50,6 @@
             </Setter>
         </Style>
 
-        <Style x:Key="TituloSeccion" TargetType="TextBlock">
-            <Setter Property="Foreground" Value="{StaticResource brTexto}"/>
-            <Setter Property="FontSize" Value="12"/>
-            <Setter Property="FontWeight" Value="Bold"/>
-            <Setter Property="Margin" Value="2,0,0,6"/>
-        </Style>
-
         <Style x:Key="Tarjeta" TargetType="Border">
             <Setter Property="Background" Value="{StaticResource brTarjeta}"/>
             <Setter Property="BorderBrush" Value="{StaticResource brBorde}"/>
@@ -92,13 +85,13 @@
                     </Border>
                 </StackPanel>
 
-                <!-- IMPORTAR DESDE DXF -->
+                <!-- IMPORTAR RED -->
                 <Border Style="{StaticResource Tarjeta}">
                     <StackPanel>
                         <StackPanel Orientation="Horizontal" Margin="0,0,0,4">
                             <Border Width="4" CornerRadius="2" Background="{StaticResource brVerde}" Margin="0,1,9,1"/>
                             <StackPanel>
-                                <TextBlock Text="IMPORTAR DESDE DXF" Foreground="{StaticResource brTexto}" FontSize="12.5" FontWeight="Bold"/>
+                                <TextBlock Text="IMPORTAR RED" Foreground="{StaticResource brTexto}" FontSize="12.5" FontWeight="Bold"/>
                                 <TextBlock Text="Lee polilíneas con XDATA (pdf-to-cad)" Foreground="{StaticResource brTextoTenue}" FontSize="10.5"/>
                             </StackPanel>
                         </StackPanel>
@@ -107,72 +100,22 @@
                     </StackPanel>
                 </Border>
 
-                <!-- CATÁLOGO -->
+                <!-- PROPERTY SETS DE TUBERÍAS -->
                 <Border Style="{StaticResource Tarjeta}">
                     <StackPanel>
-                        <TextBlock Style="{StaticResource TituloSeccion}" Text="① CATÁLOGO Y UNIDADES"/>
-                        <Button x:Name="btnImperial" Style="{StaticResource Boton}" Background="{StaticResource brAzul}"
-                                Content="📏  Poner dibujo en Imperial (pies)"/>
-                        <Button x:Name="btnListar" Style="{StaticResource Boton}" Background="{StaticResource brAzul}"
-                                Content="📋  Listar piezas del catálogo"/>
+                        <StackPanel Orientation="Horizontal" Margin="0,0,0,4">
+                            <Border Width="4" CornerRadius="2" Background="{StaticResource brAzul}" Margin="0,1,9,1"/>
+                            <StackPanel>
+                                <TextBlock Text="PROPERTY SETS" Foreground="{StaticResource brTexto}" FontSize="12.5" FontWeight="Bold"/>
+                                <TextBlock Text="Excel intermedio para asignar datos a cada tubería" Foreground="{StaticResource brTextoTenue}" FontSize="10.5"/>
+                            </StackPanel>
+                        </StackPanel>
+                        <Button x:Name="btnExportarPS" Style="{StaticResource Boton}" Background="{StaticResource brAzul}"
+                                Content="📤  Exportar tuberías a Excel"/>
+                        <Button x:Name="btnImportarPS" Style="{StaticResource Boton}" Background="{StaticResource brAzul}"
+                                Content="📥  Importar Property Sets desde Excel"/>
                     </StackPanel>
                 </Border>
-
-                <!-- COLOCAR ELEMENTOS -->
-                <Border Style="{StaticResource Tarjeta}">
-                    <StackPanel>
-                        <TextBlock Style="{StaticResource TituloSeccion}" Text="② COLOCAR ELEMENTOS"/>
-                        <TextBlock Text="Tipo de elemento:" Foreground="{StaticResource brTextoTenue}"
-                                   FontSize="11" Margin="2,0,0,3"/>
-                        <ComboBox x:Name="cboElemento" SelectedIndex="0" Height="28" FontSize="12" Padding="6,2">
-                            <ComboBoxItem>Codo</ComboBoxItem>
-                            <ComboBoxItem>Tee</ComboBoxItem>
-                            <ComboBoxItem>Cruz</ComboBoxItem>
-                            <ComboBoxItem>Reductor</ComboBoxItem>
-                            <ComboBoxItem>Tapon</ComboBoxItem>
-                            <ComboBoxItem>Union</ComboBoxItem>
-                            <ComboBoxItem>Wye</ComboBoxItem>
-                            <ComboBoxItem>Valvula</ComboBoxItem>
-                            <ComboBoxItem>Hidrante</ComboBoxItem>
-                        </ComboBox>
-                        <Button x:Name="btnElemento" Style="{StaticResource Boton}" Background="{StaticResource brAgua}"
-                                Content="🔧  Colocar elemento seleccionado" Margin="0,6,0,3"/>
-                        <Button x:Name="btnUnir"     Style="{StaticResource Boton}" Background="{StaticResource brAgua}"
-                                Content="🔗  Unir 2 tuberías con accesorio"/>
-                        <Button x:Name="btnDescribir" Style="{StaticResource Boton}" Background="{StaticResource brAgua}"
-                                Content="🏷️  Nombrar pieza"/>
-                    </StackPanel>
-                </Border>
-
-                <!-- ALINEAMIENTOS Y PERFILES -->
-                <Border Style="{StaticResource Tarjeta}">
-                    <StackPanel>
-                        <TextBlock Style="{StaticResource TituloSeccion}" Text="③ ALINEAMIENTOS Y PERFILES"/>
-                        <Button x:Name="btnPerfilGrav" Style="{StaticResource Boton}" Background="{StaticResource brAgua}"
-                                Content="📈  Perfil longitudinal (gravedad)"/>
-                        <Button x:Name="btnPerfilPres" Style="{StaticResource Boton}" Background="{StaticResource brAgua}"
-                                Content="📈  Perfil longitudinal (presión)"/>
-                        <Button x:Name="btnInvertirEje" Style="{StaticResource Boton}" Background="{StaticResource brAgua}"
-                                Content="↔️  Invertir dirección de eje"/>
-                    </StackPanel>
-                </Border>
-
-                <!-- SALIDA -->
-                <Border Style="{StaticResource Tarjeta}">
-                    <StackPanel>
-                        <TextBlock Style="{StaticResource TituloSeccion}" Text="④ SALIDA"/>
-                        <Button x:Name="btnSolidos" Style="{StaticResource Boton}" Background="{StaticResource brAmbar}"
-                                Content="🧊  Extraer sólidos 3D"/>
-                        <Button x:Name="btnExcel"   Style="{StaticResource Boton}" Background="{StaticResource brAmbar}"
-                                Content="📊  Exportar datos a Excel"/>
-                        <Button x:Name="btnPropSet" Style="{StaticResource Boton}" Background="{StaticResource brAmbar}"
-                                Content="🏷️  Adjuntar Property Set"/>
-                    </StackPanel>
-                </Border>
-
-                <TextBlock Text="Cada botón lanza su comando en el dibujo activo."
-                           Foreground="{StaticResource brTextoTenue}" FontSize="10.5"
-                           TextAlignment="Center" Margin="0,2,0,4"/>
 
             </StackPanel>
         </ScrollViewer>

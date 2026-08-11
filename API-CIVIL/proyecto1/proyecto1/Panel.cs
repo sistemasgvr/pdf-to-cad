@@ -22,22 +22,5 @@ namespace Civil3DBasico
             }
             _panel.Visible = true;
         }
-
-        // Panel de CORREDORES
-        private static PaletteSet _panelCor;
-        private static readonly Guid PanelCorGuid = new Guid("7F3A2C10-9B4E-4E21-A6C2-1B2C3D4E5F62");
-
-        [CommandMethod("PANEL_CORREDOR")]
-        public void MostrarPanelCorredor()
-        {
-            if (_panelCor == null)
-            {
-                _panelCor = new PaletteSet("Corredores", PanelCorGuid);
-                _panelCor.Style = PaletteSetStyles.ShowCloseButton | PaletteSetStyles.ShowAutoHideButton;
-                _panelCor.MinimumSize = new System.Drawing.Size(240, 300);
-                _panelCor.AddVisual("Corredor", new PanelCorredor());
-            }
-            _panelCor.Visible = true;
-        }
     }
 }

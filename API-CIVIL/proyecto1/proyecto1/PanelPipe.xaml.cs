@@ -9,22 +9,9 @@ namespace Civil3DBasico
         {
             InitializeComponent();
 
-            btnImportar.Click  += (s, e) => Ejecutar("IMPORTAR_RED");
-            btnImperial.Click  += (s, e) => Ejecutar("USAR_IMPERIAL");
-            btnListar.Click    += (s, e) => Ejecutar("LISTAR_PIEZAS_PRESION");
-            btnElemento.Click  += (s, e) =>
-            {
-                string tipo = (cboElemento.SelectedItem as ComboBoxItem)?.Content?.ToString() ?? "Codo";
-                Ejecutar("AGREGAR_ELEMENTO_PRESION " + tipo);
-            };
-            btnUnir.Click      += (s, e) => Ejecutar("UNIR_TUBERIAS_PRESION");
-            btnDescribir.Click += (s, e) => Ejecutar("DESCRIBIR_PIEZA_PRESION");
-            btnPerfilGrav.Click  += (s, e) => Ejecutar("CREAR_PERFIL_RED");
-            btnPerfilPres.Click  += (s, e) => Ejecutar("CREAR_PERFIL_PRESION");
-            btnInvertirEje.Click += (s, e) => Ejecutar("INVERTIR_ALINEAMIENTO");
-            btnSolidos.Click   += (s, e) => Ejecutar("EXTRAER_SOLIDOS_PRESION");
-            btnExcel.Click     += (s, e) => Ejecutar("EXPORTAR_RED_EXCEL");
-            btnPropSet.Click   += (s, e) => Ejecutar("ADJUNTAR_PROPERTY_SET");
+            btnImportar.Click   += (s, e) => Ejecutar("IMPORTAR_RED");
+            btnExportarPS.Click += (s, e) => Ejecutar("EXPORTAR_TUBERIAS_PS");
+            btnImportarPS.Click += (s, e) => Ejecutar("IMPORTAR_TUBERIAS_PS");
         }
 
         private void Ejecutar(string comando)

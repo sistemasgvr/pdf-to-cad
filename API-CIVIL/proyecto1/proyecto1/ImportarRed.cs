@@ -340,25 +340,11 @@ namespace Civil3DBasico
                 }
             }
 
-            // ── 7. Reporte CSV (para revisar cada elemento fuera de Civil) ───
-            using (Transaction trRep = db.TransactionManager.StartTransaction())
-            {
-                try { EscribirReporteRed(ed, trRep, createdNetIds, createdPresIds); trRep.Commit(); }
-                catch (Exception ex) { ed.WriteMessage($"\n(No se pudo escribir el reporte: {ex.Message})"); trRep.Abort(); }
-            }
-
-            // ── 8. Volcar log de depuración a CSV ───────────────────────────
-            try
-            {
-                string dbgDir = System.IO.Path.Combine(
-                    Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), "Downloads");
-                if (!System.IO.Directory.Exists(dbgDir))
-                    dbgDir = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
-                string dbgPath = System.IO.Path.Combine(dbgDir, "IMPORTAR_RED_debug.csv");
-                System.IO.File.WriteAllLines(dbgPath, _dbg, System.Text.Encoding.UTF8);
-                ed.WriteMessage($"\n📋 Log de depuración: {dbgPath}  ({_dbg.Count} eventos)");
-            }
-            catch (Exception ex) { ed.WriteMessage($"\n(No se pudo escribir log de depuración: {ex.Message})"); }
+            // ── 7. Reporte CSV y log de depuración — DESHABILITADOS ─────────
+            // Se conservan EscribirReporteRed() y el buffer _dbg en el código para
+            // reactivarlos rápidamente durante desarrollo (basta descomentar los
+            // dos bloques que había aquí), pero en instalaciones cliente NO se
+            // escriben archivos CSV al disco.
 
             ed.WriteMessage("\n═══ IMPORTAR RED — fin ═══");
         }
@@ -1344,7 +1330,36 @@ namespace Civil3DBasico
                 Dbg("ASEGURAR_FAM_CHECK", ("pedido", catalogId), ("dominio", dominio.ToString()),
                     ("candidato", fam.Description ?? ""),
                     ("match", m ? "true" : "false"), ("sizes", fam.PartSizeCount));
-                if (m) { Dbg("ASEGURAR_FAM_YA_ESTA", ("pedido", catalogId), ("descripcion", fam.Description ?? "")); return; }
+                if (m)
+                {
+                    // La familia ya está, pero puede haber sido agregada al PartsList con
+                    // solo 1 tamaño (típico en familias personalizadas hechas a mano en
+                    // Part Builder). Rehidratamos TODOS los tamaños del catálogo para
+                    // que los tamaños que el Python muestra en el combo existan de verdad.
+                    // Los duplicados que esto pueda generar los limpia LimpiarDuplicadosPartSize.
+                    int antes = fam.PartSizeCount;
+                    try
+                    {
+                        var famW = tr.GetObject(fid, OpenMode.ForWrite) as PartsStyles.PartFamily;
+                        if (famW != null)
+                        {
+                            var filtro = new PartsStyles.SizeFilterRecord(famW);
+                            for (int i = 0; i < filtro.ParamCount; i++)
+                            {
+                                var campo = filtro[i];
+                                if (campo != null && !campo.IsReadOnly && campo.IsFromList)
+                                    campo.IsMultipleSelect = true;
+                            }
+                            famW.AddPartSize(filtro);
+                            Dbg("ASEGURAR_FAM_REHIDRATA", ("pedido", catalogId),
+                                ("antes", antes), ("despues", famW.PartSizeCount));
+                        }
+                    }
+                    catch (Exception exRe)
+                    { Dbg("ASEGURAR_FAM_REHIDRATA_ERROR", ("pedido", catalogId), ("msg", exRe.Message)); }
+                    Dbg("ASEGURAR_FAM_YA_ESTA", ("pedido", catalogId), ("descripcion", fam.Description ?? ""));
+                    return;
+                }
             }
             try
             {

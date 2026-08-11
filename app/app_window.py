@@ -16,7 +16,6 @@ import config as C
 import vector_pipeline as VP
 import geometry as G
 import dxf_export
-import excel_import
 from geo import georef as georef_mod
 from geometry import point_in_poly, qimage_to_gray
 from model import (VERSION, TIPOS, ACI_RGB, LEADER_TEXT_FT, LEADER_ORIENT,
@@ -174,7 +173,7 @@ class Canvas(QtWidgets.QGraphicsView):
 class Main(QtWidgets.QMainWindow):
     def __init__(self):
         super().__init__()
-        self.setWindowTitle(f"Digitalizador de planos — utilidades  (v{VERSION})"); self.resize(1480, 940)
+        self.setWindowTitle(f"Asistente C3D  (v{VERSION})"); self.resize(1480, 940)
         self.setAcceptDrops(True)
         self.canvas = Canvas(self); self.canvas.clicked.connect(self.on_click)
         self.canvas.dbl.connect(self.on_dblclick); self.setCentralWidget(self.canvas)
@@ -207,7 +206,6 @@ class Main(QtWidgets.QMainWindow):
         mb = self.menuBar()
         mfile = mb.addMenu("&Archivo")
         self._menu_act(mfile, "Abrir PDF…", self.open_pdf)
-        self._menu_act(mfile, "Abrir Excel…", self.open_excel)
         mfile.addSeparator()
         self._menu_act(mfile, "Abrir proyecto…", self.open_project)
         self._menu_act(mfile, "Guardar proyecto", self.save_project, "Ctrl+S")
@@ -219,9 +217,6 @@ class Main(QtWidgets.QMainWindow):
         self._menu_act(medit, "Rehacer", self.redo, "Ctrl+Shift+Z")
         mtools = mb.addMenu("&Herramientas")
         self._menu_act(mtools, "Insertar buzón en línea…", self.insert_manhole)
-        self._menu_act(mtools, "Importar Excel de red…", self.import_network_excel)
-        mtools.addSeparator()
-        self._menu_act(mtools, "Editor de catálogo Civil 3D…", self.open_catalog_editor)
         mtools.addSeparator()
         self._menu_act(mtools, "Georreferenciar…", self.open_georef)
         self._menu_act(mtools, "Quitar georreferencia", self.clear_georef)
@@ -237,7 +232,6 @@ class Main(QtWidgets.QMainWindow):
         tact("🔍＋", "Acercar", self._zoom_in); tact("🔍－", "Alejar", self._zoom_out)
         tb.addSeparator(); tact("↶", "Deshacer (Ctrl+Z)", self.undo); tact("↷", "Rehacer (Ctrl+Shift+Z)", self.redo)
         tb.addSeparator()
-        self.chk_snap = QtWidgets.QCheckBox("Imán al trazo"); self.chk_snap.toggled.connect(self._toggle_snap); tb.addWidget(self.chk_snap)
         spacer = QtWidgets.QWidget(); spacer.setSizePolicy(QtWidgets.QSizePolicy.Expanding, QtWidgets.QSizePolicy.Preferred); tb.addWidget(spacer)
         # Sin selector de unidad: TODO va en pies por campo (cotas/coordenadas),
         # salvo los diámetros que van siempre en pulgadas (lista fija del catálogo).
@@ -528,25 +522,6 @@ class Main(QtWidgets.QMainWindow):
         fpr.addRow(self.lbl_prop_family, self.prop_family)
         fpr.addRow(self.lbl_prop_size, self.prop_size)
 
-        # Lista de vértices intermedios con checkbox "sin buzón aquí". Al marcarlo,
-        # el addin no insertará una structure en ese vértice (útil para quiebres
-        # donde el conducto sigue de largo sin manhole). Los extremos (primer y
-        # último vértice) SIEMPRE llevan structure y no se muestran aquí.
-        self.lbl_prop_noman = QtWidgets.QLabel("Vértices intermedios sin buzón:")
-        self.prop_noman = QtWidgets.QListWidget()
-        self.prop_noman.setMaximumHeight(110)
-        self.prop_noman.itemChanged.connect(self._pipe_noman_changed)
-        fpr.addRow(self.lbl_prop_noman, self.prop_noman)
-
-        # Override de familia/tamaño POR SEGMENTO (opcional). Por defecto todos los
-        # tramos usan la familia y el tamaño globales de arriba; este botón abre un
-        # diálogo para variar por tramo (útil para reducciones, cambios de material,
-        # o marcar un segmento como distinto sin dividir la utilidad).
-        self.btn_seg_override = QtWidgets.QPushButton("Editar por segmento…")
-        self.btn_seg_override.clicked.connect(self._open_seg_override_dialog)
-        self.lbl_seg_override = QtWidgets.QLabel("Variación por tramo:")
-        fpr.addRow(self.lbl_seg_override, self.btn_seg_override)
-
         rv.addWidget(self.gprop)
         # ── Propiedades del buzón seleccionado (tab Buzones) ───────────────────
         self.gprop_bz = QtWidgets.QGroupBox("Propiedades del buzón"); fbz = QtWidgets.QFormLayout(self.gprop_bz)
@@ -557,8 +532,6 @@ class Main(QtWidgets.QMainWindow):
             sp.valueChanged.connect(lambda _v: self._bz_prop_changed())
         self.bz_family = QtWidgets.QComboBox(); self.bz_family.currentIndexChanged.connect(self._bz_family_changed)
         self.bz_size = QtWidgets.QComboBox(); self.bz_size.currentIndexChanged.connect(self._bz_prop_changed)
-        self.bz_cover = QtWidgets.QComboBox(); self.bz_cover.addItems(["Sí", "No"])
-        self.bz_cover.currentIndexChanged.connect(self._bz_prop_changed)
         self.bz_net_lbl = QtWidgets.QLabel("—")
         self.bz_origin_lbl = QtWidgets.QLabel("—")
         fbz.addRow("Código:", self.bz_cod)
@@ -566,12 +539,8 @@ class Main(QtWidgets.QMainWindow):
         self.bz_sump_lbl = QtWidgets.QLabel(f"Sump ({self.work_unit}):"); fbz.addRow(self.bz_sump_lbl, self.bz_sump)
         fbz.addRow("Familia:", self.bz_family)
         fbz.addRow("Tamaño:", self.bz_size)
-        fbz.addRow("Tapa:", self.bz_cover)
         fbz.addRow("Red:", self.bz_net_lbl)
         fbz.addRow("Origen:", self.bz_origin_lbl)
-        self.btn_bz_addsize = QtWidgets.QPushButton("➕ Agregar tamaño personalizado…")
-        self.btn_bz_addsize.clicked.connect(self._bz_add_custom_size_current)
-        fbz.addRow("", self.btn_bz_addsize)
         # Checkbox de etiquetas — entre la lista de buzones (tab) y el panel de propiedades.
         self.chk_bz_labels = QtWidgets.QCheckBox(
             "Mostrar etiquetas (código) al lado del buzón en el lienzo y en el DXF exportado")
@@ -606,12 +575,12 @@ class Main(QtWidgets.QMainWindow):
         self.status.addWidget(self.lbl_mode)
         self.status.addWidget(QtWidgets.QLabel("│"))
         self.lbl_info = QtWidgets.QLabel(""); self.lbl_info.setStyleSheet("color:#8c909f;"); self.status.addWidget(self.lbl_info, 1)
-        self.lbl_snap = QtWidgets.QLabel("Imán: OFF"); self.lbl_coords = QtWidgets.QLabel("X —  Y —")
+        self.lbl_coords = QtWidgets.QLabel("X —  Y —")
         # Contadores en vivo: N utilidades · N leaders · N textos · dirty
         self.lbl_counts = QtWidgets.QLabel("—")
         self.lbl_dirty = QtWidgets.QLabel("")   # muestra "●" cuando hay cambios sin guardar
         self.lbl_scale = QtWidgets.QLabel("Escala —"); self.lbl_geo = QtWidgets.QLabel("Georref: no")
-        for w in (self.lbl_snap, self.lbl_coords, self.lbl_counts, self.lbl_dirty, self.lbl_scale, self.lbl_geo):
+        for w in (self.lbl_coords, self.lbl_counts, self.lbl_dirty, self.lbl_scale, self.lbl_geo):
             w.setStyleSheet("color:#c2c6d6;"); self.status.addPermanentWidget(w)
         self.canvas.moved.connect(self._update_coords)
         self._update_geo_status()
@@ -638,7 +607,6 @@ class Main(QtWidgets.QMainWindow):
             QPushButton{background:#3c5a99;color:white;border:none;padding:6px;border-radius:4px;}
             QPushButton:hover{background:#4a6fbf;} QLabel,QCheckBox{color:#ddd;font-weight:normal;}
             QSplitter::handle{background:#555;height:6px;}""")
-        self.chk_snap.setChecked(False)
 
     def _shortcuts(self):
         QtGui.QShortcut(QtGui.QKeySequence("Ctrl+T"), self, self.enter_move)
@@ -723,10 +691,6 @@ class Main(QtWidgets.QMainWindow):
 
     def _zoom_in(self): self.canvas.scale(1.25, 1.25)
     def _zoom_out(self): self.canvas.scale(0.8, 0.8)
-
-    def _toggle_snap(self, v):
-        self.snap = v; self.lbl_snap.setText(f"Imán: {'ON' if v else 'OFF'}")
-        self.lbl_snap.setStyleSheet("color:%s;" % ("#5fd35f" if v else "#c2c6d6"))
 
     def _update_coords(self, x, y):
         if self.canvas.pixmap_item is None: return
@@ -890,7 +854,6 @@ class Main(QtWidgets.QMainWindow):
         low = path.lower()
         if low.endswith(".pdf"): self._open_pdf_path(path)
         elif low.endswith(".digproj"): self._open_project_path(path)
-        elif low.endswith((".xlsx", ".xlsm")): self._read_excel(path)
 
     def open_pdf(self):
         path, _ = QtWidgets.QFileDialog.getOpenFileName(self, "Abrir PDF", DOWNLOADS, "PDF (*.pdf)")
@@ -1350,141 +1313,8 @@ class Main(QtWidgets.QMainWindow):
             idx = self.prop_nettype.findData(p.get("net_type", "") or "")
             self.prop_nettype.setCurrentIndex(idx if idx >= 0 else 0)
             self._reload_pipe_families(p)
-            self._reload_pipe_noman(p)
             self._prop_guard = False
         self._update_ui(); self._redraw()
-
-    def _reload_pipe_noman(self, p):
-        """Repuebla la lista de vértices intermedios con checkbox 'sin buzón'.
-        Extremos (primer y último) no se muestran — siempre llevan structure.
-        También controla la visibilidad del botón de override por segmento."""
-        self.prop_noman.blockSignals(True); self.prop_noman.clear()
-        pts = p.get("pts") or []
-        n = len(pts)
-        sin = set(p.get("no_manhole_verts") or [])
-        # Mostrar solo si hay al menos un vértice intermedio (n >= 3).
-        show = n >= 3
-        self.lbl_prop_noman.setVisible(show); self.prop_noman.setVisible(show)
-        if show:
-            for i in range(1, n - 1):
-                it = QtWidgets.QListWidgetItem(f"Vértice {i + 1}  ({pts[i][0]:.0f}, {pts[i][1]:.0f})")
-                it.setFlags(it.flags() | QtCore.Qt.ItemIsUserCheckable)
-                it.setCheckState(QtCore.Qt.Checked if i in sin else QtCore.Qt.Unchecked)
-                it.setData(QtCore.Qt.UserRole, i)
-                self.prop_noman.addItem(it)
-        self.prop_noman.blockSignals(False)
-        # Override por segmento: solo tiene sentido si hay al menos 2 tramos.
-        show_seg = n >= 3
-        self.lbl_seg_override.setVisible(show_seg); self.btn_seg_override.setVisible(show_seg)
-        n_over = len(p.get("seg_overrides") or {})
-        self.btn_seg_override.setText(
-            f"Editar por segmento…  ({n_over} override{'s' if n_over != 1 else ''})"
-            if n_over else "Editar por segmento…")
-
-    def _open_seg_override_dialog(self):
-        """Diálogo con una fila por tramo (vertex i → i+1), un combo de familia y
-        otro de tamaño en cada una. La primera opción de cada combo es 'usar la de
-        la pipe' (sin override). Guarda en p['seg_overrides']."""
-        if not (0 <= self.sel_pipe < len(self.pipes)): return
-        import civil_catalog as _cc
-        p = self.pipes[self.sel_pipe]
-        pts = p.get("pts") or []
-        n_seg = len(pts) - 1
-        if n_seg < 1: return
-        kind = self._pipe_net_kind(p)
-        fams = ([] if not self.civil_year else
-                (_cc.pressure_pipes(self.civil_year) if kind == "pressure"
-                 else _cc.imperial_pipes(self.civil_year)))
-
-        dlg = QtWidgets.QDialog(self); dlg.setWindowTitle("Variar familia/tamaño por segmento")
-        dlg.resize(720, 480)
-        v = QtWidgets.QVBoxLayout(dlg)
-        v.addWidget(QtWidgets.QLabel(
-            "<i>Deja '(usar la de la pipe)' para heredar la familia/tamaño global. "
-            "Solo se envía al DXF lo que sí varíe.</i>"))
-        tbl = QtWidgets.QTableWidget(n_seg, 3)
-        tbl.setHorizontalHeaderLabels(["Tramo", "Familia", "Tamaño"])
-        tbl.verticalHeader().setVisible(False)
-        tbl.setEditTriggers(QtWidgets.QAbstractItemView.NoEditTriggers)
-        tbl.horizontalHeader().setStretchLastSection(True)
-        tbl.setColumnWidth(0, 100); tbl.setColumnWidth(1, 320)
-        v.addWidget(tbl, 1)
-
-        current = dict(p.get("seg_overrides") or {})
-        # Las keys pueden venir como strings si se cargaron desde JSON — normalizo.
-        current = {int(k): dict(v) for k, v in current.items()}
-
-        row_widgets = []
-        for i in range(n_seg):
-            lab = QtWidgets.QTableWidgetItem(f"{i + 1} → {i + 2}")
-            lab.setFlags(QtCore.Qt.ItemIsEnabled)
-            tbl.setItem(i, 0, lab)
-
-            cb_fam = QtWidgets.QComboBox()
-            cb_fam.addItem("(usar la de la pipe)", "")
-            for f in fams:
-                cb_fam.addItem(f"{f['pretty']}  [{f['subfolder']}]", f["id"])
-            cb_size = QtWidgets.QComboBox()
-            cb_size.addItem("(usar la de la pipe)", "")
-
-            tbl.setCellWidget(i, 1, cb_fam)
-            tbl.setCellWidget(i, 2, cb_size)
-            row_widgets.append((cb_fam, cb_size))
-
-            def _refill_sizes(cbf=cb_fam, cbs=cb_size, current_size=""):
-                fid = cbf.currentData() or ""
-                cbs.blockSignals(True); cbs.clear()
-                cbs.addItem("(usar la de la pipe)", "")
-                if fid:
-                    sz = (_cc.pressure_pipe_sizes(self.civil_year, fid) if kind == "pressure"
-                          else _cc.pipe_sizes(self.civil_year, fid))
-                    for s in sz: cbs.addItem(s, s)
-                if current_size:
-                    for j in range(cbs.count()):
-                        if cbs.itemData(j) == current_size: cbs.setCurrentIndex(j); break
-                cbs.blockSignals(False)
-
-            cb_fam.currentIndexChanged.connect(lambda _, f=_refill_sizes: f())
-
-            # Preseleccionar override existente para esta fila.
-            ov = current.get(i)
-            if ov and ov.get("pipe_family"):
-                for j in range(cb_fam.count()):
-                    if cb_fam.itemData(j) == ov["pipe_family"]:
-                        cb_fam.setCurrentIndex(j); break
-                _refill_sizes(current_size=ov.get("pipe_size", ""))
-
-        bb = QtWidgets.QDialogButtonBox(QtWidgets.QDialogButtonBox.Ok | QtWidgets.QDialogButtonBox.Cancel)
-        bb.accepted.connect(dlg.accept); bb.rejected.connect(dlg.reject); v.addWidget(bb)
-        if dlg.exec() != QtWidgets.QDialog.Accepted: return
-
-        # Recolectar overrides no vacíos.
-        self._push()
-        new_over = {}
-        for i, (cb_fam, cb_size) in enumerate(row_widgets):
-            fid = cb_fam.currentData() or ""
-            sz = cb_size.currentData() or ""
-            if fid or sz:
-                entry = {}
-                if fid: entry["pipe_family"] = fid
-                if sz:  entry["pipe_size"] = sz
-                new_over[i] = entry
-        p["seg_overrides"] = new_over
-        self._dirty = True
-        self._reload_pipe_noman(p)                   # actualiza el contador en el botón
-        self._redraw()
-
-    def _pipe_noman_changed(self, item):
-        if self._prop_guard: return
-        if not (0 <= self.sel_pipe < len(self.pipes)): return
-        p = self.pipes[self.sel_pipe]; self._push()
-        idx = item.data(QtCore.Qt.UserRole)
-        sin = set(p.get("no_manhole_verts") or [])
-        if item.checkState() == QtCore.Qt.Checked: sin.add(idx)
-        else: sin.discard(idx)
-        p["no_manhole_verts"] = sorted(sin)
-        self._dirty = True
-        self._redraw()
 
     def _pipe_net_kind(self, p):
         """Devuelve 'gravity' | 'pressure' | 'conduit' según la capa del pipe."""
@@ -2001,18 +1831,6 @@ class Main(QtWidgets.QMainWindow):
             if not p.get("pts"): continue               # tramos importados (world): no se dibujan
             sel = (i == self.sel_pipe)
             self._poly(p["pts"], layer_qcolor(p["layer"]), 4.0 if sel else 2.0, z=Z_MARK)
-            # Marcador magenta en los vértices "sin buzón" de la pipe seleccionada,
-            # para identificarlos de un vistazo (además del checkbox del panel).
-            if sel:
-                sin = set(p.get("no_manhole_verts") or [])
-                if sin:
-                    pen_nm = QtGui.QPen(QtGui.QColor(255, 40, 200), 2.0); pen_nm.setCosmetic(True)
-                    brush_nm = QtGui.QBrush(QtGui.QColor(255, 40, 200))
-                    for vi in sin:
-                        if 0 <= vi < len(p["pts"]):
-                            vx, vy = p["pts"][vi]
-                            it = sc.addEllipse(vx - 7, vy - 7, 14, 14, pen_nm, brush_nm)
-                            it.setZValue(Z_MARK + 2); self._overlay.append(it)
             if sel and self.mode == "move": self._handles(p["pts"])
         self._poly(self.cur_pts, layer_qcolor(self._ext_layer or self.active_layer()), 2.0, dots=True, z=Z_MARK)
         # leaders
@@ -2387,8 +2205,7 @@ class Main(QtWidgets.QMainWindow):
             self.gprop_bz.setVisible(in_tab)
             has_sel = 0 <= self.sel_bz < len(self.structures)
             # Habilitar/deshabilitar todos los controles del groupbox según haya selección
-            for w in (self.bz_cod, self.bz_rim, self.bz_sump, self.bz_family, self.bz_size,
-                      self.bz_cover, self.btn_bz_addsize):
+            for w in (self.bz_cod, self.bz_rim, self.bz_sump, self.bz_family, self.bz_size):
                 w.setEnabled(has_sel)
             if not has_sel:
                 self.gprop_bz.setTitle("Propiedades del buzón — selecciona uno de la lista")
@@ -2400,7 +2217,6 @@ class Main(QtWidgets.QMainWindow):
             self.bz_cod.setText(s.get("cod", ""))
             self.bz_rim.setValue(float(s.get("rim") or 0.0))
             self.bz_sump.setValue(float(s.get("sump") or 0.0))
-            self.bz_cover.setCurrentIndex(0 if s.get("covered", True) else 1)
             self.bz_net_lbl.setText("conduit (eléctrico/telecom)" if net == "conduit" else "gravedad")
             self.bz_origin_lbl.setText("Excel" if s.get("world") else "dibujo")
             # Familias del catálogo imperial de estructuras (gravedad).
@@ -2421,7 +2237,6 @@ class Main(QtWidgets.QMainWindow):
                     self.bz_family.setCurrentIndex(i); break
             self.bz_family.blockSignals(False)
             self._load_bz_sizes(cur_fid, s.get("part_size", "") or "")
-            self.btn_bz_addsize.setEnabled(bool(cur_fid))
         finally:
             self._bz_prop_guard = False
 
@@ -2451,7 +2266,6 @@ class Main(QtWidgets.QMainWindow):
         fid = self.bz_family.currentData() or ""
         s["part"] = fid; s["part_size"] = ""      # al cambiar familia se resetea el tamaño
         self._load_bz_sizes(fid, "")
-        self.btn_bz_addsize.setEnabled(bool(fid))
         self._dirty = True
         self._refresh_bz_list_item(self.sel_bz)
         self._redraw()
@@ -2475,7 +2289,6 @@ class Main(QtWidgets.QMainWindow):
         s["rim"] = float(self.bz_rim.value()); s["sump"] = float(self.bz_sump.value())
         if self.bz_size.isEnabled():
             s["part_size"] = self.bz_size.currentData() or ""
-        s["covered"] = (self.bz_cover.currentIndex() == 0)
         self._dirty = True
         self._refresh_bz_list_item(self.sel_bz)
         self._redraw()
@@ -2488,218 +2301,6 @@ class Main(QtWidgets.QMainWindow):
         emoji = "🟠" if s.get("net") == "conduit" else "🔵"
         item = self.bz_list.item(row)
         if item: item.setText(f"{emoji} {s.get('cod', '?')}  ·  {fam}{sz}")
-
-    def _bz_add_custom_size_current(self):
-        if not (0 <= self.sel_bz < len(self.structures)): return
-        s = self.structures[self.sel_bz]
-        fid = s.get("part") or ""
-        if not fid:
-            QtWidgets.QMessageBox.information(self, "Sin familia",
-                "Elige primero una familia para agregarle un tamaño."); return
-        self._add_structure_size_dialog(self, fid, self.bz_family, self.bz_size)
-        # Después de agregar, guardo el nuevo tamaño en el buzón actual.
-        self._bz_prop_changed()
-
-    def _add_structure_size_dialog(self, parent, fid, cbf, cbs, kind="structure"):
-        """Abre un diálogo con un campo por cada parámetro de la familia (leído del
-        XML del catálogo). Al aceptar, escribe los nuevos <Item> en el .xml y refresca
-        los combos de familia (todos los que apunten a fid) y el combo de tamaño.
-        `kind` es 'structure' o 'pipe' (Bancoductos/Bancos Tubos usan el mismo XML)."""
-        import civil_catalog as _cc
-        params = _cc.family_params(self.civil_year, fid, kind)
-        if not params:
-            QtWidgets.QMessageBox.warning(parent, "Sin parámetros",
-                f"No pude leer parámetros del catálogo para {fid}."); return
-        dlg = QtWidgets.QDialog(parent); dlg.setWindowTitle("Agregar tamaño personalizado"); dlg.resize(560, 420)
-        v = QtWidgets.QVBoxLayout(dlg)
-        v.addWidget(QtWidgets.QLabel(
-            f"<b>{fid}</b><br>Ingresa el valor nuevo para cada parámetro. Deja en blanco "
-            f"los que quieras dejar en su valor por defecto (primer valor existente).<br>"
-            f"El tamaño quedará guardado en el catálogo Civil 3D y podrá reutilizarse en otros proyectos."))
-        form = QtWidgets.QFormLayout(); v.addLayout(form)
-        edits = {}
-        for p in params:
-            unit = p["unit"] or ""
-            label = f"{p['desc']} ({p['name']}, {unit})" if unit else f"{p['desc']} ({p['name']})"
-            le = QtWidgets.QLineEdit()
-            hint = ", ".join(sorted({f"{float(x):g}" for x in p["items"]},
-                                     key=lambda s: float(s))) if p["items"] else ""
-            if hint: le.setPlaceholderText(f"existentes: {hint}")
-            form.addRow(label, le); edits[p["name"]] = le
-        bb = QtWidgets.QDialogButtonBox(QtWidgets.QDialogButtonBox.Ok | QtWidgets.QDialogButtonBox.Cancel)
-        bb.accepted.connect(dlg.accept); bb.rejected.connect(dlg.reject); v.addWidget(bb)
-        if dlg.exec() != QtWidgets.QDialog.Accepted: return
-        values = {name: le.text().strip() for name, le in edits.items() if le.text().strip()}
-        if not values:
-            QtWidgets.QMessageBox.information(parent, "Nada que agregar",
-                "No ingresaste ningún valor."); return
-        res = _cc.add_family_size(self.civil_year, fid, values, kind)
-        if not res.get("ok"):
-            QtWidgets.QMessageBox.critical(parent, "Error", res.get("error", "?")); return
-        added = res.get("added") or {}
-        skipped = res.get("skipped") or {}
-        msg = []
-        if added:
-            msg.append("Agregado al catálogo:\n  · " +
-                       "\n  · ".join(f"{k} = {v}" for k, v in added.items()))
-        if skipped:
-            msg.append("Omitido:\n  · " +
-                       "\n  · ".join(f"{k}: {v}" for k, v in skipped.items()))
-        QtWidgets.QMessageBox.information(parent, "Catálogo actualizado", "\n\n".join(msg))
-        # Refrescar el combo de tamaño de la fila actual (si nos pasaron uno).
-        if cbs is not None:
-            sizes = (_cc.pipe_sizes(self.civil_year, fid) if kind == "pipe"
-                     else _cc.structure_sizes(self.civil_year, fid))
-            cbs.blockSignals(True); cbs.clear()
-            if sizes:
-                cbs.setEnabled(True); cbs.addItem("(por defecto)", "")
-                for sz in sizes: cbs.addItem(sz, sz)
-            else:
-                cbs.setEnabled(False); cbs.addItem("(sin tamaños detectados)", "")
-            cbs.blockSignals(False)
-
-    # ─────────────────────────── Editor de Catálogo Civil 3D ───────────────────────────
-    def open_catalog_editor(self):
-        """Diálogo para navegar el catálogo (US Imperial Pipes + Structures) de la
-        versión Civil 3D actual, ver los tamaños de cada familia y agregar tamaños
-        nuevos. Edita directamente los XML del catálogo (con backup .xml.bak)."""
-        import civil_catalog as _cc
-        if self.civil_year is None:
-            QtWidgets.QMessageBox.warning(self, "Sin Civil 3D",
-                "No detecté ninguna instalación de Civil 3D."); return
-
-        dlg = QtWidgets.QDialog(self)
-        dlg.setWindowTitle(f"Editor de catálogo — Civil 3D {self.civil_year}")
-        dlg.resize(880, 560)
-        lay = QtWidgets.QHBoxLayout(dlg)
-
-        # Árbol izquierdo: agrupado por subcarpeta.
-        tree = QtWidgets.QTreeWidget()
-        tree.setHeaderLabels(["Familia"])
-        tree.setMinimumWidth(360)
-        lay.addWidget(tree, 1)
-
-        pipes = _cc.imperial_pipes(self.civil_year)
-        structs = _cc.imperial_structures(self.civil_year)
-        # Agrupar por subfolder, marcando kind en el item para saber a qué XML apuntar.
-        groups = {}
-        for f in pipes:
-            groups.setdefault(("pipe", f["subfolder"]), []).append(f)
-        for f in structs:
-            groups.setdefault(("structure", f["subfolder"]), []).append(f)
-        for (kind, sub), fams in sorted(groups.items(), key=lambda kv: (kv[0][0], kv[0][1])):
-            head = QtWidgets.QTreeWidgetItem([f"{sub}  ({'tuberías' if kind=='pipe' else 'estructuras'})"])
-            head.setFlags(QtCore.Qt.ItemIsEnabled)
-            tree.addTopLevelItem(head)
-            for f in fams:
-                it = QtWidgets.QTreeWidgetItem([f["pretty"]])
-                it.setData(0, QtCore.Qt.UserRole, (kind, f["id"]))
-                head.addChild(it)
-            head.setExpanded(True)
-
-        # Panel derecho: detalles + tamaños actuales + botón agregar.
-        right = QtWidgets.QWidget(); rv = QtWidgets.QVBoxLayout(right)
-        lbl_fam = QtWidgets.QLabel("<i>Selecciona una familia a la izquierda.</i>")
-        lbl_fam.setWordWrap(True); rv.addWidget(lbl_fam)
-        rv.addWidget(QtWidgets.QLabel("Tamaños actuales:"))
-        sizes_list = QtWidgets.QListWidget(); rv.addWidget(sizes_list, 1)
-        btn_row = QtWidgets.QHBoxLayout()
-        btn_add = QtWidgets.QPushButton("Agregar tamaño…"); btn_add.setEnabled(False)
-        btn_row.addWidget(btn_add); btn_row.addStretch(1)
-        rv.addLayout(btn_row)
-        rv.addWidget(QtWidgets.QLabel(
-            "<i>Los tamaños agregados quedan en el XML del catálogo Civil 3D "
-            "(<code>ProgramData\\Autodesk\\C3D &lt;año&gt;\\...</code>). Para "
-            "que aparezcan en un dibujo, ábrelo en Civil 3D y añade la familia "
-            "a la Parts List (o usa el comando <code>AGREGAR_BANCOS_Y_BUZONES</code>).</i>"))
-        lay.addWidget(right, 1)
-
-        current = {"kind": None, "fid": None}
-
-        def _refresh_sizes():
-            sizes_list.clear()
-            k, fid = current["kind"], current["fid"]
-            if not fid: return
-            sz = (_cc.pipe_sizes(self.civil_year, fid) if k == "pipe"
-                  else _cc.structure_sizes(self.civil_year, fid))
-            if not sz:
-                sizes_list.addItem("(sin tamaños detectados)")
-            else:
-                for s in sz: sizes_list.addItem(s)
-
-        def _on_sel():
-            items = tree.selectedItems()
-            if not items:
-                current["kind"] = current["fid"] = None
-                lbl_fam.setText("<i>Selecciona una familia a la izquierda.</i>")
-                btn_add.setEnabled(False); sizes_list.clear(); return
-            it = items[0]; data = it.data(0, QtCore.Qt.UserRole)
-            if not data:
-                current["kind"] = current["fid"] = None
-                lbl_fam.setText("<i>Selecciona una familia (no un grupo).</i>")
-                btn_add.setEnabled(False); sizes_list.clear(); return
-            k, fid = data
-            current["kind"] = k; current["fid"] = fid
-            lbl_fam.setText(f"<b>{it.text(0)}</b><br>"
-                            f"Tipo: {'tubería' if k == 'pipe' else 'estructura'} · <code>{fid}</code>")
-            params = _cc.family_params(self.civil_year, fid, k)
-            btn_add.setEnabled(bool(params))
-            if not params and k == "pipe":
-                lbl_fam.setText(lbl_fam.text() + "<br><i>Esta familia usa parámetros continuos "
-                                                 "(no lista fija) — no editable desde aquí.</i>")
-            _refresh_sizes()
-
-        def _on_add():
-            k, fid = current["kind"], current["fid"]
-            if not fid: return
-            self._add_structure_size_dialog(dlg, fid, None, None, kind=k)
-            _refresh_sizes()
-
-        tree.itemSelectionChanged.connect(_on_sel)
-        btn_add.clicked.connect(_on_add)
-
-        bb = QtWidgets.QDialogButtonBox(QtWidgets.QDialogButtonBox.Close)
-        bb.rejected.connect(dlg.reject); bb.accepted.connect(dlg.accept)
-        rv.addWidget(bb)
-        dlg.exec()
-
-    def import_network_excel(self):
-        path, _ = QtWidgets.QFileDialog.getOpenFileName(self, "Importar Excel de red", DOWNLOADS, "Excel (*.xlsx *.xlsm)")
-        if not path: return
-        self._busy("Leyendo Excel de red…")
-        try:
-            nets, warns = excel_import.read_network_workbook(path)
-        except Exception as e:
-            self._unbusy(); QtWidgets.QMessageBox.critical(self, "Error al leer Excel", str(e)); return
-        self._unbusy(); self._push()
-        # reemplaza lo importado previamente (world); conserva lo dibujado
-        self.structures = [s for s in self.structures if not s.get("world")]
-        self.pipes = [p for p in self.pipes if not p.get("world")]
-        n_s = n_p = 0
-        # El Excel del cliente viene en METROS (estándar topográfico); pasamos
-        # coordenadas, cotas y diámetros a la unidad de trabajo del proyecto
-        # (ft o in) para que TODO en el modelo esté en la misma unidad que el JSON.
-        u = self.work_unit
-        def to_u(v): return G.convert_length(v, "m", u)
-        for name, nd in nets.items():
-            for s in nd["structures"]:
-                self.structures.append({
-                    "cod": s["cod"], "x": to_u(s["x"]), "y": to_u(s["y"]),
-                    "rim": to_u(s["rim"]), "sump": to_u(s["sump"]),
-                    "part": s["part"], "net": name, "world": True}); n_s += 1
-            for pp in nd["pipes"]:
-                self.pipes.append({
-                    "layer": "ALCANTARILLADO", "pts": [], "world": True, "net": name,
-                    "wstart": (to_u(pp["xi"]), to_u(pp["yi"])),
-                    "wend":   (to_u(pp["xf"]), to_u(pp["yf"])),
-                    "from": pp["from"], "to": pp["to"], "id": pp["id"], "name": pp["id"],
-                    "inv_start": to_u(pp["zi"]), "inv_end": to_u(pp["zf"]),
-                    "diam": to_u(pp["diam"]) or 0.0, "unit": u,
-                    "part": pp["part"]}); n_p += 1
-        self._refresh_lists(); self._redraw()
-        msg = f"Importado: {len(nets)} red(es), {n_s} buzones, {n_p} tuberías."
-        if warns: msg += "\n\nAvisos:\n- " + "\n- ".join(warns[:12])
-        QtWidgets.QMessageBox.information(self, "Importación de red", msg); self._info(msg.split(chr(10))[0])
 
     # ─────────────────────────── Georreferenciación ───────────────────────────
     def clear_georef(self):
@@ -2733,35 +2334,6 @@ class Main(QtWidgets.QMainWindow):
                 self, "Georreferenciación",
                 f"✓ Plano georreferenciado\n\nEPSG: {self.georef.epsg}\nRMS: {rms:.2f} {unit}")
 
-    # ─────────────────────────── Excel ───────────────────────────
-    def open_excel(self):
-        path, _ = QtWidgets.QFileDialog.getOpenFileName(self, "Abrir Excel", DOWNLOADS, "Excel (*.xlsx *.xlsm)")
-        if path: self._read_excel(path)
-
-    def _read_excel(self, path):
-        self._busy("Leyendo Excel…")
-        try:
-            import openpyxl
-            wb = openpyxl.load_workbook(path, data_only=True, read_only=True); texts = []
-            for ws in wb.worksheets:
-                try:
-                    hc = hr = None
-                    for row in ws.iter_rows():
-                        for cell in row:
-                            if cell.value is not None and str(cell.value).strip().upper() in ("TEXTO", "TEXTOS"):
-                                hc, hr = cell.column, cell.row; break
-                        if hc: break
-                    if hc is None: continue
-                    for row in ws.iter_rows(min_row=hr + 1, min_col=hc, max_col=hc):
-                        val = row[0].value
-                        if val is not None and str(val).strip(): texts.append(str(val).strip())
-                except Exception: continue
-            self.text_list.clear(); self.text_list.addItems(texts)
-            self._info(f"Excel: {len(texts)} textos de la columna TEXTO." if texts else "No hallé columna TEXTO/TEXTOS.")
-        except Exception as e:
-            QtWidgets.QMessageBox.critical(self, "Error al leer Excel", str(e))
-        finally: self._unbusy()
-
     # ─────────────────────────── Ayuda ───────────────────────────
     def _show_html(self, title, html, w=780, h=660):
         dlg = QtWidgets.QDialog(self); dlg.setWindowTitle(title); dlg.resize(w, h)
@@ -2774,13 +2346,12 @@ class Main(QtWidgets.QMainWindow):
         dlg = QtWidgets.QDialog(self); dlg.setWindowTitle("Acerca de"); dlg.resize(760, 680)
         lay = QtWidgets.QVBoxLayout(dlg)
         head = QtWidgets.QLabel(
-            f"<h2>Digitalizador de planos — utilidades</h2>"
+            f"<h2>Asistente C3D</h2>"
             f"<p><b>Versión {VERSION}</b> · para ingeniería civil (agua, alcantarillado, gas, "
             f"eléctrico, telefonía, drenaje).</p>"
             f"<p>Convierte un PDF de plano a DXF y te deja marcar utilidades, Multileaders y notas "
-            f"sobre la imagen, exportando todo en las mismas coordenadas.</p>"
-            f"<p style='color:#888;'>Historial de versiones (la más reciente arriba, la más antigua "
-            f"abajo). Haz clic en cada versión para desplegarla.</p>")
+            f"sobre la imagen, exportando todo en las mismas coordenadas para abrirlo en Civil 3D.</p>"
+            f"<p style='color:#888;'>GVR Engineering · sistemas.gvrpe@gmail.com</p>")
         head.setWordWrap(True); head.setStyleSheet("color:#e8e8e8;"); lay.addWidget(head)
         box = QtWidgets.QToolBox()
         box.setStyleSheet("QToolBox::tab{background:#333;color:#ddd;border:1px solid #555;}"
@@ -2802,53 +2373,70 @@ class Main(QtWidgets.QMainWindow):
         """Ventana del manual de usuario. Es HTML sencillo dentro de un
         QTextBrowser (visor de texto enriquecido); nada de red ni servidor."""
         html = """
-        <h2>Manual rapido</h2>
-        <p><i>App para marcar planos PDF (agua, alcantarillado, drenaje, gas, electricidad,
-        telefonia) y exportar a AutoCAD/Civil 3D via DXF con la red 3D como XDATA.</i></p>
+        <h2>Manual de usuario — v1.0.0</h2>
+        <p><i>Pipeline PDF → CAD → Civil 3D para redes de utilidad (agua, alcantarillado,
+        drenaje, gas, electricidad, telecomunicaciones). Trabaja en unidades imperiales (pies).</i></p>
 
-        <h3>1. Abrir plano</h3>
-        <p><b>Archivo -> Abrir PDF...</b> (o arrastralo). Cambia de pagina y ajusta
-        transparencia en la seccion <b>Vista y paginas</b>. Rueda = zoom, boton central = pan.</p>
+        <h3>1. Abrir el plano</h3>
+        <p><b>Archivo → Abrir PDF…</b> (o arrastralo). Cambia de página y ajusta la
+        transparencia en la sección <b>Vista y páginas</b>. Rueda = zoom, botón central = pan.</p>
 
-        <h3>2. Dibujar utilidad</h3>
-        <p>Acordeon <b>Dibujar utilidad</b> -> elige el tipo -> <b>Dibujar utilidad</b> ->
-        clic para cada vertice, <b>Enter</b> finaliza. Con "Imán" activo se pega a lineas del PDF.</p>
+        <h3>2. Dibujar una utilidad</h3>
+        <p>Acordeón <b>Dibujar utilidad</b> → elige el tipo (agua, alcantarillado, drenaje,
+        gas, eléctrico, telecom) → clic en cada vértice, <b>Enter</b> finaliza.</p>
 
-        <h3>3. Propiedades de la tuberia</h3>
-        <p>Selecciona la utilidad en el inventario. En <b>Propiedades</b> pon:
-        <b>Diametro</b> (lista fija en pulgadas del catalogo imperial),
-        <b>Elev. de rasante inicial/final</b> (pies),
-        <b>Material</b> (lista fija que matchea Civil 3D). Sin esto la red 3D queda vacia.</p>
-
-        <h3>4. Leader (flecha)</h3>
-        <p>Acordeon <b>Leader</b> -> orientacion (H/V/D) -> clic en la cabeza -> clic en el final
-        del cuerpo (2 clics H/V, 3 clics D).</p>
-
-        <h3>5. Texto libre</h3>
-        <p>Acordeon <b>Texto libre</b>. Clic donde escribir, <b>Enter</b> aplica,
-        <b>Ctrl+Shift+Enter</b> = salto de linea. Editable con doble clic.</p>
-
-        <h3>6. Borrar zona / MEMBRETE</h3>
-        <p>Acordeon <b>Borrar zona</b>: polilinea, Enter cierra. Al exportar borra el plano
-        dentro de la zona. Ademas, el cajetin/marco del PDF se detecta automatico y va a la
-        capa <b>MEMBRETE</b> (congelable en CAD).</p>
-
-        <h3>7. Buzones y red 3D</h3>
-        <p><b>Herramientas -> Gestionar buzones...</b> Los buzones se crean automatico en los
-        vertices de tuberias de gravedad (alcantarillado, drenaje). El plugin de Civil 3D
-        (<code>IMPORTAR_RED</code>) los crea con estilo cilindrico y catalogo imperial.
-        Tambien puedes <b>Importar Excel de red</b> con hojas BUZONES y TUBERIAS.</p>
-
-        <h3>8. Georreferenciacion (opcional)</h3>
-        <p><b>Herramientas -> Georreferenciar...</b> Solo si necesitas coordenadas UTM aproximadas
-        para anteproyecto. El dato topografico real viene del levantamiento.</p>
-
-        <h3>9. Guardar y exportar</h3>
+        <h3>3. Propiedades de la tubería</h3>
+        <p>Selecciona la tubería en el inventario. En <b>Propiedades</b>:</p>
         <ul>
-          <li><b>Ctrl+S</b> guarda el proyecto <code>.digproj</code> (recuperable con todo lo marcado).</li>
-          <li><b>Exportar DXF</b> genera el DXF completo (PDF digitalizado + tus marcados + red 3D
-              en XDATA). Se abre luego en Civil 3D con el comando <code>IMPORTAR_RED</code>.</li>
+          <li><b>Familia de tubería</b> y <b>Tamaño</b>: se leen del catálogo Civil 3D
+              instalado (selecciónalo en la barra superior).</li>
+          <li><b>Elev. rasante inicial/final</b> en pies (opcional; el plugin puede autoderivar).</li>
+          <li><b>Material</b> (lista fija que se mapea al catálogo).</li>
         </ul>
+
+        <h3>4. Buzones y cajas</h3>
+        <p>Los buzones (gravedad, prefijo <code>BZ-</code>) y las cajas (conduit eléctrico/telecom,
+        prefijo <code>CAJA-</code>) se detectan automáticamente en cada vértice. Cambia
+        familia, tamaño y cotas en la pestaña <b>Buzones</b>. También puedes insertar uno
+        en medio de una línea con <b>Herramientas → Insertar buzón en línea…</b></p>
+
+        <h3>5. Leaders, texto, borrar zona</h3>
+        <p><b>Leader</b>: orientación H/V/D, clic cabeza y final. <b>Texto libre</b>: clic +
+        <b>Enter</b> para aplicar (<b>Ctrl+Shift+Enter</b> salto de línea). <b>Borrar zona</b>:
+        polilínea cerrada; al exportar se elimina el plano dentro. El cajetín del PDF se
+        detecta y va a la capa <b>MEMBRETE</b>.</p>
+
+        <h3>6. Selección de versión Civil 3D</h3>
+        <p>El selector <b>Civil 3D</b> de la barra superior fija la versión
+        (2025/2026/2027) contra la que se listan las familias y tamaños del catálogo.</p>
+
+        <h3>7. Georreferenciación (opcional)</h3>
+        <p><b>Herramientas → Georreferenciar…</b> asocia el plano a coordenadas UTM reales
+        con puntos de control sobre imagen satelital u OSM. Solo para anteproyecto — el
+        dato topográfico de precisión viene del levantamiento.</p>
+
+        <h3>8. Exportar a DXF y abrir en Civil 3D</h3>
+        <ul>
+          <li><b>Ctrl+S</b> guarda el proyecto como <code>.digproj</code>.</li>
+          <li><b>Exportar DXF</b> genera el DXF completo (dibujado + red 3D como XDATA).</li>
+          <li>En Civil 3D: <code>NETLOAD</code> del plugin → <code>PANEL_REDES</code> →
+              <b>Importar red desde DXF</b>. Se crean automáticamente las redes de
+              gravedad, presión y conduit con sus familias y tamaños.</li>
+        </ul>
+
+        <h3>9. Property Sets a tuberías (flujo con Excel)</h3>
+        <p>En el panel de Civil 3D, tras importar la red:</p>
+        <ol>
+          <li><b>Exportar tuberías a Excel</b> genera un <code>.xlsx</code> con columnas
+              <b>Nombre</b> y <b>Tipo</b> (una fila por tubería, gravedad y presión).</li>
+          <li>Agrega en Excel las columnas que quieras (una por Property Set); por ejemplo
+              <code>Material_Especificacion</code>, <code>Fecha_Instalacion</code>. Rellena
+              los valores por tubería (deja vacío para omitir).</li>
+          <li><b>Importar Property Sets desde Excel</b>: se crean las definiciones que
+              falten (una propiedad <code>Valor</code> por PS) y se adjuntan a cada tubería
+              por nombre. Es idempotente — puedes reimportar el mismo archivo sin duplicar.</li>
+          <li>Verifica en Civil 3D: selecciona una pipe → Properties → <b>Extended Data</b>.</li>
+        </ol>
         """
         self._show_html("Manual de usuario", html, 880, 780)
 
@@ -2880,6 +2468,68 @@ def main():
     # Necesario para QWebEngineView (mapa de georreferenciación); inofensivo si no se usa.
     QtCore.QCoreApplication.setAttribute(QtCore.Qt.AA_ShareOpenGLContexts)
     app = QtWidgets.QApplication(sys.argv)
+    # Forzar estilo Fusion + paleta oscura SIEMPRE, independiente del tema de
+    # Windows. Sin esto, cuando el usuario tiene Windows en modo claro, los
+    # menús, combos, campos y bordes salen blancos sobre nuestros fondos
+    # oscuros y no se ven los textos.
+    app.setStyle("Fusion")
+    # Paleta con GRISES NEUTROS (no azul en Button — antes contaminaba los fondos
+    # de QToolBox/QGroupBox). El acento azul se limita a Highlight para selección.
+    _p = QtGui.QPalette()
+    _p.setColor(QtGui.QPalette.Window,          QtGui.QColor(43, 43, 43))
+    _p.setColor(QtGui.QPalette.WindowText,      QtGui.QColor(232, 232, 232))
+    _p.setColor(QtGui.QPalette.Base,            QtGui.QColor(51, 51, 51))
+    _p.setColor(QtGui.QPalette.AlternateBase,   QtGui.QColor(60, 60, 60))
+    _p.setColor(QtGui.QPalette.ToolTipBase,     QtGui.QColor(30, 30, 30))
+    _p.setColor(QtGui.QPalette.ToolTipText,     QtGui.QColor(232, 232, 232))
+    _p.setColor(QtGui.QPalette.Text,            QtGui.QColor(232, 232, 232))
+    _p.setColor(QtGui.QPalette.Button,          QtGui.QColor(60, 60, 60))
+    _p.setColor(QtGui.QPalette.ButtonText,      QtGui.QColor(232, 232, 232))
+    _p.setColor(QtGui.QPalette.BrightText,      QtGui.QColor(255, 80, 80))
+    _p.setColor(QtGui.QPalette.Highlight,       QtGui.QColor(60, 90, 153))
+    _p.setColor(QtGui.QPalette.HighlightedText, QtGui.QColor(255, 255, 255))
+    _p.setColor(QtGui.QPalette.PlaceholderText, QtGui.QColor(160, 160, 160))
+    _p.setColor(QtGui.QPalette.Light,           QtGui.QColor(85, 85, 85))
+    _p.setColor(QtGui.QPalette.Midlight,        QtGui.QColor(70, 70, 70))
+    _p.setColor(QtGui.QPalette.Dark,            QtGui.QColor(30, 30, 30))
+    _p.setColor(QtGui.QPalette.Mid,             QtGui.QColor(45, 45, 45))
+    _p.setColor(QtGui.QPalette.Shadow,          QtGui.QColor(20, 20, 20))
+    _p.setColor(QtGui.QPalette.Disabled, QtGui.QPalette.Text,       QtGui.QColor(130, 130, 130))
+    _p.setColor(QtGui.QPalette.Disabled, QtGui.QPalette.ButtonText, QtGui.QColor(130, 130, 130))
+    _p.setColor(QtGui.QPalette.Disabled, QtGui.QPalette.WindowText, QtGui.QColor(130, 130, 130))
+    app.setPalette(_p)
+    # Stylesheet global de refuerzo: fija los widgets que Fusion sigue pintando
+    # con acento del sistema (QToolBox tabs, QScrollArea backgrounds, tooltips).
+    app.setStyleSheet("""
+        QWidget { background-color: #2b2b2b; color: #e8e8e8; }
+        QToolTip { background-color: #1e1e1e; color: #e8e8e8; border: 1px solid #555; }
+        QScrollArea, QAbstractScrollArea { background: #2b2b2b; }
+        QGroupBox { background: #2b2b2b; border: 1px solid #444; border-radius: 4px;
+                    margin-top: 10px; padding-top: 6px; }
+        QGroupBox::title { subcontrol-origin: margin; left: 8px; padding: 0 4px;
+                            color: #b8c6df; }
+        QToolBox::tab { background: #3a3a3a; color: #ddd; border: 1px solid #555; padding: 4px; }
+        QToolBox::tab:selected { background: #3c5a99; color: white; font-weight: bold; }
+        QMenu { background: #333; color: #eee; border: 1px solid #555; }
+        QMenu::item:selected { background: #3c5a99; color: white; }
+        QMenuBar { background: #2b2b2b; color: #e8e8e8; }
+        QMenuBar::item:selected { background: #3c5a99; color: white; }
+        QStatusBar { background: #2b2b2b; color: #c2c6d6; }
+        QLineEdit, QSpinBox, QDoubleSpinBox, QComboBox, QTextEdit, QPlainTextEdit,
+        QListWidget, QTreeWidget, QTableWidget {
+            background: #333; color: #eee; border: 1px solid #555; selection-background-color: #3c5a99;
+        }
+        QComboBox QAbstractItemView { background: #333; color: #eee; selection-background-color: #3c5a99; }
+        QPushButton { background: #3c5a99; color: white; border: none; padding: 6px 10px; border-radius: 4px; }
+        QPushButton:hover { background: #4a6fbf; }
+        QPushButton:disabled { background: #444; color: #888; }
+        QCheckBox, QRadioButton, QLabel { background: transparent; color: #e8e8e8; }
+        QTabWidget::pane { background: #333; border: 1px solid #555; }
+        QTabBar::tab { background: #333; color: #ccc; padding: 5px 10px; }
+        QTabBar::tab:selected { background: #3c5a99; color: white; }
+        QSplitter::handle { background: #555; }
+        QHeaderView::section { background: #3a3a3a; color: #ddd; border: 1px solid #555; padding: 4px; }
+    """)
     win = Main(); win.show()
     if len(sys.argv) > 1:
         win.open_path(sys.argv[1])

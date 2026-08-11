@@ -16,22 +16,6 @@ from model import (LEADER_TEXT_FT, network_kind, default_network_type,
                    mannings_n, COVER_MIN_FT)
 
 
-def _encode_seg_overrides(win, p):
-    """Serializa p['seg_overrides'] al formato XDATA: 'idx~family~size;idx~family~size'.
-    La familia se resuelve a Description real (misma lógica que _resolve_family),
-    para que el matcher del addin la encuentre por Description."""
-    ov = p.get("seg_overrides") or {}
-    if not ov: return ""
-    parts = []
-    for k in sorted(ov.keys(), key=lambda x: int(x)):
-        entry = ov[k] or {}
-        fid = entry.get("pipe_family") or ""
-        sz  = entry.get("pipe_size") or ""
-        fam = _resolve_family(win, fid, "pipe") if fid else ""
-        parts.append(f"{int(k)}~{fam}~{sz}")
-    return ";".join(parts)
-
-
 def _resolve_family(win, fid, kind):
     """Traduce un fid (basename del .xml) a la Description real (PrtD) que ve
     Civil 3D. Así el matcher del addin (compara por Description) encuentra la
@@ -95,8 +79,6 @@ def merge_into(win, doc, marks=True):
             (1000, f"COVER_MIN={cover}"),
             (1000, f"PIPE_FAMILY={_resolve_family(win, p.get('pipe_family') or '', 'pipe')}"),
             (1000, f"PIPE_SIZE={p.get('pipe_size') or ''}"),
-            (1000, f"NO_MANHOLE_VERTS={','.join(str(i) for i in (p.get('no_manhole_verts') or []))}"),
-            (1000, f"SEG_OVERRIDES={_encode_seg_overrides(win, p)}"),
         ])
     _export_structures(win, doc, msp)
     VP.ensure_layer(doc, "ANOTACION")

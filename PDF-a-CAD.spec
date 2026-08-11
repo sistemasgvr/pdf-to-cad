@@ -29,7 +29,7 @@ exe = EXE(
     a.binaries,
     a.datas,
     [],
-    name='PDF-a-CAD',
+    name='Asistente C3D',
     debug=False,
     bootloader_ignore_signals=False,
     strip=False,
