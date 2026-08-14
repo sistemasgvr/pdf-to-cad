@@ -64,21 +64,16 @@ namespace Civil3DBasico
             // ── 0. Forzar unidades imperiales (pies) antes de leer cotas ────
             ComandosUnidades.ForzarImperial(db, ed, true);
 
-            // ── 0.b Añadir automáticamente Bancoductos / Bancos Tubos / Buzones
-            //        a la Parts List "Standard" (modo silencioso). Si algo falla
-            //        no bloquea la importación — solo avisa.
-            try
-            {
-                using (Transaction trBB = db.TransactionManager.StartTransaction())
-                {
-                    CatalogoBancos.AddBancosYBuzones(trBB, db, ed, verbose: false);
-                    trBB.Commit();
-                }
-            }
-            catch (Exception exBB)
-            {
-                ed.WriteMessage($"\n[Bancos/Buzones] omitido: {exBB.Message}");
-            }
+            // ── 0.b Familias PERSONALIZADAS (Bancoductos / Bancos Tubos / Buzones):
+            //        NO agregarlas todas automáticamente. Antes se llamaba a
+            //        `CatalogoBancos.AddBancosYBuzones` acá, pero eso metía TODAS las
+            //        familias custom en la Parts List — y bastaba con eso para que
+            //        una pipe sin `pipe_family` explícito terminara heredando una
+            //        custom porque quedaba entre las candidatas del matcher.
+            //        Ahora las custom SOLO se agregan bajo demanda: cada pipe/struct
+            //        que traiga `PIPE_FAMILY`/`PART` en su XDATA dispara un
+            //        `AsegurarFamiliaPorId` puntual más adelante en el flujo. Si el
+            //        usuario no seteó familia para una pipe, esa pipe no toca custom.
 
             // ── 1. Escanear modelspace ──────────────────────────────────────
             var pipes = new List<ImportPipe>();
@@ -340,11 +335,19 @@ namespace Civil3DBasico
                 }
             }
 
-            // ── 7. Reporte CSV y log de depuración — DESHABILITADOS ─────────
-            // Se conservan EscribirReporteRed() y el buffer _dbg en el código para
-            // reactivarlos rápidamente durante desarrollo (basta descomentar los
-            // dos bloques que había aquí), pero en instalaciones cliente NO se
-            // escriben archivos CSV al disco.
+            // ── 7. Log de depuración de asignación de familias ──────────────
+            // Vuelca el buffer _dbg al Escritorio para diagnosticar qué familia
+            // recibió y eligió CADA tubería/estructura. Clave para confirmar que
+            // las familias custom solo se aplican donde el usuario las pidió.
+            try
+            {
+                string dir = Environment.GetFolderPath(Environment.SpecialFolder.DesktopDirectory);
+                string path = System.IO.Path.Combine(dir,
+                    $"IMPORTAR_RED_DEBUG_{DateTime.Now:yyyyMMdd-HHmmss}.txt");
+                System.IO.File.WriteAllLines(path, _dbg, System.Text.Encoding.UTF8);
+                ed.WriteMessage($"\n(Log de depuración: {path})");
+            }
+            catch { }
 
             ed.WriteMessage("\n═══ IMPORTAR RED — fin ═══");
         }
@@ -472,6 +475,12 @@ namespace Civil3DBasico
             var createdStructs = new Dictionary<string, ObjectId>();
             int nPipes = 0;
             var trazaEje = new List<Point3d>();
+            // Buzones exactamente en los extremos absolutos de la traza (primer punto
+            // del primer pipe y último punto del último pipe). Se usan al final para
+            // recortar el alineamiento al BORDE del buzón — así el eje no atraviesa
+            // el buzón, sino que empieza/termina donde la tubería toca su cara exterior.
+            ObjectId ejeStartStructId = ObjectId.Null;
+            ObjectId ejeEndStructId   = ObjectId.Null;
             // Cotas EXPLÍCITAS a reponer al final. Civil 3D, al conectar tuberías
             // (ConnectToStructure), re-aplica reglas por defecto (pendiente ~1% +
             // tapada) y, si la estructura tiene el ajuste automático de superficie
@@ -510,6 +519,18 @@ namespace Civil3DBasico
                                        out pipeFam, out pipeSize, out pipeNom))
                     { pipeFam = defPipeFam; pipeSize = defPipeSize; pipeNom = defPipeNom; }
                 }
+                // RED DE SEGURIDAD: si esta tubería NO pidió familia personalizada
+                // explícita pero el matcher devolvió una custom (Bancoducto/etc.),
+                // la reemplazamos por la familia por defecto (siempre stock). Así
+                // asignar una custom a UNA sola pipe NUNCA se propaga a las demás,
+                // pase lo que pase en el matcher.
+                if (string.IsNullOrWhiteSpace(ip.PipeFamily) &&
+                    EsFamiliaCustomPorId(tr, pipeFam, CivilDB.DomainType.Pipe))
+                {
+                    Dbg("PIPE_FAMILY_CUSTOM_BLOQUEADA",
+                        ("material", ip.Material ?? ""), ("reemplazo", defPipeNom));
+                    pipeFam = defPipeFam; pipeSize = defPipeSize; pipeNom = defPipeNom;
+                }
 
                 var vertStructIds = new List<ObjectId>();
                 for (int i = 0; i < nVerts; i++)
@@ -531,7 +552,14 @@ namespace Civil3DBasico
                     if (match != null && match.Rim.HasValue && match.Sump.HasValue)
                     { rim = match.Rim.Value; sump = match.Sump.Value; }
                     else
-                    { sump = zInv - 0.5; rim = zInv + depth; }   // sump 0.5' bajo la solera; rim = invert + tapada
+                    {
+                        // Sin buzón explícito del DXF: el sump debe coincidir EXACTO con
+                        // la rasante de la tubería en ese vértice (zInv) — no restarle nada.
+                        // Antes se restaba 0.5' "de sumidero", pero eso desalineaba el
+                        // buzón respecto a la tubería que el usuario definió (se veía como
+                        // que "el buzón recorta y redefine" la rasante 0.5' más abajo).
+                        sump = zInv; rim = zInv + depth;
+                    }
                     // Garantía: rim ARRIBA (mín. 1' sobre sump) y sump por debajo del invert.
                     if (rim - sump < 1.0) rim = sump + Math.Max(depth, 3.0);
 
@@ -556,6 +584,17 @@ namespace Civil3DBasico
                             if (sFam == ObjectId.Null)
                             { sFam = defStructFam; sSize = defStructSize; ruta = "fallback_default"; }
                             else ruta = "buscar_estructura_match";
+                            // RED DE SEGURIDAD: si esta estructura NO pidió familia
+                            // custom explícita (structType vacío) pero el matcher
+                            // devolvió un buzón custom, lo reemplazamos por el default
+                            // (stock). Evita que asignar una familia custom a UN solo
+                            // buzón se propague a todos los demás nodos.
+                            if (string.IsNullOrWhiteSpace(structType) &&
+                                EsFamiliaCustomPorId(tr, sFam, CivilDB.DomainType.Structure))
+                            {
+                                sFam = defStructFam; sSize = defStructSize;
+                                ruta = "custom_bloqueada_default";
+                            }
                         }
                         // Nombres reales para diagnóstico
                         string realFamName = "?", realSizeName = "?";
@@ -624,6 +663,15 @@ namespace Civil3DBasico
                         createdStructs[key] = sid;
                     }
                     vertStructIds.Add(createdStructs[key]);
+                }
+
+                // Recordar los buzones EXTREMOS de la traza para recortar el eje al
+                // borde del buzón al final. La primera pipe define el inicio; el
+                // último punto de la última pipe procesada, el fin.
+                if (vertStructIds.Count > 0)
+                {
+                    if (ejeStartStructId.IsNull) ejeStartStructId = vertStructIds[0];
+                    ejeEndStructId = vertStructIds[vertStructIds.Count - 1];
                 }
 
                 // Solape visual en vértices "sin buzón": cada tubería se extiende
@@ -714,6 +762,19 @@ namespace Civil3DBasico
             // Se hace AL FINAL, cuando ya no hay conexiones que las pisen. Primero las
             // tuberías (fija la Z de cada extremo = invert capturado), luego rim/sump.
             // Tuberías: fijar Z de cada extremo y LEER DE VUELTA para saber si pegó.
+            //
+            // Convención de Civil 3D según tipo de red:
+            //  · GRAVEDAD (buzones conectados) — StartPoint.Z = eje del tubo, y la
+            //    "Elevación de rasante" en Properties = eje − radio. Para que la
+            //    rasante mostrada iguale lo que puso el usuario, ponemos
+            //    StartPoint.Z = rasante_usuario + radio.
+            //  · CONDUIT/ELÉCTRICO (sin buzones, banco rectangular) — el pipe no
+            //    tiene "start invert" derivado en Properties: C3D muestra
+            //    directamente StartPoint.Z como rasante. Además, InnerDiameterOrWidth
+            //    devuelve el ANCHO del banco rectangular (16"), no la altura del
+            //    tubo, por lo que sumar radio inyectaba un desfase espurio (0.67 ft
+            //    en el reporte del usuario). Solución: en conduit, StartPoint.Z =
+            //    rasante_usuario directamente, sin sumar nada.
             int pipeOk = 0, pipeErr = 0; string pipeMsg = "";
             foreach (var pv in explicitPipeInv)
             {
@@ -721,10 +782,11 @@ namespace Civil3DBasico
                 {
                     var pp = (CivilDB.Pipe)tr.GetObject(pv.id, OpenMode.ForWrite);
                     Point3d s = pp.StartPoint, e = pp.EndPoint;
-                    // StartPoint.Z es el EJE del tubo; el invert (rasante) capturado
-                    // es la SOLERA. Eje = invert + radio interior, así la solera
-                    // mostrada = el invert capturado (sin el desfase de medio diámetro).
-                    double r = 0.0; try { r = pp.InnerDiameterOrWidth / 2.0; } catch { }
+                    double r = 0.0;
+                    if (!sinBuzones)
+                    {
+                        try { r = pp.InnerDiameterOrWidth / 2.0; } catch { }
+                    }
                     double czS = pv.zStart + r, czE = pv.zEnd + r;
                     pp.StartPoint = new Point3d(s.X, s.Y, czS);
                     pp.EndPoint = new Point3d(e.X, e.Y, czE);
@@ -745,12 +807,17 @@ namespace Civil3DBasico
                     var st = (CivilDB.Structure)tr.GetObject(kv.Key, OpenMode.ForWrite);
                     // 1) Apagar el ajuste automático a superficie (o el rim vuelve a la sup).
                     try { st.AutomaticRimSurfaceAdjustment = false; } catch (Exception e1) { if (stMsg == "") stMsg = "autoAdj→" + e1.Message; }
-                    // 2) Cambiar "Controlar sumidero por" a POR ELEVACIÓN. Sin esto Civil
-                    //    calcula sump = rim − SumpDepth y anula SumpElevation.
-                    { string err = SetSumpControlByElevation(st); if (err != null && stMsg == "") stMsg = "ctrlSump→" + err; }
-                    // 3) Fijar sump primero (con ByElevation ya no lo pisa), luego rim.
-                    try { st.SumpElevation = kv.Value.sump; } catch (Exception e3) { if (stMsg == "") stMsg = "sump→" + e3.Message; }
+                    // 2) Fijar el rim ANTES del sump: si el setter de RimElevation
+                    //    reinicia "Controlar sumidero por" a POR PROFUNDIDAD (como
+                    //    hace en algunas familias), sump quedaría pisado por
+                    //    rim−SumpDepth (típico desfase fijo, ej. 0.5 ft) si sump se
+                    //    fijara antes. Por eso rim va primero.
                     try { st.RimElevation = kv.Value.rim; } catch (Exception e2) { if (stMsg == "") stMsg = "rim→" + e2.Message; }
+                    // 3) Reconfirmar POR ELEVACIÓN (por si el paso anterior lo reinició)
+                    //    y recién ahí fijar sump — así queda como la ÚLTIMA escritura,
+                    //    nada después puede volver a pisarlo.
+                    { string err = SetSumpControlByElevation(st); if (err != null && stMsg == "") stMsg = "ctrlSump→" + err; }
+                    try { st.SumpElevation = kv.Value.sump; } catch (Exception e3) { if (stMsg == "") stMsg = "sump→" + e3.Message; }
                     bool adj = st.AutomaticRimSurfaceAdjustment; double rb = st.RimElevation; double sb = st.SumpElevation;
                     bool okRim = Math.Abs(rb - kv.Value.rim) < 0.05;
                     bool okSump = Math.Abs(sb - kv.Value.sump) < 0.05;
@@ -771,17 +838,100 @@ namespace Civil3DBasico
             // En conduit (eléctrico/telecom) NO se crea alineamiento: si hay varias
             // subredes desconectadas dentro de la misma capa, el eje las une con una
             // polilínea fina que aparenta ser una conexión real.
+            // Alineamiento (eje) para la red — permite después crear vistas de perfil.
+            // Se envuelve TODO en try/catch: si el alignment o su recorté fallan,
+            // NO debe abortar la creación de la red (que ya está lista en el dibujo).
             ObjectId alignId = ObjectId.Null;
-            if (!sinBuzones)
+            try
             {
+                // Recortar el primer y último punto del trazaEje al BORDE del buzón
+                // en cada extremo — el usuario quiere que el eje arranque/termine
+                // tocando la cara exterior del buzón, sin cruzarlo. Buzones internos
+                // no se tocan: por convención el eje sí atraviesa los buzones
+                // intermedios de la misma red.
+                if (trazaEje.Count >= 2)
+                {
+                    if (!ejeStartStructId.IsNull)
+                    {
+                        Point3d p0 = trazaEje[0], p1 = trazaEje[1];
+                        try
+                        {
+                            Point3d p0Rec = RecortarAlBordeBuzon(tr, ejeStartStructId, p0, p1);
+                            trazaEje[0] = new Point3d(p0Rec.X, p0Rec.Y, p0.Z);
+                        }
+                        catch (Exception exR) { Dbg("RECORTE_START_ERR", ("msg", exR.Message)); }
+                    }
+                    if (!ejeEndStructId.IsNull)
+                    {
+                        int lastIdx = trazaEje.Count - 1;
+                        Point3d pN = trazaEje[lastIdx], pPrev = trazaEje[lastIdx - 1];
+                        try
+                        {
+                            Point3d pNRec = RecortarAlBordeBuzon(tr, ejeEndStructId, pN, pPrev);
+                            trazaEje[lastIdx] = new Point3d(pNRec.X, pNRec.Y, pN.Z);
+                        }
+                        catch (Exception exR) { Dbg("RECORTE_END_ERR", ("msg", exR.Message)); }
+                    }
+                }
                 alignId = ComandosAlineamientos.CrearAlineamientoDesdePts(db, civilDoc, tr, trazaEje, nm + "-eje");
-                if (alignId != ObjectId.Null)
-                { try { net.ReferenceAlignmentId = alignId; } catch { } }
+                if (alignId != ObjectId.Null && !sinBuzones)
+                {
+                    // Solo asociamos el alignment a la Network en redes de gravedad;
+                    // en conduit lo dejamos como alignment "suelto" en el dibujo
+                    // porque asignarlo a la network puede fallar según el template.
+                    try { net.ReferenceAlignmentId = alignId; } catch { }
+                }
+            }
+            catch (Exception exAlign)
+            {
+                Dbg("ALIGN_ERR", ("red", nm), ("msg", exAlign.Message));
+                ed.WriteMessage($"\n(No se pudo crear el eje '{nm}-eje': {exAlign.Message} — la red se dibuja igual.)");
+                alignId = ObjectId.Null;
             }
 
             ed.WriteMessage($"\n✓ Red {(sinBuzones ? "conduit" : "gravedad")} '{nm}': {createdStructs.Count} nodos, {nPipes} tuberías" +
                             (alignId != ObjectId.Null ? " + eje." : "."));
             return netId;
+        }
+
+        // Recorta `propio` (que suele estar en el centro del buzón) hasta el BORDE
+        // exterior del buzón, avanzando en dirección hacia `otro`. Intenta primero
+        // vía GeometricExtents; si esos extents son degenerados (típico justo
+        // después de crear la structure en la misma transacción), usa el diámetro
+        // interior del buzón + un margen de pared. Preserva Z de `propio`.
+        private static Point3d RecortarAlBordeBuzon(Transaction tr, ObjectId structId,
+                                                     Point3d propio, Point3d otro)
+        {
+            try
+            {
+                // Camino primario — GeometricExtents del buzón renderizado.
+                Point3d p = ComandosCotarTuberias.PuntoVisualExtremo(structId, propio, otro, tr);
+                double d = Math.Sqrt((p.X - propio.X) * (p.X - propio.X) +
+                                      (p.Y - propio.Y) * (p.Y - propio.Y));
+                if (d > 0.05) return p;                    // GeometricExtents dio valor útil
+            }
+            catch { }
+            // Fallback — usar el ancho/diámetro interior del buzón + estimación de
+            // pared (0.5' típico). Aproximación circular; funciona bien para buzones
+            // circulares y para rectangulares (queda ligeramente dentro del rectángulo,
+            // lo cual es preferible a exceder el borde).
+            try
+            {
+                var st = tr.GetObject(structId, OpenMode.ForRead) as CivilDB.Structure;
+                if (st == null) return propio;
+                double innerW = 0.0; try { innerW = st.InnerDiameterOrWidth; } catch { }
+                // Estimación conservadora de pared exterior (Civil 3D no expone
+                // WallThickness uniformemente por versión). 0.5' cubre la mayoría
+                // de buzones estándar de concreto.
+                double radioExterior = innerW * 0.5 + 0.5;
+                double dx = otro.X - propio.X, dy = otro.Y - propio.Y;
+                double len = Math.Sqrt(dx * dx + dy * dy);
+                if (len < 1e-9 || radioExterior < 1e-6) return propio;
+                double nx = dx / len, ny = dy / len;
+                return new Point3d(propio.X + nx * radioExterior,
+                                    propio.Y + ny * radioExterior, propio.Z);
+            }
+            catch { return propio; }
         }
 
         // =================================================================
@@ -1273,7 +1423,8 @@ namespace Civil3DBasico
                         if (!xd.TryGetValue("_MARKER", out string marker) || marker != "PDFCAD_PIPE") continue;
                         string netKind = XdStr(xd, "NET_KIND", "gravity");
                         if (netKind.Equals("gravity", StringComparison.OrdinalIgnoreCase) ||
-                            netKind.Equals("pressure", StringComparison.OrdinalIgnoreCase))
+                            netKind.Equals("pressure", StringComparison.OrdinalIgnoreCase) ||
+                            netKind.Equals("conduit", StringComparison.OrdinalIgnoreCase))
                             toDelete.Add(eid);
                     }
                     foreach (var id in toDelete)

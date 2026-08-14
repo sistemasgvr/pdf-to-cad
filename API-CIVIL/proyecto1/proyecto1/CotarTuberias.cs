@@ -10,37 +10,40 @@ using CivilDB = Autodesk.Civil.DatabaseServices;
 using Exception = System.Exception;
 
 // ============================================================================
-//  COTAR_TUBERIAS — Coloca un MLeader (multileader) en cada nodo o quiebre
-//  de las tuberías de gravedad, con la propiedad "Elevación de rasante" del
-//  extremo correspondiente.
+//  COTAR_TUBERIAS ("Agregar etiquetas") — genera 3 tipos de anotación, cada
+//  una en su propia capa:
 //
-//  Regla:
-//    · Si el punto es INICIO de al menos una tubería → StartInvertElevation
-//      (Elevación de rasante inicial) de esa tubería.
-//    · Si el punto es SOLO fin de tubería (última punta, no arranca ninguna
-//      otra desde ahí) → EndInvertElevation (Elevación de rasante final).
+//   1) ETIQUETAS_TUBERIAS: por cada EXTREMO de tubería (gravedad/conduit/
+//      presión), un MLeader con "INICIO TUBERIA <nombre>" o "DESCARGA TUBERIA
+//      <nombre>" (el extremo de MENOR cota es siempre "descarga", sin importar
+//      cuál llama Civil3D Start/End — así se valida que el sentido sea
+//      consistente con flujo por gravedad), "PROG: 0+00.00" (estación sobre
+//      el eje de la red, si existe) y "COTA: valor". La flecha ancla en el
+//      borde real de la estructura conectada (rectángulo o círculo).
 //
-//  MLeader:
-//    · Punta de flecha en el punto de la tubería.
-//    · Texto en la cola (arriba-derecha con offset proporcional).
-//    · Attachment del texto al medio-izquierda → queda pegado al final de
-//      la línea del leader.
-//    · Capa dedicada "COTAS_TUBERIAS" (verde ACI 3).
+//   2) ETIQUETAS_BUZONES: por cada BUZÓN (gravedad/conduit), un MLeader al
+//      CENTRO del buzón con "BUZÓN <nombre>", "CT: rim", "CF: sump",
+//      "H: <Structure.Height — Altura de estructura real de Civil3D>".
+//
+//   3) ETIQUETAS_PENDIENTES: por cada tubería de gravedad/conduit, una flecha
+//      corta paralela a la mitad de la tubería (separada por un pequeño
+//      espacio) que apunta hacia el extremo de MENOR cota (sentido real del
+//      flujo), y junto a ella la pendiente "S=x.xx%".
+//
+//   El tamaño de texto/flecha/offset es UNA sola escala global (promedio del
+//   diámetro de TODAS las tuberías del dibujo), no por elemento — si se
+//   calculara por tubería, una tubería grande generaba etiquetas gigantes
+//   mezcladas con las normales (caótico). Con una escala global el resultado
+//   es uniforme sin importar qué tan grande sea cada tubería/estructura.
 // ============================================================================
 
 namespace Civil3DBasico
 {
     public class ComandosCotarTuberias
     {
-        // Cada punto único de la red: coord, rasante a mostrar, y si es
-        // "inicio de tubería" (marca esa cota como definitiva; ya no la
-        // pisa un EndInvert que caiga en el mismo punto).
-        private class NodoInfo
-        {
-            public Point3d Pt;
-            public double  Rasante;
-            public bool    EsInicio;
-        }
+        private const string CapaBuzones = "ETIQUETAS_BUZONES";
+        private const string CapaTuberias = "ETIQUETAS_TUBERIAS";
+        private const string CapaPendientes = "ETIQUETAS_PENDIENTES";
 
         [CommandMethod("COTAR_TUBERIAS")]
         public void CotarTuberias()
@@ -51,90 +54,22 @@ namespace Civil3DBasico
             Database db = doc.Database;
             CivilDocument civilDoc = CivilApplication.ActiveDocument;
 
-            ed.WriteMessage("\n═══ COTAR TUBERÍAS — MLeaders con Elevación de rasante ═══");
-
-            var nodos = new Dictionary<string, NodoInfo>();
-            int nRedes = 0, nTubos = 0;
+            ed.WriteMessage("\n═══ AGREGAR ETIQUETAS — tuberías, buzones y sentido de flujo ═══");
 
             using (Transaction tr = db.TransactionManager.StartTransaction())
             {
                 try
                 {
-                    // 1) Recolectar puntos + rasantes de TODAS las redes: gravedad,
-                    //    conduit y presión. StartPoint.Z siempre es el EJE del tubo;
-                    //    la rasante = eje − radio_interior.
-                    //    Prioridad: si es inicio de una tubería, se marca EsInicio=true
-                    //    y su rasante ya no se sobreescribe con un EndInvert que caiga
-                    //    en el mismo punto (típico nodo interior de red).
+                    AsegurarCapas(db, tr);
+                    BlockTable bt = tr.GetObject(db.BlockTableId, OpenMode.ForRead) as BlockTable;
+                    BlockTableRecord ms = tr.GetObject(bt[BlockTableRecord.ModelSpace], OpenMode.ForWrite) as BlockTableRecord;
 
-                    // Redes de gravedad (y conduit — usan el mismo tipo Network)
                     ObjectIdCollection nets = civilDoc.GetPipeNetworkIds();
-                    foreach (ObjectId nid in nets)
-                    {
-                        CivilDB.Network net = tr.GetObject(nid, OpenMode.ForRead) as CivilDB.Network;
-                        if (net == null) continue;
-                        nRedes++;
-                        foreach (ObjectId pid in net.GetPipeIds())
-                        {
-                            CivilDB.Pipe p = tr.GetObject(pid, OpenMode.ForRead) as CivilDB.Pipe;
-                            if (p == null) continue;
-                            nTubos++;
-                            double r = 0.0;
-                            try { r = p.InnerDiameterOrWidth / 2.0; } catch { }
-                            double sInv = p.StartPoint.Z - r;
-                            double eInv = p.EndPoint.Z   - r;
-                            AddOrUpdate(nodos, p.StartPoint, sInv, esInicio: true);
-                            AddOrUpdate(nodos, p.EndPoint,   eInv, esInicio: false);
-                        }
-                    }
-
-                    // Redes de presión (agua/gas). NominalDiameter en presión viene
-                    // en PULGADAS → convertir a pies para restar del StartPoint.Z (ft).
                     ObjectIdCollection presNets = civilDoc.GetPressurePipeNetworkIds();
-                    foreach (ObjectId nid in presNets)
-                    {
-                        CivilDB.PressurePipeNetwork net =
-                            tr.GetObject(nid, OpenMode.ForRead) as CivilDB.PressurePipeNetwork;
-                        if (net == null) continue;
-                        nRedes++;
-                        foreach (ObjectId pid in net.GetPipeIds())
-                        {
-                            CivilDB.PressurePipe p =
-                                tr.GetObject(pid, OpenMode.ForRead) as CivilDB.PressurePipe;
-                            if (p == null) continue;
-                            nTubos++;
-                            double r = 0.0;
-                            try { r = (p.NominalDiameter / 12.0) / 2.0; } catch { }
-                            double sInv = p.StartPoint.Z - r;
-                            double eInv = p.EndPoint.Z   - r;
-                            AddOrUpdate(nodos, p.StartPoint, sInv, esInicio: true);
-                            AddOrUpdate(nodos, p.EndPoint,   eInv, esInicio: false);
-                        }
-                    }
 
-                    if (nodos.Count == 0)
-                    {
-                        ed.WriteMessage("\n(No hay tuberías de gravedad en el dibujo — no se generaron leaders.)");
-                        tr.Commit(); return;
-                    }
-
-                    // 2) Layer dedicado
-                    const string capa = "COTAS_TUBERIAS";
-                    LayerTable lt = tr.GetObject(db.LayerTableId, OpenMode.ForRead) as LayerTable;
-                    if (!lt.Has(capa))
-                    {
-                        lt.UpgradeOpen();
-                        var ltr = new LayerTableRecord {
-                            Name = capa,
-                            Color = Autodesk.AutoCAD.Colors.Color.FromColorIndex(
-                                Autodesk.AutoCAD.Colors.ColorMethod.ByAci, 3)
-                        };
-                        lt.Add(ltr); tr.AddNewlyCreatedDBObject(ltr, true);
-                    }
-
-                    // 3) Tamaño del texto/flecha/offset — usamos como referencia
-                    //    el diámetro medio de las tuberías. Así todo el leader queda
-                    //    proporcional a los elementos del dibujo, sin importar escala.
+                    // ── Escala GLOBAL única (promedio de diámetro de TODAS las tuberías del
+                    //    dibujo) — no por elemento, para que el tamaño de texto/flecha sea
+                    //    uniforme sin importar qué tan grande sea cada tubería/estructura. ──
                     double sumDia = 0.0; int nDia = 0;
                     foreach (ObjectId nid in nets)
                     {
@@ -147,76 +82,188 @@ namespace Civil3DBasico
                             try { sumDia += p2.InnerDiameterOrWidth; nDia++; } catch { }
                         }
                     }
-                    // Pressure pipes: NominalDiameter viene en pulgadas → pies
                     foreach (ObjectId nid in presNets)
                     {
-                        CivilDB.PressurePipeNetwork n2 =
-                            tr.GetObject(nid, OpenMode.ForRead) as CivilDB.PressurePipeNetwork;
+                        CivilDB.PressurePipeNetwork n2 = tr.GetObject(nid, OpenMode.ForRead) as CivilDB.PressurePipeNetwork;
                         if (n2 == null) continue;
                         foreach (ObjectId pid in n2.GetPipeIds())
                         {
-                            CivilDB.PressurePipe p2 =
-                                tr.GetObject(pid, OpenMode.ForRead) as CivilDB.PressurePipe;
+                            CivilDB.PressurePipe p2 = tr.GetObject(pid, OpenMode.ForRead) as CivilDB.PressurePipe;
                             if (p2 == null) continue;
                             try { sumDia += p2.NominalDiameter / 12.0; nDia++; } catch { }
                         }
                     }
                     double diaMedio = nDia > 0 ? sumDia / nDia : 1.0;
                     if (diaMedio < 0.1) diaMedio = 1.0;
-                    // Texto ≈ 1.2× diámetro medio (legible al lado de la tubería)
-                    double txtH = diaMedio * 1.2;
-                    // Cola/offset ≈ 3× diámetro (leader corto, no cruza por encima del buzón)
-                    double off  = diaMedio * 3.0;
 
-                    // 4) Crear MLeader por nodo
-                    BlockTable bt = tr.GetObject(db.BlockTableId, OpenMode.ForRead) as BlockTable;
-                    BlockTableRecord ms = tr.GetObject(bt[BlockTableRecord.ModelSpace],
-                        OpenMode.ForWrite) as BlockTableRecord;
+                    double txtH = diaMedio * 0.45;   // mitad del tamaño anterior (que era diaMedio*0.9)
+                    double off = diaMedio * 3.0;      // leader largo, evita cruces entre etiquetas cercanas
 
-                    int nCreados = 0;
-                    foreach (var kv in nodos)
+                    int nRedes = 0, nTubos = 0, nBuzones = 0, nEtiquetas = 0, nFlechas = 0;
+
+                    // Etiquetas de tubería: se acumulan aquí y se dibujan todas al final
+                    // (agrupadas por estructura conectada) — ver DibujarEtiquetasTuberiaAgrupadas.
+                    var etiquetasTuberia = new List<(Point3d punto, List<string> lineas, ObjectId structId)>();
+
+                    // ── Redes de gravedad y conduit (mismo tipo Network) ──
+                    foreach (ObjectId nid in nets)
                     {
-                        var nd = kv.Value;
-                        // Flecha en el punto de la tubería
-                        Point3d flecha = new Point3d(nd.Pt.X, nd.Pt.Y, 0.0);
-                        // Cola (donde queda pegado el texto) — desplazada arriba-derecha
-                        Point3d cola   = new Point3d(nd.Pt.X + off, nd.Pt.Y + off, 0.0);
+                        CivilDB.Network net = tr.GetObject(nid, OpenMode.ForRead) as CivilDB.Network;
+                        if (net == null) continue;
+                        nRedes++;
 
-                        MLeader ml = new MLeader();
-                        ml.SetDatabaseDefaults();
-                        ml.Layer = capa;
-                        ml.ContentType = ContentType.MTextContent;
-                        // Tamaños proporcionales al diámetro de tubería — SIEMPRE explícitos
-                        // (el estilo MLeader por defecto suele traer flecha desproporcionada).
-                        try { ml.TextHeight   = txtH; } catch { }
-                        try { ml.ArrowSize    = txtH * 0.6; } catch { }
-                        try { ml.DoglegLength = txtH * 1.5; } catch { }
-                        try { ml.LandingGap   = txtH * 0.4; } catch { }
-                        try { ml.EnableLanding = true; } catch { }
+                        CivilDB.Alignment alignRed = null;
+                        try
+                        {
+                            ObjectId alignId = net.ReferenceAlignmentId;
+                            if (!alignId.IsNull && alignId.IsValid)
+                                alignRed = tr.GetObject(alignId, OpenMode.ForRead) as CivilDB.Alignment;
+                        }
+                        catch { }
 
-                        MText mt = new MText();
-                        mt.SetDatabaseDefaults();
-                        mt.Contents = nd.Rasante.ToString("F2");
-                        mt.TextHeight = txtH;
-                        mt.Location = cola;
-                        // Que el punto "Location" del MText coincida con el extremo
-                        // izquierdo-medio del texto → el leader entra por la izquierda
-                        // del número y el número queda a la derecha de la cola.
-                        mt.Attachment = AttachmentPoint.MiddleLeft;
-                        ml.MText = mt;
+                        foreach (ObjectId pid in net.GetPipeIds())
+                        {
+                            try
+                            {
+                                CivilDB.Pipe p = tr.GetObject(pid, OpenMode.ForRead) as CivilDB.Pipe;
+                                if (p == null) continue;
+                                nTubos++;
 
-                        // Agregar la línea del leader: primer vértice = flecha
-                        int idx = ml.AddLeaderLine(flecha);
+                                double invStart = InvertEnNodo(p.StartStructureId, p.StartPoint, p, tr);
+                                double invEnd = InvertEnNodo(p.EndStructureId, p.EndPoint, p, tr);
+                                // El extremo de MAYOR cota es "inicio" (aguas arriba) — no se
+                                // asume que Start=aguas arriba, se valida contra la elevación real.
+                                bool startEsInicio = invStart >= invEnd;
 
-                        ms.AppendEntity(ml);
-                        tr.AddNewlyCreatedDBObject(ml, true);
-                        nCreados++;
+                                Point3d ptStart = PuntoVisualExtremo(p.StartStructureId, p.StartPoint, p.EndPoint, tr);
+                                Point3d ptEnd = PuntoVisualExtremo(p.EndStructureId, p.EndPoint, p.StartPoint, tr);
+
+                                string nombrePipe; try { nombrePipe = p.Name; } catch { nombrePipe = "?"; }
+
+                                var lineasStart = new List<string>
+                                {
+                                    (startEsInicio ? "INICIO " : "DESCARGA ") + nombrePipe
+                                };
+                                string progStart = EstacionTexto(alignRed, p.StartPoint);
+                                if (progStart != null) lineasStart.Add("PROG: " + progStart);
+                                lineasStart.Add("COTA: " + invStart.ToString("F2"));
+
+                                var lineasEnd = new List<string>
+                                {
+                                    (startEsInicio ? "DESCARGA " : "INICIO ") + nombrePipe
+                                };
+                                string progEnd = EstacionTexto(alignRed, p.EndPoint);
+                                if (progEnd != null) lineasEnd.Add("PROG: " + progEnd);
+                                lineasEnd.Add("COTA: " + invEnd.ToString("F2"));
+
+                                etiquetasTuberia.Add((ptStart, lineasStart, p.StartStructureId));
+                                etiquetasTuberia.Add((ptEnd, lineasEnd, p.EndStructureId));
+                                nEtiquetas += 2;
+
+                                double diamReal = 0.0;
+                                try { diamReal = p.OuterDiameterOrWidth; } catch { }
+                                if (diamReal < 0.05) { try { diamReal = p.InnerDiameterOrWidth; } catch { } }
+                                if (diamReal < 0.05) diamReal = diaMedio;
+                                DibujarFlechaFlujo(ms, tr, p.StartPoint, p.EndPoint, invStart, invEnd, diaMedio, txtH, diamReal);
+                                nFlechas++;
+                            }
+                            catch { }
+                        }
+
+                        foreach (ObjectId sid in net.GetStructureIds())
+                        {
+                            try
+                            {
+                                CivilDB.Structure st = tr.GetObject(sid, OpenMode.ForRead) as CivilDB.Structure;
+                                if (st == null) continue;
+                                string nombre; try { nombre = st.Name; } catch { nombre = "?"; }
+
+                                double ct; try { ct = st.RimElevation; } catch { continue; }
+                                double cf; try { cf = st.SumpElevation; } catch { continue; }
+                                Point3d centro; try { centro = st.Location; } catch { continue; }
+
+                                // "Altura de estructura" real de Civil3D (Structure.Height), no
+                                // CT−CF a mano — puede incluir espesor de piso u otras piezas
+                                // que la resta simple no contempla. Si no se puede leer, se cae
+                                // al cálculo simple como aproximación razonable.
+                                double altura;
+                                try { altura = st.Height; } catch { altura = ct - cf; }
+
+                                var lineas = new List<string>
+                                {
+                                    "BUZÓN " + nombre,
+                                    $"CT: {ct:F2}",
+                                    $"CF: {cf:F2}",
+                                    $"H: {altura:F2}",
+                                };
+                                DibujarEtiquetaBuzon(ms, tr, CapaBuzones, centro, lineas, txtH, off);
+                                nBuzones++;
+                                nEtiquetas++;
+                            }
+                            catch { }
+                        }
                     }
 
+                    // ── Redes de presión (agua/gas): mismo formato de etiqueta, pero neutro
+                    //    (sin "INICIO/DESCARGA" — el sentido en presión no lo define la
+                    //    gravedad) y sin flecha de flujo ni buzones. ──
+                    foreach (ObjectId nid in presNets)
+                    {
+                        CivilDB.PressurePipeNetwork net = tr.GetObject(nid, OpenMode.ForRead) as CivilDB.PressurePipeNetwork;
+                        if (net == null) continue;
+                        nRedes++;
+
+                        foreach (ObjectId pid in net.GetPipeIds())
+                        {
+                            try
+                            {
+                                CivilDB.PressurePipe p = tr.GetObject(pid, OpenMode.ForRead) as CivilDB.PressurePipe;
+                                if (p == null) continue;
+                                nTubos++;
+
+                                double r = 0.0; try { r = (p.NominalDiameter / 12.0) / 2.0; } catch { }
+                                double sInv = p.StartPoint.Z - r;
+                                double eInv = p.EndPoint.Z - r;
+
+                                string nombrePipe; try { nombrePipe = p.Name; } catch { nombrePipe = "?"; }
+                                CivilDB.Alignment alignPipe = null;
+                                try
+                                {
+                                    ObjectId alignId = p.ReferenceAlignmentId;
+                                    if (!alignId.IsNull && alignId.IsValid)
+                                        alignPipe = tr.GetObject(alignId, OpenMode.ForRead) as CivilDB.Alignment;
+                                }
+                                catch { }
+
+                                var lineasStart = new List<string> { "TUBERIA " + nombrePipe };
+                                string progStart = EstacionTexto(alignPipe, p.StartPoint);
+                                if (progStart != null) lineasStart.Add("PROG: " + progStart);
+                                lineasStart.Add("COTA: " + sInv.ToString("F2"));
+
+                                var lineasEnd = new List<string> { "TUBERIA " + nombrePipe };
+                                string progEnd = EstacionTexto(alignPipe, p.EndPoint);
+                                if (progEnd != null) lineasEnd.Add("PROG: " + progEnd);
+                                lineasEnd.Add("COTA: " + eInv.ToString("F2"));
+
+                                etiquetasTuberia.Add((p.StartPoint, lineasStart, ObjectId.Null));
+                                etiquetasTuberia.Add((p.EndPoint, lineasEnd, ObjectId.Null));
+                                nEtiquetas += 2;
+                            }
+                            catch { }
+                        }
+                    }
+
+                    // Se dibujan al final, agrupadas por la ESTRUCTURA a la que conecta cada
+                    // extremo: si dos o más tuberías comparten un mismo buzón (el caso más
+                    // común — cada nodo intermedio de una red es la descarga de una tubería Y
+                    // el inicio de la siguiente), sus etiquetas se escalonan en la misma
+                    // dirección fija en vez de quedar exactamente montadas una sobre otra.
+                    DibujarEtiquetasTuberiaAgrupadas(ms, tr, etiquetasTuberia, txtH, off);
+
                     tr.Commit();
-                    ed.WriteMessage($"\n✓ Redes procesadas: {nRedes}  ·  Tuberías: {nTubos}  ·  MLeaders creados: {nCreados}");
-                    ed.WriteMessage($"\n  Layer: COTAS_TUBERIAS (verde).");
-                    ed.WriteMessage($"\n  Texto = Elevación de rasante (inicial en cada nodo; final en la última punta).");
+                    ed.WriteMessage($"\n✓ Redes: {nRedes}  ·  Tuberías: {nTubos}  ·  Buzones: {nBuzones}  ·  " +
+                                     $"Etiquetas: {nEtiquetas}  ·  Flechas de flujo: {nFlechas}");
+                    ed.WriteMessage($"\n  Capas: {CapaTuberias} (verde) · {CapaBuzones} (cian) · {CapaPendientes} (amarillo).");
                 }
                 catch (Exception ex)
                 {
@@ -226,28 +273,329 @@ namespace Civil3DBasico
             }
         }
 
-        static string Key(Point3d p)
+        // Rasante en un extremo de tubería, priorizando el valor LÓGICO que
+        // Civil 3D reporta en Properties del pipe ("Elevación de rasante"), no un
+        // cálculo geométrico:
+        //   1) Si hay estructura conectada → rim − structure.get_PipeInvertDepth(pipeId)
+        //   2) Si falla → SumpElevation del buzón como aproximación razonable.
+        //   3) Sin structure conectada → cálculo geométrico eje − radio_interior.
+        internal static double InvertEnNodo(ObjectId structId, Point3d centerline, CivilDB.Pipe p, Transaction tr)
         {
-            return $"{Math.Round(p.X, 3):F3}|{Math.Round(p.Y, 3):F3}";
+            // Detección de CONDUIT (eléctrico/telecom): en IMPORTAR_RED las tuberías
+            // conduit se conectan a "Null Structure" (invisible) o quedan sueltas, y
+            // sus StartPoint.Z/EndPoint.Z se dejan en la rasante que puso el usuario
+            // (sin +radio, porque Civil 3D no aplica la lógica de invert=eje−r para
+            // conduit). Al leer la rasante hay que respetar esa misma convención.
+            //
+            // Fuentes redundantes para detectar conduit:
+            //   1) Layer del pipe contiene ELECTRIC / TELECOM.
+            //   2) La estructura conectada es "Null Structure" / "Estructura nula".
+            //   3) No hay estructura conectada.
+            bool esConduit = false;
+            try
+            {
+                string layer = (p.Layer ?? "").ToUpperInvariant();
+                if (layer.Contains("ELECTRIC") || layer.Contains("TELECOM")) esConduit = true;
+            }
+            catch { }
+            if (!esConduit && !structId.IsNull && structId.IsValid)
+            {
+                try
+                {
+                    var stChk = tr.GetObject(structId, OpenMode.ForRead) as CivilDB.Structure;
+                    string dChk = stChk?.PartDescription ?? "";
+                    if (dChk.IndexOf("Null", StringComparison.OrdinalIgnoreCase) >= 0 ||
+                        dChk.IndexOf("nula", StringComparison.OrdinalIgnoreCase) >= 0)
+                        esConduit = true;
+                }
+                catch { }
+            }
+            if (esConduit) return centerline.Z;
+
+            if (!structId.IsNull && structId.IsValid)
+            {
+                try
+                {
+                    var st = tr.GetObject(structId, OpenMode.ForRead) as CivilDB.Structure;
+                    if (st != null)
+                    {
+                        try
+                        {
+                            int idx = -1;
+                            for (int i = 0; i < st.ConnectedPipesCount; i++)
+                                if (st.get_ConnectedPipe(i) == p.ObjectId) { idx = i; break; }
+                            if (idx >= 0)
+                            {
+                                double depth = st.get_PipeInvertDepth(idx);
+                                return st.RimElevation - depth;
+                            }
+                        }
+                        catch { }
+                        return st.SumpElevation;                    // fallback razonable
+                    }
+                }
+                catch { }
+            }
+
+            // Dead-end de gravedad (sin structure): rasante = eje − radio interior.
+            double r = 0.0;
+            try { r = p.InnerDiameterOrWidth / 2.0; } catch { }
+            return centerline.Z - r;
         }
 
-        static void AddOrUpdate(Dictionary<string, NodoInfo> d, Point3d pt, double rasante, bool esInicio)
+        // p.StartPoint/EndPoint quedan en el CENTRO de la estructura conectada (así conecta
+        // la topología de red en Civil3D), pero visualmente la tubería "termina" en el borde
+        // de esa estructura. Se calcula dónde el rayo tubería→otro extremo SALE del
+        // rectángulo real (GeometricExtents) — no se asume una forma circular.
+        internal static Point3d PuntoVisualExtremo(ObjectId structId, Point3d propio, Point3d otro, Transaction tr)
         {
-            string k = Key(pt);
-            if (!d.TryGetValue(k, out var existing))
+            if (structId.IsNull || !structId.IsValid) return propio;
+            try
             {
-                d[k] = new NodoInfo { Pt = pt, Rasante = rasante, EsInicio = esInicio };
-                return;
+                var st = tr.GetObject(structId, OpenMode.ForRead) as CivilDB.Structure;
+                if (st == null) return propio;
+
+                Extents3d ext = st.GeometricExtents;
+                Vector3d dirRaw = otro - propio;
+                if (dirRaw.Length < 1e-6) return propio;
+                Vector3d dir = dirRaw.GetNormal();
+
+                double dist = DistanciaHastaBordeRectangulo(propio, dir, ext.MinPoint, ext.MaxPoint);
+                if (double.IsNaN(dist) || dist <= 0.0) return propio;
+                return propio + dir * dist;
             }
-            // Si el existente ya es inicio, no lo sobreescribimos con un end.
-            if (existing.EsInicio) return;
-            // Si el existente era end y ahora llega como inicio, promovemos.
-            if (esInicio)
+            catch { return propio; }
+        }
+
+        // Distancia desde "origen" (dentro del rectángulo) hasta donde el rayo UNITARIO
+        // "dir" sale del rectángulo [min,max]. Método de las franjas (slab method) en 2D,
+        // ignora Z — el buzón se dibuja en planta.
+        static double DistanciaHastaBordeRectangulo(Point3d origen, Vector3d dir, Point3d min, Point3d max)
+        {
+            double tx = dir.X > 1e-9 ? (max.X - origen.X) / dir.X
+                      : dir.X < -1e-9 ? (min.X - origen.X) / dir.X
+                      : double.PositiveInfinity;
+            double ty = dir.Y > 1e-9 ? (max.Y - origen.Y) / dir.Y
+                      : dir.Y < -1e-9 ? (min.Y - origen.Y) / dir.Y
+                      : double.PositiveInfinity;
+            double dist = Math.Min(tx, ty);
+            if (double.IsInfinity(dist) || dist <= 0.0) return double.NaN;
+            return dist;
+        }
+
+        // "0+81.45", misma convención que usa Civil3D nativamente para estaciones.
+        // Devuelve null si no hay eje o el punto no se puede proyectar (no se inventa).
+        static string EstacionTexto(CivilDB.Alignment align, Point3d pt)
+        {
+            if (align == null) return null;
+            try
             {
-                existing.Rasante = rasante;
-                existing.EsInicio = true;
+                double sta = 0.0, off = 0.0;
+                align.StationOffset(pt.X, pt.Y, ref sta, ref off);
+                int whole = (int)Math.Floor(sta / 100.0);
+                double rem = sta - whole * 100.0;
+                return $"{whole}+{rem:00.00}";
             }
-            // Si ambos son end (raro), dejamos el primero — es un end terminal.
+            catch { return null; }
+        }
+
+        // Dirección FIJA de las etiquetas de tubería: siempre hacia la derecha, con un
+        // leve descenso (para que el "landing" de la MLeader quede un poco hacia abajo
+        // antes de virar horizontal hacia el texto) — nunca varía según el ángulo de la
+        // tubería, así todas las etiquetas de tubería quedan del mismo lado, siempre.
+        static readonly Vector3d DirEtiquetaTuberia = new Vector3d(1.0, -0.35, 0.0).GetNormal();
+
+        // MLeader con texto multilínea (una línea por elemento de "lineas"). La flecha
+        // va en "punto" y la cola, SIEMPRE hacia la derecha (DirEtiquetaTuberia) — así
+        // todas las etiquetas de tubería quedan consistentemente del mismo lado.
+        static void DibujarEtiqueta(BlockTableRecord ms, Transaction tr, string capa, Point3d punto,
+            List<string> lineas, double txtH, double off)
+        {
+            Point3d flecha = new Point3d(punto.X, punto.Y, 0.0);
+            Point3d cola = new Point3d(flecha.X + DirEtiquetaTuberia.X * off, flecha.Y + DirEtiquetaTuberia.Y * off, 0.0);
+
+            MLeader ml = new MLeader();
+            ml.SetDatabaseDefaults();
+            ml.Layer = capa;
+            ml.ContentType = ContentType.MTextContent;
+            try { ml.TextHeight = txtH; } catch { }
+            try { ml.ArrowSize = txtH * 0.6; } catch { }
+            try { ml.DoglegLength = txtH * 1.5; } catch { }
+            try { ml.LandingGap = txtH * 0.4; } catch { }
+            try { ml.EnableLanding = true; } catch { }
+
+            MText mt = new MText();
+            mt.SetDatabaseDefaults();
+            mt.Contents = string.Join("\\P", lineas);
+            mt.TextHeight = txtH;
+            mt.Location = cola;
+            // MiddleLeft → el texto crece hacia la DERECHA de la cola.
+            mt.Attachment = AttachmentPoint.MiddleLeft;
+            ml.MText = mt;
+
+            ml.AddLeaderLine(flecha);
+            ms.AppendEntity(ml);
+            tr.AddNewlyCreatedDBObject(ml, true);
+        }
+
+        // Dibuja TODAS las etiquetas de tubería acumuladas, agrupadas por la estructura a
+        // la que conecta cada extremo (no por proximidad de punto: dos extremos del mismo
+        // buzón pueden caer en bordes distintos del rectángulo, pero siguen siendo el
+        // mismo nodo). Dentro de un grupo con más de una etiqueta, cada una se dibuja más
+        // lejos que la anterior (misma dirección fija hacia la derecha) para no montarse.
+        // Los extremos sueltos (sin estructura, ObjectId.Null) nunca se agrupan entre sí.
+        static void DibujarEtiquetasTuberiaAgrupadas(BlockTableRecord ms, Transaction tr,
+            List<(Point3d punto, List<string> lineas, ObjectId structId)> etiquetas, double txtH, double offBase)
+        {
+            var grupos = new Dictionary<string, List<int>>();
+            for (int i = 0; i < etiquetas.Count; i++)
+            {
+                ObjectId sid = etiquetas[i].structId;
+                string key = (!sid.IsNull && sid.IsValid) ? "S" + sid.Handle : "P" + i;
+                if (!grupos.TryGetValue(key, out var lista)) { lista = new List<int>(); grupos[key] = lista; }
+                lista.Add(i);
+            }
+
+            foreach (var lista in grupos.Values)
+            {
+                double offActual = offBase;
+                foreach (int i in lista)
+                {
+                    var e = etiquetas[i];
+                    DibujarEtiqueta(ms, tr, CapaTuberias, e.punto, e.lineas, txtH, offActual);
+                    offActual += txtH * 5.5;   // suficiente para no pisar el bloque de texto anterior
+                }
+            }
+        }
+
+        // Etiqueta de buzón: leader de DOS tramos — uno EMPINADO (≥70° respecto a la
+        // horizontal) que sale del buzón, y uno horizontal hacia la izquierda que llega
+        // al texto (que también queda a la izquierda). Un solo tramo recto casi horizontal
+        // se veía "raro" (ángulo demasiado chico) — con el tramo empinado se ve como un
+        // leader normal de dibujo técnico.
+        static void DibujarEtiquetaBuzon(BlockTableRecord ms, Transaction tr, string capa, Point3d punto,
+            List<string> lineas, double txtH, double off)
+        {
+            Point3d flecha = new Point3d(punto.X, punto.Y, 0.0);
+
+            Vector3d dirEmpinada = new Vector3d(-0.26, -0.966, 0.0).GetNormal();   // ≈75° desde la horizontal
+            Vector3d dirHorizontal = new Vector3d(-1.0, 0.0, 0.0);
+
+            double distEmpinada = off * 0.45;
+            double distHorizontal = off * 0.55;
+
+            Point3d bend = flecha + dirEmpinada * distEmpinada;
+            Point3d cola = bend + dirHorizontal * distHorizontal;
+
+            MLeader ml = new MLeader();
+            ml.SetDatabaseDefaults();
+            ml.Layer = capa;
+            ml.ContentType = ContentType.MTextContent;
+            try { ml.TextHeight = txtH; } catch { }
+            try { ml.ArrowSize = txtH * 0.6; } catch { }
+            try { ml.DoglegLength = txtH * 1.5; } catch { }
+            try { ml.LandingGap = txtH * 0.4; } catch { }
+            try { ml.EnableLanding = true; } catch { }
+
+            MText mt = new MText();
+            mt.SetDatabaseDefaults();
+            mt.Contents = string.Join("\\P", lineas);
+            mt.TextHeight = txtH;
+            mt.Location = cola;
+            // MiddleRight → el texto crece hacia la IZQUIERDA de la cola.
+            mt.Attachment = AttachmentPoint.MiddleRight;
+            ml.MText = mt;
+
+            int idx = ml.AddLeaderLine(flecha);
+            ml.AddLastVertex(idx, bend);
+
+            ms.AppendEntity(ml);
+            tr.AddNewlyCreatedDBObject(ml, true);
+        }
+
+        // Separación mínima entre la flecha/pendiente y el borde exterior real de la
+        // tubería, para que nunca queden superpuestas sobre tuberías gruesas.
+        private const double SeparacionBordeTuberia = 0.5;   // pies
+
+        // Flecha corta paralela a la tubería (desplazada un pequeño espacio a un
+        // costado), apuntando hacia el extremo de MENOR cota (sentido real de flujo
+        // por gravedad), con la pendiente "S=x.xx%" junto a ella, en el mismo ángulo.
+        // "escala"/"txtH" son la escala GLOBAL única del comando (tamaño uniforme);
+        // "diametroReal" es el diámetro de ESTA tubería en particular, usado solo para
+        // calcular la separación mínima al borde exterior (0.5 ft) — así una tubería
+        // gruesa no queda con la flecha/texto encima.
+        static void DibujarFlechaFlujo(BlockTableRecord ms, Transaction tr,
+            Point3d p1, Point3d p2, double invP1, double invP2, double escala, double txtH, double diametroReal)
+        {
+            Vector3d dirPipe = new Vector3d(p2.X - p1.X, p2.Y - p1.Y, 0.0);
+            if (dirPipe.Length < 1e-6) return;
+            dirPipe = dirPipe.GetNormal();
+            Vector3d perp = new Vector3d(-dirPipe.Y, dirPipe.X, 0.0);
+
+            double largoFlecha = escala * 2.0;
+            double gap = diametroReal / 2.0 + SeparacionBordeTuberia;
+
+            Point3d mid = new Point3d((p1.X + p2.X) / 2.0, (p1.Y + p2.Y) / 2.0, 0.0);
+            // Apunta hacia el extremo con MENOR cota — si p1 es más bajo, el flujo va
+            // en sentido contrario a dirPipe (que va de p1 a p2).
+            Vector3d dirFlujo = invP1 <= invP2 ? -dirPipe : dirPipe;
+
+            Point3d centro = mid + perp * gap;
+            Point3d cola = centro - dirFlujo * (largoFlecha / 2.0);
+            Point3d cabeza = centro + dirFlujo * (largoFlecha / 2.0);
+
+            DrawLineaSimple(ms, tr, cola, cabeza);
+
+            double alaLen = largoFlecha * 0.4;
+            double angRad = 25.0 * Math.PI / 180.0;
+            Vector3d back = -dirFlujo;
+            Vector3d alaA = back.RotateBy(angRad, Vector3d.ZAxis);
+            Vector3d alaB = back.RotateBy(-angRad, Vector3d.ZAxis);
+            DrawLineaSimple(ms, tr, cabeza, cabeza + alaA * alaLen);
+            DrawLineaSimple(ms, tr, cabeza, cabeza + alaB * alaLen);
+
+            double longitudPipe = p1.DistanceTo(p2);
+            double pendiente = longitudPipe > 1e-6 ? Math.Abs(invP1 - invP2) / longitudPipe * 100.0 : 0.0;
+
+            double rot = Math.Atan2(dirPipe.Y, dirPipe.X);
+            if (rot > Math.PI / 2.0 + 1e-6 || rot < -Math.PI / 2.0 - 1e-6) rot += Math.PI;   // nunca "boca abajo"
+
+            Point3d posTexto = mid + perp * (gap + escala * 1.0);
+            var mt = new MText();
+            mt.SetDatabaseDefaults();
+            mt.Layer = CapaPendientes;
+            mt.Contents = $"S={pendiente:F2}%";
+            mt.TextHeight = txtH;
+            mt.Location = posTexto;
+            mt.Attachment = AttachmentPoint.MiddleCenter;
+            try { mt.Rotation = rot; } catch { }
+            ms.AppendEntity(mt); tr.AddNewlyCreatedDBObject(mt, true);
+        }
+
+        static void DrawLineaSimple(BlockTableRecord ms, Transaction tr, Point3d p1, Point3d p2)
+        {
+            var ln = new Line(p1, p2) { Layer = CapaPendientes };
+            ms.AppendEntity(ln); tr.AddNewlyCreatedDBObject(ln, true);
+        }
+
+        static void AsegurarCapas(Database db, Transaction tr)
+        {
+            AsegurarCapa(db, tr, CapaTuberias, 3);      // verde
+            AsegurarCapa(db, tr, CapaBuzones, 4);       // cian
+            AsegurarCapa(db, tr, CapaPendientes, 2);    // amarillo
+        }
+
+        static void AsegurarCapa(Database db, Transaction tr, string nombre, short aci)
+        {
+            LayerTable lt = tr.GetObject(db.LayerTableId, OpenMode.ForRead) as LayerTable;
+            if (lt.Has(nombre)) return;
+            lt.UpgradeOpen();
+            var ltr = new LayerTableRecord
+            {
+                Name = nombre,
+                Color = Autodesk.AutoCAD.Colors.Color.FromColorIndex(Autodesk.AutoCAD.Colors.ColorMethod.ByAci, aci)
+            };
+            lt.Add(ltr); tr.AddNewlyCreatedDBObject(ltr, true);
         }
     }
 }

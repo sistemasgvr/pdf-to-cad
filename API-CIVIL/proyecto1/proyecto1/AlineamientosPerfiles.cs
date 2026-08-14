@@ -45,9 +45,13 @@ namespace Civil3DBasico
         }
 
         // =====================================================================
-        // CREAR_PERFIL_RED — vista de perfil del EJE de una red de gravedad
-        //   (+ perfil de terreno opcional). Requiere que la red tenga un
-        //   ReferenceAlignmentId asociado (lo hace IMPORTAR_RED automáticamente).
+        // CREAR_PERFIL_RED — perfil longitudinal profesional de una red de
+        //   gravedad, dibujado 100% con entidades propias (no ProfileView
+        //   nativo) para que el punto de inserción sea exactamente donde el
+        //   usuario hace clic. Flujo: clic en una tubería/estructura de la red
+        //   → clic en el punto de inserción → se dibuja. Sin más preguntas:
+        //   el terreno se muestrea automáticamente si la red tiene superficie
+        //   de referencia (net.ReferenceSurfaceId, la asigna IMPORTAR_RED).
         // =====================================================================
         [CommandMethod("CREAR_PERFIL_RED")]
         public void CrearPerfilRed()
@@ -61,65 +65,81 @@ namespace Civil3DBasico
             {
                 try
                 {
-                    ObjectIdCollection nets = civilDoc.GetPipeNetworkIds();
-                    if (nets.Count == 0) { ed.WriteMessage("\nNo hay redes de tubería."); tr.Abort(); return; }
+                    // Selección de la red por CLIC en el dibujo (no por número escrito):
+                    // así no importa el nombre/orden de la red, ni si hay una o varias.
+                    PromptEntityOptions peoNet = new PromptEntityOptions(
+                        "\nSeleccione una tubería o estructura de la red (clic en el dibujo):");
+                    peoNet.SetRejectMessage("\nDebe seleccionar una tubería o estructura de una red de gravedad.");
+                    peoNet.AddAllowedClass(typeof(CivilDB.Pipe), true);
+                    peoNet.AddAllowedClass(typeof(CivilDB.Structure), true);
+                    PromptEntityResult perNet = ed.GetEntity(peoNet);
+                    if (perNet.Status != PromptStatus.OK) { tr.Abort(); return; }
 
-                    ObjectId netId = nets[0];
-                    if (nets.Count > 1)
+                    // Cada lectura va en su propio try/catch: en redes con estructuras "raras"
+                    // (p.ej. conduit/eléctricas) alguna propiedad puede tronar "Retrieve
+                    // attribute failed" — no debe tumbar el comando completo por eso.
+                    DBObject objSel = tr.GetObject(perNet.ObjectId, OpenMode.ForRead);
+                    ObjectId netId = ObjectId.Null;
+                    try
                     {
-                        var nombres = new List<string>();
-                        for (int i = 0; i < nets.Count; i++)
-                        {
-                            var n = tr.GetObject(nets[i], OpenMode.ForRead) as CivilDB.Network;
-                            nombres.Add(n != null ? n.Name : $"(red {i + 1})");
-                        }
-                        ed.WriteMessage("\nRedes de tubería disponibles:");
-                        for (int i = 0; i < nombres.Count; i++) ed.WriteMessage($"\n  {i + 1}. {nombres[i]}");
-                        PromptIntegerOptions pio = new PromptIntegerOptions("\n¿Qué red? Número:")
-                        { LowerLimit = 1, UpperLimit = nets.Count, DefaultValue = 1, UseDefaultValue = true };
-                        PromptIntegerResult pir = ed.GetInteger(pio);
-                        if (pir.Status != PromptStatus.OK) { tr.Abort(); return; }
-                        netId = nets[pir.Value - 1];
+                        if (objSel is CivilDB.Pipe pipeSel) netId = pipeSel.NetworkId;
+                        else if (objSel is CivilDB.Structure stSel) netId = stSel.NetworkId;
                     }
+                    catch (Exception exNet) { ed.WriteMessage($"\nNo se pudo leer la red de esa entidad: {exNet.Message}"); tr.Abort(); return; }
+                    if (netId.IsNull || !netId.IsValid) { ed.WriteMessage("\nEntidad no reconocida o sin red asociada."); tr.Abort(); return; }
 
-                    CivilDB.Network net = (CivilDB.Network)tr.GetObject(netId, OpenMode.ForRead);
-                    ObjectId alignId = net.ReferenceAlignmentId;
+                    CivilDB.Network net = tr.GetObject(netId, OpenMode.ForRead) as CivilDB.Network;
+                    if (net == null) { ed.WriteMessage("\nNo se pudo obtener la red de esa entidad."); tr.Abort(); return; }
+
+                    ObjectId alignId;
+                    try { alignId = net.ReferenceAlignmentId; }
+                    catch (Exception exAlign) { ed.WriteMessage($"\nNo se pudo leer el eje de la red: {exAlign.Message}"); tr.Abort(); return; }
                     if (!alignId.IsValid || alignId.IsNull)
                     {
                         ed.WriteMessage("\nEsta red no tiene EJE asociado. Reimporta con IMPORTAR_RED (se crea el eje automáticamente).");
                         tr.Abort(); return;
                     }
+                    CivilDB.Alignment align = tr.GetObject(alignId, OpenMode.ForRead) as CivilDB.Alignment;
 
-                    ObjectId pStyle = civilDoc.Styles.ProfileStyles[0];
-                    ObjectId pLabel = civilDoc.Styles.LabelSetStyles.ProfileLabelSetStyles[0];
+                    string nombreRed; try { nombreRed = net.Name; } catch { nombreRed = "Red"; }
 
-                    // Perfil de terreno opcional
-                    PromptKeywordOptions pkT = new PromptKeywordOptions("\n¿Dibujar el perfil del TERRENO desde una superficie? [Si/No] <No>:", "Si No");
-                    pkT.AllowNone = true;
-                    PromptResult rT = ed.GetKeywords(pkT);
-                    if (rT.Status == PromptStatus.OK && rT.StringResult == "Si")
+                    // Topología de la red a lo largo de su eje (buzones ordenados por estación)
+                    var (nodos, tramos) = PerfilLongitudinalDatos.Ordenar(net, align, tr);
+                    if (nodos.Count < 2)
                     {
-                        PromptEntityOptions peoS = new PromptEntityOptions("\nSeleccione la Superficie (TIN):");
-                        peoS.SetRejectMessage("\nDebe ser una superficie TIN.");
-                        peoS.AddAllowedClass(typeof(CivilDB.TinSurface), true);
-                        PromptEntityResult perS = ed.GetEntity(peoS);
-                        if (perS.Status == PromptStatus.OK)
-                        {
-                            try { CivilDB.Profile.CreateFromSurface("Terreno-Gravedad", alignId, perS.ObjectId, db.Clayer, pStyle, pLabel); }
-                            catch (Exception ex) { ed.WriteMessage($"\n(No se pudo crear el perfil de terreno: {ex.Message})"); }
-                        }
+                        ed.WriteMessage("\nLa red tiene menos de 2 buzones proyectables sobre el eje: no se puede generar el perfil.");
+                        tr.Abort(); return;
                     }
 
-                    PromptPointResult pIns = ed.GetPoint("\nPunto de inserción de la vista de perfil:");
-                    if (pIns.Status != PromptStatus.OK) { tr.Abort(); return; }
-                    ObjectId pvId = CivilDB.ProfileView.Create(alignId, pIns.Value);
+                    // La rasante inicial/final que el usuario fija es la de la TUBERÍA (no
+                    // la del buzón): el primer/último buzón toman el invert exacto del
+                    // primer/último tramo de tubería (misma fuente que Properties → Elevación
+                    // de rasante), no el SumpElevation genérico del buzón.
+                    if (tramos.Count > 0)
+                    {
+                        nodos[0].Invert = tramos[0].InvIni;
+                        nodos[nodos.Count - 1].Invert = tramos[tramos.Count - 1].InvFin;
+                    }
 
-                    CivilDB.ProfileView pvW = tr.GetObject(pvId, OpenMode.ForWrite) as CivilDB.ProfileView;
-                    bool rango = PerfilUtil.AjustarRango(pvW, alignId, tr);
+                    // Terreno real: automático si la red tiene superficie de referencia.
+                    // Si no existe, queda vacío — nunca se inventa terreno.
+                    var terreno = PerfilLongitudinalDatos.MuestrearTerreno(net, align, nodos, tr);
+
+                    // Rasante de diseño como Profile nativo de Civil3D (dato de ingeniería
+                    // real y consultable en Prospector; el dibujo del perfil NO depende de
+                    // esto — es 100% propio, ver más abajo).
+                    PerfilUtil.CrearPerfilRasante(civilDoc, db, alignId, nodos, nombreRed, tr);
+
+                    PromptPointResult pIns = ed.GetPoint("\nPunto de inserción del perfil longitudinal:");
+                    if (pIns.Status != PromptStatus.OK) { tr.Abort(); return; }
+                    // ed.GetPoint devuelve el punto en el SCP activo; el dibujo se hace en WCS.
+                    Point3d insWcs = pIns.Value.TransformBy(ed.CurrentUserCoordinateSystem);
+
+                    PerfilLongitudinalDibujo.Generar(insWcs, net, nodos, tramos, terreno, db, tr);
 
                     tr.Commit();
-                    ed.WriteMessage("\n✓ Vista de perfil creada para el eje de la red de gravedad." +
-                                    (rango ? " Rango vertical ajustado (±5)." : ""));
+                    ed.WriteMessage($"\n✓ Perfil longitudinal generado para '{nombreRed}' ({nodos.Count} buzones" +
+                                     (terreno.Count > 0 ? ", con terreno" : ", sin superficie de referencia") + ").");
                 }
                 catch (Exception ex)
                 {

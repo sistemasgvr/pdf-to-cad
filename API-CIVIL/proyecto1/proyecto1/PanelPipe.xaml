@@ -85,6 +85,21 @@
                     </Border>
                 </StackPanel>
 
+                <!-- PREPARAR FAMILIAS PERSONALIZADAS PARA DIBUJAR -->
+                <Border Style="{StaticResource Tarjeta}">
+                    <StackPanel>
+                        <StackPanel Orientation="Horizontal" Margin="0,0,0,4">
+                            <Border Width="4" CornerRadius="2" Background="{StaticResource brAmbar}" Margin="0,1,9,1"/>
+                            <StackPanel>
+                                <TextBlock Text="FAMILIAS PERSONALIZADAS" Foreground="{StaticResource brTexto}" FontSize="12.5" FontWeight="Bold"/>
+                                <TextBlock Text="Regenera el catálogo y añade familias a la lista de piezas" Foreground="{StaticResource brTextoTenue}" FontSize="10.5"/>
+                            </StackPanel>
+                        </StackPanel>
+                        <Button x:Name="btnPrepararFamilias" Style="{StaticResource Boton}" Background="{StaticResource brAmbar}"
+                                Content="⚙️  Preparar familias para dibujar"/>
+                    </StackPanel>
+                </Border>
+
                 <!-- IMPORTAR RED -->
                 <Border Style="{StaticResource Tarjeta}">
                     <StackPanel>
@@ -117,33 +132,35 @@
                     </StackPanel>
                 </Border>
 
-                <!-- DIAGNÓSTICO DE FAMILIAS PERSONALIZADAS -->
-                <Border Style="{StaticResource Tarjeta}">
-                    <StackPanel>
-                        <StackPanel Orientation="Horizontal" Margin="0,0,0,4">
-                            <Border Width="4" CornerRadius="2" Background="{StaticResource brAmbar}" Margin="0,1,9,1"/>
-                            <StackPanel>
-                                <TextBlock Text="FAMILIAS PERSONALIZADAS" Foreground="{StaticResource brTexto}" FontSize="12.5" FontWeight="Bold"/>
-                                <TextBlock Text="Diagnóstico: qué falta para que se reconozcan y dibujen" Foreground="{StaticResource brTextoTenue}" FontSize="10.5"/>
-                            </StackPanel>
-                        </StackPanel>
-                        <Button x:Name="btnDiagFamilias" Style="{StaticResource Boton}" Background="{StaticResource brAmbar}"
-                                Content="🔍  Diagnosticar familias personalizadas"/>
-                    </StackPanel>
-                </Border>
-
-                <!-- COTAR TUBERÍAS: multileaders con Elevación de rasante en cada nodo -->
+                <!-- ANOTACIONES: cotas de rasante en cada nodo + cuadro resumen de buzones -->
                 <Border Style="{StaticResource Tarjeta}">
                     <StackPanel>
                         <StackPanel Orientation="Horizontal" Margin="0,0,0,4">
                             <Border Width="4" CornerRadius="2" Background="{StaticResource brAgua}" Margin="0,1,9,1"/>
                             <StackPanel>
-                                <TextBlock Text="COTAS EN TUBERÍAS" Foreground="{StaticResource brTexto}" FontSize="12.5" FontWeight="Bold"/>
-                                <TextBlock Text="Multileaders con Elevación de rasante en cada nodo/quiebre" Foreground="{StaticResource brTextoTenue}" FontSize="10.5"/>
+                                <TextBlock Text="ANOTACIONES" Foreground="{StaticResource brTexto}" FontSize="12.5" FontWeight="Bold"/>
+                                <TextBlock Text="Etiquetas de tubería/buzón, sentido de flujo y cuadro resumen" Foreground="{StaticResource brTextoTenue}" FontSize="10.5"/>
                             </StackPanel>
                         </StackPanel>
                         <Button x:Name="btnCotarTuberias" Style="{StaticResource Boton}" Background="{StaticResource brAgua}"
-                                Content="📏  Cotas de rasante en cada nodo"/>
+                                Content="🏷️  Agregar etiquetas"/>
+                        <Button x:Name="btnCuadroBuzones" Style="{StaticResource Boton}" Background="{StaticResource brAgua}"
+                                Content="🗒️  Generar cuadros resumen"/>
+                    </StackPanel>
+                </Border>
+
+                <!-- PERFIL LONGITUDINAL: vista de perfil con rasante, buzones y cotas -->
+                <Border Style="{StaticResource Tarjeta}">
+                    <StackPanel>
+                        <StackPanel Orientation="Horizontal" Margin="0,0,0,4">
+                            <Border Width="4" CornerRadius="2" Background="{StaticResource brVerde}" Margin="0,1,9,1"/>
+                            <StackPanel>
+                                <TextBlock Text="PERFIL LONGITUDINAL" Foreground="{StaticResource brTexto}" FontSize="12.5" FontWeight="Bold"/>
+                                <TextBlock Text="Rasante, buzones y cotas máx/mín de una red de gravedad" Foreground="{StaticResource brTextoTenue}" FontSize="10.5"/>
+                            </StackPanel>
+                        </StackPanel>
+                        <Button x:Name="btnPerfilLongitudinal" Style="{StaticResource Boton}" Background="{StaticResource brVerde}"
+                                Content="📈  Generar perfil longitudinal"/>
                     </StackPanel>
                 </Border>
 

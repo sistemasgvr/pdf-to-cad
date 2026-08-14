@@ -1,4 +1,7 @@
+using System;
+using System.Collections.Generic;
 using Autodesk.AutoCAD.DatabaseServices;
+using Autodesk.Civil.ApplicationServices;
 using CivilDB = Autodesk.Civil.DatabaseServices;
 
 namespace Civil3DBasico
@@ -22,10 +25,14 @@ namespace Civil3DBasico
             double min = double.MaxValue, max = double.MinValue;
             foreach (ObjectId id in al.GetProfileIds())
             {
-                CivilDB.Profile p = tr.GetObject(id, OpenMode.ForRead) as CivilDB.Profile;
-                if (p == null) continue;
-                if (p.ElevationMin < min) min = p.ElevationMin;
-                if (p.ElevationMax > max) max = p.ElevationMax;
+                try
+                {
+                    CivilDB.Profile p = tr.GetObject(id, OpenMode.ForRead) as CivilDB.Profile;
+                    if (p == null) continue;
+                    if (p.ElevationMin < min) min = p.ElevationMin;
+                    if (p.ElevationMax > max) max = p.ElevationMax;
+                }
+                catch { }   // un perfil en estado inválido (p.ej. PVIs degenerados) no debe tumbar el ajuste
             }
             if (min == double.MaxValue) return false;   // no hay perfiles con datos aún
 
@@ -34,6 +41,52 @@ namespace Civil3DBasico
             pv.ElevationMin = min - margen;
             pv.ElevationMax = max + margen;
 
+            LimpiarBandasYEstaciones(pv, al);
+            return true;
+        }
+
+        // Crea el perfil de RASANTE de diseño de la red (objeto Profile nativo de
+        // Civil3D, no una polilínea manual) con un PVI en cada buzón, en la
+        // estación y cota (SumpElevation = fondo de tubería) correspondientes.
+        // Devuelve ObjectId.Null si no se pudo crear (no bloquea el resto del flujo).
+        public static ObjectId CrearPerfilRasante(CivilDocument civilDoc, Database db, ObjectId alignId,
+            List<PerfilLongitudinalDatos.NodoBuzon> nodos, string nombreRed, Transaction tr)
+        {
+            try
+            {
+                if (nodos == null || nodos.Count < 2) return ObjectId.Null;
+                ObjectId pStyle = civilDoc.Styles.ProfileStyles[0];
+                ObjectId pLabel = civilDoc.Styles.LabelSetStyles.ProfileLabelSetStyles[0];
+                ObjectId profId = CivilDB.Profile.CreateByLayout(
+                    $"{nombreRed}-rasante", alignId, db.Clayer, pStyle, pLabel);
+                if (!profId.IsValid || profId.IsNull) return ObjectId.Null;
+
+                CivilDB.Profile prof = tr.GetObject(profId, OpenMode.ForWrite) as CivilDB.Profile;
+                if (prof == null) return ObjectId.Null;
+
+                // Dos buzones muy juntos (quiebre) pueden proyectar casi la misma estación
+                // sobre el eje. Un PVI con estación igual o menor al anterior deja el Profile
+                // en un estado inválido — luego CUALQUIER lectura (ElevationMin/Max, etc.)
+                // truena con "Retrieve attribute failed". Se salta el PVI cuando no avanza
+                // lo suficiente, y cada AddPVI va en su propio try/catch por si igual falla.
+                const double minSeparacion = 0.05;   // pies
+                double ultimaSta = double.NegativeInfinity;
+                int agregados = 0;
+                foreach (var n in nodos)
+                {
+                    if (n.Station - ultimaSta < minSeparacion) continue;
+                    try { prof.PVIs.AddPVI(n.Station, n.Invert); ultimaSta = n.Station; agregados++; }
+                    catch { }
+                }
+                if (agregados < 2) return ObjectId.Null;
+
+                return profId;
+            }
+            catch { return ObjectId.Null; }
+        }
+
+        private static void LimpiarBandasYEstaciones(CivilDB.ProfileView pv, CivilDB.Alignment al)
+        {
             // Quitar TODAS las bandas (Superelevation, Vertical/Horizontal Geometry...) → solo la elevación.
             // Es cosmético: si algo falla, no debe tumbar la creación del perfil.
             try
@@ -56,7 +109,6 @@ namespace Civil3DBasico
                 pv.StationEnd = al.EndingStation;
             }
             catch { }
-            return true;
         }
     }
 }

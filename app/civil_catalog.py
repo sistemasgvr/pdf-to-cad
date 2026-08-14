@@ -40,9 +40,15 @@ def set_current_lang(lang):
     global _current_lang
     _current_lang = lang
 
-# Subcarpetas dentro de "US Imperial Structures"
+# Subcarpetas conocidas dentro de "US Imperial Structures".
+# Se conservan como pista/backup pero YA NO son autoritativas: las funciones
+# de escaneo llaman a _list_subfolders() que enumera dinámicamente TODAS las
+# subcarpetas presentes en el catálogo — así cualquier carpeta custom que el
+# modelador nombre (Buzones, BuzonesElectricas, MisBuzones, etc.) se detecta
+# sin tocar código.
 STRUCTURE_SUBFOLDERS = (
     "BuzonesElectricas",
+    "Buzones",
     "Junction Structures with Frames",
     "Junction Structures without Frames",
     "Inlet-Outlets",
@@ -58,6 +64,27 @@ PIPE_SUBFOLDERS = (
     "Bancoductos",
     "Bancos Tubos",
 )
+
+
+def _list_subfolders(root):
+    """Enumera TODAS las subcarpetas de `root` que contienen al menos un .xml
+    (parece una familia). Se usa en vez de las tuplas hardcodeadas para que
+    cualquier carpeta custom del modelador se detecte automáticamente."""
+    if not root or not os.path.isdir(root): return []
+    out = []
+    try:
+        for name in sorted(os.listdir(root)):
+            d = os.path.join(root, name)
+            if not os.path.isdir(d): continue
+            try:
+                for fn in os.listdir(d):
+                    if fn.lower().endswith(".xml"):
+                        out.append(name); break
+            except OSError:
+                continue
+    except OSError:
+        pass
+    return out
 
 # Tablas relevantes dentro de cada .sqlite del catálogo de presión.
 PRESSURE_TABLES = (
@@ -174,7 +201,7 @@ def structure_family_xml(year, fid):
     """Ruta absoluta al .xml de la familia de gravedad (o None)."""
     root = catalog_root(year)
     if root is None: return None
-    for sub in STRUCTURE_SUBFOLDERS:
+    for sub in _list_subfolders(root):
         p = os.path.join(root, sub, fid + ".xml")
         if os.path.isfile(p): return p
     return None
@@ -347,7 +374,7 @@ def structure_sizes(year, fid):
     root = catalog_root(year)
     if root is None: return []
     xml_path = None
-    for sub in STRUCTURE_SUBFOLDERS:
+    for sub in _list_subfolders(root):
         p = os.path.join(root, sub, fid + ".xml")
         if os.path.isfile(p): xml_path = p; break
     if xml_path is None: return []
@@ -472,7 +499,7 @@ def imperial_pipes(year):
     root = pipes_root(year)
     if root is None: return []
     out = []
-    for sub in PIPE_SUBFOLDERS:
+    for sub in _list_subfolders(root):
         d = os.path.join(root, sub)
         if not os.path.isdir(d): continue
         for fn in sorted(os.listdir(d)):
@@ -493,7 +520,7 @@ def pipe_family_xml(year, fid):
     """Ruta absoluta al .xml de la familia de tubería (o None)."""
     root = pipes_root(year)
     if root is None: return None
-    for sub in PIPE_SUBFOLDERS:
+    for sub in _list_subfolders(root):
         p = os.path.join(root, sub, fid + ".xml")
         if os.path.isfile(p): return p
     return None
@@ -528,6 +555,31 @@ def pipe_sizes(year, fid):
             if s in seen: continue
             seen.add(s); out.append(s)
         return out
+
+    # PRIORIDAD 1: Design table row-based (formato de Bancos de Tubos / Bancoductos
+    # actuales). Cuando hay <Column context="PipeInnerWidth"> Y <Column context=
+    # "PipeInnerHeight"> con la misma cantidad de <Row>, cada fila r_i define UN
+    # tamaño (r0={W[0], H[0]}, r1={W[1], H[1]}, ...). Devolvemos "W x H in" por
+    # fila — coincide con lo que Civil 3D compila.
+    cols_col = {c.get("context", ""): c for c in root_el.findall("Column")}
+    if "PipeInnerWidth" in cols_col and "PipeInnerHeight" in cols_col:
+        cw, ch = cols_col["PipeInnerWidth"], cols_col["PipeInnerHeight"]
+        ws = [(r.text or "").strip() for r in cw.findall("Row") if (r.text or "").strip()]
+        hs = [(r.text or "").strip() for r in ch.findall("Row") if (r.text or "").strip()]
+        if ws and hs and len(ws) == len(hs):
+            u = (cw.get("unit") or ch.get("unit") or "").lower()
+            u = "in" if u in ("inch", "in", "\"") else ("ft" if u in ("foot", "feet", "ft", "'") else u)
+            def _n(v):
+                try: return f"{float(v):.4f}".rstrip("0").rstrip(".")
+                except ValueError: return v
+            out, seen = [], set()
+            for w, h in zip(ws, hs):
+                s = f"{_n(w)} x {_n(h)}" + (f" {u}" if u else "")
+                if s in seen: continue
+                seen.add(s); out.append(s)
+            if out: return out
+
+    # PRIORIDAD 2: familia circular u ovalada — una sola columna con Rows.
     for ctx in preferred_contexts:
         for col in root_el.findall("Column"):
             if col.get("context") == ctx:
@@ -584,7 +636,7 @@ def imperial_structures(year):
     root = catalog_root(year)
     if root is None: return []
     out = []
-    for sub in STRUCTURE_SUBFOLDERS:
+    for sub in _list_subfolders(root):
         d = os.path.join(root, sub)
         if not os.path.isdir(d): continue
         for fn in sorted(os.listdir(d)):
@@ -1228,13 +1280,13 @@ def _find_installed_xml(year, kind, name):
     if kind in ("pipe", "unknown"):
         r = pipes_root(year)
         if r:
-            for sub in PIPE_SUBFOLDERS:
+            for sub in _list_subfolders(r):
                 p = os.path.join(r, sub, name + ".xml")
                 if os.path.isfile(p): hits.append(p)
     if kind in ("structure", "unknown"):
         r = catalog_root(year)
         if r:
-            for sub in STRUCTURE_SUBFOLDERS:
+            for sub in _list_subfolders(r):
                 p = os.path.join(r, sub, name + ".xml")
                 if os.path.isfile(p): hits.append(p)
     return hits[0] if hits else None
@@ -1273,7 +1325,7 @@ def installed_custom_families(year):
     # Estructuras
     r = catalog_root(year)
     if r:
-        for sub in STRUCTURE_SUBFOLDERS:
+        for sub in _list_subfolders(r):
             d = os.path.join(r, sub)
             if not os.path.isdir(d): continue
             for fn in sorted(os.listdir(d)):
@@ -1295,7 +1347,7 @@ def installed_custom_families(year):
     # Tuberías
     r = pipes_root(year)
     if r:
-        for sub in PIPE_SUBFOLDERS:
+        for sub in _list_subfolders(r):
             d = os.path.join(r, sub)
             if not os.path.isdir(d): continue
             for fn in sorted(os.listdir(d)):
@@ -1544,3 +1596,428 @@ def install_catalog_package(source_folder, dest_folder=None):
     return {"ok": True, "error": "", "dest": dest_folder,
             "pipes_path": pipes_path, "structs_path": structs_path,
             "summary": summary}
+
+
+# ============================================================================
+# INSTALACIÓN DE UNA FAMILIA INDIVIDUAL EN EL CATÁLOGO STOCK DE C3D
+# ============================================================================
+# Adaptación del script `install_c3d_family.py` (validado por el usuario) al
+# flujo de esta app. Diferencia clave: aquí el año y el idioma vienen del combo
+# de la UI (civil_year + _current_lang), no hardcoded.
+#
+# El proceso es:
+#   1) Detecta si la familia es Pipe o Structure leyendo el XML.
+#   2) Detecta unidades desde el XML.
+#   3) Deduce la 'shape' desde el nombre del XML.
+#   4) Copia la carpeta de la familia al subcatálogo correcto.
+#   5) Hace backup del .apc con timestamp.
+#   6) Registra la familia en el .apc (idempotente: reemplaza si ya existe).
+#
+# Al terminar, el usuario debe correr PARTCATALOGREGEN o el comando
+# PREPARAR_FAMILIAS del plugin, que se encarga de eso automáticamente.
+
+import datetime
+import uuid
+
+_CATALOG_DIRS = {
+    ("pipe", "imperial"):      "US Imperial Pipes",
+    ("pipe", "metric"):        "Metric Pipes",
+    ("structure", "imperial"): "US Imperial Structures",
+    ("structure", "metric"):   "Metric Structures",
+}
+
+_SHAPE_MAP_PIPE = {
+    "Rectangular":       "SweptShape_Rectangular",
+    "Circular":          "SweptShape_Circular",
+    "EggShaped":         "SweptShape_EggShaped",
+    "Elliptical":        "SweptShape_Elliptical",
+    "HorizElliptical":   "SweptShape_HorizElliptical",
+    "Arched":            "SweptShape_Arched",
+}
+_SHAPE_MAP_STRUCT = {
+    "Rectangular":       "Structure_Rectangular",
+    "Cylinder":          "Structure_Cylinder",
+    "Circular":          "Structure_Cylinder",
+}
+
+
+def _find_family_xmls(folder):
+    """Devuelve TODOS los .xml de la carpeta que parecen archivos de familia
+    (excluye .bak, index files sueltos como AecbIDrop.xml, AeccSharedPropertyLists.xml).
+    Una carpeta puede contener varias familias (p.ej. Buzones con AGLP/BT/CBA/ICT/MT
+    juntos) — cada .xml se instala como familia independiente."""
+    if not folder or not os.path.isdir(folder): return []
+    out = []
+    skip_names = {"aecbidrop.xml", "aeccsharedpropertylists.xml"}
+    for p in sorted(os.listdir(folder)):
+        pl = p.lower()
+        if not pl.endswith(".xml"): continue
+        if pl.endswith(".bak.xml") or pl in skip_names: continue
+        full = os.path.join(folder, p)
+        # Debe tener un .dwg hermano con el mismo basename para ser familia real
+        base = os.path.splitext(p)[0]
+        if not os.path.isfile(os.path.join(folder, base + ".dwg")): continue
+        out.append(full)
+    return out
+
+
+def _detect_kind_and_units_from_xml(family_xml):
+    """A partir del XML de la familia, devuelve (kind, units).
+
+    Prioridades para KIND:
+      1. <ColumnConst context="Catalog_Domain">Pipe_Domain</ColumnConst> — la
+         forma explícita que Civil 3D usa siempre.
+      2. Cualquier tag Column* con context que empiece con Pipe / Struct.
+
+    Para UNITS: se agregan los atributos unit= de todos los tags Column* .
+    Cualquier valor puede ser None si no se pudo determinar."""
+    try:
+        tree = ET.parse(family_xml); root = tree.getroot()
+    except (ET.ParseError, OSError):
+        return None, None
+
+    kind = None
+    # 1) Catalog_Domain — la fuente autoritativa
+    for cc in root.iter("ColumnConst"):
+        if (cc.get("context") or "") == "Catalog_Domain":
+            val = (cc.text or "").strip().lower()
+            if val.startswith("pipe"): kind = "pipe"
+            elif val.startswith("struct"): kind = "structure"
+            break
+
+    # 2) fallback por contextos de columnas
+    contexts, units = set(), set()
+    for tag in ("Column", "ColumnConst", "ColumnConstList",
+                "ColumnRangeList", "ColumnCalc", "ColumnUnique"):
+        for el in root.iter(tag):
+            ctx = el.get("context", "") or ""
+            u   = (el.get("unit", "") or "").lower()
+            if ctx: contexts.add(ctx)
+            if u:   units.add(u)
+    if kind is None:
+        if any(c.startswith("Pipe") for c in contexts): kind = "pipe"
+        elif any(c.startswith("Struct") for c in contexts): kind = "structure"
+
+    imperial = {"inch", "foot", "ft", "in"}
+    metric   = {"millimeter", "mm", "meter", "m", "centimeter", "cm"}
+    unit = None
+    if units & imperial: unit = "imperial"
+    elif units & metric: unit = "metric"
+    return kind, unit
+
+
+def _infer_shape(family_xml, kind):
+    """Deduce el part_shape para el <AeccPartSearchAttribList> del .apc.
+
+    Prioridad:
+      1. Leer el <ColumnConst> autoritativo del propio XML:
+         - Pipe:      context="SweptShape"          → e.g. SweptShape_Rectangular
+         - Structure: context="StructBoundingShape" → BoundingShape_Box / _Cylinder
+           (se traduce a Structure_Rectangular / Structure_Cylinder que es lo
+           que el .apc espera).
+      2. Fallback: heurística por prefijo del nombre del archivo (útil para
+         familias muy antiguas que no traen el ColumnConst explícito)."""
+    # 1) Leer del XML — fuente autoritativa
+    try:
+        tree = ET.parse(family_xml); root = tree.getroot()
+        if kind == "pipe":
+            for cc in root.iter("ColumnConst"):
+                if (cc.get("context") or "") == "SweptShape":
+                    val = (cc.text or "").strip()
+                    if val: return val
+        elif kind == "structure":
+            for cc in root.iter("ColumnConst"):
+                ctx = cc.get("context") or ""
+                val = (cc.text or "").strip()
+                if not val: continue
+                if ctx == "StructBoundingShape":
+                    if val.lower().endswith("box"):      return "Structure_Rectangular"
+                    if val.lower().endswith("cylinder"): return "Structure_Cylinder"
+                # Algunos catálogos ponen directamente Structure_Rectangular /
+                # Structure_Cylinder en un ColumnConst de shape — solo lo aceptamos
+                # si el context es de forma (para no confundir con Catalog_Domain
+                # que tiene el valor 'Structure_Domain').
+                if val.startswith("Structure_") and "Shape" in ctx:
+                    return val
+    except (ET.ParseError, OSError):
+        pass
+
+    # 2) Fallback por nombre del archivo
+    stem = os.path.splitext(os.path.basename(family_xml))[0]
+    core = re.sub(r"^Aecc", "", stem)
+    core = re.sub(r"[_\s](Imperial|Metric)(?:[_\s].*)?$", "", core, flags=re.I)
+    table = _SHAPE_MAP_PIPE if kind == "pipe" else _SHAPE_MAP_STRUCT
+    for key, val in table.items():
+        if core.lower().startswith(key.lower()):
+            return val
+    return None
+
+
+def _build_part_block(family_name, family_folder_name, description,
+                       part_id, domain, part_type, part_shape):
+    """Construye SOLO el bloque <Part>...</Part> (sin envolverlo en <Chapter>).
+    Se anida bajo un <Chapter> compartido — así múltiples familias del mismo
+    subgrupo comparten un único <Chapter name="...">, que es el layout que
+    Civil 3D espera (ver el .apc stock, un Chapter con muchos Parts adentro)."""
+    return (
+        f'  <Part name="{family_name}" id="{part_id}">\n'
+        f'   <Desc>{description}</Desc>\n'
+        f'   <Images>\n'
+        f'    <Image>\n'
+        f'     <URL xlink:title="{description}" xlink:href="{family_folder_name}\\{family_name}.bmp" xlink:show="embed" xlink:actuate="onLoad"/>\n'
+        f'    </Image>\n'
+        f'   </Images>\n'
+        f'   <TableRef>\n'
+        f'    <URL xlink:href="{family_folder_name}\\{family_name}.xml"/>\n'
+        f'   </TableRef>\n'
+        f'   <Extrinsics>\n'
+        f'    <Extrinsic name="AeccPartSearchAttribList">\n'
+        f'     <AeccPartSearchAttribList domain="{domain}" part_type="{part_type}" part_subtype="Undefined" part_shape="{part_shape}" placeholder="False" hidepart="False"/>\n'
+        f'    </Extrinsic>\n'
+        f'   </Extrinsics>\n'
+        f'  </Part>\n'
+    )
+
+
+def _register_part_in_apc(apc_path, chapter_name, family_name, part_block):
+    """Inserta o reemplaza un <Part> dentro del <Chapter name="chapter_name"> del
+    .apc. Si el Chapter no existe, lo crea; si ya existe, agrega el <Part>
+    dentro (borrando primero si ya había un Part con el mismo family_name).
+    Devuelve 'inserted' | 'replaced'."""
+    with open(apc_path, "r", encoding="utf-8") as f:
+        text = f.read()
+    if "</pXML>" not in text:
+        raise ValueError(f"El archivo .apc '{apc_path}' no tiene </pXML> — no se puede registrar.")
+
+    action = "inserted"
+
+    # 1) Si ya hay un <Part name="{family_name}"> EN CUALQUIER LADO, lo borramos
+    #    para no dejar duplicados en otro Chapter con nombre distinto.
+    part_re = re.compile(
+        r'[ \t]*<Part\s+name="' + re.escape(family_name) + r'"[^>]*>.*?</Part>\s*',
+        re.DOTALL,
+    )
+    if part_re.search(text):
+        text = part_re.sub("", text)
+        action = "replaced"
+
+    # 2) Limpiar cualquier <Chapter> del mismo name que haya quedado VACÍO
+    #    (típicamente lo dejaron versiones previas de este instalador que creaban
+    #    un Chapter por Part).
+    def _drop_empty_chapter(m):
+        inner = m.group(1)
+        # ¿tiene algún <Part> adentro?
+        if re.search(r'<Part\b', inner, re.DOTALL): return m.group(0)
+        return ""
+    text = re.sub(
+        r'[ \t]*<Chapter\s+name="' + re.escape(chapter_name) + r'"[^>]*>(.*?)</Chapter>\s*',
+        _drop_empty_chapter, text, flags=re.DOTALL)
+
+    # 3) Buscar el Chapter destino. Si existe, insertar el <Part> justo antes
+    #    de </Chapter>. Si no existe, crear el Chapter con el Part dentro.
+    chapter_open_re = re.compile(
+        r'(<Chapter\s+name="' + re.escape(chapter_name) + r'"[^>]*>.*?)(</Chapter>)',
+        re.DOTALL)
+    m = chapter_open_re.search(text)
+    if m:
+        # Insertar el Part antes de </Chapter>
+        text = text[:m.start(2)] + part_block + " " + text[m.start(2):]
+    else:
+        # Crear un Chapter nuevo con el Part dentro (mismo formato que los stock).
+        new_chapter = (
+            f' <Chapter name="{chapter_name}">{chapter_name}\n'
+            f'  <Desc>{chapter_name}</Desc>\n'
+            f'{part_block}'
+            f' </Chapter>\n'
+        )
+        text = text.replace("</pXML>", new_chapter + "</pXML>", 1)
+
+    with open(apc_path, "w", encoding="utf-8") as f:
+        f.write(text)
+    return action
+
+
+def scan_family_folder_preview(source_folder):
+    """Escanea una carpeta y devuelve la lista de familias detectadas (cada
+    .xml con su .dwg hermano). Cada dict trae name/kind/units/shape/desc/
+    dwg_ok/bmp_ok — para el preview del diálogo antes de instalar."""
+    out = []
+    for xml_path in _find_family_xmls(source_folder):
+        fam = os.path.splitext(os.path.basename(xml_path))[0]
+        kind, units = _detect_kind_and_units_from_xml(xml_path)
+        shape = _infer_shape(xml_path, kind) if kind else None
+        desc = _extract_family_desc(xml_path)
+        dwg = os.path.join(source_folder, fam + ".dwg")
+        bmp = os.path.join(source_folder, fam + ".bmp")
+        out.append({
+            "name": fam, "kind": kind, "units": units, "shape": shape,
+            "description": desc, "xml_path": xml_path,
+            "dwg_ok": os.path.isfile(dwg), "bmp_ok": os.path.isfile(bmp),
+        })
+    return out
+
+
+def install_family_folder(source_folder, year, lang=None):
+    """Instala TODAS las familias .xml encontradas en `source_folder` como
+    familias independientes del catálogo Civil 3D del año+idioma dados.
+
+    Adaptación multi-familia del script `install_c3d_family.py`:
+      · La carpeta se copia una sola vez al subcatálogo destino.
+      · Cada .xml se registra como su propio <Chapter>/<Part> en el .apc.
+      · Backup del .apc una sola vez, con timestamp.
+      · Todas las familias del batch deben ser del mismo (kind, units); si hay
+        mezcla se instala cada grupo en su subcarpeta correspondiente y se
+        detalla en el resumen.
+
+    Devuelve dict:
+      ok            — bool (True si al menos una familia se instaló)
+      error         — string si !ok
+      families      — lista de dicts por familia con
+                       {name, ok, kind, units, shape, description,
+                        catalog_dir, dest_folder, apc_path, apc_action, error}
+      apc_backups   — lista de .apc backups creados
+      summary       — texto para mostrar al usuario
+    """
+    fail = lambda err: {"ok": False, "error": err, "families": [],
+                         "apc_backups": [], "summary": ""}
+
+    if not source_folder or not os.path.isdir(source_folder):
+        return fail(f"La carpeta origen no existe: {source_folder}")
+    if not year:
+        return fail("No hay versión de Civil 3D seleccionada en la UI.")
+
+    lang_root = _lang_root(year, lang)
+    if lang_root is None:
+        return fail(f"No encontré la carpeta del idioma '{lang or _current_lang or 'default'}' "
+                    f"para Civil 3D {year}.")
+    pipes_catalog_root = os.path.join(lang_root, "Pipes Catalog")
+    if not os.path.isdir(pipes_catalog_root):
+        return fail(f"No existe '{pipes_catalog_root}'. ¿Está instalado Civil 3D {year}?")
+
+    xmls = _find_family_xmls(source_folder)
+    if not xmls:
+        return fail(f"No encontré ningún .xml de familia (con .dwg hermano) en '{source_folder}'.")
+
+    folder_name = os.path.basename(os.path.abspath(source_folder))
+
+    # 1) Pre-analizar cada .xml para saber kind/units/shape y agrupar por destino.
+    familias = []
+    for xml_path in xmls:
+        fam_name = os.path.splitext(os.path.basename(xml_path))[0]
+        kind, units = _detect_kind_and_units_from_xml(xml_path)
+        shape = _infer_shape(xml_path, kind) if kind else None
+        desc = _extract_family_desc(xml_path) or f"{fam_name}"
+        entry = {
+            "name": fam_name, "xml_path": xml_path,
+            "kind": kind, "units": units, "shape": shape,
+            "description": desc,
+            "ok": False, "error": None,
+            "catalog_dir": None, "dest_folder": None,
+            "apc_path": None, "apc_action": None,
+        }
+        if not kind or not units or not shape:
+            entry["error"] = (f"No pude detectar tipo/unidades/shape "
+                              f"(kind={kind}, units={units}, shape={shape}).")
+        familias.append(entry)
+
+    # 2) Copiar la carpeta al subcatálogo destino de cada grupo (kind,units).
+    #    Si todas las familias válidas caen en el mismo subcatálogo, la copia
+    #    es única. Si están mezcladas se copia una vez por subcatálogo.
+    grupos_ok = {}
+    for f in familias:
+        if f["error"]: continue
+        key = (f["kind"], f["units"])
+        grupos_ok.setdefault(key, []).append(f)
+
+    if not grupos_ok:
+        return fail("Ninguna familia pudo procesarse: " +
+                    "; ".join(f"{f['name']}: {f['error']}" for f in familias))
+
+    apc_backups = []
+    for (kind, units), grupo in grupos_ok.items():
+        catalog_dir_name = _CATALOG_DIRS.get((kind, units))
+        if not catalog_dir_name:
+            for f in grupo: f["error"] = f"Combinación no soportada: kind={kind}, units={units}."
+            continue
+        catalog_dir = os.path.join(pipes_catalog_root, catalog_dir_name)
+        if not os.path.isdir(catalog_dir):
+            for f in grupo: f["error"] = f"No existe el subcatálogo: {catalog_dir}"
+            continue
+        apc = os.path.join(catalog_dir, f"{catalog_dir_name}.apc")
+        if not os.path.isfile(apc):
+            for f in grupo: f["error"] = f"No encontré el .apc: {apc}"
+            continue
+
+        # Copia única de la carpeta al subcatálogo (sobrescribe si ya existía).
+        dest_folder = os.path.join(catalog_dir, folder_name)
+        try:
+            if os.path.exists(dest_folder):
+                shutil.rmtree(dest_folder)
+            shutil.copytree(source_folder, dest_folder)
+        except OSError as e:
+            for f in grupo: f["error"] = (f"No pude copiar la carpeta '{folder_name}' al "
+                                            f"subcatálogo '{catalog_dir_name}': {e}. "
+                                            "Ejecuta la app como Administrador.")
+            continue
+
+        # Backup del .apc una sola vez para este grupo.
+        stamp = datetime.datetime.now().strftime("%Y%m%d-%H%M%S")
+        backup = apc + f".bak-{stamp}"
+        try:
+            shutil.copy2(apc, backup)
+            apc_backups.append(backup)
+        except OSError as e:
+            for f in grupo: f["error"] = f"No pude hacer backup del .apc: {e}"
+            continue
+
+        # Registrar cada familia del grupo en el .apc. Todas comparten un único
+        # <Chapter> con nombre = folder_name (como el .apc stock: 1 chapter = 1
+        # subcarpeta con todos sus Parts adentro).
+        for f in grupo:
+            try:
+                part_id = str(uuid.uuid4()).upper()
+                domain    = "Pipe_Domain" if f["kind"] == "pipe" else "Structure_Domain"
+                part_type = "Pipe"        if f["kind"] == "pipe" else "Structure"
+                chapter_name = folder_name
+                part_block = _build_part_block(
+                    family_name=f["name"],
+                    family_folder_name=folder_name,
+                    description=f["description"],
+                    part_id=part_id,
+                    domain=domain,
+                    part_type=part_type,
+                    part_shape=f["shape"],
+                )
+                action = _register_part_in_apc(apc, chapter_name, f["name"], part_block)
+                f["ok"] = True
+                f["catalog_dir"] = catalog_dir_name
+                f["dest_folder"] = dest_folder
+                f["apc_path"] = apc
+                f["apc_action"] = action
+            except (OSError, ValueError) as e:
+                f["error"] = f"No pude registrar en el .apc: {e}"
+
+    ok_count = sum(1 for f in familias if f["ok"])
+    lines = [f"Familias instaladas: {ok_count} / {len(familias)}"]
+    for f in familias:
+        mark = "✓" if f["ok"] else "✗"
+        if f["ok"]:
+            lines.append(f"  {mark} {f['name']}  →  {f['catalog_dir']}  ({f['apc_action']})")
+        else:
+            lines.append(f"  {mark} {f['name']}: {f['error']}")
+    if apc_backups:
+        lines.append("")
+        lines.append("Backups .apc:")
+        for b in apc_backups:
+            lines.append(f"  · {os.path.basename(b)}")
+    summary = "\n".join(lines)
+
+    return {"ok": ok_count > 0, "error": "" if ok_count > 0 else "Ninguna familia se instaló.",
+            "families": familias, "apc_backups": apc_backups, "summary": summary}
+
+
+# Alias legacy (compatibilidad con el diálogo previo, redirige al nuevo flujo).
+def install_single_family(source_folder, year, lang=None, **_ignored):
+    """DEPRECATED: usa install_family_folder — este alias trata la carpeta como
+    conteniendo posiblemente varias familias."""
+    return install_family_folder(source_folder, year, lang)

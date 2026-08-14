@@ -12,8 +12,10 @@ namespace Civil3DBasico
             btnImportar.Click      += (s, e) => Ejecutar("IMPORTAR_RED");
             btnExportarPS.Click    += (s, e) => Ejecutar("EXPORTAR_TUBERIAS_PS");
             btnImportarPS.Click    += (s, e) => Ejecutar("IMPORTAR_TUBERIAS_PS");
-            btnDiagFamilias.Click  += (s, e) => Ejecutar("DIAG_FAMILIAS");
+            btnPrepararFamilias.Click += (s, e) => Ejecutar("PREPARAR_FAMILIAS");
             btnCotarTuberias.Click += (s, e) => Ejecutar("COTAR_TUBERIAS");
+            btnCuadroBuzones.Click += (s, e) => Ejecutar("CUADRO_BUZONES");
+            btnPerfilLongitudinal.Click += (s, e) => Ejecutar("CREAR_PERFIL_RED");
         }
 
         private void Ejecutar(string comando)

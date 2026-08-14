@@ -514,13 +514,11 @@ class Main(QtWidgets.QMainWindow):
         for sp in (self.prop_inv0, self.prop_inv1):
             sp.setRange(-100000, 100000); sp.setDecimals(3); sp.setButtonSymbols(QtWidgets.QAbstractSpinBox.NoButtons)
             sp.valueChanged.connect(lambda _: self._prop_changed())
-        fpr.addRow("Material:", self.prop_material)
         fpr.addRow("Tipo de red:", self.prop_nettype)
         # Labels dinámicas: se recomponen al cambiar la unidad de trabajo.
         # Nombre igual a Civil 3D: "Elevación de rasante" (no "Invert").
         self.lbl_prop_inv0 = QtWidgets.QLabel("Elev. de rasante inicial (ft):"); fpr.addRow(self.lbl_prop_inv0, self.prop_inv0)
         self.lbl_prop_inv1 = QtWidgets.QLabel("Elev. de rasante final (ft):");   fpr.addRow(self.lbl_prop_inv1, self.prop_inv1)
-        fpr.addRow("Part (pieza):", self.prop_part)
         # Familia + tamaño del catálogo Civil 3D para esta pipe (solo gravedad).
         # Para presión y conduit no aplica: presión usa el sub-catálogo por material
         # y conduit se deja como polyline simple.
@@ -1002,9 +1000,65 @@ class Main(QtWidgets.QMainWindow):
             self.lbl_scale.setText(f"Escala 1\"={self.scale*72:.0f}'"); self._update_geo_status()
             self._refresh_unit_labels()
             self._info(f"Proyecto abierto ({len(self.pipes)} utilidades). Ctrl+S guarda en este mismo archivo.")
+            # Aviso si el proyecto referencia familias del catálogo que no están
+            # instaladas en el Civil 3D activo — ofrece abrir el instalador.
+            self._warn_missing_families()
         except Exception as e:
             QtWidgets.QMessageBox.critical(self, "Error", str(e))
         finally: self._unbusy()
+
+    def _warn_missing_families(self):
+        """Recorre pipes y structures del proyecto actual, junta los `pipe_family`
+        y `part` que están seteados y compara contra las familias que existen en
+        el catálogo Civil 3D del año/idioma actualmente seleccionados. Si alguno
+        falta, muestra un aviso con opción de abrir el diálogo de instalación."""
+        if not self.civil_year: return
+        try:
+            import civil_catalog as _cc
+        except Exception:
+            return
+        # Set de fids conocidos por tipo. `id` es el mismo string que la app usó
+        # al guardar el proyecto (basename del .xml para pipes/structures; y
+        # "<subcat>|<PART_FAMILY_NAME>" para pressure).
+        try:
+            grav_ids = {f["id"] for f in _cc.imperial_pipes(self.civil_year)}
+            struct_ids = {f["id"] for f in _cc.imperial_structures(self.civil_year)}
+            pressure_ids = {f["id"] for f in _cc.pressure_pipes(self.civil_year)}
+        except Exception:
+            return
+
+        missing_p, missing_s = [], []
+        for p in self.pipes:
+            fid = (p.get("pipe_family") or "").strip()
+            if not fid: continue
+            kind = self._pipe_net_kind(p) if hasattr(self, "_pipe_net_kind") else (p.get("net") or "gravity")
+            pool = pressure_ids if kind == "pressure" else grav_ids
+            if fid not in pool: missing_p.append(fid)
+        for s in self.structures:
+            fid = (s.get("part") or "").strip()
+            if fid and fid not in struct_ids: missing_s.append(fid)
+
+        missing = sorted(set(missing_p) | set(missing_s))
+        if not missing: return
+
+        lines = ["<b>Este proyecto usa familias del catálogo que no están instaladas "
+                 f"en Civil 3D {self.civil_year} ({_cc._current_lang or '?'}):</b>", ""]
+        for m in missing[:25]: lines.append(f"  • <code>{m}</code>")
+        if len(missing) > 25: lines.append(f"  … y {len(missing)-25} más.")
+        lines += ["", "¿Quieres abrir el instalador de familias ahora? "
+                       "Puedes seguir trabajando con el proyecto igual — el aviso es "
+                       "solo para evitar sorpresas al exportar a DXF."]
+
+        mb = QtWidgets.QMessageBox(self)
+        mb.setIcon(QtWidgets.QMessageBox.Warning)
+        mb.setWindowTitle("Familias no instaladas")
+        mb.setTextFormat(QtCore.Qt.RichText)
+        mb.setText("<br>".join(lines))
+        btn_install = mb.addButton("Instalar familias…", QtWidgets.QMessageBox.AcceptRole)
+        mb.addButton("Seguir sin instalar", QtWidgets.QMessageBox.RejectRole)
+        mb.exec()
+        if mb.clickedButton() is btn_install:
+            self.open_install_family_dialog()
 
     def _confirm_discard(self):
         if not self._dirty or self.canvas.pixmap_item is None: return True
@@ -2353,144 +2407,142 @@ class Main(QtWidgets.QMainWindow):
 
     # ─────────────────────────── Instalador familias personalizadas ───────────
     def open_install_family_dialog(self):
-        """Diálogo para instalar un PAQUETE DE CATÁLOGO custom completo
-        (carpeta con .apc pre-regenerado por el modelador) en una ubicación
-        permanente local. Después, el usuario apunta Civil 3D a esa carpeta
-        con SETPIPENETWORKCATALOG (una sola vez).
+        """Instala UNA familia personalizada en el catálogo Civil 3D del año e
+        idioma seleccionados en la UI. Adaptación del script `install_c3d_family.py`
+        que ya está validado.
 
-        Este es el flujo estándar de Autodesk. NO copia archivos sueltos a
-        %ProgramData% ni intenta regenerar el .apc — asume que el catálogo
-        fuente ya trae el .apc listo para usar."""
+        Flujo:
+          1. Usuario elige la carpeta de la familia (con .xml, .dwg, .bmp adentro).
+          2. Se detecta kind/units/shape leyendo el XML y el nombre.
+          3. Se copia la carpeta al subcatálogo correcto del año/idioma activos.
+          4. Se registra la familia en el .apc (backup automático con timestamp).
+          5. Se le dice al usuario que corra PREPARAR_FAMILIAS en Civil 3D (que
+             regenera el catálogo y añade las familias a una PartsList)."""
         import civil_catalog as _cc
 
+        if not self.civil_year:
+            QtWidgets.QMessageBox.warning(
+                self, "Sin versión de Civil 3D",
+                "Elige una versión de Civil 3D en el toolbar antes de instalar familias.")
+            return
+        cur_lang = _cc._current_lang
+        if not cur_lang:
+            QtWidgets.QMessageBox.warning(
+                self, "Sin idioma seleccionado",
+                "Elige un idioma en el toolbar antes de instalar familias.")
+            return
+
         dlg = QtWidgets.QDialog(self)
-        dlg.setWindowTitle("Instalar paquete de catálogo custom")
-        dlg.resize(760, 460)
+        dlg.setWindowTitle(f"Instalar familia personalizada — Civil 3D {self.civil_year} / {cur_lang}")
+        dlg.resize(760, 480)
         lay = QtWidgets.QVBoxLayout(dlg)
 
-        # Header con explicación
         header = QtWidgets.QLabel(
-            "<b>Paso 1</b> — elige la carpeta del catálogo custom entregado por el modelador."
-            "<br>Debe contener <code>US Imperial Pipes\\US Imperial Pipes.apc</code> y/o "
-            "<code>US Imperial Structures\\US Imperial Structures.apc</code>."
-            "<br><br><b>Paso 2</b> — se copia a una ubicación permanente (default "
-            "<code>%APPDATA%\\AsistenteC3D\\Catalog\\</code>)."
-            "<br><br><b>Paso 3</b> — se te dan las instrucciones para apuntar Civil 3D con "
-            "<code>SETPIPENETWORKCATALOG</code> (una sola vez por proyecto).")
+            f"<b>Elige la carpeta de UNA familia</b> — debe contener el "
+            f"<code>.xml</code>, el <code>.dwg</code> del Part Builder y el "
+            f"<code>.bmp</code> (miniatura).<br><br>"
+            f"Se instalará en el catálogo de <b>Civil 3D {self.civil_year} ({cur_lang})</b>. "
+            f"El script detecta automáticamente si es tubería o estructura, sus unidades "
+            f"y la forma, copia los archivos y registra la familia en el <code>.apc</code> "
+            f"(con backup).<br><br>"
+            f"Al terminar, ejecuta <b>PREPARAR_FAMILIAS</b> en Civil 3D — regenera el "
+            f"catálogo y te deja elegir qué familias añadir a la lista de piezas del dibujo.")
         header.setWordWrap(True); lay.addWidget(header)
 
         # Selector carpeta origen
-        row1 = QtWidgets.QHBoxLayout()
-        row1.addWidget(QtWidgets.QLabel("Carpeta origen:"))
-        self._if_src = QtWidgets.QLineEdit()
-        self._if_src.setReadOnly(True)
+        row = QtWidgets.QHBoxLayout()
+        row.addWidget(QtWidgets.QLabel("Carpeta de la familia:"))
+        self._if_src = QtWidgets.QLineEdit(); self._if_src.setReadOnly(True)
         prev = getattr(self, "_last_family_folder", None)
         if prev and os.path.isdir(prev): self._if_src.setText(prev)
-        btn_browse_src = QtWidgets.QPushButton("Elegir…")
-        row1.addWidget(self._if_src, 1); row1.addWidget(btn_browse_src)
-        lay.addLayout(row1)
+        btn_browse = QtWidgets.QPushButton("Elegir…")
+        row.addWidget(self._if_src, 1); row.addWidget(btn_browse)
+        lay.addLayout(row)
 
-        # Selector carpeta destino
-        row2 = QtWidgets.QHBoxLayout()
-        row2.addWidget(QtWidgets.QLabel("Destino:"))
-        self._if_dst = QtWidgets.QLineEdit()
-        self._if_dst.setText(_cc.DEFAULT_CATALOG_DEST)
-        btn_browse_dst = QtWidgets.QPushButton("Cambiar…")
-        row2.addWidget(self._if_dst, 1); row2.addWidget(btn_browse_dst)
-        lay.addLayout(row2)
-
-        # Preview de qué se detectó en el origen
-        preview_lbl = QtWidgets.QLabel("<i>Elige una carpeta origen para ver qué se detecta.</i>")
-        preview_lbl.setWordWrap(True)
+        # Preview de lo que se detectó
+        preview_lbl = QtWidgets.QLabel("<i>Elige una carpeta para ver qué se detecta.</i>")
+        preview_lbl.setWordWrap(True); preview_lbl.setTextFormat(QtCore.Qt.RichText)
         preview_lbl.setStyleSheet("color:#b8c6df; background:#333a4a; padding:8px; border-radius:4px;")
         lay.addWidget(preview_lbl, 1)
 
-        # Botones
         bb = QtWidgets.QDialogButtonBox()
-        btn_install = bb.addButton("Instalar catálogo", QtWidgets.QDialogButtonBox.AcceptRole)
+        btn_install = bb.addButton("Instalar familia", QtWidgets.QDialogButtonBox.AcceptRole)
         btn_close = bb.addButton("Cerrar", QtWidgets.QDialogButtonBox.RejectRole)
         btn_install.setEnabled(False)
         lay.addWidget(bb)
 
         def _refresh_preview(path):
+            btn_install.setEnabled(False)
             if not path or not os.path.isdir(path):
-                preview_lbl.setText("<i>Elige una carpeta origen para ver qué se detecta.</i>")
-                btn_install.setEnabled(False); return
-            found = _cc._find_catalog_subdirs(path)
-            info = []
-            if found["pipes_src"]:
-                apc_ok = "✓" if found["pipes_apc"] else "⚠️ FALTA"
-                info.append(f"<b>Tubería:</b> {found['pipes_src']}<br>"
-                             f"  &nbsp;&nbsp;<code>US Imperial Pipes.apc</code>: {apc_ok}")
-            if found["structs_src"]:
-                apc_ok = "✓" if found["structs_apc"] else "⚠️ FALTA"
-                info.append(f"<b>Estructura:</b> {found['structs_src']}<br>"
-                             f"  &nbsp;&nbsp;<code>US Imperial Structures.apc</code>: {apc_ok}")
-            if not info:
-                preview_lbl.setText("<span style='color:#e06060;'>❌ No encontré subcarpetas "
-                                    "<code>US Imperial Pipes</code> ni <code>US Imperial Structures</code> "
-                                    "en el origen.</span>")
-                btn_install.setEnabled(False); return
-            has_apc = found["pipes_apc"] or found["structs_apc"]
-            if not has_apc:
-                info.append("<br><span style='color:#e06060;'>⚠️ Ninguna subcarpeta tiene .apc. "
-                             "Civil 3D no verá familias hasta que el modelador regenere el .apc.</span>")
-            preview_lbl.setText("<br><br>".join(info))
-            btn_install.setEnabled(bool(has_apc))
+                preview_lbl.setText("<i>Elige una carpeta para ver qué se detecta.</i>")
+                return
+            fams = _cc.scan_family_folder_preview(path)
+            if not fams:
+                preview_lbl.setText(
+                    "<span style='color:#e06060;'>❌ No encontré ningún .xml con "
+                    ".dwg hermano en esta carpeta.</span>")
+                return
 
-        def _pick_src():
+            def _dot(v):
+                if v: return f"<span style='color:#3fbf3f;'>{v}</span>"
+                return "<span style='color:#e06060;'>⚠</span>"
+
+            lines = [f"<b>{len(fams)} familia(s) detectadas en la carpeta:</b>",
+                     "<span style='color:#8fa6bf;'>Se copiará la carpeta al subcatálogo "
+                     "correspondiente y cada .xml se registrará como familia independiente "
+                     "en el .apc.</span>", ""]
+            for f in fams:
+                lines.append(
+                    f"• <code>{f['name']}</code> — tipo {_dot(f['kind'])} · "
+                    f"unidades {_dot(f['units'])} · shape {_dot(f['shape'])}"
+                    + ("" if f['bmp_ok'] else "  &nbsp;<span style='color:#e0a020;'>(sin .bmp)</span>"))
+            # Destinos por (kind,units)
+            grupos = {}
+            for f in fams:
+                if f['kind'] and f['units']:
+                    grupos.setdefault((f['kind'], f['units']),  []).append(f['name'])
+            if grupos:
+                lang_root = _cc._lang_root(self.civil_year, cur_lang)
+                lines.append("")
+                lines.append("<b>Destinos:</b>")
+                for (k, u), names in grupos.items():
+                    cat = _cc._CATALOG_DIRS.get((k, u), "?")
+                    dest = os.path.join(lang_root or "?", "Pipes Catalog", cat)
+                    lines.append(f"  {len(names)} familia(s) → <code>{dest}</code>")
+            preview_lbl.setText("<br>".join(lines))
+            btn_install.setEnabled(any(f['kind'] and f['units'] and f['shape'] for f in fams))
+
+        def _pick():
             start = getattr(self, "_last_family_folder", None) or DOWNLOADS
             path = QtWidgets.QFileDialog.getExistingDirectory(
-                dlg, "Carpeta del catálogo custom (con .apc adentro)", start)
+                dlg, "Carpeta de familias (.xml + .dwg + .bmp por familia)", start)
             if not path: return
             self._last_family_folder = path
             self._if_src.setText(path); _refresh_preview(path)
 
-        def _pick_dst():
-            start = self._if_dst.text() or _cc.DEFAULT_CATALOG_DEST
-            path = QtWidgets.QFileDialog.getExistingDirectory(
-                dlg, "Carpeta destino donde vivirá el catálogo", start)
-            if path: self._if_dst.setText(path)
-
         def _do_install():
             src = self._if_src.text().strip()
-            dst = self._if_dst.text().strip() or _cc.DEFAULT_CATALOG_DEST
-            res = _cc.install_catalog_package(src, dst)
+            if not src or not os.path.isdir(src): return
+            res = _cc.install_family_folder(src, self.civil_year, cur_lang)
             if not res["ok"]:
-                QtWidgets.QMessageBox.critical(dlg, "Error", res["error"])
+                QtWidgets.QMessageBox.critical(dlg, "Error al instalar", res["error"] or res["summary"])
                 return
-            # Armar mensaje con instrucciones SETPIPENETWORKCATALOG.
-            # IMPORTANTE: Civil 3D espera el catálogo PADRE (el que tiene DENTRO
-            # US Imperial Pipes\ y US Imperial Structures\ como hermanas).
-            # No se apunta a las subcarpetas individualmente.
-            msg = res["summary"] + "\n\n" + "─" * 50 + "\n"
-            msg += "AHORA en Civil 3D 2025:\n\n"
-            msg += "  1. Cinta 'Inicio' → panel 'Crear diseño' →\n"
-            msg += "     'Establecer catálogo de redes de tuberías'\n"
-            msg += "     (o comando  SETPIPENETWORKCATALOG)\n\n"
-            msg += "  2. Aparece un diálogo — apunta a esta CARPETA PADRE\n"
-            msg += "     (que contiene 'US Imperial Pipes' y 'US Imperial Structures'):\n\n"
-            msg += f"       {res['dest']}\n\n"
-            msg += "  3. Aceptar. Cierra y reabre el dibujo actual.\n\n"
-            msg += "  4. Comando  BB  (o AGREGAR_BANCOS_Y_BUZONES) → agrega los\n"
-            msg += "     buzones/bancoductos custom a tu Parts List.\n\n"
-            msg += "  5. Ya puedes exportar DXF y hacer IMPORTAR_RED — las\n"
-            msg += "     familias custom se dibujarán correctamente."
-            # Copiar ruta padre al portapapeles
-            try:
-                QtWidgets.QApplication.clipboard().setText(res["dest"])
-                msg += "\n\n(La ruta del catálogo ya está copiada al portapapeles.)"
+            msg = res["summary"] + (
+                "\n\nAHORA en Civil 3D:\n"
+                "  · Ejecuta el comando  PREPARAR_FAMILIAS\n"
+                "    (regenera el catálogo y te deja elegir qué familias\n"
+                "    añadir a la Parts List del dibujo actual).")
+            # Refrescar inmediatamente el combo de familias del panel activo
+            # para que el usuario vea las familias recién instaladas sin
+            # tener que deseleccionar/re-seleccionar la utilidad.
+            try: self._refresh_catalog_panels()
             except Exception: pass
-            QtWidgets.QMessageBox.information(dlg, "Catálogo instalado", msg)
+            QtWidgets.QMessageBox.information(dlg, "Familias instaladas", msg)
 
-        btn_browse_src.clicked.connect(_pick_src)
-        btn_browse_dst.clicked.connect(_pick_dst)
+        btn_browse.clicked.connect(_pick)
         btn_install.clicked.connect(_do_install)
         btn_close.clicked.connect(dlg.reject)
-
-        # Refrescar preview si ya había ruta previa
         if self._if_src.text(): _refresh_preview(self._if_src.text())
-
         dlg.exec()
 
     def clear_georef(self):

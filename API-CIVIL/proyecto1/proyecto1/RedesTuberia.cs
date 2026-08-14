@@ -662,6 +662,53 @@ namespace Civil3DBasico
         }
 
         // Busca familia de tubería por 'material' (en Description) y tamaño por 'diam' (1er token del Name).
+        // Keywords que identifican familias PERSONALIZADAS del proyecto GVR.
+        // Estas familias solo deben usarse cuando el usuario las pide EXPLÍCITAMENTE
+        // desde Python (por catalogId Aecc… o por Description exacta). NUNCA deben
+        // servir como "default" para tuberías/buzones sin familia asignada — de lo
+        // contrario, poner una familia custom a UNA sola pipe en Python la propagaría
+        // a TODAS las demás pipes que no tenían familia asignada.
+        private static readonly string[] KW_CUSTOM_PIPE = new[]
+        {
+            "bancoducto", "bancoductos",
+            "banco de tubos", "bancos de tubos",
+            "iluminacion", "iluminación"
+        };
+        private static readonly string[] KW_CUSTOM_STRUCT = new[] { "buzon", "buzón" };
+
+        private static bool EsFamiliaCustomPipe(string desc)
+        {
+            if (string.IsNullOrEmpty(desc)) return false;
+            string d = desc.ToLowerInvariant();
+            foreach (var k in KW_CUSTOM_PIPE) if (d.Contains(k)) return true;
+            return false;
+        }
+        private static bool EsFamiliaCustomStruct(string desc)
+        {
+            if (string.IsNullOrEmpty(desc)) return false;
+            string d = desc.ToLowerInvariant();
+            foreach (var k in KW_CUSTOM_STRUCT) if (d.Contains(k)) return true;
+            return false;
+        }
+
+        // Dado el ObjectId de una PartFamily del dibujo, dice si es una familia
+        // custom del proyecto GVR (Bancoducto/Buzon/etc.). Se usa como red de
+        // seguridad en el punto de asignación: si una pipe/estructura NO pidió
+        // familia explícita pero el matcher devolvió una custom, la rechazamos.
+        internal static bool EsFamiliaCustomPorId(Transaction tr, ObjectId fid, CivilDB.DomainType dom)
+        {
+            if (fid.IsNull) return false;
+            try
+            {
+                var fam = tr.GetObject(fid, OpenMode.ForRead) as PartsStyles.PartFamily;
+                if (fam == null) return false;
+                return dom == CivilDB.DomainType.Pipe
+                    ? EsFamiliaCustomPipe(fam.Description ?? "")
+                    : EsFamiliaCustomStruct(fam.Description ?? "");
+            }
+            catch { return false; }
+        }
+
         private bool BuscarTuberia(Transaction tr, PartsStyles.PartsList partsList, string material, string diam,
                                    out ObjectId familyId, out ObjectId sizeId, out string nombre)
         {
@@ -671,6 +718,9 @@ namespace Civil3DBasico
             // matcher CamelCase que sabe traducir EN↔ES (mismo que BuscarEstructura).
             bool esCatalogId = !string.IsNullOrEmpty(material) &&
                                material.StartsWith("Aecc", StringComparison.OrdinalIgnoreCase);
+            // ¿La búsqueda es "cualquier familia" (sin criterio)? Si sí, hay que
+            // excluir familias custom para que no se conviertan en el default.
+            bool criterioVacio = !esCatalogId && mN.Length == 0;
             foreach (ObjectId fid in partsList.GetPartFamilyIdsByDomain(CivilDB.DomainType.Pipe))
             {
                 PartsStyles.PartFamily fam = tr.GetObject(fid, OpenMode.ForRead) as PartsStyles.PartFamily;
@@ -681,6 +731,21 @@ namespace Civil3DBasico
                 else
                     famMatch = mN.Length == 0 || (fam.Description != null && Norm(fam.Description).Contains(mN));
                 if (!famMatch) continue;
+                // Familias CUSTOM (Bancoducto/Buzon/etc.) solo se aceptan cuando el
+                // usuario las pide con un criterio EXPLÍCITO — es decir:
+                //   · esCatalogId=true (matcher CamelCase), o
+                //   · el `material` es EXACTAMENTE la Description de la familia.
+                // Cualquier otro camino (criterio vacío, o material genérico como
+                // "concrete" que casualmente aparezca como sub-string en la
+                // Description custom) se descarta. Sin esto, poner una familia
+                // custom a UNA sola pipe la propaga a TODAS las demás.
+                bool esCustom = EsFamiliaCustomPipe(fam.Description ?? "");
+                if (esCustom && !esCatalogId)
+                {
+                    bool matchExacto = fam.Description != null &&
+                        string.Equals(Norm(fam.Description), mN, StringComparison.Ordinal);
+                    if (!matchExacto) continue;
+                }
                 // Tamaño: coincidencia por primer token del PartSize.Name, o "contains" si no matchea exacto.
                 ObjectId sizeElegido = fam[0];
                 string sizeNombre = (tr.GetObject(sizeElegido, OpenMode.ForRead) as PartsStyles.PartSize)?.Name;
@@ -733,6 +798,12 @@ namespace Civil3DBasico
             familyId = ObjectId.Null; sizeId = ObjectId.Null; nombre = "";
             ObjectId anyFam = ObjectId.Null, anySize = ObjectId.Null; string anyNom = "";
             string tNorm = Norm(tipo);
+            // Sin criterio → NO caer en familias custom como fallback. Solo se
+            // usan cuando el usuario las pide explícitamente (por catalogId Aecc…
+            // o por Description exacta).
+            bool criterioVacio = string.IsNullOrEmpty(tNorm) &&
+                                  (string.IsNullOrEmpty(tipo) ||
+                                   !tipo.StartsWith("Aecc", StringComparison.OrdinalIgnoreCase));
 
             foreach (ObjectId fid in partsList.GetPartFamilyIdsByDomain(CivilDB.DomainType.Structure))
             {
@@ -765,10 +836,27 @@ namespace Civil3DBasico
                 ObjectId elegidoSize = fam[0];
                 string elegidoSizeName = (tr.GetObject(elegidoSize, OpenMode.ForRead) as PartsStyles.PartSize)?.Name;
                 string nom = $"{fam.Description} / {elegidoSizeName}";
-                if (anyFam == ObjectId.Null) { anyFam = fid; anySize = elegidoSize; anyNom = nom; }
+                // anyFam (fallback si el tipo no matchea nada) NO debe caer en custom
+                // — solo se usa cuando el usuario no pidió tipo específico.
+                bool esCustom = EsFamiliaCustomStruct(descBz);
+                if (anyFam == ObjectId.Null && !esCustom)
+                { anyFam = fid; anySize = elegidoSize; anyNom = nom; }
 
                 bool famMatch = string.IsNullOrEmpty(tNorm) || (fam.Description != null && Norm(fam.Description).Contains(tNorm));
-                if (!famMatch && fam.Description != null && MatchCatalogId(tipo, fam.Description)) famMatch = true;
+                bool matchPorCatalogId = false;
+                if (!famMatch && fam.Description != null && MatchCatalogId(tipo, fam.Description))
+                { famMatch = true; matchPorCatalogId = true; }
+                // Familias CUSTOM (Buzones): solo cuando el usuario las pide EXPLÍCITAMENTE
+                //   · vía catalogId Aecc… (matchPorCatalogId = true), o
+                //   · con `tipo` que sea EXACTAMENTE la Description de la familia.
+                // Con criterio vacío o genérico se descartan del recorrido para que
+                // NUNCA sirvan como fallback.
+                if (esCustom && !matchPorCatalogId)
+                {
+                    bool matchExacto = !string.IsNullOrEmpty(tNorm) && fam.Description != null &&
+                        string.Equals(Norm(fam.Description), tNorm, StringComparison.Ordinal);
+                    if (!matchExacto) continue;
+                }
                 // La búsqueda/creación de tamaño (cara, y muta la familia con
                 // AddPartSize/RemovePartSize) SOLO se intenta en la familia que
                 // realmente coincide con 'tipo' — antes corría para TODAS las
@@ -1021,6 +1109,15 @@ namespace Civil3DBasico
                 ObjectId sid = fam[0];
                 PartsStyles.PartSize sz = tr.GetObject(sid, OpenMode.ForRead) as PartsStyles.PartSize;
                 string nom = $"{fam.Description} / {sz?.Name}";
+
+                // Familia custom del proyecto GVR (Bancoducto, Buzon…) NO debe
+                // servir como default — solo cuando se pide explícitamente por
+                // catalogId. De lo contrario, asignar la custom a UNA sola pipe
+                // en Python la propagaría a TODAS las pipes sin familia asignada.
+                bool esCustom = esEstructura
+                    ? EsFamiliaCustomStruct(desc)
+                    : EsFamiliaCustomPipe(desc);
+                if (esCustom) continue;
 
                 if (anyFam == ObjectId.Null) { anyFam = fid; anySize = sid; anyNom = nom; }
 
