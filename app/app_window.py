@@ -217,6 +217,7 @@ class Main(QtWidgets.QMainWindow):
         self._menu_act(medit, "Rehacer", self.redo, "Ctrl+Shift+Z")
         mtools = mb.addMenu("&Herramientas")
         self._menu_act(mtools, "Insertar buzón en línea…", self.insert_manhole)
+        self._menu_act(mtools, "Instalar familia personalizada…", self.open_install_family_dialog)
         mtools.addSeparator()
         self._menu_act(mtools, "Georreferenciar…", self.open_georef)
         self._menu_act(mtools, "Quitar georreferencia", self.clear_georef)
@@ -248,6 +249,16 @@ class Main(QtWidgets.QMainWindow):
         self.cmb_civil.setToolTip("Versión de Civil 3D. El catálogo imperial se busca en\n"
                                   "C:\\ProgramData\\Autodesk\\C3D <año>\\<idioma>\\Pipes Catalog\\US Imperial Structures")
         tb.addWidget(self.cmb_civil)
+        # Selector de idioma del catálogo — se puebla dinámicamente al elegir año.
+        # Si el cliente tiene tanto 'esp' como 'enu' instalados, puede elegir
+        # cuál usar para la instalación de familias custom y el listado.
+        tb.addWidget(QtWidgets.QLabel("Idioma:"))
+        self.cmb_lang = QtWidgets.QComboBox()
+        self.cmb_lang.setToolTip("Idioma del catálogo Civil 3D a usar (subcarpeta esp/enu/etc.)")
+        self.cmb_lang.currentIndexChanged.connect(self._on_civil_lang_changed)
+        tb.addWidget(self.cmb_lang)
+        # Poblamos el combo de idiomas por primera vez con la versión activa.
+        self._refill_lang_combo()
         tb.addSeparator()
         self.btn_export = QtWidgets.QPushButton("⭳  Exportar DXF")
         self.btn_export.setStyleSheet("QPushButton{background:#4d8eff;color:#00285d;font-weight:bold;padding:5px 14px;border-radius:4px;} QPushButton:hover{background:#66a3ff;}")
@@ -1322,11 +1333,49 @@ class Main(QtWidgets.QMainWindow):
         return network_kind(p.get("layer") or "")
 
     def _on_civil_year_changed(self, i):
-        """Al cambiar la versión de Civil 3D en el toolbar, refresca inmediatamente
-        los combos de familias/tamaños del panel activo (pipes y buzones/cajas)
-        contra el catálogo de la versión seleccionada. Sin esto el panel seguía
-        mostrando las familias de la versión anterior hasta reabrir el archivo."""
+        """Al cambiar la versión de Civil 3D en el toolbar, actualiza el combo
+        de idiomas disponibles y refresca los combos de familias/tamaños del
+        panel activo (pipes y buzones/cajas) contra el catálogo del año elegido."""
         self.civil_year = self.cmb_civil.itemData(i)
+        self._refill_lang_combo()
+        self._refresh_catalog_panels()
+
+    def _on_civil_lang_changed(self, i):
+        """Al cambiar el idioma del catálogo, propaga a civil_catalog y refresca
+        los paneles inmediatamente."""
+        import civil_catalog as _cc
+        lang = self.cmb_lang.itemData(i)
+        _cc.set_current_lang(lang)
+        self._refresh_catalog_panels()
+
+    def _refill_lang_combo(self):
+        """Repuebla el combo de idiomas con los realmente instalados para el año
+        activo. Preserva la selección previa si sigue disponible."""
+        import civil_catalog as _cc
+        prev = self.cmb_lang.currentData() if hasattr(self, "cmb_lang") else None
+        self.cmb_lang.blockSignals(True); self.cmb_lang.clear()
+        langs = _cc.installed_langs(self.civil_year) if self.civil_year else []
+        if not langs:
+            self.cmb_lang.addItem("—", None)
+            _cc.set_current_lang(None)
+        else:
+            for lg in langs:
+                # Etiqueta amigable
+                pretty = {"esp": "esp (Español)", "enu": "enu (English)",
+                          "fra": "fra (Français)", "deu": "deu (Deutsch)",
+                          "ita": "ita (Italiano)", "ptb": "ptb (Português)"}.get(lg, lg)
+                self.cmb_lang.addItem(pretty, lg)
+            # Reponer la selección previa si sigue disponible; si no, primera
+            target = prev if prev in langs else langs[0]
+            idx = self.cmb_lang.findData(target)
+            if idx >= 0: self.cmb_lang.setCurrentIndex(idx)
+            _cc.set_current_lang(target)
+        self.cmb_lang.blockSignals(False)
+
+    def _refresh_catalog_panels(self):
+        """Vuelve a leer el catálogo Civil 3D del año actual y repuebla los combos
+        de familia/tamaño del panel activo (pipe y buzón/caja). Se llama tras
+        cambiar la versión y también tras instalar/desinstalar familias."""
         try:
             if 0 <= getattr(self, "sel_pipe", -1) < len(self.pipes):
                 self._reload_pipe_families(self.pipes[self.sel_pipe])
@@ -2302,7 +2351,148 @@ class Main(QtWidgets.QMainWindow):
         item = self.bz_list.item(row)
         if item: item.setText(f"{emoji} {s.get('cod', '?')}  ·  {fam}{sz}")
 
-    # ─────────────────────────── Georreferenciación ───────────────────────────
+    # ─────────────────────────── Instalador familias personalizadas ───────────
+    def open_install_family_dialog(self):
+        """Diálogo para instalar un PAQUETE DE CATÁLOGO custom completo
+        (carpeta con .apc pre-regenerado por el modelador) en una ubicación
+        permanente local. Después, el usuario apunta Civil 3D a esa carpeta
+        con SETPIPENETWORKCATALOG (una sola vez).
+
+        Este es el flujo estándar de Autodesk. NO copia archivos sueltos a
+        %ProgramData% ni intenta regenerar el .apc — asume que el catálogo
+        fuente ya trae el .apc listo para usar."""
+        import civil_catalog as _cc
+
+        dlg = QtWidgets.QDialog(self)
+        dlg.setWindowTitle("Instalar paquete de catálogo custom")
+        dlg.resize(760, 460)
+        lay = QtWidgets.QVBoxLayout(dlg)
+
+        # Header con explicación
+        header = QtWidgets.QLabel(
+            "<b>Paso 1</b> — elige la carpeta del catálogo custom entregado por el modelador."
+            "<br>Debe contener <code>US Imperial Pipes\\US Imperial Pipes.apc</code> y/o "
+            "<code>US Imperial Structures\\US Imperial Structures.apc</code>."
+            "<br><br><b>Paso 2</b> — se copia a una ubicación permanente (default "
+            "<code>%APPDATA%\\AsistenteC3D\\Catalog\\</code>)."
+            "<br><br><b>Paso 3</b> — se te dan las instrucciones para apuntar Civil 3D con "
+            "<code>SETPIPENETWORKCATALOG</code> (una sola vez por proyecto).")
+        header.setWordWrap(True); lay.addWidget(header)
+
+        # Selector carpeta origen
+        row1 = QtWidgets.QHBoxLayout()
+        row1.addWidget(QtWidgets.QLabel("Carpeta origen:"))
+        self._if_src = QtWidgets.QLineEdit()
+        self._if_src.setReadOnly(True)
+        prev = getattr(self, "_last_family_folder", None)
+        if prev and os.path.isdir(prev): self._if_src.setText(prev)
+        btn_browse_src = QtWidgets.QPushButton("Elegir…")
+        row1.addWidget(self._if_src, 1); row1.addWidget(btn_browse_src)
+        lay.addLayout(row1)
+
+        # Selector carpeta destino
+        row2 = QtWidgets.QHBoxLayout()
+        row2.addWidget(QtWidgets.QLabel("Destino:"))
+        self._if_dst = QtWidgets.QLineEdit()
+        self._if_dst.setText(_cc.DEFAULT_CATALOG_DEST)
+        btn_browse_dst = QtWidgets.QPushButton("Cambiar…")
+        row2.addWidget(self._if_dst, 1); row2.addWidget(btn_browse_dst)
+        lay.addLayout(row2)
+
+        # Preview de qué se detectó en el origen
+        preview_lbl = QtWidgets.QLabel("<i>Elige una carpeta origen para ver qué se detecta.</i>")
+        preview_lbl.setWordWrap(True)
+        preview_lbl.setStyleSheet("color:#b8c6df; background:#333a4a; padding:8px; border-radius:4px;")
+        lay.addWidget(preview_lbl, 1)
+
+        # Botones
+        bb = QtWidgets.QDialogButtonBox()
+        btn_install = bb.addButton("Instalar catálogo", QtWidgets.QDialogButtonBox.AcceptRole)
+        btn_close = bb.addButton("Cerrar", QtWidgets.QDialogButtonBox.RejectRole)
+        btn_install.setEnabled(False)
+        lay.addWidget(bb)
+
+        def _refresh_preview(path):
+            if not path or not os.path.isdir(path):
+                preview_lbl.setText("<i>Elige una carpeta origen para ver qué se detecta.</i>")
+                btn_install.setEnabled(False); return
+            found = _cc._find_catalog_subdirs(path)
+            info = []
+            if found["pipes_src"]:
+                apc_ok = "✓" if found["pipes_apc"] else "⚠️ FALTA"
+                info.append(f"<b>Tubería:</b> {found['pipes_src']}<br>"
+                             f"  &nbsp;&nbsp;<code>US Imperial Pipes.apc</code>: {apc_ok}")
+            if found["structs_src"]:
+                apc_ok = "✓" if found["structs_apc"] else "⚠️ FALTA"
+                info.append(f"<b>Estructura:</b> {found['structs_src']}<br>"
+                             f"  &nbsp;&nbsp;<code>US Imperial Structures.apc</code>: {apc_ok}")
+            if not info:
+                preview_lbl.setText("<span style='color:#e06060;'>❌ No encontré subcarpetas "
+                                    "<code>US Imperial Pipes</code> ni <code>US Imperial Structures</code> "
+                                    "en el origen.</span>")
+                btn_install.setEnabled(False); return
+            has_apc = found["pipes_apc"] or found["structs_apc"]
+            if not has_apc:
+                info.append("<br><span style='color:#e06060;'>⚠️ Ninguna subcarpeta tiene .apc. "
+                             "Civil 3D no verá familias hasta que el modelador regenere el .apc.</span>")
+            preview_lbl.setText("<br><br>".join(info))
+            btn_install.setEnabled(bool(has_apc))
+
+        def _pick_src():
+            start = getattr(self, "_last_family_folder", None) or DOWNLOADS
+            path = QtWidgets.QFileDialog.getExistingDirectory(
+                dlg, "Carpeta del catálogo custom (con .apc adentro)", start)
+            if not path: return
+            self._last_family_folder = path
+            self._if_src.setText(path); _refresh_preview(path)
+
+        def _pick_dst():
+            start = self._if_dst.text() or _cc.DEFAULT_CATALOG_DEST
+            path = QtWidgets.QFileDialog.getExistingDirectory(
+                dlg, "Carpeta destino donde vivirá el catálogo", start)
+            if path: self._if_dst.setText(path)
+
+        def _do_install():
+            src = self._if_src.text().strip()
+            dst = self._if_dst.text().strip() or _cc.DEFAULT_CATALOG_DEST
+            res = _cc.install_catalog_package(src, dst)
+            if not res["ok"]:
+                QtWidgets.QMessageBox.critical(dlg, "Error", res["error"])
+                return
+            # Armar mensaje con instrucciones SETPIPENETWORKCATALOG.
+            # IMPORTANTE: Civil 3D espera el catálogo PADRE (el que tiene DENTRO
+            # US Imperial Pipes\ y US Imperial Structures\ como hermanas).
+            # No se apunta a las subcarpetas individualmente.
+            msg = res["summary"] + "\n\n" + "─" * 50 + "\n"
+            msg += "AHORA en Civil 3D 2025:\n\n"
+            msg += "  1. Cinta 'Inicio' → panel 'Crear diseño' →\n"
+            msg += "     'Establecer catálogo de redes de tuberías'\n"
+            msg += "     (o comando  SETPIPENETWORKCATALOG)\n\n"
+            msg += "  2. Aparece un diálogo — apunta a esta CARPETA PADRE\n"
+            msg += "     (que contiene 'US Imperial Pipes' y 'US Imperial Structures'):\n\n"
+            msg += f"       {res['dest']}\n\n"
+            msg += "  3. Aceptar. Cierra y reabre el dibujo actual.\n\n"
+            msg += "  4. Comando  BB  (o AGREGAR_BANCOS_Y_BUZONES) → agrega los\n"
+            msg += "     buzones/bancoductos custom a tu Parts List.\n\n"
+            msg += "  5. Ya puedes exportar DXF y hacer IMPORTAR_RED — las\n"
+            msg += "     familias custom se dibujarán correctamente."
+            # Copiar ruta padre al portapapeles
+            try:
+                QtWidgets.QApplication.clipboard().setText(res["dest"])
+                msg += "\n\n(La ruta del catálogo ya está copiada al portapapeles.)"
+            except Exception: pass
+            QtWidgets.QMessageBox.information(dlg, "Catálogo instalado", msg)
+
+        btn_browse_src.clicked.connect(_pick_src)
+        btn_browse_dst.clicked.connect(_pick_dst)
+        btn_install.clicked.connect(_do_install)
+        btn_close.clicked.connect(dlg.reject)
+
+        # Refrescar preview si ya había ruta previa
+        if self._if_src.text(): _refresh_preview(self._if_src.text())
+
+        dlg.exec()
+
     def clear_georef(self):
         if not self.georef.active():
             self._info("El plano no está georreferenciado."); return

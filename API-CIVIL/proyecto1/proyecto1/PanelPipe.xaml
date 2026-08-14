@@ -117,6 +117,36 @@
                     </StackPanel>
                 </Border>
 
+                <!-- DIAGNÓSTICO DE FAMILIAS PERSONALIZADAS -->
+                <Border Style="{StaticResource Tarjeta}">
+                    <StackPanel>
+                        <StackPanel Orientation="Horizontal" Margin="0,0,0,4">
+                            <Border Width="4" CornerRadius="2" Background="{StaticResource brAmbar}" Margin="0,1,9,1"/>
+                            <StackPanel>
+                                <TextBlock Text="FAMILIAS PERSONALIZADAS" Foreground="{StaticResource brTexto}" FontSize="12.5" FontWeight="Bold"/>
+                                <TextBlock Text="Diagnóstico: qué falta para que se reconozcan y dibujen" Foreground="{StaticResource brTextoTenue}" FontSize="10.5"/>
+                            </StackPanel>
+                        </StackPanel>
+                        <Button x:Name="btnDiagFamilias" Style="{StaticResource Boton}" Background="{StaticResource brAmbar}"
+                                Content="🔍  Diagnosticar familias personalizadas"/>
+                    </StackPanel>
+                </Border>
+
+                <!-- COTAR TUBERÍAS: multileaders con Elevación de rasante en cada nodo -->
+                <Border Style="{StaticResource Tarjeta}">
+                    <StackPanel>
+                        <StackPanel Orientation="Horizontal" Margin="0,0,0,4">
+                            <Border Width="4" CornerRadius="2" Background="{StaticResource brAgua}" Margin="0,1,9,1"/>
+                            <StackPanel>
+                                <TextBlock Text="COTAS EN TUBERÍAS" Foreground="{StaticResource brTexto}" FontSize="12.5" FontWeight="Bold"/>
+                                <TextBlock Text="Multileaders con Elevación de rasante en cada nodo/quiebre" Foreground="{StaticResource brTextoTenue}" FontSize="10.5"/>
+                            </StackPanel>
+                        </StackPanel>
+                        <Button x:Name="btnCotarTuberias" Style="{StaticResource Boton}" Background="{StaticResource brAgua}"
+                                Content="📏  Cotas de rasante en cada nodo"/>
+                    </StackPanel>
+                </Border>
+
             </StackPanel>
         </ScrollViewer>
     </Border>

@@ -536,22 +536,12 @@ namespace Civil3DBasico
                     if (rim - sump < 1.0) rim = sump + Math.Max(depth, 3.0);
 
                     string key = $"{Math.Round(v.X, 2)}_{Math.Round(v.Y, 2)}";
-                    if (sinBuzones)
-                    {
-                        // Conduit: si el usuario asignó familia (match.Part != ""), se
-                        // crea una CAJA real con esa familia (comportamiento cuasi-gravedad).
-                        // Si NO hay familia asignada, no se crea structure alguna y la
-                        // pipe se agrega con bAddDefaultConnections=false más adelante.
-                        bool tienePart = match != null && !string.IsNullOrWhiteSpace(match.Part);
-                        if (!tienePart)
-                        {
-                            if (!createdStructs.ContainsKey(key)) createdStructs[key] = ObjectId.Null;
-                            vertStructIds.Add(ObjectId.Null);
-                            continue;
-                        }
-                        // Cuando hay familia asignada, caemos al flujo normal de crear
-                        // structure más abajo — se desactiva sinBuzones para este vértice.
-                    }
+                    // En modo conduit (eléctrico/telecom): tanto si el usuario asignó
+                    // familia como si NO, siempre se crea structure en cada nodo. Si no
+                    // hay familia → se usa la "Estructura nula" default (invisible pero
+                    // permite que Civil 3D marque el nodo y conecte los tramos).
+                    // Nota: antes se saltaba con vertStructIds=Null, y algunos nodos
+                    // quedaban sin buzón — el usuario lo reportó.
                     if (!createdStructs.ContainsKey(key))
                     {
                         ObjectId sFam, sSize;
@@ -941,18 +931,23 @@ namespace Civil3DBasico
             }
 
             // ── Reponer la cota (Z) de rasante en cada extremo ──────────────
-            // Igual que en gravedad: al conectar tubos/fittings Civil 3D recalcula
-            // las cotas. Aquí forzamos la Z capturada en el inicio/fin de cada tubo
-            // (conservando su XY actual tras la conexión) para que agua/gas muestren
-            // la elevación de rasante inicial/final que el DXF trae.
+            // Igual que en gravedad: StartPoint.Z es el EJE del tubo; el invert
+            // (rasante) capturado desde Python es la SOLERA. Convertimos:
+            //   eje = invert + radio_interior
+            // Así la propiedad "Elevación de rasante" que muestra Civil 3D
+            // queda igual al invert que trajo el DXF.
             foreach (var pe in pipeEndpoints)
             {
                 try
                 {
                     var pp = (CivilDB.PressurePipe)tr.GetObject(pe.id, OpenMode.ForWrite);
+                    // NominalDiameter viene en pulgadas → convertir a pies para
+                    // que el radio quede en la misma unidad que StartPoint.Z (ft).
+                    double r = 0.0;
+                    try { r = (pp.NominalDiameter / 12.0) / 2.0; } catch { }
                     Point3d cs = pp.StartPoint, ce = pp.EndPoint;
-                    pp.StartPoint = new Point3d(cs.X, cs.Y, pe.start.Z);
-                    pp.EndPoint   = new Point3d(ce.X, ce.Y, pe.end.Z);
+                    pp.StartPoint = new Point3d(cs.X, cs.Y, pe.start.Z + r);
+                    pp.EndPoint   = new Point3d(ce.X, ce.Y, pe.end.Z   + r);
                 }
                 catch { }
             }
