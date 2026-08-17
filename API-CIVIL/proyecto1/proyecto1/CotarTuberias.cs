@@ -164,7 +164,13 @@ namespace Civil3DBasico
                                 try { diamReal = p.OuterDiameterOrWidth; } catch { }
                                 if (diamReal < 0.05) { try { diamReal = p.InnerDiameterOrWidth; } catch { } }
                                 if (diamReal < 0.05) diamReal = diaMedio;
-                                DibujarFlechaFlujo(ms, tr, p.StartPoint, p.EndPoint, invStart, invEnd, diaMedio, txtH, diamReal);
+                                // La pendiente mostrada es la propiedad real "Talud de tubería
+                                // (extremo inicial)" de Civil3D (Pipe.Slope, ya usada en el resto
+                                // del proyecto — es un ratio, ×100 para %), no un cálculo geométrico
+                                // aparte que podría no coincidir con lo que Civil3D reporta.
+                                double? slopePipe = null;
+                                try { slopePipe = p.Slope; } catch { }
+                                DibujarFlechaFlujo(ms, tr, p.StartPoint, p.EndPoint, invStart, invEnd, diaMedio, txtH, diamReal, slopePipe);
                                 nFlechas++;
                             }
                             catch { }
@@ -206,7 +212,8 @@ namespace Civil3DBasico
 
                     // ── Redes de presión (agua/gas): mismo formato de etiqueta, pero neutro
                     //    (sin "INICIO/DESCARGA" — el sentido en presión no lo define la
-                    //    gravedad) y sin flecha de flujo ni buzones. ──
+                    //    gravedad) y sin buzones. Sí llevan flecha + "S=x.xx%" (usa
+                    //    PressurePipe.Slope, la misma propiedad real que en gravedad). ──
                     foreach (ObjectId nid in presNets)
                     {
                         CivilDB.PressurePipeNetwork net = tr.GetObject(nid, OpenMode.ForRead) as CivilDB.PressurePipeNetwork;
@@ -248,6 +255,15 @@ namespace Civil3DBasico
                                 etiquetasTuberia.Add((p.StartPoint, lineasStart, ObjectId.Null));
                                 etiquetasTuberia.Add((p.EndPoint, lineasEnd, ObjectId.Null));
                                 nEtiquetas += 2;
+
+                                double diamRealPres = 0.0;
+                                try { diamRealPres = p.OuterDiameter / 12.0; } catch { }
+                                if (diamRealPres < 0.05) diamRealPres = r * 2.0;
+                                if (diamRealPres < 0.05) diamRealPres = diaMedio;
+                                double? slopePres = null;
+                                try { slopePres = p.Slope; } catch { }
+                                DibujarFlechaFlujo(ms, tr, p.StartPoint, p.EndPoint, sInv, eInv, diaMedio, txtH, diamRealPres, slopePres);
+                                nFlechas++;
                             }
                             catch { }
                         }
@@ -273,73 +289,57 @@ namespace Civil3DBasico
             }
         }
 
-        // Rasante en un extremo de tubería, priorizando el valor LÓGICO que
-        // Civil 3D reporta en Properties del pipe ("Elevación de rasante"), no un
-        // cálculo geométrico:
-        //   1) Si hay estructura conectada → rim − structure.get_PipeInvertDepth(pipeId)
-        //   2) Si falla → SumpElevation del buzón como aproximación razonable.
-        //   3) Sin structure conectada → cálculo geométrico eje − radio_interior.
+        // Rasante en un extremo de tubería. Se confía SIEMPRE en Structure.SumpElevation
+        // cuando hay estructura conectada — es el valor AUTORITATIVO que IMPORTAR_RED ya
+        // fijó explícitamente a partir del DXF (ver el paso "reponer cotas" en
+        // ImportarRed.cs), no un cálculo geométrico ni una regla interna de Civil3D.
+        //
+        // Antes se intentaba primero "rim − structure.get_PipeInvertDepth(idx)" (la
+        // regla que usa Civil3D para su Properties de pipe), pero esa regla NO aplica
+        // igual a tuberías conduit/eléctricas — devolvía una profundidad de catálogo por
+        // defecto en vez de la real, desfasando la cota (bug reportado: red eléctrica de
+        // varios tramos mostraba 4.167→0.167 en vez de 5→1). SumpElevation no depende de
+        // ninguna regla de Civil3D por tipo de parte: es el mismo dato para cualquier red.
+        //
+        // Sin estructura conectada (extremo suelto): cálculo geométrico eje − radio_interior.
         internal static double InvertEnNodo(ObjectId structId, Point3d centerline, CivilDB.Pipe p, Transaction tr)
         {
-            // Detección de CONDUIT (eléctrico/telecom): en IMPORTAR_RED las tuberías
-            // conduit se conectan a "Null Structure" (invisible) o quedan sueltas, y
-            // sus StartPoint.Z/EndPoint.Z se dejan en la rasante que puso el usuario
-            // (sin +radio, porque Civil 3D no aplica la lógica de invert=eje−r para
-            // conduit). Al leer la rasante hay que respetar esa misma convención.
-            //
-            // Fuentes redundantes para detectar conduit:
-            //   1) Layer del pipe contiene ELECTRIC / TELECOM.
-            //   2) La estructura conectada es "Null Structure" / "Estructura nula".
-            //   3) No hay estructura conectada.
-            bool esConduit = false;
-            try
-            {
-                string layer = (p.Layer ?? "").ToUpperInvariant();
-                if (layer.Contains("ELECTRIC") || layer.Contains("TELECOM")) esConduit = true;
-            }
-            catch { }
-            if (!esConduit && !structId.IsNull && structId.IsValid)
-            {
-                try
-                {
-                    var stChk = tr.GetObject(structId, OpenMode.ForRead) as CivilDB.Structure;
-                    string dChk = stChk?.PartDescription ?? "";
-                    if (dChk.IndexOf("Null", StringComparison.OrdinalIgnoreCase) >= 0 ||
-                        dChk.IndexOf("nula", StringComparison.OrdinalIgnoreCase) >= 0)
-                        esConduit = true;
-                }
-                catch { }
-            }
-            if (esConduit) return centerline.Z;
-
             if (!structId.IsNull && structId.IsValid)
             {
                 try
                 {
                     var st = tr.GetObject(structId, OpenMode.ForRead) as CivilDB.Structure;
+                    // "Null Structure" (usado en conduit) no tiene sump útil: caemos
+                    // al cálculo geométrico eje − InnerHeight/2 (que devuelve el
+                    // valor real de la rasante que el usuario puso en Python).
                     if (st != null)
                     {
-                        try
-                        {
-                            int idx = -1;
-                            for (int i = 0; i < st.ConnectedPipesCount; i++)
-                                if (st.get_ConnectedPipe(i) == p.ObjectId) { idx = i; break; }
-                            if (idx >= 0)
-                            {
-                                double depth = st.get_PipeInvertDepth(idx);
-                                return st.RimElevation - depth;
-                            }
-                        }
-                        catch { }
-                        return st.SumpElevation;                    // fallback razonable
+                        string desc = st.PartDescription ?? "";
+                        bool esNull = desc.IndexOf("Null", StringComparison.OrdinalIgnoreCase) >= 0 ||
+                                       desc.IndexOf("nula", StringComparison.OrdinalIgnoreCase) >= 0;
+                        if (!esNull) return st.SumpElevation;
                     }
                 }
                 catch { }
             }
-
-            // Dead-end de gravedad (sin structure): rasante = eje − radio interior.
+            // Sin structure útil: rasante = eje − InnerHeight/2 (correcto para
+            // rectangulares y circulares). InnerDiameterOrWidth NO sirve en
+            // rectangulares porque devuelve el ANCHO, no la altura.
             double r = 0.0;
-            try { r = p.InnerDiameterOrWidth / 2.0; } catch { }
+            try
+            {
+                var pInnerH = p.GetType().GetProperty("InnerHeight");
+                if (pInnerH != null)
+                {
+                    var v = pInnerH.GetValue(p);
+                    if (v is double h && h > 1e-6) r = h / 2.0;
+                }
+            }
+            catch { }
+            if (r <= 0.0)
+            {
+                try { r = p.InnerDiameterOrWidth / 2.0; } catch { }
+            }
             return centerline.Z - r;
         }
 
@@ -525,7 +525,8 @@ namespace Civil3DBasico
         // calcular la separación mínima al borde exterior (0.5 ft) — así una tubería
         // gruesa no queda con la flecha/texto encima.
         static void DibujarFlechaFlujo(BlockTableRecord ms, Transaction tr,
-            Point3d p1, Point3d p2, double invP1, double invP2, double escala, double txtH, double diametroReal)
+            Point3d p1, Point3d p2, double invP1, double invP2, double escala, double txtH, double diametroReal,
+            double? slopePipe)
         {
             Vector3d dirPipe = new Vector3d(p2.X - p1.X, p2.Y - p1.Y, 0.0);
             if (dirPipe.Length < 1e-6) return;
@@ -554,8 +555,19 @@ namespace Civil3DBasico
             DrawLineaSimple(ms, tr, cabeza, cabeza + alaA * alaLen);
             DrawLineaSimple(ms, tr, cabeza, cabeza + alaB * alaLen);
 
-            double longitudPipe = p1.DistanceTo(p2);
-            double pendiente = longitudPipe > 1e-6 ? Math.Abs(invP1 - invP2) / longitudPipe * 100.0 : 0.0;
+            // Pendiente real de Civil3D (Pipe.Slope, "Talud de tubería (extremo inicial)")
+            // en vez del cálculo geométrico eje-a-eje — si por algo no se pudo leer, se
+            // cae al cálculo geométrico como respaldo.
+            double pendiente;
+            if (slopePipe.HasValue)
+            {
+                pendiente = Math.Abs(slopePipe.Value) * 100.0;
+            }
+            else
+            {
+                double longitudPipe = p1.DistanceTo(p2);
+                pendiente = longitudPipe > 1e-6 ? Math.Abs(invP1 - invP2) / longitudPipe * 100.0 : 0.0;
+            }
 
             double rot = Math.Atan2(dirPipe.Y, dirPipe.X);
             if (rot > Math.PI / 2.0 + 1e-6 || rot < -Math.PI / 2.0 - 1e-6) rot += Math.PI;   // nunca "boca abajo"

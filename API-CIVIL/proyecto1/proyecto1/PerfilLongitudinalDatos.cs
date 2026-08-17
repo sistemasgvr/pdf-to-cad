@@ -93,13 +93,13 @@ namespace Civil3DBasico
             return (nodos, tramos);
         }
 
-        // Misma regla que CotarTuberias.cs (InvertEnNodo): prioriza el valor LÓGICO
-        // que Civil3D reporta en Properties del pipe ("Elevación de rasante"), no un
-        // cálculo geométrico:
-        //   1) Si hay estructura conectada → rim − structure.get_PipeInvertDepth(idx)
-        //      del pipe en cuestión (idx = su posición en ConnectedPipes).
-        //   2) Si falla → SumpElevation del buzón como aproximación razonable.
-        //   3) Sin estructura conectada → cálculo geométrico eje − radio_interior.
+        // Rasante en un extremo de tubería: SIEMPRE Structure.SumpElevation cuando hay
+        // estructura conectada — es el valor AUTORITATIVO que IMPORTAR_RED ya fijó
+        // explícitamente desde el DXF, no una regla interna de Civil3D. (Antes se
+        // probaba primero "rim − structure.get_PipeInvertDepth(idx)", pero esa regla de
+        // Civil3D no aplica igual a tuberías conduit/eléctricas y desfasaba la cota —
+        // ver CotarTuberias.cs.InvertEnNodo para el detalle del bug.)
+        // Sin estructura conectada: cálculo geométrico eje − radio_interior.
         private static double InvertEnNodo(ObjectId structId, Point3d centerline, CivilDB.Pipe p, Transaction tr)
         {
             if (!structId.IsNull && structId.IsValid)
@@ -107,22 +107,7 @@ namespace Civil3DBasico
                 try
                 {
                     var st = tr.GetObject(structId, OpenMode.ForRead) as CivilDB.Structure;
-                    if (st != null)
-                    {
-                        try
-                        {
-                            int idx = -1;
-                            for (int i = 0; i < st.ConnectedPipesCount; i++)
-                                if (st.get_ConnectedPipe(i) == p.ObjectId) { idx = i; break; }
-                            if (idx >= 0)
-                            {
-                                double depth = st.get_PipeInvertDepth(idx);
-                                return st.RimElevation - depth;
-                            }
-                        }
-                        catch { }
-                        return st.SumpElevation;   // fallback razonable
-                    }
+                    if (st != null) return st.SumpElevation;
                 }
                 catch { }
             }

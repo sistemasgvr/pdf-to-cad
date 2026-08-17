@@ -46,7 +46,7 @@ namespace Civil3DBasico
             public double CotaInicio;      // extremo con MAYOR cota (aguas arriba)
             public double CotaDescarga;    // extremo con MENOR cota (aguas abajo)
             public string DescargaA;       // nombre de la estructura del extremo aguas abajo
-            public double DiametroIn;
+            public string DiametroTexto;   // "15.0 in" (circular) o "15.0 x 12.0 in" (rectangular/otra forma)
             public double Pendiente => Longitud > 1e-6 ? (CotaInicio - CotaDescarga) / Longitud * 100.0 : 0.0;
         }
 
@@ -129,7 +129,6 @@ namespace Civil3DBasico
                                 double longitud = 0.0;
                                 try { longitud = p.Length2DCenterToCenter; } catch { try { longitud = p.Length2D; } catch { } }
 
-                                double diamIn = 0.0; try { diamIn = p.InnerDiameterOrWidth * 12.0; } catch { }
                                 string nombrePipe; try { nombrePipe = p.Name; } catch { nombrePipe = "?"; }
 
                                 tuberias.Add(new FilaTuberia
@@ -139,7 +138,7 @@ namespace Civil3DBasico
                                     CotaInicio = startEsAguasArriba ? invA : invB,
                                     CotaDescarga = startEsAguasArriba ? invB : invA,
                                     DescargaA = nombreDescarga,
-                                    DiametroIn = diamIn,
+                                    DiametroTexto = FormatoDiametro(p),
                                 });
                             }
                             catch { }
@@ -187,7 +186,7 @@ namespace Civil3DBasico
                             ("C.I.", tuberias.Select(f => f.CotaInicio.ToString("F2")).ToList()),
                             ("C.D.", tuberias.Select(f => f.CotaDescarga.ToString("F2")).ToList()),
                             ("PENDIENTE", tuberias.Select(f => $"{f.Pendiente:F2} %").ToList()),
-                            ("DIÁMETRO", tuberias.Select(f => $"{f.DiametroIn:F1} in").ToList()),
+                            ("DIÁMETRO", tuberias.Select(f => f.DiametroTexto).ToList()),
                             ("DESCARGA A", tuberias.Select(f => f.DescargaA).ToList()),
                         };
                         DibujarTablaSimple(ms, tr, cursor, "CUADRO DE TUBERÍA", columnas,
@@ -268,6 +267,26 @@ namespace Civil3DBasico
                 Estilo.TxtDato, Estilo.Encabezado, AttachmentPoint.MiddleCenter);
 
             return alturaTotal;
+        }
+
+        // Diámetro COMPLETO de la tubería: "15.0 in" si es circular, "15.0 x 12.0 in" si
+        // es rectangular/otra forma (InnerDiameterOrWidth = ancho, InnerHeight = alto) —
+        // antes solo se mostraba el ancho, que en una tubería rectangular no representa
+        // la sección completa.
+        private static string FormatoDiametro(CivilDB.Pipe p)
+        {
+            double ancho = 0.0; try { ancho = p.InnerDiameterOrWidth * 12.0; } catch { }
+            try
+            {
+                if (p.CrossSectionalShape != CivilDB.SweptShapeType.Circular)
+                {
+                    double alto = 0.0; try { alto = p.InnerHeight * 12.0; } catch { }
+                    if (alto > 0.05 && Math.Abs(alto - ancho) > 0.05)
+                        return $"{ancho:F1} x {alto:F1} in";
+                }
+            }
+            catch { }
+            return $"{ancho:F1} in";
         }
 
         // Crea un MText temporal solo para medir su ancho REAL (GeometricExtents) y lo

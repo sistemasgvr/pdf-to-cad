@@ -242,6 +242,7 @@ namespace Civil3DBasico
 
             // ── 4. Redes de GRAVEDAD ────────────────────────────────────────
             var createdNetIds = new List<ObjectId>();
+            var alignmentsPendientes = new List<DatosAlignment>();
             foreach (var kv in gravedad)
             {
                 string netName = $"RED-{kv.Key}";
@@ -250,8 +251,10 @@ namespace Civil3DBasico
                     try
                     {
                         ObjectId netId = CrearRedGravedadCompleta(ed, db, civilDoc, tr,
-                            netName, surfId, defaultDepth, kv.Value, structsGravedad);
+                            netName, surfId, defaultDepth, kv.Value, structsGravedad,
+                            sinBuzones: false, out DatosAlignment dAlign);
                         if (netId != ObjectId.Null) createdNetIds.Add(netId);
+                        if (dAlign != null) alignmentsPendientes.Add(dAlign);
                         tr.Commit();
                     }
                     catch (Exception ex)
@@ -272,14 +275,74 @@ namespace Civil3DBasico
                     {
                         ObjectId netId = CrearRedGravedadCompleta(ed, db, civilDoc, tr,
                             netName, surfId, defaultDepth, kv.Value,
-                            structsConduit, sinBuzones: true);
+                            structsConduit, sinBuzones: true, out DatosAlignment dAlign);
                         if (netId != ObjectId.Null) createdNetIds.Add(netId);
+                        if (dAlign != null) alignmentsPendientes.Add(dAlign);
                         tr.Commit();
                     }
                     catch (Exception ex)
                     {
                         ed.WriteMessage($"\n✗ Error red conduit '{netName}': {ex.Message}");
                         tr.Abort();
+                    }
+                }
+            }
+
+            // ── 4c. ALINEAMIENTOS — se crean POST-commit para que GeometricExtents
+            //        de las structures ya esté rendido, y el recorté del eje al
+            //        borde exterior del buzón funcione correctamente.
+            foreach (var dAlign in alignmentsPendientes)
+            {
+                using (Transaction trAli = db.TransactionManager.StartTransaction())
+                {
+                    try
+                    {
+                        // Recortar extremos al borde visible del buzón conectado.
+                        if (dAlign.Traza.Count >= 2)
+                        {
+                            if (!dAlign.StartStructId.IsNull)
+                            {
+                                try
+                                {
+                                    Point3d p0 = dAlign.Traza[0], p1 = dAlign.Traza[1];
+                                    Point3d p0Rec = RecortarAlBordeBuzon(trAli, dAlign.StartStructId, p0, p1);
+                                    dAlign.Traza[0] = new Point3d(p0Rec.X, p0Rec.Y, p0.Z);
+                                }
+                                catch (Exception exR) { Dbg("RECORTE_START_ERR", ("msg", exR.Message)); }
+                            }
+                            if (!dAlign.EndStructId.IsNull)
+                            {
+                                try
+                                {
+                                    int lastIdx = dAlign.Traza.Count - 1;
+                                    Point3d pN = dAlign.Traza[lastIdx], pPrev = dAlign.Traza[lastIdx - 1];
+                                    Point3d pNRec = RecortarAlBordeBuzon(trAli, dAlign.EndStructId, pN, pPrev);
+                                    dAlign.Traza[lastIdx] = new Point3d(pNRec.X, pNRec.Y, pN.Z);
+                                }
+                                catch (Exception exR) { Dbg("RECORTE_END_ERR", ("msg", exR.Message)); }
+                            }
+                        }
+                        ObjectId alignId = ComandosAlineamientos.CrearAlineamientoDesdePts(
+                            db, civilDoc, trAli, dAlign.Traza, dAlign.Nombre + "-eje");
+                        // Asociar el alignment a la network SOLO para gravedad.
+                        if (alignId != ObjectId.Null && dAlign.EsGravedad && !dAlign.NetId.IsNull)
+                        {
+                            try
+                            {
+                                var netW = trAli.GetObject(dAlign.NetId, OpenMode.ForWrite) as CivilDB.Network;
+                                if (netW != null) netW.ReferenceAlignmentId = alignId;
+                            }
+                            catch { }
+                        }
+                        if (alignId != ObjectId.Null)
+                            ed.WriteMessage($"\n  · Eje '{dAlign.Nombre}-eje' creado.");
+                        trAli.Commit();
+                    }
+                    catch (Exception exAli)
+                    {
+                        Dbg("ALIGN_ERR", ("red", dAlign.Nombre), ("msg", exAli.Message));
+                        ed.WriteMessage($"\n(No se pudo crear el eje '{dAlign.Nombre}-eje': {exAli.Message} — la red se dibuja igual.)");
+                        trAli.Abort();
                     }
                 }
             }
@@ -355,11 +418,26 @@ namespace Civil3DBasico
         // =================================================================
         //  RED DE GRAVEDAD COMPLETA (auto-populate + create + diagnostics)
         // =================================================================
+        // Estado que se acumula durante la creación de cada red para poder
+        // construir el alineamiento DESPUÉS del commit — así GeometricExtents
+        // de los buzones ya está rendido y el recorté al borde funciona bien.
+        internal class DatosAlignment
+        {
+            public string Nombre;
+            public List<Point3d> Traza;
+            public ObjectId StartStructId;
+            public ObjectId EndStructId;
+            public ObjectId NetId;
+            public bool EsGravedad;
+        }
+
         private ObjectId CrearRedGravedadCompleta(
             Editor ed, Database db, CivilDocument civilDoc, Transaction tr,
             string nombre, ObjectId surfId, double defaultDepth,
-            List<ImportPipe> pipes, List<ImportStruct> structs, bool sinBuzones = false)
+            List<ImportPipe> pipes, List<ImportStruct> structs, bool sinBuzones,
+            out DatosAlignment datosAlign)
         {
+            datosAlign = null;
             PartsStyles.PartsList partsList = ObtenerPartsList(civilDoc, tr);
             if (partsList == null) { ed.WriteMessage("\nNo hay Parts Lists en el dibujo."); return ObjectId.Null; }
 
@@ -763,18 +841,18 @@ namespace Civil3DBasico
             // tuberías (fija la Z de cada extremo = invert capturado), luego rim/sump.
             // Tuberías: fijar Z de cada extremo y LEER DE VUELTA para saber si pegó.
             //
-            // Convención de Civil 3D según tipo de red:
-            //  · GRAVEDAD (buzones conectados) — StartPoint.Z = eje del tubo, y la
-            //    "Elevación de rasante" en Properties = eje − radio. Para que la
-            //    rasante mostrada iguale lo que puso el usuario, ponemos
-            //    StartPoint.Z = rasante_usuario + radio.
-            //  · CONDUIT/ELÉCTRICO (sin buzones, banco rectangular) — el pipe no
-            //    tiene "start invert" derivado en Properties: C3D muestra
-            //    directamente StartPoint.Z como rasante. Además, InnerDiameterOrWidth
-            //    devuelve el ANCHO del banco rectangular (16"), no la altura del
-            //    tubo, por lo que sumar radio inyectaba un desfase espurio (0.67 ft
-            //    en el reporte del usuario). Solución: en conduit, StartPoint.Z =
-            //    rasante_usuario directamente, sin sumar nada.
+            // Convención de Civil 3D (aplica IGUAL a gravedad y a conduit):
+            //  · Pipe.StartPoint.Z es el EJE del tubo (centerline).
+            //  · La "Elevación de rasante" de Properties = eje − InnerHeight/2 (la
+            //    mitad ALTA del pipe, no el ancho). Civil 3D aplica esta resta
+            //    automáticamente para todo tipo de red.
+            //  · Para que la rasante mostrada iguale lo que puso el usuario:
+            //        StartPoint.Z = rasante_usuario + InnerHeight/2
+            // Nota: `InnerHeight` (altura interior) es la propiedad correcta —
+            // `InnerDiameterOrWidth` devuelve el ANCHO del banco rectangular, que
+            // NO es el offset que aplica Civil 3D. Cuando InnerHeight no exista
+            // (algunos pipes circulares antiguos), fallback a InnerDiameterOrWidth
+            // (que en circulares == diámetro, y el offset queda correcto también).
             int pipeOk = 0, pipeErr = 0; string pipeMsg = "";
             foreach (var pv in explicitPipeInv)
             {
@@ -782,11 +860,7 @@ namespace Civil3DBasico
                 {
                     var pp = (CivilDB.Pipe)tr.GetObject(pv.id, OpenMode.ForWrite);
                     Point3d s = pp.StartPoint, e = pp.EndPoint;
-                    double r = 0.0;
-                    if (!sinBuzones)
-                    {
-                        try { r = pp.InnerDiameterOrWidth / 2.0; } catch { }
-                    }
+                    double r = OffsetEjeARasante(pp);
                     double czS = pv.zStart + r, czE = pv.zEnd + r;
                     pp.StartPoint = new Point3d(s.X, s.Y, czS);
                     pp.EndPoint = new Point3d(e.X, e.Y, czE);
@@ -838,60 +912,49 @@ namespace Civil3DBasico
             // En conduit (eléctrico/telecom) NO se crea alineamiento: si hay varias
             // subredes desconectadas dentro de la misma capa, el eje las une con una
             // polilínea fina que aparenta ser una conexión real.
-            // Alineamiento (eje) para la red — permite después crear vistas de perfil.
-            // Se envuelve TODO en try/catch: si el alignment o su recorté fallan,
-            // NO debe abortar la creación de la red (que ya está lista en el dibujo).
-            ObjectId alignId = ObjectId.Null;
+            // Datos para el alineamiento — se construye AFUERA en un post-commit
+            // (una vez que Civil 3D rindió la geometría de los buzones, así
+            // GeometricExtents ya devuelve el bounding-box visible y el recorté
+            // al borde del buzón funciona bien).
+            datosAlign = new DatosAlignment
+            {
+                Nombre = nm,
+                Traza = new List<Point3d>(trazaEje),
+                StartStructId = ejeStartStructId,
+                EndStructId = ejeEndStructId,
+                NetId = netId,
+                EsGravedad = !sinBuzones,
+            };
+
+            ed.WriteMessage($"\n✓ Red {(sinBuzones ? "conduit" : "gravedad")} '{nm}': {createdStructs.Count} nodos, {nPipes} tuberías.");
+            return netId;
+        }
+
+        // Offset entre StartPoint.Z (eje del tubo) y la "Elevación de rasante" que
+        // Civil 3D muestra en Properties. En C3D 2020+ ese valor mostrado es
+        //     invert = StartPoint.Z − InnerHeight/2
+        // para pipes RECTANGULARES, y = StartPoint.Z − InnerDiameter/2 para
+        // circulares. `InnerHeight` es la propiedad correcta en rectangulares:
+        // `InnerDiameterOrWidth` en un banco rectangular devuelve el ANCHO, que
+        // NO es lo que C3D usa para calcular el invert.
+        //
+        // Prueba InnerHeight por reflexión (existe en pipes rectangulares); si no
+        // está disponible o devuelve 0, cae a InnerDiameterOrWidth (que en pipes
+        // circulares == diámetro y produce el offset correcto también).
+        private static double OffsetEjeARasante(CivilDB.Pipe pp)
+        {
             try
             {
-                // Recortar el primer y último punto del trazaEje al BORDE del buzón
-                // en cada extremo — el usuario quiere que el eje arranque/termine
-                // tocando la cara exterior del buzón, sin cruzarlo. Buzones internos
-                // no se tocan: por convención el eje sí atraviesa los buzones
-                // intermedios de la misma red.
-                if (trazaEje.Count >= 2)
+                var pInnerH = pp.GetType().GetProperty("InnerHeight");
+                if (pInnerH != null)
                 {
-                    if (!ejeStartStructId.IsNull)
-                    {
-                        Point3d p0 = trazaEje[0], p1 = trazaEje[1];
-                        try
-                        {
-                            Point3d p0Rec = RecortarAlBordeBuzon(tr, ejeStartStructId, p0, p1);
-                            trazaEje[0] = new Point3d(p0Rec.X, p0Rec.Y, p0.Z);
-                        }
-                        catch (Exception exR) { Dbg("RECORTE_START_ERR", ("msg", exR.Message)); }
-                    }
-                    if (!ejeEndStructId.IsNull)
-                    {
-                        int lastIdx = trazaEje.Count - 1;
-                        Point3d pN = trazaEje[lastIdx], pPrev = trazaEje[lastIdx - 1];
-                        try
-                        {
-                            Point3d pNRec = RecortarAlBordeBuzon(tr, ejeEndStructId, pN, pPrev);
-                            trazaEje[lastIdx] = new Point3d(pNRec.X, pNRec.Y, pN.Z);
-                        }
-                        catch (Exception exR) { Dbg("RECORTE_END_ERR", ("msg", exR.Message)); }
-                    }
-                }
-                alignId = ComandosAlineamientos.CrearAlineamientoDesdePts(db, civilDoc, tr, trazaEje, nm + "-eje");
-                if (alignId != ObjectId.Null && !sinBuzones)
-                {
-                    // Solo asociamos el alignment a la Network en redes de gravedad;
-                    // en conduit lo dejamos como alignment "suelto" en el dibujo
-                    // porque asignarlo a la network puede fallar según el template.
-                    try { net.ReferenceAlignmentId = alignId; } catch { }
+                    var v = pInnerH.GetValue(pp);
+                    if (v is double h && h > 1e-6) return h / 2.0;
                 }
             }
-            catch (Exception exAlign)
-            {
-                Dbg("ALIGN_ERR", ("red", nm), ("msg", exAlign.Message));
-                ed.WriteMessage($"\n(No se pudo crear el eje '{nm}-eje': {exAlign.Message} — la red se dibuja igual.)");
-                alignId = ObjectId.Null;
-            }
-
-            ed.WriteMessage($"\n✓ Red {(sinBuzones ? "conduit" : "gravedad")} '{nm}': {createdStructs.Count} nodos, {nPipes} tuberías" +
-                            (alignId != ObjectId.Null ? " + eje." : "."));
-            return netId;
+            catch { }
+            try { return pp.InnerDiameterOrWidth / 2.0; } catch { }
+            return 0.0;
         }
 
         // Recorta `propio` (que suele estar en el centro del buzón) hasta el BORDE

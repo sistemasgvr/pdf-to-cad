@@ -544,8 +544,6 @@ class Main(QtWidgets.QMainWindow):
         self.bz_net_lbl = QtWidgets.QLabel("—")
         self.bz_origin_lbl = QtWidgets.QLabel("—")
         fbz.addRow("Código:", self.bz_cod)
-        self.bz_rim_lbl = QtWidgets.QLabel(f"Rim ({self.work_unit}):"); fbz.addRow(self.bz_rim_lbl, self.bz_rim)
-        self.bz_sump_lbl = QtWidgets.QLabel(f"Sump ({self.work_unit}):"); fbz.addRow(self.bz_sump_lbl, self.bz_sump)
         fbz.addRow("Familia:", self.bz_family)
         fbz.addRow("Tamaño:", self.bz_size)
         fbz.addRow("Red:", self.bz_net_lbl)

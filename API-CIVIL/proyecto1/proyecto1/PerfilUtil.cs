@@ -55,7 +55,10 @@ namespace Civil3DBasico
             try
             {
                 if (nodos == null || nodos.Count < 2) return ObjectId.Null;
-                ObjectId pStyle = civilDoc.Styles.ProfileStyles[0];
+                // Estilo de perfil "Standard" (por nombre, no el primero de la lista al
+                // azar) — así el Profile creado se ve con un estilo reconocible y
+                // predecible al abrirlo/seleccionarlo en Civil3D.
+                ObjectId pStyle = BuscarEstiloPerfilPorNombre(civilDoc, tr, "Standard");
                 ObjectId pLabel = civilDoc.Styles.LabelSetStyles.ProfileLabelSetStyles[0];
                 ObjectId profId = CivilDB.Profile.CreateByLayout(
                     $"{nombreRed}-rasante", alignId, db.Clayer, pStyle, pLabel);
@@ -83,6 +86,27 @@ namespace Civil3DBasico
                 return profId;
             }
             catch { return ObjectId.Null; }
+        }
+
+        // Busca un estilo de perfil por NOMBRE (p.ej. "Standard", el que trae Civil3D
+        // por defecto) en vez de tomar ciegamente el primero de la lista — así el
+        // Profile creado usa un estilo predecible y reconocible. Si no existe ese
+        // nombre en el dibujo (plantilla distinta), cae al primero de la lista.
+        private static ObjectId BuscarEstiloPerfilPorNombre(CivilDocument civilDoc, Transaction tr, string nombre)
+        {
+            ObjectId primero = ObjectId.Null;
+            foreach (ObjectId id in civilDoc.Styles.ProfileStyles)
+            {
+                if (primero.IsNull) primero = id;
+                try
+                {
+                    var st = tr.GetObject(id, OpenMode.ForRead) as CivilDB.Styles.ProfileStyle;
+                    if (st != null && string.Equals(st.Name, nombre, StringComparison.OrdinalIgnoreCase))
+                        return id;
+                }
+                catch { }
+            }
+            return primero;
         }
 
         private static void LimpiarBandasYEstaciones(CivilDB.ProfileView pv, CivilDB.Alignment al)

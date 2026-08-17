@@ -75,7 +75,7 @@ namespace Civil3DBasico
             public double YHeaderBottom, YGridTop, YPlotTop, YGridBottom, YTableTop, YTableBottom;
             public bool MostrarTerreno, MostrarTapa;
             public bool DiametroConstante;
-            public double DiametroConstanteIn;
+            public string DiametroConstanteTexto;
             public string MaterialConstante;
             public int NumFilasTabla;
 
@@ -157,15 +157,15 @@ namespace Civil3DBasico
             bool mostrarTerreno = terreno != null && terreno.Count > 0;
             bool mostrarTapa = nodos.Any(n => TryRim(n.St).HasValue);
 
-            bool diamConst = true; double diamIn = 0.0; string material = "";
+            bool diamConst = true; string diamTexto = ""; string material = "";
             if (tramos != null && tramos.Count > 0)
             {
-                try { diamIn = tramos[0].P.InnerDiameterOrWidth * 12.0; } catch { }
+                try { diamTexto = FormatoDiametro(tramos[0].P); } catch { }
                 try { material = tramos[0].P.Description ?? ""; } catch { }
                 foreach (var t in tramos)
                 {
-                    double d = 0.0; try { d = t.P.InnerDiameterOrWidth * 12.0; } catch { }
-                    if (Math.Abs(d - diamIn) > 0.05) { diamConst = false; break; }
+                    string d = ""; try { d = FormatoDiametro(t.P); } catch { }
+                    if (d != diamTexto) { diamConst = false; break; }
                 }
             }
 
@@ -189,7 +189,7 @@ namespace Civil3DBasico
                 MostrarTerreno = mostrarTerreno,
                 MostrarTapa = mostrarTapa,
                 DiametroConstante = diamConst,
-                DiametroConstanteIn = diamIn,
+                DiametroConstanteTexto = diamTexto,
                 MaterialConstante = material,
                 NumFilasTabla = numFilas,
             };
@@ -457,7 +457,7 @@ namespace Civil3DBasico
             Etiqueta("DIÁMETRO (in)");
             if (s.DiametroConstante)
             {
-                string texto = s.DiametroConstanteIn.ToString("F1") +
+                string texto = s.DiametroConstanteTexto +
                     (string.IsNullOrWhiteSpace(s.MaterialConstante) ? "" : $" ({s.MaterialConstante})");
                 DrawText(ms, tr, texto, new Point3d((xIzqDatos + s.XDer) / 2.0, YCentroFila(), 0), txt, Estilo.Secundario, AttachmentPoint.MiddleCenter);
             }
@@ -466,8 +466,8 @@ namespace Civil3DBasico
                 foreach (var t in tramos)
                 {
                     double xm = (s.X(t.StaIni) + s.X(t.StaFin)) / 2.0;
-                    double diamIn = 0.0; try { diamIn = t.P.InnerDiameterOrWidth * 12.0; } catch { }
-                    DrawText(ms, tr, diamIn.ToString("F1"), new Point3d(xm, YCentroFila(), 0), txt, Estilo.Secundario, AttachmentPoint.MiddleCenter);
+                    string diamTxt = ""; try { diamTxt = FormatoDiametro(t.P); } catch { }
+                    DrawText(ms, tr, diamTxt, new Point3d(xm, YCentroFila(), 0), txt, Estilo.Secundario, AttachmentPoint.MiddleCenter);
                 }
             }
             Divisora();
@@ -576,6 +576,26 @@ namespace Civil3DBasico
             lt.UpgradeOpen();
             var ltr = new LayerTableRecord { Name = Estilo.Capa, Color = Color.FromColorIndex(ColorMethod.ByAci, 7) };
             lt.Add(ltr); tr.AddNewlyCreatedDBObject(ltr, true);
+        }
+
+        // Diámetro COMPLETO de la tubería: "15.0 in" si es circular, "15.0 x 12.0 in" si
+        // es rectangular/otra forma (InnerDiameterOrWidth = ancho, InnerHeight = alto) —
+        // antes solo se mostraba el ancho, que en una tubería rectangular no representa
+        // la sección completa.
+        private static string FormatoDiametro(CivilDB.Pipe p)
+        {
+            double ancho = 0.0; try { ancho = p.InnerDiameterOrWidth * 12.0; } catch { }
+            try
+            {
+                if (p.CrossSectionalShape != CivilDB.SweptShapeType.Circular)
+                {
+                    double alto = 0.0; try { alto = p.InnerHeight * 12.0; } catch { }
+                    if (alto > 0.05 && Math.Abs(alto - ancho) > 0.05)
+                        return $"{ancho:F1} x {alto:F1} in";
+                }
+            }
+            catch { }
+            return $"{ancho:F1} in";
         }
 
         private static double? TryRim(CivilDB.Structure st)
