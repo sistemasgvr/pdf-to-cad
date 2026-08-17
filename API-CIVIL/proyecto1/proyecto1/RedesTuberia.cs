@@ -676,14 +676,17 @@ namespace Civil3DBasico
         };
         private static readonly string[] KW_CUSTOM_STRUCT = new[] { "buzon", "buzón" };
 
-        private static bool EsFamiliaCustomPipe(string desc)
+        // internal (no private): PrepararFamilias.cs las reutiliza para detectar
+        // qué familias referenciadas en el DXF son "nuevas"/personalizadas y
+        // excluir las de fábrica — un solo lugar con la lista de keywords.
+        internal static bool EsFamiliaCustomPipe(string desc)
         {
             if (string.IsNullOrEmpty(desc)) return false;
             string d = desc.ToLowerInvariant();
             foreach (var k in KW_CUSTOM_PIPE) if (d.Contains(k)) return true;
             return false;
         }
-        private static bool EsFamiliaCustomStruct(string desc)
+        internal static bool EsFamiliaCustomStruct(string desc)
         {
             if (string.IsNullOrEmpty(desc)) return false;
             string d = desc.ToLowerInvariant();
@@ -770,18 +773,22 @@ namespace Civil3DBasico
                     string aviso;
                     if (TryParseRectSize(diam, out w, out h) && w.HasValue && h.HasValue)
                     {
-                        ObjectId cercano = SizeMasCercano(tr, fam, w.Value, h.Value, out string nombreCercano);
+                        ObjectId cercano = SizeMasCercano(tr, fam, w.Value, h.Value,
+                            CivilDB.PartContextType.PipeInnerWidth, CivilDB.PartContextType.PipeInnerHeight,
+                            out string nombreCercano, out bool esExacto);
                         if (cercano != ObjectId.Null)
                         {
                             sizeElegido = cercano; sizeNombre = nombreCercano;
-                            aviso = $"\n⚠ Tamaño '{diam}' no existe en el catálogo de '{fam.Description}' — usando el más cercano disponible '{nombreCercano}'. Para la medida exacta, agrégala en Part Builder.";
+                            aviso = esExacto ? null
+                                : $"\n⚠ Tamaño '{diam}' no existe en el catálogo de '{fam.Description}' — usando el más cercano disponible '{nombreCercano}'. Para la medida exacta, agrégala en Part Builder.";
                         }
                         else
                             aviso = $"\n⚠ Tamaño '{diam}' no disponible en '{fam.Description}' — usando '{sizeNombre}' en su lugar. Para medidas personalizadas, usa Part Builder.";
                     }
                     else
                         aviso = $"\n⚠ Tamaño '{diam}' no disponible en '{fam.Description}' — usando '{sizeNombre}' en su lugar. Para medidas personalizadas, usa Part Builder.";
-                    try { Application.DocumentManager.MdiActiveDocument?.Editor?.WriteMessage(aviso); } catch { }
+                    if (aviso != null)
+                        try { Application.DocumentManager.MdiActiveDocument?.Editor?.WriteMessage(aviso); } catch { }
                 }
                 familyId = fid; sizeId = sizeElegido;
                 nombre = $"{fam.Description} / {sizeNombre}";
@@ -887,18 +894,22 @@ namespace Civil3DBasico
                     string aviso;
                     if (TryParseRectSize(radio, out wS, out lS) && wS.HasValue && lS.HasValue)
                     {
-                        ObjectId cercano = SizeMasCercano(tr, fam, wS.Value, lS.Value, out string nombreCercano);
+                        ObjectId cercano = SizeMasCercano(tr, fam, wS.Value, lS.Value,
+                            CivilDB.PartContextType.StructInnerWidth, CivilDB.PartContextType.StructInnerLength,
+                            out string nombreCercano, out bool esExacto);
                         if (cercano != ObjectId.Null)
                         {
                             elegidoSize = cercano; elegidoSizeName = nombreCercano;
-                            aviso = $"\n⚠ Tamaño '{radio}' no existe en el catálogo de '{fam.Description}' — usando el más cercano disponible '{nombreCercano}'. Para la medida exacta, agrégala en Part Builder.";
+                            aviso = esExacto ? null
+                                : $"\n⚠ Tamaño '{radio}' no existe en el catálogo de '{fam.Description}' — usando el más cercano disponible '{nombreCercano}'. Para la medida exacta, agrégala en Part Builder.";
                         }
                         else
                             aviso = $"\n⚠ Tamaño '{radio}' no disponible en '{fam.Description}' — usando '{elegidoSizeName}' en su lugar. Para medidas personalizadas, usa Part Builder.";
                     }
                     else
                         aviso = $"\n⚠ Tamaño '{radio}' no disponible en '{fam.Description}' — usando '{elegidoSizeName}' en su lugar. Para medidas personalizadas, usa Part Builder.";
-                    try { Application.DocumentManager.MdiActiveDocument?.Editor?.WriteMessage(aviso); } catch { }
+                    if (aviso != null)
+                        try { Application.DocumentManager.MdiActiveDocument?.Editor?.WriteMessage(aviso); } catch { }
                 }
 
                 familyId = fid; sizeId = elegidoSize;
@@ -1181,21 +1192,49 @@ namespace Civil3DBasico
         }
 
         // Busca, entre los PartSize YA EXISTENTES de la familia (sin crear nada
-        // nuevo), el más cercano al W×H pedido. Devuelve ObjectId.Null si ningún
-        // tamaño de la familia se pudo interpretar como rectangular.
-        private static ObjectId SizeMasCercano(Transaction tr, PartsStyles.PartFamily fam, double w, double h, out string nombreOut)
+        // nuevo), el más cercano al W×H pedido (Ancho×Alto para tuberías,
+        // Ancho×Largo para estructuras — ctxW/ctxH indican cuál).
+        //
+        // IMPORTANTE: comparamos por el valor INTERIOR real de cada PartSize
+        // (PartSize.SizeDataRecord.GetDataFieldBy(context), confirmado por
+        // reflexión sobre AeccDbMgd.dll), NO por los números que aparezcan en
+        // PartSize.Name. El Name es una etiqueta calculada por la propia
+        // fórmula de catálogo de cada familia (p.ej. algunas suman el espesor
+        // de pared → "44 x 92" para un tamaño interior real de "24 x 72") —
+        // parsear el Name podía hacer que se eligiera un tamaño vecino
+        // equivocado en vez del que realmente coincide con lo pedido.
+        // Devuelve ObjectId.Null si ningún tamaño de la familia se pudo leer.
+        private static ObjectId SizeMasCercano(Transaction tr, PartsStyles.PartFamily fam, double w, double h,
+                                                CivilDB.PartContextType ctxW, CivilDB.PartContextType ctxH,
+                                                out string nombreOut, out bool esExacto)
         {
-            nombreOut = "";
+            nombreOut = ""; esExacto = false;
             ObjectId mejor = ObjectId.Null;
             double mejorDist = double.MaxValue;
             for (int i = 0; i < fam.PartSizeCount; i++)
             {
                 var sz = tr.GetObject(fam[i], OpenMode.ForRead) as PartsStyles.PartSize;
                 if (sz == null) continue;
-                if (!TryParseRectSize(sz.Name, out double? ew, out double? eh) || !ew.HasValue || !eh.HasValue) continue;
-                double dist = Math.Abs(ew.Value - w) + Math.Abs(eh.Value - h);
+                double? rw = null, rh = null;
+                try
+                {
+                    var rec = sz.SizeDataRecord;
+                    var fw = rec?.GetDataFieldBy(ctxW);
+                    var fh = rec?.GetDataFieldBy(ctxH);
+                    if (fw != null && fw.Value != null) rw = Convert.ToDouble(fw.Value, CultureInfo.InvariantCulture);
+                    if (fh != null && fh.Value != null) rh = Convert.ToDouble(fh.Value, CultureInfo.InvariantCulture);
+                }
+                catch { rw = null; rh = null; }
+                if (!rw.HasValue || !rh.HasValue)
+                {
+                    // Fallback: familia sin esos campos por contexto — parsear el Name.
+                    if (!TryParseRectSize(sz.Name, out double? nw, out double? nh) || !nw.HasValue || !nh.HasValue) continue;
+                    rw = nw; rh = nh;
+                }
+                double dist = Math.Abs(rw.Value - w) + Math.Abs(rh.Value - h);
                 if (dist < mejorDist) { mejorDist = dist; mejor = fam[i]; nombreOut = sz.Name; }
             }
+            esExacto = mejor != ObjectId.Null && mejorDist < 0.01;
             return mejor;
         }
     }

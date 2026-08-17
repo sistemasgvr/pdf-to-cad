@@ -25,7 +25,7 @@ import re
 import sqlite3
 import xml.etree.ElementTree as ET
 
-SUPPORTED_YEARS = (2024, 2025, 2026, 2027)
+SUPPORTED_YEARS = (2025, 2026, 2027)  # 2024 y anteriores: no soportados
 LANG_PREFERENCES = ("esp", "enu", "fra", "deu", "ita", "ptb")
 
 # Idioma activo del catálogo — la UI Python lo setea con set_current_lang() al
@@ -367,10 +367,10 @@ def family_description(year, fid, kind):
 
 
 def structure_sizes(year, fid):
-    """Devuelve la lista de tamaños de una familia de estructura de gravedad, como
-    strings tipo "48 in", "60 in". Se toma el ColumnConstList con context que
-    represente el diámetro interior (SID) o, en su defecto, el primer parámetro
-    con unit definida. Lista vacía si no encuentra nada."""
+    """Devuelve la lista de tamaños de una familia de estructura de gravedad.
+    Solo reconoce combinaciones de StructInnerWidth x StructInnerLength
+    (rectangular) o StructInnerDiameter solo (circular) — ningún otro
+    parámetro. Lista vacía si no encuentra ninguno de los dos."""
     root = catalog_root(year)
     if root is None: return []
     xml_path = None
@@ -382,9 +382,12 @@ def structure_sizes(year, fid):
         tree = ET.parse(xml_path); root_el = tree.getroot()
     except ET.ParseError:
         return []
-    # Prioridad: StructInnerDiameter, luego cualquier ColumnConstList con Items.
-    preferred_contexts = ("StructInnerDiameter", "StructOuterDiameter",
-                          "StructFrameLength", "StructWidth")
+    # Único fallback aceptado además de Width x Length: StructInnerDiameter,
+    # el equivalente circular directo (estructuras redondas no tienen Width/
+    # Length). No se prueba ningún otro parámetro — mostrar valores de un
+    # campo que no sea el tamaño real (marco, pared, etc.) es la causa del
+    # bug reportado ("salen más tamaños de los que existen en Civil 3D").
+    preferred_contexts = ("StructInnerDiameter",)
     def _fmt(v, unit):
         try:
             x = float(v)
@@ -405,38 +408,33 @@ def structure_sizes(year, fid):
             seen.add(s); out.append(s)
         return out
     # Estructuras RECTANGULARES (buzones tipo Box): tienen StructInnerWidth +
-    # StructInnerLength en el XML. Civil 3D muestra las dimensiones EXTERIORES
-    # en el Part Size Name (fórmula típica: outer = inner + 2*WallThickness).
-    # Devolvemos el producto cartesiano usando outer, para que coincida con la UI.
+    # StructInnerLength en el XML. Mostramos las dimensiones INTERIORES tal
+    # cual están en el catálogo (son el parámetro real que se está eligiendo,
+    # y el mismo que usa PREPARAR_FAMILIAS del lado C# para crear los
+    # tamaños). Civil 3D le pone su propio nombre calculado a cada PartSize
+    # (a veces sumando espesor de pared u otros parámetros vía su propia
+    # fórmula de catálogo), pero eso es solo una etiqueta de display — el
+    # emparejamiento con la pieza real se hace por el valor interior, no por
+    # ese nombre (ver SizeMasCercano en RedesTuberia.cs).
     by_ctx = {}
     for col in root_el.findall("ColumnConstList"):
         ctx = col.get("context", "")
         if ctx in ("StructInnerWidth", "StructInnerLength"):
             vals = [it.text for it in col.findall("Item") if it.text]
             if vals: by_ctx[ctx] = (col.get("unit", ""), vals)
-    # WallThickness suele venir como ColumnConst (valor único).
-    wall_th = 0.0
-    for cc in root_el.findall("ColumnConst"):
-        if cc.get("context") == "WallThickness":
-            try: wall_th = float(cc.text or "0")
-            except (TypeError, ValueError): wall_th = 0.0
-            break
     if "StructInnerWidth" in by_ctx and "StructInnerLength" in by_ctx:
         uw, ws = by_ctx["StructInnerWidth"]
         ul, ls = by_ctx["StructInnerLength"]
         u = uw or ul
         norm_u = "in" if (u or "").lower() in ("inch", "in", "\"") else \
                  ("ft" if (u or "").lower() in ("foot", "feet", "ft", "'") else (u or ""))
-        def _outer(v):
-            try: return float(v) + 2.0 * wall_th
-            except (TypeError, ValueError): return None
-        def _n(x):
-            if x is None: return "?"
-            return f"{x:.4f}".rstrip("0").rstrip(".")
+        def _n(v):
+            try: return f"{float(v):.4f}".rstrip("0").rstrip(".")
+            except (TypeError, ValueError): return str(v)
         out, seen = [], set()
         for w in ws:
             for l in ls:
-                s = f"{_n(_outer(w))} x {_n(_outer(l))}" + (f" {norm_u}" if norm_u else "")
+                s = f"{_n(w)} x {_n(l)}" + (f" {norm_u}" if norm_u else "")
                 if s in seen: continue
                 seen.add(s); out.append(s)
         return out
@@ -446,9 +444,8 @@ def structure_sizes(year, fid):
             if col.get("context") == ctx:
                 sizes = _extract(col)
                 if sizes: return sizes
-    for col in root_el.findall("ColumnConstList"):
-        sizes = _extract(col)
-        if sizes: return sizes
+    # Fail closed: si no hay Width+Length ni Diameter, no inventamos tamaños
+    # a partir de un parámetro cualquiera del XML.
     return []
 
 
@@ -529,16 +526,20 @@ def pipe_family_xml(year, fid):
 def pipe_sizes(year, fid):
     """Tamaños disponibles de una familia de tubería. Los XML de pipes usan
     <Column>/<Row> (a diferencia de las estructuras que usan ColumnConstList/Item).
-    Busca el diámetro interior (PID / PipeInnerDiameter) o el primer parámetro
-    con filas disponibles."""
+    Solo reconoce combinaciones de PipeInnerWidth x PipeInnerHeight (rectangular)
+    o PipeInnerDiameter solo (circular) — ningún otro parámetro."""
     path = pipe_family_xml(year, fid)
     if path is None: return []
     try:
         tree = ET.parse(path); root_el = tree.getroot()
     except ET.ParseError:
         return []
-    preferred_contexts = ("PipeInnerDiameter", "PipeOuterDiameter",
-                          "PipeInnerHeight", "PipeInnerWidth")
+    # Único fallback aceptado además de Width x Height: PipeInnerDiameter,
+    # el equivalente circular directo (tuberías circulares no tienen Width/
+    # Height). No se prueba ningún otro parámetro suelto — devolver Height u
+    # OuterDiameter solos, sin su pareja, mostraría "tamaños" que no
+    # corresponden a un tamaño real de pieza.
+    preferred_contexts = ("PipeInnerDiameter",)
     def _fmt(v, unit):
         try: x = float(v)
         except (TypeError, ValueError): return str(v)
@@ -579,15 +580,12 @@ def pipe_sizes(year, fid):
                 seen.add(s); out.append(s)
             if out: return out
 
-    # PRIORIDAD 2: familia circular u ovalada — una sola columna con Rows.
+    # PRIORIDAD 2: familia circular — columna PipeInnerDiameter con Rows.
     for ctx in preferred_contexts:
         for col in root_el.findall("Column"):
             if col.get("context") == ctx:
                 sizes = _extract(col, "Row")
                 if sizes: return sizes
-    for col in root_el.findall("Column"):
-        sizes = _extract(col, "Row")
-        if sizes: return sizes
 
     # Fallback: familias tipo Bancoductos usan <ColumnConstList>/<Item> igual que
     # las estructuras. Si hay a la vez PipeInnerWidth + PipeInnerHeight (rectangular)

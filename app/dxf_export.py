@@ -199,6 +199,7 @@ def _export_structures(win, doc, msp):
         cx, cy = (float(x), float(y)) if s.get("world") else win._to_cad(x, y)
         pt = msp.add_point((cx, cy, 0), dxfattribs={"layer": "PDFCAD_BZ"})
         rim, sump = s.get("rim"), s.get("sump")
+        height_ft = s.get("height_ft") or 0.0
         pt.set_xdata("PDFCAD", [
             (1000, "PDFCAD_STRUCT"),
             (1000, f"STRUCT_ID={s.get('cod') or ''}"),
@@ -208,6 +209,7 @@ def _export_structures(win, doc, msp):
             (1000, f"PART_SIZE={s.get('part_size') or ''}"),
             (1000, f"COVERED={1 if s.get('covered', True) else 0}"),
             (1000, f"NET_KIND={s.get('net') or 'gravity'}"),
+            (1000, f"HEIGHT_FT={height_ft if height_ft else ''}"),
         ])
         if show_labels and s.get("cod"):
             h = LEADER_TEXT_FT * 0.3                 # etiquetas compactas al lado del buzón

@@ -1,14 +1,9 @@
 using System;
 using System.Collections.Generic;
-using System.Collections.ObjectModel;
 using System.IO;
 using System.Linq;
-using System.Reflection;
 using System.Text;
 using System.Windows;
-using System.Windows.Controls;
-using System.Windows.Data;
-using System.Xml;
 using Autodesk.AutoCAD.DatabaseServices;
 using Autodesk.AutoCAD.Runtime;
 using Autodesk.Civil.ApplicationServices;
@@ -18,41 +13,58 @@ using PartsStyles = Autodesk.Civil.DatabaseServices.Styles;
 using Exception = System.Exception;
 
 // ============================================================================
-//  PREPARAR_FAMILIAS
+//  PREPARAR_FAMILIAS_STEP2  (botón "⚙️ Preparar familias para dibujar")
 //  ---------------------------------------------------------------------------
-//  Flujo del botón "Preparar Familias para Dibujar" del panel Python:
+//  100% automático, sin diálogo de selección:
 //
-//    Paso 1: PARTCATALOGREGEN para Pipe y para Structure — recarga en Civil 3D
-//            los .apc que la app Python acaba de tocar.
-//    Paso 2: enumera Part Families disponibles, muestra CheckedListBox WPF y
-//            para cada familia marcada crea/completa una PartsList del mismo
-//            nombre con TODOS sus tamaños.
+//    1) Escanea el modelspace del dibujo actual buscando el XDATA "PDFCAD" que
+//       exporta la app Python en cada tubería/buzón (PIPE_FAMILY=.../PART=...,
+//       el mismo texto de Description que usa Civil3D — ver _resolve_family en
+//       app/dxf_export.py). Junta el conjunto de nombres de familia realmente
+//       usados en ESTE proyecto.
+//    2) De esos nombres, descarta los que son de fábrica (Autodesk) usando el
+//       mismo filtro de palabras clave que ya usa el resto del plugin para
+//       distinguir familias custom del proyecto GVR — ComandosRedes.
+//       EsFamiliaCustomPipe/EsFamiliaCustomStruct (RedesTuberia.cs) — así solo
+//       se procesan las familias "nuevas" que de verdad necesitan tamaños.
+//    3) Para cada una: la añade a la Parts List "Standard" del dibujo (si no
+//       estaba) y le agrega TODOS los tamaños que resultan de variar Inner
+//       Pipe Width × Inner Pipe Height (tuberías) o Inner Structure Width ×
+//       Inner Structure Length (estructuras) — el mismo resultado que el
+//       flujo manual: Redes de tuberías → Lista de piezas → Estándar → clic
+//       derecho en la familia → Añadir tamaño de pieza → tildar "todos los
+//       tamaños" en esos 2 parámetros → Aceptar. El resto de parámetros
+//       (marco, pared, losa, altura, etc.) quedan en su valor por defecto.
 //
-//  Estrategia de espera: SendStringToExecute encadenado. Los comandos que se
-//  envían por esa API se ejecutan en orden estrictamente secuencial en el hilo
-//  de UI de AutoCAD, así que `_PARTCATALOGREGEN` (paso 1) siempre termina
-//  antes de que arranque `PREPARAR_FAMILIAS_STEP2` (paso 2). Es más limpio que
-//  registrarse a Application.Idle porque no requiere de-registrarse, no lanza
-//  timeouts y respeta el modelo de comandos de AutoCAD.
+//  Si el dibujo no tiene XDATA "PDFCAD" (el DXF de Python no se insertó/abrió
+//  todavía) o el catálogo de Civil3D no tiene ninguna familia cargada, se
+//  avisa con un mensaje claro y no se toca el dibujo.
 //
 //  Comando registrado en:  Civil3DBasico.ComandosPrepararFamilias
-//    - PREPARAR_FAMILIAS         → dispara la cadena (regen + step2)
-//    - PREPARAR_FAMILIAS_STEP2   → interno, no llamar a mano
+//    - PREPARAR_FAMILIAS         → alternativa manual: regenera catálogo
+//      (_PARTCATALOGREGEN Pipe/Structure) y encadena STEP2. Solo hace falta
+//      tras instalar una familia nueva en esta misma sesión de Civil3D — el
+//      botón del panel llama a STEP2 directo porque el diálogo de
+//      PARTCATALOGREGEN no siempre deja encadenar el siguiente comando.
+//    - PREPARAR_FAMILIAS_STEP2   → el comando real (botón del panel apunta acá).
 //
 //  Clases del SDK Civil 3D usadas:
 //    - PartsStyles.PartsList.GetAvailablePartFamilies(DomainType)  → enumera
 //      familias del catálogo actualmente activo (Pipe o Structure).
-//    - CivilDocument.Styles.PartsListSet  → colección de PartsLists del dibujo.
-//    - PartsList.Create(civilDoc, name)   → crea PartsList nueva.
+//    - CivilDocument.Styles.PartsListSet  → colección de PartsLists del dibujo;
+//      se usa siempre la llamada "Standard" (o se crea si no existe ninguna).
 //    - PartsList.AddPartFamilyByGuid(dom, guid)   → añade la family.
 //    - PartsList.GetPartFamilyIdsByDomain(dom)    → ids de families ya presentes.
-//    - PartFamily.AddPartSize(SizeFilterRecord)   → añade tamaños; el filtro
-//      con IsMultipleSelect=true en cada campo IsFromList equivale al checkbox
-//      "Añadir todos los tamaños" del diálogo manual.
-//
-//  Si el catálogo devuelve cero familias (o sólo stock) el paso 2 muestra el
-//  aviso "PARTCATALOGREGEN no completó. Ejecuta el comando manualmente" — no
-//  se hace ningún cambio en el dibujo.
+//    - SizeFilterField.Context (PartContextType)  → identifica el parámetro
+//      real (PipeInnerWidth/PipeInnerHeight/StructInnerWidth/StructInnerLength),
+//      confirmado por reflexión sobre AeccDbMgd.dll — es el MISMO nombre que
+//      usa el atributo `context` en el XML del catálogo que lee el lado Python
+//      (app/civil_catalog.py), así que ambos lados apuntan a los mismos 2
+//      parámetros por diseño.
+//    - PartFamily.AddPartSize(SizeFilterRecord)   → añade tamaños; UN
+//      AddPartSize POR combinación real (confirmado con log real de un
+//      dibujo: NO expande el producto cartesiano solo, ni con
+//      IsMultipleSelect=true — ver AddTamanosPorAnchoYAlto más abajo).
 // ============================================================================
 
 namespace Civil3DBasico
@@ -112,38 +124,74 @@ namespace Civil3DBasico
                 var path = SaveLog(log);
                 MessageBox.Show(
                     "PARTCATALOGREGEN no completó — no encontré ninguna familia en el catálogo.\n\n" +
-                    "Ejecuta el comando manualmente (para Pipe y para Structure) y vuelve a intentar.\n\n" +
+                    "Ejecuta el comando '_PARTCATALOGREGEN' manualmente (una vez para Pipe, otra para " +
+                    "Structure) y vuelve a intentar.\n\n" +
                     $"Log guardado en:\n{path}",
                     "Preparar familias",
                     MessageBoxButton.OK, MessageBoxImage.Warning);
                 return;
             }
 
-            // 2) Diálogo WPF de selección
-            var items = new List<FamiliaItem>();
-            foreach (var f in pipes)    items.Add(new FamiliaItem(f, CivilDB.DomainType.Pipe));
-            foreach (var f in structs)  items.Add(new FamiliaItem(f, CivilDB.DomainType.Structure));
+            // 2) Detectar automáticamente qué familias usa ESTE dibujo, leyendo el
+            //    XDATA "PDFCAD" que exportó la app Python (PIPE_FAMILY=/PART=,
+            //    el texto real de Description) — y quedarnos solo con las que NO
+            //    son de fábrica (EsFamiliaCustomPipe/Struct).
+            var usadasPipe = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            var usadasStruct = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            int nEntidadesPdfcad = 0;
+            using (var trScan = db.TransactionManager.StartTransaction())
+            {
+                var ms = trScan.GetObject(SymbolUtilityServices.GetBlockModelSpaceId(db), OpenMode.ForRead) as BlockTableRecord;
+                foreach (ObjectId eid in ms)
+                {
+                    var ent = trScan.GetObject(eid, OpenMode.ForRead) as Entity;
+                    if (ent == null) continue;
+                    var xd = LeerXdataPdfcadLite(ent);
+                    if (xd == null) continue;
+                    nEntidadesPdfcad++;
+                    xd.TryGetValue("_MARKER", out string marker);
+                    if (marker == "PDFCAD_PIPE" && xd.TryGetValue("PIPE_FAMILY", out string pf) && !string.IsNullOrWhiteSpace(pf))
+                        usadasPipe.Add(pf.Trim());
+                    else if (marker == "PDFCAD_STRUCT" && xd.TryGetValue("PART", out string pa) && !string.IsNullOrWhiteSpace(pa))
+                        usadasStruct.Add(pa.Trim());
+                }
+                trScan.Commit();
+            }
+            D($"      Entidades con XDATA PDFCAD encontradas: {nEntidadesPdfcad}");
+            D($"      Nombres de familia de tubería referenciados: [{string.Join(", ", usadasPipe)}]");
+            D($"      Nombres de familia de estructura referenciados: [{string.Join(", ", usadasStruct)}]");
 
-            var wnd = new PrepararFamiliasWindow(items);
-            try { wnd.Owner = System.Windows.Interop.HwndSource
-                    .FromHwnd(AcadApp.MainWindow.Handle)?.RootVisual as Window; }
-            catch { }
-            bool? result = AcadApp.ShowModalWindow(AcadApp.MainWindow.Handle, wnd, false);
-            if (result != true) { L(""); L("(Cancelado por el usuario)"); SaveLog(log); return; }
+            var seleccionadas = new List<FamiliaItem>();
+            foreach (var f in pipes)
+                if (usadasPipe.Contains((f.Description ?? "").Trim()) && ComandosRedes.EsFamiliaCustomPipe(f.Description))
+                    seleccionadas.Add(new FamiliaItem(f, CivilDB.DomainType.Pipe));
+            foreach (var f in structs)
+                if (usadasStruct.Contains((f.Description ?? "").Trim()) && ComandosRedes.EsFamiliaCustomStruct(f.Description))
+                    seleccionadas.Add(new FamiliaItem(f, CivilDB.DomainType.Structure));
 
-            var seleccionadas = items.Where(x => x.IsChecked).ToList();
             if (seleccionadas.Count == 0)
             {
-                L(""); L("(No marcaste ninguna familia.)"); SaveLog(log); return;
+                var path = SaveLog(log);
+                MessageBox.Show(
+                    (nEntidadesPdfcad == 0
+                        ? "No encontré tuberías/buzones con datos de Python (XDATA 'PDFCAD') en el dibujo " +
+                          "actual. Abre/inserta primero el DXF exportado desde la app y vuelve a intentar."
+                        : "El dibujo referencia familias, pero ninguna parece personalizada (nueva) — " +
+                          "las que sí uses del catálogo estándar de Civil3D ya traen sus tamaños de fábrica, " +
+                          "no hace falta añadir nada.") +
+                    $"\n\nLog guardado en:\n{path}",
+                    "Preparar familias", MessageBoxButton.OK, MessageBoxImage.Information);
+                return;
             }
-            L(""); L($"→ Familias seleccionadas: {seleccionadas.Count}");
+            L(""); L($"→ Familias personalizadas detectadas en el dibujo: {seleccionadas.Count}");
             foreach (var it in seleccionadas)
-                D($"    · [{it.DomainLabel}] {it.DisplayName}  ({it.Guid})");
+                L($"    · [{it.DomainLabel}] {it.DisplayName}");
 
-            // 3) Procesar cada familia dentro de una única transacción
+            // 3) Procesar cada familia dentro de una única transacción — todo va a
+            //    la Parts List "Standard" (igual que el flujo manual), no a una
+            //    lista nueva por familia.
             int totalFams = 0, totalSizes = 0;
             var errores = new List<string>();
-            bool saltarTodas = false, preguntaHecha = false;
 
             using (var tr = db.TransactionManager.StartTransaction())
             {
@@ -154,6 +202,7 @@ namespace Civil3DBasico
                     L($"✗ No hay Civil Document activo: {ex.Message}");
                     tr.Abort(); SaveLog(log); return;
                 }
+
                 PartsStyles.PartsListCollection plSet = civilDoc.Styles.PartsListSet;
                 L($"→ PartsListSet del dibujo: {plSet.Count} listas existentes.");
                 for (int i = 0; i < plSet.Count; i++)
@@ -166,6 +215,30 @@ namespace Civil3DBasico
                     catch { }
                 }
 
+                ObjectId plId;
+                if (plSet.Count == 0)
+                {
+                    L("  + No hay ninguna Parts List en el dibujo — creando 'Standard'.");
+                    plId = plSet.Add("Standard");
+                }
+                else
+                {
+                    plId = plSet[0];
+                    for (int i = 0; i < plSet.Count; i++)
+                    {
+                        var p = tr.GetObject(plSet[i], OpenMode.ForRead) as PartsStyles.PartsList;
+                        if (p != null && string.Equals(p.Name, "Standard", StringComparison.OrdinalIgnoreCase))
+                        { plId = plSet[i]; break; }
+                    }
+                }
+                var partsList = tr.GetObject(plId, OpenMode.ForWrite) as PartsStyles.PartsList;
+                if (partsList == null)
+                {
+                    L("✗ No pude abrir la Parts List destino.");
+                    tr.Abort(); SaveLog(log); return;
+                }
+                L($"→ Parts List destino: '{partsList.Name}'");
+
                 foreach (var item in seleccionadas)
                 {
                     string nombreFam = item.DisplayName;
@@ -175,45 +248,7 @@ namespace Civil3DBasico
 
                     try
                     {
-                        // a) ¿Ya existe una PartsList con ese nombre?
-                        ObjectId existente = ObjectId.Null;
-                        for (int i = 0; i < plSet.Count; i++)
-                        {
-                            var p = tr.GetObject(plSet[i], OpenMode.ForRead) as PartsStyles.PartsList;
-                            if (p != null && string.Equals(p.Name, nombreFam, StringComparison.OrdinalIgnoreCase))
-                            { existente = plSet[i]; break; }
-                        }
-                        ObjectId partsListId;
-                        if (!existente.IsNull)
-                        {
-                            L($"  ≡ PartsList '{nombreFam}' ya existía — usaré esa.");
-                            if (!preguntaHecha)
-                            {
-                                var dlg = new PregSobrescribirWindow(nombreFam);
-                                try { dlg.Owner = wnd; } catch { }
-                                AcadApp.ShowModalWindow(AcadApp.MainWindow.Handle, dlg, false);
-                                saltarTodas    = !dlg.Sobreescribir;
-                                if (dlg.AplicarATodos) preguntaHecha = true;
-                                else preguntaHecha = false;
-                            }
-                            if (saltarTodas) { L("  → Saltada por decisión del usuario."); continue; }
-                            partsListId = existente;
-                        }
-                        else
-                        {
-                            L($"  + Creando nueva PartsList '{nombreFam}' (plSet.Add).");
-                            partsListId = plSet.Add(nombreFam);
-                        }
-
-                        var partsList = tr.GetObject(partsListId, OpenMode.ForWrite) as PartsStyles.PartsList;
-                        if (partsList == null)
-                        {
-                            errores.Add($"{nombreFam}: no pude abrir la PartsList.");
-                            L("  ✗ No pude abrir la PartsList (GetObject devolvió null).");
-                            continue;
-                        }
-
-                        // b) Añadir la Part Family (si no está ya).
+                        // a) Añadir la Part Family a "Standard" (si no está ya).
                         bool yaEstabaLaFam = false;
                         ObjectIdCollection idsExist = partsList.GetPartFamilyIdsByDomain(item.Domain);
                         foreach (ObjectId fid in idsExist)
@@ -234,9 +269,9 @@ namespace Civil3DBasico
                                 continue;
                             }
                         }
-                        else L("  ≡ Familia ya estaba dentro de la PartsList.");
+                        else L("  ≡ Familia ya estaba dentro de 'Standard'.");
 
-                        // c) Localizar el PartFamily recién añadido
+                        // b) Localizar el PartFamily recién añadido
                         PartsStyles.PartFamily famNew = null;
                         ObjectIdCollection famIds = partsList.GetPartFamilyIdsByDomain(item.Domain);
                         foreach (ObjectId fid in famIds)
@@ -256,29 +291,14 @@ namespace Civil3DBasico
                         int nSizesAntes = famNew.PartSizeCount;
                         L($"  · PartSizeCount ANTES: {nSizesAntes}");
 
-                        // d) Añadir TODOS los tamaños del catálogo — uno por uno.
-                        //    Estrategia: leer el .xml de la familia (localizado vía la
-                        //    variable AECC…CATALOG), extraer cada "fila lógica" del
-                        //    design table (o cada combinación paramétrica), y por cada
-                        //    una construir un SizeFilterRecord con valores específicos
-                        //    y llamar AddPartSize(filter). Esto equivale exactamente a
-                        //    marcar TODOS los checkboxes del diálogo manual.
-                        int nAgregados = 0;
-                        try
-                        {
-                            nAgregados = AddAllPartSizesFromCatalog(famNew, item, L, D);
-                        }
-                        catch (Exception exS)
-                        {
-                            L($"  ✗ AddAllPartSizesFromCatalog falló: {exS.Message}");
-                            D($"     Stack: {exS.StackTrace}");
-                        }
+                        // c) Añadir todos los tamaños variando SOLO Inner Width/Height
+                        //    (tubería) o Inner Width/Length (estructura) — equivale
+                        //    exactamente al checkbox "Añadir todos los tamaños" del
+                        //    diálogo manual, marcado solo en esos 2 parámetros.
+                        int nAgregados = AddTamanosPorAnchoYAlto(famNew, item.Domain, L, D);
 
                         int nSizesDespues = famNew.PartSizeCount;
                         L($"  · PartSizeCount DESPUÉS: {nSizesDespues}  (Δ = {nAgregados})");
-
-                        // Log del count total (los nombres específicos requieren API distinto)
-                        D($"      PartSizeCount total = {famNew.PartSizeCount}");
 
                         totalFams++;
                         totalSizes += nAgregados;
@@ -306,7 +326,7 @@ namespace Civil3DBasico
             L("═══════════════════════════════════════════════════════════════");
             var logPath = SaveLog(log);
 
-            var msg = $"Familias procesadas: {totalFams}\n" +
+            var msg = $"Familias procesadas en 'Standard': {totalFams}\n" +
                       $"Tamaños añadidos en total: {totalSizes}\n\n" +
                       (errores.Count > 0
                           ? "Con errores. Ver log:\n" + logPath
@@ -359,254 +379,95 @@ namespace Civil3DBasico
         }
 
         // =====================================================================
-        //  AddAllPartSizesFromCatalog
-        //  Añade a la PartFamily del dibujo (`fam`) UN PartSize por cada
-        //  "combinación válida" del catálogo. Localiza el .xml de la familia
-        //  vía AECCPIPECATALOG / AECCSTRUCTURECATALOG y soporta los DOS layouts
-        //  típicos que Civil 3D admite en Part Builder:
+        //  AddTamanosPorAnchoYAlto
+        //  IMPORTANTE (confirmado con log real de un dibujo, no solo lectura de
+        //  API): AddPartSize NO expande un producto cartesiano por sí solo, ni
+        //  aunque se marque IsMultipleSelect=true en los 2 campos objetivo —
+        //  cada llamada añade EXACTAMENTE la combinación que tengan puesta los
+        //  campos .Value en ese momento. IsMultipleSelect es solo metadata para
+        //  la UI del diálogo manual (que internamente sí itera y llama
+        //  AddPartSize una vez por cada combinación marcada).
         //
-        //    A) DESIGN TABLE — <Column context="XXX"> con <Row id="rN">v</Row>
-        //       Cada fila r_i define un tamaño con los valores paralelos de
-        //       cada columna (p.ej. r0 = {PIW=13, PIH=8}). Este es el formato
-        //       de Bancos de Tubos.
-        //
-        //    B) PARAMÉTRICA — <ColumnConstList context="XXX"> con <Item>v</Item>
-        //       Cada Item es un valor permitido; los tamaños son el producto
-        //       cartesiano de todos los valores de todas las columnas. Este es
-        //       el formato de Bancoductos AGL, Buzones, etc.
-        //
-        //  Devuelve el número de PartSize añadidos.
+        //  Por eso replicamos ese mismo bucle: leemos con .ValueList el listado
+        //  REAL de valores que Civil 3D acepta para Inner Pipe Width/Height (o
+        //  Inner Structure Width/Length) directamente del SDK — sin tocar
+        //  ningún XML de catálogo — y llamamos AddPartSize una vez por cada
+        //  combinación (Width_i, Height_j). Equivale exactamente a tildar
+        //  "añadir todos los tamaños" en esos 2 parámetros y aceptar.
+        //  Devuelve el número de PartSize nuevos (delta de PartSizeCount).
         // =====================================================================
-        static int AddAllPartSizesFromCatalog(PartsStyles.PartFamily fam, FamiliaItem item,
-                                                Action<string> L, Action<string> D)
+        static int AddTamanosPorAnchoYAlto(PartsStyles.PartFamily fam, CivilDB.DomainType domain,
+                                             Action<string> L, Action<string> D)
         {
-            string xmlPath = LocateFamilyXml(item, D);
-            if (xmlPath == null || !File.Exists(xmlPath))
+            CivilDB.PartContextType ctxA, ctxB;
+            if (domain == CivilDB.DomainType.Pipe)
             {
-                L($"  ✗ No encontré el .xml de la familia (kind={item.DomainLabel}). Se omiten los tamaños.");
-                return 0;
-            }
-            D($"      XML fuente: {xmlPath}");
-
-            var xdoc = new XmlDocument();
-            try { xdoc.Load(xmlPath); }
-            catch (Exception ex) { L($"  ✗ No pude cargar el XML: {ex.Message}"); return 0; }
-
-            // 1) DESIGN TABLE — <Column>/<Row>
-            var rowsTable = new Dictionary<string, List<double>>();
-            foreach (XmlNode col in xdoc.SelectNodes("//Column"))
-            {
-                string name = col.Attributes?["name"]?.Value ?? "";
-                if (string.IsNullOrEmpty(name)) continue;
-                var vals = new List<double>();
-                foreach (XmlNode r in col.SelectNodes("Row"))
-                {
-                    if (double.TryParse(r.InnerText?.Trim(),
-                            System.Globalization.NumberStyles.Any,
-                            System.Globalization.CultureInfo.InvariantCulture, out double d))
-                        vals.Add(d);
-                }
-                if (vals.Count > 0) rowsTable[name] = vals;
-            }
-
-            // 2) PARAMÉTRICA — <ColumnConstList>/<Item>
-            var paramLists = new Dictionary<string, List<double>>();
-            foreach (XmlNode col in xdoc.SelectNodes("//ColumnConstList"))
-            {
-                string name = col.Attributes?["name"]?.Value ?? "";
-                if (string.IsNullOrEmpty(name)) continue;
-                var vals = new List<double>();
-                foreach (XmlNode it in col.SelectNodes("Item"))
-                {
-                    if (double.TryParse(it.InnerText?.Trim(),
-                            System.Globalization.NumberStyles.Any,
-                            System.Globalization.CultureInfo.InvariantCulture, out double d))
-                        vals.Add(d);
-                }
-                if (vals.Count > 0) paramLists[name] = vals;
-            }
-
-            D($"      Columnas <Column>/<Row>:        {rowsTable.Count}");
-            D($"      Columnas <ColumnConstList>/<Item>: {paramLists.Count}");
-
-            // Generar la lista de combinaciones {nombre → valor} a instanciar.
-            List<Dictionary<string, double>> combinaciones;
-            if (rowsTable.Count > 0)
-            {
-                int nRows = rowsTable.Values.Min(v => v.Count);
-                combinaciones = new List<Dictionary<string, double>>(nRows);
-                for (int r = 0; r < nRows; r++)
-                {
-                    var combo = new Dictionary<string, double>();
-                    foreach (var kv in rowsTable) combo[kv.Key] = kv.Value[r];
-                    combinaciones.Add(combo);
-                }
-                L($"  · Design table: {rowsTable.Count} columnas × {nRows} filas = {combinaciones.Count} tamaños");
-            }
-            else if (paramLists.Count > 0)
-            {
-                combinaciones = CartesianProduct(paramLists);
-                L($"  · Paramétrica: {paramLists.Count} columnas → {combinaciones.Count} combinaciones");
+                ctxA = CivilDB.PartContextType.PipeInnerWidth;
+                ctxB = CivilDB.PartContextType.PipeInnerHeight;
             }
             else
             {
-                L("  ⚠ XML no tiene <Column>/<Row> ni <ColumnConstList>/<Item> — no puedo enumerar tamaños.");
+                ctxA = CivilDB.PartContextType.StructInnerWidth;
+                ctxB = CivilDB.PartContextType.StructInnerLength;
+            }
+
+            // 1) Leer del SDK la lista real de valores de cada campo objetivo.
+            var filtroRef = new PartsStyles.SizeFilterRecord(fam);
+            List<object> valoresA = null, valoresB = null;
+            for (int i = 0; i < filtroRef.ParamCount; i++)
+            {
+                var campo = filtroRef[i];
+                if (campo == null || campo.IsReadOnly || !campo.IsFromList) continue;
+                if (campo.Context == ctxA)
+                {
+                    valoresA = new List<object>();
+                    for (int k = 0; k < campo.ValueList.Count; k++) valoresA.Add(campo.ValueList[k]);
+                }
+                else if (campo.Context == ctxB)
+                {
+                    valoresB = new List<object>();
+                    for (int k = 0; k < campo.ValueList.Count; k++) valoresB.Add(campo.ValueList[k]);
+                }
+            }
+            if (valoresA == null || valoresB == null)
+            {
+                L($"  ⚠ No encontré los campos {ctxA}/{ctxB} en esta familia — no se añaden tamaños.");
                 return 0;
             }
+            D($"      {ctxA}: {valoresA.Count} valores [{string.Join(", ", valoresA)}]");
+            D($"      {ctxB}: {valoresB.Count} valores [{string.Join(", ", valoresB)}]");
+            L($"  · {valoresA.Count} × {valoresB.Count} = {valoresA.Count * valoresB.Count} combinaciones a intentar.");
 
-            // PartSizeCount previo — si un tamaño ya existe (re-ejecución) el
-            // AddPartSize lanza excepción silenciosa o no incrementa el contador;
-            // usamos ese delta para saber si de verdad se añadió algo nuevo.
-            D($"      PartSizeCount antes de iterar: {fam.PartSizeCount}");
-
-            // Iterar combinaciones y añadir cada tamaño como PartSize específico.
-            int nAgregados = 0, nSaltados = 0, nFallos = 0;
-            for (int idx = 0; idx < combinaciones.Count; idx++)
+            // 2) Un AddPartSize por combinación (Width_i, Height_j / Width_i, Length_j).
+            int before = fam.PartSizeCount;
+            int nFallos = 0;
+            foreach (var va in valoresA)
             {
-                var combo = combinaciones[idx];
-                try
+                foreach (var vb in valoresB)
                 {
-                    var filtro = new PartsStyles.SizeFilterRecord(fam);
-                    for (int i = 0; i < filtro.ParamCount; i++)
+                    try
                     {
-                        var campo = filtro[i];
-                        if (campo == null || campo.IsReadOnly) continue;
-                        string cn = SafeGetProp<string>(campo, "Name") ?? "";
-                        if (!combo.TryGetValue(cn, out double val)) continue;
-                        // Setear el valor específico y desactivar multi-select del campo.
-                        try
+                        var filtro = new PartsStyles.SizeFilterRecord(fam);
+                        for (int i = 0; i < filtro.ParamCount; i++)
                         {
-                            if (campo.IsFromList) campo.IsMultipleSelect = false;
-                            SetFieldValueRobust(campo, val, D);
+                            var campo = filtro[i];
+                            if (campo == null) continue;
+                            if (campo.Context == ctxA) campo.Value = va;
+                            else if (campo.Context == ctxB) campo.Value = vb;
                         }
-                        catch (Exception exSv)
-                        { D($"        combo[{idx}] campo '{cn}': setter fall {exSv.Message}"); }
+                        fam.AddPartSize(filtro);
                     }
-                    int before = fam.PartSizeCount;
-                    fam.AddPartSize(filtro);
-                    int delta = fam.PartSizeCount - before;
-                    if (delta > 0) nAgregados += delta;
-                    else nSaltados++;
-                }
-                catch (Exception exAP)
-                {
-                    nFallos++;
-                    // Duplicados suelen lanzar mensaje específico: silenciar al usuario
-                    // pero logear al archivo.
-                    D($"      combo[{idx}] AddPartSize excepción: {exAP.Message}");
+                    catch (Exception ex)
+                    {
+                        nFallos++;
+                        D($"      combo ({va}, {vb}) AddPartSize excepción: {ex.Message}");
+                    }
                 }
             }
-            L($"  ✓ Añadidos: {nAgregados}  |  Saltados (dup): {nSaltados}  |  Fallos: {nFallos}");
-            return nAgregados;
-        }
-
-        // Producto cartesiano de N listas de doubles ordenadas por clave.
-        static List<Dictionary<string, double>> CartesianProduct(Dictionary<string, List<double>> lists)
-        {
-            var keys = lists.Keys.ToList();
-            var result = new List<Dictionary<string, double>>();
-            void Recurse(int k, Dictionary<string, double> partial)
-            {
-                if (k == keys.Count) { result.Add(new Dictionary<string, double>(partial)); return; }
-                foreach (var v in lists[keys[k]])
-                {
-                    partial[keys[k]] = v;
-                    Recurse(k + 1, partial);
-                }
-                partial.Remove(keys[k]);
-            }
-            Recurse(0, new Dictionary<string, double>());
-            return result;
-        }
-
-        // Setter defensivo — prueba varios nombres/firmas que el SDK de Civil 3D
-        // usa según la versión: Value property, SetValue(double), SelectValue(double).
-        static void SetFieldValueRobust(PartsStyles.SizeFilterField campo, double v, Action<string> D)
-        {
-            var t = campo.GetType();
-            // 1) property Value con setter
-            var pValue = t.GetProperty("Value");
-            if (pValue != null && pValue.CanWrite)
-            {
-                try
-                {
-                    object cast = pValue.PropertyType == typeof(double)
-                        ? (object)v
-                        : Convert.ChangeType(v, pValue.PropertyType);
-                    pValue.SetValue(campo, cast);
-                    return;
-                }
-                catch (Exception ex) { D($"        Value setter: {ex.Message}"); }
-            }
-            // 2) SetValue(double|object)
-            foreach (var m in t.GetMethods().Where(m => m.Name == "SetValue"))
-            {
-                var pars = m.GetParameters();
-                if (pars.Length != 1) continue;
-                try
-                {
-                    object arg = pars[0].ParameterType == typeof(double)
-                        ? (object)v
-                        : Convert.ChangeType(v, pars[0].ParameterType);
-                    m.Invoke(campo, new object[] { arg });
-                    return;
-                }
-                catch { }
-            }
-            // 3) SelectValue(double) — para campos IsFromList
-            var mSel = t.GetMethod("SelectValue", new[] { typeof(double) })
-                       ?? t.GetMethod("SelectValue", new[] { typeof(object) });
-            if (mSel != null)
-            {
-                try { mSel.Invoke(campo, new object[] { v }); return; }
-                catch (Exception ex) { D($"        SelectValue: {ex.Message}"); }
-            }
-            D($"        (sin setter válido en SizeFilterField para valor {v})");
-        }
-
-        static string LocateFamilyXml(FamiliaItem item, Action<string> D)
-        {
-            // El nombre técnico del .xml suele ser Catalog_PartName (que a menudo
-            // coincide con Description del PartFamily o con un basename). Recorremos
-            // el catálogo configurado y buscamos un XML cuya PartName o PartDesc
-            // coincida.
-            string sysvar = item.Domain == CivilDB.DomainType.Pipe
-                ? "AECCPIPECATALOG" : "AECCSTRUCTURECATALOG";
-            string catRoot;
-            try { catRoot = AcadApp.GetSystemVariable(sysvar) as string; }
-            catch { return null; }
-            if (string.IsNullOrEmpty(catRoot) || !Directory.Exists(catRoot)) return null;
-
-            foreach (var xml in Directory.EnumerateFiles(catRoot, "*.xml", SearchOption.AllDirectories))
-            {
-                if (Path.GetFileName(xml).StartsWith("AecbIDrop", StringComparison.OrdinalIgnoreCase)) continue;
-                if (Path.GetFileName(xml).Equals("AeccSharedPropertyLists.xml", StringComparison.OrdinalIgnoreCase)) continue;
-                try
-                {
-                    var xdoc = new XmlDocument(); xdoc.Load(xml);
-                    // Buscar Catalog_PartDesc y Catalog_PartName
-                    var partDesc = xdoc.SelectSingleNode("//ColumnConst[@context='Catalog_PartDesc']")?.InnerText?.Trim();
-                    var partName = xdoc.SelectSingleNode("//ColumnConst[@context='Catalog_PartName']")?.InnerText?.Trim();
-                    if (string.Equals(partDesc, item.DisplayName, StringComparison.OrdinalIgnoreCase) ||
-                        string.Equals(partName, item.DisplayName, StringComparison.OrdinalIgnoreCase))
-                        return xml;
-                }
-                catch { }
-            }
-            return null;
-        }
-
-        static T SafeGetProp<T>(object o, string name)
-        {
-            try
-            {
-                var p = o.GetType().GetProperty(name);
-                if (p == null) return default;
-                var v = p.GetValue(o);
-                if (v == null) return default;
-                return (T)Convert.ChangeType(v, typeof(T));
-            }
-            catch { return default; }
+            int delta = fam.PartSizeCount - before;
+            L($"  ✓ Tamaños añadidos: {delta} de {valoresA.Count * valoresB.Count} combinaciones " +
+              $"(variando {ctxA} × {ctxB}){(nFallos > 0 ? $"  |  fallos/duplicados: {nFallos}" : "")}");
+            return delta;
         }
 
         static string SaveLog(StringBuilder log)
@@ -637,157 +498,43 @@ namespace Civil3DBasico
                 return new List<PartsStyles.DataPartFamily>();
             }
         }
+
+        // Lectura mínima del XDATA "PDFCAD" — solo lo que hace falta acá
+        // (_MARKER + PIPE_FAMILY/PART). Réplica reducida de LeerXdataPdfcad en
+        // ImportarRed.cs (archivo separado, mismo patrón ya usado en el resto
+        // del plugin para helpers chicos duplicados por archivo).
+        static Dictionary<string, string> LeerXdataPdfcadLite(Entity ent)
+        {
+            ResultBuffer xdata;
+            try { xdata = ent.GetXDataForApplication("PDFCAD"); }
+            catch { return null; }
+            if (xdata == null) return null;
+            var dict = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+            foreach (TypedValue tv in xdata)
+            {
+                if (tv.TypeCode != 1000) continue;
+                string s = tv.Value?.ToString() ?? "";
+                if (s == "PDFCAD_PIPE" || s == "PDFCAD_STRUCT") { dict["_MARKER"] = s; continue; }
+                int eq = s.IndexOf('=');
+                if (eq > 0) dict[s.Substring(0, eq)] = s.Substring(eq + 1);
+            }
+            return dict.ContainsKey("_MARKER") ? dict : null;
+        }
     }
 
-    // Ítem del CheckedListBox — encapsula GUID + description + dominio.
-    public class FamiliaItem : System.ComponentModel.INotifyPropertyChanged
+    // Familia detectada como "nueva"/personalizada en el dibujo actual.
+    public class FamiliaItem
     {
         public string Guid { get; }
         public string DisplayName { get; }
         public CivilDB.DomainType Domain { get; }
         public string DomainLabel => Domain == CivilDB.DomainType.Pipe ? "Tubería" : "Estructura";
 
-        bool _checked;
-        public bool IsChecked
-        {
-            get => _checked;
-            set { _checked = value; PropertyChanged?.Invoke(this,
-                    new System.ComponentModel.PropertyChangedEventArgs(nameof(IsChecked))); }
-        }
-
         public FamiliaItem(PartsStyles.DataPartFamily f, CivilDB.DomainType dom)
         {
             Guid = f.GUID ?? "";
             DisplayName = string.IsNullOrEmpty(f.Description) ? f.GUID : f.Description;
             Domain = dom;
-        }
-
-        public event System.ComponentModel.PropertyChangedEventHandler PropertyChanged;
-    }
-
-    // Diálogo WPF ligero — un ListBox con checkboxes por familia.
-    public class PrepararFamiliasWindow : Window
-    {
-        readonly ObservableCollection<FamiliaItem> _items;
-
-        public PrepararFamiliasWindow(IEnumerable<FamiliaItem> items)
-        {
-            _items = new ObservableCollection<FamiliaItem>(items);
-            Title = "Preparar familias — elige cuáles añadir a la lista de piezas";
-            Width = 640; Height = 520;
-            WindowStartupLocation = WindowStartupLocation.CenterOwner;
-            Background = System.Windows.Media.Brushes.WhiteSmoke;
-
-            var grid = new Grid { Margin = new Thickness(12) };
-            grid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
-            grid.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) });
-            grid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
-
-            var header = new TextBlock
-            {
-                Text = "Marca las familias personalizadas que quieres añadir. Por cada una se " +
-                       "creará (o completará) una lista de piezas con el mismo nombre, con TODOS " +
-                       "sus tamaños disponibles.",
-                TextWrapping = TextWrapping.Wrap,
-                Margin = new Thickness(0, 0, 0, 8)
-            };
-            Grid.SetRow(header, 0); grid.Children.Add(header);
-
-            var list = new ListBox
-            {
-                ItemsSource = _items,
-                SelectionMode = System.Windows.Controls.SelectionMode.Single
-            };
-            list.ItemTemplate = BuildItemTemplate();
-            Grid.SetRow(list, 1); grid.Children.Add(list);
-
-            var botones = new StackPanel
-            {
-                Orientation = Orientation.Horizontal,
-                HorizontalAlignment = HorizontalAlignment.Right,
-                Margin = new Thickness(0, 10, 0, 0)
-            };
-            var btnTodo = new Button { Content = "Marcar todo", Width = 110, Margin = new Thickness(0, 0, 6, 0) };
-            btnTodo.Click += (s, e) => { foreach (var i in _items) i.IsChecked = true; };
-            var btnNada = new Button { Content = "Desmarcar todo", Width = 110, Margin = new Thickness(0, 0, 20, 0) };
-            btnNada.Click += (s, e) => { foreach (var i in _items) i.IsChecked = false; };
-            var btnOK = new Button { Content = "Preparar",   Width = 100, Margin = new Thickness(0, 0, 6, 0),
-                                     IsDefault = true };
-            btnOK.Click += (s, e) => { DialogResult = true; Close(); };
-            var btnCa = new Button { Content = "Cancelar", Width = 100, IsCancel = true };
-            botones.Children.Add(btnTodo); botones.Children.Add(btnNada);
-            botones.Children.Add(btnOK);   botones.Children.Add(btnCa);
-            Grid.SetRow(botones, 2); grid.Children.Add(botones);
-
-            Content = grid;
-        }
-
-        static DataTemplate BuildItemTemplate()
-        {
-            var factory = new FrameworkElementFactory(typeof(DockPanel));
-            var chk = new FrameworkElementFactory(typeof(CheckBox));
-            chk.SetBinding(CheckBox.IsCheckedProperty,
-                new Binding(nameof(FamiliaItem.IsChecked)) { Mode = BindingMode.TwoWay });
-            chk.SetValue(CheckBox.MarginProperty, new Thickness(4, 3, 8, 3));
-            factory.AppendChild(chk);
-            var lbl = new FrameworkElementFactory(typeof(TextBlock));
-            lbl.SetBinding(TextBlock.TextProperty, new Binding(nameof(FamiliaItem.DisplayName)));
-            lbl.SetValue(TextBlock.MarginProperty, new Thickness(2, 3, 6, 3));
-            factory.AppendChild(lbl);
-            var tag = new FrameworkElementFactory(typeof(TextBlock));
-            tag.SetBinding(TextBlock.TextProperty, new Binding(nameof(FamiliaItem.DomainLabel)));
-            tag.SetValue(TextBlock.ForegroundProperty, System.Windows.Media.Brushes.Gray);
-            tag.SetValue(TextBlock.FontStyleProperty, FontStyles.Italic);
-            tag.SetValue(DockPanel.DockProperty, Dock.Right);
-            factory.AppendChild(tag);
-            return new DataTemplate { VisualTree = factory };
-        }
-    }
-
-    // Diálogo "existe PartsList con ese nombre — ¿sobrescribir?"
-    public class PregSobrescribirWindow : Window
-    {
-        public bool Sobreescribir { get; private set; }
-        public bool AplicarATodos { get; private set; }
-
-        public PregSobrescribirWindow(string nombre)
-        {
-            Title = "PartsList existente";
-            Width = 480; Height = 200;
-            WindowStartupLocation = WindowStartupLocation.CenterOwner;
-
-            var grid = new Grid { Margin = new Thickness(14) };
-            grid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
-            grid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
-            grid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
-
-            var txt = new TextBlock
-            {
-                Text = $"Ya existe una PartsList llamada '{nombre}'.\n\n¿Sobrescribirla (añadir " +
-                       $"la familia dentro) o saltarla?",
-                TextWrapping = TextWrapping.Wrap,
-                Margin = new Thickness(0, 0, 0, 12)
-            };
-            Grid.SetRow(txt, 0); grid.Children.Add(txt);
-
-            var chk = new CheckBox { Content = "Aplicar la misma decisión a las siguientes",
-                                     Margin = new Thickness(0, 0, 0, 12) };
-            Grid.SetRow(chk, 1); grid.Children.Add(chk);
-
-            var botones = new StackPanel
-            {
-                Orientation = Orientation.Horizontal,
-                HorizontalAlignment = HorizontalAlignment.Right
-            };
-            var btnOv = new Button { Content = "Sobrescribir", Width = 110, Margin = new Thickness(0, 0, 6, 0),
-                                     IsDefault = true };
-            btnOv.Click += (s, e) => { Sobreescribir = true;  AplicarATodos = chk.IsChecked == true; Close(); };
-            var btnSk = new Button { Content = "Saltar", Width = 110, IsCancel = true };
-            btnSk.Click += (s, e) => { Sobreescribir = false; AplicarATodos = chk.IsChecked == true; Close(); };
-            botones.Children.Add(btnOv); botones.Children.Add(btnSk);
-            Grid.SetRow(botones, 2); grid.Children.Add(botones);
-
-            Content = grid;
         }
     }
 }

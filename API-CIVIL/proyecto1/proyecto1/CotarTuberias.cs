@@ -289,57 +289,22 @@ namespace Civil3DBasico
             }
         }
 
-        // Rasante en un extremo de tubería. Se confía SIEMPRE en Structure.SumpElevation
-        // cuando hay estructura conectada — es el valor AUTORITATIVO que IMPORTAR_RED ya
-        // fijó explícitamente a partir del DXF (ver el paso "reponer cotas" en
-        // ImportarRed.cs), no un cálculo geométrico ni una regla interna de Civil3D.
+        // "Elevación de rasante inicial/final" real de Civil3D en un extremo de
+        // tubería = eje de la tubería en ese extremo MENOS el radio interior
+        // (centerline.Z − r) — SIEMPRE calculado desde la propia tubería, nunca
+        // desde el buzón conectado (structId/tr quedan sin usar a propósito).
         //
-        // Antes se intentaba primero "rim − structure.get_PipeInvertDepth(idx)" (la
-        // regla que usa Civil3D para su Properties de pipe), pero esa regla NO aplica
-        // igual a tuberías conduit/eléctricas — devolvía una profundidad de catálogo por
-        // defecto en vez de la real, desfasando la cota (bug reportado: red eléctrica de
-        // varios tramos mostraba 4.167→0.167 en vez de 5→1). SumpElevation no depende de
-        // ninguna regla de Civil3D por tipo de parte: es el mismo dato para cualquier red.
-        //
-        // Sin estructura conectada (extremo suelto): cálculo geométrico eje − radio_interior.
+        // ANTES se leía Structure.SumpElevation del buzón conectado cuando había
+        // uno. Esa dependencia fue la causa de varios bugs de cota (offsets de
+        // -0.5/-0.833 pies, INICIO/DESCARGA con el valor equivocado) cuando el
+        // Sump del buzón no estaba perfectamente sincronizado con la tubería —
+        // la rasante de la PROPIA tubería no depende de ninguna otra entidad y
+        // nunca fallaba.
         internal static double InvertEnNodo(ObjectId structId, Point3d centerline, CivilDB.Pipe p, Transaction tr)
         {
-            if (!structId.IsNull && structId.IsValid)
-            {
-                try
-                {
-                    var st = tr.GetObject(structId, OpenMode.ForRead) as CivilDB.Structure;
-                    // "Null Structure" (usado en conduit) no tiene sump útil: caemos
-                    // al cálculo geométrico eje − InnerHeight/2 (que devuelve el
-                    // valor real de la rasante que el usuario puso en Python).
-                    if (st != null)
-                    {
-                        string desc = st.PartDescription ?? "";
-                        bool esNull = desc.IndexOf("Null", StringComparison.OrdinalIgnoreCase) >= 0 ||
-                                       desc.IndexOf("nula", StringComparison.OrdinalIgnoreCase) >= 0;
-                        if (!esNull) return st.SumpElevation;
-                    }
-                }
-                catch { }
-            }
-            // Sin structure útil: rasante = eje − InnerHeight/2 (correcto para
-            // rectangulares y circulares). InnerDiameterOrWidth NO sirve en
-            // rectangulares porque devuelve el ANCHO, no la altura.
             double r = 0.0;
-            try
-            {
-                var pInnerH = p.GetType().GetProperty("InnerHeight");
-                if (pInnerH != null)
-                {
-                    var v = pInnerH.GetValue(p);
-                    if (v is double h && h > 1e-6) r = h / 2.0;
-                }
-            }
-            catch { }
-            if (r <= 0.0)
-            {
-                try { r = p.InnerDiameterOrWidth / 2.0; } catch { }
-            }
+            try { double h = p.InnerHeight; if (h > 1e-6) r = h / 2.0; } catch { }
+            if (r <= 0.0) { try { r = p.InnerDiameterOrWidth / 2.0; } catch { } }
             return centerline.Z - r;
         }
 

@@ -156,6 +156,9 @@ namespace Civil3DBasico
                             PartSize = XdStr(xd, "PART_SIZE", ""),
                             Covered = XdStr(xd, "COVERED", "1") != "0",
                             NetKind = XdStr(xd, "NET_KIND", "gravity"),
+                            // Ya viene en pies desde Python (spinbox "Altura (Pies)") — sin
+                            // aplicar el factor de conversión k que sí usan RIM/SUMP.
+                            HeightFt = XdNullDouble(xd, "HEIGHT_FT"),
                         };
                         structs.Add(newSt);
                         Dbg("XDATA_STRUCT", ("id", newSt.Id), ("x", pt.Position.X.ToString("F3")),
@@ -163,7 +166,8 @@ namespace Civil3DBasico
                             ("part", newSt.Part), ("part_size", newSt.PartSize),
                             ("covered", newSt.Covered ? "1" : "0"),
                             ("rim", newSt.Rim?.ToString("F3") ?? ""),
-                            ("sump", newSt.Sump?.ToString("F3") ?? ""));
+                            ("sump", newSt.Sump?.ToString("F3") ?? ""),
+                            ("height_ft", newSt.HeightFt?.ToString("F3") ?? ""));
                     }
                 }
                 trScan.Commit();
@@ -252,9 +256,9 @@ namespace Civil3DBasico
                     {
                         ObjectId netId = CrearRedGravedadCompleta(ed, db, civilDoc, tr,
                             netName, surfId, defaultDepth, kv.Value, structsGravedad,
-                            sinBuzones: false, out DatosAlignment dAlign);
+                            sinBuzones: false, out List<DatosAlignment> dAligns);
                         if (netId != ObjectId.Null) createdNetIds.Add(netId);
-                        if (dAlign != null) alignmentsPendientes.Add(dAlign);
+                        if (dAligns != null) alignmentsPendientes.AddRange(dAligns);
                         tr.Commit();
                     }
                     catch (Exception ex)
@@ -275,9 +279,9 @@ namespace Civil3DBasico
                     {
                         ObjectId netId = CrearRedGravedadCompleta(ed, db, civilDoc, tr,
                             netName, surfId, defaultDepth, kv.Value,
-                            structsConduit, sinBuzones: true, out DatosAlignment dAlign);
+                            structsConduit, sinBuzones: true, out List<DatosAlignment> dAligns);
                         if (netId != ObjectId.Null) createdNetIds.Add(netId);
-                        if (dAlign != null) alignmentsPendientes.Add(dAlign);
+                        if (dAligns != null) alignmentsPendientes.AddRange(dAligns);
                         tr.Commit();
                     }
                     catch (Exception ex)
@@ -435,9 +439,9 @@ namespace Civil3DBasico
             Editor ed, Database db, CivilDocument civilDoc, Transaction tr,
             string nombre, ObjectId surfId, double defaultDepth,
             List<ImportPipe> pipes, List<ImportStruct> structs, bool sinBuzones,
-            out DatosAlignment datosAlign)
+            out List<DatosAlignment> datosAlignments)
         {
-            datosAlign = null;
+            datosAlignments = new List<DatosAlignment>();
             PartsStyles.PartsList partsList = ObtenerPartsList(civilDoc, tr);
             if (partsList == null) { ed.WriteMessage("\nNo hay Parts Lists en el dibujo."); return ObjectId.Null; }
 
@@ -552,13 +556,11 @@ namespace Civil3DBasico
 
             var createdStructs = new Dictionary<string, ObjectId>();
             int nPipes = 0;
-            var trazaEje = new List<Point3d>();
-            // Buzones exactamente en los extremos absolutos de la traza (primer punto
-            // del primer pipe y último punto del último pipe). Se usan al final para
-            // recortar el alineamiento al BORDE del buzón — así el eje no atraviesa
-            // el buzón, sino que empieza/termina donde la tubería toca su cara exterior.
-            ObjectId ejeStartStructId = ObjectId.Null;
-            ObjectId ejeEndStructId   = ObjectId.Null;
+            // Traza per-pipe (no un solo trazaEje global). Al final agrupamos por
+            // componentes conectados y creamos un alignment por componente — así
+            // 3 sub-redes desconectadas en la misma capa NUNCA se unen con un eje
+            // que salta entre ellas.
+            var pipeTrazas = new List<(List<Point3d> pts, ObjectId startSt, ObjectId endSt)>();
             // Cotas EXPLÍCITAS a reponer al final. Civil 3D, al conectar tuberías
             // (ConnectToStructure), re-aplica reglas por defecto (pendiente ~1% +
             // tapada) y, si la estructura tiene el ajuste automático de superficie
@@ -571,8 +573,9 @@ namespace Civil3DBasico
             {
                 int nVerts = ip.Vertices.Count;
                 double[] zVerts = InterpolateZ(ip, nVerts);
+                var pipeTraza = new List<Point3d>();
                 for (int i = 0; i < nVerts; i++)
-                    trazaEje.Add(new Point3d(ip.Vertices[i].X, ip.Vertices[i].Y, zVerts[i]));
+                    pipeTraza.Add(new Point3d(ip.Vertices[i].X, ip.Vertices[i].Y, zVerts[i]));
 
                 // Prioridad para elegir familia+tamaño de esta pipe:
                 //   1) PIPE_FAMILY del XDATA (elegida en Python del catálogo Civil 3D)
@@ -638,6 +641,11 @@ namespace Civil3DBasico
                         // que "el buzón recorta y redefine" la rasante 0.5' más abajo).
                         sump = zInv; rim = zInv + depth;
                     }
+                    // "Altura (Pies)" explícita del usuario (Python): fuerza el Rim para que
+                    // Rim − Sump = altura pedida, SIN tocar el Sump (que siempre refleja la
+                    // rasante real de la tubería conectada — dato físico, no inventado).
+                    bool alturaExplicita = match != null && match.HeightFt.HasValue && match.HeightFt.Value > 0.01;
+                    if (alturaExplicita) rim = sump + match.HeightFt.Value;
                     // Garantía: rim ARRIBA (mín. 1' sobre sump) y sump por debajo del invert.
                     if (rim - sump < 1.0) rim = sump + Math.Max(depth, 3.0);
 
@@ -725,7 +733,10 @@ namespace Civil3DBasico
                         // Sump por ELEVACIÓN (si queda por profundidad, sump=rim−sumpDepth pisa lo nuestro).
                         SetSumpControlByElevation(st);
                         // ¿Tenemos rim explícito? (siempre que no dependamos de una superficie).
-                        bool holdRim = surfId == ObjectId.Null || (match != null && match.Rim.HasValue);
+                        // Una "Altura (Pies)" pedida también cuenta como rim explícito — si no,
+                        // con superficie de referencia presente Civil3D reajustaría el rim
+                        // automáticamente desde el terreno y pisaría la altura pedida.
+                        bool holdRim = surfId == ObjectId.Null || (match != null && (match.Rim.HasValue || alturaExplicita));
                         if (holdRim)
                         {
                             st.AutomaticRimSurfaceAdjustment = false;   // clave: si queda true, ignora el rim manual
@@ -743,14 +754,12 @@ namespace Civil3DBasico
                     vertStructIds.Add(createdStructs[key]);
                 }
 
-                // Recordar los buzones EXTREMOS de la traza para recortar el eje al
-                // borde del buzón al final. La primera pipe define el inicio; el
-                // último punto de la última pipe procesada, el fin.
-                if (vertStructIds.Count > 0)
-                {
-                    if (ejeStartStructId.IsNull) ejeStartStructId = vertStructIds[0];
-                    ejeEndStructId = vertStructIds[vertStructIds.Count - 1];
-                }
+                // Guardar la traza de ESTA pipe con los structIds de sus extremos.
+                // Al final del método agrupamos por componentes conectados (Union-Find
+                // sobre coordenadas de vértices) y creamos un alignment por componente.
+                ObjectId pipeStart = vertStructIds.Count > 0 ? vertStructIds[0] : ObjectId.Null;
+                ObjectId pipeEnd   = vertStructIds.Count > 0 ? vertStructIds[vertStructIds.Count - 1] : ObjectId.Null;
+                pipeTrazas.Add((pipeTraza, pipeStart, pipeEnd));
 
                 // Solape visual en vértices "sin buzón": cada tubería se extiende
                 // un poco más allá del vértice para que las dos que se encuentran
@@ -912,22 +921,109 @@ namespace Civil3DBasico
             // En conduit (eléctrico/telecom) NO se crea alineamiento: si hay varias
             // subredes desconectadas dentro de la misma capa, el eje las une con una
             // polilínea fina que aparenta ser una conexión real.
-            // Datos para el alineamiento — se construye AFUERA en un post-commit
-            // (una vez que Civil 3D rindió la geometría de los buzones, así
-            // GeometricExtents ya devuelve el bounding-box visible y el recorté
-            // al borde del buzón funciona bien).
-            datosAlign = new DatosAlignment
+            // Agrupar pipes en COMPONENTES CONECTADOS (Union-Find sobre
+            // coordenadas de vértices redondeadas). Cada componente = un
+            // alineamiento independiente. Así 3 sub-redes desconectadas en la
+            // misma capa producen 3 alignments separados, sin uniones espurias.
+            var componentes = AgruparPipesPorComponente(pipes, pipeTrazas);
+            int cIdx = 0;
+            foreach (var comp in componentes)
             {
-                Nombre = nm,
-                Traza = new List<Point3d>(trazaEje),
-                StartStructId = ejeStartStructId,
-                EndStructId = ejeEndStructId,
-                NetId = netId,
-                EsGravedad = !sinBuzones,
-            };
+                cIdx++;
+                // Nombre del alignment: si es único, sin sufijo. Si hay >1, "-1", "-2"…
+                string nomAlign = componentes.Count == 1 ? nm : $"{nm}-{cIdx}";
+                datosAlignments.Add(new DatosAlignment
+                {
+                    Nombre = nomAlign,
+                    Traza = comp.traza,
+                    StartStructId = comp.startSt,
+                    EndStructId = comp.endSt,
+                    NetId = netId,
+                    // Solo asociamos el alignment a la Network cuando hay UN único
+                    // componente (así la asociación es unívoca). Con varios
+                    // componentes, quedan como alignments sueltos ligados al mismo
+                    // Pipe Network — no rompe nada, solo no hay Reference único.
+                    EsGravedad = !sinBuzones && componentes.Count == 1,
+                });
+            }
 
-            ed.WriteMessage($"\n✓ Red {(sinBuzones ? "conduit" : "gravedad")} '{nm}': {createdStructs.Count} nodos, {nPipes} tuberías.");
+            ed.WriteMessage($"\n✓ Red {(sinBuzones ? "conduit" : "gravedad")} '{nm}': " +
+                             $"{createdStructs.Count} nodos, {nPipes} tuberías, " +
+                             $"{componentes.Count} componente(s) para eje.");
             return netId;
+        }
+
+        // Agrupa los pipes en componentes conectados por coincidencia de
+        // coordenadas de sus vértices (Union-Find). Devuelve, por cada
+        // componente, la lista de puntos concatenada (traza para el alignment)
+        // y los structIds de los extremos absolutos del componente.
+        private static List<(List<Point3d> traza, ObjectId startSt, ObjectId endSt)>
+            AgruparPipesPorComponente(
+                List<ImportPipe> pipes,
+                List<(List<Point3d> pts, ObjectId startSt, ObjectId endSt)> pipeTrazas)
+        {
+            int n = pipeTrazas.Count;
+            var salida = new List<(List<Point3d>, ObjectId, ObjectId)>();
+            if (n == 0) return salida;
+
+            // Union-Find: cada pipe se identifica por su índice.
+            int[] parent = new int[n];
+            for (int i = 0; i < n; i++) parent[i] = i;
+            int Find(int a) { while (parent[a] != a) { parent[a] = parent[parent[a]]; a = parent[a]; } return a; }
+            void Union(int a, int b) { int ra = Find(a), rb = Find(b); if (ra != rb) parent[ra] = rb; }
+
+            // Indexar por coordenada de vértice (redondeada a 2 decimales de pie,
+            // ~6 mm de tolerancia — suficiente para coincidencias reales, evita
+            // que ruido decimal desune pipes que sí se tocan).
+            string Key(Point3d p) =>
+                $"{Math.Round(p.X, 2)}|{Math.Round(p.Y, 2)}";
+            var byVert = new Dictionary<string, int>();
+            for (int i = 0; i < n; i++)
+            {
+                foreach (var v in pipeTrazas[i].pts)
+                {
+                    string k = Key(v);
+                    if (byVert.TryGetValue(k, out int j)) Union(i, j);
+                    else byVert[k] = i;
+                }
+            }
+
+            // Agrupar por raíz de UF.
+            var porRaiz = new Dictionary<int, List<int>>();
+            for (int i = 0; i < n; i++)
+            {
+                int r = Find(i);
+                if (!porRaiz.ContainsKey(r)) porRaiz[r] = new List<int>();
+                porRaiz[r].Add(i);
+            }
+
+            // Para cada componente: concatenar trazas en el orden que aparecen,
+            // pero dedupear vértices consecutivos idénticos (para evitar puntos
+            // repetidos entre pipes que comparten un buzón interno).
+            foreach (var kv in porRaiz)
+            {
+                var traza = new List<Point3d>();
+                ObjectId startSt = ObjectId.Null, endSt = ObjectId.Null;
+                foreach (int i in kv.Value)
+                {
+                    var (pts, sSt, eSt) = pipeTrazas[i];
+                    foreach (var p in pts)
+                    {
+                        if (traza.Count > 0)
+                        {
+                            var prev = traza[traza.Count - 1];
+                            if (Math.Round(prev.X, 2) == Math.Round(p.X, 2) &&
+                                Math.Round(prev.Y, 2) == Math.Round(p.Y, 2))
+                                continue;                 // duplicado en juntura
+                        }
+                        traza.Add(p);
+                    }
+                    if (startSt.IsNull) startSt = sSt;
+                    endSt = eSt;
+                }
+                if (traza.Count >= 2) salida.Add((traza, startSt, endSt));
+            }
+            return salida;
         }
 
         // Offset entre StartPoint.Z (eje del tubo) y la "Elevación de rasante" que
@@ -2125,6 +2221,7 @@ namespace Civil3DBasico
             public string PartSize;                 // tamaño elegido en el diálogo (ej "48 in")
             public bool Covered = true;
             public string NetKind = "gravity";      // "gravity" | "pressure"
+            public double? HeightFt;                // "Altura (Pies)" de Python — fuerza Rim = Sump + esto
         }
     }
 }

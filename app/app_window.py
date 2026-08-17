@@ -541,11 +541,21 @@ class Main(QtWidgets.QMainWindow):
             sp.valueChanged.connect(lambda _v: self._bz_prop_changed())
         self.bz_family = QtWidgets.QComboBox(); self.bz_family.currentIndexChanged.connect(self._bz_family_changed)
         self.bz_size = QtWidgets.QComboBox(); self.bz_size.currentIndexChanged.connect(self._bz_prop_changed)
+        self.bz_height = QtWidgets.QDoubleSpinBox()
+        self.bz_height.setRange(0, 1000); self.bz_height.setDecimals(2)
+        self.bz_height.setButtonSymbols(QtWidgets.QAbstractSpinBox.NoButtons)
+        self.bz_height.setSpecialValueText("(automática)")
+        self.bz_height.setToolTip(
+            "Altura deseada del buzón, en pies. Si se llena, al importar la red en Civil3D\n"
+            "se ajusta la cota de tapa (Rim = Sump + esta altura) para que la propiedad\n"
+            "'Altura de estructura' salga exacta. Vacío (0) = se calcula automático desde el terreno.")
+        self.bz_height.valueChanged.connect(lambda _v: self._bz_prop_changed())
         self.bz_net_lbl = QtWidgets.QLabel("—")
         self.bz_origin_lbl = QtWidgets.QLabel("—")
         fbz.addRow("Código:", self.bz_cod)
         fbz.addRow("Familia:", self.bz_family)
         fbz.addRow("Tamaño:", self.bz_size)
+        fbz.addRow("Altura (Pies):", self.bz_height)
         fbz.addRow("Red:", self.bz_net_lbl)
         fbz.addRow("Origen:", self.bz_origin_lbl)
         # Checkbox de etiquetas — entre la lista de buzones (tab) y el panel de propiedades.
@@ -2306,7 +2316,7 @@ class Main(QtWidgets.QMainWindow):
             self.gprop_bz.setVisible(in_tab)
             has_sel = 0 <= self.sel_bz < len(self.structures)
             # Habilitar/deshabilitar todos los controles del groupbox según haya selección
-            for w in (self.bz_cod, self.bz_rim, self.bz_sump, self.bz_family, self.bz_size):
+            for w in (self.bz_cod, self.bz_rim, self.bz_sump, self.bz_family, self.bz_size, self.bz_height):
                 w.setEnabled(has_sel)
             if not has_sel:
                 self.gprop_bz.setTitle("Propiedades del buzón — selecciona uno de la lista")
@@ -2318,6 +2328,7 @@ class Main(QtWidgets.QMainWindow):
             self.bz_cod.setText(s.get("cod", ""))
             self.bz_rim.setValue(float(s.get("rim") or 0.0))
             self.bz_sump.setValue(float(s.get("sump") or 0.0))
+            self.bz_height.setValue(float(s.get("height_ft") or 0.0))
             self.bz_net_lbl.setText("conduit (eléctrico/telecom)" if net == "conduit" else "gravedad")
             self.bz_origin_lbl.setText("Excel" if s.get("world") else "dibujo")
             # Familias del catálogo imperial de estructuras (gravedad).
@@ -2388,6 +2399,8 @@ class Main(QtWidgets.QMainWindow):
         s["sump"] = float(self.bz_sump.value()) if self.bz_sump.value() != 0.0 else s.get("sump")
         # Si el usuario dejó los spins en 0.0 pero el valor original era 0 o None, respetar 0.
         s["rim"] = float(self.bz_rim.value()); s["sump"] = float(self.bz_sump.value())
+        # 0.0 = "(automática)" (sin override) — no se manda al DXF como altura explícita.
+        s["height_ft"] = float(self.bz_height.value())
         if self.bz_size.isEnabled():
             s["part_size"] = self.bz_size.currentData() or ""
         self._dirty = True

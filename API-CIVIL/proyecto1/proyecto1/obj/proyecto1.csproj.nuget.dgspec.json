@@ -1,17 +1,17 @@
 {
   "format": 1,
   "restore": {
-    "d:\\GVR\\Proyectos_DEV\\EEUU\\pdf-to-cad\\API-CIVIL\\proyecto1\\proyecto1\\proyecto1.csproj": {}
+    "D:\\GVR\\Proyectos_DEV\\EEUU\\pdf-to-cad\\API-CIVIL\\proyecto1\\proyecto1\\proyecto1.csproj": {}
   },
   "projects": {
-    "d:\\GVR\\Proyectos_DEV\\EEUU\\pdf-to-cad\\API-CIVIL\\proyecto1\\proyecto1\\proyecto1.csproj": {
+    "D:\\GVR\\Proyectos_DEV\\EEUU\\pdf-to-cad\\API-CIVIL\\proyecto1\\proyecto1\\proyecto1.csproj": {
       "version": "1.0.0",
       "restore": {
-        "projectUniqueName": "d:\\GVR\\Proyectos_DEV\\EEUU\\pdf-to-cad\\API-CIVIL\\proyecto1\\proyecto1\\proyecto1.csproj",
+        "projectUniqueName": "D:\\GVR\\Proyectos_DEV\\EEUU\\pdf-to-cad\\API-CIVIL\\proyecto1\\proyecto1\\proyecto1.csproj",
         "projectName": "proyecto1",
-        "projectPath": "d:\\GVR\\Proyectos_DEV\\EEUU\\pdf-to-cad\\API-CIVIL\\proyecto1\\proyecto1\\proyecto1.csproj",
+        "projectPath": "D:\\GVR\\Proyectos_DEV\\EEUU\\pdf-to-cad\\API-CIVIL\\proyecto1\\proyecto1\\proyecto1.csproj",
         "packagesPath": "C:\\Users\\User\\.nuget\\packages\\",
-        "outputPath": "d:\\GVR\\Proyectos_DEV\\EEUU\\pdf-to-cad\\API-CIVIL\\proyecto1\\proyecto1\\obj\\",
+        "outputPath": "D:\\GVR\\Proyectos_DEV\\EEUU\\pdf-to-cad\\API-CIVIL\\proyecto1\\proyecto1\\obj\\",
         "projectStyle": "PackageReference",
         "configFilePaths": [
           "C:\\Users\\User\\AppData\\Roaming\\NuGet\\NuGet.Config",
