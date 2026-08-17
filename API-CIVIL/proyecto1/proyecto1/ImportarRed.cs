@@ -402,20 +402,6 @@ namespace Civil3DBasico
                 }
             }
 
-            // ── 7. Log de depuración de asignación de familias ──────────────
-            // Vuelca el buffer _dbg al Escritorio para diagnosticar qué familia
-            // recibió y eligió CADA tubería/estructura. Clave para confirmar que
-            // las familias custom solo se aplican donde el usuario las pidió.
-            try
-            {
-                string dir = Environment.GetFolderPath(Environment.SpecialFolder.DesktopDirectory);
-                string path = System.IO.Path.Combine(dir,
-                    $"IMPORTAR_RED_DEBUG_{DateTime.Now:yyyyMMdd-HHmmss}.txt");
-                System.IO.File.WriteAllLines(path, _dbg, System.Text.Encoding.UTF8);
-                ed.WriteMessage($"\n(Log de depuración: {path})");
-            }
-            catch { }
-
             ed.WriteMessage("\n═══ IMPORTAR RED — fin ═══");
         }
 

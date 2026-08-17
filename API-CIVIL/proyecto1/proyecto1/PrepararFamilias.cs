@@ -121,12 +121,10 @@ namespace Civil3DBasico
 
             if (pipes.Count == 0 && structs.Count == 0)
             {
-                var path = SaveLog(log);
                 MessageBox.Show(
                     "PARTCATALOGREGEN no completó — no encontré ninguna familia en el catálogo.\n\n" +
                     "Ejecuta el comando '_PARTCATALOGREGEN' manualmente (una vez para Pipe, otra para " +
-                    "Structure) y vuelve a intentar.\n\n" +
-                    $"Log guardado en:\n{path}",
+                    "Structure) y vuelve a intentar.",
                     "Preparar familias",
                     MessageBoxButton.OK, MessageBoxImage.Warning);
                 return;
@@ -171,15 +169,13 @@ namespace Civil3DBasico
 
             if (seleccionadas.Count == 0)
             {
-                var path = SaveLog(log);
                 MessageBox.Show(
-                    (nEntidadesPdfcad == 0
+                    nEntidadesPdfcad == 0
                         ? "No encontré tuberías/buzones con datos de Python (XDATA 'PDFCAD') en el dibujo " +
                           "actual. Abre/inserta primero el DXF exportado desde la app y vuelve a intentar."
                         : "El dibujo referencia familias, pero ninguna parece personalizada (nueva) — " +
                           "las que sí uses del catálogo estándar de Civil3D ya traen sus tamaños de fábrica, " +
-                          "no hace falta añadir nada.") +
-                    $"\n\nLog guardado en:\n{path}",
+                          "no hace falta añadir nada.",
                     "Preparar familias", MessageBoxButton.OK, MessageBoxImage.Information);
                 return;
             }
@@ -200,7 +196,7 @@ namespace Civil3DBasico
                 catch (Exception ex)
                 {
                     L($"✗ No hay Civil Document activo: {ex.Message}");
-                    tr.Abort(); SaveLog(log); return;
+                    tr.Abort(); return;
                 }
 
                 PartsStyles.PartsListCollection plSet = civilDoc.Styles.PartsListSet;
@@ -235,7 +231,7 @@ namespace Civil3DBasico
                 if (partsList == null)
                 {
                     L("✗ No pude abrir la Parts List destino.");
-                    tr.Abort(); SaveLog(log); return;
+                    tr.Abort(); return;
                 }
                 L($"→ Parts List destino: '{partsList.Name}'");
 
@@ -324,13 +320,10 @@ namespace Civil3DBasico
                 foreach (var e in errores) L("    · " + e);
             }
             L("═══════════════════════════════════════════════════════════════");
-            var logPath = SaveLog(log);
 
             var msg = $"Familias procesadas en 'Standard': {totalFams}\n" +
-                      $"Tamaños añadidos en total: {totalSizes}\n\n" +
-                      (errores.Count > 0
-                          ? "Con errores. Ver log:\n" + logPath
-                          : "Log completo en:\n" + logPath);
+                      $"Tamaños añadidos en total: {totalSizes}" +
+                      (errores.Count > 0 ? "\n\nCon errores — revisa la línea de comandos de Civil3D." : "");
             MessageBox.Show(msg, "Preparar familias — resumen",
                 MessageBoxButton.OK,
                 errores.Count > 0 ? MessageBoxImage.Warning : MessageBoxImage.Information);
@@ -468,19 +461,6 @@ namespace Civil3DBasico
             L($"  ✓ Tamaños añadidos: {delta} de {valoresA.Count * valoresB.Count} combinaciones " +
               $"(variando {ctxA} × {ctxB}){(nFallos > 0 ? $"  |  fallos/duplicados: {nFallos}" : "")}");
             return delta;
-        }
-
-        static string SaveLog(StringBuilder log)
-        {
-            try
-            {
-                string dir = Environment.GetFolderPath(Environment.SpecialFolder.DesktopDirectory);
-                string path = Path.Combine(dir,
-                    $"PREPARAR_FAMILIAS_DEBUG_{DateTime.Now:yyyyMMdd-HHmmss}.txt");
-                File.WriteAllText(path, log.ToString(), Encoding.UTF8);
-                return path;
-            }
-            catch { return "(no pude guardar el log)"; }
         }
 
         // Wrapper defensivo — GetAvailablePartFamilies puede lanzar si el
