@@ -1306,64 +1306,59 @@ def family_already_installed(year, entry):
     return "different"
 
 
+def _is_custom_family_xml(xml_path):
+    """True si el XML parece ser una familia PERSONALIZADA (no stock Autodesk).
+    Criterio doble:
+      1. Tiene un .dwg hermano con el mismo basename (las custom siempre traen
+         geometría; las stock de Autodesk referencian DWGs en carpetas compartidas).
+      2. O su basename NO empieza con 'Aecc' (prefijo estándar de Autodesk).
+    Basta con cumplir cualquiera — el .dwg hermano es el criterio más fiable
+    porque algunas custom del Part Builder SÍ empiezan con 'Aecc'."""
+    name = os.path.splitext(os.path.basename(xml_path))[0]
+    dwg = os.path.join(os.path.dirname(xml_path), name + ".dwg")
+    if os.path.isfile(dwg):
+        return True
+    return not name.startswith("Aecc")
+
+
 def installed_custom_families(year):
     """Lista las familias PERSONALIZADAS instaladas en el catálogo del año dado.
-    Criterio: cualquier .xml en las subcarpetas del catálogo cuyo basename NO
-    empiece con 'Aecc' (todas las familias stock de Autodesk empiezan así).
     Devuelve lista de dicts con:
-        name             — basename sin extensión
-        display_name     — Catalog_PartDesc si existe, si no _pretty_from_filename
-        kind             — 'pipe' | 'structure'
-        subfolder        — subcarpeta real donde está el archivo
-        xml_path         — ruta absoluta al .xml
-        bmp_path         — ruta al .bmp al lado o None
-        sizes_list       — lista real de tamaños
-    """
+        name, display_name, kind, subfolder, xml_path, bmp_path, sizes_list."""
     out = []
-    # Estructuras
-    r = catalog_root(year)
-    if r:
-        for sub in _list_subfolders(r):
-            d = os.path.join(r, sub)
-            if not os.path.isdir(d): continue
+    _SKIP = {"AecbIDrop.xml", "AeccSharedPropertyLists.xml"}
+
+    def _scan(root, kind):
+        if not root:
+            return
+        for sub in _list_subfolders(root):
+            d = os.path.join(root, sub)
+            if not os.path.isdir(d):
+                continue
             for fn in sorted(os.listdir(d)):
-                if not fn.lower().endswith(".xml"): continue
-                if fn.startswith("Aecc"): continue
+                if not fn.lower().endswith(".xml"):
+                    continue
+                if fn in _SKIP:
+                    continue
                 xml_path = os.path.join(d, fn)
+                if not _is_custom_family_xml(xml_path):
+                    continue
                 name = os.path.splitext(fn)[0]
                 bmp = os.path.join(d, name + ".bmp")
-                if not os.path.isfile(bmp): bmp = None
+                if not os.path.isfile(bmp):
+                    bmp = None
                 out.append({
                     "name": name,
                     "display_name": _extract_family_desc(xml_path) or _pretty_from_filename(fn),
-                    "kind": "structure",
+                    "kind": kind,
                     "subfolder": sub,
                     "xml_path": xml_path,
                     "bmp_path": bmp,
-                    "sizes_list": _sizes_list("structure", xml_path),
+                    "sizes_list": _sizes_list(kind, xml_path),
                 })
-    # Tuberías
-    r = pipes_root(year)
-    if r:
-        for sub in _list_subfolders(r):
-            d = os.path.join(r, sub)
-            if not os.path.isdir(d): continue
-            for fn in sorted(os.listdir(d)):
-                if not fn.lower().endswith(".xml"): continue
-                if fn.startswith("Aecc"): continue
-                xml_path = os.path.join(d, fn)
-                name = os.path.splitext(fn)[0]
-                bmp = os.path.join(d, name + ".bmp")
-                if not os.path.isfile(bmp): bmp = None
-                out.append({
-                    "name": name,
-                    "display_name": _extract_family_desc(xml_path) or _pretty_from_filename(fn),
-                    "kind": "pipe",
-                    "subfolder": sub,
-                    "xml_path": xml_path,
-                    "bmp_path": bmp,
-                    "sizes_list": _sizes_list("pipe", xml_path),
-                })
+
+    _scan(catalog_root(year), "structure")
+    _scan(pipes_root(year), "pipe")
     return out
 
 
@@ -2012,6 +2007,85 @@ def install_family_folder(source_folder, year, lang=None):
 
     return {"ok": ok_count > 0, "error": "" if ok_count > 0 else "Ninguna familia se instaló.",
             "families": familias, "apc_backups": apc_backups, "summary": summary}
+
+
+def uninstall_family(year, family_name, kind, subfolder, lang=None):
+    """Desinstala UNA familia personalizada del catálogo de Civil 3D.
+    Pasos:
+      1. Quitar el <Part name="family_name"> del .apc
+      2. Limpiar <Chapter> vacíos resultantes
+      3. Borrar los archivos (.xml, .dwg, .bmp) de la familia del catálogo
+      4. Si la subcarpeta queda vacía (sin más .xml), borrarla entera
+    Devuelve dict con 'ok', 'error', 'detail'."""
+    import shutil, datetime
+    lr = _lang_root(year, lang)
+    if not lr:
+        return {"ok": False, "error": f"No se encontró Civil 3D {year}.", "detail": ""}
+
+    if kind == "structure":
+        cat_dir = catalog_root(year, lang)
+    else:
+        cat_dir = pipes_root(year, lang)
+    if not cat_dir:
+        return {"ok": False, "error": f"No se encontró catálogo {kind} para {year}.", "detail": ""}
+
+    apc_candidates = [f for f in os.listdir(cat_dir) if f.lower().endswith(".apc")]
+    detail_lines = []
+
+    for apc_name in apc_candidates:
+        apc_path = os.path.join(cat_dir, apc_name)
+        try:
+            with open(apc_path, "r", encoding="utf-8") as f:
+                text = f.read()
+        except Exception:
+            continue
+
+        part_re = re.compile(
+            r'[ \t]*<Part\s+name="' + re.escape(family_name) + r'"[^>]*>.*?</Part>\s*',
+            re.DOTALL,
+        )
+        if not part_re.search(text):
+            continue
+
+        ts = datetime.datetime.now().strftime("%Y%m%d-%H%M%S")
+        bak = apc_path + f".bak-{ts}"
+        shutil.copy2(apc_path, bak)
+        detail_lines.append(f"Backup: {os.path.basename(bak)}")
+
+        text = part_re.sub("", text)
+
+        def _drop_empty(m):
+            if re.search(r'<Part\b', m.group(1), re.DOTALL):
+                return m.group(0)
+            return ""
+        text = re.sub(
+            r'[ \t]*<Chapter\s+name="' + re.escape(subfolder) + r'"[^>]*>(.*?)</Chapter>\s*',
+            _drop_empty, text, flags=re.DOTALL)
+
+        with open(apc_path, "w", encoding="utf-8") as f:
+            f.write(text)
+        detail_lines.append(f"Quitado de {apc_name}")
+
+    fam_dir = os.path.join(cat_dir, subfolder)
+    deleted_files = []
+    if os.path.isdir(fam_dir):
+        for ext in (".xml", ".dwg", ".bmp"):
+            fp = os.path.join(fam_dir, family_name + ext)
+            if os.path.isfile(fp):
+                os.remove(fp)
+                deleted_files.append(family_name + ext)
+
+        remaining_xmls = [f for f in os.listdir(fam_dir) if f.lower().endswith(".xml")]
+        if not remaining_xmls:
+            shutil.rmtree(fam_dir, ignore_errors=True)
+            detail_lines.append(f"Carpeta '{subfolder}' eliminada (vacía)")
+        else:
+            detail_lines.append(f"Carpeta '{subfolder}' conservada ({len(remaining_xmls)} familia(s) restante(s))")
+
+    if deleted_files:
+        detail_lines.append(f"Archivos borrados: {', '.join(deleted_files)}")
+
+    return {"ok": True, "error": "", "detail": "\n".join(detail_lines)}
 
 
 # Alias legacy (compatibilidad con el diálogo previo, redirige al nuevo flujo).

@@ -108,7 +108,7 @@ namespace Civil3DBasico {
                 return;
             }
             _contentLoaded = true;
-            System.Uri resourceLocater = new System.Uri("/proyecto1;component/panelpipe.xaml", System.UriKind.Relative);
+            System.Uri resourceLocater = new System.Uri("/proyecto1;V1.0.0.0;component/panelpipe.xaml", System.UriKind.Relative);
             
             #line 1 "..\..\..\PanelPipe.xaml"
             System.Windows.Application.LoadComponent(this, resourceLocater);

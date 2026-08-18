@@ -633,7 +633,7 @@ namespace Civil3DBasico
                     bool alturaExplicita = match != null && match.HeightFt.HasValue && match.HeightFt.Value > 0.01;
                     if (alturaExplicita) rim = sump + match.HeightFt.Value;
                     // Garantía: rim ARRIBA (mín. 1' sobre sump) y sump por debajo del invert.
-                    if (rim - sump < 1.0) rim = sump + Math.Max(depth, 3.0);
+                    if (!alturaExplicita && rim - sump < 1.0) rim = sump + Math.Max(depth, 3.0);
 
                     string key = $"{Math.Round(v.X, 2)}_{Math.Round(v.Y, 2)}";
                     // En modo conduit (eléctrico/telecom): tanto si el usuario asignó
@@ -1107,7 +1107,8 @@ namespace Civil3DBasico
             int nPipes = 0;
             var createdPipeIds = new List<ObjectId>();
             var pipeEndpoints = new List<(Point3d start, Point3d end, ObjectId id)>();
-            var trazaEje = new List<Point3d>();
+            // Traza per-pipe (para Union-Find de componentes conectados).
+            var pipeTrazasPres = new List<List<Point3d>>();
 
             foreach (var ip in pipes)
             {
@@ -1117,13 +1118,14 @@ namespace Civil3DBasico
                     ("elegida", tuboElegido?.Description ?? "?"));
 
                 int nVerts = ip.Vertices.Count;
-                // Cota de rasante capturada. Antes caía a -defaultDepth (¡negativo!)
-                // cuando faltaba el dato; ahora 0 (neutro). En el flujo normal viene
-                // el invert del DXF (agua/gas también lo llevan).
                 double zStart = ip.InvStart ?? 0.0;
                 double zEnd = ip.InvEnd ?? zStart;
-                // Por DISTANCIA (pendiente uniforme), no por índice de vértice.
                 double[] zpv = ZalongByDistance(ip.Vertices, zStart, zEnd);
+
+                var pipeTraza = new List<Point3d>();
+                for (int i = 0; i < nVerts; i++)
+                    pipeTraza.Add(new Point3d(ip.Vertices[i].X, ip.Vertices[i].Y, zpv[i]));
+                pipeTrazasPres.Add(pipeTraza);
 
                 for (int i = 0; i < nVerts - 1; i++)
                 {
@@ -1137,8 +1139,6 @@ namespace Civil3DBasico
                     ObjectId pid = net.AddLinePipe(new LineSegment3d(p1, p2), tuboElegido);
                     createdPipeIds.Add(pid);
                     pipeEndpoints.Add((p1, p2, pid));
-                    if (trazaEje.Count == 0) trazaEje.Add(p1);
-                    trazaEje.Add(p2);
 
                     if (!string.IsNullOrWhiteSpace(ip.Material))
                     {
@@ -1247,23 +1247,42 @@ namespace Civil3DBasico
                 catch { }
             }
 
-            // Alineamiento (eje) para la red de presión — para vistas de perfil
-            ObjectId alignId = ComandosAlineamientos.CrearAlineamientoDesdePts(db, civilDoc, tr, trazaEje, nombre + "-eje");
-            if (alignId != ObjectId.Null)
+            // Alineamiento (eje) por componente conectado — Union-Find igual
+            // que en gravedad, para no unir sub-redes desconectadas con un eje.
+            var pipeTrazasTuples = pipeTrazasPres.Select(pts =>
+                (pts, ObjectId.Null, ObjectId.Null)).ToList();
+            var componentesPres = AgruparPipesPorComponente(pipes, pipeTrazasTuples);
+            int nAligns = 0;
+            foreach (var comp in componentesPres)
             {
-                foreach (var pid in createdPipeIds)
+                int cIdx2 = nAligns + 1;
+                string nomAlign = componentesPres.Count == 1
+                    ? nombre + "-eje"
+                    : $"{nombre}-{cIdx2}-eje";
+                ObjectId alignId = ComandosAlineamientos.CrearAlineamientoDesdePts(
+                    db, civilDoc, tr, comp.traza, nomAlign);
+                if (alignId != ObjectId.Null)
                 {
-                    try
+                    // Asociar solo si hay un único componente (Reference alignment unívoco).
+                    if (componentesPres.Count == 1)
                     {
-                        var pp = tr.GetObject(pid, OpenMode.ForWrite) as CivilDB.PressurePipe;
-                        if (pp != null) pp.ReferenceAlignmentId = alignId;
+                        foreach (var pid in createdPipeIds)
+                        {
+                            try
+                            {
+                                var pp = tr.GetObject(pid, OpenMode.ForWrite) as CivilDB.PressurePipe;
+                                if (pp != null) pp.ReferenceAlignmentId = alignId;
+                            }
+                            catch { }
+                        }
                     }
-                    catch { }
+                    nAligns++;
+                    ed.WriteMessage($"\n  · Eje '{nomAlign}' creado.");
                 }
             }
 
-            ed.WriteMessage($"\n✓ Red presión '{nombre}': {nPipes} tubería(s), {nFittings} fitting(s)" +
-                            (alignId != ObjectId.Null ? " + eje." : "."));
+            ed.WriteMessage($"\n✓ Red presión '{nombre}': {nPipes} tubería(s), {nFittings} fitting(s), " +
+                            $"{componentesPres.Count} componente(s) para eje.");
             return netId;
         }
 
@@ -1531,19 +1550,32 @@ namespace Civil3DBasico
             catch (Exception e) { return e.Message; }
         }
 
-        // Setea Structure.RimToSumpHeight = altura (ft). Con eso Civil calcula
-        // rim = sump + RimToSumpHeight (respeta el barril variable de la familia).
-        // Devuelve null si OK, o un mensaje corto si falló.
         private static string SetRimToSumpHeight(CivilDB.Structure st, double heightFt)
         {
+            // Intento 1: propiedades por reflexión (el nombre cambia entre versiones).
+            string[] candidates = {
+                "RimToSumpHeight", "StructureHeight", "Height", "OverallHeight"
+            };
+            foreach (var name in candidates)
+            {
+                try
+                {
+                    var prop = st.GetType().GetProperty(name);
+                    if (prop != null && prop.CanWrite)
+                    {
+                        prop.SetValue(st, heightFt);
+                        return null;
+                    }
+                }
+                catch { }
+            }
+            // Intento 2: forzar Rim = Sump + altura directamente.
             try
             {
-                var prop = st.GetType().GetProperty("RimToSumpHeight");
-                if (prop == null) return "no-prop";
-                prop.SetValue(st, heightFt);
+                st.RimElevation = st.SumpElevation + heightFt;
                 return null;
             }
-            catch (Exception e) { return e.Message; }
+            catch (Exception e) { return "fallback-rim: " + e.Message; }
         }
 
         // Borra las polylines XDATA=PDFCAD_PIPE cuya NET_KIND sea 'gravity' o

@@ -218,6 +218,7 @@ class Main(QtWidgets.QMainWindow):
         mtools = mb.addMenu("&Herramientas")
         self._menu_act(mtools, "Insertar buzón en línea…", self.insert_manhole)
         self._menu_act(mtools, "Instalar familia personalizada…", self.open_install_family_dialog)
+        self._menu_act(mtools, "Desinstalar familia personalizada…", self.open_uninstall_family_dialog)
         mtools.addSeparator()
         self._menu_act(mtools, "Georreferenciar…", self.open_georef)
         self._menu_act(mtools, "Quitar georreferencia", self.clear_georef)
@@ -2277,7 +2278,8 @@ class Main(QtWidgets.QMainWindow):
                 if near((s["x"], s["y"]), (o.get("x", -1e9), o.get("y", -1e9))):
                     s.update(cod=o.get("cod", ""), rim=o.get("rim"), sump=o.get("sump"),
                              part=o.get("part", ""), part_size=o.get("part_size", ""),
-                             covered=bool(o.get("covered", True))); break
+                             covered=bool(o.get("covered", True)),
+                             height_ft=o.get("height_ft", 0.0)); break
         # Códigos únicos: BZ-N para gravedad, CAJA-N para conduit.
         used = {s.get("cod", "") for s in world + detected if s.get("cod")}
         cnt_bz = cnt_caja = 1
@@ -2554,6 +2556,90 @@ class Main(QtWidgets.QMainWindow):
         btn_install.clicked.connect(_do_install)
         btn_close.clicked.connect(dlg.reject)
         if self._if_src.text(): _refresh_preview(self._if_src.text())
+        dlg.exec()
+
+    def open_uninstall_family_dialog(self):
+        import civil_catalog as _cc
+        if not self.civil_year:
+            QtWidgets.QMessageBox.warning(self, "Sin versión",
+                "Elige una versión de Civil 3D en el toolbar antes de desinstalar familias.")
+            return
+        cur_lang = getattr(self, "civil_lang", None) or (
+            self.cmb_lang.currentData() if hasattr(self, "cmb_lang") else None)
+        if not cur_lang:
+            QtWidgets.QMessageBox.warning(self, "Sin idioma",
+                "Elige un idioma en el toolbar antes de desinstalar familias.")
+            return
+
+        fams = _cc.installed_custom_families(self.civil_year)
+        if not fams:
+            QtWidgets.QMessageBox.information(self, "Sin familias personalizadas",
+                f"No se encontraron familias personalizadas instaladas en Civil 3D {self.civil_year}.")
+            return
+
+        dlg = QtWidgets.QDialog(self)
+        dlg.setWindowTitle(f"Desinstalar familias — Civil 3D {self.civil_year} / {cur_lang}")
+        dlg.setMinimumSize(500, 400)
+        lay = QtWidgets.QVBoxLayout(dlg)
+
+        lay.addWidget(QtWidgets.QLabel(
+            f"<b>Familias personalizadas en Civil 3D {self.civil_year}</b><br>"
+            "Marca las que deseas desinstalar:"))
+
+        lw = QtWidgets.QListWidget()
+        lw.setSelectionMode(QtWidgets.QAbstractItemView.MultiSelection)
+        for f in fams:
+            tipo = "Estructura" if f["kind"] == "structure" else "Tubería"
+            text = f"{f['display_name']}  ({tipo} — {f['subfolder']})"
+            item = QtWidgets.QListWidgetItem(text)
+            item.setData(256, f)
+            lw.addItem(item)
+        lay.addWidget(lw)
+
+        bb = QtWidgets.QDialogButtonBox()
+        btn_del = bb.addButton("Desinstalar seleccionadas", QtWidgets.QDialogButtonBox.AcceptRole)
+        btn_close = bb.addButton("Cerrar", QtWidgets.QDialogButtonBox.RejectRole)
+        lay.addWidget(bb)
+
+        def _do_uninstall():
+            sel = [lw.item(i).data(256) for i in range(lw.count()) if lw.item(i).isSelected()]
+            if not sel:
+                QtWidgets.QMessageBox.warning(dlg, "Sin selección", "Selecciona al menos una familia.")
+                return
+            names = "\n".join(f"  · {s['display_name']}" for s in sel)
+            r = QtWidgets.QMessageBox.question(
+                dlg, "Confirmar desinstalación",
+                f"¿Desinstalar {len(sel)} familia(s)?\n\n{names}\n\n"
+                "Se quitarán del catálogo de Civil 3D. Esta acción se puede revertir "
+                "reinstalando las familias desde su carpeta original.",
+                QtWidgets.QMessageBox.Yes | QtWidgets.QMessageBox.No)
+            if r != QtWidgets.QMessageBox.Yes:
+                return
+            ok_count = 0
+            errors = []
+            for s in sel:
+                res = _cc.uninstall_family(
+                    self.civil_year, s["name"], s["kind"], s["subfolder"], cur_lang)
+                if res["ok"]:
+                    ok_count += 1
+                else:
+                    errors.append(f"{s['display_name']}: {res['error']}")
+            try:
+                self._refresh_catalog_panels()
+            except Exception:
+                pass
+            if errors:
+                QtWidgets.QMessageBox.warning(dlg, "Errores",
+                    f"Se desinstalaron {ok_count} de {len(sel)} familias.\n\nErrores:\n" +
+                    "\n".join(errors))
+            else:
+                QtWidgets.QMessageBox.information(dlg, "Familias desinstaladas",
+                    f"Se desinstalaron {ok_count} familia(s) correctamente.\n\n"
+                    "En Civil 3D ejecuta PREPARAR_FAMILIAS para actualizar la Parts List.")
+            dlg.accept()
+
+        btn_del.clicked.connect(_do_uninstall)
+        btn_close.clicked.connect(dlg.reject)
         dlg.exec()
 
     def clear_georef(self):

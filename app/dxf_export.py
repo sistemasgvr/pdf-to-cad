@@ -199,12 +199,16 @@ def _export_structures(win, doc, msp):
         cx, cy = (float(x), float(y)) if s.get("world") else win._to_cad(x, y)
         pt = msp.add_point((cx, cy, 0), dxfattribs={"layer": "PDFCAD_BZ"})
         rim, sump = s.get("rim"), s.get("sump")
+        # rim/sump = 0.0 o None → no seteado por el usuario → enviar vacío
+        # para que C# calcule sump = invert de la tubería conectada.
+        rim_str = f"{rim}" if rim else ""
+        sump_str = f"{sump}" if sump else ""
         height_ft = s.get("height_ft") or 0.0
         pt.set_xdata("PDFCAD", [
             (1000, "PDFCAD_STRUCT"),
             (1000, f"STRUCT_ID={s.get('cod') or ''}"),
-            (1000, f"RIM={rim if rim is not None else ''}"),
-            (1000, f"SUMP={sump if sump is not None else ''}"),
+            (1000, f"RIM={rim_str}"),
+            (1000, f"SUMP={sump_str}"),
             (1000, f"PART={_resolve_family(win, s.get('part') or '', 'structure')}"),
             (1000, f"PART_SIZE={s.get('part_size') or ''}"),
             (1000, f"COVERED={1 if s.get('covered', True) else 0}"),

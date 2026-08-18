@@ -124,7 +124,7 @@ namespace Civil3DBasico {
                 return;
             }
             _contentLoaded = true;
-            System.Uri resourceLocater = new System.Uri("/proyecto1;V1.0.0.0;component/panelcorredor.xaml", System.UriKind.Relative);
+            System.Uri resourceLocater = new System.Uri("/proyecto1;component/panelcorredor.xaml", System.UriKind.Relative);
             
             #line 1 "..\..\..\PanelCorredor.xaml"
             System.Windows.Application.LoadComponent(this, resourceLocater);

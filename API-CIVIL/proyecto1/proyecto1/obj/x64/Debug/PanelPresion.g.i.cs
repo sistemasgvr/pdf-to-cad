@@ -156,7 +156,7 @@ namespace Civil3DBasico {
                 return;
             }
             _contentLoaded = true;
-            System.Uri resourceLocater = new System.Uri("/proyecto1;V1.0.0.0;component/panelpresion.xaml", System.UriKind.Relative);
+            System.Uri resourceLocater = new System.Uri("/proyecto1;component/panelpresion.xaml", System.UriKind.Relative);
             
             #line 1 "..\..\..\PanelPresion.xaml"
             System.Windows.Application.LoadComponent(this, resourceLocater);
