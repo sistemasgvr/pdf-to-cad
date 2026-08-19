@@ -1,0 +1,35 @@
+<?xml version="1.0" encoding="utf-8"?>
+<ApplicationPackage
+  SchemaVersion="1.0"
+  AppVersion="1.0.0"
+  Author="GVR Engineering"
+  ProductCode="{B8F3A1C2-7D4E-4F5A-9E6B-1C2D3E4F5A6B}"
+  Name="Asistente C3D"
+  >
+  <CompanyDetails
+    Name="GVR Engineering"
+    Phone=""
+    Url=""
+    Email="sistemas.gvrpe@gmail.com"
+  />
+  <RuntimeRequirements
+    Platform="Civil3D"
+    SeriesMin="R25.0"
+    OS="Win64"
+    SupportPath="./Contents"
+  />
+  <Components>
+    <ComponentEntry
+      AppName="AsistenteC3DPlugin"
+      AppDescription="Comandos Asistente C3D para Civil 3D"
+      AppType=".NET"
+      ModuleName="./Contents/proyecto1.dll"
+      LoadOnAutoCADStartup="True"
+      LoadOnCommandInvocation="False"
+      >
+      <AssemblyMappings>
+        <AssemblyMappingFolder Path="./Contents" />
+      </AssemblyMappings>
+    </ComponentEntry>
+  </Components>
+</ApplicationPackage>

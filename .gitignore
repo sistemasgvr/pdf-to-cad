@@ -1,7 +1,57 @@
-# Archivos de compilación de Python (PyInstaller)
+# ── Python ──
+__pycache__/
+*.py[cod]
+*.pyo
+*.egg-info/
+*.egg
+.eggs/
+*.whl
+
+# ── PyInstaller ──
 build/
 dist/
+*.spec.bak
+
+# ── Entornos virtuales ──
+venv/
+.venv/
+env/
+
+# ── Ejecutables / instaladores ──
 *.exe
+*.msi
 *.pkg
-installer/
-bin/
+
+# ── .NET / C# ──
+**/bin/
+**/obj/
+*.user
+*.suo
+*.cache
+
+# ── Visual Studio ──
+.vs/
+
+# ── Inno Setup ──
+installer/publish/
+installer/AsistenteC3D.bundle/
+
+# ── Archivos de respaldo ──
+*.bak
+*.bak.*
+*.tmp
+~$*
+
+# ── OS ──
+Thumbs.db
+Desktop.ini
+.DS_Store
+
+# ── IDE ──
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# ── Logs de debug del plugin ──
+*_DEBUG_*.txt
