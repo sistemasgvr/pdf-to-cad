@@ -337,18 +337,6 @@ def pipe_family_params(year, fid):
     return out
 
 
-def family_params(year, fid, kind):
-    """Wrapper que despacha a structure_family_params o pipe_family_params."""
-    return (pipe_family_params(year, fid) if kind == "pipe"
-            else structure_family_params(year, fid))
-
-
-def add_family_size(year, fid, values, kind):
-    """Wrapper que despacha a add_structure_size o add_pipe_size."""
-    return (add_pipe_size(year, fid, values) if kind == "pipe"
-            else add_structure_size(year, fid, values))
-
-
 def family_description(year, fid, kind):
     """Lee el campo PrtD (Catalog_PartDesc) del XML de la familia — es la
     'Description' que ve Civil 3D. Se usa para exportar al DXF, porque el
@@ -447,47 +435,6 @@ def structure_sizes(year, fid):
     # Fail closed: si no hay Width+Length ni Diameter, no inventamos tamaños
     # a partir de un parámetro cualquiera del XML.
     return []
-
-
-def pressure_sizes(year, fid):
-    """Devuelve los DIAMETER_NOMINAL únicos de una familia de accesorio de presión.
-    fid = '<subcat>|<PART_FAMILY_NAME>'. Lista vacía si no encuentra nada."""
-    if "|" not in (fid or ""): return []
-    subcat, fam_name = fid.split("|", 1)
-    root = pressure_root(year)
-    if root is None: return []
-    db_path = os.path.join(root, subcat + ".sqlite")
-    if not os.path.isfile(db_path): return []
-    try:
-        conn = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True)
-    except Exception:
-        return []
-    raw = []
-    try:
-        c = conn.cursor()
-        for tbl in PRESSURE_TABLES:
-            try:
-                c.execute(
-                    f"SELECT DISTINCT DIAMETER_NOMINAL FROM {tbl} "
-                    f"WHERE PART_FAMILY_NAME=? AND DIAMETER_NOMINAL IS NOT NULL",
-                    (fam_name,)
-                )
-            except sqlite3.Error:
-                continue
-            for (dn,) in c.fetchall():
-                if dn and dn not in raw: raw.append(dn)
-    finally:
-        conn.close()
-    # DIAMETER_NOMINAL puede ser "8", "10", "10 x 5". Ordenar numéricamente por el
-    # primer número y agregar " in" si el string es solo dígitos/decimales.
-    def _key(s):
-        m = re.match(r"\s*(\d+(?:\.\d+)?)", str(s))
-        return float(m.group(1)) if m else 1e9
-    raw.sort(key=_key)
-    def _pretty(s):
-        s = str(s).strip()
-        return f"{s} in" if re.fullmatch(r"\d+(?:\.\d+)?", s) else s
-    return [_pretty(s) for s in raw]
 
 
 def imperial_pipes(year):

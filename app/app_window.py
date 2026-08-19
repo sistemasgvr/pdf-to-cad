@@ -21,9 +21,8 @@ from geometry import point_in_poly, qimage_to_gray
 from model import (VERSION, TIPOS, ACI_RGB, LEADER_TEXT_FT, LEADER_ORIENT,
                    Z_PDF, Z_ERASE, Z_MARK, Z_HANDLE, GRAVITY_LAYERS,
                    TAB_PIPE, TAB_ML, TAB_LEADER, TAB_TEXT, TAB_REGION, TAB_BZ,
-                   WORK_UNITS, DEFAULT_WORK_UNIT, is_valid_work_unit, CHANGELOG,
-                   PIPE_DIAMETERS_IN, PIPE_MATERIALS, DEFAULT_PIPE_MATERIAL,
-                   nearest_pipe_diameter)
+                   WORK_UNITS, DEFAULT_WORK_UNIT, CHANGELOG,
+                   PIPE_DIAMETERS_IN, PIPE_MATERIALS, DEFAULT_PIPE_MATERIAL)
 
 DOWNLOADS = os.path.join(os.path.expanduser("~"), "Downloads")
 BTN_ON = "background:#2e9e4f;color:white;font-weight:bold;padding:8px;border-radius:4px;"

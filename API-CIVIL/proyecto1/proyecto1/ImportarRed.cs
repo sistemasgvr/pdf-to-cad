@@ -1287,81 +1287,6 @@ namespace Civil3DBasico
         }
 
         // =================================================================
-        //  REPORTE CSV — lee de vuelta cada elemento creado (para revisión)
-        //  Se escribe en Descargas\IMPORTAR_RED_reporte.csv. Todo lo que ve
-        //  Civil 3D en las propiedades, en texto plano.
-        // =================================================================
-        private void EscribirReporteRed(Editor ed, Transaction tr,
-            List<ObjectId> gravNets, List<ObjectId> presNets)
-        {
-            var sb = new System.Text.StringBuilder();
-            sb.AppendLine("TIPO,RED,NOMBRE,DIAM_in,MATERIAL_DESC,COTA_INI,COTA_FIN,PENDIENTE_%,LONGITUD,RIM,SUMP,FAMILIA,TAMANO");
-
-            // ── Redes de gravedad: estructuras + tuberías ──
-            foreach (ObjectId nid in gravNets)
-            {
-                var net = tr.GetObject(nid, OpenMode.ForRead) as CivilDB.Network;
-                if (net == null) continue;
-                string rn = net.Name;
-                foreach (ObjectId sid in net.GetStructureIds())
-                {
-                    var st = tr.GetObject(sid, OpenMode.ForRead) as CivilDB.Structure;
-                    if (st == null) continue;
-                    string famName = "?", sizeName = "?";
-                    try
-                    {
-                        var famDbg = tr.GetObject(st.PartFamilyId, OpenMode.ForRead) as PartsStyles.PartFamily;
-                        famName = (famDbg?.Description ?? "").Replace(",", " ");
-                        sizeName = (st.PartSizeName ?? "").Replace(",", " ");
-                    }
-                    catch { }
-                    sb.AppendLine($"ESTRUCTURA,{rn},{st.Name},{st.InnerDiameterOrWidth * 12.0:F1},,,,,,{st.RimElevation:F3},{st.SumpElevation:F3},{famName},{sizeName}");
-                }
-                foreach (ObjectId pid in net.GetPipeIds())
-                {
-                    var p = tr.GetObject(pid, OpenMode.ForRead) as CivilDB.Pipe;
-                    if (p == null) continue;
-                    double d = p.InnerDiameterOrWidth;
-                    double invI = p.StartPoint.Z - d / 2.0;   // invert = eje - radio interior
-                    double invF = p.EndPoint.Z - d / 2.0;
-                    double len = p.StartPoint.DistanceTo(p.EndPoint);
-                    string desc = (p.Description ?? "").Replace(",", " ");
-                    sb.AppendLine($"TUBERIA_GRAV,{rn},{p.Name},{d * 12.0:F1},{desc},{invI:F3},{invF:F3},{p.Slope * 100:F2},{len:F3},,");
-                }
-            }
-
-            // ── Redes de presión: tuberías (sin estructuras) ──
-            foreach (ObjectId nid in presNets)
-            {
-                try
-                {
-                    var net = tr.GetObject(nid, OpenMode.ForRead) as CivilDB.PressurePipeNetwork;
-                    if (net == null) continue;
-                    string rn = net.Name;
-                    foreach (ObjectId pid in net.GetPipeIds())
-                    {
-                        var p = tr.GetObject(pid, OpenMode.ForRead) as CivilDB.PressurePipe;
-                        if (p == null) continue;
-                        double zi = p.StartPoint.Z, zf = p.EndPoint.Z;
-                        double len = p.StartPoint.DistanceTo(p.EndPoint);
-                        double slope = len > 1e-6 ? (zi - zf) / len * 100.0 : 0.0;
-                        string desc = (p.Description ?? "").Replace(",", " ");
-                        sb.AppendLine($"TUBERIA_PRES,{rn},{p.Name},{p.NominalDiameter * 12.0:F1},{desc},{zi:F3},{zf:F3},{slope:F2},{len:F3},,");
-                    }
-                }
-                catch { }
-            }
-
-            string dir = System.IO.Path.Combine(
-                Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), "Downloads");
-            if (!System.IO.Directory.Exists(dir))
-                dir = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
-            string path = System.IO.Path.Combine(dir, "IMPORTAR_RED_reporte.csv");
-            System.IO.File.WriteAllText(path, sb.ToString(), System.Text.Encoding.UTF8);
-            ed.WriteMessage($"\n📄 Reporte escrito: {path}");
-        }
-
-        // =================================================================
         //  DIAGNÓSTICO INLINE
         // =================================================================
         private void DiagnosticarInline(Editor ed, Transaction tr, List<ObjectId> netIds)
@@ -1548,34 +1473,6 @@ namespace Civil3DBasico
                 return null;
             }
             catch (Exception e) { return e.Message; }
-        }
-
-        private static string SetRimToSumpHeight(CivilDB.Structure st, double heightFt)
-        {
-            // Intento 1: propiedades por reflexión (el nombre cambia entre versiones).
-            string[] candidates = {
-                "RimToSumpHeight", "StructureHeight", "Height", "OverallHeight"
-            };
-            foreach (var name in candidates)
-            {
-                try
-                {
-                    var prop = st.GetType().GetProperty(name);
-                    if (prop != null && prop.CanWrite)
-                    {
-                        prop.SetValue(st, heightFt);
-                        return null;
-                    }
-                }
-                catch { }
-            }
-            // Intento 2: forzar Rim = Sump + altura directamente.
-            try
-            {
-                st.RimElevation = st.SumpElevation + heightFt;
-                return null;
-            }
-            catch (Exception e) { return "fallback-rim: " + e.Message; }
         }
 
         // Borra las polylines XDATA=PDFCAD_PIPE cuya NET_KIND sea 'gravity' o

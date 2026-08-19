@@ -25,12 +25,6 @@ def lonlat_to_utm(lon, lat, epsg):
     return tr.transform(lon, lat)
 
 
-def utm_to_lonlat(e, n, epsg):
-    from pyproj import Transformer
-    tr = Transformer.from_crs(f"EPSG:{int(epsg)}", "EPSG:4326", always_xy=True)
-    return tr.transform(e, n)
-
-
 def epsg_unit(epsg):
     """Unidad lineal del CRS: 'ft' si está en pies (p. ej. State Plane 2229),
     si no 'm'. Usa pyproj si está; si no, heurística mínima."""

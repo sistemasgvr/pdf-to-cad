@@ -1,0 +1,10 @@
+PyQt5>=5.15
+PyMuPDF>=1.23
+matplotlib>=3.7
+numpy>=1.24
+pyproj>=3.6
+requests>=2.31
+ezdxf>=1.2
+geopy>=2.4
+shapely>=2.0
+contextily>=1.5

@@ -31,10 +31,6 @@ WORK_UNITS = ("ft", "in")
 DEFAULT_WORK_UNIT = "ft"
 
 
-def is_valid_work_unit(u):
-    return u in WORK_UNITS
-
-
 # DIÁMETROS de tubería: SIEMPRE en PULGADAS y SOLO de esta lista (los tamaños
 # nominales del catálogo imperial de Civil 3D). No se permite un valor libre —
 # así lo que se elige aquí coincide 1:1 con un tamaño real del catálogo y no cae
@@ -51,17 +47,6 @@ PIPE_MATERIALS = ["Material sin definir", "Hormigón armado", "Acero corrugado",
 DEFAULT_PIPE_MATERIAL = "Material sin definir"
 
 
-def nearest_pipe_diameter(value):
-    """Devuelve el diámetro estándar (pulg) más cercano a `value` (para migrar
-    proyectos viejos cuyo diámetro no esté en la lista)."""
-    try:
-        v = float(value or 0)
-    except (TypeError, ValueError):
-        v = 0.0
-    if v <= 0:
-        return PIPE_DIAMETERS_IN[0]
-    return min(PIPE_DIAMETERS_IN, key=lambda d: abs(d - v))
-
 TIPOS = [
     ("Agua (W)", "AGUA"), ("Alcantarillado (SS)", "ALCANTARILLADO"),
     ("Drenaje (SD)", "DRENAJE"), ("Gas (G)", "GAS"),
@@ -71,12 +56,6 @@ TIPOS = [
 ACI_RGB = {1: (255, 60, 60), 2: (235, 215, 40), 3: (60, 210, 60), 4: (60, 210, 210),
            5: (90, 140, 255), 6: (230, 90, 230), 7: (235, 235, 235), 8: (150, 150, 150),
            30: (255, 150, 40)}
-# Nombre "amable" para los códigos ACI de AutoCAD.  ACI = AutoCAD Color Index:
-# es la paleta clásica numerada 1..255 con la que AutoCAD guarda los colores.
-# Usamos el nombre en inglés porque así lo consumen la mayoría de plugins CAD.
-ACI_NAME = {1: "red", 2: "yellow", 3: "green", 4: "cyan",
-            5: "blue", 6: "magenta", 7: "white", 8: "gray",
-            30: "orange"}
 LEADER_TEXT_FT = 3.0
 LEADER_ORIENT = [("h", "Horizontal"), ("v", "Vertical"), ("d", "Diagonal")]
 Z_PDF, Z_ERASE, Z_MARK, Z_HANDLE = 0, 1, 5, 8
@@ -151,64 +130,6 @@ def network_kind(layer):
 def default_network_type(layer):
     """Valor por defecto de 'network_type' para una utilidad (pipe|pressure)."""
     return NETWORK_TYPE_DEFAULT.get(layer, "pipe")
-
-
-def layer_color_info(layer):
-    """Devuelve {'aci': <int>, 'name': '<en>'} para la capa. `aci` es el índice
-    de color en la paleta clásica de AutoCAD; `name` es una palabra en inglés
-    ('red', 'blue', ...) para que sea fácil de leer y consumir por el plugin C#.
-
-    Nota: importamos `config` aquí (dentro de la función) para evitar un
-    import circular a nivel de módulo. Es una técnica común en Python cuando
-    dos módulos necesitan valores el uno del otro pero no de golpe al importar.
-    """
-    import config as _c
-    aci = _c.OUTPUT_LAYERS.get(layer, 7)         # 7 = blanco (fallback neutro)
-    return {"aci": int(aci), "name": ACI_NAME.get(aci, "gray")}
-
-
-def diameter_unit(unit):
-    """'pulg' → 'in', 'pies' → 'ft'."""
-    return "in" if str(unit or "").lower().startswith("pulg") else "ft"
-
-
-def normalize_regions(regs):
-    """Compatibilidad: zonas antiguas eran una lista de puntos; ahora {pts, enabled}."""
-    return [r if isinstance(r, dict) else {"pts": r, "enabled": True} for r in regs]
-
-
-# ── Factories: crean dicts con TODAS las claves (documentan el esquema) ──
-# En Python un "dict" es un mapa {clave: valor}; aquí lo usamos como si fuera
-# una "ficha" de la utilidad. Estas funciones son plantillas para que todos los
-# dicts nazcan con las mismas claves; los usamos como referencia rápida del
-# esquema (qué campos existen y su tipo). No es obligatorio pasar por ellas.
-def new_pipe(layer, pts, ab=False, name="", diam=0.0, unit="pulg",
-             material="", net_type=""):
-    """Crea el dict de una utilidad (tubería/línea).
-      layer     → capa del CAD (AGUA, DRENAJE, ...)
-      pts       → lista de vértices en píxeles [(x,y), (x,y), ...]
-      ab        → True si está abandonada (linetype con barra)
-      name/diam/unit → nombre, diámetro y unidad ("pulg" o "pies")
-      material  → texto libre (p.ej. "HDPE Corrugado")
-      net_type  → "" (=auto según capa) | "pipe" | "pressure"
-    """
-    return {"layer": layer, "pts": list(pts), "ab": bool(ab),
-            "name": name, "diam": float(diam), "unit": unit,
-            "material": material, "net_type": net_type}
-
-
-def new_text(pos, text, size_ft, font, bold=False, rot=0, free=True):
-    return {"pos": pos, "text": text, "size_ft": float(size_ft), "font": font,
-            "bold": bool(bold), "rot": int(rot), "free": free}
-
-
-def new_region(pts, enabled=True):
-    return {"pts": list(pts), "enabled": bool(enabled)}
-
-
-def new_structure(cod, x, y, rim=None, sump=None, part="", net="", world=False):
-    return {"cod": cod, "x": x, "y": y, "rim": rim, "sump": sump,
-            "part": part, "net": net, "world": bool(world)}
 
 
 CHANGELOG = [
