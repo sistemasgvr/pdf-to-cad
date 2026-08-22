@@ -14,7 +14,15 @@ Esquema de cada elemento (claves de los dicts):
   region = {pts:[(x,y)…], enabled:bool}
   pipe (red gravedad) añade: inv_start, inv_end (float|None), part(str), frm, to (cod buzón),
         net(str nombre de red), world(bool), wstart/wend((x,y) reales si world)
-  struct = {cod, x, y, rim:float|None, sump:float|None, part:str, net:str, world:bool}
+  struct = {cod, x, y, rim:float|None, sump:float|None, part:str, part_size:str, net:str,
+            world:bool, covered:bool, height_ft:float, curve:bool, radius_ft:float|None}
+  Cuando curve=True el struct no es un buzón/caja: es la ESQUINA de un elemento curvo
+  (p.ej. el codo de un bancoducto). rim/sump/height_ft/part/part_size no aplican — la
+  familia/tamaño de la curva SIEMPRE es la misma de la tubería recta que pasa por ese
+  vértice (se muestra de solo lectura en la UI, no se elige aparte). radius_ft es el
+  radio deseado en pies; vacío/0 = automático (ImportarRed.cs usa 6× el ancho/diámetro
+  interior de la tubería). Se exporta al DXF como PDFCAD_CURVE en vez de PDFCAD_STRUCT
+  (sin buzón), y la tubería lleva además NO_MANHOLE_VERTS marcando ese índice.
 Coordenadas DIBUJADAS en PÍXELES (se convierten con geometry.to_cad al exportar);
 coordenadas IMPORTADAS de Excel ya son reales de mundo (world=True → se usan tal cual).
 """
@@ -60,7 +68,7 @@ LEADER_TEXT_FT = 3.0
 LEADER_ORIENT = [("h", "Horizontal"), ("v", "Vertical"), ("d", "Diagonal")]
 Z_PDF, Z_ERASE, Z_MARK, Z_HANDLE = 0, 1, 5, 8
 # Índices de las pestañas del inventario (derecha)
-TAB_PIPE, TAB_ML, TAB_LEADER, TAB_TEXT, TAB_REGION, TAB_BZ = 0, 1, 2, 3, 4, 5
+TAB_PIPE, TAB_ML, TAB_LEADER, TAB_TEXT, TAB_REGION, TAB_BZ, TAB_CURVE = 0, 1, 2, 3, 4, 5, 6
 
 # Tipo de red derivado de la CAPA (agrupa las utilidades a nivel de red completa).
 #   gravity  → red por gravedad con buzones (alcantarillado, drenaje)

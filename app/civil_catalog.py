@@ -437,6 +437,48 @@ def structure_sizes(year, fid):
     return []
 
 
+def raw_size_axes(year, fid, kind):
+    """Valores CRUDOS (sin combinar, sin formatear) de los ejes de tamaño de una
+    familia — para comparar contra lo que Civil 3D lee en vivo del SDK
+    (PrepararFamilias.cs, AddTamanosPorAnchoYAlto, línea 'COMPARAR|...' del log
+    en el Desktop). A propósito NO reutiliza el pipeline de pipe_sizes()/
+    structure_sizes() (que ya combinan y formatean para el desplegable) — lee
+    los mismos <Column>/<Row> o <ColumnConstList>/<Item> del XML pero se queda
+    en el paso anterior a la combinación, así una diferencia de conteo o de
+    valores entre este resultado y el desplegable de la UI señala un bug en el
+    PASO DE COMBINACIÓN (como el product cartesiano de pipe_sizes), no en la
+    lectura del catálogo — y una diferencia entre esto y el log de Civil 3D
+    señala que el XML en disco y lo que el SDK tiene cargado ya no coinciden.
+    Devuelve {contexto: (unit, [valores float])}."""
+    if kind == "pipe":
+        path = pipe_family_xml(year, fid)
+        ctxs = ("PipeInnerWidth", "PipeInnerHeight", "PipeInnerDiameter")
+    else:
+        root = catalog_root(year)
+        path = None
+        if root is not None:
+            for sub in _list_subfolders(root):
+                p = os.path.join(root, sub, fid + ".xml")
+                if os.path.isfile(p): path = p; break
+        ctxs = ("StructInnerWidth", "StructInnerLength", "StructInnerDiameter")
+    if path is None: return {}
+    try:
+        tree = ET.parse(path); root_el = tree.getroot()
+    except ET.ParseError:
+        return {}
+    out = {}
+    for ctx in ctxs:
+        for col in root_el.findall("Column"):
+            if col.get("context") != ctx: continue
+            vals = [(r.text or "").strip() for r in col.findall("Row") if (r.text or "").strip()]
+            if vals: out[ctx] = (col.get("unit", ""), [float(v) for v in vals])
+        for col in root_el.findall("ColumnConstList"):
+            if col.get("context") != ctx: continue
+            vals = [(it.text or "").strip() for it in col.findall("Item") if (it.text or "").strip()]
+            if vals: out.setdefault(ctx, (col.get("unit", ""), [float(v) for v in vals]))
+    return out
+
+
 def imperial_pipes(year):
     """Familias del catálogo imperial de tuberías (para pipes de gravedad).
     Cada elemento es dict con id/pretty/subfolder/img_path/kind='pipe'."""

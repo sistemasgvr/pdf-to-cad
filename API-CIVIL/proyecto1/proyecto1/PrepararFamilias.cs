@@ -5,6 +5,7 @@ using System.Linq;
 using System.Text;
 using System.Windows;
 using Autodesk.AutoCAD.DatabaseServices;
+using Autodesk.AutoCAD.EditorInput;
 using Autodesk.AutoCAD.Runtime;
 using Autodesk.Civil.ApplicationServices;
 using AcadApp = Autodesk.AutoCAD.ApplicationServices.Application;
@@ -320,6 +321,7 @@ namespace Civil3DBasico
                 foreach (var e in errores) L("    · " + e);
             }
             L("═══════════════════════════════════════════════════════════════");
+            Guardar(log, ed);
 
             var msg = $"Familias procesadas en 'Standard': {totalFams}\n" +
                       $"Tamaños añadidos en total: {totalSizes}" +
@@ -327,6 +329,25 @@ namespace Civil3DBasico
             MessageBox.Show(msg, "Preparar familias — resumen",
                 MessageBoxButton.OK,
                 errores.Count > 0 ? MessageBoxImage.Warning : MessageBoxImage.Information);
+        }
+
+        // Vuelca el log completo (incluye las líneas D(), que no se muestran en
+        // pantalla) al Desktop — mismo patrón que DiagnosticoFamilias.cs. Antes
+        // el StringBuilder se llenaba pero nunca se escribía a disco: los
+        // valores reales de PipeInnerWidth/Height (o StructInnerWidth/Length)
+        // que lee AddTamanosPorAnchoYAlto directo del SDK se perdían, aunque
+        // son justo el dato que hace falta para comparar contra los tamaños
+        // que muestra el desplegable de la app Python (civil_catalog.py).
+        static void Guardar(StringBuilder log, Editor ed)
+        {
+            try
+            {
+                string dir = Environment.GetFolderPath(Environment.SpecialFolder.DesktopDirectory);
+                string path = Path.Combine(dir, "AsistenteC3D_PREPARAR_FAMILIAS.txt");
+                File.WriteAllText(path, log.ToString(), Encoding.UTF8);
+                ed.WriteMessage($"\n\nLog completo guardado en: {path}");
+            }
+            catch (Exception ex) { ed.WriteMessage($"\n(No pude guardar el log: {ex.Message})"); }
         }
 
         // ───────────── Contexto del sistema (sysvars y catálogos) ─────────────
@@ -406,6 +427,22 @@ namespace Civil3DBasico
 
             // 1) Leer del SDK la lista real de valores de cada campo objetivo.
             var filtroRef = new PartsStyles.SizeFilterRecord(fam);
+            // Diagnóstico: el fix de fijar "cualquier otro campo tipo lista a su
+            // primer valor" (ver más abajo) NO evitó que 56 combinaciones sigan
+            // generando 112 tamaños — significa que la causa NO es (solo) un
+            // tercer eje tipo ValueList sin fijar, o que fijar .Value no evita
+            // que AddPartSize lo expanda igual. Se listan TODOS los campos con
+            // su IsFromList/IsReadOnly/ValueList.Count para encontrar cuál es.
+            D($"      -- TODOS los campos de '{fam.Description}' --");
+            for (int i = 0; i < filtroRef.ParamCount; i++)
+            {
+                var c = filtroRef[i];
+                if (c == null) { D($"        [{i}] (null)"); continue; }
+                int vc = -1;
+                try { vc = c.IsFromList ? c.ValueList.Count : -1; } catch { vc = -2; }
+                D($"        [{i}] Context={c.Context}  IsFromList={c.IsFromList}  " +
+                  $"IsReadOnly={c.IsReadOnly}  ValueList.Count={vc}  Value={c.Value}");
+            }
             List<object> valoresA = null, valoresB = null;
             for (int i = 0; i < filtroRef.ParamCount; i++)
             {
@@ -429,15 +466,22 @@ namespace Civil3DBasico
             }
             D($"      {ctxA}: {valoresA.Count} valores [{string.Join(", ", valoresA)}]");
             D($"      {ctxB}: {valoresB.Count} valores [{string.Join(", ", valoresB)}]");
+            // Línea de una sola pieza, fácil de diffear a mano contra la salida
+            // de civil_catalog.raw_size_axes() del lado Python — mismos valores
+            // crudos leídos del SDK (no el Name calculado del PartSize).
+            D($"COMPARAR|{fam.Description}|{ctxA}={string.Join(",", valoresA)}|{ctxB}={string.Join(",", valoresB)}");
             L($"  · {valoresA.Count} × {valoresB.Count} = {valoresA.Count * valoresB.Count} combinaciones a intentar.");
 
             // 2) Un AddPartSize por combinación (Width_i, Height_j / Width_i, Length_j).
             int before = fam.PartSizeCount;
             int nFallos = 0;
+            int nCombo = 0;
             foreach (var va in valoresA)
             {
                 foreach (var vb in valoresB)
                 {
+                    nCombo++;
+                    int antesDeEsta = fam.PartSizeCount;
                     try
                     {
                         var filtro = new PartsStyles.SizeFilterRecord(fam);
@@ -445,8 +489,21 @@ namespace Civil3DBasico
                         {
                             var campo = filtro[i];
                             if (campo == null) continue;
-                            if (campo.Context == ctxA) campo.Value = va;
-                            else if (campo.Context == ctxB) campo.Value = vb;
+                            // IsMultipleSelect=false en TODOS los campos que se van a fijar
+                            // a un solo valor — visto en otro lado del plugin (RedesTuberia.cs,
+                            // técnica inversa: IsMultipleSelect=true SÍ hace que AddPartSize
+                            // expanda un campo solo) que este flag sí influye en el SDK, pese
+                            // al comentario de arriba que decía lo contrario para ctxA/ctxB.
+                            // Diagnóstico confirmó 'Material' con 8 valores en la familia de
+                            // tubería (única familia que duplicaba x2, ninguna estructura) —
+                            // sospecha directa de que su IsMultipleSelect seguía en true.
+                            if (campo.Context == ctxA) { campo.IsMultipleSelect = false; campo.Value = va; }
+                            else if (campo.Context == ctxB) { campo.IsMultipleSelect = false; campo.Value = vb; }
+                            else if (!campo.IsReadOnly && campo.IsFromList && campo.ValueList.Count > 0)
+                            {
+                                campo.IsMultipleSelect = false;
+                                campo.Value = campo.ValueList[0];
+                            }
                         }
                         fam.AddPartSize(filtro);
                     }
@@ -454,6 +511,15 @@ namespace Civil3DBasico
                     {
                         nFallos++;
                         D($"      combo ({va}, {vb}) AddPartSize excepción: {ex.Message}");
+                    }
+                    // Diagnóstico fino: cuántos PartSize agregó ESTA llamada en concreto
+                    // (solo las primeras 3 — el fix de fijar el 3er eje a ValueList[0]
+                    // NO evitó que 56 combinaciones sigan generando 112 tamaños, así que
+                    // hay que ver si una sola llamada ya agrega más de uno).
+                    if (nCombo <= 3)
+                    {
+                        int deltaEsta = fam.PartSizeCount - antesDeEsta;
+                        D($"      combo #{nCombo} ({va}, {vb}): PartSizeCount {antesDeEsta} → {fam.PartSizeCount}  (+{deltaEsta})");
                     }
                 }
             }

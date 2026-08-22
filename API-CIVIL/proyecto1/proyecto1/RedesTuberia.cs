@@ -749,18 +749,53 @@ namespace Civil3DBasico
                         string.Equals(Norm(fam.Description), mN, StringComparison.Ordinal);
                     if (!matchExacto) continue;
                 }
-                // Tamaño: coincidencia por primer token del PartSize.Name, o "contains" si no matchea exacto.
+                // Tamaño: para tamaños RECTANGULARES ("W x H") comparar por el
+                // VALOR NUMÉRICO real (PipeInnerWidth/Height, vía SizeMasCercano —
+                // igual técnica que usa el paso de "más cercano" más abajo), NUNCA
+                // por el nombre del PartSize. El nombre lleva un prefijo calculado
+                // por la familia (p.ej. "Bancoducto CBA 6 in x 11 in" para la
+                // familia "Bancoducto CBA"), así que comparar sn==dN contra el
+                // string plano que manda Python ("6 in x 11 in", sin el prefijo)
+                // NUNCA es realmente igual — y caer al "Contains" deja que un
+                // ancho corto como "6" haga match por accidente DENTRO de "36"
+                // (ambos terminan en "6"), sustituyendo silenciosamente "6 in x
+                // 11 in" por "36 in x 11 in". El match por nombre solo se usa
+                // como último recurso para tamaños NO rectangulares (diámetro).
                 ObjectId sizeElegido = fam[0];
                 string sizeNombre = (tr.GetObject(sizeElegido, OpenMode.ForRead) as PartsStyles.PartSize)?.Name;
                 bool exacto = false;
+                double? wPedido = null, hPedido = null;
                 if (dN.Length > 0)
                 {
-                    for (int i = 0; i < fam.PartSizeCount; i++)
+                    if (TryParseRectSize(diam, out wPedido, out hPedido) && wPedido.HasValue && hPedido.HasValue)
                     {
-                        PartsStyles.PartSize sz = tr.GetObject(fam[i], OpenMode.ForRead) as PartsStyles.PartSize;
-                        string sn = Norm(sz?.Name ?? "");
-                        if (sn == dN || sn.Contains(dN))
-                        { sizeElegido = fam[i]; sizeNombre = sz?.Name; exacto = true; break; }
+                        ObjectId cercanoNum = SizeMasCercano(tr, fam, wPedido.Value, hPedido.Value,
+                            CivilDB.PartContextType.PipeInnerWidth, CivilDB.PartContextType.PipeInnerHeight,
+                            out string nombreCercanoNum, out bool esExactoNum);
+                        if (cercanoNum != ObjectId.Null && esExactoNum)
+                        { sizeElegido = cercanoNum; sizeNombre = nombreCercanoNum; exacto = true; }
+                    }
+                    if (!exacto)
+                    {
+                        for (int i = 0; i < fam.PartSizeCount; i++)
+                        {
+                            PartsStyles.PartSize sz = tr.GetObject(fam[i], OpenMode.ForRead) as PartsStyles.PartSize;
+                            string sn = Norm(sz?.Name ?? "");
+                            if (sn == dN)
+                            { sizeElegido = fam[i]; sizeNombre = sz?.Name; exacto = true; break; }
+                        }
+                    }
+                    if (!exacto && wPedido == null)
+                    {
+                        // Solo para tamaños que NO parsearon como "W x H" (p.ej.
+                        // diámetro suelto) se permite la coincidencia parcial.
+                        for (int i = 0; i < fam.PartSizeCount; i++)
+                        {
+                            PartsStyles.PartSize sz = tr.GetObject(fam[i], OpenMode.ForRead) as PartsStyles.PartSize;
+                            string sn = Norm(sz?.Name ?? "");
+                            if (sn.Contains(dN))
+                            { sizeElegido = fam[i]; sizeNombre = sz?.Name; exacto = true; break; }
+                        }
                     }
                 }
                 // Sin match exacto: NO se crea un tamaño nuevo en el catálogo — solo
@@ -876,11 +911,43 @@ namespace Civil3DBasico
                 bool sizeExacto = false;
                 if (!string.IsNullOrWhiteSpace(radio))
                 {
+                    // Mismo problema que en BuscarTuberia: el Name del PartSize lleva
+                    // un prefijo calculado por la familia (p.ej. "Buzon CBA 24 in x 36
+                    // in"), así que comparar contra el string plano que pide Python
+                    // ("24 in x 36 in") nunca da igualdad exacta — y "Contains" deja
+                    // que un valor corto (p.ej. "6") matchee por accidente DENTRO de
+                    // otro que lo contiene como substring (p.ej. "36 in x ..."). Para
+                    // tamaños "W x L" hay que comparar por el VALOR NUMÉRICO real
+                    // (SizeMasCercano, igual que el paso de "más cercano" de abajo),
+                    // no por el nombre — el match por nombre queda solo de último
+                    // recurso para tamaños que no parseen como rectangulares.
                     string rNorm = Norm(radio);
-                    for (int i = 0; i < fam.PartSizeCount; i++)
+                    double? wReq = null, lReq = null;
+                    if (TryParseRectSize(radio, out wReq, out lReq) && wReq.HasValue && lReq.HasValue)
                     {
-                        PartsStyles.PartSize sz = tr.GetObject(fam[i], OpenMode.ForRead) as PartsStyles.PartSize;
-                        if (sz != null && Norm(sz.Name).Contains(rNorm)) { elegidoSize = fam[i]; elegidoSizeName = sz.Name; sizeExacto = true; break; }
+                        ObjectId cercanoNum = SizeMasCercano(tr, fam, wReq.Value, lReq.Value,
+                            CivilDB.PartContextType.StructInnerWidth, CivilDB.PartContextType.StructInnerLength,
+                            out string nombreCercanoNum, out bool esExactoNum);
+                        if (cercanoNum != ObjectId.Null && esExactoNum)
+                        { elegidoSize = cercanoNum; elegidoSizeName = nombreCercanoNum; sizeExacto = true; }
+                    }
+                    if (!sizeExacto)
+                    {
+                        for (int i = 0; i < fam.PartSizeCount; i++)
+                        {
+                            PartsStyles.PartSize sz = tr.GetObject(fam[i], OpenMode.ForRead) as PartsStyles.PartSize;
+                            if (sz != null && Norm(sz.Name) == rNorm)
+                            { elegidoSize = fam[i]; elegidoSizeName = sz.Name; sizeExacto = true; break; }
+                        }
+                    }
+                    if (!sizeExacto && wReq == null)
+                    {
+                        for (int i = 0; i < fam.PartSizeCount; i++)
+                        {
+                            PartsStyles.PartSize sz = tr.GetObject(fam[i], OpenMode.ForRead) as PartsStyles.PartSize;
+                            if (sz != null && Norm(sz.Name).Contains(rNorm))
+                            { elegidoSize = fam[i]; elegidoSizeName = sz.Name; sizeExacto = true; break; }
+                        }
                     }
                 }
                 // Sin match exacto: NO se crea un tamaño nuevo en el catálogo — solo

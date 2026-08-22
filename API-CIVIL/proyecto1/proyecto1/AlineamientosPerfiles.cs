@@ -45,13 +45,14 @@ namespace Civil3DBasico
         }
 
         // =====================================================================
-        // CREAR_PERFIL_RED — perfil longitudinal profesional de una red de
-        //   gravedad, dibujado 100% con entidades propias (no ProfileView
-        //   nativo) para que el punto de inserción sea exactamente donde el
-        //   usuario hace clic. Flujo: clic en una tubería/estructura de la red
-        //   → clic en el punto de inserción → se dibuja. Sin más preguntas:
-        //   el terreno se muestrea automáticamente si la red tiene superficie
-        //   de referencia (net.ReferenceSurfaceId, la asigna IMPORTAR_RED).
+        // CREAR_PERFIL_RED — vista de perfil NATIVA de Civil3D (ProfileView,
+        //   la misma que sale de "Create Profile View") para el eje de una red
+        //   de gravedad, con su Profile de rasante (un PVI por buzón) y, si la
+        //   red tiene superficie de referencia (net.ReferenceSurfaceId, la
+        //   asigna IMPORTAR_RED), el Profile de terreno — ambos objetos reales
+        //   de Civil3D, consultables en Prospector, no líneas dibujadas a mano.
+        //   Flujo: clic en una tubería/estructura de la red → clic en el punto
+        //   de inserción → se crea. Mismo patrón que CREAR_PERFIL_PRESION.
         // =====================================================================
         [CommandMethod("CREAR_PERFIL_RED")]
         public void CrearPerfilRed()
@@ -121,25 +122,44 @@ namespace Civil3DBasico
                         nodos[nodos.Count - 1].Invert = tramos[tramos.Count - 1].InvFin;
                     }
 
-                    // Terreno real: automático si la red tiene superficie de referencia.
-                    // Si no existe, queda vacío — nunca se inventa terreno.
-                    var terreno = PerfilLongitudinalDatos.MuestrearTerreno(net, align, nodos, tr);
+                    // Terreno real: Profile nativo creado directo desde la superficie de
+                    // referencia de la red, si existe. Si no existe, no se crea — nunca
+                    // se inventa terreno. Va ANTES de crear la ProfileView para que ésta
+                    // detecte el rango de cotas correcto desde el primer momento.
+                    bool terrenoOk = false;
+                    try
+                    {
+                        ObjectId surfId = net.ReferenceSurfaceId;
+                        if (!surfId.IsNull && surfId.IsValid)
+                        {
+                            ObjectId pStyleT = civilDoc.Styles.ProfileStyles[0];
+                            ObjectId pLabelT = civilDoc.Styles.LabelSetStyles.ProfileLabelSetStyles[0];
+                            ObjectId terrId = CivilDB.Profile.CreateFromSurface(
+                                $"{nombreRed}-terreno", alignId, surfId, db.Clayer, pStyleT, pLabelT);
+                            terrenoOk = terrId.IsValid && !terrId.IsNull;
+                        }
+                    }
+                    catch { }
 
-                    // Rasante de diseño como Profile nativo de Civil3D (dato de ingeniería
-                    // real y consultable en Prospector; el dibujo del perfil NO depende de
-                    // esto — es 100% propio, ver más abajo).
+                    // Rasante de diseño: Profile nativo de Civil3D con un PVI en cada
+                    // buzón (dato de ingeniería real, consultable en Prospector).
                     PerfilUtil.CrearPerfilRasante(civilDoc, db, alignId, nodos, nombreRed, tr);
 
-                    PromptPointResult pIns = ed.GetPoint("\nPunto de inserción del perfil longitudinal:");
+                    PromptPointResult pIns = ed.GetPoint("\nPunto de inserción de la vista de perfil:");
                     if (pIns.Status != PromptStatus.OK) { tr.Abort(); return; }
-                    // ed.GetPoint devuelve el punto en el SCP activo; el dibujo se hace en WCS.
-                    Point3d insWcs = pIns.Value.TransformBy(ed.CurrentUserCoordinateSystem);
 
-                    PerfilLongitudinalDibujo.Generar(insWcs, net, nodos, tramos, terreno, db, tr);
+                    // ProfileView NATIVA de Civil3D — la misma que crean los comandos
+                    // nativos ("Create Profile View") y CREAR_PERFIL_PRESION. Muestra
+                    // automáticamente todos los Profile ya asociados al alineamiento
+                    // (rasante + terreno, si se creó arriba).
+                    ObjectId pvId = CivilDB.ProfileView.Create(alignId, pIns.Value);
+                    CivilDB.ProfileView pvW = tr.GetObject(pvId, OpenMode.ForWrite) as CivilDB.ProfileView;
+                    bool rango = PerfilUtil.AjustarRango(pvW, alignId, tr);
 
                     tr.Commit();
-                    ed.WriteMessage($"\n✓ Perfil longitudinal generado para '{nombreRed}' ({nodos.Count} buzones" +
-                                     (terreno.Count > 0 ? ", con terreno" : ", sin superficie de referencia") + ").");
+                    ed.WriteMessage($"\n✓ Vista de perfil creada para '{nombreRed}' ({nodos.Count} buzones" +
+                                     (terrenoOk ? ", con terreno" : ", sin superficie de referencia") + ")." +
+                                     (rango ? " Rango vertical ajustado." : ""));
                 }
                 catch (Exception ex)
                 {

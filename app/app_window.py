@@ -20,7 +20,7 @@ from geo import georef as georef_mod
 from geometry import point_in_poly, qimage_to_gray
 from model import (VERSION, TIPOS, ACI_RGB, LEADER_TEXT_FT, LEADER_ORIENT,
                    Z_PDF, Z_ERASE, Z_MARK, Z_HANDLE, GRAVITY_LAYERS,
-                   TAB_PIPE, TAB_ML, TAB_LEADER, TAB_TEXT, TAB_REGION, TAB_BZ,
+                   TAB_PIPE, TAB_ML, TAB_LEADER, TAB_TEXT, TAB_REGION, TAB_BZ, TAB_CURVE,
                    WORK_UNITS, DEFAULT_WORK_UNIT, CHANGELOG,
                    PIPE_DIAMETERS_IN, PIPE_MATERIALS, DEFAULT_PIPE_MATERIAL)
 
@@ -169,6 +169,23 @@ class Canvas(QtWidgets.QGraphicsView):
             self.win.open_path(u.toLocalFile()); break
 
 
+class _SegInvSpinBox(QtWidgets.QDoubleSpinBox):
+    """QDoubleSpinBox de la tabla "Cotas por tramo": Enter/Return confirma el
+    valor tecleado ahí mismo. Embebido en una celda de QTableWidget (vía
+    setCellWidget), el widget contenedor puede quedarse con la tecla Enter
+    antes de que dispare editingFinished normalmente — se maneja acá a mano
+    para no depender de esa cadena de eventos."""
+    def keyPressEvent(self, event):
+        if event.key() in (QtCore.Qt.Key_Return, QtCore.Qt.Key_Enter):
+            self.interpretText()
+            event.accept()
+            # Diferido: el slot conectado reconstruye la tabla (destruye este
+            # mismo spinbox) — no hacerlo en medio de este keyPressEvent.
+            QtCore.QTimer.singleShot(0, self.editingFinished.emit)
+            return
+        super().keyPressEvent(event)
+
+
 class Main(QtWidgets.QMainWindow):
     def __init__(self):
         super().__init__()
@@ -184,6 +201,8 @@ class Main(QtWidgets.QMainWindow):
         self.mode = "idle"; self._pending = None
         self.snap = False; self.snap_r = 14
         self.sel_pipe = -1; self.sel_leader = -1; self.sel_region = -1; self.sel_text = -1; self.sel_bz = -1
+        self.sel_curve = -1; self._bz_rows = []; self._curve_rows = []
+        self.sel_seg_idx = -1            # tramo resaltado en la tabla "Cotas por tramo"
         self._no_center = False
         self._move0 = None; self._drag_vertex = None; self._edit_pts = None; self._edit_closed = False; self._edit_leader = None
         self._move_kind = None; self._moved = False; self._press_xy = None; self._last_xy = None
@@ -468,10 +487,11 @@ class Main(QtWidgets.QMainWindow):
         self.region_list = QtWidgets.QListWidget(); self.region_list.currentRowChanged.connect(self._sel_region)
         self.region_list.itemChanged.connect(self._region_toggled)
         self.bz_list = QtWidgets.QListWidget(); self.bz_list.currentRowChanged.connect(self._sel_bz)
+        self.curve_list = QtWidgets.QListWidget(); self.curve_list.currentRowChanged.connect(self._sel_curve)
         self.tabs.addTab(self.pipe_list, "Utilidades"); #self.tabs.addTab(self.lead_list, "Multileaders")
         self.tabs.addTab(self.sleader_list, "Leaders")
         self.tabs.addTab(self.txt_marks_list, "Textos"); self.tabs.addTab(self.region_list, "Zonas")
-        self.tabs.addTab(self.bz_list, "Buzones")
+        self.tabs.addTab(self.bz_list, "Buzones"); self.tabs.addTab(self.curve_list, "Curvas")
         # Menú contextual (clic derecho) en cada lista visible del inventario
         # (la lista de Multileaders no se registra porque su pestaña está oculta)
         for listw, tab_idx in ((self.pipe_list, TAB_PIPE),
@@ -532,6 +552,28 @@ class Main(QtWidgets.QMainWindow):
         fpr.addRow(self.lbl_prop_size, self.prop_size)
 
         rv.addWidget(self.gprop)
+        # ── Cotas por tramo (edición de rasante por segmento) ──────────────────
+        # inv_start/inv_end (arriba) siguen fijando los extremos de la utilidad
+        # completa; esta tabla muestra cada TRAMO (par de vértices consecutivos)
+        # con su Inicio/Fin/Longitud/Pendiente% — no solo la cota "pelada" del
+        # vértice — para poder juzgar si la pendiente resultante tiene sentido.
+        # "Fin" es editable (fija esa cota como override del vértice
+        # compartido con el tramo siguiente); "Auto" la vuelve a la
+        # interpolación lineal de siempre — ver _interp_vertex_z y su espejo en
+        # ImportarRed.cs (InterpolateZ). Clic en la columna "Tramo" lo resalta
+        # y encuadra en el lienzo.
+        self.gprop_segs = QtWidgets.QGroupBox("Cotas por tramo")
+        segv = QtWidgets.QVBoxLayout(self.gprop_segs)
+        self.tbl_seg_inv = QtWidgets.QTableWidget(0, 6)
+        self.tbl_seg_inv.setHorizontalHeaderLabels(
+            ["Tramo", "Inicio (ft)", "Fin (ft)", "Long (ft)", "Pendiente", ""])
+        self.tbl_seg_inv.horizontalHeader().setSectionResizeMode(0, QtWidgets.QHeaderView.Stretch)
+        self.tbl_seg_inv.verticalHeader().setVisible(False)
+        self.tbl_seg_inv.setEditTriggers(QtWidgets.QAbstractItemView.NoEditTriggers)
+        self.tbl_seg_inv.cellClicked.connect(self._seg_row_label_clicked)
+        segv.addWidget(self.tbl_seg_inv)
+        self.gprop_segs.setVisible(False)
+        rv.addWidget(self.gprop_segs)
         # ── Propiedades del buzón seleccionado (tab Buzones) ───────────────────
         self.gprop_bz = QtWidgets.QGroupBox("Propiedades del buzón"); fbz = QtWidgets.QFormLayout(self.gprop_bz)
         self.bz_cod = QtWidgets.QLineEdit(); self.bz_cod.editingFinished.connect(self._bz_prop_changed)
@@ -558,6 +600,13 @@ class Main(QtWidgets.QMainWindow):
         fbz.addRow("Altura (Pies):", self.bz_height)
         fbz.addRow("Red:", self.bz_net_lbl)
         fbz.addRow("Origen:", self.bz_origin_lbl)
+        self.bz_is_curve = QtWidgets.QCheckBox("No colocar buzón — es un elemento curvo (bancoducto)")
+        self.bz_is_curve.setToolTip(
+            "Marca este vértice como la esquina de un elemento curvo (p.ej. el codo de un\n"
+            "bancoducto) en vez de un buzón/caja normal. Pasa a la pestaña 'Curvas' y no se\n"
+            "exporta como buzón en el DXF (se marca con un punto PDFCAD_CURVE aparte).")
+        self.bz_is_curve.toggled.connect(self._bz_curve_toggled)
+        fbz.addRow("", self.bz_is_curve)
         # Checkbox de etiquetas — entre la lista de buzones (tab) y el panel de propiedades.
         self.chk_bz_labels = QtWidgets.QCheckBox(
             "Mostrar etiquetas (código) al lado del buzón en el lienzo y en el DXF exportado")
@@ -574,7 +623,42 @@ class Main(QtWidgets.QMainWindow):
         self.lbl_bz_hint.setStyleSheet("color:#f0d060; padding:8px; background:#333a4a; border-radius:4px;")
         rv.addWidget(self.lbl_bz_hint)
         self.gprop_bz.setVisible(False); self.lbl_bz_hint.setVisible(False)
+        # ── Propiedades del elemento curvo seleccionado (tab Curvas) ───────────
+        self.gprop_curve = QtWidgets.QGroupBox("Propiedades del elemento curvo"); fcv = QtWidgets.QFormLayout(self.gprop_curve)
+        self.cv_cod = QtWidgets.QLineEdit(); self.cv_cod.editingFinished.connect(self._curve_prop_changed)
+        # Familia/Tamaño NO se eligen aparte: siempre son los de la tubería recta que
+        # pasa por este vértice (garantiza que la curva calce con los tramos rectos).
+        self.cv_family_lbl = QtWidgets.QLabel("—")
+        self.cv_size_lbl = QtWidgets.QLabel("—")
+        self.cv_radius = QtWidgets.QDoubleSpinBox()
+        self.cv_radius.setRange(0, 10000); self.cv_radius.setDecimals(2)
+        self.cv_radius.setButtonSymbols(QtWidgets.QAbstractSpinBox.NoButtons)
+        self.cv_radius.setSpecialValueText("(automático)")
+        self.cv_radius.setToolTip(
+            "Radio deseado de la tubería curva, en pies. Vacío (0) = automático:\n"
+            "al importar en Civil3D se usa 6× el ancho/diámetro interior de la tubería.")
+        self.cv_radius.valueChanged.connect(lambda _v: self._curve_prop_changed())
+        self.cv_net_lbl = QtWidgets.QLabel("—")
+        self.cv_origin_lbl = QtWidgets.QLabel("—")
+        fcv.addRow("Código:", self.cv_cod)
+        fcv.addRow("Familia (tubería):", self.cv_family_lbl)
+        fcv.addRow("Tamaño:", self.cv_size_lbl)
+        fcv.addRow("Radio (Pies):", self.cv_radius)
+        fcv.addRow("Red:", self.cv_net_lbl)
+        fcv.addRow("Origen:", self.cv_origin_lbl)
+        self.curve_is_bz = QtWidgets.QCheckBox("Volver a tratar como buzón/caja")
+        self.curve_is_bz.toggled.connect(self._curve_is_bz_toggled)
+        fcv.addRow("", self.curve_is_bz)
+        rv.addWidget(self.gprop_curve)
+        self.lbl_curve_hint = QtWidgets.QLabel(
+            "Haz clic en un elemento curvo de la lista (o en su marcador violeta en el lienzo) "
+            "para ver y editar sus propiedades.")
+        self.lbl_curve_hint.setWordWrap(True)
+        self.lbl_curve_hint.setStyleSheet("color:#f0d060; padding:8px; background:#333a4a; border-radius:4px;")
+        rv.addWidget(self.lbl_curve_hint)
+        self.gprop_curve.setVisible(False); self.lbl_curve_hint.setVisible(False)
         self._bz_prop_guard = False                 # evita reentradas al setear valores desde el modelo
+        self._curve_prop_guard = False
         rr = QtWidgets.QGridLayout()
         self.btn_ct = QtWidgets.QPushButton("Cambiar tipo"); self.btn_ct.clicked.connect(self.change_pipe_type)
         self.btn_mv = QtWidgets.QPushButton("Editar/mover"); self.btn_mv.clicked.connect(self.enter_move)
@@ -696,9 +780,9 @@ class Main(QtWidgets.QMainWindow):
             self.set_mode("idle"); self._info("Salió del modo")
 
     def _deselect_all(self):
-        self.sel_pipe = self.sel_leader = self.sel_region = self.sel_text = self.sel_bz = -1
+        self.sel_pipe = self.sel_leader = self.sel_region = self.sel_text = self.sel_bz = self.sel_curve = -1
         for lst in (self.pipe_list, self.lead_list, self.sleader_list, self.txt_marks_list, self.region_list,
-                    getattr(self, "bz_list", None)):
+                    getattr(self, "bz_list", None), getattr(self, "curve_list", None)):
             if lst is None: continue
             lst.blockSignals(True); lst.setCurrentRow(-1); lst.clearSelection(); lst.blockSignals(False)
         if self.mode == "move": self.set_mode("idle")
@@ -740,8 +824,10 @@ class Main(QtWidgets.QMainWindow):
         # se muestra el groupbox con campos deshabilitados para que el user vea que existe).
         if hasattr(self, "gprop_bz"):
             self.gprop_bz.setVisible(ti == TAB_BZ)
+        if hasattr(self, "gprop_curve"):
+            self.gprop_curve.setVisible(ti == TAB_CURVE)
         if hasattr(self, "chk_bz_labels"):
-            self.chk_bz_labels.setVisible(ti == TAB_BZ)
+            self.chk_bz_labels.setVisible(ti in (TAB_BZ, TAB_CURVE))
         # "En curso": solo mientras hay puntos en curso. gcur ya fue movido a la
         # sección correcta por set_mode; aquí solo habilitamos Finalizar y mostramos.
         active_draw = (m == "pipe" and len(self.cur_pts) >= 1) or (m == "erase" and len(self._erase_pts) >= 1)
@@ -800,6 +886,7 @@ class Main(QtWidgets.QMainWindow):
         m = {self.pipe_list: TAB_PIPE, self.lead_list: TAB_ML, self.sleader_list: TAB_LEADER,
              self.txt_marks_list: TAB_TEXT, self.region_list: TAB_REGION}
         if hasattr(self, "bz_list"): m[self.bz_list] = TAB_BZ
+        if hasattr(self, "curve_list"): m[self.curve_list] = TAB_CURVE
         return m
 
     def _current_tab(self):
@@ -817,6 +904,7 @@ class Main(QtWidgets.QMainWindow):
         elif ti == TAB_LEADER: self.sel_leader = self._leader_at_row(self.sleader_list, self.sleader_list.currentRow())
         if self.mode == "move": self.set_mode("idle")   # no seguir editando al cambiar de pestaña
         if ti == TAB_BZ: self._sync_bz_panel()
+        elif ti == TAB_CURVE: self._sync_curve_panel()
         self._update_ui(); self._redraw()
     # Los "toggle_*" alternan entre "modo activo" e "idle" (sin nada activo).
     # Además abren su sección del acordeón para que las opciones sean visibles.
@@ -993,6 +1081,10 @@ class Main(QtWidgets.QMainWindow):
                 self.pdf_path = None; self.doc = None
             self.project_path = path; self.page_idx = 0
             self.pipes = model.get("pipes", []); self.leaders = model.get("leaders", [])
+            for p in self.pipes:                            # JSON vuelve las keys de vertex_inv a str
+                vi = p.get("vertex_inv")
+                if isinstance(vi, dict) and vi:
+                    p["vertex_inv"] = {int(k): float(v) for k, v in vi.items()}
             self.text_marks = model.get("text_marks", [])
             self.erase_regions = [r if isinstance(r, dict) else {"pts": r, "enabled": True}
                                   for r in model.get("erase_regions", [])]
@@ -1172,7 +1264,11 @@ class Main(QtWidgets.QMainWindow):
             d = math.hypot(x - sx, y - sy)
             if d < bd_bz: bd_bz, best_bz = d, i
         if best_bz >= 0:
-            self._no_center = True; self._show_tab(TAB_BZ); self.bz_list.setCurrentRow(best_bz)
+            self._no_center = True
+            if self.structures[best_bz].get("curve"):
+                self._show_tab(TAB_CURVE); self.curve_list.setCurrentRow(self._curve_rows.index(best_bz))
+            else:
+                self._show_tab(TAB_BZ); self.bz_list.setCurrentRow(self._bz_rows.index(best_bz))
             self._no_center = False; return
         for i, tm in enumerate(self.text_marks):        # textos primero (blancos pequeños)
             if self._text_hit(tm, x, y):
@@ -1266,6 +1362,11 @@ class Main(QtWidgets.QMainWindow):
             if d < sd: sd, si = d, idx
         if si >= 0:
             pts.insert(si + 1, (x, y)); self._drag_vertex = si + 1; self._move0 = None; self._moved = True
+            if kind == "pipe":
+                p = self.pipes[self.sel_pipe]; ov = p.get("vertex_inv")
+                if ov:                          # reindexar: todo lo que estaba después del corte sube uno
+                    p["vertex_inv"] = {(k + 1 if k >= si + 1 else k): v for k, v in ov.items()}
+                self._rebuild_seg_inv_table(p)
             self._refresh_lists(); return
         self._drag_vertex = None; self._move0 = (x, y)
 
@@ -1342,16 +1443,25 @@ class Main(QtWidgets.QMainWindow):
             d = math.hypot(px - x, py - y)
             if d < vd: vd, vi = d, i
         if vi >= 0:
-            self._push(); pts.pop(vi); self._refresh_lists(); self._redraw(); self._info("Vértice eliminado")
+            self._push(); pts.pop(vi)
+            if kind == "pipe":
+                p = self.pipes[self.sel_pipe]; ov = p.get("vertex_inv")
+                if ov:                          # reindexar: el vértice vi ya no existe, los de más allá bajan uno
+                    p["vertex_inv"] = {(k - 1 if k > vi else k): v for k, v in ov.items() if k != vi}
+                self._rebuild_seg_inv_table(p)
+            self._refresh_lists(); self._redraw(); self._info("Vértice eliminado")
 
     # ─────────────────────────── utilidades ───────────────────────────
     def finish_pipe(self):
         if self._extending and self._ext_pipe is not None and 0 <= self._ext_pipe < len(self.pipes):
             extra = self.cur_pts[1:]                       # el 1er punto es el vértice existente
             if extra:
-                self._push(); pts = self.pipes[self._ext_pipe]["pts"]
+                self._push(); pep = self.pipes[self._ext_pipe]; pts = pep["pts"]
                 if self._ext_at == "end": pts.extend(extra)
-                else: self.pipes[self._ext_pipe]["pts"] = list(reversed(extra)) + pts
+                else:
+                    pep["pts"] = list(reversed(extra)) + pts
+                    ov = pep.get("vertex_inv")             # todo lo existente se corre len(extra) a la derecha
+                    if ov: pep["vertex_inv"] = {k + len(extra): v for k, v in ov.items()}
         elif len(self.cur_pts) >= 2:
             layer = self._ext_layer if self._extending else self.active_layer()
             ab = False if self._extending else self.chk_ab.isChecked()
@@ -1387,7 +1497,151 @@ class Main(QtWidgets.QMainWindow):
             self.prop_nettype.setCurrentIndex(idx if idx >= 0 else 0)
             self._reload_pipe_families(p)
             self._prop_guard = False
+            self._rebuild_seg_inv_table(p)
+        else:
+            self.gprop_segs.setVisible(False)
         self._update_ui(); self._redraw()
+
+    def _interp_vertex_z(self, pts, z_start, z_end, overrides):
+        """Cota por vértice interpolada por distancia acumulada 2D, entre anclas
+        (extremos + overrides fijados). Espejo exacto de InterpolateZ/ZalongByDistance
+        en ImportarRed.cs — usado aquí solo para mostrar el valor 'automático' en la
+        tabla de vértices intermedios."""
+        n = len(pts)
+        z = [0.0] * n
+        if n == 0: return z
+        if n == 1: z[0] = z_start; return z
+        anchors = {0: z_start, n - 1: z_end}
+        for k, v in (overrides or {}).items():
+            if 0 < k < n - 1: anchors[k] = v
+        keys = sorted(anchors.keys())
+        for a, b in zip(keys, keys[1:]):
+            sub = pts[a:b + 1]
+            d = [0.0] * len(sub)
+            for i in range(1, len(sub)):
+                d[i] = d[i - 1] + math.hypot(sub[i][0] - sub[i - 1][0], sub[i][1] - sub[i - 1][1])
+            total = d[-1]
+            za, zb = anchors[a], anchors[b]
+            for i in range(len(sub)):
+                z[a + i] = za + (zb - za) * (d[i] / total) if total > 1e-9 else za
+        return z
+
+    def _rebuild_seg_inv_table(self, p):
+        """Reconstruye la tabla de tramos (uno por par de vértices consecutivos)
+        para la utilidad seleccionada. Solo visible si tiene >= 3 vértices
+        (>= 2 tramos). Cada fila muestra Inicio/Fin/Longitud/Pendiente% del
+        tramo — no solo la cota "pelada" del vértice — para poder juzgar si la
+        pendiente resultante tiene sentido. "Inicio" es siempre de solo lectura
+        (es el "Fin" del tramo anterior, o inv_start en el primer tramo); "Fin"
+        es editable salvo en el último tramo (ese extremo lo controla inv_end,
+        arriba). Editar "Fin" fija esa cota como override del vértice
+        compartido; "Auto" la vuelve a la interpolación por distancia."""
+        pts = p.get("pts") or []
+        n = len(pts)
+        tbl = self.tbl_seg_inv
+        tbl.setRowCount(0)
+        if p.get("world") or n < 3:
+            self.gprop_segs.setVisible(False)
+            self.sel_seg_idx = -1
+            return
+        self.gprop_segs.setVisible(True)
+        if id(p) != getattr(self, "_seg_table_pipe_id", None):
+            self.sel_seg_idx = -1
+        self._seg_table_pipe_id = id(p)
+        overrides = p.get("vertex_inv") or {}
+        z_start = p.get("inv_start") or 0.0; z_end = p.get("inv_end") or 0.0
+        auto_z = self._interp_vertex_z(pts, z_start, z_end, overrides)
+        nseg = n - 1
+        tbl.setRowCount(nseg)
+        for si in range(nseg):
+            v0, v1 = si, si + 1
+            z0, z1 = auto_z[v0], auto_z[v1]
+            length = math.hypot(pts[v1][0] - pts[v0][0], pts[v1][1] - pts[v0][1])
+            slope = (z0 - z1) / length * 100.0 if length > 1e-9 else 0.0
+
+            item = QtWidgets.QTableWidgetItem(f"Tramo {si + 1}  (V{v0}→V{v1})")
+            item.setFlags(QtCore.Qt.ItemIsEnabled | QtCore.Qt.ItemIsSelectable)
+            item.setData(QtCore.Qt.UserRole, si)
+            tbl.setItem(si, 0, item)
+
+            lbl0 = QtWidgets.QLabel(f"{z0:.3f}"); lbl0.setAlignment(QtCore.Qt.AlignCenter)
+            tbl.setCellWidget(si, 1, lbl0)
+
+            if v1 == n - 1:                                     # extremo final: se edita con inv_end arriba
+                lbl1 = QtWidgets.QLabel(f"{z1:.3f}"); lbl1.setAlignment(QtCore.Qt.AlignCenter)
+                tbl.setCellWidget(si, 2, lbl1)
+            else:
+                fixed = v1 in overrides
+                sp = _SegInvSpinBox()               # Enter confirma ahí mismo — ver la clase
+                sp.setRange(-100000, 100000); sp.setDecimals(3)
+                sp.setButtonSymbols(QtWidgets.QAbstractSpinBox.NoButtons)
+                sp.setValue(overrides.get(v1, z1))
+                if fixed: sp.setStyleSheet("font-weight: bold;")
+                # editingFinished (no valueChanged): valueChanged dispara en cada
+                # dígito tecleado y reconstruye la tabla, lo que destruiría este
+                # mismo spinbox a mitad de la edición.
+                sp.editingFinished.connect(lambda vi=v1, sp=sp: self._seg_value_changed(vi, sp.value()))
+                tbl.setCellWidget(si, 2, sp)
+
+            lbl_len = QtWidgets.QLabel(f"{length:.2f}"); lbl_len.setAlignment(QtCore.Qt.AlignCenter)
+            tbl.setCellWidget(si, 3, lbl_len)
+            lbl_sl = QtWidgets.QLabel(f"{slope:+.2f}%"); lbl_sl.setAlignment(QtCore.Qt.AlignCenter)
+            tbl.setCellWidget(si, 4, lbl_sl)
+
+            btn = QtWidgets.QPushButton("Auto")
+            btn.setEnabled(v1 != n - 1 and v1 in overrides)
+            btn.setToolTip("Volver el extremo Fin a la cota interpolada automáticamente")
+            btn.clicked.connect(lambda _=False, vi=v1: self._seg_reset_auto(vi))
+            tbl.setCellWidget(si, 5, btn)
+        if 0 <= self.sel_seg_idx < nseg:
+            self._select_segment(self.sel_seg_idx, refocus=False)
+
+    def _select_segment(self, si, refocus=True):
+        """Marca el tramo `si` (entre pts[si] y pts[si+1]) como resaltado
+        (dibujado en el lienzo) y, si `refocus`, centra/zoomea el lienzo lo
+        suficiente para verlo completo — sin forzar un nivel de zoom absoluto,
+        solo lo mínimo necesario relativo a la longitud del propio tramo."""
+        self.sel_seg_idx = si
+        if refocus and 0 <= self.sel_pipe < len(self.pipes):
+            pts = self.pipes[self.sel_pipe].get("pts") or []
+            if 0 <= si < len(pts) - 1:
+                (x1, y1), (x2, y2) = pts[si], pts[si + 1]
+                cx, cy = (x1 + x2) / 2.0, (y1 + y2) / 2.0
+                length = math.hypot(x2 - x1, y2 - y1)
+                if length > 1e-6:
+                    view_rect = self.canvas.mapToScene(self.canvas.viewport().rect()).boundingRect()
+                    visible_w = max(view_rect.width(), 1.0)
+                    target_w = length * 3.0
+                    if visible_w > target_w:
+                        f = visible_w / target_w; self.canvas.scale(f, f)
+                self.canvas.centerOn(cx, cy)
+        self._redraw()
+
+    def _seg_value_changed(self, vi, value):
+        if self._prop_guard: return
+        if not (0 <= self.sel_pipe < len(self.pipes)): return
+        p = self.pipes[self.sel_pipe]
+        self._push()
+        ov = p.setdefault("vertex_inv", {})
+        ov[vi] = value
+        self._rebuild_seg_inv_table(p)
+
+    def _seg_reset_auto(self, vi):
+        if not (0 <= self.sel_pipe < len(self.pipes)): return
+        p = self.pipes[self.sel_pipe]
+        ov = p.get("vertex_inv") or {}
+        if vi not in ov: return
+        self._push()
+        ov.pop(vi, None)
+        self._rebuild_seg_inv_table(p)
+
+    def _seg_row_label_clicked(self, row, col):
+        if col != 0: return
+        item = self.tbl_seg_inv.item(row, 0)
+        if item is None: return
+        si = item.data(QtCore.Qt.UserRole)
+        if si is None: return
+        self._select_segment(int(si), refocus=True)
 
     def _pipe_net_kind(self, p):
         """Devuelve 'gravity' | 'pressure' | 'conduit' según la capa del pipe."""
@@ -1445,6 +1699,10 @@ class Main(QtWidgets.QMainWindow):
         try:
             if 0 <= getattr(self, "sel_bz", -1) < len(self.structures):
                 self._sync_bz_panel()
+        except Exception: pass
+        try:
+            if 0 <= getattr(self, "sel_curve", -1) < len(self.structures):
+                self._sync_curve_panel()
         except Exception: pass
 
     def _reload_pipe_families(self, p):
@@ -1662,6 +1920,7 @@ class Main(QtWidgets.QMainWindow):
             # p["diam"] se calcula del pipe_size (p.ej. "24 in" → 24.0). Sin tamaño → 0.
             p["diam"] = _extract_diam_from_size(p.get("pipe_size", ""))
             self._refresh_lists()
+            self._rebuild_seg_inv_table(p)
 
     def _refresh_unit_labels(self):
         """Etiquetas de campo fijas: cotas en PIES, diámetro en PULGADAS.
@@ -1783,17 +2042,28 @@ class Main(QtWidgets.QMainWindow):
             it.setCheckState(QtCore.Qt.Checked if rg.get("enabled", True) else QtCore.Qt.Unchecked)
             it.setForeground(QtGui.QColor("white")); self.region_list.addItem(it)
         self.region_list.blockSignals(False)
-        # Refrescar tab Buzones + panel de propiedades del buzón seleccionado.
+        # Refrescar tabs Buzones/Curvas (vistas filtradas de self.structures según
+        # 'curve') + paneles de propiedades del elemento seleccionado en cada una.
         self._rebuild_structures()
         self.bz_list.blockSignals(True); self.bz_list.clear()
-        for i, s in enumerate(self.structures, 1):
-            fam = s.get("part") or "(sin familia)"
-            sz = f"  {s['part_size']}" if s.get("part_size") else ""
-            emoji = "🟠" if s.get("net") == "conduit" else "🔵"
+        self.curve_list.blockSignals(True); self.curve_list.clear()
+        self._bz_rows = []; self._curve_rows = []
+        for i, s in enumerate(self.structures):
+            is_curve = bool(s.get("curve"))
+            if is_curve:
+                p = self._pipe_at_vertex(s.get("x"), s.get("y")) if s.get("x") is not None else None
+                fam = (p.get("pipe_family") if p else "") or "(sin familia)"
+                sz = f"  {p['pipe_size']}" if p and p.get("pipe_size") else ""
+                emoji = "🟣"
+            else:
+                fam = s.get("part") or "(sin familia)"
+                sz = f"  {s['part_size']}" if s.get("part_size") else ""
+                emoji = "🟠" if s.get("net") == "conduit" else "🔵"
             it = QtWidgets.QListWidgetItem(f"{emoji} {s.get('cod', '?')}  ·  {fam}{sz}")
-            self.bz_list.addItem(it)
-        self.bz_list.blockSignals(False)
-        self._sync_bz_panel()
+            if is_curve: self.curve_list.addItem(it); self._curve_rows.append(i)
+            else: self.bz_list.addItem(it); self._bz_rows.append(i)
+        self.bz_list.blockSignals(False); self.curve_list.blockSignals(False)
+        self._sync_bz_panel(); self._sync_curve_panel()
 
     # ─────────────────────────── borrar zona ───────────────────────────
     def finish_erase(self):
@@ -1943,6 +2213,15 @@ class Main(QtWidgets.QMainWindow):
             sel = (i == self.sel_pipe)
             self._poly(p["pts"], layer_qcolor(p["layer"]), 4.0 if sel else 2.0, z=Z_MARK)
             if sel and self.mode == "move": self._handles(p["pts"])
+            if sel and 0 <= self.sel_seg_idx < len(p["pts"]) - 1:
+                a, b = p["pts"][self.sel_seg_idx], p["pts"][self.sel_seg_idx + 1]
+                pen_hi = QtGui.QPen(QtGui.QColor(255, 50, 220), 6.0); pen_hi.setCosmetic(True)
+                it = sc.addLine(a[0], a[1], b[0], b[1], pen_hi)
+                it.setZValue(Z_HANDLE + 1); self._overlay.append(it)
+                dot_pen = QtGui.QPen(QtGui.QColor(20, 20, 20), 1.4); dot_pen.setCosmetic(True)
+                for (vx, vy) in (a, b):
+                    it2 = sc.addEllipse(vx - 7, vy - 7, 14, 14, dot_pen, QtGui.QBrush(QtGui.QColor(255, 50, 220)))
+                    it2.setZValue(Z_HANDLE + 1); self._overlay.append(it2)
         self._poly(self.cur_pts, layer_qcolor(self._ext_layer or self.active_layer()), 2.0, dots=True, z=Z_MARK)
         # leaders
         anno = aci_qcolor(8)
@@ -2005,9 +2284,11 @@ class Main(QtWidgets.QMainWindow):
             sx, sy = s.get("x"), s.get("y")
             if sx is None or sy is None: continue
             if s.get("world"): continue             # los importados (Excel) están en coord mundo, no lienzo
-            col = _color_for(s); brush = QtGui.QBrush(col)
-            use_pen = pen_sel if i == getattr(self, "sel_bz", -1) else pen
-            r_use = R + 1.5 if i == getattr(self, "sel_bz", -1) else R
+            is_curve = bool(s.get("curve"))
+            col = QtGui.QColor(190, 90, 220) if is_curve else _color_for(s); brush = QtGui.QBrush(col)
+            selected = i == getattr(self, "sel_curve" if is_curve else "sel_bz", -1)
+            use_pen = pen_sel if selected else pen
+            r_use = R + 1.5 if selected else R
             it = sc.addEllipse(sx - r_use, sy - r_use, 2 * r_use, 2 * r_use, use_pen, brush)
             it.setZValue(Z_MARK + 1); self._overlay.append(it)
             if self.show_bz_labels and s.get("cod"):
@@ -2278,12 +2559,19 @@ class Main(QtWidgets.QMainWindow):
                     s.update(cod=o.get("cod", ""), rim=o.get("rim"), sump=o.get("sump"),
                              part=o.get("part", ""), part_size=o.get("part_size", ""),
                              covered=bool(o.get("covered", True)),
-                             height_ft=o.get("height_ft", 0.0)); break
-        # Códigos únicos: BZ-N para gravedad, CAJA-N para conduit.
+                             height_ft=o.get("height_ft", 0.0),
+                             curve=bool(o.get("curve", False)),
+                             radius_ft=o.get("radius_ft", 0.0)); break
+        # Códigos únicos: BZ-N gravedad, CAJA-N conduit, CV-N esquina de elemento curvo
+        # (curve=True manda sobre el prefijo por red: no es un buzón/caja real).
         used = {s.get("cod", "") for s in world + detected if s.get("cod")}
-        cnt_bz = cnt_caja = 1
+        cnt_bz = cnt_caja = cnt_cv = 1
         for s in detected:
             if s.get("cod"): continue
+            if s.get("curve"):
+                while f"CV-{cnt_cv}" in used: cnt_cv += 1
+                s["cod"] = f"CV-{cnt_cv}"; used.add(s["cod"]); cnt_cv += 1
+                continue
             prefix = "CAJA-" if s.get("net") == "conduit" else "BZ-"
             if prefix == "BZ-":
                 while f"BZ-{cnt_bz}" in used: cnt_bz += 1
@@ -2295,17 +2583,32 @@ class Main(QtWidgets.QMainWindow):
 
     # ── Tab Buzones: selección, panel de propiedades y edición ──────────────
     def _sel_bz(self, row):
-        """La selección en la lista de buzones cambió: sincroniza panel + canvas."""
-        if row < 0 or row >= len(self.structures):
+        """La selección en la lista de buzones cambió: sincroniza panel + canvas.
+        'row' es la fila en bz_list (vista filtrada, curve=False); se traduce al
+        índice real en self.structures vía self._bz_rows."""
+        if row < 0 or row >= len(self._bz_rows):
             self.sel_bz = -1
         else:
-            self.sel_bz = row
-            s = self.structures[row]
+            self.sel_bz = idx = self._bz_rows[row]
+            s = self.structures[idx]
             if not s.get("world") and not self._no_center:
                 x, y = s.get("x"), s.get("y")
                 if x is not None and y is not None:
                     self.canvas.centerOn(float(x), float(y))
         self._sync_bz_panel(); self._update_ui(); self._redraw()
+
+    def _sel_curve(self, row):
+        """Igual que _sel_bz pero para curve_list (vista filtrada, curve=True)."""
+        if row < 0 or row >= len(self._curve_rows):
+            self.sel_curve = -1
+        else:
+            self.sel_curve = idx = self._curve_rows[row]
+            s = self.structures[idx]
+            if not s.get("world") and not self._no_center:
+                x, y = s.get("x"), s.get("y")
+                if x is not None and y is not None:
+                    self.canvas.centerOn(float(x), float(y))
+        self._sync_curve_panel(); self._update_ui(); self._redraw()
 
     def _sync_bz_panel(self):
         """Carga los valores del buzón self.sel_bz en el panel de propiedades."""
@@ -2317,10 +2620,12 @@ class Main(QtWidgets.QMainWindow):
             self.gprop_bz.setVisible(in_tab)
             has_sel = 0 <= self.sel_bz < len(self.structures)
             # Habilitar/deshabilitar todos los controles del groupbox según haya selección
-            for w in (self.bz_cod, self.bz_rim, self.bz_sump, self.bz_family, self.bz_size, self.bz_height):
+            for w in (self.bz_cod, self.bz_rim, self.bz_sump, self.bz_family, self.bz_size,
+                      self.bz_height, self.bz_is_curve):
                 w.setEnabled(has_sel)
             if not has_sel:
                 self.gprop_bz.setTitle("Propiedades del buzón — selecciona uno de la lista")
+                self.bz_is_curve.setChecked(False)
                 return
             s = self.structures[self.sel_bz]
             net = s.get("net") or "gravity"
@@ -2332,6 +2637,7 @@ class Main(QtWidgets.QMainWindow):
             self.bz_height.setValue(float(s.get("height_ft") or 0.0))
             self.bz_net_lbl.setText("conduit (eléctrico/telecom)" if net == "conduit" else "gravedad")
             self.bz_origin_lbl.setText("Excel" if s.get("world") else "dibujo")
+            self.bz_is_curve.setChecked(bool(s.get("curve")))
             # Familias del catálogo imperial de estructuras (gravedad).
             self.bz_family.blockSignals(True); self.bz_family.clear()
             fams = _cc.imperial_structures(self.civil_year) if self.civil_year else []
@@ -2408,14 +2714,142 @@ class Main(QtWidgets.QMainWindow):
         self._refresh_bz_list_item(self.sel_bz)
         self._redraw()
 
-    def _refresh_bz_list_item(self, row):
-        if not (0 <= row < len(self.structures)): return
-        s = self.structures[row]
+    def _refresh_bz_list_item(self, idx):
+        """idx es un índice de self.structures (no una fila de bz_list): se
+        resuelve la fila visible vía self._bz_rows."""
+        if not (0 <= idx < len(self.structures)) or idx not in self._bz_rows: return
+        s = self.structures[idx]
         fam = s.get("part") or "(sin familia)"
         sz = f"  {s['part_size']}" if s.get("part_size") else ""
         emoji = "🟠" if s.get("net") == "conduit" else "🔵"
-        item = self.bz_list.item(row)
+        item = self.bz_list.item(self._bz_rows.index(idx))
         if item: item.setText(f"{emoji} {s.get('cod', '?')}  ·  {fam}{sz}")
+
+    def _bz_curve_toggled(self, v):
+        """Checkbox 'No colocar buzón — es un elemento curvo' en la tab Buzones."""
+        if self._bz_prop_guard: return
+        if not (0 <= self.sel_bz < len(self.structures)): return
+        s = self.structures[self.sel_bz]
+        if bool(s.get("curve")) == bool(v): return
+        s["curve"] = bool(v)
+        if v: s["part"] = ""; s["part_size"] = ""   # cambia de catálogo (estructura → tubería)
+        s["cod"] = ""                               # fuerza a _rebuild_structures a asignar
+                                                     # el prefijo correcto (BZ-/CAJA- vs CV-)
+        x0, y0 = s.get("x"), s.get("y")
+        self._dirty = True
+        self._refresh_lists()
+        if v:
+            # Saltar a la pestaña Curvas y seleccionar el elemento que se acaba de mover
+            # (_rebuild_structures reconstruye los dicts; se ubica por coordenada, estable
+            # a través del rebuild aunque el código haya cambiado).
+            new_idx = next((i for i, x in enumerate(self.structures)
+                             if x.get("x") == x0 and x.get("y") == y0), -1)
+            if new_idx in self._curve_rows:
+                self._no_center = True; self._show_tab(TAB_CURVE)
+                self.curve_list.setCurrentRow(self._curve_rows.index(new_idx))
+                self._no_center = False
+        self._redraw()
+
+    # ─────────────────────────── Tab Curvas: selección, panel, edición ─────
+    def _pipe_at_vertex(self, x, y, tol=14.0):
+        """Tubería (dict, no 'world') cuyo pts tiene un vértice a distancia <= tol
+        de (x,y), o None. La familia/tamaño de un elemento curvo se hereda de esta
+        tubería — nunca se elige aparte, para que la curva calce con los tramos rectos."""
+        tol2 = tol * tol
+        for p in self.pipes:
+            if p.get("world") or not p.get("pts"): continue
+            for (vx, vy) in p["pts"]:
+                if (vx - x) ** 2 + (vy - y) ** 2 <= tol2:
+                    return p
+        return None
+
+    def _sync_curve_panel(self):
+        """Carga los valores del elemento curvo self.sel_curve en el panel de propiedades."""
+        if not hasattr(self, "gprop_curve"): return
+        self._curve_prop_guard = True
+        try:
+            in_tab = self._current_tab() == TAB_CURVE
+            self.gprop_curve.setVisible(in_tab)
+            has_sel = 0 <= self.sel_curve < len(self.structures)
+            for w in (self.cv_cod, self.cv_radius, self.curve_is_bz):
+                w.setEnabled(has_sel)
+            if not has_sel:
+                self.gprop_curve.setTitle("Propiedades del elemento curvo — selecciona uno de la lista")
+                self.curve_is_bz.setChecked(False)
+                self.cv_family_lbl.setText("—"); self.cv_size_lbl.setText("—")
+                return
+            s = self.structures[self.sel_curve]
+            net = s.get("net") or "gravity"
+            self.gprop_curve.setTitle("Propiedades del elemento curvo")
+            self.cv_cod.setText(s.get("cod", ""))
+            self.cv_radius.setValue(float(s.get("radius_ft") or 0.0))
+            self.cv_net_lbl.setText("conduit (eléctrico/telecom)" if net == "conduit" else "gravedad")
+            self.cv_origin_lbl.setText("Excel" if s.get("world") else "dibujo")
+            self.curve_is_bz.setChecked(False)
+            # Familia/tamaño heredados de la tubería recta que pasa por este vértice
+            # (solo lectura: garantiza que la curva calce con los tramos rectos).
+            x, y = s.get("x"), s.get("y")
+            p = self._pipe_at_vertex(x, y) if x is not None and y is not None else None
+            if p is not None and p.get("pipe_family"):
+                import civil_catalog as _cc
+                fid = p["pipe_family"]
+                pretty = fid
+                try:
+                    if self.civil_year:
+                        pretty = _cc.family_description(self.civil_year, fid, "pipe") or fid
+                except Exception: pass
+                self.cv_family_lbl.setText(pretty)
+                self.cv_size_lbl.setText(p.get("pipe_size") or "(por defecto)")
+            else:
+                self.cv_family_lbl.setText("(sin tubería detectada)")
+                self.cv_size_lbl.setText("—")
+        finally:
+            self._curve_prop_guard = False
+
+    def _curve_prop_changed(self):
+        if self._curve_prop_guard: return
+        if not (0 <= self.sel_curve < len(self.structures)): return
+        s = self.structures[self.sel_curve]
+        cod_new = self.cv_cod.text().strip()
+        if cod_new and cod_new != s.get("cod", ""):
+            if any(o.get("cod") == cod_new for i, o in enumerate(self.structures) if i != self.sel_curve):
+                QtWidgets.QMessageBox.warning(self, "Código repetido",
+                    f"Ya existe un elemento con código '{cod_new}'. Elige otro.")
+                self._curve_prop_guard = True; self.cv_cod.setText(s.get("cod", "")); self._curve_prop_guard = False
+                return
+            s["cod"] = cod_new
+        s["radius_ft"] = float(self.cv_radius.value())
+        self._dirty = True
+        self._refresh_curve_list_item(self.sel_curve)
+        self._redraw()
+
+    def _refresh_curve_list_item(self, idx):
+        if not (0 <= idx < len(self.structures)) or idx not in self._curve_rows: return
+        s = self.structures[idx]
+        x, y = s.get("x"), s.get("y")
+        p = self._pipe_at_vertex(x, y) if x is not None and y is not None else None
+        fam = (p.get("pipe_family") if p else "") or "(sin familia)"
+        sz = f"  {p['pipe_size']}" if p and p.get("pipe_size") else ""
+        item = self.curve_list.item(self._curve_rows.index(idx))
+        if item: item.setText(f"🟣 {s.get('cod', '?')}  ·  {fam}{sz}")
+
+    def _curve_is_bz_toggled(self, v):
+        """Checkbox 'Volver a tratar como buzón/caja' en la tab Curvas."""
+        if self._curve_prop_guard or not v: return
+        if not (0 <= self.sel_curve < len(self.structures)): return
+        s = self.structures[self.sel_curve]
+        s["curve"] = False; s["part"] = ""; s["part_size"] = ""
+        s["cod"] = ""                               # fuerza a asignar prefijo BZ-/CAJA-
+        x0, y0 = s.get("x"), s.get("y")
+        self._dirty = True
+        self._refresh_lists()
+        new_idx = next((i for i, x in enumerate(self.structures)
+                         if x.get("x") == x0 and x.get("y") == y0), -1)
+        if new_idx in self._bz_rows:
+            self._no_center = True; self._show_tab(TAB_BZ)
+            self.bz_list.setCurrentRow(self._bz_rows.index(new_idx))
+            self._no_center = False
+        self._redraw()
 
     # ─────────────────────────── Instalador familias personalizadas ───────────
     def open_install_family_dialog(self):

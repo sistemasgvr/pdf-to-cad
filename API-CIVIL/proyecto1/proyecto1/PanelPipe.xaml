@@ -115,6 +115,21 @@
                     </StackPanel>
                 </Border>
 
+                <!-- ELEMENTO CURVO: tubería curva tangente en la esquina marcada (bancoducto) -->
+                <Border Style="{StaticResource Tarjeta}">
+                    <StackPanel>
+                        <StackPanel Orientation="Horizontal" Margin="0,0,0,4">
+                            <Border Width="4" CornerRadius="2" Background="{StaticResource brAmbar}" Margin="0,1,9,1"/>
+                            <StackPanel>
+                                <TextBlock Text="ELEMENTO CURVO" Foreground="{StaticResource brTexto}" FontSize="12.5" FontWeight="Bold"/>
+                                <TextBlock Text="Tubería curva tangente en la esquina marcada (bancoducto)" Foreground="{StaticResource brTextoTenue}" FontSize="10.5"/>
+                            </StackPanel>
+                        </StackPanel>
+                        <Button x:Name="btnTuboCurvo" Style="{StaticResource Boton}" Background="{StaticResource brAmbar}"
+                                Content="🌀  Agregar tubería curva…"/>
+                    </StackPanel>
+                </Border>
+
                 <!-- PROPERTY SETS DE TUBERÍAS -->
                 <Border Style="{StaticResource Tarjeta}">
                     <StackPanel>
