@@ -9,18 +9,24 @@ PyMuPDF) o **rasterizado/escaneo** (vectoriza con OpenCV + OCR).
 ## Georreferenciación (coordenadas de mundo reales)
 
 La app de marcado (`app/`) permite **georreferenciar** el plano por puntos de
-control (menú **Georreferencia → Georreferenciar…**): se calza sobre imagen
-satelital (Esri) / calles (OSM) en un mapa embebido y se obtienen coordenadas
-**UTM** reales, las mismas que usa Civil 3D. Con la georreferencia activa, tanto el
-**DXF** como el **JSON de red** exportan esas X,Y en UTM.
+control (menú **Herramientas → Georreferenciar…**): a la izquierda el plano ya
+cargado (PDF + utilidades dibujadas, con imán a la línea más cercana), a la
+derecha las calles reales de Los Ángeles (NavigateLA) tras buscar una
+dirección/intersección, con imán a la intersección más cercana. Con 3+ pares se
+ajusta una transformación afín y el botón **«💾 Guardar georreferenciación»**
+la deja guardada en el proyecto (`.digproj`) y activa para la próxima
+exportación — tanto el **DXF** como el **JSON de red** salen en coordenadas
+reales, **State Plane CA Zona V (EPSG:2229, pies)**.
 
-> ⚠️ **Advertencia:** calzar sobre imagen satelital da coordenadas **APROXIMADAS**
-> (metros de error), útiles para **trazado/anteproyecto**, **NO grado construcción**.
-> El dato topográfico real sigue viniendo del **levantamiento / Excel**.
+> ⚠️ **Advertencia:** calzar contra las centerlines da coordenadas de
+> **trazado/anteproyecto**, **NO grado construcción**. El dato topográfico real
+> sigue viniendo del **levantamiento / Excel**.
 
-Requiere las dependencias opcionales `PySide6-WebEngine`, `pyproj` y `scikit-image`
-(ver `requirements.txt`). Si no están instaladas, la app abre igual y usa la escala
-del titleblock como hasta ahora.
+Requiere las dependencias opcionales `pyproj` y `scikit-image` (ver
+`requirements.txt`); `contextily` es opcional (imagen base satelital/calles
+detrás de las centerlines — sin ella el mapa sigue funcionando solo con las
+líneas). Si no están instaladas, la app abre igual y usa la escala del
+titleblock como hasta ahora.
 
 ## Instalación
 

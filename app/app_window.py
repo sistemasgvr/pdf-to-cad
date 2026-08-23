@@ -2647,6 +2647,20 @@ class Main(QtWidgets.QMainWindow):
         self._dirty = True; self.georef = georef_mod.Georef()
         self._update_geo_status(); self._info("Georreferencia quitada; se usa la escala del titleblock.")
 
+    def _render_plan_image(self):
+        """Renderiza el plano completo (PDF + utilidades/leaders/textos ya
+        dibujados) a una QImage, en las mismas coordenadas de píxel de la
+        escena — para que el picker de georreferenciación pueda mostrar (y
+        imantar a) las líneas de utilidad, no solo el PDF crudo."""
+        rect = self.canvas.pixmap_item.boundingRect()
+        img = QtGui.QImage(int(rect.width()), int(rect.height()), QtGui.QImage.Format_ARGB32)
+        img.fill(QtCore.Qt.black)
+        painter = QtGui.QPainter(img)
+        painter.setRenderHints(QtGui.QPainter.Antialiasing | QtGui.QPainter.SmoothPixmapTransform)
+        self.canvas.scene().render(painter, QtCore.QRectF(img.rect()), rect)
+        painter.end()
+        return img
+
     def open_georef(self):
         if self.canvas.pixmap_item is None:
             QtWidgets.QMessageBox.information(self, "Sin plano", "Abre un PDF o proyecto primero."); return
@@ -2654,23 +2668,16 @@ class Main(QtWidgets.QMainWindow):
             from geo.georef_dialog import GeorefDialog
         except Exception as e:
             QtWidgets.QMessageBox.warning(self, "Falta un componente",
-                "La georreferenciación necesita PySide6-WebEngine, pyproj y scikit-image.\n\n"
+                "La georreferenciación necesita matplotlib, pyproj y scikit-image.\n\n"
                 "Instálalos con tu Python 3.12:\n"
                 r"  C:\Users\Deyvy\AppData\Local\Programs\Python\Python312\python.exe -m pip install "
-                "PySide6-WebEngine pyproj scikit-image" f"\n\nDetalle: {e}")
+                "matplotlib pyproj scikit-image" f"\n\nDetalle: {e}")
             return
-        img = self.canvas.pixmap_item.pixmap().toImage()
-        dlg = GeorefDialog(self, img, self.georef)
-        if dlg.exec() == QtWidgets.QDialog.Accepted and dlg.result_georef is not None:
-            self.georef = dlg.result_georef; self._dirty = True
-            self._update_geo_status(); self._redraw()
-            unit = georef_mod.epsg_unit(self.georef.epsg)
-            rms = self.georef.rms if self.georef.rms is not None else 0.0
-            self._info(f"Georreferenciado (EPSG:{self.georef.epsg}, RMS {rms:.2f} {unit}). "
-                       "Las coordenadas exportadas ahora son reales.")
-            QtWidgets.QMessageBox.information(
-                self, "Georreferenciación",
-                f"✓ Plano georreferenciado\n\nEPSG: {self.georef.epsg}\nRMS: {rms:.2f} {unit}")
+        img = self._render_plan_image()
+        dlg = GeorefDialog(self, img, self.pipes, self.georef)
+        dlg.exec()
+        # El propio diálogo guarda self.georef y el proyecto (botón "Guardar
+        # georreferenciación"); no hace falta repetir ese trabajo acá.
 
     # ─────────────────────────── Ayuda ───────────────────────────
     def _show_html(self, title, html, w=780, h=660):
@@ -2749,9 +2756,14 @@ class Main(QtWidgets.QMainWindow):
         (2025/2026/2027) contra la que se listan las familias y tamaños del catálogo.</p>
 
         <h3>7. Georreferenciación (opcional)</h3>
-        <p><b>Herramientas → Georreferenciar…</b> asocia el plano a coordenadas UTM reales
-        con puntos de control sobre imagen satelital u OSM. Solo para anteproyecto — el
-        dato topográfico de precisión viene del levantamiento.</p>
+        <p><b>Herramientas → Georreferenciar…</b> asocia el plano a las calles reales de
+        Los Ángeles (State Plane CA Zona V, EPSG:2229): busca una dirección/intersección,
+        descarga las centerlines de NavigateLA y marca pares de puntos (clic en el plano,
+        con imán a la utilidad dibujada más cercana · clic en la calle correspondiente, con
+        imán a la intersección). Con 3+ pares, <b>«Ajustar afín + RMSE»</b> y luego
+        <b>«💾 Guardar georreferenciación»</b> deja el resultado guardado en el proyecto y
+        activo para la próxima exportación a DXF. Solo para anteproyecto — el dato
+        topográfico de precisión viene del levantamiento.</p>
 
         <h3>8. Exportar a DXF y abrir en Civil 3D</h3>
         <ul>
@@ -2803,8 +2815,6 @@ class Main(QtWidgets.QMainWindow):
 
 
 def main():
-    # Necesario para QWebEngineView (mapa de georreferenciación); inofensivo si no se usa.
-    QtCore.QCoreApplication.setAttribute(QtCore.Qt.AA_ShareOpenGLContexts)
     app = QtWidgets.QApplication(sys.argv)
     # Forzar estilo Fusion + paleta oscura SIEMPRE, independiente del tema de
     # Windows. Sin esto, cuando el usuario tiene Windows en modo claro, los

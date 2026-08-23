@@ -15,9 +15,10 @@ pillow>=10.0
 # Vista previa opcional
 matplotlib>=3.7
 
-# Georreferenciación (opcional) — menú "Georreferencia → Georreferenciar…"
-# Calzar sobre imagen satelital da coordenadas UTM APROXIMADAS (trazado/anteproyecto),
-# NO grado construcción; el dato topográfico real viene del levantamiento/Excel.
-#PySide6-WebEngine>=6.5   # mapa Leaflet embebido (satélite Esri / calles OSM)
-pyproj>=3.6              # reproyección lon/lat <-> UTM
+# Georreferenciación (opcional) — menú "Herramientas → Georreferenciar…"
+# Calza el plano contra las calles reales de Los Ángeles (NavigateLA) da
+# coordenadas de trazado/anteproyecto, NO grado construcción; el dato
+# topográfico real viene del levantamiento/Excel.
+pyproj>=3.6              # reproyección lon/lat <-> State Plane (EPSG:2229)
 scikit-image>=0.22       # ajuste de la transformación por puntos de control
+contextily>=1.5          # opcional: imagen base (satélite/calles) detrás de las centerlines

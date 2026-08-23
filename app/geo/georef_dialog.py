@@ -1,118 +1,163 @@
 """
-georef_dialog.py — Diálogo "Georreferenciar" (puntos de control PDF ↔ mapa).
+georef_dialog.py — Diálogo "Georreferenciar" (puntos de control PDF ↔ calles reales de LA).
 
-Izquierda: el PDF actual (clic = punto en píxeles). Derecha: mapa Leaflet con
-imagen satelital Esri (+ calles OSM) dentro de un QWebEngineView; clic = lon/lat.
-Se emparejan N puntos (≥2 similarity, ≥3 affine), se convierte lon/lat→UTM con
-pyproj y se ajusta la transformación píxel→UTM con scikit-image; se muestra el RMS.
+Reemplaza al viejo diálogo multi-pestaña (mapa Leaflet/monumentos/DWG de
+referencia/superponer) por un flujo único, adaptado de `auxiliar/pdf_georef.py`:
 
-Requiere PySide6-WebEngine (import a nivel de módulo) y, al calcular, pyproj/skimage.
+    Izquierda: el plano YA cargado en el proyecto (PDF + utilidades dibujadas),
+               clic = punto en píxeles de escena, con IMÁN a la línea de
+               utilidad más cercana (vértice o segmento).
+    Derecha:   mapa de centerlines reales de Los Ángeles (NavigateLA), clic =
+               punto en pies EPSG:2229, con imán al vértice/intersección más
+               cercana. Buscador de dirección/intersección (geocoder Esri +
+               respaldo Nominatim, vía urllib — sin dependencias nuevas).
+
+Con ≥3 pares se ajusta una transformación afín (reusa `geo.georef.fit`, el
+mismo núcleo que ya usa el resto de la app) y el botón "Guardar
+georreferenciación" fija `self.georef` en la ventana principal y GUARDA el
+proyecto de una — no hace falta pasar por "Guardar proyecto" aparte.
+
+Todo en EPSG:2229 (State Plane CA Zona V, ftUS) — el único CRS que tiene
+sentido para las calles de NavigateLA, y el mismo que usa el resto del
+proyecto (imperial, pies).
+
+Dependencias: matplotlib (ya en requirements.txt), pyproj (reproyección UTM
+del geocoder), y opcionalmente contextily (mapa base satelital/calles de
+fondo — si no está instalado, el mapa sigue funcionando solo con las
+centerlines, sin imagen de fondo).
 """
 import json
+import math
+import os
 import urllib.parse
 import urllib.request
 
 from PySide6 import QtCore, QtGui, QtWidgets
-from PySide6.QtWebEngineWidgets import QWebEngineView
-from PySide6.QtWebChannel import QWebChannel
+
+os.environ.setdefault("QT_API", "pyside6")   # matplotlib debe usar el MISMO binding Qt que el resto de la app
+import matplotlib
+matplotlib.use("QtAgg")
+from matplotlib.backends.backend_qtagg import (
+    FigureCanvasQTAgg as FigureCanvas,
+    NavigationToolbar2QT as NavigationToolbar,
+)
+from matplotlib.figure import Figure
+
+try:
+    import contextily as cx
+    HAS_CTX = True
+except Exception:
+    HAS_CTX = False
 
 from geo import georef as georef_mod
 
-# Geocodificador de Esri: a diferencia de Nominatim, SÍ resuelve intersecciones
-# ("Calle A & Calle B"), que es como se ubican los planos de solo calles.
-# findAddressCandidates sin token está permitido para visualización.
+TARGET_EPSG = 2229                    # State Plane CA Zona V, ftUS — nativo NavigateLA
+DEFAULT_BUFFER_FT = 1300              # ≈ 400 m, radio inicial de descarga de centerlines
+SNAP_PX = 10                          # imán del lado PDF, en píxeles de escena
+SNAP_FT = 30.0                        # imán del lado mapa, en pies (≈ 9 m)
+BASEMAP_ZOOM = 18                     # nivel de tile fijo (más alto = más nítido, más tiles)
+
+# Tile providers con URL directa (evita depender de contextily.providers, que a
+# veces cae en tiles cacheados 403 del OSM público). Se prueban en orden hasta
+# que uno cargue — mismo patrón que auxiliar/pdf_georef.py.
+_TILE_PROVIDERS = [
+    ("CartoDB Voyager", "https://basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}.png"),
+    ("Esri World Imagery", "https://server.arcgisonline.com/ArcGIS/rest/services/"
+                            "World_Imagery/MapServer/tile/{z}/{y}/{x}"),
+    ("Esri World Street", "https://server.arcgisonline.com/ArcGIS/rest/services/"
+                           "World_Street_Map/MapServer/tile/{z}/{y}/{x}"),
+]
+
 ESRI_GEOCODE = "https://geocode.arcgis.com/arcgis/rest/services/World/GeocodeServer/findAddressCandidates"
-NOMINATIM = "https://nominatim.openstreetmap.org/search"   # respaldo (direcciones simples)
-USER_AGENT = "pdf-to-cad-georef/1.0 (staff-engineering)"
-
-MAP_HTML = """
-<!DOCTYPE html><html><head><meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
-<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
-<script src="https://unpkg.com/esri-leaflet@3.0.12/dist/esri-leaflet.js"></script>
-<script src="qrc:///qtwebchannel/qwebchannel.js"></script>
-<style>html,body,#map{height:100%;margin:0}</style></head>
-<body><div id="map"></div><script>
-var map = L.map('map').setView([34.20,-118.44], 12);   // San Fernando Valley, Los Ángeles
-var esri = L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
-    {maxZoom:20, attribution:'Esri World Imagery'}).addTo(map);
-var osm = L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {maxZoom:19, attribution:'OpenStreetMap'});
-var bases = {'Satélite (Esri)':esri, 'Calles (OSM)':osm};
-
-// ── Capas de referencia de la Ciudad de Los Ángeles (NavigateLA / Bureau of
-// Engineering). Son opcionales: solo muestran datos dentro de LA y sirven para
-// calzar contra geometría autoritativa (ejes de calle, parcelas, control
-// geodésico) en vez de la imagen satelital aproximada. Requieren esri-leaflet;
-// si la librería o el servicio no cargan, el mapa sigue funcionando igual.
-var overlays = {};
-var LA_BOE = 'https://maps.lacity.org/arcgis/rest/services/Mapping/NavigateLA/MapServer';
-if (window.L && L.esri) {
-    try {
-        overlays['LA · Ejes de calle'] = L.esri.dynamicMapLayer({url: LA_BOE, layers:[337], opacity:0.9});
-        overlays['LA · Parcelas']      = L.esri.dynamicMapLayer({url: LA_BOE, layers:[395], opacity:0.6});
-        // Control geodésico: puntos CLICABLES (feature layers). Al hacer clic en un
-        // monumento se envían sus coordenadas OFICIALES publicadas (X,Y en State
-        // Plane CA Zona 5, pies — EPSG:2229) además de su lon/lat.
-        var monStyle = function(feature, latlng){
-            return L.circleMarker(latlng, {radius:5, color:'#ffd21e', weight:2,
-                                           fillColor:'#ffd21e', fillOpacity:0.7});
-        };
-        var onMon = function(e){
-            var p = e.layer.feature.properties || {};
-            var ll = e.latlng;
-            var X = parseFloat(p.X), Y = parseFloat(p.Y);
-            var label = p.MapLabel || p.TOOLTIP || '';
-            if (window.bridge && isFinite(X) && isFinite(Y)) {
-                window.bridge.monumentClicked(X, Y, ll.lat, ll.lng, String(label));
-            }
-        };
-        var ctrl = L.esri.featureLayer({url: LA_BOE + '/225', pointToLayer: monStyle});
-        var bench = L.esri.featureLayer({url: LA_BOE + '/231', pointToLayer: monStyle});
-        ctrl.on('click', onMon); bench.on('click', onMon);
-        overlays['LA · Control geodésico (clic = coord oficial)'] = ctrl;
-        overlays['LA · Benchmarks'] = bench;
-    } catch(err) { /* sin capas LA si algo falla */ }
-}
-L.control.layers(bases, overlays).addTo(map);
-var mk = null;
-map.on('click', function(e){
-    if (mk) { map.removeLayer(mk); }
-    mk = L.marker(e.latlng).addTo(map);
-    if (window.bridge) { window.bridge.mapClicked(e.latlng.lat, e.latlng.lng); }
-});
-function setView(lat, lon, z){ map.setView([lat, lon], z||17); if(mk){map.removeLayer(mk);} }
-var searchPin = null;
-// Deja un pin naranja en el resultado de búsqueda (p. ej. una intersección),
-// sin contar como punto de control: solo ayuda a ubicar el sitio a ojo.
-function dropPin(lat, lon, z){
-    map.setView([lat, lon], z||18);
-    if (searchPin) { map.removeLayer(searchPin); }
-    searchPin = L.circleMarker([lat, lon], {radius:8, color:'#ff7a00', weight:3,
-                                            fillColor:'#ff7a00', fillOpacity:0.3}).addTo(map);
-    searchPin.bindPopup('Intersección buscada').openPopup();
-}
-new QWebChannel(qt.webChannelTransport, function(ch){ window.bridge = ch.objects.bridge; });
-</script></body></html>
-"""
+NOMINATIM = "https://nominatim.openstreetmap.org/search"
+USER_AGENT = "pdf-to-cad-georef/2.0 (staff-engineering)"
 
 
-class _Bridge(QtCore.QObject):
-    clickedMap = QtCore.Signal(float, float)
-    clickedMonument = QtCore.Signal(float, float, float, float, str)   # X, Y (2229 ft), lat, lng, label
+# ─────────────────────────── geocodificación (urllib, sin deps nuevas) ───────────────────────────
+def norm_query(q):
+    """Normaliza intersecciones ('Chandler y Colfax', 'Chandler at Colfax', …
+    → 'Chandler & Colfax') y añade contexto de Los Ángeles si falta."""
+    import re
+    s = q
+    for sep in (" cruce con ", " esquina con ", " con ", " y ", " and ", " at ", " x "):
+        s = re.sub(re.escape(sep), " & ", s, flags=re.IGNORECASE)
+    low = s.lower()
+    if not any(c in low for c in ("los angeles", "los ángeles", ", ca", ", california")):
+        s = s + ", Los Angeles, CA"
+    return s
 
-    @QtCore.Slot(float, float)
-    def mapClicked(self, lat, lng):
-        self.clickedMap.emit(lat, lng)
 
-    @QtCore.Slot(float, float, float, float, str)
-    def monumentClicked(self, x, y, lat, lng, label):
-        self.clickedMonument.emit(x, y, lat, lng, label)
+def geocode(query):
+    """(lat, lon, label) usando Esri World (bueno con intersecciones); si falla,
+    Nominatim. Lanza RuntimeError si ninguno encuentra nada."""
+    q = norm_query(query)
+    try:
+        url = ESRI_GEOCODE + "?" + urllib.parse.urlencode(
+            {"SingleLine": q, "f": "json", "maxLocations": 1, "outFields": "Match_addr"})
+        req = urllib.request.Request(url, headers={"User-Agent": USER_AGENT})
+        with urllib.request.urlopen(req, timeout=15) as resp:
+            data = json.load(resp)
+        cands = data.get("candidates", [])
+        if cands:
+            loc = cands[0]["location"]
+            return float(loc["y"]), float(loc["x"]), cands[0].get("address", query)
+    except Exception:
+        pass
+    try:
+        url = NOMINATIM + "?" + urllib.parse.urlencode({"q": q, "format": "json", "limit": 1})
+        req = urllib.request.Request(url, headers={"User-Agent": USER_AGENT})
+        with urllib.request.urlopen(req, timeout=12) as resp:
+            data = json.load(resp)
+        if data:
+            return float(data[0]["lat"]), float(data[0]["lon"]), data[0].get("display_name", query)
+    except Exception as e:
+        raise RuntimeError(f"No se encontró '{query}' ({e}).")
+    raise RuntimeError(
+        f"No se encontró '{query}'.\n\nFormatos que suelen funcionar:\n"
+        f"  • Colfax Ave & Chandler Blvd, Los Angeles, CA\n"
+        f"  • 5th St & Spring St, Los Angeles\n"
+        f"  • 200 N Spring St, Los Angeles, CA 90012")
 
 
-class _PdfView(QtWidgets.QGraphicsView):
+# ─────────────────────────── imán a línea (vértice, si no punto sobre segmento) ───────────────────────────
+def _closest_on_segment(p, a, b):
+    px, py = p; ax, ay = a; bx, by = b
+    dx, dy = bx - ax, by - ay
+    L2 = dx * dx + dy * dy
+    if L2 < 1e-12:
+        return a
+    t = max(0.0, min(1.0, ((px - ax) * dx + (py - ay) * dy) / L2))
+    return (ax + t * dx, ay + t * dy)
+
+
+def snap_to_lines(pt, polylines, max_dist):
+    """polylines: lista de listas de (x,y). Snap al vértice más cercano dentro
+    de max_dist; si no hay ninguno, al punto más cercano sobre cualquier
+    segmento (también dentro de max_dist). Si nada califica, devuelve pt tal cual."""
+    x, y = pt
+    best_v, best_vd = None, float("inf")
+    for pts in polylines:
+        for (vx, vy) in pts:
+            d = math.hypot(vx - x, vy - y)
+            if d < best_vd:
+                best_vd, best_v = d, (vx, vy)
+    if best_v is not None and best_vd <= max_dist:
+        return best_v
+    best_s, best_sd = None, float("inf")
+    for pts in polylines:
+        for i in range(len(pts) - 1):
+            proj = _closest_on_segment((x, y), pts[i], pts[i + 1])
+            d = math.hypot(proj[0] - x, proj[1] - y)
+            if d < best_sd:
+                best_sd, best_s = d, proj
+    if best_s is not None and best_sd <= max_dist:
+        return best_s
+    return pt
+
+
+# ─────────────────────────── vista del plano (PDF + utilidades) ───────────────────────────
+class _PdfPickView(QtWidgets.QGraphicsView):
     clicked = QtCore.Signal(float, float)
-    guide = QtCore.Signal()                     # clic derecho → abre la guía
 
     def __init__(self, qimg):
         super().__init__(); sc = QtWidgets.QGraphicsScene(self); self.setScene(sc)
@@ -120,678 +165,322 @@ class _PdfView(QtWidgets.QGraphicsView):
         self.setRenderHints(QtGui.QPainter.Antialiasing | QtGui.QPainter.SmoothPixmapTransform)
         self.setTransformationAnchor(QtWidgets.QGraphicsView.AnchorUnderMouse)
         self.setBackgroundBrush(QtGui.QColor(28, 28, 28))
-        self.setToolTip("Clic izquierdo: fija el punto de control · Rueda: zoom · Clic derecho: guía de uso")
+        self.setToolTip("Clic izquierdo: punto de control (imán a la utilidad más cercana)\n"
+                        "Rueda: desplazar · Ctrl+Rueda: zoom")
+        self.setMouseTracking(True)
+        pen_h = QtGui.QPen(QtGui.QColor(255, 255, 255, 130)); pen_h.setCosmetic(True); pen_h.setWidthF(1.0)
+        self._hline = sc.addLine(0, 0, 0, 0, pen_h); self._vline = sc.addLine(0, 0, 0, 0, pen_h)
+        self._hline.setZValue(1000); self._vline.setZValue(1000)
+        self._hline.setVisible(False); self._vline.setVisible(False)
         QtCore.QTimer.singleShot(0, lambda: self.fitInView(self._pm, QtCore.Qt.KeepAspectRatio))
 
     def wheelEvent(self, e):
-        f = 1.25 if e.angleDelta().y() > 0 else 0.8; self.scale(f, f)
+        if e.modifiers() & QtCore.Qt.ControlModifier:
+            f = 1.25 if e.angleDelta().y() > 0 else 0.8; self.scale(f, f)
+            return
+        # Sin Ctrl: la rueda DESPLAZA (vertical; con Shift, horizontal) en vez
+        # de hacer zoom — más cómodo para recorrer el plano sin perder el nivel
+        # de detalle alcanzado.
+        dy = e.angleDelta().y(); dx = e.angleDelta().x()
+        if e.modifiers() & QtCore.Qt.ShiftModifier and dx == 0:
+            dx, dy = dy, dx
+        hbar = self.horizontalScrollBar(); vbar = self.verticalScrollBar()
+        if dx: hbar.setValue(hbar.value() - dx)
+        if dy: vbar.setValue(vbar.value() - dy)
 
     def mousePressEvent(self, e):
         if e.button() == QtCore.Qt.LeftButton:
             sp = self.mapToScene(e.position().toPoint()); self.clicked.emit(sp.x(), sp.y())
-        elif e.button() == QtCore.Qt.RightButton:
-            self.guide.emit(); return           # no propaga: el clic derecho abre la guía
         super().mousePressEvent(e)
+
+    def mouseMoveEvent(self, e):
+        sp = self.mapToScene(e.position().toPoint())
+        rect = self.scene().sceneRect()
+        self._hline.setLine(rect.left(), sp.y(), rect.right(), sp.y())
+        self._vline.setLine(sp.x(), rect.top(), sp.x(), rect.bottom())
+        self._hline.setVisible(True); self._vline.setVisible(True)
+        super().mouseMoveEvent(e)
+
+    def leaveEvent(self, e):
+        self._hline.setVisible(False); self._vline.setVisible(False)
+        super().leaveEvent(e)
 
     def add_mark(self, x, y, color):
         pen = QtGui.QPen(QtGui.QColor(color)); pen.setCosmetic(True)
-        it = self.scene().addEllipse(x - 5, y - 5, 10, 10, pen, QtGui.QBrush(QtGui.QColor(color)))
-        return it
+        return self.scene().addEllipse(x - 6, y - 6, 12, 12, pen, QtGui.QBrush(QtGui.QColor(color)))
+
+
+# ─────────────────────────── mapa de centerlines (matplotlib, clic + scroll zoom) ───────────────────────────
+class _MapCanvas(FigureCanvas):
+    clicked = QtCore.Signal(float, float)
+
+    def __init__(self):
+        self.fig = Figure(figsize=(5, 5), tight_layout=True)
+        super().__init__(self.fig)
+        self.ax = self.fig.add_subplot(111)
+        self.ax.set_aspect("equal", adjustable="datalim")
+        self.toolbar = None
+        self.mpl_connect("button_press_event", self._on_click)
+        self.mpl_connect("scroll_event", self._on_scroll)
+
+    def set_toolbar(self, toolbar):
+        self.toolbar = toolbar
+
+    def _on_click(self, event):
+        if event.inaxes != self.ax or event.button != 1:
+            return
+        if event.xdata is None or event.ydata is None:
+            return
+        if self.toolbar and self.toolbar.mode:
+            return
+        self.clicked.emit(event.xdata, event.ydata)
+
+    def _on_scroll(self, event):
+        if event.inaxes != self.ax:
+            return
+        scale = 0.8 if event.button == "up" else 1.25
+        x, y = event.xdata, event.ydata
+        xl = self.ax.get_xlim(); yl = self.ax.get_ylim()
+        self.ax.set_xlim(x - (x - xl[0]) * scale, x + (xl[1] - x) * scale)
+        self.ax.set_ylim(y - (y - yl[0]) * scale, y + (yl[1] - y) * scale)
+        self.draw_idle()
+
+    def clear(self):
+        self.ax.cla(); self.ax.set_aspect("equal", adjustable="datalim")
+
+    def redraw(self):
+        self.draw_idle()
 
 
 class GeorefDialog(QtWidgets.QDialog):
-    def __init__(self, parent, qimg, init_georef=None):
+    def __init__(self, parent, plan_qimage, pipes, init_georef=None):
         super().__init__(parent)
-        self._main = parent                     # ventana principal (para scale/zoom/pdf_path)
-        self._qimg = qimg                       # imagen del plano (para el modo Superponer)
-        self.setWindowTitle("Georreferenciar plano"); self.resize(1200, 760)
+        self._main = parent
+        self.setWindowTitle("Georreferenciar plano"); self.resize(1400, 860)
         self.result_georef = None
-        self._overlay = None                    # OverlayView del modo Superponer (perezoso)
-        # Cada par: {"px":(x,y), "lonlat":(lon,lat), "world":(X,Y)|None,
-        #            "kind":"map"|"mon", "label":str, "mark":item}
-        # kind="mon" = clic en un monumento de NavigateLA → "world" trae la
-        # coordenada OFICIAL en State Plane CA Zona 5 (EPSG:2229, pies).
-        self.pairs = []
+        self._pipe_lines = [p.get("pts", []) for p in (pipes or []) if len(p.get("pts", [])) >= 2]
+        self.centerlines = []             # [[ (x,y) en ft 2229, ... ], ...]
+        self.pairs = []                   # [{"px":(x,y), "world":(X,Y), "label":str, "mark":item}]
         self._pending_px = None; self._pending_mark = None
-        self._search_loc = None       # (lon, lat, label) del último resultado de búsqueda
-        self._residuals = []          # error por punto (unidades del CRS) tras el último ajuste
+        self._map_view_limits = None
 
         root = QtWidgets.QVBoxLayout(self)
-        warn = QtWidgets.QLabel("⚠ Calzar sobre imagen satelital da coordenadas APROXIMADAS (metros de "
-                                "error): útil para trazado/anteproyecto, NO grado construcción. El dato "
-                                "topográfico real proviene del levantamiento/Excel.")
+        warn = QtWidgets.QLabel(
+            "⚠ El calce contra centerlines de LA da coordenadas de trazado/anteproyecto — el dato "
+            "topográfico real proviene del levantamiento/Excel.")
         warn.setWordWrap(True); warn.setStyleSheet("color:#e0c060;"); root.addWidget(warn)
 
-        # Banner de estado: si el plano YA venía georreferenciado, se avisa arriba.
         self.lbl_prev = QtWidgets.QLabel(""); self.lbl_prev.setWordWrap(True)
         if init_georef is not None and init_georef.active():
-            unit = georef_mod.epsg_unit(init_georef.epsg)
-            rms = f", RMS {init_georef.rms:.2f} {unit}" if init_georef.rms is not None else ""
+            rms = f", RMS {init_georef.rms:.2f} ft" if init_georef.rms is not None else ""
             self.lbl_prev.setText(f"✓ Este plano YA está georreferenciado (EPSG:{init_georef.epsg}{rms}). "
                                   "Puedes recalcular con nuevos puntos o cerrar sin cambios.")
             self.lbl_prev.setStyleSheet("color:#5fd35f;font-weight:bold;")
             root.addWidget(self.lbl_prev)
 
         split = QtWidgets.QSplitter(QtCore.Qt.Horizontal)
-        self.pdf = _PdfView(qimg); self.pdf.clicked.connect(self._on_pdf_click)
-        self.pdf.guide.connect(self._show_guide); split.addWidget(self.pdf)
-        right = QtWidgets.QWidget(); rv = QtWidgets.QVBoxLayout(right); rv.setContentsMargins(0, 0, 0, 0)
+
+        pdf_w = QtWidgets.QWidget(); pv = QtWidgets.QVBoxLayout(pdf_w); pv.setContentsMargins(0, 0, 0, 0)
+        pv.addWidget(QtWidgets.QLabel("Plano (PDF + utilidades)  —  clic: punto de control (imán a la línea)  |  "
+                                     "rueda: desplazar  |  Ctrl+rueda: zoom"))
+        self.pdf = _PdfPickView(plan_qimage); self.pdf.clicked.connect(self._on_pdf_click)
+        pv.addWidget(self.pdf, 1)
+        split.addWidget(pdf_w)
+
+        map_w = QtWidgets.QWidget(); mv = QtWidgets.QVBoxLayout(map_w); mv.setContentsMargins(0, 0, 0, 0)
         srow = QtWidgets.QHBoxLayout()
-        self.search = QtWidgets.QLineEdit()
-        self.search.setPlaceholderText("Buscar calle o intersección… ej: Chandler & Colfax")
-        self.search.returnPressed.connect(self._do_search)
-        b_search = QtWidgets.QPushButton("Buscar"); b_search.clicked.connect(self._do_search)
-        b_use = QtWidgets.QPushButton("Usar como punto")
-        b_use.setToolTip("Empareja el punto fijado en el PDF con la coordenada EXACTA de la "
-                         "intersección buscada (sin apuntar a ojo en el mapa).")
-        b_use.clicked.connect(self._use_search_point)
-        srow.addWidget(self.search, 1); srow.addWidget(b_search); srow.addWidget(b_use); rv.addLayout(srow)
-        self.web = QWebEngineView()
-        self.bridge = _Bridge(); self.bridge.clickedMap.connect(self._on_map_click)
-        self.bridge.clickedMonument.connect(self._on_monument_click)
-        self.channel = QWebChannel(); self.channel.registerObject("bridge", self.bridge)
-        self.web.page().setWebChannel(self.channel)
-        self.web.setHtml(MAP_HTML, QtCore.QUrl("https://leafletjs.com/"))
-        rv.addWidget(self.web, 1)
+        self.ed_addr = QtWidgets.QLineEdit()
+        self.ed_addr.setPlaceholderText("Dirección o intersección… ej: Colfax Ave & Chandler Blvd")
+        self.ed_addr.returnPressed.connect(self._on_fetch)
+        srow.addWidget(self.ed_addr, 1)
+        srow.addWidget(QtWidgets.QLabel("Radio (ft):"))
+        self.sp_buffer = QtWidgets.QDoubleSpinBox()
+        self.sp_buffer.setRange(300, 10000); self.sp_buffer.setValue(DEFAULT_BUFFER_FT); self.sp_buffer.setSingleStep(150)
+        srow.addWidget(self.sp_buffer)
+        b_fetch = QtWidgets.QPushButton("Buscar y descargar"); b_fetch.clicked.connect(self._on_fetch)
+        srow.addWidget(b_fetch)
+        mv.addLayout(srow)
+        mv.addWidget(QtWidgets.QLabel("Calles de LA (NavigateLA)  —  clic: punto de control (imán a la intersección)  |  rueda: zoom"))
+        self.canvas_map = _MapCanvas(); self.canvas_map.clicked.connect(self._on_map_click)
+        self.toolbar_map = NavigationToolbar(self.canvas_map, self); self.canvas_map.set_toolbar(self.toolbar_map)
+        mv.addWidget(self.toolbar_map); mv.addWidget(self.canvas_map, 1)
+        split.addWidget(map_w)
 
-        # Panel derecho con pestañas: MAPA (satélite/monumentos) o DWG de
-        # referencia (Nivel 3: calzar contra un plano ya en coordenadas reales).
-        self.ref_tabs = QtWidgets.QTabWidget()
-        self.ref_tabs.addTab(right, "Mapa")
-        dwg_tab = QtWidgets.QWidget(); dl = QtWidgets.QVBoxLayout(dwg_tab); dl.setContentsMargins(0, 0, 0, 0)
-        drow = QtWidgets.QHBoxLayout()
-        b_dwg = QtWidgets.QPushButton("Cargar DWG/DXF de referencia…"); b_dwg.clicked.connect(self._load_dwg)
-        drow.addWidget(b_dwg); drow.addStretch(1); dl.addLayout(drow)
-        self.lbl_dwg = QtWidgets.QLabel("<i>Carga un DXF (o DWG con ODA) que ya esté en coordenadas reales. "
-                                        "Luego: clic en el PDF y clic en el MISMO punto del dibujo → "
-                                        "coordenada real directa (grado topográfico).</i>")
-        self.lbl_dwg.setWordWrap(True); dl.addWidget(self.lbl_dwg)
-        self._dwg_slot = QtWidgets.QVBoxLayout(); dl.addLayout(self._dwg_slot, 1)
-        self._dwg_view = None
-        self.ref_tabs.addTab(dwg_tab, "DWG referencia")
+        split.setSizes([700, 700]); root.addWidget(split, 1)
 
-        # ── Pestaña: Superponer (colocar el PDF sobre las calles reales) ──
-        ov_tab = QtWidgets.QWidget(); ol = QtWidgets.QVBoxLayout(ov_tab); ol.setContentsMargins(0, 0, 0, 0)
-        orow = QtWidgets.QHBoxLayout()
-        self.ov_search = QtWidgets.QLineEdit(); self.ov_search.setPlaceholderText("Zona/intersección… ej: Chandler & Colfax")
-        self.ov_search.returnPressed.connect(self._overlay_search)
-        ob = QtWidgets.QPushButton("Cargar calles"); ob.clicked.connect(self._overlay_search)
-        orow.addWidget(self.ov_search, 1); orow.addWidget(ob); ol.addLayout(orow)
-        crow2 = QtWidgets.QHBoxLayout()
-        # escala: pasos gruesos (±5%) y finos (±1%) para calzar sin pasarse
-        for txt, fn, tip in (("－－", lambda: self._ov(lambda v: v.scale_image(0.95)), "Reducir 5%"),
-                             ("－", lambda: self._ov(lambda v: v.scale_image(0.99)), "Reducir 1% (fino)"),
-                             ("＋", lambda: self._ov(lambda v: v.scale_image(1.01)), "Agrandar 1% (fino)"),
-                             ("＋＋", lambda: self._ov(lambda v: v.scale_image(1.05)), "Agrandar 5%"),
-                             ("⟲", lambda: self._ov(lambda v: v.rotate_image(-1)), "Rotar −1°"),
-                             ("⟳", lambda: self._ov(lambda v: v.rotate_image(1)), "Rotar +1°"),
-                             ("⟲⟲", lambda: self._ov(lambda v: v.rotate_image(-10)), "Rotar −10°"),
-                             ("⟳⟳", lambda: self._ov(lambda v: v.rotate_image(10)), "Rotar +10°")):
-            b = QtWidgets.QPushButton(txt); b.setFixedWidth(40); b.setToolTip(tip); b.clicked.connect(fn); crow2.addWidget(b)
-        b_align = QtWidgets.QPushButton("🎯 Calce por puntos"); b_align.setToolTip(
-            "Clic en un punto del PLANO y luego su gemelo en la CALLE real. Repite con VARIOS puntos "
-            "bien separados (más puntos = más preciso). Pulsa este botón otra vez para terminar.")
-        b_align.clicked.connect(self._overlay_start_align); crow2.addWidget(b_align)
-        crow2.addWidget(QtWidgets.QLabel("Opacidad:"))
-        self.ov_op = QtWidgets.QSlider(QtCore.Qt.Horizontal); self.ov_op.setRange(10, 100); self.ov_op.setValue(60)
-        self.ov_op.valueChanged.connect(lambda v: self._ov(lambda ov: ov.set_img_opacity(v / 100.0)))
-        crow2.addWidget(self.ov_op, 1); ol.addLayout(crow2)
-        self.lbl_ov = QtWidgets.QLabel("<i>1) Carga las calles de la zona · 2) arrastra la imagen y usa "
-                                       "±/⟲⟳ para acomodarla sobre las calles reales · 3) «Usar superposición».</i>")
-        self.lbl_ov.setWordWrap(True); ol.addWidget(self.lbl_ov)
-        self._ov_slot = QtWidgets.QVBoxLayout(); ol.addLayout(self._ov_slot, 1)
-        b_ov_use = QtWidgets.QPushButton("✓ Usar superposición como georreferencia"); b_ov_use.clicked.connect(self._overlay_apply)
-        ol.addWidget(b_ov_use)
-        self.ref_tabs.addTab(ov_tab, "Superponer")
-
-        split.addWidget(self.ref_tabs); split.setSizes([560, 640]); root.addWidget(split, 1)
-
-        self.hint = QtWidgets.QLabel("1) clic en un punto del PDF · 2) el MISMO punto en el mapa "
-                                     "(o en un monumento amarillo de LA = coordenada oficial). "
-                                     "Mínimo 2 pares (3–4 recomendado).")
+        self.hint = QtWidgets.QLabel("1) Busca y descarga las calles de la zona · 2) clic en el plano (izquierda) "
+                                     "· 3) clic en la calle correspondiente (derecha). Mínimo 3 pares.")
         self.hint.setStyleSheet("color:#9cf;"); root.addWidget(self.hint)
 
         crow = QtWidgets.QHBoxLayout()
-        crow.addWidget(QtWidgets.QLabel("EPSG:"))
-        self.epsg = QtWidgets.QLineEdit(); self.epsg.setFixedWidth(90); self.epsg.setPlaceholderText("auto")
-        self.epsg.setToolTip("UTM WGS84 (auto por lon/lat) o State Plane. LA usa EPSG:2229 (pies). "
-                             "Al usar monumentos oficiales se fija 2229 automáticamente.")
-        if init_georef is not None and init_georef.epsg:
-            self.epsg.setText(str(init_georef.epsg))
-        crow.addWidget(self.epsg)
-        self.b_calc = QtWidgets.QPushButton("Calcular ajuste"); self.b_calc.clicked.connect(self._compute)
-        crow.addWidget(self.b_calc)
-        self.lbl_rms = QtWidgets.QLabel("RMS: —"); crow.addWidget(self.lbl_rms, 1)
-        b_del = QtWidgets.QPushButton("Borrar par seleccionado"); b_del.clicked.connect(self._del_pair)
-        b_del.setToolTip("Quita el par seleccionado (o el último) y su marca del PDF.")
-        crow.addWidget(b_del)
-        b_help = QtWidgets.QPushButton("❓ Guía"); b_help.clicked.connect(self._show_guide)
-        b_help.setToolTip("Cómo georreferenciar paso a paso (también con clic derecho).")
-        crow.addWidget(b_help)
+        self.b_fit = QtWidgets.QPushButton("Ajustar afín + RMSE"); self.b_fit.clicked.connect(self._compute)
+        crow.addWidget(self.b_fit)
+        self.lbl_rms = QtWidgets.QLabel("RMSE: —"); crow.addWidget(self.lbl_rms, 1)
+        b_del = QtWidgets.QPushButton("Eliminar sel."); b_del.clicked.connect(self._del_pair); crow.addWidget(b_del)
+        b_clear = QtWidgets.QPushButton("Limpiar todos"); b_clear.clicked.connect(self._clear_pairs); crow.addWidget(b_clear)
         root.addLayout(crow)
 
-        # Mensaje de suficiencia: dice si ya hay puntos bastantes para georeferenciar.
-        self.lbl_status = QtWidgets.QLabel(""); self.lbl_status.setWordWrap(True)
-        root.addWidget(self.lbl_status)
+        self.lst = QtWidgets.QListWidget(); self.lst.setMaximumHeight(140); root.addWidget(self.lst)
 
-        self.table = QtWidgets.QTableWidget(0, 5)
-        self.table.setHorizontalHeaderLabels(["#", "PDF (px)", "Referencia", "Origen", "Error"])
-        self.table.horizontalHeader().setStretchLastSection(True); self.table.setMaximumHeight(160)
-        self.table.setToolTip("La columna Error (tras Calcular) muestra cuánto se desvía cada punto. "
-                              "Borra el de mayor error y recalcula para afinar.")
-        root.addWidget(self.table)
+        bb = QtWidgets.QHBoxLayout()
+        self.b_save = QtWidgets.QPushButton("💾 Guardar georreferenciación")
+        self.b_save.setEnabled(False); self.b_save.clicked.connect(self._save)
+        bb.addStretch(1); bb.addWidget(self.b_save)
+        b_cancel = QtWidgets.QPushButton("Cerrar sin guardar"); b_cancel.clicked.connect(self.reject)
+        bb.addWidget(b_cancel)
+        root.addLayout(bb)
 
-        self.bb = QtWidgets.QDialogButtonBox(QtWidgets.QDialogButtonBox.Ok | QtWidgets.QDialogButtonBox.Cancel)
-        self.bb.button(QtWidgets.QDialogButtonBox.Ok).setEnabled(False)
-        self.bb.accepted.connect(self.accept); self.bb.rejected.connect(self.reject); root.addWidget(self.bb)
-
-        # precargar pares de una georref previa
+        # precargar pares de una georreferencia previa (si el punto trae "world")
         if init_georef is not None and init_georef.points:
             for p in init_georef.points:
-                px = tuple(p.get("px", ()))
-                ll = tuple(p.get("lonlat", ())) if p.get("lonlat") else None
-                wd = tuple(p.get("world", ())) if p.get("world") else None
-                if len(px) == 2 and ((ll and len(ll) == 2) or (wd and len(wd) == 2)):
+                px = tuple(p.get("px", ())); wd = tuple(p.get("world", ())) if p.get("world") else None
+                if len(px) == 2 and wd and len(wd) == 2:
                     m = self.pdf.add_mark(px[0], px[1], "#5fd35f")
-                    self.pairs.append({"px": px, "lonlat": ll, "world": wd,
-                                       "kind": p.get("kind", "mon" if wd else "map"),
-                                       "label": p.get("label", ""), "mark": m})
-            self._refresh_table()
-        self._update_status()
+                    self.pairs.append({"px": px, "world": wd, "label": p.get("label", ""), "mark": m})
+            self._refresh_list()
 
-    # ── guía / tutorial ──
-    _GUIDE_HTML = """
-    <h3>Cómo georreferenciar el plano</h3>
-    <p>Objetivo: decirle al programa a qué punto real corresponde cada punto del
-    plano. Con 3–4 puntos calcula la fórmula y todo lo que dibujes sale en
-    coordenadas reales.</p>
-    <p><b>Elige una fuente de coordenadas (de más a menos precisa):</b></p>
-    <ol>
-      <li><b>DWG de referencia</b> (grado topográfico) — pestaña <i>DWG referencia</i> →
-          <i>Cargar DWG/DXF…</i>. Clic en el punto del PDF y luego en el MISMO punto del dibujo.</li>
-      <li><b>Monumento oficial</b> — en <i>Mapa</i> activa <i>«LA · Control geodésico»</i>.
-          Clic en el punto del PDF y luego en el punto amarillo → coordenada oficial (EPSG:2229).</li>
-      <li><b>Intersección de calles</b> (planos de solo calles) — escribe
-          <i>«Calle A &amp; Calle B»</i> en Buscar → cae un pin en el nodo exacto. Clic en esa
-          esquina del PDF → botón <i>«Usar como punto»</i>.</li>
-      <li><b>Clic en el mapa</b> (aproximado) — clic en el PDF y luego a ojo en el mapa.</li>
-    </ol>
-    <p><b>Pasos:</b></p>
-    <ol>
-      <li>Repite hasta tener <b>3–4 puntos</b> bien repartidos (esquinas del plano).</li>
-      <li>Cuando el mensaje diga <b>«suficientes»</b>, pulsa <b>«Calcular ajuste»</b>.</li>
-      <li>Mira la columna <b>Error</b>: si un punto sale en <span style="color:#e06060">rojo</span>,
-          bórralo y recalcula.</li>
-      <li><b>Aceptar</b> → aparece «Plano georreferenciado».</li>
-    </ol>
-    <p><i>Consejo: puntos en las 4 esquinas dan mejor ajuste que 2 juntos. El clic
-    derecho abre esta guía en cualquier momento.</i></p>
-    """
+    # ── acciones ──
+    def _on_fetch(self):
+        addr = self.ed_addr.text().strip()
+        if not addr:
+            QtWidgets.QMessageBox.information(self, "Falta dirección", "Escribe una dirección o intersección."); return
+        self.hint.setText("Geocodificando…"); QtWidgets.QApplication.processEvents()
+        try:
+            lat, lon, matched = geocode(addr)
+            cx_ft, cy_ft = georef_mod.lonlat_to_utm(lon, lat, TARGET_EPSG)
+            from geo.la_reference import fetch_streets_2229
+            lines = fetch_streets_2229(cx_ft, cy_ft, radius=self.sp_buffer.value())
+            if not lines:
+                raise RuntimeError("No se encontraron calles en esa zona. Prueba un radio mayor.")
+            self.centerlines = lines
+        except Exception as e:
+            QtWidgets.QMessageBox.critical(self, "Error", str(e)); return
+        self._map_view_limits = None
+        self.hint.setText(f"{len(lines)} tramos — {matched}. Marca puntos de control.")
+        self._draw_map()
 
-    def contextMenuEvent(self, e):
-        menu = QtWidgets.QMenu(self)
-        act = menu.addAction("📖  Cómo georreferenciar (guía)")
-        act.triggered.connect(self._show_guide)
-        menu.exec(e.globalPos())
-
-    def _show_guide(self):
-        dlg = QtWidgets.QDialog(self); dlg.setWindowTitle("Guía · Georreferenciar"); dlg.resize(580, 560)
-        lay = QtWidgets.QVBoxLayout(dlg)
-        tb = QtWidgets.QTextBrowser(); tb.setHtml(self._GUIDE_HTML); lay.addWidget(tb)
-        bb = QtWidgets.QDialogButtonBox(QtWidgets.QDialogButtonBox.Close)
-        bb.rejected.connect(dlg.reject); bb.accepted.connect(dlg.accept); lay.addWidget(bb)
-        dlg.exec()
-
-    def _update_status(self):
-        """Actualiza el mensaje de suficiencia y habilita 'Calcular ajuste'
-        solo cuando hay al menos 2 puntos de control."""
-        n = len(self.pairs)
-        self.b_calc.setEnabled(n >= 2)
-        if n == 0:
-            msg, color = "Aún sin puntos. Coloca al menos 2 (3–4 recomendado).", "#9cf"
-        elif n == 1:
-            msg, color = "1 punto · falta al menos 1 más para poder georeferenciar.", "#e0c060"
-        elif n == 2:
-            msg, color = ("✓ 2 puntos: SUFICIENTES para georeferenciar (ajuste simple). "
-                          "Con 3–4 mejora. Pulsa «Calcular ajuste».", "#5fd35f")
-        else:
-            msg, color = (f"✓ {n} puntos: SUFICIENTES (ajuste afín, recomendado). "
-                          "Pulsa «Calcular ajuste».", "#5fd35f")
-        self.lbl_status.setText(msg); self.lbl_status.setStyleSheet(f"color:{color};font-weight:bold;")
-
-    # ── puntos de control ──
     def _on_pdf_click(self, x, y):
+        sx, sy = snap_to_lines((x, y), self._pipe_lines, SNAP_PX)
         if self._pending_mark:
             self.pdf.scene().removeItem(self._pending_mark)
-        self._pending_px = (x, y)
-        self._pending_mark = self.pdf.add_mark(x, y, "#ff9a28")
-        self.hint.setText("Punto del PDF fijado. Ahora haz clic en el MISMO punto en el mapa.")
+        self._pending_px = (sx, sy)
+        self._pending_mark = self.pdf.add_mark(sx, sy, "#ff9a28")
+        self.hint.setText("Punto del plano fijado. Ahora clic en la calle correspondiente (derecha).")
 
-    def _on_map_click(self, lat, lng):
+    def _on_map_click(self, x, y):
         if self._pending_px is None:
-            self.hint.setText("Primero haz clic en un punto del PDF, luego en el mapa."); return
-        px = self._pending_px
-        if self._pending_mark:                      # confirma el marcador (verde)
-            self.pdf.scene().removeItem(self._pending_mark)
-        m = self.pdf.add_mark(px[0], px[1], "#5fd35f")
-        self.pairs.append({"px": px, "lonlat": (lng, lat), "world": None,
-                           "kind": "map", "label": "", "mark": m})
-        self._pending_px = None; self._pending_mark = None
-        if not self.epsg.text().strip():
-            # En el área de Los Ángeles usamos State Plane 2229 (pies) para que
-            # todas las hojas queden en el mismo CRS que los DWG del proyecto;
-            # en otras zonas, el UTM WGS84 que corresponda por lon/lat.
-            in_la = (-119.5 <= lng <= -117.0) and (33.0 <= lat <= 35.0)
-            self.epsg.setText("2229" if in_la else str(georef_mod.utm_epsg_from_lonlat(lng, lat)))
-        self._refresh_table()
-
-    def _on_monument_click(self, x, y, lat, lng, label):
-        """Clic en un monumento de NavigateLA: usa su coordenada OFICIAL (X,Y en
-        EPSG:2229, pies) como referencia — grado topográfico, sin pasar por el
-        satélite. Necesita un punto del PDF fijado previamente."""
-        if self._pending_px is None:
-            self.hint.setText("Primero fija el punto en el PDF; luego clic en el monumento."); return
-        px = self._pending_px
+            self.hint.setText("Primero clic en el plano (izquierda)."); return
+        if not self.centerlines:
+            self.hint.setText("Primero descarga las calles de la zona."); return
+        sx, sy = snap_to_lines((x, y), self.centerlines, SNAP_FT)
         if self._pending_mark:
             self.pdf.scene().removeItem(self._pending_mark)
-        m = self.pdf.add_mark(px[0], px[1], "#5fd35f")
-        self.pairs.append({"px": px, "lonlat": (lng, lat), "world": (x, y),
-                           "kind": "mon", "label": label or "", "mark": m})
+        m = self.pdf.add_mark(self._pending_px[0], self._pending_px[1], "#5fd35f")
+        self.pairs.append({"px": self._pending_px, "world": (sx, sy), "label": "", "mark": m})
         self._pending_px = None; self._pending_mark = None
-        if not self.epsg.text().strip():
-            self.epsg.setText("2229")               # monumentos de LA → State Plane CA Zona 5 (pies)
-        self._refresh_table()
-        self.hint.setText(f"{len(self.pairs)} par(es) · monumento oficial agregado. "
-                          "Agrega más o pulsa 'Calcular ajuste'.")
-
-    def _use_search_point(self):
-        """Empareja el punto fijado en el PDF con la coordenada EXACTA de la
-        intersección buscada (geocoder), evitando el error de apuntar a ojo en
-        el mapa. Es la vía más precisa cuando no hay monumentos cerca."""
-        if self._search_loc is None:
-            QtWidgets.QMessageBox.information(self, "Usar como punto",
-                "Primero busca una calle o intersección en el cuadro de arriba "
-                "(por ejemplo: Chandler & Colfax) y pulsa «Buscar»."); return
-        if self._pending_px is None:
-            QtWidgets.QMessageBox.information(self, "Usar como punto",
-                "Primero haz clic en el punto del PDF (verás una marca naranja) "
-                "y luego pulsa «Usar como punto»."); return
-        lon, lat, label = self._search_loc
-        px = self._pending_px
-        if self._pending_mark:
-            self.pdf.scene().removeItem(self._pending_mark)
-        m = self.pdf.add_mark(px[0], px[1], "#5fd35f")
-        self.pairs.append({"px": px, "lonlat": (lon, lat), "world": None,
-                           "kind": "geo", "label": label or "", "mark": m})
-        self._pending_px = None; self._pending_mark = None
-        if not self.epsg.text().strip():
-            in_la = (-119.5 <= lon <= -117.0) and (33.0 <= lat <= 35.0)
-            self.epsg.setText("2229" if in_la else str(georef_mod.utm_epsg_from_lonlat(lon, lat)))
-        self._refresh_table()
-        self.hint.setText(f"Punto emparejado con «{label[:50]}» (intersección exacta).")
-
-    # ── Superponer (colocar el PDF sobre las calles reales) ──
-    def _ov(self, fn):
-        """Ejecuta fn(overlay_view) si el visor de superposición ya existe."""
-        if self._overlay is not None:
-            fn(self._overlay)
-
-    def _overlay_search(self):
-        """Geocodifica la zona, descarga las calles reales (2229) y coloca la
-        imagen del PDF encima para acomodarla."""
-        q = self.ov_search.text().strip()
-        if not q:
-            return
-        loc = self._geocode(self._norm_query(q))
-        if loc is None:
-            self.lbl_ov.setText("No se encontró la zona. Prueba «Calle A & Calle B»."); return
-        lat, lon, _label = loc
-        ref = self._refine_intersection(self._norm_query(q), lon, lat)
-        if ref is not None:
-            lon, lat = ref
-        try:
-            cx, cy = georef_mod.lonlat_to_utm(lon, lat, 2229)      # centro en 2229 (pies)
-            from geo.la_reference import fetch_streets_2229, fetch_parcels_2229
-            segs = fetch_streets_2229(cx, cy)
-            parcels = fetch_parcels_2229(cx, cy)
-        except Exception as e:
-            QtWidgets.QMessageBox.warning(self, "Superponer",
-                f"No se pudieron traer las calles (¿internet/pyproj?).\n\n{e}"); return
-        if self._overlay is None:                                  # crea el visor la primera vez
-            from geo.overlay import OverlayView
-            scale = getattr(self._main, "scale", 20 / 72.0); zoom = getattr(self._main, "zoom", 3.5) or 3.5
-            self._overlay = OverlayView(self._qimg, feet_per_pixel=scale / zoom)
-            self._overlay.alignHint.connect(self.lbl_ov.setText)
-            self._ov_slot.addWidget(self._overlay)
-        self._overlay.set_origin(cx, cy)                           # escena local (evita coords en millones)
-        self._overlay.set_reference(segs, parcels=parcels, marker=(cx, cy))
-        self._overlay.set_initial_size(900)                        # arranca visible (~900 ft); se calza luego
-        self._overlay.place_at(cx, cy)
-        if not self.epsg.text().strip():
-            self.epsg.setText("2229")
-        if not segs:                                               # geocodificó fuera de la Ciudad de LA
-            self.lbl_ov.setText("⚠ No llegaron calles en esa zona (¿la búsqueda cayó fuera de LA?). "
-                                "Escribe la intersección como «Calle A & Calle B» e inténtalo de nuevo.")
-        else:
-            self.lbl_ov.setText(f"✓ {len(segs)} calles cargadas (círculo rojo = intersección). Acomoda con "
-                                "arrastrar y ±/⟲⟳, o usa «🎯 Calce por puntos» (varios, bien separados).")
-
-    def _overlay_start_align(self):
-        if self._overlay is None:
-            QtWidgets.QMessageBox.information(self, "Superponer", "Primero carga las calles de la zona."); return
-        if self._overlay.is_aligning():        # segundo clic al botón = terminar el calce
-            self._overlay.finish_align()
-        else:
-            self._overlay.start_align()
-
-    def _overlay_apply(self):
-        """Deriva la georreferencia de la ubicación actual de la imagen superpuesta."""
-        if self._overlay is None:
-            QtWidgets.QMessageBox.information(self, "Superponer", "Primero carga las calles de la zona."); return
-        gp = self._overlay.georef_points()
-        px = [p for p, _ in gp]; world = [w for _, w in gp]
-        try:
-            matrix, rms, ttype = georef_mod.fit(px, world, kind="affine")
-        except Exception as e:
-            QtWidgets.QMessageBox.warning(self, "Superponer", f"No se pudo ajustar.\n\n{e}"); return
-        pts = [{"px": list(p), "lonlat": None, "world": list(w), "kind": "overlay", "label": ""}
-               for (p, w) in gp]
-        self.result_georef = georef_mod.Georef(matrix=matrix, epsg=2229, kind=ttype, rms=rms, points=pts)
-        self.lbl_rms.setText(f"RMS: {rms:.2f} ft  (superposición)")
-        self.lbl_rms.setStyleSheet("color:#5fd35f;")
-        self.lbl_ov.setText("✓ Georreferencia por superposición lista. Pulsa Aceptar. "
-                            "Verifica con la capa REF_LA_CALLES al exportar.")
-        self.bb.button(QtWidgets.QDialogButtonBox.Ok).setEnabled(True)
-
-    # ── DWG/DXF de referencia (Nivel 3) ──
-    def _load_dwg(self):
-        import os
-        from geo.dwg_ref import load_reference, DxfRefView
-        start = os.path.dirname(self._main.pdf_path) if getattr(self._main, "pdf_path", None) else ""
-        path, _ = QtWidgets.QFileDialog.getOpenFileName(
-            self, "Cargar DWG/DXF de referencia", start, "CAD (*.dxf *.dwg)")
-        if not path:
-            return
-        try:
-            segs, bounds = load_reference(path)
-        except Exception as e:
-            QtWidgets.QMessageBox.warning(self, "DWG/DXF de referencia", str(e)); return
-        if self._dwg_view is not None:                    # reemplaza un dibujo anterior
-            self._dwg_view.setParent(None); self._dwg_view.deleteLater()
-        self._dwg_view = DxfRefView(segs, bounds)
-        self._dwg_view.worldClicked.connect(self._on_dxf_click)
-        self._dwg_slot.addWidget(self._dwg_view)
-        import os as _os
-        self.lbl_dwg.setText(f"<b>{_os.path.basename(path)}</b> · clic en el PDF y luego en el MISMO punto "
-                             "del dibujo. Ajusta el EPSG si el DWG no está en 2229.")
-        if not self.epsg.text().strip():
-            self.epsg.setText("2229")                     # asunción por defecto (LA / DWG del proyecto)
-
-    def _on_dxf_click(self, wx, wy):
-        """Clic en el DWG de referencia: usa su coordenada REAL directa. Requiere
-        un punto del PDF fijado. Es la vía más precisa (grado topográfico)."""
-        if self._pending_px is None:
-            QtWidgets.QMessageBox.information(self, "DWG de referencia",
-                "Primero haz clic en el punto del PDF (marca naranja) y luego en el mismo punto del dibujo."); return
-        px = self._pending_px
-        if self._pending_mark:
-            self.pdf.scene().removeItem(self._pending_mark)
-        m = self.pdf.add_mark(px[0], px[1], "#5fd35f")
-        self.pairs.append({"px": px, "lonlat": None, "world": (wx, wy),
-                           "kind": "dwg", "label": "DWG", "mark": m})
-        self._pending_px = None; self._pending_mark = None
-        self._refresh_table()
-        self.hint.setText(f"{len(self.pairs)} par(es) · punto del DWG agregado "
-                          f"(X={wx:.2f}, Y={wy:.2f}). Agrega más o pulsa «Calcular ajuste».")
-
-    def _refresh_table(self):
-        self.table.setRowCount(len(self.pairs))
-        # El error por punto solo se muestra si corresponde al conjunto actual
-        # (mismo número de pares que el último ajuste); si cambiaron, se oculta.
-        show_res = len(self._residuals) == len(self.pairs) and bool(self.pairs)
-        try:
-            unit = georef_mod.epsg_unit(int(self.epsg.text().strip()))
-        except Exception:
-            unit = "m"
-        thr = 3.0 if unit == "ft" else 2.0
-        for r, p in enumerate(self.pairs):
-            px = p["px"]; kind = p.get("kind")
-            ll = p.get("lonlat"); world = p.get("world")
-            # Defensivo: hay puntos sin lon/lat (overlay/dwg traen solo world real).
-            if world and (kind in ("mon", "dwg", "overlay") or not ll):
-                ref = f"X={world[0]:.2f}  Y={world[1]:.2f}"
-                origen = {"mon": "Monumento LA (2229)", "dwg": "DWG referencia",
-                          "overlay": "Superposición"}.get(kind, "Referencia (real)")
-            elif ll:
-                ref = f"{ll[0]:.6f}, {ll[1]:.6f}"
-                origen = "Intersección (buscador)" if kind == "geo" else "Mapa (clic)"
-            else:
-                ref = "—"; origen = str(kind or "—")
-            self.table.setItem(r, 0, QtWidgets.QTableWidgetItem(str(r + 1)))
-            self.table.setItem(r, 1, QtWidgets.QTableWidgetItem(f"{px[0]:.1f}, {px[1]:.1f}"))
-            self.table.setItem(r, 2, QtWidgets.QTableWidgetItem(ref))
-            self.table.setItem(r, 3, QtWidgets.QTableWidgetItem(origen))
-            err_item = QtWidgets.QTableWidgetItem(f"{self._residuals[r]:.2f} {unit}" if show_res else "—")
-            if show_res and self._residuals[r] > thr:
-                err_item.setForeground(QtGui.QColor("#e06060"))     # punto sospechoso: mucho error
-            self.table.setItem(r, 4, err_item)
-        self._update_status()
+        self._map_view_limits = (self.canvas_map.ax.get_xlim(), self.canvas_map.ax.get_ylim())
+        self._refresh_list(); self._draw_map()
+        self.hint.setText(f"Punto {len(self.pairs)} agregado. Repite (mínimo 3) y pulsa «Ajustar afín».")
 
     def _del_pair(self):
-        r = self.table.currentRow()
-        if r < 0 and self.pairs:            # sin selección: borra el último agregado
+        r = self.lst.currentRow()
+        if r < 0 and self.pairs:
             r = len(self.pairs) - 1
         if 0 <= r < len(self.pairs):
             p = self.pairs.pop(r)
-            if p.get("mark") is not None:   # quita también su punto del PDF
+            if p.get("mark") is not None:
                 self.pdf.scene().removeItem(p["mark"])
-            self._residuals = []            # el error por punto queda obsoleto
-            self._refresh_table()
+            self._refresh_list(); self._draw_map()
+            self.b_save.setEnabled(False); self.lbl_rms.setText("RMSE: —")
 
-    # ── búsqueda Nominatim ──
-    @staticmethod
-    def _norm_query(q):
-        """Normaliza búsquedas de intersección: 'Chandler cruce con Colfax',
-        'CHANDLER Y COLFAX', 'Chandler and Colfax' → 'Chandler & Colfax'.
-        Insensible a mayúsculas. Si no menciona ciudad, añade Los Ángeles."""
-        import re
-        s = q
-        for sep in (" cruce con ", " esquina con ", " con ", " y ", " and ", " x "):
-            s = re.sub(re.escape(sep), " & ", s, flags=re.IGNORECASE)
-        low = s.lower()
-        if not any(c in low for c in ("los angeles", "los ángeles", ", ca", ", california")):
-            s = s + ", Los Angeles, CA"
-        return s
+    def _clear_pairs(self):
+        for p in self.pairs:
+            if p.get("mark") is not None:
+                self.pdf.scene().removeItem(p["mark"])
+        self.pairs.clear(); self._pending_px = None
+        if self._pending_mark:
+            self.pdf.scene().removeItem(self._pending_mark); self._pending_mark = None
+        self._refresh_list(); self._draw_map()
+        self.b_save.setEnabled(False); self.lbl_rms.setText("RMSE: —")
 
-    def _do_search(self):
-        q = self.search.text().strip()
-        if not q: return
-        query = self._norm_query(q)
-        loc = self._geocode(query)
-        if loc is None:
-            self.hint.setText(f"Sin resultados para «{query}». Prueba 'Calle A & Calle B'."); return
-        lat, lon, label = loc
-        # Si es intersección, intenta refinar al NODO EXACTO de los ejes de calle
-        # de NavigateLA (más autoritativo que el geocoder). Si no, usa el geocoder.
-        refined = self._refine_intersection(query, lon, lat)
-        if refined is not None:
-            lon, lat = refined
-            label = f"{label.split(',')[0]} · nodo exacto (ejes LA)"
-        self._search_loc = (lon, lat, label)     # disponible para «Usar como punto»
-        self.web.page().runJavaScript(f"dropPin({lat},{lon},18)")
-        self.hint.setText(f"Intersección: {label[:60]} · clic en el PDF y luego «Usar como punto» "
-                          "(exacto) o clic en el mapa.")
-
-    def _geocode(self, query):
-        """Devuelve (lat, lon, label) usando el geocodificador de Esri (resuelve
-        intersecciones); si falla, cae a Nominatim (solo direcciones simples).
-        Devuelve None si no hay resultado."""
-        try:
-            url = ESRI_GEOCODE + "?" + urllib.parse.urlencode(
-                {"SingleLine": query, "f": "json", "maxLocations": 1, "outFields": "Match_addr"})
-            req = urllib.request.Request(url, headers={"User-Agent": USER_AGENT})
-            with urllib.request.urlopen(req, timeout=15) as resp:
-                data = json.load(resp)
-            cands = data.get("candidates", [])
-            if cands:
-                loc = cands[0]["location"]
-                return float(loc["y"]), float(loc["x"]), cands[0].get("address", query)
-        except Exception:
-            pass
-        try:                                    # respaldo Nominatim
-            url = NOMINATIM + "?" + urllib.parse.urlencode({"q": query, "format": "json", "limit": 1})
-            req = urllib.request.Request(url, headers={"User-Agent": USER_AGENT})
-            with urllib.request.urlopen(req, timeout=12) as resp:
-                data = json.load(resp)
-            if data:
-                return float(data[0]["lat"]), float(data[0]["lon"]), data[0].get("display_name", query)
-        except Exception as e:
-            self.hint.setText(f"Error de búsqueda: {e}")
-        return None
-
-    # ── intersección EXACTA desde los ejes de calle de NavigateLA (capa 337) ──
-    _CL_URL = "https://maps.lacity.org/arcgis/rest/services/Mapping/NavigateLA/MapServer/337/query"
-    _ST_SUFFIX = {"AVE", "AVENUE", "BLVD", "BOULEVARD", "ST", "STREET", "DR", "DRIVE",
-                  "PL", "PLACE", "WAY", "RD", "ROAD", "LN", "LANE", "CT", "COURT",
-                  "PKWY", "PARKWAY", "TER", "TERRACE", "CYN", "CANYON"}
-
-    @classmethod
-    def _street_stname(cls, side):
-        """De 'Chandler Blvd' → 'CHANDLER'; de 'Van Nuys Blvd' → 'VAN NUYS'."""
-        toks = side.strip().upper().replace(".", "").split()
-        while toks and toks[-1] in cls._ST_SUFFIX:
-            toks.pop()
-        return " ".join(toks)
-
-    @staticmethod
-    def _seg_intersect(p1, p2, p3, p4):
-        (x1, y1), (x2, y2), (x3, y3), (x4, y4) = p1, p2, p3, p4
-        den = (x1 - x2) * (y3 - y4) - (y1 - y2) * (x3 - x4)
-        if abs(den) < 1e-15:
-            return None
-        t = ((x1 - x3) * (y3 - y4) - (y1 - y3) * (x3 - x4)) / den
-        u = ((x1 - x3) * (y1 - y2) - (y1 - y3) * (x1 - x2)) / den
-        if 0 <= t <= 1 and 0 <= u <= 1:
-            return (x1 + t * (x2 - x1), y1 + t * (y2 - y1))
-        return None
-
-    def _centerline_segs(self, stname, lon, lat, d=0.012):
-        bbox = f"{lon - d},{lat - d},{lon + d},{lat + d}"
-        p = {"where": f"STNAME='{stname}'", "geometry": bbox, "geometryType": "esriGeometryEnvelope",
-             "inSR": "4326", "spatialRel": "esriSpatialRelIntersects", "outFields": "STNAME",
-             "returnGeometry": "true", "outSR": "4326", "f": "json"}
-        url = self._CL_URL + "?" + urllib.parse.urlencode(p)
-        req = urllib.request.Request(url, headers={"User-Agent": USER_AGENT})
-        with urllib.request.urlopen(req, timeout=20) as resp:
-            data = json.load(resp)
-        segs = []
-        for f in data.get("features", []):
-            for path in f.get("geometry", {}).get("paths", []):
-                for i in range(len(path) - 1):
-                    segs.append((path[i], path[i + 1]))
-        return segs
-
-    def _refine_intersection(self, query, lon, lat):
-        """Si `query` es una intersección 'A & B', busca el nodo EXACTO donde se
-        cruzan los ejes de calle de NavigateLA (más cercano al punto geocodificado).
-        Devuelve (lon, lat) o None si no aplica/no se encuentra. Nunca lanza."""
-        if " & " not in query:
-            return None
-        left, rest = query.split(" & ", 1)
-        right = rest.split(",", 1)[0]
-        a, b = self._street_stname(left), self._street_stname(right)
-        if not a or not b:
-            return None
-        try:
-            A = self._centerline_segs(a, lon, lat)
-            B = self._centerline_segs(b, lon, lat)
-            pts = []
-            for s1 in A:
-                for s2 in B:
-                    r = self._seg_intersect(s1[0], s1[1], s2[0], s2[1])
-                    if r:
-                        pts.append(r)
-            if not pts:
-                return None
-            return min(pts, key=lambda p: (p[0] - lon) ** 2 + (p[1] - lat) ** 2)   # el más cercano al geocoder
-        except Exception:
-            return None
-
-    # ── ajuste ──
     def _compute(self):
-        if len(self.pairs) < 2:
-            QtWidgets.QMessageBox.information(self, "Faltan puntos", "Coloca al menos 2 pares de control."); return
+        if len(self.pairs) < 3:
+            QtWidgets.QMessageBox.information(self, "Faltan puntos", "Se necesitan al menos 3 puntos de control."); return
+        px = [p["px"] for p in self.pairs]; world = [p["world"] for p in self.pairs]
         try:
-            epsg = int(self.epsg.text().strip())
-        except ValueError:
-            QtWidgets.QMessageBox.information(self, "EPSG", "Indica un EPSG válido (UTM, p. ej. 32611, o State Plane 2229)."); return
-        # Cada punto de control se lleva al MISMO CRS de destino (epsg):
-        #   - monumento (kind="mon") y epsg==2229 → coordenada oficial X,Y directa
-        #     (grado topográfico, sin reproyectar).
-        #   - resto → reproyecta su lon/lat a epsg con pyproj.
-        world = []
-        try:
-            for p in self.pairs:
-                kind = p.get("kind")
-                # DWG y monumento-2229 ya vienen en el CRS de destino → directo.
-                if kind == "dwg" and p.get("world"):
-                    world.append(tuple(p["world"]))
-                elif kind == "mon" and p.get("world") and epsg == 2229:
-                    world.append(tuple(p["world"]))
-                else:
-                    ll = p.get("lonlat")
-                    if not ll:
-                        raise ValueError("Un punto sin lon/lat no se puede reproyectar; "
-                                         "usa EPSG:2229 (monumentos) o recoloca ese punto.")
-                    world.append(georef_mod.lonlat_to_utm(ll[0], ll[1], epsg))
-        except Exception as e:
-            QtWidgets.QMessageBox.warning(self, "Reproyección",
-                                          f"No se pudo llevar los puntos al EPSG:{epsg} (¿falta pyproj?).\n\n{e}"); return
-        px = [p["px"] for p in self.pairs]
-        kind = "affine" if len(px) >= 3 else "similarity"
-        try:
-            matrix, rms, ttype = georef_mod.fit(px, world, kind=kind)
+            matrix, rms, ttype = georef_mod.fit(px, world, kind="affine")
         except Exception as e:
             QtWidgets.QMessageBox.warning(self, "Ajuste", f"No se pudo ajustar la transformación.\n\n{e}"); return
-        # Detección de ESPEJO: con píxel-Y hacia abajo y Norte hacia arriba, un
-        # ajuste correcto tiene determinante NEGATIVO. Positivo = plano espejado
-        # (típico con puntos de control casi en línea, o un par cruzado).
         det = matrix[0][0] * matrix[1][1] - matrix[0][1] * matrix[1][0]
         if det > 0:
             self.lbl_rms.setText("⚠ Ajuste ESPEJADO"); self.lbl_rms.setStyleSheet("color:#e06060;font-weight:bold;")
-            self.hint.setText("⚠ El ajuste salió ESPEJADO (el plano quedaría volteado). Casi siempre es "
-                              "porque los puntos están CASI EN LÍNEA (corredor) o un par está cruzado. "
-                              "Usa 3–4 puntos formando un TRIÁNGULO amplio (en calles distintas / ambos "
-                              "lados) y recalcula.")
             QtWidgets.QMessageBox.warning(self, "Ajuste espejado",
-                "El ajuste salió espejado: el plano se exportaría volteado.\n\n"
-                "Causa típica: los puntos de control están casi en línea recta (todo el corredor), "
-                "así la orientación perpendicular queda indeterminada.\n\n"
-                "Solución: coloca 3–4 puntos que formen un TRIÁNGULO amplio — en calles distintas o "
-                "a ambos lados del corredor — y vuelve a «Calcular ajuste».")
-            self.bb.button(QtWidgets.QDialogButtonBox.Ok).setEnabled(False)
+                "El ajuste salió espejado: el plano se guardaría volteado.\n\n"
+                "Causa típica: los puntos de control están casi en línea recta. Usa 3–4 puntos que "
+                "formen un triángulo amplio (en calles distintas o a ambos lados) y recalcula.")
+            self.b_save.setEnabled(False); return
+        self._fit_result = (matrix, rms, ttype)
+        color = "#5fd35f" if rms < 3 else ("#e0c060" if rms < 8 else "#e06060")
+        self.lbl_rms.setText(f"RMSE: {rms:.2f} ft  ({ttype}, {len(px)} pts)")
+        self.lbl_rms.setStyleSheet(f"color:{color};font-weight:bold;")
+        self.hint.setText(f"✓ Ajuste OK (RMSE {rms:.2f} ft). Pulsa «Guardar georreferenciación».")
+        self.b_save.setEnabled(True)
+
+    def _save(self):
+        if not getattr(self, "_fit_result", None):
             return
-        pts = [{"px": list(p["px"]),
-                "lonlat": list(p["lonlat"]) if p.get("lonlat") else None,
-                "world": list(p["world"]) if p.get("world") else None,
-                "kind": p.get("kind", "map"), "label": p.get("label", "")}
+        matrix, rms, ttype = self._fit_result
+        pts = [{"px": list(p["px"]), "world": list(p["world"]), "label": p.get("label", "")}
                for p in self.pairs]
-        self.result_georef = georef_mod.Georef(matrix=matrix, epsg=epsg, kind=ttype, rms=rms, points=pts)
-        # Error por punto (residual): distancia entre la coordenada real y la que
-        # predice el ajuste. Sirve para detectar el punto mal colocado.
-        g = georef_mod.Georef(matrix=matrix, epsg=epsg, kind=ttype)
-        self._residuals = [((g.to_world(x, y)[0] - E) ** 2 + (g.to_world(x, y)[1] - N) ** 2) ** 0.5
-                           for (x, y), (E, N) in zip(px, world)]
-        unit = georef_mod.epsg_unit(epsg)                # "ft" (2229) o "m" (UTM)
-        thr = 3.0 if unit == "ft" else 2.0               # umbral de RMS aceptable
-        color = "#5fd35f" if rms <= thr else "#e06060"
-        self.lbl_rms.setText(f"RMS: {rms:.2f} {unit}  ({ttype}, {len(px)} pts)")
-        self.lbl_rms.setStyleSheet(f"color:{color};")
-        self._refresh_table()                            # muestra el error por punto
-        if rms > thr:
-            worst = max(range(len(self._residuals)), key=lambda i: self._residuals[i])
-            self.hint.setText(f"RMS alto (>{thr:.0f} {unit}): el punto #{worst + 1} es el peor "
-                              f"({self._residuals[worst]:.2f} {unit}). Bórralo y recalcula, o agrega más.")
-        else:
-            self.hint.setText(f"✓ Ajuste OK (RMS {rms:.2f} {unit}). Pulsa Aceptar para georreferenciar.")
-        self.bb.button(QtWidgets.QDialogButtonBox.Ok).setEnabled(True)
+        self.result_georef = georef_mod.Georef(matrix=matrix, epsg=TARGET_EPSG, kind=ttype, rms=rms, points=pts)
+        self._main.georef = self.result_georef; self._main._dirty = True
+        self._main._update_geo_status(); self._main._redraw()
+        self._main.save_project()
+        saved_to = self._main.project_path
+        if saved_to:
+            QtWidgets.QMessageBox.information(self, "Georreferenciación guardada",
+                f"✓ Guardado en el proyecto:\n{saved_to}\n\nEPSG: {TARGET_EPSG}\nRMSE: {rms:.2f} ft")
+            self.accept()
+        # si no había project_path, save_project() ya disparó "Guardar como…";
+        # si el usuario canceló ese diálogo, se deja el resultado listo pero
+        # el diálogo abierto para que pueda reintentar «Guardar».
+
+    # ── dibujado ──
+    def _draw_map(self):
+        c = self.canvas_map; c.clear()
+        if not self.centerlines:
+            c.redraw(); return
+        xs, ys = [], []
+        for pts in self.centerlines:
+            xx = [p[0] for p in pts]; yy = [p[1] for p in pts]
+            xs += xx; ys += yy
+            c.ax.plot(xx, yy, "-", color="#2a5", linewidth=1.2)
+        pad = 100
+        c.ax.set_xlim(min(xs) - pad, max(xs) + pad)
+        c.ax.set_ylim(min(ys) - pad, max(ys) + pad)
+        if HAS_CTX:
+            # Zoom de tile FIJO y alto (en vez de "auto", que para un radio de
+            # varias cuadras suele elegir un nivel bajo → imagen borrosa al
+            # escalarla). Se prueban proveedores en orden hasta que uno cargue.
+            for _name, _url in _TILE_PROVIDERS:
+                try:
+                    cx.add_basemap(c.ax, crs=f"EPSG:{TARGET_EPSG}", source=_url,
+                                   zoom=BASEMAP_ZOOM, attribution=f"© {_name}", attribution_size=6)
+                    break
+                except Exception:
+                    continue
+        for i, p in enumerate(self.pairs, 1):
+            X, Y = p["world"]
+            c.ax.plot(X, Y, "o", color="red", markersize=8, markeredgecolor="white")
+            c.ax.annotate(str(i), (X, Y), color="red", xytext=(6, 6), textcoords="offset points", fontweight="bold")
+        c.ax.set_xticks([]); c.ax.set_yticks([])
+        if self._map_view_limits is not None:
+            c.ax.set_xlim(self._map_view_limits[0]); c.ax.set_ylim(self._map_view_limits[1])
+        c.redraw()
+
+    def _refresh_list(self):
+        self.lst.clear()
+        for i, p in enumerate(self.pairs, 1):
+            x, y = p["px"]; X, Y = p["world"]
+            self.lst.addItem(QtWidgets.QListWidgetItem(
+                f"{i}   plano({x:.0f},{y:.0f})  →  calle({X:.2f},{Y:.2f}) ft"))
