@@ -1570,5 +1570,292 @@ namespace Civil3DBasico
             PromptResult r = ed.GetString(p);
             return (r.Status == PromptStatus.OK) ? r.StringResult.Trim() : "";
         }
+
+        // =====================================================================
+        // CORREGIR_FITTINGS_PRESION — comando manual: elige una red y corrige
+        //   sus fittings de diámetro incorrecto (con confirmación). La lógica
+        //   real vive en CorregirFittingsDeRed, reutilizada también por
+        //   IMPORTAR_RED para corregir automáticamente al importar (sin
+        //   preguntar) — ver CrearRedPresionCompleta en ImportarRed.cs.
+        // =====================================================================
+        [CommandMethod("CORREGIR_FITTINGS_PRESION", CommandFlags.Modal | CommandFlags.Session)]
+        public void CorregirFittingsPresion()
+        {
+            Document doc = Application.DocumentManager.MdiActiveDocument;
+            if (doc == null) return;
+            Editor ed = doc.Editor;
+            Database db = doc.Database;
+            CivilDocument civilDoc = CivilApplication.ActiveDocument;
+
+            using (Transaction tr = db.TransactionManager.StartTransaction())
+            {
+                try
+                {
+                    ObjectIdCollection nets = civilDoc.GetPressurePipeNetworkIds();
+                    if (nets.Count == 0) { ed.WriteMessage("\nNo hay redes a presión."); tr.Abort(); return; }
+
+                    ObjectId netSel = ElegirRedId(ed, tr, nets);
+                    if (netSel == ObjectId.Null) { tr.Abort(); return; }
+                    CivilDB.PressurePipeNetwork net = (CivilDB.PressurePipeNetwork)tr.GetObject(netSel, OpenMode.ForWrite);
+
+                    var (detectados, corregidos, fallidos) = CorregirFittingsDeRed(net, tr, ed, preguntar: true);
+
+                    tr.Commit();
+                    if (detectados == 0)
+                        ed.WriteMessage("\n✓ Todos los fittings coinciden con el diámetro de sus tuberías.");
+                    else
+                        ed.WriteMessage($"\n\n✓ Resultado: {corregidos} corregido(s), {fallidos} fallido(s) de {detectados} detectado(s).");
+                }
+                catch (Exception ex)
+                {
+                    ed.WriteMessage($"\nError: {ex.Message}");
+                    tr.Abort();
+                }
+            }
+        }
+
+        // Detecta fittings cuyo diámetro no coincide con el del tubo conectado
+        // y los reemplaza por el fitting correcto de la Parts List de la red.
+        // `preguntar` = true: lista los desajustes y pide confirmación [Si/No]
+        // antes de tocar nada (uso interactivo, CORREGIR_FITTINGS_PRESION).
+        // `preguntar` = false: corrige directo, sin preguntar (uso automático
+        // al importar desde DXF). Devuelve (detectados, corregidos, fallidos);
+        // (0,0,0) si la red no tiene fittings, no hay Parts List de fittings,
+        // o todos ya coinciden.
+        internal static (int Detectados, int Corregidos, int Fallidos) CorregirFittingsDeRed(
+            CivilDB.PressurePipeNetwork net, Transaction tr, Editor ed, bool preguntar)
+        {
+            PresStyles.PressurePartList pl = (PresStyles.PressurePartList)tr.GetObject(net.PartsListId, OpenMode.ForRead);
+
+            var fittingIds = new List<ObjectId>();
+            foreach (ObjectId id in net.GetFittingIds()) fittingIds.Add(id);
+            ed.WriteMessage($"\n  [CORREGIR_FITTINGS] Red '{net.Name}': {fittingIds.Count} fitting(s) encontrados.");
+            if (fittingIds.Count == 0) return (0, 0, 0);
+
+            var partsDisp = pl.GetParts(CivilDB.PressurePartDomainType.Fitting);
+            ed.WriteMessage($"\n  [CORREGIR_FITTINGS] Parts List '{pl.Name}': {partsDisp?.Count ?? 0} fitting(s) disponibles en catálogo.");
+            if (partsDisp == null || partsDisp.Count == 0) return (0, 0, 0);
+
+            // Fase 1: detectar desajustes
+            var reemplazos = new List<_ReemplazoInfo>();
+
+            foreach (ObjectId fid in fittingIds)
+            {
+                CivilDB.PressureFitting fit = tr.GetObject(fid, OpenMode.ForRead) as CivilDB.PressureFitting;
+                if (fit == null) { ed.WriteMessage("\n  [CORREGIR_FITTINGS] · (no es PressureFitting, se salta)"); continue; }
+
+                double fitDia = _ObtenerDiametroFitting(fit);
+                string descOriginal = "?"; try { descOriginal = fit.PartDescription; } catch { }
+                if (fitDia <= 0)
+                {
+                    ed.WriteMessage($"\n  [CORREGIR_FITTINGS] · '{descOriginal}': no se pudo leer su diámetro (fitDia<=0), se salta.");
+                    continue;
+                }
+
+                var conexiones = new List<_ConexionInfo>();
+                double pipeDiaMax = 0, pipeNomDiaMax = 0;
+
+                for (int p = 0; p < fit.ConnectionCount; p++)
+                {
+                    CivilDB.PressurePartConnection conn = fit.GetConnectionAt(p);
+                    if (conn.ConnectedId == ObjectId.Null || !conn.ConnectedId.IsValid) continue;
+                    try
+                    {
+                        CivilDB.PressurePipe pipe = tr.GetObject(conn.ConnectedId, OpenMode.ForRead) as CivilDB.PressurePipe;
+                        if (pipe == null) continue;
+                        int pipePort = (fit.Position.DistanceTo(pipe.StartPoint) <= fit.Position.DistanceTo(pipe.EndPoint)) ? 0 : 1;
+                        conexiones.Add(new _ConexionInfo { PipeId = conn.ConnectedId, PipePort = pipePort, FitPort = p });
+                        if (pipe.OuterDiameter > pipeDiaMax) pipeDiaMax = pipe.OuterDiameter;
+                        if (pipe.NominalDiameter > pipeNomDiaMax) pipeNomDiaMax = pipe.NominalDiameter;
+                    }
+                    catch { }
+                }
+
+                ed.WriteMessage($"\n  [CORREGIR_FITTINGS] · '{descOriginal}': fitDia(OD)={fitDia:F2}, conexiones={conexiones.Count}, " +
+                                $"pipeDiaMax(OD)={pipeDiaMax:F2}, pipeNomDiaMax={pipeNomDiaMax:F2}");
+
+                if (pipeDiaMax <= 0 || conexiones.Count == 0) continue;
+                // Comparación de MISMATCH: OD del fitting vs OD del tubo (mismo tipo de
+                // medida en ambos lados). Para BUSCAR el reemplazo en el catálogo se usa
+                // el diámetro NOMINAL (pipeNomDiaMax) más abajo — las descripciones del
+                // catálogo ("12 in x 12 in...") están en nominal, no en OD real (que para
+                // tubería de hierro dúctil/PVC suele ser mayor que el nominal, p.ej. 12"
+                // nominal ≈ 13.2" de OD real — comparar OD contra nominal ahí habría
+                // fallado el match aunque el fitting correcto SÍ estuviera en la Parts List).
+                if (Math.Abs(fitDia - pipeDiaMax) < 0.5) continue;
+
+                string angulo = _ExtraerAngulo(fit.PartDescription);
+
+                reemplazos.Add(new _ReemplazoInfo
+                {
+                    FittingId = fid,
+                    Posicion = fit.Position,
+                    Tipo = fit.PartType,
+                    Angulo = angulo,
+                    DiametroActual = fitDia,
+                    DiametroCorrecto = pipeNomDiaMax > 0 ? pipeNomDiaMax : pipeDiaMax,
+                    Conexiones = conexiones,
+                    DescVieja = fit.PartDescription
+                });
+            }
+
+            if (reemplazos.Count == 0) return (0, 0, 0);
+
+            if (preguntar)
+            {
+                ed.WriteMessage($"\n{reemplazos.Count} fitting(s) con diámetro incorrecto:");
+                foreach (var r in reemplazos)
+                    ed.WriteMessage($"\n  · {r.Tipo} '{r.DescVieja}' (Ø{r.DiametroActual:F0}) → necesita Ø{r.DiametroCorrecto:F0}");
+
+                PromptKeywordOptions pkC = new PromptKeywordOptions(
+                    $"\n¿Corregir {reemplazos.Count} fitting(s)? [Si/No] <Si>:", "Si No");
+                pkC.AllowNone = true;
+                PromptResult rkC = ed.GetKeywords(pkC);
+                if (rkC.Status == PromptStatus.OK && rkC.StringResult == "No") return (reemplazos.Count, 0, 0);
+            }
+
+            // Fase 2: reemplazar
+            int corregidos = 0, fallidos = 0;
+
+            foreach (var r in reemplazos)
+            {
+                PresStyles.PressurePartSize nuevaPieza = _BuscarPiezaCorrecta(partsDisp, r.Tipo, r.DiametroCorrecto, r.Angulo);
+                if (nuevaPieza == null)
+                {
+                    ed.WriteMessage($"\n  ✗ No hay {r.Tipo} Ø{r.DiametroCorrecto:F0}" +
+                                    (r.Angulo != null ? $" {r.Angulo}°" : "") + " en la Parts List.");
+                    fallidos++;
+                    continue;
+                }
+
+                try
+                {
+                    // Desconectar tubos del fitting viejo
+                    CivilDB.PressureFitting fitViejo = (CivilDB.PressureFitting)tr.GetObject(r.FittingId, OpenMode.ForWrite);
+                    foreach (var c in r.Conexiones)
+                    {
+                        try
+                        {
+                            CivilDB.PressurePipe pipe = (CivilDB.PressurePipe)tr.GetObject(c.PipeId, OpenMode.ForWrite);
+                            _DesconectarPipeDeFitting(pipe, r.FittingId);
+                        }
+                        catch { }
+                    }
+
+                    // Borrar fitting viejo
+                    fitViejo.Erase();
+
+                    // Colocar fitting nuevo
+                    ObjectId nuevoId = net.AddFitting(r.Posicion, nuevaPieza);
+                    CivilDB.PressurePart parteNueva = (CivilDB.PressurePart)tr.GetObject(nuevoId, OpenMode.ForWrite);
+
+                    // Reconectar tubos
+                    int conectados = 0;
+                    for (int i = 0; i < Math.Min(parteNueva.ConnectionCount, r.Conexiones.Count); i++)
+                    {
+                        var c = r.Conexiones[i];
+                        try { parteNueva.ConnectToPipe(i, c.PipeId, c.PipePort); conectados++; }
+                        catch { }
+                    }
+
+                    // Recortar tubos al puerto del nuevo fitting
+                    try
+                    {
+                        for (int i = 0; i < parteNueva.ConnectionCount; i++)
+                        {
+                            CivilDB.PressurePartConnection conn = parteNueva.GetConnectionAt(i);
+                            if (conn.ConnectedId == ObjectId.Null || !conn.ConnectedId.IsValid) continue;
+                            CivilDB.PressurePipe pipe = tr.GetObject(conn.ConnectedId, OpenMode.ForWrite) as CivilDB.PressurePipe;
+                            if (pipe == null) continue;
+                            if (conn.Position.DistanceTo(pipe.StartPoint) < conn.Position.DistanceTo(pipe.EndPoint))
+                                pipe.StartPoint = conn.Position;
+                            else
+                                pipe.EndPoint = conn.Position;
+                        }
+                    }
+                    catch { }
+
+                    ed.WriteMessage($"\n  ✓ {r.Tipo}: '{r.DescVieja}' → '{nuevaPieza.Description}' ({conectados} conexión(es))");
+                    corregidos++;
+                }
+                catch (Exception ex)
+                {
+                    ed.WriteMessage($"\n  ✗ Error reemplazando {r.Tipo}: {ex.Message}");
+                    fallidos++;
+                }
+            }
+
+            return (reemplazos.Count, corregidos, fallidos);
+        }
+
+        private static double _ObtenerDiametroFitting(CivilDB.PressureFitting fit)
+        {
+            try { if (fit.ConnectionCount > 0) return fit.GetConnectionAt(0).OutsideDiameter; }
+            catch { }
+            var m = System.Text.RegularExpressions.Regex.Match(fit.PartDescription ?? "", @"(\d+)\s*in");
+            if (m.Success && double.TryParse(m.Groups[1].Value, out double d)) return d;
+            return 0;
+        }
+
+        private static string _ExtraerAngulo(string desc)
+        {
+            if (string.IsNullOrEmpty(desc)) return null;
+            var m = System.Text.RegularExpressions.Regex.Match(desc, @"([\d.]+)\s*degree");
+            return m.Success ? m.Groups[1].Value : null;
+        }
+
+        private static PresStyles.PressurePartSize _BuscarPiezaCorrecta(
+            List<PresStyles.PressurePartSize> partes,
+            CivilDB.PressurePartType tipo, double diametro, string angulo)
+        {
+            string diaStr = ((int)Math.Round(diametro)).ToString();
+            PresStyles.PressurePartSize mejorConAngulo = null;
+            PresStyles.PressurePartSize mejorSinAngulo = null;
+
+            foreach (var p in partes)
+            {
+                if (p.PartType != tipo) continue;
+                string desc = (p.Description ?? "").ToLowerInvariant();
+
+                // Verificar que el primer diámetro en la descripción coincida
+                var mDia = System.Text.RegularExpressions.Regex.Match(desc, @"(\d+)\s*in");
+                if (!mDia.Success) continue;
+                int primerDia = int.Parse(mDia.Groups[1].Value);
+                if (Math.Abs(primerDia - diametro) > 1.0) continue;
+
+                if (angulo != null && desc.Contains(angulo + " degree"))
+                {
+                    mejorConAngulo = p;
+                    break;
+                }
+                if (mejorSinAngulo == null) mejorSinAngulo = p;
+            }
+            return mejorConAngulo ?? mejorSinAngulo;
+        }
+
+        private static void _DesconectarPipeDeFitting(CivilDB.PressurePipe pipe, ObjectId fittingId)
+        {
+            try
+            {
+                for (int port = 0; port < 2; port++)
+                {
+                    CivilDB.PressurePartConnection conn = pipe.GetConnectionAt(port);
+                    if (conn.ConnectedId == fittingId) { pipe.DisconnectAt(port); return; }
+                }
+            }
+            catch { }
+        }
+
+        private class _ConexionInfo { public ObjectId PipeId; public int PipePort; public int FitPort; }
+        private class _ReemplazoInfo
+        {
+            public ObjectId FittingId;
+            public Point3d Posicion;
+            public CivilDB.PressurePartType Tipo;
+            public string Angulo;
+            public double DiametroActual, DiametroCorrecto;
+            public List<_ConexionInfo> Conexiones;
+            public string DescVieja;
+        }
     }
 }

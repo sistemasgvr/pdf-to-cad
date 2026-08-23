@@ -11,37 +11,48 @@
     <PlatformTarget>x64</PlatformTarget>
     <!-- Habilita WPF (para la ventana/panel PaletteSet) -->
     <UseWPF>true</UseWPF>
-    <!-- No copiar las DLL de Autodesk a bin (ya las carga AutoCAD) -->
-    <CopyLocalLockFileAssemblies>false</CopyLocalLockFileAssemblies>
+    <!-- Copiar dependencias NuGet a bin (Sqlite etc.); las DLL de Autodesk
+         no se copian gracias a Private=false en cada Reference -->
+    <CopyLocalLockFileAssemblies>true</CopyLocalLockFileAssemblies>
     <AppendTargetFrameworkToOutputPath>false</AppendTargetFrameworkToOutputPath>
     <Deterministic>true</Deterministic>
   </PropertyGroup>
 
   <ItemGroup>
     <PackageReference Include="ClosedXML" Version="0.104.2" />
+    <PackageReference Include="Microsoft.Data.Sqlite" Version="8.0.11">
+      <PrivateAssets>none</PrivateAssets>
+    </PackageReference>
   </ItemGroup>
 
   <ItemGroup>
     <Reference Include="accoremgd">
       <HintPath>C:\Program Files\Autodesk\AutoCAD 2025\accoremgd.dll</HintPath>
+      <Private>false</Private>
     </Reference>
     <Reference Include="Acdbmgd">
       <HintPath>C:\Program Files\Autodesk\AutoCAD 2025\acdbmgd.dll</HintPath>
+      <Private>false</Private>
     </Reference>
     <Reference Include="Acmgd">
       <HintPath>C:\Program Files\Autodesk\AutoCAD 2025\acmgd.dll</HintPath>
+      <Private>false</Private>
     </Reference>
     <Reference Include="AecBaseMgd">
       <HintPath>C:\Program Files\Autodesk\AutoCAD 2025\ACA\AecBaseMgd.dll</HintPath>
+      <Private>false</Private>
     </Reference>
     <Reference Include="AeccDbMgd">
       <HintPath>C:\Program Files\Autodesk\AutoCAD 2025\C3D\AeccDbMgd.dll</HintPath>
+      <Private>false</Private>
     </Reference>
     <Reference Include="AeccPressurePipesMgd">
       <HintPath>C:\Program Files\Autodesk\AutoCAD 2025\C3D\AeccPressurePipesMgd.dll</HintPath>
+      <Private>false</Private>
     </Reference>
     <Reference Include="AecPropDataMgd">
       <HintPath>C:\Program Files\Autodesk\AutoCAD 2025\ACA\AecPropDataMgd.dll</HintPath>
+      <Private>false</Private>
     </Reference>
   </ItemGroup>
 

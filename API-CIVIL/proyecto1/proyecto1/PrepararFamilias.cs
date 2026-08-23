@@ -323,8 +323,88 @@ namespace Civil3DBasico
             L("═══════════════════════════════════════════════════════════════");
             Guardar(log, ed);
 
+            // 5) Llenar gaps en catálogos SQLite de presión (idempotente)
+            try
+            {
+                var (catFilled, recFilled) = PressureCatalogFiller.FillAllGapsAllVersions(s => L(s));
+                if (recFilled > 0)
+                    L($"→ Catálogos de presión: {catFilled} catálogos, {recFilled} accesorios creados.");
+                else
+                    L("→ Catálogos de presión: sin gaps, todos completos.");
+            }
+            catch (Exception exCat)
+            {
+                L($"⚠ Error llenando catálogos de presión: {exCat.Message}");
+            }
+
+            // 6) Preparar PressurePartList "Standard" (presión)
+            int nPressureParts = 0;
+            string pressureStatus = "";
+            try
+            {
+                using (var trP = db.TransactionManager.StartTransaction())
+                {
+                    CivilDocument civilDocP;
+                    try { civilDocP = CivilApplication.ActiveDocument; }
+                    catch { civilDocP = null; }
+
+                    if (civilDocP != null)
+                    {
+                        var plcP = PartsStyles.StylesRootPressurePipesExtension
+                                       .GetPressurePartLists(civilDocP.Styles);
+                        ObjectId pressPlId;
+                        if (plcP.Count == 0)
+                        {
+                            pressPlId = plcP.Add("Standard");
+                            L("→ Presión: creada PressurePartList 'Standard'.");
+                        }
+                        else
+                        {
+                            pressPlId = plcP[0];
+                            for (int i = 0; i < plcP.Count; i++)
+                            {
+                                var pp = trP.GetObject(plcP[i], OpenMode.ForRead) as PartsStyles.PressurePartList;
+                                if (pp != null && string.Equals(pp.Name, "Standard", StringComparison.OrdinalIgnoreCase))
+                                { pressPlId = plcP[i]; break; }
+                            }
+                            L("→ Presión: PressurePartList ya existía.");
+                        }
+
+                        var pressPl = trP.GetObject(pressPlId, OpenMode.ForRead) as PartsStyles.PressurePartList;
+                        if (pressPl != null)
+                        {
+                            var domains = new[] {
+                                CivilDB.PressurePartDomainType.Pipe,
+                                CivilDB.PressurePartDomainType.Fitting,
+                                CivilDB.PressurePartDomainType.Appurtenance
+                            };
+                            foreach (var dom in domains)
+                            {
+                                var parts = pressPl.GetParts(dom);
+                                int cnt = parts != null ? parts.Count : 0;
+                                nPressureParts += cnt;
+                                L($"  · Presión [{dom}]: {cnt} piezas disponibles");
+                            }
+                        }
+                        trP.Commit();
+                        pressureStatus = $"\nPresión: {nPressureParts} piezas en PressurePartList 'Standard'";
+                    }
+                    else
+                    {
+                        trP.Abort();
+                        pressureStatus = "\nPresión: no se pudo acceder al Civil Document.";
+                    }
+                }
+            }
+            catch (Exception exPr)
+            {
+                L($"⚠ Error configurando presión: {exPr.Message}");
+                pressureStatus = $"\nPresión: error — {exPr.Message}";
+            }
+
             var msg = $"Familias procesadas en 'Standard': {totalFams}\n" +
                       $"Tamaños añadidos en total: {totalSizes}" +
+                      pressureStatus +
                       (errores.Count > 0 ? "\n\nCon errores — revisa la línea de comandos de Civil3D." : "");
             MessageBox.Show(msg, "Preparar familias — resumen",
                 MessageBoxButton.OK,

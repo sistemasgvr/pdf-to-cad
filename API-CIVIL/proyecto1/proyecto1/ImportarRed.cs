@@ -1526,6 +1526,16 @@ namespace Civil3DBasico
                 }
             }
 
+            // Corrección automática de fittings: el DXF trae el fitting original
+            // (p.ej. un codo 4x4) sin ajustarlo al diámetro real del tubo con el
+            // que quedó conectado (p.ej. 12"). Reutiliza la misma lógica de
+            // CORREGIR_FITTINGS_PRESION, sin preguntar (ver RedesPresion.cs).
+            var (fitDetectados, fitCorregidos, fitFallidos) =
+                ComandosPresion.CorregirFittingsDeRed(net, tr, ed, preguntar: false);
+            if (fitDetectados > 0)
+                ed.WriteMessage($"\n  · Fittings con diámetro incorrecto: {fitCorregidos}/{fitDetectados} corregido(s)" +
+                                (fitFallidos > 0 ? $", {fitFallidos} sin pieza disponible en la Parts List" : "") + ".");
+
             ed.WriteMessage($"\n✓ Red presión '{nombre}': {nPipes} tubería(s), {nFittings} fitting(s), " +
                             $"{componentesPres.Count} componente(s) para eje.");
             return netId;
