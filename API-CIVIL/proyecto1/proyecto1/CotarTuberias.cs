@@ -90,7 +90,10 @@ namespace Civil3DBasico
                         {
                             CivilDB.PressurePipe p2 = tr.GetObject(pid, OpenMode.ForRead) as CivilDB.PressurePipe;
                             if (p2 == null) continue;
-                            try { sumDia += p2.NominalDiameter / 12.0; nDia++; } catch { }
+                            // PressurePipe.NominalDiameter ya viene en unidades del
+                            // dibujo (pies) — no en pulgadas, confirmado con datos
+                            // reales (ver el mismo fix en ImportarRed.cs).
+                            try { sumDia += p2.NominalDiameter; nDia++; } catch { }
                         }
                     }
                     double diaMedio = nDia > 0 ? sumDia / nDia : 1.0;
@@ -228,7 +231,8 @@ namespace Civil3DBasico
                                 if (p == null) continue;
                                 nTubos++;
 
-                                double r = 0.0; try { r = (p.NominalDiameter / 12.0) / 2.0; } catch { }
+                                // NominalDiameter ya viene en pies (unidades del dibujo).
+                                double r = 0.0; try { r = p.NominalDiameter / 2.0; } catch { }
                                 double sInv = p.StartPoint.Z - r;
                                 double eInv = p.EndPoint.Z - r;
 
@@ -256,8 +260,9 @@ namespace Civil3DBasico
                                 etiquetasTuberia.Add((p.EndPoint, lineasEnd, ObjectId.Null));
                                 nEtiquetas += 2;
 
+                                // OuterDiameter ya viene en pies (unidades del dibujo).
                                 double diamRealPres = 0.0;
-                                try { diamRealPres = p.OuterDiameter / 12.0; } catch { }
+                                try { diamRealPres = p.OuterDiameter; } catch { }
                                 if (diamRealPres < 0.05) diamRealPres = r * 2.0;
                                 if (diamRealPres < 0.05) diamRealPres = diaMedio;
                                 double? slopePres = null;

@@ -31,6 +31,37 @@ def _resolve_family(win, fid, kind):
     except Exception: return fid
 
 
+def _no_manhole_vertex_indices(win, p):
+    """Índices (0-based, dentro de p['pts']) de los vértices de ESTA tubería que
+    coinciden con una estructura marcada curve=True. ImportarRed.cs ya sabe leer
+    NO_MANHOLE_VERTS del XDATA PDFCAD_PIPE y saltarse la creación de buzón ahí
+    (deja los dos tramos rectos sueltos en ese vértice) — sin este campo, el
+    importador cae al buzón por defecto porque no hay PDFCAD_STRUCT que matchee."""
+    curves = [s for s in getattr(win, "structures", None) or [] if s.get("curve") and not s.get("world")]
+    if not curves: return []
+    tol2 = 14.0 ** 2
+    out = []
+    for i, (px, py) in enumerate(p["pts"]):
+        for s in curves:
+            sx, sy = s.get("x"), s.get("y")
+            if sx is None or sy is None: continue
+            if (sx - px) ** 2 + (sy - py) ** 2 <= tol2:
+                out.append(i); break
+    return out
+
+
+def _pipe_at_point(win, x, y, tol=14.0):
+    """Tubería (dict) con un vértice a distancia <= tol de (x,y), o None. La curva
+    hereda familia/tamaño de esta tubería — nunca lleva los suyos aparte."""
+    tol2 = tol * tol
+    for p in win.pipes:
+        if p.get("world") or not p.get("pts"): continue
+        for (vx, vy) in p["pts"]:
+            if (vx - x) ** 2 + (vy - y) ** 2 <= tol2:
+                return p
+    return None
+
+
 def text_style(doc, font, bold):
     name = f"TXT_{font}_{'B' if bold else 'N'}".replace(" ", "_")[:60]
     if name not in doc.styles:
@@ -66,6 +97,9 @@ def merge_into(win, doc, marks=True):
         mat = p.get('material') or ''
         manning = mannings_n(mat)
         cover = COVER_MIN_FT.get(layer, 3.0)
+        no_manhole = _no_manhole_vertex_indices(win, p) if p.get("pts") and not p.get("world") else []
+        vertex_inv = p.get("vertex_inv") or {}
+        vertex_inv_str = ";".join(f"{i}~{z}" for i, z in vertex_inv.items())
         poly.set_xdata("PDFCAD", [
             (1000, "PDFCAD_PIPE"),
             (1000, f"DIAMETER={p.get('diam') or 0}"),
@@ -79,6 +113,8 @@ def merge_into(win, doc, marks=True):
             (1000, f"COVER_MIN={cover}"),
             (1000, f"PIPE_FAMILY={_resolve_family(win, p.get('pipe_family') or '', 'pipe')}"),
             (1000, f"PIPE_SIZE={p.get('pipe_size') or ''}"),
+            (1000, f"NO_MANHOLE_VERTS={','.join(str(i) for i in no_manhole)}"),
+            (1000, f"VERTEX_INV={vertex_inv_str}"),
         ])
     _export_structures(win, doc, msp)
     VP.ensure_layer(doc, "ANOTACION")
@@ -197,6 +233,9 @@ def _export_structures(win, doc, msp):
         x, y = s.get("x"), s.get("y")
         if x is None or y is None: continue
         cx, cy = (float(x), float(y)) if s.get("world") else win._to_cad(x, y)
+        if s.get("curve"):
+            _export_curve_corner(win, doc, msp, s, cx, cy, show_labels)
+            continue
         pt = msp.add_point((cx, cy, 0), dxfattribs={"layer": "PDFCAD_BZ"})
         rim, sump = s.get("rim"), s.get("sump")
         # rim/sump = 0.0 o None → no seteado por el usuario → enviar vacío
@@ -220,3 +259,34 @@ def _export_structures(win, doc, msp):
             t = msp.add_text(s["cod"], height=h,
                              dxfattribs={"layer": "ETIQUETAS_BUZONES", "style": "CAD_TEXT"})
             t.set_placement((cx + h * 0.8, cy + h * 0.4), align=TextEntityAlignment.LEFT)
+
+
+def _export_curve_corner(win, doc, msp, s, cx, cy, show_labels):
+    """Exporta la ESQUINA de un elemento curvo (p.ej. codo de bancoducto) como un
+    punto informativo en la capa PDFCAD_CURVA con marcador PDFCAD_CURVE — en vez
+    del PDFCAD_STRUCT de un buzón. A propósito NO crea una estructura: las dos
+    tuberías rectas que llegan a este vértice se importan sueltas ahí (sin nodo
+    que las une). ImportarRed.cs lee este punto y genera él mismo la tubería
+    curva tangente (radio explícito o 6× el ancho de la tubería si RADIUS_FT
+    viene vacío) — no depende del addin ElementosCurvos/AGREGAR_TUBO_CURVO.
+    PIPE_FAMILY/PIPE_SIZE se heredan de la tubería recta de este vértice (nunca
+    se eligen aparte), para que la curva calce siempre con los tramos rectos."""
+    VP.ensure_layer(doc, "PDFCAD_CURVA")
+    pt = msp.add_point((cx, cy, 0), dxfattribs={"layer": "PDFCAD_CURVA"})
+    p = _pipe_at_point(win, s.get("x"), s.get("y"))
+    fam = _resolve_family(win, (p.get("pipe_family") if p else "") or "", "pipe")
+    size = (p.get("pipe_size") if p else "") or ""
+    radius = s.get("radius_ft") or ""
+    pt.set_xdata("PDFCAD", [
+        (1000, "PDFCAD_CURVE"),
+        (1000, f"STRUCT_ID={s.get('cod') or ''}"),
+        (1000, f"NET_KIND={s.get('net') or 'gravity'}"),
+        (1000, f"PIPE_FAMILY={fam}"),
+        (1000, f"PIPE_SIZE={size}"),
+        (1000, f"RADIUS_FT={radius}"),
+    ])
+    if show_labels and s.get("cod"):
+        h = LEADER_TEXT_FT * 0.3
+        t = msp.add_text(s["cod"], height=h,
+                         dxfattribs={"layer": "ETIQUETAS_BUZONES", "style": "CAD_TEXT"})
+        t.set_placement((cx + h * 0.8, cy + h * 0.4), align=TextEntityAlignment.LEFT)

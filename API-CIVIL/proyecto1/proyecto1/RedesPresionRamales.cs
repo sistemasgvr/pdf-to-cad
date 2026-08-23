@@ -80,23 +80,14 @@ namespace Civil3DBasico
                     }
                     Point3d junta = new Point3d(nearPt.Average(p => p.X), nearPt.Average(p => p.Y), nearPt.Average(p => p.Z));
 
-                    // Direcciones (desde la junta hacia el otro extremo de cada tubo)
-                    Vector3d[] dir = new Vector3d[nP];
-                    for (int i = 0; i < nP; i++)
-                    {
-                        Vector3d v = e[i][1 - nearPort[i]] - junta;
-                        dir[i] = v.Length > 1e-9 ? v.GetNormal() : Vector3d.XAxis;
-                    }
                     // Par más "opuesto" (colineales) -> puertos de PASO (0,1); resto -> RAMAL (2,3)
-                    int ra = 0, rb = 1; double mejor = double.MaxValue;
-                    for (int i = 0; i < nP; i++)
-                        for (int j = i + 1; j < nP; j++)
-                        { double dot = dir[i].DotProduct(dir[j]); if (dot < mejor) { mejor = dot; ra = i; rb = j; } }
-                    var orden = new List<int> { ra, rb };
-                    for (int i = 0; i < nP; i++) if (i != ra && i != rb) orden.Add(i);
+                    var lejanos = new List<Point3d>();
+                    for (int i = 0; i < nP; i++) lejanos.Add(e[i][1 - nearPort[i]]);
+                    var orden = OrdenarPuertosPorOposicion(junta, lejanos);
 
-                    // Elegir el accesorio del tipo correcto
-                    CivilDB.PressurePartType tipo = nP == 3 ? CivilDB.PressurePartType.Tee : CivilDB.PressurePartType.Cross;
+                    // Elegir el accesorio del tipo correcto (misma decisión que usa
+                    // el import automático — ver DecidirTipoFitting).
+                    CivilDB.PressurePartType tipo = DecidirTipoFitting(nP, 0, 0, 0).Value;
                     var fittings = pl.GetParts(CivilDB.PressurePartDomainType.Fitting).Where(f => f.PartType == tipo).ToList();
                     if (fittings.Count == 0) { ed.WriteMessage($"\nLa parts list no tiene un accesorio tipo {tipo}. Añádelo al catálogo."); tr.Abort(); return; }
                     PresStyles.PressurePartSize pieza = ElegirPiezaPresion(ed, fittings, $"{tipo} disponibles");

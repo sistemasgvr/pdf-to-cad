@@ -78,6 +78,7 @@ namespace Civil3DBasico
             // ── 1. Escanear modelspace ──────────────────────────────────────
             var pipes = new List<ImportPipe>();
             var structs = new List<ImportStruct>();
+            var curveCorners = new List<ImportCurveInfo>();
 
             using (Transaction trScan = db.TransactionManager.StartTransaction())
             {
@@ -123,6 +124,24 @@ namespace Civil3DBasico
                                 segOv[idx] = (parts[1] ?? "", parts[2] ?? "");
                             }
 
+                        // VERTEX_INV: 'idx~z;idx~z' — cota explícita (unidad XDATA) en
+                        // vértices intermedios editados individualmente desde Python.
+                        // Los vértices no listados siguen la interpolación de siempre.
+                        var vertexInv = new Dictionary<int, double>();
+                        string vertexInvStr = XdStr(xd, "VERTEX_INV", "");
+                        if (!string.IsNullOrWhiteSpace(vertexInvStr))
+                            foreach (string entry in vertexInvStr.Split(';'))
+                            {
+                                if (string.IsNullOrWhiteSpace(entry)) continue;
+                                var parts = entry.Split('~');
+                                if (parts.Length < 2) continue;
+                                if (!int.TryParse(parts[0], out int idx)) continue;
+                                string zs = (parts[1] ?? "").Trim().Replace(',', '.');
+                                double zv;
+                                if (double.TryParse(zs, NumberStyles.Float, CultureInfo.InvariantCulture, out zv))
+                                    vertexInv[idx] = zv * k;
+                            }
+
                         pipes.Add(new ImportPipe
                         {
                             Layer = poly.Layer,
@@ -140,6 +159,7 @@ namespace Civil3DBasico
                             PipeSize = XdStr(xd, "PIPE_SIZE", ""),
                             NoManholeVerts = noMan,
                             SegOverrides = segOv,
+                            VertexInv = vertexInv,
                         });
                     }
                     else if (marker == "PDFCAD_STRUCT" && ent is DBPoint pt)
@@ -169,8 +189,44 @@ namespace Civil3DBasico
                             ("sump", newSt.Sump?.ToString("F3") ?? ""),
                             ("height_ft", newSt.HeightFt?.ToString("F3") ?? ""));
                     }
+                    else if (marker == "PDFCAD_CURVE" && ent is DBPoint ptc)
+                    {
+                        // Esquina de un elemento curvo (p.ej. codo de bancoducto): la
+                        // familia/tamaño de la curva NO se leen de aquí — se resuelven
+                        // más abajo de la MISMA tubería recta que pasa por este vértice
+                        // (ip.NoManholeVerts ya identifica cuál). Solo interesa la
+                        // ubicación y el radio explícito (vacío = automático, 6× ancho).
+                        var newCv = new ImportCurveInfo
+                        {
+                            Location = new Point2d(ptc.Position.X, ptc.Position.Y),
+                            Id = XdStr(xd, "STRUCT_ID", ""),
+                            RadiusFt = XdNullDouble(xd, "RADIUS_FT"),
+                        };
+                        curveCorners.Add(newCv);
+                        Dbg("XDATA_CURVE", ("id", newCv.Id), ("x", ptc.Position.X.ToString("F3")),
+                            ("y", ptc.Position.Y.ToString("F3")),
+                            ("radius_ft", newCv.RadiusFt?.ToString("F3") ?? "(auto)"));
+                    }
                 }
                 trScan.Commit();
+            }
+
+            // Emparejar cada esquina curva con el vértice NoManholeVerts más cercano
+            // de su tubería (tolerancia 1 ft, igual criterio que FindNearestStruct).
+            foreach (var ip in pipes)
+            {
+                for (int vi = 0; vi < ip.Vertices.Count; vi++)
+                {
+                    if (!ip.NoManholeVerts.Contains(vi)) continue;
+                    ImportCurveInfo best = null; double bestD = 1.0;
+                    foreach (var cv in curveCorners)
+                    {
+                        double d = cv.Location.GetDistanceTo(ip.Vertices[vi]);
+                        if (d < bestD) { bestD = d; best = cv; }
+                    }
+                    if (best != null && best.RadiusFt.HasValue)
+                        ip.CurveRadiusByVert[vi] = best.RadiusFt.Value;
+                }
             }
 
             if (pipes.Count == 0)
@@ -559,9 +615,11 @@ namespace Civil3DBasico
             {
                 int nVerts = ip.Vertices.Count;
                 double[] zVerts = InterpolateZ(ip, nVerts);
-                var pipeTraza = new List<Point3d>();
-                for (int i = 0; i < nVerts; i++)
-                    pipeTraza.Add(new Point3d(ip.Vertices[i].X, ip.Vertices[i].Y, zVerts[i]));
+                // pipeTraza se construye MÁS ABAJO, después de calcular las esquinas
+                // curvas — tiene que usar los puntos de tangencia recortados (p1/p2),
+                // no el vértice original, o el Alignment que se arma con esta traza
+                // queda pasando en línea recta justo por donde la tubería real ya se
+                // desvió, y el eje termina cruzando el elemento curvo en el dibujo.
 
                 // Prioridad para elegir familia+tamaño de esta pipe:
                 //   1) PIPE_FAMILY del XDATA (elegida en Python del catálogo Civil 3D)
@@ -599,12 +657,151 @@ namespace Civil3DBasico
                     pipeFam = defPipeFam; pipeSize = defPipeSize; pipeNom = defPipeNom;
                 }
 
+                // Geometría de las esquinas curvas de ESTA tubería (una por cada
+                // vértice intermedio marcado "sin buzón"): puntos de tangencia sobre
+                // cada recta vecina, arco resultante y sentido. Se calcula ANTES del
+                // loop de vértices/segmentos porque el punto de tangencia (no el
+                // vértice) es el extremo real de cada tramo recto adyacente.
+                double? anchoInteriorCache = null;
+                var curvasPorVertice = new Dictionary<int, CurveGeom>();
+                foreach (int i in ip.NoManholeVerts)
+                {
+                    if (i <= 0 || i >= nVerts - 1) continue;      // solo vértices intermedios
+                    Point3d corner = new Point3d(ip.Vertices[i].X, ip.Vertices[i].Y, zVerts[i]);
+                    Point3d prevV = new Point3d(ip.Vertices[i - 1].X, ip.Vertices[i - 1].Y, zVerts[i - 1]);
+                    Point3d nextV = new Point3d(ip.Vertices[i + 1].X, ip.Vertices[i + 1].Y, zVerts[i + 1]);
+                    var dirPrev = new Vector3d(prevV.X - corner.X, prevV.Y - corner.Y, 0.0);
+                    var dirNext = new Vector3d(nextV.X - corner.X, nextV.Y - corner.Y, 0.0);
+                    double distPrev = dirPrev.Length, distNext = dirNext.Length;
+                    if (distPrev < 1e-6 || distNext < 1e-6) continue;
+                    dirPrev = dirPrev / distPrev; dirNext = dirNext / distNext;
+                    double cosD = Math.Max(-1.0, Math.Min(1.0, dirPrev.DotProduct(dirNext)));
+                    double deltaRad = Math.Acos(cosD);
+                    double deltaDeg = deltaRad * 180.0 / Math.PI;
+                    if (deltaDeg > 178.0)
+                    {
+                        Dbg("CURVA_SKIP_RECTA", ("pipe", ip.Layer), ("vertice", i.ToString()),
+                            ("angulo", deltaDeg.ToString("F1")));
+                        continue;                                  // prácticamente recto: no hace falta arco
+                    }
+                    double r;
+                    if (ip.CurveRadiusByVert.TryGetValue(i, out double rExplicito) && rExplicito > 0.01)
+                        r = rExplicito;
+                    else
+                    {
+                        if (anchoInteriorCache == null)
+                            anchoInteriorCache = ResolveAnchoInterior(tr, net, pipeFam, pipeSize, ed);
+                        r = 6.0 * anchoInteriorCache.Value;
+                    }
+                    double t = r / Math.Tan(deltaRad / 2.0);
+                    // No recortar más allá de lo disponible en cada recta vecina (deja
+                    // margen del 10% para que siga quedando un tramo recto visible).
+                    double tMax = Math.Min(distPrev, distNext) * 0.9;
+                    if (t > tMax)
+                    {
+                        double rAjustado = tMax * Math.Tan(deltaRad / 2.0);
+                        ed.WriteMessage($"\n⚠ Curva en '{ip.Layer}' vértice {i}: radio {r:F2}' no entra " +
+                                        $"(tramos muy cortos); se ajusta a {rAjustado:F2}'.");
+                        Dbg("CURVA_RADIO_AJUSTADO", ("pipe", ip.Layer), ("vertice", i.ToString()),
+                            ("pedido", r.ToString("F3")), ("usado", rAjustado.ToString("F3")));
+                        r = rAjustado; t = tMax;
+                    }
+                    CurveGeom cg;
+                    try { cg = BuildCurveGeom(t, corner, dirPrev, dirNext, distPrev, distNext, prevV, nextV, deltaRad); }
+                    catch (Exception exArc)
+                    {
+                        ed.WriteMessage($"\n⚠ No se pudo calcular el arco en '{ip.Layer}' vértice {i}: {exArc.Message}");
+                        Dbg("CURVA_ARCO_FALLO", ("pipe", ip.Layer), ("vertice", i.ToString()), ("error", exArc.Message));
+                        continue;
+                    }
+                    curvasPorVertice[i] = cg;
+                    Dbg("CURVA_GEOMETRIA", ("pipe", ip.Layer), ("vertice", i.ToString()),
+                        ("angulo", deltaDeg.ToString("F1")), ("radio", cg.Radio.ToString("F3")),
+                        ("t", t.ToString("F3")));
+                }
+
+                // Ajuste por "tramo recto mínimo" entre dos esquinas curvas
+                // CONSECUTIVAS (vértices i e i+1, sin ningún vértice recto entre
+                // medio): cada esquina ya se recortó como máximo al 90% de SU
+                // PROPIO tramo — pero si las dos esquinas comparten el mismo tramo
+                // corto, las dos zonas de recorte pueden solaparse igual (cada una
+                // "cree" que tiene el 90% completo para sí sola). Se exige dejar
+                // al menos 1× el ancho interior de la tubería como tramo recto
+                // real entre ambas, avisando y reduciendo el radio de las dos
+                // proporcionalmente si no entra.
+                foreach (int i in new List<int>(curvasPorVertice.Keys))
+                {
+                    int j = i + 1;
+                    // 'i' puede haber sido removido en una iteración anterior (si
+                    // era la 'j' de un par previo sin espacio ni para el mínimo).
+                    if (!curvasPorVertice.ContainsKey(i) || !curvasPorVertice.ContainsKey(j)) continue;
+                    var cgI = curvasPorVertice[i]; var cgJ = curvasPorVertice[j];
+                    double L = cgI.DistNext;    // == cgJ.DistPrev: mismo tramo (vértice i → vértice j)
+                    if (anchoInteriorCache == null)
+                        anchoInteriorCache = ResolveAnchoInterior(tr, net, pipeFam, pipeSize, ed);
+                    double minRecto = 1.0 * anchoInteriorCache.Value;
+                    double disponible = L - minRecto;
+                    if (cgI.T + cgJ.T <= disponible) continue;   // ya entra con margen, no hace falta ajustar
+                    if (disponible <= 1e-6)
+                    {
+                        // El tramo es tan corto que ni el mínimo entra: mejor sin
+                        // curva en ninguna de las dos esquinas (quedan como el
+                        // solape cosmético de siempre) que dejarlas solapadas.
+                        ed.WriteMessage($"\n⚠ Curvas en '{ip.Layer}' vértices {i} y {j}: el tramo entre ambas " +
+                                         $"({L:F2}') es más corto que el mínimo recto exigido ({minRecto:F2}') — " +
+                                         "no se genera curva en ninguna de las dos, quedan como quiebre recto.");
+                        Dbg("CURVA_MIN_RECTO_SIN_ESPACIO", ("pipe", ip.Layer), ("vertA", i.ToString()),
+                            ("vertB", j.ToString()), ("tramo", L.ToString("F3")), ("minRecto", minRecto.ToString("F3")));
+                        curvasPorVertice.Remove(i); curvasPorVertice.Remove(j);
+                        continue;
+                    }
+                    double factor = disponible / (cgI.T + cgJ.T);
+                    double tI2 = cgI.T * factor, tJ2 = cgJ.T * factor;
+                    ed.WriteMessage($"\n⚠ Curvas en '{ip.Layer}' vértices {i} y {j} están muy cerca " +
+                                     $"({L:F2}' de tramo) y se solapan — se reducen los radios de " +
+                                     $"{cgI.Radio:F2}'/{cgJ.Radio:F2}' a {tI2 * Math.Tan(cgI.DeltaRad / 2.0):F2}'/" +
+                                     $"{tJ2 * Math.Tan(cgJ.DeltaRad / 2.0):F2}' para dejar {minRecto:F2}' de tramo recto entre ellas.");
+                    Dbg("CURVA_MIN_RECTO_AJUSTE", ("pipe", ip.Layer), ("vertA", i.ToString()), ("vertB", j.ToString()),
+                        ("tramo", L.ToString("F3")), ("minRecto", minRecto.ToString("F3")),
+                        ("tA_antes", cgI.T.ToString("F3")), ("tB_antes", cgJ.T.ToString("F3")),
+                        ("tA_despues", tI2.ToString("F3")), ("tB_despues", tJ2.ToString("F3")));
+                    try
+                    {
+                        curvasPorVertice[i] = BuildCurveGeom(tI2, cgI.Corner, cgI.DirPrev, cgI.DirNext,
+                            cgI.DistPrev, cgI.DistNext, cgI.PrevV, cgI.NextV, cgI.DeltaRad);
+                        curvasPorVertice[j] = BuildCurveGeom(tJ2, cgJ.Corner, cgJ.DirPrev, cgJ.DirNext,
+                            cgJ.DistPrev, cgJ.DistNext, cgJ.PrevV, cgJ.NextV, cgJ.DeltaRad);
+                    }
+                    catch (Exception exArc)
+                    {
+                        ed.WriteMessage($"\n⚠ No se pudo reajustar el arco en '{ip.Layer}' vértices {i}/{j}: {exArc.Message}");
+                        Dbg("CURVA_MIN_RECTO_FALLO", ("pipe", ip.Layer), ("vertA", i.ToString()), ("vertB", j.ToString()),
+                            ("error", exArc.Message));
+                    }
+                }
+
+                // Traza para el Alignment (más abajo) y para el Union-Find de
+                // componentes conectados: en cada vértice curvo, los DOS puntos de
+                // tangencia en vez del vértice original — si no, el eje pasaría en
+                // línea recta justo por donde la tubería real ya se desvió.
+                var pipeTraza = new List<Point3d>();
+                for (int i = 0; i < nVerts; i++)
+                {
+                    if (curvasPorVertice.TryGetValue(i, out CurveGeom cgTraza))
+                    { pipeTraza.Add(cgTraza.P1); pipeTraza.Add(cgTraza.P2); }
+                    else
+                        pipeTraza.Add(new Point3d(ip.Vertices[i].X, ip.Vertices[i].Y, zVerts[i]));
+                }
+
                 var vertStructIds = new List<ObjectId>();
                 for (int i = 0; i < nVerts; i++)
                 {
                     // Vértice intermedio marcado "sin buzón" por el usuario en la UI:
                     // no crear structure aquí. Los pipes que llegan/salen simplemente
-                    // quedarán sin conectar en ese extremo (quiebre visual sin manhole).
+                    // quedarán sin conectar en ese extremo (quiebre visual sin manhole),
+                    // SALVO que sea una esquina curva con geometría calculada arriba —
+                    // en ese caso el arco (creado en el loop de segmentos, más abajo)
+                    // sí queda conectado a ambos tramos rectos.
                     if (i > 0 && i < nVerts - 1 && ip.NoManholeVerts.Contains(i))
                     { vertStructIds.Add(ObjectId.Null); continue; }
 
@@ -747,34 +944,37 @@ namespace Civil3DBasico
                 ObjectId pipeEnd   = vertStructIds.Count > 0 ? vertStructIds[vertStructIds.Count - 1] : ObjectId.Null;
                 pipeTrazas.Add((pipeTraza, pipeStart, pipeEnd));
 
-                // Solape visual en vértices "sin buzón": cada tubería se extiende
-                // un poco más allá del vértice para que las dos que se encuentran
-                // ahí se traslapen y el quiebre se lea continuo (fines ilustrativos).
+                // Vértices "sin buzón" SIN geometría de curva calculada (ángulo casi
+                // recto, o falló el cálculo del arco): mismo solape cosmético de
+                // siempre, para que el quiebre se lea continuo sin dejar un hueco.
                 double overlapFt = Math.Max(0.5, ip.Diameter / 24.0);   // ~½ diámetro en pies
 
                 for (int i = 0; i < nVerts - 1; i++)
                 {
                     Point3d p1 = new Point3d(ip.Vertices[i].X, ip.Vertices[i].Y, zVerts[i]);
                     Point3d p2 = new Point3d(ip.Vertices[i + 1].X, ip.Vertices[i + 1].Y, zVerts[i + 1]);
-                    if (p1.DistanceTo(p2) < 1e-6) continue;
 
-                    // Si el extremo INICIAL de este tramo cae en un vértice "sin buzón",
-                    // retrocedemos p1 hacia el vértice previo → el tramo empieza ANTES
-                    // del vértice y se solapa con el tramo anterior que llega ahí.
-                    if (i > 0 && ip.NoManholeVerts.Contains(i))
+                    bool startEsCurva = i > 0 && curvasPorVertice.ContainsKey(i);
+                    bool endEsCurva = i + 1 < nVerts - 1 && curvasPorVertice.ContainsKey(i + 1);
+
+                    if (startEsCurva)
+                        p1 = curvasPorVertice[i].P2;              // tangencia de SALIDA del arco anterior
+                    else if (i > 0 && ip.NoManholeVerts.Contains(i))
                     {
+                        // Sin geometría de curva (ángulo casi recto): solape cosmético.
                         var p0 = new Point3d(ip.Vertices[i - 1].X, ip.Vertices[i - 1].Y, zVerts[i - 1]);
                         Vector3d back = p0 - p1;
                         if (back.Length > 1e-6) p1 = p1 + back.GetNormal() * overlapFt;
                     }
-                    // Si el extremo FINAL cae en un vértice "sin buzón", extendemos p2
-                    // hacia el vértice siguiente → el tramo se pasa un poco del vértice.
-                    if (i + 1 < nVerts - 1 && ip.NoManholeVerts.Contains(i + 1))
+                    if (endEsCurva)
+                        p2 = curvasPorVertice[i + 1].P1;          // tangencia de ENTRADA al arco siguiente
+                    else if (i + 1 < nVerts - 1 && ip.NoManholeVerts.Contains(i + 1))
                     {
                         var p3 = new Point3d(ip.Vertices[i + 2].X, ip.Vertices[i + 2].Y, zVerts[i + 2]);
                         Vector3d fwd = p3 - p2;
                         if (fwd.Length > 1e-6) p2 = p2 + fwd.GetNormal() * overlapFt;
                     }
+                    if (p1.DistanceTo(p2) < 1e-6) continue;
 
                     // Override por segmento: si Python marcó familia/tamaño distintos
                     // para este tramo, los resolvemos ahora contra la PartsList; si no
@@ -812,22 +1012,67 @@ namespace Civil3DBasico
                     // Envuelto en try/catch: si la structure asignada no admite la
                     // conexión (p.ej. una end-section que se elige por error), se
                     // registra pero no aborta la red entera.
-                    if (vertStructIds[i] != ObjectId.Null)
+                    if (startEsCurva)
+                    {
+                        // El extremo INICIAL es la tangencia de salida de un arco ya
+                        // creado (al terminar el tramo anterior): coincide exactamente
+                        // con el extremo del arco, así que quedan tocándose sin más.
+                        // NO se usa Pipe.ConnectToPipe aquí: el SDK exige una estructura
+                        // en la unión aunque sea "Null Structure" (tamaño cero), y esa
+                        // igual dibuja un símbolo circular en planta — justo lo que no
+                        // se quiere ver junto al elemento curvo.
+                    }
+                    else if (vertStructIds[i] != ObjectId.Null)
                     {
                         try { pipe.ConnectToStructure(CivilDB.ConnectorPositionType.Start, vertStructIds[i], true); }
                         catch (Exception exC) { Dbg("PIPE_CONNECT_FAIL", ("extremo", "start"), ("error", exC.Message)); }
                     }
-                    if (vertStructIds[i + 1] != ObjectId.Null)
+                    // El extremo FINAL normal (sin curva) se conecta aquí; si endEsCurva,
+                    // la conexión real es tubo-a-tubo contra el arco, más abajo.
+                    if (!endEsCurva && vertStructIds[i + 1] != ObjectId.Null)
                     {
                         try { pipe.ConnectToStructure(CivilDB.ConnectorPositionType.End, vertStructIds[i + 1], true); }
                         catch (Exception exC) { Dbg("PIPE_CONNECT_FAIL", ("extremo", "end"), ("error", exC.Message)); }
                     }
-                    explicitPipeInv.Add((pid, zVerts[i], zVerts[i + 1]));   // reponer invert al final
+                    explicitPipeInv.Add((pid, p1.Z, p2.Z));   // reponer invert al final
 
                     if (!string.IsNullOrWhiteSpace(ip.Material))
                     { try { pipe.Description = ip.Material; } catch { } }
 
                     nPipes++;
+
+                    if (endEsCurva)
+                    {
+                        // El extremo FINAL de este tramo es la tangencia de entrada al
+                        // arco calculado para el vértice i+1: crear la tubería curva
+                        // ahora, conectarla a este tramo recto, y dejar su Id disponible
+                        // para que el tramo SIGUIENTE se conecte a su otro extremo.
+                        var cg = curvasPorVertice[i + 1];
+                        ObjectId arcId = ObjectId.Null;
+                        try
+                        {
+                            // applyRules=false SIEMPRE (no depende de autoConexion): en un
+                            // bancoducto las reglas de cover/pendiente de la parts list
+                            // calculan mal la pendiente sobre la longitud de ARCO, no la
+                            // recta — mismo criterio ya verificado en civil3d-mcp-bridge.
+                            net.AddCurvePipe(segFam, segSize, cg.Arco, cg.Horario, ref arcId, false);
+                            var arcoPipe = (CivilDB.Pipe)tr.GetObject(arcId, OpenMode.ForWrite);
+                            if (!string.IsNullOrWhiteSpace(ip.Material))
+                            { try { arcoPipe.Description = ip.Material; } catch { } }
+                            explicitPipeInv.Add((arcId, cg.P1.Z, cg.P2.Z));
+                            // Sin Pipe.ConnectToPipe (ver comentario arriba, extremo
+                            // INICIAL): el arco arranca exactamente en el punto donde
+                            // termina este tramo recto, tocándose sin estructura de por medio.
+                            nPipes++;
+                            Dbg("CURVA_CREADA", ("pipe", ip.Layer), ("vertice", (i + 1).ToString()),
+                                ("radio", cg.Radio.ToString("F3")));
+                        }
+                        catch (Exception exArc)
+                        {
+                            ed.WriteMessage($"\n⚠ No se pudo crear la tubería curva en '{ip.Layer}' vértice {i + 1}: {exArc.Message}");
+                            Dbg("CURVA_ADD_FAIL", ("pipe", ip.Layer), ("vertice", (i + 1).ToString()), ("error", exArc.Message));
+                        }
+                    }
                 }
             }
 
@@ -1116,6 +1361,8 @@ namespace Civil3DBasico
                 Dbg("PIPE_PRES_MATCH", ("pedido_fam", ip.PipeFamily ?? ""),
                     ("pedido_size", ip.PipeSize ?? ""), ("diam", ip.Diameter.ToString("F1")),
                     ("elegida", tuboElegido?.Description ?? "?"));
+                ed.WriteMessage($"\n  [PIPE_PRES_MATCH] pedido: diam={ip.Diameter:F1} size='{ip.PipeSize}' fam='{ip.PipeFamily}' " +
+                                $"→ elegida: '{tuboElegido?.Description ?? "NINGUNA"}'");
 
                 int nVerts = ip.Vertices.Count;
                 double zStart = ip.InvStart ?? 0.0;
@@ -1157,73 +1404,15 @@ namespace Civil3DBasico
             // Auto-conectar tuberías en vértices compartidos e insertar fittings
             int nFittings = 0;
             var fittings = pl.GetParts(CivilDB.PressurePartDomainType.Fitting);
-            bool hasFittings = fittings != null && fittings.Count > 0;
 
-            for (int a = 0; a < pipeEndpoints.Count; a++)
-            {
-                for (int b = a + 1; b < pipeEndpoints.Count; b++)
-                {
-                    // Buscar extremos coincidentes (tolerancia 0.5 unidades)
-                    int portA = -1, portB = -1;
-                    double bestDist = 0.5;
-
-                    Point3d[] ea = { pipeEndpoints[a].start, pipeEndpoints[a].end };
-                    Point3d[] eb = { pipeEndpoints[b].start, pipeEndpoints[b].end };
-
-                    for (int i = 0; i < 2; i++)
-                        for (int j = 0; j < 2; j++)
-                        {
-                            double d = ea[i].DistanceTo(eb[j]);
-                            if (d < bestDist) { bestDist = d; portA = i; portB = j; }
-                        }
-
-                    if (portA < 0) continue;
-
-                    Point3d junta = new Point3d(
-                        (ea[portA].X + eb[portB].X) / 2,
-                        (ea[portA].Y + eb[portB].Y) / 2,
-                        (ea[portA].Z + eb[portB].Z) / 2);
-
-                    // Calcular deflexión
-                    Vector3d v1 = portA == 0 ? ea[1] - ea[0] : ea[0] - ea[1];
-                    Vector3d v2 = portB == 0 ? eb[1] - eb[0] : eb[0] - eb[1];
-                    double deflex = 180.0 - v1.GetAngleTo(v2) * 180.0 / Math.PI;
-
-                    if (hasFittings && Math.Abs(deflex) > 2.0)
-                    {
-                        // Insertar fitting (codo) en el cambio de dirección
-                        try
-                        {
-                            CivilDB.PressurePipe ppA = (CivilDB.PressurePipe)tr.GetObject(
-                                pipeEndpoints[a].id, OpenMode.ForRead);
-                            double diam = ppA.NominalDiameter;
-                            PresStyles.PressurePartSize elbow = MatchFitting(
-                                fittings, CivilDB.PressurePartType.Elbow, diam, deflex);
-
-                            if (elbow != null)
-                            {
-                                ObjectId fid = net.AddFitting(junta, elbow);
-                                CivilDB.PressurePart parte = (CivilDB.PressurePart)tr.GetObject(
-                                    fid, OpenMode.ForWrite);
-                                try { parte.ConnectToPipe(0, pipeEndpoints[a].id, portA); } catch { }
-                                try { parte.ConnectToPipe(1, pipeEndpoints[b].id, portB); } catch { }
-                                nFittings++;
-                                continue;
-                            }
-                        }
-                        catch { }
-                    }
-
-                    // Conexión directa tubo-a-tubo si no hay fitting
-                    try
-                    {
-                        CivilDB.PressurePipe ppA = (CivilDB.PressurePipe)tr.GetObject(
-                            pipeEndpoints[a].id, OpenMode.ForWrite);
-                        ppA.ConnectToPipe(portA, pipeEndpoints[b].id, portB);
-                    }
-                    catch { }
-                }
-            }
+            // Agrupa TODOS los extremos por sitio físico (no por PAR) y decide un
+            // solo accesorio por juntura — Codo/Reductor/Unión para 2 tuberías,
+            // Tee/Cruz para 3/4 — reutilizando la misma lógica que
+            // UNIR_TUBERIAS_PRESION/UNIR_VARIAS_PRESION (ver RedesPresionJunturas.cs).
+            // Antes esto era un bucle PAREADO que, en un empalme de 3+ tuberías,
+            // podía crear varios codos superpuestos conectados solo de a 2.
+            var (nFit, nDirect, nFail) = ComandosPresion.ProcesarJunturasPresion(net, tr, ed, fittings, pipeEndpoints);
+            nFittings = nFit;
 
             // ── Reponer la cota (Z) de rasante en cada extremo ──────────────
             // Igual que en gravedad: StartPoint.Z es el EJE del tubo; el invert
@@ -1236,10 +1425,15 @@ namespace Civil3DBasico
                 try
                 {
                     var pp = (CivilDB.PressurePipe)tr.GetObject(pe.id, OpenMode.ForWrite);
-                    // NominalDiameter viene en pulgadas → convertir a pies para
-                    // que el radio quede en la misma unidad que StartPoint.Z (ft).
+                    // NominalDiameter YA viene en unidades del dibujo (pies) — no en
+                    // pulgadas como decía este comentario antes. Confirmado con datos
+                    // reales: un tubo "12 in" (según su propia descripción de catálogo)
+                    // tiene NominalDiameter=1.000. Dividir por 12 acá daba un radio
+                    // ~12× más chico que el real (0.04 ft en vez de 0.5 ft para un tubo
+                    // de 12"), desfasando la cota del eje respecto al invert ~5-6
+                    // pulgadas de más en cada tubería a presión importada.
                     double r = 0.0;
-                    try { r = (pp.NominalDiameter / 12.0) / 2.0; } catch { }
+                    try { r = pp.NominalDiameter / 2.0; } catch { }
                     Point3d cs = pp.StartPoint, ce = pp.EndPoint;
                     pp.StartPoint = new Point3d(cs.X, cs.Y, pe.start.Z + r);
                     pp.EndPoint   = new Point3d(ce.X, ce.Y, pe.end.Z   + r);
@@ -1281,8 +1475,21 @@ namespace Civil3DBasico
                 }
             }
 
+            // Corrección automática de fittings: el DXF trae el fitting original
+            // (p.ej. un codo 4x4) sin ajustarlo al diámetro real del tubo con el
+            // que quedó conectado (p.ej. 12"). Reutiliza la misma lógica de
+            // CORREGIR_FITTINGS_PRESION, sin preguntar (ver RedesPresion.cs).
+            var (fitDetectados, fitCorregidos, fitFallidos) =
+                ComandosPresion.CorregirFittingsDeRed(net, tr, ed, preguntar: false);
+            if (fitDetectados > 0)
+                ed.WriteMessage($"\n  · Fittings con diámetro incorrecto: {fitCorregidos}/{fitDetectados} corregido(s)" +
+                                (fitFallidos > 0 ? $", {fitFallidos} sin pieza disponible en la Parts List" : "") + ".");
+
             ed.WriteMessage($"\n✓ Red presión '{nombre}': {nPipes} tubería(s), {nFittings} fitting(s), " +
-                            $"{componentesPres.Count} componente(s) para eje.");
+                            $"{componentesPres.Count} componente(s) para eje" +
+                            (nDirect > 0 ? $", {nDirect} unión(es) directa(s)" : "") +
+                            (nFail > 0 ? $", {nFail} juntura(s) sin resolver (ver avisos [JUNTURA] arriba)" : "") + ".");
+
             return netId;
         }
 
@@ -1869,7 +2076,26 @@ namespace Civil3DBasico
         {
             double zStart = ip.InvStart ?? 0.0;
             double zEnd = ip.InvEnd ?? zStart;
-            return ZalongByDistance(ip.Vertices, zStart, zEnd);
+            if (ip.VertexInv == null || ip.VertexInv.Count == 0 || nVerts < 3)
+                return ZalongByDistance(ip.Vertices, zStart, zEnd);
+
+            // Anclas fijas: vértice 0 y último (InvStart/InvEnd) más cualquier
+            // vértice intermedio con cota explícita (VERTEX_INV). Entre cada par
+            // de anclas consecutivas se interpola por distancia, igual que antes.
+            var anchors = new SortedDictionary<int, double> { [0] = zStart, [nVerts - 1] = zEnd };
+            foreach (var kv in ip.VertexInv)
+                if (kv.Key > 0 && kv.Key < nVerts - 1) anchors[kv.Key] = kv.Value;
+
+            double[] z = new double[nVerts];
+            var keys = new List<int>(anchors.Keys);
+            for (int seg = 0; seg < keys.Count - 1; seg++)
+            {
+                int a = keys[seg], b = keys[seg + 1];
+                var sub = ip.Vertices.GetRange(a, b - a + 1);
+                double[] subZ = ZalongByDistance(sub, anchors[a], anchors[b]);
+                for (int i = 0; i < subZ.Length; i++) z[a + i] = subZ[i];
+            }
+            return z;
         }
 
         // Invert por vértice interpolado por DISTANCIA acumulada 2D (pendiente
@@ -1890,6 +2116,81 @@ namespace Civil3DBasico
             return z;
         }
 
+        // Arco que ARRANCA en p1 tangente a la dirección (v - p1) y TERMINA en p2.
+        // v es el vértice de la esquina (donde se cruzarían las dos rectas
+        // extendidas): da la tangente de arranque, igual que el comando CURVA de
+        // AutoCAD (inicio/final/dirección). Puerto directo de la función
+        // 'ArcoTangente' de civil3d-mcp-bridge/src/Handlers.cs (ya verificada
+        // funcionando ahí para el mismo caso: bancoducto con esquina curva).
+        private static CircularArc3d ArcoTangente(Point3d p1, Point3d p2, Point3d v,
+                                                   out double radio, out bool horario)
+        {
+            double cz = (p1.X - v.X) * (p2.Y - v.Y) - (p1.Y - v.Y) * (p2.X - v.X);
+            horario = cz > 0;
+
+            var tang = new Vector3d(v.X - p1.X, v.Y - p1.Y, 0.0);
+            if (tang.Length < 1e-9)
+                throw new InvalidOperationException("El vértice de la esquina coincide con el punto de tangencia inicial.");
+            tang = tang / tang.Length;
+            var n = new Vector3d(-tang.Y, tang.X, 0.0);
+
+            var d = new Vector3d(p1.X - p2.X, p1.Y - p2.Y, 0.0);
+            if (d.Length < 1e-9)
+                throw new InvalidOperationException("Los dos puntos de tangencia coinciden: no hay arco posible.");
+
+            double nd = n.X * d.X + n.Y * d.Y;
+            if (Math.Abs(nd) < 1e-9)
+                throw new InvalidOperationException("El tramo queda recto: no hace falta arco.");
+
+            double t = -(d.Length * d.Length) / (2.0 * nd);
+            var c = new Point3d(p1.X + t * n.X, p1.Y + t * n.Y, (p1.Z + p2.Z) / 2.0);
+            radio = Math.Abs(t);
+
+            var med = new Point3d((p1.X + p2.X) / 2.0, (p1.Y + p2.Y) / 2.0, (p1.Z + p2.Z) / 2.0);
+            var hacia = new Vector3d(med.X - c.X, med.Y - c.Y, 0.0);
+            if (hacia.Length < 1e-9)
+                throw new InvalidOperationException("Puntos diametralmente opuestos: el arco queda indefinido.");
+            hacia = hacia / hacia.Length;
+            var pMed = new Point3d(c.X + radio * hacia.X, c.Y + radio * hacia.Y, (p1.Z + p2.Z) / 2.0);
+
+            return new CircularArc3d(p1, pMed, p2);
+        }
+
+        // Ancho/diámetro interior (pies) de una familia+tamaño de tubería, para el
+        // radio de respaldo (6×) cuando el usuario deja "Radio" vacío. No hay forma
+        // directa de leer InnerDiameterOrWidth/InnerHeight de un PartSize del
+        // catálogo sin instanciarlo — se crea una tubería descartable lejos del
+        // dibujo real, se lee la propiedad del objeto creado (mismo patrón que
+        // OffsetEjeARasante más abajo en este archivo) y se borra enseguida.
+        private static double ResolveAnchoInterior(Transaction tr, CivilDB.Network net,
+                                                    ObjectId fam, ObjectId size, Editor ed)
+        {
+            const double fallback = 2.0;   // si todo falla, algo razonable en vez de reventar
+            try
+            {
+                var p1 = new Point3d(1_000_000.0, 1_000_000.0, 0.0);
+                var p2 = new Point3d(1_000_000.0 + 1.0, 1_000_000.0, 0.0);
+                ObjectId dummyId = ObjectId.Null;
+                net.AddLinePipe(fam, size, new LineSegment3d(p1, p2), ref dummyId, false);
+                var dummy = (CivilDB.Pipe)tr.GetObject(dummyId, OpenMode.ForWrite);
+                double ancho = fallback;
+                try
+                {
+                    var pInnerH = dummy.GetType().GetProperty("InnerHeight");
+                    double h = pInnerH != null ? (double)pInnerH.GetValue(dummy) : 0.0;
+                    ancho = h > 0.01 ? h : dummy.InnerDiameterOrWidth;
+                }
+                catch { try { ancho = dummy.InnerDiameterOrWidth; } catch { } }
+                dummy.Erase();
+                return ancho > 0.01 ? ancho : fallback;
+            }
+            catch (Exception ex)
+            {
+                ed.WriteMessage($"\n⚠ No se pudo leer el ancho interior para el radio automático de la curva; se usa {fallback}'. ({ex.Message})");
+                return fallback;
+            }
+        }
+
         private static ImportStruct FindNearestStruct(List<ImportStruct> structs, Point2d v, double tol)
         {
             ImportStruct best = null;
@@ -1900,22 +2201,6 @@ namespace Civil3DBasico
                 if (d < bestDist) { bestDist = d; best = s; }
             }
             return best;
-        }
-
-        // Extrae el primer número seguido de "in" (o solo el primero) de una
-        // descripción de PartSize. Ej "10 in Elbow 90°" → 10.0; "48 pulg. …" → 48.0.
-        private static double ExtractInchesFromDesc(string desc)
-        {
-            if (string.IsNullOrEmpty(desc)) return 0;
-            // Preferir el número que precede "in"/"pulg" para no capturar ángulos.
-            var m = System.Text.RegularExpressions.Regex.Match(
-                desc, @"(\d+(?:\.\d+)?)\s*(?:in|pulg|""|\bin\b)", System.Text.RegularExpressions.RegexOptions.IgnoreCase);
-            if (m.Success) { double v; if (double.TryParse(m.Groups[1].Value,
-                System.Globalization.CultureInfo.InvariantCulture, out v)) return v; }
-            m = System.Text.RegularExpressions.Regex.Match(desc, @"(\d+(?:\.\d+)?)");
-            if (m.Success) { double v; if (double.TryParse(m.Groups[1].Value,
-                System.Globalization.CultureInfo.InvariantCulture, out v)) return v; }
-            return 0;
         }
 
         private static PresStyles.PressurePartSize MatchPresionTubo(
@@ -1946,49 +2231,11 @@ namespace Civil3DBasico
             double bestDiff = double.MaxValue;
             foreach (PresStyles.PressurePartSize t in pool)
             {
-                double d = ExtractInchesFromDesc(t.Description);
+                double d = ComandosPresion.ExtraerDiametroDeDescripcion(t.Description);
                 double diff = Math.Abs(d - targetDiam);
                 if (diff < bestDiff) { bestDiff = diff; best = t; }
             }
             return best;
-        }
-
-        private static PresStyles.PressurePartSize MatchFitting(
-            List<PresStyles.PressurePartSize> fittings,
-            CivilDB.PressurePartType tipo, double diam, double deflex)
-        {
-            // Recolectar candidatos del tipo pedido y usar su NominalDiameter
-            // numérico para elegir el MÁS CERCANO al diámetro de la pipe. Antes
-            // este método hacía match por substring en la descripción y, si no
-            // encontraba, devolvía el PRIMER fitting del tipo — que a menudo era
-            // el más grande del catálogo (Elbow 48"), generando codos gigantes.
-            var candidatos = new List<(PresStyles.PressurePartSize part, double diamF, double angleDiff)>();
-            foreach (PresStyles.PressurePartSize f in fittings)
-            {
-                if (f.PartType != tipo) continue;
-                double fDiam = ExtractInchesFromDesc(f.Description);
-                // Extraer ángulo de la descripción (para codos) para desempatar.
-                double fAng = 0;
-                var m = System.Text.RegularExpressions.Regex.Match(
-                    f.Description ?? "", @"(\d{2,3})\s*[°º]");
-                if (m.Success) double.TryParse(m.Groups[1].Value, out fAng);
-                double angleDiff = tipo == CivilDB.PressurePartType.Elbow
-                    ? Math.Abs(fAng - Math.Abs(deflex)) : 0;
-                candidatos.Add((f, fDiam, angleDiff));
-            }
-            if (candidatos.Count == 0) return null;
-
-            // Preferencias:
-            //   1) Diámetro dentro de 0.01" del pedido (empate por ángulo cercano).
-            //   2) El más cercano al diámetro pedido; empate por ángulo.
-            double target = diam;
-            candidatos.Sort((a, b) =>
-            {
-                double dA = Math.Abs(a.diamF - target), dB = Math.Abs(b.diamF - target);
-                if (Math.Abs(dA - dB) > 0.01) return dA.CompareTo(dB);
-                return a.angleDiff.CompareTo(b.angleDiff);
-            });
-            return candidatos[0].part;
         }
 
         // =================================================================
@@ -2004,7 +2251,7 @@ namespace Civil3DBasico
             {
                 if (tv.TypeCode != 1000) continue;
                 string s = tv.Value?.ToString() ?? "";
-                if (s == "PDFCAD_PIPE" || s == "PDFCAD_STRUCT")
+                if (s == "PDFCAD_PIPE" || s == "PDFCAD_STRUCT" || s == "PDFCAD_CURVE")
                 { dict["_MARKER"] = s; continue; }
                 int eq = s.IndexOf('=');
                 if (eq > 0) dict[s.Substring(0, eq)] = s.Substring(eq + 1);
@@ -2124,6 +2371,64 @@ namespace Civil3DBasico
             // Si un tramo no está aquí, usa PipeFamily/PipeSize globales.
             public Dictionary<int, (string fam, string size)> SegOverrides
                 = new Dictionary<int, (string, string)>();
+            // Radio explícito (pies) por vértice NoManholeVerts, desde PDFCAD_CURVE.
+            // Si un vértice curvo no está aquí, se usa el radio automático (6× ancho).
+            public Dictionary<int, double> CurveRadiusByVert = new Dictionary<int, double>();
+            // Cota explícita por vértice INTERMEDIO, editada a mano en la app de
+            // Python (un vértice = el punto donde dos tramos se juntan). Los
+            // vértices que no están aquí siguen la interpolación lineal por
+            // distancia entre las anclas (InvStart/InvEnd/estos overrides) más
+            // cercanas — ver InterpolateZ. Ya viene convertida a unidades del dibujo.
+            public Dictionary<int, double> VertexInv = new Dictionary<int, double>();
+        }
+
+        // Esquina de un elemento curvo (punto PDFCAD_CURVE, capa PDFCAD_CURVA).
+        private class ImportCurveInfo
+        {
+            public Point2d Location;
+            public string Id;
+            public double? RadiusFt;   // null = automático (6× ancho/diámetro interior)
+        }
+
+        // Geometría ya resuelta del arco tangente en un vértice curvo: los puntos
+        // de tangencia (extremos reales de los tramos rectos vecinos, no el vértice
+        // original) y el arco que los une.
+        private class CurveGeom
+        {
+            public Point3d P1;         // tangencia sobre el tramo ANTERIOR
+            public Point3d P2;         // tangencia sobre el tramo SIGUIENTE
+            public CircularArc3d Arco;
+            public bool Horario;
+            public double Radio;
+            // Datos crudos guardados para poder RECALCULAR con un T más chico si
+            // esta esquina y la siguiente comparten tramo y se solapan (ver ajuste
+            // de "tramo recto mínimo" en CrearRedGravedadCompleta).
+            public double T;
+            public double DeltaRad;
+            public Point3d Corner, PrevV, NextV;
+            public Vector3d DirPrev, DirNext;   // unitarios
+            public double DistPrev, DistNext;   // distancia esquina→vértice vecino ORIGINAL
+        }
+
+        // Reconstruye P1/P2/Arco/Horario/Radio para una esquina ya analizada,
+        // con un T (distancia de recorte) distinto — se usa tanto en el cálculo
+        // inicial como en el ajuste por "tramo recto mínimo".
+        private static CurveGeom BuildCurveGeom(double t, Point3d corner, Vector3d dirPrev, Vector3d dirNext,
+                                                 double distPrev, double distNext, Point3d prevV, Point3d nextV,
+                                                 double deltaRad)
+        {
+            Point3d p1 = new Point3d(corner.X + t * dirPrev.X, corner.Y + t * dirPrev.Y,
+                                      corner.Z + (t / distPrev) * (prevV.Z - corner.Z));
+            Point3d p2 = new Point3d(corner.X + t * dirNext.X, corner.Y + t * dirNext.Y,
+                                      corner.Z + (t / distNext) * (nextV.Z - corner.Z));
+            double radioReal; bool horario;
+            CircularArc3d arco = ArcoTangente(p1, p2, corner, out radioReal, out horario);
+            return new CurveGeom
+            {
+                P1 = p1, P2 = p2, Arco = arco, Horario = horario, Radio = radioReal, T = t,
+                DeltaRad = deltaRad, Corner = corner, PrevV = prevV, NextV = nextV,
+                DirPrev = dirPrev, DirNext = dirNext, DistPrev = distPrev, DistNext = distNext,
+            };
         }
 
         private class ImportStruct

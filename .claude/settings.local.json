@@ -128,7 +128,24 @@
       "Read(//c/Users/User/AppData/Local/Temp/claude/D--GVR-Proyectos-DEV-EEUU-pdf-to-cad/d7f766f9-4a81-42a7-9b94-0c5f465a5bd0/scratchpad/proj/**)",
       "Bash(grep -iE \"\\\\.dll$|\\\\.xml$\")",
       "Bash(grep -iE \"\\\\.xaml$\")",
-      "Bash(cmd //c \"installer\\\\\\\\build_plugin.bat\")"
+      "Bash(cmd //c \"installer\\\\\\\\build_plugin.bat\")",
+      "Bash(python scripts/fill_pressure_catalog_gaps.py)",
+      "mcp__civil3d__list_parts_lists",
+      "mcp__civil3d__get_drawing_info",
+      "mcp__civil3d__create_pipe_network",
+      "PowerShell(Set-Location \"D:\\\\Proyecto-Programacion\\\\Addins-Civil3D\\\\civil3d-mcp-bridge\"; Copy-Item \"bin\\\\x64\\\\Release\\\\Civil3DMcpBridge.dll\" \"dist\\\\Civil3DMcpBridge.dll\" -Force; Copy-Item \"bin\\\\x64\\\\Release\\\\Civil3DMcpBridge.dll\" \"$env:APPDATA\\\\Autodesk\\\\ApplicationPlugins\\\\Civil3DMcpBridge\\\\Contents\\\\Civil3DMcpBridge.dll\" -Force; Write-Host \"Installed OK\")",
+      "mcp__civil3d__create_pressure_network",
+      "Bash(python scripts/fill_pressure_catalog_gaps_multi.py \"C:\\\\ProgramData\\\\Autodesk\\\\C3D 2024\\\\enu\\\\Pressure Pipes Catalog\\\\Imperial\" --dry-run)",
+      "Bash(python scripts/fill_pressure_catalog_gaps_multi.py \"C:\\\\ProgramData\\\\Autodesk\\\\C3D 2025\\\\enu\\\\Pressure Pipes Catalog\\\\Metric\" --dry-run)",
+      "Bash(python scripts/fill_pressure_catalog_gaps_multi.py \"C:\\\\ProgramData\\\\Autodesk\\\\C3D 2026\\\\enu\\\\Pressure Pipes Catalog\\\\Metric\" --dry-run)",
+      "Bash(python scripts/fill_pressure_catalog_gaps_multi.py \"C:\\\\ProgramData\\\\Autodesk\\\\C3D 2024\\\\enu\\\\Pressure Pipes Catalog\\\\Imperial\")",
+      "PowerShell(icacls \"C:\\\\ProgramData\\\\Autodesk\\\\C3D 2024\\\\enu\\\\Pressure Pipes Catalog\\\\Imperial\\\\Imperial_AWWA_Flanged.sqlite\")",
+      "PowerShell(icacls \"C:\\\\ProgramData\\\\Autodesk\\\\C3D 2024\\\\enu\\\\Pressure Pipes Catalog\\\\Imperial\" /grant \"$env:USERNAME:\\(OI\\)\\(CI\\)\\(M\\)\" /T /Q 2>&1 | Select-Object -Last 1)",
+      "Bash(icacls \"C:\\\\ProgramData\\\\Autodesk\\\\C3D 2024\\\\enu\\\\Pressure Pipes Catalog\\\\Imperial\" /grant \"USUARIO:\\(OI\\)\\(CI\\)\\(M\\)\" /T /Q)",
+      "PowerShell($user = [System.Security.Principal.WindowsIdentity]::GetCurrent\\(\\).Name; icacls \"C:\\\\ProgramData\\\\Autodesk\\\\C3D 2024\\\\enu\\\\Pressure Pipes Catalog\\\\Imperial\" /grant \"${user}:\\(OI\\)\\(CI\\)\\(M\\)\" /T /Q 2>&1 | Select-Object -Last 2)",
+      "Bash(python scripts/fill_pressure_catalog_gaps_multi.py \"C:\\\\\\\\ProgramData\\\\\\\\Autodesk\\\\\\\\C3D 2025\\\\\\\\enu\\\\\\\\Pressure Pipes Catalog\\\\\\\\Metric\")",
+      "Bash(python scripts/fill_pressure_catalog_gaps_multi.py \"C:\\\\\\\\ProgramData\\\\\\\\Autodesk\\\\\\\\C3D 2026\\\\\\\\enu\\\\\\\\Pressure Pipes Catalog\\\\\\\\Metric\")",
+      "Bash(dotnet list *)"
     ]
   }
 }

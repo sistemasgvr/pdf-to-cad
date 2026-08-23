@@ -14,14 +14,6 @@ using CivilDB = Autodesk.Civil.DatabaseServices;
 
 namespace Civil3DBasico
 {
-    // Punto de terreno real muestreado sobre la superficie de referencia de la
-    // red (net.ReferenceSurfaceId), en una estación del eje.
-    internal class PuntoTerreno
-    {
-        public double Station;
-        public double Elevation;
-    }
-
     internal static class PerfilLongitudinalDatos
     {
         internal class NodoBuzon
@@ -127,48 +119,6 @@ namespace Civil3DBasico
                 return true;
             }
             catch { return false; }
-        }
-
-        // Muestrea el terreno real desde la superficie de referencia de la red
-        // (la que IMPORTAR_RED ya asignó a net.ReferenceSurfaceId), a intervalos
-        // regulares entre cada par de buzones consecutivos + exactamente en la
-        // estación de cada buzón. Si la red no tiene superficie asociada, o algo
-        // falla, devuelve una lista vacía — nunca se inventa terreno.
-        internal static List<PuntoTerreno> MuestrearTerreno(
-            CivilDB.Network net, CivilDB.Alignment align, List<NodoBuzon> nodos, Transaction tr)
-        {
-            var pts = new List<PuntoTerreno>();
-            ObjectId surfId;
-            try { surfId = net.ReferenceSurfaceId; } catch { return pts; }
-            if (surfId.IsNull || !surfId.IsValid) return pts;
-            CivilDB.Surface surf;
-            try { surf = tr.GetObject(surfId, OpenMode.ForRead) as CivilDB.Surface; } catch { return pts; }
-            if (surf == null || nodos == null || nodos.Count == 0) return pts;
-
-            const int subMuestras = 6;   // puntos intermedios entre cada par de buzones
-            for (int i = 0; i < nodos.Count; i++)
-            {
-                MuestraTerreno(pts, align, surf, nodos[i].Station);
-                if (i < nodos.Count - 1)
-                {
-                    double sta0 = nodos[i].Station, sta1 = nodos[i + 1].Station;
-                    for (int k = 1; k < subMuestras; k++)
-                        MuestraTerreno(pts, align, surf, sta0 + (sta1 - sta0) * k / subMuestras);
-                }
-            }
-            return pts;
-        }
-
-        private static void MuestraTerreno(List<PuntoTerreno> pts, CivilDB.Alignment align, CivilDB.Surface surf, double station)
-        {
-            try
-            {
-                double x = 0.0, y = 0.0;
-                align.PointLocation(station, 0.0, ref x, ref y);
-                double elev = surf.FindElevationAtXY(x, y);
-                pts.Add(new PuntoTerreno { Station = station, Elevation = elev });
-            }
-            catch { }
         }
     }
 }
