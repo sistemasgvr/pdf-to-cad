@@ -828,10 +828,9 @@ namespace Civil3DBasico
                     var fittings = pl.GetParts(CivilDB.PressurePartDomainType.Fitting);
                     if (fittings == null || fittings.Count == 0) { ed.WriteMessage("\nLa parts list no tiene accesorios (fittings)."); tr.Abort(); return; }
 
-                    // Tipo de accesorio que suele corresponder
-                    CivilDB.PressurePartType objetivo =
-                        (Math.Abs(d1 - d2) > 1e-6) ? CivilDB.PressurePartType.Reducer :
-                        (deflex > 1.0) ? CivilDB.PressurePartType.Elbow : CivilDB.PressurePartType.Coupling;
+                    // Tipo de accesorio que suele corresponder (misma decisión que
+                    // usa el import automático — ver DecidirTipoFitting).
+                    CivilDB.PressurePartType objetivo = DecidirTipoFitting(2, d1, d2, deflex).Value;
 
                     string dTxt = ((int)Math.Round(d1)).ToString();
                     string aTxt = ((int)Math.Round(deflex)).ToString();
@@ -1602,7 +1601,7 @@ namespace Civil3DBasico
 
                     tr.Commit();
                     if (detectados == 0)
-                        ed.WriteMessage("\n✓ Todos los fittings coinciden con el diámetro de sus tuberías.");
+                        ed.WriteMessage("\n✓ Todos los fittings tienen el tipo y diámetro que corresponde a sus tuberías.");
                     else
                         ed.WriteMessage($"\n\n✓ Resultado: {corregidos} corregido(s), {fallidos} fallido(s) de {detectados} detectado(s).");
                 }
@@ -1614,8 +1613,13 @@ namespace Civil3DBasico
             }
         }
 
-        // Detecta fittings cuyo diámetro no coincide con el del tubo conectado
-        // y los reemplaza por el fitting correcto de la Parts List de la red.
+        // Detecta fittings cuyo TIPO no corresponde a sus conexiones reales
+        // (p.ej. un Codo donde debería haber un Reductor o una Tee, según
+        // DecidirTipoFitting) y/o cuyo DIÁMETRO no coincide con el del tubo
+        // conectado, y los reemplaza por el fitting correcto de la Parts List
+        // de la red. No detecta junturas que hoy no tienen NINGÚN accesorio
+        // (solo audita fittings existentes) — para eso, usar
+        // UNIR_TUBERIAS_PRESION/UNIR_VARIAS_PRESION a mano.
         // `preguntar` = true: lista los desajustes y pide confirmación [Si/No]
         // antes de tocar nada (uso interactivo, CORREGIR_FITTINGS_PRESION).
         // `preguntar` = false: corrige directo, sin preguntar (uso automático
@@ -1644,16 +1648,33 @@ namespace Civil3DBasico
                 CivilDB.PressureFitting fit = tr.GetObject(fid, OpenMode.ForRead) as CivilDB.PressureFitting;
                 if (fit == null) { ed.WriteMessage("\n  [CORREGIR_FITTINGS] · (no es PressureFitting, se salta)"); continue; }
 
-                double fitDia = _ObtenerDiametroFitting(fit);
+                // Diámetro NOMINAL del fitting, en pulgadas, leído de su descripción
+                // de catálogo ("elbow-4 in-45 degree-..." → 4.0). NO se usa
+                // fit.GetConnectionAt(p).OutsideDiameter: ese valor resultó ser el
+                // diámetro EXTERIOR del socket/campana del accesorio (más grande que
+                // el tubo, por diseño — así encaja el tubo adentro), no el nominal, y
+                // además viene en pulgadas fijas sin importar las unidades del dibujo
+                // — comparado contra PressurePipe.OuterDiameter (en las unidades del
+                // dibujo, pies) daba una "diferencia" enorme SIEMPRE, sin importar si
+                // el tamaño era correcto o no.
+                double fitDia = ExtraerDiametroDeDescripcion(fit.PartDescription);
                 string descOriginal = "?"; try { descOriginal = fit.PartDescription; } catch { }
                 if (fitDia <= 0)
                 {
-                    ed.WriteMessage($"\n  [CORREGIR_FITTINGS] · '{descOriginal}': no se pudo leer su diámetro (fitDia<=0), se salta.");
+                    ed.WriteMessage($"\n  [CORREGIR_FITTINGS] · '{descOriginal}': no se pudo leer su diámetro de la descripción, se salta.");
                     continue;
                 }
 
                 var conexiones = new List<_ConexionInfo>();
-                double pipeDiaMax = 0, pipeNomDiaMax = 0;
+                var pipesConectados = new List<CivilDB.PressurePipe>();
+                // CONFIRMADO EMPÍRICAMENTE (log real de IMPORTAR_RED): un tubo cuya
+                // propia descripción de catálogo dice "12 in" (descDia=12.0, parseado
+                // de texto) tiene NominalDiameter=1.000 — es decir, PressurePipe.
+                // NominalDiameter/OuterDiameter vienen en las UNIDADES DEL DIBUJO
+                // (pies, ya que IMPORTAR_RED fuerza el dibujo a Feet), no en pulgadas.
+                // El comentario en ImportarRed.cs junto a "(pp.NominalDiameter / 12.0)
+                // / 2.0" decía lo contrario y estaba MAL — ver el fix de esa línea ahí.
+                double pipeNomDiaMaxIn = 0;   // pulgadas (se convierte ×12 abajo)
 
                 for (int p = 0; p < fit.ConnectionCount; p++)
                 {
@@ -1665,35 +1686,57 @@ namespace Civil3DBasico
                         if (pipe == null) continue;
                         int pipePort = (fit.Position.DistanceTo(pipe.StartPoint) <= fit.Position.DistanceTo(pipe.EndPoint)) ? 0 : 1;
                         conexiones.Add(new _ConexionInfo { PipeId = conn.ConnectedId, PipePort = pipePort, FitPort = p });
-                        if (pipe.OuterDiameter > pipeDiaMax) pipeDiaMax = pipe.OuterDiameter;
-                        if (pipe.NominalDiameter > pipeNomDiaMax) pipeNomDiaMax = pipe.NominalDiameter;
+                        pipesConectados.Add(pipe);
+                        string pipeDescOwn = "?"; try { pipeDescOwn = pipe.PartDescription; } catch { }
+                        double pipeDescDia = ExtraerDiametroDeDescripcion(pipeDescOwn);
+                        double nomIn = pipe.NominalDiameter * 12.0;
+                        ed.WriteMessage($"\n  [CORREGIR_FITTINGS]     tubo conectado: '{pipeDescOwn}' — " +
+                                        $"NominalDiameter={pipe.NominalDiameter:F3}ft ({nomIn:F1}in), descDia={pipeDescDia:F1}in");
+                        if (nomIn > pipeNomDiaMaxIn) pipeNomDiaMaxIn = nomIn;
                     }
                     catch { }
                 }
 
-                ed.WriteMessage($"\n  [CORREGIR_FITTINGS] · '{descOriginal}': fitDia(OD)={fitDia:F2}, conexiones={conexiones.Count}, " +
-                                $"pipeDiaMax(OD)={pipeDiaMax:F2}, pipeNomDiaMax={pipeNomDiaMax:F2}");
+                // Tipo que DEBERÍA tener este accesorio según sus conexiones reales
+                // (misma decisión que usa el import automático — ver
+                // DecidirTipoFitting). d1/d2 en pies (unidades del dibujo) — la
+                // comparación de DecidirTipoFitting es solo d1==d2, no le importa
+                // la unidad mientras sea la MISMA en ambos lados. Para 2 tubos hace
+                // falta la deflexión real, calculada desde el extremo LEJANO de cada
+                // tubo respecto a la posición del accesorio (mismo cálculo que
+                // ProcesarJunturasPresion).
+                double deflex = 0;
+                if (conexiones.Count == 2)
+                {
+                    Point3d far0 = conexiones[0].PipePort == 0 ? pipesConectados[0].EndPoint : pipesConectados[0].StartPoint;
+                    Point3d far1 = conexiones[1].PipePort == 0 ? pipesConectados[1].EndPoint : pipesConectados[1].StartPoint;
+                    Vector3d v1 = far0 - fit.Position, v2 = far1 - fit.Position;
+                    deflex = 180.0 - v1.GetAngleTo(v2) * 180.0 / Math.PI;
+                }
+                var tipoCorrecto = DecidirTipoFitting(conexiones.Count,
+                    pipesConectados.Count > 0 ? pipesConectados[0].NominalDiameter : 0,
+                    pipesConectados.Count > 1 ? pipesConectados[1].NominalDiameter : 0,
+                    deflex);
 
-                if (pipeDiaMax <= 0 || conexiones.Count == 0) continue;
-                // Comparación de MISMATCH: OD del fitting vs OD del tubo (mismo tipo de
-                // medida en ambos lados). Para BUSCAR el reemplazo en el catálogo se usa
-                // el diámetro NOMINAL (pipeNomDiaMax) más abajo — las descripciones del
-                // catálogo ("12 in x 12 in...") están en nominal, no en OD real (que para
-                // tubería de hierro dúctil/PVC suele ser mayor que el nominal, p.ej. 12"
-                // nominal ≈ 13.2" de OD real — comparar OD contra nominal ahí habría
-                // fallado el match aunque el fitting correcto SÍ estuviera en la Parts List).
-                if (Math.Abs(fitDia - pipeDiaMax) < 0.5) continue;
+                ed.WriteMessage($"\n  [CORREGIR_FITTINGS] · '{descOriginal}' ({fit.PartType}): fitDiaNominal={fitDia:F2}in, conexiones={conexiones.Count}, " +
+                                $"pipeNomDiaMax={pipeNomDiaMaxIn:F2}in, tipoCorrecto={tipoCorrecto}");
 
-                string angulo = _ExtraerAngulo(fit.PartDescription);
+                if (pipeNomDiaMaxIn <= 0 || conexiones.Count == 0) continue;
+                bool tipoDesajustado = tipoCorrecto.HasValue && tipoCorrecto.Value != fit.PartType;
+                bool tamanoDesajustado = Math.Abs(fitDia - pipeNomDiaMaxIn) >= 0.5;
+                if (!tipoDesajustado && !tamanoDesajustado) continue;
+
+                double? angulo = ExtraerAnguloDeDescripcion(fit.PartDescription);
 
                 reemplazos.Add(new _ReemplazoInfo
                 {
                     FittingId = fid,
                     Posicion = fit.Position,
-                    Tipo = fit.PartType,
+                    Tipo = tipoCorrecto ?? fit.PartType,
+                    TipoViejo = fit.PartType,
                     Angulo = angulo,
                     DiametroActual = fitDia,
-                    DiametroCorrecto = pipeNomDiaMax > 0 ? pipeNomDiaMax : pipeDiaMax,
+                    DiametroCorrecto = pipeNomDiaMaxIn,
                     Conexiones = conexiones,
                     DescVieja = fit.PartDescription
                 });
@@ -1703,9 +1746,10 @@ namespace Civil3DBasico
 
             if (preguntar)
             {
-                ed.WriteMessage($"\n{reemplazos.Count} fitting(s) con diámetro incorrecto:");
+                ed.WriteMessage($"\n{reemplazos.Count} fitting(s) con tipo o diámetro incorrecto:");
                 foreach (var r in reemplazos)
-                    ed.WriteMessage($"\n  · {r.Tipo} '{r.DescVieja}' (Ø{r.DiametroActual:F0}) → necesita Ø{r.DiametroCorrecto:F0}");
+                    ed.WriteMessage($"\n  · '{r.DescVieja}' ({r.TipoViejo}, Ø{r.DiametroActual:F0}) → necesita " +
+                                    (r.TipoViejo != r.Tipo ? $"{r.Tipo}, " : "") + $"Ø{r.DiametroCorrecto:F0}");
 
                 PromptKeywordOptions pkC = new PromptKeywordOptions(
                     $"\n¿Corregir {reemplazos.Count} fitting(s)? [Si/No] <Si>:", "Si No");
@@ -1788,42 +1832,24 @@ namespace Civil3DBasico
             return (reemplazos.Count, corregidos, fallidos);
         }
 
-        private static double _ObtenerDiametroFitting(CivilDB.PressureFitting fit)
-        {
-            try { if (fit.ConnectionCount > 0) return fit.GetConnectionAt(0).OutsideDiameter; }
-            catch { }
-            var m = System.Text.RegularExpressions.Regex.Match(fit.PartDescription ?? "", @"(\d+)\s*in");
-            if (m.Success && double.TryParse(m.Groups[1].Value, out double d)) return d;
-            return 0;
-        }
-
-        private static string _ExtraerAngulo(string desc)
-        {
-            if (string.IsNullOrEmpty(desc)) return null;
-            var m = System.Text.RegularExpressions.Regex.Match(desc, @"([\d.]+)\s*degree");
-            return m.Success ? m.Groups[1].Value : null;
-        }
-
         private static PresStyles.PressurePartSize _BuscarPiezaCorrecta(
             List<PresStyles.PressurePartSize> partes,
-            CivilDB.PressurePartType tipo, double diametro, string angulo)
+            CivilDB.PressurePartType tipo, double diametro, double? angulo)
         {
-            string diaStr = ((int)Math.Round(diametro)).ToString();
             PresStyles.PressurePartSize mejorConAngulo = null;
             PresStyles.PressurePartSize mejorSinAngulo = null;
 
             foreach (var p in partes)
             {
                 if (p.PartType != tipo) continue;
-                string desc = (p.Description ?? "").ToLowerInvariant();
+                string desc = p.Description ?? "";
 
                 // Verificar que el primer diámetro en la descripción coincida
-                var mDia = System.Text.RegularExpressions.Regex.Match(desc, @"(\d+)\s*in");
-                if (!mDia.Success) continue;
-                int primerDia = int.Parse(mDia.Groups[1].Value);
-                if (Math.Abs(primerDia - diametro) > 1.0) continue;
+                double primerDia = ExtraerDiametroDeDescripcion(desc);
+                if (primerDia <= 0 || Math.Abs(primerDia - diametro) > 1.0) continue;
 
-                if (angulo != null && desc.Contains(angulo + " degree"))
+                double? candAng = ExtraerAnguloDeDescripcion(desc);
+                if (angulo.HasValue && candAng.HasValue && Math.Abs(candAng.Value - angulo.Value) < 0.5)
                 {
                     mejorConAngulo = p;
                     break;
@@ -1852,7 +1878,8 @@ namespace Civil3DBasico
             public ObjectId FittingId;
             public Point3d Posicion;
             public CivilDB.PressurePartType Tipo;
-            public string Angulo;
+            public CivilDB.PressurePartType TipoViejo;
+            public double? Angulo;
             public double DiametroActual, DiametroCorrecto;
             public List<_ConexionInfo> Conexiones;
             public string DescVieja;

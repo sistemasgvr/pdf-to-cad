@@ -1361,6 +1361,8 @@ namespace Civil3DBasico
                 Dbg("PIPE_PRES_MATCH", ("pedido_fam", ip.PipeFamily ?? ""),
                     ("pedido_size", ip.PipeSize ?? ""), ("diam", ip.Diameter.ToString("F1")),
                     ("elegida", tuboElegido?.Description ?? "?"));
+                ed.WriteMessage($"\n  [PIPE_PRES_MATCH] pedido: diam={ip.Diameter:F1} size='{ip.PipeSize}' fam='{ip.PipeFamily}' " +
+                                $"→ elegida: '{tuboElegido?.Description ?? "NINGUNA"}'");
 
                 int nVerts = ip.Vertices.Count;
                 double zStart = ip.InvStart ?? 0.0;
@@ -1402,73 +1404,15 @@ namespace Civil3DBasico
             // Auto-conectar tuberías en vértices compartidos e insertar fittings
             int nFittings = 0;
             var fittings = pl.GetParts(CivilDB.PressurePartDomainType.Fitting);
-            bool hasFittings = fittings != null && fittings.Count > 0;
 
-            for (int a = 0; a < pipeEndpoints.Count; a++)
-            {
-                for (int b = a + 1; b < pipeEndpoints.Count; b++)
-                {
-                    // Buscar extremos coincidentes (tolerancia 0.5 unidades)
-                    int portA = -1, portB = -1;
-                    double bestDist = 0.5;
-
-                    Point3d[] ea = { pipeEndpoints[a].start, pipeEndpoints[a].end };
-                    Point3d[] eb = { pipeEndpoints[b].start, pipeEndpoints[b].end };
-
-                    for (int i = 0; i < 2; i++)
-                        for (int j = 0; j < 2; j++)
-                        {
-                            double d = ea[i].DistanceTo(eb[j]);
-                            if (d < bestDist) { bestDist = d; portA = i; portB = j; }
-                        }
-
-                    if (portA < 0) continue;
-
-                    Point3d junta = new Point3d(
-                        (ea[portA].X + eb[portB].X) / 2,
-                        (ea[portA].Y + eb[portB].Y) / 2,
-                        (ea[portA].Z + eb[portB].Z) / 2);
-
-                    // Calcular deflexión
-                    Vector3d v1 = portA == 0 ? ea[1] - ea[0] : ea[0] - ea[1];
-                    Vector3d v2 = portB == 0 ? eb[1] - eb[0] : eb[0] - eb[1];
-                    double deflex = 180.0 - v1.GetAngleTo(v2) * 180.0 / Math.PI;
-
-                    if (hasFittings && Math.Abs(deflex) > 2.0)
-                    {
-                        // Insertar fitting (codo) en el cambio de dirección
-                        try
-                        {
-                            CivilDB.PressurePipe ppA = (CivilDB.PressurePipe)tr.GetObject(
-                                pipeEndpoints[a].id, OpenMode.ForRead);
-                            double diam = ppA.NominalDiameter;
-                            PresStyles.PressurePartSize elbow = MatchFitting(
-                                fittings, CivilDB.PressurePartType.Elbow, diam, deflex);
-
-                            if (elbow != null)
-                            {
-                                ObjectId fid = net.AddFitting(junta, elbow);
-                                CivilDB.PressurePart parte = (CivilDB.PressurePart)tr.GetObject(
-                                    fid, OpenMode.ForWrite);
-                                try { parte.ConnectToPipe(0, pipeEndpoints[a].id, portA); } catch { }
-                                try { parte.ConnectToPipe(1, pipeEndpoints[b].id, portB); } catch { }
-                                nFittings++;
-                                continue;
-                            }
-                        }
-                        catch { }
-                    }
-
-                    // Conexión directa tubo-a-tubo si no hay fitting
-                    try
-                    {
-                        CivilDB.PressurePipe ppA = (CivilDB.PressurePipe)tr.GetObject(
-                            pipeEndpoints[a].id, OpenMode.ForWrite);
-                        ppA.ConnectToPipe(portA, pipeEndpoints[b].id, portB);
-                    }
-                    catch { }
-                }
-            }
+            // Agrupa TODOS los extremos por sitio físico (no por PAR) y decide un
+            // solo accesorio por juntura — Codo/Reductor/Unión para 2 tuberías,
+            // Tee/Cruz para 3/4 — reutilizando la misma lógica que
+            // UNIR_TUBERIAS_PRESION/UNIR_VARIAS_PRESION (ver RedesPresionJunturas.cs).
+            // Antes esto era un bucle PAREADO que, en un empalme de 3+ tuberías,
+            // podía crear varios codos superpuestos conectados solo de a 2.
+            var (nFit, nDirect, nFail) = ComandosPresion.ProcesarJunturasPresion(net, tr, ed, fittings, pipeEndpoints);
+            nFittings = nFit;
 
             // ── Reponer la cota (Z) de rasante en cada extremo ──────────────
             // Igual que en gravedad: StartPoint.Z es el EJE del tubo; el invert
@@ -1481,10 +1425,15 @@ namespace Civil3DBasico
                 try
                 {
                     var pp = (CivilDB.PressurePipe)tr.GetObject(pe.id, OpenMode.ForWrite);
-                    // NominalDiameter viene en pulgadas → convertir a pies para
-                    // que el radio quede en la misma unidad que StartPoint.Z (ft).
+                    // NominalDiameter YA viene en unidades del dibujo (pies) — no en
+                    // pulgadas como decía este comentario antes. Confirmado con datos
+                    // reales: un tubo "12 in" (según su propia descripción de catálogo)
+                    // tiene NominalDiameter=1.000. Dividir por 12 acá daba un radio
+                    // ~12× más chico que el real (0.04 ft en vez de 0.5 ft para un tubo
+                    // de 12"), desfasando la cota del eje respecto al invert ~5-6
+                    // pulgadas de más en cada tubería a presión importada.
                     double r = 0.0;
-                    try { r = (pp.NominalDiameter / 12.0) / 2.0; } catch { }
+                    try { r = pp.NominalDiameter / 2.0; } catch { }
                     Point3d cs = pp.StartPoint, ce = pp.EndPoint;
                     pp.StartPoint = new Point3d(cs.X, cs.Y, pe.start.Z + r);
                     pp.EndPoint   = new Point3d(ce.X, ce.Y, pe.end.Z   + r);
@@ -1537,7 +1486,10 @@ namespace Civil3DBasico
                                 (fitFallidos > 0 ? $", {fitFallidos} sin pieza disponible en la Parts List" : "") + ".");
 
             ed.WriteMessage($"\n✓ Red presión '{nombre}': {nPipes} tubería(s), {nFittings} fitting(s), " +
-                            $"{componentesPres.Count} componente(s) para eje.");
+                            $"{componentesPres.Count} componente(s) para eje" +
+                            (nDirect > 0 ? $", {nDirect} unión(es) directa(s)" : "") +
+                            (nFail > 0 ? $", {nFail} juntura(s) sin resolver (ver avisos [JUNTURA] arriba)" : "") + ".");
+
             return netId;
         }
 
@@ -2251,22 +2203,6 @@ namespace Civil3DBasico
             return best;
         }
 
-        // Extrae el primer número seguido de "in" (o solo el primero) de una
-        // descripción de PartSize. Ej "10 in Elbow 90°" → 10.0; "48 pulg. …" → 48.0.
-        private static double ExtractInchesFromDesc(string desc)
-        {
-            if (string.IsNullOrEmpty(desc)) return 0;
-            // Preferir el número que precede "in"/"pulg" para no capturar ángulos.
-            var m = System.Text.RegularExpressions.Regex.Match(
-                desc, @"(\d+(?:\.\d+)?)\s*(?:in|pulg|""|\bin\b)", System.Text.RegularExpressions.RegexOptions.IgnoreCase);
-            if (m.Success) { double v; if (double.TryParse(m.Groups[1].Value,
-                System.Globalization.CultureInfo.InvariantCulture, out v)) return v; }
-            m = System.Text.RegularExpressions.Regex.Match(desc, @"(\d+(?:\.\d+)?)");
-            if (m.Success) { double v; if (double.TryParse(m.Groups[1].Value,
-                System.Globalization.CultureInfo.InvariantCulture, out v)) return v; }
-            return 0;
-        }
-
         private static PresStyles.PressurePartSize MatchPresionTubo(
             List<PresStyles.PressurePartSize> tubos, double targetDiam, string pipeFamily = "")
         {
@@ -2295,49 +2231,11 @@ namespace Civil3DBasico
             double bestDiff = double.MaxValue;
             foreach (PresStyles.PressurePartSize t in pool)
             {
-                double d = ExtractInchesFromDesc(t.Description);
+                double d = ComandosPresion.ExtraerDiametroDeDescripcion(t.Description);
                 double diff = Math.Abs(d - targetDiam);
                 if (diff < bestDiff) { bestDiff = diff; best = t; }
             }
             return best;
-        }
-
-        private static PresStyles.PressurePartSize MatchFitting(
-            List<PresStyles.PressurePartSize> fittings,
-            CivilDB.PressurePartType tipo, double diam, double deflex)
-        {
-            // Recolectar candidatos del tipo pedido y usar su NominalDiameter
-            // numérico para elegir el MÁS CERCANO al diámetro de la pipe. Antes
-            // este método hacía match por substring en la descripción y, si no
-            // encontraba, devolvía el PRIMER fitting del tipo — que a menudo era
-            // el más grande del catálogo (Elbow 48"), generando codos gigantes.
-            var candidatos = new List<(PresStyles.PressurePartSize part, double diamF, double angleDiff)>();
-            foreach (PresStyles.PressurePartSize f in fittings)
-            {
-                if (f.PartType != tipo) continue;
-                double fDiam = ExtractInchesFromDesc(f.Description);
-                // Extraer ángulo de la descripción (para codos) para desempatar.
-                double fAng = 0;
-                var m = System.Text.RegularExpressions.Regex.Match(
-                    f.Description ?? "", @"(\d{2,3})\s*[°º]");
-                if (m.Success) double.TryParse(m.Groups[1].Value, out fAng);
-                double angleDiff = tipo == CivilDB.PressurePartType.Elbow
-                    ? Math.Abs(fAng - Math.Abs(deflex)) : 0;
-                candidatos.Add((f, fDiam, angleDiff));
-            }
-            if (candidatos.Count == 0) return null;
-
-            // Preferencias:
-            //   1) Diámetro dentro de 0.01" del pedido (empate por ángulo cercano).
-            //   2) El más cercano al diámetro pedido; empate por ángulo.
-            double target = diam;
-            candidatos.Sort((a, b) =>
-            {
-                double dA = Math.Abs(a.diamF - target), dB = Math.Abs(b.diamF - target);
-                if (Math.Abs(dA - dB) > 0.01) return dA.CompareTo(dB);
-                return a.angleDiff.CompareTo(b.angleDiff);
-            });
-            return candidatos[0].part;
         }
 
         // =================================================================
