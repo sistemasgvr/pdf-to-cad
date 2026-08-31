@@ -1245,8 +1245,11 @@ def build_exclusion_zones(page):
         return []
     spans = list(_text_spans(page))
     if not spans:
-        # PDF aplanado sin texto vivo: la detección por keywords no aplica → respaldo geométrico.
-        return detect_geometric_membrete(page)
+        # PDF aplanado sin texto vivo: antes se hacía un respaldo geométrico que
+        # mandaba el marco/membrete a la capa MEMBRETE. Por pedido del usuario el
+        # membrete YA NO se separa: se trata como el resto del plano. Sin texto
+        # vivo tampoco hay leyenda de pothole que excluir → sin zonas.
+        return []
 
     margin = getattr(C, "EXCLUDE_ZONE_MARGIN_PT", 28.0)
     pot_kw = [k.upper() for k in getattr(C, "POTHOLE_LEGEND_KEYWORDS", [])]
@@ -1276,9 +1279,12 @@ def build_exclusion_zones(page):
     for tag, (x0, y0, x1, y1) in zones:
         out.append((tag, (x0 - margin, y0 - margin, x1 + margin, y1 + margin)))
 
-    # Respaldo geométrico si NO hubo detección por texto (PDF con letras aplanadas).
-    if not out:
-        out.extend(detect_geometric_membrete(page))
+    # El MEMBRETE ya NO se separa a su propia capa (pedido del usuario): su
+    # geometría y anotación se tratan como el resto del plano y caen en
+    # PDF_DIGITALIZADO por la clasificación normal. Solo se mantiene la
+    # exclusión de la LEYENDA DE POTHOLE. (Antes: respaldo geométrico que
+    # detectaba marco/membrete cuando no había texto vivo.)
+    out = [z for z in out if z[0] not in _MEMBRETE_TAGS]
     return out
 
 

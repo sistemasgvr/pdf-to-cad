@@ -6,25 +6,38 @@ referencia/superponer) por un flujo único, adaptado de `auxiliar/pdf_georef.py`
 
     Izquierda: el plano YA cargado en el proyecto (PDF + utilidades dibujadas),
                clic = punto en píxeles de escena, con IMÁN a la línea de
-               utilidad más cercana (vértice o segmento).
-    Derecha:   mapa de centerlines reales de Los Ángeles (NavigateLA), clic =
-               punto en pies EPSG:2229, con imán al vértice/intersección más
-               cercana. Buscador de dirección/intersección (geocoder Esri +
-               respaldo Nominatim, vía urllib — sin dependencias nuevas).
+               utilidad/centerline más cercana (vértice, segmento, o el cruce
+               EXACTO si hay 2 líneas distintas que se cortan cerca del clic).
+    Derecha:   mapa de centerlines + parcelas reales de Los Ángeles
+               (NavigateLA) sobre mapa base, clic = punto en pies EPSG:2229,
+               mismo imán (vértice/segmento/cruce exacto). Buscador de
+               dirección/intersección (geocoder Esri + respaldo Nominatim,
+               vía urllib — sin dependencias nuevas), corre en 2º plano
+               (QThread) para no congelar la ventana mientras descarga.
+
+Ctrl+Z (en cualquiera de los 2 paneles) deshace el último punto pendiente o
+el último lote de pares agregado de una.
 
 Con ≥3 pares se ajusta una transformación afín (reusa `geo.georef.fit`, el
 mismo núcleo que ya usa el resto de la app) y el botón "Guardar
 georreferenciación" fija `self.georef` en la ventana principal y GUARDA el
 proyecto de una — no hace falta pasar por "Guardar proyecto" aparte.
 
+Botón "🖊 Emparejar centerline dibujado": en vez de agregar pares uno por uno,
+toma un centerline DIBUJADO A MANO (tab "Centerlines" de la ventana principal,
+`self._main.ref_centerlines` — geometría distinta de las utilidades) y lo
+empareja contra un centerline REAL elegido con un clic de cada lado; ambas
+líneas se remuestrean por distancia relativa (`resample_polyline`) y se
+agregan ~10 pares de golpe — promedia el error de clic sobre toda la línea en
+vez de un solo punto, mejora sensible del RMSE.
+
 Todo en EPSG:2229 (State Plane CA Zona V, ftUS) — el único CRS que tiene
 sentido para las calles de NavigateLA, y el mismo que usa el resto del
 proyecto (imperial, pies).
 
 Dependencias: matplotlib (ya en requirements.txt), pyproj (reproyección UTM
-del geocoder), y opcionalmente contextily (mapa base satelital/calles de
-fondo — si no está instalado, el mapa sigue funcionando solo con las
-centerlines, sin imagen de fondo).
+del geocoder), y opcionalmente contextily (mapa base de fondo — si no está
+instalado, el mapa sigue funcionando solo con las centerlines/parcelas).
 """
 import json
 import math
@@ -37,35 +50,49 @@ from PySide6 import QtCore, QtGui, QtWidgets
 os.environ.setdefault("QT_API", "pyside6")   # matplotlib debe usar el MISMO binding Qt que el resto de la app
 import matplotlib
 matplotlib.use("QtAgg")
-from matplotlib.backends.backend_qtagg import (
-    FigureCanvasQTAgg as FigureCanvas,
-    NavigationToolbar2QT as NavigationToolbar,
-)
+from matplotlib.backends.backend_qtagg import FigureCanvasQTAgg as FigureCanvas
 from matplotlib.figure import Figure
+from matplotlib.widgets import Cursor as MplCursor
 
 try:
     import contextily as cx
     HAS_CTX = True
 except Exception:
     HAS_CTX = False
+if HAS_CTX:
+    try:
+        # cache de tiles en disco: la 1ª descarga de una zona tarda lo normal,
+        # pero volver a dibujar el mapa (cada punto agregado, pan/zoom) ya NO
+        # vuelve a bajar los tiles de red — la parte más lenta del diálogo.
+        _tile_cache_dir = os.path.join(os.path.expanduser("~"), ".pdf_to_cad_tile_cache")
+        os.makedirs(_tile_cache_dir, exist_ok=True)
+        cx.set_cache_dir(_tile_cache_dir)
+    except Exception:
+        pass
 
 from geo import georef as georef_mod
 
 TARGET_EPSG = 2229                    # State Plane CA Zona V, ftUS — nativo NavigateLA
 DEFAULT_BUFFER_FT = 1300              # ≈ 400 m, radio inicial de descarga de centerlines
 SNAP_PX = 10                          # imán del lado PDF, en píxeles de escena
-SNAP_FT = 30.0                        # imán del lado mapa, en pies (≈ 9 m)
-BASEMAP_ZOOM = 18                     # nivel de tile fijo (más alto = más nítido, más tiles)
+SNAP_FT = 15.0                        # imán del lado mapa, en pies (≈ 4.5 m) — antes 30, jalaba de más
+BASEMAP_ZOOM = 18                     # nivel de tile de respaldo si falla el cálculo adaptativo
+MAX_BASEMAP_ZOOM = 17                 # tope: el coste de redibujar crece con el CUADRADO del
+                                      # tamaño del mosaico; con 18 el mapa se volvía inusable
 
 # Tile providers con URL directa (evita depender de contextily.providers, que a
 # veces cae en tiles cacheados 403 del OSM público). Se prueban en orden hasta
-# que uno cargue — mismo patrón que auxiliar/pdf_georef.py.
+# que uno cargue, empezando por el último que funcionó (ver _basemap_provider_i).
+# Esri va PRIMERO: CartoDB pasó a exigir clave de API y ya no devuelve el tile,
+# sino una imagen con la marca "API KEY REQUIRED" — y como responde HTTP 200,
+# add_basemap no falla y el respaldo nunca se activaba: el mapa salía cubierto
+# de marcas de agua. Los servicios de Esri siguen siendo abiertos.
 _TILE_PROVIDERS = [
-    ("CartoDB Voyager", "https://basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}.png"),
-    ("Esri World Imagery", "https://server.arcgisonline.com/ArcGIS/rest/services/"
-                            "World_Imagery/MapServer/tile/{z}/{y}/{x}"),
     ("Esri World Street", "https://server.arcgisonline.com/ArcGIS/rest/services/"
                            "World_Street_Map/MapServer/tile/{z}/{y}/{x}"),
+    ("Esri World Imagery", "https://server.arcgisonline.com/ArcGIS/rest/services/"
+                            "World_Imagery/MapServer/tile/{z}/{y}/{x}"),
+    ("CartoDB Voyager", "https://basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}.png"),
 ]
 
 ESRI_GEOCODE = "https://geocode.arcgis.com/arcgis/rest/services/World/GeocodeServer/findAddressCandidates"
@@ -85,6 +112,49 @@ def norm_query(q):
     if not any(c in low for c in ("los angeles", "los ángeles", ", ca", ", california")):
         s = s + ", Los Angeles, CA"
     return s
+
+
+def _split_intersection(query):
+    """('colfax', 'chandler') si la consulta es una intersección, si no None.
+    Se aplica sobre el texto YA normalizado por norm_query (que convierte
+    'and'/'y'/'con'/'at' en '&' y añade el contexto de Los Ángeles)."""
+    s = norm_query(query)
+    for tail in (", Los Angeles, CA", ", Los Angeles", ", CA", ", California"):
+        if s.lower().endswith(tail.lower()):
+            s = s[: -len(tail)]
+    if "&" not in s:
+        return None
+    parts = [p.strip(" ,") for p in s.split("&")]
+    parts = [p for p in parts if p]
+    if len(parts) != 2:
+        return None
+    return parts[0], parts[1]
+
+
+def geocode_2229(query):
+    """(x_ft, y_ft, etiqueta) en EPSG:2229. Escalera de resolución:
+
+    1) Si la consulta es una INTERSECCIÓN, se resuelve contra la capa de ejes
+       de calle de NavigateLA cruzando las dos calles por nombre. Es la misma
+       fuente que usa NavigateLA, así que acepta "colfax and chandler" sin
+       exigir el sufijo ("COLFAX AVE & CHANDLER BLVD"), que es justo lo que
+       fallaba: los geocodificadores genéricos sí necesitan el sufijo.
+    2) Si no es intersección (o no se encontró), se usa el geocodificador
+       genérico de siempre y se reproyecta a 2229.
+    """
+    pair = _split_intersection(query)
+    if pair:
+        try:
+            from geo.la_reference import find_intersection_2229
+            hit = find_intersection_2229(pair[0], pair[1])
+            if hit:
+                x, y, label = hit
+                return x, y, label
+        except Exception:
+            pass                      # cae al geocodificador genérico
+    lat, lon, matched = geocode(query)
+    x, y = georef_mod.lonlat_to_utm(lon, lat, TARGET_EPSG)
+    return x, y, matched
 
 
 def geocode(query):
@@ -130,65 +200,157 @@ def _closest_on_segment(p, a, b):
     return (ax + t * dx, ay + t * dy)
 
 
-def snap_to_lines(pt, polylines, max_dist):
-    """polylines: lista de listas de (x,y). Snap al vértice más cercano dentro
-    de max_dist; si no hay ninguno, al punto más cercano sobre cualquier
-    segmento (también dentro de max_dist). Si nada califica, devuelve pt tal cual."""
+def snap_to_lines_idx(pt, polylines, max_dist):
+    """Como snap_to_lines, pero además devuelve el ÍNDICE de la polilínea
+    elegida (o None si ninguna calificó) — para saber CUÁL línea se clicó
+    cuando hay varias candidatas (p.ej. emparejar centerlines dibujados)."""
     x, y = pt
-    best_v, best_vd = None, float("inf")
-    for pts in polylines:
+    best_v, best_vd, best_vi = None, float("inf"), None
+    for idx, pts in enumerate(polylines):
         for (vx, vy) in pts:
             d = math.hypot(vx - x, vy - y)
             if d < best_vd:
-                best_vd, best_v = d, (vx, vy)
+                best_vd, best_v, best_vi = d, (vx, vy), idx
     if best_v is not None and best_vd <= max_dist:
-        return best_v
-    best_s, best_sd = None, float("inf")
-    for pts in polylines:
+        return best_v, best_vi
+    best_s, best_sd, best_si = None, float("inf"), None
+    for idx, pts in enumerate(polylines):
         for i in range(len(pts) - 1):
             proj = _closest_on_segment((x, y), pts[i], pts[i + 1])
             d = math.hypot(proj[0] - x, proj[1] - y)
             if d < best_sd:
-                best_sd, best_s = d, proj
+                best_sd, best_s, best_si = d, proj, idx
     if best_s is not None and best_sd <= max_dist:
-        return best_s
-    return pt
+        return best_s, best_si
+    return None, None
+
+
+def snap_to_lines(pt, polylines, max_dist):
+    """polylines: lista de listas de (x,y). Snap al vértice más cercano dentro
+    de max_dist; si no hay ninguno, al punto más cercano sobre cualquier
+    segmento (también dentro de max_dist). Si nada califica, devuelve pt tal cual."""
+    snapped, _idx = snap_to_lines_idx(pt, polylines, max_dist)
+    return snapped if snapped is not None else pt
+
+
+def _seg_intersect(a1, a2, b1, b2):
+    """Punto de cruce EXACTO entre el segmento a1-a2 y b1-b2, o None si no se
+    cruzan (dentro de una pequeña tolerancia en los extremos, por si el cruce
+    real cae justo en el nodo de una de las 2 polilíneas)."""
+    x1, y1 = a1; x2, y2 = a2; x3, y3 = b1; x4, y4 = b2
+    d = (x1 - x2) * (y3 - y4) - (y1 - y2) * (x3 - x4)
+    if abs(d) < 1e-9:
+        return None
+    t = ((x1 - x3) * (y3 - y4) - (y1 - y3) * (x3 - x4)) / d
+    u = ((x1 - x3) * (y1 - y2) - (y1 - y3) * (x1 - x2)) / d
+    if -0.02 <= t <= 1.02 and -0.02 <= u <= 1.02:
+        return (x1 + t * (x2 - x1), y1 + t * (y2 - y1))
+    return None
+
+
+def snap_to_intersection(pt, polylines, max_dist):
+    """Si hay un cruce GEOMÉTRICO real entre 2 polilíneas DISTINTAS cerca de
+    pt (p.ej. 2 calles que se cruzan), devuelve (punto_exacto_del_cruce,
+    (idx_i, idx_j)) — más preciso que el vértice más cercano, porque el cruce
+    real puede no caer justo en ningún vértice digitalizado. (None, None) si
+    no hay ningún cruce a menos de max_dist."""
+    x, y = pt
+    search = max_dist * 3
+    best, bd, best_idx = None, float("inf"), None
+    n = len(polylines)
+    for i in range(n):
+        pi = polylines[i]
+        for j in range(i + 1, n):
+            pj = polylines[j]
+            for a in range(len(pi) - 1):
+                if min(math.hypot(pi[a][0] - x, pi[a][1] - y),
+                       math.hypot(pi[a + 1][0] - x, pi[a + 1][1] - y)) > search:
+                    continue
+                for b in range(len(pj) - 1):
+                    if min(math.hypot(pj[b][0] - x, pj[b][1] - y),
+                           math.hypot(pj[b + 1][0] - x, pj[b + 1][1] - y)) > search:
+                        continue
+                    ip = _seg_intersect(pi[a], pi[a + 1], pj[b], pj[b + 1])
+                    if ip is None:
+                        continue
+                    d = math.hypot(ip[0] - x, ip[1] - y)
+                    if d < bd:
+                        bd, best, best_idx = d, ip, (i, j)
+    if best is not None and bd <= max_dist:
+        return best, best_idx
+    return None, None
+
+
+def resample_polyline(pts, n):
+    """n puntos a lo largo de `pts`, equiespaciados por distancia acumulada
+    (0%, 1/(n-1), …, 100%) — para emparejar un centerline dibujado contra el
+    real punto-a-punto en vez de un solo clic. n >= 2."""
+    if len(pts) < 2:
+        return [pts[0]] * n if pts else []
+    seglens = [math.hypot(pts[i + 1][0] - pts[i][0], pts[i + 1][1] - pts[i][1]) for i in range(len(pts) - 1)]
+    total = sum(seglens)
+    if total < 1e-9:
+        return [pts[0]] * n
+    cum = [0.0]
+    for L in seglens:
+        cum.append(cum[-1] + L)
+    out = []
+    for k in range(n):
+        target = total * k / (n - 1)
+        i = 0
+        while i < len(seglens) - 1 and cum[i + 1] < target:
+            i += 1
+        seg_len = seglens[i] if seglens[i] > 1e-9 else 1e-9
+        t = max(0.0, min(1.0, (target - cum[i]) / seg_len))
+        out.append((pts[i][0] + t * (pts[i + 1][0] - pts[i][0]),
+                    pts[i][1] + t * (pts[i + 1][1] - pts[i][1])))
+    return out
 
 
 # ─────────────────────────── vista del plano (PDF + utilidades) ───────────────────────────
 class _PdfPickView(QtWidgets.QGraphicsView):
     clicked = QtCore.Signal(float, float)
 
-    def __init__(self, qimg):
+    def __init__(self, qimg, pipe_lines=None, cl_lines=None):
         super().__init__(); sc = QtWidgets.QGraphicsScene(self); self.setScene(sc)
+        # El PDF va SOLO como pixmap (capa propia, con su propia opacidad —
+        # ver set_pdf_opacity); las utilidades/centerlines se dibujan aparte
+        # como líneas VECTORIALES (cosmetic pen) encima, así no se pixelan al
+        # hacer zoom y la opacidad del PDF no las afecta.
         self._pm = sc.addPixmap(QtGui.QPixmap.fromImage(qimg))
+        self._pm.setZValue(0)
+        pen_u = QtGui.QPen(QtGui.QColor(120, 200, 255, 220)); pen_u.setCosmetic(True); pen_u.setWidthF(1.6)
+        for pts in (pipe_lines or []):
+            for a, b in zip(pts, pts[1:]):
+                it = sc.addLine(a[0], a[1], b[0], b[1], pen_u); it.setZValue(4)
+        pen_cl = QtGui.QPen(QtGui.QColor(255, 60, 220)); pen_cl.setCosmetic(True); pen_cl.setWidthF(2.4)
+        pen_cl.setStyle(QtCore.Qt.DashLine)
+        for pts in (cl_lines or []):
+            for a, b in zip(pts, pts[1:]):
+                it = sc.addLine(a[0], a[1], b[0], b[1], pen_cl); it.setZValue(4)
         self.setRenderHints(QtGui.QPainter.Antialiasing | QtGui.QPainter.SmoothPixmapTransform)
         self.setTransformationAnchor(QtWidgets.QGraphicsView.AnchorUnderMouse)
         self.setBackgroundBrush(QtGui.QColor(28, 28, 28))
-        self.setToolTip("Clic izquierdo: punto de control (imán a la utilidad más cercana)\n"
-                        "Rueda: desplazar · Ctrl+Rueda: zoom")
+        self.setToolTip("Clic izquierdo: punto de control (imán a la utilidad/centerline más cercana)\n"
+                        "Rueda: zoom · Rueda presionada + arrastrar: desplazar (como en Civil3D)")
         self.setMouseTracking(True)
-        pen_h = QtGui.QPen(QtGui.QColor(255, 255, 255, 130)); pen_h.setCosmetic(True); pen_h.setWidthF(1.0)
+        self._pan = False; self._pan0 = None
+        # Cruz de ejes X/Y en MORADO al 50% de transparencia (antes amarillo).
+        pen_h = QtGui.QPen(QtGui.QColor(128, 0, 128, 128)); pen_h.setCosmetic(True); pen_h.setWidthF(2.2)
         self._hline = sc.addLine(0, 0, 0, 0, pen_h); self._vline = sc.addLine(0, 0, 0, 0, pen_h)
         self._hline.setZValue(1000); self._vline.setZValue(1000)
         self._hline.setVisible(False); self._vline.setVisible(False)
         QtCore.QTimer.singleShot(0, lambda: self.fitInView(self._pm, QtCore.Qt.KeepAspectRatio))
 
+    def set_pdf_opacity(self, v):
+        self._pm.setOpacity(v)
+
     def wheelEvent(self, e):
-        if e.modifiers() & QtCore.Qt.ControlModifier:
-            f = 1.25 if e.angleDelta().y() > 0 else 0.8; self.scale(f, f)
-            return
-        # Sin Ctrl: la rueda DESPLAZA (vertical; con Shift, horizontal) en vez
-        # de hacer zoom — más cómodo para recorrer el plano sin perder el nivel
-        # de detalle alcanzado.
-        dy = e.angleDelta().y(); dx = e.angleDelta().x()
-        if e.modifiers() & QtCore.Qt.ShiftModifier and dx == 0:
-            dx, dy = dy, dx
-        hbar = self.horizontalScrollBar(); vbar = self.verticalScrollBar()
-        if dx: hbar.setValue(hbar.value() - dx)
-        if dy: vbar.setValue(vbar.value() - dy)
+        f = 1.25 if e.angleDelta().y() > 0 else 0.8; self.scale(f, f)
 
     def mousePressEvent(self, e):
+        if e.button() == QtCore.Qt.MiddleButton:
+            self._pan = True; self._pan0 = e.position(); self.setCursor(QtCore.Qt.ClosedHandCursor); return
         if e.button() == QtCore.Qt.LeftButton:
             sp = self.mapToScene(e.position().toPoint()); self.clicked.emit(sp.x(), sp.y())
         super().mousePressEvent(e)
@@ -199,7 +361,17 @@ class _PdfPickView(QtWidgets.QGraphicsView):
         self._hline.setLine(rect.left(), sp.y(), rect.right(), sp.y())
         self._vline.setLine(sp.x(), rect.top(), sp.x(), rect.bottom())
         self._hline.setVisible(True); self._vline.setVisible(True)
+        if self._pan:
+            d = e.position() - self._pan0; self._pan0 = e.position()
+            self.horizontalScrollBar().setValue(int(self.horizontalScrollBar().value() - d.x()))
+            self.verticalScrollBar().setValue(int(self.verticalScrollBar().value() - d.y()))
+            return
         super().mouseMoveEvent(e)
+
+    def mouseReleaseEvent(self, e):
+        if e.button() == QtCore.Qt.MiddleButton:
+            self._pan = False; self.setCursor(QtCore.Qt.ArrowCursor); return
+        super().mouseReleaseEvent(e)
 
     def leaveEvent(self, e):
         self._hline.setVisible(False); self._vline.setVisible(False)
@@ -213,25 +385,38 @@ class _PdfPickView(QtWidgets.QGraphicsView):
 # ─────────────────────────── mapa de centerlines (matplotlib, clic + scroll zoom) ───────────────────────────
 class _MapCanvas(FigureCanvas):
     clicked = QtCore.Signal(float, float)
+    _PAN_REDRAW_MS = 90       # tope de redibujados durante el arrastre
 
     def __init__(self):
-        self.fig = Figure(figsize=(5, 5), tight_layout=True)
+        # tight_layout=True recalculaba la disposición en CADA redibujado (y hay
+        # uno por cada movimiento del ratón al desplazar): se sustituye por un
+        # margen fijo, que se calcula una sola vez.
+        self.fig = Figure(figsize=(4, 4))
+        self.fig.subplots_adjust(left=0.01, right=0.99, top=0.99, bottom=0.01)
         super().__init__(self.fig)
         self.ax = self.fig.add_subplot(111)
         self.ax.set_aspect("equal", adjustable="datalim")
-        self.toolbar = None
+        self.setMouseTracking(True)
+        self._pan = False; self._pan0 = None
+        # Limitador de redibujados durante el arrastre (ver mouseMoveEvent)
+        self._pan_dirty = False
+        self._pan_timer = QtCore.QTimer(self)
+        self._pan_timer.timeout.connect(self._pan_flush)
         self.mpl_connect("button_press_event", self._on_click)
         self.mpl_connect("scroll_event", self._on_scroll)
-
-    def set_toolbar(self, toolbar):
-        self.toolbar = toolbar
+        # Cruz de ejes X/Y siguiendo el ratón — la MISMA ayuda visual que ya
+        # tenía el panel del PDF (ver _PdfPickView.mouseMoveEvent). useblit
+        # redibuja solo la cruz sobre una copia cacheada del fondo, así no
+        # cuesta un redibujado completo del mapa en cada movimiento.
+        # Cruz de ejes X/Y en MORADO al 50% de transparencia (antes amarillo),
+        # a juego con la cruz del panel del PDF.
+        self._cursor = MplCursor(self.ax, useblit=True,
+                                 color="#800080", linewidth=1.2, alpha=0.5)
 
     def _on_click(self, event):
         if event.inaxes != self.ax or event.button != 1:
             return
         if event.xdata is None or event.ydata is None:
-            return
-        if self.toolbar and self.toolbar.mode:
             return
         self.clicked.emit(event.xdata, event.ydata)
 
@@ -245,6 +430,62 @@ class _MapCanvas(FigureCanvas):
         self.ax.set_ylim(y - (y - yl[0]) * scale, y + (yl[1] - y) * scale)
         self.draw_idle()
 
+    # navegación con botón central IDÉNTICA a la del panel del PDF (rueda =
+    # zoom, ver _on_scroll; rueda presionada + arrastrar = mover libremente).
+    def mousePressEvent(self, e):
+        if e.button() == QtCore.Qt.MiddleButton:
+            self._pan = True; self._pan0 = e.position(); self.setCursor(QtCore.Qt.ClosedHandCursor); return
+        super().mousePressEvent(e)
+
+    def mouseMoveEvent(self, e):
+        if self._pan and self._pan0 is not None:
+            d = e.position() - self._pan0; self._pan0 = e.position()
+            xl = self.ax.get_xlim(); yl = self.ax.get_ylim()
+            w = self.width() or 1; h = self.height() or 1
+            dx = -(d.x() / w) * (xl[1] - xl[0])
+            dy = (d.y() / h) * (yl[1] - yl[0])
+            self.ax.set_xlim(xl[0] + dx, xl[1] + dx)
+            self.ax.set_ylim(yl[0] + dy, yl[1] + dy)
+            # LIMITADOR: un redibujado completo del mapa cuesta bastante (el
+            # mapa base es la mayor parte). Sin esto se pedía uno por CADA
+            # evento de ratón — llegan muchos más de los que se pueden servir,
+            # la cola crece y el arrastre se siente pegajoso y con retraso.
+            # Se redibuja como mucho cada `_PAN_REDRAW_MS`; al soltar se hace
+            # un último redibujado para dejar la vista exacta.
+            self._pan_dirty = True
+            if not self._pan_timer.isActive():
+                self._pan_flush()
+                self._pan_timer.start(self._PAN_REDRAW_MS)
+            return
+        super().mouseMoveEvent(e)
+
+    def _pan_flush(self):
+        """Redibuja si hubo movimiento, y ADAPTA el intervalo al coste real del
+        redibujado en esta máquina y con estos datos. Si se pidieran más
+        redibujados de los que se pueden servir, la cola crecería y el arrastre
+        se sentiría cada vez más retrasado; midiendo cuánto tarda y esperando
+        algo más que eso, el movimiento sigue al ratón sin acumular retraso."""
+        if not self._pan_dirty:
+            if not self._pan:
+                self._pan_timer.stop()
+            return
+        self._pan_dirty = False
+        import time as _t
+        t0 = _t.perf_counter()
+        self.draw()                      # síncrono: así se puede medir
+        cost_ms = (_t.perf_counter() - t0) * 1000.0
+        self._pan_timer.setInterval(
+            max(self._PAN_REDRAW_MS, min(400, int(cost_ms * 1.2))))
+
+    def mouseReleaseEvent(self, e):
+        if e.button() == QtCore.Qt.MiddleButton:
+            self._pan = False; self.setCursor(QtCore.Qt.ArrowCursor)
+            self._pan_timer.stop()
+            self._pan_dirty = False
+            self.draw_idle()          # vista final exacta
+            return
+        super().mouseReleaseEvent(e)
+
     def clear(self):
         self.ax.cla(); self.ax.set_aspect("equal", adjustable="datalim")
 
@@ -252,17 +493,91 @@ class _MapCanvas(FigureCanvas):
         self.draw_idle()
 
 
+# ─────────────────────────── búsqueda en 2º plano (no congela la UI) ───────────────────────────
+class _FetchWorker(QtCore.QObject):
+    """Geocodifica + descarga calles/parcelas en un QThread aparte — antes esto
+    corría en el hilo de UI (con processEvents()) y el diálogo se sentía
+    trabado mientras tanto; ahora la ventana sigue respondiendo."""
+    done = QtCore.Signal(object)      # (lines, parcels, matched, arc_centers)
+    failed = QtCore.Signal(str)
+
+    def __init__(self, buffer_ft, addr=None, center=None):
+        """addr: dirección a geocodificar. center: (X,Y) en pies 2229 ya
+        conocido (p.ej. al reabrir un plano ya georreferenciado) — se salta
+        el geocode y descarga directo alrededor de ese punto."""
+        super().__init__()
+        self.addr = addr; self.buffer_ft = buffer_ft; self.center = center
+
+    def run(self):
+        try:
+            if self.center is not None:
+                cx_ft, cy_ft = self.center; matched = "zona ya georreferenciada"
+            else:
+                cx_ft, cy_ft, matched = geocode_2229(self.addr)
+            from geo.la_reference import (fetch_streets_2229, fetch_parcels_2229,
+                                          arc_centers)
+            # Las dos descargas son independientes y de red: en PARALELO tardan
+            # lo que la más lenta, no la suma (antes eran secuenciales).
+            import concurrent.futures as _cf
+            with _cf.ThreadPoolExecutor(max_workers=2) as ex:
+                f_lines = ex.submit(fetch_streets_2229, cx_ft, cy_ft, self.buffer_ft)
+                f_parc = ex.submit(fetch_parcels_2229, cx_ft, cy_ft, self.buffer_ft)
+                lines = f_lines.result()
+                parcels = f_parc.result()
+            # Centros de los redondeos de las parcelas: puntos magnéticos muy
+            # precisos para colocar puntos de control. Se calculan aquí (hilo
+            # aparte) para no bloquear la UI al dibujar.
+            try:
+                centers = arc_centers(parcels)
+            except Exception:
+                centers = []
+            self.done.emit((lines, parcels, matched, centers))
+        except Exception as e:
+            self.failed.emit(str(e))
+
+
 class GeorefDialog(QtWidgets.QDialog):
-    def __init__(self, parent, plan_qimage, pipes, init_georef=None):
+    def __init__(self, parent, plan_qimage, pipes, ref_centerlines=None, init_georef=None):
         super().__init__(parent)
         self._main = parent
-        self.setWindowTitle("Georreferenciar plano"); self.resize(1400, 860)
+        self.setWindowTitle("Georreferenciar plano")
+        # Redimensionable/maximizable (QDialog no trae el botón de maximizar
+        # por defecto) y con tamaño inicial ajustado al monitor, para que no
+        # quede más grande que la pantalla en equipos con monitores chicos.
+        self.setWindowFlags(self.windowFlags() | QtCore.Qt.WindowMaximizeButtonHint
+                            | QtCore.Qt.WindowMinimizeButtonHint)
+        self.setSizeGripEnabled(True)
+        # Pantalla del PADRE (no la primaria): en equipos con el plano abierto en
+        # un monitor chico, self.screen() antes de mostrarse podía devolver el
+        # primario y el diálogo salía más ancho que la pantalla real.
+        scr = (parent.screen() if parent else None) or self.screen() \
+            or QtWidgets.QApplication.primaryScreen()
+        avail = scr.availableGeometry() if scr else QtCore.QRect(0, 0, 1400, 860)
+        # Tamaño inicial acotado SIEMPRE a la pantalla disponible (con margen),
+        # y centrado, para que nunca se salga del borde.
+        w = min(1360, max(720, avail.width() - 80))
+        h = min(860, max(540, avail.height() - 120))
+        self.resize(w, h)
+        self.move(avail.x() + max(0, (avail.width() - w) // 2),
+                  avail.y() + max(0, (avail.height() - h) // 2))
+        self._init_w = w
         self.result_georef = None
         self._pipe_lines = [p.get("pts", []) for p in (pipes or []) if len(p.get("pts", [])) >= 2]
-        self.centerlines = []             # [[ (x,y) en ft 2229, ... ], ...]
+        # Centerlines DIBUJADOS a mano (distintos de las utilidades) — para
+        # emparejar contra la calle real y mejorar el ajuste con muchos puntos
+        # de una sola vez (ver _apply_centerline_match).
+        self._ref_cl_lines = [c.get("pts", []) for c in (ref_centerlines or []) if len(c.get("pts", [])) >= 2]
+        self._ref_cl_labels = [c.get("cod", "?") for c in (ref_centerlines or []) if len(c.get("pts", [])) >= 2]
+        self._cl_match_plan_idx = None
+        self.centerlines = []             # [[ (x,y) en ft 2229, ... ], ...] — calles REALES (NavigateLA)
+        self.parcels = []                 # [[ (x,y) en ft 2229, ... ], ...] — parcelas REALES (NavigateLA)
+        self.arc_centers = []             # [(x,y,radio)] centros de esquinas redondeadas (imán)
         self.pairs = []                   # [{"px":(x,y), "world":(X,Y), "label":str, "mark":item}]
         self._pending_px = None; self._pending_mark = None
-        self._map_view_limits = None
+        self._undo_stack = []             # lotes de pares agregados de una (1 clic = 1; centerline = N) para Ctrl+Z
+        self._map_markers = []            # artistas matplotlib de los pares (se redibujan sin rehacer el mapa base)
+        self._basemap_provider_i = 0      # último proveedor de tiles que funcionó — se prueba primero la próxima vez
+        self._fetch_thread = None; self._fetch_worker = None
 
         root = QtWidgets.QVBoxLayout(self)
         warn = QtWidgets.QLabel(
@@ -281,9 +596,15 @@ class GeorefDialog(QtWidgets.QDialog):
         split = QtWidgets.QSplitter(QtCore.Qt.Horizontal)
 
         pdf_w = QtWidgets.QWidget(); pv = QtWidgets.QVBoxLayout(pdf_w); pv.setContentsMargins(0, 0, 0, 0)
-        pv.addWidget(QtWidgets.QLabel("Plano (PDF + utilidades)  —  clic: punto de control (imán a la línea)  |  "
-                                     "rueda: desplazar  |  Ctrl+rueda: zoom"))
-        self.pdf = _PdfPickView(plan_qimage); self.pdf.clicked.connect(self._on_pdf_click)
+        oprow = QtWidgets.QHBoxLayout()
+        oprow.addWidget(QtWidgets.QLabel("Opacidad PDF:"))
+        self.sl_pdf_op = QtWidgets.QSlider(QtCore.Qt.Horizontal)
+        self.sl_pdf_op.setRange(10, 100); self.sl_pdf_op.setValue(100)
+        self.sl_pdf_op.valueChanged.connect(lambda v: self.pdf.set_pdf_opacity(v / 100))
+        oprow.addWidget(self.sl_pdf_op, 1)
+        pv.addLayout(oprow)
+        self.pdf = _PdfPickView(plan_qimage, self._pipe_lines, self._ref_cl_lines)
+        self.pdf.clicked.connect(self._on_pdf_click)
         pv.addWidget(self.pdf, 1)
         split.addWidget(pdf_w)
 
@@ -297,25 +618,74 @@ class GeorefDialog(QtWidgets.QDialog):
         self.sp_buffer = QtWidgets.QDoubleSpinBox()
         self.sp_buffer.setRange(300, 10000); self.sp_buffer.setValue(DEFAULT_BUFFER_FT); self.sp_buffer.setSingleStep(150)
         srow.addWidget(self.sp_buffer)
-        b_fetch = QtWidgets.QPushButton("Buscar y descargar"); b_fetch.clicked.connect(self._on_fetch)
-        srow.addWidget(b_fetch)
+        self.b_fetch = QtWidgets.QPushButton("Buscar y descargar"); self.b_fetch.clicked.connect(self._on_fetch)
+        srow.addWidget(self.b_fetch)
         mv.addLayout(srow)
         mv.addWidget(QtWidgets.QLabel("Calles de LA (NavigateLA)  —  clic: punto de control (imán a la intersección)  |  rueda: zoom"))
+        # Contenedor para poder poner el loader ENCIMA del mapa (overlay).
+        map_holder = QtWidgets.QWidget(); mh = QtWidgets.QGridLayout(map_holder)
+        mh.setContentsMargins(0, 0, 0, 0); mh.setSpacing(0)
         self.canvas_map = _MapCanvas(); self.canvas_map.clicked.connect(self._on_map_click)
-        self.toolbar_map = NavigationToolbar(self.canvas_map, self); self.canvas_map.set_toolbar(self.toolbar_map)
-        mv.addWidget(self.toolbar_map); mv.addWidget(self.canvas_map, 1)
+        mh.addWidget(self.canvas_map, 0, 0)
+        # Loader: panel semitransparente con un "spinner" de texto animado y
+        # un mensaje. Se muestra durante la búsqueda de dirección / descarga.
+        self.loader = QtWidgets.QFrame(map_holder)
+        self.loader.setStyleSheet(
+            "QFrame{background:rgba(20,20,20,180);border:1px solid #4a4a4a;border-radius:8px;}"
+            "QLabel{color:#f0f0f0;background:transparent;border:none;font-size:13px;}")
+        ll = QtWidgets.QVBoxLayout(self.loader); ll.setContentsMargins(18, 14, 18, 14); ll.setSpacing(8)
+        self.loader_spin = QtWidgets.QLabel("⣾"); self.loader_spin.setAlignment(QtCore.Qt.AlignCenter)
+        self.loader_spin.setStyleSheet("font-size:28px;color:#7ecbff;background:transparent;border:none;")
+        self.loader_msg = QtWidgets.QLabel("Cargando…"); self.loader_msg.setAlignment(QtCore.Qt.AlignCenter)
+        ll.addWidget(self.loader_spin); ll.addWidget(self.loader_msg)
+        mh.addWidget(self.loader, 0, 0, QtCore.Qt.AlignCenter)
+        self.loader.hide()
+        self._loader_frames = ["⣾", "⣷", "⣯", "⣟", "⡿", "⢿", "⣻", "⣽"]
+        self._loader_i = 0
+        self._loader_timer = QtCore.QTimer(self)
+        self._loader_timer.timeout.connect(self._loader_tick)
+        mv.addWidget(map_holder, 1)
         split.addWidget(map_w)
 
-        split.setSizes([700, 700]); root.addWidget(split, 1)
+        # Que ninguno de los dos paneles imponga un ancho mínimo grande: así el
+        # diálogo respeta el tamaño acotado a la pantalla y no se ensancha de más.
+        self.pdf.setMinimumSize(220, 220)
+        self.canvas_map.setMinimumSize(220, 220)
+        half = max(240, self._init_w // 2)
+        split.setSizes([half, half]); root.addWidget(split, 1)
+
+        clrow = QtWidgets.QHBoxLayout()
+        self.b_match_cl = QtWidgets.QPushButton("🖊 Emparejar centerline dibujado")
+        self.b_match_cl.setCheckable(True)
+        self.b_match_cl.setEnabled(bool(self._ref_cl_lines))
+        self.b_match_cl.setToolTip(
+            "1) Actívalo · 2) clic en TU centerline dibujado (plano, línea magenta) · 3) clic en la "
+            "calle real correspondiente (mapa) — la app empareja automáticamente varios puntos a lo "
+            "largo de ambas líneas, mucho más preciso que un solo clic.\n\n"
+            "Si está deshabilitado: dibuja un centerline primero (tab 'Centerlines' → '📐 Trazar "
+            "centerline'), distinto de las utilidades.")
+        self.b_match_cl.toggled.connect(self._on_match_cl_toggled)
+        clrow.addWidget(self.b_match_cl); clrow.addStretch(1)
+        root.addLayout(clrow)
 
         self.hint = QtWidgets.QLabel("1) Busca y descarga las calles de la zona · 2) clic en el plano (izquierda) "
-                                     "· 3) clic en la calle correspondiente (derecha). Mínimo 3 pares.")
+                                     "· 3) clic en la calle correspondiente (derecha). Mínimo 3 pares — puedes "
+                                     "marcar puntos A LO LARGO de toda la calle, no solo en las esquinas: "
+                                     "más puntos bien repartidos mejoran el ajuste (RMSE). O usa «🖊 Emparejar "
+                                     "centerline dibujado» arriba para agregar muchos puntos de una vez.")
         self.hint.setStyleSheet("color:#9cf;"); root.addWidget(self.hint)
 
+        rmse_tip = ("RMSE (Root Mean Square Error / error cuadrático medio): el error PROMEDIO, en pies, "
+                   "entre cada punto de control y donde el ajuste calculado lo ubica.\n\n"
+                   "No es el error de un punto — es el error de TODOS a la vez: si un punto quedó mal "
+                   "clickeado, el RMSE sube aunque los demás estén perfectos. Mientras más bajo, mejor "
+                   "(verde <3 ft, amarillo <8 ft, rojo ≥8 ft).")
         crow = QtWidgets.QHBoxLayout()
         self.b_fit = QtWidgets.QPushButton("Ajustar afín + RMSE"); self.b_fit.clicked.connect(self._compute)
+        self.b_fit.setToolTip("Calcula la transformación (rotación + escala + traslación) que mejor hace "
+                              "coincidir todos los pares plano↔calle real, y muestra el RMSE.\n\n" + rmse_tip)
         crow.addWidget(self.b_fit)
-        self.lbl_rms = QtWidgets.QLabel("RMSE: —"); crow.addWidget(self.lbl_rms, 1)
+        self.lbl_rms = QtWidgets.QLabel("RMSE: —"); self.lbl_rms.setToolTip(rmse_tip); crow.addWidget(self.lbl_rms, 1)
         b_del = QtWidgets.QPushButton("Eliminar sel."); b_del.clicked.connect(self._del_pair); crow.addWidget(b_del)
         b_clear = QtWidgets.QPushButton("Limpiar todos"); b_clear.clicked.connect(self._clear_pairs); crow.addWidget(b_clear)
         root.addLayout(crow)
@@ -331,56 +701,192 @@ class GeorefDialog(QtWidgets.QDialog):
         root.addLayout(bb)
 
         # precargar pares de una georreferencia previa (si el punto trae "world")
+        # y descargar sola la zona real (calles/parcelas) alrededor de esos
+        # puntos, para que el mapa NO quede vacío al reabrir — se puede editar
+        # (agregar/quitar puntos, recalcular) sin tener que rebuscar la dirección.
         if init_georef is not None and init_georef.points:
+            world_pts = []
             for p in init_georef.points:
                 px = tuple(p.get("px", ())); wd = tuple(p.get("world", ())) if p.get("world") else None
                 if len(px) == 2 and wd and len(wd) == 2:
                     m = self.pdf.add_mark(px[0], px[1], "#5fd35f")
                     self.pairs.append({"px": px, "world": wd, "label": p.get("label", ""), "mark": m})
+                    world_pts.append(wd)
             self._refresh_list()
+            if world_pts:
+                cx_ft = sum(w[0] for w in world_pts) / len(world_pts)
+                cy_ft = sum(w[1] for w in world_pts) / len(world_pts)
+                xs = [w[0] for w in world_pts]; ys = [w[1] for w in world_pts]
+                spread = max(max(xs) - min(xs), max(ys) - min(ys))
+                buffer_ft = min(self.sp_buffer.maximum(), max(DEFAULT_BUFFER_FT, spread * 0.75 + 300))
+                self.sp_buffer.setValue(buffer_ft)
+                self._start_fetch(_FetchWorker(buffer_ft, center=(cx_ft, cy_ft)),
+                                  "Cargando la zona de la georreferenciación existente…")
+
+        # Ctrl+Z deshace el último punto/lote agregado — funciona en todo el
+        # diálogo (plano y mapa comparten la misma lista de pares).
+        undo_sc = QtGui.QShortcut(QtGui.QKeySequence.Undo, self)
+        undo_sc.activated.connect(self._undo)
+
+    def closeEvent(self, e):
+        # evita "QThread: Destroyed while thread is still running" si se
+        # cierra el diálogo justo mientras una búsqueda está en curso.
+        if self._fetch_thread is not None:
+            self._fetch_thread.quit(); self._fetch_thread.wait(2000)
+        super().closeEvent(e)
 
     # ── acciones ──
     def _on_fetch(self):
         addr = self.ed_addr.text().strip()
         if not addr:
             QtWidgets.QMessageBox.information(self, "Falta dirección", "Escribe una dirección o intersección."); return
-        self.hint.setText("Geocodificando…"); QtWidgets.QApplication.processEvents()
-        try:
-            lat, lon, matched = geocode(addr)
-            cx_ft, cy_ft = georef_mod.lonlat_to_utm(lon, lat, TARGET_EPSG)
-            from geo.la_reference import fetch_streets_2229
-            lines = fetch_streets_2229(cx_ft, cy_ft, radius=self.sp_buffer.value())
-            if not lines:
-                raise RuntimeError("No se encontraron calles en esa zona. Prueba un radio mayor.")
-            self.centerlines = lines
-        except Exception as e:
-            QtWidgets.QMessageBox.critical(self, "Error", str(e)); return
-        self._map_view_limits = None
-        self.hint.setText(f"{len(lines)} tramos — {matched}. Marca puntos de control.")
-        self._draw_map()
+        self._start_fetch(_FetchWorker(self.sp_buffer.value(), addr=addr),
+                          "Buscando dirección y descargando calles/parcelas…")
+
+    def _loader_tick(self):
+        self._loader_i = (self._loader_i + 1) % len(self._loader_frames)
+        self.loader_spin.setText(self._loader_frames[self._loader_i])
+
+    def _show_loader(self, msg):
+        self.loader_msg.setText(msg)
+        self.loader.adjustSize(); self.loader.show(); self.loader.raise_()
+        self._loader_i = 0
+        self._loader_timer.start(90)
+
+    def _hide_loader(self):
+        self._loader_timer.stop()
+        self.loader.hide()
+
+    def _start_fetch(self, worker, hint_text):
+        if self._fetch_thread is not None:
+            return                       # ya hay una búsqueda en curso
+        self.b_fetch.setEnabled(False)
+        self.hint.setText(hint_text)
+        self._show_loader(hint_text)
+        self._fetch_thread = QtCore.QThread(self)
+        self._fetch_worker = worker
+        self._fetch_worker.moveToThread(self._fetch_thread)
+        self._fetch_thread.started.connect(self._fetch_worker.run)
+        self._fetch_worker.done.connect(self._on_fetch_done)
+        self._fetch_worker.failed.connect(self._on_fetch_failed)
+        self._fetch_worker.done.connect(self._fetch_thread.quit)
+        self._fetch_worker.failed.connect(self._fetch_thread.quit)
+        self._fetch_thread.finished.connect(self._fetch_cleanup)
+        self._fetch_thread.start()
+
+    def _fetch_cleanup(self):
+        if self._fetch_worker is not None:
+            self._fetch_worker.deleteLater()
+        self._fetch_thread = None; self._fetch_worker = None
+        self.b_fetch.setEnabled(True)
+        self._hide_loader()
+
+    def _on_fetch_done(self, result):
+        lines, parcels, matched, centers = result
+        if not lines:
+            self.hint.setText("No se encontraron calles en esa zona. Prueba un radio mayor.")
+            return
+        self.centerlines = lines; self.parcels = parcels
+        self.arc_centers = centers or []
+        self.hint.setText(f"{len(lines)} tramos, {len(parcels)} parcelas, {len(self.arc_centers)} esquinas redondeadas — "
+                          f"{matched}. Marca puntos de control — clic cerca de un cruce imanta al cruce exacto")
+        self._draw_map_base()
+
+    def _on_fetch_failed(self, msg):
+        QtWidgets.QMessageBox.critical(self, "Error", msg)
 
     def _on_pdf_click(self, x, y):
-        sx, sy = snap_to_lines((x, y), self._pipe_lines, SNAP_PX)
+        if self.b_match_cl.isChecked():
+            _pt, idx = snap_to_lines_idx((x, y), self._ref_cl_lines, SNAP_PX)
+            if idx is None:
+                self.hint.setText("No caíste sobre ningún centerline dibujado — acércate más, o cancela "
+                                  "desactivando «Emparejar centerline dibujado»."); return
+            self._cl_match_plan_idx = idx
+            label = self._ref_cl_labels[idx] if idx < len(self._ref_cl_labels) else "?"
+            self.hint.setText(f"Centerline '{label}' elegido. Ahora clic en la calle REAL correspondiente (derecha).")
+            return
+        all_plan_lines = self._pipe_lines + self._ref_cl_lines
+        ip, _idx = snap_to_intersection((x, y), all_plan_lines, SNAP_PX)
+        sx, sy = ip if ip is not None else snap_to_lines((x, y), all_plan_lines, SNAP_PX)
         if self._pending_mark:
             self.pdf.scene().removeItem(self._pending_mark)
         self._pending_px = (sx, sy)
         self._pending_mark = self.pdf.add_mark(sx, sy, "#ff9a28")
         self.hint.setText("Punto del plano fijado. Ahora clic en la calle correspondiente (derecha).")
 
+    def _snap_arc_center(self, pt, max_dist=SNAP_FT):
+        """(x, y) del centro de radio más cercano dentro de `max_dist`, o None.
+        Son las esquinas redondeadas de las parcelas: su centro es un punto
+        geométrico exacto, ideal como punto de control."""
+        best = None; bd = max_dist * max_dist
+        for (cx, cy, _r) in getattr(self, "arc_centers", None) or []:
+            d2 = (pt[0] - cx) ** 2 + (pt[1] - cy) ** 2
+            if d2 < bd:
+                bd = d2; best = (cx, cy)
+        return best
+
     def _on_map_click(self, x, y):
+        if self.b_match_cl.isChecked():
+            if self._cl_match_plan_idx is None:
+                self.hint.setText("Primero clic en TU centerline dibujado (plano, izquierda)."); return
+            if not self.centerlines:
+                self.hint.setText("Primero descarga las calles de la zona."); return
+            _pt, ridx = snap_to_lines_idx((x, y), self.centerlines, SNAP_FT)
+            if ridx is None:
+                self.hint.setText("No caíste sobre ninguna calle real — acércate más."); return
+            self._apply_centerline_match(self._cl_match_plan_idx, ridx)
+            self._cl_match_plan_idx = None
+            self.b_match_cl.setChecked(False)
+            return
         if self._pending_px is None:
             self.hint.setText("Primero clic en el plano (izquierda)."); return
         if not self.centerlines:
             self.hint.setText("Primero descarga las calles de la zona."); return
-        sx, sy = snap_to_lines((x, y), self.centerlines, SNAP_FT)
+        # Prioridad del imán, de más preciso a menos:
+        #   1) CENTRO del radio de una esquina redondeada de parcela — es un
+        #      punto geométrico exacto (no un vértice aproximado del arco), así
+        #      que da el mejor punto de control cuando lo hay cerca.
+        #   2) cruce exacto de dos ejes de calle
+        #   3) punto más cercano sobre un eje de calle
+        ac = self._snap_arc_center((x, y))
+        if ac is not None:
+            sx, sy = ac
+        else:
+            ip, _idx = snap_to_intersection((x, y), self.centerlines, SNAP_FT)
+            sx, sy = ip if ip is not None else snap_to_lines((x, y), self.centerlines, SNAP_FT)
         if self._pending_mark:
             self.pdf.scene().removeItem(self._pending_mark)
         m = self.pdf.add_mark(self._pending_px[0], self._pending_px[1], "#5fd35f")
-        self.pairs.append({"px": self._pending_px, "world": (sx, sy), "label": "", "mark": m})
+        pair = {"px": self._pending_px, "world": (sx, sy), "label": "", "mark": m}
+        self.pairs.append(pair); self._undo_stack.append([pair])
         self._pending_px = None; self._pending_mark = None
-        self._map_view_limits = (self.canvas_map.ax.get_xlim(), self.canvas_map.ax.get_ylim())
-        self._refresh_list(); self._draw_map()
+        self._refresh_list(); self._draw_map_markers()
         self.hint.setText(f"Punto {len(self.pairs)} agregado. Repite (mínimo 3) y pulsa «Ajustar afín».")
+
+    def _on_match_cl_toggled(self, v):
+        self._cl_match_plan_idx = None
+        if v:
+            self.hint.setText("Emparejar centerline: clic en TU centerline dibujado (plano, línea magenta punteada).")
+        else:
+            self.hint.setText("Emparejar centerline cancelado.")
+
+    def _apply_centerline_match(self, plan_idx, real_idx, n=10):
+        """Remuestrea el centerline dibujado (plan_idx, en píxeles) y el
+        centerline real elegido (real_idx, en pies 2229) por distancia
+        relativa, y agrega n pares de golpe — mucho más preciso que un
+        único clic, porque promedia el error de clic sobre toda la línea."""
+        plan_pts = self._ref_cl_lines[plan_idx]; real_pts = self.centerlines[real_idx]
+        plan_rs = resample_polyline(plan_pts, n); real_rs = resample_polyline(real_pts, n)
+        batch = []
+        for (px, py), (rx, ry) in zip(plan_rs, real_rs):
+            m = self.pdf.add_mark(px, py, "#00d0ff")
+            pair = {"px": (px, py), "world": (rx, ry), "label": "auto (centerline)", "mark": m}
+            self.pairs.append(pair); batch.append(pair)
+        self._undo_stack.append(batch)
+        self._refresh_list(); self._draw_map_markers()
+        label = self._ref_cl_labels[plan_idx] if plan_idx < len(self._ref_cl_labels) else "?"
+        self.hint.setText(f"✓ {len(plan_rs)} puntos agregados automáticamente desde '{label}'. "
+                          "Pulsa «Ajustar afín» cuando quieras (o agrega más pares/centerlines).")
 
     def _del_pair(self):
         r = self.lst.currentRow()
@@ -390,18 +896,45 @@ class GeorefDialog(QtWidgets.QDialog):
             p = self.pairs.pop(r)
             if p.get("mark") is not None:
                 self.pdf.scene().removeItem(p["mark"])
-            self._refresh_list(); self._draw_map()
+            self._refresh_list(); self._draw_map_markers()
             self.b_save.setEnabled(False); self.lbl_rms.setText("RMSE: —")
 
     def _clear_pairs(self):
         for p in self.pairs:
             if p.get("mark") is not None:
                 self.pdf.scene().removeItem(p["mark"])
-        self.pairs.clear(); self._pending_px = None
+        self.pairs.clear(); self._pending_px = None; self._undo_stack.clear()
         if self._pending_mark:
             self.pdf.scene().removeItem(self._pending_mark); self._pending_mark = None
-        self._refresh_list(); self._draw_map()
+        self._refresh_list(); self._draw_map_markers()
         self.b_save.setEnabled(False); self.lbl_rms.setText("RMSE: —")
+
+    def _undo(self):
+        """Ctrl+Z: cancela el punto pendiente (si hay uno a medias), o si no,
+        deshace el último lote de pares agregado de una (1 clic manual = 1
+        par; «Emparejar centerline dibujado» = varios de golpe)."""
+        if self._pending_px is not None:
+            if self._pending_mark:
+                self.pdf.scene().removeItem(self._pending_mark)
+            self._pending_px = None; self._pending_mark = None
+            self.hint.setText("Punto pendiente cancelado (Ctrl+Z)."); return
+        if self.b_match_cl.isChecked() and self._cl_match_plan_idx is not None:
+            self._cl_match_plan_idx = None
+            self.hint.setText("Selección de centerline cancelada (Ctrl+Z)."); return
+        while self._undo_stack:
+            batch = self._undo_stack.pop()
+            removed = False
+            for p in batch:
+                if p in self.pairs:
+                    self.pairs.remove(p)
+                    if p.get("mark") is not None:
+                        self.pdf.scene().removeItem(p["mark"])
+                    removed = True
+            if removed:
+                break
+        self._refresh_list(); self._draw_map_markers()
+        self.b_save.setEnabled(False); self.lbl_rms.setText("RMSE: —")
+        self.hint.setText("Último punto/lote deshecho (Ctrl+Z).")
 
     def _compute(self):
         if len(self.pairs) < 3:
@@ -435,52 +968,146 @@ class GeorefDialog(QtWidgets.QDialog):
         self.result_georef = georef_mod.Georef(matrix=matrix, epsg=TARGET_EPSG, kind=ttype, rms=rms, points=pts)
         self._main.georef = self.result_georef; self._main._dirty = True
         self._main._update_geo_status(); self._main._redraw()
-        self._main.save_project()
+        try:
+            self._main.save_project()
+        except Exception as e:
+            QtWidgets.QMessageBox.critical(self, "Error al guardar",
+                f"La georreferenciación se aplicó, pero no se pudo guardar el proyecto.\n\n{e}")
+            return
         saved_to = self._main.project_path
-        if saved_to:
-            QtWidgets.QMessageBox.information(self, "Georreferenciación guardada",
-                f"✓ Guardado en el proyecto:\n{saved_to}\n\nEPSG: {TARGET_EPSG}\nRMSE: {rms:.2f} ft")
-            self.accept()
-        # si no había project_path, save_project() ya disparó "Guardar como…";
-        # si el usuario canceló ese diálogo, se deja el resultado listo pero
-        # el diálogo abierto para que pueda reintentar «Guardar».
+        if not saved_to:
+            # No había project_path y el usuario canceló «Guardar como…» —
+            # se deja el resultado ya aplicado en memoria, pero el diálogo
+            # abierto para reintentar «Guardar» cuando quiera.
+            self.hint.setText("Georreferenciación calculada, pero falta guardarla en disco "
+                              "(cancelaste «Guardar como…»). Pulsa «Guardar georreferenciación» de nuevo.")
+            return
+        QtWidgets.QMessageBox.information(self, "Georreferenciación guardada",
+            f"✓ Guardado en el proyecto:\n{saved_to}\n\nEPSG: {TARGET_EPSG}\nRMSE: {rms:.2f} ft")
+        self.accept()
 
     # ── dibujado ──
-    def _draw_map(self):
-        c = self.canvas_map; c.clear()
+    def _pick_basemap_zoom(self, c, width_ft):
+        """Nivel de tile en función del ancho REAL de la zona y del tamaño del
+        panel. `width_ft` se pasa explícitamente: no se puede leer de
+        ax.get_xlim() porque, con aspecto igual y adjustable='datalim',
+        matplotlib reajusta los límites por su cuenta y devolvería otro ancho.
+
+        Se acota a MAX_BASEMAP_ZOOM porque el coste de redibujar crece con el
+        CUADRADO del tamaño de la imagen, y ahí está el grueso del tiempo:
+        medido en este mapa, zoom 18 ≈ 2570 px ≈ 350 ms por redibujado, zoom 17
+        ≈ 1290 px ≈ 160 ms, zoom 16 ≈ 640 px ≈ 80 ms. Para un panel de ~950 px
+        el 18 es resolución desperdiciada.
+        """
+        try:
+            width_px = max(300, c.width())
+            if width_ft <= 0:
+                return MAX_BASEMAP_ZOOM
+            # ftUS → m y resolución de Web Mercator a la latitud de LA (~34°).
+            # Factor 1.5: algo de margen para acercarse sin que se vea borroso
+            # (el mapa base no se recompone al hacer zoom).
+            width_m = width_ft * 0.3048006096
+            need_m_per_px = width_m / (width_px * 1.5)
+            z = math.log2(156543.03392 * math.cos(math.radians(34.17)) / need_m_per_px)
+            return max(14, min(MAX_BASEMAP_ZOOM, int(round(z))))
+        except Exception:
+            return MAX_BASEMAP_ZOOM
+
+    def _draw_map_base(self):
+        """Redibuja calles + parcelas + mapa base — SOLO cuando llegan datos
+        nuevos (tras «Buscar y descargar»). Antes esto se repetía en cada
+        clic (agregar/borrar un par), rehaciendo el mapa base entero cada vez
+        — la causa principal de la lentitud al marcar puntos."""
+        c = self.canvas_map; c.clear(); self._map_markers = []
         if not self.centerlines:
             c.redraw(); return
         xs, ys = [], []
+        # RENDIMIENTO: una sola LineCollection por capa en vez de un ax.plot()
+        # por polilínea. Con un radio de varias cuadras eran ~230 artistas
+        # (≈200 parcelas + ~30 calles) que matplotlib volvía a dibujar ENTEROS
+        # en cada desplazamiento y cada zoom — por eso el mapa se sentía
+        # inusable. Con LineCollection son 2 artistas y el redibujado es
+        # inmediato. Se conservan las tres capas (mapa base, ejes de calle y
+        # parcelas), solo cambia CÓMO se dibujan.
+        from matplotlib.collections import LineCollection
+        if self.parcels:
+            segs_p = [[(p[0], p[1]) for p in pts] for pts in self.parcels if len(pts) >= 2]
+            if segs_p:
+                c.ax.add_collection(LineCollection(
+                    segs_p, colors="#999", linewidths=0.6, alpha=0.65, zorder=2))
+        segs_c = []
         for pts in self.centerlines:
-            xx = [p[0] for p in pts]; yy = [p[1] for p in pts]
-            xs += xx; ys += yy
-            c.ax.plot(xx, yy, "-", color="#2a5", linewidth=1.2)
+            if len(pts) < 2:
+                continue
+            seg = [(p[0], p[1]) for p in pts]
+            segs_c.append(seg)
+            xs += [p[0] for p in seg]; ys += [p[1] for p in seg]
+        if segs_c:
+            c.ax.add_collection(LineCollection(
+                segs_c, colors="#2a5", linewidths=1.3, zorder=3))
+        # Puntos MEDIOS de cada esquina redondeada de las parcelas (sobre la
+        # curva misma, no el centro del círculo). Sirven como imán preciso al
+        # marcar puntos de control. Un solo scatter para todos (rendimiento).
+        # Marcador relleno con borde blanco: destaca sobre el mapa base sin
+        # depender del tono de fondo.
+        if getattr(self, "arc_centers", None):
+            c.ax.scatter([a[0] for a in self.arc_centers],
+                         [a[1] for a in self.arc_centers],
+                         s=32, facecolors="#3ecf5c", edgecolors="#ffffff",
+                         linewidths=1.0, zorder=4)
+        if not xs:
+            c.redraw(); return
         pad = 100
         c.ax.set_xlim(min(xs) - pad, max(xs) + pad)
         c.ax.set_ylim(min(ys) - pad, max(ys) + pad)
         if HAS_CTX:
-            # Zoom de tile FIJO y alto (en vez de "auto", que para un radio de
-            # varias cuadras suele elegir un nivel bajo → imagen borrosa al
-            # escalarla). Se prueban proveedores en orden hasta que uno cargue.
-            for _name, _url in _TILE_PROVIDERS:
+            # Zoom de tile ADAPTADO al tamaño real del panel. Antes era fijo en
+            # 18, que para un radio de varias cuadras compone un mosaico de
+            # ~2000x2000 px; matplotlib tiene que reescalar esa imagen entera en
+            # CADA desplazamiento y zoom, y medido cuesta ~450 ms por
+            # redibujado (con 1024 son ~160 ms y con 512 ~85 ms) — esa era la
+            # causa principal de que el mapa se sintiera lento, muy por encima
+            # del coste de las calles y parcelas.
+            # Se elige el nivel que da algo más de resolución que píxeles tiene
+            # el panel: se ve igual de nítido y se redibuja mucho más rápido.
+            zoom = self._pick_basemap_zoom(c, (max(xs) - min(xs)) + 2 * pad)
+            n = len(_TILE_PROVIDERS)
+            order = [(k + self._basemap_provider_i) % n for k in range(n)]
+            for k in order:
+                _name, _url = _TILE_PROVIDERS[k]
                 try:
                     cx.add_basemap(c.ax, crs=f"EPSG:{TARGET_EPSG}", source=_url,
-                                   zoom=BASEMAP_ZOOM, attribution=f"© {_name}", attribution_size=6)
+                                   zoom=zoom, attribution=f"© {_name}", attribution_size=6,
+                                   zorder=0, interpolation="nearest")
+                    self._basemap_provider_i = k
                     break
                 except Exception:
                     continue
+        c.ax.set_xticks([]); c.ax.set_yticks([])
+        self._draw_map_markers()
+
+    def _draw_map_markers(self):
+        """Solo agrega/quita los marcadores de pares — NO toca el mapa base
+        (calles/parcelas/basemap), así agregar o quitar un punto es instantáneo."""
+        c = self.canvas_map
+        for art in self._map_markers:
+            try:
+                art.remove()
+            except Exception:
+                pass
+        self._map_markers = []
         for i, p in enumerate(self.pairs, 1):
             X, Y = p["world"]
-            c.ax.plot(X, Y, "o", color="red", markersize=8, markeredgecolor="white")
-            c.ax.annotate(str(i), (X, Y), color="red", xytext=(6, 6), textcoords="offset points", fontweight="bold")
-        c.ax.set_xticks([]); c.ax.set_yticks([])
-        if self._map_view_limits is not None:
-            c.ax.set_xlim(self._map_view_limits[0]); c.ax.set_ylim(self._map_view_limits[1])
+            ln, = c.ax.plot(X, Y, "o", color="red", markersize=8, markeredgecolor="white", zorder=5)
+            an = c.ax.annotate(str(i), (X, Y), color="red", xytext=(6, 6),
+                               textcoords="offset points", fontweight="bold", zorder=6)
+            self._map_markers.append(ln); self._map_markers.append(an)
         c.redraw()
 
     def _refresh_list(self):
         self.lst.clear()
         for i, p in enumerate(self.pairs, 1):
             x, y = p["px"]; X, Y = p["world"]
+            tag = f"  [{p['label']}]" if p.get("label") else ""
             self.lst.addItem(QtWidgets.QListWidgetItem(
-                f"{i}   plano({x:.0f},{y:.0f})  →  calle({X:.2f},{Y:.2f}) ft"))
+                f"{i}   plano({x:.0f},{y:.0f})  →  calle({X:.2f},{Y:.2f}) ft{tag}"))

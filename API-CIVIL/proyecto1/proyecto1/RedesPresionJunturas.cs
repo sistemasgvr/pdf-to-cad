@@ -298,6 +298,19 @@ namespace Civil3DBasico
                             ed.WriteMessage($"\n  ⚠ [JUNTURA] No se pudo recortar tubos al puerto del accesorio: {ex.Message}");
                         }
 
+                        // NO realinear la Z aquí. El accesorio nace en j.Ubicacion,
+                        // que es el centroide de pipeEndpoints; quien llama es
+                        // responsable de que esos endpoints YA estén a nivel de EJE
+                        // antes de invocar este método (el import lo hace en
+                        // ImportarRed.cs, bloque "SOLERA → EJE"). En este punto la
+                        // pieza ya está CONECTADA, y escribir PressurePart.Position
+                        // sobre una pieza conectada hace que Civil 3D re-resuelva la
+                        // conexión y arrastre los tubos con ella: el desfase relativo
+                        // codo-tubo no se corrige y encima se mueve el tubo.
+                        // (Antes había un AlinearFittingAEjeTubo(parte, tr) acá; era
+                        // un no-op cuando los tubos estaban a solera, y en cuanto se
+                        // arregló el orden pasó a ser una escritura innecesaria.)
+
                         if (conectados < orden.Count)
                             ed.WriteMessage($"\n  ⚠ [JUNTURA] '{pieza.Description}' colocado pero solo " +
                                 $"{conectados}/{orden.Count} tuberías conectadas.");

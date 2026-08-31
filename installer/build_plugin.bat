@@ -44,6 +44,27 @@ for %%F in (
 )
 
 echo === Bundle listo: %BUNDLE% ===
-echo Copiar la carpeta AsistenteC3D.bundle a:
-echo   %%APPDATA%%\Autodesk\ApplicationPlugins\
+
+REM Copia automática al autoload de Civil3D — Civil3D escanea esta carpeta al
+REM arrancar (LoadOnAutoCADStartup="True" en PackageContents.xml) y carga el
+REM plugin solo, sin NETLOAD manual. Si Civil3D está abierto con la versión
+REM vieja cargada, el DLL de destino queda bloqueado (igual que bin\ durante
+REM el desarrollo) — hay que cerrarlo y volver a correr este mismo comando.
+set TARGET=%APPDATA%\Autodesk\ApplicationPlugins\AsistenteC3D.bundle
+echo === Instalando en autoload de Civil3D: %TARGET% ===
+robocopy "%BUNDLE%" "%TARGET%" /MIR /NFL /NDL /NJH >nul
+set RC=%errorlevel%
+if %RC% GEQ 8 (
+    echo.
+    echo ERROR: no se pudo copiar a %TARGET%.
+    echo Si Civil3D esta abierto con una version anterior del plugin cargada,
+    echo ciERRALO y vuelve a correr este comando — un DLL ya cargado no se
+    echo puede reemplazar en caliente.
+    endlocal
+    exit /b 1
+)
+
+echo.
+echo === Listo — el plugin ya autocarga en Civil3D, sin NETLOAD ===
+echo (Re)abre Civil3D normalmente y los comandos ya van a estar disponibles.
 endlocal

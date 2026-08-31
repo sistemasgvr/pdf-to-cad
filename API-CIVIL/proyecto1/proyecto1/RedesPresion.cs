@@ -1819,6 +1819,11 @@ namespace Civil3DBasico
                     }
                     catch { }
 
+                    // No hace falta reajustar la Z: la pieza nueva nace en r.Posicion,
+                    // que es el Position del fitting VIEJO (ya a nivel de eje), y
+                    // escribir Position sobre una pieza ya conectada arrastraría los
+                    // tubos sin corregir el desfase relativo (ver nota en
+                    // ProcesarJunturasPresion, RedesPresionJunturas.cs).
                     ed.WriteMessage($"\n  ✓ {r.Tipo}: '{r.DescVieja}' → '{nuevaPieza.Description}' ({conectados} conexión(es))");
                     corregidos++;
                 }

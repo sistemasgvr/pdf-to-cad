@@ -21,10 +21,25 @@ namespace Civil3DBasico
 {
     public class ComandosAlineamientos
     {
-        // Crea un Alignment a lo largo de la planta (X-Y) de una lista de puntos.
+        // Crea un Alignment a lo largo de la planta (X-Y) de una lista de puntos
+        // RECTOS (todos los bulges en 0). La usan CREAR_RED_POLILINEA/COGO.
         // Devuelve ObjectId.Null si algo falla (no bloquea flujos que lo llaman).
         public static ObjectId CrearAlineamientoDesdePts(Database db, CivilDocument civilDoc,
             Transaction tr, List<Point3d> pts, string nombre)
+        {
+            if (pts == null) return ObjectId.Null;
+            var conBulge = new List<ComandosRedes.TrazaPt>(pts.Count);
+            foreach (var p in pts) conBulge.Add(new ComandosRedes.TrazaPt(p));
+            return CrearAlineamientoDesdePts(db, civilDoc, tr, conBulge, nombre);
+        }
+
+        // Igual que la anterior, pero cada punto lleva el BULGE del segmento que
+        // empieza en él: así el eje describe los mismos ARCOS que las tuberías
+        // curvas (esquinas redondeadas de bancoducto) en vez de cortarlos con la
+        // cuerda. Es el equivalente al "Free curve fillet" de Civil 3D, aplicado
+        // desde la geometría en vez de a mano.
+        public static ObjectId CrearAlineamientoDesdePts(Database db, CivilDocument civilDoc,
+            Transaction tr, List<ComandosRedes.TrazaPt> pts, string nombre)
         {
             try
             {
@@ -32,11 +47,15 @@ namespace Civil3DBasico
                 BlockTable bt = (BlockTable)tr.GetObject(db.BlockTableId, OpenMode.ForRead);
                 BlockTableRecord ms = (BlockTableRecord)tr.GetObject(bt[BlockTableRecord.ModelSpace], OpenMode.ForWrite);
                 Polyline pl = new Polyline();
-                for (int i = 0; i < pts.Count; i++) pl.AddVertexAt(i, new Point2d(pts[i].X, pts[i].Y), 0, 0, 0);
+                for (int i = 0; i < pts.Count; i++)
+                    pl.AddVertexAt(i, new Point2d(pts[i].P.X, pts[i].P.Y), pts[i].Bulge, 0, 0);
                 ms.AppendEntity(pl);
                 tr.AddNewlyCreatedDBObject(pl, true);
                 ObjectId aStyle = civilDoc.Styles.AlignmentStyles[0];
                 ObjectId aLabel = civilDoc.Styles.LabelSetStyles.AlignmentLabelSetStyles[0];
+                // AddCurvesBetweenTangents=false NO borra los arcos que la polilínea
+                // ya trae (esos pasan a ser entidades AlignmentArc); solo evita que
+                // Civil 3D INVENTE fillets donde no los pedimos.
                 CivilDB.PolylineOptions plo = new CivilDB.PolylineOptions
                 { PlineId = pl.ObjectId, AddCurvesBetweenTangents = false, EraseExistingEntities = true };
                 return CivilDB.Alignment.Create(civilDoc, plo, nombre, ObjectId.Null, db.Clayer, aStyle, aLabel);

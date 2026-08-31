@@ -124,23 +124,16 @@ namespace Civil3DBasico
                                 segOv[idx] = (parts[1] ?? "", parts[2] ?? "");
                             }
 
-                        // VERTEX_INV: 'idx~z;idx~z' — cota explícita (unidad XDATA) en
-                        // vértices intermedios editados individualmente desde Python.
-                        // Los vértices no listados siguen la interpolación de siempre.
-                        var vertexInv = new Dictionary<int, double>();
-                        string vertexInvStr = XdStr(xd, "VERTEX_INV", "");
-                        if (!string.IsNullOrWhiteSpace(vertexInvStr))
-                            foreach (string entry in vertexInvStr.Split(';'))
-                            {
-                                if (string.IsNullOrWhiteSpace(entry)) continue;
-                                var parts = entry.Split('~');
-                                if (parts.Length < 2) continue;
-                                if (!int.TryParse(parts[0], out int idx)) continue;
-                                string zs = (parts[1] ?? "").Trim().Replace(',', '.');
-                                double zv;
-                                if (double.TryParse(zs, NumberStyles.Float, CultureInfo.InvariantCulture, out zv))
-                                    vertexInv[idx] = zv * k;
-                            }
+                        // VERTEX_INV: 'idx~z;idx~z' — cota explícita para el lado
+                        // SALIENTE del vértice (inicio del tramo siguiente).
+                        // VERTEX_INV_IN: ídem pero para el lado ENTRANTE (fin del
+                        // tramo anterior). Si VERTEX_INV_IN está vacío, se usa
+                        // VERTEX_INV para ambos lados (retrocompat).
+                        var vertexInv = ParseVertexInv(XdStr(xd, "VERTEX_INV", ""), k);
+                        string viInStr = XdStr(xd, "VERTEX_INV_IN", "");
+                        var vertexInvIn = string.IsNullOrWhiteSpace(viInStr)
+                            ? new Dictionary<int, double>(vertexInv)
+                            : ParseVertexInv(viInStr, k);
 
                         pipes.Add(new ImportPipe
                         {
@@ -160,6 +153,7 @@ namespace Civil3DBasico
                             NoManholeVerts = noMan,
                             SegOverrides = segOv,
                             VertexInv = vertexInv,
+                            VertexInvIn = vertexInvIn,
                         });
                     }
                     else if (marker == "PDFCAD_STRUCT" && ent is DBPoint pt)
@@ -179,6 +173,7 @@ namespace Civil3DBasico
                             // Ya viene en pies desde Python (spinbox "Altura (Pies)") — sin
                             // aplicar el factor de conversión k que sí usan RIM/SUMP.
                             HeightFt = XdNullDouble(xd, "HEIGHT_FT"),
+                            Hidden = XdStr(xd, "HIDDEN", "0") == "1",
                         };
                         structs.Add(newSt);
                         Dbg("XDATA_STRUCT", ("id", newSt.Id), ("x", pt.Position.X.ToString("F3")),
@@ -187,7 +182,8 @@ namespace Civil3DBasico
                             ("covered", newSt.Covered ? "1" : "0"),
                             ("rim", newSt.Rim?.ToString("F3") ?? ""),
                             ("sump", newSt.Sump?.ToString("F3") ?? ""),
-                            ("height_ft", newSt.HeightFt?.ToString("F3") ?? ""));
+                            ("height_ft", newSt.HeightFt?.ToString("F3") ?? ""),
+                            ("hidden", newSt.Hidden ? "1" : "0"));
                     }
                     else if (marker == "PDFCAD_CURVE" && ent is DBPoint ptc)
                     {
@@ -360,13 +356,16 @@ namespace Civil3DBasico
                         // Recortar extremos al borde visible del buzón conectado.
                         if (dAlign.Traza.Count >= 2)
                         {
+                            // Nota: se conserva el Bulge de cada punto al reescribirlo
+                            // (el recorte solo mueve X/Y del extremo).
                             if (!dAlign.StartStructId.IsNull)
                             {
                                 try
                                 {
-                                    Point3d p0 = dAlign.Traza[0], p1 = dAlign.Traza[1];
+                                    TrazaPt t0 = dAlign.Traza[0];
+                                    Point3d p0 = t0.P, p1 = dAlign.Traza[1].P;
                                     Point3d p0Rec = RecortarAlBordeBuzon(trAli, dAlign.StartStructId, p0, p1);
-                                    dAlign.Traza[0] = new Point3d(p0Rec.X, p0Rec.Y, p0.Z);
+                                    dAlign.Traza[0] = new TrazaPt(new Point3d(p0Rec.X, p0Rec.Y, p0.Z), t0.Bulge);
                                 }
                                 catch (Exception exR) { Dbg("RECORTE_START_ERR", ("msg", exR.Message)); }
                             }
@@ -375,9 +374,10 @@ namespace Civil3DBasico
                                 try
                                 {
                                     int lastIdx = dAlign.Traza.Count - 1;
-                                    Point3d pN = dAlign.Traza[lastIdx], pPrev = dAlign.Traza[lastIdx - 1];
+                                    TrazaPt tN = dAlign.Traza[lastIdx];
+                                    Point3d pN = tN.P, pPrev = dAlign.Traza[lastIdx - 1].P;
                                     Point3d pNRec = RecortarAlBordeBuzon(trAli, dAlign.EndStructId, pN, pPrev);
-                                    dAlign.Traza[lastIdx] = new Point3d(pNRec.X, pNRec.Y, pN.Z);
+                                    dAlign.Traza[lastIdx] = new TrazaPt(new Point3d(pNRec.X, pNRec.Y, pN.Z), tN.Bulge);
                                 }
                                 catch (Exception exR) { Dbg("RECORTE_END_ERR", ("msg", exR.Message)); }
                             }
@@ -470,7 +470,7 @@ namespace Civil3DBasico
         internal class DatosAlignment
         {
             public string Nombre;
-            public List<Point3d> Traza;
+            public List<TrazaPt> Traza;     // cada punto lleva el bulge de su segmento
             public ObjectId StartStructId;
             public ObjectId EndStructId;
             public ObjectId NetId;
@@ -502,30 +502,42 @@ namespace Civil3DBasico
                     ("sizes", famLog.PartSizeCount));
             }
 
+            // Búsqueda de la familia "Estructura nula"/"Null Structure" — invisible
+            // en 3D, tamaño 0, sirve para "cerrar" pipes sin dibujar buzón real
+            // manteniendo la conexión de red. Factorizada porque hace falta en 2
+            // casos: default de redes conduit (sinBuzones) Y en cualquier vértice
+            // que Python marcó explícitamente "oculto" (match.Hidden), sin
+            // importar si la red es de gravedad o conduit.
+            bool BuscarEstructuraNula(out ObjectId fam, out ObjectId size)
+            {
+                fam = ObjectId.Null; size = ObjectId.Null;
+                foreach (ObjectId fid in partsList.GetPartFamilyIdsByDomain(CivilDB.DomainType.Structure))
+                {
+                    var f = tr.GetObject(fid, OpenMode.ForRead) as PartsStyles.PartFamily;
+                    if (f == null || f.PartSizeCount == 0) continue;
+                    string d = (f.Description ?? "").ToLower();
+                    string n = (f.Name ?? "").ToLower();
+                    if (d.Contains("null") || d.Contains("nula") ||
+                        n.Contains("null") || n.Contains("nula"))
+                    { fam = fid; size = f[0]; return true; }
+                }
+                return false;
+            }
+
             ObjectId defStructFam, defStructSize; string defStructNom;
             if (sinBuzones)
             {
                 // Para conduit: usar la "Estructura nula" del template como default.
                 // Es una estructura invisible tamaño 0 que sirve para "cerrar" las
                 // pipes sin dibujar buzón real.
-                defStructFam = ObjectId.Null; defStructSize = ObjectId.Null; defStructNom = "";
-                foreach (ObjectId fid in partsList.GetPartFamilyIdsByDomain(CivilDB.DomainType.Structure))
-                {
-                    var fam = tr.GetObject(fid, OpenMode.ForRead) as PartsStyles.PartFamily;
-                    if (fam == null || fam.PartSizeCount == 0) continue;
-                    string d = fam.Description ?? "";
-                    if (d.IndexOf("Null", StringComparison.OrdinalIgnoreCase) < 0 &&
-                        d.IndexOf("nula", StringComparison.OrdinalIgnoreCase) < 0) continue;
-                    defStructFam = fid; defStructSize = fam[0]; defStructNom = d;
-                    break;
-                }
-                if (defStructFam == ObjectId.Null)
+                if (!BuscarEstructuraNula(out defStructFam, out defStructSize))
                 {
                     // Sin Null Structure disponible: fallback a la primera real.
                     if (!PrimeraPieza(tr, partsList, CivilDB.DomainType.Structure,
                                       out defStructFam, out defStructSize, out defStructNom))
                     { ed.WriteMessage($"\n'{nombre}': sin familias de ESTRUCTURA."); return ObjectId.Null; }
                 }
+                else defStructNom = "Estructura nula";
                 ed.WriteMessage($"\n  · Red sin buzones (conduit) usando: {defStructNom}");
                 Dbg("DEFAULT_STRUCT_CONDUIT", ("red", nombre), ("nom", defStructNom));
             }
@@ -536,6 +548,18 @@ namespace Civil3DBasico
                 { ed.WriteMessage($"\n'{nombre}': sin familias de ESTRUCTURA."); return ObjectId.Null; }
                 ed.WriteMessage($"\n  · Buzón por defecto: {defStructNom}");
                 Dbg("DEFAULT_STRUCT", ("red", nombre), ("nom", defStructNom));
+            }
+            // Nula lista para usar en vértices "oculto" — si la red YA es conduit,
+            // defStructFam ya ES la nula (o su fallback); si es gravedad, se busca
+            // aparte sin cambiar el default general de la red.
+            ObjectId hiddenStructFam = sinBuzones ? defStructFam : ObjectId.Null;
+            ObjectId hiddenStructSize = sinBuzones ? defStructSize : ObjectId.Null;
+            if (!sinBuzones)
+            {
+                if (!BuscarEstructuraNula(out hiddenStructFam, out hiddenStructSize))
+                    ed.WriteMessage("\n⚠ No se encontró 'Estructura nula' en el catálogo — " +
+                                   "los buzones marcados como ocultos se crearán como buzones por defecto. " +
+                                   "Agregue una familia Null Structure al Parts List para que funcione la ocultación.");
             }
 
             // Familia para buzones "sin tapa" (Covered=0). Solo aplica en gravedad.
@@ -602,7 +626,7 @@ namespace Civil3DBasico
             // componentes conectados y creamos un alignment por componente — así
             // 3 sub-redes desconectadas en la misma capa NUNCA se unen con un eje
             // que salta entre ellas.
-            var pipeTrazas = new List<(List<Point3d> pts, ObjectId startSt, ObjectId endSt)>();
+            var pipeTrazas = new List<(List<TrazaPt> pts, ObjectId startSt, ObjectId endSt)>();
             // Cotas EXPLÍCITAS a reponer al final. Civil 3D, al conectar tuberías
             // (ConnectToStructure), re-aplica reglas por defecto (pendiente ~1% +
             // tapada) y, si la estructura tiene el ajuste automático de superficie
@@ -614,7 +638,24 @@ namespace Civil3DBasico
             foreach (var ip in pipes)
             {
                 int nVerts = ip.Vertices.Count;
-                double[] zVerts = InterpolateZ(ip, nVerts);
+                double[] zOut = InterpolateZ(ip, nVerts, ip.VertexInv);
+                double[] zIn  = InterpolateZ(ip, nVerts, ip.VertexInvIn);
+                // Codos (vértices sin buzón visible, es decir hidden o curve):
+                // forzar continuidad de elevación entre el tramo entrante y el
+                // saliente. Sin esto, InterpolateZ puede dar zOut[i] != zIn[i]
+                // en el vértice del codo → los dos tramos aparecen a alturas
+                // distintas y visualmente NO se conectan. Solo tocamos vértices
+                // internos y solo cuando el usuario no fijó un valor explícito
+                // distinto para lados independientes (si lo hizo, respetamos).
+                for (int i = 1; i < nVerts - 1; i++)
+                {
+                    if (!ip.NoManholeVerts.Contains(i)) continue;
+                    bool hasOut = ip.VertexInv != null && ip.VertexInv.ContainsKey(i);
+                    bool hasIn  = ip.VertexInvIn != null && ip.VertexInvIn.ContainsKey(i);
+                    if (hasOut && hasIn) continue; // usuario los fijó a propósito
+                    double z = hasOut ? zOut[i] : (hasIn ? zIn[i] : (zOut[i] + zIn[i]) * 0.5);
+                    zOut[i] = z; zIn[i] = z;
+                }
                 // pipeTraza se construye MÁS ABAJO, después de calcular las esquinas
                 // curvas — tiene que usar los puntos de tangencia recortados (p1/p2),
                 // no el vértice original, o el Alignment que se arma con esta traza
@@ -667,9 +708,9 @@ namespace Civil3DBasico
                 foreach (int i in ip.NoManholeVerts)
                 {
                     if (i <= 0 || i >= nVerts - 1) continue;      // solo vértices intermedios
-                    Point3d corner = new Point3d(ip.Vertices[i].X, ip.Vertices[i].Y, zVerts[i]);
-                    Point3d prevV = new Point3d(ip.Vertices[i - 1].X, ip.Vertices[i - 1].Y, zVerts[i - 1]);
-                    Point3d nextV = new Point3d(ip.Vertices[i + 1].X, ip.Vertices[i + 1].Y, zVerts[i + 1]);
+                    Point3d corner = new Point3d(ip.Vertices[i].X, ip.Vertices[i].Y, zOut[i]);
+                    Point3d prevV = new Point3d(ip.Vertices[i - 1].X, ip.Vertices[i - 1].Y, zOut[i - 1]);
+                    Point3d nextV = new Point3d(ip.Vertices[i + 1].X, ip.Vertices[i + 1].Y, zOut[i + 1]);
                     var dirPrev = new Vector3d(prevV.X - corner.X, prevV.Y - corner.Y, 0.0);
                     var dirNext = new Vector3d(nextV.X - corner.X, nextV.Y - corner.Y, 0.0);
                     double distPrev = dirPrev.Length, distNext = dirNext.Length;
@@ -784,13 +825,18 @@ namespace Civil3DBasico
                 // componentes conectados: en cada vértice curvo, los DOS puntos de
                 // tangencia en vez del vértice original — si no, el eje pasaría en
                 // línea recta justo por donde la tubería real ya se desvió.
-                var pipeTraza = new List<Point3d>();
+                var pipeTraza = new List<TrazaPt>();
                 for (int i = 0; i < nVerts; i++)
                 {
                     if (curvasPorVertice.TryGetValue(i, out CurveGeom cgTraza))
-                    { pipeTraza.Add(cgTraza.P1); pipeTraza.Add(cgTraza.P2); }
+                    {
+                        // El bulge va en P1 (donde ARRANCA el arco): así el tramo
+                        // P1→P2 del eje describe la misma curva que la tubería.
+                        pipeTraza.Add(new TrazaPt(cgTraza.P1, BulgeDeCurva(cgTraza)));
+                        pipeTraza.Add(new TrazaPt(cgTraza.P2));
+                    }
                     else
-                        pipeTraza.Add(new Point3d(ip.Vertices[i].X, ip.Vertices[i].Y, zVerts[i]));
+                        pipeTraza.Add(new TrazaPt(new Point3d(ip.Vertices[i].X, ip.Vertices[i].Y, zOut[i])));
                 }
 
                 var vertStructIds = new List<ObjectId>();
@@ -806,7 +852,7 @@ namespace Civil3DBasico
                     { vertStructIds.Add(ObjectId.Null); continue; }
 
                     Point2d v = ip.Vertices[i];
-                    double zInv = zVerts[i];
+                    double zInv = Math.Min(zOut[i], zIn[i]);
                     double depth = ip.CoverMin > 0 ? ip.CoverMin : defaultDepth;
 
                     ImportStruct match = FindNearestStruct(structs, v, 1.0);
@@ -843,7 +889,18 @@ namespace Civil3DBasico
                     {
                         ObjectId sFam, sSize;
                         string ruta;
-                        if (match != null && !match.Covered && haySinTapa)
+                        if (match != null && match.Hidden)
+                        {
+                            // Ocultado desde Python: NO se crea ninguna estructura en
+                            // este vértice (ni siquiera "Estructura nula"). Los pipes
+                            // se conectan por extremo libre. El usuario lo pidió así:
+                            // no debe aparecer NADA en la posición del buzón oculto.
+                            Dbg("STRUCT_SKIP_HIDDEN", ("id", match.Id),
+                                ("x", v.X.ToString("F3")), ("y", v.Y.ToString("F3")));
+                            vertStructIds.Add(ObjectId.Null);
+                            continue;
+                        }
+                        else if (match != null && !match.Covered && haySinTapa)
                         { sFam = defStructFamNoLid; sSize = defStructSizeNoLid; ruta = "sin_tapa"; }
                         else
                         {
@@ -891,14 +948,21 @@ namespace Civil3DBasico
                             Dbg("STRUCT_ADD_FAIL", ("id", match?.Id ?? ""),
                                 ("familia_pedida", realFamName), ("tamano_pedido", realSizeName),
                                 ("error", exAdd.Message));
-                            // Fallback al buzón por defecto (que sí sabemos que funciona
-                            // porque PrimeraPieza lo eligió y AsegurarBuzonReal lo validó).
+                            if (match != null && match.Hidden)
+                            {
+                                Dbg("STRUCT_ADD_FAIL_HIDDEN_SKIP", ("id", match.Id));
+                                vertStructIds.Add(ObjectId.Null);
+                                continue;
+                            }
+                            bool fbHidden = match != null && match.Hidden && hiddenStructFam != ObjectId.Null;
+                            ObjectId fbFam  = fbHidden ? hiddenStructFam  : defStructFam;
+                            ObjectId fbSize = fbHidden ? hiddenStructSize : defStructSize;
                             try
                             {
-                                net.AddStructure(defStructFam, defStructSize,
+                                net.AddStructure(fbFam, fbSize,
                                                  new Point3d(v.X, v.Y, rim), 0.0, ref sid, true);
                                 Dbg("STRUCT_ADD_FALLBACK_OK", ("id", match?.Id ?? ""),
-                                    ("familia_usada", defStructNom));
+                                    ("familia_usada", fbHidden ? "nula(hidden)" : defStructNom));
                             }
                             catch (Exception exAdd2)
                             {
@@ -951,8 +1015,8 @@ namespace Civil3DBasico
 
                 for (int i = 0; i < nVerts - 1; i++)
                 {
-                    Point3d p1 = new Point3d(ip.Vertices[i].X, ip.Vertices[i].Y, zVerts[i]);
-                    Point3d p2 = new Point3d(ip.Vertices[i + 1].X, ip.Vertices[i + 1].Y, zVerts[i + 1]);
+                    Point3d p1 = new Point3d(ip.Vertices[i].X, ip.Vertices[i].Y, zOut[i]);
+                    Point3d p2 = new Point3d(ip.Vertices[i + 1].X, ip.Vertices[i + 1].Y, zIn[i + 1]);
 
                     bool startEsCurva = i > 0 && curvasPorVertice.ContainsKey(i);
                     bool endEsCurva = i + 1 < nVerts - 1 && curvasPorVertice.ContainsKey(i + 1);
@@ -962,7 +1026,7 @@ namespace Civil3DBasico
                     else if (i > 0 && ip.NoManholeVerts.Contains(i))
                     {
                         // Sin geometría de curva (ángulo casi recto): solape cosmético.
-                        var p0 = new Point3d(ip.Vertices[i - 1].X, ip.Vertices[i - 1].Y, zVerts[i - 1]);
+                        var p0 = new Point3d(ip.Vertices[i - 1].X, ip.Vertices[i - 1].Y, zOut[i - 1]);
                         Vector3d back = p0 - p1;
                         if (back.Length > 1e-6) p1 = p1 + back.GetNormal() * overlapFt;
                     }
@@ -970,7 +1034,7 @@ namespace Civil3DBasico
                         p2 = curvasPorVertice[i + 1].P1;          // tangencia de ENTRADA al arco siguiente
                     else if (i + 1 < nVerts - 1 && ip.NoManholeVerts.Contains(i + 1))
                     {
-                        var p3 = new Point3d(ip.Vertices[i + 2].X, ip.Vertices[i + 2].Y, zVerts[i + 2]);
+                        var p3 = new Point3d(ip.Vertices[i + 2].X, ip.Vertices[i + 2].Y, zIn[i + 2]);
                         Vector3d fwd = p3 - p2;
                         if (fwd.Length > 1e-6) p2 = p2 + fwd.GetNormal() * overlapFt;
                     }
@@ -1188,13 +1252,13 @@ namespace Civil3DBasico
         // coordenadas de sus vértices (Union-Find). Devuelve, por cada
         // componente, la lista de puntos concatenada (traza para el alignment)
         // y los structIds de los extremos absolutos del componente.
-        private static List<(List<Point3d> traza, ObjectId startSt, ObjectId endSt)>
+        private static List<(List<TrazaPt> traza, ObjectId startSt, ObjectId endSt)>
             AgruparPipesPorComponente(
                 List<ImportPipe> pipes,
-                List<(List<Point3d> pts, ObjectId startSt, ObjectId endSt)> pipeTrazas)
+                List<(List<TrazaPt> pts, ObjectId startSt, ObjectId endSt)> pipeTrazas)
         {
             int n = pipeTrazas.Count;
-            var salida = new List<(List<Point3d>, ObjectId, ObjectId)>();
+            var salida = new List<(List<TrazaPt>, ObjectId, ObjectId)>();
             if (n == 0) return salida;
 
             // Union-Find: cada pipe se identifica por su índice.
@@ -1213,7 +1277,7 @@ namespace Civil3DBasico
             {
                 foreach (var v in pipeTrazas[i].pts)
                 {
-                    string k = Key(v);
+                    string k = Key(v.P);
                     if (byVert.TryGetValue(k, out int j)) Union(i, j);
                     else byVert[k] = i;
                 }
@@ -1233,7 +1297,7 @@ namespace Civil3DBasico
             // repetidos entre pipes que comparten un buzón interno).
             foreach (var kv in porRaiz)
             {
-                var traza = new List<Point3d>();
+                var traza = new List<TrazaPt>();
                 ObjectId startSt = ObjectId.Null, endSt = ObjectId.Null;
                 foreach (int i in kv.Value)
                 {
@@ -1243,9 +1307,16 @@ namespace Civil3DBasico
                         if (traza.Count > 0)
                         {
                             var prev = traza[traza.Count - 1];
-                            if (Math.Round(prev.X, 2) == Math.Round(p.X, 2) &&
-                                Math.Round(prev.Y, 2) == Math.Round(p.Y, 2))
-                                continue;                 // duplicado en juntura
+                            if (Math.Round(prev.P.X, 2) == Math.Round(p.P.X, 2) &&
+                                Math.Round(prev.P.Y, 2) == Math.Round(p.P.Y, 2))
+                            {
+                                // Duplicado en juntura: se descarta el punto, pero si
+                                // el descartado arrancaba un ARCO hay que trasladar su
+                                // bulge al que se queda — o la curva se perdería.
+                                if (Math.Abs(p.Bulge) > 1e-12 && Math.Abs(prev.Bulge) < 1e-12)
+                                    traza[traza.Count - 1] = new TrazaPt(prev.P, p.Bulge);
+                                continue;
+                            }
                         }
                         traza.Add(p);
                     }
@@ -1353,7 +1424,7 @@ namespace Civil3DBasico
             var createdPipeIds = new List<ObjectId>();
             var pipeEndpoints = new List<(Point3d start, Point3d end, ObjectId id)>();
             // Traza per-pipe (para Union-Find de componentes conectados).
-            var pipeTrazasPres = new List<List<Point3d>>();
+            var pipeTrazasPres = new List<List<TrazaPt>>();
 
             foreach (var ip in pipes)
             {
@@ -1365,19 +1436,33 @@ namespace Civil3DBasico
                                 $"→ elegida: '{tuboElegido?.Description ?? "NINGUNA"}'");
 
                 int nVerts = ip.Vertices.Count;
-                double zStart = ip.InvStart ?? 0.0;
-                double zEnd = ip.InvEnd ?? zStart;
-                double[] zpv = ZalongByDistance(ip.Vertices, zStart, zEnd);
+                // Cotas por tramo (mismo patrón que gravedad, ver InterpolateZ en
+                // el bucle de gravedad). VertexInv guarda la Z de SALIDA del
+                // vértice (OUT, se usa como start del siguiente tramo) y
+                // VertexInvIn la de ENTRADA (IN, se usa como end del tramo
+                // anterior). Cuando los dicts están vacíos, InterpolateZ cae
+                // solo a la interpolación lineal InvStart→InvEnd — el
+                // comportamiento previo se preserva. Antes esta rama usaba
+                // solamente ZalongByDistance(InvStart, InvEnd) y perdía toda
+                // cota que el usuario editara por tramo en la tabla.
+                double[] zOut = InterpolateZ(ip, nVerts, ip.VertexInv);
+                double[] zIn  = InterpolateZ(ip, nVerts, ip.VertexInvIn);
 
-                var pipeTraza = new List<Point3d>();
+                // Presión: sin tubos curvos (los quiebres son codos/fittings), así
+                // que todos los puntos van con bulge 0 — el eje queda recto igual
+                // que antes.
+                var pipeTraza = new List<TrazaPt>();
                 for (int i = 0; i < nVerts; i++)
-                    pipeTraza.Add(new Point3d(ip.Vertices[i].X, ip.Vertices[i].Y, zpv[i]));
+                    pipeTraza.Add(new TrazaPt(new Point3d(ip.Vertices[i].X, ip.Vertices[i].Y, zOut[i])));
                 pipeTrazasPres.Add(pipeTraza);
 
                 for (int i = 0; i < nVerts - 1; i++)
                 {
-                    double z1 = zpv[i];
-                    double z2 = zpv[i + 1];
+                    // start = OUT del vértice i, end = IN del vértice i+1 — así
+                    // cada tramo tiene su cota independiente (asimetría por
+                    // tramo, igual que en gravedad).
+                    double z1 = zOut[i];
+                    double z2 = zIn[i + 1];
 
                     Point3d p1 = new Point3d(ip.Vertices[i].X, ip.Vertices[i].Y, z1);
                     Point3d p2 = new Point3d(ip.Vertices[i + 1].X, ip.Vertices[i + 1].Y, z2);
@@ -1401,6 +1486,112 @@ namespace Civil3DBasico
                 }
             }
 
+            // ── Armonizar Z en JUNTURAS de presión ─────────────────────────
+            // Cada tubo trae su propio InvStart / InvEnd. Si dos o más tubos
+            // se juntan en el mismo XY (codo/tee) con Z distintos, el fitting
+            // queda descentrado y los tubos aparecen visualmente a alturas
+            // distintas. Promediamos la Z en cada juntura (tolerancia 0.5 ft
+            // en XY) y actualizamos los endpoints de las tuberías afectadas
+            // ANTES de colocar los fittings.
+            {
+                Func<Point3d, (long, long)> keyOf = pt => (
+                    (long)Math.Round(pt.X * 2.0), (long)Math.Round(pt.Y * 2.0));
+                var jointSum = new Dictionary<(long, long), double>();
+                var jointN = new Dictionary<(long, long), int>();
+                foreach (var pe in pipeEndpoints)
+                {
+                    var ks = keyOf(pe.start); var ke = keyOf(pe.end);
+                    if (!jointSum.ContainsKey(ks)) { jointSum[ks] = 0; jointN[ks] = 0; }
+                    jointSum[ks] += pe.start.Z; jointN[ks]++;
+                    if (!jointSum.ContainsKey(ke)) { jointSum[ke] = 0; jointN[ke] = 0; }
+                    jointSum[ke] += pe.end.Z; jointN[ke]++;
+                }
+                var jointZ = new Dictionary<(long, long), double>();
+                foreach (var kv in jointSum)
+                    if (jointN[kv.Key] >= 2) jointZ[kv.Key] = kv.Value / jointN[kv.Key];
+                if (jointZ.Count > 0)
+                {
+                    var updated = new List<(Point3d start, Point3d end, ObjectId id)>();
+                    foreach (var pe in pipeEndpoints)
+                    {
+                        Point3d s = pe.start, e = pe.end;
+                        if (jointZ.TryGetValue(keyOf(pe.start), out double zs))
+                            s = new Point3d(pe.start.X, pe.start.Y, zs);
+                        if (jointZ.TryGetValue(keyOf(pe.end), out double ze))
+                            e = new Point3d(pe.end.X, pe.end.Y, ze);
+                        if (!s.IsEqualTo(pe.start) || !e.IsEqualTo(pe.end))
+                        {
+                            try
+                            {
+                                var pp = (CivilDB.PressurePipe)tr.GetObject(pe.id, OpenMode.ForWrite);
+                                pp.StartPoint = s; pp.EndPoint = e;
+                            }
+                            catch { }
+                        }
+                        updated.Add((s, e, pe.id));
+                    }
+                    pipeEndpoints.Clear(); pipeEndpoints.AddRange(updated);
+                    Dbg("PRES_JUNTAS_ARMONIZADAS", ("juntas", jointZ.Count.ToString()));
+                }
+            }
+
+            // ── SOLERA → EJE: subir los tubos ANTES de colocar los accesorios ──
+            // ORDEN CRÍTICO — CAUSA RAÍZ del "codo un radio por debajo del tubo".
+            // InvStart/InvEnd que trae el DXF son la SOLERA; PressurePipe.StartPoint.Z
+            // es el EJE del tubo  →  eje = invert + NominalDiameter/2.
+            //
+            // Esta conversión TIENE que ocurrir ANTES de ProcesarJunturasPresion,
+            // porque net.AddFitting(pos, pieza) toma la Z de 'pos' TAL CUAL, y esa
+            // 'pos' es j.Ubicacion: el centroide de pipeEndpoints. Si se convertía
+            // DESPUÉS (como antes), cada codo/tee nacía a nivel de SOLERA y quedaba
+            // exactamente un radio por debajo del eje del tubo → el tubo parece
+            // entrar por la parte alta del codo.
+            //
+            // Corregirlo a posteriori escribiendo PressurePart.Position NO sirve:
+            // para entonces la pieza YA está conectada y Civil 3D re-resuelve la
+            // conexión arrastrando los tubos con ella, así que el desfase RELATIVO
+            // codo-tubo sobrevive (y el contador seguía diciendo "realineados N/N").
+            // Los flujos que SÍ funcionan insertan el accesorio en un punto que ya
+            // está a nivel de eje: UNIR_TUBERIAS_PRESION (RedesPresion.cs:799),
+            // UNIR_VARIAS_PRESION (RedesPresionRamales.cs:81) y RAMAL
+            // (RedesPresionRamales.cs:238). El import era el único que no lo hacía.
+            //
+            // Aquí los tubos todavía NO están conectados a nada, así que escribir
+            // StartPoint/EndPoint es una operación libre y segura.
+            //
+            // NominalDiameter YA viene en unidades del dibujo (pies) — confirmado con
+            // datos reales: un tubo "12 in" tiene NominalDiameter = 1.000. NO dividir
+            // entre 12 acá (ese bug daba un radio ~12× más chico que el real).
+            {
+                var enEje = new List<(Point3d start, Point3d end, ObjectId id)>(pipeEndpoints.Count);
+                int nSubidos = 0; double rMax = 0.0;
+                foreach (var pe in pipeEndpoints)
+                {
+                    Point3d s = pe.start, e = pe.end;
+                    try
+                    {
+                        var pp = (CivilDB.PressurePipe)tr.GetObject(pe.id, OpenMode.ForWrite);
+                        double r = 0.0;
+                        try { r = pp.NominalDiameter / 2.0; } catch { }
+                        pp.StartPoint = new Point3d(pe.start.X, pe.start.Y, pe.start.Z + r);
+                        pp.EndPoint   = new Point3d(pe.end.X,   pe.end.Y,   pe.end.Z   + r);
+                        // Releer de la BD: pipeEndpoints es lo que alimenta
+                        // AgruparJunturas y por tanto la Z con la que NACE cada
+                        // accesorio — tiene que reflejar lo que quedó realmente
+                        // guardado, no lo que pedimos.
+                        s = pp.StartPoint; e = pp.EndPoint;
+                        if (r > rMax) rMax = r;
+                        nSubidos++;
+                    }
+                    catch { }
+                    enEje.Add((s, e, pe.id));
+                }
+                pipeEndpoints.Clear();
+                pipeEndpoints.AddRange(enEje);
+                Dbg("PRES_SOLERA_A_EJE", ("red", nombre), ("tubos", nSubidos.ToString()),
+                    ("radio_max_ft", rMax.ToString("F3")));
+            }
+
             // Auto-conectar tuberías en vértices compartidos e insertar fittings
             int nFittings = 0;
             var fittings = pl.GetParts(CivilDB.PressurePartDomainType.Fitting);
@@ -1414,32 +1605,6 @@ namespace Civil3DBasico
             var (nFit, nDirect, nFail) = ComandosPresion.ProcesarJunturasPresion(net, tr, ed, fittings, pipeEndpoints);
             nFittings = nFit;
 
-            // ── Reponer la cota (Z) de rasante en cada extremo ──────────────
-            // Igual que en gravedad: StartPoint.Z es el EJE del tubo; el invert
-            // (rasante) capturado desde Python es la SOLERA. Convertimos:
-            //   eje = invert + radio_interior
-            // Así la propiedad "Elevación de rasante" que muestra Civil 3D
-            // queda igual al invert que trajo el DXF.
-            foreach (var pe in pipeEndpoints)
-            {
-                try
-                {
-                    var pp = (CivilDB.PressurePipe)tr.GetObject(pe.id, OpenMode.ForWrite);
-                    // NominalDiameter YA viene en unidades del dibujo (pies) — no en
-                    // pulgadas como decía este comentario antes. Confirmado con datos
-                    // reales: un tubo "12 in" (según su propia descripción de catálogo)
-                    // tiene NominalDiameter=1.000. Dividir por 12 acá daba un radio
-                    // ~12× más chico que el real (0.04 ft en vez de 0.5 ft para un tubo
-                    // de 12"), desfasando la cota del eje respecto al invert ~5-6
-                    // pulgadas de más en cada tubería a presión importada.
-                    double r = 0.0;
-                    try { r = pp.NominalDiameter / 2.0; } catch { }
-                    Point3d cs = pp.StartPoint, ce = pp.EndPoint;
-                    pp.StartPoint = new Point3d(cs.X, cs.Y, pe.start.Z + r);
-                    pp.EndPoint   = new Point3d(ce.X, ce.Y, pe.end.Z   + r);
-                }
-                catch { }
-            }
 
             // Alineamiento (eje) por componente conectado — Union-Find igual
             // que en gravedad, para no unir sub-redes desconectadas con un eje.
@@ -1484,6 +1649,71 @@ namespace Civil3DBasico
             if (fitDetectados > 0)
                 ed.WriteMessage($"\n  · Fittings con diámetro incorrecto: {fitCorregidos}/{fitDetectados} corregido(s)" +
                                 (fitFallidos > 0 ? $", {fitFallidos} sin pieza disponible en la Parts List" : "") + ".");
+
+            // ── Verificación (SOLO LECTURA) accesorio vs. eje del tubo ──────────
+            // La conversión solera → eje ya se hizo ARRIBA, ANTES de colocar los
+            // accesorios, así que cada codo/tee nació ya a nivel de eje y aquí no
+            // hay nada que mover. Este bloque solo MIDE y deja el número en el log:
+            // si el desfase reapareciera, PRES_CHK_ACCESORIOS_EJE dice exactamente
+            // cuántas piezas y cuántos pies, en vez de dejarlo en "se ve raro".
+            //
+            // Deliberadamente NO se reposiciona aquí: en este punto las piezas ya
+            // están conectadas, y escribir PressurePart.Position sobre una pieza
+            // conectada hace que Civil 3D re-resuelva la conexión y arrastre los
+            // tubos, con lo que el desfase relativo no se corrige (ese fue el
+            // intento fallido anterior).
+            try
+            {
+                int nTot = 0, nDesal = 0; double peor = 0.0;
+
+                // Δz de una pieza respecto al extremo de tubo conectado más cercano
+                // EN 2D (en Z pueden diferir justo por lo que venimos a medir).
+                Func<CivilDB.PressurePart, double?> desfaseZ = parte =>
+                {
+                    Point3d pos = parte.Position;
+                    double mejorD = double.MaxValue; double? zTubo = null;
+                    for (int i = 0; i < parte.ConnectionCount; i++)
+                    {
+                        var c = parte.GetConnectionAt(i);
+                        if (c.ConnectedId == ObjectId.Null || !c.ConnectedId.IsValid) continue;
+                        var pipe = tr.GetObject(c.ConnectedId, OpenMode.ForRead) as CivilDB.PressurePipe;
+                        if (pipe == null) continue;
+                        var p2 = new Point2d(pos.X, pos.Y);
+                        double dS = p2.GetDistanceTo(new Point2d(pipe.StartPoint.X, pipe.StartPoint.Y));
+                        double dE = p2.GetDistanceTo(new Point2d(pipe.EndPoint.X, pipe.EndPoint.Y));
+                        double d = Math.Min(dS, dE);
+                        if (d < mejorD) { mejorD = d; zTubo = (dS <= dE ? pipe.StartPoint : pipe.EndPoint).Z; }
+                    }
+                    return zTubo.HasValue ? Math.Abs(zTubo.Value - pos.Z) : (double?)null;
+                };
+
+                var idsPiezas = new List<ObjectId>();
+                foreach (ObjectId fid in net.GetFittingIds()) idsPiezas.Add(fid);
+                foreach (ObjectId aid in net.GetAppurtenanceIds()) idsPiezas.Add(aid);
+
+                foreach (ObjectId pid in idsPiezas)
+                {
+                    var parte = tr.GetObject(pid, OpenMode.ForRead) as CivilDB.PressurePart;
+                    if (parte == null) continue;
+                    nTot++;
+                    double? dz = desfaseZ(parte);
+                    if (!dz.HasValue) continue;      // pieza suelta: nada con qué comparar
+                    if (dz.Value > peor) peor = dz.Value;
+                    if (dz.Value > 1e-3) nDesal++;
+                }
+
+                Dbg("PRES_CHK_ACCESORIOS_EJE", ("red", nombre), ("total", nTot.ToString()),
+                    ("desalineados", nDesal.ToString()), ("peor_dz_ft", peor.ToString("F4")));
+                if (nDesal > 0)
+                    ed.WriteMessage($"\n  ⚠ {nDesal}/{nTot} accesorio(s) no coinciden en Z con el eje del tubo " +
+                                    $"(máx {peor:F3} ft) — ver PRES_CHK_ACCESORIOS_EJE en el CSV de depuración.");
+                else if (nTot > 0)
+                    ed.WriteMessage($"\n  · {nTot} accesorio(s) alineados al eje de las tuberías (Δz máx {peor:F4} ft).");
+            }
+            catch (Exception exChk)
+            {
+                ed.WriteMessage($"\n  ⚠ No se pudo verificar la alineación de los accesorios: {exChk.Message}");
+            }
 
             ed.WriteMessage($"\n✓ Red presión '{nombre}': {nPipes} tubería(s), {nFittings} fitting(s), " +
                             $"{componentesPres.Count} componente(s) para eje" +
@@ -2072,18 +2302,31 @@ namespace Civil3DBasico
             return (PartsStyles.PartsList)tr.GetObject(plId, OpenMode.ForRead);
         }
 
-        private static double[] InterpolateZ(ImportPipe ip, int nVerts)
+        private static Dictionary<int, double> ParseVertexInv(string raw, double k)
+        {
+            var dict = new Dictionary<int, double>();
+            if (string.IsNullOrWhiteSpace(raw)) return dict;
+            foreach (string entry in raw.Split(';'))
+            {
+                if (string.IsNullOrWhiteSpace(entry)) continue;
+                var parts = entry.Split('~');
+                if (parts.Length < 2) continue;
+                if (!int.TryParse(parts[0].Trim(), out int idx)) continue;
+                if (!double.TryParse(parts[1].Trim(), NumberStyles.Float, CultureInfo.InvariantCulture, out double z)) continue;
+                dict[idx] = z * k;
+            }
+            return dict;
+        }
+
+        private static double[] InterpolateZ(ImportPipe ip, int nVerts, Dictionary<int, double> vertexInv)
         {
             double zStart = ip.InvStart ?? 0.0;
             double zEnd = ip.InvEnd ?? zStart;
-            if (ip.VertexInv == null || ip.VertexInv.Count == 0 || nVerts < 3)
+            if (vertexInv == null || vertexInv.Count == 0 || nVerts < 3)
                 return ZalongByDistance(ip.Vertices, zStart, zEnd);
 
-            // Anclas fijas: vértice 0 y último (InvStart/InvEnd) más cualquier
-            // vértice intermedio con cota explícita (VERTEX_INV). Entre cada par
-            // de anclas consecutivas se interpola por distancia, igual que antes.
             var anchors = new SortedDictionary<int, double> { [0] = zStart, [nVerts - 1] = zEnd };
-            foreach (var kv in ip.VertexInv)
+            foreach (var kv in vertexInv)
                 if (kv.Key > 0 && kv.Key < nVerts - 1) anchors[kv.Key] = kv.Value;
 
             double[] z = new double[nVerts];
@@ -2380,6 +2623,7 @@ namespace Civil3DBasico
             // distancia entre las anclas (InvStart/InvEnd/estos overrides) más
             // cercanas — ver InterpolateZ. Ya viene convertida a unidades del dibujo.
             public Dictionary<int, double> VertexInv = new Dictionary<int, double>();
+            public Dictionary<int, double> VertexInvIn = new Dictionary<int, double>();
         }
 
         // Esquina de un elemento curvo (punto PDFCAD_CURVE, capa PDFCAD_CURVA).
@@ -2408,6 +2652,36 @@ namespace Civil3DBasico
             public Point3d Corner, PrevV, NextV;
             public Vector3d DirPrev, DirNext;   // unitarios
             public double DistPrev, DistNext;   // distancia esquina→vértice vecino ORIGINAL
+        }
+
+        // Punto de la traza del EJE (alignment) + bulge del segmento que EMPIEZA
+        // en él (0 = recto). Mismo convenio que Polyline.AddVertexAt: así el eje
+        // puede describir el mismo arco que la tubería curva en vez de cortar la
+        // esquina en línea recta.
+        public struct TrazaPt
+        {
+            public Point3d P;
+            public double Bulge;
+            public TrazaPt(Point3d p, double bulge = 0.0) { P = p; Bulge = bulge; }
+        }
+
+        // Bulge (tangente de un cuarto del ángulo barrido) del arco de una esquina
+        // curva, para que la polilínea del alignment lleve la MISMA curva que la
+        // tubería. Se deriva de la CUERDA y el RADIO real — NO de CurveGeom.DeltaRad,
+        // que guarda el ángulo INTERIOR entre las dos patas de la esquina y no el
+        // barrido del arco (Δ = π − DeltaRad; solo coinciden en esquinas de 90°).
+        private static double BulgeDeCurva(CurveGeom cg)
+        {
+            if (cg == null || cg.Radio < 1e-9) return 0.0;
+            double dx = cg.P2.X - cg.P1.X, dy = cg.P2.Y - cg.P1.Y;
+            double chord = Math.Sqrt(dx * dx + dy * dy);
+            if (chord < 1e-9) return 0.0;
+            // Min(1) por ruido numérico cuando la cuerda ≈ 2r. En un fillet el
+            // barrido siempre es < 180°, así que esta rama de asin es la correcta.
+            double delta = 2.0 * Math.Asin(Math.Min(1.0, chord / (2.0 * cg.Radio)));
+            double bulge = Math.Tan(delta / 4.0);
+            // El bulge de Polyline es ANTIhorario-positivo.
+            return cg.Horario ? -bulge : bulge;
         }
 
         // Reconstruye P1/P2/Arco/Horario/Radio para una esquina ya analizada,
@@ -2442,6 +2716,7 @@ namespace Civil3DBasico
             public bool Covered = true;
             public string NetKind = "gravity";      // "gravity" | "pressure"
             public double? HeightFt;                // "Altura (Pies)" de Python — fuerza Rim = Sump + esto
+            public bool Hidden;                      // "Ocultar buzón" de Python — fuerza "Estructura nula"
         }
     }
 }

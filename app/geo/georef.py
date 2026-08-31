@@ -93,7 +93,17 @@ class Georef:
         self.points = points or []    # [{"px":[x,y], "lonlat":[lon,lat], "utm":[E,N]}]
 
     def active(self):
-        return self.matrix is not None and self.epsg is not None
+        if self.matrix is None or self.epsg is None:
+            return False
+        m = self.matrix
+        det = m[0][0] * m[1][1] - m[0][1] * m[1][0]
+        if abs(det) < 1e-6:
+            return False
+        ratio = max(abs(m[0][0]), abs(m[0][1]), abs(m[1][0]), abs(m[1][1]))
+        minv = min(abs(m[0][0]) + abs(m[0][1]), abs(m[1][0]) + abs(m[1][1]))
+        if minv < 1e-9 or ratio / minv > 100:
+            return False
+        return True
 
     def to_world(self, x, y):
         m = self.matrix

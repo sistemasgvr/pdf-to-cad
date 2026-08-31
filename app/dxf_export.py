@@ -98,8 +98,10 @@ def merge_into(win, doc, marks=True):
         manning = mannings_n(mat)
         cover = COVER_MIN_FT.get(layer, 3.0)
         no_manhole = _no_manhole_vertex_indices(win, p) if p.get("pts") and not p.get("world") else []
-        vertex_inv = p.get("vertex_inv") or {}
-        vertex_inv_str = ";".join(f"{i}~{z}" for i, z in vertex_inv.items())
+        vi_out = p.get("vertex_inv_out") or p.get("vertex_inv") or {}
+        vi_in  = p.get("vertex_inv_in") or p.get("vertex_inv") or {}
+        vertex_inv_str = ";".join(f"{i}~{z}" for i, z in vi_out.items())
+        vertex_inv_in_str = ";".join(f"{i}~{z}" for i, z in vi_in.items())
         poly.set_xdata("PDFCAD", [
             (1000, "PDFCAD_PIPE"),
             (1000, f"DIAMETER={p.get('diam') or 0}"),
@@ -115,8 +117,10 @@ def merge_into(win, doc, marks=True):
             (1000, f"PIPE_SIZE={p.get('pipe_size') or ''}"),
             (1000, f"NO_MANHOLE_VERTS={','.join(str(i) for i in no_manhole)}"),
             (1000, f"VERTEX_INV={vertex_inv_str}"),
+            (1000, f"VERTEX_INV_IN={vertex_inv_in_str}"),
         ])
     _export_structures(win, doc, msp)
+    _export_ref_centerlines(win, doc, msp)
     VP.ensure_layer(doc, "ANOTACION")
     if "CAD_TEXT" not in doc.styles: doc.styles.add("CAD_TEXT", font=C.TEXT_FONT)
     for ld in win.leaders:
@@ -253,12 +257,42 @@ def _export_structures(win, doc, msp):
             (1000, f"COVERED={1 if s.get('covered', True) else 0}"),
             (1000, f"NET_KIND={s.get('net') or 'gravity'}"),
             (1000, f"HEIGHT_FT={height_ft if height_ft else ''}"),
+            # El nodo SÍ se exporta (la red necesita el punto para conectar
+            # tramos) pero marcado — ImportarRed.cs usa la familia "Estructura
+            # nula" (invisible) ahí en vez de un buzón real. No se omite el
+            # punto: omitirlo haría que Civil3D caiga al buzón por defecto
+            # (visible), no a uno invisible.
+            (1000, f"HIDDEN={1 if s.get('hidden') else 0}"),
         ])
-        if show_labels and s.get("cod"):
+        if show_labels and s.get("cod") and not s.get("hidden"):
             h = LEADER_TEXT_FT * 0.3                 # etiquetas compactas al lado del buzón
             t = msp.add_text(s["cod"], height=h,
                              dxfattribs={"layer": "ETIQUETAS_BUZONES", "style": "CAD_TEXT"})
             t.set_placement((cx + h * 0.8, cy + h * 0.4), align=TextEntityAlignment.LEFT)
+
+
+def _export_ref_centerlines(win, doc, msp):
+    """Centerlines DIBUJADOS a mano (distintos de las utilidades) — referencia
+    propia de una calle para calzar contra la calle real al georreferenciar.
+    Se exportan como polilíneas simples en su propia capa, con el código al
+    lado; no llevan XDATA porque no representan una utilidad ni un nodo de
+    red — el proyecto Python (.digproj) sigue siendo la fuente de verdad."""
+    cls = getattr(win, 'ref_centerlines', None)
+    if not cls: return
+    if "REF_CENTERLINES" not in doc.layers:
+        doc.layers.new("REF_CENTERLINES", dxfattribs={"color": 6})   # magenta
+    if "CAD_TEXT" not in doc.styles:
+        doc.styles.add("CAD_TEXT", font=C.TEXT_FONT)
+    for c in cls:
+        pts = c.get("pts") or []
+        if len(pts) < 2: continue
+        pts_cad = [win._to_cad(x, y) for (x, y) in pts]
+        msp.add_lwpolyline(pts_cad, dxfattribs={"layer": "REF_CENTERLINES"})
+        if c.get("cod"):
+            h = LEADER_TEXT_FT * 0.3
+            t = msp.add_text(c["cod"], height=h,
+                             dxfattribs={"layer": "REF_CENTERLINES", "style": "CAD_TEXT"})
+            t.set_placement((pts_cad[0][0] + h * 0.8, pts_cad[0][1] + h * 0.4), align=TextEntityAlignment.LEFT)
 
 
 def _export_curve_corner(win, doc, msp, s, cx, cy, show_labels):
