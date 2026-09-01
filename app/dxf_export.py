@@ -31,6 +31,17 @@ def _resolve_family(win, fid, kind):
     except Exception: return fid
 
 
+def _resolve_family_guid(win, fid, kind):
+    """GUID estable de la familia (Catalog_PartID del XML). El plugin C# lo usa
+    para emparejar la familia EXACTA sin depender del idioma. '' si no aplica
+    (familia custom sin GUID, presión, o sin catálogo detectado)."""
+    if not fid or "|" in fid: return ""
+    year = getattr(win, "civil_year", None)
+    if year is None: return ""
+    try: return _cc.family_guid(year, fid, kind) or ""
+    except Exception: return ""
+
+
 def _no_manhole_vertex_indices(win, p):
     """Índices (0-based, dentro de p['pts']) de los vértices de ESTA tubería que
     coinciden con una estructura marcada curve=True. ImportarRed.cs ya sabe leer
@@ -114,6 +125,7 @@ def merge_into(win, doc, marks=True):
             (1000, f"MANNINGS_N={manning}"),
             (1000, f"COVER_MIN={cover}"),
             (1000, f"PIPE_FAMILY={_resolve_family(win, p.get('pipe_family') or '', 'pipe')}"),
+            (1000, f"PIPE_GUID={_resolve_family_guid(win, p.get('pipe_family') or '', 'pipe')}"),
             (1000, f"PIPE_SIZE={p.get('pipe_size') or ''}"),
             (1000, f"NO_MANHOLE_VERTS={','.join(str(i) for i in no_manhole)}"),
             (1000, f"VERTEX_INV={vertex_inv_str}"),
@@ -253,6 +265,7 @@ def _export_structures(win, doc, msp):
             (1000, f"RIM={rim_str}"),
             (1000, f"SUMP={sump_str}"),
             (1000, f"PART={_resolve_family(win, s.get('part') or '', 'structure')}"),
+            (1000, f"PART_GUID={_resolve_family_guid(win, s.get('part') or '', 'structure')}"),
             (1000, f"PART_SIZE={s.get('part_size') or ''}"),
             (1000, f"COVERED={1 if s.get('covered', True) else 0}"),
             (1000, f"NET_KIND={s.get('net') or 'gravity'}"),

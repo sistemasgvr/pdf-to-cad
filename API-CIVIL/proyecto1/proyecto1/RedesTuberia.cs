@@ -835,11 +835,17 @@ namespace Civil3DBasico
         // Busca familia de estructura por 'tipo' (en Description) y tamaño por 'radio' (en Name).
         // Coincidencia tolerante (ignora espacios/comas/mayúsculas). Cae en la 1ª real si no hay match.
         private void BuscarEstructura(Transaction tr, PartsStyles.PartsList partsList, string tipo, string radio,
-                                      out ObjectId familyId, out ObjectId sizeId, out string nombre)
+                                      out ObjectId familyId, out ObjectId sizeId, out string nombre,
+                                      string guid = "")
         {
             familyId = ObjectId.Null; sizeId = ObjectId.Null; nombre = "";
             ObjectId anyFam = ObjectId.Null, anySize = ObjectId.Null; string anyNom = "";
             string tNorm = Norm(tipo);
+            // Preferir el GUID (estable, independiente del idioma): si viene, la
+            // familia se elige por igualdad EXACTA de PartFamily.GUID — nunca cae
+            // en 'anyFam' (la primera de la lista), que es lo que hacía aparecer
+            // una familia distinta a la elegida.
+            bool usaGuid = !string.IsNullOrWhiteSpace(guid);
             // Sin criterio → NO caer en familias custom como fallback. Solo se
             // usan cuando el usuario las pide explícitamente (por catalogId Aecc…
             // o por Description exacta).
@@ -852,8 +858,14 @@ namespace Civil3DBasico
                 PartsStyles.PartFamily fam = tr.GetObject(fid, OpenMode.ForRead) as PartsStyles.PartFamily;
                 if (fam == null || fam.PartSizeCount == 0) continue;
                 string descBz = fam.Description ?? "";
+                // Camino por GUID: familia elegida por igualdad EXACTA. Se saltan las
+                // exclusiones por texto y el filtro custom (el usuario la pidió a
+                // propósito), y se procede directo a elegir el tamaño más abajo.
+                if (usaGuid && !MismoGuid(fam.GUID, guid))
+                    continue;
                 // Descartar Null/nula + no-buzones (headwall/embocadura/sección final/ala) EN/ES.
-                if (descBz.IndexOf("Null", StringComparison.OrdinalIgnoreCase) >= 0 ||
+                if (!usaGuid && (
+                    descBz.IndexOf("Null", StringComparison.OrdinalIgnoreCase) >= 0 ||
                     descBz.IndexOf("nula", StringComparison.OrdinalIgnoreCase) >= 0 ||
                     descBz.IndexOf("Headwall", StringComparison.OrdinalIgnoreCase) >= 0 ||
                     descBz.IndexOf("Embocadura", StringComparison.OrdinalIgnoreCase) >= 0 ||
@@ -870,7 +882,7 @@ namespace Civil3DBasico
                     descBz.IndexOf("O.D.T.", StringComparison.OrdinalIgnoreCase) >= 0 ||
                     descBz.IndexOf("alcantarilla", StringComparison.OrdinalIgnoreCase) >= 0 ||
                     descBz.IndexOf("cabecero", StringComparison.OrdinalIgnoreCase) >= 0 ||
-                    descBz.IndexOf("cabezal", StringComparison.OrdinalIgnoreCase) >= 0) continue;
+                    descBz.IndexOf("cabezal", StringComparison.OrdinalIgnoreCase) >= 0)) continue;
 
                 // Tamaño por defecto (barato): el primero de la familia. Solo se usa
                 // de verdad si esta familia resulta ser la elegida (por 'tipo' o, en
@@ -878,26 +890,31 @@ namespace Civil3DBasico
                 ObjectId elegidoSize = fam[0];
                 string elegidoSizeName = (tr.GetObject(elegidoSize, OpenMode.ForRead) as PartsStyles.PartSize)?.Name;
                 string nom = $"{fam.Description} / {elegidoSizeName}";
-                // anyFam (fallback si el tipo no matchea nada) NO debe caer en custom
-                // — solo se usa cuando el usuario no pidió tipo específico.
-                bool esCustom = EsFamiliaCustomStruct(descBz);
-                if (anyFam == ObjectId.Null && !esCustom)
-                { anyFam = fid; anySize = elegidoSize; anyNom = nom; }
-
-                bool famMatch = string.IsNullOrEmpty(tNorm) || (fam.Description != null && Norm(fam.Description).Contains(tNorm));
-                bool matchPorCatalogId = false;
-                if (!famMatch && fam.Description != null && MatchCatalogId(tipo, fam.Description))
-                { famMatch = true; matchPorCatalogId = true; }
-                // Familias CUSTOM (Buzones): solo cuando el usuario las pide EXPLÍCITAMENTE
-                //   · vía catalogId Aecc… (matchPorCatalogId = true), o
-                //   · con `tipo` que sea EXACTAMENTE la Description de la familia.
-                // Con criterio vacío o genérico se descartan del recorrido para que
-                // NUNCA sirvan como fallback.
-                if (esCustom && !matchPorCatalogId)
+                if (!usaGuid)
                 {
-                    bool matchExacto = !string.IsNullOrEmpty(tNorm) && fam.Description != null &&
-                        string.Equals(Norm(fam.Description), tNorm, StringComparison.Ordinal);
-                    if (!matchExacto) continue;
+                    // anyFam (fallback si el tipo no matchea nada) NO debe caer en custom
+                    // — solo se usa cuando el usuario no pidió tipo específico.
+                    bool esCustom = EsFamiliaCustomStruct(descBz);
+                    if (anyFam == ObjectId.Null && !esCustom)
+                    { anyFam = fid; anySize = elegidoSize; anyNom = nom; }
+
+                    bool famMatch = string.IsNullOrEmpty(tNorm) || (fam.Description != null && Norm(fam.Description).Contains(tNorm));
+                    bool matchPorCatalogId = false;
+                    if (!famMatch && fam.Description != null && MatchCatalogId(tipo, fam.Description))
+                    { famMatch = true; matchPorCatalogId = true; }
+                    // Familias CUSTOM (Buzones): solo cuando el usuario las pide EXPLÍCITAMENTE
+                    //   · vía catalogId Aecc… (matchPorCatalogId = true), o
+                    //   · con `tipo` que sea EXACTAMENTE la Description de la familia.
+                    // Con criterio vacío o genérico se descartan del recorrido para que
+                    // NUNCA sirvan como fallback.
+                    if (esCustom && !matchPorCatalogId)
+                    {
+                        bool matchExacto = !string.IsNullOrEmpty(tNorm) && fam.Description != null &&
+                            string.Equals(Norm(fam.Description), tNorm, StringComparison.Ordinal);
+                        if (!matchExacto) continue;
+                    }
+                    // Solo se sigue en la familia que coincide con 'tipo'.
+                    if (!famMatch) continue;
                 }
                 // La búsqueda/creación de tamaño (cara, y muta la familia con
                 // AddPartSize/RemovePartSize) SOLO se intenta en la familia que
@@ -906,7 +923,6 @@ namespace Civil3DBasico
                 // lo cual era lento y multiplicaba el riesgo de dejar tamaños
                 // "- N" huérfanos si algún RemovePartSize fallaba en una familia
                 // que ni siquiera era la elegida.
-                if (!famMatch) continue;
 
                 bool sizeExacto = false;
                 if (!string.IsNullOrWhiteSpace(radio))
@@ -983,10 +999,25 @@ namespace Civil3DBasico
                 nombre = $"{fam.Description} / {elegidoSizeName}";
                 return;
             }
-            if (anyFam != ObjectId.Null) { familyId = anyFam; sizeId = anySize; nombre = anyNom; }
+            // Fallback 'anyFam' SOLO en el camino por texto. Con GUID, si no se
+            // encontró la familia exacta se deja familyId=Null (el llamante usará
+            // el default explícito) en vez de poner una familia equivocada.
+            if (!usaGuid && anyFam != ObjectId.Null) { familyId = anyFam; sizeId = anySize; nombre = anyNom; }
         }
 
         private static string Norm(string s) => (s ?? "").Replace(" ", "").Replace(",", "").ToLowerInvariant();
+
+        // Compara dos GUIDs tolerando diferencias de formato (llaves {}, guiones,
+        // mayúsculas): el XML del catálogo trae el GUID SIN llaves mientras que
+        // PartFamily.GUID/DataPartFamily.GUID pueden traerlas. Se parsean como Guid
+        // real cuando se puede; si no, comparación textual normalizada.
+        internal static bool MismoGuid(string a, string b)
+        {
+            if (string.IsNullOrWhiteSpace(a) || string.IsNullOrWhiteSpace(b)) return false;
+            if (System.Guid.TryParse(a, out var ga) && System.Guid.TryParse(b, out var gb))
+                return ga == gb;
+            return string.Equals(a.Trim(), b.Trim(), StringComparison.OrdinalIgnoreCase);
+        }
 
         // Wrapper público para que ImportarRed pueda usar el mismo matcher.
         public static bool MatchCatalogIdPublic(string catalogId, string description)

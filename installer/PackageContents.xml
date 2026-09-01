@@ -1,7 +1,7 @@
-<?xml version="1.0" encoding="utf-8"?>
+﻿<?xml version="1.0" encoding="utf-8"?>
 <ApplicationPackage
   SchemaVersion="1.0"
-  AppVersion="1.0.0"
+  AppVersion="1.0.1"
   Author="GVR Engineering"
   ProductCode="{B8F3A1C2-7D4E-4F5A-9E6B-1C2D3E4F5A6B}"
   Name="Asistente C3D"

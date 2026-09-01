@@ -354,6 +354,34 @@ def family_description(year, fid, kind):
     return fid
 
 
+def family_guid(year, fid, kind):
+    """Lee el GUID de la familia (ColumnConst context='Catalog_PartID') del XML.
+    Es una clave ESTABLE e independiente del idioma/versión — el plugin C# la usa
+    para emparejar la familia por defecto exacta (PartFamily.GUID), sin depender
+    de que la Description localizada calce. Devuelve '' si no aplica.
+
+    SOLO para familias POR DEFECTO de Autodesk (nombre 'Aecc…'). Las CUSTOM del
+    modelador NO usan GUID: el GUID de su XML (hecho en Part Builder) no coincide
+    con el que Civil 3D les asigna al instalarlas, así que emparejarlas por GUID
+    fallaría. Devolviendo '' aquí, el plugin las empareja por Description (su
+    nombre único es exacto e inequívoco) — el camino que ya funcionaba."""
+    if not fid or "|" in fid:
+        return ""                                  # presión (SQLite): sin XML/GUID
+    if not fid.startswith("Aecc"):
+        return ""                                  # custom: se empareja por Description
+    path = pipe_family_xml(year, fid) if kind == "pipe" else structure_family_xml(year, fid)
+    if path is None:
+        return ""
+    try:
+        tree = ET.parse(path); root_el = tree.getroot()
+    except ET.ParseError:
+        return ""
+    for cc in root_el.findall("ColumnConst"):
+        if cc.get("context") == "Catalog_PartID" and cc.text:
+            return cc.text.strip()
+    return ""
+
+
 def structure_sizes(year, fid):
     """Devuelve la lista de tamaños de una familia de estructura de gravedad.
     Solo reconoce combinaciones de StructInnerWidth x StructInnerLength
@@ -492,9 +520,12 @@ def imperial_pipes(year):
             if not fn.lower().endswith(".xml"): continue
             fid = os.path.splitext(fn)[0]
             bmp = os.path.join(d, fid + ".bmp")
+            # Nombre en el IDIOMA del catálogo activo (Catalog_PartDesc); fallback
+            # al nombre derivado del archivo (inglés) si el XML no lo trae.
+            desc = _extract_family_desc(os.path.join(d, fn))
             out.append({
                 "id": fid,
-                "pretty": _pretty_from_filename(fn),
+                "pretty": desc or _pretty_from_filename(fn),
                 "subfolder": sub,
                 "img_path": bmp if os.path.isfile(bmp) else None,
                 "kind": "pipe",
@@ -630,9 +661,12 @@ def imperial_structures(year):
             if not fn.lower().endswith(".xml"): continue
             fid = os.path.splitext(fn)[0]
             bmp = os.path.join(d, fid + ".bmp")
+            # Nombre en el IDIOMA del catálogo activo (Catalog_PartDesc); fallback
+            # al nombre derivado del archivo (inglés) si el XML no lo trae.
+            desc = _extract_family_desc(os.path.join(d, fn))
             out.append({
                 "id": fid,
-                "pretty": _pretty_from_filename(fn),
+                "pretty": desc or _pretty_from_filename(fn),
                 "subfolder": sub,
                 "img_path": bmp if os.path.isfile(bmp) else None,
                 "kind": "structure",

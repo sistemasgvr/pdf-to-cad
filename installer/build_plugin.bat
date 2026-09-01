@@ -68,3 +68,7 @@ echo.
 echo === Listo — el plugin ya autocarga en Civil3D, sin NETLOAD ===
 echo (Re)abre Civil3D normalmente y los comandos ya van a estar disponibles.
 endlocal
+REM Robocopy sale con codigos 1..7 tambien en el camino de EXITO (1 = archivos
+REM copiados). Sin este `exit /b 0` ese codigo se filtra al llamante y build_all.bat
+REM lo lee como error aunque todo salio bien.
+exit /b 0

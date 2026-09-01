@@ -460,6 +460,19 @@ class Main(QtWidgets.QMainWindow):
         self._slot_gcur_pipe = QtWidgets.QVBoxLayout(); l.addLayout(self._slot_gcur_pipe)   # slot: aquí va gcur al dibujar
         l.addStretch(1)
 
+        # ── Sección: Trazar centerline ──
+        # Va JUSTO DESPUES de "Dibujar utilidad": las dos son de trazado de
+        # geometria, el usuario suele alternarlas y tenerlas contiguas ahorra
+        # clics.
+        p, l = _page("📐  Trazar centerline", "centerline")
+        l.addWidget(self.btn_centerline)
+        _lbl_cl = QtWidgets.QLabel(
+            "<i>Clic para agregar vértices, Enter "
+            "cierra. Se exporta al DXF en su propia capa.</i>")
+        _lbl_cl.setWordWrap(True); l.addWidget(_lbl_cl)
+        self._slot_gcur_cl = QtWidgets.QVBoxLayout(); l.addLayout(self._slot_gcur_cl)   # slot: gcur al trazar
+        l.addStretch(1)
+
         # (La sección "Multileader" del acordeón está deshabilitada; su tab del
         # inventario también. La infraestructura de Multileader se conserva por si
         # se reactiva, pero NO se muestra al usuario.)
@@ -485,16 +498,6 @@ class Main(QtWidgets.QMainWindow):
                                      "Al exportar borra el plano dentro del polígono.</i>")
         _lbl.setWordWrap(True); l.addWidget(_lbl)
         self._slot_gcur_erase = QtWidgets.QVBoxLayout(); l.addLayout(self._slot_gcur_erase)  # slot: gcur al borrar
-        l.addStretch(1)
-
-        # ── Sección: Trazar centerline ──
-        p, l = _page("📐  Trazar centerline", "centerline")
-        l.addWidget(self.btn_centerline)
-        _lbl_cl = QtWidgets.QLabel(
-            "<i>Clic para agregar vértices, Enter "
-            "cierra. Se exporta al DXF en su propia capa.</i>")
-        _lbl_cl.setWordWrap(True); l.addWidget(_lbl_cl)
-        self._slot_gcur_cl = QtWidgets.QVBoxLayout(); l.addLayout(self._slot_gcur_cl)   # slot: gcur al trazar
         l.addStretch(1)
 
         # (Georreferenciación y Cotas/red 3D se hacen una vez por proyecto — se
@@ -809,7 +812,8 @@ class Main(QtWidgets.QMainWindow):
         self.btn_ct = QtWidgets.QPushButton("Cambiar tipo"); self.btn_ct.clicked.connect(self.change_pipe_type)
         self.btn_mv = QtWidgets.QPushButton("Editar/mover"); self.btn_mv.clicked.connect(self.enter_move)
         self.btn_edit = QtWidgets.QPushButton("Editar texto"); self.btn_edit.clicked.connect(self.edit_selected_text)
-        self.btn_del = QtWidgets.QPushButton("Eliminar"); self.btn_del.clicked.connect(self.delete_selected)
+        self.btn_del = QtWidgets.QPushButton("Eliminar"); self.btn_del.setProperty("danger", True)
+        self.btn_del.clicked.connect(self.delete_selected)
         rr.addWidget(self.btn_ct, 0, 0); rr.addWidget(self.btn_mv, 0, 1)
         rr.addWidget(self.btn_edit, 1, 0); rr.addWidget(self.btn_del, 1, 1)
         rv.addLayout(rr)
@@ -1156,6 +1160,10 @@ class Main(QtWidgets.QMainWindow):
         self.btn_mv.setVisible(ti in (TAB_PIPE, TAB_LEADER, TAB_TEXT, TAB_REGION))
         self.btn_mv.setText("Mover" if ti == TAB_TEXT else "Editar/mover")
         self.btn_edit.setVisible(ti in (TAB_ML, TAB_TEXT))
+        # "Eliminar" no aplica en la pestaña Buzones: los buzones se
+        # auto-detectan de los vertices de las tuberias, borrarlos no tiene
+        # efecto porque _rebuild_structures los repone. Se oculta el boton.
+        self.btn_del.setVisible(ti != TAB_BZ)
         diag = self.orient_combo.currentData() == "d"
         lead1 = "Modo: Leader — clic en la cabeza de flecha (dónde señala)"
         lead2 = ("Modo: Leader — clic en el inicio del landing (bisagra)" if diag
@@ -1227,13 +1235,18 @@ class Main(QtWidgets.QMainWindow):
         if ti == TAB_ML: self.sel_leader = self._leader_at_row(self.lead_list, self.lead_list.currentRow())
         elif ti == TAB_LEADER: self.sel_leader = self._leader_at_row(self.sleader_list, self.sleader_list.currentRow())
         if self.mode == "move": self.set_mode("idle")   # no seguir editando al cambiar de pestaña
+        # "Cotas por tramo" pertenece EXCLUSIVAMENTE a la pestaña Utilidades. El
+        # panel vive en el dock derecho, que se comparte entre pestañas — sin
+        # este toggle explicito la tabla quedaba visible al saltar de Utilidades
+        # a Buzones/Curvas/Centerlines. Se oculta primero y solo Utilidades la
+        # reactiva (a traves de _rebuild_seg_inv_table).
+        if ti != TAB_PIPE:
+            self.gprop_segs.setVisible(False)
         if ti == TAB_BZ: self._sync_bz_panel()
         elif ti == TAB_CURVE: self._sync_curve_panel()
         elif ti == TAB_CL: self._sync_cl_panel()
         elif ti == TAB_PIPE and 0 <= self.sel_pipe < len(self.pipes):
             self._rebuild_seg_inv_table(self.pipes[self.sel_pipe])
-        else:
-            self.gprop_segs.setVisible(False)          # "Cotas por tramo" es solo de la tab Utilidades
         self._update_ui(); self._redraw()
     # Los "toggle_*" alternan entre "modo activo" e "idle" (sin nada activo).
     # Además abren su sección del acordeón para que las opciones sean visibles.
@@ -1338,11 +1351,16 @@ class Main(QtWidgets.QMainWindow):
     def _write_project(self, path):
         self._busy("Guardando proyecto…")
         try:
+            import civil_catalog as _cc
             model = dict(pipes=self.pipes, leaders=self.leaders, text_marks=self.text_marks,
                          erase_regions=self.erase_regions, structures=self.structures,
                          ref_centerlines=self.ref_centerlines,
                          georef=self.georef.to_dict(),
                          work_unit=self.work_unit,                # unidad de trabajo del proyecto
+                         # Versión/idioma de Civil 3D elegidos en el toolbar: se
+                         # guardan para reabrir el proyecto con la MISMA selección.
+                         civil_year=self.civil_year,
+                         civil_lang=_cc._current_lang,
                          tf=dict(scale=self.scale, zoom=self.zoom, rot=self.rot, W=self.W, H=self.H,
                                  derot=[self.derot.a, self.derot.b, self.derot.c, self.derot.d, self.derot.e, self.derot.f]),
                          pdf_name=os.path.basename(self.pdf_path or ""), version=VERSION)
@@ -1417,9 +1435,18 @@ class Main(QtWidgets.QMainWindow):
             self.project_path = path; self.page_idx = 0; self._update_title()
             self.pipes = model.get("pipes", []); self.leaders = model.get("leaders", [])
             for p in self.pipes:                            # JSON vuelve las keys de vertex_inv a str
-                vi = p.get("vertex_inv")
-                if isinstance(vi, dict) and vi:
-                    p["vertex_inv"] = {int(k): float(v) for k, v in vi.items()}
+                # Tres diccionarios distintos guardan cotas por vertice:
+                #   vertex_inv     — legado, cota unica por vertice
+                #   vertex_inv_out — cota de SALIDA del vertice (start del segmento siguiente)
+                #   vertex_inv_in  — cota de ENTRADA al vertice (end del segmento anterior)
+                # Los tres se persisten con json.dumps, que convierte SIEMPRE las
+                # llaves a str. Si no se re-castean a int aca, los lookups por
+                # indice (que son int) fallan silenciosamente y la edicion por
+                # tramo aparece vacia al reabrir el proyecto.
+                for k in ("vertex_inv", "vertex_inv_out", "vertex_inv_in"):
+                    d = p.get(k)
+                    if isinstance(d, dict) and d:
+                        p[k] = {int(kk): float(vv) for kk, vv in d.items()}
             self.text_marks = model.get("text_marks", [])
             self.erase_regions = [r if isinstance(r, dict) else {"pts": r, "enabled": True}
                                   for r in model.get("erase_regions", [])]
@@ -1435,6 +1462,9 @@ class Main(QtWidgets.QMainWindow):
             self.set_mode("idle"); self._refresh_lists(); self._update_page_label(); self._redraw()
             self._refresh_scale_label(); self._update_geo_status()
             self._refresh_unit_labels()
+            # Reponer la versión/idioma de Civil 3D con que se guardó el proyecto
+            # (si esa versión sigue instalada). Debe ir ANTES de _warn_missing_families.
+            self._restore_civil_selection(model.get("civil_year"), model.get("civil_lang"))
             self._info(f"Proyecto abierto ({len(self.pipes)} utilidades). Ctrl+S guarda en este mismo archivo.")
             # Aviso si el proyecto referencia familias del catálogo que no están
             # instaladas en el Civil 3D activo — ofrece abrir el instalador.
@@ -2109,6 +2139,33 @@ class Main(QtWidgets.QMainWindow):
         import civil_catalog as _cc
         lang = self.cmb_lang.itemData(i)
         _cc.set_current_lang(lang)
+        self._refresh_catalog_panels()
+
+    def _restore_civil_selection(self, year, lang):
+        """Repone en el toolbar la versión/idioma de Civil 3D guardados en el
+        proyecto (si esa versión está instalada). Se llama al abrir un proyecto.
+        Se bloquean señales para no disparar refrescos intermedios; al final se
+        refresca una sola vez."""
+        import civil_catalog as _cc
+        if year is None:
+            return
+        if year not in set(_cc.installed_versions()):
+            return                                   # esa versión ya no está en esta PC
+        idx = self.cmb_civil.findData(year)
+        if idx < 0:
+            return
+        self.cmb_civil.blockSignals(True)
+        self.cmb_civil.setCurrentIndex(idx)
+        self.cmb_civil.blockSignals(False)
+        self.civil_year = year
+        self._refill_lang_combo()                    # repuebla idiomas del año elegido
+        if lang:
+            li = self.cmb_lang.findData(lang)
+            if li >= 0:
+                self.cmb_lang.blockSignals(True)
+                self.cmb_lang.setCurrentIndex(li)
+                self.cmb_lang.blockSignals(False)
+                _cc.set_current_lang(lang)
         self._refresh_catalog_panels()
 
     def _refill_lang_combo(self):
@@ -3719,6 +3776,7 @@ class Main(QtWidgets.QMainWindow):
 
         bb = QtWidgets.QDialogButtonBox()
         btn_del = bb.addButton("Desinstalar seleccionadas", QtWidgets.QDialogButtonBox.AcceptRole)
+        btn_del.setProperty("danger", True)
         btn_close = bb.addButton("Cerrar", QtWidgets.QDialogButtonBox.RejectRole)
         lay.addWidget(bb)
 
@@ -3913,16 +3971,11 @@ class Main(QtWidgets.QMainWindow):
               navegación que el plano (rueda = zoom, botón central + arrastrar = mover
               libremente) y el mismo imán a vértice/cruce exacto.</li>
         </ul>
-        <p><b>«🖊 Emparejar centerline dibujado»</b>: en vez de ir punto por punto, elegí tu
-        centerline dibujado (plano) y la calle real correspondiente (mapa) — la app agrega
-        ~10 pares de golpe a lo largo de toda la línea. Muy útil cuando el plano solo tiene
-        1 intersección visible: usa la forma completa de la calle (no solo su cruce) como
-        referencia, que es tan real y precisa como el cruce mismo.</p>
-        <p><b>Ctrl+Z</b> deshace el último punto (o lote) agregado, en cualquiera de los 2
+        <p><b>Ctrl+Z</b> deshace el último punto agregado, en cualquiera de los 2
         paneles.</p>
         <p>Con 3+ pares (idealmente en 2 cruces distintos, o combinando el cruce que
-        tengas + esquinas de parcela + «Emparejar centerline»), pulsá
-        <b>«Ajustar afín + RMSE»</b>: el <b>RMSE</b> es el error PROMEDIO en pies entre
+        tengas + esquinas de parcela), pulsá
+        <b>«Ajustar + RMSE»</b>: el <b>RMSE</b> es el error PROMEDIO en pies entre
         cada punto marcado y donde el ajuste calculado lo ubica — mide qué tan bien calzan
         TODOS los puntos a la vez (pasá el mouse sobre "RMSE:" para el detalle). Mientras
         más bajo, mejor. Luego <b>«💾 Guardar georreferenciación»</b> guarda el proyecto y
@@ -4120,6 +4173,15 @@ def main():
            el padding generoso de arriba no deja ancho para el simbolo y el
            boton sale VACIO. Se marcan con setProperty("iconOnly", True). */
         QPushButton[iconOnly="true"] { padding: 0; font-size: 17px; font-weight: bold; }
+
+        /* Acciones DESTRUCTIVAS — Eliminar / Borrar / Desinstalar. Rojo por
+           convencion de UX (accion irreversible). Se marcan con
+           setProperty("danger", True). Overrides el fondo default por especificidad. */
+        QPushButton[danger="true"] { background: #d1352d; color: #ffffff; border: 1px solid #a8241c;
+                                     font-weight: bold; }
+        QPushButton[danger="true"]:hover  { background: #e0453c; border: 1px solid #ff5a4e; }
+        QPushButton[danger="true"]:pressed{ background: #a8241c; border: 1px solid #d1352d; }
+        QPushButton[danger="true"]:disabled{ background: #4a2825; color: #a08380; border: 1px solid #4a2825; }
 
         /* ═══ CONTROLES DE SELECCIÓN — el fix principal ═══════════════════════
            20x20 px, borde claro de 2px siempre visible sobre el fondo oscuro.

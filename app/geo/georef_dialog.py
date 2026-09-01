@@ -18,18 +18,10 @@ referencia/superponer) por un flujo único, adaptado de `auxiliar/pdf_georef.py`
 Ctrl+Z (en cualquiera de los 2 paneles) deshace el último punto pendiente o
 el último lote de pares agregado de una.
 
-Con ≥3 pares se ajusta una transformación afín (reusa `geo.georef.fit`, el
-mismo núcleo que ya usa el resto de la app) y el botón "Guardar
-georreferenciación" fija `self.georef` en la ventana principal y GUARDA el
-proyecto de una — no hace falta pasar por "Guardar proyecto" aparte.
-
-Botón "🖊 Emparejar centerline dibujado": en vez de agregar pares uno por uno,
-toma un centerline DIBUJADO A MANO (tab "Centerlines" de la ventana principal,
-`self._main.ref_centerlines` — geometría distinta de las utilidades) y lo
-empareja contra un centerline REAL elegido con un clic de cada lado; ambas
-líneas se remuestrean por distancia relativa (`resample_polyline`) y se
-agregan ~10 pares de golpe — promedia el error de clic sobre toda la línea en
-vez de un solo punto, mejora sensible del RMSE.
+Con ≥3 pares se ajusta una transformación de similaridad (reusa
+`geo.georef.fit`, el mismo núcleo que ya usa el resto de la app) y el botón
+"Guardar georreferenciación" fija `self.georef` en la ventana principal y
+GUARDA el proyecto de una — no hace falta pasar por "Guardar proyecto" aparte.
 
 Todo en EPSG:2229 (State Plane CA Zona V, ftUS) — el único CRS que tiene
 sentido para las calles de NavigateLA, y el mismo que usa el resto del
@@ -281,32 +273,6 @@ def snap_to_intersection(pt, polylines, max_dist):
     return None, None
 
 
-def resample_polyline(pts, n):
-    """n puntos a lo largo de `pts`, equiespaciados por distancia acumulada
-    (0%, 1/(n-1), …, 100%) — para emparejar un centerline dibujado contra el
-    real punto-a-punto en vez de un solo clic. n >= 2."""
-    if len(pts) < 2:
-        return [pts[0]] * n if pts else []
-    seglens = [math.hypot(pts[i + 1][0] - pts[i][0], pts[i + 1][1] - pts[i][1]) for i in range(len(pts) - 1)]
-    total = sum(seglens)
-    if total < 1e-9:
-        return [pts[0]] * n
-    cum = [0.0]
-    for L in seglens:
-        cum.append(cum[-1] + L)
-    out = []
-    for k in range(n):
-        target = total * k / (n - 1)
-        i = 0
-        while i < len(seglens) - 1 and cum[i + 1] < target:
-            i += 1
-        seg_len = seglens[i] if seglens[i] > 1e-9 else 1e-9
-        t = max(0.0, min(1.0, (target - cum[i]) / seg_len))
-        out.append((pts[i][0] + t * (pts[i + 1][0] - pts[i][0]),
-                    pts[i][1] + t * (pts[i + 1][1] - pts[i][1])))
-    return out
-
-
 # ─────────────────────────── vista del plano (PDF + utilidades) ───────────────────────────
 class _PdfPickView(QtWidgets.QGraphicsView):
     clicked = QtCore.Signal(float, float)
@@ -553,22 +519,24 @@ class GeorefDialog(QtWidgets.QDialog):
         scr = (parent.screen() if parent else None) or self.screen() \
             or QtWidgets.QApplication.primaryScreen()
         avail = scr.availableGeometry() if scr else QtCore.QRect(0, 0, 1400, 860)
-        # Tamaño inicial acotado SIEMPRE a la pantalla disponible (con margen),
-        # y centrado, para que nunca se salga del borde.
+        # Se abre MAXIMIZADA (pedido del usuario): ocupa toda la pantalla
+        # disponible del monitor donde vive la ventana padre. `showMaximized`
+        # se llama en showEvent para que el WM la reciba una vez ya visible.
+        # Se guarda un tamaño "razonable" como fallback por si el usuario luego
+        # sale del maximizado.
         w = min(1360, max(720, avail.width() - 80))
         h = min(860, max(540, avail.height() - 120))
         self.resize(w, h)
         self.move(avail.x() + max(0, (avail.width() - w) // 2),
                   avail.y() + max(0, (avail.height() - h) // 2))
-        self._init_w = w
+        self._init_w = avail.width()
+        self._start_maximized = True
         self.result_georef = None
         self._pipe_lines = [p.get("pts", []) for p in (pipes or []) if len(p.get("pts", [])) >= 2]
-        # Centerlines DIBUJADOS a mano (distintos de las utilidades) — para
-        # emparejar contra la calle real y mejorar el ajuste con muchos puntos
-        # de una sola vez (ver _apply_centerline_match).
+        # Centerlines DIBUJADOS a mano (distintos de las utilidades): se muestran
+        # en el plano como referencia y el imán de puntos de control se pega a
+        # ellos igual que a las utilidades.
         self._ref_cl_lines = [c.get("pts", []) for c in (ref_centerlines or []) if len(c.get("pts", [])) >= 2]
-        self._ref_cl_labels = [c.get("cod", "?") for c in (ref_centerlines or []) if len(c.get("pts", [])) >= 2]
-        self._cl_match_plan_idx = None
         self.centerlines = []             # [[ (x,y) en ft 2229, ... ], ...] — calles REALES (NavigateLA)
         self.parcels = []                 # [[ (x,y) en ft 2229, ... ], ...] — parcelas REALES (NavigateLA)
         self.arc_centers = []             # [(x,y,radio)] centros de esquinas redondeadas (imán)
@@ -654,25 +622,10 @@ class GeorefDialog(QtWidgets.QDialog):
         half = max(240, self._init_w // 2)
         split.setSizes([half, half]); root.addWidget(split, 1)
 
-        clrow = QtWidgets.QHBoxLayout()
-        self.b_match_cl = QtWidgets.QPushButton("🖊 Emparejar centerline dibujado")
-        self.b_match_cl.setCheckable(True)
-        self.b_match_cl.setEnabled(bool(self._ref_cl_lines))
-        self.b_match_cl.setToolTip(
-            "1) Actívalo · 2) clic en TU centerline dibujado (plano, línea magenta) · 3) clic en la "
-            "calle real correspondiente (mapa) — la app empareja automáticamente varios puntos a lo "
-            "largo de ambas líneas, mucho más preciso que un solo clic.\n\n"
-            "Si está deshabilitado: dibuja un centerline primero (tab 'Centerlines' → '📐 Trazar "
-            "centerline'), distinto de las utilidades.")
-        self.b_match_cl.toggled.connect(self._on_match_cl_toggled)
-        clrow.addWidget(self.b_match_cl); clrow.addStretch(1)
-        root.addLayout(clrow)
-
         self.hint = QtWidgets.QLabel("1) Busca y descarga las calles de la zona · 2) clic en el plano (izquierda) "
                                      "· 3) clic en la calle correspondiente (derecha). Mínimo 3 pares — puedes "
                                      "marcar puntos A LO LARGO de toda la calle, no solo en las esquinas: "
-                                     "más puntos bien repartidos mejoran el ajuste (RMSE). O usa «🖊 Emparejar "
-                                     "centerline dibujado» arriba para agregar muchos puntos de una vez.")
+                                     "más puntos bien repartidos mejoran el ajuste (RMSE).")
         self.hint.setStyleSheet("color:#9cf;"); root.addWidget(self.hint)
 
         rmse_tip = ("RMSE (Root Mean Square Error / error cuadrático medio): el error PROMEDIO, en pies, "
@@ -681,13 +634,16 @@ class GeorefDialog(QtWidgets.QDialog):
                    "clickeado, el RMSE sube aunque los demás estén perfectos. Mientras más bajo, mejor "
                    "(verde <3 ft, amarillo <8 ft, rojo ≥8 ft).")
         crow = QtWidgets.QHBoxLayout()
-        self.b_fit = QtWidgets.QPushButton("Ajustar afín + RMSE"); self.b_fit.clicked.connect(self._compute)
-        self.b_fit.setToolTip("Calcula la transformación (rotación + escala + traslación) que mejor hace "
-                              "coincidir todos los pares plano↔calle real, y muestra el RMSE.\n\n" + rmse_tip)
+        self.b_fit = QtWidgets.QPushButton("Ajustar + RMSE"); self.b_fit.clicked.connect(self._compute)
+        self.b_fit.setToolTip("Calcula la transformación (rotación + escala uniforme + traslación) que mejor "
+                              "hace coincidir todos los pares plano↔calle real, y muestra el RMSE. No deforma "
+                              "el plano: solo lo gira y escala parejo.\n\n" + rmse_tip)
         crow.addWidget(self.b_fit)
         self.lbl_rms = QtWidgets.QLabel("RMSE: —"); self.lbl_rms.setToolTip(rmse_tip); crow.addWidget(self.lbl_rms, 1)
-        b_del = QtWidgets.QPushButton("Eliminar sel."); b_del.clicked.connect(self._del_pair); crow.addWidget(b_del)
-        b_clear = QtWidgets.QPushButton("Limpiar todos"); b_clear.clicked.connect(self._clear_pairs); crow.addWidget(b_clear)
+        b_del = QtWidgets.QPushButton("Eliminar sel."); b_del.setProperty("danger", True)
+        b_del.clicked.connect(self._del_pair); crow.addWidget(b_del)
+        b_clear = QtWidgets.QPushButton("Limpiar todos"); b_clear.setProperty("danger", True)
+        b_clear.clicked.connect(self._clear_pairs); crow.addWidget(b_clear)
         root.addLayout(crow)
 
         self.lst = QtWidgets.QListWidget(); self.lst.setMaximumHeight(140); root.addWidget(self.lst)
@@ -727,6 +683,16 @@ class GeorefDialog(QtWidgets.QDialog):
         # diálogo (plano y mapa comparten la misma lista de pares).
         undo_sc = QtGui.QShortcut(QtGui.QKeySequence.Undo, self)
         undo_sc.activated.connect(self._undo)
+
+    def showEvent(self, e):
+        super().showEvent(e)
+        # Maximizar tras el primer show: en Qt hay que llamarlo cuando el WM ya
+        # tiene la ventana registrada; hacerlo en __init__ no siempre pega. La
+        # bandera `_start_maximized` se apaga tras la primera vez para que si el
+        # usuario sale del maximizado y reabre el dialogo, se respete su tamaño.
+        if getattr(self, "_start_maximized", False):
+            self._start_maximized = False
+            self.showMaximized()
 
     def closeEvent(self, e):
         # evita "QThread: Destroyed while thread is still running" si se
@@ -796,15 +762,6 @@ class GeorefDialog(QtWidgets.QDialog):
         QtWidgets.QMessageBox.critical(self, "Error", msg)
 
     def _on_pdf_click(self, x, y):
-        if self.b_match_cl.isChecked():
-            _pt, idx = snap_to_lines_idx((x, y), self._ref_cl_lines, SNAP_PX)
-            if idx is None:
-                self.hint.setText("No caíste sobre ningún centerline dibujado — acércate más, o cancela "
-                                  "desactivando «Emparejar centerline dibujado»."); return
-            self._cl_match_plan_idx = idx
-            label = self._ref_cl_labels[idx] if idx < len(self._ref_cl_labels) else "?"
-            self.hint.setText(f"Centerline '{label}' elegido. Ahora clic en la calle REAL correspondiente (derecha).")
-            return
         all_plan_lines = self._pipe_lines + self._ref_cl_lines
         ip, _idx = snap_to_intersection((x, y), all_plan_lines, SNAP_PX)
         sx, sy = ip if ip is not None else snap_to_lines((x, y), all_plan_lines, SNAP_PX)
@@ -826,18 +783,6 @@ class GeorefDialog(QtWidgets.QDialog):
         return best
 
     def _on_map_click(self, x, y):
-        if self.b_match_cl.isChecked():
-            if self._cl_match_plan_idx is None:
-                self.hint.setText("Primero clic en TU centerline dibujado (plano, izquierda)."); return
-            if not self.centerlines:
-                self.hint.setText("Primero descarga las calles de la zona."); return
-            _pt, ridx = snap_to_lines_idx((x, y), self.centerlines, SNAP_FT)
-            if ridx is None:
-                self.hint.setText("No caíste sobre ninguna calle real — acércate más."); return
-            self._apply_centerline_match(self._cl_match_plan_idx, ridx)
-            self._cl_match_plan_idx = None
-            self.b_match_cl.setChecked(False)
-            return
         if self._pending_px is None:
             self.hint.setText("Primero clic en el plano (izquierda)."); return
         if not self.centerlines:
@@ -861,32 +806,7 @@ class GeorefDialog(QtWidgets.QDialog):
         self.pairs.append(pair); self._undo_stack.append([pair])
         self._pending_px = None; self._pending_mark = None
         self._refresh_list(); self._draw_map_markers()
-        self.hint.setText(f"Punto {len(self.pairs)} agregado. Repite (mínimo 3) y pulsa «Ajustar afín».")
-
-    def _on_match_cl_toggled(self, v):
-        self._cl_match_plan_idx = None
-        if v:
-            self.hint.setText("Emparejar centerline: clic en TU centerline dibujado (plano, línea magenta punteada).")
-        else:
-            self.hint.setText("Emparejar centerline cancelado.")
-
-    def _apply_centerline_match(self, plan_idx, real_idx, n=10):
-        """Remuestrea el centerline dibujado (plan_idx, en píxeles) y el
-        centerline real elegido (real_idx, en pies 2229) por distancia
-        relativa, y agrega n pares de golpe — mucho más preciso que un
-        único clic, porque promedia el error de clic sobre toda la línea."""
-        plan_pts = self._ref_cl_lines[plan_idx]; real_pts = self.centerlines[real_idx]
-        plan_rs = resample_polyline(plan_pts, n); real_rs = resample_polyline(real_pts, n)
-        batch = []
-        for (px, py), (rx, ry) in zip(plan_rs, real_rs):
-            m = self.pdf.add_mark(px, py, "#00d0ff")
-            pair = {"px": (px, py), "world": (rx, ry), "label": "auto (centerline)", "mark": m}
-            self.pairs.append(pair); batch.append(pair)
-        self._undo_stack.append(batch)
-        self._refresh_list(); self._draw_map_markers()
-        label = self._ref_cl_labels[plan_idx] if plan_idx < len(self._ref_cl_labels) else "?"
-        self.hint.setText(f"✓ {len(plan_rs)} puntos agregados automáticamente desde '{label}'. "
-                          "Pulsa «Ajustar afín» cuando quieras (o agrega más pares/centerlines).")
+        self.hint.setText(f"Punto {len(self.pairs)} agregado. Repite (mínimo 3) y pulsa «Ajustar».")
 
     def _del_pair(self):
         r = self.lst.currentRow()
@@ -911,16 +831,12 @@ class GeorefDialog(QtWidgets.QDialog):
 
     def _undo(self):
         """Ctrl+Z: cancela el punto pendiente (si hay uno a medias), o si no,
-        deshace el último lote de pares agregado de una (1 clic manual = 1
-        par; «Emparejar centerline dibujado» = varios de golpe)."""
+        deshace el último par agregado."""
         if self._pending_px is not None:
             if self._pending_mark:
                 self.pdf.scene().removeItem(self._pending_mark)
             self._pending_px = None; self._pending_mark = None
             self.hint.setText("Punto pendiente cancelado (Ctrl+Z)."); return
-        if self.b_match_cl.isChecked() and self._cl_match_plan_idx is not None:
-            self._cl_match_plan_idx = None
-            self.hint.setText("Selección de centerline cancelada (Ctrl+Z)."); return
         while self._undo_stack:
             batch = self._undo_stack.pop()
             removed = False
@@ -941,7 +857,9 @@ class GeorefDialog(QtWidgets.QDialog):
             QtWidgets.QMessageBox.information(self, "Faltan puntos", "Se necesitan al menos 3 puntos de control."); return
         px = [p["px"] for p in self.pairs]; world = [p["world"] for p in self.pairs]
         try:
-            matrix, rms, ttype = georef_mod.fit(px, world, kind="affine")
+            # Similaridad (rotación + escala uniforme + traslación): no deforma el
+            # plano y su RMSE es real incluso con 3 puntos (ver geo.georef.fit).
+            matrix, rms, ttype = georef_mod.fit(px, world, kind="similarity")
         except Exception as e:
             QtWidgets.QMessageBox.warning(self, "Ajuste", f"No se pudo ajustar la transformación.\n\n{e}"); return
         det = matrix[0][0] * matrix[1][1] - matrix[0][1] * matrix[1][0]

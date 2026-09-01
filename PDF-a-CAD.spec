@@ -17,7 +17,10 @@ a = Analysis(
     hookspath=[],
     hooksconfig={},
     runtime_hooks=[],
-    excludes=[],
+    # La app usa PySide6. Si el entorno tiene tambien PyQt5/PyQt6/PySide2
+    # instalados (matplotlib, mplcursors, etc. suelen arrastrarlos), PyInstaller
+    # aborta al encontrar dos bindings de Qt a la vez. Se excluyen aca.
+    excludes=['PyQt5', 'PyQt6', 'PySide2'],
     noarchive=False,
     optimize=0,
 )

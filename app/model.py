@@ -32,9 +32,9 @@ Esquema de cada elemento (claves de los dicts):
   (sin buzón), y la tubería lleva además NO_MANHOLE_VERTS marcando ese índice.
   ref_centerline = {cod, pts:[(x,y)…]}  — trazo de referencia de una calle,
   DISTINTO de una utilidad (no representa ninguna tubería): se dibuja aparte
-  (tab "Centerlines") para calzar contra la calle real al georreferenciar
-  (ver geo/georef_dialog.py, botón "Emparejar centerline dibujado"). Se
-  exporta al DXF en su propia capa REF_CENTERLINES, sin XDATA.
+  (tab "Centerlines") y sirve de referencia visual (e imán de puntos de
+  control) al georreferenciar. Se exporta al DXF en su propia capa
+  REF_CENTERLINES, sin XDATA.
 Coordenadas DIBUJADAS en PÍXELES (se convierten con geometry.to_cad al exportar);
 coordenadas IMPORTADAS de Excel ya son reales de mundo (world=True → se usan tal cual).
 """

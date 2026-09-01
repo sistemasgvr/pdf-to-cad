@@ -149,6 +149,7 @@ namespace Civil3DBasico
                             ManningsN = XdDouble(xd, "MANNINGS_N"),
                             CoverMin = XdDouble(xd, "COVER_MIN") * k,
                             PipeFamily = XdStr(xd, "PIPE_FAMILY", ""),
+                            PipeGuid = XdStr(xd, "PIPE_GUID", ""),
                             PipeSize = XdStr(xd, "PIPE_SIZE", ""),
                             NoManholeVerts = noMan,
                             SegOverrides = segOv,
@@ -167,6 +168,7 @@ namespace Civil3DBasico
                             Rim = MulNull(XdNullDouble(xd, "RIM"), k),
                             Sump = MulNull(XdNullDouble(xd, "SUMP"), k),
                             Part = XdStr(xd, "PART", ""),
+                            PartGuid = XdStr(xd, "PART_GUID", ""),
                             PartSize = XdStr(xd, "PART_SIZE", ""),
                             Covered = XdStr(xd, "COVERED", "1") != "0",
                             NetKind = XdStr(xd, "NET_KIND", "gravity"),
@@ -601,24 +603,31 @@ namespace Civil3DBasico
             net.PartsListId = partsList.ObjectId;
             if (surfId != ObjectId.Null) net.ReferenceSurfaceId = surfId;
 
-            // Pre-scan: para cada Part único que llega del DXF (basename del .xml del catálogo
-            // o nombre custom del modelador), agregarlo al PartsList si aún no está.
-            var partsPedidos = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            // Pre-scan: para cada familia única que llega del DXF, agregarla al
+            // PartsList si aún no está. Se prefiere el GUID (clave estable,
+            // independiente del idioma) sobre el Part (Descripción localizada, que
+            // puede no calzar entre versiones/idiomas). Clave de dedup = GUID si
+            // hay, si no el Part.
+            var structPedidos = new Dictionary<string, (string part, string guid)>(StringComparer.OrdinalIgnoreCase);
             foreach (var st in structs)
             {
-                if (!string.IsNullOrWhiteSpace(st.Part)) partsPedidos.Add(st.Part);
+                if (string.IsNullOrWhiteSpace(st.Part) && string.IsNullOrWhiteSpace(st.PartGuid)) continue;
+                string key = !string.IsNullOrWhiteSpace(st.PartGuid) ? "g:" + st.PartGuid : "p:" + st.Part;
+                if (!structPedidos.ContainsKey(key)) structPedidos[key] = (st.Part, st.PartGuid);
             }
-            foreach (var pid in partsPedidos)
-                AsegurarFamiliaPorId(ed, tr, partsList, pid);
+            foreach (var kv in structPedidos.Values)
+                AsegurarFamiliaPorId(ed, tr, partsList, kv.part, CivilDB.DomainType.Structure, kv.guid);
 
             // Pre-scan de familias de TUBERÍA elegidas en Python (dominio Pipe).
-            var pipesPedidas = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            var pipesPedidas = new Dictionary<string, (string fam, string guid)>(StringComparer.OrdinalIgnoreCase);
             foreach (var ip2 in pipes)
             {
-                if (!string.IsNullOrWhiteSpace(ip2.PipeFamily)) pipesPedidas.Add(ip2.PipeFamily);
+                if (string.IsNullOrWhiteSpace(ip2.PipeFamily) && string.IsNullOrWhiteSpace(ip2.PipeGuid)) continue;
+                string key = !string.IsNullOrWhiteSpace(ip2.PipeGuid) ? "g:" + ip2.PipeGuid : "p:" + ip2.PipeFamily;
+                if (!pipesPedidas.ContainsKey(key)) pipesPedidas[key] = (ip2.PipeFamily, ip2.PipeGuid);
             }
-            foreach (var pid in pipesPedidas)
-                AsegurarFamiliaPorId(ed, tr, partsList, pid, CivilDB.DomainType.Pipe);
+            foreach (var kv in pipesPedidas.Values)
+                AsegurarFamiliaPorId(ed, tr, partsList, kv.fam, CivilDB.DomainType.Pipe, kv.guid);
 
             var createdStructs = new Dictionary<string, ObjectId>();
             int nPipes = 0;
@@ -906,7 +915,7 @@ namespace Civil3DBasico
                         {
                             string sizeHint = match != null ? (match.PartSize ?? "") : "";
                             BuscarEstructura(tr, partsList, structType, sizeHint,
-                                             out sFam, out sSize, out _);
+                                             out sFam, out sSize, out _, match?.PartGuid ?? "");
                             if (sFam == ObjectId.Null)
                             { sFam = defStructFam; sSize = defStructSize; ruta = "fallback_default"; }
                             else ruta = "buscar_estructura_match";
@@ -1975,16 +1984,24 @@ namespace Civil3DBasico
         // TODOS sus tamaños. Usa MatchCatalogId para comparar tokens EN↔ES entre el
         // catalogId (CamelCase EN) y la Description de la familia (idioma real).
         private void AsegurarFamiliaPorId(Editor ed, Transaction tr, PartsStyles.PartsList partsList,
-                                          string catalogId, CivilDB.DomainType dominio = CivilDB.DomainType.Structure)
+                                          string catalogId, CivilDB.DomainType dominio = CivilDB.DomainType.Structure,
+                                          string guid = null)
         {
-            if (string.IsNullOrWhiteSpace(catalogId)) { Dbg("ASEGURAR_FAM_SKIP", ("motivo", "vacio")); return; }
+            // Se prefiere el GUID (clave estable, independiente del idioma/versión)
+            // sobre el catalogId (Descripción localizada, que puede no calzar). Con
+            // GUID el emparejamiento es EXACTO y no cae en la familia equivocada.
+            bool usaGuid = !string.IsNullOrWhiteSpace(guid);
+            if (string.IsNullOrWhiteSpace(catalogId) && !usaGuid)
+            { Dbg("ASEGURAR_FAM_SKIP", ("motivo", "vacio")); return; }
             // ¿Ya está?
             foreach (ObjectId fid in partsList.GetPartFamilyIdsByDomain(dominio))
             {
                 var fam = tr.GetObject(fid, OpenMode.ForRead) as PartsStyles.PartFamily;
                 if (fam == null || fam.PartSizeCount == 0) continue;
-                bool m = MatchCatalogIdPublic(catalogId, fam.Description ?? "");
-                Dbg("ASEGURAR_FAM_CHECK", ("pedido", catalogId), ("dominio", dominio.ToString()),
+                bool m = usaGuid
+                    ? MismoGuid(fam.GUID, guid)
+                    : MatchCatalogIdPublic(catalogId, fam.Description ?? "");
+                Dbg("ASEGURAR_FAM_CHECK", ("pedido", usaGuid ? "guid:" + guid : catalogId), ("dominio", dominio.ToString()),
                     ("candidato", fam.Description ?? ""),
                     ("match", m ? "true" : "false"), ("sizes", fam.PartSizeCount));
                 if (m)
@@ -2026,6 +2043,14 @@ namespace Civil3DBasico
                 PartsStyles.DataPartFamily elegido = null;
                 foreach (var dpf in disp)
                 {
+                    if (usaGuid)
+                    {
+                        // Con GUID: match exacto, sin filtros de texto (el GUID ya
+                        // identifica la familia correcta e independiente del idioma).
+                        if (MismoGuid(dpf.GUID, guid))
+                        { elegido = dpf; break; }
+                        continue;
+                    }
                     string desc = dpf.Description ?? "";
                     if (desc.IndexOf("Metric", StringComparison.OrdinalIgnoreCase) >= 0) continue;
                     if (desc.IndexOf("métric", StringComparison.OrdinalIgnoreCase) >= 0) continue;
@@ -2034,9 +2059,9 @@ namespace Civil3DBasico
                 }
                 if (elegido == null)
                 {
-                    Dbg("ASEGURAR_FAM_NO_ENCONTRADA_EN_CATALOGO", ("pedido", catalogId),
+                    Dbg("ASEGURAR_FAM_NO_ENCONTRADA_EN_CATALOGO", ("pedido", usaGuid ? "guid:" + guid : catalogId),
                         ("candidatos_en_catalogo", disp.Length));
-                    ed.WriteMessage($"\n⚠ Familia '{catalogId}' pedida desde Python no se encontró en el catálogo disponible.");
+                    ed.WriteMessage($"\n⚠ Familia '{(usaGuid ? guid : catalogId)}' pedida desde Python no se encontró en el catálogo disponible.");
                     return;
                 }
                 Dbg("ASEGURAR_FAM_AGREGANDO", ("pedido", catalogId), ("elegida", elegido.Description ?? ""),
@@ -2608,6 +2633,7 @@ namespace Civil3DBasico
             public double ManningsN;
             public double CoverMin;
             public string PipeFamily;     // catalogId elegido en Python (basename del .xml)
+            public string PipeGuid;       // GUID estable de la familia (Catalog_PartID); "" si custom/sin catálogo
             public string PipeSize;       // p.ej. "48 in"
             public HashSet<int> NoManholeVerts = new HashSet<int>();  // vértices intermedios sin structure
             // Overrides opcionales por segmento (idx del tramo → familia y/o tamaño).
@@ -2712,6 +2738,7 @@ namespace Civil3DBasico
             public double? Rim;
             public double? Sump;
             public string Part;
+            public string PartGuid;                 // GUID estable de la familia (Catalog_PartID); "" si custom/sin catálogo
             public string PartSize;                 // tamaño elegido en el diálogo (ej "48 in")
             public bool Covered = true;
             public string NetKind = "gravity";      // "gravity" | "pressure"
