@@ -3915,7 +3915,7 @@ class Main(QtWidgets.QMainWindow):
         """Ventana del manual de usuario. Es HTML sencillo dentro de un
         QTextBrowser (visor de texto enriquecido); nada de red ni servidor."""
         html = """
-        <h2>Manual de usuario — v1.0.0</h2>
+        <h2>Manual de usuario — v1.0.1</h2>
         <p><i>Pipeline PDF → CAD → Civil 3D para redes de utilidad (agua, alcantarillado,
         drenaje, gas, electricidad, telecomunicaciones). Trabaja en unidades imperiales (pies).</i></p>
 
@@ -3935,9 +3935,10 @@ class Main(QtWidgets.QMainWindow):
           <li><b>Elev. rasante inicial/final</b> en pies (opcional; el plugin puede autoderivar).</li>
           <li><b>Material</b> (lista fija que se mapea al catálogo).</li>
           <li><b>Cotas por tramo</b> (pestaña Utilidades, tubería de gravedad): tabla con la
-              cota de cada vértice del tramo, incluido el primero y el último — cualquier
-              celda es editable, y queda sincronizada con <b>Elev. rasante inicial/final</b>
-              de arriba (editar en cualquiera de los 2 lugares actualiza el otro).</li>
+              cota de Inicio/Fin de cada tramo. Pulsa <b>«Activar edición por tramo»</b> para
+              editar cada valor de forma independiente (aparecen las etiquetas T1, T2… en el
+              lienzo); apagado, se usan solo las rasantes inicial/final con interpolación
+              lineal.</li>
         </ul>
 
         <h3>4. Buzones y cajas</h3>
@@ -3953,20 +3954,25 @@ class Main(QtWidgets.QMainWindow):
         <h3>5. Leaders, texto, borrar zona</h3>
         <p><b>Leader</b>: orientación H/V/D, clic cabeza y final. <b>Texto libre</b>: clic +
         <b>Enter</b> para aplicar (<b>Ctrl+Shift+Enter</b> salto de línea). <b>Borrar zona</b>:
-        polilínea cerrada; al exportar se elimina el plano dentro. El cajetín del PDF se
-        detecta y va a la capa <b>MEMBRETE</b>.</p>
+        polilínea cerrada; al exportar se elimina el plano dentro. El cajetín/membrete del
+        PDF ya no se separa: se digitaliza como el resto del plano (capa
+        <code>PDF_DIGITALIZADO</code>).</p>
+        <p>Junto al botón de escala está <b>«Opacidad»</b>: abre un deslizable que atenúa
+        solo el PDF y un botón para poner el fondo detrás del PDF en blanco o negro.</p>
 
-        <h3>6. Selección de versión Civil 3D</h3>
-        <p>El selector <b>Civil 3D</b> de la barra superior fija la versión
-        (2025/2026/2027) contra la que se listan las familias y tamaños del catálogo.</p>
+        <h3>6. Versión e idioma de Civil 3D</h3>
+        <p>Los selectores <b>Civil 3D</b> e <b>Idioma</b> de la barra superior fijan la
+        versión (2025/2026/2027) y el idioma del catálogo contra los que se listan las
+        familias y tamaños. Los nombres de familia se muestran en ese idioma. La selección
+        se <b>guarda en el proyecto</b> y se repone sola al reabrirlo.</p>
 
         <h3>7. Centerlines de referencia (opcional)</h3>
-        <p>Distintos de las utilidades — no representan ninguna tubería, sirven para mejorar
-        la georreferenciación. Acordeón <b>Trazar centerline</b> → clic en cada vértice
-        sobre el eje de una calle → <b>Enter</b> finaliza. Se gestionan en la pestaña
-        <b>Centerlines</b> (código, longitud); seleccioná uno desde la lista o directo
-        clickeándolo en el lienzo (se resalta bien grueso). Se exportan al DXF en su
-        propia capa <code>REF_CENTERLINES</code>.</p>
+        <p>Distintos de las utilidades — no representan ninguna tubería. Sirven de referencia
+        visual e imán al colocar puntos de control en la georreferenciación. Acordeón
+        <b>Trazar centerline</b> → clic en cada vértice sobre el eje de una calle →
+        <b>Enter</b> finaliza. Se gestionan en la pestaña <b>Centerlines</b> (código,
+        longitud); seleccioná uno desde la lista o clickeándolo en el lienzo. Se exportan al
+        DXF en su propia capa <code>REF_CENTERLINES</code>.</p>
 
         <h3>8. Georreferenciación (opcional)</h3>
         <p><b>Herramientas → Georreferenciar…</b> — ventana redimensionable/maximizable,
@@ -3977,23 +3983,23 @@ class Main(QtWidgets.QMainWindow):
               se ven siempre nítidas, no pixelan al hacer zoom). Clic = punto de control,
               con imán a la línea/centerline más cercana, o al <b>cruce exacto</b> si hay
               2 líneas que se cortan cerca del clic.</li>
-          <li><b>Derecha (mapa)</b>: buscá una dirección/intersección → descarga calles y
-              parcelas reales de Los Ángeles (NavigateLA) sobre mapa base. Misma
-              navegación que el plano (rueda = zoom, botón central + arrastrar = mover
-              libremente) y el mismo imán a vértice/cruce exacto.</li>
+          <li><b>Derecha (mapa)</b>: buscá una dirección/intersección (con indicador de
+              carga mientras descarga) → trae calles y parcelas reales de Los Ángeles
+              (NavigateLA) sobre mapa base. Misma navegación que el plano, e imán a
+              vértice/cruce exacto y a las <b>esquinas redondeadas de las parcelas</b>.</li>
         </ul>
         <p><b>Ctrl+Z</b> deshace el último punto agregado, en cualquiera de los 2
         paneles.</p>
         <p>Con 3+ pares (idealmente en 2 cruces distintos, o combinando el cruce que
         tengas + esquinas de parcela), pulsá
-        <b>«Ajustar + RMSE»</b>: el <b>RMSE</b> es el error PROMEDIO en pies entre
-        cada punto marcado y donde el ajuste calculado lo ubica — mide qué tan bien calzan
-        TODOS los puntos a la vez (pasá el mouse sobre "RMSE:" para el detalle). Mientras
-        más bajo, mejor. Luego <b>«💾 Guardar georreferenciación»</b> guarda el proyecto y
-        cierra la ventana sola si el guardado funcionó. Al reabrir un plano ya
-        georreferenciado, el mapa se recarga solo (calles/parcelas + tus puntos existentes)
-        listo para seguir editando, sin tener que rebuscar la dirección. Solo para
-        anteproyecto — el dato topográfico de precisión viene del levantamiento.</p>
+        <b>«Ajustar + RMSE»</b>: calcula una transformación de <b>similaridad</b> (rota y
+        escala parejo, sin deformar el plano). El <b>RMSE</b> es el error PROMEDIO en pies
+        entre cada punto y donde el ajuste lo ubica — con menos de 3 clics bien puestos el
+        RMSE sube y te avisa. Podés escribir además el <b>código de sistema de coordenadas
+        (Huso)</b> — el código CS-MAP nativo de Civil 3D (ej. <code>CA83VF</code> para
+        EPSG:2229): el dibujo quedará seteado con ese sistema al importar la red. Luego
+        <b>«💾 Guardar georreferenciación»</b> guarda el proyecto. Solo para anteproyecto —
+        el dato topográfico de precisión viene del levantamiento.</p>
 
         <h3>9. Exportar a DXF y abrir en Civil 3D</h3>
         <ul>
@@ -4001,7 +4007,12 @@ class Main(QtWidgets.QMainWindow):
           <li><b>Exportar DXF</b> genera el DXF completo (dibujado + red 3D como XDATA).</li>
           <li>En Civil 3D: <code>NETLOAD</code> del plugin → <code>PANEL_REDES</code> →
               <b>Importar red desde DXF</b>. Se crean automáticamente las redes de
-              gravedad, presión y conduit con sus familias y tamaños.</li>
+              gravedad, presión y conduit con sus familias y tamaños. Los tramos curvos
+              generan tubería y <b>eje (alineamiento) curvos</b> con el mismo radio, y si
+              fijaste un código de Huso el dibujo queda con ese sistema de coordenadas.</li>
+          <li><b>Agregar tubería curva</b> (en el panel): seleccionás dos tuberías y un
+              radio opcional, y crea la curva tangente entre ellas redondeando también el
+              eje — como el <i>Free curve fillet</i> de Civil 3D.</li>
         </ul>
 
         <h3>10. Property Sets a tuberías (flujo con Excel)</h3>

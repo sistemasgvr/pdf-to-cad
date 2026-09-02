@@ -39,7 +39,7 @@ Coordenadas DIBUJADAS en PÍXELES (se convierten con geometry.to_cad al exportar
 coordenadas IMPORTADAS de Excel ya son reales de mundo (world=True → se usan tal cual).
 """
 
-VERSION = "1.0.0"
+VERSION = "1.0.1"
 
 # Capas de red por GRAVEDAD (tramos entre buzones, con invert inicio/fin).
 GRAVITY_LAYERS = {"ALCANTARILLADO", "DRENAJE"}
@@ -153,6 +153,25 @@ def default_network_type(layer):
 
 
 CHANGELOG = [
+    ("1.0.1", [
+        ("added", "Alineamientos curvos: el eje de la red sigue el mismo arco (mismo radio) que la tubería curva, en vez de cortar la esquina en recta."),
+        ("added", "Botón «Agregar tubería curva»: seleccionas dos tuberías y un radio opcional, y crea la curva tangente y redondea también el eje."),
+        ("added", "Selector de versión e idioma de Civil 3D en el toolbar; se guarda en el proyecto y se repone solo al reabrirlo."),
+        ("added", "Código de sistema de coordenadas (Huso) en la georreferenciación: el dibujo queda seteado con ese sistema al importar la red en Civil 3D."),
+        ("added", "Botón «Opacidad» con deslizable para atenuar solo el PDF, y fondo blanco/negro detrás del PDF."),
+        ("added", "Georreferenciación: indicador de carga al buscar/descargar el mapa, e imanes a las esquinas redondeadas de las parcelas."),
+        ("fixed", "Familias por defecto: ahora se coloca la familia elegida (se emparejan por su GUID, no por el nombre traducido) — antes salía una familia distinta."),
+        ("fixed", "Buzones ocultos ya no aparecen como una estructura visible al importar la red."),
+        ("fixed", "Redes de presión: los codos salen a la elevación correcta (sobre el eje del tubo)."),
+        ("fixed", "Cotas por tramo: ya no se pierden al cerrar y reabrir el proyecto, y la tabla ya no aparece en la pestaña Buzones."),
+        ("fixed", "Georreferenciación: el ajuste ya no deforma el plano (transformación de similaridad) y el RMSE es real aunque uses 3 puntos."),
+        ("fixed", "Las zonas borradas ya no aparecen en la ventana de georreferenciación."),
+        ("changed", "Coordenadas mostradas como X, Y, Z (antes N, E), con 4 decimales; muestran el código de Huso si lo fijaste."),
+        ("changed", "Los nombres de familias se muestran en el idioma del Civil 3D seleccionado."),
+        ("changed", "«Trazar centerline» va justo después de «Dibujar utilidad»; ejes X/Y de la georreferenciación en morado; ventana de georreferenciación maximizada al abrir."),
+        ("changed", "Tema oscuro y accesibilidad; botones de eliminar en rojo; el membrete ya no se separa a una capa aparte."),
+        ("removed", "Función «Emparejar centerline dibujado» de la georreferenciación."),
+    ]),
     ("1.0.0", [
         ("release", "Primera versión estable: digitalización PDF → DXF, importación a Civil 3D con familias imperiales de gravedad/presión/conduit, gestión de buzones y cajas, y adjunción automática de Property Sets a tuberías vía Excel."),
     ]),
