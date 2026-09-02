@@ -120,12 +120,16 @@ def fit(px_points, world_points, kind="similarity"):
 class Georef:
     """Transformación píxel→mundo (matriz afín homogénea) + EPSG UTM."""
 
-    def __init__(self, matrix=None, epsg=None, kind="affine", rms=None, points=None):
+    def __init__(self, matrix=None, epsg=None, kind="affine", rms=None, points=None, cs_code=""):
         self.matrix = matrix          # 3x3 (homogénea), mapea (x_px, y_px) → (E, N)
         self.epsg = epsg
         self.kind = kind
         self.rms = rms
         self.points = points or []    # [{"px":[x,y], "lonlat":[lon,lat], "utm":[E,N]}]
+        # Código CS-MAP del sistema de coordenadas (Huso) que el plugin aplicará al
+        # dibujo en Civil3D (DrawingSettings.UnitZoneSettings.CoordinateSystemCode),
+        # p.ej. "CA83VF". Lo escribe el usuario en el diálogo de georreferenciación.
+        self.cs_code = cs_code or ""
 
     def active(self):
         if self.matrix is None or self.epsg is None:
@@ -150,11 +154,11 @@ class Georef:
         if not self.active():
             return None
         return {"matrix": self.matrix, "epsg": self.epsg, "kind": self.kind,
-                "rms": self.rms, "points": self.points}
+                "rms": self.rms, "points": self.points, "cs_code": self.cs_code}
 
     @classmethod
     def from_dict(cls, d):
         if not d:
             return cls()
         return cls(d.get("matrix"), d.get("epsg"), d.get("kind", "affine"),
-                   d.get("rms"), d.get("points"))
+                   d.get("rms"), d.get("points"), d.get("cs_code", ""))

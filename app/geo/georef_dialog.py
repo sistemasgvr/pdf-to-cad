@@ -648,9 +648,31 @@ class GeorefDialog(QtWidgets.QDialog):
 
         self.lst = QtWidgets.QListWidget(); self.lst.setMaximumHeight(140); root.addWidget(self.lst)
 
+        # Código de sistema de coordenadas (Huso) que el plugin aplicará al dibujo
+        # en Civil 3D al IMPORTAR la red. Es el código CS-MAP nativo (ej. "CA83VF"
+        # para NAD83 California zona V en pies = EPSG:2229). Se copia del diálogo
+        # nativo "Huso" de Civil 3D si no se sabe de memoria. Se valida allí.
+        csrow = QtWidgets.QHBoxLayout()
+        csrow.addWidget(QtWidgets.QLabel("Sistema de coordenadas (Huso) — código:"))
+        self.ed_cs_code = QtWidgets.QLineEdit()
+        self.ed_cs_code.setPlaceholderText("ej: CA83VF  (código CS-MAP; vacío = no setear Huso)")
+        self.ed_cs_code.setToolTip(
+            "Código nativo CS-MAP del sistema de coordenadas que quedará seteado en el\n"
+            "dibujo de Civil 3D al importar la red. Debe corresponder al EPSG con que\n"
+            "georreferenciaste (para EPSG:2229 → 'CA83VF'). Cópialo del diálogo nativo\n"
+            "de Civil 3D (Configuración de dibujo → Unidades y huso) si no lo sabes.\n"
+            "Vacío = el dibujo no se setea (lo puedes poner luego a mano).")
+        if init_georef is not None and getattr(init_georef, "cs_code", ""):
+            self.ed_cs_code.setText(init_georef.cs_code)
+        csrow.addWidget(self.ed_cs_code, 1)
+        root.addLayout(csrow)
+
         bb = QtWidgets.QHBoxLayout()
         self.b_save = QtWidgets.QPushButton("💾 Guardar georreferenciación")
-        self.b_save.setEnabled(False); self.b_save.clicked.connect(self._save)
+        # Habilitado de entrada si el plano YA está georreferenciado, para poder
+        # guardar aunque solo se cambie el código de Huso (sin recalcular).
+        self.b_save.setEnabled(bool(init_georef is not None and init_georef.active()))
+        self.b_save.clicked.connect(self._save)
         bb.addStretch(1); bb.addWidget(self.b_save)
         b_cancel = QtWidgets.QPushButton("Cerrar sin guardar"); b_cancel.clicked.connect(self.reject)
         bb.addWidget(b_cancel)
@@ -878,12 +900,31 @@ class GeorefDialog(QtWidgets.QDialog):
         self.b_save.setEnabled(True)
 
     def _save(self):
+        cs_code = self.ed_cs_code.text().strip()
         if not getattr(self, "_fit_result", None):
+            # Sin ajuste nuevo: si el plano YA está georreferenciado, permitir
+            # guardar igual (p.ej. el usuario solo cambió el código de Huso) —
+            # se reusa la transformación existente y solo se actualiza cs_code.
+            g = getattr(self._main, "georef", None)
+            if g is not None and g.active():
+                g.cs_code = cs_code
+                self.result_georef = g
+                self._main._dirty = True
+                self._main._update_geo_status()
+                try:
+                    self._main.save_project()
+                    self.accept()
+                except Exception as e:
+                    QtWidgets.QMessageBox.critical(self, "Error al guardar", str(e))
+                return
+            QtWidgets.QMessageBox.information(self, "Falta ajustar",
+                "Primero pulsa «Ajustar + RMSE» para calcular la georreferenciación.")
             return
         matrix, rms, ttype = self._fit_result
         pts = [{"px": list(p["px"]), "world": list(p["world"]), "label": p.get("label", "")}
                for p in self.pairs]
-        self.result_georef = georef_mod.Georef(matrix=matrix, epsg=TARGET_EPSG, kind=ttype, rms=rms, points=pts)
+        self.result_georef = georef_mod.Georef(matrix=matrix, epsg=TARGET_EPSG, kind=ttype,
+                                               rms=rms, points=pts, cs_code=cs_code)
         self._main.georef = self.result_georef; self._main._dirty = True
         self._main._update_geo_status(); self._main._redraw()
         try:

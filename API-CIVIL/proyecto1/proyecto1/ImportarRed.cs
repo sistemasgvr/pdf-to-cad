@@ -79,6 +79,7 @@ namespace Civil3DBasico
             var pipes = new List<ImportPipe>();
             var structs = new List<ImportStruct>();
             var curveCorners = new List<ImportCurveInfo>();
+            string csCode = "";        // sistema de coordenadas (Huso) pedido desde Python (PDFCAD_META)
 
             using (Transaction trScan = db.TransactionManager.StartTransaction())
             {
@@ -205,9 +206,23 @@ namespace Civil3DBasico
                             ("y", ptc.Position.Y.ToString("F3")),
                             ("radius_ft", newCv.RadiusFt?.ToString("F3") ?? "(auto)"));
                     }
+                    else if (marker == "PDFCAD_META")
+                    {
+                        // Metadatos del proyecto: por ahora, el código de sistema de
+                        // coordenadas (Huso) elegido en la georreferenciación.
+                        string c = XdStr(xd, "CS_CODE", "");
+                        if (!string.IsNullOrWhiteSpace(c)) csCode = c.Trim();
+                        Dbg("XDATA_META", ("cs_code", csCode));
+                    }
                 }
                 trScan.Commit();
             }
+
+            // Setear el sistema de coordenadas (Huso) del dibujo con el código
+            // pedido desde Python. Best-effort: si el código es inválido se avisa,
+            // pero NO se aborta la importación de la red.
+            if (!string.IsNullOrWhiteSpace(csCode))
+                AplicarSistemaCoordenadas(ed, csCode);
 
             // Emparejar cada esquina curva con el vértice NoManholeVerts más cercano
             // de su tubería (tolerancia 1 ft, igual criterio que FindNearestStruct).
@@ -2327,6 +2342,36 @@ namespace Civil3DBasico
             return (PartsStyles.PartsList)tr.GetObject(plId, OpenMode.ForRead);
         }
 
+        // Setea el sistema de coordenadas (Huso) del dibujo activo con un código
+        // CS-MAP nativo (ej. "CA83VF" = NAD83 California zona V en pies = EPSG:2229).
+        // El usuario lo elige en la georreferenciación (Python) y viaja en el DXF
+        // como PDFCAD_META/CS_CODE. Best-effort: re-lee para confirmar; si el código
+        // no fue aceptado avisa pero NUNCA aborta la importación de la red.
+        private static void AplicarSistemaCoordenadas(Editor ed, string code)
+        {
+            try
+            {
+                var civilDoc = CivilApplication.ActiveDocument;
+                var uz = civilDoc.Settings.DrawingSettings.UnitZoneSettings;
+                string antes = ""; try { antes = uz.CoordinateSystemCode ?? ""; } catch { }
+                uz.CoordinateSystemCode = code;
+                string despues = ""; try { despues = uz.CoordinateSystemCode ?? ""; } catch { }
+                if (string.Equals(despues, code, StringComparison.OrdinalIgnoreCase))
+                    ed.WriteMessage($"\n✓ Sistema de coordenadas (Huso) del dibujo seteado a '{code}'.");
+                else
+                    ed.WriteMessage($"\n⚠ El código de coordenadas '{code}' no fue aceptado por Civil 3D " +
+                                    $"(quedó '{despues}'). Verifica el código en el diálogo nativo 'Huso'. " +
+                                    "La red SÍ se importó.");
+                Dbg("CS_APLICAR", ("pedido", code), ("antes", antes), ("despues", despues));
+            }
+            catch (Exception ex)
+            {
+                ed.WriteMessage($"\n⚠ No se pudo setear el sistema de coordenadas '{code}': {ex.Message}. " +
+                                "La red SÍ se importó.");
+                Dbg("CS_APLICAR_ERROR", ("pedido", code), ("msg", ex.Message));
+            }
+        }
+
         private static Dictionary<int, double> ParseVertexInv(string raw, double k)
         {
             var dict = new Dictionary<int, double>();
@@ -2519,7 +2564,7 @@ namespace Civil3DBasico
             {
                 if (tv.TypeCode != 1000) continue;
                 string s = tv.Value?.ToString() ?? "";
-                if (s == "PDFCAD_PIPE" || s == "PDFCAD_STRUCT" || s == "PDFCAD_CURVE")
+                if (s == "PDFCAD_PIPE" || s == "PDFCAD_STRUCT" || s == "PDFCAD_CURVE" || s == "PDFCAD_META")
                 { dict["_MARKER"] = s; continue; }
                 int eq = s.IndexOf('=');
                 if (eq > 0) dict[s.Substring(0, eq)] = s.Substring(eq + 1);

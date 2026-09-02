@@ -133,6 +133,7 @@ def merge_into(win, doc, marks=True):
         ])
     _export_structures(win, doc, msp)
     _export_ref_centerlines(win, doc, msp)
+    _export_cs_code(win, doc, msp)
     VP.ensure_layer(doc, "ANOTACION")
     if "CAD_TEXT" not in doc.styles: doc.styles.add("CAD_TEXT", font=C.TEXT_FONT)
     for ld in win.leaders:
@@ -231,6 +232,46 @@ def replace_text(win, doc, msp, tm):
             if x0 <= ins.x <= x1 and y0 <= ins.y <= y1: msp.delete_entity(e)
     t = msp.add_text(tm["text"], height=LEADER_TEXT_FT, dxfattribs={"layer": "ANOTACION", "style": "CAD_TEXT"})
     t.set_placement(win._to_cad(tm["pos"][0], tm["pos"][1]), align=TextEntityAlignment.MIDDLE_CENTER)
+
+
+def _export_cs_code(win, doc, msp):
+    """Escribe el código de sistema de coordenadas (Huso) elegido en la
+    georreferenciación como un punto-metadato con XDATA PDFCAD_META. El plugin C#
+    (IMPORTAR_RED) lo lee y setea DrawingSettings.UnitZoneSettings.CoordinateSystemCode
+    en el dibujo. Solo se emite si la georref está activa y hay código."""
+    geo = getattr(win, "georef", None)
+    code = (getattr(geo, "cs_code", "") or "").strip() if geo is not None else ""
+    if not code or not (geo.active() if geo is not None else False):
+        return
+    if "PDFCAD" not in doc.appids: doc.appids.add("PDFCAD")
+    VP.ensure_layer(doc, "PDFCAD_META")
+    # El punto solo PORTA el XDATA (su posición no la usa el plugin). Se coloca
+    # SOBRE el dibujo — en el primer vértice/estructura disponible — para que no
+    # aparezca perdido lejísimos (en el origen del mundo real, a kilómetros del
+    # plano georreferenciado). Va en su propia capa PDFCAD_META, que puedes apagar.
+    anchor = _cs_meta_anchor(win)
+    pt = msp.add_point((anchor[0], anchor[1], 0), dxfattribs={"layer": "PDFCAD_META"})
+    pt.set_xdata("PDFCAD", [
+        (1000, "PDFCAD_META"),
+        (1000, f"CS_CODE={code}"),
+    ])
+
+
+def _cs_meta_anchor(win):
+    """Un punto (en coords CAD reales) SOBRE el dibujo para anclar el metadato:
+    primer vértice de la primera utilidad, o la primera estructura, o (0,0) si no
+    hay nada."""
+    for p in getattr(win, "pipes", None) or []:
+        if p.get("world") and p.get("wstart"):
+            return (float(p["wstart"][0]), float(p["wstart"][1]))
+        if p.get("pts"):
+            return win._to_cad(*p["pts"][0])
+    for s in getattr(win, "structures", None) or []:
+        if s.get("world") and s.get("x") is not None:
+            return (float(s["x"]), float(s["y"]))
+        if s.get("x") is not None:
+            return win._to_cad(s["x"], s["y"])
+    return (0.0, 0.0)
 
 
 def _export_structures(win, doc, msp):

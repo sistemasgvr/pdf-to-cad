@@ -1101,8 +1101,14 @@ class Main(QtWidgets.QMainWindow):
         # cambió porque el usuario prefiere el orden X,Y,Z uniforme; el sistema de
         # referencia sigue siendo EPSG:2229 cuando la georref está activa.
         if self.georef.active():
+            # Etiqueta del sistema: si el usuario fijó un código de Huso (CS-MAP,
+            # ej. "CA83VF") se muestra ese; si no, el EPSG interno. Son el mismo
+            # sistema (CA83VF = EPSG:2229): solo cambia el NOMBRE mostrado, no los
+            # valores — la georreferenciación siempre produce coords en ese sistema.
+            cs = (getattr(self.georef, "cs_code", "") or "").strip()
+            etq = cs if cs else f"EPSG:{self.georef.epsg}"
             self.lbl_coords.setText(
-                f"X {cx:,.4f}  Y {cy:,.4f}  Z 0.0000  (EPSG:{self.georef.epsg})")
+                f"X {cx:,.4f}  Y {cy:,.4f}  Z 0.0000  ({etq})")
         else:
             self.lbl_coords.setText(f"X {cx:,.4f}  Y {cy:,.4f}  Z 0.0000")
         sc = self.canvas.scene(); r = sc.sceneRect()
@@ -1117,7 +1123,9 @@ class Main(QtWidgets.QMainWindow):
         if self.georef.active():
             unit = georef_mod.epsg_unit(self.georef.epsg)
             rms = f" · RMS {self.georef.rms:.2f} {unit}" if self.georef.rms is not None else ""
-            self.lbl_geo.setText(f"Georref: EPSG:{self.georef.epsg}{rms}")
+            cs = (getattr(self.georef, "cs_code", "") or "").strip()
+            etq = cs if cs else f"EPSG:{self.georef.epsg}"
+            self.lbl_geo.setText(f"Georref: {etq}{rms}")
             self.lbl_geo.setStyleSheet("color:#5fd35f;")
         else:
             self.lbl_geo.setText("Georref: no (escala titleblock)")
@@ -2159,6 +2167,7 @@ class Main(QtWidgets.QMainWindow):
         self.cmb_civil.blockSignals(False)
         self.civil_year = year
         self._refill_lang_combo()                    # repuebla idiomas del año elegido
+        lang_ok = ""
         if lang:
             li = self.cmb_lang.findData(lang)
             if li >= 0:
@@ -2166,7 +2175,9 @@ class Main(QtWidgets.QMainWindow):
                 self.cmb_lang.setCurrentIndex(li)
                 self.cmb_lang.blockSignals(False)
                 _cc.set_current_lang(lang)
+                lang_ok = f"/{lang}"
         self._refresh_catalog_panels()
+        self._info(f"Civil 3D restaurado del proyecto: {year}{lang_ok}.")
 
     def _refill_lang_combo(self):
         """Repuebla el combo de idiomas con los realmente instalados para el año
