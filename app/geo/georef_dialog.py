@@ -706,6 +706,13 @@ class GeorefDialog(QtWidgets.QDialog):
         undo_sc = QtGui.QShortcut(QtGui.QKeySequence.Undo, self)
         undo_sc.activated.connect(self._undo)
 
+        # Bandera de "cambios sin guardar" (para confirmar al cerrar con la X).
+        # Se pone en True al agregar/quitar puntos o editar el código de Huso, y
+        # vuelve a False al guardar. Se inicializa AQUÍ (al final) para que la
+        # precarga de pares/estado de arriba no la marque como cambios.
+        self._dialog_dirty = False
+        self.ed_cs_code.textChanged.connect(lambda *_: setattr(self, "_dialog_dirty", True))
+
     def showEvent(self, e):
         super().showEvent(e)
         # Maximizar tras el primer show: en Qt hay que llamarlo cuando el WM ya
@@ -716,7 +723,26 @@ class GeorefDialog(QtWidgets.QDialog):
             self._start_maximized = False
             self.showMaximized()
 
+    def keyPressEvent(self, e):
+        # La tecla Escape NO debe cerrar la ventana (evita perder el trabajo por
+        # un toque accidental). El resto de teclas sigue igual.
+        if e.key() == QtCore.Qt.Key_Escape:
+            e.ignore(); return
+        super().keyPressEvent(e)
+
     def closeEvent(self, e):
+        # Cerrar con la X teniendo cambios sin guardar → confirmar. (El botón
+        # "Cerrar sin guardar" usa reject() y NO pasa por aquí, así que es una
+        # salida explícita sin preguntar; Guardar usa accept(), tampoco pregunta.)
+        if getattr(self, "_dialog_dirty", False):
+            r = QtWidgets.QMessageBox.question(
+                self, "Cerrar sin guardar",
+                "Hiciste cambios en la georreferenciación que no se han guardado.\n\n"
+                "¿Cerrar de todas formas y descartarlos?",
+                QtWidgets.QMessageBox.Yes | QtWidgets.QMessageBox.No,
+                QtWidgets.QMessageBox.No)
+            if r != QtWidgets.QMessageBox.Yes:
+                e.ignore(); return
         # evita "QThread: Destroyed while thread is still running" si se
         # cierra el diálogo justo mientras una búsqueda está en curso.
         if self._fetch_thread is not None:
@@ -827,6 +853,7 @@ class GeorefDialog(QtWidgets.QDialog):
         pair = {"px": self._pending_px, "world": (sx, sy), "label": "", "mark": m}
         self.pairs.append(pair); self._undo_stack.append([pair])
         self._pending_px = None; self._pending_mark = None
+        self._dialog_dirty = True
         self._refresh_list(); self._draw_map_markers()
         self.hint.setText(f"Punto {len(self.pairs)} agregado. Repite (mínimo 3) y pulsa «Ajustar».")
 
@@ -838,6 +865,7 @@ class GeorefDialog(QtWidgets.QDialog):
             p = self.pairs.pop(r)
             if p.get("mark") is not None:
                 self.pdf.scene().removeItem(p["mark"])
+            self._dialog_dirty = True
             self._refresh_list(); self._draw_map_markers()
             self.b_save.setEnabled(False); self.lbl_rms.setText("RMSE: —")
 
@@ -848,6 +876,7 @@ class GeorefDialog(QtWidgets.QDialog):
         self.pairs.clear(); self._pending_px = None; self._undo_stack.clear()
         if self._pending_mark:
             self.pdf.scene().removeItem(self._pending_mark); self._pending_mark = None
+        self._dialog_dirty = True
         self._refresh_list(); self._draw_map_markers()
         self.b_save.setEnabled(False); self.lbl_rms.setText("RMSE: —")
 
@@ -870,6 +899,7 @@ class GeorefDialog(QtWidgets.QDialog):
                     removed = True
             if removed:
                 break
+        self._dialog_dirty = True
         self._refresh_list(); self._draw_map_markers()
         self.b_save.setEnabled(False); self.lbl_rms.setText("RMSE: —")
         self.hint.setText("Último punto/lote deshecho (Ctrl+Z).")
@@ -913,6 +943,7 @@ class GeorefDialog(QtWidgets.QDialog):
                 self._main._update_geo_status()
                 try:
                     self._main.save_project()
+                    self._dialog_dirty = False
                     self.accept()
                 except Exception as e:
                     QtWidgets.QMessageBox.critical(self, "Error al guardar", str(e))
@@ -943,6 +974,7 @@ class GeorefDialog(QtWidgets.QDialog):
             return
         QtWidgets.QMessageBox.information(self, "Georreferenciación guardada",
             f"✓ Guardado en el proyecto:\n{saved_to}\n\nEPSG: {TARGET_EPSG}\nRMSE: {rms:.2f} ft")
+        self._dialog_dirty = False
         self.accept()
 
     # ── dibujado ──

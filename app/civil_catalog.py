@@ -182,8 +182,18 @@ def pressure_root(year, lang=None):
 
 
 def installed_versions():
-    """Años con al menos catálogo de estructuras imperial instalado."""
-    return [y for y in SUPPORTED_YEARS if catalog_root(y) is not None]
+    """Años con catálogo imperial de estructuras instalado en ESTA PC, en
+    CUALQUIER idioma. IMPORTANTE: NO depende del idioma activo (`_current_lang`) —
+    antes usaba `catalog_root(y)` sin idioma, que aplicaba el idioma activo y
+    marcaba como 'no instalada' una versión que sí estaba pero en otro idioma
+    (p.ej. 2025/esp cuando el activo era 2027/enu)."""
+    out = []
+    for y in SUPPORTED_YEARS:
+        for lg in installed_langs(y):
+            if catalog_root(y, lg) is not None:
+                out.append(y)
+                break
+    return out
 
 
 def _pretty_from_filename(fname):

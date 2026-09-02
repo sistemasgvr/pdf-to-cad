@@ -13,8 +13,9 @@ control (menú **Herramientas → Georreferenciar…**): a la izquierda el plano
 cargado (PDF + utilidades dibujadas, con imán a la línea más cercana), a la
 derecha las calles reales de Los Ángeles (NavigateLA) tras buscar una
 dirección/intersección, con imán a la intersección más cercana. Con 3+ pares se
-ajusta una transformación afín y el botón **«💾 Guardar georreferenciación»**
-la deja guardada en el proyecto (`.digproj`) y activa para la próxima
+ajusta una transformación de **similaridad** (rota y escala parejo, sin deformar
+el plano; el RMSE es real incluso con 3 puntos) y el botón **«💾 Guardar
+georreferenciación»** la deja guardada en el proyecto (`.digproj`) y activa para la próxima
 exportación — tanto el **DXF** como el **JSON de red** salen en coordenadas
 reales, **State Plane CA Zona V (EPSG:2229, pies)**.
 
@@ -55,7 +56,25 @@ from digitize import main
 warnings = main("plan.pdf", "plan.dxf")   # devuelve lista de warnings de QA
 ```
 
+### Aplicación de escritorio (marcado sobre el PDF)
+
+```bash
+python app/main.py            # abre la interfaz para digitalizar, georreferenciar y exportar DXF
+```
+
+### Pruebas y build
+
+```bash
+pytest                        # pruebas de humo (rápidas, sin abrir la interfaz)
+build_all.bat                 # (Windows) compila plugin C# + exe Python + instalador; pregunta la versión
+```
+
+Para el desarrollo y las convenciones del proyecto (mapa de módulos, invariantes,
+contrato XDATA, cómo emparejar familias, etc.) ver **`CLAUDE.md`**.
+
 ## Arquitectura (modular)
+
+**Pipeline de digitalización** (raíz):
 
 | Archivo | Responsabilidad |
 |---|---|
@@ -64,6 +83,13 @@ warnings = main("plan.pdf", "plan.dxf")   # devuelve lista de warnings de QA
 | `vector_pipeline.py` | Extracción de PDFs vectorizados (geometría por capa OCG + texto). |
 | `raster_pipeline.py` | Vectorización de escaneos (color → Hough → polilíneas + OCR). |
 | `digitize.py` | Router + validación QA + CLI. |
+
+**App de escritorio** (`app/`): `main.py` (entrada), `app_window.py` (ventana `Main`),
+`canvas.py` (lienzo), `widgets.py`, `workers.py`, `dialogs.py`, `project_io.py`
+(serialización del `.digproj`), `model_ops.py` (operaciones de modelo puras y
+testeables), `civil_catalog.py` (catálogo Civil 3D), `dxf_export.py`, `geo/`
+(georreferenciación). **Plugin Civil 3D** (`API-CIVIL/`, C# .NET 8): lee el DXF y
+crea las redes (`IMPORTAR_RED`). Ver `CLAUDE.md` para el detalle.
 
 ## Capas de salida (DXF)
 

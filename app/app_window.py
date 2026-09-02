@@ -18,189 +18,23 @@ import geometry as G
 import dxf_export
 from geo import georef as georef_mod
 from geometry import qimage_to_gray
+# Clases de UI extraídas a módulos propios (mismo comportamiento, ver plan de
+# arquitectura). El lienzo, los widgets reutilizables y el worker de fondo.
+from canvas import Canvas
+from widgets import InlineEdit, _SegInvSpinBox, _NoWheelFilter
+from workers import PipelineWorker
+import dialogs
+import project_io
+import model_ops
 from model import (VERSION, TIPOS, ACI_RGB, LEADER_TEXT_FT, LEADER_ORIENT,
                    Z_PDF, Z_ERASE, Z_MARK, Z_HANDLE, GRAVITY_LAYERS,
                    TAB_PIPE, TAB_ML, TAB_LEADER, TAB_TEXT, TAB_REGION, TAB_BZ, TAB_CURVE, TAB_CL,
                    WORK_UNITS, DEFAULT_WORK_UNIT, CHANGELOG,
                    PIPE_DIAMETERS_IN, PIPE_MATERIALS, DEFAULT_PIPE_MATERIAL)
 
-DOWNLOADS = os.path.join(os.path.expanduser("~"), "Downloads")
-BTN_ON = "background:#2e9e4f;color:white;font-weight:bold;padding:8px;border-radius:4px;"
-BTN_OFF = "background:#3c5a99;color:white;padding:8px;border-radius:4px;"
-
-
-def aci_qcolor(a): return QtGui.QColor(*ACI_RGB.get(a, (235, 235, 235)))
-def layer_qcolor(l): return aci_qcolor(C.OUTPUT_LAYERS.get(l, 7))
-
-
-def _extract_diam_from_size(size_str):
-    """Extrae el primer número de un tamaño del catálogo, p.ej. '24 in' → 24.0,
-    '12 in x 8 in' → 12.0. Retorna 0.0 si no encuentra número."""
-    import re as _re
-    if not size_str: return 0.0
-    m = _re.match(r"\s*(\d+(?:\.\d+)?)", str(size_str))
-    return float(m.group(1)) if m else 0.0
-
-
-def swatch_icon(color, size=14):
-    pm = QtGui.QPixmap(size, size); pm.fill(QtCore.Qt.transparent)
-    p = QtGui.QPainter(pm); p.setBrush(color); p.setPen(QtGui.QPen(QtGui.QColor(70, 70, 70)))
-    p.drawRect(0, 0, size - 1, size - 1); p.end(); return QtGui.QIcon(pm)
-
-
-class InlineEdit(QtWidgets.QTextEdit):
-    """Editor embebido. Enter = aplicar; Ctrl+Shift+Enter o Shift+Enter = salto de
-    línea. El commit se difiere con un timer para no destruir el widget dentro de
-    su propio evento (eso provocaba cierres inesperados)."""
-    committed = QtCore.Signal(str)
-
-    def __init__(self, text):
-        super().__init__(); self.setPlainText(text); self._done = False
-        self.setStyleSheet("background:#111;color:#7f7;border:1px solid #7f7;")
-
-    def _commit(self):
-        if not self._done:
-            self._done = True; txt = self.toPlainText()
-            QtCore.QTimer.singleShot(0, lambda: self.committed.emit(txt))
-
-    def keyPressEvent(self, e):
-        if e.key() in (QtCore.Qt.Key_Return, QtCore.Qt.Key_Enter):
-            m = e.modifiers()
-            if (m & QtCore.Qt.ShiftModifier):     # Shift(+Ctrl)+Enter → salto de línea
-                self.insertPlainText("\n"); return
-            self._commit(); return
-        super().keyPressEvent(e)
-
-    def focusOutEvent(self, e):
-        super().focusOutEvent(e); self._commit()
-
-
-class PipelineWorker(QtCore.QThread):
-    done = QtCore.Signal(str, str)
-
-    def __init__(self, pdf, tmp): super().__init__(); self.pdf, self.tmp = pdf, tmp
-
-    def run(self):
-        try:
-            import digitize
-            digitize.main(self.pdf, self.tmp, verbose=False); self.done.emit(self.tmp, "")
-        except Exception as e:
-            import traceback; self.done.emit("", f"{e}\n\n{traceback.format_exc()}")
-
-
-class Canvas(QtWidgets.QGraphicsView):
-    clicked = QtCore.Signal(float, float, object)
-    dbl = QtCore.Signal(float, float)
-    moved = QtCore.Signal(float, float)
-
-    def __init__(self, win):
-        super().__init__(); self.win = win
-        self.setScene(QtWidgets.QGraphicsScene(self))
-        self.setRenderHints(QtGui.QPainter.Antialiasing | QtGui.QPainter.SmoothPixmapTransform)
-        self.setTransformationAnchor(QtWidgets.QGraphicsView.AnchorUnderMouse)
-        self.setBackgroundBrush(QtGui.QColor(13, 19, 33)); self.setAcceptDrops(True)
-        self.setFocusPolicy(QtCore.Qt.StrongFocus)
-        self.setMouseTracking(True); self.viewport().setMouseTracking(True)
-        self.pixmap_item = None; self._pan = False; self._pan0 = None; self._moving = False
-        self.pdf_opacity = 1.0
-        # Fondo DETRÁS del PDF (mismo tamaño que el PDF): blanco por defecto. Al
-        # bajar la opacidad del PDF se ve este fondo en vez del azul del lienzo.
-        # Se puede alternar a negro (ver set_pdf_bg / botón "Opacidad").
-        self.pdf_bg_item = None
-        self.pdf_bg_color = QtGui.QColor(255, 255, 255)
-
-    def set_image(self, qimg):
-        self.scene().clear()
-        # Rectángulo de fondo (blanco/negro) por debajo del PDF, de su mismo tamaño.
-        pm = QtGui.QPixmap.fromImage(qimg)
-        self.pdf_bg_item = self.scene().addRect(
-            QtCore.QRectF(pm.rect()), QtGui.QPen(QtCore.Qt.NoPen),
-            QtGui.QBrush(self.pdf_bg_color))
-        self.pdf_bg_item.setZValue(Z_PDF - 1)
-        self.pixmap_item = self.scene().addPixmap(pm)
-        self.pixmap_item.setZValue(Z_PDF)
-        self.pixmap_item.setOpacity(self.pdf_opacity)
-        self.setSceneRect(self.pixmap_item.boundingRect())
-        self.resetTransform(); self.fitInView(self.pixmap_item, QtCore.Qt.KeepAspectRatio)
-
-    def set_pdf_opacity(self, val):
-        self.pdf_opacity = max(0.1, min(1.0, val))
-        if self.pixmap_item: self.pixmap_item.setOpacity(self.pdf_opacity)
-
-    def set_pdf_bg(self, color):
-        """Color del fondo detrás del PDF (blanco o negro)."""
-        self.pdf_bg_color = QtGui.QColor(color)
-        if self.pdf_bg_item:
-            self.pdf_bg_item.setBrush(QtGui.QBrush(self.pdf_bg_color))
-
-    def keyPressEvent(self, e):
-        if e.key() in (QtCore.Qt.Key_Return, QtCore.Qt.Key_Enter):
-            self.win._on_enter(); e.accept(); return
-        if e.key() == QtCore.Qt.Key_Escape:
-            self.win._on_escape(); e.accept(); return
-        super().keyPressEvent(e)
-
-    def wheelEvent(self, e):
-        if self.pixmap_item:
-            f = 1.25 if e.angleDelta().y() > 0 else 0.8; self.scale(f, f)
-
-    def mousePressEvent(self, e):
-        if e.button() == QtCore.Qt.MiddleButton:
-            self._pan = True; self._pan0 = e.position(); self.setCursor(QtCore.Qt.ClosedHandCursor); return
-        if not self.pixmap_item: return super().mousePressEvent(e)
-        self.setFocus(QtCore.Qt.MouseFocusReason)
-        sp = self.mapToScene(e.position().toPoint())
-        if self.win.mode == "move" and e.button() == QtCore.Qt.LeftButton:
-            self._moving = True; self.win.begin_move(sp.x(), sp.y()); return
-        if e.button() in (QtCore.Qt.LeftButton, QtCore.Qt.RightButton):
-            self.clicked.emit(sp.x(), sp.y(), e.button()); return
-        super().mousePressEvent(e)
-
-    def mouseMoveEvent(self, e):
-        if self.pixmap_item:
-            sp = self.mapToScene(e.position().toPoint()); self.moved.emit(sp.x(), sp.y())
-        if self._pan:
-            d = e.position() - self._pan0; self._pan0 = e.position()
-            self.horizontalScrollBar().setValue(int(self.horizontalScrollBar().value() - d.x()))
-            self.verticalScrollBar().setValue(int(self.verticalScrollBar().value() - d.y())); return
-        if self._moving:
-            sp = self.mapToScene(e.position().toPoint()); self.win.do_move(sp.x(), sp.y()); return
-        super().mouseMoveEvent(e)
-
-    def mouseReleaseEvent(self, e):
-        if e.button() == QtCore.Qt.MiddleButton:
-            self._pan = False; self.setCursor(QtCore.Qt.ArrowCursor); return
-        if self._moving and e.button() == QtCore.Qt.LeftButton:
-            self._moving = False; self.win.end_move(); return
-        super().mouseReleaseEvent(e)
-
-    def mouseDoubleClickEvent(self, e):
-        if self.win.mode == "pipe": self.win.finish_pipe(); return
-        sp = self.mapToScene(e.position().toPoint()); self.dbl.emit(sp.x(), sp.y())
-
-    def dragEnterEvent(self, e):
-        if e.mimeData().hasUrls(): e.acceptProposedAction()
-
-    def dropEvent(self, e):
-        for u in e.mimeData().urls():
-            self.win.open_path(u.toLocalFile()); break
-
-
-class _SegInvSpinBox(QtWidgets.QDoubleSpinBox):
-    """QDoubleSpinBox de la tabla "Cotas por tramo": Enter/Return confirma el
-    valor tecleado ahí mismo. Embebido en una celda de QTableWidget (vía
-    setCellWidget), el widget contenedor puede quedarse con la tecla Enter
-    antes de que dispare editingFinished normalmente — se maneja acá a mano
-    para no depender de esa cadena de eventos."""
-    def keyPressEvent(self, event):
-        if event.key() in (QtCore.Qt.Key_Return, QtCore.Qt.Key_Enter):
-            self.interpretText()
-            event.accept()
-            # Diferido: el slot conectado reconstruye la tabla (destruye este
-            # mismo spinbox) — no hacerlo en medio de este keyPressEvent.
-            QtCore.QTimer.singleShot(0, self.editingFinished.emit)
-            return
-        super().keyPressEvent(event)
+# Constantes y helpers de UI compartidos (antes definidos aquí) → ui_common.py.
+from ui_common import (DOWNLOADS, BTN_ON, BTN_OFF, aci_qcolor, layer_qcolor,
+                       _extract_diam_from_size, swatch_icon)
 
 
 class Main(QtWidgets.QMainWindow):
@@ -240,6 +74,20 @@ class Main(QtWidgets.QMainWindow):
 
     # ─────────────────────────── UI ───────────────────────────
     def _build_ui(self):
+        # La UI se arma por secciones, en este ORDEN (importante: los widgets
+        # compartidos del acordeón se reubican al final, cuando ya existen los
+        # del dock derecho). Cada _build_* deja sus widgets como self.* .
+        self._build_menu()
+        self._build_toolbar()
+        self._build_left_dock()
+        self._build_right_dock()
+        self._build_statusbar()
+        # Todo listo: coloca los widgets compartidos del acordeón en la sección
+        # inicial (esto necesita que self.tabs, self.gprop y self.lbl_mode existan).
+        self._on_toolbox_change(self.toolbox.currentIndex())
+        self._refresh_unit_labels()                # etiquetas de campo con la unidad activa
+
+    def _build_menu(self):
         mb = self.menuBar()
         mfile = mb.addMenu("&Archivo")
         self._menu_act(mfile, "Abrir PDF…", self.open_pdf)
@@ -264,6 +112,7 @@ class Main(QtWidgets.QMainWindow):
         self._menu_act(mhelp, "Manual de usuario", self.show_manual)
         self._menu_act(mhelp, "Atajos de teclado", self.show_shortcuts)
 
+    def _build_toolbar(self):
         # ── Barra de acción superior: zoom · deshacer/rehacer · imán · exportar ──
         tb = self.addToolBar("Acciones"); tb.setMovable(False)
         def tact(txt, tip, fn):
@@ -306,6 +155,7 @@ class Main(QtWidgets.QMainWindow):
         self.act_la_ref = QtGui.QAction("Incluir calles reales de LA", self); self.act_la_ref.setCheckable(True)
         self.act_la_parcels = QtGui.QAction("Incluir parcelas de LA", self); self.act_la_parcels.setCheckable(True)
 
+    def _build_left_dock(self):
         # ─────────────────────────── DOCK IZQUIERDO ───────────────────────────
         # Aquí construimos el panel lateral izquierdo como un ACORDEÓN de secciones
         # (QToolBox). Cada acción del usuario (Dibujar utilidad, Multileader, Leader,
@@ -545,9 +395,7 @@ class Main(QtWidgets.QMainWindow):
         ldock.setMinimumWidth(300)
         self.addDockWidget(QtCore.Qt.LeftDockWidgetArea, ldock)
 
-        # (La inicialización de los widgets compartidos ocurre al final de _build_ui,
-        # cuando el dock derecho —self.tabs, etc.— ya existe.)
-
+    def _build_right_dock(self):
         # ── DOCK DERECHO: inventario y selección ──
         rdock = QtWidgets.QDockWidget("Inventario", self); rdock.setFeatures(QtWidgets.QDockWidget.NoDockWidgetFeatures)
         right = QtWidgets.QWidget(); rv = QtWidgets.QVBoxLayout(right)
@@ -846,6 +694,7 @@ class Main(QtWidgets.QMainWindow):
         rdock.setMinimumWidth(300)
         self.addDockWidget(QtCore.Qt.RightDockWidgetArea, rdock)
 
+    def _build_statusbar(self):
         # ── Barra de estado: modo · info · contadores en vivo · escala · georref ──
         self.status = self.statusBar(); self.status.setSizeGripEnabled(False)
         self.lbl_mode = QtWidgets.QLabel("Modo: inactivo"); self.lbl_mode.setStyleSheet("color:#adc6ff;")
@@ -887,11 +736,6 @@ class Main(QtWidgets.QMainWindow):
         self.canvas.moved.connect(self._update_coords)
         self._update_geo_status()
         self._info("Abre o arrastra un PDF/proyecto.")
-
-        # Todo listo: coloca los widgets compartidos del acordeón en la sección
-        # inicial (esto necesita que self.tabs, self.gprop y self.lbl_mode existan).
-        self._on_toolbox_change(self.toolbox.currentIndex())
-        self._refresh_unit_labels()                # etiquetas de campo con la unidad activa
 
     def _menu_act(self, menu, text, fn, sc=None):
         a = QtGui.QAction(text, self); a.triggered.connect(fn)
@@ -1060,7 +904,20 @@ class Main(QtWidgets.QMainWindow):
         pct = round(self.canvas.pdf_opacity * 100)
         lbl = QtWidgets.QLabel(f"Opacidad del PDF: {pct}%")
         sl = QtWidgets.QSlider(QtCore.Qt.Horizontal); sl.setRange(10, 100)
-        sl.setValue(pct); sl.setMinimumWidth(220)
+        sl.setValue(pct); sl.setMinimumWidth(240)
+        # Accesibilidad: más contraste (canal oscuro + parte activa azul brillante)
+        # y un handle más ancho/visible, fácil de agarrar. Solo estético.
+        sl.setStyleSheet(
+            "QSlider::groove:horizontal { height: 10px; border-radius: 5px;"
+            " background: #202020; border: 1px solid #6a6a6a; }"
+            "QSlider::sub-page:horizontal { background: #4a90ff; border: 1px solid #8ec2ff;"
+            " border-radius: 5px; }"
+            "QSlider::add-page:horizontal { background: #2b2b2b; border: 1px solid #565656;"
+            " border-radius: 5px; }"
+            "QSlider::handle:horizontal { width: 26px; height: 22px; margin: -7px 0;"
+            " border-radius: 6px; background: #ffffff; border: 2px solid #2f6ad9; }"
+            "QSlider::handle:horizontal:hover { background: #eaf1ff; border: 2px solid #6ba3ff; }"
+            "QSlider::handle:horizontal:pressed { background: #cfe0ff; border: 2px solid #8ec2ff; }")
 
         def _on_val(v):
             self.canvas.set_pdf_opacity(v / 100.0)
@@ -1359,19 +1216,9 @@ class Main(QtWidgets.QMainWindow):
     def _write_project(self, path):
         self._busy("Guardando proyecto…")
         try:
-            import civil_catalog as _cc
-            model = dict(pipes=self.pipes, leaders=self.leaders, text_marks=self.text_marks,
-                         erase_regions=self.erase_regions, structures=self.structures,
-                         ref_centerlines=self.ref_centerlines,
-                         georef=self.georef.to_dict(),
-                         work_unit=self.work_unit,                # unidad de trabajo del proyecto
-                         # Versión/idioma de Civil 3D elegidos en el toolbar: se
-                         # guardan para reabrir el proyecto con la MISMA selección.
-                         civil_year=self.civil_year,
-                         civil_lang=_cc._current_lang,
-                         tf=dict(scale=self.scale, zoom=self.zoom, rot=self.rot, W=self.W, H=self.H,
-                                 derot=[self.derot.a, self.derot.b, self.derot.c, self.derot.d, self.derot.e, self.derot.f]),
-                         pdf_name=os.path.basename(self.pdf_path or ""), version=VERSION)
+            # La construcción del dict de datos vive en project_io (pura, testeable);
+            # aquí queda solo lo de Qt/PDF (PNG del lienzo, zip, PDF fuente).
+            model = project_io.build_model_dict(self)
             ba = QtCore.QByteArray(); buf = QtCore.QBuffer(ba); buf.open(QtCore.QIODevice.WriteOnly)
             self.canvas.pixmap_item.pixmap().save(buf, "PNG")
             with zipfile.ZipFile(path, "w", zipfile.ZIP_DEFLATED) as z:
@@ -1432,8 +1279,12 @@ class Main(QtWidgets.QMainWindow):
             qimg = QtGui.QImage.fromData(png, "PNG")
             self._overlay = []; self._close_editor()
             self.canvas.set_image(qimg); self.gray = qimage_to_gray(qimg)
-            tf = model["tf"]; self.scale = tf["scale"]; self.zoom = tf["zoom"]; self.rot = tf["rot"]
-            self.W, self.H = tf["W"], tf["H"]; self.derot = fitz.Matrix(*tf["derot"])
+            # Normalización de los datos (casteo de cotas por vértice, zonas de
+            # borrado, reconstrucción de Georef) vive en project_io (pura, testeable);
+            # aquí solo se ASIGNAN a self.* y se hace lo de Qt/PDF.
+            data = project_io.parse_model(model)
+            self.scale = data["scale"]; self.zoom = data["zoom"]; self.rot = data["rot"]
+            self.W, self.H = data["W"], data["H"]; self.derot = fitz.Matrix(*data["derot"])
             self.pageH_px = qimg.height()
             self.leader_hpx = max(14.0, min(LEADER_TEXT_FT / self.scale * self.zoom, self.pageH_px * 0.05))
             if tmp_pdf:
@@ -1441,30 +1292,13 @@ class Main(QtWidgets.QMainWindow):
             else:
                 self.pdf_path = None; self.doc = None
             self.project_path = path; self.page_idx = 0; self._update_title()
-            self.pipes = model.get("pipes", []); self.leaders = model.get("leaders", [])
-            for p in self.pipes:                            # JSON vuelve las keys de vertex_inv a str
-                # Tres diccionarios distintos guardan cotas por vertice:
-                #   vertex_inv     — legado, cota unica por vertice
-                #   vertex_inv_out — cota de SALIDA del vertice (start del segmento siguiente)
-                #   vertex_inv_in  — cota de ENTRADA al vertice (end del segmento anterior)
-                # Los tres se persisten con json.dumps, que convierte SIEMPRE las
-                # llaves a str. Si no se re-castean a int aca, los lookups por
-                # indice (que son int) fallan silenciosamente y la edicion por
-                # tramo aparece vacia al reabrir el proyecto.
-                for k in ("vertex_inv", "vertex_inv_out", "vertex_inv_in"):
-                    d = p.get(k)
-                    if isinstance(d, dict) and d:
-                        p[k] = {int(kk): float(vv) for kk, vv in d.items()}
-            self.text_marks = model.get("text_marks", [])
-            self.erase_regions = [r if isinstance(r, dict) else {"pts": r, "enabled": True}
-                                  for r in model.get("erase_regions", [])]
-            self.structures = model.get("structures", [])   # retrocompat: proyectos viejos sin buzones
-            self.ref_centerlines = model.get("ref_centerlines", [])   # retrocompat: proyectos viejos sin centerlines
-            self.georef = georef_mod.Georef.from_dict(model.get("georef"))   # retrocompat: sin georref → escala
-            # Unidad de trabajo SIEMPRE pies (los diámetros van en pulgadas, por campo).
-            # Ya no hay selector; ignoramos el work_unit guardado en proyectos viejos.
-            self.work_unit = "ft"
-            for p in self.pipes: p["unit"] = "ft"
+            self.pipes = data["pipes"]; self.leaders = data["leaders"]
+            self.text_marks = data["text_marks"]
+            self.erase_regions = data["erase_regions"]
+            self.structures = data["structures"]
+            self.ref_centerlines = data["ref_centerlines"]
+            self.georef = data["georef"]
+            self.work_unit = data["work_unit"]
             self.cur_pts = []; self._erase_pts = []; self.sel_pipe = self.sel_leader = self.sel_region = self.sel_text = -1
             self._undo.clear(); self._redo.clear(); self._dirty = False
             self.set_mode("idle"); self._refresh_lists(); self._update_page_label(); self._redraw()
@@ -1473,7 +1307,9 @@ class Main(QtWidgets.QMainWindow):
             # Reponer la versión/idioma de Civil 3D con que se guardó el proyecto
             # (si esa versión sigue instalada). Debe ir ANTES de _warn_missing_families.
             self._restore_civil_selection(model.get("civil_year"), model.get("civil_lang"))
-            self._info(f"Proyecto abierto ({len(self.pipes)} utilidades). Ctrl+S guarda en este mismo archivo.")
+            import civil_catalog as _cc
+            _cv = f" · Civil 3D {self.civil_year}/{_cc._current_lang or '—'}" if self.civil_year else ""
+            self._info(f"Proyecto abierto ({len(self.pipes)} utilidades){_cv}. Ctrl+S guarda en este mismo archivo.")
             # Aviso si el proyecto referencia familias del catálogo que no están
             # instaladas en el Civil 3D activo — ofrece abrir el instalador.
             self._warn_missing_families()
@@ -1899,28 +1735,8 @@ class Main(QtWidgets.QMainWindow):
         self._update_ui(); self._redraw()
 
     def _interp_vertex_z(self, pts, z_start, z_end, overrides):
-        """Cota por vértice interpolada por distancia acumulada 2D, entre anclas
-        (extremos + overrides fijados). Espejo exacto de InterpolateZ/ZalongByDistance
-        en ImportarRed.cs — usado aquí solo para mostrar el valor 'automático' en la
-        tabla de vértices intermedios."""
-        n = len(pts)
-        z = [0.0] * n
-        if n == 0: return z
-        if n == 1: z[0] = z_start; return z
-        anchors = {0: z_start, n - 1: z_end}
-        for k, v in (overrides or {}).items():
-            if 0 < k < n - 1: anchors[k] = v
-        keys = sorted(anchors.keys())
-        for a, b in zip(keys, keys[1:]):
-            sub = pts[a:b + 1]
-            d = [0.0] * len(sub)
-            for i in range(1, len(sub)):
-                d[i] = d[i - 1] + math.hypot(sub[i][0] - sub[i - 1][0], sub[i][1] - sub[i - 1][1])
-            total = d[-1]
-            za, zb = anchors[a], anchors[b]
-            for i in range(len(sub)):
-                z[a + i] = za + (zb - za) * (d[i] / total) if total > 1e-9 else za
-        return z
+        # Interpolación de cota por vértice (pura) en model_ops.
+        return model_ops.interp_vertex_z(pts, z_start, z_end, overrides)
 
     def _rebuild_seg_inv_table(self, p):
         """Reconstruye la tabla de tramos. Cada celda es independiente:
@@ -2045,12 +1861,8 @@ class Main(QtWidgets.QMainWindow):
 
     @staticmethod
     def _migrate_vertex_inv(p):
-        """Migra el formato viejo (vertex_inv compartido) al nuevo
-        (vertex_inv_out + vertex_inv_in independientes)."""
-        old = p.pop("vertex_inv", None)
-        if old and "vertex_inv_out" not in p:
-            p["vertex_inv_out"] = dict(old)
-            p["vertex_inv_in"] = dict(old)
+        # Migración de formato (pura) en model_ops.
+        model_ops.migrate_vertex_inv(p)
 
     def _seg_value_changed(self, side, vi, value):
         if self._prop_guard: return
@@ -2071,20 +1883,8 @@ class Main(QtWidgets.QMainWindow):
         self._redraw()
 
     def _snapshot_seg_values(self, p):
-        """Congela como overrides explícitos todos los valores actualmente
-        mostrados en la tabla (excepto v0 del primer tramo y v_n del último,
-        que se editan vía inv_start/inv_end). Idempotente."""
-        pts = p.get("pts") or []
-        n = len(pts)
-        if n < 3: return
-        ov_out = p.setdefault("vertex_inv_out", {})
-        ov_in  = p.setdefault("vertex_inv_in",  {})
-        z_start = p.get("inv_start") or 0.0; z_end = p.get("inv_end") or 0.0
-        auto_out = self._interp_vertex_z(pts, z_start, z_end, ov_out)
-        auto_in  = self._interp_vertex_z(pts, z_start, z_end, ov_in)
-        for vi in range(1, n - 1):
-            ov_out.setdefault(vi, auto_out[vi])
-            ov_in.setdefault(vi, auto_in[vi])
+        # Congelado de cotas por tramo como overrides (puro) en model_ops.
+        model_ops.snapshot_seg_values(p)
 
     def _seg_edit_toggled(self, enabled):
         """Toggle del botón 'Editar cotas por tramo'. Al activar, congela los
@@ -2156,9 +1956,19 @@ class Main(QtWidgets.QMainWindow):
         refresca una sola vez."""
         import civil_catalog as _cc
         if year is None:
-            return
+            return                                   # proyecto viejo (sin este dato guardado)
         if year not in set(_cc.installed_versions()):
-            return                                   # esa versión ya no está en esta PC
+            # La versión guardada no está instalada/detectada en ESTA PC → no se
+            # puede seleccionar. Se avisa (visible, no un mensaje de barra que se
+            # pisa) para que el usuario entienda por qué quedó en otra versión.
+            QtWidgets.QMessageBox.information(
+                self, "Civil 3D del proyecto no disponible",
+                f"El proyecto se guardó con Civil 3D {year}"
+                + (f" ({lang})" if lang else "") +
+                f", pero esa versión no está instalada/detectada en esta PC.\n\n"
+                f"Se mantiene la versión activa ({self.civil_year or '—'}). "
+                "El catálogo de familias saldrá de esa versión.")
+            return
         idx = self.cmb_civil.findData(year)
         if idx < 0:
             return
@@ -2167,7 +1977,6 @@ class Main(QtWidgets.QMainWindow):
         self.cmb_civil.blockSignals(False)
         self.civil_year = year
         self._refill_lang_combo()                    # repuebla idiomas del año elegido
-        lang_ok = ""
         if lang:
             li = self.cmb_lang.findData(lang)
             if li >= 0:
@@ -2175,9 +1984,7 @@ class Main(QtWidgets.QMainWindow):
                 self.cmb_lang.setCurrentIndex(li)
                 self.cmb_lang.blockSignals(False)
                 _cc.set_current_lang(lang)
-                lang_ok = f"/{lang}"
         self._refresh_catalog_panels()
-        self._info(f"Civil 3D restaurado del proyecto: {year}{lang_ok}.")
 
     def _refill_lang_combo(self):
         """Repuebla el combo de idiomas con los realmente instalados para el año
@@ -2655,47 +2462,9 @@ class Main(QtWidgets.QMainWindow):
         self._open_editor(tp[0], tp[1] - self.leader_hpx, ld["text"], commit)
 
     def _leader_geo(self, ld):
-        """Geometría del Multileader (px). La 'cola' (parte de la línea junto al texto)
-        se adapta al largo del texto. La punta se orienta con segs[0][1]."""
-        ax, ay = ld["arrow"]; tx, ty = ld["tp"]
-        ftsize = ld.get("size_ft", LEADER_TEXT_FT)
-        H = self._px_for_ft(ftsize)
-        lines = ld["text"].split("\n"); maxlen = max((len(s) for s in lines), default=1); nlines = len(lines)
-        tw = max(maxlen * H * 0.6, H * 2); th = nlines * H; gap = H * 0.5; near = H * 0.22
-        if ld.get("simple"):                               # LEADER simple: solo flecha, sin texto
-            lp = ld.get("landing")
-            if lp:                                         # diagonal con landing: cabeza → bisagra → final
-                segs = [[(ax, ay), (lp[0], lp[1]), (tx, ty)]]
-            else:                                          # recto h/v: cabeza → final del cuerpo
-                segs = [[(ax, ay), (tx, ty)]]
-            end = segs[0][-1]
-            return dict(segs=segs, label_pos=end, rot=0, side="right", verts_px=segs[0], insert_px=end,
-                        dogleg=0.0, H=H, cad_h=ftsize, tcenter_px=end, cad_rot=0)
-        orient = ld.get("orient", "h")
-        if orient == "v":                                  # recto vertical; texto vertical junto a la cola
-            signY = -1 if ty < ay else 1
-            L = max(abs(ty - ay), tw + gap); ey = ay + signY * L; my = (ay + ey) / 2
-            side = "top" if signY < 0 else "bottom"
-            lbl = (ax + H * 0.08, my + tw / 2)              # rot -90, centrado a lo largo, pegado a la línea
-            segs = [[(ax, ay), (ax, ey)]]
-            return dict(segs=segs, label_pos=lbl, rot=-90, side=side, verts_px=segs[0], insert_px=(ax, ey),
-                        dogleg=0.0, H=H, cad_h=ftsize, tcenter_px=(ax + th / 2 + H * 0.08, my), cad_rot=90)
-        if orient == "h":                                  # recto horizontal; texto encima de la cola
-            signX = 1 if tx >= ax else -1
-            L = max(abs(tx - ax), tw + gap); ex = ax + signX * L
-            lblx = ex - tw if signX > 0 else ex
-            side = "right" if signX > 0 else "left"
-            segs = [[(ax, ay), (ex, ay)]]
-            return dict(segs=segs, label_pos=(lblx, ay - th - near), rot=0, side=side, verts_px=segs[0], insert_px=(ex, ay),
-                        dogleg=0.0, H=H, cad_h=ftsize, tcenter_px=(lblx + tw / 2, ay - near - th / 2), cad_rot=0)
-        # diagonal: flecha → 2º clic → landing horizontal → texto encima del landing
-        right = tx >= ax; sgn = 1 if right else -1
-        lx = tx + sgn * (tw + gap); text_x = min(tx, lx) + gap
-        side = "right" if right else "left"
-        lbl = (text_x, ty - H - near)                      # 1ª línea encima; extras al otro lado
-        segs = [[(ax, ay), (tx, ty), (lx, ty)]]
-        return dict(segs=segs, label_pos=lbl, rot=0, side=side, verts_px=segs[0], insert_px=(lx, ty),
-                    dogleg=0.0, H=H, cad_h=ftsize, tcenter_px=(text_x + tw / 2, ty - H - near + th / 2), cad_rot=0)
+        # Geometría del Multileader (pura) en model_ops; se le pasa la conversión
+        # pies→px de la ventana (depende de escala/zoom).
+        return model_ops.leader_geo(ld, self._px_for_ft)
 
     # ─────────────────────────── texto libre ───────────────────────────
     def _new_free_text(self, x, y):
@@ -3176,61 +2945,10 @@ class Main(QtWidgets.QMainWindow):
         self.set_mode("idle")
 
     def _rebuild_structures(self):
-        """Detecta buzones por los VÉRTICES (extremos + intermedios) de las tuberías
-        dibujadas:
-          - Gravedad (SS/SD) → prefijo BZ- (buzones cilíndricos con tapa).
-          - Conduit (eléctrico/telecom) → prefijo CAJA- (cajas de registro/vaults).
-          - Presión (agua/gas) → sin nodos automáticos.
-        Preserva ediciones (cod/rim/sump/part/part_size/covered) por coincidencia
-        de coordenada. Los buzones importados de Excel (world) se conservan aparte."""
-        from model import network_kind
-        tol = 14.0
-        def near(a, b): return math.hypot(a[0] - b[0], a[1] - b[1]) <= tol
-        # Descarta buzones espurios de versiones previas con net inválida (p.ej. "pressure").
-        old = [s for s in self.structures
-               if not s.get("world") and (s.get("net") or "gravity") in ("gravity", "conduit")]
-        world = [s for s in self.structures if s.get("world")]
-        detected = []
-        for p in self.pipes:
-            if p.get("world"): continue
-            kind = network_kind(p.get("layer") or "")
-            if kind not in ("gravity", "conduit"): continue    # presión no lleva nodos automáticos
-            pts = p.get("pts")
-            if not pts or len(pts) < 2: continue
-            for pt in pts:                              # todos los vértices (extremos + intermedios)
-                if not any(near(pt, (s["x"], s["y"])) for s in detected):
-                    detected.append({"cod": "", "x": pt[0], "y": pt[1], "rim": None,
-                                     "sump": None, "part": "", "part_size": "",
-                                     "net": kind, "covered": True, "world": False,
-                                     "hidden": False})
-        for s in detected:                                 # reasigna ediciones previas por coordenada
-            for o in old:
-                if near((s["x"], s["y"]), (o.get("x", -1e9), o.get("y", -1e9))):
-                    s.update(cod=o.get("cod", ""), rim=o.get("rim"), sump=o.get("sump"),
-                             part=o.get("part", ""), part_size=o.get("part_size", ""),
-                             covered=bool(o.get("covered", True)),
-                             height_ft=o.get("height_ft", 0.0),
-                             curve=bool(o.get("curve", False)),
-                             radius_ft=o.get("radius_ft", 0.0),
-                             hidden=bool(o.get("hidden", False))); break
-        # Códigos únicos: BZ-N gravedad, CAJA-N conduit, CV-N esquina de elemento curvo
-        # (curve=True manda sobre el prefijo por red: no es un buzón/caja real).
-        used = {s.get("cod", "") for s in world + detected if s.get("cod")}
-        cnt_bz = cnt_caja = cnt_cv = 1
-        for s in detected:
-            if s.get("cod"): continue
-            if s.get("curve"):
-                while f"CV-{cnt_cv}" in used: cnt_cv += 1
-                s["cod"] = f"CV-{cnt_cv}"; used.add(s["cod"]); cnt_cv += 1
-                continue
-            prefix = "CAJA-" if s.get("net") == "conduit" else "BZ-"
-            if prefix == "BZ-":
-                while f"BZ-{cnt_bz}" in used: cnt_bz += 1
-                s["cod"] = f"BZ-{cnt_bz}"; used.add(s["cod"]); cnt_bz += 1
-            else:
-                while f"CAJA-{cnt_caja}" in used: cnt_caja += 1
-                s["cod"] = f"CAJA-{cnt_caja}"; used.add(s["cod"]); cnt_caja += 1
-        self.structures = world + detected; self._dirty = True
+        # Detección/reconciliación de buzones (pura) en model_ops; aquí solo se
+        # asigna el resultado y se marca el proyecto como modificado.
+        self.structures = model_ops.rebuild_structures(self.pipes, self.structures)
+        self._dirty = True
 
     # ── Tab Buzones: selección, panel de propiedades y edición ──────────────
     def _sel_bz(self, row):
@@ -3262,27 +2980,8 @@ class Main(QtWidgets.QMainWindow):
         self._sync_curve_panel(); self._update_ui(); self._redraw()
 
     def _bz_segment_count(self, s):
-        """Cuántos EXTREMOS de segmento de tubería coinciden con la posición del
-        buzón `s`. Un buzón al final de una línea suma 1 (un solo tramo llega); un
-        vértice intermedio suma 2 (tramo que entra + tramo que sale); un cruce de
-        dos utilidades, 2 o más. Solo con >=2 hay una esquina con dos tangentes,
-        que es lo único que puede convertirse en un elemento curvo."""
-        sx, sy = s.get("x"), s.get("y")
-        if sx is None or sy is None:
-            return 0
-        tol = 14.0                              # misma tolerancia que _rebuild_structures
-        n = 0
-        for p in self.pipes:
-            if p.get("world"):
-                continue
-            pts = p.get("pts")
-            if not pts or len(pts) < 2:
-                continue
-            last = len(pts) - 1
-            for i, pt in enumerate(pts):
-                if math.hypot(pt[0] - sx, pt[1] - sy) <= tol:
-                    n += 1 if (i == 0 or i == last) else 2
-        return n
+        # Conteo de extremos de tramo que tocan el buzón (puro) en model_ops.
+        return model_ops.bz_segment_count(self.pipes, s)
 
     def _sync_bz_panel(self):
         """Carga los valores del buzón self.sel_bz en el panel de propiedades."""
@@ -3450,16 +3149,8 @@ class Main(QtWidgets.QMainWindow):
 
     # ─────────────────────────── Tab Curvas: selección, panel, edición ─────
     def _pipe_at_vertex(self, x, y, tol=14.0):
-        """Tubería (dict, no 'world') cuyo pts tiene un vértice a distancia <= tol
-        de (x,y), o None. La familia/tamaño de un elemento curvo se hereda de esta
-        tubería — nunca se elige aparte, para que la curva calce con los tramos rectos."""
-        tol2 = tol * tol
-        for p in self.pipes:
-            if p.get("world") or not p.get("pts"): continue
-            for (vx, vy) in p["pts"]:
-                if (vx - x) ** 2 + (vy - y) ** 2 <= tol2:
-                    return p
-        return None
+        # Búsqueda de tubería por vértice cercano (pura) en model_ops.
+        return model_ops.pipe_at_vertex(self.pipes, x, y, tol)
 
     def _sync_curve_panel(self):
         """Carga los valores del elemento curvo self.sel_curve en el panel de propiedades."""
@@ -3609,228 +3300,10 @@ class Main(QtWidgets.QMainWindow):
 
     # ─────────────────────────── Instalador familias personalizadas ───────────
     def open_install_family_dialog(self):
-        """Instala UNA familia personalizada en el catálogo Civil 3D del año e
-        idioma seleccionados en la UI. Adaptación del script `install_c3d_family.py`
-        que ya está validado.
-
-        Flujo:
-          1. Usuario elige la carpeta de la familia (con .xml, .dwg, .bmp adentro).
-          2. Se detecta kind/units/shape leyendo el XML y el nombre.
-          3. Se copia la carpeta al subcatálogo correcto del año/idioma activos.
-          4. Se registra la familia en el .apc (backup automático con timestamp).
-          5. Se le dice al usuario que corra PREPARAR_FAMILIAS en Civil 3D (que
-             regenera el catálogo y añade las familias a una PartsList)."""
-        import civil_catalog as _cc
-
-        if not self.civil_year:
-            QtWidgets.QMessageBox.warning(
-                self, "Sin versión de Civil 3D",
-                "Elige una versión de Civil 3D en el toolbar antes de instalar familias.")
-            return
-        cur_lang = _cc._current_lang
-        if not cur_lang:
-            QtWidgets.QMessageBox.warning(
-                self, "Sin idioma seleccionado",
-                "Elige un idioma en el toolbar antes de instalar familias.")
-            return
-
-        dlg = QtWidgets.QDialog(self)
-        dlg.setWindowTitle(f"Instalar familia personalizada — Civil 3D {self.civil_year} / {cur_lang}")
-        dlg.resize(760, 480)
-        lay = QtWidgets.QVBoxLayout(dlg)
-
-        header = QtWidgets.QLabel(
-            f"<b>Elige la carpeta de UNA familia</b> — debe contener el "
-            f"<code>.xml</code>, el <code>.dwg</code> del Part Builder y el "
-            f"<code>.bmp</code> (miniatura).<br><br>"
-            f"Se instalará en el catálogo de <b>Civil 3D {self.civil_year} ({cur_lang})</b>. "
-            f"El script detecta automáticamente si es tubería o estructura, sus unidades "
-            f"y la forma, copia los archivos y registra la familia en el <code>.apc</code> "
-            f"(con backup).<br><br>"
-            f"Al terminar, ejecuta <b>PREPARAR_FAMILIAS</b> en Civil 3D — regenera el "
-            f"catálogo y te deja elegir qué familias añadir a la lista de piezas del dibujo.")
-        header.setWordWrap(True); lay.addWidget(header)
-
-        # Selector carpeta origen
-        row = QtWidgets.QHBoxLayout()
-        row.addWidget(QtWidgets.QLabel("Carpeta de la familia:"))
-        self._if_src = QtWidgets.QLineEdit(); self._if_src.setReadOnly(True)
-        prev = getattr(self, "_last_family_folder", None)
-        if prev and os.path.isdir(prev): self._if_src.setText(prev)
-        btn_browse = QtWidgets.QPushButton("Elegir…")
-        row.addWidget(self._if_src, 1); row.addWidget(btn_browse)
-        lay.addLayout(row)
-
-        # Preview de lo que se detectó
-        preview_lbl = QtWidgets.QLabel("<i>Elige una carpeta para ver qué se detecta.</i>")
-        preview_lbl.setWordWrap(True); preview_lbl.setTextFormat(QtCore.Qt.RichText)
-        preview_lbl.setStyleSheet("color:#b8c6df; background:#333a4a; padding:8px; border-radius:4px;")
-        lay.addWidget(preview_lbl, 1)
-
-        bb = QtWidgets.QDialogButtonBox()
-        btn_install = bb.addButton("Instalar familia", QtWidgets.QDialogButtonBox.AcceptRole)
-        btn_close = bb.addButton("Cerrar", QtWidgets.QDialogButtonBox.RejectRole)
-        btn_install.setEnabled(False)
-        lay.addWidget(bb)
-
-        def _refresh_preview(path):
-            btn_install.setEnabled(False)
-            if not path or not os.path.isdir(path):
-                preview_lbl.setText("<i>Elige una carpeta para ver qué se detecta.</i>")
-                return
-            fams = _cc.scan_family_folder_preview(path)
-            if not fams:
-                preview_lbl.setText(
-                    "<span style='color:#e06060;'>❌ No encontré ningún .xml con "
-                    ".dwg hermano en esta carpeta.</span>")
-                return
-
-            def _dot(v):
-                if v: return f"<span style='color:#3fbf3f;'>{v}</span>"
-                return "<span style='color:#e06060;'>⚠</span>"
-
-            lines = [f"<b>{len(fams)} familia(s) detectadas en la carpeta:</b>",
-                     "<span style='color:#8fa6bf;'>Se copiará la carpeta al subcatálogo "
-                     "correspondiente y cada .xml se registrará como familia independiente "
-                     "en el .apc.</span>", ""]
-            for f in fams:
-                lines.append(
-                    f"• <code>{f['name']}</code> — tipo {_dot(f['kind'])} · "
-                    f"unidades {_dot(f['units'])} · shape {_dot(f['shape'])}"
-                    + ("" if f['bmp_ok'] else "  &nbsp;<span style='color:#e0a020;'>(sin .bmp)</span>"))
-            # Destinos por (kind,units)
-            grupos = {}
-            for f in fams:
-                if f['kind'] and f['units']:
-                    grupos.setdefault((f['kind'], f['units']),  []).append(f['name'])
-            if grupos:
-                lang_root = _cc._lang_root(self.civil_year, cur_lang)
-                lines.append("")
-                lines.append("<b>Destinos:</b>")
-                for (k, u), names in grupos.items():
-                    cat = _cc._CATALOG_DIRS.get((k, u), "?")
-                    dest = os.path.join(lang_root or "?", "Pipes Catalog", cat)
-                    lines.append(f"  {len(names)} familia(s) → <code>{dest}</code>")
-            preview_lbl.setText("<br>".join(lines))
-            btn_install.setEnabled(any(f['kind'] and f['units'] and f['shape'] for f in fams))
-
-        def _pick():
-            start = getattr(self, "_last_family_folder", None) or DOWNLOADS
-            path = QtWidgets.QFileDialog.getExistingDirectory(
-                dlg, "Carpeta de familias (.xml + .dwg + .bmp por familia)", start)
-            if not path: return
-            self._last_family_folder = path
-            self._if_src.setText(path); _refresh_preview(path)
-
-        def _do_install():
-            src = self._if_src.text().strip()
-            if not src or not os.path.isdir(src): return
-            res = _cc.install_family_folder(src, self.civil_year, cur_lang)
-            if not res["ok"]:
-                QtWidgets.QMessageBox.critical(dlg, "Error al instalar", res["error"] or res["summary"])
-                return
-            msg = res["summary"] + (
-                "\n\nAHORA en Civil 3D:\n"
-                "  · Ejecuta el comando  PREPARAR_FAMILIAS\n"
-                "    (regenera el catálogo y te deja elegir qué familias\n"
-                "    añadir a la Parts List del dibujo actual).")
-            # Refrescar inmediatamente el combo de familias del panel activo
-            # para que el usuario vea las familias recién instaladas sin
-            # tener que deseleccionar/re-seleccionar la utilidad.
-            try: self._refresh_catalog_panels()
-            except Exception: pass
-            QtWidgets.QMessageBox.information(dlg, "Familias instaladas", msg)
-
-        btn_browse.clicked.connect(_pick)
-        btn_install.clicked.connect(_do_install)
-        btn_close.clicked.connect(dlg.reject)
-        if self._if_src.text(): _refresh_preview(self._if_src.text())
-        dlg.exec()
+        dialogs.open_install_family_dialog(self)
 
     def open_uninstall_family_dialog(self):
-        import civil_catalog as _cc
-        if not self.civil_year:
-            QtWidgets.QMessageBox.warning(self, "Sin versión",
-                "Elige una versión de Civil 3D en el toolbar antes de desinstalar familias.")
-            return
-        cur_lang = getattr(self, "civil_lang", None) or (
-            self.cmb_lang.currentData() if hasattr(self, "cmb_lang") else None)
-        if not cur_lang:
-            QtWidgets.QMessageBox.warning(self, "Sin idioma",
-                "Elige un idioma en el toolbar antes de desinstalar familias.")
-            return
-
-        fams = _cc.installed_custom_families(self.civil_year)
-        if not fams:
-            QtWidgets.QMessageBox.information(self, "Sin familias personalizadas",
-                f"No se encontraron familias personalizadas instaladas en Civil 3D {self.civil_year}.")
-            return
-
-        dlg = QtWidgets.QDialog(self)
-        dlg.setWindowTitle(f"Desinstalar familias — Civil 3D {self.civil_year} / {cur_lang}")
-        dlg.setMinimumSize(500, 400)
-        lay = QtWidgets.QVBoxLayout(dlg)
-
-        lay.addWidget(QtWidgets.QLabel(
-            f"<b>Familias personalizadas en Civil 3D {self.civil_year}</b><br>"
-            "Marca las que deseas desinstalar:"))
-
-        lw = QtWidgets.QListWidget()
-        lw.setSelectionMode(QtWidgets.QAbstractItemView.MultiSelection)
-        for f in fams:
-            tipo = "Estructura" if f["kind"] == "structure" else "Tubería"
-            text = f"{f['display_name']}  ({tipo} — {f['subfolder']})"
-            item = QtWidgets.QListWidgetItem(text)
-            item.setData(256, f)
-            lw.addItem(item)
-        lay.addWidget(lw)
-
-        bb = QtWidgets.QDialogButtonBox()
-        btn_del = bb.addButton("Desinstalar seleccionadas", QtWidgets.QDialogButtonBox.AcceptRole)
-        btn_del.setProperty("danger", True)
-        btn_close = bb.addButton("Cerrar", QtWidgets.QDialogButtonBox.RejectRole)
-        lay.addWidget(bb)
-
-        def _do_uninstall():
-            sel = [lw.item(i).data(256) for i in range(lw.count()) if lw.item(i).isSelected()]
-            if not sel:
-                QtWidgets.QMessageBox.warning(dlg, "Sin selección", "Selecciona al menos una familia.")
-                return
-            names = "\n".join(f"  · {s['display_name']}" for s in sel)
-            r = QtWidgets.QMessageBox.question(
-                dlg, "Confirmar desinstalación",
-                f"¿Desinstalar {len(sel)} familia(s)?\n\n{names}\n\n"
-                "Se quitarán del catálogo de Civil 3D. Esta acción se puede revertir "
-                "reinstalando las familias desde su carpeta original.",
-                QtWidgets.QMessageBox.Yes | QtWidgets.QMessageBox.No)
-            if r != QtWidgets.QMessageBox.Yes:
-                return
-            ok_count = 0
-            errors = []
-            for s in sel:
-                res = _cc.uninstall_family(
-                    self.civil_year, s["name"], s["kind"], s["subfolder"], cur_lang)
-                if res["ok"]:
-                    ok_count += 1
-                else:
-                    errors.append(f"{s['display_name']}: {res['error']}")
-            try:
-                self._refresh_catalog_panels()
-            except Exception:
-                pass
-            if errors:
-                QtWidgets.QMessageBox.warning(dlg, "Errores",
-                    f"Se desinstalaron {ok_count} de {len(sel)} familias.\n\nErrores:\n" +
-                    "\n".join(errors))
-            else:
-                QtWidgets.QMessageBox.information(dlg, "Familias desinstaladas",
-                    f"Se desinstalaron {ok_count} familia(s) correctamente.\n\n"
-                    "En Civil 3D ejecuta PREPARAR_FAMILIAS para actualizar la Parts List.")
-            dlg.accept()
-
-        btn_del.clicked.connect(_do_uninstall)
-        btn_close.clicked.connect(dlg.reject)
-        dlg.exec()
+        dialogs.open_uninstall_family_dialog(self)
 
     def clear_georef(self):
         if not self.georef.active():
@@ -3878,174 +3351,16 @@ class Main(QtWidgets.QMainWindow):
 
     # ─────────────────────────── Ayuda ───────────────────────────
     def _show_html(self, title, html, w=780, h=660):
-        dlg = QtWidgets.QDialog(self); dlg.setWindowTitle(title); dlg.resize(w, h)
-        lay = QtWidgets.QVBoxLayout(dlg); tb = QtWidgets.QTextBrowser(); tb.setOpenExternalLinks(True)
-        tb.setStyleSheet("background:#1e1e1e;color:#e8e8e8;font-size:14px;"); tb.setHtml(html)
-        btn = QtWidgets.QPushButton("Cerrar"); btn.clicked.connect(dlg.accept)
-        lay.addWidget(tb); lay.addWidget(btn); dlg.exec()
+        dialogs.show_html(self, title, html, w, h)
 
     def show_about(self):
-        dlg = QtWidgets.QDialog(self); dlg.setWindowTitle("Acerca de"); dlg.resize(760, 680)
-        lay = QtWidgets.QVBoxLayout(dlg)
-        head = QtWidgets.QLabel(
-            f"<h2>Asistente C3D</h2>"
-            f"<p><b>Versión {VERSION}</b> · para ingeniería civil (agua, alcantarillado, gas, "
-            f"eléctrico, telefonía, drenaje).</p>"
-            f"<p>Convierte un PDF de plano a DXF y te deja marcar utilidades, Multileaders y notas "
-            f"sobre la imagen, exportando todo en las mismas coordenadas para abrirlo en Civil 3D.</p>"
-            f"<p style='color:#888;'>GVR Engineering · sistemas.gvrpe@gmail.com</p>")
-        head.setWordWrap(True); head.setStyleSheet("color:#e8e8e8;"); lay.addWidget(head)
-        box = QtWidgets.QToolBox()
-        box.setStyleSheet("QToolBox::tab{background:#333;color:#ddd;border:1px solid #555;}"
-                          "QToolBox::tab:selected{background:#3c5a99;color:white;font-weight:bold;}")
-        icon = {"added": ("#5fd35f", "✚ nueva"), "removed": ("#e06060", "✖ quitada"),
-                "fixed": ("#6cc5e0", "✎ corregida"), "changed": ("#e0c060", "↻ cambiada"),
-                "base": ("#cfcfcf", "•")}
-        default = ("#cfcfcf", "•")
-        for ver, items in CHANGELOG:
-            tb = QtWidgets.QTextBrowser(); tb.setStyleSheet("background:#1e1e1e;color:#e8e8e8;border:none;")
-            lis = "".join(f'<li style="color:{icon.get(s, default)[0]};margin-bottom:4px;">'
-                          f'<b>[{icon.get(s, default)[1]}]</b> {t}</li>' for s, t in items)
-            tb.setHtml(f"<ul>{lis}</ul>"); box.addItem(tb, f"v{ver}")
-        lay.addWidget(box, 1)
-        btn = QtWidgets.QPushButton("Cerrar"); btn.clicked.connect(dlg.accept); lay.addWidget(btn)
-        dlg.exec()
+        dialogs.show_about(self)
 
     def show_manual(self):
-        """Ventana del manual de usuario. Es HTML sencillo dentro de un
-        QTextBrowser (visor de texto enriquecido); nada de red ni servidor."""
-        html = """
-        <h2>Manual de usuario — v1.0.1</h2>
-        <p><i>Pipeline PDF → CAD → Civil 3D para redes de utilidad (agua, alcantarillado,
-        drenaje, gas, electricidad, telecomunicaciones). Trabaja en unidades imperiales (pies).</i></p>
-
-        <h3>1. Abrir el plano</h3>
-        <p><b>Archivo → Abrir PDF…</b> (o arrastralo). Cambia de página y ajusta la
-        transparencia en la sección <b>Vista y páginas</b>. Rueda = zoom, botón central = pan.</p>
-
-        <h3>2. Dibujar una utilidad</h3>
-        <p>Acordeón <b>Dibujar utilidad</b> → elige el tipo (agua, alcantarillado, drenaje,
-        gas, eléctrico, telecom) → clic en cada vértice, <b>Enter</b> finaliza.</p>
-
-        <h3>3. Propiedades de la tubería</h3>
-        <p>Selecciona la tubería en el inventario. En <b>Propiedades</b>:</p>
-        <ul>
-          <li><b>Familia de tubería</b> y <b>Tamaño</b>: se leen del catálogo Civil 3D
-              instalado (selecciónalo en la barra superior).</li>
-          <li><b>Elev. rasante inicial/final</b> en pies (opcional; el plugin puede autoderivar).</li>
-          <li><b>Material</b> (lista fija que se mapea al catálogo).</li>
-          <li><b>Cotas por tramo</b> (pestaña Utilidades, tubería de gravedad): tabla con la
-              cota de Inicio/Fin de cada tramo. Pulsa <b>«Activar edición por tramo»</b> para
-              editar cada valor de forma independiente (aparecen las etiquetas T1, T2… en el
-              lienzo); apagado, se usan solo las rasantes inicial/final con interpolación
-              lineal.</li>
-        </ul>
-
-        <h3>4. Buzones y cajas</h3>
-        <p>Los buzones (gravedad, prefijo <code>BZ-</code>) y las cajas (conduit eléctrico/telecom,
-        prefijo <code>CAJA-</code>) se detectan automáticamente en cada vértice. Cambia
-        familia, tamaño y cotas en la pestaña <b>Buzones</b>. También puedes insertar uno
-        en medio de una línea con <b>Herramientas → Insertar buzón en línea…</b> El botón
-        <b>Ocultar buzón</b> saca un vértice de la vista y del DXF/Civil 3D como manhole
-        visible (se exporta igual como "Estructura nula", invisible, para no romper la
-        topología de la red) — útil para vértices auto-detectados que en realidad no son
-        un acceso físico.</p>
-
-        <h3>5. Leaders, texto, borrar zona</h3>
-        <p><b>Leader</b>: orientación H/V/D, clic cabeza y final. <b>Texto libre</b>: clic +
-        <b>Enter</b> para aplicar (<b>Ctrl+Shift+Enter</b> salto de línea). <b>Borrar zona</b>:
-        polilínea cerrada; al exportar se elimina el plano dentro. El cajetín/membrete del
-        PDF ya no se separa: se digitaliza como el resto del plano (capa
-        <code>PDF_DIGITALIZADO</code>).</p>
-        <p>Junto al botón de escala está <b>«Opacidad»</b>: abre un deslizable que atenúa
-        solo el PDF y un botón para poner el fondo detrás del PDF en blanco o negro.</p>
-
-        <h3>6. Versión e idioma de Civil 3D</h3>
-        <p>Los selectores <b>Civil 3D</b> e <b>Idioma</b> de la barra superior fijan la
-        versión (2025/2026/2027) y el idioma del catálogo contra los que se listan las
-        familias y tamaños. Los nombres de familia se muestran en ese idioma. La selección
-        se <b>guarda en el proyecto</b> y se repone sola al reabrirlo.</p>
-
-        <h3>7. Centerlines de referencia (opcional)</h3>
-        <p>Distintos de las utilidades — no representan ninguna tubería. Sirven de referencia
-        visual e imán al colocar puntos de control en la georreferenciación. Acordeón
-        <b>Trazar centerline</b> → clic en cada vértice sobre el eje de una calle →
-        <b>Enter</b> finaliza. Se gestionan en la pestaña <b>Centerlines</b> (código,
-        longitud); seleccioná uno desde la lista o clickeándolo en el lienzo. Se exportan al
-        DXF en su propia capa <code>REF_CENTERLINES</code>.</p>
-
-        <h3>8. Georreferenciación (opcional)</h3>
-        <p><b>Herramientas → Georreferenciar…</b> — ventana redimensionable/maximizable,
-        2 paneles:</p>
-        <ul>
-          <li><b>Izquierda (plano)</b>: el PDF con una barra de <b>opacidad</b> (solo
-              atenúa el PDF, nunca las líneas dibujadas encima — utilidades y centerlines
-              se ven siempre nítidas, no pixelan al hacer zoom). Clic = punto de control,
-              con imán a la línea/centerline más cercana, o al <b>cruce exacto</b> si hay
-              2 líneas que se cortan cerca del clic.</li>
-          <li><b>Derecha (mapa)</b>: buscá una dirección/intersección (con indicador de
-              carga mientras descarga) → trae calles y parcelas reales de Los Ángeles
-              (NavigateLA) sobre mapa base. Misma navegación que el plano, e imán a
-              vértice/cruce exacto y a las <b>esquinas redondeadas de las parcelas</b>.</li>
-        </ul>
-        <p><b>Ctrl+Z</b> deshace el último punto agregado, en cualquiera de los 2
-        paneles.</p>
-        <p>Con 3+ pares (idealmente en 2 cruces distintos, o combinando el cruce que
-        tengas + esquinas de parcela), pulsá
-        <b>«Ajustar + RMSE»</b>: calcula una transformación de <b>similaridad</b> (rota y
-        escala parejo, sin deformar el plano). El <b>RMSE</b> es el error PROMEDIO en pies
-        entre cada punto y donde el ajuste lo ubica — con menos de 3 clics bien puestos el
-        RMSE sube y te avisa. Podés escribir además el <b>código de sistema de coordenadas
-        (Huso)</b> — el código CS-MAP nativo de Civil 3D (ej. <code>CA83VF</code> para
-        EPSG:2229): el dibujo quedará seteado con ese sistema al importar la red. Luego
-        <b>«💾 Guardar georreferenciación»</b> guarda el proyecto. Solo para anteproyecto —
-        el dato topográfico de precisión viene del levantamiento.</p>
-
-        <h3>9. Exportar a DXF y abrir en Civil 3D</h3>
-        <ul>
-          <li><b>Ctrl+S</b> guarda el proyecto como <code>.digproj</code>.</li>
-          <li><b>Exportar DXF</b> genera el DXF completo (dibujado + red 3D como XDATA).</li>
-          <li>En Civil 3D: <code>NETLOAD</code> del plugin → <code>PANEL_REDES</code> →
-              <b>Importar red desde DXF</b>. Se crean automáticamente las redes de
-              gravedad, presión y conduit con sus familias y tamaños. Los tramos curvos
-              generan tubería y <b>eje (alineamiento) curvos</b> con el mismo radio, y si
-              fijaste un código de Huso el dibujo queda con ese sistema de coordenadas.</li>
-          <li><b>Agregar tubería curva</b> (en el panel): seleccionás dos tuberías y un
-              radio opcional, y crea la curva tangente entre ellas redondeando también el
-              eje — como el <i>Free curve fillet</i> de Civil 3D.</li>
-        </ul>
-
-        <h3>10. Property Sets a tuberías (flujo con Excel)</h3>
-        <p>En el panel de Civil 3D, tras importar la red:</p>
-        <ol>
-          <li><b>Exportar tuberías a Excel</b> genera un <code>.xlsx</code> con columnas
-              <b>Nombre</b> y <b>Tipo</b> (una fila por tubería, gravedad y presión).</li>
-          <li>Agrega en Excel las columnas que quieras (una por Property Set); por ejemplo
-              <code>Material_Especificacion</code>, <code>Fecha_Instalacion</code>. Rellena
-              los valores por tubería (deja vacío para omitir).</li>
-          <li><b>Importar Property Sets desde Excel</b>: se crean las definiciones que
-              falten (una propiedad <code>Valor</code> por PS) y se adjuntan a cada tubería
-              por nombre. Es idempotente — puedes reimportar el mismo archivo sin duplicar.</li>
-          <li>Verifica en Civil 3D: selecciona una pipe → Properties → <b>Extended Data</b>.</li>
-        </ol>
-        """
-        self._show_html("Manual de usuario", html, 880, 780)
+        dialogs.show_manual(self)
 
     def show_shortcuts(self):
-        rows = [("Ctrl+Z / Ctrl+Shift+Z", "Deshacer / Rehacer"),
-                ("Enter", "Aplicar: finaliza utilidad/zona, o agrega texto/edición"),
-                ("Ctrl+Shift+Enter", "Salto de línea dentro de un texto"),
-                ("Escape", "Quitar la selección; si no hay, salir del modo"),
-                ("Ctrl+T", "Editar/mover lo seleccionado"),
-                ("Ctrl+S / Ctrl+Shift+S", "Guardar proyecto / Guardar como…"),
-                ("Ctrl+W", "Cerrar proyecto (pregunta si hay cambios)"),
-                ("Doble clic", "Sobre un texto: editarlo"),
-                ("Clic derecho", "Finaliza línea/zona; en editar, elimina el vértice"),
-                ("◀ ▶", "Página anterior / siguiente"),
-                ("Rueda", "Zoom · Botón central + arrastrar: desplazar")]
-        body = "".join(f'<tr><td style="padding:4px 14px;color:#8bd;"><b>{k}</b></td>'
-                       f'<td style="padding:4px;">{d}</td></tr>' for k, d in rows)
-        self._show_html("Atajos de teclado", f"<h2>Atajos de teclado</h2><table>{body}</table>", 640, 500)
+        dialogs.show_shortcuts(self)
 
     # ─────────────────────────── drag & drop ───────────────────────────
     def dragEnterEvent(self, e):
@@ -4053,28 +3368,6 @@ class Main(QtWidgets.QMainWindow):
 
     def dropEvent(self, e):
         for u in e.mimeData().urls(): self.open_path(u.toLocalFile()); break
-
-
-class _NoWheelFilter(QtCore.QObject):
-    """Bloquea la rueda del ratón sobre QSpinBox / QDoubleSpinBox / QComboBox
-    (y sus derivados). Motivo: al desplazarse por un panel con la rueda,
-    quedar el puntero sobre uno de esos campos incrementa/decrementa el valor
-    o cambia el item del combo sin querer — el usuario perdía datos ya
-    introducidos por un gesto que solo pretendía mover la vista.
-
-    Se instala una sola vez sobre la QApplication y cubre TODOS los widgets
-    existentes y futuros, sin tener que subclasificarlos uno por uno. El
-    evento wheel se ignora en esos widgets (así lo hereda el padre y sigue
-    desplazando el panel); en el resto de widgets pasa tal cual.
-    """
-    _WHEEL_BLOCKED = (QtWidgets.QAbstractSpinBox, QtWidgets.QComboBox)
-
-    def eventFilter(self, obj, ev):
-        if (ev.type() == QtCore.QEvent.Wheel
-                and isinstance(obj, self._WHEEL_BLOCKED)):
-            ev.ignore()
-            return True
-        return False
 
 
 def main():

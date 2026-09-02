@@ -22,3 +22,6 @@ matplotlib>=3.7
 pyproj>=3.6              # reproyección lon/lat <-> State Plane (EPSG:2229)
 scikit-image>=0.22       # ajuste de la transformación por puntos de control
 contextily>=1.5          # opcional: imagen base (satélite/calles) detrás de las centerlines
+
+# Desarrollo / pruebas (opcional) — corre las pruebas de humo con:  pytest
+pytest>=8.0
