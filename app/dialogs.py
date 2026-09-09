@@ -12,10 +12,11 @@ siguen funcionando igual.
 """
 import os
 
-from PySide6 import QtCore, QtWidgets
+from PySide6 import QtCore, QtGui, QtWidgets
 
 from model import VERSION, CHANGELOG
 from ui_common import DOWNLOADS
+import theme as _theme
 
 
 # ─────────────────────────── Familias personalizadas ───────────────────────────
@@ -75,7 +76,8 @@ def open_install_family_dialog(win):
     # Preview de lo que se detectó
     preview_lbl = QtWidgets.QLabel("<i>Elige una carpeta para ver qué se detecta.</i>")
     preview_lbl.setWordWrap(True); preview_lbl.setTextFormat(QtCore.Qt.RichText)
-    preview_lbl.setStyleSheet("color:#b8c6df; background:#333a4a; padding:8px; border-radius:4px;")
+    t = _theme.tokens()
+    preview_lbl.setStyleSheet(f"color:{t.text_muted}; background:{t.surface_alt}; padding:8px; border-radius:4px;")
     lay.addWidget(preview_lbl, 1)
 
     bb = QtWidgets.QDialogButtonBox()
@@ -249,7 +251,8 @@ def open_uninstall_family_dialog(win):
 def show_html(win, title, html, w=780, h=660):
     dlg = QtWidgets.QDialog(win); dlg.setWindowTitle(title); dlg.resize(w, h)
     lay = QtWidgets.QVBoxLayout(dlg); tb = QtWidgets.QTextBrowser(); tb.setOpenExternalLinks(True)
-    tb.setStyleSheet("background:#1e1e1e;color:#e8e8e8;font-size:14px;"); tb.setHtml(html)
+    t = _theme.tokens()
+    tb.setStyleSheet(f"background:{t.surface};color:{t.text};font-size:14px;"); tb.setHtml(html)
     btn = QtWidgets.QPushButton("Cerrar"); btn.clicked.connect(dlg.accept)
     lay.addWidget(tb); lay.addWidget(btn); dlg.exec()
 
@@ -264,16 +267,18 @@ def show_about(win):
         f"<p>Convierte un PDF de plano a DXF y te deja marcar utilidades, Multileaders y notas "
         f"sobre la imagen, exportando todo en las mismas coordenadas para abrirlo en Civil 3D.</p>"
         f"<p style='color:#888;'>GVR Engineering · sistemas.gvrpe@gmail.com</p>")
-    head.setWordWrap(True); head.setStyleSheet("color:#e8e8e8;"); lay.addWidget(head)
+    head.setWordWrap(True)
+    t = _theme.tokens()
+    head.setStyleSheet(f"color:{t.text};"); lay.addWidget(head)
     box = QtWidgets.QToolBox()
-    box.setStyleSheet("QToolBox::tab{background:#333;color:#ddd;border:1px solid #555;}"
-                      "QToolBox::tab:selected{background:#3c5a99;color:white;font-weight:bold;}")
+    box.setStyleSheet(f"QToolBox::tab{{background:{t.surface_alt};color:{t.text};border:1px solid {t.border};}}"
+                      f"QToolBox::tab:selected{{background:{t.accent};color:{t.text_on_accent};font-weight:bold;}}")
     icon = {"added": ("#5fd35f", "✚ nueva"), "removed": ("#e06060", "✖ quitada"),
             "fixed": ("#6cc5e0", "✎ corregida"), "changed": ("#e0c060", "↻ cambiada"),
             "base": ("#cfcfcf", "•")}
     default = ("#cfcfcf", "•")
     for ver, items in CHANGELOG:
-        tb = QtWidgets.QTextBrowser(); tb.setStyleSheet("background:#1e1e1e;color:#e8e8e8;border:none;")
+        tb = QtWidgets.QTextBrowser(); tb.setStyleSheet(f"background:{t.surface};color:{t.text};border:none;")
         lis = "".join(f'<li style="color:{icon.get(s, default)[0]};margin-bottom:4px;">'
                       f'<b>[{icon.get(s, default)[1]}]</b> {t}</li>' for s, t in items)
         tb.setHtml(f"<ul>{lis}</ul>"); box.addItem(tb, f"v{ver}")
@@ -404,17 +409,30 @@ def show_manual(win):
 
 
 def show_shortcuts(win):
-    rows = [("Ctrl+Z / Ctrl+Shift+Z", "Deshacer / Rehacer"),
-            ("Enter", "Aplicar: finaliza utilidad/zona, o agrega texto/edición"),
-            ("Ctrl+Shift+Enter", "Salto de línea dentro de un texto"),
-            ("Escape", "Quitar la selección; si no hay, salir del modo"),
-            ("Ctrl+T", "Editar/mover lo seleccionado"),
-            ("Ctrl+S / Ctrl+Shift+S", "Guardar proyecto / Guardar como…"),
-            ("Ctrl+W", "Cerrar proyecto (pregunta si hay cambios)"),
-            ("Doble clic", "Sobre un texto: editarlo"),
-            ("Clic derecho", "Finaliza línea/zona; en editar, elimina el vértice"),
-            ("◀ ▶", "Página anterior / siguiente"),
-            ("Rueda", "Zoom · Botón central + arrastrar: desplazar")]
-    body = "".join(f'<tr><td style="padding:4px 14px;color:#8bd;"><b>{k}</b></td>'
-                   f'<td style="padding:4px;">{d}</td></tr>' for k, d in rows)
+    t = _theme.tokens()
+    rows = []
+    for a in win.findChildren(QtGui.QAction):
+        sc = a.shortcut().toString()
+        txt = a.text().replace("&", "")
+        if sc and txt:
+            rows.append((sc, txt))
+    for sc_w in win.findChildren(QtGui.QShortcut):
+        sc = sc_w.key().toString()
+        if sc:
+            rows.append((sc, ""))
+    seen = set()
+    unique = []
+    for k, d in rows:
+        if k not in seen:
+            seen.add(k); unique.append((k, d))
+    extra = [("Enter", "Aplicar: finaliza utilidad/zona, o agrega texto/edición"),
+             ("Escape", "Quitar la selección; si no hay, salir del modo"),
+             ("Doble clic", "Sobre un texto: editarlo"),
+             ("Clic derecho", "Finaliza línea/zona; en editar, elimina el vértice"),
+             ("Rueda", "Zoom · Botón central + arrastrar: desplazar")]
+    for k, d in extra:
+        if k not in seen:
+            seen.add(k); unique.append((k, d))
+    body = "".join(f'<tr><td style="padding:4px 14px;color:{t.accent};"><b>{k}</b></td>'
+                   f'<td style="padding:4px;">{d}</td></tr>' for k, d in unique)
     show_html(win, "Atajos de teclado", f"<h2>Atajos de teclado</h2><table>{body}</table>", 640, 500)

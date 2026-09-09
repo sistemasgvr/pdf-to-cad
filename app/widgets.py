@@ -9,6 +9,8 @@ Extraído de app_window.py sin cambios de comportamiento (solo reubicación).
 """
 from PySide6 import QtCore, QtWidgets
 
+import theme as _theme
+
 
 class InlineEdit(QtWidgets.QTextEdit):
     """Editor embebido. Enter = aplicar; Ctrl+Shift+Enter o Shift+Enter = salto de
@@ -18,7 +20,13 @@ class InlineEdit(QtWidgets.QTextEdit):
 
     def __init__(self, text):
         super().__init__(); self.setPlainText(text); self._done = False
-        self.setStyleSheet("background:#111;color:#7f7;border:1px solid #7f7;")
+        self._apply_theme()
+        _theme.THEME_BUS.changed.connect(self._apply_theme)
+
+    def _apply_theme(self, *_):
+        t = _theme.tokens()
+        self.setStyleSheet(f"background:{t.input_bg};color:{t.success};"
+                           f"border:2px solid {t.focus};border-radius:3px;")
 
     def _commit(self):
         if not self._done:

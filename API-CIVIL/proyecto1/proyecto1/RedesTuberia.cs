@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Globalization;
 using System.IO;
 using System.Linq;
+using System.Xml.Linq;
 using Autodesk.AutoCAD.ApplicationServices;
 using Autodesk.AutoCAD.DatabaseServices;
 using Autodesk.AutoCAD.EditorInput;
@@ -787,8 +788,7 @@ namespace Civil3DBasico
                     }
                     if (!exacto && wPedido == null)
                     {
-                        // Solo para tamaños que NO parsearon como "W x H" (p.ej.
-                        // diámetro suelto) se permite la coincidencia parcial.
+                        // Coincidencia parcial por nombre (p.ej. "4" dentro de "4 in")
                         for (int i = 0; i < fam.PartSizeCount; i++)
                         {
                             PartsStyles.PartSize sz = tr.GetObject(fam[i], OpenMode.ForRead) as PartsStyles.PartSize;
@@ -797,33 +797,101 @@ namespace Civil3DBasico
                             { sizeElegido = fam[i]; sizeNombre = sz?.Name; exacto = true; break; }
                         }
                     }
+                    // Búsqueda por valor numérico del diámetro (idioma-agnóstica).
+                    // Primero intenta SizeMasCercano (familias con InnerWidth);
+                    // si no hay datos, extrae el número al inicio del nombre
+                    // ("4 pulg. Tubería de PEAD" → 4.0).
+                    if (!exacto && wPedido == null)
+                    {
+                        double dVal = 0;
+                        var mDiam = System.Text.RegularExpressions.Regex.Match(
+                            (diam ?? "").Trim(), @"^(\d+(?:\.\d+)?)");
+                        if (mDiam.Success)
+                            double.TryParse(mDiam.Groups[1].Value, NumberStyles.Float,
+                                CultureInfo.InvariantCulture, out dVal);
+                        if (dVal > 0)
+                        {
+                            ObjectId cercDiam = SizeMasCercano(tr, fam, dVal, dVal,
+                                CivilDB.PartContextType.PipeInnerWidth, CivilDB.PartContextType.PipeInnerHeight,
+                                out string nomDiam, out bool exDiam);
+                            if (cercDiam != ObjectId.Null && exDiam)
+                            { sizeElegido = cercDiam; sizeNombre = nomDiam; exacto = true; }
+                        }
+                        if (!exacto && dVal > 0)
+                        {
+                            for (int i = 0; i < fam.PartSizeCount; i++)
+                            {
+                                var szN = tr.GetObject(fam[i], OpenMode.ForRead) as PartsStyles.PartSize;
+                                var mSz = System.Text.RegularExpressions.Regex.Match(
+                                    (szN?.Name ?? "").Trim(), @"^(\d+(?:\.\d+)?)");
+                                if (!mSz.Success) continue;
+                                if (double.TryParse(mSz.Groups[1].Value, NumberStyles.Float,
+                                        CultureInfo.InvariantCulture, out double szVal) &&
+                                    Math.Abs(szVal - dVal) < 0.01)
+                                { sizeElegido = fam[i]; sizeNombre = szN.Name; exacto = true; break; }
+                            }
+                        }
+                    }
                 }
-                // Sin match exacto: NO se crea un tamaño nuevo en el catálogo — solo
-                // se permite elegir entre los que YA existen. Si el pedido es
-                // rectangular "W in x H in", buscamos el más cercano disponible;
-                // si no, avisamos y usamos el primero de la familia.
+                // Sin match exacto: intentar agregar el diámetro pedido al
+                // catálogo (seteando el campo de diámetro del SizeFilterRecord).
                 if (!exacto && dN.Length > 0)
                 {
-                    double? w, h;
-                    string aviso;
-                    if (TryParseRectSize(diam, out w, out h) && w.HasValue && h.HasValue)
+                    double diamNum = 0;
                     {
-                        ObjectId cercano = SizeMasCercano(tr, fam, w.Value, h.Value,
+                        var mDN = System.Text.RegularExpressions.Regex.Match(
+                            (diam ?? "").Trim(), @"^(\d+(?:\.\d+)?)");
+                        if (mDN.Success)
+                            double.TryParse(mDN.Groups[1].Value, NumberStyles.Float,
+                                CultureInfo.InvariantCulture, out diamNum);
+                    }
+                    Editor edLocal = null;
+                    try { edLocal = Application.DocumentManager.MdiActiveDocument?.Editor; } catch { }
+                    if (diamNum > 0 && AgregarTamañoPipe(tr, fam, diamNum, edLocal))
+                    {
+                        // Re-buscar: primero por InnerWidth, luego por número en el nombre
+                        ObjectId reId = SizeMasCercano(tr, fam, diamNum, diamNum,
                             CivilDB.PartContextType.PipeInnerWidth, CivilDB.PartContextType.PipeInnerHeight,
-                            out string nombreCercano, out bool esExacto);
-                        if (cercano != ObjectId.Null)
+                            out string reNom, out bool reExacto);
+                        if (reId != ObjectId.Null && reExacto)
+                        { sizeElegido = reId; sizeNombre = reNom; exacto = true; }
+                        if (!exacto)
                         {
-                            sizeElegido = cercano; sizeNombre = nombreCercano;
-                            aviso = esExacto ? null
-                                : $"\n⚠ Tamaño '{diam}' no existe en el catálogo de '{fam.Description}' — usando el más cercano disponible '{nombreCercano}'. Para la medida exacta, agrégala en Part Builder.";
+                            for (int ri = 0; ri < fam.PartSizeCount; ri++)
+                            {
+                                var szR = tr.GetObject(fam[ri], OpenMode.ForRead) as PartsStyles.PartSize;
+                                var mR = System.Text.RegularExpressions.Regex.Match(
+                                    (szR?.Name ?? "").Trim(), @"^(\d+(?:\.\d+)?)");
+                                if (!mR.Success) continue;
+                                if (double.TryParse(mR.Groups[1].Value, NumberStyles.Float,
+                                        CultureInfo.InvariantCulture, out double rvl) &&
+                                    Math.Abs(rvl - diamNum) < 0.01)
+                                { sizeElegido = fam[ri]; sizeNombre = szR.Name; exacto = true; break; }
+                            }
+                        }
+                    }
+                    if (!exacto)
+                    {
+                        string aviso;
+                        if (TryParseRectSize(diam, out double? w, out double? h) && w.HasValue && h.HasValue)
+                        {
+                            ObjectId cercano = SizeMasCercano(tr, fam, w.Value, h.Value,
+                                CivilDB.PartContextType.PipeInnerWidth, CivilDB.PartContextType.PipeInnerHeight,
+                                out string nombreCercano, out bool esExacto2);
+                            if (cercano != ObjectId.Null)
+                            {
+                                sizeElegido = cercano; sizeNombre = nombreCercano;
+                                aviso = esExacto2 ? null
+                                    : $"\n⚠ Tamaño '{diam}' no existe en el catálogo de '{fam.Description}' — usando el más cercano disponible '{nombreCercano}'. Para la medida exacta, agrégala en Part Builder.";
+                            }
+                            else
+                                aviso = $"\n⚠ Tamaño '{diam}' no disponible en '{fam.Description}' — usando '{sizeNombre}' en su lugar. Para medidas personalizadas, usa Part Builder.";
                         }
                         else
                             aviso = $"\n⚠ Tamaño '{diam}' no disponible en '{fam.Description}' — usando '{sizeNombre}' en su lugar. Para medidas personalizadas, usa Part Builder.";
+                        if (aviso != null)
+                            try { edLocal?.WriteMessage(aviso); } catch { }
                     }
-                    else
-                        aviso = $"\n⚠ Tamaño '{diam}' no disponible en '{fam.Description}' — usando '{sizeNombre}' en su lugar. Para medidas personalizadas, usa Part Builder.";
-                    if (aviso != null)
-                        try { Application.DocumentManager.MdiActiveDocument?.Editor?.WriteMessage(aviso); } catch { }
                 }
                 familyId = fid; sizeId = sizeElegido;
                 nombre = $"{fam.Description} / {sizeNombre}";
@@ -1292,6 +1360,289 @@ namespace Civil3DBasico
         // Busca, entre los PartSize YA EXISTENTES de la familia (sin crear nada
         // nuevo), el más cercano al W×H pedido (Ancho×Alto para tuberías,
         // Ancho×Largo para estructuras — ctxW/ctxH indican cuál).
+        // Agrega un tamaño ESPECÍFICO (por diámetro en pulgadas) a una PartFamily
+        // que ya está en la Parts List. Busca el campo de "diámetro interior" en el
+        // SizeFilterRecord, setea su valor al pedido, y multi-selecciona el resto
+        // (espesor de pared, etc.) para que se agreguen todas las variantes.
+        // Devuelve true si se agregó al menos un tamaño nuevo.
+        private static bool AgregarTamañoPipe(Transaction tr, PartsStyles.PartFamily fam,
+            double diamPulgadas, Editor ed)
+        {
+            try
+            {
+                try { fam.UpgradeOpen(); } catch { }
+                int antes = fam.PartSizeCount;
+                var filtro = new PartsStyles.SizeFilterRecord(fam);
+                bool cambioDiam = false;
+                for (int i = 0; i < filtro.ParamCount; i++)
+                {
+                    var campo = filtro[i];
+                    if (campo == null || campo.IsReadOnly) continue;
+                    if (!campo.IsFromList) continue;
+                    string nm = ((campo.Name ?? "") + " " + (campo.Description ?? "")).ToLowerInvariant();
+                    bool esDiam = nm.Contains("diameter") || nm.Contains("diámetro") ||
+                                  nm.Contains("diametro") || nm.Contains("inner width") ||
+                                  nm.Contains("ancho interior");
+                    if (esDiam)
+                    {
+                        try { campo.Value = diamPulgadas; cambioDiam = true; } catch { }
+                    }
+                    else
+                        try { campo.IsMultipleSelect = true; } catch { }
+                }
+                if (!cambioDiam) return false;
+                fam.AddPartSize(filtro);
+                int nuevos = fam.PartSizeCount - antes;
+                if (nuevos > 0)
+                {
+                    ed.WriteMessage($"\n  + Tamaño {diamPulgadas:F0}\" agregado a " +
+                        $"'{fam.Description}' ({nuevos} variante(s)).");
+                    return true;
+                }
+                return false;
+            }
+            catch { return false; }
+        }
+
+        // Comprueba si un diámetro (en pulgadas) ya existe como tamaño exacto
+        // en alguna familia de tuberías del Parts List — parsing del nombre
+        // ("4 pulg. Tubería de PEAD" → 4.0).
+        internal static bool ExisteTamañoPipeExacto(Transaction tr,
+            PartsStyles.PartsList partsList, double diamPulgadas)
+        {
+            foreach (ObjectId fid in partsList.GetPartFamilyIdsByDomain(CivilDB.DomainType.Pipe))
+            {
+                var fam = tr.GetObject(fid, OpenMode.ForRead) as PartsStyles.PartFamily;
+                if (fam == null) continue;
+                for (int i = 0; i < fam.PartSizeCount; i++)
+                {
+                    var sz = tr.GetObject(fam[i], OpenMode.ForRead) as PartsStyles.PartSize;
+                    var m = System.Text.RegularExpressions.Regex.Match(
+                        (sz?.Name ?? "").Trim(), @"^(\d+(?:\.\d+)?)");
+                    if (m.Success && double.TryParse(m.Groups[1].Value, NumberStyles.Float,
+                            CultureInfo.InvariantCulture, out double v) &&
+                        Math.Abs(v - diamPulgadas) < 0.01)
+                        return true;
+                }
+            }
+            return false;
+        }
+
+        /// <summary>
+        /// Inyecta un diámetro que NO existe en el catálogo XML de Autodesk,
+        /// editando directamente el .xml de la familia dentro de ProgramData.
+        /// Luego llama a AgregarTamañoPipe para que Civil 3D lo recoja.
+        /// </summary>
+        internal static bool InyectarTamañoEnCatalogo(Transaction tr,
+            PartsStyles.PartFamily fam, double diamPulgadas, Editor ed,
+            double? wallOverride = null)
+        {
+            try
+            {
+                string guid = fam.GUID;
+                if (string.IsNullOrEmpty(guid)) return false;
+
+                string xmlPath = BuscarXmlFamilia(guid);
+                if (xmlPath == null)
+                {
+                    ed.WriteMessage($"\n  (No se encontró el XML del catálogo para '{fam.Description}')");
+                    return false;
+                }
+
+                XDocument doc = XDocument.Load(xmlPath);
+                XElement root = doc.Root;
+                if (root == null) { ed?.WriteMessage($"\n  (XML raíz nula en '{xmlPath}')"); return false; }
+
+                // Buscar la columna de diámetro interior (context=PipeInnerDiameter)
+                XElement colPID = root.Elements("Column")
+                    .FirstOrDefault(c => (string)c.Attribute("context") == "PipeInnerDiameter");
+                if (colPID == null) return false; // familia sin PipeInnerDiameter (esperado en no-circulares)
+
+                // Verificar si el diámetro ya existe en el XML
+                XElement colWThExisting = root.Elements("Column")
+                    .FirstOrDefault(c => (string)c.Attribute("context") == "WallThickness");
+                foreach (XElement row in colPID.Elements("Row"))
+                {
+                    if (double.TryParse(row.Value, NumberStyles.Float,
+                            CultureInfo.InvariantCulture, out double v) &&
+                        Math.Abs(v - diamPulgadas) < 0.01)
+                    {
+                        // Si estamos en modo conducto (wallOverride explícito), y la
+                        // fila existente tiene un WallThickness distinto, actualizarla
+                        // — sin esto, un tamaño inyectado previamente con wall grueso
+                        // haría que el conducto sobresalga del duct bank en 3D.
+                        if (wallOverride.HasValue && colWThExisting != null)
+                        {
+                            string rowId = (string)row.Attribute("id");
+                            XElement wthRow = colWThExisting.Elements("Row")
+                                .FirstOrDefault(r => (string)r.Attribute("id") == rowId);
+                            if (wthRow != null && double.TryParse(wthRow.Value,
+                                    NumberStyles.Float, CultureInfo.InvariantCulture,
+                                    out double curW) &&
+                                Math.Abs(curW - wallOverride.Value) > 0.001)
+                            {
+                                string bakPath2 = xmlPath + ".bak";
+                                if (!File.Exists(bakPath2)) File.Copy(xmlPath, bakPath2);
+                                wthRow.Value = wallOverride.Value.ToString(
+                                    "F4", CultureInfo.InvariantCulture);
+                                doc.Save(xmlPath);
+                                ed.WriteMessage($"\n  ★ Grosor de pared de {diamPulgadas:F0}\" " +
+                                    $"actualizado a {wallOverride.Value:F3}\" en '{fam.Description}' " +
+                                    "(catálogo XML). Cierra y reabre Civil 3D para que surta efecto.");
+                            }
+                        }
+                        // Ya existe en el XML pero no se pudo agregar vía SizeFilter
+                        // (caché de C3D). Intentar de nuevo por si acaso.
+                        return AgregarTamañoPipe(tr, fam, diamPulgadas, ed);
+                    }
+                }
+
+                // Determinar el siguiente id de fila
+                XElement colUUID = root.Elements("ColumnUnique").FirstOrDefault();
+                if (colUUID == null) return false;
+                int maxRow = -1;
+                foreach (XElement ru in colUUID.Elements("RowUnique"))
+                {
+                    string rid = (string)ru.Attribute("id") ?? "";
+                    if (rid.StartsWith("r") && int.TryParse(rid.Substring(1), out int n) && n > maxRow)
+                        maxRow = n;
+                }
+                int newIdx = maxRow + 1;
+                string newId = $"r{newIdx}";
+
+                // Interpolar grosor de pared desde los diámetros existentes
+                XElement colWTh = root.Elements("Column")
+                    .FirstOrDefault(c => (string)c.Attribute("context") == "WallThickness");
+                double wallThickness = wallOverride ?? 0.35;
+                if (colWTh != null && wallOverride == null)
+                {
+                    var pairs = new List<(double diam, double wth)>();
+                    var pidRows = colPID.Elements("Row").ToList();
+                    var wthRows = colWTh.Elements("Row").ToList();
+                    for (int i = 0; i < Math.Min(pidRows.Count, wthRows.Count); i++)
+                    {
+                        if (double.TryParse(pidRows[i].Value, NumberStyles.Float,
+                                CultureInfo.InvariantCulture, out double d) &&
+                            double.TryParse(wthRows[i].Value, NumberStyles.Float,
+                                CultureInfo.InvariantCulture, out double w))
+                            pairs.Add((d, w));
+                    }
+                    if (pairs.Count >= 2)
+                    {
+                        pairs.Sort((a, b) => a.diam.CompareTo(b.diam));
+                        if (diamPulgadas <= pairs[0].diam)
+                            wallThickness = pairs[0].wth;
+                        else if (diamPulgadas >= pairs[pairs.Count - 1].diam)
+                            wallThickness = pairs[pairs.Count - 1].wth;
+                        else
+                        {
+                            for (int i = 0; i < pairs.Count - 1; i++)
+                            {
+                                if (diamPulgadas >= pairs[i].diam && diamPulgadas <= pairs[i + 1].diam)
+                                {
+                                    double t2 = (diamPulgadas - pairs[i].diam) /
+                                                (pairs[i + 1].diam - pairs[i].diam);
+                                    wallThickness = pairs[i].wth + t2 * (pairs[i + 1].wth - pairs[i].wth);
+                                    break;
+                                }
+                            }
+                        }
+                    }
+                    else if (pairs.Count == 1)
+                        wallThickness = pairs[0].wth;
+                }
+
+                // Backup del XML original
+                string bakPath = xmlPath + ".bak";
+                if (!File.Exists(bakPath))
+                    File.Copy(xmlPath, bakPath);
+
+                // Agregar la nueva fila en ColumnUnique (UUID)
+                colUUID.Add(new XElement("RowUnique",
+                    new XAttribute("id", newId), Guid.NewGuid().ToString().ToUpper()));
+
+                // Agregar fila en columna PID (diámetro)
+                colPID.Add(new XElement("Row",
+                    new XAttribute("id", newId),
+                    diamPulgadas.ToString("F4", CultureInfo.InvariantCulture)));
+
+                // Agregar fila en columna WTh (grosor)
+                if (colWTh != null)
+                {
+                    colWTh.Add(new XElement("Row",
+                        new XAttribute("id", newId),
+                        wallThickness.ToString("F4", CultureInfo.InvariantCulture)));
+                }
+
+                doc.Save(xmlPath);
+                ed.WriteMessage($"\n  ★ Diámetro {diamPulgadas:F0}\" inyectado en catálogo XML " +
+                    $"de '{fam.Description}' (grosor {wallThickness:F3}\").");
+
+                // Intentar que C3D lo recoja inmediatamente
+                if (AgregarTamañoPipe(tr, fam, diamPulgadas, ed))
+                    return true;
+
+                // Si no lo recogió, el caché de C3D está desactualizado.
+                // El XML ya quedó modificado — funcionará al reabrir C3D.
+                ed.WriteMessage($"\n  ⚠ El diámetro {diamPulgadas:F0}\" fue escrito en el catálogo " +
+                    "pero Civil 3D no lo recogió (caché). Cierra y reabre Civil 3D, " +
+                    "luego importa de nuevo y lo tomará.");
+                return false;
+            }
+            catch (UnauthorizedAccessException)
+            {
+                ed.WriteMessage($"\n  ⚠ Sin permisos para escribir en el catálogo de Autodesk. " +
+                    "Ejecuta Civil 3D como Administrador e intenta de nuevo.");
+                return false;
+            }
+            catch (Exception ex)
+            {
+                ed.WriteMessage($"\n  (Error inyectando en catálogo: {ex.Message})");
+                return false;
+            }
+        }
+
+        /// <summary>
+        /// Busca el .xml de una familia por su GUID en los catálogos de Autodesk
+        /// (ProgramData\Autodesk\C3D *\*\Pipes Catalog\).
+        /// </summary>
+        private static string BuscarXmlFamilia(string guid)
+        {
+            string progData = Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData);
+            string autoDir = Path.Combine(progData, "Autodesk");
+            if (!Directory.Exists(autoDir)) return null;
+            foreach (string c3d in Directory.GetDirectories(autoDir, "C3D *"))
+            {
+                foreach (string lang in Directory.GetDirectories(c3d))
+                {
+                    string pipes = Path.Combine(lang, "Pipes Catalog");
+                    if (!Directory.Exists(pipes)) continue;
+                    foreach (string xmlFile in Directory.GetFiles(pipes, "*.xml",
+                                 SearchOption.AllDirectories))
+                    {
+                        try
+                        {
+                            // Lectura rápida: buscar el GUID sin parsear todo el XML
+                            string content = File.ReadAllText(xmlFile);
+                            if (content.IndexOf(guid, StringComparison.OrdinalIgnoreCase) >= 0)
+                            {
+                                // Confirmar que es el Catalog_PartID
+                                XDocument xd = XDocument.Load(xmlFile);
+                                var partId = xd.Root?.Elements("ColumnConst")
+                                    .FirstOrDefault(c => (string)c.Attribute("context") == "Catalog_PartID");
+                                if (partId != null &&
+                                    string.Equals(partId.Value.Trim(), guid,
+                                        StringComparison.OrdinalIgnoreCase))
+                                    return xmlFile;
+                            }
+                        }
+                        catch { }
+                    }
+                }
+            }
+            return null;
+        }
+
         //
         // IMPORTANTE: comparamos por el valor INTERIOR real de cada PartSize
         // (PartSize.SizeDataRecord.GetDataFieldBy(context), confirmado por

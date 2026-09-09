@@ -28,13 +28,15 @@ import project_io
 import model_ops
 from model import (VERSION, TIPOS, ACI_RGB, LEADER_TEXT_FT, LEADER_ORIENT,
                    Z_PDF, Z_ERASE, Z_MARK, Z_HANDLE, GRAVITY_LAYERS,
-                   TAB_PIPE, TAB_ML, TAB_LEADER, TAB_TEXT, TAB_REGION, TAB_BZ, TAB_CURVE, TAB_CL,
+                   TAB_PIPE, TAB_LEADER, TAB_TEXT, TAB_REGION, TAB_BZ, TAB_CURVE, TAB_CL,
                    WORK_UNITS, DEFAULT_WORK_UNIT, CHANGELOG,
                    PIPE_DIAMETERS_IN, PIPE_MATERIALS, DEFAULT_PIPE_MATERIAL)
 
 # Constantes y helpers de UI compartidos (antes definidos aquí) → ui_common.py.
-from ui_common import (DOWNLOADS, BTN_ON, BTN_OFF, aci_qcolor, layer_qcolor,
+from ui_common import (DOWNLOADS, btn_on_style, btn_off_style, aci_qcolor, layer_qcolor,
                        _extract_diam_from_size, swatch_icon)
+import theme as _theme
+from icons import icon as _icon
 
 
 class Main(QtWidgets.QMainWindow):
@@ -48,9 +50,11 @@ class Main(QtWidgets.QMainWindow):
         self.zoom = 3.5; self.scale = 20 / 72.0; self.rot = 0; self.W = 0; self.H = 0
         self.derot = fitz.Matrix(1, 0, 0, 1, 0, 0); self.gray = None; self.page_idx = 0; self.pageH_px = 0
         self.pdf_path = None; self.doc = None; self.project_path = None; self.leader_hpx = 40
+
         self.cur_pts = []; self.pipes = []; self.leaders = []; self.text_marks = []
         self.erase_regions = []; self._erase_pts = []; self.structures = []
         self.ref_centerlines = []; self._cl_pts = []
+        self.duct_banks = []   # colección del proyecto — ver duct_bank.py
         self.mode = "idle"; self._pending = None
         self.snap = False; self.snap_r = 14
         self.sel_pipe = -1; self.sel_leader = -1; self.sel_region = -1; self.sel_text = -1; self.sel_bz = -1
@@ -71,6 +75,10 @@ class Main(QtWidgets.QMainWindow):
         _vs = _cc.installed_versions()
         self.civil_year = _vs[-1] if _vs else None
         self._build_ui(); self._apply_style(); self._shortcuts(); self._update_ui()
+        # Re-aplica estilos custom con los tokens del tema activo, y se reconecta
+        # al bus para reaccionar cuando el usuario alterne claro↔oscuro.
+        self._apply_theme_custom_styles()
+        _theme.THEME_BUS.changed.connect(self._apply_theme_custom_styles)
 
     # ─────────────────────────── UI ───────────────────────────
     def _build_ui(self):
@@ -100,6 +108,16 @@ class Main(QtWidgets.QMainWindow):
         medit = mb.addMenu("&Edición")
         self._menu_act(medit, "Deshacer", self.undo, "Ctrl+Z")
         self._menu_act(medit, "Rehacer", self.redo, "Ctrl+Shift+Z")
+        mview = mb.addMenu("&Ver")
+        # Acción dinámica: su texto muestra el tema al que se cambiaría.
+        # Si estás en oscuro dice "Modo claro"; si estás en claro dice "Modo oscuro".
+        self._act_theme = QtGui.QAction("", self)
+        self._act_theme.triggered.connect(self._toggle_theme)
+        mview.addAction(self._act_theme)
+        self._refresh_theme_action_label()
+        # Recomputa el texto cuando otro trigger cambie el tema (por si alguna vez
+        # se agrega un atajo o un toggle desde otra parte).
+        _theme.THEME_BUS.changed.connect(lambda _: self._refresh_theme_action_label())
         mtools = mb.addMenu("&Herramientas")
         self._menu_act(mtools, "Insertar buzón en línea…", self.insert_manhole)
         self._menu_act(mtools, "Instalar familia personalizada…", self.open_install_family_dialog)
@@ -115,10 +133,17 @@ class Main(QtWidgets.QMainWindow):
     def _build_toolbar(self):
         # ── Barra de acción superior: zoom · deshacer/rehacer · imán · exportar ──
         tb = self.addToolBar("Acciones"); tb.setMovable(False)
-        def tact(txt, tip, fn):
-            a = QtGui.QAction(txt, self); a.setToolTip(tip); a.triggered.connect(fn); tb.addAction(a); return a
-        tact("🔍＋", "Acercar", self._zoom_in); tact("🔍－", "Alejar", self._zoom_out)
-        tb.addSeparator(); tact("↶", "Deshacer (Ctrl+Z)", self.undo); tact("↷", "Rehacer (Ctrl+Shift+Z)", self.redo)
+        # Los QAction llevan QIcon SVG; guardamos el mapa acción→nombre para
+        # que _apply_theme_custom_styles pueda retintarlos al cambiar tema.
+        self._action_icon_map = {}
+        def tact(icon_name, tip, fn):
+            a = QtGui.QAction("", self); a.setToolTip(tip); a.triggered.connect(fn)
+            tb.addAction(a); self._action_icon_map[a] = icon_name; return a
+        self._act_zoom_in = tact("mdi:magnify-plus-outline", "Acercar", self._zoom_in)
+        self._act_zoom_out = tact("mdi:magnify-minus-outline", "Alejar", self._zoom_out)
+        tb.addSeparator()
+        self._act_undo = tact("mdi:undo-variant", "Deshacer (Ctrl+Z)", self.undo)
+        self._act_redo = tact("mdi:redo-variant", "Rehacer (Ctrl+Shift+Z)", self.redo)
         tb.addSeparator()
         spacer = QtWidgets.QWidget(); spacer.setSizePolicy(QtWidgets.QSizePolicy.Expanding, QtWidgets.QSizePolicy.Preferred); tb.addWidget(spacer)
         # Sin selector de unidad: TODO va en pies por campo (cotas/coordenadas),
@@ -147,13 +172,10 @@ class Main(QtWidgets.QMainWindow):
         # Poblamos el combo de idiomas por primera vez con la versión activa.
         self._refill_lang_combo()
         tb.addSeparator()
-        self.btn_export = QtWidgets.QPushButton("⭳  Exportar DXF")
-        self.btn_export.setStyleSheet("QPushButton{background:#4d8eff;color:#00285d;font-weight:bold;padding:5px 14px;border-radius:4px;} QPushButton:hover{background:#66a3ff;}")
+        self.btn_export = QtWidgets.QPushButton("  Exportar DXF")
+        self.btn_export.setIconSize(QtCore.QSize(18, 18))
         self.btn_export.clicked.connect(lambda: self.run_pipeline("todo"))
         tb.addWidget(self.btn_export)
-        # Capas de referencia reales de LA (checkables ocultas: se activan por menú Herramientas si hace falta).
-        self.act_la_ref = QtGui.QAction("Incluir calles reales de LA", self); self.act_la_ref.setCheckable(True)
-        self.act_la_parcels = QtGui.QAction("Incluir parcelas de LA", self); self.act_la_parcels.setCheckable(True)
 
     def _build_left_dock(self):
         # ─────────────────────────── DOCK IZQUIERDO ───────────────────────────
@@ -172,13 +194,19 @@ class Main(QtWidgets.QMainWindow):
         self.toolbox = QtWidgets.QToolBox()
         # Guardamos por NOMBRE el índice de cada sección para poder abrirla desde código.
         self._sec_idx = {}
+        # Mapa clave→nombre de icono para retintar los tabs en cambios de tema.
+        self._toolbox_icons = {}
 
         # ── Helper de creación: crea una página del toolbox con su layout vertical ──
-        def _page(title, key):
+        def _page(title, key, icon_name=None):
             page = QtWidgets.QWidget()
             lay = QtWidgets.QVBoxLayout(page); lay.setSpacing(6)
             self.toolbox.addItem(page, title)
-            self._sec_idx[key] = self.toolbox.count() - 1
+            idx = self.toolbox.count() - 1
+            self._sec_idx[key] = idx
+            if icon_name:
+                self._toolbox_icons[key] = icon_name
+                self.toolbox.setItemIcon(idx, _icon(icon_name))
             return page, lay
 
         # ═══════════════════════════════════════════════════════════════════════
@@ -189,8 +217,9 @@ class Main(QtWidgets.QMainWindow):
 
         # Fila de navegación de páginas del PDF
         self.gp = QtWidgets.QWidget(); lp = QtWidgets.QHBoxLayout(self.gp); lp.setContentsMargins(0, 0, 0, 0)
-        self.btn_prev = QtWidgets.QPushButton("◀"); self.btn_prev.setFixedWidth(34); self.btn_prev.clicked.connect(self._prev_page)
-        self.btn_next = QtWidgets.QPushButton("▶"); self.btn_next.setFixedWidth(34); self.btn_next.clicked.connect(self._next_page)
+        self.btn_prev = QtWidgets.QPushButton(""); self.btn_prev.setFixedWidth(34); self.btn_prev.clicked.connect(self._prev_page)
+        self.btn_next = QtWidgets.QPushButton(""); self.btn_next.setFixedWidth(34); self.btn_next.clicked.connect(self._next_page)
+        self.btn_prev.setIconSize(QtCore.QSize(18, 18)); self.btn_next.setIconSize(QtCore.QSize(18, 18))
         self.page_edit = QtWidgets.QLineEdit(); self.page_edit.setAlignment(QtCore.Qt.AlignCenter)
         self.page_edit.setToolTip("Escribe un número de página y pulsa Enter")
         # returnPressed = Enter en un QLineEdit; editingFinished = perdió el foco también
@@ -207,11 +236,13 @@ class Main(QtWidgets.QMainWindow):
         ltr.addWidget(tb_l); ltr.addWidget(self.lbl_opacity, 1); ltr.addWidget(tb_r)
 
         # Botones de acción (uno por sección; el color verde/azul lo pone _update_ui)
-        self.btn_pipe = QtWidgets.QPushButton("✏  Dibujar utilidad"); self.btn_pipe.clicked.connect(self.toggle_pipe)
-        self.btn_leader_simple = QtWidgets.QPushButton("↘  Colocar Leader"); self.btn_leader_simple.clicked.connect(lambda: self.start_leader(True))
-        self.btn_text = QtWidgets.QPushButton("T  Texto libre"); self.btn_text.clicked.connect(self.toggle_text_mode)
-        self.btn_erase = QtWidgets.QPushButton("▭  Borrar zona"); self.btn_erase.clicked.connect(self.toggle_erase)
-        self.btn_centerline = QtWidgets.QPushButton("📐  Trazar centerline"); self.btn_centerline.clicked.connect(self.toggle_centerline)
+        self.btn_pipe = QtWidgets.QPushButton("  Dibujar utilidad"); self.btn_pipe.clicked.connect(self.toggle_pipe)
+        self.btn_leader_simple = QtWidgets.QPushButton("  Colocar Leader"); self.btn_leader_simple.clicked.connect(lambda: self.start_leader(True))
+        self.btn_text = QtWidgets.QPushButton("  Texto libre"); self.btn_text.clicked.connect(self.toggle_text_mode)
+        self.btn_erase = QtWidgets.QPushButton("  Borrar zona"); self.btn_erase.clicked.connect(self.toggle_erase)
+        self.btn_centerline = QtWidgets.QPushButton("  Trazar centerline"); self.btn_centerline.clicked.connect(self.toggle_centerline)
+        for _b in (self.btn_pipe, self.btn_leader_simple, self.btn_text, self.btn_erase, self.btn_centerline):
+            _b.setIconSize(QtCore.QSize(20, 20))
 
         # Grupo "Tipo de utilidad" (usado al DIBUJAR una utilidad)
         # QComboBox es la lista desplegable clásica. addItem(icono, texto, dato) le
@@ -237,26 +268,13 @@ class Main(QtWidgets.QMainWindow):
         self.chk_ext_same.setChecked(True)
         lgt.addWidget(self.type_combo); lgt.addWidget(self.chk_ab); lgt.addWidget(self.chk_ext_same)
 
-        # Combo de ORIENTACIÓN — COMPARTIDO por Multileader y Leader.
-        # Cuando el usuario abre "Multileader" o "Leader" lo REPARENTAMOS al slot
-        # de esa sección (una única instancia; su estado —H/V/D— se mantiene).
+        # Combo de ORIENTACIÓN del Leader.
         self.orient_combo = QtWidgets.QComboBox()
         for oid, lbl in LEADER_ORIENT: self.orient_combo.addItem(lbl, oid)
         self.orient_combo.currentIndexChanged.connect(lambda _: self._update_ui())
 
-        # Grupo "Contenido del Multileader" (checkbox + texto libre + lista Excel)
-        self.ga = QtWidgets.QGroupBox("Contenido del texto"); lga = QtWidgets.QVBoxLayout(self.ga)
-        self.chk_custom = QtWidgets.QCheckBox("Usar texto personalizado"); self.chk_custom.toggled.connect(self._toggle_custom)
-        lga.addWidget(self.chk_custom)
-        self.txt_edit = QtWidgets.QLineEdit(); self.txt_edit.setPlaceholderText("texto personalizado…"); self.txt_edit.setEnabled(False)
-        lga.addWidget(self.txt_edit)
-        self.lbl_textos = QtWidgets.QLabel("Textos (columna TEXTO del Excel):"); lga.addWidget(self.lbl_textos)
-        # QListWidget es una lista simple de líneas de texto (una por fila).
-        self.text_list = QtWidgets.QListWidget(); self.text_list.setMaximumHeight(140); lga.addWidget(self.text_list)
-        self.lbl_lead_hint = QtWidgets.QLabel("<i>Colocas varios seguidos; Esc para salir.</i>"); lga.addWidget(self.lbl_lead_hint)
-
         # Grupo "Estilo de texto" (fuente, altura, negrita + rotación).
-        # COMPARTIDO por Multileader y Texto libre. La rotación solo aplica a
+        # COMPARTIDO por Leader y Texto libre. La rotación solo aplica a
         # textos libres; la mostramos/ocultamos según la sección abierta.
         self.gtxt = QtWidgets.QGroupBox("Estilo de texto"); lgx = QtWidgets.QVBoxLayout(self.gtxt)
         # QFontComboBox = combo que lista todas las fuentes instaladas en el sistema.
@@ -297,13 +315,13 @@ class Main(QtWidgets.QMainWindow):
         # ═══════════════════════════════════════════════════════════════════════
 
         # ── Sección: Vista y páginas ──
-        p, l = _page("📄  Vista y páginas", "view")
+        p, l = _page("Vista y páginas", "view", "mdi:file-document-outline")
         l.addWidget(QtWidgets.QLabel("Página:")); l.addWidget(self.gp)
         l.addWidget(QtWidgets.QLabel("Transparencia del PDF:")); l.addWidget(self.gtr)
         l.addStretch(1)
 
         # ── Sección: Dibujar utilidad ──
-        p, l = _page("✏  Dibujar utilidad", "pipe")
+        p, l = _page("Dibujar utilidad", "pipe", "mdi:pencil-outline")
         l.addWidget(self.btn_pipe)
         l.addWidget(QtWidgets.QLabel("Tipo de utilidad:"))
         l.addWidget(self.gt)
@@ -314,7 +332,7 @@ class Main(QtWidgets.QMainWindow):
         # Va JUSTO DESPUES de "Dibujar utilidad": las dos son de trazado de
         # geometria, el usuario suele alternarlas y tenerlas contiguas ahorra
         # clics.
-        p, l = _page("📐  Trazar centerline", "centerline")
+        p, l = _page("Trazar centerline", "centerline", "mdi:ruler")
         l.addWidget(self.btn_centerline)
         _lbl_cl = QtWidgets.QLabel(
             "<i>Clic para agregar vértices, Enter "
@@ -323,12 +341,8 @@ class Main(QtWidgets.QMainWindow):
         self._slot_gcur_cl = QtWidgets.QVBoxLayout(); l.addLayout(self._slot_gcur_cl)   # slot: gcur al trazar
         l.addStretch(1)
 
-        # (La sección "Multileader" del acordeón está deshabilitada; su tab del
-        # inventario también. La infraestructura de Multileader se conserva por si
-        # se reactiva, pero NO se muestra al usuario.)
-
         # ── Sección: Leader (flecha simple) ──
-        p, l = _page("↘  Leader (flecha simple)", "leader")
+        p, l = _page("Leader (flecha simple)", "leader", "mdi:arrow-decision-outline")
         l.addWidget(self.btn_leader_simple)
         l.addWidget(QtWidgets.QLabel("Orientación:"))
         self._slot_orient_ld = QtWidgets.QVBoxLayout(); l.addLayout(self._slot_orient_ld)   # slot: orient_combo
@@ -336,18 +350,37 @@ class Main(QtWidgets.QMainWindow):
         l.addStretch(1)
 
         # ── Sección: Texto libre ──
-        p, l = _page("T  Texto libre", "text")
+        p, l = _page("Texto libre", "text", "mdi:format-text")
         l.addWidget(self.btn_text)
         self._slot_style_tx = QtWidgets.QVBoxLayout(); l.addLayout(self._slot_style_tx)     # slot: gtxt (estilo)
         l.addStretch(1)
 
         # ── Sección: Borrar zona ──
-        p, l = _page("▭  Borrar zona", "erase")
+        p, l = _page("Borrar zona", "erase", "mdi:vector-rectangle")
         l.addWidget(self.btn_erase)
         _lbl = QtWidgets.QLabel("<i>Clic para agregar vértices, Enter cierra. "
                                      "Al exportar borra el plano dentro del polígono.</i>")
         _lbl.setWordWrap(True); l.addWidget(_lbl)
         self._slot_gcur_erase = QtWidgets.QVBoxLayout(); l.addLayout(self._slot_gcur_erase)  # slot: gcur al borrar
+        l.addStretch(1)
+
+        # ── Sección: Duct Bank ──
+        # Abre el diseñador de la sección (envolvente + conductos). El diseño se
+        # guarda a nivel proyecto en self.duct_banks. La conexión con una utilidad
+        # y el export en DXF/plugin es la fase 2 (pendiente).
+        p, l = _page("Duct Bank", "ductbank", "mdi:grid")
+        self.btn_ductbank = QtWidgets.QPushButton("  Abrir diseñador de Duct Bank")
+        self.btn_ductbank.setIconSize(QtCore.QSize(20, 20))
+        self.btn_ductbank.setToolTip("Diseña la sección transversal del Duct Bank\n"
+                                     "(envolvente rectangular + conductos internos).")
+        self.btn_ductbank.clicked.connect(self._open_duct_bank_designer)
+        l.addWidget(self.btn_ductbank)
+        _lbl_db = QtWidgets.QLabel(
+            "<i>Dibuja la cara interior del duct bank en pulgadas: primero el "
+            "rectángulo del contorno, luego cada conducto redondo dentro.</i>")
+        _lbl_db.setWordWrap(True); l.addWidget(_lbl_db)
+        self.lbl_ductbank_count = QtWidgets.QLabel("Duct banks guardados: 0")
+        l.addWidget(self.lbl_ductbank_count)
         l.addStretch(1)
 
         # (Georreferenciación y Cotas/red 3D se hacen una vez por proyecto — se
@@ -401,7 +434,6 @@ class Main(QtWidgets.QMainWindow):
         right = QtWidgets.QWidget(); rv = QtWidgets.QVBoxLayout(right)
         self.tabs = QtWidgets.QTabWidget()
         self.pipe_list = QtWidgets.QListWidget(); self.pipe_list.currentRowChanged.connect(self._sel_pipe)
-        self.lead_list = QtWidgets.QListWidget(); self.lead_list.currentRowChanged.connect(self._sel_leader)
         self.sleader_list = QtWidgets.QListWidget(); self.sleader_list.currentRowChanged.connect(self._sel_sleader)
         self.txt_marks_list = QtWidgets.QListWidget(); self.txt_marks_list.currentRowChanged.connect(self._sel_text)
         self.region_list = QtWidgets.QListWidget(); self.region_list.currentRowChanged.connect(self._sel_region)
@@ -409,7 +441,7 @@ class Main(QtWidgets.QMainWindow):
         self.bz_list = QtWidgets.QListWidget(); self.bz_list.currentRowChanged.connect(self._sel_bz)
         self.curve_list = QtWidgets.QListWidget(); self.curve_list.currentRowChanged.connect(self._sel_curve)
         self.cl_list = QtWidgets.QListWidget(); self.cl_list.currentRowChanged.connect(self._sel_cl)
-        self.tabs.addTab(self.pipe_list, "Utilidades"); #self.tabs.addTab(self.lead_list, "Multileaders")
+        self.tabs.addTab(self.pipe_list, "Utilidades")
         self.tabs.addTab(self.sleader_list, "Leaders")
         self.tabs.addTab(self.txt_marks_list, "Textos"); self.tabs.addTab(self.region_list, "Zonas")
         self.tabs.addTab(self.bz_list, "Buzones"); self.tabs.addTab(self.curve_list, "Curvas")
@@ -420,7 +452,7 @@ class Main(QtWidgets.QMainWindow):
         # leer. Con elide a la derecha el texto se recorta con "…" y la barra
         # desaparece; el texto completo queda en el tooltip del item (ver
         # _refresh_lists). No afecta la selección ni los índices de fila.
-        for _lw in (self.pipe_list, self.lead_list, self.sleader_list,
+        for _lw in (self.pipe_list, self.sleader_list,
                     self.txt_marks_list, self.region_list, self.bz_list,
                     self.curve_list, self.cl_list):
             _lw.setTextElideMode(QtCore.Qt.ElideRight)
@@ -428,7 +460,6 @@ class Main(QtWidgets.QMainWindow):
             _lw.setWordWrap(False)
             _lw.setUniformItemSizes(True)          # más fluido con muchas filas
         # Menú contextual (clic derecho) en cada lista visible del inventario
-        # (la lista de Multileaders no se registra porque su pestaña está oculta)
         for listw, tab_idx in ((self.pipe_list, TAB_PIPE),
                                (self.sleader_list, TAB_LEADER), (self.txt_marks_list, TAB_TEXT),
                                (self.region_list, TAB_REGION)):
@@ -511,7 +542,8 @@ class Main(QtWidgets.QMainWindow):
         # y encuadra en el lienzo.
         self.gprop_segs = QtWidgets.QGroupBox("Cotas por tramo")
         segv = QtWidgets.QVBoxLayout(self.gprop_segs)
-        self.btn_seg_edit = QtWidgets.QPushButton("✎  Activar edición por tramo")
+        self.btn_seg_edit = QtWidgets.QPushButton("  Activar edición por tramo")
+        self.btn_seg_edit.setIconSize(QtCore.QSize(18, 18))
         self.btn_seg_edit.setCheckable(True)
         self.btn_seg_edit.setToolTip(
             "Activa la edición de cotas por tramo. Cuando está apagado se usan "
@@ -600,7 +632,7 @@ class Main(QtWidgets.QMainWindow):
         self.lbl_bz_hint = QtWidgets.QLabel(
             "Haz clic en un buzón de la lista (o en su círculo en el lienzo) para ver y editar sus propiedades.")
         self.lbl_bz_hint.setWordWrap(True)
-        self.lbl_bz_hint.setStyleSheet("color:#f0d060; padding:8px; background:#333a4a; border-radius:4px;")
+        # Estilo aplicado por _apply_theme_custom_styles (sigue el tema activo).
         rv.addWidget(self.lbl_bz_hint)
         self.gprop_bz.setVisible(False); self.lbl_bz_hint.setVisible(False)
         # ── Propiedades del elemento curvo seleccionado (tab Curvas) ───────────
@@ -634,7 +666,7 @@ class Main(QtWidgets.QMainWindow):
             "Haz clic en un elemento curvo de la lista (o en su marcador violeta en el lienzo) "
             "para ver y editar sus propiedades.")
         self.lbl_curve_hint.setWordWrap(True)
-        self.lbl_curve_hint.setStyleSheet("color:#f0d060; padding:8px; background:#333a4a; border-radius:4px;")
+        # Estilo aplicado por _apply_theme_custom_styles.
         rv.addWidget(self.lbl_curve_hint)
         self.gprop_curve.setVisible(False); self.lbl_curve_hint.setVisible(False)
         # ── Propiedades del centerline seleccionado (tab Centerlines) ──────────
@@ -650,7 +682,7 @@ class Main(QtWidgets.QMainWindow):
             "(distinta de las utilidades) para calzar contra la calle real al "
             "georreferenciar — no representa ninguna tubería.")
         self.lbl_cl_hint.setWordWrap(True)
-        self.lbl_cl_hint.setStyleSheet("color:#f0d060; padding:8px; background:#333a4a; border-radius:4px;")
+        # Estilo aplicado por _apply_theme_custom_styles.
         rv.addWidget(self.lbl_cl_hint)
         self.gprop_cl.setVisible(False); self.lbl_cl_hint.setVisible(False)
         self._cl_prop_guard = False
@@ -697,10 +729,11 @@ class Main(QtWidgets.QMainWindow):
     def _build_statusbar(self):
         # ── Barra de estado: modo · info · contadores en vivo · escala · georref ──
         self.status = self.statusBar(); self.status.setSizeGripEnabled(False)
-        self.lbl_mode = QtWidgets.QLabel("Modo: inactivo"); self.lbl_mode.setStyleSheet("color:#adc6ff;")
+        self.lbl_mode = QtWidgets.QLabel("Modo: inactivo")   # color por _apply_theme_custom_styles
         self.status.addWidget(self.lbl_mode)
         self.status.addWidget(QtWidgets.QLabel("│"))
-        self.lbl_info = QtWidgets.QLabel(""); self.lbl_info.setStyleSheet("color:#8c909f;"); self.status.addWidget(self.lbl_info, 1)
+        self.lbl_info = QtWidgets.QLabel("")   # color por _apply_theme_custom_styles
+        self.status.addWidget(self.lbl_info, 1)
         self.lbl_coords = QtWidgets.QLabel("X —  Y —  Z —")
         # Contadores en vivo: N utilidades · N leaders · N textos · dirty
         self.lbl_counts = QtWidgets.QLabel("—")
@@ -713,26 +746,24 @@ class Main(QtWidgets.QMainWindow):
         self.btn_scale = QtWidgets.QPushButton("Escala —")
         self.btn_scale.setFlat(True); self.btn_scale.setCursor(QtCore.Qt.PointingHandCursor)
         self.btn_scale.setToolTip("Clic para cambiar la escala del plano (1\"=X ft)")
-        self.btn_scale.setStyleSheet(
-            "QPushButton{background:transparent;color:#c2c6d6;border:1px solid transparent;"
-            " padding:2px 8px;border-radius:3px;font-weight:normal;}"
-            "QPushButton:hover{background:#3a3a3a;border:1px solid #565656;color:#ffffff;}"
-            "QPushButton:pressed{background:#2f6ad9;color:#ffffff;}")
+        # Estilo por _apply_theme_custom_styles (btn plano de status bar).
         self.btn_scale.clicked.connect(self._prompt_scale)
         # Botón "Opacidad" al lado de la escala: abre un desplegable con un
         # deslizable (opacidad SOLO del PDF) y un botón para alternar el fondo
         # detrás del PDF entre blanco y negro.
-        self.btn_opacity = QtWidgets.QPushButton("◑ Opacidad")
+        self.btn_opacity = QtWidgets.QPushButton("  Opacidad")
+        self.btn_opacity.setIconSize(QtCore.QSize(16, 16))
         self.btn_opacity.setFlat(True); self.btn_opacity.setCursor(QtCore.Qt.PointingHandCursor)
         self.btn_opacity.setToolTip("Opacidad del PDF y color de fondo (blanco/negro)")
-        self.btn_opacity.setStyleSheet(self.btn_scale.styleSheet())
+        # Estilo por _apply_theme_custom_styles (idéntico a btn_scale).
         self.btn_opacity.clicked.connect(self._open_opacity_popup)
         self.lbl_geo = QtWidgets.QLabel("Georref: no")
+        # Color por _apply_theme_custom_styles (usa text_info para contraste).
         for w in (self.lbl_coords, self.lbl_counts, self.lbl_dirty):
-            w.setStyleSheet("color:#c2c6d6;"); self.status.addPermanentWidget(w)
+            self.status.addPermanentWidget(w)
         self.status.addPermanentWidget(self.btn_scale)
         self.status.addPermanentWidget(self.btn_opacity)
-        self.lbl_geo.setStyleSheet("color:#c2c6d6;"); self.status.addPermanentWidget(self.lbl_geo)
+        self.status.addPermanentWidget(self.lbl_geo)   # color por _apply_theme_custom_styles
         self.canvas.moved.connect(self._update_coords)
         self._update_geo_status()
         self._info("Abre o arrastra un PDF/proyecto.")
@@ -834,7 +865,7 @@ class Main(QtWidgets.QMainWindow):
 
     def _deselect_all(self):
         self.sel_pipe = self.sel_leader = self.sel_region = self.sel_text = self.sel_bz = self.sel_curve = self.sel_cl = -1
-        for lst in (self.pipe_list, self.lead_list, self.sleader_list, self.txt_marks_list, self.region_list,
+        for lst in (self.pipe_list, self.sleader_list, self.txt_marks_list, self.region_list,
                     getattr(self, "bz_list", None), getattr(self, "curve_list", None), getattr(self, "cl_list", None)):
             if lst is None: continue
             lst.blockSignals(True); lst.setCurrentRow(-1); lst.clearSelection(); lst.blockSignals(False)
@@ -847,11 +878,12 @@ class Main(QtWidgets.QMainWindow):
     def _zoom_out(self): self.canvas.scale(0.8, 0.8)
 
     def _update_title(self):
+        dirty = "* " if self._dirty else ""
         if self.project_path:
             name = os.path.splitext(os.path.basename(self.project_path))[0]
-            self.setWindowTitle(f"{self._base_title} — {name}")
+            self.setWindowTitle(f"{dirty}{self._base_title} — {name}")
         else:
-            self.setWindowTitle(self._base_title)
+            self.setWindowTitle(f"{dirty}{self._base_title}")
 
     def _refresh_scale_label(self):
         """Actualiza el botón de escala con el valor actual (1"=X ft).
@@ -864,7 +896,9 @@ class Main(QtWidgets.QMainWindow):
             v = float(self.scale) * 72.0
         except Exception:
             v = 0.0
-        self.btn_scale.setText(f"✎ Escala 1\"={v:.0f}'" if v > 0 else "✎ Escala —")
+        # El icono de lápiz está seteado por _apply_theme_custom_styles (una sola
+        # vez); aquí solo actualizamos el texto con el valor de escala actual.
+        self.btn_scale.setText(f"Escala 1\"={v:.0f}'" if v > 0 else "Escala —")
 
     def _prompt_scale(self):
         """Diálogo compacto para cambiar la escala del plano (1\"=X ft).
@@ -975,6 +1009,27 @@ class Main(QtWidgets.QMainWindow):
         h = sc.addLine(r.left(), y, r.right(), y, cp); h.setZValue(Z_MARK + 10)
         v = sc.addLine(x, r.top(), x, r.bottom(), cp); v.setZValue(Z_MARK + 10)
         self._crosshair = [h, v]
+        self._update_hover_tooltip(x, y)
+
+    def _update_hover_tooltip(self, x, y):
+        thr = self.snap_r * 1.5
+        for i, p in enumerate(self.pipes):
+            pts = p.get("pts", [])
+            for j in range(len(pts) - 1):
+                ax, ay = pts[j]; bx, by = pts[j + 1]
+                dx, dy = bx - ax, by - ay
+                ln2 = dx * dx + dy * dy
+                if ln2 == 0:
+                    continue
+                t = max(0, min(1, ((x - ax) * dx + (y - ay) * dy) / ln2))
+                px, py = ax + t * dx, ay + t * dy
+                if (x - px) ** 2 + (y - py) ** 2 < thr ** 2:
+                    d = p.get("diam", "?")
+                    tag = " (AB)" if p.get("ab") else ""
+                    tip = f"#{i+1} {p['layer']}{tag} — {d}\" · {len(pts)} vértices"
+                    self.canvas.setToolTip(tip)
+                    return
+        self.canvas.setToolTip("")
 
     def _update_geo_status(self):
         if self.georef.active():
@@ -983,23 +1038,34 @@ class Main(QtWidgets.QMainWindow):
             cs = (getattr(self.georef, "cs_code", "") or "").strip()
             etq = cs if cs else f"EPSG:{self.georef.epsg}"
             self.lbl_geo.setText(f"Georref: {etq}{rms}")
-            self.lbl_geo.setStyleSheet("color:#5fd35f;")
+            self.lbl_geo.setStyleSheet(f"color:{_theme.tokens().success};")
         else:
             self.lbl_geo.setText("Georref: no (escala titleblock)")
-            self.lbl_geo.setStyleSheet("color:#e0c060;")
+            self.lbl_geo.setStyleSheet(f"color:{_theme.tokens().danger};")
 
     def _update_ui(self):
         m = self.mode
-        def st(btn, on): btn.setStyleSheet(BTN_ON if on else BTN_OFF)
+        def st(btn, on): btn.setStyleSheet(btn_on_style() if on else btn_off_style())
         in_leader = m in ("leader1", "leader2", "leader3")
         st(self.btn_pipe, m == "pipe")
         st(self.btn_leader_simple, in_leader)
         st(self.btn_text, m == "text"); st(self.btn_erase, m == "erase")
         st(self.btn_centerline, m == "centerline")
-        self.btn_pipe.setText("■  Salir de dibujar utilidad" if m == "pipe" else "✏  Dibujar utilidad")
-        self.btn_leader_simple.setText("●  Coloque Leader…" if in_leader else "↘  Colocar Leader")
-        self.btn_erase.setText("■  Terminar zona (Enter)" if m == "erase" else "▭  Borrar zona (polígono)")
-        self.btn_centerline.setText("■  Terminar centerline (Enter)" if m == "centerline" else "📐  Trazar centerline")
+        # Textos + iconos alternan según el estado (dibujando / detenido).
+        # Icono "stop-circle" cuando la herramienta está activa (para invitar a
+        # terminar), y el icono nativo de la utilidad cuando está inactiva.
+        _white = _theme.tokens().text_on_accent
+        def _toggle(btn, active, act_txt, idle_txt, idle_icon):
+            btn.setText(act_txt if active else idle_txt)
+            btn.setIcon(_icon("mdi:stop-circle-outline" if active else idle_icon, color=_white))
+        _toggle(self.btn_pipe, m == "pipe",
+                "  Salir de dibujar utilidad", "  Dibujar utilidad", "mdi:pencil-outline")
+        _toggle(self.btn_leader_simple, in_leader,
+                "  Coloque Leader…", "  Colocar Leader", "mdi:arrow-decision-outline")
+        _toggle(self.btn_erase, m == "erase",
+                "  Terminar zona (Enter)", "  Borrar zona (polígono)", "mdi:vector-rectangle")
+        _toggle(self.btn_centerline, m == "centerline",
+                "  Terminar centerline (Enter)", "  Trazar centerline", "mdi:ruler")
         ti = self._current_tab()
         self.gtxt.setTitle("Estilo de texto")
         self.gprop.setVisible(ti == TAB_PIPE and self.sel_pipe >= 0)
@@ -1024,7 +1090,7 @@ class Main(QtWidgets.QMainWindow):
         self.btn_ct.setVisible(ti == TAB_PIPE)
         self.btn_mv.setVisible(ti in (TAB_PIPE, TAB_LEADER, TAB_TEXT, TAB_REGION))
         self.btn_mv.setText("Mover" if ti == TAB_TEXT else "Editar/mover")
-        self.btn_edit.setVisible(ti in (TAB_ML, TAB_TEXT))
+        self.btn_edit.setVisible(ti == TAB_TEXT)
         # "Eliminar" no aplica en la pestaña Buzones: los buzones se
         # auto-detectan de los vertices de las tuberias, borrarlos no tiene
         # efecto porque _rebuild_structures los repone. Se oculta el boton.
@@ -1072,14 +1138,11 @@ class Main(QtWidgets.QMainWindow):
                 self.gcur.show()
             else:
                 self.gcur.hide()
+        self.canvas.set_mode_cursor(m)
         self._update_ui(); self._redraw()
 
-    # El inventario usa IDs lógicos (TAB_PIPE, TAB_ML, …) que NO coinciden con la
-    # posición visible de la pestaña cuando alguna está oculta (p. ej. Multileaders).
-    # Estos helpers traducen widget↔constante, así el código es robusto ante
-    # pestañas ocultas o reordenadas.
     def _tab_map(self):
-        m = {self.pipe_list: TAB_PIPE, self.lead_list: TAB_ML, self.sleader_list: TAB_LEADER,
+        m = {self.pipe_list: TAB_PIPE, self.sleader_list: TAB_LEADER,
              self.txt_marks_list: TAB_TEXT, self.region_list: TAB_REGION}
         if hasattr(self, "bz_list"): m[self.bz_list] = TAB_BZ
         if hasattr(self, "curve_list"): m[self.curve_list] = TAB_CURVE
@@ -1096,9 +1159,8 @@ class Main(QtWidgets.QMainWindow):
             self.tabs.setCurrentIndex(idx)
 
     def _tab_changed(self, _):
-        ti = self._current_tab()                    # sel_leader se comparte entre ML y Leaders: re-sincronizar
-        if ti == TAB_ML: self.sel_leader = self._leader_at_row(self.lead_list, self.lead_list.currentRow())
-        elif ti == TAB_LEADER: self.sel_leader = self._leader_at_row(self.sleader_list, self.sleader_list.currentRow())
+        ti = self._current_tab()
+        if ti == TAB_LEADER: self.sel_leader = self._leader_at_row(self.sleader_list, self.sleader_list.currentRow())
         if self.mode == "move": self.set_mode("idle")   # no seguir editando al cambiar de pestaña
         # "Cotas por tramo" pertenece EXCLUSIVAMENTE a la pestaña Utilidades. El
         # panel vive en el dock derecho, que se comparte entre pestañas — sin
@@ -1130,13 +1192,6 @@ class Main(QtWidgets.QMainWindow):
     def active_layer(self):
         d = self.type_combo.currentData(); return d if d else "AGUA"
 
-    def _toggle_custom(self, on):
-        self.txt_edit.setEnabled(on); self.text_list.setEnabled(not on)
-        if on:
-            self.text_list.blockSignals(True); self.text_list.setCurrentRow(-1); self.text_list.clearSelection(); self.text_list.blockSignals(False)
-        else:
-            self.txt_edit.clear()
-
     # ─────────────────────────── undo/redo ───────────────────────────
     def _snap_state(self):
         return copy.deepcopy(dict(cur_pts=self.cur_pts, pipes=self.pipes, leaders=self.leaders,
@@ -1156,9 +1211,16 @@ class Main(QtWidgets.QMainWindow):
 
     def undo(self):
         if self._undo: self._redo.append(self._snap_state()); self._restore(self._undo.pop()); self._info("Deshacer")
+        self._update_undo_tooltips()
 
     def redo(self):
         if self._redo: self._undo.append(self._snap_state()); self._restore(self._redo.pop()); self._info("Rehacer")
+        self._update_undo_tooltips()
+
+    def _update_undo_tooltips(self):
+        u, r = len(self._undo), len(self._redo)
+        self._act_undo.setToolTip(f"Deshacer (Ctrl+Z) — {u} paso{'s' if u != 1 else ''}")
+        self._act_redo.setToolTip(f"Rehacer (Ctrl+Shift+Z) — {r} paso{'s' if r != 1 else ''}")
 
     # ─────────────────────────── abrir ───────────────────────────
     def _busy(self, m="Procesando…"):
@@ -1205,6 +1267,7 @@ class Main(QtWidgets.QMainWindow):
         self.cur_pts = []; self.pipes = []; self.leaders = []; self.text_marks = []
         self.erase_regions = []; self._erase_pts = []; self.structures = []
         self.ref_centerlines = []; self._cl_pts = []
+        self.duct_banks = []
         self.sel_pipe = self.sel_leader = self.sel_region = self.sel_text = -1
         self.sel_cl = -1
         self._overlay = []; self._close_editor(); self._dirty = False; self._extending = False
@@ -1226,8 +1289,15 @@ class Main(QtWidgets.QMainWindow):
                 pdf_bytes = self._get_pdf_bytes()
                 if pdf_bytes:
                     z.writestr("source.pdf", pdf_bytes)
-            self.project_path = path; self._dirty = False; self._update_title(); self._info(f"Proyecto guardado: {os.path.basename(path)}")
+            self.project_path = path; self._dirty = False; self._update_title()
+            self._info(f"Proyecto guardado: {os.path.basename(path)}")
+            self._flash_save()
         finally: self._unbusy()
+
+    def _flash_save(self):
+        t = _theme.tokens()
+        self.lbl_info.setStyleSheet(f"color:{t.success};font-weight:bold;")
+        QtCore.QTimer.singleShot(2000, lambda: self.lbl_info.setStyleSheet(f"color:{t.text_info};"))
 
     def _get_pdf_bytes(self):
         if self.doc:
@@ -1297,6 +1367,7 @@ class Main(QtWidgets.QMainWindow):
             self.erase_regions = data["erase_regions"]
             self.structures = data["structures"]
             self.ref_centerlines = data["ref_centerlines"]
+            self.duct_banks = data.get("duct_banks", [])
             self.georef = data["georef"]
             self.work_unit = data["work_unit"]
             self.cur_pts = []; self._erase_pts = []; self.sel_pipe = self.sel_leader = self.sel_region = self.sel_text = -1
@@ -1387,6 +1458,7 @@ class Main(QtWidgets.QMainWindow):
         self.canvas.scene().clear(); self.canvas.pixmap_item = None; self.canvas.pdf_bg_item = None
         self.pdf_path = None; self.doc = None; self.project_path = None; self.gray = None; self._update_title()
         self.pipes = []; self.leaders = []; self.text_marks = []; self.erase_regions = []; self.structures = []
+        self.duct_banks = []
         self.ref_centerlines = []; self._cl_pts = []
         self.cur_pts = []; self._erase_pts = []; self._overlay = []; self._close_editor()
         self.sel_pipe = self.sel_leader = self.sel_region = self.sel_text = self.sel_cl = -1
@@ -2027,14 +2099,41 @@ class Main(QtWidgets.QMainWindow):
                 self._sync_curve_panel()
         except Exception: pass
 
+    def _duct_bank_for_pipe(self, pipe_idx):
+        """Devuelve el DuctBank asignado a esta pipe, o None."""
+        for db in getattr(self, "duct_banks", []):
+            if getattr(db, "pipe_idx", -1) == pipe_idx:
+                return db
+        return None
+
     def _reload_pipe_families(self, p):
         """Repuebla los combos prop_family y prop_size según la capa del pipe y el
-        catálogo Civil 3D seleccionado. Aplica para todos los tipos:
-          - gravity y conduit → catálogo imperial de pipes (PVC/HDPE/DI/concreto/CMP…)
-          - pressure → catálogo AWWA sub-material (Flanged/PushOn/PVC/HDPE/…)"""
+        catálogo Civil 3D seleccionado. Si la pipe tiene un duct bank asignado,
+        oculta familia/tamaño y muestra el nombre del duct bank."""
         import civil_catalog as _cc
         self.prop_family.blockSignals(True); self.prop_family.clear()
         self.prop_size.blockSignals(True); self.prop_size.clear()
+        # Duct bank asignado → ocultar familia/tamaño, mostrar label
+        db = self._duct_bank_for_pipe(self.sel_pipe)
+        if not hasattr(self, "lbl_ductbank_assigned"):
+            self.lbl_ductbank_assigned = QtWidgets.QLabel()
+            self.lbl_ductbank_assigned.setWordWrap(True)
+            # Insertar en el form layout después de prop_size
+            fpr = self.gprop.layout()
+            fpr.addRow(self.lbl_ductbank_assigned)
+        if db is not None:
+            self.lbl_prop_family.setVisible(False); self.prop_family.setVisible(False)
+            self.lbl_prop_size.setVisible(False); self.prop_size.setVisible(False)
+            t = _theme.tokens()
+            name = db.name or "(sin nombre)"
+            nc = len(db.conduits)
+            self.lbl_ductbank_assigned.setText(
+                f"<b style='color:{t.accent}'>Duct Bank: {name}</b><br>"
+                f"{db.width_in:g}\" x {db.height_in:g}\" — {nc} conducto(s)")
+            self.lbl_ductbank_assigned.setVisible(True)
+            self.prop_family.blockSignals(False); self.prop_size.blockSignals(False)
+            return
+        self.lbl_ductbank_assigned.setVisible(False)
         kind = self._pipe_net_kind(p)
         show = kind in ("gravity", "pressure", "conduit") and bool(self.civil_year)
         self.lbl_prop_family.setVisible(show); self.prop_family.setVisible(show)
@@ -2091,22 +2190,7 @@ class Main(QtWidgets.QMainWindow):
         it = lst.item(r) if r is not None and r >= 0 else None
         return it.data(QtCore.Qt.UserRole) if it is not None else -1
 
-    def _sel_leader(self, r):                              # pestaña Multileaders
-        """Al seleccionar un Multileader en el inventario derecho, abrimos la
-        sección Multileader del acordeón izquierdo — así el usuario ve el
-        estilo/orientación y puede editarlos."""
-        i = self._leader_at_row(self.lead_list, r); self.sel_leader = i
-        if 0 <= i < len(self.leaders):
-            ld = self.leaders[i]
-            if not self._no_center and ld.get("tp"): self.canvas.centerOn(ld["tp"][0], ld["tp"][1])
-            self._open_section("ml")
-            self._style_guard = True
-            self.font_combo.setCurrentFont(QtGui.QFont(ld.get("font", C.TEXT_FONT)))
-            self.size_spin.setValue(ld.get("size_ft", LEADER_TEXT_FT)); self.chk_bold.setChecked(bool(ld.get("bold")))
-            self._style_guard = False
-        self._update_ui(); self._redraw()
-
-    def _sel_sleader(self, r):                             # pestaña Leaders (solo flechas)
+    def _sel_sleader(self, r):
         i = self._leader_at_row(self.sleader_list, r); self.sel_leader = i
         if 0 <= i < len(self.leaders):
             ld = self.leaders[i]
@@ -2114,13 +2198,10 @@ class Main(QtWidgets.QMainWindow):
         self._update_ui(); self._redraw()
 
     def _select_leader(self, i, center=False):
-        """Selecciona el leader nº i en la pestaña que le corresponde (ML o Leaders)."""
         if not (0 <= i < len(self.leaders)): return
-        simple = self.leaders[i].get("simple")
-        lst = self.sleader_list if simple else self.lead_list
-        row = next((r for r in range(lst.count()) if lst.item(r).data(QtCore.Qt.UserRole) == i), -1)
+        row = next((r for r in range(self.sleader_list.count()) if self.sleader_list.item(r).data(QtCore.Qt.UserRole) == i), -1)
         self._no_center = not center
-        self._show_tab(TAB_LEADER if simple else TAB_ML); lst.setCurrentRow(row)
+        self._show_tab(TAB_LEADER); self.sleader_list.setCurrentRow(row)
         self._no_center = False
 
     def _sel_text(self, r):
@@ -2215,11 +2296,7 @@ class Main(QtWidgets.QMainWindow):
             tm["font"] = self.font_combo.currentFont().family(); tm["size_ft"] = self.size_spin.value()
             tm["bold"] = self.chk_bold.isChecked(); tm["rot"] = self.rot_spin.value() % 360
             self._redraw()
-        elif ti == TAB_ML and 0 <= self.sel_leader < len(self.leaders):
-            ld = self.leaders[self.sel_leader]; self._push()
-            ld["font"] = self.font_combo.currentFont().family(); ld["size_ft"] = self.size_spin.value()
-            ld["bold"] = self.chk_bold.isChecked()
-            self._redraw()
+        # (Multileader eliminado — solo quedan Leaders simples sin texto editable.)
 
     def _prop_changed(self):
         """Callback: cualquier cambio en el panel Propiedades escribe al modelo.
@@ -2259,9 +2336,10 @@ class Main(QtWidgets.QMainWindow):
         # marca de "sin guardar"
         if hasattr(self, "lbl_dirty"):
             if self._dirty:
-                self.lbl_dirty.setText("●"); self.lbl_dirty.setStyleSheet("color:#e0c060;")
+                self.lbl_dirty.setText("●"); self.lbl_dirty.setStyleSheet(f"color:{_theme.tokens().danger};")
             else:
                 self.lbl_dirty.setText("")
+        self._update_title()
 
     def change_pipe_type(self):
         if 0 <= self.sel_pipe < len(self.pipes):
@@ -2270,8 +2348,7 @@ class Main(QtWidgets.QMainWindow):
 
     def edit_selected_text(self):
         ti = self._current_tab()
-        if ti == TAB_ML and 0 <= self.sel_leader < len(self.leaders): self._edit_leader_text(self.sel_leader)
-        elif ti == TAB_TEXT and 0 <= self.sel_text < len(self.text_marks): self._edit_text_mark(self.sel_text)
+        if ti == TAB_TEXT and 0 <= self.sel_text < len(self.text_marks): self._edit_text_mark(self.sel_text)
 
     def _list_context_menu(self, listw, tab_idx, pos):
         item = listw.itemAt(pos)
@@ -2282,8 +2359,6 @@ class Main(QtWidgets.QMainWindow):
         if tab_idx == TAB_PIPE:
             self._menu_act(menu, "Cambiar tipo", self.change_pipe_type)
             self._menu_act(menu, "Editar/mover", self.enter_move)
-        elif tab_idx == TAB_ML:
-            self._menu_act(menu, "Editar texto", self.edit_selected_text)
         elif tab_idx == TAB_LEADER:
             self._menu_act(menu, "Editar/mover", self.enter_move)
         elif tab_idx == TAB_TEXT:
@@ -2297,21 +2372,41 @@ class Main(QtWidgets.QMainWindow):
 
     def delete_selected(self):
         ti = self._current_tab()
+        desc = None
         if ti == TAB_PIPE and 0 <= self.sel_pipe < len(self.pipes):
-            self._push(); self.pipes.pop(self.sel_pipe); self.sel_pipe = -1
-        elif ti in (TAB_ML, TAB_LEADER) and 0 <= self.sel_leader < len(self.leaders):
-            self._push(); self.leaders.pop(self.sel_leader); self.sel_leader = -1
+            p = self.pipes[self.sel_pipe]
+            desc = f"Utilidad #{self.sel_pipe+1} ({p['layer']}, {len(p.get('pts',[]))} vértices)"
+        elif ti == TAB_LEADER and 0 <= self.sel_leader < len(self.leaders):
+            desc = f"Leader #{self.sel_leader+1}"
         elif ti == TAB_TEXT and 0 <= self.sel_text < len(self.text_marks):
-            self._push(); self.text_marks.pop(self.sel_text); self.sel_text = -1
+            txt = self.text_marks[self.sel_text].get("text", "")[:30]
+            desc = f"Texto #{self.sel_text+1} «{txt}»"
         elif ti == TAB_REGION and 0 <= self.sel_region < len(self.erase_regions):
-            self._push(); self.erase_regions.pop(self.sel_region); self.sel_region = -1
+            desc = f"Zona de borrado #{self.sel_region+1}"
         elif ti == TAB_CL and 0 <= self.sel_cl < len(self.ref_centerlines):
+            desc = f"Centerline #{self.sel_cl+1}"
+        if desc is None:
+            return
+        r = QtWidgets.QMessageBox.question(
+            self, "Confirmar eliminación", f"¿Eliminar {desc}?",
+            QtWidgets.QMessageBox.Yes | QtWidgets.QMessageBox.No)
+        if r != QtWidgets.QMessageBox.Yes:
+            return
+        if ti == TAB_PIPE:
+            self._push(); self.pipes.pop(self.sel_pipe); self.sel_pipe = -1
+        elif ti == TAB_LEADER:
+            self._push(); self.leaders.pop(self.sel_leader); self.sel_leader = -1
+        elif ti == TAB_TEXT:
+            self._push(); self.text_marks.pop(self.sel_text); self.sel_text = -1
+        elif ti == TAB_REGION:
+            self._push(); self.erase_regions.pop(self.sel_region); self.sel_region = -1
+        elif ti == TAB_CL:
             self._push(); self.ref_centerlines.pop(self.sel_cl); self.sel_cl = -1
         self._refresh_lists(); self._redraw()
 
     def _copy_sel(self):
         ti = self._current_tab()
-        if ti in (TAB_ML, TAB_LEADER) and 0 <= self.sel_leader < len(self.leaders): self._clip = ("leader", copy.deepcopy(self.leaders[self.sel_leader]))
+        if ti == TAB_LEADER and 0 <= self.sel_leader < len(self.leaders): self._clip = ("leader", copy.deepcopy(self.leaders[self.sel_leader]))
         elif ti == TAB_PIPE and 0 <= self.sel_pipe < len(self.pipes): self._clip = ("pipe", copy.deepcopy(self.pipes[self.sel_pipe]))
         elif ti == TAB_TEXT and 0 <= self.sel_text < len(self.text_marks): self._clip = ("text", copy.deepcopy(self.text_marks[self.sel_text]))
         else: self._info("Selecciona algo para copiar."); return
@@ -2342,20 +2437,15 @@ class Main(QtWidgets.QMainWindow):
             n = len(p.get("pts") or [])
             info = f"red:{p.get('net', '')}" if p.get("world") else str(n)
             it = QtWidgets.QListWidgetItem(swatch_icon(layer_qcolor(p["layer"])), f"{i}. {p['layer']}{tag}{nm} ({info})")
-            it.setForeground(QtGui.QColor("white")); self.pipe_list.addItem(it)
+            self.pipe_list.addItem(it)
         self.pipe_list.blockSignals(False)
-        self.lead_list.blockSignals(True); self.lead_list.clear()
         self.sleader_list.blockSignals(True); self.sleader_list.clear()
-        nml = ns = 0
+        ns = 0
         for i, ld in enumerate(self.leaders):
-            if ld.get("simple"):
-                ns += 1; o = {"h": "horizontal", "v": "vertical", "d": "diagonal"}.get(ld.get("orient", "d"), "")
-                it = QtWidgets.QListWidgetItem(f"{ns}. Leader {o}".rstrip())
-                it.setData(QtCore.Qt.UserRole, i); self.sleader_list.addItem(it)
-            else:
-                nml += 1; it = QtWidgets.QListWidgetItem(f"{nml}. {ld['text'][:24].replace(chr(10), ' / ')}")
-                it.setData(QtCore.Qt.UserRole, i); self.lead_list.addItem(it)
-        self.lead_list.blockSignals(False); self.sleader_list.blockSignals(False)
+            ns += 1; o = {"h": "horizontal", "v": "vertical", "d": "diagonal"}.get(ld.get("orient", "d"), "")
+            it = QtWidgets.QListWidgetItem(f"{ns}. Leader {o}".rstrip())
+            it.setData(QtCore.Qt.UserRole, i); self.sleader_list.addItem(it)
+        self.sleader_list.blockSignals(False)
         self.txt_marks_list.blockSignals(True); self.txt_marks_list.clear()
         for i, tm in enumerate(self.text_marks, 1): self.txt_marks_list.addItem(f"{i}. {tm['text'][:28].replace(chr(10), ' / ')}")
         self.txt_marks_list.blockSignals(False)
@@ -2364,7 +2454,7 @@ class Main(QtWidgets.QMainWindow):
             it = QtWidgets.QListWidgetItem(f"Zona {i} ({len(rg['pts'])} vértices)")
             it.setFlags(it.flags() | QtCore.Qt.ItemIsUserCheckable)
             it.setCheckState(QtCore.Qt.Checked if rg.get("enabled", True) else QtCore.Qt.Unchecked)
-            it.setForeground(QtGui.QColor("white")); self.region_list.addItem(it)
+            self.region_list.addItem(it)
         self.region_list.blockSignals(False)
         # Refrescar tabs Buzones/Curvas (vistas filtradas de self.structures según
         # 'curve') + paneles de propiedades del elemento seleccionado en cada una.
@@ -2378,14 +2468,19 @@ class Main(QtWidgets.QMainWindow):
                 p = self._pipe_at_vertex(s.get("x"), s.get("y")) if s.get("x") is not None else None
                 fam = (p.get("pipe_family") if p else "") or "(sin familia)"
                 sz = f"  {p['pipe_size']}" if p and p.get("pipe_size") else ""
-                emoji = "🟣"
+                item_icon = _icon("mdi:vector-curve", color="#a855f7")   # curva = violeta
             else:
                 fam = s.get("part") or "(sin familia)"
                 sz = f"  {s['part_size']}" if s.get("part_size") else ""
-                emoji = "🚫" if s.get("hidden") else ("🟠" if s.get("net") == "conduit" else "🔵")
-            it = QtWidgets.QListWidgetItem(f"{emoji} {s.get('cod', '?')}  ·  {fam}{sz}")
+                if s.get("hidden"):
+                    item_icon = _icon("mdi:eye-off-outline", color=_theme.tokens().text_muted)
+                elif s.get("net") == "conduit":
+                    item_icon = _icon("mdi:circle-medium", color="#f97316")   # conducto = naranja
+                else:
+                    item_icon = _icon("mdi:circle-medium", color="#3b82f6")   # buzón = azul
+            it = QtWidgets.QListWidgetItem(item_icon, f"{s.get('cod', '?')}  ·  {fam}{sz}")
             if not is_curve and s.get("hidden"):
-                it.setForeground(QtGui.QColor(130, 130, 130))
+                it.setForeground(QtGui.QColor(_theme.tokens().text_muted))
                 it.setToolTip("Oculto — no se dibuja ni se crea en Civil3D como buzón real.")
             if is_curve: self.curve_list.addItem(it); self._curve_rows.append(i)
             else: self.bz_list.addItem(it); self._bz_rows.append(i)
@@ -2393,7 +2488,10 @@ class Main(QtWidgets.QMainWindow):
         self._sync_bz_panel(); self._sync_curve_panel()
         self.cl_list.blockSignals(True); self.cl_list.clear()
         for c in self.ref_centerlines:
-            self.cl_list.addItem(f"📐 {c.get('cod', '?')}  ·  {len(c.get('pts') or [])} vértices")
+            _it_cl = QtWidgets.QListWidgetItem(
+                _icon("mdi:vector-line", color="#22c55e"),
+                f"{c.get('cod', '?')}  ·  {len(c.get('pts') or [])} vértices")
+            self.cl_list.addItem(_it_cl)
         self.cl_list.blockSignals(False)
         self._sync_cl_panel()
         self._set_item_tooltips()
@@ -2403,7 +2501,7 @@ class Main(QtWidgets.QMainWindow):
         elide a la derecha para no sacar barra horizontal (ver el bloque
         RESPONSIVO en _build_ui), así que el texto recortado con "…" se puede
         leer completo al pasar el ratón."""
-        for lw in (self.pipe_list, self.lead_list, self.sleader_list,
+        for lw in (self.pipe_list, self.sleader_list,
                    self.txt_marks_list, self.region_list, self.bz_list,
                    self.curve_list, self.cl_list):
             for r in range(lw.count()):
@@ -2431,12 +2529,6 @@ class Main(QtWidgets.QMainWindow):
         self.ref_centerlines.append({"cod": f"CL-{n}", "pts": self._cl_pts[:]})
         self._cl_pts = []; self.set_mode("idle"); self._refresh_lists()
         self._info("Centerline agregado — solo referencia para calzar la georreferenciación, no es una utilidad.")
-
-    # ─────────────────────────── Multileader ───────────────────────────
-    def _read_leader_text(self):
-        if self.chk_custom.isChecked(): return self.txt_edit.text().strip()
-        it = self.text_list.currentItem()
-        return it.text() if it and self.text_list.currentRow() >= 0 else ""
 
     def start_leader(self, simple=True):
         """Entra al modo de colocación de Leader (solo flecha, sin texto). La
@@ -3106,7 +3198,10 @@ class Main(QtWidgets.QMainWindow):
         item = self.bz_list.item(self._bz_rows.index(idx))
         if item:
             item.setText(f"{emoji} {s.get('cod', '?')}  ·  {fam}{sz}")
-            item.setForeground(QtGui.QColor(130, 130, 130) if s.get("hidden") else QtGui.QColor("white"))
+            if s.get("hidden"):
+                item.setForeground(QtGui.QColor(_theme.tokens().text_muted))
+            else:
+                item.setData(QtCore.Qt.ForegroundRole, None)
             item.setToolTip("Oculto — no se dibuja ni se crea en Civil3D como buzón real." if s.get("hidden") else "")
 
     def _bz_curve_toggled(self, v):
@@ -3218,7 +3313,9 @@ class Main(QtWidgets.QMainWindow):
         fam = (p.get("pipe_family") if p else "") or "(sin familia)"
         sz = f"  {p['pipe_size']}" if p and p.get("pipe_size") else ""
         item = self.curve_list.item(self._curve_rows.index(idx))
-        if item: item.setText(f"🟣 {s.get('cod', '?')}  ·  {fam}{sz}")
+        if item:
+            item.setText(f"{s.get('cod', '?')}  ·  {fam}{sz}")
+            item.setIcon(_icon("mdi:vector-curve", color="#a855f7"))
 
     def _curve_is_bz_toggled(self, _checked=False):
         """Botón 'Volver a tratar como buzón/caja' en la tab Curvas — acción de
@@ -3296,7 +3393,9 @@ class Main(QtWidgets.QMainWindow):
         if not (0 <= idx < len(self.ref_centerlines)): return
         c = self.ref_centerlines[idx]
         item = self.cl_list.item(idx)
-        if item: item.setText(f"📐 {c.get('cod', '?')}  ·  {len(c.get('pts') or [])} vértices")
+        if item:
+            item.setText(f"{c.get('cod', '?')}  ·  {len(c.get('pts') or [])} vértices")
+            item.setIcon(_icon("mdi:vector-line", color="#22c55e"))
 
     # ─────────────────────────── Instalador familias personalizadas ───────────
     def open_install_family_dialog(self):
@@ -3362,6 +3461,151 @@ class Main(QtWidgets.QMainWindow):
     def show_shortcuts(self):
         dialogs.show_shortcuts(self)
 
+    def _toggle_theme(self):
+        # Alterna claro↔oscuro globalmente. El módulo `theme` se encarga de
+        # aplicar paleta + stylesheet + persistir la preferencia. Los widgets
+        # con QSS propio (btn_export, hints, opacidad, etc.) se recomponen en
+        # `_apply_theme_custom_styles` — está conectado al bus del tema.
+        _theme.toggle(QtWidgets.QApplication.instance())
+
+    def _refresh_theme_action_label(self):
+        # El item del menú muestra el tema al que se cambiaría (el opuesto al actual).
+        # Si estás en oscuro → "Modo claro"; si estás en claro → "Modo oscuro".
+        if not hasattr(self, "_act_theme"):
+            return
+        if _theme.is_dark():
+            self._act_theme.setText("Modo claro")
+        else:
+            self._act_theme.setText("Modo oscuro")
+
+    def _apply_theme_custom_styles(self, *_):
+        """Re-aplica todos los estilos QSS custom del Main con los tokens del tema
+        activo. Se llama al construir la UI y cada vez que el bus emite cambio.
+        Los widgets se identifican por `hasattr` — así funciona aunque algunos
+        se creen bajo condiciones."""
+        t = _theme.tokens()
+        # Duct Bank + Exportar DXF (toolbar principal)
+        if hasattr(self, "btn_ductbank"):
+            self.btn_ductbank.setStyleSheet(
+                f"QPushButton{{background:{t.accent};color:{t.text_on_accent};"
+                f"font-weight:bold;padding:5px 14px;border-radius:4px;}}"
+                f"QPushButton:hover{{background:{t.accent_hover};}}")
+        if hasattr(self, "btn_export"):
+            self.btn_export.setStyleSheet(
+                f"QPushButton{{background:{t.accent};color:{t.text_on_accent};"
+                f"font-weight:bold;padding:5px 14px;border-radius:4px;}}"
+                f"QPushButton:hover{{background:{t.accent_hover};}}")
+        # Hints amarillos de "modo activo" — mantener contraste al invertir el fondo
+        hint_style = (f"color:{t.text_on_accent if _theme.is_dark() else '#7a5b00'};"
+                      f"padding:8px;background:{t.accent_pressed if _theme.is_dark() else '#fff3cc'};border-radius:4px;")
+        for name in ("lbl_bz_hint", "lbl_curve_hint", "lbl_cl_hint"):
+            w = getattr(self, name, None)
+            if w is not None: w.setStyleSheet(hint_style)
+        # Barra de estado — textos con CONTRASTE (text_info) para que se lean bien
+        # tanto en modo claro (dark navy sobre gris claro) como oscuro (celeste
+        # suave sobre gris). Los "muted" quedan solo para leyendas secundarias.
+        for name in ("lbl_mode",):
+            w = getattr(self, name, None)
+            if w is not None: w.setStyleSheet(f"color:{t.accent};font-weight:600;")
+        for name in ("lbl_info", "lbl_geo"):
+            w = getattr(self, name, None)
+            if w is not None: w.setStyleSheet(f"color:{t.text_info};")
+        # Coordenadas / contador / dirty: mismo criterio de contraste
+        for name in ("lbl_coords", "lbl_counts"):
+            w = getattr(self, name, None)
+            if w is not None: w.setStyleSheet(f"color:{t.text_info};font-weight:600;")
+        # Botones planos "Escala…" y "Opacidad" del status bar: transparentes con
+        # texto de contraste (text_info) y hover neutral.
+        for name in ("btn_scale", "btn_opacity"):
+            b = getattr(self, name, None)
+            if b is None: continue
+            b.setStyleSheet(
+                f"QPushButton{{background:transparent;color:{t.text_info};"
+                f"border:1px solid transparent;padding:2px 8px;border-radius:3px;font-weight:600;}}"
+                f"QPushButton:hover{{background:{t.hover};border:1px solid {t.border};color:{t.text};}}"
+                f"QPushButton:pressed{{background:{t.accent};color:{t.text_on_accent};}}")
+        # ── Iconos SVG: retintar según el tema activo ─────────────────────
+        # QIcon guarda pixmaps ya rasterizados, así que hay que reasignarlos.
+        # Acciones del toolbar principal.
+        for a, name in getattr(self, "_action_icon_map", {}).items():
+            a.setIcon(_icon(name, color=t.text))
+        # Botón "Exportar DXF" (fondo azul acento → texto/icono blancos).
+        if hasattr(self, "btn_export"):
+            self.btn_export.setIcon(_icon("mdi:tray-arrow-down", color=t.text_on_accent))
+        # Botones del dock izquierdo (fondo azul on/off → siempre blancos).
+        _dock_icons = [
+            (getattr(self, "btn_pipe", None), "mdi:pencil-outline"),
+            (getattr(self, "btn_leader_simple", None), "mdi:arrow-decision-outline"),
+            (getattr(self, "btn_text", None), "mdi:format-text"),
+            (getattr(self, "btn_erase", None), "mdi:vector-rectangle"),
+            (getattr(self, "btn_centerline", None), "mdi:ruler"),
+            (getattr(self, "btn_ductbank", None), "mdi:grid"),
+        ]
+        for b, name in _dock_icons:
+            if b is not None:
+                b.setIcon(_icon(name, color=t.text_on_accent))
+        # Chevrons de navegación de páginas del PDF (botones planos: color texto).
+        if hasattr(self, "btn_prev"):
+            self.btn_prev.setIcon(_icon("mdi:chevron-left", color=t.text))
+        if hasattr(self, "btn_next"):
+            self.btn_next.setIcon(_icon("mdi:chevron-right", color=t.text))
+        # Botones planos del status bar (Escala / Opacidad): color text_info.
+        if hasattr(self, "btn_scale"):
+            self.btn_scale.setIcon(_icon("mdi:pencil-outline", color=t.text_info))
+        if hasattr(self, "btn_opacity"):
+            self.btn_opacity.setIcon(_icon("mdi:circle-half-full", color=t.text_info))
+        # Botón "Activar edición por tramo" (fondo azul → icono blanco).
+        if hasattr(self, "btn_seg_edit"):
+            self.btn_seg_edit.setIcon(_icon("mdi:pencil-outline", color=t.text_on_accent))
+        # Tabs del acordeón: los iconos van sobre la cabecera con fondo surface_alt.
+        for key, name in getattr(self, "_toolbox_icons", {}).items():
+            idx = self._sec_idx.get(key)
+            if idx is not None:
+                self.toolbox.setItemIcon(idx, _icon(name, color=t.text))
+        # Refresca dirty indicator + los botones on/off (repintado siguiente)
+        self._update_ui()
+        # Refrescar listas del inventario (items ocultos usan foreground custom).
+        if hasattr(self, "pipe_list"):
+            self._refresh_lists()
+
+    def _open_duct_bank_designer(self):
+        # Delegador delgado: la UI del diseñador vive en duct_bank_dialog.py.
+        # Al aceptar, guarda el diseño en self.duct_banks (colección del proyecto)
+        # sobreescribiendo por nombre O por pipe_idx (para evitar sólidos
+        # superpuestos cuando se rediseña el duct bank de una misma utilidad).
+        from duct_bank_dialog import open_designer
+        current = None
+        if hasattr(self, "sel_pipe") and self.sel_pipe >= 0:
+            current = self._duct_bank_for_pipe(self.sel_pipe)
+        if current is None and getattr(self, "duct_banks", None):
+            current = self.duct_banks[-1]
+        result = open_designer(self, initial=current)
+        if result is None:
+            return
+        if not getattr(self, "duct_banks", None):
+            self.duct_banks = []
+        # Reemplaza por nombre o agrega nuevo.
+        existing = next((i for i, d in enumerate(self.duct_banks) if d.name and d.name == result.name), None)
+        if existing is not None:
+            self.duct_banks[existing] = result
+        else:
+            self.duct_banks.append(result)
+        # Eliminar otros duct banks que apunten a la misma pipe (evita superposición).
+        if result.pipe_idx >= 0:
+            self.duct_banks = [
+                d for d in self.duct_banks
+                if d is result or getattr(d, "pipe_idx", -1) != result.pipe_idx
+            ]
+        self._dirty = True   # marca proyecto para pedir guardar
+        pipe_info = ""
+        if result.pipe_idx >= 0 and result.pipe_idx < len(self.pipes):
+            p = self.pipes[result.pipe_idx]
+            pipe_info = f" → asignado a #{result.pipe_idx+1} {p.get('layer','?')}"
+        if hasattr(self, "lbl_ductbank_count"):
+            self.lbl_ductbank_count.setText(
+                f"Duct banks: {len(self.duct_banks)}{pipe_info}")
+        self._info(f"Duct bank '{result.name or 'sin nombre'}' guardado{pipe_info}.")
+
     # ─────────────────────────── drag & drop ───────────────────────────
     def dragEnterEvent(self, e):
         if e.mimeData().hasUrls(): e.acceptProposedAction()
@@ -3374,206 +3618,10 @@ def main():
     app = QtWidgets.QApplication(sys.argv)
     app._no_wheel_filter = _NoWheelFilter(app)
     app.installEventFilter(app._no_wheel_filter)
-    # Forzar estilo Fusion + paleta oscura SIEMPRE, independiente del tema de
-    # Windows. Sin esto, cuando el usuario tiene Windows en modo claro, los
-    # menús, combos, campos y bordes salen blancos sobre nuestros fondos
-    # oscuros y no se ven los textos.
-    app.setStyle("Fusion")
-    # Paleta con GRISES NEUTROS (no azul en Button — antes contaminaba los fondos
-    # de QToolBox/QGroupBox). El acento azul se limita a Highlight para selección.
-    _p = QtGui.QPalette()
-    _p.setColor(QtGui.QPalette.Window,          QtGui.QColor(43, 43, 43))
-    _p.setColor(QtGui.QPalette.WindowText,      QtGui.QColor(232, 232, 232))
-    _p.setColor(QtGui.QPalette.Base,            QtGui.QColor(51, 51, 51))
-    _p.setColor(QtGui.QPalette.AlternateBase,   QtGui.QColor(60, 60, 60))
-    _p.setColor(QtGui.QPalette.ToolTipBase,     QtGui.QColor(30, 30, 30))
-    _p.setColor(QtGui.QPalette.ToolTipText,     QtGui.QColor(232, 232, 232))
-    _p.setColor(QtGui.QPalette.Text,            QtGui.QColor(232, 232, 232))
-    _p.setColor(QtGui.QPalette.Button,          QtGui.QColor(60, 60, 60))
-    _p.setColor(QtGui.QPalette.ButtonText,      QtGui.QColor(232, 232, 232))
-    _p.setColor(QtGui.QPalette.BrightText,      QtGui.QColor(255, 80, 80))
-    _p.setColor(QtGui.QPalette.Highlight,       QtGui.QColor(60, 90, 153))
-    _p.setColor(QtGui.QPalette.HighlightedText, QtGui.QColor(255, 255, 255))
-    _p.setColor(QtGui.QPalette.PlaceholderText, QtGui.QColor(160, 160, 160))
-    _p.setColor(QtGui.QPalette.Light,           QtGui.QColor(85, 85, 85))
-    _p.setColor(QtGui.QPalette.Midlight,        QtGui.QColor(70, 70, 70))
-    _p.setColor(QtGui.QPalette.Dark,            QtGui.QColor(30, 30, 30))
-    _p.setColor(QtGui.QPalette.Mid,             QtGui.QColor(45, 45, 45))
-    _p.setColor(QtGui.QPalette.Shadow,          QtGui.QColor(20, 20, 20))
-    _p.setColor(QtGui.QPalette.Disabled, QtGui.QPalette.Text,       QtGui.QColor(130, 130, 130))
-    _p.setColor(QtGui.QPalette.Disabled, QtGui.QPalette.ButtonText, QtGui.QColor(130, 130, 130))
-    _p.setColor(QtGui.QPalette.Disabled, QtGui.QPalette.WindowText, QtGui.QColor(130, 130, 130))
-    app.setPalette(_p)
-    # Stylesheet global de refuerzo: fija los widgets que Fusion sigue pintando
-    # con acento del sistema (QToolBox tabs, QScrollArea backgrounds, tooltips).
-    app.setStyleSheet("""
-        /* ═══════════════════════════════════════════════════════════════════════
-           Tema oscuro — referencia Photoshop dark UI.
-           Usuario objetivo: persona mayor → texto 14px, targets ≥32px,
-           indicadores de selección 20x20 con borde claro muy visible.
-
-           REGLA DE ORO (bug que causaba checkboxes invisibles):
-           tocar CUALQUIER propiedad QSS de QCheckBox/QRadioButton desactiva el
-           render nativo de su ::indicator en Fusion y el indicador DESAPARECE.
-           Por eso, si se estilan, hay que estilar el ::indicator COMPLETO.
-           ═══════════════════════════════════════════════════════════════════════ */
-
-        /* ── Base ── */
-        QWidget { background-color: #2f2f2f; color: #ececec; font-size: 14px; }
-        QToolTip { background-color: #1c1c1c; color: #f2f2f2; border: 1px solid #6a6a6a;
-                   padding: 6px; font-size: 14px; }
-
-        /* ── Contenedores ── */
-        QScrollArea, QAbstractScrollArea { background: #2f2f2f; border: none; }
-        QGroupBox { background: #2f2f2f; border: 1px solid #4d4d4d; border-radius: 5px;
-                    margin-top: 14px; padding-top: 10px; font-weight: bold; }
-        QGroupBox::title { subcontrol-origin: margin; subcontrol-position: top left;
-                           left: 10px; padding: 0 6px; color: #9fc0ff; font-size: 14px; }
-
-        /* ── Acordeón de Herramientas: cabeceras grandes y legibles ── */
-        QToolBox::tab { background: #3a3a3a; color: #dcdcdc; border: 1px solid #555;
-                        border-radius: 4px; padding-left: 10px; min-height: 34px;
-                        font-weight: bold; }
-        QToolBox::tab:hover { background: #454545; color: #ffffff; }
-        QToolBox::tab:selected { background: #2f6ad9; color: #ffffff; border: 1px solid #6ba3ff; }
-
-        /* ── Menús ── */
-        QMenu { background: #333; color: #ececec; border: 1px solid #5a5a5a; padding: 4px; }
-        QMenu::item { padding: 8px 26px 8px 22px; }
-        QMenu::item:selected { background: #2f6ad9; color: #fff; }
-        QMenu::separator { height: 1px; background: #4d4d4d; margin: 4px 8px; }
-        QMenuBar { background: #2b2b2b; color: #ececec; }
-        QMenuBar::item { padding: 6px 11px; }
-        QMenuBar::item:selected { background: #2f6ad9; color: #fff; }
-        QStatusBar { background: #2b2b2b; color: #c8ccd6; }
-
-        /* ── Campos de entrada: hundidos, estilo Photoshop ── */
-        QLineEdit, QSpinBox, QDoubleSpinBox, QComboBox, QTextEdit, QPlainTextEdit,
-        QListWidget, QTreeWidget, QTableWidget, QFontComboBox, QAbstractItemView {
-            background: #242424; color: #f0f0f0; border: 1px solid #565656;
-            border-radius: 4px; selection-background-color: #2f6ad9;
-            selection-color: #ffffff;
-        }
-        QLineEdit, QSpinBox, QDoubleSpinBox, QComboBox, QFontComboBox {
-            padding: 6px 8px; min-height: 22px;
-        }
-        QLineEdit:focus, QSpinBox:focus, QDoubleSpinBox:focus, QComboBox:focus,
-        QTextEdit:focus, QPlainTextEdit:focus {
-            border: 1px solid #6ba3ff;
-        }
-        QLineEdit:disabled, QSpinBox:disabled, QDoubleSpinBox:disabled, QComboBox:disabled {
-            background: #2b2b2b; color: #7d7d7d; border: 1px solid #414141;
-        }
-
-        /* Combo: NO estilar ::drop-down ni ::down-arrow - en QSS el truco de
-           bordes-triangulo da un rectangulo gris. Fusion dibuja su flecha nativa. */
-        QComboBox QAbstractItemView { background: #2b2b2b; color: #f0f0f0;
-                                      border: 1px solid #6a6a6a;
-                                      selection-background-color: #2f6ad9;
-                                      selection-color: #ffffff; outline: none; }
-        /* Altura de fila del popup: dedo/ratón poco preciso */
-        QComboBox QAbstractItemView::item { min-height: 30px; padding: 4px 8px; }
-
-        /* ── Botones: target ≥32px ── */
-        QPushButton { background: #2f6ad9; color: #fff; border: 1px solid #4a7fe0;
-                      padding: 8px 14px; border-radius: 4px; font-weight: bold;
-                      min-height: 20px; }
-        QPushButton:hover { background: #4a83e8; border: 1px solid #6ba3ff; }
-        QPushButton:pressed { background: #2657ad; }
-        QPushButton:disabled { background: #3a3a3a; color: #808080; border: 1px solid #464646; }
-        /* Estado ACTIVADO de un botón toggle — antes era indistinguible del apagado */
-        QPushButton:checked { background: #1f8f4a; border: 2px solid #5fe08d; color: #ffffff; }
-        QPushButton:checked:hover { background: #26a758; }
-        /* Botones de un solo glifo (+ - flechas de pagina, rotacion). Sin esto
-           el padding generoso de arriba no deja ancho para el simbolo y el
-           boton sale VACIO. Se marcan con setProperty("iconOnly", True). */
-        QPushButton[iconOnly="true"] { padding: 0; font-size: 17px; font-weight: bold; }
-
-        /* Acciones DESTRUCTIVAS — Eliminar / Borrar / Desinstalar. Rojo por
-           convencion de UX (accion irreversible). Se marcan con
-           setProperty("danger", True). Overrides el fondo default por especificidad. */
-        QPushButton[danger="true"] { background: #d1352d; color: #ffffff; border: 1px solid #a8241c;
-                                     font-weight: bold; }
-        QPushButton[danger="true"]:hover  { background: #e0453c; border: 1px solid #ff5a4e; }
-        QPushButton[danger="true"]:pressed{ background: #a8241c; border: 1px solid #d1352d; }
-        QPushButton[danger="true"]:disabled{ background: #4a2825; color: #a08380; border: 1px solid #4a2825; }
-
-        /* ═══ CONTROLES DE SELECCIÓN — el fix principal ═══════════════════════
-           20x20 px, borde claro de 2px siempre visible sobre el fondo oscuro.
-           Marcado = relleno azul brillante (inequívoco, no depende de un ✓ fino). */
-        QCheckBox, QRadioButton { background: transparent; color: #ececec;
-                                  spacing: 10px; padding: 4px 0; }
-        QCheckBox:disabled, QRadioButton:disabled { color: #8a8a8a; }
-
-        QCheckBox::indicator, QRadioButton::indicator { width: 20px; height: 20px; }
-
-        QCheckBox::indicator { border: 2px solid #8c8c8c; border-radius: 4px; background: #232323; }
-        QCheckBox::indicator:hover { border: 2px solid #6ba3ff; background: #2b2b2b; }
-        QCheckBox::indicator:checked { background: #2f6ad9; border: 2px solid #8ec2ff; }
-        QCheckBox::indicator:checked:hover { background: #4a83e8; border: 2px solid #bcdcff; }
-        QCheckBox::indicator:indeterminate { background: #7a7a7a; border: 2px solid #b4b4b4; }
-        QCheckBox::indicator:disabled { border: 2px solid #565656; background: #2b2b2b; }
-        QCheckBox::indicator:checked:disabled { background: #3f5480; border: 2px solid #5c6f95; }
-
-        QRadioButton::indicator { border: 2px solid #8c8c8c; border-radius: 11px; background: #232323; }
-        QRadioButton::indicator:hover { border: 2px solid #6ba3ff; }
-        QRadioButton::indicator:checked { background: #2f6ad9; border: 5px solid #232323; }
-        QRadioButton::indicator:disabled { border: 2px solid #565656; }
-
-        /* Indicador de los items checkables de las listas (Zonas activadas/desactivadas) */
-        QListWidget::indicator, QTreeWidget::indicator, QTableWidget::indicator {
-            width: 20px; height: 20px; border: 2px solid #8c8c8c;
-            border-radius: 4px; background: #232323;
-        }
-        QListWidget::indicator:checked, QTreeWidget::indicator:checked,
-        QTableWidget::indicator:checked { background: #2f6ad9; border: 2px solid #8ec2ff; }
-
-        /* ── Listas / tablas: filas altas y legibles ── */
-        QListWidget::item, QTreeWidget::item { padding: 7px 6px; border-radius: 3px; }
-        QListWidget::item:hover, QTreeWidget::item:hover { background: #3a3a3a; }
-        QListWidget::item:selected, QTreeWidget::item:selected { background: #2f6ad9; color: #fff; }
-        QTableWidget { gridline-color: #464646; }
-        QTableWidget::item { padding: 5px; }
-        QTableWidget::item:selected { background: #2f6ad9; color: #fff; }
-        QHeaderView::section { background: #3a3a3a; color: #e4e4e4; border: none;
-                               border-right: 1px solid #4d4d4d;
-                               border-bottom: 1px solid #4d4d4d;
-                               padding: 7px 6px; font-weight: bold; }
-
-        /* ── Pestañas ── */
-        QTabWidget::pane { background: #2f2f2f; border: 1px solid #4d4d4d; border-radius: 4px; }
-        QTabBar::tab { background: #383838; color: #d4d4d4; padding: 8px 14px;
-                       border: 1px solid #4d4d4d; border-bottom: none;
-                       border-top-left-radius: 4px; border-top-right-radius: 4px; }
-        QTabBar::tab:hover { background: #434343; color: #fff; }
-        QTabBar::tab:selected { background: #2f6ad9; color: #fff; }
-
-        /* ── Barras de desplazamiento: anchas, fáciles de agarrar ── */
-        QScrollBar:vertical { background: #2b2b2b; width: 15px; margin: 0; border: none; }
-        QScrollBar::handle:vertical { background: #5a5a5a; min-height: 34px;
-                                      border-radius: 7px; margin: 2px; }
-        QScrollBar::handle:vertical:hover { background: #757575; }
-        QScrollBar:horizontal { background: #2b2b2b; height: 15px; margin: 0; border: none; }
-        QScrollBar::handle:horizontal { background: #5a5a5a; min-width: 34px;
-                                        border-radius: 7px; margin: 2px; }
-        QScrollBar::handle:horizontal:hover { background: #757575; }
-        QScrollBar::add-line, QScrollBar::sub-line { height: 0; width: 0; border: none; background: none; }
-        QScrollBar::add-page, QScrollBar::sub-page { background: none; }
-
-        /* ── Spinbox dentro de la tabla de cotas: sin el padding global, o desborda
-              la altura de la fila y se solapa con la de al lado ── */
-        QTableWidget QDoubleSpinBox, QTableWidget QSpinBox {
-            padding: 2px 6px; min-height: 0; border-radius: 3px;
-        }
-        QTableWidget QLabel { padding: 2px 6px; }
-
-        /* ── Docks ── */
-        QDockWidget { color: #ececec; font-weight: bold; }
-        QDockWidget::title { background: #262626; padding: 8px 10px; border-bottom: 1px solid #4d4d4d; }
-        QSplitter::handle { background: #4d4d4d; }
-        QSplitter::handle:horizontal { width: 5px; }
-        QSplitter::handle:vertical { height: 5px; }
-    """)
+    # Tema visual global (claro/oscuro). La preferencia se persiste en QSettings
+    # y se puede alternar desde el menú "Ver" en tiempo real. Todo el CSS antes
+    # hardcodeado ahora vive en app/theme.py, parametrizado por tokens de color.
+    _theme.apply_theme(app, _theme.load_preference("dark"))
     win = Main(); win.show()
     if len(sys.argv) > 1:
         win.open_path(sys.argv[1])

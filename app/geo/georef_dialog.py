@@ -38,6 +38,8 @@ import urllib.parse
 import urllib.request
 
 from PySide6 import QtCore, QtGui, QtWidgets
+import theme as _theme
+from icons import icon as _icon
 
 os.environ.setdefault("QT_API", "pyside6")   # matplotlib debe usar el MISMO binding Qt que el resto de la app
 import matplotlib
@@ -548,11 +550,7 @@ class GeorefDialog(QtWidgets.QDialog):
         self._fetch_thread = None; self._fetch_worker = None
 
         root = QtWidgets.QVBoxLayout(self)
-        warn = QtWidgets.QLabel(
-            "⚠ El calce contra centerlines de LA da coordenadas de trazado/anteproyecto — el dato "
-            "topográfico real proviene del levantamiento/Excel.")
-        warn.setWordWrap(True); warn.setStyleSheet("color:#e0c060;"); root.addWidget(warn)
-
+    
         self.lbl_prev = QtWidgets.QLabel(""); self.lbl_prev.setWordWrap(True)
         if init_georef is not None and init_georef.active():
             rms = f", RMS {init_georef.rms:.2f} ft" if init_georef.rms is not None else ""
@@ -586,7 +584,9 @@ class GeorefDialog(QtWidgets.QDialog):
         self.sp_buffer = QtWidgets.QDoubleSpinBox()
         self.sp_buffer.setRange(300, 10000); self.sp_buffer.setValue(DEFAULT_BUFFER_FT); self.sp_buffer.setSingleStep(150)
         srow.addWidget(self.sp_buffer)
-        self.b_fetch = QtWidgets.QPushButton("Buscar y descargar"); self.b_fetch.clicked.connect(self._on_fetch)
+        self.b_fetch = QtWidgets.QPushButton("  Buscar y descargar")
+        self.b_fetch.setIconSize(QtCore.QSize(18, 18))
+        self.b_fetch.clicked.connect(self._on_fetch)
         srow.addWidget(self.b_fetch)
         mv.addLayout(srow)
         mv.addWidget(QtWidgets.QLabel("Calles de LA (NavigateLA)  —  clic: punto de control (imán a la intersección)  |  rueda: zoom"))
@@ -626,7 +626,9 @@ class GeorefDialog(QtWidgets.QDialog):
                                      "· 3) clic en la calle correspondiente (derecha). Mínimo 3 pares — puedes "
                                      "marcar puntos A LO LARGO de toda la calle, no solo en las esquinas: "
                                      "más puntos bien repartidos mejoran el ajuste (RMSE).")
-        self.hint.setStyleSheet("color:#9cf;"); root.addWidget(self.hint)
+        self._restyle_hint()   # color según tema (text_info, con contraste en claro y oscuro)
+        root.addWidget(self.hint)
+        _theme.THEME_BUS.changed.connect(lambda *_: self._restyle_hint())
 
         rmse_tip = ("RMSE (Root Mean Square Error / error cuadrático medio): el error PROMEDIO, en pies, "
                    "entre cada punto de control y donde el ajuste calculado lo ubica.\n\n"
@@ -634,16 +636,19 @@ class GeorefDialog(QtWidgets.QDialog):
                    "clickeado, el RMSE sube aunque los demás estén perfectos. Mientras más bajo, mejor "
                    "(verde <3 ft, amarillo <8 ft, rojo ≥8 ft).")
         crow = QtWidgets.QHBoxLayout()
-        self.b_fit = QtWidgets.QPushButton("Ajustar + RMSE"); self.b_fit.clicked.connect(self._compute)
+        self.b_fit = QtWidgets.QPushButton("  Ajustar + RMSE"); self.b_fit.setIconSize(QtCore.QSize(18, 18))
+        self.b_fit.clicked.connect(self._compute)
         self.b_fit.setToolTip("Calcula la transformación (rotación + escala uniforme + traslación) que mejor "
                               "hace coincidir todos los pares plano↔calle real, y muestra el RMSE. No deforma "
                               "el plano: solo lo gira y escala parejo.\n\n" + rmse_tip)
         crow.addWidget(self.b_fit)
         self.lbl_rms = QtWidgets.QLabel("RMSE: —"); self.lbl_rms.setToolTip(rmse_tip); crow.addWidget(self.lbl_rms, 1)
-        b_del = QtWidgets.QPushButton("Eliminar sel."); b_del.setProperty("danger", True)
-        b_del.clicked.connect(self._del_pair); crow.addWidget(b_del)
-        b_clear = QtWidgets.QPushButton("Limpiar todos"); b_clear.setProperty("danger", True)
-        b_clear.clicked.connect(self._clear_pairs); crow.addWidget(b_clear)
+        b_del = QtWidgets.QPushButton("  Eliminar sel."); b_del.setProperty("danger", True)
+        b_del.setIconSize(QtCore.QSize(18, 18))
+        b_del.clicked.connect(self._del_pair); crow.addWidget(b_del); self.b_del = b_del
+        b_clear = QtWidgets.QPushButton("  Limpiar todos"); b_clear.setProperty("danger", True)
+        b_clear.setIconSize(QtCore.QSize(18, 18))
+        b_clear.clicked.connect(self._clear_pairs); crow.addWidget(b_clear); self.b_clear = b_clear
         root.addLayout(crow)
 
         self.lst = QtWidgets.QListWidget(); self.lst.setMaximumHeight(140); root.addWidget(self.lst)
@@ -668,14 +673,17 @@ class GeorefDialog(QtWidgets.QDialog):
         root.addLayout(csrow)
 
         bb = QtWidgets.QHBoxLayout()
-        self.b_save = QtWidgets.QPushButton("💾 Guardar georreferenciación")
+        self.b_save = QtWidgets.QPushButton("  Guardar georreferenciación")
+        self.b_save.setIconSize(QtCore.QSize(18, 18))
         # Habilitado de entrada si el plano YA está georreferenciado, para poder
         # guardar aunque solo se cambie el código de Huso (sin recalcular).
         self.b_save.setEnabled(bool(init_georef is not None and init_georef.active()))
         self.b_save.clicked.connect(self._save)
         bb.addStretch(1); bb.addWidget(self.b_save)
-        b_cancel = QtWidgets.QPushButton("Cerrar sin guardar"); b_cancel.clicked.connect(self.reject)
-        bb.addWidget(b_cancel)
+        b_cancel = QtWidgets.QPushButton("  Cerrar sin guardar")
+        b_cancel.setIconSize(QtCore.QSize(18, 18))
+        b_cancel.clicked.connect(self.reject)
+        bb.addWidget(b_cancel); self.b_cancel = b_cancel
         root.addLayout(bb)
 
         # precargar pares de una georreferencia previa (si el punto trae "world")
@@ -829,6 +837,31 @@ class GeorefDialog(QtWidgets.QDialog):
             if d2 < bd:
                 bd = d2; best = (cx, cy)
         return best
+
+    def _restyle_hint(self):
+        # Texto informativo del hint arriba del diálogo (dice cuántos tramos /
+        # parcelas / esquinas se cargaron, o las instrucciones). Antes era un
+        # azul clarito fijo (#9cf), ilegible sobre fondo claro. Ahora se pinta
+        # con `text_info` del tema: navy sobre claro, celeste suave sobre oscuro.
+        t = _theme.tokens()
+        if hasattr(self, "hint"):
+            self.hint.setStyleSheet(f"color:{t.text_info};font-weight:600;")
+        # Iconos SVG en los botones (retintados según el tema). Los botones con
+        # QSS por defecto tienen fondo `accent` y texto blanco → icono blanco.
+        # Los danger tienen fondo rojo → icono blanco también.
+        c_on_accent = t.text_on_accent
+        _button_icons = [
+            ("b_fetch", "mdi:map-marker-radius"),
+            ("b_fit", "mdi:tune-vertical"),
+            ("b_del", "mdi:trash-can-outline"),
+            ("b_clear", "mdi:trash-can-outline"),
+            ("b_save", "mdi:content-save-outline"),
+            ("b_cancel", "mdi:close"),
+        ]
+        for name, icon_name in _button_icons:
+            b = getattr(self, name, None)
+            if b is not None:
+                b.setIcon(_icon(icon_name, color=c_on_accent))
 
     def _on_map_click(self, x, y):
         if self._pending_px is None:

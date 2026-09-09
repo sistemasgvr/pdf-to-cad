@@ -13,6 +13,7 @@ import types
 import civil_catalog as _cc
 import project_io
 from geo import georef
+import ezdxf
 
 
 class _Derot:
@@ -23,6 +24,10 @@ def _fake_win():
     g = georef.Georef(
         matrix=[[2.5, 0.3, 6_444_000.0], [0.3, -2.5, 1_883_000.0], [0.0, 0.0, 1.0]],
         epsg=2229, kind="similarity", rms=1.1, cs_code="CA83VF")
+    from duct_bank import DuctBank, Conduit
+    db = DuctBank(name="A-Telecom", width_in=16, height_in=10,
+                  conduits=[Conduit(cx=3, cy=3, diam=4, label="T1"),
+                            Conduit(cx=9, cy=3, diam=4, label="T2")])
     return types.SimpleNamespace(
         pipes=[{"layer": "AGUA", "pts": [(0, 0), (10, 0)],
                 "vertex_inv_out": {1: 100.5}, "vertex_inv_in": {1: 99.0}}],
@@ -30,6 +35,7 @@ def _fake_win():
         erase_regions=[{"pts": [(0, 0)], "enabled": True}],
         structures=[{"cod": "BZ-1", "x": 5, "y": 0}],
         ref_centerlines=[],
+        duct_banks=[db],
         georef=g, work_unit="ft", civil_year=2025,
         scale=20 / 72.0, zoom=3.5, rot=0, W=800, H=600, derot=_Derot(),
         pdf_path=r"C:\planos\11-prueba.pdf")
@@ -93,3 +99,69 @@ def test_roundtrip_build_parse_conserva_datos():
     # las cotas por vértice sobreviven como int (build las tiene int, json→parse las
     # mantiene int porque aquí no pasó por json; el test de arriba cubre el caso str)
     assert data["pipes"][0]["vertex_inv_out"] == {1: 100.5}
+    # Duct banks: sobreviven round-trip por nombre/dimensiones/conductos
+    assert len(data["duct_banks"]) == 1
+    d = data["duct_banks"][0]
+    assert d.name == "A-Telecom" and d.width_in == 16 and d.height_in == 10
+    assert len(d.conduits) == 2 and d.conduits[0].label == "T1"
+
+
+def _fake_dxf_win():
+    """Win mínimo con _to_cad para tests de dxf_export."""
+    from duct_bank import DuctBank, Conduit
+    db = DuctBank(name="24kV", width_in=16, height_in=10, pipe_idx=0,
+                  conduits=[Conduit(cx=3, cy=3, diam=4, label="E1")])
+    win = types.SimpleNamespace(
+        pipes=[{"layer": "ELECTRICO", "pts": [(100, 200), (300, 200)],
+                "diam": 6, "ab": False}],
+        leaders=[], text_marks=[], erase_regions=[], structures=[],
+        ref_centerlines=[], duct_banks=[db],
+        georef=georef.Georef(), work_unit="ft",
+        scale=1.0, zoom=1.0, rot=0, W=1000, H=800,
+    )
+    win._to_cad = lambda x, y: (float(x), float(-y))
+    return win
+
+
+def test_dxf_pipe_idx_and_duct_bank_xdata():
+    """El DXF emite PIPE_IDX y HAS_DUCT_BANK en cada pipe, y PDFCAD_DUCTBANK como punto."""
+    import dxf_export
+    win = _fake_dxf_win()
+    doc = ezdxf.new("R2018", setup=True)
+    dxf_export.merge_into(win, doc, marks=True)
+    msp = doc.modelspace()
+    polys = [e for e in msp if e.dxftype() == "LWPOLYLINE"]
+    assert len(polys) == 1
+    tags = polys[0].get_xdata("PDFCAD")
+    xd = {kv.split("=", 1)[0]: kv.split("=", 1)[1]
+          for t in tags if t.code == 1000 and "=" in str(t.value)
+          for kv in [str(t.value)]}
+    assert xd["PIPE_IDX"] == "0"
+    assert xd["HAS_DUCT_BANK"] == "1"
+    pts = [e for e in msp if e.dxftype() == "POINT" and e.dxf.layer == "PDFCAD_DUCT_BANK"]
+    assert len(pts) == 1
+    tags2 = pts[0].get_xdata("PDFCAD")
+    xd2 = {kv.split("=", 1)[0]: kv.split("=", 1)[1]
+           for t in tags2 if t.code == 1000 and "=" in str(t.value)
+           for kv in [str(t.value)]}
+    assert xd2["PIPE_IDX"] == "0"
+    assert xd2["NAME"] == "24kV"
+    assert "E1" in xd2["CONDUITS"]
+
+
+def test_dxf_pipe_without_duct_bank():
+    """Pipe sin duct bank asignado: HAS_DUCT_BANK=0."""
+    import dxf_export
+    win = _fake_dxf_win()
+    win.duct_banks = []
+    doc = ezdxf.new("R2018", setup=True)
+    dxf_export.merge_into(win, doc, marks=True)
+    msp = doc.modelspace()
+    polys = [e for e in msp if e.dxftype() == "LWPOLYLINE"]
+    tags = polys[0].get_xdata("PDFCAD")
+    xd = {kv.split("=", 1)[0]: kv.split("=", 1)[1]
+          for t in tags if t.code == 1000 and "=" in str(t.value)
+          for kv in [str(t.value)]}
+    assert xd["HAS_DUCT_BANK"] == "0"
+    pts = [e for e in msp if e.dxftype() == "POINT" and e.dxf.layer == "PDFCAD_DUCT_BANK"]
+    assert len(pts) == 0

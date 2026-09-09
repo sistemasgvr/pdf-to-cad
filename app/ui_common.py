@@ -14,8 +14,27 @@ import config as C
 from model import ACI_RGB
 
 DOWNLOADS = os.path.join(os.path.expanduser("~"), "Downloads")
-BTN_ON = "background:#2e9e4f;color:white;font-weight:bold;padding:8px;border-radius:4px;"
-BTN_OFF = "background:#3c5a99;color:white;padding:8px;border-radius:4px;"
+
+ICON_SM = 18
+ICON_MD = 22
+ICON_LG = 28
+
+
+# Estilos de botón on/off — recalculados desde el tema activo. Antes eran strings
+# constantes (verdes/azules crudos) que no seguían el modo claro. Ahora son
+# funciones que se llaman cada vez (baratas) para tomar el tema actual.
+def btn_on_style() -> str:
+    from theme import tokens
+    t = tokens()
+    return (f"background:{t.success};color:{t.text_on_accent};"
+            f"font-weight:bold;padding:8px;border-radius:4px;")
+
+
+def btn_off_style() -> str:
+    from theme import tokens
+    t = tokens()
+    return (f"background:{t.accent};color:{t.text_on_accent};"
+            f"padding:8px;border-radius:4px;")
 
 
 def aci_qcolor(a): return QtGui.QColor(*ACI_RGB.get(a, (235, 235, 235)))

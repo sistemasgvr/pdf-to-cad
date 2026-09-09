@@ -88,7 +88,9 @@ def merge_into(win, doc, marks=True):
         return
     if "PDFCAD" not in doc.appids: doc.appids.add("PDFCAD")
     work_unit = getattr(win, 'work_unit', 'ft')
-    for p in win.pipes:
+    _db_pipe_idxs = {db.pipe_idx for db in getattr(win, "duct_banks", []) or []
+                     if getattr(db, "pipe_idx", -1) >= 0}
+    for pipe_idx, p in enumerate(win.pipes):
         layer = p["layer"]; VP.ensure_layer(doc, layer)
         att = {"layer": layer}
         if p.get("world") and p.get("wstart") and p.get("wend"):
@@ -130,8 +132,12 @@ def merge_into(win, doc, marks=True):
             (1000, f"NO_MANHOLE_VERTS={','.join(str(i) for i in no_manhole)}"),
             (1000, f"VERTEX_INV={vertex_inv_str}"),
             (1000, f"VERTEX_INV_IN={vertex_inv_in_str}"),
+            (1000, f"ABANDONED={1 if p.get('ab') else 0}"),
+            (1000, f"PIPE_IDX={pipe_idx}"),
+            (1000, f"HAS_DUCT_BANK={1 if pipe_idx in _db_pipe_idxs else 0}"),
         ])
     _export_structures(win, doc, msp)
+    _export_duct_banks(win, doc, msp)
     _export_ref_centerlines(win, doc, msp)
     _export_cs_code(win, doc, msp)
     VP.ensure_layer(doc, "ANOTACION")
@@ -323,6 +329,50 @@ def _export_structures(win, doc, msp):
             t = msp.add_text(s["cod"], height=h,
                              dxfattribs={"layer": "ETIQUETAS_BUZONES", "style": "CAD_TEXT"})
             t.set_placement((cx + h * 0.8, cy + h * 0.4), align=TextEntityAlignment.LEFT)
+
+
+def _export_duct_banks(win, doc, msp):
+    """Exporta los duct banks como puntos XDATA PDFCAD_DUCTBANK sobre el primer
+    vértice de la pipe asignada. El plugin C# lee estos datos para extruir la
+    envolvente como sólido 3D y crear mini Pipe Networks para los conductos."""
+    dbs = getattr(win, "duct_banks", None)
+    if not dbs: return
+    pipes = getattr(win, "pipes", None) or []
+    if "PDFCAD" not in doc.appids: doc.appids.add("PDFCAD")
+    VP.ensure_layer(doc, "PDFCAD_DUCT_BANK")
+    seen_pipes = set()
+    for db in dbs:
+        pi = getattr(db, "pipe_idx", -1)
+        if pi < 0 or pi >= len(pipes): continue
+        if pi in seen_pipes: continue
+        seen_pipes.add(pi)
+        p = pipes[pi]
+        if p.get("world") and p.get("wstart"):
+            anchor = (float(p["wstart"][0]), float(p["wstart"][1]))
+        elif p.get("pts"):
+            anchor = win._to_cad(*p["pts"][0])
+        else:
+            continue
+        conduits_str = "|".join(
+            f"{c.cx},{c.cy},{c.diam},{c.label}" for c in db.conduits)
+        pt = msp.add_point((anchor[0], anchor[1], 0),
+                           dxfattribs={"layer": "PDFCAD_DUCT_BANK"})
+        pt.set_xdata("PDFCAD", [
+            (1000, "PDFCAD_DUCTBANK"),
+            (1000, f"PIPE_IDX={pi}"),
+            (1000, f"NAME={db.name}"),
+            (1000, f"WIDTH_IN={db.width_in}"),
+            (1000, f"HEIGHT_IN={db.height_in}"),
+            (1000, f"MARGIN_TOP={db.margin_top}"),
+            (1000, f"MARGIN_RIGHT={db.margin_right}"),
+            (1000, f"MARGIN_BOTTOM={db.margin_bottom}"),
+            (1000, f"MARGIN_LEFT={db.margin_left}"),
+            (1000, f"CORNER_TL={db.corner_tl}"),
+            (1000, f"CORNER_TR={db.corner_tr}"),
+            (1000, f"CORNER_BR={db.corner_br}"),
+            (1000, f"CORNER_BL={db.corner_bl}"),
+            (1000, f"CONDUITS={conduits_str}"),
+        ])
 
 
 def _export_ref_centerlines(win, doc, msp):

@@ -79,6 +79,7 @@ namespace Civil3DBasico
             var pipes = new List<ImportPipe>();
             var structs = new List<ImportStruct>();
             var curveCorners = new List<ImportCurveInfo>();
+            var ductBanks = new List<ImportDuctBank>();
             string csCode = "";        // sistema de coordenadas (Huso) pedido desde Python (PDFCAD_META)
 
             using (Transaction trScan = db.TransactionManager.StartTransaction())
@@ -156,6 +157,9 @@ namespace Civil3DBasico
                             SegOverrides = segOv,
                             VertexInv = vertexInv,
                             VertexInvIn = vertexInvIn,
+                            Abandoned = XdStr(xd, "ABANDONED", "0").Trim() == "1",
+                            PipeIdx = string.IsNullOrWhiteSpace(XdStr(xd, "PIPE_IDX", "")) ? -1 : (int)XdDouble(xd, "PIPE_IDX"),
+                            HasDuctBank = XdStr(xd, "HAS_DUCT_BANK", "0").Trim() == "1",
                         });
                     }
                     else if (marker == "PDFCAD_STRUCT" && ent is DBPoint pt)
@@ -208,11 +212,50 @@ namespace Civil3DBasico
                     }
                     else if (marker == "PDFCAD_META")
                     {
-                        // Metadatos del proyecto: por ahora, el código de sistema de
-                        // coordenadas (Huso) elegido en la georreferenciación.
                         string c = XdStr(xd, "CS_CODE", "");
                         if (!string.IsNullOrWhiteSpace(c)) csCode = c.Trim();
                         Dbg("XDATA_META", ("cs_code", csCode));
+                    }
+                    else if (marker == "PDFCAD_DUCTBANK" && ent is DBPoint ptDb)
+                    {
+                        var dbk = new ImportDuctBank
+                        {
+                            Anchor = new Point2d(ptDb.Position.X, ptDb.Position.Y),
+                            PipeIdx = (int)XdDouble(xd, "PIPE_IDX"),
+                            Name = XdStr(xd, "NAME", ""),
+                            WidthIn = XdDouble(xd, "WIDTH_IN"),
+                            HeightIn = XdDouble(xd, "HEIGHT_IN"),
+                            MarginTop = XdDouble(xd, "MARGIN_TOP"),
+                            MarginRight = XdDouble(xd, "MARGIN_RIGHT"),
+                            MarginBottom = XdDouble(xd, "MARGIN_BOTTOM"),
+                            MarginLeft = XdDouble(xd, "MARGIN_LEFT"),
+                            CornerTL = XdDouble(xd, "CORNER_TL"),
+                            CornerTR = XdDouble(xd, "CORNER_TR"),
+                            CornerBR = XdDouble(xd, "CORNER_BR"),
+                            CornerBL = XdDouble(xd, "CORNER_BL"),
+                        };
+                        string conduitsRaw = XdStr(xd, "CONDUITS", "");
+                        if (!string.IsNullOrWhiteSpace(conduitsRaw))
+                        {
+                            foreach (string tok in conduitsRaw.Split('|'))
+                            {
+                                var p2 = tok.Split(',');
+                                if (p2.Length < 3) continue;
+                                double cx, cy, dm;
+                                if (!double.TryParse(p2[0], NumberStyles.Float, CultureInfo.InvariantCulture, out cx)) continue;
+                                if (!double.TryParse(p2[1], NumberStyles.Float, CultureInfo.InvariantCulture, out cy)) continue;
+                                if (!double.TryParse(p2[2], NumberStyles.Float, CultureInfo.InvariantCulture, out dm)) continue;
+                                dbk.Conduits.Add(new DuctConduit
+                                {
+                                    Cx = cx, Cy = cy, Diam = dm,
+                                    Label = p2.Length > 3 ? p2[3] : "",
+                                });
+                            }
+                        }
+                        ductBanks.Add(dbk);
+                        Dbg("XDATA_DUCTBANK", ("name", dbk.Name),
+                            ("pipe_idx", dbk.PipeIdx), ("w", dbk.WidthIn), ("h", dbk.HeightIn),
+                            ("conduits", dbk.Conduits.Count));
                     }
                 }
                 trScan.Commit();
@@ -257,12 +300,39 @@ namespace Civil3DBasico
                 ed.WriteMessage($"\n  → Conversión de elevaciones {unit} → {db.Insunits}: ×{factor:F4}");
 
             // ── 2. Agrupar por capa ─────────────────────────────────────────
+            // Pipes con duct bank asignado (HAS_DUCT_BANK=1 en XDATA) se excluyen
+            // del flujo normal: el duct bank las reemplaza con un sólido 3D.
+            // Matching por PIPE_IDX directo (mismo índice que Python emitió).
+            var pipeByIdx = new Dictionary<int, ImportPipe>();
+            var ductBankPipes = new HashSet<ImportPipe>();
+            foreach (var ip in pipes)
+            {
+                if (ip.PipeIdx >= 0)
+                    pipeByIdx[ip.PipeIdx] = ip;
+                if (ip.HasDuctBank)
+                    ductBankPipes.Add(ip);
+            }
+            foreach (var dbk in ductBanks)
+            {
+                ImportPipe match;
+                if (pipeByIdx.TryGetValue(dbk.PipeIdx, out match))
+                {
+                    dbk.MatchedPipe = match;
+                    ductBankPipes.Add(match);
+                }
+                else
+                    ed.WriteMessage($"\n  ⚠ Duct bank '{dbk.Name}' (PIPE_IDX={dbk.PipeIdx}): no se encontró la pipe correspondiente.");
+            }
+            if (ductBankPipes.Count > 0)
+                ed.WriteMessage($"\n  · {ductBankPipes.Count} utilidad(es) con duct bank asignado (excluidas de redes normales).");
+
             var gravedad = new Dictionary<string, List<ImportPipe>>(StringComparer.OrdinalIgnoreCase);
             var presion = new Dictionary<string, List<ImportPipe>>(StringComparer.OrdinalIgnoreCase);
 
             var conduit = new Dictionary<string, List<ImportPipe>>(StringComparer.OrdinalIgnoreCase);
             foreach (var p in pipes)
             {
+                if (ductBankPipes.Contains(p)) continue;   // duct bank la reemplaza
                 if (p.NetKind.Equals("pressure", StringComparison.OrdinalIgnoreCase))
                     DictAdd(presion, p.Layer, p);
                 else if (p.NetKind.Equals("conduit", StringComparison.OrdinalIgnoreCase))
@@ -461,6 +531,185 @@ namespace Civil3DBasico
             // eligen entre los que ya existen en el catálogo (ver RedesTuberia.cs, SizeMasCercano).
             LimpiarDuplicadosPartSize(ed, db);
 
+            // ── 5d. Duct Banks — sólidos 3D ────────────────────────────────
+            if (ductBanks.Count > 0)
+            {
+                using (Transaction trDb = db.TransactionManager.StartTransaction())
+                {
+                    try
+                    {
+                        CrearDuctBanks(ed, db, trDb, ductBanks, pipes);
+                        trDb.Commit();
+                    }
+                    catch (Exception exDb)
+                    {
+                        ed.WriteMessage($"\n✗ Error duct banks: {exDb.Message}");
+                        trDb.Abort();
+                    }
+                }
+            }
+
+            // ── 5e. Duct Bank — conductos internos como Pipe Network ────────
+            // Pre-scan: registrar todos los diámetros de conductos ANTES de crear
+            // las redes, para que no se repita la inyección en cada CrearRedGravedad.
+            {
+                var conduitDiams = new HashSet<double>();
+                foreach (var dbk in ductBanks)
+                    foreach (var cond in dbk.Conduits)
+                        if (cond.Diam > 0) conduitDiams.Add(cond.Diam);
+                if (conduitDiams.Count > 0)
+                {
+                    using (Transaction trPre = db.TransactionManager.StartTransaction())
+                    {
+                        try
+                        {
+                            var plPre = ObtenerPartsList(civilDoc, trPre);
+                            if (plPre != null)
+                            {
+                                try { plPre.UpgradeOpen(); } catch { }
+                                foreach (double cd in conduitDiams)
+                                {
+                                    // Para conductos SIEMPRE llamamos a InyectarTamañoEnCatalogo con
+                                    // wallOverride=0 — así el diámetro exterior renderizado coincide
+                                    // con el interior dibujado y no sobresale del duct bank. La
+                                    // función internamente actualiza el wall si el tamaño ya existía
+                                    // en el XML, y luego llama a AgregarTamañoPipe para activarlo.
+                                    bool added = false;
+                                    foreach (ObjectId fid in plPre.GetPartFamilyIdsByDomain(CivilDB.DomainType.Pipe))
+                                    {
+                                        try
+                                        {
+                                            var fam = trPre.GetObject(fid, OpenMode.ForWrite) as PartsStyles.PartFamily;
+                                            if (fam == null) continue;
+                                            if (InyectarTamañoEnCatalogo(trPre, fam, cd, ed, wallOverride: 0.0)) { added = true; break; }
+                                        }
+                                        catch { }
+                                    }
+                                    if (!added)
+                                        ed.WriteMessage($"\n  ⚠ Conducto Ø{cd:F0}\" no se pudo crear en ninguna familia.");
+                                }
+                            }
+                            trPre.Commit();
+                        }
+                        catch (Exception exPre)
+                        {
+                            ed.WriteMessage($"\n  (Error pre-scan conductos: {exPre.Message})");
+                            trPre.Abort();
+                        }
+                    }
+                }
+            }
+            // Cada conducto se crea como su propia red independiente: dos conductos
+            // con vértices idénticos en la misma red son rechazados por Civil 3D.
+            // Los vértices se offsetean lateralmente según la posición cx del
+            // conducto dentro de la envolvente, dando geometría única a cada uno.
+            int conduitNetCount = 0;
+            foreach (var dbk in ductBanks)
+            {
+                if (dbk.MatchedPipe == null || dbk.Conduits.Count == 0) continue;
+                var parent = dbk.MatchedPipe;
+                string baseName = string.IsNullOrWhiteSpace(dbk.Name) ? $"P{dbk.PipeIdx}" : dbk.Name;
+
+                for (int ci = 0; ci < dbk.Conduits.Count; ci++)
+                {
+                    var cond = dbk.Conduits[ci];
+                    if (cond.Diam <= 0) continue;
+
+                    // Offset lateral (cx) y vertical (cy) relativo al centro de la
+                    // envolvente, en pies. cy viene desde arriba (Y↓ en Python) → Z↑.
+                    double cxOffsetFt = (cond.Cx - dbk.WidthIn / 2.0) / 12.0;
+                    double cyOffsetFt = (dbk.HeightIn / 2.0 - cond.Cy) / 12.0;
+                    ed.WriteMessage($"\n  [CONDUIT] {cond.Label ?? $"C{ci+1}"} Ø{cond.Diam:F1}\" " +
+                        $"cx={cond.Cx:F2} cy={cond.Cy:F2} → lateral={cxOffsetFt:F4}ft vertical={cyOffsetFt:F4}ft " +
+                        $"(envolvente {dbk.WidthIn:F1}×{dbk.HeightIn:F1}\")");
+
+                    // Z absoluta del conducto = elevación del parent + offset vertical.
+                    // Restamos el radio porque OffsetEjeARasante lo suma después
+                    // (convierte invert→centerline), y cy ya es el CENTRO.
+                    double radiusFt = cond.Diam / 2.0 / 12.0;
+                    double parentInvS = parent.InvStart ?? 0.0;
+                    double parentInvE = parent.InvEnd ?? parentInvS;
+                    double condInvS = parentInvS + cyOffsetFt - radiusFt;
+                    double condInvE = parentInvE + cyOffsetFt - radiusFt;
+
+                    // Calcular vértices offseteados perpendicular al path
+                    var offsetVerts = new List<Point2d>();
+                    for (int vi = 0; vi < parent.Vertices.Count; vi++)
+                    {
+                        Point2d v = parent.Vertices[vi];
+                        // Dirección del segmento (hacia adelante o atrás según posición)
+                        Point2d next = vi < parent.Vertices.Count - 1 ? parent.Vertices[vi + 1] : parent.Vertices[vi];
+                        Point2d prev = vi > 0 ? parent.Vertices[vi - 1] : parent.Vertices[vi];
+                        double dx, dy;
+                        if (vi == 0)
+                        { dx = next.X - v.X; dy = next.Y - v.Y; }
+                        else if (vi == parent.Vertices.Count - 1)
+                        { dx = v.X - prev.X; dy = v.Y - prev.Y; }
+                        else
+                        {
+                            // Vértice intermedio: bisectriz de los segmentos adyacentes
+                            double dx1 = v.X - prev.X, dy1 = v.Y - prev.Y;
+                            double dx2 = next.X - v.X, dy2 = next.Y - v.Y;
+                            double len1 = Math.Sqrt(dx1 * dx1 + dy1 * dy1);
+                            double len2 = Math.Sqrt(dx2 * dx2 + dy2 * dy2);
+                            if (len1 > 1e-9) { dx1 /= len1; dy1 /= len1; }
+                            if (len2 > 1e-9) { dx2 /= len2; dy2 /= len2; }
+                            dx = dx1 + dx2; dy = dy1 + dy2;
+                        }
+                        double len = Math.Sqrt(dx * dx + dy * dy);
+                        if (len < 1e-9) { offsetVerts.Add(v); continue; }
+                        // Perpendicular a la derecha: (dy, -dx) normalizado
+                        double perpX = dy / len;
+                        double perpY = -dx / len;
+                        offsetVerts.Add(new Point2d(v.X + perpX * cxOffsetFt,
+                                                    v.Y + perpY * cxOffsetFt));
+                    }
+
+                    string label = !string.IsNullOrWhiteSpace(cond.Label) ? cond.Label : $"C{ci + 1}";
+                    string netName = $"DUCTBANK-{baseName}-{label}";
+                    var cp = new ImportPipe
+                    {
+                        Layer = "PDFCAD_DUCT_BANK",
+                        Vertices = offsetVerts,
+                        Diameter = cond.Diam,
+                        Unit = "in",
+                        Material = "",
+                        NetKind = "conduit",
+                        NetType = "pipe",
+                        InvStart = condInvS,
+                        InvEnd = condInvE,
+                        ManningsN = 0,
+                        CoverMin = 0,
+                        PipeFamily = "",
+                        PipeGuid = "",
+                        PipeSize = $"{cond.Diam:F0} in",
+                        Abandoned = false,
+                        PipeIdx = -1,
+                        HasDuctBank = false,
+                    };
+                    var singleList = new List<ImportPipe> { cp };
+                    using (Transaction trCond = db.TransactionManager.StartTransaction())
+                    {
+                        try
+                        {
+                            ObjectId nId = CrearRedGravedadCompleta(ed, db, civilDoc, trCond,
+                                netName, surfId, defaultDepth, singleList,
+                                new List<ImportStruct>(), sinBuzones: true,
+                                out List<DatosAlignment> _);
+                            if (nId != ObjectId.Null) conduitNetCount++;
+                            trCond.Commit();
+                        }
+                        catch (Exception exCond)
+                        {
+                            ed.WriteMessage($"\n  ✗ Error conducto '{netName}': {exCond.Message}");
+                            trCond.Abort();
+                        }
+                    }
+                }
+            }
+            if (conduitNetCount > 0)
+                ed.WriteMessage($"\n  · {conduitNetCount} conducto(s) de duct bank creados como Pipe Network.");
+
             // ── 6. Diagnóstico inline ───────────────────────────────────────
             if (createdNetIds.Count > 0)
             {
@@ -492,6 +741,145 @@ namespace Civil3DBasico
             public ObjectId EndStructId;
             public ObjectId NetId;
             public bool EsGravedad;
+        }
+
+        // PipeStyle reutilizable para tuberías ABANDONADAS. Se resuelve una sola
+        // vez por ejecución de IMPORTAR_RED: se copia del estilo base de la primera
+        // abandonada y se le fijan los display components (Planta + Perfil + Model)
+        // a un linetype discontinuo con LinetypeScale grande (huecos obvios).
+        // Nota: en la vista 3D **sombreada** (orbit shaded/rendered) el sólido no
+        // honra el linetype — es una limitación de sólidos en AutoCAD. Los cortes
+        // solo se ven en 2D Wireframe / vistas alámbricas.
+        private ObjectId _abandonedPipeStyleId = ObjectId.Null;
+        // Escala del linetype dentro del display style, para que los cortes sean
+        // grandes y obvios (imagen 4 del usuario). El linetype "DASHED" nativo es
+        // muy fino a escala de pies; 5x lo hace muy visible.
+        private const double LT_SCALE_ABANDONADO = 5.0;
+
+        // Aplica linetype + escala a un DisplayStyle si el destino no es Hatch/Solid.
+        private void SetDashOn(PartsStyles.DisplayStyle ds, string ltName)
+        {
+            if (ds == null) return;
+            ds.Linetype = ltName;
+            ds.LinetypeScale = LT_SCALE_ABANDONADO;
+            ds.Visible = true;
+        }
+
+        private ObjectId AsegurarEstiloAbandonado(
+            Database db, CivilDocument civilDoc, Transaction tr, ObjectId basePipeStyleId)
+        {
+            if (_abandonedPipeStyleId != ObjectId.Null && !_abandonedPipeStyleId.IsErased)
+                return _abandonedPipeStyleId;
+            try
+            {
+                string ltName = AsegurarLinetypeDiscontinuo(db, tr);
+                const string styleName = "Abandonado (PDFCAD)";
+                var pipeStyles = civilDoc.Styles.PipeStyles;
+                ObjectId styleId;
+                if (pipeStyles.Contains(styleName))
+                    styleId = pipeStyles[styleName];
+                else if (basePipeStyleId != ObjectId.Null)
+                {
+                    var baseStyle = (PartsStyles.PipeStyle)tr.GetObject(basePipeStyleId, OpenMode.ForRead);
+                    styleId = baseStyle.CopyAsSibling(styleName);
+                }
+                else
+                    styleId = pipeStyles.Add(styleName);
+
+                var st = (PartsStyles.PipeStyle)tr.GetObject(styleId, OpenMode.ForWrite);
+                // 3D (Model)
+                SetDashOn(st.GetDisplayStyleModel(), ltName);
+                // Planta (sin Hatch/Solid — no aceptan linetype útil)
+                foreach (var c in new[] {
+                    PartsStyles.PipeDisplayStylePlanType.Centerline,
+                    PartsStyles.PipeDisplayStylePlanType.InsideWalls,
+                    PartsStyles.PipeDisplayStylePlanType.OutsideWalls,
+                    PartsStyles.PipeDisplayStylePlanType.EndLine })
+                    SetDashOn(st.GetDisplayStylePlan(c), ltName);
+                // Perfil
+                foreach (var c in new[] {
+                    PartsStyles.PipeDisplayStyleProfileType.Centerline,
+                    PartsStyles.PipeDisplayStyleProfileType.InsideWalls,
+                    PartsStyles.PipeDisplayStyleProfileType.OutsideWalls,
+                    PartsStyles.PipeDisplayStyleProfileType.EndLine })
+                    SetDashOn(st.GetDisplayStyleProfile(c), ltName);
+                _abandonedPipeStyleId = styleId;
+                Dbg("ABANDONED_STYLE_OK", ("estilo", styleName), ("linetype", ltName), ("scale", LT_SCALE_ABANDONADO.ToString()));
+            }
+            catch (Exception ex)
+            {
+                Dbg("ABANDONED_STYLE_FAIL", ("error", ex.Message));
+                _abandonedPipeStyleId = ObjectId.Null;
+            }
+            return _abandonedPipeStyleId;
+        }
+
+        // Igual que AsegurarEstiloAbandonado pero para redes de PRESIÓN
+        // (PressurePipe / PressurePipeStyle). La colección de estilos de presión no
+        // es una propiedad de StylesRoot: se obtiene por el método de extensión
+        // StylesRootPressurePipesExtension.GetPressurePipeStyles(...).
+        private ObjectId _abandonedPressPipeStyleId = ObjectId.Null;
+
+        private ObjectId AsegurarEstiloAbandonadoPresion(
+            Database db, CivilDocument civilDoc, Transaction tr, ObjectId basePipeStyleId)
+        {
+            if (_abandonedPressPipeStyleId != ObjectId.Null && !_abandonedPressPipeStyleId.IsErased)
+                return _abandonedPressPipeStyleId;
+            try
+            {
+                string ltName = AsegurarLinetypeDiscontinuo(db, tr);
+                const string styleName = "Abandonado (PDFCAD)";
+                PresStyles.PressurePipeStyleCollection pipeStyles =
+                    PresStyles.StylesRootPressurePipesExtension.GetPressurePipeStyles(civilDoc.Styles);
+                ObjectId styleId;
+                if (pipeStyles.Contains(styleName))
+                    styleId = pipeStyles[styleName];
+                else if (basePipeStyleId != ObjectId.Null)
+                {
+                    var baseStyle = (PresStyles.PressurePipeStyle)tr.GetObject(basePipeStyleId, OpenMode.ForRead);
+                    styleId = baseStyle.CopyAsSibling(styleName);
+                }
+                else
+                    styleId = pipeStyles.Add(styleName);
+
+                var st = (PresStyles.PressurePipeStyle)tr.GetObject(styleId, OpenMode.ForWrite);
+                // 3D (Model)
+                SetDashOn(st.GetDisplayStyleModel(), ltName);
+                // Planta
+                foreach (var c in new[] {
+                    PresStyles.PressurePipeDisplayStylePlanType.Centerline,
+                    PresStyles.PressurePipeDisplayStylePlanType.InsideWalls,
+                    PresStyles.PressurePipeDisplayStylePlanType.OutsideWalls,
+                    PresStyles.PressurePipeDisplayStylePlanType.EndLine })
+                    SetDashOn(st.GetDisplayStylePlan(c), ltName);
+                // Perfil
+                foreach (var c in new[] {
+                    PresStyles.PressurePipeDisplayStyleProfileType.Centerline,
+                    PresStyles.PressurePipeDisplayStyleProfileType.InsideWalls,
+                    PresStyles.PressurePipeDisplayStyleProfileType.OutsideWalls,
+                    PresStyles.PressurePipeDisplayStyleProfileType.EndLine })
+                    SetDashOn(st.GetDisplayStyleProfile(c), ltName);
+                _abandonedPressPipeStyleId = styleId;
+                Dbg("ABANDONED_STYLE_OK", ("tipo", "presion"), ("estilo", styleName), ("linetype", ltName), ("scale", LT_SCALE_ABANDONADO.ToString()));
+            }
+            catch (Exception ex)
+            {
+                Dbg("ABANDONED_STYLE_FAIL", ("tipo", "presion"), ("error", ex.Message));
+                _abandonedPressPipeStyleId = ObjectId.Null;
+            }
+            return _abandonedPressPipeStyleId;
+        }
+
+        // Nombre de un linetype discontinuo cargado en el dibujo; si no hay ninguno,
+        // intenta cargar "DASHED" desde acad.lin. Fallback seguro: "Continuous".
+        private string AsegurarLinetypeDiscontinuo(Database db, Transaction tr)
+        {
+            var lt = (LinetypeTable)tr.GetObject(db.LinetypeTableId, OpenMode.ForRead);
+            foreach (var n in new[] { "DASHED", "DASHED2", "HIDDEN", "ACAD_ISO02W100" })
+                if (lt.Has(n)) return n;
+            try { db.LoadLineTypeFile("DASHED", "acad.lin"); return "DASHED"; }
+            catch { }
+            return "Continuous";
         }
 
         private ObjectId CrearRedGravedadCompleta(
@@ -605,6 +993,47 @@ namespace Civil3DBasico
                     AutoAgregarFamiliaCatalogo(ed, tr, partsList,
                         CivilDB.DomainType.Pipe, ip.Material);
                 }
+            }
+
+            // Pre-scan: agregar tamaños ESPECÍFICOS que faltan al catálogo.
+            // ExisteTamañoPipeExacto busca por número en el nombre (no BuscarTuberia,
+            // que retorna true incluso con fallback a otro tamaño).
+            try { partsList.UpgradeOpen(); } catch { }
+            var diamsFaltantes = new HashSet<double>();
+            foreach (var ip in pipes)
+                if (ip.Diameter > 0) diamsFaltantes.Add(ip.Diameter);
+            foreach (double diam in diamsFaltantes)
+            {
+                if (ExisteTamañoPipeExacto(tr, partsList, diam))
+                    continue;
+                // Paso 1: intentar agregar desde el catálogo existente
+                bool agregado = false;
+                foreach (ObjectId epFid in partsList.GetPartFamilyIdsByDomain(CivilDB.DomainType.Pipe))
+                {
+                    try
+                    {
+                        var epFam = tr.GetObject(epFid, OpenMode.ForWrite) as PartsStyles.PartFamily;
+                        if (epFam == null) continue;
+                        if (AgregarTamañoPipe(tr, epFam, diam, ed)) { agregado = true; break; }
+                    }
+                    catch { }
+                }
+                // Paso 2: si no existe en el catálogo, inyectar el tamaño en el XML
+                if (!agregado)
+                {
+                    foreach (ObjectId epFid in partsList.GetPartFamilyIdsByDomain(CivilDB.DomainType.Pipe))
+                    {
+                        try
+                        {
+                            var epFam = tr.GetObject(epFid, OpenMode.ForWrite) as PartsStyles.PartFamily;
+                            if (epFam == null) continue;
+                            if (InyectarTamañoEnCatalogo(tr, epFam, diam, ed)) { agregado = true; break; }
+                        }
+                        catch { }
+                    }
+                }
+                if (!agregado)
+                    ed.WriteMessage($"\n  ⚠ Diámetro {diam:F0}\" no se pudo crear en ninguna familia.");
             }
 
             if (!PrimeraPieza(tr, partsList, CivilDB.DomainType.Pipe,
@@ -1095,6 +1524,18 @@ namespace Civil3DBasico
                     bool autoConexion = !sinBuzones;
                     net.AddLinePipe(segFam, segSize, new LineSegment3d(p1, p2), ref pid, autoConexion);
                     CivilDB.Pipe pipe = (CivilDB.Pipe)tr.GetObject(pid, OpenMode.ForWrite);
+                    // Abandonada: solo cambia el 3D (Model) a línea discontinua.
+                    // Se basa en el estilo actual de la pipe (copia hermana) para no
+                    // tocar planta/perfil; se resuelve una vez y se reusa.
+                    if (ip.Abandoned)
+                    {
+                        ObjectId absId = AsegurarEstiloAbandonado(db, civilDoc, tr, pipe.StyleId);
+                        if (absId != ObjectId.Null)
+                        {
+                            try { pipe.StyleId = absId; }
+                            catch (Exception exAb) { Dbg("ABANDONED_APPLY_FAIL", ("error", exAb.Message)); }
+                        }
+                    }
                     // Solo conectar si la estructura correspondiente se creó bien.
                     // En modo conduit, vertStructIds[i] siempre es Null, así que no conecta.
                     // Envuelto en try/catch: si la structure asignada no admite la
@@ -1495,6 +1936,18 @@ namespace Civil3DBasico
                     ObjectId pid = net.AddLinePipe(new LineSegment3d(p1, p2), tuboElegido);
                     createdPipeIds.Add(pid);
                     pipeEndpoints.Add((p1, p2, pid));
+
+                    // Abandonada (presión): solo cambia el 3D (Model) a discontinuo.
+                    if (ip.Abandoned)
+                    {
+                        try
+                        {
+                            CivilDB.PressurePipe ppAb = (CivilDB.PressurePipe)tr.GetObject(pid, OpenMode.ForWrite);
+                            ObjectId absId = AsegurarEstiloAbandonadoPresion(db, civilDoc, tr, ppAb.StyleId);
+                            if (absId != ObjectId.Null) ppAb.StyleId = absId;
+                        }
+                        catch (Exception exAb) { Dbg("ABANDONED_APPLY_FAIL", ("tipo", "presion"), ("error", exAb.Message)); }
+                    }
 
                     if (!string.IsNullOrWhiteSpace(ip.Material))
                     {
@@ -2564,7 +3017,7 @@ namespace Civil3DBasico
             {
                 if (tv.TypeCode != 1000) continue;
                 string s = tv.Value?.ToString() ?? "";
-                if (s == "PDFCAD_PIPE" || s == "PDFCAD_STRUCT" || s == "PDFCAD_CURVE" || s == "PDFCAD_META")
+                if (s == "PDFCAD_PIPE" || s == "PDFCAD_STRUCT" || s == "PDFCAD_CURVE" || s == "PDFCAD_META" || s == "PDFCAD_DUCTBANK")
                 { dict["_MARKER"] = s; continue; }
                 int eq = s.IndexOf('=');
                 if (eq > 0) dict[s.Substring(0, eq)] = s.Substring(eq + 1);
@@ -2662,6 +3115,122 @@ namespace Civil3DBasico
         }
 
         // =================================================================
+        //  DUCT BANK — sólido 3D extruido a lo largo de la pipe asignada
+        // =================================================================
+        private void CrearDuctBanks(Editor ed, Database db, Transaction tr,
+            List<ImportDuctBank> dbs, List<ImportPipe> pipes)
+        {
+            // Capa dedicada para los sólidos del duct bank
+            LayerTable lt = (LayerTable)tr.GetObject(db.LayerTableId, OpenMode.ForRead);
+            if (!lt.Has("PDFCAD_DUCT_BANK"))
+            {
+                lt.UpgradeOpen();
+                var lr = new LayerTableRecord { Name = "PDFCAD_DUCT_BANK", Color = Autodesk.AutoCAD.Colors.Color.FromColorIndex(Autodesk.AutoCAD.Colors.ColorMethod.ByAci, 8) };
+                lt.Add(lr); tr.AddNewlyCreatedDBObject(lr, true);
+            }
+
+            BlockTableRecord ms = (BlockTableRecord)tr.GetObject(
+                SymbolUtilityServices.GetBlockModelSpaceId(db), OpenMode.ForWrite);
+
+            int created = 0;
+            foreach (var dbk in dbs)
+            {
+                try
+                {
+                    var matchPipe = dbk.MatchedPipe;
+                    if (matchPipe == null || matchPipe.Vertices == null || matchPipe.Vertices.Count < 2)
+                    {
+                        ed.WriteMessage($"\n  ⚠ Duct bank '{dbk.Name}': no se encontró la pipe asignada.");
+                        continue;
+                    }
+
+                    double wFt = dbk.WidthIn / 12.0;
+                    double hFt = dbk.HeightIn / 12.0;
+
+                    // El sólido debe estar a la misma elevación que los conductos.
+                    // El centro vertical del duct bank queda a la Z media del parent.
+                    double parentInvS = matchPipe.InvStart ?? 0.0;
+                    double parentInvE = matchPipe.InvEnd ?? parentInvS;
+                    int nv = matchPipe.Vertices.Count;
+
+                    var pathPts = new Point3dCollection();
+                    for (int vi = 0; vi < nv; vi++)
+                    {
+                        Point2d v = matchPipe.Vertices[vi];
+                        double t = nv > 1 ? (double)vi / (nv - 1) : 0;
+                        double z = parentInvS + t * (parentInvE - parentInvS);
+                        pathPts.Add(new Point3d(v.X, v.Y, z));
+                    }
+
+                    if (pathPts.Count < 2) continue;
+
+                    Vector3d dir = (pathPts[1] - pathPts[0]).GetNormal();
+                    Vector3d up = Vector3d.ZAxis;
+                    Vector3d right = dir.CrossProduct(up).GetNormal();
+                    Point3d origin = pathPts[0];
+
+                    Matrix3d mat = Matrix3d.AlignCoordinateSystem(
+                        Point3d.Origin, Vector3d.XAxis, Vector3d.YAxis, Vector3d.ZAxis,
+                        origin, right, up, dir);
+
+                    // ── Envolvente rectangular ──────────────────────────────
+                    using (var pathPoly = new Polyline3d(Poly3dType.SimplePoly, pathPts, false))
+                    {
+                        ms.AppendEntity(pathPoly);
+                        tr.AddNewlyCreatedDBObject(pathPoly, true);
+
+                        using (var profile = new Polyline())
+                        {
+                            profile.AddVertexAt(0, new Point2d(-wFt / 2, -hFt / 2), 0, 0, 0);
+                            profile.AddVertexAt(1, new Point2d(wFt / 2, -hFt / 2), 0, 0, 0);
+                            profile.AddVertexAt(2, new Point2d(wFt / 2, hFt / 2), 0, 0, 0);
+                            profile.AddVertexAt(3, new Point2d(-wFt / 2, hFt / 2), 0, 0, 0);
+                            profile.Closed = true;
+                            profile.TransformBy(mat);
+
+                            ms.AppendEntity(profile);
+                            tr.AddNewlyCreatedDBObject(profile, true);
+
+                            var curves = new DBObjectCollection { profile };
+                            var regions = Region.CreateFromCurves(curves);
+                            if (regions.Count > 0)
+                            {
+                                var region = (Region)regions[0];
+                                ms.AppendEntity(region);
+                                tr.AddNewlyCreatedDBObject(region, true);
+
+                                var solid = new Solid3d();
+                                solid.ExtrudeAlongPath(region, pathPoly, 0);
+                                solid.Layer = "PDFCAD_DUCT_BANK";
+                                ms.AppendEntity(solid);
+                                tr.AddNewlyCreatedDBObject(solid, true);
+
+                                created++;
+                                profile.Erase();
+                                pathPoly.Erase();
+                                region.Erase();
+                            }
+                            else
+                            {
+                                profile.Erase();
+                                pathPoly.Erase();
+                                ed.WriteMessage($"\n  ⚠ Duct bank '{dbk.Name}': no se pudo crear la región del perfil.");
+                            }
+                        }
+                    }
+
+                    // Los conductos internos se crean como Pipe Network (paso 5e).
+                }
+                catch (Exception exOne)
+                {
+                    ed.WriteMessage($"\n  ✗ Duct bank '{dbk.Name}': {exOne.Message}");
+                }
+            }
+            if (created > 0)
+                ed.WriteMessage($"\n  · {created} duct bank(s) creados como sólidos 3D en capa PDFCAD_DUCT_BANK.");
+        }
+
+        // =================================================================
         //  DTOs
         // =================================================================
         private class ImportPipe
@@ -2695,6 +3264,12 @@ namespace Civil3DBasico
             // cercanas — ver InterpolateZ. Ya viene convertida a unidades del dibujo.
             public Dictionary<int, double> VertexInv = new Dictionary<int, double>();
             public Dictionary<int, double> VertexInvIn = new Dictionary<int, double>();
+            // Tubería marcada como ABANDONADA en la app (checkbox "Abandonado").
+            // Solo cambia su representación en 3D (Model): se le asigna un PipeStyle
+            // cuyo display 3D usa un linetype discontinuo. Planta/perfil quedan igual.
+            public bool Abandoned;
+            public int PipeIdx = -1;
+            public bool HasDuctBank;
         }
 
         // Esquina de un elemento curvo (punto PDFCAD_CURVE, capa PDFCAD_CURVA).
@@ -2789,6 +3364,24 @@ namespace Civil3DBasico
             public string NetKind = "gravity";      // "gravity" | "pressure"
             public double? HeightFt;                // "Altura (Pies)" de Python — fuerza Rim = Sump + esto
             public bool Hidden;                      // "Ocultar buzón" de Python — fuerza "Estructura nula"
+        }
+
+        private class DuctConduit
+        {
+            public double Cx, Cy, Diam;
+            public string Label = "";
+        }
+
+        private class ImportDuctBank
+        {
+            public Point2d Anchor;
+            public int PipeIdx;
+            public string Name = "";
+            public double WidthIn, HeightIn;
+            public double MarginTop, MarginRight, MarginBottom, MarginLeft;
+            public double CornerTL, CornerTR, CornerBR, CornerBL;
+            public List<DuctConduit> Conduits = new List<DuctConduit>();
+            public ImportPipe MatchedPipe;   // se asigna tras emparejar por anchor
         }
     }
 }

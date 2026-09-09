@@ -13,6 +13,23 @@ from PySide6 import QtCore, QtGui, QtWidgets
 from model import Z_PDF
 
 
+_ZOOM_MIN = 0.1
+_ZOOM_MAX = 10.0
+
+_MODE_CURSORS = {
+    "pipe": QtCore.Qt.CrossCursor,
+    "erase": QtCore.Qt.CrossCursor,
+    "centerline": QtCore.Qt.CrossCursor,
+    "leader1": QtCore.Qt.CrossCursor,
+    "leader2": QtCore.Qt.CrossCursor,
+    "leader3": QtCore.Qt.CrossCursor,
+    "text": QtCore.Qt.IBeamCursor,
+    "move": QtCore.Qt.SizeAllCursor,
+    "idle": QtCore.Qt.ArrowCursor,
+    "insert_bz": QtCore.Qt.CrossCursor,
+}
+
+
 class Canvas(QtWidgets.QGraphicsView):
     clicked = QtCore.Signal(float, float, object)
     dbl = QtCore.Signal(float, float)
@@ -28,6 +45,7 @@ class Canvas(QtWidgets.QGraphicsView):
         self.setMouseTracking(True); self.viewport().setMouseTracking(True)
         self.pixmap_item = None; self._pan = False; self._pan0 = None; self._moving = False
         self.pdf_opacity = 1.0
+        self._zoom_level = 1.0
         # Fondo DETRÁS del PDF (mismo tamaño que el PDF): blanco por defecto. Al
         # bajar la opacidad del PDF se ve este fondo en vez del azul del lienzo.
         # Se puede alternar a negro (ver set_pdf_bg / botón "Opacidad").
@@ -47,6 +65,7 @@ class Canvas(QtWidgets.QGraphicsView):
         self.pixmap_item.setOpacity(self.pdf_opacity)
         self.setSceneRect(self.pixmap_item.boundingRect())
         self.resetTransform(); self.fitInView(self.pixmap_item, QtCore.Qt.KeepAspectRatio)
+        self._zoom_level = 1.0
 
     def set_pdf_opacity(self, val):
         self.pdf_opacity = max(0.1, min(1.0, val))
@@ -65,9 +84,17 @@ class Canvas(QtWidgets.QGraphicsView):
             self.win._on_escape(); e.accept(); return
         super().keyPressEvent(e)
 
+    def set_mode_cursor(self, mode):
+        self.viewport().setCursor(_MODE_CURSORS.get(mode, QtCore.Qt.ArrowCursor))
+
     def wheelEvent(self, e):
         if self.pixmap_item:
-            f = 1.25 if e.angleDelta().y() > 0 else 0.8; self.scale(f, f)
+            f = 1.25 if e.angleDelta().y() > 0 else 0.8
+            new = self._zoom_level * f
+            if new < _ZOOM_MIN or new > _ZOOM_MAX:
+                return
+            self._zoom_level = new
+            self.scale(f, f)
 
     def mousePressEvent(self, e):
         if e.button() == QtCore.Qt.MiddleButton:
