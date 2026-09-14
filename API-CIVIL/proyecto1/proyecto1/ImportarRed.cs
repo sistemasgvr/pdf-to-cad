@@ -238,13 +238,6 @@ namespace Civil3DBasico
                             // pero eso sería incorrecto — chequear existencia con XdStr.
                             RenderEnvelope = (XdStr(xd, "RENDER_ENVELOPE", "1").Trim() != "0"),
                         };
-                        // Log del flag leído — útil para diagnosticar si el
-                        // usuario dice que desactivó "Dibujar contenedor 3D"
-                        // pero aun así ve el sólido dibujado.
-                        {
-                            string rawFlag = XdStr(xd, "RENDER_ENVELOPE", "(ausente)");
-                            ed?.WriteMessage($"\n  [DUCTBANK] '{dbk.Name}' RENDER_ENVELOPE raw='{rawFlag}' → {dbk.RenderEnvelope}");
-                        }
                         string conduitsRaw = XdStr(xd, "CONDUITS", "");
                         if (!string.IsNullOrWhiteSpace(conduitsRaw))
                         {
@@ -3262,7 +3255,6 @@ namespace Civil3DBasico
             BlockTableRecord ms = (BlockTableRecord)tr.GetObject(
                 SymbolUtilityServices.GetBlockModelSpaceId(db), OpenMode.ForWrite);
 
-            ed.WriteMessage($"\n[DUCTBANK] CrearDuctBanks: {dbs.Count} bancoducto(s) a procesar.");
             int created = 0, skipped = 0, failed = 0;
             foreach (var dbk in dbs)
             {
@@ -3271,22 +3263,17 @@ namespace Civil3DBasico
                     var matchPipe = dbk.MatchedPipe;
                     if (matchPipe == null || matchPipe.Vertices == null || matchPipe.Vertices.Count < 2)
                     {
-                        ed.WriteMessage($"\n  ⚠ Duct bank '{dbk.Name}' (pipe_idx={dbk.PipeIdx}): no se encontró la pipe asignada, sólido NO se dibuja.");
                         skipped++;
                         continue;
                     }
-
                     // RENDER_ENVELOPE=0 → el usuario NO quiere el sólido 3D del
                     // contenedor (los conductos se seguirán creando fuera de este
                     // método). Saltamos toda la extrusión.
                     if (!dbk.RenderEnvelope)
                     {
-                        ed.WriteMessage($"\n  · Duct bank '{dbk.Name}': RENDER_ENVELOPE=0 → contenedor 3D desactivado por el usuario.");
                         skipped++;
                         continue;
                     }
-                    ed.WriteMessage($"\n  · Duct bank '{dbk.Name}': dibujando sólido " +
-                                    $"({dbk.WidthIn:F1}×{dbk.HeightIn:F1}\" a lo largo de {matchPipe.Vertices.Count} vértices)...");
 
                     double wFt = dbk.WidthIn / 12.0;
                     double hFt = dbk.HeightIn / 12.0;
@@ -3409,10 +3396,53 @@ namespace Civil3DBasico
 
                         using (var profile = new Polyline())
                         {
-                            profile.AddVertexAt(0, new Point2d(-wFt / 2, -hFt / 2), 0, 0, 0);
-                            profile.AddVertexAt(1, new Point2d(wFt / 2, -hFt / 2), 0, 0, 0);
-                            profile.AddVertexAt(2, new Point2d(wFt / 2, hFt / 2), 0, 0, 0);
-                            profile.AddVertexAt(3, new Point2d(-wFt / 2, hFt / 2), 0, 0, 0);
+                            // Radios de fillet por esquina (en ft), acotados a
+                            // la mitad del lado más corto para que no se pisen.
+                            double halfMin = Math.Min(wFt, hFt) / 2.0;
+                            double rTL = Math.Max(0, Math.Min(dbk.CornerTL / 12.0, halfMin));
+                            double rTR = Math.Max(0, Math.Min(dbk.CornerTR / 12.0, halfMin));
+                            double rBR = Math.Max(0, Math.Min(dbk.CornerBR / 12.0, halfMin));
+                            double rBL = Math.Max(0, Math.Min(dbk.CornerBL / 12.0, halfMin));
+                            const double B90 = 0.41421356237309503;   // tan(90°/4)
+                            double xL = -wFt / 2, xR = wFt / 2;
+                            double yB = -hFt / 2, yT = hFt / 2;
+                            // Perfil recorrido en CCW: BL → BR → TR → TL.
+                            // Para cada esquina con r>0 insertamos dos vértices
+                            // (tangente-in con bulge=+tan(22.5°), tangente-out
+                            // con bulge=0). Sin redondeo (r=0) va un solo vértice.
+                            int vi = 0;
+                            // BL
+                            if (rBL > 0)
+                            {
+                                profile.AddVertexAt(vi++, new Point2d(xL, yB + rBL), 0, 0, 0);
+                                profile.SetBulgeAt(vi - 1, B90);
+                                profile.AddVertexAt(vi++, new Point2d(xL + rBL, yB), 0, 0, 0);
+                            }
+                            else profile.AddVertexAt(vi++, new Point2d(xL, yB), 0, 0, 0);
+                            // BR
+                            if (rBR > 0)
+                            {
+                                profile.AddVertexAt(vi++, new Point2d(xR - rBR, yB), 0, 0, 0);
+                                profile.SetBulgeAt(vi - 1, B90);
+                                profile.AddVertexAt(vi++, new Point2d(xR, yB + rBR), 0, 0, 0);
+                            }
+                            else profile.AddVertexAt(vi++, new Point2d(xR, yB), 0, 0, 0);
+                            // TR
+                            if (rTR > 0)
+                            {
+                                profile.AddVertexAt(vi++, new Point2d(xR, yT - rTR), 0, 0, 0);
+                                profile.SetBulgeAt(vi - 1, B90);
+                                profile.AddVertexAt(vi++, new Point2d(xR - rTR, yT), 0, 0, 0);
+                            }
+                            else profile.AddVertexAt(vi++, new Point2d(xR, yT), 0, 0, 0);
+                            // TL
+                            if (rTL > 0)
+                            {
+                                profile.AddVertexAt(vi++, new Point2d(xL + rTL, yT), 0, 0, 0);
+                                profile.SetBulgeAt(vi - 1, B90);
+                                profile.AddVertexAt(vi++, new Point2d(xL, yT - rTL), 0, 0, 0);
+                            }
+                            else profile.AddVertexAt(vi++, new Point2d(xL, yT), 0, 0, 0);
                             profile.Closed = true;
                             profile.TransformBy(mat);
 
@@ -3442,7 +3472,6 @@ namespace Civil3DBasico
                             {
                                 profile.Erase();
                                 pathPoly.Erase();
-                                ed.WriteMessage($"\n  ⚠ Duct bank '{dbk.Name}': no se pudo crear la región del perfil (sólido NO dibujado).");
                                 failed++;
                             }
                         }
@@ -3450,13 +3479,13 @@ namespace Civil3DBasico
 
                     // Los conductos internos se crean como Pipe Network (paso 5e).
                 }
-                catch (Exception exOne)
+                catch
                 {
-                    ed.WriteMessage($"\n  ✗ Duct bank '{dbk.Name}': EXCEPCIÓN {exOne.GetType().Name}: {exOne.Message}");
                     failed++;
                 }
             }
-            ed.WriteMessage($"\n[DUCTBANK] Resumen: {created} creados, {skipped} omitidos, {failed} con error.");
+            if (created > 0)
+                ed.WriteMessage($"\n  · {created} duct bank(s) creados como sólidos 3D en capa PDFCAD_DUCT_BANK.");
         }
 
         // =================================================================
