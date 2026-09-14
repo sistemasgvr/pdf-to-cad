@@ -357,6 +357,10 @@ def _export_duct_banks(win, doc, msp):
             f"{c.cx},{c.cy},{c.diam},{c.label}" for c in db.conduits)
         pt = msp.add_point((anchor[0], anchor[1], 0),
                            dxfattribs={"layer": "PDFCAD_DUCT_BANK"})
+        # RENDER_ENVELOPE=0 → el plugin C# crea los conductos pero NO el sólido
+        # 3D del contenedor. Se envía siempre (default 1) para que versiones
+        # nuevas y viejas del plugin sepan qué hacer.
+        render_env = 1 if getattr(db, "render_envelope", True) else 0
         pt.set_xdata("PDFCAD", [
             (1000, "PDFCAD_DUCTBANK"),
             (1000, f"PIPE_IDX={pi}"),
@@ -371,6 +375,7 @@ def _export_duct_banks(win, doc, msp):
             (1000, f"CORNER_TR={db.corner_tr}"),
             (1000, f"CORNER_BR={db.corner_br}"),
             (1000, f"CORNER_BL={db.corner_bl}"),
+            (1000, f"RENDER_ENVELOPE={render_env}"),
             (1000, f"CONDUITS={conduits_str}"),
         ])
 

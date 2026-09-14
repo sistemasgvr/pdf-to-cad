@@ -1,0 +1,1549 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Cómo funciona — PDF a CAD</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/mermaid/10.9.1/mermaid.min.js"></script>
+<style>
+:root {
+  --bg:          #f7f8fa;
+  --surface:     #ffffff;
+  --surface-alt: #f0f2f6;
+  --text:        #1e2531;
+  --text-muted:  #4a5568;
+  --border:      #d7dbe3;
+  --accent:      #2f6ad9;
+  --accent-soft: rgba(47, 106, 217, 0.10);
+  --accent-2:    #6b46c1;
+  --success:     #22c55e;
+  --success-soft:rgba(34, 197, 94, 0.12);
+  --danger:      #ef4444;
+  --warn:        #eab308;
+  --shadow:      0 1px 3px rgba(0,0,0,0.06);
+  --shadow-lg:   0 4px 20px rgba(0,0,0,0.08);
+}
+:root[data-theme="dark"] {
+  --bg:          #12151b;
+  --surface:     #1a1d24;
+  --surface-alt: #22262f;
+  --text:        #ececec;
+  --text-muted:  #a7adb8;
+  --border:      #333842;
+  --accent:      #4a83e8;
+  --accent-soft: rgba(74, 131, 232, 0.18);
+  --accent-2:    #a78bfa;
+  --success:     #34d399;
+  --success-soft:rgba(52, 211, 153, 0.14);
+  --danger:      #f87171;
+  --warn:        #fbbf24;
+  --shadow:      0 1px 3px rgba(0,0,0,0.4);
+  --shadow-lg:   0 4px 20px rgba(0,0,0,0.4);
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg:          #12151b;
+    --surface:     #1a1d24;
+    --surface-alt: #22262f;
+    --text:        #ececec;
+    --text-muted:  #a7adb8;
+    --border:      #333842;
+    --accent:      #4a83e8;
+    --accent-soft: rgba(74, 131, 232, 0.18);
+    --accent-2:    #a78bfa;
+    --success:     #34d399;
+    --success-soft:rgba(52, 211, 153, 0.14);
+    --danger:      #f87171;
+    --warn:        #fbbf24;
+    --shadow:      0 1px 3px rgba(0,0,0,0.4);
+    --shadow-lg:   0 4px 20px rgba(0,0,0,0.4);
+  }
+}
+* { box-sizing: border-box; }
+body {
+  margin: 0; padding: 0;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+  background: var(--bg); color: var(--text);
+  font-size: 16px; line-height: 1.65;
+}
+.top {
+  position: sticky; top: 0; z-index: 10;
+  background: var(--surface); border-bottom: 1px solid var(--border);
+  padding: 12px 24px; display: flex; align-items: center; gap: 16px;
+  box-shadow: var(--shadow);
+}
+.top .brand { font-weight: 700; font-size: 15px; flex-shrink: 0; }
+.top .brand small { color: var(--text-muted); font-weight: 400; margin-left: 6px; }
+.top nav { display: flex; gap: 6px; flex: 1; overflow-x: auto; }
+.top nav a {
+  padding: 6px 12px; color: var(--text-muted); text-decoration: none;
+  border-radius: 6px; font-size: 14px; white-space: nowrap;
+}
+.top nav a:hover { background: var(--surface-alt); color: var(--text); }
+.top nav a.active { background: var(--accent-soft); color: var(--accent); font-weight: 600; }
+.top .theme-btn {
+  background: transparent; border: 1px solid var(--border); border-radius: 6px;
+  padding: 6px 12px; color: var(--text); cursor: pointer; font-size: 13px;
+  flex-shrink: 0;
+}
+.top .theme-btn:hover { background: var(--surface-alt); }
+
+main { max-width: 980px; margin: 0 auto; padding: 32px 24px 80px 24px; }
+
+section { margin-bottom: 60px; scroll-margin-top: 80px; }
+
+h1.title {
+  font-size: 34px; margin: 0 0 12px 0; letter-spacing: -0.02em; font-weight: 800;
+}
+.lead {
+  font-size: 18px; color: var(--text-muted); margin-bottom: 24px; max-width: 720px;
+}
+h2 {
+  font-size: 26px; margin: 0 0 8px 0; letter-spacing: -0.01em;
+  display: flex; align-items: center; gap: 12px;
+}
+h2 .emoji { font-size: 28px; }
+h2 + .h2-sub { color: var(--text-muted); margin-top: 0; margin-bottom: 20px; font-size: 15px; }
+h3 { font-size: 19px; margin: 28px 0 8px 0; }
+
+.hero {
+  background: linear-gradient(135deg, var(--accent-soft) 0%, transparent 100%);
+  border: 1px solid var(--border);
+  border-radius: 16px; padding: 28px; margin-bottom: 40px;
+}
+
+.two-cards {
+  display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin: 24px 0;
+}
+@media (max-width: 700px) { .two-cards { grid-template-columns: 1fr; } }
+.card {
+  background: var(--surface); border: 1px solid var(--border);
+  border-radius: 12px; padding: 20px; box-shadow: var(--shadow);
+}
+.card h3 { margin-top: 0; display: flex; align-items: center; gap: 10px; font-size: 17px; }
+.card p { margin: 8px 0 0 0; color: var(--text-muted); font-size: 14px; line-height: 1.5; }
+.card .icon-lg { font-size: 26px; }
+.card.blue h3 { color: var(--accent); }
+.card.green h3 { color: var(--success); }
+.card.purple h3 { color: var(--accent-2); }
+
+.callout {
+  background: var(--accent-soft);
+  border-left: 4px solid var(--accent);
+  padding: 14px 18px; border-radius: 8px; margin: 20px 0;
+}
+.callout strong { color: var(--accent); }
+.callout.tip { background: var(--success-soft); border-color: var(--success); }
+.callout.tip strong { color: var(--success); }
+
+.steps { counter-reset: step; }
+.step {
+  display: flex; gap: 16px; padding: 18px; background: var(--surface);
+  border: 1px solid var(--border); border-radius: 12px;
+  margin: 12px 0; box-shadow: var(--shadow); align-items: flex-start;
+  cursor: pointer; transition: transform 0.15s, box-shadow 0.15s;
+}
+.step:hover { transform: translateY(-1px); box-shadow: var(--shadow-lg); }
+.step-num {
+  flex-shrink: 0; width: 40px; height: 40px; border-radius: 50%;
+  background: var(--accent); color: white;
+  display: flex; align-items: center; justify-content: center;
+  font-weight: 800; font-size: 17px;
+}
+.step-body h4 { margin: 0 0 6px 0; font-size: 16px; color: var(--text); }
+.step-body p { margin: 0; color: var(--text-muted); font-size: 14px; }
+.step.active { border-color: var(--accent); }
+.step.active .step-body p .more { display: block; margin-top: 8px; color: var(--text); }
+.step-body p .more { display: none; font-size: 14px; }
+
+.mermaid {
+  background: var(--surface); border: 1px solid var(--border);
+  border-radius: 12px; padding: 20px; margin: 20px 0;
+  overflow-x: auto; text-align: center;
+}
+.caption { font-size: 13px; color: var(--text-muted); text-align: center; margin: -8px 0 20px 0; font-style: italic; }
+
+/* Tabs */
+.tabs {
+  display: flex; gap: 4px; margin: 16px 0 0 0;
+  border-bottom: 2px solid var(--border);
+}
+.tab {
+  padding: 10px 20px; background: transparent; border: none;
+  color: var(--text-muted); font-size: 15px; font-weight: 600;
+  cursor: pointer; border-bottom: 2px solid transparent;
+  margin-bottom: -2px;
+}
+.tab:hover { color: var(--text); }
+.tab.active { color: var(--accent); border-bottom-color: var(--accent); }
+.tab .count {
+  display: inline-block; margin-left: 6px; padding: 1px 8px;
+  background: var(--surface-alt); border-radius: 10px;
+  font-size: 11px; font-weight: 700;
+}
+.tab.active .count { background: var(--accent-soft); color: var(--accent); }
+
+.tab-panel { display: none; padding-top: 20px; }
+.tab-panel.active { display: block; }
+
+/* Search */
+.search {
+  display: flex; align-items: center; gap: 8px;
+  background: var(--surface); border: 1px solid var(--border);
+  border-radius: 8px; padding: 8px 12px; margin: 12px 0 20px 0;
+}
+.search input {
+  border: none; outline: none; background: transparent;
+  color: var(--text); font-size: 14px; flex: 1;
+}
+.search .icon { color: var(--text-muted); }
+.search-status { font-size: 12px; color: var(--text-muted); margin-left: 8px; }
+
+/* Folder + files */
+.folder {
+  background: var(--surface-alt); padding: 10px 14px;
+  border-radius: 8px 8px 0 0; border: 1px solid var(--border); border-bottom: none;
+  font-size: 14px; font-weight: 700; color: var(--text);
+  margin-top: 20px; display: flex; align-items: center; gap: 8px;
+}
+.folder .folder-note { font-weight: 400; color: var(--text-muted); font-size: 13px; margin-left: 8px; }
+.folder + .files {
+  border: 1px solid var(--border); border-radius: 0 0 10px 10px;
+  background: var(--surface);
+}
+.files { }
+.fitem {
+  border-bottom: 1px solid var(--border);
+  cursor: pointer;
+  transition: background 0.1s;
+}
+.fitem:last-child { border-bottom: none; border-radius: 0 0 10px 10px; }
+.fitem:hover { background: var(--surface-alt); }
+.fitem-header {
+  padding: 12px 16px;
+  display: grid; grid-template-columns: auto 1fr auto; gap: 14px; align-items: center;
+}
+.fitem-name {
+  font-family: "SF Mono", Menlo, Consolas, monospace;
+  font-size: 13px; font-weight: 600; color: var(--text);
+  padding: 3px 8px; background: var(--surface-alt);
+  border-radius: 4px; white-space: nowrap;
+}
+.fitem.open .fitem-name { background: var(--accent-soft); color: var(--accent); }
+.fitem-short { color: var(--text-muted); font-size: 14px; line-height: 1.4; }
+.fitem-toggle {
+  color: var(--text-muted); font-size: 14px; transition: transform 0.2s;
+  flex-shrink: 0;
+}
+.fitem.open .fitem-toggle { transform: rotate(90deg); color: var(--accent); }
+.fitem-long {
+  padding: 0 16px 14px 16px; margin-left: 100px;
+  color: var(--text); font-size: 14px; line-height: 1.6;
+  display: none;
+}
+.fitem-long .analogy {
+  background: var(--surface-alt); border-left: 3px solid var(--accent-2);
+  padding: 10px 14px; margin: 10px 0; border-radius: 6px;
+}
+.fitem-long .analogy strong { color: var(--accent-2); }
+.fitem.open .fitem-long { display: block; }
+.fitem[hidden] { display: none !important; }
+
+.tag {
+  display: inline-block; padding: 2px 8px; border-radius: 10px;
+  font-size: 11px; font-weight: 600; margin-left: 8px;
+  vertical-align: middle;
+}
+.tag-core { background: var(--accent-soft); color: var(--accent); }
+.tag-ui { background: var(--success-soft); color: var(--success); }
+.tag-data { background: rgba(234, 179, 8, 0.14); color: var(--warn); }
+.tag-tests { background: rgba(107, 70, 193, 0.14); color: var(--accent-2); }
+
+table {
+  width: 100%; border-collapse: collapse; margin: 12px 0;
+  font-size: 14px; background: var(--surface);
+  border: 1px solid var(--border); border-radius: 10px; overflow: hidden;
+}
+th { background: var(--surface-alt); text-align: left; padding: 12px 16px; font-weight: 700; }
+td { padding: 12px 16px; border-top: 1px solid var(--border); color: var(--text-muted); vertical-align: top; }
+td:first-child { color: var(--text); font-weight: 600; }
+
+/* Tooltip on hard-word (dotted underline) */
+.term {
+  border-bottom: 1px dotted var(--accent);
+  cursor: help; position: relative;
+}
+.term::after {
+  content: attr(data-tip);
+  position: absolute; left: 50%; bottom: 130%;
+  transform: translateX(-50%);
+  background: var(--text); color: var(--surface);
+  font-size: 12px; padding: 8px 12px; border-radius: 6px;
+  min-width: 220px; max-width: 320px; text-align: left;
+  opacity: 0; pointer-events: none; transition: opacity 0.15s;
+  z-index: 20; line-height: 1.4; font-weight: normal;
+  white-space: normal;
+  box-shadow: var(--shadow-lg);
+}
+.term:hover::after { opacity: 1; }
+
+.metaphor {
+  background: linear-gradient(135deg, rgba(107, 70, 193, 0.10), transparent);
+  border: 1px solid var(--border); border-left: 4px solid var(--accent-2);
+  padding: 16px 20px; border-radius: 10px; margin: 20px 0;
+}
+.metaphor h4 { margin: 0 0 6px 0; font-size: 15px; color: var(--accent-2); }
+.metaphor p { margin: 0; color: var(--text); font-size: 15px; }
+
+.footer {
+  margin-top: 60px; padding: 20px 0; border-top: 1px solid var(--border);
+  color: var(--text-muted); font-size: 13px; text-align: center;
+}
+</style>
+</head>
+<body>
+
+<div class="top">
+  <div class="brand">📐 PDF a CAD <small>· cómo funciona por dentro</small></div>
+  <nav id="topnav">
+    <a href="#overview">Inicio</a>
+    <a href="#partes">Las 2 partes</a>
+    <a href="#flujo">Cómo funciona</a>
+    <a href="#archivos">Archivos por dentro</a>
+    <a href="#dialogo">Cómo se hablan</a>
+    <a href="#palabras">Palabras difíciles</a>
+  </nav>
+  <button class="theme-btn" id="themeToggle">🌗 Tema</button>
+</div>
+
+<main>
+
+<section id="overview">
+  <div class="hero">
+    <h1 class="title">¿Cómo está armado este proyecto?</h1>
+    <p class="lead">
+      Guía visual para entender de qué está hecho el sistema <b>PDF a CAD</b>,
+      qué hace cada carpeta y cada archivo, y cómo se pasan la información las
+      dos piezas del programa.
+    </p>
+    <p class="lead" style="font-size:15px;">
+      Está escrita para que cualquier persona la entienda — sin necesidad de saber
+      de programación. Cada palabra difícil tiene <span class="term" data-tip="Pasa el ratón sobre las palabras subrayadas con puntos para ver su explicación breve.">tooltip explicativo</span>,
+      y los archivos se pueden <b>expandir con un clic</b> para ver más detalle.
+    </p>
+  </div>
+
+  <h2><span class="emoji">🎯</span> ¿Para qué sirve el sistema?</h2>
+  <p>
+    Los ingenieros civiles trabajan con <b>planos de tuberías</b> (agua, desagüe,
+    gas, telecomunicaciones, electricidad) que muchas veces llegan como
+    <b>archivos PDF</b>. El problema: un PDF es una imagen — no se puede editar
+    ni analizar como una red real.
+  </p>
+  <p>
+    Este sistema resuelve eso en dos pasos:
+  </p>
+
+  <div class="two-cards">
+    <div class="card blue">
+      <h3><span class="icon-lg">📝</span> 1. Calcar el plano en la computadora</h3>
+      <p>
+        El ingeniero abre el PDF en una aplicación de escritorio y, encima del plano,
+        <b>dibuja cada tubería y cada buzón</b> como si calcara sobre papel vegetal.
+        Le pone los datos técnicos (diámetro, material, profundidad) y lo guarda.
+      </p>
+    </div>
+    <div class="card green">
+      <h3><span class="icon-lg">🏗️</span> 2. Que Civil 3D lo convierta en red real</h3>
+      <p>
+        La app genera un archivo especial que Civil 3D entiende. Al abrirlo y ejecutar
+        un comando, Civil 3D <b>crea la red de tuberías real en 3D</b>, con todas sus
+        propiedades, lista para calcular, dibujar en planta y perfil, exportar planos, etc.
+      </p>
+    </div>
+  </div>
+
+  <div class="metaphor">
+    <h4>💡 Metáfora que ayuda</h4>
+    <p>
+      Piensa en la <b>app de escritorio</b> como un <b>traductor</b> y en el
+      <b>plugin de Civil 3D</b> como un <b>albañil constructor</b>. El traductor
+      recoge lo que dice el plano en PDF y lo escribe en un idioma que el albañil
+      entiende. El albañil lo lee y construye la red real dentro de Civil 3D.
+    </p>
+  </div>
+</section>
+
+<section id="partes">
+  <h2><span class="emoji">🧩</span> Las 2 partes del sistema</h2>
+  <p class="h2-sub">Todo el proyecto se divide en dos programas separados que colaboran.</p>
+
+  <div class="two-cards">
+    <div class="card blue">
+      <h3><span class="icon-lg">🖥️</span> La aplicación de escritorio</h3>
+      <p>
+        Es la ventana que abre el ingeniero en su computadora. Ahí ve el PDF y
+        dibuja encima. Vive en la carpeta <code>app/</code> del proyecto.
+      </p>
+      <p style="margin-top:10px;">
+        <b>Puede correr sola</b> — no necesita tener Civil 3D instalado. Su único
+        trabajo es dejar un archivo bien preparado para el otro programa.
+      </p>
+    </div>
+    <div class="card green">
+      <h3><span class="icon-lg">⚙️</span> El complemento de Civil 3D</h3>
+      <p>
+        Es un <span class="term" data-tip="Un pequeño programa extra que se instala dentro de Civil 3D para darle capacidades nuevas. Como una extensión del navegador, pero para Civil 3D.">complemento</span>
+        que se instala dentro de Civil 3D. Aparece disponible cada vez que se
+        abre el programa. Vive en la carpeta <code>API-CIVIL/</code>.
+      </p>
+      <p style="margin-top:10px;">
+        Su trabajo es <b>leer el archivo que dejó la app</b> y usarlo para crear
+        las redes reales dentro del dibujo.
+      </p>
+    </div>
+  </div>
+
+  <div class="callout">
+    <strong>¿Cómo se pasan la información?</strong> Por un <b>archivo intermedio</b>.
+    La app escribe un archivo <b>DXF</b> (que es un formato que Civil 3D sabe leer)
+    y le añade unas <b>etiquetas ocultas</b> con todos los datos que hace falta
+    conocer para armar la red. El complemento lee esas etiquetas al abrir el archivo.
+  </div>
+</section>
+
+<section id="flujo">
+  <h2><span class="emoji">🚶</span> Cómo funciona en la práctica</h2>
+  <p class="h2-sub">Los pasos que sigue una persona desde que tiene el PDF hasta que ve la red 3D en Civil 3D. <b>Haz clic en cada paso</b> para ver más detalle.</p>
+
+  <div class="mermaid">
+flowchart LR
+    PDF[📄 PDF del plano] --> APP
+    APP[🖥️ App de escritorio] --> DXF
+    DXF[📐 Archivo DXF<br/>con etiquetas ocultas]
+    DXF --> PLG[⚙️ Complemento en Civil 3D]
+    PLG --> C3D[🏗️ Red 3D lista en<br/>Civil 3D]
+
+    style PDF fill:#eab308,color:#000
+    style APP fill:#2f6ad9,color:#fff
+    style DXF fill:#a78bfa,color:#fff
+    style PLG fill:#22c55e,color:#fff
+    style C3D fill:#22c55e,color:#fff
+  </div>
+  <div class="caption">El camino completo. Cada bloque se detalla abajo.</div>
+
+  <div class="steps">
+    <div class="step" onclick="this.classList.toggle('active')">
+      <div class="step-num">1</div>
+      <div class="step-body">
+        <h4>El ingeniero abre el PDF</h4>
+        <p>
+          Arrastra un archivo PDF a la aplicación y ve el plano en pantalla.
+          <span class="more">La app puede leer PDFs limpios (dibujados con computadora) o escaneados (fotografiados). En ambos casos, muestra la imagen para que se pueda dibujar encima.</span>
+        </p>
+      </div>
+    </div>
+
+    <div class="step" onclick="this.classList.toggle('active')">
+      <div class="step-num">2</div>
+      <div class="step-body">
+        <h4>Dibuja las tuberías y los buzones</h4>
+        <p>
+          Con el ratón, calca cada tubería como una línea y pone marcadores
+          donde hay buzones o curvas.
+          <span class="more">Le asigna diámetro, material, profundidad y tipo de red (agua, desagüe, gas...) a cada tubería. Todo eso se guarda en el fondo mientras dibuja.</span>
+        </p>
+      </div>
+    </div>
+
+    <div class="step" onclick="this.classList.toggle('active')">
+      <div class="step-num">3</div>
+      <div class="step-body">
+        <h4>Ubica el plano en el mundo real</h4>
+        <p>
+          Marca 3 o más puntos conocidos (por ejemplo, esquinas de calles) para
+          que el plano se acomode a las coordenadas reales del terreno.
+          <span class="more">A partir de ahí, todo lo que dibuje queda anclado al mundo real. Cuando el complemento arme la red en Civil 3D, aparecerá en el lugar correcto del mapa (California, sistema de coordenadas de California V).</span>
+        </p>
+      </div>
+    </div>
+
+    <div class="step" onclick="this.classList.toggle('active')">
+      <div class="step-num">4</div>
+      <div class="step-body">
+        <h4>Exporta el archivo DXF</h4>
+        <p>
+          Un botón "Exportar" genera el archivo DXF listo para Civil 3D, con toda
+          la información técnica escondida dentro.
+          <span class="more">El proyecto también se guarda como archivo <code>.digproj</code> para poder reabrirlo, corregirlo y volver a exportar cuando haga falta.</span>
+        </p>
+      </div>
+    </div>
+
+    <div class="step" onclick="this.classList.toggle('active')">
+      <div class="step-num">5</div>
+      <div class="step-body">
+        <h4>Civil 3D construye la red</h4>
+        <p>
+          El ingeniero abre el DXF en Civil 3D y escribe <code>IMPORTAR_RED</code>.
+          En segundos, aparece la red real: tuberías, buzones y bancoductos en 3D.
+          <span class="more">El complemento hace mucho trabajo automático detrás: elige la familia de piezas correcta del catálogo de Civil 3D, ajusta los tamaños, calcula elevaciones, agrupa las tuberías por red, ajusta estilos, etc. Sin él, sería una tarde entera de trabajo manual por cada red.</span>
+        </p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section id="archivos">
+  <h2><span class="emoji">📂</span> Archivos por dentro</h2>
+  <p class="h2-sub">Aquí puedes ver todos los archivos que componen el proyecto, organizados por carpeta. <b>Haz clic sobre cualquier archivo</b> para leer una explicación más larga con analogías.</p>
+
+  <div class="search">
+    <span class="icon">🔎</span>
+    <input id="searchInput" type="text" placeholder="Buscar por nombre o descripción…" />
+    <span class="search-status" id="searchStatus"></span>
+  </div>
+
+  <div class="tabs">
+    <button class="tab active" data-tab="tab-app">🖥️ La aplicación<span class="count" id="cnt-app"></span></button>
+    <button class="tab" data-tab="tab-plugin">⚙️ El complemento<span class="count" id="cnt-plugin"></span></button>
+    <button class="tab" data-tab="tab-extra">📦 Instalador y extras<span class="count" id="cnt-extra"></span></button>
+  </div>
+
+  <!-- ══════════════════════ TAB: APP ══════════════════════ -->
+  <div class="tab-panel active" id="tab-app">
+
+    <div class="folder">📁 app/ <span class="folder-note">— el corazón de la aplicación de escritorio</span></div>
+    <div class="files">
+      <div class="fitem" onclick="toggleItem(this)">
+        <div class="fitem-header">
+          <span class="fitem-name">main.py</span>
+          <span class="fitem-short">El botón de encendido de la aplicación. Es lo primero que se ejecuta cuando el usuario abre el programa.</span>
+          <span class="fitem-toggle">▶</span>
+        </div>
+        <div class="fitem-long">
+          Ocupa apenas 20 líneas. Su única misión es preparar el terreno y llamar a la ventana principal.
+          <div class="analogy"><strong>Analogía:</strong> es el interruptor de la luz — no hace nada por sí mismo, pero prende todo lo demás.</div>
+        </div>
+      </div>
+
+      <div class="fitem" onclick="toggleItem(this)">
+        <div class="fitem-header">
+          <span class="fitem-name">app_window.py <span class="tag tag-core">principal</span></span>
+          <span class="fitem-short">La ventana grande que ve el ingeniero. Coordina absolutamente todo: menús, botones, paneles, atajos.</span>
+          <span class="fitem-toggle">▶</span>
+        </div>
+        <div class="fitem-long">
+          Es el archivo más grande de la aplicación porque orquesta todo lo que pasa en pantalla. Cuando el usuario hace clic en un botón, este archivo escucha y decide qué otro pedazo del programa debe encargarse.
+          <div class="analogy"><strong>Analogía:</strong> es el <b>director de orquesta</b>. No toca ningún instrumento, pero dice a cada uno cuándo entrar. Los "instrumentos" son los otros archivos de esta carpeta.</div>
+        </div>
+      </div>
+
+      <div class="fitem" onclick="toggleItem(this)">
+        <div class="fitem-header">
+          <span class="fitem-name">canvas.py <span class="tag tag-ui">visual</span></span>
+          <span class="fitem-short">El lienzo grande donde se ve el PDF y se dibuja encima. Maneja el zoom, el desplazamiento y el clic del ratón.</span>
+          <span class="fitem-toggle">▶</span>
+        </div>
+        <div class="fitem-long">
+          Es el rectángulo central de la ventana donde se muestra el plano. Todo lo que dibuja el usuario pasa por aquí primero.
+          <div class="analogy"><strong>Analogía:</strong> es la <b>hoja de calco</b> encima del plano. Sabe cómo agrandarse, encogerse, moverse y capturar cada trazo del lápiz.</div>
+        </div>
+      </div>
+
+      <div class="fitem" onclick="toggleItem(this)">
+        <div class="fitem-header">
+          <span class="fitem-name">widgets.py <span class="tag tag-ui">visual</span></span>
+          <span class="fitem-short">Piezas pequeñas de interfaz que se usan varias veces: campos de texto especiales, casillas de números, etc.</span>
+          <span class="fitem-toggle">▶</span>
+        </div>
+        <div class="fitem-long">
+          Cuando algo aparece en varios sitios de la ventana (por ejemplo, un campo para poner elevaciones), su código vive aquí para no repetirlo.
+          <div class="analogy"><strong>Analogía:</strong> es la <b>bolsa de piezas de LEGO</b> reutilizables — cada vez que la ventana necesita el mismo bloque, lo saca de aquí.</div>
+        </div>
+      </div>
+
+      <div class="fitem" onclick="toggleItem(this)">
+        <div class="fitem-header">
+          <span class="fitem-name">dialogs.py <span class="tag tag-ui">visual</span></span>
+          <span class="fitem-short">Las ventanitas emergentes que se abren desde los menús: "Acerca de", "Manual", "Atajos de teclado".</span>
+          <span class="fitem-toggle">▶</span>
+        </div>
+        <div class="fitem-long">
+          Cosas que no son parte del flujo principal, sino ventanitas de apoyo. Están todas juntas aquí para tenerlas ordenadas.
+          <div class="analogy"><strong>Analogía:</strong> son los <b>diálogos secundarios</b> — como cuando en un cajero automático te aparece la pantalla "¿desea imprimir recibo?".</div>
+        </div>
+      </div>
+
+      <div class="fitem" onclick="toggleItem(this)">
+        <div class="fitem-header">
+          <span class="fitem-name">duct_bank.py <span class="tag tag-data">datos</span></span>
+          <span class="fitem-short">La "receta" de qué es un bancoducto: cuántos tubos tiene, sus tamaños, sus reglas de separación.</span>
+          <span class="fitem-toggle">▶</span>
+        </div>
+        <div class="fitem-long">
+          No dibuja nada en pantalla. Solo describe qué datos guarda un bancoducto y qué comprobaciones tiene que pasar (los tubos deben caber dentro, no se pueden solapar, etc.).
+          <div class="analogy"><strong>Analogía:</strong> es la <b>lista de ingredientes y reglas de cocina</b>. La ventana que dibuja el bancoducto usa esta lista para saber qué campos guardar y qué avisar cuando el diseño no cumple.</div>
+        </div>
+      </div>
+
+      <div class="fitem" onclick="toggleItem(this)">
+        <div class="fitem-header">
+          <span class="fitem-name">duct_bank_dialog.py <span class="tag tag-ui">visual</span></span>
+          <span class="fitem-short">La ventana del "Diseñador de bancoductos": el corte transversal donde se dibujan los tubos internos.</span>
+          <span class="fitem-toggle">▶</span>
+        </div>
+        <div class="fitem-long">
+          Un diseñador visual como si fuera un mini-programa de dibujo. Deja poner tubos con el ratón, moverlos, medir distancias, configurar reglas ("los tubos deben estar a 2 pulgadas de separación mínima") y decidir si el contenedor de concreto se dibuja en 3D o no.
+          <div class="analogy"><strong>Analogía:</strong> es el <b>Paint dedicado</b> para dibujar la cara interna del bancoducto — con reglas y guías para que siempre quede bien alineado.</div>
+        </div>
+      </div>
+
+      <div class="fitem" onclick="toggleItem(this)">
+        <div class="fitem-header">
+          <span class="fitem-name">dxf_export.py <span class="tag tag-core">principal</span></span>
+          <span class="fitem-short">El traductor. Toma todo lo que dibujó el ingeniero y lo escribe como archivo DXF con las etiquetas ocultas para Civil 3D.</span>
+          <span class="fitem-toggle">▶</span>
+        </div>
+        <div class="fitem-long">
+          Este es el archivo que <b>construye el puente</b> hacia Civil 3D. Cada tubería, cada buzón, cada bancoducto se escribe aquí en el formato que espera el complemento.
+          <div class="analogy"><strong>Analogía:</strong> es el <b>traductor de idiomas</b>. La app habla en su idioma; Civil 3D en otro. Este archivo escribe el mensaje en un formato que ambos entienden.</div>
+        </div>
+      </div>
+
+      <div class="fitem" onclick="toggleItem(this)">
+        <div class="fitem-header">
+          <span class="fitem-name">civil_catalog.py <span class="tag tag-data">datos</span></span>
+          <span class="fitem-short">Lee el catálogo de piezas de Civil 3D instalado en la computadora para que el usuario pueda elegir familia y tamaño reales.</span>
+          <span class="fitem-toggle">▶</span>
+        </div>
+        <div class="fitem-long">
+          Cuando el usuario abre el desplegable "Familia de tubería" o "Tamaño", los valores vienen de aquí. Se leen del catálogo que Civil 3D tiene instalado, para que lo que ve la app coincida exactamente con lo que existe en el otro programa.
+          <div class="analogy"><strong>Analogía:</strong> es el <b>menú de un restaurante</b> — la app pregunta al catálogo qué platos hay disponibles antes de mostrarle las opciones al comensal.</div>
+        </div>
+      </div>
+
+      <div class="fitem" onclick="toggleItem(this)">
+        <div class="fitem-header">
+          <span class="fitem-name">model.py <span class="tag tag-data">datos</span></span>
+          <span class="fitem-short">Datos que no cambian: versión del programa, listas fijas de materiales de tubería, colores de cada tipo de red.</span>
+          <span class="fitem-toggle">▶</span>
+        </div>
+        <div class="fitem-long">
+          Cosas que sirven a toda la app y no cambian en tiempo de ejecución: qué materiales de tubería existen ("PVC", "HDPE"...), qué capas de dibujo (agua, gas, desagüe), la versión actual del programa, la lista de novedades.
+          <div class="analogy"><strong>Analogía:</strong> es la <b>ficha técnica</b> del programa — está a mano para que cualquiera la consulte, pero nadie la modifica día a día.</div>
+        </div>
+      </div>
+
+      <div class="fitem" onclick="toggleItem(this)">
+        <div class="fitem-header">
+          <span class="fitem-name">model_ops.py <span class="tag tag-data">datos</span></span>
+          <span class="fitem-short">Cálculos automáticos sobre los datos: detectar buzones donde se cruzan tuberías, interpolar elevaciones, encontrar tuberías por punto.</span>
+          <span class="fitem-toggle">▶</span>
+        </div>
+        <div class="fitem-long">
+          Cuando el usuario mueve una tubería o cambia una elevación, aquí ocurren los cálculos automáticos para que todo lo demás siga cuadrando. Por ejemplo: si dos tuberías se cruzan, automáticamente se propone poner un buzón ahí.
+          <div class="analogy"><strong>Analogía:</strong> es la <b>calculadora silenciosa</b> que trabaja en el fondo mientras el ingeniero dibuja, sin que se dé cuenta.</div>
+        </div>
+      </div>
+
+      <div class="fitem" onclick="toggleItem(this)">
+        <div class="fitem-header">
+          <span class="fitem-name">project_io.py <span class="tag tag-data">datos</span></span>
+          <span class="fitem-short">Guarda y abre el archivo del proyecto (<code>.digproj</code>) para poder retomar el trabajo en otro momento.</span>
+          <span class="fitem-toggle">▶</span>
+        </div>
+        <div class="fitem-long">
+          El proyecto <b>NO es lo mismo que el DXF final</b>. El proyecto guarda TODO — incluida la imagen del PDF, para que al reabrirlo se pueda seguir editando. El DXF, en cambio, es solo la exportación final para Civil 3D.
+          <div class="analogy"><strong>Analogía:</strong> el proyecto es el <b>archivo editable</b> (como un .docx en Word). El DXF es la <b>versión final para imprimir</b> (como el PDF que le mandas al cliente).</div>
+        </div>
+      </div>
+
+      <div class="fitem" onclick="toggleItem(this)">
+        <div class="fitem-header">
+          <span class="fitem-name">workers.py</span>
+          <span class="fitem-short">Tareas pesadas que corren en segundo plano para que la app no se congele.</span>
+          <span class="fitem-toggle">▶</span>
+        </div>
+        <div class="fitem-long">
+          Cuando se hace una tarea larga (por ejemplo, procesar el PDF automáticamente), este archivo la manda a un hilo separado. Así la aplicación sigue respondiendo mientras trabaja.
+          <div class="analogy"><strong>Analogía:</strong> es como <b>poner la lavadora</b> mientras haces otras cosas en la casa — no te quedas mirándola girar.</div>
+        </div>
+      </div>
+
+      <div class="fitem" onclick="toggleItem(this)">
+        <div class="fitem-header">
+          <span class="fitem-name">theme.py <span class="tag tag-ui">visual</span></span>
+          <span class="fitem-short">Los colores de la app: define el modo claro y el modo oscuro y permite cambiar en vivo.</span>
+          <span class="fitem-toggle">▶</span>
+        </div>
+        <div class="fitem-long">
+          Todos los colores de la aplicación viven aquí. Cambiar de tema es cuestión de un clic en el menú "Ver", y toda la app se recolora sin cerrarse.
+          <div class="analogy"><strong>Analogía:</strong> es el <b>libro de estilos</b> — como cuando decides "todo el salón lo pinto en tonos beige", pero para la app.</div>
+        </div>
+      </div>
+
+      <div class="fitem" onclick="toggleItem(this)">
+        <div class="fitem-header">
+          <span class="fitem-name">icons.py <span class="tag tag-ui">visual</span></span>
+          <span class="fitem-short">Devuelve los iconitos (lápiz, tijeras, guardar…) del color adecuado según el tema activo.</span>
+          <span class="fitem-toggle">▶</span>
+        </div>
+        <div class="fitem-long">
+          Los iconos vienen como archivos ligeros en la subcarpeta <code>app/icons/mdi/</code> y este archivo los "pinta" al color del tema.
+          <div class="analogy"><strong>Analogía:</strong> es el <b>bibliotecario de iconos</b> — le pides "un lápiz azul" y te lo entrega listo.</div>
+        </div>
+      </div>
+
+      <div class="fitem" onclick="toggleItem(this)">
+        <div class="fitem-header">
+          <span class="fitem-name">ui_common.py</span>
+          <span class="fitem-short">Cositas comunes compartidas entre varios archivos: rutas de descargas, estilos de botón, colores por capa.</span>
+          <span class="fitem-toggle">▶</span>
+        </div>
+        <div class="fitem-long">
+          Cosas pequeñas que se usan en varios sitios y no encajan en ninguno específico. Vive aquí como "caja de utilidades" común.
+          <div class="analogy"><strong>Analogía:</strong> es la <b>caja de herramientas del garaje</b> — llaves, cinta, destornilladores que ocupas a diario y no quieres tener duplicados en cada cuarto.</div>
+        </div>
+      </div>
+
+      <div class="fitem" onclick="toggleItem(this)">
+        <div class="fitem-header">
+          <span class="fitem-name">geometry.py <span class="tag tag-data">datos</span></span>
+          <span class="fitem-short">Cálculos matemáticos puros: distancia entre puntos, encajar a la cuadrícula, proyecciones.</span>
+          <span class="fitem-toggle">▶</span>
+        </div>
+        <div class="fitem-long">
+          Cuando la app necesita saber "¿cuál es la distancia de este punto a esa línea?", pregunta aquí. Es matemáticas puras — sin nada gráfico.
+          <div class="analogy"><strong>Analogía:</strong> es la <b>calculadora científica</b> — hace cuentas geométricas sin importarle qué se dibuja después.</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- geo folder -->
+    <div class="folder">📁 app/geo/ <span class="folder-note">— ubicar el plano en el mundo real</span></div>
+    <div class="files">
+      <div class="fitem" onclick="toggleItem(this)">
+        <div class="fitem-header">
+          <span class="fitem-name">georef.py <span class="tag tag-data">datos</span></span>
+          <span class="fitem-short">Las matemáticas para calzar el plano contra el mundo real (rotar + escalar sin deformar).</span>
+          <span class="fitem-toggle">▶</span>
+        </div>
+        <div class="fitem-long">
+          A partir de 3 o más pares de puntos (uno en el plano, otro en el mundo real), calcula cuánto hay que rotar y estirar el plano para que caiga en su sitio.
+          <div class="analogy"><strong>Analogía:</strong> es como <b>encajar una calcomanía sobre un mapa</b>. Le dices "esta esquina va aquí, esa otra va allá" y este archivo saca la fórmula para acomodarla sin deformarla.</div>
+        </div>
+      </div>
+
+      <div class="fitem" onclick="toggleItem(this)">
+        <div class="fitem-header">
+          <span class="fitem-name">georef_dialog.py <span class="tag tag-ui">visual</span></span>
+          <span class="fitem-short">La ventana grande donde el usuario ubica el plano: a la izquierda su plano, a la derecha las calles reales de Los Ángeles.</span>
+          <span class="fitem-toggle">▶</span>
+        </div>
+        <div class="fitem-long">
+          Aparece al elegir el menú "Herramientas → Georreferenciar…". Es una ventana con dos mapas lado a lado. Marca puntos en ambos y calibra automáticamente.
+          <div class="analogy"><strong>Analogía:</strong> es como los <b>puntos rojos que salen al calibrar un mando de televisión antiguo</b> — indicas dónde va cada uno hasta que todo cuadra.</div>
+        </div>
+      </div>
+
+      <div class="fitem" onclick="toggleItem(this)">
+        <div class="fitem-header">
+          <span class="fitem-name">la_reference.py</span>
+          <span class="fitem-short">Se conecta al servicio de calles y parcelas de Los Ángeles para traer los mapas reales.</span>
+          <span class="fitem-toggle">▶</span>
+        </div>
+        <div class="fitem-long">
+          Trae las calles reales, permite buscar por dirección o intersección, y las dibuja en la ventana de georreferenciación.
+          <div class="analogy"><strong>Analogía:</strong> es como el <b>Google Maps interno</b> del programa, pero solo para Los Ángeles y solo con las capas oficiales de calles y parcelas.</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Raíz -->
+    <div class="folder">📁 raíz del proyecto <span class="folder-note">— procesamiento automático inicial (antes de abrir la app)</span></div>
+    <div class="files">
+      <div class="fitem" onclick="toggleItem(this)">
+        <div class="fitem-header">
+          <span class="fitem-name">digitize.py <span class="tag tag-core">principal</span></span>
+          <span class="fitem-short">Detecta si el PDF es "limpio" (dibujado con computadora) o "escaneado" y elige el método correcto para procesarlo.</span>
+          <span class="fitem-toggle">▶</span>
+        </div>
+        <div class="fitem-long">
+          Antes de abrir la app manualmente, se puede pasar un PDF por este archivo para que lo digitalice de forma automática. Detecta el tipo y llama al método apropiado.
+          <div class="analogy"><strong>Analogía:</strong> es la <b>recepción del taller</b>. Ve el tipo de vehículo que llega y lo manda al mecánico adecuado.</div>
+        </div>
+      </div>
+
+      <div class="fitem" onclick="toggleItem(this)">
+        <div class="fitem-header">
+          <span class="fitem-name">vector_pipeline.py</span>
+          <span class="fitem-short">Procesa PDFs "limpios": extrae directamente las líneas dibujadas por computadora.</span>
+          <span class="fitem-toggle">▶</span>
+        </div>
+        <div class="fitem-long">
+          Cuando el PDF viene de un programa CAD original, este archivo saca las líneas exactas sin necesidad de vectorizar imágenes.
+          <div class="analogy"><strong>Analogía:</strong> es como <b>fotocopiar un texto tipeado</b> — se lee perfecto sin adivinar.</div>
+        </div>
+      </div>
+
+      <div class="fitem" onclick="toggleItem(this)">
+        <div class="fitem-header">
+          <span class="fitem-name">raster_pipeline.py</span>
+          <span class="fitem-short">Procesa PDFs escaneados o fotografiados: reconoce las líneas mediante visión por computadora.</span>
+          <span class="fitem-toggle">▶</span>
+        </div>
+        <div class="fitem-long">
+          Cuando el PDF es una foto o un escaneo, este archivo hace el trabajo pesado: reconoce dónde hay líneas, dónde hay textos, y los convierte en datos.
+          <div class="analogy"><strong>Analogía:</strong> es como <b>leer una carta escrita a mano</b> — hay que interpretar cada trazo.</div>
+        </div>
+      </div>
+
+      <div class="fitem" onclick="toggleItem(this)">
+        <div class="fitem-header">
+          <span class="fitem-name">detect.py</span>
+          <span class="fitem-short">Reconoce símbolos específicos en el plano: buzones, cajas de válvulas, símbolos técnicos.</span>
+          <span class="fitem-toggle">▶</span>
+        </div>
+        <div class="fitem-long">
+          Complementa a los dos anteriores. Además de líneas y textos, este busca símbolos que se repiten en los planos.
+          <div class="analogy"><strong>Analogía:</strong> es como <b>buscar patrones en una imagen</b> — cada vez que ve un círculo con una cruz, sabe que es un buzón.</div>
+        </div>
+      </div>
+
+      <div class="fitem" onclick="toggleItem(this)">
+        <div class="fitem-header">
+          <span class="fitem-name">config.py</span>
+          <span class="fitem-short">La configuración de estos procesos automáticos: colores de capa, tolerancias, escalas.</span>
+          <span class="fitem-toggle">▶</span>
+        </div>
+        <div class="fitem-long">
+          Ajustes finos para el reconocimiento automático — qué colores usar para cada capa, cuánta tolerancia dar a "esto es una línea recta", qué escalas asumir.
+          <div class="analogy"><strong>Analogía:</strong> es el <b>panel de ajustes</b> del proceso automático — como los knobs de una consola de mezclas.</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Tests -->
+    <div class="folder">📁 tests/ <span class="folder-note">— pruebas automáticas para detectar errores antes de publicar</span></div>
+    <div class="files">
+      <div class="fitem" onclick="toggleItem(this)">
+        <div class="fitem-header">
+          <span class="fitem-name">test_duct_bank.py <span class="tag tag-tests">pruebas</span></span>
+          <span class="fitem-short">Comprueba que las reglas de los bancoductos funcionan (que no se acepten diseños inválidos).</span>
+          <span class="fitem-toggle">▶</span>
+        </div>
+        <div class="fitem-long">
+          Cada vez que se toca el código de los bancoductos, se corren estas pruebas. Si alguna falla, es que algo se rompió.
+          <div class="analogy"><strong>Analogía:</strong> son los <b>tests de calidad de una fábrica</b> — cada pieza que sale pasa por 19 controles antes de mandarse.</div>
+        </div>
+      </div>
+
+      <div class="fitem" onclick="toggleItem(this)">
+        <div class="fitem-header">
+          <span class="fitem-name">test_model_ops.py <span class="tag tag-tests">pruebas</span></span>
+          <span class="fitem-short">Prueba la detección automática de buzones y los cálculos de cotas.</span>
+          <span class="fitem-toggle">▶</span>
+        </div>
+        <div class="fitem-long">
+          Se asegura de que si dos tuberías se cruzan, el programa siempre propone un buzón en el punto correcto, y que las elevaciones interpoladas dan lo esperado.
+          <div class="analogy"><strong>Analogía:</strong> es como el <b>simulacro de incendio</b> — se corre para saber que en la vida real todo funcionará bien.</div>
+        </div>
+      </div>
+
+      <div class="fitem" onclick="toggleItem(this)">
+        <div class="fitem-header">
+          <span class="fitem-name">test_project_io.py <span class="tag tag-tests">pruebas</span></span>
+          <span class="fitem-short">Verifica que guardar y abrir un proyecto no pierde ningún dato en el camino.</span>
+          <span class="fitem-toggle">▶</span>
+        </div>
+        <div class="fitem-long">
+          Crea un proyecto, lo guarda, lo abre en otra parte del test, y comprueba que todo esté idéntico.
+          <div class="analogy"><strong>Analogía:</strong> como <b>copiar y pegar un archivo y verificar que llegó completo</b>.</div>
+        </div>
+      </div>
+
+      <div class="fitem" onclick="toggleItem(this)">
+        <div class="fitem-header">
+          <span class="fitem-name">test_georef.py <span class="tag tag-tests">pruebas</span></span>
+          <span class="fitem-short">Comprueba que la calibración plano-mundo real funciona con casos conocidos.</span>
+          <span class="fitem-toggle">▶</span>
+        </div>
+        <div class="fitem-long">
+          Le da al programa un ejemplo simple (una rotación pura, un desplazamiento puro, etc.) y verifica que devuelva la respuesta correcta.
+          <div class="analogy"><strong>Analogía:</strong> darle a un profesor de matemáticas problemas con solución conocida para verificar su método.</div>
+        </div>
+      </div>
+
+      <div class="fitem" onclick="toggleItem(this)">
+        <div class="fitem-header">
+          <span class="fitem-name">test_civil_catalog.py <span class="tag tag-tests">pruebas</span></span>
+          <span class="fitem-short">Prueba que se lea correctamente el catálogo de piezas de Civil 3D.</span>
+          <span class="fitem-toggle">▶</span>
+        </div>
+        <div class="fitem-long">
+          Verifica que cuando se pregunta "¿qué familias hay?", se devuelvan las esperadas y con los IDs correctos.
+          <div class="analogy"><strong>Analogía:</strong> como <b>revisar el inventario</b> con lista en mano.</div>
+        </div>
+      </div>
+
+      <div class="fitem" onclick="toggleItem(this)">
+        <div class="fitem-header">
+          <span class="fitem-name">test_theme.py <span class="tag tag-tests">pruebas</span></span>
+          <span class="fitem-short">Comprueba que el modo claro y el modo oscuro definen todos los colores necesarios.</span>
+          <span class="fitem-toggle">▶</span>
+        </div>
+        <div class="fitem-long">
+          Si a alguien se le olvida definir un color, esta prueba lo pilla antes de publicar la versión.
+          <div class="analogy"><strong>Analogía:</strong> es el <b>corrector ortográfico</b> del libro de colores.</div>
+        </div>
+      </div>
+
+      <div class="fitem" onclick="toggleItem(this)">
+        <div class="fitem-header">
+          <span class="fitem-name">test_icons.py <span class="tag tag-tests">pruebas</span></span>
+          <span class="fitem-short">Verifica que todos los iconos necesarios estén disponibles y bien coloreados.</span>
+          <span class="fitem-toggle">▶</span>
+        </div>
+        <div class="fitem-long">
+          Si algún icono se borra o falta, esta prueba avisa antes de que el usuario vea un espacio vacío en la interfaz.
+          <div class="analogy"><strong>Analogía:</strong> como <b>contar los cubiertos</b> antes de servir la mesa.</div>
+        </div>
+      </div>
+
+      <div class="fitem" onclick="toggleItem(this)">
+        <div class="fitem-header">
+          <span class="fitem-name">test_model_georef.py <span class="tag tag-tests">pruebas</span></span>
+          <span class="fitem-short">Prueba que los datos de la calibración se guardan y se leen correctamente.</span>
+          <span class="fitem-toggle">▶</span>
+        </div>
+        <div class="fitem-long">
+          Verifica que al guardar el proyecto y reabrirlo, la calibración del plano se mantenga intacta.
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ══════════════════════ TAB: PLUGIN ══════════════════════ -->
+  <div class="tab-panel" id="tab-plugin">
+
+    <div class="folder">📁 API-CIVIL/proyecto1/proyecto1/ <span class="folder-note">— el complemento que se instala dentro de Civil 3D</span></div>
+    <div class="files">
+
+      <div class="fitem" onclick="toggleItem(this)">
+        <div class="fitem-header">
+          <span class="fitem-name">ImportarRed.cs <span class="tag tag-core">principal</span></span>
+          <span class="fitem-short">EL archivo más importante del complemento. Es el que ejecuta el comando IMPORTAR_RED que crea las redes en Civil 3D.</span>
+          <span class="fitem-toggle">▶</span>
+        </div>
+        <div class="fitem-long">
+          Cuando el ingeniero escribe <code>IMPORTAR_RED</code> en Civil 3D, este archivo entra en acción. Lee todas las etiquetas ocultas del DXF, decide qué tipo de red hay que armar en cada caso y llama a los demás archivos especializados para crear tuberías, buzones y bancoductos.
+          <div class="analogy"><strong>Analogía:</strong> es el <b>capataz de obra</b>. Recibe los planos y los reparte a los albañiles, plomeros y electricistas.</div>
+        </div>
+      </div>
+
+      <div class="fitem" onclick="toggleItem(this)">
+        <div class="fitem-header">
+          <span class="fitem-name">RedesTuberia.cs <span class="tag tag-core">principal</span></span>
+          <span class="fitem-short">Se encarga de crear las redes por gravedad (alcantarillado, drenaje). Elige piezas del catálogo y añade tamaños nuevos si hace falta.</span>
+          <span class="fitem-toggle">▶</span>
+        </div>
+        <div class="fitem-long">
+          Es el especialista en <b>redes de flujo por gravedad</b>. Si un diámetro no está en el catálogo del cliente, este archivo lo <b>añade automáticamente</b> — el usuario no tiene que ir manualmente a instalar tamaños.
+          <div class="analogy"><strong>Analogía:</strong> es el <b>plomero</b> especializado en desagües — sabe qué tubos usar, y si le falta una medida, la fabrica al momento.</div>
+        </div>
+      </div>
+
+      <div class="fitem" onclick="toggleItem(this)">
+        <div class="fitem-header">
+          <span class="fitem-name">RedesPresion.cs <span class="tag tag-core">principal</span></span>
+          <span class="fitem-short">Crea redes a presión (agua potable, gas). Es distinto a las de gravedad y necesita su propio manejo.</span>
+          <span class="fitem-toggle">▶</span>
+        </div>
+        <div class="fitem-long">
+          Las redes de agua y gas funcionan a presión — el líquido no baja por gravedad. Civil 3D las maneja de forma diferente y este archivo tiene toda la lógica para eso.
+          <div class="analogy"><strong>Analogía:</strong> es el <b>plomero</b> especializado en agua a presión — usa herramientas y técnicas distintas al de desagües.</div>
+        </div>
+      </div>
+
+      <div class="fitem" onclick="toggleItem(this)">
+        <div class="fitem-header">
+          <span class="fitem-name">RedesPresionJunturas.cs</span>
+          <span class="fitem-short">Ayudante del anterior. Se encarga de las uniones (codos, tés, reducciones) en las redes de agua.</span>
+          <span class="fitem-toggle">▶</span>
+        </div>
+        <div class="fitem-long">
+          Cada vez que dos tuberías a presión se juntan, hace falta una pieza especial. Este archivo elige la pieza correcta según el tipo de unión.
+          <div class="analogy"><strong>Analogía:</strong> es el que <b>elige las piezas de conexión</b> — como cuando en ferretería te preguntan "¿va en codo o en te?".</div>
+        </div>
+      </div>
+
+      <div class="fitem" onclick="toggleItem(this)">
+        <div class="fitem-header">
+          <span class="fitem-name">RedesPresionRamales.cs</span>
+          <span class="fitem-short">Otro ayudante: divide una red grande en ramales cuando hace falta.</span>
+          <span class="fitem-toggle">▶</span>
+        </div>
+        <div class="fitem-long">
+          Cuando una red de agua tiene varias derivaciones, este archivo las separa correctamente para que cada tramo se comporte como una red independiente.
+        </div>
+      </div>
+
+      <div class="fitem" onclick="toggleItem(this)">
+        <div class="fitem-header">
+          <span class="fitem-name">RedesTuberiaEntrada.cs</span>
+          <span class="fitem-short">Prepara el terreno para crear una red: crea el eje sobre el que se apoyará y el catálogo de piezas que se usarán.</span>
+          <span class="fitem-toggle">▶</span>
+        </div>
+        <div class="fitem-long">
+          Antes de poner tuberías, Civil 3D necesita saber sobre qué línea van y qué piezas tiene disponibles. Este archivo prepara ambas cosas.
+          <div class="analogy"><strong>Analogía:</strong> es el <b>topógrafo</b> que llega antes que el plomero para marcar por dónde irá la zanja.</div>
+        </div>
+      </div>
+
+      <div class="fitem" onclick="toggleItem(this)">
+        <div class="fitem-header">
+          <span class="fitem-name">PipeNetworkHerramientas.cs</span>
+          <span class="fitem-short">Caja de herramientas reutilizada por todos los archivos anteriores.</span>
+          <span class="fitem-toggle">▶</span>
+        </div>
+        <div class="fitem-long">
+          Contiene funciones útiles que varios archivos comparten: obtener el catálogo activo, buscar una familia por su código, ajustar estilos.
+          <div class="analogy"><strong>Analogía:</strong> es la <b>caja común de herramientas</b> del taller — todos los mecánicos van ahí a por la llave inglesa.</div>
+        </div>
+      </div>
+
+      <div class="fitem" onclick="toggleItem(this)">
+        <div class="fitem-header">
+          <span class="fitem-name">PrepararFamilias.cs</span>
+          <span class="fitem-short">Se asegura de que las familias de piezas necesarias estén disponibles en el catálogo del proyecto.</span>
+          <span class="fitem-toggle">▶</span>
+        </div>
+        <div class="fitem-long">
+          Si al importar hace falta una familia que no está, este archivo la trae del catálogo del sistema al proyecto activo.
+          <div class="analogy"><strong>Analogía:</strong> es el <b>encargado del almacén</b> que trae las piezas que faltan al taller.</div>
+        </div>
+      </div>
+
+      <div class="fitem" onclick="toggleItem(this)">
+        <div class="fitem-header">
+          <span class="fitem-name">PressureCatalogFiller.cs</span>
+          <span class="fitem-short">Rellena huecos en el catálogo de piezas para redes a presión.</span>
+          <span class="fitem-toggle">▶</span>
+        </div>
+        <div class="fitem-long">
+          El catálogo de Autodesk a veces viene con huecos (medidas que faltan). Este archivo los rellena automáticamente.
+        </div>
+      </div>
+
+      <div class="fitem" onclick="toggleItem(this)">
+        <div class="fitem-header">
+          <span class="fitem-name">ElementosCurvos.cs</span>
+          <span class="fitem-short">Maneja tuberías con curvas (arcos) en lugar de solo tramos rectos.</span>
+          <span class="fitem-toggle">▶</span>
+        </div>
+        <div class="fitem-long">
+          Comando <code>AGREGAR_TUBO_CURVO</code>. Sirve para casos donde la tubería no puede ir en línea recta y debe curvar con un radio determinado.
+          <div class="analogy"><strong>Analogía:</strong> es el especialista en <b>tuberías flexibles</b> — donde no todo va derecho.</div>
+        </div>
+      </div>
+
+      <div class="fitem" onclick="toggleItem(this)">
+        <div class="fitem-header">
+          <span class="fitem-name">CotarTuberias.cs</span>
+          <span class="fitem-short">Vuelve a calcular las profundidades de tuberías ya creadas, sin borrarlas.</span>
+          <span class="fitem-toggle">▶</span>
+        </div>
+        <div class="fitem-long">
+          Comando <code>COTAR_TUBERIAS</code>. Cuando el ingeniero necesita ajustar la profundidad de una red que ya existe, este archivo la recalcula.
+          <div class="analogy"><strong>Analogía:</strong> es como <b>volver a nivelar una tarima</b> sin desmontarla.</div>
+        </div>
+      </div>
+
+      <div class="fitem" onclick="toggleItem(this)">
+        <div class="fitem-header">
+          <span class="fitem-name">CuadroBuzones.cs</span>
+          <span class="fitem-short">Genera una tabla resumen de todos los buzones: código, cota de tapa, cota de fondo, profundidad.</span>
+          <span class="fitem-toggle">▶</span>
+        </div>
+        <div class="fitem-long">
+          Comando <code>CUADRO_BUZONES</code>. Deja lista una tabla que se puede insertar en la lámina como parte del plano final.
+          <div class="analogy"><strong>Analogía:</strong> es el que <b>arma el listado de precios</b> para pegar en la pared del negocio.</div>
+        </div>
+      </div>
+
+      <div class="fitem" onclick="toggleItem(this)">
+        <div class="fitem-header">
+          <span class="fitem-name">CatalogoBancos.cs</span>
+          <span class="fitem-short">Añade varias familias y tamaños al catálogo del proyecto en un solo paso.</span>
+          <span class="fitem-toggle">▶</span>
+        </div>
+        <div class="fitem-long">
+          Comando <code>AGREGAR_BANCOS_Y_BUZONES</code>. Ahorra tiempo cuando hay que preparar el catálogo antes de empezar a modelar.
+        </div>
+      </div>
+
+      <div class="fitem" onclick="toggleItem(this)">
+        <div class="fitem-header">
+          <span class="fitem-name">Comandos_Civil.cs</span>
+          <span class="fitem-short">Comandos varios: crear puntos, crear ejes, superficies del terreno, unir curvas.</span>
+          <span class="fitem-toggle">▶</span>
+        </div>
+        <div class="fitem-long">
+          Herramientas útiles del día a día en Civil 3D empaquetadas juntas: crear grupos de puntos topográficos, superficies desde puntos, unir arcos, elevar curvas por texto.
+          <div class="analogy"><strong>Analogía:</strong> es la <b>navaja suiza</b> del complemento — muchas utilidades pequeñas en un solo archivo.</div>
+        </div>
+      </div>
+
+      <div class="fitem" onclick="toggleItem(this)">
+        <div class="fitem-header">
+          <span class="fitem-name">Corredores.cs / CorredorHerramientas.cs</span>
+          <span class="fitem-short">Todo lo relacionado con corredores viales: crear, dividir por tramos, sacar sólidos, generar perfiles.</span>
+          <span class="fitem-toggle">▶</span>
+        </div>
+        <div class="fitem-long">
+          Un "corredor" en Civil 3D es la construcción de una calle o camino a lo largo de un eje. Estos archivos automatizan tareas repetitivas de esa parte del programa.
+          <div class="analogy"><strong>Analogía:</strong> es la <b>línea de producción de carreteras</b> — automatiza pasos que a mano tomarían horas.</div>
+        </div>
+      </div>
+
+      <div class="fitem" onclick="toggleItem(this)">
+        <div class="fitem-header">
+          <span class="fitem-name">AlineamientosPerfiles.cs / PerfilLongitudinalDatos.cs / PerfilUtil.cs</span>
+          <span class="fitem-short">Crea y maneja los ejes de las redes y sus vistas de perfil longitudinal.</span>
+          <span class="fitem-toggle">▶</span>
+        </div>
+        <div class="fitem-long">
+          Comando <code>CREAR_PERFIL_RED</code>. El perfil longitudinal es la vista lateral de una red mostrando cómo baja o sube en el terreno.
+        </div>
+      </div>
+
+      <div class="fitem" onclick="toggleItem(this)">
+        <div class="fitem-header">
+          <span class="fitem-name">ConfiguracionUnidades.cs</span>
+          <span class="fitem-short">Fuerza el dibujo a usar unidades imperiales (pies) — como manda el estándar del proyecto.</span>
+          <span class="fitem-toggle">▶</span>
+        </div>
+        <div class="fitem-long">
+          Comando <code>USAR_IMPERIAL</code>. Cambia todas las unidades del dibujo activo a imperiales de un tirón.
+        </div>
+      </div>
+
+      <div class="fitem" onclick="toggleItem(this)">
+        <div class="fitem-header">
+          <span class="fitem-name">DiagnosticoFamilias.cs</span>
+          <span class="fitem-short">Herramientas de diagnóstico: ver qué familias hay en el catálogo, hacer copia de seguridad y restaurar.</span>
+          <span class="fitem-toggle">▶</span>
+        </div>
+        <div class="fitem-long">
+          Comandos <code>DIAG_FAMILIAS</code> y <code>RESTAURAR_CATALOGO</code>. Útil cuando algo raro pasa con el catálogo — permite ver qué hay y volver al estado original si se dañó.
+          <div class="analogy"><strong>Analogía:</strong> es el <b>menú de servicio técnico</b> — no se usa a diario, pero es fundamental cuando algo falla.</div>
+        </div>
+      </div>
+
+      <div class="fitem" onclick="toggleItem(this)">
+        <div class="fitem-header">
+          <span class="fitem-name">Puntos.cs</span>
+          <span class="fitem-short">Manejo de puntos topográficos (los que traen coordenadas del levantamiento).</span>
+          <span class="fitem-toggle">▶</span>
+        </div>
+        <div class="fitem-long">
+          Crear, editar y exportar los puntos topográficos que vienen del trabajo de campo.
+        </div>
+      </div>
+
+      <div class="fitem" onclick="toggleItem(this)">
+        <div class="fitem-header">
+          <span class="fitem-name">PropertySetsExcel.cs</span>
+          <span class="fitem-short">Puente con Excel para leer y escribir datos de objetos desde/hacia una hoja de cálculo.</span>
+          <span class="fitem-toggle">▶</span>
+        </div>
+        <div class="fitem-long">
+          Permite volcar propiedades de objetos de Civil 3D a Excel y traer cambios hechos en Excel de vuelta.
+          <div class="analogy"><strong>Analogía:</strong> es el <b>puente</b> entre Civil 3D y las hojas de cálculo que tanto le gustan al equipo.</div>
+        </div>
+      </div>
+
+      <div class="fitem" onclick="toggleItem(this)">
+        <div class="fitem-header">
+          <span class="fitem-name">Panel.cs y los Panel*.xaml</span>
+          <span class="fitem-short">Los paneles laterales que se abren dentro de Civil 3D (recuadros con opciones y botones).</span>
+          <span class="fitem-toggle">▶</span>
+        </div>
+        <div class="fitem-long">
+          Comando <code>PANEL_REDES</code>. Abre un panel dentro de Civil 3D con opciones y botones para las herramientas más usadas.
+          <div class="analogy"><strong>Analogía:</strong> es el <b>menú lateral</b> — como los que salen en Word o en Photoshop.</div>
+        </div>
+      </div>
+
+      <div class="fitem" onclick="toggleItem(this)">
+        <div class="fitem-header">
+          <span class="fitem-name">ExtensionApp.cs</span>
+          <span class="fitem-short">La chispa que enciende el complemento cuando arranca Civil 3D.</span>
+          <span class="fitem-toggle">▶</span>
+        </div>
+        <div class="fitem-long">
+          Se ejecuta automáticamente al abrir Civil 3D. Prepara el complemento y registra los comandos disponibles.
+          <div class="analogy"><strong>Analogía:</strong> es la <b>llave de contacto</b> del complemento — sin este archivo, nada arranca.</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ══════════════════════ TAB: EXTRA ══════════════════════ -->
+  <div class="tab-panel" id="tab-extra">
+
+    <div class="folder">📁 installer/ <span class="folder-note">— el paquete que instala el complemento en Civil 3D</span></div>
+    <div class="files">
+      <div class="fitem" onclick="toggleItem(this)">
+        <div class="fitem-header">
+          <span class="fitem-name">AsistenteC3D.bundle/</span>
+          <span class="fitem-short">Carpeta especial que Civil 3D reconoce automáticamente. Contiene el complemento listo para usar.</span>
+          <span class="fitem-toggle">▶</span>
+        </div>
+        <div class="fitem-long">
+          Cuando esta carpeta se coloca en el sitio correcto del sistema, Civil 3D la detecta al arrancar y carga el complemento sin que el usuario tenga que hacer nada extra.
+          <div class="analogy"><strong>Analogía:</strong> es como <b>enchufar un pendrive con drivers</b> — el sistema los reconoce y los instala solos.</div>
+        </div>
+      </div>
+
+      <div class="fitem" onclick="toggleItem(this)">
+        <div class="fitem-header">
+          <span class="fitem-name">PackageContents.xml</span>
+          <span class="fitem-short">Ficha de identidad del paquete: le dice a Civil 3D qué versión de programa soporta y qué archivo cargar.</span>
+          <span class="fitem-toggle">▶</span>
+        </div>
+        <div class="fitem-long">
+          Sin este archivo, Civil 3D no sabría qué hacer con la carpeta. Especifica que soporta Civil 3D 2024, 2025 y adelante.
+        </div>
+      </div>
+
+      <div class="fitem" onclick="toggleItem(this)">
+        <div class="fitem-header">
+          <span class="fitem-name">setup.iss</span>
+          <span class="fitem-short">Guion para generar el instalador (.exe) que el cliente ejecuta al recibir el paquete.</span>
+          <span class="fitem-toggle">▶</span>
+        </div>
+        <div class="fitem-long">
+          A partir de este guion se crea un instalador clásico de Windows — el que muestra "Siguiente > Siguiente > Instalar" al usuario final.
+        </div>
+      </div>
+
+      <div class="fitem" onclick="toggleItem(this)">
+        <div class="fitem-header">
+          <span class="fitem-name">build_plugin.bat</span>
+          <span class="fitem-short">Guion que compila el complemento (lo convierte de código en archivo utilizable).</span>
+          <span class="fitem-toggle">▶</span>
+        </div>
+        <div class="fitem-long">
+          El desarrollador escribe el código, y al ejecutar este archivo se genera el complemento final listo para empaquetar.
+        </div>
+      </div>
+
+      <div class="fitem" onclick="toggleItem(this)">
+        <div class="fitem-header">
+          <span class="fitem-name">diagnostico.ps1</span>
+          <span class="fitem-short">Guion de diagnóstico para saber por qué el complemento no carga si algo falla en la instalación del cliente.</span>
+          <span class="fitem-toggle">▶</span>
+        </div>
+        <div class="fitem-long">
+          Si un cliente reporta que el complemento no aparece en su Civil 3D, se le pide correr este guion y revisa: qué versión de Civil 3D tiene, si el archivo del complemento está en la ruta correcta, si es válido, etc.
+          <div class="analogy"><strong>Analogía:</strong> es el <b>diagnóstico del taller</b> — antes de arreglar el auto, se conecta el escáner para ver qué está fallando.</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="folder">📁 raíz del proyecto <span class="folder-note">— archivos de configuración generales</span></div>
+    <div class="files">
+      <div class="fitem" onclick="toggleItem(this)">
+        <div class="fitem-header">
+          <span class="fitem-name">build_all.bat</span>
+          <span class="fitem-short">Guion maestro: compila la aplicación, el complemento y arma el instalador de un tirón.</span>
+          <span class="fitem-toggle">▶</span>
+        </div>
+        <div class="fitem-long">
+          Al ejecutarlo, pregunta la versión y luego se encarga de todo: compila la app, compila el complemento, empaqueta ambos en un instalador único.
+        </div>
+      </div>
+
+      <div class="fitem" onclick="toggleItem(this)">
+        <div class="fitem-header">
+          <span class="fitem-name">uninstall_plugin.bat</span>
+          <span class="fitem-short">Quita el complemento de Civil 3D (útil para pruebas durante el desarrollo).</span>
+          <span class="fitem-toggle">▶</span>
+        </div>
+        <div class="fitem-long">
+          Cuando se está probando una versión nueva, este guion desinstala rápido la anterior para que no interfieran.
+        </div>
+      </div>
+
+      <div class="fitem" onclick="toggleItem(this)">
+        <div class="fitem-header">
+          <span class="fitem-name">requirements.txt</span>
+          <span class="fitem-short">Lista de programas auxiliares que necesita la aplicación para funcionar en una computadora nueva.</span>
+          <span class="fitem-toggle">▶</span>
+        </div>
+        <div class="fitem-long">
+          Antes de correr la app en una computadora limpia, se instala lo que dice aquí.
+        </div>
+      </div>
+
+      <div class="fitem" onclick="toggleItem(this)">
+        <div class="fitem-header">
+          <span class="fitem-name">README.md</span>
+          <span class="fitem-short">Explicación general del proyecto en formato de texto.</span>
+          <span class="fitem-toggle">▶</span>
+        </div>
+        <div class="fitem-long">
+          Documento de bienvenida — la primera cosa que ve alguien nuevo cuando abre la carpeta del proyecto.
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section id="dialogo">
+  <h2><span class="emoji">🗣️</span> Cómo se hablan la app y el complemento</h2>
+  <p class="h2-sub">Los dos programas nunca se llaman entre sí — se pasan la información a través de un archivo. Aquí está cómo.</p>
+
+  <div class="mermaid">
+sequenceDiagram
+    autonumber
+    participant U as Ingeniero
+    participant APP as App de escritorio
+    participant DXF as Archivo DXF
+    participant PLG as Complemento C3D
+    participant C3D as Civil 3D
+
+    U->>APP: Dibuja tuberías, buzones, bancoductos
+    APP->>APP: Guarda el proyecto (respaldo)
+    U->>APP: Clic en "Exportar"
+    APP->>DXF: Escribe líneas + etiquetas ocultas
+    U->>C3D: Abre el DXF
+    U->>PLG: Escribe IMPORTAR_RED
+    PLG->>DXF: Lee las etiquetas ocultas
+    PLG->>C3D: Construye las redes 3D
+    C3D-->>U: Dibujo listo con la red real
+  </div>
+  <div class="caption">Ninguna llamada directa entre programas. Todo pasa por el archivo.</div>
+
+  <h3>¿Qué son esas "etiquetas ocultas"?</h3>
+  <p>
+    Un archivo DXF puede llevar información extra pegada a cada línea o punto,
+    invisible al ojo humano pero legible por otros programas. La app aprovecha
+    esto para dejar apuntada cada característica que necesita conocer el
+    complemento: diámetro, material, elevaciones, tipo de red, etc.
+  </p>
+
+  <table>
+    <thead>
+      <tr><th>Tipo de elemento</th><th>Qué información lleva escondida</th></tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>Tubería</td>
+        <td>Diámetro, unidad, material, tipo de red, elevación de inicio y fin, coeficiente de flujo, familia y tamaño del catálogo, etc.</td>
+      </tr>
+      <tr>
+        <td>Buzón</td>
+        <td>Código, elevación de tapa, elevación de fondo, tipo de pieza, altura.</td>
+      </tr>
+      <tr>
+        <td>Esquina curva</td>
+        <td>Radio en pies.</td>
+      </tr>
+      <tr>
+        <td>Bancoducto</td>
+        <td>Nombre, ancho y alto, márgenes, redondeo de esquinas, lista completa de conductos internos, si se debe dibujar el contenedor de concreto o no.</td>
+      </tr>
+      <tr>
+        <td>Datos del plano</td>
+        <td>Código del sistema de coordenadas usado (para ubicar el plano en el mundo real).</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <div class="callout tip">
+    <strong>💡 Ventaja de este diseño:</strong> como el DXF es un archivo estándar,
+    se puede abrir con cualquier programa CAD. Y como toda la información va
+    dentro del archivo, no hace falta que la app y el complemento estén
+    conectados por red o instalados en la misma máquina — el DXF viaja por correo
+    o por USB sin problema.
+  </div>
+</section>
+
+<section id="palabras">
+  <h2><span class="emoji">📚</span> Palabras difíciles, explicadas fácil</h2>
+  <p class="h2-sub">Los términos que aparecen en el sistema, con su explicación en lenguaje simple.</p>
+
+  <table>
+    <tbody>
+      <tr>
+        <td>DXF</td>
+        <td>Formato de archivo que entienden todos los programas de dibujo técnico (AutoCAD, Civil 3D, etc.). La app lo genera; el complemento lo lee.</td>
+      </tr>
+      <tr>
+        <td>Etiquetas ocultas</td>
+        <td>Información extra que el DXF puede llevar pegada a cada objeto, invisible en pantalla pero legible por otros programas. Aquí las llamamos así porque en documentación técnica se les llama "XDATA".</td>
+      </tr>
+      <tr>
+        <td>Red de tuberías</td>
+        <td>Un grupo de tuberías conectadas entre sí que forman parte del mismo sistema (una red de agua, una de desagüe, etc.). Civil 3D las llama "Pipe Networks".</td>
+      </tr>
+      <tr>
+        <td>Catálogo de piezas</td>
+        <td>La lista de tuberías y buzones disponibles en un proyecto de Civil 3D. Se lee al abrir la app para que las opciones coincidan con lo que existe realmente.</td>
+      </tr>
+      <tr>
+        <td>Familia y tamaño</td>
+        <td>En Civil 3D, cada pieza pertenece a una familia (por ejemplo, "PVC gravedad") y dentro de ella tiene un tamaño (por ejemplo, "12 pulgadas de diámetro").</td>
+      </tr>
+      <tr>
+        <td>Eje</td>
+        <td>La línea central sobre la que se apoya una red o un camino. Civil 3D lo llama "Alignment".</td>
+      </tr>
+      <tr>
+        <td>Cota invert</td>
+        <td>La elevación (altura) del punto más bajo por dentro de una tubería, en un extremo. Se necesitan las dos (inicio y fin) para saber si el agua baja bien.</td>
+      </tr>
+      <tr>
+        <td>Paquete de complemento</td>
+        <td>Carpeta especial con extensión <code>.bundle</code> que Civil 3D reconoce y carga automáticamente al abrir.</td>
+      </tr>
+      <tr>
+        <td>Bancoducto</td>
+        <td>Bloque de concreto que contiene varios tubos por dentro. Se usa para agrupar cables eléctricos o de telecomunicaciones.</td>
+      </tr>
+      <tr>
+        <td>Georreferenciar</td>
+        <td>Calibrar un plano para que sepa dónde se encuentra en el mundo real. Como pegar un mapa turístico sobre Google Maps para que ambos coincidan.</td>
+      </tr>
+      <tr>
+        <td>Sistema de coordenadas de California V</td>
+        <td>El sistema oficial de coordenadas que usa California, zona 5, en pies. Es al que todos los planos deben ajustarse para trabajar con datos reales.</td>
+      </tr>
+      <tr>
+        <td>Proyecto (.digproj)</td>
+        <td>El archivo editable de la aplicación. Guarda todo el trabajo del ingeniero para poder abrirlo después y seguir donde lo dejó.</td>
+      </tr>
+    </tbody>
+  </table>
+</section>
+
+<div class="footer">
+  Documento generado para el proyecto <b>PDF a CAD</b>. Se actualiza cuando cambia
+  la estructura del código. Se comparte como archivo único (no requiere instalación).
+</div>
+
+</main>
+
+<script>
+// ── Theme toggle ─────────────────────────────────────────────────────────
+(function(){
+  const KEY = 'pdfcad-arch-theme';
+  const root = document.documentElement;
+  const btn = document.getElementById('themeToggle');
+  const saved = localStorage.getItem(KEY);
+  if (saved === 'light' || saved === 'dark') root.setAttribute('data-theme', saved);
+  function current(){
+    return root.getAttribute('data-theme') ||
+      (matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light');
+  }
+  btn.addEventListener('click', ()=>{
+    const next = current() === 'dark' ? 'light' : 'dark';
+    root.setAttribute('data-theme', next);
+    localStorage.setItem(KEY, next);
+    initMermaid(next);
+  });
+  function initMermaid(theme){
+    if (!window.mermaid) return;
+    mermaid.initialize({
+      startOnLoad: false,
+      theme: theme === 'dark' ? 'dark' : 'default',
+      themeVariables: theme === 'dark' ? {
+        primaryColor: '#22262f', primaryBorderColor: '#4a83e8',
+        primaryTextColor: '#ececec', lineColor: '#a7adb8',
+        secondaryColor: '#1a1d24', tertiaryColor: '#12151b'
+      } : {
+        primaryColor: '#ffffff', primaryBorderColor: '#2f6ad9',
+        primaryTextColor: '#1e2531', lineColor: '#4a5568',
+        secondaryColor: '#f0f2f6', tertiaryColor: '#f7f8fa'
+      }
+    });
+    document.querySelectorAll('.mermaid').forEach(el=>{
+      if (el.hasAttribute('data-processed')){
+        el.removeAttribute('data-processed');
+        el.innerHTML = el.getAttribute('data-source') || el.textContent;
+      } else {
+        el.setAttribute('data-source', el.textContent);
+      }
+    });
+    mermaid.run({ querySelector: '.mermaid' });
+  }
+  window.addEventListener('DOMContentLoaded', ()=>initMermaid(current()));
+})();
+
+// ── Tabs ─────────────────────────────────────────────────────────────────
+document.querySelectorAll('.tab').forEach(btn=>{
+  btn.addEventListener('click', ()=>{
+    const tab = btn.dataset.tab;
+    document.querySelectorAll('.tab').forEach(b => b.classList.toggle('active', b === btn));
+    document.querySelectorAll('.tab-panel').forEach(p => p.classList.toggle('active', p.id === tab));
+    // Reset search on tab change
+    document.getElementById('searchInput').value = '';
+    filterFiles('');
+  });
+});
+
+// ── File counters ────────────────────────────────────────────────────────
+document.getElementById('cnt-app').textContent   = document.querySelectorAll('#tab-app .fitem').length;
+document.getElementById('cnt-plugin').textContent= document.querySelectorAll('#tab-plugin .fitem').length;
+document.getElementById('cnt-extra').textContent = document.querySelectorAll('#tab-extra .fitem').length;
+
+// ── Toggle a file accordion ──────────────────────────────────────────────
+function toggleItem(el){
+  el.classList.toggle('open');
+}
+window.toggleItem = toggleItem;
+
+// ── Search / filter ──────────────────────────────────────────────────────
+const searchInput = document.getElementById('searchInput');
+const searchStatus = document.getElementById('searchStatus');
+function filterFiles(q){
+  const query = q.trim().toLowerCase();
+  const active = document.querySelector('.tab-panel.active');
+  const items = active.querySelectorAll('.fitem');
+  let shown = 0, hidden = 0;
+  items.forEach(el=>{
+    const text = el.textContent.toLowerCase();
+    const match = !query || text.includes(query);
+    el.hidden = !match;
+    if (match) shown++; else hidden++;
+  });
+  // Hide folder headers with no visible children
+  active.querySelectorAll('.folder').forEach(f=>{
+    const files = f.nextElementSibling;
+    if (!files) return;
+    const anyVisible = [...files.querySelectorAll('.fitem')].some(i => !i.hidden);
+    f.style.display = anyVisible ? '' : 'none';
+    files.style.display = anyVisible ? '' : 'none';
+  });
+  searchStatus.textContent = query ? `${shown} coincidencia${shown!==1?'s':''}` : '';
+}
+searchInput.addEventListener('input', e => filterFiles(e.target.value));
+
+// ── Highlight nav on scroll ──────────────────────────────────────────────
+const navLinks = document.querySelectorAll('#topnav a');
+const sections = [...document.querySelectorAll('section[id]')];
+function onScroll(){
+  let active = sections[0].id;
+  const y = window.scrollY + 100;
+  for (const s of sections) if (s.offsetTop <= y) active = s.id;
+  navLinks.forEach(a => a.classList.toggle('active',
+    a.getAttribute('href') === '#' + active));
+}
+window.addEventListener('scroll', onScroll, {passive:true});
+onScroll();
+</script>
+</body>
+</html>

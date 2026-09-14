@@ -29,6 +29,7 @@ import model_ops
 from model import (VERSION, TIPOS, ACI_RGB, LEADER_TEXT_FT, LEADER_ORIENT,
                    Z_PDF, Z_ERASE, Z_MARK, Z_HANDLE, GRAVITY_LAYERS,
                    TAB_PIPE, TAB_LEADER, TAB_TEXT, TAB_REGION, TAB_BZ, TAB_CURVE, TAB_CL,
+                   TAB_DB,
                    WORK_UNITS, DEFAULT_WORK_UNIT, CHANGELOG,
                    PIPE_DIAMETERS_IN, PIPE_MATERIALS, DEFAULT_PIPE_MATERIAL)
 
@@ -36,6 +37,8 @@ from model import (VERSION, TIPOS, ACI_RGB, LEADER_TEXT_FT, LEADER_ORIENT,
 from ui_common import (DOWNLOADS, btn_on_style, btn_off_style, aci_qcolor, layer_qcolor,
                        _extract_diam_from_size, swatch_icon)
 import theme as _theme
+import i18n as _i18n
+from i18n import t as _tr
 from icons import icon as _icon
 
 
@@ -58,7 +61,7 @@ class Main(QtWidgets.QMainWindow):
         self.mode = "idle"; self._pending = None
         self.snap = False; self.snap_r = 14
         self.sel_pipe = -1; self.sel_leader = -1; self.sel_region = -1; self.sel_text = -1; self.sel_bz = -1
-        self.sel_curve = -1; self.sel_cl = -1; self._bz_rows = []; self._curve_rows = []
+        self.sel_curve = -1; self.sel_cl = -1; self.sel_db = -1; self._bz_rows = []; self._curve_rows = []
         self.sel_seg_idx = -1            # tramo resaltado en la tabla "Cotas por tramo"
         self._no_center = False; self._crosshair = []
         self._move0 = None; self._drag_vertex = None; self._edit_pts = None; self._edit_closed = False; self._edit_leader = None
@@ -97,18 +100,35 @@ class Main(QtWidgets.QMainWindow):
 
     def _build_menu(self):
         mb = self.menuBar()
-        mfile = mb.addMenu("&Archivo")
-        self._menu_act(mfile, "Abrir PDF…", self.open_pdf)
+        # Guardamos referencias a menús + acciones traducibles para poder
+        # retranslatarlas en vivo cuando cambia el idioma (_retranslate_menu).
+        self._i18n_menus = []   # lista de (menu, clave_es_original)
+        self._i18n_actions = []  # lista de (action, clave_es_original)
+
+        def _menu(parent_bar, label_es):
+            m = parent_bar.addMenu(_tr(label_es))
+            self._i18n_menus.append((m, label_es))
+            return m
+
+        def _act(menu, label_es, fn, shortcut=None):
+            a = self._menu_act(menu, _tr(label_es), fn, shortcut)
+            self._i18n_actions.append((a, label_es))
+            return a
+
+        mfile = _menu(mb, "&Archivo")
+        _act(mfile, "Abrir PDF…", self.open_pdf)
         mfile.addSeparator()
-        self._menu_act(mfile, "Abrir proyecto…", self.open_project)
-        self._menu_act(mfile, "Guardar proyecto", self.save_project, "Ctrl+S")
-        self._menu_act(mfile, "Guardar proyecto como…", self.save_project_as, "Ctrl+Shift+S")
+        _act(mfile, "Abrir proyecto…", self.open_project)
+        _act(mfile, "Guardar proyecto", self.save_project, "Ctrl+S")
+        _act(mfile, "Guardar proyecto como…", self.save_project_as, "Ctrl+Shift+S")
         mfile.addSeparator()
-        self._menu_act(mfile, "Cerrar proyecto", self.close_project, "Ctrl+W")
-        medit = mb.addMenu("&Edición")
-        self._menu_act(medit, "Deshacer", self.undo, "Ctrl+Z")
-        self._menu_act(medit, "Rehacer", self.redo, "Ctrl+Shift+Z")
-        mview = mb.addMenu("&Ver")
+        _act(mfile, "Opciones…", self.show_options)
+        mfile.addSeparator()
+        _act(mfile, "Cerrar proyecto", self.close_project, "Ctrl+W")
+        medit = _menu(mb, "&Edición")
+        _act(medit, "Deshacer", self.undo, "Ctrl+Z")
+        _act(medit, "Rehacer", self.redo, "Ctrl+Shift+Z")
+        mview = _menu(mb, "&Ver")
         # Acción dinámica: su texto muestra el tema al que se cambiaría.
         # Si estás en oscuro dice "Modo claro"; si estás en claro dice "Modo oscuro".
         self._act_theme = QtGui.QAction("", self)
@@ -118,17 +138,118 @@ class Main(QtWidgets.QMainWindow):
         # Recomputa el texto cuando otro trigger cambie el tema (por si alguna vez
         # se agrega un atajo o un toggle desde otra parte).
         _theme.THEME_BUS.changed.connect(lambda _: self._refresh_theme_action_label())
-        mtools = mb.addMenu("&Herramientas")
-        self._menu_act(mtools, "Insertar buzón en línea…", self.insert_manhole)
-        self._menu_act(mtools, "Instalar familia personalizada…", self.open_install_family_dialog)
-        self._menu_act(mtools, "Desinstalar familia personalizada…", self.open_uninstall_family_dialog)
+        mtools = _menu(mb, "&Herramientas")
+        _act(mtools, "Insertar buzón en línea…", self.insert_manhole)
+        _act(mtools, "Instalar familia personalizada…", self.open_install_family_dialog)
+        _act(mtools, "Desinstalar familia personalizada…", self.open_uninstall_family_dialog)
         mtools.addSeparator()
-        self._menu_act(mtools, "Georreferenciar…", self.open_georef)
-        self._menu_act(mtools, "Quitar georreferencia", self.clear_georef)
-        mhelp = mb.addMenu("A&yuda")
-        self._menu_act(mhelp, "Acerca de…", self.show_about)
-        self._menu_act(mhelp, "Manual de usuario", self.show_manual)
-        self._menu_act(mhelp, "Atajos de teclado", self.show_shortcuts)
+        _act(mtools, "Georreferenciar…", self.open_georef)
+        _act(mtools, "Quitar georreferencia", self.clear_georef)
+        mhelp = _menu(mb, "A&yuda")
+        _act(mhelp, "Acerca de…", self.show_about)
+        _act(mhelp, "Manual de usuario", self.show_manual)
+        _act(mhelp, "Atajos de teclado", self.show_shortcuts)
+        # Cuando el idioma cambie en vivo (desde Opciones…), retraducimos menús
+        # y otros textos suscritos.
+        _i18n.LANG_BUS.changed.connect(self._retranslate_ui)
+
+    def _retranslate_ui(self, *_):
+        """Actualiza los textos de la UI cuando cambia el idioma. Solo toca los
+        widgets que registramos como traducibles — sin recrear la ventana.
+
+        Nota: hay muchos textos hardcodeados repartidos por la UI (labels
+        puntuales, tooltips, mensajes) que no viven en esta lista. Esos se
+        aplicarán la próxima vez que se abra la ventana correspondiente."""
+        for m, key in getattr(self, "_i18n_menus", []):
+            try: m.setTitle(_tr(key))
+            except Exception: pass
+        for a, key in getattr(self, "_i18n_actions", []):
+            try: a.setText(_tr(key))
+            except Exception: pass
+        # Título de la ventana (por si contiene texto traducible)
+        try: self._update_title()
+        except Exception: pass
+        # Refrescar título del theme action
+        try: self._refresh_theme_action_label()
+        except Exception: pass
+        # Docks: título del dock derecho ("Inventario")
+        try:
+            for dock in self.findChildren(QtWidgets.QDockWidget):
+                # Guardamos la clave original en una propiedad dinámica al construir
+                key = dock.property("i18n_key")
+                if key: dock.setWindowTitle(_tr(key))
+        except Exception: pass
+        # Tabs del inventario
+        try:
+            if hasattr(self, "tabs"):
+                labels_es = ["Utilidades", "Leaders", "Textos", "Zonas",
+                              "Buzones", "Curvas", "Centerlines", "Bancoductos"]
+                for i, es in enumerate(labels_es):
+                    if i < self.tabs.count():
+                        self.tabs.setTabText(i, _tr(es))
+                # y el combo que refleja los tabs
+                if hasattr(self, "tab_combo"):
+                    self.tab_combo.blockSignals(True)
+                    for i in range(min(self.tab_combo.count(), len(labels_es))):
+                        self.tab_combo.setItemText(i, _tr(labels_es[i]))
+                    self.tab_combo.blockSignals(False)
+        except Exception: pass
+        # Botones del panel de bancoductos
+        try:
+            if hasattr(self, "btn_db_new"): self.btn_db_new.setText(_tr("+ Nuevo"))
+            if hasattr(self, "btn_db_edit"): self.btn_db_edit.setText(_tr("Editar"))
+            if hasattr(self, "btn_db_dup"): self.btn_db_dup.setText(_tr("Duplicar"))
+            # Toolbar principal
+            if hasattr(self, "btn_export"): self.btn_export.setText(_tr("  Exportar DXF"))
+            # Toolbox (dock izquierdo) — botones de las secciones
+            if hasattr(self, "btn_pipe"): self.btn_pipe.setText("  " + _tr("Dibujar utilidad"))
+            if hasattr(self, "btn_leader_simple"): self.btn_leader_simple.setText("  " + _tr("Colocar Leader"))
+            if hasattr(self, "btn_text"): self.btn_text.setText("  " + _tr("Texto libre"))
+            if hasattr(self, "btn_erase"): self.btn_erase.setText("  " + _tr("Borrar zona"))
+            if hasattr(self, "btn_centerline"): self.btn_centerline.setText("  " + _tr("Trazar centerline"))
+            if hasattr(self, "btn_ductbank"):
+                self.btn_ductbank.setText("  " + _tr("Abrir diseñador de Duct Bank"))
+            if hasattr(self, "lbl_ductbank_count"):
+                self.lbl_ductbank_count.setText(_tr("Duct banks guardados: 0"))
+            if hasattr(self, "chk_ab"): self.chk_ab.setText(_tr("Abandonado"))
+            if hasattr(self, "chk_ext_same"): self.chk_ext_same.setText(_tr("Extender: continuar la misma"))
+            # Panel de propiedades
+            if hasattr(self, "lbl_prop_inv0"): self.lbl_prop_inv0.setText(_tr("Elev. de rasante inicial (ft):"))
+            if hasattr(self, "lbl_prop_inv1"): self.lbl_prop_inv1.setText(_tr("Elev. de rasante final (ft):"))
+            if hasattr(self, "lbl_prop_family"): self.lbl_prop_family.setText(_tr("Familia (catálogo):"))
+            if hasattr(self, "lbl_prop_size"): self.lbl_prop_size.setText(_tr("Tamaño (catálogo):"))
+            # Botones del panel derecho (bajo la lista)
+            if hasattr(self, "btn_ct"): self.btn_ct.setText(_tr("Cambiar tipo"))
+            if hasattr(self, "btn_mv"): self.btn_mv.setText(_tr("Editar/mover"))
+            if hasattr(self, "btn_edit"): self.btn_edit.setText(_tr("Editar texto"))
+            if hasattr(self, "btn_del"): self.btn_del.setText(_tr("Eliminar"))
+            # Toolbox: títulos de las secciones (leyendo del combo lang porque el
+            # acordeón guarda el label real). Los redraws de _page los reemplazan
+            # solo si se reabre; por eso los actualizamos aquí:
+            if hasattr(self, "toolbox"):
+                sec_labels = [_tr("Vista y páginas"), _tr("Dibujar utilidad"),
+                              _tr("Trazar centerline"), _tr("Leader (flecha simple)"),
+                              _tr("Texto libre"), _tr("Borrar zona"), _tr("Duct Bank")]
+                for i, lbl in enumerate(sec_labels):
+                    if i < self.toolbox.count():
+                        self.toolbox.setItemText(i, lbl)
+            # Barra de estado
+            if hasattr(self, "lbl_mode"): self.lbl_mode.setText(_tr("Modo: inactivo"))
+            if hasattr(self, "btn_opacity"): self.btn_opacity.setText("  " + _tr("Opacidad"))
+            self._update_geo_status()   # refresca "Georref: ..."
+            if hasattr(self, "_refresh_scale_label"):
+                self._refresh_scale_label()  # refresca "Escala ..."
+        except Exception: pass
+        # Refrescar la lista de bancoductos (incluye tooltips traducibles)
+        try:
+            if hasattr(self, "_refresh_db_list"):
+                self._refresh_db_list()
+        except Exception: pass
+
+    def show_options(self):
+        """Delegador al diálogo de opciones (dialogs.show_options)."""
+        import dialogs as _dlg
+        _dlg.show_options(self)
 
     def _build_toolbar(self):
         # ── Barra de acción superior: zoom · deshacer/rehacer · imán · exportar ──
@@ -154,25 +275,25 @@ class Main(QtWidgets.QMainWindow):
         import civil_catalog as _cc
         _all_years = list(_cc.SUPPORTED_YEARS); _inst = set(_cc.installed_versions())
         for y in _all_years:
-            self.cmb_civil.addItem(f"{y}{'' if y in _inst else '  (no instalado)'}", y)
+            self.cmb_civil.addItem(f"{y}{'' if y in _inst else '  ' + _tr('(no instalado)')}", y)
         if self.civil_year is not None:
             i = _all_years.index(self.civil_year); self.cmb_civil.setCurrentIndex(i)
         self.cmb_civil.currentIndexChanged.connect(self._on_civil_year_changed)
-        self.cmb_civil.setToolTip("Versión de Civil 3D. El catálogo imperial se busca en\n"
-                                  "C:\\ProgramData\\Autodesk\\C3D <año>\\<idioma>\\Pipes Catalog\\US Imperial Structures")
+        self.cmb_civil.setToolTip(_tr("Versión de Civil 3D. El catálogo imperial se busca en\n"
+                                  "C:\\ProgramData\\Autodesk\\C3D <año>\\<idioma>\\Pipes Catalog\\US Imperial Structures"))
         tb.addWidget(self.cmb_civil)
         # Selector de idioma del catálogo — se puebla dinámicamente al elegir año.
         # Si el cliente tiene tanto 'esp' como 'enu' instalados, puede elegir
         # cuál usar para la instalación de familias custom y el listado.
-        tb.addWidget(QtWidgets.QLabel("Idioma:"))
+        tb.addWidget(QtWidgets.QLabel(_tr("Idioma:")))
         self.cmb_lang = QtWidgets.QComboBox()
-        self.cmb_lang.setToolTip("Idioma del catálogo Civil 3D a usar (subcarpeta esp/enu/etc.)")
+        self.cmb_lang.setToolTip(_tr("Idioma del catálogo Civil 3D a usar (subcarpeta esp/enu/etc.)"))
         self.cmb_lang.currentIndexChanged.connect(self._on_civil_lang_changed)
         tb.addWidget(self.cmb_lang)
         # Poblamos el combo de idiomas por primera vez con la versión activa.
         self._refill_lang_combo()
         tb.addSeparator()
-        self.btn_export = QtWidgets.QPushButton("  Exportar DXF")
+        self.btn_export = QtWidgets.QPushButton(_tr("  Exportar DXF"))
         self.btn_export.setIconSize(QtCore.QSize(18, 18))
         self.btn_export.clicked.connect(lambda: self.run_pipeline("todo"))
         tb.addWidget(self.btn_export)
@@ -188,7 +309,8 @@ class Main(QtWidgets.QMainWindow):
         # QToolBox = "acordeón" en Qt: contenedor con un botón-cabecera por página.
         # Al hacer clic en una cabecera, esa página se despliega y las demás se
         # colapsan. Es el mismo widget que usamos para el historial de "Acerca de".
-        ldock = QtWidgets.QDockWidget("Herramientas", self)
+        ldock = QtWidgets.QDockWidget(_tr("Herramientas"), self)
+        ldock.setProperty("i18n_key", "Herramientas")   # para _retranslate_ui
         ldock.setFeatures(QtWidgets.QDockWidget.NoDockWidgetFeatures)     # no se puede sacar/flotar
         left = QtWidgets.QWidget(); lv = QtWidgets.QVBoxLayout(left); lv.setContentsMargins(0, 0, 0, 0)
         self.toolbox = QtWidgets.QToolBox()
@@ -221,7 +343,7 @@ class Main(QtWidgets.QMainWindow):
         self.btn_next = QtWidgets.QPushButton(""); self.btn_next.setFixedWidth(34); self.btn_next.clicked.connect(self._next_page)
         self.btn_prev.setIconSize(QtCore.QSize(18, 18)); self.btn_next.setIconSize(QtCore.QSize(18, 18))
         self.page_edit = QtWidgets.QLineEdit(); self.page_edit.setAlignment(QtCore.Qt.AlignCenter)
-        self.page_edit.setToolTip("Escribe un número de página y pulsa Enter")
+        self.page_edit.setToolTip(_tr("Escribe un número de página y pulsa Enter"))
         # returnPressed = Enter en un QLineEdit; editingFinished = perdió el foco también
         self.page_edit.returnPressed.connect(self._goto_page_edit)
         self.page_edit.editingFinished.connect(self._goto_page_edit)
@@ -230,17 +352,17 @@ class Main(QtWidgets.QMainWindow):
 
         # Fila de transparencia del PDF de fondo (para ver mejor el marcado encima)
         self.gtr = QtWidgets.QWidget(); ltr = QtWidgets.QHBoxLayout(self.gtr); ltr.setContentsMargins(0, 0, 0, 0)
-        tb_l = QtWidgets.QPushButton("−"); tb_l.setFixedSize(38, 34); tb_l.setProperty("iconOnly", True); tb_l.setToolTip("Más translúcido"); tb_l.clicked.connect(lambda: self._bump_opacity(-10))
+        tb_l = QtWidgets.QPushButton("−"); tb_l.setFixedSize(38, 34); tb_l.setProperty("iconOnly", True); tb_l.setToolTip(_tr("Más translúcido")); tb_l.clicked.connect(lambda: self._bump_opacity(-10))
         self.lbl_opacity = QtWidgets.QLabel("100%"); self.lbl_opacity.setAlignment(QtCore.Qt.AlignCenter)
-        tb_r = QtWidgets.QPushButton("+"); tb_r.setFixedSize(38, 34); tb_r.setProperty("iconOnly", True); tb_r.setToolTip("Más opaco"); tb_r.clicked.connect(lambda: self._bump_opacity(10))
+        tb_r = QtWidgets.QPushButton("+"); tb_r.setFixedSize(38, 34); tb_r.setProperty("iconOnly", True); tb_r.setToolTip(_tr("Más opaco")); tb_r.clicked.connect(lambda: self._bump_opacity(10))
         ltr.addWidget(tb_l); ltr.addWidget(self.lbl_opacity, 1); ltr.addWidget(tb_r)
 
         # Botones de acción (uno por sección; el color verde/azul lo pone _update_ui)
-        self.btn_pipe = QtWidgets.QPushButton("  Dibujar utilidad"); self.btn_pipe.clicked.connect(self.toggle_pipe)
-        self.btn_leader_simple = QtWidgets.QPushButton("  Colocar Leader"); self.btn_leader_simple.clicked.connect(lambda: self.start_leader(True))
-        self.btn_text = QtWidgets.QPushButton("  Texto libre"); self.btn_text.clicked.connect(self.toggle_text_mode)
-        self.btn_erase = QtWidgets.QPushButton("  Borrar zona"); self.btn_erase.clicked.connect(self.toggle_erase)
-        self.btn_centerline = QtWidgets.QPushButton("  Trazar centerline"); self.btn_centerline.clicked.connect(self.toggle_centerline)
+        self.btn_pipe = QtWidgets.QPushButton("  " + _tr("Dibujar utilidad")); self.btn_pipe.clicked.connect(self.toggle_pipe)
+        self.btn_leader_simple = QtWidgets.QPushButton("  " + _tr("Colocar Leader")); self.btn_leader_simple.clicked.connect(lambda: self.start_leader(True))
+        self.btn_text = QtWidgets.QPushButton("  " + _tr("Texto libre")); self.btn_text.clicked.connect(self.toggle_text_mode)
+        self.btn_erase = QtWidgets.QPushButton("  " + _tr("Borrar zona")); self.btn_erase.clicked.connect(self.toggle_erase)
+        self.btn_centerline = QtWidgets.QPushButton("  " + _tr("Trazar centerline")); self.btn_centerline.clicked.connect(self.toggle_centerline)
         for _b in (self.btn_pipe, self.btn_leader_simple, self.btn_text, self.btn_erase, self.btn_centerline):
             _b.setIconSize(QtCore.QSize(20, 20))
 
@@ -252,31 +374,31 @@ class Main(QtWidgets.QMainWindow):
         self.type_combo.setSizePolicy(QtWidgets.QSizePolicy.Ignored, QtWidgets.QSizePolicy.Fixed)
         self.type_combo.setSizeAdjustPolicy(QtWidgets.QComboBox.AdjustToMinimumContentsLengthWithIcon)
         for label, layer in TIPOS:
-            self.type_combo.addItem(swatch_icon(layer_qcolor(layer)), label, layer)
+            self.type_combo.addItem(swatch_icon(layer_qcolor(layer)), _tr(label), layer)
         self.type_combo.setCurrentIndex(0); self.type_combo.currentIndexChanged.connect(lambda _: self._redraw())
         # Etiquetas CORTAS a propósito: QCheckBox no hace word-wrap, así que un
         # texto largo impone un ancho mínimo que saca barra horizontal en el
         # dock. El detalle completo va al tooltip — y de paso se lee más fácil,
         # que es lo que necesita el usuario principal.
-        self.chk_ab = QtWidgets.QCheckBox("Abandonado")
-        self.chk_ab.setToolTip("Marca la utilidad como abandonada: se dibuja con "
-                               "línea discontinua ──/── W ── en el DXF.")
-        self.chk_ext_same = QtWidgets.QCheckBox("Extender: continuar la misma")
-        self.chk_ext_same.setToolTip(
+        self.chk_ab = QtWidgets.QCheckBox(_tr("Abandonado"))
+        self.chk_ab.setToolTip(_tr("Marca la utilidad como abandonada: se dibuja con "
+                               "línea discontinua ──/── W ── en el DXF."))
+        self.chk_ext_same = QtWidgets.QCheckBox(_tr("Extender: continuar la misma"))
+        self.chk_ext_same.setToolTip(_tr(
             "Al extender un extremo de una utilidad existente, los puntos nuevos "
-            "se añaden a ESA misma utilidad en vez de crear una nueva.")
+            "se añaden a ESA misma utilidad en vez de crear una nueva."))
         self.chk_ext_same.setChecked(True)
         lgt.addWidget(self.type_combo); lgt.addWidget(self.chk_ab); lgt.addWidget(self.chk_ext_same)
 
         # Combo de ORIENTACIÓN del Leader.
         self.orient_combo = QtWidgets.QComboBox()
-        for oid, lbl in LEADER_ORIENT: self.orient_combo.addItem(lbl, oid)
+        for oid, lbl in LEADER_ORIENT: self.orient_combo.addItem(_tr(lbl), oid)
         self.orient_combo.currentIndexChanged.connect(lambda _: self._update_ui())
 
         # Grupo "Estilo de texto" (fuente, altura, negrita + rotación).
         # COMPARTIDO por Leader y Texto libre. La rotación solo aplica a
         # textos libres; la mostramos/ocultamos según la sección abierta.
-        self.gtxt = QtWidgets.QGroupBox("Estilo de texto"); lgx = QtWidgets.QVBoxLayout(self.gtxt)
+        self.gtxt = QtWidgets.QGroupBox(_tr("Estilo de texto")); lgx = QtWidgets.QVBoxLayout(self.gtxt)
         # QFontComboBox = combo que lista todas las fuentes instaladas en el sistema.
         self.font_combo = QtWidgets.QFontComboBox(); self.font_combo.setCurrentFont(QtGui.QFont(C.TEXT_FONT))
         self.font_combo.setSizePolicy(QtWidgets.QSizePolicy.Ignored, QtWidgets.QSizePolicy.Fixed)
@@ -315,15 +437,15 @@ class Main(QtWidgets.QMainWindow):
         # ═══════════════════════════════════════════════════════════════════════
 
         # ── Sección: Vista y páginas ──
-        p, l = _page("Vista y páginas", "view", "mdi:file-document-outline")
-        l.addWidget(QtWidgets.QLabel("Página:")); l.addWidget(self.gp)
-        l.addWidget(QtWidgets.QLabel("Transparencia del PDF:")); l.addWidget(self.gtr)
+        p, l = _page(_tr("Vista y páginas"), "view", "mdi:file-document-outline")
+        l.addWidget(QtWidgets.QLabel(_tr("Página:"))); l.addWidget(self.gp)
+        l.addWidget(QtWidgets.QLabel(_tr("Transparencia del PDF:"))); l.addWidget(self.gtr)
         l.addStretch(1)
 
         # ── Sección: Dibujar utilidad ──
-        p, l = _page("Dibujar utilidad", "pipe", "mdi:pencil-outline")
+        p, l = _page(_tr("Dibujar utilidad"), "pipe", "mdi:pencil-outline")
         l.addWidget(self.btn_pipe)
-        l.addWidget(QtWidgets.QLabel("Tipo de utilidad:"))
+        l.addWidget(QtWidgets.QLabel(_tr("Tipo de utilidad:")))
         l.addWidget(self.gt)
         self._slot_gcur_pipe = QtWidgets.QVBoxLayout(); l.addLayout(self._slot_gcur_pipe)   # slot: aquí va gcur al dibujar
         l.addStretch(1)
@@ -332,34 +454,34 @@ class Main(QtWidgets.QMainWindow):
         # Va JUSTO DESPUES de "Dibujar utilidad": las dos son de trazado de
         # geometria, el usuario suele alternarlas y tenerlas contiguas ahorra
         # clics.
-        p, l = _page("Trazar centerline", "centerline", "mdi:ruler")
+        p, l = _page(_tr("Trazar centerline"), "centerline", "mdi:ruler")
         l.addWidget(self.btn_centerline)
-        _lbl_cl = QtWidgets.QLabel(
+        _lbl_cl = QtWidgets.QLabel(_tr(
             "<i>Clic para agregar vértices, Enter "
-            "cierra. Se exporta al DXF en su propia capa.</i>")
+            "cierra. Se exporta al DXF en su propia capa.</i>"))
         _lbl_cl.setWordWrap(True); l.addWidget(_lbl_cl)
         self._slot_gcur_cl = QtWidgets.QVBoxLayout(); l.addLayout(self._slot_gcur_cl)   # slot: gcur al trazar
         l.addStretch(1)
 
         # ── Sección: Leader (flecha simple) ──
-        p, l = _page("Leader (flecha simple)", "leader", "mdi:arrow-decision-outline")
+        p, l = _page(_tr("Leader (flecha simple)"), "leader", "mdi:arrow-decision-outline")
         l.addWidget(self.btn_leader_simple)
-        l.addWidget(QtWidgets.QLabel("Orientación:"))
+        l.addWidget(QtWidgets.QLabel(_tr("Orientación:")))
         self._slot_orient_ld = QtWidgets.QVBoxLayout(); l.addLayout(self._slot_orient_ld)   # slot: orient_combo
-        l.addWidget(QtWidgets.QLabel("<i>El Leader es solo flecha, sin texto.</i>"))
+        l.addWidget(QtWidgets.QLabel(_tr("<i>El Leader es solo flecha, sin texto.</i>")))
         l.addStretch(1)
 
         # ── Sección: Texto libre ──
-        p, l = _page("Texto libre", "text", "mdi:format-text")
+        p, l = _page(_tr("Texto libre"), "text", "mdi:format-text")
         l.addWidget(self.btn_text)
         self._slot_style_tx = QtWidgets.QVBoxLayout(); l.addLayout(self._slot_style_tx)     # slot: gtxt (estilo)
         l.addStretch(1)
 
         # ── Sección: Borrar zona ──
-        p, l = _page("Borrar zona", "erase", "mdi:vector-rectangle")
+        p, l = _page(_tr("Borrar zona"), "erase", "mdi:vector-rectangle")
         l.addWidget(self.btn_erase)
-        _lbl = QtWidgets.QLabel("<i>Clic para agregar vértices, Enter cierra. "
-                                     "Al exportar borra el plano dentro del polígono.</i>")
+        _lbl = QtWidgets.QLabel(_tr("<i>Clic para agregar vértices, Enter cierra. "
+                                     "Al exportar borra el plano dentro del polígono.</i>"))
         _lbl.setWordWrap(True); l.addWidget(_lbl)
         self._slot_gcur_erase = QtWidgets.QVBoxLayout(); l.addLayout(self._slot_gcur_erase)  # slot: gcur al borrar
         l.addStretch(1)
@@ -368,18 +490,18 @@ class Main(QtWidgets.QMainWindow):
         # Abre el diseñador de la sección (envolvente + conductos). El diseño se
         # guarda a nivel proyecto en self.duct_banks. La conexión con una utilidad
         # y el export en DXF/plugin es la fase 2 (pendiente).
-        p, l = _page("Duct Bank", "ductbank", "mdi:grid")
-        self.btn_ductbank = QtWidgets.QPushButton("  Abrir diseñador de Duct Bank")
+        p, l = _page(_tr("Duct Bank"), "ductbank", "mdi:grid")
+        self.btn_ductbank = QtWidgets.QPushButton(_tr("  Abrir diseñador de Duct Bank"))
         self.btn_ductbank.setIconSize(QtCore.QSize(20, 20))
-        self.btn_ductbank.setToolTip("Diseña la sección transversal del Duct Bank\n"
-                                     "(envolvente rectangular + conductos internos).")
-        self.btn_ductbank.clicked.connect(self._open_duct_bank_designer)
+        self.btn_ductbank.setToolTip(_tr("Diseña la sección transversal del Duct Bank\n"
+                                     "(envolvente rectangular + conductos internos)."))
+        self.btn_ductbank.clicked.connect(lambda: self._open_duct_bank_designer())
         l.addWidget(self.btn_ductbank)
-        _lbl_db = QtWidgets.QLabel(
+        _lbl_db = QtWidgets.QLabel(_tr(
             "<i>Dibuja la cara interior del duct bank en pulgadas: primero el "
-            "rectángulo del contorno, luego cada conducto redondo dentro.</i>")
+            "rectángulo del contorno, luego cada conducto redondo dentro.</i>"))
         _lbl_db.setWordWrap(True); l.addWidget(_lbl_db)
-        self.lbl_ductbank_count = QtWidgets.QLabel("Duct banks guardados: 0")
+        self.lbl_ductbank_count = QtWidgets.QLabel(_tr("Duct banks guardados: 0"))
         l.addWidget(self.lbl_ductbank_count)
         l.addStretch(1)
 
@@ -430,7 +552,8 @@ class Main(QtWidgets.QMainWindow):
 
     def _build_right_dock(self):
         # ── DOCK DERECHO: inventario y selección ──
-        rdock = QtWidgets.QDockWidget("Inventario", self); rdock.setFeatures(QtWidgets.QDockWidget.NoDockWidgetFeatures)
+        rdock = QtWidgets.QDockWidget(_tr("Inventario"), self); rdock.setFeatures(QtWidgets.QDockWidget.NoDockWidgetFeatures)
+        rdock.setProperty("i18n_key", "Inventario")   # para _retranslate_ui
         right = QtWidgets.QWidget(); rv = QtWidgets.QVBoxLayout(right)
         self.tabs = QtWidgets.QTabWidget()
         self.pipe_list = QtWidgets.QListWidget(); self.pipe_list.currentRowChanged.connect(self._sel_pipe)
@@ -441,11 +564,38 @@ class Main(QtWidgets.QMainWindow):
         self.bz_list = QtWidgets.QListWidget(); self.bz_list.currentRowChanged.connect(self._sel_bz)
         self.curve_list = QtWidgets.QListWidget(); self.curve_list.currentRowChanged.connect(self._sel_curve)
         self.cl_list = QtWidgets.QListWidget(); self.cl_list.currentRowChanged.connect(self._sel_cl)
-        self.tabs.addTab(self.pipe_list, "Utilidades")
-        self.tabs.addTab(self.sleader_list, "Leaders")
-        self.tabs.addTab(self.txt_marks_list, "Textos"); self.tabs.addTab(self.region_list, "Zonas")
-        self.tabs.addTab(self.bz_list, "Buzones"); self.tabs.addTab(self.curve_list, "Curvas")
-        self.tabs.addTab(self.cl_list, "Centerlines")
+        # Bancoductos: pestaña con lista + mini-toolbar (nuevo/editar/duplicar).
+        # Botones abajo — consistente con el resto de tabs del inventario.
+        # No incluye "Eliminar" aquí: la barra inferior de la ventana ya tiene el
+        # botón rojo de eliminar que actúa sobre el ítem seleccionado.
+        self._db_tab_widget = QtWidgets.QWidget()
+        _dbv = QtWidgets.QVBoxLayout(self._db_tab_widget)
+        _dbv.setContentsMargins(0, 0, 0, 0); _dbv.setSpacing(4)
+        self.db_list = QtWidgets.QListWidget()
+        self.db_list.currentRowChanged.connect(self._sel_db)
+        self.db_list.itemDoubleClicked.connect(lambda _it: self._db_edit())
+        _dbv.addWidget(self.db_list, 1)
+        _dbbar = QtWidgets.QHBoxLayout(); _dbbar.setSpacing(4)
+        self.btn_db_new = QtWidgets.QPushButton(_tr("+ Nuevo"))
+        self.btn_db_new.setToolTip(_tr("Crear un bancoducto nuevo desde cero."))
+        self.btn_db_new.clicked.connect(self._db_new)
+        self.btn_db_edit = QtWidgets.QPushButton(_tr("Editar"))
+        self.btn_db_edit.setToolTip(_tr("Editar el bancoducto seleccionado.\n"
+                                    "También doble-click sobre la fila."))
+        self.btn_db_edit.clicked.connect(self._db_edit)
+        self.btn_db_dup = QtWidgets.QPushButton(_tr("Duplicar"))
+        self.btn_db_dup.setToolTip(_tr("Duplicar el bancoducto seleccionado."))
+        self.btn_db_dup.clicked.connect(self._db_duplicate)
+        for _b in (self.btn_db_new, self.btn_db_edit, self.btn_db_dup):
+            _b.setMinimumHeight(30)
+            _dbbar.addWidget(_b)
+        _dbv.addLayout(_dbbar)
+        self.tabs.addTab(self.pipe_list, _tr("Utilidades"))
+        self.tabs.addTab(self.sleader_list, _tr("Leaders"))
+        self.tabs.addTab(self.txt_marks_list, _tr("Textos")); self.tabs.addTab(self.region_list, _tr("Zonas"))
+        self.tabs.addTab(self.bz_list, _tr("Buzones")); self.tabs.addTab(self.curve_list, _tr("Curvas"))
+        self.tabs.addTab(self.cl_list, _tr("Centerlines"))
+        self.tabs.addTab(self._db_tab_widget, _tr("Bancoductos"))
         # RESPONSIVO: los textos de los items son largos ("AGUA · 12" · 4
         # vértices · <nombre>"), así que por defecto QListWidget saca una barra
         # de desplazamiento HORIZONTAL y el usuario tiene que arrastrarla para
@@ -454,7 +604,7 @@ class Main(QtWidgets.QMainWindow):
         # _refresh_lists). No afecta la selección ni los índices de fila.
         for _lw in (self.pipe_list, self.sleader_list,
                     self.txt_marks_list, self.region_list, self.bz_list,
-                    self.curve_list, self.cl_list):
+                    self.curve_list, self.cl_list, self.db_list):
             _lw.setTextElideMode(QtCore.Qt.ElideRight)
             _lw.setHorizontalScrollBarPolicy(QtCore.Qt.ScrollBarAlwaysOff)
             _lw.setWordWrap(False)
@@ -462,7 +612,8 @@ class Main(QtWidgets.QMainWindow):
         # Menú contextual (clic derecho) en cada lista visible del inventario
         for listw, tab_idx in ((self.pipe_list, TAB_PIPE),
                                (self.sleader_list, TAB_LEADER), (self.txt_marks_list, TAB_TEXT),
-                               (self.region_list, TAB_REGION)):
+                               (self.region_list, TAB_REGION),
+                               (self.db_list, TAB_DB)):
             listw.setContextMenuPolicy(QtCore.Qt.CustomContextMenu)
             listw.customContextMenuRequested.connect(
                 lambda pos, lw=listw, ti=tab_idx: self._list_context_menu(lw, ti, pos))
@@ -499,9 +650,9 @@ class Main(QtWidgets.QMainWindow):
         # Material: desplegable con los valores exactos de Civil 3D (no texto libre).
         self.prop_material = QtWidgets.QComboBox()
         for m in PIPE_MATERIALS:
-            self.prop_material.addItem(m)
+            self.prop_material.addItem(_tr(m), m)   # data = valor real (no traducido)
         self.prop_material.currentIndexChanged.connect(lambda _: self._prop_changed())
-        self.prop_part = QtWidgets.QLineEdit(); self.prop_part.setPlaceholderText("p.ej. 900 mm Corrugated HDPE Pipe")
+        self.prop_part = QtWidgets.QLineEdit(); self.prop_part.setPlaceholderText(_tr("p.ej. 900 mm Corrugated HDPE Pipe"))
         self.prop_part.editingFinished.connect(self._prop_changed)
         self.prop_nettype = QtWidgets.QComboBox()
         self.prop_nettype.addItem("Automático (según la capa)", "")
@@ -515,8 +666,8 @@ class Main(QtWidgets.QMainWindow):
         fpr.addRow("Tipo de red:", self.prop_nettype)
         # Labels dinámicas: se recomponen al cambiar la unidad de trabajo.
         # Nombre igual a Civil 3D: "Elevación de rasante" (no "Invert").
-        self.lbl_prop_inv0 = QtWidgets.QLabel("Elev. de rasante inicial (ft):"); fpr.addRow(self.lbl_prop_inv0, self.prop_inv0)
-        self.lbl_prop_inv1 = QtWidgets.QLabel("Elev. de rasante final (ft):");   fpr.addRow(self.lbl_prop_inv1, self.prop_inv1)
+        self.lbl_prop_inv0 = QtWidgets.QLabel(_tr("Elev. de rasante inicial (ft):")); fpr.addRow(self.lbl_prop_inv0, self.prop_inv0)
+        self.lbl_prop_inv1 = QtWidgets.QLabel(_tr("Elev. de rasante final (ft):"));   fpr.addRow(self.lbl_prop_inv1, self.prop_inv1)
         # Familia + tamaño del catálogo Civil 3D para esta pipe (solo gravedad).
         # Para presión y conduit no aplica: presión usa el sub-catálogo por material
         # y conduit se deja como polyline simple.
@@ -524,8 +675,8 @@ class Main(QtWidgets.QMainWindow):
         self.prop_family.currentIndexChanged.connect(self._pipe_family_changed)
         self.prop_size = QtWidgets.QComboBox()
         self.prop_size.currentIndexChanged.connect(lambda _: self._prop_changed())
-        self.lbl_prop_family = QtWidgets.QLabel("Familia (catálogo):")
-        self.lbl_prop_size = QtWidgets.QLabel("Tamaño (catálogo):")
+        self.lbl_prop_family = QtWidgets.QLabel(_tr("Familia (catálogo):"))
+        self.lbl_prop_size = QtWidgets.QLabel(_tr("Tamaño (catálogo):"))
         fpr.addRow(self.lbl_prop_family, self.prop_family)
         fpr.addRow(self.lbl_prop_size, self.prop_size)
 
@@ -689,10 +840,10 @@ class Main(QtWidgets.QMainWindow):
         self._bz_prop_guard = False                 # evita reentradas al setear valores desde el modelo
         self._curve_prop_guard = False
         rr = QtWidgets.QGridLayout()
-        self.btn_ct = QtWidgets.QPushButton("Cambiar tipo"); self.btn_ct.clicked.connect(self.change_pipe_type)
-        self.btn_mv = QtWidgets.QPushButton("Editar/mover"); self.btn_mv.clicked.connect(self.enter_move)
-        self.btn_edit = QtWidgets.QPushButton("Editar texto"); self.btn_edit.clicked.connect(self.edit_selected_text)
-        self.btn_del = QtWidgets.QPushButton("Eliminar"); self.btn_del.setProperty("danger", True)
+        self.btn_ct = QtWidgets.QPushButton(_tr("Cambiar tipo")); self.btn_ct.clicked.connect(self.change_pipe_type)
+        self.btn_mv = QtWidgets.QPushButton(_tr("Editar/mover")); self.btn_mv.clicked.connect(self.enter_move)
+        self.btn_edit = QtWidgets.QPushButton(_tr("Editar texto")); self.btn_edit.clicked.connect(self.edit_selected_text)
+        self.btn_del = QtWidgets.QPushButton(_tr("Eliminar")); self.btn_del.setProperty("danger", True)
         self.btn_del.clicked.connect(self.delete_selected)
         rr.addWidget(self.btn_ct, 0, 0); rr.addWidget(self.btn_mv, 0, 1)
         rr.addWidget(self.btn_edit, 1, 0); rr.addWidget(self.btn_del, 1, 1)
@@ -729,7 +880,7 @@ class Main(QtWidgets.QMainWindow):
     def _build_statusbar(self):
         # ── Barra de estado: modo · info · contadores en vivo · escala · georref ──
         self.status = self.statusBar(); self.status.setSizeGripEnabled(False)
-        self.lbl_mode = QtWidgets.QLabel("Modo: inactivo")   # color por _apply_theme_custom_styles
+        self.lbl_mode = QtWidgets.QLabel(_tr("Modo: inactivo"))   # color por _apply_theme_custom_styles
         self.status.addWidget(self.lbl_mode)
         self.status.addWidget(QtWidgets.QLabel("│"))
         self.lbl_info = QtWidgets.QLabel("")   # color por _apply_theme_custom_styles
@@ -743,21 +894,21 @@ class Main(QtWidgets.QMainWindow):
         # es interactivo y hace evidente el gesto (un QLabel se ve idéntico a
         # los otros textos de la barra de estado). Estilo consistente con la
         # barra: fondo transparente, sin borde salvo al pasar/pulsar.
-        self.btn_scale = QtWidgets.QPushButton("Escala —")
+        self.btn_scale = QtWidgets.QPushButton(_tr("Escala —"))
         self.btn_scale.setFlat(True); self.btn_scale.setCursor(QtCore.Qt.PointingHandCursor)
-        self.btn_scale.setToolTip("Clic para cambiar la escala del plano (1\"=X ft)")
+        self.btn_scale.setToolTip(_tr("Clic para cambiar la escala del plano (1\"=X ft)"))
         # Estilo por _apply_theme_custom_styles (btn plano de status bar).
         self.btn_scale.clicked.connect(self._prompt_scale)
         # Botón "Opacidad" al lado de la escala: abre un desplegable con un
         # deslizable (opacidad SOLO del PDF) y un botón para alternar el fondo
         # detrás del PDF entre blanco y negro.
-        self.btn_opacity = QtWidgets.QPushButton("  Opacidad")
+        self.btn_opacity = QtWidgets.QPushButton("  " + _tr("Opacidad"))
         self.btn_opacity.setIconSize(QtCore.QSize(16, 16))
         self.btn_opacity.setFlat(True); self.btn_opacity.setCursor(QtCore.Qt.PointingHandCursor)
-        self.btn_opacity.setToolTip("Opacidad del PDF y color de fondo (blanco/negro)")
+        self.btn_opacity.setToolTip(_tr("Opacidad del PDF y color de fondo (blanco/negro)"))
         # Estilo por _apply_theme_custom_styles (idéntico a btn_scale).
         self.btn_opacity.clicked.connect(self._open_opacity_popup)
-        self.lbl_geo = QtWidgets.QLabel("Georref: no")
+        self.lbl_geo = QtWidgets.QLabel(_tr("Georref: no"))
         # Color por _apply_theme_custom_styles (usa text_info para contraste).
         for w in (self.lbl_coords, self.lbl_counts, self.lbl_dirty):
             self.status.addPermanentWidget(w)
@@ -766,7 +917,7 @@ class Main(QtWidgets.QMainWindow):
         self.status.addPermanentWidget(self.lbl_geo)   # color por _apply_theme_custom_styles
         self.canvas.moved.connect(self._update_coords)
         self._update_geo_status()
-        self._info("Abre o arrastra un PDF/proyecto.")
+        self._info(_tr("Abre o arrastra un PDF/proyecto."))
 
     def _menu_act(self, menu, text, fn, sc=None):
         a = QtGui.QAction(text, self); a.triggered.connect(fn)
@@ -844,27 +995,27 @@ class Main(QtWidgets.QMainWindow):
         elif self.mode == "erase": self.finish_erase()
         elif self.mode == "centerline": self.finish_centerline()
         elif self.mode in ("leader1", "leader2", "leader3"):
-            self.set_mode("idle"); self._info("Comando Leader finalizado (Enter)")
+            self.set_mode("idle"); self._info(_tr("Comando Leader finalizado (Enter)"))
         elif self.mode == "move":
-            self.set_mode("idle"); self._info("Edición terminada (Enter)")
+            self.set_mode("idle"); self._info(_tr("Edición terminada (Enter)"))
 
     def _on_escape(self):
         if self.mode == "pipe" and self.cur_pts:
             self._push(); self.cur_pts = []; self._extending = False; self._ext_pipe = None; self._ext_at = None
-            self._update_ui(); self._redraw(); self._info("Puntos cancelados")
+            self._update_ui(); self._redraw(); self._info(_tr("Puntos cancelados"))
         elif self.mode == "erase" and self._erase_pts:
-            self._erase_pts = []; self._redraw(); self._info("Zona cancelada")
+            self._erase_pts = []; self._redraw(); self._info(_tr("Zona cancelada"))
         elif self.mode == "centerline" and self._cl_pts:
-            self._push(); self._cl_pts = []; self._update_ui(); self._redraw(); self._info("Puntos cancelados")
+            self._push(); self._cl_pts = []; self._update_ui(); self._redraw(); self._info(_tr("Puntos cancelados"))
         elif self.mode == "insert_bz":
-            self.set_mode("idle"); self._info("Inserción de buzón cancelada")
+            self.set_mode("idle"); self._info(_tr("Inserción de buzón cancelada"))
         elif self.sel_pipe >= 0 or self.sel_leader >= 0 or self.sel_region >= 0 or self.sel_text >= 0 or self.sel_bz >= 0 or self.sel_curve >= 0 or self.sel_cl >= 0:
-            self._deselect_all(); self._info("Selección quitada")
+            self._deselect_all(); self._info(_tr("Selección quitada"))
         else:
-            self.set_mode("idle"); self._info("Salió del modo")
+            self.set_mode("idle"); self._info(_tr("Salió del modo"))
 
     def _deselect_all(self):
-        self.sel_pipe = self.sel_leader = self.sel_region = self.sel_text = self.sel_bz = self.sel_curve = self.sel_cl = -1
+        self.sel_pipe = self.sel_leader = self.sel_region = self.sel_text = self.sel_bz = self.sel_curve = self.sel_cl = self.sel_db = -1
         for lst in (self.pipe_list, self.sleader_list, self.txt_marks_list, self.region_list,
                     getattr(self, "bz_list", None), getattr(self, "curve_list", None), getattr(self, "cl_list", None)):
             if lst is None: continue
@@ -874,8 +1025,8 @@ class Main(QtWidgets.QMainWindow):
 
     def _info(self, m): self.lbl_info.setText(m)
 
-    def _zoom_in(self): self.canvas.scale(1.25, 1.25)
-    def _zoom_out(self): self.canvas.scale(0.8, 0.8)
+    def _zoom_in(self): self.canvas.apply_zoom(1.25)
+    def _zoom_out(self): self.canvas.apply_zoom(0.8)
 
     def _update_title(self):
         dirty = "* " if self._dirty else ""
@@ -898,7 +1049,7 @@ class Main(QtWidgets.QMainWindow):
             v = 0.0
         # El icono de lápiz está seteado por _apply_theme_custom_styles (una sola
         # vez); aquí solo actualizamos el texto con el valor de escala actual.
-        self.btn_scale.setText(f"Escala 1\"={v:.0f}'" if v > 0 else "Escala —")
+        self.btn_scale.setText(f"{_tr('Escala')} 1\"={v:.0f}'" if v > 0 else _tr("Escala —"))
 
     def _prompt_scale(self):
         """Diálogo compacto para cambiar la escala del plano (1\"=X ft).
@@ -908,8 +1059,7 @@ class Main(QtWidgets.QMainWindow):
         usan los planos del titleblock. Se acepta un decimal por si acaso.
         """
         if self.canvas.pixmap_item is None:
-            QtWidgets.QMessageBox.information(self, "Escala",
-                "Primero abre un PDF o proyecto."); return
+            QtWidgets.QMessageBox.information(self, _tr("Escala"), _tr("Primero abre un PDF o proyecto.")); return
         cur = float(self.scale) * 72.0 if self.scale else 20.0
         val, ok = QtWidgets.QInputDialog.getDouble(
             self, "Escala del plano",
@@ -930,8 +1080,7 @@ class Main(QtWidgets.QMainWindow):
         """Desplegable junto al botón de escala: deslizable de opacidad del PDF y
         botón para alternar el fondo detrás del PDF entre blanco y negro."""
         if self.canvas.pixmap_item is None:
-            QtWidgets.QMessageBox.information(self, "Opacidad",
-                "Primero abre un PDF o proyecto."); return
+            QtWidgets.QMessageBox.information(self, _tr("Opacidad"), _tr("Primero abre un PDF o proyecto.")); return
         menu = QtWidgets.QMenu(self)
         box = QtWidgets.QWidget()
         lay = QtWidgets.QVBoxLayout(box); lay.setContentsMargins(12, 10, 12, 10); lay.setSpacing(8)
@@ -1037,10 +1186,10 @@ class Main(QtWidgets.QMainWindow):
             rms = f" · RMS {self.georef.rms:.2f} {unit}" if self.georef.rms is not None else ""
             cs = (getattr(self.georef, "cs_code", "") or "").strip()
             etq = cs if cs else f"EPSG:{self.georef.epsg}"
-            self.lbl_geo.setText(f"Georref: {etq}{rms}")
+            self.lbl_geo.setText(f"{_tr('Georref')}: {etq}{rms}")
             self.lbl_geo.setStyleSheet(f"color:{_theme.tokens().success};")
         else:
-            self.lbl_geo.setText("Georref: no (escala titleblock)")
+            self.lbl_geo.setText(_tr("Georref: no (escala titleblock)"))
             self.lbl_geo.setStyleSheet(f"color:{_theme.tokens().danger};")
 
     def _update_ui(self):
@@ -1059,15 +1208,15 @@ class Main(QtWidgets.QMainWindow):
             btn.setText(act_txt if active else idle_txt)
             btn.setIcon(_icon("mdi:stop-circle-outline" if active else idle_icon, color=_white))
         _toggle(self.btn_pipe, m == "pipe",
-                "  Salir de dibujar utilidad", "  Dibujar utilidad", "mdi:pencil-outline")
+                "  " + _tr("Salir de dibujar utilidad"), "  " + _tr("Dibujar utilidad"), "mdi:pencil-outline")
         _toggle(self.btn_leader_simple, in_leader,
-                "  Coloque Leader…", "  Colocar Leader", "mdi:arrow-decision-outline")
+                "  " + _tr("Coloque Leader…"), "  " + _tr("Colocar Leader"), "mdi:arrow-decision-outline")
         _toggle(self.btn_erase, m == "erase",
-                "  Terminar zona (Enter)", "  Borrar zona (polígono)", "mdi:vector-rectangle")
+                "  " + _tr("Terminar zona (Enter)"), "  " + _tr("Borrar zona (polígono)"), "mdi:vector-rectangle")
         _toggle(self.btn_centerline, m == "centerline",
-                "  Terminar centerline (Enter)", "  Trazar centerline", "mdi:ruler")
+                "  " + _tr("Terminar centerline (Enter)"), "  " + _tr("Trazar centerline"), "mdi:ruler")
         ti = self._current_tab()
-        self.gtxt.setTitle("Estilo de texto")
+        self.gtxt.setTitle(_tr("Estilo de texto"))
         self.gprop.setVisible(ti == TAB_PIPE and self.sel_pipe >= 0)
         # Panel de propiedades del buzón: visible en tab Buzones (aunque sin selección
         # se muestra el groupbox con campos deshabilitados para que el user vea que existe).
@@ -1089,27 +1238,27 @@ class Main(QtWidgets.QMainWindow):
         ti = self._current_tab()
         self.btn_ct.setVisible(ti == TAB_PIPE)
         self.btn_mv.setVisible(ti in (TAB_PIPE, TAB_LEADER, TAB_TEXT, TAB_REGION))
-        self.btn_mv.setText("Mover" if ti == TAB_TEXT else "Editar/mover")
+        self.btn_mv.setText(_tr("Mover") if ti == TAB_TEXT else _tr("Editar/mover"))
         self.btn_edit.setVisible(ti == TAB_TEXT)
         # "Eliminar" no aplica en la pestaña Buzones: los buzones se
         # auto-detectan de los vertices de las tuberias, borrarlos no tiene
         # efecto porque _rebuild_structures los repone. Se oculta el boton.
         self.btn_del.setVisible(ti != TAB_BZ)
         diag = self.orient_combo.currentData() == "d"
-        lead1 = "Modo: Leader — clic en la cabeza de flecha (dónde señala)"
-        lead2 = ("Modo: Leader — clic en el inicio del landing (bisagra)" if diag
-                 else "Modo: Leader — clic en el final del cuerpo")
-        lead3 = "Modo: Leader — clic en el final del cuerpo"
-        self.lbl_mode.setText({"idle": "Modo: inactivo  ·  clic en el dibujo para seleccionar",
-                               "pipe": ("Modo: EXTENDIENDO desde el vértice — clic agrega puntos, Enter finaliza"
-                                        if self._extending else "Modo: dibujar utilidad  ·  Enter finaliza"),
+        lead1 = _tr("Modo: Leader — clic en la cabeza de flecha (dónde señala)")
+        lead2 = (_tr("Modo: Leader — clic en el inicio del landing (bisagra)") if diag
+                 else _tr("Modo: Leader — clic en el final del cuerpo"))
+        lead3 = _tr("Modo: Leader — clic en el final del cuerpo")
+        self.lbl_mode.setText({"idle": _tr("Modo: inactivo  ·  clic en el dibujo para seleccionar"),
+                               "pipe": (_tr("Modo: EXTENDIENDO desde el vértice — clic agrega puntos, Enter finaliza")
+                                        if self._extending else _tr("Modo: dibujar utilidad  ·  Enter finaliza")),
                                "leader1": lead1,
                                "leader2": lead2,
                                "leader3": lead3,
-                               "text": "Modo: texto libre — clic donde escribir · Enter aplica",
-                               "erase": "Modo: borrar zona — clic para el polígono, Enter cierra",
-                               "centerline": "Modo: trazar centerline — clic agrega puntos, Enter finaliza",
-                               "move": "Modo: editar — arrastra vértice · clic en tramo inserta · clic-en-vértice extiende (F) · clic derecho elimina"}.get(m, ""))
+                               "text": _tr("Modo: texto libre — clic donde escribir · Enter aplica"),
+                               "erase": _tr("Modo: borrar zona — clic para el polígono, Enter cierra"),
+                               "centerline": _tr("Modo: trazar centerline — clic agrega puntos, Enter finaliza"),
+                               "move": _tr("Modo: editar — arrastra vértice · clic en tramo inserta · clic-en-vértice extiende (F) · clic derecho elimina")}.get(m, ""))
 
     def set_mode(self, m):
         """Cambia el "modo" del programa (qué está haciendo ahora el usuario):
@@ -1147,6 +1296,7 @@ class Main(QtWidgets.QMainWindow):
         if hasattr(self, "bz_list"): m[self.bz_list] = TAB_BZ
         if hasattr(self, "curve_list"): m[self.curve_list] = TAB_CURVE
         if hasattr(self, "cl_list"): m[self.cl_list] = TAB_CL
+        if hasattr(self, "_db_tab_widget"): m[self._db_tab_widget] = TAB_DB
         return m
 
     def _current_tab(self):
@@ -1210,11 +1360,11 @@ class Main(QtWidgets.QMainWindow):
         self._refresh_lists(); self._update_ui(); self._redraw()
 
     def undo(self):
-        if self._undo: self._redo.append(self._snap_state()); self._restore(self._undo.pop()); self._info("Deshacer")
+        if self._undo: self._redo.append(self._snap_state()); self._restore(self._undo.pop()); self._info(_tr("Deshacer"))
         self._update_undo_tooltips()
 
     def redo(self):
-        if self._redo: self._undo.append(self._snap_state()); self._restore(self._redo.pop()); self._info("Rehacer")
+        if self._redo: self._undo.append(self._snap_state()); self._restore(self._redo.pop()); self._info(_tr("Rehacer"))
         self._update_undo_tooltips()
 
     def _update_undo_tooltips(self):
@@ -1318,13 +1468,13 @@ class Main(QtWidgets.QMainWindow):
 
     def save_project(self):
         if self.canvas.pixmap_item is None:
-            QtWidgets.QMessageBox.information(self, "Nada que guardar", "Abre un PDF o proyecto primero."); return
+            QtWidgets.QMessageBox.information(self, _tr("Nada que guardar"), _tr("Abre un PDF o proyecto primero.")); return
         if self.project_path: self._write_project(self.project_path)
         else: self.save_project_as()
 
     def save_project_as(self):
         if self.canvas.pixmap_item is None:
-            QtWidgets.QMessageBox.information(self, "Nada que guardar", "Abre un PDF o proyecto primero."); return
+            QtWidgets.QMessageBox.information(self, _tr("Nada que guardar"), _tr("Abre un PDF o proyecto primero.")); return
         base = self.project_path or os.path.join(DOWNLOADS, "proyecto.digproj")
         path, _ = QtWidgets.QFileDialog.getSaveFileName(self, "Guardar proyecto como", base, "Proyecto (*.digproj)")
         if path: self._write_project(path)
@@ -1461,10 +1611,10 @@ class Main(QtWidgets.QMainWindow):
         self.duct_banks = []
         self.ref_centerlines = []; self._cl_pts = []
         self.cur_pts = []; self._erase_pts = []; self._overlay = []; self._close_editor()
-        self.sel_pipe = self.sel_leader = self.sel_region = self.sel_text = self.sel_cl = -1
+        self.sel_pipe = self.sel_leader = self.sel_region = self.sel_text = self.sel_cl = self.sel_db = -1
         self._undo.clear(); self._redo.clear(); self._dirty = False
         self.georef = georef_mod.Georef()
-        self.set_mode("idle"); self._refresh_lists(); self._update_page_label(); self._info("Proyecto cerrado.")
+        self.set_mode("idle"); self._refresh_lists(); self._update_page_label(); self._info(_tr("Proyecto cerrado."))
 
     def closeEvent(self, e):
         if self._confirm_discard():
@@ -1516,7 +1666,7 @@ class Main(QtWidgets.QMainWindow):
                              "size_ft": self.size_spin.value(), "bold": self.chk_bold.isChecked()})
         self._pending = {"arrow": None, "simple": True}; self.mode = "leader1"
         self._refresh_lists(); self._update_ui(); self._redraw()
-        self._info("Leader colocado. Clic en la cabeza de flecha del siguiente (Esc para salir).")
+        self._info(_tr("Leader colocado. Clic en la cabeza de flecha del siguiente (Esc para salir)."))
 
     def on_dblclick(self, x, y):
         if self.mode not in ("idle", "move"): return
@@ -1611,11 +1761,11 @@ class Main(QtWidgets.QMainWindow):
         if not kind and 0 <= self.sel_leader < len(self.leaders) and self.leaders[self.sel_leader].get("simple"):
             self._select_leader(self.sel_leader, center=True); kind = "leader"
         if kind == "leader":
-            self.set_mode("move"); self._info("Editar Leader: arrastra un vértice (posición/longitud) o el trazo para mover. Enter/Esc termina.")
+            self.set_mode("move"); self._info(_tr("Editar Leader: arrastra un vértice (posición/longitud) o el trazo para mover. Enter/Esc termina."))
         elif kind:
-            self.set_mode("move"); self._info("Arrastra para mover · clic en vértice extiende (F) · clic derecho elimina")
+            self.set_mode("move"); self._info(_tr("Arrastra para mover · clic en vértice extiende (F) · clic derecho elimina"))
         else:
-            self._info("Selecciona primero una utilidad, Leader, texto o zona")
+            self._info(_tr("Selecciona primero una utilidad, Leader, texto o zona"))
 
     def _thr(self): return 12.0 / max(1e-6, self.canvas.transform().m11())
 
@@ -1719,13 +1869,13 @@ class Main(QtWidgets.QMainWindow):
         self._extending = True; self._ext_layer = self.pipes[pi]["layer"]; self.cur_pts = [vpos]
         if same:
             self._ext_pipe = pi; self._ext_at = "start" if vi == 0 else "end"
-            self._info("Continuando la MISMA utilidad: clic para agregar puntos, Enter finaliza.")
+            self._info(_tr("Continuando la MISMA utilidad: clic para agregar puntos, Enter finaliza."))
         else:
             self._ext_pipe = None; self._ext_at = None
             if self.chk_ext_same.isChecked() and not is_end:
-                self._info("Solo desde un extremo se continúa; se creará una utilidad NUEVA. Clic para agregar, Enter finaliza.")
+                self._info(_tr("Solo desde un extremo se continúa; se creará una utilidad NUEVA. Clic para agregar, Enter finaliza."))
             else:
-                self._info("Utilidad NUEVA (rama en F): clic para agregar puntos, Enter finaliza.")
+                self._info(_tr("Utilidad NUEVA (rama en F): clic para agregar puntos, Enter finaliza."))
         self.set_mode("pipe")
 
     def _delete_vertex(self, x, y):
@@ -1745,7 +1895,7 @@ class Main(QtWidgets.QMainWindow):
                 if ov:                          # reindexar: el vértice vi ya no existe, los de más allá bajan uno
                     p["vertex_inv"] = {(k - 1 if k > vi else k): v for k, v in ov.items() if k != vi}
                 self._rebuild_seg_inv_table(p)
-            self._refresh_lists(); self._redraw(); self._info("Vértice eliminado")
+            self._refresh_lists(); self._redraw(); self._info(_tr("Vértice eliminado"))
 
     # ─────────────────────────── utilidades ───────────────────────────
     def finish_pipe(self):
@@ -1793,7 +1943,11 @@ class Main(QtWidgets.QMainWindow):
             # El diámetro se deriva del "Tamaño" del catálogo (elegido más abajo).
             self.prop_part.setText(p.get("part", ""))
             self.prop_inv0.setValue(p.get("inv_start") or 0.0); self.prop_inv1.setValue(p.get("inv_end") or 0.0)
-            mi = self.prop_material.findText(p.get("material") or DEFAULT_PIPE_MATERIAL)
+            # findData por VALOR real (no por texto traducido) — así el mapeo
+            # material↔selección es estable aunque el usuario cambie idioma.
+            mi = self.prop_material.findData(p.get("material") or DEFAULT_PIPE_MATERIAL)
+            if mi < 0:
+                mi = self.prop_material.findText(p.get("material") or DEFAULT_PIPE_MATERIAL)
             self.prop_material.setCurrentIndex(mi if mi >= 0 else 0)
             # findData busca el índice del combo cuya "data" (dato oculto) coincide
             # con "" | "pipe" | "pressure"; si no encuentra devuelve -1 → índice 0.
@@ -1804,6 +1958,10 @@ class Main(QtWidgets.QMainWindow):
             self._rebuild_seg_inv_table(p)
         else:
             self.gprop_segs.setVisible(False)
+        # Repinta la lista de bancoductos para actualizar qué fila queda en
+        # negrita/acento (la asignada a esta tubería).
+        if hasattr(self, "_refresh_db_list"):
+            self._refresh_db_list()
         self._update_ui(); self._redraw()
 
     def _interp_vertex_z(self, pts, z_start, z_end, overrides):
@@ -2127,9 +2285,18 @@ class Main(QtWidgets.QMainWindow):
             t = _theme.tokens()
             name = db.name or "(sin nombre)"
             nc = len(db.conduits)
+            # No pintamos el título en `accent` puro: en dark, ese azul queda
+            # ilegible sobre el fondo negro. Usamos negrita en color de texto
+            # normal + un fondo tenue del accent (mismo patrón que la fila
+            # resaltada en la pestaña Bancoductos).
+            bg = QtGui.QColor(t.accent); bg.setAlpha(45)
+            bg_css = f"rgba({bg.red()},{bg.green()},{bg.blue()},{bg.alpha()/255:.2f})"
             self.lbl_ductbank_assigned.setText(
-                f"<b style='color:{t.accent}'>Duct Bank: {name}</b><br>"
-                f"{db.width_in:g}\" x {db.height_in:g}\" — {nc} conducto(s)")
+                f"<div style='background:{bg_css}; padding:6px 8px; border-radius:4px;'>"
+                f"<b style='color:{t.text}'>Duct Bank: {name}</b><br>"
+                f"<span style='color:{t.text_muted}'>"
+                f"{db.width_in:g}\" x {db.height_in:g}\" — {nc} conducto(s)</span>"
+                f"</div>")
             self.lbl_ductbank_assigned.setVisible(True)
             self.prop_family.blockSignals(False); self.prop_size.blockSignals(False)
             return
@@ -2310,7 +2477,8 @@ class Main(QtWidgets.QMainWindow):
             p["unit"] = self.work_unit                                  # unidad de trabajo (coords/cotas)
             p["part"] = self.prop_part.text().strip()
             p["inv_start"] = self.prop_inv0.value(); p["inv_end"] = self.prop_inv1.value()
-            p["material"] = self.prop_material.currentText()
+            # Guardamos el VALOR real (data), no el texto traducido en pantalla.
+            p["material"] = self.prop_material.currentData() or self.prop_material.currentText()
             p["net_type"] = self.prop_nettype.currentData() or ""
             # Familia + tamaño del catálogo Civil 3D. El diámetro se deriva del tamaño.
             if self.prop_family.isVisible():
@@ -2352,13 +2520,29 @@ class Main(QtWidgets.QMainWindow):
 
     def _list_context_menu(self, listw, tab_idx, pos):
         item = listw.itemAt(pos)
-        if item is None: return
+        if item is None:
+            # Sin item bajo el cursor: en Bancoductos permitimos "+ Nuevo" igualmente.
+            if tab_idx == TAB_DB:
+                menu = QtWidgets.QMenu(self)
+                self._menu_act(menu, "+ Nuevo bancoducto", self._db_new)
+                menu.exec(listw.viewport().mapToGlobal(pos))
+            return
         if self._current_tab() != tab_idx: self._show_tab(tab_idx)
         listw.setCurrentRow(listw.row(item))          # selecciona la fila bajo el cursor
         menu = QtWidgets.QMenu(self)
         if tab_idx == TAB_PIPE:
             self._menu_act(menu, "Cambiar tipo", self.change_pipe_type)
             self._menu_act(menu, "Editar/mover", self.enter_move)
+            # Bancoducto asignado a esta tubería: editar o crear.
+            if 0 <= self.sel_pipe < len(self.pipes):
+                db = self._duct_bank_for_pipe(self.sel_pipe)
+                menu.addSeparator()
+                if db is not None:
+                    self._menu_act(menu, f"Editar bancoducto «{db.name or 'sin nombre'}»",
+                                   lambda: self._db_edit_for_pipe(self.sel_pipe))
+                else:
+                    self._menu_act(menu, "Crear bancoducto para esta tubería",
+                                   lambda: self._db_new_for_pipe(self.sel_pipe))
         elif tab_idx == TAB_LEADER:
             self._menu_act(menu, "Editar/mover", self.enter_move)
         elif tab_idx == TAB_TEXT:
@@ -2366,6 +2550,9 @@ class Main(QtWidgets.QMainWindow):
             self._menu_act(menu, "Editar texto", self.edit_selected_text)
         elif tab_idx == TAB_REGION:
             self._menu_act(menu, "Editar/mover", self.enter_move)
+        elif tab_idx == TAB_DB:
+            self._menu_act(menu, "Editar", self._db_edit)
+            self._menu_act(menu, "Duplicar", self._db_duplicate)
         menu.addSeparator()
         self._menu_act(menu, "Eliminar", self.delete_selected)
         menu.exec(listw.viewport().mapToGlobal(pos))
@@ -2385,6 +2572,9 @@ class Main(QtWidgets.QMainWindow):
             desc = f"Zona de borrado #{self.sel_region+1}"
         elif ti == TAB_CL and 0 <= self.sel_cl < len(self.ref_centerlines):
             desc = f"Centerline #{self.sel_cl+1}"
+        elif ti == TAB_DB and 0 <= self.sel_db < len(getattr(self, "duct_banks", [])):
+            db = self.duct_banks[self.sel_db]
+            desc = f"Bancoducto «{db.name or 'sin nombre'}» ({len(db.conduits)} conducto(s))"
         if desc is None:
             return
         r = QtWidgets.QMessageBox.question(
@@ -2402,6 +2592,11 @@ class Main(QtWidgets.QMainWindow):
             self._push(); self.erase_regions.pop(self.sel_region); self.sel_region = -1
         elif ti == TAB_CL:
             self._push(); self.ref_centerlines.pop(self.sel_cl); self.sel_cl = -1
+        elif ti == TAB_DB:
+            self._push(); self.duct_banks.pop(self.sel_db); self.sel_db = -1
+            if hasattr(self, "lbl_ductbank_count"):
+                self.lbl_ductbank_count.setText(f"Duct banks guardados: {len(self.duct_banks)}")
+            self._dirty = True
         self._refresh_lists(); self._redraw()
 
     def _copy_sel(self):
@@ -2409,8 +2604,8 @@ class Main(QtWidgets.QMainWindow):
         if ti == TAB_LEADER and 0 <= self.sel_leader < len(self.leaders): self._clip = ("leader", copy.deepcopy(self.leaders[self.sel_leader]))
         elif ti == TAB_PIPE and 0 <= self.sel_pipe < len(self.pipes): self._clip = ("pipe", copy.deepcopy(self.pipes[self.sel_pipe]))
         elif ti == TAB_TEXT and 0 <= self.sel_text < len(self.text_marks): self._clip = ("text", copy.deepcopy(self.text_marks[self.sel_text]))
-        else: self._info("Selecciona algo para copiar."); return
-        self._info("Copiado. Ctrl+V para pegar una copia.")
+        else: self._info(_tr("Selecciona algo para copiar.")); return
+        self._info(_tr("Copiado. Ctrl+V para pegar una copia."))
 
     def _paste_sel(self):
         if not self._clip: return
@@ -2426,7 +2621,7 @@ class Main(QtWidgets.QMainWindow):
         elif kind == "text":
             o["pos"] = (o["pos"][0] + d, o["pos"][1] + d); self.text_marks.append(o)
             self._show_tab(TAB_TEXT); self._refresh_lists(); self.txt_marks_list.setCurrentRow(len(self.text_marks) - 1)
-        self._redraw(); self._info("Pegado (copia desplazada).")
+        self._redraw(); self._info(_tr("Pegado (copia desplazada)."))
 
     def _refresh_lists(self):
         self._refresh_counts()
@@ -2494,6 +2689,7 @@ class Main(QtWidgets.QMainWindow):
             self.cl_list.addItem(_it_cl)
         self.cl_list.blockSignals(False)
         self._sync_cl_panel()
+        self._refresh_db_list()
         self._set_item_tooltips()
 
     def _set_item_tooltips(self):
@@ -2503,7 +2699,7 @@ class Main(QtWidgets.QMainWindow):
         leer completo al pasar el ratón."""
         for lw in (self.pipe_list, self.sleader_list,
                    self.txt_marks_list, self.region_list, self.bz_list,
-                   self.curve_list, self.cl_list):
+                   self.curve_list, self.cl_list, self.db_list):
             for r in range(lw.count()):
                 it = lw.item(r)
                 if it is not None and not it.toolTip():
@@ -2518,7 +2714,7 @@ class Main(QtWidgets.QMainWindow):
         # NO eliminan pipes/leaders/textos del usuario que caigan dentro — eso
         # se hace explícito con el borrado individual del panel.
         self._erase_pts = []; self.set_mode("idle"); self._refresh_lists()
-        self._info("Zona agregada: al exportar tapa la geometría base del plano dentro de ella (no toca tus utilidades).")
+        self._info(_tr("Zona agregada: al exportar tapa la geometría base del plano dentro de ella (no toca tus utilidades)."))
 
     def finish_centerline(self):
         if len(self._cl_pts) < 2: return
@@ -2528,7 +2724,7 @@ class Main(QtWidgets.QMainWindow):
         while f"CL-{n}" in used: n += 1
         self.ref_centerlines.append({"cod": f"CL-{n}", "pts": self._cl_pts[:]})
         self._cl_pts = []; self.set_mode("idle"); self._refresh_lists()
-        self._info("Centerline agregado — solo referencia para calzar la georreferenciación, no es una utilidad.")
+        self._info(_tr("Centerline agregado — solo referencia para calzar la georreferenciación, no es una utilidad."))
 
     def start_leader(self, simple=True):
         """Entra al modo de colocación de Leader (solo flecha, sin texto). La
@@ -2539,14 +2735,14 @@ class Main(QtWidgets.QMainWindow):
         self._open_section("leader")
         self.set_mode("leader1")
         if self.orient_combo.currentData() == "d":
-            self._info("Leader diagonal: cabeza → inicio del landing (bisagra) → final del cuerpo. Enter/Esc para salir.")
+            self._info(_tr("Leader diagonal: cabeza → inicio del landing (bisagra) → final del cuerpo. Enter/Esc para salir."))
         else:
-            self._info("Leader: cabeza de flecha → final del cuerpo. Enter/Esc para salir.")
+            self._info(_tr("Leader: cabeza de flecha → final del cuerpo. Enter/Esc para salir."))
 
     def _edit_leader_text(self, idx):
         ld = self.leaders[idx]; tp = ld["tp"]
         if ld.get("simple"):                                 # el Leader simple no tiene texto que editar
-            self._info("El Leader simple no lleva texto."); return
+            self._info(_tr("El Leader simple no lleva texto.")); return
         def commit(val):
             self._close_editor()
             if val.strip(): self._push(); ld["text"] = val.rstrip("\n"); self._refresh_lists()
@@ -2921,11 +3117,10 @@ class Main(QtWidgets.QMainWindow):
         """mode: 'todo' = PDF digitalizado + anotaciones · 'pdf' = solo el PDF ·
         'anot' = solo las anotaciones dibujadas en el programa."""
         if self.canvas.pixmap_item is None:
-            QtWidgets.QMessageBox.information(self, "Nada", "Abre un PDF o proyecto."); return
+            QtWidgets.QMessageBox.information(self, _tr("Nada"), _tr("Abre un PDF o proyecto.")); return
         need_pdf = mode in ("todo", "pdf")
         if need_pdf and (not self.pdf_path or not os.path.isfile(self.pdf_path)):
-            QtWidgets.QMessageBox.information(self, "Sin PDF",
-                "No se encontró el PDF original. Se exportarán solo las anotaciones (utilidades, leaders, textos).")
+            QtWidgets.QMessageBox.information(self, _tr("Sin PDF"), _tr("No se encontró el PDF original. Se exportarán solo las anotaciones (utilidades, leaders, textos)."))
             mode = "anot"; need_pdf = False
         base = os.path.splitext(os.path.basename(self.pdf_path))[0] if self.pdf_path else "proyecto"
         suffix = {"todo": "_completo", "pdf": "_plano", "anot": "_anotaciones"}[mode]
@@ -3009,10 +3204,10 @@ class Main(QtWidgets.QMainWindow):
         ese punto. El buzón se materializa como un vértice extra en la polilínea (y
         _rebuild_structures lo recoge como buzón nuevo)."""
         if not self.pipes:
-            self._info("No hay líneas dibujadas para insertar un buzón.")
+            self._info(_tr("No hay líneas dibujadas para insertar un buzón."))
             return
         self.set_mode("insert_bz")
-        self._info("Clic sobre una línea para insertar un buzón (Esc para salir).")
+        self._info(_tr("Clic sobre una línea para insertar un buzón (Esc para salir)."))
 
     def _do_insert_manhole(self, x, y):
         from model import network_kind
@@ -3026,14 +3221,14 @@ class Main(QtWidgets.QMainWindow):
                 d = G.pt_seg_dist(x, y, a[0], a[1], b[0], b[1])
                 if d < best[2]: best = (pi, idx, d)
         if best[0] is None:
-            self._info("Los buzones/cajas solo se insertan en redes de gravedad o conduit (no en presión).")
+            self._info(_tr("Los buzones/cajas solo se insertan en redes de gravedad o conduit (no en presión)."))
             self.set_mode("idle"); return
         self._push()
         pi, si, _ = best
         self.pipes[pi]["pts"].insert(si + 1, (x, y))
         self._rebuild_structures()
         self._refresh_lists(); self._redraw()
-        self._info("Buzón insertado. Edítalo en la tab Buzones.")
+        self._info(_tr("Buzón insertado. Edítalo en la tab Buzones."))
         self.set_mode("idle")
 
     def _rebuild_structures(self):
@@ -3406,13 +3601,13 @@ class Main(QtWidgets.QMainWindow):
 
     def clear_georef(self):
         if not self.georef.active():
-            self._info("El plano no está georreferenciado."); return
+            self._info(_tr("El plano no está georreferenciado.")); return
         self._dirty = True; self.georef = georef_mod.Georef()
-        self._update_geo_status(); self._info("Georreferencia quitada; se usa la escala del titleblock.")
+        self._update_geo_status(); self._info(_tr("Georreferencia quitada; se usa la escala del titleblock."))
 
     def open_georef(self):
         if self.canvas.pixmap_item is None:
-            QtWidgets.QMessageBox.information(self, "Sin plano", "Abre un PDF o proyecto primero."); return
+            QtWidgets.QMessageBox.information(self, _tr("Sin plano"), _tr("Abre un PDF o proyecto primero.")); return
         try:
             from geo.georef_dialog import GeorefDialog
         except Exception as e:
@@ -3474,9 +3669,9 @@ class Main(QtWidgets.QMainWindow):
         if not hasattr(self, "_act_theme"):
             return
         if _theme.is_dark():
-            self._act_theme.setText("Modo claro")
+            self._act_theme.setText(_tr("Modo claro"))
         else:
-            self._act_theme.setText("Modo oscuro")
+            self._act_theme.setText(_tr("Modo oscuro"))
 
     def _apply_theme_custom_styles(self, *_):
         """Re-aplica todos los estilos QSS custom del Main con los tokens del tema
@@ -3568,28 +3763,166 @@ class Main(QtWidgets.QMainWindow):
         if hasattr(self, "pipe_list"):
             self._refresh_lists()
 
-    def _open_duct_bank_designer(self):
+    # ── Bancoductos: lista/CRUD desde la pestaña "Bancoductos" del inventario ──
+    def _refresh_db_list(self):
+        """Refresca la pestaña "Bancoductos" con `Tubería · Nombre · Nº conductos`.
+        La fila cuya `pipe_idx` coincide con la tubería seleccionada en el canvas
+        se resalta en negrita (ancla visual: "el bancoducto de la tubería que
+        estoy viendo")."""
+        if not hasattr(self, "db_list"):
+            return
+        self.db_list.blockSignals(True)
+        self.db_list.clear()
+        dbs = getattr(self, "duct_banks", []) or []
+        cur_pipe = getattr(self, "sel_pipe", -1)
+        for db in dbs:
+            # Tubería asignada
+            pi = getattr(db, "pipe_idx", -1)
+            if 0 <= pi < len(self.pipes):
+                p = self.pipes[pi]
+                pipe_lbl = f"#{pi+1} {p.get('layer', '?')}"
+            else:
+                pipe_lbl = _tr("(sin asignar)")
+            nm = db.name or _tr("(sin nombre)")
+            nc = len(db.conduits)
+            unit_c = _tr("conducto(s)")
+            txt = f"{pipe_lbl}  ·  {nm}  ·  {nc} {unit_c}"
+            it = QtWidgets.QListWidgetItem(_icon("mdi:grid"), txt)
+            it.setToolTip(f"{_tr('Bancoducto')} «{nm}»\n"
+                          f"{_tr('Envolvente')}: {db.width_in:g}\" × {db.height_in:g}\"\n"
+                          f"{_tr('Conductos')}: {nc}\n"
+                          f"{_tr('Tubería')}: {pipe_lbl}\n\n"
+                          f"{_tr('Doble-click para editar.')}")
+            if pi == cur_pipe and cur_pipe >= 0:
+                # Resaltar la fila del bancoducto asignado a la tubería
+                # actualmente seleccionada. No cambiamos el color del texto (en
+                # dark, un accent azul sobre fondo negro queda ilegible), sino
+                # que aplicamos negrita + un fondo tinte del accent — se lee en
+                # ambos temas y no depende de contraste marginal.
+                f = it.font(); f.setBold(True); it.setFont(f)
+                t = _theme.tokens()
+                # Fondo tenue del accent (~15% alpha) — legible sobre bg claro y
+                # oscuro sin cambiar el color del texto.
+                bg = QtGui.QColor(t.accent); bg.setAlpha(45)
+                it.setBackground(bg)
+            self.db_list.addItem(it)
+        # Estado vacío: mensaje placeholder cuando no hay filas.
+        if not dbs:
+            hint = QtWidgets.QListWidgetItem(
+                _tr("Aún no hay bancoductos.\n"
+                    "Crea uno con «+ Nuevo» arriba, o click derecho en una tubería."))
+            hint.setFlags(QtCore.Qt.NoItemFlags)   # no seleccionable
+            hint.setForeground(QtGui.QColor(_theme.tokens().text_muted))
+            self.db_list.addItem(hint)
+        # Restaurar selección si sigue siendo válida.
+        if 0 <= self.sel_db < len(dbs):
+            self.db_list.setCurrentRow(self.sel_db)
+        self.db_list.blockSignals(False)
+
+    def _sel_db(self, row):
+        if 0 <= row < len(getattr(self, "duct_banks", [])):
+            self.sel_db = row
+        else:
+            self.sel_db = -1
+
+    def _db_new(self):
+        """Crear un bancoducto nuevo desde cero (sin tubería preasignada)."""
+        self._open_duct_bank_designer(initial=None)
+
+    def _db_new_for_pipe(self, pipe_idx):
+        """Crear un bancoducto ya asignado a esta tubería."""
+        from duct_bank import DuctBank
+        seed = DuctBank(name="", pipe_idx=pipe_idx)
+        self._open_duct_bank_designer(initial=seed)
+
+    def _db_edit(self):
+        """Editar el bancoducto seleccionado en la lista."""
+        dbs = getattr(self, "duct_banks", []) or []
+        if not (0 <= self.sel_db < len(dbs)):
+            self._info(_tr("Selecciona un bancoducto primero."))
+            return
+        self._open_duct_bank_designer(initial=dbs[self.sel_db])
+
+    def _db_edit_for_pipe(self, pipe_idx):
+        """Editar el bancoducto asignado a esta tubería (desde menú contextual)."""
+        db = self._duct_bank_for_pipe(pipe_idx)
+        if db is None:
+            return
+        self._open_duct_bank_designer(initial=db)
+
+    def _db_duplicate(self):
+        """Duplica el bancoducto seleccionado (sin tubería asignada — el usuario
+        decide a cuál asignarlo al editar)."""
+        dbs = getattr(self, "duct_banks", []) or []
+        if not (0 <= self.sel_db < len(dbs)):
+            self._info(_tr("Selecciona un bancoducto para duplicar."))
+            return
+        src = dbs[self.sel_db]
+        dup = src.copy()
+        dup.name = f"{src.name or 'sin nombre'} (copia)"
+        dup.pipe_idx = -1   # no heredamos asignación para evitar superposición
+        self._push()
+        self.duct_banks.append(dup)
+        self.sel_db = len(self.duct_banks) - 1
+        self._dirty = True
+        if hasattr(self, "lbl_ductbank_count"):
+            self.lbl_ductbank_count.setText(f"Duct banks guardados: {len(self.duct_banks)}")
+        self._refresh_lists()
+        self._info(f"Bancoducto duplicado como «{dup.name}».")
+
+    # Sentinel para distinguir "sin argumento" (comportamiento heredado del
+    # botón viejo del toolbar) de "explícitamente None" (nuevo desde cero).
+    # Sin esto, `_open_duct_bank_designer(initial=None)` caía al fallback que
+    # cargaba el último bancoducto — el usuario pedía Nuevo y se le abría uno ya
+    # creado.
+    _DB_DEFAULT = object()
+
+    def _open_duct_bank_designer(self, initial=_DB_DEFAULT):
         # Delegador delgado: la UI del diseñador vive en duct_bank_dialog.py.
         # Al aceptar, guarda el diseño en self.duct_banks (colección del proyecto)
-        # sobreescribiendo por nombre O por pipe_idx (para evitar sólidos
-        # superpuestos cuando se rediseña el duct bank de una misma utilidad).
+        # sobreescribiendo por identidad de objeto O por pipe_idx (para evitar
+        # sólidos superpuestos cuando se rediseña el bancoducto de una tubería).
+        #
+        # `initial` explícito manda:
+        #   - Un DuctBank existente → editarlo en-place
+        #   - Un DuctBank nuevo con pipe_idx puesto → crear preasignado
+        #   - None → crear desde cero (BOTÓN "Nuevo")
+        # Sin `initial` (sentinel _DB_DEFAULT), cae al comportamiento heredado:
+        # bancoducto de la pipe seleccionada, o el último — para no romper el
+        # botón del toolbar antiguo.
         from duct_bank_dialog import open_designer
-        current = None
-        if hasattr(self, "sel_pipe") and self.sel_pipe >= 0:
-            current = self._duct_bank_for_pipe(self.sel_pipe)
-        if current is None and getattr(self, "duct_banks", None):
-            current = self.duct_banks[-1]
+        if initial is Main._DB_DEFAULT:
+            current = None
+            if hasattr(self, "sel_pipe") and self.sel_pipe >= 0:
+                current = self._duct_bank_for_pipe(self.sel_pipe)
+            if current is None and getattr(self, "duct_banks", None):
+                current = self.duct_banks[-1]
+        else:
+            current = initial   # None aquí SÍ significa "crear desde cero"
         result = open_designer(self, initial=current)
         if result is None:
             return
         if not getattr(self, "duct_banks", None):
             self.duct_banks = []
-        # Reemplaza por nombre o agrega nuevo.
-        existing = next((i for i, d in enumerate(self.duct_banks) if d.name and d.name == result.name), None)
-        if existing is not None:
-            self.duct_banks[existing] = result
-        else:
-            self.duct_banks.append(result)
+        # Reemplazo:
+        #   - Si `current` es un DuctBank ya guardado, sustituimos ESE objeto
+        #     (identidad) — así "Editar" nunca crea duplicados aunque el usuario
+        #     cambie el nombre.
+        #   - Sino, cae al match por nombre (nombres únicos como convención).
+        replaced = False
+        if current is not None:
+            for i, d in enumerate(self.duct_banks):
+                if d is current:
+                    self.duct_banks[i] = result
+                    replaced = True
+                    break
+        if not replaced:
+            existing = next((i for i, d in enumerate(self.duct_banks)
+                             if d.name and d.name == result.name), None)
+            if existing is not None:
+                self.duct_banks[existing] = result
+            else:
+                self.duct_banks.append(result)
         # Eliminar otros duct banks que apunten a la misma pipe (evita superposición).
         if result.pipe_idx >= 0:
             self.duct_banks = [
@@ -3604,6 +3937,12 @@ class Main(QtWidgets.QMainWindow):
         if hasattr(self, "lbl_ductbank_count"):
             self.lbl_ductbank_count.setText(
                 f"Duct banks: {len(self.duct_banks)}{pipe_info}")
+        # Deja seleccionado el bancoducto que se acaba de editar/crear en la lista.
+        try:
+            self.sel_db = self.duct_banks.index(result)
+        except ValueError:
+            self.sel_db = -1
+        self._refresh_lists()
         self._info(f"Duct bank '{result.name or 'sin nombre'}' guardado{pipe_info}.")
 
     # ─────────────────────────── drag & drop ───────────────────────────
@@ -3618,6 +3957,10 @@ def main():
     app = QtWidgets.QApplication(sys.argv)
     app._no_wheel_filter = _NoWheelFilter(app)
     app.installEventFilter(app._no_wheel_filter)
+    # Idioma preferido del usuario. Debe cargarse ANTES de construir Main() para
+    # que los textos ya salgan traducidos desde el primer render.
+    import i18n as _i18n
+    _i18n.load_lang()
     # Tema visual global (claro/oscuro). La preferencia se persiste en QSettings
     # y se puede alternar desde el menú "Ver" en tiempo real. Todo el CSS antes
     # hardcodeado ahora vive en app/theme.py, parametrizado por tokens de color.

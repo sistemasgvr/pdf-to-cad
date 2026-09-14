@@ -66,10 +66,11 @@ class DuctBank:
     # donde se colocan conductos. Se dibuja como línea gris punteada dentro
     # de la envolvente, similar al margen de página en un procesador de
     # texto. Cuatro valores independientes: top / right / bottom / left.
-    margin_top: float = 0.0
-    margin_right: float = 0.0
-    margin_bottom: float = 0.0
-    margin_left: float = 0.0
+    # Default 3" = recubrimiento típico de un bancoducto de concreto.
+    margin_top: float = 3.0
+    margin_right: float = 3.0
+    margin_bottom: float = 3.0
+    margin_left: float = 3.0
 
     # ── Redondeo de esquinas (pulgadas) ──────────────────────────────────
     # Radio de la esquina, por esquina. 0 = escuadra viva.
@@ -94,6 +95,27 @@ class DuctBank:
     # -1 = no asignado.
     pipe_idx: int = -1
 
+    # ── Reglas de diseño (customizables) ─────────────────────────────────
+    # Chequeos que el usuario puede activar/desactivar por bancoducto:
+    #   - Separación mínima entre centros de conductos (borde a borde real).
+    #   - Distancia mínima entre el borde de cualquier conducto y la envolvente.
+    # `rules_enabled=False` desactiva TODAS las reglas custom — quedan solo los
+    # checks geométricos básicos (conducto dentro de envolvente, no colisión
+    # grosera). Los valores en 0 significan "sin regla" para ese campo aunque
+    # rules_enabled esté ON.
+    rules_enabled: bool = True
+    # Defaults típicos de un bancoducto: 2" entre conductos, 3" al borde.
+    # 0 desactiva la regla individual aunque rules_enabled esté ON.
+    rule_min_conduit_sep_in: float = 2.0
+    rule_min_edge_clearance_in: float = 3.0
+
+    # ── Visualización ────────────────────────────────────────────────────
+    # Si False, al exportar/importar en Civil 3D solo se dibujan los conductos
+    # internos como pipes — el sólido 3D del contenedor NO se crea. Útil cuando
+    # el bancoducto ya existe como sólido en el DWG o solo se quiere el trazado
+    # de los conductos.
+    render_envelope: bool = True
+
     def to_dict(self) -> Dict[str, Any]:
         return {"name": self.name,
                 "width_in": float(self.width_in),
@@ -110,6 +132,10 @@ class DuctBank:
                 "guide_rows": int(self.guide_rows),
                 "guide_cols": int(self.guide_cols),
                 "pipe_idx": int(self.pipe_idx),
+                "rules_enabled": bool(self.rules_enabled),
+                "rule_min_conduit_sep_in": float(self.rule_min_conduit_sep_in),
+                "rule_min_edge_clearance_in": float(self.rule_min_edge_clearance_in),
+                "render_envelope": bool(self.render_envelope),
                 "conduits": [c.to_dict() for c in self.conduits]}
 
     @classmethod
@@ -129,6 +155,10 @@ class DuctBank:
                    guide_rows=int(d.get("guide_rows", 1)),
                    guide_cols=int(d.get("guide_cols", 1)),
                    pipe_idx=int(d.get("pipe_idx", -1)),
+                   rules_enabled=bool(d.get("rules_enabled", True)),
+                   rule_min_conduit_sep_in=float(d.get("rule_min_conduit_sep_in", 0.0)),
+                   rule_min_edge_clearance_in=float(d.get("rule_min_edge_clearance_in", 0.0)),
+                   render_envelope=bool(d.get("render_envelope", True)),
                    conduits=[Conduit.from_dict(cc) for cc in d.get("conduits", [])])
 
     # ── Helpers derivados ────────────────────────────────────────────────
@@ -190,8 +220,19 @@ def conduits_overlap(a: Conduit, b: Conduit, tol: float = 0.0) -> bool:
 
 def validate(db: DuctBank) -> List[str]:
     """Devuelve una lista de mensajes de advertencia (nunca lanza excepción).
-    Un duct bank es "válido para exportar" cuando esta lista está vacía."""
+    Un duct bank es "válido para exportar" cuando esta lista está vacía.
+
+    Los chequeos se dividen en dos capas:
+      1) **Básicos** (siempre aplican): envolvente positiva, cantidad, diámetro,
+         que el conducto quepa dentro de la envolvente, sin colisión gruesa.
+         Sin estos el exportador y el plugin C# no pueden generar geometría
+         válida.
+      2) **Reglas custom** (`db.rules_enabled`): separación mínima entre
+         conductos y distancia mínima al borde. `rules_enabled=False` las
+         desactiva por completo, útil para diseños heredados o experimentales.
+    """
     errs: List[str] = []
+    # ── Chequeos básicos (SIEMPRE) ─────────────────────────────────────────
     if db.width_in <= 0 or db.height_in <= 0:
         errs.append("La envolvente debe tener ancho y alto positivos.")
     if len(db.conduits) > MAX_CONDUITS:
@@ -207,4 +248,30 @@ def validate(db: DuctBank) -> List[str]:
         for j in range(i + 1, len(db.conduits)):
             if conduits_overlap(db.conduits[i], db.conduits[j], tol=-1e-6):
                 errs.append(f"Conductos {i + 1} y {j + 1} se solapan.")
+
+    # ── Reglas custom (solo si el usuario las activó) ──────────────────────
+    if not db.rules_enabled:
+        return errs
+
+    # Distancia mínima al borde de la envolvente (cada conducto)
+    edge = float(db.rule_min_edge_clearance_in)
+    if edge > 0:
+        for i, c in enumerate(db.conduits, start=1):
+            if c.diam <= 0: continue
+            # conduit_fits_envelope(margin=edge) exige que el borde del conducto
+            # esté al menos `edge`" del borde de la envolvente.
+            if not conduit_fits_envelope(db, c, margin=edge):
+                errs.append(f"Conducto {i}: viola distancia mínima al borde "
+                            f'({edge:g}").')
+
+    # Separación mínima entre conductos (borde a borde)
+    sep = float(db.rule_min_conduit_sep_in)
+    if sep > 0:
+        for i in range(len(db.conduits)):
+            for j in range(i + 1, len(db.conduits)):
+                # conduits_overlap(tol=sep) es True si distancia < r_i + r_j + sep
+                # es decir, si el hueco borde-borde entre ellos es < sep.
+                if conduits_overlap(db.conduits[i], db.conduits[j], tol=sep):
+                    errs.append(f"Conductos {i + 1} y {j + 1}: separación "
+                                f'menor a {sep:g}" entre bordes.')
     return errs

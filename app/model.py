@@ -39,7 +39,7 @@ Coordenadas DIBUJADAS en PÍXELES (se convierten con geometry.to_cad al exportar
 coordenadas IMPORTADAS de Excel ya son reales de mundo (world=True → se usan tal cual).
 """
 
-VERSION = "1.0.1"
+VERSION = "1.1.0"
 
 # Capas de red por GRAVEDAD (tramos entre buzones, con invert inicio/fin).
 GRAVITY_LAYERS = {"ALCANTARILLADO", "DRENAJE"}
@@ -80,7 +80,7 @@ LEADER_TEXT_FT = 3.0
 LEADER_ORIENT = [("h", "Horizontal"), ("v", "Vertical"), ("d", "Diagonal")]
 Z_PDF, Z_ERASE, Z_MARK, Z_HANDLE = 0, 1, 5, 8
 # Índices de las pestañas del inventario (derecha)
-TAB_PIPE, TAB_ML, TAB_LEADER, TAB_TEXT, TAB_REGION, TAB_BZ, TAB_CURVE, TAB_CL = 0, 1, 2, 3, 4, 5, 6, 7
+TAB_PIPE, TAB_ML, TAB_LEADER, TAB_TEXT, TAB_REGION, TAB_BZ, TAB_CURVE, TAB_CL, TAB_DB = 0, 1, 2, 3, 4, 5, 6, 7, 8
 
 # Tipo de red derivado de la CAPA (agrupa las utilidades a nivel de red completa).
 #   gravity  → red por gravedad con buzones (alcantarillado, drenaje)
@@ -153,6 +153,26 @@ def default_network_type(layer):
 
 
 CHANGELOG = [
+    ("1.1.0", [
+        ("added", "Nuevo diseñador de Bancoductos (Duct Bank): dibuja la sección con envolvente, márgenes, redondeo de esquinas, rejilla de distribución, reglas de separación y de resguardo al borde. Cada bancoducto se asigna a una utilidad del plano y al importar en Civil 3D se crea el sólido 3D del contenedor + los conductos internos como tuberías reales."),
+        ("added", "Panel «Bancoductos» en el inventario derecho: lista todos los bancoductos del proyecto con botones Nuevo / Editar / Duplicar. Doble-click en una fila abre el diseñador ya cargado con ese bancoducto. Click derecho sobre una tubería del plano ofrece «Crear/Editar bancoducto»."),
+        ("added", "Opción para elegir si se dibuja el contenedor 3D del bancoducto o solo los conductos internos (útil cuando el contenedor de concreto ya existe en el DWG)."),
+        ("added", "Selector de idioma en Archivo → Opciones… La app se puede alternar entre Español e Inglés; la elección se recuerda al reabrir."),
+        ("added", "Diálogo de Opciones en el menú Archivo (pensado para crecer con más preferencias en el futuro)."),
+        ("added", "Documento «Cómo funciona el proyecto» en formato interactivo (docs/arquitectura.html): explicación por carpetas y archivos en lenguaje sencillo, con diagramas."),
+        ("added", "Menú contextual (click derecho) en las tuberías del inventario: crear o editar el bancoducto asignado sin salir del contexto."),
+        ("changed", "La cota invert del bancoducto ahora manda el FONDO del contenedor (parte inferior externa), como en las tuberías normales. Los conductos internos se distribuyen correctamente hacia arriba desde ese fondo."),
+        ("changed", "Las cotas por tramo (VertexInv) del pipe padre ahora se aplican también al sólido del contenedor y a los conductos internos — antes solo se usaban en tuberías normales."),
+        ("changed", "Zoom del lienzo principal: acercar hasta 4000% y alejar hasta 30% con la rueda o los botones (antes 1000% / 10% y el botón se saltaba el límite)."),
+        ("changed", "El botón «+ Nuevo» del panel de bancoductos ahora sí crea uno desde cero (antes cargaba el último diseño)."),
+        ("changed", "Rediseño del diseñador de bancoductos: acciones «Cancelar / Guardar y cerrar» debajo del canvas, «Puntero» unificado (click selecciona, arrastra mueve), banner rojo sobre el canvas cuando hay problemas, panel «Identificación» al inicio, panel «Conducto» contextual (cambia entre modo nuevo/editar)."),
+        ("changed", "Modo oscuro mejorado: el bancoducto asignado a la tubería seleccionada ya se lee sin problemas, y el título en «Duct Bank: ...» dejó de salir con azul ilegible sobre fondo negro."),
+        ("changed", "Los tamaños de tubería que faltan en el catálogo se instalan automáticamente al importar (evita el fallback silencioso a un diámetro distinto)."),
+        ("fixed", "Los conductos del bancoducto ya no sobresalen del contenedor en el render 3D (Civil 3D dibuja al diámetro exterior; ahora se fuerza pared 0 en las medidas custom que la app inyecta al catálogo)."),
+        ("fixed", "Rediseñar el bancoducto de una utilidad ya no crea dos sólidos superpuestos: se sobreescribe por identidad, no por nombre."),
+        ("fixed", "El sólido del bancoducto sigue las cotas de la tubería padre (antes quedaba a Z=0 mientras los conductos usaban las cotas correctas)."),
+        ("fixed", "Al abrir el diseñador desde una tubería, ahora carga el bancoducto asignado a ESA tubería (antes cargaba el último editado)."),
+    ]),
     ("1.0.1", [
         ("added", "Alineamientos curvos: el eje de la red sigue el mismo arco (mismo radio) que la tubería curva, en vez de cortar la esquina en recta."),
         ("added", "Botón «Agregar tubería curva»: seleccionas dos tuberías y un radio opcional, y crea la curva tangente y redondea también el eje."),

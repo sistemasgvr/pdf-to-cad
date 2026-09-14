@@ -26,14 +26,15 @@ from typing import List, Optional
 from PySide6 import QtCore, QtGui, QtWidgets
 
 from duct_bank import (DuctBank, Conduit, DEFAULT_SNAP_IN,
-                       snap, validate, conduit_fits_envelope)
+                       snap, validate, conduit_fits_envelope, conduits_overlap)
 import theme as _theme
 from icons import icon as _icon
+from i18n import t as _tr
 
 
 # ── Constantes visuales ─────────────────────────────────────────────────────
 _INITIAL_PX_PER_IN = 60.0     # zoom inicial: 60 px = 1 pulgada
-_MIN_ZOOM = 0.30
+_MIN_ZOOM = 0.10
 _MAX_ZOOM = 4.00
 _GRID_MAJOR_IN = 1.0          # rejilla mayor cada 1"
 _GRID_MINOR_IN = 0.25         # subrejilla cada 0.25"
@@ -92,6 +93,16 @@ def _rounded_rect_path(rect: QtCore.QRectF,
     return path
 
 
+def _add_form_row(form: QtWidgets.QFormLayout, label_text: str,
+                   field: QtWidgets.QWidget) -> QtWidgets.QLabel:
+    """Añade una fila al QFormLayout y devuelve el QLabel creado, para poder
+    mostrar/ocultar la fila entera después (label + campo). Sin esto, sólo
+    podríamos ocultar el campo y el label quedaría huérfano."""
+    lbl = QtWidgets.QLabel(label_text)
+    form.addRow(lbl, field)
+    return lbl
+
+
 def _build_btn_style() -> str:
     t = _theme.tokens()
     return (f"QToolButton{{background:{t.surface};border:1px solid {t.border};border-radius:6px;"
@@ -146,8 +157,8 @@ class _FourSideEditor(QtWidgets.QFrame):
         # Botón central de vincular. Empieza VINCULADO por defecto (uniforme).
         self.btn_link = QtWidgets.QToolButton()
         self.btn_link.setCheckable(True); self.btn_link.setChecked(True)
-        self.btn_link.setToolTip("Vincular los cuatro valores.\n"
-                                  "Cuando está activado, cambiar uno los actualiza a los cuatro.")
+        self.btn_link.setToolTip(_tr("Vincular los cuatro valores.\n"
+                                  "Cuando está activado, cambiar uno los actualiza a los cuatro."))
         self.btn_link.setFixedSize(44, 44)
         self.btn_link.setIconSize(QtCore.QSize(22, 22))
         self.btn_link.toggled.connect(self._refresh_link_icon)
@@ -155,9 +166,9 @@ class _FourSideEditor(QtWidgets.QFrame):
 
         # Etiquetas cortas alrededor de cada spinbox
         if layout_mode == "corners":
-            lbls = ("Sup. Izq.", "Sup. Der.", "Inf. Der.", "Inf. Izq.")
+            lbls = (_tr("Sup. Izq."), _tr("Sup. Der."), _tr("Inf. Der."), _tr("Inf. Izq."))
         else:
-            lbls = ("Superior", "Derecho", "Inferior", "Izquierdo")
+            lbls = (_tr("Superior"), _tr("Derecho"), _tr("Inferior"), _tr("Izquierdo"))
         def _labeled(sp, txt):
             box = QtWidgets.QVBoxLayout(); box.setSpacing(2); box.setContentsMargins(0, 0, 0, 0)
             lbl = QtWidgets.QLabel(txt); lbl.setAlignment(QtCore.Qt.AlignCenter)
@@ -248,21 +259,48 @@ class _DuctBankScene(QtWidgets.QGraphicsScene):
     selection_changed = QtCore.Signal()
     tool_hint = QtCore.Signal(str)
     conduit_double_clicked = QtCore.Signal(int)
+    # Se emite cuando el usuario intenta colocar/mover un conducto y viola una
+    # REGLA OBLIGATORIA (envolvente, separación mínima, resguardo al borde).
+    # El diálogo lo conecta para mostrar el banner rojo con el mensaje.
+    rule_violation = QtCore.Signal(str)
 
     def __init__(self, parent=None):
         super().__init__(parent)
         self.model = DuctBank()
-        self.tool = "select"                  # select | conduit | move | delete | measure
+        self.tool = "select"                  # select | conduit | move | delete
         self.snap_on = True
+        # Toggle "Mostrar medidas" — dibuja cotas automáticas (rojo) entre
+        # conductos adyacentes y desde cada conducto al borde de la envolvente
+        # o al margen interior (lo más cercano). No es una herramienta del
+        # canvas: es un overlay siempre-encima que no cambia self.tool.
+        self.show_dimensions = False
         self.snap_step = DEFAULT_SNAP_IN
         self.new_conduit_diam = 4.0
         self.selected_idx: Optional[int] = None    # índice del conducto seleccionado
         self.envelope_selected = False
         self._dragging_idx: Optional[int] = None   # para "Mover"
         self._drag_offset = QtCore.QPointF(0, 0)
+        # Posición ORIGINAL del conducto antes de arrastrar. Se usa para
+        # revertir el movimiento si la posición final viola una regla
+        # obligatoria (separación mínima entre conductos, resguardo al borde).
+        self._drag_original_pos: Optional[tuple] = None
         self._measure_pts: List[QtCore.QPointF] = []
-        # Escena generosa: 50" × 30", centrada en (0,0).
-        self.setSceneRect(-10, -10, 50, 30)
+        # sceneRect dinámico — se recalcula en _update_scene_rect cada vez que
+        # cambia el modelo, para que al hacer zoom + pan se pueda alcanzar
+        # cualquier borde del contenedor. Inicial generoso por si el modelo
+        # todavía no tiene dimensiones.
+        self._update_scene_rect()
+
+    def _update_scene_rect(self):
+        """Ajusta el sceneRect al tamaño del bancoducto + márgenes generosos
+        para poder pan/zoom sobre las cotas exteriores y aún un poco más allá.
+        Se llama al arranque y cada vez que el modelo cambia."""
+        w = max(1.0, float(self.model.width_in))
+        h = max(1.0, float(self.model.height_in))
+        # Padding proporcional al tamaño (mínimo 10", máximo 40") para que
+        # bancoductos pequeños o grandes tengan espacio equivalente al mover.
+        pad = max(10.0, min(40.0, max(w, h) * 1.5))
+        self.setSceneRect(-pad, -pad, w + 2 * pad, h + 2 * pad)
 
     # ── snapping ──────────────────────────────────────────────────────────
     def _snap_pt(self, p: QtCore.QPointF) -> QtCore.QPointF:
@@ -320,6 +358,40 @@ class _DuctBankScene(QtWidgets.QGraphicsScene):
                 return i
         return None
 
+    def _check_rules(self, cand: "Conduit", exclude_idx: Optional[int] = None):
+        """Verifica si el conducto `cand` cumple todas las reglas obligatorias
+        del bancoducto (envolvente, separación mínima entre conductos,
+        resguardo al borde/margen). Devuelve None si OK, o un mensaje corto
+        si viola alguna regla — pensado para mostrarse en el hint del canvas.
+
+        Las reglas custom (rule_min_conduit_sep_in y rule_min_edge_clearance_in)
+        se aplican SOLO si `rules_enabled` está ON y el valor > 0. Los chequeos
+        básicos (dentro de envolvente, sin colisión gruesa) SIEMPRE aplican.
+        """
+        m = self.model
+        if cand.diam <= 0:
+            return _tr("Diámetro debe ser > 0.")
+        # Con reglas activas, el "resguardo al borde" es la distancia mínima
+        # entre el borde del conducto y el borde de la envolvente. Usamos
+        # conduit_fits_envelope con margen=rule_min_edge_clearance_in.
+        edge = float(m.rule_min_edge_clearance_in) if m.rules_enabled else 0.0
+        if not conduit_fits_envelope(m, cand, margin=edge):
+            if edge > 0:
+                return _tr('El conducto viola el resguardo mínimo al borde '
+                           '({v:g}").').format(v=edge)
+            return _tr("El conducto queda fuera de la envolvente.")
+        # Separación entre conductos (SIEMPRE hay que evitar solape físico —
+        # incluso sin regla custom activa; y si hay regla, exigir sep. mínima).
+        sep = float(m.rule_min_conduit_sep_in) if m.rules_enabled else 0.0
+        for j, o in enumerate(m.conduits):
+            if exclude_idx is not None and j == exclude_idx:
+                continue
+            if conduits_overlap(cand, o, tol=sep):
+                if sep > 0:
+                    return _tr('Separación entre conductos < {v:g}".').format(v=sep)
+                return _tr("Los conductos se solapan.")
+        return None
+
     def _hit_envelope_border(self, p: QtCore.QPointF, tol=0.15) -> bool:
         d = self.model
         if d.width_in <= 0 or d.height_in <= 0:
@@ -340,10 +412,20 @@ class _DuctBankScene(QtWidgets.QGraphicsScene):
         p = self._snap_pt(e.scenePos())
 
         if self.tool == "select":
+            # "Puntero" unificado: click selecciona, arrastrar mueve. Si el usuario
+            # inicia el drag sobre un conducto seleccionado, empezamos a moverlo
+            # (offset guardado para no saltar bajo el cursor).
             idx = self._hit_conduit(e.scenePos())
             if idx is not None:
                 self.selected_idx = idx
                 self.envelope_selected = False
+                self._dragging_idx = idx
+                c = self.model.conduits[idx]
+                # Guardamos la posición original para poder REVERTIR el drag si
+                # al soltar la nueva posición viola alguna regla obligatoria.
+                self._drag_original_pos = (c.cx, c.cy)
+                self._drag_offset = QtCore.QPointF(e.scenePos().x() - c.cx,
+                                                    e.scenePos().y() - c.cy)
             elif self._hit_envelope_border(e.scenePos()):
                 self.selected_idx = None
                 self.envelope_selected = True
@@ -354,11 +436,15 @@ class _DuctBankScene(QtWidgets.QGraphicsScene):
             self.update()
 
         elif self.tool == "conduit":
-            c = Conduit(cx=float(p.x()), cy=float(p.y()), diam=float(self.new_conduit_diam))
-            if not conduit_fits_envelope(self.model, c):
-                self.tool_hint.emit("El conducto queda fuera de la envolvente.")
+            cand = Conduit(cx=float(p.x()), cy=float(p.y()), diam=float(self.new_conduit_diam))
+            # Reglas obligatorias: si viola cualquiera (envolvente, resguardo
+            # al borde, separación mínima con vecinos), no se coloca.
+            err = self._check_rules(cand)
+            if err is not None:
+                self.tool_hint.emit(err)
+                self.rule_violation.emit(err)   # banner rojo visible
                 return
-            self.model.conduits.append(c)
+            self.model.conduits.append(cand)
             self.selected_idx = len(self.model.conduits) - 1
             self.envelope_selected = False
             self.changed_model.emit(); self.selection_changed.emit(); self.update()
@@ -368,6 +454,7 @@ class _DuctBankScene(QtWidgets.QGraphicsScene):
             if idx is not None:
                 self._dragging_idx = idx
                 c = self.model.conduits[idx]
+                self._drag_original_pos = (c.cx, c.cy)
                 self._drag_offset = QtCore.QPointF(e.scenePos().x() - c.cx, e.scenePos().y() - c.cy)
 
         elif self.tool == "delete":
@@ -394,7 +481,9 @@ class _DuctBankScene(QtWidgets.QGraphicsScene):
             self.update()
 
     def mouseMoveEvent(self, e: QtWidgets.QGraphicsSceneMouseEvent):
-        if self.tool == "move" and self._dragging_idx is not None:
+        # El drag funciona tanto en "select" (Puntero unificado) como en "move"
+        # (legacy — mantenemos el modo por compatibilidad).
+        if self.tool in ("select", "move") and self._dragging_idx is not None:
             p = self._snap_pt(e.scenePos() - self._drag_offset)
             c = self.model.conduits[self._dragging_idx]
             # No dejamos que el conducto salga de la envolvente
@@ -406,8 +495,23 @@ class _DuctBankScene(QtWidgets.QGraphicsScene):
         super().mouseMoveEvent(e)
 
     def mouseReleaseEvent(self, e):
-        if self.tool == "move" and self._dragging_idx is not None:
+        if self.tool in ("select", "move") and self._dragging_idx is not None:
+            idx = self._dragging_idx
             self._dragging_idx = None
+            # Validación estricta al SOLTAR: si la posición final viola una
+            # regla obligatoria, revertimos al lugar original y avisamos.
+            # (Se evalúa después de dropear el _dragging_idx para que si el
+            # usuario vuelve a arrastrar el mismo conducto, no se confunda.)
+            if 0 <= idx < len(self.model.conduits) and self._drag_original_pos is not None:
+                c = self.model.conduits[idx]
+                err = self._check_rules(c, exclude_idx=idx)
+                if err is not None:
+                    ox, oy = self._drag_original_pos
+                    c.cx, c.cy = ox, oy
+                    self.tool_hint.emit(err)
+                    self.rule_violation.emit(err)
+                    self.update()
+            self._drag_original_pos = None
             self.changed_model.emit()
         super().mouseReleaseEvent(e)
 
@@ -449,10 +553,8 @@ class _DuctBankScene(QtWidgets.QGraphicsScene):
         while y < rect.bottom() + 1:
             painter.drawLine(QtCore.QPointF(rect.left(), y), QtCore.QPointF(rect.right(), y))
             y += _GRID_MAJOR_IN
-        # Ejes 0-0 más marcados
-        painter.setPen(QtGui.QPen(QtGui.QColor(_theme.tokens().text_muted), 0))
-        painter.drawLine(QtCore.QPointF(0, rect.top()), QtCore.QPointF(0, rect.bottom()))
-        painter.drawLine(QtCore.QPointF(rect.left(), 0), QtCore.QPointF(rect.right(), 0))
+        # (Los ejes X/Y 0-0 antes se dibujaban más marcados; se removieron por
+        # petición del usuario — molestaban al ver la cuadrícula regular.)
 
     def drawForeground(self, painter: QtGui.QPainter, rect: QtCore.QRectF):
         d = self.model
@@ -470,6 +572,28 @@ class _DuctBankScene(QtWidgets.QGraphicsScene):
                 painter.drawPath(path)
             else:
                 painter.drawRect(env_rect)
+            # Cuadrícula 1"×1" DENTRO del contenedor. La rejilla del fondo
+            # (drawBackground) queda tapada por el fill azul de la envolvente;
+            # aquí la re-pintamos por encima, recortada al rectángulo del
+            # contenedor. Usamos el color del BORDE de la envolvente (que ya
+            # está diseñado para contrastar con el fill en ambos temas) con
+            # alpha alto — así se ve claramente en oscuro y en claro.
+            painter.save()
+            painter.setClipRect(env_rect)
+            grid_col = QtGui.QColor(_theme.tokens().envelope_border)
+            grid_col.setAlpha(180)
+            painter.setPen(QtGui.QPen(grid_col, 0))
+            xx = math.floor(env_rect.left()) + 1
+            while xx < env_rect.right():
+                painter.drawLine(QtCore.QPointF(xx, env_rect.top()),
+                                  QtCore.QPointF(xx, env_rect.bottom()))
+                xx += _GRID_MAJOR_IN
+            yy = math.floor(env_rect.top()) + 1
+            while yy < env_rect.bottom():
+                painter.drawLine(QtCore.QPointF(env_rect.left(), yy),
+                                  QtCore.QPointF(env_rect.right(), yy))
+                yy += _GRID_MAJOR_IN
+            painter.restore()
             # Margen interior: línea GRIS OSCURA punteada, similar al margen de
             # página en un procesador de texto. Solo se pinta si al menos uno
             # de los cuatro márgenes es > 0 (evita ruido cuando no aplica).
@@ -523,7 +647,10 @@ class _DuctBankScene(QtWidgets.QGraphicsScene):
             painter.drawEllipse(QtCore.QPointF(c.cx, c.cy), r, r)
             # Etiqueta grande y legible
             painter.setPen(QtGui.QPen(_conduit_text_color(), 0))
-            f = painter.font(); f.setPointSizeF(0.28 * (r * 2))
+            # Conductos de 1" son muy pequeños: usamos una fracción mayor
+            # del diámetro para que el número quepa; el resto mantiene 0.28.
+            factor = 0.55 if c.diam <= 1.0 else 0.28
+            f = painter.font(); f.setPointSizeF(factor * (r * 2))
             painter.setFont(f)
             txt = c.label or f'{c.diam:g}"'
             painter.drawText(QtCore.QRectF(c.cx - r, c.cy - r, r * 2, r * 2),
@@ -557,24 +684,38 @@ class _DuctBankScene(QtWidgets.QGraphicsScene):
         # desde su borde hasta el obstáculo más cercano en cada dirección:
         # otro conducto, línea de la rejilla guía, o pared interior de la
         # envolvente. Así el usuario ve al instante la SEPARACIÓN real.
+        # Se suprime si el toggle "Mostrar medidas" está ON — evita duplicar
+        # cotas (las mismas aparecen en rojo para todos los conductos).
         if (self.selected_idx is not None
                 and 0 <= self.selected_idx < len(d.conduits)
-                and d.width_in > 0 and d.height_in > 0):
+                and d.width_in > 0 and d.height_in > 0
+                and not self.show_dimensions):
             self._draw_neighbor_dims(painter, d, self.selected_idx)
 
+        # ── Cotas GLOBALES (toggle "Mostrar medidas") ───────────────────
+        # En ROJO, muestra: (a) hueco borde-a-borde entre cada par de
+        # conductos adyacentes horizontal/verticalmente y (b) resguardo de
+        # cada conducto hasta la envolvente o el margen interior (lo más
+        # cercano) en las 4 direcciones donde no haya otro conducto.
+        if self.show_dimensions and d.width_in > 0 and d.height_in > 0:
+            self._draw_all_dimensions(painter, d)
+
     def _draw_dimensions(self, painter, d):
-        """Cotas exteriores estilo plano: línea corta perpendicular en cada
-        extremo (tick), línea larga entre ticks y valor en pulgadas al centro.
-        Se pintan en las 4 direcciones (arriba, abajo, izquierda, derecha) para
-        que se vea la SEPARACIÓN por lado, como pidió el usuario."""
+        """Cotas exteriores estilo plano: tick perpendicular en cada extremo,
+        línea larga entre ticks y valor en pulgadas EN EL MEDIO de la línea
+        (con un rectángulo de fondo del color del canvas para que el texto se
+        vea sin chocar con la línea).
+
+        Las 4 direcciones (arriba/abajo/izquierda/derecha) muestran ancho/alto
+        de la envolvente."""
         offset = 1.0           # distancia entre el borde de la envolvente y la cota
         tick = 0.18            # medio-alto del tick perpendicular
         color = QtGui.QColor(_theme.tokens().text)
         pen_line = QtGui.QPen(color, 0.03)
         font = painter.font(); font.setPointSizeF(0.34); painter.setFont(font)
-        text_flags = QtCore.Qt.AlignCenter
 
         w, h = d.width_in, d.height_in
+        bg = _grid_bg_color()   # fondo detrás del texto (mismo del lienzo)
 
         # ── Cota SUPERIOR (mide ancho) ──
         y = -offset
@@ -582,36 +723,81 @@ class _DuctBankScene(QtWidgets.QGraphicsScene):
         painter.drawLine(QtCore.QPointF(0, y), QtCore.QPointF(w, y))
         painter.drawLine(QtCore.QPointF(0, y - tick), QtCore.QPointF(0, y + tick))
         painter.drawLine(QtCore.QPointF(w, y - tick), QtCore.QPointF(w, y + tick))
-        painter.drawText(QtCore.QRectF(0, y - 0.75, w, 0.55), text_flags, f'{w:.2f}"')
+        self._draw_centered_label(painter, QtCore.QPointF(w / 2.0, y),
+                                   f'{w:.2f}"', color, bg, horizontal=True)
 
         # ── Cota INFERIOR (mide ancho) ──
         y = h + offset
+        painter.setPen(pen_line)
         painter.drawLine(QtCore.QPointF(0, y), QtCore.QPointF(w, y))
         painter.drawLine(QtCore.QPointF(0, y - tick), QtCore.QPointF(0, y + tick))
         painter.drawLine(QtCore.QPointF(w, y - tick), QtCore.QPointF(w, y + tick))
-        painter.drawText(QtCore.QRectF(0, y + 0.15, w, 0.55), text_flags, f'{w:.2f}"')
+        self._draw_centered_label(painter, QtCore.QPointF(w / 2.0, y),
+                                   f'{w:.2f}"', color, bg, horizontal=True)
 
         # ── Cota IZQUIERDA (mide alto) ──
         x = -offset
+        painter.setPen(pen_line)
         painter.drawLine(QtCore.QPointF(x, 0), QtCore.QPointF(x, h))
         painter.drawLine(QtCore.QPointF(x - tick, 0), QtCore.QPointF(x + tick, 0))
         painter.drawLine(QtCore.QPointF(x - tick, h), QtCore.QPointF(x + tick, h))
-        painter.save()
-        painter.translate(x - 0.4, h / 2.0)
-        painter.rotate(-90)
-        painter.drawText(QtCore.QRectF(-h / 2.0, -0.28, h, 0.55), text_flags, f'{h:.2f}"')
-        painter.restore()
+        self._draw_centered_label(painter, QtCore.QPointF(x, h / 2.0),
+                                   f'{h:.2f}"', color, bg, horizontal=False)
 
         # ── Cota DERECHA (mide alto) ──
         x = w + offset
+        painter.setPen(pen_line)
         painter.drawLine(QtCore.QPointF(x, 0), QtCore.QPointF(x, h))
         painter.drawLine(QtCore.QPointF(x - tick, 0), QtCore.QPointF(x + tick, 0))
         painter.drawLine(QtCore.QPointF(x - tick, h), QtCore.QPointF(x + tick, h))
+        self._draw_centered_label(painter, QtCore.QPointF(x, h / 2.0),
+                                   f'{h:.2f}"', color, bg, horizontal=False)
+
+    def _draw_centered_label(self, painter, center: QtCore.QPointF, txt: str,
+                              color: QtGui.QColor, bg: QtGui.QColor,
+                              horizontal: bool = True):
+        """Dibuja el valor de una cota (ej. `2.00"`) EN MEDIO de la línea.
+
+        El texto SIEMPRE mide 8 device pixels en pantalla, independiente del
+        zoom del canvas. Esto se logra reseteando la escala del painter antes
+        de dibujar el font — así 8 pixel size = 8 pixels reales en pantalla.
+        Ventaja: el número NO crece descontroladamente al hacer zoom in
+        (que era el reclamo del usuario cuando el texto era scene-proporcional).
+
+        - horizontal=True → texto horizontal centrado en (x, y).
+        - horizontal=False → texto rotado -90° (cotas verticales).
+        """
         painter.save()
-        painter.translate(x + 0.9, h / 2.0)
-        painter.rotate(-90)
-        painter.drawText(QtCore.QRectF(-h / 2.0, -0.28, h, 0.55), text_flags, f'{h:.2f}"')
-        painter.restore()
+        try:
+            # Leer m11 ANTES de rotar (tras rotate(-90), m11 = cos(-90°) ≈ 0
+            # y romperíamos el cálculo del pixelSize).
+            m11 = abs(painter.transform().m11()) or 1.0
+            painter.translate(center)
+            if not horizontal:
+                painter.rotate(-90)
+            # Contenedor de altura fija = 1 pulgada de escena (igual que la
+            # rejilla). Reseteamos el scale del painter a device coords y
+            # dimensionamos todo en pixels: box_h_px = 1" × (px por pulgada).
+            painter.scale(1.0 / m11, 1.0 / m11)
+            box_h_px = 1.0 * m11
+            f = painter.font()
+            # Texto ocupa ~70% del alto (deja 15% de padding arriba/abajo).
+            target_px = max(4, int(round(box_h_px * 0.70)))
+            f.setPixelSize(target_px); painter.setFont(f)
+            fm = QtGui.QFontMetricsF(f)
+            tw = fm.horizontalAdvance(txt)
+            pad_x = box_h_px * 0.15
+            box = QtCore.QRectF(-tw / 2 - pad_x, -box_h_px / 2,
+                                tw + 2 * pad_x, box_h_px)
+            # Fondo del color del lienzo (bg) para "cortar" la línea de cota.
+            painter.setBrush(QtGui.QBrush(bg))
+            painter.setPen(QtCore.Qt.NoPen)
+            painter.drawRect(box)
+            # Texto encima.
+            painter.setPen(QtGui.QPen(color))
+            painter.drawText(box, QtCore.Qt.AlignCenter, txt)
+        finally:
+            painter.restore()
 
     def _draw_neighbor_dims(self, painter, d, idx):
         """Dibuja 4 cotas del conducto seleccionado a lo más cercano en cada
@@ -728,6 +914,127 @@ class _DuctBankScene(QtWidgets.QGraphicsScene):
         if bot_hit   is not None:
             _draw_v(bot_y,     bot_hit, c.cx, f'{bot_hit - bot_y   :.2f}"')
 
+    def _draw_all_dimensions(self, painter, d):
+        """Toggle "Mostrar medidas": dibuja en ROJO todas las cotas útiles del
+        diseño — separación borde-a-borde entre pares de conductos alineados
+        (horizontal y vertical) y resguardo desde cada conducto al obstáculo
+        más cercano (envolvente o margen interior) en las direcciones donde
+        no lo tape otro conducto.
+
+        Deduplica los pares conducto↔conducto: la cota entre A y B se pinta
+        una sola vez, no dos.
+        """
+        red = QtGui.QColor(_theme.tokens().danger)
+        pen = QtGui.QPen(red, 0.028)
+        painter.setPen(pen)
+        f = painter.font(); f.setPointSizeF(0.32); painter.setFont(f)
+        tick = 0.12
+        bg = _grid_bg_color()
+
+        def _draw_h(x0, x1, y, txt):
+            span = abs(x1 - x0)
+            if span < 0.05: return
+            painter.setPen(pen)
+            painter.drawLine(QtCore.QPointF(x0, y), QtCore.QPointF(x1, y))
+            painter.drawLine(QtCore.QPointF(x0, y - tick), QtCore.QPointF(x0, y + tick))
+            painter.drawLine(QtCore.QPointF(x1, y - tick), QtCore.QPointF(x1, y + tick))
+            # Etiqueta en el MEDIO de la línea, con fondo del lienzo para que
+            # el texto no se pise con la línea de cota.
+            self._draw_centered_label(painter,
+                                       QtCore.QPointF((x0 + x1) / 2.0, y),
+                                       txt, red, bg, horizontal=True)
+
+        def _draw_v(y0, y1, x, txt):
+            span = abs(y1 - y0)
+            if span < 0.05: return
+            painter.setPen(pen)
+            painter.drawLine(QtCore.QPointF(x, y0), QtCore.QPointF(x, y1))
+            painter.drawLine(QtCore.QPointF(x - tick, y0), QtCore.QPointF(x + tick, y0))
+            painter.drawLine(QtCore.QPointF(x - tick, y1), QtCore.QPointF(x + tick, y1))
+            self._draw_centered_label(painter,
+                                       QtCore.QPointF(x, (y0 + y1) / 2.0),
+                                       txt, red, bg, horizontal=False)
+
+        # Cache de límites: la cota "al borde" del toggle "Mostrar medidas"
+        # SIEMPRE apunta al borde de la ENVOLVENTE (no al margen interior).
+        # El margen interior es solo una guía visual — no un obstáculo físico —
+        # y la regla `rule_min_edge_clearance_in` se mide contra la envolvente.
+        env_left, env_right = 0.0, d.width_in
+        env_top, env_bot = 0.0, d.height_in
+
+        # Set para deduplicar pares (i, j) — clave ordenada.
+        pairs_h_drawn = set()   # pares dibujados como cota HORIZONTAL
+        pairs_v_drawn = set()   # pares dibujados como cota VERTICAL
+
+        for idx, c in enumerate(d.conduits):
+            if c.diam <= 0: continue
+            r = c.diam / 2.0
+            left_x, right_x = c.cx - r, c.cx + r
+            top_y, bot_y = c.cy - r, c.cy + r
+
+            # Buscar el conducto vecino más cercano en cada dirección
+            # (mismo criterio que _draw_neighbor_dims: solapa perpendicular).
+            left_hit_v = None; left_hit_j = None
+            right_hit_v = None; right_hit_j = None
+            top_hit_v = None; top_hit_j = None
+            bot_hit_v = None; bot_hit_j = None
+            for j, o in enumerate(d.conduits):
+                if j == idx or o.diam <= 0: continue
+                ro = o.diam / 2.0
+                # Horizontal (solapa en Y)
+                if abs(o.cy - c.cy) <= (r + ro):
+                    if o.cx + ro <= left_x + 1e-6:
+                        if left_hit_v is None or o.cx + ro > left_hit_v:
+                            left_hit_v = o.cx + ro; left_hit_j = j
+                    elif o.cx - ro >= right_x - 1e-6:
+                        if right_hit_v is None or o.cx - ro < right_hit_v:
+                            right_hit_v = o.cx - ro; right_hit_j = j
+                # Vertical (solapa en X)
+                if abs(o.cx - c.cx) <= (r + ro):
+                    if o.cy + ro <= top_y + 1e-6:
+                        if top_hit_v is None or o.cy + ro > top_hit_v:
+                            top_hit_v = o.cy + ro; top_hit_j = j
+                    elif o.cy - ro >= bot_y - 1e-6:
+                        if bot_hit_v is None or o.cy - ro < bot_hit_v:
+                            bot_hit_v = o.cy - ro; bot_hit_j = j
+
+            # ─ Cota IZQUIERDA
+            if left_hit_j is not None:
+                key = tuple(sorted((idx, left_hit_j)))
+                if key not in pairs_h_drawn:
+                    pairs_h_drawn.add(key)
+                    _draw_h(left_hit_v, left_x, c.cy, f'{left_x - left_hit_v:.2f}"')
+            else:
+                # Al borde/margen izquierdo
+                _draw_h(env_left, left_x, c.cy, f'{left_x - env_left:.2f}"')
+
+            # ─ Cota DERECHA
+            if right_hit_j is not None:
+                key = tuple(sorted((idx, right_hit_j)))
+                if key not in pairs_h_drawn:
+                    pairs_h_drawn.add(key)
+                    _draw_h(right_x, right_hit_v, c.cy, f'{right_hit_v - right_x:.2f}"')
+            else:
+                _draw_h(right_x, env_right, c.cy, f'{env_right - right_x:.2f}"')
+
+            # ─ Cota ARRIBA
+            if top_hit_j is not None:
+                key = tuple(sorted((idx, top_hit_j)))
+                if key not in pairs_v_drawn:
+                    pairs_v_drawn.add(key)
+                    _draw_v(top_hit_v, top_y, c.cx, f'{top_y - top_hit_v:.2f}"')
+            else:
+                _draw_v(env_top, top_y, c.cx, f'{top_y - env_top:.2f}"')
+
+            # ─ Cota ABAJO
+            if bot_hit_j is not None:
+                key = tuple(sorted((idx, bot_hit_j)))
+                if key not in pairs_v_drawn:
+                    pairs_v_drawn.add(key)
+                    _draw_v(bot_y, bot_hit_v, c.cx, f'{bot_hit_v - bot_y:.2f}"')
+            else:
+                _draw_v(bot_y, env_bot, c.cx, f'{env_bot - bot_y:.2f}"')
+
 
 class _DuctBankView(QtWidgets.QGraphicsView):
     """Vista con zoom-a-cursor y arrastre con botón central."""
@@ -781,7 +1088,7 @@ class DuctBankDialog(QtWidgets.QDialog):
     def __init__(self, parent=None, initial: Optional[DuctBank] = None,
                  pipes: Optional[list] = None):
         super().__init__(parent)
-        self.setWindowTitle("Diseñador de Duct Bank")
+        self.setWindowTitle(_tr("Diseñador de Duct Bank"))
         # Ventana top-level normal — como la ventana principal y georreferenciar.
         # Sin `setModal(True)`: `exec()` la sigue haciendo modal (bloquea la
         # ventana padre) pero el WM la trata como ventana común: se arrastra por
@@ -816,6 +1123,10 @@ class DuctBankDialog(QtWidgets.QDialog):
         self.scene = _DuctBankScene(self)
         if initial is not None:
             self.scene.model = initial.copy()
+            # Al cargar un modelo con dimensiones ya definidas, ajustamos el
+            # sceneRect antes de que la vista se conecte — así el usuario
+            # puede pan/zoom hasta los bordes desde el primer momento.
+            self.scene._update_scene_rect()
         self._push_history()   # estado inicial en el historial
 
         self.view = _DuctBankView(self.scene)
@@ -828,6 +1139,10 @@ class DuctBankDialog(QtWidgets.QDialog):
         # diálogo está abierto. La conexión se limpia sola al destruir el diálogo.
         self._restyle()
         _theme.THEME_BUS.changed.connect(self._restyle)
+        # Reaccionar a cambio de idioma en vivo. Se reconstruye buena parte de
+        # los textos + se llama a _refresh_panel para regenerar hints dinámicos.
+        import i18n as _i18n_bus
+        _i18n_bus.LANG_BUS.changed.connect(self._retranslate)
 
     # ── result API ─────────────────────────────────────────────────────────
     def result_model(self) -> DuctBank:
@@ -843,28 +1158,25 @@ class DuctBankDialog(QtWidgets.QDialog):
         header = QtWidgets.QFrame(); self._header = header   # estilo por _restyle
         h = QtWidgets.QHBoxLayout(header); h.setContentsMargins(14, 10, 14, 10); h.setSpacing(10)
         lbl_title = QtWidgets.QLabel("<span style='color:white;font-size:18px;font-weight:700;'>"
-                                     "Diseñador de Duct Bank</span><br>"
+                                     f"{_tr('Diseñador de Duct Bank')}</span><br>"
                                      "<span style='color:#d7e5ff;font-size:12px;'>"
-                                     "Cara Interior (Corte Longitudinal)</span>")
+                                     f"{_tr('Cara Interior (Corte Longitudinal)')}</span>")
         h.addWidget(lbl_title); h.addStretch(1)
-        self.btn_new = QtWidgets.QPushButton("  Nuevo")
-        self.btn_open = QtWidgets.QPushButton("  Abrir")
-        self.btn_save = QtWidgets.QPushButton("  Guardar")
-        self.btn_undo = QtWidgets.QPushButton("  Deshacer")
-        self.btn_redo = QtWidgets.QPushButton("  Rehacer")
-        self.btn_help = QtWidgets.QPushButton("  Ayuda")
-        self.btn_close = QtWidgets.QPushButton("  Guardar y cerrar")
-        self._header_buttons = [self.btn_new, self.btn_open, self.btn_save,
-                                 self.btn_undo, self.btn_redo, self.btn_help, self.btn_close]
+        # Header simplificado: SOLO acciones que se usan durante el diseño
+        # (Deshacer/Rehacer/Ayuda). Nuevo/Abrir/Guardar del proyecto se manejan
+        # desde la ventana principal (pestaña "Bancoductos"); no tiene sentido
+        # duplicarlos aquí. Las acciones primarias (Cancelar / Guardar y cerrar)
+        # van abajo, alineadas a la derecha del canvas para ser lo último que ve
+        # el usuario tras diseñar.
+        self.btn_undo = QtWidgets.QPushButton("  " + _tr("Deshacer"))
+        self.btn_redo = QtWidgets.QPushButton("  " + _tr("Rehacer"))
+        self.btn_help = QtWidgets.QPushButton("  " + _tr("Ayuda"))
+        self._header_buttons = [self.btn_undo, self.btn_redo, self.btn_help]
         # Mapa botón → nombre de icono (para _restyle: reasignar al cambiar tema).
         self._header_icon_map = {
-            self.btn_new: "mdi:file-plus-outline",
-            self.btn_open: "mdi:folder-open-outline",
-            self.btn_save: "mdi:content-save-outline",
             self.btn_undo: "mdi:undo-variant",
             self.btn_redo: "mdi:redo-variant",
             self.btn_help: "mdi:help-circle-outline",
-            self.btn_close: "mdi:close",
         }
         for b in self._header_buttons:
             b.setCursor(QtCore.Qt.PointingHandCursor)
@@ -898,18 +1210,35 @@ class DuctBankDialog(QtWidgets.QDialog):
             self._tool_icon_map[b] = icon_name
             tv.addWidget(b)
             return b
-        self.tb_sel = _tool_btn("mdi:cursor-default-outline", "Seleccionar", "select",
-                                "Click en un conducto o en la envolvente para seleccionarlo.")
-        self.tb_conduit = _tool_btn("mdi:circle-outline", "Conducto\n(Círculo)", "conduit",
-                                    "Click dentro de la envolvente para colocar un conducto del diámetro elegido.")
+        # "Puntero" fusiona Seleccionar + Mover: click selecciona, arrastrar mueve
+        # (patrón moderno de Figma/Illustrator/etc). Reduce el número de
+        # herramientas y elimina la fricción de tener que cambiar entre las dos.
+        self.tb_sel = _tool_btn("mdi:cursor-default-outline", _tr("Puntero"), "select",
+                                _tr("Click para seleccionar un conducto.\n"
+                                    "Arrastra un conducto para moverlo."))
+        self.tb_conduit = _tool_btn("mdi:circle-outline", _tr("Conducto\n(Círculo)"), "conduit",
+                                    _tr("Click dentro de la envolvente para colocar un conducto del diámetro elegido."))
         # (La herramienta "Rectángulo" se retiró: el contenedor siempre existe con
         #  medidas por defecto y el usuario ajusta Ancho/Alto en el panel derecho.)
-        self.tb_measure = _tool_btn("mdi:tape-measure", "Medir", "measure",
-                                    "Click en dos puntos para medir la distancia entre ellos en pulgadas.")
-        self.tb_move = _tool_btn("mdi:cursor-move", "Mover", "move",
-                                 "Arrastra un conducto para reposicionarlo.")
-        self.tb_delete = _tool_btn("mdi:trash-can-outline", "Eliminar", "delete",
-                                   "Click en un conducto para eliminarlo.", danger=True)
+        # ── Toggle "Mostrar medidas" ─────────────────────────────────────
+        # NO es una herramienta del canvas (no cambia self.tool ni entra en
+        # el ButtonGroup exclusivo). Es un overlay: al activarlo, el canvas
+        # dibuja todas las cotas en rojo — hueco entre conductos alineados y
+        # resguardo de cada conducto a la envolvente/margen. Al desactivarlo,
+        # las cotas desaparecen. Cambia texto e icono según el estado.
+        self.tb_dimensions = QtWidgets.QToolButton()
+        self.tb_dimensions.setToolButtonStyle(QtCore.Qt.ToolButtonTextUnderIcon)
+        self.tb_dimensions.setCheckable(True)
+        self.tb_dimensions.setIconSize(QtCore.QSize(28, 28))
+        self.tb_dimensions.setProperty("danger", "false")
+        self.tb_dimensions.clicked.connect(self._toggle_dimensions)
+        self._tool_buttons.append(self.tb_dimensions)
+        # El icono se re-tinta en _restyle; guardamos el nombre "current" allí.
+        self._tool_icon_map[self.tb_dimensions] = "mdi:ruler"
+        tv.addWidget(self.tb_dimensions)
+        self._refresh_dimensions_button()   # etiqueta y tooltip iniciales
+        self.tb_delete = _tool_btn("mdi:trash-can-outline", _tr("Eliminar"), "delete",
+                                   _tr("Click en un conducto para eliminarlo."), danger=True)
         tv.addSpacing(10)
         # Zoom + ajustar
         def _plain_btn(icon_name, label, tip, fn):
@@ -919,43 +1248,81 @@ class DuctBankDialog(QtWidgets.QDialog):
             b.setIconSize(QtCore.QSize(28, 28))
             b.clicked.connect(fn); self._tool_buttons.append(b); self._tool_icon_map[b] = icon_name
             tv.addWidget(b); return b
-        self.btn_zin = _plain_btn("mdi:magnify-plus-outline", "Zoom +", "Acercar", lambda: self._zoom(1.15))
-        self.btn_zout = _plain_btn("mdi:magnify-minus-outline", "Zoom −", "Alejar", lambda: self._zoom(1 / 1.15))
-        self.btn_fit = _plain_btn("mdi:image-filter-center-focus", "Ajustar",
-                                    "Centrar la vista sobre la envolvente", self._fit)
+        self.btn_zin = _plain_btn("mdi:magnify-plus-outline", _tr("Zoom +"), _tr("Acercar"), lambda: self._zoom(1.15))
+        self.btn_zout = _plain_btn("mdi:magnify-minus-outline", _tr("Zoom −"), _tr("Alejar"), lambda: self._zoom(1 / 1.15))
+        self.btn_fit = _plain_btn("mdi:image-filter-center-focus", _tr("Ajustar"),
+                                    _tr("Centrar la vista sobre la envolvente"), self._fit)
         tv.addStretch(1)
         body_l.addWidget(tools_wrap, 0)
 
-        # Zona central: canvas
+        # Zona central: canvas + banner de errores (overlay) + footer + acciones
         center = QtWidgets.QVBoxLayout(); center.setSpacing(4)
-        center.addWidget(self.view, 1)
 
-        # Barra inferior
+        # Contenedor del canvas para permitir un banner de error overlay
+        # posicionado ABSOLUTAMENTE encima del canvas (mejora #3).
+        canvas_wrap = QtWidgets.QWidget()
+        cwl = QtWidgets.QVBoxLayout(canvas_wrap)
+        cwl.setContentsMargins(0, 0, 0, 0); cwl.setSpacing(0)
+        cwl.addWidget(self.view, 1)
+        # Banner de error persistente — hijo del canvas_wrap, se posiciona en el
+        # tope centrado en cada resize (ver eventFilter). Oculto cuando no hay
+        # errores de validate().
+        self.lbl_error_banner = QtWidgets.QLabel(canvas_wrap)
+        self.lbl_error_banner.setWordWrap(True)
+        self.lbl_error_banner.setAlignment(QtCore.Qt.AlignCenter)
+        self.lbl_error_banner.setVisible(False)
+        self.lbl_error_banner.setAttribute(QtCore.Qt.WA_TransparentForMouseEvents)
+        canvas_wrap.installEventFilter(self)
+        self._canvas_wrap = canvas_wrap
+        center.addWidget(canvas_wrap, 1)
+
+        # Barra inferior — snap + estado. El slider de zoom se quitó (mejora #6):
+        # ya hay botones +/-/Ajustar en la toolbar izquierda y la rueda del
+        # ratón. Se mantiene el % como indicador de solo lectura.
         footer = QtWidgets.QFrame(); self._footer = footer   # estilo por _restyle
         fh = QtWidgets.QHBoxLayout(footer); fh.setContentsMargins(12, 6, 12, 6); fh.setSpacing(14)
-        self.lbl_status = QtWidgets.QLabel("Rejilla activada · 1 punto = 1 pulgada")
+        self.lbl_status = QtWidgets.QLabel(_tr("Rejilla activada · 1 punto = 1 pulgada"))
         # color por _restyle
         fh.addWidget(self.lbl_status)
         fh.addStretch(1)
         # "Imán" al retículo de 0.25 pulgadas del lienzo (subrejilla punteada
         # de fondo). Con esto ON, cada clic para poner/mover un conducto o
         # medir queda ajustado al múltiplo de 0.25". Con OFF, precisión libre.
-        self.chk_snap = QtWidgets.QCheckBox("Ajuste a rejilla (0.25\")")
+        self.chk_snap = QtWidgets.QCheckBox(_tr("Ajuste a rejilla (0.25\")"))
         self.chk_snap.setChecked(True)
-        self.chk_snap.setToolTip(
+        self.chk_snap.setToolTip(_tr(
             "Cuando está activado, los clics del ratón se pegan (imán) al retículo\n"
             "de 0.25 pulgadas del fondo del lienzo. Sirve para colocar conductos\n"
             "y medir con precisión ⅟₄ pulgada.\n\n"
             "Desactívalo si necesitas posicionar algo en un valor libre no múltiplo\n"
-            "de 0.25\".")
+            "de 0.25\"."))
         fh.addWidget(self.chk_snap)
-        self.sl_zoom = QtWidgets.QSlider(QtCore.Qt.Horizontal)
-        self.sl_zoom.setRange(int(_MIN_ZOOM * 100), int(_MAX_ZOOM * 100))
-        self.sl_zoom.setValue(100); self.sl_zoom.setFixedWidth(180)
-        fh.addWidget(QtWidgets.QLabel("🔍")); fh.addWidget(self.sl_zoom)
-        self.lbl_zoom = QtWidgets.QLabel("100%"); self.lbl_zoom.setFixedWidth(48)
+        self.lbl_zoom = QtWidgets.QLabel("100%"); self.lbl_zoom.setFixedWidth(58)
+        self.lbl_zoom.setAlignment(QtCore.Qt.AlignCenter)
+        self.lbl_zoom.setToolTip(_tr("Nivel de zoom actual.\n"
+                                    "Usa los botones Zoom +/- de la toolbar\n"
+                                    "o la rueda del ratón."))
         fh.addWidget(self.lbl_zoom)
         center.addWidget(footer, 0)
+
+        # ── Acciones primarias abajo del canvas (mejora #1) ───────────────────
+        # Cancelar (secundario) + Guardar y cerrar (primario). Alineadas a la
+        # derecha del canvas para ser lo último que ve el usuario tras diseñar.
+        actions = QtWidgets.QHBoxLayout()
+        actions.setContentsMargins(0, 4, 0, 0); actions.setSpacing(8)
+        actions.addStretch(1)
+        self.btn_cancel = QtWidgets.QPushButton(_tr("Cancelar"))
+        self.btn_cancel.setMinimumHeight(38); self.btn_cancel.setMinimumWidth(120)
+        self.btn_cancel.setToolTip(_tr("Cerrar sin guardar cambios."))
+        self.btn_close = QtWidgets.QPushButton("  " + _tr("Guardar y cerrar"))
+        self.btn_close.setIcon(_icon("mdi:check", color="#ffffff"))
+        self.btn_close.setIconSize(QtCore.QSize(20, 20))
+        self.btn_close.setMinimumHeight(38); self.btn_close.setMinimumWidth(180)
+        self.btn_close.setToolTip(_tr("Guardar el bancoducto en el proyecto y cerrar el diseñador."))
+        self.btn_close.setDefault(True)
+        actions.addWidget(self.btn_cancel)
+        actions.addWidget(self.btn_close)
+        center.addLayout(actions, 0)
 
         body_l.addLayout(center, 1)
 
@@ -967,103 +1334,23 @@ class DuctBankDialog(QtWidgets.QDialog):
         side = QtWidgets.QFrame(); self._side = side   # estilo por _restyle
         sv = QtWidgets.QVBoxLayout(side); sv.setContentsMargins(10, 10, 10, 10); sv.setSpacing(10)
 
-        # Nombre del duct bank
-        gname = QtWidgets.QGroupBox("Nombre")
-        gnl = QtWidgets.QVBoxLayout(gname)
+        # ── 1) IDENTIFICACIÓN — al tope, es lo primero que el usuario piensa ──
+        # Nombre + Asignar a utilidad. Un bancoducto sin asignar a una tubería
+        # no se exporta; que sea lo primero visible reduce el olvido más común.
+        gid = QtWidgets.QGroupBox(_tr("Identificación")); gid.setProperty("_orig_title", "Identificación")
+        gidl = QtWidgets.QFormLayout(gid)
         self.ed_name = QtWidgets.QLineEdit()
-        self.ed_name.setPlaceholderText("Ej. Duct Bank A – Telecom")
-        gnl.addWidget(self.ed_name)
-        sv.addWidget(gname)
-
-        # Envolvente
-        genv = QtWidgets.QGroupBox("Envolvente (pulgadas)")
-        gel = QtWidgets.QFormLayout(genv)
-        self.sp_w = QtWidgets.QDoubleSpinBox(); self.sp_w.setRange(0.25, 200); self.sp_w.setDecimals(2); self.sp_w.setSuffix('"')
-        self.sp_h = QtWidgets.QDoubleSpinBox(); self.sp_h.setRange(0.25, 200); self.sp_h.setDecimals(2); self.sp_h.setSuffix('"')
-        gel.addRow("Ancho:", self.sp_w); gel.addRow("Alto:", self.sp_h)
-        sv.addWidget(genv)
-
-        # Margen interior (guía) — editor estilo Photoshop en disposición compás.
-        gmarg = QtWidgets.QGroupBox("Margen interior (pulgadas)")
-        gml = QtWidgets.QVBoxLayout(gmarg); gml.setContentsMargins(4, 4, 4, 4)
-        self.ed_margin = _FourSideEditor(self, layout_mode="compass",
-                                          maximum=50.0, step=0.25, decimals=2)
-        gml.addWidget(self.ed_margin)
-        sv.addWidget(gmarg)
-
-        # Guía interior (rejilla estilo Photoshop) — se dibuja SOLO dentro del
-        # margen. Sirve para posicionar conductos simétricamente. Un checkbox
-        # muestra/oculta la vista, y muestra al lado el tamaño de cada celda.
-        gguide = QtWidgets.QGroupBox("Guía interior (rejilla)")
-        ggl = QtWidgets.QVBoxLayout(gguide); ggl.setContentsMargins(4, 4, 4, 4); ggl.setSpacing(6)
-        self.chk_guide = QtWidgets.QCheckBox("Mostrar guía")
-        self.chk_guide.setToolTip("Activa una rejilla fina de líneas guía dentro del "
-                                    "margen, similar a las guías de Photoshop. "
-                                    "Ayuda a colocar los conductos simétricamente.")
-        ggl.addWidget(self.chk_guide)
-        _grow = QtWidgets.QHBoxLayout(); _grow.setSpacing(8)
-        _grow.addWidget(QtWidgets.QLabel("Columnas:"))
-        self.sp_gcols = QtWidgets.QSpinBox(); self.sp_gcols.setRange(1, 40); self.sp_gcols.setValue(1)
-        self.sp_gcols.setToolTip("Cuántas columnas verticales dividen el área interior.")
-        _grow.addWidget(self.sp_gcols)
-        _grow.addSpacing(10)
-        _grow.addWidget(QtWidgets.QLabel("Filas:"))
-        self.sp_grows = QtWidgets.QSpinBox(); self.sp_grows.setRange(1, 40); self.sp_grows.setValue(1)
-        self.sp_grows.setToolTip("Cuántas filas horizontales dividen el área interior.")
-        _grow.addWidget(self.sp_grows); _grow.addStretch(1)
-        ggl.addLayout(_grow)
-        # Etiqueta con la dimensión actual de cada celda (útil para saber la
-        # separación en pulgadas — se actualiza en tiempo real).
-        self.lbl_cell = QtWidgets.QLabel("Celda: —")
-        ggl.addWidget(self.lbl_cell)
-        sv.addWidget(gguide)
-
-        # Redondeo de esquinas — editor estilo Photoshop en disposición esquinas.
-        gcor = QtWidgets.QGroupBox("Redondeo de esquinas (pulgadas)")
-        gcl = QtWidgets.QVBoxLayout(gcor); gcl.setContentsMargins(4, 4, 4, 4)
-        self.ed_corners = _FourSideEditor(self, layout_mode="corners",
-                                           maximum=20.0, step=0.25, decimals=2)
-        gcl.addWidget(self.ed_corners)
-        sv.addWidget(gcor)
-
-        # Nuevo conducto
-        gnc = QtWidgets.QGroupBox("Nuevo conducto")
-        gnl2 = QtWidgets.QFormLayout(gnc)
-        self.sp_new_diam = QtWidgets.QDoubleSpinBox()
-        self.sp_new_diam.setRange(0.25, 50)
-        self.sp_new_diam.setDecimals(2)
-        self.sp_new_diam.setSingleStep(0.25)
-        self.sp_new_diam.setSuffix('"')
-        self.sp_new_diam.setValue(4.0)
-        gnl2.addRow("Diámetro:", self.sp_new_diam)
-        sv.addWidget(gnc)
-
-        # Conducto seleccionado
-        gsel = QtWidgets.QGroupBox("Conducto seleccionado")
-        gsl = QtWidgets.QFormLayout(gsel)
-        self.sel_x = QtWidgets.QDoubleSpinBox(); self.sel_x.setRange(0, 200); self.sel_x.setDecimals(2); self.sel_x.setSuffix('"')
-        self.sel_y = QtWidgets.QDoubleSpinBox(); self.sel_y.setRange(0, 200); self.sel_y.setDecimals(2); self.sel_y.setSuffix('"')
-        self.sel_d = QtWidgets.QDoubleSpinBox(); self.sel_d.setRange(0.25, 50); self.sel_d.setDecimals(2); self.sel_d.setSuffix('"')
-        self.sel_lbl = QtWidgets.QLineEdit(); self.sel_lbl.setPlaceholderText("Etiqueta (opcional)")
-        gsl.addRow("X:", self.sel_x); gsl.addRow("Y:", self.sel_y)
-        gsl.addRow("Diám.:", self.sel_d); gsl.addRow("Etiqueta:", self.sel_lbl)
-        self.btn_del_sel = QtWidgets.QPushButton("  Eliminar conducto")
-        self.btn_del_sel.setIconSize(QtCore.QSize(18, 18))
-        self.btn_del_sel.setProperty("danger", "true")   # el QSS global tiñe rojo
-        gsl.addRow(self.btn_del_sel)
-        sv.addWidget(gsel)
-
-        # ── Asignación a utilidad (pipe) ──────────────────────────────────
-        gassign = QtWidgets.QGroupBox("Asignar a utilidad")
-        gal = QtWidgets.QFormLayout(gassign)
+        self.ed_name.setPlaceholderText(_tr("Ej. Duct Bank A – Telecom"))
+        gidl.addRow(_tr("Nombre:"), self.ed_name)
         self.cmb_pipe = QtWidgets.QComboBox()
-        self.cmb_pipe.addItem("(Sin asignar)", -1)
+        self.cmb_pipe.addItem(_tr("(Sin asignar)"), -1)
+        _vertices_word = _tr("vértices")
         for i, p in enumerate(self._pipes):
             if not p.get("pts"): continue
             layer = p.get("layer", "?")
             n_pts = len(p.get("pts", []))
             diam = p.get("diam") or "?"
-            label = f"#{i+1}  {layer}  —  {diam}\"  ({n_pts} vértices)"
+            label = f"#{i+1}  {layer}  —  {diam}\"  ({n_pts} {_vertices_word})"
             self.cmb_pipe.addItem(label, i)
         cur_idx = self.scene.model.pipe_idx
         if cur_idx >= 0:
@@ -1071,15 +1358,155 @@ class DuctBankDialog(QtWidgets.QDialog):
                 if self.cmb_pipe.itemData(ci) == cur_idx:
                     self.cmb_pipe.setCurrentIndex(ci)
                     break
+        gidl.addRow(_tr("Asignar a:"), self.cmb_pipe)
         self.lbl_pipe_status = QtWidgets.QLabel("")
         self.lbl_pipe_status.setWordWrap(True)
-        gal.addRow("Utilidad:", self.cmb_pipe)
-        gal.addRow(self.lbl_pipe_status)
+        gidl.addRow(self.lbl_pipe_status)
         self._update_pipe_status()
-        sv.addWidget(gassign)
+        sv.addWidget(gid)
+
+        # ── 1b) REGLAS DE DISEÑO — separación entre conductos y al borde ─────
+        # Toggle maestro + sub-controles con progressive disclosure (grayed
+        # cuando el toggle está OFF). Los valores en 0" significan "sin regla"
+        # para ese campo aunque el toggle esté ON — permite tener solo una
+        # regla activa sin desactivarlas todas.
+        grules = QtWidgets.QGroupBox(_tr("Reglas de diseño")); grules.setProperty("_orig_title", "Reglas de diseño")
+        grl = QtWidgets.QVBoxLayout(grules)
+        grl.setContentsMargins(8, 8, 8, 6); grl.setSpacing(6)
+        self.chk_rules = QtWidgets.QCheckBox(_tr("Aplicar reglas"))
+        self.chk_rules.setChecked(True)
+        self.chk_rules.setToolTip(_tr(
+            "Activa las reglas de diseño personalizables abajo.\n\n"
+            "Cuando está DESACTIVADO, el diseño puede colocar conductos sin\n"
+            "respetar ninguna separación ni resguardo (los chequeos geométricos\n"
+            "básicos — dentro de envolvente, sin colisión gruesa — siguen)."))
+        grl.addWidget(self.chk_rules)
+        # Sub-form con los dos valores
+        _rf = QtWidgets.QFormLayout(); _rf.setContentsMargins(0, 0, 0, 0)
+        _rf.setSpacing(4); _rf.setHorizontalSpacing(6)
+        self.sp_rule_sep = QtWidgets.QDoubleSpinBox()
+        self.sp_rule_sep.setRange(0.0, 50.0); self.sp_rule_sep.setDecimals(2)
+        self.sp_rule_sep.setSingleStep(0.25); self.sp_rule_sep.setSuffix('"')
+        self.sp_rule_sep.setValue(0.0)
+        self.sp_rule_sep.setToolTip(_tr("Hueco mínimo entre bordes de conductos.\n"
+                                     "0\" = sin regla."))
+        _rf.addRow(_tr("Sep. entre conductos:"), self.sp_rule_sep)
+        self.sp_rule_edge = QtWidgets.QDoubleSpinBox()
+        self.sp_rule_edge.setRange(0.0, 50.0); self.sp_rule_edge.setDecimals(2)
+        self.sp_rule_edge.setSingleStep(0.25); self.sp_rule_edge.setSuffix('"')
+        self.sp_rule_edge.setValue(0.0)
+        self.sp_rule_edge.setToolTip(_tr("Distancia mínima entre borde del conducto\n"
+                                      "y borde de la envolvente. 0\" = sin regla."))
+        _rf.addRow(_tr("Dist. al borde:"), self.sp_rule_edge)
+        grl.addLayout(_rf)
+        self.lbl_rules_hint = QtWidgets.QLabel("")
+        self.lbl_rules_hint.setWordWrap(True)
+        grl.addWidget(self.lbl_rules_hint)
+        sv.addWidget(grules)
+
+        # ── 2) CONDUCTO — panel contextual (mejora #7) ───────────────────────
+        # Un solo groupbox reemplaza los antiguos "Nuevo conducto" + "Conducto
+        # seleccionado" — el título y los campos cambian según haya selección.
+        self.grp_conduit = QtWidgets.QGroupBox(_tr("Conducto")); self.grp_conduit.setProperty("_orig_title", "Conducto")
+        gcv = QtWidgets.QVBoxLayout(self.grp_conduit)
+        gcv.setContentsMargins(8, 8, 8, 6); gcv.setSpacing(6)
+        # Sub-form para los campos (X/Y/Diám/Etiqueta o solo Diám según modo)
+        gcf = QtWidgets.QFormLayout()
+        # Diámetro para colocar el próximo conducto (visible SIN selección).
+        self.sp_new_diam = QtWidgets.QDoubleSpinBox()
+        self.sp_new_diam.setRange(0.25, 50); self.sp_new_diam.setDecimals(2)
+        self.sp_new_diam.setSingleStep(0.25); self.sp_new_diam.setSuffix('"')
+        self.sp_new_diam.setValue(4.0)
+        self._row_new_diam = _add_form_row(gcf, _tr("Diámetro:"), self.sp_new_diam)
+        # Campos de edición (visibles solo con selección)
+        self.sel_x = QtWidgets.QDoubleSpinBox(); self.sel_x.setRange(0, 200); self.sel_x.setDecimals(2); self.sel_x.setSuffix('"')
+        self.sel_y = QtWidgets.QDoubleSpinBox(); self.sel_y.setRange(0, 200); self.sel_y.setDecimals(2); self.sel_y.setSuffix('"')
+        self.sel_d = QtWidgets.QDoubleSpinBox(); self.sel_d.setRange(0.25, 50); self.sel_d.setDecimals(2); self.sel_d.setSuffix('"')
+        self.sel_lbl = QtWidgets.QLineEdit(); self.sel_lbl.setPlaceholderText(_tr("Etiqueta (opcional)"))
+        self._row_sel_x = _add_form_row(gcf, _tr("X:"), self.sel_x)
+        self._row_sel_y = _add_form_row(gcf, _tr("Y:"), self.sel_y)
+        self._row_sel_d = _add_form_row(gcf, _tr("Diám. real:"), self.sel_d)
+        self._row_sel_lbl = _add_form_row(gcf, _tr("Etiqueta:"), self.sel_lbl)
+        gcv.addLayout(gcf)
+        # Hint contextual (cambia según modo)
+        self.lbl_conduit_hint = QtWidgets.QLabel("")
+        self.lbl_conduit_hint.setWordWrap(True)
+        gcv.addWidget(self.lbl_conduit_hint)
+        self.btn_del_sel = QtWidgets.QPushButton("  " + _tr("Eliminar conducto"))
+        self.btn_del_sel.setIconSize(QtCore.QSize(18, 18))
+        self.btn_del_sel.setProperty("danger", "true")   # el QSS global tiñe rojo
+        gcv.addWidget(self.btn_del_sel)
+        sv.addWidget(self.grp_conduit)
+
+        # ── 3) ENVOLVENTE — dimensiones exteriores del contenedor ─────────────
+        genv = QtWidgets.QGroupBox(_tr("Envolvente (pulgadas)")); genv.setProperty("_orig_title", "Envolvente (pulgadas)")
+        gel = QtWidgets.QFormLayout(genv)
+        self.sp_w = QtWidgets.QDoubleSpinBox(); self.sp_w.setRange(0.25, 200); self.sp_w.setDecimals(2); self.sp_w.setSuffix('"')
+        self.sp_h = QtWidgets.QDoubleSpinBox(); self.sp_h.setRange(0.25, 200); self.sp_h.setDecimals(2); self.sp_h.setSuffix('"')
+        gel.addRow(_tr("Ancho:"), self.sp_w); gel.addRow(_tr("Alto:"), self.sp_h)
+        sv.addWidget(genv)
+
+        # Margen interior (guía) — editor estilo Photoshop en disposición compás.
+        gmarg = QtWidgets.QGroupBox(_tr("Margen interior (pulgadas)")); gmarg.setProperty("_orig_title", "Margen interior (pulgadas)")
+        gml = QtWidgets.QVBoxLayout(gmarg); gml.setContentsMargins(4, 4, 4, 4)
+        self.ed_margin = _FourSideEditor(self, layout_mode="compass",
+                                          maximum=50.0, step=0.25, decimals=2)
+        gml.addWidget(self.ed_margin)
+        sv.addWidget(gmarg)
+
+        # Rejilla de distribución (renombrado desde "Guía interior") — se dibuja
+        # SOLO dentro del margen. Sirve para posicionar conductos simétricamente.
+        gguide = QtWidgets.QGroupBox(_tr("Rejilla de distribución")); gguide.setProperty("_orig_title", "Rejilla de distribución")
+        ggl = QtWidgets.QVBoxLayout(gguide); ggl.setContentsMargins(4, 4, 4, 4); ggl.setSpacing(6)
+        self.chk_guide = QtWidgets.QCheckBox(_tr("Mostrar rejilla"))
+        self.chk_guide.setToolTip(_tr("Divide el área interior en celdas iguales para colocar\n"
+                                    "conductos simétricamente. Solo es una guía visual;\n"
+                                    "no obliga a nada."))
+        ggl.addWidget(self.chk_guide)
+        _grow = QtWidgets.QHBoxLayout(); _grow.setSpacing(8)
+        _grow.addWidget(QtWidgets.QLabel(_tr("Columnas:")))
+        self.sp_gcols = QtWidgets.QSpinBox(); self.sp_gcols.setRange(1, 40); self.sp_gcols.setValue(1)
+        self.sp_gcols.setToolTip(_tr("Cuántas columnas verticales dividen el área interior."))
+        _grow.addWidget(self.sp_gcols)
+        _grow.addSpacing(10)
+        _grow.addWidget(QtWidgets.QLabel(_tr("Filas:")))
+        self.sp_grows = QtWidgets.QSpinBox(); self.sp_grows.setRange(1, 40); self.sp_grows.setValue(1)
+        self.sp_grows.setToolTip(_tr("Cuántas filas horizontales dividen el área interior."))
+        _grow.addWidget(self.sp_grows); _grow.addStretch(1)
+        ggl.addLayout(_grow)
+        # Etiqueta con la dimensión actual de cada celda (útil para saber la
+        # separación en pulgadas — se actualiza en tiempo real).
+        self.lbl_cell = QtWidgets.QLabel(_tr("Celda: —"))
+        ggl.addWidget(self.lbl_cell)
+        sv.addWidget(gguide)
+
+        # Redondeo de esquinas — editor estilo Photoshop en disposición esquinas.
+        gcor = QtWidgets.QGroupBox(_tr("Redondeo de esquinas (pulgadas)")); gcor.setProperty("_orig_title", "Redondeo de esquinas (pulgadas)")
+        gcl = QtWidgets.QVBoxLayout(gcor); gcl.setContentsMargins(4, 4, 4, 4)
+        self.ed_corners = _FourSideEditor(self, layout_mode="corners",
+                                           maximum=20.0, step=0.25, decimals=2)
+        gcl.addWidget(self.ed_corners)
+        sv.addWidget(gcor)
+
+        # ── Visualización (qué se dibuja en Civil 3D al importar) ─────────────
+        gviz = QtWidgets.QGroupBox(_tr("Visualización en Civil 3D")); gviz.setProperty("_orig_title", "Visualización en Civil 3D")
+        gvl = QtWidgets.QVBoxLayout(gviz)
+        gvl.setContentsMargins(8, 8, 8, 6); gvl.setSpacing(4)
+        self.chk_render_envelope = QtWidgets.QCheckBox(_tr("Dibujar contenedor 3D"))
+        self.chk_render_envelope.setChecked(True)
+        self.chk_render_envelope.setToolTip(_tr(
+            "Al importar en Civil 3D, crea el sólido 3D del contenedor\n"
+            "(prisma de concreto) además de los conductos internos.\n\n"
+            "Desactívalo si el contenedor ya existe en el DWG o si solo\n"
+            "necesitas los conductos como pipes."))
+        gvl.addWidget(self.chk_render_envelope)
+        self.lbl_render_hint = QtWidgets.QLabel("")
+        self.lbl_render_hint.setWordWrap(True)
+        gvl.addWidget(self.lbl_render_hint)
+        sv.addWidget(gviz)
 
         # Contador + validación
-        self.lbl_count = QtWidgets.QLabel("Conductos: 0")
+        self.lbl_count = QtWidgets.QLabel(_tr("Conductos: 0"))
         # color por _restyle
         sv.addWidget(self.lbl_count)
         self.lbl_valid = QtWidgets.QLabel("")
@@ -1150,27 +1577,129 @@ class DuctBankDialog(QtWidgets.QDialog):
         if hasattr(self, "scene"):
             self.scene.update()
 
+    def _retranslate(self, *_):
+        """Re-aplica todos los textos traducibles al cambiar el idioma en vivo.
+        No recrea widgets — solo actualiza sus setText/setTitle/setToolTip."""
+        try:
+            self.setWindowTitle(_tr("Diseñador de Duct Bank"))
+            # Header
+            for hdr in getattr(self, "_header", []) if False else []: pass  # no-op guard
+            if hasattr(self, "btn_undo"): self.btn_undo.setText("  " + _tr("Deshacer"))
+            if hasattr(self, "btn_redo"): self.btn_redo.setText("  " + _tr("Rehacer"))
+            if hasattr(self, "btn_help"): self.btn_help.setText("  " + _tr("Ayuda"))
+            # Título del header (HTML rico)
+            try:
+                for lbl in self._header.findChildren(QtWidgets.QLabel):
+                    lbl.setText("<span style='color:white;font-size:18px;font-weight:700;'>"
+                                f"{_tr('Diseñador de Duct Bank')}</span><br>"
+                                "<span style='color:#d7e5ff;font-size:12px;'>"
+                                f"{_tr('Cara Interior (Corte Longitudinal)')}</span>")
+                    break
+            except Exception: pass
+            # Toolbar izquierda (herramientas)
+            if hasattr(self, "tb_sel"):
+                self.tb_sel.setText(_tr("Puntero"))
+                self.tb_sel.setToolTip(_tr("Click para seleccionar un conducto.\n"
+                                           "Arrastra un conducto para moverlo."))
+            if hasattr(self, "tb_conduit"):
+                self.tb_conduit.setText(_tr("Conducto\n(Círculo)"))
+                self.tb_conduit.setToolTip(_tr("Click dentro de la envolvente para colocar un conducto del diámetro elegido."))
+            if hasattr(self, "tb_dimensions"):
+                self._refresh_dimensions_button()
+            if hasattr(self, "tb_delete"):
+                self.tb_delete.setText(_tr("Eliminar"))
+                self.tb_delete.setToolTip(_tr("Click en un conducto para eliminarlo."))
+            if hasattr(self, "btn_zin"):
+                self.btn_zin.setText(_tr("Zoom +")); self.btn_zin.setToolTip(_tr("Acercar"))
+            if hasattr(self, "btn_zout"):
+                self.btn_zout.setText(_tr("Zoom −")); self.btn_zout.setToolTip(_tr("Alejar"))
+            if hasattr(self, "btn_fit"):
+                self.btn_fit.setText(_tr("Ajustar"))
+                self.btn_fit.setToolTip(_tr("Centrar la vista sobre la envolvente"))
+            # Footer + acciones primarias
+            if hasattr(self, "lbl_status"):
+                self.lbl_status.setText(_tr("Rejilla activada · 1 punto = 1 pulgada"))
+            if hasattr(self, "chk_snap"):
+                self.chk_snap.setText(_tr("Ajuste a rejilla (0.25\")"))
+            if hasattr(self, "btn_cancel"): self.btn_cancel.setText(_tr("Cancelar"))
+            if hasattr(self, "btn_close"): self.btn_close.setText("  " + _tr("Guardar y cerrar"))
+            # Panel derecho — títulos de groupbox y labels de forms
+            for w, key in [
+                (getattr(self, "grp_conduit", None),
+                    "Conducto seleccionado" if (self.scene.selected_idx is not None) else "Nuevo conducto"),
+            ]:
+                if w is not None: w.setTitle(_tr(key))
+            # Los QGroupBox se re-buscan por su título original almacenado en propiedad
+            # dinámica NO existe — simple: recorremos todos y traducimos los conocidos.
+            # (los títulos de otros groupboxes fijos los re-hacemos por posición)
+            for gb in self.findChildren(QtWidgets.QGroupBox):
+                orig = gb.property("_orig_title")
+                if orig:
+                    gb.setTitle(_tr(orig))
+            # Checkboxes
+            if hasattr(self, "chk_rules"): self.chk_rules.setText(_tr("Aplicar reglas"))
+            if hasattr(self, "chk_guide"): self.chk_guide.setText(_tr("Mostrar rejilla"))
+            if hasattr(self, "chk_render_envelope"):
+                self.chk_render_envelope.setText(_tr("Dibujar contenedor 3D"))
+            # Placeholder del nombre
+            if hasattr(self, "ed_name"):
+                self.ed_name.setPlaceholderText(_tr("Ej. Duct Bank A – Telecom"))
+            if hasattr(self, "sel_lbl"):
+                self.sel_lbl.setPlaceholderText(_tr("Etiqueta (opcional)"))
+            # Combo pipe: primer item "(Sin asignar)"
+            if hasattr(self, "cmb_pipe") and self.cmb_pipe.count() > 0:
+                self.cmb_pipe.setItemText(0, _tr("(Sin asignar)"))
+            # Labels de filas del sub-form del conducto
+            for lbl_attr, key in (
+                ("_row_new_diam", "Diámetro:"),
+                ("_row_sel_x", "X:"),
+                ("_row_sel_y", "Y:"),
+                ("_row_sel_d", "Diám. real:"),
+                ("_row_sel_lbl", "Etiqueta:"),
+            ):
+                lbl = getattr(self, lbl_attr, None)
+                if lbl is not None: lbl.setText(_tr(key))
+            # Botón "Eliminar conducto"
+            if hasattr(self, "btn_del_sel"):
+                self.btn_del_sel.setText("  " + _tr("Eliminar conducto"))
+            # Refresca panel entero: labels dinámicos (hint reglas, hint render,
+            # celda de rejilla, contador, pipe status, banner de errores) se
+            # recomponen con el idioma nuevo.
+            self._refresh_panel()
+            self._update_pipe_status()
+        except Exception:
+            pass
+
     def _wire(self):
-        # Header
-        self.btn_new.clicked.connect(self._on_new)
-        self.btn_open.clicked.connect(self._on_open)
-        self.btn_save.clicked.connect(self._on_save)
+        # Header — solo Deshacer/Rehacer/Ayuda (Nuevo/Abrir/Guardar del proyecto
+        # ahora se manejan desde la pestaña "Bancoductos" de la ventana principal).
         self.btn_undo.clicked.connect(self._on_undo)
         self.btn_redo.clicked.connect(self._on_redo)
         QtGui.QShortcut(QtGui.QKeySequence.Undo, self, self._on_undo)
         QtGui.QShortcut(QtGui.QKeySequence.Redo, self, self._on_redo)
         self.btn_help.clicked.connect(self._on_help)
+        # Acciones primarias (abajo del canvas)
+        self.btn_cancel.clicked.connect(self.reject)
         self.btn_close.clicked.connect(self._on_close)
 
         # Escena
         self.scene.changed_model.connect(self._on_model_changed)
         self.scene.selection_changed.connect(self._refresh_panel)
         self.scene.tool_hint.connect(self.lbl_status.setText)
+        # Banner rojo cuando una acción viola una regla obligatoria.
+        self.scene.rule_violation.connect(self._on_rule_violation)
 
         # Panel
         self.ed_name.textChanged.connect(lambda s: self._set_name(s))
         self.sp_w.valueChanged.connect(lambda v: self._set_env(w=v))
         self.sp_h.valueChanged.connect(lambda v: self._set_env(h=v))
+        # Reglas de diseño
+        self.chk_rules.toggled.connect(lambda on: self._on_rules_changed(enabled=on))
+        self.sp_rule_sep.valueChanged.connect(lambda v: self._on_rules_changed(sep=v))
+        self.sp_rule_edge.valueChanged.connect(lambda v: self._on_rules_changed(edge=v))
+        # Visualización
+        self.chk_render_envelope.toggled.connect(
+            lambda on: self._on_render_env_changed(on))
         # Margen (compass): a=top, b=right, c=bottom, d=left
         self.ed_margin.changed.connect(self._on_margin_changed)
         # Redondeo (corners): a=tl, b=tr, c=br, d=bl
@@ -1191,7 +1720,6 @@ class DuctBankDialog(QtWidgets.QDialog):
 
         # Footer
         self.chk_snap.toggled.connect(lambda on: setattr(self.scene, "snap_on", bool(on)))
-        self.sl_zoom.valueChanged.connect(self._on_zoom_slider)
 
     # ── helpers de estado ────────────────────────────────────────────────
     def _push_history(self):
@@ -1212,17 +1740,44 @@ class DuctBankDialog(QtWidgets.QDialog):
             self.sp_h.setValue(m.height_in)
             has_sel = (self.scene.selected_idx is not None and
                        0 <= self.scene.selected_idx < len(m.conduits))
+            # Panel "Conducto" contextual (mejora #7): mismo groupbox, título y
+            # campos cambian según haya selección.
+            #   sin selección → título "Nuevo conducto", solo Diámetro visible.
+            #   con selección → título "Conducto seleccionado", X/Y/Diám/Etiqueta.
+            if hasattr(self, "grp_conduit"):
+                self.grp_conduit.setTitle(_tr("Conducto seleccionado") if has_sel
+                                            else _tr("Nuevo conducto"))
+            # Fila "Diámetro" para colocación: visible SOLO sin selección
+            # (con selección se usa "Diám. real" que edita el conducto actual).
+            if hasattr(self, "sp_new_diam"):
+                self.sp_new_diam.setVisible(not has_sel)
+                if getattr(self, "_row_new_diam", None) is not None:
+                    self._row_new_diam.setVisible(not has_sel)
+            # Campos de edición (X/Y/Diám real/Etiqueta): visibles solo con selección
+            for w, lbl_attr in (
+                (self.sel_x, "_row_sel_x"),
+                (self.sel_y, "_row_sel_y"),
+                (self.sel_d, "_row_sel_d"),
+                (self.sel_lbl, "_row_sel_lbl"),
+            ):
+                w.setVisible(has_sel); w.setEnabled(has_sel)
+                lbl = getattr(self, lbl_attr, None)
+                if lbl is not None: lbl.setVisible(has_sel)
+            self.btn_del_sel.setVisible(has_sel); self.btn_del_sel.setEnabled(has_sel)
             if has_sel:
                 c = m.conduits[self.scene.selected_idx]
-                self.sel_x.setEnabled(True); self.sel_y.setEnabled(True)
-                self.sel_d.setEnabled(True); self.sel_lbl.setEnabled(True)
-                self.btn_del_sel.setEnabled(True)
                 self.sel_x.setValue(c.cx); self.sel_y.setValue(c.cy)
                 self.sel_d.setValue(c.diam); self.sel_lbl.setText(c.label)
+                if hasattr(self, "lbl_conduit_hint"):
+                    self.lbl_conduit_hint.setText("")
             else:
-                for w in (self.sel_x, self.sel_y, self.sel_d, self.sel_lbl, self.btn_del_sel):
-                    w.setEnabled(False)
                 self.sel_x.setValue(0); self.sel_y.setValue(0); self.sel_d.setValue(4); self.sel_lbl.setText("")
+                if hasattr(self, "lbl_conduit_hint"):
+                    self.lbl_conduit_hint.setText(
+                        f'<span style="color:{_theme.tokens().text_muted};font-size:11px;">'
+                        + _tr("Elige un diámetro y usa la herramienta <b>Conducto</b> "
+                              "para colocarlo dentro de la envolvente.")
+                        + "</span>")
         finally:
             for w, prev in blockers:
                 w.blockSignals(prev)
@@ -1234,6 +1789,35 @@ class DuctBankDialog(QtWidgets.QDialog):
         if hasattr(self, "ed_corners"):
             self.ed_corners.set_values(m.corner_tl, m.corner_tr,
                                         m.corner_br, m.corner_bl)
+        # Sincroniza controles de reglas de diseño (sin disparar handlers)
+        if hasattr(self, "chk_rules"):
+            for w in (self.chk_rules, self.sp_rule_sep, self.sp_rule_edge):
+                w.blockSignals(True)
+            try:
+                self.chk_rules.setChecked(bool(m.rules_enabled))
+                self.sp_rule_sep.setValue(float(m.rule_min_conduit_sep_in))
+                self.sp_rule_edge.setValue(float(m.rule_min_edge_clearance_in))
+            finally:
+                for w in (self.chk_rules, self.sp_rule_sep, self.sp_rule_edge):
+                    w.blockSignals(False)
+            # Refresca el estado grisado + hint sin re-empujar historial
+            self._on_rules_changed()  # sin argumentos: solo repinta estado
+        # Sincroniza el checkbox de visualización
+        if hasattr(self, "chk_render_envelope"):
+            self.chk_render_envelope.blockSignals(True)
+            try:
+                self.chk_render_envelope.setChecked(bool(m.render_envelope))
+            finally:
+                self.chk_render_envelope.blockSignals(False)
+            # Repinta hint
+            t = _theme.tokens()
+            self.lbl_render_hint.setText(
+                f'<span style="color:{t.text_muted};font-size:11px;">' +
+                (_tr("Se dibujará el sólido 3D del contenedor + los conductos internos.")
+                 if m.render_envelope
+                 else _tr("Solo se dibujarán los conductos internos. El sólido 3D del "
+                          "contenedor NO se creará.")) +
+                "</span>")
         # Sincroniza controles de guía interior (sin disparar handlers).
         if hasattr(self, "chk_guide"):
             for w in (self.chk_guide, self.sp_gcols, self.sp_grows):
@@ -1246,9 +1830,85 @@ class DuctBankDialog(QtWidgets.QDialog):
                 for w in (self.chk_guide, self.sp_gcols, self.sp_grows):
                     w.blockSignals(False)
             self._refresh_guide_label()
-        self.lbl_count.setText(f"Conductos: {len(m.conduits)}")
+        self.lbl_count.setText(f"{_tr('Conductos')}: {len(m.conduits)}")
         errs = validate(m)
         self.lbl_valid.setText("\n".join("• " + e for e in errs))
+        self._update_error_banner(errs)
+
+    def _update_error_banner(self, errs):
+        """Muestra u oculta el banner rojo overlay del canvas (mejora #3).
+        El primer error va en negrita; el resto va en el tooltip para no
+        saturar la pantalla."""
+        if not hasattr(self, "lbl_error_banner"):
+            return
+        if not errs:
+            self.lbl_error_banner.setVisible(False)
+            return
+        t = _theme.tokens()
+        head = errs[0]
+        more = f"  (+{len(errs) - 1} más)" if len(errs) > 1 else ""
+        # Fondo rojo tenue con borde rojo — legible en dark y light.
+        bg = QtGui.QColor(t.danger); bg.setAlpha(70)
+        bg_css = f"rgba({bg.red()},{bg.green()},{bg.blue()},{bg.alpha()/255:.2f})"
+        self.lbl_error_banner.setStyleSheet(
+            f"QLabel{{background:{bg_css}; color:{t.text}; "
+            f"border:1px solid {t.danger}; border-radius:6px; "
+            f"padding:6px 12px; font-size:12px;}}")
+        self.lbl_error_banner.setText(f"⚠ {head}{more}")
+        self.lbl_error_banner.setToolTip("\n".join("• " + e for e in errs))
+        self.lbl_error_banner.adjustSize()
+        self._position_error_banner()
+        self.lbl_error_banner.setVisible(True)
+        self.lbl_error_banner.raise_()
+
+    def _on_rule_violation(self, msg: str):
+        """Recibe la señal de la escena cuando el usuario intenta una acción
+        que viola una regla obligatoria (colocar/mover un conducto en posición
+        no permitida). Muestra el banner rojo con el mensaje y programa que se
+        oculte solo tras unos segundos — así el usuario ve la advertencia
+        aunque no esté mirando la barra de estado inferior.
+
+        Si el modelo ya tenía errores de validación acumulados, el banner con
+        esos errores vuelve al ocultarse este mensaje temporal."""
+        if not hasattr(self, "lbl_error_banner"):
+            return
+        self._update_error_banner([msg])
+        # Programar borrado tras 3.5s: si el usuario no ha corregido, el
+        # banner vuelve a mostrar los errores acumulados del modelo (validate).
+        if not hasattr(self, "_rule_violation_timer"):
+            self._rule_violation_timer = QtCore.QTimer(self)
+            self._rule_violation_timer.setSingleShot(True)
+            self._rule_violation_timer.timeout.connect(self._restore_error_banner)
+        self._rule_violation_timer.start(3500)
+
+    def _restore_error_banner(self):
+        """Repone el banner con los errores actuales del modelo (o lo oculta
+        si el modelo está limpio) al vencer el timer del aviso de regla."""
+        try:
+            errs = validate(self.scene.model)
+            self._update_error_banner(errs)
+        except Exception:
+            pass
+
+    def _position_error_banner(self):
+        """Centra el banner en el tope del canvas, con margen 10px."""
+        if not hasattr(self, "_canvas_wrap") or not hasattr(self, "lbl_error_banner"):
+            return
+        wrap = self._canvas_wrap
+        banner = self.lbl_error_banner
+        # Ancho máximo del banner: 90% del wrap
+        max_w = int(wrap.width() * 0.9)
+        banner.setMaximumWidth(max_w)
+        banner.adjustSize()
+        x = (wrap.width() - banner.width()) // 2
+        banner.move(max(0, x), 10)
+
+    def eventFilter(self, obj, ev):
+        """Reposiciona el banner de errores cuando el canvas cambia de tamaño."""
+        if hasattr(self, "_canvas_wrap") and obj is self._canvas_wrap \
+                and ev.type() == QtCore.QEvent.Resize:
+            self._position_error_banner()
+        return super().eventFilter(obj, ev)
 
     def _on_model_changed(self):
         self._push_history()
@@ -1263,10 +1923,15 @@ class DuctBankDialog(QtWidgets.QDialog):
         m = self.scene.model
         if w is not None: m.width_in = float(w)
         if h is not None: m.height_in = float(h)
+        # Al cambiar dimensiones de la envolvente, expandimos el sceneRect
+        # para que se pueda pan/zoom a todos los bordes.
+        self.scene._update_scene_rect()
         self.scene.update()
         self._push_history()
-        self.lbl_count.setText(f"Conductos: {len(m.conduits)}")
-        self.lbl_valid.setText("\n".join("• " + e for e in validate(m)))
+        self.lbl_count.setText(f"{_tr('Conductos')}: {len(m.conduits)}")
+        errs = validate(m)
+        self.lbl_valid.setText("\n".join("• " + e for e in errs))
+        self._update_error_banner(errs)
 
     def _on_margin_changed(self, top, right, bottom, left):
         m = self.scene.model
@@ -1282,6 +1947,66 @@ class DuctBankDialog(QtWidgets.QDialog):
         self.scene.update()
         self._push_history()
 
+    def _on_rules_changed(self, enabled=None, sep=None, edge=None):
+        """Actualiza las reglas de diseño en el modelo. Solo `enabled` va al
+        historial (los valores de sep/edge cambian con cada tecla — como Nombre)."""
+        m = self.scene.model
+        if enabled is not None:
+            m.rules_enabled = bool(enabled)
+            self._push_history()
+        if sep is not None:
+            m.rule_min_conduit_sep_in = float(sep)
+        if edge is not None:
+            m.rule_min_edge_clearance_in = float(edge)
+        # Grisa/activa los sub-controles según el toggle maestro.
+        active = m.rules_enabled
+        for w in (self.sp_rule_sep, self.sp_rule_edge):
+            w.setEnabled(active)
+        # Hint del pie del grupo
+        t = _theme.tokens()
+        if active:
+            active_rules = []
+            if m.rule_min_conduit_sep_in > 0:
+                active_rules.append(f'{_tr("sep.")} {m.rule_min_conduit_sep_in:g}"')
+            if m.rule_min_edge_clearance_in > 0:
+                active_rules.append(f'{_tr("borde")} {m.rule_min_edge_clearance_in:g}"')
+            if active_rules:
+                body = (_tr("Reglas activas: {rules}") if len(active_rules) > 1
+                        else _tr("Regla activa: {rules}")).format(rules=", ".join(active_rules))
+            else:
+                body = _tr("Sin valores puestos — configura arriba para que apliquen.")
+            self.lbl_rules_hint.setText(
+                f'<span style="color:{t.text_muted};font-size:11px;">{body}</span>')
+        else:
+            self.lbl_rules_hint.setText(
+                f'<span style="color:{t.text_muted};font-size:11px;">'
+                + _tr("Reglas custom desactivadas. Los chequeos geométricos básicos "
+                      "(dentro de envolvente, sin colisión) siguen activos.")
+                + "</span>")
+        # Re-valida y refresca banner.
+        self.scene.update()
+        errs = validate(m)
+        self.lbl_valid.setText("\n".join("• " + e for e in errs))
+        self._update_error_banner(errs)
+
+    def _on_render_env_changed(self, on: bool):
+        m = self.scene.model
+        m.render_envelope = bool(on)
+        self._push_history()
+        t = _theme.tokens()
+        if on:
+            self.lbl_render_hint.setText(
+                f'<span style="color:{t.text_muted};font-size:11px;">'
+                + _tr("Se dibujará el sólido 3D del contenedor + los conductos internos.")
+                + "</span>")
+        else:
+            self.lbl_render_hint.setText(
+                f'<span style="color:{t.text_muted};font-size:11px;">'
+                + _tr("Solo se dibujarán los conductos internos. El sólido 3D del "
+                      "contenedor NO se creará.")
+                + "</span>")
+        self.scene.update()
+
     def _on_guide_changed(self, show=None, rows=None, cols=None):
         m = self.scene.model
         if show is not None: m.guide_show = bool(show)
@@ -1296,10 +2021,10 @@ class DuctBankDialog(QtWidgets.QDialog):
         m = self.scene.model
         cw, ch = m.guide_cell_size()
         if cw > 0 and ch > 0:
-            self.lbl_cell.setText(f'Celda: {cw:.2f}" × {ch:.2f}"'
-                                    f'   ({m.guide_cols} col × {m.guide_rows} fil)')
+            self.lbl_cell.setText(f'{_tr("Celda")}: {cw:.2f}" × {ch:.2f}"'
+                                    f'   ({m.guide_cols} {_tr("col")} × {m.guide_rows} {_tr("fil")})')
         else:
-            self.lbl_cell.setText("Celda: —  (envolvente o margen inválido)")
+            self.lbl_cell.setText(_tr("Celda: —  (envolvente o margen inválido)"))
 
     def _on_new_diam_changed(self, val):
         self.scene.new_conduit_diam = float(val)
@@ -1315,7 +2040,9 @@ class DuctBankDialog(QtWidgets.QDialog):
         if d is not None: c.diam = float(d)
         if lbl is not None: c.label = str(lbl)
         self.scene.update()
-        self.lbl_valid.setText("\n".join("• " + e for e in validate(m)))
+        errs = validate(m)
+        self.lbl_valid.setText("\n".join("• " + e for e in errs))
+        self._update_error_banner(errs)
 
     def _del_selected(self):
         idx = self.scene.selected_idx
@@ -1359,40 +2086,58 @@ class DuctBankDialog(QtWidgets.QDialog):
     def _set_tool(self, key: str):
         self.scene.tool = key
         self.scene._measure_pts = []
-        # Marca el botón correspondiente
+        # Marca el botón correspondiente (mostrar medidas NO va aquí: es toggle
+        # independiente, no una herramienta del canvas).
         mapping = {"select": self.tb_sel, "conduit": self.tb_conduit,
-                   "measure": self.tb_measure, "move": self.tb_move, "delete": self.tb_delete}
+                   "delete": self.tb_delete}
         for k, b in mapping.items():
             b.setChecked(k == key)
-        hints = {"select": "Selecciona un elemento para verlo o editarlo.",
-                 "conduit": f'Click dentro de la envolvente para colocar un conducto de {self.scene.new_conduit_diam:g}".',
-                 "measure": "Click en 2 puntos para medir la distancia entre ellos.",
-                 "move": "Arrastra un conducto para moverlo.",
-                 "delete": "Click en un conducto para eliminarlo."}
+        hints = {"select": _tr("Click en un conducto para seleccionarlo. Arrástralo para moverlo."),
+                 "conduit": _tr('Click dentro de la envolvente para colocar un conducto de {d}\".').format(d=f"{self.scene.new_conduit_diam:g}"),
+                 "delete": _tr("Click en un conducto para eliminarlo.")}
         self.lbl_status.setText(hints.get(key, ""))
         # Cursor
         cursors = {"select": QtCore.Qt.ArrowCursor, "delete": QtCore.Qt.PointingHandCursor,
-                   "conduit": QtCore.Qt.CrossCursor,
-                   "measure": QtCore.Qt.CrossCursor, "move": QtCore.Qt.OpenHandCursor}
+                   "conduit": QtCore.Qt.CrossCursor}
         self.view.setCursor(cursors.get(key, QtCore.Qt.ArrowCursor))
+
+    def _toggle_dimensions(self, *_):
+        """Alterna el overlay de cotas. Sincroniza el estado del toggle en
+        ambas direcciones (por si se llama desde código) y repinta."""
+        on = self.tb_dimensions.isChecked()
+        self.scene.show_dimensions = bool(on)
+        self._refresh_dimensions_button()
+        self.scene.update()
+
+    def _refresh_dimensions_button(self):
+        """Texto e icono del toggle según su estado. Activo → texto en rojo
+        (mismo color con el que se dibujan las cotas) para hacer obvio que
+        está encendido; inactivo → estilo normal.
+
+        El icono lo pinta _restyle. Aquí solo cambiamos texto/tooltip/
+        propiedad 'danger' (el QSS del ToolButton usa esa propiedad para
+        colorear texto en rojo)."""
+        if not hasattr(self, "tb_dimensions"):
+            return
+        b = self.tb_dimensions
+        if b.isChecked():
+            b.setText(_tr("Ocultar\nmedidas"))
+            b.setToolTip(_tr("Oculta las cotas del diseño."))
+            b.setProperty("danger", "true")
+        else:
+            b.setText(_tr("Mostrar\nmedidas"))
+            b.setToolTip(_tr("Muestra las cotas de separación entre conductos y "
+                             "resguardo al borde/margen (en rojo)."))
+            b.setProperty("danger", "false")
+        # Forzar re-estilo del QSS (para que el color/estilo se aplique)
+        b.style().unpolish(b); b.style().polish(b)
 
     def _zoom(self, f: float):
         cur = self.view.transform().m11()
         new = cur * f
         if _INITIAL_PX_PER_IN * _MIN_ZOOM <= new <= _INITIAL_PX_PER_IN * _MAX_ZOOM:
             self.view.scale(f, f)
-            self.sl_zoom.blockSignals(True)
-            self.sl_zoom.setValue(int((new / _INITIAL_PX_PER_IN) * 100))
-            self.sl_zoom.blockSignals(False)
             self.lbl_zoom.setText(f"{int((new / _INITIAL_PX_PER_IN) * 100)}%")
-
-    def _on_zoom_slider(self, v: int):
-        target = (v / 100.0) * _INITIAL_PX_PER_IN
-        cur = self.view.transform().m11()
-        if cur <= 0: return
-        f = target / cur
-        self.view.scale(f, f)
-        self.lbl_zoom.setText(f"{v}%")
 
     def _fit(self):
         m = self.scene.model
@@ -1409,6 +2154,7 @@ class DuctBankDialog(QtWidgets.QDialog):
         self._future.append(self._history.pop())
         self.scene.model = self._history[-1].copy()
         self.scene.selected_idx = None
+        self.scene._update_scene_rect()
         self.scene.update(); self._refresh_panel()
 
     def _on_redo(self):
@@ -1417,14 +2163,16 @@ class DuctBankDialog(QtWidgets.QDialog):
         self._history.append(m.copy())
         self.scene.model = m.copy()
         self.scene.selected_idx = None
+        self.scene._update_scene_rect()
         self.scene.update(); self._refresh_panel()
 
     def _on_new(self):
-        if QtWidgets.QMessageBox.question(self, "Nuevo", "¿Descartar el diseño actual y empezar uno nuevo?") \
+        if QtWidgets.QMessageBox.question(self, _tr("Nuevo"), _tr("¿Descartar el diseño actual y empezar uno nuevo?")) \
                 != QtWidgets.QMessageBox.Yes:
             return
         self.scene.model = DuctBank()
         self.scene.selected_idx = None
+        self.scene._update_scene_rect()
         self._history.clear(); self._future.clear()
         self._push_history(); self._refresh_panel(); self.scene.update()
 
@@ -1436,10 +2184,11 @@ class DuctBankDialog(QtWidgets.QDialog):
             with open(fn, "r", encoding="utf-8") as f:
                 self.scene.model = DuctBank.from_dict(json.load(f))
             self.scene.selected_idx = None
+            self.scene._update_scene_rect()
             self._history.clear(); self._future.clear()
             self._push_history(); self._refresh_panel(); self.scene.update()
         except Exception as e:
-            QtWidgets.QMessageBox.critical(self, "Error al abrir", str(e))
+            QtWidgets.QMessageBox.critical(self, _tr("Error al abrir"), str(e))
 
     def _on_save(self):
         default = (self.scene.model.name or "duct_bank").replace("/", "_") + ".dbjson"
@@ -1450,32 +2199,37 @@ class DuctBankDialog(QtWidgets.QDialog):
             with open(fn, "w", encoding="utf-8") as f:
                 json.dump(self.scene.model.to_dict(), f, indent=2, ensure_ascii=False)
         except Exception as e:
-            QtWidgets.QMessageBox.critical(self, "Error al guardar", str(e))
+            QtWidgets.QMessageBox.critical(self, _tr("Error al guardar"), str(e))
 
     def _on_help(self):
-        QtWidgets.QMessageBox.information(self, "Ayuda — Duct Bank",
-            "1) Empieza con <b>Rectángulo</b>: dos clics para dibujar la envolvente.<br>"
-            "2) Elige un diámetro y usa <b>Conducto</b>: cada clic dentro de la "
-            "envolvente coloca un conducto.<br>"
-            "3) <b>Seleccionar</b> te muestra los datos del conducto en el panel; "
-            "puedes cambiar X, Y, diámetro o etiqueta.<br>"
-            "4) <b>Mover</b> arrastra un conducto; <b>Eliminar</b> quita el que "
-            "hagas clic.<br>"
-            "5) La rueda del ratón acerca/aleja; el botón central del ratón mueve la vista.<br>"
-            "6) <b>Asigna una utilidad</b> en el combo de abajo para que el duct bank "
-            "reemplace esa tubería al importar en Civil 3D.<br>"
-            "7) Presiona <b>Guardar y cerrar</b> — el diseño se guarda en el proyecto "
-            "y la utilidad asignada usará el duct bank en vez de una tubería normal.")
+        QtWidgets.QMessageBox.information(self, _tr("Ayuda — Duct Bank"),
+            _tr("1) En el panel derecho, ponle <b>Nombre</b> y <b>Asigna la utilidad</b> "
+                "que este bancoducto reemplazará al importar en Civil 3D.<br>"
+                "2) Ajusta el <b>Ancho</b> y <b>Alto</b> de la envolvente (pulgadas).<br>"
+                "3) Elige un diámetro y usa la herramienta <b>Conducto</b>: cada clic "
+                "dentro de la envolvente coloca un conducto.<br>"
+                "4) Con el <b>Puntero</b>: click selecciona un conducto y arrástralo "
+                "para moverlo. Los datos del seleccionado (X/Y/diámetro/etiqueta) "
+                "aparecen en el panel derecho.<br>"
+                "5) <b>Eliminar</b> quita el conducto que hagas clic.<br>"
+                "6) La rueda del ratón acerca/aleja; el botón central mueve la vista.<br>"
+                "7) Si hay un problema con el diseño (conducto fuera, solape…) aparece "
+                "un banner rojo en el tope del canvas con el mensaje.<br>"
+                "8) Presiona <b>Guardar y cerrar</b> — el diseño se guarda en el proyecto."))
 
     def _update_pipe_status(self):
+        # Usa tokens del tema activo para legibilidad en dark y light.
+        t = _theme.tokens()
         idx = self.cmb_pipe.currentData()
         if idx is not None and idx >= 0:
             self.lbl_pipe_status.setText(
-                "<span style='color:#2e7d32;font-weight:600;'>"
-                "Al exportar, esta utilidad será un duct bank (no una tubería normal).</span>")
+                f"<span style='color:{t.success};font-weight:600;font-size:11px;'>"
+                f"✓ {_tr('Al exportar, esta utilidad será un duct bank (no una tubería normal).')}"
+                "</span>")
         else:
             self.lbl_pipe_status.setText(
-                "<span style='color:#888;'>Sin asignar — el duct bank no se exportará.</span>")
+                f"<span style='color:{t.text_muted};font-size:11px;'>"
+                f"⚠ {_tr('Sin asignar — el duct bank no se exportará.')}</span>")
 
     def _on_close(self):
         self.accept()

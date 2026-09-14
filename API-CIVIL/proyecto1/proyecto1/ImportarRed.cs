@@ -233,7 +233,18 @@ namespace Civil3DBasico
                             CornerTR = XdDouble(xd, "CORNER_TR"),
                             CornerBR = XdDouble(xd, "CORNER_BR"),
                             CornerBL = XdDouble(xd, "CORNER_BL"),
+                            // RENDER_ENVELOPE: 1 = crear sólido 3D (default), 0 = solo conductos.
+                            // Si el DXF es viejo y no trae el flag, XdDouble devuelve 0
+                            // pero eso sería incorrecto — chequear existencia con XdStr.
+                            RenderEnvelope = (XdStr(xd, "RENDER_ENVELOPE", "1").Trim() != "0"),
                         };
+                        // Log del flag leído — útil para diagnosticar si el
+                        // usuario dice que desactivó "Dibujar contenedor 3D"
+                        // pero aun así ve el sólido dibujado.
+                        {
+                            string rawFlag = XdStr(xd, "RENDER_ENVELOPE", "(ausente)");
+                            ed?.WriteMessage($"\n  [DUCTBANK] '{dbk.Name}' RENDER_ENVELOPE raw='{rawFlag}' → {dbk.RenderEnvelope}");
+                        }
                         string conduitsRaw = XdStr(xd, "CONDUITS", "");
                         if (!string.IsNullOrWhiteSpace(conduitsRaw))
                         {
@@ -300,31 +311,46 @@ namespace Civil3DBasico
                 ed.WriteMessage($"\n  → Conversión de elevaciones {unit} → {db.Insunits}: ×{factor:F4}");
 
             // ── 2. Agrupar por capa ─────────────────────────────────────────
-            // Pipes con duct bank asignado (HAS_DUCT_BANK=1 en XDATA) se excluyen
-            // del flujo normal: el duct bank las reemplaza con un sólido 3D.
-            // Matching por PIPE_IDX directo (mismo índice que Python emitió).
+            // Pipes con duct bank asignado (HAS_DUCT_BANK=1 en XDATA): a partir
+            // de v1.1.1 se PROCESAN NORMALMENTE — así generan sus buzones en
+            // cada vértice (1 por vértice, no N como antes cuando la pipe padre
+            // se excluía y cada conducto interno creaba su propia estructura).
+            // El sólido 3D del bancoducto se dibuja ENCIMA de la pipe padre
+            // (opcional, según flag RENDER_ENVELOPE). Los conductos internos
+            // se crean como pipes sin estructuras propias (NoStructuresAll).
             var pipeByIdx = new Dictionary<int, ImportPipe>();
-            var ductBankPipes = new HashSet<ImportPipe>();
             foreach (var ip in pipes)
             {
                 if (ip.PipeIdx >= 0)
                     pipeByIdx[ip.PipeIdx] = ip;
-                if (ip.HasDuctBank)
-                    ductBankPipes.Add(ip);
             }
             foreach (var dbk in ductBanks)
             {
                 ImportPipe match;
                 if (pipeByIdx.TryGetValue(dbk.PipeIdx, out match))
-                {
                     dbk.MatchedPipe = match;
-                    ductBankPipes.Add(match);
-                }
                 else
                     ed.WriteMessage($"\n  ⚠ Duct bank '{dbk.Name}' (PIPE_IDX={dbk.PipeIdx}): no se encontró la pipe correspondiente.");
             }
-            if (ductBankPipes.Count > 0)
-                ed.WriteMessage($"\n  · {ductBankPipes.Count} utilidad(es) con duct bank asignado (excluidas de redes normales).");
+            if (ductBanks.Count > 0)
+                ed.WriteMessage($"\n  · {ductBanks.Count} bancoducto(s) — sus pipes padre se procesan normalmente para generar buzones.");
+
+            // Forzar radio de curva del pipe padre = radio del sólido del
+            // bancoducto en cada vértice curvo, cuando el usuario dejó "auto"
+            // (sin entrada en CurveRadiusByVert). El fallback estándar del pipe
+            // es 6× su diámetro interior (pequeño); si no lo forzamos aquí, el
+            // pipe padre curva con radio distinto al del sólido y se sale.
+            foreach (var dbk in ductBanks)
+            {
+                if (dbk.MatchedPipe == null) continue;
+                var parent = dbk.MatchedPipe;
+                double bancoRadioFt = 6.0 * (dbk.WidthIn / 12.0);
+                foreach (int viCurve in parent.NoManholeVerts)
+                {
+                    if (!parent.CurveRadiusByVert.ContainsKey(viCurve))
+                        parent.CurveRadiusByVert[viCurve] = bancoRadioFt;
+                }
+            }
 
             var gravedad = new Dictionary<string, List<ImportPipe>>(StringComparer.OrdinalIgnoreCase);
             var presion = new Dictionary<string, List<ImportPipe>>(StringComparer.OrdinalIgnoreCase);
@@ -332,7 +358,6 @@ namespace Civil3DBasico
             var conduit = new Dictionary<string, List<ImportPipe>>(StringComparer.OrdinalIgnoreCase);
             foreach (var p in pipes)
             {
-                if (ductBankPipes.Contains(p)) continue;   // duct bank la reemplaza
                 if (p.NetKind.Equals("pressure", StringComparison.OrdinalIgnoreCase))
                     DictAdd(presion, p.Layer, p);
                 else if (p.NetKind.Equals("conduit", StringComparison.OrdinalIgnoreCase))
@@ -615,22 +640,40 @@ namespace Civil3DBasico
                     var cond = dbk.Conduits[ci];
                     if (cond.Diam <= 0) continue;
 
-                    // Offset lateral (cx) y vertical (cy) relativo al centro de la
-                    // envolvente, en pies. cy viene desde arriba (Y↓ en Python) → Z↑.
+                    // Offset lateral (cx) relativo al centro de la envolvente.
+                    // Offset vertical (cy) relativo al FONDO EXTERNO del bancoducto
+                    // (cara inferior). La cota invert del pipe padre manda el fondo
+                    // externo — igual que un pipe normal: invert = parte inferior.
+                    //   cy=height_in (fondo del diseñador) → offset 0 ft (Z=invert)
+                    //   cy=0         (tapa del diseñador)  → offset +hFt (Z=invert+hFt)
                     double cxOffsetFt = (cond.Cx - dbk.WidthIn / 2.0) / 12.0;
-                    double cyOffsetFt = (dbk.HeightIn / 2.0 - cond.Cy) / 12.0;
+                    double cyOffsetFt = (dbk.HeightIn - cond.Cy) / 12.0;
                     ed.WriteMessage($"\n  [CONDUIT] {cond.Label ?? $"C{ci+1}"} Ø{cond.Diam:F1}\" " +
-                        $"cx={cond.Cx:F2} cy={cond.Cy:F2} → lateral={cxOffsetFt:F4}ft vertical={cyOffsetFt:F4}ft " +
-                        $"(envolvente {dbk.WidthIn:F1}×{dbk.HeightIn:F1}\")");
+                        $"cx={cond.Cx:F2} cy={cond.Cy:F2} → lateral={cxOffsetFt:F4}ft " +
+                        $"desde-fondo={cyOffsetFt:F4}ft (envolvente {dbk.WidthIn:F1}×{dbk.HeightIn:F1}\")");
 
-                    // Z absoluta del conducto = elevación del parent + offset vertical.
-                    // Restamos el radio porque OffsetEjeARasante lo suma después
-                    // (convierte invert→centerline), y cy ya es el CENTRO.
+                    // Z absoluta del conducto: parentInv (= fondo del bancoducto) +
+                    // offset vertical (centro del conducto por encima del fondo) −
+                    // radio (porque el flujo posterior sumará radio para pasar de
+                    // invert→centerline; cy es el CENTRO del conducto).
                     double radiusFt = cond.Diam / 2.0 / 12.0;
                     double parentInvS = parent.InvStart ?? 0.0;
                     double parentInvE = parent.InvEnd ?? parentInvS;
                     double condInvS = parentInvS + cyOffsetFt - radiusFt;
                     double condInvE = parentInvE + cyOffsetFt - radiusFt;
+
+                    // Cotas por tramo (VertexInv/VertexInvIn) del padre se
+                    // propagan al conducto con el MISMO offset vertical — así las
+                    // cotas por vértice que el usuario ajustó en la tubería padre
+                    // aplican también al conducto interno.
+                    var condVertexInv = new Dictionary<int, double>();
+                    var condVertexInvIn = new Dictionary<int, double>();
+                    if (parent.VertexInv != null)
+                        foreach (var kv in parent.VertexInv)
+                            condVertexInv[kv.Key] = kv.Value + cyOffsetFt - radiusFt;
+                    if (parent.VertexInvIn != null)
+                        foreach (var kv in parent.VertexInvIn)
+                            condVertexInvIn[kv.Key] = kv.Value + cyOffsetFt - radiusFt;
 
                     // Calcular vértices offseteados perpendicular al path
                     var offsetVerts = new List<Point2d>();
@@ -667,6 +710,47 @@ namespace Civil3DBasico
 
                     string label = !string.IsNullOrWhiteSpace(cond.Label) ? cond.Label : $"C{ci + 1}";
                     string netName = $"DUCTBANK-{baseName}-{label}";
+                    // Vértices curvos del padre se propagan al conducto interno
+                    // — así si el usuario marcó una esquina como "curva" en la
+                    // pipe padre, TODOS los conductos del bancoducto se
+                    // dibujarán curvos en esa esquina (antes solo se curvaba
+                    // uno arbitrario porque solo la pipe padre tenía la data).
+                    var condNoManhole = new HashSet<int>(parent.NoManholeVerts);
+                    var condCurveRadius = new Dictionary<int, double>(parent.CurveRadiusByVert);
+                    // Radio AUTOMÁTICO del bancoducto: si el usuario dejó "auto"
+                    // (no hay entrada en CurveRadiusByVert), calculamos el radio
+                    // que el sólido del bancoducto usará (6 × ancho del banco)
+                    // y lo forzamos como radio EXPLÍCITO en el conducto. Así
+                    // sólido y conductos comparten exactamente el mismo arco —
+                    // antes cada conducto calculaba su propio radio "6× ancho
+                    // interior del conducto" (mucho menor), y los conductos se
+                    // salían del sólido en la curva.
+                    double bancoRadioFt = 6.0 * (dbk.WidthIn / 12.0);
+                    foreach (int viCurve in parent.NoManholeVerts)
+                    {
+                        if (condCurveRadius.ContainsKey(viCurve)) continue;
+                        // Radio del conducto = radio del sólido ± cxOffset,
+                        // según de qué lado del giro esté el conducto (para que
+                        // el arco quede CONCÉNTRICO con el sólido, no sólo
+                        // paralelo). perp de la pipe padre = (dy,-dx) = LADO
+                        // DERECHO del avance. Turn LEFT (cross>0) → derecha es
+                        // exterior → radio mayor. Turn RIGHT (cross<0) → derecha
+                        // es interior → radio menor.
+                        double rCond = bancoRadioFt;
+                        if (viCurve > 0 && viCurve < parent.Vertices.Count - 1)
+                        {
+                            var vp = parent.Vertices[viCurve - 1];
+                            var vc = parent.Vertices[viCurve];
+                            var vn = parent.Vertices[viCurve + 1];
+                            double ax = vc.X - vp.X, ay = vc.Y - vp.Y;
+                            double bx = vn.X - vc.X, by = vn.Y - vc.Y;
+                            double cross = ax * by - ay * bx;
+                            double signo = cross > 0 ? +1.0 : -1.0;
+                            rCond = bancoRadioFt + signo * cxOffsetFt;
+                            if (rCond < 0.01) rCond = 0.01;
+                        }
+                        condCurveRadius[viCurve] = rCond;
+                    }
                     var cp = new ImportPipe
                     {
                         Layer = "PDFCAD_DUCT_BANK",
@@ -678,6 +762,10 @@ namespace Civil3DBasico
                         NetType = "pipe",
                         InvStart = condInvS,
                         InvEnd = condInvE,
+                        VertexInv = condVertexInv,
+                        VertexInvIn = condVertexInvIn,
+                        NoManholeVerts = condNoManhole,
+                        CurveRadiusByVert = condCurveRadius,
                         ManningsN = 0,
                         CoverMin = 0,
                         PipeFamily = "",
@@ -686,6 +774,10 @@ namespace Civil3DBasico
                         Abandoned = false,
                         PipeIdx = -1,
                         HasDuctBank = false,
+                        // Sin buzones propios: los buzones del bancoducto los da
+                        // la pipe padre. Sin esto, N conductos = N buzones
+                        // superpuestos en cada vértice.
+                        NoStructuresAll = true,
                     };
                     var singleList = new List<ImportPipe> { cp };
                     using (Transaction trCond = db.TransactionManager.StartTransaction())
@@ -1293,6 +1385,17 @@ namespace Civil3DBasico
                 }
 
                 var vertStructIds = new List<ObjectId>();
+                // ─ Skip TOTAL de estructuras: cuando la pipe pertenece a los
+                // conductos INTERNOS de un bancoducto, no queremos ninguna
+                // structure propia (el buzón real lo da la pipe padre del
+                // bancoducto, no los conductos internos). Sin este skip, N
+                // conductos generaban N estructuras superpuestas por vértice.
+                if (ip.NoStructuresAll)
+                {
+                    for (int i = 0; i < nVerts; i++) vertStructIds.Add(ObjectId.Null);
+                    Dbg("STRUCT_SKIP_ALL", ("red", nombre), ("verts", nVerts.ToString()));
+                    goto __endStructLoop;
+                }
                 for (int i = 0; i < nVerts; i++)
                 {
                     // Vértice intermedio marcado "sin buzón" por el usuario en la UI:
@@ -1453,6 +1556,7 @@ namespace Civil3DBasico
                     }
                     vertStructIds.Add(createdStructs[key]);
                 }
+                __endStructLoop: ;
 
                 // Guardar la traza de ESTA pipe con los structIds de sus extremos.
                 // Al final del método agrupamos por componentes conectados (Union-Find
@@ -3144,22 +3248,104 @@ namespace Civil3DBasico
                         continue;
                     }
 
+                    // RENDER_ENVELOPE=0 → el usuario NO quiere el sólido 3D del
+                    // contenedor (los conductos se seguirán creando fuera de este
+                    // método). Saltamos toda la extrusión.
+                    if (!dbk.RenderEnvelope)
+                    {
+                        ed.WriteMessage($"\n  · Duct bank '{dbk.Name}': contenedor 3D desactivado (solo conductos).");
+                        continue;
+                    }
+
                     double wFt = dbk.WidthIn / 12.0;
                     double hFt = dbk.HeightIn / 12.0;
 
-                    // El sólido debe estar a la misma elevación que los conductos.
-                    // El centro vertical del duct bank queda a la Z media del parent.
-                    double parentInvS = matchPipe.InvStart ?? 0.0;
-                    double parentInvE = matchPipe.InvEnd ?? parentInvS;
+                    // El invert del pipe padre representa el FONDO EXTERNO del
+                    // bancoducto (parte amarilla — cara inferior). Sumamos hFt/2
+                    // al Z del path para que el CENTRO del sólido — donde se
+                    // apoya el perfil — quede a media altura por encima del
+                    // fondo, dejando el fondo del sólido exactamente en Z=invert.
+                    //
+                    // Se respetan las cotas por tramo (VertexInv) si el usuario
+                    // las definió: el path del sólido las usa igual que los
+                    // conductos internos, para que fondo y conductos sigan la
+                    // misma línea segmento a segmento.
                     int nv = matchPipe.Vertices.Count;
+                    double[] zOutDb = InterpolateZ(matchPipe, nv, matchPipe.VertexInv);
+                    double[] zInDb  = InterpolateZ(matchPipe, nv, matchPipe.VertexInvIn);
 
+                    // Z del centro del sólido en cada vértice (invert padre + hFt/2)
+                    double[] zPath = new double[nv];
+                    for (int vi = 0; vi < nv; vi++)
+                        zPath[vi] = (zOutDb[vi] + zInDb[vi]) * 0.5 + hFt / 2.0;
+
+                    // Precalcular geometría de arcos en los vértices marcados como
+                    // curvos (NoManholeVerts). Usa la MISMA lógica que las pipes
+                    // normales para que el sólido siga la misma curva.
+                    var curvasDb = new Dictionary<int, CurveGeom>();
+                    foreach (int i in matchPipe.NoManholeVerts)
+                    {
+                        if (i <= 0 || i >= nv - 1) continue;
+                        Point3d corner = new Point3d(matchPipe.Vertices[i].X, matchPipe.Vertices[i].Y, zPath[i]);
+                        Point3d prevV = new Point3d(matchPipe.Vertices[i - 1].X, matchPipe.Vertices[i - 1].Y, zPath[i - 1]);
+                        Point3d nextV = new Point3d(matchPipe.Vertices[i + 1].X, matchPipe.Vertices[i + 1].Y, zPath[i + 1]);
+                        var dirPrev = new Vector3d(prevV.X - corner.X, prevV.Y - corner.Y, 0.0);
+                        var dirNext = new Vector3d(nextV.X - corner.X, nextV.Y - corner.Y, 0.0);
+                        double distPrev = dirPrev.Length, distNext = dirNext.Length;
+                        if (distPrev < 1e-6 || distNext < 1e-6) continue;
+                        dirPrev = dirPrev / distPrev; dirNext = dirNext / distNext;
+                        double cosD = Math.Max(-1.0, Math.Min(1.0, dirPrev.DotProduct(dirNext)));
+                        double deltaRad = Math.Acos(cosD);
+                        if (deltaRad * 180.0 / Math.PI > 178.0) continue;   // casi recto
+                        double r;
+                        if (matchPipe.CurveRadiusByVert.TryGetValue(i, out double rExpl) && rExpl > 0.01)
+                            r = rExpl;
+                        else
+                            r = 6.0 * wFt;   // fallback: 6× el ancho del bancoducto
+                        double t = r / Math.Tan(deltaRad / 2.0);
+                        double tMax = Math.Min(distPrev, distNext) * 0.9;
+                        if (t > tMax) { r = tMax * Math.Tan(deltaRad / 2.0); t = tMax; }
+                        try
+                        {
+                            curvasDb[i] = BuildCurveGeom(t, corner, dirPrev, dirNext,
+                                                          distPrev, distNext, prevV, nextV, deltaRad);
+                        }
+                        catch (Exception exArc)
+                        {
+                            ed.WriteMessage($"\n  ⚠ Duct bank '{dbk.Name}' vértice {i}: no se pudo curvar ({exArc.Message}).");
+                        }
+                    }
+
+                    // Construir pathPts: para cada segmento entre vértices,
+                    // si el vértice inicial o final tiene curva, insertar los
+                    // puntos de tangencia + puntos INTERMEDIOS del arco (tesela
+                    // el arco en ~16 pasos — el sólido queda visualmente curvo).
                     var pathPts = new Point3dCollection();
+                    const int ARC_STEPS = 16;
                     for (int vi = 0; vi < nv; vi++)
                     {
                         Point2d v = matchPipe.Vertices[vi];
-                        double t = nv > 1 ? (double)vi / (nv - 1) : 0;
-                        double z = parentInvS + t * (parentInvE - parentInvS);
-                        pathPts.Add(new Point3d(v.X, v.Y, z));
+                        if (vi == 0 || vi == nv - 1 || !curvasDb.ContainsKey(vi))
+                        {
+                            // Vértice recto: se añade el punto tal cual.
+                            pathPts.Add(new Point3d(v.X, v.Y, zPath[vi]));
+                        }
+                        else
+                        {
+                            // Vértice curvo: reemplazar el vértice por
+                            // (P1 tangencia entrada) → arco teselado → (P2 tangencia salida)
+                            var cg = curvasDb[vi];
+                            pathPts.Add(cg.P1);
+                            // Puntos intermedios sobre el arco (excluyendo extremos).
+                            for (int s = 1; s < ARC_STEPS; s++)
+                            {
+                                double param = cg.Arco.StartAngle
+                                    + (cg.Arco.EndAngle - cg.Arco.StartAngle) * s / (double)ARC_STEPS;
+                                Point3d arcPt = cg.Arco.EvaluatePoint(param);
+                                pathPts.Add(arcPt);
+                            }
+                            pathPts.Add(cg.P2);
+                        }
                     }
 
                     if (pathPts.Count < 2) continue;
@@ -3270,6 +3456,12 @@ namespace Civil3DBasico
             public bool Abandoned;
             public int PipeIdx = -1;
             public bool HasDuctBank;
+            // Si true, al crear la network, NO se generará ninguna estructura
+            // (buzón) en ningún vértice — la pipe queda "flotante". Se usa
+            // para los conductos INTERNOS del bancoducto: el buzón real vive
+            // en la pipe padre del bancoducto (1 por vértice), no en cada
+            // conducto (que si no, dejaría N buzones superpuestos).
+            public bool NoStructuresAll;
         }
 
         // Esquina de un elemento curvo (punto PDFCAD_CURVE, capa PDFCAD_CURVA).
@@ -3380,6 +3572,10 @@ namespace Civil3DBasico
             public double WidthIn, HeightIn;
             public double MarginTop, MarginRight, MarginBottom, MarginLeft;
             public double CornerTL, CornerTR, CornerBR, CornerBL;
+            // Si false, NO se crea el sólido 3D del contenedor — solo los
+            // conductos internos como pipes. Default true para compatibilidad
+            // con DXF antiguos que no traían el flag.
+            public bool RenderEnvelope = true;
             public List<DuctConduit> Conduits = new List<DuctConduit>();
             public ImportPipe MatchedPipe;   // se asigna tras emparejar por anchor
         }

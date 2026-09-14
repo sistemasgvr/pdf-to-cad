@@ -44,7 +44,12 @@ def test_roundtrip():
 
 
 def test_validate_ok():
+    # Desactivamos las reglas nuevas (v1.1+: margen 3", separación 2", borde 3")
+    # y márgenes para probar solo la geometría básica: dos conductos que caben
+    # dentro de la envolvente y no se solapan.
     d = DuctBank(width_in=12, height_in=8,
+                 margin_top=0, margin_right=0, margin_bottom=0, margin_left=0,
+                 rules_enabled=False,
                  conduits=[Conduit(cx=3, cy=3, diam=4), Conduit(cx=9, cy=3, diam=4)])
     assert validate(d) == []
 
@@ -63,8 +68,11 @@ def test_validate_flags_outside_and_overlap():
 
 
 def test_inner_rect_and_defaults():
-    # Sin márgenes → interior == envolvente
-    d = DuctBank(width_in=16, height_in=10)
+    # Sin márgenes → interior == envolvente. Los defaults v1.1+ son 3" por lado
+    # (típico de un bancoducto de concreto); aquí los desactivamos para probar
+    # el cálculo puro de inner_rect.
+    d = DuctBank(width_in=16, height_in=10,
+                 margin_top=0, margin_right=0, margin_bottom=0, margin_left=0)
     assert d.inner_rect() == (0.0, 0.0, 16.0, 10.0)
     assert not d.has_margin() and not d.has_rounded_corners()
     # Con márgenes: recorta cada lado; nunca negativo
@@ -100,7 +108,9 @@ def test_from_dict_defaults_for_old_projects():
 
 
 def test_guide_defaults_and_cell_size():
-    d = DuctBank(width_in=12, height_in=8)
+    # Márgenes en 0 para verificar el cálculo puro (los defaults v1.1+ son 3").
+    d = DuctBank(width_in=12, height_in=8,
+                 margin_top=0, margin_right=0, margin_bottom=0, margin_left=0)
     # Sin guía y con defaults 1x1: la celda es todo el interior
     assert d.guide_show is False
     assert d.guide_rows == 1 and d.guide_cols == 1
@@ -136,3 +146,83 @@ def test_copy_is_independent():
     d2 = d.copy()
     d2.conduits[0].diam = 99
     assert d.conduits[0].diam == 2       # el original no cambia
+
+
+# ── Reglas de diseño custom ─────────────────────────────────────────────────
+
+def _dbk_two_conduits(sep_between_centers=6.0):
+    """Envolvente 27×20 con 2 conductos alineados horizontalmente."""
+    return DuctBank(width_in=27, height_in=20,
+                    conduits=[Conduit(cx=5.0, cy=10.0, diam=4.0, label="A"),
+                              Conduit(cx=5.0 + sep_between_centers,
+                                      cy=10.0, diam=4.0, label="B")])
+
+
+def test_rule_min_conduit_sep_flags_violation():
+    # 2 conductos Ø4" con centros a 5" → hueco borde-borde = 5 - 4 = 1".
+    d = _dbk_two_conduits(sep_between_centers=5.0)
+    d.rules_enabled = True; d.rule_min_conduit_sep_in = 2.0
+    errs = validate(d)
+    # Debe reportar violación de separación
+    assert any("separación" in e or "separaci" in e for e in errs)
+
+
+def test_rule_min_conduit_sep_passes_when_ok():
+    # Centros a 7" → hueco = 3". Regla pide 2" → pasa.
+    d = _dbk_two_conduits(sep_between_centers=7.0)
+    d.rules_enabled = True; d.rule_min_conduit_sep_in = 2.0
+    errs = validate(d)
+    assert not any("separaci" in e for e in errs)
+
+
+def test_rule_min_edge_clearance_flags_violation():
+    # Conducto Ø4" en cx=3 → borde izquierdo del conducto a 1" del borde envolvente.
+    d = DuctBank(width_in=27, height_in=20,
+                 conduits=[Conduit(cx=3.0, cy=10.0, diam=4.0)])
+    d.rules_enabled = True; d.rule_min_edge_clearance_in = 3.0
+    errs = validate(d)
+    assert any("borde" in e for e in errs)
+
+
+def test_rules_disabled_skips_custom_rules():
+    # Mismo diseño que test_rule_min_conduit_sep_flags_violation
+    d = _dbk_two_conduits(sep_between_centers=5.0)
+    d.rules_enabled = False   # OFF → no aplica reglas custom
+    d.rule_min_conduit_sep_in = 2.0
+    errs = validate(d)
+    assert not any("separación" in e or "separaci" in e for e in errs)
+
+
+def test_rules_zero_value_means_no_rule():
+    # rules_enabled=True pero valores en 0 → no aplica esos chequeos.
+    d = _dbk_two_conduits(sep_between_centers=5.0)
+    d.rules_enabled = True
+    d.rule_min_conduit_sep_in = 0.0
+    d.rule_min_edge_clearance_in = 0.0
+    errs = validate(d)
+    assert not any("separaci" in e for e in errs)
+    assert not any("borde" in e for e in errs)
+
+
+def test_rules_and_render_envelope_roundtrip():
+    d = DuctBank(width_in=27, height_in=20,
+                 rules_enabled=False,
+                 rule_min_conduit_sep_in=2.5,
+                 rule_min_edge_clearance_in=3.0,
+                 render_envelope=False)
+    d2 = DuctBank.from_dict(d.to_dict())
+    assert d2.rules_enabled is False
+    assert d2.rule_min_conduit_sep_in == 2.5
+    assert d2.rule_min_edge_clearance_in == 3.0
+    assert d2.render_envelope is False
+    # Defaults en un DuctBank fresco (v1.1+): 2" separación conductos,
+    # 3" resguardo al borde, márgenes 3" en los 4 lados — valores típicos
+    # de un bancoducto de concreto. Proyectos viejos sin estos campos
+    # mantienen 0 al deserializarse (via from_dict fallback).
+    d3 = DuctBank(width_in=12, height_in=8)
+    assert d3.rules_enabled is True
+    assert d3.rule_min_conduit_sep_in == 2.0
+    assert d3.rule_min_edge_clearance_in == 3.0
+    assert d3.render_envelope is True
+    assert d3.margin_top == 3.0 and d3.margin_right == 3.0
+    assert d3.margin_bottom == 3.0 and d3.margin_left == 3.0

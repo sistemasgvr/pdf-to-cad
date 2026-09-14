@@ -13,8 +13,8 @@ from PySide6 import QtCore, QtGui, QtWidgets
 from model import Z_PDF
 
 
-_ZOOM_MIN = 0.1
-_ZOOM_MAX = 10.0
+_ZOOM_MIN = 0.3
+_ZOOM_MAX = 40.0
 
 _MODE_CURSORS = {
     "pipe": QtCore.Qt.CrossCursor,
@@ -90,11 +90,21 @@ class Canvas(QtWidgets.QGraphicsView):
     def wheelEvent(self, e):
         if self.pixmap_item:
             f = 1.25 if e.angleDelta().y() > 0 else 0.8
-            new = self._zoom_level * f
-            if new < _ZOOM_MIN or new > _ZOOM_MAX:
-                return
-            self._zoom_level = new
-            self.scale(f, f)
+            self.apply_zoom(f)
+
+    def apply_zoom(self, factor: float) -> bool:
+        """Aplica un factor de zoom (>1 acercar, <1 alejar) respetando los
+        límites [_ZOOM_MIN, _ZOOM_MAX]. Devuelve True si se aplicó, False si el
+        límite lo bloqueó. Los botones + / − del toolbar y la rueda del ratón
+        usan esta misma función — así el tope es consistente en ambos caminos."""
+        if not self.pixmap_item:
+            return False
+        new = self._zoom_level * factor
+        if new < _ZOOM_MIN or new > _ZOOM_MAX:
+            return False
+        self._zoom_level = new
+        self.scale(factor, factor)
+        return True
 
     def mousePressEvent(self, e):
         if e.button() == QtCore.Qt.MiddleButton:

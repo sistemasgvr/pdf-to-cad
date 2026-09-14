@@ -17,6 +17,7 @@ from PySide6 import QtCore, QtGui, QtWidgets
 from model import VERSION, CHANGELOG
 from ui_common import DOWNLOADS
 import theme as _theme
+from i18n import t as _tr
 
 
 # ─────────────────────────── Familias personalizadas ───────────────────────────
@@ -253,19 +254,19 @@ def show_html(win, title, html, w=780, h=660):
     lay = QtWidgets.QVBoxLayout(dlg); tb = QtWidgets.QTextBrowser(); tb.setOpenExternalLinks(True)
     t = _theme.tokens()
     tb.setStyleSheet(f"background:{t.surface};color:{t.text};font-size:14px;"); tb.setHtml(html)
-    btn = QtWidgets.QPushButton("Cerrar"); btn.clicked.connect(dlg.accept)
+    btn = QtWidgets.QPushButton(_tr("Cerrar")); btn.clicked.connect(dlg.accept)
     lay.addWidget(tb); lay.addWidget(btn); dlg.exec()
 
 
 def show_about(win):
-    dlg = QtWidgets.QDialog(win); dlg.setWindowTitle("Acerca de"); dlg.resize(760, 680)
+    dlg = QtWidgets.QDialog(win); dlg.setWindowTitle(_tr("Acerca de")); dlg.resize(760, 680)
     lay = QtWidgets.QVBoxLayout(dlg)
     head = QtWidgets.QLabel(
         f"<h2>Asistente C3D</h2>"
-        f"<p><b>Versión {VERSION}</b> · para ingeniería civil (agua, alcantarillado, gas, "
-        f"eléctrico, telefonía, drenaje).</p>"
-        f"<p>Convierte un PDF de plano a DXF y te deja marcar utilidades, Multileaders y notas "
-        f"sobre la imagen, exportando todo en las mismas coordenadas para abrirlo en Civil 3D.</p>"
+        f"<p><b>{_tr('Versión')} {VERSION}</b> · " + _tr("para ingeniería civil (agua, alcantarillado, gas, "
+        "eléctrico, telefonía, drenaje).") + "</p>"
+        "<p>" + _tr("Convierte un PDF de plano a DXF y te deja marcar utilidades, Multileaders y notas "
+        "sobre la imagen, exportando todo en las mismas coordenadas para abrirlo en Civil 3D.") + "</p>"
         f"<p style='color:#888;'>GVR Engineering · sistemas.gvrpe@gmail.com</p>")
     head.setWordWrap(True)
     t = _theme.tokens()
@@ -273,25 +274,33 @@ def show_about(win):
     box = QtWidgets.QToolBox()
     box.setStyleSheet(f"QToolBox::tab{{background:{t.surface_alt};color:{t.text};border:1px solid {t.border};}}"
                       f"QToolBox::tab:selected{{background:{t.accent};color:{t.text_on_accent};font-weight:bold;}}")
-    icon = {"added": ("#5fd35f", "✚ nueva"), "removed": ("#e06060", "✖ quitada"),
-            "fixed": ("#6cc5e0", "✎ corregida"), "changed": ("#e0c060", "↻ cambiada"),
-            "base": ("#cfcfcf", "•")}
+    icon = {"added":   ("#5fd35f", "✚ " + _tr("nueva")),
+            "removed": ("#e06060", "✖ " + _tr("quitada")),
+            "fixed":   ("#6cc5e0", "✎ " + _tr("corregida")),
+            "changed": ("#e0c060", "↻ " + _tr("cambiada")),
+            "base":    ("#cfcfcf", "•")}
     default = ("#cfcfcf", "•")
     for ver, items in CHANGELOG:
         tb = QtWidgets.QTextBrowser(); tb.setStyleSheet(f"background:{t.surface};color:{t.text};border:none;")
+        # Nota: `t` en el f-string aquí es el mensaje del changelog, sombreando
+        # a `_theme.tokens()`. Se traduce cada entrada por separado.
         lis = "".join(f'<li style="color:{icon.get(s, default)[0]};margin-bottom:4px;">'
-                      f'<b>[{icon.get(s, default)[1]}]</b> {t}</li>' for s, t in items)
+                      f'<b>[{icon.get(s, default)[1]}]</b> {_tr(t)}</li>' for s, t in items)
         tb.setHtml(f"<ul>{lis}</ul>"); box.addItem(tb, f"v{ver}")
     lay.addWidget(box, 1)
-    btn = QtWidgets.QPushButton("Cerrar"); btn.clicked.connect(dlg.accept); lay.addWidget(btn)
+    btn = QtWidgets.QPushButton(_tr("Cerrar")); btn.clicked.connect(dlg.accept); lay.addWidget(btn)
     dlg.exec()
 
 
 def show_manual(win):
     """Ventana del manual de usuario. Es HTML sencillo dentro de un
-    QTextBrowser (visor de texto enriquecido); nada de red ni servidor."""
-    html = """
-    <h2>Manual de usuario — v1.0.1</h2>
+    QTextBrowser (visor de texto enriquecido); nada de red ni servidor.
+
+    El manual entero se pasa como una sola clave a _tr(): si hay una traducción
+    completa al idioma activo, esa se muestra; si no, se muestra el original en
+    español. Añadir un idioma es una entrada más en TRANSLATIONS de i18n.py."""
+    html = _tr("""
+    <h2>Manual de usuario — v1.1.0</h2>
     <p><i>Pipeline PDF → CAD → Civil 3D para redes de utilidad (agua, alcantarillado,
     drenaje, gas, electricidad, telecomunicaciones). Trabaja en unidades imperiales (pies).</i></p>
 
@@ -404,8 +413,8 @@ def show_manual(win):
           por nombre. Es idempotente — puedes reimportar el mismo archivo sin duplicar.</li>
       <li>Verifica en Civil 3D: selecciona una pipe → Properties → <b>Extended Data</b>.</li>
     </ol>
-    """
-    show_html(win, "Manual de usuario", html, 880, 780)
+    """)
+    show_html(win, _tr("Manual de usuario"), html, 880, 780)
 
 
 def show_shortcuts(win):
@@ -425,14 +434,71 @@ def show_shortcuts(win):
     for k, d in rows:
         if k not in seen:
             seen.add(k); unique.append((k, d))
-    extra = [("Enter", "Aplicar: finaliza utilidad/zona, o agrega texto/edición"),
-             ("Escape", "Quitar la selección; si no hay, salir del modo"),
-             ("Doble clic", "Sobre un texto: editarlo"),
-             ("Clic derecho", "Finaliza línea/zona; en editar, elimina el vértice"),
-             ("Rueda", "Zoom · Botón central + arrastrar: desplazar")]
+    extra = [("Enter",        _tr("Aplicar: finaliza utilidad/zona, o agrega texto/edición")),
+             ("Escape",       _tr("Quitar la selección; si no hay, salir del modo")),
+             (_tr("Doble clic"),   _tr("Sobre un texto: editarlo")),
+             (_tr("Clic derecho"), _tr("Finaliza línea/zona; en editar, elimina el vértice")),
+             (_tr("Rueda"),        _tr("Zoom · Botón central + arrastrar: desplazar"))]
     for k, d in extra:
         if k not in seen:
             seen.add(k); unique.append((k, d))
     body = "".join(f'<tr><td style="padding:4px 14px;color:{t.accent};"><b>{k}</b></td>'
                    f'<td style="padding:4px;">{d}</td></tr>' for k, d in unique)
-    show_html(win, "Atajos de teclado", f"<h2>Atajos de teclado</h2><table>{body}</table>", 640, 500)
+    title = _tr("Atajos de teclado")
+    show_html(win, title, f"<h2>{title}</h2><table>{body}</table>", 640, 500)
+
+
+# ─────────────────────────── Opciones (Preferencias) ───────────────────────────
+def show_options(win):
+    """Diálogo de opciones globales de la app. Hoy solo trae **Idioma** (con
+    intención de crecer). Al aceptar, aplica los cambios en vivo — cambiar el
+    idioma emite ``LANG_BUS.changed`` y los widgets suscritos se re-traducen.
+
+    Textos ya materializados que NO estén suscritos al bus (algunos labels
+    puntuales o menús contextuales creados dinámicamente) pueden requerir
+    reabrir su ventana para verse en el nuevo idioma. Se avisa al usuario."""
+    import i18n as _i18n
+
+    dlg = QtWidgets.QDialog(win)
+    dlg.setWindowTitle(_i18n.t("Opciones"))
+    dlg.setMinimumWidth(420)
+    dlg.setModal(True)
+
+    root = QtWidgets.QVBoxLayout(dlg)
+    root.setContentsMargins(20, 20, 20, 16); root.setSpacing(14)
+
+    # ── Sección: Idioma ──
+    grp_lang = QtWidgets.QGroupBox(_i18n.t("Idioma"))
+    gl = QtWidgets.QFormLayout(grp_lang)
+    cmb = QtWidgets.QComboBox()
+    # Mostramos el nombre en el idioma ACTIVO (así "Español" / "Spanish" según
+    # cómo tenga configurada la UI ahora).
+    cmb.addItem(_i18n.t("Español"), "es")
+    cmb.addItem(_i18n.t("Inglés"), "en")
+    current = _i18n.get_lang()
+    for i in range(cmb.count()):
+        if cmb.itemData(i) == current:
+            cmb.setCurrentIndex(i); break
+    gl.addRow(_i18n.t("Idioma") + ":", cmb)
+    hint = QtWidgets.QLabel(
+        _i18n.t("El cambio se aplica al instante en menús y paneles principales. "
+                "Algunas ventanas ya abiertas pueden requerir cerrarse y volver "
+                "a abrirse para verse completamente en el nuevo idioma."))
+    hint.setWordWrap(True)
+    hint.setStyleSheet(f"color:{_theme.tokens().text_muted}; font-size:12px;")
+    gl.addRow(hint)
+    root.addWidget(grp_lang)
+
+    # ── Botones (Aceptar / Cancelar) ──
+    btns = QtWidgets.QDialogButtonBox(
+        QtWidgets.QDialogButtonBox.Ok | QtWidgets.QDialogButtonBox.Cancel)
+    btns.button(QtWidgets.QDialogButtonBox.Ok).setText(_i18n.t("Aceptar"))
+    btns.button(QtWidgets.QDialogButtonBox.Cancel).setText(_i18n.t("Cancelar"))
+    btns.accepted.connect(dlg.accept)
+    btns.rejected.connect(dlg.reject)
+    root.addWidget(btns)
+
+    if dlg.exec() == QtWidgets.QDialog.Accepted:
+        new_lang = cmb.currentData()
+        if new_lang != _i18n.get_lang():
+            _i18n.set_lang(new_lang)   # emite LANG_BUS.changed
