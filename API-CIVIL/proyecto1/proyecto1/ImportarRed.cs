@@ -1179,6 +1179,12 @@ namespace Civil3DBasico
             // volvemos a fijar DESPUÉS de crear/conectar todo.
             var explicitRimSump = new Dictionary<ObjectId, (double rim, double sump)>();
             var explicitPipeInv = new List<(ObjectId id, double zStart, double zEnd)>();
+            // Pipes de "padre" de un bancoducto: solo sirven para generar
+            // los buzones/estructuras y la geometría de la red; su cilindro 3D
+            // NO se muestra (el sólido del bancoducto lo reemplaza). Se
+            // recogen aquí y se borran al final (después de conectar las
+            // estructuras, para no romper la topología en el momento).
+            var pipesToErase = new List<ObjectId>();
 
             foreach (var ip in pipes)
             {
@@ -1668,6 +1674,7 @@ namespace Civil3DBasico
                         catch (Exception exC) { Dbg("PIPE_CONNECT_FAIL", ("extremo", "end"), ("error", exC.Message)); }
                     }
                     explicitPipeInv.Add((pid, p1.Z, p2.Z));   // reponer invert al final
+                    if (ip.HasDuctBank) pipesToErase.Add(pid);
 
                     if (!string.IsNullOrWhiteSpace(ip.Material))
                     { try { pipe.Description = ip.Material; } catch { } }
@@ -1693,6 +1700,7 @@ namespace Civil3DBasico
                             if (!string.IsNullOrWhiteSpace(ip.Material))
                             { try { arcoPipe.Description = ip.Material; } catch { } }
                             explicitPipeInv.Add((arcId, cg.P1.Z, cg.P2.Z));
+                            if (ip.HasDuctBank) pipesToErase.Add(arcId);
                             // Sin Pipe.ConnectToPipe (ver comentario arriba, extremo
                             // INICIAL): el arco arranca exactamente en el punto donde
                             // termina este tramo recto, tocándose sin estructura de por medio.
@@ -1810,6 +1818,24 @@ namespace Civil3DBasico
                     EsGravedad = !sinBuzones && componentes.Count == 1,
                 });
             }
+
+            // Borrar los pipes marcados como "padre de bancoducto": las
+            // estructuras (buzones) creadas quedan intactas, pero el cilindro
+            // 3D del pipe desaparece — el sólido del bancoducto ya lo
+            // reemplaza. Se hace DESPUÉS de reponer invert/rim para no romper
+            // esos ajustes (que aún referencian los pipes por ObjectId).
+            int erased = 0;
+            foreach (var eid in pipesToErase)
+            {
+                try
+                {
+                    var ent = tr.GetObject(eid, OpenMode.ForWrite) as Autodesk.AutoCAD.DatabaseServices.Entity;
+                    if (ent != null && !ent.IsErased) { ent.Erase(true); erased++; }
+                }
+                catch { }
+            }
+            if (erased > 0)
+                Dbg("PIPE_DUCTBANK_ERASED", ("red", nm), ("count", erased.ToString()));
 
             ed.WriteMessage($"\n✓ Red {(sinBuzones ? "conduit" : "gravedad")} '{nm}': " +
                              $"{createdStructs.Count} nodos, {nPipes} tuberías, " +
@@ -3236,7 +3262,8 @@ namespace Civil3DBasico
             BlockTableRecord ms = (BlockTableRecord)tr.GetObject(
                 SymbolUtilityServices.GetBlockModelSpaceId(db), OpenMode.ForWrite);
 
-            int created = 0;
+            ed.WriteMessage($"\n[DUCTBANK] CrearDuctBanks: {dbs.Count} bancoducto(s) a procesar.");
+            int created = 0, skipped = 0, failed = 0;
             foreach (var dbk in dbs)
             {
                 try
@@ -3244,7 +3271,8 @@ namespace Civil3DBasico
                     var matchPipe = dbk.MatchedPipe;
                     if (matchPipe == null || matchPipe.Vertices == null || matchPipe.Vertices.Count < 2)
                     {
-                        ed.WriteMessage($"\n  ⚠ Duct bank '{dbk.Name}': no se encontró la pipe asignada.");
+                        ed.WriteMessage($"\n  ⚠ Duct bank '{dbk.Name}' (pipe_idx={dbk.PipeIdx}): no se encontró la pipe asignada, sólido NO se dibuja.");
+                        skipped++;
                         continue;
                     }
 
@@ -3253,9 +3281,12 @@ namespace Civil3DBasico
                     // método). Saltamos toda la extrusión.
                     if (!dbk.RenderEnvelope)
                     {
-                        ed.WriteMessage($"\n  · Duct bank '{dbk.Name}': contenedor 3D desactivado (solo conductos).");
+                        ed.WriteMessage($"\n  · Duct bank '{dbk.Name}': RENDER_ENVELOPE=0 → contenedor 3D desactivado por el usuario.");
+                        skipped++;
                         continue;
                     }
+                    ed.WriteMessage($"\n  · Duct bank '{dbk.Name}': dibujando sólido " +
+                                    $"({dbk.WidthIn:F1}×{dbk.HeightIn:F1}\" a lo largo de {matchPipe.Vertices.Count} vértices)...");
 
                     double wFt = dbk.WidthIn / 12.0;
                     double hFt = dbk.HeightIn / 12.0;
@@ -3350,9 +3381,20 @@ namespace Civil3DBasico
 
                     if (pathPts.Count < 2) continue;
 
+                    // Base ORTONORMAL a partir del tangente inicial del path.
+                    // Antes usábamos up = ZAxis directamente, pero si dir tiene
+                    // componente Z (path con pendiente) up ya no es perpendicular
+                    // a dir → la matriz de alineación introduce shear y
+                    // ExtrudeAlongPath lanza eCannotScaleNonUniformly.
+                    // Corregido: right = dir × Zaxis (horizontal), y luego
+                    // up = right × dir (perpendicular a dir en el plano
+                    // vertical). Fallback si dir es casi vertical.
                     Vector3d dir = (pathPts[1] - pathPts[0]).GetNormal();
-                    Vector3d up = Vector3d.ZAxis;
-                    Vector3d right = dir.CrossProduct(up).GetNormal();
+                    Vector3d rightCand = dir.CrossProduct(Vector3d.ZAxis);
+                    if (rightCand.Length < 1e-9)   // dir ≈ vertical
+                        rightCand = dir.CrossProduct(Vector3d.XAxis);
+                    Vector3d right = rightCand.GetNormal();
+                    Vector3d up = right.CrossProduct(dir).GetNormal();
                     Point3d origin = pathPts[0];
 
                     Matrix3d mat = Matrix3d.AlignCoordinateSystem(
@@ -3400,7 +3442,8 @@ namespace Civil3DBasico
                             {
                                 profile.Erase();
                                 pathPoly.Erase();
-                                ed.WriteMessage($"\n  ⚠ Duct bank '{dbk.Name}': no se pudo crear la región del perfil.");
+                                ed.WriteMessage($"\n  ⚠ Duct bank '{dbk.Name}': no se pudo crear la región del perfil (sólido NO dibujado).");
+                                failed++;
                             }
                         }
                     }
@@ -3409,11 +3452,11 @@ namespace Civil3DBasico
                 }
                 catch (Exception exOne)
                 {
-                    ed.WriteMessage($"\n  ✗ Duct bank '{dbk.Name}': {exOne.Message}");
+                    ed.WriteMessage($"\n  ✗ Duct bank '{dbk.Name}': EXCEPCIÓN {exOne.GetType().Name}: {exOne.Message}");
+                    failed++;
                 }
             }
-            if (created > 0)
-                ed.WriteMessage($"\n  · {created} duct bank(s) creados como sólidos 3D en capa PDFCAD_DUCT_BANK.");
+            ed.WriteMessage($"\n[DUCTBANK] Resumen: {created} creados, {skipped} omitidos, {failed} con error.");
         }
 
         // =================================================================

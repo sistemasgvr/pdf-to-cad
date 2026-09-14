@@ -495,7 +495,10 @@ class Main(QtWidgets.QMainWindow):
         self.btn_ductbank.setIconSize(QtCore.QSize(20, 20))
         self.btn_ductbank.setToolTip(_tr("Diseña la sección transversal del Duct Bank\n"
                                      "(envolvente rectangular + conductos internos)."))
-        self.btn_ductbank.clicked.connect(lambda: self._open_duct_bank_designer())
+        # Siempre abrir un diseño nuevo desde este botón — no cargar el
+        # último editado ni el asignado a la pipe seleccionada (para eso
+        # está el panel "Bancoductos" con doble-click / botón Editar).
+        self.btn_ductbank.clicked.connect(lambda: self._open_duct_bank_designer(initial=None))
         l.addWidget(self.btn_ductbank)
         _lbl_db = QtWidgets.QLabel(_tr(
             "<i>Dibuja la cara interior del duct bank en pulgadas: primero el "

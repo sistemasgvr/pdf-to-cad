@@ -285,6 +285,12 @@ class _DuctBankScene(QtWidgets.QGraphicsScene):
         # obligatoria (separación mínima entre conductos, resguardo al borde).
         self._drag_original_pos: Optional[tuple] = None
         self._measure_pts: List[QtCore.QPointF] = []
+        # Ghost del conducto que se dibujaría al hacer click (herramienta
+        # "conduit"): silueta translúcida verde si las reglas permiten, roja
+        # si no. Se actualiza en mouseMoveEvent y se limpia al cambiar de
+        # herramienta o al salir del canvas.
+        self._ghost_pos: Optional[QtCore.QPointF] = None
+        self._ghost_ok: bool = False
         # sceneRect dinámico — se recalcula en _update_scene_rect cada vez que
         # cambia el modelo, para que al hacer zoom + pan se pueda alcanzar
         # cualquier borde del contenedor. Inicial generoso por si el modelo
@@ -481,6 +487,17 @@ class _DuctBankScene(QtWidgets.QGraphicsScene):
             self.update()
 
     def mouseMoveEvent(self, e: QtWidgets.QGraphicsSceneMouseEvent):
+        # Ghost del conducto en modo "dibujar": sigue al mouse (snapped) y
+        # se pinta verde/rojo según si las reglas permiten dibujar ahí.
+        if self.tool == "conduit":
+            p = self._snap_pt(e.scenePos())
+            cand = Conduit(cx=float(p.x()), cy=float(p.y()),
+                            diam=float(self.new_conduit_diam))
+            fits = conduit_fits_envelope(self.model, cand) if self.model.width_in > 0 else False
+            err = self._check_rules(cand) if fits else "fuera"
+            self._ghost_pos = p
+            self._ghost_ok = (err is None and fits)
+            self.update()
         # El drag funciona tanto en "select" (Puntero unificado) como en "move"
         # (legacy — mantenemos el modo por compatibilidad).
         if self.tool in ("select", "move") and self._dragging_idx is not None:
@@ -655,6 +672,21 @@ class _DuctBankScene(QtWidgets.QGraphicsScene):
             txt = c.label or f'{c.diam:g}"'
             painter.drawText(QtCore.QRectF(c.cx - r, c.cy - r, r * 2, r * 2),
                              QtCore.Qt.AlignCenter, txt)
+        # Ghost del conducto a colocar (herramienta "conduit"): silueta
+        # translúcida verde=OK, roja=violaría regla. Se dibuja después de los
+        # conductos reales para quedar encima.
+        if self.tool == "conduit" and self._ghost_pos is not None:
+            gr = float(self.new_conduit_diam) / 2.0
+            if self._ghost_ok:
+                border = QtGui.QColor(30, 170, 60)
+                fill = QtGui.QColor(30, 170, 60, 90)
+            else:
+                border = QtGui.QColor(210, 40, 40)
+                fill = QtGui.QColor(210, 40, 40, 90)
+            painter.setBrush(QtGui.QBrush(fill))
+            painter.setPen(QtGui.QPen(border, 0.06))
+            painter.drawEllipse(self._ghost_pos, gr, gr)
+
         # Medida — línea con marcadores en los endpoints imantados + valor
         if self.tool == "measure" and len(self._measure_pts) >= 2:
             a, b = self._measure_pts[-2], self._measure_pts[-1]
@@ -1048,6 +1080,14 @@ class _DuctBankView(QtWidgets.QGraphicsView):
         self._panning = False
         self._pan_last = QtCore.QPoint()
         self.scale(_INITIAL_PX_PER_IN, _INITIAL_PX_PER_IN)   # pulgadas → px
+
+    def leaveEvent(self, e):
+        # Al salir del canvas, ocultamos el ghost del conducto.
+        sc = self.scene()
+        if sc is not None and getattr(sc, "_ghost_pos", None) is not None:
+            sc._ghost_pos = None
+            sc.update()
+        super().leaveEvent(e)
 
     def wheelEvent(self, e: QtGui.QWheelEvent):
         f = 1.15 if e.angleDelta().y() > 0 else 1 / 1.15
@@ -1454,32 +1494,6 @@ class DuctBankDialog(QtWidgets.QDialog):
         gml.addWidget(self.ed_margin)
         sv.addWidget(gmarg)
 
-        # Rejilla de distribución (renombrado desde "Guía interior") — se dibuja
-        # SOLO dentro del margen. Sirve para posicionar conductos simétricamente.
-        gguide = QtWidgets.QGroupBox(_tr("Rejilla de distribución")); gguide.setProperty("_orig_title", "Rejilla de distribución")
-        ggl = QtWidgets.QVBoxLayout(gguide); ggl.setContentsMargins(4, 4, 4, 4); ggl.setSpacing(6)
-        self.chk_guide = QtWidgets.QCheckBox(_tr("Mostrar rejilla"))
-        self.chk_guide.setToolTip(_tr("Divide el área interior en celdas iguales para colocar\n"
-                                    "conductos simétricamente. Solo es una guía visual;\n"
-                                    "no obliga a nada."))
-        ggl.addWidget(self.chk_guide)
-        _grow = QtWidgets.QHBoxLayout(); _grow.setSpacing(8)
-        _grow.addWidget(QtWidgets.QLabel(_tr("Columnas:")))
-        self.sp_gcols = QtWidgets.QSpinBox(); self.sp_gcols.setRange(1, 40); self.sp_gcols.setValue(1)
-        self.sp_gcols.setToolTip(_tr("Cuántas columnas verticales dividen el área interior."))
-        _grow.addWidget(self.sp_gcols)
-        _grow.addSpacing(10)
-        _grow.addWidget(QtWidgets.QLabel(_tr("Filas:")))
-        self.sp_grows = QtWidgets.QSpinBox(); self.sp_grows.setRange(1, 40); self.sp_grows.setValue(1)
-        self.sp_grows.setToolTip(_tr("Cuántas filas horizontales dividen el área interior."))
-        _grow.addWidget(self.sp_grows); _grow.addStretch(1)
-        ggl.addLayout(_grow)
-        # Etiqueta con la dimensión actual de cada celda (útil para saber la
-        # separación en pulgadas — se actualiza en tiempo real).
-        self.lbl_cell = QtWidgets.QLabel(_tr("Celda: —"))
-        ggl.addWidget(self.lbl_cell)
-        sv.addWidget(gguide)
-
         # Redondeo de esquinas — editor estilo Photoshop en disposición esquinas.
         gcor = QtWidgets.QGroupBox(_tr("Redondeo de esquinas (pulgadas)")); gcor.setProperty("_orig_title", "Redondeo de esquinas (pulgadas)")
         gcl = QtWidgets.QVBoxLayout(gcor); gcl.setContentsMargins(4, 4, 4, 4)
@@ -1638,7 +1652,6 @@ class DuctBankDialog(QtWidgets.QDialog):
                     gb.setTitle(_tr(orig))
             # Checkboxes
             if hasattr(self, "chk_rules"): self.chk_rules.setText(_tr("Aplicar reglas"))
-            if hasattr(self, "chk_guide"): self.chk_guide.setText(_tr("Mostrar rejilla"))
             if hasattr(self, "chk_render_envelope"):
                 self.chk_render_envelope.setText(_tr("Dibujar contenedor 3D"))
             # Placeholder del nombre
@@ -1704,10 +1717,6 @@ class DuctBankDialog(QtWidgets.QDialog):
         self.ed_margin.changed.connect(self._on_margin_changed)
         # Redondeo (corners): a=tl, b=tr, c=br, d=bl
         self.ed_corners.changed.connect(self._on_corners_changed)
-        # Guía interior (rejilla)
-        self.chk_guide.toggled.connect(lambda on: self._on_guide_changed(show=on))
-        self.sp_gcols.valueChanged.connect(lambda v: self._on_guide_changed(cols=v))
-        self.sp_grows.valueChanged.connect(lambda v: self._on_guide_changed(rows=v))
         self.sp_new_diam.valueChanged.connect(self._on_new_diam_changed)
         self.sel_x.valueChanged.connect(lambda v: self._edit_sel(x=v))
         self.sel_y.valueChanged.connect(lambda v: self._edit_sel(y=v))
@@ -1818,18 +1827,6 @@ class DuctBankDialog(QtWidgets.QDialog):
                  else _tr("Solo se dibujarán los conductos internos. El sólido 3D del "
                           "contenedor NO se creará.")) +
                 "</span>")
-        # Sincroniza controles de guía interior (sin disparar handlers).
-        if hasattr(self, "chk_guide"):
-            for w in (self.chk_guide, self.sp_gcols, self.sp_grows):
-                w.blockSignals(True)
-            try:
-                self.chk_guide.setChecked(bool(m.guide_show))
-                self.sp_gcols.setValue(int(m.guide_cols))
-                self.sp_grows.setValue(int(m.guide_rows))
-            finally:
-                for w in (self.chk_guide, self.sp_gcols, self.sp_grows):
-                    w.blockSignals(False)
-            self._refresh_guide_label()
         self.lbl_count.setText(f"{_tr('Conductos')}: {len(m.conduits)}")
         errs = validate(m)
         self.lbl_valid.setText("\n".join("• " + e for e in errs))
@@ -2007,25 +2004,6 @@ class DuctBankDialog(QtWidgets.QDialog):
                 + "</span>")
         self.scene.update()
 
-    def _on_guide_changed(self, show=None, rows=None, cols=None):
-        m = self.scene.model
-        if show is not None: m.guide_show = bool(show)
-        if rows is not None: m.guide_rows = int(rows)
-        if cols is not None: m.guide_cols = int(cols)
-        # Actualiza la etiqueta de dimensión de la celda al instante.
-        self._refresh_guide_label()
-        self.scene.update()
-        self._push_history()
-
-    def _refresh_guide_label(self):
-        m = self.scene.model
-        cw, ch = m.guide_cell_size()
-        if cw > 0 and ch > 0:
-            self.lbl_cell.setText(f'{_tr("Celda")}: {cw:.2f}" × {ch:.2f}"'
-                                    f'   ({m.guide_cols} {_tr("col")} × {m.guide_rows} {_tr("fil")})')
-        else:
-            self.lbl_cell.setText(_tr("Celda: —  (envolvente o margen inválido)"))
-
     def _on_new_diam_changed(self, val):
         self.scene.new_conduit_diam = float(val)
 
@@ -2043,6 +2021,34 @@ class DuctBankDialog(QtWidgets.QDialog):
         errs = validate(m)
         self.lbl_valid.setText("\n".join("• " + e for e in errs))
         self._update_error_banner(errs)
+
+    def keyPressEvent(self, ev):
+        # Escape (no cierra el diálogo — el default de QDialog es reject()):
+        #   1. Si el toggle "Mostrar medidas" está activo → apagarlo.
+        #   2. Si la herramienta activa NO es Puntero → volver a Puntero.
+        #   3. Si hay un conducto seleccionado → deseleccionarlo.
+        #   4. Nada: ignorar (evita cierre accidental).
+        if ev.key() == QtCore.Qt.Key_Escape:
+            if getattr(self, "tb_dimensions", None) is not None \
+                    and self.tb_dimensions.isChecked():
+                self.tb_dimensions.setChecked(False)
+                self._toggle_dimensions()
+                ev.accept()
+                return
+            if self.scene.tool != "select":
+                self._set_tool("select")
+                self.scene._ghost_pos = None
+                self.scene.update()
+                ev.accept()
+                return
+            if self.scene.selected_idx is not None:
+                self.scene.selected_idx = None
+                self._on_model_changed()
+                ev.accept()
+                return
+            ev.accept()
+            return
+        super().keyPressEvent(ev)
 
     def _del_selected(self):
         idx = self.scene.selected_idx
