@@ -307,6 +307,12 @@ def show_manual(win):
     <h3>1. Abrir el plano</h3>
     <p><b>Archivo → Abrir PDF…</b> (o arrastralo). Cambia de página y ajusta la
     transparencia en la sección <b>Vista y páginas</b>. Rueda = zoom, botón central = pan.</p>
+    <p>Si el PDF es <b>vectorial (bien ploteado)</b>, el asistente pide elegir la
+    <b>hoja</b> y luego abre <b>Capas de la hoja</b>: una lista de todas las capas del
+    plano con casillas para mostrarlas u ocultarlas, con vista previa en vivo (usa el
+    buscador o <b>Mostrar/Ocultar todas</b>). Las capas ocultas no se dibujan en el
+    lienzo ni se usan en el reconocimiento. Al continuar se reconocen las utilidades
+    eléctricas y se muestra la <b>vista previa del reconocimiento</b>.</p>
 
     <h3>2. Dibujar una utilidad</h3>
     <p>Acordeón <b>Dibujar utilidad</b> → elige el tipo (agua, alcantarillado, drenaje,

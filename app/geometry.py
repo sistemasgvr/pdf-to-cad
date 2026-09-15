@@ -30,6 +30,17 @@ def pt_seg_dist(px, py, ax, ay, bx, by):
     return math.hypot(px - (ax + t * dx), py - (ay + t * dy))
 
 
+def project_pt_seg(px, py, ax, ay, bx, by):
+    """Proyecta (px,py) al segmento ab. Devuelve (qx, qy, dist)."""
+    dx, dy = bx - ax, by - ay
+    L2 = dx * dx + dy * dy
+    if L2 < 1e-9:
+        return ax, ay, math.hypot(px - ax, py - ay)
+    t = max(0.0, min(1.0, ((px - ax) * dx + (py - ay) * dy) / L2))
+    qx, qy = ax + t * dx, ay + t * dy
+    return qx, qy, math.hypot(px - qx, py - qy)
+
+
 def qimage_to_gray(qimg):
     qimg = qimg.convertToFormat(QtGui.QImage.Format_Grayscale8)
     w, h = qimg.width(), qimg.height(); ptr = qimg.constBits()

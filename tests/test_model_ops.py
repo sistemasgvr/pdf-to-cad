@@ -148,3 +148,30 @@ def test_snapshot_congela_intermedios_y_evita_cascada():
     model_ops.snapshot_seg_values(p)              # idempotente: no toca los ya fijados
     assert p["vertex_inv_out"][1] == 110.0        # el 1 se mantiene (no cascada)
     assert p["vertex_inv_out"][2] == 999.0
+
+
+def test_hide_soft_vertex_structures():
+    """Vértices bend/corner/curve de pipes reconocidas → CAJA oculta; bóvedas,
+    extremos y vértices compartidos con una bóveda de otra pipe siguen visibles."""
+    from model_ops import rebuild_structures, hide_soft_vertex_structures
+    pipes = [
+        {"layer": "ELECTRICO", "pts": [(0, 0), (100, 0), (200, 0), (300, 0)],
+         "vertex_kinds": ["end", "bend", "vault", "corner"]},
+        # otra pipe reconocida cuyo vértice (300,0) SÍ es bóveda → debe quedar visible
+        {"layer": "ELECTRICO", "pts": [(300, 0), (300, 100)], "vertex_kinds": ["vault", "end"]},
+        # pipe manual (sin vertex_kinds): todos reales
+        {"layer": "ELECTRICO", "pts": [(500, 0), (600, 0)]},
+    ]
+    structs = rebuild_structures(pipes, [])
+    n = hide_soft_vertex_structures(pipes, structs)
+    assert n == 1
+    by_xy = {(round(s["x"]), round(s["y"])): s for s in structs}
+    assert by_xy[(100, 0)]["hidden"] is True          # bend sin bóveda
+    assert by_xy[(200, 0)]["hidden"] is False         # vault
+    assert by_xy[(300, 0)]["hidden"] is False         # corner aquí, vault en la otra pipe
+    assert by_xy[(0, 0)]["hidden"] is False           # extremo
+    assert by_xy[(500, 0)]["hidden"] is False         # manual
+    # Idempotente y el flag sobrevive a un rebuild posterior
+    assert hide_soft_vertex_structures(pipes, structs) == 0
+    structs2 = rebuild_structures(pipes, structs)
+    assert {(round(s["x"]), round(s["y"])): s["hidden"] for s in structs2}[(100, 0)] is True

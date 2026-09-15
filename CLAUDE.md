@@ -15,7 +15,47 @@ alcantarillado, drenaje, gas, eléctrico, telecom). Todo en **unidades imperiale
   - `widgets.py` — widgets reutilizables (`InlineEdit`, `_SegInvSpinBox`, `_NoWheelFilter`).
   - `ui_common.py` — constantes/helpers de UI compartidos (`DOWNLOADS`, estilos de
     botón, `layer_qcolor`, `swatch_icon`, …). Sin estado; los usa toda la app.
-  - `workers.py` — hilos de fondo (`PipelineWorker`).
+  - `workers.py` — hilos de fondo (`PipelineWorker`, `RecognitionWorker`).
+  - `recognition.py` + `recognition_dialog.py` — asistente al abrir un PDF
+    vectorial: elegir hoja → capas → roles OCG (líneas / bóvedas) → reconocer
+    (v1: eléctricas `C-ELEC-UNGD`) → vista previa con QA → importar como pipes.
+    `recognition.py` solo filtra paths por capa/rol y convierte PDF→px.
+  - `recognition_geom.py` — **núcleo geométrico PURO** (sin Qt ni fitz): en el
+    PDF la utilidad viene como linetype "explotado" (guiones + letras «e» +
+    huecos), nunca como polilínea. Aprende el patrón del plano
+    (`learn_pattern`), agrupa guiones colineales (±1°, ≤1.5 pt), arma corridas
+    uniendo huecos solo con evidencia (patrón / letra encima / bóveda en medio),
+    resuelve nodos (bóveda, esquina = intersección exacta, quiebre suave, T)
+    con la regla de oro **un extremo solo se desliza por su propia recta**, y
+    ensambla polilíneas con `kinds` por vértice (`end|corner|bend|junction|tee|
+    vault|edge|stop|curve`). **Reglas de bóveda (apuntes del usuario, revisadas)**:
+    toda línea llega por su recta y SIEMPRE deja `edge` (quiebre oculto) donde
+    choca con el borde; el nodo interior `vault` (CAJA visible) existe solo si
+    una línea de red ATRAVIESA la bóveda (corrida partida en Fase A, o dos
+    llegadas colineales opuestas) y se calcula con las llegadas: sobre la que
+    atraviesa (intersección si son dos), nunca con el círculo/cajita del símbolo
+    (`Vault.reference` queda informativo). Las demás llegan al nodo por su eje +
+    `bend` corto. Sin línea que atraviese, cada llegada termina en el borde con
+    `stop` (CAJA visible ahí; el usuario completa a mano). `_split_by_fit`
+    parte corridas donde los guiones se apartan >`RUN_FIT_TOL_PT` para que
+    T/convergencias queden sobre la línea de la capa. **Clips**:
+    `recognition.gather_paths` usa `get_drawings(extended=True)` y recorta cada
+    path por el polígono de clip activo (`geom.clip_path`) — sin eso la
+    geometría "supera" el marco de la vista de planta que sí recorta el render;
+    los puntos de corte son nodos `cut` (no forman esquinas). Los arcos
+    pequeños abiertos (giro ≤200°) son codos, no letras. Ojo: `git checkout --`
+    sobre archivos *staged* descarta el trabajo no staged — no usarlo aquí.
+    `edge`/`stop` nunca se simplifican. Devuelve cobertura de guiones,
+    guiones sin cubrir y trazos off-pattern (leaders) para QA. Tests con PDFs
+    sintéticos (`tests/test_recognition_geom.py::Sheet`) y umbrales sobre el
+    DU06 (97–100 % por hoja). Si una hoja baja de eso, mirar primero
+    `uncovered` con el overlay antes de tocar tolerancias.
+  - `pdf_layers.py` + `layer_dialog.py` — paso «Capas de la hoja» del asistente:
+    lista las capas OCG con geometría y las apaga/enciende con
+    `doc.set_layer_ui_config` (única API que afecta render **y** `get_drawings`;
+    `doc.set_layer` no sirve en PDFs de Bluebeam). La visibilidad vive en el
+    `fitz.Document` de `Main` (`self.hidden_ocgs` guarda los nombres); el worker
+    abre su propio doc, por eso recibe `hidden_ocgs` y filtra por nombre.
   - `dialogs.py` — diálogos fuera del flujo principal (Acerca/Manual/Atajos,
     instalar/desinstalar familias). Funciones que reciben `win`; en `Main` quedan
     métodos delgados que delegan (los menús siguen apuntando a `self.show_about`, etc.).
@@ -45,7 +85,8 @@ alcantarillado, drenaje, gas, eléctrico, telecom). Todo en **unidades imperiale
     herramienta activa a la vez, undo/redo, zoom fit. Trae rectángulo,
     conductos, mover, medir, eliminar.
   - `model_ops.py` — operaciones PURAS sobre el modelo (sin Qt): auto-detección de
-    buzones (`rebuild_structures`), conteo de conexiones (`bz_segment_count`), cotas
+    buzones (`rebuild_structures`), ocultar cajas de quiebres reconocidos sin
+    bóveda (`hide_soft_vertex_structures`, usa `pipe["vertex_kinds"]`), conteo de conexiones (`bz_segment_count`), cotas
     por tramo (`interp_vertex_z`, `migrate_vertex_inv`, `snapshot_seg_values`),
     búsqueda por vértice (`pipe_at_vertex`) y geometría de Multileader (`leader_geo`,
     recibe la conversión pies→px de la ventana). `Main` delega y solo asigna/dibuja.

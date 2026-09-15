@@ -22,8 +22,10 @@ from geometry import qimage_to_gray
 # arquitectura). El lienzo, los widgets reutilizables y el worker de fondo.
 from canvas import Canvas
 from widgets import InlineEdit, _SegInvSpinBox, _NoWheelFilter
-from workers import PipelineWorker
+from workers import PipelineWorker, RecognitionWorker
 import dialogs
+import recognition_dialog
+import layer_dialog
 import project_io
 import model_ops
 from model import (VERSION, TIPOS, ACI_RGB, LEADER_TEXT_FT, LEADER_ORIENT,
@@ -52,6 +54,7 @@ class Main(QtWidgets.QMainWindow):
         self.canvas.dbl.connect(self.on_dblclick); self.setCentralWidget(self.canvas)
         self.zoom = 3.5; self.scale = 20 / 72.0; self.rot = 0; self.W = 0; self.H = 0
         self.derot = fitz.Matrix(1, 0, 0, 1, 0, 0); self.gray = None; self.page_idx = 0; self.pageH_px = 0
+        self.hidden_ocgs = []   # capas OCG ocultas en el paso «Capas de la hoja» (por PDF abierto)
         self.pdf_path = None; self.doc = None; self.project_path = None; self.leader_hpx = 40
 
         self.cur_pts = []; self.pipes = []; self.leaders = []; self.text_marks = []
@@ -1388,11 +1391,160 @@ class Main(QtWidgets.QMainWindow):
 
     def _open_pdf_path(self, path):
         if not self._confirm_discard(): return
-        self._busy("Abriendo PDF…")
+        self._busy(_tr("Abriendo PDF…"))
         try:
             self.pdf_path = path; self.project_path = None; self.doc = fitz.open(path); self._update_title()
-            self.page_idx = 0; self._load_page(0)
-        finally: self._unbusy()
+            self.hidden_ocgs = []   # capas OCG ocultas por el usuario (paso «Capas de la hoja»)
+        finally:
+            self._unbusy()
+        # Asistente v1: tipo → hoja → cargar hoja → reconocer eléctricas → preview (sin import).
+        self._run_recognition_wizard()
+
+    def _run_recognition_wizard(self):
+        """Elegir tipo/hoja, cargar esa hoja, reconocer ELECTRICO y mostrar preview. Sin importar pipes.
+
+        Si detect.py clasifica claro (vector o raster con imagen dominante), se omite
+        el diálogo de tipo; solo se pregunta en casos ambiguos.
+        """
+        if not self.doc or not self.pdf_path:
+            return
+
+        def _load(idx):
+            self._busy(_tr("Cargando hoja…"))
+            try:
+                self.page_idx = idx
+                self._load_page(idx)
+            finally:
+                self._unbusy()
+
+        def _go_manual(msg):
+            _load(0)
+            self._info(msg)
+
+        def _go_plotted():
+            page_idx = recognition_dialog.choose_page(self, self.doc)
+            if page_idx is None:
+                _load(0)
+                return
+            # Paso «Capas de la hoja»: el usuario decide qué capas OCG ver ANTES
+            # de dibujar. Deja la visibilidad aplicada en self.doc, así _load_page
+            # ya renderiza sin las ocultas.
+            hidden = layer_dialog.choose_sheet_layers(self, self.doc, page_idx)
+            if hidden is None:
+                _load(page_idx)
+                self._info(_tr("Reconocimiento cancelado — hoja cargada con todas las capas."))
+                return
+            self.hidden_ocgs = list(hidden)
+            # Confirmar roles: qué OCG son líneas y cuáles bóvedas (remap si cambian nombres).
+            import pdf_layers as _pdf_layers
+            all_layers = _pdf_layers.page_layers(self.doc, page_idx)
+            visible = [L for L in all_layers if L["name"] not in set(self.hidden_ocgs)]
+            roles = recognition_dialog.choose_layer_roles(self, visible)
+            if roles is None:
+                _load(page_idx)
+                self._info(_tr("Reconocimiento cancelado — hoja cargada con las capas elegidas."))
+                return
+            if not roles.get("lineas"):
+                _load(page_idx)
+                self._info(_tr("No hay capas de líneas eléctricas — hoja cargada sin reconocer."))
+                return
+            self._layer_roles = roles
+            _load(page_idx)
+            progress = QtWidgets.QProgressDialog(
+                _tr("Reconociendo utilidades eléctricas…"), None, 0, 0, self)
+            progress.setWindowTitle(_tr("Reconocimiento"))
+            progress.setWindowModality(QtCore.Qt.WindowModal)
+            progress.setMinimumDuration(0)
+            progress.show()
+            QtWidgets.QApplication.processEvents()
+            self._recog_progress = progress
+            self._recog_worker = RecognitionWorker(
+                self.pdf_path, page_idx, zoom=self.zoom, utility="ELECTRICO",
+                hidden_ocgs=self.hidden_ocgs, layer_roles=roles)
+            self._recog_worker.done.connect(self._recognition_done)
+            self._recog_worker.start()
+
+        # Clasificación automática (página 0) — misma heurística que digitize.
+        import detect as _detect
+        kind, info = _detect.classify_page(self.doc[0])
+        n_paths = info.get("n_paths", 0)
+        img_cover = float(info.get("max_image_cover") or 0.0)
+
+        if kind == "vector":
+            self._info(_tr("Detectado PDF vectorial ({n} trazos)…").format(n=n_paths))
+            _go_plotted()
+            return
+        if kind == "raster" and img_cover >= 0.6:
+            _go_manual(_tr("Detectado PDF imagen/escaneo — continúa con el dibujo manual."))
+            return
+
+        # Ambiguo: pedir confirmación al usuario.
+        pdf_type = recognition_dialog.choose_pdf_type(self)
+        if pdf_type is None:
+            _load(0)
+            return
+        if pdf_type != "plotted":
+            _go_manual(_tr("PDF imagen: continúa con el dibujo manual."))
+            return
+        _go_plotted()
+
+    def _recognition_done(self, result, error):
+        prog = getattr(self, "_recog_progress", None)
+        if prog is not None:
+            prog.close()
+            self._recog_progress = None
+        if error:
+            QtWidgets.QMessageBox.warning(
+                self, _tr("Reconocimiento"),
+                _tr("No se pudo reconocer la hoja:\n\n{e}").format(e=error))
+            return
+        if result is None:
+            return
+        qimg = None
+        if self.canvas.pixmap_item is not None:
+            qimg = self.canvas.pixmap_item.pixmap().toImage()
+        if qimg is None or qimg.isNull():
+            QtWidgets.QMessageBox.information(
+                self, _tr("Reconocimiento"),
+                _tr("Reconocimiento listo, pero no hay imagen de la hoja para la vista previa."))
+            return
+        accepted = recognition_dialog.show_recognition_preview(
+            self, qimg, result, utility_layer="ELECTRICO")
+        if not accepted:
+            self._info(_tr("Reconocimiento cancelado — editor vacío."))
+            return
+        self._import_recognized_pipes(result)
+
+    def _import_recognized_pipes(self, result):
+        """Añade centerlines como pipes ELECTRICO e inserta bóvedas como vértices/CAJA."""
+        import recognition as rec
+        new_pipes = rec.pipes_from_recognition(result, layer="ELECTRICO")
+        if not new_pipes:
+            self._info(_tr("No hay tramos eléctricos para importar."))
+            return
+        self._push()
+        self.pipes.extend(new_pipes)
+        vaults = list(getattr(result, "vault_pts", None) or [])
+        snapped, skipped = rec.inject_vault_vertices(self.pipes, vaults)
+        result.vaults_snapped = snapped
+        result.vaults_skipped = skipped
+        self._dirty = True
+        self._refresh_lists()                 # crea las CAJA en todos los vértices…
+        # …y oculta las de quiebres/esquinas sin bóveda (siguen en el DXF como
+        # "Estructura nula" para no romper la topología de la red).
+        n_hidden = model_ops.hide_soft_vertex_structures(self.pipes, self.structures)
+        if n_hidden:
+            self._refresh_lists()
+        self._update_ui()
+        self._redraw()
+        n = len(new_pipes)
+        msg = _tr("Importadas {n} utilidades Eléctrico al editor.").format(n=n)
+        if snapped or skipped:
+            msg += " " + _tr("Bóvedas: {s} en líneas, {k} sin pipe cercana.").format(
+                s=snapped, k=skipped)
+        if n_hidden:
+            msg += " " + _tr("Quiebres sin bóveda: {h} (cajas ocultas).").format(h=n_hidden)
+        self._info(msg)
 
     def _load_page(self, idx):
         self._close_editor()

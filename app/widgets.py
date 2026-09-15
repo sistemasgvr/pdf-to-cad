@@ -4,10 +4,13 @@ Piezas pequeñas que no dependen de la ventana principal (solo de PySide6):
 - InlineEdit: editor de texto embebido (Enter aplica, Shift+Enter salto de línea).
 - _SegInvSpinBox: spinbox de la tabla "Cotas por tramo" (Enter confirma en celda).
 - _NoWheelFilter: filtro global que bloquea la rueda sobre spinboxes/combos.
+- ZoomPanView: QGraphicsView de solo lectura con zoom (rueda) y pan (botón
+  central). La usan las vistas previas del asistente (capas de la hoja y
+  reconocimiento). Movida verbatim desde recognition_dialog._PreviewView.
 
 Extraído de app_window.py sin cambios de comportamiento (solo reubicación).
 """
-from PySide6 import QtCore, QtWidgets
+from PySide6 import QtCore, QtGui, QtWidgets
 
 import theme as _theme
 
@@ -82,3 +85,50 @@ class _NoWheelFilter(QtCore.QObject):
             ev.ignore()
             return True
         return False
+
+
+class ZoomPanView(QtWidgets.QGraphicsView):
+    """Vista previa con zoom (rueda) y pan (botón central). Sin edición."""
+    def __init__(self):
+        super().__init__()
+        self.setScene(QtWidgets.QGraphicsScene(self))
+        self.setRenderHints(
+            QtGui.QPainter.Antialiasing | QtGui.QPainter.SmoothPixmapTransform)
+        self.setTransformationAnchor(QtWidgets.QGraphicsView.AnchorUnderMouse)
+        self.setDragMode(QtWidgets.QGraphicsView.NoDrag)
+        self._pan = False
+        self._pan0 = None
+
+    def wheelEvent(self, e):
+        f = 1.15 if e.angleDelta().y() > 0 else 1 / 1.15
+        self.scale(f, f)
+
+    def mousePressEvent(self, e):
+        if e.button() == QtCore.Qt.MiddleButton:
+            self._pan = True
+            self._pan0 = e.position().toPoint()
+            self.setCursor(QtCore.Qt.ClosedHandCursor)
+            e.accept()
+            return
+        super().mousePressEvent(e)
+
+    def mouseMoveEvent(self, e):
+        if self._pan and self._pan0 is not None:
+            d = e.position().toPoint() - self._pan0
+            self._pan0 = e.position().toPoint()
+            self.horizontalScrollBar().setValue(
+                self.horizontalScrollBar().value() - d.x())
+            self.verticalScrollBar().setValue(
+                self.verticalScrollBar().value() - d.y())
+            e.accept()
+            return
+        super().mouseMoveEvent(e)
+
+    def mouseReleaseEvent(self, e):
+        if e.button() == QtCore.Qt.MiddleButton:
+            self._pan = False
+            self._pan0 = None
+            self.setCursor(QtCore.Qt.ArrowCursor)
+            e.accept()
+            return
+        super().mouseReleaseEvent(e)

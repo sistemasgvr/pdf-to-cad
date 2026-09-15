@@ -135,6 +135,39 @@ def rebuild_structures(pipes, structures):
     return world + detected
 
 
+# Tipos de vértice que NO son un acceso físico (vienen del reconocimiento de
+# PDF: quiebre suave, esquina sin bóveda, vértice de arco). El buzón que
+# rebuild_structures crea ahí se oculta: se exporta como "Estructura nula".
+SOFT_VERTEX_KINDS = ("bend", "corner", "curve", "edge")   # "stop" = caja visible donde la línea muere en el buzón
+
+
+def hide_soft_vertex_structures(pipes, structures):
+    """Marca hidden=True en las estructuras detectadas sobre vértices "blandos"
+    de pipes reconocidas (clave `vertex_kinds`, paralela a `pts`). Un vértice
+    compartido con otra pipe donde SÍ es bóveda/T/junction se respeta (visible).
+    Devuelve cuántas estructuras se ocultaron. Muta `structures` en sitio."""
+    tol = _TOL
+    hard, soft = [], []
+    for p in pipes:
+        kinds = p.get("vertex_kinds") or []
+        pts = p.get("pts") or []
+        if len(kinds) != len(pts):
+            hard.extend(pts)            # pipe manual: todos sus vértices son reales
+            continue
+        for pt, k in zip(pts, kinds):
+            (soft if k in SOFT_VERTEX_KINDS else hard).append(pt)
+    n = 0
+    for s in structures:
+        if s.get("world") or s.get("hidden") or s.get("curve"):
+            continue
+        xy = (s.get("x", 0.0), s.get("y", 0.0))
+        near = lambda q: math.hypot(q[0] - xy[0], q[1] - xy[1]) <= tol
+        if any(near(q) for q in soft) and not any(near(q) for q in hard):
+            s["hidden"] = True
+            n += 1
+    return n
+
+
 def interp_vertex_z(pts, z_start, z_end, overrides):
     """Cota por vértice interpolada por distancia acumulada 2D, entre anclas
     (extremos + overrides fijados). Espejo exacto de InterpolateZ/ZalongByDistance

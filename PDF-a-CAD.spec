@@ -5,6 +5,10 @@ datas = []
 binaries = []
 hiddenimports = []
 
+# Iconos SVG MDI (app/icons/mdi/*.svg) — sin esto el exe muestra X rojas
+# (_fallback_icon). Destino 'icons' al lado de icons.py en _MEIPASS.
+datas += [('app/icons', 'icons')]
+
 # Paquetes cuyo código + DATOS + submódulos hay que empaquetar completos para que
 # funcionen dentro del .exe. Si alguno no está instalado, se ignora (no rompe el build).
 #   - pyproj: reproyección (calles/parcelas de NavigateLA).

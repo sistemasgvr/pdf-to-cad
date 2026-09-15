@@ -271,6 +271,61 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "(sin nombre)": "(no name)",
         "Doble-click para editar.": "Double-click to edit.",
 
+        # ── Asistente: capas de la hoja (layer_dialog) ────────────────────
+        "Capas de la hoja {n}": "Sheet {n} layers",
+        "Marca las capas que quieres ver. Las capas ocultas no se dibujan "
+        "en el lienzo ni se usan en el reconocimiento.":
+            "Check the layers you want to see. Hidden layers are neither drawn "
+            "on the canvas nor used for recognition.",
+        "Buscar capa…": "Search layer…",
+        "Mostrar todas": "Show all",
+        "Ocultar todas": "Hide all",
+        "Visibles: {v} de {t} capas": "Visible: {v} of {t} layers",
+        "Rueda = zoom · botón central = desplazar": "Wheel = zoom · middle button = pan",
+        "Continuar": "Continue",
+        "Reconocimiento cancelado — hoja cargada con todas las capas.":
+            "Recognition cancelled — sheet loaded with all layers.",
+        "Reconocimiento cancelado — hoja cargada con las capas elegidas.":
+            "Recognition cancelled — sheet loaded with the chosen layers.",
+        "No hay capas de líneas eléctricas — hoja cargada sin reconocer.":
+            "No electrical line layers — sheet loaded without recognition.",
+        "Hoja {n} cargada. Capas aplicadas; reconocimiento en pausa.":
+            "Sheet {n} loaded. Layers applied; recognition paused.",
+        "Confirmar capas eléctricas": "Confirm electrical layers",
+        "Revisa si estas capas están bien asignadas. Si el plot usa otros "
+        "nombres, cambia el rol. Las líneas se importan como utilidades "
+        "Eléctrico; las bóvedas como cajas en esas líneas.":
+            "Check that these layers are assigned correctly. If the plot uses "
+            "other names, change the role. Lines import as Electric utilities; "
+            "vaults as boxes on those lines.",
+        "Capa": "Layer",
+        "Trazos": "Paths",
+        "Rol": "Role",
+        "Líneas eléctricas": "Electrical lines",
+        "Buzones / bóvedas": "Manholes / vaults",
+        "Ignorar": "Ignore",
+        "Debe haber al menos una capa en «Líneas eléctricas» para continuar.":
+            "Assign at least one layer as «Electrical lines» to continue.",
+        "Asigna al menos una capa como «Líneas eléctricas».":
+            "Assign at least one layer as «Electrical lines».",
+        "Utilidad: {u}\nHoja: {p}\nTramos listos: {n}\n"
+        "Bóvedas: {v}\nEscala: {s:.6f} pie/pt":
+            "Utility: {u}\nSheet: {p}\nReady runs: {n}\n"
+            "Vaults: {v}\nScale: {s:.6f} ft/pt",
+        "Capas usadas:": "Layers used:",
+        "Al continuar, estas líneas se importan al editor como "
+        "utilidades Eléctrico (igual que el dibujo manual, con sus "
+        "puntos de quiebre). Las bóvedas se insertan como cajas.":
+            "On continue, these lines import into the editor as Electric "
+            "utilities (same as manual drawing, with break points). "
+            "Vaults are inserted as boxes.",
+        "Bóvedas: {s} en líneas, {k} sin pipe cercana.":
+            "Vaults: {s} on lines, {k} with no nearby pipe.",
+        "Capas ocultas por ti: {n} (no se dibujan ni se reconocen)":
+            "Layers you hid: {n} (neither drawn nor recognized)",
+        "Cobertura: {c:.1f}%  ·  sin cubrir: {m} (naranja)  ·  fuera de patrón: {o} (violeta)":
+            "Coverage: {c:.1f}%  ·  uncovered: {m} (orange)  ·  off-pattern: {o} (violet)",
+        "Quiebres sin bóveda: {h} (cajas ocultas).": "Bends without vault: {h} (hidden boxes).",
         # ── Diálogo de Opciones ────────────────────────────────────────────
         "El cambio se aplica al instante en menús y paneles principales. "
         "Algunas ventanas ya abiertas pueden requerir cerrarse y volver "

@@ -39,7 +39,7 @@ Coordenadas DIBUJADAS en PÍXELES (se convierten con geometry.to_cad al exportar
 coordenadas IMPORTADAS de Excel ya son reales de mundo (world=True → se usan tal cual).
 """
 
-VERSION = "1.1.0"
+VERSION = "1.1.3"
 
 # Capas de red por GRAVEDAD (tramos entre buzones, con invert inicio/fin).
 GRAVITY_LAYERS = {"ALCANTARILLADO", "DRENAJE"}
@@ -153,6 +153,24 @@ def default_network_type(layer):
 
 
 CHANGELOG = [
+    ("1.1.3", [
+        ("fixed", "Reconocimiento eléctrico: centerlines más continuas y precisas (snap de extremos, colapso de trazos paralelos, cosido colineal por grafo y Douglas–Peucker). Menos cortes artificiales y menos dobles desfasados en el preview."),
+    ]),
+    ("1.1.2", [
+        ("added", "Tras elegir capas, se confirman roles OCG (líneas / bóvedas / ignorar) por si el plot usa otros nombres."),
+        ("added", "El reconocimiento eléctrico vuelve a correr: preview con líneas listas (inicio, quiebres, fin) como dibujo manual y bóvedas VALT como puntos; Continuar las importa al editor (pipes ELECTRICO + cajas)."),
+    ]),
+    ("1.1.1", [
+        ("added", "Vista previa de reconocimiento al abrir un PDF bien ploteado: eliges la hoja, se reconocen utilidades eléctricas subterráneas (capas C-ELEC-UNGD) y se muestran dibujadas como el trazo manual. Solo preview — aún no se importan al inventario."),
+        ("added", "Reconocimiento eléctrico reconstruido desde cero (núcleo geométrico nuevo): aprende el patrón del linetype del propio plano (guiones, letras «e», huecos), reconstruye cada corrida de inicio a fin con sus quiebres, resuelve esquinas por intersección exacta, T, quiebres suaves, arcos discontinuos y bóvedas como vértices compartidos. Un extremo nunca se mueve fuera de su propia recta, así ninguna línea se inclina. Cobertura medida en el DU06: 97–100 % por hoja (antes 75–89 %)."),
+        ("added", "La vista previa muestra control de calidad: porcentaje de cobertura, guiones que ninguna línea cubrió (naranja), trazos continuos fuera de patrón como leaders/flechas (violeta, no se importan) y bóvedas sin línea cercana."),
+        ("added", "Al importar, los quiebres sin bóveda (esquinas suaves, arcos) quedan como cajas OCULTAS (Estructura nula en Civil 3D): solo las bóvedas reales salen como CAJA visible. Las pipes reconocidas guardan el tipo de cada vértice en el proyecto."),
+        ("fixed", "Las líneas reconocidas ya no superan el marco de la vista de planta: la geometría se recorta por los clips reales del PDF (marco de la vista, XCLIP de referencias) y un extremo creado por el recorte no forma esquinas ni se prolonga. Los codos «⌒» que conectan un conduit con el borde de la bóveda se reconocen como curvas (antes se descartaban como letras)."),
+        ("changed", "Bóvedas, ajustes finos: la llegada al nodo interior es un solo tramo recto borde→nodo (sin quiebre intermedio); un stub corto colineal con una línea al otro lado de la bóveda cuenta como continuidad de esa línea; las curvas/continuas que salen de una bóveda nunca se cosen entre sí en sus puntas (conduits cortados por el límite de la vista); los trozos cortos que tocan una bóveda se conservan y se conectan al nodo de llegada más cercano."),
+        ("added", "Reglas de bóveda según los apuntes (revisadas): toda línea llega al buzón por su propia recta y SIEMPRE deja un punto de quiebre donde choca con el borde (entrada y salida). Dentro del buzón no se inventa nada a partir del símbolo: si una línea de red lo atraviesa (o dos llegan colineales por lados opuestos), el nodo interior se calcula con las llegadas —sobre la línea que atraviesa, en la intersección si son dos— y las demás llegan a él siguiendo su eje con un quiebre corto. Si ninguna línea lo atraviesa (bóveda grande, stubs, curvas), cada una termina en el borde y ahí queda su caja: el usuario completa a mano. Dos conduits que convergen en ángulo rasante nacen en un vértice compartido sobre la línea principal; las corridas se parten donde los guiones se apartan >0.75 pt para que todo vértice quede sobre la línea de la capa."),
+        ("fixed", "Una línea CAD con deriva de 1–2 pt (dibujo casi recto) ya no sale como dos líneas superpuestas terminando en la misma bóveda: cada guión se asigna a la recta que mejor ajusta y las corridas superpuestas se funden. La línea que atraviesa una bóveda se importa como UNA sola polilínea con la bóveda de vértice (antes se partía en dos en el nodo)."),
+        ("added", "Paso «Capas de la hoja» antes de la vista previa: lista todas las capas del plano (con su cantidad de trazos) y permite mostrarlas u ocultarlas con casillas, viendo el resultado en vivo. Las capas ocultas no se dibujan en el lienzo ni se usan en el reconocimiento. Incluye buscador y botones Mostrar/Ocultar todas."),
+    ]),
     ("1.1.0", [
         ("added", "Nuevo diseñador de Bancoductos (Duct Bank): dibuja la sección con envolvente, márgenes, redondeo de esquinas, rejilla de distribución, reglas de separación y de resguardo al borde. Cada bancoducto se asigna a una utilidad del plano y al importar en Civil 3D se crea el sólido 3D del contenedor + los conductos internos como tuberías reales."),
         ("added", "Panel «Bancoductos» en el inventario derecho: lista todos los bancoductos del proyecto con botones Nuevo / Editar / Duplicar. Doble-click en una fila abre el diseñador ya cargado con ese bancoducto. Click derecho sobre una tubería del plano ofrece «Crear/Editar bancoducto»."),

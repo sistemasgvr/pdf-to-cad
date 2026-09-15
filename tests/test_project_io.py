@@ -30,7 +30,10 @@ def _fake_win():
                             Conduit(cx=9, cy=3, diam=4, label="T2")])
     return types.SimpleNamespace(
         pipes=[{"layer": "AGUA", "pts": [(0, 0), (10, 0)],
-                "vertex_inv_out": {1: 100.5}, "vertex_inv_in": {1: 99.0}}],
+                "vertex_inv_out": {1: 100.5}, "vertex_inv_in": {1: 99.0}},
+               # pipe reconocida desde el PDF: tipos de vértice + origen viajan con ella
+               {"layer": "ELECTRICO", "pts": [(0, 5), (10, 5), (20, 5)],
+                "vertex_kinds": ["end", "bend", "vault"], "origen": "reconocido"}],
         leaders=[], text_marks=[],
         erase_regions=[{"pts": [(0, 0)], "enabled": True}],
         structures=[{"cod": "BZ-1", "x": 5, "y": 0}],
@@ -99,6 +102,11 @@ def test_roundtrip_build_parse_conserva_datos():
     # las cotas por vértice sobreviven como int (build las tiene int, json→parse las
     # mantiene int porque aquí no pasó por json; el test de arriba cubre el caso str)
     assert data["pipes"][0]["vertex_inv_out"] == {1: 100.5}
+    # Metadatos del reconocimiento: pasan tal cual (también tras json)
+    import json
+    again = project_io.parse_model(json.loads(json.dumps(m)))
+    assert again["pipes"][1]["vertex_kinds"] == ["end", "bend", "vault"]
+    assert again["pipes"][1]["origen"] == "reconocido"
     # Duct banks: sobreviven round-trip por nombre/dimensiones/conductos
     assert len(data["duct_banks"]) == 1
     d = data["duct_banks"][0]

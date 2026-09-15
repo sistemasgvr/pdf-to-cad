@@ -513,9 +513,12 @@ def chain_pieces(pieces, tol):
     return result
 
 
-def merge_collinear_segments(segs):
+def merge_collinear_segments(segs, max_bridge=None):
     """Agrupa por rumbo y posición perpendicular; fusiona los consecutivos
-    cuyo hueco <= MERGE_MAX_BRIDGE_PT. Entrada/salida en coords PDF."""
+    cuyo hueco <= max_bridge (por defecto MERGE_MAX_BRIDGE_PT). Entrada/salida
+    en coords PDF. `max_bridge` permite un puente mayor (p.ej. reconocimiento
+    de utilidades) sin cambiar el default del digitize/export."""
+    bridge = C.MERGE_MAX_BRIDGE_PT if max_bridge is None else float(max_bridge)
     buckets = defaultdict(list)
     for (p0, p1) in segs:
         dx, dy = p1.x - p0.x, p1.y - p0.y
@@ -544,7 +547,7 @@ def merge_collinear_segments(segs):
 
         cs, ce, cp0, cp1, cnt = proj[0][0], proj[0][1], proj[0][2], proj[0][3], 1
         for (s, e, lo, hi) in proj[1:]:
-            if s <= ce + C.MERGE_MAX_BRIDGE_PT:    # continúa la misma línea
+            if s <= ce + bridge:    # continúa la misma línea
                 cnt += 1
                 if e > ce:
                     ce, cp1 = e, hi
