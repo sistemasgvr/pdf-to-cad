@@ -1,7 +1,13 @@
 # -*- mode: python ; coding: utf-8 -*-
 from PyInstaller.utils.hooks import collect_all
 
-datas = []
+datas = [
+    # Iconos SVG (Iconify/Material Design Icons) — `icons.py` los busca en
+    # `<carpeta-de-icons.py>/icons/<set>/<name>.svg`. Al bundelar, PyInstaller
+    # extrae `icons.py` a la raíz del bundle (_MEIPASS), así que el destino
+    # correcto es 'icons' (NO 'app/icons') para que _ICONS_DIR los encuentre.
+    ('app/icons', 'icons'),
+]
 binaries = []
 hiddenimports = []
 

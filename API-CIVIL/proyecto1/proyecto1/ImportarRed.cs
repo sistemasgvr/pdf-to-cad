@@ -1281,7 +1281,17 @@ namespace Civil3DBasico
                     double t = r / Math.Tan(deltaRad / 2.0);
                     // No recortar más allá de lo disponible en cada recta vecina (deja
                     // margen del 10% para que siga quedando un tramo recto visible).
-                    double tMax = Math.Min(distPrev, distNext) * 0.9;
+                    // "Doble curva": si el vértice del OTRO extremo del segmento
+                    // también está marcado como curva, hay que dejarle la MITAD del
+                    // segmento a esa otra curva (si no, ambas se comen hasta el 90%
+                    // y las tangentes se cruzan → tubería recta con orientación
+                    // invertida entre ellas, se ve como un elipsoide alargado).
+                    // Doble curva continua: cap 0.48 (no 0.5) para dejar un
+                    // pequeño tramo recto entre los dos arcos y evitar puntos
+                    // de tangencia coincidentes.
+                    double capPrev = ip.NoManholeVerts.Contains(i - 1) ? 0.48 : 0.9;
+                    double capNext = ip.NoManholeVerts.Contains(i + 1) ? 0.48 : 0.9;
+                    double tMax = Math.Min(distPrev * capPrev, distNext * capNext);
                     if (t > tMax)
                     {
                         double rAjustado = tMax * Math.Tan(deltaRad / 2.0);
@@ -3321,7 +3331,12 @@ namespace Civil3DBasico
                         else
                             r = 6.0 * wFt;   // fallback: 6× el ancho del bancoducto
                         double t = r / Math.Tan(deltaRad / 2.0);
-                        double tMax = Math.Min(distPrev, distNext) * 0.9;
+                        // Doble curva: si el vértice vecino también es curvo,
+                        // reparte el segmento en dos mitades (ver comentario en
+                        // CrearRedGravedadCompleta).
+                        double capPrevDb = matchPipe.NoManholeVerts.Contains(i - 1) ? 0.48 : 0.9;
+                        double capNextDb = matchPipe.NoManholeVerts.Contains(i + 1) ? 0.48 : 0.9;
+                        double tMax = Math.Min(distPrev * capPrevDb, distNext * capNextDb);
                         if (t > tMax) { r = tMax * Math.Tan(deltaRad / 2.0); t = tMax; }
                         try
                         {
@@ -3338,34 +3353,40 @@ namespace Civil3DBasico
                     // si el vértice inicial o final tiene curva, insertar los
                     // puntos de tangencia + puntos INTERMEDIOS del arco (tesela
                     // el arco en ~16 pasos — el sólido queda visualmente curvo).
-                    var pathPts = new Point3dCollection();
+                    var rawPts = new List<Point3d>();
                     const int ARC_STEPS = 16;
                     for (int vi = 0; vi < nv; vi++)
                     {
                         Point2d v = matchPipe.Vertices[vi];
                         if (vi == 0 || vi == nv - 1 || !curvasDb.ContainsKey(vi))
                         {
-                            // Vértice recto: se añade el punto tal cual.
-                            pathPts.Add(new Point3d(v.X, v.Y, zPath[vi]));
+                            rawPts.Add(new Point3d(v.X, v.Y, zPath[vi]));
                         }
                         else
                         {
-                            // Vértice curvo: reemplazar el vértice por
-                            // (P1 tangencia entrada) → arco teselado → (P2 tangencia salida)
                             var cg = curvasDb[vi];
-                            pathPts.Add(cg.P1);
-                            // Puntos intermedios sobre el arco (excluyendo extremos).
+                            rawPts.Add(cg.P1);
                             for (int s = 1; s < ARC_STEPS; s++)
                             {
                                 double param = cg.Arco.StartAngle
                                     + (cg.Arco.EndAngle - cg.Arco.StartAngle) * s / (double)ARC_STEPS;
-                                Point3d arcPt = cg.Arco.EvaluatePoint(param);
-                                pathPts.Add(arcPt);
+                                rawPts.Add(cg.Arco.EvaluatePoint(param));
                             }
-                            pathPts.Add(cg.P2);
+                            rawPts.Add(cg.P2);
                         }
                     }
-
+                    // Dedupe: quitar puntos consecutivos coincidentes (< 1e-4 ft).
+                    // Cuando dos curvas adyacentes comparten un segmento, la
+                    // tangente-salida de la primera y la tangente-entrada de la
+                    // segunda pueden coincidir → punto duplicado en el path →
+                    // ExtrudeAlongPath falla en silencio y deja sólo la cara.
+                    var pathPts = new Point3dCollection();
+                    Point3d? last = null;
+                    foreach (var pt in rawPts)
+                    {
+                        if (last.HasValue && last.Value.DistanceTo(pt) < 1e-4) continue;
+                        pathPts.Add(pt); last = pt;
+                    }
                     if (pathPts.Count < 2) continue;
 
                     // Base ORTONORMAL a partir del tangente inicial del path.
@@ -3457,21 +3478,37 @@ namespace Civil3DBasico
                                 ms.AppendEntity(region);
                                 tr.AddNewlyCreatedDBObject(region, true);
 
-                                var solid = new Solid3d();
-                                solid.ExtrudeAlongPath(region, pathPoly, 0);
-                                solid.Layer = "PDFCAD_DUCT_BANK";
-                                ms.AppendEntity(solid);
-                                tr.AddNewlyCreatedDBObject(solid, true);
-
-                                created++;
+                                // Extrusión: si falla, hay que borrar TAMBIÉN la
+                                // region (si no queda huérfana en modelspace y se
+                                // ve como "solo la cara" del bancoducto).
+                                bool extOk = false;
+                                using (var solid = new Solid3d())
+                                {
+                                    try
+                                    {
+                                        solid.ExtrudeAlongPath(region, pathPoly, 0);
+                                        solid.Layer = "PDFCAD_DUCT_BANK";
+                                        ms.AppendEntity(solid);
+                                        tr.AddNewlyCreatedDBObject(solid, true);
+                                        extOk = true;
+                                    }
+                                    catch (Exception exExt)
+                                    {
+                                        ed.WriteMessage($"\n  ⚠ Duct bank '{dbk.Name}': " +
+                                                         $"ExtrudeAlongPath falló ({exExt.Message}). Se omite el sólido.");
+                                    }
+                                }
                                 profile.Erase();
                                 pathPoly.Erase();
                                 region.Erase();
+                                if (extOk) created++;
+                                else failed++;
                             }
                             else
                             {
                                 profile.Erase();
                                 pathPoly.Erase();
+                                ed.WriteMessage($"\n  ⚠ Duct bank '{dbk.Name}': no se pudo crear la región del perfil.");
                                 failed++;
                             }
                         }
@@ -3479,8 +3516,9 @@ namespace Civil3DBasico
 
                     // Los conductos internos se crean como Pipe Network (paso 5e).
                 }
-                catch
+                catch (Exception exOne)
                 {
+                    ed.WriteMessage($"\n  ✗ Duct bank '{dbk.Name}': {exOne.Message}");
                     failed++;
                 }
             }
