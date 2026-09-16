@@ -283,6 +283,11 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "Visibles: {v} de {t} capas": "Visible: {v} of {t} layers",
         "Rueda = zoom · botón central = desplazar": "Wheel = zoom · middle button = pan",
         "Continuar": "Continue",
+        "Hoja anterior": "Previous sheet",
+        "Hoja siguiente": "Next sheet",
+        "Hoja {n} / {total}": "Sheet {n} / {total}",
+        "Todas": "All",
+        "Otras": "Other",
         "Reconocimiento cancelado — hoja cargada con todas las capas.":
             "Recognition cancelled — sheet loaded with all layers.",
         "Reconocimiento cancelado — hoja cargada con las capas elegidas.":
@@ -291,13 +296,13 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
             "No electrical line layers — sheet loaded without recognition.",
         "Hoja {n} cargada. Capas aplicadas; reconocimiento en pausa.":
             "Sheet {n} loaded. Layers applied; recognition paused.",
-        "Confirmar capas eléctricas": "Confirm electrical layers",
-        "Revisa si estas capas están bien asignadas. Si el plot usa otros "
-        "nombres, cambia el rol. Las líneas se importan como utilidades "
-        "Eléctrico; las bóvedas como cajas en esas líneas.":
-            "Check that these layers are assigned correctly. If the plot uses "
-            "other names, change the role. Lines import as Electric utilities; "
-            "vaults as boxes on those lines.",
+        "Ajustar capas eléctricas": "Adjust electrical layers",
+        "Indica qué capas son líneas eléctricas y cuáles bóvedas. Las "
+        "líneas se importan como utilidades Eléctrico; las bóvedas como "
+        "cajas en esas líneas. Al aceptar se vuelve a reconocer la hoja.":
+            "Choose which layers are electrical lines and which are vaults. "
+            "Lines import as Electric utilities; vaults as boxes on those "
+            "lines. On accept the sheet is recognized again.",
         "Capa": "Layer",
         "Trazos": "Paths",
         "Rol": "Role",
@@ -308,11 +313,29 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
             "Assign at least one layer as «Electrical lines» to continue.",
         "Asigna al menos una capa como «Líneas eléctricas».":
             "Assign at least one layer as «Electrical lines».",
-        "Utilidad: {u}\nHoja: {p}\nTramos listos: {n}\n"
-        "Bóvedas: {v}\nEscala: {s:.6f} pie/pt":
-            "Utility: {u}\nSheet: {p}\nReady runs: {n}\n"
-            "Vaults: {v}\nScale: {s:.6f} ft/pt",
-        "Capas usadas:": "Layers used:",
+        "Tramos listos: {n}  ·  Bóvedas: {v}  ·  Escala: {s:.6f} pie/pt":
+            "Ready runs: {n}  ·  Vaults: {v}  ·  Scale: {s:.6f} ft/pt",
+        "Capas usadas (asignadas automáticamente por su nombre):":
+            "Layers used (assigned automatically by name):",
+        "Líneas": "Lines",
+        "Bóvedas": "Vaults",
+        "Hoja {n}": "Sheet {n}",
+        "No se encontraron capas de líneas eléctricas en esta hoja. "
+        "Usa «Ajustar capas…» para indicar cuáles son las líneas y las bóvedas.":
+            "No electrical line layers were found on this sheet. "
+            "Use «Adjust layers…» to say which layers are lines and vaults.",
+        "Cambiar de hoja…": "Change sheet…",
+        "Elegir otra hoja del PDF, revisar sus capas y reconocerla.":
+            "Pick another sheet of the PDF, review its layers and recognize it.",
+        "Ajustar capas…": "Adjust layers…",
+        "Solo si el plot usa otros nombres: indicar qué capas son líneas y bóvedas.":
+            "Only if the plot uses other names: say which layers are lines and vaults.",
+        "Cambio de hoja cancelado — se mantiene la hoja {n}.":
+            "Sheet change cancelled — sheet {n} is kept.",
+        "Abandonadas (AB): {a} — mismo color; se distinguen por (AB).":
+            "Abandoned (AB): {a} — same color; marked (AB).",
+        "(abandonada)": "(abandoned)",
+        "Abandonadas (AB): {a}.": "Abandoned (AB): {a}.",
         "Al continuar, estas líneas se importan al editor como "
         "utilidades Eléctrico (igual que el dibujo manual, con sus "
         "puntos de quiebre). Las bóvedas se insertan como cajas.":

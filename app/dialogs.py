@@ -308,11 +308,20 @@ def show_manual(win):
     <p><b>Archivo → Abrir PDF…</b> (o arrastralo). Cambia de página y ajusta la
     transparencia en la sección <b>Vista y páginas</b>. Rueda = zoom, botón central = pan.</p>
     <p>Si el PDF es <b>vectorial (bien ploteado)</b>, el asistente pide elegir la
-    <b>hoja</b> y luego abre <b>Capas de la hoja</b>: una lista de todas las capas del
-    plano con casillas para mostrarlas u ocultarlas, con vista previa en vivo (usa el
-    buscador o <b>Mostrar/Ocultar todas</b>). Las capas ocultas no se dibujan en el
-    lienzo ni se usan en el reconocimiento. Al continuar se reconocen las utilidades
-    eléctricas y se muestra la <b>vista previa del reconocimiento</b>.</p>
+    <b>hoja</b> y luego abre <b>Capas de la hoja</b>: las capas del plano agrupadas por
+    utilidad (Agua, Alcantarillado, Drenaje, Gas, Eléctrico, Telefonía y Otras, cada una
+    con su color) con casillas para mostrarlas u ocultarlas, con vista previa en vivo.
+    El panel <b>Utilidades</b> filtra la lista (o <b>Todas</b>) y se combina con el
+    buscador y <b>Mostrar/Ocultar todas</b>. Con <b>◀ Hoja N / M ▶</b> puedes cambiar de
+    hoja sin salir (las capas marcadas se conservan). Las capas ocultas no se dibujan en
+    el lienzo ni se usan en el reconocimiento. Al continuar se reconocen las utilidades
+    eléctricas (las capas de líneas y bóvedas se asignan solas por su nombre) y se muestra
+    la <b>vista previa del reconocimiento</b>, con la utilidad, la hoja y las capas usadas.
+    Desde ahí: <b>Continuar e importar</b>, <b>Cambiar de hoja…</b> (lista de hojas → capas
+    → nueva vista previa) o <b>Ajustar capas…</b> (solo si el plot usa otros nombres).
+    Después, al cambiar de hoja en el editor (◀ ▶ o nº de página) la nueva hoja se reconoce
+    con las mismas capas. Las capas de estado <b>-A</b> (abandonadas, linetype ──/── e ──) se
+    reconocen igual, se dibujan del mismo color y se importan marcadas <b>(AB)</b>, como la casilla «Abandonado».</p>
 
     <h3>2. Dibujar una utilidad</h3>
     <p>Acordeón <b>Dibujar utilidad</b> → elige el tipo (agua, alcantarillado, drenaje,

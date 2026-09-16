@@ -55,6 +55,8 @@ class Main(QtWidgets.QMainWindow):
         self.zoom = 3.5; self.scale = 20 / 72.0; self.rot = 0; self.W = 0; self.H = 0
         self.derot = fitz.Matrix(1, 0, 0, 1, 0, 0); self.gray = None; self.page_idx = 0; self.pageH_px = 0
         self.hidden_ocgs = []   # capas OCG ocultas en el paso «Capas de la hoja» (por PDF abierto)
+        self._layer_roles = None   # roles OCG ajustados a mano («Ajustar capas…»); None = automático por nombre
+        self._recog_ready = False  # True cuando el asistente ya reconoció una hoja de este PDF (◀ ▶ vuelven a reconocer)
         self.pdf_path = None; self.doc = None; self.project_path = None; self.leader_hpx = 40
 
         self.cur_pts = []; self.pipes = []; self.leaders = []; self.text_marks = []
@@ -978,19 +980,28 @@ class Main(QtWidgets.QMainWindow):
         n = max(0, min(n, self.doc.page_count - 1))
         if n != self.page_idx:
             if not self._confirm_discard(): self._update_page_label(); return
-            self.page_idx = n; self._load_page(n)
+            self._change_page(n)
         else:
             self._update_page_label()
 
     def _prev_page(self):
         if self.doc and self.page_idx > 0:
             if not self._confirm_discard(): return
-            self.page_idx -= 1; self._load_page(self.page_idx)
+            self._change_page(self.page_idx - 1)
 
     def _next_page(self):
         if self.doc and self.page_idx < self.doc.page_count - 1:
             if not self._confirm_discard(): return
-            self.page_idx += 1; self._load_page(self.page_idx)
+            self._change_page(self.page_idx + 1)
+
+    def _change_page(self, idx):
+        """Cambio de hoja desde el editor (◀ ▶ / nº de página). Si el asistente
+        ya reconoció una hoja de este PDF, la nueva se reconoce con las mismas
+        capas ocultas y roles (mismo PDF = mismas capas) y se muestra la vista
+        previa para importar."""
+        self.page_idx = idx; self._load_page(idx)
+        if self._recog_ready and self.pdf_path:
+            self._start_recognition(idx)
 
     # ─────────────────────────── Estado / modos ───────────────────────────
     def _on_enter(self):
@@ -1395,6 +1406,8 @@ class Main(QtWidgets.QMainWindow):
         try:
             self.pdf_path = path; self.project_path = None; self.doc = fitz.open(path); self._update_title()
             self.hidden_ocgs = []   # capas OCG ocultas por el usuario (paso «Capas de la hoja»)
+            self._layer_roles = None
+            self._recog_ready = False
         finally:
             self._unbusy()
         # Asistente v1: tipo → hoja → cargar hoja → reconocer eléctricas → preview (sin import).
@@ -1409,60 +1422,15 @@ class Main(QtWidgets.QMainWindow):
         if not self.doc or not self.pdf_path:
             return
 
-        def _load(idx):
-            self._busy(_tr("Cargando hoja…"))
-            try:
-                self.page_idx = idx
-                self._load_page(idx)
-            finally:
-                self._unbusy()
+        _load = self._load_sheet_busy
 
         def _go_manual(msg):
             _load(0)
             self._info(msg)
 
         def _go_plotted():
-            page_idx = recognition_dialog.choose_page(self, self.doc)
-            if page_idx is None:
+            if not self._wizard_sheet_flow(0):
                 _load(0)
-                return
-            # Paso «Capas de la hoja»: el usuario decide qué capas OCG ver ANTES
-            # de dibujar. Deja la visibilidad aplicada en self.doc, así _load_page
-            # ya renderiza sin las ocultas.
-            hidden = layer_dialog.choose_sheet_layers(self, self.doc, page_idx)
-            if hidden is None:
-                _load(page_idx)
-                self._info(_tr("Reconocimiento cancelado — hoja cargada con todas las capas."))
-                return
-            self.hidden_ocgs = list(hidden)
-            # Confirmar roles: qué OCG son líneas y cuáles bóvedas (remap si cambian nombres).
-            import pdf_layers as _pdf_layers
-            all_layers = _pdf_layers.page_layers(self.doc, page_idx)
-            visible = [L for L in all_layers if L["name"] not in set(self.hidden_ocgs)]
-            roles = recognition_dialog.choose_layer_roles(self, visible)
-            if roles is None:
-                _load(page_idx)
-                self._info(_tr("Reconocimiento cancelado — hoja cargada con las capas elegidas."))
-                return
-            if not roles.get("lineas"):
-                _load(page_idx)
-                self._info(_tr("No hay capas de líneas eléctricas — hoja cargada sin reconocer."))
-                return
-            self._layer_roles = roles
-            _load(page_idx)
-            progress = QtWidgets.QProgressDialog(
-                _tr("Reconociendo utilidades eléctricas…"), None, 0, 0, self)
-            progress.setWindowTitle(_tr("Reconocimiento"))
-            progress.setWindowModality(QtCore.Qt.WindowModal)
-            progress.setMinimumDuration(0)
-            progress.show()
-            QtWidgets.QApplication.processEvents()
-            self._recog_progress = progress
-            self._recog_worker = RecognitionWorker(
-                self.pdf_path, page_idx, zoom=self.zoom, utility="ELECTRICO",
-                hidden_ocgs=self.hidden_ocgs, layer_roles=roles)
-            self._recog_worker.done.connect(self._recognition_done)
-            self._recog_worker.start()
 
         # Clasificación automática (página 0) — misma heurística que digitize.
         import detect as _detect
@@ -1488,6 +1456,71 @@ class Main(QtWidgets.QMainWindow):
             return
         _go_plotted()
 
+    def _load_sheet_busy(self, idx):
+        self._busy(_tr("Cargando hoja…"))
+        try:
+            self.page_idx = idx
+            self._load_page(idx)
+        finally:
+            self._unbusy()
+
+    def _wizard_sheet_flow(self, start_idx):
+        """Flujo hoja → capas → reconocer → (preview en `_recognition_done`).
+        Lo usa el asistente al abrir el PDF y «Cambiar de hoja…» del preview.
+        Devuelve False si el usuario cancela en la lista de hojas (no se cargó
+        nada); si cancela en las capas, la hoja queda cargada sin reconocer."""
+        page_idx = recognition_dialog.choose_page(self, self.doc, current=start_idx)
+        if page_idx is None:
+            return False
+        # Paso «Capas de la hoja»: el usuario decide qué capas OCG ver ANTES
+        # de dibujar (y puede cambiar de hoja con ◀ ▶). Deja la visibilidad
+        # aplicada en self.doc, así _load_page ya renderiza sin las ocultas.
+        chosen = layer_dialog.choose_sheet_layers(self, self.doc, page_idx)
+        if chosen is None:
+            self._load_sheet_busy(page_idx)
+            self._info(_tr("Reconocimiento cancelado — hoja cargada con todas las capas."))
+            return True
+        hidden, page_idx = chosen
+        self.hidden_ocgs = list(hidden)
+        # Los roles (qué capas son líneas / bóvedas) se asignan solos por
+        # nombre y se muestran en el preview; «Ajustar capas…» los cambia.
+        self._load_sheet_busy(page_idx)
+        self._recog_ready = True
+        self._start_recognition(page_idx)
+        return True
+
+    def _adjust_layer_roles(self, page_idx):
+        """«Ajustar capas…» del preview: elegir a mano qué capas visibles son
+        líneas / bóvedas y volver a reconocer la hoja con esos roles."""
+        import pdf_layers as _pdf_layers
+        all_layers = _pdf_layers.page_layers(self.doc, page_idx)
+        visible = [L for L in all_layers if L["name"] not in set(self.hidden_ocgs)]
+        roles = recognition_dialog.choose_layer_roles(self, visible)
+        if roles is None:
+            self._info(_tr("Reconocimiento cancelado — hoja cargada con las capas elegidas."))
+            return
+        self._layer_roles = roles
+        self._start_recognition(page_idx)
+
+    def _start_recognition(self, page_idx):
+        """Lanza el reconocimiento de la hoja `page_idx` en segundo plano con las
+        capas ocultas (`self.hidden_ocgs`) y los roles (`self._layer_roles`;
+        None = automático por nombre). Al terminar, `_recognition_done` muestra
+        la vista previa. Lo usan el asistente y el cambio de hoja del editor."""
+        progress = QtWidgets.QProgressDialog(
+            _tr("Reconociendo utilidades eléctricas…"), None, 0, 0, self)
+        progress.setWindowTitle(_tr("Reconocimiento"))
+        progress.setWindowModality(QtCore.Qt.WindowModal)
+        progress.setMinimumDuration(0)
+        progress.show()
+        QtWidgets.QApplication.processEvents()
+        self._recog_progress = progress
+        self._recog_worker = RecognitionWorker(
+            self.pdf_path, page_idx, zoom=self.zoom, utility="ELECTRICO",
+            hidden_ocgs=self.hidden_ocgs, layer_roles=self._layer_roles)
+        self._recog_worker.done.connect(self._recognition_done)
+        self._recog_worker.start()
+
     def _recognition_done(self, result, error):
         prog = getattr(self, "_recog_progress", None)
         if prog is not None:
@@ -1508,12 +1541,20 @@ class Main(QtWidgets.QMainWindow):
                 self, _tr("Reconocimiento"),
                 _tr("Reconocimiento listo, pero no hay imagen de la hoja para la vista previa."))
             return
-        accepted = recognition_dialog.show_recognition_preview(
-            self, qimg, result, utility_layer="ELECTRICO")
-        if not accepted:
+        action = recognition_dialog.show_recognition_preview(
+            self, qimg, result, utility_layer="ELECTRICO",
+            page_count=self.doc.page_count if self.doc else None)
+        if action == recognition_dialog.PREVIEW_IMPORT:
+            self._import_recognized_pipes(result)
+        elif action == recognition_dialog.PREVIEW_CHANGE_SHEET:
+            # Flujo pedido: lista de hojas → capas → preview de la hoja nueva.
+            if not self._wizard_sheet_flow(result.page_index):
+                self._info(_tr("Cambio de hoja cancelado — se mantiene la hoja {n}.").format(
+                    n=result.page_index + 1))
+        elif action == recognition_dialog.PREVIEW_ADJUST_LAYERS:
+            self._adjust_layer_roles(result.page_index)
+        else:
             self._info(_tr("Reconocimiento cancelado — editor vacío."))
-            return
-        self._import_recognized_pipes(result)
 
     def _import_recognized_pipes(self, result):
         """Añade centerlines como pipes ELECTRICO e inserta bóvedas como vértices/CAJA."""
@@ -1539,6 +1580,9 @@ class Main(QtWidgets.QMainWindow):
         self._redraw()
         n = len(new_pipes)
         msg = _tr("Importadas {n} utilidades Eléctrico al editor.").format(n=n)
+        n_ab = sum(1 for p in new_pipes if p.get("ab"))
+        if n_ab:
+            msg += " " + _tr("Abandonadas (AB): {a}.").format(a=n_ab)
         if snapped or skipped:
             msg += " " + _tr("Bóvedas: {s} en líneas, {k} sin pipe cercana.").format(
                 s=snapped, k=skipped)

@@ -39,7 +39,7 @@ Coordenadas DIBUJADAS en PÍXELES (se convierten con geometry.to_cad al exportar
 coordenadas IMPORTADAS de Excel ya son reales de mundo (world=True → se usan tal cual).
 """
 
-VERSION = "1.1.3"
+VERSION = "1.1.8"
 
 # Capas de red por GRAVEDAD (tramos entre buzones, con invert inicio/fin).
 GRAVITY_LAYERS = {"ALCANTARILLADO", "DRENAJE"}
@@ -153,6 +153,27 @@ def default_network_type(layer):
 
 
 CHANGELOG = [
+    ("1.1.8", [
+        ("changed", "Las utilidades eléctricas abandonadas se dibujan del mismo color que la activa. Solo se distinguen por (AB) en la lista; ya no van a trazos ni con otro matiz."),
+    ]),
+    ("1.1.7", [
+        ("fixed", "Un ramal de la misma capa eléctrica (guiones del linetype, aunque uno sea un poco más largo, más el codo) se une a la centerline: nace en la línea principal, quiebra en el codo y el otro extremo queda libre. Ya no se pinta violeta como leader. Un trazo continuo solo, sin contacto con esa red, sigue fuera."),
+    ]),
+    ("1.1.6", [
+        ("fixed", "El reconocimiento reconstruye cada capa OCG de líneas por separado: una capa eléctrica que no es la utilidad (p.ej. U-PROP-ESFV-ELEC-STRUCT) ya no se cose ni se imana con C-ELEC-UNGD-E. Las bóvedas solo cuentan si son un símbolo compacto con caja/círculo; un linetype disfrazado de estructura no atrae extremos. Los ramales de la misma capa que quedaban sin dibujar se cubren si son guiones del patrón."),
+    ]),
+    ("1.1.5", [
+        ("added", "Utilidades eléctricas ABANDONADAS: la capa de estado «-A» (C-ELEC-UNGD-A, linetype «──/── e ──») se reconoce igual que la activa pero se importa marcada como abandonada (AB), como la casilla «Abandonado» del dibujo manual (en el DXF sale con el linetype discontinuo). Las barras «/» del linetype se tratan como marcadores (no quedan «sin cubrir»); el contorno de bóveda que el plot dibuja en esa misma capa se detecta como bóveda (la línea para en su borde y el contorno no se dibuja); activas y abandonadas se reconstruyen por separado (son pipes distintas). En la vista previa van a trazos y la lista de capas las señala «(abandonada)»."),
+        ("changed", "Bóvedas: un trazo continuo (sin patrón) que solo nace en el borde y sale hacia afuera ya no se toma como continuación de la línea que llega por el lado opuesto (ambos paran en el borde); sí cuenta si el trazo entra y cruza la bóveda."),
+        ("fixed", "Un ramal abandonado que nace sobre su propia línea junto a una bóveda activa ya no se «engancha» a esa bóveda con un tramo inventado: un extremo que muere sobre otra línea es una T con esa línea (nos basamos en las capas)."),
+        ("changed", "Precisión de los puntos de quiebre: un extremo que muere sobre otra corrida es una T sobre ella (antes podía formar una esquina fuera de la línea con un tercer extremo cercano); los ticks «┤» de fin de tramo quedan como extremo–T–extremo y sus puntas nunca se unen a otra línea (ni a la que muere a 4 pt de ellas); una esquina nunca se traga más de media corrida; un cruce en X con hueco sigue siendo una sola línea; la línea que atraviesa una bóveda y sigue un trozo corto conserva borde, nodo, borde y su extremo; y las transiciones suaves se simplifican a 1.5 pt (las curvas siguen a 1 pt). Hoja 9 del DU06: 98.4 % → 100 %."),
+        ("changed", "Ya no se pide confirmar las capas eléctricas: las capas de líneas y bóvedas se asignan solas por su nombre y la vista previa del reconocimiento las muestra de forma informativa (cabecera con la utilidad y su color, «Capas usadas: Líneas / Bóvedas»). Si el plot usa otros nombres, «Ajustar capas…» permite indicarlas a mano y vuelve a reconocer; si no se encontró ninguna, la vista previa lo avisa y no deja importar."),
+        ("added", "«Cambiar de hoja…» en la vista previa del reconocimiento: lista de hojas → capas de la hoja → vista previa de la hoja nueva ya reconocida, sin pasar por el editor."),
+    ]),
+    ("1.1.4", [
+        ("changed", "Paso «Capas de la hoja» reorganizado: las capas se agrupan por utilidad (Agua, Alcantarillado, Drenaje, Gas, Eléctrico, Telefonía y Otras — las mismas del desplegable «Tipo de utilidad», cada una con su color) a partir del nombre de la capa; el panel «Utilidades» filtra la lista (o «Todas») y combina con el buscador."),
+        ("added", "Cambio de hoja sin salir del paso de capas (◀ Hoja N / M ▶): la vista previa y los conteos se actualizan y las capas marcadas se conservan. Después, al cambiar de hoja en el editor (◀ ▶ o nº de página) la nueva hoja se reconoce con las mismas capas y roles ya confirmados y se muestra la vista previa para importar."),
+    ]),
     ("1.1.3", [
         ("fixed", "Reconocimiento eléctrico: centerlines más continuas y precisas (snap de extremos, colapso de trazos paralelos, cosido colineal por grafo y Douglas–Peucker). Menos cortes artificiales y menos dobles desfasados en el preview."),
     ]),

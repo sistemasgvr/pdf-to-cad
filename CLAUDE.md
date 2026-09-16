@@ -17,8 +17,13 @@ alcantarillado, drenaje, gas, eléctrico, telecom). Todo en **unidades imperiale
     botón, `layer_qcolor`, `swatch_icon`, …). Sin estado; los usa toda la app.
   - `workers.py` — hilos de fondo (`PipelineWorker`, `RecognitionWorker`).
   - `recognition.py` + `recognition_dialog.py` — asistente al abrir un PDF
-    vectorial: elegir hoja → capas → roles OCG (líneas / bóvedas) → reconocer
-    (v1: eléctricas `C-ELEC-UNGD`) → vista previa con QA → importar como pipes.
+    vectorial: elegir hoja → capas → reconocer (v1: eléctricas `C-ELEC-UNGD`;
+    roles líneas/bóvedas AUTOMÁTICOS por nombre, `classify_ocg`) → vista
+    previa con QA e info de capas usadas → importar como pipes. El preview
+    devuelve una acción (`PREVIEW_IMPORT | CANCEL | CHANGE_SHEET |
+    ADJUST_LAYERS`): «Cambiar de hoja…» repite `Main._wizard_sheet_flow`
+    (hojas → capas → reconocer); «Ajustar capas…» abre `LayerRolesDialog`
+    (ya no es un paso obligatorio) y re-reconoce con `self._layer_roles`.
     `recognition.py` solo filtra paths por capa/rol y convierte PDF→px.
   - `recognition_geom.py` — **núcleo geométrico PURO** (sin Qt ni fitz): en el
     PDF la utilidad viene como linetype "explotado" (guiones + letras «e» +
@@ -43,7 +48,25 @@ alcantarillado, drenaje, gas, eléctrico, telecom). Todo en **unidades imperiale
     path por el polígono de clip activo (`geom.clip_path`) — sin eso la
     geometría "supera" el marco de la vista de planta que sí recorta el render;
     los puntos de corte son nodos `cut` (no forman esquinas). Los arcos
-    pequeños abiertos (giro ≤200°) son codos, no letras. Ojo: `git checkout --`
+    pequeños abiertos (giro ≤200°) son codos, no letras. **Abandonadas**
+    (capa de estado `-A`, linetype «──/── e ──»): `recognition.is_abandoned_ocg`
+    separa las capas activas de las abandonadas y `recognize_page` corre
+    `reconstruct` por grupo (son pipes distintas; `RecognizedPolyline.abandoned`
+    → pipe `ab=True`). En el núcleo, `strip_crossing_markers` convierte las
+    barras «/» (trazo corto que cruza la línea con su punto medio sobre ella)
+    en glifos, y `detect_loop_vaults` toma un lazo rectangular cerrado de 4
+    corridas perpendiculares (lado 12–120 pt) de la propia capa como bóveda
+    (el DU06 dibuja el contorno de la bóveda abandonada en `C-ELEC-UNGD-A`).
+    Un trazo continuo que solo nace en el borde de una bóveda no forma
+    «through virtual» con la línea del lado opuesto (sí si la cruza).
+    **T-ends** (`resolve_nodes`, pre-pasada tras la Fase A): un extremo que
+    muere a ≤`NODE_OFF_LINE_PT` de otra corrida recta, en su interior, sin
+    continuación colineal enfrente ni otro extremo pegado, es una T con ESA
+    corrida (no llega a bóvedas vecinas, no forma esquina con terceros:
+    5c-bis). Un tick corto sobre el que muere otra corrida queda «capped»
+    (sus puntas son extremos puros: ni esquina, ni T, ni prolongación). `slide_ok`: ninguna esquina/T desliza un
+    extremo más de media corrida. `SOFT_SIMPLIFY_PT`=1.5 para bend/corner,
+    `CURVE_SIMPLIFY_SOFT_PT`=1.0 en tramos con vértices de curva. Ojo: `git checkout --`
     sobre archivos *staged* descarta el trabajo no staged — no usarlo aquí.
     `edge`/`stop` nunca se simplifican. Devuelve cobertura de guiones,
     guiones sin cubrir y trazos off-pattern (leaders) para QA. Tests con PDFs
@@ -56,6 +79,13 @@ alcantarillado, drenaje, gas, eléctrico, telecom). Todo en **unidades imperiale
     `doc.set_layer` no sirve en PDFs de Bluebeam). La visibilidad vive en el
     `fitz.Document` de `Main` (`self.hidden_ocgs` guarda los nombres); el worker
     abre su propio doc, por eso recibe `hidden_ocgs` y filtra por nombre.
+    `pdf_layers.utility_of(name)` agrupa cada capa por tokens NCS en las
+    utilidades de la app (`model.TIPOS` + `OTRAS`); el diálogo las lista
+    agrupadas con su color, el panel «Utilidades» solo FILTRA la lista, y
+    «◀ Hoja N / M ▶» cambia de hoja sin salir. Devuelve `(ocultas, hoja)`.
+    En `Main`, `_start_recognition(idx)` lanza el worker con
+    `self.hidden_ocgs` + `self._layer_roles` (None = automático); `_change_page`
+    (◀ ▶ / nº de página del editor) lo reutiliza si `self._recog_ready`.
   - `dialogs.py` — diálogos fuera del flujo principal (Acerca/Manual/Atajos,
     instalar/desinstalar familias). Funciones que reciben `win`; en `Main` quedan
     métodos delgados que delegan (los menús siguen apuntando a `self.show_about`, etc.).

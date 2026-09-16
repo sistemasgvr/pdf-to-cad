@@ -19,8 +19,38 @@ from __future__ import annotations
 from collections import Counter
 from typing import Iterable, List, Set
 
+from model import TIPOS
+
 # Códigos de `Document.set_layer_ui_config(number, action)`.
 _ACTION_ON, _ACTION_TOGGLE, _ACTION_OFF = 0, 1, 2
+
+
+# ── Utilidad a la que pertenece una capa (por tokens NCS del nombre) ──────────
+# Mismas utilidades (clave y etiqueta) que el desplegable «Tipo de utilidad» de
+# la app (`model.TIPOS`), más «Otras» para el resto (calles, topo, membrete…).
+# Las claves son capas de config.OUTPUT_LAYERS: así comparten color con la app.
+# El reconocimiento hoy solo trata ELECTRICO; las demás agrupan la lista.
+UTILITY_OTHER = "OTRAS"
+UTILITIES = [(key, label) for label, key in TIPOS] + [(UTILITY_OTHER, "Otras")]
+# Tokens (subcadena, sin distinguir mayúsculas). TELECOM va ANTES que
+# ELECTRICO porque "TELE" contiene "ELE".
+_UTILITY_TOKENS = [
+    ("TELECOM", ("TELE", "COMM", "CATV", "FIBER", "FIBR", "-FO-")),
+    ("ELECTRICO", ("ELEC", "POWR", "PWR", "STLT", "OC-SYSTEM", "OCS-")),
+    ("AGUA", ("WATR", "WATER", "FIRE", "IRRG", "DOMW", "HYDR")),
+    ("GAS", ("NGAS", "-GAS", "GAS-")),
+    ("ALCANTARILLADO", ("SSWR", "SEWER", "SANI")),
+    ("DRENAJE", ("STRM", "STORM", "DRAN", "DRAIN")),
+]
+
+
+def utility_of(name: str) -> str:
+    """Clave de utilidad de una capa por su nombre (o ``UTILITY_OTHER``)."""
+    up = short_name(name or "").upper()
+    for key, toks in _UTILITY_TOKENS:
+        if any(t in up for t in toks):
+            return key
+    return UTILITY_OTHER
 
 
 def short_name(name: str) -> str:
@@ -53,7 +83,7 @@ def set_hidden(doc, hidden: Iterable[str]) -> None:
 def page_layers(doc, page_index: int) -> List[dict]:
     """Todas las capas OCG del documento, con conteo de trazos en la hoja.
 
-    Devuelve dicts ``{name, short, number, path_count, on}`` para **cada**
+    Devuelve dicts ``{name, short, number, path_count, on, utility}`` para **cada**
     entrada de ``layer_ui_configs`` (como Okular), aunque ``path_count`` sea 0
     en esa hoja. Orden: primero las que tienen trazos (``path_count`` desc),
     luego las de 0 trazos por nombre corto. Para contar se encienden TODAS las
@@ -80,6 +110,7 @@ def page_layers(doc, page_index: int) -> List[dict]:
             "number": c["number"],
             "path_count": n,
             "on": name not in prev_hidden,
+            "utility": utility_of(name),
         })
     # Con trazos primero (más → menos); sin trazos al final, por short.
     out.sort(key=lambda d: (0 if d["path_count"] > 0 else 1,

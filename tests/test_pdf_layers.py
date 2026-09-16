@@ -89,3 +89,28 @@ def test_recognize_page_respeta_hidden_ocgs():
     assert res.hidden_ocgs == sorted(elec)
     assert not res.drawable
     assert not any(s["ocg"] in elec for s in res.ocg_summary)
+
+
+def test_utility_of_por_tokens_ncs():
+    u = pdf_layers.utility_of
+    assert u("PS89616000-A1-UE-REF-EXIST_ELEC|C-ELEC-UNGD-E") == "ELECTRICO"
+    assert u("V-ELEC-MANH") == "ELECTRICO" and u("V-STLT-POLE") == "ELECTRICO"
+    assert u("C-TELE-UNGD-E") == "TELECOM"          # "TELE" contiene "ELE": telecom manda
+    assert u("N-COMM-DUCT-BANK-PL") == "TELECOM"
+    assert u("C-WATR-UNGD-A") == "AGUA" and u("V-FIRE-HYDR") == "AGUA"
+    assert u("C-NGAS-E") == "GAS" and u("V-NGAS-VALV") == "GAS"
+    assert u("C-SSWR-UNGD-E") == "ALCANTARILLADO"
+    assert u("C-STRM-CTCH-BASN-N") == "DRENAJE" and u("V-STRM-DRAN") == "DRENAJE"
+    assert u("C-ROAD-CURB") == "OTRAS" and u("G-LOGO-SFTC") == "OTRAS" and u("") == "OTRAS"
+    # Mismas utilidades que la app («Tipo de utilidad») + «Otras» al final.
+    keys = [k for k, _ in pdf_layers.UTILITIES]
+    assert keys == ["AGUA", "ALCANTARILLADO", "DRENAJE", "GAS", "ELECTRICO", "TELECOM", "OTRAS"]
+
+
+@needs_pdf
+def test_page_layers_trae_utilidad():
+    doc = fitz.open(str(PDF))
+    layers = pdf_layers.page_layers(doc, PAGE)
+    by = {L["short"]: L["utility"] for L in layers}
+    assert by["C-ELEC-UNGD-E"] == "ELECTRICO" and by["C-SSWR-UNGD-E"] == "ALCANTARILLADO"
+    assert all(L["utility"] in {k for k, _ in pdf_layers.UTILITIES} for L in layers)

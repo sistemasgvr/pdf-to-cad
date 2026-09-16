@@ -61,6 +61,9 @@ class RecognizedPolyline:
     # junction | tee | vault | curve. Lo usa el import para decidir qué
     # vértices son cajas reales y cuáles solo quiebres (estructura oculta).
     kinds: list = field(default_factory=list)
+    # Utilidad ABANDONADA (capa de estado «-A», linetype «──/── e ──»): se
+    # importa como pipe con "ab" = True, igual que la casilla «Abandonado».
+    abandoned: bool = False
 
 
 @dataclass
@@ -101,6 +104,17 @@ def classify_ocg(ocg: Optional[str]) -> Optional[str]:
         if tok.upper() in up:
             return kind
     return None
+
+
+def is_abandoned_ocg(ocg: Optional[str]) -> bool:
+    """Capa de utilidad ABANDONADA: sufijo de estado NCS «-A» (C-ELEC-UNGD-A)
+    o un token explícito (ABND / ABAN / ABANDON)."""
+    if not ocg:
+        return False
+    short = (ocg.split("|")[-1] if "|" in ocg else ocg).strip().upper()
+    if short.endswith("-A"):
+        return True
+    return any(t in short for t in ("ABND", "ABAN", "ABANDON"))
 
 
 def suggest_layer_role(ocg: str) -> str:
@@ -292,24 +306,53 @@ def recognize_page(
         ocg_summary = [{
             "ocg": ocg, "kind": kind_by_ocg.get(ocg, ""), "path_count": n,
             "drawn": kind_by_ocg.get(ocg) in DRAW_KINDS,
+            "abandoned": kind_by_ocg.get(ocg) in DRAW_KINDS and is_abandoned_ocg(ocg),
         } for ocg, n in sorted(path_counts.items(), key=lambda kv: (-kv[1], kv[0]))]
 
         # — Núcleo geométrico (coords PDF) —
-        g = geom.reconstruct(line_paths, vault_paths)
+        # Cada capa OCG de líneas se reconstruye SOLA: no se cosen ni se
+        # imanan trazos de otra capa (aunque ambas sean «ELEC»). Activas y
+        # abandonadas ya salen aparte porque son nombres OCG distintos.
         px = lambda p: _pdf_pt_to_view_px(p[0], p[1], zoom, page)
-        line_ocgs = [o for o, k in kind_by_ocg.items() if k == "elec_ungd"]
-        layer_tag = line_ocgs[0] if len(line_ocgs) == 1 else " + ".join(sorted(line_ocgs))
+        by_ocg: dict[str, List[dict]] = defaultdict(list)
+        for pth in line_paths:
+            by_ocg[pth.get("layer") or ""].append(pth)
+        results: List[Tuple[bool, str, object]] = []
+        for ocg, paths in sorted(by_ocg.items()):
+            results.append((is_abandoned_ocg(ocg), ocg, geom.reconstruct(paths, vault_paths)))
+        if not results:
+            results = [(False, "", geom.reconstruct([], vault_paths))]
 
         polylines: List[RecognizedPolyline] = []
-        for pl in g.polylines:
-            pts = [px(p) for p in pl.pts]
-            clean, kinds = [], []
-            for p, k in zip(pts, pl.kinds):
-                if not clean or math.hypot(clean[-1][0] - p[0], clean[-1][1] - p[1]) >= 0.5:
-                    clean.append(p); kinds.append(k)
-            if len(clean) < 2:
-                continue
-            polylines.append(RecognizedPolyline(layer_tag, utility, clean, "elec_ungd", kinds))
+        uncovered_px: List[Tuple[Tuple[float, float], Tuple[float, float]]] = []
+        offpattern_px: List[List[Tuple[float, float]]] = []
+        n_dashes = n_glyphs = n_uncovered = n_offpattern = 0
+        covered_w = 0.0
+        # Una bóveda queda huérfana solo si ninguna capa de líneas llega a ella.
+        vault_seen: dict = {}
+        vault_orph: dict = {}
+        for ab, ocg, g in results:
+            for pl in g.polylines:
+                pts = [px(p) for p in pl.pts]
+                clean, kinds = [], []
+                for p, k in zip(pts, pl.kinds):
+                    if not clean or math.hypot(clean[-1][0] - p[0], clean[-1][1] - p[1]) >= 0.5:
+                        clean.append(p); kinds.append(k)
+                if len(clean) < 2:
+                    continue
+                polylines.append(RecognizedPolyline(
+                    ocg, utility, clean, "elec_ungd", kinds, abandoned=ab))
+            uncovered_px += [(px(d.a), px(d.b)) for d in g.uncovered]
+            offpattern_px += [[px(p) for p in pl.pts] for pl in g.offpattern]
+            n_dashes += g.n_dashes; n_glyphs += g.n_glyphs
+            n_uncovered += len(g.uncovered); n_offpattern += len(g.offpattern)
+            covered_w += g.coverage * g.n_dashes
+            for i, v in enumerate(g.vaults):
+                key = (round(v.center[0], 1), round(v.center[1], 1))
+                vault_seen[key] = vault_seen.get(key, 0) + 1
+                if i in g.vault_orphans:
+                    vault_orph[key] = vault_orph.get(key, 0) + 1
+        coverage_total = covered_w / n_dashes if n_dashes else 1.0
 
         # Bóvedas = vértices 'vault' de las polilíneas que SÍ se importan
         # (deduplicados), así siempre coinciden con un vértice real.
@@ -318,9 +361,7 @@ def recognize_page(
             for p, k in zip(pl.pts_pdf, pl.kinds):
                 if k == "vault" and not any(math.hypot(p[0] - q[0], p[1] - q[1]) < 0.5 for q in vault_pts):
                     vault_pts.append(p)
-        orphans_px = [px(g.vaults[i].center) for i in g.vault_orphans]
-        uncovered_px = [(px(d.a), px(d.b)) for d in g.uncovered]
-        offpattern_px = [[px(p) for p in pl.pts] for pl in g.offpattern]
+        orphans_px = [px(key) for key, n in vault_seen.items() if vault_orph.get(key, 0) == n]
 
         for ocg, kind in kind_by_ocg.items():          # stubs informativos (no dibujables)
             if kind in DRAW_KINDS or (kind == "structure" and vault_pts):
@@ -331,15 +372,18 @@ def recognize_page(
             warnings.append("No se encontraron líneas eléctricas subterráneas en esta hoja.")
         if not path_counts:
             warnings.append("Ninguna capa OCG coincidió con los roles / tokens de reconocimiento.")
-        if g.n_glyphs:
+        n_ab = sum(1 for p in polylines if p.kind == "elec_ungd" and p.pts_pdf and p.abandoned)
+        if n_ab:
+            warnings.append(f"Utilidades abandonadas (capa «-A»): {n_ab} — se importan marcadas (AB).")
+        if n_glyphs:
             warnings.append(
-                f"Se omitieron {g.n_glyphs} trazos de marcador/linetype (letras); "
+                f"Se omitieron {n_glyphs} trazos de marcador/linetype (letras, barras); "
                 "solo se dibuja la centerline.")
-        if g.n_dashes:
-            warnings.append(f"Cobertura de guiones: {g.coverage * 100:.1f}%"
-                            + (f" ({len(g.uncovered)} sin cubrir, en naranja)." if g.uncovered else "."))
-        if g.offpattern:
-            warnings.append(f"Trazos continuos fuera de patrón (leaders/flechas): {len(g.offpattern)} — "
+        if n_dashes:
+            warnings.append(f"Cobertura de guiones: {coverage_total * 100:.1f}%"
+                            + (f" ({n_uncovered} sin cubrir, en naranja)." if n_uncovered else "."))
+        if n_offpattern:
+            warnings.append(f"Trazos continuos fuera de patrón (leaders/flechas): {n_offpattern} — "
                             "no se importan.")
         if vault_pts:
             warnings.append(f"Bóvedas detectadas: {len(vault_pts)} (ya son vértices de las líneas).")
@@ -351,7 +395,7 @@ def recognize_page(
             utility=utility, page_index=page_index, scale_ft_per_pt=scale,
             polylines=polylines, ocg_summary=ocg_summary, warnings=warnings,
             hidden_ocgs=sorted(hidden), vault_pts=vault_pts, layer_roles=dict(roles_out),
-            coverage=g.coverage, uncovered_px=uncovered_px, offpattern_px=offpattern_px,
+            coverage=coverage_total, uncovered_px=uncovered_px, offpattern_px=offpattern_px,
             vault_orphans_px=orphans_px,
         )
     finally:
@@ -376,7 +420,7 @@ def pipes_from_recognition(result: RecognitionResult, layer: str = UTILITY_HINT)
         out.append({
             "layer": layer,
             "pts": pts,
-            "ab": False,
+            "ab": bool(getattr(pl, "abandoned", False)),
             "diam": float(PIPE_DIAMETERS_IN[0]),
             "diam_unit": "in",
             "material": DEFAULT_PIPE_MATERIAL,

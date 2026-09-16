@@ -590,3 +590,264 @@ def test_clip_path_recorta_por_el_marco_y_marca_los_cortes():
     for pl in res.polylines:
         assert "cut" in pl.kinds and "stop" in pl.kinds
         assert "corner" not in pl.kinds and "junction" not in pl.kinds
+
+
+# ─────────────────────── utilidad abandonada («──/── e ──») ───────────────────────
+def _slashes(sh, a, b, every=60.0, size=7.5):
+    """Barras «/» del linetype abandonado: trazo corto a ~60° que cruza la línea
+    (centrado sobre ella) cada `every` pt desde `a`."""
+    ax, ay = a; bx, by = b
+    L = math.hypot(bx - ax, by - ay); ux, uy = (bx - ax) / L, (by - ay) / L
+    nx, ny = -uy, ux
+    t = every / 2
+    while t < L:
+        cx, cy = ax + ux * t, ay + uy * t
+        h = size / 2
+        dx, dy = ux * h * 0.5 + nx * h * 0.87, uy * h * 0.5 + ny * h * 0.87
+        sh.line("LINES", (cx - dx, cy - dy), (cx + dx, cy + dy))
+        t += every
+
+
+def test_abandonada_barras_son_marcadores_no_guiones_sin_cubrir():
+    sh = Sheet()
+    sh.dashed((100, 400), (700, 400))
+    _slashes(sh, (100, 400), (700, 400))
+    res = sh.run()
+    assert len(res.polylines) == 1
+    pl = res.polylines[0]
+    assert pl.kinds == ["end", "end"] and abs(pl.pts[0][1] - 400) < 0.5 and abs(pl.pts[1][1] - 400) < 0.5
+    assert res.coverage >= 0.999 and not res.uncovered
+    assert res.n_glyphs >= 10 + 9          # letras + 10 barras
+
+
+def test_abandonada_barras_no_deforman_esquina():
+    sh = Sheet()
+    sh.dashed((100, 400), (500, 400)); sh.dashed((500, 400), (500, 150))
+    _slashes(sh, (100, 400), (500, 400)); _slashes(sh, (500, 400), (500, 150))
+    res = sh.run()
+    assert len(res.polylines) == 1 and res.coverage >= 0.999
+    pl = res.polylines[0]
+    assert "corner" in pl.kinds and _near(_kinds_at(pl, "corner")[0], (500, 400), 0.5)
+
+
+def test_boveda_dibujada_en_la_misma_capa_es_lazo_no_linea():
+    """Caso abandonada (hoja 9 del DU06): el contorno de la bóveda está en la
+    capa de líneas, ploteado con el mismo linetype. El lazo rectangular pasa a
+    ser bóveda: la línea que llega para en su borde y el contorno no se dibuja."""
+    sh = Sheet()
+    x0, y0, x1, y1 = 500, 380, 560, 420
+    for a, b in (((x0, y0), (x1, y0)), ((x1, y0), (x1, y1)), ((x1, y1), (x0, y1)), ((x0, y1), (x0, y0))):
+        sh.dashed(a, b)
+    sh.dashed((100, 400), (x0 - 1, 400))
+    _slashes(sh, (100, 400), (x0 - 1, 400))
+    res = sh.run()
+    assert len(res.vaults) == 1
+    v = res.vaults[0]
+    assert abs(v.x0 - x0) < 2 and abs(v.y0 - y0) < 2 and abs(v.x1 - x1) < 2 and abs(v.y1 - y1) < 2
+    assert len(res.polylines) == 1, [pl.kinds for pl in res.polylines]
+    pl = _oriented(res.polylines[0], "stop")
+    assert pl.kinds[-1] == "stop" and _near(pl.pts[-1], (x0, 400), 1.5)
+    assert res.coverage >= 0.999                       # los guiones del contorno no cuentan
+
+
+def test_lazo_grande_no_es_boveda():
+    """Un anillo de red de 300×200 pt no es un símbolo: sigue siendo línea."""
+    sh = Sheet()
+    x0, y0, x1, y1 = 300, 200, 600, 400
+    for a, b in (((x0, y0), (x1, y0)), ((x1, y0), (x1, y1)), ((x1, y1), (x0, y1)), ((x0, y1), (x0, y0))):
+        sh.dashed(a, b)
+    res = sh.run()
+    assert not res.vaults
+    assert sum(k == "corner" for pl in res.polylines for k in pl.kinds) >= 3
+    assert res.coverage >= 0.999
+
+
+def test_trazo_continuo_que_nace_en_el_borde_no_es_continuidad():
+    """Una línea llega a la bóveda por la izquierda; por la derecha sale un trazo
+    CONTINUO (sin patrón) colineal. No es la misma línea que atraviesa: ambos
+    paran en el borde (mock del usuario, hoja 9)."""
+    sh = Sheet()
+    sh.rect("VAULTS", 500, 380, 560, 420)
+    sh.dashed((100, 400), (499, 400))
+    sh.polyline("LINES", [(561, 401), (600, 401), (615, 392)])
+    res = sh.run()
+    assert all("vault" not in pl.kinds for pl in res.polylines)
+    stops = [p for pl in res.polylines for p in _kinds_at(pl, "stop")]
+    assert any(_near(p, (500, 400), 1.5) for p in stops) and any(_near(p, (560, 401), 1.5) for p in stops)
+
+
+def test_trazo_continuo_que_cruza_la_boveda_si_es_continuidad():
+    """El mismo trazo continuo pero entrando por la derecha y cruzando la bóveda
+    hasta el borde izquierdo (transición, hoja 12): sí es la línea que sigue."""
+    sh = Sheet()
+    sh.rect("VAULTS", 500, 380, 560, 420)
+    sh.dashed((100, 400), (499, 400))
+    sh.polyline("LINES", [(501, 400), (620, 400), (640, 390)])
+    res = sh.run()
+    assert any("vault" in pl.kinds for pl in res.polylines)
+
+
+# ─────────────────────── T sobre otra corrida (hoja 9, precisión de quiebres) ───────────────────────
+def test_extremo_que_muere_sobre_otra_linea_es_T_no_esquina_con_un_tercero():
+    """Diagonal que muere SOBRE la horizontal y, 35 pt más allá, otra rama que
+    nace de la horizontal: antes se emparejaban entre sí como esquina fuera de
+    la línea; ahora cada una es una T sobre la horizontal (vértice sobre la capa)."""
+    sh = Sheet()
+    sh.dashed((100, 400), (700, 400))                       # H
+    sh.dashed((150, 600), (320, 400))                       # diagonal que muere en H (x=320)
+    sh.dashed((355, 400), (520, 560))                       # rama que nace de H (x=355)
+    res = sh.run()
+    assert res.coverage >= 0.999
+    H = max(res.polylines, key=lambda p: p.length)
+    tees = _kinds_at(H, "tee")
+    assert any(_near(t, (320, 400), 2.0) for t in tees) and any(_near(t, (355, 400), 2.0) for t in tees), H.kinds
+    assert all(abs(p[1] - 400) < 0.6 for p in H.pts)          # ningún vértice fuera de la horizontal
+    assert not any(k in ("corner", "junction") for pl in res.polylines for k in pl.kinds)
+
+
+def test_tick_de_fin_de_tramo_es_extremo_con_T_en_el_medio():
+    """«──┤»: la horizontal muere en el centro de un tick corto perpendicular.
+    El tick queda extremo–T–extremo y sus puntas NUNCA se unen a otra línea
+    cercana: ni a la que pasa ~5 pt por debajo ni a la que MUERE a 4 pt de su
+    punta (hoja 9: «ahí nunca se une»)."""
+    sh = Sheet()
+    sh.dashed((100, 400), (500, 400))
+    sh.line("LINES", (500, 393), (500, 407))                # tick de 14 pt centrado en la línea
+    sh.dashed((450, 408), (700, 428))                       # otra línea que pasa ~5 pt bajo el tick
+    sh.dashed((504, 411), (600, 520))                       # ramal que muere a 4 pt de la punta
+    res = sh.run()
+    tick = [pl for pl in res.polylines if len(pl.pts) == 3 and all(abs(p[0] - 500) < 0.6 for p in pl.pts)]
+    assert tick, [pl.kinds for pl in res.polylines]
+    assert sorted(tick[0].kinds) == ["end", "end", "tee"]
+    assert abs(min(p[1] for p in tick[0].pts) - 393) < 0.6 and abs(max(p[1] for p in tick[0].pts) - 407) < 0.6
+    ramal = [pl for pl in res.polylines if any(_near(p, (600, 520), 1.5) for p in pl.pts)][0]
+    assert not any(abs(p[0] - 500) < 1.0 for p in ramal.pts)   # ningún vértice sobre el tick
+    assert _near(_kinds_at(tick[0], "tee")[0], (500, 400), 0.6)
+    H = [pl for pl in res.polylines if any(_near(p, (100, 400), 1.5) for p in pl.pts)][0]
+    assert _near(_oriented(H, "tee").pts[-1], (500, 400), 0.6)
+    assert res.coverage >= 0.999
+
+
+def test_cruce_en_x_con_hueco_no_es_T():
+    """Vertical que cruza una horizontal con el hueco del patrón justo en el
+    cruce: sigue siendo UNA vertical (quiebre suave), sin T sobre la horizontal."""
+    sh = Sheet()
+    sh.dashed((100, 400), (700, 400))
+    sh.dashed((400, 150), (400, 393)); sh.dashed((400, 407), (400, 650))
+    res = sh.run()
+    vert = [pl for pl in res.polylines if all(abs(p[0] - 400) < 0.6 for p in pl.pts)]
+    assert len(vert) == 1 and sorted(vert[0].kinds)[0] == "bend" or vert[0].kinds == ["end", "end"], [pl.kinds for pl in res.polylines]
+    H = [pl for pl in res.polylines if any(_near(p, (100, 400), 1.5) for p in pl.pts)][0]
+    assert "tee" not in H.kinds and "junction" not in H.kinds
+
+
+def test_linea_que_atraviesa_boveda_y_sigue_un_trozo_corto():
+    """Sale de la bóveda y termina 15 pt más allá: borde, nodo, borde y extremo
+    (antes el trozo corto se recortaba al borde y quedaba sin cubrir)."""
+    sh = Sheet()
+    sh.rect("VAULTS", 385, 300, 415, 400)
+    sh.dashed((400, 100), (400, 299)); sh.dashed((400, 401), (400, 416))
+    res = sh.run()
+    assert res.coverage >= 0.999 and not res.uncovered
+    pl = max(res.polylines, key=lambda p: p.length)
+    ends = _kinds_at(pl, "end")
+    assert any(_near(e, (400, 416), 1.0) for e in ends) and any(_near(e, (400, 100), 1.0) for e in ends)
+    assert "vault" in pl.kinds and pl.kinds.count("edge") == 2
+
+
+def test_ramal_misma_capa_se_une_por_el_codo_y_el_otro_extremo_queda_libre():
+    """Horizontal + codo + vertical (un guión de 34 pt y letra) son la misma
+    capa: una polilínea del ramal nace en la horizontal, quiebra en el codo y
+    termina en el último guión. No es leader."""
+    sh = Sheet()
+    sh.dashed((100, 400), (700, 400))
+    sh.polyline("LINES", [(400, 404), (406, 412), (412, 422)])
+    sh.line("LINES", (412, 426), (412, 448))          # 22 pt, del patrón
+    sh.letter_e("LINES", 412, 453)
+    sh.line("LINES", (412, 458), (412, 492))          # 34 pt, pasa 1.5×22
+    res = sh.run()
+    assert not res.offpattern
+    branch = [pl for pl in res.polylines if any(_near(p, (412, 492), 2.0) for p in pl.pts)]
+    assert len(branch) == 1
+    pl = branch[0]
+    assert any(k in ("corner", "bend", "curve") for k in pl.kinds)
+    assert any(_near(p, (412, 492), 2.0) and k == "end" for p, k in zip(pl.pts, pl.kinds))
+    main = [q for q in res.polylines if q is not pl and any(abs(p[1] - 400) < 3 and 150 < p[0] < 650 for p in q.pts)]
+    assert main and any(_near(a, b, 1.5) for a in pl.pts for b in main[0].pts)
+
+
+@needs_pdf
+def test_du06_hoja15_ramal_comparte_vertice_con_la_horizontal():
+    """El vertical en x≈1103 no es off-pattern: nace en la horizontal (T) y
+    tiene quiebre en el codo; el extremo libre es el último guión."""
+    res = _sheet_result(14)
+    assert not any(abs(pl.pts[0][0] - 1103) < 2 and abs(pl.pts[-1][0] - 1103) < 2
+                   for pl in res.offpattern)
+    branch = [pl for pl in res.polylines
+              if any(abs(p[0] - 1103.4) < 3 and abs(p[1] - 1271) < 3 for p in pl.pts)]
+    assert branch
+    pl = branch[0]
+    assert any(k in ("corner", "bend", "curve") for k in pl.kinds)
+    main = [q for q in res.polylines if q is not pl
+            and any(abs(p[1] - 1196) < 4 and 400 < p[0] < 1600 for p in q.pts)]
+    assert main and any(_near(a, b, 1.5) for a in pl.pts for b in main[0].pts)
+
+
+class _Rect:
+    def __init__(self, x0, y0, x1, y1):
+        self.x0, self.y0, self.x1, self.y1 = x0, y0, x1, y1
+
+
+def _dash_path(layer, a, b):
+    x0, x1 = min(a[0], b[0]), max(a[0], b[0])
+    y0, y1 = min(a[1], b[1]), max(a[1], b[1])
+    return {"layer": layer, "rect": _Rect(x0, y0, x1, y1),
+            "items": [("l", a, b)], "closePath": False}
+
+
+def _box_path(layer, x0, y0, x1, y1):
+    return {"layer": layer, "rect": _Rect(x0, y0, x1, y1),
+            "items": [("re", _Rect(x0, y0, x1, y1))], "closePath": True}
+
+
+def test_cluster_vaults_rechaza_linetype_y_no_mezcla_capas():
+    """Guiones abiertos (linetype) no son bóvedas; un rectángulo cerrado sí.
+    Clusterizar por OCG: los guiones de otra capa no inflan el bbox del símbolo."""
+    dashes = [_dash_path("ESFV", (100 + i * 40, 400), (118 + i * 40, 400)) for i in range(12)]
+    box = _box_path("VALT", 200, 380, 230, 410)
+    assert G.cluster_vaults(dashes) == []
+    vs = G.cluster_vaults(dashes + [box])
+    assert len(vs) == 1
+    cx, cy = vs[0].center
+    assert abs(cx - 215) < 1 and abs(cy - 395) < 1
+    assert vs[0].x1 - vs[0].x0 <= 32
+
+
+def test_guiones_en_capa_boveda_no_deforman_la_linea():
+    """Capa de «estructuras» que en realidad es un linetype: no parte ni imana
+    la utilidad de LINES (equivalente sintético de ESFV-STRUCT sobre UNGD)."""
+    sh = Sheet()
+    sh.dashed((100, 400), (700, 400))
+    for x in range(120, 680, 40):
+        sh.line("VAULTS", (x, 398), (x + 18, 398))
+    dirty = sh.run()
+    clean = Sheet(); clean.dashed((100, 400), (700, 400))
+    base = clean.run()
+    assert not dirty.vaults
+    assert [(pl.pts, pl.kinds) for pl in dirty.polylines] == [(pl.pts, pl.kinds) for pl in base.polylines]
+
+
+def test_dos_ocg_de_lineas_no_comparten_vertices():
+    """Cada reconstruct() solo ve sus paths: una capa paralela no aporta vértices."""
+    a = Sheet(); a.dashed((100, 400), (700, 400))
+    b = Sheet(); b.dashed((100, 430), (700, 430))
+    la, _ = a.paths(); lb, _ = b.paths()
+    ga = G.reconstruct(la, [])
+    gab = G.reconstruct(la + lb, [])
+    assert len(ga.polylines) == 1
+    assert len(gab.polylines) >= 2
+    ga2 = G.reconstruct(la, [])
+    assert [(p.pts, p.kinds) for p in ga.polylines] == [(p.pts, p.kinds) for p in ga2.polylines]
+    # Los paths de B, pasados como bóvedas (guiones abiertos), no cambian A.
+    mix = G.reconstruct(la, lb)
+    assert [(p.pts, p.kinds) for p in ga.polylines] == [(p.pts, p.kinds) for p in mix.polylines]

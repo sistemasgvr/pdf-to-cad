@@ -1,17 +1,31 @@
-"""recognition_dialog.py — Asistente v1: tipo PDF, elegir hoja, roles OCG, preview.
+"""recognition_dialog.py — Asistente v1: tipo PDF, elegir hoja, preview, roles OCG.
 
 El preview dibuja las pipes reconocidas como el trazo manual y, al Continuar,
-se importan al editor (misma forma que finish_pipe). Textos en español vía i18n.
+se importan al editor (misma forma que finish_pipe). Las capas usadas como
+líneas/bóvedas se asignan AUTOMÁTICAMENTE por nombre (`recognition.classify_ocg`)
+y se muestran de forma informativa en el preview; «Ajustar capas…» abre el
+diálogo de roles solo si hace falta (plot con otros nombres). Desde el preview
+también se puede «Cambiar de hoja…» (lista de hojas → capas → nuevo preview).
+Textos en español vía i18n.
 """
 from __future__ import annotations
 
 from PySide6 import QtCore, QtGui, QtWidgets
 
 from i18n import t as _tr
-from ui_common import layer_qcolor
+from model import TIPOS
+from ui_common import layer_qcolor, swatch_icon
 from widgets import ZoomPanView
 import recognition as rec
 import theme as _theme
+
+# Etiqueta de cada utilidad tal como en el desplegable «Tipo de utilidad».
+_UTILITY_LABEL = {key: label for label, key in TIPOS}
+# Etiquetas de los kinds de reconocimiento (informativo en el preview).
+_KIND_LABEL = {"elec_ungd": "Líneas", "structure": "Bóvedas"}
+# Acciones que devuelve el preview.
+PREVIEW_IMPORT, PREVIEW_CANCEL = "import", "cancel"
+PREVIEW_CHANGE_SHEET, PREVIEW_ADJUST_LAYERS = "change_sheet", "adjust_layers"
 
 
 # ─────────────────────────── Paso 1: tipo de PDF ───────────────────────────
@@ -57,8 +71,9 @@ def choose_pdf_type(parent) -> str | None:
 
 
 # ─────────────────────────── Paso 1b: elegir hoja ───────────────────────────
-def choose_page(parent, doc) -> int | None:
-    """Si hay más de una página, pide elegir. Devuelve índice 0-based o None."""
+def choose_page(parent, doc, current: int = 0) -> int | None:
+    """Si hay más de una página, pide elegir (preselecciona `current`).
+    Devuelve índice 0-based o None."""
     n = doc.page_count
     if n <= 1:
         return 0
@@ -74,7 +89,7 @@ def choose_page(parent, doc) -> int | None:
     lst = QtWidgets.QListWidget()
     for i in range(n):
         lst.addItem(_tr("Hoja {i}").format(i=i + 1))
-    lst.setCurrentRow(0)
+    lst.setCurrentRow(max(0, min(int(current or 0), n - 1)))
     split.addWidget(lst)
 
     thumb = QtWidgets.QLabel(alignment=QtCore.Qt.AlignCenter)
@@ -102,7 +117,7 @@ def choose_page(parent, doc) -> int | None:
             thumb.setText(str(e))
 
     lst.currentRowChanged.connect(_update_thumb)
-    _update_thumb(0)
+    _update_thumb(lst.currentRow())
 
     bb = QtWidgets.QDialogButtonBox(
         QtWidgets.QDialogButtonBox.Ok | QtWidgets.QDialogButtonBox.Cancel)
@@ -126,19 +141,20 @@ _ROLE_LABELS = (
 
 
 class LayerRolesDialog(QtWidgets.QDialog):
-    """Confirma qué capas son líneas y cuáles bóvedas (remap si cambian nombres)."""
+    """Ajuste OPCIONAL de qué capas son líneas y cuáles bóvedas (si el plot usa
+    otros nombres). Se abre desde «Ajustar capas…» del preview."""
 
     def __init__(self, parent, layers: list[dict]):
         super().__init__(parent)
-        self.setWindowTitle(_tr("Confirmar capas eléctricas"))
+        self.setWindowTitle(_tr("Ajustar capas eléctricas"))
         self.resize(560, 520)
         self._rows = []  # (name, combo)
 
         lay = QtWidgets.QVBoxLayout(self)
         intro = QtWidgets.QLabel(_tr(
-            "Revisa si estas capas están bien asignadas. Si el plot usa otros "
-            "nombres, cambia el rol. Las líneas se importan como utilidades "
-            "Eléctrico; las bóvedas como cajas en esas líneas."))
+            "Indica qué capas son líneas eléctricas y cuáles bóvedas. Las "
+            "líneas se importan como utilidades Eléctrico; las bóvedas como "
+            "cajas en esas líneas. Al aceptar se vuelve a reconocer la hoja."))
         intro.setWordWrap(True)
         lay.addWidget(intro)
 
@@ -224,7 +240,7 @@ class LayerRolesDialog(QtWidgets.QDialog):
     def _try_accept(self):
         if not self.roles().get(rec.ROLE_LINEAS):
             QtWidgets.QMessageBox.warning(
-                self, _tr("Confirmar capas eléctricas"),
+                self, _tr("Ajustar capas eléctricas"),
                 _tr("Asigna al menos una capa como «Líneas eléctricas»."))
             return
         self.accept()
@@ -247,10 +263,12 @@ def choose_layer_roles(parent, layers: list[dict]) -> dict | None:
 _PreviewView = ZoomPanView
 
 
-def _draw_poly(scene, pts, color, width=2.0, dots=False, z=5):
+def _draw_poly(scene, pts, color, width=2.0, dots=False, z=5, dashed=False):
     """Misma convención visual que Main._poly para pipes finalizados."""
     pen = QtGui.QPen(color, width)
     pen.setCosmetic(True)
+    if dashed:
+        pen.setDashPattern([6.0, 4.0])
     for a, b in zip(pts, pts[1:]):
         it = scene.addLine(a[0], a[1], b[0], b[1], pen)
         it.setZValue(z)
@@ -272,33 +290,63 @@ def _draw_vault(scene, x, y, color, z=6):
 
 
 class RecognitionPreviewDialog(QtWidgets.QDialog):
-    """Muestra el PDF + overlay de líneas (listas para el editor) y bóvedas."""
+    """Muestra el PDF + overlay de líneas (listas para el editor) y bóvedas.
 
-    def __init__(self, parent, qimg: QtGui.QImage, result, utility_layer="ELECTRICO"):
+    `action` al cerrar: PREVIEW_IMPORT (Continuar), PREVIEW_CANCEL,
+    PREVIEW_CHANGE_SHEET («Cambiar de hoja…») o PREVIEW_ADJUST_LAYERS
+    («Ajustar capas…»). Quien lo abre (Main) ejecuta el flujo correspondiente.
+    """
+
+    def __init__(self, parent, qimg: QtGui.QImage, result, utility_layer="ELECTRICO",
+                 page_count: int | None = None):
         super().__init__(parent)
         self.setWindowTitle(_tr("Vista previa del reconocimiento"))
         self.setWindowFlags(
             self.windowFlags()
             | QtCore.Qt.WindowMinimizeButtonHint
             | QtCore.Qt.WindowMaximizeButtonHint)
-        self.resize(1100, 720)
+        self.resize(1200, 760)
         self._result = result
+        self.action = PREVIEW_CANCEL
 
         root = QtWidgets.QHBoxLayout(self)
         self.view = _PreviewView()
         root.addWidget(self.view, 1)
 
-        panel = QtWidgets.QVBoxLayout()
-        root.addLayout(panel, 0)
+        side = QtWidgets.QWidget()
+        side.setFixedWidth(400)
+        panel = QtWidgets.QVBoxLayout(side)
+        panel.setContentsMargins(0, 0, 0, 0)
+        panel.setSpacing(8)
+        root.addWidget(side, 0)
+
+        color = layer_qcolor(utility_layer)
+        t = _theme.tokens()
+
+        # ── cabecera: utilidad (con su color) y hoja ──
+        head = QtWidgets.QHBoxLayout()
+        sw = QtWidgets.QLabel()
+        sw.setPixmap(swatch_icon(color, 16).pixmap(16, 16))
+        head.addWidget(sw)
+        title = QtWidgets.QLabel(_tr(_UTILITY_LABEL.get(utility_layer, utility_layer)))
+        tf = title.font(); tf.setBold(True); tf.setPointSize(tf.pointSize() + 3); title.setFont(tf)
+        head.addWidget(title, 1)
+        sheet = (_tr("Hoja {n} / {total}").format(n=result.page_index + 1, total=page_count)
+                 if page_count else _tr("Hoja {n}").format(n=result.page_index + 1))
+        self.lbl_sheet = QtWidgets.QLabel(sheet)
+        sf = self.lbl_sheet.font(); sf.setBold(True); self.lbl_sheet.setFont(sf)
+        head.addWidget(self.lbl_sheet, 0)
+        panel.addLayout(head)
 
         drawable = [p for p in result.polylines if p.kind == "elec_ungd" and p.pts_pdf]
         n_draw = len(drawable)
+        n_ab = sum(1 for p in drawable if getattr(p, "abandoned", False))
         n_vault = len(getattr(result, "vault_pts", None) or [])
-        summary = QtWidgets.QLabel(
-            _tr("Utilidad: {u}\nHoja: {p}\nTramos listos: {n}\n"
-                "Bóvedas: {v}\nEscala: {s:.6f} pie/pt").format(
-                u=result.utility, p=result.page_index + 1, n=n_draw,
-                v=n_vault, s=result.scale_ft_per_pt))
+        txt = _tr("Tramos listos: {n}  ·  Bóvedas: {v}  ·  Escala: {s:.6f} pie/pt").format(
+            n=n_draw, v=n_vault, s=result.scale_ft_per_pt)
+        if n_ab:
+            txt += "\n" + _tr("Abandonadas (AB): {a} — mismo color; se distinguen por (AB).").format(a=n_ab)
+        summary = QtWidgets.QLabel(txt)
         summary.setWordWrap(True)
         panel.addWidget(summary)
         # QA de un vistazo: cuánto del plano quedó cubierto y qué se dejó fuera.
@@ -309,7 +357,7 @@ class RecognitionPreviewDialog(QtWidgets.QDialog):
             _tr("Cobertura: {c:.1f}%  ·  sin cubrir: {m} (naranja)  ·  fuera de patrón: {o} (violeta)").format(
                 c=cov * 100, m=n_unc, o=n_off))
         qa.setWordWrap(True)
-        qa.setStyleSheet("color:%s;" % (_theme.tokens().success if cov >= 0.98 and n_unc == 0 else "#e08a00"))
+        qa.setStyleSheet("color:%s;" % (t.success if cov >= 0.98 and n_unc == 0 else "#e08a00"))
         panel.addWidget(qa)
         if getattr(result, "hidden_ocgs", None):
             hid = QtWidgets.QLabel(_tr("Capas ocultas por ti: {n} (no se dibujan ni se reconocen)").format(
@@ -318,21 +366,39 @@ class RecognitionPreviewDialog(QtWidgets.QDialog):
             hid.setToolTip("\n".join(result.hidden_ocgs))
             panel.addWidget(hid)
 
-        panel.addWidget(QtWidgets.QLabel(_tr("Capas usadas:")))
+        # ── capas usadas (informativo: asignación automática por nombre) ──
+        lbl_used = QtWidgets.QLabel(_tr("Capas usadas (asignadas automáticamente por su nombre):"))
+        lbl_used.setWordWrap(True)
+        panel.addWidget(lbl_used)
         lst = QtWidgets.QListWidget()
-        lst.setMinimumWidth(280)
-        for s in result.ocg_summary:
-            mark = "✓" if s.get("drawn") else ("●" if s.get("kind") == "structure" else "·")
-            short = s["ocg"].split("|")[-1] if "|" in s["ocg"] else s["ocg"]
-            lst.addItem(
-                f"{mark} [{s.get('kind', '')}] {short} ({s.get('path_count', 0)})")
+        for kind in ("elec_ungd", "structure"):
+            rows = [x for x in result.ocg_summary if x.get("kind") == kind]
+            if not rows:
+                continue
+            hdr = QtWidgets.QListWidgetItem(swatch_icon(color, 12), _tr(_KIND_LABEL[kind]))
+            hdr.setFlags(QtCore.Qt.ItemIsEnabled)       # ni marcable ni seleccionable; icono a color
+            hf = hdr.font(); hf.setBold(True); hdr.setFont(hf)
+            hdr.setForeground(color)
+            lst.addItem(hdr)
+            for x in rows:
+                short = x["ocg"].split("|")[-1] if "|" in x["ocg"] else x["ocg"]
+                tag = "  (AB)" if x.get("abandoned") else ""
+                it = QtWidgets.QListWidgetItem(f"    {short}  ({x.get('path_count', 0)}){tag}")
+                it.setToolTip(x["ocg"])
+                lst.addItem(it)
         panel.addWidget(lst, 1)
 
-        if result.warnings:
+        if n_draw == 0:
+            warn = QtWidgets.QLabel(_tr(
+                "No se encontraron capas de líneas eléctricas en esta hoja. "
+                "Usa «Ajustar capas…» para indicar cuáles son las líneas y las bóvedas."))
+            warn.setWordWrap(True)
+            warn.setStyleSheet(f"color:{t.danger}; font-weight:bold;")
+            panel.addWidget(warn)
+        elif result.warnings:
             warn = QtWidgets.QLabel("\n".join(result.warnings))
             warn.setWordWrap(True)
-            t = _theme.tokens()
-            warn.setStyleSheet(f"color:{t.danger};")
+            warn.setStyleSheet(f"color:{t.text_muted};")
             panel.addWidget(warn)
 
         note = QtWidgets.QLabel(
@@ -342,24 +408,37 @@ class RecognitionPreviewDialog(QtWidgets.QDialog):
         note.setWordWrap(True)
         panel.addWidget(note)
 
+        # ── acciones secundarias: cambiar de hoja / ajustar capas ──
+        row = QtWidgets.QHBoxLayout()
+        self.btn_sheet = QtWidgets.QPushButton(_tr("Cambiar de hoja…"))
+        self.btn_sheet.setToolTip(_tr("Elegir otra hoja del PDF, revisar sus capas y reconocerla."))
+        self.btn_sheet.clicked.connect(lambda: self._finish(PREVIEW_CHANGE_SHEET))
+        self.btn_roles = QtWidgets.QPushButton(_tr("Ajustar capas…"))
+        self.btn_roles.setToolTip(_tr("Solo si el plot usa otros nombres: indicar qué capas son líneas y bóvedas."))
+        self.btn_roles.clicked.connect(lambda: self._finish(PREVIEW_ADJUST_LAYERS))
+        row.addWidget(self.btn_sheet); row.addWidget(self.btn_roles)
+        panel.addLayout(row)
+
         bb = QtWidgets.QDialogButtonBox()
-        btn = bb.addButton(
+        self.btn_ok = bb.addButton(
             _tr("Continuar e importar al editor"), QtWidgets.QDialogButtonBox.AcceptRole)
         btn_cancel = bb.addButton(QtWidgets.QDialogButtonBox.Cancel)
         btn_cancel.setText(_tr("Cancelar"))
-        bb.accepted.connect(self.accept)
+        bb.accepted.connect(lambda: self._finish(PREVIEW_IMPORT))
         bb.rejected.connect(self.reject)
         panel.addWidget(bb)
-        btn.setDefault(True)
+        self.btn_ok.setDefault(True)
+        self.btn_ok.setEnabled(n_draw > 0)
 
         sc = self.view.scene()
         pm = QtGui.QPixmap.fromImage(qimg)
         sc.addPixmap(pm)
-        color = layer_qcolor(utility_layer)
         # Fuera de patrón (leaders, flechas): violeta fino, debajo de las líneas.
         for pts in (getattr(result, "offpattern_px", None) or []):
             _draw_poly(sc, pts, QtGui.QColor("#8a6cff"), width=1.5, dots=False, z=4)
         for pl in drawable:
+            # Activas y abandonadas son la misma utilidad (mismo color). El (AB)
+            # de la lista es lo que las distingue; no se dibujan a trazos.
             _draw_poly(sc, pl.pts_pdf, color, width=2.0, dots=True, z=5)
         # Guiones que ninguna línea cubrió: naranja grueso (para revisar a mano).
         for a, b in (getattr(result, "uncovered_px", None) or []):
@@ -369,10 +448,30 @@ class RecognitionPreviewDialog(QtWidgets.QDialog):
         for (vx, vy) in (getattr(result, "vault_orphans_px", None) or []):
             _draw_vault(sc, vx, vy, QtGui.QColor("#ff8c00"), z=6)
         self.view.setSceneRect(pm.rect())
-        self.view.fitInView(sc.itemsBoundingRect(), QtCore.Qt.KeepAspectRatio)
+        self._fit_pending = True
+        self._fit_view()
+
+    def _fit_view(self):
+        self.view.resetTransform()
+        self.view.fitInView(self.view.scene().itemsBoundingRect(), QtCore.Qt.KeepAspectRatio)
+
+    def showEvent(self, e):
+        super().showEvent(e)
+        # El fitInView del constructor ocurre antes de tener el tamaño real.
+        if self._fit_pending:
+            self._fit_pending = False
+            QtCore.QTimer.singleShot(0, self._fit_view)
+
+    def _finish(self, action: str):
+        self.action = action
+        self.accept()
 
 
-def show_recognition_preview(parent, qimg, result, utility_layer="ELECTRICO") -> bool:
-    """Muestra el preview. Devuelve True si el usuario acepta importar al editor."""
-    dlg = RecognitionPreviewDialog(parent, qimg, result, utility_layer)
-    return dlg.exec() == QtWidgets.QDialog.Accepted
+def show_recognition_preview(parent, qimg, result, utility_layer="ELECTRICO",
+                             page_count: int | None = None) -> str:
+    """Muestra el preview. Devuelve la acción elegida: PREVIEW_IMPORT,
+    PREVIEW_CANCEL, PREVIEW_CHANGE_SHEET o PREVIEW_ADJUST_LAYERS."""
+    dlg = RecognitionPreviewDialog(parent, qimg, result, utility_layer, page_count=page_count)
+    if dlg.exec() != QtWidgets.QDialog.Accepted:
+        return PREVIEW_CANCEL
+    return dlg.action

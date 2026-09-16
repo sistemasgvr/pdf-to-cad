@@ -220,3 +220,89 @@ def test_pipes_carry_vertex_kinds():
     for p in pipes:
         assert p["origen"] == "reconocido"
         assert len(p["vertex_kinds"]) == len(p["pts"])
+
+
+def test_is_abandoned_ocg():
+    assert rec.is_abandoned_ocg("PS89616000-A1-UE-REF-EXIST_ELEC|C-ELEC-UNGD-A")
+    assert rec.is_abandoned_ocg("C-WATR-UNGD-A") and rec.is_abandoned_ocg("C-ELEC-ABND")
+    assert not rec.is_abandoned_ocg("C-ELEC-UNGD-E") and not rec.is_abandoned_ocg("PS-A1-UE|C-ELEC-VALT-E")
+    assert not rec.is_abandoned_ocg("") and not rec.is_abandoned_ocg(None)
+
+
+@pytest.mark.skipif(not PDF.is_file(), reason="PDF de prueba DU06 no está en el repo")
+def test_hoja9_abandonadas_se_reconocen_aparte_y_marcadas_ab():
+    """Hoja 9: C-ELEC-UNGD-A (linetype «──/── e ──», bóveda dibujada en la misma
+    capa). Salen como pipes aparte con ab=True; las barras «/» no quedan sin
+    cubrir; la línea para en el borde del contorno (no lo cruza ni lo dibuja)."""
+    result = rec.recognize_page(PDF, 8, zoom=1.0)
+    ab = [p for p in result.drawable if p.abandoned]
+    act = [p for p in result.drawable if not p.abandoned]
+    assert len(ab) >= 4 and len(act) >= 6
+    assert all("C-ELEC-UNGD-A" in p.layer_ocg for p in ab) and all("C-ELEC-UNGD-A" not in p.layer_ocg for p in act)
+    assert result.coverage >= 0.97
+    # ninguna abandonada pasa por el interior del contorno (1562..1620 × 1001..1037 pt, zoom 1 → px)
+    for p in ab:
+        for (x, y), k in zip(p.pts_pdf, p.kinds):
+            assert not (1564 < x < 1618 and 1003 < y < 1035), (x, y, k)
+    stops = [(x, y) for p in ab for (x, y), k in zip(p.pts_pdf, p.kinds) if k == "stop"]
+    assert len(stops) >= 4
+    summ = {s["ocg"].split("|")[-1]: s for s in result.ocg_summary}
+    assert summ["C-ELEC-UNGD-A"]["abandoned"] and not summ["C-ELEC-UNGD-E"]["abandoned"]
+    pipes = rec.pipes_from_recognition(result)
+    assert sum(1 for p in pipes if p["ab"]) == len(ab) and len(pipes) == len(ab) + len(act)
+
+
+@pytest.mark.skipif(not PDF.is_file(), reason="PDF de prueba DU06 no está en el repo")
+def test_cada_capa_se_reconstruye_sola_no_mezcla_esfv():
+    """Hoja 4: C-ELEC-UNGD-E y U-PROP-ESFV-ELEC-STRUCT son OCGs distintas.
+    Aunque las dos se marquen como «líneas», cada pipe pertenece a UNA capa
+    y la geometría UNGD no cambia al incluir ESFV."""
+    page = 3  # UI hoja 4
+    import fitz
+    doc = fitz.open(str(PDF))
+    names = sorted({d.get("layer") or "" for d in doc[page].get_drawings() if d.get("layer")})
+    doc.close()
+    ungd = next((n for n in names if "C-ELEC-UNGD-E" in n.upper() and "-A" not in n.split("|")[-1].upper()), None)
+    esfv = next((n for n in names if "ESFV-ELEC-STRUCT" in n.upper()), None)
+    valt = next((n for n in names if "C-ELEC-VALT-E" in n.upper()), None)
+    assert ungd and esfv
+    only = rec.recognize_page(
+        PDF, page_index=page, zoom=1.0,
+        layer_roles={rec.ROLE_LINEAS: [ungd], rec.ROLE_BUZONES: [valt] if valt else []})
+    both = rec.recognize_page(
+        PDF, page_index=page, zoom=1.0,
+        layer_roles={rec.ROLE_LINEAS: [ungd, esfv], rec.ROLE_BUZONES: [valt] if valt else []})
+    ungd_only = [p for p in only.drawable]
+    ungd_both = [p for p in both.drawable if p.layer_ocg == ungd]
+    esfv_both = [p for p in both.drawable if p.layer_ocg == esfv]
+    assert ungd_only and all(p.layer_ocg == ungd for p in ungd_only)
+    assert all("+" not in p.layer_ocg for p in both.drawable)
+    # UNGD no absorbe la otra capa: mismas polilíneas (mismos n° de pts)
+    assert [len(p.pts_pdf) for p in ungd_only] == [len(p.pts_pdf) for p in ungd_both]
+    # ESFV como línea produce pipes propias, no mezcla vértices en UNGD
+    if esfv_both:
+        assert all(p.layer_ocg == esfv for p in esfv_both)
+
+
+@pytest.mark.skipif(not PDF.is_file(), reason="PDF de prueba DU06 no está en el repo")
+def test_esfv_como_buzon_no_deforma_ungd():
+    """Marcar ESFV-STRUCT como bóveda no debe cambiar las centerlines UNGD."""
+    page = 3
+    import fitz
+    doc = fitz.open(str(PDF))
+    names = sorted({d.get("layer") or "" for d in doc[page].get_drawings() if d.get("layer")})
+    doc.close()
+    ungd = next((n for n in names if "C-ELEC-UNGD-E" in n.upper() and "-A" not in n.split("|")[-1].upper()), None)
+    esfv = next((n for n in names if "ESFV-ELEC-STRUCT" in n.upper()), None)
+    valt = next((n for n in names if "C-ELEC-VALT-E" in n.upper()), None)
+    assert ungd and esfv
+    base = rec.recognize_page(
+        PDF, page_index=page, zoom=1.0,
+        layer_roles={rec.ROLE_LINEAS: [ungd], rec.ROLE_BUZONES: [valt] if valt else []})
+    mixed = rec.recognize_page(
+        PDF, page_index=page, zoom=1.0,
+        layer_roles={rec.ROLE_LINEAS: [ungd],
+                     rec.ROLE_BUZONES: ([valt] if valt else []) + [esfv]})
+    a = [(tuple(p.pts_pdf), tuple(p.kinds)) for p in base.drawable]
+    b = [(tuple(p.pts_pdf), tuple(p.kinds)) for p in mixed.drawable]
+    assert a == b
