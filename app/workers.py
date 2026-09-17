@@ -28,7 +28,7 @@ class RecognitionWorker(QtCore.QThread):
     done = QtCore.Signal(object, str)
 
     def __init__(self, pdf_path, page_index, zoom=1.0, utility="ELECTRICO",
-                 hidden_ocgs=None, layer_roles=None):
+                 hidden_ocgs=None, layer_roles=None, join_routes=True):
         super().__init__()
         self.pdf_path = pdf_path
         self.page_index = page_index
@@ -36,6 +36,7 @@ class RecognitionWorker(QtCore.QThread):
         self.utility = utility
         self.hidden_ocgs = list(hidden_ocgs or [])
         self.layer_roles = dict(layer_roles or {})
+        self.join_routes = join_routes
 
     def run(self):
         try:
@@ -44,7 +45,8 @@ class RecognitionWorker(QtCore.QThread):
                 self.pdf_path, page_index=self.page_index,
                 utility=self.utility, zoom=self.zoom,
                 hidden_ocgs=self.hidden_ocgs,
-                layer_roles=self.layer_roles or None)
+                layer_roles=self.layer_roles or None,
+                join_routes=self.join_routes)
             self.done.emit(result, "")
         except Exception as e:
             import traceback

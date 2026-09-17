@@ -27,6 +27,7 @@ if str(_ROOT) not in sys.path:
 
 import vector_pipeline as VP
 import recognition_geom as geom
+import routes as routes_mod
 
 # Tokens locales — NO modificar config.LAYER_TOKENS del export.
 # Orden: más específico primero.
@@ -64,6 +65,10 @@ class RecognizedPolyline:
     # Utilidad ABANDONADA (capa de estado «-A», linetype «──/── e ──»): se
     # importa como pipe con "ab" = True, igual que la casilla «Abandonado».
     abandoned: bool = False
+    # Ruta (strokes): varias polilíneas de la misma capa unidas de frente.
+    # route_id se numera por capa; n_segments=1 si no se unió nada.
+    route_id: int = 0
+    n_segments: int = 1
 
 
 @dataclass
@@ -82,6 +87,13 @@ class RecognitionResult:
     layer_roles: dict = field(default_factory=dict)
     vaults_snapped: int = 0
     vaults_skipped: int = 0
+    # Rutas (buena continuación). `polylines` es la variante activa; las dos
+    # listas permiten deshacer la unión en el preview sin reabrir el PDF.
+    join_routes: bool = True
+    n_routes: int = 0
+    n_segments_total: int = 0
+    polylines_joined: List[RecognizedPolyline] = field(default_factory=list)
+    polylines_raw: List[RecognizedPolyline] = field(default_factory=list)
     # QA del núcleo geométrico (todo en px del lienzo):
     coverage: float = 1.0                                   # fracción de guiones cubiertos
     uncovered_px: List[Tuple[Tuple[float, float], Tuple[float, float]]] = field(default_factory=list)
@@ -269,12 +281,15 @@ def recognize_page(
     doc: Optional[fitz.Document] = None,
     hidden_ocgs: Optional[Sequence[str]] = None,
     layer_roles: Optional[dict] = None,
+    join_routes: bool = True,
 ) -> RecognitionResult:
     """Reconoce utilidades eléctricas en una hoja. Abre el PDF si `doc` es None.
 
     `hidden_ocgs`: capas OCG ocultas (se saltan por nombre).
     `layer_roles`: ``{"lineas":[ocg…], "buzones":[ocg…]}``. Si es None, se
     usan los tokens ``RECOGNITION_LAYER_TOKENS``.
+    `join_routes`: une tramos de la misma capa en rutas (buena continuación).
+    False devuelve las polilíneas tal como las corta el núcleo geométrico.
     """
     own_doc = doc is None
     hidden = set(hidden_ocgs or ())
@@ -323,25 +338,42 @@ def recognize_page(
         if not results:
             results = [(False, "", geom.reconstruct([], vault_paths))]
 
-        polylines: List[RecognizedPolyline] = []
+        polylines_joined: List[RecognizedPolyline] = []
+        polylines_raw: List[RecognizedPolyline] = []
         uncovered_px: List[Tuple[Tuple[float, float], Tuple[float, float]]] = []
         offpattern_px: List[List[Tuple[float, float]]] = []
         n_dashes = n_glyphs = n_uncovered = n_offpattern = 0
         covered_w = 0.0
+        n_routes = n_segments_total = 0
         # Una bóveda queda huérfana solo si ninguna capa de líneas llega a ella.
         vault_seen: dict = {}
         vault_orph: dict = {}
+
+        def _emit(pl, ocg, ab, route_id, n_segments):
+            pts = [px(p) for p in pl.pts]
+            clean, kinds = [], []
+            for p, k in zip(pts, pl.kinds):
+                if not clean or math.hypot(clean[-1][0] - p[0], clean[-1][1] - p[1]) >= 0.5:
+                    clean.append(p); kinds.append(k)
+            if len(clean) < 2:
+                return None
+            return RecognizedPolyline(
+                ocg, utility, clean, "elec_ungd", kinds, abandoned=ab,
+                route_id=route_id, n_segments=n_segments)
+
         for ab, ocg, g in results:
-            for pl in g.polylines:
-                pts = [px(p) for p in pl.pts]
-                clean, kinds = [], []
-                for p, k in zip(pts, pl.kinds):
-                    if not clean or math.hypot(clean[-1][0] - p[0], clean[-1][1] - p[1]) >= 0.5:
-                        clean.append(p); kinds.append(k)
-                if len(clean) < 2:
-                    continue
-                polylines.append(RecognizedPolyline(
-                    ocg, utility, clean, "elec_ungd", kinds, abandoned=ab))
+            joined = routes_mod.build_routes(g.polylines, g.pattern)
+            raw = [routes_mod.Route(pl, 1, [i]) for i, pl in enumerate(g.polylines)]
+            for rid, r in enumerate(joined):
+                rec_pl = _emit(r.pl, ocg, ab, rid, r.n_segments)
+                if rec_pl is not None:
+                    polylines_joined.append(rec_pl)
+                    n_routes += 1
+                    n_segments_total += r.n_segments
+            for rid, r in enumerate(raw):
+                rec_pl = _emit(r.pl, ocg, ab, rid, 1)
+                if rec_pl is not None:
+                    polylines_raw.append(rec_pl)
             uncovered_px += [(px(d.a), px(d.b)) for d in g.uncovered]
             offpattern_px += [[px(p) for p in pl.pts] for pl in g.offpattern]
             n_dashes += g.n_dashes; n_glyphs += g.n_glyphs
@@ -356,17 +388,22 @@ def recognize_page(
 
         # Bóvedas = vértices 'vault' de las polilíneas que SÍ se importan
         # (deduplicados), así siempre coinciden con un vértice real.
+        polylines = list(polylines_joined if join_routes else polylines_raw)
         vault_pts: List[Tuple[float, float]] = []
-        for pl in polylines:
+        for pl in polylines_raw or polylines_joined:
             for p, k in zip(pl.pts_pdf, pl.kinds):
                 if k == "vault" and not any(math.hypot(p[0] - q[0], p[1] - q[1]) < 0.5 for q in vault_pts):
                     vault_pts.append(p)
         orphans_px = [px(key) for key, n in vault_seen.items() if vault_orph.get(key, 0) == n]
 
+        stubs = []
         for ocg, kind in kind_by_ocg.items():          # stubs informativos (no dibujables)
             if kind in DRAW_KINDS or (kind == "structure" and vault_pts):
                 continue
-            polylines.append(RecognizedPolyline(ocg, utility, [], kind))
+            stubs.append(RecognizedPolyline(ocg, utility, [], kind))
+        polylines.extend(stubs)
+        polylines_joined.extend(stubs)
+        polylines_raw.extend(stubs)
 
         if not any(p.kind == "elec_ungd" and p.pts_pdf for p in polylines):
             warnings.append("No se encontraron líneas eléctricas subterráneas en esta hoja.")
@@ -375,6 +412,9 @@ def recognize_page(
         n_ab = sum(1 for p in polylines if p.kind == "elec_ungd" and p.pts_pdf and p.abandoned)
         if n_ab:
             warnings.append(f"Utilidades abandonadas (capa «-A»): {n_ab} — se importan marcadas (AB).")
+        if n_segments_total > n_routes:
+            warnings.append(
+                f"Rutas: {n_routes} (unen {n_segments_total} tramos de la misma capa).")
         if n_glyphs:
             warnings.append(
                 f"Se omitieron {n_glyphs} trazos de marcador/linetype (letras, barras); "
@@ -396,7 +436,9 @@ def recognize_page(
             polylines=polylines, ocg_summary=ocg_summary, warnings=warnings,
             hidden_ocgs=sorted(hidden), vault_pts=vault_pts, layer_roles=dict(roles_out),
             coverage=coverage_total, uncovered_px=uncovered_px, offpattern_px=offpattern_px,
-            vault_orphans_px=orphans_px,
+            vault_orphans_px=orphans_px, join_routes=join_routes,
+            n_routes=n_routes, n_segments_total=n_segments_total,
+            polylines_joined=polylines_joined, polylines_raw=polylines_raw,
         )
     finally:
         if own_doc and doc is not None:

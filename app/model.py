@@ -39,7 +39,7 @@ Coordenadas DIBUJADAS en PÍXELES (se convierten con geometry.to_cad al exportar
 coordenadas IMPORTADAS de Excel ya son reales de mundo (world=True → se usan tal cual).
 """
 
-VERSION = "1.1.8"
+VERSION = "1.1.9"
 
 # Capas de red por GRAVEDAD (tramos entre buzones, con invert inicio/fin).
 GRAVITY_LAYERS = {"ALCANTARILLADO", "DRENAJE"}
@@ -153,6 +153,9 @@ def default_network_type(layer):
 
 
 CHANGELOG = [
+    ("1.1.9", [
+        ("added", "Los tramos reconocidos de la misma capa se unen en rutas por buena continuación: en cada cruce se sigue de frente y el ramal empieza otra ruta. Si no hay trayectoria clara, no se une nada. No se mueven ni se inventan puntos, ni se cruzan capas distintas o activas con abandonadas. En la vista previa, «Unir tramos en rutas» (activada) lo deshace al momento."),
+    ]),
     ("1.1.8", [
         ("changed", "Las utilidades eléctricas abandonadas se dibujan del mismo color que la activa. Solo se distinguen por (AB) en la lista; ya no van a trazos ni con otro matiz."),
     ]),

@@ -73,6 +73,14 @@ alcantarillado, drenaje, gas, eléctrico, telecom). Todo en **unidades imperiale
     sintéticos (`tests/test_recognition_geom.py::Sheet`) y umbrales sobre el
     DU06 (97–100 % por hoja). Si una hoja baja de eso, mirar primero
     `uncovered` con el overlay antes de tocar tolerancias.
+  - `routes.py` — **rutas PURO** (sin Qt ni fitz), después de `reconstruct` y
+    sin tocarlo. Une polilíneas de una sola capa en strokes por buena
+    continuación (Thomson & Richardson, every-best-fit): en cada nodo se
+    sigue de frente (`THETA_JUNCTION_DEG`=35° si grado ≥3, `THETA_DEG2_DEG`=100°
+    si grado 2); si el segundo candidato está a < `AMBIGUOUS_DELTA_DEG` (10°)
+    no se une nada. No inventa ni mueve puntos; no cruza capas ni activas con
+    abandonadas (eso lo garantiza `recognize_page`, que llama `build_routes`
+    una vez por OCG). `join_routes=False` deja las polilíneas cortadas.
   - `pdf_layers.py` + `layer_dialog.py` — paso «Capas de la hoja» del asistente:
     lista las capas OCG con geometría y las apaga/enciende con
     `doc.set_layer_ui_config` (única API que afecta render **y** `get_drawings`;

@@ -336,6 +336,14 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
             "Abandoned (AB): {a} — same color; marked (AB).",
         "(abandonada)": "(abandoned)",
         "Abandonadas (AB): {a}.": "Abandoned (AB): {a}.",
+        "Unir tramos en rutas": "Join segments into routes",
+        "En cada cruce sigue de frente; el ramal empieza otra ruta. "
+        "Si no hay trayectoria clara, no une nada. No mueve puntos.":
+            "At each crossing it continues straight; the branch starts another route. "
+            "If the path is not clear, nothing is joined. No points are moved.",
+        "Rutas: {n} (unen {m} tramos)": "Routes: {n} (join {m} segments)",
+        "Importadas {n} rutas ({m} tramos) de Eléctrico.":
+            "Imported {n} routes ({m} segments) of Electric.",
         "Al continuar, estas líneas se importan al editor como "
         "utilidades Eléctrico (igual que el dibujo manual, con sus "
         "puntos de quiebre). Las bóvedas se insertan como cajas.":

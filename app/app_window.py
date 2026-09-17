@@ -56,6 +56,7 @@ class Main(QtWidgets.QMainWindow):
         self.derot = fitz.Matrix(1, 0, 0, 1, 0, 0); self.gray = None; self.page_idx = 0; self.pageH_px = 0
         self.hidden_ocgs = []   # capas OCG ocultas en el paso «Capas de la hoja» (por PDF abierto)
         self._layer_roles = None   # roles OCG ajustados a mano («Ajustar capas…»); None = automático por nombre
+        self._join_routes = True   # unir tramos de la misma capa en rutas (desactivable en el preview)
         self._recog_ready = False  # True cuando el asistente ya reconoció una hoja de este PDF (◀ ▶ vuelven a reconocer)
         self.pdf_path = None; self.doc = None; self.project_path = None; self.leader_hpx = 40
 
@@ -1517,7 +1518,8 @@ class Main(QtWidgets.QMainWindow):
         self._recog_progress = progress
         self._recog_worker = RecognitionWorker(
             self.pdf_path, page_idx, zoom=self.zoom, utility="ELECTRICO",
-            hidden_ocgs=self.hidden_ocgs, layer_roles=self._layer_roles)
+            hidden_ocgs=self.hidden_ocgs, layer_roles=self._layer_roles,
+            join_routes=self._join_routes)
         self._recog_worker.done.connect(self._recognition_done)
         self._recog_worker.start()
 
@@ -1544,6 +1546,7 @@ class Main(QtWidgets.QMainWindow):
         action = recognition_dialog.show_recognition_preview(
             self, qimg, result, utility_layer="ELECTRICO",
             page_count=self.doc.page_count if self.doc else None)
+        self._join_routes = bool(getattr(result, "join_routes", True))
         if action == recognition_dialog.PREVIEW_IMPORT:
             self._import_recognized_pipes(result)
         elif action == recognition_dialog.PREVIEW_CHANGE_SHEET:
@@ -1579,7 +1582,8 @@ class Main(QtWidgets.QMainWindow):
         self._update_ui()
         self._redraw()
         n = len(new_pipes)
-        msg = _tr("Importadas {n} utilidades Eléctrico al editor.").format(n=n)
+        n_seg = sum(int(getattr(pl, "n_segments", 1) or 1) for pl in result.drawable)
+        msg = _tr("Importadas {n} rutas ({m} tramos) de Eléctrico.").format(n=n, m=n_seg)
         n_ab = sum(1 for p in new_pipes if p.get("ab"))
         if n_ab:
             msg += " " + _tr("Abandonadas (AB): {a}.").format(a=n_ab)

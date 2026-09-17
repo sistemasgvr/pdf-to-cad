@@ -321,7 +321,9 @@ def show_manual(win):
     → nueva vista previa) o <b>Ajustar capas…</b> (solo si el plot usa otros nombres).
     Después, al cambiar de hoja en el editor (◀ ▶ o nº de página) la nueva hoja se reconoce
     con las mismas capas. Las capas de estado <b>-A</b> (abandonadas, linetype ──/── e ──) se
-    reconocen igual, se dibujan del mismo color y se importan marcadas <b>(AB)</b>, como la casilla «Abandonado».</p>
+    reconocen igual, se dibujan del mismo color y se importan marcadas <b>(AB)</b>, como la casilla «Abandonado».
+    La casilla <b>Unir tramos en rutas</b> (activada) encadena los tramos de la misma capa que
+    siguen de frente; el ramal empieza otra ruta. No mueve puntos. Se puede desactivar antes de importar.</p>
 
     <h3>2. Dibujar una utilidad</h3>
     <p>Acordeón <b>Dibujar utilidad</b> → elige el tipo (agua, alcantarillado, drenaje,

@@ -338,17 +338,18 @@ class RecognitionPreviewDialog(QtWidgets.QDialog):
         head.addWidget(self.lbl_sheet, 0)
         panel.addLayout(head)
 
-        drawable = [p for p in result.polylines if p.kind == "elec_ungd" and p.pts_pdf]
-        n_draw = len(drawable)
-        n_ab = sum(1 for p in drawable if getattr(p, "abandoned", False))
-        n_vault = len(getattr(result, "vault_pts", None) or [])
-        txt = _tr("Tramos listos: {n}  ·  Bóvedas: {v}  ·  Escala: {s:.6f} pie/pt").format(
-            n=n_draw, v=n_vault, s=result.scale_ft_per_pt)
-        if n_ab:
-            txt += "\n" + _tr("Abandonadas (AB): {a} — mismo color; se distinguen por (AB).").format(a=n_ab)
-        summary = QtWidgets.QLabel(txt)
-        summary.setWordWrap(True)
-        panel.addWidget(summary)
+        self._color = color
+        self.lbl_summary = QtWidgets.QLabel()
+        self.lbl_summary.setWordWrap(True)
+        panel.addWidget(self.lbl_summary)
+        self.chk_routes = QtWidgets.QCheckBox(_tr("Unir tramos en rutas"))
+        self.chk_routes.setToolTip(_tr(
+            "En cada cruce sigue de frente; el ramal empieza otra ruta. "
+            "Si no hay trayectoria clara, no une nada. No mueve puntos."))
+        self.chk_routes.setChecked(bool(getattr(result, "join_routes", True)))
+        self.chk_routes.toggled.connect(self._toggle_routes)
+        panel.addWidget(self.chk_routes)
+        self._update_summary()
         # QA de un vistazo: cuánto del plano quedó cubierto y qué se dejó fuera.
         cov = float(getattr(result, "coverage", 1.0) or 0.0)
         n_unc = len(getattr(result, "uncovered_px", None) or [])
@@ -388,6 +389,7 @@ class RecognitionPreviewDialog(QtWidgets.QDialog):
                 lst.addItem(it)
         panel.addWidget(lst, 1)
 
+        n_draw = self._n_draw()
         if n_draw == 0:
             warn = QtWidgets.QLabel(_tr(
                 "No se encontraron capas de líneas eléctricas en esta hoja. "
@@ -432,24 +434,69 @@ class RecognitionPreviewDialog(QtWidgets.QDialog):
 
         sc = self.view.scene()
         pm = QtGui.QPixmap.fromImage(qimg)
-        sc.addPixmap(pm)
-        # Fuera de patrón (leaders, flechas): violeta fino, debajo de las líneas.
+        self._pixmap_item = sc.addPixmap(pm)
+        self._redraw_overlay()
+        self.view.setSceneRect(pm.rect())
+        self._fit_pending = True
+        self._fit_view()
+
+    def _drawable(self):
+        return [p for p in self._result.polylines if p.kind == "elec_ungd" and p.pts_pdf]
+
+    def _n_draw(self):
+        return len(self._drawable())
+
+    def _update_summary(self):
+        result = self._result
+        drawable = self._drawable()
+        n_ab = sum(1 for p in drawable if getattr(p, "abandoned", False))
+        n_vault = len(getattr(result, "vault_pts", None) or [])
+        txt = _tr("Tramos listos: {n}  ·  Bóvedas: {v}  ·  Escala: {s:.6f} pie/pt").format(
+            n=len(drawable), v=n_vault, s=result.scale_ft_per_pt)
+        n_routes = int(getattr(result, "n_routes", 0) or 0)
+        n_seg = int(getattr(result, "n_segments_total", 0) or 0)
+        if self.chk_routes.isChecked() and n_seg:
+            txt += "\n" + _tr("Rutas: {n} (unen {m} tramos)").format(n=n_routes or len(drawable), m=n_seg)
+        if n_ab:
+            txt += "\n" + _tr("Abandonadas (AB): {a} — mismo color; se distinguen por (AB).").format(a=n_ab)
+        self.lbl_summary.setText(txt)
+        if hasattr(self, "btn_ok"):
+            self.btn_ok.setEnabled(len(drawable) > 0)
+
+    def _toggle_routes(self, checked):
+        result = self._result
+        joined = getattr(result, "polylines_joined", None)
+        raw = getattr(result, "polylines_raw", None)
+        if not joined or not raw:
+            return
+        result.join_routes = bool(checked)
+        result.polylines = list(joined if checked else raw)
+        self._update_summary()
+        self._redraw_overlay()
+
+    def _redraw_overlay(self):
+        sc = self.view.scene()
+        for it in list(sc.items()):
+            if it is not self._pixmap_item:
+                sc.removeItem(it)
+        result = self._result
+        color = self._color
         for pts in (getattr(result, "offpattern_px", None) or []):
             _draw_poly(sc, pts, QtGui.QColor("#8a6cff"), width=1.5, dots=False, z=4)
-        for pl in drawable:
+        for pl in self._drawable():
             # Activas y abandonadas son la misma utilidad (mismo color). El (AB)
             # de la lista es lo que las distingue; no se dibujan a trazos.
             _draw_poly(sc, pl.pts_pdf, color, width=2.0, dots=True, z=5)
-        # Guiones que ninguna línea cubrió: naranja grueso (para revisar a mano).
+            x, y = pl.pts_pdf[0]
+            start = sc.addEllipse(x - 5, y - 5, 10, 10, QtGui.QPen(QtGui.QColor("#ffffff"), 1.5),
+                                  QtGui.QBrush(color))
+            start.setZValue(8)
         for a, b in (getattr(result, "uncovered_px", None) or []):
             _draw_poly(sc, [a, b], QtGui.QColor("#ff8c00"), width=4.0, dots=False, z=7)
         for (vx, vy) in (getattr(result, "vault_pts", None) or []):
             _draw_vault(sc, vx, vy, color, z=6)
         for (vx, vy) in (getattr(result, "vault_orphans_px", None) or []):
             _draw_vault(sc, vx, vy, QtGui.QColor("#ff8c00"), z=6)
-        self.view.setSceneRect(pm.rect())
-        self._fit_pending = True
-        self._fit_view()
 
     def _fit_view(self):
         self.view.resetTransform()
