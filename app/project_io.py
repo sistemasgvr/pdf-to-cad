@@ -31,6 +31,12 @@ def build_model_dict(win):
         ref_centerlines=win.ref_centerlines,
         duct_banks=[d.to_dict() for d in getattr(win, "duct_banks", []) or []],
         georef=win.georef.to_dict(),
+        sheet_layout=getattr(win, "sheet_layout", None),
+        sheet_rotations=getattr(win, "sheet_rotations", {}),
+        sheet_crops=getattr(win, "sheet_crops", {}),
+        sheet_sources=getattr(win, "sheet_sources", []),
+        hidden_ocgs_by_source=getattr(win, "hidden_ocgs_by_source", {}),
+        page_idx=getattr(win, "page_idx", 0),
         work_unit=win.work_unit,                 # unidad de trabajo del proyecto
         # Versión/idioma de Civil 3D elegidos en el toolbar: se guardan para
         # reabrir el proyecto con la MISMA selección.
@@ -84,4 +90,10 @@ def parse_model(model):
         work_unit="ft",
         civil_year=model.get("civil_year"),
         civil_lang=model.get("civil_lang"),
+        sheet_layout=model.get("sheet_layout"),
+        sheet_rotations=model.get("sheet_rotations", {}),
+        sheet_crops=model.get("sheet_crops", {}),
+        sheet_sources=model.get("sheet_sources", []),
+        hidden_ocgs_by_source=model.get("hidden_ocgs_by_source", {}),
+        page_idx=model.get("page_idx", 0),
     )

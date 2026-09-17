@@ -22,9 +22,15 @@ from geometry import qimage_to_gray
 # arquitectura). El lienzo, los widgets reutilizables y el worker de fondo.
 from canvas import Canvas
 from widgets import InlineEdit, _SegInvSpinBox, _NoWheelFilter
-from workers import PipelineWorker, RecognitionWorker
+from workers import PipelineWorker, RecognitionWorker, OrganizedRecognitionWorker
 import dialogs
 import recognition_dialog
+import sheet_layout_dialog
+import organized_layer_dialog
+import organized_recognition_dialog
+from organized_layers import selected_sheets
+from sheet_layout import normalize as normalize_sheet_layout, normalize_rotations
+from sheet_crops import normalize as normalize_sheet_crops
 import layer_dialog
 import project_io
 import model_ops
@@ -55,9 +61,15 @@ class Main(QtWidgets.QMainWindow):
         self.zoom = 3.5; self.scale = 20 / 72.0; self.rot = 0; self.W = 0; self.H = 0
         self.derot = fitz.Matrix(1, 0, 0, 1, 0, 0); self.gray = None; self.page_idx = 0; self.pageH_px = 0
         self.hidden_ocgs = []   # capas OCG ocultas en el paso «Capas de la hoja» (por PDF abierto)
+        self.hidden_ocgs_by_source = {}  # selección de capas por PDF de la organización
         self._layer_roles = None   # roles OCG ajustados a mano («Ajustar capas…»); None = automático por nombre
         self._join_routes = True   # unir tramos de la misma capa en rutas (desactivable en el preview)
         self._recog_ready = False  # True cuando el asistente ya reconoció una hoja de este PDF (◀ ▶ vuelven a reconocer)
+        self.sheet_layout = None  # hoja principal y vecinas del PDF; índices 0-based
+        self.sheet_rotations = {}  # giros de vista por posición, múltiplos de 90°
+        self.sheet_crops = {}  # ventana no destructiva del plano por posición
+        self.sheet_sources = []   # nombre y rango virtual de páginas de cada PDF
+        self.sheet_external_pdfs = []  # PDF externos completos, con capas originales
         self.pdf_path = None; self.doc = None; self.project_path = None; self.leader_hpx = 40
 
         self.cur_pts = []; self.pipes = []; self.leaders = []; self.text_marks = []
@@ -135,6 +147,8 @@ class Main(QtWidgets.QMainWindow):
         _act(medit, "Deshacer", self.undo, "Ctrl+Z")
         _act(medit, "Rehacer", self.redo, "Ctrl+Shift+Z")
         mview = _menu(mb, "&Ver")
+        _act(mview, "Organizar hojas…", self.organize_sheets)
+        _act(mview, "Capas de hojas organizadas…", self.open_organized_layers)
         # Acción dinámica: su texto muestra el tema al que se cambiaría.
         # Si estás en oscuro dice "Modo claro"; si estás en claro dice "Modo oscuro".
         self._act_theme = QtGui.QAction("", self)
@@ -1405,10 +1419,21 @@ class Main(QtWidgets.QMainWindow):
         if not self._confirm_discard(): return
         self._busy(_tr("Abriendo PDF…"))
         try:
-            self.pdf_path = path; self.project_path = None; self.doc = fitz.open(path); self._update_title()
+            new_doc = fitz.open(path)
+            if self.doc:
+                self.doc.close()
+            self._cleanup_tmp_pdf()
+            self.pdf_path = path; self.project_path = None; self.doc = new_doc; self._update_title()
             self.hidden_ocgs = []   # capas OCG ocultas por el usuario (paso «Capas de la hoja»)
+            self.hidden_ocgs_by_source = {}
             self._layer_roles = None
             self._recog_ready = False
+            self.sheet_layout = None
+            self.sheet_rotations = {}
+            self.sheet_crops = {}
+            self.sheet_sources = [{"name": os.path.basename(path), "start": 0,
+                                   "count": self.doc.page_count}]
+            self.sheet_external_pdfs = []
         finally:
             self._unbusy()
         # Asistente v1: tipo → hoja → cargar hoja → reconocer eléctricas → preview (sin import).
@@ -1466,28 +1491,193 @@ class Main(QtWidgets.QMainWindow):
             self._unbusy()
 
     def _wizard_sheet_flow(self, start_idx):
-        """Flujo hoja → capas → reconocer → (preview en `_recognition_done`).
+        """Organización, capas y reconocimiento de las hojas elegidas.
         Lo usa el asistente al abrir el PDF y «Cambiar de hoja…» del preview.
-        Devuelve False si el usuario cancela en la lista de hojas (no se cargó
-        nada); si cancela en las capas, la hoja queda cargada sin reconocer."""
-        page_idx = recognition_dialog.choose_page(self, self.doc, current=start_idx)
-        if page_idx is None:
+        Devuelve False si se cancela la organización. Al cancelar las capas,
+        la hoja principal queda cargada sin reconocer."""
+        selection = sheet_layout_dialog.choose_sheet_layout(
+            self, self.doc, self.sheet_layout, current=start_idx,
+            sources=self.sheet_sources, external_pdfs=self.sheet_external_pdfs,
+            rotations=self.sheet_rotations)
+        if selection is None:
             return False
+        layout, added_paths, sources, rotations = selection
+        if not self._apply_sheet_selection(layout, added_paths, sources, rotations):
+            return False
+        page_idx = layout["main"]
+        if any(layout[key] is not None for key in ("top", "left", "right", "bottom")):
+            chosen_hidden = organized_layer_dialog.choose_organized_sheet_layers(
+                self, self.doc, self.sheet_external_pdfs, self.sheet_sources,
+                self.sheet_layout, self.sheet_rotations, self.hidden_ocgs_by_source,
+                self.sheet_crops)
+            self._load_sheet_busy(page_idx)
+            self._dirty = True
+            self._recog_ready = False
+            if chosen_hidden is None:
+                self._info(_tr("Selección de capas cancelada; organización conservada."))
+            else:
+                self.hidden_ocgs_by_source, self.sheet_crops = chosen_hidden
+                self.hidden_ocgs = list(self.hidden_ocgs_by_source.get("0", []))
+                self._info(_tr("Capas de las hojas organizadas guardadas."))
+                self._start_organized_recognition()
+            return True
         # Paso «Capas de la hoja»: el usuario decide qué capas OCG ver ANTES
         # de dibujar (y puede cambiar de hoja con ◀ ▶). Deja la visibilidad
         # aplicada en self.doc, así _load_page ya renderiza sin las ocultas.
         chosen = layer_dialog.choose_sheet_layers(self, self.doc, page_idx)
         if chosen is None:
             self._load_sheet_busy(page_idx)
+            self._dirty = True
             self._info(_tr("Reconocimiento cancelado — hoja cargada con todas las capas."))
             return True
         hidden, page_idx = chosen
+        if page_idx != self.sheet_layout["main"]:
+            self.sheet_crops.pop("main", None)
+            self.sheet_layout = normalize_sheet_layout(
+                {**self.sheet_layout, "main": page_idx},
+                sum(source["count"] for source in self.sheet_sources))
+            self.sheet_rotations = normalize_rotations(
+                self.sheet_rotations, self.sheet_layout)
         self.hidden_ocgs = list(hidden)
+        self.hidden_ocgs_by_source["0"] = list(hidden)
         # Los roles (qué capas son líneas / bóvedas) se asignan solos por
         # nombre y se muestran en el preview; «Ajustar capas…» los cambia.
         self._load_sheet_busy(page_idx)
+        self._dirty = True
         self._recog_ready = True
         self._start_recognition(page_idx)
+        return True
+
+    def organize_sheets(self):
+        """Reopen the arrangement without changing the current drawing or layers."""
+        if not self.doc:
+            QtWidgets.QMessageBox.information(self, _tr("Organizar hojas"),
+                _tr("Abre un PDF para organizar sus hojas."))
+            return
+        selection = sheet_layout_dialog.choose_sheet_layout(
+            self, self.doc, self.sheet_layout, current=self.page_idx,
+            sources=self.sheet_sources, external_pdfs=self.sheet_external_pdfs,
+            rotations=self.sheet_rotations)
+        if selection is None:
+            return
+        layout, added_paths, sources, rotations = selection
+        if layout["main"] != self.page_idx and not self._confirm_discard():
+            return
+        changed = (layout != self.sheet_layout or rotations != self.sheet_rotations
+                   or bool(added_paths))
+        if not self._apply_sheet_selection(layout, added_paths, sources, rotations):
+            return
+        if any(layout[key] is not None for key in ("top", "left", "right", "bottom")):
+            self._recog_ready = False
+        if layout["main"] != self.page_idx:
+            self._change_page(layout["main"])
+        self._dirty = self._dirty or changed
+        self._info(_tr("Organización guardada. Hoja principal: {n}.").format(
+            n=layout["main"] + 1))
+
+    def open_organized_layers(self):
+        """Review common layers and continue to the arranged recognition preview."""
+        layout = self.sheet_layout
+        if not self.doc or not layout or not any(
+                layout[key] is not None for key in ("top", "left", "right", "bottom")):
+            QtWidgets.QMessageBox.information(self, _tr("Capas de hojas organizadas"),
+                _tr("Organiza al menos dos hojas para abrir esta vista."))
+            return
+        chosen = organized_layer_dialog.choose_organized_sheet_layers(
+            self, self.doc, self.sheet_external_pdfs, self.sheet_sources,
+            layout, self.sheet_rotations, self.hidden_ocgs_by_source,
+            self.sheet_crops)
+        if chosen is None:
+            return
+        self.hidden_ocgs_by_source, self.sheet_crops = chosen
+        self.hidden_ocgs = list(self.hidden_ocgs_by_source.get("0", []))
+        self._refresh_current_pdf_image()
+        self._dirty = True
+        self._recog_ready = False
+        self._info(_tr("Capas de las hojas organizadas guardadas."))
+        self._start_organized_recognition()
+
+    def _start_organized_recognition(self):
+        """Recognize all arranged sheets without changing the editor's drawing."""
+        if not self.doc or not self.sheet_layout or not self.pdf_path:
+            return
+        sheets = selected_sheets(self.sheet_layout, self.sheet_sources)
+        progress = QtWidgets.QProgressDialog(
+            _tr("Reconociendo utilidades eléctricas en las hojas organizadas…"),
+            None, 0, 0, self)
+        progress.setWindowTitle(_tr("Reconocimiento"))
+        progress.setWindowModality(QtCore.Qt.WindowModal)
+        progress.setMinimumDuration(0)
+        progress.show()
+        self._organized_recog_progress = progress
+        self._organized_recog_worker = OrganizedRecognitionWorker(
+            self.pdf_path, self.sheet_external_pdfs, sheets,
+            self.hidden_ocgs_by_source, zoom=1.0,
+            join_routes=self._join_routes, crops=self.sheet_crops)
+        self._organized_recog_worker.done.connect(self._organized_recognition_done)
+        self._organized_recog_worker.start()
+
+    def _organized_recognition_done(self, rows, error):
+        progress = getattr(self, "_organized_recog_progress", None)
+        if progress is not None:
+            progress.close()
+            self._organized_recog_progress = None
+        if error:
+            QtWidgets.QMessageBox.warning(self, _tr("Reconocimiento"),
+                _tr("No se pudieron reconocer las hojas:\n\n{e}").format(e=error))
+            return
+        if not rows:
+            return
+        action, self._join_routes = organized_recognition_dialog.show_organized_recognition_preview(
+            self, rows, self.sheet_rotations, self._join_routes,
+            base_path=self.pdf_path, external_pdfs=self.sheet_external_pdfs,
+            hidden_by_source=self.hidden_ocgs_by_source, crops=self.sheet_crops)
+        if action == 2:
+            self.open_organized_layers()
+
+    def _refresh_current_pdf_image(self):
+        """Update the PDF background after OCG changes without losing annotations."""
+        if not self.doc or self.canvas.pixmap_item is None:
+            return
+        pix = self.doc[self.page_idx].get_pixmap(
+            matrix=fitz.Matrix(self.zoom, self.zoom), alpha=False)
+        qimg = QtGui.QImage(bytes(pix.samples), pix.width, pix.height,
+                            pix.stride, QtGui.QImage.Format_RGB888).copy()
+        self.canvas.pixmap_item.setPixmap(QtGui.QPixmap.fromImage(qimg))
+        self.gray = qimage_to_gray(qimg)
+        self._redraw()
+
+    def _apply_sheet_selection(self, layout, added_paths, sources, rotations):
+        """Keep each PDF intact so OCG layers are available in later stages."""
+        if not 0 <= layout["main"] < self.doc.page_count:
+            QtWidgets.QMessageBox.warning(self, _tr("Organizar hojas"),
+                _tr("La hoja principal debe pertenecer al PDF abierto."))
+            return False
+        additions = []
+        try:
+            expected = sources[1 + len(self.sheet_external_pdfs):]
+            if len(expected) != len(added_paths):
+                raise ValueError(_tr("La lista de PDF no coincide con las hojas elegidas."))
+            for path, source in zip(added_paths, expected):
+                with open(path, "rb") as stream:
+                    data = stream.read()
+                with fitz.open(stream=data, filetype="pdf") as check:
+                    if check.page_count != source["count"]:
+                        raise ValueError(_tr("El PDF cambió mientras se elegían sus hojas."))
+                additions.append({"name": os.path.basename(path), "data": data})
+        except Exception as exc:
+            QtWidgets.QMessageBox.warning(self, _tr("Organizar hojas"),
+                _tr("No se pudieron incorporar los PDF:\n\n{e}").format(e=exc))
+            return False
+        old_layout = self.sheet_layout or {}
+        kept_crops = {slot: crop for slot, crop in self.sheet_crops.items()
+                      if old_layout.get(slot) == layout.get(slot)}
+        self.sheet_external_pdfs.extend(additions)
+        total = self.doc.page_count + sum(s["count"] for s in sources[1:])
+        self.sheet_layout = normalize_sheet_layout(layout, total)
+        self.sheet_rotations = normalize_rotations(rotations, self.sheet_layout)
+        self.sheet_crops = normalize_sheet_crops(kept_crops, self.sheet_layout)
+        self.sheet_sources = sources
         return True
 
     def _adjust_layer_roles(self, page_idx):
@@ -1639,6 +1829,8 @@ class Main(QtWidgets.QMainWindow):
                 pdf_bytes = self._get_pdf_bytes()
                 if pdf_bytes:
                     z.writestr("source.pdf", pdf_bytes)
+                for i, source in enumerate(self.sheet_external_pdfs):
+                    z.writestr(f"external/{i:03d}.pdf", source["data"])
             self.project_path = path; self._dirty = False; self._update_title()
             self._info(f"Proyecto guardado: {os.path.basename(path)}")
             self._flash_save()
@@ -1687,9 +1879,16 @@ class Main(QtWidgets.QMainWindow):
         if not self._confirm_discard(): return
         self._busy("Abriendo proyecto…")
         try:
+            if self.doc:
+                self.doc.close()
+                self.doc = None
             self._cleanup_tmp_pdf()
             with zipfile.ZipFile(path) as z:
                 model = json.loads(z.read("model.json")); png = z.read("page.png")
+                external_pdfs = [
+                    {"name": entry.get("name", f"PDF {i + 2}"),
+                     "data": z.read(f"external/{i:03d}.pdf")}
+                    for i, entry in enumerate(model.get("sheet_sources", [])[1:])]
                 if "source.pdf" in z.namelist():
                     tmp_pdf = path + ".src.pdf"
                     with open(tmp_pdf, "wb") as fp: fp.write(z.read("source.pdf"))
@@ -1711,7 +1910,27 @@ class Main(QtWidgets.QMainWindow):
                 self.pdf_path = tmp_pdf; self.doc = fitz.open(tmp_pdf)
             else:
                 self.pdf_path = None; self.doc = None
-            self.project_path = path; self.page_idx = 0; self._update_title()
+            self.project_path = path
+            self.sheet_external_pdfs = external_pdfs
+            self.sheet_sources = data.get("sheet_sources") or (
+                [{"name": model.get("pdf_name") or "PDF principal",
+                  "start": 0, "count": self.doc.page_count}] if self.doc else [])
+            total = sum(source["count"] for source in self.sheet_sources)
+            self.sheet_layout = normalize_sheet_layout(
+                data.get("sheet_layout"), total) if self.doc else None
+            self.sheet_rotations = normalize_rotations(
+                data.get("sheet_rotations"), self.sheet_layout) if self.sheet_layout else {}
+            self.sheet_crops = normalize_sheet_crops(
+                data.get("sheet_crops"), self.sheet_layout) if self.sheet_layout else {}
+            self.hidden_ocgs_by_source = data.get("hidden_ocgs_by_source", {})
+            self.hidden_ocgs = list(self.hidden_ocgs_by_source.get("0", []))
+            if self.doc and "0" in self.hidden_ocgs_by_source:
+                import pdf_layers as _pdf_layers
+                _pdf_layers.set_hidden(self.doc, self.hidden_ocgs)
+            self.page_idx = data.get("page_idx", 0)
+            if self.doc and not 0 <= self.page_idx < self.doc.page_count:
+                self.page_idx = 0
+            self._update_title()
             self.pipes = data["pipes"]; self.leaders = data["leaders"]
             self.text_marks = data["text_marks"]
             self.erase_regions = data["erase_regions"]
@@ -1804,9 +2023,18 @@ class Main(QtWidgets.QMainWindow):
     def close_project(self):
         if self.canvas.pixmap_item is None: return
         if not self._confirm_discard(): return
+        if self.doc:
+            self.doc.close()
         self._cleanup_tmp_pdf()
         self.canvas.scene().clear(); self.canvas.pixmap_item = None; self.canvas.pdf_bg_item = None
         self.pdf_path = None; self.doc = None; self.project_path = None; self.gray = None; self._update_title()
+        self.sheet_layout = None
+        self.sheet_rotations = {}
+        self.sheet_crops = {}
+        self.sheet_sources = []
+        self.sheet_external_pdfs = []
+        self.hidden_ocgs_by_source = {}
+        self.hidden_ocgs = []
         self.pipes = []; self.leaders = []; self.text_marks = []; self.erase_regions = []; self.structures = []
         self.duct_banks = []
         self.ref_centerlines = []; self._cl_pts = []
@@ -1818,6 +2046,8 @@ class Main(QtWidgets.QMainWindow):
 
     def closeEvent(self, e):
         if self._confirm_discard():
+            if self.doc:
+                self.doc.close()
             self._cleanup_tmp_pdf(); e.accept()
         else: e.ignore()
 

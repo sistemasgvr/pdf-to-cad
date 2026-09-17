@@ -40,6 +40,13 @@ def _fake_win():
         ref_centerlines=[],
         duct_banks=[db],
         georef=g, work_unit="ft", civil_year=2025,
+        sheet_layout={"main": 13, "left": 12, "right": 14,
+                      "top": None, "bottom": None},
+        sheet_rotations={"main": 0, "left": 90, "right": 270,
+                         "top": 0, "bottom": 0},
+        sheet_crops={"main": [0.1, 0.2, 0.8, 0.9]},
+        sheet_sources=[{"name": "plan.pdf", "start": 0, "count": 19}], page_idx=13,
+        hidden_ocgs_by_source={"0": ["C-ROAD-CNTR"]},
         scale=20 / 72.0, zoom=3.5, rot=0, W=800, H=600, derot=_Derot(),
         pdf_path=r"C:\planos\11-prueba.pdf")
 
@@ -53,6 +60,11 @@ def test_build_model_dict_incluye_campos_clave():
     assert m["tf"]["scale"] == win.scale
     assert m["tf"]["derot"] == [1.0, 0.0, 0.0, 1.0, 0.0, 0.0]
     assert m["pdf_name"] == "11-prueba.pdf"
+    assert m["sheet_layout"]["left"] == 12 and m["page_idx"] == 13
+    assert m["sheet_sources"][0]["name"] == "plan.pdf"
+    assert m["sheet_rotations"]["right"] == 270
+    assert m["sheet_crops"]["main"] == [0.1, 0.2, 0.8, 0.9]
+    assert m["hidden_ocgs_by_source"] == {"0": ["C-ROAD-CNTR"]}
 
 
 def test_parse_castea_llaves_de_cotas_a_int():
@@ -86,6 +98,11 @@ def test_parse_retrocompat_campos_ausentes():
     assert data["pipes"] == [] and data["structures"] == [] and data["ref_centerlines"] == []
     assert not data["georef"].active()      # sin georref → inactiva
     assert data["civil_year"] is None
+    assert data["sheet_layout"] is None and data["page_idx"] == 0
+    assert data["sheet_sources"] == []
+    assert data["sheet_rotations"] == {}
+    assert data["sheet_crops"] == {}
+    assert data["hidden_ocgs_by_source"] == {}
 
 
 def test_roundtrip_build_parse_conserva_datos():
@@ -99,6 +116,11 @@ def test_roundtrip_build_parse_conserva_datos():
     assert data["scale"] == win.scale
     assert data["structures"] == win.structures
     assert data["georef"].cs_code == "CA83VF"
+    assert data["sheet_layout"] == win.sheet_layout and data["page_idx"] == 13
+    assert data["sheet_sources"] == win.sheet_sources
+    assert data["sheet_rotations"] == win.sheet_rotations
+    assert data["sheet_crops"] == win.sheet_crops
+    assert data["hidden_ocgs_by_source"] == win.hidden_ocgs_by_source
     # las cotas por vértice sobreviven como int (build las tiene int, json→parse las
     # mantiene int porque aquí no pasó por json; el test de arriba cubre el caso str)
     assert data["pipes"][0]["vertex_inv_out"] == {1: 100.5}

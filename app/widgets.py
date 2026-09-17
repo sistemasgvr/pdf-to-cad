@@ -89,6 +89,7 @@ class _NoWheelFilter(QtCore.QObject):
 
 class ZoomPanView(QtWidgets.QGraphicsView):
     """Vista previa con zoom (rueda) y pan (botón central). Sin edición."""
+    viewChanged = QtCore.Signal()
     def __init__(self):
         super().__init__()
         self.setScene(QtWidgets.QGraphicsScene(self))
@@ -102,6 +103,15 @@ class ZoomPanView(QtWidgets.QGraphicsView):
     def wheelEvent(self, e):
         f = 1.15 if e.angleDelta().y() > 0 else 1 / 1.15
         self.scale(f, f)
+        self.viewChanged.emit()
+
+    def scrollContentsBy(self, dx, dy):
+        super().scrollContentsBy(dx, dy)
+        self.viewChanged.emit()
+
+    def resizeEvent(self, e):
+        super().resizeEvent(e)
+        self.viewChanged.emit()
 
     def mousePressEvent(self, e):
         if e.button() == QtCore.Qt.MiddleButton:

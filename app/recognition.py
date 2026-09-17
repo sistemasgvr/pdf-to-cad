@@ -28,6 +28,7 @@ if str(_ROOT) not in sys.path:
 import vector_pipeline as VP
 import recognition_geom as geom
 import routes as routes_mod
+from sheet_crops import page_rect as crop_page_rect, drawing_polygon
 
 # Tokens locales — NO modificar config.LAYER_TOKENS del export.
 # Orden: más específico primero.
@@ -184,7 +185,7 @@ def _clip_polygon(clip: dict, page_rect) -> Optional[list]:
     return pts
 
 
-def gather_paths(page, kind_for, hidden=()):
+def gather_paths(page, kind_for, hidden=(), crop_polygon=None):
     """Paths de la hoja por rol, ya RECORTADOS por los clips del PDF.
 
     extended=True trae también los CLIPS (marco de la vista de planta, XCLIP de
@@ -214,6 +215,10 @@ def gather_paths(page, kind_for, hidden=()):
         polys = [pg for l, pg in clip_stack.items() if l < lvl and pg]
         if polys:
             path = geom.clip_path(path, polys)
+            if path is None:
+                continue
+        if crop_polygon:
+            path = geom.clip_path(path, [crop_polygon])
             if path is None:
                 continue
         path_counts[ocg] += 1
@@ -282,6 +287,7 @@ def recognize_page(
     hidden_ocgs: Optional[Sequence[str]] = None,
     layer_roles: Optional[dict] = None,
     join_routes: bool = True,
+    crop: Optional[Sequence[float]] = None,
 ) -> RecognitionResult:
     """Reconoce utilidades eléctricas en una hoja. Abre el PDF si `doc` es None.
 
@@ -306,6 +312,8 @@ def recognize_page(
             raise IndexError(f"Página {page_index} fuera de rango (0..{doc.page_count - 1})")
         page = doc[page_index]
         scale = VP.detect_scale(page)
+        visual_crop = crop_page_rect(page, crop)
+        crop_polygon = drawing_polygon(page, visual_crop) if crop else None
 
         def _kind_for(ocg: str) -> Optional[str]:
             if use_roles:
@@ -316,7 +324,8 @@ def recognize_page(
                 return None
             return classify_ocg(ocg)
 
-        line_paths, vault_paths, path_counts, kind_by_ocg = gather_paths(page, _kind_for, hidden)
+        line_paths, vault_paths, path_counts, kind_by_ocg = gather_paths(
+            page, _kind_for, hidden, crop_polygon)
 
         ocg_summary = [{
             "ocg": ocg, "kind": kind_by_ocg.get(ocg, ""), "path_count": n,
@@ -328,7 +337,9 @@ def recognize_page(
         # Cada capa OCG de líneas se reconstruye SOLA: no se cosen ni se
         # imanan trazos de otra capa (aunque ambas sean «ELEC»). Activas y
         # abandonadas ya salen aparte porque son nombres OCG distintos.
-        px = lambda p: _pdf_pt_to_view_px(p[0], p[1], zoom, page)
+        def px(point):
+            x, y = _pdf_pt_to_view_px(point[0], point[1], zoom, page)
+            return x - visual_crop.x0 * zoom, y - visual_crop.y0 * zoom
         by_ocg: dict[str, List[dict]] = defaultdict(list)
         for pth in line_paths:
             by_ocg[pth.get("layer") or ""].append(pth)
