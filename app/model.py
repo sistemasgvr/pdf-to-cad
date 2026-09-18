@@ -39,7 +39,7 @@ Coordenadas DIBUJADAS en PÍXELES (se convierten con geometry.to_cad al exportar
 coordenadas IMPORTADAS de Excel ya son reales de mundo (world=True → se usan tal cual).
 """
 
-VERSION = "1.1.0"
+VERSION = "1.2.0"
 
 # Capas de red por GRAVEDAD (tramos entre buzones, con invert inicio/fin).
 GRAVITY_LAYERS = {"ALCANTARILLADO", "DRENAJE"}
@@ -71,7 +71,7 @@ TIPOS = [
     ("Agua (W)", "AGUA"), ("Alcantarillado (SS)", "ALCANTARILLADO"),
     ("Drenaje (SD)", "DRENAJE"), ("Gas (G)", "GAS"),
     ("Eléctrico (E)", "ELECTRICO"),
-    ("Telefonía (T)", "TELECOM"),
+    ("Telecomunicaciones (T)", "TELECOM"),
 ]
 ACI_RGB = {1: (255, 60, 60), 2: (235, 215, 40), 3: (60, 210, 60), 4: (60, 210, 210),
            5: (90, 140, 255), 6: (230, 90, 230), 7: (235, 235, 235), 8: (150, 150, 150),
@@ -153,6 +153,11 @@ def default_network_type(layer):
 
 
 CHANGELOG = [
+    ("1.2.0", [
+        ("added", "Detección automática de uniones tipo Y (Wye) en redes de presión: cuando tres tuberías se encuentran en un mismo punto con ángulos parecidos a 120° (sin una recta clara), el plugin coloca una pieza Y en vez de una Tee. Si el catálogo no tiene Y, cae al comportamiento anterior (Tee)."),
+        ("added", "Detección automática de cruces físicos de utilidades en el lienzo: cada punto donde un tramo de una utilidad CRUZA (no comparte extremo) otro tramo aparece con un círculo amarillo con «!» rojo. Sirve para revisar profundidades cuando dos utilidades se pasan por encima/debajo sin ser una juntura. Tooltip indica qué capas se cruzan; contador en la barra de estado."),
+        ("added", "Snap suave al dibujar utilidades: cuando el cursor se acerca a una utilidad EXISTENTE del mismo tipo (extremo, vértice intermedio o cualquier punto del tramo), aparece un círculo verde marcando dónde se pegaría el click. Si el primer click se pega al EXTREMO de otra utilidad del mismo tipo, la app pregunta si quieres «unirla como parte de esa utilidad» (misma polilínea, una sola red) o «crear una utilidad nueva que la toca» (juntura automática al importar)."),
+    ]),
     ("1.1.0", [
         ("added", "Nuevo diseñador de Bancoductos (Duct Bank): dibuja la sección con envolvente, márgenes, redondeo de esquinas, reglas de separación y de resguardo al borde. Cada bancoducto se asigna a una utilidad del plano y al importar en Civil 3D se crea el sólido 3D del contenedor + los conductos internos como tuberías reales."),
         ("added", "Panel «Bancoductos» en el inventario derecho: lista todos los bancoductos del proyecto con botones Nuevo / Editar / Duplicar. Doble-click en una fila abre el diseñador ya cargado con ese bancoducto. Click derecho sobre una tubería del plano ofrece «Crear/Editar bancoducto»."),

@@ -78,6 +78,52 @@ namespace Civil3DBasico
             return 0;
         }
 
+        // Extrae los dos diámetros (trunk, branch) de la descripción de un Tee.
+        // Formatos típicos:
+        //   "tee-14 in x 6 in-push on-..."  → (14, 6)
+        //   "tee-6 in-push on-..."          → (6, 6)  [straight Tee]
+        //   "tee 8 x 4"                     → (8, 4)
+        // Si no hay dos valores, devuelve (única, única).
+        internal static (double trunk, double branch) ExtraerDosDiametrosDeTee(string desc)
+        {
+            if (string.IsNullOrEmpty(desc)) return (0, 0);
+            var matches = System.Text.RegularExpressions.Regex.Matches(desc,
+                @"(\d+(?:\.\d+)?)\s*(?:in|pulg|""|\bin\b)",
+                System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+            var vals = new List<double>();
+            foreach (System.Text.RegularExpressions.Match m in matches)
+            {
+                if (double.TryParse(m.Groups[1].Value,
+                        System.Globalization.NumberStyles.Float,
+                        System.Globalization.CultureInfo.InvariantCulture,
+                        out double v))
+                    vals.Add(v);
+            }
+            if (vals.Count >= 2) return (vals[0], vals[1]);
+            if (vals.Count == 1) return (vals[0], vals[0]);
+            return (0, 0);
+        }
+
+        // Busca un Tee cuyo TRUNK matchee `trunkIn` y cuyo BRANCH matchee
+        // `branchIn`. Puntúa por |Δtrunk| + |Δbranch|, prefiere el más
+        // cercano. Fallback: si no encuentra ninguno decente (score > 4"),
+        // devuelve null y el llamador decide qué hacer.
+        internal static PresStyles.PressurePartSize BuscarTeePorTrunkYBranch(
+            List<PresStyles.PressurePartSize> fittings, double trunkIn, double branchIn)
+        {
+            if (fittings == null) return null;
+            var candidatos = fittings
+                .Where(f => f.PartType == CivilDB.PressurePartType.Tee)
+                .Select(f =>
+                {
+                    var (t, b) = ExtraerDosDiametrosDeTee(f.Description);
+                    return new { Part = f, T = t, B = b,
+                                 Score = Math.Abs(t - trunkIn) + Math.Abs(b - branchIn) };
+                }).ToList();
+            if (candidatos.Count == 0) return null;
+            return candidatos.OrderBy(c => c.Score).First().Part;
+        }
+
         // Decide qué TIPO de accesorio corresponde a una juntura de N tuberías,
         // con la MISMA lógica que ya usaban (por separado) UNIR_TUBERIAS_PRESION
         // (2 tubos: Reductor si difieren en diámetro, Codo si hay deflexión,
@@ -95,6 +141,26 @@ namespace Civil3DBasico
             if (nMiembros == 3) return CivilDB.PressurePartType.Tee;
             if (nMiembros == 4) return CivilDB.PressurePartType.Cross;
             return null;
+        }
+
+        // Discriminador Tee vs Y para junturas de 3 tuberías, según los ángulos
+        // entre los vectores QUE SALEN de la juntura hacia el extremo lejano
+        // de cada tubo. Si ALGÚN par forma un ángulo cercano a 180° (colineales,
+        // tol ±20°) hay una recta clara pasando por el nudo con un ramal → Tee.
+        // Si NINGÚN par es colineal (típicamente los tres ángulos ~120°) → Y (Wye).
+        internal static CivilDB.PressurePartType DecidirTeeOWye(
+            List<Vector3d> vectoresSalida, double tolColinealDeg = 20.0)
+        {
+            if (vectoresSalida == null || vectoresSalida.Count != 3)
+                return CivilDB.PressurePartType.Tee;
+            var d = vectoresSalida.Select(v => v.Length > 1e-9 ? v.GetNormal() : Vector3d.XAxis).ToList();
+            for (int i = 0; i < 3; i++)
+                for (int j = i + 1; j < 3; j++)
+                {
+                    double ang = d[i].GetAngleTo(d[j]) * 180.0 / Math.PI;
+                    if (ang >= 180.0 - tolColinealDeg) return CivilDB.PressurePartType.Tee;
+                }
+            return CivilDB.PressurePartType.Wye;
         }
 
         // Agrupa TODOS los extremos de segmento (2 por tubería) por coincidencia
@@ -124,9 +190,6 @@ namespace Civil3DBasico
                 double acumX = puntos[i].pos.X, acumY = puntos[i].pos.Y, acumZ = puntos[i].pos.Z;
                 int n = 1;
                 usado[i] = true;
-                // Comparar contra el CENTROIDE del cluster en curso (no solo el
-                // primer punto) para que la tolerancia sea consistente aunque el
-                // cluster crezca con más de 2 miembros.
                 for (int k = i + 1; k < puntos.Count; k++)
                 {
                     if (usado[k]) continue;
@@ -239,6 +302,25 @@ namespace Civil3DBasico
                 }
 
                 var tipo = DecidirTipoFitting(j.Miembros.Count, d1, d2, deflex);
+                // Refinamiento para 3 tuberías: discriminar Tee vs Y por los
+                // ángulos entre los vectores que SALEN de la juntura. Un ángulo
+                // cercano a 180° entre dos ramales = hay una recta clara → Tee.
+                // Sin colinealidad = Y. Si el catálogo no tiene Y, más abajo el
+                // BuscarFittingPorTipoYDiametro cae en Tee automáticamente.
+                if (j.Miembros.Count == 3)
+                {
+                    var vecs = pipesInfo.Select(p =>
+                    {
+                        Point3d far = p.Port == 0 ? p.pp.EndPoint : p.pp.StartPoint;
+                        return far - j.Ubicacion;
+                    }).ToList();
+                    var refined = DecidirTeeOWye(vecs);
+                    if (refined == CivilDB.PressurePartType.Wye)
+                    {
+                        tipo = CivilDB.PressurePartType.Wye;
+                        ed.WriteMessage($"\n  · [JUNTURA] Y (Wye) detectada en ({j.Ubicacion.X:F2},{j.Ubicacion.Y:F2}) — 3 tuberías sin recta clara.");
+                    }
+                }
                 // NominalDiameter viene en unidades del dibujo (pies) — confirmado con
                 // datos reales: un tubo "12 in" (según su propia descripción) tiene
                 // NominalDiameter=1.000. Las descripciones del catálogo ("4 in", "12
@@ -249,6 +331,16 @@ namespace Civil3DBasico
                 PresStyles.PressurePartSize pieza = (hayFittings && tipo.HasValue)
                     ? BuscarFittingPorTipoYDiametro(fittingsDisponibles, tipo.Value, diamMaxIn, deflex)
                     : null;
+                // Fallback: si pedimos Y (Wye) pero el catálogo no tiene ninguna
+                // pieza Y disponible, usar Tee en su lugar — mejor colocar algo
+                // razonable que dejar la juntura sin accesorio.
+                if (pieza == null && tipo == CivilDB.PressurePartType.Wye)
+                {
+                    pieza = BuscarFittingPorTipoYDiametro(fittingsDisponibles,
+                            CivilDB.PressurePartType.Tee, diamMaxIn, deflex);
+                    if (pieza != null)
+                        ed.WriteMessage($"\n  · [JUNTURA] Sin Y en el catálogo — se usa Tee como fallback en ({j.Ubicacion.X:F2},{j.Ubicacion.Y:F2}).");
+                }
 
                 bool colocado = false;
                 if (pieza != null)

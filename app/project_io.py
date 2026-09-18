@@ -30,6 +30,7 @@ def build_model_dict(win):
         erase_regions=win.erase_regions, structures=win.structures,
         ref_centerlines=win.ref_centerlines,
         duct_banks=[d.to_dict() for d in getattr(win, "duct_banks", []) or []],
+        cross_connections=list(getattr(win, "cross_connections", None) or []),
         georef=win.georef.to_dict(),
         work_unit=win.work_unit,                 # unidad de trabajo del proyecto
         # Versión/idioma de Civil 3D elegidos en el toolbar: se guardan para
@@ -80,6 +81,7 @@ def parse_model(model):
         structures=model.get("structures", []),          # retrocompat: proyectos viejos sin buzones
         ref_centerlines=model.get("ref_centerlines", []),  # retrocompat: sin centerlines
         duct_banks=[DuctBank.from_dict(d) for d in model.get("duct_banks", [])],  # retrocompat: sin duct banks
+        cross_connections=list(model.get("cross_connections", []) or []),  # retrocompat: sin conexiones aprobadas
         georef=georef_mod.Georef.from_dict(model.get("georef")),  # retrocompat: sin georref → escala
         work_unit="ft",
         civil_year=model.get("civil_year"),

@@ -58,6 +58,7 @@ class Main(QtWidgets.QMainWindow):
         self.erase_regions = []; self._erase_pts = []; self.structures = []
         self.ref_centerlines = []; self._cl_pts = []
         self.duct_banks = []   # colección del proyecto — ver duct_bank.py
+        self.cross_connections = []   # conexiones aprobadas en cruces físicos
         self.mode = "idle"; self._pending = None
         self.snap = False; self.snap_r = 14
         self.sel_pipe = -1; self.sel_leader = -1; self.sel_region = -1; self.sel_text = -1; self.sel_bz = -1
@@ -1162,6 +1163,31 @@ class Main(QtWidgets.QMainWindow):
         v = sc.addLine(x, r.top(), x, r.bottom(), cp); v.setZValue(Z_MARK + 10)
         self._crosshair = [h, v]
         self._update_hover_tooltip(x, y)
+        self._update_pipe_snap_hint(x, y)
+
+    def _update_pipe_snap_hint(self, x, y):
+        """Feedback visual del snap suave a utilidades: al mover el mouse en
+        modo Dibujar, si el cursor está cerca de una utilidad existente del
+        mismo tipo, dibuja un círculo verde en el punto donde se pegaría.
+        Sin costo cuando no hay hit (removeItem del previo y no dibuja nada)."""
+        sc = self.canvas.scene()
+        prev = getattr(self, "_pipe_snap_hint", None)
+        if prev is not None:
+            try: sc.removeItem(prev)
+            except (RuntimeError, ValueError): pass
+            self._pipe_snap_hint = None
+        if self.mode != "pipe": return
+        hit = self._pipe_soft_snap(x, y)
+        if hit is None: return
+        sx, sy = hit["pt"]
+        R_PX = 6.0
+        pen = QtGui.QPen(QtGui.QColor(30, 200, 60), 2.0); pen.setCosmetic(True)
+        it = sc.addEllipse(-R_PX, -R_PX, R_PX * 2, R_PX * 2, pen,
+                            QtGui.QBrush(QtCore.Qt.NoBrush))
+        it.setPos(sx, sy)
+        it.setFlag(QtWidgets.QGraphicsItem.ItemIgnoresTransformations)
+        it.setZValue(Z_MARK + 20)
+        self._pipe_snap_hint = it
 
     def _update_hover_tooltip(self, x, y):
         thr = self.snap_r * 1.5
@@ -1421,6 +1447,7 @@ class Main(QtWidgets.QMainWindow):
         self.erase_regions = []; self._erase_pts = []; self.structures = []
         self.ref_centerlines = []; self._cl_pts = []
         self.duct_banks = []
+        self.cross_connections = []
         self.sel_pipe = self.sel_leader = self.sel_region = self.sel_text = -1
         self.sel_cl = -1
         self._overlay = []; self._close_editor(); self._dirty = False; self._extending = False
@@ -1521,6 +1548,7 @@ class Main(QtWidgets.QMainWindow):
             self.structures = data["structures"]
             self.ref_centerlines = data["ref_centerlines"]
             self.duct_banks = data.get("duct_banks", [])
+            self.cross_connections = data.get("cross_connections", []) or []
             self.georef = data["georef"]
             self.work_unit = data["work_unit"]
             self.cur_pts = []; self._erase_pts = []; self.sel_pipe = self.sel_leader = self.sel_region = self.sel_text = -1
@@ -1611,7 +1639,7 @@ class Main(QtWidgets.QMainWindow):
         self.canvas.scene().clear(); self.canvas.pixmap_item = None; self.canvas.pdf_bg_item = None
         self.pdf_path = None; self.doc = None; self.project_path = None; self.gray = None; self._update_title()
         self.pipes = []; self.leaders = []; self.text_marks = []; self.erase_regions = []; self.structures = []
-        self.duct_banks = []
+        self.duct_banks = []; self.cross_connections = []
         self.ref_centerlines = []; self._cl_pts = []
         self.cur_pts = []; self._erase_pts = []; self._overlay = []; self._close_editor()
         self.sel_pipe = self.sel_leader = self.sel_region = self.sel_text = self.sel_cl = self.sel_db = -1
@@ -1633,8 +1661,15 @@ class Main(QtWidgets.QMainWindow):
             elif self.mode == "centerline": self.finish_centerline()
             elif self.mode == "move": self._delete_vertex(x, y)
             return
+        # Left-click sobre una marca de conflicto (círculo amarillo con !):
+        # abre el diálogo de aprobación para conectar con válvula. Tiene
+        # prioridad sobre cualquier otro modo — el usuario no debe estar
+        # esperando resolver un conflicto y que el click empiece a dibujar.
+        if button == QtCore.Qt.LeftButton and self.mode != "pipe":
+            if self._try_click_conflict(x, y):
+                return
         if self.mode == "pipe":
-            self._push(); self.cur_pts.append(self._snap(x, y)); self._update_ui(); self._redraw()
+            self._push(); self.cur_pts.append(self._pipe_snap_and_ask(x, y)); self._update_ui(); self._redraw()
         elif self.mode == "erase":
             self._erase_pts.append((x, y)); self._update_ui(); self._redraw()
         elif self.mode == "centerline":
@@ -1748,6 +1783,86 @@ class Main(QtWidgets.QMainWindow):
     def _snap(self, x, y):
         if not self.snap: return (x, y)
         return G.snap_point(self.gray, x, y, self.snap_r)
+
+    def _pipe_soft_snap(self, x, y, layer=None):
+        """Snap suave a utilidades EXISTENTES del mismo tipo (capa) mientras se
+        dibuja una nueva. Busca dentro de un radio en pixels de pantalla el
+        candidato más cercano y devuelve un dict:
+            {"pt": (x, y), "kind": "endpoint"|"vertex"|"segment",
+             "pipe_idx": int, "port": int}
+        `port` es 0 para start, len(pts)-1 para end (endpoints), o el índice
+        del vértice interno (vertex), o el índice del segmento inicio (segment).
+        Devuelve None si no hay nada cerca.
+
+        Sólo compara contra pipes cuya capa == `layer` (o self.active_layer()
+        si no se pasa). Radio de snap = 12 px de pantalla, convertidos a
+        unidades de escena según el zoom actual."""
+        lay = layer or self.active_layer()
+        m11 = max(1e-6, self.canvas.transform().m11())
+        tol = 12.0 / m11
+        best = None; best_d2 = tol * tol
+        for pi, p in enumerate(self.pipes):
+            if p.get("layer") != lay: continue
+            pts = p.get("pts") or []
+            n = len(pts)
+            if n < 2: continue
+            # 1) Vértices (endpoints + intermedios).
+            for vi, (vx, vy) in enumerate(pts):
+                d2 = (vx - x) ** 2 + (vy - y) ** 2
+                if d2 < best_d2:
+                    kind = "endpoint" if (vi == 0 or vi == n - 1) else "vertex"
+                    best = {"pt": (vx, vy), "kind": kind, "pipe_idx": pi, "port": vi}
+                    best_d2 = d2
+            # 2) Proyección perpendicular sobre cada segmento.
+            for si in range(n - 1):
+                ax, ay = pts[si]; bx, by = pts[si + 1]
+                dx, dy = bx - ax, by - ay
+                seg_len2 = dx * dx + dy * dy
+                if seg_len2 < 1e-9: continue
+                t = ((x - ax) * dx + (y - ay) * dy) / seg_len2
+                if t <= 0 or t >= 1: continue      # los extremos ya se cubren arriba
+                px = ax + t * dx; py = ay + t * dy
+                d2 = (px - x) ** 2 + (py - y) ** 2
+                if d2 < best_d2:
+                    best = {"pt": (px, py), "kind": "segment", "pipe_idx": pi, "port": si}
+                    best_d2 = d2
+        return best
+
+    def _pipe_snap_and_ask(self, x, y):
+        """Aplica el snap suave para el modo Dibujar. Si el snap cae en el
+        EXTREMO de una utilidad existente del mismo tipo y es el PRIMER click
+        de la nueva utilidad, pregunta si el usuario quiere unirla como parte
+        de esa utilidad (extenderla) o crear una nueva independiente.
+
+        Devuelve (x, y) del punto a usar. Si el usuario eligió "unir", además
+        deja `_extending`/`_ext_pipe`/`_ext_at` armados como si hubiera venido
+        del comando F, para que `finish_pipe` haga el append correcto."""
+        hit = self._pipe_soft_snap(x, y)
+        if hit is None:
+            return self._snap(x, y)
+        sx, sy = hit["pt"]
+        # Sólo pregunta si es el primer click (cur_pts vacío) y el snap es a
+        # un EXTREMO (unir a mitad de segmento no tiene sentido en polilíneas).
+        first_click = not self.cur_pts and not self._extending
+        if first_click and hit["kind"] == "endpoint":
+            resp = QtWidgets.QMessageBox.question(
+                self, _tr("Unir a utilidad existente"),
+                _tr("El punto donde estás dibujando coincide con el extremo de otra "
+                    "utilidad del mismo tipo.\n\n"
+                    "¿Quieres UNIRLA como parte de esa utilidad (misma polilínea, "
+                    "una sola red)?\n\n"
+                    "Sí = extiende la utilidad existente.\n"
+                    "No = crea una utilidad nueva que la toca (juntura automática al importar)."),
+                QtWidgets.QMessageBox.Yes | QtWidgets.QMessageBox.No,
+                QtWidgets.QMessageBox.No)
+            if resp == QtWidgets.QMessageBox.Yes:
+                pi = hit["pipe_idx"]; port = hit["port"]
+                pep = self.pipes[pi]
+                self._extending = True
+                self._ext_pipe = pi
+                self._ext_layer = pep.get("layer", "")
+                self._ext_at = "start" if port == 0 else "end"
+        return (sx, sy)
 
     # ─────────────────────────── editar / mover ───────────────────────────
     def _current_kind(self):
@@ -2491,6 +2606,11 @@ class Main(QtWidgets.QMainWindow):
             p["diam"] = _extract_diam_from_size(p.get("pipe_size", ""))
             self._refresh_lists()
             self._rebuild_seg_inv_table(p)
+            # Repintamos el lienzo para que los marcadores de cruces se
+            # reclasifiquen inmediatamente: al cambiar inv_start/inv_end,
+            # una sugerencia (cotas distintas) puede volverse conflicto
+            # (cotas iguales) o viceversa.
+            self._redraw()
 
     def _refresh_unit_labels(self):
         """Etiquetas de campo fijas: cotas en PIES, diámetro en PULGADAS.
@@ -2586,7 +2706,10 @@ class Main(QtWidgets.QMainWindow):
         if r != QtWidgets.QMessageBox.Yes:
             return
         if ti == TAB_PIPE:
-            self._push(); self.pipes.pop(self.sel_pipe); self.sel_pipe = -1
+            self._push()
+            deleted_idx = self.sel_pipe
+            self.pipes.pop(self.sel_pipe); self.sel_pipe = -1
+            self._reindex_cross_connections_on_pipe_delete(deleted_idx)
         elif ti == TAB_LEADER:
             self._push(); self.leaders.pop(self.sel_leader); self.sel_leader = -1
         elif ti == TAB_TEXT:
@@ -2878,6 +3001,9 @@ class Main(QtWidgets.QMainWindow):
         # Se dibuja por encima de las utilidades (mismo z que MARK). Si show_bz_labels
         # está activo, el código se dibuja al lado con una fuente pequeña blanca.
         self._draw_structures()
+        # Marcas de conflicto: pares de segmentos que se cruzan geométricamente
+        # (dos utilidades pasando una por encima de la otra sin ser juntura).
+        self._draw_pipe_conflicts()
         # textos
         for i, tm in enumerate(self.text_marks):
             t = sc.addText(tm["text"]); t.setDefaultTextColor(QtGui.QColor(120, 220, 120)); t.document().setDocumentMargin(0)
@@ -2891,6 +3017,308 @@ class Main(QtWidgets.QMainWindow):
             if i == self.sel_text and self._current_tab() == TAB_TEXT:
                 br = t.boundingRect(); pen = QtGui.QPen(QtGui.QColor(255, 180, 40)); pen.setCosmetic(True)
                 rit = sc.addRect(tm["pos"][0], tm["pos"][1], br.width(), br.height(), pen); rit.setZValue(Z_MARK); self._overlay.append(rit)
+
+    def _reindex_cross_connections_on_pipe_delete(self, deleted_idx):
+        """Al borrar una utilidad se corren TODOS los índices posteriores:
+        pipe #k con k > deleted_idx pasa a ser k-1. Actualizamos las
+        conexiones aprobadas (`cross_connections`) para reflejar eso:
+          - Se DESCARTA la que referencia a la pipe borrada (queda huérfana).
+          - En las demás, si pipe_a > deleted_idx se le resta 1 (idem pipe_b)."""
+        if not getattr(self, "cross_connections", None): return
+        nuevas = []
+        for c in self.cross_connections:
+            a, b = int(c.get("pipe_a", -1)), int(c.get("pipe_b", -1))
+            if a == deleted_idx or b == deleted_idx: continue
+            if a > deleted_idx: a -= 1
+            if b > deleted_idx: b -= 1
+            c["pipe_a"] = a; c["pipe_b"] = b
+            nuevas.append(c)
+        self.cross_connections = nuevas
+
+    def _prune_stale_cross_connections(self):
+        """Filtro defensivo: quita conexiones aprobadas que ya no tienen
+        sentido geométrico (la pipe referenciada ya no existe o los segmentos
+        de las dos tuberías ya no se cruzan cerca del punto guardado). Se
+        corre antes de exportar y antes de dibujar, para que nunca se cuele
+        al DXF un cruce fantasma que quedó del historial. Devuelve cuántas
+        conexiones se descartaron."""
+        conns = getattr(self, "cross_connections", None) or []
+        if not conns: return 0
+        # Tolerancia en pixeles del lienzo (mismo criterio que _draw).
+        # Como aquí no dependemos del zoom, usamos una tolerancia fija amplia
+        # (~5 unidades del lienzo, suficiente porque el punto se guardó en
+        # las mismas coords).
+        TOL = 6.0
+        keep = []
+        for c in conns:
+            try:
+                a = int(c["pipe_a"]); b = int(c["pipe_b"])
+                cx = float(c["x"]); cy = float(c["y"])
+            except (KeyError, TypeError, ValueError):
+                continue
+            if not (0 <= a < len(self.pipes) and 0 <= b < len(self.pipes)):
+                continue
+            if a == b:
+                continue
+            pa = self.pipes[a].get("pts") or []
+            pb = self.pipes[b].get("pts") or []
+            if len(pa) < 2 or len(pb) < 2:
+                continue
+            # ¿Existe algún par de segmentos (uno de A, otro de B) que se
+            # crucen en el interior cerca de (cx, cy)?
+            hallado = False
+            for i in range(len(pa) - 1):
+                a1, a2 = pa[i], pa[i + 1]
+                for j in range(len(pb) - 1):
+                    b1, b2 = pb[j], pb[j + 1]
+                    cp = self._seg_inter_pts(a1, a2, b1, b2)
+                    if cp is None: continue
+                    if (cp[0] - cx) ** 2 + (cp[1] - cy) ** 2 <= TOL * TOL:
+                        hallado = True
+                        break
+                if hallado: break
+            if hallado:
+                keep.append(c)
+        removed = len(conns) - len(keep)
+        if removed > 0:
+            self.cross_connections = keep
+        return removed
+
+    @staticmethod
+    def _seg_inter_pts(p1, p2, p3, p4):
+        """Intersección de dos segmentos (incluyendo extremos), o None.
+        Acepta t/u en [0, 1] con pequeña tolerancia, para que también cuenten
+        cruces donde un extremo de un segmento cae sobre el otro o donde los
+        extremos coinciden — el usuario ve ese contacto físico como cruce
+        aunque no sea intersección estrictamente interior."""
+        x1, y1 = p1; x2, y2 = p2; x3, y3 = p3; x4, y4 = p4
+        denom = (x1 - x2) * (y3 - y4) - (y1 - y2) * (x3 - x4)
+        if abs(denom) < 1e-9: return None
+        t = ((x1 - x3) * (y3 - y4) - (y1 - y3) * (x3 - x4)) / denom
+        u = -((x1 - x2) * (y1 - y3) - (y1 - y2) * (x1 - x3)) / denom
+        eps = 1e-6
+        if not (-eps <= t <= 1 + eps and -eps <= u <= 1 + eps): return None
+        return (x1 + t * (x2 - x1), y1 + t * (y2 - y1))
+
+    def _pipe_z_at(self, pipe_idx, seg_idx, x, y):
+        """Devuelve la cota Z interpolada de la tubería `pipe_idx` en el punto
+        (x, y) que se sabe que cae en el segmento `seg_idx` (entre pts[seg_idx]
+        y pts[seg_idx+1]). Usa las cotas por vértice (VertexInv/VertexInvIn)
+        con el mismo criterio que `interp_vertex_z`. Cuando la pipe no tiene
+        `inv_start`/`inv_end` (típico de tuberías recién dibujadas), asume Z=0
+        — mismo valor que muestra el spinbox de la UI por defecto."""
+        if not (0 <= pipe_idx < len(self.pipes)): return None
+        p = self.pipes[pipe_idx]
+        pts = p.get("pts") or []
+        if seg_idx < 0 or seg_idx >= len(pts) - 1: return None
+        zs = p.get("inv_start"); ze = p.get("inv_end")
+        # None → 0.0 (coincide con el valor por defecto que ve el usuario).
+        if zs is None: zs = 0.0 if ze is None else ze
+        if ze is None: ze = zs
+        ov = p.get("vertex_inv") or {}
+        # Normaliza claves a int (json las guarda como str).
+        ov = {int(k): float(v) for k, v in ov.items()}
+        z_verts = model_ops.interp_vertex_z(pts, float(zs), float(ze), ov)
+        # Interpolación lineal a lo largo del segmento.
+        a = pts[seg_idx]; b = pts[seg_idx + 1]
+        dx, dy = b[0] - a[0], b[1] - a[1]
+        seg_len2 = dx * dx + dy * dy
+        if seg_len2 < 1e-9: return z_verts[seg_idx]
+        t = max(0.0, min(1.0, ((x - a[0]) * dx + (y - a[1]) * dy) / seg_len2))
+        return z_verts[seg_idx] + (z_verts[seg_idx + 1] - z_verts[seg_idx]) * t
+
+    def _draw_pipe_conflicts(self):
+        """Detecta y dibuja marcas en los cruces geométricos entre segmentos
+        de tuberías. Se distinguen tres estados (colores distintos):
+
+        - ROJO «!»  = CONFLICTO físico real (dos tuberías con la MISMA cota
+          en el punto de cruce → chocan). Requiere corregir la geometría o
+          alguna cota. NO se ofrece conexión.
+        - AZUL «↕»  = SUGERENCIA de conexión: cotas distintas (una pasa por
+          encima/debajo de la otra sin chocar). Se puede aprobar con click
+          para que el plugin dibuje una vertical + válvula uniéndolas.
+        - VERDE «✓» = Sugerencia ya APROBADA por el usuario.
+
+        Tolerancia de "misma cota": 0.10 ft (~1.2 pulgadas). Si a alguna de
+        las dos le falta la cota, se trata como conflicto (no se puede
+        confirmar que estén a alturas distintas)."""
+        # Saneamos antes de dibujar por si el usuario borró/movió una pipe
+        # y quedaron cruces fantasma en cross_connections.
+        self._prune_stale_cross_connections()
+        sc = self.canvas.scene()
+
+        def _seg_inter(p1, p2, p3, p4):
+            # Acepta intersecciones en los extremos también: si dos utilidades
+            # se TOCAN (un extremo cae sobre el otro segmento o los extremos
+            # coinciden) también cuenta como cruce físico.
+            x1, y1 = p1; x2, y2 = p2; x3, y3 = p3; x4, y4 = p4
+            denom = (x1 - x2) * (y3 - y4) - (y1 - y2) * (x3 - x4)
+            if abs(denom) < 1e-9: return None
+            t = ((x1 - x3) * (y3 - y4) - (y1 - y3) * (x3 - x4)) / denom
+            u = -((x1 - x2) * (y1 - y3) - (y1 - y2) * (x1 - x3)) / denom
+            eps = 1e-6
+            if not (-eps <= t <= 1 + eps and -eps <= u <= 1 + eps): return None
+            return (x1 + t * (x2 - x1), y1 + t * (y2 - y1))
+
+        segs = []
+        for i, p in enumerate(self.pipes):
+            pts = p.get("pts") or []
+            lay = p.get("layer", "")
+            for k in range(len(pts) - 1):
+                segs.append((i, k, pts[k], pts[k + 1], lay))
+
+        # Cada hit lleva su "estado" ya clasificado.
+        self._conflict_hits = []
+        approvals = {(int(c["pipe_a"]), int(c["pipe_b"]), round(float(c["x"]), 3), round(float(c["y"]), 3))
+                      for c in (getattr(self, "cross_connections", None) or [])}
+        Z_TOL = 0.10        # ft — misma cota si |za - zb| <= Z_TOL
+        R_PX = 7.0
+        red_col   = QtGui.QColor(180, 20, 20)
+        blue_col  = QtGui.QColor(30, 90, 220)
+        green_col = QtGui.QColor(30, 160, 60)
+        yellow_br = QtGui.QBrush(QtGui.QColor(255, 235, 60))
+        cyan_br   = QtGui.QBrush(QtGui.QColor(180, 220, 255))
+        greenbr   = QtGui.QBrush(QtGui.QColor(180, 240, 200))
+        ign = QtWidgets.QGraphicsItem.ItemIgnoresTransformations
+        n_conf = n_sug = n_ap = 0
+        for a in range(len(segs)):
+            ia, ka, a1, a2, la = segs[a]
+            for b in range(a + 1, len(segs)):
+                ib, kb, b1, b2, lb = segs[b]
+                if ia == ib: continue
+                cp = _seg_inter(a1, a2, b1, b2)
+                if cp is None: continue
+                cx, cy = cp
+                za = self._pipe_z_at(ia, ka, cx, cy)
+                zb = self._pipe_z_at(ib, kb, cx, cy)
+                aprobado = ((min(ia, ib), max(ia, ib), round(cx, 3), round(cy, 3)) in approvals)
+                # Clasificación del cruce.
+                if za is None or zb is None:
+                    estado = "conflicto"       # sin cotas → tratar como conflicto
+                elif abs(za - zb) <= Z_TOL:
+                    estado = "conflicto"       # misma cota → chocan
+                else:
+                    estado = "aprobado" if aprobado else "sugerencia"
+                self._conflict_hits.append((cx, cy, ia, ib, ka, kb, za, zb, estado))
+                if estado == "conflicto":  n_conf += 1
+                elif estado == "aprobado": n_ap += 1
+                else:                       n_sug += 1
+                # Dibujo según estado.
+                if estado == "conflicto":
+                    pen = QtGui.QPen(red_col, 2.0); pen.setCosmetic(True)
+                    brush = yellow_br; text = "!"; text_col = red_col
+                elif estado == "aprobado":
+                    pen = QtGui.QPen(green_col, 2.0); pen.setCosmetic(True)
+                    brush = greenbr; text = "✓"; text_col = green_col
+                else:  # sugerencia
+                    pen = QtGui.QPen(blue_col, 2.0); pen.setCosmetic(True)
+                    brush = cyan_br; text = "↕"; text_col = blue_col
+                circ = sc.addEllipse(-R_PX, -R_PX, R_PX * 2, R_PX * 2, pen, brush)
+                circ.setPos(cx, cy); circ.setFlag(ign)
+                circ.setZValue(Z_HANDLE + 5); self._overlay.append(circ)
+                t = sc.addText(text); t.setDefaultTextColor(text_col)
+                f = t.font(); f.setPixelSize(11); f.setBold(True); t.setFont(f)
+                t.document().setDocumentMargin(0)
+                br = t.boundingRect()
+                t.setPos(cx, cy); t.setFlag(ign)
+                t.setTransform(QtGui.QTransform().translate(-br.width() / 2, -br.height() / 2))
+                t.setZValue(Z_HANDLE + 6); self._overlay.append(t)
+                # Tooltip por estado.
+                z_desc = ""
+                if za is not None and zb is not None:
+                    z_desc = f"\nZ «{la}» = {za:.2f} ft   |   Z «{lb}» = {zb:.2f} ft (Δ = {abs(za - zb):.2f} ft)"
+                elif za is not None or zb is not None:
+                    z_desc = "\n(a una de las dos le falta la cota — no se puede confirmar Δ)"
+                else:
+                    z_desc = "\n(sin cotas en ninguna — no se puede confirmar Δ)"
+                if estado == "conflicto":
+                    tip = "⚠ CONFLICTO — cruce con la misma cota (las tuberías chocan). Revisa la geometría o las cotas."
+                elif estado == "aprobado":
+                    tip = "✓ Conexión vertical aprobada — al importar se dibuja una tubería vertical uniendo las dos cotas."
+                else:
+                    tip = "↕ Sugerencia — cotas distintas, pasan una por encima de la otra. Click para conectarlas con una tubería vertical."
+                pair = f"Dos tramos de «{la}»" if la == lb else f"«{la}» × «{lb}»"
+                circ.setToolTip(f"{tip}\n{pair}{z_desc}")
+
+        if hasattr(self, "lbl_info"):
+            partes = []
+            if n_conf > 0: partes.append(f"⚠ {n_conf} conflicto(s)")
+            if n_sug > 0:  partes.append(f"↕ {n_sug} sugerencia(s)")
+            if n_ap > 0:   partes.append(f"✓ {n_ap} aprobada(s)")
+            if partes: self.lbl_info.setText(" · ".join(partes))
+
+    def _try_click_conflict(self, x, y):
+        """Si el click está sobre una marca de cruce, abre el diálogo
+        correspondiente. Devuelve True si consumió el click."""
+        hits = getattr(self, "_conflict_hits", None) or []
+        if not hits: return False
+        m11 = max(1e-6, self.canvas.transform().m11())
+        tol = 10.0 / m11
+        tol2 = tol * tol
+        for h in hits:
+            cx, cy = h[0], h[1]
+            if (cx - x) ** 2 + (cy - y) ** 2 <= tol2:
+                self._open_conflict_dialog(h)
+                return True
+        return False
+
+    def _open_conflict_dialog(self, hit):
+        """Según el estado del cruce:
+          - "conflicto"  → sólo muestra info, no ofrece conectar.
+          - "sugerencia" → pregunta si aprobar conexión vertical + válvula.
+          - "aprobado"   → pregunta si retirar la aprobación."""
+        cx, cy, ia, ib, ka, kb, za, zb, estado = hit
+        la = self.pipes[ia].get("layer", "?")
+        lb = self.pipes[ib].get("layer", "?")
+        if not hasattr(self, "cross_connections") or self.cross_connections is None:
+            self.cross_connections = []
+        z_info = ""
+        if za is not None and zb is not None:
+            z_info = f"\n\nCotas en el punto de cruce:\n  • «{la}»: {za:.2f} ft\n  • «{lb}»: {zb:.2f} ft\n  • Diferencia: {abs(za - zb):.2f} ft"
+        else:
+            z_info = "\n\n(⚠ falta cota en al menos una de las dos utilidades — pon cotas para poder decidir si es conflicto o sugerencia de unión)"
+
+        if estado == "conflicto":
+            QtWidgets.QMessageBox.warning(
+                self, _tr("Conflicto físico"),
+                _tr(f"⚠ CONFLICTO entre «{la}» y «{lb}» — están a la MISMA cota en el cruce y chocan geométricamente.{z_info}\n\n"
+                    "No se ofrece conexión automática aquí: hay que corregir la geometría del plano o ajustar la cota de alguna de las dos tuberías."))
+            return
+
+        if estado == "aprobado":
+            # Retirar aprobación.
+            idx = next((i for i, c in enumerate(self.cross_connections)
+                        if min(int(c["pipe_a"]), int(c["pipe_b"])) == min(ia, ib)
+                        and max(int(c["pipe_a"]), int(c["pipe_b"])) == max(ia, ib)
+                        and round(float(c["x"]), 3) == round(cx, 3)
+                        and round(float(c["y"]), 3) == round(cy, 3)), None)
+            resp = QtWidgets.QMessageBox.question(
+                self, _tr("Conexión vertical ya aprobada"),
+                _tr(f"Este cruce entre «{la}» y «{lb}» ya está marcado para conectarse con una tubería vertical al importar.{z_info}\n\n"
+                    "¿Deseas RETIRAR la aprobación?"),
+                QtWidgets.QMessageBox.Yes | QtWidgets.QMessageBox.No, QtWidgets.QMessageBox.No)
+            if resp == QtWidgets.QMessageBox.Yes and idx is not None:
+                self.cross_connections.pop(idx)
+                self._push(); self._redraw()
+            return
+
+        # sugerencia → ofrecer conectar.
+        resp = QtWidgets.QMessageBox.question(
+            self, _tr("Sugerencia de conexión vertical"),
+            _tr(f"Las utilidades «{la}» y «{lb}» se cruzan pero están a cotas distintas — no chocan, una pasa por encima de la otra.{z_info}\n\n"
+                "¿Quieres conectarlas con una tubería vertical al importar en Civil 3D?\n\n"
+                "Sí = se dibuja un tramo vertical uniendo ambas cotas.\n"
+                "No = se dejan como están (no se conectan)."),
+            QtWidgets.QMessageBox.Yes | QtWidgets.QMessageBox.No, QtWidgets.QMessageBox.No)
+        if resp == QtWidgets.QMessageBox.Yes:
+            self.cross_connections.append({
+                "x": float(cx), "y": float(cy),
+                "pipe_a": int(ia), "pipe_b": int(ib),
+                "z_a": (None if za is None else float(za)),
+                "z_b": (None if zb is None else float(zb)),
+                "valve": True,
+            })
+            self._push(); self._redraw()
 
     def _draw_structures(self):
         """Dibuja cada buzón como un círculo relleno con el color del pipe al que

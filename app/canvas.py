@@ -14,7 +14,7 @@ from model import Z_PDF
 
 
 _ZOOM_MIN = 0.3
-_ZOOM_MAX = 40.0
+_ZOOM_MAX = 80.0
 
 _MODE_CURSORS = {
     "pipe": QtCore.Qt.CrossCursor,

@@ -138,6 +138,7 @@ def merge_into(win, doc, marks=True):
         ])
     _export_structures(win, doc, msp)
     _export_duct_banks(win, doc, msp)
+    _export_cross_connects(win, doc, msp)
     _export_ref_centerlines(win, doc, msp)
     _export_cs_code(win, doc, msp)
     VP.ensure_layer(doc, "ANOTACION")
@@ -377,6 +378,42 @@ def _export_duct_banks(win, doc, msp):
             (1000, f"CORNER_BL={db.corner_bl}"),
             (1000, f"RENDER_ENVELOPE={render_env}"),
             (1000, f"CONDUITS={conduits_str}"),
+        ])
+
+
+def _export_cross_connects(win, doc, msp):
+    """Exporta las conexiones aprobadas entre utilidades cruzadas. Cada una es
+    un punto XDATA `PDFCAD_CROSS_CONNECT` con las coordenadas del punto de
+    cruce (world) y los índices de las dos pipes involucradas. El plugin C#
+    lee esto y dibuja una tubería vertical uniéndolas."""
+    # Última pasada defensiva: quita conexiones huérfanas (referencia a pipes
+    # que ya no existen o cuyos segmentos ya no se cruzan cerca del punto
+    # guardado). Sin esto, un cruce fantasma del historial quedaría en el
+    # DXF y el plugin dibujaría una vertical en un punto obsoleto.
+    try:
+        removed = win._prune_stale_cross_connections()
+        if removed:
+            print(f"[dxf_export] Se descartaron {removed} conexión(es) huérfana(s).")
+    except AttributeError:
+        pass
+    conns = getattr(win, "cross_connections", None) or []
+    if not conns: return
+    if "PDFCAD" not in doc.appids: doc.appids.add("PDFCAD")
+    VP.ensure_layer(doc, "PDFCAD_CROSS_CONNECT")
+    for c in conns:
+        try:
+            world = win._to_cad(float(c["x"]), float(c["y"]))
+        except Exception:
+            continue
+        pt = msp.add_point((world[0], world[1], 0), dxfattribs={"layer": "PDFCAD_CROSS_CONNECT"})
+        za = c.get("z_a"); zb = c.get("z_b")
+        pt.set_xdata("PDFCAD", [
+            (1000, "PDFCAD_CROSS_CONNECT"),
+            (1000, f"PIPE_A={int(c['pipe_a'])}"),
+            (1000, f"PIPE_B={int(c['pipe_b'])}"),
+            (1000, f"Z_A={za if za is not None else ''}"),
+            (1000, f"Z_B={zb if zb is not None else ''}"),
+            (1000, f"VALVE={1 if c.get('valve', True) else 0}"),
         ])
 
 

@@ -725,7 +725,29 @@ namespace Civil3DBasico
             // ¿La búsqueda es "cualquier familia" (sin criterio)? Si sí, hay que
             // excluir familias custom para que no se conviertan en el default.
             bool criterioVacio = !esCatalogId && mN.Length == 0;
+
+            // Reordenar las familias: EXACT match de Description primero (por si
+            // el material pedido es exactamente el nombre de una familia — típico
+            // cuando el pre-scan de ductbank pasa el nombre exacto de la familia
+            // que aceptó la inyección). Sin esto, "HDPE Pipe" caía por substring
+            // en "Corrugated HDPE Pipe" (primera alfabéticamente), que no tenía
+            // el tamaño inyectado → fallback a tamaño default.
+            var famIds = new List<ObjectId>();
+            var famIdsResto = new List<ObjectId>();
             foreach (ObjectId fid in partsList.GetPartFamilyIdsByDomain(CivilDB.DomainType.Pipe))
+            {
+                var famPre = tr.GetObject(fid, OpenMode.ForRead) as PartsStyles.PartFamily;
+                if (famPre == null || famPre.PartSizeCount == 0) continue;
+                if (!esCatalogId && mN.Length > 0 &&
+                    famPre.Description != null &&
+                    string.Equals(Norm(famPre.Description), mN, StringComparison.Ordinal))
+                    famIds.Add(fid);
+                else
+                    famIdsResto.Add(fid);
+            }
+            famIds.AddRange(famIdsResto);
+
+            foreach (ObjectId fid in famIds)
             {
                 PartsStyles.PartFamily fam = tr.GetObject(fid, OpenMode.ForRead) as PartsStyles.PartFamily;
                 if (fam == null || fam.PartSizeCount == 0) continue;
@@ -1365,6 +1387,9 @@ namespace Civil3DBasico
         // SizeFilterRecord, setea su valor al pedido, y multi-selecciona el resto
         // (espesor de pared, etc.) para que se agreguen todas las variantes.
         // Devuelve true si se agregó al menos un tamaño nuevo.
+        internal static bool AgregarTamañoPipePublico(Transaction tr, PartsStyles.PartFamily fam,
+            double diamPulgadas, Editor ed) => AgregarTamañoPipe(tr, fam, diamPulgadas, ed);
+
         private static bool AgregarTamañoPipe(Transaction tr, PartsStyles.PartFamily fam,
             double diamPulgadas, Editor ed)
         {
@@ -1374,24 +1399,71 @@ namespace Civil3DBasico
                 int antes = fam.PartSizeCount;
                 var filtro = new PartsStyles.SizeFilterRecord(fam);
                 bool cambioDiam = false;
+                bool diamValueOk = false;
+                string diamErr = "";
                 for (int i = 0; i < filtro.ParamCount; i++)
                 {
                     var campo = filtro[i];
                     if (campo == null || campo.IsReadOnly) continue;
-                    if (!campo.IsFromList) continue;
+                    string nmDbg = (campo.Name ?? "") + "/" + (campo.Description ?? "") + " IsFromList=" + campo.IsFromList;
+                    if (!campo.IsFromList) { ed.WriteMessage($"\n    [ATP-SKIP] fam='{fam.Description}' d={diamPulgadas:F1} campo={nmDbg}"); continue; }
                     string nm = ((campo.Name ?? "") + " " + (campo.Description ?? "")).ToLowerInvariant();
                     bool esDiam = nm.Contains("diameter") || nm.Contains("diámetro") ||
                                   nm.Contains("diametro") || nm.Contains("inner width") ||
                                   nm.Contains("ancho interior");
+                    bool esWall = nm.Contains("wall") || nm.Contains("thickness") ||
+                                  nm.Contains("pared") || nm.Contains("grosor") ||
+                                  nm.Contains("espesor");
+                    // Log valores permitidos si es diameter (para saber si 1" está en la lista)
                     if (esDiam)
                     {
-                        try { campo.Value = diamPulgadas; cambioDiam = true; } catch { }
+                        // Intentar listar valores permitidos vía reflexión
+                        try
+                        {
+                            var t = campo.GetType();
+                            string s = "";
+                            foreach (var pn in new[] { "AllowedValues", "ListValues", "Values" })
+                            {
+                                var pi = t.GetProperty(pn);
+                                if (pi != null)
+                                {
+                                    var vals = pi.GetValue(campo) as System.Collections.IEnumerable;
+                                    if (vals != null) { foreach (var v in vals) s += v + ";"; break; }
+                                }
+                            }
+                            ed.WriteMessage($"\n    [ATP-DIAM-VALS] fam='{fam.Description}' d={diamPulgadas:F1} allowed=[{s}]");
+                        }
+                        catch (Exception exV) { ed.WriteMessage($"\n    [ATP-DIAM-VALS-ERR] {exV.Message}"); }
+                        try { campo.Value = diamPulgadas; cambioDiam = true; diamValueOk = true; }
+                        catch (Exception exD) { diamErr = exD.Message; ed.WriteMessage($"\n    [ATP-DIAM-SET-FAIL] fam='{fam.Description}' d={diamPulgadas:F1} err={exD.Message}"); }
+                    }
+                    else if (esWall)
+                    {
+                        try { campo.IsMultipleSelect = false; } catch { }
+                        try { campo.Value = 0.0; ed.WriteMessage($"\n    [ATP-WALL0-OK] fam='{fam.Description}'"); }
+                        catch (Exception exW)
+                        {
+                            ed.WriteMessage($"\n    [ATP-WALL0-FAIL] fam='{fam.Description}' err={exW.Message} → multi-select");
+                            try { campo.IsMultipleSelect = true; } catch { }
+                        }
                     }
                     else
                         try { campo.IsMultipleSelect = true; } catch { }
                 }
-                if (!cambioDiam) return false;
-                fam.AddPartSize(filtro);
+                if (!cambioDiam)
+                {
+                    ed.WriteMessage($"\n    [ATP-NO-DIAM-FIELD] fam='{fam.Description}' d={diamPulgadas:F1} paramCount={filtro.ParamCount} diamErr='{diamErr}'");
+                    return false;
+                }
+                try
+                {
+                    fam.AddPartSize(filtro);
+                }
+                catch (Exception exAdd)
+                {
+                    ed.WriteMessage($"\n    [ATP-ADD-FAIL] fam='{fam.Description}' d={diamPulgadas:F1} err={exAdd.Message}");
+                    return false;
+                }
                 int nuevos = fam.PartSizeCount - antes;
                 if (nuevos > 0)
                 {
@@ -1399,9 +1471,10 @@ namespace Civil3DBasico
                         $"'{fam.Description}' ({nuevos} variante(s)).");
                     return true;
                 }
+                ed.WriteMessage($"\n    [ATP-NO-NEW] fam='{fam.Description}' d={diamPulgadas:F1} — AddPartSize no creó variantes nuevas");
                 return false;
             }
-            catch { return false; }
+            catch (Exception exOut) { ed.WriteMessage($"\n    [ATP-OUTER-ERR] fam='{fam.Description}' d={diamPulgadas:F1} err={exOut.Message}"); return false; }
         }
 
         // Comprueba si un diámetro (en pulgadas) ya existe como tamaño exacto
@@ -1456,7 +1529,12 @@ namespace Civil3DBasico
                 // Buscar la columna de diámetro interior (context=PipeInnerDiameter)
                 XElement colPID = root.Elements("Column")
                     .FirstOrDefault(c => (string)c.Attribute("context") == "PipeInnerDiameter");
-                if (colPID == null) return false; // familia sin PipeInnerDiameter (esperado en no-circulares)
+                if (colPID == null)
+                {
+                    ed.WriteMessage($"\n    [INJ-NO-COLPID] fam='{fam.Description}' d={diamPulgadas:F1} xml='{System.IO.Path.GetFileName(xmlPath)}' — familia sin columna PipeInnerDiameter");
+                    return false;
+                }
+                ed.WriteMessage($"\n    [INJ-START] fam='{fam.Description}' d={diamPulgadas:F1} xml='{System.IO.Path.GetFileName(xmlPath)}'");
 
                 // Verificar si el diámetro ya existe en el XML
                 XElement colWThExisting = root.Elements("Column")
@@ -1499,7 +1577,11 @@ namespace Civil3DBasico
 
                 // Determinar el siguiente id de fila
                 XElement colUUID = root.Elements("ColumnUnique").FirstOrDefault();
-                if (colUUID == null) return false;
+                if (colUUID == null)
+                {
+                    ed.WriteMessage($"\n    [INJ-NO-COLUUID] fam='{fam.Description}' d={diamPulgadas:F1} — XML sin ColumnUnique");
+                    return false;
+                }
                 int maxRow = -1;
                 foreach (XElement ru in colUUID.Elements("RowUnique"))
                 {

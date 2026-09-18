@@ -396,7 +396,7 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "Drenaje (SD)": "Storm Drain (SD)",
         "Gas (G)": "Gas (G)",
         "Eléctrico (E)": "Electric (E)",
-        "Telefonía (T)": "Telecom (T)",
+        "Telecomunicaciones (T)": "Telecommunications (T)",
 
         # ── Materiales de tubería ─────────────────────────────────────────
         "Material sin definir": "Undefined material",
