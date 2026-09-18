@@ -258,3 +258,30 @@ def test_nitidez_al_hacer_zoom_en_ambos_paneles(app):
         assert all(it._sharp is None for it in dlg.view.items)
     finally:
         dlg.close_docs()
+
+
+def test_minimapa_en_capas_de_la_hoja(app):
+    """El diálogo «Capas de la hoja» muestra un minimapa con la hoja y el
+    recuadro de lo visible; clic en el mapa centra la vista ahí."""
+    import layer_dialog
+    from PySide6 import QtGui
+    doc = fitz.open(); ocg = doc.add_ocg("C-ELEC-UNGD-E", on=True)
+    page = doc.new_page(width=1200, height=400); _dashed(page, (20, 200), (1180, 200), ocg)
+    layout = [((0, 0, 600, 400), "Hoja 13"), ((600, 0, 1200, 400), "Hoja 14")]
+    dlg = layer_dialog.SheetLayersDialog(None, doc, 0, layout=layout)
+    dlg.resize(1200, 700); dlg.show()
+    try:
+        assert dlg.minimap.isVisible() and dlg.minimap.width() <= dlg.minimap.MAX_W + 2
+        assert dlg.minimap._layout and [l for _, l in dlg.minimap._layout] == ["Hoja 13", "Hoja 14"]
+        assert dlg.minimap._thumb is None                                   # esquema, no dibujo
+        dlg.view.resetTransform(); dlg.view.scale(3.0, 3.0); dlg.view.centerOn(100, 100)
+        before = dlg.view.mapToScene(dlg.view.viewport().rect().center())
+        # clic en la esquina derecha del mapa → la vista se centra hacia el final de la hoja
+        pos = QtCore.QPointF(dlg.minimap.width() - 3, dlg.minimap.height() / 2)
+        ev = QtGui.QMouseEvent(QtCore.QEvent.MouseButtonPress, pos, QtCore.Qt.LeftButton,
+                               QtCore.Qt.LeftButton, QtCore.Qt.NoModifier)
+        dlg.minimap.mousePressEvent(ev)
+        after = dlg.view.mapToScene(dlg.view.viewport().rect().center())
+        assert after.x() > before.x() + 1000
+    finally:
+        dlg.close()

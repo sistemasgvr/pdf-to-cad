@@ -416,3 +416,15 @@ def test_puente_prolonga_cada_linea_por_su_recta_hasta_el_borde():
     segs = C.bridge_segments_poly([(0, 0), (10, 0), (10, 10)], dash=4.0, gap_ratio=0.5)
     total = sum(math.hypot(q[0] - p[0], q[1] - p[1]) for p, q in segs)
     assert 20 * (4 / 6) - 4 <= total <= 20 * (4 / 6) + 4 and len(segs) >= 3
+
+
+def test_piece_layout_para_el_minimapa():
+    comp = C.Composite([C.Piece(0, 13, [0, 0, 1, 1]), C.Piece(0, 14, [0, 0, 1, 1], x=0, y=210)])
+    lay = C.piece_layout(comp, lambda p: (300, 200))
+    assert [lbl for _, lbl in lay] == ["Hoja 14", "Hoja 15"]
+    (r1, _), (r2, _) = lay
+    assert r1 == (C.MARGIN_PT, C.MARGIN_PT, C.MARGIN_PT + 300, C.MARGIN_PT + 200)
+    assert math.isclose(r2[1], C.MARGIN_PT + 210)                     # una debajo de la otra
+    comp.pieces[1].source = 1
+    lay = C.piece_layout(comp, lambda p: (300, 200), ["a.pdf", "b.pdf"])
+    assert [lbl for _, lbl in lay] == ["a.pdf · Hoja 14", "b.pdf · Hoja 15"]

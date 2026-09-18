@@ -1532,7 +1532,8 @@ class Main(QtWidgets.QMainWindow):
         # Paso «Capas de la hoja»: el usuario decide qué capas OCG ver ANTES
         # de dibujar. Deja la visibilidad aplicada en self.doc, así _load_page
         # ya renderiza sin las ocultas.
-        chosen = layer_dialog.choose_sheet_layers(self, self.doc, page_idx)
+        chosen = layer_dialog.choose_sheet_layers(self, self.doc, page_idx,
+                                                  layout=getattr(self, "_composite_layout", None))
         if chosen is None:
             self._load_sheet_busy(page_idx)
             self._dirty = True
@@ -1562,6 +1563,7 @@ class Main(QtWidgets.QMainWindow):
         if self.doc:
             self.doc.close(); self.doc = None
         self._cleanup_tmp_composite()
+        self._composite_layout = None      # esquema para el minimapa de «Capas de la hoja»
         if comp is None or comp.is_single_full_page():
             piece = comp.pieces[0] if comp else None
             src = piece.source if piece else 0
@@ -1585,6 +1587,9 @@ class Main(QtWidgets.QMainWindow):
                 bridges = composite_mod.compute_bridges(comp, docs)
                 built = composite_mod.build_document(comp, docs, self.hidden_ocgs_by_source, bridges)
                 data = built.tobytes(deflate=True); built.close()
+                sizes = lambda p: (docs[p.source][p.page].rect.width, docs[p.source][p.page].rect.height)
+                self._composite_layout = composite_mod.piece_layout(
+                    comp, sizes, [e.get("name", "") for e in self.src_pdfs])
             finally:
                 for d in docs: d.close()
             path = self._write_tmp_composite(data, suffix="_compuesta")

@@ -142,3 +142,131 @@ class ZoomPanView(QtWidgets.QGraphicsView):
             e.accept()
             return
         super().mouseReleaseEvent(e)
+
+
+class MiniMap(QtWidgets.QWidget):
+    """Minimapa en la esquina inferior izquierda de una `ZoomPanView`: miniatura
+    de la hoja mostrada con un recuadro de lo que se ve en pantalla. Clic o
+    arrastre en el mapa centra la vista ahí. `set_thumbnail(pixmap, scene_rect)`
+    lo alimenta (la miniatura se reescala sola); `viewChanged` lo redibuja."""
+    MARGIN = 12
+    MAX_W, MAX_H = 240, 200
+
+    def __init__(self, view):
+        super().__init__(view.viewport())
+        self.view = view
+        self._thumb = None            # QPixmap ya escalado al tamaño del widget
+        self._src = None              # QPixmap original
+        self._layout = None           # [(QRectF escena, etiqueta)] en modo esquema
+        self._scene_rect = QtCore.QRectF()
+        self._dragging = False
+        self.setCursor(QtCore.Qt.PointingHandCursor)
+        self.setAttribute(QtCore.Qt.WA_TransparentForMouseEvents, False)
+        view.viewChanged.connect(self.update)
+        view.viewport().installEventFilter(self)
+        self.hide()
+
+    def set_thumbnail(self, pixmap, scene_rect):
+        """Modo imagen: `pixmap` es toda la hoja; `scene_rect` su rect en la escena."""
+        self._layout = None
+        self._src = pixmap
+        self._scene_rect = QtCore.QRectF(scene_rect)
+        if pixmap is None or pixmap.isNull() or self._scene_rect.isEmpty():
+            self.hide(); return
+        scale = min(self.MAX_W / pixmap.width(), self.MAX_H / pixmap.height())
+        w, h = max(1, int(pixmap.width() * scale)), max(1, int(pixmap.height() * scale))
+        self._thumb = pixmap.scaled(w, h, QtCore.Qt.KeepAspectRatio, QtCore.Qt.SmoothTransformation)
+        self._fit_and_show(self._thumb.width(), self._thumb.height())
+
+    def set_layout(self, items, scene_rect):
+        """Modo esquema: `items` = [(QRectF en escena, etiqueta), …] — cómo están
+        organizadas las hojas (posición relativa y número), sin el dibujo."""
+        self._thumb = None
+        self._src = None
+        self._layout = [(QtCore.QRectF(r), str(label)) for r, label in items]
+        self._scene_rect = QtCore.QRectF(scene_rect)
+        if not self._layout or self._scene_rect.isEmpty():
+            self.hide(); return
+        scale = min(self.MAX_W / self._scene_rect.width(), self.MAX_H / self._scene_rect.height())
+        self._fit_and_show(max(1, int(self._scene_rect.width() * scale)),
+                           max(1, int(self._scene_rect.height() * scale)))
+
+    def _fit_and_show(self, w, h):
+        self._map_w, self._map_h = w, h
+        self.setFixedSize(w + 2, h + 2)
+        self._place()
+        self.show()
+        self.raise_()
+        self.update()
+
+    def eventFilter(self, obj, event):
+        if obj is self.view.viewport() and event.type() == QtCore.QEvent.Resize:
+            self._place()
+        return super().eventFilter(obj, event)
+
+    def _place(self):
+        vp = self.view.viewport()
+        self.move(self.MARGIN, vp.height() - self.height() - self.MARGIN)
+
+    # ── coords ──
+    def _scene_to_map(self, p):
+        r = self._scene_rect
+        if r.isEmpty():
+            return QtCore.QPointF()
+        return QtCore.QPointF(1 + (p.x() - r.left()) / r.width() * self._map_w,
+                              1 + (p.y() - r.top()) / r.height() * self._map_h)
+
+    def _map_to_scene(self, p):
+        r = self._scene_rect
+        return QtCore.QPointF(r.left() + (p.x() - 1) / self._map_w * r.width(),
+                              r.top() + (p.y() - 1) / self._map_h * r.height())
+
+    # ── pintar ──
+    def paintEvent(self, _event):
+        if self._thumb is None and not self._layout:
+            return
+        painter = QtGui.QPainter(self)
+        painter.setRenderHint(QtGui.QPainter.Antialiasing)
+        painter.fillRect(self.rect(), QtGui.QColor(255, 255, 255, 235))
+        if self._thumb is not None:
+            painter.drawPixmap(1, 1, self._thumb)
+        else:
+            # esquema: una caja por hoja con su etiqueta, en su posición relativa
+            font = painter.font(); font.setPointSize(8); font.setBold(True); painter.setFont(font)
+            for r, label in self._layout:
+                box = QtCore.QRectF(self._scene_to_map(r.topLeft()), self._scene_to_map(r.bottomRight()))
+                painter.setBrush(QtGui.QColor(232, 240, 253))
+                painter.setPen(QtGui.QPen(QtGui.QColor("#5b7fb5"), 1))
+                painter.drawRect(box)
+                painter.setPen(QtGui.QColor("#1f3a68"))
+                text = painter.fontMetrics().elidedText(label, QtCore.Qt.ElideMiddle, int(max(10.0, box.width() - 4)))
+                painter.drawText(box, QtCore.Qt.AlignCenter | QtCore.Qt.TextDontClip, text)
+        painter.setPen(QtGui.QPen(QtGui.QColor(120, 120, 120), 1))
+        painter.setBrush(QtCore.Qt.NoBrush)
+        painter.drawRect(self.rect().adjusted(0, 0, -1, -1))
+        vis = self.view.mapToScene(self.view.viewport().rect()).boundingRect().intersected(self._scene_rect)
+        if not vis.isEmpty():
+            tl, br = self._scene_to_map(vis.topLeft()), self._scene_to_map(vis.bottomRight())
+            box = QtCore.QRectF(tl, br)
+            painter.setBrush(QtGui.QColor(43, 111, 209, 45))
+            painter.setPen(QtGui.QPen(QtGui.QColor("#2b6fd1"), 2))
+            painter.drawRect(box)
+        painter.end()
+
+    # ── navegar ──
+    def mousePressEvent(self, event):
+        if event.button() == QtCore.Qt.LeftButton and (self._thumb is not None or self._layout):
+            self._dragging = True
+            self.view.centerOn(self._map_to_scene(event.position()))
+            self.view.viewChanged.emit()
+            event.accept()
+
+    def mouseMoveEvent(self, event):
+        if self._dragging:
+            self.view.centerOn(self._map_to_scene(event.position()))
+            self.view.viewChanged.emit()
+            event.accept()
+
+    def mouseReleaseEvent(self, event):
+        self._dragging = False
+        event.accept()

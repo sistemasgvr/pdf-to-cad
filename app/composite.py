@@ -257,6 +257,23 @@ def cover_polygons(piece: Piece, page_size: Tuple[float, float], target_scale: f
     return [[fn(x0, y0), fn(x1, y0), fn(x1, y1), fn(x0, y1)] for x0, y0, x1, y1 in cover_rects(piece, page_size)]
 
 
+def piece_layout(comp: Composite, page_sizes, names: Optional[Sequence[str]] = None
+                 ) -> List[Tuple[Tuple[float, float, float, float], str]]:
+    """Esquema de la hoja materializada: [(rect en pt de la hoja compuesta ya
+    con el margen, etiqueta), …]. Etiqueta «Hoja N» (y el PDF delante si hay
+    más de uno). Para el minimapa de «Capas de la hoja»."""
+    _, _, dx, dy = sheet_geometry(comp, page_sizes)
+    multi = len({p.source for p in comp.pieces}) > 1
+    out = []
+    for p in comp.pieces:
+        x0, y0, x1, y1 = piece_rect(p, page_sizes(p), comp.target_scale())
+        label = f"Hoja {p.page + 1}"
+        if multi and names and p.source < len(names):
+            label = f"{names[p.source]} · {label}"
+        out.append(((x0 + dx, y0 + dy, x1 + dx, y1 + dy), label))
+    return out
+
+
 def bounds(comp: Composite, page_sizes) -> Optional[Tuple[float, float, float, float]]:
     """Caja envolvente de todas las piezas (pt hoja compuesta) o None si no hay."""
     rects = [piece_rect(p, page_sizes(p), comp.target_scale()) for p in comp.pieces]

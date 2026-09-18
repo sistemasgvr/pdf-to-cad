@@ -30,7 +30,7 @@ from i18n import t as _tr
 import pdf_layers
 import theme as _theme
 from ui_common import aci_qcolor, layer_qcolor, swatch_icon
-from widgets import ZoomPanView
+from widgets import ZoomPanView, MiniMap
 
 # Zoom del render PDF (matriz PyMuPDF). El lienzo principal usa ~3.5; aquí
 # 3.0 da nitidez al acercar con la rueda sin ralentizar demasiado el
@@ -56,10 +56,13 @@ def utility_qcolor(key: str) -> QtGui.QColor:
 class SheetLayersDialog(QtWidgets.QDialog):
     """Mostrar/ocultar capas OCG de una hoja con vista previa en vivo."""
 
-    def __init__(self, parent, doc: fitz.Document, page_index: int, layers=None):
+    def __init__(self, parent, doc: fitz.Document, page_index: int, layers=None, layout=None):
         super().__init__(parent)
         self._doc = doc
         self._page_index = page_index
+        # Disposición de las hojas que forman esta página (hoja compuesta):
+        # [((x0, y0, x1, y1) en pt, etiqueta), …]. Alimenta el minimapa esquemático.
+        self._layout = layout
         self._page = doc[page_index]
         self._initial_hidden = pdf_layers.hidden_layers(doc)
         # `layers` permite reutilizar el listado ya calculado por quien nos llama.
@@ -75,6 +78,9 @@ class SheetLayersDialog(QtWidgets.QDialog):
 
         root = QtWidgets.QHBoxLayout(self)
         self.view = ZoomPanView()
+        # Minimapa (esquina inferior izquierda): miniatura de la hoja mostrada con
+        # el recuadro de lo visible; clic/arrastre centra la vista.
+        self.minimap = MiniMap(self.view)
         root.addWidget(self.view, 1)
 
         # Panel derecho de ancho acotado: la vista previa se lleva el resto.
@@ -331,6 +337,13 @@ class SheetLayersDialog(QtWidgets.QDialog):
         else:
             self._pix_item.setPixmap(pm)   # conserva zoom/pan del usuario
             self.view.setSceneRect(QtCore.QRectF(pm.rect()))
+        if self._layout:
+            # esquema de la organización (número y posición de cada hoja), sin dibujo
+            self.minimap.set_layout(
+                [(QtCore.QRectF(x0 * z, y0 * z, (x1 - x0) * z, (y1 - y0) * z), label)
+                 for (x0, y0, x1, y1), label in self._layout], QtCore.QRectF(pm.rect()))
+        else:
+            self.minimap.set_thumbnail(pm, QtCore.QRectF(pm.rect()))   # refleja las capas visibles
         if first:
             self._fit_view()
 
@@ -346,15 +359,16 @@ class SheetLayersDialog(QtWidgets.QDialog):
         super().reject()
 
 
-def choose_sheet_layers(parent, doc, page_index: int) -> tuple[list[str], int] | None:
+def choose_sheet_layers(parent, doc, page_index: int, layout=None) -> tuple[list[str], int] | None:
     """Abre el diálogo. Devuelve ``(capas_ocultas, indice_de_hoja)`` si el
     usuario continúa (la hoja puede haber cambiado con ◀ ▶; la lista puede ser
-    vacía), o None si cancela (visibilidad restaurada)."""
+    vacía), o None si cancela (visibilidad restaurada). `layout`: disposición
+    de las hojas de la página compuesta para el minimapa (ver composite.piece_layout)."""
     layers = pdf_layers.page_layers(doc, page_index)
     if not layers:
         # Hoja sin capas OCG (PDF aplanado): no hay nada que elegir.
         return [], page_index
-    dlg = SheetLayersDialog(parent, doc, page_index, layers=layers)
+    dlg = SheetLayersDialog(parent, doc, page_index, layers=layers, layout=layout)
     if dlg.exec() != QtWidgets.QDialog.Accepted:
         return None
     return dlg.hidden_names(), dlg.page_index()

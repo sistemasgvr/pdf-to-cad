@@ -135,6 +135,8 @@ class CompositeDialog(QtWidgets.QDialog):
         split = QtWidgets.QSplitter(QtCore.Qt.Horizontal)
         split.setChildrenCollapsible(False)
         split.setHandleWidth(12)
+        # tirador invisible: solo separación entre paneles (sigue siendo arrastrable)
+        split.setStyleSheet("QSplitter::handle { background: transparent; border: none; }")
         root.addWidget(split, 1)
         split.addWidget(self._build_source_panel())
         split.addWidget(self._build_area_panel())

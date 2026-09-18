@@ -12,7 +12,12 @@ alcantarillado, drenaje, gas, eléctrico, telecom). Todo en **unidades imperiale
     llama a `_build_menu` / `_build_toolbar` / `_build_left_dock` / `_build_right_dock`
     / `_build_statusbar` (todos dejan sus widgets como `self.*`, en ese orden).
   - `canvas.py` — el lienzo (`Canvas`, QGraphicsView).
-  - `widgets.py` — widgets reutilizables (`InlineEdit`, `_SegInvSpinBox`, `_NoWheelFilter`).
+  - `widgets.py` — widgets reutilizables (`InlineEdit`, `_SegInvSpinBox`, `_NoWheelFilter`,
+    `ZoomPanView`, `MiniMap`: minimapa con recuadro de lo visible sobre una ZoomPanView;
+    `set_layout(items, scene_rect)` = esquema de hojas (cajas con etiqueta, lo que
+    pidió el usuario: organización, no dibujo) o `set_thumbnail(pixmap, rect)`.
+    «Capas de la hoja» recibe `layout` de `composite.piece_layout` vía
+    `Main._composite_layout` (se calcula en `_apply_composite`)).
   - `ui_common.py` — constantes/helpers de UI compartidos (`DOWNLOADS`, estilos de
     botón, `layer_qcolor`, `swatch_icon`, …). Sin estado; los usa toda la app.
   - `workers.py` — hilos de fondo (`PipelineWorker`, `RecognitionWorker`).
