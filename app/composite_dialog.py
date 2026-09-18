@@ -25,6 +25,7 @@ import composite as C
 import pdf_layers
 import vector_pipeline as VP
 from composite_view import CompositeView, _qpixmap
+from pdf_view_quality import ViewportSharpener
 from i18n import t as _tr
 from icons import icon as _icon
 from sheet_crop_dialog import _CropView
@@ -95,6 +96,7 @@ class CompositeDialog(QtWidgets.QDialog):
             self.docs.append(doc)
         self._scale_cache: Dict[tuple, float] = {}
         self._thumb_cache: Dict[tuple, QtGui.QIcon] = {}
+        self._guide_cache: Dict[tuple, dict] = {}
         self._cur_source = 0
         self._cur_page = current_page
         self._page_item = None
@@ -110,7 +112,6 @@ class CompositeDialog(QtWidgets.QDialog):
         self.setWindowFlags(self.windowFlags() | QtCore.Qt.WindowMinimizeButtonHint
                             | QtCore.Qt.WindowMaximizeButtonHint)
         self.resize(1500, 880)
-        self.setWindowState(self.windowState() | QtCore.Qt.WindowMaximized)
         self._build_ui()
         self._fill_sources()
         self.view.rebuild()
@@ -194,6 +195,9 @@ class CompositeDialog(QtWidgets.QDialog):
         lay.addWidget(self.lbl_mode)
         self.crop = _CropView()
         self.crop.selectionChanged.connect(self._on_selection_changed)
+        # La hoja se muestra a 72 dpi; al hacer zoom, la parte visible se
+        # re-renderiza nítida encima (z=1: bajo las guías y el rectángulo).
+        self._crop_sharp = ViewportSharpener(self.crop, lambda: self.docs[self._cur_source][self._cur_page], z=1)
         lay.addWidget(self.crop, 1)
         row = QtWidgets.QHBoxLayout(); row.setSpacing(8)
         self.btn_take = QtWidgets.QPushButton(_icon("mdi:arrow-right-bold"), _tr("Tomar área"))
@@ -208,6 +212,13 @@ class CompositeDialog(QtWidgets.QDialog):
         self.btn_new.clicked.connect(lambda: self.view.select(-1))
         self.btn_new.hide()
         row.addWidget(self.btn_take); row.addWidget(self.btn_take_full); row.addWidget(self.btn_new)
+        self.btn_area_snap = _tool("mdi:magnet", _tr("Imán a líneas"),
+                                   _tr("Al arrastrar el rectángulo, sus lados saltan a las líneas generales de la "
+                                       "hoja (match lines, marcos, bordes largos), que se resaltan en celeste"),
+                                   checkable=True)
+        self.btn_area_snap.setChecked(True)
+        self.btn_area_snap.toggled.connect(lambda on: setattr(self.crop, "snap_enabled", bool(on)))
+        row.addWidget(self.btn_area_snap)
         self.btn_trim = _tool("mdi:border-none-variant", _tr("Sin línea de borde"),
                               _tr("Recortar el área por dentro de la línea larga que corra pegada a cada lado "
                                   "(match line, marco de la vista), sea de la capa que sea, para que no aparezca "
@@ -326,6 +337,15 @@ class CompositeDialog(QtWidgets.QDialog):
             self._thumb_cache[key] = QtGui.QIcon(_qpixmap(pg.get_pixmap(matrix=fitz.Matrix(z, z), alpha=False)))
         return self._thumb_cache[key]
 
+    def _guides(self, source: int, page: int) -> dict:
+        key = (source, page)
+        if key not in self._guide_cache:
+            try:
+                self._guide_cache[key] = C.guide_lines(self.docs[source][page])
+            except Exception:
+                self._guide_cache[key] = {"x": [], "y": []}
+        return self._guide_cache[key]
+
     def _invalidate_source_renders(self, source: int):
         for key in [k for k in self._thumb_cache if k[0] == source]:
             self._thumb_cache.pop(key, None)
@@ -368,6 +388,8 @@ class CompositeDialog(QtWidgets.QDialog):
         rect = QtCore.QRectF(0, 0, pm.width(), pm.height())
         self.crop.set_page(rect)
         self.crop.setSceneRect(rect)
+        self._crop_sharp.invalidate()
+        self.crop.set_guides(self._guides(self._cur_source, self._cur_page))
         if first:
             self.crop.set_selection(None)
             QtCore.QTimer.singleShot(0, lambda: self.crop.fitInView(rect, QtCore.Qt.KeepAspectRatio))
@@ -380,8 +402,9 @@ class CompositeDialog(QtWidgets.QDialog):
             self._crop_timer.start()
 
     def _current_clip(self, full: bool = False):
-        """Clip normalizado del rectángulo del panel 2 (con la línea de borde
-        fuera si «Sin línea de borde» está activo)."""
+        """(clip normalizado, covers) del rectángulo del panel 2. Con «Sin línea
+        de borde» activo el clip pasa por el centro de la línea de borde y
+        `covers` trae la franja blanca que la tapa por lado."""
         if full:
             clip = [0.0, 0.0, 1.0, 1.0]
         else:
@@ -391,24 +414,27 @@ class CompositeDialog(QtWidgets.QDialog):
             full_r = self.crop._page_rect
             clip = C.normalize_clip([sel.left() / full_r.width(), sel.top() / full_r.height(),
                                      sel.right() / full_r.width(), sel.bottom() / full_r.height()])
+        covers = {}
         if self.btn_trim.isChecked():
-            clip = C.trim_border_lines(self.docs[self._cur_source][self._cur_page], clip)
-        return clip
+            clip, covers = C.trim_border(self.docs[self._cur_source][self._cur_page], clip)
+        return clip, covers
 
     def _apply_crop_edit(self):
         """Modo edición: el rectángulo del panel 2 ES el área de la pieza seleccionada."""
         idx = self._editing
         if not 0 <= idx < len(self.comp.pieces):
             return
-        clip = self._current_clip()
-        if clip is None:
+        res = self._current_clip()
+        if res is None:
             return
+        clip, covers = res
         piece = self.comp.pieces[idx]
         if piece.source != self._cur_source or piece.page != self._cur_page:
             return
-        if [round(v, 9) for v in clip] == [round(v, 9) for v in piece.clip]:
+        if [round(v, 9) for v in clip] == [round(v, 9) for v in piece.clip] and covers == piece.covers:
             return
         piece.clip = clip
+        piece.covers = covers
         self.view.refresh_piece(idx, rerender=True)
         self.view.refresh_overlay()
         self._refresh_summary()
@@ -465,12 +491,14 @@ class CompositeDialog(QtWidgets.QDialog):
 
     # ── piezas ──────────────────────────────────────────────────────────
     def _take(self, full: bool):
-        clip = self._current_clip(full)
-        if clip is None:
+        res = self._current_clip(full)
+        if res is None:
             return
+        clip, covers = res
         src_scale = self.spn_src_scale.value() / 72.0
         piece = C.Piece(self._cur_source, self._cur_page, clip, src_scale=src_scale,
-                        label=f"{self.sources[self._cur_source]['name']} · {self._cur_page + 1}")
+                        label=f"{self.sources[self._cur_source]['name']} · {self._cur_page + 1}",
+                        covers=covers)
         bb = C.bounds(self.comp, self.view.page_size)
         if bb is not None:
             piece.x, piece.y = bb[2] + 24.0, bb[1]
@@ -594,6 +622,17 @@ class CompositeDialog(QtWidgets.QDialog):
         self.lbl_summary.setText(_tr("{n} pieza(s) · hoja compuesta {w:.0f} × {h:.0f} pt · {s}").format(
             n=n, w=w, h=h, s=_scale_label(self.comp.target_scale())))
 
+    # ── mostrar maximizado de verdad ────────────────────────────────────
+    def showEvent(self, event):
+        super().showEvent(event)
+        if not getattr(self, "_maximized_once", False):
+            self._maximized_once = True
+            # En Windows, QDialog.exec() recoloca el diálogo respecto al padre al
+            # mostrarlo y pisa un showMaximized() previo: hay que pedirlo cuando
+            # la ventana nativa ya existe (siguiente vuelta del bucle de eventos).
+            QtCore.QTimer.singleShot(0, lambda: self.setWindowState(
+                (self.windowState() & ~QtCore.Qt.WindowMinimized) | QtCore.Qt.WindowMaximized))
+
     # ── cierre ──────────────────────────────────────────────────────────
     def result_tuple(self):
         return self.comp, self.sources, self.hidden_by_source
@@ -613,7 +652,7 @@ def compose_sheet(parent, sources: List[dict], comp: Optional[C.Composite],
     None si se cancela. `sources` son dicts ``{name, data(bytes), path?}``."""
     dlg = CompositeDialog(parent, sources, comp, hidden_by_source, current_page)
     try:
-        if dlg.exec() != QtWidgets.QDialog.Accepted:
+        if dlg.exec() != QtWidgets.QDialog.Accepted:   # showEvent lo maximiza al aparecer
             return None
         return dlg.result_tuple()
     finally:

@@ -114,3 +114,88 @@ class FocusedPageQuality(QtCore.QObject):
         item.setPos(base_pos)
         self._sharp_slot = slot
         self._sharp_scale = scale
+
+
+def render_region(page, rect_pt, scale):
+    """Pixmap del rectángulo `rect_pt` (x0, y0, x1, y1 en pt de la hoja VISIBLE,
+    relativo a page.rect) a `scale` px/pt, o None si está vacío."""
+    x0, y0, x1, y1 = rect_pt
+    clip = fitz.Rect(page.rect.x0 + x0, page.rect.y0 + y0, page.rect.x0 + x1, page.rect.y0 + y1)
+    if clip.is_empty or clip.width < 1e-3 or clip.height < 1e-3:
+        return None
+    pix = page.get_pixmap(matrix=fitz.Matrix(scale, scale), alpha=False, clip=clip)
+    return QtGui.QPixmap.fromImage(QtGui.QImage(bytes(pix.samples), pix.width, pix.height,
+                                                pix.stride, QtGui.QImage.Format_RGB888).copy())
+
+
+class ViewportSharpener(QtCore.QObject):
+    """Re-renderiza nítida SOLO la parte visible de una hoja mostrada a
+    `base_scale` px/pt en una vista (escena = hoja × base_scale). Con el zoom
+    la imagen base se ve borrosa; esto pone encima un pixmap del recorte
+    visible a la escala de pantalla (con tope de píxeles) y lo quita al
+    alejarse. `get_page()` devuelve la fitz.Page actual."""
+
+    def __init__(self, view, get_page, base_scale=1.0, z=1, delay_ms=150):
+        super().__init__(view)
+        self.view = view
+        self.get_page = get_page
+        self.base_scale = base_scale
+        self.z = z
+        self._item = None
+        self._key = None
+        self._timer = QtCore.QTimer(self)
+        self._timer.setSingleShot(True)
+        self._timer.setInterval(delay_ms)
+        self._timer.timeout.connect(self.update_quality)
+        view.viewChanged.connect(self._timer.start)
+
+    def invalidate(self):
+        """La hoja cambió: quitar el recorte nítido y recalcular."""
+        self._remove()
+        self._key = None
+        self._timer.start()
+
+    def _remove(self):
+        if self._item is not None:
+            self.view.scene().removeItem(self._item)
+            self._item = None
+
+    def update_quality(self):
+        try:
+            page = self.get_page()
+        except Exception:
+            page = None
+        if page is None:
+            self._remove(); return
+        screen = abs(self.view.transform().m11()) * self.view.devicePixelRatioF()
+        wanted = screen * 1.15
+        if wanted < self.base_scale * 1.4:
+            self._remove(); self._key = None
+            return
+        vis = self.view.mapToScene(self.view.viewport().rect()).boundingRect()
+        pw, ph = page.rect.width * self.base_scale, page.rect.height * self.base_scale
+        region = vis.intersected(QtCore.QRectF(0, 0, pw, ph))
+        if region.isEmpty():
+            self._remove(); return
+        # margen para no re-renderizar a cada pequeño desplazamiento
+        pad = 0.25 * max(region.width(), region.height())
+        region = region.adjusted(-pad, -pad, pad, pad).intersected(QtCore.QRectF(0, 0, pw, ph))
+        rect_pt = (region.left() / self.base_scale, region.top() / self.base_scale,
+                   region.right() / self.base_scale, region.bottom() / self.base_scale)
+        clip = fitz.Rect(*rect_pt)
+        scale = render_scale(page, wanted, clip)
+        key = (tuple(round(v, 1) for v in rect_pt), round(scale, 2))
+        if self._item is not None and key == self._key:
+            return
+        pm = render_region(page, rect_pt, scale)
+        if pm is None or pm.isNull():
+            return
+        self._remove()
+        item = self.view.scene().addPixmap(pm)
+        item.setTransformationMode(QtCore.Qt.SmoothTransformation)
+        item.setZValue(self.z)
+        item.setAcceptedMouseButtons(QtCore.Qt.NoButton)
+        item.setPos(region.left(), region.top())
+        item.setTransform(QtGui.QTransform().scale(region.width() / pm.width(), region.height() / pm.height()))
+        self._item = item
+        self._key = key

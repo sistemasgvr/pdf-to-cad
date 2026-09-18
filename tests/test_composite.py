@@ -245,18 +245,22 @@ def test_trim_border_lines_deja_fuera_la_match_line():
     page.draw_line((20, 100), (380, 100), color=(0, 0, 1))                       # línea interior larga: no cuenta
     page.draw_line((310, 50), (310, 80), color=(0, 0, 0))                        # corta: no cuenta
     # área del usuario: llega hasta x=308 (la match line queda 8 pt por dentro) y hasta y=260
-    clip = C.trim_border_lines(page, [0.0, 0.0, 308 / 400, 260 / 300])
-    assert math.isclose(clip[2] * 400, 300 - 1.5, abs_tol=1e-6)   # x1 = línea − (ancho/2 + 1)
-    assert math.isclose(clip[3] * 300, 250 - 1.25, abs_tol=1e-6)
+    clip, covers = C.trim_border(page, [0.0, 0.0, 308 / 400, 260 / 300])
+    assert math.isclose(clip[2] * 400, 300.0, abs_tol=1e-6)       # x1 = CENTRO de la línea
+    assert math.isclose(clip[3] * 300, 250.0, abs_tol=1e-6)
     assert clip[0] == 0.0 and clip[1] == 0.0
-    # sin líneas de borde → el clip no cambia
-    assert C.trim_border_lines(page, [0.0, 0.0, 0.5, 0.5]) == [0.0, 0.0, 0.5, 0.5]
-    # hoja girada 90°: el mismo recorte, expresado en coords visibles
+    # franja blanca por lado = ancho/2 + COVER_PAD
+    assert math.isclose(covers["right"], 0.5 + C.COVER_PAD_PT) and math.isclose(covers["bottom"], 0.25 + C.COVER_PAD_PT)
+    assert set(covers) == {"right", "bottom"}
+    # sin líneas de borde → el clip no cambia y no hay franjas
+    assert C.trim_border(page, [0.0, 0.0, 0.5, 0.5]) == ([0.0, 0.0, 0.5, 0.5], {})
+    # hoja girada 90°: el mismo recorte, expresado en coords visibles; los lados giran con la hoja
     page.set_rotation(90)
     Wv, Hv = page.rect.width, page.rect.height        # 300 × 400
-    clip_r = C.trim_border_lines(page, [(300 - 260) / Wv, 0.0, 1.0, 308 / Hv])
-    assert math.isclose(clip_r[3] * Hv, 300 - 1.5, abs_tol=1e-6)
-    assert math.isclose(clip_r[0] * Wv, 300 - (250 - 1.25), abs_tol=1e-6)
+    clip_r, covers_r = C.trim_border(page, [(300 - 260) / Wv, 0.0, 1.0, 308 / Hv])
+    assert math.isclose(clip_r[3] * Hv, 300.0, abs_tol=1e-6)
+    assert math.isclose(clip_r[0] * Wv, 300 - 250, abs_tol=1e-6)
+    assert set(covers_r) == {"bottom", "left"}
 
 
 def test_anclajes_ignoran_letras_y_trazos_minusculos():
@@ -276,9 +280,139 @@ def test_trim_border_lines_match_line_discontinua_y_gruesa():
         x = 300.0 + (i % 2)
         page.draw_line((x, y), (x, y + 28), color=(0, 0, 0), width=2.0)
     page.draw_line((20, 100), (380, 100), color=(0, 0, 1))
-    clip = C.trim_border_lines(page, [0.0, 0.0, 310 / 400, 1.0])
-    assert math.isclose(clip[2] * 400, 300 - 2.0, abs_tol=1e-6)   # columna más interior (300) − (ancho/2 + 1)
+    clip, covers = C.trim_border(page, [0.0, 0.0, 310 / 400, 1.0])
+    mean = (4 * 300 + 3 * 301) / 7                                  # centro medio de las dos columnas
+    assert math.isclose(clip[2] * 400, mean, abs_tol=1e-3)     # (fitz.Point es float32)
+    # la franja cubre la deriva (columna interior 300 queda mean−300 más adentro) + ancho/2 + pad
+    assert math.isclose(covers["right"], (mean - 300) + 1.0 + C.COVER_PAD_PT, abs_tol=1e-3)
     # pocos guiones (20 %) no son una línea de borde
     doc2 = fitz.open(); pg2 = doc2.new_page(width=400, height=300)
     pg2.draw_line((300, 20), (300, 80), color=(0, 0, 0), width=2.0)
     assert C.trim_border_lines(pg2, [0.0, 0.0, 310 / 400, 1.0]) == [0.0, 0.0, 0.775, 1.0]
+
+
+def test_guide_lines_y_snap_edge():
+    doc = fitz.open(); page = doc.new_page(width=400, height=300)
+    page.draw_line((300, 20), (300, 280), color=(0, 0, 0), width=1.0)          # vertical continua
+    for y in range(20, 280, 40):                                                 # vertical a guiones (col. 100/101)
+        page.draw_line((100 + (y // 40) % 2, y), (100 + (y // 40) % 2, y + 28), color=(0, 0, 0))
+    page.draw_line((20, 250), (380, 250), color=(0, 0, 0))                       # horizontal
+    page.draw_line((200, 100), (230, 100), color=(0, 0, 0))                      # corta: no es guía
+    for i in range(6):                                                           # letra: trazos de 1.5 pt
+        page.draw_line((50, 150 + i), (51.5, 150 + i), color=(0, 0, 0))
+    g = C.guide_lines(page)
+    assert [round(x) for x, *_ in g["x"]] == [100, 300]      # 7 guiones: 4 en x=100, 3 en x=101 → media 100.4
+    assert [round(y, 1) for y, *_ in g["y"]] == [250.0]
+    # imán: el lado derecho en x=304 salta a 300; en x=330 no (fuera de tolerancia)
+    assert C.snap_edge(g["x"], 304.0, 0.0, 300.0, 8.0)[0] == 300.0
+    # entre dos guías a tiro gana la más larga aunque esté un poco más lejos
+    page.draw_line((306, 120), (306, 180), color=(0, 0, 0))                     # corta (60 pt) en x=306
+    g = C.guide_lines(page)
+    assert C.snap_edge(g["x"], 307.0, 0.0, 300.0, 8.0)[0] == 300.0
+    assert C.snap_edge(g["x"], 330.0, 0.0, 300.0, 8.0) is None
+    # la extensión debe solapar: un lado entre y=285..295 no ve la guía (termina en 280)
+    assert C.snap_edge(g["x"], 301.0, 285.0, 295.0, 8.0) is None
+    # hoja girada: la guía vertical pasa a horizontal en coords visibles
+    page.set_rotation(90)
+    g2 = C.guide_lines(page)
+    assert [round(y) for y, *_ in g2["y"]] == [100, 300, 306] and len(g2["x"]) == 1
+
+
+def test_covers_se_materializan_como_franjas_blancas_sin_perder_vectores():
+    doc = fitz.open(); page = doc.new_page(width=400, height=300)
+    ocg = doc.add_ocg("C-ELEC-UNGD-E", on=True)
+    page.draw_line((20, 100), (380, 100), color=(0, 0, 0), oc=ocg)             # utilidad que cruza la match line
+    page.draw_line((300, 20), (300, 280), color=(0, 0, 0), width=2.0)          # match line
+    clip, covers = C.trim_border(page, [0.0, 0.0, 310 / 400, 1.0])
+    piece = C.Piece(0, 0, clip, covers=covers)
+    comp = C.Composite([piece])
+    rects = C.cover_rects(piece, (400, 300))
+    assert len(rects) == 1 and math.isclose(rects[0][2], 300.0 + C.COVER_OUT_PT) and math.isclose(rects[0][0], 300.0 - covers["right"])
+    dst = _reopen(C.build_document(comp, [doc]))
+    draws = dst[0].get_drawings()
+    fills = [d for d in draws if d.get("type") == "f" and d.get("fill") == (1.0, 1.0, 1.0)]
+    assert len(fills) == 1                                                  # la franja blanca
+    elec = [d for d in dst[0].get_drawings(extended=True) if d.get("layer") == "C-ELEC-UNGD-E"]
+    assert elec and max(q.x for d in elec for it in d["items"] for q in (it[1], it[2])) >= C.MARGIN_PT + 300 - 0.01
+    # round-trip del modelo
+    assert C.Piece.from_dict(piece.to_dict()).covers == covers
+
+
+@pytest.mark.parametrize("rotation", [0, 90, 37.5, 270])
+def test_piece_unmap_es_inversa_de_piece_map(rotation):
+    piece = C.Piece(0, 0, [0.1, 0.2, 0.8, 0.9], x=50, y=70, rotation=rotation, src_scale=40 / 72)
+    fn = C.piece_map(piece, (600, 400), 20 / 72)
+    inv = C.piece_unmap(piece, (600, 400), 20 / 72)
+    for x, y in ((60, 80), (300, 200), (480, 360)):
+        X, Y = fn(x, y)
+        bx, by = inv(X, Y)
+        assert math.isclose(bx, x, abs_tol=1e-9) and math.isclose(by, y, abs_tol=1e-9)
+
+
+def test_edge_snap_delta_borde_con_borde():
+    static = [(0.0, 0.0, 300.0, 200.0)]
+    assert C.edge_snap_delta((303.0, 10.0, 603.0, 210.0), static, 8.0) == (-3.0, 0.0)   # costura vertical
+    assert C.edge_snap_delta((-297.0, 10.0, 3.0, 210.0), static, 8.0) == (-3.0, 0.0)
+    assert C.edge_snap_delta((20.0, 204.0, 320.0, 404.0), static, 8.0) == (0.0, -4.0)   # costura horizontal
+    assert C.edge_snap_delta((320.0, 0.0, 620.0, 200.0), static, 8.0) is None            # lejos
+    assert C.edge_snap_delta((303.0, 300.0, 603.0, 500.0), static, 8.0) is None          # sin solape vertical
+
+
+def test_anclajes_con_franja_quedan_en_el_borde_interior_y_los_puentes_la_cruzan():
+    doc = fitz.open(); page = doc.new_page(width=400, height=300)
+    ocg = doc.add_ocg("C-ROAD-CURB", on=True)
+    page.draw_line((20, 100), (380, 100), color=(0, 0, 0), oc=ocg)             # línea que cruza la match line
+    page.draw_line((300, 20), (300, 280), color=(0, 0, 0), width=2.0)          # match line
+    clip, covers = C.trim_border(page, [0.0, 0.0, 310 / 400, 1.0])
+    anchors = C.edge_anchors(page, clip, insets=covers)
+    (an,) = [a for a in anchors if abs(a.y - 100) < 0.1 and a.ux > 0.5]
+    assert math.isclose(an.x, 300 - covers["right"], abs_tol=1e-3)               # borde interior de la franja
+    # dos piezas de la misma hoja pegadas borde con borde: el puente mide 2 franjas
+    a = C.Piece(0, 0, clip, covers=covers)
+    clip_b, covers_b = C.trim_border(page, [290 / 400, 0.0, 1.0, 1.0])
+    b = C.Piece(0, 0, clip_b, covers=covers_b, x=(clip[2] - clip[0]) * 400)
+    comp = C.Composite([a, b])
+    bridges = C.compute_bridges(comp, [doc])
+    assert len(bridges) == 1 and math.isclose(bridges[0].length, covers["right"] + covers_b["left"], abs_tol=1e-3)
+    # materializar: la línea es continua a través de la costura (el puente va sobre las franjas)
+    dst = _reopen(C.build_document(comp, [doc], None, bridges))
+    pix = dst[0].get_pixmap(matrix=fitz.Matrix(4, 4), clip=fitz.Rect(C.MARGIN_PT + 290, C.MARGIN_PT + 99.5,
+                                                                    C.MARGIN_PT + 310, C.MARGIN_PT + 100.5))
+    import numpy as np
+    arr = np.frombuffer(pix.samples, np.uint8).reshape(pix.height, pix.width, 3).mean(axis=2)
+    assert arr.min(axis=0).max() < 160                                            # ninguna columna en blanco
+
+
+def test_refine_delta_fija_los_dos_ejes_con_lineas_inclinadas():
+    # extremos de A (estáticos) y B (móviles) desplazados (dx, dy) = (0.3, −0.2); líneas a 0°, 45° y 90°
+    import math as _m
+    def anc(x, y, ang, flip=False):
+        ux, uy = _m.cos(_m.radians(ang)), _m.sin(_m.radians(ang))
+        if flip: ux, uy = -ux, -uy
+        return C.Anchor(x, y, ux, uy, "L")
+    static = [anc(100, 10, 0), anc(100, 50, 45), anc(100, 90, 0), anc(120, 0, 90)]
+    dx, dy = 0.3, -0.2
+    moving = [C.Anchor(a.x + dx, a.y + dy, -a.ux, -a.uy, "L") for a in static]
+    fx, fy = C.refine_delta(moving, static, 1.5, 200)
+    assert math.isclose(fx, -dx, abs_tol=1e-6) and math.isclose(fy, -dy, abs_tol=1e-6)
+    # solo horizontales: y determinado, x no
+    static_h = [anc(100, 10, 0), anc(100, 50, 0), anc(100, 90, 0)]
+    moving_h = [C.Anchor(a.x + dx, a.y + dy, -a.ux, -a.uy, "L") for a in static_h]
+    fx, fy = C.refine_delta(moving_h, static_h, 1.5, 200)
+    assert fx is None and math.isclose(fy, -dy, abs_tol=1e-6)
+
+
+def test_puente_prolonga_cada_linea_por_su_recta_hasta_el_borde():
+    a = C.Anchor(97.0, 50.0, 1.0, 0.0, "L"); b = C.Anchor(103.0, 50.2, -1.0, 0.0, "L")
+    br = C.Bridge(0, a.xy, 1, b.xy, "L", "L", ua=(a.ux, a.uy), ub=(b.ux, b.uy))
+    pts = br.polyline((0, 0, 100, 100), (100, 0, 200, 100))
+    assert pts == [(97.0, 50.0), (100.0, 50.0), (100.0, 50.2), (103.0, 50.2)]   # recto hasta el borde, escalón en la costura
+    # línea a 45°: sale del rectángulo por su recta
+    a = C.Anchor(97.0, 50.0, math.sqrt(0.5), math.sqrt(0.5), "L")
+    br = C.Bridge(0, a.xy, 1, (103.0, 56.0), "L", "L", ua=(a.ux, a.uy), ub=(-a.ux, -a.uy))
+    pts = br.polyline((0, 0, 100, 100), (100, 0, 200, 100))
+    assert math.isclose(pts[1][0], 100.0) and math.isclose(pts[1][1], 53.0)
+    # patrón de guiones continuo a lo largo de la polilínea
+    segs = C.bridge_segments_poly([(0, 0), (10, 0), (10, 10)], dash=4.0, gap_ratio=0.5)
+    total = sum(math.hypot(q[0] - p[0], q[1] - p[1]) for p, q in segs)
+    assert 20 * (4 / 6) - 4 <= total <= 20 * (4 / 6) + 4 and len(segs) >= 3

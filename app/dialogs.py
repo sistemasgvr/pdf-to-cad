@@ -310,7 +310,7 @@ def show_manual(win):
     <p>Si el PDF es <b>vectorial (bien ploteado)</b>, el asistente abre <b>Componer hoja de
     trabajo</b>: a la izquierda eliges el PDF y la hoja (puedes <b>agregar otros PDF</b>);
     en el centro marcas con un rectángulo el área del plano que
-    necesitas y pulsas <b>Tomar área</b> (o <b>Tomar hoja completa</b>); a la derecha la
+    necesitas (con <b>Imán a líneas</b> los lados saltan a las match lines, marcos y bordes largos, resaltados en celeste) y pulsas <b>Tomar área</b> (o <b>Tomar hoja completa</b>); a la derecha la
     pieza aparece en la <b>hoja compuesta</b>, donde la arrastras hasta su sitio. Con el
     <b>Imán</b> activo, al acercar una pieza a otra los extremos de sus líneas se pegan solos
     (o quedan en línea si dejas un hueco). Los extremos de línea se marcan con un punto en el
@@ -318,8 +318,9 @@ def show_manual(win):
     (en su misma capa, verde en la vista) al que tiene enfrente en la pieza vecina, hasta el
     <b>hueco máximo</b> indicado: así puedes recortar cada hoja por dentro de su match line, sin
     la línea divisoria, y la utilidad sigue de una pieza a otra. Con <b>Sin línea de borde</b>
-    (activo por defecto) el área se recorta sola por dentro de la match line o del marco que corra
-    pegado a cada lado. Al seleccionar una pieza, el panel «Área a tomar» muestra su hoja y su área
+    (activo por defecto) cada lado del área se lleva solo al centro de la match line o del marco que
+    corra pegado a él y su tinta se tapa con una franja blanca: no se pierde ningún vector y dos hojas
+    contiguas se unen borde con borde, sin hueco ni línea divisoria. Al seleccionar una pieza, el panel «Área a tomar» muestra su hoja y su área
     para ajustarla; <b>Nueva pieza</b> vuelve a marcar áreas nuevas.
     Cada pieza se puede girar (90° o ángulo fino) y corregir su <b>escala</b> si el texto de la
     hoja no la dice; la hoja compuesta usa una escala única y agranda/achica cada pieza para

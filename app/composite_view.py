@@ -8,8 +8,10 @@ vecina (`magnet_delta`) o, si se deja un hueco, queden en línea con ellos
 (`collinear_delta`). Los extremos (anclajes) y los puentes que los unirán se
 dibujan encima como guía.
 
-Al hacer zoom, la pieza bajo el centro de la vista se re-renderiza más nítida
-(misma idea que pdf_view_quality, pero por pieza y sin slots).
+Al hacer zoom, la parte VISIBLE de cada pieza se re-renderiza nítida encima
+de su imagen base (hijo del item, así se mueve con ella), con tope de píxeles
+repartido entre las piezas a la vista. Las franjas blancas de `Piece.covers`
+(tapan la línea de borde) y el contorno son también hijos del item.
 """
 from __future__ import annotations
 
@@ -19,7 +21,7 @@ import fitz
 from PySide6 import QtCore, QtGui, QtWidgets
 
 import composite as C
-from pdf_view_quality import render_scale
+from pdf_view_quality import MAX_RENDER_PIXELS, MAX_RENDER_SCALE, render_region
 from widgets import ZoomPanView
 
 
@@ -39,12 +41,19 @@ class PieceItem(QtWidgets.QGraphicsPixmapItem):
         self.view = view
         self.ov = 1.0
         self._raw: Optional[QtGui.QPixmap] = None
+        self._sharp: Optional[QtWidgets.QGraphicsPixmapItem] = None
+        self._sharp_key = None
+        self._covers: List[QtWidgets.QGraphicsItem] = []
         self.setFlags(QtWidgets.QGraphicsItem.ItemIsMovable
                       | QtWidgets.QGraphicsItem.ItemIsSelectable
                       | QtWidgets.QGraphicsItem.ItemSendsGeometryChanges)
         self.setShapeMode(QtWidgets.QGraphicsPixmapItem.BoundingRectShape)
         self.setTransformationMode(QtCore.Qt.SmoothTransformation)
         self.setCursor(QtCore.Qt.OpenHandCursor)
+        # contorno como hijo con z alto: queda sobre el recorte nítido y las franjas
+        self._outline = QtWidgets.QGraphicsRectItem(self)
+        self._outline.setZValue(10)
+        self._outline.setAcceptedMouseButtons(QtCore.Qt.NoButton)
 
     @property
     def piece(self) -> C.Piece:
@@ -74,6 +83,95 @@ class PieceItem(QtWidgets.QGraphicsPixmapItem):
         self._syncing = True
         self.setPos(p.x, p.y)
         self._syncing = False
+        self._outline.setRect(QtCore.QRectF(0, 0, pm.width(), pm.height()))
+        self._refresh_outline()
+        self._refresh_covers()
+        self.clear_sharp()
+
+    def _refresh_outline(self):
+        pen = QtGui.QPen(QtGui.QColor("#2b6fd1") if self.isSelected() else QtGui.QColor(255, 154, 0, 200), 0)
+        pen.setCosmetic(True)
+        pen.setWidth(3 if self.isSelected() else 1)
+        self._outline.setPen(pen)
+        self._outline.setBrush(QtCore.Qt.NoBrush)
+
+    # ── coords: escena ↔ píxeles del pixmap base ─────────────────────────
+    def scene_to_raw(self, x: float, y: float) -> QtCore.QPointF:
+        t, _ = self.transform().inverted()
+        return t.map(QtCore.QPointF(x - self.pos().x(), y - self.pos().y()))
+
+    def _refresh_covers(self):
+        for it in self._covers:
+            it.setParentItem(None)
+            if it.scene():
+                it.scene().removeItem(it)
+        self._covers = []
+        p = self.piece
+        for poly in C.cover_polygons(p, self.view.page_size(p), self.view.comp.target_scale()):
+            qp = QtGui.QPolygonF([self.scene_to_raw(x, y) for x, y in poly])
+            it = QtWidgets.QGraphicsPolygonItem(qp, self)
+            it.setBrush(QtGui.QBrush(QtGui.QColor("#ffffff")))
+            it.setPen(QtGui.QPen(QtCore.Qt.NoPen))
+            it.setZValue(6)                     # sobre el recorte nítido (5), bajo el contorno (10)
+            it.setAcceptedMouseButtons(QtCore.Qt.NoButton)
+            self._covers.append(it)
+
+    # ── recorte nítido de la parte visible ───────────────────────────────
+    def clear_sharp(self):
+        if self._sharp is not None:
+            self._sharp.setParentItem(None)
+            if self._sharp.scene():
+                self._sharp.scene().removeItem(self._sharp)
+            self._sharp = None
+            self._sharp_key = None
+
+    def update_sharp(self, visible_scene: QtCore.QRectF, wanted: float, pixel_budget: float):
+        """Pone (o actualiza) el recorte nítido de la parte de la pieza que se ve.
+        `wanted`: px de pantalla por pt de la hoja compuesta; `pixel_budget`: px
+        máximos para esta pieza."""
+        p = self.piece
+        region = visible_scene.intersected(self.sceneBoundingRect())
+        if region.isEmpty():
+            self.clear_sharp(); return
+        pad = 0.2 * max(region.width(), region.height())
+        region = region.adjusted(-pad, -pad, pad, pad).intersected(self.sceneBoundingRect())
+        target = self.view.comp.target_scale()
+        f = C.piece_factor(p, target)
+        # la región de escena → rect en la hoja origen (visible), acotado al clip
+        unmap = C.piece_unmap(p, self.view.page_size(p), target)
+        pts = [unmap(region.left(), region.top()), unmap(region.right(), region.top()),
+               unmap(region.right(), region.bottom()), unmap(region.left(), region.bottom())]
+        cx0, cy0, cx1, cy1 = C.clip_rect_pt(self.view.page_size(p), p.clip)
+        sx0 = max(cx0, min(q[0] for q in pts)); sx1 = min(cx1, max(q[0] for q in pts))
+        sy0 = max(cy0, min(q[1] for q in pts)); sy1 = min(cy1, max(q[1] for q in pts))
+        if sx1 - sx0 < 1e-3 or sy1 - sy0 < 1e-3:
+            self.clear_sharp(); return
+        scale = min(MAX_RENDER_SCALE, wanted * f, (pixel_budget / max(1.0, (sx1 - sx0) * (sy1 - sy0))) ** 0.5)
+        if scale < self.ov * 1.4:
+            self.clear_sharp(); return
+        key = (round(sx0, 1), round(sy0, 1), round(sx1, 1), round(sy1, 1), round(scale, 2))
+        if self._sharp is not None and key == self._sharp_key:
+            return
+        pm = render_region(self.view.page(p), (sx0, sy0, sx1, sy1), scale)
+        if pm is None or pm.isNull():
+            return
+        if abs(p.rotation % 360.0) > 1e-9:
+            pm = pm.transformed(QtGui.QTransform().rotate(-p.rotation), QtCore.Qt.SmoothTransformation)
+        # caja del recorte en escena → en píxeles del pixmap base (coords del padre)
+        fn = C.piece_map(p, self.view.page_size(p), target)
+        sc = [fn(sx0, sy0), fn(sx1, sy0), fn(sx1, sy1), fn(sx0, sy1)]
+        raw = [self.scene_to_raw(x, y) for x, y in sc]
+        rx0 = min(q.x() for q in raw); rx1 = max(q.x() for q in raw)
+        ry0 = min(q.y() for q in raw); ry1 = max(q.y() for q in raw)
+        self.clear_sharp()
+        it = QtWidgets.QGraphicsPixmapItem(pm, self)
+        it.setTransformationMode(QtCore.Qt.SmoothTransformation)
+        it.setZValue(5)
+        it.setAcceptedMouseButtons(QtCore.Qt.NoButton)
+        it.setPos(rx0, ry0)
+        it.setTransform(QtGui.QTransform().scale((rx1 - rx0) / pm.width(), (ry1 - ry0) / pm.height()))
+        self._sharp = it
+        self._sharp_key = key
 
     def itemChange(self, change, value):
         if change == QtWidgets.QGraphicsItem.ItemPositionChange and not getattr(self, "_syncing", False):
@@ -91,17 +189,13 @@ class PieceItem(QtWidgets.QGraphicsPixmapItem):
             # Índice seleccionado RESULTANTE (al cambiar de pieza, Qt deselecciona
             # la anterior después de seleccionar la nueva: no debe "borrar" la nueva).
             cur = self.index if value else self.view.selected_index(exclude=self.index)
+            self._refresh_outline()
             self.view.selectionChangedIdx.emit(cur)
         return super().itemChange(change, value)
 
     def paint(self, painter, option, widget=None):
+        option.state &= ~QtWidgets.QStyle.State_Selected      # sin el marco punteado de Qt
         super().paint(painter, option, widget)
-        pen = QtGui.QPen(QtGui.QColor("#2b6fd1") if self.isSelected() else QtGui.QColor(255, 154, 0, 200), 0)
-        pen.setCosmetic(True)
-        pen.setWidth(3 if self.isSelected() else 1)
-        painter.setPen(pen)
-        painter.setBrush(QtCore.Qt.NoBrush)
-        painter.drawRect(self.boundingRect())
 
 
 class CompositeView(ZoomPanView):
@@ -124,12 +218,12 @@ class CompositeView(ZoomPanView):
         self._bridge_timer.setInterval(120)
         self._bridge_timer.timeout.connect(self.refresh_overlay)
         self.pieceMoved.connect(lambda _i: self._bridge_timer.start())
-        self._sharp_index: Optional[int] = None
         self._timer = QtCore.QTimer(self)
         self._timer.setSingleShot(True)
         self._timer.setInterval(180)
         self._timer.timeout.connect(self._update_quality)
         self.viewChanged.connect(self._timer.start)
+        self.pieceMoved.connect(lambda _i: self._timer.start())
         self.setBackgroundBrush(QtGui.QColor("#d8dbe0"))
         self.setDragMode(QtWidgets.QGraphicsView.NoDrag)
 
@@ -158,7 +252,6 @@ class CompositeView(ZoomPanView):
 
     def rebuild(self, keep_selection: int = -1):
         """Vuelve a crear todos los items desde `self.comp`."""
-        self._sharp_index = None
         for it in self.items:
             self.scene().removeItem(it)
         self.items = []
@@ -172,6 +265,7 @@ class CompositeView(ZoomPanView):
         if 0 <= keep_selection < len(self.items):
             self.items[keep_selection].setSelected(True)
         self.refresh_overlay()
+        self._timer.start()
 
     def refresh_piece(self, index: int, rerender: bool = False):
         it = self.items[index]
@@ -181,10 +275,9 @@ class CompositeView(ZoomPanView):
             self._edge_cache.pop(self._anchor_key(it.piece), None)
         else:
             it.refresh()
-        if self._sharp_index == index:
-            self._sharp_index = None
         self._update_scene_rect()
         self._bridge_timer.start()
+        self._timer.start()
 
     def refresh_all(self):
         for i in range(len(self.items)):
@@ -234,17 +327,24 @@ class CompositeView(ZoomPanView):
     # ── imán / anclajes / puentes ──────────────────────────────────────
     @staticmethod
     def _anchor_key(p: C.Piece) -> tuple:
-        return (p.source, p.page, tuple(round(v, 9) for v in p.clip))
+        return (p.source, p.page, tuple(round(v, 9) for v in p.clip),
+                tuple(sorted((k, round(v, 3)) for k, v in p.covers.items())))
 
     def _anchors(self, index: int) -> List[C.Anchor]:
         p = self.comp.pieces[index]
         key = self._anchor_key(p)
         if key not in self._edge_cache:
             try:
-                self._edge_cache[key] = C.edge_anchors(self.page(p), p.clip)
+                self._edge_cache[key] = C.edge_anchors(self.page(p), p.clip, insets=p.covers)
             except Exception:
                 self._edge_cache[key] = []
         return self._edge_cache[key]
+
+    def _piece_rect(self, index: int, at: Optional[C.Pt] = None):
+        p = self.comp.pieces[index]
+        if at is not None:
+            p = C.Piece(**{**p.to_dict(), "x": at[0], "y": at[1]})
+        return C.piece_rect(p, self.page_size(p), self.comp.target_scale())
 
     def _edge_points(self, index: int) -> List[C.Pt]:
         return [a.xy for a in self._anchors(index)]
@@ -271,13 +371,40 @@ class CompositeView(ZoomPanView):
         tol = max(C.MAGNET_TOL_PT, 12.0 / zoom)
         # 1) extremos que coinciden (piezas que se tocan) — fija x e y. Solo los
         #    que están EN el borde: uno que muere por dentro no debe solapar piezas.
-        d = C.magnet_delta([m.xy for m in moving if m.on_edge], [s.xy for s in static if s.on_edge], tol)
-        # 2) extremos enfrentados con hueco — solo alinea lateralmente
-        if d is None:
-            d = C.collinear_delta(moving, static, tol, self.comp.bridge_max_pt)
-        if d is None:
+        #    Los anclajes del borde interior de una franja NO cuentan: pegarlos
+        #    solaparía las piezas (ese lado lo une el imán borde con borde).
+        d = C.coincide_delta([m for m in moving if m.on_edge and not m.inset],
+                             [s for s in static if s.on_edge and not s.inset], tol)
+        if d is not None:
+            return pos[0] + d[0], pos[1] + d[1]
+        # 2) borde con borde (los rectángulos de las piezas se tocan) + alineación
+        #    lateral por los extremos enfrentados (que con franjas quedan por dentro).
+        statics = [self._piece_rect(j) for j in range(len(self.comp.pieces)) if j != index]
+        e = C.edge_snap_delta(self._piece_rect(index, pos), statics, tol)
+        if e is not None:
+            pos = (pos[0] + e[0], pos[1] + e[1])
+            moving = self._mapped_anchors(index, pos)
+        # 3) extremos enfrentados con hueco — solo alinea lateralmente. Tras un
+        #    imán borde con borde, solo A LO LARGO de la costura (el otro eje ya
+        #    está clavado; una línea algo inclinada no debe despegar los bordes).
+        d = C.collinear_delta(moving, static, tol, self.comp.bridge_max_pt)
+        if d is not None:
+            if e is not None and e[0] != 0.0:
+                d = (0.0, d[1])
+            elif e is not None and e[1] != 0.0:
+                d = (d[0], 0.0)
+            pos = (pos[0] + d[0], pos[1] + d[1])
+        elif e is None:
             return None
-        return pos[0] + d[0], pos[1] + d[1]
+        # 4) ajuste fino por mínimos cuadrados con TODAS las parejas: las líneas
+        #    inclinadas fijan también la normal de la costura (centésimas de pt).
+        moving = self._mapped_anchors(index, pos)
+        fx, fy = C.refine_delta(moving, static, 1.5, self.comp.bridge_max_pt)
+        if fx is not None and abs(fx) <= 1.0:
+            pos = (pos[0] + fx, pos[1])
+        if fy is not None and abs(fy) <= 1.0:
+            pos = (pos[0], pos[1] + fy)
+        return pos
 
     def bridges(self) -> List[C.Bridge]:
         return list(self._bridges)
@@ -308,51 +435,32 @@ class CompositeView(ZoomPanView):
                     self._overlay.append(dot)
         pen_b = QtGui.QPen(QtGui.QColor("#0b7a3b"), 2); pen_b.setCosmetic(True)
         for b in self._bridges:
-            ln = self.scene().addLine(b.a[0], b.a[1], b.b[0], b.b[1], pen_b)
+            pts = b.polyline(self._piece_rect(b.piece_a), self._piece_rect(b.piece_b))
+            path = QtGui.QPainterPath(QtCore.QPointF(*pts[0]))
+            for q in pts[1:]:
+                path.lineTo(QtCore.QPointF(*q))
+            ln = self.scene().addPath(path, pen_b)
             ln.setAcceptedMouseButtons(QtCore.Qt.NoButton)
             ln.setZValue(19)
             self._overlay.append(ln)
         self.bridgesChanged.emit(len(self._bridges))
 
-    # ── nitidez al hacer zoom ───────────────────────────────────────────
-    def _focused_index(self) -> Optional[int]:
-        centre = self.mapToScene(self.viewport().rect().center())
-        for it in self.items:
-            if it.sceneBoundingRect().contains(centre):
-                return it.index
-        visible = self.mapToScene(self.viewport().rect()).boundingRect()
-        for it in self.items:
-            if it.sceneBoundingRect().intersects(visible):
-                return it.index
-        return None
-
+    # ── nitidez al hacer zoom (todas las piezas a la vista) ─────────────
     def _update_quality(self):
-        idx = self._focused_index()
-        if idx is None or not self.pieces_ready():
+        if not self.pieces_ready():
             return
-        it = self.items[idx]
-        p = it.piece
-        f = C.piece_factor(p, self.comp.target_scale())
+        visible = self.mapToScene(self.viewport().rect()).boundingRect()
         screen = abs(self.transform().m11()) * self.devicePixelRatioF()
-        wanted = screen * f * 1.15                      # px de pantalla por pt de la hoja origen
-        page = self.page(p)
-        x0, y0, x1, y1 = C.clip_rect_pt(self.page_size(p), p.clip)
-        clip = fitz.Rect(page.rect.x0 + x0, page.rect.y0 + y0, page.rect.x0 + x1, page.rect.y0 + y1)
-        scale = render_scale(page, wanted, clip)
-        base = self.overview_scale(p)
-        if scale < base * 1.4:
-            if self._sharp_index == idx:
-                it.set_raw(self.render_piece(p, base), base)
-                self._sharp_index = None
+        wanted = screen * 1.15                          # px de pantalla por pt de la hoja compuesta
+        shown = [it for it in self.items if it.sceneBoundingRect().intersects(visible)]
+        for it in self.items:
+            if it not in shown:
+                it.clear_sharp()
+        if not shown:
             return
-        if self._sharp_index == idx and scale < it.ov * 1.3:
-            return
-        if self._sharp_index is not None and self._sharp_index != idx:
-            prev = self.items[self._sharp_index]
-            b = self.overview_scale(prev.piece)
-            prev.set_raw(self.render_piece(prev.piece, b), b)
-        it.set_raw(self.render_piece(p, scale), scale)
-        self._sharp_index = idx
+        budget = MAX_RENDER_PIXELS / len(shown)
+        for it in shown:
+            it.update_sharp(visible, wanted, budget)
 
     # ── ratón ───────────────────────────────────────────────────────────
     def mousePressEvent(self, e):

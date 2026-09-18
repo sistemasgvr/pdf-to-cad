@@ -65,7 +65,7 @@ alcantarillado, drenaje, gas, eléctrico, telecom). Todo en **unidades imperiale
     corrida (no llega a bóvedas vecinas, no forma esquina con terceros:
     5c-bis). Un tick corto sobre el que muere otra corrida queda «capped»
     (sus puntas son extremos puros: ni esquina, ni T, ni prolongación). `slide_ok`: ninguna esquina/T desliza un
-    extremo más de media corrida. `SOFT_SIMPLIFY_PT`=1.5 para bend/corner,
+    extremo más de media corrida. `SOFT_SIMPLIFY_PT`=0.5 para bend/corner (era 1.5: dejaba la centerline hasta 1.5 pt fuera de los guiones en quiebres suaves),
     `CURVE_SIMPLIFY_SOFT_PT`=1.0 en tramos con vértices de curva. Ojo: `git checkout --`
     sobre archivos *staged* descarta el trabajo no staged — no usarlo aquí.
     `edge`/`stop` nunca se simplifican. Devuelve cobertura de guiones,
@@ -101,11 +101,36 @@ alcantarillado, drenaje, gas, eléctrico, telecom). Todo en **unidades imperiale
     del extremo (`bridge_segments`; un trazo sólido largo alteraba `learn_pattern`).
     Anclajes: solo trazos de línea (≥3 pt, ≤6 items, sin rellenos); `on_edge`
     distingue extremos sobre el borde (imán de coincidencia) de los que mueren
-    hasta 8 pt por dentro (solo alinean/puentean). `trim_border_lines` encoge el
-    clip por dentro de la match line / marco: trazos paralelos ≤14 pt del lado
-    agrupados por coordenada (±1.25 pt, `_collinear_lines`) que cubran ≥35 % del
-    lado — también match lines a GUIONES gruesos (DU06 hojas 14/15: x=349/350,
-    1609/1610, ancho 1.98); una serie de ≥3 paralelas = grilla, no se recorta. `recognition.
+    hasta 8 pt por dentro (solo alinean/puentean). `trim_border` lleva cada lado
+    del clip al CENTRO de la match line / marco pegado a él (trazos paralelos
+    ≤14 pt del lado agrupados por coordenada ±1.25 pt, `_collinear_lines`, que
+    cubran ≥35 % del lado; también a GUIONES gruesos: DU06 hoja 14 x=349/350 y
+    1609/1610, ancho 1.98; ≥3 paralelas = grilla, no se recorta) y devuelve
+    `covers` {lado: ancho}: franja BLANCA que tapa la tinta (ancho/2 + deriva +
+    0.3). Cortar por el centro no pierde vectores (los de debajo de la tinta
+    siguen en el XObject); `build_document` dibuja las franjas sin capa tras cada
+    pieza (el reconocimiento no las ve) y `PieceItem` las pinta como hijos. Con
+    esto DU06 hojas 13→14 unen borde con borde: traslación pura (−5.55 pt en y,
+    giro 0.01°). OJO: 14→15 NO son contiguas así. Costura milimétrica: la franja
+    sale `COVER_OUT_PT`=0.5 por FUERA del borde (si no, el píxel de la costura
+    queda gris por el antialiasing de ambas piezas: medido 152/255 → 255); los
+    anclajes de un lado con franja se toman en su borde INTERIOR (`insets`,
+    `Anchor.inset`) y los puentes completan encima de la franja las líneas que
+    cruzan; el imán: `coincide_delta` (extremos enfrentados que coinciden, sin
+    los `inset`) → `edge_snap_delta` (rectángulos borde con borde) + colineal
+    solo a lo largo de la costura → `refine_delta` (mínimos cuadrados 2D sobre
+    parejas mutuas; None en el eje que las líneas no determinan). Puente =
+    `Bridge.polyline(rect_a, rect_b)`: cada extremo sigue RECTO por su dirección
+    hasta el borde de su pieza (`_ray_exit`) y ahí cierra; `bridge_segments_poly`
+    mantiene el patrón de guiones por la polilínea (ojo: guardas 1e-6 contra
+    pasos nulos de coma flotante — colgaba). Medir con render 8× por columnas;
+    DU06 13→14: desvío lateral por línea mediana 0.03 pt, máx 0.09 pt.
+    `guide_lines` lista las líneas generales de la hoja (h/v, ≥40 pt de cobertura,
+    con guiones) y `snap_edge` elige a cuál salta un lado del área (≤ tol y
+    solape; gana la de más cobertura); `_CropView` (sheet_crop_dialog) las usa al
+    arrastrar y las resalta. Nitidez: `pdf_view_quality.ViewportSharpener` (panel 2)
+    y `PieceItem.update_sharp` (todas las piezas a la vista, presupuesto de píxeles
+    repartido) re-renderizan solo la región visible como overlay. `recognition.
     gather_paths` descarta astillas <1.5 pt creadas por un clip (`CLIP_SLIVER_PT`):
     con eso DU06 hoja 4 partida en dos con hueco = 13 rutas, igual que entera.
     OJO: `theme.apply_theme` PERSISTE la preferencia en QSettings; en scripts de

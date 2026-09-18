@@ -31,6 +31,7 @@ import fitz
 Pt = Tuple[float, float]
 
 MARGIN_PT = 36.0          # margen alrededor de las piezas en la hoja compuesta
+SIDES = ("left", "right", "top", "bottom")
 MAGNET_TOL_PT = 8.0       # radio del imán (pt de la hoja compuesta)
 MAGNET_AGREE_PT = 0.3     # dos deltas "coinciden" si difieren menos que esto
 MIN_PIECE_PT = 2.0
@@ -48,6 +49,11 @@ BORDER_BAND_PT = 14.0     # una línea larga a ≤ esto del borde del área es l
 BORDER_MIN_FRAC = 0.35    # …si mide al menos esta fracción del lado
 GRID_SCAN_MULT = 4.5      # se mira hasta 4.5× la banda: si hay ≥ GRID_MIN_LINES paralelas, es una grilla
 GRID_MIN_LINES = 3
+GUIDE_MIN_PT = 40.0       # una línea (o serie de guiones colineales) de ≥ esto es guía para el área
+COVER_PAD_PT = 0.3        # la franja blanca que tapa la línea de borde sobresale esto de su tinta
+COVER_OUT_PT = 0.5        # …y además sale esto por FUERA del borde: sin eso el píxel de la costura
+                          # queda gris (la tinta anti-aliased de ambas piezas suma y cada franja solo
+                          # restaura su mitad). La última franja pintada cubre ese píxel entero.
 LINE_CLUSTER_PT = 1.25    # guiones de una misma match line pueden ir en columnas a ~1 pt
 
 
@@ -62,12 +68,17 @@ class Piece:
     rotation: float = 0.0            # grados antihorario (pantalla)
     src_scale: float = 20 / 72.0     # pies por punto de la hoja origen
     label: str = ""
+    # Franjas blancas que tapan la línea de borde (match line, marco) por lado:
+    # {"left"|"right"|"top"|"bottom": ancho en pt de la hoja origen, hacia adentro}.
+    # El clip pasa por el CENTRO de la línea (los vectores de debajo se conservan
+    # para el reconocimiento) y la franja esconde su tinta en la hoja compuesta.
+    covers: Dict[str, float] = field(default_factory=dict)
 
     def to_dict(self) -> dict:
         return dict(source=int(self.source), page=int(self.page),
                     clip=[float(v) for v in self.clip], x=float(self.x), y=float(self.y),
                     rotation=float(self.rotation), src_scale=float(self.src_scale),
-                    label=self.label)
+                    label=self.label, covers={k: float(v) for k, v in self.covers.items()})
 
     @classmethod
     def from_dict(cls, d: dict) -> "Piece":
@@ -76,7 +87,9 @@ class Piece:
                    clip=clip, x=float(d.get("x", 0.0)), y=float(d.get("y", 0.0)),
                    rotation=float(d.get("rotation", 0.0)) % 360.0,
                    src_scale=float(d.get("src_scale", 20 / 72.0)) or 20 / 72.0,
-                   label=str(d.get("label", "")))
+                   label=str(d.get("label", "")),
+                   covers={str(k): float(v) for k, v in (d.get("covers") or {}).items()
+                           if k in SIDES and float(v) > 0})
 
 
 @dataclass
@@ -189,6 +202,23 @@ def piece_map(piece: Piece, page_size: Tuple[float, float], target_scale: float)
     return fn
 
 
+def piece_unmap(piece: Piece, page_size: Tuple[float, float], target_scale: float):
+    """Inversa de `piece_map`: (x, y) hoja compuesta → (x, y) hoja origen visible."""
+    x0, y0, x1, y1 = clip_rect_pt(page_size, piece.clip)
+    cx, cy = (x0 + x1) / 2.0, (y0 + y1) / 2.0
+    f = piece_factor(piece, target_scale)
+    w, h = piece_size(piece, page_size, target_scale)
+    dx, dy = piece.x + w / 2.0, piece.y + h / 2.0
+    th = math.radians(piece.rotation)
+    c, s = math.cos(th), math.sin(th)
+
+    def fn(X: float, Y: float) -> Pt:
+        qx, qy = (X - dx) / f, (Y - dy) / f
+        # giro inverso (horario): (qx, qy) → (qx c − qy s, qx s + qy c)
+        return cx + qx * c - qy * s, cy + qx * s + qy * c
+    return fn
+
+
 def piece_dir_map(piece: Piece):
     """Función (ux, uy) hoja origen → (ux, uy) hoja compuesta (solo el giro)."""
     th = math.radians(piece.rotation)
@@ -197,6 +227,34 @@ def piece_dir_map(piece: Piece):
     def fn(ux: float, uy: float) -> Pt:
         return ux * c + uy * s, -ux * s + uy * c
     return fn
+
+
+def cover_rects(piece: Piece, page_size: Tuple[float, float],
+                out_pt: float = COVER_OUT_PT) -> List[Tuple[float, float, float, float]]:
+    """Franjas blancas de la pieza en coords de la hoja origen visible (pt):
+    [(x0, y0, x1, y1), …], una por lado con `covers`: desde `w` por dentro del
+    borde del clip hasta `out_pt` por fuera (ver COVER_OUT_PT)."""
+    x0, y0, x1, y1 = clip_rect_pt(page_size, piece.clip)
+    out = []
+    for side, w in piece.covers.items():
+        w = min(float(w), (x1 - x0) if side in ("left", "right") else (y1 - y0))
+        if w <= 0:
+            continue
+        if side == "left":
+            out.append((x0 - out_pt, y0, x0 + w, y1))
+        elif side == "right":
+            out.append((x1 - w, y0, x1 + out_pt, y1))
+        elif side == "top":
+            out.append((x0, y0 - out_pt, x1, y0 + w))
+        elif side == "bottom":
+            out.append((x0, y1 - w, x1, y1 + out_pt))
+    return out
+
+
+def cover_polygons(piece: Piece, page_size: Tuple[float, float], target_scale: float) -> List[List[Pt]]:
+    """Las franjas de `cover_rects` como polígonos en coords de la hoja compuesta."""
+    fn = piece_map(piece, page_size, target_scale)
+    return [[fn(x0, y0), fn(x1, y0), fn(x1, y1), fn(x0, y1)] for x0, y0, x1, y1 in cover_rects(piece, page_size)]
 
 
 def bounds(comp: Composite, page_sizes) -> Optional[Tuple[float, float, float, float]]:
@@ -266,6 +324,7 @@ class Anchor:
     width: float = 0.0
     dash_len: float = 0.0       # largo del trazo del que sale (0 = desconocido/continuo)
     on_edge: bool = True        # exactamente sobre el borde (corte o extremo ±tol); False = cerca, por dentro
+    inset: bool = False         # está en el borde INTERIOR de una franja blanca (no en el borde de la pieza)
 
     @property
     def xy(self) -> Pt:
@@ -283,14 +342,31 @@ def _rgb(path: dict) -> Optional[Tuple[float, float, float]]:
 
 
 def edge_anchors(page: fitz.Page, clip: Sequence[float], max_paths: int = 200000,
-                 tol: float = EDGE_TOL_PT) -> List[Anchor]:
+                 tol: float = EDGE_TOL_PT, insets: Optional[Dict[str, float]] = None) -> List[Anchor]:
     """Anclajes del imán y de los puentes: cada trazo VISIBLE que cruza el
     borde del clip (punto de corte) o que termina sobre él (±`tol`; en una hoja
     ploteada la línea suele morir exactamente en la match line). Cada anclaje
-    lleva la dirección de salida y la capa OCG del trazo."""
+    lleva la dirección de salida y la capa OCG del trazo.
+
+    `insets` (= `Piece.covers`): en los lados con franja blanca el borde que
+    cuenta es el INTERIOR de la franja, así los puentes cruzan la franja y
+    completan encima de ella cada línea que la atraviesa."""
     from sheet_crops import drawing_polygon
 
     x0, y0, x1, y1 = clip_rect_pt((page.rect.width, page.rect.height), clip)
+    inset_edges: Dict[str, float] = {}
+    for side, w in (insets or {}).items():
+        w = float(w)
+        if side == "left":
+            x0 += w; inset_edges["left"] = x0
+        elif side == "right":
+            x1 -= w; inset_edges["right"] = x1
+        elif side == "top":
+            y0 += w; inset_edges["top"] = y0
+        elif side == "bottom":
+            y1 -= w; inset_edges["bottom"] = y1
+    if x1 - x0 < MIN_PIECE_PT or y1 - y0 < MIN_PIECE_PT:
+        return []
     rect = fitz.Rect(page.rect.x0 + x0, page.rect.y0 + y0, page.rect.x0 + x1, page.rect.y0 + y1)
     poly = drawing_polygon(page, rect)
     xs = [p[0] for p in poly]; ys = [p[1] for p in poly]
@@ -342,9 +418,12 @@ def edge_anchors(page: fitz.Page, clip: Sequence[float], max_paths: int = 200000
             return
         a = fitz.Point(x, y) * rot
         d = fitz.Point(ux / n, uy / n) * fitz.Matrix(rot.a, rot.b, rot.c, rot.d, 0, 0)
-        out.append(Anchor(a.x - page.rect.x0, a.y - page.rect.y0, d.x, d.y,
+        vx, vy = a.x - page.rect.x0, a.y - page.rect.y0
+        on_inset = any(abs((vx if side in ("left", "right") else vy) - e) <= tol
+                       for side, e in inset_edges.items())
+        out.append(Anchor(vx, vy, d.x, d.y,
                           path.get("layer") or "", _rgb(path), float(path.get("width") or 0.0),
-                          dash_len, on_border(x, y)))
+                          dash_len, on_border(x, y), on_inset))
 
     for i, path in enumerate(page.get_drawings()):
         if i >= max_paths:
@@ -405,12 +484,23 @@ def _merge_anchors(anchors: Sequence[Anchor], radius: float = ANCHOR_MERGE_PT) -
 
 def trim_border_lines(page: fitz.Page, clip: Sequence[float], band: float = BORDER_BAND_PT,
                       min_frac: float = BORDER_MIN_FRAC) -> List[float]:
-    """Encoge el clip para dejar FUERA la línea de borde del plano (match line,
-    marco de la vista) que corra pegada a cada lado, sea de la capa que sea y
-    aunque sea DISCONTINUA (guiones gruesos): trazos paralelos al lado, a
-    ≤ `band` pt por dentro, que entre todos cubren ≥ `min_frac` del lado.
-    Una serie de ≥ GRID_MIN_LINES paralelas (grilla) no cuenta.
-    Devuelve el clip normalizado nuevo (igual al de entrada si no hay líneas así)."""
+    """Solo el clip de `trim_border` (compatibilidad)."""
+    return trim_border(page, clip, band, min_frac)[0]
+
+
+def trim_border(page: fitz.Page, clip: Sequence[float], band: float = BORDER_BAND_PT,
+                min_frac: float = BORDER_MIN_FRAC) -> Tuple[List[float], Dict[str, float]]:
+    """Lleva cada lado del clip al CENTRO de la línea de borde del plano (match
+    line, marco de la vista) que corra pegada a ese lado, sea de la capa que sea
+    y aunque sea DISCONTINUA (guiones gruesos): trazos paralelos al lado, a
+    ≤ `band` pt por dentro, que entre todos cubren ≥ `min_frac` del lado. Una
+    serie de ≥ GRID_MIN_LINES paralelas (grilla) no cuenta.
+
+    Cortar por el centro no pierde ningún vector (los de debajo de la tinta
+    siguen en el PDF y el reconocimiento los ve). La tinta de la línea se tapa
+    después con una franja blanca: devuelve ``(clip, covers)`` con el ancho de
+    esa franja por lado (pt hoja visible, hacia adentro; incluye la deriva si la
+    línea va un poco inclinada)."""
     from sheet_crops import drawing_polygon
 
     W, H = page.rect.width, page.rect.height
@@ -422,7 +512,6 @@ def trim_border_lines(page: fitz.Page, clip: Sequence[float], band: float = BORD
     # lado → (coordenada del borde, eje, signo hacia adentro, extensión del lado)
     sides = {"left": (inner.x0, "x", +1, (inner.y0, inner.y1)), "right": (inner.x1, "x", -1, (inner.y0, inner.y1)),
              "top": (inner.y0, "y", +1, (inner.x0, inner.x1)), "bottom": (inner.y1, "y", -1, (inner.x0, inner.x1))}
-    # lado → [(d por dentro, coord, ancho, lo, hi)] de cada trazo paralelo cercano
     segs: Dict[str, List[Tuple[float, float, float, float, float]]] = {k: [] for k in sides}
     for path in page.get_drawings():
         if path.get("type") == "f":
@@ -449,7 +538,7 @@ def trim_border_lines(page: fitz.Page, clip: Sequence[float], band: float = BORD
                 d = (coord - edge) * sign
                 if -0.75 <= d <= GRID_SCAN_MULT * band:
                     segs[side].append((d, coord, width, lo, hi))
-    cut: Dict[str, Optional[float]] = {}
+    cut: Dict[str, Optional[Tuple[float, float]]] = {}      # lado → (coord del corte, ancho de la franja)
     for side, (edge, axis, sign, (s_lo, s_hi)) in sides.items():
         side_len = s_hi - s_lo
         lines = _collinear_lines(segs[side], side_len, min_frac)
@@ -457,28 +546,129 @@ def trim_border_lines(page: fitz.Page, clip: Sequence[float], band: float = BORD
         if not near or len(lines) >= GRID_MIN_LINES:
             cut[side] = None
         else:
-            _, _, coord, width = max(near, key=lambda t: t[0])
-            cut[side] = coord + sign * (width / 2.0 + 1.0)
+            _, coord_mean, coord_inner, width = max(near, key=lambda t: t[0])
+            drift = (coord_inner - coord_mean) * sign          # cuánto se mete la línea si va inclinada
+            cut[side] = (coord_mean, max(0.0, drift) + width / 2.0 + COVER_PAD_PT)
     if all(v is None for v in cut.values()):
-        return normalize_clip(clip)
-    tx0 = cut["left"] if cut["left"] is not None else inner.x0
-    tx1 = cut["right"] if cut["right"] is not None else inner.x1
-    ty0 = cut["top"] if cut["top"] is not None else inner.y0
-    ty1 = cut["bottom"] if cut["bottom"] is not None else inner.y1
+        return normalize_clip(clip), {}
+    tx0 = cut["left"][0] if cut["left"] else inner.x0
+    tx1 = cut["right"][0] if cut["right"] else inner.x1
+    ty0 = cut["top"][0] if cut["top"] else inner.y0
+    ty1 = cut["bottom"][0] if cut["bottom"] else inner.y1
     if tx1 - tx0 < MIN_PIECE_PT or ty1 - ty0 < MIN_PIECE_PT:
-        return normalize_clip(clip)
+        return normalize_clip(clip), {}
     rot = page.rotation_matrix
+    corners = {"left": (tx0, (ty0 + ty1) / 2), "right": (tx1, (ty0 + ty1) / 2),
+               "top": ((tx0 + tx1) / 2, ty0), "bottom": ((tx0 + tx1) / 2, ty1)}
     pts = [fitz.Point(x, y) * rot for x, y in ((tx0, ty0), (tx1, ty0), (tx1, ty1), (tx0, ty1))]
     vx = [pt.x - page.rect.x0 for pt in pts]; vy = [pt.y - page.rect.y0 for pt in pts]
-    return normalize_clip([min(vx) / W, min(vy) / H, max(vx) / W, max(vy) / H])
+    vis = (min(vx), min(vy), max(vx), max(vy))
+    covers: Dict[str, float] = {}
+    for side, val in cut.items():
+        if not val:
+            continue
+        m = fitz.Point(*corners[side]) * rot
+        mx, my = m.x - page.rect.x0, m.y - page.rect.y0
+        # ¿en qué lado VISIBLE cae el punto medio de ese lado del dibujo?
+        dists = {"left": abs(mx - vis[0]), "right": abs(mx - vis[2]),
+                 "top": abs(my - vis[1]), "bottom": abs(my - vis[3])}
+        covers[min(dists, key=dists.get)] = val[1]
+    return normalize_clip([vis[0] / W, vis[1] / H, vis[2] / W, vis[3] / H]), covers
+
+
+def guide_lines(page: fitz.Page, min_len: float = GUIDE_MIN_PT) -> Dict[str, List[Tuple[float, float, float]]]:
+    """Líneas «generales» de la hoja para imantar los lados del área a tomar:
+    trazos horizontales/verticales (también a guiones colineales) cuya cobertura
+    llega a `min_len`. Coords de la hoja VISIBLE, pt:
+    ``{"x": [(x, y_lo, y_hi, cobertura), …], "y": [(y, x_lo, x_hi, cobertura), …]}``
+    ordenadas por coordenada."""
+    segs_v: List[Tuple[float, float, float, float, float]] = []   # (0, coord, w, lo, hi) verticales (x=coord)
+    segs_h: List[Tuple[float, float, float, float, float]] = []
+    for path in page.get_drawings():
+        if path.get("type") == "f":
+            continue
+        for it in path.get("items") or ():
+            if it[0] != "l":
+                continue
+            p, q = it[1], it[2]
+            if abs(p.x - q.x) <= 0.75 and abs(p.y - q.y) >= 2.0:
+                segs_v.append((0.0, (p.x + q.x) / 2.0, 0.0, min(p.y, q.y), max(p.y, q.y)))
+            elif abs(p.y - q.y) <= 0.75 and abs(p.x - q.x) >= 2.0:
+                segs_h.append((0.0, (p.y + q.y) / 2.0, 0.0, min(p.x, q.x), max(p.x, q.x)))
+    rot = page.rotation_matrix
+    out: Dict[str, List[Tuple[float, float, float, float]]] = {"x": [], "y": []}
+
+    def emit(coord: float, lo: float, hi: float, cov: float, vertical: bool):
+        a = fitz.Point(coord, lo) * rot if vertical else fitz.Point(lo, coord) * rot
+        b = fitz.Point(coord, hi) * rot if vertical else fitz.Point(hi, coord) * rot
+        ax, ay = a.x - page.rect.x0, a.y - page.rect.y0
+        bx, by = b.x - page.rect.x0, b.y - page.rect.y0
+        if abs(ax - bx) <= 1e-6:
+            out["x"].append(((ax + bx) / 2.0, min(ay, by), max(ay, by), cov))
+        else:
+            out["y"].append(((ay + by) / 2.0, min(ax, bx), max(ax, bx), cov))
+
+    for segs, vertical in ((segs_v, True), (segs_h, False)):
+        for lo, hi, coord, cov in _covered_clusters(segs, min_len):
+            emit(coord, lo, hi, cov, vertical)
+    out["x"].sort(); out["y"].sort()
+    return out
+
+
+def _covered_clusters(segs: List[Tuple[float, float, float, float, float]], min_len: float
+                      ) -> List[Tuple[float, float, float, float]]:
+    """Agrupa trazos paralelos por coordenada (±LINE_CLUSTER_PT); devuelve
+    (lo, hi, coord, cobertura) de los grupos cuya unión de tramos mide ≥ `min_len`."""
+    if not segs:
+        return []
+    segs = sorted(segs, key=lambda t: t[1])
+    groups: List[List[Tuple[float, float, float, float, float]]] = [[segs[0]]]
+    for sg in segs[1:]:
+        if sg[1] - groups[-1][-1][1] <= LINE_CLUSTER_PT:
+            groups[-1].append(sg)
+        else:
+            groups.append([sg])
+    out = []
+    for g in groups:
+        spans = sorted((lo, hi) for _, _, _, lo, hi in g)
+        covered, cur_lo, cur_hi = 0.0, spans[0][0], spans[0][1]
+        for lo, hi in spans[1:]:
+            if lo <= cur_hi + 1.0:
+                cur_hi = max(cur_hi, hi)
+            else:
+                covered += cur_hi - cur_lo; cur_lo, cur_hi = lo, hi
+        covered += cur_hi - cur_lo
+        if covered >= min_len:
+            coord = sum(t[1] for t in g) / len(g)
+            out.append((spans[0][0], max(hi for _, hi in spans), coord, covered))
+    return out
+
+
+def snap_edge(guides: Sequence[tuple], coord: float, lo: float, hi: float,
+              tol: float) -> Optional[tuple]:
+    """Guía a la que salta un lado en `coord`: entre las que están a ≤ `tol` y
+    cuya extensión solapa [lo, hi], gana la de MÁS cobertura (la match line o el
+    marco antes que un borde de vía fino), y a igual cobertura la más cercana."""
+    cands = []
+    for g in guides:
+        g_coord, g_lo, g_hi = g[0], g[1], g[2]
+        cov = g[3] if len(g) > 3 else (g_hi - g_lo)
+        if g_hi < lo or g_lo > hi:
+            continue
+        d = abs(g_coord - coord)
+        if d <= tol:
+            cands.append((-cov, d, g))
+    if not cands:
+        return None
+    return min(cands)[2]
 
 
 def _collinear_lines(segs: List[Tuple[float, float, float, float, float]], side_len: float,
                      min_frac: float) -> List[Tuple[float, float, float, float]]:
     """Agrupa trazos paralelos por coordenada (±LINE_CLUSTER_PT) y devuelve las
     "líneas" cuya cobertura (unión de sus tramos) llega a `min_frac` del lado:
-    [(d, d, coord, ancho), …] ordenadas por d. Así una match line a guiones
-    gruesos cuenta igual que una continua."""
+    [(d_medio, coord_media, coord_más_interior, ancho), …] ordenadas por d.
+    Así una match line a guiones gruesos cuenta igual que una continua."""
     if not segs or side_len <= 0:
         return []
     segs = sorted(segs, key=lambda t: t[1])
@@ -499,10 +689,11 @@ def _collinear_lines(segs: List[Tuple[float, float, float, float, float]], side_
                 covered += cur_hi - cur_lo; cur_lo, cur_hi = lo, hi
         covered += cur_hi - cur_lo
         if covered >= min_frac * side_len:
-            d = max(t[0] for t in g)            # la más interior del grupo
-            coord = max(g, key=lambda t: t[0])[1]
+            d_mean = sum(t[0] for t in g) / len(g)
+            coord_mean = sum(t[1] for t in g) / len(g)
+            coord_inner = max(g, key=lambda t: t[0])[1]
             width = max(t[2] for t in g)
-            out.append((d, d, coord, width))
+            out.append((d_mean, coord_mean, coord_inner, width))
     return sorted(out)
 
 
@@ -524,7 +715,7 @@ def map_anchors(piece: Piece, page_size: Tuple[float, float], target_scale: floa
         x, y = fn(a.x, a.y)
         ux, uy = dn(a.ux, a.uy)
         f = piece_factor(piece, target_scale)
-        out.append(Anchor(x, y, ux, uy, a.layer, a.color, a.width, a.dash_len * f, a.on_edge))
+        out.append(Anchor(x, y, ux, uy, a.layer, a.color, a.width, a.dash_len * f, a.on_edge, a.inset))
     return out
 
 
@@ -543,6 +734,23 @@ def _best_group(proposals: List[Pt]) -> Optional[Pt]:
     # dominan y una pareja "casi" no desplaza el resultado.
     xs = sorted(g[0] for g in best_group); ys = sorted(g[1] for g in best_group)
     return xs[len(xs) // 2], ys[len(ys) // 2]
+
+
+def coincide_delta(moving: Sequence[Anchor], static: Sequence[Anchor],
+                   tol: float = MAGNET_TOL_PT) -> Optional[Pt]:
+    """Como `magnet_delta` pero con anclajes: solo emparejan extremos que se
+    MIRAN de frente (así los bordes superior/inferior de dos piezas vecinas,
+    cuyos extremos apuntan igual, no se pegan entre sí)."""
+    tol2 = tol * tol
+    pairs = []
+    for i, m in enumerate(moving):
+        for j, s in enumerate(static):
+            if m.ux * s.ux + m.uy * s.uy > -BRIDGE_COS:
+                continue
+            d2 = (s.x - m.x) ** 2 + (s.y - m.y) ** 2
+            if d2 <= tol2:
+                pairs.append((d2, i, j, s.x - m.x, s.y - m.y))
+    return _best_group(_mutual(pairs))
 
 
 def collinear_delta(moving: Sequence[Anchor], static: Sequence[Anchor],
@@ -566,6 +774,78 @@ def collinear_delta(moving: Sequence[Anchor], static: Sequence[Anchor],
     return _best_group(_mutual(pairs))
 
 
+def refine_delta(moving: Sequence[Anchor], static: Sequence[Anchor], tol: float = MAGNET_TOL_PT,
+                 max_gap: float = BRIDGE_MAX_PT) -> Tuple[Optional[float], Optional[float]]:
+    """Ajuste FINO tras el imán: (dx, dy) que minimiza por mínimos cuadrados el
+    desvío lateral de todas las parejas de extremos enfrentados (mutuas). Las
+    líneas inclinadas fijan también la posición a lo largo de la normal de la
+    costura (algo que «borde con borde» solo estima por el centro de la match
+    line). Devuelve None en el eje que las parejas no determinan (todas las
+    líneas paralelas a ese eje)."""
+    pairs = []
+    for i, m in enumerate(moving):
+        for j, s in enumerate(static):
+            if m.ux * s.ux + m.uy * s.uy > -BRIDGE_COS:
+                continue
+            vx, vy = s.x - m.x, s.y - m.y
+            along = vx * m.ux + vy * m.uy
+            if along < -tol or along > max_gap:
+                continue
+            lat = vx * (-m.uy) + vy * m.ux                  # componente sobre la normal n = (−uy, ux)
+            if abs(lat) <= tol:
+                pairs.append((abs(lat) + 0.01 * along, i, j, lat, -m.uy, m.ux))
+    used_m, used_s, rows = set(), set(), []
+    for _, i, j, lat, nx, ny in sorted(pairs, key=lambda t: t[0]):
+        if i in used_m or j in used_s:
+            continue
+        used_m.add(i); used_s.add(j)
+        rows.append((nx, ny, lat))
+    if len(rows) < 2:
+        return None, None
+    # mínimos cuadrados: n·d = lat  → (NᵀN) d = Nᵀ lat, con descarte robusto de outliers
+    for _ in range(2):
+        sxx = sum(nx * nx for nx, _, _ in rows); syy = sum(ny * ny for _, ny, _ in rows)
+        sxy = sum(nx * ny for nx, ny, _ in rows)
+        bx = sum(nx * lat for nx, _, lat in rows); by = sum(ny * lat for _, ny, lat in rows)
+        det = sxx * syy - sxy * sxy
+        n = len(rows)
+        ok_x = sxx > 0.05 * n and det > 1e-3 * (sxx * syy + 1e-12)   # x determinado solo con líneas no verticales… y no paralelas
+        ok_y = syy > 0.05 * n and det > 1e-3 * (sxx * syy + 1e-12)
+        if ok_x and ok_y:
+            dx = (bx * syy - by * sxy) / det; dy = (by * sxx - bx * sxy) / det
+        elif syy > sxx:
+            dx, dy = None, (by / syy if syy > 0 else None)
+        else:
+            dx, dy = (bx / sxx if sxx > 0 else None), None
+        # descartar residuos grandes (una pareja mal emparejada) y repetir una vez
+        resid = [abs(lat - ((dx or 0.0) * nx + (dy or 0.0) * ny)) for nx, ny, lat in rows]
+        keep = [r for r, e in zip(rows, resid) if e <= max(0.5, 3 * (sum(resid) / len(resid)))]
+        if len(keep) == len(rows) or len(keep) < 2:
+            break
+        rows = keep
+    return dx, dy
+
+
+def edge_snap_delta(moving: Tuple[float, float, float, float],
+                    statics: Sequence[Tuple[float, float, float, float]],
+                    tol: float = MAGNET_TOL_PT) -> Optional[Pt]:
+    """Imán BORDE con BORDE: si un lado del rectángulo móvil queda a ≤ `tol` del
+    lado enfrentado de otra pieza (y se solapan en el otro eje), devuelve el
+    desplazamiento que los deja tocándose (solo en ese eje). Gana el más cercano."""
+    mx0, my0, mx1, my1 = moving
+    best = None
+    for sx0, sy0, sx1, sy1 in statics:
+        if min(my1, sy1) > max(my0, sy0):                 # se solapan en vertical → costura vertical
+            for d in (sx1 - mx0, sx0 - mx1):
+                if abs(d) <= tol and (best is None or abs(d) < abs(best[0]) + abs(best[1])):
+                    best = (d, 0.0)
+        if min(mx1, sx1) > max(mx0, sx0):                 # se solapan en horizontal → costura horizontal
+            for d in (sy1 - my0, sy0 - my1):
+                if abs(d) <= tol and (best is None or abs(d) < abs(best[0]) + abs(best[1])):
+                    best = (0.0, d)
+    return best
+
+
 @dataclass
 class Bridge:
     piece_a: int
@@ -577,10 +857,56 @@ class Bridge:
     color: Optional[Tuple[float, float, float]] = None
     width: float = 0.0
     dash: float = 0.0           # largo de guión del linetype (0 = trazo continuo)
+    ua: Pt = (0.0, 0.0)         # dirección de salida de cada extremo (para prolongar por su recta)
+    ub: Pt = (0.0, 0.0)
 
     @property
     def length(self) -> float:
         return math.hypot(self.b[0] - self.a[0], self.b[1] - self.a[1])
+
+    def polyline(self, rect_a=None, rect_b=None) -> List[Pt]:
+        """Trazado del puente: cada extremo sigue RECTO por su propia dirección
+        hasta el borde de su pieza (`rect_*`, coords hoja compuesta) y solo ahí
+        se cierra con el otro. Así una línea que cruza la costura no cambia de
+        rumbo aunque los dos lados difieran una centésima; sin rects es a→b."""
+        pts = [self.a]
+        a2 = _ray_exit(rect_a, self.a, self.ua) if rect_a else None
+        b2 = _ray_exit(rect_b, self.b, self.ub) if rect_b else None
+        if a2 is not None and _dist(a2, self.a) > 1e-6:
+            pts.append(a2)
+        if b2 is not None and _dist(b2, self.b) > 1e-6:
+            pts.append(b2)
+        pts.append(self.b)
+        out: List[Pt] = []
+        for q in pts:
+            if not out or _dist(out[-1], q) > 1e-6:
+                out.append(q)
+        return out
+
+
+def _dist(p: Pt, q: Pt) -> float:
+    return math.hypot(p[0] - q[0], p[1] - q[1])
+
+
+def _ray_exit(rect: Tuple[float, float, float, float], p: Pt, u: Pt) -> Optional[Pt]:
+    """Punto donde el rayo p + t·u (t ≥ 0) sale del rectángulo; None si u es nulo
+    o el rayo no avanza hacia ningún lado (queda p)."""
+    x0, y0, x1, y1 = rect
+    ux, uy = u
+    if abs(ux) < 1e-12 and abs(uy) < 1e-12:
+        return None
+    t = float("inf")
+    if ux > 1e-12:
+        t = min(t, (x1 - p[0]) / ux)
+    elif ux < -1e-12:
+        t = min(t, (x0 - p[0]) / ux)
+    if uy > 1e-12:
+        t = min(t, (y1 - p[1]) / uy)
+    elif uy < -1e-12:
+        t = min(t, (y0 - p[1]) / uy)
+    if not math.isfinite(t) or t < 0:
+        return None
+    return p[0] + ux * t, p[1] + uy * t
 
 
 def find_bridges(anchors_by_piece: Dict[int, Sequence[Anchor]], max_gap: float = BRIDGE_MAX_PT,
@@ -620,7 +946,8 @@ def find_bridges(anchors_by_piece: Dict[int, Sequence[Anchor]], max_gap: float =
         pi, a = items[i]; pj, b = items[j]
         dashes = [d for d in (a.dash_len, b.dash_len) if d > 0]
         out.append(Bridge(pi, a.xy, pj, b.xy, a.layer, b.layer, a.color or b.color,
-                          max(a.width, b.width), min(dashes) if dashes else 0.0))
+                          max(a.width, b.width), min(dashes) if dashes else 0.0,
+                          (a.ux, a.uy), (b.ux, b.uy)))
     return out
 
 
@@ -663,6 +990,11 @@ def build_document(comp: Composite, docs: Sequence[fitz.Document],
         rect = fitz.Rect(px0 + dx, py0 + dy, px1 + dx, py1 + dy)
         page.show_pdf_page(rect, src, piece.page, clip=clip,
                            rotate=piece.rotation - spage.rotation)
+        # Franjas blancas que tapan la tinta de la línea de borde (sin capa: el
+        # reconocimiento no las ve; los vectores de debajo siguen en el XObject).
+        for poly in cover_polygons(piece, page_sizes(piece), target):
+            page.draw_polyline([(x + dx, y + dy) for x, y in poly], color=None,
+                               fill=(1, 1, 1), closePath=True)
         now = _ocg_xrefs(dst)
         for xref in now - seen:
             ocg_source[xref] = piece.source
@@ -679,8 +1011,10 @@ def build_document(comp: Composite, docs: Sequence[fitz.Document],
             kw = dict(color=br.color or (0, 0, 0), width=br.width or 0.0)
             if xref:
                 kw["oc"] = xref
-            a = (br.a[0] + dx, br.a[1] + dy); b = (br.b[0] + dx, br.b[1] + dy)
-            for p, q in bridge_segments(a, b, br.dash):
+            ra = piece_rect(comp.pieces[br.piece_a], page_sizes(comp.pieces[br.piece_a]), target)
+            rb = piece_rect(comp.pieces[br.piece_b], page_sizes(comp.pieces[br.piece_b]), target)
+            pts = [(x + dx, y + dy) for x, y in br.polyline(ra, rb)]
+            for p, q in bridge_segments_poly(pts, br.dash):
                 page.draw_line(p, q, **kw)
     return dst
 
@@ -704,6 +1038,39 @@ def bridge_segments(a: Pt, b: Pt, dash: float, gap_ratio: float = BRIDGE_GAP_RAT
     return out
 
 
+def bridge_segments_poly(pts: Sequence[Pt], dash: float, gap_ratio: float = BRIDGE_GAP_RATIO
+                         ) -> List[Tuple[Pt, Pt]]:
+    """Como `bridge_segments` pero a lo largo de una polilínea: el patrón de
+    guiones sigue de un tramo al siguiente sin reiniciarse."""
+    if len(pts) < 2:
+        return []
+    total = sum(_dist(pts[i], pts[i + 1]) for i in range(len(pts) - 1))
+    if dash <= 0 or total <= dash * (1.0 + gap_ratio):
+        return [(pts[i], pts[i + 1]) for i in range(len(pts) - 1)]
+    period = dash * (1.0 + gap_ratio)
+    out: List[Tuple[Pt, Pt]] = []
+    walked = 0.0
+    for i in range(len(pts) - 1):
+        p, q = pts[i], pts[i + 1]
+        L = _dist(p, q)
+        if L < 1e-9:
+            continue
+        ux, uy = (q[0] - p[0]) / L, (q[1] - p[1]) / L
+        t = 0.0
+        while t < L - 1e-9:
+            phase = (walked + t) % period
+            if period - phase < 1e-6:                        # residuo de coma flotante: es el inicio del período
+                phase = 0.0
+            if phase < dash - 1e-6:                         # dentro de un guión (con margen: sin pasos nulos)
+                e = min(L, t + (dash - phase))
+                out.append(((p[0] + ux * t, p[1] + uy * t), (p[0] + ux * e, p[1] + uy * e)))
+                t = e
+            else:                                           # dentro del hueco
+                t = min(L, t + max(1e-6, period - phase))
+        walked += L
+    return out
+
+
 def compute_bridges(comp: Composite, docs: Sequence[fitz.Document]) -> List[Bridge]:
     """Puentes de la composición según su estado (`comp.bridges`, `bridge_max_pt`)."""
     if not comp.bridges or len(comp.pieces) < 2:
@@ -713,7 +1080,7 @@ def compute_bridges(comp: Composite, docs: Sequence[fitz.Document]) -> List[Brid
     for i, p in enumerate(comp.pieces):
         page = docs[p.source][p.page]
         size = (page.rect.width, page.rect.height)
-        by_piece[i] = map_anchors(p, size, target, edge_anchors(page, p.clip))
+        by_piece[i] = map_anchors(p, size, target, edge_anchors(page, p.clip, insets=p.covers))
     return find_bridges(by_piece, comp.bridge_max_pt)
 
 

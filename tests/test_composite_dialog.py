@@ -199,10 +199,62 @@ def test_sin_linea_de_borde_recorta_al_tomar(app):
         dlg.crop.set_selection(QtCore.QRectF(0, 0, 308, 300))
         assert dlg.btn_trim.isChecked()
         dlg._take(full=False)
-        assert math.isclose(dlg.comp.pieces[0].clip[2] * 400, 298.5, abs_tol=1e-6)   # por dentro de la línea
+        assert math.isclose(dlg.comp.pieces[0].clip[2] * 400, 300.0, abs_tol=1e-3)   # centro de la línea
+        assert math.isclose(dlg.comp.pieces[0].covers["right"], 0.5 + C.COVER_PAD_PT, abs_tol=1e-3)   # línea de 1 pt
         dlg.btn_trim.setChecked(False)
         dlg.crop.set_selection(QtCore.QRectF(0, 0, 308, 300))
         dlg._take(full=False)
         assert math.isclose(dlg.comp.pieces[1].clip[2] * 400, 308, abs_tol=1e-6)
+    finally:
+        dlg.close_docs()
+
+
+def test_area_se_imanta_a_las_lineas_generales(app):
+    doc = fitz.open(); ocg = doc.add_ocg("C-ELEC-UNGD-E", on=True)
+    p = doc.new_page(width=400, height=300)
+    _dashed(p, (20, 100), (400, 100), ocg)
+    p.draw_line((300, 20), (300, 280), color=(0, 0, 0), width=1.0)   # match line
+    p.draw_line((20, 250), (380, 250), color=(0, 0, 0))               # borde inferior
+    dlg = composite_dialog.CompositeDialog(None, [{"name": "m.pdf", "data": doc.tobytes()}], None, {}, 0)
+    try:
+        dlg.btn_trim.setChecked(False)
+        assert dlg.crop._guides["x"] and dlg.crop._guides["y"]
+        # arrastrar el lado derecho hasta x=305 → salta a la match line (300) y la resalta
+        dlg.crop.set_selection(QtCore.QRectF(10, 10, 200, 200))
+        dlg.crop._drag_mode = "right"; dlg.crop._drag_initial = QtCore.QRectF(dlg.crop._selection)
+        dlg.crop._drag_start = QtCore.QPointF(210, 100)
+        dlg.crop._apply_drag(QtCore.QPointF(305, 100))
+        assert math.isclose(dlg.crop._selection.right(), 300.0)
+        assert len(dlg.crop._guide_items) == 1
+        # esquina inferior derecha cerca de (296, 246) → (300, 250)
+        dlg.crop._drag_mode = "br"; dlg.crop._drag_initial = QtCore.QRectF(dlg.crop._selection)
+        dlg.crop._apply_drag(QtCore.QPointF(296, 246))
+        assert math.isclose(dlg.crop._selection.right(), 300.0) and math.isclose(dlg.crop._selection.bottom(), 250.0)
+        # imán apagado: se queda donde se suelta
+        dlg.btn_area_snap.setChecked(False)
+        dlg.crop._drag_mode = "right"; dlg.crop._drag_initial = QtCore.QRectF(dlg.crop._selection)
+        dlg.crop._apply_drag(QtCore.QPointF(305, 100))
+        assert math.isclose(dlg.crop._selection.right(), 305.0)
+    finally:
+        dlg.close_docs()
+
+
+def test_nitidez_al_hacer_zoom_en_ambos_paneles(app):
+    data = _two_sheet_pdf()
+    dlg = composite_dialog.CompositeDialog(None, [{"name": "a.pdf", "data": data}], None, {}, 0)
+    try:
+        dlg.resize(1400, 800); dlg.show()
+        # panel 2: sin zoom no hay recorte nítido; con zoom 4× aparece encima (z=1)
+        dlg.crop.resetTransform(); dlg._crop_sharp.update_quality()
+        assert dlg._crop_sharp._item is None
+        dlg.crop.scale(4.0, 4.0); dlg.crop.centerOn(150, 100); dlg._crop_sharp.update_quality()
+        assert dlg._crop_sharp._item is not None and dlg._crop_sharp._item.zValue() == 1
+        # hoja compuesta: TODAS las piezas a la vista reciben recorte nítido
+        dlg._take(full=True); dlg.lst_pages.setCurrentRow(1); dlg._take(full=True)
+        dlg.view.resetTransform(); dlg.view.scale(4.0, 4.0); dlg.view.centerOn(312, 100)
+        dlg.view._update_quality()
+        assert all(it._sharp is not None for it in dlg.view.items)
+        dlg.view.resetTransform(); dlg.view._update_quality()      # escala 1: no hace falta recorte
+        assert all(it._sharp is None for it in dlg.view.items)
     finally:
         dlg.close_docs()

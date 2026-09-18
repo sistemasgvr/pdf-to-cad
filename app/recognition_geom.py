@@ -1776,7 +1776,9 @@ def assemble(runs: List[Run], nodes: List[Node]) -> List[Polyline]:
 
 
 SOFT_KINDS = ("corner", "bend", "curve")   # edge/stop nunca se simplifican: son regla del usuario
-SOFT_SIMPLIFY_PT = 1.5       # quiebres/esquinas blandos a ≤1.5 pt de la cuerda se quitan (transiciones)
+SOFT_SIMPLIFY_PT = 0.5       # quiebres/esquinas blandos a ≤0.5 pt de la cuerda se quitan (transiciones).
+                             # Era 1.5: dejaba la polilínea hasta 1.5 pt fuera de los guiones en
+                             # quiebres suaves/bóvedas (DU06 h.14: p90 0.83 → 0.28 pt con 0.5).
 CURVE_SIMPLIFY_SOFT_PT = 1.0 # …pero en tramos con vértices de curva se conserva la forma (≤1 pt)
 
 
