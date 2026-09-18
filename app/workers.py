@@ -28,9 +28,11 @@ class RecognitionWorker(QtCore.QThread):
     done = QtCore.Signal(object, str)
 
     def __init__(self, pdf_path, page_index, zoom=1.0, utility="ELECTRICO",
-                 hidden_ocgs=None, layer_roles=None, join_routes=True):
+                 hidden_ocgs=None, layer_roles=None, join_routes=True,
+                 scale_ft_per_pt=None):
         super().__init__()
         self.pdf_path = pdf_path
+        self.scale_ft_per_pt = scale_ft_per_pt   # hoja compuesta: escala fija
         self.page_index = page_index
         self.zoom = zoom
         self.utility = utility
@@ -46,7 +48,8 @@ class RecognitionWorker(QtCore.QThread):
                 utility=self.utility, zoom=self.zoom,
                 hidden_ocgs=self.hidden_ocgs,
                 layer_roles=self.layer_roles or None,
-                join_routes=self.join_routes)
+                join_routes=self.join_routes,
+                scale_ft_per_pt=self.scale_ft_per_pt)
             self.done.emit(result, "")
         except Exception as e:
             import traceback

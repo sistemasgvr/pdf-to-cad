@@ -300,15 +300,34 @@ def show_manual(win):
     completa al idioma activo, esa se muestra; si no, se muestra el original en
     español. Añadir un idioma es una entrada más en TRANSLATIONS de i18n.py."""
     html = _tr("""
-    <h2>Manual de usuario — v1.1.0</h2>
+    <h2>Manual de usuario — v1.2.0</h2>
     <p><i>Pipeline PDF → CAD → Civil 3D para redes de utilidad (agua, alcantarillado,
     drenaje, gas, electricidad, telecomunicaciones). Trabaja en unidades imperiales (pies).</i></p>
 
     <h3>1. Abrir el plano</h3>
     <p><b>Archivo → Abrir PDF…</b> (o arrastralo). Cambia de página y ajusta la
     transparencia en la sección <b>Vista y páginas</b>. Rueda = zoom, botón central = pan.</p>
-    <p>Si el PDF es <b>vectorial (bien ploteado)</b>, el asistente pide elegir la
-    <b>hoja</b> y luego abre <b>Capas de la hoja</b>: las capas del plano agrupadas por
+    <p>Si el PDF es <b>vectorial (bien ploteado)</b>, el asistente abre <b>Componer hoja de
+    trabajo</b>: a la izquierda eliges el PDF y la hoja (puedes <b>agregar otros PDF</b>);
+    en el centro marcas con un rectángulo el área del plano que
+    necesitas y pulsas <b>Tomar área</b> (o <b>Tomar hoja completa</b>); a la derecha la
+    pieza aparece en la <b>hoja compuesta</b>, donde la arrastras hasta su sitio. Con el
+    <b>Imán</b> activo, al acercar una pieza a otra los extremos de sus líneas se pegan solos
+    (o quedan en línea si dejas un hueco). Los extremos de línea se marcan con un punto en el
+    borde de cada pieza; con <b>Puentes</b> activo, cada extremo se une con un trazo vectorial
+    (en su misma capa, verde en la vista) al que tiene enfrente en la pieza vecina, hasta el
+    <b>hueco máximo</b> indicado: así puedes recortar cada hoja por dentro de su match line, sin
+    la línea divisoria, y la utilidad sigue de una pieza a otra. Con <b>Sin línea de borde</b>
+    (activo por defecto) el área se recorta sola por dentro de la match line o del marco que corra
+    pegado a cada lado. Al seleccionar una pieza, el panel «Área a tomar» muestra su hoja y su área
+    para ajustarla; <b>Nueva pieza</b> vuelve a marcar áreas nuevas.
+    Cada pieza se puede girar (90° o ángulo fino) y corregir su <b>escala</b> si el texto de la
+    hoja no la dice; la hoja compuesta usa una escala única y agranda/achica cada pieza para
+    que todo quede coherente en pies. Las piezas conservan sus vectores, capas, textos y
+    medidas: la hoja compuesta es un PDF real de una página y el reconocimiento corre sobre
+    ella de una vez, así una línea que cruza de una hoja a la siguiente sale como una sola
+    ruta. Una sola pieza = hoja completa equivale a trabajar la hoja original (◀ ▶ siguen
+    funcionando). Al continuar se abre <b>Capas de la hoja</b>: las capas del plano agrupadas por
     utilidad (Agua, Alcantarillado, Drenaje, Gas, Eléctrico, Telefonía y Otras, cada una
     con su color) con casillas para mostrarlas u ocultarlas, con vista previa en vivo.
     El panel <b>Utilidades</b> filtra la lista (o <b>Todas</b>) y se combina con el
@@ -317,7 +336,7 @@ def show_manual(win):
     el lienzo ni se usan en el reconocimiento. Al continuar se reconocen las utilidades
     eléctricas (las capas de líneas y bóvedas se asignan solas por su nombre) y se muestra
     la <b>vista previa del reconocimiento</b>, con la utilidad, la hoja y las capas usadas.
-    Desde ahí: <b>Continuar e importar</b>, <b>Cambiar de hoja…</b> (lista de hojas → capas
+    Desde ahí: <b>Continuar e importar</b>, <b>Componer hoja…</b> (compositor → capas
     → nueva vista previa) o <b>Ajustar capas…</b> (solo si el plot usa otros nombres).
     Después, al cambiar de hoja en el editor (◀ ▶ o nº de página) la nueva hoja se reconoce
     con las mismas capas. Las capas de estado <b>-A</b> (abandonadas, linetype ──/── e ──) se

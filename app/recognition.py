@@ -47,6 +47,9 @@ ROLE_BUZONES = "buzones"
 ROLE_IGNORAR = "ignorar"
 # Longitud mínima de una polilínea dibujable (pt PDF) — compatibilidad de API.
 MIN_CHAIN_LEN_PT = 8.0
+# Un trazo que tras recortarlo por un clip mide menos que esto es una astilla del
+# corte (borde de una pieza de la hoja compuesta, marco de vista): se descarta.
+CLIP_SLIVER_PT = 1.5
 # Distancia máx. (px lienzo) para proyectar una bóveda sobre una pipe.
 VAULT_SNAP_PX = 90.0
 # No duplicar vértice si ya hay uno cerca (px).
@@ -221,6 +224,8 @@ def gather_paths(page, kind_for, hidden=(), crop_polygon=None):
             path = geom.clip_path(path, [crop_polygon])
             if path is None:
                 continue
+        if path.get("clipped") and _path_length(path) < CLIP_SLIVER_PT:
+            continue        # astilla que dejó el recorte (p.ej. 0.9 pt de un guión): no es geometría
         path_counts[ocg] += 1
         kind_by_ocg[ocg] = kind
         if kind == "structure":
@@ -228,6 +233,15 @@ def gather_paths(page, kind_for, hidden=(), crop_polygon=None):
         elif kind == "elec_ungd":
             line_paths.append(path)
     return line_paths, vault_paths, path_counts, kind_by_ocg
+
+
+def _path_length(path: dict) -> float:
+    total = 0.0
+    for it in path.get("items") or ():
+        if it[0] == "l":
+            p, q = it[1], it[2]
+            total += math.hypot(q[0] - p[0], q[1] - p[1])
+    return total
 
 
 def _pdf_pt_to_view_px(x: float, y: float, zoom: float, page: fitz.Page) -> Tuple[float, float]:
@@ -288,6 +302,7 @@ def recognize_page(
     layer_roles: Optional[dict] = None,
     join_routes: bool = True,
     crop: Optional[Sequence[float]] = None,
+    scale_ft_per_pt: Optional[float] = None,
 ) -> RecognitionResult:
     """Reconoce utilidades eléctricas en una hoja. Abre el PDF si `doc` es None.
 
@@ -296,6 +311,7 @@ def recognize_page(
     usan los tokens ``RECOGNITION_LAYER_TOKENS``.
     `join_routes`: une tramos de la misma capa en rutas (buena continuación).
     False devuelve las polilíneas tal como las corta el núcleo geométrico.
+        `scale_ft_per_pt`: escala fija (hoja compuesta); None = leerla del texto.
     """
     own_doc = doc is None
     hidden = set(hidden_ocgs or ())
@@ -311,7 +327,7 @@ def recognize_page(
         if page_index < 0 or page_index >= doc.page_count:
             raise IndexError(f"Página {page_index} fuera de rango (0..{doc.page_count - 1})")
         page = doc[page_index]
-        scale = VP.detect_scale(page)
+        scale = float(scale_ft_per_pt) if scale_ft_per_pt else VP.detect_scale(page)
         visual_crop = crop_page_rect(page, crop)
         crop_polygon = drawing_polygon(page, visual_crop) if crop else None
 

@@ -5,7 +5,7 @@ se importan al editor (misma forma que finish_pipe). Las capas usadas como
 líneas/bóvedas se asignan AUTOMÁTICAMENTE por nombre (`recognition.classify_ocg`)
 y se muestran de forma informativa en el preview; «Ajustar capas…» abre el
 diálogo de roles solo si hace falta (plot con otros nombres). Desde el preview
-también se puede «Cambiar de hoja…» (lista de hojas → capas → nuevo preview).
+también se puede «Componer hoja…» (compositor → capas → nuevo preview).
 Textos en español vía i18n.
 """
 from __future__ import annotations
@@ -293,7 +293,7 @@ class RecognitionPreviewDialog(QtWidgets.QDialog):
     """Muestra el PDF + overlay de líneas (listas para el editor) y bóvedas.
 
     `action` al cerrar: PREVIEW_IMPORT (Continuar), PREVIEW_CANCEL,
-    PREVIEW_CHANGE_SHEET («Cambiar de hoja…») o PREVIEW_ADJUST_LAYERS
+    PREVIEW_CHANGE_SHEET («Componer hoja…») o PREVIEW_ADJUST_LAYERS
     («Ajustar capas…»). Quien lo abre (Main) ejecuta el flujo correspondiente.
     """
 
@@ -412,7 +412,7 @@ class RecognitionPreviewDialog(QtWidgets.QDialog):
 
         # ── acciones secundarias: cambiar de hoja / ajustar capas ──
         row = QtWidgets.QHBoxLayout()
-        self.btn_sheet = QtWidgets.QPushButton(_tr("Cambiar de hoja…"))
+        self.btn_sheet = QtWidgets.QPushButton(_tr("Componer hoja…"))
         self.btn_sheet.setToolTip(_tr("Elegir otra hoja del PDF, revisar sus capas y reconocerla."))
         self.btn_sheet.clicked.connect(lambda: self._finish(PREVIEW_CHANGE_SHEET))
         self.btn_roles = QtWidgets.QPushButton(_tr("Ajustar capas…"))

@@ -17,7 +17,7 @@ alcantarillado, drenaje, gas, eléctrico, telecom). Todo en **unidades imperiale
     botón, `layer_qcolor`, `swatch_icon`, …). Sin estado; los usa toda la app.
   - `workers.py` — hilos de fondo (`PipelineWorker`, `RecognitionWorker`).
   - `recognition.py` + `recognition_dialog.py` — asistente al abrir un PDF
-    vectorial: elegir hoja → capas → reconocer (v1: eléctricas `C-ELEC-UNGD`;
+    vectorial: componer hoja → capas → reconocer (v1: eléctricas `C-ELEC-UNGD`;
     roles líneas/bóvedas AUTOMÁTICOS por nombre, `classify_ocg`) → vista
     previa con QA e info de capas usadas → importar como pipes. El preview
     devuelve una acción (`PREVIEW_IMPORT | CANCEL | CHANGE_SHEET |
@@ -81,6 +81,48 @@ alcantarillado, drenaje, gas, eléctrico, telecom). Todo en **unidades imperiale
     no se une nada. No inventa ni mueve puntos; no cruza capas ni activas con
     abandonadas (eso lo garantiza `recognize_page`, que llama `build_routes`
     una vez por OCG). `join_routes=False` deja las polilíneas cortadas.
+  - `composite.py` + `composite_view.py` + `composite_dialog.py` — **hoja compuesta**
+    (v1.2.0), primer paso del asistente para PDF vectorial (reemplaza a «Organizar
+    hojas», que sigue en el menú Ver como legado). `composite.py` es PURO (solo
+    fitz): `Piece` (PDF origen, hoja, `clip` normalizado sobre la hoja visible,
+    `x,y` en pt de la hoja compuesta, `rotation` ANTIHORARIO como `show_pdf_page`,
+    `src_scale` pies/pt) y `Composite` (piezas + `scale_ft_per_pt` única; cada
+    pieza se escala por `src_scale/target`). `piece_map` reproduce exactamente el
+    mapeo de `show_pdf_page` (centro a centro, giro antihorario, factor uniforme);
+    `edge_anchors` da los anclajes (`Anchor`: cortes de trazos con el borde del
+    clip + extremos sobre el borde ±0.75 pt, con dirección de salida y capa; se
+    ignoran rellenos puros como logos y se fusionan los apiñados <0.5 pt);
+    `magnet_delta` (extremos que coinciden) y `collinear_delta` (extremos
+    enfrentados con hueco: solo alinea lateralmente) eligen el desplazamiento
+    con más parejas MUTUAS coincidentes (mediana). `find_bridges` empareja
+    extremos enfrentados de piezas distintas en la misma capa (nombre corto,
+    desvío ≤1.5 pt, hueco ≤ `bridge_max_pt`) y `build_document(..., bridges)`
+    los dibuja con `draw_line(oc=xref)` en esa capa, con el PATRÓN de guiones
+    del extremo (`bridge_segments`; un trazo sólido largo alteraba `learn_pattern`).
+    Anclajes: solo trazos de línea (≥3 pt, ≤6 items, sin rellenos); `on_edge`
+    distingue extremos sobre el borde (imán de coincidencia) de los que mueren
+    hasta 8 pt por dentro (solo alinean/puentean). `trim_border_lines` encoge el
+    clip por dentro de la match line / marco: trazos paralelos ≤14 pt del lado
+    agrupados por coordenada (±1.25 pt, `_collinear_lines`) que cubran ≥35 % del
+    lado — también match lines a GUIONES gruesos (DU06 hojas 14/15: x=349/350,
+    1609/1610, ancho 1.98); una serie de ≥3 paralelas = grilla, no se recorta. `recognition.
+    gather_paths` descarta astillas <1.5 pt creadas por un clip (`CLIP_SLIVER_PT`):
+    con eso DU06 hoja 4 partida en dos con hueco = 13 rutas, igual que entera.
+    OJO: `theme.apply_theme` PERSISTE la preferencia en QSettings; en scripts de
+    captura offscreen usar paleta+stylesheet a mano, nunca `apply_theme`. `build_document` materializa la hoja
+    como PDF real de UNA página: `show_pdf_page` por pieza (vectores, textos y
+    capas intactos; OJO: ignora el `/Rotate` de la hoja origen → clip des-rotado y
+    `rotate=piece.rotation - page.rotation`) y reconstruye `/OCProperties` con los
+    OCG que graftmap copió (hay que guardar y REABRIR el doc para que fitz vea el
+    catálogo; por eso `Main._apply_composite` escribe un PDF temporal). El BBox de
+    cada XObject actúa como clip en `gather_paths`, así el reconocimiento de la
+    hoja compuesta es idéntico al de la original (verificado con el DU06). Con una
+    sola pieza = hoja entera no se materializa: se usa el PDF origen (◀ ▶ sirven).
+    `Main` guarda los PDFs de origen en memoria (`src_pdfs`, bytes) y en el
+    `.digproj` (`sources/NNN.pdf`) junto a `composite`, `src_names`, `hidden_ocgs`
+    y `scale_override`; `work_pdf_path` es el PDF que ven los workers.
+    Tests: `tests/test_composite.py` (puro) y `tests/test_composite_dialog.py`
+    (Qt offscreen, punta a punta: dos hojas → una ruta).
   - `pdf_layers.py` + `layer_dialog.py` — paso «Capas de la hoja» del asistente:
     lista las capas OCG con geometría y las apaga/enciende con
     `doc.set_layer_ui_config` (única API que afecta render **y** `get_drawings`;

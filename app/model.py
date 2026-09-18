@@ -39,7 +39,7 @@ Coordenadas DIBUJADAS en PÍXELES (se convierten con geometry.to_cad al exportar
 coordenadas IMPORTADAS de Excel ya son reales de mundo (world=True → se usan tal cual).
 """
 
-VERSION = "1.1.9"
+VERSION = "1.2.0"
 
 # Capas de red por GRAVEDAD (tramos entre buzones, con invert inicio/fin).
 GRAVITY_LAYERS = {"ALCANTARILLADO", "DRENAJE"}
@@ -153,6 +153,15 @@ def default_network_type(layer):
 
 
 CHANGELOG = [
+    ("1.2.0", [
+        ("added", "Componer hoja de trabajo: al abrir un PDF vectorial se elige la hoja, se marca el área del plano que interesa y se «toma» a una hoja compuesta, como un XREF. Se pueden tomar piezas de varias hojas y de otros PDF, girarlas, corregir su escala y acomodarlas con el imán (los extremos de las líneas se pegan a los de la pieza vecina). Cada pieza conserva sus vectores, capas, textos y medidas; la hoja compuesta es un PDF real de una sola página con todas las capas, y el reconocimiento corre una sola vez sobre ella, así las líneas que cruzan de una hoja a otra salen como una sola ruta."),
+        ("added", "En el compositor, los extremos de línea en el borde de cada pieza se marcan con un punto y los «Puentes» unen cada extremo con el que tiene enfrente en la pieza vecina (misma capa, hueco máximo configurable) con un trazo vectorial en esa misma capa: así se puede recortar cada hoja por dentro de su match line, sin la línea divisoria, y el reconocimiento sigue la utilidad de una pieza a la otra como una sola ruta. El imán también alinea piezas separadas por un hueco (deja los extremos en línea sin cerrarlo)."),
+        ("added", "«Sin línea de borde» (activo por defecto): al tomar un área, se recorta por dentro de la línea larga que corra pegada a cada lado (match line, marco de la vista), sea de la capa que sea y aunque vaya a guiones gruesos, para que no aparezca la línea divisoria entre piezas. Las grillas (series de paralelas) no cuentan."),
+        ("added", "Seleccionar una pieza en la hoja compuesta lleva el panel «Área a tomar» a su PDF y hoja con su área marcada: al ajustar el rectángulo la pieza se actualiza sola. «Nueva pieza» vuelve al modo normal."),
+        ("changed", "Los extremos para el imán y los puentes solo salen de trazos de línea (≥3 pt, sin letras ni símbolos explotados ni rellenos); un extremo que muere cerca del borde alinea y hace puente pero no pega piezas (evita solapes). Botones de acción solo con icono (Agregar PDF, girar, quitar, ajustar)."),
+        ("changed", "«Organizar hojas» deja de ser un paso del asistente (sigue en el menú Ver). El botón «Cambiar de hoja…» del preview ahora es «Componer hoja…» y vuelve al compositor. Menú Ver → «Componer hoja de trabajo…» lo abre en cualquier momento."),
+        ("changed", "El proyecto guarda la composición y los PDF de origen completos; al reabrir se puede volver al compositor con todo igual."),
+    ]),
     ("1.1.9", [
         ("added", "Los tramos reconocidos de la misma capa se unen en rutas por buena continuación: en cada cruce se sigue de frente y el ramal empieza otra ruta. Si no hay trayectoria clara, no se une nada. No se mueven ni se inventan puntos, ni se cruzan capas distintas o activas con abandonadas. En la vista previa, «Unir tramos en rutas» (activada) lo deshace al momento."),
     ]),

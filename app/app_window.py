@@ -32,6 +32,8 @@ from organized_layers import selected_sheets
 from sheet_layout import normalize as normalize_sheet_layout, normalize_rotations
 from sheet_crops import normalize as normalize_sheet_crops
 import layer_dialog
+import composite as composite_mod
+import composite_dialog
 import project_io
 import model_ops
 from model import (VERSION, TIPOS, ACI_RGB, LEADER_TEXT_FT, LEADER_ORIENT,
@@ -70,6 +72,14 @@ class Main(QtWidgets.QMainWindow):
         self.sheet_crops = {}  # ventana no destructiva del plano por posición
         self.sheet_sources = []   # nombre y rango virtual de páginas de cada PDF
         self.sheet_external_pdfs = []  # PDF externos completos, con capas originales
+        # Hoja compuesta (composite.py): PDFs de origen en memoria, piezas y la
+        # escala única de la hoja. `work_pdf_path` es el PDF que ven los workers
+        # (el compuesto temporal o el original); `pdf_path` sigue siendo el original.
+        self.src_pdfs = []        # [{name, data(bytes), path?}, …]; 0 = PDF principal
+        self.composite = None     # composite.Composite o None
+        self.work_pdf_path = None
+        self._scale_override = None  # escala de la hoja compuesta (pies/pt); None = detectar
+        self._tmp_composite = None
         self.pdf_path = None; self.doc = None; self.project_path = None; self.leader_hpx = 40
 
         self.cur_pts = []; self.pipes = []; self.leaders = []; self.text_marks = []
@@ -147,6 +157,7 @@ class Main(QtWidgets.QMainWindow):
         _act(medit, "Deshacer", self.undo, "Ctrl+Z")
         _act(medit, "Rehacer", self.redo, "Ctrl+Shift+Z")
         mview = _menu(mb, "&Ver")
+        _act(mview, "Componer hoja de trabajo…", self.compose_sheet)
         _act(mview, "Organizar hojas…", self.organize_sheets)
         _act(mview, "Capas de hojas organizadas…", self.open_organized_layers)
         # Acción dinámica: su texto muestra el tema al que se cambiaría.
@@ -1015,6 +1026,8 @@ class Main(QtWidgets.QMainWindow):
         capas ocultas y roles (mismo PDF = mismas capas) y se muestra la vista
         previa para importar."""
         self.page_idx = idx; self._load_page(idx)
+        if self.composite is not None and self.composite.is_single_full_page():
+            self.composite.pieces[0].page = idx
         if self._recog_ready and self.pdf_path:
             self._start_recognition(idx)
 
@@ -1424,6 +1437,11 @@ class Main(QtWidgets.QMainWindow):
                 self.doc.close()
             self._cleanup_tmp_pdf()
             self.pdf_path = path; self.project_path = None; self.doc = new_doc; self._update_title()
+            self.work_pdf_path = path
+            with open(path, "rb") as fp:
+                self.src_pdfs = [{"name": os.path.basename(path), "data": fp.read(), "path": path}]
+            self.composite = None
+            self._scale_override = None
             self.hidden_ocgs = []   # capas OCG ocultas por el usuario (paso «Capas de la hoja»)
             self.hidden_ocgs_by_source = {}
             self._layer_roles = None
@@ -1491,62 +1509,131 @@ class Main(QtWidgets.QMainWindow):
             self._unbusy()
 
     def _wizard_sheet_flow(self, start_idx):
-        """Organización, capas y reconocimiento de las hojas elegidas.
+        """Componer la hoja de trabajo, elegir capas y reconocer.
         Lo usa el asistente al abrir el PDF y «Cambiar de hoja…» del preview.
-        Devuelve False si se cancela la organización. Al cancelar las capas,
-        la hoja principal queda cargada sin reconocer."""
-        selection = sheet_layout_dialog.choose_sheet_layout(
-            self, self.doc, self.sheet_layout, current=start_idx,
-            sources=self.sheet_sources, external_pdfs=self.sheet_external_pdfs,
-            rotations=self.sheet_rotations)
-        if selection is None:
+        Devuelve False si se cancela el compositor. Al cancelar las capas, la
+        hoja queda cargada sin reconocer."""
+        res = composite_dialog.compose_sheet(
+            self, self.src_pdfs, self.composite, self.hidden_ocgs_by_source, current_page=start_idx)
+        if res is None:
             return False
-        layout, added_paths, sources, rotations = selection
-        if not self._apply_sheet_selection(layout, added_paths, sources, rotations):
+        comp, sources, hidden_by_source = res
+        self.src_pdfs = sources
+        self.composite = comp
+        self.hidden_ocgs_by_source = {k: list(v) for k, v in hidden_by_source.items()}
+        self._recog_ready = False
+        try:
+            self._apply_composite()
+        except Exception as exc:
+            QtWidgets.QMessageBox.warning(self, _tr("Componer hoja"),
+                _tr("No se pudo armar la hoja compuesta:\n\n{e}").format(e=exc))
             return False
-        page_idx = layout["main"]
-        if any(layout[key] is not None for key in ("top", "left", "right", "bottom")):
-            chosen_hidden = organized_layer_dialog.choose_organized_sheet_layers(
-                self, self.doc, self.sheet_external_pdfs, self.sheet_sources,
-                self.sheet_layout, self.sheet_rotations, self.hidden_ocgs_by_source,
-                self.sheet_crops)
-            self._load_sheet_busy(page_idx)
-            self._dirty = True
-            self._recog_ready = False
-            if chosen_hidden is None:
-                self._info(_tr("Selección de capas cancelada; organización conservada."))
-            else:
-                self.hidden_ocgs_by_source, self.sheet_crops = chosen_hidden
-                self.hidden_ocgs = list(self.hidden_ocgs_by_source.get("0", []))
-                self._info(_tr("Capas de las hojas organizadas guardadas."))
-                self._start_organized_recognition()
-            return True
+        page_idx = self.page_idx
         # Paso «Capas de la hoja»: el usuario decide qué capas OCG ver ANTES
-        # de dibujar (y puede cambiar de hoja con ◀ ▶). Deja la visibilidad
-        # aplicada en self.doc, así _load_page ya renderiza sin las ocultas.
+        # de dibujar. Deja la visibilidad aplicada en self.doc, así _load_page
+        # ya renderiza sin las ocultas.
         chosen = layer_dialog.choose_sheet_layers(self, self.doc, page_idx)
         if chosen is None:
             self._load_sheet_busy(page_idx)
             self._dirty = True
-            self._info(_tr("Reconocimiento cancelado — hoja cargada con todas las capas."))
+            self._info(_tr("Reconocimiento cancelado — hoja cargada con las capas elegidas."))
             return True
         hidden, page_idx = chosen
-        if page_idx != self.sheet_layout["main"]:
-            self.sheet_crops.pop("main", None)
-            self.sheet_layout = normalize_sheet_layout(
-                {**self.sheet_layout, "main": page_idx},
-                sum(source["count"] for source in self.sheet_sources))
-            self.sheet_rotations = normalize_rotations(
-                self.sheet_rotations, self.sheet_layout)
+        if self.composite is not None and self.composite.is_single_full_page():
+            self.composite.pieces[0].page = page_idx
         self.hidden_ocgs = list(hidden)
-        self.hidden_ocgs_by_source["0"] = list(hidden)
+        self._sync_hidden_to_sources(hidden)
         # Los roles (qué capas son líneas / bóvedas) se asignan solos por
         # nombre y se muestran en el preview; «Ajustar capas…» los cambia.
+        self._layer_roles = None
         self._load_sheet_busy(page_idx)
         self._dirty = True
         self._recog_ready = True
         self._start_recognition(page_idx)
         return True
+
+    def _apply_composite(self):
+        """Deja en `self.doc` la hoja de trabajo según `self.composite`:
+        una sola pieza = hoja entera → el PDF origen tal cual (◀ ▶ siguen
+        sirviendo); si no, se materializa la hoja compuesta como PDF temporal
+        (`composite.build_document`) con las capas de cada origen ya apagadas."""
+        comp = self.composite
+        import pdf_layers as _pdf_layers
+        if self.doc:
+            self.doc.close(); self.doc = None
+        self._cleanup_tmp_composite()
+        if comp is None or comp.is_single_full_page():
+            piece = comp.pieces[0] if comp else None
+            src = piece.source if piece else 0
+            entry = self.src_pdfs[src]
+            if entry.get("path") and os.path.isfile(entry["path"]):
+                path = entry["path"]
+            else:
+                path = self._write_tmp_composite(entry["data"], suffix=f"_src{src}")
+            self.doc = fitz.open(path)
+            self.work_pdf_path = path
+            hidden = list(self.hidden_ocgs_by_source.get(str(src), []))
+            _pdf_layers.set_hidden(self.doc, hidden)
+            self.hidden_ocgs = hidden
+            self._scale_override = None
+            self.page_idx = piece.page if piece else 0
+        else:
+            docs = [fitz.open(stream=e["data"], filetype="pdf") for e in self.src_pdfs]
+            try:
+                for i, d in enumerate(docs):      # capas apagadas: sin trazos ni anclajes
+                    _pdf_layers.set_hidden(d, self.hidden_ocgs_by_source.get(str(i), ()))
+                bridges = composite_mod.compute_bridges(comp, docs)
+                built = composite_mod.build_document(comp, docs, self.hidden_ocgs_by_source, bridges)
+                data = built.tobytes(deflate=True); built.close()
+            finally:
+                for d in docs: d.close()
+            path = self._write_tmp_composite(data, suffix="_compuesta")
+            self.doc = fitz.open(path)     # reabrir: así fitz lee el catálogo de capas nuevo
+            self.work_pdf_path = path
+            self.hidden_ocgs = sorted(_pdf_layers.hidden_layers(self.doc))
+            self._scale_override = comp.target_scale()
+            self.page_idx = 0
+        self._load_sheet_busy(self.page_idx)
+
+    def _write_tmp_composite(self, data, suffix=""):
+        import tempfile
+        fd, path = tempfile.mkstemp(prefix="pdfcad_hoja", suffix=f"{suffix}.pdf")
+        with os.fdopen(fd, "wb") as fp:
+            fp.write(data)
+        self._tmp_composite = path
+        return path
+
+    def _cleanup_tmp_composite(self):
+        tmp = getattr(self, "_tmp_composite", None)
+        if tmp and os.path.isfile(tmp):
+            try: os.remove(tmp)
+            except Exception: pass
+        self._tmp_composite = None
+
+    def _sync_hidden_to_sources(self, hidden):
+        """Las capas apagadas en la hoja de trabajo se reflejan por nombre en
+        cada PDF de origen, así al volver al compositor se conservan."""
+        import pdf_layers as _pdf_layers
+        hidden = set(hidden or ())
+        for i, entry in enumerate(self.src_pdfs):
+            try:
+                with fitz.open(stream=entry["data"], filetype="pdf") as d:
+                    names = [c["text"] for c in _pdf_layers._ui_configs(d)]
+            except Exception:
+                continue
+            self.hidden_ocgs_by_source[str(i)] = [n for n in names if n in hidden]
+
+    def compose_sheet(self):
+        """Menú Ver → volver al compositor (piezas de varias hojas/PDF) y
+        repetir capas + reconocimiento sobre la hoja compuesta nueva."""
+        if not self.doc or not self.src_pdfs:
+            QtWidgets.QMessageBox.information(self, _tr("Componer hoja de trabajo"),
+                _tr("Abre un PDF para componer su hoja de trabajo."))
+            return
+        if not self._confirm_discard():
+            return
+        if not self._wizard_sheet_flow(self.page_idx):
+            self._info(_tr("Composición cancelada — se mantiene la hoja actual."))
 
     def organize_sheets(self):
         """Reopen the arrangement without changing the current drawing or layers."""
@@ -1707,9 +1794,9 @@ class Main(QtWidgets.QMainWindow):
         QtWidgets.QApplication.processEvents()
         self._recog_progress = progress
         self._recog_worker = RecognitionWorker(
-            self.pdf_path, page_idx, zoom=self.zoom, utility="ELECTRICO",
+            self.work_pdf_path or self.pdf_path, page_idx, zoom=self.zoom, utility="ELECTRICO",
             hidden_ocgs=self.hidden_ocgs, layer_roles=self._layer_roles,
-            join_routes=self._join_routes)
+            join_routes=self._join_routes, scale_ft_per_pt=self._scale_override)
         self._recog_worker.done.connect(self._recognition_done)
         self._recog_worker.start()
 
@@ -1787,6 +1874,8 @@ class Main(QtWidgets.QMainWindow):
     def _load_page(self, idx):
         self._close_editor()
         page = self.doc[idx]; self.page_idx = idx; self.scale = VP.detect_scale(page)
+        if self._scale_override:        # hoja compuesta: escala única elegida en el compositor
+            self.scale = float(self._scale_override)
         self.rot = page.rotation; mbx = page.mediabox; self.W, self.H = mbx.width, mbx.height
         self.derot = page.derotation_matrix
         pix = page.get_pixmap(matrix=fitz.Matrix(self.zoom, self.zoom), alpha=False)
@@ -1831,6 +1920,12 @@ class Main(QtWidgets.QMainWindow):
                     z.writestr("source.pdf", pdf_bytes)
                 for i, source in enumerate(self.sheet_external_pdfs):
                     z.writestr(f"external/{i:03d}.pdf", source["data"])
+                # Hoja compuesta: los PDFs de origen completos, para poder
+                # volver al compositor (source.pdf ya es la hoja materializada).
+                if self.composite is not None and (
+                        len(self.src_pdfs) > 1 or not self.composite.is_single_full_page()):
+                    for i, entry in enumerate(self.src_pdfs):
+                        z.writestr(f"sources/{i:03d}.pdf", entry["data"])
             self.project_path = path; self._dirty = False; self._update_title()
             self._info(f"Proyecto guardado: {os.path.basename(path)}")
             self._flash_save()
@@ -1852,6 +1947,7 @@ class Main(QtWidgets.QMainWindow):
         return None
 
     def _cleanup_tmp_pdf(self):
+        self._cleanup_tmp_composite()
         tmp = getattr(self, '_tmp_pdf', None)
         if tmp and os.path.isfile(tmp):
             try: os.remove(tmp)
@@ -1889,12 +1985,17 @@ class Main(QtWidgets.QMainWindow):
                     {"name": entry.get("name", f"PDF {i + 2}"),
                      "data": z.read(f"external/{i:03d}.pdf")}
                     for i, entry in enumerate(model.get("sheet_sources", [])[1:])]
-                if "source.pdf" in z.namelist():
+                src_bytes = z.read("source.pdf") if "source.pdf" in z.namelist() else None
+                if src_bytes is not None:
                     tmp_pdf = path + ".src.pdf"
-                    with open(tmp_pdf, "wb") as fp: fp.write(z.read("source.pdf"))
+                    with open(tmp_pdf, "wb") as fp: fp.write(src_bytes)
                     self._tmp_pdf = tmp_pdf
                 else:
                     tmp_pdf = None
+                src_names = model.get("src_names") or []
+                src_pdfs = [{"name": src_names[i] if i < len(src_names) else f"PDF {i + 1}",
+                             "data": z.read(f"sources/{i:03d}.pdf")}
+                            for i in range(len(src_names)) if f"sources/{i:03d}.pdf" in z.namelist()]
             qimg = QtGui.QImage.fromData(png, "PNG")
             self._overlay = []; self._close_editor()
             self.canvas.set_image(qimg); self.gray = qimage_to_gray(qimg)
@@ -1910,6 +2011,15 @@ class Main(QtWidgets.QMainWindow):
                 self.pdf_path = tmp_pdf; self.doc = fitz.open(tmp_pdf)
             else:
                 self.pdf_path = None; self.doc = None
+            self.work_pdf_path = tmp_pdf
+            self.composite = data.get("composite")
+            self._scale_override = data.get("scale_override")
+            if src_pdfs:
+                self.src_pdfs = src_pdfs
+            elif src_bytes is not None:
+                self.src_pdfs = [{"name": model.get("pdf_name") or "PDF principal", "data": src_bytes}]
+            else:
+                self.src_pdfs = []
             self.project_path = path
             self.sheet_external_pdfs = external_pdfs
             self.sheet_sources = data.get("sheet_sources") or (
@@ -1923,8 +2033,8 @@ class Main(QtWidgets.QMainWindow):
             self.sheet_crops = normalize_sheet_crops(
                 data.get("sheet_crops"), self.sheet_layout) if self.sheet_layout else {}
             self.hidden_ocgs_by_source = data.get("hidden_ocgs_by_source", {})
-            self.hidden_ocgs = list(self.hidden_ocgs_by_source.get("0", []))
-            if self.doc and "0" in self.hidden_ocgs_by_source:
+            self.hidden_ocgs = list(data.get("hidden_ocgs") or self.hidden_ocgs_by_source.get("0", []))
+            if self.doc and (self.hidden_ocgs or "0" in self.hidden_ocgs_by_source):
                 import pdf_layers as _pdf_layers
                 _pdf_layers.set_hidden(self.doc, self.hidden_ocgs)
             self.page_idx = data.get("page_idx", 0)
