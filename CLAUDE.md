@@ -17,7 +17,11 @@ alcantarillado, drenaje, gas, eléctrico, telecom). Todo en **unidades imperiale
     `set_layout(items, scene_rect)` = esquema de hojas (cajas con etiqueta, lo que
     pidió el usuario: organización, no dibujo) o `set_thumbnail(pixmap, rect)`.
     «Capas de la hoja» recibe `layout` de `composite.piece_layout` vía
-    `Main._composite_layout` (se calcula en `_apply_composite`)).
+    `Main._composite_layout` (se calcula en `_apply_composite`); `maximize_on_show(dlg)`:
+    la ÚNICA forma fiable de abrir un QDialog maximizado en Windows (setWindowState
+    diferido tras el primer Show; `exec()` pisa un showMaximized previo);
+    `side_panel_width`; `CollapsiblePanel` (cabecera + plegado a tira vertical, lo
+    usa el compositor para pantallas pequeñas)).
   - `ui_common.py` — constantes/helpers de UI compartidos (`DOWNLOADS`, estilos de
     botón, `layer_qcolor`, `swatch_icon`, …). Sin estado; los usa toda la app.
   - `workers.py` — hilos de fondo (`PipelineWorker`, `RecognitionWorker`).
@@ -29,7 +33,20 @@ alcantarillado, drenaje, gas, eléctrico, telecom). Todo en **unidades imperiale
     ADJUST_LAYERS`): «Cambiar de hoja…» repite `Main._wizard_sheet_flow`
     (hojas → capas → reconocer); «Ajustar capas…» abre `LayerRolesDialog`
     (ya no es un paso obligatorio) y re-reconoce con `self._layer_roles`.
-    `recognition.py` solo filtra paths por capa/rol y convierte PDF→px.
+    `recognition.py` solo filtra paths por capa/rol y convierte PDF→px… y hace
+    dos post-procesos: `fit_fillets` (codo = EXACTAMENTE un trazo curvo del PDF:
+    `_arc_spans` = ristra de vértices `curve` (interiores del trazo) + sus dos
+    vecinos (extremos reales del trazo), encadenando `curve, nodo, curve`; NUNCA
+    quiebres `corner`/`bend` sueltos — una cadena de guiones rectos es esquinas,
+    el usuario lo exigió tras un falso codo) sobre UN círculo (Kåsa, RMS ≤1
+    pt·zoom) + tangentes EXACTAS desde P y N (`_tangent_from`, rumbo ≤8° del
+    tramo que llega, tangencia a ≤12 pt del extremo del trazo) → vértice `fillet`
+    = esquina C, `RecognizedPolyline.fillets[idx] = {a, b, center, r_px}`. `pipes_from_recognition(zoom=)` pone
+    `pipe["fillets"] = {idx: radio_ft}` y `model_ops.attach_fillets` marca la CAJA
+    de ese vértice como CV (`curve=True, radius_ft`) → `PDFCAD_CURVE`, igual que el
+    codo manual. DU06 h.4: 3 codos (12–14 ft); curvas suaves (giro <8°) o que nacen
+    en un tee/bóveda sin recta tangente quedan como polilínea) y `_vaults_geometry` (geometría
+    real de bóvedas, `VAULT_MIN_FT`=2: cajas de paso/postes no cuentan).
   - `recognition_geom.py` — **núcleo geométrico PURO** (sin Qt ni fitz): en el
     PDF la utilidad viene como linetype "explotado" (guiones + letras «e» +
     huecos), nunca como polilínea. Aprende el patrón del plano
@@ -61,7 +78,33 @@ alcantarillado, drenaje, gas, eléctrico, telecom). Todo en **unidades imperiale
     barras «/» (trazo corto que cruza la línea con su punto medio sobre ella)
     en glifos, y `detect_loop_vaults` toma un lazo rectangular cerrado de 4
     corridas perpendiculares (lado 12–120 pt) de la propia capa como bóveda
-    (el DU06 dibuja el contorno de la bóveda abandonada en `C-ELEC-UNGD-A`).
+    (el DU06 dibuja el contorno de la bóveda abandonada en `C-ELEC-UNGD-A`);
+    `_rect_geometry` le da contorno/medidas/giro como a las activas y
+    `recognition._vaults_geometry` la marca `abandoned=True` (lazo ≥4 paths,
+    con contorno, sin `ref`); `model_ops.attach_vault_geometry` cae al CAJA
+    más cercano DENTRO del contorno si no hay ninguno a ≤12 px del centro (la
+    línea abandonada muere en el borde con `stop`). Marcadores: barras hasta
+    `MARKER_MAX_LEN_PT`=18 (las > `GLYPH_MAX_DIM_PT` solo si cruzan la corrida
+    por el interior o hay guiones colineales a ambos lados: el tick «|» de fin
+    de tramo se conserva); un «//» en un solo path zigzag no es codo porque
+    `classify_paths` exige giros ≤ `CODO_MAX_VERTEX_TURN_DEG`=60. **Veredicto
+    abandonada (regla del usuario)** = capa `-A` **Y** patrón: `GeomResult.markers`
+    guarda las barras y `marker_pattern(polylines, markers)` aprende el paso
+    (≥`MARKER_MIN_AGREE`=2 espaciados iguales ±15 %+3 pt; «//» a ≤`MARKER_PAIR_PT`
+    = un marcador) y juzga cada polilínea: True (marcadores a paso 1× o 2× desde
+    ≤1.5 pasos del inicio hasta ≤1.5 del final), False, None (más corta que el
+    paso → hereda el veredicto de la capa). `recognize_page` lo calcula sobre
+    las RUTAS (joined y raw) por OCG; DU06 h.9: paso 67.7 pt, línea de 282 pt
+    True + 3 stubs None → 4 (AB). Capa `-A` sin patrón → se importa activa con
+    aviso; patrón en capa activa → solo aviso.
+    `Vault` trae además la geometría REAL del símbolo (`_fill_vault_geometry`: el
+    path cerrado más grande del clúster → `outline` 4 esquinas con giro, `width`/
+    `length` pt, `angle_deg` rumbo del lado largo, o `shape="circle"`); `recognition`
+    la pasa a px + pies en `RecognitionResult.vaults_geo` y el preview la pinta.
+    **Auditoría de líneas cercanas (2026-09-19)**: paralelas a ≥2 pt quedan
+    separadas; el defecto era 5d-bis (convergencia rasante) que enganchaba como
+    T una paralela que solo TERMINA al lado → ahora exige que la corrida se
+    acerque ≥`GRAZE_MIN_APPROACH_PT`=2 pt (tests `test_paralela_que_termina…`).
     Un trazo continuo que solo nace en el borde de una bóveda no forma
     «through virtual» con la línea del lado opuesto (sí si la cruza).
     **T-ends** (`resolve_nodes`, pre-pasada tras la Fase A): un extremo que
@@ -198,8 +241,13 @@ alcantarillado, drenaje, gas, eléctrico, telecom). Todo en **unidades imperiale
     buzones (`rebuild_structures`), ocultar cajas de quiebres reconocidos sin
     bóveda (`hide_soft_vertex_structures`, usa `pipe["vertex_kinds"]`), conteo de conexiones (`bz_segment_count`), cotas
     por tramo (`interp_vertex_z`, `migrate_vertex_inv`, `snapshot_seg_values`),
-    búsqueda por vértice (`pipe_at_vertex`) y geometría de Multileader (`leader_geo`,
-    recibe la conversión pies→px de la ventana). `Main` delega y solo asigna/dibuja.
+    búsqueda por vértice (`pipe_at_vertex`), geometría de Multileader (`leader_geo`,
+    recibe la conversión pies→px de la ventana) y `attach_vault_geometry`: copia a la
+    CAJA más cercana (≤12 px) la geometría real de la bóveda reconocida
+    (`VAULT_GEO_KEYS`: shape, width_ft, length_ft, rot_deg, outline en px; las
+    huérfanas no inventan buzón; `rebuild_structures` los conserva por coordenada).
+    El lienzo dibuja `outline` como polígono a escala y la medida al seleccionar.
+    `Main` delega y solo asigna/dibuja.
   - `model.py` — constantes, `VERSION`, `CHANGELOG`, capas Z, tabs.
   - `dxf_export.py` — exporta el DXF con XDATA `PDFCAD`.
   - `civil_catalog.py` — lee el catálogo imperial de Civil 3D (familias/tamaños/GUID).
@@ -229,7 +277,12 @@ alcantarillado, drenaje, gas, eléctrico, telecom). Todo en **unidades imperiale
     usa un linetype discontinuo (copia hermana del estilo base, así planta/perfil
     quedan idénticos). Solo afecta la vista 3D en Civil 3D.
   - `PDFCAD_STRUCT` (punto): `STRUCT_ID, RIM, SUMP, PART, PART_GUID, PART_SIZE,
-    COVERED, NET_KIND, HEIGHT_FT, HIDDEN`.
+    COVERED, NET_KIND, HEIGHT_FT, HIDDEN, SHAPE, WIDTH_FT, LENGTH_FT, ROT_DEG`.
+    Los cuatro últimos (v1.2.0) llegan solo en bóvedas RECONOCIDAS del PDF
+    vectorial: forma (`rect|circle`), ancho × largo en pies medidos del símbolo
+    (pt × pies/pt) y rumbo del lado largo; vacíos en buzones manuales. El plugin
+    aún no los usa (`XdStr` ignora claves extra) — candidato: elegir PART_SIZE por
+    medidas y girar la estructura.
   - `PDFCAD_CURVE` (punto): esquina de elemento curvo, con `RADIUS_FT`.
   - `PDFCAD_META` (punto): metadatos del proyecto, hoy `CS_CODE` (Huso).
   - `PDFCAD_DUCTBANK` (punto, capa `PDFCAD_DUCT_BANK`): sección transversal del

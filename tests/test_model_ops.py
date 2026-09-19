@@ -175,3 +175,20 @@ def test_hide_soft_vertex_structures():
     assert hide_soft_vertex_structures(pipes, structs) == 0
     structs2 = rebuild_structures(pipes, structs)
     assert {(round(s["x"]), round(s["y"])): s["hidden"] for s in structs2}[(100, 0)] is True
+
+
+def test_attach_vault_geometry_asocia_medidas_a_la_caja():
+    from model_ops import attach_vault_geometry, rebuild_structures
+    pipes = [{"layer": "ELECTRICO", "pts": [(0, 0), (100, 0), (200, 0)]}]
+    structures = rebuild_structures(pipes, [])
+    vg = [{"center": (101.0, 2.0), "corners": [(90, -10), (112, -10), (112, 10), (90, 10)], "shape": "rect",
+           "width_ft": 6.3, "length_ft": 8.5, "angle_deg": 0.0, "orphan": False},
+          {"center": (500.0, 500.0), "corners": None, "shape": "circle", "width_ft": 4.0, "length_ft": 4.0, "angle_deg": 0.0, "orphan": True}]
+    done, missing = attach_vault_geometry(structures, vg)
+    assert (done, missing) == (1, 1)                          # la huérfana no inventa un buzón
+    st = next(s for s in structures if abs(s["x"] - 100) < 1e-9)
+    assert st["shape"] == "rect" and st["width_ft"] == 6.3 and st["length_ft"] == 8.5 and len(st["outline"]) == 4
+    # rebuild conserva la geometría por coordenada
+    again = rebuild_structures(pipes, structures)
+    st2 = next(s for s in again if abs(s["x"] - 100) < 1e-9)
+    assert st2.get("width_ft") == 6.3 and st2.get("outline") == st["outline"]

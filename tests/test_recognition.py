@@ -306,3 +306,83 @@ def test_esfv_como_buzon_no_deforma_ungd():
     a = [(tuple(p.pts_pdf), tuple(p.kinds)) for p in base.drawable]
     b = [(tuple(p.pts_pdf), tuple(p.kinds)) for p in mixed.drawable]
     assert a == b
+
+
+# ─────────────── patrón de marcadores «/» (abandonadas) ───────────────
+def _abandoned_doc(tmp_path, lines):
+    """PDF sintético con capas OCG reales. `lines` = [(ocg, a, b, marker_every | None, double)]:
+    línea a guiones (21.6/3.6) y, si `marker_every`, barras «/» (o «//») cada tanto."""
+    import fitz
+    doc = fitz.open(); page = doc.new_page(width=1000, height=800)
+    ocgs = {}
+    for ocg, a, b, every, double in lines:
+        if ocg not in ocgs:
+            ocgs[ocg] = doc.add_ocg(ocg)
+        ax, ay = a; bx, by = b
+        L = math.hypot(bx - ax, by - ay); ux, uy = (bx - ax) / L, (by - ay) / L
+        nx, ny = -uy, ux
+        t = 0.0
+        while t < L:
+            e = min(L, t + 21.6)
+            sh = page.new_shape(); sh.draw_line(fitz.Point(ax + ux * t, ay + uy * t), fitz.Point(ax + ux * e, ay + uy * e))
+            sh.finish(color=(0.5, 0.5, 0.5), width=0.7, oc=ocgs[ocg], closePath=False); sh.commit()
+            t = e + 3.6
+        if every:
+            t = every / 2 if every > 0 else L / 2
+            step = every if every > 0 else L * 10
+            while t < L:
+                for off in ((-1.6, 1.6) if double else (0.0,)):
+                    cx, cy = ax + ux * (t + off), ay + uy * (t + off)
+                    dx, dy = ux * 1.9 + nx * 3.3, uy * 1.9 + ny * 3.3
+                    sh = page.new_shape(); sh.draw_line(fitz.Point(cx - dx, cy - dy), fitz.Point(cx + dx, cy + dy))
+                    sh.finish(color=(0.5, 0.5, 0.5), width=0.7, oc=ocgs[ocg], closePath=False); sh.commit()
+                t += step
+    out = tmp_path / "ab.pdf"; doc.save(str(out)); doc.close()
+    return out
+
+
+def test_abandonada_exige_capa_A_y_patron_de_marcadores(tmp_path):
+    """Capa «-A» con «/» a paso regular en toda la línea → abandonada; el ramal
+    corto de la misma capa (más corto que el paso) hereda el veredicto."""
+    pdf = _abandoned_doc(tmp_path, [
+        ("C-ELEC-UNGD-A", (100, 300), (700, 300), 60.0, False),
+        ("C-ELEC-UNGD-A", (400, 300), (400, 340), None, False),
+    ])
+    res = rec.recognize_page(pdf, 0, zoom=1.0)
+    assert res.drawable and all(p.abandoned for p in res.drawable), [(p.layer_ocg, p.abandoned) for p in res.drawable]
+    assert res.coverage >= 0.99
+
+
+def test_dos_barras_sueltas_no_hacen_abandonada(tmp_path):
+    """Capa «-A» pero con un solo «//» en toda la línea: no sigue el patrón →
+    NO se marca abandonada y el preview lo avisa."""
+    pdf = _abandoned_doc(tmp_path, [("C-ELEC-UNGD-A", (100, 300), (700, 300), -1, True)])
+    res = rec.recognize_page(pdf, 0, zoom=1.0)
+    assert res.drawable and not any(p.abandoned for p in res.drawable)
+    assert any("NO se marcan como abandonadas" in w for w in res.warnings)
+    assert res.coverage >= 0.99                                    # el «//» sigue siendo glifo
+
+
+def test_patron_de_marcadores_en_capa_activa_no_abandona(tmp_path):
+    """El patrón «//» regular en una capa ACTIVA no la vuelve abandonada (manda
+    la capa), pero se avisa para revisar."""
+    pdf = _abandoned_doc(tmp_path, [("C-ELEC-UNGD-E", (100, 300), (700, 300), 60.0, True)])
+    res = rec.recognize_page(pdf, 0, zoom=1.0)
+    assert res.drawable and not any(p.abandoned for p in res.drawable)
+    assert any("capa ACTIVA" in w for w in res.warnings)
+    assert res.coverage >= 0.99
+
+
+def test_marker_pattern_puro_espaciado_irregular_no_es_patron():
+    import recognition_geom as G
+    pl = G.Polyline([(0.0, 0.0), (600.0, 0.0)], ["end", "end"])
+    regular = [G.Glyph(x, 0.0, 7.5) for x in (30, 90, 150, 210, 270, 330, 390, 450, 510, 570)]
+    mp = G.marker_pattern([pl], regular)
+    assert mp.period and abs(mp.period - 60) < 1 and mp.verdict == [True]
+    # «//»: dos glifos pegados cuentan como uno
+    double = [g for x in (30, 90, 150, 210, 270, 330, 390, 450, 510, 570) for g in (G.Glyph(x - 1.6, 0.0, 7.5), G.Glyph(x + 1.6, 0.0, 7.5))]
+    assert G.marker_pattern([pl], double).verdict == [True]
+    # solo al principio: paso aprendido pero no cubre la línea
+    assert G.marker_pattern([pl], regular[:3]).verdict == [False]
+    # irregular: no hay paso
+    assert G.marker_pattern([pl], [G.Glyph(x, 0.0, 7.5) for x in (30, 100, 250, 520)]).period is None

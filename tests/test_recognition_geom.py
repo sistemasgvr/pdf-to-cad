@@ -851,3 +851,125 @@ def test_dos_ocg_de_lineas_no_comparten_vertices():
     # Los paths de B, pasados como bóvedas (guiones abiertos), no cambian A.
     mix = G.reconstruct(la, lb)
     assert [(p.pts, p.kinds) for p in ga.polylines] == [(p.pts, p.kinds) for p in mix.polylines]
+
+
+# ── Auditoría 2026-09-19: líneas eléctricas CERCANAS no deben interconectarse ──
+def _dashed_line(sh, a, b, dash=21.6, gap=3.6, phase=0.0):
+    import math as _m
+    ax, ay = a; bx, by = b
+    L = _m.hypot(bx - ax, by - ay); ux, uy = (bx - ax) / L, (by - ay) / L
+    t = -phase
+    while t < L:
+        s, e = max(0.0, t), min(L, t + dash)
+        if e > s:
+            sh.line("LINES", (ax + ux * s, ay + uy * s), (ax + ux * e, ay + uy * e))
+        t = e + gap
+
+
+def _recon(sh):
+    import recognition as rec
+    lp, vp, _, _ = rec.gather_paths(sh.page, lambda o: "elec_ungd" if o == "LINES" else ("structure" if o == "VAULTS" else None))
+    return G.reconstruct(lp, vp)
+
+
+@pytest.mark.parametrize("d", [8.0, 4.0, 2.5, 2.0])
+def test_paralelas_cercanas_siguen_separadas(d):
+    sh = Sheet()
+    _dashed_line(sh, (100, 300), (700, 300)); _dashed_line(sh, (100, 300 + d), (700, 300 + d), phase=10.0)
+    g = _recon(sh)
+    assert len(g.polylines) == 2
+    for pl in g.polylines:                                  # cada una recta y en su propia y
+        assert max(p[1] for p in pl.pts) - min(p[1] for p in pl.pts) < 0.6
+        assert all(k in ("end",) for k in pl.kinds)
+    assert g.coverage > 0.99
+
+
+@pytest.mark.parametrize("d", [3.0, 2.5, 2.0])
+def test_paralela_que_termina_al_lado_no_es_T(d):
+    """Una línea que muere a ≤3 pt de otra PARALELA no nace de ella (5d-bis solo
+    aplica si la corrida se acerca): dos conduits vecinos no se interconectan."""
+    sh = Sheet()
+    _dashed_line(sh, (100, 300), (500, 300)); _dashed_line(sh, (100, 300 + d), (700, 300 + d), phase=10.0)
+    g = _recon(sh)
+    assert len(g.polylines) == 2
+    assert not any("tee" in pl.kinds or "junction" in pl.kinds for pl in g.polylines)
+
+
+def test_convergencia_rasante_real_si_se_une():
+    """Un conduit que se ACERCA a otro (de 20 pt a 2 pt en 300 pt) y muere a su
+    lado sí nace de él: vértice compartido (tee)."""
+    sh = Sheet()
+    _dashed_line(sh, (100, 300), (700, 300)); _dashed_line(sh, (100, 320), (400, 302))
+    g = _recon(sh)
+    assert any("tee" in pl.kinds for pl in g.polylines)
+
+
+def test_boveda_con_contorno_real_medidas_y_giro():
+    """El símbolo de bóveda (rectángulo del PDF, girado) da contorno de 4
+    esquinas, ancho/largo en pt y rumbo del lado largo; un círculo da shape=circle."""
+    import math as _m
+    sh = Sheet()
+    # rectángulo 40 × 20 girado 30°, centrado en (400, 300), + manhole circular dentro
+    cx, cy, w, h, ang = 400.0, 300.0, 40.0, 20.0, _m.radians(30.0)
+    ux, uy = _m.cos(ang), _m.sin(ang); vx, vy = -uy, ux
+    corners = [(cx + a * ux + b * vx, cy + a * uy + b * vy) for a, b in ((-w/2, -h/2), (w/2, -h/2), (w/2, h/2), (-w/2, h/2))]
+    sh.polyline("VAULTS", corners + [corners[0]])
+    sh.circle("VAULTS", cx, cy, 3.0)
+    _dashed_line(sh, (100, 300), (700, 300))
+    g = _recon(sh)
+    assert len(g.vaults) == 1
+    v = g.vaults[0]
+    assert v.shape == "rect" and v.outline and len(v.outline) == 4
+    assert _m.isclose(v.length, 40.0, abs_tol=0.3) and _m.isclose(v.width, 20.0, abs_tol=0.3)
+    assert _m.isclose(v.angle_deg, 30.0, abs_tol=0.5)
+    # las esquinas del contorno son las del PDF (no un bbox inventado)
+    for c in corners:
+        assert min(_m.hypot(c[0] - q[0], c[1] - q[1]) for q in v.outline) < 0.3
+    # circular
+    sh2 = Sheet(); sh2.circle("VAULTS", 400, 300, 8.0); _dashed_line(sh2, (100, 300), (700, 300))
+    g2 = _recon(sh2)
+    assert g2.vaults and g2.vaults[0].shape == "circle" and _m.isclose(g2.vaults[0].width, 16.0, abs_tol=0.5)
+
+
+def test_marcador_doble_barra_en_un_solo_trazo_y_barras_largas():
+    """Abandonada «──//── e ──»: el «//» dibujado como UN trazo en zigzag es un
+    marcador (no un codo que se funde con la línea), y una barra de 14 pt que
+    cruza la línea en un hueco también se quita si la línea sigue a ambos lados."""
+    import math as _m
+    sh = Sheet()
+    ax, bx, y = 100.0, 700.0, 300.0
+    t = 0.0; k = 0
+    while t < bx - ax:
+        e = min(bx - ax, t + 21.6); sh.line("LINES", (ax + t, y), (ax + e, y)); t = e + 3.6; k += 1
+        if k % 3 == 0 and t < bx - ax:
+            m = ax + t - 1.8
+            bar = 14.0 if k % 6 == 0 else 6.0
+            dx, dy = 0.5 * bar / 2, 0.866 * bar / 2
+            if bar == 6.0:                                   # «//» en un solo path
+                sh.polyline("LINES", [(m - 1.6 - dx, y - dy), (m - 1.6 + dx, y + dy), (m + 1.6 + dx, y + dy), (m + 1.6 - dx, y - dy)])
+            else:                                            # barra larga suelta
+                sh.line("LINES", (m - dx, y - dy), (m + dx, y + dy))
+    g = _recon(sh)
+    assert len(g.polylines) == 1 and len(g.polylines[0].pts) == 2, [pl.kinds for pl in g.polylines]
+    assert g.coverage > 0.99 and not g.uncovered
+    # el tick «|» de fin de tramo (14 pt, en el EXTREMO) sigue sin quitarse
+    sh2 = Sheet()
+    _dashed_line(sh2, (100, 400), (500, 400)); sh2.line("LINES", (500, 393), (500, 407))
+    g2 = _recon(sh2)
+    assert any(len(pl.pts) == 3 and all(abs(p[0] - 500) < 0.6 for p in pl.pts) for pl in g2.polylines)
+
+
+def test_boveda_abandonada_del_lazo_trae_geometria():
+    """El contorno de la bóveda abandonada va en la PROPIA capa «-A» como un lazo
+    de 4 corridas: se detecta como bóveda con contorno, medidas y giro."""
+    sh = Sheet()
+    x0, y0, x1, y1 = 400.0, 280.0, 460.0, 320.0                 # 60 × 40 pt
+    for a, b in (((x0, y0), (x1, y0)), ((x1, y0), (x1, y1)), ((x1, y1), (x0, y1)), ((x0, y1), (x0, y0))):
+        _dashed_line(sh, a, b, dash=12.0, gap=2.0)
+    _dashed_line(sh, (100, 300), (x0, 300)); _dashed_line(sh, (x1, 300), (700, 300))
+    g = _recon(sh)
+    loops = [v for v in g.vaults if v.n_paths >= 4]
+    assert len(loops) == 1
+    v = loops[0]
+    assert v.shape == "rect" and v.outline and len(v.outline) == 4
+    assert abs(v.length - 60.0) < 0.6 and abs(v.width - 40.0) < 0.6 and abs(v.angle_deg) < 0.5

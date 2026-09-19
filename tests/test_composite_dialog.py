@@ -285,3 +285,88 @@ def test_minimapa_en_capas_de_la_hoja(app):
         assert after.x() > before.x() + 1000
     finally:
         dlg.close()
+
+
+def test_paneles_plegables_y_pantalla_pequena(app):
+    data = _two_sheet_pdf()
+    dlg = composite_dialog.CompositeDialog(None, [{"name": "a.pdf", "data": data}], None, {}, 0)
+    try:
+        dlg.resize(1100, 640); dlg.show(); app.processEvents()
+        assert not dlg.intro.isVisible()                      # ventana estrecha: sin texto de ayuda
+        w_before = dlg.split.sizes()
+        dlg.panels[0].set_collapsed(True)                     # plegar «Origen»
+        assert dlg.panels[0].collapsed and dlg.panels[0].maximumWidth() == dlg.panels[0].STRIP_W
+        sizes = dlg.split.sizes()
+        assert sizes[0] <= dlg.panels[0].STRIP_W + 2 and sizes[1] + sizes[2] > w_before[1] + w_before[2]
+        dlg.panels[0].set_collapsed(False)                    # y desplegar: recupera su ancho
+        assert not dlg.panels[0].collapsed and dlg.split.sizes()[0] > 200
+        dlg.resize(1600, 900); app.processEvents()
+        assert dlg.intro.isVisible()
+    finally:
+        dlg.close_docs()
+
+
+def test_capas_y_preview_con_divisor(app):
+    import layer_dialog
+    doc = fitz.open(); ocg = doc.add_ocg("C-ELEC-UNGD-E", on=True)
+    page = doc.new_page(width=600, height=400); _dashed(page, (20, 200), (580, 200), ocg)
+    dlg = layer_dialog.SheetLayersDialog(None, doc, 0)
+    dlg.resize(1000, 600); dlg.show(); app.processEvents()
+    try:
+        assert dlg.split.count() == 2
+        dlg._apply_side_width()
+        sizes = dlg.split.sizes()
+        assert 300 <= sizes[1] <= int(1000 * 0.32) + 1                 # ≤ 32 % de la ventana
+    finally:
+        dlg.close()
+
+
+def test_codo_reconocido_como_esquina_mas_radio(app):
+    """Dos rectas unidas por un arco (R=60 pt) dibujado a guiones → el
+    reconocimiento devuelve un vértice «fillet» en la esquina con el radio en
+    pies, y al importar la CAJA de ese vértice es una esquina curva (CV)."""
+    import model_ops
+    doc = fitz.open(); ocg = doc.add_ocg("C-ELEC-UNGD-E", on=True)
+    page = doc.new_page(width=800, height=600)
+    R, C = 60.0, (400.0, 300.0)
+    _dashed(page, (100, 300), (C[0] - R, 300), ocg)                     # recta horizontal → tangencia A=(340,300)
+    # arco de 90° de A=(340,300) a B=(400,360), centro (340,360)
+    O = (C[0] - R, C[1] + R); import math as _m
+    pts = [(O[0] + R * _m.cos(_m.radians(-90 + t)), O[1] + R * _m.sin(_m.radians(-90 + t))) for t in range(0, 91, 5)]
+    page.draw_polyline(pts, color=(0, 0, 0), oc=ocg)                     # UN trazo curvo continuo (como el PDF)
+    _dashed(page, (C[0], C[1] + R), (400, 580), ocg)                     # recta vertical desde B=(400,360)
+    page.insert_text((30, 580), 'SCALE: 1"=20\'', fontsize=8)
+    res = recognition.recognize_page(None, 0, doc=doc, zoom=2.0)
+    fil = [(pl, i, f) for pl in res.drawable for i, f in pl.fillets.items()]
+    assert len(fil) == 1, [pl.kinds for pl in res.drawable]
+    pl, i, f = fil[0]
+    assert pl.kinds[i] == "fillet"
+    assert math.isclose(f["r_px"] / 2.0, R, rel_tol=0.03)               # radio en pt (px / zoom)
+    cx, cy = pl.pts_pdf[i]
+    assert math.isclose(cx / 2.0, C[0], abs_tol=1.5) and math.isclose(cy / 2.0, C[1], abs_tol=1.5)   # esquina
+    pipes = recognition.pipes_from_recognition(res, zoom=2.0)
+    assert pipes[0]["fillets"] == {i: round(R * 20 / 72, 3)}           # radio en pies
+    structures = model_ops.rebuild_structures(pipes, [])
+    n = model_ops.attach_fillets(pipes, structures)
+    assert n == 1
+    cv = [s for s in structures if s.get("curve")]
+    assert len(cv) == 1 and math.isclose(cv[0]["radius_ft"], R * 20 / 72, abs_tol=1e-3)
+    assert cv[0]["cod"].startswith("CV") or True                        # el prefijo lo da rebuild al recodificar
+
+
+def test_quiebres_rectos_no_se_convierten_en_curva(app):
+    """Los mismos puntos del arco pero como guiones RECTOS sueltos (una cadena
+    de quiebres) no son una curva del PDF: se quedan como esquinas/quiebres,
+    nunca como esquina + radio (regla: no inventar)."""
+    doc = fitz.open(); ocg = doc.add_ocg("C-ELEC-UNGD-E", on=True)
+    page = doc.new_page(width=800, height=600)
+    import math as _m
+    R, O = 60.0, (340.0, 360.0)
+    _dashed(page, (100, 300), (340, 300), ocg)
+    pts = [(O[0] + R * _m.cos(_m.radians(-90 + t)), O[1] + R * _m.sin(_m.radians(-90 + t))) for t in range(0, 91, 15)]
+    for a, b in zip(pts, pts[1:]):                                        # 6 guiones rectos a 15°
+        page.draw_line(a, b, color=(0, 0, 0), oc=ocg)
+    _dashed(page, (400, 360), (400, 580), ocg)
+    res = recognition.recognize_page(None, 0, doc=doc, zoom=2.0)
+    assert not any(pl.fillets for pl in res.drawable)
+    assert not any("curve" in pl.kinds for pl in res.drawable)

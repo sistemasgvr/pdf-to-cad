@@ -10,12 +10,13 @@ Textos en español vía i18n.
 """
 from __future__ import annotations
 
+import math
 from PySide6 import QtCore, QtGui, QtWidgets
 
 from i18n import t as _tr
 from model import TIPOS
 from ui_common import layer_qcolor, swatch_icon
-from widgets import ZoomPanView
+from widgets import ZoomPanView, maximize_on_show, side_panel_width
 import recognition as rec
 import theme as _theme
 
@@ -279,12 +280,76 @@ def _draw_poly(scene, pts, color, width=2.0, dots=False, z=5, dashed=False):
             it.setZValue(z)
 
 
-def _draw_vault(scene, x, y, color, z=6):
+def _display_runs(pl):
+    """Tramos rectos para DIBUJAR: en un codo la recta llega hasta A (tangencia)
+    y se reanuda en B; el arco entre A y B se pinta aparte (`_draw_fillet`)."""
+    fillets = getattr(pl, "fillets", None) or {}
+    if not fillets:
+        return [pl.pts_pdf]
+    runs, cur = [], []
+    for i, p in enumerate(pl.pts_pdf):
+        f = fillets.get(i)
+        if f:
+            cur.append(f["a"]); runs.append(cur); cur = [f["b"]]
+        else:
+            cur.append(p)
+    runs.append(cur)
+    return [r for r in runs if len(r) >= 2]
+
+
+def _draw_fillet(scene, corner, f: dict, color, z=6):
+    """Arco del codo (círculo ajustado al PDF) entre A y B, la esquina C punteada
+    y el radio en la etiqueta."""
+    cx, cy = f["center"]; r = f["r_px"]
+    a0 = math.degrees(math.atan2(-(f["a"][1] - cy), f["a"][0] - cx))
+    a1 = math.degrees(math.atan2(-(f["b"][1] - cy), f["b"][0] - cx))
+    span = (a1 - a0 + 540.0) % 360.0 - 180.0          # el camino corto
+    path = QtGui.QPainterPath()
+    path.arcMoveTo(QtCore.QRectF(cx - r, cy - r, 2 * r, 2 * r), a0)
+    path.arcTo(QtCore.QRectF(cx - r, cy - r, 2 * r, 2 * r), a0, span)
+    pen = QtGui.QPen(color, 2.5); pen.setCosmetic(True)
+    it = scene.addPath(path, pen); it.setZValue(z)
+    dash = QtGui.QPen(color, 1); dash.setCosmetic(True); dash.setStyle(QtCore.Qt.DashLine)
+    for q in (f["a"], f["b"]):
+        ln = scene.addLine(q[0], q[1], corner[0], corner[1], dash); ln.setZValue(z)
+    m = scene.addRect(corner[0] - 4, corner[1] - 4, 8, 8, QtGui.QPen(QtGui.QColor("#ffffff"), 1.5), QtGui.QBrush(color))
+    m.setFlag(QtWidgets.QGraphicsItem.ItemIgnoresTransformations); m.setZValue(z + 2)
+
+
+def _draw_vault_outline(scene, vg: dict, color, z=5):
+    """Rectángulo (o círculo) del símbolo de bóveda tal como está en el PDF, con
+    el MISMO color de la utilidad que usan las cajas en el editor (una sola
+    regla de color en toda la app), y «ancho × largo ft» al lado. Solo informa:
+    el vértice de la línea sigue siendo el punto de referencia."""
+    color = QtGui.QColor(color)
+    pen = QtGui.QPen(color, 2)
+    pen.setCosmetic(True)
+    fill = QtGui.QColor(color); fill.setAlpha(40)
+    if vg.get("corners"):
+        poly = QtGui.QPolygonF([QtCore.QPointF(x, y) for x, y in vg["corners"]])
+        it = scene.addPolygon(poly, pen, QtGui.QBrush(fill))
+    else:
+        cx, cy = vg["center"]
+        r = max(4.0, 0.5 * vg.get("width_ft", 0.0) / max(1e-9, 1.0))   # radio aprox. en px lo pone el llamador
+        it = scene.addEllipse(cx - r, cy - r, 2 * r, 2 * r, pen)
+    it.setZValue(z)
+    if vg.get("width_ft") and vg.get("length_ft"):
+        label = f"{vg['width_ft']:.1f} × {vg['length_ft']:.1f} ft" + (" (AB)" if vg.get("abandoned") else "")
+        txt = scene.addSimpleText(label)
+        txt.setBrush(QtGui.QBrush(color))
+        txt.setFlag(QtWidgets.QGraphicsItem.ItemIgnoresTransformations)
+        xs = [x for x, _ in vg["corners"]] if vg.get("corners") else [vg["center"][0]]
+        ys = [y for _, y in vg["corners"]] if vg.get("corners") else [vg["center"][1]]
+        txt.setPos(max(xs) + 3, min(ys))
+        txt.setZValue(z + 1)
+
+
+def _draw_vault(scene, x, y, color, z=6, r=None):
     """Punto de bóveda ≈ caja del lienzo (elipse rellena)."""
     pen = QtGui.QPen(QtGui.QColor("#ffffff"), 1.5)
     pen.setCosmetic(True)
     brush = QtGui.QBrush(color)
-    r = 6.0
+    r = 6.0 if r is None else float(r)
     it = scene.addEllipse(x - r, y - r, 2 * r, 2 * r, pen, brush)
     it.setZValue(z)
 
@@ -306,19 +371,28 @@ class RecognitionPreviewDialog(QtWidgets.QDialog):
             | QtCore.Qt.WindowMinimizeButtonHint
             | QtCore.Qt.WindowMaximizeButtonHint)
         self.resize(1200, 760)
+        maximize_on_show(self)
         self._result = result
         self.action = PREVIEW_CANCEL
 
         root = QtWidgets.QHBoxLayout(self)
+        root.setContentsMargins(12, 12, 12, 12)   # margen uniforme alrededor de vista y panel
         self.view = _PreviewView()
-        root.addWidget(self.view, 1)
-
+        # Vista | panel derecho con divisor arrastrable (ancho según la ventana).
+        self.split = QtWidgets.QSplitter(QtCore.Qt.Horizontal)
+        self.split.setChildrenCollapsible(False)
+        self.split.setHandleWidth(10)
+        # tirador fino y transparente: solo separación (sigue siendo arrastrable)
+        self.split.setStyleSheet("QSplitter::handle { background: transparent; border: none; }")
+        self.split.addWidget(self.view)
         side = QtWidgets.QWidget()
-        side.setFixedWidth(400)
+        side.setMinimumWidth(300)
         panel = QtWidgets.QVBoxLayout(side)
-        panel.setContentsMargins(0, 0, 0, 0)
+        panel.setContentsMargins(10, 0, 0, 0)   # aire entre el divisor y los controles
         panel.setSpacing(8)
-        root.addWidget(side, 0)
+        self.split.addWidget(side)
+        self.split.setStretchFactor(0, 1); self.split.setStretchFactor(1, 0)
+        root.addWidget(self.split, 1)
 
         color = layer_qcolor(utility_layer)
         t = _theme.tokens()
@@ -486,7 +560,10 @@ class RecognitionPreviewDialog(QtWidgets.QDialog):
         for pl in self._drawable():
             # Activas y abandonadas son la misma utilidad (mismo color). El (AB)
             # de la lista es lo que las distingue; no se dibujan a trazos.
-            _draw_poly(sc, pl.pts_pdf, color, width=2.0, dots=True, z=5)
+            for run in _display_runs(pl):
+                _draw_poly(sc, run, color, width=2.0, dots=True, z=5)
+            for idx, f in (getattr(pl, "fillets", None) or {}).items():
+                _draw_fillet(sc, pl.pts_pdf[idx], f, color)
             x, y = pl.pts_pdf[0]
             start = sc.addEllipse(x - 5, y - 5, 10, 10, QtGui.QPen(QtGui.QColor("#ffffff"), 1.5),
                                   QtGui.QBrush(color))
@@ -495,8 +572,13 @@ class RecognitionPreviewDialog(QtWidgets.QDialog):
             _draw_poly(sc, [a, b], QtGui.QColor("#ff8c00"), width=4.0, dots=False, z=7)
         for (vx, vy) in (getattr(result, "vault_pts", None) or []):
             _draw_vault(sc, vx, vy, color, z=6)
+        # Contorno real de cada bóveda (del PDF) + medidas en pies — solo las que
+        # tienen línea: las huérfanas (cajas propuestas, postes) van como marca discreta.
+        for vg in (getattr(result, "vaults_geo", None) or []):
+            if not vg.get("orphan"):
+                _draw_vault_outline(sc, vg, color)
         for (vx, vy) in (getattr(result, "vault_orphans_px", None) or []):
-            _draw_vault(sc, vx, vy, QtGui.QColor("#ff8c00"), z=6)
+            _draw_vault(sc, vx, vy, QtGui.QColor("#ff8c00"), z=6, r=4.0)
 
     def _fit_view(self):
         self.view.resetTransform()
@@ -507,7 +589,13 @@ class RecognitionPreviewDialog(QtWidgets.QDialog):
         # El fitInView del constructor ocurre antes de tener el tamaño real.
         if self._fit_pending:
             self._fit_pending = False
+            QtCore.QTimer.singleShot(0, self._apply_side_width)
             QtCore.QTimer.singleShot(0, self._fit_view)
+
+    def _apply_side_width(self):
+        w = self.width()
+        side_w = side_panel_width(w, 400)
+        self.split.setSizes([max(200, w - side_w), side_w])
 
     def _finish(self, action: str):
         self.action = action

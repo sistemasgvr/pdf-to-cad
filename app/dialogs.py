@@ -342,6 +342,12 @@ def show_manual(win):
     Después, al cambiar de hoja en el editor (◀ ▶ o nº de página) la nueva hoja se reconoce
     con las mismas capas. Las capas de estado <b>-A</b> (abandonadas, linetype ──/── e ──) se
     reconocen igual, se dibujan del mismo color y se importan marcadas <b>(AB)</b>, como la casilla «Abandonado».
+    Sus marcadores «/» y «//» (dos barras o un solo trazo en zigzag, incluso barras largas)
+    se descartan como glifos. Una línea cuenta como abandonada solo si está en la capa
+    «-A» <b>y</b> lleva ese patrón de marcadores a paso regular en toda su longitud (dos
+    barras sueltas no bastan; los ramales más cortos que el paso siguen a su capa); la
+    vista previa avisa de las excepciones. El contorno de una bóveda abandonada dibujado
+    en esa misma capa se reconoce como bóveda con medidas (etiqueta «(AB)» en la vista previa).
     La casilla <b>Unir tramos en rutas</b> (activada) encadena los tramos de la misma capa que
     siguen de frente; el ramal empieza otra ruta. No mueve puntos. Se puede desactivar antes de importar.</p>
 

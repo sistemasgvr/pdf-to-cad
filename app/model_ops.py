@@ -114,7 +114,12 @@ def rebuild_structures(pipes, structures):
                          height_ft=o.get("height_ft", 0.0),
                          curve=bool(o.get("curve", False)),
                          radius_ft=o.get("radius_ft", 0.0),
-                         hidden=bool(o.get("hidden", False))); break
+                         hidden=bool(o.get("hidden", False)))
+                # geometría real de la bóveda reconocida (ver attach_vault_geometry)
+                for k in VAULT_GEO_KEYS:
+                    if k in o:
+                        s[k] = o[k]
+                break
     # Códigos únicos: BZ-N gravedad, CAJA-N conduit, CV-N esquina de elemento curvo
     # (curve=True manda sobre el prefijo por red: no es un buzón/caja real).
     used = {s.get("cod", "") for s in world + detected if s.get("cod")}
@@ -240,4 +245,82 @@ def bz_segment_count(pipes, s):
         for i, pt in enumerate(pts):
             if math.hypot(pt[0] - sx, pt[1] - sy) <= tol:
                 n += 1 if (i == 0 or i == last) else 2
+    return n
+
+
+# ─────────────────────────── bóvedas reconocidas ───────────────────────────
+# Campos de geometría real que una estructura puede traer del reconocimiento
+# (contorno del símbolo en el PDF, nada inventado): forma, ancho y largo en
+# pies, giro del lado largo y el contorno en px del lienzo para dibujarlo.
+VAULT_GEO_KEYS = ("shape", "width_ft", "length_ft", "rot_deg", "outline")
+
+
+def attach_vault_geometry(structures, vaults_geo, tol=12.0):
+    """Asocia cada bóveda reconocida (`RecognitionResult.vaults_geo`) a la
+    estructura más cercana a su centro (≤ `tol` px) y le copia forma, medidas
+    y contorno. Las bóvedas sin estructura cerca (huérfanas: ninguna línea las
+    atraviesa) no se inventan como buzón. Devuelve (asignadas, sin_estructura)."""
+    done = 0; missing = 0
+    for vg in vaults_geo or []:
+        cx, cy = vg.get("center", (None, None))
+        if cx is None:
+            continue
+        best = None
+        for s in structures:
+            if s.get("world") or s.get("curve"):
+                continue
+            d = math.hypot(float(s.get("x", 1e9)) - cx, float(s.get("y", 1e9)) - cy)
+            if d <= tol and (best is None or d < best[0]):
+                best = (d, s)
+        if best is None and vg.get("corners"):
+            # Sin CAJA en el centro (las líneas mueren en el borde con «stop», caso
+            # típico de la bóveda abandonada): la más cercana DENTRO del contorno.
+            xs = [x for x, _ in vg["corners"]]; ys = [y for _, y in vg["corners"]]
+            for s in structures:
+                if s.get("world") or s.get("curve"):
+                    continue
+                sx, sy = float(s.get("x", 1e9)), float(s.get("y", 1e9))
+                if min(xs) - 2 <= sx <= max(xs) + 2 and min(ys) - 2 <= sy <= max(ys) + 2:
+                    d = math.hypot(sx - cx, sy - cy)
+                    if best is None or d < best[0]:
+                        best = (d, s)
+        if best is None:
+            missing += 1
+            continue
+        st = best[1]
+        st["shape"] = vg.get("shape", "rect")
+        st["width_ft"] = float(vg.get("width_ft") or 0.0)
+        st["length_ft"] = float(vg.get("length_ft") or 0.0)
+        st["rot_deg"] = float(vg.get("angle_deg") or 0.0)
+        st["outline"] = [(float(x), float(y)) for x, y in (vg.get("corners") or [])] or None
+        st["hidden"] = False                      # una bóveda real siempre se ve
+        done += 1
+    return done, missing
+
+
+def attach_fillets(pipes, structures, tol=1.0):
+    """Marca como esquina de elemento curvo (CV: `curve=True`, `radius_ft`) la
+    estructura del vértice «fillet» de cada pipe reconocida (`pipe["fillets"]`
+    = {índice: radio_ft}). Mismo modelo que el codo manual; el plugin genera la
+    tubería curva tangente con ese radio. Devuelve cuántas marcó."""
+    n = 0
+    for p in pipes:
+        fil = p.get("fillets") or {}
+        pts = p.get("pts") or []
+        for idx, r_ft in fil.items():
+            try:
+                x, y = pts[int(idx)]
+            except (IndexError, ValueError, TypeError):
+                continue
+            for s in structures:
+                if s.get("world"):
+                    continue
+                if math.hypot(float(s.get("x", 1e9)) - x, float(s.get("y", 1e9)) - y) <= tol:
+                    if not s.get("curve") or abs(float(s.get("radius_ft") or 0.0) - float(r_ft)) > 1e-6:
+                        s["curve"] = True
+                        s["radius_ft"] = float(r_ft)
+                        s["hidden"] = False
+                        s["part"] = ""; s["part_size"] = ""
+                        n += 1
+                    break
     return n

@@ -1844,7 +1844,7 @@ class Main(QtWidgets.QMainWindow):
     def _import_recognized_pipes(self, result):
         """Añade centerlines como pipes ELECTRICO e inserta bóvedas como vértices/CAJA."""
         import recognition as rec
-        new_pipes = rec.pipes_from_recognition(result, layer="ELECTRICO")
+        new_pipes = rec.pipes_from_recognition(result, layer="ELECTRICO", zoom=self.zoom)
         if not new_pipes:
             self._info(_tr("No hay tramos eléctricos para importar."))
             return
@@ -1859,13 +1859,21 @@ class Main(QtWidgets.QMainWindow):
         # …y oculta las de quiebres/esquinas sin bóveda (siguen en el DXF como
         # "Estructura nula" para no romper la topología de la red).
         n_hidden = model_ops.hide_soft_vertex_structures(self.pipes, self.structures)
-        if n_hidden:
+        # …y les pone a las CAJA de bóveda real su forma, medidas (pies) y contorno.
+        n_geo, _ = model_ops.attach_vault_geometry(self.structures, getattr(result, "vaults_geo", None) or [])
+        # …y los codos reconocidos quedan como esquina «CV» con su radio (flujo manual).
+        n_cv = model_ops.attach_fillets(self.pipes, self.structures)
+        if n_hidden or n_geo or n_cv:
             self._refresh_lists()
         self._update_ui()
         self._redraw()
         n = len(new_pipes)
         n_seg = sum(int(getattr(pl, "n_segments", 1) or 1) for pl in result.drawable)
         msg = _tr("Importadas {n} rutas ({m} tramos) de Eléctrico.").format(n=n, m=n_seg)
+        if n_geo:
+            msg += " " + _tr("Bóvedas con medidas: {g}.").format(g=n_geo)
+        if n_cv:
+            msg += " " + _tr("Codos como esquina + radio (CV): {c}.").format(c=n_cv)
         n_ab = sum(1 for p in new_pipes if p.get("ab"))
         if n_ab:
             msg += " " + _tr("Abandonadas (AB): {a}.").format(a=n_ab)
@@ -3496,6 +3504,21 @@ class Main(QtWidgets.QMainWindow):
             if not drew_arc:
                 it = sc.addEllipse(sx - r_use, sy - r_use, 2 * r_use, 2 * r_use, use_pen, brush)
                 it.setZValue(Z_MARK + 1); self._overlay.append(it)
+            # Bóveda reconocida: su contorno real (del PDF) a escala, con el color
+            # de la línea; la medida al seleccionarla.
+            outline = s.get("outline")
+            if outline and len(outline) >= 3:
+                poly = QtGui.QPolygonF([QtCore.QPointF(x, y) for x, y in outline])
+                open_pen = QtGui.QPen(QtGui.QColor(255, 220, 40) if selected else col, 2 if selected else 1.5)
+                open_pen.setCosmetic(True)
+                fill = QtGui.QColor(col); fill.setAlpha(45)
+                it = sc.addPolygon(poly, open_pen, QtGui.QBrush(fill)); it.setZValue(Z_MARK); self._overlay.append(it)
+                if selected and s.get("width_ft") and s.get("length_ft"):
+                    t = sc.addText(f"{s['width_ft']:.1f} × {s['length_ft']:.1f} ft")
+                    t.setDefaultTextColor(QtGui.QColor(255, 220, 40))
+                    t.setFlag(QtWidgets.QGraphicsItem.ItemIgnoresTransformations)
+                    t.setPos(max(x for x, _ in outline) + 4, min(y for _, y in outline))
+                    t.setZValue(Z_MARK + 2); self._overlay.append(t)
             if self.show_bz_labels and s.get("cod"):
                 t = sc.addText(s["cod"]); t.setDefaultTextColor(QtGui.QColor(180, 180, 180))
                 t.document().setDocumentMargin(0)

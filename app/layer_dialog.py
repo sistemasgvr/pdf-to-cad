@@ -30,7 +30,7 @@ from i18n import t as _tr
 import pdf_layers
 import theme as _theme
 from ui_common import aci_qcolor, layer_qcolor, swatch_icon
-from widgets import ZoomPanView, MiniMap
+from widgets import ZoomPanView, MiniMap, maximize_on_show, side_panel_width
 
 # Zoom del render PDF (matriz PyMuPDF). El lienzo principal usa ~3.5; aquí
 # 3.0 da nitidez al acercar con la rueda sin ralentizar demasiado el
@@ -75,21 +75,32 @@ class SheetLayersDialog(QtWidgets.QDialog):
             | QtCore.Qt.WindowMinimizeButtonHint
             | QtCore.Qt.WindowMaximizeButtonHint)
         self.resize(1240, 780)
+        maximize_on_show(self)
 
         root = QtWidgets.QHBoxLayout(self)
+        root.setContentsMargins(12, 12, 12, 12)   # margen uniforme alrededor de vista y panel
         self.view = ZoomPanView()
-        # Minimapa (esquina inferior izquierda): miniatura de la hoja mostrada con
+        # Minimapa (esquina inferior izquierda): esquema de la hoja mostrada con
         # el recuadro de lo visible; clic/arrastre centra la vista.
         self.minimap = MiniMap(self.view)
-        root.addWidget(self.view, 1)
 
-        # Panel derecho de ancho acotado: la vista previa se lleva el resto.
+        # Vista | panel derecho, con divisor arrastrable: el panel arranca con un
+        # ancho acorde a la ventana (nunca más del 32 %) y el usuario lo ajusta.
+        self.split = QtWidgets.QSplitter(QtCore.Qt.Horizontal)
+        self.split.setChildrenCollapsible(False)
+        self.split.setHandleWidth(10)
+        # tirador fino y transparente: solo separación (sigue siendo arrastrable)
+        self.split.setStyleSheet("QSplitter::handle { background: transparent; border: none; }")
+        self.split.addWidget(self.view)
         side = QtWidgets.QWidget()
-        side.setFixedWidth(_PANEL_WIDTH)
+        side.setMinimumWidth(300)
         panel = QtWidgets.QVBoxLayout(side)
-        panel.setContentsMargins(0, 0, 0, 0)
+        panel.setContentsMargins(10, 0, 0, 0)   # aire entre el divisor y los controles
         panel.setSpacing(8)
-        root.addWidget(side, 0)
+        self.split.addWidget(side)
+        self.split.setStretchFactor(0, 1); self.split.setStretchFactor(1, 0)
+        root.addWidget(self.split, 1)
+        self._side = side
 
         # ── navegador de hojas ──
         nav = QtWidgets.QHBoxLayout()
@@ -190,6 +201,12 @@ class SheetLayersDialog(QtWidgets.QDialog):
         if self._fit_pending and self._pix_item is not None:
             self._fit_pending = False
             QtCore.QTimer.singleShot(0, self._fit_view)
+            QtCore.QTimer.singleShot(0, self._apply_side_width)
+
+    def _apply_side_width(self):
+        w = self.width()
+        side_w = side_panel_width(w, _PANEL_WIDTH)
+        self.split.setSizes([max(200, w - side_w), side_w])
 
     def _fit_view(self):
         if self._pix_item is not None:

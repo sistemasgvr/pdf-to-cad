@@ -149,8 +149,8 @@ class MiniMap(QtWidgets.QWidget):
     de la hoja mostrada con un recuadro de lo que se ve en pantalla. Clic o
     arrastre en el mapa centra la vista ahí. `set_thumbnail(pixmap, scene_rect)`
     lo alimenta (la miniatura se reescala sola); `viewChanged` lo redibuja."""
-    MARGIN = 12
-    MAX_W, MAX_H = 240, 200
+    MARGIN = 10
+    MAX_W, MAX_H = 150, 110       # pequeño: en pantallas chicas no puede robar sitio a la vista
 
     def __init__(self, view):
         super().__init__(view.viewport())
@@ -270,3 +270,106 @@ class MiniMap(QtWidgets.QWidget):
     def mouseReleaseEvent(self, event):
         self._dragging = False
         event.accept()
+
+
+def maximize_on_show(dialog):
+    """Hace que un QDialog abra MAXIMIZADO a la primera. `setWindowState` antes
+    de `exec()` no cuaja en Windows (QDialog recoloca la ventana respecto al
+    padre al mostrarla); hay que pedirlo una vuelta del bucle de eventos
+    después del primer Show, cuando la ventana nativa ya existe."""
+    class _OnShow(QtCore.QObject):
+        def eventFilter(self, obj, event):
+            if event.type() == QtCore.QEvent.Show and not getattr(obj, "_maximized_once", False):
+                obj._maximized_once = True
+                QtCore.QTimer.singleShot(0, lambda: obj.setWindowState(
+                    (obj.windowState() & ~QtCore.Qt.WindowMinimized) | QtCore.Qt.WindowMaximized))
+            return False
+    flt = _OnShow(dialog)
+    dialog.installEventFilter(flt)
+    return flt
+
+
+def side_panel_width(total_width: int, preferred: int = 420, minimum: int = 300) -> int:
+    """Ancho para un panel lateral: el preferido, pero nunca más del 32 % de la
+    ventana ni menos del mínimo (pantallas pequeñas)."""
+    return max(minimum, min(preferred, int(total_width * 0.32)))
+
+
+class _VerticalLabel(QtWidgets.QWidget):
+    """Texto girado 90° (para la tira de un panel plegado)."""
+    def __init__(self, text, parent=None):
+        super().__init__(parent)
+        self._text = text
+        self.setMinimumWidth(22)
+
+    def paintEvent(self, _e):
+        painter = QtGui.QPainter(self)
+        painter.setRenderHint(QtGui.QPainter.TextAntialiasing)
+        font = painter.font(); font.setBold(True); painter.setFont(font)
+        painter.translate(self.width() / 2 + painter.fontMetrics().height() / 2 - 2, self.height() - 6)
+        painter.rotate(-90)
+        painter.drawText(0, 0, self._text)
+        painter.end()
+
+
+class CollapsiblePanel(QtWidgets.QFrame):
+    """Panel con cabecera (título + botón «plegar»). Plegado, queda una tira
+    estrecha con el título en vertical y el botón para desplegar: así en
+    pantallas pequeñas se gana sitio para el panel que se está usando.
+    `body_layout` es donde va el contenido; `toggled(bool)` avisa al padre."""
+    STRIP_W = 34
+    toggled = QtCore.Signal(bool)
+
+    def __init__(self, title, parent=None):
+        super().__init__(parent)
+        from icons import icon as _icon
+        self._title = title
+        self._collapsed = False
+        outer = QtWidgets.QHBoxLayout(self)
+        outer.setContentsMargins(0, 0, 0, 0); outer.setSpacing(0)
+        # cuerpo (cabecera + contenido)
+        self.body = QtWidgets.QWidget()
+        vbox = QtWidgets.QVBoxLayout(self.body)
+        vbox.setContentsMargins(12, 10, 12, 10); vbox.setSpacing(8)
+        head = QtWidgets.QHBoxLayout()
+        lbl = QtWidgets.QLabel(title)
+        font = lbl.font(); font.setBold(True); font.setPointSize(font.pointSize() + 1); lbl.setFont(font)
+        head.addWidget(lbl, 1)
+        self.btn_collapse = QtWidgets.QToolButton()
+        self.btn_collapse.setIcon(_icon("mdi:chevron-left")); self.btn_collapse.setAutoRaise(True)
+        self.btn_collapse.setToolTip("Plegar este panel para dar más sitio a los demás")
+        self.btn_collapse.clicked.connect(lambda: self.set_collapsed(True))
+        head.addWidget(self.btn_collapse)
+        vbox.addLayout(head)
+        self.body_layout = vbox
+        outer.addWidget(self.body, 1)
+        # tira (plegado)
+        self.strip = QtWidgets.QWidget()
+        self.strip.setFixedWidth(self.STRIP_W)
+        sbox = QtWidgets.QVBoxLayout(self.strip)
+        sbox.setContentsMargins(2, 6, 2, 6); sbox.setSpacing(4)
+        self.btn_expand = QtWidgets.QToolButton()
+        self.btn_expand.setIcon(_icon("mdi:chevron-right")); self.btn_expand.setAutoRaise(True)
+        self.btn_expand.setToolTip("Desplegar")
+        self.btn_expand.clicked.connect(lambda: self.set_collapsed(False))
+        sbox.addWidget(self.btn_expand, 0, QtCore.Qt.AlignHCenter)
+        sbox.addWidget(_VerticalLabel(title), 1)
+        self.strip.hide()
+        outer.addWidget(self.strip)
+
+    @property
+    def collapsed(self) -> bool:
+        return self._collapsed
+
+    def set_collapsed(self, on: bool):
+        on = bool(on)
+        if on == self._collapsed:
+            return
+        self._collapsed = on
+        self.body.setVisible(not on)
+        self.strip.setVisible(on)
+        if on:
+            self.setMinimumWidth(self.STRIP_W); self.setMaximumWidth(self.STRIP_W)
+        else:
+            self.setMinimumWidth(0); self.setMaximumWidth(16777215)
+        self.toggled.emit(on)

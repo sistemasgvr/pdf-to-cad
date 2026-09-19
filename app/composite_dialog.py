@@ -30,7 +30,10 @@ from i18n import t as _tr
 from icons import icon as _icon
 from sheet_crop_dialog import _CropView
 from ui_common import DOWNLOADS
+from widgets import CollapsiblePanel, maximize_on_show
 import theme as _theme
+
+_SETTINGS = ("PDFCAD", "AsistenteC3D")
 
 _THUMB_W = 150
 _ICON = QtCore.QSize(20, 20)
@@ -40,20 +43,13 @@ def _scale_label(ft_per_pt: float) -> str:
     return '1" = {v:g}\''.format(v=round(ft_per_pt * 72.0, 3))
 
 
-def _panel(title: str) -> tuple[QtWidgets.QWidget, QtWidgets.QVBoxLayout]:
-    """Panel con marco, márgenes interiores y encabezado uniforme (número · nombre)."""
-    box = QtWidgets.QFrame()
+def _panel(title: str) -> tuple[CollapsiblePanel, QtWidgets.QVBoxLayout]:
+    """Panel plegable con marco, márgenes y cabecera uniforme (número · nombre)."""
+    box = CollapsiblePanel(title)
     box.setObjectName("compPanel")
     t = _theme.tokens()
     box.setStyleSheet(f"QFrame#compPanel {{ background:{t.surface}; border:1px solid {t.border}; border-radius:8px; }}")
-    lay = QtWidgets.QVBoxLayout(box)
-    lay.setContentsMargins(12, 10, 12, 10)
-    lay.setSpacing(8)
-    head = QtWidgets.QLabel(title)
-    font = head.font(); font.setBold(True); font.setPointSize(font.pointSize() + 1)
-    head.setFont(font)
-    lay.addWidget(head)
-    return box, lay
+    return box, box.body_layout
 
 
 def _tool(icon_name: str, text: str, tip: str = "", checkable: bool = False,
@@ -112,6 +108,7 @@ class CompositeDialog(QtWidgets.QDialog):
         self.setWindowFlags(self.windowFlags() | QtCore.Qt.WindowMinimizeButtonHint
                             | QtCore.Qt.WindowMaximizeButtonHint)
         self.resize(1500, 880)
+        maximize_on_show(self)
         self._build_ui()
         self._fill_sources()
         self.view.rebuild()
@@ -125,28 +122,32 @@ class CompositeDialog(QtWidgets.QDialog):
         root = QtWidgets.QVBoxLayout(self)
         root.setContentsMargins(16, 12, 16, 12)
         root.setSpacing(10)
-        intro = QtWidgets.QLabel(_tr(
+        self.intro = QtWidgets.QLabel(_tr(
             "Elige el PDF y la hoja, marca el área del plano que necesitas y tómala a la hoja "
             "compuesta. Acomoda las piezas arrastrándolas: el imán alinea los extremos de las líneas "
             "y los puentes (verde) los unen. Cada pieza conserva sus vectores, capas, textos y medidas."))
-        intro.setWordWrap(True)
-        intro.setStyleSheet(f"color:{tokens.text_muted};")
-        root.addWidget(intro)
+        self.intro.setWordWrap(True)
+        self.intro.setStyleSheet(f"color:{tokens.text_muted};")
+        root.addWidget(self.intro)
         split = QtWidgets.QSplitter(QtCore.Qt.Horizontal)
         split.setChildrenCollapsible(False)
         split.setHandleWidth(12)
         # tirador invisible: solo separación entre paneles (sigue siendo arrastrable)
         split.setStyleSheet("QSplitter::handle { background: transparent; border: none; }")
         root.addWidget(split, 1)
-        split.addWidget(self._build_source_panel())
-        split.addWidget(self._build_area_panel())
-        split.addWidget(self._build_composite_panel())
+        self.split = split
+        self.panels = [self._build_source_panel(), self._build_area_panel(), self._build_composite_panel()]
+        for i, panel in enumerate(self.panels):
+            split.addWidget(panel)
+            panel.toggled.connect(lambda on, i=i: self._on_panel_toggled(i, on))
         split.setStretchFactor(0, 0); split.setStretchFactor(1, 3); split.setStretchFactor(2, 4)
-        split.setSizes([330, 560, 720])
+        self._sizes_before: Dict[int, int] = {}
+        self._apply_initial_sizes()
 
         foot = QtWidgets.QHBoxLayout()
         hint = QtWidgets.QLabel(_tr("Rueda = zoom · botón central = desplazar · Supr quita la pieza seleccionada"))
         hint.setStyleSheet(f"color:{tokens.text_muted}; font-size:12px;")
+        hint.setWordWrap(True)
         foot.addWidget(hint, 1)
         self.btn_cancel = QtWidgets.QPushButton(_tr("Cancelar"))
         self.btn_cancel.setMinimumSize(120, 34)
@@ -160,6 +161,49 @@ class CompositeDialog(QtWidgets.QDialog):
         self._on_piece_selected(-1)
         sc = QtGui.QShortcut(QtGui.QKeySequence(QtCore.Qt.Key_Delete), self.view, self._delete)
         sc.setContext(QtCore.Qt.WidgetWithChildrenShortcut)   # no borrar piezas al editar un número
+
+    # ── responsivo: tamaños iniciales, plegado, pantallas pequeñas ─────────
+    def _apply_initial_sizes(self):
+        """Ancho inicial de los paneles proporcional a la ventana (recordado entre
+        sesiones si el usuario lo movió)."""
+        w = max(900, self.width())
+        st = QtCore.QSettings(*_SETTINGS)
+        saved = st.value("compositor/splitter")
+        if isinstance(saved, (list, tuple)) and len(saved) == 3:
+            try:
+                sizes = [int(v) for v in saved]
+                if sum(sizes) > 0:
+                    total = sum(sizes)
+                    self.split.setSizes([int(v * w / total) for v in sizes])
+                    return
+            except (TypeError, ValueError):
+                pass
+        left = max(240, min(330, int(w * 0.22)))
+        rest = w - left
+        self.split.setSizes([left, int(rest * 0.44), rest - int(rest * 0.44)])
+
+    def _on_panel_toggled(self, index: int, collapsed: bool):
+        sizes = self.split.sizes()
+        if collapsed:
+            self._sizes_before[index] = sizes[index]
+            freed = max(0, sizes[index] - CollapsiblePanel.STRIP_W)
+            sizes[index] = CollapsiblePanel.STRIP_W
+            others = [i for i in range(len(sizes)) if i != index and not self.panels[i].collapsed]
+            for i in others:
+                sizes[i] += freed // max(1, len(others))
+        else:
+            want = self._sizes_before.pop(index, max(260, int(sum(sizes) * 0.3)))
+            others = [i for i in range(len(sizes)) if i != index and not self.panels[i].collapsed]
+            take = want - sizes[index]
+            for i in others:
+                sizes[i] = max(120, sizes[i] - take // max(1, len(others)))
+            sizes[index] = want
+        self.split.setSizes(sizes)
+
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        # en ventanas estrechas el texto de ayuda se esconde para ganar alto
+        self.intro.setVisible(self.width() >= 1250 and self.height() >= 700)
 
     def _build_source_panel(self) -> QtWidgets.QWidget:
         box, lay = _panel(_tr("1 · Origen"))
@@ -177,6 +221,7 @@ class CompositeDialog(QtWidgets.QDialog):
         lay.addWidget(QtWidgets.QLabel(_tr("Hojas")))
         self.lst_pages = QtWidgets.QListWidget()
         self.lst_pages.setIconSize(QtCore.QSize(_THUMB_W, int(_THUMB_W * 0.75)))
+        self.lst_pages.setMinimumWidth(120)
         self.lst_pages.setSpacing(3)
         self.lst_pages.currentRowChanged.connect(self._on_page_changed)
         lay.addWidget(self.lst_pages, 1)
@@ -297,16 +342,19 @@ class CompositeDialog(QtWidgets.QDialog):
         self.lbl_bridges = QtWidgets.QLabel()
         aid.addWidget(self.lbl_bridges)
         aid.addStretch(1)
-        aid.addWidget(QtWidgets.QLabel(_tr("Escala de la hoja")))
+        lay.addLayout(aid)
+        # resumen + escala de la hoja en una segunda línea (menos ancho mínimo)
+        srow = QtWidgets.QHBoxLayout(); srow.setSpacing(6)
+        self.lbl_summary = QtWidgets.QLabel()
+        self.lbl_summary.setStyleSheet(f"color:{_theme.tokens().text_muted}; font-size:12px;")
+        srow.addWidget(self.lbl_summary, 1)
+        srow.addWidget(QtWidgets.QLabel(_tr("Escala de la hoja")))
         self.cmb_scale = QtWidgets.QComboBox()
         self.cmb_scale.setMinimumHeight(30)
         self.cmb_scale.setToolTip(_tr("Escala única de la hoja compuesta; cada pieza se ajusta a ella"))
         self.cmb_scale.currentIndexChanged.connect(self._on_target_scale_changed)
-        aid.addWidget(self.cmb_scale)
-        lay.addLayout(aid)
-        self.lbl_summary = QtWidgets.QLabel()
-        self.lbl_summary.setStyleSheet(f"color:{_theme.tokens().text_muted}; font-size:12px;")
-        lay.addWidget(self.lbl_summary)
+        srow.addWidget(self.cmb_scale)
+        lay.addLayout(srow)
         return box
 
     # ── PDFs y hojas ────────────────────────────────────────────────────
@@ -624,20 +672,14 @@ class CompositeDialog(QtWidgets.QDialog):
         self.lbl_summary.setText(_tr("{n} pieza(s) · hoja compuesta {w:.0f} × {h:.0f} pt · {s}").format(
             n=n, w=w, h=h, s=_scale_label(self.comp.target_scale())))
 
-    # ── mostrar maximizado de verdad ────────────────────────────────────
-    def showEvent(self, event):
-        super().showEvent(event)
-        if not getattr(self, "_maximized_once", False):
-            self._maximized_once = True
-            # En Windows, QDialog.exec() recoloca el diálogo respecto al padre al
-            # mostrarlo y pisa un showMaximized() previo: hay que pedirlo cuando
-            # la ventana nativa ya existe (siguiente vuelta del bucle de eventos).
-            QtCore.QTimer.singleShot(0, lambda: self.setWindowState(
-                (self.windowState() & ~QtCore.Qt.WindowMinimized) | QtCore.Qt.WindowMaximized))
-
     # ── cierre ──────────────────────────────────────────────────────────
     def result_tuple(self):
         return self.comp, self.sources, self.hidden_by_source
+
+    def done(self, result):
+        if not any(p.collapsed for p in self.panels):
+            QtCore.QSettings(*_SETTINGS).setValue("compositor/splitter", [int(v) for v in self.split.sizes()])
+        super().done(result)
 
     def close_docs(self):
         for d in self.docs:

@@ -46,10 +46,17 @@ COVERAGE_TOL_PT = 2.5        # guión cubierto si sus puntos están a ≤2 pt
 OFFPATTERN_FACTOR = 1.5      # trazo continuo solo, más largo que 1.5×guión = anotación
 PATTERN_DASH_FACTOR = 2.0    # un guión del patrón cuenta hasta 2×dash_long (un poco más largo no es leader)
 NODE_OFF_LINE_PT = 3.0       # nodo compartido válido si la recta pasa a ≤3 pt
+GRAZE_MIN_APPROACH_PT = 2.0  # convergencia rasante solo si la corrida se ACERCA ≥2 pt a la otra (no paralela)
 RUN_FIT_TOL_PT = 0.75        # la polilínea sigue los guiones a ≤0.75 pt (se parte donde se apartan más)
 MIN_JUNCTION_DASHES = 3      # solo líneas de red (≥3 guiones) definen el nodo interior de una bóveda
 MARKER_MIN_ANG_DEG = 30.0    # un trazo corto que CRUZA la línea con este ángulo o más es marcador («/»)
 MARKER_ON_LINE_PT = 1.0      # …si su punto medio cae a ≤1 pt de la recta del guión que cruza
+MARKER_MAX_LEN_PT = 18.0     # largo máximo de una barra «/» (DU06: 7.6 pt; otros plots la traen mayor)
+MARKER_PAIR_PT = 6.0         # dos barras «//» a ≤6 pt una de otra = UN marcador
+MARKER_PERIOD_TOL = 0.15     # paso entre marcadores: ±15 % del periodo (+ MARKER_PERIOD_SLACK_PT)
+MARKER_PERIOD_SLACK_PT = 3.0
+MARKER_MIN_AGREE = 2         # pasos iguales necesarios para aprender el periodo (= 3 marcadores seguidos)
+CODO_MAX_VERTEX_TURN_DEG = 60.0  # un «codo» pequeño es suave: ningún vértice gira más que esto (zigzag «//» no)
 LOOP_VAULT_MIN_PT = 12.0     # lazo rectangular cerrado de la propia capa = bóveda si su lado ≥12 pt…
 LOOP_VAULT_MAX_PT = 120.0    # …y ≤120 pt (más grande ya no es un símbolo)
 CHAIN_KINDS = ("corner", "bend", "edge")   # nodos de grado 2 que se encadenan (bóveda: regla propia)
@@ -89,6 +96,15 @@ class Vault:
     y1: float
     n_paths: int = 1
     ref: Optional[Pt] = None      # punto de referencia (círculo del manhole / cajita interior)
+    # Geometría REAL del símbolo (del PDF, nada inventado): contorno exterior
+    # como 4 esquinas (rectángulo, puede ir girado) o None si es circular;
+    # `shape` = "rect" | "circle"; `angle_deg` = rumbo del lado largo;
+    # `width`/`length` = lado corto / lado largo en pt (o diámetro si círculo).
+    outline: Optional[List[Pt]] = None
+    shape: str = "rect"
+    angle_deg: float = 0.0
+    width: float = 0.0
+    length: float = 0.0
 
     @property
     def center(self) -> Pt:
@@ -207,6 +223,24 @@ class GeomResult:
     n_glyphs: int = 0
     n_curves: int = 0
     n_noise: int = 0                  # corridas descartadas por cortas/aisladas
+    # Barras «/» que cruzan la línea (linetype abandonado), ya quitadas de los
+    # guiones; `marker_pattern` decide con ellas si una línea SIGUE ese patrón.
+    markers: List[Glyph] = field(default_factory=list)
+
+
+@dataclass
+class MarkerPattern:
+    """Veredicto del patrón de marcadores «/» de una capa: `period` = paso entre
+    marcadores a lo largo de la línea (pt) o None si la capa no tiene patrón;
+    `verdict[i]` por polilínea: True sigue el patrón en toda su longitud, False
+    no lo sigue, None no se puede saber (más corta que el paso)."""
+    period: Optional[float]
+    verdict: List[Optional[bool]]
+    counts: List[int]
+
+    @property
+    def has_pattern(self) -> bool:
+        return self.period is not None and any(v for v in self.verdict)
 
 
 # ─────────────────────────── helpers ───────────────────────────
@@ -367,6 +401,17 @@ def _douglas_peucker(pts: List[Pt], eps: float) -> List[Pt]:
     left = _douglas_peucker(pts[:bi + 1], eps)
     right = _douglas_peucker(pts[bi:], eps)
     return left[:-1] + right
+
+
+def _max_turn_deg(chain: List[Pt]) -> float:
+    """Giro máximo en un solo vértice (grados) a lo largo de una polilínea."""
+    worst = 0.0
+    for i in range(1, len(chain) - 1):
+        u1 = _unit(chain[i][0] - chain[i - 1][0], chain[i][1] - chain[i - 1][1])
+        u2 = _unit(chain[i + 1][0] - chain[i][0], chain[i + 1][1] - chain[i][1])
+        dot = max(-1.0, min(1.0, u1[0] * u2[0] + u1[1] * u2[1]))
+        worst = max(worst, math.degrees(math.acos(dot)))
+    return worst
 
 
 def _turning_deg(chain: List[Pt]) -> float:
@@ -530,9 +575,13 @@ def classify_paths(paths: Sequence[dict]) -> Tuple[List[Dash], List[Glyph], List
             # Un CODO (arco abierto y suave, «⌒») que conecta un conduit con el
             # borde de una bóveda es geometría, no una letra: gira ≤200° en
             # total y sus extremos quedan separados. Una «e» gira ~400°.
+            # …y es SUAVE: ningún vértice gira más de CODO_MAX_VERTEX_TURN_DEG. Un
+            # zigzag («//» de abandonada dibujado en un solo trazo) gira ~120° en
+            # cada codo y NO es un arco: es un marcador (glifo).
             if (len(chains) == 1 and len(chains[0]) >= 3 and path.get("fill") is None
                     and maxdim >= 3.0 and _dist(chains[0][0], chains[0][-1]) >= 0.5 * maxdim
-                    and _turning_deg(chains[0]) <= 200.0):
+                    and _turning_deg(chains[0]) <= 200.0
+                    and _max_turn_deg(chains[0]) <= CODO_MAX_VERTEX_TURN_DEG):
                 simp = _douglas_peucker(chains[0], CURVE_SIMPLIFY_PT)
                 if len(simp) >= 3:
                     curves.append(simp)
@@ -583,11 +632,12 @@ def strip_crossing_markers(dashes: List[Dash]) -> Tuple[List[Dash], List[Glyph]]
     markers: List[Glyph] = []
     for i, d in enumerate(dashes):
         L = d.length
-        if L > GLYPH_MAX_DIM_PT:
+        if L > MARKER_MAX_LEN_PT:
             keep.append(d)
             continue
         m = d.mid
         hit = False
+        before = after = False          # (barras largas) la línea sigue a ambos lados
         for j in grid.get((int(m[0] // cell), int(m[1] // cell)), ()):
             if j == i:
                 continue
@@ -599,7 +649,22 @@ def strip_crossing_markers(dashes: List[Dash]) -> Tuple[List[Dash], List[Glyph]]
             ux, uy = _unit(o.b[0] - o.a[0], o.b[1] - o.a[1])
             t = (m[0] - o.a[0]) * ux + (m[1] - o.a[1]) * uy
             perp = abs((m[0] - o.a[0]) * uy - (m[1] - o.a[1]) * ux)
-            if perp <= MARKER_ON_LINE_PT and -GLYPH_MAX_DIM_PT <= t <= o.length + GLYPH_MAX_DIM_PT:
+            if perp > MARKER_ON_LINE_PT or not (-GLYPH_MAX_DIM_PT <= t <= o.length + GLYPH_MAX_DIM_PT):
+                continue
+            if L <= GLYPH_MAX_DIM_PT:
+                hit = True
+                break
+            # Barra más larga que un glifo: solo es marcador si CRUZA la línea —
+            # por el interior de un guión, o en un hueco con guiones colineales a
+            # ambos lados. Un tick «|» de fin de tramo queda en el extremo: se queda.
+            if 2.0 <= t <= o.length - 2.0:
+                hit = True
+                break
+            if t > o.length - 2.0:
+                before = True           # hay guión ANTES de la barra
+            elif t < 2.0:
+                after = True            # hay guión DESPUÉS
+            if before and after:
                 hit = True
                 break
         if hit:
@@ -607,6 +672,75 @@ def strip_crossing_markers(dashes: List[Dash]) -> Tuple[List[Dash], List[Glyph]]
         else:
             keep.append(d)
     return keep, markers
+
+
+def _marker_positions(polylines: Sequence["Polyline"], markers: Sequence[Glyph]) -> List[List[float]]:
+    """Posición (pt desde el inicio) de cada marcador sobre la polilínea a la que
+    pertenece (la más cercana, a ≤ MARKER_ON_LINE_PT + 0.5 de un tramo). Dos
+    barras pegadas («//») cuentan como un solo marcador."""
+    tol = MARKER_ON_LINE_PT + 0.5
+    pos: List[List[float]] = [[] for _ in polylines]
+    for m in markers:
+        best = None
+        for i, pl in enumerate(polylines):
+            s = 0.0
+            for a, b in zip(pl.pts, pl.pts[1:]):
+                d = _pt_seg_dist((m.cx, m.cy), a, b)
+                if d <= tol and (best is None or d < best[0]):
+                    ux, uy = _unit(b[0] - a[0], b[1] - a[1])
+                    t = (m.cx - a[0]) * ux + (m.cy - a[1]) * uy
+                    best = (d, i, s + max(0.0, min(_dist(a, b), t)))
+                s += _dist(a, b)
+        if best is not None:
+            pos[best[1]].append(best[2])
+    out: List[List[float]] = []
+    for lst in pos:
+        lst.sort()
+        merged: List[float] = []
+        for t in lst:
+            if merged and t - merged[-1] <= MARKER_PAIR_PT:
+                merged[-1] = (merged[-1] + t) / 2.0
+            else:
+                merged.append(t)
+        out.append(merged)
+    return out
+
+
+def marker_pattern(polylines: Sequence["Polyline"], markers: Sequence[Glyph]) -> MarkerPattern:
+    """Patrón de marcadores «/» de una capa (linetype abandonado «──/── e ──»).
+    Dos barras sueltas NO hacen una abandonada: el paso se aprende de ≥3
+    marcadores seguidos a la misma distancia (en una o varias líneas) y cada
+    línea se juzga sola: sigue el patrón si sus marcadores van a ese paso (o al
+    doble, donde una bóveda o letra ocupa el sitio) desde cerca del inicio hasta
+    cerca del final. Nada se inventa: sin paso aprendido no hay patrón."""
+    pos = _marker_positions(polylines, markers)
+    spacings = [b - a for lst in pos for a, b in zip(lst, lst[1:]) if b - a > MARKER_PAIR_PT]
+    period: Optional[float] = None
+    if len(spacings) >= MARKER_MIN_AGREE:
+        best = None
+        for c in spacings:
+            tol = MARKER_PERIOD_TOL * c + MARKER_PERIOD_SLACK_PT
+            agree = [x for x in spacings if abs(x - c) <= tol]
+            if len(agree) >= MARKER_MIN_AGREE and (best is None or len(agree) > len(best)):
+                best = agree
+        if best:
+            best.sort(); period = best[len(best) // 2]
+    verdict: List[Optional[bool]] = []
+    for pl, lst in zip(polylines, pos):
+        L = pl.length
+        if period is None:
+            verdict.append(False)
+            continue
+        tol = MARKER_PERIOD_TOL * period + MARKER_PERIOD_SLACK_PT
+        if len(lst) >= 2:
+            steps_ok = all(any(abs((b - a) - k * period) <= tol * k for k in (1, 2)) for a, b in zip(lst, lst[1:]))
+            ends_ok = lst[0] <= 1.5 * period + tol and (L - lst[-1]) <= 1.5 * period + tol
+            verdict.append(bool(steps_ok and ends_ok))
+        elif len(lst) == 1:
+            verdict.append(None if L < 2.0 * period else False)
+        else:
+            verdict.append(None if L < 1.5 * period else False)
+    return MarkerPattern(period, verdict, [len(l) for l in pos])
 
 
 # ─────────────────────────── 2. patrón ───────────────────────────
@@ -1034,8 +1168,69 @@ def _cluster_vaults_layer(paths: Sequence[dict]) -> List[Vault]:
         if long / short > 4.0 or long > LOOP_VAULT_MAX_PT or not closed:
             continue
         ref = _vault_reference(cluster, bb)
-        out.append(Vault(*bb, len(bbs), ref))
+        v = Vault(*bb, len(bbs), ref)
+        _fill_vault_geometry(v, cluster)
+        out.append(v)
     return out
+
+
+def _fill_vault_geometry(v: "Vault", cluster: Sequence[dict]) -> None:
+    """Contorno exterior del símbolo a partir del path cerrado MÁS GRANDE del
+    clúster: rectángulo (4 esquinas, con su giro) o círculo. Medidas en pt
+    (`width` = lado corto, `length` = lado largo) para que quien tenga la
+    escala las pase a pies."""
+    best = None
+    for p in cluster:
+        pb = _path_bbox(p)
+        if pb is None or not _is_closed_shape(p):
+            continue
+        size = max(pb[2] - pb[0], pb[3] - pb[1])
+        if best is None or size > best[0]:
+            best = (size, p)
+    if best is None:
+        v.width = v.x1 - v.x0; v.length = v.y1 - v.y0
+        v.outline = [(v.x0, v.y0), (v.x1, v.y0), (v.x1, v.y1), (v.x0, v.y1)]
+        return
+    path = best[1]
+    items = path.get("items") or []
+    if any(it[0] == "c" for it in items) and not any(it[0] == "l" for it in items):
+        # círculo/elipse de Béziers
+        pb = _path_bbox(path)
+        v.shape = "circle"; v.outline = None
+        v.width = v.length = (pb[2] - pb[0] + pb[3] - pb[1]) / 2.0
+        v.angle_deg = 0.0
+        return
+    chains = _path_chains(path)
+    pts = [q for ch in chains for q in ch]
+    if not pts:
+        return
+    _rect_geometry(v, pts, chains)
+
+
+def _rect_geometry(v: "Vault", pts: List[Pt], chains: Optional[List[List[Pt]]] = None) -> None:
+    """Rectángulo (posiblemente girado) que encierra `pts` alineado al lado más
+    largo: contorno de 4 esquinas, lado corto/largo y rumbo del lado largo."""
+    if chains is None:
+        # polígono cerrado dado por sus esquinas (lazo de la capa abandonada)
+        chains = [pts + [pts[0]]]
+    best_edge = None
+    for ch in chains:
+        for a, b in zip(ch, ch[1:]):
+            L = _dist(a, b)
+            if best_edge is None or L > best_edge[0]:
+                best_edge = (L, a, b)
+    if best_edge is None:
+        return
+    ux, uy = _unit(best_edge[2][0] - best_edge[1][0], best_edge[2][1] - best_edge[1][1])
+    us = [(q[0] * ux + q[1] * uy) for q in pts]; vs = [(-q[0] * uy + q[1] * ux) for q in pts]
+    u0, u1, v0, v1 = min(us), max(us), min(vs), max(vs)
+    corners = [(u0, v0), (u1, v0), (u1, v1), (u0, v1)]
+    v.outline = [(cu * ux - cv * uy, cu * uy + cv * ux) for cu, cv in corners]
+    long_, short = max(u1 - u0, v1 - v0), min(u1 - u0, v1 - v0)
+    v.width, v.length = short, long_
+    ang = math.degrees(math.atan2(uy, ux)) if (u1 - u0) >= (v1 - v0) else math.degrees(math.atan2(ux, -uy))
+    v.angle_deg = ((ang + 90.0) % 180.0) - 90.0        # rumbo del lado largo en (−90, 90]
+    v.shape = "rect"
 
 
 def detect_loop_vaults(runs: List[Run], pat: Pattern) -> Tuple[List[Vault], Set[int]]:
@@ -1089,7 +1284,9 @@ def detect_loop_vaults(runs: List[Run], pat: Pattern) -> Tuple[List[Vault], Set[
         y0, y1 = min(q[1] for q in pts), max(q[1] for q in pts)
         if not (LOOP_VAULT_MIN_PT <= x1 - x0 <= LOOP_VAULT_MAX_PT and LOOP_VAULT_MIN_PT <= y1 - y0 <= LOOP_VAULT_MAX_PT):
             continue
-        vaults.append(Vault(x0, y0, x1, y1, len(key)))
+        v = Vault(x0, y0, x1, y1, len(key))
+        _rect_geometry(v, list(pts))          # contorno real (las 4 esquinas del lazo), medidas y giro
+        vaults.append(v)
         drop |= key
     return vaults, drop
 
@@ -1644,6 +1841,14 @@ def resolve_nodes(runs: List[Run], pat: Pattern, vaults: Sequence[Vault],
         if best is None:
             continue
         _, j, t = best
+        # Solo si la corrida realmente SE ACERCA a la otra: su otro extremo debe
+        # estar claramente más lejos de esa recta. Una paralela que termina al
+        # lado (distancia constante) no converge: queda como extremo libre y
+        # no se interconectan dos conduits vecinos (auditoría 2026-09-19).
+        other = runs[i].b if s == "a" else runs[i].a
+        perp_other = runs[j].param(other)[1]
+        if perp_other - best[0] < GRAZE_MIN_APPROACH_PT and runs[i].length > 3 * pat.join_gap:
+            continue
         P = runs[j].at(t)
         node_idx = new_node(P, "tee")
         if not any(abs(tt - t) < 1e-6 for tt, _ in runs[j].inner):
@@ -1883,7 +2088,7 @@ def reconstruct(line_paths: Sequence[dict], vault_paths: Sequence[dict] = ()) ->
     vaults = cluster_vaults(vault_paths)
     if not dashes and not curves:
         return GeomResult([], [], vaults, None, 1.0, [], list(range(len(vaults))), [],
-                          0, len(glyphs), 0, 0)
+                          0, len(glyphs), 0, 0, markers=list(markers))
     groups = group_collinear(dashes)
     pat = learn_pattern(dashes, glyphs, vaults, groups)
     runs = merge_overlapping_runs(build_runs(groups, pat, glyphs, vaults, curves), pat)
@@ -1936,4 +2141,4 @@ def reconstruct(line_paths: Sequence[dict], vault_paths: Sequence[dict] = ()) ->
         keep.extend(extra)
         cov, missing = coverage(pattern_dashes, keep)
     return GeomResult(keep, nodes, vaults, pat, cov, missing, orphans, offpattern,
-                      len(dashes), len(glyphs), len(curves), noise)
+                      len(dashes), len(glyphs), len(curves), noise, markers=list(markers))

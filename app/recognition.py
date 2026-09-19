@@ -73,6 +73,11 @@ class RecognizedPolyline:
     # route_id se numera por capa; n_segments=1 si no se unió nada.
     route_id: int = 0
     n_segments: int = 1
+    # Codos: índice del vértice «fillet» (esquina = intersección de tangentes) →
+    # {"a", "b": puntos de tangencia (px), "center": (px), "r_px": radio}. El
+    # arco es el del PDF (círculo ajustado a sus vértices); en el editor es la
+    # estructura CV con `radius_ft`, como en el flujo manual.
+    fillets: dict = field(default_factory=dict)
 
 
 @dataclass
@@ -103,6 +108,10 @@ class RecognitionResult:
     uncovered_px: List[Tuple[Tuple[float, float], Tuple[float, float]]] = field(default_factory=list)
     offpattern_px: List[List[Tuple[float, float]]] = field(default_factory=list)  # leaders, flechas…
     vault_orphans_px: List[Tuple[float, float]] = field(default_factory=list)      # bóvedas sin línea
+    # Geometría real de cada bóveda (px del lienzo + medidas en pies): dicts con
+    # center, corners (4 puntos o None si circular), shape, width_ft, length_ft,
+    # angle_deg, layer (OCG), orphan (sin línea que la atraviese).
+    vaults_geo: List[dict] = field(default_factory=list)
 
     @property
     def drawable(self) -> List[RecognizedPolyline]:
@@ -376,6 +385,13 @@ def recognize_page(
         vault_seen: dict = {}
         vault_orph: dict = {}
 
+        # Abandonada = capa de estado «-A» Y la línea sigue el patrón de marcadores
+        # «/» en toda su longitud (las más cortas que el paso heredan el veredicto
+        # de su capa). Dos barras sueltas, o el nombre de la capa solo, no bastan.
+        ab_by_layer: dict = {}
+        n_layer_no_pattern = 0          # capa «-A» pero sin el patrón «/»
+        n_active_with_pattern = 0       # patrón «/» en una capa activa (solo se avisa)
+
         def _emit(pl, ocg, ab, route_id, n_segments):
             pts = [px(p) for p in pl.pts]
             clean, kinds = [], []
@@ -384,21 +400,36 @@ def recognize_page(
                     clean.append(p); kinds.append(k)
             if len(clean) < 2:
                 return None
+            clean, kinds, fillets = fit_fillets(clean, kinds, tol_px=FILLET_FIT_TOL_PT * zoom)
             return RecognizedPolyline(
                 ocg, utility, clean, "elec_ungd", kinds, abandoned=ab,
-                route_id=route_id, n_segments=n_segments)
+                route_id=route_id, n_segments=n_segments, fillets=fillets)
 
-        for ab, ocg, g in results:
+        for ab_layer, ocg, g in results:
             joined = routes_mod.build_routes(g.polylines, g.pattern)
             raw = [routes_mod.Route(pl, 1, [i]) for i, pl in enumerate(g.polylines)]
+            mp_joined = geom.marker_pattern([r.pl for r in joined], g.markers)
+            mp_raw = geom.marker_pattern([r.pl for r in raw], g.markers)
+            layer_has = mp_joined.has_pattern or mp_raw.has_pattern
+            ab_by_layer[ocg] = bool(ab_layer and layer_has)
+
+            def _ab(v):
+                follows = v if v is not None else layer_has
+                return bool(ab_layer and follows)
+
             for rid, r in enumerate(joined):
-                rec_pl = _emit(r.pl, ocg, ab, rid, r.n_segments)
+                v = mp_joined.verdict[rid]
+                rec_pl = _emit(r.pl, ocg, _ab(v), rid, r.n_segments)
                 if rec_pl is not None:
                     polylines_joined.append(rec_pl)
                     n_routes += 1
                     n_segments_total += r.n_segments
+                    if ab_layer and not _ab(v):
+                        n_layer_no_pattern += 1
+                    elif not ab_layer and v:
+                        n_active_with_pattern += 1
             for rid, r in enumerate(raw):
-                rec_pl = _emit(r.pl, ocg, ab, rid, 1)
+                rec_pl = _emit(r.pl, ocg, _ab(mp_raw.verdict[rid]), rid, 1)
                 if rec_pl is not None:
                     polylines_raw.append(rec_pl)
             uncovered_px += [(px(d.a), px(d.b)) for d in g.uncovered]
@@ -422,6 +453,7 @@ def recognize_page(
                 if k == "vault" and not any(math.hypot(p[0] - q[0], p[1] - q[1]) < 0.5 for q in vault_pts):
                     vault_pts.append(p)
         orphans_px = [px(key) for key, n in vault_seen.items() if vault_orph.get(key, 0) == n]
+        vaults_geo = _vaults_geometry(results, px, scale, zoom, vault_orph, vault_seen, ab_by_layer)
 
         stubs = []
         for ocg, kind in kind_by_ocg.items():          # stubs informativos (no dibujables)
@@ -438,7 +470,13 @@ def recognize_page(
             warnings.append("Ninguna capa OCG coincidió con los roles / tokens de reconocimiento.")
         n_ab = sum(1 for p in polylines if p.kind == "elec_ungd" and p.pts_pdf and p.abandoned)
         if n_ab:
-            warnings.append(f"Utilidades abandonadas (capa «-A»): {n_ab} — se importan marcadas (AB).")
+            warnings.append(f"Utilidades abandonadas (capa «-A» + patrón «/»): {n_ab} — se importan marcadas (AB).")
+        if n_layer_no_pattern:
+            warnings.append(f"Capa «-A» sin el patrón de marcadores «/» a lo largo de la línea: "
+                            f"{n_layer_no_pattern} — NO se marcan como abandonadas.")
+        if n_active_with_pattern:
+            warnings.append(f"Patrón de marcadores «/» en una capa ACTIVA: {n_active_with_pattern} línea(s) "
+                            "— se importan activas (manda la capa); revisar.")
         if n_segments_total > n_routes:
             warnings.append(
                 f"Rutas: {n_routes} (unen {n_segments_total} tramos de la misma capa).")
@@ -463,7 +501,7 @@ def recognize_page(
             polylines=polylines, ocg_summary=ocg_summary, warnings=warnings,
             hidden_ocgs=sorted(hidden), vault_pts=vault_pts, layer_roles=dict(roles_out),
             coverage=coverage_total, uncovered_px=uncovered_px, offpattern_px=offpattern_px,
-            vault_orphans_px=orphans_px, join_routes=join_routes,
+            vault_orphans_px=orphans_px, join_routes=join_routes, vaults_geo=vaults_geo,
             n_routes=n_routes, n_segments_total=n_segments_total,
             polylines_joined=polylines_joined, polylines_raw=polylines_raw,
         )
@@ -472,7 +510,206 @@ def recognize_page(
             doc.close()
 
 
-def pipes_from_recognition(result: RecognitionResult, layer: str = UTILITY_HINT) -> List[dict]:
+# ─────────────────────────── codos → esquina + radio ───────────────────────────
+VAULT_MIN_FT = 2.0             # símbolo con lado corto menor: caja de paso / poste, no bóveda
+FILLET_FIT_TOL_PT = 1.0        # RMS máximo del círculo ajustado a los vértices del codo (pt)
+FILLET_DIR_DEG = 8.0           # rumbo del tramo que llega/sale vs. tangente exacta al círculo (la simplificación
+                               # deja el final del arco dentro de la recta: ±0.5 pt → algunos grados en radios chicos)
+FILLET_MIN_TURN_DEG = 8.0      # giro total mínimo para hablar de codo
+FILLET_TANGENT_SLIP_PX = 12.0  # el punto de tangencia exacto puede alejarse hasta esto (pt) del extremo del trazo curvo
+SOFT_ARC_KINDS = ("curve", "corner", "bend")
+
+
+def _fit_circle(pts):
+    """Ajuste algebraico (Kåsa) de un círculo: (cx, cy, r, rms) o None."""
+    n = len(pts)
+    if n < 3:
+        return None
+    mx = sum(p[0] for p in pts) / n; my = sum(p[1] for p in pts) / n
+    u = [p[0] - mx for p in pts]; v = [p[1] - my for p in pts]
+    suu = sum(a * a for a in u); svv = sum(b * b for b in v); suv = sum(a * b for a, b in zip(u, v))
+    suuu = sum(a ** 3 for a in u); svvv = sum(b ** 3 for b in v)
+    suvv = sum(a * b * b for a, b in zip(u, v)); svuu = sum(b * a * a for a, b in zip(u, v))
+    det = suu * svv - suv * suv
+    if abs(det) < 1e-9:
+        return None
+    rx = 0.5 * (suuu + suvv); ry = 0.5 * (svvv + svuu)
+    uc = (rx * svv - ry * suv) / det; vc = (ry * suu - rx * suv) / det
+    cx, cy = uc + mx, vc + my
+    dists = [math.hypot(p[0] - cx, p[1] - cy) for p in pts]
+    r = sum(dists) / n
+    rms = math.sqrt(sum((d - r) ** 2 for d in dists) / n)
+    return cx, cy, r, rms
+
+
+def _isect_lines(p, u, q, w):
+    """Intersección de p + t·u y q + s·w (None si paralelas)."""
+    den = u[0] * w[1] - u[1] * w[0]
+    if abs(den) < 1e-9:
+        return None
+    t = ((q[0] - p[0]) * w[1] - (q[1] - p[1]) * w[0]) / den
+    return p[0] + t * u[0], p[1] + t * u[1]
+
+
+def _foot(o, p, u):
+    """Pie de la perpendicular desde o a la recta p + t·u (u unitario)."""
+    t = (o[0] - p[0]) * u[0] + (o[1] - p[1]) * u[1]
+    return p[0] + t * u[0], p[1] + t * u[1]
+
+
+def _tangent_from(P, ctr, r, toward):
+    """Punto de tangencia desde el punto exterior P al círculo (ctr, r), el más
+    cercano a `toward`. None si P está dentro del círculo."""
+    dx, dy = ctr[0] - P[0], ctr[1] - P[1]
+    d = math.hypot(dx, dy)
+    if d <= r * 1.0001:
+        return None
+    ang = math.asin(min(1.0, r / d))
+    base = math.atan2(dy, dx)
+    L = math.sqrt(max(0.0, d * d - r * r))
+    cands = [(P[0] + L * math.cos(base + sgn * ang), P[1] + L * math.sin(base + sgn * ang)) for sgn in (1, -1)]
+    return min(cands, key=lambda q: math.hypot(q[0] - toward[0], q[1] - toward[1]))
+
+
+def _arc_spans(kinds):
+    """Tramos [lo, hi] que son CURVA del PDF: una ristra de vértices `curve`
+    (interiores de un trazo curvo) —admitiendo un nodo intermedio entre dos
+    ristras `curve` (dos trazos curvos encadenados)— más el vértice a cada
+    lado, que es el extremo real del trazo curvo (punto de tangencia). Un
+    `corner`/`bend` fuera de eso es una esquina recta y NO forma parte del arco."""
+    n = len(kinds)
+    spans = []
+    i = 0
+    while i < n:
+        if kinds[i] != "curve":
+            i += 1; continue
+        j = i
+        while True:
+            while j + 1 < n and kinds[j + 1] == "curve":
+                j += 1
+            # nodo intermedio entre dos trazos curvos: curve, X, curve
+            if j + 2 < n and kinds[j + 2] == "curve" and kinds[j + 1] in ("corner", "bend", "junction"):
+                j += 2
+                continue
+            break
+        lo, hi = i - 1, j + 1                    # extremos del trazo curvo
+        if lo >= 0 and hi < n:
+            spans.append((lo, hi))
+        i = j + 1
+    return spans
+
+
+def fit_fillets(pts, kinds, tol_px: float = 1.0, tan_tol: float = None, debug=None):
+    """Sustituye cada codo por su esquina C (intersección de las tangentes) con
+    kind «fillet», y guarda A/B (puntos de tangencia exactos), centro y radio.
+    Nada se inventa: el arco es EXACTAMENTE un trazo curvo del PDF (vértices
+    `curve` del núcleo + sus extremos, ver `_arc_spans`); se ajusta un círculo
+    a esos puntos y desde los vértices rectos que llegan (P) y salen (N) se
+    trazan las tangentes exactas. Si la curva no es un arco de círculo, o las
+    rectas no le son tangentes (≤ FILLET_DIR_DEG), se deja como polilínea.
+    Devuelve (pts, kinds, fillets)."""
+    pts = list(pts); kinds = list(kinds)
+    n = len(pts)
+    if n < 4:
+        return pts, kinds, {}
+    plan = []                                   # (lo, hi, C, A, B, centro, R)
+    for lo, hi in _arc_spans(kinds):
+        if lo <= 0 or hi >= n - 1:
+            if debug is not None: debug.append((lo, hi, 'sin recta tangente'))
+            continue                            # el arco nace/muere en el extremo: no hay recta tangente
+        members = pts[lo:hi + 1]
+        fit = _fit_circle(members)
+        if fit is None:
+            continue
+        cx, cy, r, rms = fit
+        if rms > tol_px or r < 2 * tol_px:
+            if debug is not None: debug.append((lo, hi, 'no es arco de círculo', round(rms, 2)))
+            continue
+        P, N = pts[lo - 1], pts[hi + 1]
+        A0, B0 = pts[lo], pts[hi]
+        ua = _unit(A0[0] - P[0], A0[1] - P[1]); ub = _unit(N[0] - B0[0], N[1] - B0[1])
+        if ua == (0.0, 0.0) or ub == (0.0, 0.0):
+            continue
+        A = _tangent_from(P, (cx, cy), r, A0); B = _tangent_from(N, (cx, cy), r, B0)
+        if A is None or B is None:
+            if debug is not None: debug.append((lo, hi, 'P/N dentro del círculo', round(r, 1)))
+            continue
+        ta = _unit(A[0] - P[0], A[1] - P[1]); tb = _unit(N[0] - B[0], N[1] - B[1])
+        cos_lim = math.cos(math.radians(FILLET_DIR_DEG))
+        if ta[0] * ua[0] + ta[1] * ua[1] < cos_lim or tb[0] * ub[0] + tb[1] * ub[1] < cos_lim:
+            if debug is not None: debug.append((lo, hi, 'rumbo', round(r, 1)))
+            continue
+        # el punto de tangencia exacto debe quedar cerca del extremo real del trazo curvo
+        if math.hypot(A[0] - A0[0], A[1] - A0[1]) > FILLET_TANGENT_SLIP_PX * (tol_px / FILLET_FIT_TOL_PT)                 or math.hypot(B[0] - B0[0], B[1] - B0[1]) > FILLET_TANGENT_SLIP_PX * (tol_px / FILLET_FIT_TOL_PT):
+            if debug is not None: debug.append((lo, hi, 'tangencia lejos del extremo'))
+            continue
+        turn = math.degrees(math.acos(max(-1.0, min(1.0, ta[0] * tb[0] + ta[1] * tb[1]))))
+        if turn < FILLET_MIN_TURN_DEG:
+            if debug is not None: debug.append((lo, hi, 'giro', round(turn, 1)))
+            continue
+        C = _isect_lines(P, ta, N, tb)
+        if C is None:
+            continue
+        if (C[0] - A[0]) * ta[0] + (C[1] - A[1]) * ta[1] <= 0 or (N[0] - B[0]) * tb[0] + (N[1] - B[1]) * tb[1] <= 0                 or (B[0] - C[0]) * tb[0] + (B[1] - C[1]) * tb[1] <= 0:
+            if debug is not None: debug.append((lo, hi, 'orden'))
+            continue
+        plan.append((lo, hi, C, A, B, (cx, cy), r))
+    if not plan:
+        return pts, kinds, {}
+    out_pts, out_kinds, fillets = [], [], {}
+    plan.sort()
+    k = 0; q = 0
+    while k < n:
+        if q < len(plan) and k == plan[q][0]:
+            lo, hi, C, A, B, ctr, r = plan[q]
+            out_pts.append(C); out_kinds.append("fillet")
+            fillets[len(out_pts) - 1] = {"a": A, "b": B, "center": ctr, "r_px": r}
+            k = hi + 1; q += 1
+            continue
+        out_pts.append(pts[k]); out_kinds.append(kinds[k]); k += 1
+    return out_pts, out_kinds, fillets
+
+
+def _unit(dx: float, dy: float):
+    L = math.hypot(dx, dy)
+    return (dx / L, dy / L) if L > 1e-12 else (0.0, 0.0)
+
+
+def _vaults_geometry(results, px, scale: float, zoom: float, vault_orph: dict, vault_seen: dict,
+                     ab_by_layer: Optional[dict] = None) -> List[dict]:
+    """Bóvedas (deduplicadas por centro) con su contorno real en px del lienzo y
+    sus medidas en pies (pt × pies/pt). Nada se inventa: son los vectores del
+    símbolo tal como vienen en el PDF."""
+    out: List[dict] = []
+    seen: set = set()
+    for _ab, _ocg, g in results:
+        for v in g.vaults:
+            key = (round(v.center[0], 1), round(v.center[1], 1))
+            if key in seen:
+                continue
+            seen.add(key)
+            ab_layer = bool(_ab) if ab_by_layer is None else bool(ab_by_layer.get(_ocg, _ab))
+            abandoned = ab_layer and v.n_paths >= 4 and v.outline is not None and v.ref is None
+            # el "centro" útil es la referencia (manhole) si la hay; si no, el del contorno
+            cx, cy = v.reference
+            corners = [px(q) for q in v.outline] if v.outline else None
+            if min(v.width, v.length) * scale < VAULT_MIN_FT:
+                continue                    # caja de paso / poste: no es bóveda (no se mide ni se dibuja)
+            out.append({
+                "center": px((cx, cy)),
+                "corners": corners,
+                "shape": v.shape,
+                "width_ft": round(v.width * scale, 3),
+                "length_ft": round(v.length * scale, 3),
+                "angle_deg": round(v.angle_deg, 2),
+                "orphan": vault_orph.get(key, 0) == vault_seen.get(key, 0),
+                "abandoned": abandoned,
+            })
+    return out
+
+
+def pipes_from_recognition(result: RecognitionResult, layer: str = UTILITY_HINT,
+                           zoom: float = 1.0) -> List[dict]:
     """Convierte polilíneas drawable en dicts de pipe del inventario (como finish_pipe).
 
     No toca Qt ni la ventana: solo datos. `pts` ya están en coords del lienzo.
@@ -495,5 +732,8 @@ def pipes_from_recognition(result: RecognitionResult, layer: str = UTILITY_HINT)
             "material": DEFAULT_PIPE_MATERIAL,
             "vertex_kinds": list(pl.kinds) if len(pl.kinds) == len(pts) else [],
             "origen": "reconocido",
+            # codos: vértice → radio en pies (px / zoom × pies/pt)
+            "fillets": {int(i): round(f["r_px"] / max(zoom, 1e-9) * result.scale_ft_per_pt, 3)
+                        for i, f in (pl.fillets or {}).items()},
         })
     return out
