@@ -148,3 +148,65 @@ def test_snapshot_congela_intermedios_y_evita_cascada():
     model_ops.snapshot_seg_values(p)              # idempotente: no toca los ya fijados
     assert p["vertex_inv_out"][1] == 110.0        # el 1 se mantiene (no cascada)
     assert p["vertex_inv_out"][2] == 999.0
+
+
+def test_hide_soft_vertex_structures():
+    """Vértices bend/corner/curve de pipes reconocidas → CAJA oculta; bóvedas,
+    extremos y vértices compartidos con una bóveda de otra pipe siguen visibles."""
+    from model_ops import rebuild_structures, hide_soft_vertex_structures
+    pipes = [
+        {"layer": "ELECTRICO", "pts": [(0, 0), (100, 0), (200, 0), (300, 0)],
+         "vertex_kinds": ["end", "bend", "vault", "corner"]},
+        # otra pipe reconocida cuyo vértice (300,0) SÍ es bóveda → debe quedar visible
+        {"layer": "ELECTRICO", "pts": [(300, 0), (300, 100)], "vertex_kinds": ["vault", "end"]},
+        # pipe manual (sin vertex_kinds): todos reales
+        {"layer": "ELECTRICO", "pts": [(500, 0), (600, 0)]},
+    ]
+    structs = rebuild_structures(pipes, [])
+    n = hide_soft_vertex_structures(pipes, structs)
+    assert n == 1
+    by_xy = {(round(s["x"]), round(s["y"])): s for s in structs}
+    assert by_xy[(100, 0)]["hidden"] is True          # bend sin bóveda
+    assert by_xy[(200, 0)]["hidden"] is False         # vault
+    assert by_xy[(300, 0)]["hidden"] is False         # corner aquí, vault en la otra pipe
+    assert by_xy[(0, 0)]["hidden"] is False           # extremo
+    assert by_xy[(500, 0)]["hidden"] is False         # manual
+    # Idempotente y el flag sobrevive a un rebuild posterior
+    assert hide_soft_vertex_structures(pipes, structs) == 0
+    structs2 = rebuild_structures(pipes, structs)
+    assert {(round(s["x"]), round(s["y"])): s["hidden"] for s in structs2}[(100, 0)] is True
+
+
+def test_attach_vault_geometry_asocia_medidas_a_la_caja():
+    from model_ops import attach_vault_geometry, rebuild_structures
+    pipes = [{"layer": "ELECTRICO", "pts": [(0, 0), (100, 0), (200, 0)]}]
+    structures = rebuild_structures(pipes, [])
+    vg = [{"center": (101.0, 2.0), "corners": [(90, -10), (112, -10), (112, 10), (90, 10)], "shape": "rect",
+           "width_ft": 6.3, "length_ft": 8.5, "angle_deg": 0.0, "orphan": False},
+          {"center": (500.0, 500.0), "corners": None, "shape": "circle", "width_ft": 4.0, "length_ft": 4.0, "angle_deg": 0.0, "orphan": True}]
+    done, missing = attach_vault_geometry(structures, vg)
+    assert (done, missing) == (1, 1)                          # la huérfana no inventa un buzón
+    st = next(s for s in structures if abs(s["x"] - 100) < 1e-9)
+    assert st["shape"] == "rect" and st["width_ft"] == 6.3 and st["length_ft"] == 8.5 and len(st["outline"]) == 4
+    # rebuild conserva la geometría por coordenada
+    again = rebuild_structures(pipes, structures)
+    st2 = next(s for s in again if abs(s["x"] - 100) < 1e-9)
+    assert st2.get("width_ft") == 6.3 and st2.get("outline") == st["outline"]
+
+
+def test_fillet_geo_arco_tangente_y_recorte():
+    import math
+    from model_ops import fillet_geo
+    # esquina de 90°: T = r, centro a r·√2 de la esquina, arco de 90°
+    g = fillet_geo((0.0, 100.0), (0.0, 0.0), (100.0, 0.0), 30.0)
+    assert g and not g["clamped"] and abs(g["T"] - 30.0) < 1e-9
+    assert math.dist(g["t1"], (0.0, 30.0)) < 1e-9 and math.dist(g["t2"], (30.0, 0.0)) < 1e-9
+    assert abs(g["center"][0] - 30.0) < 1e-9 and abs(g["center"][1] - 30.0) < 1e-9
+    assert all(abs(math.dist(q, g["center"]) - 30.0) < 1e-9 for q in g["arc"])
+    assert math.dist(g["arc"][0], g["t1"]) < 1e-9 and math.dist(g["arc"][-1], g["t2"]) < 1e-9
+    # el radio no entra en la pata corta (20 px): se recorta al 90 % y baja el radio
+    g2 = fillet_geo((0.0, 20.0), (0.0, 0.0), (100.0, 0.0), 30.0)
+    assert g2["clamped"] and abs(g2["T"] - 18.0) < 1e-9 and abs(g2["r"] - 18.0) < 1e-9
+    # recta o sin radio: nada
+    assert fillet_geo((-10.0, 0.0), (0.0, 0.0), (10.0, 0.0), 30.0) is None
+    assert fillet_geo((0.0, 10.0), (0.0, 0.0), (10.0, 0.0), 0.0) is None

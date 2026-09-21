@@ -62,6 +62,24 @@ warnings = main("plan.pdf", "plan.dxf")   # devuelve lista de warnings de QA
 python app/main.py            # abre la interfaz para digitalizar, georreferenciar y exportar DXF
 ```
 
+Al abrir un PDF con capas, el asistente permite organizar las hojas antes de
+elegir las capas. Haz clic en la caja **Principal**, **Superior**, **Izquierda**,
+**Derecha** o **Inferior** y selecciona la hoja para esa posición. En el selector
+puedes abrir **otro PDF** y elegir cualquiera de sus páginas para una posición
+contigua. Cada PDF se conserva con sus capas originales dentro del `.digproj`,
+junto con la organización. El organizador se abre maximizado y permite minimizarse
+o restaurarse desde los controles de la ventana; los íconos de
+cada posición permiten elegir, quitar y girar su vista previa en pasos de 90°.
+El giro se guarda como orientación de esa posición sin modificar el PDF fuente.
+Puedes revisar la organización en **Ver → Organizar hojas…**.
+Con varias hojas organizadas, **Continuar con esta organización** abre una vista
+conjunta de sus PDF y una lista única de **todas las capas**, con los mismos
+filtros por utilidad del diálogo de una hoja. Una casilla controla las capas
+equivalentes de todos los PDF y actualiza las hojas afectadas. La selección se
+guarda por PDF en el proyecto y puede reabrirse en **Ver → Capas de hojas
+organizadas…**. En este flujo de varias hojas todavía no se ejecuta el
+reconocimiento; la alineación y unión geométrica de las hojas es un paso posterior.
+
 ### Pruebas y build
 
 ```bash
@@ -186,3 +204,7 @@ sobre la entidad TEXT correspondiente.
 Al final, `digitize.py` reporta entidades por capa y verifica:
 capas de utilidad pobladas, conteo total razonable, y que la capa de respaldo no
 domine (señal de huecos en `LAYER_TOKENS`).
+
+
+## Ejecutar .exe
+py -3 -m PyInstaller --clean -y PDF-a-CAD.spec

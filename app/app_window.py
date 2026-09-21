@@ -22,8 +22,18 @@ from geometry import qimage_to_gray
 # arquitectura). El lienzo, los widgets reutilizables y el worker de fondo.
 from canvas import Canvas
 from widgets import InlineEdit, _SegInvSpinBox, _NoWheelFilter
-from workers import PipelineWorker
+from workers import PipelineWorker, RecognitionWorker, OrganizedRecognitionWorker
 import dialogs
+import recognition_dialog
+import sheet_layout_dialog
+import organized_layer_dialog
+import organized_recognition_dialog
+from organized_layers import selected_sheets
+from sheet_layout import normalize as normalize_sheet_layout, normalize_rotations
+from sheet_crops import normalize as normalize_sheet_crops
+import layer_dialog
+import composite as composite_mod
+import composite_dialog
 import project_io
 import model_ops
 from model import (VERSION, TIPOS, ACI_RGB, LEADER_TEXT_FT, LEADER_ORIENT,
@@ -52,6 +62,24 @@ class Main(QtWidgets.QMainWindow):
         self.canvas.dbl.connect(self.on_dblclick); self.setCentralWidget(self.canvas)
         self.zoom = 3.5; self.scale = 20 / 72.0; self.rot = 0; self.W = 0; self.H = 0
         self.derot = fitz.Matrix(1, 0, 0, 1, 0, 0); self.gray = None; self.page_idx = 0; self.pageH_px = 0
+        self.hidden_ocgs = []   # capas OCG ocultas en el paso «Capas de la hoja» (por PDF abierto)
+        self.hidden_ocgs_by_source = {}  # selección de capas por PDF de la organización
+        self._layer_roles = None   # roles OCG ajustados a mano («Ajustar capas…»); None = automático por nombre
+        self._join_routes = True   # unir tramos de la misma capa en rutas (desactivable en el preview)
+        self._recog_ready = False  # True cuando el asistente ya reconoció una hoja de este PDF (◀ ▶ vuelven a reconocer)
+        self.sheet_layout = None  # hoja principal y vecinas del PDF; índices 0-based
+        self.sheet_rotations = {}  # giros de vista por posición, múltiplos de 90°
+        self.sheet_crops = {}  # ventana no destructiva del plano por posición
+        self.sheet_sources = []   # nombre y rango virtual de páginas de cada PDF
+        self.sheet_external_pdfs = []  # PDF externos completos, con capas originales
+        # Hoja compuesta (composite.py): PDFs de origen en memoria, piezas y la
+        # escala única de la hoja. `work_pdf_path` es el PDF que ven los workers
+        # (el compuesto temporal o el original); `pdf_path` sigue siendo el original.
+        self.src_pdfs = []        # [{name, data(bytes), path?}, …]; 0 = PDF principal
+        self.composite = None     # composite.Composite o None
+        self.work_pdf_path = None
+        self._scale_override = None  # escala de la hoja compuesta (pies/pt); None = detectar
+        self._tmp_composite = None
         self.pdf_path = None; self.doc = None; self.project_path = None; self.leader_hpx = 40
 
         self.cur_pts = []; self.pipes = []; self.leaders = []; self.text_marks = []
@@ -130,6 +158,9 @@ class Main(QtWidgets.QMainWindow):
         _act(medit, "Deshacer", self.undo, "Ctrl+Z")
         _act(medit, "Rehacer", self.redo, "Ctrl+Shift+Z")
         mview = _menu(mb, "&Ver")
+        _act(mview, "Componer hoja de trabajo…", self.compose_sheet)
+        _act(mview, "Organizar hojas…", self.organize_sheets)
+        _act(mview, "Capas de hojas organizadas…", self.open_organized_layers)
         # Acción dinámica: su texto muestra el tema al que se cambiaría.
         # Si estás en oscuro dice "Modo claro"; si estás en claro dice "Modo oscuro".
         self._act_theme = QtGui.QAction("", self)
@@ -1017,19 +1048,30 @@ class Main(QtWidgets.QMainWindow):
         n = max(0, min(n, self.doc.page_count - 1))
         if n != self.page_idx:
             if not self._confirm_discard(): self._update_page_label(); return
-            self.page_idx = n; self._load_page(n)
+            self._change_page(n)
         else:
             self._update_page_label()
 
     def _prev_page(self):
         if self.doc and self.page_idx > 0:
             if not self._confirm_discard(): return
-            self.page_idx -= 1; self._load_page(self.page_idx)
+            self._change_page(self.page_idx - 1)
 
     def _next_page(self):
         if self.doc and self.page_idx < self.doc.page_count - 1:
             if not self._confirm_discard(): return
-            self.page_idx += 1; self._load_page(self.page_idx)
+            self._change_page(self.page_idx + 1)
+
+    def _change_page(self, idx):
+        """Cambio de hoja desde el editor (◀ ▶ / nº de página). Si el asistente
+        ya reconoció una hoja de este PDF, la nueva se reconoce con las mismas
+        capas ocultas y roles (mismo PDF = mismas capas) y se muestra la vista
+        previa para importar."""
+        self.page_idx = idx; self._load_page(idx)
+        if self.composite is not None and self.composite.is_single_full_page():
+            self.composite.pieces[0].page = idx
+        if self._recog_ready and self.pdf_path:
+            self._start_recognition(idx)
 
     # ─────────────────────────── Estado / modos ───────────────────────────
     def _on_enter(self):
@@ -1458,15 +1500,465 @@ class Main(QtWidgets.QMainWindow):
 
     def _open_pdf_path(self, path):
         if not self._confirm_discard(): return
-        self._busy("Abriendo PDF…")
+        self._busy(_tr("Abriendo PDF…"))
         try:
-            self.pdf_path = path; self.project_path = None; self.doc = fitz.open(path); self._update_title()
-            self.page_idx = 0; self._load_page(0)
-        finally: self._unbusy()
+            new_doc = fitz.open(path)
+            if self.doc:
+                self.doc.close()
+            self._cleanup_tmp_pdf()
+            self.pdf_path = path; self.project_path = None; self.doc = new_doc; self._update_title()
+            self.work_pdf_path = path
+            with open(path, "rb") as fp:
+                self.src_pdfs = [{"name": os.path.basename(path), "data": fp.read(), "path": path}]
+            self.composite = None
+            self._scale_override = None
+            self.hidden_ocgs = []   # capas OCG ocultas por el usuario (paso «Capas de la hoja»)
+            self.hidden_ocgs_by_source = {}
+            self._layer_roles = None
+            self._recog_ready = False
+            self.sheet_layout = None
+            self.sheet_rotations = {}
+            self.sheet_crops = {}
+            self.sheet_sources = [{"name": os.path.basename(path), "start": 0,
+                                   "count": self.doc.page_count}]
+            self.sheet_external_pdfs = []
+        finally:
+            self._unbusy()
+        # Asistente v1: tipo → hoja → cargar hoja → reconocer eléctricas → preview (sin import).
+        self._run_recognition_wizard()
+
+    def _run_recognition_wizard(self):
+        """Elegir tipo/hoja, cargar esa hoja, reconocer ELECTRICO y mostrar preview. Sin importar pipes.
+
+        Si detect.py clasifica claro (vector o raster con imagen dominante), se omite
+        el diálogo de tipo; solo se pregunta en casos ambiguos.
+        """
+        if not self.doc or not self.pdf_path:
+            return
+
+        _load = self._load_sheet_busy
+
+        def _go_manual(msg):
+            _load(0)
+            self._info(msg)
+
+        def _go_plotted():
+            if not self._wizard_sheet_flow(0):
+                _load(0)
+
+        # Clasificación automática (página 0) — misma heurística que digitize.
+        import detect as _detect
+        kind, info = _detect.classify_page(self.doc[0])
+        n_paths = info.get("n_paths", 0)
+        img_cover = float(info.get("max_image_cover") or 0.0)
+
+        if kind == "vector":
+            self._info(_tr("Detectado PDF vectorial ({n} trazos)…").format(n=n_paths))
+            _go_plotted()
+            return
+        if kind == "raster" and img_cover >= 0.6:
+            _go_manual(_tr("Detectado PDF imagen/escaneo — continúa con el dibujo manual."))
+            return
+
+        # Ambiguo: pedir confirmación al usuario.
+        pdf_type = recognition_dialog.choose_pdf_type(self)
+        if pdf_type is None:
+            _load(0)
+            return
+        if pdf_type != "plotted":
+            _go_manual(_tr("PDF imagen: continúa con el dibujo manual."))
+            return
+        _go_plotted()
+
+    def _load_sheet_busy(self, idx):
+        self._busy(_tr("Cargando hoja…"))
+        try:
+            self.page_idx = idx
+            self._load_page(idx)
+        finally:
+            self._unbusy()
+
+    def _wizard_sheet_flow(self, start_idx):
+        """Componer la hoja de trabajo, elegir capas y reconocer.
+        Lo usa el asistente al abrir el PDF y «Cambiar de hoja…» del preview.
+        Devuelve False si se cancela el compositor. Al cancelar las capas, la
+        hoja queda cargada sin reconocer."""
+        res = composite_dialog.compose_sheet(
+            self, self.src_pdfs, self.composite, self.hidden_ocgs_by_source, current_page=start_idx)
+        if res is None:
+            return False
+        comp, sources, hidden_by_source = res
+        self.src_pdfs = sources
+        self.composite = comp
+        self.hidden_ocgs_by_source = {k: list(v) for k, v in hidden_by_source.items()}
+        self._recog_ready = False
+        try:
+            self._apply_composite()
+        except Exception as exc:
+            QtWidgets.QMessageBox.warning(self, _tr("Componer hoja"),
+                _tr("No se pudo armar la hoja compuesta:\n\n{e}").format(e=exc))
+            return False
+        page_idx = self.page_idx
+        # Paso «Capas de la hoja»: el usuario decide qué capas OCG ver ANTES
+        # de dibujar. Deja la visibilidad aplicada en self.doc, así _load_page
+        # ya renderiza sin las ocultas.
+        chosen = layer_dialog.choose_sheet_layers(self, self.doc, page_idx,
+                                                  layout=getattr(self, "_composite_layout", None))
+        if chosen is None:
+            self._load_sheet_busy(page_idx)
+            self._dirty = True
+            self._info(_tr("Reconocimiento cancelado — hoja cargada con las capas elegidas."))
+            return True
+        hidden, page_idx = chosen
+        if self.composite is not None and self.composite.is_single_full_page():
+            self.composite.pieces[0].page = page_idx
+        self.hidden_ocgs = list(hidden)
+        self._sync_hidden_to_sources(hidden)
+        # Los roles (qué capas son líneas / bóvedas) se asignan solos por
+        # nombre y se muestran en el preview; «Ajustar capas…» los cambia.
+        self._layer_roles = None
+        self._load_sheet_busy(page_idx)
+        self._dirty = True
+        self._recog_ready = True
+        self._start_recognition(page_idx)
+        return True
+
+    def _apply_composite(self):
+        """Deja en `self.doc` la hoja de trabajo según `self.composite`:
+        una sola pieza = hoja entera → el PDF origen tal cual (◀ ▶ siguen
+        sirviendo); si no, se materializa la hoja compuesta como PDF temporal
+        (`composite.build_document`) con las capas de cada origen ya apagadas."""
+        comp = self.composite
+        import pdf_layers as _pdf_layers
+        if self.doc:
+            self.doc.close(); self.doc = None
+        self._cleanup_tmp_composite()
+        self._composite_layout = None      # esquema para el minimapa de «Capas de la hoja»
+        if comp is None or comp.is_single_full_page():
+            piece = comp.pieces[0] if comp else None
+            src = piece.source if piece else 0
+            entry = self.src_pdfs[src]
+            if entry.get("path") and os.path.isfile(entry["path"]):
+                path = entry["path"]
+            else:
+                path = self._write_tmp_composite(entry["data"], suffix=f"_src{src}")
+            self.doc = fitz.open(path)
+            self.work_pdf_path = path
+            hidden = list(self.hidden_ocgs_by_source.get(str(src), []))
+            _pdf_layers.set_hidden(self.doc, hidden)
+            self.hidden_ocgs = hidden
+            self._scale_override = None
+            self.page_idx = piece.page if piece else 0
+        else:
+            docs = [fitz.open(stream=e["data"], filetype="pdf") for e in self.src_pdfs]
+            try:
+                for i, d in enumerate(docs):      # capas apagadas: sin trazos ni anclajes
+                    _pdf_layers.set_hidden(d, self.hidden_ocgs_by_source.get(str(i), ()))
+                bridges = composite_mod.compute_bridges(comp, docs)
+                built = composite_mod.build_document(comp, docs, self.hidden_ocgs_by_source, bridges)
+                data = built.tobytes(deflate=True); built.close()
+                sizes = lambda p: (docs[p.source][p.page].rect.width, docs[p.source][p.page].rect.height)
+                self._composite_layout = composite_mod.piece_layout(
+                    comp, sizes, [e.get("name", "") for e in self.src_pdfs])
+            finally:
+                for d in docs: d.close()
+            path = self._write_tmp_composite(data, suffix="_compuesta")
+            self.doc = fitz.open(path)     # reabrir: así fitz lee el catálogo de capas nuevo
+            self.work_pdf_path = path
+            self.hidden_ocgs = sorted(_pdf_layers.hidden_layers(self.doc))
+            self._scale_override = comp.target_scale()
+            self.page_idx = 0
+        self._load_sheet_busy(self.page_idx)
+
+    def _write_tmp_composite(self, data, suffix=""):
+        import tempfile
+        fd, path = tempfile.mkstemp(prefix="pdfcad_hoja", suffix=f"{suffix}.pdf")
+        with os.fdopen(fd, "wb") as fp:
+            fp.write(data)
+        self._tmp_composite = path
+        return path
+
+    def _cleanup_tmp_composite(self):
+        tmp = getattr(self, "_tmp_composite", None)
+        if tmp and os.path.isfile(tmp):
+            try: os.remove(tmp)
+            except Exception: pass
+        self._tmp_composite = None
+
+    def _sync_hidden_to_sources(self, hidden):
+        """Las capas apagadas en la hoja de trabajo se reflejan por nombre en
+        cada PDF de origen, así al volver al compositor se conservan."""
+        import pdf_layers as _pdf_layers
+        hidden = set(hidden or ())
+        for i, entry in enumerate(self.src_pdfs):
+            try:
+                with fitz.open(stream=entry["data"], filetype="pdf") as d:
+                    names = [c["text"] for c in _pdf_layers._ui_configs(d)]
+            except Exception:
+                continue
+            self.hidden_ocgs_by_source[str(i)] = [n for n in names if n in hidden]
+
+    def compose_sheet(self):
+        """Menú Ver → volver al compositor (piezas de varias hojas/PDF) y
+        repetir capas + reconocimiento sobre la hoja compuesta nueva."""
+        if not self.doc or not self.src_pdfs:
+            QtWidgets.QMessageBox.information(self, _tr("Componer hoja de trabajo"),
+                _tr("Abre un PDF para componer su hoja de trabajo."))
+            return
+        if not self._confirm_discard():
+            return
+        if not self._wizard_sheet_flow(self.page_idx):
+            self._info(_tr("Composición cancelada — se mantiene la hoja actual."))
+
+    def organize_sheets(self):
+        """Reopen the arrangement without changing the current drawing or layers."""
+        if not self.doc:
+            QtWidgets.QMessageBox.information(self, _tr("Organizar hojas"),
+                _tr("Abre un PDF para organizar sus hojas."))
+            return
+        selection = sheet_layout_dialog.choose_sheet_layout(
+            self, self.doc, self.sheet_layout, current=self.page_idx,
+            sources=self.sheet_sources, external_pdfs=self.sheet_external_pdfs,
+            rotations=self.sheet_rotations)
+        if selection is None:
+            return
+        layout, added_paths, sources, rotations = selection
+        if layout["main"] != self.page_idx and not self._confirm_discard():
+            return
+        changed = (layout != self.sheet_layout or rotations != self.sheet_rotations
+                   or bool(added_paths))
+        if not self._apply_sheet_selection(layout, added_paths, sources, rotations):
+            return
+        if any(layout[key] is not None for key in ("top", "left", "right", "bottom")):
+            self._recog_ready = False
+        if layout["main"] != self.page_idx:
+            self._change_page(layout["main"])
+        self._dirty = self._dirty or changed
+        self._info(_tr("Organización guardada. Hoja principal: {n}.").format(
+            n=layout["main"] + 1))
+
+    def open_organized_layers(self):
+        """Review common layers and continue to the arranged recognition preview."""
+        layout = self.sheet_layout
+        if not self.doc or not layout or not any(
+                layout[key] is not None for key in ("top", "left", "right", "bottom")):
+            QtWidgets.QMessageBox.information(self, _tr("Capas de hojas organizadas"),
+                _tr("Organiza al menos dos hojas para abrir esta vista."))
+            return
+        chosen = organized_layer_dialog.choose_organized_sheet_layers(
+            self, self.doc, self.sheet_external_pdfs, self.sheet_sources,
+            layout, self.sheet_rotations, self.hidden_ocgs_by_source,
+            self.sheet_crops)
+        if chosen is None:
+            return
+        self.hidden_ocgs_by_source, self.sheet_crops = chosen
+        self.hidden_ocgs = list(self.hidden_ocgs_by_source.get("0", []))
+        self._refresh_current_pdf_image()
+        self._dirty = True
+        self._recog_ready = False
+        self._info(_tr("Capas de las hojas organizadas guardadas."))
+        self._start_organized_recognition()
+
+    def _start_organized_recognition(self):
+        """Recognize all arranged sheets without changing the editor's drawing."""
+        if not self.doc or not self.sheet_layout or not self.pdf_path:
+            return
+        sheets = selected_sheets(self.sheet_layout, self.sheet_sources)
+        progress = QtWidgets.QProgressDialog(
+            _tr("Reconociendo utilidades eléctricas en las hojas organizadas…"),
+            None, 0, 0, self)
+        progress.setWindowTitle(_tr("Reconocimiento"))
+        progress.setWindowModality(QtCore.Qt.WindowModal)
+        progress.setMinimumDuration(0)
+        progress.show()
+        self._organized_recog_progress = progress
+        self._organized_recog_worker = OrganizedRecognitionWorker(
+            self.pdf_path, self.sheet_external_pdfs, sheets,
+            self.hidden_ocgs_by_source, zoom=1.0,
+            join_routes=self._join_routes, crops=self.sheet_crops)
+        self._organized_recog_worker.done.connect(self._organized_recognition_done)
+        self._organized_recog_worker.start()
+
+    def _organized_recognition_done(self, rows, error):
+        progress = getattr(self, "_organized_recog_progress", None)
+        if progress is not None:
+            progress.close()
+            self._organized_recog_progress = None
+        if error:
+            QtWidgets.QMessageBox.warning(self, _tr("Reconocimiento"),
+                _tr("No se pudieron reconocer las hojas:\n\n{e}").format(e=error))
+            return
+        if not rows:
+            return
+        action, self._join_routes = organized_recognition_dialog.show_organized_recognition_preview(
+            self, rows, self.sheet_rotations, self._join_routes,
+            base_path=self.pdf_path, external_pdfs=self.sheet_external_pdfs,
+            hidden_by_source=self.hidden_ocgs_by_source, crops=self.sheet_crops)
+        if action == 2:
+            self.open_organized_layers()
+
+    def _refresh_current_pdf_image(self):
+        """Update the PDF background after OCG changes without losing annotations."""
+        if not self.doc or self.canvas.pixmap_item is None:
+            return
+        pix = self.doc[self.page_idx].get_pixmap(
+            matrix=fitz.Matrix(self.zoom, self.zoom), alpha=False)
+        qimg = QtGui.QImage(bytes(pix.samples), pix.width, pix.height,
+                            pix.stride, QtGui.QImage.Format_RGB888).copy()
+        self.canvas.pixmap_item.setPixmap(QtGui.QPixmap.fromImage(qimg))
+        self.gray = qimage_to_gray(qimg)
+        self._redraw()
+
+    def _apply_sheet_selection(self, layout, added_paths, sources, rotations):
+        """Keep each PDF intact so OCG layers are available in later stages."""
+        if not 0 <= layout["main"] < self.doc.page_count:
+            QtWidgets.QMessageBox.warning(self, _tr("Organizar hojas"),
+                _tr("La hoja principal debe pertenecer al PDF abierto."))
+            return False
+        additions = []
+        try:
+            expected = sources[1 + len(self.sheet_external_pdfs):]
+            if len(expected) != len(added_paths):
+                raise ValueError(_tr("La lista de PDF no coincide con las hojas elegidas."))
+            for path, source in zip(added_paths, expected):
+                with open(path, "rb") as stream:
+                    data = stream.read()
+                with fitz.open(stream=data, filetype="pdf") as check:
+                    if check.page_count != source["count"]:
+                        raise ValueError(_tr("El PDF cambió mientras se elegían sus hojas."))
+                additions.append({"name": os.path.basename(path), "data": data})
+        except Exception as exc:
+            QtWidgets.QMessageBox.warning(self, _tr("Organizar hojas"),
+                _tr("No se pudieron incorporar los PDF:\n\n{e}").format(e=exc))
+            return False
+        old_layout = self.sheet_layout or {}
+        kept_crops = {slot: crop for slot, crop in self.sheet_crops.items()
+                      if old_layout.get(slot) == layout.get(slot)}
+        self.sheet_external_pdfs.extend(additions)
+        total = self.doc.page_count + sum(s["count"] for s in sources[1:])
+        self.sheet_layout = normalize_sheet_layout(layout, total)
+        self.sheet_rotations = normalize_rotations(rotations, self.sheet_layout)
+        self.sheet_crops = normalize_sheet_crops(kept_crops, self.sheet_layout)
+        self.sheet_sources = sources
+        return True
+
+    def _adjust_layer_roles(self, page_idx):
+        """«Ajustar capas…» del preview: elegir a mano qué capas visibles son
+        líneas / bóvedas y volver a reconocer la hoja con esos roles."""
+        import pdf_layers as _pdf_layers
+        all_layers = _pdf_layers.page_layers(self.doc, page_idx)
+        visible = [L for L in all_layers if L["name"] not in set(self.hidden_ocgs)]
+        roles = recognition_dialog.choose_layer_roles(self, visible)
+        if roles is None:
+            self._info(_tr("Reconocimiento cancelado — hoja cargada con las capas elegidas."))
+            return
+        self._layer_roles = roles
+        self._start_recognition(page_idx)
+
+    def _start_recognition(self, page_idx):
+        """Lanza el reconocimiento de la hoja `page_idx` en segundo plano con las
+        capas ocultas (`self.hidden_ocgs`) y los roles (`self._layer_roles`;
+        None = automático por nombre). Al terminar, `_recognition_done` muestra
+        la vista previa. Lo usan el asistente y el cambio de hoja del editor."""
+        progress = QtWidgets.QProgressDialog(
+            _tr("Reconociendo utilidades eléctricas…"), None, 0, 0, self)
+        progress.setWindowTitle(_tr("Reconocimiento"))
+        progress.setWindowModality(QtCore.Qt.WindowModal)
+        progress.setMinimumDuration(0)
+        progress.show()
+        QtWidgets.QApplication.processEvents()
+        self._recog_progress = progress
+        self._recog_worker = RecognitionWorker(
+            self.work_pdf_path or self.pdf_path, page_idx, zoom=self.zoom, utility="ELECTRICO",
+            hidden_ocgs=self.hidden_ocgs, layer_roles=self._layer_roles,
+            join_routes=self._join_routes, scale_ft_per_pt=self._scale_override)
+        self._recog_worker.done.connect(self._recognition_done)
+        self._recog_worker.start()
+
+    def _recognition_done(self, result, error):
+        prog = getattr(self, "_recog_progress", None)
+        if prog is not None:
+            prog.close()
+            self._recog_progress = None
+        if error:
+            QtWidgets.QMessageBox.warning(
+                self, _tr("Reconocimiento"),
+                _tr("No se pudo reconocer la hoja:\n\n{e}").format(e=error))
+            return
+        if result is None:
+            return
+        qimg = None
+        if self.canvas.pixmap_item is not None:
+            qimg = self.canvas.pixmap_item.pixmap().toImage()
+        if qimg is None or qimg.isNull():
+            QtWidgets.QMessageBox.information(
+                self, _tr("Reconocimiento"),
+                _tr("Reconocimiento listo, pero no hay imagen de la hoja para la vista previa."))
+            return
+        action = recognition_dialog.show_recognition_preview(
+            self, qimg, result, utility_layer="ELECTRICO",
+            page_count=self.doc.page_count if self.doc else None)
+        self._join_routes = bool(getattr(result, "join_routes", True))
+        if action == recognition_dialog.PREVIEW_IMPORT:
+            self._import_recognized_pipes(result)
+        elif action == recognition_dialog.PREVIEW_CHANGE_SHEET:
+            # Flujo pedido: lista de hojas → capas → preview de la hoja nueva.
+            if not self._wizard_sheet_flow(result.page_index):
+                self._info(_tr("Cambio de hoja cancelado — se mantiene la hoja {n}.").format(
+                    n=result.page_index + 1))
+        elif action == recognition_dialog.PREVIEW_ADJUST_LAYERS:
+            self._adjust_layer_roles(result.page_index)
+        else:
+            self._info(_tr("Reconocimiento cancelado — editor vacío."))
+
+    def _import_recognized_pipes(self, result):
+        """Añade centerlines como pipes ELECTRICO e inserta bóvedas como vértices/CAJA."""
+        import recognition as rec
+        new_pipes = rec.pipes_from_recognition(result, layer="ELECTRICO", zoom=self.zoom)
+        if not new_pipes:
+            self._info(_tr("No hay tramos eléctricos para importar."))
+            return
+        self._push()
+        self.pipes.extend(new_pipes)
+        vaults = list(getattr(result, "vault_pts", None) or [])
+        snapped, skipped = rec.inject_vault_vertices(self.pipes, vaults)
+        result.vaults_snapped = snapped
+        result.vaults_skipped = skipped
+        self._dirty = True
+        self._refresh_lists()                 # crea las CAJA en todos los vértices…
+        # …y oculta las de quiebres/esquinas sin bóveda (siguen en el DXF como
+        # "Estructura nula" para no romper la topología de la red).
+        n_hidden = model_ops.hide_soft_vertex_structures(self.pipes, self.structures)
+        # …y les pone a las CAJA de bóveda real su forma, medidas (pies) y contorno.
+        n_geo, _ = model_ops.attach_vault_geometry(self.structures, getattr(result, "vaults_geo", None) or [])
+        # …y los codos reconocidos quedan como esquina «CV» con su radio (flujo manual).
+        n_cv = model_ops.attach_fillets(self.pipes, self.structures)
+        if n_hidden or n_geo or n_cv:
+            self._refresh_lists()
+        self._update_ui()
+        self._redraw()
+        n = len(new_pipes)
+        n_seg = sum(int(getattr(pl, "n_segments", 1) or 1) for pl in result.drawable)
+        msg = _tr("Importadas {n} rutas ({m} tramos) de Eléctrico.").format(n=n, m=n_seg)
+        if n_geo:
+            msg += " " + _tr("Bóvedas con medidas: {g}.").format(g=n_geo)
+        if n_cv:
+            msg += " " + _tr("Codos como esquina + radio (CV): {c}.").format(c=n_cv)
+        n_ab = sum(1 for p in new_pipes if p.get("ab"))
+        if n_ab:
+            msg += " " + _tr("Abandonadas (AB): {a}.").format(a=n_ab)
+        if snapped or skipped:
+            msg += " " + _tr("Bóvedas: {s} en líneas, {k} sin pipe cercana.").format(
+                s=snapped, k=skipped)
+        if n_hidden:
+            msg += " " + _tr("Quiebres sin bóveda: {h} (cajas ocultas).").format(h=n_hidden)
+        self._info(msg)
 
     def _load_page(self, idx):
         self._close_editor()
         page = self.doc[idx]; self.page_idx = idx; self.scale = VP.detect_scale(page)
+        if self._scale_override:        # hoja compuesta: escala única elegida en el compositor
+            self.scale = float(self._scale_override)
         self.rot = page.rotation; mbx = page.mediabox; self.W, self.H = mbx.width, mbx.height
         self.derot = page.derotation_matrix
         pix = page.get_pixmap(matrix=fitz.Matrix(self.zoom, self.zoom), alpha=False)
@@ -1510,6 +2002,14 @@ class Main(QtWidgets.QMainWindow):
                 pdf_bytes = self._get_pdf_bytes()
                 if pdf_bytes:
                     z.writestr("source.pdf", pdf_bytes)
+                for i, source in enumerate(self.sheet_external_pdfs):
+                    z.writestr(f"external/{i:03d}.pdf", source["data"])
+                # Hoja compuesta: los PDFs de origen completos, para poder
+                # volver al compositor (source.pdf ya es la hoja materializada).
+                if self.composite is not None and (
+                        len(self.src_pdfs) > 1 or not self.composite.is_single_full_page()):
+                    for i, entry in enumerate(self.src_pdfs):
+                        z.writestr(f"sources/{i:03d}.pdf", entry["data"])
             self.project_path = path; self._dirty = False; self._update_title()
             self._info(f"Proyecto guardado: {os.path.basename(path)}")
             self._flash_save()
@@ -1531,6 +2031,7 @@ class Main(QtWidgets.QMainWindow):
         return None
 
     def _cleanup_tmp_pdf(self):
+        self._cleanup_tmp_composite()
         tmp = getattr(self, '_tmp_pdf', None)
         if tmp and os.path.isfile(tmp):
             try: os.remove(tmp)
@@ -1558,15 +2059,27 @@ class Main(QtWidgets.QMainWindow):
         if not self._confirm_discard(): return
         self._busy("Abriendo proyecto…")
         try:
+            if self.doc:
+                self.doc.close()
+                self.doc = None
             self._cleanup_tmp_pdf()
             with zipfile.ZipFile(path) as z:
                 model = json.loads(z.read("model.json")); png = z.read("page.png")
-                if "source.pdf" in z.namelist():
+                external_pdfs = [
+                    {"name": entry.get("name", f"PDF {i + 2}"),
+                     "data": z.read(f"external/{i:03d}.pdf")}
+                    for i, entry in enumerate(model.get("sheet_sources", [])[1:])]
+                src_bytes = z.read("source.pdf") if "source.pdf" in z.namelist() else None
+                if src_bytes is not None:
                     tmp_pdf = path + ".src.pdf"
-                    with open(tmp_pdf, "wb") as fp: fp.write(z.read("source.pdf"))
+                    with open(tmp_pdf, "wb") as fp: fp.write(src_bytes)
                     self._tmp_pdf = tmp_pdf
                 else:
                     tmp_pdf = None
+                src_names = model.get("src_names") or []
+                src_pdfs = [{"name": src_names[i] if i < len(src_names) else f"PDF {i + 1}",
+                             "data": z.read(f"sources/{i:03d}.pdf")}
+                            for i in range(len(src_names)) if f"sources/{i:03d}.pdf" in z.namelist()]
             qimg = QtGui.QImage.fromData(png, "PNG")
             self._overlay = []; self._close_editor()
             self.canvas.set_image(qimg); self.gray = qimage_to_gray(qimg)
@@ -1582,7 +2095,36 @@ class Main(QtWidgets.QMainWindow):
                 self.pdf_path = tmp_pdf; self.doc = fitz.open(tmp_pdf)
             else:
                 self.pdf_path = None; self.doc = None
-            self.project_path = path; self.page_idx = 0; self._update_title()
+            self.work_pdf_path = tmp_pdf
+            self.composite = data.get("composite")
+            self._scale_override = data.get("scale_override")
+            if src_pdfs:
+                self.src_pdfs = src_pdfs
+            elif src_bytes is not None:
+                self.src_pdfs = [{"name": model.get("pdf_name") or "PDF principal", "data": src_bytes}]
+            else:
+                self.src_pdfs = []
+            self.project_path = path
+            self.sheet_external_pdfs = external_pdfs
+            self.sheet_sources = data.get("sheet_sources") or (
+                [{"name": model.get("pdf_name") or "PDF principal",
+                  "start": 0, "count": self.doc.page_count}] if self.doc else [])
+            total = sum(source["count"] for source in self.sheet_sources)
+            self.sheet_layout = normalize_sheet_layout(
+                data.get("sheet_layout"), total) if self.doc else None
+            self.sheet_rotations = normalize_rotations(
+                data.get("sheet_rotations"), self.sheet_layout) if self.sheet_layout else {}
+            self.sheet_crops = normalize_sheet_crops(
+                data.get("sheet_crops"), self.sheet_layout) if self.sheet_layout else {}
+            self.hidden_ocgs_by_source = data.get("hidden_ocgs_by_source", {})
+            self.hidden_ocgs = list(data.get("hidden_ocgs") or self.hidden_ocgs_by_source.get("0", []))
+            if self.doc and (self.hidden_ocgs or "0" in self.hidden_ocgs_by_source):
+                import pdf_layers as _pdf_layers
+                _pdf_layers.set_hidden(self.doc, self.hidden_ocgs)
+            self.page_idx = data.get("page_idx", 0)
+            if self.doc and not 0 <= self.page_idx < self.doc.page_count:
+                self.page_idx = 0
+            self._update_title()
             self.pipes = data["pipes"]; self.leaders = data["leaders"]
             self.text_marks = data["text_marks"]
             self.erase_regions = data["erase_regions"]
@@ -1676,9 +2218,18 @@ class Main(QtWidgets.QMainWindow):
     def close_project(self):
         if self.canvas.pixmap_item is None: return
         if not self._confirm_discard(): return
+        if self.doc:
+            self.doc.close()
         self._cleanup_tmp_pdf()
         self.canvas.scene().clear(); self.canvas.pixmap_item = None; self.canvas.pdf_bg_item = None
         self.pdf_path = None; self.doc = None; self.project_path = None; self.gray = None; self._update_title()
+        self.sheet_layout = None
+        self.sheet_rotations = {}
+        self.sheet_crops = {}
+        self.sheet_sources = []
+        self.sheet_external_pdfs = []
+        self.hidden_ocgs_by_source = {}
+        self.hidden_ocgs = []
         self.pipes = []; self.leaders = []; self.text_marks = []; self.erase_regions = []; self.structures = []
         self.duct_banks = []; self.cross_connections = []
         self.ref_centerlines = []; self._cl_pts = []
@@ -1690,6 +2241,8 @@ class Main(QtWidgets.QMainWindow):
 
     def closeEvent(self, e):
         if self._confirm_discard():
+            if self.doc:
+                self.doc.close()
             self._cleanup_tmp_pdf(); e.accept()
         else: e.ignore()
 
@@ -3446,23 +3999,60 @@ class Main(QtWidgets.QMainWindow):
             mx, my = sx, sy   # fallback si no hay pipe / geometría inválida
             if is_curve:
                 pipe = self._pipe_at_vertex(sx, sy)
+                # Arco REAL con el radio explícito (o el auto = 6 × diámetro). La
+                # matemática (tangencias, centro, discretización, cap por doble
+                # curva) vive en _curve_arc_info + _arc_polyline: envuelve al
+                # model_ops.fillet_geo (base pura) añadiéndole el cap 0.48 si el
+                # vecino también es curva y el auto-radio. El pipe (ver
+                # _pipe_display_pts) ya dibuja este mismo arco integrado en su
+                # polilínea; aquí sólo pintamos:
+                #   · el marcador (pegado al arco, no volando en la esquina),
+                #   · el resalte amarillo cuando la curva está seleccionada,
+                #   · los puntos de tangencia (con línea discontinua si el
+                #     radio pedido no entró y el plugin lo va a recortar).
                 info = self._curve_arc_info(s, pipe) if pipe else None
                 if info is not None:
                     arc_pts = self._arc_polyline(info, n_per_90=24)
                     if arc_pts:
                         mx, my = arc_pts[len(arc_pts) // 2]
+                    clamped = bool(info.get("clamped"))
                     if selected:
                         hi_col = QtGui.QColor(255, 220, 40)
                         hi_pen = QtGui.QPen(hi_col, 6.0); hi_pen.setCosmetic(True)
                         hi_pen.setCapStyle(QtCore.Qt.RoundCap)
+                        if clamped: hi_pen.setStyle(QtCore.Qt.DashLine)
                         path = QtGui.QPainterPath()
                         path.moveTo(*arc_pts[0])
                         for (ax, ay) in arc_pts[1:]:
                             path.lineTo(ax, ay)
                         it = sc.addPath(path, hi_pen)
                         it.setZValue(Z_MARK + 1); self._overlay.append(it)
+                        arc_col = hi_col
+                    else:
+                        arc_col = col
+                    # Puntos de tangencia — muestran dónde arranca/termina el arco
+                    # sobre cada recta vecina (útil para saber si el radio "cabe").
+                    for q in (info["p1"], info["p2"]):
+                        it = sc.addEllipse(q[0] - 3, q[1] - 3, 6, 6, use_pen, QtGui.QBrush(arc_col))
+                        it.setZValue(Z_MARK + 1); self._overlay.append(it)
             it = sc.addEllipse(mx - r_use, my - r_use, 2 * r_use, 2 * r_use, use_pen, brush)
             it.setZValue(Z_MARK + 1); self._overlay.append(it)
+            # Bóveda reconocida (feature de reconocimiento del PDF, dev_santos_v2):
+            # su contorno real a escala, con el color de la línea y la medida al
+            # seleccionarla.
+            outline = s.get("outline")
+            if outline and len(outline) >= 3:
+                poly = QtGui.QPolygonF([QtCore.QPointF(x, y) for x, y in outline])
+                open_pen = QtGui.QPen(QtGui.QColor(255, 220, 40) if selected else col, 2 if selected else 1.5)
+                open_pen.setCosmetic(True)
+                fill = QtGui.QColor(col); fill.setAlpha(45)
+                it = sc.addPolygon(poly, open_pen, QtGui.QBrush(fill)); it.setZValue(Z_MARK); self._overlay.append(it)
+                if selected and s.get("width_ft") and s.get("length_ft"):
+                    t = sc.addText(f"{s['width_ft']:.1f} × {s['length_ft']:.1f} ft")
+                    t.setDefaultTextColor(QtGui.QColor(255, 220, 40))
+                    t.setFlag(QtWidgets.QGraphicsItem.ItemIgnoresTransformations)
+                    t.setPos(max(x for x, _ in outline) + 4, min(y for _, y in outline))
+                    t.setZValue(Z_MARK + 2); self._overlay.append(t)
             if self.show_bz_labels and s.get("cod"):
                 t = sc.addText(s["cod"]); t.setDefaultTextColor(QtGui.QColor(180, 180, 180))
                 t.document().setDocumentMargin(0)
@@ -4296,12 +4886,20 @@ class Main(QtWidgets.QMainWindow):
         return None
 
     def _curve_arc_info(self, s, pipe):
-        """Calcula la geometría del arco real de una curva sobre su pipe.
-        Replica la fórmula del plugin C# (RadiusFt + capPrev/capNext) y
-        devuelve dict con center, radio, tangentes p1/p2, y direcciones — o
-        None si no aplica (curva sin pipe, en un extremo, tramo casi recto,
-        radio 0 sin diámetro para el modo automático, etc.). Todo en escena px."""
-        import math
+        """Geometría del arco real de una curva sobre su pipe. Delega el cálculo
+        base (tangencias, centro, discretización, radio efectivo) al helper
+        puro `model_ops.fillet_geo` — mismo criterio que el plugin C#. Encima
+        añade dos cosas específicas del editor:
+          · Resolución del radio: en pies (explícito) o AUTO = 6 × diámetro
+            interior de la tubería, y conversión ft → scene px (multiplicar
+            por zoom porque los pts están en la escena renderizada).
+          · Cap por vecino curvo: 0.48 en cada lado si el vértice vecino
+            también es una curva (evita que dos filletes contiguos se
+            traguen el tramo intermedio).
+        Devuelve un dict con las claves que necesita el dibujo/hit-test del
+        lienzo (`p1`, `p2`, `center`, `r_px`, `clamped`, `arc`, `corner`, `vi`).
+        None si la curva no aplica (sin pipe, en un extremo, tramo casi
+        recto, sin escala, etc.)."""
         sx, sy = s.get("x"), s.get("y")
         if sx is None or sy is None: return None
         pts = (pipe or {}).get("pts") or []
@@ -4313,76 +4911,38 @@ class Main(QtWidgets.QMainWindow):
                 vi = j; break
         if vi is None or vi <= 0 or vi >= len(pts) - 1:
             return None
-        px_prev, py_prev = pts[vi - 1]
-        px_next, py_next = pts[vi + 1]
-        vpx, vpy = px_prev - sx, py_prev - sy
-        vnx, vny = px_next - sx, py_next - sy
-        L1 = math.hypot(vpx, vpy); L2 = math.hypot(vnx, vny)
-        if L1 < 1e-6 or L2 < 1e-6: return None
-        upx, upy = vpx / L1, vpy / L1
-        unx, uny = vnx / L2, vny / L2
-        cos_d = max(-1.0, min(1.0, upx * unx + upy * uny))
-        delta = math.acos(cos_d)
-        if math.degrees(delta) > 178.0: return None
-        # Radio en pies: explícito o auto = 6 × diámetro interior de la tubería
-        # (misma regla del plugin). Sin escala, no podemos convertir a scene px.
         if not self.scale or self.scale <= 1e-6: return None
+        # Radio en pies: explícito o auto = 6 × diámetro interior.
         r_ft = float(s.get("radius_ft") or 0.0)
         if r_ft <= 0.01:
             diam_in = float(pipe.get("diam") or 12.0)
             r_ft = 6.0 * (diam_in / 12.0)
-        # Conversión ft → scene px: los pts están en pixels de la escena que
-        # se renderizan a self.zoom × puntos PDF, mientras que self.scale es
-        # ft por punto PDF. Por lo tanto ft = pdf_pt × scale = scene_px × scale / zoom
-        # → scene_px = ft × zoom / scale (mismo criterio que _px_for_ft).
+        # Conversión ft → scene px: los pts se renderizan a self.zoom × puntos
+        # PDF, y self.scale es ft por punto PDF. → scene_px = ft × zoom / scale.
         r_px = r_ft * float(self.zoom) / self.scale
-        # Caps de doble curva (mismo criterio del plugin)
+        if r_px <= 0: return None
+        # Cap por vecino curvo — mismo criterio del plugin.
+        px_prev, py_prev = pts[vi - 1]
+        px_next, py_next = pts[vi + 1]
         cap_prev = 0.48 if self._structure_curve_at(px_prev, py_prev) else 0.9
         cap_next = 0.48 if self._structure_curve_at(px_next, py_next) else 0.9
-        try:
-            t_px = r_px / math.tan(delta / 2.0)
-        except ZeroDivisionError:
-            return None
-        t_max = min(L1 * cap_prev, L2 * cap_next)
-        if t_px > t_max:
-            t_px = t_max
-            r_px = t_px * math.tan(delta / 2.0)
-        # p1: tangente hacia el vértice anterior; p2: tangente hacia el siguiente.
-        p1 = (sx + upx * t_px, sy + upy * t_px)
-        p2 = (sx + unx * t_px, sy + uny * t_px)
-        # Centro del arco = esquina + bisector_hacia_centro * (r/sin(Δ/2)).
-        # El bisector que apunta AL centro es (upx+unx, upy+uny) normalizado
-        # (verificado geométricamente contra el fillet estándar de esquina).
-        bx, by = upx + unx, upy + uny
-        Lb = math.hypot(bx, by)
-        if Lb < 1e-9: return None
-        bx, by = bx / Lb, by / Lb
-        sin_half = math.sin(delta / 2.0)
-        if sin_half < 1e-9: return None
-        d_c = r_px / sin_half
-        cx = sx + bx * d_c
-        cy = sy + by * d_c
-        return dict(vi=vi, corner=(sx, sy), r_px=r_px, t_px=t_px,
-                    center=(cx, cy), p1=p1, p2=p2,
-                    dir_prev=(upx, upy), dir_next=(unx, uny),
-                    delta_rad=delta)
+        # fillet_geo usa un solo max_frac (mínimo de ambos lados es conservador).
+        geo = model_ops.fillet_geo((px_prev, py_prev), (sx, sy), (px_next, py_next),
+                                    r_px, max_frac=min(cap_prev, cap_next))
+        if geo is None: return None
+        # Enriquecemos el dict con las claves que usa el resto del editor
+        # (p1/p2 = t1/t2 de fillet_geo; corner y vi para el marcador y el pipe).
+        geo["p1"] = geo["t1"]; geo["p2"] = geo["t2"]
+        geo["r_px"] = geo["r"]
+        geo["corner"] = (sx, sy)
+        geo["vi"] = vi
+        return geo
 
     def _arc_polyline(self, info, n_per_90=24):
-        """Discretiza el arco real de p1 a p2 (por el lado corto) en scene px.
-        Devuelve lista de puntos que sirven tanto para dibujar la curva como
-        para el hit-test del click sobre ella."""
-        import math
-        cx, cy = info["center"]; r = info["r_px"]
-        p1 = info["p1"]; p2 = info["p2"]
-        a1 = math.atan2(p1[1] - cy, p1[0] - cx)
-        a2 = math.atan2(p2[1] - cy, p2[0] - cx)
-        da = a2 - a1
-        while da > math.pi: da -= 2 * math.pi
-        while da < -math.pi: da += 2 * math.pi
-        abs_deg = abs(math.degrees(da))
-        n = max(6, int(round(abs_deg / 90.0 * n_per_90)))
-        return [(cx + r * math.cos(a1 + da * i / n),
-                 cy + r * math.sin(a1 + da * i / n)) for i in range(n + 1)]
+        """Puntos del arco (scene px) para dibujarlo y hacer hit-test. Reutiliza
+        directamente el `arc` que devolvió model_ops.fillet_geo — así el visual
+        y el pick del click son idénticos y coherentes con el pipe."""
+        return list(info.get("arc") or [])
 
     def _pipe_display_pts(self, pipe):
         """Devuelve la polilínea DE DIBUJO del pipe: los tramos rectos entre

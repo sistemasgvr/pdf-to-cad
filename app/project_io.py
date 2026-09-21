@@ -19,6 +19,7 @@ import os
 from model import VERSION
 from geo import georef as georef_mod
 from duct_bank import DuctBank
+from composite import Composite
 
 
 def build_model_dict(win):
@@ -32,6 +33,18 @@ def build_model_dict(win):
         duct_banks=[d.to_dict() for d in getattr(win, "duct_banks", []) or []],
         cross_connections=list(getattr(win, "cross_connections", None) or []),
         georef=win.georef.to_dict(),
+        sheet_layout=getattr(win, "sheet_layout", None),
+        sheet_rotations=getattr(win, "sheet_rotations", {}),
+        sheet_crops=getattr(win, "sheet_crops", {}),
+        sheet_sources=getattr(win, "sheet_sources", []),
+        hidden_ocgs_by_source=getattr(win, "hidden_ocgs_by_source", {}),
+        # Hoja compuesta: piezas, nombres de los PDF de origen (los bytes van en
+        # sources/NNN.pdf del zip), capas ocultas de la hoja de trabajo y su escala.
+        composite=(win.composite.to_dict() if getattr(win, "composite", None) else None),
+        src_names=[e.get("name", "") for e in getattr(win, "src_pdfs", []) or []],
+        hidden_ocgs=list(getattr(win, "hidden_ocgs", []) or []),
+        scale_override=getattr(win, "_scale_override", None),
+        page_idx=getattr(win, "page_idx", 0),
         work_unit=win.work_unit,                 # unidad de trabajo del proyecto
         # Versión/idioma de Civil 3D elegidos en el toolbar: se guardan para
         # reabrir el proyecto con la MISMA selección.
@@ -86,4 +99,14 @@ def parse_model(model):
         work_unit="ft",
         civil_year=model.get("civil_year"),
         civil_lang=model.get("civil_lang"),
+        sheet_layout=model.get("sheet_layout"),
+        sheet_rotations=model.get("sheet_rotations", {}),
+        sheet_crops=model.get("sheet_crops", {}),
+        sheet_sources=model.get("sheet_sources", []),
+        hidden_ocgs_by_source=model.get("hidden_ocgs_by_source", {}),
+        composite=Composite.from_dict(model.get("composite")),   # retrocompat: sin hoja compuesta
+        src_names=list(model.get("src_names") or []),
+        hidden_ocgs=list(model.get("hidden_ocgs") or []),
+        scale_override=model.get("scale_override"),
+        page_idx=model.get("page_idx", 0),
     )

@@ -324,6 +324,13 @@ def _export_structures(win, doc, msp):
             # punto: omitirlo haría que Civil3D caiga al buzón por defecto
             # (visible), no a uno invisible.
             (1000, f"HIDDEN={1 if s.get('hidden') else 0}"),
+            # Geometría real de la bóveda reconocida (vacío si es un buzón manual):
+            # forma, ancho × largo en pies y giro del lado largo (grados, antihorario,
+            # en el sistema del plano). El plugin puede elegir la pieza por medidas.
+            (1000, f"SHAPE={s.get('shape') or ''}"),
+            (1000, f"WIDTH_FT={s.get('width_ft') if s.get('width_ft') else ''}"),
+            (1000, f"LENGTH_FT={s.get('length_ft') if s.get('length_ft') else ''}"),
+            (1000, f"ROT_DEG={s.get('rot_deg') if s.get('rot_deg') is not None and s.get('shape') else ''}"),
         ])
         if show_labels and s.get("cod") and not s.get("hidden"):
             h = LEADER_TEXT_FT * 0.3                 # etiquetas compactas al lado del buzón

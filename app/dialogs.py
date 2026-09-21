@@ -300,13 +300,64 @@ def show_manual(win):
     completa al idioma activo, esa se muestra; si no, se muestra el original en
     español. Añadir un idioma es una entrada más en TRANSLATIONS de i18n.py."""
     html = _tr("""
-    <h2>Manual de usuario — v1.1.0</h2>
+    <h2>Manual de usuario — v1.2.0</h2>
     <p><i>Pipeline PDF → CAD → Civil 3D para redes de utilidad (agua, alcantarillado,
     drenaje, gas, electricidad, telecomunicaciones). Trabaja en unidades imperiales (pies).</i></p>
 
     <h3>1. Abrir el plano</h3>
     <p><b>Archivo → Abrir PDF…</b> (o arrastralo). Cambia de página y ajusta la
     transparencia en la sección <b>Vista y páginas</b>. Rueda = zoom, botón central = pan.</p>
+    <p>Si el PDF es <b>vectorial (bien ploteado)</b>, el asistente abre <b>Componer hoja de
+    trabajo</b>: a la izquierda eliges el PDF y la hoja (puedes <b>agregar otros PDF</b>);
+    en el centro marcas con un rectángulo el área del plano que
+    necesitas (con <b>Imán a líneas</b> los lados saltan a las match lines, marcos y bordes largos, resaltados en celeste) y pulsas <b>Tomar área</b> (o <b>Tomar hoja completa</b>); a la derecha la
+    pieza aparece en la <b>hoja compuesta</b>, donde la arrastras hasta su sitio. Con el
+    <b>Imán</b> activo, al acercar una pieza a otra los extremos de sus líneas se pegan solos
+    (o quedan en línea si dejas un hueco). Los extremos de línea se marcan con un punto en el
+    borde de cada pieza; con <b>Puentes</b> activo, cada extremo se une con un trazo vectorial
+    (en su misma capa, verde en la vista) al que tiene enfrente en la pieza vecina, hasta el
+    <b>hueco máximo</b> indicado: así puedes recortar cada hoja por dentro de su match line, sin
+    la línea divisoria, y la utilidad sigue de una pieza a otra. Con <b>Sin línea de borde</b>
+    (activo por defecto) cada lado del área se lleva solo al centro de la match line o del marco que
+    corra pegado a él y su tinta se tapa con una franja blanca: no se pierde ningún vector y dos hojas
+    contiguas se unen borde con borde, sin hueco ni línea divisoria. Al seleccionar una pieza, el panel «Área a tomar» muestra su hoja y su área
+    para ajustarla; <b>Nueva pieza</b> vuelve a marcar áreas nuevas.
+    Cada pieza se puede girar (90° o ángulo fino) y corregir su <b>escala</b> si el texto de la
+    hoja no la dice; la hoja compuesta usa una escala única y agranda/achica cada pieza para
+    que todo quede coherente en pies. Las piezas conservan sus vectores, capas, textos y
+    medidas: la hoja compuesta es un PDF real de una página y el reconocimiento corre sobre
+    ella de una vez, así una línea que cruza de una hoja a la siguiente sale como una sola
+    ruta. Una sola pieza = hoja completa equivale a trabajar la hoja original (◀ ▶ siguen
+    funcionando). Al continuar se abre <b>Capas de la hoja</b>: las capas del plano agrupadas por
+    utilidad (Agua, Alcantarillado, Drenaje, Gas, Eléctrico, Telefonía y Otras, cada una
+    con su color) con casillas para mostrarlas u ocultarlas, con vista previa en vivo.
+    En el panel <b>Utilidades</b>, desmarcar una utilidad apaga todas sus capas en la
+    hoja y las quita de la lista (al marcarla de nuevo, cada capa vuelve como estaba);
+    <b>Todas</b> actúa sobre el conjunto. El buscador solo filtra la lista y
+    <b>Mostrar/Ocultar todas</b> actúa sobre lo que se ve. Con <b>◀ Hoja N / M ▶</b> puedes cambiar de
+    hoja sin salir (las capas marcadas se conservan). Las capas ocultas no se dibujan en
+    el lienzo ni se usan en el reconocimiento. Al continuar se reconocen las utilidades
+    eléctricas (las capas de líneas y bóvedas se asignan solas por su nombre) y se muestra
+    la <b>vista previa del reconocimiento</b>, con la utilidad, la hoja y las capas usadas.
+    Desde ahí: <b>Continuar e importar</b>, <b>Componer hoja…</b> (compositor → capas
+    → nueva vista previa) o <b>Ajustar capas…</b> (solo si el plot usa otros nombres).
+    Después, al cambiar de hoja en el editor (◀ ▶ o nº de página) la nueva hoja se reconoce
+    con las mismas capas. Las capas de estado <b>-A</b> (abandonadas, linetype ──/── e ──) se
+    reconocen igual, se dibujan del mismo color y se importan marcadas <b>(AB)</b>, como la casilla «Abandonado».
+    Sus marcadores «/» y «//» (dos barras o un solo trazo en zigzag, incluso barras largas)
+    se descartan como glifos. Una línea cuenta como abandonada solo si está en la capa
+    «-A» <b>y</b> lleva ese patrón de marcadores a paso regular en toda su longitud (dos
+    barras sueltas no bastan; los ramales más cortos que el paso siguen a su capa); la
+    vista previa avisa de las excepciones. El contorno de una bóveda abandonada dibujado
+    en esa misma capa se reconoce como bóveda con medidas (etiqueta «(AB)» en la vista previa).
+    La casilla <b>Unir tramos en rutas</b> (activada) encadena los tramos de la misma capa que
+    siguen de frente; el ramal empieza otra ruta. No mueve puntos. Se puede desactivar antes de importar.
+    Los <b>codos</b> del plano (trazo curvo tangente a dos guiones rectos) se importan como esquina
+    + radio: la esquina es la intersección de las rectas de los guiones y el arco, el círculo
+    tangente a ellas que pasa por el trazo curvo. En el lienzo la esquina curva se dibuja con su
+    arco real (puntos de tangencia marcados), el mismo que generará Civil 3D; si va a trazos es
+    que el radio no entra en los tramos y el plugin lo recortará. Una cadena de guiones rectos
+    con quiebres nunca se convierte en curva.</p>
 
     <h3>2. Dibujar una utilidad</h3>
     <p>Acordeón <b>Dibujar utilidad</b> → elige el tipo (agua, alcantarillado, drenaje,

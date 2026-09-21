@@ -22,13 +22,24 @@ primer parpadeo al abrir un diálogo.
 from __future__ import annotations
 
 import os
+import sys
 from functools import lru_cache
 from typing import Optional
 
 from PySide6 import QtCore, QtGui, QtSvg
 
 
-_ICONS_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "icons")
+def _icons_base_dir() -> str:
+    """Carpeta `icons/` junto a este módulo. En el .exe (PyInstaller) los SVG
+    se empacan en `_MEIPASS/icons` vía PDF-a-CAD.spec."""
+    if getattr(sys, "frozen", False) and hasattr(sys, "_MEIPASS"):
+        bundled = os.path.join(sys._MEIPASS, "icons")
+        if os.path.isdir(bundled):
+            return bundled
+    return os.path.join(os.path.dirname(os.path.abspath(__file__)), "icons")
+
+
+_ICONS_DIR = _icons_base_dir()
 _DEFAULT_SIZE = 24     # px del pixmap generado; QIcon se escala a lo que pida el widget
 _MISSING_LOGGED: set = set()
 

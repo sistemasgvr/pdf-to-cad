@@ -114,7 +114,12 @@ def rebuild_structures(pipes, structures):
                          height_ft=o.get("height_ft", 0.0),
                          curve=bool(o.get("curve", False)),
                          radius_ft=o.get("radius_ft", 0.0),
-                         hidden=bool(o.get("hidden", False))); break
+                         hidden=bool(o.get("hidden", False)))
+                # geometría real de la bóveda reconocida (ver attach_vault_geometry)
+                for k in VAULT_GEO_KEYS:
+                    if k in o:
+                        s[k] = o[k]
+                break
     # Códigos únicos: BZ-N gravedad, CAJA-N conduit, CV-N esquina de elemento curvo
     # (curve=True manda sobre el prefijo por red: no es un buzón/caja real).
     used = {s.get("cod", "") for s in world + detected if s.get("cod")}
@@ -133,6 +138,39 @@ def rebuild_structures(pipes, structures):
             while f"CAJA-{cnt_caja}" in used: cnt_caja += 1
             s["cod"] = f"CAJA-{cnt_caja}"; used.add(s["cod"]); cnt_caja += 1
     return world + detected
+
+
+# Tipos de vértice que NO son un acceso físico (vienen del reconocimiento de
+# PDF: quiebre suave, esquina sin bóveda, vértice de arco). El buzón que
+# rebuild_structures crea ahí se oculta: se exporta como "Estructura nula".
+SOFT_VERTEX_KINDS = ("bend", "corner", "curve", "edge")   # "stop" = caja visible donde la línea muere en el buzón
+
+
+def hide_soft_vertex_structures(pipes, structures):
+    """Marca hidden=True en las estructuras detectadas sobre vértices "blandos"
+    de pipes reconocidas (clave `vertex_kinds`, paralela a `pts`). Un vértice
+    compartido con otra pipe donde SÍ es bóveda/T/junction se respeta (visible).
+    Devuelve cuántas estructuras se ocultaron. Muta `structures` en sitio."""
+    tol = _TOL
+    hard, soft = [], []
+    for p in pipes:
+        kinds = p.get("vertex_kinds") or []
+        pts = p.get("pts") or []
+        if len(kinds) != len(pts):
+            hard.extend(pts)            # pipe manual: todos sus vértices son reales
+            continue
+        for pt, k in zip(pts, kinds):
+            (soft if k in SOFT_VERTEX_KINDS else hard).append(pt)
+    n = 0
+    for s in structures:
+        if s.get("world") or s.get("hidden") or s.get("curve"):
+            continue
+        xy = (s.get("x", 0.0), s.get("y", 0.0))
+        near = lambda q: math.hypot(q[0] - xy[0], q[1] - xy[1]) <= tol
+        if any(near(q) for q in soft) and not any(near(q) for q in hard):
+            s["hidden"] = True
+            n += 1
+    return n
 
 
 def interp_vertex_z(pts, z_start, z_end, overrides):
@@ -208,3 +246,120 @@ def bz_segment_count(pipes, s):
             if math.hypot(pt[0] - sx, pt[1] - sy) <= tol:
                 n += 1 if (i == 0 or i == last) else 2
     return n
+
+
+# ─────────────────────────── bóvedas reconocidas ───────────────────────────
+# Campos de geometría real que una estructura puede traer del reconocimiento
+# (contorno del símbolo en el PDF, nada inventado): forma, ancho y largo en
+# pies, giro del lado largo y el contorno en px del lienzo para dibujarlo.
+VAULT_GEO_KEYS = ("shape", "width_ft", "length_ft", "rot_deg", "outline")
+
+
+def attach_vault_geometry(structures, vaults_geo, tol=12.0):
+    """Asocia cada bóveda reconocida (`RecognitionResult.vaults_geo`) a la
+    estructura más cercana a su centro (≤ `tol` px) y le copia forma, medidas
+    y contorno. Las bóvedas sin estructura cerca (huérfanas: ninguna línea las
+    atraviesa) no se inventan como buzón. Devuelve (asignadas, sin_estructura)."""
+    done = 0; missing = 0
+    for vg in vaults_geo or []:
+        cx, cy = vg.get("center", (None, None))
+        if cx is None:
+            continue
+        best = None
+        for s in structures:
+            if s.get("world") or s.get("curve"):
+                continue
+            d = math.hypot(float(s.get("x", 1e9)) - cx, float(s.get("y", 1e9)) - cy)
+            if d <= tol and (best is None or d < best[0]):
+                best = (d, s)
+        if best is None and vg.get("corners"):
+            # Sin CAJA en el centro (las líneas mueren en el borde con «stop», caso
+            # típico de la bóveda abandonada): la más cercana DENTRO del contorno.
+            xs = [x for x, _ in vg["corners"]]; ys = [y for _, y in vg["corners"]]
+            for s in structures:
+                if s.get("world") or s.get("curve"):
+                    continue
+                sx, sy = float(s.get("x", 1e9)), float(s.get("y", 1e9))
+                if min(xs) - 2 <= sx <= max(xs) + 2 and min(ys) - 2 <= sy <= max(ys) + 2:
+                    d = math.hypot(sx - cx, sy - cy)
+                    if best is None or d < best[0]:
+                        best = (d, s)
+        if best is None:
+            missing += 1
+            continue
+        st = best[1]
+        st["shape"] = vg.get("shape", "rect")
+        st["width_ft"] = float(vg.get("width_ft") or 0.0)
+        st["length_ft"] = float(vg.get("length_ft") or 0.0)
+        st["rot_deg"] = float(vg.get("angle_deg") or 0.0)
+        st["outline"] = [(float(x), float(y)) for x, y in (vg.get("corners") or [])] or None
+        st["hidden"] = False                      # una bóveda real siempre se ve
+        done += 1
+    return done, missing
+
+
+def attach_fillets(pipes, structures, tol=1.0):
+    """Marca como esquina de elemento curvo (CV: `curve=True`, `radius_ft`) la
+    estructura del vértice «fillet» de cada pipe reconocida (`pipe["fillets"]`
+    = {índice: radio_ft}). Mismo modelo que el codo manual; el plugin genera la
+    tubería curva tangente con ese radio. Devuelve cuántas marcó."""
+    n = 0
+    for p in pipes:
+        fil = p.get("fillets") or {}
+        pts = p.get("pts") or []
+        for idx, r_ft in fil.items():
+            try:
+                x, y = pts[int(idx)]
+            except (IndexError, ValueError, TypeError):
+                continue
+            for s in structures:
+                if s.get("world"):
+                    continue
+                if math.hypot(float(s.get("x", 1e9)) - x, float(s.get("y", 1e9)) - y) <= tol:
+                    if not s.get("curve") or abs(float(s.get("radius_ft") or 0.0) - float(r_ft)) > 1e-6:
+                        s["curve"] = True
+                        s["radius_ft"] = float(r_ft)
+                        s["hidden"] = False
+                        s["part"] = ""; s["part_size"] = ""
+                        n += 1
+                    break
+    return n
+
+
+def fillet_geo(prev, corner, nxt, r_px, max_frac=0.9, n_arc=32):
+    """Arco tangente REAL de una esquina curva (CV) — el mismo que genera
+    ImportarRed.cs: puntos de tangencia sobre cada recta vecina a
+    T = r·tan(Δ/2) de la esquina (Δ = giro), centro del círculo y los puntos
+    del arco para dibujarlo. Si T no entra en las rectas vecinas se recorta a
+    `max_frac` del tramo más corto y el radio baja en proporción (`clamped`).
+    Devuelve dict {t1, t2, center, r, T, arc: [pts], clamped} o None si la
+    esquina es recta/degenerada."""
+    d1x, d1y = prev[0] - corner[0], prev[1] - corner[1]
+    d2x, d2y = nxt[0] - corner[0], nxt[1] - corner[1]
+    L1 = math.hypot(d1x, d1y); L2 = math.hypot(d2x, d2y)
+    if L1 < 1e-6 or L2 < 1e-6 or not r_px or r_px <= 0:
+        return None
+    d1x, d1y, d2x, d2y = d1x / L1, d1y / L1, d2x / L2, d2y / L2
+    cos_phi = max(-1.0, min(1.0, d1x * d2x + d1y * d2y))
+    phi = math.acos(cos_phi)                       # ángulo interior entre las patas
+    if phi > math.radians(178.0) or phi < math.radians(1.0):
+        return None
+    r = float(r_px)
+    T = r / math.tan(phi / 2.0)
+    clamped = False
+    t_max = min(L1, L2) * max_frac
+    if T > t_max:
+        T = t_max; r = T * math.tan(phi / 2.0); clamped = True
+    t1 = (corner[0] + d1x * T, corner[1] + d1y * T)
+    t2 = (corner[0] + d2x * T, corner[1] + d2y * T)
+    bx, by = d1x + d2x, d1y + d2y
+    bl = math.hypot(bx, by)
+    if bl < 1e-9:
+        return None
+    dist_c = r / math.sin(phi / 2.0)
+    cx, cy = corner[0] + bx / bl * dist_c, corner[1] + by / bl * dist_c
+    a1 = math.atan2(t1[1] - cy, t1[0] - cx); a2 = math.atan2(t2[1] - cy, t2[0] - cx)
+    sweep = (a2 - a1 + 3.0 * math.pi) % (2.0 * math.pi) - math.pi       # camino corto (< 180°)
+    arc = [(cx + r * math.cos(a1 + sweep * k / n_arc), cy + r * math.sin(a1 + sweep * k / n_arc))
+           for k in range(n_arc + 1)]
+    return {"t1": t1, "t2": t2, "center": (cx, cy), "r": r, "T": T, "arc": arc, "clamped": clamped}
