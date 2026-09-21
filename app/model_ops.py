@@ -324,3 +324,42 @@ def attach_fillets(pipes, structures, tol=1.0):
                         n += 1
                     break
     return n
+
+
+def fillet_geo(prev, corner, nxt, r_px, max_frac=0.9, n_arc=32):
+    """Arco tangente REAL de una esquina curva (CV) — el mismo que genera
+    ImportarRed.cs: puntos de tangencia sobre cada recta vecina a
+    T = r·tan(Δ/2) de la esquina (Δ = giro), centro del círculo y los puntos
+    del arco para dibujarlo. Si T no entra en las rectas vecinas se recorta a
+    `max_frac` del tramo más corto y el radio baja en proporción (`clamped`).
+    Devuelve dict {t1, t2, center, r, T, arc: [pts], clamped} o None si la
+    esquina es recta/degenerada."""
+    d1x, d1y = prev[0] - corner[0], prev[1] - corner[1]
+    d2x, d2y = nxt[0] - corner[0], nxt[1] - corner[1]
+    L1 = math.hypot(d1x, d1y); L2 = math.hypot(d2x, d2y)
+    if L1 < 1e-6 or L2 < 1e-6 or not r_px or r_px <= 0:
+        return None
+    d1x, d1y, d2x, d2y = d1x / L1, d1y / L1, d2x / L2, d2y / L2
+    cos_phi = max(-1.0, min(1.0, d1x * d2x + d1y * d2y))
+    phi = math.acos(cos_phi)                       # ángulo interior entre las patas
+    if phi > math.radians(178.0) or phi < math.radians(1.0):
+        return None
+    r = float(r_px)
+    T = r / math.tan(phi / 2.0)
+    clamped = False
+    t_max = min(L1, L2) * max_frac
+    if T > t_max:
+        T = t_max; r = T * math.tan(phi / 2.0); clamped = True
+    t1 = (corner[0] + d1x * T, corner[1] + d1y * T)
+    t2 = (corner[0] + d2x * T, corner[1] + d2y * T)
+    bx, by = d1x + d2x, d1y + d2y
+    bl = math.hypot(bx, by)
+    if bl < 1e-9:
+        return None
+    dist_c = r / math.sin(phi / 2.0)
+    cx, cy = corner[0] + bx / bl * dist_c, corner[1] + by / bl * dist_c
+    a1 = math.atan2(t1[1] - cy, t1[0] - cx); a2 = math.atan2(t2[1] - cy, t2[0] - cx)
+    sweep = (a2 - a1 + 3.0 * math.pi) % (2.0 * math.pi) - math.pi       # camino corto (< 180°)
+    arc = [(cx + r * math.cos(a1 + sweep * k / n_arc), cy + r * math.sin(a1 + sweep * k / n_arc))
+           for k in range(n_arc + 1)]
+    return {"t1": t1, "t2": t2, "center": (cx, cy), "r": r, "T": T, "arc": arc, "clamped": clamped}

@@ -3490,13 +3490,35 @@ class Main(QtWidgets.QMainWindow):
                         dx1, dy1 = px - sx, py - sy; dx2, dy2 = nx - sx, ny - sy
                         L1 = math.sqrt(dx1 * dx1 + dy1 * dy1)
                         L2 = math.sqrt(dx2 * dx2 + dy2 * dy2)
-                        if L1 > 1e-3 and L2 > 1e-3:
+                        # Con radio conocido se dibuja el arco REAL (tangente a las dos
+                        # rectas, mismo cálculo que el plugin): así la curva reconocida del
+                        # PDF cae exactamente sobre el trazo del plano. Sin radio (curva
+                        # manual con radio automático) queda el símbolo de codo.
+                        r_ft = float(s.get("radius_ft") or 0.0)
+                        r_px = (r_ft / self.scale * self.zoom) if (r_ft > 0 and self.scale) else 0.0
+                        geo = model_ops.fillet_geo((px, py), (sx, sy), (nx, ny), r_px) if r_px > 0 else None
+                        arc_col = QtGui.QColor(255, 220, 40) if selected else col
+                        if geo is not None:
+                            path = QtGui.QPainterPath()
+                            path.moveTo(*geo["arc"][0])
+                            for q in geo["arc"][1:]:
+                                path.lineTo(*q)
+                            arc_pen = QtGui.QPen(arc_col, 6.0 if selected else 4.0)
+                            arc_pen.setCosmetic(True); arc_pen.setCapStyle(QtCore.Qt.RoundCap)
+                            if geo["clamped"]:
+                                arc_pen.setStyle(QtCore.Qt.DashLine)     # el radio no entra en las rectas
+                            it = sc.addPath(path, arc_pen); it.setZValue(Z_MARK + 1); self._overlay.append(it)
+                            # puntos de tangencia (extremos reales de los tramos rectos)
+                            for q in (geo["t1"], geo["t2"]):
+                                it = sc.addEllipse(q[0] - 3, q[1] - 3, 6, 6, use_pen, QtGui.QBrush(arc_col))
+                                it.setZValue(Z_MARK + 1); self._overlay.append(it)
+                            drew_arc = True
+                        elif L1 > 1e-3 and L2 > 1e-3:
                             t_len = min(60.0, L1 * 0.45, L2 * 0.45)
                             t1x, t1y = sx + dx1 / L1 * t_len, sy + dy1 / L1 * t_len
                             t2x, t2y = sx + dx2 / L2 * t_len, sy + dy2 / L2 * t_len
                             path = QtGui.QPainterPath()
                             path.moveTo(t1x, t1y); path.quadTo(sx, sy, t2x, t2y)
-                            arc_col = QtGui.QColor(255, 220, 40) if selected else col
                             arc_pen = QtGui.QPen(arc_col, 14.0 if selected else 11.0)
                             arc_pen.setCosmetic(True); arc_pen.setCapStyle(QtCore.Qt.RoundCap)
                             it = sc.addPath(path, arc_pen); it.setZValue(Z_MARK + 1); self._overlay.append(it)

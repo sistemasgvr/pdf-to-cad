@@ -517,6 +517,7 @@ FILLET_DIR_DEG = 8.0           # rumbo del tramo que llega/sale vs. tangente exa
                                # deja el final del arco dentro de la recta: ±0.5 pt → algunos grados en radios chicos)
 FILLET_MIN_TURN_DEG = 8.0      # giro total mínimo para hablar de codo
 FILLET_TANGENT_SLIP_PX = 12.0  # el punto de tangencia exacto puede alejarse hasta esto (pt) del extremo del trazo curvo
+FILLET_TANGENCY_TOL_PT = 1.0   # |distancia(centro, recta) − r| máxima: la recta del plano debe ser TANGENTE al círculo
 SOFT_ARC_KINDS = ("curve", "corner", "bend")
 
 
@@ -599,74 +600,184 @@ def _arc_spans(kinds):
     return spans
 
 
+def _leg_lines(pts, kinds, i_end, step, slip):
+    """Rectas candidatas del tramo RECTO que llega al arco (step=-1, i_end =
+    lo-1) o sale de él (step=+1, i_end = hi+1), en orden de preferencia:
+    [(punto, dirección unitaria hacia el arco, índice del vértice ancla)].
+    Si el vecino del arco es un `bend`/`corner` pegado a él (leg < slip), el
+    tramo vecino→extremo del trazo curvo suele ser el empalme run↔curva o el
+    salto sobre un hueco/letra del linetype, NO tinta recta: se prueba primero
+    la recta del guión anterior (que sí es tinta y pasa por el vecino) y solo
+    si el arco no le es tangente se usa la del empalme. DU06 h.4: con el
+    empalme la tangente salía 4.75° torcida y la esquina 3.7 pt fuera."""
+    v = pts[i_end]; a0 = pts[i_end - step]              # a0 = extremo del trazo curvo
+    u = _unit(a0[0] - v[0], a0[1] - v[1])
+    out = []
+    j = i_end + step
+    if 0 <= j < len(pts) and kinds[i_end] in ("bend", "corner") and math.dist(v, a0) < slip:
+        w = pts[j]
+        u2 = _unit(v[0] - w[0], v[1] - w[1])
+        if u2 != (0.0, 0.0):
+            out.append((w, u2, j))
+    if u != (0.0, 0.0):
+        out.append((v, u, i_end))
+    return out
+
+
+def _fit_circle_tangent(members, C, ua, ub, s0):
+    """Círculo TANGENTE a las dos rectas del codo (centro sobre la bisectriz
+    interior, a distancia s de la esquina C; r = s·sin(φ/2)) que mejor pasa por
+    los vértices del trazo curvo: mínimos cuadrados radiales en 1-D (sección
+    áurea alrededor de s0). Devuelve (cx, cy, r, rms) o None."""
+    bx, by = -ua[0] + ub[0], -ua[1] + ub[1]
+    bl = math.hypot(bx, by)
+    if bl < 1e-9:
+        return None
+    bx, by = bx / bl, by / bl
+    cos_phi = max(-1.0, min(1.0, (-ua[0]) * ub[0] + (-ua[1]) * ub[1]))
+    phi = math.acos(cos_phi)                             # ángulo interior entre las patas
+    sin_h = math.sin(phi / 2.0)
+    if sin_h < 1e-6:
+        return None
+
+    def cost(sv):
+        cx, cy = C[0] + bx * sv, C[1] + by * sv
+        r = sv * sin_h
+        return sum((math.hypot(q[0] - cx, q[1] - cy) - r) ** 2 for q in members), (cx, cy, r)
+    lo, hi = 0.5 * s0, 2.0 * s0
+    g = (math.sqrt(5.0) - 1.0) / 2.0
+    x1 = hi - g * (hi - lo); x2 = lo + g * (hi - lo)
+    f1 = cost(x1)[0]; f2 = cost(x2)[0]
+    for _ in range(60):
+        if f1 > f2:
+            lo, x1, f1 = x1, x2, f2; x2 = lo + g * (hi - lo); f2 = cost(x2)[0]
+        else:
+            hi, x2, f2 = x2, x1, f1; x1 = hi - g * (hi - lo); f1 = cost(x1)[0]
+    sv = (lo + hi) / 2.0
+    ss, (cx, cy, r) = cost(sv)
+    return cx, cy, r, math.sqrt(ss / max(1, len(members)))
+
+
 def fit_fillets(pts, kinds, tol_px: float = 1.0, tan_tol: float = None, debug=None):
-    """Sustituye cada codo por su esquina C (intersección de las tangentes) con
-    kind «fillet», y guarda A/B (puntos de tangencia exactos), centro y radio.
-    Nada se inventa: el arco es EXACTAMENTE un trazo curvo del PDF (vértices
-    `curve` del núcleo + sus extremos, ver `_arc_spans`); se ajusta un círculo
-    a esos puntos y desde los vértices rectos que llegan (P) y salen (N) se
-    trazan las tangentes exactas. Si la curva no es un arco de círculo, o las
-    rectas no le son tangentes (≤ FILLET_DIR_DEG), se deja como polilínea.
-    Devuelve (pts, kinds, fillets)."""
+    """Sustituye cada codo por su esquina C (intersección de las rectas que
+    llegan y salen) con kind «fillet», y guarda A/B (puntos de tangencia),
+    centro y radio. Nada se inventa: el arco es EXACTAMENTE un trazo curvo del
+    PDF (vértices `curve` del núcleo + sus extremos, ver `_arc_spans`), las
+    rectas son las de los guiones del plano (`_leg_line`) y el círculo es el
+    TANGENTE a esas dos rectas que pasa por los vértices del trazo curvo
+    (`_fit_circle_tangent`, RMS ≤ tol). A y B salen de C, las rectas y r
+    (T = r·tan(Δ/2)) — exactamente lo que dibuja el editor y genera el plugin.
+    Si la curva no es un arco de círculo tangente a sus rectas, se deja como
+    polilínea. Devuelve (pts, kinds, fillets)."""
     pts = list(pts); kinds = list(kinds)
     n = len(pts)
     if n < 4:
         return pts, kinds, {}
-    plan = []                                   # (lo, hi, C, A, B, centro, R)
+    slip = FILLET_TANGENT_SLIP_PX * (tol_px / FILLET_FIT_TOL_PT)
+
+    def _try_span(lo, hi, seed):
+        """Codo para el tramo [lo, hi] con la semilla (cx0, cy0, r0) del ajuste
+        libre. Devuelve la entrada del plan o None (con el motivo en `debug`)."""
+        cx0, cy0, r0 = seed
+        members = pts[lo:hi + 1]
+        A0, B0 = pts[lo], pts[hi]
+        chosen = None
+        for (P, ua, ia) in _leg_lines(pts, kinds, lo - 1, -1, slip):
+            for (N, ub_in, ib) in _leg_lines(pts, kinds, hi + 1, +1, slip):
+                ub = (-ub_in[0], -ub_in[1])             # dirección de avance al salir del arco
+                turn = math.degrees(math.acos(max(-1.0, min(1.0, ua[0] * ub[0] + ua[1] * ub[1]))))
+                if turn < FILLET_MIN_TURN_DEG:
+                    if debug is not None: debug.append((lo, hi, 'giro', round(turn, 1)))
+                    continue
+                C = _isect_lines(P, ua, N, ub)
+                if C is None:
+                    continue
+                # círculo tangente a las dos rectas que pasa por el trazo curvo
+                phi = math.pi - math.radians(turn)
+                s0 = r0 / max(1e-6, math.sin(phi / 2.0))
+                fit_t = _fit_circle_tangent(members, C, ua, ub, s0)
+                if fit_t is None:
+                    continue
+                cx, cy, r, rms = fit_t
+                if rms > tol_px or r < 2 * tol_px:
+                    if debug is not None: debug.append((lo, hi, 'recta no tangente al arco', ia, ib, round(rms, 2)))
+                    continue
+                chosen = (P, ua, ia, N, ub, ib, turn, C, cx, cy, r)
+                break
+            if chosen:
+                break
+        if chosen is None:
+            return None
+        P, ua, ia, N, ub, ib, turn, C, cx, cy, r = chosen
+        T = r * math.tan(math.radians(turn) / 2.0)
+        A = (C[0] - ua[0] * T, C[1] - ua[1] * T); B = (C[0] + ub[0] * T, C[1] + ub[1] * T)
+        # el punto de tangencia debe quedar donde la tinta pasa de recta a curva:
+        # cerca del extremo del trazo curvo o del último vértice recto (entre
+        # ambos puede haber un hueco/letra del linetype sin tinta)
+        V0, W0 = pts[lo - 1], pts[hi + 1]
+        if min(math.dist(A, A0), math.dist(A, V0)) > slip or min(math.dist(B, B0), math.dist(B, W0)) > slip:
+            if debug is not None: debug.append((lo, hi, 'tangencia lejos del extremo'))
+            return None
+        # orden: P … A … C … B … N a lo largo de cada recta
+        if (A[0] - P[0]) * ua[0] + (A[1] - P[1]) * ua[1] <= 0 or (N[0] - B[0]) * ub[0] + (N[1] - B[1]) * ub[1] <= 0:
+            if debug is not None: debug.append((lo, hi, 'orden'))
+            return None
+        return (lo, hi, C, A, B, (cx, cy), r, ia, ib)
+
+    plan = []                                   # (lo, hi, C, A, B, centro, R, ia, ib)
     for lo, hi in _arc_spans(kinds):
         if lo <= 0 or hi >= n - 1:
             if debug is not None: debug.append((lo, hi, 'sin recta tangente'))
             continue                            # el arco nace/muere en el extremo: no hay recta tangente
-        members = pts[lo:hi + 1]
-        fit = _fit_circle(members)
+        fit = _fit_circle(pts[lo:hi + 1])       # ajuste libre: solo como semilla y filtro grueso
         if fit is None:
             continue
-        cx, cy, r, rms = fit
-        if rms > tol_px or r < 2 * tol_px:
-            if debug is not None: debug.append((lo, hi, 'no es arco de círculo', round(rms, 2)))
+        cx0, cy0, r0, rms0 = fit
+        if rms0 > tol_px or r0 < 2 * tol_px:
+            if debug is not None: debug.append((lo, hi, 'no es arco de círculo', round(rms0, 2)))
             continue
-        P, N = pts[lo - 1], pts[hi + 1]
-        A0, B0 = pts[lo], pts[hi]
-        ua = _unit(A0[0] - P[0], A0[1] - P[1]); ub = _unit(N[0] - B0[0], N[1] - B0[1])
-        if ua == (0.0, 0.0) or ub == (0.0, 0.0):
-            continue
-        A = _tangent_from(P, (cx, cy), r, A0); B = _tangent_from(N, (cx, cy), r, B0)
-        if A is None or B is None:
-            if debug is not None: debug.append((lo, hi, 'P/N dentro del círculo', round(r, 1)))
-            continue
-        ta = _unit(A[0] - P[0], A[1] - P[1]); tb = _unit(N[0] - B[0], N[1] - B[1])
-        cos_lim = math.cos(math.radians(FILLET_DIR_DEG))
-        if ta[0] * ua[0] + ta[1] * ua[1] < cos_lim or tb[0] * ub[0] + tb[1] * ub[1] < cos_lim:
-            if debug is not None: debug.append((lo, hi, 'rumbo', round(r, 1)))
-            continue
-        # el punto de tangencia exacto debe quedar cerca del extremo real del trazo curvo
-        if math.hypot(A[0] - A0[0], A[1] - A0[1]) > FILLET_TANGENT_SLIP_PX * (tol_px / FILLET_FIT_TOL_PT)                 or math.hypot(B[0] - B0[0], B[1] - B0[1]) > FILLET_TANGENT_SLIP_PX * (tol_px / FILLET_FIT_TOL_PT):
-            if debug is not None: debug.append((lo, hi, 'tangencia lejos del extremo'))
-            continue
-        turn = math.degrees(math.acos(max(-1.0, min(1.0, ta[0] * tb[0] + ta[1] * tb[1]))))
-        if turn < FILLET_MIN_TURN_DEG:
-            if debug is not None: debug.append((lo, hi, 'giro', round(turn, 1)))
-            continue
-        C = _isect_lines(P, ta, N, tb)
-        if C is None:
-            continue
-        if (C[0] - A[0]) * ta[0] + (C[1] - A[1]) * ta[1] <= 0 or (N[0] - B[0]) * tb[0] + (N[1] - B[1]) * tb[1] <= 0                 or (B[0] - C[0]) * tb[0] + (B[1] - C[1]) * tb[1] <= 0:
-            if debug is not None: debug.append((lo, hi, 'orden'))
-            continue
-        plan.append((lo, hi, C, A, B, (cx, cy), r))
+        # Un `bend`/`corner` vecino que está SOBRE el círculo (radial ≤ tol) suele
+        # ser parte del arco, no de la recta: el último guión curvo corto que la
+        # simplificación dejó recto, o el empalme con el guión recto. Se prueba
+        # primero absorbiéndolo (nunca un nodo topológico) y, si así el arco no
+        # cierra (curva compuesta: el vecino es de OTRO arco), con el tramo original.
+        on_circle = lambda q: abs(math.hypot(q[0] - cx0, q[1] - cy0) - r0) <= tol_px
+        lo2, hi2 = lo, hi
+        while lo2 - 1 > 0 and kinds[lo2 - 1] in ("bend", "corner") and on_circle(pts[lo2 - 1]):
+            lo2 -= 1
+        while hi2 + 1 < n - 1 and kinds[hi2 + 1] in ("bend", "corner") and on_circle(pts[hi2 + 1]):
+            hi2 += 1
+        entry = None
+        tried = set()
+        for span in ((lo2, hi2), (lo2, hi), (lo, hi2), (lo, hi)):
+            if span in tried:
+                continue
+            tried.add(span)
+            entry = _try_span(span[0], span[1], (cx0, cy0, r0))
+            if entry is not None:
+                break
+        if entry is not None:
+            plan.append(entry)
     if not plan:
         return pts, kinds, {}
     out_pts, out_kinds, fillets = [], [], {}
     plan.sort()
+    # Los `bend` de empalme que quedaron DENTRO de la recta (ia < lo-1 o ib > hi+1)
+    # se absorben: la recta ya pasa por el vértice anterior/siguiente.
+    skip = set()
+    for lo, hi, C, A, B, ctr, r, ia, ib in plan:
+        skip.update(range(ia + 1, lo)); skip.update(range(hi + 1, ib))
     k = 0; q = 0
     while k < n:
         if q < len(plan) and k == plan[q][0]:
-            lo, hi, C, A, B, ctr, r = plan[q]
+            lo, hi, C, A, B, ctr, r, ia, ib = plan[q]
             out_pts.append(C); out_kinds.append("fillet")
             fillets[len(out_pts) - 1] = {"a": A, "b": B, "center": ctr, "r_px": r}
             k = hi + 1; q += 1
             continue
-        out_pts.append(pts[k]); out_kinds.append(kinds[k]); k += 1
+        if k not in skip:
+            out_pts.append(pts[k]); out_kinds.append(kinds[k])
+        k += 1
     return out_pts, out_kinds, fillets
 
 

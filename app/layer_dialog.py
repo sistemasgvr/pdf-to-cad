@@ -7,8 +7,10 @@ Derecha:
     (las capas marcadas se conservan: la visibilidad es del documento);
   · panel «Utilidades» (Agua, Alcantarillado, Drenaje, Gas, Eléctrico,
     Telefonía, Otras — las mismas que el desplegable «Tipo de utilidad» de la
-    app, cada una con su color): son FILTROS de la lista, no encienden ni
-    apagan capas;
+    app, cada una con su color): cada casilla enciende/apaga TODAS las capas
+    de esa utilidad en la hoja y filtra la lista (al desmarcar Agua, el agua
+    desaparece del plano y de la lista; al volver a marcarla, cada capa
+    recupera el estado que tenía);
   · la lista de capas OCG agrupada por utilidad (cabecera de color por grupo),
     con conteo de trazos en esa hoja y casilla para mostrar/ocultar.
 Cada cambio de casilla re-renderiza la hoja en vivo.
@@ -69,6 +71,8 @@ class SheetLayersDialog(QtWidgets.QDialog):
         self._layers = layers if layers is not None else pdf_layers.page_layers(doc, page_index)
         self._pix_item = None
         self._util_checks: dict[str, QtWidgets.QCheckBox] = {}
+        # estado por capa de una utilidad apagada, para reponerlo al encenderla
+        self._util_memory: dict[str, dict[str, bool]] = {}
 
         self.setWindowFlags(
             self.windowFlags()
@@ -124,11 +128,12 @@ class SheetLayersDialog(QtWidgets.QDialog):
 
         intro = QtWidgets.QLabel(_tr(
             "Marca las capas que quieres ver. Las capas ocultas no se dibujan "
-            "en el lienzo ni se usan en el reconocimiento."))
+            "en el lienzo ni se usan en el reconocimiento. Una utilidad desmarcada "
+            "apaga todas sus capas en la hoja."))
         intro.setWordWrap(True)
         panel.addWidget(intro)
 
-        # ── filtro por utilidad (solo filtra la lista) ──
+        # ── utilidades: encienden/apagan sus capas en la hoja y filtran la lista ──
         grp = QtWidgets.QGroupBox(_tr("Utilidades"))
         gl = QtWidgets.QGridLayout(grp)
         gl.setHorizontalSpacing(14)
@@ -142,7 +147,7 @@ class SheetLayersDialog(QtWidgets.QDialog):
             cb = QtWidgets.QCheckBox(_tr(label))
             cb.setIcon(swatch_icon(utility_qcolor(key)))
             cb.setChecked(True)
-            cb.toggled.connect(self._on_utility_toggled)
+            cb.toggled.connect(lambda on, k=key: self._on_utility_toggled(k, on))
             self._util_checks[key] = cb
             gl.addWidget(cb, 1 + k // 2, k % 2)
         panel.addWidget(grp)
@@ -287,17 +292,43 @@ class SheetLayersDialog(QtWidgets.QDialog):
 
     # ── filtro (utilidades + búsqueda) ──────────────────────────────────────
     def _on_all_toggled(self, on: bool):
-        for cb in self._util_checks.values():
-            cb.blockSignals(True); cb.setChecked(on); cb.blockSignals(False)
+        for key, cb in self._util_checks.items():
+            if cb.isChecked() != on:
+                cb.blockSignals(True); cb.setChecked(on); cb.blockSignals(False)
+                if cb.isEnabled():
+                    self._set_utility_visible(key, on)
         self._apply_filter()
+        self._update_count()
+        self._timer.start()
 
-    def _on_utility_toggled(self, _on: bool):
+    def _on_utility_toggled(self, key: str, on: bool):
+        self._set_utility_visible(key, on)
         # «Todas» refleja el estado conjunto sin disparar su propio handler.
         enabled = [cb for cb in self._util_checks.values() if cb.isEnabled()]
         self.chk_all.blockSignals(True)
         self.chk_all.setChecked(all(cb.isChecked() for cb in enabled))
         self.chk_all.blockSignals(False)
         self._apply_filter()
+        self._update_count()
+        self._timer.start()
+
+    def _set_utility_visible(self, key: str, on: bool):
+        """Apaga (o repone) en la hoja todas las capas de la utilidad `key`.
+        Al apagar se recuerda el estado de cada capa; al encender se repone
+        (una capa que ya estaba oculta a mano sigue oculta)."""
+        items = [it for it in self._layer_items() if it.data(_ROLE_UTILITY) == key]
+        self.lst.blockSignals(True)
+        if not on:
+            self._util_memory[key] = {it.data(_ROLE_NAME): it.checkState() == QtCore.Qt.Checked
+                                      for it in items}
+            for it in items:
+                it.setCheckState(QtCore.Qt.Unchecked)
+        else:
+            mem = self._util_memory.pop(key, {})
+            for it in items:
+                it.setCheckState(QtCore.Qt.Checked if mem.get(it.data(_ROLE_NAME), True)
+                                 else QtCore.Qt.Unchecked)
+        self.lst.blockSignals(False)
 
     def _apply_filter(self, _text=None):
         q = (self.search.text() or "").strip().upper()

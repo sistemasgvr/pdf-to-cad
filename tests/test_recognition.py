@@ -386,3 +386,137 @@ def test_marker_pattern_puro_espaciado_irregular_no_es_patron():
     assert G.marker_pattern([pl], regular[:3]).verdict == [False]
     # irregular: no hay paso
     assert G.marker_pattern([pl], [G.Glyph(x, 0.0, 7.5) for x in (30, 100, 250, 520)]).period is None
+
+
+# ─────────────── codos: el arco es EXACTAMENTE el trazo curvo del PDF ───────────────
+def _layer_ink(page, ocg_suffix, n=4):
+    """(curvas, guiones) de la capa en pt. Curvas = trazos de ≥3 items «l» (arcos
+    aplanados por el plot) o Béziers, muestreados; guiones = trazos de un solo
+    «l» (la línea recta del linetype) como segmentos (a, b)."""
+    curves, dashes = [], []
+    for d in page.get_drawings(extended=True):
+        if d.get("type") not in ("s", "fs") or not str(d.get("layer") or "").endswith(ocg_suffix):
+            continue
+        items = d.get("items") or []
+        if len(items) == 1 and items[0][0] == "l":
+            dashes.append(((items[0][1].x, items[0][1].y), (items[0][2].x, items[0][2].y)))
+            continue
+        if len(items) < 3 and not any(it[0] == "c" for it in items):
+            continue
+        rc = d.get("rect")
+        if rc is not None and max(rc.width, rc.height) <= 12.0:      # letra «e» del linetype, no curva
+            continue
+        for it in items:
+            if it[0] == "l":
+                p0, p1 = it[1], it[2]
+                curves += [(p0.x + (p1.x - p0.x) * k / n, p0.y + (p1.y - p0.y) * k / n) for k in range(n + 1)]
+            elif it[0] == "c":
+                p0, p1, p2, p3 = it[1], it[2], it[3], it[4]
+                for k in range(3 * n + 1):
+                    t = k / (3 * n); u = 1 - t
+                    curves.append((u**3 * p0.x + 3*u*u*t * p1.x + 3*u*t*t * p2.x + t**3 * p3.x,
+                                   u**3 * p0.y + 3*u*u*t * p1.y + 3*u*t*t * p2.y + t**3 * p3.y))
+    return curves, dashes
+
+
+def _on_dash_line(pt, direction, dashes, reach=30.0, ang_tol_deg=1.0, off_tol=0.5):
+    """¿Hay un guión de la capa a ≤`reach` pt cuyo rumbo coincide con `direction`
+    y cuya RECTA pasa a ≤`off_tol` pt de `pt`? (la tangente es la línea del plano)"""
+    ux, uy = direction
+    for a, b in dashes:
+        dx, dy = b[0] - a[0], b[1] - a[1]; L = math.hypot(dx, dy)
+        if L < 1e-6:
+            continue
+        dx, dy = dx / L, dy / L
+        if abs(dx * ux + dy * uy) < math.cos(math.radians(ang_tol_deg)):
+            continue
+        if min(math.dist(pt, a), math.dist(pt, b)) > reach:
+            continue
+        if abs((pt[0] - a[0]) * dy - (pt[1] - a[1]) * dx) <= off_tol:
+            return True
+    return False
+
+
+def _audit_fillets(page_index, n_expected, strict_tangents):
+    """Auditoría «no inventar» de los codos de una hoja: donde el PDF tiene tinta
+    curva, el arco reconocido (A→B sobre el círculo) la cubre en ≥70 % de su
+    largo (el resto: letras «e» y huecos del linetype) y TODA la tinta curva del
+    sector está sobre el círculo (desvío radial ≤1 pt); con `strict_tangents`
+    (patas = guiones rectos) cada tangente A/B está sobre la RECTA de un guión
+    de la capa (≤0.5 pt, mismo rumbo ±1°); y el arco que dibuja el editor /
+    genera el plugin (esquina + radio en pies) es el mismo arco."""
+    import fitz
+    import model_ops
+    Z = 2.0
+    res = rec.recognize_page(PDF, page_index, zoom=Z)
+    page = fitz.open(str(PDF))[page_index]
+    curves, dashes = _layer_ink(page, "C-ELEC-UNGD-E")
+    assert curves and dashes
+    fil = [(pl, i, f) for pl in res.drawable for i, f in (pl.fillets or {}).items()]
+    assert len(fil) == n_expected
+    pipes = rec.pipes_from_recognition(res, layer="ELECTRICO", zoom=Z)
+    by_pl = {id(pl): p for pl, p in zip(res.drawable, pipes)}
+    for pl, i, f in fil:
+        cx, cy = f["center"]; r = f["r_px"]
+        a0 = math.atan2(f["a"][1] - cy, f["a"][0] - cx); a1 = math.atan2(f["b"][1] - cy, f["b"][0] - cx)
+        sweep = (a1 - a0 + 3 * math.pi) % (2 * math.pi) - math.pi
+        assert abs(math.degrees(sweep)) >= 8
+        dev = []
+        for k in range(41):
+            ang = a0 + sweep * k / 40
+            x, y = (cx + r * math.cos(ang)) / Z, (cy + r * math.sin(ang)) / Z     # px → pt (hoja sin /Rotate)
+            dev.append(min(math.hypot(x - sx, y - sy) for sx, sy in curves))
+        assert sum(1 for d in dev if d <= 3.0) >= 0.7 * len(dev), dev
+        C_pt, r_pt = (cx / Z, cy / Z), r / Z
+        lo, hi = sorted((a0, a0 + sweep))
+        arc_pts = [((cx + r * math.cos(a0 + sweep * k / 40)) / Z, (cy + r * math.sin(a0 + sweep * k / 40)) / Z)
+                   for k in range(41)]
+        # tinta de OTRA ruta pegada (líneas paralelas a pocos pt) no cuenta:
+        # cada punto de tinta se asigna a la polilínea más cercana
+        others = [[(x / Z, y / Z) for x, y in q.pts_pdf] for q in res.drawable if q is not pl]
+        def _seg_d(q, a, b):
+            vx, vy = b[0] - a[0], b[1] - a[1]; L2 = vx * vx + vy * vy
+            t = 0.0 if L2 < 1e-12 else max(0.0, min(1.0, ((q[0] - a[0]) * vx + (q[1] - a[1]) * vy) / L2))
+            return math.hypot(q[0] - a[0] - vx * t, q[1] - a[1] - vy * t)
+        radial = []
+        for sx, sy in curves:
+            ang = math.atan2(sy - C_pt[1], sx - C_pt[0])
+            ang = ang if lo <= ang <= hi else (ang + 2 * math.pi if ang + 2 * math.pi <= hi else ang - 2 * math.pi)
+            if not (lo <= ang <= hi) or abs(math.dist((sx, sy), C_pt) - r_pt) > 3.0:
+                continue
+            d_arc = min(math.dist((sx, sy), q) for q in arc_pts)
+            d_other = min((_seg_d((sx, sy), a, b) for o in others for a, b in zip(o, o[1:])), default=1e9)
+            if d_other < d_arc:
+                continue
+            radial.append(abs(math.dist((sx, sy), C_pt) - r_pt))
+        assert len(radial) >= 20 and max(radial) <= 1.0, (len(radial), max(radial) if radial else None)
+        P, N = pl.pts_pdf[i - 1], pl.pts_pdf[i + 1]
+        A, B = (f["a"][0] / Z, f["a"][1] / Z), (f["b"][0] / Z, f["b"][1] / Z)
+        ta = (P[0] - f["a"][0], P[1] - f["a"][1]); la = math.hypot(*ta); ta = (ta[0] / la, ta[1] / la)
+        tb = (N[0] - f["b"][0], N[1] - f["b"][1]); lb = math.hypot(*tb); tb = (tb[0] / lb, tb[1] / lb)
+        if strict_tangents:
+            assert _on_dash_line(A, ta, dashes), (A, ta)
+            assert _on_dash_line(B, tb, dashes), (B, tb)
+        p = by_pl[id(pl)]
+        r_px = p["fillets"][i] / res.scale_ft_per_pt * Z
+        # (max_frac=1: la tangencia siempre cabe en las rectas; el margen del 10 %
+        # del plugin/editor solo recorta el radio en patas muy justas)
+        geo = model_ops.fillet_geo(p["pts"][i - 1], p["pts"][i], p["pts"][i + 1], r_px, max_frac=1.0)
+        assert geo and not geo["clamped"]
+        assert math.dist(geo["t1"], f["a"]) < 0.05 and math.dist(geo["t2"], f["b"]) < 0.05
+        assert math.dist(geo["center"], f["center"]) < 0.05
+
+
+@pytest.mark.skipif(not PDF.is_file(), reason="PDF de prueba DU06 no está en el repo")
+def test_hoja4_arcos_de_codo_caen_sobre_los_trazos_curvos_del_pdf():
+    """Hoja 4: cuatro codos entre guiones rectos (vertical/horizontal/diagonal):
+    tangentes EXACTAS sobre los guiones. Antes: el empalme run↔curva torcía la
+    tangente 4.75° y dejaba la esquina 3.7 pt fuera (lo vio el usuario)."""
+    _audit_fillets(3, 4, strict_tangents=True)
+
+
+@pytest.mark.skipif(not PDF.is_file(), reason="PDF de prueba DU06 no está en el repo")
+def test_hoja3_arcos_de_curva_compuesta_sobre_la_tinta():
+    """Hoja 3: curva larga compuesta (arcos encadenados con patas cortas): cada
+    arco sigue sobre la tinta curva del PDF (radial ≤1 pt)."""
+    _audit_fillets(2, 4, strict_tangents=False)

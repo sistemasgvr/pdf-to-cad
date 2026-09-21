@@ -370,3 +370,149 @@ def test_quiebres_rectos_no_se_convierten_en_curva(app):
     res = recognition.recognize_page(None, 0, doc=doc, zoom=2.0)
     assert not any(pl.fillets for pl in res.drawable)
     assert not any("curve" in pl.kinds for pl in res.drawable)
+
+
+def _glyph_e(page, cx, cy, ocg, size=4.5):
+    """Letra «e» del linetype (glifo SHX de 10 segmentos) centrada en (cx, cy)."""
+    r = size / 2
+    pts = [(cx - r, cy), (cx + r, cy), (cx + r, cy - r * 0.6), (cx + r * 0.4, cy - r), (cx - r * 0.4, cy - r),
+           (cx - r, cy - r * 0.5), (cx - r, cy + r * 0.5), (cx - r * 0.4, cy + r), (cx + r * 0.4, cy + r), (cx + r, cy + r * 0.6)]
+    page.draw_polyline(pts, color=(0, 0, 0), oc=ocg)
+
+
+def _linetype(page, a, b, ocg, phase=0.0):
+    """Línea con el linetype explotado del plano (como `Sheet.dashed` de
+    test_recognition_geom): guión largo, hueco, guión corto, letra «e», guión
+    corto, hueco. `phase` = pt del periodo ya consumidos al empezar (así el
+    tramo que llega a un codo puede terminar en cualquier parte del periodo)."""
+    ax, ay = a; bx, by = b
+    L = math.hypot(bx - ax, by - ay); ux, uy = (bx - ax) / L, (by - ay) / L
+    P = lambda t: (ax + ux * t, ay + uy * t)
+    period = [("d", 22.0), ("g", 5.0), ("d", 7.0), ("e", 10.0), ("d", 7.0), ("g", 5.0)]
+    t = -phase
+    while t < L:
+        for kind, ln in period:
+            t0, t1 = max(0.0, t), min(L, t + ln)
+            if kind == "d" and t1 - t0 > 0.5:
+                page.draw_line(P(t0), P(t1), color=(0, 0, 0), oc=ocg)
+            elif kind == "e" and t1 - t0 >= ln - 1e-6:
+                cx, cy = P((t0 + t1) / 2)
+                _glyph_e(page, cx, cy, ocg)
+            t = t + ln
+            if t >= L:
+                break
+
+
+def _elbow_doc(gap_before=0.0, gap_after=0.0, arc_dashed=False, R=60.0, C=(400.0, 300.0), turn=90,
+               dash=21.6, gap=3.6):
+    """Recta horizontal → arco de `turn`° (R) → recta que sale, como lo plotea el
+    linetype (guiones de `dash` pt con huecos de `gap`): la recta termina
+    `gap_before` pt ANTES del punto de tangencia y la siguiente empieza
+    `gap_after` después (un hueco ≥ 8 pt lleva la letra «e» del linetype en
+    medio, como en el plano); el arco es un trazo aplanado continuo o va
+    también a guiones (curvos) del mismo largo."""
+    import math as _m
+    doc = fitz.open(); ocg = doc.add_ocg("C-ELEC-UNGD-E", on=True)
+    page = doc.new_page(width=800, height=600)
+    T = R * _m.tan(_m.radians(turn) / 2.0)
+    A = (C[0] - T, C[1]); O = (A[0], A[1] + R)
+    _linetype(page, (100, C[1]), (A[0] - gap_before, C[1]), ocg)
+    if gap_before >= 8:
+        _glyph_e(page, A[0] - gap_before / 2, C[1], ocg)
+    step = 1.0
+    pts = [(O[0] + R * _m.cos(_m.radians(-90 + t)), O[1] + R * _m.sin(_m.radians(-90 + t)))
+           for t in [k * step for k in range(int(turn / step) + 1)]]
+    if arc_dashed:
+        per_dash = max(2, int(round(dash / (R * _m.radians(step)))))     # vértices por guión curvo
+        per_gap = max(1, int(round(gap / (R * _m.radians(step)))))
+        k = 0
+        while k < len(pts) - 1:
+            piece = pts[k:k + per_dash + 1]
+            if len(piece) >= 2:
+                page.draw_polyline(piece, color=(0, 0, 0), oc=ocg)
+            k += per_dash + per_gap
+    else:
+        page.draw_polyline(pts, color=(0, 0, 0), oc=ocg)
+    B = pts[-1]
+    ub = (_m.cos(_m.radians(turn)), _m.sin(_m.radians(turn)))
+    N = (B[0] + ub[0] * 250, B[1] + ub[1] * 250)
+    _linetype(page, (B[0] + ub[0] * gap_after, B[1] + ub[1] * gap_after), N, ocg)
+    if gap_after >= 8:
+        _glyph_e(page, B[0] + ub[0] * gap_after / 2, B[1] + ub[1] * gap_after / 2, ocg)
+    page.insert_text((30, 580), "SCALE: 1\"=20'", fontsize=8)
+    return doc, A, B, C, R, ub
+
+
+def _fillet_check(res, A, B, C, R, ub, tol_pt=0.3, tol_deg=0.2):
+    import math as _m
+    fil = [(pl, i, f) for pl in res.drawable for i, f in pl.fillets.items()]
+    assert len(fil) == 1, [pl.kinds for pl in res.drawable]
+    pl, i, f = fil[0]
+    Z = 2.0
+    cx, cy = pl.pts_pdf[i]
+    assert _m.dist((cx / Z, cy / Z), C) <= tol_pt, ((cx / Z, cy / Z), C)          # esquina exacta
+    # el radio de un arco corto es mal condicionado (sagita chica): lo que debe
+    # ser exacto es la POSICIÓN del arco → error radial máximo Δr·(1−cos(giro/2)) ≤ 0.5 pt
+    turn = _m.degrees(_m.atan2(ub[1], ub[0]))
+    assert abs(f["r_px"] / Z - R) * (1 - _m.cos(_m.radians(turn) / 2)) <= 0.5, f["r_px"] / Z
+    # A y B se derivan del radio (T = r·tan(giro/2)): heredan su incertidumbre
+    tol_ab = tol_pt + abs(f["r_px"] / Z - R) * _m.tan(_m.radians(turn) / 2)
+    assert _m.dist((f["a"][0] / Z, f["a"][1] / Z), A) <= tol_ab and _m.dist((f["b"][0] / Z, f["b"][1] / Z), B) <= tol_ab
+    P, N = pl.pts_pdf[i - 1], pl.pts_pdf[i + 1]
+    ang_in = _m.degrees(_m.atan2(cy - P[1], cx - P[0]))                           # recta que llega: horizontal
+    ang_out = _m.degrees(_m.atan2(N[1] - cy, N[0] - cx))
+    assert abs(ang_in) <= tol_deg, ang_in
+    assert abs(ang_out - _m.degrees(_m.atan2(ub[1], ub[0]))) <= tol_deg, ang_out
+
+
+@pytest.mark.parametrize("gap_before,gap_after", [(0.0, 0.0), (4.0, 4.0), (10.0, 3.0), (3.0, 10.0)])
+def test_codo_con_hueco_o_letra_antes_del_arco_tangente_exacta(app, gap_before, gap_after):
+    """La recta del linetype termina unos pt antes del arco (hueco / letra «e»):
+    la esquina y las tangentes salen de las RECTAS de los guiones (no del salto
+    hasta el trazo curvo), como en el DU06 hoja 4."""
+    doc, A, B, C, R, ub = _elbow_doc(gap_before, gap_after)
+    res = recognition.recognize_page(None, 0, doc=doc, zoom=2.0)
+    _fillet_check(res, A, B, C, R, ub)
+
+
+@pytest.mark.parametrize("turn", [30, 60, 120])
+def test_codo_con_otros_giros_y_arco_a_guiones(app, turn):
+    doc, A, B, C, R, ub = _elbow_doc(4.0, 4.0, arc_dashed=True, R=80.0, turn=turn)
+    res = recognition.recognize_page(None, 0, doc=doc, zoom=2.0)
+    _fillet_check(res, A, B, C, R, ub, tol_pt=0.5)
+
+
+def test_curva_compuesta_no_se_funde_en_un_solo_circulo(app):
+    """Dos arcos encadenados de radios distintos (60 y 120 pt, tangentes entre
+    sí) NO se representan con un solo círculo: lo que salga como codo tiene
+    que estar sobre la tinta (≤1 pt) — si no cabe, se queda como polilínea."""
+    import math as _m
+    doc = fitz.open(); ocg = doc.add_ocg("C-ELEC-UNGD-E", on=True)
+    page = doc.new_page(width=900, height=700)
+    R1, R2 = 60.0, 120.0
+    A = (300.0, 300.0); O1 = (A[0], A[1] + R1)
+    p1 = [(O1[0] + R1 * _m.cos(_m.radians(-90 + t)), O1[1] + R1 * _m.sin(_m.radians(-90 + t))) for t in range(0, 46, 3)]
+    M = p1[-1]                                           # tangente común a 45°
+    O2 = (M[0] + (O1[0] - M[0]) / R1 * R2, M[1] + (O1[1] - M[1]) / R1 * R2)
+    p2 = [(O2[0] + R2 * _m.cos(_m.radians(-45 + t)), O2[1] + R2 * _m.sin(_m.radians(-45 + t))) for t in range(0, 46, 3)]
+    B = p2[-1]
+    _dashed(page, (60, 300), (A[0] - 4, 300), ocg, dash=21.6, gap=3.6)
+    page.draw_polyline(p1, color=(0, 0, 0), oc=ocg)
+    page.draw_polyline(p2, color=(0, 0, 0), oc=ocg)
+    _dashed(page, (B[0], B[1] + 4), (B[0], B[1] + 250), ocg, dash=21.6, gap=3.6)
+    page.insert_text((30, 680), 'SCALE: 1"=20\'', fontsize=8)
+    res = recognition.recognize_page(None, 0, doc=doc, zoom=2.0)
+    ink = list(zip(p1, p1[1:])) + list(zip(p2, p2[1:]))
+    def _seg_d(q, a, b):
+        vx, vy = b[0] - a[0], b[1] - a[1]; L2 = vx * vx + vy * vy
+        t = max(0.0, min(1.0, ((q[0] - a[0]) * vx + (q[1] - a[1]) * vy) / L2))
+        return _m.hypot(q[0] - a[0] - vx * t, q[1] - a[1] - vy * t)
+    for pl in res.drawable:
+        for i, f in pl.fillets.items():
+            cx, cy, r = f["center"][0] / 2, f["center"][1] / 2, f["r_px"] / 2
+            a0 = _m.atan2(f["a"][1] / 2 - cy, f["a"][0] / 2 - cx); a1 = _m.atan2(f["b"][1] / 2 - cy, f["b"][0] / 2 - cx)
+            sw = (a1 - a0 + 3 * _m.pi) % (2 * _m.pi) - _m.pi
+            for k in range(21):
+                q = (cx + r * _m.cos(a0 + sw * k / 20), cy + r * _m.sin(a0 + sw * k / 20))
+                assert min(_seg_d(q, a, b) for a, b in ink) <= 1.0, (q, r)
+            assert abs(r - R1) <= 1.0 or abs(r - R2) <= 1.0, r         # radio de UNO de los dos arcos reales

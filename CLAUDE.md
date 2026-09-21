@@ -38,14 +38,35 @@ alcantarillado, drenaje, gas, eléctrico, telecom). Todo en **unidades imperiale
     `_arc_spans` = ristra de vértices `curve` (interiores del trazo) + sus dos
     vecinos (extremos reales del trazo), encadenando `curve, nodo, curve`; NUNCA
     quiebres `corner`/`bend` sueltos — una cadena de guiones rectos es esquinas,
-    el usuario lo exigió tras un falso codo) sobre UN círculo (Kåsa, RMS ≤1
-    pt·zoom) + tangentes EXACTAS desde P y N (`_tangent_from`, rumbo ≤8° del
-    tramo que llega, tangencia a ≤12 pt del extremo del trazo) → vértice `fillet`
-    = esquina C, `RecognizedPolyline.fillets[idx] = {a, b, center, r_px}`. `pipes_from_recognition(zoom=)` pone
+    el usuario lo exigió tras un falso codo). **Geometría (auditoría 2026-09-21,
+    tras un codo con la esquina 3.7 pt fuera y la tangente 4.75° torcida en DU06
+    h.4)**: el ajuste libre (Kåsa, RMS ≤1 pt·zoom) es solo semilla/filtro; un
+    `bend`/`corner` vecino que cae SOBRE ese círculo se absorbe al arco (es el
+    último guión curvo que la simplificación dejó recto o el empalme run↔curva),
+    con fallback al tramo original si así no cierra (curva compuesta); las
+    rectas son las de los GUIONES (`_leg_lines`: si el vecino es bend/corner
+    pegado al arco, < `FILLET_TANGENT_SLIP_PX`, se prueba primero la recta del
+    guión anterior — el salto hasta el trazo curvo suele ser hueco/letra, no
+    tinta); el círculo final es el TANGENTE a esas dos rectas que mejor pasa por
+    los vértices del trazo (`_fit_circle_tangent`, 1-D sobre la bisectriz, RMS
+    ≤ tol) y A/B salen de C + rectas + r (T = r·tan(Δ/2)), a ≤ slip del extremo
+    del trazo curvo O del último vértice recto (entre ambos puede haber un
+    hueco). Así lo que dibuja el editor (`model_ops.fillet_geo`, arco REAL con
+    puntos de tangencia; antes era un quadTo simbólico de 40 px que el usuario
+    leyó como «curva mal aplicada») y lo que genera el plugin (mismo T; ojo:
+    recorta a 0.9·pata y baja el radio si no entra → el editor lo pinta a
+    trazos) es exactamente el arco del PDF → vértice `fillet` = esquina C,
+    `RecognizedPolyline.fillets[idx] = {a, b, center, r_px}`. `pipes_from_recognition(zoom=)` pone
     `pipe["fillets"] = {idx: radio_ft}` y `model_ops.attach_fillets` marca la CAJA
     de ese vértice como CV (`curve=True, radius_ft`) → `PDFCAD_CURVE`, igual que el
-    codo manual. DU06 h.4: 3 codos (12–14 ft); curvas suaves (giro <8°) o que nacen
-    en un tee/bóveda sin recta tangente quedan como polilínea) y `_vaults_geometry` (geometría
+    codo manual. DU06 h.4: 4 codos (10–15 ft), h.3: 4 (curva compuesta, 14–29 ft),
+    h.10: 1. Auditoría «no inventar» en `tests/test_recognition.py::_audit_fillets`
+    (tinta curva del sector sobre el círculo ≤1 pt, tangentes sobre la recta de
+    un guión ≤0.5 pt/±1° en h.4, editor = reconocimiento) y escenarios sintéticos
+    en `tests/test_composite_dialog.py` (`_elbow_doc`: huecos/letra antes del
+    arco, giros 30/60/120, arco a guiones, curva compuesta de dos radios). Curvas
+    suaves (giro <8°) o que nacen en un tee/bóveda sin recta tangente quedan
+    como polilínea) y `_vaults_geometry` (geometría
     real de bóvedas, `VAULT_MIN_FT`=2: cajas de paso/postes no cuentan).
   - `recognition_geom.py` — **núcleo geométrico PURO** (sin Qt ni fitz): en el
     PDF la utilidad viene como linetype "explotado" (guiones + letras «e» +
@@ -204,7 +225,10 @@ alcantarillado, drenaje, gas, eléctrico, telecom). Todo en **unidades imperiale
     abre su propio doc, por eso recibe `hidden_ocgs` y filtra por nombre.
     `pdf_layers.utility_of(name)` agrupa cada capa por tokens NCS en las
     utilidades de la app (`model.TIPOS` + `OTRAS`); el diálogo las lista
-    agrupadas con su color, el panel «Utilidades» solo FILTRA la lista, y
+    agrupadas con su color, cada casilla del panel «Utilidades» APAGA/enciende
+    todas las capas de esa utilidad en la hoja y filtra la lista (`_set_utility_visible`
+    recuerda el estado por capa en `_util_memory` para reponerlo; el buscador solo
+    filtra), y
     «◀ Hoja N / M ▶» cambia de hoja sin salir. Devuelve `(ocultas, hoja)`.
     En `Main`, `_start_recognition(idx)` lanza el worker con
     `self.hidden_ocgs` + `self._layer_roles` (None = automático); `_change_page`

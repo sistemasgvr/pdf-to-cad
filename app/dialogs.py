@@ -331,8 +331,10 @@ def show_manual(win):
     funcionando). Al continuar se abre <b>Capas de la hoja</b>: las capas del plano agrupadas por
     utilidad (Agua, Alcantarillado, Drenaje, Gas, Eléctrico, Telefonía y Otras, cada una
     con su color) con casillas para mostrarlas u ocultarlas, con vista previa en vivo.
-    El panel <b>Utilidades</b> filtra la lista (o <b>Todas</b>) y se combina con el
-    buscador y <b>Mostrar/Ocultar todas</b>. Con <b>◀ Hoja N / M ▶</b> puedes cambiar de
+    En el panel <b>Utilidades</b>, desmarcar una utilidad apaga todas sus capas en la
+    hoja y las quita de la lista (al marcarla de nuevo, cada capa vuelve como estaba);
+    <b>Todas</b> actúa sobre el conjunto. El buscador solo filtra la lista y
+    <b>Mostrar/Ocultar todas</b> actúa sobre lo que se ve. Con <b>◀ Hoja N / M ▶</b> puedes cambiar de
     hoja sin salir (las capas marcadas se conservan). Las capas ocultas no se dibujan en
     el lienzo ni se usan en el reconocimiento. Al continuar se reconocen las utilidades
     eléctricas (las capas de líneas y bóvedas se asignan solas por su nombre) y se muestra
@@ -349,7 +351,13 @@ def show_manual(win):
     vista previa avisa de las excepciones. El contorno de una bóveda abandonada dibujado
     en esa misma capa se reconoce como bóveda con medidas (etiqueta «(AB)» en la vista previa).
     La casilla <b>Unir tramos en rutas</b> (activada) encadena los tramos de la misma capa que
-    siguen de frente; el ramal empieza otra ruta. No mueve puntos. Se puede desactivar antes de importar.</p>
+    siguen de frente; el ramal empieza otra ruta. No mueve puntos. Se puede desactivar antes de importar.
+    Los <b>codos</b> del plano (trazo curvo tangente a dos guiones rectos) se importan como esquina
+    + radio: la esquina es la intersección de las rectas de los guiones y el arco, el círculo
+    tangente a ellas que pasa por el trazo curvo. En el lienzo la esquina curva se dibuja con su
+    arco real (puntos de tangencia marcados), el mismo que generará Civil 3D; si va a trazos es
+    que el radio no entra en los tramos y el plugin lo recortará. Una cadena de guiones rectos
+    con quiebres nunca se convierte en curva.</p>
 
     <h3>2. Dibujar una utilidad</h3>
     <p>Acordeón <b>Dibujar utilidad</b> → elige el tipo (agua, alcantarillado, drenaje,
