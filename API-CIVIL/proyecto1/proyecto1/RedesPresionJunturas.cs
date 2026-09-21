@@ -274,6 +274,51 @@ namespace Civil3DBasico
             var junturas = AgruparJunturas(pipeEndpoints, tol);
             bool hayFittings = fittingsDisponibles != null && fittingsDisponibles.Count > 0;
 
+            // Pre-scan: si alguna juntura de 3 tuberías va a pedir una Wye y la
+            // PartsList no tiene ninguna, cargamos las familias Wye del catálogo
+            // Imperial_AWWA_Steel (30/45/60/75/90°) UNA sola vez, y refrescamos
+            // la lista de fittings. Sin esto, DecidirTeeOWye elige Wye pero
+            // BuscarFittingPorTipoYDiametro devuelve null y siempre caía en Tee.
+            try
+            {
+                bool posibleWye = false;
+                foreach (var jj in junturas)
+                {
+                    if (jj.Miembros.Count != 3) continue;
+                    var vecs = jj.Miembros.Select(m =>
+                    {
+                        var pp = (CivilDB.PressurePipe)tr.GetObject(m.PipeId, OpenMode.ForRead);
+                        Point3d far = m.Port == 0 ? pp.EndPoint : pp.StartPoint;
+                        return far - jj.Ubicacion;
+                    }).ToList();
+                    if (DecidirTeeOWye(vecs) == CivilDB.PressurePartType.Wye)
+                    { posibleWye = true; break; }
+                }
+                bool yaHayWye = (fittingsDisponibles ?? new List<PresStyles.PressurePartSize>())
+                    .Any(f => f.PartType == CivilDB.PressurePartType.Wye);
+                if (posibleWye && !yaHayWye && net.PartsListId != ObjectId.Null)
+                {
+                    var pl = tr.GetObject(net.PartsListId, OpenMode.ForRead)
+                             as PresStyles.PressurePartList;
+                    if (pl != null)
+                    {
+                        int nuevas = AsegurarPresionWye.AsegurarEnPartsList(
+                            pl, fittingsDisponibles, ed);
+                        if (nuevas > 0)
+                        {
+                            // Refrescar la lista de fittings para incluir las Wye recién agregadas.
+                            fittingsDisponibles = pl.GetParts(CivilDB.PressurePartDomainType.Fitting);
+                            hayFittings = fittingsDisponibles != null && fittingsDisponibles.Count > 0;
+                            ed.WriteMessage($"\n  · {nuevas} familia(s) Wye del catálogo Imperial_AWWA_Steel cargadas a la PartsList.");
+                        }
+                    }
+                }
+            }
+            catch (Exception exWye)
+            {
+                ed?.WriteMessage($"\n  ⚠ Pre-scan Wye: {exWye.Message}");
+            }
+
             foreach (var j in junturas)
             {
                 if (j.Miembros.Count < 2) continue;   // extremo suelto, no es juntura

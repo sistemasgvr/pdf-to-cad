@@ -40,6 +40,12 @@ namespace Civil3DBasico
         // Log de depuración exhaustivo del flujo de asignación de familias/tamaños
         // a los buzones. Se vuelca a un CSV en Descargas al final de IMPORTAR_RED.
         private static readonly List<string> _dbg = new List<string>();
+        // Gate global para logs diagnósticos que ensucian la consola del cliente
+        // (todos los mensajes con prefijo [TAG] tipo [ATP-*], [CURVA-*], [PIPE-CREADO], etc.).
+        // Cambiar a true SOLO cuando se depura un problema puntual.
+        internal const bool DEBUG_LOGS = false;
+        internal static void Dl(Editor ed, string s) { if (DEBUG_LOGS) ed.WriteMessage(s); }
+
         private static void Dbg(string tag, params (string k, object v)[] fields)
         {
             var sb = new System.Text.StringBuilder(tag);
@@ -301,7 +307,14 @@ namespace Civil3DBasico
                         if (d < bestD) { bestD = d; best = cv; }
                     }
                     if (best != null && best.RadiusFt.HasValue)
+                    {
                         ip.CurveRadiusByVert[vi] = best.RadiusFt.Value;
+                        Dl(ed, $"\n  [CURVA-MATCH] '{ip.Layer}' v{vi} ↔ esquina '{best.Id}' dist={bestD:F3}ft → radio={best.RadiusFt.Value:F2}ft");
+                    }
+                    else if (best == null)
+                        Dl(ed, $"\n  [CURVA-NO-MATCH] '{ip.Layer}' v{vi} — ninguna esquina PDFCAD_CURVE a ≤1ft → radio auto");
+                    else
+                        Dl(ed, $"\n  [CURVA-AUTO] '{ip.Layer}' v{vi} ↔ esquina '{best.Id}' — RADIUS_FT vacío → radio auto");
                 }
             }
 
@@ -643,7 +656,7 @@ namespace Civil3DBasico
                                                     if (fam.PartSizeCount > antes)
                                                     {
                                                         famAceptante = fam.Description ?? "";
-                                                        ed.WriteMessage($"\n  [DUCTBANK-FAMILY-CUSTOM] Ø{cd:F0}\" aceptado directo por '{famAceptante}'.");
+                                                        Dl(ed, $"\n  [DUCTBANK-FAMILY-CUSTOM] Ø{cd:F0}\" aceptado directo por '{famAceptante}'.");
                                                         break;
                                                     }
                                                 }
@@ -654,7 +667,7 @@ namespace Civil3DBasico
                                     if (famAceptante != null)
                                     {
                                         familyByDiam[cd] = famAceptante;
-                                        ed.WriteMessage($"\n  [DUCTBANK-FAMILY] Ø{cd:F0}\" → familia '{famAceptante}'.");
+                                        Dl(ed, $"\n  [DUCTBANK-FAMILY] Ø{cd:F0}\" → familia '{famAceptante}'.");
                                     }
                                     else
                                     {
@@ -921,7 +934,7 @@ namespace Civil3DBasico
                                         drawn++;
                                     }
                                     catch (Exception exCyl)
-                                    { ed.WriteMessage($"\n    [CONDUIT-SOLID-ERR] seg{si} {exCyl.Message}"); }
+                                    { Dl(ed, $"\n    [CONDUIT-SOLID-ERR] seg{si} {exCyl.Message}"); }
                                 }
                                 trCyl.Commit();
                             }
@@ -1446,7 +1459,7 @@ namespace Civil3DBasico
                 {
                     BuscarTuberia(tr, partsList, ip.PipeFamily, diamStr,
                                   out pipeFam, out pipeSize, out pipeNom);
-                    ed.WriteMessage($"\n    [FAM-PEDIDA] '{ip.PipeFamily}' size='{diamStr}' → {(pipeFam != ObjectId.Null ? $"encontrada '{pipeNom}'" : "NO ENCONTRADA")}");
+                    Dl(ed, $"\n    [FAM-PEDIDA] '{ip.PipeFamily}' size='{diamStr}' → {(pipeFam != ObjectId.Null ? $"encontrada '{pipeNom}'" : "NO ENCONTRADA")}");
                     Dbg("PIPE_FAMILY_MATCH", ("pedido", ip.PipeFamily), ("size", diamStr),
                         ("encontrada", pipeFam != ObjectId.Null ? "true" : "false"),
                         ("nombre", pipeNom));
@@ -1455,7 +1468,7 @@ namespace Civil3DBasico
                 {
                     bool ok2 = BuscarTuberia(tr, partsList, ip.Material, diamStr,
                                        out pipeFam, out pipeSize, out pipeNom);
-                    ed.WriteMessage($"\n    [FAM-FALLBACK] material='{ip.Material}' size='{diamStr}' → {(ok2 ? $"encontrada '{pipeNom}'" : $"NO ENCONTRADA — usando default '{defPipeNom}'")}");
+                    Dl(ed, $"\n    [FAM-FALLBACK] material='{ip.Material}' size='{diamStr}' → {(ok2 ? $"encontrada '{pipeNom}'" : $"NO ENCONTRADA — usando default '{defPipeNom}'")}");
                     if (!ok2) { pipeFam = defPipeFam; pipeSize = defPipeSize; pipeNom = defPipeNom; }
                 }
                 // RED DE SEGURIDAD: si esta tubería NO pidió familia personalizada
@@ -1499,14 +1512,16 @@ namespace Civil3DBasico
                         continue;                                  // prácticamente recto: no hace falta arco
                     }
                     double r;
+                    bool rEsExplicito = false;
                     if (ip.CurveRadiusByVert.TryGetValue(i, out double rExplicito) && rExplicito > 0.01)
-                        r = rExplicito;
+                    { r = rExplicito; rEsExplicito = true; }
                     else
                     {
                         if (anchoInteriorCache == null)
                             anchoInteriorCache = ResolveAnchoInterior(tr, net, pipeFam, pipeSize, ed);
                         r = 6.0 * anchoInteriorCache.Value;
                     }
+                    Dl(ed, $"\n  [CURVA] '{ip.Layer}' v{i} ang={deltaDeg:F1}° radio-pedido={(rEsExplicito ? r.ToString("F2") + "ft (explícito)" : r.ToString("F2") + "ft (auto 6× ancho)")}");
                     double t = r / Math.Tan(deltaRad / 2.0);
                     // No recortar más allá de lo disponible en cada recta vecina (deja
                     // margen del 10% para que siga quedando un tramo recto visible).
@@ -1539,6 +1554,7 @@ namespace Civil3DBasico
                         continue;
                     }
                     curvasPorVertice[i] = cg;
+                    Dl(ed, $"\n  [CURVA-OK] '{ip.Layer}' v{i} → radio-usado={cg.Radio:F2}ft tangente={t:F2}ft");
                     Dbg("CURVA_GEOMETRIA", ("pipe", ip.Layer), ("vertice", i.ToString()),
                         ("angulo", deltaDeg.ToString("F1")), ("radio", cg.Radio.ToString("F3")),
                         ("t", t.ToString("F3")));
@@ -1890,7 +1906,7 @@ namespace Civil3DBasico
                         try { dOuterFt = pipe.OuterDiameterOrWidth; } catch { }
                         double dInner = dInnerFt * 12.0, dOuter = dOuterFt * 12.0;
                         double wall = (dOuter - dInner) / 2.0;
-                        ed.WriteMessage($"\n    [PIPE-CREADO] pedido='{ip.PipeFamily}' size='{ip.PipeSize}' → familia='{famDesc}' size='{sizeName}' inner={dInner:F2}\" outer={dOuter:F2}\" wall={wall:F3}\"");
+                        Dl(ed, $"\n    [PIPE-CREADO] pedido='{ip.PipeFamily}' size='{ip.PipeSize}' → familia='{famDesc}' size='{sizeName}' inner={dInner:F2}\" outer={dOuter:F2}\" wall={wall:F3}\"");
                     }
                     catch { }
 
@@ -1935,19 +1951,19 @@ namespace Civil3DBasico
                                 {
                                     try { szW.SizeDataRecord = recSz; }
                                     catch (Exception exSz)
-                                    { ed.WriteMessage($"\n    [CONDUIT-SIZE-FAIL] {exSz.Message}"); }
+                                    { Dl(ed, $"\n    [CONDUIT-SIZE-FAIL] {exSz.Message}"); }
                                     try
                                     {
                                         double dIn2 = pipe.InnerDiameterOrWidth * 12.0;
                                         double dOut2 = pipe.OuterDiameterOrWidth * 12.0;
-                                        ed.WriteMessage($"\n    [CONDUIT-OVERRIDE] target={ip.ConduitTargetDiamIn:F0}\" → inner={dIn2:F2}\" outer={dOut2:F2}\"");
+                                        Dl(ed, $"\n    [CONDUIT-OVERRIDE] target={ip.ConduitTargetDiamIn:F0}\" → inner={dIn2:F2}\" outer={dOut2:F2}\"");
                                     }
                                     catch { }
                                 }
                             }
                         }
                         catch (Exception exCo)
-                        { ed.WriteMessage($"\n    [CONDUIT-OVERRIDE-ERR] {exCo.Message}"); }
+                        { Dl(ed, $"\n    [CONDUIT-OVERRIDE-ERR] {exCo.Message}"); }
                     }
                     // Abandonada: solo cambia el 3D (Model) a línea discontinua.
                     // Se basa en el estilo actual de la pipe (copia hermana) para no
@@ -2066,7 +2082,7 @@ namespace Civil3DBasico
                 }
                 catch (Exception ex) { pipeErr++; if (pipeMsg == "") pipeMsg = "EXCEPCION " + ex.Message; }
             }
-            ed.WriteMessage($"\n[DIAG] Pipe StartPoint.Z: ok={pipeOk} fallo={pipeErr}  {pipeMsg}");
+            Dl(ed, $"\n[DIAG] Pipe StartPoint.Z: ok={pipeOk} fallo={pipeErr}  {pipeMsg}");
 
             // Estructuras: cada setter por separado para ver CUÁL falla, y leer de vuelta.
             int stOk = 0, stErr = 0; string stMsg = "";
@@ -2102,7 +2118,7 @@ namespace Civil3DBasico
                 }
                 catch (Exception ex) { stErr++; if (stMsg == "") stMsg = "EXCEPCION " + ex.Message; }
             }
-            ed.WriteMessage($"\n[DIAG] Estructura rim/auto: ok={stOk} fallo={stErr}  {stMsg}");
+            Dl(ed, $"\n[DIAG] Estructura rim/auto: ok={stOk} fallo={stErr}  {stMsg}");
 
             // Alineamiento (eje) para la red — permite después crear vistas de perfil.
             // En conduit (eléctrico/telecom) NO se crea alineamiento: si hay varias
@@ -2342,7 +2358,7 @@ namespace Civil3DBasico
                 Dbg("PIPE_PRES_MATCH", ("pedido_fam", ip.PipeFamily ?? ""),
                     ("pedido_size", ip.PipeSize ?? ""), ("diam", ip.Diameter.ToString("F1")),
                     ("elegida", tuboElegido?.Description ?? "?"));
-                ed.WriteMessage($"\n  [PIPE_PRES_MATCH] pedido: diam={ip.Diameter:F1} size='{ip.PipeSize}' fam='{ip.PipeFamily}' " +
+                Dl(ed, $"\n  [PIPE_PRES_MATCH] pedido: diam={ip.Diameter:F1} size='{ip.PipeSize}' fam='{ip.PipeFamily}' " +
                                 $"→ elegida: '{tuboElegido?.Description ?? "NINGUNA"}'");
 
                 int nVerts = ip.Vertices.Count;
@@ -3799,6 +3815,30 @@ namespace Civil3DBasico
                         }
                         catch (Exception exC) { ed.WriteMessage($"\n[CROSS #{idx}]   ⚠ ConnectToPipe superior: {exC.Message}"); }
                     }
+
+                    // 10) Para los TEEs (pipe pasa a través del cruce) hay que
+                    //     PARTIR el pipe original en dos mitades en el cruce,
+                    //     porque un Tee mid-pipe no puede insertar por sí solo
+                    //     un accesorio a mitad de un segmento existente.
+                    //     Los codos (endpoint) no requieren split — el pipe ya
+                    //     TERMINA en el cruce.
+                    if (teeLoId != ObjectId.Null && !loIsEndpoint)
+                        PartirPipeThroughEnCruce(ed, tr, civilDoc, net, tuboSel,
+                            cc.X, cc.Y, zLoCenter, $"[CROSS #{idx}] inferior");
+                    if (teeHiId != ObjectId.Null && !hiIsEndpoint)
+                        PartirPipeThroughEnCruce(ed, tr, civilDoc, net, tuboSel,
+                            cc.X, cc.Y, zHiCenter, $"[CROSS #{idx}] superior");
+
+                    // 11) Conectar los puertos HORIZONTALES de cada accesorio al
+                    //     pipe horizontal existente y RECORTAR su endpoint a
+                    //     la posición del puerto — sin esto, el pipe horizontal
+                    //     pasa a través del codo/Tee y se ve superpuesto en 3D.
+                    if (teeLoId != ObjectId.Null)
+                        ConectarHorizontalAFitting(ed, tr, civilDoc, teeLoId, teeLoBranchPort,
+                            cc.X, cc.Y, zLoCenter, $"[CROSS #{idx}] inferior");
+                    if (teeHiId != ObjectId.Null)
+                        ConectarHorizontalAFitting(ed, tr, civilDoc, teeHiId, teeHiBranchPort,
+                            cc.X, cc.Y, zHiCenter, $"[CROSS #{idx}] superior");
                     nOk++;
                 }
                 catch (Exception exP)
@@ -3811,6 +3851,221 @@ namespace Civil3DBasico
         }
 
         private static string FmtZ(double? z) => z.HasValue ? z.Value.ToString("F2") : "(null)";
+
+        // Cuando un cruce usa Tee (el pipe PASA A TRAVÉS del punto, no
+        // termina), hay que partir el pipe original en dos mitades en el
+        // cruce: half1 = originalStart → crossPos, half2 = crossPos → original
+        // End. Sin esto, el pipe atraviesa el Tee mid-body y se ve superpuesto.
+        // Requisitos: la pipe debe pasar a ≤ 1.5 ft del cruce Y ninguno de
+        // sus endpoints debe estar dentro de esa tolerancia (endpoint = codo,
+        // no aplica). Copia el mismo PartSize del original en las mitades.
+        private static void PartirPipeThroughEnCruce(Editor ed, Transaction tr,
+            CivilDocument civilDoc, CivilDB.PressurePipeNetwork netCross,
+            PresStyles.PressurePartSize tuboFallback,
+            double xCross, double yCross, double zCenter, string etiqueta)
+        {
+            double tol = 1.5;   // ft
+            double tol2 = tol * tol;
+            Point3d cross = new Point3d(xCross, yCross, zCenter);
+            var candidatos = new List<(ObjectId netId, ObjectId pid, Point3d closest, double dist2)>();
+            foreach (ObjectId nid in civilDoc.GetPressurePipeNetworkIds())
+            {
+                var n2 = tr.GetObject(nid, OpenMode.ForRead) as CivilDB.PressurePipeNetwork;
+                if (n2 == null || n2.Name == "CROSS-CONNECTS") continue;
+                foreach (ObjectId pid in n2.GetPipeIds())
+                {
+                    var pp = tr.GetObject(pid, OpenMode.ForRead) as CivilDB.PressurePipe;
+                    if (pp == null) continue;
+                    Point3d A = pp.StartPoint, B = pp.EndPoint;
+                    // Endpoints cercanos = caso ELBOW, no aplica split.
+                    if ((A - cross).LengthSqrd < tol2 || (B - cross).LengthSqrd < tol2) continue;
+                    // Proyectar cross sobre el segmento AB.
+                    Vector3d ab = B - A;
+                    double abLen2 = ab.LengthSqrd;
+                    if (abLen2 < 1e-9) continue;
+                    double t = ((cross - A).DotProduct(ab)) / abLen2;
+                    if (t < 0.05 || t > 0.95) continue;   // fuera del interior real
+                    Point3d proj = A + ab * t;
+                    double d2 = (proj - cross).LengthSqrd;
+                    if (d2 > tol2) continue;
+                    candidatos.Add((nid, pid, proj, d2));
+                }
+            }
+            if (candidatos.Count == 0)
+            {
+                ed.WriteMessage($"\n{etiqueta}: sin pipe through-pasando por ({xCross:F2},{yCross:F2}) a tol {tol:F1}ft — no hay que partir.");
+                return;
+            }
+            // Puede haber varias pipes solapadas (raro); partir todas.
+            foreach (var c in candidatos.OrderBy(x => x.dist2))
+            {
+                var pp = tr.GetObject(c.pid, OpenMode.ForWrite) as CivilDB.PressurePipe;
+                if (pp == null) continue;
+                Point3d A = pp.StartPoint, B = pp.EndPoint;
+                // Elegir PressurePartSize del original si podemos localizarlo
+                // por Description; si no, cae al tuboFallback (el de la vertical).
+                PresStyles.PressurePartSize tubo = tuboFallback;
+                try
+                {
+                    var netOrig = tr.GetObject(c.netId, OpenMode.ForRead) as CivilDB.PressurePipeNetwork;
+                    if (netOrig != null && netOrig.PartsListId != ObjectId.Null)
+                    {
+                        var plOrig = tr.GetObject(netOrig.PartsListId, OpenMode.ForRead) as PresStyles.PressurePartList;
+                        if (plOrig != null)
+                        {
+                            var tubosOrig = plOrig.GetParts(CivilDB.PressurePartDomainType.Pipe);
+                            var match = tubosOrig?.FirstOrDefault(t =>
+                                string.Equals(t.Description, pp.PartDescription, StringComparison.OrdinalIgnoreCase));
+                            if (match != null) tubo = match;
+                        }
+                    }
+                }
+                catch { }
+                var netTarget = tr.GetObject(c.netId, OpenMode.ForWrite) as CivilDB.PressurePipeNetwork;
+                if (netTarget == null) netTarget = netCross;
+                try
+                {
+                    ObjectId h1 = netTarget.AddLinePipe(new LineSegment3d(A, c.closest), tubo);
+                    ObjectId h2 = netTarget.AddLinePipe(new LineSegment3d(c.closest, B), tubo);
+                    pp.Erase();
+                    ed.WriteMessage($"\n{etiqueta}: pipe through partida en ({c.closest.X:F2},{c.closest.Y:F2},{c.closest.Z:F3}) → half1={h1.Handle}, half2={h2.Handle}.");
+                }
+                catch (Exception ex)
+                {
+                    ed.WriteMessage($"\n{etiqueta}: ⚠ No se pudo partir pipe (handle={c.pid.Handle}): {ex.Message}");
+                }
+            }
+        }
+
+        // Post-paso al colocar codo/Tee del cruce: para cada puerto HORIZONTAL
+        // del accesorio (todos los que no son el branch vertical), busca en
+        // TODAS las redes de presión del dibujo la PressurePipe cuyo endpoint
+        // cae más cerca de la posición del puerto y la conecta+recorta.
+        // Sin esto, el pipe horizontal pasa a través del accesorio y en 3D
+        // aparece superpuesto con el codo (el bug reportado).
+        //
+        // Radio de búsqueda: 1.5× el diámetro del accesorio (o 1.5 ft de piso).
+        // El endpoint puede estar levemente desalineado por transformaciones,
+        // pero nunca lejos — usamos el más cercano dentro del radio.
+        private static void ConectarHorizontalAFitting(Editor ed, Transaction tr,
+            CivilDocument civilDoc, ObjectId fittingId, int branchPort,
+            double xCross, double yCross, double zCenter, string etiqueta)
+        {
+            try
+            {
+                var parte = (CivilDB.PressurePart)tr.GetObject(fittingId, OpenMode.ForWrite);
+                // Radio de búsqueda: 1.5 ft de piso, o 1.5× el mayor Nominal-
+                // Diameter de cualquier pipe ya conectada al accesorio (si la
+                // hay). Suficiente para el desalineo típico tras rotar+inclinar.
+                double diamFt = 0.0;
+                for (int p = 0; p < parte.ConnectionCount; p++)
+                {
+                    try
+                    {
+                        var cx = parte.GetConnectionAt(p);
+                        if (cx.ConnectedId != ObjectId.Null && cx.ConnectedId.IsValid)
+                        {
+                            var pp0 = tr.GetObject(cx.ConnectedId, OpenMode.ForRead) as CivilDB.PressurePipe;
+                            if (pp0 != null && pp0.NominalDiameter > diamFt) diamFt = pp0.NominalDiameter;
+                        }
+                    }
+                    catch { }
+                }
+                double tolFt = Math.Max(1.5, 1.5 * (diamFt > 0 ? diamFt : 1.0));
+                double tol2 = tolFt * tolFt;
+
+                for (int port = 0; port < parte.ConnectionCount; port++)
+                {
+                    if (port == branchPort) continue;   // el branch ya fue conectado a la vertical
+                    CivilDB.PressurePartConnection conn;
+                    try { conn = parte.GetConnectionAt(port); } catch { continue; }
+                    if (conn.ConnectedId != ObjectId.Null && conn.ConnectedId.IsValid)
+                    {
+                        // Ya está conectado a algo — no lo toco.
+                        continue;
+                    }
+                    Point3d portPos = conn.Position;
+                    ed.WriteMessage($"\n{etiqueta}: port {port} horizontal en ({portPos.X:F2},{portPos.Y:F2},{portPos.Z:F3}) — buscando pipe cercano (tol={tolFt:F2}ft)…");
+
+                    // Buscar la PressurePipe más cercana entre todas las redes,
+                    // rompiendo empates con la DIRECCIÓN del puerto (pipes cuya
+                    // dirección desde el endpoint hacia el OTRO extremo se
+                    // alinea con la dirección de salida del puerto ganan).
+                    // Sin este desempate, tras un split ambos halves quedan con
+                    // endpoints AT el mismo punto y podríamos elegir el que
+                    // apunta hacia dentro del fitting.
+                    Vector3d portDir = conn.Direction;
+                    try { portDir = portDir.GetNormal(); } catch { }
+                    ObjectId bestPid = ObjectId.Null;
+                    int bestEnd = 0;
+                    double bestScore = double.NegativeInfinity;
+                    foreach (ObjectId nid in civilDoc.GetPressurePipeNetworkIds())
+                    {
+                        var n2 = tr.GetObject(nid, OpenMode.ForRead) as CivilDB.PressurePipeNetwork;
+                        if (n2 == null) continue;
+                        // Saltar la red CROSS-CONNECTS: sus pipes son las
+                        // verticales recién creadas, no las horizontales que
+                        // quiero recortar.
+                        if (n2.Name == "CROSS-CONNECTS") continue;
+                        foreach (ObjectId pid in n2.GetPipeIds())
+                        {
+                            if (pid == fittingId) continue;
+                            var pp = tr.GetObject(pid, OpenMode.ForRead) as CivilDB.PressurePipe;
+                            if (pp == null) continue;
+                            void Evaluar(int endIdx, Point3d thisEnd, Point3d otherEnd)
+                            {
+                                double d2 = (thisEnd - portPos).LengthSqrd;
+                                if (d2 > tol2) return;
+                                // Direccion de la pipe SALIENDO desde thisEnd
+                                // (hacia otherEnd). Si portDir · pipeDir > 0,
+                                // el pipe se aleja del fitting por este puerto.
+                                Vector3d pipeDir = otherEnd - thisEnd;
+                                double L = pipeDir.Length;
+                                if (L > 1e-9) pipeDir = pipeDir / L;
+                                double align = portDir.DotProduct(pipeDir);
+                                double dist = Math.Sqrt(d2);
+                                // Score: cerca es mejor, alineación positiva es mejor.
+                                // Un pipe a 0.1 ft mal alineado (-1) vale menos que
+                                // un pipe a 0.5 ft bien alineado (+1).
+                                double score = (tolFt - dist) * 2.0 + align;
+                                if (score > bestScore)
+                                { bestScore = score; bestPid = pid; bestEnd = endIdx; }
+                            }
+                            Evaluar(0, pp.StartPoint, pp.EndPoint);
+                            Evaluar(1, pp.EndPoint, pp.StartPoint);
+                        }
+                    }
+                    if (bestPid == ObjectId.Null)
+                    {
+                        ed.WriteMessage($"\n{etiqueta}:   ⚠ Ningún pipe horizontal a ≤{tolFt:F2}ft del puerto {port} — no se recorta.");
+                        continue;
+                    }
+                    ed.WriteMessage($"\n{etiqueta}:   Pipe encontrada (handle={bestPid.Handle}) endpoint={bestEnd} score={bestScore:F2}. Conectando+recortando…");
+                    try
+                    {
+                        parte.ConnectToPipe(port, bestPid, bestEnd);
+                        // Recortar el endpoint del pipe al puerto real del
+                        // accesorio (igual patrón que ProcesarJunturasPresion,
+                        // RedesPresionJunturas.cs) — ConnectToPipe deja la
+                        // conexión lógica pero NO ajusta la geometría; hay que
+                        // reescribir el Start/EndPoint al c.Position que quedó.
+                        var newConn = parte.GetConnectionAt(port);
+                        var ppw = (CivilDB.PressurePipe)tr.GetObject(bestPid, OpenMode.ForWrite);
+                        if (bestEnd == 0) ppw.StartPoint = newConn.Position;
+                        else ppw.EndPoint = newConn.Position;
+                        ed.WriteMessage($"\n{etiqueta}:   ✓ Pipe recortado a ({newConn.Position.X:F2},{newConn.Position.Y:F2},{newConn.Position.Z:F3}).");
+                    }
+                    catch (Exception ex)
+                    {
+                        ed.WriteMessage($"\n{etiqueta}:   ⚠ ConnectToPipe/recorte falló: {ex.Message}");
+                    }
+                }
+            }
+            catch (Exception exOut)
+            {
+                ed.WriteMessage($"\n{etiqueta}: ⚠ ConectarHorizontalAFitting: {exOut.Message}");
+            }
+        }
 
         // Identifica cuál de los N puertos de un fitting es el "branch"
         // (perpendicular a los otros dos, que son colineales entre sí).

@@ -1633,11 +1633,11 @@ namespace Civil3DBasico
 
             var fittingIds = new List<ObjectId>();
             foreach (ObjectId id in net.GetFittingIds()) fittingIds.Add(id);
-            ed.WriteMessage($"\n  [CORREGIR_FITTINGS] Red '{net.Name}': {fittingIds.Count} fitting(s) encontrados.");
+            ComandosRedes.Dl(ed, $"\n  [CORREGIR_FITTINGS] Red '{net.Name}': {fittingIds.Count} fitting(s) encontrados.");
             if (fittingIds.Count == 0) return (0, 0, 0);
 
             var partsDisp = pl.GetParts(CivilDB.PressurePartDomainType.Fitting);
-            ed.WriteMessage($"\n  [CORREGIR_FITTINGS] Parts List '{pl.Name}': {partsDisp?.Count ?? 0} fitting(s) disponibles en catálogo.");
+            ComandosRedes.Dl(ed, $"\n  [CORREGIR_FITTINGS] Parts List '{pl.Name}': {partsDisp?.Count ?? 0} fitting(s) disponibles en catálogo.");
             if (partsDisp == null || partsDisp.Count == 0) return (0, 0, 0);
 
             // Fase 1: detectar desajustes
@@ -1646,7 +1646,7 @@ namespace Civil3DBasico
             foreach (ObjectId fid in fittingIds)
             {
                 CivilDB.PressureFitting fit = tr.GetObject(fid, OpenMode.ForRead) as CivilDB.PressureFitting;
-                if (fit == null) { ed.WriteMessage("\n  [CORREGIR_FITTINGS] · (no es PressureFitting, se salta)"); continue; }
+                if (fit == null) { ComandosRedes.Dl(ed, "\n  [CORREGIR_FITTINGS] · (no es PressureFitting, se salta)"); continue; }
 
                 // Diámetro NOMINAL del fitting, en pulgadas, leído de su descripción
                 // de catálogo ("elbow-4 in-45 degree-..." → 4.0). NO se usa
@@ -1661,7 +1661,7 @@ namespace Civil3DBasico
                 string descOriginal = "?"; try { descOriginal = fit.PartDescription; } catch { }
                 if (fitDia <= 0)
                 {
-                    ed.WriteMessage($"\n  [CORREGIR_FITTINGS] · '{descOriginal}': no se pudo leer su diámetro de la descripción, se salta.");
+                    ComandosRedes.Dl(ed, $"\n  [CORREGIR_FITTINGS] · '{descOriginal}': no se pudo leer su diámetro de la descripción, se salta.");
                     continue;
                 }
 
@@ -1690,7 +1690,7 @@ namespace Civil3DBasico
                         string pipeDescOwn = "?"; try { pipeDescOwn = pipe.PartDescription; } catch { }
                         double pipeDescDia = ExtraerDiametroDeDescripcion(pipeDescOwn);
                         double nomIn = pipe.NominalDiameter * 12.0;
-                        ed.WriteMessage($"\n  [CORREGIR_FITTINGS]     tubo conectado: '{pipeDescOwn}' — " +
+                        ComandosRedes.Dl(ed, $"\n  [CORREGIR_FITTINGS]     tubo conectado: '{pipeDescOwn}' — " +
                                         $"NominalDiameter={pipe.NominalDiameter:F3}ft ({nomIn:F1}in), descDia={pipeDescDia:F1}in");
                         if (nomIn > pipeNomDiaMaxIn) pipeNomDiaMaxIn = nomIn;
                     }
@@ -1718,7 +1718,7 @@ namespace Civil3DBasico
                     pipesConectados.Count > 1 ? pipesConectados[1].NominalDiameter : 0,
                     deflex);
 
-                ed.WriteMessage($"\n  [CORREGIR_FITTINGS] · '{descOriginal}' ({fit.PartType}): fitDiaNominal={fitDia:F2}in, conexiones={conexiones.Count}, " +
+                ComandosRedes.Dl(ed, $"\n  [CORREGIR_FITTINGS] · '{descOriginal}' ({fit.PartType}): fitDiaNominal={fitDia:F2}in, conexiones={conexiones.Count}, " +
                                 $"pipeNomDiaMax={pipeNomDiaMaxIn:F2}in, tipoCorrecto={tipoCorrecto}");
 
                 if (pipeNomDiaMaxIn <= 0 || conexiones.Count == 0) continue;

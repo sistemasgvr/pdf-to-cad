@@ -10,7 +10,7 @@
 ; Compilar: abrir este archivo en Inno Setup Compiler y dar Build.
 
 #define MyAppName "Asistente C3D"
-#define MyAppVersion "1.1.0"
+#define MyAppVersion "1.1.2"
 #define MyAppPublisher "GVR Engineering"
 #define MyAppExeName "Asistente C3D.exe"
 #define MyAppBundle "AsistenteC3D.bundle"

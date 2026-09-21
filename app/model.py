@@ -39,7 +39,7 @@ Coordenadas DIBUJADAS en PÍXELES (se convierten con geometry.to_cad al exportar
 coordenadas IMPORTADAS de Excel ya son reales de mundo (world=True → se usan tal cual).
 """
 
-VERSION = "1.2.0"
+VERSION = "1.1.1"
 
 # Capas de red por GRAVEDAD (tramos entre buzones, con invert inicio/fin).
 GRAVITY_LAYERS = {"ALCANTARILLADO", "DRENAJE"}
@@ -153,9 +153,10 @@ def default_network_type(layer):
 
 
 CHANGELOG = [
-    ("1.2.0", [
-        ("added", "Detección automática de uniones tipo Y (Wye) en redes de presión: cuando tres tuberías se encuentran en un mismo punto con ángulos parecidos a 120° (sin una recta clara), el plugin coloca una pieza Y en vez de una Tee. Si el catálogo no tiene Y, cae al comportamiento anterior (Tee)."),
-        ("added", "Detección automática de cruces físicos de utilidades en el lienzo: cada punto donde un tramo de una utilidad CRUZA (no comparte extremo) otro tramo aparece con un círculo amarillo con «!» rojo. Sirve para revisar profundidades cuando dos utilidades se pasan por encima/debajo sin ser una juntura. Tooltip indica qué capas se cruzan; contador en la barra de estado."),
+    ("1.1.1", [
+        ("fixed", "Bancoductos en Civil 3D 2027 (inglés): los conductos internos ahora se dibujan como cilindros 3D con el diámetro EXACTO que definiste (Ø1\", Ø2\", Ø3\", Ø4\", etc.). Antes, el catálogo de C3D rechazaba diámetros no estándar (por ejemplo Ø1\") y sumaba el espesor de pared, haciendo que los conductos se solaparan y sobresalieran de la envolvente."),
+        ("added", "Validación en vivo del radio de curva: al seleccionar un elemento curvo, el campo «Radio (Pies)» ahora muestra en rojo el máximo permitido por la geometría (tramos rectos adyacentes). El campo no deja escribir un valor mayor, y si el valor guardado excede el nuevo máximo, se ajusta automáticamente con un aviso explicando por qué."),
+        ("added", "Detección automática de cruces físicos de utilidades en el lienzo: cada punto donde un tramo de una utilidad CRUZA (no comparte extremo) otro tramo aparece con un círculo amarillo con «!» rojo. Sirve para revisar profundidades cuando dos utilidades se pasan por encima/debajo sin ser una juntura. Tooltip indica qué capas se cruzan; contador en la barra de estado. Se puede ocultar con el check «Mostrar cruces/conflictos» de la barra inferior."),
         ("added", "Snap suave al dibujar utilidades: cuando el cursor se acerca a una utilidad EXISTENTE del mismo tipo (extremo, vértice intermedio o cualquier punto del tramo), aparece un círculo verde marcando dónde se pegaría el click. Si el primer click se pega al EXTREMO de otra utilidad del mismo tipo, la app pregunta si quieres «unirla como parte de esa utilidad» (misma polilínea, una sola red) o «crear una utilidad nueva que la toca» (juntura automática al importar)."),
     ]),
     ("1.1.0", [

@@ -139,6 +139,26 @@ class Main(QtWidgets.QMainWindow):
         # Recomputa el texto cuando otro trigger cambie el tema (por si alguna vez
         # se agrega un atajo o un toggle desde otra parte).
         _theme.THEME_BUS.changed.connect(lambda _: self._refresh_theme_action_label())
+        mview.addSeparator()
+        # Toggle checkable: mostrar/ocultar las marcas de cruce y de conflicto
+        # (círculos amarillos ⓘ = cruces sanos con distinta cota; círculos
+        # rojos ⚠ = conflictos donde dos utilidades chocan). Encendido por
+        # defecto — preferencia persistida en QSettings.
+        self.chk_show_conflicts = QtGui.QAction(_tr("Mostrar cruces/conflictos"), self)
+        self.chk_show_conflicts.setCheckable(True)
+        try:
+            _sc_pref = QtCore.QSettings("pdf-to-cad", "app").value("show_conflicts_v2", False, type=bool)
+        except Exception:
+            _sc_pref = False
+        self.chk_show_conflicts.setChecked(bool(_sc_pref))
+        self.chk_show_conflicts.setToolTip(_tr(
+            "Marca los puntos donde dos utilidades se cruzan geométricamente en el plano.\n"
+            "  · Amarillo ⓘ: cruce sano (distinta cota, se pasan por encima/debajo).\n"
+            "  · Rojo ⚠: conflicto (misma cota o sin cota → chocan).\n"
+            "Apagarlo oculta las marcas y el contador de la barra de estado."))
+        self.chk_show_conflicts.toggled.connect(self._on_toggle_show_conflicts)
+        mview.addAction(self.chk_show_conflicts)
+        self._i18n_actions.append((self.chk_show_conflicts, "Mostrar cruces/conflictos"))
         mtools = _menu(mb, "&Herramientas")
         _act(mtools, "Insertar buzón en línea…", self.insert_manhole)
         _act(mtools, "Instalar familia personalizada…", self.open_install_family_dialog)
@@ -487,6 +507,16 @@ class Main(QtWidgets.QMainWindow):
         self._slot_gcur_erase = QtWidgets.QVBoxLayout(); l.addLayout(self._slot_gcur_erase)  # slot: gcur al borrar
         l.addStretch(1)
 
+        # ── Sección: Mover con precisión ──
+        # Panel para desplazar la selección actual (utilidad completa o un
+        # vértice puntual) una distancia EXACTA en pies. Cuatro flechas con
+        # "paso" en ft para movimientos rápidos, y campos ΔX/ΔY con botón
+        # "Aplicar" para desplazamientos arbitrarios. Se habilita/deshabilita
+        # en vivo según lo que esté seleccionado en el lienzo (ver _update_move_panel).
+        p, l = _page(_tr("Mover con precisión"), "move_precise", "mdi:cursor-move")
+        self._build_move_precise_panel(l)
+        l.addStretch(1)
+
         # ── Sección: Duct Bank ──
         # Abre el diseñador de la sección (envolvente + conductos). El diseño se
         # guarda a nivel proyecto en self.duct_banks. La conexión con una utilidad
@@ -805,12 +835,20 @@ class Main(QtWidgets.QMainWindow):
             "Radio deseado de la tubería curva, en pies. Vacío (0) = automático:\n"
             "al importar en Civil3D se usa 6× el ancho/diámetro interior de la tubería.")
         self.cv_radius.valueChanged.connect(lambda _v: self._curve_prop_changed())
+        # Aviso rojo debajo del radio con el máximo geométrico permitido y por qué.
+        # Se muestra solo cuando el usuario intenta poner un valor por encima del
+        # máximo (que el spinbox ya bloquea) o cuando el máximo es informativo.
+        self.cv_radius_warn = QtWidgets.QLabel("")
+        self.cv_radius_warn.setWordWrap(True)
+        self.cv_radius_warn.setStyleSheet("color:#d33; font-size:14px;")
+        self.cv_radius_warn.setVisible(False)
         self.cv_net_lbl = QtWidgets.QLabel("—")
         self.cv_origin_lbl = QtWidgets.QLabel("—")
         fcv.addRow("Código:", self.cv_cod)
         fcv.addRow("Familia (tubería):", self.cv_family_lbl)
         fcv.addRow("Tamaño:", self.cv_size_lbl)
         fcv.addRow("Radio (Pies):", self.cv_radius)
+        fcv.addRow("", self.cv_radius_warn)
         fcv.addRow("Red:", self.cv_net_lbl)
         fcv.addRow("Origen:", self.cv_origin_lbl)
         self.curve_is_bz = QtWidgets.QPushButton("Volver a tratar como buzón/caja")
@@ -1288,6 +1326,9 @@ class Main(QtWidgets.QMainWindow):
                                "erase": _tr("Modo: borrar zona — clic para el polígono, Enter cierra"),
                                "centerline": _tr("Modo: trazar centerline — clic agrega puntos, Enter finaliza"),
                                "move": _tr("Modo: editar — arrastra vértice · clic en tramo inserta · clic-en-vértice extiende (F) · clic derecho elimina")}.get(m, ""))
+        # Actualiza el panel "Mover con precisión" (habilita/deshabilita según la selección).
+        if hasattr(self, "_update_move_panel"):
+            self._update_move_panel()
 
     def set_mode(self, m):
         """Cambia el "modo" del programa (qué está haciendo ahora el usuario):
@@ -1738,6 +1779,22 @@ class Main(QtWidgets.QMainWindow):
             d = math.hypot(x - sx, y - sy)
             local_thr = curve_thr if s.get("curve") else bz_thr
             if d < local_thr and d < bd_bz: bd_bz, best_bz = d, i
+        # Hit-test extra sobre el ARCO REAL de cada elemento curvo. Sin esto
+        # el usuario tiene que clickear justo en el vértice esquina (chico);
+        # con esto puede hacer clic en cualquier parte del arco visible.
+        arc_thr = thr * 1.5
+        for i, s in enumerate(self.structures):
+            if not s.get("curve") or s.get("world") or s.get("hidden"): continue
+            sx, sy = s.get("x"), s.get("y")
+            if sx is None or sy is None: continue
+            pipe = self._pipe_at_vertex(sx, sy)
+            info = self._curve_arc_info(s, pipe) if pipe else None
+            if info is None: continue
+            arc_pts = self._arc_polyline(info, n_per_90=12)
+            for a, b in zip(arc_pts, arc_pts[1:]):
+                d = G.pt_seg_dist(x, y, a[0], a[1], b[0], b[1])
+                if d < arc_thr and d < bd_bz:
+                    bd_bz, best_bz = d, i
         if best_bz >= 0:
             self._no_center = True
             if self.structures[best_bz].get("curve"):
@@ -2952,7 +3009,11 @@ class Main(QtWidgets.QMainWindow):
         for i, p in enumerate(self.pipes):
             if not p.get("pts"): continue               # tramos importados (world): no se dibujan
             sel = (i == self.sel_pipe)
-            self._poly(p["pts"], layer_qcolor(p["layer"]), 4.0 if sel else 2.0, z=Z_MARK)
+            # Dibujo la polilínea del pipe con arcos REALES sustituyendo cada
+            # esquina que tenga un elemento curvo — mismo radio y tangencia
+            # que el plugin usará en Civil 3D.
+            self._poly(self._pipe_display_pts(p), layer_qcolor(p["layer"]),
+                       4.0 if sel else 2.0, z=Z_MARK)
             if sel and self.mode == "move": self._handles(p["pts"])
             if sel and 0 <= self.sel_seg_idx < len(p["pts"]) - 1:
                 a, b = p["pts"][self.sel_seg_idx], p["pts"][self.sel_seg_idx + 1]
@@ -3127,6 +3188,17 @@ class Main(QtWidgets.QMainWindow):
         t = max(0.0, min(1.0, ((x - a[0]) * dx + (y - a[1]) * dy) / seg_len2))
         return z_verts[seg_idx] + (z_verts[seg_idx + 1] - z_verts[seg_idx]) * t
 
+    def _on_toggle_show_conflicts(self, on):
+        """Toggle del checkbox de la barra inferior 'Mostrar cruces/conflictos':
+        redibuja el lienzo para que las marcas aparezcan/desaparezcan de inmediato.
+        Preferencia persistida en QSettings (Configuración → app), reconstruida
+        al iniciar la app."""
+        try:
+            s = QtCore.QSettings("pdf-to-cad", "app")
+            s.setValue("show_conflicts_v2", bool(on))
+        except Exception: pass
+        self._redraw()
+
     def _draw_pipe_conflicts(self):
         """Detecta y dibuja marcas en los cruces geométricos entre segmentos
         de tuberías. Se distinguen tres estados (colores distintos):
@@ -3145,6 +3217,16 @@ class Main(QtWidgets.QMainWindow):
         # Saneamos antes de dibujar por si el usuario borró/movió una pipe
         # y quedaron cruces fantasma en cross_connections.
         self._prune_stale_cross_connections()
+        # Toggle del usuario en la barra inferior: si está apagado, no dibujar
+        # nada, limpiar hits (para que un click no active nada) y quitar el
+        # contador de la barra de estado. El resto de la app sigue igual —
+        # los cross_connections aprobados se conservan (afectan el DXF).
+        if hasattr(self, "chk_show_conflicts") and not self.chk_show_conflicts.isChecked():
+            self._conflict_hits = []
+            if hasattr(self, "lbl_info"):
+                # Deja el texto de info normal (sin el contador de cruces)
+                pass
+            return
         sc = self.canvas.scene()
 
         def _seg_inter(p1, p2, p3, p4):
@@ -3354,39 +3436,40 @@ class Main(QtWidgets.QMainWindow):
             selected = i == getattr(self, "sel_curve" if is_curve else "sel_bz", -1)
             use_pen = pen_sel if selected else pen
             r_use = R + 1.5 if selected else R
-            drew_arc = False
+            # El arco real ya se dibuja como parte de la polilínea del pipe
+            # (ver _pipe_display_pts). Para el marcador de la curva, lo
+            # colocamos EN el arco (punto medio) — así queda visualmente
+            # pegado a la geometría y no "volando" en la esquina teórica,
+            # que puede estar lejos del arco cuando el radio es grande.
+            # Si la curva está seleccionada, además repintamos el arco encima
+            # en amarillo grueso para que sea inequívoco cuál está activa.
+            mx, my = sx, sy   # fallback si no hay pipe / geometría inválida
             if is_curve:
                 pipe = self._pipe_at_vertex(sx, sy)
-                if pipe and len(pipe.get("pts", [])) >= 3:
-                    pts = pipe["pts"]
-                    vi = None
-                    for j, (vx, vy) in enumerate(pts):
-                        if (vx - sx) ** 2 + (vy - sy) ** 2 <= tol2:
-                            vi = j; break
-                    if vi is not None and 0 < vi < len(pts) - 1:
-                        px, py = pts[vi - 1]; nx, ny = pts[vi + 1]
-                        dx1, dy1 = px - sx, py - sy; dx2, dy2 = nx - sx, ny - sy
-                        L1 = math.sqrt(dx1 * dx1 + dy1 * dy1)
-                        L2 = math.sqrt(dx2 * dx2 + dy2 * dy2)
-                        if L1 > 1e-3 and L2 > 1e-3:
-                            t_len = min(60.0, L1 * 0.45, L2 * 0.45)
-                            t1x, t1y = sx + dx1 / L1 * t_len, sy + dy1 / L1 * t_len
-                            t2x, t2y = sx + dx2 / L2 * t_len, sy + dy2 / L2 * t_len
-                            path = QtGui.QPainterPath()
-                            path.moveTo(t1x, t1y); path.quadTo(sx, sy, t2x, t2y)
-                            arc_col = QtGui.QColor(255, 220, 40) if selected else col
-                            arc_pen = QtGui.QPen(arc_col, 14.0 if selected else 11.0)
-                            arc_pen.setCosmetic(True); arc_pen.setCapStyle(QtCore.Qt.RoundCap)
-                            it = sc.addPath(path, arc_pen); it.setZValue(Z_MARK + 1); self._overlay.append(it)
-                            drew_arc = True
-            if not drew_arc:
-                it = sc.addEllipse(sx - r_use, sy - r_use, 2 * r_use, 2 * r_use, use_pen, brush)
-                it.setZValue(Z_MARK + 1); self._overlay.append(it)
+                info = self._curve_arc_info(s, pipe) if pipe else None
+                if info is not None:
+                    arc_pts = self._arc_polyline(info, n_per_90=24)
+                    if arc_pts:
+                        mx, my = arc_pts[len(arc_pts) // 2]
+                    if selected:
+                        hi_col = QtGui.QColor(255, 220, 40)
+                        hi_pen = QtGui.QPen(hi_col, 6.0); hi_pen.setCosmetic(True)
+                        hi_pen.setCapStyle(QtCore.Qt.RoundCap)
+                        path = QtGui.QPainterPath()
+                        path.moveTo(*arc_pts[0])
+                        for (ax, ay) in arc_pts[1:]:
+                            path.lineTo(ax, ay)
+                        it = sc.addPath(path, hi_pen)
+                        it.setZValue(Z_MARK + 1); self._overlay.append(it)
+            it = sc.addEllipse(mx - r_use, my - r_use, 2 * r_use, 2 * r_use, use_pen, brush)
+            it.setZValue(Z_MARK + 1); self._overlay.append(it)
             if self.show_bz_labels and s.get("cod"):
                 t = sc.addText(s["cod"]); t.setDefaultTextColor(QtGui.QColor(180, 180, 180))
                 t.document().setDocumentMargin(0)
                 f = t.font(); f.setPixelSize(11); f.setBold(True); t.setFont(f)
-                t.setPos(sx + R + 2, sy - R - 2); t.setZValue(Z_MARK + 1); self._overlay.append(t)
+                # Etiqueta también sigue el marcador (mx, my) — así queda
+                # junto a la curva y no en la esquina teórica.
+                t.setPos(mx + R + 2, my - R - 2); t.setZValue(Z_MARK + 1); self._overlay.append(t)
 
     def _handles(self, pts):
         sc = self.canvas.scene(); pen = QtGui.QPen(QtGui.QColor(255, 255, 255)); pen.setCosmetic(True)
@@ -3873,6 +3956,453 @@ class Main(QtWidgets.QMainWindow):
         # Búsqueda de tubería por vértice cercano (pura) en model_ops.
         return model_ops.pipe_at_vertex(self.pipes, x, y, tol)
 
+    # ─────────────────── Mover con precisión (panel izquierdo) ─────────────
+    def _build_move_precise_panel(self, lay):
+        """Panel para desplazar la selección actual una distancia EXACTA en
+        pies. Se compone de:
+          · Etiqueta con lo seleccionado (color + descripción). Fondo gris si
+            no hay nada seleccionado.
+          · Radio: toda la utilidad / solo un vértice (con QSpinBox del índice).
+          · Botones flecha ↑↓←→ + "paso" en ft para nudge rápidos.
+          · Campos ΔX / ΔY con botón "Aplicar" para vector arbitrario.
+        Todo entra en el mismo contenedor `lay` (QVBoxLayout de la sección)."""
+        # Encabezado: qué está seleccionado.
+        self.mv_lbl_sel = QtWidgets.QLabel(_tr("(nada seleccionado)"))
+        self.mv_lbl_sel.setWordWrap(True)
+        self.mv_lbl_sel.setStyleSheet(
+            "padding:6px 8px; border-radius:4px; background:#333; color:#ccc;")
+        lay.addWidget(self.mv_lbl_sel)
+
+        # Alcance del movimiento (radios apilados vertical → no fuerzan ancho).
+        self.mv_grp_scope = QtWidgets.QWidget()
+        sc_l = QtWidgets.QVBoxLayout(self.mv_grp_scope); sc_l.setContentsMargins(0, 0, 0, 0)
+        sc_l.setSpacing(2)
+        self.mv_rb_all = QtWidgets.QRadioButton(_tr("Toda la utilidad"))
+        self.mv_rb_vert = QtWidgets.QRadioButton(_tr("Un vértice"))
+        self.mv_rb_all.setChecked(True)
+        sc_grp = QtWidgets.QButtonGroup(self.mv_grp_scope)
+        sc_grp.addButton(self.mv_rb_all); sc_grp.addButton(self.mv_rb_vert)
+        # Fila del índice de vértice: label + spin al lado.
+        vert_row = QtWidgets.QHBoxLayout(); vert_row.setContentsMargins(20, 0, 0, 0)
+        vert_row.addWidget(QtWidgets.QLabel(_tr("Vértice #:")))
+        self.mv_vert_idx = QtWidgets.QSpinBox()
+        self.mv_vert_idx.setRange(0, 999); self.mv_vert_idx.setPrefix("V")
+        self.mv_vert_idx.setMinimumWidth(60)
+        self.mv_vert_idx.setSizePolicy(QtWidgets.QSizePolicy.Ignored, QtWidgets.QSizePolicy.Fixed)
+        self.mv_vert_idx.setToolTip(_tr("Índice del vértice a mover (0 = primero)."))
+        self.mv_vert_idx.setEnabled(False)
+        self.mv_rb_vert.toggled.connect(self.mv_vert_idx.setEnabled)
+        vert_row.addWidget(self.mv_vert_idx, 1)
+        sc_l.addWidget(self.mv_rb_all); sc_l.addWidget(self.mv_rb_vert); sc_l.addLayout(vert_row)
+        lay.addWidget(self.mv_grp_scope)
+
+        # Paso rápido con flechas
+        step_row = QtWidgets.QHBoxLayout(); step_row.setContentsMargins(0, 0, 0, 0)
+        step_row.addWidget(QtWidgets.QLabel(_tr("Paso (ft):")))
+        self.mv_step_ft = QtWidgets.QDoubleSpinBox()
+        self.mv_step_ft.setDecimals(2); self.mv_step_ft.setRange(0.01, 10000.0)
+        self.mv_step_ft.setSingleStep(0.5); self.mv_step_ft.setValue(1.0)
+        self.mv_step_ft.setMinimumWidth(70)
+        self.mv_step_ft.setSizePolicy(QtWidgets.QSizePolicy.Ignored, QtWidgets.QSizePolicy.Fixed)
+        step_row.addWidget(self.mv_step_ft, 1)
+        lay.addLayout(step_row)
+
+        # Flechas en cruz (grid). Los botones NO tienen ancho fijo — con
+        # setSizePolicy Preferred el layout los encoge cuando el dock se
+        # angosta, así el panel deja de forzar scroll horizontal. Se usan
+        # setMinimumSize para no perderlos completamente en anchos mínimos.
+        arrows = QtWidgets.QGridLayout(); arrows.setSpacing(4)
+        arrows.setContentsMargins(0, 0, 0, 0)
+        self.mv_btn_up = QtWidgets.QPushButton(); self.mv_btn_up.setIcon(_icon("mdi:arrow-up-bold"))
+        self.mv_btn_dn = QtWidgets.QPushButton(); self.mv_btn_dn.setIcon(_icon("mdi:arrow-down-bold"))
+        self.mv_btn_lf = QtWidgets.QPushButton(); self.mv_btn_lf.setIcon(_icon("mdi:arrow-left-bold"))
+        self.mv_btn_rt = QtWidgets.QPushButton(); self.mv_btn_rt.setIcon(_icon("mdi:arrow-right-bold"))
+        for b in (self.mv_btn_up, self.mv_btn_dn, self.mv_btn_lf, self.mv_btn_rt):
+            b.setIconSize(QtCore.QSize(20, 20))
+            b.setMinimumSize(32, 34)
+            b.setSizePolicy(QtWidgets.QSizePolicy.Preferred, QtWidgets.QSizePolicy.Fixed)
+        self.mv_btn_up.setToolTip(_tr("Arriba (Y+) por Paso"))
+        self.mv_btn_dn.setToolTip(_tr("Abajo (Y−) por Paso"))
+        self.mv_btn_lf.setToolTip(_tr("Izquierda (X−) por Paso"))
+        self.mv_btn_rt.setToolTip(_tr("Derecha (X+) por Paso"))
+        arrows.addWidget(self.mv_btn_up, 0, 1)
+        arrows.addWidget(self.mv_btn_lf, 1, 0)
+        arrows.addWidget(self.mv_btn_rt, 1, 2)
+        arrows.addWidget(self.mv_btn_dn, 2, 1)
+        arrows.setColumnStretch(0, 1); arrows.setColumnStretch(1, 1); arrows.setColumnStretch(2, 1)
+        self.mv_btn_up.clicked.connect(lambda: self._apply_move_by_ft(0.0, +self.mv_step_ft.value()))
+        self.mv_btn_dn.clicked.connect(lambda: self._apply_move_by_ft(0.0, -self.mv_step_ft.value()))
+        self.mv_btn_lf.clicked.connect(lambda: self._apply_move_by_ft(-self.mv_step_ft.value(), 0.0))
+        self.mv_btn_rt.clicked.connect(lambda: self._apply_move_by_ft(+self.mv_step_ft.value(), 0.0))
+        lay.addLayout(arrows)
+
+        # Vector arbitrario ΔX, ΔY.
+        # Los spinboxes se construyen con un helper local que, si el usuario
+        # borra el texto y deja el campo vacío, lo colapsa a 0.00 en vez de
+        # dejar el valor anterior "pegado" (comportamiento raro de QDoubleSpinBox
+        # por defecto — la primera versión de este panel lo tenía).
+        vec_lbl = QtWidgets.QLabel(_tr("O escribe un desplazamiento exacto:"))
+        vec_lbl.setStyleSheet("margin-top:6px; color:#aaa;")
+        vec_lbl.setWordWrap(True)
+        lay.addWidget(vec_lbl)
+        vec = QtWidgets.QGridLayout(); vec.setSpacing(4); vec.setContentsMargins(0, 0, 0, 0)
+        def _dsb_delta():
+            b = QtWidgets.QDoubleSpinBox()
+            b.setDecimals(2); b.setRange(-1e6, 1e6); b.setSingleStep(0.5)
+            b.setMinimumWidth(70)
+            b.setSizePolicy(QtWidgets.QSizePolicy.Ignored, QtWidgets.QSizePolicy.Fixed)
+            le = b.lineEdit()
+            # Al perder el foco: si el texto quedó vacío o sin dígitos, set 0.
+            def _coerce_empty():
+                txt = (le.text() or "").strip()
+                # Quitar cualquier prefijo/sufijo para chequear si hay número.
+                # Los DoubleSpinBox nuestros no usan prefix/suffix, así que txt
+                # es directamente el número (o vacío/signo suelto).
+                if not txt or txt in ("-", "+", ",", "."):
+                    b.setValue(0.0)
+            le.editingFinished.connect(_coerce_empty)
+            return b
+        vec.addWidget(QtWidgets.QLabel("ΔX (ft):"), 0, 0)
+        self.mv_dx = _dsb_delta()
+        vec.addWidget(self.mv_dx, 0, 1)
+        vec.addWidget(QtWidgets.QLabel("ΔY (ft):"), 1, 0)
+        self.mv_dy = _dsb_delta()
+        vec.addWidget(self.mv_dy, 1, 1)
+        vec.setColumnStretch(1, 1)
+        self.mv_btn_apply = QtWidgets.QPushButton("  " + _tr("Aplicar"))
+        self.mv_btn_apply.setIcon(_icon("mdi:check"))
+        self.mv_btn_apply.setIconSize(QtCore.QSize(18, 18))
+        self.mv_btn_apply.clicked.connect(
+            lambda: self._apply_move_by_ft(self.mv_dx.value(), self.mv_dy.value()))
+        vec.addWidget(self.mv_btn_apply, 2, 0, 1, 2)
+        lay.addLayout(vec)
+
+        # Nota UX
+        note = QtWidgets.QLabel(_tr(
+            "<i>ΔY+ = norte del plano. Cada movimiento respeta Deshacer (Ctrl+Z).</i>"))
+        note.setWordWrap(True); note.setStyleSheet("color:#888; margin-top:4px;")
+        lay.addWidget(note)
+
+        # Estado inicial: deshabilitado hasta que haya selección.
+        self._update_move_panel()
+
+    def _update_move_panel(self):
+        """Habilita/deshabilita el panel según lo que esté seleccionado y
+        actualiza el label con qué se va a mover. Se llama desde _update_ui()."""
+        if not hasattr(self, "mv_lbl_sel"): return
+        info = self._selected_move_target()
+        widgets = (self.mv_grp_scope, self.mv_step_ft, self.mv_btn_up, self.mv_btn_dn,
+                   self.mv_btn_lf, self.mv_btn_rt, self.mv_dx, self.mv_dy, self.mv_btn_apply)
+        if info is None:
+            for w in widgets: w.setEnabled(False)
+            self.mv_lbl_sel.setText(_tr("(nada seleccionado)"))
+            self.mv_lbl_sel.setStyleSheet(
+                "padding:6px 8px; border-radius:4px; background:#333; color:#ccc;")
+            return
+        for w in widgets: w.setEnabled(True)
+        kind, obj = info
+        if kind == "pipe":
+            layer = obj.get("layer", ""); diam = obj.get("diam") or "?"
+            n = len(obj.get("pts") or [])
+            col = layer_qcolor(layer).name()
+            self.mv_lbl_sel.setText(_tr("Utilidad {layer} · Ø{diam}\" · {n} vértices").format(
+                layer=layer, diam=diam, n=n))
+            self.mv_lbl_sel.setStyleSheet(
+                f"padding:6px 8px; border-radius:4px; background:{col}; color:white; font-weight:bold;")
+            # Ajustar rango del spinbox de vértice
+            self.mv_vert_idx.setRange(0, max(0, n - 1))
+        elif kind == "struct":
+            cod = obj.get("cod") or "(sin código)"
+            es_curva = bool(obj.get("curve"))
+            tag = _tr("Curva") if es_curva else _tr("Buzón")
+            self.mv_lbl_sel.setText(f"{tag} · {cod}")
+            self.mv_lbl_sel.setStyleSheet(
+                "padding:6px 8px; border-radius:4px; background:#8a3ab9; color:white; font-weight:bold;")
+            # Un buzón/curva es un punto — solo aplica "un vértice" implícito.
+            self.mv_rb_all.setChecked(True)
+            self.mv_rb_vert.setEnabled(False)
+            return
+        # Radio botones habilitados solo para pipe con >1 vértice.
+        self.mv_rb_vert.setEnabled(kind == "pipe" and len(obj.get("pts") or []) > 0)
+
+    def _selected_move_target(self):
+        """Determina qué está seleccionado y va a mover el panel. Devuelve
+        (kind, obj) o None. Prioridad: pipe → structure (buzón/curva). Otros
+        tipos de selección (leader/text/región/centerline) no aplican."""
+        if 0 <= getattr(self, "sel_pipe", -1) < len(self.pipes):
+            return ("pipe", self.pipes[self.sel_pipe])
+        idx = -1
+        if 0 <= getattr(self, "sel_bz", -1) < len(self.structures):
+            idx = self.sel_bz
+        elif 0 <= getattr(self, "sel_curve", -1) < len(self.structures):
+            idx = self.sel_curve
+        if idx >= 0:
+            return ("struct", self.structures[idx])
+        return None
+
+    def _apply_move_by_ft(self, dx_ft, dy_ft):
+        """Motor de mover: convierte pies a scene pixels usando la escala y
+        el zoom actuales, y desplaza el objeto seleccionado en consecuencia.
+        Empuja al undo stack antes de mutar. Redibuja al final."""
+        if abs(dx_ft) < 1e-9 and abs(dy_ft) < 1e-9: return
+        info = self._selected_move_target()
+        if info is None:
+            self._info(_tr("No hay nada seleccionado para mover.")); return
+        if not self.scale or self.scale <= 1e-6:
+            QtWidgets.QMessageBox.warning(self, _tr("Sin escala"),
+                _tr("La escala del plano no está definida — establece '1\" = X ft' antes de mover.")); return
+        # ft → scene px. La conversión inversa a _px_for_ft (que además tiene un
+        # cap para textos que aquí NO queremos aplicar).
+        px_per_ft = float(self.zoom) / self.scale
+        dx_px = dx_ft * px_per_ft
+        # Y del plano crece hacia arriba en la vida real, pero en Qt/canvas Y
+        # crece hacia ABAJO. Se invierte para que "ΔY+ = norte del plano".
+        dy_px = -dy_ft * px_per_ft
+        self._push()
+        kind, obj = info
+        if kind == "pipe":
+            pts = obj.get("pts") or []
+            if self.mv_rb_vert.isChecked():
+                vi = self.mv_vert_idx.value()
+                if not (0 <= vi < len(pts)):
+                    self._info(_tr("Índice de vértice fuera de rango.")); return
+                pts[vi] = (pts[vi][0] + dx_px, pts[vi][1] + dy_px)
+                # Si algún buzón/curva coincidía con ese vértice, moverlo
+                # también para mantener la coherencia (mismo criterio que
+                # _no_manhole_vertex_indices: tol 14 px).
+                self._drag_structures_at((pts[vi][0] - dx_px, pts[vi][1] - dy_px), dx_px, dy_px)
+                self._info(_tr("Vértice V{vi} movido ΔX={dx:+.2f}ft, ΔY={dy:+.2f}ft.").format(
+                    vi=vi, dx=dx_ft, dy=dy_ft))
+            else:
+                # Utilidad completa: desplazar TODOS los vértices y arrastrar
+                # los buzones/curvas asociados a esos vértices también.
+                new_pts = []
+                for (px, py) in pts:
+                    new_pts.append((px + dx_px, py + dy_px))
+                    self._drag_structures_at((px, py), dx_px, dy_px)
+                obj["pts"] = new_pts
+                self._info(_tr("Utilidad movida ΔX={dx:+.2f}ft, ΔY={dy:+.2f}ft ({n} vértices).").format(
+                    dx=dx_ft, dy=dy_ft, n=len(new_pts)))
+        elif kind == "struct":
+            sx, sy = obj.get("x"), obj.get("y")
+            if sx is None or sy is None:
+                self._info(_tr("El elemento seleccionado no tiene posición en el lienzo.")); return
+            obj["x"] = sx + dx_px; obj["y"] = sy + dy_px
+            # Además: si algún vértice de pipe coincidía con la vieja posición,
+            # arrástralo también para no "despegar" un buzón de su tubería.
+            self._drag_pipe_vertices_at((sx, sy), dx_px, dy_px)
+            self._info(_tr("Elemento movido ΔX={dx:+.2f}ft, ΔY={dy:+.2f}ft.").format(
+                dx=dx_ft, dy=dy_ft))
+        self._dirty = True; self._redraw()
+
+    def _drag_structures_at(self, pos, dx_px, dy_px, tol_px=14.0):
+        """Mueve todas las structures cuyo (x,y) coincide con `pos` dentro de
+        `tol_px`. Se usa cuando un vértice de pipe se desplaza, para mantener
+        pegado el buzón/curva que estaba en ese vértice."""
+        tol2 = tol_px * tol_px
+        px, py = pos
+        for s in self.structures:
+            if s.get("world"): continue
+            sx, sy = s.get("x"), s.get("y")
+            if sx is None or sy is None: continue
+            if (sx - px) ** 2 + (sy - py) ** 2 <= tol2:
+                s["x"] = sx + dx_px; s["y"] = sy + dy_px
+
+    def _drag_pipe_vertices_at(self, pos, dx_px, dy_px, tol_px=14.0):
+        """Mueve todos los vértices de todas las pipes cuya posición coincide
+        con `pos` dentro de `tol_px`. Complemento simétrico de _drag_structures_at."""
+        tol2 = tol_px * tol_px
+        px, py = pos
+        for p in self.pipes:
+            if p.get("world") or not p.get("pts"): continue
+            new_pts = list(p["pts"])
+            changed = False
+            for i, (vx, vy) in enumerate(new_pts):
+                if (vx - px) ** 2 + (vy - py) ** 2 <= tol2:
+                    new_pts[i] = (vx + dx_px, vy + dy_px); changed = True
+            if changed: p["pts"] = new_pts
+
+    def _curve_max_radius_ft(self, curve_idx):
+        """Radio máximo (en pies) que ImportarRed.cs aceptará para esta curva sin
+        recortar. Replica la fórmula del plugin:
+          t_max = min(distPrev·capPrev, distNext·capNext)
+          r_max = t_max · tan(Δ/2)
+        donde Δ es el ángulo interno entre los dos tramos rectos (dot product de
+        las direcciones que salen del vértice curvo), y cap es 0.48 si el vértice
+        vecino también es curva o 0.9 si es recto. Devuelve None si no aplica
+        (curva sin tubería asociada, tramo casi recto, etc.)."""
+        import math
+        if not (0 <= curve_idx < len(self.structures)): return None
+        s = self.structures[curve_idx]
+        sx, sy = s.get("x"), s.get("y")
+        if sx is None or sy is None: return None
+        p = self._pipe_at_vertex(sx, sy)
+        if p is None or not p.get("pts") or len(p["pts"]) < 3: return None
+        # Índice del vértice de la tubería que corresponde a esta curva
+        tol2 = 14.0 ** 2
+        vi = None
+        for i, (vx, vy) in enumerate(p["pts"]):
+            if (vx - sx) ** 2 + (vy - sy) ** 2 <= tol2:
+                vi = i; break
+        if vi is None or vi <= 0 or vi >= len(p["pts"]) - 1:
+            return None
+        # Detectar si los vecinos vi-1 y vi+1 también son vértices curvos
+        # (misma tubería). Usa la misma tolerancia que _no_manhole_vertex_indices.
+        def es_curva_en(idx_v):
+            vx, vy = p["pts"][idx_v]
+            for o in self.structures:
+                if not o.get("curve") or o.get("world"): continue
+                ox, oy = o.get("x"), o.get("y")
+                if ox is None or oy is None: continue
+                if (ox - vx) ** 2 + (oy - vy) ** 2 <= tol2: return True
+            return False
+        cap_prev = 0.48 if es_curva_en(vi - 1) else 0.9
+        cap_next = 0.48 if es_curva_en(vi + 1) else 0.9
+        # Distancias en pies (usar _to_cad para convertir de píxeles a CAD ft).
+        try:
+            cx_ft, cy_ft = self._to_cad(*p["pts"][vi])
+            px_ft, py_ft = self._to_cad(*p["pts"][vi - 1])
+            nx_ft, ny_ft = self._to_cad(*p["pts"][vi + 1])
+        except Exception:
+            return None
+        vpx, vpy = px_ft - cx_ft, py_ft - cy_ft
+        vnx, vny = nx_ft - cx_ft, ny_ft - cy_ft
+        dist_prev = math.hypot(vpx, vpy)
+        dist_next = math.hypot(vnx, vny)
+        if dist_prev < 1e-6 or dist_next < 1e-6: return None
+        # Ángulo interno (mismo criterio que el plugin: Acos del dot product
+        # de los vectores UNITARIOS que salen del vértice curvo).
+        cos_d = (vpx * vnx + vpy * vny) / (dist_prev * dist_next)
+        cos_d = max(-1.0, min(1.0, cos_d))
+        delta_rad = math.acos(cos_d)
+        # Casi recta: no aplica límite (el plugin salta la curva)
+        if math.degrees(delta_rad) > 178.0: return None
+        t_max = min(dist_prev * cap_prev, dist_next * cap_next)
+        r_max = t_max * math.tan(delta_rad / 2.0)
+        return r_max if r_max > 0 else None
+
+    # ───────────────────── arcos reales por vértice curvo ─────────────────────
+    def _structure_curve_at(self, x, y, tol_px=14.0):
+        """Devuelve la estructura con curve=True cuyo (x,y) coincide con el punto
+        dado dentro de tolerancia (misma que usa el exportador DXF). Sirve para
+        el hit-test en el lienzo y para dibujar el arco real del pipe."""
+        tol2 = tol_px * tol_px
+        for s in self.structures:
+            if not s.get("curve") or s.get("world"): continue
+            sx, sy = s.get("x"), s.get("y")
+            if sx is None or sy is None: continue
+            if (sx - x) ** 2 + (sy - y) ** 2 <= tol2:
+                return s
+        return None
+
+    def _curve_arc_info(self, s, pipe):
+        """Calcula la geometría del arco real de una curva sobre su pipe.
+        Replica la fórmula del plugin C# (RadiusFt + capPrev/capNext) y
+        devuelve dict con center, radio, tangentes p1/p2, y direcciones — o
+        None si no aplica (curva sin pipe, en un extremo, tramo casi recto,
+        radio 0 sin diámetro para el modo automático, etc.). Todo en escena px."""
+        import math
+        sx, sy = s.get("x"), s.get("y")
+        if sx is None or sy is None: return None
+        pts = (pipe or {}).get("pts") or []
+        if len(pts) < 3: return None
+        tol2 = 14.0 ** 2
+        vi = None
+        for j, (vx, vy) in enumerate(pts):
+            if (vx - sx) ** 2 + (vy - sy) ** 2 <= tol2:
+                vi = j; break
+        if vi is None or vi <= 0 or vi >= len(pts) - 1:
+            return None
+        px_prev, py_prev = pts[vi - 1]
+        px_next, py_next = pts[vi + 1]
+        vpx, vpy = px_prev - sx, py_prev - sy
+        vnx, vny = px_next - sx, py_next - sy
+        L1 = math.hypot(vpx, vpy); L2 = math.hypot(vnx, vny)
+        if L1 < 1e-6 or L2 < 1e-6: return None
+        upx, upy = vpx / L1, vpy / L1
+        unx, uny = vnx / L2, vny / L2
+        cos_d = max(-1.0, min(1.0, upx * unx + upy * uny))
+        delta = math.acos(cos_d)
+        if math.degrees(delta) > 178.0: return None
+        # Radio en pies: explícito o auto = 6 × diámetro interior de la tubería
+        # (misma regla del plugin). Sin escala, no podemos convertir a scene px.
+        if not self.scale or self.scale <= 1e-6: return None
+        r_ft = float(s.get("radius_ft") or 0.0)
+        if r_ft <= 0.01:
+            diam_in = float(pipe.get("diam") or 12.0)
+            r_ft = 6.0 * (diam_in / 12.0)
+        # Conversión ft → scene px: los pts están en pixels de la escena que
+        # se renderizan a self.zoom × puntos PDF, mientras que self.scale es
+        # ft por punto PDF. Por lo tanto ft = pdf_pt × scale = scene_px × scale / zoom
+        # → scene_px = ft × zoom / scale (mismo criterio que _px_for_ft).
+        r_px = r_ft * float(self.zoom) / self.scale
+        # Caps de doble curva (mismo criterio del plugin)
+        cap_prev = 0.48 if self._structure_curve_at(px_prev, py_prev) else 0.9
+        cap_next = 0.48 if self._structure_curve_at(px_next, py_next) else 0.9
+        try:
+            t_px = r_px / math.tan(delta / 2.0)
+        except ZeroDivisionError:
+            return None
+        t_max = min(L1 * cap_prev, L2 * cap_next)
+        if t_px > t_max:
+            t_px = t_max
+            r_px = t_px * math.tan(delta / 2.0)
+        # p1: tangente hacia el vértice anterior; p2: tangente hacia el siguiente.
+        p1 = (sx + upx * t_px, sy + upy * t_px)
+        p2 = (sx + unx * t_px, sy + uny * t_px)
+        # Centro del arco = esquina + bisector_hacia_centro * (r/sin(Δ/2)).
+        # El bisector que apunta AL centro es (upx+unx, upy+uny) normalizado
+        # (verificado geométricamente contra el fillet estándar de esquina).
+        bx, by = upx + unx, upy + uny
+        Lb = math.hypot(bx, by)
+        if Lb < 1e-9: return None
+        bx, by = bx / Lb, by / Lb
+        sin_half = math.sin(delta / 2.0)
+        if sin_half < 1e-9: return None
+        d_c = r_px / sin_half
+        cx = sx + bx * d_c
+        cy = sy + by * d_c
+        return dict(vi=vi, corner=(sx, sy), r_px=r_px, t_px=t_px,
+                    center=(cx, cy), p1=p1, p2=p2,
+                    dir_prev=(upx, upy), dir_next=(unx, uny),
+                    delta_rad=delta)
+
+    def _arc_polyline(self, info, n_per_90=24):
+        """Discretiza el arco real de p1 a p2 (por el lado corto) en scene px.
+        Devuelve lista de puntos que sirven tanto para dibujar la curva como
+        para el hit-test del click sobre ella."""
+        import math
+        cx, cy = info["center"]; r = info["r_px"]
+        p1 = info["p1"]; p2 = info["p2"]
+        a1 = math.atan2(p1[1] - cy, p1[0] - cx)
+        a2 = math.atan2(p2[1] - cy, p2[0] - cx)
+        da = a2 - a1
+        while da > math.pi: da -= 2 * math.pi
+        while da < -math.pi: da += 2 * math.pi
+        abs_deg = abs(math.degrees(da))
+        n = max(6, int(round(abs_deg / 90.0 * n_per_90)))
+        return [(cx + r * math.cos(a1 + da * i / n),
+                 cy + r * math.sin(a1 + da * i / n)) for i in range(n + 1)]
+
+    def _pipe_display_pts(self, pipe):
+        """Devuelve la polilínea DE DIBUJO del pipe: los tramos rectos entre
+        vértices normales quedan igual; cada vértice con curva se REEMPLAZA por
+        la polilínea del arco real (misma geometría que el plugin dibuja en C3D).
+        Así el usuario ve el radio real sobre el lienzo."""
+        pts = (pipe or {}).get("pts") or []
+        n = len(pts)
+        if n < 2: return list(pts)
+        out = [pts[0]]
+        for j in range(1, n):
+            if 0 < j < n - 1:
+                s = self._structure_curve_at(*pts[j])
+                info = self._curve_arc_info(s, pipe) if s is not None else None
+                if info is not None:
+                    out.extend(self._arc_polyline(info, n_per_90=24))
+                    continue
+            out.append(pts[j])
+        return out
+
     def _sync_curve_panel(self):
         """Carga los valores del elemento curvo self.sel_curve en el panel de propiedades."""
         if not hasattr(self, "gprop_curve"): return
@@ -3891,7 +4421,39 @@ class Main(QtWidgets.QMainWindow):
             net = s.get("net") or "gravity"
             self.gprop_curve.setTitle("Propiedades del elemento curvo")
             self.cv_cod.setText(s.get("cod", ""))
-            self.cv_radius.setValue(float(s.get("radius_ft") or 0.0))
+            # Calcular y aplicar el radio máximo geométrico ANTES de setValue.
+            # Si no lo aplicamos, el usuario puede escribir p.ej. 100ft y el
+            # plugin lo recortará silenciosamente (con warning en consola,
+            # pero fuera de vista). Con el límite en la UI, se ve al instante.
+            r_max = self._curve_max_radius_ft(self.sel_curve)
+            self._cv_radius_max_ft = r_max
+            valor_guardado = float(s.get("radius_ft") or 0.0)
+            if r_max is not None and r_max > 0.01:
+                self.cv_radius.setMaximum(round(r_max, 2))
+                self.cv_radius.setToolTip(
+                    f"Radio deseado de la tubería curva, en pies. Vacío (0) = automático.\n"
+                    f"Máximo permitido por la geometría (tramos rectos adyacentes): "
+                    f"{r_max:.2f} ft.")
+                # Si el valor guardado excedía el nuevo máximo, sale aviso rojo
+                # (además del clamp automático que el spinbox aplica al setValue).
+                if valor_guardado > r_max + 1e-3:
+                    self.cv_radius_warn.setText(
+                        f"⚠ Máximo permitido: {r_max:.2f} ft (limitado por los tramos "
+                        f"rectos adyacentes). El valor guardado ({valor_guardado:.2f} ft) "
+                        f"se ajustó.")
+                    self.cv_radius_warn.setVisible(True)
+                else:
+                    self.cv_radius_warn.setText(
+                        f"Máximo permitido: {r_max:.2f} ft.")
+                    self.cv_radius_warn.setVisible(True)
+            else:
+                self.cv_radius.setMaximum(10000.0)
+                self.cv_radius.setToolTip(
+                    "Radio deseado de la tubería curva, en pies. Vacío (0) = automático:\n"
+                    "al importar en Civil3D se usa 6× el ancho/diámetro interior de la tubería.")
+                self.cv_radius_warn.setVisible(False)
+                self.cv_radius_warn.setText("")
+            self.cv_radius.setValue(valor_guardado)
             self.cv_net_lbl.setText("conduit (eléctrico/telecom)" if net == "conduit" else "gravedad")
             self.cv_origin_lbl.setText("Excel" if s.get("world") else "dibujo")
             # Familia/tamaño heredados de la tubería recta que pasa por este vértice
@@ -3926,7 +4488,22 @@ class Main(QtWidgets.QMainWindow):
                 self._curve_prop_guard = True; self.cv_cod.setText(s.get("cod", "")); self._curve_prop_guard = False
                 return
             s["cod"] = cod_new
-        s["radius_ft"] = float(self.cv_radius.value())
+        val_actual = float(self.cv_radius.value())
+        s["radius_ft"] = val_actual
+        # Si el usuario está topando contra el máximo geométrico, resalta el
+        # aviso en rojo intenso para que sepa que el spinbox no lo dejó subir más.
+        r_max = getattr(self, "_cv_radius_max_ft", None)
+        if r_max is not None and r_max > 0.01:
+            if val_actual >= r_max - 1e-3 and val_actual > 0:
+                self.cv_radius_warn.setText(
+                    f"⚠ Alcanzaste el máximo permitido: {r_max:.2f} ft. "
+                    f"No se puede subir más porque los tramos rectos adyacentes "
+                    f"no dan espacio para una tangente mayor.")
+                self.cv_radius_warn.setStyleSheet("color:#d33; font-weight:bold; font-size:14px;")
+            else:
+                self.cv_radius_warn.setText(f"Máximo permitido: {r_max:.2f} ft.")
+                self.cv_radius_warn.setStyleSheet("color:#d33; font-size:14px;")
+            self.cv_radius_warn.setVisible(True)
         self._dirty = True
         self._refresh_curve_list_item(self.sel_curve)
         self._redraw()

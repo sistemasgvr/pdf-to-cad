@@ -1406,7 +1406,7 @@ namespace Civil3DBasico
                     var campo = filtro[i];
                     if (campo == null || campo.IsReadOnly) continue;
                     string nmDbg = (campo.Name ?? "") + "/" + (campo.Description ?? "") + " IsFromList=" + campo.IsFromList;
-                    if (!campo.IsFromList) { ed.WriteMessage($"\n    [ATP-SKIP] fam='{fam.Description}' d={diamPulgadas:F1} campo={nmDbg}"); continue; }
+                    if (!campo.IsFromList) { Dl(ed, $"\n    [ATP-SKIP] fam='{fam.Description}' d={diamPulgadas:F1} campo={nmDbg}"); continue; }
                     string nm = ((campo.Name ?? "") + " " + (campo.Description ?? "")).ToLowerInvariant();
                     bool esDiam = nm.Contains("diameter") || nm.Contains("diámetro") ||
                                   nm.Contains("diametro") || nm.Contains("inner width") ||
@@ -1431,19 +1431,19 @@ namespace Civil3DBasico
                                     if (vals != null) { foreach (var v in vals) s += v + ";"; break; }
                                 }
                             }
-                            ed.WriteMessage($"\n    [ATP-DIAM-VALS] fam='{fam.Description}' d={diamPulgadas:F1} allowed=[{s}]");
+                            Dl(ed, $"\n    [ATP-DIAM-VALS] fam='{fam.Description}' d={diamPulgadas:F1} allowed=[{s}]");
                         }
-                        catch (Exception exV) { ed.WriteMessage($"\n    [ATP-DIAM-VALS-ERR] {exV.Message}"); }
+                        catch (Exception exV) { Dl(ed, $"\n    [ATP-DIAM-VALS-ERR] {exV.Message}"); }
                         try { campo.Value = diamPulgadas; cambioDiam = true; diamValueOk = true; }
-                        catch (Exception exD) { diamErr = exD.Message; ed.WriteMessage($"\n    [ATP-DIAM-SET-FAIL] fam='{fam.Description}' d={diamPulgadas:F1} err={exD.Message}"); }
+                        catch (Exception exD) { diamErr = exD.Message; Dl(ed, $"\n    [ATP-DIAM-SET-FAIL] fam='{fam.Description}' d={diamPulgadas:F1} err={exD.Message}"); }
                     }
                     else if (esWall)
                     {
                         try { campo.IsMultipleSelect = false; } catch { }
-                        try { campo.Value = 0.0; ed.WriteMessage($"\n    [ATP-WALL0-OK] fam='{fam.Description}'"); }
+                        try { campo.Value = 0.0; Dl(ed, $"\n    [ATP-WALL0-OK] fam='{fam.Description}'"); }
                         catch (Exception exW)
                         {
-                            ed.WriteMessage($"\n    [ATP-WALL0-FAIL] fam='{fam.Description}' err={exW.Message} → multi-select");
+                            Dl(ed, $"\n    [ATP-WALL0-FAIL] fam='{fam.Description}' err={exW.Message} → multi-select");
                             try { campo.IsMultipleSelect = true; } catch { }
                         }
                     }
@@ -1452,7 +1452,7 @@ namespace Civil3DBasico
                 }
                 if (!cambioDiam)
                 {
-                    ed.WriteMessage($"\n    [ATP-NO-DIAM-FIELD] fam='{fam.Description}' d={diamPulgadas:F1} paramCount={filtro.ParamCount} diamErr='{diamErr}'");
+                    Dl(ed, $"\n    [ATP-NO-DIAM-FIELD] fam='{fam.Description}' d={diamPulgadas:F1} paramCount={filtro.ParamCount} diamErr='{diamErr}'");
                     return false;
                 }
                 try
@@ -1461,7 +1461,7 @@ namespace Civil3DBasico
                 }
                 catch (Exception exAdd)
                 {
-                    ed.WriteMessage($"\n    [ATP-ADD-FAIL] fam='{fam.Description}' d={diamPulgadas:F1} err={exAdd.Message}");
+                    Dl(ed, $"\n    [ATP-ADD-FAIL] fam='{fam.Description}' d={diamPulgadas:F1} err={exAdd.Message}");
                     return false;
                 }
                 int nuevos = fam.PartSizeCount - antes;
@@ -1471,10 +1471,10 @@ namespace Civil3DBasico
                         $"'{fam.Description}' ({nuevos} variante(s)).");
                     return true;
                 }
-                ed.WriteMessage($"\n    [ATP-NO-NEW] fam='{fam.Description}' d={diamPulgadas:F1} — AddPartSize no creó variantes nuevas");
+                Dl(ed, $"\n    [ATP-NO-NEW] fam='{fam.Description}' d={diamPulgadas:F1} — AddPartSize no creó variantes nuevas");
                 return false;
             }
-            catch (Exception exOut) { ed.WriteMessage($"\n    [ATP-OUTER-ERR] fam='{fam.Description}' d={diamPulgadas:F1} err={exOut.Message}"); return false; }
+            catch (Exception exOut) { Dl(ed, $"\n    [ATP-OUTER-ERR] fam='{fam.Description}' d={diamPulgadas:F1} err={exOut.Message}"); return false; }
         }
 
         // Comprueba si un diámetro (en pulgadas) ya existe como tamaño exacto
@@ -1531,10 +1531,10 @@ namespace Civil3DBasico
                     .FirstOrDefault(c => (string)c.Attribute("context") == "PipeInnerDiameter");
                 if (colPID == null)
                 {
-                    ed.WriteMessage($"\n    [INJ-NO-COLPID] fam='{fam.Description}' d={diamPulgadas:F1} xml='{System.IO.Path.GetFileName(xmlPath)}' — familia sin columna PipeInnerDiameter");
+                    Dl(ed, $"\n    [INJ-NO-COLPID] fam='{fam.Description}' d={diamPulgadas:F1} xml='{System.IO.Path.GetFileName(xmlPath)}' — familia sin columna PipeInnerDiameter");
                     return false;
                 }
-                ed.WriteMessage($"\n    [INJ-START] fam='{fam.Description}' d={diamPulgadas:F1} xml='{System.IO.Path.GetFileName(xmlPath)}'");
+                Dl(ed, $"\n    [INJ-START] fam='{fam.Description}' d={diamPulgadas:F1} xml='{System.IO.Path.GetFileName(xmlPath)}'");
 
                 // Verificar si el diámetro ya existe en el XML
                 XElement colWThExisting = root.Elements("Column")
@@ -1579,7 +1579,7 @@ namespace Civil3DBasico
                 XElement colUUID = root.Elements("ColumnUnique").FirstOrDefault();
                 if (colUUID == null)
                 {
-                    ed.WriteMessage($"\n    [INJ-NO-COLUUID] fam='{fam.Description}' d={diamPulgadas:F1} — XML sin ColumnUnique");
+                    Dl(ed, $"\n    [INJ-NO-COLUUID] fam='{fam.Description}' d={diamPulgadas:F1} — XML sin ColumnUnique");
                     return false;
                 }
                 int maxRow = -1;
