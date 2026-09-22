@@ -90,8 +90,11 @@ def rebuild_structures(pipes, structures):
     def near(a, b): return math.hypot(a[0] - b[0], a[1] - b[1]) <= tol
     # Descarta buzones espurios de versiones previas con net inválida (p.ej. "pressure").
     old = [s for s in structures
-           if not s.get("world") and (s.get("net") or "gravity") in ("gravity", "conduit")]
-    world = [s for s in structures if s.get("world")]
+           if not s.get("world") and not s.get("standalone")
+           and (s.get("net") or "gravity") in ("gravity", "conduit")]
+    # Los importados de Excel (world) y las bóvedas reconocidas SIN línea
+    # (standalone: no están en ningún vértice) se conservan tal cual.
+    world = [s for s in structures if s.get("world") or s.get("standalone")]
     detected = []
     for p in pipes:
         if p.get("world"): continue
@@ -258,9 +261,11 @@ VAULT_GEO_KEYS = ("shape", "width_ft", "length_ft", "rot_deg", "outline")
 def attach_vault_geometry(structures, vaults_geo, tol=12.0):
     """Asocia cada bóveda reconocida (`RecognitionResult.vaults_geo`) a la
     estructura más cercana a su centro (≤ `tol` px) y le copia forma, medidas
-    y contorno. Las bóvedas sin estructura cerca (huérfanas: ninguna línea las
-    atraviesa) no se inventan como buzón. Devuelve (asignadas, sin_estructura)."""
-    done = 0; missing = 0
+    y contorno. Una bóveda real sin estructura cerca (ninguna línea la atraviesa
+    ni muere en ella; `importable`) se importa igual como CAJA SUELTA
+    (`standalone=True`, sin vértice: en Civil 3D será un sólido aislado); las
+    cajas propuestas / postes no. Devuelve (asignadas, sueltas_creadas)."""
+    done = 0; created = 0
     for vg in vaults_geo or []:
         cx, cy = vg.get("center", (None, None))
         if cx is None:
@@ -285,8 +290,18 @@ def attach_vault_geometry(structures, vaults_geo, tol=12.0):
                     if best is None or d < best[0]:
                         best = (d, s)
         if best is None:
-            missing += 1
-            continue
+            if not vg.get("importable", False):
+                continue
+            # ya importada en una pasada anterior (mismo centro): reutilizar
+            for s in structures:
+                if s.get("standalone") and math.hypot(float(s["x"]) - cx, float(s["y"]) - cy) <= tol:
+                    best = (0.0, s); break
+            if best is None:
+                st = {"cod": "", "x": float(cx), "y": float(cy), "rim": None, "sump": None,
+                      "part": "", "part_size": "", "net": "conduit", "covered": True,
+                      "world": False, "hidden": False, "standalone": True}
+                structures.append(st); created += 1
+                best = (0.0, st)
         st = best[1]
         st["shape"] = vg.get("shape", "rect")
         st["width_ft"] = float(vg.get("width_ft") or 0.0)
@@ -294,8 +309,23 @@ def attach_vault_geometry(structures, vaults_geo, tol=12.0):
         st["rot_deg"] = float(vg.get("angle_deg") or 0.0)
         st["outline"] = [(float(x), float(y)) for x, y in (vg.get("corners") or [])] or None
         st["hidden"] = False                      # una bóveda real siempre se ve
+        if vg.get("abandoned"):
+            st["abandoned"] = True
         done += 1
-    return done, missing
+    _assign_standalone_codes(structures)
+    return done, created
+
+
+def _assign_standalone_codes(structures):
+    """Código CAJA-N a las bóvedas sueltas nuevas (rebuild_structures no las
+    numera: las conserva tal cual)."""
+    used = {s.get("cod", "") for s in structures if s.get("cod")}
+    n = 1
+    for s in structures:
+        if s.get("standalone") and not s.get("cod"):
+            while f"CAJA-{n}" in used:
+                n += 1
+            s["cod"] = f"CAJA-{n}"; used.add(s["cod"]); n += 1
 
 
 def attach_fillets(pipes, structures, tol=1.0):
@@ -348,7 +378,7 @@ def fillet_geo(prev, corner, nxt, r_px, max_frac=0.9, n_arc=32):
     T = r / math.tan(phi / 2.0)
     clamped = False
     t_max = min(L1, L2) * max_frac
-    if T > t_max:
+    if T > t_max + 0.05:                      # (0.05 px: el radio viaja redondeado a 3 decimales en pies)
         T = t_max; r = T * math.tan(phi / 2.0); clamped = True
     t1 = (corner[0] + d1x * T, corner[1] + d1y * T)
     t2 = (corner[0] + d2x * T, corner[1] + d2y * T)

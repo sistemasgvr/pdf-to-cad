@@ -57,6 +57,13 @@ MARKER_PERIOD_TOL = 0.15     # paso entre marcadores: ±15 % del periodo (+ MARK
 MARKER_PERIOD_SLACK_PT = 3.0
 MARKER_MIN_AGREE = 2         # pasos iguales necesarios para aprender el periodo (= 3 marcadores seguidos)
 CODO_MAX_VERTEX_TURN_DEG = 60.0  # un «codo» pequeño es suave: ningún vértice gira más que esto (zigzag «//» no)
+# Llegada a una bóveda: «por su eje + quiebre CORTO». El quiebre es el desvío
+# lateral entre el eje de la línea que llega y el nodo interior; si hay que
+# desviarse más que esta fracción del lado menor de la bóveda, la línea no va a
+# ese nodo (se inventarían decenas de pt dentro de la caja): para en el borde.
+# Medido en el DU06: llegadas buenas ≤0.46 · lado menor; el abanico de la hoja 3
+# que reportó el usuario iba de 0.56 a 1.6.
+VAULT_BEND_OFF_FRAC = 0.5
 LOOP_VAULT_MIN_PT = 12.0     # lazo rectangular cerrado de la propia capa = bóveda si su lado ≥12 pt…
 LOOP_VAULT_MAX_PT = 120.0    # …y ≤120 pt (más grande ya no es un símbolo)
 CHAIN_KINDS = ("corner", "bend", "edge")   # nodos de grado 2 que se encadenan (bóveda: regla propia)
@@ -105,6 +112,7 @@ class Vault:
     angle_deg: float = 0.0
     width: float = 0.0
     length: float = 0.0
+    layer: str = ""               # OCG mayoritaria del símbolo (para saber si es bóveda real o propuesta/poste)
 
     @property
     def center(self) -> Pt:
@@ -161,6 +169,7 @@ class Run:
     origin: int = -1          # corrida original (las piezas partidas en una bóveda la comparten)
     synthetic: bool = False   # tramo borde→referencia dentro de una bóveda (sin guiones)
     split: bool = False       # pieza que resultó de partir una corrida que atraviesa una bóveda
+    split_vi: int = -1        # …la bóveda que la partió (otra bóveda no puede usarla como «línea que atraviesa»)
     # Sintéticos: rumbo con que la línea de origen ENTRA a la bóveda. Con eso se
     # decide si la polilínea sigue derecho por la bóveda (no con el rumbo del
     # tramito borde→referencia, que es diagonal).
@@ -1170,6 +1179,9 @@ def _cluster_vaults_layer(paths: Sequence[dict]) -> List[Vault]:
         ref = _vault_reference(cluster, bb)
         v = Vault(*bb, len(bbs), ref)
         _fill_vault_geometry(v, cluster)
+        layers = [str(p.get("layer") or "") for p in cluster if p.get("layer")]
+        if layers:
+            v.layer = max(set(layers), key=layers.count)
         out.append(v)
     return out
 
@@ -1388,8 +1400,8 @@ def resolve_nodes(runs: List[Run], pat: Pattern, vaults: Sequence[Vault],
             E1, E2 = r.at(rng[0]), r.at(rng[1])
             da = [d for d in r.dashes if r.param(d.mid)[0] <= rng[0]]
             db = [d for d in r.dashes if r.param(d.mid)[0] >= rng[1]]
-            r1 = Run(r.a, E1, r.ux, r.uy, da, origin=r.origin, split=True)
-            r2 = Run(E2, r.b, r.ux, r.uy, db, origin=r.origin, split=True)
+            r1 = Run(r.a, E1, r.ux, r.uy, da, origin=r.origin, split=True, split_vi=vi)
+            r2 = Run(E2, r.b, r.ux, r.uy, db, origin=r.origin, split=True, split_vi=vi)
             runs[i] = r1
             runs.insert(i + 1, r2)
             i += 2
@@ -1501,6 +1513,11 @@ def resolve_nodes(runs: List[Run], pat: Pattern, vaults: Sequence[Vault],
                 t = hits[1]                       # sobrepaso corto: recortar al cruce cercano
             else:
                 t = hits[0]                       # primer cruce hacia adelante
+                # …pero solo se prolonga lo que dura un hueco del linetype: más
+                # allá, entre el último guión y la bóveda no hay tinta y estaríamos
+                # dibujando una línea que el plano no tiene (DU06 h.3: 29 pt).
+                if t > reach:
+                    return None
             return (pe[0] + t * o[0], pe[1] + t * o[1]), abs(t)
 
         # Un solo extremo por corrida: el que menos hay que mover para tocar el borde.
@@ -1590,7 +1607,11 @@ def resolve_nodes(runs: List[Run], pat: Pattern, vaults: Sequence[Vault],
         # ATRAVIESA la bóveda (cruce real, como en los apuntes: izquierda/arriba/
         # derecha). Si todas solo llegan y ninguna sigue del otro lado, no se
         # inventa nada: cada una para en el borde.
-        has_through = any(runs[i].split for i, _, _ in strong) or bool(virtual_through)
+        # …y tiene que ser ESTA bóveda la que partió la corrida: una pieza de una
+        # línea que atraviesa OTRA bóveda no dice nada de esta (DU06 h.3: la
+        # vertical que cruza la bóveda de arriba moría en la de abajo y le ponía
+        # el nodo en una esquina, con las llegadas cruzando la caja de lado).
+        has_through = any(runs[i].split and runs[i].split_vi == vi for i, _, _ in strong) or bool(virtual_through)
         if has_through:
             # Nodo interior P a partir de las llegadas:
             #   · si ≥2 líneas ATRAVIESAN la bóveda → su intersección (P sobre ambas);
@@ -1600,7 +1621,7 @@ def resolve_nodes(runs: List[Run], pat: Pattern, vaults: Sequence[Vault],
             # siguen su eje hasta el pie y de ahí un quiebre corto a P.
             thr_lines: Dict[int, Line] = {}
             for i, s, _ in strong:
-                if runs[i].split and runs[i].origin not in thr_lines:
+                if runs[i].split and runs[i].split_vi == vi and runs[i].origin not in thr_lines:
                     thr_lines[runs[i].origin] = runs[i].line(s)
             for k, L in enumerate(virtual_through):
                 thr_lines[-1 - k] = L
@@ -1618,6 +1639,23 @@ def resolve_nodes(runs: List[Run], pat: Pattern, vaults: Sequence[Vault],
                 P = _concurrent_point(all_lines, centroid, v.radius + reach)
             if P is None or not (bb_reach[0] <= P[0] <= bb_reach[2] and bb_reach[1] <= P[1] <= bb_reach[3]):
                 P = centroid
+            # El nodo (la CAJA) va DENTRO del símbolo: si el cálculo lo deja
+            # fuera del recuadro, se lleva al punto de la línea que atraviesa que
+            # sí está dentro (y si no hay, al recuadro). Sin esto el nodo podía
+            # quedar sobre el papel, fuera de la bóveda, con las llegadas
+            # apuntando a un vértice que el plano no tiene.
+            if not (bb[0] <= P[0] <= bb[2] and bb[1] <= P[1] <= bb[3]):
+                Lt = next(iter(thr_lines.values()), None)
+                moved = None
+                if Lt is not None:
+                    hits = _line_bbox_hits((Lt[0], Lt[1]), (Lt[2], Lt[3]), bb)
+                    if hits is not None:
+                        t = (P[0] - Lt[0]) * Lt[2] + (P[1] - Lt[1]) * Lt[3]
+                        t = min(max(t, hits[0]), hits[1])
+                        moved = (Lt[0] + t * Lt[2], Lt[1] + t * Lt[3])
+                if moved is None:
+                    moved = (min(max(P[0], bb[0]), bb[2]), min(max(P[1], bb[1]), bb[3]))
+                P = moved
             # Sin referencia suficiente = alguna línea tendría que recorrer dentro
             # de la bóveda más de 0.75 × su lado menor para llegar al nodo (p.ej.
             # una vertical que entra por abajo y curvas que salen por arriba de
@@ -1642,9 +1680,18 @@ def resolve_nodes(runs: List[Run], pat: Pattern, vaults: Sequence[Vault],
                 free[(len(runs) - 1, "a")] = False; free[(len(runs) - 1, "b")] = False
                 made[(a_node, b_node)] = len(runs) - 1
 
+            bend_lim = max(VAULT_BEND_OFF_FRAC * min(v.x1 - v.x0, v.y1 - v.y0), NODE_OFF_LINE_PT)
             for i, s, E in strong:
                 r = runs[i]
                 o = outward(i, s)
+                # El nodo tiene que quedar prácticamente sobre el eje de la línea
+                # que llega (quiebre corto). Si no, esa línea NO va al nodo: para
+                # en el borde y el usuario decide. Sin esto, una bóveda grande con
+                # el nodo pegado a un lado se llevaba todas las llegadas a un punto
+                # y dibujaba un abanico de líneas que el plano no tiene.
+                if _perp_line(r.line(s), P) > bend_lim:      # (la que atraviesa da desvío ~0)
+                    set_endpoint(i, s, E, new_node(E, "stop", vi))
+                    continue
                 edge = new_node(E, "edge")
                 set_endpoint(i, s, E, edge)
                 # Un solo tramo recto borde → nodo (imagen 1 del usuario: sin
@@ -1714,7 +1761,16 @@ def resolve_nodes(runs: List[Run], pat: Pattern, vaults: Sequence[Vault],
                 if d > 1.0 and (pe[0] - pf[0]) * of_[0] + (pe[1] - pf[1]) * of_[1] < cos30 * d:
                     continue
                 pairs.append((d, e, f, ((pe[0] + pf[0]) / 2, (pe[1] + pf[1]) / 2), "bend"))
-    pairs.sort(key=lambda t: t[0])
+    # Una CONTINUACIÓN recta (quiebre suave: mismo eje, extremos mirándose dentro
+    # del hueco del patrón) se resuelve ANTES que cualquier esquina. Donde dos
+    # líneas se CRUZAN, las puntas de una quedan a veces más cerca de las de la
+    # otra que de su propia continuación, y la pasada voraz por pura distancia
+    # las cosía en cruz: la curva se quebraba en el cruce y seguía por la
+    # vertical (DU06 h.3 en (889,1079); lo reportó el usuario: «esa línea curva
+    # pasa directo, no hay por qué tenga un quiebre ahí»). Una línea que sigue
+    # derecho no es una esquina: gana. Dentro de cada clase sigue ganando la
+    # pareja MÁS CERCANA, así en un arco cada guión se une con el siguiente.
+    pairs.sort(key=lambda t: (0 if t[4] == "bend" else 1, t[0]))
     corner_nodes: List[int] = []
     for _, e, f, P, kind in pairs:
         if not free[e] or not free[f]:

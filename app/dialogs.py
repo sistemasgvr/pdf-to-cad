@@ -354,7 +354,11 @@ def show_manual(win):
     siguen de frente; el ramal empieza otra ruta. No mueve puntos. Se puede desactivar antes de importar.
     Los <b>codos</b> del plano (trazo curvo tangente a dos guiones rectos) se importan como esquina
     + radio: la esquina es la intersección de las rectas de los guiones y el arco, el círculo
-    tangente a ellas que pasa por el trazo curvo. En el lienzo la esquina curva se dibuja con su
+    tangente a ellas ajustado a la <b>tinta</b> del trazo curvo (los vectores del PDF). Solo hay codo
+    donde el plano dibujó curva: si los guiones del giro son rectos y el quiebre queda en el hueco
+    entre ellos (chaflán), se importa como esquina. Un ramal que
+    curva y muere sobre otra línea, en una bóveda o en el borde se cierra con el círculo tangente a
+    la recta que llega y que pasa por ese nodo. En el lienzo la esquina curva se dibuja con su
     arco real (puntos de tangencia marcados), el mismo que generará Civil 3D; si va a trazos es
     que el radio no entra en los tramos y el plugin lo recortará. Una cadena de guiones rectos
     con quiebres nunca se convierte en curva.</p>

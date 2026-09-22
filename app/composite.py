@@ -33,6 +33,12 @@ Pt = Tuple[float, float]
 MARGIN_PT = 36.0          # margen alrededor de las piezas en la hoja compuesta
 SIDES = ("left", "right", "top", "bottom")
 MAGNET_TOL_PT = 8.0       # radio del imán (pt de la hoja compuesta)
+SEAM_ALONG_TOL_PT = 90.0  # cuánto busca el imán A LO LARGO de la costura (el desfase entre recortes)
+SEAM_LINE_TOL_PT = 10.0   # la match line puede quedar a ≤ esto del borde de la pieza
+SEAM_LINE_MIN_PT = 40.0   # …y tiene que medir al menos esto para servir de referencia
+SEAM_LINE_SAME_PT = 2.0   # dos match lines son la MISMA si sus extremos coinciden ±esto tras alinear
+SEAM_LAT_TOL_PT = 2.0     # …y cuánto puede sobrar/faltar en el sentido de la línea
+SEAM_MIN_PAIRS = 3        # parejas de extremos que tienen que estar de acuerdo para moverse
 MAGNET_AGREE_PT = 0.3     # dos deltas "coinciden" si difieren menos que esto
 MIN_PIECE_PT = 2.0
 EDGE_TOL_PT = 0.75        # un extremo a ≤ esto del borde del clip cuenta como anclaje
@@ -1086,6 +1092,133 @@ def bridge_segments_poly(pts: Sequence[Pt], dash: float, gap_ratio: float = BRID
                 t = min(L, t + max(1e-6, period - phase))
         walked += L
     return out
+
+
+def page_segments(page: fitz.Page) -> List[Tuple[float, float, float, float]]:
+    """Segmentos rectos de la hoja VISIBLE (x0, y0, x1, y1), una sola pasada."""
+    rot = page.rotation_matrix
+    out: List[Tuple[float, float, float, float]] = []
+    for path in page.get_drawings():
+        if path.get("type") == "f":
+            continue
+        for it in path.get("items") or ():
+            if it[0] != "l":
+                continue
+            a = fitz.Point(it[1].x, it[1].y) * rot
+            b = fitz.Point(it[2].x, it[2].y) * rot
+            out.append((a.x - page.rect.x0, a.y - page.rect.y0,
+                        b.x - page.rect.x0, b.y - page.rect.y0))
+    return out
+
+
+def seam_line_extent(page: fitz.Page, piece: Piece, page_size: Tuple[float, float], target: float,
+                     side: str, tol: float = SEAM_LINE_TOL_PT, min_len: float = SEAM_LINE_MIN_PT,
+                     segments=None):
+    """Extremos (inicio, fin) A LO LARGO de la costura de la línea larga que
+    corre pegada a ese lado de la pieza —la **match line**—, en coordenadas de la
+    hoja compuesta; `None` si no hay.
+
+    Dos hojas contiguas de un plano dibujan LA MISMA match line (la de la hoja de
+    al lado), así que sus extremos son la referencia exacta para alinear la
+    costura: no hay que adivinar nada ni fiarse de qué guión empareja con cuál."""
+    if (piece.rotation % 360.0) != 0.0:
+        return None
+    x0, y0, x1, y1 = clip_rect_pt(page_size, piece.clip)
+    f = (piece.src_scale or target) / target
+    if f <= 0:
+        return None
+    vertical = side in ("left", "right")
+    edge = (x0 if side == "left" else x1) if vertical else (y0 if side == "top" else y1)
+    groups: Dict[float, List[Tuple[float, float]]] = {}
+    for ax, ay, bx, by in (segments if segments is not None else page_segments(page)):
+            if vertical:
+                if abs(ax - bx) > 0.8 or abs(ay - by) < 2.0:
+                    continue
+                coord, lo, hi = (ax + bx) / 2.0, min(ay, by), max(ay, by)
+            else:
+                if abs(ay - by) > 0.8 or abs(ax - bx) < 2.0:
+                    continue
+                coord, lo, hi = (ay + by) / 2.0, min(ax, bx), max(ax, bx)
+            if abs(coord - edge) > tol:
+                continue
+            groups.setdefault(round(coord, 1), []).append((lo, hi))
+    span_lo, span_hi = (y0, y1) if vertical else (x0, x1)
+    best = None
+    for coord, segs in groups.items():
+        lo = min(s0 for s0, _ in segs); hi = max(s1 for _, s1 in segs)
+        # Solo cuenta lo que cae DENTRO del recorte: una vertical del perfil o
+        # del marco de la hoja no es la match line del plano.
+        lo = max(lo, span_lo); hi = min(hi, span_hi)
+        if hi - lo < min_len or hi - lo < 0.25 * (span_hi - span_lo):
+            continue
+        if best is None or (hi - lo) > (best[1] - best[0]):
+            best = (lo, hi)
+    if best is None:
+        return None
+    start_pt = (y0 if vertical else x0)      # extremos RELATIVOS al origen de la pieza
+    return ((best[0] - start_pt) * f, (best[1] - start_pt) * f)
+
+
+def seam_line_delta(ext_static, ext_moving, same_tol: float = SEAM_LINE_SAME_PT):
+    """Desplazamiento a lo largo de la costura que hace coincidir las dos match
+    lines. None si no son la misma línea (largos distintos)."""
+    if ext_static is None or ext_moving is None:
+        return None
+    la = ext_static[1] - ext_static[0]
+    lb = ext_moving[1] - ext_moving[0]
+    if abs(la - lb) > same_tol or min(la, lb) <= 0:
+        return None
+    d0 = ext_static[0] - ext_moving[0]
+    d1 = ext_static[1] - ext_moving[1]
+    if abs(d0 - d1) > same_tol:
+        return None
+    return (d0 + d1) / 2.0
+
+
+def seam_along_delta(moving: Sequence[Anchor], static: Sequence[Anchor], axis: int,
+                     tol_along: float = SEAM_ALONG_TOL_PT, tol_lat: float = SEAM_LAT_TOL_PT,
+                     max_gap: float = BRIDGE_MAX_PT, min_pairs: int = SEAM_MIN_PAIRS):
+    """Desplazamiento A LO LARGO de la costura (pt) que pone en línea los extremos
+    enfrentados de las dos piezas. `axis` = 0 si la costura es horizontal (las
+    piezas se mueven en x) o 1 si es vertical (se mueven en y).
+
+    Es el mismo emparejamiento que usan los puentes —extremos que se miran de
+    frente, a ≤ `max_gap`, de la misma capa— pero buscando mucho más lejos a lo
+    largo de la costura: tras pegar los bordes, el desfase que queda puede ser de
+    decenas de pt (cada hoja se recortó con un margen distinto) y el imán normal,
+    limitado al radio de pantalla, no llegaba. Devuelve None si no hay al menos
+    `min_pairs` parejas de acuerdo: sin evidencia no se mueve nada."""
+    from pdf_layers import short_name
+
+    other = 1 - axis
+    props: List[float] = []
+    pairs: List[Tuple[float, int, int, float, float]] = []
+    for i, m in enumerate(moving):
+        for j, s_ in enumerate(static):
+            if m.ux * s_.ux + m.uy * s_.uy > -BRIDGE_COS:
+                continue                                    # no se miran de frente
+            if m.layer and s_.layer and short_name(m.layer).casefold() != short_name(s_.layer).casefold():
+                continue                                    # cada línea con la suya
+            v = (s_.x - m.x, s_.y - m.y)
+            if abs(v[other]) > max_gap or v[other] * (m.ux if other == 0 else m.uy) < -tol_lat:
+                continue                                    # el hueco va por delante del extremo
+            if abs(v[axis]) > tol_along:
+                continue
+            cost = abs(v[axis]) + 0.01 * abs(v[other])
+            pairs.append((cost, i, j, v[0], v[1]))
+    for dx, dy in _mutual(pairs):
+        props.append(dy if axis == 1 else dx)
+    if len(props) < min_pairs:
+        return None
+    best: List[float] = []
+    for d in props:
+        g = [e for e in props if abs(e - d) <= MAGNET_AGREE_PT]
+        if len(g) > len(best) or (len(g) == len(best) and g and abs(d) < abs(best[0])):
+            best = g
+    if len(best) < min_pairs:
+        return None
+    best.sort()
+    return best[len(best) // 2]
 
 
 def compute_bridges(comp: Composite, docs: Sequence[fitz.Document]) -> List[Bridge]:

@@ -308,6 +308,10 @@ def _draw_fillet(scene, corner, f: dict, color, z=6):
     path.arcMoveTo(QtCore.QRectF(cx - r, cy - r, 2 * r, 2 * r), a0)
     path.arcTo(QtCore.QRectF(cx - r, cy - r, 2 * r, 2 * r), a0, span)
     pen = QtGui.QPen(color, 2.5); pen.setCosmetic(True)
+    if f.get("loose"):
+        # codo APROXIMADO: la curva del plano no es un arco tangente exacto (polilínea
+        # «a mano»); el arco queda a ≤3 pt de ella. Se pinta a trazos para que se note.
+        pen.setStyle(QtCore.Qt.DashLine)
     it = scene.addPath(path, pen); it.setZValue(z)
     dash = QtGui.QPen(color, 1); dash.setCosmetic(True); dash.setStyle(QtCore.Qt.DashLine)
     for q in (f["a"], f["b"]):
@@ -484,25 +488,30 @@ class RecognitionPreviewDialog(QtWidgets.QDialog):
         note.setWordWrap(True)
         panel.addWidget(note)
 
-        # ── acciones secundarias: cambiar de hoja / ajustar capas ──
-        row = QtWidgets.QHBoxLayout()
+        # ── botones: dos filas alineadas en cuadrícula (mismo ancho por columna).
+        #    Fila 1, secundarias: Componer hoja… | Ajustar capas…
+        #    Fila 2, decisión:    Cancelar       | Continuar e importar (primaria, por defecto)
+        grid = QtWidgets.QGridLayout()
+        grid.setHorizontalSpacing(8); grid.setVerticalSpacing(8)
         self.btn_sheet = QtWidgets.QPushButton(_tr("Componer hoja…"))
         self.btn_sheet.setToolTip(_tr("Elegir otra hoja del PDF, revisar sus capas y reconocerla."))
         self.btn_sheet.clicked.connect(lambda: self._finish(PREVIEW_CHANGE_SHEET))
         self.btn_roles = QtWidgets.QPushButton(_tr("Ajustar capas…"))
         self.btn_roles.setToolTip(_tr("Solo si el plot usa otros nombres: indicar qué capas son líneas y bóvedas."))
         self.btn_roles.clicked.connect(lambda: self._finish(PREVIEW_ADJUST_LAYERS))
-        row.addWidget(self.btn_sheet); row.addWidget(self.btn_roles)
-        panel.addLayout(row)
-
-        bb = QtWidgets.QDialogButtonBox()
-        self.btn_ok = bb.addButton(
-            _tr("Continuar e importar al editor"), QtWidgets.QDialogButtonBox.AcceptRole)
-        btn_cancel = bb.addButton(QtWidgets.QDialogButtonBox.Cancel)
-        btn_cancel.setText(_tr("Cancelar"))
-        bb.accepted.connect(lambda: self._finish(PREVIEW_IMPORT))
-        bb.rejected.connect(self.reject)
-        panel.addWidget(bb)
+        self.btn_cancel = QtWidgets.QPushButton(_tr("Cancelar"))
+        self.btn_cancel.clicked.connect(self.reject)
+        self.btn_ok = QtWidgets.QPushButton(_tr("Continuar e importar al editor"))
+        self.btn_ok.clicked.connect(lambda: self._finish(PREVIEW_IMPORT))
+        for b in (self.btn_sheet, self.btn_roles, self.btn_cancel):
+            b.setProperty("secondary", True)
+        for b in (self.btn_sheet, self.btn_roles, self.btn_cancel, self.btn_ok):
+            b.setMinimumHeight(36)
+            b.setSizePolicy(QtWidgets.QSizePolicy.Expanding, QtWidgets.QSizePolicy.Fixed)
+        grid.addWidget(self.btn_sheet, 0, 0); grid.addWidget(self.btn_roles, 0, 1)
+        grid.addWidget(self.btn_cancel, 1, 0); grid.addWidget(self.btn_ok, 1, 1)
+        grid.setColumnStretch(0, 1); grid.setColumnStretch(1, 1)
+        panel.addLayout(grid)
         self.btn_ok.setDefault(True)
         self.btn_ok.setEnabled(n_draw > 0)
 
@@ -572,10 +581,11 @@ class RecognitionPreviewDialog(QtWidgets.QDialog):
             _draw_poly(sc, [a, b], QtGui.QColor("#ff8c00"), width=4.0, dots=False, z=7)
         for (vx, vy) in (getattr(result, "vault_pts", None) or []):
             _draw_vault(sc, vx, vy, color, z=6)
-        # Contorno real de cada bóveda (del PDF) + medidas en pies — solo las que
-        # tienen línea: las huérfanas (cajas propuestas, postes) van como marca discreta.
+        # Contorno real de cada bóveda (del PDF) + medidas en pies: las que tienen
+        # línea y las bóvedas reales sin línea (se importan sueltas); las cajas
+        # propuestas / postes van solo como marca discreta.
         for vg in (getattr(result, "vaults_geo", None) or []):
-            if not vg.get("orphan"):
+            if not vg.get("orphan") or vg.get("importable", False):
                 _draw_vault_outline(sc, vg, color)
         for (vx, vy) in (getattr(result, "vault_orphans_px", None) or []):
             _draw_vault(sc, vx, vy, QtGui.QColor("#ff8c00"), z=6, r=4.0)

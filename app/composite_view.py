@@ -211,6 +211,8 @@ class CompositeView(ZoomPanView):
         self.show_anchors = True
         self.items: List[PieceItem] = []
         self._edge_cache: Dict[tuple, List[C.Anchor]] = {}  # (pdf, hoja, clip) → anclajes (coords hoja origen)
+        self._seam_cache: Dict[tuple, object] = {}          # (…, lado) → extremos de la match line
+        self._segs_cache: Dict[tuple, object] = {}          # (pdf, hoja) → segmentos rectos de la hoja
         self._bridges: List[C.Bridge] = []
         self._overlay: List[QtWidgets.QGraphicsItem] = []
         self._bridge_timer = QtCore.QTimer(self)
@@ -376,7 +378,10 @@ class CompositeView(ZoomPanView):
         d = C.coincide_delta([m for m in moving if m.on_edge and not m.inset],
                              [s for s in static if s.on_edge and not s.inset], tol)
         if d is not None:
-            return pos[0] + d[0], pos[1] + d[1]
+            # …pero la costura manda igual: dos extremos que coinciden pueden ser
+            # el guión equivocado (la línea es discontinua), y la match line del
+            # plano es evidencia exacta.
+            return self._seam_align(index, (pos[0] + d[0], pos[1] + d[1]))
         # 2) borde con borde (los rectángulos de las piezas se tocan) + alineación
         #    lateral por los extremos enfrentados (que con franjas quedan por dentro).
         statics = [self._piece_rect(j) for j in range(len(self.comp.pieces)) if j != index]
@@ -404,7 +409,74 @@ class CompositeView(ZoomPanView):
             pos = (pos[0] + fx, pos[1])
         if fy is not None and abs(fy) <= 1.0:
             pos = (pos[0], pos[1] + fy)
+        # 5) costura por TINTA: dos hojas de un plano comparten la match line, así
+        #    que la franja de dibujo a cada lado es la misma. Si las piezas quedaron
+        #    borde con borde, se corre la de arriba A LO LARGO de la costura hasta
+        #    que las dos huellas de tinta coinciden. Esto arregla el caso en que
+        #    cada hoja se recortó con un margen distinto (el imán de líneas del
+        #    panel 2 engancha guías distintas) y no hay extremos enfrentados que
+        #    guíen al imán: el desfase quedaba tal cual.
+        pos = self._seam_align(index, pos)
         return pos
+
+    def _seam_align(self, index: int, pos: C.Pt) -> C.Pt:
+        """Alinea la pieza A LO LARGO de la costura con los extremos enfrentados.
+
+        El imán normal solo llega a su radio (12 px de pantalla); si cada hoja se
+        recortó con un margen distinto, al pegar los bordes queda un desfase de
+        decenas de pt que hay que cerrar con la evidencia del dibujo: los
+        extremos de línea que se miran de frente a un lado y otro de la costura.
+        """
+        rect = self._piece_rect(index, pos)
+        for j in range(len(self.comp.pieces)):
+            if j == index:
+                continue
+            other = self._piece_rect(j)
+            right = abs(rect[0] - other[2]) <= 1.5       # la que se mueve va a la derecha
+            left = abs(other[0] - rect[2]) <= 1.5
+            below = abs(rect[1] - other[3]) <= 1.5
+            above = abs(other[1] - rect[3]) <= 1.5
+            vert = min(rect[3], other[3]) - max(rect[1], other[1])
+            horz = min(rect[2], other[2]) - max(rect[0], other[0])
+            if (right or left) and vert > 0.3 * (rect[3] - rect[1]):
+                axis, side_m, side_o = 1, ("left" if right else "right"), ("right" if right else "left")
+            elif (below or above) and horz > 0.3 * (rect[2] - rect[0]):
+                axis, side_m, side_o = 0, ("top" if below else "bottom"), ("bottom" if below else "top")
+            else:
+                continue
+            # 1º la MATCH LINE: las dos hojas dibujan la misma raya de la costura,
+            #    así que sus extremos dan el desplazamiento exacto.
+            d = C.seam_line_delta(self._seam_line(j, side_o), self._seam_line(index, side_m, pos))
+            if d is None:
+                # 2º los extremos de línea enfrentados (necesita ≥3 de acuerdo)
+                d = C.seam_along_delta(self._mapped_anchors(index, pos), self._mapped_anchors(j), axis)
+            if d is None or abs(d) > C.SEAM_ALONG_TOL_PT:
+                continue
+            return (pos[0], pos[1] + d) if axis == 1 else (pos[0] + d, pos[1])
+        return pos
+
+    def _seam_line(self, index: int, side: str, at: Optional[C.Pt] = None):
+        """Extremos de la match line de ese lado, en coords de la hoja compuesta.
+        `seam_line_extent` los da relativos al origen de la pieza, así que la
+        caché vale para cualquier posición."""
+        p = self.comp.pieces[index]
+        key = self._anchor_key(p) + (side, "seamline")
+        if key not in self._seam_cache:
+            try:
+                skey = (p.source, p.page)
+                if skey not in self._segs_cache:
+                    self._segs_cache[skey] = C.page_segments(self.page(p))
+                self._seam_cache[key] = C.seam_line_extent(
+                    self.page(p), p, self.page_size(p), self.comp.target_scale(), side,
+                    segments=self._segs_cache[skey])
+            except Exception:
+                self._seam_cache[key] = None
+        ext = self._seam_cache[key]
+        if ext is None:
+            return None
+        pos = at if at is not None else (p.x, p.y)
+        base = pos[1] if side in ("left", "right") else pos[0]
+        return (base + ext[0], base + ext[1])
 
     def bridges(self) -> List[C.Bridge]:
         return list(self._bridges)
@@ -447,6 +519,8 @@ class CompositeView(ZoomPanView):
 
     # ── nitidez al hacer zoom (todas las piezas a la vista) ─────────────
     def _update_quality(self):
+        if not self.docs or any(getattr(d, "is_closed", False) for d in self.docs):
+            return                                    # el diálogo ya cerró sus PDFs (temporizador pendiente)
         if not self.pieces_ready():
             return
         visible = self.mapToScene(self.viewport().rect()).boundingRect()

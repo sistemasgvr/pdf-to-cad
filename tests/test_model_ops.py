@@ -182,16 +182,30 @@ def test_attach_vault_geometry_asocia_medidas_a_la_caja():
     pipes = [{"layer": "ELECTRICO", "pts": [(0, 0), (100, 0), (200, 0)]}]
     structures = rebuild_structures(pipes, [])
     vg = [{"center": (101.0, 2.0), "corners": [(90, -10), (112, -10), (112, 10), (90, 10)], "shape": "rect",
-           "width_ft": 6.3, "length_ft": 8.5, "angle_deg": 0.0, "orphan": False},
-          {"center": (500.0, 500.0), "corners": None, "shape": "circle", "width_ft": 4.0, "length_ft": 4.0, "angle_deg": 0.0, "orphan": True}]
-    done, missing = attach_vault_geometry(structures, vg)
-    assert (done, missing) == (1, 1)                          # la huérfana no inventa un buzón
+           "width_ft": 6.3, "length_ft": 8.5, "angle_deg": 0.0, "orphan": False, "importable": True},
+          # huérfana de una capa de estructuras PROPUESTAS / postes: no se importa
+          {"center": (500.0, 500.0), "corners": None, "shape": "circle", "width_ft": 4.0, "length_ft": 4.0,
+           "angle_deg": 0.0, "orphan": True, "importable": False},
+          # huérfana de una capa de bóvedas reales (VALT): CAJA suelta con su contorno
+          {"center": (700.0, 300.0), "corners": [(680, 280), (720, 280), (720, 320), (680, 320)], "shape": "rect",
+           "width_ft": 9.9, "length_ft": 16.2, "angle_deg": 90.0, "orphan": True, "importable": True}]
+    done, created = attach_vault_geometry(structures, vg)
+    assert (done, created) == (2, 1)
     st = next(s for s in structures if abs(s["x"] - 100) < 1e-9)
     assert st["shape"] == "rect" and st["width_ft"] == 6.3 and st["length_ft"] == 8.5 and len(st["outline"]) == 4
-    # rebuild conserva la geometría por coordenada
+    alone = next(s for s in structures if s.get("standalone"))
+    assert (alone["x"], alone["y"]) == (700.0, 300.0) and alone["net"] == "conduit" and alone["cod"].startswith("CAJA-")
+    assert alone["width_ft"] == 9.9 and len(alone["outline"]) == 4 and not alone["hidden"]
+    n = len(structures)
+    # rebuild conserva la geometría por coordenada y la caja suelta tal cual
     again = rebuild_structures(pipes, structures)
     st2 = next(s for s in again if abs(s["x"] - 100) < 1e-9)
     assert st2.get("width_ft") == 6.3 and st2.get("outline") == st["outline"]
+    assert len(again) == n and sum(1 for s in again if s.get("standalone")) == 1
+    assert len({s["cod"] for s in again}) == len(again)                    # códigos únicos
+    # segunda pasada (re-import): no duplica la suelta
+    done2, created2 = attach_vault_geometry(again, vg)
+    assert created2 == 0 and sum(1 for s in again if s.get("standalone")) == 1
 
 
 def test_fillet_geo_arco_tangente_y_recorte():

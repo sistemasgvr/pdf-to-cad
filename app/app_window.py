@@ -159,8 +159,9 @@ class Main(QtWidgets.QMainWindow):
         _act(medit, "Rehacer", self.redo, "Ctrl+Shift+Z")
         mview = _menu(mb, "&Ver")
         _act(mview, "Componer hoja de trabajo…", self.compose_sheet)
-        _act(mview, "Organizar hojas…", self.organize_sheets)
-        _act(mview, "Capas de hojas organizadas…", self.open_organized_layers)
+        # «Organizar hojas…» / «Capas de hojas organizadas…» (flujo antiguo) ya no
+        # van en el menú: la hoja compuesta los reemplaza. Los métodos siguen
+        # (proyectos viejos con sheet_layout), pero no se ofrecen al usuario.
         # Acción dinámica: su texto muestra el tema al que se cambiaría.
         # Si estás en oscuro dice "Modo claro"; si estás en claro dice "Modo oscuro".
         self._act_theme = QtGui.QAction("", self)
@@ -1556,6 +1557,10 @@ class Main(QtWidgets.QMainWindow):
             self._info(_tr("Detectado PDF vectorial ({n} trazos)…").format(n=n_paths))
             _go_plotted()
             return
+        if kind == "raster" and info.get("traced"):
+            _go_manual(_tr("Detectado plano escaneado y vectorizado ({n} trazos calcados, sin texto ni capas) "
+                           "— continúa con el dibujo manual.").format(n=n_paths))
+            return
         if kind == "raster" and img_cover >= 0.6:
             _go_manual(_tr("Detectado PDF imagen/escaneo — continúa con el dibujo manual."))
             return
@@ -1930,7 +1935,7 @@ class Main(QtWidgets.QMainWindow):
         # "Estructura nula" para no romper la topología de la red).
         n_hidden = model_ops.hide_soft_vertex_structures(self.pipes, self.structures)
         # …y les pone a las CAJA de bóveda real su forma, medidas (pies) y contorno.
-        n_geo, _ = model_ops.attach_vault_geometry(self.structures, getattr(result, "vaults_geo", None) or [])
+        n_geo, n_alone = model_ops.attach_vault_geometry(self.structures, getattr(result, "vaults_geo", None) or [])
         # …y los codos reconocidos quedan como esquina «CV» con su radio (flujo manual).
         n_cv = model_ops.attach_fillets(self.pipes, self.structures)
         if n_hidden or n_geo or n_cv:
@@ -1942,6 +1947,8 @@ class Main(QtWidgets.QMainWindow):
         msg = _tr("Importadas {n} rutas ({m} tramos) de Eléctrico.").format(n=n, m=n_seg)
         if n_geo:
             msg += " " + _tr("Bóvedas con medidas: {g}.").format(g=n_geo)
+            if n_alone:
+                msg += " " + _tr("({a} sin línea, importadas como cajas sueltas.)").format(a=n_alone)
         if n_cv:
             msg += " " + _tr("Codos como esquina + radio (CV): {c}.").format(c=n_cv)
         n_ab = sum(1 for p in new_pipes if p.get("ab"))
@@ -3975,6 +3982,8 @@ class Main(QtWidgets.QMainWindow):
                 for (vx, vy) in p["pts"]:
                     if (vx - sx) ** 2 + (vy - sy) ** 2 <= tol2:
                         return layer_qcolor(p["layer"])
+            if s.get("standalone"):
+                return layer_qcolor("ELECTRICO")   # bóveda reconocida sin línea: color de su utilidad
             return QtGui.QColor(180, 180, 180)     # buzón sin pipe cercano (raro)
         pen = QtGui.QPen(QtGui.QColor(255, 255, 255), 1.2); pen.setCosmetic(True)
         pen_sel = QtGui.QPen(QtGui.QColor(255, 220, 40), 2.5); pen_sel.setCosmetic(True)

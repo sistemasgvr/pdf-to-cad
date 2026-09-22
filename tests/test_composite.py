@@ -428,3 +428,53 @@ def test_piece_layout_para_el_minimapa():
     comp.pieces[1].source = 1
     lay = C.piece_layout(comp, lambda p: (300, 200), ["a.pdf", "b.pdf"])
     assert [lbl for _, lbl in lay] == ["a.pdf · Hoja 14", "b.pdf · Hoja 15"]
+
+
+def _sheet_pair_pdf(shift_y=0.0, match_len=120.0):
+    """Dos «hojas» contiguas de un plano: cada una dibuja la MISMA match line
+    (vertical de `match_len`) en su borde compartido y líneas de la red que la
+    cruzan. La segunda va desplazada `shift_y` en la página (cada hoja se plotea
+    con su propio margen), que es justo lo que el imán tiene que descubrir."""
+    doc = fitz.open()
+    ocg = doc.add_ocg("C-ELEC-UNGD-E", on=True)
+    for k, dy in enumerate((0.0, shift_y)):
+        page = doc.new_page(width=400, height=300)
+        xm = 300.0 if k == 0 else 100.0            # match line: derecha de la 1.ª, izquierda de la 2.ª
+        page.draw_line((xm, 60 + dy), (xm, 60 + dy + match_len), color=(0, 0, 0), width=0.72)
+        for y in (90.0, 130.0, 160.0):             # líneas de red que cruzan la costura
+            a = (xm - 90, y + dy) if k == 0 else (xm, y + dy)
+            b = (xm, y + dy) if k == 0 else (xm + 90, y + dy)
+            page.draw_line(a, b, color=(0, 0, 0), oc=ocg)
+        page.insert_text((20, 280), 'SCALE: 1"=20\'', fontsize=8)
+    return doc
+
+
+def test_seam_line_extent_y_delta():
+    """La match line de cada hoja da la referencia exacta de la costura."""
+    doc = _sheet_pair_pdf(shift_y=17.0)
+    try:
+        size = (400.0, 300.0)
+        pa = C.Piece(0, 0, [0.25, 0.1, 0.75, 0.9], x=0.0, y=0.0, src_scale=20 / 72)
+        pb = C.Piece(0, 1, [0.25, 0.1, 0.75, 0.9], x=200.0, y=40.0, src_scale=20 / 72)
+        ea = C.seam_line_extent(doc[0], pa, size, 20 / 72, "right")
+        eb = C.seam_line_extent(doc[1], pb, size, 20 / 72, "left")
+        assert ea is not None and eb is not None
+        assert abs((ea[1] - ea[0]) - 120.0) < 1e-6 and abs((eb[1] - eb[0]) - 120.0) < 1e-6
+        # extremos relativos al origen de la pieza: la 2.ª hoja va 17 pt más abajo
+        assert abs((eb[0] - ea[0]) - 17.0) < 1e-6
+        d = C.seam_line_delta((pa.y + ea[0], pa.y + ea[1]), (pb.y + eb[0], pb.y + eb[1]))
+        assert d is not None and abs(d - (0.0 - 40.0 - 17.0)) < 1e-6      # hay que subirla 57
+        # dos match lines de largo distinto no son la misma línea: no se mueve nada
+        assert C.seam_line_delta((0.0, 120.0), (0.0, 90.0)) is None
+    finally:
+        doc.close()
+
+
+def test_seam_along_delta_con_extremos():
+    """Sin match line, el imán usa los extremos enfrentados… pero solo si hay
+    al menos tres de acuerdo (una pareja suelta puede ser el guión equivocado)."""
+    mk = lambda x, y, ux, uy: C.Anchor(x, y, ux, uy, layer="C-ELEC-UNGD-E")
+    static = [mk(100.0, 50.0, 1.0, 0.0), mk(100.0, 80.0, 1.0, 0.0), mk(100.0, 120.0, 1.0, 0.0)]
+    moving = [mk(100.0, 62.0, -1.0, 0.0), mk(100.0, 92.0, -1.0, 0.0), mk(100.0, 132.0, -1.0, 0.0)]
+    assert abs(C.seam_along_delta(moving, static, 1) + 12.0) < 1e-6      # hay que subirla 12
+    assert C.seam_along_delta(moving[:1], static, 1) is None             # una sola pareja: no

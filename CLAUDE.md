@@ -64,10 +64,60 @@ alcantarillado, drenaje, gas, eléctrico, telecom). Todo en **unidades imperiale
     (tinta curva del sector sobre el círculo ≤1 pt, tangentes sobre la recta de
     un guión ≤0.5 pt/±1° en h.4, editor = reconocimiento) y escenarios sintéticos
     en `tests/test_composite_dialog.py` (`_elbow_doc`: huecos/letra antes del
-    arco, giros 30/60/120, arco a guiones, curva compuesta de dos radios). Curvas
-    suaves (giro <8°) o que nacen en un tee/bóveda sin recta tangente quedan
-    como polilínea) y `_vaults_geometry` (geometría
-    real de bóvedas, `VAULT_MIN_FT`=2: cajas de paso/postes no cuentan).
+    arco, giros 30/60/120, arco a guiones, curva compuesta de dos radios).
+**La TINTA manda (auditoría 2026-09-22)**: el círculo se
+    ajusta a los vectores del PDF, no a la centerline simplificada —
+    `ink_samples(paths, px)` muestrea los trazos de la capa cada 1.5 pt,
+    `ink_by_polyline` reparte cada punto a la polilínea MÁS cercana (≤
+    `FILLET_INK_CORRIDOR_PT`=2.5; sin esto una paralela cercana tuerce el arco) y
+    `_span_members` toma solo la tinta del corredor de los vértices `curve` (si
+    entra la de las rectas vecinas, el ajuste se va a 1.4 pt y el codo se pierde).
+    Un codo además necesita tinta CURVA sobre el arco: `_arc_ink_cover` solo
+    cuenta los puntos cuyo trazo está curvado como pide el radio
+    (`_stroke_curvature_kind`: flecha propia ≥ `FILLET_SAG_RATIO`=0.5 de
+    r − √(r²−(L/2)²); trazos < `FILLET_STROKE_MIN_PT`=12 pt o con flecha
+    esperada < `FILLET_SAG_MIN_PT`=0.5 son «neutral» y tampoco suman) y exige
+    ≥ `FILLET_INK_COVER`=0.45. Así un **chaflán** —el plano gira con dos
+    guiones RECTOS y el quiebre en el hueco, DU06 h.4 en (571,1262), lo reportó
+    el usuario— no se toma por codo, ni tampoco un quiebre con una astilla del
+    plot. Ojo: una curva tan suave que ningún guión llegue a 0.5 pt de flecha
+    (r ≳ 250 pt ≈ 70 ft a 1"=20') queda como polilínea a propósito. Con tinta, el control de calidad es el
+    RMS del ajuste (`dev_px`), no la distancia a la centerline. **Curva que MUERE
+    en un nodo** (`NODE_KINDS_END`: tee, junction, vault, stop, edge, end, cut):
+    sin segunda recta, `_fit_circle_through` busca el círculo tangente a la recta
+    que llega y que PASA por el nodo (1-D sobre la tangencia, mejor ajuste a la
+    tinta) y `_close_at_node` cierra la esquina con la tangente en el nodo →
+    `fillets[idx]["node_a"/"node_b"]` (la auditoría no les exige tangente sobre
+    un guión: ahí no hay recta después). **Rectas «libres»**: la línea que PASA
+    por un tee se extiende a los dos lados, así que no se le aplica el orden
+    P…A…C…B…N y, si la tangencia cae más allá del nodo, el vértice se escribe en
+    la tangencia (`_leg_vertex`) — si no, el tramo recto queda más corto que T y
+    el plugin recortaría el radio. `_try_span` prueba todas las combinaciones de
+    recta y se queda con la de menor error; `_accept` centraliza las
+    comprobaciones. Cadenas `curve, nodo, curve` (o dos nodos a ≤40 pt) que no caben en un
+    círculo se parten en sub-ristras (`_sub_spans`, cola de intentos); un vecino
+    a ≥`FILLET_CHORD_LEG_MIN_PT`=40 del trazo curvo es fin de recta (ancla), no
+    miembro del arco; una cuerda que termina en un vértice `curve` solo sirve de
+    recta si mide ≥40; una «recta» <`FILLET_LEG_MIN_PT`=18 sin guión anterior
+    colineal ni línea pasante que la confirme no es recta; dos tramos cortos que
+    siguen girando tampoco; el arco entero debe ir a ≤`FILLET_ARC_DEV_PT`=1.5 de
+    la polilínea. `through_dirs` = dirección de la línea que PASA (por el
+    interior de un tramo o por un vértice colineal de otra polilínea; un ramal
+    que muere ahí no cuenta) por un tee/junction: si es el extremo de la
+    polilínea, tangencia FIJA en el tee (r = T/tan(Δ/2)); si no, confirma la
+    dirección de la recta. **2.º intento `FILLET_LOOSE_TOL_PT`=3** (curvas «a
+    mano»: polilínea de cuerdas / espiral): `fillets[idx]["loose"]=True`, preview
+    a trazos y aviso con el desvío; con el ajuste a la tinta ya no hace falta en
+    el DU06 (0 aproximados). Codos consecutivos: C2 debe estar sobre la recta de
+    salida de C1. DU06 hoy: 17 codos en todo el PDF (h.3 = 6, h.4 = 9, h.15 = 2),
+    ninguno aproximado ni recortado por el editor/plugin (tras el filtro de
+    chaflanes: 15, h.3 = 6, h.4 = 8, h.15 = 1); lo que queda como
+    polilínea son chaflanes y curvas compuestas (aviso «Curvas que quedan como polilínea»)) y `_vaults_geometry` (geometría real de bóvedas, `VAULT_MIN_FT`=2:
+    cajas de paso/postes no cuentan; `Vault.layer` + `is_vault_ocg` → `importable`:
+    una bóveda SIN línea de capa VALT/MANH (o lazo en la capa de la línea) se
+    importa como CAJA suelta `standalone=True` — `attach_vault_geometry` la crea,
+    `rebuild_structures` la conserva como a las `world`, el lienzo la pinta con
+    el color de la utilidad; las U-PROP/POLE/PBOX (`NON_VAULT_TOKENS`) no).
   - `recognition_geom.py` — **núcleo geométrico PURO** (sin Qt ni fitz): en el
     PDF la utilidad viene como linetype "explotado" (guiones + letras «e» +
     huecos), nunca como polilínea. Aprende el patrón del plano
@@ -79,12 +129,24 @@ alcantarillado, drenaje, gas, eléctrico, telecom). Todo en **unidades imperiale
     vault|edge|stop|curve`). **Reglas de bóveda (apuntes del usuario, revisadas)**:
     toda línea llega por su recta y SIEMPRE deja `edge` (quiebre oculto) donde
     choca con el borde; el nodo interior `vault` (CAJA visible) existe solo si
-    una línea de red ATRAVIESA la bóveda (corrida partida en Fase A, o dos
-    llegadas colineales opuestas) y se calcula con las llegadas: sobre la que
+    una línea de red ATRAVIESA la bóveda (corrida partida en Fase A **por ESA
+    bóveda** —`Run.split_vi`; una pieza partida por otra bóveda no cuenta, si no
+    el nodo caía en una esquina de la segunda y las llegadas daban un rodeo por
+    el borde: DU06 h.3—, o dos llegadas colineales opuestas) y se calcula con las llegadas: sobre la que
     atraviesa (intersección si son dos), nunca con el círculo/cajita del símbolo
     (`Vault.reference` queda informativo). Las demás llegan al nodo por su eje +
     `bend` corto. Sin línea que atraviese, cada llegada termina en el borde con
-    `stop` (CAJA visible ahí; el usuario completa a mano). `_split_by_fit`
+    `stop` (CAJA visible ahí; el usuario completa a mano). **Nada inventado
+    alrededor de la bóveda (auditoría 2026-09-22, abanico de la hoja 3)**: una
+    llegada solo se une al nodo si éste queda sobre su eje con un quiebre corto
+    (`_perp_line(r.line(s), P) ≤ VAULT_BEND_OFF_FRAC`=0.5 × lado menor; medido en
+    el DU06: llegadas buenas ≤0.46, el abanico iba de 0.56 a 1.6), si no para en
+    el borde; el nodo se clampa DENTRO del recuadro (sobre la línea que atraviesa)
+    — antes `bb_reach` lo dejaba salir un hueco del linetype y las llegadas
+    formaban un triángulo fuera de la caja; y `entry_point` no prolonga un extremo
+    más de `pat.join_gap` hacia la bóveda (29 pt sin tinta en la h.3).
+    `tests/test_recognition.py::test_du06_ningun_tramo_sin_tinta_debajo` audita las
+    19 hojas: todo segmento >6 pt fuera de una bóveda tiene tinta debajo. `_split_by_fit`
     parte corridas donde los guiones se apartan >`RUN_FIT_TOL_PT` para que
     T/convergencias queden sobre la línea de la capa. **Clips**:
     `recognition.gather_paths` usa `get_drawings(extended=True)` y recorta cada
@@ -152,11 +214,16 @@ alcantarillado, drenaje, gas, eléctrico, telecom). Todo en **unidades imperiale
     una vez por OCG). `join_routes=False` deja las polilíneas cortadas.
   - `composite.py` + `composite_view.py` + `composite_dialog.py` — **hoja compuesta**
     (v1.2.0), primer paso del asistente para PDF vectorial (reemplaza a «Organizar
-    hojas», que sigue en el menú Ver como legado). `composite.py` es PURO (solo
+    hojas»; sus entradas ya no están en el menú Ver, los métodos siguen para
+    proyectos viejos). `composite.py` es PURO (solo
     fitz): `Piece` (PDF origen, hoja, `clip` normalizado sobre la hoja visible,
     `x,y` en pt de la hoja compuesta, `rotation` ANTIHORARIO como `show_pdf_page`,
     `src_scale` pies/pt) y `Composite` (piezas + `scale_ft_per_pt` única; cada
-    pieza se escala por `src_scale/target`). `piece_map` reproduce exactamente el
+    pieza se escala por `src_scale/target`). Botones conmutables del compositor:
+    `_tool(checkable=True)` pone la propiedad `toggleTool` (QSS en `theme.py`:
+    activo = verde + icono claro; `QPushButton[secondary="true"]` = acción
+    secundaria neutra, la usa el preview en su cuadrícula 2×2) y `_notify_taken` muestra 5 s «✔ Área tomada
+    como pieza N» en el panel 2. `piece_map` reproduce exactamente el
     mapeo de `show_pdf_page` (centro a centro, giro antihorario, factor uniforme);
     `edge_anchors` da los anclajes (`Anchor`: cortes de trazos con el borde del
     clip + extremos sobre el borde ±0.75 pt, con dirección de salida y capa; se
@@ -188,7 +255,21 @@ alcantarillado, drenaje, gas, eléctrico, telecom). Todo en **unidades imperiale
     cruzan; el imán: `coincide_delta` (extremos enfrentados que coinciden, sin
     los `inset`) → `edge_snap_delta` (rectángulos borde con borde) + colineal
     solo a lo largo de la costura → `refine_delta` (mínimos cuadrados 2D sobre
-    parejas mutuas; None en el eje que las líneas no determinan). Puente =
+    parejas mutuas; None en el eje que las líneas no determinan) → **costura por
+    MATCH LINE** (`_seam_align`, auditoría 2026-09-22): las dos hojas contiguas
+    dibujan LA MISMA raya de la costura, así que `seam_line_extent` (la línea
+    larga paralela al borde, ≤`SEAM_LINE_TOL_PT`=10 pt de él, recortada a la
+    franja de la pieza y ≥25 % de su alto) + `seam_line_delta` (mismos largos
+    ±2 pt) dan el desplazamiento EXACTO a lo largo de la costura; si no hay,
+    `seam_along_delta` usa los extremos enfrentados con ≥`SEAM_MIN_PAIRS`=3 de
+    acuerdo y hasta `SEAM_ALONG_TOL_PT`=90 pt. Esta etapa corre SIEMPRE, también
+    tras el imán de coincidencia (etapa 1), porque dos extremos que coinciden
+    pueden ser el guión equivocado. Sin ella, si cada hoja se recortaba a distinta
+    altura (el imán de líneas engancha una guía distinta en cada una) el desfase
+    quedaba tal cual: DU06 h.13→14 daba −25.5/−43.5/+18.2 según dónde se soltara
+    la pieza, cuando la match line 519+00 (378 pt en las dos hojas) dice −34.51.
+    `page_segments` cachea el escaneo de la hoja (`_segs_cache`) para que el imán
+    siga siendo instantáneo al arrastrar (1-5 ms). Puente =
     `Bridge.polyline(rect_a, rect_b)`: cada extremo sigue RECTO por su dirección
     hasta el borde de su pieza (`_ray_exit`) y ahí cierra; `bridge_segments_poly`
     mantiene el patrón de guiones por la polilínea (ojo: guardas 1e-6 contra
@@ -278,7 +359,12 @@ alcantarillado, drenaje, gas, eléctrico, telecom). Todo en **unidades imperiale
   - `geo/` — georreferenciación: `georef.py` (ajuste), `georef_dialog.py` (UI),
     `la_reference.py` (calles/parcelas de NavigateLA).
 - Raíz — **pipeline de digitalización**: `config.py`, `vector_pipeline.py`,
-  `raster_pipeline.py`, `digitize.py`, `detect.py`.
+  `raster_pipeline.py`, `digitize.py`, `detect.py` (`classify_page`: «vector»
+  solo con ≥80 trazos Y evidencia CAD — texto ≥20 chars, fuentes u OCGs; un
+  escaneo vectorizado (12k trazos calcados, 0 texto/fuentes/capas, fixture
+  `tests/fixtures/escaneado_vectorizado.pdf`) es «raster» con `info["traced"]`
+  y `Main._run_recognition_wizard` lo manda al dibujo manual; imagen ≥60 % de
+  la página sin OCG = escaneo aunque lleve anotaciones vectoriales con texto).
 - `API-CIVIL/proyecto1/proyecto1/` — **plugin C# de Civil 3D** (.NET 8). Lee el DXF
   y crea las redes. Comando clave: `IMPORTAR_RED` ([ImportarRed.cs]).
 - `installer/` — bundle del plugin + Inno Setup. `build_all.bat` (raíz) arma todo.

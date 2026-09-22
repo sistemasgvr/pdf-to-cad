@@ -66,6 +66,14 @@ def _tool(icon_name: str, text: str, tip: str = "", checkable: bool = False,
     btn.setMinimumHeight(32)
     if icon_only:
         btn.setFixedSize(34, 32)
+    if checkable:
+        # Estado activo bien visible (fondo verde del tema + icono claro): el
+        # usuario no distinguía si «Imán a líneas» / «Sin línea de borde» estaban
+        # activos con el resalte sutil de QToolButton.
+        btn.setProperty("toggleTool", True)
+        on_icon = _icon(icon_name, color=_theme.tokens().text_on_accent)
+        off_icon = btn.icon()
+        btn.toggled.connect(lambda on, b=btn: b.setIcon(on_icon if on else off_icon))
     return btn
 
 
@@ -150,9 +158,10 @@ class CompositeDialog(QtWidgets.QDialog):
         hint.setWordWrap(True)
         foot.addWidget(hint, 1)
         self.btn_cancel = QtWidgets.QPushButton(_tr("Cancelar"))
+        self.btn_cancel.setProperty("secondary", True)
         self.btn_cancel.setMinimumSize(120, 34)
         self.btn_cancel.clicked.connect(self.reject)
-        self.btn_ok = QtWidgets.QPushButton(_icon("mdi:check"), _tr("Continuar"))
+        self.btn_ok = QtWidgets.QPushButton(_tr("Continuar"))
         self.btn_ok.setMinimumSize(140, 34)
         self.btn_ok.setDefault(True)
         self.btn_ok.clicked.connect(self.accept)
@@ -247,7 +256,7 @@ class CompositeDialog(QtWidgets.QDialog):
         self._crop_sharp = ViewportSharpener(self.crop, lambda: self.docs[self._cur_source][self._cur_page], z=1)
         lay.addWidget(self.crop, 1)
         row = QtWidgets.QHBoxLayout(); row.setSpacing(8)
-        self.btn_take = QtWidgets.QPushButton(_icon("mdi:arrow-right-bold"), _tr("Tomar área"))
+        self.btn_take = QtWidgets.QPushButton(_tr("Tomar área"))
         self.btn_take.setMinimumHeight(34)
         self.btn_take.clicked.connect(lambda: self._take(full=False))
         self.btn_take_full = QtWidgets.QPushButton(_tr("Tomar hoja completa"))
@@ -278,7 +287,28 @@ class CompositeDialog(QtWidgets.QDialog):
         self.lbl_area.setStyleSheet(f"color:{_theme.tokens().text_muted}; font-size:12px;")
         row.addWidget(self.lbl_area)
         lay.addLayout(row)
+        # Aviso de confirmación al tomar (el usuario puede tener el panel 3
+        # plegado y no ver que la pieza ya se agregó). Se apaga solo.
+        t = _theme.tokens()
+        self.lbl_taken = QtWidgets.QLabel()
+        self.lbl_taken.setWordWrap(True)
+        self.lbl_taken.setStyleSheet(
+            f"background:{t.success}; color:{t.text_on_accent}; font-weight:bold; "
+            f"padding:6px 10px; border-radius:4px;")
+        self.lbl_taken.hide()
+        lay.addWidget(self.lbl_taken)
+        self._taken_timer = QtCore.QTimer(self)
+        self._taken_timer.setSingleShot(True)
+        self._taken_timer.timeout.connect(self.lbl_taken.hide)
         return box
+
+    def _notify_taken(self, piece: "C.Piece", idx: int):
+        """Muestra unos segundos «✔ Área tomada como pieza N» en el panel 2."""
+        self.lbl_taken.setText(_tr("✔ Área tomada como pieza {n} ({label}). Ya está en la hoja compuesta "
+                                   "({total} pieza(s)).").format(n=idx + 1, label=piece.label,
+                                                                 total=len(self.comp.pieces)))
+        self.lbl_taken.show()
+        self._taken_timer.start(5000)
 
     def _build_composite_panel(self) -> QtWidgets.QWidget:
         box, lay = _panel(_tr("3 · Hoja compuesta"))
@@ -557,6 +587,7 @@ class CompositeDialog(QtWidgets.QDialog):
         self.view.rebuild(keep_selection=len(self.comp.pieces) - 1)
         self.view.fit_all()
         self._refresh_summary()
+        self._notify_taken(piece, len(self.comp.pieces) - 1)
 
     def _delete(self):
         idx = self.view.selected_index()
