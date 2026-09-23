@@ -81,22 +81,36 @@ def rebuild_structures(pipes, structures):
     """Detecta buzones por los VÉRTICES (extremos + intermedios) de las tuberías
     dibujadas:
       - Gravedad (SS/SD) → prefijo BZ- (buzones cilíndricos con tapa).
-      - Conduit (eléctrico/telecom) → prefijo CAJA- (cajas de registro/vaults).
+      - Conduit (eléctrico/telecom) → SIN nodos automáticos. El estándar en
+        campo para redes eléctricas/telecom es tener MUY POCAS cajas de
+        registro; auto-crearlas en cada vértice obligaba al usuario a apagar
+        docenas a mano. Si necesita una caja puntual, la agrega con
+        Herramientas → «Insertar buzón en línea…». Las cajas RECONOCIDAS del
+        PDF vectorial (bóvedas) siguen entrando por `attach_vault_geometry`,
+        no por este auto-detector.
       - Presión (agua/gas) → sin nodos automáticos.
     Preserva ediciones (cod/rim/sump/part/part_size/covered) por coincidencia
-    de coordenada. Los buzones importados de Excel (world) se conservan aparte.
-    Devuelve la lista nueva de estructuras (world + detectadas)."""
+    de coordenada. Los buzones importados de Excel (world) y las cajas ya
+    existentes en conduit (creadas a mano o desde el reconocimiento) se
+    conservan tal cual. Devuelve la lista nueva de estructuras."""
     tol = _TOL
     def near(a, b): return math.hypot(a[0] - b[0], a[1] - b[1]) <= tol
     # Descarta buzones espurios de versiones previas con net inválida (p.ej. "pressure").
-    old = [s for s in structures
-           if not s.get("world") and (s.get("net") or "gravity") in ("gravity", "conduit")]
+    # En CONDUIT ya no auto-detectamos, así que las cajas existentes (creadas
+    # a mano por el usuario o por attach_vault_geometry) se conservan intactas
+    # y no participan en el matching por coordenada de gravedad.
+    old_gravity = [s for s in structures
+                   if not s.get("world") and (s.get("net") or "gravity") == "gravity"]
+    kept_conduit = [s for s in structures
+                    if not s.get("world") and (s.get("net") or "") == "conduit"]
     world = [s for s in structures if s.get("world")]
     detected = []
     for p in pipes:
         if p.get("world"): continue
         kind = network_kind(p.get("layer") or "")
-        if kind not in ("gravity", "conduit"): continue    # presión no lleva nodos automáticos
+        # Solo GRAVEDAD auto-detecta. Conduit y presión requieren agregar
+        # manualmente los pozos/cajas donde el usuario los necesite.
+        if kind != "gravity": continue
         pts = p.get("pts")
         if not pts or len(pts) < 2: continue
         for pt in pts:                              # todos los vértices (extremos + intermedios)
@@ -106,7 +120,7 @@ def rebuild_structures(pipes, structures):
                                  "net": kind, "covered": True, "world": False,
                                  "hidden": False})
     for s in detected:                                 # reasigna ediciones previas por coordenada
-        for o in old:
+        for o in old_gravity:
             if near((s["x"], s["y"]), (o.get("x", -1e9), o.get("y", -1e9))):
                 s.update(cod=o.get("cod", ""), rim=o.get("rim"), sump=o.get("sump"),
                          part=o.get("part", ""), part_size=o.get("part_size", ""),
@@ -120,11 +134,13 @@ def rebuild_structures(pipes, structures):
                     if k in o:
                         s[k] = o[k]
                 break
-    # Códigos únicos: BZ-N gravedad, CAJA-N conduit, CV-N esquina de elemento curvo
-    # (curve=True manda sobre el prefijo por red: no es un buzón/caja real).
-    used = {s.get("cod", "") for s in world + detected if s.get("cod")}
+    # Códigos únicos: BZ-N gravedad, CAJA-N conduit (solo las conservadas del
+    # usuario / reconocimiento), CV-N esquina de elemento curvo (curve=True
+    # manda sobre el prefijo por red: no es un buzón/caja real).
+    combined = world + kept_conduit + detected
+    used = {s.get("cod", "") for s in combined if s.get("cod")}
     cnt_bz = cnt_caja = cnt_cv = 1
-    for s in detected:
+    for s in detected + kept_conduit:
         if s.get("cod"): continue
         if s.get("curve"):
             while f"CV-{cnt_cv}" in used: cnt_cv += 1
@@ -137,7 +153,7 @@ def rebuild_structures(pipes, structures):
         else:
             while f"CAJA-{cnt_caja}" in used: cnt_caja += 1
             s["cod"] = f"CAJA-{cnt_caja}"; used.add(s["cod"]); cnt_caja += 1
-    return world + detected
+    return combined
 
 
 # Tipos de vértice que NO son un acceso físico (vienen del reconocimiento de

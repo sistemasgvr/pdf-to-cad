@@ -162,7 +162,17 @@ def test_hide_soft_vertex_structures():
         # pipe manual (sin vertex_kinds): todos reales
         {"layer": "ELECTRICO", "pts": [(500, 0), (600, 0)]},
     ]
-    structs = rebuild_structures(pipes, [])
+    # Desde v1.2.0 conduit (ELECTRICO/TELECOM) NO auto-detecta cajas; el
+    # usuario o el reconocimiento las agregan explícitamente. Sembramos aquí
+    # una caja por vértice para probar hide_soft_vertex_structures.
+    seeded = []
+    for p in pipes:
+        for (x, y) in p["pts"]:
+            if not any(abs(s["x"] - x) < 0.5 and abs(s["y"] - y) < 0.5 for s in seeded):
+                seeded.append({"cod": "", "x": x, "y": y, "rim": None, "sump": None,
+                               "part": "", "part_size": "", "net": "conduit",
+                               "covered": True, "world": False, "hidden": False})
+    structs = rebuild_structures(pipes, seeded)
     n = hide_soft_vertex_structures(pipes, structs)
     assert n == 1
     by_xy = {(round(s["x"]), round(s["y"])): s for s in structs}
@@ -180,7 +190,11 @@ def test_hide_soft_vertex_structures():
 def test_attach_vault_geometry_asocia_medidas_a_la_caja():
     from model_ops import attach_vault_geometry, rebuild_structures
     pipes = [{"layer": "ELECTRICO", "pts": [(0, 0), (100, 0), (200, 0)]}]
-    structures = rebuild_structures(pipes, [])
+    # Conduit ya no auto-detecta; se siembran cajas por vértice a mano.
+    seeded = [{"cod": "", "x": x, "y": y, "rim": None, "sump": None, "part": "",
+               "part_size": "", "net": "conduit", "covered": True, "world": False,
+               "hidden": False} for (x, y) in pipes[0]["pts"]]
+    structures = rebuild_structures(pipes, seeded)
     vg = [{"center": (101.0, 2.0), "corners": [(90, -10), (112, -10), (112, 10), (90, 10)], "shape": "rect",
            "width_ft": 6.3, "length_ft": 8.5, "angle_deg": 0.0, "orphan": False},
           {"center": (500.0, 500.0), "corners": None, "shape": "circle", "width_ft": 4.0, "length_ft": 4.0, "angle_deg": 0.0, "orphan": True}]

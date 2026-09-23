@@ -667,80 +667,6 @@ namespace Civil3DBasico
         }
 
         // =====================================================================
-        // EXTRAER_SOLIDOS_PRESION — extrae el cuerpo 3D (Solid3d) de cada pieza de
-        //   la red (tubos, codos, válvulas) con PressurePart.Get3dBody() y los
-        //   dibuja como sólidos de AutoCAD (opcionalmente en una capa).
-        // =====================================================================
-        [CommandMethod("EXTRAER_SOLIDOS_PRESION")]
-        public void ExtraerSolidosPresion()
-        {
-            Document doc = Application.DocumentManager.MdiActiveDocument;
-            Editor ed = doc.Editor;
-            Database db = doc.Database;
-            CivilDocument civilDoc = CivilApplication.ActiveDocument;
-
-            string capa = PreguntarCapa(ed);
-
-            using (Transaction tr = db.TransactionManager.StartTransaction())
-            {
-                try
-                {
-                    ObjectIdCollection nets = civilDoc.GetPressurePipeNetworkIds();
-                    if (nets.Count == 0) { ed.WriteMessage("\nNo hay redes a presión."); tr.Abort(); return; }
-
-                    ObjectId netSel = ElegirRedId(ed, tr, nets);
-                    if (netSel == ObjectId.Null) { tr.Abort(); return; }
-                    CivilDB.PressurePipeNetwork net = (CivilDB.PressurePipeNetwork)tr.GetObject(netSel, OpenMode.ForRead);
-
-                    BlockTable bt = (BlockTable)tr.GetObject(db.BlockTableId, OpenMode.ForRead);
-                    BlockTableRecord ms = (BlockTableRecord)tr.GetObject(bt[BlockTableRecord.ModelSpace], OpenMode.ForWrite);
-                    AsegurarCapa(tr, db, capa);
-
-                    // ¿Adjuntar un Property Set a cada sólido?
-                    bool conPS = ElegirPropertySet(ed, tr, db, out ObjectId psdId);
-
-                    // Todas las piezas: tubos + fittings + appurtenances
-                    var todas = new List<ObjectId>();
-                    foreach (ObjectId id in net.GetPipeIds()) todas.Add(id);
-                    foreach (ObjectId id in net.GetFittingIds()) todas.Add(id);
-                    foreach (ObjectId id in net.GetAppurtenanceIds()) todas.Add(id);
-
-                    int n = 0, nPS = 0;
-                    foreach (ObjectId id in todas)
-                    {
-                        CivilDB.PressurePart parte = tr.GetObject(id, OpenMode.ForRead) as CivilDB.PressurePart;
-                        if (parte == null) continue;
-                        Solid3d sol = null;
-                        try { sol = parte.Get3dBody(); } catch { }
-                        if (sol == null) continue;
-
-                        if (!string.IsNullOrWhiteSpace(capa)) sol.Layer = capa;
-                        ms.AppendEntity(sol);
-                        tr.AddNewlyCreatedDBObject(sol, true);
-
-                        if (conPS)
-                        {
-                            try { AecPS.PropertyDataServices.AddPropertySet(sol, psdId); nPS++; }
-                            catch { }
-                        }
-                        n++;
-                    }
-
-                    tr.Commit();
-                    ed.WriteMessage($"\n✓ Sólidos 3D extraídos de la red a presión: {n}" +
-                                    (string.IsNullOrWhiteSpace(capa) ? "." : $" (capa '{capa}').") +
-                                    (conPS ? $" Property Set adjuntado a {nPS}." : ""));
-                    if (n == 0) ed.WriteMessage("\n(La red no tiene piezas, o no pudieron generar cuerpo 3D.)");
-                }
-                catch (Exception ex)
-                {
-                    ed.WriteMessage($"\nError: {ex.Message}");
-                    tr.Abort();
-                }
-            }
-        }
-
-        // =====================================================================
         // UNIR_TUBERIAS_PRESION — selecciona DOS tuberías, analiza su diámetro y
         //   el ángulo entre ellas, te deja elegir el accesorio y lo COLOCA y
         //   CONECTA en el punto de encuentro. Si no calza, explica por qué y
@@ -1359,52 +1285,6 @@ namespace Civil3DBasico
         }
 
         // =====================================================================
-        // DESCRIBIR_PIEZA_PRESION — pone una DESCRIPCIÓN (nombre visible) a un tubo,
-        //   codo o válvula. Nota: el "Name" interno lo asigna Civil y es de solo
-        //   lectura; lo editable es la Descripción (se ve en Propiedades/Prospector).
-        // =====================================================================
-        [CommandMethod("DESCRIBIR_PIEZA_PRESION")]
-        public void DescribirPiezaPresion()
-        {
-            Document doc = Application.DocumentManager.MdiActiveDocument;
-            Editor ed = doc.Editor;
-            Database db = doc.Database;
-
-            PromptEntityOptions peo = new PromptEntityOptions("\nSeleccione la pieza a la que poner nombre/descripción:");
-            peo.SetRejectMessage("\nDebe ser un tubo, accesorio o válvula a presión.");
-            peo.AddAllowedClass(typeof(CivilDB.PressurePipe), false);
-            peo.AddAllowedClass(typeof(CivilDB.PressureFitting), false);
-            peo.AddAllowedClass(typeof(CivilDB.PressureAppurtenance), false);
-            PromptEntityResult per = ed.GetEntity(peo);
-            if (per.Status != PromptStatus.OK) return;
-
-            PromptStringOptions pso = new PromptStringOptions("\nNombre/descripción para la pieza:") { AllowSpaces = true };
-            PromptResult pr = ed.GetString(pso);
-            if (pr.Status != PromptStatus.OK || string.IsNullOrWhiteSpace(pr.StringResult)) return;
-
-            using (Transaction tr = db.TransactionManager.StartTransaction())
-            {
-                try
-                {
-                    CivilDB.PressurePart parte = (CivilDB.PressurePart)tr.GetObject(per.ObjectId, OpenMode.ForWrite);
-                    string txt = pr.StringResult.Trim();
-                    parte.Description = txt;
-                    bool nombreOk = false;
-                    try { parte.Name = txt; nombreOk = true; } catch { }
-                    tr.Commit();
-                    ed.WriteMessage(nombreOk
-                        ? $"\n✓ Nombre y descripción asignados: '{txt}'."
-                        : $"\n✓ Descripción asignada: '{txt}'. (El 'Name' interno lo fija Civil y no aceptó el cambio.)");
-                }
-                catch (Exception ex)
-                {
-                    ed.WriteMessage($"\nError: {ex.Message}");
-                    tr.Abort();
-                }
-            }
-        }
-
-        // =====================================================================
         // ADJUNTAR_PROPERTY_SET — selecciona objetos (p. ej. sólidos) y adjunta un
         //   Property Set elegido en una VENTANA con botones.
         // =====================================================================
@@ -1713,10 +1593,30 @@ namespace Civil3DBasico
                     Vector3d v1 = far0 - fit.Position, v2 = far1 - fit.Position;
                     deflex = 180.0 - v1.GetAngleTo(v2) * 180.0 / Math.PI;
                 }
-                var tipoCorrecto = DecidirTipoFitting(conexiones.Count,
-                    pipesConectados.Count > 0 ? pipesConectados[0].NominalDiameter : 0,
-                    pipesConectados.Count > 1 ? pipesConectados[1].NominalDiameter : 0,
-                    deflex);
+                // Para 3 tuberías, Tee vs Wye se decide por la MISMA geometría de
+                // ángulos que usó la colocación (DecidirTeeOWye) — si no, esta
+                // corrección degradaría a Tee cualquier Wye bien puesto (el bug que
+                // reportó el usuario: 'Wye 75_ …' → 'tee-…'). DecidirTipoFitting
+                // solo sabe devolver Tee para 3 miembros.
+                CivilDB.PressurePartType? tipoCorrecto;
+                if (conexiones.Count == 3 && pipesConectados.Count == 3)
+                {
+                    var vecs = new List<Vector3d>();
+                    for (int i = 0; i < 3; i++)
+                    {
+                        Point3d far = conexiones[i].PipePort == 0
+                            ? pipesConectados[i].EndPoint : pipesConectados[i].StartPoint;
+                        vecs.Add(far - fit.Position);
+                    }
+                    tipoCorrecto = DecidirTeeOWye(vecs);
+                }
+                else
+                {
+                    tipoCorrecto = DecidirTipoFitting(conexiones.Count,
+                        pipesConectados.Count > 0 ? pipesConectados[0].NominalDiameter : 0,
+                        pipesConectados.Count > 1 ? pipesConectados[1].NominalDiameter : 0,
+                        deflex);
+                }
 
                 ComandosRedes.Dl(ed, $"\n  [CORREGIR_FITTINGS] · '{descOriginal}' ({fit.PartType}): fitDiaNominal={fitDia:F2}in, conexiones={conexiones.Count}, " +
                                 $"pipeNomDiaMax={pipeNomDiaMaxIn:F2}in, tipoCorrecto={tipoCorrecto}");
@@ -1789,7 +1689,9 @@ namespace Civil3DBasico
                     // Borrar fitting viejo
                     fitViejo.Erase();
 
-                    // Colocar fitting nuevo
+                    // Colocar fitting nuevo (Wye necesita su catálogo Steel activo)
+                    if (nuevaPieza.PartType == CivilDB.PressurePartType.Wye)
+                        AsegurarPresionWye.ActivarCatalogo(ed);
                     ObjectId nuevoId = net.AddFitting(r.Posicion, nuevaPieza);
                     CivilDB.PressurePart parteNueva = (CivilDB.PressurePart)tr.GetObject(nuevoId, OpenMode.ForWrite);
 

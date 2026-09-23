@@ -46,6 +46,35 @@ if exist "%DLL%" (
     echo   [WARN] No se encontro el DLL en %DLL%
     echo   Explora bin\ para ver donde quedo:
     dir /b /s "%BIN%\proyecto1.dll" 2>nul
+    goto :EOF
+)
+
+REM ── Copia opcional al autoload de Civil3D. Se buscan las carpetas .bundle
+REM    del proyecto en %APPDATA%\Autodesk\ApplicationPlugins\ que ya contengan
+REM    un proyecto1.dll y se sobrescribe. Si no encuentra ninguno, no hace
+REM    nada (el usuario probablemente esta usando NETLOAD manual apuntando a
+REM    bin\x64\Release\proyecto1.dll). Silencioso en el caso "no encontrado".
+set "APLUGDIR=%APPDATA%\Autodesk\ApplicationPlugins"
+set "COPIED=0"
+if exist "%APLUGDIR%" (
+    for /f "delims=" %%D in ('dir /b /s "%APLUGDIR%\proyecto1.dll" 2^>nul') do (
+        echo.
+        echo === Copiando DLL a: %%D ===
+        copy /y "%DLL%" "%%D" >nul 2>&1
+        if not errorlevel 1 (
+            for %%F in ("%%D") do echo   OK. Nuevo tamano en bundle: %%~zF bytes
+            set "COPIED=1"
+        ) else (
+            echo   [WARN] No se pudo copiar — Civil3D probablemente esta abierto
+            echo          con el DLL cargado. Cierra Civil3D y vuelve a correr.
+        )
+    )
+)
+if "%COPIED%"=="0" (
+    echo.
+    echo   [INFO] No se encontro proyecto1.dll en ningun .bundle de autoload.
+    echo          Si haces NETLOAD manual apuntando a bin\x64\Release\proyecto1.dll
+    echo          eso ya funciona; el DLL recien compilado esta listo para netloadear.
 )
 
 echo.

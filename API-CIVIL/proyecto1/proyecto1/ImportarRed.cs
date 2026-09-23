@@ -327,7 +327,9 @@ namespace Civil3DBasico
 
             string unit = pipes[0].Unit;
             double factor = FactorConversion(unit, db);
-            ed.WriteMessage($"\n═══ IMPORTAR RED ═══");
+            ed.WriteMessage("\n\n╔══════════════════════════════════════════════════════════════════╗");
+            ed.WriteMessage("\n║                    ▶▶▶  IMPORTAR RED — INICIO  ◀◀◀               ║");
+            ed.WriteMessage("\n╚══════════════════════════════════════════════════════════════════╝");
             ed.WriteMessage($"\nDetectadas: {pipes.Count} tubería(s), {structs.Count} buzón(es). Unidad XDATA: {unit} · dibujo: {db.Insunits}.");
             if (Math.Abs(factor - 1.0) > 1e-9)
                 ed.WriteMessage($"\n  → Conversión de elevaciones {unit} → {db.Insunits}: ×{factor:F4}");
@@ -1044,7 +1046,9 @@ namespace Civil3DBasico
                 }
             }
 
-            ed.WriteMessage("\n═══ IMPORTAR RED — fin ═══");
+            ed.WriteMessage("\n\n╔══════════════════════════════════════════════════════════════════╗");
+            ed.WriteMessage("\n║                     ▶▶▶  IMPORTAR RED — FIN  ◀◀◀                ║");
+            ed.WriteMessage("\n╚══════════════════════════════════════════════════════════════════╝\n");
         }
 
         // =================================================================
@@ -2334,8 +2338,10 @@ namespace Civil3DBasico
             if (plc.Count == 0)
             { ed.WriteMessage($"\n'{nombre}': no hay Parts Lists de presión."); return ObjectId.Null; }
 
-            ObjectId plId = plc[0];
+            ObjectId plId = SeleccionarListaPresion(db, tr, plc, pipes, ed);
+            if (plId == ObjectId.Null) plId = plc[0];
             PresStyles.PressurePartList pl = (PresStyles.PressurePartList)tr.GetObject(plId, OpenMode.ForRead);
+            ed.WriteMessage($"\n'{nombre}': Parts List de presión = '{pl.Name}'.");
 
             var tubos = pl.GetParts(CivilDB.PressurePartDomainType.Pipe);
             if (tubos == null || tubos.Count == 0)
@@ -3431,6 +3437,52 @@ namespace Civil3DBasico
             return best;
         }
 
+        // Selecciona la Parts List de presión para una red: PREFIERE una lista
+        // donde una pieza Wye REALMENTE se pueda construir (AddFitting de prueba),
+        // que es la creada por el comando oficial CREATEPRESSUREPARTLISTFULL (bien
+        // registrada con su catálogo). Si ninguna construye la Y, cae a "Standard"
+        // (que sí construye tubos/tees, aunque sin Y). Así nunca rompe el dibujo.
+        private static ObjectId SeleccionarListaPresion(
+            Database db, Transaction tr, PresStyles.PressurePartListCollection plc,
+            List<ImportPipe> pipes, Editor ed)
+        {
+            ObjectId fallback = AsegurarPresionWye.ElegirPartsListStandard(plc, tr);
+            if (plc == null || plc.Count == 0) return fallback;
+            for (int i = 0; i < plc.Count; i++)
+            {
+                var pl = tr.GetObject(plc[i], OpenMode.ForRead) as PresStyles.PressurePartList;
+                if (pl == null) continue;
+                if (ProbarListaWye(db, tr, plc[i], ed))
+                {
+                    ed?.WriteMessage($"\n  · [PRESION] Lista '{pl.Name}' SÍ construye Wye → se usa para esta red.");
+                    return plc[i];
+                }
+            }
+            return fallback;
+        }
+
+        // ¿La lista puede construir una pieza Wye? Crea una red de prueba, intenta
+        // AddFitting de una Wye y la borra. true solo si AddFitting no lanzó.
+        private static bool ProbarListaWye(Database db, Transaction tr, ObjectId plId, Editor ed)
+        {
+            try
+            {
+                var pl = tr.GetObject(plId, OpenMode.ForRead) as PresStyles.PressurePartList;
+                var fittings = pl?.GetParts(CivilDB.PressurePartDomainType.Fitting);
+                var wye = fittings?.FirstOrDefault(f => f != null && f.PartType == CivilDB.PressurePartType.Wye);
+                if (wye == null) return false;
+                AsegurarPresionWye.ActivarCatalogo(ed);
+                ObjectId nid = CivilDB.PressurePipeNetwork.Create(db, "PROBE_WYE_" + Guid.NewGuid().ToString("N").Substring(0, 6));
+                var n = tr.GetObject(nid, OpenMode.ForWrite) as CivilDB.PressurePipeNetwork;
+                n.PartsListId = plId;
+                bool ok = false;
+                try { n.AddFitting(new Point3d(0, 0, 0), wye); ok = true; } catch { ok = false; }
+                try { n.Erase(); } catch { }
+                return ok;
+            }
+            catch { return false; }
+        }
+
         private static PresStyles.PressurePartSize MatchPresionTubo(
             List<PresStyles.PressurePartSize> tubos, double targetDiam, string pipeFamily = "")
         {
@@ -3597,7 +3649,9 @@ namespace Civil3DBasico
                 ed.WriteMessage("\n[CROSS] ⚠ No hay Parts Lists de presión — necesarias para crear el tramo vertical.");
                 return;
             }
-            PresStyles.PressurePartList pl = (PresStyles.PressurePartList)tr.GetObject(plc[0], OpenMode.ForRead);
+            ObjectId plCrossId = AsegurarPresionWye.ElegirPartsListStandard(plc, tr);
+            if (plCrossId == ObjectId.Null) plCrossId = plc[0];
+            PresStyles.PressurePartList pl = (PresStyles.PressurePartList)tr.GetObject(plCrossId, OpenMode.ForRead);
             var tubos = pl.GetParts(CivilDB.PressurePartDomainType.Pipe);
             var fittings = pl.GetParts(CivilDB.PressurePartDomainType.Fitting);
             int nTubos = tubos?.Count ?? 0;
@@ -3612,7 +3666,7 @@ namespace Civil3DBasico
             // 2) Red separada.
             ObjectId netId = CivilDB.PressurePipeNetwork.Create(db, "CROSS-CONNECTS");
             var net = (CivilDB.PressurePipeNetwork)tr.GetObject(netId, OpenMode.ForWrite);
-            net.PartsListId = plc[0];
+            net.PartsListId = plCrossId;
             ed.WriteMessage($"\n[CROSS] Red 'CROSS-CONNECTS' creada (id={netId.Handle}).");
 
             int nOk = 0, nFail = 0, idx = 0;
@@ -3971,7 +4025,12 @@ namespace Civil3DBasico
                     }
                     catch { }
                 }
-                double tolFt = Math.Max(1.5, 1.5 * (diamFt > 0 ? diamFt : 1.0));
+                // Tolerancia bastante amplia: 3 ft de piso + 3× el diámetro más
+                // grande de las pipes ya conectadas. La antigua (1.5 ft) dejaba
+                // fuera de rango pipes que estaban a ~1.8 ft del puerto tras
+                // aplicar rotación+tilt al fitting, sobre todo en cruces de
+                // Ø14" donde el offset del puerto es alto.
+                double tolFt = Math.Max(3.0, 3.0 * (diamFt > 0 ? diamFt : 1.0));
                 double tol2 = tolFt * tolFt;
 
                 for (int port = 0; port < parte.ConnectionCount; port++)
@@ -4041,23 +4100,42 @@ namespace Civil3DBasico
                         continue;
                     }
                     ed.WriteMessage($"\n{etiqueta}:   Pipe encontrada (handle={bestPid.Handle}) endpoint={bestEnd} score={bestScore:F2}. Conectando+recortando…");
+                    // Intento 1: ConnectToPipe (conexión LÓGICA + trim). Falla
+                    // con "A pipe from the same network is expected" cuando el
+                    // fitting vive en la red CROSS-CONNECTS y el pipe está en
+                    // AGUA/GAS/etc. (redes distintas).
+                    bool conectadoLogico = false;
                     try
                     {
                         parte.ConnectToPipe(port, bestPid, bestEnd);
-                        // Recortar el endpoint del pipe al puerto real del
-                        // accesorio (igual patrón que ProcesarJunturasPresion,
-                        // RedesPresionJunturas.cs) — ConnectToPipe deja la
-                        // conexión lógica pero NO ajusta la geometría; hay que
-                        // reescribir el Start/EndPoint al c.Position que quedó.
+                        conectadoLogico = true;
                         var newConn = parte.GetConnectionAt(port);
                         var ppw = (CivilDB.PressurePipe)tr.GetObject(bestPid, OpenMode.ForWrite);
                         if (bestEnd == 0) ppw.StartPoint = newConn.Position;
                         else ppw.EndPoint = newConn.Position;
-                        ed.WriteMessage($"\n{etiqueta}:   ✓ Pipe recortado a ({newConn.Position.X:F2},{newConn.Position.Y:F2},{newConn.Position.Z:F3}).");
+                        ed.WriteMessage($"\n{etiqueta}:   ✓ Conectado+recortado a ({newConn.Position.X:F2},{newConn.Position.Y:F2},{newConn.Position.Z:F3}).");
                     }
                     catch (Exception ex)
                     {
-                        ed.WriteMessage($"\n{etiqueta}:   ⚠ ConnectToPipe/recorte falló: {ex.Message}");
+                        ed.WriteMessage($"\n{etiqueta}:   ConnectToPipe falló ({ex.Message}) — probando SOLO recorte geométrico.");
+                    }
+                    // Intento 2 (fallback si el 1 falló): recortar SOLO la
+                    // geometría del pipe hasta la posición del puerto. Sin
+                    // conexión lógica pero el pipe deja de superponerse con el
+                    // fitting en el modelo 3D — que es lo que el usuario ve.
+                    if (!conectadoLogico)
+                    {
+                        try
+                        {
+                            var ppw = (CivilDB.PressurePipe)tr.GetObject(bestPid, OpenMode.ForWrite);
+                            if (bestEnd == 0) ppw.StartPoint = portPos;
+                            else ppw.EndPoint = portPos;
+                            ed.WriteMessage($"\n{etiqueta}:   ✓ Recorte geométrico (sin conexión lógica cross-red) a ({portPos.X:F2},{portPos.Y:F2},{portPos.Z:F3}).");
+                        }
+                        catch (Exception ex2)
+                        {
+                            ed.WriteMessage($"\n{etiqueta}:   ⚠ Recorte geométrico también falló: {ex2.Message}");
+                        }
                     }
                 }
             }

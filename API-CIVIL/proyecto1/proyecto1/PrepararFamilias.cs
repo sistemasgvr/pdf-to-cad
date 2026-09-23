@@ -168,18 +168,13 @@ namespace Civil3DBasico
                 if (usadasStruct.Contains((f.Description ?? "").Trim()) && ComandosRedes.EsFamiliaCustomStruct(f.Description))
                     seleccionadas.Add(new FamiliaItem(f, CivilDB.DomainType.Structure));
 
+            // NOTA: aunque no haya familias de gravedad personalizadas, NO se
+            // retorna — se continúa hasta el paso de presión (Wye), que debe
+            // cargarse siempre al pulsar "Preparar familias".
             if (seleccionadas.Count == 0)
-            {
-                MessageBox.Show(
-                    nEntidadesPdfcad == 0
-                        ? "No encontré tuberías/buzones con datos de Python (XDATA 'PDFCAD') en el dibujo " +
-                          "actual. Abre/inserta primero el DXF exportado desde la app y vuelve a intentar."
-                        : "El dibujo referencia familias, pero ninguna parece personalizada (nueva) — " +
-                          "las que sí uses del catálogo estándar de Civil3D ya traen sus tamaños de fábrica, " +
-                          "no hace falta añadir nada.",
-                    "Preparar familias", MessageBoxButton.OK, MessageBoxImage.Information);
-                return;
-            }
+                L(nEntidadesPdfcad == 0
+                    ? "→ Sin XDATA PDFCAD — no hay familias de gravedad que preparar; continúo con presión (Wye)."
+                    : "→ Ninguna familia de gravedad personalizada; continúo con presión (Wye).");
             L(""); L($"→ Familias personalizadas detectadas en el dibujo: {seleccionadas.Count}");
             foreach (var it in seleccionadas)
                 L($"    · [{it.DomainLabel}] {it.DisplayName}");
@@ -370,7 +365,7 @@ namespace Civil3DBasico
                             L("→ Presión: PressurePartList ya existía.");
                         }
 
-                        var pressPl = trP.GetObject(pressPlId, OpenMode.ForRead) as PartsStyles.PressurePartList;
+                        var pressPl = trP.GetObject(pressPlId, OpenMode.ForWrite) as PartsStyles.PressurePartList;
                         if (pressPl != null)
                         {
                             var domains = new[] {
@@ -384,6 +379,25 @@ namespace Civil3DBasico
                                 int cnt = parts != null ? parts.Count : 0;
                                 nPressureParts += cnt;
                                 L($"  · Presión [{dom}]: {cnt} piezas disponibles");
+                            }
+
+                            // Cargar las entradas Wye del catálogo Steel en Standard
+                            // (se ven en Fittings). NOTA: para que la Y se DIBUJE en
+                            // el import hace falta que el catálogo Steel esté
+                            // registrado en Standard vía "Load new catalog" (una vez
+                            // en la plantilla) — ese registro no tiene API.
+                            try
+                            {
+                                var fittingsExistentes = pressPl.GetParts(CivilDB.PressurePartDomainType.Fitting);
+                                int nWyes = AsegurarPresionWye.CargarWyesEnPartsList(pressPl, fittingsExistentes, trP, plcP, ed);
+                                if (nWyes > 0)
+                                    L($"  + {nWyes} entrada(s) Wye del catálogo Imperial_AWWA_Steel agregadas a 'Standard'.");
+                                else
+                                    L($"  · Wye ya estaban cargadas (o sin novedades).");
+                            }
+                            catch (Exception exW)
+                            {
+                                L($"  ⚠ Error cargando Wye: {exW.Message}");
                             }
                         }
                         trP.Commit();
@@ -400,6 +414,26 @@ namespace Civil3DBasico
             {
                 L($"⚠ Error configurando presión: {exPr.Message}");
                 pressureStatus = $"\nPresión: error — {exPr.Message}";
+            }
+
+            // Experimento (opción del usuario): crear una Parts List COMPLETA del
+            // catálogo Steel con el comando OFICIAL de Autodesk. A diferencia de
+            // plc.Add(), esta lista queda bien registrada con su catálogo, así que
+            // Civil 3D SÍ puede construir sus piezas (incluida la Y). El import la
+            // detecta con una prueba real (SeleccionarListaPresion) y la usa para
+            // las redes de presión; si no construye, cae a 'Standard'.
+            try
+            {
+                AsegurarPresionWye.ActivarCatalogo(ed);
+                // El comando corre DESPUÉS de que termine STEP2 (cola de AutoCAD).
+                doc.SendStringToExecute("_CREATEPRESSUREPARTLISTFULL ", true, false, false);
+                L("→ Encolado CREATEPRESSUREPARTLISTFULL con catálogo Steel activo.");
+                L("   Si el comando pide un NOMBRE en la línea de comandos, escríbelo y Enter.");
+                L("   Luego corre IMPORTAR_RED: usará esa lista para la Y si construye.");
+            }
+            catch (Exception exFull)
+            {
+                L($"⚠ No pude encolar CREATEPRESSUREPARTLISTFULL: {exFull.Message}");
             }
 
             var msg = $"Familias procesadas en 'Standard': {totalFams}\n" +

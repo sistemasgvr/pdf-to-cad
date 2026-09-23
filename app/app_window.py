@@ -939,6 +939,40 @@ class Main(QtWidgets.QMainWindow):
         # se puede desplazar y cada widget conserva su tamaño natural (misma
         # solución que ya usaba el dock izquierdo — el acordeón vive en un
         # QScrollArea). Es el patrón estándar para paneles de propiedades.
+        # ── RESPONSIVO: pasada final sobre TODOS los descendientes del dock ──
+        # Sin esto los QLineEdit/QDoubleSpinBox/QComboBox reservan su ancho
+        # natural (a veces >200px por dígitos de precisión), y las QLabel largas
+        # ("Elev. de rasante inicial (ft):") empujan la columna izquierda del
+        # QFormLayout. La suma sacaba una barra HORIZONTAL en el dock que no
+        # deja leer nada. Estas 3 políticas globales lo evitan sin tocar cada
+        # widget individual:
+        #   1) Labels: word-wrap para que quiebren en el ancho disponible.
+        #   2) LineEdit/SpinBox/ComboBox: sizePolicy horizontal Ignored → el
+        #      layout los encoge por debajo del hint. Un minimumWidth pequeño
+        #      (60–80 px) garantiza que sigan usables.
+        #   3) QFormLayout: FieldGrowthPolicy = AllNonFixedFieldsGrow (los
+        #      campos se estiran) y RowWrapPolicy = WrapLongRows (la label
+        #      salta a la línea superior si su texto no cabe).
+        for _lbl in right.findChildren(QtWidgets.QLabel):
+            _lbl.setWordWrap(True)
+        for _w in right.findChildren(QtWidgets.QAbstractSpinBox):
+            _w.setSizePolicy(QtWidgets.QSizePolicy.Ignored, QtWidgets.QSizePolicy.Fixed)
+            _w.setMinimumWidth(70)
+        for _w in right.findChildren(QtWidgets.QLineEdit):
+            _w.setSizePolicy(QtWidgets.QSizePolicy.Ignored, QtWidgets.QSizePolicy.Fixed)
+            _w.setMinimumWidth(70)
+        for _w in right.findChildren(QtWidgets.QComboBox):
+            _w.setSizePolicy(QtWidgets.QSizePolicy.Ignored, QtWidgets.QSizePolicy.Fixed)
+            _w.setMinimumWidth(70)
+            _w.setSizeAdjustPolicy(QtWidgets.QComboBox.AdjustToMinimumContentsLengthWithIcon)
+            _w.setMinimumContentsLength(6)
+            try: _w.view().setTextElideMode(QtCore.Qt.ElideRight)
+            except Exception: pass
+        for _fl in right.findChildren(QtWidgets.QFormLayout):
+            _fl.setFieldGrowthPolicy(QtWidgets.QFormLayout.AllNonFixedFieldsGrow)
+            _fl.setRowWrapPolicy(QtWidgets.QFormLayout.WrapLongRows)
+            _fl.setHorizontalSpacing(6)
+
         rscroll = QtWidgets.QScrollArea()
         rscroll.setWidget(right)
         rscroll.setWidgetResizable(True)

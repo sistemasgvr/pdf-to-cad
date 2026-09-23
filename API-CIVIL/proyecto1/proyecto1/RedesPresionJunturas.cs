@@ -212,6 +212,160 @@ namespace Civil3DBasico
         // extremo LEJANO (el que no está en la juntura), decide qué 2 tubos son
         // el "paso" (los más opuestos entre sí -> puertos 0,1) y cuáles son
         // "ramal" (resto -> puertos 2,3...). Misma lógica que UNIR_VARIAS_PRESION.
+
+        // ── Wye: identificación de puertos y orientación ─────────────────────
+        // En una Wye NINGÚN par de puertos es anti-paralelo (a diferencia del
+        // Tee), así que IdentificarBranchPortPorGeometria (ImportarRed.cs) no
+        // sirve: ahí el "branch" se busca como el puerto cuyos otros dos son
+        // colineales. Para la Y el criterio correcto es el INVERSO: el tronco
+        // son los DOS puertos más opuestos entre sí (el par de mayor ángulo),
+        // y el ramal es el restante.
+        // Devuelve (trunkA, trunkB, branch) en índices de puerto.
+        internal static (int trunkA, int trunkB, int branch) PuertosDeWye(CivilDB.PressurePart parte)
+        {
+            int n = parte.ConnectionCount;
+            if (n != 3) return (-1, -1, -1);
+            var d = new Vector3d[n];
+            for (int i = 0; i < n; i++)
+            {
+                var v = parte.GetConnectionAt(i).Direction;
+                d[i] = v.Length > 1e-9 ? v.GetNormal() : Vector3d.XAxis;
+            }
+            // El par de tronco = el de producto escalar MÍNIMO (más opuesto).
+            int ta = 0, tb = 1; double peor = double.MaxValue;
+            for (int i = 0; i < n; i++)
+                for (int j = i + 1; j < n; j++)
+                {
+                    double dot = d[i].DotProduct(d[j]);
+                    if (dot < peor) { peor = dot; ta = i; tb = j; }
+                }
+            int br = 3 - ta - tb;   // 0+1+2 = 3
+            return (ta, tb, br);
+        }
+
+        // Mismo criterio aplicado a los TUBOS que llegan a la juntura: el par
+        // más opuesto es el tronco, el restante es el ramal.
+        // Devuelve índices dentro de `vectoresSalida`.
+        internal static (int trunkA, int trunkB, int branch) TubosDeWye(List<Vector3d> vectoresSalida)
+        {
+            int n = vectoresSalida.Count;
+            if (n != 3) return (-1, -1, -1);
+            var d = vectoresSalida
+                .Select(v => v.Length > 1e-9 ? v.GetNormal() : Vector3d.XAxis).ToList();
+            int ta = 0, tb = 1; double peor = double.MaxValue;
+            for (int i = 0; i < n; i++)
+                for (int j = i + 1; j < n; j++)
+                {
+                    double dot = d[i].DotProduct(d[j]);
+                    if (dot < peor) { peor = dot; ta = i; tb = j; }
+                }
+            int br = 3 - ta - tb;
+            return (ta, tb, br);
+        }
+
+        // Orienta una Wye ya insertada para que sus puertos apunten a los tubos
+        // reales, SIN mover ninguna tubería (la geometría importada del PDF es
+        // la verdad; la pieza es la que cede).
+        //
+        // Paso 1 — giro en Z: alinea el EJE DEL TRONCO de la pieza con el eje
+        //          del tronco real (bisectriz del par más opuesto de tubos).
+        // Paso 2 — espejo/giro 180° sobre el eje del tronco si el ramal quedó
+        //          del lado contrario al ramal real.
+        //
+        // Devuelve el orden de puertos (índice de tubo por cada puerto) para
+        // que el llamador conecte tubo↔puerto correctamente, o null si falla.
+        internal static List<int> OrientarWye(
+            CivilDB.PressurePart parte, Point3d junta,
+            List<Point3d> extremosLejanos, Editor ed)
+        {
+            try
+            {
+                if (parte.ConnectionCount != 3 || extremosLejanos.Count != 3) return null;
+
+                var vt = extremosLejanos.Select(p =>
+                {
+                    Vector3d v = p - junta;
+                    return v.Length > 1e-9 ? v.GetNormal() : Vector3d.XAxis;
+                }).ToList();
+
+                // Direcciones actuales de los 3 puertos (antes de rotar).
+                var dp = new Vector3d[3];
+                for (int i = 0; i < 3; i++)
+                {
+                    var v = parte.GetConnectionAt(i).Direction;
+                    dp[i] = v.Length > 1e-9 ? v.GetNormal() : Vector3d.XAxis;
+                }
+
+                // Ajuste GLOBAL sin prejuicios sobre quién es el ramal.
+                //
+                // La versión anterior fijaba el ramal con TubosDeWye (par más
+                // opuesto = tronco) y solo probaba 2 asignaciones. Con ángulos
+                // 70/153/136 eso elegía como "tronco" el par de 153° — que tiene
+                // 27° de quiebre que la pieza NO puede absorber —, así que el
+                // optimizador cuadraba el tronco y sacrificaba el ramal (76° de
+                // desvío, justo lo que se veía torcido en el dibujo).
+                //
+                // Ahora se prueban las 6 PERMUTACIONES completas puerto→tubo
+                // (3 elecciones de ramal × 2 sentidos del tronco) y gana la de
+                // menor error. El ramal sale de los datos, no de una suposición.
+                var permutaciones = new[]
+                {
+                    new[] {0,1,2}, new[] {0,2,1}, new[] {1,0,2},
+                    new[] {1,2,0}, new[] {2,0,1}, new[] {2,1,0},
+                };
+
+                // Error de una asignación: perm[p] = índice del tubo que va al puerto p.
+                // Se pondera el PEOR puerto (max) además de la suma, para evitar
+                // soluciones que cuadran dos puertos y dejan el tercero disparado.
+                double ErrorDe(double ang, int[] perm, out double[] errs)
+                {
+                    var rot = Matrix3d.Rotation(ang, Vector3d.ZAxis, Point3d.Origin);
+                    errs = new double[3];
+                    double suma = 0, peor = 0;
+                    for (int p = 0; p < 3; p++)
+                    {
+                        double e = dp[p].TransformBy(rot).GetAngleTo(vt[perm[p]]);
+                        errs[p] = e;
+                        suma += e;
+                        if (e > peor) peor = e;
+                    }
+                    return suma + peor;   // penaliza el puerto peor alineado
+                }
+
+                double mejorAng = 0, mejorErr = double.MaxValue;
+                int[] mejorPerm = permutaciones[0];
+                foreach (var perm in permutaciones)
+                {
+                    for (double g = 0; g < 360.0; g += 1.0)
+                    {
+                        double e = ErrorDe(g * Math.PI / 180.0, perm, out _);
+                        if (e < mejorErr) { mejorErr = e; mejorAng = g * Math.PI / 180.0; mejorPerm = perm; }
+                    }
+                }
+                // Refinamiento fino alrededor del mejor ángulo.
+                for (double d = -1.0; d <= 1.0; d += 0.05)
+                {
+                    double g = mejorAng + d * Math.PI / 180.0;
+                    double e = ErrorDe(g, mejorPerm, out _);
+                    if (e < mejorErr) { mejorErr = e; mejorAng = g; }
+                }
+
+                parte.TransformBy(Matrix3d.Rotation(mejorAng, Vector3d.ZAxis, junta));
+                ErrorDe(mejorAng, mejorPerm, out double[] errFinal);
+                ed?.WriteMessage($"\n  · [WYE-ORIENT] Giro Z {mejorAng * 180.0 / Math.PI:F1}° — desvío por puerto: " +
+                    $"P0={errFinal[0] * 180.0 / Math.PI:F1}° P1={errFinal[1] * 180.0 / Math.PI:F1}° " +
+                    $"P2={errFinal[2] * 180.0 / Math.PI:F1}° (máx {errFinal.Max() * 180.0 / Math.PI:F1}°).");
+
+                // Orden puerto→tubo con la permutación ganadora.
+                var orden = mejorPerm;
+                return orden.ToList();
+            }
+            catch (Exception ex)
+            {
+                ed?.WriteMessage($"\n  ⚠ [WYE-ORIENT] No se pudo orientar la Y: {ex.Message}");
+                return null;
+            }
+        }
         internal static List<int> OrdenarPuertosPorOposicion(Point3d junta, List<Point3d> extremosLejanos)
         {
             int nP = extremosLejanos.Count;
@@ -233,6 +387,28 @@ namespace Civil3DBasico
             return orden;
         }
 
+        // Ángulo de un fitting cubriendo los DOS formatos del catálogo:
+        //   · Codos PushOn : "elbow-12 in-90 degree-push on-..."  → 90
+        //   · Wye Steel    : "Wye 30_ BV_ AWWA C208 ..."          → 30
+        // ExtraerAnguloDeDescripcion solo entiende el primero (exige °/degree),
+        // así que para las Wye devolvía null → 0 y el desempate por ángulo no
+        // funcionaba. Se prueba primero el formato con °/degree y, si no hay
+        // match, el patrón "Wye <n>" del nombre de familia Steel.
+        internal static double? ExtraerAnguloDeFitting(string desc)
+        {
+            var a = ExtraerAnguloDeDescripcion(desc);
+            if (a.HasValue) return a;
+            if (string.IsNullOrEmpty(desc)) return null;
+            var m = System.Text.RegularExpressions.Regex.Match(desc,
+                @"\bWye\s*(\d{1,3})",
+                System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+            if (m.Success && double.TryParse(m.Groups[1].Value,
+                System.Globalization.NumberStyles.Float,
+                System.Globalization.CultureInfo.InvariantCulture, out double v))
+                return v;
+            return null;
+        }
+
         // Busca el fitting del TIPO pedido cuyo diámetro (primer número en la
         // descripción) esté más cerca de `diamObjetivo`, desempatando por
         // ángulo si aplica (codos). Reemplaza a MatchFitting (ImportarRed.cs):
@@ -244,15 +420,30 @@ namespace Civil3DBasico
             CivilDB.PressurePartType tipo, double diamObjetivo, double anguloObjetivo)
         {
             if (fittings == null) return null;
+            // El ángulo importa para Elbow Y para Wye. Antes AngDiff solo se
+            // calculaba para Elbow (`: 0.0`), así que entre las 116 Wye del
+            // catálogo Steel el desempate era únicamente por diámetro y salía
+            // una cualquiera (típicamente "Wye 30_", la primera) aunque la
+            // juntura real pidiera ~60°/75°.
+            bool usaAngulo = tipo == CivilDB.PressurePartType.Elbow
+                          || tipo == CivilDB.PressurePartType.Wye;
             var candidatos = fittings.Where(f => f.PartType == tipo).Select(f => new
             {
                 Part = f,
                 Diam = ExtraerDiametroDeDescripcion(f.Description),
-                AngDiff = tipo == CivilDB.PressurePartType.Elbow
-                    ? Math.Abs((ExtraerAnguloDeDescripcion(f.Description) ?? 0) - Math.Abs(anguloObjetivo))
+                AngDiff = usaAngulo
+                    ? Math.Abs((ExtraerAnguloDeFitting(f.Description) ?? 0) - Math.Abs(anguloObjetivo))
                     : 0.0
             }).ToList();
             if (candidatos.Count == 0) return null;
+            // Para Wye el ÁNGULO manda sobre el diámetro exacto: una Y de 60° en
+            // 12" encaja mucho mejor que una de 30° en 14". Para el resto se
+            // mantiene el orden histórico (diámetro primero).
+            if (tipo == CivilDB.PressurePartType.Wye)
+                return candidatos
+                    .OrderBy(c => c.AngDiff)
+                    .ThenBy(c => Math.Abs(c.Diam - diamObjetivo))
+                    .First().Part;
             return candidatos
                 .OrderBy(c => Math.Abs(c.Diam - diamObjetivo))
                 .ThenBy(c => c.AngDiff)
@@ -282,28 +473,42 @@ namespace Civil3DBasico
             try
             {
                 bool posibleWye = false;
+                int junt3 = 0;
                 foreach (var jj in junturas)
                 {
                     if (jj.Miembros.Count != 3) continue;
+                    junt3++;
                     var vecs = jj.Miembros.Select(m =>
                     {
                         var pp = (CivilDB.PressurePipe)tr.GetObject(m.PipeId, OpenMode.ForRead);
                         Point3d far = m.Port == 0 ? pp.EndPoint : pp.StartPoint;
                         return far - jj.Ubicacion;
                     }).ToList();
-                    if (DecidirTeeOWye(vecs) == CivilDB.PressurePartType.Wye)
-                    { posibleWye = true; break; }
+                    // Log de los 3 ángulos entre pares (para diagnóstico del usuario)
+                    var un = vecs.Select(v => v.Length > 1e-9 ? v.GetNormal() : Vector3d.XAxis).ToList();
+                    double a01 = un[0].GetAngleTo(un[1]) * 180.0 / Math.PI;
+                    double a02 = un[0].GetAngleTo(un[2]) * 180.0 / Math.PI;
+                    double a12 = un[1].GetAngleTo(un[2]) * 180.0 / Math.PI;
+                    var decision = DecidirTeeOWye(vecs);
+                    ed.WriteMessage($"\n  · [JUNTURA-3] ({jj.Ubicacion.X:F2},{jj.Ubicacion.Y:F2}) ángulos entre salidas: {a01:F0}°, {a02:F0}°, {a12:F0}° → {decision} (umbral colinealidad ≥160°).");
+                    if (decision == CivilDB.PressurePartType.Wye)
+                        posibleWye = true;
                 }
+                if (junt3 == 0)
+                    ed.WriteMessage($"\n  · [JUNTURA-WYE-SCAN] Ninguna juntura de 3 tuberías detectada — no se necesita Wye.");
                 bool yaHayWye = (fittingsDisponibles ?? new List<PresStyles.PressurePartSize>())
                     .Any(f => f.PartType == CivilDB.PressurePartType.Wye);
+                ed.WriteMessage($"\n  · [WYE-PRESCAN] posibleWye={posibleWye}, yaHayWye={yaHayWye}, partsListId={(net.PartsListId != ObjectId.Null ? "ok" : "NULL")}.");
                 if (posibleWye && !yaHayWye && net.PartsListId != ObjectId.Null)
                 {
                     var pl = tr.GetObject(net.PartsListId, OpenMode.ForRead)
                              as PresStyles.PressurePartList;
+                    ed.WriteMessage($"\n  · [WYE-PRESCAN] PartsList obtenida: {(pl != null ? "'" + pl.Name + "'" : "NULL cast")}.");
                     if (pl != null)
                     {
                         int nuevas = AsegurarPresionWye.AsegurarEnPartsList(
-                            pl, fittingsDisponibles, ed);
+                            pl, fittingsDisponibles, tr, null, ed);
+                        ed.WriteMessage($"\n  · [WYE-PRESCAN] AsegurarEnPartsList devolvió {nuevas} familia(s) nuevas.");
                         if (nuevas > 0)
                         {
                             // Refrescar la lista de fittings para incluir las Wye recién agregadas.
@@ -363,7 +568,47 @@ namespace Civil3DBasico
                     if (refined == CivilDB.PressurePartType.Wye)
                     {
                         tipo = CivilDB.PressurePartType.Wye;
-                        ed.WriteMessage($"\n  · [JUNTURA] Y (Wye) detectada en ({j.Ubicacion.X:F2},{j.Ubicacion.Y:F2}) — 3 tuberías sin recta clara.");
+                        // Ángulo REAL del ramal respecto al tronco. `deflex` solo se
+                        // calcula para 2 tubos (queda 0 con 3), así que sin esto se
+                        // le pedía al catálogo una Wye de 0° y el desempate por
+                        // ángulo elegía cualquiera (salía siempre "Wye 30_").
+                        // Tronco = par más opuesto; el ramal es el restante. El
+                        // ángulo del ramal se mide contra el EJE del tronco
+                        // (dirección tubA→tubB), que es como el catálogo nombra
+                        // sus Y (30/45/60/75/90°).
+                        // Ángulo de ramal a pedir al catálogo. Una Wye real es
+                        // "tronco casi recto + ramal desviado X°", así que el
+                        // candidato correcto es la partición cuyo TRONCO sea lo
+                        // más recto posible (no simplemente el par más opuesto:
+                        // con 70/153/136 ese criterio tomaba el de 153°, que
+                        // tiene 27° de quiebre que la pieza no puede absorber).
+                        // Se prueban las 3 particiones y gana la de tronco más
+                        // recto; su ángulo de ramal es el que se busca.
+                        var n3 = vecs.Select(v => v.Length > 1e-9 ? v.GetNormal() : Vector3d.XAxis).ToList();
+                        double mejorQuiebre = double.MaxValue, angRamalSel = 0;
+                        for (int br = 0; br < 3; br++)
+                        {
+                            int a = (br + 1) % 3, b = (br + 2) % 3;
+                            // Quiebre del tronco: 0° si los dos tubos del tronco
+                            // son perfectamente opuestos (180° entre salidas).
+                            double angTronco = n3[a].GetAngleTo(n3[b]) * 180.0 / Math.PI;
+                            double quiebre = Math.Abs(180.0 - angTronco);
+                            if (quiebre < mejorQuiebre)
+                            {
+                                mejorQuiebre = quiebre;
+                                // Ramal medido contra el eje del tronco (a→b).
+                                Vector3d eje = (n3[b] - n3[a]);
+                                if (eje.Length < 1e-9) eje = n3[b];
+                                eje = eje.GetNormal();
+                                double ar = n3[br].GetAngleTo(eje) * 180.0 / Math.PI;
+                                if (ar > 90.0) ar = 180.0 - ar;   // el catálogo usa el agudo
+                                angRamalSel = ar;
+                            }
+                        }
+                        deflex = angRamalSel;
+                        ed.WriteMessage($"\n  · [JUNTURA] Y (Wye) detectada en ({j.Ubicacion.X:F2},{j.Ubicacion.Y:F2}) — " +
+                            $"tronco con {mejorQuiebre:F0}° de quiebre, ramal a {angRamalSel:F0}° " +
+                            $"(se buscará la Y de ese ángulo).");
                     }
                 }
                 // NominalDiameter viene en unidades del dibujo (pies) — confirmado con
@@ -392,6 +637,11 @@ namespace Civil3DBasico
                 {
                     try
                     {
+                        // La geometría de la Wye está en el catálogo Steel; hay que
+                        // activarlo antes de AddFitting o lanza "Fail to add a new
+                        // fitting." (los Tee/Elbow PushOn siguen resolviéndose).
+                        if (pieza.PartType == CivilDB.PressurePartType.Wye)
+                            AsegurarPresionWye.ActivarCatalogo(ed);
                         ObjectId fid = net.AddFitting(j.Ubicacion, pieza);
                         CivilDB.PressurePart parte = (CivilDB.PressurePart)tr.GetObject(fid, OpenMode.ForWrite);
 
@@ -400,7 +650,34 @@ namespace Civil3DBasico
                         else
                         {
                             var lejanos = pipesInfo.Select(p => p.Port == 0 ? p.pp.EndPoint : p.pp.StartPoint).ToList();
-                            orden = OrdenarPuertosPorOposicion(j.Ubicacion, lejanos);
+                            // Wye: NINGÚN par de puertos es anti-paralelo, así que el
+                            // criterio "más opuestos = puertos 0/1" de
+                            // OrdenarPuertosPorOposicion (pensado para Tee) deja la
+                            // pieza torcida, y luego el recorte arrastra/rota el tubo.
+                            // OrientarWye gira la PIEZA para que sus puertos apunten a
+                            // los tubos reales y devuelve el mapeo puerto→tubo.
+                            orden = (pieza.PartType == CivilDB.PressurePartType.Wye)
+                                ? OrientarWye(parte, j.Ubicacion, lejanos, ed)
+                                : null;
+                            if (orden == null)
+                                orden = OrdenarPuertosPorOposicion(j.Ubicacion, lejanos);
+                        }
+
+                        // Geometría ORIGINAL de cada tubo ANTES de conectar. ConnectToPipe
+                        // reubica el extremo del tubo sobre el puerto del accesorio, y si
+                        // el puerto no cae exactamente en el eje del tubo, LO ROTA. Por eso
+                        // proyectar después no bastaba: para entonces el eje ya estaba
+                        // deformado y la proyección se hacía sobre la recta equivocada.
+                        // Guardamos (puntoFijo, direcciónOriginal) para restaurar el
+                        // trazado exacto del PDF tras conectar.
+                        var geomOrig = new Dictionary<ObjectId, (Point3d fijo, Vector3d dir)>();
+                        foreach (var pi in pipesInfo)
+                        {
+                            Point3d fijoO = pi.Port == 0 ? pi.pp.EndPoint : pi.pp.StartPoint;
+                            Point3d movO  = pi.Port == 0 ? pi.pp.StartPoint : pi.pp.EndPoint;
+                            Vector3d dO = movO - fijoO;
+                            if (dO.Length > 1e-9 && !geomOrig.ContainsKey(pi.PipeId))
+                                geomOrig[pi.PipeId] = (fijoO, dO.GetNormal());
                         }
 
                         int conectados = 0;
@@ -427,7 +704,43 @@ namespace Civil3DBasico
                                 var pInfo = pipesInfo.FirstOrDefault(p => p.PipeId == c.ConnectedId);
                                 if (pInfo.pp == null) continue;
                                 var ppw = (CivilDB.PressurePipe)tr.GetObject(c.ConnectedId, OpenMode.ForWrite);
-                                if (pInfo.Port == 0) ppw.StartPoint = c.Position; else ppw.EndPoint = c.Position;
+                                // La tubería NO se rota: su trazado viene del PDF y es
+                                // la verdad. Solo se DESLIZA el extremo sobre su propia
+                                // recta hasta el punto más cercano al puerto. Antes se
+                                // asignaba c.Position directo, lo que sacaba el extremo
+                                // del eje del tubo y lo dejaba girado respecto al
+                                // trazado original (visible como "el tubo se tuerce
+                                // para encajar con la Y").
+                                // Usar la recta ORIGINAL (pre-ConnectToPipe). Si se lee el
+                                // eje actual, ya viene rotado por la propia conexión y la
+                                // proyección perpetúa el giro.
+                                Point3d fijo; Vector3d u;
+                                if (geomOrig.TryGetValue(c.ConnectedId, out var g0))
+                                { fijo = g0.fijo; u = g0.dir; }
+                                else
+                                {
+                                    fijo = (pInfo.Port == 0) ? ppw.EndPoint : ppw.StartPoint;
+                                    Vector3d ejeTubo = (pInfo.Port == 0)
+                                        ? (ppw.StartPoint - fijo) : (ppw.EndPoint - fijo);
+                                    if (ejeTubo.Length < 1e-9) continue;
+                                    u = ejeTubo.GetNormal();
+                                }
+                                // Proyección del puerto sobre la recta original del tubo:
+                                // el extremo solo se desliza a lo largo de su propio eje.
+                                double t = (c.Position - fijo).DotProduct(u);
+                                Point3d destino = fijo + u * t;
+                                if (pInfo.Port == 0)
+                                {
+                                    // Restaurar también el extremo LEJANO: ConnectToPipe
+                                    // puede haberlo desplazado al re-resolver la conexión.
+                                    if (ppw.EndPoint.DistanceTo(fijo) > 1e-6) ppw.EndPoint = fijo;
+                                    ppw.StartPoint = destino;
+                                }
+                                else
+                                {
+                                    if (ppw.StartPoint.DistanceTo(fijo) > 1e-6) ppw.StartPoint = fijo;
+                                    ppw.EndPoint = destino;
+                                }
                             }
                         }
                         catch (Exception ex)
@@ -458,6 +771,11 @@ namespace Civil3DBasico
                     {
                         ed.WriteMessage($"\n  ⚠ [JUNTURA] Falló al crear/colocar '{pieza.Description}' en " +
                             $"({j.Ubicacion.X:F2},{j.Ubicacion.Y:F2}): {ex.Message}. Se intenta conexión directa.");
+                        try
+                        {
+                            ed.WriteMessage($"\n     [JUNTURA-DBG] PartType={pieza.PartType}, FamilyGuid={pieza.FamilyGuid}, PartSizeGuid={pieza.PartSizeGuid}");
+                        }
+                        catch { }
                     }
                 }
                 else if (tipo.HasValue && tipo.Value != CivilDB.PressurePartType.Coupling)
