@@ -618,9 +618,53 @@ namespace Civil3DBasico
                 // encuentra nada (mismo ajuste en CorregirFittingsDeRed, RedesPresion.cs).
                 double diamMaxIn = pipesInfo.Max(p => p.pp.NominalDiameter) * 12.0;
 
+                // El catálogo Steel solo trae Wye de 30/45/60/75/90°. Si la
+                // juntura pide un ángulo intermedio (p.ej. 57°), la mejor pieza
+                // disponible deja un residuo repartido en los 3 puertos (~7°).
+                // Generamos en el .sqlite una Wye del ángulo EXACTO clonando la
+                // más cercana y rotando su puerto de ramal — misma técnica que
+                // PressureCatalogFiller usa para los tamaños inexistentes.
+                // Idempotente: si ya existe (o el ángulo cae en uno de fábrica)
+                // no hace nada.
+                if (tipo == CivilDB.PressurePartType.Wye && deflex > 0)
+                {
+                    if (WyeAnguloCustom.AsegurarWyeDeAngulo(diamMaxIn, deflex, ed))
+                    {
+                        // Recargar el catálogo y la lista para que la pieza
+                        // recién creada sea visible en esta misma ejecución.
+                        try
+                        {
+                            AsegurarPresionWye.ActivarCatalogo(ed);
+                            if (net.PartsListId != ObjectId.Null)
+                            {
+                                var plRef = tr.GetObject(net.PartsListId, OpenMode.ForWrite)
+                                            as PresStyles.PressurePartList;
+                                if (plRef != null)
+                                {
+                                    AsegurarPresionWye.AsegurarEnPartsList(
+                                        plRef, plRef.GetParts(CivilDB.PressurePartDomainType.Fitting),
+                                        tr, null, ed);
+                                    fittingsDisponibles = plRef.GetParts(CivilDB.PressurePartDomainType.Fitting);
+                                    hayFittings = fittingsDisponibles != null && fittingsDisponibles.Count > 0;
+                                }
+                            }
+                        }
+                        catch (Exception exRe)
+                        {
+                            ed.WriteMessage($"\n  ⚠ [WYE-CUSTOM] No pude refrescar la parts list: {exRe.Message}");
+                        }
+                    }
+                }
+
                 PresStyles.PressurePartSize pieza = (hayFittings && tipo.HasValue)
                     ? BuscarFittingPorTipoYDiametro(fittingsDisponibles, tipo.Value, diamMaxIn, deflex)
                     : null;
+                if (tipo == CivilDB.PressurePartType.Wye && pieza != null)
+                {
+                    double angElegido = ExtraerAnguloDeFitting(pieza.Description) ?? 0;
+                    ed.WriteMessage($"\n  · [JUNTURA] Y elegida: '{pieza.Description}' " +
+                        $"(ángulo {angElegido:F0}° vs {deflex:F0}° pedido).");
+                }
                 // Fallback: si pedimos Y (Wye) pero el catálogo no tiene ninguna
                 // pieza Y disponible, usar Tee en su lugar — mejor colocar algo
                 // razonable que dejar la juntura sin accesorio.
