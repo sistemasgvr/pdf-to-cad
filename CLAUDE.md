@@ -460,6 +460,68 @@ alcantarillado, drenaje, gas, eléctrico, telecom). Todo en **unidades imperiale
     (pt × pies/pt) y rumbo del lado largo; vacíos en buzones manuales. El plugin
     aún no los usa (`XdStr` ignora claves extra) — candidato: elegir PART_SIZE por
     medidas y girar la estructura.
+  - **Datos extendidos** (`app/xdata.py` puro + `app/xdata_dialog.py`, botón verde
+    «Ver datos extendidos» junto a Eliminar, pestañas Utilidades y Buzones): cada
+    pipe/estructura puede llevar `xdata = {"auto": {…}, "user": {…}}`. `auto` lo pone
+    el reconocimiento (`pipes_from_recognition(origin=)`, `attach_vault_geometry(origin=)`):
+    capa OCG de origen + lo que dice su nombre NCS (`parse_layer`: disciplina, sistema,
+    ubicación UNGD/OVHD, estado N/E/A/D…, modificadores) + «PDF · Hoja N» (pieza de la
+    hoja compuesta bajo el objeto, `Main._xdata_origin`; texto fijo en español: es dato).
+    Es SOLO referencia: no cambia la utilidad (la línea sigue siendo DRENAJE/ELECTRICO)
+    ni el reconocimiento. `user` = campos libres del usuario (no pueden llamarse como un
+    campo auto). `rebuild_structures` copia `xdata` por coordenada; re-importar
+    (`set_auto`) no borra lo del usuario. Van al .digproj tal cual y al DXF como claves
+    extra de `PDFCAD_PIPE`/`PDFCAD_STRUCT`: `XD_CAPA_OCG, XD_XREF, XD_CAPA,
+    XD_DISCIPLINA, XD_SISTEMA, XD_UBICACION, XD_ESTADO, XD_MODIFICADORES, XD_ORIGEN` y
+    `XDU_<NOMBRE>` (ASCII, ≤250 car.). El plugin aún no las usa (candidato: Property Sets).
+  - **Estándar de capas BOE/NCS** (manual en `Documentos/docs prueba/BOE_CADD_Manual_210610.pdf`,
+    §8.1): DISC(1 letra + opcional subconjunto nivel 2)-MAYOR(4, relleno «~»)-menor(es)-ESTADO
+    (A D E F M N T X, 1–9 fases). `recognition.standard_short_name` normaliza (quita «~» y la
+    2.ª letra de disciplina: `CU-STRM-…` → `C-STRM-…`) antes de `classify_ocg`, que SUMA las
+    formas del estándar (drenaje `C-STRM-UGND`, `C-STRM-PIPE…`; estructuras `-MHOL`, `-HWAL`)
+    a las de los APDU sin cambiar ninguna: foto de las 1182 capas de los 5 PDFs de prueba
+    antes/después = 0 diferencias (hacer lo mismo antes de tocar `classify_ocg`).
+    Tests: `tests/test_layer_standard.py`. La lista completa de capas por disciplina es un
+    anexo aparte que NO viene en ese PDF.
+  - **«No inventar» con líneas juntas (auditoría 2026-09-24, DU08 h.21)**:
+    `recognition.dedup_paths` quita trazos IDÉNTICOS (≤0.05 pt, también al revés)
+    dentro de cada capa antes de reconstruir — DU08/DU10 traen capas enteras
+    duplicadas (xref insertado dos veces): daban líneas de ida y vuelta y ticks
+    de «dos guiones» que ya no eran `capped` y se prolongaban sin tinta. Núcleo:
+    esquina solo si el ángulo INTERIOR ≥ `CORNER_MIN_INTERIOR_DEG`=73° (falsas
+    ≤69.5°, reales ≥77° medido en DU06/08/10/LABOE; DU06 ninguna <75°); una curva
+    no retrocede > `CURVE_BACKSLIDE_PT`=1 hasta su esquina (`slide_ok`);
+    `learn_pattern` ignora «guiones» > `DASH_LONG_MAX_RATIO`=15× el largo más común
+    (rayas de 731 pt del cajetín ganaban al deduplicar). `routes`: en un nodo T
+    (extremo `tee`, la línea que pasa no crea extremo) solo se sigue de frente
+    (35°). Red final: `_split_sharp` parte toda polilínea en un vértice < 73° (no
+    `fillet`) antes de marcadores/tinta/codos. Verificación: foto de TODAS las
+    hojas de los 4 PDFs antes/después (vértices en «V» 863 → 0, largos iguales
+    donde solo se parte) + `test_recognition_no_inventar.py`.
+    2.ª revisión (mismo día): un extremo que TOCA (≤`ENDS_TOUCH_PT`=1) el de otra
+    corrida que sigue de frente (giro ≤35°) no va a la bóveda vecina (Fase B) si el
+    toque queda FUERA de la caja (dentro es la línea que la atraviesa: DU06 h.9/h.12);
+    y en T-ends el «trozo colineal enfrente» no cuenta si otro extremo lo mira mejor
+    (suma de desvíos a ambas rectas): la curva que muere sobre la vertical no se
+    apropia de la continuación de la diagonal que pasa por la «e».
+    3.ª revisión (DU08 h.49): `stretch_ok` — en una esquina (5b) una corrida de UN
+    guión (tick, patita de símbolo) no se prolonga más que max(su largo, ½ join_gap)
+    salvo que haya un glifo de la capa en el hueco (`resolve_nodes(glyphs=)`; con el
+    umbral de un join_gap entero volvía la vertical inventada de DU10 h.21, con ½ sin
+    glifo se cortaban las líneas «e» de LABOE); un tick con T interior no es ruido
+    aunque mida < `floor` (dos xrefs con su tick pegado: se veía una sola T);
+    `strip_crossing_markers(attached=)` no toma por «/» un trazo que NACE en la punta
+    de una curva (`MARKER_ATTACH_PT`=0.5). Foto: DU06 y LABOE 0 cambios.
+    4.ª revisión (DU08 h.49, borde de la vista): la referencia viene RECORTADA justo
+    en el clip (x=661.14). `_clip_chain` conserva un trozo que corre SOBRE el borde
+    (sus dos puntas a ≤`CLIP_EDGE_TOL_PT`=0.25 y largo ≥0.5; una colita que cruza
+    sigue fuera — con solo el punto medio se movían cortes 0.3–0.9 pt); `clip_path`
+    marca como `cut_pts` los extremos que ya están sobre el borde, y un extremo
+    cortado no es T-end (queda en su punta). `_cut_letter_strokes` (en
+    `classify_paths`): grupo de ≥2 trazos cortos que se tocan con ángulo ≥60° y caben
+    en una letra, repetido ≥`CUT_GLYPH_MIN_REPEAT`=3 veces con los mismos largos =
+    letra partida → glifo. Foto: DU06 0 puntos movidos (solo «end»→«cut» en extremos
+    del borde); cambios de geometría solo en DU08 h.36/37/49 y LABOE h.26 (revisados).
   - `PDFCAD_CURVE` (punto): esquina de elemento curvo, con `RADIUS_FT`.
   - `PDFCAD_META` (punto): metadatos del proyecto, hoy `CS_CODE` (Huso).
   - `PDFCAD_DUCTBANK` (punto, capa `PDFCAD_DUCT_BANK`): sección transversal del

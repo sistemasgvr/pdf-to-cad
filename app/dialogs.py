@@ -383,6 +383,14 @@ def show_manual(win):
           editar cada valor de forma independiente (aparecen las etiquetas T1, T2… en el
           lienzo); apagado, se usan solo las rasantes inicial/final con interpolación
           lineal.</li>
+      <li><b>Ver datos extendidos</b> (botón verde junto a «Eliminar», también en Buzones):
+          tabla Campo | Valor como un Property Set. Si la utilidad o la bóveda vino del
+          reconocimiento, trae bloqueados (🔒) la capa del PDF de la que salió
+          (p.ej. <code>C-STRM-UNGD-N</code>) y lo que dice su nombre: disciplina, sistema,
+          ubicación (UNGD = subterránea), estado (N nueva, E existente, A abandonada,
+          D a demoler) y el PDF/hoja de origen. Es solo referencia: la línea sigue siendo
+          Drenaje o Eléctrico. Con «Agregar campo» anotas los tuyos. Se guardan en el
+          proyecto y salen en el DXF (XDATA <code>XD_*</code> / <code>XDU_*</code>).</li>
     </ul>
 
     <h3>4. Buzones y cajas</h3>

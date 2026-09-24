@@ -97,6 +97,22 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "Copiar": "Copy",
         "Pegar": "Paste",
         "Eliminar": "Delete",
+        # Datos extendidos (xdata_dialog)
+        "Ver datos extendidos": "View extended data",
+        "Datos extendidos": "Extended data",
+        "Campo": "Field",
+        "Valor": "Value",
+        "Agregar campo": "Add field",
+        "Quitar campo": "Remove field",
+        "Copiar todo": "Copy all",
+        "Información de referencia que no forma parte de las propiedades de la red. "
+        "Los campos con 🔒 vienen del PDF y no se editan; los tuyos sí.":
+            "Reference information that is not part of the network properties. "
+            "Fields marked 🔒 come from the PDF and are read-only; yours can be edited.",
+        "Este elemento no viene del reconocimiento del PDF: no tiene datos automáticos.":
+            "This item was not recognized from the PDF: it has no automatic data.",
+        "Selecciona una utilidad o una estructura para ver sus datos extendidos.":
+            "Select a utility or a structure to view its extended data.",
         "Cortar": "Cut",
         "Duplicar": "Duplicate",
         "Editar": "Edit",

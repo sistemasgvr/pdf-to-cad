@@ -277,6 +277,7 @@ class Main(QtWidgets.QMainWindow):
             if hasattr(self, "btn_mv"): self.btn_mv.setText(_tr("Editar/mover"))
             if hasattr(self, "btn_edit"): self.btn_edit.setText(_tr("Editar texto"))
             if hasattr(self, "btn_del"): self.btn_del.setText(_tr("Eliminar"))
+            if hasattr(self, "btn_xd"): self.btn_xd.setText(_tr("Ver datos extendidos"))
             # Toolbox: títulos de las secciones (leyendo del combo lang porque el
             # acordeón guarda el label real). Los redraws de _page los reemplazan
             # solo si se reabre; por eso los actualizamos aquí:
@@ -920,8 +921,14 @@ class Main(QtWidgets.QMainWindow):
         self.btn_edit = QtWidgets.QPushButton(_tr("Editar texto")); self.btn_edit.clicked.connect(self.edit_selected_text)
         self.btn_del = QtWidgets.QPushButton(_tr("Eliminar")); self.btn_del.setProperty("danger", True)
         self.btn_del.clicked.connect(self.delete_selected)
+        # Datos extendidos (capa OCG de origen + campos del usuario), junto a Eliminar
+        self.btn_xd = QtWidgets.QPushButton(_tr("Ver datos extendidos")); self.btn_xd.setProperty("success", True)
+        self.btn_xd.setToolTip(_tr("Capa del PDF de la que salió (disciplina, sistema, ubicación, estado) "
+                                   "y tus propios campos. Se guardan en el proyecto y van al DXF."))
+        self.btn_xd.clicked.connect(self.show_xdata)
         rr.addWidget(self.btn_ct, 0, 0); rr.addWidget(self.btn_mv, 0, 1)
         rr.addWidget(self.btn_edit, 1, 0); rr.addWidget(self.btn_del, 1, 1)
+        rr.addWidget(self.btn_xd, 1, 0)       # comparte celda con «Editar texto» (solo pestaña Textos)
         rv.addLayout(rr)
         # RESPONSIVO: en un QFormLayout la etiqueta y el campo van en la MISMA
         # fila, así que etiquetas largas ("Material de la tubería:") imponen un
@@ -1355,6 +1362,7 @@ class Main(QtWidgets.QMainWindow):
         # auto-detectan de los vertices de las tuberias, borrarlos no tiene
         # efecto porque _rebuild_structures los repone. Se oculta el boton.
         self.btn_del.setVisible(ti != TAB_BZ)
+        self.btn_xd.setVisible(ti in (TAB_PIPE, TAB_BZ))
         diag = self.orient_combo.currentData() == "d"
         lead1 = _tr("Modo: Leader — clic en la cabeza de flecha (dónde señala)")
         lead2 = (_tr("Modo: Leader — clic en el inicio del landing (bisagra)") if diag
@@ -1945,6 +1953,50 @@ class Main(QtWidgets.QMainWindow):
         else:
             self._info(_tr("Reconocimiento cancelado — editor vacío."))
 
+    def _xdata_origin(self, page_index: int):
+        """Función (puntos del lienzo) → «PDF · Hoja N» de donde salió el objeto,
+        para los datos extendidos. En una hoja compuesta, la pieza bajo su
+        punto medio (`_composite_layout`, en pt de la hoja compuesta)."""
+        import xdata
+        names = [e.get("name", "") for e in (self.src_pdfs or [])]
+        comp = self.composite
+        if comp is not None and comp.pieces and getattr(self, "_composite_layout", None):
+            single = len({p.source for p in comp.pieces}) == 1
+            name0 = names[comp.pieces[0].source] if comp.pieces[0].source < len(names) else ""
+            pieces = [(rect, f"{name0} · {label}" if single and name0 else label)
+                      for rect, label in self._composite_layout]
+            z = self.zoom or 1.0
+            return lambda pts: xdata.origin_label([(x / z, y / z) for x, y in pts], pieces,
+                                                  "Hoja compuesta")
+        src = comp.pieces[0].source if comp is not None and comp.pieces else 0
+        name = names[src] if src < len(names) and names[src] else (
+            os.path.basename(self.pdf_path) if self.pdf_path else "")
+        # es un DATO del proyecto (va al DXF): fijo en español, no depende del idioma de la UI
+        label = f"{name} · Hoja {page_index + 1}" if name else f"Hoja {page_index + 1}"
+        return lambda pts: label
+
+    def show_xdata(self):
+        """«Ver datos extendidos» de la utilidad o estructura seleccionada."""
+        import xdata
+        import xdata_dialog
+        ti = self._current_tab()
+        obj = title = None
+        if ti == TAB_PIPE and 0 <= self.sel_pipe < len(self.pipes):
+            obj = self.pipes[self.sel_pipe]
+            title = _tr("Utilidad #{n}").format(n=self.sel_pipe + 1)
+        elif ti == TAB_BZ and 0 <= self.sel_bz < len(self.structures):
+            obj = self.structures[self.sel_bz]
+            title = obj.get("cod") or _tr("Estructura #{n}").format(n=self.sel_bz + 1)
+        if obj is None:
+            self._info(_tr("Selecciona una utilidad o una estructura para ver sus datos extendidos."))
+            return
+        user = xdata_dialog.edit_xdata(self, title, obj)
+        if user is None or user == xdata.get(obj)[xdata.USER]:
+            return
+        self._push()
+        xdata.set_user(obj, user)
+        self._dirty = True
+
     def _import_recognized_pipes(self, results):
         """Añade centerlines reconocidas e inserta sus estructuras como nodos."""
         import recognition as rec
@@ -1953,7 +2005,8 @@ class Main(QtWidgets.QMainWindow):
         batches = []
         for result in results:
             utility = getattr(result, "utility", None) or "ELECTRICO"
-            pipes = rec.pipes_from_recognition(result, layer=utility, zoom=self.zoom)
+            pipes = rec.pipes_from_recognition(result, layer=utility, zoom=self.zoom,
+                                               origin=self._xdata_origin(result.page_index))
             vaults = list(getattr(result, "vault_pts", None) or [])
             snapped, skipped = rec.inject_vault_vertices(pipes, vaults)
             result.vaults_snapped = snapped
@@ -1977,9 +2030,11 @@ class Main(QtWidgets.QMainWindow):
         # …y les pone a las CAJA de bóveda real su forma, medidas (pies) y contorno.
         n_geo = n_alone = 0
         for result, utility, _pipes, _snapped, _skipped in batches:
+            where = self._xdata_origin(result.page_index)
             added_geo, added_alone = model_ops.attach_vault_geometry(
                 self.structures, getattr(result, "vaults_geo", None) or [],
-                net="gravity" if utility == "DRENAJE" else "conduit", utility=utility)
+                net="gravity" if utility == "DRENAJE" else "conduit", utility=utility,
+                origin=lambda c, where=where: where([c]))
             n_geo += added_geo; n_alone += added_alone
         # …y los codos reconocidos quedan como esquina «CV» con su radio (flujo manual).
         n_cv = model_ops.attach_fillets(self.pipes, self.structures)

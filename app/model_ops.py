@@ -12,6 +12,7 @@ probar en aislamiento:
 `Main` conserva un método delgado que llama a estas funciones y hace la asignación
 (`self.structures = …`) y el marcado de cambios (`self._dirty = True`).
 """
+import copy
 import math
 
 from model import network_kind, LEADER_TEXT_FT
@@ -123,6 +124,8 @@ def rebuild_structures(pipes, structures):
                 for k in VAULT_GEO_KEYS:
                     if k in o:
                         s[k] = o[k]
+                if o.get("xdata"):                     # datos extendidos (capa de origen + del usuario)
+                    s["xdata"] = copy.deepcopy(o["xdata"])
                 break
     # Códigos únicos: BZ-N gravedad, CAJA-N conduit, CV-N esquina de elemento curvo
     # (curve=True manda sobre el prefijo por red: no es un buzón/caja real).
@@ -265,13 +268,15 @@ VAULT_GEO_KEYS = ("shape", "width_ft", "length_ft", "rot_deg", "outline")
 
 
 def attach_vault_geometry(structures, vaults_geo, tol=12.0, net="conduit",
-                          utility="ELECTRICO"):
+                          utility="ELECTRICO", origin=None):
     """Asocia cada bóveda reconocida (`RecognitionResult.vaults_geo`) a la
     estructura más cercana a su centro (≤ `tol` px) y le copia forma, medidas
     y contorno. Una bóveda real sin estructura cerca (ninguna línea la atraviesa
     ni muere en ella; `importable`) se importa igual como CAJA SUELTA
     (`standalone=True`, sin vértice: en Civil 3D será un sólido aislado); las
-    cajas propuestas / postes no. Devuelve (asignadas, sueltas_creadas)."""
+    cajas propuestas / postes no. Los datos extendidos (`xdata`) guardan la capa
+    OCG del símbolo y el origen (`origin((x, y)) -> str`, opcional); los campos
+    que el usuario haya anotado se conservan. Devuelve (asignadas, sueltas_creadas)."""
     done = 0; created = 0
     for vg in vaults_geo or []:
         cx, cy = vg.get("center", (None, None))
@@ -320,6 +325,10 @@ def attach_vault_geometry(structures, vaults_geo, tol=12.0, net="conduit",
         st["hidden"] = False                      # una bóveda real siempre se ve
         if vg.get("abandoned"):
             st["abandoned"] = True
+        if vg.get("layer"):
+            import xdata
+            where = origin((cx, cy)) if callable(origin) else origin
+            xdata.set_auto(st, xdata.auto_fields(vg.get("layer"), where))
         done += 1
     _assign_standalone_codes(structures)
     return done, created

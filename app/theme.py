@@ -347,6 +347,12 @@ def build_stylesheet(t: Theme) -> str:
         QPushButton[secondary="true"]:disabled {{ background: {t.surface_alt}; color: {t.text_disabled};
                                                    border: 1px solid {t.border_soft}; }}
 
+        /* Acción de consulta destacada (verde): «Ver datos extendidos» */
+        QPushButton[success="true"] {{ background: {t.success}; color: {t.text_on_accent};
+                                        border: 1px solid {t.success_hover}; font-weight: bold; }}
+        QPushButton[success="true"]:hover  {{ background: {t.success_hover}; }}
+        QPushButton[success="true"]:pressed{{ background: {t.success_hover}; }}
+
         /* Acciones destructivas */
         QPushButton[danger="true"] {{ background: {t.danger}; color: {t.text_on_accent};
                                        border: 1px solid {t.danger_hover}; font-weight: bold; }}

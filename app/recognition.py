@@ -176,32 +176,63 @@ def utility_line_kind(utility: str = UTILITY_HINT) -> str:
     return UTILITY_LINE_KINDS.get(key, UTILITY_LINE_KINDS[UTILITY_HINT])
 
 
+# Disciplinas de NIVEL 1 del estándar BOE / NCS (BOE CADD Standards §8.1.3).
+# J, K, N, U, Y: «Not Used».
+BOE_DISCIPLINES = frozenset("ABCDEFGHILMOPQRSTVWXZ")
+_LEVEL2_DISC = re.compile(r"^([A-Z])[A-Z]-")
+
+
+def standard_short_name(ocg: Optional[str]) -> str:
+    """Nombre corto de la capa (sin el xref) llevado a la forma BÁSICA del
+    estándar BOE/NCS para clasificarla: mayúsculas, sin el relleno «~» de los
+    grupos de menos de 4 letras (§8.1.4: `C-GAS~-…` = `C-GAS-…`) y sin la letra
+    de subconjunto de la disciplina (nivel 2, §1.3.1: `CU-STRM-…` Civil
+    Utilities = `C-STRM-…`)."""
+    short = (ocg or "").split("|")[-1].strip().upper().replace("~", "")
+    m = _LEVEL2_DISC.match(short)
+    if m and m.group(1) in BOE_DISCIPLINES:
+        short = m.group(1) + short[2:]
+    return short
+
+
+# Líneas de drenaje pluvial del estándar BOE: C-STRM-UGND («Storm sewer:
+# underground»), C-STRM-PIPE(-RCON/-CMTL…) («piping»); y la variante UNGD de
+# los planos del APDU (DU06/DU08/DU10).
+_STRM_LINE = re.compile(r"^C-STRM-(?:UNGD|UGND|PIPE)(?:-|_|$)")
+# Geometría auxiliar o anotación dentro de esas capas: camisa, muros,
+# estructuras, perfil, estacionado, texto, patrones, contornos.
+_STRM_NOT_LINE = ("WALL", "STRC", "CASE", "MHOL", "HWAL", "PROF", "STAN", "TEXT",
+                  "ANNO", "IDEN", "PATT", "OTLN", "DIAG", "CNTR")
+
+
 def classify_ocg(ocg: Optional[str], utility: str = UTILITY_HINT) -> Optional[str]:
     """Nombre OCG → kind de reconocimiento para ``utility``, o ``None``.
 
     Los perfiles solo clasifican capas. Toda la reconstrucción geométrica se
-    mantiene compartida en :mod:`recognition_geom`.
+    mantiene compartida en :mod:`recognition_geom`. El nombre se normaliza al
+    estándar BOE/NCS (`standard_short_name`) antes de mirarlo.
     """
     if not ocg:
         return None
-    up = ocg.upper()
-    short = (ocg.split("|")[-1] if "|" in ocg else ocg).strip().upper()
+    short = standard_short_name(ocg)
+    up = ((ocg.rsplit("|", 1)[0] + "|") if "|" in ocg else "").upper() + short
     utility = (utility or UTILITY_HINT).strip().upper()
     if utility == "DRENAJE":
         if not any(token in short for token in ("STRM", "STORM", "DRAN", "DRAIN")):
             return None
         # Estructuras reales de drenaje. UNGD-STRC y UNGD-WALL son geometría
         # auxiliar del conducto y no deben atraer ni crear buzones.
+        # BOE: C-STRM-MHOL («manhole»), C-STRM-HWAL («headwall»), C-STRM-STRC.
         if (short.startswith(("V-STRM-MANH", "V-STRM-CBSN", "V-STRM-DRAN"))
-                or short.startswith(("C-STRM-CTCH-BASN", "C-STRM-STRC"))):
+                or short.startswith(("C-STRM-CTCH-BASN", "C-STRM-STRC", "C-STRM-MHOL", "C-STRM-HWAL"))):
             return "structure"
         # «-NPLT» es solo un sufijo del xref: si está en el PDF, se imprime y es
         # una línea de drenaje real (DU06 h.4: el lateral «sd» a (560, 1020)
         # vive en C-STRM-UNGD-E-NPLT y quedaba sin reconocer).
         # «-CASE» = rectángulo de la camisa (encasement) alrededor del tubo
         # (DU08 h.43): contorno auxiliar como «-WALL», no centerline.
-        if ("C-STRM-UNGD-" in short
-                and not any(token in short for token in ("WALL", "STRC", "CASE"))):
+        if (("C-STRM-UNGD-" in short or _STRM_LINE.match(short))
+                and not any(token in short for token in _STRM_NOT_LINE)):
             return utility_line_kind(utility)
         return None
     if "TELE" in up or "C-TELE" in up:
@@ -218,7 +249,7 @@ def classify_ocg(ocg: Optional[str], utility: str = UTILITY_HINT) -> Optional[st
     # `C-ELEC-UGND-N__UA4`): son las líneas PROPUESTAS «—E—» de la leyenda.
     if _ELEC_UG_LINE.match(short) and not any(t in short for t in ("ANNO", "TEXT", "STRC")):
         return "elec_ungd"
-    if short.startswith("C-ELEC-") and any(t in short for t in ("-STRC", "-VALT", "-POLE", "-MANH")):
+    if short.startswith("C-ELEC-") and any(t in short for t in ("-STRC", "-VALT", "-POLE", "-MANH", "-MHOL")):
         return "structure"
     return None
 
@@ -305,6 +336,42 @@ def _path_points(path: dict) -> List[Tuple[float, float]]:
 
 def _same_path(p: list, q: list, tol: float = DUP_OCG_TOL_PT) -> bool:
     return len(p) == len(q) and all(math.dist(a, b) <= tol for a, b in zip(p, q))
+
+
+DUP_PATH_TOL_PT = 0.05    # el MISMO trazo dibujado dos veces en la misma capa
+
+
+def dedup_paths(paths: Sequence[dict], tol: float = DUP_PATH_TOL_PT) -> List[dict]:
+    """Quita los trazos IDÉNTICOS repetidos dentro de una capa (mismos puntos en
+    el mismo orden o al revés, a ≤ `tol`). DU08 h.21: toda la capa
+    `…3MI_UG_NORDHOFF|C-ELEC-3MI-UGND-N` viene dibujada dos veces (el xref
+    insertado dos veces). Un duplicado no aporta tinta nueva, pero el núcleo
+    encadenaba cada guión con su gemelo (líneas de ida y vuelta) y un tick de fin
+    de tramo contaba como dos guiones, así que dejaba de ser «tick» y su recta se
+    prolongaba 30–40 pt SIN tinta hasta formar esquina con la línea paralela."""
+    out: List[dict] = []
+    grid: Dict[Tuple[int, int], List[List[Tuple[float, float]]]] = defaultdict(list)
+    for path in paths:
+        pp = _path_points(path)
+        if not pp:
+            out.append(path)
+            continue
+        dup = False
+        for key_pt, cand_pts in ((pp[0], pp), (pp[-1], pp[::-1])):
+            cx, cy = round(key_pt[0]), round(key_pt[1])
+            for dx in (-1, 0, 1):
+                for dy in (-1, 0, 1):
+                    for q in grid.get((cx + dx, cy + dy), ()):
+                        if _same_path(cand_pts, q, tol):
+                            dup = True; break
+                    if dup: break
+                if dup: break
+            if dup: break
+        if dup:
+            continue
+        grid[(round(pp[0][0]), round(pp[0][1]))].append(pp)
+        out.append(path)
+    return out
 
 
 def duplicate_ocgs(by_ocg: dict) -> dict:
@@ -645,6 +712,13 @@ def recognize_page(
         by_ocg: dict[str, List[dict]] = defaultdict(list)
         for pth in line_paths:
             by_ocg[pth.get("layer") or ""].append(pth)
+        n_dup_paths = 0
+        for ocg in list(by_ocg):                       # el mismo trazo repetido en la capa: uno solo
+            kept = dedup_paths(by_ocg[ocg])
+            n_dup_paths += len(by_ocg[ocg]) - len(kept)
+            by_ocg[ocg] = kept
+        if n_dup_paths:
+            warnings.append(f"Trazos repetidos (idénticos, en la misma capa): {n_dup_paths} — se usan una sola vez.")
         dup_of = duplicate_ocgs(by_ocg) if utility in DEDUP_OCG_UTILITIES else {}
         for ocg, (keep, own) in dup_of.items():
             by_ocg[keep].extend(own)
@@ -727,6 +801,29 @@ def recognize_page(
                         break
             return out
 
+        def _split_sharp(pl):
+            """Parte la polilínea en cada vértice donde se DEVUELVE (ángulo interior
+            < CORNER_MIN_INTERIOR_DEG): una sola línea no hace una «V»; ahí se
+            juntan dos líneas distintas (ramales de una «Y», curvas que convergen,
+            un gancho). Red de seguridad para todos los caminos que las cosían
+            (esquina, quiebre, ensamblado, rutas). Nada se inventa ni se mueve."""
+            pts, kinds = list(pl.pts), list(pl.kinds)
+            cos_min = geom.CORNER_MIN_INTERIOR_COS
+            pieces, start = [], 0
+            for i in range(1, len(pts) - 1):
+                u = (pts[i - 1][0] - pts[i][0], pts[i - 1][1] - pts[i][1])
+                v = (pts[i + 1][0] - pts[i][0], pts[i + 1][1] - pts[i][1])
+                lu, lv = math.hypot(*u), math.hypot(*v)
+                if lu < 1e-9 or lv < 1e-9:
+                    continue
+                if (u[0] * v[0] + u[1] * v[1]) / (lu * lv) > cos_min:
+                    pieces.append(geom.Polyline(pts[start:i + 1], kinds[start:i + 1]))
+                    start = i
+            if not pieces:
+                return [pl]
+            pieces.append(geom.Polyline(pts[start:], kinds[start:]))
+            return pieces
+
         def _emit(pl, ocg, ab, route_id, n_segments, through=None, ink=None, strokes=None):
             pts = [px(p) for p in pl.pts]
             clean, kinds = [], []
@@ -744,6 +841,9 @@ def recognize_page(
         for ab_layer, ocg, g in results:
             joined = routes_mod.build_routes(g.polylines, g.pattern)
             raw = [routes_mod.Route(pl, 1, [i]) for i, pl in enumerate(g.polylines)]
+            joined = [routes_mod.Route(p, r.n_segments if k == 0 else 0, r.members)
+                      for r in joined for k, p in enumerate(_split_sharp(r.pl))]
+            raw = [routes_mod.Route(p, 1, r.members) for r in raw for p in _split_sharp(r.pl)]
             mp_joined = geom.marker_pattern([r.pl for r in joined], g.markers)
             mp_raw = geom.marker_pattern([r.pl for r in raw], g.markers)
             layer_has = mp_joined.has_pattern or mp_raw.has_pattern
@@ -1713,13 +1813,16 @@ def _vaults_geometry(results, px, scale: float, zoom: float, vault_orph: dict, v
 
 
 def pipes_from_recognition(result: RecognitionResult, layer: str = UTILITY_HINT,
-                           zoom: float = 1.0) -> List[dict]:
+                           zoom: float = 1.0, origin=None) -> List[dict]:
     """Convierte polilíneas drawable en dicts de pipe del inventario (como finish_pipe).
 
     No toca Qt ni la ventana: solo datos. `pts` ya están en coords del lienzo.
     `vertex_kinds` viaja con el pipe para que el import marque como ocultas
     las estructuras de los quiebres que no son bóveda.
+    `xdata` guarda como referencia la capa OCG de origen (y lo que dice su
+    nombre) + el origen: `origin(pts) -> str` (PDF · hoja), opcional.
     """
+    import xdata
     from model import PIPE_DIAMETERS_IN, DEFAULT_PIPE_MATERIAL
 
     out = []
@@ -1727,6 +1830,7 @@ def pipes_from_recognition(result: RecognitionResult, layer: str = UTILITY_HINT,
         pts = [(float(x), float(y)) for x, y in pl.pts_pdf]
         if len(pts) < 2:
             continue
+        xd = xdata.make(getattr(pl, "layer_ocg", None), origin(pts) if callable(origin) else origin)
         out.append({
             "layer": layer,
             "pts": pts,
@@ -1740,4 +1844,6 @@ def pipes_from_recognition(result: RecognitionResult, layer: str = UTILITY_HINT,
             "fillets": {int(i): round(f["r_px"] / max(zoom, 1e-9) * result.scale_ft_per_pt, 3)
                         for i, f in (pl.fillets or {}).items()},
         })
+        if xd:
+            out[-1]["xdata"] = xd
     return out

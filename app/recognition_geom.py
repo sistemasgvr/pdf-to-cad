@@ -51,6 +51,12 @@ MIN_DASH_PT = 1.0            # segmentos menores son basura numérica
 COLLINEAR_ANG_DEG = 1.0      # misma recta: rumbo ±1°
 COLLINEAR_PERP_PT = 1.5      # ...y ambos extremos a ≤1.5 pt de la recta
 CORNER_MIN_ANG_DEG = 8.0     # menos que esto = quiebre suave (bend), no esquina
+CORNER_MIN_INTERIOR_DEG = 73.0   # …y una esquina más CERRADA que esto no es de una sola línea
+CORNER_MIN_INTERIOR_COS = math.cos(math.radians(CORNER_MIN_INTERIOR_DEG))
+CURVE_BACKSLIDE_PT = 1.0     # una curva puede «retroceder» a lo sumo esto hasta su esquina
+DASH_LONG_MAX_RATIO = 15.0   # el guión largo del patrón no pasa de esto × el largo más común
+ENDS_TOUCH_PT = 1.0          # dos extremos a ≤1 pt que siguen de frente (giro ≤35°) = la línea
+CONTINUES_MAX_TURN_DEG = 35.0  # continúa ahí: no es un extremo (no va a una bóveda vecina)
 CURVE_SPLIT_ANG_DEG = 35.0   # una polilínea se parte en vértices más agudos
 CURVE_SIMPLIFY_PT = 0.5      # Douglas-Peucker sobre curvas
 VAULT_CLUSTER_PT = 4.0       # bboxes a ≤4 pt = misma bóveda…
@@ -66,6 +72,10 @@ MIN_JUNCTION_DASHES = 3      # solo líneas de red (≥3 guiones) definen el nod
 MARKER_MIN_ANG_DEG = 30.0    # un trazo corto que CRUZA la línea con este ángulo o más es marcador («/»)
 MARKER_ON_LINE_PT = 1.0      # …si su punto medio cae a ≤1 pt de la recta del guión que cruza
 MARKER_MAX_LEN_PT = 18.0     # largo máximo de una barra «/» (DU06: 7.6 pt; otros plots la traen mayor)
+CLIP_EDGE_TOL_PT = 0.25      # un trazo a ≤0.25 pt por FUERA del clip se ve (medio grosor): se conserva
+CUT_GLYPH_MIN_REPEAT = 3     # letra partida (por el clip): el mismo grupo de astas se repite ≥3 veces
+CUT_GLYPH_TOUCH_PT = 0.75    # astas de una misma letra se tocan (≤0.75 pt)
+MARKER_ATTACH_PT = 0.5       # un trazo que nace en la punta de una curva la continúa: no es «/»
 MARKER_PAIR_PT = 6.0         # dos barras «//» a ≤6 pt una de otra = UN marcador
 MARKER_PERIOD_TOL = 0.15     # paso entre marcadores: ±15 % del periodo (+ MARKER_PERIOD_SLACK_PT)
 MARKER_PERIOD_SLACK_PT = 3.0
@@ -519,6 +529,21 @@ def _point_in_polygon(p: Pt, poly: Sequence[Pt]) -> bool:
     return inside
 
 
+def _dist_to_polygon(p: Pt, poly: Sequence[Pt]) -> float:
+    """Distancia de p al contorno del polígono. Un trazo dibujado SOBRE el borde
+    del clip (DU08 h.49: la geometría ya viene recortada en x=661.10 y el clip de
+    la vista está en 661.14) se ve en pantalla: no se descarta por 0.04 pt."""
+    best = float("inf")
+    n = len(poly)
+    for i in range(n):
+        a, b = poly[i], poly[(i + 1) % n]
+        dx, dy = b[0] - a[0], b[1] - a[1]
+        L2 = dx * dx + dy * dy
+        t = 0.0 if L2 < 1e-12 else max(0.0, min(1.0, ((p[0] - a[0]) * dx + (p[1] - a[1]) * dy) / L2))
+        best = min(best, _dist(p, (a[0] + t * dx, a[1] + t * dy)))
+    return best
+
+
 def _seg_poly_params(a: Pt, b: Pt, poly: Sequence[Pt]) -> List[float]:
     """Parámetros t∈(0,1) donde el segmento a→b cruza los lados del polígono."""
     ts = []
@@ -553,7 +578,12 @@ def _clip_chain(chain: List[Pt], poly: Sequence[Pt], cuts: Optional[List[Pt]] = 
                     cuts.append(p0)
                 if 0.0 < t1 < 1.0:
                     cuts.append(p1)
-            if _point_in_polygon(mid, poly):
+            # …o el trozo corre SOBRE el borde (sus dos puntas a ≤tol): se ve.
+            # Una colita que solo cruza el borde (corta) sigue fuera.
+            if _point_in_polygon(mid, poly) or (
+                    _dist(p0, p1) >= 2 * CLIP_EDGE_TOL_PT
+                    and _dist_to_polygon(p0, poly) <= CLIP_EDGE_TOL_PT
+                    and _dist_to_polygon(p1, poly) <= CLIP_EDGE_TOL_PT):
                 if cur and _dist(cur[-1], p0) <= 1e-6:
                     cur.append(p1)
                 else:
@@ -582,6 +612,12 @@ def clip_path(path: dict, polygons: Sequence[Sequence[Pt]]) -> Optional[dict]:
         chains = [piece for ch in chains for piece in _clip_chain(ch, poly, cuts)]
     if not chains:
         return None
+    # Extremos que ya vienen SOBRE el borde del clip (la referencia se exportó
+    # recortada justo ahí): también son cortes, la línea sigue fuera de la vista.
+    for poly in polygons:
+        if len(poly) >= 3:
+            cuts += [q for ch in chains for q in (ch[0], ch[-1])
+                     if _dist_to_polygon(q, poly) <= CLIP_EDGE_TOL_PT]
     uniq: List[Pt] = []
     for c in cuts:                                   # cada cruce aparece dos veces (sale/entra)
         if not any(_dist(c, u) <= 1e-6 for u in uniq):
@@ -692,15 +728,86 @@ def classify_paths(paths: Sequence[dict]) -> Tuple[List[Dash], List[Glyph], List
                 else:
                     kept.append(d)
             dashes = kept
+    dashes, cut = _cut_letter_strokes(dashes)
+    glyphs.extend(cut)
     return dashes, glyphs, curves
 
 
-def strip_crossing_markers(dashes: List[Dash]) -> Tuple[List[Dash], List[Glyph]]:
+def _cut_letter_strokes(dashes: List[Dash]) -> Tuple[List[Dash], List[Glyph]]:
+    """Letras del linetype PARTIDAS (el clip de la vista corta la «E» por la
+    mitad, DU08 h.49 a lo largo de x=661): sus astas quedan como trazos rectos
+    sueltos y se leían como guiones (ganchitos «⊥» pegados a la línea). Una
+    letra partida = grupo de ≥2 trazos cortos (≤GLYPH_MAX_DIM_PT) que se TOCAN
+    (≤CUT_GLYPH_TOUCH_PT) con algún ángulo ≥60° y cabe en una letra; lo que la
+    distingue de un quiebre real es que el MISMO grupo (mismos largos ±1 pt) se
+    repite ≥CUT_GLYPH_MIN_REPEAT veces, como toda letra del linetype."""
+    short = [i for i, d in enumerate(dashes) if d.length <= GLYPH_MAX_DIM_PT]
+    if len(short) < 2 * CUT_GLYPH_MIN_REPEAT:
+        return dashes, []
+    cell = GLYPH_MAX_DIM_PT
+    grid: Dict[Tuple[int, int], List[int]] = defaultdict(list)
+    for i in short:
+        d = dashes[i]
+        grid[(int(d.mid[0] // cell), int(d.mid[1] // cell))].append(i)
+    parent = {i: i for i in short}
+
+    def find(i):
+        while parent[i] != i:
+            parent[i] = parent[parent[i]]
+            i = parent[i]
+        return i
+    angled = set()
+    for i in short:
+        d = dashes[i]
+        cx, cy = int(d.mid[0] // cell), int(d.mid[1] // cell)
+        for gx in (cx - 1, cx, cx + 1):
+            for gy in (cy - 1, cy, cy + 1):
+                for j in grid.get((gx, gy), ()):
+                    if j <= i:
+                        continue
+                    e = dashes[j]
+                    gap = min(_pt_seg_dist(d.a, e.a, e.b), _pt_seg_dist(d.b, e.a, e.b),
+                              _pt_seg_dist(e.a, d.a, d.b), _pt_seg_dist(e.b, d.a, d.b))
+                    if gap > CUT_GLYPH_TOUCH_PT:
+                        continue
+                    parent[find(i)] = find(j)
+                    if _ang_diff(d.angle, e.angle) >= 60.0:
+                        angled.update((i, j))
+    groups: Dict[int, List[int]] = defaultdict(list)
+    for i in short:
+        groups[find(i)].append(i)
+    cands = []
+    for g in groups.values():
+        if len(g) < 2 or not any(i in angled for i in g):
+            continue
+        xs = [q[0] for i in g for q in (dashes[i].a, dashes[i].b)]
+        ys = [q[1] for i in g for q in (dashes[i].a, dashes[i].b)]
+        if max(max(xs) - min(xs), max(ys) - min(ys)) > GLYPH_MAX_DIM_PT:
+            continue
+        cands.append((sorted(dashes[i].length for i in g), g, xs, ys))
+    swallow: List[Tuple[List[int], List[float], List[float]]] = []
+    for sig, g, xs, ys in cands:
+        same = sum(1 for sig2, _, _, _ in cands
+                   if len(sig2) == len(sig) and all(abs(a - b) <= 1.0 for a, b in zip(sig, sig2)))
+        if same >= CUT_GLYPH_MIN_REPEAT:
+            swallow.append((g, xs, ys))
+    if not swallow:
+        return dashes, []
+    drop = {i for g, _, _ in swallow for i in g}
+    glyphs = [Glyph((min(xs) + max(xs)) / 2, (min(ys) + max(ys)) / 2,
+                    max(max(xs) - min(xs), max(ys) - min(ys))) for _, xs, ys in swallow]
+    return [d for i, d in enumerate(dashes) if i not in drop], glyphs
+
+
+def strip_crossing_markers(dashes: List[Dash], attached: Sequence[Pt] = ()) -> Tuple[List[Dash], List[Glyph]]:
     """Linetype de utilidad ABANDONADA: «──/── e ──». La barra «/» es un trazo
     recto corto que cruza la línea, así que `classify_paths` la ve como guión y
     luego quedaría "sin cubrir". Aquí se detecta (corta, ≥30° respecto de un
     guión cuya recta pasa por su punto medio) y pasa a ser un glifo más, como
-    la letra: no cuenta para el patrón ni para la cobertura."""
+    la letra: no cuenta para el patrón ni para la cobertura.
+    `attached` = extremos de trazos curvos: un trazo recto que NACE en uno de
+    ellos es el último tramo de esa curva, no una barra (DU08 h.49 (668, 982):
+    la curva termina cruzando la vertical y su tramo final se perdía)."""
     cell = 2.0 * GLYPH_MAX_DIM_PT
     grid: Dict[Tuple[int, int], List[int]] = defaultdict(list)
     for i, d in enumerate(dashes):
@@ -713,7 +820,7 @@ def strip_crossing_markers(dashes: List[Dash]) -> Tuple[List[Dash], List[Glyph]]
     markers: List[Glyph] = []
     for i, d in enumerate(dashes):
         L = d.length
-        if L > MARKER_MAX_LEN_PT:
+        if L > MARKER_MAX_LEN_PT or any(_dist(q, e) <= MARKER_ATTACH_PT for q in attached for e in (d.a, d.b)):
             keep.append(d)
             continue
         m = d.mid
@@ -896,7 +1003,13 @@ def learn_pattern(dashes: Sequence[Dash], glyphs: Sequence[Glyph],
         # guiones cortos por cada largo la sesgaría hacia el corto.
         cnt = Counter(lengths)
         top = max(cnt.values())
-        frequent = [L for L, c in cnt.items() if c >= 0.2 * top and L >= 2]
+        mode_len = max(L for L, c in cnt.items() if c == top)
+        # …y nunca un trazo desproporcionado frente al guión más común: 4 rayas
+        # de 731 pt del cajetín en una capa de guiones de 22 pt (DU10 h.11) no
+        # son el «guión largo» del patrón. Pasaban el 20 % en cuanto los guiones
+        # reales dejaron de contarse dos veces (capas duplicadas).
+        frequent = [L for L, c in cnt.items()
+                    if c >= 0.2 * top and L >= 2 and L <= DASH_LONG_MAX_RATIO * max(mode_len, 2)]
         dash_long = float(max(frequent)) if frequent else float(max(lengths))
         shorts = [L for L in frequent if L < 0.6 * dash_long]
         dash_short = float(min(shorts)) if shorts else None
@@ -1525,7 +1638,8 @@ def _vault_entry(v: "Vault", pe: Pt, o: Tuple[float, float], L: Line,
 
 
 def resolve_nodes(runs: List[Run], pat: Pattern, vaults: Sequence[Vault],
-                  cut_pts: Sequence[Pt] = (), nearest: bool = False) -> Tuple[List[Node], List[int]]:
+                  cut_pts: Sequence[Pt] = (), nearest: bool = False,
+                  glyphs: Sequence[Glyph] = ()) -> Tuple[List[Node], List[int]]:
     """Asigna nodos a extremos e inserta vértices interiores.
     Devuelve (nodos, índices de bóvedas huérfanas)."""
     nodes: List[Node] = []
@@ -1560,9 +1674,32 @@ def resolve_nodes(runs: List[Run], pat: Pattern, vaults: Sequence[Vault],
         corrida (si no, un tick o un guión corto colapsa o se da vuelta)."""
         r = runs[i]
         if r.is_curve:
-            return True
+            # Una curva no puede RETROCEDER hasta el nodo: P tiene que quedar
+            # delante de su punta (o casi). Si no, el tramo punta→P va hacia atrás
+            # sin tinta y la línea hace un zigzag (DU08 h.21 (716, 895): la curva
+            # volvía 11 pt para formar esquina con un guión de otra línea).
+            pe = endpoint(i, side)
+            o = outward(i, side)
+            return (P[0] - pe[0]) * o[0] + (P[1] - pe[1]) * o[1] >= -CURVE_BACKSLIDE_PT
         t, _ = r.param(P)
         return t <= 0.5 if side == "a" else t >= 0.5
+
+    def stretch_ok(i: int, side: str, P: Pt) -> bool:
+        """Una pieza de UN solo guión (tick «|», patita de un símbolo) no se
+        prolonga hasta una esquina más de lo que mide (o medio hueco de unión)
+        salvo que en ese hueco haya una letra/marca de la capa (la «e» del
+        linetype: evidencia de que la línea sigue):
+        DU08 h.49 (666, 1225) un tick de 14 pt y una patita de 4 pt se estiraban
+        ~29 pt cada uno sobre papel en blanco y dibujaban una «T» inexistente.
+        Una línea de varios guiones sí cruza el hueco hasta su esquina."""
+        r = runs[i]
+        if r.is_curve or r.continuous or r.synthetic or len(r.dashes) > 1:
+            return True
+        pe, o = endpoint(i, side), outward(i, side)
+        ext = (P[0] - pe[0]) * o[0] + (P[1] - pe[1]) * o[1]
+        if ext <= max(r.length, 0.5 * pat.join_gap):
+            return True
+        return any(_pt_seg_dist((g.cx, g.cy), pe, P) <= 0.5 * g.size + NODE_OFF_LINE_PT for g in glyphs)
 
     def attach(i: int, side: str, P: Pt, node_idx: int) -> bool:
         """Lleva el extremo a P deslizándolo por su propia recta. False si P
@@ -1625,6 +1762,11 @@ def resolve_nodes(runs: List[Run], pat: Pattern, vaults: Sequence[Vault],
     all_ends = [(k, side, endpoint(k, side), outward(k, side)) for (k, side) in free]
     for (i, s) in list(free):
         pe = endpoint(i, s)
+        # Punta CORTADA por el clip de la vista: la línea sigue fuera (DU08 h.49
+        # (661, 989): la curva cruza la vertical y el corte cae 2.5 pt después).
+        # No es una T: queda en su punta, como pidió el usuario.
+        if any(_dist(pe, c) <= 0.5 for c in cut_pts):
+            continue
         best = None
         for j, r in enumerate(runs):
             if j == i or r.is_curve or r.synthetic or r.origin == runs[i].origin:
@@ -1657,6 +1799,19 @@ def resolve_nodes(runs: List[Run], pat: Pattern, vaults: Sequence[Vault],
             # …colineal, delante, y MIRÁNDOSE (el otro trozo apunta hacia este):
             # así no cuenta el extremo de una línea paralela vecina.
             if d <= pat.join_gap and _perp_line(Li, q) <= 2 * NODE_OFF_LINE_PT                     and (q[0] - pe[0]) * o[0] + (q[1] - pe[1]) * o[1] >= 0.866 * d                     and (pe[0] - q[0]) * oq[0] + (pe[1] - q[1]) * oq[1] >= 0.866 * d:
+                # …salvo que ese trozo sea la continuación de OTRA línea que lo
+                # mira mejor (DU08 h.21 (719, 902), lo reportó el usuario: la curva
+                # muere sobre la vertical y el trozo de enfrente sigue a la
+                # diagonal que llega por la letra «e»; tomarlo como suyo le
+                # inventaba 9 pt sin tinta y un nodo donde no hay nada).
+                Lq = (q[0], q[1], oq[0], oq[1])
+                mine = _perp_line(Li, q) + _perp_line(Lq, pe)
+                if any(m not in (i, j, k) and _dist(pm, q) <= pat.join_gap
+                       and (q[0] - pm[0]) * om[0] + (q[1] - pm[1]) * om[1] >= 0.866 * _dist(pm, q)
+                       and (pm[0] - q[0]) * oq[0] + (pm[1] - q[1]) * oq[1] >= 0.866 * _dist(pm, q)
+                       and _perp_line((pm[0], pm[1], om[0], om[1]), q) + _perp_line(Lq, pm) < mine
+                       for m, _, pm, om in all_ends):
+                    continue
                 cont = True
                 break
         if cont:
@@ -1713,11 +1868,32 @@ def resolve_nodes(runs: List[Run], pat: Pattern, vaults: Sequence[Vault],
         nv = nearest_vault.get((i, s), vi)
         return nv != vi and _bbox_gap(vaults[nv].bbox(0.0), vaults[vi].bbox(0.0)) > 0.0
 
+    # Un extremo que TOCA el de otra corrida que sigue de frente no es un
+    # extremo: la línea continúa ahí (la curva del plano partida en dos trazos
+    # que comparten la punta). No va a la bóveda aunque la tenga a tiro: si no,
+    # la primera mitad se prolongaba por su recta hasta el borde y la bóveda
+    # recibía DOS líneas donde el plano dibuja una (DU08 h.21 (1162, 1134), lo
+    # reportó el usuario). La pasada de quiebres (5b) las une. Solo FUERA de la
+    # caja: dos trozos que se tocan dentro son la línea que la atraviesa (DU06
+    # h.9/h.12) y ahí manda el nodo de la bóveda.
+    cos_cont = math.cos(math.radians(CONTINUES_MAX_TURN_DEG))
+    loose = [(i, s) for (i, s), fr in free.items() if fr and (i, s) not in t_end]
+    continued: Set[Tuple[int, str]] = set()
+    for x, (i, s) in enumerate(loose):
+        for k, sk in loose[x + 1:]:
+            if k == i or _dist(endpoint(i, s), endpoint(k, sk)) > ENDS_TOUCH_PT:
+                continue
+            oi, ok = outward(i, s), outward(k, sk)
+            if oi[0] * ok[0] + oi[1] * ok[1] <= -cos_cont:
+                continued.update(((i, s), (k, sk)))
+
     for vi, v in enumerate(vaults):
         bb = v.bbox(1.0)
         reach = pat.join_gap
         bb_reach = v.bbox(reach)
         ends = [(i, s) for (i, s), fr in free.items() if fr and (i, s) not in t_end
+                and not ((i, s) in continued and not runs[i].split
+                         and not (bb[0] <= endpoint(i, s)[0] <= bb[2] and bb[1] <= endpoint(i, s)[1] <= bb[3]))
                 and bb_reach[0] <= endpoint(i, s)[0] <= bb_reach[2]
                 and bb_reach[1] <= endpoint(i, s)[1] <= bb_reach[3]
                 and not taken_by_other(i, s, vi)]
@@ -1953,7 +2129,19 @@ def resolve_nodes(runs: List[Run], pat: Pattern, vaults: Sequence[Vault],
                 P = _isect(L1, L2)
                 if P is None or _dist(P, pe) > pat.corner_tol or _dist(P, pf) > pat.corner_tol:
                     continue
+                # Ángulo INTERIOR de la esquina (entre las dos corridas vistas desde
+                # P): si es muy cerrado, las dos llegan desde el MISMO lado — son
+                # dos líneas distintas que se juntan (ramales de una «Y», curvas
+                # que convergen), no una sola línea que se devuelve. Coserlas daba
+                # una «V» inexistente (DU08 h.21 (764, 871) y (710, 892), lo
+                # reportó el usuario). Medido en DU06/DU08/DU10/LABOE: las falsas
+                # ≤69.5°, las reales ≥77° (en el DU06 ninguna <75°).
+                oe, of_ = outward(*e), outward(*f)
+                if oe[0] * of_[0] + oe[1] * of_[1] > CORNER_MIN_INTERIOR_COS:
+                    continue
                 if not slide_ok(*e, P) or not slide_ok(*f, P):
+                    continue
+                if not stretch_ok(*e, P) or not stretch_ok(*f, P):
                     continue
                 pairs.append((d, e, f, P, "corner"))
             else:
@@ -2347,7 +2535,8 @@ def _polylines_from_uncovered(
 def reconstruct(line_paths: Sequence[dict], vault_paths: Sequence[dict] = (),
                 opts: GeomOptions = GeomOptions()) -> GeomResult:
     dashes, glyphs, curves = classify_paths(line_paths)
-    dashes, markers = strip_crossing_markers(dashes)     # «/» del linetype abandonado
+    dashes, markers = strip_crossing_markers(            # «/» del linetype abandonado
+        dashes, [c[k] for c in curves if c for k in (0, -1)])
     glyphs = glyphs + markers
     # Puntos donde el CLIP del PDF cortó la geometría (marco de la vista): un
     # extremo ahí no es un extremo real → no forma esquinas/T ni se prolonga.
@@ -2375,7 +2564,7 @@ def reconstruct(line_paths: Sequence[dict], vault_paths: Sequence[dict] = (),
                 if k not in drop and not (in_box(r.a) and in_box(r.b) and all(in_box(m) for m in r.mid))]
     runs = [piece for r in runs for piece in _split_by_fit(r)]
     runs, offpattern = split_offpattern(runs, pat, vaults, glyphs)
-    nodes, orphans = resolve_nodes(runs, pat, vaults, cut_pts, opts.nearest_vault)
+    nodes, orphans = resolve_nodes(runs, pat, vaults, cut_pts, opts.nearest_vault, glyphs)
     polys = [simplify_soft(pl) for pl in assemble(runs, nodes)]
     # Ruido: corridas cortas, aisladas y sin nodo topológico (restos de símbolos).
     min_len = max(2.0 * pat.dash_long, 3.0 * pat.join_gap)
@@ -2388,7 +2577,11 @@ def reconstruct(line_paths: Sequence[dict], vault_paths: Sequence[dict] = (),
         topo = any(k in ("vault", "tee", "junction", "corner", "bend", "edge", "stop") for k in pl.kinds)
         # Un tramo de ESTA capa con longitud de ≥1 guión del patrón no es ruido
         # (p.ej. un ramal corto que el overlay dejaba en gris).
-        is_noise = (pl.length < floor or (pl.length < min_len and not topo)) and not touches_vault(pl)
+        # …salvo el tick «|» sobre el que MUERE una línea (T interior): es el remate
+        # de esa línea, no ruido (DU08 h.49 (895, 1276): dos líneas de capas
+        # distintas con su tick pegado; el de una se perdía y se leía una sola T).
+        capped_tick = any(k in ("tee", "junction") for k in pl.kinds[1:-1])
+        is_noise = ((pl.length < floor and not capped_tick) or (pl.length < min_len and not topo))             and not touches_vault(pl)
         if pl.length >= pat.dash_long:
             is_noise = False
         (noise_polys if is_noise else keep).append(pl)
