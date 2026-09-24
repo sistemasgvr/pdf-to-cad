@@ -16,6 +16,14 @@ ELEC_PAGE = 2
 pytest.importorskip("fitz")
 
 
+def test_selector_de_reconocimiento_ofrece_ambas_o_cada_utilidad():
+    assert rec.normalize_utilities(None) == ("ELECTRICO", "DRENAJE")
+    choices = rec.recognition_choices({"ELECTRICO", "DRENAJE"})
+    assert [value for value, _label in choices] == [
+        ("ELECTRICO", "DRENAJE"), ("ELECTRICO",), ("DRENAJE",)]
+    assert rec.recognition_choices({"DRENAJE"})[0][0] == ("DRENAJE",)
+
+
 def _poly_length(pts):
     return sum(
         math.hypot(pts[i + 1][0] - pts[i][0], pts[i + 1][1] - pts[i][1])
@@ -36,6 +44,113 @@ def test_classify_ocg_elec_tokens():
     assert rec.classify_ocg("C-STRM-UNGD-E") is None
     assert rec.classify_ocg("C-WATR-UNGD-E") is None
     assert rec.classify_ocg("C-NGAS-E") is None
+
+
+def test_classify_ocg_variantes_de_otros_paquetes():
+    """DU08/DU10 (carpeta de pruebas): las líneas PROPUESTAS «—E—» vienen como
+    «UGND» (no «UNGD») y con un segmento de paquete en medio; los muros del
+    ducto y la camisa del drenaje son contornos auxiliares, no centerline."""
+    assert rec.classify_ocg("X|C-ELEC-3MI-UGND-N") == "elec_ungd"
+    assert rec.classify_ocg("X|C-ELEC-UGND-N__UA4") == "elec_ungd"
+    assert rec.classify_ocg("C-ELEC-UGND-N_LADWP-SELF-PERF-UNDEFINED-PKG") == "elec_ungd"
+    assert rec.classify_ocg("C-ELEC-3MI-STRC-N") == "structure"
+    assert rec.classify_ocg("C-ELEC-3MI-ANNO-TEXT-N--_") is None
+    assert rec.classify_ocg("C-ELEC-UNGD-WALL-N") is None
+    assert rec.classify_ocg("C-STRM-UNGD-CASE-N", "DRENAJE") is None
+
+
+def test_classify_ocg_drainage_profile_separates_centerlines_and_structures():
+    classify = lambda name: rec.classify_ocg(name, "DRENAJE")
+    assert classify("XREF|C-STRM-UNGD-E") == "drain_ungd"
+    assert classify("C-STRM-UNGD-N") == "drain_ungd"
+    assert classify("V-STRM-MANH") == "structure"
+    assert classify("V-STRM-CBSN") == "structure"
+    assert classify("V-STRM-DRAN") == "structure"
+    assert classify("C-STRM-CTCH-BASN-N") == "structure"
+    assert classify("C-STRM-STRC-E") == "structure"
+    # Muros, símbolos auxiliares y track drainage no son centerline.
+    # «-NPLT» es sufijo del xref: la línea está impresa en el PDF (DU06 h.4).
+    assert classify("XREF|C-STRM-UNGD-E-NPLT") == "drain_ungd"
+    assert classify("C-STRM-UNGD-WALL-NPLT") is None
+    assert classify("C-STRM-UNGD-WALL-E") is None
+    assert classify("C-STRM-UNGD-STRC-N") is None
+    assert classify("C-STRM-TRK-DRN-N") is None
+    assert classify("C-ELEC-UNGD-E") is None
+
+
+@pytest.mark.skipif(not PDF.is_file(), reason="PDF de prueba DU06 no está en el repo")
+def test_recognize_page_drainage_reuses_geometry_without_electrical_layers():
+    result = rec.recognize_page(PDF, page_index=2, utility="DRENAJE", zoom=1.0)
+    assert result.utility == "DRENAJE"
+    assert result.drawable
+    assert result.vaults_geo
+    for pl in result.drawable:
+        short = pl.layer_ocg.split("|")[-1].upper()
+        assert pl.kind == "drain_ungd"
+        assert pl.utility_hint == "DRENAJE"
+        assert "C-STRM-UNGD-" in short
+        assert "WALL" not in short and "STRC" not in short
+    pipes = rec.pipes_from_recognition(result, layer="DRENAJE")
+    assert pipes and all(pipe["layer"] == "DRENAJE" for pipe in pipes)
+
+
+@pytest.mark.skipif(not PDF.is_file(), reason="PDF de prueba DU06 no está en el repo")
+def test_drenaje_hoja_de_perfil_no_se_reconoce_como_planta():
+    """Hoja 17 (UD-215, «OFFSET MANHOLE PROFILES»): son 8 perfiles de
+    estación/elevación, cada uno con escala vertical distinta de la
+    horizontal. `C-STRM-UNGD-N` ahí dibuja el símbolo de la tubería en
+    corte, no una centerline de planta — antes salían 9 «rutas» fabricadas
+    con esa geometría; ahora `profile_view_regions` las excluye."""
+    result = rec.recognize_page(PDF, page_index=16, utility="DRENAJE", zoom=1.0)
+    assert result.drawable == []
+    assert any("PERFIL" in w.upper() for w in result.warnings)
+
+
+@pytest.mark.skipif(not PDF.is_file(), reason="PDF de prueba DU06 no está en el repo")
+def test_drenaje_hoja_mixta_conserva_la_planta_y_excluye_solo_el_perfil():
+    """Hoja 3 tiene 3 perfiles pequeños arriba (CB-201/201.5/203 LATERAL
+    PROFILE) y la planta real abajo: solo se excluye lo de arriba."""
+    result = rec.recognize_page(PDF, page_index=2, utility="DRENAJE", zoom=1.0)
+    assert result.drawable
+    assert any("PERFIL" in w.upper() for w in result.warnings)
+
+
+@pytest.mark.skipif(not PDF.is_file(), reason="PDF de prueba DU06 no está en el repo")
+def test_drenaje_sin_falso_marcador_de_abandonada_por_la_d_de_sd():
+    """El linetype de drenaje embebe "sd" (dos letras); la «d» sale partida
+    en dos paths del PDF (asta recta + bucle) y esa asta, sin
+    `GLYPH_STROKE_MIN_REPEAT`, se confundía con la barra «/» de abandonada
+    — activa en TODAS las hojas de planta de drenaje. La «e» de eléctrico
+    (una sola letra, sin asta huérfana) no tiene ese problema."""
+    for page_index in range(2, 16):
+        result = rec.recognize_page(PDF, page_index=page_index, utility="DRENAJE", zoom=1.0)
+        assert not any("marcadores" in w.lower() and "activa" in w.lower() for w in result.warnings), (
+            page_index, result.warnings)
+
+
+@pytest.mark.skipif(not PDF.is_file(), reason="PDF de prueba DU06 no está en el repo")
+def test_drenaje_cobertura_cerca_del_100_en_las_hojas_de_planta():
+    """Con el asta de la «d» ya no confundida con guión de línea y el
+    guión que entra en una bóveda/esquina ya no contado «sin cubrir»
+    (`_touches_vault`/`_touches_corner`), la cobertura de las 14 hojas de
+    planta de drenaje del DU06 debe quedar prácticamente al 100 %."""
+    low = []
+    for page_index in range(2, 16):
+        result = rec.recognize_page(PDF, page_index=page_index, utility="DRENAJE", zoom=1.0)
+        if result.drawable and result.coverage < 0.995:
+            low.append((page_index, result.coverage))
+    assert not low, low
+
+
+@pytest.mark.skipif(not PDF.is_file(), reason="PDF de prueba DU06 no está en el repo")
+def test_drenaje_huerfanos_no_cuentan_postes_ni_cajas_bajo_vault_min_ft():
+    """«Bóvedas sin línea cercana» solo debe contar símbolos que de verdad
+    califican como bóveda (≥ VAULT_MIN_FT); antes de filtrar por tamaño en
+    el mismo punto donde se cuentan (no solo al armar `vaults_geo`), una
+    hoja sin ninguna línea de drenaje (hoja 2, «KEY MAP») igual reportaba
+    decenas de huérfanos: eran símbolos pequeños del fondo, no bóvedas."""
+    result = rec.recognize_page(PDF, page_index=1, utility="DRENAJE", zoom=1.0)
+    assert result.vault_orphans_px == []
 
 
 @pytest.mark.skipif(not PDF.is_file(), reason="PDF de prueba DU06 no está en el repo")
@@ -575,8 +690,15 @@ def test_hoja4_arcos_de_codo_caen_sobre_los_trazos_curvos_del_pdf():
 @pytest.mark.skipif(not PDF.is_file(), reason="PDF de prueba DU06 no está en el repo")
 def test_hoja3_arcos_de_curva_compuesta_sobre_la_tinta():
     """Hoja 3: curva larga compuesta (arcos encadenados con patas cortas): cada
-    arco sigue sobre la tinta curva del PDF (radial ≤1 pt)."""
-    _audit_fillets(2, 6, strict_tangents=False)
+    arco sigue sobre la tinta curva del PDF (radial ≤1 pt).
+
+    7, no 6 (auditoría de reconocimiento de drenaje, 2026-09-23): la «e» del
+    linetype a veces sale partida en dos paths (asta + bucle, igual que la
+    «d» de "sd" en drenaje) y antes de que `classify_paths` reconociera esa
+    asta como parte de la letra (ver `GLYPH_STROKE_MIN_REPEAT`), esos guiones
+    sueltos rompían la topología cerca de (908,1123) y tapaban un codo real
+    (arco sobre tinta curva verificada, r≈77 pt) — quedaba como esquina."""
+    _audit_fillets(2, 7, strict_tangents=False)
 
 
 @pytest.mark.skipif(not PDF.is_file(), reason="PDF de prueba DU06 no está en el repo")
@@ -598,7 +720,7 @@ def test_hoja3_codos_no_dependen_del_zoom_de_reconocimiento():
 
     at_one = fillets_at(1.0)
     at_two = fillets_at(2.0)
-    assert len(at_one) == len(at_two) == 6
+    assert len(at_one) == len(at_two) == 7
     for expected, actual in zip(at_one, at_two):
         assert actual == pytest.approx(expected, abs=0.05)
 
@@ -692,3 +814,60 @@ def test_du06_nodos_de_boveda_dentro_del_simbolo():
                             assert v.x0 - 1 <= n.x <= v.x1 + 1 and v.y0 - 1 <= n.y <= v.y1 + 1, (pno + 1, n.x, n.y)
     finally:
         doc.close()
+
+
+def _near(pl, x, y, tol=3.0):
+    return any(math.hypot(px - x, py - y) <= tol for px, py in pl.pts_pdf)
+
+
+@pytest.mark.skipif(not PDF.is_file(), reason="PDF de prueba DU06 no está en el repo")
+def test_drenaje_hoja4_lineas_como_estan_en_el_plano():
+    """Casos del usuario en la hoja 4 (índice 3), drenaje:
+    · el lateral «sd» de `C-STRM-UNGD-E-NPLT` (541,1157)→(588,894) se reconoce;
+    · el tramo MH (1051,834) → caja de captación (1115,832) sale UNA vez (antes
+      un guión a 1.03° armaba otra corrida y la línea quedaba doble);
+    · la «sd» muere en el borde de SU caja (1014), no cruza hasta la vecina;
+    · la línea «ps» llega a su caja grande (992.5) y no muere en la cajita de al
+      lado (a 2.8 pt, antes fundidas en una sola bóveda);
+    · la «ps», repetida trazo por trazo en dos xrefs, se reconoce una sola vez."""
+    r = rec.recognize_page(PDF, page_index=3, utility="DRENAJE", zoom=1.0)
+    lines = r.drawable
+    nplt = [p for p in lines if p.layer_ocg.upper().endswith("C-STRM-UNGD-E-NPLT")]
+    assert len(nplt) == 1 and _near(nplt[0], 541.4, 1157.2) and _near(nplt[0], 587.9, 893.0, 2.0)
+
+    exist = [p for p in lines if p.layer_ocg.endswith("EXIST_SD|C-STRM-UNGD-E")]
+
+    def covers(pl, x, y):      # algún tramo de la polilínea pasa por (x, y)
+        pts = pl.pts_pdf
+        for (ax, ay), (bx, by) in zip(pts, pts[1:]):
+            L = math.hypot(bx - ax, by - ay)
+            if L < 1e-9:
+                continue
+            t = ((x - ax) * (bx - ax) + (y - ay) * (by - ay)) / L ** 2
+            if 0 <= t <= 1 and abs((x - ax) * (by - ay) - (y - ay) * (bx - ax)) / L <= 1.5:
+                return True
+        return False
+
+    assert sum(covers(p, 1090.0, 832.6) for p in exist) == 1
+    sd = [p for p in exist if covers(p, 1025.0, 835.4)]
+    assert len(sd) == 1
+    assert min(x for x, _ in sd[0].pts_pdf) > 1012.0          # borde de su caja, no la vecina
+
+    ps = [p for p in lines if "GLINE" in p.layer_ocg and covers(p, 1100.0, 826.1)]
+    assert len(ps) == 1                                        # una sola vez (dos xrefs)
+    assert abs(min(x for x, _ in ps[0].pts_pdf) - 993.5) <= 1.5
+    assert any("repetidas" in w for w in r.warnings)
+
+
+DU08 = Path(r"C:/Users/bernu/OneDrive/Documentos/docs prueba/03-DU08_09_10-APDU-SEG-B-SEWER-PLAN_100P.pdf")
+
+
+@pytest.mark.skipif(not DU08.is_file(), reason="PDF DU08 (carpeta de pruebas) no disponible")
+def test_du08_h39_curva_abandonada_completa_y_marcada():
+    """Caso del usuario: la curva de `C-ELEC-UNGD-A` (con «/») sale entera —su
+    punta ya no queda «fuera de patrón»— y marcada abandonada."""
+    r = rec.recognize_page(DU08, page_index=38, utility="ELECTRICO", zoom=1.0)
+    ab = [p for p in r.drawable if p.layer_ocg.endswith("C-ELEC-UNGD-A")]
+    assert ab and all(p.abandoned for p in ab)
+    assert any(_near(p, 897.0, 1287.0, 2.5) for p in ab)
+    assert r.offpattern_px == []

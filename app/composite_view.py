@@ -21,6 +21,7 @@ import fitz
 from PySide6 import QtCore, QtGui, QtWidgets
 
 import composite as C
+import composite_seam as S
 from pdf_view_quality import MAX_RENDER_PIXELS, MAX_RENDER_SCALE, render_region
 from widgets import ZoomPanView
 
@@ -268,6 +269,17 @@ class CompositeView(ZoomPanView):
             self.items[keep_selection].setSelected(True)
         self.refresh_overlay()
         self._timer.start()
+        # La match line de cada lado se calcula ya (tras pintar), no en el primer
+        # arrastre que junta dos piezas: ahí la UI se trababa un momento.
+        QtCore.QTimer.singleShot(0, self._warm_seams)
+
+    def _warm_seams(self):
+        if not self.pieces_ready() or any(getattr(d, "is_closed", False) for d in self.docs):
+            return
+        for i in range(len(self.comp.pieces)):
+            for side in ("left", "right", "top", "bottom"):
+                self._seam_line(i, side)
+                self._rule(i, side)
 
     def refresh_piece(self, index: int, rerender: bool = False):
         it = self.items[index]
@@ -444,6 +456,14 @@ class CompositeView(ZoomPanView):
                 axis, side_m, side_o = 0, ("top" if below else "bottom"), ("bottom" if below else "top")
             else:
                 continue
+            # 0º costura EXACTA por el dibujo (composite_seam): las dos match lines
+            #    coinciden a través y los vectores que ambas hojas comparten fijan
+            #    el desplazamiento a lo largo. Sin evidencia sigue como siempre.
+            exact = self._seam_exact(index, j, pos, axis, side_m, side_o)
+            if exact is not None:
+                pos, done = exact
+                if done:
+                    return pos
             # 1º la MATCH LINE: las dos hojas dibujan la misma raya de la costura,
             #    así que sus extremos dan el desplazamiento exacto.
             d = C.seam_line_delta(self._seam_line(j, side_o), self._seam_line(index, side_m, pos))
@@ -451,9 +471,99 @@ class CompositeView(ZoomPanView):
                 # 2º los extremos de línea enfrentados (necesita ≥3 de acuerdo)
                 d = C.seam_along_delta(self._mapped_anchors(index, pos), self._mapped_anchors(j), axis)
             if d is None or abs(d) > C.SEAM_ALONG_TOL_PT:
+                if exact is not None:
+                    return pos                  # al menos las match lines, a través
                 continue
-            return (pos[0], pos[1] + d) if axis == 1 else (pos[0] + d, pos[1])
+            pos = (pos[0], pos[1] + d) if axis == 1 else (pos[0] + d, pos[1])
+            if exact is not None:
+                # la match line va algo inclinada: el «a través» depende de dónde
+                # quedó la pieza a lo largo → recalcularlo ya corrida
+                again = self._seam_exact(index, j, pos, axis, side_m, side_o)
+                if again is not None:
+                    pos = again[0]
+            return pos
         return pos
+
+    def _lines(self, p: C.Piece):
+        key = (p.source, p.page, "lines")
+        if key not in self._segs_cache:
+            self._segs_cache[key] = S.page_lines(self.page(p))
+        return self._segs_cache[key]
+
+    def _clip_pt(self, p: C.Piece):
+        return C.clip_rect_pt(self.page_size(p), p.clip)
+
+    def _rule(self, index: int, side: str) -> Optional[S.SeamRule]:
+        """Match line (recta ajustada, la más gruesa) junto a ese lado de la pieza."""
+        p = self.comp.pieces[index]
+        key = self._anchor_key(p) + (side, "rule")
+        if key not in self._seam_cache:
+            try:
+                self._seam_cache[key] = S.seam_rule(self._lines(p), self._clip_pt(p), side)
+            except Exception:
+                self._seam_cache[key] = None
+        return self._seam_cache[key]
+
+    def _votes(self, i_o: int, side_o: str, i_m: int, side_m: str):
+        """Traslaciones de los vectores idénticos de las dos hojas junto a la costura."""
+        po, pm = self.comp.pieces[i_o], self.comp.pieces[i_m]
+        key = (self._anchor_key(po), side_o, self._anchor_key(pm), side_m, "votes")
+        if key not in self._seam_cache:
+            try:
+                bo = S.band_segments(self._lines(po), self._clip_pt(po), side_o, rule=self._rule(i_o, side_o))
+                bm = S.band_segments(self._lines(pm), self._clip_pt(pm), side_m, rule=self._rule(i_m, side_m))
+                self._seam_cache[key] = S.seam_votes(bo, bm)
+            except Exception:
+                self._seam_cache[key] = []
+        return self._seam_cache[key]
+
+    def _crossing_votes(self, i_o: int, side_o: str, i_m: int, side_m: str):
+        """Parejas de cruces de la match line (misma capa y rumbo) de las dos piezas."""
+        po, pm = self.comp.pieces[i_o], self.comp.pieces[i_m]
+        key = (self._anchor_key(po), side_o, self._anchor_key(pm), side_m, "cross")
+        if key not in self._seam_cache:
+            try:
+                co = S.rule_crossings(self._lines(po), self._clip_pt(po), side_o, self._rule(i_o, side_o))
+                cm = S.rule_crossings(self._lines(pm), self._clip_pt(pm), side_m, self._rule(i_m, side_m))
+                self._seam_cache[key] = S.crossing_votes(co, cm)
+            except Exception:
+                self._seam_cache[key] = []
+        return self._seam_cache[key]
+
+    def _seam_exact(self, index: int, j: int, pos: C.Pt, axis: int, side_m: str, side_o: str):
+        """Costura por el dibujo: (posición, completa) o None si no hay evidencia.
+        `completa` = también quedó fijada a lo largo (si no, sigue el imán de
+        siempre solo para ese eje)."""
+        po, pm = self.comp.pieces[j], self.comp.pieces[index]
+        target = self.comp.target_scale()
+        if not S.comparable(po, pm, target):
+            return None
+        rule_o, rule_m = self._rule(j, side_o), self._rule(index, side_m)
+        if not S.rules_match(rule_o, rule_m):
+            return None
+        pm_at = C.Piece(**{**pm.to_dict(), "x": pos[0], "y": pos[1]})
+        size_o, size_m = self.page_size(po), self.page_size(pm)
+        t_cur = S.current_translation(po, size_o, pm_at, size_m, target)
+        x0, y0, x1, y1 = self._clip_pt(po)
+        s_mid = (y0 + y1) / 2.0 if axis == 1 else (x0 + x1) / 2.0
+        along = t_cur[axis]
+        across = S.rule_across(rule_o, rule_m, s_mid, along)
+        if abs(across - t_cur[1 - axis]) > S.SEAM_RULE_MAX_SHIFT_PT:
+            return None
+        found = S.translation_from_votes(self._votes(j, side_o, index, side_m), axis, across,
+                                         along, C.SEAM_ALONG_TOL_PT)
+        if found is not None:
+            along, across = found
+        else:
+            # sin dibujo compartido: continuidad de las líneas que cruzan la costura
+            cont = S.along_from_crossings(self._crossing_votes(j, side_o, index, side_m),
+                                          along, C.SEAM_ALONG_TOL_PT)
+            if cont is not None:
+                along = cont
+                across = S.rule_across(rule_o, rule_m, s_mid, along)
+                found = (along, across)
+        t = (across, along) if axis == 1 else (along, across)
+        return S.pos_for_translation(po, size_o, pm_at, size_m, target, t), found is not None
 
     def _seam_line(self, index: int, side: str, at: Optional[C.Pt] = None):
         """Extremos de la match line de ese lado, en coords de la hoja compuesta.

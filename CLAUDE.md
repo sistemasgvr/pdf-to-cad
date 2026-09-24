@@ -146,7 +146,34 @@ alcantarillado, drenaje, gas, eléctrico, telecom). Todo en **unidades imperiale
     formaban un triángulo fuera de la caja; y `entry_point` no prolonga un extremo
     más de `pat.join_gap` hacia la bóveda (29 pt sin tinta en la h.3).
     `tests/test_recognition.py::test_du06_ningun_tramo_sin_tinta_debajo` audita las
-    19 hojas: todo segmento >6 pt fuera de una bóveda tiene tinta debajo. `_split_by_fit`
+    19 hojas: todo segmento >6 pt fuera de una bóveda tiene tinta debajo.
+    **Perfil drenaje (auditoría 2026-09-23, DU06 h.4)**: `recognition.
+    UTILITY_GEOM_OPTIONS["DRENAJE"]` = `geom.GeomOptions` con tres reglas que el
+    eléctrico NO usa (con ellas cambiaba en 7 hojas; sin ellas, 0 diferencias
+    vértice por vértice en las 19): `separate_vaults` (dos contornos ≥8 pt con
+    hueco ≥1.5 pt no se funden), `nearest_vault` (un extremo va a la bóveda que
+    lo CONTIENE o donde entra más cerca, solo entre bóvedas que no se solapan —
+    los contornos anidados alrededor del manhole siguen el orden de siempre) y
+    `absorb_inside_runs` (un guión corto dentro de otra corrida y sobre su recta,
+    ±3°, se funde: si no, el tramo salía doble). Además `duplicate_ocgs` (solo
+    `DEDUP_OCG_UTILITIES`): la misma capa corta repetida por otro xref (≥90 % de
+    trazos a ≤0.5 pt) se reconoce una vez y sus trazos propios se suman a la
+    conservada. `C-STRM-UNGD-*-NPLT` SÍ es centerline (está impresa); `-CASE`
+    (camisa) y `-WALL` no. Eléctrico de otros paquetes (DU08/DU10): `C-ELEC-
+    (<paquete>-)?UGND…` = línea PROPUESTA «—E—» (leyenda: existente = letra
+    minúscula a trazos, propuesta = MAYÚSCULA continua, «/» abandonada, «//» a
+    abandonar = capas `-D`); `C-ELEC-UNGD-WALL-N` fuera. Hojas «aplanadas» (0 %
+    de vectores con capa): `pdf_layers.page_uses_layers` (busca `/OC` en el
+    contenido y XObjects, ~10 ms/hoja) → el compositor las marca «sin capas».
+    **DU08 h.39 (2026-09-23)**: sin paso aprendido en la capa (<3 marcadores),
+    una línea con ≥2 «/» a ≥`MARKER_LOCAL_MIN_PT`=30 define su paso
+    (`marker_pattern`, `local`); `split_offpattern` → `_continues_line`: un
+    trazo largo que sigue DE FRENTE (±35°, ≤ `join_gap`) el guión anterior no es
+    leader (en una curva a guiones cada guión es su corrida y ninguno es «ancla»).
+    Capas `-D` → aviso propio (`is_to_abandon_ocg`), siguen activas hasta que el
+    usuario decida. Antes de
+    tocar el núcleo compartido: foto del eléctrico en las 19 hojas y diff.
+    `_split_by_fit`
     parte corridas donde los guiones se apartan >`RUN_FIT_TOL_PT` para que
     T/convergencias queden sobre la línea de la capa. **Clips**:
     `recognition.gather_paths` usa `get_drawings(extended=True)` y recorta cada
@@ -268,8 +295,48 @@ alcantarillado, drenaje, gas, eléctrico, telecom). Todo en **unidades imperiale
     altura (el imán de líneas engancha una guía distinta en cada una) el desfase
     quedaba tal cual: DU06 h.13→14 daba −25.5/−43.5/+18.2 según dónde se soltara
     la pieza, cuando la match line 519+00 (378 pt en las dos hojas) dice −34.51.
+    **Costura EXACTA (`composite_seam.py`, auditoría 2026-09-24, «grada» en las
+    diagonales de DU06 13→14)**: `_seam_align` prueba primero `_seam_exact`:
+    A TRAVÉS, las dos match lines coinciden (`seam_rule`: la línea MÁS GRUESA a
+    ≤30 pt del lado, por dentro o fuera, ajustada como recta — va inclinada
+    0.23° en el DU06—; las cotas de papel de 0.72 pt a 20/40/60 pt de ella, en
+    espejo en cada hoja, no cuentan; `rules_match` = mismo grosor); A LO LARGO,
+    `seam_votes` sobre segmentos IDÉNTICOS (capa, largo, rumbo) de la franja
+    ±45 pt de cada costura, restringidos a esa traslación a través ±1.5 pt
+    (`translation_from_votes`: ≥5 votos de ≥2 capas y pico 1.5× el segundo; su
+    «a través» manda: las match lines pueden ir 0.4–0.7 pt corridas). Sin la
+    restricción ganaban picos falsos (cotas espejadas, parquímetros
+    `V-PKNG-METR`). La franja de votos va centrada en la MATCH LINE, no en el
+    corte. Un segmento con varios gemelos a tiro reparte su voto (1/n: LABOE
+    h.9→10 repite cada 108 pt); hoja sin capas (DU08) → 2× votos en vez de ≥2
+    capas. Sin dibujo compartido (LABOE h.8→9, 10→11; DU06 3→4…): CONTINUIDAD
+    (`rule_crossings`/`crossing_votes`: cada línea que llega a la match line o
+    la cruza, prolongada hasta ella; pareja = misma capa y rumbo ±0.3°). Si
+    tampoco: match lines a través + el imán de siempre a lo largo, y se
+    recalcula el «a través» (inclinación). `trim_border` ahora mira
+    también ±band por FUERA y elige la línea más gruesa (clusters por grosor);
+    antes un lado 4 pt corto de la match line dejaba 8 pt de plano fuera; una
+    línea ≥`TRIM_HEAVY_MIN_W`=1.2 pt se alcanza hasta 2× la banda, y la MATCH
+    LINE (`_match_line_among`: gruesa, A GUIONES, fuera de capas de utilidad
+    —`is_utility_layer`—, la más gruesa del lado y 1.5× cualquier otra a guiones)
+    hasta 6.5× (91 pt) y aunque las cotas parezcan grilla: el área puede quedar
+    sobre la cota de 60 pt o sobre el marco de la hoja (1.68 pt continuo, 71 pt
+    afuera en DU06 h.6). `guide_lines` lleva el grosor (5.º campo) y
+    `snap_edge` pesa cobertura × grosor: en el DU10 la cota fina cubre MÁS que la
+    match line (349 vs 301 pt) y el área saltaba a la cota. `seam_rule` exige
+    ≥`SEAM_RULE_MIN_WIDTH`=1.2 (dos cotas finas en espejo coinciden entre sí y
+    dan una costura falsa), sin capas de utilidad, ≤30 pt del lado o ≤90 si va a
+    guiones.
+    Auditoría: `scripts/audit_costuras.py` (pares contiguos por estación «MATCH
+    LINE STA», verdad independiente: vectores idénticos o continuidad; 54
+    uniones por par; hoy 78/78 pares sin error en DU06/DU10/DU08/LABOE, ~40 min)
+    — correrlo antes de tocar el imán; tests `tests/test_composite_seam.py`.
     `page_segments` cachea el escaneo de la hoja (`_segs_cache`) para que el imán
-    siga siendo instantáneo al arrastrar (1-5 ms). Puente =
+    siga siendo instantáneo al arrastrar (1-5 ms). Todo escaneo de vectores pasa
+    por `composite.page_drawings(page)` (caché de `get_drawings` en el propio
+    documento, clave con el estado de capas): antes cada función lo releía
+    (~0.6 s/hoja) y la primera unión congelaba la UI ~5 s; `CompositeView.
+    _warm_seams` prepara las match lines al agregar la pieza (unión: 27 ms). Puente =
     `Bridge.polyline(rect_a, rect_b)`: cada extremo sigue RECTO por su dirección
     hasta el borde de su pieza (`_ray_exit`) y ahí cierra; `bridge_segments_poly`
     mantiene el patrón de guiones por la polilínea (ojo: guardas 1e-6 contra

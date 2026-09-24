@@ -16,6 +16,7 @@ render posterior con ese mismo objeto (no a otro ``fitz.open`` del mismo archivo
 """
 from __future__ import annotations
 
+import re
 from collections import Counter
 from typing import Iterable, List, Set
 
@@ -117,3 +118,53 @@ def page_layers(doc, page_index: int) -> List[dict]:
                             -d["path_count"],
                             d["short"].upper()))
     return out
+
+
+_XREF_RE = re.compile(rb"(\d+) 0 R")
+
+
+def page_uses_layers(doc, page_index: int) -> bool:
+    """¿La hoja dibuja algo DENTRO de una capa OCG (apagar capas la cambia)?
+
+    Hay PDFs que traen capas en el documento pero con hojas «aplanadas»: sus
+    vectores no están marcados con ninguna capa (DU08 hojas 3–19, DU10 hojas
+    30–37 de la carpeta de pruebas: 0 % de trazos con capa), así que apagar
+    una capa no las cambia y el reconocimiento por capas no encuentra nada.
+
+    Barato (sin `get_drawings`, ~10 ms por hoja): busca el operador de
+    contenido opcional `/OC` en el contenido de la hoja y, recursivamente, en
+    sus XObjects (su diccionario `/OC` o su propio contenido). Verificado
+    contra el conteo real de trazos con capa en las 88 hojas de los PDFs de
+    prueba: coincide en todas."""
+    if not _ui_configs(doc):
+        return False
+    page = doc[page_index]
+    try:
+        if b"/OC" in page.read_contents():
+            return True
+        stack = [x[0] for x in page.get_xobjects()]
+    except Exception:
+        return True                     # ante la duda, no marcar la hoja
+    seen = set()
+    while stack:
+        x = stack.pop()
+        if x in seen or x <= 0:
+            continue
+        seen.add(x)
+        try:
+            if doc.xref_get_key(x, "OC")[0] != "null":
+                return True
+            if b"/OC" in (doc.xref_stream(x) or b""):
+                return True
+            kind, val = doc.xref_get_key(x, "Resources/XObject")
+        except Exception:
+            continue
+        if kind == "dict":
+            stack.extend(int(m) for m in _XREF_RE.findall(val.encode("latin-1", "ignore")))
+        elif kind == "xref":            # diccionario de XObjects indirecto
+            try:
+                ref = int(val.split()[0])
+                stack.extend(int(m) for m in _XREF_RE.findall(doc.xref_object(ref).encode("latin-1", "ignore")))
+            except Exception:
+                pass
+    return False

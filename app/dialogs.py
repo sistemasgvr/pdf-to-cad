@@ -320,7 +320,10 @@ def show_manual(win):
     la línea divisoria, y la utilidad sigue de una pieza a otra. Con <b>Sin línea de borde</b>
     (activo por defecto) cada lado del área se lleva solo al centro de la match line o del marco que
     corra pegado a él y su tinta se tapa con una franja blanca: no se pierde ningún vector y dos hojas
-    contiguas se unen borde con borde, sin hueco ni línea divisoria. Al seleccionar una pieza, el panel «Área a tomar» muestra su hoja y su área
+    contiguas se unen borde con borde, sin hueco ni línea divisoria. Al unir dos hojas contiguas
+    el imán las coloca con el propio dibujo (las dos match lines coinciden y los trazos que ambas
+    hojas comparten junto a la costura quedan uno sobre otro), así las líneas que cruzan siguen
+    derechas, sin quedar escalonadas. Al seleccionar una pieza, el panel «Área a tomar» muestra su hoja y su área
     para ajustarla; <b>Nueva pieza</b> vuelve a marcar áreas nuevas.
     Cada pieza se puede girar (90° o ángulo fino) y corregir su <b>escala</b> si el texto de la
     hoja no la dice; la hoja compuesta usa una escala única y agranda/achica cada pieza para
@@ -336,9 +339,10 @@ def show_manual(win):
     <b>Todas</b> actúa sobre el conjunto. El buscador solo filtra la lista y
     <b>Mostrar/Ocultar todas</b> actúa sobre lo que se ve. Con <b>◀ Hoja N / M ▶</b> puedes cambiar de
     hoja sin salir (las capas marcadas se conservan). Las capas ocultas no se dibujan en
-    el lienzo ni se usan en el reconocimiento. Al continuar se reconocen las utilidades
-    eléctricas (las capas de líneas y bóvedas se asignan solas por su nombre) y se muestra
-    la <b>vista previa del reconocimiento</b>, con la utilidad, la hoja y las capas usadas.
+    el lienzo ni se usan en el reconocimiento. En <b>Utilidades a reconocer</b> puedes elegir
+    <b>Eléctrico y Drenaje</b>, solo Eléctrico o solo Drenaje. Sus líneas y estructuras se
+    asignan por nombre y se muestran juntas en la <b>vista previa del reconocimiento</b>,
+    cada una con su color y sus capas usadas.
     Desde ahí: <b>Continuar e importar</b>, <b>Componer hoja…</b> (compositor → capas
     → nueva vista previa) o <b>Ajustar capas…</b> (solo si el plot usa otros nombres).
     Después, al cambiar de hoja en el editor (◀ ▶ o nº de página) la nueva hoja se reconoce

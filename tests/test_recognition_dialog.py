@@ -41,6 +41,13 @@ def result():
     return rec.recognize_page(PDF, PAGE, zoom=1.0)     # roles automáticos por nombre
 
 
+@pytest.fixture(scope="module")
+def drainage_result():
+    if not PDF.is_file():
+        pytest.skip("sin PDF")
+    return rec.recognize_page(PDF, PAGE, utility="DRENAJE", zoom=1.0)
+
+
 @needs_pdf
 def test_preview_muestra_utilidad_hoja_y_capas_automaticas(result):
     _app()
@@ -54,6 +61,23 @@ def test_preview_muestra_utilidad_hoja_y_capas_automaticas(result):
              for i in range(dlg.findChildren(QtWidgets.QListWidget)[0].count())]
     assert "Líneas" in texts and "Bóvedas" in texts
     assert any("C-ELEC-UNGD-E" in t for t in texts) and any("C-ELEC-VALT-E" in t for t in texts)
+    dlg.deleteLater()
+
+
+@needs_pdf
+def test_preview_combinado_muestra_electrico_y_drenaje(result, drainage_result):
+    _app()
+    dlg = rd.RecognitionPreviewDialog(
+        None, _blank(), [result, drainage_result], page_count=19)
+    assert len(dlg._results) == 2
+    assert dlg._n_draw() == len(result.drawable) + len(drainage_result.drawable)
+    labels = [widget.text() for widget in dlg.findChildren(QtWidgets.QLabel)]
+    assert "Eléctrico y Drenaje" in labels
+    texts = [dlg.findChildren(QtWidgets.QListWidget)[0].item(i).text()
+             for i in range(dlg.findChildren(QtWidgets.QListWidget)[0].count())]
+    assert "Eléctrico (E)" in texts and "Drenaje (SD)" in texts
+    assert any("C-ELEC-UNGD" in text for text in texts)
+    assert any("C-STRM-UNGD" in text for text in texts)
     dlg.deleteLater()
 
 

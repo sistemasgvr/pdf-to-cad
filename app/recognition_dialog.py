@@ -23,7 +23,8 @@ import theme as _theme
 # Etiqueta de cada utilidad tal como en el desplegable «Tipo de utilidad».
 _UTILITY_LABEL = {key: label for label, key in TIPOS}
 # Etiquetas de los kinds de reconocimiento (informativo en el preview).
-_KIND_LABEL = {"elec_ungd": "Líneas", "structure": "Bóvedas"}
+_KIND_LABEL = {"elec_ungd": "Líneas", "drain_ungd": "Líneas",
+               "structure": "Estructuras"}
 # Acciones que devuelve el preview.
 PREVIEW_IMPORT, PREVIEW_CANCEL = "import", "cancel"
 PREVIEW_CHANGE_SHEET, PREVIEW_ADJUST_LAYERS = "change_sheet", "adjust_layers"
@@ -135,8 +136,8 @@ def choose_page(parent, doc, current: int = 0) -> int | None:
 
 # ───────────────── Paso: confirmar roles OCG (líneas / buzones) ─────────────
 _ROLE_LABELS = (
-    (rec.ROLE_LINEAS, "Líneas eléctricas"),
-    (rec.ROLE_BUZONES, "Buzones / bóvedas"),
+    (rec.ROLE_LINEAS, "Líneas"),
+    (rec.ROLE_BUZONES, "Buzones / estructuras"),
     (rec.ROLE_IGNORAR, "Ignorar"),
 )
 
@@ -145,17 +146,18 @@ class LayerRolesDialog(QtWidgets.QDialog):
     """Ajuste OPCIONAL de qué capas son líneas y cuáles bóvedas (si el plot usa
     otros nombres). Se abre desde «Ajustar capas…» del preview."""
 
-    def __init__(self, parent, layers: list[dict]):
+    def __init__(self, parent, layers: list[dict], utility="ELECTRICO"):
         super().__init__(parent)
-        self.setWindowTitle(_tr("Ajustar capas eléctricas"))
+        self.utility = utility
+        utility_name = _tr(_UTILITY_LABEL.get(utility, utility))
+        self.setWindowTitle(_tr("Ajustar capas de {u}").format(u=utility_name))
         self.resize(560, 520)
         self._rows = []  # (name, combo)
 
         lay = QtWidgets.QVBoxLayout(self)
         intro = QtWidgets.QLabel(_tr(
-            "Indica qué capas son líneas eléctricas y cuáles bóvedas. Las "
-            "líneas se importan como utilidades Eléctrico; las bóvedas como "
-            "cajas en esas líneas. Al aceptar se vuelve a reconocer la hoja."))
+            "Indica qué capas son líneas y cuáles estructuras de {u}. "
+            "Al aceptar se vuelve a reconocer la hoja.".format(u=utility_name)))
         intro.setWordWrap(True)
         lay.addWidget(intro)
 
@@ -178,7 +180,7 @@ class LayerRolesDialog(QtWidgets.QDialog):
         ordered = sorted(
             layers,
             key=lambda L: (
-                0 if rec.suggest_layer_role(L["name"]) != rec.ROLE_IGNORAR else 1,
+                0 if rec.suggest_layer_role(L["name"], utility) != rec.ROLE_IGNORAR else 1,
                 -int(L.get("path_count") or 0),
                 (L.get("short") or L["name"]).upper(),
             ),
@@ -199,14 +201,14 @@ class LayerRolesDialog(QtWidgets.QDialog):
             combo = QtWidgets.QComboBox()
             for role, label in _ROLE_LABELS:
                 combo.addItem(_tr(label), role)
-            sug = rec.suggest_layer_role(name)
+            sug = rec.suggest_layer_role(name, utility)
             idx = next((i for i, (r, _) in enumerate(_ROLE_LABELS) if r == sug), 2)
             combo.setCurrentIndex(idx)
             self.table.setCellWidget(row, 2, combo)
             self._rows.append((name, combo))
 
         hint = QtWidgets.QLabel(_tr(
-            "Debe haber al menos una capa en «Líneas eléctricas» para continuar."))
+            "Debe haber al menos una capa en «Líneas» para continuar."))
         hint.setWordWrap(True)
         hint.setStyleSheet(f"color:{_theme.tokens().text_muted};")
         lay.addWidget(hint)
@@ -241,13 +243,13 @@ class LayerRolesDialog(QtWidgets.QDialog):
     def _try_accept(self):
         if not self.roles().get(rec.ROLE_LINEAS):
             QtWidgets.QMessageBox.warning(
-                self, _tr("Ajustar capas eléctricas"),
-                _tr("Asigna al menos una capa como «Líneas eléctricas»."))
+                self, _tr("Ajustar capas"),
+                _tr("Asigna al menos una capa como «Líneas»."))
             return
         self.accept()
 
 
-def choose_layer_roles(parent, layers: list[dict]) -> dict | None:
+def choose_layer_roles(parent, layers: list[dict], utility="ELECTRICO") -> dict | None:
     """Devuelve {lineas:[…], buzones:[…]} o None si cancela.
 
     `layers`: dicts de pdf_layers.page_layers (al menos name, short, path_count).
@@ -255,7 +257,7 @@ def choose_layer_roles(parent, layers: list[dict]) -> dict | None:
     candidates = [L for L in layers if int(L.get("path_count") or 0) > 0]
     if not candidates:
         return {rec.ROLE_LINEAS: [], rec.ROLE_BUZONES: []}
-    dlg = LayerRolesDialog(parent, candidates)
+    dlg = LayerRolesDialog(parent, candidates, utility)
     if dlg.exec() != QtWidgets.QDialog.Accepted:
         return None
     return dlg.roles()
@@ -376,7 +378,14 @@ class RecognitionPreviewDialog(QtWidgets.QDialog):
             | QtCore.Qt.WindowMaximizeButtonHint)
         self.resize(1200, 760)
         maximize_on_show(self)
-        self._result = result
+        self._results = list(result) if isinstance(result, (list, tuple)) else [result]
+        self._results = [item for item in self._results if item is not None]
+        if not self._results:
+            raise ValueError("La vista previa necesita al menos un resultado")
+        self._result = self._results[0]  # compatibilidad con consumidores antiguos
+        utilities = tuple(item.utility for item in self._results)
+        utility_title = ("Eléctrico y Drenaje" if len(utilities) > 1 else
+                         _UTILITY_LABEL.get(utilities[0], utilities[0]))
         self.action = PREVIEW_CANCEL
 
         root = QtWidgets.QHBoxLayout(self)
@@ -398,7 +407,7 @@ class RecognitionPreviewDialog(QtWidgets.QDialog):
         self.split.setStretchFactor(0, 1); self.split.setStretchFactor(1, 0)
         root.addWidget(self.split, 1)
 
-        color = layer_qcolor(utility_layer)
+        color = layer_qcolor(utilities[0])
         t = _theme.tokens()
 
         # ── cabecera: utilidad (con su color) y hoja ──
@@ -406,17 +415,17 @@ class RecognitionPreviewDialog(QtWidgets.QDialog):
         sw = QtWidgets.QLabel()
         sw.setPixmap(swatch_icon(color, 16).pixmap(16, 16))
         head.addWidget(sw)
-        title = QtWidgets.QLabel(_tr(_UTILITY_LABEL.get(utility_layer, utility_layer)))
+        title = QtWidgets.QLabel(_tr(utility_title))
         tf = title.font(); tf.setBold(True); tf.setPointSize(tf.pointSize() + 3); title.setFont(tf)
         head.addWidget(title, 1)
-        sheet = (_tr("Hoja {n} / {total}").format(n=result.page_index + 1, total=page_count)
-                 if page_count else _tr("Hoja {n}").format(n=result.page_index + 1))
+        sheet = (_tr("Hoja {n} / {total}").format(n=self._result.page_index + 1, total=page_count)
+                 if page_count else _tr("Hoja {n}").format(n=self._result.page_index + 1))
         self.lbl_sheet = QtWidgets.QLabel(sheet)
         sf = self.lbl_sheet.font(); sf.setBold(True); self.lbl_sheet.setFont(sf)
         head.addWidget(self.lbl_sheet, 0)
         panel.addLayout(head)
 
-        self._color = color
+        self._colors = {item.utility: layer_qcolor(item.utility) for item in self._results}
         self.lbl_summary = QtWidgets.QLabel()
         self.lbl_summary.setWordWrap(True)
         panel.addWidget(self.lbl_summary)
@@ -424,25 +433,28 @@ class RecognitionPreviewDialog(QtWidgets.QDialog):
         self.chk_routes.setToolTip(_tr(
             "En cada cruce sigue de frente; el ramal empieza otra ruta. "
             "Si no hay trayectoria clara, no une nada. No mueve puntos."))
-        self.chk_routes.setChecked(bool(getattr(result, "join_routes", True)))
+        self.chk_routes.setChecked(all(bool(getattr(item, "join_routes", True))
+                                      for item in self._results))
         self.chk_routes.toggled.connect(self._toggle_routes)
         panel.addWidget(self.chk_routes)
         self._update_summary()
         # QA de un vistazo: cuánto del plano quedó cubierto y qué se dejó fuera.
-        cov = float(getattr(result, "coverage", 1.0) or 0.0)
-        n_unc = len(getattr(result, "uncovered_px", None) or [])
-        n_off = len(getattr(result, "offpattern_px", None) or [])
+        cov = min(float(getattr(item, "coverage", 1.0) or 0.0) for item in self._results)
+        n_unc = sum(len(getattr(item, "uncovered_px", None) or []) for item in self._results)
+        n_off = sum(len(getattr(item, "offpattern_px", None) or []) for item in self._results)
         qa = QtWidgets.QLabel(
             _tr("Cobertura: {c:.1f}%  ·  sin cubrir: {m} (naranja)  ·  fuera de patrón: {o} (violeta)").format(
                 c=cov * 100, m=n_unc, o=n_off))
         qa.setWordWrap(True)
         qa.setStyleSheet("color:%s;" % (t.success if cov >= 0.98 and n_unc == 0 else "#e08a00"))
         panel.addWidget(qa)
-        if getattr(result, "hidden_ocgs", None):
+        hidden = sorted({name for item in self._results
+                         for name in (getattr(item, "hidden_ocgs", None) or [])})
+        if hidden:
             hid = QtWidgets.QLabel(_tr("Capas ocultas por ti: {n} (no se dibujan ni se reconocen)").format(
-                n=len(result.hidden_ocgs)))
+                n=len(hidden)))
             hid.setWordWrap(True)
-            hid.setToolTip("\n".join(result.hidden_ocgs))
+            hid.setToolTip("\n".join(hidden))
             panel.addWidget(hid)
 
         # ── capas usadas (informativo: asignación automática por nombre) ──
@@ -450,41 +462,58 @@ class RecognitionPreviewDialog(QtWidgets.QDialog):
         lbl_used.setWordWrap(True)
         panel.addWidget(lbl_used)
         lst = QtWidgets.QListWidget()
-        for kind in ("elec_ungd", "structure"):
-            rows = [x for x in result.ocg_summary if x.get("kind") == kind]
-            if not rows:
-                continue
-            hdr = QtWidgets.QListWidgetItem(swatch_icon(color, 12), _tr(_KIND_LABEL[kind]))
-            hdr.setFlags(QtCore.Qt.ItemIsEnabled)       # ni marcable ni seleccionable; icono a color
-            hf = hdr.font(); hf.setBold(True); hdr.setFont(hf)
-            hdr.setForeground(color)
-            lst.addItem(hdr)
-            for x in rows:
-                short = x["ocg"].split("|")[-1] if "|" in x["ocg"] else x["ocg"]
-                tag = "  (AB)" if x.get("abandoned") else ""
-                it = QtWidgets.QListWidgetItem(f"    {short}  ({x.get('path_count', 0)}){tag}")
-                it.setToolTip(x["ocg"])
-                lst.addItem(it)
+        for item in self._results:
+            item_color = self._colors[item.utility]
+            if len(self._results) > 1:
+                utility_header = QtWidgets.QListWidgetItem(
+                    swatch_icon(item_color, 12), _tr(_UTILITY_LABEL.get(item.utility, item.utility)))
+                utility_header.setFlags(QtCore.Qt.ItemIsEnabled)
+                uf = utility_header.font(); uf.setBold(True); utility_header.setFont(uf)
+                utility_header.setForeground(item_color); lst.addItem(utility_header)
+            for kind in (rec.utility_line_kind(item.utility), "structure"):
+                rows = [x for x in item.ocg_summary if x.get("kind") == kind]
+                if not rows:
+                    continue
+                kind_label = ("Bóvedas" if kind == "structure" and item.utility == "ELECTRICO"
+                              else _KIND_LABEL[kind])
+                hdr = QtWidgets.QListWidgetItem(_tr(kind_label))
+                hdr.setFlags(QtCore.Qt.ItemIsEnabled)
+                hf = hdr.font(); hf.setBold(True); hdr.setFont(hf)
+                hdr.setForeground(item_color); lst.addItem(hdr)
+                for x in rows:
+                    short = x["ocg"].split("|")[-1] if "|" in x["ocg"] else x["ocg"]
+                    tag = "  (AB)" if x.get("abandoned") else ""
+                    layer_item = QtWidgets.QListWidgetItem(
+                        f"    {short}  ({x.get('path_count', 0)}){tag}")
+                    layer_item.setToolTip(x["ocg"]); lst.addItem(layer_item)
         panel.addWidget(lst, 1)
 
         n_draw = self._n_draw()
         if n_draw == 0:
             warn = QtWidgets.QLabel(_tr(
-                "No se encontraron capas de líneas eléctricas en esta hoja. "
-                "Usa «Ajustar capas…» para indicar cuáles son las líneas y las bóvedas."))
+                "No se encontraron capas de líneas de {u} en esta hoja. "
+                "Usa «Ajustar capas…» para indicar cuáles son las líneas y las estructuras."
+                .format(u=utility_title)))
             warn.setWordWrap(True)
             warn.setStyleSheet(f"color:{t.danger}; font-weight:bold;")
             panel.addWidget(warn)
-        elif result.warnings:
-            warn = QtWidgets.QLabel("\n".join(result.warnings))
+        else:
+            warnings = []
+            for item in self._results:
+                prefix = (_UTILITY_LABEL.get(item.utility, item.utility) + ": "
+                          if len(self._results) > 1 else "")
+                warnings.extend(prefix + text for text in item.warnings)
+            warn = QtWidgets.QLabel("\n".join(warnings))
             warn.setWordWrap(True)
             warn.setStyleSheet(f"color:{t.text_muted};")
-            panel.addWidget(warn)
+            if warnings:
+                panel.addWidget(warn)
 
         note = QtWidgets.QLabel(
-            _tr("Al continuar, estas líneas se importan al editor como "
-                "utilidades Eléctrico (igual que el dibujo manual, con sus "
-                "puntos de quiebre). Las bóvedas se insertan como cajas."))
+            _tr("Al continuar, estas líneas se importan al editor como {u} "
+                "(igual que el dibujo manual, con sus puntos de quiebre). "
+                "Las estructuras se insertan como nodos de la red.").format(
+                    u=utility_title))
         note.setWordWrap(True)
         panel.addWidget(note)
 
@@ -524,20 +553,19 @@ class RecognitionPreviewDialog(QtWidgets.QDialog):
         self._fit_view()
 
     def _drawable(self):
-        return [p for p in self._result.polylines if p.kind == "elec_ungd" and p.pts_pdf]
+        return [polyline for result in self._results for polyline in result.drawable]
 
     def _n_draw(self):
         return len(self._drawable())
 
     def _update_summary(self):
-        result = self._result
         drawable = self._drawable()
         n_ab = sum(1 for p in drawable if getattr(p, "abandoned", False))
-        n_vault = len(getattr(result, "vault_pts", None) or [])
-        txt = _tr("Tramos listos: {n}  ·  Bóvedas: {v}  ·  Escala: {s:.6f} pie/pt").format(
-            n=len(drawable), v=n_vault, s=result.scale_ft_per_pt)
-        n_routes = int(getattr(result, "n_routes", 0) or 0)
-        n_seg = int(getattr(result, "n_segments_total", 0) or 0)
+        n_vault = sum(len(getattr(result, "vault_pts", None) or []) for result in self._results)
+        txt = _tr("Tramos listos: {n}  ·  Estructuras: {v}  ·  Escala: {s:.6f} pie/pt").format(
+            n=len(drawable), v=n_vault, s=self._result.scale_ft_per_pt)
+        n_routes = sum(int(getattr(result, "n_routes", 0) or 0) for result in self._results)
+        n_seg = sum(int(getattr(result, "n_segments_total", 0) or 0) for result in self._results)
         if self.chk_routes.isChecked() and n_seg:
             txt += "\n" + _tr("Rutas: {n} (unen {m} tramos)").format(n=n_routes or len(drawable), m=n_seg)
         if n_ab:
@@ -547,13 +575,13 @@ class RecognitionPreviewDialog(QtWidgets.QDialog):
             self.btn_ok.setEnabled(len(drawable) > 0)
 
     def _toggle_routes(self, checked):
-        result = self._result
-        joined = getattr(result, "polylines_joined", None)
-        raw = getattr(result, "polylines_raw", None)
-        if not joined or not raw:
-            return
-        result.join_routes = bool(checked)
-        result.polylines = list(joined if checked else raw)
+        for result in self._results:
+            joined = getattr(result, "polylines_joined", None)
+            raw = getattr(result, "polylines_raw", None)
+            if not joined or not raw:
+                continue
+            result.join_routes = bool(checked)
+            result.polylines = list(joined if checked else raw)
         self._update_summary()
         self._redraw_overlay()
 
@@ -562,33 +590,29 @@ class RecognitionPreviewDialog(QtWidgets.QDialog):
         for it in list(sc.items()):
             if it is not self._pixmap_item:
                 sc.removeItem(it)
-        result = self._result
-        color = self._color
-        for pts in (getattr(result, "offpattern_px", None) or []):
-            _draw_poly(sc, pts, QtGui.QColor("#8a6cff"), width=1.5, dots=False, z=4)
-        for pl in self._drawable():
-            # Activas y abandonadas son la misma utilidad (mismo color). El (AB)
-            # de la lista es lo que las distingue; no se dibujan a trazos.
-            for run in _display_runs(pl):
-                _draw_poly(sc, run, color, width=2.0, dots=True, z=5)
-            for idx, f in (getattr(pl, "fillets", None) or {}).items():
-                _draw_fillet(sc, pl.pts_pdf[idx], f, color)
-            x, y = pl.pts_pdf[0]
-            start = sc.addEllipse(x - 5, y - 5, 10, 10, QtGui.QPen(QtGui.QColor("#ffffff"), 1.5),
-                                  QtGui.QBrush(color))
-            start.setZValue(8)
-        for a, b in (getattr(result, "uncovered_px", None) or []):
-            _draw_poly(sc, [a, b], QtGui.QColor("#ff8c00"), width=4.0, dots=False, z=7)
-        for (vx, vy) in (getattr(result, "vault_pts", None) or []):
-            _draw_vault(sc, vx, vy, color, z=6)
-        # Contorno real de cada bóveda (del PDF) + medidas en pies: las que tienen
-        # línea y las bóvedas reales sin línea (se importan sueltas); las cajas
-        # propuestas / postes van solo como marca discreta.
-        for vg in (getattr(result, "vaults_geo", None) or []):
-            if not vg.get("orphan") or vg.get("importable", False):
-                _draw_vault_outline(sc, vg, color)
-        for (vx, vy) in (getattr(result, "vault_orphans_px", None) or []):
-            _draw_vault(sc, vx, vy, QtGui.QColor("#ff8c00"), z=6, r=4.0)
+        for result in self._results:
+            color = self._colors[result.utility]
+            for pts in (getattr(result, "offpattern_px", None) or []):
+                _draw_poly(sc, pts, QtGui.QColor("#8a6cff"), width=1.5, dots=False, z=4)
+            for pl in result.drawable:
+                for run in _display_runs(pl):
+                    _draw_poly(sc, run, color, width=2.0, dots=True, z=5)
+                for idx, f in (getattr(pl, "fillets", None) or {}).items():
+                    _draw_fillet(sc, pl.pts_pdf[idx], f, color)
+                x, y = pl.pts_pdf[0]
+                start = sc.addEllipse(
+                    x - 5, y - 5, 10, 10, QtGui.QPen(QtGui.QColor("#ffffff"), 1.5),
+                    QtGui.QBrush(color))
+                start.setZValue(8)
+            for a, b in (getattr(result, "uncovered_px", None) or []):
+                _draw_poly(sc, [a, b], QtGui.QColor("#ff8c00"), width=4.0, dots=False, z=7)
+            for (vx, vy) in (getattr(result, "vault_pts", None) or []):
+                _draw_vault(sc, vx, vy, color, z=6)
+            for vg in (getattr(result, "vaults_geo", None) or []):
+                if not vg.get("orphan") or vg.get("importable", False):
+                    _draw_vault_outline(sc, vg, color)
+            for (vx, vy) in (getattr(result, "vault_orphans_px", None) or []):
+                _draw_vault(sc, vx, vy, QtGui.QColor("#ff8c00"), z=6, r=4.0)
 
     def _fit_view(self):
         self.view.resetTransform()

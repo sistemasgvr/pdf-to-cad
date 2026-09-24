@@ -103,7 +103,8 @@ def rebuild_structures(pipes, structures):
         pts = p.get("pts")
         if not pts or len(pts) < 2: continue
         for pt in pts:                              # todos los vértices (extremos + intermedios)
-            if not any(near(pt, (s["x"], s["y"])) for s in detected):
+            if not any(s.get("net") == kind and near(pt, (s["x"], s["y"]))
+                       for s in detected):
                 detected.append({"cod": "", "x": pt[0], "y": pt[1], "rim": None,
                                  "sump": None, "part": "", "part_size": "",
                                  "net": kind, "covered": True, "world": False,
@@ -155,22 +156,27 @@ def hide_soft_vertex_structures(pipes, structures):
     compartido con otra pipe donde SÍ es bóveda/T/junction se respeta (visible).
     Devuelve cuántas estructuras se ocultaron. Muta `structures` en sitio."""
     tol = _TOL
-    hard, soft = [], []
+    hard = {"gravity": [], "conduit": []}
+    soft = {"gravity": [], "conduit": []}
     for p in pipes:
+        net = network_kind(p.get("layer") or "")
+        if net not in hard:
+            continue
         kinds = p.get("vertex_kinds") or []
         pts = p.get("pts") or []
         if len(kinds) != len(pts):
-            hard.extend(pts)            # pipe manual: todos sus vértices son reales
+            hard[net].extend(pts)            # pipe manual: todos sus vértices son reales
             continue
         for pt, k in zip(pts, kinds):
-            (soft if k in SOFT_VERTEX_KINDS else hard).append(pt)
+            (soft[net] if k in SOFT_VERTEX_KINDS else hard[net]).append(pt)
     n = 0
     for s in structures:
         if s.get("world") or s.get("hidden") or s.get("curve"):
             continue
+        net = s.get("net") or "gravity"
         xy = (s.get("x", 0.0), s.get("y", 0.0))
         near = lambda q: math.hypot(q[0] - xy[0], q[1] - xy[1]) <= tol
-        if any(near(q) for q in soft) and not any(near(q) for q in hard):
+        if any(near(q) for q in soft.get(net, ())) and not any(near(q) for q in hard.get(net, ())):
             s["hidden"] = True
             n += 1
     return n
@@ -258,7 +264,8 @@ def bz_segment_count(pipes, s):
 VAULT_GEO_KEYS = ("shape", "width_ft", "length_ft", "rot_deg", "outline")
 
 
-def attach_vault_geometry(structures, vaults_geo, tol=12.0):
+def attach_vault_geometry(structures, vaults_geo, tol=12.0, net="conduit",
+                          utility="ELECTRICO"):
     """Asocia cada bóveda reconocida (`RecognitionResult.vaults_geo`) a la
     estructura más cercana a su centro (≤ `tol` px) y le copia forma, medidas
     y contorno. Una bóveda real sin estructura cerca (ninguna línea la atraviesa
@@ -272,7 +279,7 @@ def attach_vault_geometry(structures, vaults_geo, tol=12.0):
             continue
         best = None
         for s in structures:
-            if s.get("world") or s.get("curve"):
+            if s.get("world") or s.get("curve") or (s.get("net") or "gravity") != net:
                 continue
             d = math.hypot(float(s.get("x", 1e9)) - cx, float(s.get("y", 1e9)) - cy)
             if d <= tol and (best is None or d < best[0]):
@@ -282,7 +289,7 @@ def attach_vault_geometry(structures, vaults_geo, tol=12.0):
             # típico de la bóveda abandonada): la más cercana DENTRO del contorno.
             xs = [x for x, _ in vg["corners"]]; ys = [y for _, y in vg["corners"]]
             for s in structures:
-                if s.get("world") or s.get("curve"):
+                if s.get("world") or s.get("curve") or (s.get("net") or "gravity") != net:
                     continue
                 sx, sy = float(s.get("x", 1e9)), float(s.get("y", 1e9))
                 if min(xs) - 2 <= sx <= max(xs) + 2 and min(ys) - 2 <= sy <= max(ys) + 2:
@@ -294,11 +301,13 @@ def attach_vault_geometry(structures, vaults_geo, tol=12.0):
                 continue
             # ya importada en una pasada anterior (mismo centro): reutilizar
             for s in structures:
-                if s.get("standalone") and math.hypot(float(s["x"]) - cx, float(s["y"]) - cy) <= tol:
+                if (s.get("standalone") and (s.get("net") or "gravity") == net
+                        and math.hypot(float(s["x"]) - cx, float(s["y"]) - cy) <= tol):
                     best = (0.0, s); break
             if best is None:
                 st = {"cod": "", "x": float(cx), "y": float(cy), "rim": None, "sump": None,
-                      "part": "", "part_size": "", "net": "conduit", "covered": True,
+                      "part": "", "part_size": "", "net": net, "utility": utility,
+                      "covered": True,
                       "world": False, "hidden": False, "standalone": True}
                 structures.append(st); created += 1
                 best = (0.0, st)
@@ -317,15 +326,16 @@ def attach_vault_geometry(structures, vaults_geo, tol=12.0):
 
 
 def _assign_standalone_codes(structures):
-    """Código CAJA-N a las bóvedas sueltas nuevas (rebuild_structures no las
+    """Código CAJA-N/BZ-N a las estructuras sueltas (rebuild_structures no las
     numera: las conserva tal cual)."""
     used = {s.get("cod", "") for s in structures if s.get("cod")}
     n = 1
     for s in structures:
         if s.get("standalone") and not s.get("cod"):
-            while f"CAJA-{n}" in used:
+            prefix = "BZ-" if s.get("net") == "gravity" else "CAJA-"
+            while f"{prefix}{n}" in used:
                 n += 1
-            s["cod"] = f"CAJA-{n}"; used.add(s["cod"]); n += 1
+            s["cod"] = f"{prefix}{n}"; used.add(s["cod"]); n += 1
 
 
 def attach_fillets(pipes, structures, tol=1.0):

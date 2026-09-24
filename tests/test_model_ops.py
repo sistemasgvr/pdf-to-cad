@@ -208,6 +208,37 @@ def test_attach_vault_geometry_asocia_medidas_a_la_caja():
     assert created2 == 0 and sum(1 for s in again if s.get("standalone")) == 1
 
 
+def test_attach_vault_geometry_drenaje_crea_buzon_de_gravedad():
+    from model_ops import attach_vault_geometry
+    structures = []
+    vault = [{"center": (50.0, 80.0), "corners": [(40, 70), (60, 70), (60, 90), (40, 90)],
+              "shape": "rect", "width_ft": 4.0, "length_ft": 5.0,
+              "angle_deg": 0.0, "orphan": True, "importable": True}]
+    done, created = attach_vault_geometry(
+        structures, vault, net="gravity", utility="DRENAJE")
+    assert (done, created) == (1, 1)
+    assert structures[0]["net"] == "gravity"
+    assert structures[0]["utility"] == "DRENAJE"
+    assert structures[0]["cod"].startswith("BZ-")
+
+
+def test_redes_coincidentes_conservan_estructuras_separadas_por_tipo():
+    from model_ops import rebuild_structures, hide_soft_vertex_structures
+    pipes = [
+        {"layer": "ELECTRICO", "pts": [(0, 0), (100, 0)],
+         "vertex_kinds": ["end", "corner"]},
+        {"layer": "DRENAJE", "pts": [(100, 0), (100, 100)],
+         "vertex_kinds": ["vault", "end"]},
+    ]
+    structures = rebuild_structures(pipes, [])
+    at_crossing = [s for s in structures if abs(s["x"] - 100) < 1e-9 and abs(s["y"]) < 1e-9]
+    assert {s["net"] for s in at_crossing} == {"conduit", "gravity"}
+    hide_soft_vertex_structures(pipes, structures)
+    by_net = {s["net"]: s for s in at_crossing}
+    assert by_net["conduit"]["hidden"] is True
+    assert by_net["gravity"]["hidden"] is False
+
+
 def test_fillet_geo_arco_tangente_y_recorte():
     import math
     from model_ops import fillet_geo

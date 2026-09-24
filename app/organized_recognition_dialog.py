@@ -1,4 +1,4 @@
-"""Combined electrical recognition preview for an arranged set of PDF sheets.
+"""Combined utility recognition preview for an arranged set of PDF sheets.
 
 The arrangement expresses adjacency only. Each result stays in its own sheet's
 coordinates; no cross-sheet snapping or import is implied by this preview.
@@ -9,6 +9,7 @@ import fitz
 from PySide6 import QtCore, QtGui, QtWidgets
 
 import pdf_layers
+import recognition
 from i18n import t as _tr
 from layer_dialog import utility_qcolor
 from pdf_view_quality import FocusedPageQuality
@@ -18,6 +19,10 @@ import theme as _theme
 
 _LABELS = {"main": "Principal", "top": "Superior", "left": "Izquierda",
            "right": "Derecha", "bottom": "Inferior"}
+
+
+def _row_results(row):
+    return list(row.get("results") or [row["result"]])
 
 
 def _rotated_point(x, y, width, height, angle):
@@ -36,9 +41,13 @@ class OrganizedRecognitionDialog(QtWidgets.QDialog):
     def __init__(self, parent, rows, rotations, join_routes=True):
         super().__init__(parent)
         self.rows = rows
+        self.utilities = tuple(result.utility for result in _row_results(rows[0])) if rows else ("ELECTRICO",)
+        utility_label = ("Eléctrico y Drenaje" if len(self.utilities) > 1 else
+                         ("Drenaje" if self.utilities[0] == "DRENAJE" else "Eléctrico"))
         self.rotations = rotations or {}
         self._items = {}
-        self.setWindowTitle(_tr("Vista previa del reconocimiento eléctrico · hojas organizadas"))
+        self.setWindowTitle(_tr("Vista previa del reconocimiento de {u} · hojas organizadas").format(
+            u=utility_label))
         self.setWindowFlags(self.windowFlags() | QtCore.Qt.WindowMinimizeButtonHint
                             | QtCore.Qt.WindowMaximizeButtonHint)
         self.resize(1400, 850)
@@ -54,7 +63,7 @@ class OrganizedRecognitionDialog(QtWidgets.QDialog):
         panel.setSpacing(8)
         root.addWidget(side)
 
-        title = QtWidgets.QLabel(_tr("Eléctrico · hojas organizadas"))
+        title = QtWidgets.QLabel(_tr("{u} · hojas organizadas").format(u=utility_label))
         font = title.font(); font.setBold(True); font.setPointSize(font.pointSize() + 2)
         title.setFont(font)
         panel.addWidget(title)
@@ -77,7 +86,8 @@ class OrganizedRecognitionDialog(QtWidgets.QDialog):
         self.details = QtWidgets.QLabel()
         self.details.setWordWrap(True)
         panel.addWidget(self.details)
-        panel.addWidget(QtWidgets.QLabel(_tr("Capas eléctricas usadas en la hoja")))
+        panel.addWidget(QtWidgets.QLabel(_tr("Capas de {u} usadas en la hoja").format(
+            u=utility_label)))
         self.layers = QtWidgets.QListWidget()
         panel.addWidget(self.layers, 1)
         hint = QtWidgets.QLabel(_tr("Rueda = zoom · botón central = desplazar"))
@@ -160,86 +170,86 @@ class OrganizedRecognitionDialog(QtWidgets.QDialog):
         for item in getattr(self, "_overlays", []):
             scene.removeItem(item)
         self._overlays = []
-        color = utility_qcolor("ELECTRICO")
         for row in self.rows:
-            result = row["result"]
-            for pts in result.offpattern_px:
-                points = [self._point(row, p) for p in pts]
-                pen = QtGui.QPen(QtGui.QColor("#8a6cff"), 1.5)
-                pen.setCosmetic(True)
-                for a, b in zip(points, points[1:]):
-                    line = scene.addLine(a[0], a[1], b[0], b[1], pen)
-                    line.setZValue(4)
-                    self._overlays.append(line)
-            for pl in result.drawable:
-                pts = [self._point(row, p) for p in pl.pts_pdf]
-                pen = QtGui.QPen(color, 2)
-                pen.setCosmetic(True)
-                for a, b in zip(pts, pts[1:]):
-                    line = scene.addLine(a[0], a[1], b[0], b[1], pen)
-                    line.setZValue(5)
-                    self._overlays.append(line)
-                for x, y in pts:
-                    dot = scene.addEllipse(x - 3, y - 3, 6, 6, pen, QtGui.QBrush(color))
-                    dot.setZValue(6)
-                    self._overlays.append(dot)
-            for a, b in result.uncovered_px:
-                start, end = self._point(row, a), self._point(row, b)
-                pen = QtGui.QPen(QtGui.QColor("#ff8c00"), 4)
-                pen.setCosmetic(True)
-                line = scene.addLine(start[0], start[1], end[0], end[1], pen)
-                line.setZValue(8)
-                self._overlays.append(line)
-            for point in result.vault_pts:
-                x, y = self._point(row, point)
-                dot = scene.addEllipse(x - 6, y - 6, 12, 12,
-                                       QtGui.QPen(QtGui.QColor("#ffffff"), 1.5),
-                                       QtGui.QBrush(color))
-                dot.setZValue(7)
-                self._overlays.append(dot)
-            for point in result.vault_orphans_px:
-                x, y = self._point(row, point)
-                dot = scene.addEllipse(x - 6, y - 6, 12, 12,
-                                       QtGui.QPen(QtGui.QColor("#ffffff"), 1.5),
-                                       QtGui.QBrush(QtGui.QColor("#ff8c00")))
-                dot.setZValue(7)
-                self._overlays.append(dot)
+            for result in _row_results(row):
+                color = utility_qcolor(result.utility)
+                for pts in result.offpattern_px:
+                    points = [self._point(row, p) for p in pts]
+                    pen = QtGui.QPen(QtGui.QColor("#8a6cff"), 1.5); pen.setCosmetic(True)
+                    for a, b in zip(points, points[1:]):
+                        line = scene.addLine(a[0], a[1], b[0], b[1], pen)
+                        line.setZValue(4); self._overlays.append(line)
+                for pl in result.drawable:
+                    pts = [self._point(row, p) for p in pl.pts_pdf]
+                    pen = QtGui.QPen(color, 2); pen.setCosmetic(True)
+                    for a, b in zip(pts, pts[1:]):
+                        line = scene.addLine(a[0], a[1], b[0], b[1], pen)
+                        line.setZValue(5); self._overlays.append(line)
+                    for x, y in pts:
+                        dot = scene.addEllipse(x - 3, y - 3, 6, 6, pen, QtGui.QBrush(color))
+                        dot.setZValue(6); self._overlays.append(dot)
+                for a, b in result.uncovered_px:
+                    start, end = self._point(row, a), self._point(row, b)
+                    pen = QtGui.QPen(QtGui.QColor("#ff8c00"), 4); pen.setCosmetic(True)
+                    line = scene.addLine(start[0], start[1], end[0], end[1], pen)
+                    line.setZValue(8); self._overlays.append(line)
+                for point in result.vault_pts:
+                    x, y = self._point(row, point)
+                    dot = scene.addEllipse(x - 6, y - 6, 12, 12,
+                                           QtGui.QPen(QtGui.QColor("#ffffff"), 1.5),
+                                           QtGui.QBrush(color))
+                    dot.setZValue(7); self._overlays.append(dot)
+                for point in result.vault_orphans_px:
+                    x, y = self._point(row, point)
+                    dot = scene.addEllipse(x - 6, y - 6, 12, 12,
+                                           QtGui.QPen(QtGui.QColor("#ffffff"), 1.5),
+                                           QtGui.QBrush(QtGui.QColor("#ff8c00")))
+                    dot.setZValue(7); self._overlays.append(dot)
 
     def _toggle_routes(self, checked):
         for row in self.rows:
-            result = row["result"]
-            result.join_routes = bool(checked)
-            result.polylines = list(result.polylines_joined if checked
-                                    else result.polylines_raw)
+            for result in _row_results(row):
+                result.join_routes = bool(checked)
+                result.polylines = list(result.polylines_joined if checked
+                                        else result.polylines_raw)
         self._redraw_overlays()
         self._refresh_summary()
         self._select_row(self.list.currentRow())
 
     def _refresh_summary(self):
-        n_lines = sum(len(row["result"].drawable) for row in self.rows)
-        n_vaults = sum(len(row["result"].vault_pts) for row in self.rows)
-        self.summary.setText(_tr("{s} hojas · {n} tramos · {v} bóvedas").format(
+        results = [result for row in self.rows for result in _row_results(row)]
+        n_lines = sum(len(result.drawable) for result in results)
+        n_vaults = sum(len(result.vault_pts) for result in results)
+        self.summary.setText(_tr("{s} hojas · {n} tramos · {v} estructuras").format(
             s=len(self.rows), n=n_lines, v=n_vaults))
 
     def _select_row(self, index):
         if not 0 <= index < len(self.rows):
             return
         row = self.rows[index]
-        result = row["result"]
-        details = _tr("Tramos: {n} · Bóvedas: {v} · Cobertura: {c:.1f}%").format(
-            n=len(result.drawable), v=len(result.vault_pts), c=result.coverage * 100)
+        results = _row_results(row)
+        details_rows = []
+        for result in results:
+            utility = "Drenaje" if result.utility == "DRENAJE" else "Eléctrico"
+            details_rows.append(_tr("{u}: {n} tramos · {v} estructuras · cobertura {c:.1f}%").format(
+                u=utility, n=len(result.drawable), v=len(result.vault_pts), c=result.coverage * 100))
+        details = "\n".join(details_rows)
         details += "\n" + _tr("Sin cubrir: {n} (naranja) · Fuera de patrón: {m} (violeta)").format(
-            n=len(result.uncovered_px), m=len(result.offpattern_px))
+            n=sum(len(result.uncovered_px) for result in results),
+            m=sum(len(result.offpattern_px) for result in results))
         self.details.setText(details)
         self.layers.clear()
-        for layer in result.ocg_summary:
-            if layer.get("kind") not in ("elec_ungd", "structure"):
-                continue
-            short = layer["ocg"].split("|")[-1]
-            kind = _tr("Líneas") if layer["kind"] == "elec_ungd" else _tr("Bóvedas")
-            self.layers.addItem(f'{kind} · {short} ({layer["path_count"]})')
+        for result in results:
+            utility = "Drenaje" if result.utility == "DRENAJE" else "Eléctrico"
+            for layer in result.ocg_summary:
+                if layer.get("kind") not in (recognition.utility_line_kind(result.utility), "structure"):
+                    continue
+                short = layer["ocg"].split("|")[-1]
+                kind = (_tr("Líneas") if layer["kind"] == recognition.utility_line_kind(result.utility)
+                        else _tr("Estructuras"))
+                self.layers.addItem(f'{utility} · {kind} · {short} ({layer["path_count"]})')
         if not self.layers.count():
-            self.layers.addItem(_tr("No se encontraron capas eléctricas reconocibles."))
+            self.layers.addItem(_tr("No se encontraron capas reconocibles de esta utilidad."))
 
     def showEvent(self, event):
         super().showEvent(event)

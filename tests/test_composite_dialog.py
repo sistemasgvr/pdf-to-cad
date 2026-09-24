@@ -114,6 +114,25 @@ def test_compositor_rotar_y_escala_por_pieza(app):
         dlg.close_docs()
 
 
+def test_compositor_no_aplica_capas_ocultas_de_la_hoja_ya_compuesta(app):
+    """`hidden_by_source` es la selección de capas de una composición ANTERIOR
+    (paso «Capas de la hoja»): el compositor sirve para MIRAR y recortar el
+    plano origen para tomar piezas nuevas, así que se abre con TODAS las
+    capas visibles — si no, una hoja cuyo contenido está solo en una capa ya
+    oculta parecía no tener nada que tomar (usuario: «la página 3 no me
+    muestra capas»). El valor recibido se conserva para devolverlo igual."""
+    import pdf_layers
+    data = _two_sheet_pdf()
+    dlg = composite_dialog.CompositeDialog(
+        None, [{"name": "a.pdf", "data": data}], None, {"0": ["C-ELEC-UNGD-E"]}, 0)
+    try:
+        assert pdf_layers.hidden_layers(dlg.docs[0]) == set()
+        assert dlg.hidden_by_source == {"0": ["C-ELEC-UNGD-E"]}
+        assert dlg.result_tuple()[2] == {"0": ["C-ELEC-UNGD-E"]}
+    finally:
+        dlg.close_docs()
+
+
 def test_compositor_capas_puentes_y_hueco(app):
     data = _two_sheet_pdf()
     dlg = composite_dialog.CompositeDialog(None, [{"name": "a.pdf", "data": data}], None, {}, 0)
@@ -661,3 +680,24 @@ def test_iman_alinea_la_costura_por_la_match_line(app, drop_dy):
         assert ea and eb and abs(ea[0] - eb[0]) < 0.01 and abs(ea[1] - eb[1]) < 0.01
     finally:
         dlg.close_docs()
+
+
+def test_hoja_sin_capas_se_marca_en_la_lista(app):
+    """Un PDF con capas donde una hoja está «aplanada» (sus trazos fuera de toda
+    capa, como DU08 h.3–19): la lista la marca y el aviso aparece al elegirla."""
+    doc = fitz.open()
+    ocg = doc.add_ocg("C-ELEC-UNGD-E", on=True)
+    _dashed(doc.new_page(width=300, height=200), (20, 100), (280, 100), ocg)
+    doc.new_page(width=300, height=200).draw_line((20, 100), (280, 100))
+    dlg = composite_dialog.CompositeDialog(None, [{"name": "a.pdf", "data": doc.tobytes()}], None, {}, 0)
+    try:
+        dlg.show(); app.processEvents()
+        assert "sin capas" not in dlg.lst_pages.item(0).text()
+        assert "sin capas" in dlg.lst_pages.item(1).text()
+        assert not dlg.lbl_nolayers.isVisible()
+        dlg.lst_pages.setCurrentRow(1); app.processEvents()
+        assert dlg.lbl_nolayers.isVisible()
+        dlg.lst_pages.setCurrentRow(0); app.processEvents()
+        assert not dlg.lbl_nolayers.isVisible()
+    finally:
+        dlg.close_docs(); dlg.close()

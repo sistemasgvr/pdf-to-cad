@@ -70,6 +70,20 @@ def test_lista_agrupada_por_utilidad_con_cabeceras(dlg):
 
 
 @needs_pdf
+def test_selector_de_utilidad_permite_electrico_y_drenaje(dlg):
+    """Casillas (no un desplegable), una por utilidad reconocible: se pueden
+    combinar libremente, pero no queda ninguna sin marcar."""
+    assert set(dlg._recog_checks) == {"ELECTRICO", "DRENAJE"}
+    assert all(cb.isChecked() for cb in dlg._recog_checks.values())
+    assert dlg.recognition_utilities() == ("ELECTRICO", "DRENAJE")
+    dlg._recog_checks["ELECTRICO"].setChecked(False)
+    assert dlg.recognition_utilities() == ("DRENAJE",)
+    dlg._recog_checks["DRENAJE"].setChecked(False)   # no deja las dos sin marcar
+    assert dlg._recog_checks["DRENAJE"].isChecked()
+    assert dlg.recognition_utilities() == ("DRENAJE",)
+
+
+@needs_pdf
 def test_utilidad_desmarcada_apaga_sus_capas_y_filtra(dlg):
     """Desmarcar una utilidad la quita de la lista Y apaga sus capas en la hoja;
     al volver a marcarla cada capa recupera el estado que tenía."""
@@ -144,3 +158,21 @@ def test_cambio_de_hoja_conserva_marcadas_y_actualiza_conteos(dlg):
     assert not dlg.btn_prev.isEnabled() and dlg.btn_next.isEnabled()
     dlg.reject()                                              # restaura visibilidad previa
     assert pdf_layers.hidden_layers(dlg._doc) == set()
+
+
+@needs_pdf
+def test_cambio_de_hoja_resetea_el_filtro_de_utilidad_y_el_buscador(dlg):
+    """El filtro de «Utilidades»/buscador es solo de VISTA: si se deja puesto
+    de una hoja anterior, la lista de la nueva hoja podía verse vacía aunque
+    sí tuviera capas (usuario: «la página 3 no me muestra capas»). Lo OCULTO
+    en el documento (marcar/desmarcar capas) sí se conserva — eso lo cubre
+    test_cambio_de_hoja_conserva_marcadas_y_actualiza_conteos."""
+    dlg._util_checks["ELECTRICO"].setChecked(False)   # apaga y filtra Eléctrico
+    dlg.search.setText("no-va-a-matchear-nada")
+    assert not any(u == "ELECTRICO" and name for u, name, hidden, _ in _rows(dlg) if not hidden)
+
+    dlg._go_sheet(PAGE - 1)
+    assert dlg._util_checks["ELECTRICO"].isChecked() and dlg.chk_all.isChecked()
+    assert dlg.search.text() == ""
+    rows = _rows(dlg)
+    assert any(u == "ELECTRICO" and name and not hidden for u, name, hidden, _ in rows)

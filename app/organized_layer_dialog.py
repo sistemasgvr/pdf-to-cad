@@ -10,8 +10,9 @@ import fitz
 from PySide6 import QtCore, QtGui, QtWidgets
 
 import pdf_layers
+import recognition
 from i18n import t as _tr
-from layer_dialog import utility_qcolor
+from layer_dialog import _UTILITY_RECOG_LABEL, utility_qcolor
 from organized_layers import aggregate_layers, hidden_from_states, selected_sheets
 from pdf_view_quality import FocusedPageQuality
 from sheet_crops import normalize as normalize_crops, page_rect
@@ -40,7 +41,7 @@ class _SelectableSheetView(ZoomPanView):
 
 class OrganizedLayersDialog(QtWidgets.QDialog):
     def __init__(self, parent, docs, sources, layout, rotations, saved_hidden=None,
-                 saved_crops=None):
+                 saved_crops=None, recognition_utilities=None):
         super().__init__(parent)
         self.docs = docs
         self.sheets = selected_sheets(layout, sources)
@@ -148,6 +149,24 @@ class OrganizedLayersDialog(QtWidgets.QDialog):
             rows = [(sheet, pdf_layers.page_layers(docs[sheet["source"]], sheet["page"]))
                     for sheet in self.sheets]
             self.groups = aggregate_layers(rows)
+            target = QtWidgets.QVBoxLayout()
+            target.setSpacing(4)
+            target.addWidget(QtWidgets.QLabel(_tr("Utilidades a reconocer:")))
+            row_recog = QtWidgets.QHBoxLayout()
+            self._recog_checks: dict[str, QtWidgets.QCheckBox] = {}
+            available = {group["utility"] for group in self.groups if group["path_count"]}
+            selected = recognition.normalize_utilities(recognition_utilities)
+            for key in recognition.SUPPORTED_UTILITIES:
+                cb = QtWidgets.QCheckBox(_tr(_UTILITY_RECOG_LABEL.get(key, key)))
+                cb.setIcon(swatch_icon(utility_qcolor(key)))
+                cb.setChecked(key in selected)
+                cb.setEnabled(key in available)
+                cb.toggled.connect(self._on_recog_utility_toggled)
+                self._recog_checks[key] = cb
+                row_recog.addWidget(cb)
+            row_recog.addStretch(1)
+            target.addLayout(row_recog)
+            panel.insertLayout(2, target)
             self._fill_list()
             self._render_sheets(first=True)
             self._quality = FocusedPageQuality(
@@ -156,6 +175,7 @@ class OrganizedLayersDialog(QtWidgets.QDialog):
         finally:
             QtWidgets.QApplication.restoreOverrideCursor()
         self.result_hidden = None
+        self.result_utilities = recognition.normalize_utilities(recognition_utilities)
 
     def showEvent(self, event):
         super().showEvent(event)
@@ -406,12 +426,22 @@ class OrganizedLayersDialog(QtWidgets.QDialog):
             self._pix_items, _PREVIEW_SCALE, self.crops)
         self._fit_view()
 
+    def _on_recog_utility_toggled(self, _on: bool):
+        # Al menos una tiene que quedar marcada (si no, ¿qué se reconoce?).
+        if not any(cb.isChecked() for cb in self._recog_checks.values()):
+            sender = self.sender()
+            if sender is not None:
+                sender.blockSignals(True); sender.setChecked(True); sender.blockSignals(False)
+
     def accept(self):
         self._timer.stop()
         self._apply_and_render()
         self.result_hidden = {str(index): sorted(pdf_layers.hidden_layers(doc))
                               for index, doc in enumerate(self.docs)}
         self.result_crops = dict(self.crops)
+        chosen = tuple(key for key in recognition.SUPPORTED_UTILITIES
+                       if self._recog_checks[key].isChecked())
+        self.result_utilities = recognition.normalize_utilities(chosen)
         super().accept()
 
     def reject(self):
@@ -423,17 +453,17 @@ class OrganizedLayersDialog(QtWidgets.QDialog):
 
 def choose_organized_sheet_layers(parent, base_doc, external_pdfs, sources,
                                    layout, rotations, hidden_by_source=None,
-                                   sheet_crops=None):
+                                   sheet_crops=None, recognition_utilities=None):
     docs = [base_doc]
     before_base = pdf_layers.hidden_layers(base_doc)
     try:
         for source in external_pdfs:
             docs.append(fitz.open(stream=source["data"], filetype="pdf"))
         dialog = OrganizedLayersDialog(parent, docs, sources, layout, rotations,
-                                       hidden_by_source, sheet_crops)
+                                       hidden_by_source, sheet_crops, recognition_utilities)
         if dialog.exec() != QtWidgets.QDialog.Accepted:
             return None
-        return dialog.result_hidden, dialog.result_crops
+        return dialog.result_hidden, dialog.result_crops, dialog.result_utilities
     except Exception:
         pdf_layers.set_hidden(base_doc, before_base)
         raise

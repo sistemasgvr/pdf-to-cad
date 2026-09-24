@@ -1,6 +1,6 @@
 """recognition.py — Reconocimiento OCG de utilidades en una hoja PDF (puro, sin Qt).
 
-v1: eléctricas subterráneas (C-ELEC-UNGD*) + bóvedas (C-ELEC-VALT / V-ELEC-*).
+Perfiles actuales: eléctricas subterráneas y drenaje, con sus estructuras OCG.
 No toca config.LAYER_TOKENS ni el modelo de pipes de la app. Devuelve un
 RecognitionResult para la vista previa y para importar al editor.
 
@@ -12,6 +12,7 @@ geométrica (guiones → corridas → nodos → polilíneas con sus quiebres) vi
 from __future__ import annotations
 
 import math
+import re
 import sys
 from collections import defaultdict
 from dataclasses import dataclass, field
@@ -41,7 +42,19 @@ RECOGNITION_LAYER_TOKENS: Sequence[Tuple[str, str]] = (
 )
 
 UTILITY_HINT = "ELECTRICO"
-DRAW_KINDS = frozenset({"elec_ungd"})
+SUPPORTED_UTILITIES = ("ELECTRICO", "DRENAJE")
+UTILITY_LINE_KINDS = {
+    "ELECTRICO": "elec_ungd",
+    "DRENAJE": "drain_ungd",
+}
+DRAW_KINDS = frozenset(UTILITY_LINE_KINDS.values())
+# Reglas del núcleo geométrico que activa cada perfil. El eléctrico usa las de
+# siempre (sin opciones): las correcciones de drenaje no lo tocan.
+UTILITY_GEOM_OPTIONS = {
+    "DRENAJE": geom.GeomOptions(separate_vaults=True, nearest_vault=True, absorb_inside_runs=True),
+}
+# Perfiles que reconocen UNA sola vez una capa repetida por otro xref (`duplicate_ocgs`).
+DEDUP_OCG_UTILITIES = frozenset({"DRENAJE"})
 ROLE_LINEAS = "lineas"
 ROLE_BUZONES = "buzones"
 ROLE_IGNORAR = "ignorar"
@@ -50,6 +63,20 @@ MIN_CHAIN_LEN_PT = 8.0
 # Un trazo que tras recortarlo por un clip mide menos que esto es una astilla del
 # corte (borde de una pieza de la hoja compuesta, marco de vista): se descarta.
 CLIP_SLIVER_PT = 1.5
+# Token NCS de capa que marca una VISTA DE PERFIL (estación/elevación, escala
+# vertical distinta de la horizontal): p.ej. `C-PROF-GRID-MINR/MAJR`,
+# `D-PROF-TEXT`. Algunas hojas reutilizan el MISMO nombre de capa de la
+# centerline de una utilidad para dibujar el símbolo de tubería en corte
+# dentro de esos perfiles (DU06 hojas UD-215/216 «OFFSET MANHOLE PROFILES»:
+# `C-STRM-UNGD-N` ahí dibuja el óvalo con textura de la tubería en sección,
+# no una línea de planta) — sin esto, el reconocedor lo toma por una ruta más
+# y la importaría con coordenadas mezclando estación y elevación a escalas
+# distintas. `profile_view_regions` recorta las cajas donde aparece esa
+# grilla (con el MISMO stack de clips que `gather_paths`, así una hoja mixta
+# como DU06 h.3/4 —perfiles arriba, planta abajo— solo excluye los perfiles)
+# y `gather_paths` descarta ahí cualquier trazo de línea o bóveda.
+PROFILE_LAYER_TOKEN = "PROF"
+PROFILE_REGION_PAD_PT = 15.0   # margen alrededor de la grilla de perfil
 # Distancia máx. (px lienzo) para proyectar una bóveda sobre una pipe.
 VAULT_SNAP_PX = 90.0
 # No duplicar vértice si ya hay uno cerca (px).
@@ -61,7 +88,7 @@ class RecognizedPolyline:
     layer_ocg: str
     utility_hint: str
     pts_pdf: list  # [(x, y), ...] en pixeles del pixmap a `zoom`
-    kind: str      # elec_ungd | elec_ovhd | structure
+    kind: str      # elec_ungd | drain_ungd | elec_ovhd | structure
     # Tipo de cada vértice (mismo largo que pts_pdf): end | corner | bend |
     # junction | tee | vault | curve. Lo usa el import para decidir qué
     # vértices son cajas reales y cuáles solo quiebres (estructura oculta).
@@ -118,17 +145,85 @@ class RecognitionResult:
         return [p for p in self.polylines if p.kind in DRAW_KINDS and p.pts_pdf]
 
 
-def classify_ocg(ocg: Optional[str]) -> Optional[str]:
-    """Nombre OCG → kind de reconocimiento, o None si no aplica / telecom."""
+def normalize_utilities(value=None) -> tuple[str, ...]:
+    """Normaliza una selección de reconocimiento y conserva el orden visual."""
+    if value is None:
+        return SUPPORTED_UTILITIES
+    if isinstance(value, str):
+        value = (value,)
+    selected = {str(item).strip().upper() for item in value if item}
+    result = tuple(key for key in SUPPORTED_UTILITIES if key in selected)
+    return result or (UTILITY_HINT,)
+
+
+def recognition_choices(available=()) -> list[tuple[tuple[str, ...], str]]:
+    """Opciones visibles para el selector según las capas presentes."""
+    present = {str(item).upper() for item in available}
+    supported = tuple(key for key in SUPPORTED_UTILITIES if not present or key in present)
+    if len(supported) == 2:
+        return [
+            (SUPPORTED_UTILITIES, "Eléctrico y Drenaje"),
+            (("ELECTRICO",), "Solo Eléctrico"),
+            (("DRENAJE",), "Solo Drenaje"),
+        ]
+    key = supported[0] if supported else UTILITY_HINT
+    return [((key,), "Eléctrico" if key == "ELECTRICO" else "Drenaje")]
+
+
+def utility_line_kind(utility: str = UTILITY_HINT) -> str:
+    """Kind interno de la centerline para una utilidad reconocible."""
+    key = (utility or UTILITY_HINT).strip().upper()
+    return UTILITY_LINE_KINDS.get(key, UTILITY_LINE_KINDS[UTILITY_HINT])
+
+
+def classify_ocg(ocg: Optional[str], utility: str = UTILITY_HINT) -> Optional[str]:
+    """Nombre OCG → kind de reconocimiento para ``utility``, o ``None``.
+
+    Los perfiles solo clasifican capas. Toda la reconstrucción geométrica se
+    mantiene compartida en :mod:`recognition_geom`.
+    """
     if not ocg:
         return None
     up = ocg.upper()
+    short = (ocg.split("|")[-1] if "|" in ocg else ocg).strip().upper()
+    utility = (utility or UTILITY_HINT).strip().upper()
+    if utility == "DRENAJE":
+        if not any(token in short for token in ("STRM", "STORM", "DRAN", "DRAIN")):
+            return None
+        # Estructuras reales de drenaje. UNGD-STRC y UNGD-WALL son geometría
+        # auxiliar del conducto y no deben atraer ni crear buzones.
+        if (short.startswith(("V-STRM-MANH", "V-STRM-CBSN", "V-STRM-DRAN"))
+                or short.startswith(("C-STRM-CTCH-BASN", "C-STRM-STRC"))):
+            return "structure"
+        # «-NPLT» es solo un sufijo del xref: si está en el PDF, se imprime y es
+        # una línea de drenaje real (DU06 h.4: el lateral «sd» a (560, 1020)
+        # vive en C-STRM-UNGD-E-NPLT y quedaba sin reconocer).
+        # «-CASE» = rectángulo de la camisa (encasement) alrededor del tubo
+        # (DU08 h.43): contorno auxiliar como «-WALL», no centerline.
+        if ("C-STRM-UNGD-" in short
+                and not any(token in short for token in ("WALL", "STRC", "CASE"))):
+            return utility_line_kind(utility)
+        return None
     if "TELE" in up or "C-TELE" in up:
+        return None
+    # Muros del ducto (doble línea del banco): geometría auxiliar, no centerline
+    # (DU08 h.35 `C-ELEC-UNGD-WALL-N`), igual que `-WALL` en drenaje.
+    if short.startswith("C-ELEC-") and "WALL" in short:
         return None
     for tok, kind in RECOGNITION_LAYER_TOKENS:
         if tok.upper() in up:
             return kind
+    # Variantes de nombre de otros paquetes (DU08/DU10): «UGND» en vez de
+    # «UNGD» y un segmento de paquete en medio (`C-ELEC-3MI-UGND-N`,
+    # `C-ELEC-UGND-N__UA4`): son las líneas PROPUESTAS «—E—» de la leyenda.
+    if _ELEC_UG_LINE.match(short) and not any(t in short for t in ("ANNO", "TEXT", "STRC")):
+        return "elec_ungd"
+    if short.startswith("C-ELEC-") and any(t in short for t in ("-STRC", "-VALT", "-POLE", "-MANH")):
+        return "structure"
     return None
+
+
+_ELEC_UG_LINE = re.compile(r"^C-ELEC-(?:[A-Z0-9]+-)?U(?:NGD|GND)(?:-|_|$)")
 
 
 # Capas de estructuras que NO son una bóveda existente: propuestas de otro
@@ -157,26 +252,114 @@ def is_abandoned_ocg(ocg: Optional[str]) -> bool:
     return any(t in short for t in ("ABND", "ABAN", "ABANDON"))
 
 
-def suggest_layer_role(ocg: str) -> str:
+def is_to_abandon_ocg(ocg: Optional[str]) -> bool:
+    """Capa de estado «-D» (DU08/DU10: `C-ELEC-UNGD-D`, `C-STRM-UNGD-D`): según la
+    leyenda es la utilidad EXISTENTE «a abandonar» (línea con «//»)."""
+    if not ocg:
+        return False
+    short = (ocg.split("|")[-1] if "|" in ocg else ocg).strip().upper()
+    return short.endswith("-D")
+
+
+def suggest_layer_role(ocg: str, utility: str = UTILITY_HINT) -> str:
     """Rol sugerido para el diálogo de confirmación."""
-    kind = classify_ocg(ocg)
-    if kind == "elec_ungd":
+    kind = classify_ocg(ocg, utility)
+    if kind == utility_line_kind(utility):
         return ROLE_LINEAS
     if kind == "structure":
         return ROLE_BUZONES
     return ROLE_IGNORAR
 
 
-def roles_from_suggestions(ocg_names: Sequence[str]) -> dict:
+def roles_from_suggestions(ocg_names: Sequence[str], utility: str = UTILITY_HINT) -> dict:
     """Construye {lineas:[…], buzones:[…]} a partir de tokens (sin UI)."""
     lineas, buzones = [], []
     for name in ocg_names:
-        role = suggest_layer_role(name)
+        role = suggest_layer_role(name, utility)
         if role == ROLE_LINEAS:
             lineas.append(name)
         elif role == ROLE_BUZONES:
             buzones.append(name)
     return {ROLE_LINEAS: lineas, ROLE_BUZONES: buzones}
+
+
+DUP_OCG_TOL_PT = 0.5      # mismo trazo en dos xrefs: puntos a ≤0.5 pt (recortes distintos)
+DUP_OCG_MIN_SHARE = 0.9   # …y ≥90 % de los trazos de una capa están en la otra
+
+
+def _path_points(path: dict) -> List[Tuple[float, float]]:
+    """Puntos de un path en orden (Point, Rect, Quad o tuplas ya recortadas)."""
+    out = []
+    for it in path.get("items") or []:
+        for q in it[1:]:
+            if hasattr(q, "x0"):                       # fitz.Rect
+                out += [(q.x0, q.y0), (q.x1, q.y1)]
+            elif hasattr(q, "ul"):                     # fitz.Quad
+                out += [(v.x, v.y) for v in (q.ul, q.ur, q.lr, q.ll)]
+            elif hasattr(q, "x"):                      # fitz.Point
+                out.append((q.x, q.y))
+            elif isinstance(q, (tuple, list)) and len(q) == 2:   # punto ya recortado
+                out.append((float(q[0]), float(q[1])))
+    return out
+
+
+def _same_path(p: list, q: list, tol: float = DUP_OCG_TOL_PT) -> bool:
+    return len(p) == len(q) and all(math.dist(a, b) <= tol for a, b in zip(p, q))
+
+
+def duplicate_ocgs(by_ocg: dict) -> dict:
+    """{ocg repetido: (ocg que se conserva, [paths propios del repetido])}.
+
+    Dos xrefs distintos pueden traer la MISMA capa con la MISMA geometría (DU06
+    h.4: `…UE-REF-GLINE_UG|C-STRM-UNGD-E` y `…EO-UD-REF-EXIST_SD-GLINE|
+    C-STRM-UNGD-E`, trazo por trazo iguales salvo 0.1 pt y una letra que el
+    recorte de cada xref deja distinta): es UNA línea del plano; reconocerla
+    dos veces la importaba doble. Solo cuenta como repetida una capa con el
+    mismo nombre corto cuyos trazos están ≥`DUP_OCG_MIN_SHARE` en la otra; los
+    pocos que no, se devuelven para sumarlos a la conservada (no se pierde
+    tinta)."""
+    pts = {ocg: [_path_points(p) for p in paths] for ocg, paths in by_ocg.items()}
+    short = {ocg: (ocg.split("|")[-1] if "|" in ocg else ocg).strip().upper() for ocg in by_ocg}
+    order = sorted(by_ocg, key=lambda o: (-len(by_ocg[o]), o))
+
+    def index(ocg):
+        grid = defaultdict(list)
+        for k, pp in enumerate(pts[ocg]):
+            if pp:
+                grid[(round(pp[0][0]), round(pp[0][1]))].append(k)
+        return grid
+
+    grids: dict = {}
+    dup: dict = {}
+    for i, ocg in enumerate(order):
+        if not by_ocg[ocg]:
+            continue
+        for keep in order[:i]:
+            if keep in dup or short[keep] != short[ocg]:
+                continue
+            grid = grids.setdefault(keep, index(keep))
+            own = []
+            for path, pp in zip(by_ocg[ocg], pts[ocg]):
+                if not pp:
+                    continue
+                cx, cy = round(pp[0][0]), round(pp[0][1])
+                cands = (k for dx in (-1, 0, 1) for dy in (-1, 0, 1) for k in grid.get((cx + dx, cy + dy), ()))
+                if not any(_same_path(pp, pts[keep][k]) for k in cands):
+                    own.append(path)
+            n = sum(1 for pp in pts[ocg] if pp)
+            if n and len(own) <= (1.0 - DUP_OCG_MIN_SHARE) * n:
+                dup[ocg] = (keep, own)
+                break
+    return dup
+
+
+def _page_is_flat(doc, page_index: int) -> bool:
+    """Hoja «aplanada»: el PDF no marca ninguno de sus vectores con una capa."""
+    try:
+        import pdf_layers
+        return not pdf_layers.page_uses_layers(doc, page_index)
+    except Exception:
+        return False
 
 
 def _clip_polygon(clip: dict, page_rect) -> Optional[list]:
@@ -212,14 +395,83 @@ def _clip_polygon(clip: dict, page_rect) -> Optional[list]:
     return pts
 
 
-def gather_paths(page, kind_for, hidden=(), crop_polygon=None):
+def _merge_close_boxes(boxes: Sequence[Tuple[float, float, float, float]], pad: float):
+    """Une cajas que están a ≤`pad` una de otra (varias piezas de una misma
+    grilla de perfil, o perfiles vecinos que se tocan) en regiones únicas."""
+    merged: List[list] = []
+    for x0, y0, x1, y1 in boxes:
+        for m in merged:
+            if x0 - pad <= m[2] and m[0] - pad <= x1 and y0 - pad <= m[3] and m[1] - pad <= y1:
+                m[0] = min(m[0], x0); m[1] = min(m[1], y0)
+                m[2] = max(m[2], x1); m[3] = max(m[3], y1)
+                break
+        else:
+            merged.append([x0, y0, x1, y1])
+    changed = True                       # una pasada más: dos cajas ya fusionadas pueden tocarse ahora
+    while changed and len(merged) > 1:
+        changed = False
+        for i in range(len(merged)):
+            for j in range(i + 1, len(merged)):
+                a, b = merged[i], merged[j]
+                if a[0] - pad <= b[2] and b[0] - pad <= a[2] and a[1] - pad <= b[3] and b[1] - pad <= a[3]:
+                    a[0] = min(a[0], b[0]); a[1] = min(a[1], b[1])
+                    a[2] = max(a[2], b[2]); a[3] = max(a[3], b[3])
+                    merged.pop(j)
+                    changed = True
+                    break
+            if changed:
+                break
+    return [tuple(m) for m in merged]
+
+
+def profile_view_regions(page, crop_polygon=None) -> List[Tuple[float, float, float, float]]:
+    """Recuadros (ya recortados por los clips del PDF) de las capas «PROF»
+    (grilla de estación/elevación) de la hoja — ver `PROFILE_LAYER_TOKEN`."""
+    page_rect = page.rect
+    clip_stack: dict = {}
+    boxes: List[Tuple[float, float, float, float]] = []
+    for path in page.get_drawings(extended=True):
+        lvl = int(path.get("level", 0) or 0)
+        if path.get("type") == "clip":
+            clip_stack = {l: pg for l, pg in clip_stack.items() if l < lvl}
+            clip_stack[lvl] = _clip_polygon(path, page_rect)
+            continue
+        ocg = path.get("layer") or ""
+        short = (ocg.split("|")[-1] if "|" in ocg else ocg).upper()
+        if PROFILE_LAYER_TOKEN not in short:
+            continue
+        polys = [pg for l, pg in clip_stack.items() if l < lvl and pg]
+        if polys:
+            path = geom.clip_path(path, polys)
+            if path is None:
+                continue
+        if crop_polygon:
+            path = geom.clip_path(path, [crop_polygon])
+            if path is None:
+                continue
+        bb = geom._path_bbox(path)
+        if bb is not None:
+            boxes.append(bb)
+    return _merge_close_boxes(boxes, PROFILE_REGION_PAD_PT)
+
+
+def _region_hit(bb, regions) -> bool:
+    if bb is None or not regions:
+        return False
+    cx, cy = (bb[0] + bb[2]) / 2.0, (bb[1] + bb[3]) / 2.0
+    return any(r[0] <= cx <= r[2] and r[1] <= cy <= r[3] for r in regions)
+
+
+def gather_paths(page, kind_for, hidden=(), crop_polygon=None, stats: Optional[dict] = None):
     """Paths de la hoja por rol, ya RECORTADOS por los clips del PDF.
 
     extended=True trae también los CLIPS (marco de la vista de planta, XCLIP de
     referencias). get_drawings() devuelve la geometría sin recortar, así que las
     líneas "superaban el final" visible: se recortan por el polígono de clip
-    activo (pila por `level`). Devuelve (line_paths, vault_paths, path_counts,
-    kind_by_ocg)."""
+    activo (pila por `level`). También descarta lo que caiga dentro de una
+    VISTA DE PERFIL detectada (`profile_view_regions`). Devuelve (line_paths,
+    vault_paths, path_counts, kind_by_ocg); si se pasa `stats` (dict), se le
+    añade `profile_excluded` con cuántos trazos se excluyeron por eso."""
     hidden = set(hidden or ())
     path_counts: dict = defaultdict(int)
     kind_by_ocg: dict = {}
@@ -227,6 +479,8 @@ def gather_paths(page, kind_for, hidden=(), crop_polygon=None):
     vault_paths: List[dict] = []
     page_rect = page.rect
     clip_stack: dict = {}
+    regions = profile_view_regions(page, crop_polygon)
+    n_profile_excluded = 0
     for path in page.get_drawings(extended=True):
         lvl = int(path.get("level", 0) or 0)
         if path.get("type") == "clip":
@@ -250,12 +504,17 @@ def gather_paths(page, kind_for, hidden=(), crop_polygon=None):
                 continue
         if path.get("clipped") and _path_length(path) < CLIP_SLIVER_PT:
             continue        # astilla que dejó el recorte (p.ej. 0.9 pt de un guión): no es geometría
+        if regions and _region_hit(geom._path_bbox(path), regions):
+            n_profile_excluded += 1
+            continue        # geometría dentro de una vista de perfil: no es planta, no se reconoce
         path_counts[ocg] += 1
         kind_by_ocg[ocg] = kind
         if kind == "structure":
             vault_paths.append(path)
-        elif kind == "elec_ungd":
+        elif kind in DRAW_KINDS:
             line_paths.append(path)
+    if stats is not None:
+        stats["profile_excluded"] = n_profile_excluded
     return line_paths, vault_paths, path_counts, kind_by_ocg
 
 
@@ -328,7 +587,7 @@ def recognize_page(
     crop: Optional[Sequence[float]] = None,
     scale_ft_per_pt: Optional[float] = None,
 ) -> RecognitionResult:
-    """Reconoce utilidades eléctricas en una hoja. Abre el PDF si `doc` es None.
+    """Reconoce una utilidad vectorial en una hoja. Abre el PDF si `doc` es None.
 
     `hidden_ocgs`: capas OCG ocultas (se saltan por nombre).
     `layer_roles`: ``{"lineas":[ocg…], "buzones":[ocg…]}``. Si es None, se
@@ -337,6 +596,8 @@ def recognize_page(
     False devuelve las polilíneas tal como las corta el núcleo geométrico.
         `scale_ft_per_pt`: escala fija (hoja compuesta); None = leerla del texto.
     """
+    utility = (utility or UTILITY_HINT).strip().upper()
+    line_kind = utility_line_kind(utility)
     own_doc = doc is None
     hidden = set(hidden_ocgs or ())
     roles = layer_roles
@@ -358,14 +619,15 @@ def recognize_page(
         def _kind_for(ocg: str) -> Optional[str]:
             if use_roles:
                 if ocg in lineas_set:
-                    return "elec_ungd"
+                    return line_kind
                 if ocg in buzones_set:
                     return "structure"
                 return None
-            return classify_ocg(ocg)
+            return classify_ocg(ocg, utility)
 
+        gather_stats: dict = {}
         line_paths, vault_paths, path_counts, kind_by_ocg = gather_paths(
-            page, _kind_for, hidden, crop_polygon)
+            page, _kind_for, hidden, crop_polygon, stats=gather_stats)
 
         ocg_summary = [{
             "ocg": ocg, "kind": kind_by_ocg.get(ocg, ""), "path_count": n,
@@ -383,11 +645,20 @@ def recognize_page(
         by_ocg: dict[str, List[dict]] = defaultdict(list)
         for pth in line_paths:
             by_ocg[pth.get("layer") or ""].append(pth)
+        dup_of = duplicate_ocgs(by_ocg) if utility in DEDUP_OCG_UTILITIES else {}
+        for ocg, (keep, own) in dup_of.items():
+            by_ocg[keep].extend(own)
+            del by_ocg[ocg]
+        if dup_of:
+            warnings.append(
+                f"Capas repetidas por otro xref (misma geometría): {len(dup_of)} — se reconoce "
+                "una sola vez: " + ", ".join(sorted(o.split("|")[0] for o in dup_of)) + ".")
+        geom_opts = UTILITY_GEOM_OPTIONS.get(utility, geom.GeomOptions())
         results: List[Tuple[bool, str, object]] = []
         for ocg, paths in sorted(by_ocg.items()):
-            results.append((is_abandoned_ocg(ocg), ocg, geom.reconstruct(paths, vault_paths)))
+            results.append((is_abandoned_ocg(ocg), ocg, geom.reconstruct(paths, vault_paths, geom_opts)))
         if not results:
-            results = [(False, "", geom.reconstruct([], vault_paths))]
+            results = [(False, "", geom.reconstruct([], vault_paths, geom_opts))]
 
         polylines_joined: List[RecognizedPolyline] = []
         polylines_raw: List[RecognizedPolyline] = []
@@ -406,6 +677,7 @@ def recognize_page(
         ab_by_layer: dict = {}
         n_layer_no_pattern = 0          # capa «-A» pero sin el patrón «/»
         n_active_with_pattern = 0       # patrón «/» en una capa activa (solo se avisa)
+        n_to_abandon = 0                # …de ellas, en capa «-D» (leyenda: existente a abandonar «//»)
 
         def _through_dirs(polys):
             """{(x, y) px redondeado: dirección unitaria} de la línea que PASA por
@@ -466,7 +738,7 @@ def recognize_page(
             clean, kinds, fillets = fit_fillets(clean, kinds, tol_px=FILLET_FIT_TOL_PT * zoom,
                                                 through_dirs=through, ink=ink, strokes=strokes)
             return RecognizedPolyline(
-                ocg, utility, clean, "elec_ungd", kinds, abandoned=ab,
+                ocg, utility, clean, line_kind, kinds, abandoned=ab,
                 route_id=route_id, n_segments=n_segments, fillets=fillets)
 
         for ab_layer, ocg, g in results:
@@ -507,7 +779,10 @@ def recognize_page(
                     if ab_layer and not _ab(v):
                         n_layer_no_pattern += 1
                     elif not ab_layer and v:
-                        n_active_with_pattern += 1
+                        if is_to_abandon_ocg(ocg):
+                            n_to_abandon += 1
+                        else:
+                            n_active_with_pattern += 1
             for rid, r in enumerate(raw):
                 rec_pl = _emit(r.pl, ocg, _ab(mp_raw.verdict[rid]), rid, 1, through_r, ink_r[rid], st_r[rid])
                 if rec_pl is not None:
@@ -518,6 +793,12 @@ def recognize_page(
             n_uncovered += len(g.uncovered); n_offpattern += len(g.offpattern)
             covered_w += g.coverage * g.n_dashes
             for i, v in enumerate(g.vaults):
+                # Caja de paso / poste (< VAULT_MIN_FT): no es una bóveda real,
+                # `_vaults_geometry` ya la descarta más abajo — que no cuente
+                # aquí tampoco, o «Bóvedas sin línea cercana» quedaba inflado
+                # con símbolos que de todas formas nunca se iban a importar.
+                if min(v.width, v.length) * scale < VAULT_MIN_FT:
+                    continue
                 key = (round(v.center[0], 1), round(v.center[1], 1))
                 vault_seen[key] = vault_seen.get(key, 0) + 1
                 if i in g.vault_orphans:
@@ -534,6 +815,8 @@ def recognize_page(
                     vault_pts.append(p)
         orphans_px = [px(key) for key, n in vault_seen.items() if vault_orph.get(key, 0) == n]
         vaults_geo = _vaults_geometry(results, px, scale, zoom, vault_orph, vault_seen, ab_by_layer)
+        for vault in vaults_geo:
+            vault["utility"] = utility
 
         stubs = []
         for ocg, kind in kind_by_ocg.items():          # stubs informativos (no dibujables)
@@ -544,33 +827,47 @@ def recognize_page(
         polylines_joined.extend(stubs)
         polylines_raw.extend(stubs)
 
-        if not any(p.kind == "elec_ungd" and p.pts_pdf for p in polylines):
-            warnings.append("No se encontraron líneas eléctricas subterráneas en esta hoja.")
+        if not any(p.kind == line_kind and p.pts_pdf for p in polylines):
+            utility_name = "eléctricas subterráneas" if utility == "ELECTRICO" else "de drenaje"
+            warnings.append(f"No se encontraron líneas {utility_name} en esta hoja.")
         if not path_counts:
-            warnings.append("Ninguna capa OCG coincidió con los roles / tokens de reconocimiento.")
-        n_ab = sum(1 for p in polylines if p.kind == "elec_ungd" and p.pts_pdf and p.abandoned)
+            if _page_is_flat(doc, page_index):
+                warnings.append("Esta hoja no tiene capas: sus vectores no están en ninguna capa del PDF "
+                                "(hoja aplanada), así que el reconocimiento por capas no puede encontrar "
+                                "utilidades en ella.")
+            else:
+                warnings.append("Ninguna capa OCG coincidió con los roles / tokens de reconocimiento.")
+        n_profile = gather_stats.get("profile_excluded", 0)
+        if n_profile:
+            warnings.append(
+                f"Se excluyeron {n_profile} trazo(s) dentro de una vista de PERFIL (grilla "
+                "de estación/elevación): esa vista no es planta y no se reconoce.")
+        n_ab = sum(1 for p in polylines if p.kind == line_kind and p.pts_pdf and p.abandoned)
         if n_ab:
             warnings.append(f"Utilidades abandonadas (capa «-A» + patrón «/»): {n_ab} — se importan marcadas (AB).")
         if n_layer_no_pattern:
             warnings.append(f"Capa «-A» sin el patrón de marcadores «/» a lo largo de la línea: "
                             f"{n_layer_no_pattern} — NO se marcan como abandonadas.")
+        if n_to_abandon:
+            warnings.append(f"Existentes A ABANDONAR (capa «-D», marcadores «//» de la leyenda): "
+                            f"{n_to_abandon} línea(s) — hoy se importan activas; revisar.")
         if n_active_with_pattern:
             warnings.append(f"Patrón de marcadores «/» en una capa ACTIVA: {n_active_with_pattern} línea(s) "
                             "— se importan activas (manda la capa); revisar.")
         if n_segments_total > n_routes:
             warnings.append(
                 f"Rutas: {n_routes} (unen {n_segments_total} tramos de la misma capa).")
-        n_fil = sum(len(p.fillets or {}) for p in polylines if p.kind == "elec_ungd")
-        n_loose = sum(1 for p in polylines if p.kind == "elec_ungd" for f in (p.fillets or {}).values() if f.get("loose"))
+        n_fil = sum(len(p.fillets or {}) for p in polylines if p.kind == line_kind)
+        n_loose = sum(1 for p in polylines if p.kind == line_kind for f in (p.fillets or {}).values() if f.get("loose"))
         if n_fil:
             msg = f"Codos como esquina + radio: {n_fil}"
             if n_loose:
-                dev = max(f.get("dev_px", 0.0) for p in polylines if p.kind == "elec_ungd"
+                dev = max(f.get("dev_px", 0.0) for p in polylines if p.kind == line_kind
                           for f in (p.fillets or {}).values() if f.get("loose")) / max(zoom, 1e-9)
                 msg += (f" ({n_loose} aproximado(s), a trazos: la curva del plano no es un arco tangente "
                         f"exacto; desvío máx. {dev:.1f} pt)")
             warnings.append(msg + ".")
-        n_curvy = sum(1 for p in polylines if p.kind == "elec_ungd" and "curve" in (p.kinds or []))
+        n_curvy = sum(1 for p in polylines if p.kind == line_kind and "curve" in (p.kinds or []))
         if n_curvy:
             warnings.append(f"Curvas que quedan como polilínea: {n_curvy} tramo(s) — curva compuesta (radio variable) "
                             "o sin recta tangente a un lado; no se inventa un arco que no está en el plano.")
@@ -589,7 +886,7 @@ def recognize_page(
         if orphans_px:
             warnings.append(f"Bóvedas sin línea cercana: {len(orphans_px)}.")
 
-        roles_out = roles if use_roles else roles_from_suggestions(list(kind_by_ocg.keys()))
+        roles_out = roles if use_roles else roles_from_suggestions(list(kind_by_ocg.keys()), utility)
         return RecognitionResult(
             utility=utility, page_index=page_index, scale_ft_per_pt=scale,
             polylines=polylines, ocg_summary=ocg_summary, warnings=warnings,

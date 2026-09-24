@@ -53,9 +53,13 @@ MIN_ANCHOR_SEG_PT = 3.0   # un trazo más corto que esto (letras, símbolos) no 
 MAX_ANCHOR_ITEMS = 6      # un path con más items es un glifo/símbolo, no una línea
 BORDER_BAND_PT = 14.0     # una línea larga a ≤ esto del borde del área es la línea de borde (match line)
 BORDER_MIN_FRAC = 0.35    # …si mide al menos esta fracción del lado
+TRIM_HEAVY_MIN_W = 1.2    # una línea así de gruesa (match line: 1.98 pt) se busca hasta 2× la banda
+TRIM_ML_REACH_MULT = 6.5  # …y si además va a guiones, hasta 6.5× (91 pt): el área puede llegar al
+                          # marco de la hoja, 71 pt más allá de la match line (DU06 h.6)
 GRID_SCAN_MULT = 4.5      # se mira hasta 4.5× la banda: si hay ≥ GRID_MIN_LINES paralelas, es una grilla
 GRID_MIN_LINES = 3
 GUIDE_MIN_PT = 40.0       # una línea (o serie de guiones colineales) de ≥ esto es guía para el área
+GUIDE_MIN_WIDTH = 0.5     # grosor mínimo con que pesa una guía (las de grosor 0 son «hairline»)
 COVER_PAD_PT = 0.3        # la franja blanca que tapa la línea de borde sobresale esto de su tinta
 COVER_OUT_PT = 0.5        # …y además sale esto por FUERA del borde: sin eso el píxel de la costura
                           # queda gris (la tinta anti-aliased de ambas piezas suma y cada franja solo
@@ -448,7 +452,7 @@ def edge_anchors(page: fitz.Page, clip: Sequence[float], max_paths: int = 200000
                           path.get("layer") or "", _rgb(path), float(path.get("width") or 0.0),
                           dash_len, on_border(x, y), on_inset))
 
-    for i, path in enumerate(page.get_drawings()):
+    for i, path in enumerate(page_drawings(page)):
         if i >= max_paths:
             break
         r = path.get("rect")
@@ -535,11 +539,16 @@ def trim_border(page: fitz.Page, clip: Sequence[float], band: float = BORDER_BAN
     # lado → (coordenada del borde, eje, signo hacia adentro, extensión del lado)
     sides = {"left": (inner.x0, "x", +1, (inner.y0, inner.y1)), "right": (inner.x1, "x", -1, (inner.y0, inner.y1)),
              "top": (inner.y0, "y", +1, (inner.x0, inner.x1)), "bottom": (inner.y1, "y", -1, (inner.x0, inner.x1))}
-    segs: Dict[str, List[Tuple[float, float, float, float, float]]] = {k: [] for k in sides}
-    for path in page.get_drawings():
+    segs: Dict[str, List[Tuple[float, float, float, float, float, bool]]] = {k: [] for k in sides}
+    util_cache: Dict[str, bool] = {}
+    for path in page_drawings(page):
         if path.get("type") == "f":
             continue
         width = float(path.get("width") or 0.0)
+        layer = path.get("layer") or ""
+        if layer not in util_cache:
+            util_cache[layer] = is_utility_layer(layer)
+        util = util_cache[layer]
         for it in path.get("items") or ():
             if it[0] != "l":
                 continue
@@ -559,19 +568,42 @@ def trim_border(page: fitz.Page, clip: Sequence[float], band: float = BORDER_BAN
                 if hi <= lo:
                     continue
                 d = (coord - edge) * sign
-                if -0.75 <= d <= GRID_SCAN_MULT * band:
-                    segs[side].append((d, coord, width, lo, hi))
+                # También un poco por FUERA: si el lado quedó unos pt antes de la
+                # match line, no verla dejaba el corte por dentro y faltaba ese
+                # trozo de plano en la costura (DU06 13→14: grada de 8 pt).
+                if -band <= d <= TRIM_ML_REACH_MULT * band:
+                    segs[side].append((d, coord, width, lo, hi, util))
     cut: Dict[str, Optional[Tuple[float, float]]] = {}      # lado → (coord del corte, ancho de la franja)
     for side, (edge, axis, sign, (s_lo, s_hi)) in sides.items():
         side_len = s_hi - s_lo
-        lines = _collinear_lines(segs[side], side_len, min_frac)
-        near = [ln for ln in lines if ln[0] <= band]
-        if not near or len(lines) >= GRID_MIN_LINES:
+        # Cada grosor por separado: la match line (gruesa) no se mezcla con las
+        # finas que corren pegadas a ella (cotas, bordes de vía).
+        lines = _collinear_lines(segs[side], side_len, min_frac, by_width=True)
+        inside = [sg for sg in segs[side] if -0.75 <= sg[0] <= GRID_SCAN_MULT * band]
+        if (len(_collinear_lines(inside, side_len, min_frac)) >= GRID_MIN_LINES
+                and _match_line_among(lines) is None):
+            cut[side] = None                                # grilla (perfil): no se recorta
+            continue
+        near = [ln for ln in lines if -band <= ln[0] <= band]
+        # La más GRUESA (la match line antes que una cota fina de 0.72 pt a su
+        # lado), y a igual grosor la más interior. Una bastante más gruesa algo
+        # más adentro también gana: el lado quedó sobre la cota de al lado o en
+        # el blanco entre cotas (DU10: cotas a 20/40/60 pt por fuera).
+        best = max(near, key=lambda t: (round(t[3], 1), t[0])) if near else None
+        ref = best[3] if best else 0.0
+        heavy = [ln for ln in lines if band < ln[0] <= 2.0 * band
+                 and ln[3] >= max(1.5 * ref, TRIM_HEAVY_MIN_W)]
+        if heavy:
+            best = max(heavy, key=lambda t: (round(t[3], 1), -t[0]))
+        ml = _match_line_among(lines)
+        if ml is not None:
+            best = ml
+        if best is None:
             cut[side] = None
-        else:
-            _, coord_mean, coord_inner, width = max(near, key=lambda t: t[0])
-            drift = (coord_inner - coord_mean) * sign          # cuánto se mete la línea si va inclinada
-            cut[side] = (coord_mean, max(0.0, drift) + width / 2.0 + COVER_PAD_PT)
+            continue
+        coord_mean, coord_inner, width = best[1], best[2], best[3]
+        drift = (coord_inner - coord_mean) * sign              # cuánto se mete la línea si va inclinada
+        cut[side] = (coord_mean, max(0.0, drift) + width / 2.0 + COVER_PAD_PT)
     if all(v is None for v in cut.values()):
         return normalize_clip(clip), {}
     tx0 = cut["left"][0] if cut["left"] else inner.x0
@@ -603,45 +635,47 @@ def guide_lines(page: fitz.Page, min_len: float = GUIDE_MIN_PT) -> Dict[str, Lis
     """Líneas «generales» de la hoja para imantar los lados del área a tomar:
     trazos horizontales/verticales (también a guiones colineales) cuya cobertura
     llega a `min_len`. Coords de la hoja VISIBLE, pt:
-    ``{"x": [(x, y_lo, y_hi, cobertura), …], "y": [(y, x_lo, x_hi, cobertura), …]}``
+    ``{"x": [(x, y_lo, y_hi, cobertura, grosor), …], "y": [(y, x_lo, x_hi, cobertura, grosor), …]}``
     ordenadas por coordenada."""
     segs_v: List[Tuple[float, float, float, float, float]] = []   # (0, coord, w, lo, hi) verticales (x=coord)
     segs_h: List[Tuple[float, float, float, float, float]] = []
-    for path in page.get_drawings():
+    for path in page_drawings(page):
         if path.get("type") == "f":
             continue
+        width = float(path.get("width") or 0.0)
         for it in path.get("items") or ():
             if it[0] != "l":
                 continue
             p, q = it[1], it[2]
             if abs(p.x - q.x) <= 0.75 and abs(p.y - q.y) >= 2.0:
-                segs_v.append((0.0, (p.x + q.x) / 2.0, 0.0, min(p.y, q.y), max(p.y, q.y)))
+                segs_v.append((0.0, (p.x + q.x) / 2.0, width, min(p.y, q.y), max(p.y, q.y)))
             elif abs(p.y - q.y) <= 0.75 and abs(p.x - q.x) >= 2.0:
-                segs_h.append((0.0, (p.y + q.y) / 2.0, 0.0, min(p.x, q.x), max(p.x, q.x)))
+                segs_h.append((0.0, (p.y + q.y) / 2.0, width, min(p.x, q.x), max(p.x, q.x)))
     rot = page.rotation_matrix
-    out: Dict[str, List[Tuple[float, float, float, float]]] = {"x": [], "y": []}
+    out: Dict[str, List[Tuple[float, float, float, float, float]]] = {"x": [], "y": []}
 
-    def emit(coord: float, lo: float, hi: float, cov: float, vertical: bool):
+    def emit(coord: float, lo: float, hi: float, cov: float, width: float, vertical: bool):
         a = fitz.Point(coord, lo) * rot if vertical else fitz.Point(lo, coord) * rot
         b = fitz.Point(coord, hi) * rot if vertical else fitz.Point(hi, coord) * rot
         ax, ay = a.x - page.rect.x0, a.y - page.rect.y0
         bx, by = b.x - page.rect.x0, b.y - page.rect.y0
         if abs(ax - bx) <= 1e-6:
-            out["x"].append(((ax + bx) / 2.0, min(ay, by), max(ay, by), cov))
+            out["x"].append(((ax + bx) / 2.0, min(ay, by), max(ay, by), cov, width))
         else:
-            out["y"].append(((ay + by) / 2.0, min(ax, bx), max(ax, bx), cov))
+            out["y"].append(((ay + by) / 2.0, min(ax, bx), max(ax, bx), cov, width))
 
     for segs, vertical in ((segs_v, True), (segs_h, False)):
-        for lo, hi, coord, cov in _covered_clusters(segs, min_len):
-            emit(coord, lo, hi, cov, vertical)
+        for lo, hi, coord, cov, width in _covered_clusters(segs, min_len):
+            emit(coord, lo, hi, cov, width, vertical)
     out["x"].sort(); out["y"].sort()
     return out
 
 
 def _covered_clusters(segs: List[Tuple[float, float, float, float, float]], min_len: float
-                      ) -> List[Tuple[float, float, float, float]]:
+                      ) -> List[Tuple[float, float, float, float, float]]:
     """Agrupa trazos paralelos por coordenada (±LINE_CLUSTER_PT); devuelve
-    (lo, hi, coord, cobertura) de los grupos cuya unión de tramos mide ≥ `min_len`."""
+    (lo, hi, coord, cobertura, grosor máx.) de los grupos cuya unión de tramos
+    mide ≥ `min_len`."""
     if not segs:
         return []
     segs = sorted(segs, key=lambda t: t[1])
@@ -663,19 +697,23 @@ def _covered_clusters(segs: List[Tuple[float, float, float, float, float]], min_
         covered += cur_hi - cur_lo
         if covered >= min_len:
             coord = sum(t[1] for t in g) / len(g)
-            out.append((spans[0][0], max(hi for _, hi in spans), coord, covered))
+            out.append((spans[0][0], max(hi for _, hi in spans), coord, covered, max(t[2] for t in g)))
     return out
 
 
 def snap_edge(guides: Sequence[tuple], coord: float, lo: float, hi: float,
               tol: float) -> Optional[tuple]:
     """Guía a la que salta un lado en `coord`: entre las que están a ≤ `tol` y
-    cuya extensión solapa [lo, hi], gana la de MÁS cobertura (la match line o el
-    marco antes que un borde de vía fino), y a igual cobertura la más cercana."""
+    cuya extensión solapa [lo, hi], gana la de MÁS peso = cobertura × grosor (la
+    match line o el marco antes que un borde de vía fino; y la match line gruesa
+    antes que las cotas finas que corren a 20 pt de ella aunque midan más: en el
+    DU10 la cota cubre 349 pt y la match line 301), y a igual peso la más cercana."""
     cands = []
     for g in guides:
         g_coord, g_lo, g_hi = g[0], g[1], g[2]
         cov = g[3] if len(g) > 3 else (g_hi - g_lo)
+        if len(g) > 4:
+            cov *= max(float(g[4]), GUIDE_MIN_WIDTH)
         if g_hi < lo or g_lo > hi:
             continue
         d = abs(g_coord - coord)
@@ -687,13 +725,21 @@ def snap_edge(guides: Sequence[tuple], coord: float, lo: float, hi: float,
 
 
 def _collinear_lines(segs: List[Tuple[float, float, float, float, float]], side_len: float,
-                     min_frac: float) -> List[Tuple[float, float, float, float]]:
+                     min_frac: float, by_width: bool = False) -> List[Tuple[float, float, float, float]]:
     """Agrupa trazos paralelos por coordenada (±LINE_CLUSTER_PT) y devuelve las
     "líneas" cuya cobertura (unión de sus tramos) llega a `min_frac` del lado:
-    [(d_medio, coord_media, coord_más_interior, ancho), …] ordenadas por d.
-    Así una match line a guiones gruesos cuenta igual que una continua."""
+    [(d_medio, coord_media, coord_más_interior, ancho, a_guiones, de_utilidad), …]
+    ordenadas por d. Así una match line a guiones gruesos cuenta igual que una
+    continua. `by_width`: cada grosor (±0.05 pt) agrupa aparte."""
     if not segs or side_len <= 0:
         return []
+    if by_width:
+        classes: Dict[int, list] = {}
+        for sg in segs:
+            classes.setdefault(round(sg[2] * 10), []).append(sg)
+        if len(classes) > 1:
+            out = [ln for grp in classes.values() for ln in _collinear_lines(grp, side_len, min_frac)]
+            return sorted(out)
     segs = sorted(segs, key=lambda t: t[1])
     groups: List[List[Tuple[float, float, float, float, float]]] = [[segs[0]]]
     for sg in segs[1:]:
@@ -703,21 +749,53 @@ def _collinear_lines(segs: List[Tuple[float, float, float, float, float]], side_
             groups.append([sg])
     out = []
     for g in groups:
-        spans = sorted((lo, hi) for _, _, _, lo, hi in g)
-        covered, cur_lo, cur_hi = 0.0, spans[0][0], spans[0][1]
+        spans = sorted((t[3], t[4]) for t in g)
+        covered, cur_lo, cur_hi, pieces = 0.0, spans[0][0], spans[0][1], 1
         for lo, hi in spans[1:]:
             if lo <= cur_hi:
                 cur_hi = max(cur_hi, hi)
             else:
                 covered += cur_hi - cur_lo; cur_lo, cur_hi = lo, hi
+                pieces += 1
         covered += cur_hi - cur_lo
         if covered >= min_frac * side_len:
             d_mean = sum(t[0] for t in g) / len(g)
             coord_mean = sum(t[1] for t in g) / len(g)
             coord_inner = max(g, key=lambda t: t[0])[1]
             width = max(t[2] for t in g)
-            out.append((d_mean, coord_mean, coord_inner, width))
+            extent = max(hi for _, hi in spans) - spans[0][0]
+            dashed = pieces >= 3 and covered <= 0.9 * extent
+            util = any(len(t) > 5 and t[5] for t in g)
+            out.append((d_mean, coord_mean, coord_inner, width, dashed, util))
     return sorted(out)
+
+
+def is_utility_layer(layer: str) -> bool:
+    """Capa de una red (agua, eléctrico…): una línea suya nunca es la match line."""
+    from pdf_layers import UTILITY_OTHER, utility_of
+    return bool(layer) and utility_of(layer) != UTILITY_OTHER
+
+
+def _match_line_among(lines) -> Optional[tuple]:
+    """La MATCH LINE entre las líneas de un lado (`_collinear_lines`): gruesa
+    (≥`TRIM_HEAVY_MIN_W`), a guiones, fuera de las capas de utilidad, la más
+    gruesa de todas y ≥1.5× más gruesa que cualquier otra línea a guiones. Con
+    ella el corte va ahí aunque esté hasta 6.5 bandas adentro, haya cotas finas
+    (que parecen grilla) en medio o el lado esté sobre el marco de la hoja:
+    DU06/DU10 dibujan tres cotas de 0.72 pt a 20/40/60 pt de la match line de
+    1.98 pt y el marco (1.68, continuo) a ~70 pt."""
+    cands = [ln for ln in lines if ln[3] >= TRIM_HEAVY_MIN_W and ln[4] and not ln[5]]
+    if not cands:
+        return None
+    w = max(ln[3] for ln in cands)
+    if any(ln[3] > w + 0.05 and not ln[5] for ln in lines):
+        return None
+    # las redes (una tubería gruesa a guiones junto a la costura, DU10 h.13) no
+    # compiten: nunca son la match line
+    rest = max((ln[3] for ln in lines if ln[4] and not ln[5] and ln[3] < w - 0.05), default=0.0)
+    if w < 1.5 * rest:
+        return None
+    return min((ln for ln in cands if ln[3] >= w - 0.05), key=lambda t: abs(t[0]))
 
 
 def edge_points(page: fitz.Page, clip: Sequence[float], max_paths: int = 200000,
@@ -1094,20 +1172,49 @@ def bridge_segments_poly(pts: Sequence[Pt], dash: float, gap_ratio: float = BRID
     return out
 
 
+def page_drawings(page: fitz.Page) -> list:
+    """`page.get_drawings()` con caché en el propio documento.
+
+    Leer los vectores de una hoja del DU06 cuesta ~0.6 s y el compositor lo
+    hacía por separado en `guide_lines`, `trim_border`, `edge_anchors` y
+    `page_segments` — las dos últimas DURANTE el arrastre, la primera vez que
+    dos piezas se tocan: la UI se congelaba unos segundos en la primera unión.
+    La clave incluye el estado de las capas (una capa apagada cambia el
+    resultado de `get_drawings`). Solo lectura: nadie debe modificar la lista."""
+    doc = page.parent
+    try:
+        layers = tuple(bool(c.get("on")) for c in doc.layer_ui_configs())
+    except Exception:
+        layers = ()
+    key = (page.number, page.rotation, layers)
+    cache = getattr(doc, "_pdfcad_drawings", None)
+    if cache is None:
+        cache = {}
+        try:
+            doc._pdfcad_drawings = cache
+        except Exception:                   # objeto sin atributos libres: sin caché
+            return page.get_drawings()
+    if key not in cache:
+        cache[key] = page.get_drawings()
+    return cache[key]
+
+
 def page_segments(page: fitz.Page) -> List[Tuple[float, float, float, float]]:
     """Segmentos rectos de la hoja VISIBLE (x0, y0, x1, y1), una sola pasada."""
     rot = page.rotation_matrix
+    ox, oy = page.rect.x0, page.rect.y0
+    ra, rb, rc, rd, re_, rf = rot.a, rot.b, rot.c, rot.d, rot.e, rot.f
     out: List[Tuple[float, float, float, float]] = []
-    for path in page.get_drawings():
+    for path in page_drawings(page):
         if path.get("type") == "f":
             continue
         for it in path.get("items") or ():
             if it[0] != "l":
                 continue
-            a = fitz.Point(it[1].x, it[1].y) * rot
-            b = fitz.Point(it[2].x, it[2].y) * rot
-            out.append((a.x - page.rect.x0, a.y - page.rect.y0,
-                        b.x - page.rect.x0, b.y - page.rect.y0))
+            # (x, y)·rot a mano: crear dos fitz.Point por tramo costaba ~1 s por hoja
+            ax, ay, bx, by = it[1].x, it[1].y, it[2].x, it[2].y
+            out.append((ax * ra + ay * rc + re_ - ox, ax * rb + ay * rd + rf - oy,
+                        bx * ra + by * rc + re_ - ox, bx * rb + by * rd + rf - oy))
     return out
 
 
