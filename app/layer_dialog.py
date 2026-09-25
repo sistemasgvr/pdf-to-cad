@@ -33,7 +33,7 @@ import pdf_layers
 import recognition
 import theme as _theme
 from ui_common import aci_qcolor, layer_qcolor, swatch_icon
-from widgets import ZoomPanView, MiniMap, maximize_on_show, side_panel_width
+from widgets import ZoomPanView, MiniMap, maximize_on_show, side_panel_width, GripSplitter
 
 # Zoom del render PDF (matriz PyMuPDF). El lienzo principal usa ~3.5; aquí
 # 3.0 da nitidez al acercar con la rueda sin ralentizar demasiado el
@@ -97,11 +97,7 @@ class SheetLayersDialog(QtWidgets.QDialog):
 
         # Vista | panel derecho, con divisor arrastrable: el panel arranca con un
         # ancho acorde a la ventana (nunca más del 32 %) y el usuario lo ajusta.
-        self.split = QtWidgets.QSplitter(QtCore.Qt.Horizontal)
-        self.split.setChildrenCollapsible(False)
-        self.split.setHandleWidth(10)
-        # tirador fino y transparente: solo separación (sigue siendo arrastrable)
-        self.split.setStyleSheet("QSplitter::handle { background: transparent; border: none; }")
+        self.split = GripSplitter(QtCore.Qt.Horizontal)   # tirador visible y arrastrable
         self.split.addWidget(self.view)
         side = QtWidgets.QWidget()
         side.setMinimumWidth(300)

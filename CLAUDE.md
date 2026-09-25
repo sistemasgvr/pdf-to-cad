@@ -560,8 +560,8 @@ alcantarillado, drenaje, gas, eléctrico, telecom). Todo en **unidades imperiale
     letra partida → glifo. Foto: DU06 0 puntos movidos (solo «end»→«cut» en extremos
     del borde); cambios de geometría solo en DU08 h.36/37/49 y LABOE h.26 (revisados).
   - **Perfil AGUA (2026-09-24)**: `recognition.SUPPORTED_UTILITIES` = ELECTRICO, DRENAJE,
-    AGUA; `DEFAULT_UTILITIES` (selección al abrir) sigue siendo Eléctrico+Drenaje — Agua se
-    marca en «Capas de la hoja». Etiquetas: `UTILITY_LABELS`/`utility_label`/
+    AGUA; `DEFAULT_UTILITIES` (selección al abrir) = TODAS (`SUPPORTED_UTILITIES`, pedido 2026-09-25); se
+    desmarcan en «Capas de la hoja». Etiquetas: `UTILITY_LABELS`/`utility_label`/
     `utilities_label` (no volver a escribir «Eléctrico y Drenaje» a mano en la UI).
     `_classify_water`: línea `water_ungd` = `C-WATE?R[-_](paquete-)?(UNGD|UGND|PIPE)` sin
     ANNO/TEXT/CASE/FITT/APPT/VALV/METR/HYDR/-FH/-GV/WALL/…; estructura = V-WATR-VALT/MANH/
@@ -576,7 +576,7 @@ alcantarillado, drenaje, gas, eléctrico, telecom). Todo en **unidades imperiale
     Auditoría: `tests/test_water_profile.py`; 68 hojas sin tramos sin tinta ni «V»; foto
     eléctrico/drenaje de los 4 PDFs = 0 diferencias.
   - **Perfil ALCANTARILLADO (2026-09-25)**: `SUPPORTED_UTILITIES` suma ALCANTARILLADO
-    (kind `sewer_ungd`; NO está en `DEFAULT_UTILITIES`). `_classify_sewer`: línea =
+    (kind `sewer_ungd`). `_classify_sewer`: línea =
     `C-(SSWR|SEWR|SEWER|SANI)[-_](paquete-)?(UNGD|UGND|UNDG|PIPE)` sin ANNO/TEXT/CASE/PATT/
     WALL/PROF/STRC/MANH/SCRN/COUT…; estructura = V-SSWR-MANH/STRU, C-SSWR-STRC/MANH/MHOL y
     `C-SSWR-(UNGD|UGND)-STRC(-N-301…)` (LABOE, propuestos). `V-SSWR-COUT` (cleanout) =

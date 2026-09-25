@@ -37,10 +37,9 @@ def test_capas_de_hojas_organizadas_ofrece_casillas_de_utilidad_a_reconocer():
             {"main": 0}, {})
         try:
             assert set(dlg._recog_checks) == {"ELECTRICO", "DRENAJE", "AGUA", "ALCANTARILLADO"}
-            assert not dlg._recog_checks["AGUA"].isChecked()
-            assert not dlg._recog_checks["ALCANTARILLADO"].isChecked()
-            assert dlg._recog_checks["ELECTRICO"].isChecked()
-            assert dlg._recog_checks["DRENAJE"].isChecked()
+            assert all(chk.isChecked() for chk in dlg._recog_checks.values())   # todas por defecto
+            dlg._recog_checks["AGUA"].setChecked(False)
+            dlg._recog_checks["ALCANTARILLADO"].setChecked(False)
             dlg._recog_checks["ELECTRICO"].setChecked(False)
             dlg._recog_checks["DRENAJE"].setChecked(False)   # no deja las dos sin marcar
             assert dlg._recog_checks["DRENAJE"].isChecked()

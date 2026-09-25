@@ -56,7 +56,7 @@ def test_capas_de_alcantarillado_no_entran_en_otros_perfiles():
 
 def test_registro_del_perfil():
     assert rec.SUPPORTED_UTILITIES[-1] == "ALCANTARILLADO"
-    assert rec.DEFAULT_UTILITIES == ("ELECTRICO", "DRENAJE")          # no cambia lo de siempre
+    assert rec.DEFAULT_UTILITIES == rec.SUPPORTED_UTILITIES          # todas marcadas al abrir
     assert rec.utility_line_kind("ALCANTARILLADO") == "sewer_ungd"
     assert "sewer_ungd" in rec.DRAW_KINDS
     assert rec.utility_label("ALCANTARILLADO") == "Alcantarillado"

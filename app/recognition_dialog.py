@@ -17,7 +17,7 @@ from i18n import t as _tr, N_
 from model import TIPOS
 from ui_common import layer_qcolor, swatch_icon
 from icons import icon
-from widgets import ZoomPanView, maximize_on_show, side_panel_width
+from widgets import ZoomPanView, maximize_on_show, side_panel_width, GripSplitter
 import recognition as rec
 from recognition_summary_view import SummaryPanel
 import theme as _theme
@@ -399,11 +399,7 @@ class RecognitionPreviewDialog(QtWidgets.QDialog):
         root.setContentsMargins(12, 12, 12, 12)   # margen uniforme alrededor de vista y panel
         self.view = _PreviewView()
         # Vista | panel derecho con divisor arrastrable (ancho según la ventana).
-        self.split = QtWidgets.QSplitter(QtCore.Qt.Horizontal)
-        self.split.setChildrenCollapsible(False)
-        self.split.setHandleWidth(10)
-        # tirador fino y transparente: solo separación (sigue siendo arrastrable)
-        self.split.setStyleSheet("QSplitter::handle { background: transparent; border: none; }")
+        self.split = GripSplitter(QtCore.Qt.Horizontal)   # tirador visible y arrastrable
         self.split.addWidget(self.view)
         side = QtWidgets.QWidget()
         side.setMinimumWidth(300)
@@ -454,22 +450,7 @@ class RecognitionPreviewDialog(QtWidgets.QDialog):
         cov = min(float(getattr(item, "coverage", 1.0) or 0.0) for item in self._results)
         n_unc = sum(len(getattr(item, "uncovered_px", None) or []) for item in self._results)
         n_off = sum(len(getattr(item, "offpattern_px", None) or []) for item in self._results)
-        qa_ok = cov >= 0.98 and n_unc == 0
-        qa_row = QtWidgets.QHBoxLayout(); qa_row.setSpacing(6)
-        qa_ic = QtWidgets.QLabel()
-        qa_ic.setPixmap(icon("mdi:check-circle-outline" if qa_ok else "mdi:alert-outline",
-                             color=t.success if qa_ok else "#e08a00").pixmap(16, 16))
-        qa_txt = _tr("Cobertura {c:.1f} %").format(c=cov * 100)
-        if n_unc or n_off:
-            qa_txt += "  ·  " + _tr("{m} sin cubrir (naranja) · {o} fuera de patrón (violeta)").format(
-                m=n_unc, o=n_off)
-        qa = QtWidgets.QLabel(qa_txt)
-        qa.setWordWrap(True)
-        qa.setToolTip(_tr("Guiones del plano cubiertos por las líneas reconocidas. En el dibujo: "
-                          "naranja = sin cubrir, violeta = trazos fuera de patrón (leaders/flechas)."))
-        qa_row.addWidget(qa_ic, 0); qa_row.addWidget(qa, 1)
-        qa_row.addWidget(self.lbl_summary, 0)
-        panel.addLayout(qa_row)
+        panel.addLayout(self._coverage_bar(t, cov, n_unc, n_off))
         hidden = sorted({name for item in self._results
                          for name in (getattr(item, "hidden_ocgs", None) or [])})
         if hidden:
@@ -564,6 +545,46 @@ class RecognitionPreviewDialog(QtWidgets.QDialog):
 
     def _n_draw(self):
         return len(self._drawable())
+
+    def _coverage_bar(self, t, cov: float, n_unc: int, n_off: int) -> QtWidgets.QLayout:
+        """Cobertura como barra de avance 0–100 % (verde ≥98 % sin huecos, ámbar
+        ≥90 %, rojo por debajo) + chips de color con lo que quedó fuera."""
+        qa_ok = cov >= 0.98 and n_unc == 0
+        bar_color = t.success if qa_ok else ("#e08a00" if cov >= 0.90 else t.danger)
+        box = QtWidgets.QVBoxLayout(); box.setSpacing(3)
+        top = QtWidgets.QHBoxLayout(); top.setSpacing(6)
+        ic = QtWidgets.QLabel()
+        ic.setPixmap(icon("mdi:check-circle-outline" if qa_ok else "mdi:alert-outline",
+                          color=bar_color).pixmap(16, 16))
+        top.addWidget(ic, 0)
+        top.addWidget(QtWidgets.QLabel(_tr("Cobertura")), 0)
+        bar = QtWidgets.QProgressBar()
+        bar.setRange(0, 1000)
+        bar.setValue(int(round(max(0.0, min(1.0, cov)) * 1000)))
+        bar.setFormat(f"{cov * 100:.1f} %")
+        bar.setTextVisible(True)
+        bar.setAlignment(QtCore.Qt.AlignCenter)
+        bar.setFixedHeight(18)
+        bar.setStyleSheet(
+            f"QProgressBar {{ border:1px solid {t.border}; border-radius:4px;"
+            f" background:{t.surface_alt}; color:{t.text}; font-weight:bold; }}"
+            f"QProgressBar::chunk {{ background:{bar_color}; border-radius:3px; }}")
+        bar.setToolTip(_tr("Guiones del plano cubiertos por las líneas reconocidas. En el dibujo: "
+                           "naranja = sin cubrir, violeta = trazos fuera de patrón (leaders/flechas)."))
+        top.addWidget(bar, 1)
+        box.addLayout(top)
+        info = QtWidgets.QHBoxLayout(); info.setSpacing(12)
+        for n, color, text in ((n_unc, "#ff8c00", _tr("{n} sin cubrir").format(n=n_unc)),
+                               (n_off, "#8a6cff", _tr("{n} fuera de patrón").format(n=n_off))):
+            dot = QtWidgets.QLabel()
+            dot.setPixmap(swatch_icon(QtGui.QColor(color), 10).pixmap(10, 10))
+            chip = QtWidgets.QLabel(text)
+            chip.setStyleSheet("color:%s;" % (t.text if n else t.text_muted))
+            info.addWidget(dot, 0); info.addWidget(chip, 0)
+        info.addStretch(1)
+        info.addWidget(self.lbl_summary, 0)
+        box.addLayout(info)
+        return box
 
     def _update_summary(self):
         drawable = self._drawable()

@@ -45,10 +45,9 @@ RECOGNITION_LAYER_TOKENS: Sequence[Tuple[str, str]] = (
 
 UTILITY_HINT = "ELECTRICO"
 SUPPORTED_UTILITIES = ("ELECTRICO", "DRENAJE", "AGUA", "ALCANTARILLADO")
-# Selección por defecto al abrir un PDF (la de siempre). Agua y Alcantarillado se
-# marcan a mano en el paso «Capas de la hoja»: así activarlos no cambia lo que ya
-# se importaba.
-DEFAULT_UTILITIES = ("ELECTRICO", "DRENAJE")
+# Selección por defecto al abrir un PDF: TODAS las utilidades reconocibles (pedido
+# del usuario 2026-09-25); se desmarcan a mano en el paso «Capas de la hoja».
+DEFAULT_UTILITIES = SUPPORTED_UTILITIES
 UTILITY_LINE_KINDS = {
     "ELECTRICO": "elec_ungd",
     "DRENAJE": "drain_ungd",

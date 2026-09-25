@@ -30,7 +30,7 @@ from i18n import t as _tr
 from icons import icon as _icon
 from sheet_crop_dialog import _CropView
 from ui_common import DOWNLOADS
-from widgets import CollapsiblePanel, maximize_on_show
+from widgets import CollapsiblePanel, maximize_on_show, GripSplitter
 import theme as _theme
 
 _SETTINGS = ("PDFCAD", "AsistenteC3D")
@@ -144,11 +144,7 @@ class CompositeDialog(QtWidgets.QDialog):
         self.intro.setWordWrap(True)
         self.intro.setStyleSheet(f"color:{tokens.text_muted};")
         root.addWidget(self.intro)
-        split = QtWidgets.QSplitter(QtCore.Qt.Horizontal)
-        split.setChildrenCollapsible(False)
-        split.setHandleWidth(12)
-        # tirador invisible: solo separación entre paneles (sigue siendo arrastrable)
-        split.setStyleSheet("QSplitter::handle { background: transparent; border: none; }")
+        split = GripSplitter(QtCore.Qt.Horizontal)   # tirador visible y arrastrable
         root.addWidget(split, 1)
         self.split = split
         self.panels = [self._build_source_panel(), self._build_area_panel(), self._build_composite_panel()]

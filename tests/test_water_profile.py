@@ -60,9 +60,9 @@ def test_capas_de_agua_no_entran_en_otros_perfiles():
         assert rec.classify_ocg(name, "DRENAJE") is None
 
 
-def test_seleccion_por_defecto_sin_cambios_y_etiquetas():
+def test_seleccion_por_defecto_todas_y_etiquetas():
     assert "AGUA" in rec.SUPPORTED_UTILITIES
-    assert rec.normalize_utilities() == ("ELECTRICO", "DRENAJE")
+    assert rec.normalize_utilities() == rec.SUPPORTED_UTILITIES      # todas marcadas al abrir
     assert rec.normalize_utilities(["agua"]) == ("AGUA",)
     assert rec.normalize_utilities(["AGUA", "ELECTRICO"]) == ("ELECTRICO", "AGUA")
     assert rec.utilities_label(("ELECTRICO", "DRENAJE")) == "Eléctrico y Drenaje"

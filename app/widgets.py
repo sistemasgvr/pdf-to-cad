@@ -374,3 +374,70 @@ class CollapsiblePanel(QtWidgets.QFrame):
         else:
             self.setMinimumWidth(0); self.setMaximumWidth(16777215)
         self.toggled.emit(on)
+
+
+class _GripHandle(QtWidgets.QSplitterHandle):
+    """Tirador visible: línea fina + agarradera central con puntos; se ilumina
+    con el color de acento al pasar el ratón o al arrastrar."""
+
+    def __init__(self, orientation, parent):
+        super().__init__(orientation, parent)
+        self._hot = False
+        self.setAttribute(QtCore.Qt.WA_Hover, True)
+        self.setToolTip(_tr("Arrastra para cambiar el ancho"))
+
+    def event(self, ev):
+        if ev.type() in (QtCore.QEvent.HoverEnter, QtCore.QEvent.HoverLeave):
+            self._hot = ev.type() == QtCore.QEvent.HoverEnter
+            self.update()
+        return super().event(ev)
+
+    def mousePressEvent(self, ev):
+        self._hot = True; self.update()
+        super().mousePressEvent(ev)
+
+    def mouseReleaseEvent(self, ev):
+        super().mouseReleaseEvent(ev)
+        self._hot = self.underMouse(); self.update()
+
+    def paintEvent(self, _ev):
+        t = _theme.tokens()
+        p = QtGui.QPainter(self)
+        p.setRenderHint(QtGui.QPainter.Antialiasing)
+        r = QtCore.QRectF(self.rect())
+        horiz = self.orientation() == QtCore.Qt.Horizontal
+        line = QtGui.QColor(t.accent if self._hot else t.border)
+        c = r.center()
+        # línea a todo lo largo
+        p.setPen(QtGui.QPen(line, 2 if self._hot else 1))
+        if horiz:
+            p.drawLine(QtCore.QPointF(c.x(), r.top() + 4), QtCore.QPointF(c.x(), r.bottom() - 4))
+        else:
+            p.drawLine(QtCore.QPointF(r.left() + 4, c.y()), QtCore.QPointF(r.right() - 4, c.y()))
+        # agarradera central (píldora con 3 puntos)
+        w, h = (8.0, 44.0) if horiz else (44.0, 8.0)
+        pill = QtCore.QRectF(c.x() - w / 2, c.y() - h / 2, w, h)
+        p.setPen(QtGui.QPen(line, 1))
+        p.setBrush(QtGui.QColor(t.accent if self._hot else t.surface_alt))
+        p.drawRoundedRect(pill, 4, 4)
+        p.setPen(QtCore.Qt.NoPen)
+        p.setBrush(QtGui.QColor(t.text_on_accent if self._hot else t.text_muted))
+        for k in (-10, 0, 10):
+            dot = QtCore.QPointF(c.x(), c.y() + k) if horiz else QtCore.QPointF(c.x() + k, c.y())
+            p.drawEllipse(dot, 1.6, 1.6)
+        p.end()
+
+
+class GripSplitter(QtWidgets.QSplitter):
+    """QSplitter con tirador visible (`_GripHandle`): se nota que se puede arrastrar."""
+
+    def __init__(self, orientation=QtCore.Qt.Horizontal, parent=None, handle_width=12):
+        super().__init__(orientation, parent)
+        self.setHandleWidth(handle_width)
+        self.setChildrenCollapsible(False)
+        self.setStyleSheet("QSplitter::handle { background: transparent; border: none; }")
+        _theme.THEME_BUS.changed.connect(lambda *_: [self.handle(i).update()
+                                                     for i in range(self.count())])
+
+    def createHandle(self):
+        return _GripHandle(self.orientation(), self)
