@@ -116,14 +116,23 @@ dibujarlas. El asistente tiene 3 pantallas:</p>
     Eléctrico, Telefonía, Otras), cada una con su color.</li>
 <li>Desmarca lo que <b>no</b> necesitas: se oculta del plano y no se usa al reconocer.</li>
 <li>Con <b>◀ Hoja N / M ▶</b> cambias de hoja sin salir.</li>
+<li>En <b>Utilidades a reconocer</b> marcas cuáles quieres que la app lea:
+    <b>Eléctrico</b>, <b>Drenaje</b>, <b>Agua</b> y <b>Alcantarillado</b>. Solo se pueden
+    marcar las que la hoja tiene.</li>
 </ul>
 
 <h2>3. Vista previa del reconocimiento</h2>
 <ul>
-<li>Muestra las líneas eléctricas que encontró, sus bóvedas y el porcentaje revisado.</li>
+<li>Muestra las líneas que encontró de cada utilidad, cada una con su color, sus bóvedas o
+    buzones y el porcentaje revisado.</li>
+<li>Si aparece un aviso <b>Revisar</b>, haz clic en él: la vista te lleva al lugar exacto de la
+    hoja. Cada clic muestra el siguiente caso (1/N).</li>
 <li><span class="btn">Continuar e importar al editor</span> las agrega al proyecto como tuberías.</li>
-<li>Las líneas <b>abandonadas</b> (capa «-A» con marcas «/») se importan marcadas como
-    <b>(AB)</b>. Los <b>codos</b> curvos del plano se importan con su radio real.</li>
+<li>Las líneas <b>abandonadas</b> se importan marcadas como <b>(AB)</b>: las de la capa «-A»
+    con marcas «/», y cualquier línea con marcas dobles «//».</li>
+<li>Los <b>codos</b> curvos del plano se importan con su radio real.</li>
+<li>El <b>agua</b> entra sin cajas (va a presión). El <b>alcantarillado</b> y el drenaje entran
+    con sus buzones.</li>
 </ul>
 <table width="100%" cellspacing="0" cellpadding="12"><tr>
 <td width="6" bgcolor="{{tip_border}}"></td><td bgcolor="{{tip}}">
@@ -171,6 +180,16 @@ dibujarlas. El asistente tiene 3 pantallas:</p>
 <tr><td bgcolor="{{card}}"><b>Cotas por tramo</b></td><td bgcolor="{{card}}">Pulsa «Activar edición por tramo» para poner una cota distinta a cada tramo (T1, T2…).</td></tr>
 </table>
 
+<h2>Datos extendidos</h2>
+<p>El botón verde <span class="btn">Ver datos extendidos</span> (junto a «Eliminar», también en
+<b>Buzones</b>) muestra una tabla <b>Campo | Valor</b>:</p>
+<ul>
+<li>Si la tubería o la bóveda vino del PDF, trae datos con candado 🔒: la capa de donde salió y
+    lo que dice su nombre (tipo, si es nueva, existente o abandonada, y la hoja de origen).
+    Son solo de referencia.</li>
+<li>Con <b>Agregar campo</b> anotas tus propios datos. Se guardan en el proyecto y salen en el DXF.</li>
+</ul>
+
 <table width="100%" cellspacing="0" cellpadding="12"><tr>
 <td width="6" bgcolor="{{info_border}}"></td><td bgcolor="{{info}}">
 <b>Importante sobre el nombre:</b> el nombre solo sirve para identificar la red. Dos tuberías
@@ -186,8 +205,10 @@ el máximo permitido.</p>
 
 <section data-title="Buzones y cajas">
 <ul>
-<li>La app pone sola un <b>buzón</b> (BZ-) en cada vértice de alcantarillado y drenaje, y una
-    <b>caja</b> (CAJA-) en las redes eléctricas y de telecomunicaciones.</li>
+<li>La app pone sola un <b>buzón</b> (BZ-) en cada vértice de alcantarillado y drenaje.</li>
+<li>Las redes <b>eléctricas y de telecomunicaciones</b> llevan pocas cajas: la app solo pone
+    una <b>caja</b> (CAJA-) donde el plano del PDF tiene una bóveda real, con sus medidas.
+    Las demás las agregas tú.</li>
 <li>En la lista <b>Buzones</b> cambias su familia, tamaño y cotas.</li>
 <li>Para agregar uno en medio de una línea: <b>Herramientas → Insertar buzón en línea…</b></li>
 <li><b>Ocultar buzón</b> quita un buzón que en realidad no existe; la red sigue unida.</li>

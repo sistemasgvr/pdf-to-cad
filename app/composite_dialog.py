@@ -22,7 +22,7 @@ import fitz
 from PySide6 import QtCore, QtGui, QtWidgets
 
 import composite as C
-import pdf_layers
+import pdf_layers as PL
 import vector_pipeline as VP
 from composite_view import CompositeView, _qpixmap
 from pdf_view_quality import ViewportSharpener
@@ -66,6 +66,14 @@ def _tool(icon_name: str, text: str, tip: str = "", checkable: bool = False,
     btn.setMinimumHeight(32)
     if icon_only:
         btn.setFixedSize(34, 32)
+    if checkable:
+        # Estado activo bien visible (fondo verde del tema + icono claro): el
+        # usuario no distinguía si «Imán a líneas» / «Sin línea de borde» estaban
+        # activos con el resalte sutil de QToolButton.
+        btn.setProperty("toggleTool", True)
+        on_icon = _icon(icon_name, color=_theme.tokens().text_on_accent)
+        off_icon = btn.icon()
+        btn.toggled.connect(lambda on, b=btn: b.setIcon(on_icon if on else off_icon))
     return btn
 
 
@@ -83,16 +91,23 @@ class CompositeDialog(QtWidgets.QDialog):
                  hidden_by_source: Optional[Dict[str, List[str]]], current_page: int = 0):
         super().__init__(parent)
         self.sources = [dict(s) for s in sources]
+        # `hidden_by_source` es la selección de capas de la hoja YA COMPUESTA
+        # (paso «Capas de la hoja», después de este diálogo): aquí solo se
+        # conserva para devolverla sin tocar. El compositor sirve para MIRAR y
+        # recortar el plano de cada PDF origen, así que muestra siempre TODAS
+        # las capas — si se aplicara la ocultación de una composición anterior,
+        # una hoja cuyo contenido está solo en una capa ya oculta parecía no
+        # tener nada que tomar (usuario: «la página 3 no me muestra capas»).
         self.hidden_by_source = {k: list(v) for k, v in (hidden_by_source or {}).items()}
         self.comp = C.Composite.from_dict(comp.to_dict()) if comp else C.Composite()
         self.docs: List[fitz.Document] = []
         for i, s in enumerate(self.sources):
             doc = fitz.open(stream=s["data"], filetype="pdf")
-            pdf_layers.set_hidden(doc, self.hidden_by_source.get(str(i), ()))
             self.docs.append(doc)
         self._scale_cache: Dict[tuple, float] = {}
         self._thumb_cache: Dict[tuple, QtGui.QIcon] = {}
         self._guide_cache: Dict[tuple, dict] = {}
+        self._layers_cache: Dict[tuple, bool] = {}   # (pdf, hoja) → ¿dibuja dentro de capas?
         self._cur_source = 0
         self._cur_page = current_page
         self._page_item = None
@@ -150,9 +165,10 @@ class CompositeDialog(QtWidgets.QDialog):
         hint.setWordWrap(True)
         foot.addWidget(hint, 1)
         self.btn_cancel = QtWidgets.QPushButton(_tr("Cancelar"))
+        self.btn_cancel.setProperty("secondary", True)
         self.btn_cancel.setMinimumSize(120, 34)
         self.btn_cancel.clicked.connect(self.reject)
-        self.btn_ok = QtWidgets.QPushButton(_icon("mdi:check"), _tr("Continuar"))
+        self.btn_ok = QtWidgets.QPushButton(_tr("Continuar"))
         self.btn_ok.setMinimumSize(140, 34)
         self.btn_ok.setDefault(True)
         self.btn_ok.clicked.connect(self.accept)
@@ -225,6 +241,16 @@ class CompositeDialog(QtWidgets.QDialog):
         self.lst_pages.setSpacing(3)
         self.lst_pages.currentRowChanged.connect(self._on_page_changed)
         lay.addWidget(self.lst_pages, 1)
+        # Hoja «aplanada»: sus vectores no están en ninguna capa (apagar capas no
+        # la cambia y el reconocimiento por capas no encuentra nada en ella).
+        t = _theme.tokens()
+        self.lbl_nolayers = QtWidgets.QLabel()
+        self.lbl_nolayers.setWordWrap(True)
+        self.lbl_nolayers.setStyleSheet(
+            f"border:1px solid {t.danger}; border-left:4px solid {t.danger}; color:{t.text}; "
+            f"padding:6px 8px; border-radius:4px; font-size:12px;")
+        self.lbl_nolayers.hide()
+        lay.addWidget(self.lbl_nolayers)
 
         form = QtWidgets.QFormLayout(); form.setContentsMargins(0, 0, 0, 0)
         self.spn_src_scale = _spin('1" = ', "'", 0.1, 100000.0)
@@ -247,7 +273,7 @@ class CompositeDialog(QtWidgets.QDialog):
         self._crop_sharp = ViewportSharpener(self.crop, lambda: self.docs[self._cur_source][self._cur_page], z=1)
         lay.addWidget(self.crop, 1)
         row = QtWidgets.QHBoxLayout(); row.setSpacing(8)
-        self.btn_take = QtWidgets.QPushButton(_icon("mdi:arrow-right-bold"), _tr("Tomar área"))
+        self.btn_take = QtWidgets.QPushButton(_tr("Tomar área"))
         self.btn_take.setMinimumHeight(34)
         self.btn_take.clicked.connect(lambda: self._take(full=False))
         self.btn_take_full = QtWidgets.QPushButton(_tr("Tomar hoja completa"))
@@ -278,7 +304,28 @@ class CompositeDialog(QtWidgets.QDialog):
         self.lbl_area.setStyleSheet(f"color:{_theme.tokens().text_muted}; font-size:12px;")
         row.addWidget(self.lbl_area)
         lay.addLayout(row)
+        # Aviso de confirmación al tomar (el usuario puede tener el panel 3
+        # plegado y no ver que la pieza ya se agregó). Se apaga solo.
+        t = _theme.tokens()
+        self.lbl_taken = QtWidgets.QLabel()
+        self.lbl_taken.setWordWrap(True)
+        self.lbl_taken.setStyleSheet(
+            f"background:{t.success}; color:{t.text_on_accent}; font-weight:bold; "
+            f"padding:6px 10px; border-radius:4px;")
+        self.lbl_taken.hide()
+        lay.addWidget(self.lbl_taken)
+        self._taken_timer = QtCore.QTimer(self)
+        self._taken_timer.setSingleShot(True)
+        self._taken_timer.timeout.connect(self.lbl_taken.hide)
         return box
+
+    def _notify_taken(self, piece: "C.Piece", idx: int):
+        """Muestra unos segundos «✔ Área tomada como pieza N» en el panel 2."""
+        self.lbl_taken.setText(_tr("✔ Área tomada como pieza {n} ({label}). Ya está en la hoja compuesta "
+                                   "({total} pieza(s)).").format(n=idx + 1, label=piece.label,
+                                                                 total=len(self.comp.pieces)))
+        self.lbl_taken.show()
+        self._taken_timer.start(5000)
 
     def _build_composite_panel(self) -> QtWidgets.QWidget:
         box, lay = _panel(_tr("3 · Hoja compuesta"))
@@ -371,13 +418,29 @@ class CompositeDialog(QtWidgets.QDialog):
         doc = self.docs[self._cur_source]
         self.lst_pages.blockSignals(True)
         self.lst_pages.clear()
+        muted = QtGui.QColor(_theme.tokens().text_muted)
         for i in range(doc.page_count):
-            self.lst_pages.addItem(QtWidgets.QListWidgetItem(
-                self._thumb(self._cur_source, i), _tr("Hoja {n}").format(n=i + 1)))
+            item = QtWidgets.QListWidgetItem(self._thumb(self._cur_source, i), _tr("Hoja {n}").format(n=i + 1))
+            if not self._uses_layers(self._cur_source, i):
+                item.setText(_tr("Hoja {n} · sin capas").format(n=i + 1))
+                item.setForeground(muted)
+                item.setToolTip(_tr("Esta hoja no interactúa con las capas: sus vectores no están en "
+                                    "ninguna capa del PDF (hoja aplanada). Apagar capas no la cambia y el "
+                                    "reconocimiento por capas no encontrará utilidades en ella."))
+            self.lst_pages.addItem(item)
         row = self._cur_page if 0 <= self._cur_page < doc.page_count else 0
         self.lst_pages.setCurrentRow(row)
         self.lst_pages.blockSignals(False)
         self._on_page_changed(row)
+
+    def _uses_layers(self, source: int, page: int) -> bool:
+        key = (source, page)
+        if key not in self._layers_cache:
+            try:
+                self._layers_cache[key] = PL.page_uses_layers(self.docs[source], page)
+            except Exception:
+                self._layers_cache[key] = True
+        return self._layers_cache[key]
 
     def _thumb(self, source: int, page: int) -> QtGui.QIcon:
         key = (source, page)
@@ -420,6 +483,13 @@ class CompositeDialog(QtWidgets.QDialog):
         if row < 0:
             return
         self._cur_page = row
+        if self._uses_layers(self._cur_source, row):
+            self.lbl_nolayers.hide()
+        else:
+            self.lbl_nolayers.setText(_tr("Hoja {n} sin capas: sus vectores no están en ninguna capa del "
+                                          "PDF. Apagar capas no la cambia y el reconocimiento de "
+                                          "utilidades por capa no encontrará nada aquí.").format(n=row + 1))
+            self.lbl_nolayers.show()
         if self._editing >= 0 and not self._syncing_crop:
             self.view.select(-1)          # cambiar de hoja a mano = empezar una pieza nueva
         self._render_current_page(first=True)
@@ -557,6 +627,7 @@ class CompositeDialog(QtWidgets.QDialog):
         self.view.rebuild(keep_selection=len(self.comp.pieces) - 1)
         self.view.fit_all()
         self._refresh_summary()
+        self._notify_taken(piece, len(self.comp.pieces) - 1)
 
     def _delete(self):
         idx = self.view.selected_index()

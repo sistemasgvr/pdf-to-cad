@@ -12,6 +12,7 @@ probar en aislamiento:
 `Main` conserva un método delgado que llama a estas funciones y hace la asignación
 (`self.structures = …`) y el marcado de cambios (`self._dirty = True`).
 """
+import copy
 import math
 
 from model import network_kind, LEADER_TEXT_FT
@@ -85,9 +86,9 @@ def rebuild_structures(pipes, structures):
         campo para redes eléctricas/telecom es tener MUY POCAS cajas de
         registro; auto-crearlas en cada vértice obligaba al usuario a apagar
         docenas a mano. Si necesita una caja puntual, la agrega con
-        Herramientas → «Insertar buzón en línea…». Las cajas RECONOCIDAS del
-        PDF vectorial (bóvedas) siguen entrando por `attach_vault_geometry`,
-        no por este auto-detector.
+        Herramientas → «Insertar buzón en línea…». Excepción: en líneas
+        RECONOCIDAS del PDF se crea caja en los vértices que son bóveda real
+        (`VAULT_VERTEX_KINDS`); `attach_vault_geometry` les pone sus medidas.
       - Presión (agua/gas) → sin nodos automáticos.
     Preserva ediciones (cod/rim/sump/part/part_size/covered) por coincidencia
     de coordenada. Los buzones importados de Excel (world) y las cajas ya
@@ -96,25 +97,43 @@ def rebuild_structures(pipes, structures):
     tol = _TOL
     def near(a, b): return math.hypot(a[0] - b[0], a[1] - b[1]) <= tol
     # Descarta buzones espurios de versiones previas con net inválida (p.ej. "pressure").
-    # En CONDUIT ya no auto-detectamos, así que las cajas existentes (creadas
-    # a mano por el usuario o por attach_vault_geometry) se conservan intactas
-    # y no participan en el matching por coordenada de gravedad.
+    # Conduit (eléctrico/telecom) NO auto-detecta en cada vértice: sus cajas
+    # existentes (a mano, o de una bóveda REAL del reconocimiento: vértice
+    # «vault»/«stop») se conservan. Los importados de Excel (world) y las
+    # bóvedas reconocidas SIN línea (standalone) se conservan tal cual.
     old_gravity = [s for s in structures
-                   if not s.get("world") and (s.get("net") or "gravity") == "gravity"]
+                   if not s.get("world") and not s.get("standalone")
+                   and (s.get("net") or "gravity") == "gravity"]
     kept_conduit = [s for s in structures
-                    if not s.get("world") and (s.get("net") or "") == "conduit"]
-    world = [s for s in structures if s.get("world")]
+                    if not s.get("world") and not s.get("standalone")
+                    and (s.get("net") or "") == "conduit"]
+    world = [s for s in structures if s.get("world") or s.get("standalone")]
     detected = []
     for p in pipes:
         if p.get("world"): continue
         kind = network_kind(p.get("layer") or "")
-        # Solo GRAVEDAD auto-detecta. Conduit y presión requieren agregar
-        # manualmente los pozos/cajas donde el usuario los necesite.
-        if kind != "gravity": continue
+        # GRAVEDAD auto-detecta en todos los vértices. CONDUIT solo en los que el
+        # reconocimiento marcó como bóveda REAL del plano (VAULT_VERTEX_KINDS); el
+        # resto de sus cajas las agrega el usuario. Presión nunca.
+        if kind not in ("gravity", "conduit"): continue
         pts = p.get("pts")
         if not pts or len(pts) < 2: continue
+        if kind == "conduit":
+            kinds = p.get("vertex_kinds") or []
+            for pt, vk in zip(pts, kinds):
+                if vk not in VAULT_VERTEX_KINDS:
+                    continue
+                if any(near(pt, (s["x"], s["y"])) for s in kept_conduit + detected
+                       if s.get("net") == "conduit"):
+                    continue
+                detected.append({"cod": "", "x": pt[0], "y": pt[1], "rim": None,
+                                 "sump": None, "part": "", "part_size": "",
+                                 "net": kind, "covered": True, "world": False,
+                                 "hidden": False})
+            continue
         for pt in pts:                              # todos los vértices (extremos + intermedios)
-            if not any(near(pt, (s["x"], s["y"])) for s in detected):
+            if not any(s.get("net") == kind and near(pt, (s["x"], s["y"]))
+                       for s in detected):
                 detected.append({"cod": "", "x": pt[0], "y": pt[1], "rim": None,
                                  "sump": None, "part": "", "part_size": "",
                                  "net": kind, "covered": True, "world": False,
@@ -133,6 +152,8 @@ def rebuild_structures(pipes, structures):
                 for k in VAULT_GEO_KEYS:
                     if k in o:
                         s[k] = o[k]
+                if o.get("xdata"):                     # datos extendidos (capa de origen + del usuario)
+                    s["xdata"] = copy.deepcopy(o["xdata"])
                 break
     # Códigos únicos: BZ-N gravedad, CAJA-N conduit (solo las conservadas del
     # usuario / reconocimiento), CV-N esquina de elemento curvo (curve=True
@@ -156,6 +177,11 @@ def rebuild_structures(pipes, structures):
     return combined
 
 
+# Vértices del reconocimiento que SÍ son una bóveda real del plano: la línea la
+# atraviesa («vault») o muere en su borde («stop»). En conduit solo ahí se crea caja.
+VAULT_VERTEX_KINDS = ("vault", "stop")
+
+
 # Tipos de vértice que NO son un acceso físico (vienen del reconocimiento de
 # PDF: quiebre suave, esquina sin bóveda, vértice de arco). El buzón que
 # rebuild_structures crea ahí se oculta: se exporta como "Estructura nula".
@@ -168,22 +194,27 @@ def hide_soft_vertex_structures(pipes, structures):
     compartido con otra pipe donde SÍ es bóveda/T/junction se respeta (visible).
     Devuelve cuántas estructuras se ocultaron. Muta `structures` en sitio."""
     tol = _TOL
-    hard, soft = [], []
+    hard = {"gravity": [], "conduit": []}
+    soft = {"gravity": [], "conduit": []}
     for p in pipes:
+        net = network_kind(p.get("layer") or "")
+        if net not in hard:
+            continue
         kinds = p.get("vertex_kinds") or []
         pts = p.get("pts") or []
         if len(kinds) != len(pts):
-            hard.extend(pts)            # pipe manual: todos sus vértices son reales
+            hard[net].extend(pts)            # pipe manual: todos sus vértices son reales
             continue
         for pt, k in zip(pts, kinds):
-            (soft if k in SOFT_VERTEX_KINDS else hard).append(pt)
+            (soft[net] if k in SOFT_VERTEX_KINDS else hard[net]).append(pt)
     n = 0
     for s in structures:
         if s.get("world") or s.get("hidden") or s.get("curve"):
             continue
+        net = s.get("net") or "gravity"
         xy = (s.get("x", 0.0), s.get("y", 0.0))
         near = lambda q: math.hypot(q[0] - xy[0], q[1] - xy[1]) <= tol
-        if any(near(q) for q in soft) and not any(near(q) for q in hard):
+        if any(near(q) for q in soft.get(net, ())) and not any(near(q) for q in hard.get(net, ())):
             s["hidden"] = True
             n += 1
     return n
@@ -271,19 +302,24 @@ def bz_segment_count(pipes, s):
 VAULT_GEO_KEYS = ("shape", "width_ft", "length_ft", "rot_deg", "outline")
 
 
-def attach_vault_geometry(structures, vaults_geo, tol=12.0):
+def attach_vault_geometry(structures, vaults_geo, tol=12.0, net="conduit",
+                          utility="ELECTRICO", origin=None):
     """Asocia cada bóveda reconocida (`RecognitionResult.vaults_geo`) a la
     estructura más cercana a su centro (≤ `tol` px) y le copia forma, medidas
-    y contorno. Las bóvedas sin estructura cerca (huérfanas: ninguna línea las
-    atraviesa) no se inventan como buzón. Devuelve (asignadas, sin_estructura)."""
-    done = 0; missing = 0
+    y contorno. Una bóveda real sin estructura cerca (ninguna línea la atraviesa
+    ni muere en ella; `importable`) se importa igual como CAJA SUELTA
+    (`standalone=True`, sin vértice: en Civil 3D será un sólido aislado); las
+    cajas propuestas / postes no. Los datos extendidos (`xdata`) guardan la capa
+    OCG del símbolo y el origen (`origin((x, y)) -> str`, opcional); los campos
+    que el usuario haya anotado se conservan. Devuelve (asignadas, sueltas_creadas)."""
+    done = 0; created = 0
     for vg in vaults_geo or []:
         cx, cy = vg.get("center", (None, None))
         if cx is None:
             continue
         best = None
         for s in structures:
-            if s.get("world") or s.get("curve"):
+            if s.get("world") or s.get("curve") or (s.get("net") or "gravity") != net:
                 continue
             d = math.hypot(float(s.get("x", 1e9)) - cx, float(s.get("y", 1e9)) - cy)
             if d <= tol and (best is None or d < best[0]):
@@ -293,7 +329,7 @@ def attach_vault_geometry(structures, vaults_geo, tol=12.0):
             # típico de la bóveda abandonada): la más cercana DENTRO del contorno.
             xs = [x for x, _ in vg["corners"]]; ys = [y for _, y in vg["corners"]]
             for s in structures:
-                if s.get("world") or s.get("curve"):
+                if s.get("world") or s.get("curve") or (s.get("net") or "gravity") != net:
                     continue
                 sx, sy = float(s.get("x", 1e9)), float(s.get("y", 1e9))
                 if min(xs) - 2 <= sx <= max(xs) + 2 and min(ys) - 2 <= sy <= max(ys) + 2:
@@ -301,8 +337,20 @@ def attach_vault_geometry(structures, vaults_geo, tol=12.0):
                     if best is None or d < best[0]:
                         best = (d, s)
         if best is None:
-            missing += 1
-            continue
+            if not vg.get("importable", False):
+                continue
+            # ya importada en una pasada anterior (mismo centro): reutilizar
+            for s in structures:
+                if (s.get("standalone") and (s.get("net") or "gravity") == net
+                        and math.hypot(float(s["x"]) - cx, float(s["y"]) - cy) <= tol):
+                    best = (0.0, s); break
+            if best is None:
+                st = {"cod": "", "x": float(cx), "y": float(cy), "rim": None, "sump": None,
+                      "part": "", "part_size": "", "net": net, "utility": utility,
+                      "covered": True,
+                      "world": False, "hidden": False, "standalone": True}
+                structures.append(st); created += 1
+                best = (0.0, st)
         st = best[1]
         st["shape"] = vg.get("shape", "rect")
         st["width_ft"] = float(vg.get("width_ft") or 0.0)
@@ -310,8 +358,28 @@ def attach_vault_geometry(structures, vaults_geo, tol=12.0):
         st["rot_deg"] = float(vg.get("angle_deg") or 0.0)
         st["outline"] = [(float(x), float(y)) for x, y in (vg.get("corners") or [])] or None
         st["hidden"] = False                      # una bóveda real siempre se ve
+        if vg.get("abandoned"):
+            st["abandoned"] = True
+        if vg.get("layer"):
+            import xdata
+            where = origin((cx, cy)) if callable(origin) else origin
+            xdata.set_auto(st, xdata.auto_fields(vg.get("layer"), where))
         done += 1
-    return done, missing
+    _assign_standalone_codes(structures)
+    return done, created
+
+
+def _assign_standalone_codes(structures):
+    """Código CAJA-N/BZ-N a las estructuras sueltas (rebuild_structures no las
+    numera: las conserva tal cual)."""
+    used = {s.get("cod", "") for s in structures if s.get("cod")}
+    n = 1
+    for s in structures:
+        if s.get("standalone") and not s.get("cod"):
+            prefix = "BZ-" if s.get("net") == "gravity" else "CAJA-"
+            while f"{prefix}{n}" in used:
+                n += 1
+            s["cod"] = f"{prefix}{n}"; used.add(s["cod"]); n += 1
 
 
 def attach_fillets(pipes, structures, tol=1.0):
@@ -323,22 +391,32 @@ def attach_fillets(pipes, structures, tol=1.0):
     for p in pipes:
         fil = p.get("fillets") or {}
         pts = p.get("pts") or []
+        net = network_kind(p.get("layer") or "")
         for idx, r_ft in fil.items():
             try:
                 x, y = pts[int(idx)]
             except (IndexError, ValueError, TypeError):
                 continue
-            for s in structures:
-                if s.get("world"):
+            s = next((s for s in structures if not s.get("world")
+                      and math.hypot(float(s.get("x", 1e9)) - x, float(s.get("y", 1e9)) - y) <= tol),
+                     None)
+            if s is None:
+                # Eléctrico/telecom no tiene caja en cada vértice: el codo crea su
+                # propia marca CV (rebuild_structures conserva las de conduit).
+                if net != "conduit":
                     continue
-                if math.hypot(float(s.get("x", 1e9)) - x, float(s.get("y", 1e9)) - y) <= tol:
-                    if not s.get("curve") or abs(float(s.get("radius_ft") or 0.0) - float(r_ft)) > 1e-6:
-                        s["curve"] = True
-                        s["radius_ft"] = float(r_ft)
-                        s["hidden"] = False
-                        s["part"] = ""; s["part_size"] = ""
-                        n += 1
-                    break
+                s = {"cod": "", "x": float(x), "y": float(y), "rim": None, "sump": None,
+                     "part": "", "part_size": "", "net": net, "covered": True,
+                     "world": False, "hidden": False}
+                structures.append(s)
+            if not s.get("curve") or abs(float(s.get("radius_ft") or 0.0) - float(r_ft)) > 1e-6:
+                s["curve"] = True
+                s["radius_ft"] = float(r_ft)
+                s["hidden"] = False
+                s["part"] = ""; s["part_size"] = ""
+                if not s.get("cod", "").startswith("CV-"):
+                    s["cod"] = ""                      # rebuild_structures le asigna CV-N
+                n += 1
     return n
 
 
@@ -364,7 +442,7 @@ def fillet_geo(prev, corner, nxt, r_px, max_frac=0.9, n_arc=32):
     T = r / math.tan(phi / 2.0)
     clamped = False
     t_max = min(L1, L2) * max_frac
-    if T > t_max:
+    if T > t_max + 0.05:                      # (0.05 px: el radio viaja redondeado a 3 decimales en pies)
         T = t_max; r = T * math.tan(phi / 2.0); clamped = True
     t1 = (corner[0] + d1x * T, corner[1] + d1y * T)
     t2 = (corner[0] + d2x * T, corner[1] + d2y * T)

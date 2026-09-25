@@ -331,6 +331,27 @@ def build_stylesheet(t: Theme) -> str:
                                 color: {t.text_on_accent}; }}
         QPushButton:checked:hover {{ background: {t.success_hover}; }}
         QPushButton[iconOnly="true"] {{ padding: 0; font-size: 17px; font-weight: bold; }}
+        /* Botones de herramienta conmutables (compositor): activo = verde, inequívoco */
+        QToolButton[toggleTool="true"] {{ background: {t.surface_alt}; color: {t.text};
+                                          border: 1px solid {t.border}; border-radius: 4px; padding: 3px 8px; }}
+        QToolButton[toggleTool="true"]:hover {{ border: 1px solid {t.focus}; }}
+        QToolButton[toggleTool="true"]:checked {{ background: {t.success}; color: {t.text_on_accent};
+                                                  border: 2px solid {t.success_hover}; font-weight: bold; }}
+        QToolButton[toggleTool="true"]:checked:hover {{ background: {t.success_hover}; }}
+
+        /* Acciones secundarias (junto a una primaria): fondo neutro, borde */
+        QPushButton[secondary="true"] {{ background: {t.surface_alt}; color: {t.text};
+                                          border: 1px solid {t.border}; font-weight: normal; }}
+        QPushButton[secondary="true"]:hover {{ background: {t.surface}; border: 1px solid {t.focus}; }}
+        QPushButton[secondary="true"]:pressed {{ background: {t.surface_alt}; }}
+        QPushButton[secondary="true"]:disabled {{ background: {t.surface_alt}; color: {t.text_disabled};
+                                                   border: 1px solid {t.border_soft}; }}
+
+        /* Acción de consulta destacada (verde): «Ver datos extendidos» */
+        QPushButton[success="true"] {{ background: {t.success}; color: {t.text_on_accent};
+                                        border: 1px solid {t.success_hover}; font-weight: bold; }}
+        QPushButton[success="true"]:hover  {{ background: {t.success_hover}; }}
+        QPushButton[success="true"]:pressed{{ background: {t.success_hover}; }}
 
         /* Acciones destructivas */
         QPushButton[danger="true"] {{ background: {t.danger}; color: {t.text_on_accent};

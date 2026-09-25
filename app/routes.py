@@ -67,7 +67,7 @@ def build_routes(polylines: Sequence[Polyline], pattern: Optional[Pattern]) -> L
     lookahead = LOOKAHEAD_MIN_PT
     if pattern is not None and pattern.dash_long:
         lookahead = max(LOOKAHEAD_MIN_PT, LOOKAHEAD_FACTOR * pattern.dash_long)
-    partner = _pair(edges, incident, node_kind, node_cut, lookahead)
+    partner = _pair(edges, incident, node_kind, node_cut, lookahead, _tee_nodes(edges))
     return _walk(edges, partner, nodes)
 
 
@@ -100,6 +100,18 @@ def _cluster(edges: List[_Edge]):
     return nodes, kinds, cuts
 
 
+def _tee_nodes(edges: List[_Edge]) -> set:
+    """Nodos donde algún extremo es una T: muere SOBRE otra línea que pasa de
+    largo (un vértice interior de esa otra, que por eso no crea nodo aquí)."""
+    out = set()
+    for e in edges:
+        if e.pl.kinds and e.pl.kinds[0] == "tee":
+            out.add(e.node_a)
+        if e.pl.kinds and e.pl.kinds[-1] == "tee":
+            out.add(e.node_b)
+    return out
+
+
 def _heading_into(pts: Sequence[Pt], side: str, lookahead: float) -> Tuple[float, float]:
     """Rumbo con el que la polilínea LLEGA al extremo `side` (apunta hacia el nodo)."""
     seq = list(pts) if side == "a" else list(reversed(pts))
@@ -123,12 +135,18 @@ def _defl(h1: Tuple[float, float], h2: Tuple[float, float]) -> float:
     return math.degrees(math.acos(dot))
 
 
-def _pair(edges, incident, node_kind, node_cut, lookahead):
+def _pair(edges, incident, node_kind, node_cut, lookahead, tee_nodes=frozenset()):
     partner: Dict[Tuple[int, str], Tuple[int, str]] = {}
     for n, inc in incident.items():
         if node_cut[n] or node_kind[n] in TERMINAL_KINDS or len(inc) < 2:
             continue
-        theta = THETA_DEG2_DEG if len(inc) == 2 else THETA_JUNCTION_DEG
+        # En una T la línea que PASA también llega al nodo (no crea extremos, pero
+        # está): el grado real es ≥3 y solo se sigue «de frente». Si no, dos ramales
+        # que mueren del MISMO lado de la línea se cosían en una «V» a través de
+        # ella (DU08 h.21 (763, 871) y (710, 892): el rumbo medido 66 pt atrás en
+        # curvas daba ~90° y pasaba el umbral de 100° de un nodo de grado 2).
+        deg2 = len(inc) == 2 and n not in tee_nodes
+        theta = THETA_DEG2_DEG if deg2 else THETA_JUNCTION_DEG
         cands = []
         for (e, se), (f, sf) in combinations(inc, 2):
             if e == f:

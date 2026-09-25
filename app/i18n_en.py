@@ -179,34 +179,15 @@ EN: dict[str, str] = {
     "Otras": "Other",
     "Reconocimiento cancelado — hoja cargada con las capas elegidas.":
         "Recognition cancelled — sheet loaded with the chosen layers.",
-    "Ajustar capas eléctricas": "Adjust electrical layers",
-    "Indica qué capas son líneas eléctricas y cuáles bóvedas. Las "
-    "líneas se importan como utilidades Eléctrico; las bóvedas como "
-    "cajas en esas líneas. Al aceptar se vuelve a reconocer la hoja.":
-        "Choose which layers are electrical lines and which are vaults. "
-        "Lines import as Electric utilities; vaults as boxes on those "
-        "lines. On accept the sheet is recognized again.",
     "Capa": "Layer",
     "Trazos": "Paths",
     "Rol": "Role",
-    "Líneas eléctricas": "Electrical lines",
-    "Buzones / bóvedas": "Manholes / vaults",
     "Ignorar": "Ignore",
-    "Debe haber al menos una capa en «Líneas eléctricas» para continuar.":
-        "Assign at least one layer as «Electrical lines» to continue.",
-    "Asigna al menos una capa como «Líneas eléctricas».":
-        "Assign at least one layer as «Electrical lines».",
-    "Tramos listos: {n}  ·  Bóvedas: {v}  ·  Escala: {s:.6f} pie/pt":
-        "Ready runs: {n}  ·  Vaults: {v}  ·  Scale: {s:.6f} ft/pt",
     "Capas usadas (asignadas automáticamente por su nombre):":
         "Layers used (assigned automatically by name):",
     "Líneas": "Lines",
     "Bóvedas": "Vaults",
     "Hoja {n}": "Sheet {n}",
-    "No se encontraron capas de líneas eléctricas en esta hoja. "
-    "Usa «Ajustar capas…» para indicar cuáles son las líneas y las bóvedas.":
-        "No electrical line layers were found on this sheet. "
-        "Use «Adjust layers…» to say which layers are lines and vaults.",
     "Componer hoja…": "Compose sheet…",
     "Componer hoja de trabajo": "Compose working sheet",
     "Componer hoja de trabajo…": "Compose working sheet…",
@@ -224,29 +205,14 @@ EN: dict[str, str] = {
         "Only if the plot uses other names: say which layers are lines and vaults.",
     "Cambio de hoja cancelado — se mantiene la hoja {n}.":
         "Sheet change cancelled — sheet {n} is kept.",
-    "Abandonadas (AB): {a} — mismo color; se distinguen por (AB).":
-        "Abandoned (AB): {a} — same color; marked (AB).",
     "Abandonadas (AB): {a}.": "Abandoned (AB): {a}.",
     "Unir tramos en rutas": "Join segments into routes",
     "En cada cruce sigue de frente; el ramal empieza otra ruta. "
     "Si no hay trayectoria clara, no une nada. No mueve puntos.":
         "At each crossing it continues straight; the branch starts another route. "
         "If the path is not clear, nothing is joined. No points are moved.",
-    "Rutas: {n} (unen {m} tramos)": "Routes: {n} (join {m} segments)",
-    "Importadas {n} rutas ({m} tramos) de Eléctrico.":
-        "Imported {n} routes ({m} segments) of Electric.",
-    "Al continuar, estas líneas se importan al editor como "
-    "utilidades Eléctrico (igual que el dibujo manual, con sus "
-    "puntos de quiebre). Las bóvedas se insertan como cajas.":
-        "On continue, these lines import into the editor as Electric "
-        "utilities (same as manual drawing, with break points). "
-        "Vaults are inserted as boxes.",
-    "Bóvedas: {s} en líneas, {k} sin pipe cercana.":
-        "Vaults: {s} on lines, {k} with no nearby pipe.",
     "Capas ocultas por ti: {n} (no se dibujan ni se reconocen)":
         "Layers you hid: {n} (neither drawn nor recognized)",
-    "Cobertura: {c:.1f}%  ·  sin cubrir: {m} (naranja)  ·  fuera de patrón: {o} (violeta)":
-        "Coverage: {c:.1f}%  ·  uncovered: {m} (orange)  ·  off-pattern: {o} (violet)",
     "Quiebres sin bóveda: {h} (cajas ocultas).": "Bends without vault: {h} (hidden boxes).",
     # ── Diálogo de Opciones ────────────────────────────────────────────
     "El cambio se aplica al instante en menús y paneles principales. "
@@ -681,10 +647,6 @@ EN: dict[str, str] = {
     # ── app_window.py ──
     "Nuevo lienzo…":
         "New canvas…",
-    "Organizar hojas…":
-        "Arrange sheets…",
-    "Capas de hojas organizadas…":
-        "Arranged sheets layers…",
     "Mostrar cruces/conflictos":
         "Show crossings/conflicts",
     "Marca los puntos donde dos utilidades se cruzan geométricamente en el plano.\n  · Amarillo ⓘ: cruce sano (distinta cota, se pasan por encima/debajo).\n  · Rojo ⚠: conflicto (misma cota o sin cota → chocan).\nApagarlo oculta las marcas y el contador de la barra de estado.":
@@ -835,8 +797,6 @@ EN: dict[str, str] = {
         "Arrange at least two sheets to open this view.",
     "Capas de las hojas organizadas guardadas.":
         "Arranged sheets layers saved.",
-    "Reconociendo utilidades eléctricas en las hojas organizadas…":
-        "Recognizing electrical utilities on the arranged sheets…",
     "Reconocimiento":
         "Recognition",
     "No se pudieron reconocer las hojas:\n\n{e}":
@@ -849,18 +809,12 @@ EN: dict[str, str] = {
         "The PDF changed while its sheets were being chosen.",
     "No se pudieron incorporar los PDF:\n\n{e}":
         "The PDFs could not be added:\n\n{e}",
-    "Reconociendo utilidades eléctricas…":
-        "Recognizing electrical utilities…",
     "No se pudo reconocer la hoja:\n\n{e}":
         "The sheet could not be recognized:\n\n{e}",
     "Reconocimiento listo, pero no hay imagen de la hoja para la vista previa.":
         "Recognition finished, but there is no sheet image for the preview.",
     "Reconocimiento cancelado — editor vacío.":
         "Recognition cancelled — empty editor.",
-    "No hay tramos eléctricos para importar.":
-        "There are no electrical segments to import.",
-    "Bóvedas con medidas: {g}.":
-        "Vaults with measurements: {g}.",
     "Codos como esquina + radio (CV): {c}.":
         "Bends as corner + radius (CV): {c}.",
     "Página {n} cargada.":
@@ -1413,28 +1367,16 @@ EN: dict[str, str] = {
         "Full sheet",
 
     # ── organized_recognition_dialog.py ──
-    "Vista previa del reconocimiento eléctrico · hojas organizadas":
-        "Electrical recognition preview · arranged sheets",
-    "Eléctrico · hojas organizadas":
-        "Electrical · arranged sheets",
     "Cada hoja se reconoce con las capas seleccionadas para su PDF. La posición entre hojas es aproximada; aún no se han alineado ni unido los trazos.":
         "Each sheet is recognized with the layers selected for its PDF. The position between sheets is approximate; the strokes have not been aligned or joined yet.",
     "Hojas reconocidas":
         "Recognized sheets",
-    "Capas eléctricas usadas en la hoja":
-        "Electrical layers used on the sheet",
     "Volver a capas":
         "Back to layers",
     "Cerrar vista previa":
         "Close preview",
-    "{s} hojas · {n} tramos · {v} bóvedas":
-        "{s} sheets · {n} segments · {v} vaults",
-    "Tramos: {n} · Bóvedas: {v} · Cobertura: {c:.1f}%":
-        "Segments: {n} · Vaults: {v} · Coverage: {c:.1f}%",
     "Sin cubrir: {n} (naranja) · Fuera de patrón: {m} (violeta)":
         "Uncovered: {n} (orange) · Off-pattern: {m} (purple)",
-    "No se encontraron capas eléctricas reconocibles.":
-        "No recognizable electrical layers were found.",
 
     # ── recognition_dialog.py ──
     "Tipo de PDF":
@@ -1755,8 +1697,6 @@ EN: dict[str, str] = {
         "{n} marker/linetype strokes (letters, bars) were skipped; only the centerline is drawn.",
     "Trazos continuos fuera de patrón (leaders/flechas): {n} — no se importan.":
         "Off-pattern continuous strokes (leaders/arrows): {n} — not imported.",
-    "Utilidades abandonadas (capa «-A» + patrón «/»): {n} — se importan marcadas (AB).":
-        "Abandoned utilities («-A» layer + «/» pattern): {n} — imported marked (AB).",
 
     # ── app_window.py (unión de la misma utilidad en Civil 3D) ──
     "un codo sólido":
@@ -1811,4 +1751,148 @@ EN: dict[str, str] = {
         "{n} vert.",
     "{n}. Leader {orientacion}":
         "{n}. {orientacion} leader",
+
+    # ── Datos extendidos (xdata_dialog, rama dev_santos_v2) ──
+    "Ver datos extendidos":
+        "View extended data",
+    "Datos extendidos":
+        "Extended data",
+    "Campo":
+        "Field",
+    "Valor":
+        "Value",
+    "Agregar campo":
+        "Add field",
+    "Quitar campo":
+        "Remove field",
+    "Copiar todo":
+        "Copy all",
+    "Información de referencia que no forma parte de las propiedades de la red. Los campos con 🔒 vienen del PDF y no se editan; los tuyos sí.":
+        "Reference information that is not part of the network properties. Fields marked 🔒 come from the PDF and are read-only; yours can be edited.",
+    "Este elemento no viene del reconocimiento del PDF: no tiene datos automáticos.":
+        "This item was not recognized from the PDF: it has no automatic data.",
+    "Selecciona una utilidad o una estructura para ver sus datos extendidos.":
+        "Select a utility or a structure to view its extended data.",
+    "Hoja compuesta":
+        "Composed sheet",
+
+    # ── app_window.py (rama dev_santos_v2) ──
+    "({a} sin línea, importadas como cajas sueltas.)":
+        "({a} with no line, imported as standalone boxes.)",
+    "Ajustar capas":
+        "Adjust layers",
+    "Capa del PDF de la que salió (disciplina, sistema, ubicación, estado) y tus propios campos. Se guardan en el proyecto y van al DXF.":
+        "PDF layer it came from (discipline, system, location, status) and your own fields. They are saved in the project and go into the DXF.",
+    "Detectado plano escaneado y vectorizado ({n} trazos calcados, sin texto ni capas) — continúa con el dibujo manual.":
+        "Scanned and vectorized plan detected ({n} traced strokes, no text or layers) — continue with manual drawing.",
+    "Estructura #{n}":
+        "Structure #{n}",
+    "Estructuras con medidas: {g}.":
+        "Structures with measurements: {g}.",
+    "Estructuras: {s} en líneas, {k} sin pipe cercana.":
+        "Structures: {s} on lines, {k} with no nearby pipe.",
+    "Importadas estructuras reconocidas.":
+        "Recognized structures imported.",
+    "Importadas: {items}.":
+        "Imported: {items}.",
+    "No hay tramos reconocidos para importar.":
+        "There are no recognized segments to import.",
+    "Reconociendo {u} en las hojas organizadas…":
+        "Recognizing {u} on the organized sheets…",
+    "Reconociendo {u}…":
+        "Recognizing {u}…",
+    "Utilidad #{n}":
+        "Utility #{n}",
+    "{n} rutas ({m} tramos) de {u}":
+        "{n} routes ({m} segments) of {u}",
+    "¿Qué utilidad quieres ajustar?":
+        "Which utility do you want to adjust?",
+
+    # ── composite_dialog.py (rama dev_santos_v2) ──
+    "Esta hoja no interactúa con las capas: sus vectores no están en ninguna capa del PDF (hoja aplanada). Apagar capas no la cambia y el reconocimiento por capas no encontrará utilidades en ella.":
+        "This sheet does not interact with layers: its vectors are not on any PDF layer (flattened sheet). Turning layers off does not change it and layer-based recognition will not find utilities on it.",
+    "Hoja {n} sin capas: sus vectores no están en ninguna capa del PDF. Apagar capas no la cambia y el reconocimiento de utilidades por capa no encontrará nada aquí.":
+        "Sheet {n} has no layers: its vectors are not on any PDF layer. Turning layers off does not change it and layer-based utility recognition will not find anything here.",
+    "Hoja {n} · sin capas":
+        "Sheet {n} · no layers",
+    "✔ Área tomada como pieza {n} ({label}). Ya está en la hoja compuesta ({total} pieza(s)).":
+        "✔ Area taken as piece {n} ({label}). It is already on the composite sheet ({total} piece(s)).",
+
+    # ── layer_dialog.py (rama dev_santos_v2) ──
+    "Utilidades a reconocer:":
+        "Utilities to recognize:",
+
+    # ── organized_recognition_dialog.py (rama dev_santos_v2) ──
+    "Capas de {u} usadas en la hoja":
+        "{u} layers used on the sheet",
+    "Estructuras":
+        "Structures",
+    "No se encontraron capas reconocibles de esta utilidad.":
+        "No recognizable layers were found for this utility.",
+    "Vista previa del reconocimiento de {u} · hojas organizadas":
+        "{u} recognition preview · organized sheets",
+    "{s} hojas · {n} tramos · {v} estructuras":
+        "{s} sheets · {n} segments · {v} structures",
+    "{u} · hojas organizadas":
+        "{u} · organized sheets",
+    "{u}: {n} tramos · {v} estructuras · cobertura {c:.1f}%":
+        "{u}: {n} segments · {v} structures · coverage {c:.1f}%",
+
+    # ── recognition.py (rama dev_santos_v2) ──
+    "({n} aproximado(s), a trazos: la curva del plano no es un arco tangente exacto; desvío máx. {dev:.1f} pt)":
+        "({n} approximate, dashed: the plan's curve is not an exact tangent arc; max. deviation {dev:.1f} pt)",
+    "Codos como esquina + radio: {n}":
+        "Bends as corner + radius: {n}",
+    "Curvas que quedan como polilínea: {n} tramo(s) — curva compuesta (radio variable) o sin recta tangente a un lado; no se inventa un arco que no está en el plano.":
+        "Curves left as polylines: {n} segment(s) — compound curve (variable radius) or no tangent line on one side; no arc that is not on the plan is made up.",
+    "Esta hoja no tiene capas: sus vectores no están en ninguna capa del PDF (hoja aplanada), así que el reconocimiento por capas no puede encontrar utilidades en ella.":
+        "This sheet has no layers: its vectors are not on any PDF layer (flattened sheet), so layer-based recognition cannot find utilities on it.",
+    "Existentes A ABANDONAR (capa «-D», marcadores «//» de la leyenda): {n} línea(s) — hoy se importan activas; revisar.":
+        "Existing TO BE ABANDONED («-D» layer, «//» markers from the legend): {n} line(s) — imported as active for now; review.",
+    "No se encontraron líneas de agua en esta hoja.":
+        "No water lines were found on this sheet.",
+    "No se encontraron líneas de alcantarillado en esta hoja.":
+        "No sewer lines were found on this sheet.",
+    "No se encontraron líneas de drenaje en esta hoja.":
+        "No storm drain lines were found on this sheet.",
+    "No se encontraron líneas de {u} en esta hoja.":
+        "No {u} lines were found on this sheet.",
+    "Patrón «//» en una capa que no es «-A»: {n} línea(s) — se importan ABANDONADAS (el «//» manda).":
+        "«//» pattern on a layer that is not «-A»: {n} line(s) — imported as ABANDONED (the «//» rules).",
+    "Se excluyeron {n} trazo(s) dentro de una vista de PERFIL (grilla de estación/elevación): esa vista no es planta y no se reconoce.":
+        "{n} stroke(s) inside a PROFILE view (station/elevation grid) were excluded: that view is not a plan and is not recognized.",
+    "Utilidades abandonadas (capa «-A» + patrón «/», o patrón «//»): {n} — se importan marcadas (AB).":
+        "Abandoned utilities («-A» layer + «/» pattern, or «//» pattern): {n} — imported marked (AB).",
+
+    # ── recognition_dialog.py (rama dev_santos_v2) ──
+    "Ajustar capas de {u}":
+        "Adjust {u} layers",
+    "Al continuar, estas líneas se importan al editor como {u} (igual que el dibujo manual, con sus puntos de quiebre). Las estructuras se insertan como nodos de la red.":
+        "On continue, these lines are imported into the editor as {u} (just like manual drawing, with their break points). Structures are inserted as network nodes.",
+    "Asigna al menos una capa como «Líneas».":
+        "Assign at least one layer as «Lines».",
+    "Buzones / estructuras":
+        "Manholes / structures",
+    "Cobertura {c:.1f} %":
+        "Coverage {c:.1f} %",
+    "Debe haber al menos una capa en «Líneas» para continuar.":
+        "There must be at least one layer in «Lines» to continue.",
+    "Escala {s:.6f} pie/pt":
+        "Scale {s:.6f} ft/pt",
+    "Guiones del plano cubiertos por las líneas reconocidas. En el dibujo: naranja = sin cubrir, violeta = trazos fuera de patrón (leaders/flechas).":
+        "Plan dashes covered by the recognized lines. In the drawing: orange = uncovered, purple = off-pattern strokes (leaders/arrows).",
+    "{m} sin cubrir (naranja) · {o} fuera de patrón (violeta)":
+        "{m} uncovered (orange) · {o} off-pattern (purple)",
+
+    # ── recognition_summary_view.py (rama dev_santos_v2) ──
+    "Clic: ir al lugar en la hoja (cada clic, el siguiente).":
+        "Click: go to the spot on the sheet (each click, the next one).",
+    "Detalles ({n})":
+        "Details ({n})",
+    "Nada que revisar":
+        "Nothing to review",
+    "Revisar ({n})":
+        "Review ({n})",
+    "{u}: {n} tramos — {a} activos, {b} abandonados (AB)\n{c} codos · {v} estructuras · cobertura {k:.1f} %":
+        "{u}: {n} segments — {a} active, {b} abandoned (AB)\n{c} bends · {v} structures · coverage {k:.1f} %",
 }

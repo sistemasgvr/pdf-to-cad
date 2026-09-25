@@ -26,7 +26,8 @@ alcantarillado, drenaje, gas, eléctrico, telecom). Todo en **unidades imperiale
     botón, `layer_qcolor`, `swatch_icon`, …). Sin estado; los usa toda la app.
   - `workers.py` — hilos de fondo (`PipelineWorker`, `RecognitionWorker`).
   - `recognition.py` + `recognition_dialog.py` — asistente al abrir un PDF
-    vectorial: componer hoja → capas → reconocer (v1: eléctricas `C-ELEC-UNGD`;
+    vectorial: componer hoja → capas → reconocer (perfiles Eléctrico, Drenaje, Agua y
+    Alcantarillado; v1 fue eléctricas `C-ELEC-UNGD`;
     roles líneas/bóvedas AUTOMÁTICOS por nombre, `classify_ocg`) → vista
     previa con QA e info de capas usadas → importar como pipes. El preview
     devuelve una acción (`PREVIEW_IMPORT | CANCEL | CHANGE_SHEET |
@@ -64,10 +65,75 @@ alcantarillado, drenaje, gas, eléctrico, telecom). Todo en **unidades imperiale
     (tinta curva del sector sobre el círculo ≤1 pt, tangentes sobre la recta de
     un guión ≤0.5 pt/±1° en h.4, editor = reconocimiento) y escenarios sintéticos
     en `tests/test_composite_dialog.py` (`_elbow_doc`: huecos/letra antes del
-    arco, giros 30/60/120, arco a guiones, curva compuesta de dos radios). Curvas
-    suaves (giro <8°) o que nacen en un tee/bóveda sin recta tangente quedan
-    como polilínea) y `_vaults_geometry` (geometría
-    real de bóvedas, `VAULT_MIN_FT`=2: cajas de paso/postes no cuentan).
+    arco, giros 30/60/120, arco a guiones, curva compuesta de dos radios).
+**La TINTA manda (auditoría 2026-09-22)**: el círculo se
+    ajusta a los vectores del PDF, no a la centerline simplificada —
+    `ink_samples(paths, px)` muestrea los trazos de la capa cada 1.5 pt,
+    `ink_by_polyline` reparte cada punto a la polilínea MÁS cercana (≤
+    `FILLET_INK_CORRIDOR_PT`=2.5; sin esto una paralela cercana tuerce el arco) y
+    `_span_members` toma solo la tinta del corredor de los vértices `curve` (si
+    entra la de las rectas vecinas, el ajuste se va a 1.4 pt y el codo se pierde).
+    Un codo además necesita tinta CURVA sobre el arco: `_arc_ink_cover` solo
+    cuenta los puntos cuyo trazo está curvado como pide el radio
+    (`_stroke_curvature_kind`: flecha propia ≥ `FILLET_SAG_RATIO`=0.5 de
+    r − √(r²−(L/2)²); trazos < `FILLET_STROKE_MIN_PT`=12 pt o con flecha
+    esperada < `FILLET_SAG_MIN_PT`=0.5 son «neutral» y tampoco suman) y exige
+    ≥ `FILLET_INK_COVER`=0.45. Así un **chaflán** —el plano gira con dos
+    guiones RECTOS y el quiebre en el hueco, DU06 h.4 en (571,1262), lo reportó
+    el usuario— no se toma por codo, ni tampoco un quiebre con una astilla del
+    plot. Ojo: una curva tan suave que ningún guión llegue a 0.5 pt de flecha
+    (r ≳ 250 pt ≈ 70 ft a 1"=20') queda como polilínea a propósito. Con tinta, el control de calidad es el
+    RMS del ajuste (`dev_px`), no la distancia a la centerline. **Curva que MUERE
+    en un nodo** (`NODE_KINDS_END`: tee, junction, vault, stop, edge, end, cut):
+    sin segunda recta, `_fit_circle_through` busca el círculo tangente a la recta
+    que llega y que PASA por el nodo (1-D sobre la tangencia, mejor ajuste a la
+    tinta) y `_close_at_node` cierra la esquina con la tangente en el nodo →
+    `fillets[idx]["node_a"/"node_b"]` (la auditoría no les exige tangente sobre
+    un guión: ahí no hay recta después). **Rectas «libres»**: la línea que PASA
+    por un tee se extiende a los dos lados, así que no se le aplica el orden
+    P…A…C…B…N y, si la tangencia cae más allá del nodo, el vértice se escribe en
+    la tangencia (`_leg_vertex`) — si no, el tramo recto queda más corto que T y
+    el plugin recortaría el radio. `_try_span` prueba todas las combinaciones de
+    recta y se queda con la de menor error; `_accept` centraliza las
+    comprobaciones. Cadenas `curve, nodo, curve` (o dos nodos a ≤40 pt) que no caben en un
+    círculo se parten en sub-ristras (`_sub_spans`, cola de intentos); un vecino
+    a ≥`FILLET_CHORD_LEG_MIN_PT`=40 del trazo curvo es fin de recta (ancla), no
+    miembro del arco; una cuerda que termina en un vértice `curve` solo sirve de
+    recta si mide ≥40; una «recta» <`FILLET_LEG_MIN_PT`=18 sin guión anterior
+    colineal ni línea pasante que la confirme no es recta; dos tramos cortos que
+    siguen girando tampoco; el arco entero debe ir a ≤`FILLET_ARC_DEV_PT`=1.5 de
+    la polilínea. `through_dirs` = dirección de la línea que PASA (por el
+    interior de un tramo o por un vértice colineal de otra polilínea; un ramal
+    que muere ahí no cuenta) por un tee/junction: si es el extremo de la
+    polilínea, tangencia FIJA en el tee (r = T/tan(Δ/2)); si no, confirma la
+    dirección de la recta. **2.º intento `FILLET_LOOSE_TOL_PT`=3** (curvas «a
+    mano»: polilínea de cuerdas / espiral): `fillets[idx]["loose"]=True`, preview
+    a trazos y aviso con el desvío; con el ajuste a la tinta ya no hace falta en
+    el DU06 (0 aproximados). Codos consecutivos: C2 debe estar sobre la recta de
+    salida de C1. DU06 hoy: 17 codos en todo el PDF (h.3 = 6, h.4 = 9, h.15 = 2),
+    ninguno aproximado ni recortado por el editor/plugin (tras el filtro de
+    chaflanes: 15, h.3 = 6, h.4 = 8, h.15 = 1); lo que queda como
+    polilínea son chaflanes y curvas compuestas (aviso «Curvas que quedan como polilínea»)) y `_vaults_geometry` (geometría real de bóvedas, `VAULT_MIN_FT`=2:
+    cajas de paso/postes no cuentan; `Vault.layer` + `is_vault_ocg` → `importable`:
+    una bóveda SIN línea de capa VALT/MANH (o lazo en la capa de la línea) se
+    importa como CAJA suelta `standalone=True` — `attach_vault_geometry` la crea,
+    `rebuild_structures` la conserva como a las `world`, el lienzo la pinta con
+    el color de la utilidad; las U-PROP/POLE/PBOX (`NON_VAULT_TOKENS`) no).
+  - `recognition_summary.py` (PURO) + `recognition_summary_view.py` — resumen
+    VISUAL de la vista previa (lo pidió el usuario: «evitar mucho texto»):
+    `classify_warning` pasa cada aviso de `recognize_page` a `Notice` (nivel
+    problema/revisar/info + etiqueta corta; el texto completo va al tooltip; un
+    aviso SIN regla cae en «revisar» — al agregar un `warnings.append` nuevo en
+    `recognition.py`, sumar su regla en `_RULES`); `SummaryPanel` = 4 tarjetas +
+    barra por utilidad (activas sólidas / AB rayadas, misma escala) + «Revisar» +
+    «Detalles» plegado. **Clic en un aviso → ir al lugar** (pedido del usuario): cada regla
+    de `_RULES` lleva una CLAVE y `targets_for(clave, result)` da los recuadros (px de la
+    vista) — codos `loose`, ristras `curve` (uno por tramo), `uncovered_px`,
+    `vault_orphans_px`, y `RecognizedPolyline.review` (lo marca `recognize_page` en las
+    rutas que generan los avisos «-A» sin patrón / «//» / «-D» / «/» activa); la fila
+    emite `SummaryPanel.locate(QRectF)` y `RecognitionPreviewDialog._go_to` hace zoom
+    y marca con un recuadro ámbar (1/N por clic). Aviso nuevo con ubicación → clave +
+    rama en `targets_for`. Tests: `tests/test_recognition_summary.py`.
   - `recognition_geom.py` — **núcleo geométrico PURO** (sin Qt ni fitz): en el
     PDF la utilidad viene como linetype "explotado" (guiones + letras «e» +
     huecos), nunca como polilínea. Aprende el patrón del plano
@@ -79,12 +145,51 @@ alcantarillado, drenaje, gas, eléctrico, telecom). Todo en **unidades imperiale
     vault|edge|stop|curve`). **Reglas de bóveda (apuntes del usuario, revisadas)**:
     toda línea llega por su recta y SIEMPRE deja `edge` (quiebre oculto) donde
     choca con el borde; el nodo interior `vault` (CAJA visible) existe solo si
-    una línea de red ATRAVIESA la bóveda (corrida partida en Fase A, o dos
-    llegadas colineales opuestas) y se calcula con las llegadas: sobre la que
+    una línea de red ATRAVIESA la bóveda (corrida partida en Fase A **por ESA
+    bóveda** —`Run.split_vi`; una pieza partida por otra bóveda no cuenta, si no
+    el nodo caía en una esquina de la segunda y las llegadas daban un rodeo por
+    el borde: DU06 h.3—, o dos llegadas colineales opuestas) y se calcula con las llegadas: sobre la que
     atraviesa (intersección si son dos), nunca con el círculo/cajita del símbolo
     (`Vault.reference` queda informativo). Las demás llegan al nodo por su eje +
     `bend` corto. Sin línea que atraviese, cada llegada termina en el borde con
-    `stop` (CAJA visible ahí; el usuario completa a mano). `_split_by_fit`
+    `stop` (CAJA visible ahí; el usuario completa a mano). **Nada inventado
+    alrededor de la bóveda (auditoría 2026-09-22, abanico de la hoja 3)**: una
+    llegada solo se une al nodo si éste queda sobre su eje con un quiebre corto
+    (`_perp_line(r.line(s), P) ≤ VAULT_BEND_OFF_FRAC`=0.5 × lado menor; medido en
+    el DU06: llegadas buenas ≤0.46, el abanico iba de 0.56 a 1.6), si no para en
+    el borde; el nodo se clampa DENTRO del recuadro (sobre la línea que atraviesa)
+    — antes `bb_reach` lo dejaba salir un hueco del linetype y las llegadas
+    formaban un triángulo fuera de la caja; y `entry_point` no prolonga un extremo
+    más de `pat.join_gap` hacia la bóveda (29 pt sin tinta en la h.3).
+    `tests/test_recognition.py::test_du06_ningun_tramo_sin_tinta_debajo` audita las
+    19 hojas: todo segmento >6 pt fuera de una bóveda tiene tinta debajo.
+    **Perfil drenaje (auditoría 2026-09-23, DU06 h.4)**: `recognition.
+    UTILITY_GEOM_OPTIONS["DRENAJE"]` = `geom.GeomOptions` con tres reglas que el
+    eléctrico NO usa (con ellas cambiaba en 7 hojas; sin ellas, 0 diferencias
+    vértice por vértice en las 19): `separate_vaults` (dos contornos ≥8 pt con
+    hueco ≥1.5 pt no se funden), `nearest_vault` (un extremo va a la bóveda que
+    lo CONTIENE o donde entra más cerca, solo entre bóvedas que no se solapan —
+    los contornos anidados alrededor del manhole siguen el orden de siempre) y
+    `absorb_inside_runs` (un guión corto dentro de otra corrida y sobre su recta,
+    ±3°, se funde: si no, el tramo salía doble). Además `duplicate_ocgs` (solo
+    `DEDUP_OCG_UTILITIES`): la misma capa corta repetida por otro xref (≥90 % de
+    trazos a ≤0.5 pt) se reconoce una vez y sus trazos propios se suman a la
+    conservada. `C-STRM-UNGD-*-NPLT` SÍ es centerline (está impresa); `-CASE`
+    (camisa) y `-WALL` no. Eléctrico de otros paquetes (DU08/DU10): `C-ELEC-
+    (<paquete>-)?UGND…` = línea PROPUESTA «—E—» (leyenda: existente = letra
+    minúscula a trazos, propuesta = MAYÚSCULA continua, «/» abandonada, «//» a
+    abandonar = capas `-D`); `C-ELEC-UNGD-WALL-N` fuera. Hojas «aplanadas» (0 %
+    de vectores con capa): `pdf_layers.page_uses_layers` (busca `/OC` en el
+    contenido y XObjects, ~10 ms/hoja) → el compositor las marca «sin capas».
+    **DU08 h.39 (2026-09-23)**: sin paso aprendido en la capa (<3 marcadores),
+    una línea con ≥2 «/» a ≥`MARKER_LOCAL_MIN_PT`=30 define su paso
+    (`marker_pattern`, `local`); `split_offpattern` → `_continues_line`: un
+    trazo largo que sigue DE FRENTE (±35°, ≤ `join_gap`) el guión anterior no es
+    leader (en una curva a guiones cada guión es su corrida y ninguno es «ancla»).
+    Capas `-D` → aviso propio (`is_to_abandon_ocg`), siguen activas hasta que el
+    usuario decida. Antes de
+    tocar el núcleo compartido: foto del eléctrico en las 19 hojas y diff.
+    `_split_by_fit`
     parte corridas donde los guiones se apartan >`RUN_FIT_TOL_PT` para que
     T/convergencias queden sobre la línea de la capa. **Clips**:
     `recognition.gather_paths` usa `get_drawings(extended=True)` y recorta cada
@@ -118,6 +223,12 @@ alcantarillado, drenaje, gas, eléctrico, telecom). Todo en **unidades imperiale
     las RUTAS (joined y raw) por OCG; DU06 h.9: paso 67.7 pt, línea de 282 pt
     True + 3 stubs None → 4 (AB). Capa `-A` sin patrón → se importa activa con
     aviso; patrón en capa activa → solo aviso.
+    **«//» = abandonada en CUALQUIER utilidad y capa** (regla del usuario
+    2026-09-25; DU08 h.21 agua `-D`): `MarkerPattern.doubles` (mayoría de
+    marcadores de 2 barras) y `double_verdict` (solo los dobles, ≥75 % de pasos
+    a 1×/2× el periodo — `MARKER_DOUBLE_STEPS_OK` —, dobles a ≤2 pasos de cada
+    punta; sin «//» propio y corta → None = hereda la capa). La «/» simple sigue
+    exigiendo capa `-A`.
     `Vault` trae además la geometría REAL del símbolo (`_fill_vault_geometry`: el
     path cerrado más grande del clúster → `outline` 4 esquinas con giro, `width`/
     `length` pt, `angle_deg` rumbo del lado largo, o `shape="circle"`); `recognition`
@@ -152,11 +263,16 @@ alcantarillado, drenaje, gas, eléctrico, telecom). Todo en **unidades imperiale
     una vez por OCG). `join_routes=False` deja las polilíneas cortadas.
   - `composite.py` + `composite_view.py` + `composite_dialog.py` — **hoja compuesta**
     (v1.2.0), primer paso del asistente para PDF vectorial (reemplaza a «Organizar
-    hojas», que sigue en el menú Ver como legado). `composite.py` es PURO (solo
+    hojas»; sus entradas ya no están en el menú Ver, los métodos siguen para
+    proyectos viejos). `composite.py` es PURO (solo
     fitz): `Piece` (PDF origen, hoja, `clip` normalizado sobre la hoja visible,
     `x,y` en pt de la hoja compuesta, `rotation` ANTIHORARIO como `show_pdf_page`,
     `src_scale` pies/pt) y `Composite` (piezas + `scale_ft_per_pt` única; cada
-    pieza se escala por `src_scale/target`). `piece_map` reproduce exactamente el
+    pieza se escala por `src_scale/target`). Botones conmutables del compositor:
+    `_tool(checkable=True)` pone la propiedad `toggleTool` (QSS en `theme.py`:
+    activo = verde + icono claro; `QPushButton[secondary="true"]` = acción
+    secundaria neutra, la usa el preview en su cuadrícula 2×2) y `_notify_taken` muestra 5 s «✔ Área tomada
+    como pieza N» en el panel 2. `piece_map` reproduce exactamente el
     mapeo de `show_pdf_page` (centro a centro, giro antihorario, factor uniforme);
     `edge_anchors` da los anclajes (`Anchor`: cortes de trazos con el borde del
     clip + extremos sobre el borde ±0.75 pt, con dirección de salida y capa; se
@@ -188,7 +304,61 @@ alcantarillado, drenaje, gas, eléctrico, telecom). Todo en **unidades imperiale
     cruzan; el imán: `coincide_delta` (extremos enfrentados que coinciden, sin
     los `inset`) → `edge_snap_delta` (rectángulos borde con borde) + colineal
     solo a lo largo de la costura → `refine_delta` (mínimos cuadrados 2D sobre
-    parejas mutuas; None en el eje que las líneas no determinan). Puente =
+    parejas mutuas; None en el eje que las líneas no determinan) → **costura por
+    MATCH LINE** (`_seam_align`, auditoría 2026-09-22): las dos hojas contiguas
+    dibujan LA MISMA raya de la costura, así que `seam_line_extent` (la línea
+    larga paralela al borde, ≤`SEAM_LINE_TOL_PT`=10 pt de él, recortada a la
+    franja de la pieza y ≥25 % de su alto) + `seam_line_delta` (mismos largos
+    ±2 pt) dan el desplazamiento EXACTO a lo largo de la costura; si no hay,
+    `seam_along_delta` usa los extremos enfrentados con ≥`SEAM_MIN_PAIRS`=3 de
+    acuerdo y hasta `SEAM_ALONG_TOL_PT`=90 pt. Esta etapa corre SIEMPRE, también
+    tras el imán de coincidencia (etapa 1), porque dos extremos que coinciden
+    pueden ser el guión equivocado. Sin ella, si cada hoja se recortaba a distinta
+    altura (el imán de líneas engancha una guía distinta en cada una) el desfase
+    quedaba tal cual: DU06 h.13→14 daba −25.5/−43.5/+18.2 según dónde se soltara
+    la pieza, cuando la match line 519+00 (378 pt en las dos hojas) dice −34.51.
+    **Costura EXACTA (`composite_seam.py`, auditoría 2026-09-24, «grada» en las
+    diagonales de DU06 13→14)**: `_seam_align` prueba primero `_seam_exact`:
+    A TRAVÉS, las dos match lines coinciden (`seam_rule`: la línea MÁS GRUESA a
+    ≤30 pt del lado, por dentro o fuera, ajustada como recta — va inclinada
+    0.23° en el DU06—; las cotas de papel de 0.72 pt a 20/40/60 pt de ella, en
+    espejo en cada hoja, no cuentan; `rules_match` = mismo grosor); A LO LARGO,
+    `seam_votes` sobre segmentos IDÉNTICOS (capa, largo, rumbo) de la franja
+    ±45 pt de cada costura, restringidos a esa traslación a través ±1.5 pt
+    (`translation_from_votes`: ≥5 votos de ≥2 capas y pico 1.5× el segundo; su
+    «a través» manda: las match lines pueden ir 0.4–0.7 pt corridas). Sin la
+    restricción ganaban picos falsos (cotas espejadas, parquímetros
+    `V-PKNG-METR`). La franja de votos va centrada en la MATCH LINE, no en el
+    corte. Un segmento con varios gemelos a tiro reparte su voto (1/n: LABOE
+    h.9→10 repite cada 108 pt); hoja sin capas (DU08) → 2× votos en vez de ≥2
+    capas. Sin dibujo compartido (LABOE h.8→9, 10→11; DU06 3→4…): CONTINUIDAD
+    (`rule_crossings`/`crossing_votes`: cada línea que llega a la match line o
+    la cruza, prolongada hasta ella; pareja = misma capa y rumbo ±0.3°). Si
+    tampoco: match lines a través + el imán de siempre a lo largo, y se
+    recalcula el «a través» (inclinación). `trim_border` ahora mira
+    también ±band por FUERA y elige la línea más gruesa (clusters por grosor);
+    antes un lado 4 pt corto de la match line dejaba 8 pt de plano fuera; una
+    línea ≥`TRIM_HEAVY_MIN_W`=1.2 pt se alcanza hasta 2× la banda, y la MATCH
+    LINE (`_match_line_among`: gruesa, A GUIONES, fuera de capas de utilidad
+    —`is_utility_layer`—, la más gruesa del lado y 1.5× cualquier otra a guiones)
+    hasta 6.5× (91 pt) y aunque las cotas parezcan grilla: el área puede quedar
+    sobre la cota de 60 pt o sobre el marco de la hoja (1.68 pt continuo, 71 pt
+    afuera en DU06 h.6). `guide_lines` lleva el grosor (5.º campo) y
+    `snap_edge` pesa cobertura × grosor: en el DU10 la cota fina cubre MÁS que la
+    match line (349 vs 301 pt) y el área saltaba a la cota. `seam_rule` exige
+    ≥`SEAM_RULE_MIN_WIDTH`=1.2 (dos cotas finas en espejo coinciden entre sí y
+    dan una costura falsa), sin capas de utilidad, ≤30 pt del lado o ≤90 si va a
+    guiones.
+    Auditoría: `scripts/audit_costuras.py` (pares contiguos por estación «MATCH
+    LINE STA», verdad independiente: vectores idénticos o continuidad; 54
+    uniones por par; hoy 78/78 pares sin error en DU06/DU10/DU08/LABOE, ~40 min)
+    — correrlo antes de tocar el imán; tests `tests/test_composite_seam.py`.
+    `page_segments` cachea el escaneo de la hoja (`_segs_cache`) para que el imán
+    siga siendo instantáneo al arrastrar (1-5 ms). Todo escaneo de vectores pasa
+    por `composite.page_drawings(page)` (caché de `get_drawings` en el propio
+    documento, clave con el estado de capas): antes cada función lo releía
+    (~0.6 s/hoja) y la primera unión congelaba la UI ~5 s; `CompositeView.
+    _warm_seams` prepara las match lines al agregar la pieza (unión: 27 ms). Puente =
     `Bridge.polyline(rect_a, rect_b)`: cada extremo sigue RECTO por su dirección
     hasta el borde de su pieza (`_ray_exit`) y ahí cierra; `bridge_segments_poly`
     mantiene el patrón de guiones por la polilínea (ojo: guardas 1e-6 contra
@@ -273,7 +443,11 @@ alcantarillado, drenaje, gas, eléctrico, telecom). Todo en **unidades imperiale
     herramienta activa a la vez, undo/redo, zoom fit. Trae rectángulo,
     conductos, mover, medir, eliminar.
   - `model_ops.py` — operaciones PURAS sobre el modelo (sin Qt): auto-detección de
-    buzones (`rebuild_structures`), ocultar cajas de quiebres reconocidos sin
+    buzones (`rebuild_structures`: gravedad = BZ en TODOS los vértices; eléctrico/
+    telecom (conduit) = CAJA solo en los vértices de bóveda REAL del reconocimiento,
+    `VAULT_VERTEX_KINDS` = vault/stop — regla de dev_deyvy «muy pocas cajas»; las
+    demás las pone el usuario; presión nunca. `attach_fillets` crea la marca CV del
+    codo reconocido si en conduit no hay estructura), ocultar cajas de quiebres reconocidos sin
     bóveda (`hide_soft_vertex_structures`, usa `pipe["vertex_kinds"]`), conteo de conexiones (`bz_segment_count`), cotas
     por tramo (`interp_vertex_z`, `migrate_vertex_inv`, `snapshot_seg_values`),
     búsqueda por vértice (`pipe_at_vertex`), geometría de Multileader (`leader_geo`,
@@ -289,7 +463,12 @@ alcantarillado, drenaje, gas, eléctrico, telecom). Todo en **unidades imperiale
   - `geo/` — georreferenciación: `georef.py` (ajuste), `georef_dialog.py` (UI),
     `la_reference.py` (calles/parcelas de NavigateLA).
 - Raíz — **pipeline de digitalización**: `config.py`, `vector_pipeline.py`,
-  `raster_pipeline.py`, `digitize.py`, `detect.py`.
+  `raster_pipeline.py`, `digitize.py`, `detect.py` (`classify_page`: «vector»
+  solo con ≥80 trazos Y evidencia CAD — texto ≥20 chars, fuentes u OCGs; un
+  escaneo vectorizado (12k trazos calcados, 0 texto/fuentes/capas, fixture
+  `tests/fixtures/escaneado_vectorizado.pdf`) es «raster» con `info["traced"]`
+  y `Main._run_recognition_wizard` lo manda al dibujo manual; imagen ≥60 % de
+  la página sin OCG = escaneo aunque lleve anotaciones vectoriales con texto).
 - `API-CIVIL/proyecto1/proyecto1/` — **plugin C# de Civil 3D** (.NET 8). Lee el DXF
   y crea las redes. Comando clave: `IMPORTAR_RED` ([ImportarRed.cs]).
 - `installer/` — bundle del plugin + Inno Setup. `build_all.bat` (raíz) arma todo.
@@ -318,6 +497,134 @@ alcantarillado, drenaje, gas, eléctrico, telecom). Todo en **unidades imperiale
     (pt × pies/pt) y rumbo del lado largo; vacíos en buzones manuales. El plugin
     aún no los usa (`XdStr` ignora claves extra) — candidato: elegir PART_SIZE por
     medidas y girar la estructura.
+  - **Datos extendidos** (`app/xdata.py` puro + `app/xdata_dialog.py`, botón verde
+    «Ver datos extendidos» junto a Eliminar, pestañas Utilidades y Buzones): cada
+    pipe/estructura puede llevar `xdata = {"auto": {…}, "user": {…}}`. `auto` lo pone
+    el reconocimiento (`pipes_from_recognition(origin=)`, `attach_vault_geometry(origin=)`):
+    capa OCG de origen + lo que dice su nombre NCS (`parse_layer`: disciplina, sistema,
+    ubicación UNGD/OVHD, estado N/E/A/D…, modificadores) + «PDF · Hoja N» (pieza de la
+    hoja compuesta bajo el objeto, `Main._xdata_origin`; texto fijo en español: es dato).
+    Es SOLO referencia: no cambia la utilidad (la línea sigue siendo DRENAJE/ELECTRICO)
+    ni el reconocimiento. `user` = campos libres del usuario (no pueden llamarse como un
+    campo auto). `rebuild_structures` copia `xdata` por coordenada; re-importar
+    (`set_auto`) no borra lo del usuario. Van al .digproj tal cual y al DXF como claves
+    extra de `PDFCAD_PIPE`/`PDFCAD_STRUCT`: `XD_CAPA_OCG, XD_XREF, XD_CAPA,
+    XD_DISCIPLINA, XD_SISTEMA, XD_UBICACION, XD_ESTADO, XD_MODIFICADORES, XD_ORIGEN` y
+    `XDU_<NOMBRE>` (ASCII, ≤250 car.). El plugin aún no las usa (candidato: Property Sets).
+  - **Estándar de capas BOE/NCS** (manual en `Documentos/docs prueba/BOE_CADD_Manual_210610.pdf`,
+    §8.1): DISC(1 letra + opcional subconjunto nivel 2)-MAYOR(4, relleno «~»)-menor(es)-ESTADO
+    (A D E F M N T X, 1–9 fases). `recognition.standard_short_name` normaliza (quita «~» y la
+    2.ª letra de disciplina: `CU-STRM-…` → `C-STRM-…`) antes de `classify_ocg`, que SUMA las
+    formas del estándar (drenaje `C-STRM-UGND`, `C-STRM-PIPE…`; estructuras `-MHOL`, `-HWAL`)
+    a las de los APDU sin cambiar ninguna: foto de las 1182 capas de los 5 PDFs de prueba
+    antes/después = 0 diferencias (hacer lo mismo antes de tocar `classify_ocg`).
+    Tests: `tests/test_layer_standard.py`. La lista completa de capas por disciplina es un
+    anexo aparte que NO viene en ese PDF.
+  - **«No inventar» con líneas juntas (auditoría 2026-09-24, DU08 h.21)**:
+    `recognition.dedup_paths` quita trazos IDÉNTICOS (≤0.05 pt, también al revés)
+    dentro de cada capa antes de reconstruir — DU08/DU10 traen capas enteras
+    duplicadas (xref insertado dos veces): daban líneas de ida y vuelta y ticks
+    de «dos guiones» que ya no eran `capped` y se prolongaban sin tinta. Núcleo:
+    esquina solo si el ángulo INTERIOR ≥ `CORNER_MIN_INTERIOR_DEG`=73° (falsas
+    ≤69.5°, reales ≥77° medido en DU06/08/10/LABOE; DU06 ninguna <75°); una curva
+    no retrocede > `CURVE_BACKSLIDE_PT`=1 hasta su esquina (`slide_ok`);
+    `learn_pattern` ignora «guiones» > `DASH_LONG_MAX_RATIO`=15× el largo más común
+    (rayas de 731 pt del cajetín ganaban al deduplicar). `routes`: en un nodo T
+    (extremo `tee`, la línea que pasa no crea extremo) solo se sigue de frente
+    (35°). Red final: `_split_sharp` parte toda polilínea en un vértice < 73° (no
+    `fillet`) antes de marcadores/tinta/codos. Verificación: foto de TODAS las
+    hojas de los 4 PDFs antes/después (vértices en «V» 863 → 0, largos iguales
+    donde solo se parte) + `test_recognition_no_inventar.py`.
+    2.ª revisión (mismo día): un extremo que TOCA (≤`ENDS_TOUCH_PT`=1) el de otra
+    corrida que sigue de frente (giro ≤35°) no va a la bóveda vecina (Fase B) si el
+    toque queda FUERA de la caja (dentro es la línea que la atraviesa: DU06 h.9/h.12);
+    y en T-ends el «trozo colineal enfrente» no cuenta si otro extremo lo mira mejor
+    (suma de desvíos a ambas rectas): la curva que muere sobre la vertical no se
+    apropia de la continuación de la diagonal que pasa por la «e».
+    3.ª revisión (DU08 h.49): `stretch_ok` — en una esquina (5b) una corrida de UN
+    guión (tick, patita de símbolo) no se prolonga más que max(su largo, ½ join_gap)
+    salvo que haya un glifo de la capa en el hueco (`resolve_nodes(glyphs=)`; con el
+    umbral de un join_gap entero volvía la vertical inventada de DU10 h.21, con ½ sin
+    glifo se cortaban las líneas «e» de LABOE); un tick con T interior no es ruido
+    aunque mida < `floor` (dos xrefs con su tick pegado: se veía una sola T);
+    `strip_crossing_markers(attached=)` no toma por «/» un trazo que NACE en la punta
+    de una curva (`MARKER_ATTACH_PT`=0.5). Foto: DU06 y LABOE 0 cambios.
+    4.ª revisión (DU08 h.49, borde de la vista): la referencia viene RECORTADA justo
+    en el clip (x=661.14). `_clip_chain` conserva un trozo que corre SOBRE el borde
+    (sus dos puntas a ≤`CLIP_EDGE_TOL_PT`=0.25 y largo ≥0.5; una colita que cruza
+    sigue fuera — con solo el punto medio se movían cortes 0.3–0.9 pt); `clip_path`
+    marca como `cut_pts` los extremos que ya están sobre el borde, y un extremo
+    cortado no es T-end (queda en su punta). `_cut_letter_strokes` (en
+    `classify_paths`): grupo de ≥2 trazos cortos que se tocan con ángulo ≥60° y caben
+    en una letra, repetido ≥`CUT_GLYPH_MIN_REPEAT`=3 veces con los mismos largos =
+    letra partida → glifo. Foto: DU06 0 puntos movidos (solo «end»→«cut» en extremos
+    del borde); cambios de geometría solo en DU08 h.36/37/49 y LABOE h.26 (revisados).
+  - **Perfil AGUA (2026-09-24)**: `recognition.SUPPORTED_UTILITIES` = ELECTRICO, DRENAJE,
+    AGUA; `DEFAULT_UTILITIES` (selección al abrir) sigue siendo Eléctrico+Drenaje — Agua se
+    marca en «Capas de la hoja». Etiquetas: `UTILITY_LABELS`/`utility_label`/
+    `utilities_label` (no volver a escribir «Eléctrico y Drenaje» a mano en la UI).
+    `_classify_water`: línea `water_ungd` = `C-WATE?R[-_](paquete-)?(UNGD|UGND|PIPE)` sin
+    ANNO/TEXT/CASE/FITT/APPT/VALV/METR/HYDR/-FH/-GV/WALL/…; estructura = V-WATR-VALT/MANH/
+    STRU, V-FIRE-STRU, C-WATR-VALT/MANH/MHOL/STRC (válvulas, medidores, hidrantes =
+    accesorios, no). Red a PRESIÓN (`NETWORK_KIND`): `Main._import_recognized_pipes` no
+    llama `attach_vault_geometry` ni cuenta bóvedas importables para presión (como el
+    dibujo manual: `rebuild_structures` no crea nodos en presión). Reglas del perfil
+    (`GeomOptions`, SOLO agua): `join_touching_ends` (puntas a ≤1 pt se cosen primero;
+    punta JUSTO sobre una línea = T aunque esté cerca de su extremo — el join_gap del agua
+    llega a 70 pt), `gap_turn_blocks` (`build_runs` no cruza un hueco si en su borde nace
+    otro trazo no colineal), `markers_on_curves` (`strip_crossing_markers(curve_chains=)`).
+    Auditoría: `tests/test_water_profile.py`; 68 hojas sin tramos sin tinta ni «V»; foto
+    eléctrico/drenaje de los 4 PDFs = 0 diferencias.
+  - **Perfil ALCANTARILLADO (2026-09-25)**: `SUPPORTED_UTILITIES` suma ALCANTARILLADO
+    (kind `sewer_ungd`; NO está en `DEFAULT_UTILITIES`). `_classify_sewer`: línea =
+    `C-(SSWR|SEWR|SEWER|SANI)[-_](paquete-)?(UNGD|UGND|UNDG|PIPE)` sin ANNO/TEXT/CASE/PATT/
+    WALL/PROF/STRC/MANH/SCRN/COUT…; estructura = V-SSWR-MANH/STRU, C-SSWR-STRC/MANH/MHOL y
+    `C-SSWR-(UNGD|UGND)-STRC(-N-301…)` (LABOE, propuestos). `V-SSWR-COUT` (cleanout) =
+    accesorio; `C-SSWR-UNDG-SCRN-N` (DU08 h.36–38) = símbolo tramado del buzón, no línea.
+    Red por GRAVEDAD (`attach_vault_geometry(net=NETWORK_KIND[utility])`). Reglas del
+    perfil: TODAS las `GeomOptions` de drenaje y de agua + `polygon_circles`, y
+    `RING_VAULT_UTILITIES`: el xref existente dibuja el ANILLO del buzón (polígono de 39
+    lados, r≈9–11 pt) en la capa de la LÍNEA → `ring_symbol_paths` lo pasa a
+    `vault_paths` (sin esto: 156 polilíneas circulares y saltos sin tinta al anillo).
+    `polygon_circles`: ese polígono es círculo (`_polygon_circle`) y la bóveda queda
+    `round_entry` → `_vault_entry` corta la recta contra el CÍRCULO, no contra la caja
+    (DU10 h.5 (981,710): la diagonal de una «X» vecina rozaba la esquina de la caja).
+    Auditoría (4 PDFs, 71 hojas): sin reglas 22 tramos sin tinta; drenaje 19; agua 11;
+    ambas 8; + anillo 0 (y 0 «V», cobertura ≥99.77 %). Buzones: círculo, mediana 5 ft.
+    Tests: `tests/test_sewer_profile.py` (capas) y `tests/test_sewer_integration.py`
+    (ventana real offscreen: PDF → importar → DXF con NET_KIND=gravity, SHAPE=circle).
+    Foto eléctrico/drenaje/agua de los 4 PDFs antes/después = 0 vértices distintos.
+    `_cluster_vaults_layer`: en empate de capas manda la del contorno más grande (antes
+    el orden de un `set` → `importable` cambiaba entre ejecuciones, DU10 h.2).
+    **Precisión (2.ª revisión, mismo día; el usuario: «no inventamos nada, reconocer bien
+    las líneas»)**: `precise_junctions` — un ramal que muere en el HUECO del linetype de
+    una línea que sigue de frente (nodo «bend» en el centro del hueco) lleva el nodo al
+    CRUCE de las rectas si cae en el hueco ±`JUNCTION_GAP_SLACK_PT`=2 (DU06 h.13: laterales
+    2 pt inclinados); `continuation_before_vault` — una punta cuya continuación de
+    frente está más cerca que el borde de la bóveda no salta a la bóveda (DU08 h.36: el
+    guión del medio de una curva se estiraba ENCIMA del siguiente → dos tramos
+    superpuestos); `OUTLINE_AXIS_UTILITIES` + `outline_axis_paths`: rectángulo delgado
+    (≤8 pt, largo ≥6×) en la capa de la línea = tubería en contorno → su EJE (DU06 h.4
+    `PROP_SEWER_PIPE_ALGN|C-SSWR-UNGD-N`). GLOBAL (núcleo): el filtro de ruido compara
+    `pl.length >= dash_long - 0.5` (dash_long sale de largos redondeados: un trazo de 209.8
+    con dash_long=210 se tiraba) — cambia drenaje (DU10 h.17/18: lateral propuesto de 120
+    pt recuperado) y agua (18 trazos sueltos recuperados, todos con tinta); eléctrico 0.
+    **Continuidad (3.ª revisión, mismo día; hoja compuesta DU06 13+14, «debería ser
+    continua»)**, todo bajo `precise_junctions`: `join_touching_ends` NO cose por contacto
+    una punta con continuación de frente al otro lado del hueco (`continues_ahead`; el
+    lateral tocaba la punta del guión y quedaba esquina + principal cortada — solo pasaba
+    cuando `_split_by_fit` partía la corrida, p.ej. por el recorte de la pieza); el ramal
+    se une al «bend» por el cruce dentro del hueco (`_gap_crossing`) aunque el punto
+    medio de un hueco ANCHO no quede sobre su eje; 5d-ter: punta que tocaba y quedó libre
+    = T justo donde toca (DU08 h.40, junto al buzón); quiebre suave con letra en el hueco
+    hasta `glyph_bridge` (`letter_in_gap`, curvas con «ss»); `classify_paths(
+    keep_line_strokes=)`: un trozo que nace en la punta de un guión con su rumbo no es
+    asta de letra aunque se repita (DU08 h.37 «—//—ss—»). Auditoría de huecos: puntas
+    enfrentadas y colineales a <40 pt entre polilíneas distintas = 0 en los 4 PDFs.
+    `scripts/audit_alcantarillado.py`: auditoría con métrica de PRECISIÓN (p90 de la
+    distancia perpendicular a guiones paralelos ≥3 pt de su propia capa; ojo: sin esos
+    filtros, las letras «ss» y los huecos dan cientos de falsos positivos). Referencia:
+    859 tramos, 0 sin tinta, 0 «V», 3 «imprecisos» = ejes de tuberías con doble línea.
   - `PDFCAD_CURVE` (punto): esquina de elemento curvo, con `RADIUS_FT`.
   - `PDFCAD_META` (punto): metadatos del proyecto, hoy `CS_CODE` (Huso).
   - `PDFCAD_DUCTBANK` (punto, capa `PDFCAD_DUCT_BANK`): sección transversal del

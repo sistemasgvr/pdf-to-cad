@@ -973,3 +973,125 @@ def test_boveda_abandonada_del_lazo_trae_geometria():
     v = loops[0]
     assert v.shape == "rect" and v.outline and len(v.outline) == 4
     assert abs(v.length - 60.0) < 0.6 and abs(v.width - 40.0) < 0.6 and abs(v.angle_deg) < 0.5
+
+
+def test_boveda_grande_no_tira_de_las_llegadas_lejanas():
+    """Bóveda alta con una línea que la cruza pegada a un lado y tres conduits
+    que entran por el otro a distinta altura (DU06 hoja 3): solo va al nodo la
+    llegada que apunta a él; las que tendrían que desviarse media bóveda paran en
+    el BORDE. Sin esto se dibujaba un abanico de líneas que el plano no tiene."""
+    sh = Sheet()
+    x0, y0, x1, y1 = 400.0, 300.0, 436.0, 390.0          # 36 × 90 pt
+    sh.rect("VAULTS", x0, y0, x1, y1)
+    sh.dashed((436.0, 180.0), (436.0, 300.0))            # cruza pegada al lado derecho
+    sh.dashed((436.0, 390.0), (436.0, 500.0))
+    for y in (310.0, 348.0, 382.0):                      # conduits por la izquierda
+        sh.dashed((250.0, y), (x0, y))
+    res = sh.run()
+    node = [n for n in res.nodes if n.kind == "vault"]
+    assert len(node) == 1
+    P = (node[0].x, node[0].y)
+    assert x0 - 1 <= P[0] <= x1 + 1 and y0 - 1 <= P[1] <= y1 + 1      # el nodo, dentro del símbolo
+    # cada llegada que llega al nodo lo hace con un quiebre corto (≤ medio lado)
+    lim = 0.5 * min(x1 - x0, y1 - y0)
+    for pl in res.polylines:
+        for j in (0, len(pl.pts) - 1):
+            if pl.kinds[j] != "vault" or len(pl.pts) < 3:
+                continue
+            E = pl.pts[1] if j == 0 else pl.pts[-2]
+            F = pl.pts[2] if j == 0 else pl.pts[-3]
+            ux, uy = G._unit(E[0] - F[0], E[1] - F[1])
+            off = abs((P[0] - E[0]) * (-uy) + (P[1] - E[1]) * ux)
+            assert off <= lim + 0.5, (pl.pts, off)
+    # y las lejanas quedan paradas en el borde
+    stops = [p for pl in res.polylines for p, k in zip(pl.pts, pl.kinds) if k == "stop"]
+    assert any(abs(p[0] - x0) < 1.5 for p in stops), stops
+
+
+def test_extremo_lejos_de_la_boveda_no_se_estira_hasta_ella():
+    """Un tramo que muere a más de un hueco del linetype de la bóveda NO se
+    prolonga hasta el borde (no hay tinta en medio): termina donde termina."""
+    sh = Sheet()
+    sh.rect("VAULTS", 400.0, 300.0, 436.0, 340.0)
+    sh.dashed((250.0, 320.0), (360.0, 320.0))            # muere 40 pt antes del borde
+    res = sh.run()
+    ends = [p for pl in res.polylines for p in (pl.pts[0], pl.pts[-1])]
+    assert all(p[0] <= 365.0 for p in ends), ends
+
+
+def test_linea_que_cruza_una_boveda_no_manda_en_la_de_al_lado():
+    """Una vertical que ATRAVIESA la bóveda de arriba y MUERE en la de abajo: la
+    de abajo no tiene línea que la cruce, así que sus llegadas paran en el borde.
+    Antes la pieza partida por la primera bóveda contaba como «línea que
+    atraviesa» en la segunda, le ponía el nodo en una esquina y las llegadas
+    cruzaban la caja de lado (DU06 hoja 3, lo reportó el usuario)."""
+    sh = Sheet()
+    sh.rect("VAULTS", 400.0, 200.0, 436.0, 236.0)         # bóveda de arriba
+    sh.rect("VAULTS", 400.0, 300.0, 436.0, 358.0)         # bóveda de abajo
+    sh.dashed((406.0, 120.0), (406.0, 200.0))             # la vertical, antes de la 1.ª
+    sh.dashed((406.0, 236.0), (406.0, 300.0))             # …entre las dos (la atraviesa)
+    sh.dashed((418.0, 150.0), (418.0, 300.0))             # otra vertical que muere en la 2.ª
+    res = sh.run()
+    up = [n for n in res.nodes if n.kind == "vault" and 200 <= n.y <= 236]
+    down = [n for n in res.nodes if n.kind == "vault" and 300 <= n.y <= 358]
+    assert up, [(n.kind, round(n.x), round(n.y)) for n in res.nodes]     # la de arriba sí la cruza
+    assert not down, [(round(n.x), round(n.y)) for n in down]            # la de abajo, no
+    # y las dos verticales terminan sobre el borde superior de la bóveda de abajo
+    tops = [p for pl in res.polylines for p, k in zip(pl.pts, pl.kinds)
+            if k == "stop" and abs(p[1] - 300.0) <= 1.5]
+    assert len(tops) == 2 and {round(p[0]) for p in tops} == {406, 418}, tops
+
+
+def test_dos_cajas_vecinas_que_no_se_tocan_son_dos_bovedas_solo_con_la_opcion():
+    """DU06 h.4 (1000, 830): caja de 19 pt a 2.8 pt de otra. Por defecto (perfil
+    eléctrico) se funden como siempre; con `separate_vaults` (drenaje) son dos
+    estructuras. Un contorno con su manhole DENTRO sigue siendo una sola."""
+    a = _box_path("STRC", 973.3, 815.6, 992.5, 836.6)
+    b = _box_path("BASN", 995.3, 829.3, 1014.4, 842.3)
+    assert len(G.cluster_vaults([a, b])) == 1
+    assert len(G.cluster_vaults([a, b], separate=True)) == 2
+    inner = _box_path("MANH", 978.0, 820.0, 988.0, 830.0)
+    assert len(G.cluster_vaults([a, inner], separate=True)) == 1
+
+
+def test_guion_corto_dentro_de_otra_corrida_se_funde_solo_con_la_opcion():
+    """DU06 h.4 (1095, 832): un guión de 8.6 pt a 1.03° del resto de su línea
+    (la deriva lo saca del ±1°) armaba su propia corrida y el tramo salía doble."""
+    pat = G.Pattern(22.0, None, 17.0, 5.0, 34.0, 68.0, 68.0, 42.5)
+    d1 = G.Dash((1014.42, 835.8), (1036.02, 834.96))
+    d2 = G.Dash((1102.62, 832.2), (1115.52, 831.9))
+    dx = G.Dash((1090.38, 832.5), (1099.02, 832.32))
+    big = G.Run(d1.a, d2.b, *G._unit(d2.b[0] - d1.a[0], d2.b[1] - d1.a[1]), [d1, d2])
+    small = G.Run(dx.a, dx.b, *G._unit(dx.b[0] - dx.a[0], dx.b[1] - dx.a[1]), [dx])
+    assert len(G.merge_overlapping_runs([big, small], pat)) == 2
+    merged = G.merge_overlapping_runs([small, big], pat, absorb_inside=True)
+    assert len(merged) == 1 and len(merged[0].dashes) == 3
+
+
+def test_marcadores_dos_barras_definen_el_paso_si_la_capa_no_tiene_otro():
+    """DU08 h.39: curva abandonada con solo 2 «/» a 68 pt. Sin 3 marcadores en
+    la capa no se aprendía el paso y la línea salía activa; ahora esa línea
+    define el suyo. Dos barras pegadas («//», < MARKER_PAIR_PT) no cuentan."""
+    pl = G.Polyline([(0.0, 0.0), (170.0, 0.0)], ["end", "end"])
+    stub = G.Polyline([(0.0, 50.0), (30.0, 50.0)], ["end", "end"])
+    mp = G.marker_pattern([pl, stub], [G.Glyph(35.0, 0.0, 7.0), G.Glyph(103.0, 0.0, 7.0)])
+    assert mp.has_pattern and abs(mp.period - 68.0) < 1e-6
+    assert mp.verdict == [True, None]
+    pair = G.marker_pattern([pl], [G.Glyph(80.0, 0.0, 7.0), G.Glyph(84.0, 0.0, 7.0)])
+    assert not pair.has_pattern
+
+
+def test_remate_largo_de_una_curva_a_guiones_no_es_leader():
+    """El último trazo de una línea curva a guiones (más largo que el guión
+    típico) sigue de frente el guión anterior: es parte de la línea, no un
+    leader (DU08 h.39, punta de 36 pt en violeta)."""
+    pat = G.Pattern(22.0, 6.0, 4.0, 4.9, 8.0, 16.0, 60.0, 10.0)
+    prev = G.Run((852.0, 1300.0), (859.0, 1297.0), *G._unit(7.0, -3.0), [G.Dash((852.0, 1300.0), (859.0, 1297.0))])
+    tip = G.Run((862.0, 1296.0), (897.0, 1287.0), *G._unit(35.0, -9.0), [], [(881.0, 1290.0)],
+                G._unit(19.0, -6.0), G._unit(16.0, -3.0))
+    keep, off = G.split_offpattern([prev, tip], pat)
+    assert off == [] and tip in keep
+    # Un trazo largo que NO sigue el rumbo (nace de costado) sí es leader.
+    side = G.Run((862.0, 1296.0), (862.0, 1250.0), 0.0, -1.0, [], [(862.0, 1270.0)], (0.0, -1.0), (0.0, -1.0))
+    keep, off = G.split_offpattern([prev, side], pat)
+    assert len(off) == 1

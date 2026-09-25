@@ -115,14 +115,23 @@ from drawing them. The assistant has 3 screens:</p>
     Telephone, Other), each with its color.</li>
 <li>Uncheck what you <b>don't</b> need: it is hidden and not used for recognition.</li>
 <li>With <b>◀ Sheet N / M ▶</b> you change sheets without leaving.</li>
+<li>In <b>Utilities to recognize</b> you check which ones the app should read:
+    <b>Electrical</b>, <b>Storm drain</b>, <b>Water</b> and <b>Sewer</b>. Only the ones the
+    sheet has can be checked.</li>
 </ul>
 
 <h2>3. Recognition preview</h2>
 <ul>
-<li>Shows the electrical lines found, their vaults and the percentage checked.</li>
+<li>Shows the lines found for each utility, each with its color, their vaults or manholes and
+    the percentage checked.</li>
+<li>If a <b>Review</b> notice appears, click it: the view takes you to the exact spot on the
+    sheet. Each click shows the next case (1/N).</li>
 <li><span class="btn">Continue and import into the editor</span> adds them to the project as pipes.</li>
-<li><b>Abandoned</b> lines («-A» layer with «/» marks) are imported marked <b>(AB)</b>.
-    Curved <b>bends</b> on the plan are imported with their real radius.</li>
+<li><b>Abandoned</b> lines are imported marked <b>(AB)</b>: those on the «-A» layer with «/»
+    marks, and any line with double «//» marks.</li>
+<li>Curved <b>bends</b> on the plan are imported with their real radius.</li>
+<li><b>Water</b> comes in without boxes (it is a pressure network). <b>Sewer</b> and storm
+    drain come in with their manholes.</li>
 </ul>
 <table width="100%" cellspacing="0" cellpadding="12"><tr>
 <td width="6" bgcolor="{{tip_border}}"></td><td bgcolor="{{tip}}">
@@ -170,6 +179,16 @@ from drawing them. The assistant has 3 screens:</p>
 <tr><td bgcolor="{{card}}"><b>Elevations per segment</b></td><td bgcolor="{{card}}">Press «Enable per-segment editing» to give each segment (T1, T2…) its own elevation.</td></tr>
 </table>
 
+<h2>Extended data</h2>
+<p>The green <span class="btn">View extended data</span> button (next to «Delete», also in
+<b>Manholes</b>) shows a <b>Field | Value</b> table:</p>
+<ul>
+<li>If the pipe or vault came from the PDF, it carries locked 🔒 data: the layer it came from
+    and what its name says (type, whether it is new, existing or abandoned, and the source
+    sheet). They are for reference only.</li>
+<li>With <b>Add field</b> you write down your own data. It is saved in the project and goes into the DXF.</li>
+</ul>
+
 <table width="100%" cellspacing="0" cellpadding="12"><tr>
 <td width="6" bgcolor="{{info_border}}"></td><td bgcolor="{{info}}">
 <b>Important about the name:</b> the name only identifies the network. Two pipes of the
@@ -185,8 +204,9 @@ shows the maximum allowed.</p>
 
 <section data-title="Manholes and boxes">
 <ul>
-<li>The app automatically places a <b>manhole</b> (BZ-) at each sewer and storm drain vertex,
-    and a <b>box</b> (CAJA-) on electrical and telecom networks.</li>
+<li>The app automatically places a <b>manhole</b> (BZ-) at each sewer and storm drain vertex.</li>
+<li><b>Electrical and telecom</b> networks have few boxes: the app only places a <b>box</b>
+    (CAJA-) where the PDF plan has a real vault, with its measurements. You add the rest.</li>
 <li>In the <b>Manholes</b> list you change their family, size and elevations.</li>
 <li>To add one in the middle of a line: <b>Tools → Insert manhole in-line…</b></li>
 <li><b>Hide manhole</b> removes a manhole that does not really exist; the network stays connected.</li>

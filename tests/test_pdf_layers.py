@@ -114,3 +114,22 @@ def test_page_layers_trae_utilidad():
     by = {L["short"]: L["utility"] for L in layers}
     assert by["C-ELEC-UNGD-E"] == "ELECTRICO" and by["C-SSWR-UNGD-E"] == "ALCANTARILLADO"
     assert all(L["utility"] in {k for k, _ in pdf_layers.UTILITIES} for L in layers)
+
+
+def test_page_uses_layers_distingue_hoja_aplanada(tmp_path):
+    """Hoja con trazos dentro de una capa OCG → True; hoja del MISMO PDF con
+    los trazos fuera de toda capa (aplanada, como DU08 h.3–19) → False."""
+    doc = fitz.open()
+    oc = doc.add_ocg("C-ELEC-UNGD-E", on=True)
+    p1 = doc.new_page()
+    p1.draw_line((50, 50), (300, 50), oc=oc)
+    p2 = doc.new_page()
+    p2.draw_line((50, 50), (300, 50))
+    out = tmp_path / "mix.pdf"
+    doc.save(str(out)); doc.close()
+    doc = fitz.open(str(out))
+    assert pdf_layers.page_uses_layers(doc, 0) is True
+    assert pdf_layers.page_uses_layers(doc, 1) is False
+    # Un PDF sin ninguna capa: ninguna hoja «interactúa».
+    plain = fitz.open(); plain.new_page().draw_line((0, 0), (10, 10))
+    assert pdf_layers.page_uses_layers(plain, 0) is False

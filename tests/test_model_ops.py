@@ -196,16 +196,76 @@ def test_attach_vault_geometry_asocia_medidas_a_la_caja():
                "hidden": False} for (x, y) in pipes[0]["pts"]]
     structures = rebuild_structures(pipes, seeded)
     vg = [{"center": (101.0, 2.0), "corners": [(90, -10), (112, -10), (112, 10), (90, 10)], "shape": "rect",
-           "width_ft": 6.3, "length_ft": 8.5, "angle_deg": 0.0, "orphan": False},
-          {"center": (500.0, 500.0), "corners": None, "shape": "circle", "width_ft": 4.0, "length_ft": 4.0, "angle_deg": 0.0, "orphan": True}]
-    done, missing = attach_vault_geometry(structures, vg)
-    assert (done, missing) == (1, 1)                          # la huérfana no inventa un buzón
+           "width_ft": 6.3, "length_ft": 8.5, "angle_deg": 0.0, "orphan": False, "importable": True},
+          # huérfana de una capa de estructuras PROPUESTAS / postes: no se importa
+          {"center": (500.0, 500.0), "corners": None, "shape": "circle", "width_ft": 4.0, "length_ft": 4.0,
+           "angle_deg": 0.0, "orphan": True, "importable": False},
+          # huérfana de una capa de bóvedas reales (VALT): CAJA suelta con su contorno
+          {"center": (700.0, 300.0), "corners": [(680, 280), (720, 280), (720, 320), (680, 320)], "shape": "rect",
+           "width_ft": 9.9, "length_ft": 16.2, "angle_deg": 90.0, "orphan": True, "importable": True}]
+    done, created = attach_vault_geometry(structures, vg)
+    assert (done, created) == (2, 1)
     st = next(s for s in structures if abs(s["x"] - 100) < 1e-9)
     assert st["shape"] == "rect" and st["width_ft"] == 6.3 and st["length_ft"] == 8.5 and len(st["outline"]) == 4
-    # rebuild conserva la geometría por coordenada
+    alone = next(s for s in structures if s.get("standalone"))
+    assert (alone["x"], alone["y"]) == (700.0, 300.0) and alone["net"] == "conduit" and alone["cod"].startswith("CAJA-")
+    assert alone["width_ft"] == 9.9 and len(alone["outline"]) == 4 and not alone["hidden"]
+    n = len(structures)
+    # rebuild conserva la geometría por coordenada y la caja suelta tal cual
     again = rebuild_structures(pipes, structures)
     st2 = next(s for s in again if abs(s["x"] - 100) < 1e-9)
     assert st2.get("width_ft") == 6.3 and st2.get("outline") == st["outline"]
+    assert len(again) == n and sum(1 for s in again if s.get("standalone")) == 1
+    assert len({s["cod"] for s in again}) == len(again)                    # códigos únicos
+    # segunda pasada (re-import): no duplica la suelta
+    done2, created2 = attach_vault_geometry(again, vg)
+    assert created2 == 0 and sum(1 for s in again if s.get("standalone")) == 1
+
+
+def test_attach_vault_geometry_drenaje_crea_buzon_de_gravedad():
+    from model_ops import attach_vault_geometry
+    structures = []
+    vault = [{"center": (50.0, 80.0), "corners": [(40, 70), (60, 70), (60, 90), (40, 90)],
+              "shape": "rect", "width_ft": 4.0, "length_ft": 5.0,
+              "angle_deg": 0.0, "orphan": True, "importable": True}]
+    done, created = attach_vault_geometry(
+        structures, vault, net="gravity", utility="DRENAJE")
+    assert (done, created) == (1, 1)
+    assert structures[0]["net"] == "gravity"
+    assert structures[0]["utility"] == "DRENAJE"
+    assert structures[0]["cod"].startswith("BZ-")
+
+
+def test_redes_coincidentes_conservan_estructuras_separadas_por_tipo():
+    from model_ops import rebuild_structures, hide_soft_vertex_structures
+    # Eléctrico con BÓVEDA real en el mismo punto que un buzón de drenaje:
+    # cada red conserva su propia estructura.
+    pipes = [
+        {"layer": "ELECTRICO", "pts": [(0, 0), (100, 0)],
+         "vertex_kinds": ["end", "vault"]},
+        {"layer": "DRENAJE", "pts": [(100, 0), (100, 100)],
+         "vertex_kinds": ["vault", "end"]},
+    ]
+    structures = rebuild_structures(pipes, [])
+    at_crossing = [s for s in structures if abs(s["x"] - 100) < 1e-9 and abs(s["y"]) < 1e-9]
+    assert {s["net"] for s in at_crossing} == {"conduit", "gravity"}
+    hide_soft_vertex_structures(pipes, structures)
+    assert all(not s["hidden"] for s in at_crossing)
+
+
+def test_conduit_solo_crea_caja_en_bovedas_reales():
+    # Regla de dev_deyvy: eléctrico/telecom sin cajas automáticas en cada vértice;
+    # solo donde el reconocimiento marcó una bóveda real («vault» / «stop»).
+    from model_ops import rebuild_structures
+    pipes = [{"layer": "ELECTRICO", "pts": [(0, 0), (100, 0), (100, 100), (200, 100)],
+              "vertex_kinds": ["end", "corner", "vault", "stop"]}]
+    structures = rebuild_structures(pipes, [])
+    assert sorted((s["x"], s["y"]) for s in structures) == [(100, 100), (200, 100)]
+    assert all(s["net"] == "conduit" and s["cod"].startswith("CAJA-") for s in structures)
+    # Una línea dibujada a mano (sin tipos de vértice) no lleva cajas automáticas.
+    assert rebuild_structures([{"layer": "ELECTRICO", "pts": [(0, 0), (50, 0), (50, 50)]}], []) == []
+    # Reconstruir de nuevo conserva las cajas existentes sin duplicarlas.
+    assert len(rebuild_structures(pipes, structures)) == 2
 
 
 def test_fillet_geo_arco_tangente_y_recorte():

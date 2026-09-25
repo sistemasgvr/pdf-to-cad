@@ -30,6 +30,7 @@ import fitz
 
 from i18n import t as _tr
 import pdf_layers
+import recognition
 import theme as _theme
 from ui_common import aci_qcolor, layer_qcolor, swatch_icon
 from widgets import ZoomPanView, MiniMap, maximize_on_show, side_panel_width
@@ -47,6 +48,11 @@ _ROLE_NAME = QtCore.Qt.UserRole            # nombre completo de la capa (None en
 _ROLE_UTILITY = QtCore.Qt.UserRole + 1     # clave de utilidad de la fila
 
 
+# Etiqueta corta de cada utilidad reconocible (recognition.SUPPORTED_UTILITIES)
+# para sus casillas «Utilidades a reconocer».
+_UTILITY_RECOG_LABEL = dict(recognition.UTILITY_LABELS)
+
+
 def utility_qcolor(key: str) -> QtGui.QColor:
     """Color de una utilidad: el de su capa de salida (igual que en la app);
     «Otras» en gris."""
@@ -58,7 +64,8 @@ def utility_qcolor(key: str) -> QtGui.QColor:
 class SheetLayersDialog(QtWidgets.QDialog):
     """Mostrar/ocultar capas OCG de una hoja con vista previa en vivo."""
 
-    def __init__(self, parent, doc: fitz.Document, page_index: int, layers=None, layout=None):
+    def __init__(self, parent, doc: fitz.Document, page_index: int, layers=None, layout=None,
+                 recognition_utilities=None):
         super().__init__(parent)
         self._doc = doc
         self._page_index = page_index
@@ -132,6 +139,26 @@ class SheetLayersDialog(QtWidgets.QDialog):
             "apaga todas sus capas en la hoja."))
         intro.setWordWrap(True)
         panel.addWidget(intro)
+
+        panel.addWidget(QtWidgets.QLabel(_tr("Utilidades a reconocer:")))
+        # Cuadrícula de 2 columnas: con 4 utilidades en una fila los nombres se
+        # cortaban en el panel de 420 px («Eléctri», «Alcant…»).
+        target = QtWidgets.QGridLayout()
+        target.setHorizontalSpacing(14); target.setVerticalSpacing(4)
+        self._recog_checks: dict[str, QtWidgets.QCheckBox] = {}
+        available = {layer.get("utility") for layer in self._layers
+                     if int(layer.get("path_count") or 0) > 0}
+        selected = recognition.normalize_utilities(recognition_utilities)
+        for n, key in enumerate(recognition.SUPPORTED_UTILITIES):
+            cb = QtWidgets.QCheckBox(_tr(_UTILITY_RECOG_LABEL.get(key, key)))
+            cb.setIcon(swatch_icon(utility_qcolor(key)))
+            cb.setChecked(key in selected)
+            cb.setEnabled(key in available)
+            cb.toggled.connect(self._on_recog_utility_toggled)
+            self._recog_checks[key] = cb
+            target.addWidget(cb, n // 2, n % 2)
+        target.setColumnStretch(0, 1); target.setColumnStretch(1, 1)
+        panel.addLayout(target)
 
         # ── utilidades: encienden/apagan sus capas en la hoja y filtran la lista ──
         grp = QtWidgets.QGroupBox(_tr("Utilidades"))
@@ -270,6 +297,18 @@ class SheetLayersDialog(QtWidgets.QDialog):
         """Hoja mostrada al cerrar (puede cambiar con ◀ ▶)."""
         return self._page_index
 
+    def recognition_utilities(self) -> tuple[str, ...]:
+        chosen = tuple(key for key in recognition.SUPPORTED_UTILITIES
+                       if self._recog_checks[key].isChecked())
+        return recognition.normalize_utilities(chosen)
+
+    def _on_recog_utility_toggled(self, _on: bool):
+        # Al menos una tiene que quedar marcada (si no, ¿qué se reconoce?).
+        if not any(cb.isChecked() for cb in self._recog_checks.values()):
+            sender = self.sender()
+            if sender is not None:
+                sender.blockSignals(True); sender.setChecked(True); sender.blockSignals(False)
+
     def _update_count(self):
         total = sum(1 for _ in self._layer_items())
         visible = total - len(self.hidden_names())
@@ -366,6 +405,17 @@ class SheetLayersDialog(QtWidgets.QDialog):
         self._page_index = idx
         self._page = self._doc[idx]
         self._layers = pdf_layers.page_layers(self._doc, idx)
+        # El filtro de «Utilidades» y el buscador son solo de VISTA (qué
+        # grupos se ven en la lista); no deben seguir puestos al cambiar de
+        # hoja, o una utilidad que no interesaba en la hoja anterior deja la
+        # lista de la nueva vacía aunque sí tenga capas (usuario: «página 3
+        # parece no tener capas, pero sí tiene»). Lo OCULTO en el documento
+        # (`hidden_names()`, ya aplicado arriba) sí se conserva entre hojas.
+        self._util_memory.clear()
+        self.search.blockSignals(True); self.search.clear(); self.search.blockSignals(False)
+        for cb in self._util_checks.values():
+            cb.blockSignals(True); cb.setChecked(True); cb.blockSignals(False)
+        self.chk_all.blockSignals(True); self.chk_all.setChecked(True); self.chk_all.blockSignals(False)
         self._fill_list()
         self._update_sheet_widgets()
         self._render(first=True)
@@ -407,16 +457,18 @@ class SheetLayersDialog(QtWidgets.QDialog):
         super().reject()
 
 
-def choose_sheet_layers(parent, doc, page_index: int, layout=None) -> tuple[list[str], int] | None:
-    """Abre el diálogo. Devuelve ``(capas_ocultas, indice_de_hoja)`` si el
+def choose_sheet_layers(parent, doc, page_index: int, layout=None,
+                        recognition_utilities=None) -> tuple[list[str], int, tuple[str, ...]] | None:
+    """Devuelve ``(capas_ocultas, indice_de_hoja, utilidades)`` si el
     usuario continúa (la hoja puede haber cambiado con ◀ ▶; la lista puede ser
     vacía), o None si cancela (visibilidad restaurada). `layout`: disposición
     de las hojas de la página compuesta para el minimapa (ver composite.piece_layout)."""
     layers = pdf_layers.page_layers(doc, page_index)
     if not layers:
         # Hoja sin capas OCG (PDF aplanado): no hay nada que elegir.
-        return [], page_index
-    dlg = SheetLayersDialog(parent, doc, page_index, layers=layers, layout=layout)
+        return [], page_index, recognition.normalize_utilities(recognition_utilities)
+    dlg = SheetLayersDialog(parent, doc, page_index, layers=layers, layout=layout,
+                            recognition_utilities=recognition_utilities)
     if dlg.exec() != QtWidgets.QDialog.Accepted:
         return None
-    return dlg.hidden_names(), dlg.page_index()
+    return dlg.hidden_names(), dlg.page_index(), dlg.recognition_utilities()

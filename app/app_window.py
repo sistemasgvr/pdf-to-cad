@@ -32,6 +32,7 @@ from organized_layers import selected_sheets
 from sheet_layout import normalize as normalize_sheet_layout, normalize_rotations
 from sheet_crops import normalize as normalize_sheet_crops
 import layer_dialog
+import recognition as _recognition
 import composite as composite_mod
 import composite_dialog
 import project_io
@@ -41,7 +42,7 @@ from model import (VERSION, TIPOS, ACI_RGB, LEADER_TEXT_FT, LEADER_ORIENT,
                    TAB_PIPE, TAB_LEADER, TAB_TEXT, TAB_REGION, TAB_BZ, TAB_CURVE, TAB_CL,
                    TAB_DB,
                    WORK_UNITS, DEFAULT_WORK_UNIT, CHANGELOG,
-                   PIPE_DIAMETERS_IN, PIPE_MATERIALS, DEFAULT_PIPE_MATERIAL)
+                   PIPE_DIAMETERS_IN, PIPE_MATERIALS, DEFAULT_PIPE_MATERIAL, NETWORK_KIND)
 
 # Constantes y helpers de UI compartidos (antes definidos aquí) → ui_common.py.
 from ui_common import (DOWNLOADS, btn_on_style, btn_off_style, aci_qcolor, layer_qcolor,
@@ -70,7 +71,8 @@ class Main(QtWidgets.QMainWindow):
         self.derot = fitz.Matrix(1, 0, 0, 1, 0, 0); self.gray = None; self.page_idx = 0; self.pageH_px = 0
         self.hidden_ocgs = []   # capas OCG ocultas en el paso «Capas de la hoja» (por PDF abierto)
         self.hidden_ocgs_by_source = {}  # selección de capas por PDF de la organización
-        self._layer_roles = None   # roles OCG ajustados a mano («Ajustar capas…»); None = automático por nombre
+        self._layer_roles_by_utility = {}  # roles OCG manuales separados por utilidad
+        self._recognition_utilities = _recognition.DEFAULT_UTILITIES
         self._join_routes = True   # unir tramos de la misma capa en rutas (desactivable en el preview)
         self._recog_ready = False  # True cuando el asistente ya reconoció una hoja de este PDF (◀ ▶ vuelven a reconocer)
         self.sheet_layout = None  # hoja principal y vecinas del PDF; índices 0-based
@@ -162,8 +164,9 @@ class Main(QtWidgets.QMainWindow):
         _act(medit, "Rehacer", self.redo, "Ctrl+Shift+Z")
         mview = _menu(mb, "&Ver")
         _act(mview, "Componer hoja de trabajo…", self.compose_sheet)
-        _act(mview, "Organizar hojas…", self.organize_sheets)
-        _act(mview, "Capas de hojas organizadas…", self.open_organized_layers)
+        # «Organizar hojas…» / «Capas de hojas organizadas…» (flujo antiguo) ya no
+        # van en el menú: la hoja compuesta los reemplaza. Los métodos siguen
+        # (proyectos viejos con sheet_layout), pero no se ofrecen al usuario.
         # Acción dinámica: su texto muestra el tema al que se cambiaría.
         # Si estás en oscuro dice "Modo claro"; si estás en claro dice "Modo oscuro".
         self._act_theme = QtGui.QAction("", self)
@@ -832,8 +835,15 @@ class Main(QtWidgets.QMainWindow):
         self.btn_edit = _bind(QtWidgets.QPushButton(), "setText", "Editar texto"); self.btn_edit.clicked.connect(self.edit_selected_text)
         self.btn_del = _bind(QtWidgets.QPushButton(), "setText", "Eliminar"); self.btn_del.setProperty("danger", True)
         self.btn_del.clicked.connect(self.delete_selected)
+        # Datos extendidos (capa OCG de origen + campos del usuario), junto a Eliminar
+        self.btn_xd = _bind(QtWidgets.QPushButton(), "setText", "Ver datos extendidos")
+        self.btn_xd.setProperty("success", True)
+        _bind(self.btn_xd, "setToolTip", "Capa del PDF de la que salió (disciplina, sistema, ubicación, estado) "
+                                         "y tus propios campos. Se guardan en el proyecto y van al DXF.")
+        self.btn_xd.clicked.connect(self.show_xdata)
         rr.addWidget(self.btn_ct, 0, 0); rr.addWidget(self.btn_mv, 0, 1)
         rr.addWidget(self.btn_edit, 1, 0); rr.addWidget(self.btn_del, 1, 1)
+        rr.addWidget(self.btn_xd, 1, 0)       # comparte celda con «Editar texto» (solo pestaña Textos)
         rv.addLayout(rr)
         # RESPONSIVO: en un QFormLayout la etiqueta y el campo van en la MISMA
         # fila, así que etiquetas largas ("Material de la tubería:") imponen un
@@ -1361,6 +1371,7 @@ class Main(QtWidgets.QMainWindow):
         # auto-detectan de los vertices de las tuberias, borrarlos no tiene
         # efecto porque _rebuild_structures los repone. Se oculta el boton.
         self.btn_del.setVisible(ti != TAB_BZ)
+        self.btn_xd.setVisible(ti in (TAB_PIPE, TAB_BZ))
         diag = self.orient_combo.currentData() == "d"
         lead_cuerpo = N_("Modo: Leader — clic en el final del cuerpo")
         clave_modo = {
@@ -1528,7 +1539,8 @@ class Main(QtWidgets.QMainWindow):
             self._scale_override = None
             self.hidden_ocgs = []   # capas OCG ocultas por el usuario (paso «Capas de la hoja»)
             self.hidden_ocgs_by_source = {}
-            self._layer_roles = None
+            self._layer_roles_by_utility = {}
+            self._recognition_utilities = _recognition.DEFAULT_UTILITIES
             self._recog_ready = False
             self.sheet_layout = None
             self.sheet_rotations = {}
@@ -1538,7 +1550,7 @@ class Main(QtWidgets.QMainWindow):
             self.sheet_external_pdfs = []
         finally:
             self._unbusy()
-        # Asistente v1: tipo → hoja → cargar hoja → reconocer eléctricas → preview (sin import).
+        # Asistente: tipo → hoja → capas/utilidad → reconocimiento → preview.
         self._run_recognition_wizard()
 
     def new_blank_canvas(self):
@@ -1624,7 +1636,7 @@ class Main(QtWidgets.QMainWindow):
         self._refresh_scale_label()
 
     def _run_recognition_wizard(self):
-        """Elegir tipo/hoja, cargar esa hoja, reconocer ELECTRICO y mostrar preview. Sin importar pipes.
+        """Elegir tipo/hoja, utilidad/capas, reconocer y mostrar preview. Sin importar pipes.
 
         Si detect.py clasifica claro (vector o raster con imagen dominante), se omite
         el diálogo de tipo; solo se pregunta en casos ambiguos.
@@ -1651,6 +1663,10 @@ class Main(QtWidgets.QMainWindow):
         if kind == "vector":
             self._info(_tr("Detectado PDF vectorial ({n} trazos)…").format(n=n_paths))
             _go_plotted()
+            return
+        if kind == "raster" and info.get("traced"):
+            _go_manual(_tr("Detectado plano escaneado y vectorizado ({n} trazos calcados, sin texto ni capas) "
+                           "— continúa con el dibujo manual.").format(n=n_paths))
             return
         if kind == "raster" and img_cover >= 0.6:
             _go_manual(_tr("Detectado PDF imagen/escaneo — continúa con el dibujo manual."))
@@ -1699,20 +1715,21 @@ class Main(QtWidgets.QMainWindow):
         # de dibujar. Deja la visibilidad aplicada en self.doc, así _load_page
         # ya renderiza sin las ocultas.
         chosen = layer_dialog.choose_sheet_layers(self, self.doc, page_idx,
-                                                  layout=getattr(self, "_composite_layout", None))
+                                                  layout=getattr(self, "_composite_layout", None),
+                                                  recognition_utilities=self._recognition_utilities)
         if chosen is None:
             self._load_sheet_busy(page_idx)
             self._dirty = True
             self._info(_tr("Reconocimiento cancelado — hoja cargada con las capas elegidas."))
             return True
-        hidden, page_idx = chosen
+        hidden, page_idx, self._recognition_utilities = chosen
         if self.composite is not None and self.composite.is_single_full_page():
             self.composite.pieces[0].page = page_idx
         self.hidden_ocgs = list(hidden)
         self._sync_hidden_to_sources(hidden)
         # Los roles (qué capas son líneas / bóvedas) se asignan solos por
         # nombre y se muestran en el preview; «Ajustar capas…» los cambia.
-        self._layer_roles = None
+        self._layer_roles_by_utility = {}
         self._load_sheet_busy(page_idx)
         self._dirty = True
         self._recog_ready = True
@@ -1844,10 +1861,10 @@ class Main(QtWidgets.QMainWindow):
         chosen = organized_layer_dialog.choose_organized_sheet_layers(
             self, self.doc, self.sheet_external_pdfs, self.sheet_sources,
             layout, self.sheet_rotations, self.hidden_ocgs_by_source,
-            self.sheet_crops)
+            self.sheet_crops, self._recognition_utilities)
         if chosen is None:
             return
-        self.hidden_ocgs_by_source, self.sheet_crops = chosen
+        self.hidden_ocgs_by_source, self.sheet_crops, self._recognition_utilities = chosen
         self.hidden_ocgs = list(self.hidden_ocgs_by_source.get("0", []))
         self._refresh_current_pdf_image()
         self._dirty = True
@@ -1860,8 +1877,9 @@ class Main(QtWidgets.QMainWindow):
         if not self.doc or not self.sheet_layout or not self.pdf_path:
             return
         sheets = selected_sheets(self.sheet_layout, self.sheet_sources)
+        utility_text = _recognition.utilities_label(self._recognition_utilities)
         progress = QtWidgets.QProgressDialog(
-            _tr("Reconociendo utilidades eléctricas en las hojas organizadas…"),
+            _tr("Reconociendo {u} en las hojas organizadas…").format(u=utility_text),
             None, 0, 0, self)
         progress.setWindowTitle(_tr("Reconocimiento"))
         progress.setWindowModality(QtCore.Qt.WindowModal)
@@ -1871,7 +1889,8 @@ class Main(QtWidgets.QMainWindow):
         self._organized_recog_worker = OrganizedRecognitionWorker(
             self.pdf_path, self.sheet_external_pdfs, sheets,
             self.hidden_ocgs_by_source, zoom=1.0,
-            join_routes=self._join_routes, crops=self.sheet_crops)
+            join_routes=self._join_routes, crops=self.sheet_crops,
+            utilities=self._recognition_utilities)
         self._organized_recog_worker.done.connect(self._organized_recognition_done)
         self._organized_recog_worker.start()
 
@@ -1942,22 +1961,36 @@ class Main(QtWidgets.QMainWindow):
         """«Ajustar capas…» del preview: elegir a mano qué capas visibles son
         líneas / bóvedas y volver a reconocer la hoja con esos roles."""
         import pdf_layers as _pdf_layers
+        utilities = tuple(self._recognition_utilities)
+        if len(utilities) > 1:
+            labels = [_recognition.utility_label(key) for key in utilities]
+            label, ok = QtWidgets.QInputDialog.getItem(
+                self, _tr("Ajustar capas"),
+                _tr("¿Qué utilidad quieres ajustar?"), labels, 0, False)
+            if not ok:
+                return
+            utility = utilities[labels.index(label)]
+        else:
+            utility = utilities[0]
         all_layers = _pdf_layers.page_layers(self.doc, page_idx)
         visible = [L for L in all_layers if L["name"] not in set(self.hidden_ocgs)]
-        roles = recognition_dialog.choose_layer_roles(self, visible)
+        roles = recognition_dialog.choose_layer_roles(
+            self, visible, utility=utility)
         if roles is None:
             self._info(_tr("Reconocimiento cancelado — hoja cargada con las capas elegidas."))
             return
-        self._layer_roles = roles
+        self._layer_roles_by_utility[utility] = roles
         self._start_recognition(page_idx)
 
     def _start_recognition(self, page_idx):
         """Lanza el reconocimiento de la hoja `page_idx` en segundo plano con las
-        capas ocultas (`self.hidden_ocgs`) y los roles (`self._layer_roles`;
-        None = automático por nombre). Al terminar, `_recognition_done` muestra
+        capas ocultas (`self.hidden_ocgs`) y roles separados por utilidad
+        (sin ajuste manual = automático por nombre). Al terminar, `_recognition_done` muestra
         la vista previa. Lo usan el asistente y el cambio de hoja del editor."""
+        utility_text = _recognition.utilities_label(self._recognition_utilities)
         progress = QtWidgets.QProgressDialog(
-            _tr("Reconociendo utilidades eléctricas…"), None, 0, 0, self)
+            _tr("Reconociendo {u}…").format(u=utility_text),
+            None, 0, 0, self)
         progress.setWindowTitle(_tr("Reconocimiento"))
         progress.setWindowModality(QtCore.Qt.WindowModal)
         progress.setMinimumDuration(0)
@@ -1965,13 +1998,15 @@ class Main(QtWidgets.QMainWindow):
         QtWidgets.QApplication.processEvents()
         self._recog_progress = progress
         self._recog_worker = RecognitionWorker(
-            self.work_pdf_path or self.pdf_path, page_idx, zoom=self.zoom, utility="ELECTRICO",
-            hidden_ocgs=self.hidden_ocgs, layer_roles=self._layer_roles,
+            self.work_pdf_path or self.pdf_path, page_idx, zoom=self.zoom,
+            utilities=self._recognition_utilities,
+            hidden_ocgs=self.hidden_ocgs,
+            roles_by_utility=self._layer_roles_by_utility,
             join_routes=self._join_routes, scale_ft_per_pt=self._scale_override)
         self._recog_worker.done.connect(self._recognition_done)
         self._recog_worker.start()
 
-    def _recognition_done(self, result, error):
+    def _recognition_done(self, results, error):
         prog = getattr(self, "_recog_progress", None)
         if prog is not None:
             prog.close()
@@ -1981,7 +2016,12 @@ class Main(QtWidgets.QMainWindow):
                 self, _tr("Reconocimiento"),
                 _tr("No se pudo reconocer la hoja:\n\n{e}").format(e=error))
             return
-        if result is None:
+        if results is None:
+            return
+        if not isinstance(results, (list, tuple)):
+            results = [results]
+        results = [result for result in results if result is not None]
+        if not results:
             return
         qimg = None
         if self.canvas.pixmap_item is not None:
@@ -1992,59 +2032,138 @@ class Main(QtWidgets.QMainWindow):
                 _tr("Reconocimiento listo, pero no hay imagen de la hoja para la vista previa."))
             return
         action = recognition_dialog.show_recognition_preview(
-            self, qimg, result, utility_layer="ELECTRICO",
+            self, qimg, results,
             page_count=self.doc.page_count if self.doc else None)
-        self._join_routes = bool(getattr(result, "join_routes", True))
+        self._join_routes = all(bool(getattr(result, "join_routes", True)) for result in results)
+        page_index = results[0].page_index
         if action == recognition_dialog.PREVIEW_IMPORT:
-            self._import_recognized_pipes(result)
+            self._import_recognized_pipes(results)
         elif action == recognition_dialog.PREVIEW_CHANGE_SHEET:
             # Flujo pedido: lista de hojas → capas → preview de la hoja nueva.
-            if not self._wizard_sheet_flow(result.page_index):
+            if not self._wizard_sheet_flow(page_index):
                 self._info(_tr("Cambio de hoja cancelado — se mantiene la hoja {n}.").format(
-                    n=result.page_index + 1))
+                    n=page_index + 1))
         elif action == recognition_dialog.PREVIEW_ADJUST_LAYERS:
-            self._adjust_layer_roles(result.page_index)
+            self._adjust_layer_roles(page_index)
         else:
             self._info(_tr("Reconocimiento cancelado — editor vacío."))
 
-    def _import_recognized_pipes(self, result):
-        """Añade centerlines como pipes ELECTRICO e inserta bóvedas como vértices/CAJA."""
-        import recognition as rec
-        new_pipes = rec.pipes_from_recognition(result, layer="ELECTRICO", zoom=self.zoom)
-        if not new_pipes:
-            self._info(_tr("No hay tramos eléctricos para importar."))
+    def _xdata_origin(self, page_index: int):
+        """Función (puntos del lienzo) → «PDF · Hoja N» de donde salió el objeto,
+        para los datos extendidos. En una hoja compuesta, la pieza bajo su
+        punto medio (`_composite_layout`, en pt de la hoja compuesta)."""
+        import xdata
+        names = [e.get("name", "") for e in (self.src_pdfs or [])]
+        comp = self.composite
+        if comp is not None and comp.pieces and getattr(self, "_composite_layout", None):
+            single = len({p.source for p in comp.pieces}) == 1
+            name0 = names[comp.pieces[0].source] if comp.pieces[0].source < len(names) else ""
+            pieces = [(rect, f"{name0} · {label}" if single and name0 else label)
+                      for rect, label in self._composite_layout]
+            z = self.zoom or 1.0
+            return lambda pts: xdata.origin_label([(x / z, y / z) for x, y in pts], pieces,
+                                                  "Hoja compuesta")
+        src = comp.pieces[0].source if comp is not None and comp.pieces else 0
+        name = names[src] if src < len(names) and names[src] else (
+            os.path.basename(self.pdf_path) if self.pdf_path else "")
+        # es un DATO del proyecto (va al DXF): fijo en español, no depende del idioma de la UI
+        label = f"{name} · Hoja {page_index + 1}" if name else f"Hoja {page_index + 1}"
+        return lambda pts: label
+
+    def show_xdata(self):
+        """«Ver datos extendidos» de la utilidad o estructura seleccionada."""
+        import xdata
+        import xdata_dialog
+        ti = self._current_tab()
+        obj = title = None
+        if ti == TAB_PIPE and 0 <= self.sel_pipe < len(self.pipes):
+            obj = self.pipes[self.sel_pipe]
+            title = _tr("Utilidad #{n}").format(n=self.sel_pipe + 1)
+        elif ti == TAB_BZ and 0 <= self.sel_bz < len(self.structures):
+            obj = self.structures[self.sel_bz]
+            title = obj.get("cod") or _tr("Estructura #{n}").format(n=self.sel_bz + 1)
+        if obj is None:
+            self._info(_tr("Selecciona una utilidad o una estructura para ver sus datos extendidos."))
+            return
+        user = xdata_dialog.edit_xdata(self, title, obj)
+        if user is None or user == xdata.get(obj)[xdata.USER]:
             return
         self._push()
-        self.pipes.extend(new_pipes)
-        vaults = list(getattr(result, "vault_pts", None) or [])
-        snapped, skipped = rec.inject_vault_vertices(self.pipes, vaults)
-        result.vaults_snapped = snapped
-        result.vaults_skipped = skipped
+        xdata.set_user(obj, user)
         self._dirty = True
-        self._refresh_lists()                 # crea las CAJA en todos los vértices…
+
+    def _import_recognized_pipes(self, results):
+        """Añade centerlines reconocidas e inserta sus estructuras como nodos."""
+        import recognition as rec
+        if not isinstance(results, (list, tuple)):
+            results = [results]
+        batches = []
+        for result in results:
+            utility = getattr(result, "utility", None) or "ELECTRICO"
+            pipes = rec.pipes_from_recognition(result, layer=utility, zoom=self.zoom,
+                                               origin=self._xdata_origin(result.page_index))
+            vaults = list(getattr(result, "vault_pts", None) or [])
+            snapped, skipped = rec.inject_vault_vertices(pipes, vaults)
+            result.vaults_snapped = snapped
+            result.vaults_skipped = skipped
+            # Red a PRESIÓN (agua): como en el dibujo manual, sin estructuras
+            # automáticas — las bóvedas se ven en el preview pero no se importan.
+            pressure = NETWORK_KIND.get(utility) == "pressure"
+            has_importable_structure = not pressure and any(
+                vault.get("importable", False)
+                for vault in (getattr(result, "vaults_geo", None) or []))
+            if pipes or has_importable_structure:
+                batches.append((result, utility, pipes, snapped, skipped))
+        if not batches:
+            self._info(_tr("No hay tramos reconocidos para importar."))
+            return
+        self._push()
+        for _result, _utility, pipes, _snapped, _skipped in batches:
+            self.pipes.extend(pipes)
+        self._dirty = True
+        self._refresh_lists()                 # crea BZ en los vértices de gravedad y CAJA en las bóvedas reales…
         # …y oculta las de quiebres/esquinas sin bóveda (siguen en el DXF como
         # "Estructura nula" para no romper la topología de la red).
         n_hidden = model_ops.hide_soft_vertex_structures(self.pipes, self.structures)
         # …y les pone a las CAJA de bóveda real su forma, medidas (pies) y contorno.
-        n_geo, _ = model_ops.attach_vault_geometry(self.structures, getattr(result, "vaults_geo", None) or [])
+        n_geo = n_alone = 0
+        for result, utility, _pipes, _snapped, _skipped in batches:
+            if NETWORK_KIND.get(utility) == "pressure":
+                continue
+            where = self._xdata_origin(result.page_index)
+            added_geo, added_alone = model_ops.attach_vault_geometry(
+                self.structures, getattr(result, "vaults_geo", None) or [],
+                net=NETWORK_KIND.get(utility, "conduit"), utility=utility,
+                origin=lambda c, where=where: where([c]))
+            n_geo += added_geo; n_alone += added_alone
         # …y los codos reconocidos quedan como esquina «CV» con su radio (flujo manual).
         n_cv = model_ops.attach_fillets(self.pipes, self.structures)
         if n_hidden or n_geo or n_cv:
             self._refresh_lists()
         self._update_ui()
         self._redraw()
-        n = len(new_pipes)
-        n_seg = sum(int(getattr(pl, "n_segments", 1) or 1) for pl in result.drawable)
-        msg = _tr("Importadas {n} rutas ({m} tramos) de Eléctrico.").format(n=n, m=n_seg)
+        parts = []
+        for result, utility, pipes, _snapped, _skipped in batches:
+            if not pipes:
+                continue
+            n_seg = sum(int(getattr(pl, "n_segments", 1) or 1) for pl in result.drawable)
+            utility_name = _recognition.utility_label(utility)
+            parts.append(_tr("{n} rutas ({m} tramos) de {u}").format(
+                n=len(pipes), m=n_seg, u=utility_name))
+        msg = (_tr("Importadas: {items}.").format(items="; ".join(parts))
+               if parts else _tr("Importadas estructuras reconocidas."))
         if n_geo:
-            msg += " " + _tr("Bóvedas con medidas: {g}.").format(g=n_geo)
+            msg += " " + _tr("Estructuras con medidas: {g}.").format(g=n_geo)
+            if n_alone:
+                msg += " " + _tr("({a} sin línea, importadas como cajas sueltas.)").format(a=n_alone)
         if n_cv:
             msg += " " + _tr("Codos como esquina + radio (CV): {c}.").format(c=n_cv)
-        n_ab = sum(1 for p in new_pipes if p.get("ab"))
+        n_ab = sum(1 for _r, _u, pipes, _s, _k in batches for p in pipes if p.get("ab"))
         if n_ab:
             msg += " " + _tr("Abandonadas (AB): {a}.").format(a=n_ab)
+        snapped = sum(row[3] for row in batches); skipped = sum(row[4] for row in batches)
         if snapped or skipped:
-            msg += " " + _tr("Bóvedas: {s} en líneas, {k} sin pipe cercana.").format(
+            msg += " " + _tr("Estructuras: {s} en líneas, {k} sin pipe cercana.").format(
                 s=snapped, k=skipped)
         if n_hidden:
             msg += " " + _tr("Quiebres sin bóveda: {h} (cajas ocultas).").format(h=n_hidden)
@@ -4346,6 +4465,8 @@ class Main(QtWidgets.QMainWindow):
                 for (vx, vy) in p["pts"]:
                     if (vx - sx) ** 2 + (vy - sy) ** 2 <= tol2:
                         return layer_qcolor(p["layer"])
+            if s.get("standalone"):
+                return layer_qcolor(s.get("utility") or "ELECTRICO")
             return QtGui.QColor(180, 180, 180)     # buzón sin pipe cercano (raro)
         pen = QtGui.QPen(QtGui.QColor(255, 255, 255), 1.2); pen.setCosmetic(True)
         pen_sel = QtGui.QPen(QtGui.QColor(255, 220, 40), 2.5); pen_sel.setCosmetic(True)

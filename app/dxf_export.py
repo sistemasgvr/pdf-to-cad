@@ -10,6 +10,7 @@ import math
 import config as C
 import vector_pipeline as VP
 import civil_catalog as _cc
+import xdata
 from ezdxf.enums import TextEntityAlignment
 from geometry import point_in_poly
 from model import (LEADER_TEXT_FT, network_kind, default_network_type,
@@ -136,7 +137,7 @@ def merge_into(win, doc, marks=True):
             (1000, f"PIPE_IDX={pipe_idx}"),
             (1000, f"HAS_DUCT_BANK={1 if pipe_idx in _db_pipe_idxs else 0}"),
             (1000, f"NET_NAME={p.get('name') or ''}"),
-        ])
+        ] + [(1000, item) for item in xdata.dxf_items(p)])       # datos extendidos (XD_*/XDU_*)
     _export_structures(win, doc, msp)
     _export_duct_banks(win, doc, msp)
     _export_cross_connects(win, doc, msp)
@@ -332,7 +333,7 @@ def _export_structures(win, doc, msp):
             (1000, f"WIDTH_FT={s.get('width_ft') if s.get('width_ft') else ''}"),
             (1000, f"LENGTH_FT={s.get('length_ft') if s.get('length_ft') else ''}"),
             (1000, f"ROT_DEG={s.get('rot_deg') if s.get('rot_deg') is not None and s.get('shape') else ''}"),
-        ])
+        ] + [(1000, item) for item in xdata.dxf_items(s)])       # datos extendidos (XD_*/XDU_*)
         if show_labels and s.get("cod") and not s.get("hidden"):
             h = LEADER_TEXT_FT * 0.3                 # etiquetas compactas al lado del buzón
             t = msp.add_text(s["cod"], height=h,

@@ -114,6 +114,25 @@ def test_compositor_rotar_y_escala_por_pieza(app):
         dlg.close_docs()
 
 
+def test_compositor_no_aplica_capas_ocultas_de_la_hoja_ya_compuesta(app):
+    """`hidden_by_source` es la selección de capas de una composición ANTERIOR
+    (paso «Capas de la hoja»): el compositor sirve para MIRAR y recortar el
+    plano origen para tomar piezas nuevas, así que se abre con TODAS las
+    capas visibles — si no, una hoja cuyo contenido está solo en una capa ya
+    oculta parecía no tener nada que tomar (usuario: «la página 3 no me
+    muestra capas»). El valor recibido se conserva para devolverlo igual."""
+    import pdf_layers
+    data = _two_sheet_pdf()
+    dlg = composite_dialog.CompositeDialog(
+        None, [{"name": "a.pdf", "data": data}], None, {"0": ["C-ELEC-UNGD-E"]}, 0)
+    try:
+        assert pdf_layers.hidden_layers(dlg.docs[0]) == set()
+        assert dlg.hidden_by_source == {"0": ["C-ELEC-UNGD-E"]}
+        assert dlg.result_tuple()[2] == {"0": ["C-ELEC-UNGD-E"]}
+    finally:
+        dlg.close_docs()
+
+
 def test_compositor_capas_puentes_y_hueco(app):
     data = _two_sheet_pdf()
     dlg = composite_dialog.CompositeDialog(None, [{"name": "a.pdf", "data": data}], None, {}, 0)
@@ -345,12 +364,13 @@ def test_codo_reconocido_como_esquina_mas_radio(app):
     cx, cy = pl.pts_pdf[i]
     assert math.isclose(cx / 2.0, C[0], abs_tol=1.5) and math.isclose(cy / 2.0, C[1], abs_tol=1.5)   # esquina
     pipes = recognition.pipes_from_recognition(res, zoom=2.0)
-    assert pipes[0]["fillets"] == {i: round(R * 20 / 72, 3)}           # radio en pies
+    assert set(pipes[0]["fillets"]) == {i}                             # radio en pies (ajustado a la tinta)
+    assert abs(pipes[0]["fillets"][i] - R * 20 / 72) <= 0.05
     structures = model_ops.rebuild_structures(pipes, [])
     n = model_ops.attach_fillets(pipes, structures)
     assert n == 1
     cv = [s for s in structures if s.get("curve")]
-    assert len(cv) == 1 and math.isclose(cv[0]["radius_ft"], R * 20 / 72, abs_tol=1e-3)
+    assert len(cv) == 1 and math.isclose(cv[0]["radius_ft"], R * 20 / 72, abs_tol=0.05)
     assert cv[0]["cod"].startswith("CV") or True                        # el prefijo lo da rebuild al recodificar
 
 
@@ -516,3 +536,168 @@ def test_curva_compuesta_no_se_funde_en_un_solo_circulo(app):
                 q = (cx + r * _m.cos(a0 + sw * k / 20), cy + r * _m.sin(a0 + sw * k / 20))
                 assert min(_seg_d(q, a, b) for a, b in ink) <= 1.0, (q, r)
             assert abs(r - R1) <= 1.0 or abs(r - R2) <= 1.0, r         # radio de UNO de los dos arcos reales
+
+
+def test_quiebre_con_astilla_no_se_toma_por_curva(app):
+    """Dos rectas con un quiebre donde el plot dejó una astilla (segmento de
+    0.15 pt en el vértice, como en el DU06): el vértice se marca «curve» pero la
+    TINTA no traza ningún arco → se queda como esquina, no como codo."""
+    import math as _m
+    doc = fitz.open(); ocg = doc.add_ocg("C-ELEC-UNGD-E", on=True)
+    page = doc.new_page(width=800, height=600)
+    V = (400.0, 300.0)
+    _linetype(page, (100, 300), (V[0] - 2, 300), ocg)
+    # el guión del quiebre: astilla + tramo recto en la nueva dirección
+    page.draw_polyline([(V[0] - 2, V[1]), (V[0] - 1.9, V[1] + 0.15), (V[0] + 14, V[1] + 12)], color=(0, 0, 0), oc=ocg)
+    ux, uy = _m.cos(_m.radians(40)), _m.sin(_m.radians(40))
+    _linetype(page, (V[0] + 18 * ux, V[1] + 18 * uy), (V[0] + 260 * ux, V[1] + 260 * uy), ocg)
+    page.insert_text((30, 580), "SCALE: 1\"=20'", fontsize=8)
+    res = recognition.recognize_page(None, 0, doc=doc, zoom=2.0)
+    assert not any(pl.fillets for pl in res.drawable), [pl.fillets for pl in res.drawable]
+
+
+def test_curva_que_muere_en_un_tee_se_reconoce(app):
+    """Un ramal que baja recto, curva (R=60) y MUERE sobre otra línea (tee): no
+    hay segunda recta, pero el plano da la recta que llega, el nodo y la tinta
+    del arco → codo con la tangencia clavada en el tee (`node_b`)."""
+    import math as _m
+    doc = fitz.open(); ocg = doc.add_ocg("C-ELEC-UNGD-E", on=True)
+    page = doc.new_page(width=800, height=600)
+    R = 60.0
+    O = (300.0 + R, 200.0)                       # centro; el ramal baja por x=300
+    _linetype(page, (300, 60), (300, 200), ocg)
+    end_deg = 70.0
+    pts = [(O[0] + R * _m.cos(_m.radians(180 - t)), O[1] + R * _m.sin(_m.radians(180 - t)))
+           for t in [k * 1.0 for k in range(int(end_deg) + 1)]]
+    for k in range(0, len(pts) - 1, 24):         # arco a guiones curvos
+        page.draw_polyline(pts[k:k + 19], color=(0, 0, 0), oc=ocg)
+    B = pts[-1]
+    _linetype(page, (B[0] - 240, B[1]), (B[0] + 240, B[1]), ocg)     # la línea que cruza (tee)
+    page.insert_text((30, 580), "SCALE: 1\"=20'", fontsize=8)
+    res = recognition.recognize_page(None, 0, doc=doc, zoom=2.0)
+    fil = [(pl, i, f) for pl in res.drawable for i, f in (pl.fillets or {}).items()]
+    assert len(fil) == 1, [pl.kinds for pl in res.drawable]
+    pl, i, f = fil[0]
+    assert abs(f["r_px"] / 2.0 - R) <= 2.0, f["r_px"] / 2.0
+    assert f["node_b"] or f["node_a"]
+    assert not f["loose"]
+    # el arco va sobre la tinta del PDF
+    ctr = f["center"]
+    a0 = _m.atan2(f["a"][1] - ctr[1], f["a"][0] - ctr[0]); a1 = _m.atan2(f["b"][1] - ctr[1], f["b"][0] - ctr[0])
+    sw = (a1 - a0 + 3 * _m.pi) % (2 * _m.pi) - _m.pi
+    for k in range(21):
+        ang = a0 + sw * k / 20
+        q = ((ctr[0] + f["r_px"] * _m.cos(ang)) / 2.0, (ctr[1] + f["r_px"] * _m.sin(ang)) / 2.0)
+        assert min(_m.dist(q, s) for s in pts) <= 1.0
+
+
+def test_chaflan_de_guiones_rectos_no_es_codo(app):
+    """El plano gira con dos rectas y esconde el quiebre en el HUECO entre
+    guiones (chaflán, DU06 h.4 en 571,1262): los guiones del giro son RECTOS, así
+    que no hay codo — aunque un círculo pase cerca de sus extremos."""
+    import math as _m
+    doc = fitz.open(); ocg = doc.add_ocg("C-ELEC-UNGD-E", on=True)
+    page = doc.new_page(width=800, height=600)
+    _linetype(page, (120, 300), (300, 300), ocg)                      # recta 1
+    # el giro: dos guiones RECTOS a 30° y 60°, con el quiebre en el hueco
+    page.draw_line((303.6, 300.0), (322.3, 310.8), color=(0, 0, 0), oc=ocg)     # 30°
+    page.draw_line((325.4, 315.2), (336.2, 333.9), color=(0, 0, 0), oc=ocg)     # 60°
+    ux, uy = _m.cos(_m.radians(80)), _m.sin(_m.radians(80))
+    _linetype(page, (339.0, 339.7), (339.0 + 220 * ux, 339.7 + 220 * uy), ocg)  # recta 2
+    page.insert_text((30, 580), "SCALE: 1\"=20'", fontsize=8)
+    res = recognition.recognize_page(None, 0, doc=doc, zoom=2.0)
+    assert not any(pl.fillets for pl in res.drawable), [pl.fillets for pl in res.drawable]
+
+
+def test_codo_de_guiones_curvos_si_es_codo(app):
+    """Mismo giro pero ploteado como lo plotea un arco de verdad: cada guión va
+    curvado (flecha ≈ L²/8r). Ahí sí hay codo, con el radio del plano."""
+    import math as _m
+    doc = fitz.open(); ocg = doc.add_ocg("C-ELEC-UNGD-E", on=True)
+    page = doc.new_page(width=800, height=600)
+    R = 60.0
+    A = (300.0, 300.0); O = (A[0], A[1] + R)
+    _linetype(page, (120, 300), (A[0] - 3.6, 300), ocg)
+    pts = [(O[0] + R * _m.cos(_m.radians(-90 + t)), O[1] + R * _m.sin(_m.radians(-90 + t)))
+           for t in [k * 1.0 for k in range(81)]]
+    k = 0
+    while k < len(pts) - 1:                         # guiones CURVOS de ~21.6 pt
+        page.draw_polyline(pts[k:k + 21], color=(0, 0, 0), oc=ocg)
+        k += 24
+    B = pts[-1]
+    ux, uy = _m.cos(_m.radians(80)), _m.sin(_m.radians(80))
+    _linetype(page, (B[0] + 3.6 * ux, B[1] + 3.6 * uy), (B[0] + 240 * ux, B[1] + 240 * uy), ocg)
+    page.insert_text((30, 580), "SCALE: 1\"=20'", fontsize=8)
+    res = recognition.recognize_page(None, 0, doc=doc, zoom=2.0)
+    fil = [f for pl in res.drawable for f in (pl.fillets or {}).values()]
+    assert len(fil) == 1, [pl.kinds for pl in res.drawable]
+    assert abs(fil[0]["r_px"] / 2.0 - R) <= 2.0, fil[0]["r_px"] / 2.0
+
+
+def _two_sheets_offset_pdf():
+    """Dos hojas contiguas ploteadas con margen distinto (la 2.ª 17 pt más abajo):
+    misma match line en el borde compartido y líneas de red que la cruzan."""
+    doc = fitz.open()
+    ocg = doc.add_ocg("C-ELEC-UNGD-E", on=True)
+    for k, dy in enumerate((0.0, 17.0)):
+        page = doc.new_page(width=400, height=300)
+        xm = 300.0 if k == 0 else 100.0
+        page.draw_line((xm, 60 + dy), (xm, 180 + dy), color=(0, 0, 0), width=0.72)
+        for y in (90.0, 130.0, 160.0):
+            a = (xm - 90, y + dy) if k == 0 else (xm, y + dy)
+            b = (xm, y + dy) if k == 0 else (xm + 90, y + dy)
+            _dashed(page, a, b, ocg)
+        page.insert_text((20, 280), "SCALE: 1\"=20'", fontsize=8)
+    return doc.tobytes()
+
+
+@pytest.mark.parametrize("drop_dy", [2.0, 20.0, -25.0])
+def test_iman_alinea_la_costura_por_la_match_line(app, drop_dy):
+    """Se suelta la 2.ª pieza descolocada: el imán la deja SIEMPRE en la misma
+    posición, la que hace coincidir las dos match lines (y con ella las líneas
+    que cruzan). Antes, con el recorte de cada hoja a distinta altura, el desfase
+    se quedaba tal cual y el plano salía «escalonado» en la costura."""
+    data = _two_sheets_offset_pdf()
+    dlg = composite_dialog.CompositeDialog(None, [{"name": "a.pdf", "data": data}], None, {}, 0)
+    try:
+        dlg.btn_trim.setChecked(False)
+        for pno, (xl, xr) in ((0, (150, 300)), (1, (100, 250))):
+            dlg.lst_pages.setCurrentRow(pno)
+            r = dlg.crop._page_rect
+            sx, sy = r.width() / 400.0, r.height() / 300.0
+            top = 40.0 if pno == 0 else 57.0                  # cada hoja recortada a su altura
+            dlg.crop._selection = QtCore.QRectF(xl * sx, top * sy, (xr - xl) * sx, 200 * sy)
+            dlg._take(full=False)
+        p1, p2 = dlg.comp.pieces
+        w1, _h1 = C.piece_size(p1, (400.0, 300.0), dlg.comp.target_scale())
+        pos = (p1.x + w1 + 1.0, p1.y + drop_dy)
+        snapped = dlg.view.snap_position(1, pos)
+        assert snapped is not None
+        assert abs(snapped[0] - (p1.x + w1)) < 1e-6           # borde con borde
+        # las dos match lines quedan a la misma altura
+        ea = dlg.view._seam_line(0, "right")
+        eb = dlg.view._seam_line(1, "left", snapped)
+        assert ea and eb and abs(ea[0] - eb[0]) < 0.01 and abs(ea[1] - eb[1]) < 0.01
+    finally:
+        dlg.close_docs()
+
+
+def test_hoja_sin_capas_se_marca_en_la_lista(app):
+    """Un PDF con capas donde una hoja está «aplanada» (sus trazos fuera de toda
+    capa, como DU08 h.3–19): la lista la marca y el aviso aparece al elegirla."""
+    doc = fitz.open()
+    ocg = doc.add_ocg("C-ELEC-UNGD-E", on=True)
+    _dashed(doc.new_page(width=300, height=200), (20, 100), (280, 100), ocg)
+    doc.new_page(width=300, height=200).draw_line((20, 100), (280, 100))
+    dlg = composite_dialog.CompositeDialog(None, [{"name": "a.pdf", "data": doc.tobytes()}], None, {}, 0)
+    try:
+        dlg.show(); app.processEvents()
+        assert "sin capas" not in dlg.lst_pages.item(0).text()
+        assert "sin capas" in dlg.lst_pages.item(1).text()
+        assert not dlg.lbl_nolayers.isVisible()
+        dlg.lst_pages.setCurrentRow(1); app.processEvents()
+        assert dlg.lbl_nolayers.isVisible()
+        dlg.lst_pages.setCurrentRow(0); app.processEvents()
+        assert not dlg.lbl_nolayers.isVisible()
+    finally:
+        dlg.close_docs(); dlg.close()

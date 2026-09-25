@@ -34,31 +34,110 @@ Line = Tuple[float, float, float, float]      # (px, py, ux, uy)
 
 # ── Umbrales geométricos fijos (los del patrón se aprenden del plano) ─────────
 GLYPH_MAX_DIM_PT = 12.0      # una letra/tick del linetype cabe en 12×12 pt
+# Una letra puede llegar partida en más de un path del PDF (p.ej. el asta de
+# la «d» en el linetype "sd" de drenaje sale como su propio path recto de un
+# solo item, separado del bucle): si un guión corto queda PEGADO (≤ esto) a
+# una letra ya reconocida, es la MISMA letra, no un guión de la línea ni,
+# después, una marca de abandonada «/» — la «e» de eléctrico no tiene ningún
+# guión huérfano pegado, así que no le cambia nada.
+GLYPH_STROKE_GAP_PT = 2.0
+# …pero solo si ese guión pegado a una letra se REPITE (misma letra estampada
+# muchas veces a lo largo del linetype): una marca «/» aislada que por pura
+# coincidencia de fase cae junto a una letra (visto en DU06 h.9 eléctrico, un
+# solo caso) no debe tragarse — ahí `strip_crossing_markers` decide.
+GLYPH_STROKE_MIN_REPEAT = 3
 STRAIGHT_TOL_PT = 0.35       # polilínea "recta" si nada se aparta más del chord
 MIN_DASH_PT = 1.0            # segmentos menores son basura numérica
 COLLINEAR_ANG_DEG = 1.0      # misma recta: rumbo ±1°
 COLLINEAR_PERP_PT = 1.5      # ...y ambos extremos a ≤1.5 pt de la recta
 CORNER_MIN_ANG_DEG = 8.0     # menos que esto = quiebre suave (bend), no esquina
+CORNER_MIN_INTERIOR_DEG = 73.0   # …y una esquina más CERRADA que esto no es de una sola línea
+CORNER_MIN_INTERIOR_COS = math.cos(math.radians(CORNER_MIN_INTERIOR_DEG))
+CURVE_BACKSLIDE_PT = 1.0     # una curva puede «retroceder» a lo sumo esto hasta su esquina
+DASH_LONG_MAX_RATIO = 15.0   # el guión largo del patrón no pasa de esto × el largo más común
+ENDS_TOUCH_PT = 1.0          # dos extremos a ≤1 pt que siguen de frente (giro ≤35°) = la línea
+CONTINUES_MAX_TURN_DEG = 35.0  # continúa ahí: no es un extremo (no va a una bóveda vecina)
 CURVE_SPLIT_ANG_DEG = 35.0   # una polilínea se parte en vértices más agudos
 CURVE_SIMPLIFY_PT = 0.5      # Douglas-Peucker sobre curvas
-VAULT_CLUSTER_PT = 4.0       # bboxes a ≤4 pt = misma bóveda
+VAULT_CLUSTER_PT = 4.0       # bboxes a ≤4 pt = misma bóveda…
+VAULT_SEPARATE_MIN_PT = 8.0  # …salvo dos contornos de lado ≥8 pt
+VAULT_SEPARATE_GAP_PT = 1.5  # que no se tocan (hueco ≥1.5 pt): estructuras vecinas
 COVERAGE_TOL_PT = 2.5        # guión cubierto si sus puntos están a ≤2 pt
 OFFPATTERN_FACTOR = 1.5      # trazo continuo solo, más largo que 1.5×guión = anotación
 PATTERN_DASH_FACTOR = 2.0    # un guión del patrón cuenta hasta 2×dash_long (un poco más largo no es leader)
 NODE_OFF_LINE_PT = 3.0       # nodo compartido válido si la recta pasa a ≤3 pt
+LINE_STROKE_TOUCH_PT = 0.5   # (precise_junctions) trozo que nace en la punta de un guión (no letra)…
+LINE_STROKE_ANG_DEG = 5.0    # …con su rumbo: es línea, no asta de letra
+JUNCTION_GAP_SLACK_PT = 2.0  # (precise_junctions) el cruce ramal×línea puede caer hasta 2 pt fuera del hueco
 GRAZE_MIN_APPROACH_PT = 2.0  # convergencia rasante solo si la corrida se ACERCA ≥2 pt a la otra (no paralela)
 RUN_FIT_TOL_PT = 0.75        # la polilínea sigue los guiones a ≤0.75 pt (se parte donde se apartan más)
 MIN_JUNCTION_DASHES = 3      # solo líneas de red (≥3 guiones) definen el nodo interior de una bóveda
 MARKER_MIN_ANG_DEG = 30.0    # un trazo corto que CRUZA la línea con este ángulo o más es marcador («/»)
 MARKER_ON_LINE_PT = 1.0      # …si su punto medio cae a ≤1 pt de la recta del guión que cruza
 MARKER_MAX_LEN_PT = 18.0     # largo máximo de una barra «/» (DU06: 7.6 pt; otros plots la traen mayor)
+CLIP_EDGE_TOL_PT = 0.25      # un trazo a ≤0.25 pt por FUERA del clip se ve (medio grosor): se conserva
+CUT_GLYPH_MIN_REPEAT = 3     # letra partida (por el clip): el mismo grupo de astas se repite ≥3 veces
+CUT_GLYPH_TOUCH_PT = 0.75    # astas de una misma letra se tocan (≤0.75 pt)
+MARKER_ATTACH_PT = 0.5       # un trazo que nace en la punta de una curva la continúa: no es «/»
 MARKER_PAIR_PT = 6.0         # dos barras «//» a ≤6 pt una de otra = UN marcador
+MARKER_DOUBLE_STEPS_OK = 0.75  # «//»: fracción de pasos entre dobles que deben ir al periodo
 MARKER_PERIOD_TOL = 0.15     # paso entre marcadores: ±15 % del periodo (+ MARKER_PERIOD_SLACK_PT)
 MARKER_PERIOD_SLACK_PT = 3.0
 MARKER_MIN_AGREE = 2         # pasos iguales necesarios para aprender el periodo (= 3 marcadores seguidos)
+MARKER_LOCAL_MIN_PT = 30.0   # sin paso en la capa: una línea con ≥2 marcadores a ≥30 pt define el suyo
 CODO_MAX_VERTEX_TURN_DEG = 60.0  # un «codo» pequeño es suave: ningún vértice gira más que esto (zigzag «//» no)
+# Llegada a una bóveda: «por su eje + quiebre CORTO». El quiebre es el desvío
+# lateral entre el eje de la línea que llega y el nodo interior; si hay que
+# desviarse más que esta fracción del lado menor de la bóveda, la línea no va a
+# ese nodo (se inventarían decenas de pt dentro de la caja): para en el borde.
+# Medido en el DU06: llegadas buenas ≤0.46 · lado menor; el abanico de la hoja 3
+# que reportó el usuario iba de 0.56 a 1.6.
+VAULT_BEND_OFF_FRAC = 0.5
 LOOP_VAULT_MIN_PT = 12.0     # lazo rectangular cerrado de la propia capa = bóveda si su lado ≥12 pt…
 LOOP_VAULT_MAX_PT = 120.0    # …y ≤120 pt (más grande ya no es un símbolo)
+@dataclass(frozen=True)
+class GeomOptions:
+    """Reglas opcionales del núcleo, por perfil de utilidad. Todo en False =
+    comportamiento que ya validó el eléctrico (DU06, 19 hojas): un perfil nuevo
+    las activa sin mover ni un vértice del eléctrico."""
+    # Dos contornos grandes que no se tocan son dos estructuras (`_separate_structures`).
+    separate_vaults: bool = False
+    # Un extremo va a la bóveda donde ENTRA más cerca, no a la primera de la lista.
+    nearest_vault: bool = False
+    # Un guión corto DENTRO de otra corrida colineal se funde con ella (`_run_inside`).
+    absorb_inside_runs: bool = False
+    # Dos extremos que se TOCAN (≤ENDS_TOUCH_PT, el PDF los dibuja unidos) se unen
+    # entre sí ANTES de ir a una bóveda, a una T o a una continuación lejana
+    # (perfil AGUA: acometidas con quiebre, DU10 h.23 / DU06 h.10); y una punta
+    # que cae JUSTO sobre otra línea es T aunque quede cerca de su extremo.
+    join_touching_ends: bool = False
+    # Un hueco entre guiones colineales NO se cruza si en una de sus puntas la
+    # tinta dobla (otro trazo, no colineal, nace ahí): la línea da la vuelta por
+    # ese trazo (escalón vertical + horizontal, DU06 h.10) y no sigue derecho.
+    gap_turn_blocks: bool = False
+    # Una barra «/» también se reconoce cuando cruza un TRAZO CURVO (polilínea con
+    # quiebre), no solo un guión recto (DU06 h.3: barra en el quiebre de la línea
+    # abandonada; quedaba como tramo y se estiraba 17 pt hasta la línea vecina).
+    markers_on_curves: bool = False
+    # Un contorno de estructura dibujado como POLÍGONO de muchos lados (≥8 puntos
+    # sobre un círculo) es un círculo, no un rectángulo girado (perfil
+    # ALCANTARILLADO: el anillo del buzón en la capa de la línea, 39 lados).
+    polygon_circles: bool = False
+    # Un ramal que muere en el HUECO del linetype de una línea que sigue de frente
+    # (nodo «bend» en el centro del hueco) lleva el nodo al CRUCE de las dos
+    # rectas, no al centro del hueco: si no, el ramal se inclina hasta 2–3 pt
+    # (DU06 h.13 (632.7, 954.3): lateral vertical de alcantarillado; lo reportó
+    # el usuario — «la precisión de las líneas»).
+    precise_junctions: bool = False
+    # Una punta que tiene su CONTINUACIÓN (otro guión de la capa, de frente y
+    # sobre su recta) más cerca que el borde de una bóveda no salta a la bóveda:
+    # se une a ella y es la continuación la que llega. Si no, un guión corto del
+    # medio de una línea que se curva se prolongaba ENCIMA de la tinta del
+    # siguiente y la bóveda recibía dos líneas casi superpuestas (DU08 h.36
+    # (1300, 982), alcantarillado «-D»).
+    continuation_before_vault: bool = False
+
+
 CHAIN_KINDS = ("corner", "bend", "edge")   # nodos de grado 2 que se encadenan (bóveda: regla propia)
 
 
@@ -80,12 +159,22 @@ class Dash:
     def mid(self) -> Pt:
         return ((self.a[0] + self.b[0]) / 2, (self.a[1] + self.b[1]) / 2)
 
+    @property
+    def bbox(self) -> Tuple[float, float, float, float]:
+        return (min(self.a[0], self.b[0]), min(self.a[1], self.b[1]),
+                max(self.a[0], self.b[0]), max(self.a[1], self.b[1]))
+
 
 @dataclass
 class Glyph:
     cx: float
     cy: float
     size: float
+
+    @property
+    def bbox(self) -> Tuple[float, float, float, float]:
+        h = self.size / 2.0
+        return (self.cx - h, self.cy - h, self.cx + h, self.cy + h)
 
 
 @dataclass
@@ -103,8 +192,14 @@ class Vault:
     outline: Optional[List[Pt]] = None
     shape: str = "rect"
     angle_deg: float = 0.0
+    # (perfil con `polygon_circles`) Buzón REDONDO: una línea entra a él solo si
+    # su recta corta el CÍRCULO, no la caja que lo encierra (`_vault_entry`).
+    # DU10 h.5 (981, 710): la diagonal de una «X» vecina rozaba la esquina de la
+    # caja del anillo y se desviaba al buzón sin tinta.
+    round_entry: bool = False
     width: float = 0.0
     length: float = 0.0
+    layer: str = ""               # OCG mayoritaria del símbolo (para saber si es bóveda real o propuesta/poste)
 
     @property
     def center(self) -> Pt:
@@ -161,6 +256,7 @@ class Run:
     origin: int = -1          # corrida original (las piezas partidas en una bóveda la comparten)
     synthetic: bool = False   # tramo borde→referencia dentro de una bóveda (sin guiones)
     split: bool = False       # pieza que resultó de partir una corrida que atraviesa una bóveda
+    split_vi: int = -1        # …la bóveda que la partió (otra bóveda no puede usarla como «línea que atraviesa»)
     # Sintéticos: rumbo con que la línea de origen ENTRA a la bóveda. Con eso se
     # decide si la polilínea sigue derecho por la bóveda (no con el rumbo del
     # tramito borde→referencia, que es diagonal).
@@ -237,10 +333,19 @@ class MarkerPattern:
     period: Optional[float]
     verdict: List[Optional[bool]]
     counts: List[int]
+    # Por polilínea: ¿sus marcadores son «//» (dos barras pegadas)? Regla del
+    # usuario (2026-09-25): el «//» es ABANDONADA en cualquier utilidad y capa.
+    doubles: List[bool] = field(default_factory=list)
+    # Veredicto del patrón «//» por polilínea (True / False / None como `verdict`).
+    double_verdict: List[Optional[bool]] = field(default_factory=list)
 
     @property
     def has_pattern(self) -> bool:
         return self.period is not None and any(v for v in self.verdict)
+
+    @property
+    def has_double_pattern(self) -> bool:
+        return self.period is not None and any(v for v in self.double_verdict)
 
 
 # ─────────────────────────── helpers ───────────────────────────
@@ -250,6 +355,13 @@ def _xy(p) -> Pt:
 
 def _dist(p: Pt, q: Pt) -> float:
     return math.hypot(p[0] - q[0], p[1] - q[1])
+
+
+def _bbox_gap(b1: Tuple[float, float, float, float], b2: Tuple[float, float, float, float]) -> float:
+    """Distancia mínima entre dos cajas (0 si se tocan o se solapan)."""
+    dx = max(b1[0] - b2[2], b2[0] - b1[2], 0.0)
+    dy = max(b1[1] - b2[3], b2[1] - b1[3], 0.0)
+    return math.hypot(dx, dy)
 
 
 def _unit(dx: float, dy: float) -> Tuple[float, float]:
@@ -465,6 +577,21 @@ def _point_in_polygon(p: Pt, poly: Sequence[Pt]) -> bool:
     return inside
 
 
+def _dist_to_polygon(p: Pt, poly: Sequence[Pt]) -> float:
+    """Distancia de p al contorno del polígono. Un trazo dibujado SOBRE el borde
+    del clip (DU08 h.49: la geometría ya viene recortada en x=661.10 y el clip de
+    la vista está en 661.14) se ve en pantalla: no se descarta por 0.04 pt."""
+    best = float("inf")
+    n = len(poly)
+    for i in range(n):
+        a, b = poly[i], poly[(i + 1) % n]
+        dx, dy = b[0] - a[0], b[1] - a[1]
+        L2 = dx * dx + dy * dy
+        t = 0.0 if L2 < 1e-12 else max(0.0, min(1.0, ((p[0] - a[0]) * dx + (p[1] - a[1]) * dy) / L2))
+        best = min(best, _dist(p, (a[0] + t * dx, a[1] + t * dy)))
+    return best
+
+
 def _seg_poly_params(a: Pt, b: Pt, poly: Sequence[Pt]) -> List[float]:
     """Parámetros t∈(0,1) donde el segmento a→b cruza los lados del polígono."""
     ts = []
@@ -499,7 +626,12 @@ def _clip_chain(chain: List[Pt], poly: Sequence[Pt], cuts: Optional[List[Pt]] = 
                     cuts.append(p0)
                 if 0.0 < t1 < 1.0:
                     cuts.append(p1)
-            if _point_in_polygon(mid, poly):
+            # …o el trozo corre SOBRE el borde (sus dos puntas a ≤tol): se ve.
+            # Una colita que solo cruza el borde (corta) sigue fuera.
+            if _point_in_polygon(mid, poly) or (
+                    _dist(p0, p1) >= 2 * CLIP_EDGE_TOL_PT
+                    and _dist_to_polygon(p0, poly) <= CLIP_EDGE_TOL_PT
+                    and _dist_to_polygon(p1, poly) <= CLIP_EDGE_TOL_PT):
                 if cur and _dist(cur[-1], p0) <= 1e-6:
                     cur.append(p1)
                 else:
@@ -528,6 +660,12 @@ def clip_path(path: dict, polygons: Sequence[Sequence[Pt]]) -> Optional[dict]:
         chains = [piece for ch in chains for piece in _clip_chain(ch, poly, cuts)]
     if not chains:
         return None
+    # Extremos que ya vienen SOBRE el borde del clip (la referencia se exportó
+    # recortada justo ahí): también son cortes, la línea sigue fuera de la vista.
+    for poly in polygons:
+        if len(poly) >= 3:
+            cuts += [q for ch in chains for q in (ch[0], ch[-1])
+                     if _dist_to_polygon(q, poly) <= CLIP_EDGE_TOL_PT]
     uniq: List[Pt] = []
     for c in cuts:                                   # cada cruce aparece dos veces (sale/entra)
         if not any(_dist(c, u) <= 1e-6 for u in uniq):
@@ -544,7 +682,8 @@ def clip_path(path: dict, polygons: Sequence[Sequence[Pt]]) -> Optional[dict]:
 
 
 # ─────────────────────────── 1. clasificar ───────────────────────────
-def classify_paths(paths: Sequence[dict]) -> Tuple[List[Dash], List[Glyph], List[List[Pt]]]:
+def classify_paths(paths: Sequence[dict], keep_line_strokes: bool = False
+                   ) -> Tuple[List[Dash], List[Glyph], List[List[Pt]]]:
     """Paths de la capa de LÍNEAS → (guiones, letras, curvas).
     Guion = tramo recto. Letra = trazo compuesto que cabe en GLYPH_MAX_DIM_PT.
     Curva = polilínea suave grande (codo/arco), se conserva con sus vértices."""
@@ -611,18 +750,133 @@ def classify_paths(paths: Sequence[dict]) -> Tuple[List[Dash], List[Glyph], List
                     d = Dash(simp[0], simp[-1])
                     if d.length >= MIN_DASH_PT:
                         dashes.append(d)
+    # Astas de letra que salieron como su propio path recto (ver
+    # `GLYPH_STROKE_GAP_PT`): si un guión corto queda pegado a una letra ya
+    # reconocida, PODRÍA ser esa misma letra partida en dos paths — pero una
+    # marca «/» genuina también puede caer pegada a una letra por pura
+    # coincidencia de fase del patrón (DU06 h.9 eléctrico: un único «/» junto
+    # a una «e», y ahí SÍ hay que dejarlo para `strip_crossing_markers`). Lo
+    # que distingue a la letra partida es que se REPITE: la «d» del linetype
+    # "sd" de drenaje sale con la MISMA asta (mismo largo, aunque rote con la
+    # línea) en cada repetición — así que solo se fusiona un candidato si su
+    # largo coincide (±1 pt) con el de otros ≥`GLYPH_STROKE_MIN_REPEAT`, nunca
+    # uno aislado.
+    if dashes and glyphs:
+        cand: List[Tuple[int, float]] = []
+        for i, d in enumerate(dashes):
+            if d.length <= GLYPH_MAX_DIM_PT and any(
+                    _bbox_gap(d.bbox, g.bbox) <= GLYPH_STROKE_GAP_PT for g in glyphs):
+                cand.append((i, d.length))
+        swallow = {i for i, L in cand
+                   if sum(1 for _, L2 in cand if abs(L2 - L) <= 1.0) >= GLYPH_STROKE_MIN_REPEAT}
+        if keep_line_strokes:
+            # (perfil `precise_junctions`) un trozo que CONTINÚA la línea —nace en
+            # la punta de otro guión que no es letra, con su rumbo— es línea, no asta:
+            # en «—//—ss—» se repite igual en cada ciclo y se perdía (DU08 h.37
+            # (600, 991): la línea quedaba cortada 27 pt en cada «//ss»).
+            longs = [d for j, d in enumerate(dashes) if j not in swallow]
+            swallow = {i for i in swallow if not any(
+                min(_dist(p, q) for p in (dashes[i].a, dashes[i].b) for q in (d.a, d.b)) <= LINE_STROKE_TOUCH_PT
+                and _ang_diff(_line_angle((*dashes[i].a, *_unit(dashes[i].b[0] - dashes[i].a[0],
+                                                                  dashes[i].b[1] - dashes[i].a[1]))),
+                              _line_angle((*d.a, *_unit(d.b[0] - d.a[0], d.b[1] - d.a[1]))))
+                <= LINE_STROKE_ANG_DEG for d in longs)}
+        if swallow:
+            kept: List[Dash] = []
+            for i, d in enumerate(dashes):
+                if i in swallow:
+                    glyphs.append(Glyph(d.mid[0], d.mid[1], d.length))
+                else:
+                    kept.append(d)
+            dashes = kept
+    dashes, cut = _cut_letter_strokes(dashes)
+    glyphs.extend(cut)
     return dashes, glyphs, curves
 
 
-def strip_crossing_markers(dashes: List[Dash]) -> Tuple[List[Dash], List[Glyph]]:
+def _cut_letter_strokes(dashes: List[Dash]) -> Tuple[List[Dash], List[Glyph]]:
+    """Letras del linetype PARTIDAS (el clip de la vista corta la «E» por la
+    mitad, DU08 h.49 a lo largo de x=661): sus astas quedan como trazos rectos
+    sueltos y se leían como guiones (ganchitos «⊥» pegados a la línea). Una
+    letra partida = grupo de ≥2 trazos cortos (≤GLYPH_MAX_DIM_PT) que se TOCAN
+    (≤CUT_GLYPH_TOUCH_PT) con algún ángulo ≥60° y cabe en una letra; lo que la
+    distingue de un quiebre real es que el MISMO grupo (mismos largos ±1 pt) se
+    repite ≥CUT_GLYPH_MIN_REPEAT veces, como toda letra del linetype."""
+    short = [i for i, d in enumerate(dashes) if d.length <= GLYPH_MAX_DIM_PT]
+    if len(short) < 2 * CUT_GLYPH_MIN_REPEAT:
+        return dashes, []
+    cell = GLYPH_MAX_DIM_PT
+    grid: Dict[Tuple[int, int], List[int]] = defaultdict(list)
+    for i in short:
+        d = dashes[i]
+        grid[(int(d.mid[0] // cell), int(d.mid[1] // cell))].append(i)
+    parent = {i: i for i in short}
+
+    def find(i):
+        while parent[i] != i:
+            parent[i] = parent[parent[i]]
+            i = parent[i]
+        return i
+    angled = set()
+    for i in short:
+        d = dashes[i]
+        cx, cy = int(d.mid[0] // cell), int(d.mid[1] // cell)
+        for gx in (cx - 1, cx, cx + 1):
+            for gy in (cy - 1, cy, cy + 1):
+                for j in grid.get((gx, gy), ()):
+                    if j <= i:
+                        continue
+                    e = dashes[j]
+                    gap = min(_pt_seg_dist(d.a, e.a, e.b), _pt_seg_dist(d.b, e.a, e.b),
+                              _pt_seg_dist(e.a, d.a, d.b), _pt_seg_dist(e.b, d.a, d.b))
+                    if gap > CUT_GLYPH_TOUCH_PT:
+                        continue
+                    parent[find(i)] = find(j)
+                    if _ang_diff(d.angle, e.angle) >= 60.0:
+                        angled.update((i, j))
+    groups: Dict[int, List[int]] = defaultdict(list)
+    for i in short:
+        groups[find(i)].append(i)
+    cands = []
+    for g in groups.values():
+        if len(g) < 2 or not any(i in angled for i in g):
+            continue
+        xs = [q[0] for i in g for q in (dashes[i].a, dashes[i].b)]
+        ys = [q[1] for i in g for q in (dashes[i].a, dashes[i].b)]
+        if max(max(xs) - min(xs), max(ys) - min(ys)) > GLYPH_MAX_DIM_PT:
+            continue
+        cands.append((sorted(dashes[i].length for i in g), g, xs, ys))
+    swallow: List[Tuple[List[int], List[float], List[float]]] = []
+    for sig, g, xs, ys in cands:
+        same = sum(1 for sig2, _, _, _ in cands
+                   if len(sig2) == len(sig) and all(abs(a - b) <= 1.0 for a, b in zip(sig, sig2)))
+        if same >= CUT_GLYPH_MIN_REPEAT:
+            swallow.append((g, xs, ys))
+    if not swallow:
+        return dashes, []
+    drop = {i for g, _, _ in swallow for i in g}
+    glyphs = [Glyph((min(xs) + max(xs)) / 2, (min(ys) + max(ys)) / 2,
+                    max(max(xs) - min(xs), max(ys) - min(ys))) for _, xs, ys in swallow]
+    return [d for i, d in enumerate(dashes) if i not in drop], glyphs
+
+
+def strip_crossing_markers(dashes: List[Dash], attached: Sequence[Pt] = (),
+                           curve_chains: Sequence[List[Pt]] = ()) -> Tuple[List[Dash], List[Glyph]]:
     """Linetype de utilidad ABANDONADA: «──/── e ──». La barra «/» es un trazo
     recto corto que cruza la línea, así que `classify_paths` la ve como guión y
     luego quedaría "sin cubrir". Aquí se detecta (corta, ≥30° respecto de un
     guión cuya recta pasa por su punto medio) y pasa a ser un glifo más, como
-    la letra: no cuenta para el patrón ni para la cobertura."""
+    la letra: no cuenta para el patrón ni para la cobertura.
+    `attached` = extremos de trazos curvos: un trazo recto que NACE en uno de
+    ellos es el último tramo de esa curva, no una barra (DU08 h.49 (668, 982):
+    la curva termina cruzando la vertical y su tramo final se perdía)."""
     cell = 2.0 * GLYPH_MAX_DIM_PT
     grid: Dict[Tuple[int, int], List[int]] = defaultdict(list)
-    for i, d in enumerate(dashes):
+    # Rectas que una barra puede cruzar: los guiones y (perfil) los tramos de
+    # los trazos curvos. Solo los guiones pueden ser barras.
+    lines = list(dashes) + [Dash(p, q) for ch in curve_chains for p, q in zip(ch, ch[1:])
+                            if _dist(p, q) > 1e-6]
+    for i, d in enumerate(lines):
         x0, x1 = sorted((d.a[0], d.b[0])); y0, y1 = sorted((d.a[1], d.b[1]))
         # el guión se indexa con un margen de GLYPH_MAX_DIM_PT (ver `t` abajo)
         for cx in range(int((x0 - GLYPH_MAX_DIM_PT) // cell), int((x1 + GLYPH_MAX_DIM_PT) // cell) + 1):
@@ -632,7 +886,7 @@ def strip_crossing_markers(dashes: List[Dash]) -> Tuple[List[Dash], List[Glyph]]
     markers: List[Glyph] = []
     for i, d in enumerate(dashes):
         L = d.length
-        if L > MARKER_MAX_LEN_PT:
+        if L > MARKER_MAX_LEN_PT or any(_dist(q, e) <= MARKER_ATTACH_PT for q in attached for e in (d.a, d.b)):
             keep.append(d)
             continue
         m = d.mid
@@ -641,7 +895,7 @@ def strip_crossing_markers(dashes: List[Dash]) -> Tuple[List[Dash], List[Glyph]]
         for j in grid.get((int(m[0] // cell), int(m[1] // cell)), ()):
             if j == i:
                 continue
-            o = dashes[j]
+            o = lines[j]
             if _ang_diff(o.angle, d.angle) < MARKER_MIN_ANG_DEG:
                 continue
             # punto medio sobre la recta del otro guión, dentro de su extensión o
@@ -678,6 +932,12 @@ def _marker_positions(polylines: Sequence["Polyline"], markers: Sequence[Glyph])
     """Posición (pt desde el inicio) de cada marcador sobre la polilínea a la que
     pertenece (la más cercana, a ≤ MARKER_ON_LINE_PT + 0.5 de un tramo). Dos
     barras pegadas («//») cuentan como un solo marcador."""
+    return [[t for t, _ in lst] for lst in _marker_positions_n(polylines, markers)]
+
+
+def _marker_positions_n(polylines: Sequence["Polyline"],
+                        markers: Sequence[Glyph]) -> List[List[Tuple[float, int]]]:
+    """Como `_marker_positions`, con el nº de barras de cada marcador (2 = «//»)."""
     tol = MARKER_ON_LINE_PT + 0.5
     pos: List[List[float]] = [[] for _ in polylines]
     for m in markers:
@@ -693,15 +953,16 @@ def _marker_positions(polylines: Sequence["Polyline"], markers: Sequence[Glyph])
                 s += _dist(a, b)
         if best is not None:
             pos[best[1]].append(best[2])
-    out: List[List[float]] = []
+    out: List[List[Tuple[float, int]]] = []
     for lst in pos:
         lst.sort()
-        merged: List[float] = []
+        merged: List[Tuple[float, int]] = []
         for t in lst:
-            if merged and t - merged[-1] <= MARKER_PAIR_PT:
-                merged[-1] = (merged[-1] + t) / 2.0
+            if merged and t - merged[-1][0] <= MARKER_PAIR_PT:
+                c, n = merged[-1]
+                merged[-1] = ((c + t) / 2.0, n + 1)
             else:
-                merged.append(t)
+                merged.append((t, 1))
         out.append(merged)
     return out
 
@@ -713,7 +974,10 @@ def marker_pattern(polylines: Sequence["Polyline"], markers: Sequence[Glyph]) ->
     línea se juzga sola: sigue el patrón si sus marcadores van a ese paso (o al
     doble, donde una bóveda o letra ocupa el sitio) desde cerca del inicio hasta
     cerca del final. Nada se inventa: sin paso aprendido no hay patrón."""
-    pos = _marker_positions(polylines, markers)
+    pos_n = _marker_positions_n(polylines, markers)
+    pos = [[t for t, _ in lst] for lst in pos_n]
+    # «//»: la mayoría de los marcadores de la línea son dos barras pegadas.
+    doubles = [bool(lst) and 2 * sum(1 for _, n in lst if n >= 2) >= len(lst) for lst in pos_n]
     spacings = [b - a for lst in pos for a, b in zip(lst, lst[1:]) if b - a > MARKER_PAIR_PT]
     period: Optional[float] = None
     if len(spacings) >= MARKER_MIN_AGREE:
@@ -725,22 +989,62 @@ def marker_pattern(polylines: Sequence["Polyline"], markers: Sequence[Glyph]) ->
                 best = agree
         if best:
             best.sort(); period = best[len(best) // 2]
+    # Sin paso aprendido en la capa (menos de 3 marcadores en total): una línea
+    # que lleva ≥2 marcadores a un paso de linetype (≥ MARKER_LOCAL_MIN_PT) lo
+    # define ella sola. DU08 h.39: curva abandonada con 2 «/» a 68 pt (el mismo
+    # paso que el DU06) — antes quedaba «sin patrón» y se importaba activa.
+    local: Dict[int, float] = {}
+    if period is None:
+        for i, lst in enumerate(pos):
+            sp = sorted(b - a for a, b in zip(lst, lst[1:]) if b - a > MARKER_PAIR_PT)
+            if not sp or sp[0] < MARKER_LOCAL_MIN_PT:
+                continue
+            base = sp[0]                  # el paso (los dobles son una marca tapada)
+            tol = MARKER_PERIOD_TOL * base + MARKER_PERIOD_SLACK_PT
+            if all(any(abs(x - k * base) <= tol * k for k in (1, 2)) for x in sp):
+                local[i] = base
+        if local:
+            vals = sorted(local.values())
+            period = vals[len(vals) // 2]
     verdict: List[Optional[bool]] = []
-    for pl, lst in zip(polylines, pos):
+    for i, (pl, lst) in enumerate(zip(polylines, pos)):
         L = pl.length
         if period is None:
             verdict.append(False)
             continue
-        tol = MARKER_PERIOD_TOL * period + MARKER_PERIOD_SLACK_PT
+        per = local.get(i, period)
+        tol = MARKER_PERIOD_TOL * per + MARKER_PERIOD_SLACK_PT
         if len(lst) >= 2:
-            steps_ok = all(any(abs((b - a) - k * period) <= tol * k for k in (1, 2)) for a, b in zip(lst, lst[1:]))
-            ends_ok = lst[0] <= 1.5 * period + tol and (L - lst[-1]) <= 1.5 * period + tol
+            steps_ok = all(any(abs((b - a) - k * per) <= tol * k for k in (1, 2)) for a, b in zip(lst, lst[1:]))
+            ends_ok = lst[0] <= 1.5 * per + tol and (L - lst[-1]) <= 1.5 * per + tol
             verdict.append(bool(steps_ok and ends_ok))
         elif len(lst) == 1:
             verdict.append(None if L < 2.0 * period else False)
         else:
             verdict.append(None if L < 1.5 * period else False)
-    return MarkerPattern(period, verdict, [len(l) for l in pos])
+    # «//» (regla del usuario: abandonada en cualquier utilidad y capa): se juzga
+    # solo con los marcadores dobles, tolerando alguno intercalado (el «//» de
+    # un ramal junto a una T, DU08 h.21): ≥2 dobles, ≥75 % de los pasos a 1× o
+    # 2× el periodo y dobles hasta ≤2 pasos de cada punta.
+    dbl_verdict: List[Optional[bool]] = []
+    for i, (pl, lst) in enumerate(zip(polylines, pos_n)):
+        dl = [t for t, n in lst if n >= 2]
+        if period is None:
+            dbl_verdict.append(False)
+            continue
+        if not doubles[i]:                # corta y sin «//» propio: hereda de la capa
+            dbl_verdict.append(None if verdict[i] is None else False)
+            continue
+        per = local.get(i, period)
+        tol = MARKER_PERIOD_TOL * per + MARKER_PERIOD_SLACK_PT
+        if len(dl) >= 2:
+            steps = list(zip(dl, dl[1:]))
+            ok = sum(1 for a, b in steps if any(abs((b - a) - k * per) <= tol * k for k in (1, 2)))
+            ends_ok = dl[0] <= 2.0 * per + tol and (pl.length - dl[-1]) <= 2.0 * per + tol
+            dbl_verdict.append(bool(ok >= MARKER_DOUBLE_STEPS_OK * len(steps) and ends_ok))
+        else:
+            dbl_verdict.append(verdict[i])
+    return MarkerPattern(period, verdict, [len(l) for l in pos], doubles, dbl_verdict)
 
 
 # ─────────────────────────── 2. patrón ───────────────────────────
@@ -797,7 +1101,13 @@ def learn_pattern(dashes: Sequence[Dash], glyphs: Sequence[Glyph],
         # guiones cortos por cada largo la sesgaría hacia el corto.
         cnt = Counter(lengths)
         top = max(cnt.values())
-        frequent = [L for L, c in cnt.items() if c >= 0.2 * top and L >= 2]
+        mode_len = max(L for L, c in cnt.items() if c == top)
+        # …y nunca un trazo desproporcionado frente al guión más común: 4 rayas
+        # de 731 pt del cajetín en una capa de guiones de 22 pt (DU10 h.11) no
+        # son el «guión largo» del patrón. Pasaban el 20 % en cuanto los guiones
+        # reales dejaron de contarse dos veces (capas duplicadas).
+        frequent = [L for L, c in cnt.items()
+                    if c >= 0.2 * top and L >= 2 and L <= DASH_LONG_MAX_RATIO * max(mode_len, 2)]
         dash_long = float(max(frequent)) if frequent else float(max(lengths))
         shorts = [L for L in frequent if L < 0.6 * dash_long]
         dash_short = float(min(shorts)) if shorts else None
@@ -895,13 +1205,31 @@ def _compact_vaults(vaults: Sequence[Vault]) -> List[Vault]:
 
 
 def build_runs(groups: List[_Group], pat: Pattern, glyphs: Sequence[Glyph],
-               vaults: Sequence[Vault], curves: Sequence[List[Pt]] = ()) -> List[Run]:
+               vaults: Sequence[Vault], curves: Sequence[List[Pt]] = (),
+               gap_turn_blocks: bool = False) -> List[Run]:
     glyph_pts = [(gl.cx, gl.cy) for gl in glyphs]
+    # (perfil `gap_turn_blocks`) puntas de todos los trazos, con su grupo: una
+    # punta de OTRO grupo pegada al borde del hueco = la tinta dobla ahí.
+    tips: Dict[Tuple[int, int], List[Tuple[Pt, int]]] = defaultdict(list)
+    if gap_turn_blocks:
+        for gi, gg in enumerate(groups):
+            for d in gg.dashes:
+                for q in (d.a, d.b):
+                    tips[(int(q[0] // 4), int(q[1] // 4))].append((q, gi))
+        for pts in curves:
+            for q in (pts[0], pts[-1]):
+                tips[(int(q[0] // 4), int(q[1] // 4))].append((q, -1))
+
+    def turns_at(q: Pt, gi: int) -> bool:
+        cx, cy = int(q[0] // 4), int(q[1] // 4)
+        return any(g2 != gi and _dist(q, q2) <= ENDS_TOUCH_PT
+                   for dx in (-1, 0, 1) for dy in (-1, 0, 1)
+                   for q2, g2 in tips.get((cx + dx, cy + dy), ()))
     compact = _compact_vaults(vaults)
     vault_pts = [v.center for v in compact]
     vault_perp = max((v.radius for v in compact), default=0.0) + pat.join_gap
     runs: List[Run] = []
-    for g in groups:
+    for gi, g in enumerate(groups):
         ivs = sorted(g.intervals(), key=lambda iv: iv[0])
 
         def make_run(chunk: List[Tuple[float, float, Dash]]):
@@ -922,6 +1250,12 @@ def build_runs(groups: List[_Group], pat: Pattern, glyphs: Sequence[Glyph],
                     ok = _evidence_in_gap(g, cur_end, iv[0], glyph_pts, pat.letter)
                 if not ok and gap <= pat.vault_bridge:
                     ok = _evidence_in_gap(g, cur_end, iv[0], vault_pts, vault_perp)
+                if ok and gap_turn_blocks and gap > ENDS_TOUCH_PT:
+                    last = max(cur, key=lambda c: c[1])[2]
+                    p0 = last.a if g.t(last.a) >= g.t(last.b) else last.b
+                    p1 = iv[2].a if g.t(iv[2].a) <= g.t(iv[2].b) else iv[2].b
+                    if turns_at(p0, gi) or turns_at(p1, gi):
+                        ok = False
                 if not ok:
                     make_run(cur); cur = []; cur_end = -1e18
             cur.append(iv)
@@ -937,7 +1271,29 @@ def build_runs(groups: List[_Group], pat: Pattern, glyphs: Sequence[Glyph],
     return runs
 
 
-def merge_overlapping_runs(runs: List[Run], pat: Pattern) -> List[Run]:
+INSIDE_RUN_ANG_DEG = 3.0     # guión corto DENTRO de otra corrida: su rumbo medido es ruidoso
+
+
+def _run_inside(big: Run, small: Run) -> bool:
+    """¿La corrida `small` cae ENTERA dentro del tramo de `big` y sobre su recta
+    (ambos extremos ≤ COLLINEAR_PERP_PT)? Entonces es un guión de la misma
+    línea que quedó en otro grupo solo porque su rumbo medido se pasó del ±1°
+    (en un guión de 8 pt, 0.15 pt de deriva ya es 1°). DU06 h.4 (1095, 832):
+    el guión entre «sd» y la caja de captación, a 1.03° del resto, armaba su
+    propia corrida bóveda→caja y ese tramo salía DOBLE."""
+    if big.is_curve or small.is_curve or small.length >= big.length:
+        return False
+    L = big.line("a")
+    if _perp_line(L, small.a) > COLLINEAR_PERP_PT or _perp_line(L, small.b) > COLLINEAR_PERP_PT:
+        return False
+    if _ang_diff(_line_angle(L), _line_angle(small.line("a"))) > INSIDE_RUN_ANG_DEG:
+        return False
+    ta, _ = big.param(small.a); tb, _ = big.param(small.b)
+    slack = COLLINEAR_PERP_PT / max(big.length, 1e-9)
+    return min(ta, tb) >= -slack and max(ta, tb) <= 1.0 + slack
+
+
+def merge_overlapping_runs(runs: List[Run], pat: Pattern, absorb_inside: bool = False) -> List[Run]:
     """Dos corridas rectas con el mismo rumbo, a ≤1.5 pt una de otra y con
     rangos que se solapan describen la MISMA línea (deriva repartida entre dos
     semillas): se funden en una sola corrida con la unión de sus guiones."""
@@ -952,15 +1308,18 @@ def merge_overlapping_runs(runs: List[Run], pat: Pattern) -> List[Run]:
             Li = ri.line("a")
             for j in range(i + 1, len(runs)):
                 rj = runs[j]
-                if rj.is_curve or _ang_diff(_line_angle(Li), _line_angle(rj.line("a"))) > COLLINEAR_ANG_DEG:
+                if rj.is_curve:
                     continue
-                if _perp_line(Li, rj.a) > COLLINEAR_PERP_PT or _perp_line(Li, rj.b) > COLLINEAR_PERP_PT:
-                    continue          # más lejos = paralelas distintas (nunca se funden)
-                ta, _ = ri.param(rj.a); tb, _ = ri.param(rj.b)
-                lo, hi = min(ta, tb), max(ta, tb)
-                overlap = (min(hi, 1.0) - max(lo, 0.0)) * ri.length
-                if overlap < 0.5 * pat.dash_long:
-                    continue
+                if not (absorb_inside and (_run_inside(ri, rj) or _run_inside(rj, ri))):
+                    if _ang_diff(_line_angle(Li), _line_angle(rj.line("a"))) > COLLINEAR_ANG_DEG:
+                        continue
+                    if _perp_line(Li, rj.a) > COLLINEAR_PERP_PT or _perp_line(Li, rj.b) > COLLINEAR_PERP_PT:
+                        continue          # más lejos = paralelas distintas (nunca se funden)
+                    ta, _ = ri.param(rj.a); tb, _ = ri.param(rj.b)
+                    lo, hi = min(ta, tb), max(ta, tb)
+                    overlap = (min(hi, 1.0) - max(lo, 0.0)) * ri.length
+                    if overlap < 0.5 * pat.dash_long:
+                        continue
                 # Unión: extremos más alejados sobre el rumbo de la corrida más larga.
                 base = ri if ri.length >= rj.length else rj
                 Lb = base.line("a")
@@ -1016,6 +1375,43 @@ def _glyph_bridges_end(r: Run, side: str, anchors: Sequence[Run],
     return False
 
 
+CONTINUE_ANG_DEG = 35.0       # el trazo largo sigue el rumbo del guión anterior (±35°)
+
+
+def _outward(r: Run, side: str) -> Tuple[float, float]:
+    L = r.line(side)
+    return (-L[2], -L[3]) if side == "a" else (L[2], L[3])
+
+
+def _continues_line(r: Run, side: str, kept: Sequence[Run], pat: Pattern) -> bool:
+    """El extremo `side` de `r` CONTINÚA una corrida de la misma capa: otro
+    guión termina a ≤ un hueco del patrón, enfrentado y con el mismo rumbo.
+
+    Una línea CURVA a guiones se parte en corridas de un solo guión (cada uno
+    con su rumbo), así que ninguna llega a «ancla» de la red y el último trazo
+    —el remate del linetype, más largo que el guión típico— quedaba como
+    leader (DU08 h.39: punta de 36 pt de una curva abandonada, en violeta).
+    Un leader no sigue de frente el rumbo de un guión: nace de un texto."""
+    p = r.a if side == "a" else r.b
+    o = _outward(r, side)
+    cos_min = math.cos(math.radians(CONTINUE_ANG_DEG))
+    for k in kept:
+        if k is r:
+            continue
+        for ks in ("a", "b"):
+            q = k.a if ks == "a" else k.b
+            d = _dist(p, q)
+            if d > pat.join_gap:
+                continue
+            ok = _outward(k, ks)
+            if o[0] * ok[0] + o[1] * ok[1] > -cos_min:
+                continue                      # no se miran de frente
+            if d > 1.0 and ((q[0] - p[0]) * o[0] + (q[1] - p[1]) * o[1]) < cos_min * d:
+                continue                      # el hueco no va en el rumbo del trazo
+            return True
+    return False
+
+
 def split_offpattern(runs: List[Run], pat: Pattern,
                      vaults: Sequence[Vault] = (),
                      glyphs: Sequence[Glyph] = ()) -> Tuple[List[Run], List[Polyline]]:
@@ -1050,6 +1446,8 @@ def split_offpattern(runs: List[Run], pat: Pattern,
     def touches(r: Run, side: str) -> bool:
         p = r.a if side == "a" else r.b
         if any(_near_run(p, a, pat.corner_tol) for a in anchors):
+            return True
+        if _continues_line(r, side, keep, pat):
             return True
         return _glyph_bridges_end(r, side, anchors, glyphs, pat)
 
@@ -1114,7 +1512,8 @@ def _vault_reference(paths: Sequence[dict], bb: Tuple[float, float, float, float
     return best[1] if best else None
 
 
-def cluster_vaults(paths: Sequence[dict]) -> List[Vault]:
+def cluster_vaults(paths: Sequence[dict], separate: bool = False,
+                   polygon_circles: bool = False) -> List[Vault]:
     """Paths de las capas de bóvedas → una Vault por símbolo compacto.
 
     Solo entran formas cerradas compactas (caja/círculo). El linetype explotado
@@ -1132,12 +1531,26 @@ def cluster_vaults(paths: Sequence[dict]) -> List[Vault]:
         if long / short > 4.0 or long > LOOP_VAULT_MAX_PT:
             continue
         candidates.append(p)
-    out = _cluster_vaults_layer(candidates)
+    out = _cluster_vaults_layer(candidates, separate, polygon_circles)
     out.sort(key=lambda v: (v.y0, v.x0))
     return out
 
 
-def _cluster_vaults_layer(paths: Sequence[dict]) -> List[Vault]:
+def _separate_structures(a: Tuple[float, float, float, float],
+                         b: Tuple[float, float, float, float]) -> bool:
+    """Dos contornos cerrados GRANDES (lado menor ≥ `VAULT_SEPARATE_MIN_PT`)
+    que no se tocan (hueco ≥ `VAULT_SEPARATE_GAP_PT`) son dos estructuras
+    vecinas, no partes de un mismo símbolo. DU06 h.4 (1000, 830): la caja de
+    captación de 19 pt queda a 2.8 pt de la caja grande de la línea «ps»;
+    fundidas, la «ps» (que pasa por encima de la cajita) moría en el borde de
+    la cajita en vez de llegar a su caja."""
+    if min(a[2] - a[0], a[3] - a[1], b[2] - b[0], b[3] - b[1]) < VAULT_SEPARATE_MIN_PT:
+        return False
+    return _bbox_gap(a, b) >= VAULT_SEPARATE_GAP_PT
+
+
+def _cluster_vaults_layer(paths: Sequence[dict], separate: bool = False,
+                          polygon_circles: bool = False) -> List[Vault]:
     boxes = [_path_bbox(p) for p in paths]
     parent = list(range(len(boxes)))
 
@@ -1151,6 +1564,8 @@ def _cluster_vaults_layer(paths: Sequence[dict]) -> List[Vault]:
             a, b = boxes[i], boxes[j]
             if (a[0] - VAULT_CLUSTER_PT <= b[2] and b[0] - VAULT_CLUSTER_PT <= a[2]
                     and a[1] - VAULT_CLUSTER_PT <= b[3] and b[1] - VAULT_CLUSTER_PT <= a[3]):
+                if separate and _separate_structures(a, b):
+                    continue
                 parent[find(i)] = find(j)
     groups: Dict[int, List[int]] = defaultdict(list)
     for i in range(len(boxes)):
@@ -1169,12 +1584,47 @@ def _cluster_vaults_layer(paths: Sequence[dict]) -> List[Vault]:
             continue
         ref = _vault_reference(cluster, bb)
         v = Vault(*bb, len(bbs), ref)
-        _fill_vault_geometry(v, cluster)
+        _fill_vault_geometry(v, cluster, polygon_circles)
+        layers = [str(p.get("layer") or "") for p in cluster if p.get("layer")]
+        if layers:
+            # La capa más repetida; en EMPATE, la del contorno más grande del
+            # símbolo (el que le da forma y medidas). Antes el empate lo decidía
+            # el orden de un `set`, que cambia en cada ejecución de Python: DU10
+            # h.2 (484, 758) POLE/STRU salía importable o no según la corrida.
+            size = {}
+            for p in cluster:
+                pb = _path_bbox(p)
+                if pb is not None and p.get("layer"):
+                    lay = str(p.get("layer"))
+                    size[lay] = max(size.get(lay, 0.0), (pb[2] - pb[0]) * (pb[3] - pb[1]))
+            v.layer = max(sorted(set(layers)), key=lambda n: (layers.count(n), size.get(n, 0.0)))
         out.append(v)
     return out
 
 
-def _fill_vault_geometry(v: "Vault", cluster: Sequence[dict]) -> None:
+def _polygon_circle(pts: Sequence[Pt]) -> Optional[Tuple[float, float, float]]:
+    """(cx, cy, r) si los puntos (≥8) están todos sobre un círculo (Kåsa; desvío
+    máx. ≤ max(0.4 pt, 8 % r)); si no, None."""
+    n = len(pts)
+    if n < 8:
+        return None
+    mx = sum(p[0] for p in pts) / n; my = sum(p[1] for p in pts) / n
+    u = [p[0] - mx for p in pts]; w = [p[1] - my for p in pts]
+    suu = sum(a * a for a in u); sww = sum(b * b for b in w); suw = sum(a * b for a, b in zip(u, w))
+    det = suu * sww - suw * suw
+    if abs(det) < 1e-9:
+        return None
+    ru = 0.5 * (sum(a ** 3 for a in u) + sum(a * b * b for a, b in zip(u, w)))
+    rw = 0.5 * (sum(b ** 3 for b in w) + sum(b * a * a for a, b in zip(u, w)))
+    cx = (ru * sww - rw * suw) / det + mx; cy = (rw * suu - ru * suw) / det + my
+    d = [math.hypot(p[0] - cx, p[1] - cy) for p in pts]
+    r = sum(d) / n
+    if r <= 0 or max(abs(x - r) for x in d) > max(0.4, 0.08 * r):
+        return None
+    return cx, cy, r
+
+
+def _fill_vault_geometry(v: "Vault", cluster: Sequence[dict], polygon_circles: bool = False) -> None:
     """Contorno exterior del símbolo a partir del path cerrado MÁS GRANDE del
     clúster: rectángulo (4 esquinas, con su giro) o círculo. Medidas en pt
     (`width` = lado corto, `length` = lado largo) para que quien tenga la
@@ -1199,10 +1649,18 @@ def _fill_vault_geometry(v: "Vault", cluster: Sequence[dict]) -> None:
         v.shape = "circle"; v.outline = None
         v.width = v.length = (pb[2] - pb[0] + pb[3] - pb[1]) / 2.0
         v.angle_deg = 0.0
+        v.round_entry = polygon_circles
         return
     chains = _path_chains(path)
     pts = [q for ch in chains for q in ch]
     if not pts:
+        return
+    circ = _polygon_circle(pts) if polygon_circles else None
+    if circ:
+        v.shape = "circle"; v.outline = None
+        v.width = v.length = 2.0 * circ[2]
+        v.angle_deg = 0.0
+        v.round_entry = True
         return
     _rect_geometry(v, pts, chains)
 
@@ -1309,8 +1767,59 @@ def _line_bbox_hits(p: Pt, u: Tuple[float, float], bb: Tuple[float, float, float
     return (t0, t1)
 
 
+NEAREST_VAULT_MARGIN_PT = 0.5  # otra bóveda gana el extremo solo si entra claramente más cerca
+
+
+def _vault_entry(v: "Vault", pe: Pt, o: Tuple[float, float], L: Line,
+                 reach: float) -> Optional[Tuple[Pt, float]]:
+    """(E, |desplazamiento|) donde la recta del extremo `pe` (saliendo hacia
+    `o`) toca el borde de la bóveda `v`, o None si queda claramente detrás /
+    de costado o más lejos que `reach`."""
+    if v.round_entry:
+        # círculo (+1 pt): t de los dos cortes de la recta pe + t·o
+        c = v.center
+        r = 0.5 * v.width + 1.0
+        dx, dy = pe[0] - c[0], pe[1] - c[1]
+        b = dx * o[0] + dy * o[1]
+        disc = b * b - (dx * dx + dy * dy - r * r)
+        if disc < 0:
+            return None                   # la recta pasa de costado: no entra
+        sq = math.sqrt(disc)
+        hits = (-b - sq, -b + sq)
+    else:
+        hits = None
+    bb = v.bbox(1.0)
+    if hits is None and not v.round_entry:
+        hits = _line_bbox_hits(pe, o, bb)
+    if hits is None and not v.round_entry:
+        c = v.center
+        to_c = _unit(c[0] - pe[0], c[1] - pe[1])
+        if o[0] * to_c[0] + o[1] * to_c[1] < math.cos(math.radians(45.0)):
+            return None
+        corners = ((v.x0, v.y0), (v.x1, v.y0), (v.x0, v.y1), (v.x1, v.y1))
+        pad = min(_perp_line(L, cc) for cc in corners) + 1.0
+        hits = _line_bbox_hits(pe, o, v.bbox(pad))
+    if hits is None:
+        return None
+    if hits[1] < 0:                       # bóveda detrás del extremo
+        if -hits[1] > reach:
+            return None
+        t = hits[1]                       # sobrepaso corto: recortar al cruce cercano
+    else:
+        t = hits[0]                       # primer cruce hacia adelante
+        # …pero solo se prolonga lo que dura un hueco del linetype: más
+        # allá, entre el último guión y la bóveda no hay tinta y estaríamos
+        # dibujando una línea que el plano no tiene (DU06 h.3: 29 pt).
+        if t > reach:
+            return None
+    return (pe[0] + t * o[0], pe[1] + t * o[1]), abs(t)
+
+
 def resolve_nodes(runs: List[Run], pat: Pattern, vaults: Sequence[Vault],
-                  cut_pts: Sequence[Pt] = ()) -> Tuple[List[Node], List[int]]:
+                  cut_pts: Sequence[Pt] = (), nearest: bool = False,
+                  glyphs: Sequence[Glyph] = (), touching: bool = False,
+                  precise_junctions: bool = False,
+                  continuation_before_vault: bool = False) -> Tuple[List[Node], List[int]]:
     """Asigna nodos a extremos e inserta vértices interiores.
     Devuelve (nodos, índices de bóvedas huérfanas)."""
     nodes: List[Node] = []
@@ -1345,9 +1854,69 @@ def resolve_nodes(runs: List[Run], pat: Pattern, vaults: Sequence[Vault],
         corrida (si no, un tick o un guión corto colapsa o se da vuelta)."""
         r = runs[i]
         if r.is_curve:
-            return True
+            # Una curva no puede RETROCEDER hasta el nodo: P tiene que quedar
+            # delante de su punta (o casi). Si no, el tramo punta→P va hacia atrás
+            # sin tinta y la línea hace un zigzag (DU08 h.21 (716, 895): la curva
+            # volvía 11 pt para formar esquina con un guión de otra línea).
+            pe = endpoint(i, side)
+            o = outward(i, side)
+            return (P[0] - pe[0]) * o[0] + (P[1] - pe[1]) * o[1] >= -CURVE_BACKSLIDE_PT
         t, _ = r.param(P)
         return t <= 0.5 if side == "a" else t >= 0.5
+
+    def stretch_ok(i: int, side: str, P: Pt) -> bool:
+        """Una pieza de UN solo guión (tick «|», patita de un símbolo) no se
+        prolonga hasta una esquina más de lo que mide (o medio hueco de unión)
+        salvo que en ese hueco haya una letra/marca de la capa (la «e» del
+        linetype: evidencia de que la línea sigue):
+        DU08 h.49 (666, 1225) un tick de 14 pt y una patita de 4 pt se estiraban
+        ~29 pt cada uno sobre papel en blanco y dibujaban una «T» inexistente.
+        Una línea de varios guiones sí cruza el hueco hasta su esquina."""
+        r = runs[i]
+        if r.is_curve or r.continuous or r.synthetic or len(r.dashes) > 1:
+            return True
+        pe, o = endpoint(i, side), outward(i, side)
+        ext = (P[0] - pe[0]) * o[0] + (P[1] - pe[1]) * o[1]
+        if ext <= max(r.length, 0.5 * pat.join_gap):
+            return True
+        return any(_pt_seg_dist((g.cx, g.cy), pe, P) <= 0.5 * g.size + NODE_OFF_LINE_PT for g in glyphs)
+
+    def _gap_crossing(n: int, i: int, s: str) -> Optional[Pt]:
+        """(perfil `precise_junctions`) El ramal (i, s) muere en el hueco del nodo
+        «bend» n: cruce de la recta del ramal con la de la línea que sigue de
+        frente, si cae en el hueco (±2 pt: el ramal puede caer sobre el primer
+        guión, DU06 h.13 (272.6, 952.9)) y el ramal llega por su propia recta;
+        si no, None."""
+        pa, pb, e = bend_gap[n]
+        Lb = runs[e[0]].line(e[1])
+        Q = _isect(runs[i].line(s), Lb)
+        if Q is None:
+            return None
+        gap = _dist(pa, pb)
+        if gap > 1e-6:
+            ux, uy = (pb[0] - pa[0]) / gap, (pb[1] - pa[1]) / gap
+            t = (Q[0] - pa[0]) * ux + (Q[1] - pa[1]) * uy
+            if not (-JUNCTION_GAP_SLACK_PT <= t <= gap + JUNCTION_GAP_SLACK_PT):
+                return None
+        elif _dist(Q, pa) > JUNCTION_GAP_SLACK_PT:
+            return None
+        e_other = next(((k, sd) for k, r in enumerate(runs) for sd in ("a", "b")
+                        if (r.node_a if sd == "a" else r.node_b) == n and (k, sd) != e), None)
+        if not all(slide_ok(k, sd, Q) for k, sd in [e] + ([e_other] if e_other else [])):
+            return None
+        if _dist(Q, endpoint(i, s)) > 0.5 * pat.join_gap or not slide_ok(i, s, Q):
+            return None
+        return Q
+
+    def _junction_on_lines(n: int, Q: Pt) -> None:
+        """El nodo «bend» n pasa al cruce Q (`_gap_crossing`): las dos puntas del
+        hueco se deslizan por su recta hasta él; nada se inclina."""
+        nodes[n].x, nodes[n].y = Q
+        for k, r in enumerate(runs):
+            if r.node_a == n:
+                r.a = Q
+            if r.node_b == n:
+                r.b = Q
 
     def attach(i: int, side: str, P: Pt, node_idx: int) -> bool:
         """Lleva el extremo a P deslizándolo por su propia recta. False si P
@@ -1388,13 +1957,72 @@ def resolve_nodes(runs: List[Run], pat: Pattern, vaults: Sequence[Vault],
             E1, E2 = r.at(rng[0]), r.at(rng[1])
             da = [d for d in r.dashes if r.param(d.mid)[0] <= rng[0]]
             db = [d for d in r.dashes if r.param(d.mid)[0] >= rng[1]]
-            r1 = Run(r.a, E1, r.ux, r.uy, da, origin=r.origin, split=True)
-            r2 = Run(E2, r.b, r.ux, r.uy, db, origin=r.origin, split=True)
+            r1 = Run(r.a, E1, r.ux, r.uy, da, origin=r.origin, split=True, split_vi=vi)
+            r2 = Run(E2, r.b, r.ux, r.uy, db, origin=r.origin, split=True, split_vi=vi)
             runs[i] = r1
             runs.insert(i + 1, r2)
             i += 2
     free.clear()
     free.update({(i, s): True for i in range(len(runs)) for s in ("a", "b")})
+
+    # — Perfil con `join_touching_ends`: puntas que el PDF dibuja UNIDAS (≤1 pt,
+    #   exactamente dos) se cosen primero entre sí: esquina o quiebre en ese punto,
+    #   sin deslizar nada. Si no, cada pieza de un trazo con quiebres (acometida
+    #   bajada–diagonal–bajada) se iba por su cuenta a la bóveda vecina o a una T y
+    #   se estiraba sobre papel en blanco. Nunca en «V», ni en un corte del clip ni
+    #   dentro de una bóveda (ahí mandan sus reglas).
+    def continues_ahead(i: int, s: str, skip: int) -> bool:
+        """(perfil `precise_junctions`) Hay OTRA corrida que sigue ésta de frente
+        cruzando el hueco del linetype (mismas condiciones que un quiebre suave)."""
+        pe, oe, L1 = endpoint(i, s), outward(i, s), runs[i].line(s)
+        for (k, sk), fr in free.items():
+            if not fr or k in (i, skip):
+                continue
+            pf = endpoint(k, sk)
+            d = _dist(pe, pf)
+            if d > pat.join_gap or d < 1e-6:
+                continue
+            of_ = outward(k, sk)
+            if (_perp_line(L1, pf) <= 2 * NODE_OFF_LINE_PT
+                    and _perp_line(runs[k].line(sk), pe) <= 2 * NODE_OFF_LINE_PT
+                    and (pf[0] - pe[0]) * oe[0] + (pf[1] - pe[1]) * oe[1] >= 0.866 * d
+                    and (pe[0] - pf[0]) * of_[0] + (pe[1] - pf[1]) * of_[1] >= 0.866 * d):
+                return True
+        return False
+
+    touch_skipped: set = set()
+    if touching:
+        vboxes = [v.bbox(1.0) for v in vaults]
+        ends_all = [(i, s) for (i, s) in free if not runs[i].split]
+        for (i, s) in ends_all:
+            if not free[(i, s)]:
+                continue
+            pe = endpoint(i, s)
+            if any(_dist(pe, c) <= 0.5 for c in cut_pts)                     or any(b[0] <= pe[0] <= b[2] and b[1] <= pe[1] <= b[3] for b in vboxes):
+                continue
+            mates = [(k, sk) for (k, sk) in ends_all
+                     if k != i and _dist(endpoint(k, sk), pe) <= ENDS_TOUCH_PT]
+            if len(mates) != 1 or not free[mates[0]]:
+                continue
+            k, sk = mates[0]
+            if len([e for e in ends_all if e[0] != k and _dist(endpoint(*e), endpoint(k, sk)) <= ENDS_TOUCH_PT]) != 1:
+                continue
+            oi, ok = outward(i, s), outward(k, sk)
+            if oi[0] * ok[0] + oi[1] * ok[1] > CORNER_MIN_INTERIOR_COS:
+                continue                                  # «V»: dos líneas que se juntan
+            # Un ramal que toca la PUNTA de un guión de una línea que sigue de
+            # frente al otro lado del hueco no es una esquina: la línea pasa y el
+            # ramal llega a ella (DU06 h.13 (632.6, 954.3) en la hoja compuesta
+            # 13+14: la principal quedaba cortada en el hueco; lo reportó el usuario).
+            if precise_junctions and (continues_ahead(i, s, k) or continues_ahead(k, sk, i)):
+                touch_skipped.update(((i, s), (k, sk)))
+                continue
+            q = endpoint(k, sk)
+            P = ((pe[0] + q[0]) / 2, (pe[1] + q[1]) / 2)
+            ang = _ang_diff(_line_angle(runs[i].line(s)), _line_angle(runs[k].line(sk)))
+            node = new_node(P, "bend" if ang < CORNER_MIN_ANG_DEG else "corner")
+            set_endpoint(i, s, P, node)
+            set_endpoint(k, sk, P, node)
 
     # — T-ends: un extremo que muere SOBRE otra corrida recta (a ≤NODE_OFF_LINE_PT
     #   de su recta y en su interior) es una T con ESA corrida: no llega a una
@@ -1410,12 +2038,22 @@ def resolve_nodes(runs: List[Run], pat: Pattern, vaults: Sequence[Vault],
     all_ends = [(k, side, endpoint(k, side), outward(k, side)) for (k, side) in free]
     for (i, s) in list(free):
         pe = endpoint(i, s)
+        # Punta CORTADA por el clip de la vista: la línea sigue fuera (DU08 h.49
+        # (661, 989): la curva cruza la vertical y el corte cae 2.5 pt después).
+        # No es una T: queda en su punta, como pidió el usuario.
+        if any(_dist(pe, c) <= 0.5 for c in cut_pts):
+            continue
         best = None
         for j, r in enumerate(runs):
             if j == i or r.is_curve or r.synthetic or r.origin == runs[i].origin:
                 continue
             t, perp = r.param(pe)
-            if perp <= NODE_OFF_LINE_PT and _interior(r, t) and (best is None or perp < best[0]):
+            # (perfil `touching`) la punta cae JUSTO sobre la línea, con línea a
+            # ambos lados: es una T aunque quede cerca de su extremo (el margen de
+            # medio hueco no sirve con el hueco enorme del agua: 70 pt, DU06 h.10).
+            on_line = (touching and perp <= ENDS_TOUCH_PT
+                       and 2 * NODE_OFF_LINE_PT < t * r.length < r.length - 2 * NODE_OFF_LINE_PT)
+            if perp <= NODE_OFF_LINE_PT and (_interior(r, t) or on_line) and (best is None or perp < best[0]):
                 best = (perp, j, t)
         if best is None:
             continue
@@ -1442,6 +2080,19 @@ def resolve_nodes(runs: List[Run], pat: Pattern, vaults: Sequence[Vault],
             # …colineal, delante, y MIRÁNDOSE (el otro trozo apunta hacia este):
             # así no cuenta el extremo de una línea paralela vecina.
             if d <= pat.join_gap and _perp_line(Li, q) <= 2 * NODE_OFF_LINE_PT                     and (q[0] - pe[0]) * o[0] + (q[1] - pe[1]) * o[1] >= 0.866 * d                     and (pe[0] - q[0]) * oq[0] + (pe[1] - q[1]) * oq[1] >= 0.866 * d:
+                # …salvo que ese trozo sea la continuación de OTRA línea que lo
+                # mira mejor (DU08 h.21 (719, 902), lo reportó el usuario: la curva
+                # muere sobre la vertical y el trozo de enfrente sigue a la
+                # diagonal que llega por la letra «e»; tomarlo como suyo le
+                # inventaba 9 pt sin tinta y un nodo donde no hay nada).
+                Lq = (q[0], q[1], oq[0], oq[1])
+                mine = _perp_line(Li, q) + _perp_line(Lq, pe)
+                if any(m not in (i, j, k) and _dist(pm, q) <= pat.join_gap
+                       and (q[0] - pm[0]) * om[0] + (q[1] - pm[1]) * om[1] >= 0.866 * _dist(pm, q)
+                       and (pm[0] - q[0]) * oq[0] + (pm[1] - q[1]) * oq[1] >= 0.866 * _dist(pm, q)
+                       and _perp_line((pm[0], pm[1], om[0], om[1]), q) + _perp_line(Lq, pm) < mine
+                       for m, _, pm, om in all_ends):
+                    continue
                 cont = True
                 break
         if cont:
@@ -1466,13 +2117,90 @@ def resolve_nodes(runs: List[Run], pat: Pattern, vaults: Sequence[Vault],
     #   · Si llega una sola línea (o solo stubs/curvas), cada una termina en el
     #     borde y ahí queda su caja ("stop"): sin referencia no se dibuja.
     orphans: List[int] = []
+    # Cada extremo va a la bóveda en la que ENTRA más cerca, no a la primera de
+    # la lista que lo alcanza: DU06 h.4 (1014, 836) la línea «sd» muere en el
+    # borde de su caja de captación y la caja vecina (a 2.8 pt, antes en la
+    # lista) se la llevaba cruzando la cajita hasta su propio borde.
+    nearest_vault: Dict[Tuple[int, str], int] = {}
+    for (i, s), fr in free.items():
+        if not nearest or not fr or (i, s) in t_end:
+            continue
+        pe = endpoint(i, s)
+        hits = []
+        for vi, v in enumerate(vaults):
+            br = v.bbox(pat.join_gap)
+            if not (br[0] <= pe[0] <= br[2] and br[1] <= pe[1] <= br[3]):
+                continue
+            ep = _vault_entry(v, pe, outward(i, s), runs[i].line(s), pat.join_gap)
+            if ep is not None:
+                inside = v.x0 < pe[0] < v.x1 and v.y0 < pe[1] < v.y1
+                hits.append((not inside, ep[1], vi))
+        hits.sort()
+        # Un extremo DENTRO de una caja es de esa caja (DU06 h.14 (1115, 872):
+        # el lateral propuesto nace en su cajita, a 2 pt de la CB existente).
+        if len(hits) >= 2 and (hits[0][0] < hits[1][0]
+                               or hits[1][1] - hits[0][1] > NEAREST_VAULT_MARGIN_PT):
+            nearest_vault[(i, s)] = hits[0][2]
+
+    def taken_by_other(i: int, s: str, vi: int) -> bool:
+        """El extremo entra antes en OTRA bóveda que no toca a ésta. Bóvedas que
+        se solapan (contorno de la capa alrededor del manhole, DU06 h.4 en
+        (620, 1156)) son el mismo nodo: ahí decide el orden de siempre."""
+        nv = nearest_vault.get((i, s), vi)
+        return nv != vi and _bbox_gap(vaults[nv].bbox(0.0), vaults[vi].bbox(0.0)) > 0.0
+
+    # Un extremo que TOCA el de otra corrida que sigue de frente no es un
+    # extremo: la línea continúa ahí (la curva del plano partida en dos trazos
+    # que comparten la punta). No va a la bóveda aunque la tenga a tiro: si no,
+    # la primera mitad se prolongaba por su recta hasta el borde y la bóveda
+    # recibía DOS líneas donde el plano dibuja una (DU08 h.21 (1162, 1134), lo
+    # reportó el usuario). La pasada de quiebres (5b) las une. Solo FUERA de la
+    # caja: dos trozos que se tocan dentro son la línea que la atraviesa (DU06
+    # h.9/h.12) y ahí manda el nodo de la bóveda.
+    cos_cont = math.cos(math.radians(CONTINUES_MAX_TURN_DEG))
+    loose = [(i, s) for (i, s), fr in free.items() if fr and (i, s) not in t_end]
+    continued: Set[Tuple[int, str]] = set()
+    for x, (i, s) in enumerate(loose):
+        for k, sk in loose[x + 1:]:
+            if k == i or _dist(endpoint(i, s), endpoint(k, sk)) > ENDS_TOUCH_PT:
+                continue
+            oi, ok = outward(i, s), outward(k, sk)
+            if oi[0] * ok[0] + oi[1] * ok[1] <= -cos_cont:
+                continued.update(((i, s), (k, sk)))
+
+    def continuation_dist(i: int, s: str) -> Optional[float]:
+        """(perfil `continuation_before_vault`) Distancia a la punta de OTRA
+        corrida que continúa ésta de frente (las mismas condiciones que un
+        quiebre suave de la pasada 5b), o None."""
+        pe, oe, L1 = endpoint(i, s), outward(i, s), runs[i].line(s)
+        best = None
+        for k, sk in loose:
+            if k == i:
+                continue
+            pf = endpoint(k, sk)
+            d = _dist(pe, pf)
+            if d > pat.join_gap or d < 1e-6:
+                continue
+            of_, L2 = outward(k, sk), runs[k].line(sk)
+            if _perp_line(L1, pf) > 2 * NODE_OFF_LINE_PT or _perp_line(L2, pe) > 2 * NODE_OFF_LINE_PT:
+                continue
+            if ((pf[0] - pe[0]) * oe[0] + (pf[1] - pe[1]) * oe[1] < 0.866 * d
+                    or (pe[0] - pf[0]) * of_[0] + (pe[1] - pf[1]) * of_[1] < 0.866 * d):
+                continue
+            if best is None or d < best:
+                best = d
+        return best
+
     for vi, v in enumerate(vaults):
         bb = v.bbox(1.0)
         reach = pat.join_gap
         bb_reach = v.bbox(reach)
         ends = [(i, s) for (i, s), fr in free.items() if fr and (i, s) not in t_end
+                and not ((i, s) in continued and not runs[i].split
+                         and not (bb[0] <= endpoint(i, s)[0] <= bb[2] and bb[1] <= endpoint(i, s)[1] <= bb[3]))
                 and bb_reach[0] <= endpoint(i, s)[0] <= bb_reach[2]
-                and bb_reach[1] <= endpoint(i, s)[1] <= bb_reach[3]]
+                and bb_reach[1] <= endpoint(i, s)[1] <= bb_reach[3]
+                and not taken_by_other(i, s, vi)]
         if not ends:
             orphans.append(vi)
             continue
@@ -1480,28 +2208,7 @@ def resolve_nodes(runs: List[Run], pat: Pattern, vaults: Sequence[Vault],
         def entry_point(i: int, s: str):
             """(E, |desplazamiento|) donde la recta del extremo toca el borde, o
             None si la bóveda queda claramente detrás / de costado."""
-            r = runs[i]
-            L = r.line(s)
-            pe = endpoint(i, s)
-            o = outward(i, s)
-            hits = _line_bbox_hits(pe, o, bb)
-            if hits is None:
-                c = v.center
-                to_c = _unit(c[0] - pe[0], c[1] - pe[1])
-                if o[0] * to_c[0] + o[1] * to_c[1] < math.cos(math.radians(45.0)):
-                    return None
-                corners = ((v.x0, v.y0), (v.x1, v.y0), (v.x0, v.y1), (v.x1, v.y1))
-                pad = min(_perp_line(L, cc) for cc in corners) + 1.0
-                hits = _line_bbox_hits(pe, o, v.bbox(pad))
-            if hits is None:
-                return None
-            if hits[1] < 0:                       # bóveda detrás del extremo
-                if -hits[1] > reach:
-                    return None
-                t = hits[1]                       # sobrepaso corto: recortar al cruce cercano
-            else:
-                t = hits[0]                       # primer cruce hacia adelante
-            return (pe[0] + t * o[0], pe[1] + t * o[1]), abs(t)
+            return _vault_entry(v, endpoint(i, s), outward(i, s), runs[i].line(s), reach)
 
         # Un solo extremo por corrida: el que menos hay que mover para tocar el borde.
         best_by_run: Dict[int, Tuple[float, str, Pt]] = {}
@@ -1512,6 +2219,10 @@ def resolve_nodes(runs: List[Run], pat: Pattern, vaults: Sequence[Vault],
                 beside.append((i, s))
                 continue
             E, move = ep
+            if continuation_before_vault and not runs[i].split:
+                cd = continuation_dist(i, s)
+                if cd is not None and cd < move - 1.0:
+                    continue              # su continuación está antes que la bóveda
             if i not in best_by_run or move < best_by_run[i][0]:
                 best_by_run[i] = (move, s, E)
         # Los extremos que mueren junto a la bóveda sin entrar quedan LIBRES: las
@@ -1590,7 +2301,11 @@ def resolve_nodes(runs: List[Run], pat: Pattern, vaults: Sequence[Vault],
         # ATRAVIESA la bóveda (cruce real, como en los apuntes: izquierda/arriba/
         # derecha). Si todas solo llegan y ninguna sigue del otro lado, no se
         # inventa nada: cada una para en el borde.
-        has_through = any(runs[i].split for i, _, _ in strong) or bool(virtual_through)
+        # …y tiene que ser ESTA bóveda la que partió la corrida: una pieza de una
+        # línea que atraviesa OTRA bóveda no dice nada de esta (DU06 h.3: la
+        # vertical que cruza la bóveda de arriba moría en la de abajo y le ponía
+        # el nodo en una esquina, con las llegadas cruzando la caja de lado).
+        has_through = any(runs[i].split and runs[i].split_vi == vi for i, _, _ in strong) or bool(virtual_through)
         if has_through:
             # Nodo interior P a partir de las llegadas:
             #   · si ≥2 líneas ATRAVIESAN la bóveda → su intersección (P sobre ambas);
@@ -1600,7 +2315,7 @@ def resolve_nodes(runs: List[Run], pat: Pattern, vaults: Sequence[Vault],
             # siguen su eje hasta el pie y de ahí un quiebre corto a P.
             thr_lines: Dict[int, Line] = {}
             for i, s, _ in strong:
-                if runs[i].split and runs[i].origin not in thr_lines:
+                if runs[i].split and runs[i].split_vi == vi and runs[i].origin not in thr_lines:
                     thr_lines[runs[i].origin] = runs[i].line(s)
             for k, L in enumerate(virtual_through):
                 thr_lines[-1 - k] = L
@@ -1618,6 +2333,23 @@ def resolve_nodes(runs: List[Run], pat: Pattern, vaults: Sequence[Vault],
                 P = _concurrent_point(all_lines, centroid, v.radius + reach)
             if P is None or not (bb_reach[0] <= P[0] <= bb_reach[2] and bb_reach[1] <= P[1] <= bb_reach[3]):
                 P = centroid
+            # El nodo (la CAJA) va DENTRO del símbolo: si el cálculo lo deja
+            # fuera del recuadro, se lleva al punto de la línea que atraviesa que
+            # sí está dentro (y si no hay, al recuadro). Sin esto el nodo podía
+            # quedar sobre el papel, fuera de la bóveda, con las llegadas
+            # apuntando a un vértice que el plano no tiene.
+            if not (bb[0] <= P[0] <= bb[2] and bb[1] <= P[1] <= bb[3]):
+                Lt = next(iter(thr_lines.values()), None)
+                moved = None
+                if Lt is not None:
+                    hits = _line_bbox_hits((Lt[0], Lt[1]), (Lt[2], Lt[3]), bb)
+                    if hits is not None:
+                        t = (P[0] - Lt[0]) * Lt[2] + (P[1] - Lt[1]) * Lt[3]
+                        t = min(max(t, hits[0]), hits[1])
+                        moved = (Lt[0] + t * Lt[2], Lt[1] + t * Lt[3])
+                if moved is None:
+                    moved = (min(max(P[0], bb[0]), bb[2]), min(max(P[1], bb[1]), bb[3]))
+                P = moved
             # Sin referencia suficiente = alguna línea tendría que recorrer dentro
             # de la bóveda más de 0.75 × su lado menor para llegar al nodo (p.ej.
             # una vertical que entra por abajo y curvas que salen por arriba de
@@ -1642,9 +2374,18 @@ def resolve_nodes(runs: List[Run], pat: Pattern, vaults: Sequence[Vault],
                 free[(len(runs) - 1, "a")] = False; free[(len(runs) - 1, "b")] = False
                 made[(a_node, b_node)] = len(runs) - 1
 
+            bend_lim = max(VAULT_BEND_OFF_FRAC * min(v.x1 - v.x0, v.y1 - v.y0), NODE_OFF_LINE_PT)
             for i, s, E in strong:
                 r = runs[i]
                 o = outward(i, s)
+                # El nodo tiene que quedar prácticamente sobre el eje de la línea
+                # que llega (quiebre corto). Si no, esa línea NO va al nodo: para
+                # en el borde y el usuario decide. Sin esto, una bóveda grande con
+                # el nodo pegado a un lado se llevaba todas las llegadas a un punto
+                # y dibujaba un abanico de líneas que el plano no tiene.
+                if _perp_line(r.line(s), P) > bend_lim:      # (la que atraviesa da desvío ~0)
+                    set_endpoint(i, s, E, new_node(E, "stop", vi))
+                    continue
                 edge = new_node(E, "edge")
                 set_endpoint(i, s, E, edge)
                 # Un solo tramo recto borde → nodo (imagen 1 del usuario: sin
@@ -1676,6 +2417,19 @@ def resolve_nodes(runs: List[Run], pat: Pattern, vaults: Sequence[Vault],
     # las rectas: ≥8° esquina (nodo = intersección), <8° quiebre suave
     # (nodo = punto medio). Nunca se promedian intersecciones de 3+ extremos:
     # un tercer ramal solo se suma si su recta pasa de verdad por el nodo.
+    def letter_in_gap(pe: Pt, pf: Pt, d: float) -> bool:
+        """(perfil `precise_junctions`) Letra del linetype («ss») dentro del hueco
+        entre dos guiones: evidencia para cruzarlo hasta `glyph_bridge`, también
+        en una curva (DU08 h.37 (803.6, 1086.8): la línea se cortaba en cada «ss»)."""
+        if d > pat.glyph_bridge:
+            return False
+        for g in glyphs:
+            c = (g.cx, g.cy)
+            t = ((c[0] - pe[0]) * (pf[0] - pe[0]) + (c[1] - pe[1]) * (pf[1] - pe[1])) / (d * d)
+            if 0.0 < t < 1.0 and _pt_seg_dist(c, pe, pf) <= g.size / 2.0 + 1.0:
+                return True
+        return False
+
     ends_free = [(i, s) for (i, s), fr in free.items() if fr and (i, s) not in t_end and i not in capped]
     pairs = []
     for x in range(len(ends_free)):
@@ -1696,11 +2450,23 @@ def resolve_nodes(runs: List[Run], pat: Pattern, vaults: Sequence[Vault],
                 P = _isect(L1, L2)
                 if P is None or _dist(P, pe) > pat.corner_tol or _dist(P, pf) > pat.corner_tol:
                     continue
+                # Ángulo INTERIOR de la esquina (entre las dos corridas vistas desde
+                # P): si es muy cerrado, las dos llegan desde el MISMO lado — son
+                # dos líneas distintas que se juntan (ramales de una «Y», curvas
+                # que convergen), no una sola línea que se devuelve. Coserlas daba
+                # una «V» inexistente (DU08 h.21 (764, 871) y (710, 892), lo
+                # reportó el usuario). Medido en DU06/DU08/DU10/LABOE: las falsas
+                # ≤69.5°, las reales ≥77° (en el DU06 ninguna <75°).
+                oe, of_ = outward(*e), outward(*f)
+                if oe[0] * of_[0] + oe[1] * of_[1] > CORNER_MIN_INTERIOR_COS:
+                    continue
                 if not slide_ok(*e, P) or not slide_ok(*f, P):
+                    continue
+                if not stretch_ok(*e, P) or not stretch_ok(*f, P):
                     continue
                 pairs.append((d, e, f, P, "corner"))
             else:
-                if d > pat.join_gap:
+                if d > pat.join_gap and not (precise_junctions and letter_in_gap(pe, pf, d)):
                     continue
                 # Quiebre suave solo si el otro extremo está DELANTE (cono ±30°)
                 # y casi sobre la misma recta: dos paralelas a 20 pt que terminan
@@ -1714,13 +2480,24 @@ def resolve_nodes(runs: List[Run], pat: Pattern, vaults: Sequence[Vault],
                 if d > 1.0 and (pe[0] - pf[0]) * of_[0] + (pe[1] - pf[1]) * of_[1] < cos30 * d:
                     continue
                 pairs.append((d, e, f, ((pe[0] + pf[0]) / 2, (pe[1] + pf[1]) / 2), "bend"))
-    pairs.sort(key=lambda t: t[0])
+    # Una CONTINUACIÓN recta (quiebre suave: mismo eje, extremos mirándose dentro
+    # del hueco del patrón) se resuelve ANTES que cualquier esquina. Donde dos
+    # líneas se CRUZAN, las puntas de una quedan a veces más cerca de las de la
+    # otra que de su propia continuación, y la pasada voraz por pura distancia
+    # las cosía en cruz: la curva se quebraba en el cruce y seguía por la
+    # vertical (DU06 h.3 en (889,1079); lo reportó el usuario: «esa línea curva
+    # pasa directo, no hay por qué tenga un quiebre ahí»). Una línea que sigue
+    # derecho no es una esquina: gana. Dentro de cada clase sigue ganando la
+    # pareja MÁS CERCANA, así en un arco cada guión se une con el siguiente.
+    pairs.sort(key=lambda t: (0 if t[4] == "bend" else 1, t[0]))
     corner_nodes: List[int] = []
+    bend_gap: Dict[int, Tuple[Pt, Pt, Tuple[int, str]]] = {}   # nodo «bend» → puntas del hueco
     for _, e, f, P, kind in pairs:
         if not free[e] or not free[f]:
             continue
         node_idx = new_node(P, kind)
         if kind == "bend":
+            bend_gap[node_idx] = (endpoint(*e), endpoint(*f), e)
             set_endpoint(*e, P, node_idx); set_endpoint(*f, P, node_idx)
         else:
             attach(*e, P, node_idx); attach(*f, P, node_idx)
@@ -1741,11 +2518,21 @@ def resolve_nodes(runs: List[Run], pat: Pattern, vaults: Sequence[Vault],
             P = (nodes[n].x, nodes[n].y)
             d = _dist(P, pe)
             reach = 0.5 * pat.join_gap if nodes[n].kind == "bend" else pat.corner_tol
-            if (d <= reach and _perp_line(L, P) <= NODE_OFF_LINE_PT and slide_ok(i, s, P)
+            # (perfil `precise_junctions`) el ramal que cae en un hueco ANCHO no
+            # pasa por su punto medio, pero sí corta la línea dentro del hueco
+            # (DU06 h.10 (1424.5, 1002.4)): vale el cruce, no el punto medio.
+            Q = (_gap_crossing(n, i, s) if precise_junctions and n in bend_gap
+                 and nodes[n].kind == "bend" else None)
+            if Q is not None:
+                if best is None or _dist(Q, pe) < best[0]:
+                    best = (_dist(Q, pe), n, Q)
+            elif (d <= reach and _perp_line(L, P) <= NODE_OFF_LINE_PT and slide_ok(i, s, P)
                     and (best is None or d < best[0])):
-                best = (d, n)
+                best = (d, n, None)
         if best is not None:
             n = best[1]
+            if best[2] is not None:
+                _junction_on_lines(n, best[2])
             if nodes[n].kind in ("corner", "bend"):
                 nodes[n].kind = "junction"
             attach(i, s, (nodes[n].x, nodes[n].y), n)
@@ -1853,6 +2640,29 @@ def resolve_nodes(runs: List[Run], pat: Pattern, vaults: Sequence[Vault],
         node_idx = new_node(P, "tee")
         if not any(abs(tt - t) < 1e-6 for tt, _ in runs[j].inner):
             runs[j].inner.append((t, node_idx))
+        set_endpoint(i, s, P, node_idx)
+
+    # — 5d-ter. (perfil `precise_junctions`) punta que el PDF dibuja TOCANDO otra
+    # línea y que no se cosió como esquina porque esa línea sigue de frente: si
+    # quedó libre (la línea siguió hacia una bóveda vecina, DU08 h.40 (984.6,
+    # 968.3)), es una T justo donde toca, aunque sea cerca de la punta del tramo.
+    for (i, s) in sorted(touch_skipped):
+        if not free[(i, s)]:
+            continue
+        pe = endpoint(i, s)
+        best = None
+        for j, r in enumerate(runs):
+            if j == i or r.is_curve or r.origin == runs[i].origin:
+                continue
+            t, perp = r.param(pe)
+            if perp <= ENDS_TOUCH_PT and 1e-3 < t * r.length < r.length - 1e-3                     and (best is None or perp < best[0]):
+                best = (perp, j, t)
+        if best is None:
+            continue
+        _, j, t = best
+        P = runs[j].at(t)
+        node_idx = new_node(P, "tee")
+        runs[j].inner.append((t, node_idx))
         set_endpoint(i, s, P, node_idx)
 
     # — 5e. extremos sueltos —
@@ -2078,20 +2888,25 @@ def _polylines_from_uncovered(
 
 
 # ─────────────────────────── orquestación ───────────────────────────
-def reconstruct(line_paths: Sequence[dict], vault_paths: Sequence[dict] = ()) -> GeomResult:
-    dashes, glyphs, curves = classify_paths(line_paths)
-    dashes, markers = strip_crossing_markers(dashes)     # «/» del linetype abandonado
+def reconstruct(line_paths: Sequence[dict], vault_paths: Sequence[dict] = (),
+                opts: GeomOptions = GeomOptions()) -> GeomResult:
+    dashes, glyphs, curves = classify_paths(line_paths, opts.precise_junctions)
+    dashes, markers = strip_crossing_markers(            # «/» del linetype abandonado
+        dashes, [c[k] for c in curves if c for k in (0, -1)],
+        curves if opts.markers_on_curves else ())
     glyphs = glyphs + markers
     # Puntos donde el CLIP del PDF cortó la geometría (marco de la vista): un
     # extremo ahí no es un extremo real → no forma esquinas/T ni se prolonga.
     cut_pts: List[Pt] = [pt for pth in line_paths for pt in (pth.get("cut_pts") or [])]
-    vaults = cluster_vaults(vault_paths)
+    vaults = cluster_vaults(vault_paths, opts.separate_vaults, opts.polygon_circles)
     if not dashes and not curves:
         return GeomResult([], [], vaults, None, 1.0, [], list(range(len(vaults))), [],
                           0, len(glyphs), 0, 0, markers=list(markers))
     groups = group_collinear(dashes)
     pat = learn_pattern(dashes, glyphs, vaults, groups)
-    runs = merge_overlapping_runs(build_runs(groups, pat, glyphs, vaults, curves), pat)
+    runs = merge_overlapping_runs(build_runs(groups, pat, glyphs, vaults, curves,
+                                             opts.gap_turn_blocks), pat,
+                                  opts.absorb_inside_runs)
     for k, r in enumerate(runs):          # identidad de la corrida ANTES de partirla por ajuste
         r.origin = k
     # Contornos de bóveda dibujados en la misma capa (abandonadas): pasan a
@@ -2107,7 +2922,9 @@ def reconstruct(line_paths: Sequence[dict], vault_paths: Sequence[dict] = ()) ->
                 if k not in drop and not (in_box(r.a) and in_box(r.b) and all(in_box(m) for m in r.mid))]
     runs = [piece for r in runs for piece in _split_by_fit(r)]
     runs, offpattern = split_offpattern(runs, pat, vaults, glyphs)
-    nodes, orphans = resolve_nodes(runs, pat, vaults, cut_pts)
+    nodes, orphans = resolve_nodes(runs, pat, vaults, cut_pts, opts.nearest_vault, glyphs,
+                                   opts.join_touching_ends, opts.precise_junctions,
+                                   opts.continuation_before_vault)
     polys = [simplify_soft(pl) for pl in assemble(runs, nodes)]
     # Ruido: corridas cortas, aisladas y sin nodo topológico (restos de símbolos).
     min_len = max(2.0 * pat.dash_long, 3.0 * pat.join_gap)
@@ -2120,8 +2937,15 @@ def reconstruct(line_paths: Sequence[dict], vault_paths: Sequence[dict] = ()) ->
         topo = any(k in ("vault", "tee", "junction", "corner", "bend", "edge", "stop") for k in pl.kinds)
         # Un tramo de ESTA capa con longitud de ≥1 guión del patrón no es ruido
         # (p.ej. un ramal corto que el overlay dejaba en gris).
-        is_noise = (pl.length < floor or (pl.length < min_len and not topo)) and not touches_vault(pl)
-        if pl.length >= pat.dash_long:
+        # …salvo el tick «|» sobre el que MUERE una línea (T interior): es el remate
+        # de esa línea, no ruido (DU08 h.49 (895, 1276): dos líneas de capas
+        # distintas con su tick pegado; el de una se perdía y se leía una sola T).
+        capped_tick = any(k in ("tee", "junction") for k in pl.kinds[1:-1])
+        is_noise = ((pl.length < floor and not capped_tick) or (pl.length < min_len and not topo))             and not touches_vault(pl)
+        # (`dash_long` sale de largos REDONDEADOS a 1 pt: un único trazo de 209.8
+        # pt da dash_long = 210 y se tiraba como ruido — DU06 h.4, eje de la
+        # tubería dibujada como contorno.)
+        if pl.length >= pat.dash_long - 0.5:
             is_noise = False
         (noise_polys if is_noise else keep).append(pl)
     noise = len(noise_polys)
@@ -2130,11 +2954,32 @@ def reconstruct(line_paths: Sequence[dict], vault_paths: Sequence[dict] = ()) ->
     excl_segs = [(pl.pts[i], pl.pts[i + 1]) for pl in offpattern + noise_polys
                  for i in range(len(pl.pts) - 1)]
     vboxes = [v.bbox(1.0) for v in vaults]
+
+    def _touches_vault(d: Dash) -> bool:
+        # Dentro de una bóveda la línea va al punto de referencia, no sobre los
+        # guiones (mid); y el ÚLTIMO guión antes de una bóveda entra un poco en
+        # su caja aunque el nodo se clampe al borde unos pt antes de donde
+        # termina el trazo real (a/b) — sin esto, ese resto de guión se
+        # contaba «sin cubrir» pese a que la ruta sí llega a la bóveda.
+        return any(any(b[0] <= q[0] <= b[2] and b[1] <= q[1] <= b[3] for q in (d.a, d.mid, d.b))
+                   for b in vboxes)
+
+    # Una esquina/T es la INTERSECCIÓN de las dos rectas (regla del usuario):
+    # el vértice puede deslizarse hasta `pat.corner_tol` del extremo real del
+    # último guión que llega (así se forma la esquina exacta aunque el guión
+    # no termine justo ahí). Ese resto de guión, pegado al nodo con el MISMO
+    # margen que ya se usó para aceptar la esquina, no cuenta como «sin
+    # cubrir» — si no, quedaba un tramo corto en naranja junto a cada esquina
+    # de una capa con guiones largos/poco densos (p.ej. drenaje «propuesto»).
+    hard_pts = [p for pl in keep for p, k in zip(pl.pts, pl.kinds)
+                if k in ("corner", "tee", "junction", "bend")]
+
+    def _touches_corner(d: Dash) -> bool:
+        return any(_dist(q, p) <= pat.corner_tol for p in hard_pts for q in (d.a, d.b))
+
     pattern_dashes = [d for d in dashes if not any(
         _pt_seg_dist(d.a, a, b) <= COVERAGE_TOL_PT and _pt_seg_dist(d.b, a, b) <= COVERAGE_TOL_PT
-        for a, b in excl_segs)
-        # dentro de una bóveda la línea va al punto de referencia, no sobre los guiones
-        and not any(b[0] <= d.mid[0] <= b[2] and b[1] <= d.mid[1] <= b[3] for b in vboxes)]
+        for a, b in excl_segs) and not _touches_vault(d) and not _touches_corner(d)]
     cov, missing = coverage(pattern_dashes, keep)
     extra = _polylines_from_uncovered(missing, keep, pat)
     if extra:
