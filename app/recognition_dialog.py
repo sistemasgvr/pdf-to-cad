@@ -25,8 +25,10 @@ import theme as _theme
 # Etiqueta de cada utilidad tal como en el desplegable «Tipo de utilidad».
 _UTILITY_LABEL = {key: label for label, key in TIPOS}
 # Etiquetas de los kinds de reconocimiento (informativo en el preview).
-_KIND_LABEL = {"elec_ungd": "Líneas", "drain_ungd": "Líneas", "water_ungd": "Líneas",
-               "structure": "Estructuras"}
+# Toda centerline de un perfil es «Líneas» (así una utilidad nueva no se olvida aquí).
+_KIND_LABEL = {**{kind: "Líneas" for kind in rec.DRAW_KINDS}, "structure": "Estructuras"}
+# Cómo se llaman las estructuras de cada utilidad en la lista de capas.
+_STRUCT_LABEL = {"ELECTRICO": "Bóvedas", "ALCANTARILLADO": "Buzones"}
 # Acciones que devuelve el preview.
 PREVIEW_IMPORT, PREVIEW_CANCEL = "import", "cancel"
 PREVIEW_CHANGE_SHEET, PREVIEW_ADJUST_LAYERS = "change_sheet", "adjust_layers"
@@ -489,8 +491,8 @@ class RecognitionPreviewDialog(QtWidgets.QDialog):
                 rows = [x for x in item.ocg_summary if x.get("kind") == kind]
                 if not rows:
                     continue
-                kind_label = ("Bóvedas" if kind == "structure" and item.utility == "ELECTRICO"
-                              else _KIND_LABEL[kind])
+                kind_label = (_STRUCT_LABEL.get(item.utility, _KIND_LABEL[kind])
+                              if kind == "structure" else _KIND_LABEL[kind])
                 hdr = QtWidgets.QListWidgetItem(_tr(kind_label))
                 hdr.setFlags(QtCore.Qt.ItemIsEnabled)
                 hf = hdr.font(); hf.setBold(True); hdr.setFont(hf)

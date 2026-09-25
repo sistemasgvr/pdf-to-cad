@@ -69,7 +69,7 @@ _RULES = [
                 else f"{_n(m)} codos (esquina + radio)")),
     (r"^Cobertura de guiones: ([\d.]+)%(?: \((\d+) sin cubrir)?",
      lambda m: REVIEW if m.group(2) else INFO,
-     lambda m: (f"{_n(m, 2)} guiones sin cubrir (naranja)" if m.group(2)
+     lambda m: (_pl(_n(m, 2), "guion sin cubrir", "guiones sin cubrir") + " (naranja)" if m.group(2)
                 else f"Cobertura {m.group(1)} %")),
     (r"^Trazos repetidos[^:]*: (\d+)", INFO, lambda m: f"{_n(m)} trazos repetidos (usados una vez)"),
     (r"^Capas repetidas por otro xref[^:]*: (\d+)", INFO, lambda m: f"{_n(m)} capas repetidas por xref"),
@@ -82,6 +82,10 @@ _RULES = [
     (r"^Se omitieron (\d+) trazos de marcador", INFO, lambda m: f"{_n(m)} letras/barras omitidas"),
     (r"^Trazos continuos fuera de patrón[^:]*: (\d+)", INFO,
      lambda m: f"{_n(m)} leaders/flechas (violeta, no se importan)"),
+    (r"^Tuberías dibujadas como contorno[^:]*: (\d+)", INFO,
+     lambda m: _pl(_n(m), "tubería en contorno: se usa su eje", "tuberías en contorno: se usa su eje")),
+    (r"^Anillos de buzón dibujados en la capa de la línea: (\d+)", INFO,
+     lambda m: _pl(_n(m), "anillo de buzón", "anillos de buzón") + " en la capa de la línea"),
     (r"^Bóvedas detectadas: (\d+)", INFO, lambda m: _pl(_n(m), "bóveda", "bóvedas") + " en las líneas"),
 ]
 _COMPILED = [(re.compile(p), lvl, lab) for p, lvl, lab in _RULES]

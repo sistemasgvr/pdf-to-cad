@@ -152,19 +152,20 @@ class OrganizedLayersDialog(QtWidgets.QDialog):
             target = QtWidgets.QVBoxLayout()
             target.setSpacing(4)
             target.addWidget(QtWidgets.QLabel(_tr("Utilidades a reconocer:")))
-            row_recog = QtWidgets.QHBoxLayout()
+            row_recog = QtWidgets.QGridLayout()          # 2 columnas (4 utilidades)
+            row_recog.setHorizontalSpacing(14); row_recog.setVerticalSpacing(4)
             self._recog_checks: dict[str, QtWidgets.QCheckBox] = {}
             available = {group["utility"] for group in self.groups if group["path_count"]}
             selected = recognition.normalize_utilities(recognition_utilities)
-            for key in recognition.SUPPORTED_UTILITIES:
+            for n, key in enumerate(recognition.SUPPORTED_UTILITIES):
                 cb = QtWidgets.QCheckBox(_tr(_UTILITY_RECOG_LABEL.get(key, key)))
                 cb.setIcon(swatch_icon(utility_qcolor(key)))
                 cb.setChecked(key in selected)
                 cb.setEnabled(key in available)
                 cb.toggled.connect(self._on_recog_utility_toggled)
                 self._recog_checks[key] = cb
-                row_recog.addWidget(cb)
-            row_recog.addStretch(1)
+                row_recog.addWidget(cb, n // 2, n % 2)
+            row_recog.setColumnStretch(0, 1); row_recog.setColumnStretch(1, 1)
             target.addLayout(row_recog)
             panel.insertLayout(2, target)
             self._fill_list()

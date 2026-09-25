@@ -26,7 +26,8 @@ alcantarillado, drenaje, gas, eléctrico, telecom). Todo en **unidades imperiale
     botón, `layer_qcolor`, `swatch_icon`, …). Sin estado; los usa toda la app.
   - `workers.py` — hilos de fondo (`PipelineWorker`, `RecognitionWorker`).
   - `recognition.py` + `recognition_dialog.py` — asistente al abrir un PDF
-    vectorial: componer hoja → capas → reconocer (v1: eléctricas `C-ELEC-UNGD`;
+    vectorial: componer hoja → capas → reconocer (perfiles Eléctrico, Drenaje, Agua y
+    Alcantarillado; v1 fue eléctricas `C-ELEC-UNGD`;
     roles líneas/bóvedas AUTOMÁTICOS por nombre, `classify_ocg`) → vista
     previa con QA e info de capas usadas → importar como pipes. El preview
     devuelve una acción (`PREVIEW_IMPORT | CANCEL | CHANGE_SHEET |
@@ -552,6 +553,56 @@ alcantarillado, drenaje, gas, eléctrico, telecom). Todo en **unidades imperiale
     otro trazo no colineal), `markers_on_curves` (`strip_crossing_markers(curve_chains=)`).
     Auditoría: `tests/test_water_profile.py`; 68 hojas sin tramos sin tinta ni «V»; foto
     eléctrico/drenaje de los 4 PDFs = 0 diferencias.
+  - **Perfil ALCANTARILLADO (2026-09-25)**: `SUPPORTED_UTILITIES` suma ALCANTARILLADO
+    (kind `sewer_ungd`; NO está en `DEFAULT_UTILITIES`). `_classify_sewer`: línea =
+    `C-(SSWR|SEWR|SEWER|SANI)[-_](paquete-)?(UNGD|UGND|UNDG|PIPE)` sin ANNO/TEXT/CASE/PATT/
+    WALL/PROF/STRC/MANH/SCRN/COUT…; estructura = V-SSWR-MANH/STRU, C-SSWR-STRC/MANH/MHOL y
+    `C-SSWR-(UNGD|UGND)-STRC(-N-301…)` (LABOE, propuestos). `V-SSWR-COUT` (cleanout) =
+    accesorio; `C-SSWR-UNDG-SCRN-N` (DU08 h.36–38) = símbolo tramado del buzón, no línea.
+    Red por GRAVEDAD (`attach_vault_geometry(net=NETWORK_KIND[utility])`). Reglas del
+    perfil: TODAS las `GeomOptions` de drenaje y de agua + `polygon_circles`, y
+    `RING_VAULT_UTILITIES`: el xref existente dibuja el ANILLO del buzón (polígono de 39
+    lados, r≈9–11 pt) en la capa de la LÍNEA → `ring_symbol_paths` lo pasa a
+    `vault_paths` (sin esto: 156 polilíneas circulares y saltos sin tinta al anillo).
+    `polygon_circles`: ese polígono es círculo (`_polygon_circle`) y la bóveda queda
+    `round_entry` → `_vault_entry` corta la recta contra el CÍRCULO, no contra la caja
+    (DU10 h.5 (981,710): la diagonal de una «X» vecina rozaba la esquina de la caja).
+    Auditoría (4 PDFs, 71 hojas): sin reglas 22 tramos sin tinta; drenaje 19; agua 11;
+    ambas 8; + anillo 0 (y 0 «V», cobertura ≥99.77 %). Buzones: círculo, mediana 5 ft.
+    Tests: `tests/test_sewer_profile.py` (capas) y `tests/test_sewer_integration.py`
+    (ventana real offscreen: PDF → importar → DXF con NET_KIND=gravity, SHAPE=circle).
+    Foto eléctrico/drenaje/agua de los 4 PDFs antes/después = 0 vértices distintos.
+    `_cluster_vaults_layer`: en empate de capas manda la del contorno más grande (antes
+    el orden de un `set` → `importable` cambiaba entre ejecuciones, DU10 h.2).
+    **Precisión (2.ª revisión, mismo día; el usuario: «no inventamos nada, reconocer bien
+    las líneas»)**: `precise_junctions` — un ramal que muere en el HUECO del linetype de
+    una línea que sigue de frente (nodo «bend» en el centro del hueco) lleva el nodo al
+    CRUCE de las rectas si cae en el hueco ±`JUNCTION_GAP_SLACK_PT`=2 (DU06 h.13: laterales
+    2 pt inclinados); `continuation_before_vault` — una punta cuya continuación de
+    frente está más cerca que el borde de la bóveda no salta a la bóveda (DU08 h.36: el
+    guión del medio de una curva se estiraba ENCIMA del siguiente → dos tramos
+    superpuestos); `OUTLINE_AXIS_UTILITIES` + `outline_axis_paths`: rectángulo delgado
+    (≤8 pt, largo ≥6×) en la capa de la línea = tubería en contorno → su EJE (DU06 h.4
+    `PROP_SEWER_PIPE_ALGN|C-SSWR-UNGD-N`). GLOBAL (núcleo): el filtro de ruido compara
+    `pl.length >= dash_long - 0.5` (dash_long sale de largos redondeados: un trazo de 209.8
+    con dash_long=210 se tiraba) — cambia drenaje (DU10 h.17/18: lateral propuesto de 120
+    pt recuperado) y agua (18 trazos sueltos recuperados, todos con tinta); eléctrico 0.
+    **Continuidad (3.ª revisión, mismo día; hoja compuesta DU06 13+14, «debería ser
+    continua»)**, todo bajo `precise_junctions`: `join_touching_ends` NO cose por contacto
+    una punta con continuación de frente al otro lado del hueco (`continues_ahead`; el
+    lateral tocaba la punta del guión y quedaba esquina + principal cortada — solo pasaba
+    cuando `_split_by_fit` partía la corrida, p.ej. por el recorte de la pieza); el ramal
+    se une al «bend» por el cruce dentro del hueco (`_gap_crossing`) aunque el punto
+    medio de un hueco ANCHO no quede sobre su eje; 5d-ter: punta que tocaba y quedó libre
+    = T justo donde toca (DU08 h.40, junto al buzón); quiebre suave con letra en el hueco
+    hasta `glyph_bridge` (`letter_in_gap`, curvas con «ss»); `classify_paths(
+    keep_line_strokes=)`: un trozo que nace en la punta de un guión con su rumbo no es
+    asta de letra aunque se repita (DU08 h.37 «—//—ss—»). Auditoría de huecos: puntas
+    enfrentadas y colineales a <40 pt entre polilíneas distintas = 0 en los 4 PDFs.
+    `scripts/audit_alcantarillado.py`: auditoría con métrica de PRECISIÓN (p90 de la
+    distancia perpendicular a guiones paralelos ≥3 pt de su propia capa; ojo: sin esos
+    filtros, las letras «ss» y los huecos dan cientos de falsos positivos). Referencia:
+    859 tramos, 0 sin tinta, 0 «V», 3 «imprecisos» = ejes de tuberías con doble línea.
   - `PDFCAD_CURVE` (punto): esquina de elemento curvo, con `RADIUS_FT`.
   - `PDFCAD_META` (punto): metadatos del proyecto, hoy `CS_CODE` (Huso).
   - `PDFCAD_DUCTBANK` (punto, capa `PDFCAD_DUCT_BANK`): sección transversal del

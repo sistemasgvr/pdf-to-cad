@@ -340,9 +340,12 @@ def show_manual(win):
     <b>Mostrar/Ocultar todas</b> actúa sobre lo que se ve. Con <b>◀ Hoja N / M ▶</b> puedes cambiar de
     hoja sin salir (las capas marcadas se conservan). Las capas ocultas no se dibujan en
     el lienzo ni se usan en el reconocimiento. En <b>Utilidades a reconocer</b> marcas las
-    que quieras de <b>Eléctrico</b>, <b>Drenaje</b> y <b>Agua</b> (por defecto Eléctrico y
-    Drenaje; Agua se activa solo si la hoja tiene capas de agua). El agua es red a
-    <b>presión</b>: se importan sus líneas, como al dibujarla a mano, sin cajas automáticas.
+    que quieras de <b>Eléctrico</b>, <b>Drenaje</b>, <b>Agua</b> y <b>Alcantarillado</b> (por
+    defecto Eléctrico y Drenaje; cada una se activa solo si la hoja tiene capas de esa
+    utilidad). El agua es red a <b>presión</b>: se importan sus líneas, como al dibujarla a
+    mano, sin cajas automáticas. El alcantarillado es red por <b>gravedad</b>, como el
+    drenaje: sus buzones (V-SSWR-MANH, y el anillo del buzón que el plano dibuja en la
+    propia capa de la tubería) entran como estructuras circulares con su diámetro.
     Sus líneas y estructuras se
     asignan por nombre y se muestran juntas en la <b>vista previa del reconocimiento</b>,
     cada una con su color y sus capas usadas.
@@ -352,10 +355,12 @@ def show_manual(win):
     con las mismas capas. Las capas de estado <b>-A</b> (abandonadas, linetype ──/── e ──) se
     reconocen igual, se dibujan del mismo color y se importan marcadas <b>(AB)</b>, como la casilla «Abandonado».
     Sus marcadores «/» y «//» (dos barras o un solo trazo en zigzag, incluso barras largas)
-    se descartan como glifos. Una línea cuenta como abandonada solo si está en la capa
-    «-A» <b>y</b> lleva ese patrón de marcadores a paso regular en toda su longitud (dos
-    barras sueltas no bastan; los ramales más cortos que el paso siguen a su capa); la
-    vista previa avisa de las excepciones. El contorno de una bóveda abandonada dibujado
+    se descartan como glifos. Con la barra simple «/», una línea cuenta como abandonada
+    solo si está en la capa «-A» <b>y</b> lleva ese patrón de marcadores a paso regular en
+    toda su longitud (dos barras sueltas no bastan; los ramales más cortos que el paso
+    siguen a su capa). El doble slash <b>«//»</b> a paso regular marca la línea como
+    abandonada en cualquier utilidad y cualquier capa. La vista previa avisa de las
+    excepciones. El contorno de una bóveda abandonada dibujado
     en esa misma capa se reconoce como bóveda con medidas (etiqueta «(AB)» en la vista previa).
     La casilla <b>Unir tramos en rutas</b> (activada) encadena los tramos de la misma capa que
     siguen de frente; el ramal empieza otra ruta. No mueve puntos. Se puede desactivar antes de importar.

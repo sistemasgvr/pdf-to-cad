@@ -69,7 +69,7 @@ def test_seleccion_por_defecto_sin_cambios_y_etiquetas():
     assert rec.utilities_label(("ELECTRICO", "DRENAJE", "AGUA")) == "Eléctrico, Drenaje y Agua"
     assert rec.utility_line_kind("AGUA") == "water_ungd"
     labels = [label for _, label in rec.recognition_choices()]
-    assert labels[0] == "Eléctrico, Drenaje y Agua" and "Solo Agua" in labels
+    assert labels[0].startswith("Eléctrico, Drenaje, Agua") and "Solo Agua" in labels
 
 
 def test_reglas_de_agua_no_se_activan_en_otros_perfiles():

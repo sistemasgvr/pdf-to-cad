@@ -2037,7 +2037,7 @@ class Main(QtWidgets.QMainWindow):
             where = self._xdata_origin(result.page_index)
             added_geo, added_alone = model_ops.attach_vault_geometry(
                 self.structures, getattr(result, "vaults_geo", None) or [],
-                net="gravity" if utility == "DRENAJE" else "conduit", utility=utility,
+                net=NETWORK_KIND.get(utility, "conduit"), utility=utility,
                 origin=lambda c, where=where: where([c]))
             n_geo += added_geo; n_alone += added_alone
         # …y los codos reconocidos quedan como esquina «CV» con su radio (flujo manual).

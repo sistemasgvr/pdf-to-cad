@@ -1,6 +1,7 @@
 """recognition.py — Reconocimiento OCG de utilidades en una hoja PDF (puro, sin Qt).
 
-Perfiles actuales: eléctricas subterráneas y drenaje, con sus estructuras OCG.
+Perfiles actuales: eléctricas subterráneas, drenaje, agua y alcantarillado, con sus
+estructuras OCG.
 No toca config.LAYER_TOKENS ni el modelo de pipes de la app. Devuelve un
 RecognitionResult para la vista previa y para importar al editor.
 
@@ -42,17 +43,20 @@ RECOGNITION_LAYER_TOKENS: Sequence[Tuple[str, str]] = (
 )
 
 UTILITY_HINT = "ELECTRICO"
-SUPPORTED_UTILITIES = ("ELECTRICO", "DRENAJE", "AGUA")
-# Selección por defecto al abrir un PDF (la de siempre). Agua se marca a mano en
-# el paso «Capas de la hoja»: así activarla no cambia lo que ya se importaba.
+SUPPORTED_UTILITIES = ("ELECTRICO", "DRENAJE", "AGUA", "ALCANTARILLADO")
+# Selección por defecto al abrir un PDF (la de siempre). Agua y Alcantarillado se
+# marcan a mano en el paso «Capas de la hoja»: así activarlos no cambia lo que ya
+# se importaba.
 DEFAULT_UTILITIES = ("ELECTRICO", "DRENAJE")
 UTILITY_LINE_KINDS = {
     "ELECTRICO": "elec_ungd",
     "DRENAJE": "drain_ungd",
     "AGUA": "water_ungd",
+    "ALCANTARILLADO": "sewer_ungd",
 }
 # Nombre visible de cada perfil (textos de la UI: selector, progreso, preview).
-UTILITY_LABELS = {"ELECTRICO": "Eléctrico", "DRENAJE": "Drenaje", "AGUA": "Agua"}
+UTILITY_LABELS = {"ELECTRICO": "Eléctrico", "DRENAJE": "Drenaje", "AGUA": "Agua",
+                  "ALCANTARILLADO": "Alcantarillado"}
 DRAW_KINDS = frozenset(UTILITY_LINE_KINDS.values())
 # Reglas del núcleo geométrico que activa cada perfil. El eléctrico usa las de
 # siempre (sin opciones): las correcciones de drenaje no lo tocan.
@@ -61,9 +65,38 @@ UTILITY_GEOM_OPTIONS = {
     # Agua: el núcleo de siempre + unir primero las puntas que el PDF dibuja unidas.
     "AGUA": geom.GeomOptions(join_touching_ends=True, gap_turn_blocks=True,
                              markers_on_curves=True),
+    # Alcantarillado (gravedad, buzones como el drenaje; acometidas con quiebre y
+    # barras sobre curvas como el agua). Elegidas con la auditoría de los 4 PDFs
+    # (71 hojas): sin reglas quedaban 22 tramos sin tinta; con las de drenaje, 19;
+    # con las de agua, 11; con ambas, 8 — y con el anillo del buzón fuera de la
+    # línea (`RING_VAULT_UTILITIES`), 0. `polygon_circles`: ese anillo es un
+    # polígono de 39 lados y el buzón es CIRCULAR, no un rectángulo girado.
+    "ALCANTARILLADO": geom.GeomOptions(separate_vaults=True, nearest_vault=True,
+                                       absorb_inside_runs=True, join_touching_ends=True,
+                                       gap_turn_blocks=True, markers_on_curves=True,
+                                       polygon_circles=True, precise_junctions=True,
+                                       continuation_before_vault=True),
 }
 # Perfiles que reconocen UNA sola vez una capa repetida por otro xref (`duplicate_ocgs`).
 DEDUP_OCG_UTILITIES = frozenset({"DRENAJE"})
+# Perfiles cuya capa de LÍNEA también dibuja el anillo del buzón (alcantarillado:
+# el xref de la red existente traza el contorno del manhole en C-SSWR-UNGD-E,
+# un círculo de ~18 pt alrededor del símbolo V-SSWR-MANH). Ese anillo es
+# contorno de estructura, no tubería (`ring_symbol_paths`): sin esto salían 156
+# «tuberías» circulares en los 4 PDFs y las líneas saltaban sin tinta hasta él.
+RING_VAULT_UTILITIES = frozenset({"ALCANTARILLADO"})
+RING_MIN_R_PT = 3.0          # radio del anillo del buzón (DU06/DU10/DU08/LABOE: 8.9–10.8 pt)
+RING_MAX_R_PT = 25.0
+RING_MIN_SWEEP_DEG = 270.0   # cubre casi toda la vuelta (un codo de la línea no pasa de ~120°)
+RING_MIN_POINTS = 8
+# Tubería dibujada como CONTORNO (rectángulo cerrado delgado) en la capa de la
+# línea: DU06 h.4 `PROP_SEWER_PIPE_ALGN|C-SSWR-UNGD-N` es un solo rectángulo de
+# 3.6 × 210 pt (1 ft de ancho a 1"=20') — salía como una polilínea que daba la
+# vuelta al rectángulo. Su centerline es el EJE: la mediana de los dos lados
+# largos, que los vectores definen exactamente (`outline_axis_paths`).
+OUTLINE_AXIS_UTILITIES = frozenset({"ALCANTARILLADO"})
+OUTLINE_MAX_WIDTH_PT = 8.0    # lado corto (≈2 ft a 1"=20')
+OUTLINE_MIN_ASPECT = 6.0      # largo / ancho
 ROLE_LINEAS = "lineas"
 ROLE_BUZONES = "buzones"
 ROLE_IGNORAR = "ignorar"
@@ -97,7 +130,7 @@ class RecognizedPolyline:
     layer_ocg: str
     utility_hint: str
     pts_pdf: list  # [(x, y), ...] en pixeles del pixmap a `zoom`
-    kind: str      # elec_ungd | drain_ungd | elec_ovhd | structure
+    kind: str      # elec_ungd | drain_ungd | water_ungd | sewer_ungd | elec_ovhd | structure
     # Tipo de cada vértice (mismo largo que pts_pdf): end | corner | bend |
     # junction | tee | vault | curve. Lo usa el import para decidir qué
     # vértices son cajas reales y cuáles solo quiebres (estructura oculta).
@@ -238,6 +271,8 @@ def classify_ocg(ocg: Optional[str], utility: str = UTILITY_HINT) -> Optional[st
     utility = (utility or UTILITY_HINT).strip().upper()
     if utility == "AGUA":
         return _classify_water(short)
+    if utility == "ALCANTARILLADO":
+        return _classify_sewer(short)
     if utility == "DRENAJE":
         if not any(token in short for token in ("STRM", "STORM", "DRAN", "DRAIN")):
             return None
@@ -299,6 +334,31 @@ def _classify_water(short: str) -> Optional[str]:
         return "structure"
     if _WATR_LINE.match(short) and not any(t in short for t in _WATR_NOT_LINE):
         return utility_line_kind("AGUA")
+    return None
+
+
+# Alcantarillado sanitario (perfil ALCANTARILLADO). Centerline: C-SSWR-UNGD-*
+# (APDU: -A/-D/-E/-N, -E-ADD), la variante de paquete C-SSWR-UGND-N (DU08
+# h.36–38, «—SS—» propuesta continua con letras) y la tubería del estándar
+# C-SSWR-PIPE. «UNDG» (errata del plot) cuenta igual.
+_SSWR_LINE = re.compile(r"^C-(?:SSWR|SEWR|SEWER|SANI)[-_](?:[A-Z0-9]+-)?(?:UNGD|UGND|UNDG|PIPE)(?:-|_|$)")
+# Dentro de esas capas: anotación, camisa (CASE/PATT), muros del conducto
+# (WALL), perfil, estructuras (STRC: contornos de los buzones propuestos,
+# LABOE `C-SSWR-UNGD-STRC-N-301`), y «SCRN» (DU08 `C-SSWR-UNDG-SCRN-N` = el
+# símbolo tramado de los buzones propuestos, no una línea).
+_SSWR_NOT_LINE = ("ANNO", "TEXT", "CASE", "PATT", "WALL", "PROF", "STRC", "MHOL", "MANH",
+                  "SCRN", "IDEN", "OTLN", "STAN", "CNTR", "DIAG", "COUT", "LATL-SYMB")
+# Buzones (manholes) y estructuras de la red: los cleanouts (V-SSWR-COUT) son
+# accesorios pequeños, no estructuras (como las válvulas en agua).
+_SSWR_STRUCT = ("V-SSWR-MANH", "V-SSWR-STRU", "C-SSWR-STRC", "C-SSWR-MANH", "C-SSWR-MHOL")
+
+
+def _classify_sewer(short: str) -> Optional[str]:
+    """Perfil ALCANTARILLADO: nombre corto normalizado → kind, o None."""
+    if short.startswith(_SSWR_STRUCT) or re.match(r"^C-SSWR-(?:UNGD|UGND)-STRC(?:-|$)", short):
+        return "structure"
+    if _SSWR_LINE.match(short) and not any(t in short for t in _SSWR_NOT_LINE):
+        return utility_line_kind("ALCANTARILLADO")
     return None
 
 
@@ -377,6 +437,87 @@ def _path_points(path: dict) -> List[Tuple[float, float]]:
             elif isinstance(q, (tuple, list)) and len(q) == 2:   # punto ya recortado
                 out.append((float(q[0]), float(q[1])))
     return out
+
+
+def is_ring_path(path: dict) -> bool:
+    """¿El trazo es un ANILLO (círculo casi completo de radio 3–25 pt)? Un solo
+    trazo de ≥8 puntos, todos sobre el círculo ajustado (rms ≤ max(0.3, 6 % r))
+    y cubriendo ≥270° alrededor del centro."""
+    pts = _path_points(path)
+    if len(pts) < RING_MIN_POINTS:
+        return False
+    fit = _fit_circle(pts)
+    if not fit:
+        return False
+    cx, cy, r, rms = fit
+    if not (RING_MIN_R_PT <= r <= RING_MAX_R_PT) or rms > max(0.3, 0.06 * r):
+        return False
+    angs = sorted(math.degrees(math.atan2(y - cy, x - cx)) % 360.0 for x, y in pts)
+    gaps = [b - a for a, b in zip(angs, angs[1:])] + [angs[0] + 360.0 - angs[-1]]
+    return 360.0 - max(gaps) >= RING_MIN_SWEEP_DEG
+
+
+def _rect_corners(path: dict) -> Optional[List[Tuple[float, float]]]:
+    """4 esquinas si el path es UN rectángulo cerrado (item «re»/«qu», o 4
+    segmentos «l» que cierran con ángulos rectos); si no, None."""
+    items = path.get("items") or []
+    if len(items) == 1 and items[0][0] in ("re", "qu"):
+        q = items[0][1]
+        if hasattr(q, "ul"):
+            return [(v.x, v.y) for v in (q.ul, q.ur, q.lr, q.ll)]
+        if hasattr(q, "x0"):
+            return [(q.x0, q.y0), (q.x1, q.y0), (q.x1, q.y1), (q.x0, q.y1)]
+        return None
+    if len(items) == 4 and all(it[0] == "l" for it in items):
+        xy = lambda q: (float(q.x), float(q.y)) if hasattr(q, "x") else (float(q[0]), float(q[1]))  # noqa: E731
+        pts = [xy(it[1]) for it in items]
+        ends = [xy(it[2]) for it in items]
+        if any(math.dist(ends[k], pts[(k + 1) % 4]) > 0.1 for k in range(4)):
+            return None
+        for k in range(4):
+            a, b, c = pts[k - 1], pts[k], pts[(k + 1) % 4]
+            u = (a[0] - b[0], a[1] - b[1]); w = (c[0] - b[0], c[1] - b[1])
+            nu, nw = math.hypot(*u), math.hypot(*w)
+            if nu < 1e-6 or nw < 1e-6 or abs(u[0] * w[0] + u[1] * w[1]) > 0.05 * nu * nw:
+                return None
+        return pts
+    return None
+
+
+def outline_axis_paths(paths: Sequence[dict]) -> Tuple[List[dict], int]:
+    """Cambia cada rectángulo DELGADO (lado corto ≤ OUTLINE_MAX_WIDTH_PT, largo ≥
+    OUTLINE_MIN_ASPECT veces) por un trazo recto en su EJE (de la mitad de un lado
+    corto a la del otro). Devuelve (paths, nº de contornos convertidos)."""
+    out, n = [], 0
+    for path in paths:
+        c = _rect_corners(path)
+        if c:
+            s1, s2 = math.dist(c[0], c[1]), math.dist(c[1], c[2])
+            short, long_ = min(s1, s2), max(s1, s2)
+            if 0.1 < short <= OUTLINE_MAX_WIDTH_PT and long_ >= OUTLINE_MIN_ASPECT * short:
+                if s1 <= s2:          # lados cortos: c0-c1 y c2-c3
+                    m1 = ((c[0][0] + c[1][0]) / 2, (c[0][1] + c[1][1]) / 2)
+                    m2 = ((c[2][0] + c[3][0]) / 2, (c[2][1] + c[3][1]) / 2)
+                else:                 # lados cortos: c1-c2 y c3-c0
+                    m1 = ((c[1][0] + c[2][0]) / 2, (c[1][1] + c[2][1]) / 2)
+                    m2 = ((c[3][0] + c[0][0]) / 2, (c[3][1] + c[0][1]) / 2)
+                axis = dict(path)
+                axis["items"] = [("l", fitz.Point(*m1), fitz.Point(*m2))]
+                axis["closePath"] = False
+                axis["rect"] = fitz.Rect(min(m1[0], m2[0]), min(m1[1], m2[1]), max(m1[0], m2[0]), max(m1[1], m2[1]))
+                out.append(axis); n += 1
+                continue
+        out.append(path)
+    return out, n
+
+
+def ring_symbol_paths(paths: Sequence[dict]) -> Tuple[List[dict], List[dict]]:
+    """Separa los anillos (contorno de buzón dibujado en la capa de la línea) del
+    resto: devuelve (anillos, resto)."""
+    rings, rest = [], []
+    for path in paths:
+        (rings if is_ring_path(path) else rest).append(path)
+    return rings, rest
 
 
 def _same_path(p: list, q: list, tol: float = DUP_OCG_TOL_PT) -> bool:
@@ -772,6 +913,26 @@ def recognize_page(
             warnings.append(
                 f"Capas repetidas por otro xref (misma geometría): {len(dup_of)} — se reconoce "
                 "una sola vez: " + ", ".join(sorted(o.split("|")[0] for o in dup_of)) + ".")
+        n_rings = 0
+        if utility in RING_VAULT_UTILITIES:
+            vault_paths = list(vault_paths)
+            for ocg in list(by_ocg):
+                rings, by_ocg[ocg] = ring_symbol_paths(by_ocg[ocg])
+                vault_paths.extend(rings)
+                n_rings += len(rings)
+                if not by_ocg[ocg]:
+                    del by_ocg[ocg]
+        n_outlines = 0
+        if utility in OUTLINE_AXIS_UTILITIES:
+            for ocg in list(by_ocg):
+                by_ocg[ocg], k = outline_axis_paths(by_ocg[ocg])
+                n_outlines += k
+        if n_outlines:
+            warnings.append(f"Tuberías dibujadas como contorno (rectángulo delgado): {n_outlines} — se "
+                            "toma su eje como centerline.")
+        if n_rings:
+            warnings.append(f"Anillos de buzón dibujados en la capa de la línea: {n_rings} — se toman "
+                            "como contorno de la estructura, no como tubería.")
         geom_opts = UTILITY_GEOM_OPTIONS.get(utility, geom.GeomOptions())
         results: List[Tuple[bool, str, object]] = []
         for ocg, paths in sorted(by_ocg.items()):
@@ -985,7 +1146,9 @@ def recognize_page(
         polylines_raw.extend(stubs)
 
         if not any(p.kind == line_kind and p.pts_pdf for p in polylines):
-            utility_name = "eléctricas subterráneas" if utility == "ELECTRICO" else "de drenaje"
+            utility_name = {"ELECTRICO": "eléctricas subterráneas", "DRENAJE": "de drenaje",
+                            "AGUA": "de agua", "ALCANTARILLADO": "de alcantarillado"}.get(
+                                utility, "de " + utility_label(utility).lower())
             warnings.append(f"No se encontraron líneas {utility_name} en esta hoja.")
         if not path_counts:
             if _page_is_flat(doc, page_index):

@@ -141,20 +141,23 @@ class SheetLayersDialog(QtWidgets.QDialog):
         panel.addWidget(intro)
 
         panel.addWidget(QtWidgets.QLabel(_tr("Utilidades a reconocer:")))
-        target = QtWidgets.QHBoxLayout()
+        # Cuadrícula de 2 columnas: con 4 utilidades en una fila los nombres se
+        # cortaban en el panel de 420 px («Eléctri», «Alcant…»).
+        target = QtWidgets.QGridLayout()
+        target.setHorizontalSpacing(14); target.setVerticalSpacing(4)
         self._recog_checks: dict[str, QtWidgets.QCheckBox] = {}
         available = {layer.get("utility") for layer in self._layers
                      if int(layer.get("path_count") or 0) > 0}
         selected = recognition.normalize_utilities(recognition_utilities)
-        for key in recognition.SUPPORTED_UTILITIES:
+        for n, key in enumerate(recognition.SUPPORTED_UTILITIES):
             cb = QtWidgets.QCheckBox(_tr(_UTILITY_RECOG_LABEL.get(key, key)))
             cb.setIcon(swatch_icon(utility_qcolor(key)))
             cb.setChecked(key in selected)
             cb.setEnabled(key in available)
             cb.toggled.connect(self._on_recog_utility_toggled)
             self._recog_checks[key] = cb
-            target.addWidget(cb)
-        target.addStretch(1)
+            target.addWidget(cb, n // 2, n % 2)
+        target.setColumnStretch(0, 1); target.setColumnStretch(1, 1)
         panel.addLayout(target)
 
         # ── utilidades: encienden/apagan sus capas en la hoja y filtran la lista ──
