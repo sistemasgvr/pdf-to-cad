@@ -386,6 +386,13 @@ namespace Civil3DBasico
                             // el import hace falta que el catálogo Steel esté
                             // registrado en Standard vía "Load new catalog" (una vez
                             // en la plantilla) — ese registro no tiene API.
+                            //
+                            // DESACTIVADO mientras las Y se generan como sólido 3D
+                            // (FITTING_COMO_SOLIDO): cargar 116 familias Steel que
+                            // nadie usa solo ensucia la lista 'Standard'.
+                            if (ComandosPresion.FITTING_COMO_SOLIDO)
+                                L("  · Carga de Wye Steel omitida: las Y se generan como sólido 3D.");
+                            else
                             try
                             {
                                 var fittingsExistentes = pressPl.GetParts(CivilDB.PressurePartDomainType.Fitting);
@@ -422,6 +429,14 @@ namespace Civil3DBasico
             // Civil 3D SÍ puede construir sus piezas (incluida la Y). El import la
             // detecta con una prueba real (SeleccionarListaPresion) y la usa para
             // las redes de presión; si no construye, cae a 'Standard'.
+            //
+            // DESACTIVADO con FITTING_COMO_SOLIDO: esta lista existía SOLO para
+            // poder construir la Y de catálogo. Además activaba el catálogo Steel
+            // de forma global, y las redes que la tomaban salían con tubos y codos
+            // de acero soldado en vez de los push-on de 'Standard'.
+            if (ComandosPresion.FITTING_COMO_SOLIDO)
+                L("→ CREATEPRESSUREPARTLISTFULL omitido: las Y se generan como sólido 3D.");
+            else
             try
             {
                 AsegurarPresionWye.ActivarCatalogo(ed);

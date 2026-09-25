@@ -25,6 +25,8 @@ import re
 import sqlite3
 import xml.etree.ElementTree as ET
 
+from i18n_core import t as _tr   # mensajes al usuario en el idioma activo
+
 SUPPORTED_YEARS = (2025, 2026, 2027)  # 2024 y anteriores: no soportados
 LANG_PREFERENCES = ("esp", "enu", "fra", "deu", "ita", "ptb")
 
@@ -250,21 +252,20 @@ def structure_family_params(year, fid):
 def _add_size_to_xml(path, values):
     """Núcleo compartido: agrega nuevos <Item> a los <ColumnConstList> del XML en
     `path`, con backup .xml.bak. Ver add_structure_size / add_pipe_size."""
-    if path is None: return {"ok": False, "error": "XML no encontrado"}
+    if path is None: return {"ok": False, "error": _tr('XML no encontrado')}
     if not os.access(path, os.W_OK):
-        return {"ok": False, "error": f"Sin permiso de escritura en {path}. "
-                                       "Ejecuta la app como administrador y reintenta."}
+        return {"ok": False, "error": _tr('Sin permiso de escritura en {path}. Ejecuta la app como administrador y reintenta.').format(path=path)}
     # Backup una sola vez.
     bak = path + ".bak"
     if not os.path.exists(bak):
         try:
             import shutil; shutil.copy2(path, bak)
         except OSError as e:
-            return {"ok": False, "error": f"No se pudo hacer backup: {e}"}
+            return {"ok": False, "error": _tr('No se pudo hacer backup: {e}').format(e=e)}
     try:
         tree = ET.parse(path); root_el = tree.getroot()
     except ET.ParseError as e:
-        return {"ok": False, "error": f"XML corrupto: {e}"}
+        return {"ok": False, "error": _tr("XML corrupto: {e}").format(e=e)}
 
     added, skipped = {}, {}
     # Formato normalizado del valor: usar el mismo estilo con 4 decimales que ya
@@ -280,7 +281,7 @@ def _add_size_to_xml(path, values):
         if name not in values: continue
         raw = values[name]
         norm = _fmt(raw)
-        if norm is None: skipped[name] = "valor inválido"; continue
+        if norm is None: skipped[name] = _tr('valor inválido'); continue
         # Ya existe?
         existing = {(it.text or "").strip() for it in col.findall("Item")}
         # Comparar por número, no por string (evita "48.0" vs "48.0000").
@@ -293,7 +294,7 @@ def _add_size_to_xml(path, values):
                 except ValueError: continue
         except ValueError:
             exists = norm in existing
-        if exists: skipped[name] = "ya existía"; continue
+        if exists: skipped[name] = _tr('ya existía'); continue
         # Insertar. El siguiente id de Item = i<n_existentes>.
         n_items = len(col.findall("Item"))
         new_it = ET.SubElement(col, "Item")
@@ -308,7 +309,7 @@ def _add_size_to_xml(path, values):
         # Preservar declaración XML y encoding original ("utf-8" con BOM en algunos).
         tree.write(path, encoding="utf-8", xml_declaration=True)
     except OSError as e:
-        return {"ok": False, "error": f"No se pudo guardar: {e}"}
+        return {"ok": False, "error": _tr('No se pudo guardar: {e}').format(e=e)}
     return {"ok": True, "added": added, "skipped": skipped}
 
 
@@ -979,14 +980,13 @@ def validate_family_xml(xml_path):
         tree = ET.parse(xml_path); root = tree.getroot()
     except (ET.ParseError, OSError) as e:
         return [{"severity": "grave",
-                 "message": f"El archivo XML de la familia no se puede abrir o está corrupto ({e})."}]
+                 "message": _tr('El archivo XML de la familia no se puede abrir o está corrupto ({e}).').format(e=e)}]
 
     # Los XML de familias Civil 3D siempre tienen la raíz <LandPart>. Si no,
     # es probable que sea otro tipo de archivo.
     if root.tag != "LandPart":
         return [{"severity": "grave",
-                 "message": "El XML no parece una familia de Civil 3D válida "
-                            "(la etiqueta raíz no es 'LandPart')."}]
+                 "message": _tr("El XML no parece una familia de Civil 3D válida (la etiqueta raíz no es 'LandPart').")}]
 
     # Diccionario name → tipo de columna, usado para chequear que las fórmulas
     # referencian variables que sí existen.
@@ -1010,30 +1010,28 @@ def validate_family_xml(xml_path):
 
     if not has_part_size_name:
         issues.append({"severity": "grave",
-                       "message": "La familia no define el 'Nombre del tamaño' — Civil 3D "
-                                  "no sabrá cómo llamar a cada tamaño y el plugin no podrá "
-                                  "encontrar esta familia al importar."})
+                       "message": _tr("La familia no define el 'Nombre del tamaño' — Civil 3D no sabrá cómo llamar a cada tamaño y el plugin no podrá encontrar esta familia al importar.")})
 
     # ColumnConstList: listas de valores por parámetro (Diámetro, Espesor, etc.)
     for lst in root.findall("ColumnConstList"):
-        name = (lst.get("desc") or lst.get("name") or lst.get("context") or "parámetro").strip()
+        name = (lst.get("desc") or lst.get("name") or lst.get("context") or _tr('parámetro')).strip()
         items = lst.findall("Item")
         if not items:
             issues.append({"severity": "grave",
-                           "message": f"El parámetro '{name}' no tiene ningún valor cargado. Sin valores, Civil 3D no generará ningún tamaño."})
+                           "message": _tr("El parámetro '{name}' no tiene ningún valor cargado. Sin valores, Civil 3D no generará ningún tamaño.").format(name=name)})
             continue
         dtype = (lst.get("dataType") or "").lower()
         for it in items:
             txt = (it.text or "").strip()
             if not txt:
                 issues.append({"severity": "grave",
-                               "message": f"El parámetro '{name}' tiene un valor en blanco entre sus opciones."})
+                               "message": _tr("El parámetro '{name}' tiene un valor en blanco entre sus opciones.").format(name=name)})
                 continue
             if dtype in ("float", "double", "int", "long"):
                 try: float(txt)
                 except ValueError:
                     issues.append({"severity": "grave",
-                                   "message": f"El parámetro '{name}' tiene el valor '{txt}' que no es un número."})
+                                   "message": _tr("El parámetro '{name}' tiene el valor '{txt}' que no es un número.").format(name=name, txt=txt)})
 
     # ColumnRangeList: rangos (mínimo/máximo/default). Solo warn si faltan Min y Max.
     for lst in root.findall("ColumnRangeList"):
@@ -1042,7 +1040,7 @@ def validate_family_xml(xml_path):
                 for it in lst.findall("Item")}
         if not vals.get("min") or not vals.get("max"):
             issues.append({"severity": "warn",
-                           "message": f"El rango '{name}' no tiene mínimo o máximo definido."})
+                           "message": _tr("El rango '{name}' no tiene mínimo o máximo definido.").format(name=name)})
 
     # ColumnCalc: fórmulas. En Civil 3D las variables usan sintaxis $NombreCol.
     # Solo consideramos identificadores válidos (letras, dígitos, _).
@@ -1053,9 +1051,9 @@ def validate_family_xml(xml_path):
         vars_in_formula = set(var_re.findall(formula))
         for var in vars_in_formula:
             if var not in declared:
-                fname = (cc.get("desc") or cc.get("name") or cc.get("context") or "fórmula").strip()
+                fname = (cc.get("desc") or cc.get("name") or cc.get("context") or _tr('fórmula')).strip()
                 issues.append({"severity": "grave",
-                               "message": f"La fórmula '{fname}' usa la variable '${var}' que no está definida en la familia. Civil 3D no podrá calcular ese valor."})
+                               "message": _tr("La fórmula '{fname}' usa la variable '${var}' que no está definida en la familia. Civil 3D no podrá calcular ese valor.").format(fname=fname, var=var)})
 
     # <Recipe>: ruta al .dwg del Part Builder. Debe ser SOLO el nombre del
     # archivo, sin prefijo de carpeta — Civil 3D lo busca en el mismo directorio
@@ -1067,7 +1065,7 @@ def validate_family_xml(xml_path):
         if not val: continue
         if "\\" in val or "/" in val:
             issues.append({"severity": "warn",
-                           "message": f"La referencia al archivo .dwg lleva un prefijo de carpeta ('{val}'). El instalador lo corregirá al copiar."})
+                           "message": _tr("La referencia al archivo .dwg lleva un prefijo de carpeta ('{val}'). El instalador lo corregirá al copiar.").format(val=val)})
 
     return issues
 
@@ -1227,17 +1225,17 @@ def scan_family_folder(path):
         warnings = []
         grave = []
         if kind == "unknown":
-            msg = "No pude detectar si es tubería o estructura (revisa que el XML tenga ColumnConstList con SID/PID/etc)."
+            msg = _tr('No pude detectar si es tubería o estructura (revisa que el XML tenga ColumnConstList con SID/PID/etc).')
             warnings.append(msg); grave.append(msg)
         if dwg_path is None:
-            msg = f"Falta el archivo .dwg de Part Builder ('{name}.dwg') al lado del .xml — la familia NO funcionará en Civil 3D sin él."
+            msg = _tr("Falta el archivo .dwg de Part Builder ('{name}.dwg') al lado del .xml — la familia NO funcionará en Civil 3D sin él.").format(name=name)
             warnings.append(msg); grave.append(msg)
         if bmp_path is None:
-            warnings.append("Sin miniatura .bmp — el usuario no verá thumbnail al elegir la familia.")
+            warnings.append(_tr('Sin miniatura .bmp — el usuario no verá thumbnail al elegir la familia.'))
         if desc is None:
-            warnings.append("Falta ColumnConst 'Catalog_PartDesc' — el plugin C# usará el nombre del archivo como Description.")
+            warnings.append(_tr("Falta ColumnConst 'Catalog_PartDesc' — el plugin C# usará el nombre del archivo como Description."))
         if not sizes_list:
-            msg = "El XML no declara ningún tamaño (no hay ColumnConstList con Items ni Column con Rows). Civil 3D no compilará ningún PartSize."
+            msg = _tr('El XML no declara ningún tamaño (no hay ColumnConstList con Items ni Column con Rows). Civil 3D no compilará ningún PartSize.')
             warnings.append(msg); grave.append(msg)
 
         # Validación profunda del contenido del XML — detecta problemas
@@ -1282,9 +1280,7 @@ def scan_family_folder(path):
     for e in out:
         pn = e.get("part_name")
         if pn and pn_counts[pn] > 1:
-            msg = (f"Otro archivo XML en esta carpeta usa el mismo nombre interno "
-                   f"'{pn}'. Civil 3D solo cargará uno de ellos y descartará el otro. "
-                   f"Cambia el nombre interno para diferenciarlos.")
+            msg = (_tr("Otro archivo XML en esta carpeta usa el mismo nombre interno '{pn}'. Civil 3D solo cargará uno de ellos y descartará el otro. Cambia el nombre interno para diferenciarlos.").format(pn=pn))
             e["warnings"].append(msg)
             e["grave_reasons"].append(msg)
     return out
@@ -1413,12 +1409,12 @@ def install_family(year, entry):
                                           entry.get("target_subfolder"),
                                           entry.get("name"))
     if tgt_xml is None:
-        return {"ok": False, "error": "No pude resolver la carpeta destino del catálogo Civil 3D.", "backed_up": None, "installed_at": None}
+        return {"ok": False, "error": _tr('No pude resolver la carpeta destino del catálogo Civil 3D.'), "backed_up": None, "installed_at": None}
     tgt_dir = os.path.dirname(tgt_xml)
     try:
         os.makedirs(tgt_dir, exist_ok=True)
     except OSError as e:
-        return {"ok": False, "error": f"No pude crear la carpeta destino: {e}", "backed_up": None, "installed_at": None}
+        return {"ok": False, "error": _tr('No pude crear la carpeta destino: {e}').format(e=e), "backed_up": None, "installed_at": None}
     backup = None
     if os.path.isfile(tgt_xml):
         # backup .bak, o .bak.N si ya existía
@@ -1430,7 +1426,7 @@ def install_family(year, entry):
             shutil.copy2(tgt_xml, bak)
             backup = bak
         except OSError as e:
-            return {"ok": False, "error": f"No pude hacer backup del .xml existente: {e}", "backed_up": None, "installed_at": None}
+            return {"ok": False, "error": _tr('No pude hacer backup del .xml existente: {e}').format(e=e), "backed_up": None, "installed_at": None}
     # Auto-corregir problemas comunes del XML antes de copiar:
     # · <Recipe> con prefijo de carpeta → solo basename
     # · xlink:href del BMP con prefijo → solo basename
@@ -1442,7 +1438,7 @@ def install_family(year, entry):
         else:
             shutil.copy2(entry["xml_path"], tgt_xml)
     except OSError as e:
-        return {"ok": False, "error": f"No pude copiar el .xml: {e}", "backed_up": backup, "installed_at": None}
+        return {"ok": False, "error": _tr('No pude copiar el .xml: {e}').format(e=e), "backed_up": backup, "installed_at": None}
     bmp_src = entry.get("bmp_path")
     if bmp_src:
         tgt_bmp = os.path.join(tgt_dir, entry["name"] + ".bmp")
@@ -1466,8 +1462,7 @@ def install_family(year, entry):
             shutil.copy2(dwg_src, tgt_dwg)
         except OSError as e:
             return {"ok": False,
-                    "error": f".xml copiado pero no pude copiar el .dwg: {e}. "
-                             "La familia NO funcionará sin él.",
+                    "error": _tr('.xml copiado pero no pude copiar el .dwg: {e}. La familia NO funcionará sin él.').format(e=e),
                     "backed_up": backup, "installed_at": tgt_xml}
     return {"ok": True, "error": "", "backed_up": backup, "installed_at": tgt_xml}
 
@@ -1545,25 +1540,19 @@ def install_catalog_package(source_folder, dest_folder=None):
     if not found["pipes_src"] and not found["structs_src"]:
         return {"ok": False, "dest": None, "pipes_path": None, "structs_path": None,
                 "summary": "",
-                "error": (f"En '{source_folder}' no encontré ninguna subcarpeta "
-                          "'US Imperial Pipes' ni 'US Imperial Structures'. "
-                          "El source debe ser la raíz del catálogo custom del "
-                          "modelador (con .apc adentro).")}
+                "error": (_tr("En '{source_folder}' no encontré ninguna subcarpeta 'US Imperial Pipes' ni 'US Imperial Structures'. El source debe ser la raíz del catálogo custom del modelador (con .apc adentro).").format(source_folder=source_folder))}
     warnings = []
     if found["pipes_src"] and not found["pipes_apc"]:
-        warnings.append(f"'{os.path.basename(found['pipes_src'])}' no tiene "
-                        "'US Imperial Pipes.apc' — Civil 3D no verá familias "
-                        "hasta que se regenere el .apc.")
+        warnings.append(_tr("'{v}' no tiene 'US Imperial Pipes.apc' — Civil 3D no verá familias hasta que se regenere el .apc.").format(v=os.path.basename(found['pipes_src'])))
     if found["structs_src"] and not found["structs_apc"]:
-        warnings.append(f"'{os.path.basename(found['structs_src'])}' no tiene "
-                        "'US Imperial Structures.apc' — idem structures.")
+        warnings.append(_tr("'{v}' no tiene 'US Imperial Structures.apc' — idem structures.").format(v=os.path.basename(found['structs_src'])))
 
     try:
         os.makedirs(dest_folder, exist_ok=True)
     except OSError as e:
         return {"ok": False, "dest": None, "pipes_path": None, "structs_path": None,
                 "summary": "",
-                "error": f"No pude crear el destino '{dest_folder}': {e}"}
+                "error": _tr("No pude crear el destino '{dest_folder}': {e}").format(dest_folder=dest_folder, e=e)}
 
     def _copy_tree(src, dst):
         """Copia recursivamente src → dst, SOBREESCRIBIENDO archivos existentes.
@@ -1608,14 +1597,15 @@ def install_catalog_package(source_folder, dest_folder=None):
 
     mb = total_bytes / (1024 * 1024)
     lines = [
-        f"✓ Catálogo copiado a: {dest_folder}",
-        f"  Archivos copiados: {total_files}  ·  Tamaño: {mb:.1f} MB",
+        _tr('✓ Catálogo copiado a: {dest_folder}').format(dest_folder=dest_folder),
+        "  " + _tr("Archivos copiados: {total_files}  ·  Tamaño: {mb:.1f} MB").format(
+            total_files=total_files, mb=mb),
     ]
-    if pipes_path:   lines.append(f"  · Tubería:    {pipes_path}")
-    if structs_path: lines.append(f"  · Estructura: {structs_path}")
+    if pipes_path:   lines.append("  · " + _tr("Tubería:    {ruta}").format(ruta=pipes_path))
+    if structs_path: lines.append("  · " + _tr("Estructura: {ruta}").format(ruta=structs_path))
     if warnings:
         lines.append("")
-        lines.append("Avisos:")
+        lines.append(_tr("Avisos:"))
         for w in warnings: lines.append(f"  · {w}")
     summary = "\n".join(lines)
 
@@ -1908,21 +1898,20 @@ def install_family_folder(source_folder, year, lang=None):
                          "apc_backups": [], "summary": ""}
 
     if not source_folder or not os.path.isdir(source_folder):
-        return fail(f"La carpeta origen no existe: {source_folder}")
+        return fail(_tr('La carpeta origen no existe: {source_folder}').format(source_folder=source_folder))
     if not year:
-        return fail("No hay versión de Civil 3D seleccionada en la UI.")
+        return fail(_tr('No hay versión de Civil 3D seleccionada en la UI.'))
 
     lang_root = _lang_root(year, lang)
     if lang_root is None:
-        return fail(f"No encontré la carpeta del idioma '{lang or _current_lang or 'default'}' "
-                    f"para Civil 3D {year}.")
+        return fail(_tr("No encontré la carpeta del idioma '{v}' para Civil 3D {year}.").format(v=lang or _current_lang or 'default', year=year))
     pipes_catalog_root = os.path.join(lang_root, "Pipes Catalog")
     if not os.path.isdir(pipes_catalog_root):
-        return fail(f"No existe '{pipes_catalog_root}'. ¿Está instalado Civil 3D {year}?")
+        return fail(_tr("No existe '{pipes_catalog_root}'. ¿Está instalado Civil 3D {year}?").format(pipes_catalog_root=pipes_catalog_root, year=year))
 
     xmls = _find_family_xmls(source_folder)
     if not xmls:
-        return fail(f"No encontré ningún .xml de familia (con .dwg hermano) en '{source_folder}'.")
+        return fail(_tr("No encontré ningún .xml de familia (con .dwg hermano) en '{source_folder}'.").format(source_folder=source_folder))
 
     folder_name = os.path.basename(os.path.abspath(source_folder))
 
@@ -1942,8 +1931,7 @@ def install_family_folder(source_folder, year, lang=None):
             "apc_path": None, "apc_action": None,
         }
         if not kind or not units or not shape:
-            entry["error"] = (f"No pude detectar tipo/unidades/shape "
-                              f"(kind={kind}, units={units}, shape={shape}).")
+            entry["error"] = (_tr('No pude detectar tipo/unidades/shape (kind={kind}, units={units}, shape={shape}).').format(kind=kind, units=units, shape=shape))
         familias.append(entry)
 
     # 2) Copiar la carpeta al subcatálogo destino de cada grupo (kind,units).
@@ -1963,15 +1951,15 @@ def install_family_folder(source_folder, year, lang=None):
     for (kind, units), grupo in grupos_ok.items():
         catalog_dir_name = _CATALOG_DIRS.get((kind, units))
         if not catalog_dir_name:
-            for f in grupo: f["error"] = f"Combinación no soportada: kind={kind}, units={units}."
+            for f in grupo: f["error"] = _tr('Combinación no soportada: kind={kind}, units={units}.').format(kind=kind, units=units)
             continue
         catalog_dir = os.path.join(pipes_catalog_root, catalog_dir_name)
         if not os.path.isdir(catalog_dir):
-            for f in grupo: f["error"] = f"No existe el subcatálogo: {catalog_dir}"
+            for f in grupo: f["error"] = _tr('No existe el subcatálogo: {catalog_dir}').format(catalog_dir=catalog_dir)
             continue
         apc = os.path.join(catalog_dir, f"{catalog_dir_name}.apc")
         if not os.path.isfile(apc):
-            for f in grupo: f["error"] = f"No encontré el .apc: {apc}"
+            for f in grupo: f["error"] = _tr('No encontré el .apc: {apc}').format(apc=apc)
             continue
 
         # Copia única de la carpeta al subcatálogo (sobrescribe si ya existía).
@@ -1981,9 +1969,7 @@ def install_family_folder(source_folder, year, lang=None):
                 shutil.rmtree(dest_folder)
             shutil.copytree(source_folder, dest_folder)
         except OSError as e:
-            for f in grupo: f["error"] = (f"No pude copiar la carpeta '{folder_name}' al "
-                                            f"subcatálogo '{catalog_dir_name}': {e}. "
-                                            "Ejecuta la app como Administrador.")
+            for f in grupo: f["error"] = (_tr("No pude copiar la carpeta '{folder_name}' al subcatálogo '{catalog_dir_name}': {e}. Ejecuta la app como Administrador.").format(folder_name=folder_name, catalog_dir_name=catalog_dir_name, e=e))
             continue
 
         # Backup del .apc una sola vez para este grupo.
@@ -1993,7 +1979,7 @@ def install_family_folder(source_folder, year, lang=None):
             shutil.copy2(apc, backup)
             apc_backups.append(backup)
         except OSError as e:
-            for f in grupo: f["error"] = f"No pude hacer backup del .apc: {e}"
+            for f in grupo: f["error"] = _tr('No pude hacer backup del .apc: {e}').format(e=e)
             continue
 
         # Registrar cada familia del grupo en el .apc. Todas comparten un único
@@ -2021,24 +2007,26 @@ def install_family_folder(source_folder, year, lang=None):
                 f["apc_path"] = apc
                 f["apc_action"] = action
             except (OSError, ValueError) as e:
-                f["error"] = f"No pude registrar en el .apc: {e}"
+                f["error"] = _tr('No pude registrar en el .apc: {e}').format(e=e)
 
     ok_count = sum(1 for f in familias if f["ok"])
-    lines = [f"Familias instaladas: {ok_count} / {len(familias)}"]
+    accion = {"inserted": _tr("registrada en el .apc"), "replaced": _tr("reemplazada en el .apc")}
+    lines = [_tr("Familias instaladas: {ok} / {total}").format(ok=ok_count, total=len(familias))]
     for f in familias:
         mark = "✓" if f["ok"] else "✗"
         if f["ok"]:
-            lines.append(f"  {mark} {f['name']}  →  {f['catalog_dir']}  ({f['apc_action']})")
+            lines.append(f"  {mark} {f['name']}  →  {f['catalog_dir']}  "
+                         f"({accion.get(f['apc_action'], f['apc_action'])})")
         else:
             lines.append(f"  {mark} {f['name']}: {f['error']}")
     if apc_backups:
         lines.append("")
-        lines.append("Backups .apc:")
+        lines.append(_tr("Backups .apc:"))
         for b in apc_backups:
             lines.append(f"  · {os.path.basename(b)}")
     summary = "\n".join(lines)
 
-    return {"ok": ok_count > 0, "error": "" if ok_count > 0 else "Ninguna familia se instaló.",
+    return {"ok": ok_count > 0, "error": "" if ok_count > 0 else _tr('Ninguna familia se instaló.'),
             "families": familias, "apc_backups": apc_backups, "summary": summary}
 
 
@@ -2053,14 +2041,14 @@ def uninstall_family(year, family_name, kind, subfolder, lang=None):
     import shutil, datetime
     lr = _lang_root(year, lang)
     if not lr:
-        return {"ok": False, "error": f"No se encontró Civil 3D {year}.", "detail": ""}
+        return {"ok": False, "error": _tr('No se encontró Civil 3D {year}.').format(year=year), "detail": ""}
 
     if kind == "structure":
         cat_dir = catalog_root(year, lang)
     else:
         cat_dir = pipes_root(year, lang)
     if not cat_dir:
-        return {"ok": False, "error": f"No se encontró catálogo {kind} para {year}.", "detail": ""}
+        return {"ok": False, "error": _tr('No se encontró catálogo {kind} para {year}.').format(kind=kind, year=year), "detail": ""}
 
     apc_candidates = [f for f in os.listdir(cat_dir) if f.lower().endswith(".apc")]
     detail_lines = []
@@ -2083,7 +2071,7 @@ def uninstall_family(year, family_name, kind, subfolder, lang=None):
         ts = datetime.datetime.now().strftime("%Y%m%d-%H%M%S")
         bak = apc_path + f".bak-{ts}"
         shutil.copy2(apc_path, bak)
-        detail_lines.append(f"Backup: {os.path.basename(bak)}")
+        detail_lines.append(_tr("Backup: {archivo}").format(archivo=os.path.basename(bak)))
 
         text = part_re.sub("", text)
 
@@ -2097,7 +2085,7 @@ def uninstall_family(year, family_name, kind, subfolder, lang=None):
 
         with open(apc_path, "w", encoding="utf-8") as f:
             f.write(text)
-        detail_lines.append(f"Quitado de {apc_name}")
+        detail_lines.append(_tr('Quitado de {apc_name}').format(apc_name=apc_name))
 
     fam_dir = os.path.join(cat_dir, subfolder)
     deleted_files = []
@@ -2111,12 +2099,13 @@ def uninstall_family(year, family_name, kind, subfolder, lang=None):
         remaining_xmls = [f for f in os.listdir(fam_dir) if f.lower().endswith(".xml")]
         if not remaining_xmls:
             shutil.rmtree(fam_dir, ignore_errors=True)
-            detail_lines.append(f"Carpeta '{subfolder}' eliminada (vacía)")
+            detail_lines.append(_tr("Carpeta '{subfolder}' eliminada (vacía)").format(subfolder=subfolder))
         else:
-            detail_lines.append(f"Carpeta '{subfolder}' conservada ({len(remaining_xmls)} familia(s) restante(s))")
+            detail_lines.append(_tr("Carpeta '{subfolder}' conservada ({n} familia(s) restante(s))").format(
+                subfolder=subfolder, n=len(remaining_xmls)))
 
     if deleted_files:
-        detail_lines.append(f"Archivos borrados: {', '.join(deleted_files)}")
+        detail_lines.append(_tr("Archivos borrados: {archivos}").format(archivos=", ".join(deleted_files)))
 
     return {"ok": True, "error": "", "detail": "\n".join(detail_lines)}
 

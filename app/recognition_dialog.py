@@ -13,7 +13,7 @@ from __future__ import annotations
 import math
 from PySide6 import QtCore, QtGui, QtWidgets
 
-from i18n import t as _tr
+from i18n import t as _tr, N_
 from model import TIPOS
 from ui_common import layer_qcolor, swatch_icon
 from widgets import ZoomPanView, maximize_on_show, side_panel_width
@@ -23,7 +23,7 @@ import theme as _theme
 # Etiqueta de cada utilidad tal como en el desplegable «Tipo de utilidad».
 _UTILITY_LABEL = {key: label for label, key in TIPOS}
 # Etiquetas de los kinds de reconocimiento (informativo en el preview).
-_KIND_LABEL = {"elec_ungd": "Líneas", "structure": "Bóvedas"}
+_KIND_LABEL = {"elec_ungd": N_("Líneas"), "structure": N_("Bóvedas")}
 # Acciones que devuelve el preview.
 PREVIEW_IMPORT, PREVIEW_CANCEL = "import", "cancel"
 PREVIEW_CHANGE_SHEET, PREVIEW_ADJUST_LAYERS = "change_sheet", "adjust_layers"
@@ -135,9 +135,9 @@ def choose_page(parent, doc, current: int = 0) -> int | None:
 
 # ───────────────── Paso: confirmar roles OCG (líneas / buzones) ─────────────
 _ROLE_LABELS = (
-    (rec.ROLE_LINEAS, "Líneas eléctricas"),
-    (rec.ROLE_BUZONES, "Buzones / bóvedas"),
-    (rec.ROLE_IGNORAR, "Ignorar"),
+    (rec.ROLE_LINEAS, N_("Líneas eléctricas")),
+    (rec.ROLE_BUZONES, N_("Buzones / bóvedas")),
+    (rec.ROLE_IGNORAR, N_("Ignorar")),
 )
 
 

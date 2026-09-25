@@ -1,0 +1,364 @@
+<!--
+  Manual de usuario (español). Lo muestra manual_dialog.py: cada <section data-title>
+  es una página. {{token}} = color del tema activo; <img src="mark:…"> = símbolo del
+  lienzo dibujado con sus colores reales. Mantener en sincronía con manual.en.html.
+-->
+<style>
+body   { color: {{text}}; font-size: {{fs}}px; }
+h1     { color: {{accent}}; font-size: {{fs_h1}}px; margin-bottom: 6px; }
+h2     { color: {{text}}; font-size: {{fs_h2}}px; margin-top: 22px; margin-bottom: 6px; }
+p      { margin-top: 6px; margin-bottom: 8px; }
+li     { margin-bottom: 7px; }
+.muted { color: {{muted}}; }
+.small { font-size: {{fs_small}}px; color: {{muted}}; }
+.key   { background-color: {{key}}; color: {{text}}; font-weight: bold; }
+.btn   { color: {{accent}}; font-weight: bold; }
+th     { background-color: {{card}}; color: {{text}}; }
+</style>
+
+<section data-title="Bienvenida">
+<p><b>Asistente C3D</b> convierte un plano en PDF en una <b>red de tuberías 3D</b> para Civil 3D
+(agua, alcantarillado, drenaje, gas, eléctrico y telecomunicaciones). Todo se mide en
+<b>pies</b> (y los diámetros en <b>pulgadas</b>).</p>
+
+<h2>El trabajo completo, en 5 pasos</h2>
+<table width="100%" cellspacing="6" cellpadding="10">
+<tr><td bgcolor="{{card}}" width="50"><b style="color:{{accent}};font-size:{{fs_h2}}px;">1</b></td>
+    <td bgcolor="{{card}}"><b>Abrir</b> el plano PDF (o empezar con un lienzo en blanco).</td></tr>
+<tr><td bgcolor="{{card}}"><b style="color:{{accent}};font-size:{{fs_h2}}px;">2</b></td>
+    <td bgcolor="{{card}}"><b>Dibujar</b> las tuberías encima del plano, clic a clic.</td></tr>
+<tr><td bgcolor="{{card}}"><b style="color:{{accent}};font-size:{{fs_h2}}px;">3</b></td>
+    <td bgcolor="{{card}}"><b>Completar</b> sus datos: tipo, tamaño y cotas (profundidad).</td></tr>
+<tr><td bgcolor="{{card}}"><b style="color:{{accent}};font-size:{{fs_h2}}px;">4</b></td>
+    <td bgcolor="{{card}}"><b>Revisar</b> las señales de colores que aparecen en el plano.</td></tr>
+<tr><td bgcolor="{{card}}"><b style="color:{{accent}};font-size:{{fs_h2}}px;">5</b></td>
+    <td bgcolor="{{card}}"><b>Exportar</b> a DXF y abrirlo en Civil 3D con el botón de importar.</td></tr>
+</table>
+
+<h2>Cómo usar este manual</h2>
+<ul>
+<li>Elige un capítulo en la lista de la <b>izquierda</b>, o pasa de página con
+    <span class="btn">Anterior</span> y <span class="btn">Siguiente</span>.</li>
+<li>¿La letra es pequeña? Usa los botones <span class="key">&nbsp;A+&nbsp;</span> y
+    <span class="key">&nbsp;A−&nbsp;</span> de abajo. La app recuerda el tamaño.</li>
+<li>Las cajas verdes son <b>consejos</b>; las amarillas, cosas a las que prestar <b>atención</b>.</li>
+</ul>
+
+<table width="100%" cellspacing="0" cellpadding="12"><tr>
+<td width="6" bgcolor="{{tip_border}}"></td><td bgcolor="{{tip}}">
+<b>Consejo:</b> no tengas miedo de probar. <span class="key">&nbsp;Ctrl+Z&nbsp;</span> deshace
+el último cambio y <span class="key">&nbsp;Ctrl+Shift+Z&nbsp;</span> lo vuelve a hacer.
+</td></tr></table>
+</section>
+
+<section data-title="Empezar un proyecto">
+<h2>Opción A — Abrir un plano PDF</h2>
+<ol>
+<li>Menú <b>Archivo → Abrir PDF…</b> (o arrastra el PDF sobre la ventana).</li>
+<li>Si el PDF viene bien ploteado desde CAD, se abre un <b>asistente</b> que te ayuda a
+    preparar la hoja (lo explica el capítulo «Planos PDF de CAD»).</li>
+<li>Si es un escaneo, el plano aparece directamente para que dibujes encima.</li>
+</ol>
+
+<h2>Opción B — Lienzo en blanco (sin PDF)</h2>
+<ol>
+<li>Menú <b>Archivo → Nuevo lienzo…</b> o <span class="key">&nbsp;Ctrl+N&nbsp;</span>.</li>
+<li>Elige el <b>tamaño de hoja</b> (A4, Carta, Tabloide, ANSI, ARCH… o medidas a mano en
+    milímetros o pulgadas) y la <b>orientación</b>.</li>
+<li>Elige la <b>escala</b> del plano, por ejemplo 1" = 20'. La ventana te dice cuánto terreno
+    real cabe en la hoja.</li>
+<li>Pulsa <span class="btn">Crear</span>. Dibujas y exportas igual que sobre un PDF.</li>
+</ol>
+
+<h2>Guardar y abrir tu trabajo</h2>
+<ul>
+<li><b>Guardar:</b> <span class="key">&nbsp;Ctrl+S&nbsp;</span>. Se crea un archivo
+    <b>.digproj</b> con todo el proyecto.</li>
+<li><b>Guardar con otro nombre:</b> <span class="key">&nbsp;Ctrl+Shift+S&nbsp;</span>.</li>
+<li><b>Abrir un proyecto:</b> <b>Archivo → Abrir proyecto…</b></li>
+</ul>
+<table width="100%" cellspacing="0" cellpadding="12"><tr>
+<td width="6" bgcolor="{{warn_border}}"></td><td bgcolor="{{warn}}">
+<b>Atención:</b> si ves un punto <b style="color:{{danger_border}};">●</b> junto al título,
+hay cambios sin guardar. Guarda a menudo.
+</td></tr></table>
+</section>
+
+<section data-title="Moverse por el plano">
+<table width="100%" cellspacing="4" cellpadding="10">
+<tr><th align="left">Quiero…</th><th align="left">Cómo se hace</th></tr>
+<tr><td bgcolor="{{card}}">Acercar o alejar</td><td bgcolor="{{card}}">Girar la <b>rueda del mouse</b>, o los botones de lupa de la barra superior.</td></tr>
+<tr><td bgcolor="{{card}}">Mover el plano</td><td bgcolor="{{card}}">Mantener apretada la <b>rueda</b> (botón central) y arrastrar.</td></tr>
+<tr><td bgcolor="{{card}}">Cambiar de página del PDF</td><td bgcolor="{{card}}">Sección <b>Vista y páginas</b>, flechas ◀ ▶.</td></tr>
+<tr><td bgcolor="{{card}}">Ver mejor mis líneas</td><td bgcolor="{{card}}">Botón <b>Opacidad</b>: aclara solo el PDF. También puedes poner el fondo blanco o negro.</td></tr>
+<tr><td bgcolor="{{card}}">Cambiar a modo oscuro o claro</td><td bgcolor="{{card}}">Menú <b>Ver</b> → tema claro / oscuro.</td></tr>
+<tr><td bgcolor="{{card}}">Cambiar el idioma</td><td bgcolor="{{card}}"><b>Archivo → Opciones…</b> → Idioma. Cambia al instante.</td></tr>
+</table>
+</section>
+
+<section data-title="Planos PDF de CAD (asistente)">
+<p>Cuando el PDF viene directo de CAD, la app puede <b>leer las líneas del plano</b> y ahorrarte
+dibujarlas. El asistente tiene 3 pantallas:</p>
+
+<h2>1. Componer hoja de trabajo</h2>
+<ol>
+<li>A la izquierda eliges el PDF y la hoja (puedes <b>agregar más PDF</b>).</li>
+<li>En el centro marcas con un rectángulo la parte del plano que necesitas y pulsas
+    <span class="btn">Tomar área</span> (o <span class="btn">Tomar hoja completa</span>).</li>
+<li>A la derecha colocas cada pieza en su sitio. Con el <b>Imán</b> activo, las líneas de dos
+    piezas vecinas se pegan solas; con <b>Puentes</b>, se completan los huecos entre hojas.</li>
+<li>Puedes <b>girar</b> una pieza o corregir su <b>escala</b> si la hoja no la trae escrita.</li>
+</ol>
+
+<h2>2. Capas de la hoja</h2>
+<ul>
+<li>Las capas del plano aparecen agrupadas por utilidad (Agua, Alcantarillado, Drenaje, Gas,
+    Eléctrico, Telefonía, Otras), cada una con su color.</li>
+<li>Desmarca lo que <b>no</b> necesitas: se oculta del plano y no se usa al reconocer.</li>
+<li>Con <b>◀ Hoja N / M ▶</b> cambias de hoja sin salir.</li>
+</ul>
+
+<h2>3. Vista previa del reconocimiento</h2>
+<ul>
+<li>Muestra las líneas eléctricas que encontró, sus bóvedas y el porcentaje revisado.</li>
+<li><span class="btn">Continuar e importar al editor</span> las agrega al proyecto como tuberías.</li>
+<li>Las líneas <b>abandonadas</b> (capa «-A» con marcas «/») se importan marcadas como
+    <b>(AB)</b>. Los <b>codos</b> curvos del plano se importan con su radio real.</li>
+</ul>
+<table width="100%" cellspacing="0" cellpadding="12"><tr>
+<td width="6" bgcolor="{{tip_border}}"></td><td bgcolor="{{tip}}">
+<b>Consejo:</b> si algo no se reconoce, siempre puedes dibujarlo a mano (capítulo siguiente).
+</td></tr></table>
+</section>
+
+<section data-title="Dibujar una tubería">
+<ol>
+<li>Abre la sección <b>Dibujar utilidad</b> del panel izquierdo.</li>
+<li>Elige el <b>tipo</b>: agua, alcantarillado, drenaje, gas, eléctrico o telecomunicaciones.</li>
+<li>Haz <b>clic</b> en el plano en cada punto por donde pasa la tubería.</li>
+<li>Pulsa <span class="key">&nbsp;Enter&nbsp;</span> para terminar.</li>
+</ol>
+
+<h2>El imán verde (para empalmar bien)</h2>
+<p>Al acercarte a otra tubería del mismo tipo aparece una marca verde. Su forma dice a qué se va a pegar el clic:</p>
+<table width="100%" cellspacing="4" cellpadding="8">
+<tr><td bgcolor="{{card}}" width="44" align="center"><img src="mark:snap_extremo"></td>
+    <td bgcolor="{{card}}"><b>Círculo:</b> al extremo (el final) de otra tubería.</td></tr>
+<tr><td bgcolor="{{card}}" align="center"><img src="mark:snap_vertice"></td>
+    <td bgcolor="{{card}}"><b>Cuadrado:</b> a un vértice (un quiebre) de otra tubería.</td></tr>
+<tr><td bgcolor="{{card}}" align="center"><img src="mark:snap_tramo"></td>
+    <td bgcolor="{{card}}"><b>Triángulo:</b> a un punto en medio de un tramo.</td></tr>
+</table>
+<p>Si empiezas en el extremo de otra tubería del mismo tipo, la app pregunta si quieres
+<b>continuarla</b> (misma utilidad) o <b>crear una nueva</b> que la toca.</p>
+
+<table width="100%" cellspacing="0" cellpadding="12"><tr>
+<td width="6" bgcolor="{{tip_border}}"></td><td bgcolor="{{tip}}">
+<b>Consejo:</b> para corregir, selecciona la tubería en la lista y usa
+<b>Editar/mover</b> (clic derecho), o <b>Mover con precisión</b> para mover por distancia exacta.
+</td></tr></table>
+</section>
+
+<section data-title="Datos de la tubería">
+<p>Selecciona la tubería en la lista <b>Utilidades</b>. En el panel <b>Propiedades</b>:</p>
+<table width="100%" cellspacing="4" cellpadding="10">
+<tr><th align="left" width="30%">Campo</th><th align="left">Para qué sirve</th></tr>
+<tr><td bgcolor="{{card}}"><b>Nombre</b></td><td bgcolor="{{card}}">Nombre de la red en Civil 3D (por ejemplo «Linea Norte»). Si lo dejas vacío, la red se llama RED-AGUA, RED-GAS, etc.</td></tr>
+<tr><td bgcolor="{{card}}"><b>Familia y Tamaño</b></td><td bgcolor="{{card}}">Pieza del catálogo de Civil 3D. Se listan según la versión e idioma elegidos en la barra superior.</td></tr>
+<tr><td bgcolor="{{card}}"><b>Elevación inicial / final</b></td><td bgcolor="{{card}}">Cota del fondo de la tubería (en pies) al empezar y al terminar.</td></tr>
+<tr><td bgcolor="{{card}}"><b>Material</b></td><td bgcolor="{{card}}">De una lista fija que coincide con el catálogo.</td></tr>
+<tr><td bgcolor="{{card}}"><b>Abandonado</b></td><td bgcolor="{{card}}">Marca una tubería fuera de servicio. En Civil 3D se ve a trazos en 3D.</td></tr>
+<tr><td bgcolor="{{card}}"><b>Cotas por tramo</b></td><td bgcolor="{{card}}">Pulsa «Activar edición por tramo» para poner una cota distinta a cada tramo (T1, T2…).</td></tr>
+</table>
+
+<table width="100%" cellspacing="0" cellpadding="12"><tr>
+<td width="6" bgcolor="{{info_border}}"></td><td bgcolor="{{info}}">
+<b>Importante sobre el nombre:</b> el nombre solo sirve para identificar la red. Dos tuberías
+del <b>mismo tipo</b> que se tocan se unen en Civil 3D <b>aunque tengan nombres distintos</b>:
+quedan en la red del primer nombre.
+</td></tr></table>
+
+<h2>Curvas</h2>
+<p>En la lista <b>Curvas</b> puedes convertir un quiebre en curva y darle su <b>radio</b>
+(en pies). Si el número se pone rojo, el radio no cabe en los tramos vecinos: la app te dice
+el máximo permitido.</p>
+</section>
+
+<section data-title="Buzones y cajas">
+<ul>
+<li>La app pone sola un <b>buzón</b> (BZ-) en cada vértice de alcantarillado y drenaje, y una
+    <b>caja</b> (CAJA-) en las redes eléctricas y de telecomunicaciones.</li>
+<li>En la lista <b>Buzones</b> cambias su familia, tamaño y cotas.</li>
+<li>Para agregar uno en medio de una línea: <b>Herramientas → Insertar buzón en línea…</b></li>
+<li><b>Ocultar buzón</b> quita un buzón que en realidad no existe; la red sigue unida.</li>
+</ul>
+<table width="100%" cellspacing="0" cellpadding="12"><tr>
+<td width="6" bgcolor="{{info_border}}"></td><td bgcolor="{{info}}">
+Agua y gas van <b>a presión</b>: no llevan buzones. Donde se juntan tuberías, Civil 3D pone
+un accesorio (codo, Tee, Wye o cruz).
+</td></tr></table>
+</section>
+
+<section data-title="Notas, flechas y zonas">
+<table width="100%" cellspacing="4" cellpadding="10">
+<tr><td bgcolor="{{card}}" width="30%"><b>Leader</b> (flecha)</td><td bgcolor="{{card}}">Elige la orientación, clic en la punta y clic en el final.</td></tr>
+<tr><td bgcolor="{{card}}"><b>Texto libre</b></td><td bgcolor="{{card}}">Clic donde va el texto, escribe y pulsa <span class="key">&nbsp;Enter&nbsp;</span>.</td></tr>
+<tr><td bgcolor="{{card}}"><b>Borrar zona</b></td><td bgcolor="{{card}}">Dibuja un contorno cerrado: esa parte del plano no se exporta.</td></tr>
+<tr><td bgcolor="{{card}}"><b>Trazar centerline</b></td><td bgcolor="{{card}}">Línea de referencia sobre el eje de una calle. No es una tubería; ayuda a georreferenciar.</td></tr>
+</table>
+</section>
+
+<section data-title="Bancoductos (Duct Bank)">
+<p>Un bancoducto es un bloque de concreto con varios conductos adentro.</p>
+<ol>
+<li>Clic derecho sobre una tubería eléctrica o de telecomunicaciones →
+    <b>Crear bancoducto para esta tubería</b> (o el botón <b>Abrir diseñador de Duct Bank</b>).</li>
+<li>Dibuja la sección: tamaño del bloque, márgenes y esquinas redondeadas.</li>
+<li>Agrega los conductos. La silueta sale <b style="color:#2ea44f;">verde</b> si cabe y
+    <b style="color:#d23c3c;">roja</b> si rompe una regla (separación mínima o distancia al borde).</li>
+<li><span class="btn">Guardar y cerrar</span>. En Civil 3D se crea el bloque 3D con sus conductos.</li>
+</ol>
+<table width="100%" cellspacing="0" cellpadding="12"><tr>
+<td width="6" bgcolor="{{tip_border}}"></td><td bgcolor="{{tip}}">
+<b>Consejo:</b> el botón <b>Mostrar medidas</b> dibuja las distancias entre conductos.
+<span class="key">&nbsp;Esc&nbsp;</span> suelta la herramienta activa sin cerrar la ventana.
+</td></tr></table>
+</section>
+
+<section data-title="Señales de colores en el plano">
+<p>Mientras dibujas, la app revisa el diseño y pone <b>señales</b> donde algo necesita tu
+atención. <b>Pasa el mouse</b> sobre una señal para leer qué pasa, o <b>haz clic</b> para ver
+el detalle. Solo aparecen en los cruces y uniones de tuberías.</p>
+
+<h2>Leyenda</h2>
+<table width="100%" cellspacing="4" cellpadding="10">
+<tr><th width="76">Señal</th><th align="left">Qué significa</th><th align="left">Qué hacer</th></tr>
+<tr><td bgcolor="{{card}}" align="center"><img src="mark:conflicto"></td>
+    <td bgcolor="{{card}}"><b>Amarillo con «!»</b><br>Dos tuberías se tocan <b>a la misma cota</b>.
+        Si son del mismo tipo y se unen (una termina en la otra), el mensaje te dice qué accesorio
+        pondrá Civil 3D. Si solo se cruzan, <b>chocan</b>.</td>
+    <td bgcolor="{{card}}">Si es una unión, nada. Si chocan, cambia la cota de una o corrige el dibujo.</td></tr>
+<tr><td bgcolor="{{card}}" align="center"><img src="mark:sugerencia"></td>
+    <td bgcolor="{{card}}"><b>Azul con «↕»</b><br>Dos tuberías del mismo tipo se cruzan a
+        <b>cotas distintas</b>: una pasa por encima de la otra.</td>
+    <td bgcolor="{{card}}">Haz clic si quieres <b>unirlas con una tubería vertical</b>.</td></tr>
+<tr><td bgcolor="{{card}}" align="center"><img src="mark:aprobado"></td>
+    <td bgcolor="{{card}}"><b>Verde con «✓»</b><br>Unión vertical <b>aprobada</b>: Civil 3D la dibujará.</td>
+    <td bgcolor="{{card}}">Haz clic si quieres quitar la aprobación.</td></tr>
+<tr><td bgcolor="{{card}}" align="center"><img src="mark:alerta"></td>
+    <td bgcolor="{{card}}"><b>Triángulo rojo</b><br>Civil 3D <b>no podrá dibujarlo tal cual</b>.
+        El mensaje dice qué hará en su lugar (ver la página siguiente).</td>
+    <td bgcolor="{{card}}">Lee el mensaje y decide si corriges el dibujo.</td></tr>
+</table>
+<p class="small">Las señales se pueden ocultar desde el menú Ver («Mostrar cruces/conflictos»).
+La barra de estado, abajo, cuenta cuántas hay de cada tipo.</p>
+</section>
+
+<section data-title="Alertas rojas: cuándo salen">
+<p>El triángulo rojo <img src="mark:alerta"> aparece en estos casos. Todos se refieren a redes
+<b>a presión</b> (agua y gas), salvo «redes distintas».</p>
+<table width="100%" cellspacing="4" cellpadding="10">
+<tr><th align="left" width="24%">Caso</th><th align="left">Cuándo sale</th><th align="left">Qué hará Civil 3D</th></tr>
+<tr><td bgcolor="{{danger}}"><b>Demasiadas tuberías</b></td>
+    <td bgcolor="{{card}}">5 o más tuberías se juntan en el mismo punto a la misma cota.</td>
+    <td bgcolor="{{card}}">No pondrá ningún accesorio ahí. <b>Corrige el dibujo.</b></td></tr>
+<tr><td bgcolor="{{danger}}"><b>Redes distintas</b></td>
+    <td bgcolor="{{card}}">Dos utilidades de <b>distinto tipo</b> (por ejemplo agua y drenaje) se cruzan a la misma cota.</td>
+    <td bgcolor="{{card}}">No las une: quedarán chocando. Cambia la cota de una.</td></tr>
+<tr><td bgcolor="{{danger}}"><b>Escalón de cota</b></td>
+    <td bgcolor="{{card}}">En un vértice de una misma tubería, el tramo que llega y el que sale tienen cotas distintas.</td>
+    <td bgcolor="{{card}}">Unirá los dos tramos a la <b>cota promedio</b>.</td></tr>
+<tr><td bgcolor="{{danger}}"><b>Tramo muy corto entre codos</b></td>
+    <td bgcolor="{{card}}">Entre dos quiebres seguidos hay un tramo más corto que 3 diámetros (mínimo 1 pie).</td>
+    <td bgcolor="{{card}}">Pondrá <b>un solo codo</b> en lugar de dos.</td></tr>
+<tr><td bgcolor="{{danger}}"><b>Conexión vertical con pendiente</b></td>
+    <td bgcolor="{{card}}">Una unión vertical aprobada en un quiebre tiene muy poco desnivel para dos codos.</td>
+    <td bgcolor="{{card}}">Pondrá una Wye con el ramal inclinado y la tubería que llega tendrá <b>pendiente</b>.</td></tr>
+</table>
+<table width="100%" cellspacing="0" cellpadding="12"><tr>
+<td width="6" bgcolor="{{info_border}}"></td><td bgcolor="{{info}}">
+En drenaje y alcantarillado estas alertas no salen: ahí el buzón resuelve los desniveles y las uniones.
+</td></tr></table>
+</section>
+
+<section data-title="Georreferenciar (opcional)">
+<p>Sirve para que el plano quede en su <b>ubicación real</b> (coordenadas de Los Ángeles,
+EPSG:2229). Es para anteproyecto: el dato exacto viene de la topografía.</p>
+<ol>
+<li><b>Herramientas → Georreferenciar…</b></li>
+<li>En el mapa de la <b>derecha</b>, escribe una dirección o un cruce de calles y pulsa
+    <span class="btn">Buscar y descargar</span>.</li>
+<li>Haz clic en un punto del <b>plano</b> (izquierda) y luego en el <b>mismo punto</b> del mapa.
+    Los clics se pegan solos a cruces y esquinas.</li>
+<li>Repite con <b>3 o más</b> puntos, mejor separados entre sí.</li>
+<li>Pulsa <span class="btn">Ajustar + RMSE</span>. El RMSE es el error promedio en pies: cuanto más bajo, mejor.</li>
+<li>Pulsa <span class="btn">Guardar georreferenciación</span>.</li>
+</ol>
+<p><span class="key">&nbsp;Ctrl+Z&nbsp;</span> borra el último punto. Si conoces el código del
+sistema de coordenadas de Civil 3D (por ejemplo <b>CA83VF</b>), escríbelo y el dibujo quedará configurado.</p>
+</section>
+
+<section data-title="Exportar y abrir en Civil 3D">
+<h2>En la app</h2>
+<ol>
+<li>Revisa que no queden señales rojas que no entiendas.</li>
+<li>Arriba, elige tu versión de <b>Civil 3D</b> (2025, 2026 o 2027) y su <b>idioma</b>.</li>
+<li>Pulsa <span class="btn">Exportar DXF</span> y elige dónde guardarlo.</li>
+</ol>
+<h2>En Civil 3D</h2>
+<ol>
+<li>Abre el panel del plugin (comando <b>PANEL_REDES</b>).</li>
+<li>Pulsa <b>Importar red desde DXF</b> y elige el archivo.</li>
+<li>Se crean solas las redes con sus tuberías, buzones, curvas y bancoductos.</li>
+</ol>
+<h2>Qué verás en 3D</h2>
+<ul>
+<li>En agua y gas, las uniones llevan <b>accesorios sólidos</b>: <b>codo</b> (quiebre),
+    <b>Tee</b> (ramal a 90°), <b>Wye</b> (ramal en ángulo) y <b>cruz</b> (4 tuberías). Las
+    tuberías entran en la campana del accesorio.</li>
+<li>Cada accesorio guarda sus datos (tipo, ángulo, diámetros, material, red) en sus propiedades.</li>
+<li>Las uniones verticales aprobadas se dibujan con codos y un tramo vertical.</li>
+</ul>
+<table width="100%" cellspacing="0" cellpadding="12"><tr>
+<td width="6" bgcolor="{{warn_border}}"></td><td bgcolor="{{warn}}">
+<b>Atención:</b> si usas familias propias, instálalas antes con
+<b>Herramientas → Instalar familia personalizada…</b> y luego ejecuta <b>PREPARAR_FAMILIAS</b> en Civil 3D.
+</td></tr></table>
+</section>
+
+<section data-title="Property Sets con Excel">
+<p>Para agregar información extra a las tuberías en Civil 3D (fecha de instalación, especificación…):</p>
+<ol>
+<li>En el panel del plugin: <b>Exportar tuberías a Excel</b>. Se crea una hoja con el nombre y tipo de cada tubería.</li>
+<li>En Excel, agrega una <b>columna por dato</b> y llénala. Deja vacío lo que no aplique.</li>
+<li>En el panel: <b>Importar Property Sets desde Excel</b>.</li>
+<li>Compruébalo en Civil 3D: selecciona una tubería → Propiedades → Extended Data.</li>
+</ol>
+<p class="small">Puedes importar el mismo archivo varias veces: no se duplica nada.</p>
+<h2>Datos de los accesorios (codos, tees, wyes, cruces)</h2>
+<p>Cada accesorio que crea el plugin trae sus datos solo, sin hacer nada.
+Selecciónalo → <b>Propiedades → Extended Data → PDFCAD_Accesorio</b>:</p>
+<ul>
+<li><b>Tipo_Accesorio</b>: Codo, Tee, Wye o Cruz.</li>
+<li><b>Angulo_Grados</b>: el ángulo de la pieza.</li>
+<li><b>Diametro_Pulg</b>: el diámetro («12 x 8» si una salida es más chica).</li>
+<li><b>Material</b>: el de la tubería.</li>
+<li><b>Cota_Eje_Pies</b>: la elevación del centro de la pieza.</li>
+</ul>
+<p class="small">¿Un dibujo importado con una versión anterior? Escribe <b>PS_ACCESORIOS</b> en Civil 3D
+y los accesorios reciben estos datos.</p>
+</section>
+
+<section data-title="Preguntas frecuentes">
+<h2>No veo mis tuberías en Civil 3D</h2>
+<p>Revisa que elegiste la misma versión e idioma de Civil 3D en la barra superior, y que las
+tuberías tienen <b>cotas</b>.</p>
+<h2>Sale una señal amarilla donde dos tuberías se unen</h2>
+<p>Es normal: pasa el mouse encima y verás qué accesorio pondrá Civil 3D. Si dice que chocan, corrige la cota.</p>
+<h2>Cambié el nombre de una tubería y ahora está en otra red</h2>
+<p>Las tuberías del mismo tipo que se tocan siempre quedan en la misma red; toma el nombre de la primera.</p>
+<h2>Me equivoqué</h2>
+<p><span class="key">&nbsp;Ctrl+Z&nbsp;</span> deshace. Si cerraste sin guardar, abre el último .digproj guardado.</p>
+<h2>Más ayuda</h2>
+<p><b>Ayuda → Atajos de teclado</b> muestra todas las teclas rápidas. <b>Ayuda → Acerca de…</b> muestra las novedades de cada versión.</p>
+</section>

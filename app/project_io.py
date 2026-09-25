@@ -53,6 +53,10 @@ def build_model_dict(win):
         tf=dict(scale=win.scale, zoom=win.zoom, rot=win.rot, W=win.W, H=win.H,
                 derot=[win.derot.a, win.derot.b, win.derot.c,
                        win.derot.d, win.derot.e, win.derot.f]),
+        # Proyecto sobre hoja en blanco: no hay source.pdf en el zip, y al
+        # reabrir hay que saberlo para no dar el aviso de «falta el PDF».
+        blank_canvas=bool(getattr(win, "blank_canvas", False)),
+        paper=getattr(win, "paper", None),
         pdf_name=os.path.basename(win.pdf_path or ""), version=VERSION)
 
 
@@ -109,4 +113,8 @@ def parse_model(model):
         hidden_ocgs=list(model.get("hidden_ocgs") or []),
         scale_override=model.get("scale_override"),
         page_idx=model.get("page_idx", 0),
+        # Retrocompat: los proyectos anteriores no traen estas claves y son
+        # todos con PDF, así que el default False/None es el correcto.
+        blank_canvas=bool(model.get("blank_canvas", False)),
+        paper=model.get("paper"),
     )

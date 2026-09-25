@@ -29,6 +29,7 @@ import vector_pipeline as VP
 import recognition_geom as geom
 import routes as routes_mod
 from sheet_crops import page_rect as crop_page_rect, drawing_polygon
+from i18n_core import t as _tr   # avisos de QA en el idioma activo
 
 # Tokens locales — NO modificar config.LAYER_TOKENS del export.
 # Orden: más específico primero.
@@ -465,35 +466,38 @@ def recognize_page(
         polylines_raw.extend(stubs)
 
         if not any(p.kind == "elec_ungd" and p.pts_pdf for p in polylines):
-            warnings.append("No se encontraron líneas eléctricas subterráneas en esta hoja.")
+            warnings.append(_tr("No se encontraron líneas eléctricas subterráneas en esta hoja."))
         if not path_counts:
-            warnings.append("Ninguna capa OCG coincidió con los roles / tokens de reconocimiento.")
+            warnings.append(_tr("Ninguna capa OCG coincidió con los roles / tokens de reconocimiento."))
         n_ab = sum(1 for p in polylines if p.kind == "elec_ungd" and p.pts_pdf and p.abandoned)
         if n_ab:
-            warnings.append(f"Utilidades abandonadas (capa «-A» + patrón «/»): {n_ab} — se importan marcadas (AB).")
+            warnings.append(_tr("Utilidades abandonadas (capa «-A» + patrón «/»): {n} — "
+                                "se importan marcadas (AB).").format(n=n_ab))
         if n_layer_no_pattern:
-            warnings.append(f"Capa «-A» sin el patrón de marcadores «/» a lo largo de la línea: "
-                            f"{n_layer_no_pattern} — NO se marcan como abandonadas.")
+            warnings.append(_tr("Capa «-A» sin el patrón de marcadores «/» a lo largo de la línea: "
+                                "{n} — NO se marcan como abandonadas.").format(n=n_layer_no_pattern))
         if n_active_with_pattern:
-            warnings.append(f"Patrón de marcadores «/» en una capa ACTIVA: {n_active_with_pattern} línea(s) "
-                            "— se importan activas (manda la capa); revisar.")
+            warnings.append(_tr("Patrón de marcadores «/» en una capa ACTIVA: {n} línea(s) "
+                                "— se importan activas (manda la capa); revisar.").format(n=n_active_with_pattern))
         if n_segments_total > n_routes:
-            warnings.append(
-                f"Rutas: {n_routes} (unen {n_segments_total} tramos de la misma capa).")
+            warnings.append(_tr("Rutas: {n} (unen {tramos} tramos de la misma capa).").format(
+                n=n_routes, tramos=n_segments_total))
         if n_glyphs:
-            warnings.append(
-                f"Se omitieron {n_glyphs} trazos de marcador/linetype (letras, barras); "
-                "solo se dibuja la centerline.")
+            warnings.append(_tr("Se omitieron {n} trazos de marcador/linetype (letras, barras); "
+                                "solo se dibuja la centerline.").format(n=n_glyphs))
         if n_dashes:
-            warnings.append(f"Cobertura de guiones: {coverage_total * 100:.1f}%"
-                            + (f" ({n_uncovered} sin cubrir, en naranja)." if n_uncovered else "."))
+            pct = coverage_total * 100
+            warnings.append(_tr("Cobertura de guiones: {pct:.1f}% ({n} sin cubrir, en naranja).").format(
+                pct=pct, n=n_uncovered) if n_uncovered else
+                _tr("Cobertura de guiones: {pct:.1f}%.").format(pct=pct))
         if n_offpattern:
-            warnings.append(f"Trazos continuos fuera de patrón (leaders/flechas): {n_offpattern} — "
-                            "no se importan.")
+            warnings.append(_tr("Trazos continuos fuera de patrón (leaders/flechas): {n} — "
+                                "no se importan.").format(n=n_offpattern))
         if vault_pts:
-            warnings.append(f"Bóvedas detectadas: {len(vault_pts)} (ya son vértices de las líneas).")
+            warnings.append(_tr("Bóvedas detectadas: {n} (ya son vértices de las líneas).").format(
+                n=len(vault_pts)))
         if orphans_px:
-            warnings.append(f"Bóvedas sin línea cercana: {len(orphans_px)}.")
+            warnings.append(_tr("Bóvedas sin línea cercana: {n}.").format(n=len(orphans_px)))
 
         roles_out = roles if use_roles else roles_from_suggestions(list(kind_by_ocg.keys()))
         return RecognitionResult(

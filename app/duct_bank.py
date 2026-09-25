@@ -20,6 +20,8 @@ testeable en headless.
 from dataclasses import dataclass, field, asdict
 from typing import List, Dict, Any
 
+from i18n_core import t as _tr
+
 # Diámetros típicos para conductos de duct bank (pulgadas). No hay uno "estándar"
 # fijo — depende del proyecto — pero cubrimos el 95% de lo que un cliente usa
 # (telecom 2", eléctrico 4"–6"). Fuera de esta lista, el usuario puede tipear
@@ -234,20 +236,20 @@ def validate(db: DuctBank) -> List[str]:
     errs: List[str] = []
     # ── Chequeos básicos (SIEMPRE) ─────────────────────────────────────────
     if db.width_in <= 0 or db.height_in <= 0:
-        errs.append("La envolvente debe tener ancho y alto positivos.")
+        errs.append(_tr("La envolvente debe tener ancho y alto positivos."))
     if len(db.conduits) > MAX_CONDUITS:
-        errs.append(f"Demasiados conductos ({len(db.conduits)} > {MAX_CONDUITS}).")
+        errs.append(_tr("Demasiados conductos ({n} > {max}).").format(n=len(db.conduits), max=MAX_CONDUITS))
     for i, c in enumerate(db.conduits, start=1):
         if c.diam <= 0:
-            errs.append(f"Conducto {i}: diámetro debe ser > 0.")
+            errs.append(_tr("Conducto {i}: diámetro debe ser > 0.").format(i=i))
             continue
         if not conduit_fits_envelope(db, c):
-            errs.append(f"Conducto {i}: sale de la envolvente.")
+            errs.append(_tr("Conducto {i}: sale de la envolvente.").format(i=i))
     # Solapes (marcado suave: informa pero no bloquea, algunos diseños tocan)
     for i in range(len(db.conduits)):
         for j in range(i + 1, len(db.conduits)):
             if conduits_overlap(db.conduits[i], db.conduits[j], tol=-1e-6):
-                errs.append(f"Conductos {i + 1} y {j + 1} se solapan.")
+                errs.append(_tr("Conductos {i} y {j} se solapan.").format(i=i + 1, j=j + 1))
 
     # ── Reglas custom (solo si el usuario las activó) ──────────────────────
     if not db.rules_enabled:
@@ -261,8 +263,8 @@ def validate(db: DuctBank) -> List[str]:
             # conduit_fits_envelope(margin=edge) exige que el borde del conducto
             # esté al menos `edge`" del borde de la envolvente.
             if not conduit_fits_envelope(db, c, margin=edge):
-                errs.append(f"Conducto {i}: viola distancia mínima al borde "
-                            f'({edge:g}").')
+                errs.append(_tr('Conducto {i}: viola distancia mínima al borde ({d:g}").')
+                            .format(i=i, d=edge))
 
     # Separación mínima entre conductos (borde a borde)
     sep = float(db.rule_min_conduit_sep_in)
@@ -272,6 +274,6 @@ def validate(db: DuctBank) -> List[str]:
                 # conduits_overlap(tol=sep) es True si distancia < r_i + r_j + sep
                 # es decir, si el hueco borde-borde entre ellos es < sep.
                 if conduits_overlap(db.conduits[i], db.conduits[j], tol=sep):
-                    errs.append(f"Conductos {i + 1} y {j + 1}: separación "
-                                f'menor a {sep:g}" entre bordes.')
+                    errs.append(_tr('Conductos {i} y {j}: separación menor a {d:g}" entre bordes.')
+                                .format(i=i + 1, j=j + 1, d=sep))
     return errs

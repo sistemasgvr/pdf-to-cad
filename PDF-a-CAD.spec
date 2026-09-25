@@ -7,6 +7,9 @@ datas = [
     # extrae `icons.py` a la raíz del bundle (_MEIPASS), así que el destino
     # correcto es 'icons' (NO 'app/icons') para que _ICONS_DIR los encuentre.
     ('app/icons', 'icons'),
+    # Documentos por idioma (manual.es.html, manual.en.html): `i18n.load_doc`
+    # los busca en `<carpeta-de-i18n.py>/docs`, que en el bundle es _MEIPASS/docs.
+    ('app/docs', 'docs'),
 ]
 binaries = []
 hiddenimports = []

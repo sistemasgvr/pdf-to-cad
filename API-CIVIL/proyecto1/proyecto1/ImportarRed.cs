@@ -61,11 +61,25 @@ namespace Civil3DBasico
         public void ImportarRed()
         {
             _dbg.Clear();
+            // Registro de piezas sólidas de ESTE import (lo consultan las
+            // conexiones verticales para reemplazar un codo por una Wye).
+            WyeSolido.Creadas.Clear();
             Dbg("IMPORTAR_RED_INICIO", ("timestamp", DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss")));
             Document doc = Application.DocumentManager.MdiActiveDocument;
             Editor ed = doc.Editor;
             Database db = doc.Database;
             CivilDocument civilDoc = CivilApplication.ActiveDocument;
+
+            // Qué DLL está corriendo de verdad. NETLOAD en la misma sesión NO
+            // reemplaza un ensamblado ya cargado (.NET no los descarga): sin esta
+            // línea, una prueba con el plugin viejo parece un fallo del nuevo.
+            try
+            {
+                string dll = System.Reflection.Assembly.GetExecutingAssembly().Location;
+                ed.WriteMessage($"\n· Plugin: {System.IO.Path.GetFileName(dll)} compilado " +
+                    $"{System.IO.File.GetLastWriteTime(dll):yyyy-MM-dd HH:mm} — {dll}");
+            }
+            catch { }
 
             // ── 0. Forzar unidades imperiales (pies) antes de leer cotas ────
             ComandosUnidades.ForzarImperial(db, ed, true);
@@ -165,6 +179,7 @@ namespace Civil3DBasico
                             VertexInv = vertexInv,
                             VertexInvIn = vertexInvIn,
                             Abandoned = XdStr(xd, "ABANDONED", "0").Trim() == "1",
+                            NetName = XdStr(xd, "NET_NAME", ""),
                             PipeIdx = string.IsNullOrWhiteSpace(XdStr(xd, "PIPE_IDX", "")) ? -1 : (int)XdDouble(xd, "PIPE_IDX"),
                             HasDuctBank = XdStr(xd, "HAS_DUCT_BANK", "0").Trim() == "1",
                         });
@@ -380,14 +395,16 @@ namespace Civil3DBasico
             var presion = new Dictionary<string, List<ImportPipe>>(StringComparer.OrdinalIgnoreCase);
 
             var conduit = new Dictionary<string, List<ImportPipe>>(StringComparer.OrdinalIgnoreCase);
+            var redPorTubo = RedesUnidasPorContacto(pipes);
             foreach (var p in pipes)
             {
+                string grpKey = redPorTubo[p];
                 if (p.NetKind.Equals("pressure", StringComparison.OrdinalIgnoreCase))
-                    DictAdd(presion, p.Layer, p);
+                    DictAdd(presion, grpKey, p);
                 else if (p.NetKind.Equals("conduit", StringComparison.OrdinalIgnoreCase))
-                    DictAdd(conduit, p.Layer, p);        // eléctrico/telecom → red sin buzones
+                    DictAdd(conduit, grpKey, p);
                 else
-                    DictAdd(gravedad, p.Layer, p);
+                    DictAdd(gravedad, grpKey, p);
             }
 
             // ── 3. Auto-detectar superficie (sin prompt) ────────────────────
@@ -437,7 +454,8 @@ namespace Civil3DBasico
             var alignmentsPendientes = new List<DatosAlignment>();
             foreach (var kv in gravedad)
             {
-                string netName = $"RED-{kv.Key}";
+                bool hasCustomName = kv.Value.Any(pp => !string.IsNullOrWhiteSpace(pp.NetName));
+                string netName = hasCustomName ? kv.Key : $"RED-{kv.Key}";
                 using (Transaction tr = db.TransactionManager.StartTransaction())
                 {
                     try
@@ -460,7 +478,8 @@ namespace Civil3DBasico
             // ── 4b. Redes de CONDUIT (eléctrico/telecom) — pipe network sin buzones ──
             foreach (var kv in conduit)
             {
-                string netName = $"RED-{kv.Key}";
+                bool hasCustomName = kv.Value.Any(pp => !string.IsNullOrWhiteSpace(pp.NetName));
+                string netName = hasCustomName ? kv.Key : $"RED-{kv.Key}";
                 using (Transaction tr = db.TransactionManager.StartTransaction())
                 {
                     try
@@ -547,7 +566,8 @@ namespace Civil3DBasico
             var createdPresIds = new List<ObjectId>();
             foreach (var kv in presion)
             {
-                string netName = $"RED-{kv.Key}";
+                bool hasCustomName = kv.Value.Any(pp => !string.IsNullOrWhiteSpace(pp.NetName));
+                string netName = hasCustomName ? kv.Key : $"RED-{kv.Key}";
                 using (Transaction tr = db.TransactionManager.StartTransaction())
                 {
                     try
@@ -2222,40 +2242,109 @@ namespace Civil3DBasico
                 porRaiz[r].Add(i);
             }
 
-            // Para cada componente: concatenar trazas en el orden que aparecen,
-            // pero dedupear vértices consecutivos idénticos (para evitar puntos
-            // repetidos entre pipes que comparten un buzón interno).
+            // Para cada componente: armar CADENAS de tubos unidos extremo con
+            // extremo, y un alineamiento por cadena.
+            //
+            // Antes se concatenaban las trazas de todo el componente en el orden
+            // de la lista. Si un tubo no empezaba donde terminaba el anterior (en
+            // una cruz, una T, una Y o una conexión vertical), la polilínea
+            // saltaba en línea recta de un extremo a otro: aparecía un eje que no
+            // pasaba por ningún tubo. Ahora una cadena solo continúa en un punto
+            // donde se tocan EXACTAMENTE dos extremos y ningún otro tubo pasa por
+            // ahí (un empalme simple). En cualquier otra juntura cada tubo sigue
+            // en su propia cadena. Así cada tramo de un eje está sobre un tubo.
             foreach (var kv in porRaiz)
             {
-                var traza = new List<TrazaPt>();
-                ObjectId startSt = ObjectId.Null, endSt = ObjectId.Null;
-                foreach (int i in kv.Value)
+                var miembros = kv.Value;
+                // Extremos que caen en cada punto, y puntos por los que PASA un tubo.
+                var extremosEn = new Dictionary<string, int>();
+                var interiores = new HashSet<string>();
+                foreach (int i in miembros)
                 {
-                    var (pts, sSt, eSt) = pipeTrazas[i];
-                    foreach (var p in pts)
-                    {
-                        if (traza.Count > 0)
-                        {
-                            var prev = traza[traza.Count - 1];
-                            if (Math.Round(prev.P.X, 2) == Math.Round(p.P.X, 2) &&
-                                Math.Round(prev.P.Y, 2) == Math.Round(p.P.Y, 2))
-                            {
-                                // Duplicado en juntura: se descarta el punto, pero si
-                                // el descartado arrancaba un ARCO hay que trasladar su
-                                // bulge al que se queda — o la curva se perdería.
-                                if (Math.Abs(p.Bulge) > 1e-12 && Math.Abs(prev.Bulge) < 1e-12)
-                                    traza[traza.Count - 1] = new TrazaPt(prev.P, p.Bulge);
-                                continue;
-                            }
-                        }
-                        traza.Add(p);
-                    }
-                    if (startSt.IsNull) startSt = sSt;
-                    endSt = eSt;
+                    var pts = pipeTrazas[i].pts;
+                    if (pts.Count < 2) continue;
+                    foreach (string k in new[] { Key(pts[0].P), Key(pts[pts.Count - 1].P) })
+                        extremosEn[k] = extremosEn.TryGetValue(k, out int c) ? c + 1 : 1;
+                    for (int v = 1; v < pts.Count - 1; v++) interiores.Add(Key(pts[v].P));
                 }
-                if (traza.Count >= 2) salida.Add((traza, startSt, endSt));
+                bool EmpalmeSimple(string k) =>
+                    extremosEn.TryGetValue(k, out int c) && c == 2 && !interiores.Contains(k);
+
+                var usados = new HashSet<int>();
+                foreach (int semilla in miembros)
+                {
+                    if (usados.Contains(semilla) || pipeTrazas[semilla].pts.Count < 2) continue;
+                    usados.Add(semilla);
+                    var cadena = new List<TrazaPt>(pipeTrazas[semilla].pts);
+                    ObjectId startSt = pipeTrazas[semilla].startSt, endSt = pipeTrazas[semilla].endSt;
+
+                    // Hacia adelante: el siguiente tubo EMPIEZA donde termina la cadena.
+                    while (true)
+                    {
+                        string k = Key(cadena[cadena.Count - 1].P);
+                        if (!EmpalmeSimple(k)) break;
+                        int j = BuscarTuboConExtremo(miembros, usados, pipeTrazas, k, Key);
+                        if (j < 0) break;
+                        usados.Add(j);
+                        var (pts, sSt, eSt) = pipeTrazas[j];
+                        bool invertir = Key(pts[0].P) != k;
+                        var t = invertir ? InvertirTraza(pts) : pts;
+                        // El primer punto repite el último de la cadena: se omite,
+                        // pero su bulge (arco que arranca ahí) pasa al que se queda.
+                        cadena[cadena.Count - 1] = new TrazaPt(cadena[cadena.Count - 1].P, t[0].Bulge);
+                        for (int v = 1; v < t.Count; v++) cadena.Add(t[v]);
+                        endSt = invertir ? sSt : eSt;
+                    }
+                    // Hacia atrás: el tubo anterior TERMINA donde empieza la cadena.
+                    while (true)
+                    {
+                        string k = Key(cadena[0].P);
+                        if (!EmpalmeSimple(k)) break;
+                        int j = BuscarTuboConExtremo(miembros, usados, pipeTrazas, k, Key);
+                        if (j < 0) break;
+                        usados.Add(j);
+                        var (pts, sSt, eSt) = pipeTrazas[j];
+                        bool invertir = Key(pts[pts.Count - 1].P) != k;
+                        var t = invertir ? InvertirTraza(pts) : pts;
+                        // Se antepone sin su último punto (repetido); ese último
+                        // punto no lleva arco propio, así que no se pierde nada.
+                        cadena.InsertRange(0, t.Take(t.Count - 1));
+                        startSt = invertir ? eSt : sSt;
+                    }
+                    if (cadena.Count >= 2) salida.Add((cadena, startSt, endSt));
+                }
             }
             return salida;
+        }
+
+        // Tubo del componente, aún sin usar, con un EXTREMO en el punto `k`.
+        private static int BuscarTuboConExtremo(List<int> miembros, HashSet<int> usados,
+            List<(List<TrazaPt> pts, ObjectId startSt, ObjectId endSt)> pipeTrazas,
+            string k, Func<Point3d, string> key)
+        {
+            foreach (int j in miembros)
+            {
+                if (usados.Contains(j)) continue;
+                var pts = pipeTrazas[j].pts;
+                if (pts.Count < 2) continue;
+                if (key(pts[0].P) == k || key(pts[pts.Count - 1].P) == k) return j;
+            }
+            return -1;
+        }
+
+        // Traza recorrida al revés. El bulge del vértice i describe el tramo
+        // i→i+1; al invertir, ese tramo pasa a arrancar en el otro extremo y el
+        // arco gira en sentido contrario (signo cambiado).
+        private static List<TrazaPt> InvertirTraza(List<TrazaPt> pts)
+        {
+            int n = pts.Count;
+            var r = new List<TrazaPt>(n);
+            for (int k = 0; k < n; k++)
+            {
+                double b = k < n - 1 ? -pts[n - 2 - k].Bulge : 0.0;
+                r.Add(new TrazaPt(pts[n - 1 - k].P, b));
+            }
+            return r;
         }
 
         // Offset entre StartPoint.Z (eje del tubo) y la "Elevación de rasante" que
@@ -2351,6 +2440,12 @@ namespace Civil3DBasico
             CivilDB.PressurePipeNetwork net = (CivilDB.PressurePipeNetwork)tr.GetObject(netId, OpenMode.ForWrite);
             net.PartsListId = plId;
 
+            // Tubos que terminan a mitad de otro (misma cota) → T: se parte el
+            // tramo que pasa ANTES de crear nada, para que la juntura tenga sus
+            // 3 extremos.
+            FusionarCodosSeguidos(pipes, ed);
+            PartirTramosEnTes(pipes, ed);
+
             // Crear tuberías con matching per-pipe por diámetro
             int nPipes = 0;
             var createdPipeIds = new List<ObjectId>();
@@ -2358,8 +2453,24 @@ namespace Civil3DBasico
             // Traza per-pipe (para Union-Find de componentes conectados).
             var pipeTrazasPres = new List<List<TrazaPt>>();
 
+            // Trazabilidad Python → Civil 3D, por tubo creado: de qué utilidad de
+            // la app viene, qué tramo (T1, T2… como en la tabla «Cotas por
+            // tramo») y qué SOLERA pidió el usuario en cada extremo (puerto 0 =
+            // inicio, 1 = fin). Sirve para no unir utilidades distintas a cotas
+            // distintas y para contrastar al final lo pedido con lo obtenido.
+            var fuenteTubo = new Dictionary<ObjectId, int>();
+            var tramoTubo = new Dictionary<ObjectId, int>();
+            var etiquetaFuente = new Dictionary<int, string>();
+            var zPython = new Dictionary<(ObjectId, int), double>();
+            var xyPython = new Dictionary<(ObjectId, int), Point2d>();
+            int srcIdx = -1;
+
             foreach (var ip in pipes)
             {
+                srcIdx++;
+                etiquetaFuente[srcIdx] = ip.PipeIdx >= 0
+                    ? $"utilidad #{ip.PipeIdx}"
+                    : $"'{ip.Layer}' ({srcIdx + 1})";
                 PresStyles.PressurePartSize tuboElegido = MatchPresionTubo(tubos, ip.Diameter, ip.PipeFamily);
                 Dbg("PIPE_PRES_MATCH", ("pedido_fam", ip.PipeFamily ?? ""),
                     ("pedido_size", ip.PipeSize ?? ""), ("diam", ip.Diameter.ToString("F1")),
@@ -2403,6 +2514,11 @@ namespace Civil3DBasico
                     ObjectId pid = net.AddLinePipe(new LineSegment3d(p1, p2), tuboElegido);
                     createdPipeIds.Add(pid);
                     pipeEndpoints.Add((p1, p2, pid));
+                    fuenteTubo[pid] = srcIdx;
+                    tramoTubo[pid] = ip.TramoPython != null && i < ip.TramoPython.Count ? ip.TramoPython[i] : i;
+                    zPython[(pid, 0)] = z1; zPython[(pid, 1)] = z2;
+                    xyPython[(pid, 0)] = new Point2d(p1.X, p1.Y);
+                    xyPython[(pid, 1)] = new Point2d(p2.X, p2.Y);
 
                     // Abandonada (presión): solo cambia el 3D (Model) a discontinuo.
                     if (ip.Abandoned)
@@ -2430,39 +2546,109 @@ namespace Civil3DBasico
                 }
             }
 
-            // ── Armonizar Z en JUNTURAS de presión ─────────────────────────
-            // Cada tubo trae su propio InvStart / InvEnd. Si dos o más tubos
-            // se juntan en el mismo XY (codo/tee) con Z distintos, el fitting
-            // queda descentrado y los tubos aparecen visualmente a alturas
-            // distintas. Promediamos la Z en cada juntura (tolerancia 0.5 ft
-            // en XY) y actualizamos los endpoints de las tuberías afectadas
-            // ANTES de colocar los fittings.
+            // ── Cotas en JUNTURAS de presión ───────────────────────────────
+            // Antes se agrupaban los extremos SOLO por XY y se les imponía la Z
+            // promedio. Dos utilidades DISTINTAS que se tocan en planta pero van
+            // a cotas distintas (una pasa por encima de la otra) quedaban así
+            // arrastradas a una cota intermedia que nadie pidió, y encima se
+            // unían con una Y. Ahora:
+            //   · Una MISMA utilidad en su propio vértice se unifica como antes
+            //     (sus tramos consecutivos son la misma tubería).
+            //   · Utilidades DISTINTAS solo se unen si están a la misma cota
+            //     (±Z_TOL_JUNTA, el mismo criterio con que la app marca un cruce
+            //     como conflicto). Si no, cada una conserva su cota y NO se unen:
+            //     unirlas es cosa de una conexión vertical aprobada en la app.
+            // Cada extremo recibe una etiqueta de grupo; AgruparJunturas solo une
+            // extremos con la misma etiqueta.
+            const double Z_TOL_JUNTA = 0.10;
+            var grupoCota = new Dictionary<(ObjectId, int), int>();
             {
-                Func<Point3d, (long, long)> keyOf = pt => (
-                    (long)Math.Round(pt.X * 2.0), (long)Math.Round(pt.Y * 2.0));
-                var jointSum = new Dictionary<(long, long), double>();
-                var jointN = new Dictionary<(long, long), int>();
+                string Nombre((ObjectId id, int port) k) =>
+                    (fuenteTubo.TryGetValue(k.id, out int s) && etiquetaFuente.TryGetValue(s, out string et) ? et : "?") +
+                    (tramoTubo.TryGetValue(k.id, out int t) ? $" T{t + 1}" : "") +
+                    (k.port == 0 ? " inicio" : " fin");
+
+                var pts = new List<(Point3d pos, ObjectId id, int port)>();
                 foreach (var pe in pipeEndpoints)
+                { pts.Add((pe.start, pe.id, 0)); pts.Add((pe.end, pe.id, 1)); }
+                var usado = new bool[pts.Count];
+                var zNueva = new Dictionary<(ObjectId, int), double>();
+                int etiqueta = 0, nSeparadas = 0, nUnificadas = 0;
+
+                for (int i = 0; i < pts.Count; i++)
                 {
-                    var ks = keyOf(pe.start); var ke = keyOf(pe.end);
-                    if (!jointSum.ContainsKey(ks)) { jointSum[ks] = 0; jointN[ks] = 0; }
-                    jointSum[ks] += pe.start.Z; jointN[ks]++;
-                    if (!jointSum.ContainsKey(ke)) { jointSum[ke] = 0; jointN[ke] = 0; }
-                    jointSum[ke] += pe.end.Z; jointN[ke]++;
+                    if (usado[i]) continue;
+                    // 1) Extremos que coinciden en PLANTA (mismo criterio y
+                    //    tolerancia que AgruparJunturas, pero sin mirar Z).
+                    var cl = new List<int> { i }; usado[i] = true;
+                    double ax = pts[i].pos.X, ay = pts[i].pos.Y;
+                    for (int k = i + 1; k < pts.Count; k++)
+                    {
+                        if (usado[k]) continue;
+                        double dx = pts[k].pos.X - ax / cl.Count, dy = pts[k].pos.Y - ay / cl.Count;
+                        if (dx * dx + dy * dy > 0.25) continue;      // 0.5 ft
+                        cl.Add(k); usado[k] = true;
+                        ax += pts[k].pos.X; ay += pts[k].pos.Y;
+                    }
+                    if (cl.Count < 2) { grupoCota[(pts[i].id, pts[i].port)] = etiqueta++; continue; }
+                    double cx = ax / cl.Count, cy = ay / cl.Count;
+
+                    // 2) Por utilidad de origen: cada una, su cota en ese punto.
+                    var subgrupos = cl
+                        .GroupBy(ix => fuenteTubo.TryGetValue(pts[ix].id, out int s) ? s : -1 - ix)
+                        .Select(g => (idxs: g.ToList(), z: g.Average(ix => pts[ix].pos.Z)))
+                        .OrderBy(sg => sg.z).ToList();
+
+                    // 3) Utilidades distintas: juntas solo si están a la misma cota.
+                    var grupos = new List<List<(List<int> idxs, double z)>>();
+                    foreach (var sg in subgrupos)
+                    {
+                        if (grupos.Count > 0 && Math.Abs(sg.z - grupos[grupos.Count - 1].Last().z) <= Z_TOL_JUNTA)
+                            grupos[grupos.Count - 1].Add(sg);
+                        else
+                            grupos.Add(new List<(List<int> idxs, double z)> { sg });
+                    }
+
+                    foreach (var g in grupos)
+                    {
+                        var idxs = g.SelectMany(sg => sg.idxs).ToList();
+                        int lab = etiqueta++;
+                        double zMedia = idxs.Average(ix => pts[ix].pos.Z);
+                        foreach (int ix in idxs)
+                        {
+                            grupoCota[(pts[ix].id, pts[ix].port)] = lab;
+                            if (idxs.Count >= 2) zNueva[(pts[ix].id, pts[ix].port)] = zMedia;
+                        }
+                        // Contraste: si unificar movió alguna cota, decir cuánto.
+                        if (idxs.Count >= 2 && idxs.Any(ix => Math.Abs(pts[ix].pos.Z - zMedia) > 0.005))
+                        {
+                            nUnificadas++;
+                            string pedidas = string.Join(", ", idxs.Select(ix =>
+                                $"{Nombre((pts[ix].id, pts[ix].port))} {pts[ix].pos.Z:F2}"));
+                            ed.WriteMessage($"\n  · [COTAS] ({cx:F2},{cy:F2}): cotas unificadas a {zMedia:F2} ft " +
+                                $"— en Python: {pedidas}.");
+                        }
+                    }
+                    if (grupos.Count > 1)
+                    {
+                        nSeparadas++;
+                        string detalle = string.Join(" | ", grupos.Select(g =>
+                            string.Join(", ", g.Select(sg => Nombre((pts[sg.idxs[0]].id, pts[sg.idxs[0]].port)))) +
+                            $" a {g.Average(sg => sg.z):F2} ft"));
+                        ed.WriteMessage($"\n  · [COTAS] ({cx:F2},{cy:F2}): se tocan en planta pero a DISTINTA cota — " +
+                            $"NO se unen, cada una conserva la suya: {detalle}. " +
+                            "Para unirlas, aprueba una conexión vertical en la app.");
+                    }
                 }
-                var jointZ = new Dictionary<(long, long), double>();
-                foreach (var kv in jointSum)
-                    if (jointN[kv.Key] >= 2) jointZ[kv.Key] = kv.Value / jointN[kv.Key];
-                if (jointZ.Count > 0)
+
+                if (zNueva.Count > 0)
                 {
                     var updated = new List<(Point3d start, Point3d end, ObjectId id)>();
                     foreach (var pe in pipeEndpoints)
                     {
                         Point3d s = pe.start, e = pe.end;
-                        if (jointZ.TryGetValue(keyOf(pe.start), out double zs))
-                            s = new Point3d(pe.start.X, pe.start.Y, zs);
-                        if (jointZ.TryGetValue(keyOf(pe.end), out double ze))
-                            e = new Point3d(pe.end.X, pe.end.Y, ze);
+                        if (zNueva.TryGetValue((pe.id, 0), out double zs)) s = new Point3d(s.X, s.Y, zs);
+                        if (zNueva.TryGetValue((pe.id, 1), out double ze)) e = new Point3d(e.X, e.Y, ze);
                         if (!s.IsEqualTo(pe.start) || !e.IsEqualTo(pe.end))
                         {
                             try
@@ -2475,8 +2661,9 @@ namespace Civil3DBasico
                         updated.Add((s, e, pe.id));
                     }
                     pipeEndpoints.Clear(); pipeEndpoints.AddRange(updated);
-                    Dbg("PRES_JUNTAS_ARMONIZADAS", ("juntas", jointZ.Count.ToString()));
                 }
+                Dbg("PRES_JUNTAS_COTAS", ("separadas", nSeparadas.ToString()),
+                    ("unificadas", nUnificadas.ToString()));
             }
 
             // ── SOLERA → EJE: subir los tubos ANTES de colocar los accesorios ──
@@ -2547,7 +2734,7 @@ namespace Civil3DBasico
             // Antes esto era un bucle PAREADO que, en un empalme de 3+ tuberías,
             // podía crear varios codos superpuestos conectados solo de a 2.
             var (nFit, nDirect, nFail) = ComandosPresion.ProcesarJunturasPresion(
-                net, tr, ed, fittings, pipeEndpoints);
+                net, tr, ed, fittings, pipeEndpoints, grupoCota: grupoCota);
             nFittings = nFit;
 
 
@@ -2658,6 +2845,51 @@ namespace Civil3DBasico
             catch (Exception exChk)
             {
                 ed.WriteMessage($"\n  ⚠ No se pudo verificar la alineación de los accesorios: {exChk.Message}");
+            }
+
+            // ── Contraste Python → Civil 3D: cota pedida vs. cota obtenida ──────
+            // Para cada extremo de cada tramo: la solera que el usuario puso en
+            // la app frente a la solera con la que quedó el tubo en el dibujo.
+            // Los recortes contra accesorios deslizan el extremo sobre su propia
+            // recta, así que la recta final se evalúa en el XY ORIGINAL: un
+            // recorte no cuenta como cambio de cota, un desplazamiento en Z sí.
+            try
+            {
+                const double TOL_CONTRASTE = 0.01;   // ft
+                int nIguales = 0; var distintos = new List<string>();
+                foreach (var kv in zPython)
+                {
+                    var (pid, port) = kv.Key;
+                    if (!xyPython.TryGetValue(kv.Key, out Point2d xy)) continue;
+                    CivilDB.PressurePipe pp;
+                    try { pp = tr.GetObject(pid, OpenMode.ForRead) as CivilDB.PressurePipe; } catch { continue; }
+                    if (pp == null) continue;
+                    Point3d s = pp.StartPoint, e = pp.EndPoint;
+                    double dx = e.X - s.X, dy = e.Y - s.Y, l2 = dx * dx + dy * dy;
+                    if (l2 < 1e-9) continue;
+                    double t = ((xy.X - s.X) * dx + (xy.Y - s.Y) * dy) / l2;
+                    double r = 0; try { r = pp.NominalDiameter / 2.0; } catch { }
+                    double solFinal = s.Z + t * (e.Z - s.Z) - r;
+                    double delta = solFinal - kv.Value;
+                    if (Math.Abs(delta) <= TOL_CONTRASTE) { nIguales++; continue; }
+                    string quien = (fuenteTubo.TryGetValue(pid, out int sIx) && etiquetaFuente.TryGetValue(sIx, out string et) ? et : "?") +
+                        (tramoTubo.TryGetValue(pid, out int tIx) ? $" T{tIx + 1}" : "") +
+                        (port == 0 ? " inicio" : " fin");
+                    distintos.Add($"{quien}: Python {kv.Value:F2} ft → Civil 3D {solFinal:F2} ft (Δ {delta:+0.00;-0.00})");
+                }
+                int total = nIguales + distintos.Count;
+                if (distintos.Count == 0)
+                    ed.WriteMessage($"\n  · [COTAS] Contraste Python → Civil 3D: los {total} extremos coinciden (±{TOL_CONTRASTE} ft).");
+                else
+                {
+                    ed.WriteMessage($"\n  ⚠ [COTAS] Contraste Python → Civil 3D: {distintos.Count} de {total} extremos NO quedaron a la cota pedida:");
+                    foreach (string d in distintos.Take(30)) ed.WriteMessage($"\n      · {d}");
+                    if (distintos.Count > 30) ed.WriteMessage($"\n      · (+{distintos.Count - 30} más)");
+                }
+            }
+            catch (Exception exCot)
+            {
+                ed.WriteMessage($"\n  ⚠ [COTAS] No se pudo contrastar cotas: {exCot.Message}");
             }
 
             ed.WriteMessage($"\n✓ Red presión '{nombre}': {nPipes} tubería(s), {nFittings} fitting(s), " +
@@ -3309,6 +3541,189 @@ namespace Civil3DBasico
             return dict;
         }
 
+        // ── T a mitad de tramo ─────────────────────────────────────────────
+        // Un tubo que TERMINA a mitad de un tramo de otro, a la misma cota, es
+        // una T. Pero las junturas se arman solo con EXTREMOS de tubos, y el
+        // tubo que pasa no tiene vértice ahí: no salía ningún accesorio. Se le
+        // inserta un vértice en ese punto; el punto queda con 3 extremos y
+        // ProcesarJunturasPresion pone la Tee (o la Y) de siempre.
+        //
+        // A otra cota (> tolZ) NO se parte: es un cruce, no una T; si el
+        // usuario quiere unirlos lo aprueba como conexión vertical en la app.
+        // Las cotas no se mueven: el tubo partido recibe TODAS sus cotas por
+        // vértice explícitas (las que ya tenía) y el vértice nuevo la cota
+        // exacta de su tramo en ese punto.
+        private static void PartirTramosEnTes(List<ImportPipe> pipes, Editor ed,
+            double tolXY = 0.5, double tolZ = 0.10)
+        {
+            string Nombre(ImportPipe p) => p.PipeIdx >= 0 ? $"utilidad #{p.PipeIdx}" : $"'{p.Layer}'";
+            for (int vuelta = 0; vuelta < 1000; vuelta++)
+            {
+                bool partido = false;
+                foreach (var b in pipes)                       // el que TERMINA en el otro
+                {
+                    int nb = b.Vertices?.Count ?? 0;
+                    if (nb < 2) continue;
+                    double[] zbOut = InterpolateZ(b, nb, b.VertexInv);
+                    double[] zbIn = InterpolateZ(b, nb, b.VertexInvIn);
+                    var extremos = new[] { (p: b.Vertices[0], z: zbOut[0]), (p: b.Vertices[nb - 1], z: zbIn[nb - 1]) };
+                    foreach (var ext in extremos)
+                    {
+                        foreach (var a in pipes)               // el que PASA
+                        {
+                            int na = a.Vertices?.Count ?? 0;
+                            if (ReferenceEquals(a, b) || na < 2) continue;
+                            double[] zaOut = InterpolateZ(a, na, a.VertexInv);
+                            double[] zaIn = InterpolateZ(a, na, a.VertexInvIn);
+                            for (int k = 0; k < na - 1; k++)
+                            {
+                                Point2d p0 = a.Vertices[k];
+                                Vector2d seg = a.Vertices[k + 1] - p0;
+                                double largo = seg.Length;
+                                if (largo < 1e-9) continue;
+                                double t = (ext.p - p0).DotProduct(seg) / (largo * largo);
+                                // Solo en el INTERIOR del tramo: junto a un vértice ya
+                                // hay extremos y la juntura se arma sola.
+                                if (t * largo <= tolXY || (1 - t) * largo <= tolXY) continue;
+                                Point2d q = p0 + seg * t;
+                                if (q.GetDistanceTo(ext.p) > tolXY) continue;
+                                double zA = zaOut[k] + (zaIn[k + 1] - zaOut[k]) * t;
+                                if (Math.Abs(zA - ext.z) > tolZ) continue;   // cruce, no T
+
+                                int tramoApp = a.TramoPython != null ? a.TramoPython[k] : k;
+                                InsertarVerticeConCotas(a, k, q, zA, zaOut, zaIn);
+                                ed?.WriteMessage($"\n  · [JUNTURA-T] {Nombre(b)} termina a mitad de {Nombre(a)} " +
+                                    $"T{tramoApp + 1} en ({q.X:F2},{q.Y:F2}), misma cota ({zA:F2} ft): " +
+                                    "se parte ese tramo para unirlos con una Tee.");
+                                partido = true;
+                                break;
+                            }
+                            if (partido) break;
+                        }
+                        if (partido) break;
+                    }
+                    if (partido) break;
+                }
+                if (!partido) return;                          // nada más que partir
+            }
+        }
+
+        // Largo mínimo de un tramo ENTRE dos codos de una red a presión: por
+        // debajo no entran los dos codos sólidos (cada uno recorta el tubo) y
+        // Civil 3D los dibuja montados uno sobre otro. Misma regla que
+        // model_ops.tramos_cortos_entre_codos en la app (que avisa con ▲ rojo).
+        internal static double LargoMinEntreCodosFt(double diametro, string unidad)
+        {
+            double dFt = string.Equals(unidad, "mm", StringComparison.OrdinalIgnoreCase)
+                ? diametro / 304.8 : diametro / 12.0;
+            return Math.Max(1.0, 3.0 * dFt);
+        }
+
+        // Dos quiebres seguidos con un tramo más corto que LargoMinEntreCodosFt
+        // se reemplazan por UN solo codo: el vértice queda en la intersección de
+        // las rectas de los tramos vecinos (el mismo giro total), con la cota
+        // promedio de los dos. Solo redes a presión (en gravedad hay buzón).
+        private static void FusionarCodosSeguidos(List<ImportPipe> pipes, Editor ed)
+        {
+            foreach (var ip in pipes)
+            {
+                if (!string.Equals(ip.NetKind, "pressure", StringComparison.OrdinalIgnoreCase)) continue;
+                double lMin = LargoMinEntreCodosFt(ip.Diameter, ip.Unit);
+                for (int vuelta = 0; vuelta < 100; vuelta++)
+                {
+                    var v = ip.Vertices;
+                    int n = v?.Count ?? 0;
+                    int k = -1;
+                    for (int i = 1; i + 2 < n; i++)
+                    {
+                        double largo = v[i].GetDistanceTo(v[i + 1]);
+                        if (largo >= lMin - 1e-6 || largo < 1e-9) continue;
+                        if (Giro(v[i - 1], v[i], v[i + 1]) < 5.0 || Giro(v[i], v[i + 1], v[i + 2]) < 5.0) continue;
+                        k = i; break;
+                    }
+                    if (k < 0) break;
+
+                    double[] zOut = InterpolateZ(ip, n, ip.VertexInv);
+                    double[] zIn = InterpolateZ(ip, n, ip.VertexInvIn);
+                    Point2d medio = new Point2d((v[k].X + v[k + 1].X) / 2, (v[k].Y + v[k + 1].Y) / 2);
+                    Point2d x = InterseccionRectas(v[k - 1], v[k], v[k + 1], v[k + 2]) ?? medio;
+                    if (x.GetDistanceTo(medio) > 3 * lMin) x = medio;   // casi paralelas: no disparar el vértice
+                    double z = (zOut[k] + zIn[k + 1]) / 2;
+                    ed?.WriteMessage($"\n  · [CODOS] {ip.Layer} #{ip.PipeIdx}: tramo de {v[k].GetDistanceTo(v[k + 1]):F2} ft " +
+                                     $"entre dos codos (< {lMin:F2} ft) → un solo codo en ({x.X:F2},{x.Y:F2}).");
+
+                    // Reindexar todo lo que va por vértice / tramo (se quita el vértice k+1 y el tramo k).
+                    Func<int, int> nuevoV = i => i <= k ? i : i - 1;
+                    var vOut = new Dictionary<int, double>();
+                    var vIn = new Dictionary<int, double>();
+                    for (int i = 1; i < n - 1; i++)
+                    {
+                        if (i == k + 1) continue;
+                        vOut[nuevoV(i)] = i == k ? z : zOut[i];
+                        vIn[nuevoV(i)] = i == k ? z : zIn[i];
+                    }
+                    ip.VertexInv = vOut; ip.VertexInvIn = vIn;
+                    var curvas = new Dictionary<int, double>();
+                    foreach (var kv in ip.CurveRadiusByVert)
+                        if (kv.Key != k + 1 || !curvas.ContainsKey(k)) curvas[nuevoV(kv.Key)] = kv.Value;
+                    ip.CurveRadiusByVert = curvas;
+                    ip.NoManholeVerts = new HashSet<int>(ip.NoManholeVerts.Where(i => i != k + 1).Select(nuevoV));
+                    var segs = new Dictionary<int, (string fam, string size)>();
+                    foreach (var kv in ip.SegOverrides)
+                        if (kv.Key != k) segs[kv.Key < k ? kv.Key : kv.Key - 1] = kv.Value;
+                    ip.SegOverrides = segs;
+                    var tramos = ip.TramoPython ?? Enumerable.Range(0, n - 1).ToList();
+                    tramos.RemoveAt(k);
+                    ip.TramoPython = tramos;
+                    v[k] = x;
+                    v.RemoveAt(k + 1);
+                }
+            }
+        }
+
+        // Giro (grados) en b del camino a→b→c; 0 = sigue recto.
+        private static double Giro(Point2d a, Point2d b, Point2d c)
+        {
+            Vector2d u = b - a, w = c - b;
+            if (u.Length < 1e-9 || w.Length < 1e-9) return 0;
+            return u.GetAngleTo(w) * 180.0 / Math.PI;
+        }
+
+        // Intersección de la recta a1→a2 con la recta b1→b2 (null si son paralelas).
+        private static Point2d? InterseccionRectas(Point2d a1, Point2d a2, Point2d b1, Point2d b2)
+        {
+            Vector2d r = a2 - a1, s = b2 - b1;
+            double den = r.X * s.Y - r.Y * s.X;
+            if (Math.Abs(den) < 1e-9) return null;
+            Vector2d q = b1 - a1;
+            double t = (q.X * s.Y - q.Y * s.X) / den;
+            return a1 + r * t;
+        }
+
+        // Inserta el vértice q en el tramo k de `ip` sin mover ninguna cota: se
+        // escriben explícitas las cotas de TODOS los vértices interiores (las
+        // calculadas antes de insertar) y el nuevo lleva zNuevo a ambos lados.
+        private static void InsertarVerticeConCotas(ImportPipe ip, int k, Point2d q, double zNuevo,
+            double[] zOutAntes, double[] zInAntes)
+        {
+            int nAntes = ip.Vertices.Count;
+            ip.Vertices.Insert(k + 1, q);
+            var vOut = new Dictionary<int, double>();
+            var vIn = new Dictionary<int, double>();
+            for (int v = 1; v < nAntes; v++)                   // interiores del nuevo (0..nAntes)
+            {
+                if (v == k + 1) { vOut[v] = zNuevo; vIn[v] = zNuevo; continue; }
+                int vAntes = v <= k ? v : v - 1;
+                vOut[v] = zOutAntes[vAntes];
+                vIn[v] = zInAntes[vAntes];
+            }
+            ip.VertexInv = vOut;
+            ip.VertexInvIn = vIn;
+            var tramos = ip.TramoPython ?? Enumerable.Range(0, nAntes - 1).ToList();
+            tramos.Insert(k + 1, tramos[k]);                   // las dos mitades son el mismo tramo
+            ip.TramoPython = tramos;
+        }
+
         private static double[] InterpolateZ(ImportPipe ip, int nVerts, Dictionary<int, double> vertexInv)
         {
             double zStart = ip.InvStart ?? 0.0;
@@ -3448,6 +3863,27 @@ namespace Civil3DBasico
         {
             ObjectId fallback = AsegurarPresionWye.ElegirPartsListStandard(plc, tr);
             if (plc == null || plc.Count == 0) return fallback;
+
+            // Con las Y como sólido 3D ninguna lista necesita saber construir una
+            // Wye de catálogo. La prueba de abajo, además, activa el catálogo
+            // Steel de forma global y, si el dibujo aún tiene una 'Full Catalog'
+            // de corridas anteriores, pasaría la red a tubos/codos de acero.
+            if (ComandosPresion.FITTING_COMO_SOLIDO) return fallback;
+
+            // Solo vale la pena cambiar de lista si esta red REALMENTE lleva una
+            // Y. La lista 'Full Catalog' se crea con el catálogo AWWA Steel
+            // activo, así que TODAS sus piezas (tubos, tees y sobre todo los
+            // CODOS) salen en acero soldado en vez de los push-on ductile iron
+            // de 'Standard'. Antes se cambiaba la red entera solo porque la
+            // lista sabía construir una Wye, y los codos de redes SIN ninguna Y
+            // salían con la forma equivocada.
+            if (!RedNecesitaWye(pipes))
+            {
+                var plStd = tr.GetObject(fallback, OpenMode.ForRead) as PresStyles.PressurePartList;
+                ed?.WriteMessage($"\n  · [PRESION] Sin junturas Y en esta red → se mantiene '{plStd?.Name ?? "Standard"}'.");
+                return fallback;
+            }
+
             for (int i = 0; i < plc.Count; i++)
             {
                 var pl = tr.GetObject(plc[i], OpenMode.ForRead) as PresStyles.PressurePartList;
@@ -3459,6 +3895,63 @@ namespace Civil3DBasico
                 }
             }
             return fallback;
+        }
+
+        // ¿Alguna juntura de esta red pide una Y? Se calcula sobre la geometría
+        // del DXF (antes de crear nada en el dibujo) replicando el despiece que
+        // hace CrearRedPresionCompleta: un tramo por cada par de vértices
+        // consecutivos de cada ImportPipe. Mismo criterio de agrupación por
+        // cercanía y misma decisión Tee/Wye que ProcesarJunturasPresion.
+        private static bool RedNecesitaWye(List<ImportPipe> pipes, double tol = 0.5)
+        {
+            if (pipes == null || pipes.Count == 0) return false;
+            try
+            {
+                // Extremos de cada TRAMO (no de cada polilínea).
+                var extremos = new List<Point2d>();
+                foreach (var ip in pipes)
+                {
+                    var v = ip?.Vertices;
+                    if (v == null || v.Count < 2) continue;
+                    for (int i = 0; i < v.Count - 1; i++)
+                    { extremos.Add(v[i]); extremos.Add(v[i + 1]); }
+                }
+                if (extremos.Count == 0) return false;
+
+                // Agrupar por cercanía; cada grupo es un sitio físico.
+                var usado = new bool[extremos.Count];
+                for (int i = 0; i < extremos.Count; i++)
+                {
+                    if (usado[i]) continue;
+                    usado[i] = true;
+                    var grupo = new List<int> { i };
+                    double ax = extremos[i].X, ay = extremos[i].Y;
+                    for (int k = i + 1; k < extremos.Count; k++)
+                    {
+                        if (usado[k]) continue;
+                        var c = new Point2d(ax / grupo.Count, ay / grupo.Count);
+                        if (c.GetDistanceTo(extremos[k]) <= tol)
+                        {
+                            grupo.Add(k); usado[k] = true;
+                            ax += extremos[k].X; ay += extremos[k].Y;
+                        }
+                    }
+                    if (grupo.Count != 3) continue;
+
+                    // Vectores de salida: del centro hacia el OTRO extremo del tramo.
+                    var centro = new Point2d(ax / grupo.Count, ay / grupo.Count);
+                    var vecs = new List<Vector3d>();
+                    foreach (int idx in grupo)
+                    {
+                        Point2d lejano = (idx % 2 == 0) ? extremos[idx + 1] : extremos[idx - 1];
+                        vecs.Add(new Vector3d(lejano.X - centro.X, lejano.Y - centro.Y, 0));
+                    }
+                    if (ComandosPresion.DecidirTeeOWye(vecs) == CivilDB.PressurePartType.Wye)
+                        return true;
+                }
+                return false;
+            }
+            catch { return false; }
         }
 
         // ¿La lista puede construir una pieza Wye? Crea una red de prueba, intenta
@@ -3621,6 +4114,75 @@ namespace Civil3DBasico
             return null;
         }
 
+        // Red de Civil 3D de cada tubería. Por defecto, su NOMBRE de red (o la capa
+        // si no tiene). Pero las tuberías de la MISMA utilidad (capa + tipo de red)
+        // que se tocan (un extremo sobre la otra, a ≤0.5 ft) van SIEMPRE a la misma
+        // red, aunque en la app tengan nombres distintos: si no, el accesorio que
+        // las une no se podría crear. Esa red toma el nombre de la primera tubería
+        // del grupo que tenga nombre (menor PIPE_IDX); sin nombres, la capa.
+        private static Dictionary<ImportPipe, string> RedesUnidasPorContacto(List<ImportPipe> pipes)
+        {
+            const double TOL = 0.5;
+            int n = pipes.Count;
+            var padre = Enumerable.Range(0, n).ToArray();
+            Func<int, int> raiz = null;
+            raiz = i => padre[i] == i ? i : (padre[i] = raiz(padre[i]));
+
+            Func<Point2d, ImportPipe, bool> tocaA = (pt, q) =>
+            {
+                var v = q.Vertices;
+                if (v == null || v.Count == 0) return false;
+                if (v.Count == 1) return pt.GetDistanceTo(v[0]) <= TOL;
+                for (int k = 0; k + 1 < v.Count; k++)
+                {
+                    Vector2d d = v[k + 1] - v[k];
+                    double L2 = d.DotProduct(d);
+                    double t = L2 < 1e-12 ? 0 : Math.Max(0, Math.Min(1, (pt - v[k]).DotProduct(d) / L2));
+                    if (pt.GetDistanceTo(v[k] + d * t) <= TOL) return true;
+                }
+                return false;
+            };
+
+            for (int a = 0; a < n; a++)
+                for (int b = a + 1; b < n; b++)
+                {
+                    ImportPipe pa = pipes[a], pb = pipes[b];
+                    if (!string.Equals(pa.Layer, pb.Layer, StringComparison.OrdinalIgnoreCase)) continue;
+                    if (!string.Equals(pa.NetKind, pb.NetKind, StringComparison.OrdinalIgnoreCase)) continue;
+                    if (pa.Vertices == null || pb.Vertices == null || pa.Vertices.Count == 0 || pb.Vertices.Count == 0) continue;
+                    // Un extremo sobre la otra tubería (Tee/Wye/codo) o un vértice
+                    // compartido (cruz). Un cruce en X a mitad de tramo no las une.
+                    bool toca = tocaA(pa.Vertices[0], pb) || tocaA(pa.Vertices[pa.Vertices.Count - 1], pb)
+                             || tocaA(pb.Vertices[0], pa) || tocaA(pb.Vertices[pb.Vertices.Count - 1], pa)
+                             || pa.Vertices.Any(va => pb.Vertices.Any(vb => va.GetDistanceTo(vb) <= TOL));
+                    if (toca) padre[raiz(a)] = raiz(b);
+                }
+
+            var nombreGrupo = new Dictionary<int, string>();
+            foreach (int i in Enumerable.Range(0, n)
+                         .OrderBy(i => pipes[i].PipeIdx < 0 ? int.MaxValue : pipes[i].PipeIdx).ThenBy(i => i))
+            {
+                int r = raiz(i);
+                if (!nombreGrupo.ContainsKey(r) && !string.IsNullOrWhiteSpace(pipes[i].NetName))
+                    nombreGrupo[r] = pipes[i].NetName.Trim();
+            }
+            var res = new Dictionary<ImportPipe, string>();
+            for (int i = 0; i < n; i++)
+            {
+                var p = pipes[i];
+                string propio = string.IsNullOrWhiteSpace(p.NetName) ? p.Layer : p.NetName.Trim();
+                string key = nombreGrupo.TryGetValue(raiz(i), out var ng) ? ng : propio;
+                if (!string.Equals(key, propio, StringComparison.OrdinalIgnoreCase))
+                {
+                    // El nombre de red se hereda del grupo para que el sólido del accesorio los una.
+                    System.Diagnostics.Debug.WriteLine($"[REDES] «{propio}» (PIPE_IDX {p.PipeIdx}) toca otra tubería de {p.Layer} → red «{key}».");
+                    p.NetName = key;
+                }
+                res[p] = key;
+            }
+            return res;
+        }
+
         private static void DictAdd<T>(Dictionary<string, List<T>> dict, string key, T item)
         {
             List<T> list;
@@ -3741,6 +4303,36 @@ namespace Civil3DBasico
                 ed.WriteMessage($"\n[CROSS #{idx}]   Horizontal inferior '{pipeLower.Layer}' Ø{pipeLower.Diameter:F1}\" dir=({dirLower.X:F2},{dirLower.Y:F2}).");
                 ed.WriteMessage($"\n[CROSS #{idx}]   Horizontal superior '{pipeUpper.Layer}' Ø{pipeUpper.Diameter:F1}\" dir=({dirUpper.X:F2},{dirUpper.Y:F2}).");
 
+                // 5b) Caso Wye: una utilidad PASA por el punto con un QUIEBRE
+                //     (ahí ya se le puso su codo) y la otra TERMINA en él. Un Tee
+                //     recto no encaja en un tronco quebrado: diseño del modelador
+                //     = Wye en el quiebre + tubo auxiliar de 1 ft + codo + vertical
+                //     + codo hacia la otra utilidad. Si no es este caso (tronco
+                //     recto, o ambas terminan/pasan) sigue el flujo de siempre.
+                if (ComandosPresion.FITTING_COMO_SOLIDO)
+                {
+                    bool loTermina = EsExtremoDePipe(pipeLower, cc.X, cc.Y);
+                    bool hiTermina = EsExtremoDePipe(pipeUpper, cc.X, cc.Y);
+                    if (loTermina != hiTermina)
+                    {
+                        bool pasaEsSuperior = !hiTermina;
+                        double zPasa = pasaEsSuperior ? zHiCenter : zLoCenter;
+                        double zTermina = pasaEsSuperior ? zLoCenter : zHiCenter;
+                        var codoQuiebre = WyeSolido.BuscarCreada("ELBOW",
+                            new Point3d(cc.X, cc.Y, zPasa), 0.5, 0.35);
+                        if (codoQuiebre != null)
+                        {
+                            ed.WriteMessage($"\n[CROSS #{idx}]   La utilidad {(pasaEsSuperior ? "superior" : "inferior")} " +
+                                "tiene un QUIEBRE aquí (codo ya colocado) y la otra termina → Wye + tubo auxiliar de " +
+                                $"{TUBO_AUX_CRUCE_FT:F2} ft + codos + vertical.");
+                            bool ok = CrearCruceConWye(ed, tr, civilDoc, net, tuboSel, diamPulg,
+                                codoQuiebre, new Point3d(cc.X, cc.Y, zPasa), zTermina, idx);
+                            if (ok) nOk++; else nFail++;
+                            continue;
+                        }
+                    }
+                }
+
                 // 6) Elegir accesorio POR CADA EXTREMO. Regla:
                 //    - Si la utilidad TERMINA en el punto de cruce (endpoint) →
                 //      usar CODO (elbow) 90°: 2 puertos, uno horizontal y uno
@@ -3761,10 +4353,12 @@ namespace Civil3DBasico
                 PresStyles.PressurePartSize partLo = null, partHi = null;
                 CivilDB.PressurePartType tipoLo = CivilDB.PressurePartType.Tee;
                 CivilDB.PressurePartType tipoHi = CivilDB.PressurePartType.Tee;
+                // Diámetro de cada utilidad horizontal (tronco de su pieza). El
+                // ramal que va a la vertical es del diámetro de la vertical.
+                double trunkLoIn = pipeLower.Diameter > 0 ? pipeLower.Diameter : diamPulg;
+                double trunkHiIn = pipeUpper.Diameter > 0 ? pipeUpper.Diameter : diamPulg;
                 if (nFittings > 0)
                 {
-                    double trunkLoIn = pipeLower.Diameter > 0 ? pipeLower.Diameter : diamPulg;
-                    double trunkHiIn = pipeUpper.Diameter > 0 ? pipeUpper.Diameter : diamPulg;
                     if (loIsEndpoint)
                     {
                         tipoLo = CivilDB.PressurePartType.Elbow;
@@ -3800,13 +4394,15 @@ namespace Civil3DBasico
                     //    puertos branch — la vertical va entre esos dos puntos.
                     ObjectId teeLoId = ObjectId.Null, teeHiId = ObjectId.Null;
                     int teeLoBranchPort = -1, teeHiBranchPort = -1;
+                    double alcanceLo = 0, alcanceHi = 0;
                     Point3d pLoBranch = new Point3d(cc.X, cc.Y, zLoCenter);
                     Point3d pHiBranch = new Point3d(cc.X, cc.Y, zHiCenter);
                     if (partLo != null)
                     {
                         var resLo = ColocarFittingYOrientar(ed, tr, net, partLo, tipoLo,
                             cc.X, cc.Y, zLoCenter, dirLower, branchArriba: true,
-                            etiqueta: $"[CROSS #{idx}] inferior");
+                            etiqueta: $"[CROSS #{idx}] inferior",
+                            diamTroncoIn: trunkLoIn, diamRamalIn: diamPulg, out alcanceLo);
                         if (resLo.HasValue)
                         {
                             teeLoId = resLo.Value.teeId;
@@ -3818,7 +4414,8 @@ namespace Civil3DBasico
                     {
                         var resHi = ColocarFittingYOrientar(ed, tr, net, partHi, tipoHi,
                             cc.X, cc.Y, zHiCenter, dirUpper, branchArriba: false,
-                            etiqueta: $"[CROSS #{idx}] superior");
+                            etiqueta: $"[CROSS #{idx}] superior",
+                            diamTroncoIn: trunkHiIn, diamRamalIn: diamPulg, out alcanceHi);
                         if (resHi.HasValue)
                         {
                             teeHiId = resHi.Value.teeId;
@@ -3887,12 +4484,26 @@ namespace Civil3DBasico
                     //     pipe horizontal existente y RECORTAR su endpoint a
                     //     la posición del puerto — sin esto, el pipe horizontal
                     //     pasa a través del codo/Tee y se ve superpuesto en 3D.
+                    // branchPort < 0 ⇒ la pieza es un Solid3d (no tiene puertos
+                    // que leer), así que el recorte se hace por geometría.
                     if (teeLoId != ObjectId.Null)
-                        ConectarHorizontalAFitting(ed, tr, civilDoc, teeLoId, teeLoBranchPort,
-                            cc.X, cc.Y, zLoCenter, $"[CROSS #{idx}] inferior");
+                    {
+                        if (teeLoBranchPort < 0)
+                            RecortarHorizontalesASolido(ed, tr, civilDoc, alcanceLo,
+                                cc.X, cc.Y, zLoCenter, $"[CROSS #{idx}] inferior");
+                        else
+                            ConectarHorizontalAFitting(ed, tr, civilDoc, teeLoId, teeLoBranchPort,
+                                cc.X, cc.Y, zLoCenter, $"[CROSS #{idx}] inferior");
+                    }
                     if (teeHiId != ObjectId.Null)
-                        ConectarHorizontalAFitting(ed, tr, civilDoc, teeHiId, teeHiBranchPort,
-                            cc.X, cc.Y, zHiCenter, $"[CROSS #{idx}] superior");
+                    {
+                        if (teeHiBranchPort < 0)
+                            RecortarHorizontalesASolido(ed, tr, civilDoc, alcanceHi,
+                                cc.X, cc.Y, zHiCenter, $"[CROSS #{idx}] superior");
+                        else
+                            ConectarHorizontalAFitting(ed, tr, civilDoc, teeHiId, teeHiBranchPort,
+                                cc.X, cc.Y, zHiCenter, $"[CROSS #{idx}] superior");
+                    }
                     nOk++;
                 }
                 catch (Exception exP)
@@ -4220,6 +4831,375 @@ namespace Civil3DBasico
             return TangenteImportPipeEn(ip, x, y);
         }
 
+        // Largo EXACTO del tubo auxiliar entre la boca libre de la Wye y la boca
+        // del codo que baja/sube a la otra utilidad (diseño del modelador).
+        private const double TUBO_AUX_CRUCE_FT = 1.0;
+
+        // Conexión vertical en un QUIEBRE: la utilidad que pasa tiene un codo en
+        // el punto y la otra termina ahí. Recorrido (sólidos + tubos):
+        //
+        //   quiebre ─[Wye]─ tubo aux 1 ft (hacia la otra) ─[codo 90°]
+        //                                                     │ vertical
+        //                            otra utilidad ─────────[codo 90°]
+        //
+        // La boca libre de la Wye apunta EN PLANTA hacia la otra utilidad: la
+        // vertical cae justo sobre su eje y el codo de abajo solo la gira hacia
+        // ella, que se recorta contra él. El codo del quiebre se reemplaza por
+        // la Wye, que sujeta los MISMOS tubos.
+        private static bool CrearCruceConWye(Editor ed, Transaction tr, CivilDocument civilDoc,
+            CivilDB.PressurePipeNetwork net, PresStyles.PressurePartSize tuboSel, double diamPulg,
+            WyeSolido.Registro codo, Point3d cruce, double zTermina, int idx)
+        {
+            string tag = $"[CROSS #{idx}]";
+            Database db = net.Database;
+            try
+            {
+                // 1) Tubo de la utilidad que TERMINA: quedó suelto en el cruce
+                //    porque a distinta cota no se une con la otra.
+                var (eId, ePort) = BuscarExtremoPresionEn(tr, civilDoc, cruce.X, cruce.Y, zTermina);
+                if (eId == ObjectId.Null)
+                {
+                    ed.WriteMessage($"\n{tag}   ⚠ No encontré el tubo de la utilidad que termina en el cruce " +
+                        $"(eje Z≈{zTermina:F2}) — no se crea la conexión.");
+                    return false;
+                }
+                var eTubo = (CivilDB.PressurePipe)tr.GetObject(eId, OpenMode.ForRead);
+                Point3d eCerca = ePort == 0 ? eTubo.StartPoint : eTubo.EndPoint;
+                Point3d eLejos = ePort == 0 ? eTubo.EndPoint : eTubo.StartPoint;
+                Vector3d dE = new Vector3d(eLejos.X - eCerca.X, eLejos.Y - eCerca.Y, 0);
+                if (dE.Length < 1e-6) return false;
+                dE = dE.GetNormal();                          // en planta, hacia la otra utilidad
+                Vector3d dE3 = (eLejos - eCerca).GetNormal(); // su eje real (puede tener pendiente)
+                double dAux = diamPulg / 12.0;
+                double dOtra = eTubo.NominalDiameter;         // ya viene en pies
+                Point3d cT = codo.Centro;
+                var codo90 = WyeSolido.BrazoDeCodo(dAux, Math.PI / 2.0);
+
+                // 2) ¿Caben dos codos de 90° en el desnivel? Se comprueba ANTES
+                //    de tocar el dibujo.
+                double dzAprox = eCerca.Z - cT.Z;
+                double minDz = 2.0 * codo90.BocaFt + 0.05;
+                bool inclinada = Math.Abs(dzAprox) < minDz;
+                if (inclinada)
+                    ed.WriteMessage($"\n{tag}   ⚠ Desnivel de {Math.Abs(dzAprox):F2} ft: no caben dos codos de 90° " +
+                        $"(mínimo {minDz:F2} ft) → Wye con ramal inclinado y la tubería que termina con pendiente.");
+
+                // Red y material: los del codo que se reemplaza (su XDATA).
+                string red = "", mat = tuboSel?.Description ?? "";
+                try
+                {
+                    var xd = WyeSolido.LeerXData(tr.GetObject(codo.SolidId, OpenMode.ForRead) as Entity);
+                    red = xd?.FirstOrDefault(s => s.StartsWith("RED="))?.Substring(4) ?? "";
+                    string m = xd?.FirstOrDefault(s => s.StartsWith("MATERIAL="));
+                    if (m != null) mat = m.Substring(9);
+                }
+                catch { }
+
+                // 3) Wye en el quiebre: los brazos del codo (mismos tubos, que se
+                //    re-recortan contra la Wye) + el ramal hacia la otra utilidad.
+                // Desnivel chico: la tubería que termina sube/baja hasta el centro
+                // de la Wye (su extremo cercano pasa a la cota del quiebre, el lejano
+                // no se mueve → queda con pendiente) y entra DIRECTO al ramal, que
+                // se orienta en 3D sobre su eje. Sin tubo auxiliar, codos ni vertical.
+                if (inclinada)
+                {
+                    var eW = (CivilDB.PressurePipe)tr.GetObject(eId, OpenMode.ForWrite);
+                    if (ePort == 0) eW.StartPoint = cT; else eW.EndPoint = cT;
+                    Vector3d dInc = eLejos - cT;
+                    if (dInc.Length < 1e-6) return false;
+                    dInc = dInc.GetNormal();
+                    double pendiente = Math.Abs(eLejos.Z - cT.Z) /
+                        Math.Max(1e-6, new Vector2d(eLejos.X - cT.X, eLejos.Y - cT.Y).Length);
+                    var ramalInc = new WyeSolido.Brazo { Direccion = dInc, DiamFt = dOtra, PipeId = eId, Port = ePort };
+                    var brazosInc = codo.Brazos.Select(b => b.Copia()).ToList();
+                    foreach (var b in brazosInc) b.EngroseFt = WyeSolido.ENGROSE_TRONCO_Y_FT;
+                    brazosInc.Add(ramalInc);
+                    double angInc = ComandosPresion.AnguloRamalDeTres(brazosInc.Select(b => b.Direccion).ToList());
+                    var infoInc = new WyeSolido.Info
+                    {
+                        Tipo = "WYE", AnguloDeg = angInc,
+                        DiamPrincipalIn = brazosInc.Max(b => b.DiamFt) * 12.0, DiamRamalIn = dOtra * 12.0,
+                        Material = mat, Red = red,
+                    };
+                    if (WyeSolido.Crear(db, tr, cT, brazosInc, infoInc, ed) == ObjectId.Null)
+                    {
+                        ed.WriteMessage($"\n{tag}   ⚠ No se pudo generar la Wye inclinada — se deja el codo del quiebre.");
+                        return false;
+                    }
+                    try { (tr.GetObject(codo.SolidId, OpenMode.ForWrite) as Entity)?.Erase(); } catch { }
+                    WyeSolido.Creadas.Remove(codo);
+                    ed.WriteMessage($"\n{tag}   · Codo del quiebre reemplazado por Wye con ramal inclinado ({angInc:F0}°); " +
+                        $"la tubería que termina baja de Z {cT.Z:F2} a {eLejos.Z:F2} (pendiente {pendiente * 100:F1} %).");
+                    return true;
+                }
+
+                var ramal = new WyeSolido.Brazo { Direccion = dE, DiamFt = dAux };
+                var brazosWye = codo.Brazos.Select(b => b.Copia()).ToList();
+                // El tronco es la utilidad que pasa (los brazos del codo), no el
+                // par más recto: con un quiebre fuerte ese par podría incluir el ramal.
+                foreach (var b in brazosWye) b.EngroseFt = WyeSolido.ENGROSE_TRONCO_Y_FT;
+                brazosWye.Add(ramal);
+                double angRamal = ComandosPresion.AnguloRamalDeTres(brazosWye.Select(b => b.Direccion).ToList());
+                var infoWye = new WyeSolido.Info
+                {
+                    Tipo = "WYE", AnguloDeg = angRamal,
+                    DiamPrincipalIn = brazosWye.Max(b => b.DiamFt) * 12.0, DiamRamalIn = diamPulg,
+                    Material = mat, Red = red,
+                };
+                ObjectId wyeId = WyeSolido.Crear(db, tr, cT, brazosWye, infoWye, ed);
+                if (wyeId == ObjectId.Null)
+                {
+                    ed.WriteMessage($"\n{tag}   ⚠ No se pudo generar la Wye — se deja el codo del quiebre.");
+                    return false;
+                }
+                try { (tr.GetObject(codo.SolidId, OpenMode.ForWrite) as Entity)?.Erase(); } catch { }
+                WyeSolido.Creadas.Remove(codo);
+                ed.WriteMessage($"\n{tag}   · Codo del quiebre reemplazado por Wye (ramal a {angRamal:F0}°, Ø{diamPulg:F0}\").");
+
+                // 4) Codo superior (a la cota de la Wye), a TUBO_AUX_CRUCE_FT de
+                //    su boca libre. Codo inferior en la misma XY, sobre el eje de
+                //    la otra utilidad.
+                double sV = ramal.BocaFt + TUBO_AUX_CRUCE_FT + codo90.BocaFt;
+                Point3d v1 = cT + dE * sV;
+                Point3d v2 = new Point3d(v1.X, v1.Y, ZEnRecta(eCerca, eLejos, v1.X, v1.Y));
+                Vector3d dirV = v2.Z > v1.Z ? Vector3d.ZAxis : Vector3d.ZAxis.Negate();
+
+                var infoCodo = new WyeSolido.Info
+                {
+                    Tipo = "ELBOW", AnguloDeg = 90.0, DiamPrincipalIn = diamPulg,
+                    DiamRamalIn = diamPulg, Material = mat, Red = red,
+                };
+                var supH = new WyeSolido.Brazo { Direccion = dE.Negate(), DiamFt = dAux };
+                var supV = new WyeSolido.Brazo { Direccion = dirV, DiamFt = dAux };
+                WyeSolido.Crear(db, tr, v1, new List<WyeSolido.Brazo> { supH, supV }, infoCodo, ed);
+
+                // El brazo hacia la otra utilidad lleva su tubo: WyeSolido lo
+                // recorta hasta la boca de este codo.
+                var infV = new WyeSolido.Brazo { Direccion = dirV.Negate(), DiamFt = dAux };
+                var infE = new WyeSolido.Brazo { Direccion = dE3, DiamFt = dOtra, PipeId = eId, Port = ePort };
+                WyeSolido.Crear(db, tr, v2, new List<WyeSolido.Brazo> { infV, infE }, infoCodo, ed);
+
+                // 5) Tubos auxiliar (Wye → codo sup.) y vertical (codo sup. → inf.).
+                CrearTuboRecto(net, tr, tuboSel, cT + dE * ramal.AlcanceTuboFt, v1 - dE * supH.AlcanceTuboFt);
+                Point3d w0 = v1 + dirV * supV.AlcanceTuboFt, w1 = v2 - dirV * infV.AlcanceTuboFt;
+                CrearTuboRecto(net, tr, tuboSel, w0, w1);
+
+                // Medido sobre lo construido, no sobre lo pedido.
+                double auxVisible = sV - ramal.BocaFt - supH.BocaFt;
+                ed.WriteMessage($"\n{tag}   · Tubo auxiliar: {auxVisible:F2} ft entre la boca de la Wye y la del codo.");
+                ed.WriteMessage($"\n{tag}   · Vertical: eje Z {w0.Z:F2} → {w1.Z:F2} ({Math.Abs(w1.Z - w0.Z):F2} ft de tubo).");
+                ed.WriteMessage($"\n{tag}   · Codo inferior a {sV:F2} ft del cruce, sobre el eje de la otra utilidad (recortada contra él).");
+                return true;
+            }
+            catch (Exception ex)
+            {
+                ed.WriteMessage($"\n{tag}   ⚠ Conexión con Wye: {ex.Message}");
+                return false;
+            }
+        }
+
+        // Extremo de un tubo de presión (fuera de CROSS-CONNECTS) que cae en el
+        // punto (≤0.5 ft en planta) a la cota de eje dada (≤0.35 ft).
+        private static (ObjectId id, int port) BuscarExtremoPresionEn(Transaction tr,
+            CivilDocument civilDoc, double x, double y, double zEje)
+        {
+            ObjectId mejor = ObjectId.Null; int port = 0; double mejorD = double.MaxValue;
+            foreach (ObjectId nid in civilDoc.GetPressurePipeNetworkIds())
+            {
+                var red = tr.GetObject(nid, OpenMode.ForRead) as CivilDB.PressurePipeNetwork;
+                if (red == null || red.Name == "CROSS-CONNECTS") continue;
+                foreach (ObjectId pid in red.GetPipeIds())
+                {
+                    var pp = tr.GetObject(pid, OpenMode.ForRead) as CivilDB.PressurePipe;
+                    if (pp == null) continue;
+                    for (int k = 0; k < 2; k++)
+                    {
+                        Point3d q = k == 0 ? pp.StartPoint : pp.EndPoint;
+                        double dxy = Math.Sqrt((q.X - x) * (q.X - x) + (q.Y - y) * (q.Y - y));
+                        if (dxy > 0.5 || Math.Abs(q.Z - zEje) > 0.35) continue;
+                        if (dxy < mejorD) { mejorD = dxy; mejor = pid; port = k; }
+                    }
+                }
+            }
+            return (mejor, port);
+        }
+
+        // Z de la recta a→b en el punto de planta (x, y) (proyección en XY).
+        private static double ZEnRecta(Point3d a, Point3d b, double x, double y)
+        {
+            double dx = b.X - a.X, dy = b.Y - a.Y, l2 = dx * dx + dy * dy;
+            if (l2 < 1e-12) return a.Z;
+            double t = ((x - a.X) * dx + (y - a.Y) * dy) / l2;
+            return a.Z + t * (b.Z - a.Z);
+        }
+
+        private static ObjectId CrearTuboRecto(CivilDB.PressurePipeNetwork net, Transaction tr,
+            PresStyles.PressurePartSize tubo, Point3d a, Point3d b)
+        {
+            if (a.DistanceTo(b) < 0.02) return ObjectId.Null;
+            ObjectId id = net.AddLinePipe(new LineSegment3d(a, b), tubo);
+            // Re-fijar extremos: AddLinePipe puede ajustarlos.
+            try
+            {
+                var pp = (CivilDB.PressurePipe)tr.GetObject(id, OpenMode.ForWrite);
+                pp.StartPoint = a; pp.EndPoint = b;
+            }
+            catch { }
+            return id;
+        }
+
+        // Recorta las tuberías horizontales que llegan a un accesorio SÓLIDO.
+        // La versión de catálogo (ConectarHorizontalAFitting) lee los puertos
+        // del PressurePart, pero un Solid3d no tiene puertos — por eso ahí
+        // fallaba con "Unable to cast Solid3d to PressurePart" y las tuberías
+        // se metían hasta el centro de la pieza.
+        //
+        // Aquí se recorta por geometría pura: toda tubería cuyo extremo caiga
+        // cerca del cruce se DESLIZA sobre su propio eje (nunca se rota) hasta
+        // quedar a `alcance` del centro, que es donde muere dentro de la campana.
+        private static void RecortarHorizontalesASolido(Editor ed, Transaction tr,
+            CivilDocument civilDoc, double alcance,
+            double xCross, double yCross, double zCenter, string etiqueta)
+        {
+            if (alcance <= 1e-6)
+            {
+                ed.WriteMessage($"\n{etiqueta}: ⚠ [FITTING-SOLIDO] sin alcance de brazo — no se recorta.");
+                return;
+            }
+            Point3d centro = new Point3d(xCross, yCross, zCenter);
+            // Radio de búsqueda: el extremo puede estar a un par de pies si el
+            // pipe se partió en el cruce. Generoso, pero el recorte solo mueve
+            // el extremo a lo largo del propio eje, así que no puede desviarlo.
+            double tol = Math.Max(3.0, alcance * 3.0);
+            double tol2 = tol * tol;
+            int n = 0;
+
+            foreach (ObjectId nid in civilDoc.GetPressurePipeNetworkIds())
+            {
+                var red = tr.GetObject(nid, OpenMode.ForRead) as CivilDB.PressurePipeNetwork;
+                if (red == null) continue;
+                // La red CROSS-CONNECTS son las verticales recién creadas: esas
+                // ya nacen en el extremo correcto del brazo, no se recortan.
+                if (red.Name == "CROSS-CONNECTS") continue;
+
+                foreach (ObjectId pid in red.GetPipeIds())
+                {
+                    CivilDB.PressurePipe pp;
+                    try { pp = tr.GetObject(pid, OpenMode.ForWrite) as CivilDB.PressurePipe; }
+                    catch { continue; }
+                    if (pp == null) continue;
+
+                    // ¿Qué extremo (si alguno) llega al cruce?
+                    double dS = (pp.StartPoint - centro).LengthSqrd;
+                    double dE = (pp.EndPoint - centro).LengthSqrd;
+                    bool usaStart = dS <= tol2 && dS <= dE;
+                    bool usaEnd = dE <= tol2 && dE < dS;
+                    if (!usaStart && !usaEnd) continue;
+
+                    Point3d fijo = usaStart ? pp.EndPoint : pp.StartPoint;
+                    Vector3d eje = (usaStart ? pp.StartPoint : pp.EndPoint) - fijo;
+                    if (eje.Length < 1e-9) continue;
+                    Vector3d u = eje.GetNormal();
+
+                    // Proyectar el centro sobre el eje del tubo y retroceder el
+                    // alcance del brazo: ahí muere el tubo.
+                    double tCentro = (centro - fijo).DotProduct(u);
+                    double tDestino = tCentro - alcance;
+                    if (tDestino <= 0.05) continue;         // dejaría el tubo invertido
+                    Point3d destino = fijo + u * tDestino;
+
+                    double antes = (usaStart ? pp.StartPoint : pp.EndPoint).DistanceTo(centro);
+                    if (usaStart) pp.StartPoint = destino; else pp.EndPoint = destino;
+                    n++;
+                    ed.WriteMessage($"\n{etiqueta}: [FITTING-SOLIDO] tubo recortado — " +
+                        $"extremo pasó de {antes:F2} a {alcance:F2} ft del centro de la pieza.");
+                }
+            }
+            if (n == 0)
+                ed.WriteMessage($"\n{etiqueta}: ⚠ [FITTING-SOLIDO] ningún tubo horizontal a ≤{tol:F1} ft — no se recortó nada.");
+        }
+
+        // Versión en SÓLIDO 3D del accesorio de una conexión vertical. Los
+        // brazos se arman a mano porque aquí la pieza no nace de una juntura de
+        // tubos, sino de un cruce: el tronco sigue la utilidad horizontal y el
+        // ramal sale en vertical hacia la otra utilidad.
+        //
+        // Devuelve la posición del extremo del brazo vertical, que es donde el
+        // llamador engancha la tubería vertical.
+        private static (ObjectId teeId, int branchPort, Point3d branchWorldPos)?
+            ColocarFittingSolido(Editor ed, Transaction tr,
+            CivilDB.PressurePipeNetwork net, PresStyles.PressurePartSize teePart,
+            CivilDB.PressurePartType tipo, Point3d pos,
+            Vector3d dirHoriz, bool branchArriba, string etiqueta,
+            double diamTroncoIn, double diamRamalIn,
+            out double alcanceHoriz)
+        {
+            alcanceHoriz = 0;
+            try
+            {
+                // Cada brazo con el diámetro de SU tubo: el tronco, el de la
+                // utilidad horizontal; el ramal vertical, el de la vertical.
+                // Antes todos los brazos tomaban el diámetro de la pieza de
+                // catálogo («tee-24 in x 12 in» → 24"), y con una vertical de
+                // Ø12 el ramal salía de Ø24: una boca enorme para un tubo chico.
+                // Con el ramal más delgado, SacarCampanasDelCuerpo lo alarga
+                // hasta que su campana sale entera del tronco (Tee reductora).
+                double diamPieza = ComandosPresion.ExtraerDiametroDeDescripcion(teePart?.Description);
+                if (diamPieza <= 0) diamPieza = 12.0;
+                double troncoIn = diamTroncoIn > 0 ? diamTroncoIn : diamPieza;
+                double ramalIn = diamRamalIn > 0 ? diamRamalIn : troncoIn;
+                double troncoFt = troncoIn / 12.0, ramalFt = ramalIn / 12.0;
+
+                Vector3d dh = new Vector3d(dirHoriz.X, dirHoriz.Y, 0);
+                if (dh.Length < 1e-9) dh = Vector3d.XAxis;
+                dh = dh.GetNormal();
+                Vector3d dv = branchArriba ? Vector3d.ZAxis : Vector3d.ZAxis.Negate();
+
+                var brazos = new List<WyeSolido.Brazo>();
+                // Codo = la utilidad MUERE en el cruce: un solo brazo horizontal
+                // más el vertical (codo reductor si los diámetros difieren).
+                // Tee = la utilidad SIGUE de largo: dos brazos horizontales
+                // opuestos más el vertical.
+                brazos.Add(new WyeSolido.Brazo { Direccion = dh, DiamFt = troncoFt });
+                if (tipo != CivilDB.PressurePartType.Elbow)
+                    brazos.Add(new WyeSolido.Brazo { Direccion = dh.Negate(), DiamFt = troncoFt });
+                brazos.Add(new WyeSolido.Brazo { Direccion = dv, DiamFt = ramalFt });
+
+                var info = new WyeSolido.Info
+                {
+                    Tipo = tipo == CivilDB.PressurePartType.Elbow ? "ELBOW" : "TEE",
+                    AnguloDeg = 90.0,               // el ramal sale perpendicular
+                    DiamPrincipalIn = troncoIn,
+                    DiamRamalIn = ramalIn,
+                    Material = teePart?.Description ?? "",
+                    Red = net?.Name ?? "",
+                };
+
+                ObjectId sid = WyeSolido.Crear(net.Database, tr, pos, brazos, info, ed);
+                if (sid == ObjectId.Null) return null;
+
+                // Alcance del brazo HORIZONTAL: hasta ahí debe recortarse la
+                // tubería horizontal que llega al cruce (WyeSolido no puede
+                // hacerlo solo porque aquí los brazos no traen PipeId).
+                alcanceHoriz = brazos[0].AlcanceTuboFt;
+                // Extremo del brazo vertical: ahí engancha la tubería vertical.
+                var brazoV = brazos[brazos.Count - 1];
+                Point3d fin = pos + dv * brazoV.AlcanceTuboFt;
+                string diams = Math.Abs(troncoIn - ramalIn) < 1e-6
+                    ? $"Ø{troncoIn:F0}\"" : $"Ø{troncoIn:F0}\" con ramal Ø{ramalIn:F0}\" (reductora)";
+                ed.WriteMessage($"\n{etiqueta}: [FITTING-SOLIDO] {info.Tipo} {diams} " +
+                    $"en Z={pos.Z:F2}, ramal {(branchArriba ? "arriba" : "abajo")} " +
+                    $"hasta Z={fin.Z:F2} (capa {WyeSolido.CAPA}).");
+                // branchPort = -1: no hay puertos que conectar, es geometría.
+                return (sid, -1, fin);
+            }
+            catch (Exception ex)
+            {
+                ed.WriteMessage($"\n{etiqueta}: ⚠ [FITTING-SOLIDO] {ex.Message}");
+                return null;
+            }
+        }
+
         // Coloca y orienta un fitting (Tee o Codo), devolviendo la posición
         // WORLD del puerto que apunta a la vertical (branch en un Tee, o el
         // puerto vertical en un Codo). NO conecta la vertical — eso lo hace
@@ -4233,11 +5213,29 @@ namespace Civil3DBasico
             CivilDB.PressurePipeNetwork net, PresStyles.PressurePartSize teePart,
             CivilDB.PressurePartType tipo,
             double xCross, double yCross, double zTee,
-            Vector3d dirHoriz, bool branchArriba, string etiqueta)
+            Vector3d dirHoriz, bool branchArriba, string etiqueta,
+            double diamTroncoIn, double diamRamalIn,
+            out double alcanceHoriz)
         {
+            alcanceHoriz = 0;
             try
             {
                 Point3d posTee = new Point3d(xCross, yCross, zTee);
+
+                // ── Pieza como SÓLIDO 3D ────────────────────────────────────
+                // Este es el otro sitio del plugin donde nacen accesorios (las
+                // conexiones verticales entre utilidades que se cruzan). Con el
+                // modo sólido activo también se generan aquí, o si no la red
+                // quedaba con piezas de catálogo mezcladas con sólidos.
+                if (ComandosPresion.FITTING_COMO_SOLIDO)
+                {
+                    var resSolido = ColocarFittingSolido(ed, tr, net, teePart, tipo,
+                        posTee, dirHoriz, branchArriba, etiqueta,
+                        diamTroncoIn, diamRamalIn, out double alcSol);
+                    if (resSolido.HasValue) { alcanceHoriz = alcSol; return resSolido; }
+                    ed.WriteMessage($"\n{etiqueta}: ⚠ [FITTING-SOLIDO] falló — se usa la pieza de catálogo.");
+                }
+
                 ObjectId teeId = net.AddFitting(posTee, teePart);
                 var parte = (CivilDB.PressurePart)tr.GetObject(teeId, OpenMode.ForWrite);
 
@@ -4679,6 +5677,12 @@ namespace Civil3DBasico
             // Solo cambia su representación en 3D (Model): se le asigna un PipeStyle
             // cuyo display 3D usa un linetype discontinuo. Planta/perfil quedan igual.
             public bool Abandoned;
+            public string NetName = "";
+            // Tramo de la app (0 = T1) al que corresponde cada tramo actual. Solo
+            // difiere de la identidad si el plugin partió un tramo para una T
+            // (PartirTramosEnTes); así los logs siguen nombrando los tramos
+            // como la tabla «Cotas por tramo». null = identidad.
+            public List<int> TramoPython;
             public int PipeIdx = -1;
             public bool HasDuctBank;
             // Si true, al crear la network, NO se generará ninguna estructura

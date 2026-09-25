@@ -29,7 +29,7 @@ from duct_bank import (DuctBank, Conduit, DEFAULT_SNAP_IN,
                        snap, validate, conduit_fits_envelope, conduits_overlap)
 import theme as _theme
 from icons import icon as _icon
-from i18n import t as _tr
+from i18n import t as _tr, N_
 
 
 # ── Constantes visuales ─────────────────────────────────────────────────────
@@ -206,15 +206,15 @@ class _FourSideEditor(QtWidgets.QFrame):
     def _refresh_link_icon(self, *_):
         t = _theme.tokens()
         if self.btn_link.isChecked():
-            name, tip = "mdi:link-variant", "Vinculados (cambiar uno cambia los 4). Click para desvincular."
+            name, tip = "mdi:link-variant", N_("Vinculados (cambiar uno cambia los 4). Click para desvincular.")
             bg = t.accent
             fg = t.text_on_accent
         else:
-            name, tip = "mdi:link-variant-off", "Independientes. Click para vincularlos."
+            name, tip = "mdi:link-variant-off", N_("Independientes. Click para vincularlos.")
             bg = t.surface_alt
             fg = t.text
         self.btn_link.setIcon(_icon(name, color=fg))
-        self.btn_link.setToolTip(tip)
+        self.btn_link.setToolTip(_tr(tip))
         self.btn_link.setStyleSheet(
             f"QToolButton{{background:{bg};border:1px solid {t.border};border-radius:6px;}}"
             f"QToolButton:hover{{background:{t.accent_hover};border:1px solid {t.focus};}}")
@@ -1843,7 +1843,7 @@ class DuctBankDialog(QtWidgets.QDialog):
             return
         t = _theme.tokens()
         head = errs[0]
-        more = f"  (+{len(errs) - 1} más)" if len(errs) > 1 else ""
+        more = "  " + _tr("(+{n} más)").format(n=len(errs) - 1) if len(errs) > 1 else ""
         # Fondo rojo tenue con borde rojo — legible en dark y light.
         bg = QtGui.QColor(t.danger); bg.setAlpha(70)
         bg_css = f"rgba({bg.red()},{bg.green()},{bg.blue()},{bg.alpha()/255:.2f})"
@@ -2183,8 +2183,8 @@ class DuctBankDialog(QtWidgets.QDialog):
         self._push_history(); self._refresh_panel(); self.scene.update()
 
     def _on_open(self):
-        fn, _ = QtWidgets.QFileDialog.getOpenFileName(self, "Abrir Duct Bank",
-                                                      "", "Duct Bank (*.dbjson);;JSON (*.json)")
+        fn, _ = QtWidgets.QFileDialog.getOpenFileName(self, _tr("Abrir Duct Bank"),
+                                                      "", _tr("Duct Bank (*.dbjson);;JSON (*.json)"))
         if not fn: return
         try:
             with open(fn, "r", encoding="utf-8") as f:
@@ -2198,8 +2198,8 @@ class DuctBankDialog(QtWidgets.QDialog):
 
     def _on_save(self):
         default = (self.scene.model.name or "duct_bank").replace("/", "_") + ".dbjson"
-        fn, _ = QtWidgets.QFileDialog.getSaveFileName(self, "Guardar Duct Bank",
-                                                      default, "Duct Bank (*.dbjson)")
+        fn, _ = QtWidgets.QFileDialog.getSaveFileName(self, _tr("Guardar Duct Bank"),
+                                                      default, _tr("Duct Bank (*.dbjson)"))
         if not fn: return
         try:
             with open(fn, "w", encoding="utf-8") as f:

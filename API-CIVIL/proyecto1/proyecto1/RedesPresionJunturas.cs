@@ -23,6 +23,49 @@ namespace Civil3DBasico
 {
     public partial class ComandosPresion
     {
+        // Modo de prueba (2026-09-23): las Y, Tee y codos se generan como
+        // Solid3d con la geometría real de la juntura en vez de buscarlos en el
+        // catálogo. Evita tener que crear cientos de familias para cubrir cada
+        // ángulo × diámetro. En false, vuelve al flujo de catálogo (intacto).
+        internal const bool FITTING_COMO_SOLIDO = true;
+
+        // Ángulo del RAMAL contra el eje del tronco, en una juntura de 3 tubos.
+        // Mismo criterio que usa la selección de Wye: de las 3 particiones
+        // posibles gana la de tronco más recto, y el ramal se mide contra ese
+        // eje (que es como el catálogo nombra sus piezas: 30/45/60/90°).
+        internal static double AnguloRamalDeTres(List<Vector3d> salidas)
+        {
+            if (salidas == null || salidas.Count != 3) return 0;
+            var n = salidas.Select(v => v.Length > 1e-9 ? v.GetNormal() : Vector3d.XAxis).ToList();
+            double mejorQuiebre = double.MaxValue, angRamal = 0;
+            for (int br = 0; br < 3; br++)
+            {
+                int a = (br + 1) % 3, b = (br + 2) % 3;
+                double angTronco = n[a].GetAngleTo(n[b]) * 180.0 / Math.PI;
+                double quiebre = Math.Abs(180.0 - angTronco);
+                if (quiebre >= mejorQuiebre) continue;
+                mejorQuiebre = quiebre;
+                // Eje del tronco = a→b; el ramal se mide contra él.
+                Vector3d eje = (n[b] - n[a]);
+                if (eje.Length < 1e-9) { angRamal = 90.0; continue; }
+                double ang = n[br].GetAngleTo(eje.GetNormal()) * 180.0 / Math.PI;
+                angRamal = ang > 90.0 ? 180.0 - ang : ang;
+            }
+            return angRamal;
+        }
+
+        // Material del tubo para el XDATA de la pieza. La propiedad puede no
+        // existir según versión/catálogo, así que nunca debe tumbar el import.
+        private static string SeguroMaterial(CivilDB.PressurePipe pp)
+        {
+            try { return pp?.PartDescription ?? ""; } catch { return ""; }
+        }
+
+        private static string SeguroNombreRed(CivilDB.PressurePipeNetwork net)
+        {
+            try { return net?.Name ?? ""; } catch { return ""; }
+        }
+
         // Un sitio físico donde coinciden 2+ extremos de tubería (dentro de la
         // tolerancia de AgruparJunturas). Miembros = (pipe, puerto en la juntura:
         // 0=StartPoint, 1=EndPoint).
@@ -154,11 +197,24 @@ namespace Civil3DBasico
             if (vectoresSalida == null || vectoresSalida.Count != 3)
                 return CivilDB.PressurePartType.Tee;
             var d = vectoresSalida.Select(v => v.Length > 1e-9 ? v.GetNormal() : Vector3d.XAxis).ToList();
+            // Buscar si algún par es casi colineal (tronco recto).
             for (int i = 0; i < 3; i++)
                 for (int j = i + 1; j < 3; j++)
                 {
                     double ang = d[i].GetAngleTo(d[j]) * 180.0 / Math.PI;
-                    if (ang >= 180.0 - tolColinealDeg) return CivilDB.PressurePartType.Tee;
+                    if (ang >= 180.0 - tolColinealDeg)
+                    {
+                        // Par colineal encontrado → el ramal es el tercero.
+                        int br = 3 - i - j; // índice del ramal
+                        // Ángulo del ramal contra el eje del tronco.
+                        double angRamal = d[br].GetAngleTo(d[i]) * 180.0 / Math.PI;
+                        if (angRamal > 90) angRamal = 180.0 - angRamal;
+                        // Solo Tee si el ramal está cerca de 90° (±20°).
+                        // Si el ramal se desvía mucho de 90° (ej. 45°), una
+                        // pieza Tee estándar no encaja → usar Wye.
+                        if (angRamal >= 70.0) return CivilDB.PressurePartType.Tee;
+                        return CivilDB.PressurePartType.Wye;
+                    }
                 }
             return CivilDB.PressurePartType.Wye;
         }
@@ -170,8 +226,16 @@ namespace Civil3DBasico
         // (como hacía el bucle O(n²) original), que en un empalme de 3 tuberías
         // podía intentar crear hasta 3 accesorios superpuestos, cada uno
         // conectado solo a 2 de las 3.
+        // `grupoCota` (opcional): etiqueta por extremo calculada por el import
+        // según utilidad y cota. Dos extremos con etiquetas distintas NUNCA se
+        // unen aunque coincidan en planta — son utilidades que se cruzan a
+        // cotas distintas. Con etiquetas la distancia se mide en PLANTA: la
+        // compatibilidad en Z ya la decidió la etiqueta, y medir en 3D separaba
+        // tubos de diámetros muy distintos con la misma solera (sus ejes quedan
+        // a alturas distintas).
         internal static List<Juntura> AgruparJunturas(
-            List<(Point3d start, Point3d end, ObjectId id)> pipeEndpoints, double tol = 0.5)
+            List<(Point3d start, Point3d end, ObjectId id)> pipeEndpoints, double tol = 0.5,
+            Dictionary<(ObjectId, int), int> grupoCota = null)
         {
             var puntos = new List<(Point3d pos, ObjectId id, int port)>();
             foreach (var pe in pipeEndpoints)
@@ -190,11 +254,20 @@ namespace Civil3DBasico
                 double acumX = puntos[i].pos.X, acumY = puntos[i].pos.Y, acumZ = puntos[i].pos.Z;
                 int n = 1;
                 usado[i] = true;
+                int? labI = null;
+                if (grupoCota != null && grupoCota.TryGetValue((puntos[i].id, puntos[i].port), out int li)) labI = li;
                 for (int k = i + 1; k < puntos.Count; k++)
                 {
                     if (usado[k]) continue;
+                    if (labI.HasValue && grupoCota.TryGetValue((puntos[k].id, puntos[k].port), out int lk)
+                        && lk != labI.Value)
+                        continue;                        // otra cota: no es la misma juntura
                     var c = new Point3d(acumX / n, acumY / n, acumZ / n);
-                    if (c.DistanceTo(puntos[k].pos) <= tol)
+                    double dist = grupoCota != null
+                        ? Math.Sqrt((c.X - puntos[k].pos.X) * (c.X - puntos[k].pos.X) +
+                                    (c.Y - puntos[k].pos.Y) * (c.Y - puntos[k].pos.Y))
+                        : c.DistanceTo(puntos[k].pos);
+                    if (dist <= tol)
                     {
                         j.Miembros.Add((puntos[k].id, puntos[k].port));
                         acumX += puntos[k].pos.X; acumY += puntos[k].pos.Y; acumZ += puntos[k].pos.Z;
@@ -459,10 +532,11 @@ namespace Civil3DBasico
             CivilDB.PressurePipeNetwork net, Transaction tr, Editor ed,
             List<PresStyles.PressurePartSize> fittingsDisponibles,
             List<(Point3d start, Point3d end, ObjectId id)> pipeEndpoints,
-            double tol = 0.5)
+            double tol = 0.5,
+            Dictionary<(ObjectId, int), int> grupoCota = null)
         {
             int nFit = 0, nDirect = 0, nFail = 0;
-            var junturas = AgruparJunturas(pipeEndpoints, tol);
+            var junturas = AgruparJunturas(pipeEndpoints, tol, grupoCota);
             bool hayFittings = fittingsDisponibles != null && fittingsDisponibles.Count > 0;
 
             // Pre-scan: si alguna juntura de 3 tuberías va a pedir una Wye y la
@@ -499,7 +573,12 @@ namespace Civil3DBasico
                 bool yaHayWye = (fittingsDisponibles ?? new List<PresStyles.PressurePartSize>())
                     .Any(f => f.PartType == CivilDB.PressurePartType.Wye);
                 ed.WriteMessage($"\n  · [WYE-PRESCAN] posibleWye={posibleWye}, yaHayWye={yaHayWye}, partsListId={(net.PartsListId != ObjectId.Null ? "ok" : "NULL")}.");
-                if (posibleWye && !yaHayWye && net.PartsListId != ObjectId.Null)
+                // Con las Y como sólido 3D no hace falta ninguna familia Wye de
+                // catálogo: cargar las 116 del Steel en cada import solo
+                // ensuciaba la lista 'Standard'.
+                if (FITTING_COMO_SOLIDO && posibleWye)
+                    ed.WriteMessage("\n  · [WYE-PRESCAN] Carga de Wye Steel omitida: las Y se generan como sólido 3D.");
+                if (!FITTING_COMO_SOLIDO && posibleWye && !yaHayWye && net.PartsListId != ObjectId.Null)
                 {
                     var pl = tr.GetObject(net.PartsListId, OpenMode.ForRead)
                              as PresStyles.PressurePartList;
@@ -618,42 +697,93 @@ namespace Civil3DBasico
                 // encuentra nada (mismo ajuste en CorregirFittingsDeRed, RedesPresion.cs).
                 double diamMaxIn = pipesInfo.Max(p => p.pp.NominalDiameter) * 12.0;
 
-                // El catálogo Steel solo trae Wye de 30/45/60/75/90°. Si la
-                // juntura pide un ángulo intermedio (p.ej. 57°), la mejor pieza
-                // disponible deja un residuo repartido en los 3 puertos (~7°).
-                // Generamos en el .sqlite una Wye del ángulo EXACTO clonando la
-                // más cercana y rotando su puerto de ramal — misma técnica que
-                // PressureCatalogFiller usa para los tamaños inexistentes.
-                // Idempotente: si ya existe (o el ángulo cae en uno de fábrica)
-                // no hace nada.
-                if (tipo == CivilDB.PressurePartType.Wye && deflex > 0)
+                // NOTA (2026-09-23): el catálogo Steel solo trae Wye de
+                // 30/45/60/75/90°, así que una juntura de ángulo intermedio deja
+                // un residuo de pocos grados repartido en los 3 puertos. Se
+                // intentó generar la Y del ángulo exacto clonando la fila del
+                // .sqlite, pero NO es viable: la geometría 3D de cada familia
+                // vive en <catálogo>\<nombre>\DWG\<PART_FAMILY_ID>.dwg (un DWG
+                // por FAMILIA, con 60 BlockReference — todos los diámetros — y
+                // sin Solid3d editables). Sin ese DWG, Civil 3D falla con
+                // "Fail to add a new fitting.". Se usa la Y de ángulo más
+                // cercano y se avisa del desvío más abajo.
+                // ── ACCESORIO COMO SÓLIDO 3D (modo de prueba, 2026-09-23) ────
+                // Mientras se evalúa este camino, las Y, Tee y codos se GENERAN
+                // con la geometría exacta de la juntura en vez de sacarlos del
+                // catálogo (que trae pocos ángulos fijos y obligaría a crear
+                // cientos de familias para cubrir cada ángulo × diámetro). El
+                // flujo de catálogo sigue intacto debajo: basta poner
+                // FITTING_COMO_SOLIDO=false para volver a él.
+                // Dos tubos de DISTINTO diámetro que además GIRAN son un codo
+                // reductor. DecidirTipoFitting los clasifica como Reducer (recto)
+                // sin mirar el giro; como el Reducer no tiene versión sólida, no
+                // salía ninguna pieza. Solo se corrige en el modo sólido: el
+                // catálogo no tiene codos reductores.
+                bool codoReductor = tipo == CivilDB.PressurePartType.Reducer
+                                    && j.Miembros.Count == 2 && Math.Abs(deflex) > 1.0;
+                if (FITTING_COMO_SOLIDO && codoReductor)
+                    tipo = CivilDB.PressurePartType.Elbow;
+                // La cruz (4 tubos) también: de catálogo salía la que hubiera en
+                // la lista, a veces de otro diámetro, con salidas diminutas.
+                bool tipoSolido = tipo == CivilDB.PressurePartType.Wye
+                               || tipo == CivilDB.PressurePartType.Tee
+                               || tipo == CivilDB.PressurePartType.Elbow
+                               || tipo == CivilDB.PressurePartType.Cross;
+                if (FITTING_COMO_SOLIDO && tipoSolido)
                 {
-                    if (WyeAnguloCustom.AsegurarWyeDeAngulo(diamMaxIn, deflex, ed))
+                    var brazos = pipesInfo.Select(p =>
                     {
-                        // Recargar el catálogo y la lista para que la pieza
-                        // recién creada sea visible en esta misma ejecución.
-                        try
+                        Point3d far = p.Port == 0 ? p.pp.EndPoint : p.pp.StartPoint;
+                        return new WyeSolido.Brazo
                         {
-                            AsegurarPresionWye.ActivarCatalogo(ed);
-                            if (net.PartsListId != ObjectId.Null)
-                            {
-                                var plRef = tr.GetObject(net.PartsListId, OpenMode.ForWrite)
-                                            as PresStyles.PressurePartList;
-                                if (plRef != null)
-                                {
-                                    AsegurarPresionWye.AsegurarEnPartsList(
-                                        plRef, plRef.GetParts(CivilDB.PressurePartDomainType.Fitting),
-                                        tr, null, ed);
-                                    fittingsDisponibles = plRef.GetParts(CivilDB.PressurePartDomainType.Fitting);
-                                    hayFittings = fittingsDisponibles != null && fittingsDisponibles.Count > 0;
-                                }
-                            }
-                        }
-                        catch (Exception exRe)
-                        {
-                            ed.WriteMessage($"\n  ⚠ [WYE-CUSTOM] No pude refrescar la parts list: {exRe.Message}");
-                        }
+                            Direccion = far - j.Ubicacion,
+                            // NominalDiameter viene en pies (ver nota en diamMaxIn).
+                            DiamFt = p.pp.NominalDiameter,
+                            PipeId = p.PipeId,
+                            Port = p.Port,
+                        };
+                    }).ToList();
+
+                    // Ángulo característico: para 2 tubos es la deflexión del
+                    // codo; para 3 es el ángulo del ramal contra el tronco.
+                    // `deflex` solo se calcula con 2 tubos (queda 0 con 3), así
+                    // que en Tee hay que medirlo aquí o el XDATA grababa 0°.
+                    double angPieza = Math.Abs(deflex);
+                    var salidas = pipesInfo
+                        .Select(p => (p.Port == 0 ? p.pp.EndPoint : p.pp.StartPoint) - j.Ubicacion)
+                        .ToList();
+                    if (j.Miembros.Count == 3 && angPieza < 1e-6)
+                        angPieza = AnguloRamalDeTres(salidas);
+                    // Cruz: el ángulo característico es el que forman sus dos rectas
+                    // (el menor entre salidas; 90° en una cruz ortogonal).
+                    if (j.Miembros.Count == 4 && angPieza < 1e-6)
+                        angPieza = salidas.SelectMany((a, ia) => salidas.Skip(ia + 1)
+                            .Select(b => a.GetAngleTo(b) * 180.0 / Math.PI)).Min();
+
+                    var info = new WyeSolido.Info
+                    {
+                        Tipo = tipo == CivilDB.PressurePartType.Wye ? "WYE"
+                             : tipo == CivilDB.PressurePartType.Tee ? "TEE"
+                             : tipo == CivilDB.PressurePartType.Cross ? "CROSS" : "ELBOW",
+                        AnguloDeg = angPieza,
+                        DiamPrincipalIn = diamMaxIn,
+                        DiamRamalIn = pipesInfo.Min(p => p.pp.NominalDiameter) * 12.0,
+                        Material = SeguroMaterial(pipesInfo[0].pp),
+                        Red = SeguroNombreRed(net),
+                    };
+
+                    ObjectId sid = WyeSolido.Crear(net.Database, tr, j.Ubicacion, brazos, info, ed);
+                    if (sid != ObjectId.Null)
+                    {
+                        ed.WriteMessage($"\n  · [FITTING-SOLIDO] {info.Tipo} generada como Solid3d en " +
+                            $"({j.Ubicacion.X:F2},{j.Ubicacion.Y:F2}) — {brazos.Count} brazos, " +
+                            $"Ø {string.Join("/", brazos.Select(b => (b.DiamFt * 12.0).ToString("F0") + "\""))}, " +
+                            $"ángulo {info.AnguloDeg:F0}° (capa {WyeSolido.CAPA}).");
+                        nFit++;
+                        continue;   // sin AddFitting: la pieza ya recortó sus tubos
                     }
+                    ed.WriteMessage($"\n  ⚠ [FITTING-SOLIDO] Falló la generación en " +
+                        $"({j.Ubicacion.X:F2},{j.Ubicacion.Y:F2}) — se cae al catálogo.");
                 }
 
                 PresStyles.PressurePartSize pieza = (hayFittings && tipo.HasValue)

@@ -5,13 +5,13 @@ import fitz
 from PySide6 import QtCore, QtGui, QtWidgets
 
 from icons import icon as _icon
-from i18n import t as _tr
+from i18n import t as _tr, N_
 from sheet_layout import DIRECTIONS, normalize, normalize_rotations
 import theme as _theme
 
 
-_LABELS = {"top": "Superior", "left": "Izquierda", "right": "Derecha",
-           "bottom": "Inferior", "main": "Principal"}
+_LABELS = {"top": N_("Superior"), "left": N_("Izquierda"), "right": N_("Derecha"),
+           "bottom": N_("Inferior"), "main": N_("Principal")}
 _POSITIONS = {"top": (0, 1), "left": (1, 0), "main": (1, 1),
               "right": (1, 2), "bottom": (2, 1)}
 

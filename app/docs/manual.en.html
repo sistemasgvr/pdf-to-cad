@@ -1,0 +1,363 @@
+<!--
+  User manual (English). Shown by manual_dialog.py: each <section data-title> is one
+  page. {{token}} = active theme color; <img src="mark:…"> = canvas symbol drawn with
+  its real colors. Keep in sync with manual.es.html.
+-->
+<style>
+body   { color: {{text}}; font-size: {{fs}}px; }
+h1     { color: {{accent}}; font-size: {{fs_h1}}px; margin-bottom: 6px; }
+h2     { color: {{text}}; font-size: {{fs_h2}}px; margin-top: 22px; margin-bottom: 6px; }
+p      { margin-top: 6px; margin-bottom: 8px; }
+li     { margin-bottom: 7px; }
+.muted { color: {{muted}}; }
+.small { font-size: {{fs_small}}px; color: {{muted}}; }
+.key   { background-color: {{key}}; color: {{text}}; font-weight: bold; }
+.btn   { color: {{accent}}; font-weight: bold; }
+th     { background-color: {{card}}; color: {{text}}; }
+</style>
+
+<section data-title="Welcome">
+<p><b>C3D Assistant</b> turns a PDF plan into a <b>3D pipe network</b> for Civil 3D
+(water, sewer, storm drain, gas, electrical and telecom). Everything is measured in
+<b>feet</b> (and diameters in <b>inches</b>).</p>
+
+<h2>The whole job, in 5 steps</h2>
+<table width="100%" cellspacing="6" cellpadding="10">
+<tr><td bgcolor="{{card}}" width="50"><b style="color:{{accent}};font-size:{{fs_h2}}px;">1</b></td>
+    <td bgcolor="{{card}}"><b>Open</b> the PDF plan (or start with a blank canvas).</td></tr>
+<tr><td bgcolor="{{card}}"><b style="color:{{accent}};font-size:{{fs_h2}}px;">2</b></td>
+    <td bgcolor="{{card}}"><b>Draw</b> the pipes on top of the plan, click by click.</td></tr>
+<tr><td bgcolor="{{card}}"><b style="color:{{accent}};font-size:{{fs_h2}}px;">3</b></td>
+    <td bgcolor="{{card}}"><b>Fill in</b> their data: type, size and elevations (depth).</td></tr>
+<tr><td bgcolor="{{card}}"><b style="color:{{accent}};font-size:{{fs_h2}}px;">4</b></td>
+    <td bgcolor="{{card}}"><b>Check</b> the colored signs that appear on the plan.</td></tr>
+<tr><td bgcolor="{{card}}"><b style="color:{{accent}};font-size:{{fs_h2}}px;">5</b></td>
+    <td bgcolor="{{card}}"><b>Export</b> to DXF and open it in Civil 3D with the import button.</td></tr>
+</table>
+
+<h2>How to use this manual</h2>
+<ul>
+<li>Pick a chapter in the list on the <b>left</b>, or turn pages with
+    <span class="btn">Previous</span> and <span class="btn">Next</span>.</li>
+<li>Text too small? Use the <span class="key">&nbsp;A+&nbsp;</span> and
+    <span class="key">&nbsp;A−&nbsp;</span> buttons below. The app remembers the size.</li>
+<li>Green boxes are <b>tips</b>; yellow boxes are things to pay <b>attention</b> to.</li>
+</ul>
+
+<table width="100%" cellspacing="0" cellpadding="12"><tr>
+<td width="6" bgcolor="{{tip_border}}"></td><td bgcolor="{{tip}}">
+<b>Tip:</b> don't be afraid to try things. <span class="key">&nbsp;Ctrl+Z&nbsp;</span> undoes
+the last change and <span class="key">&nbsp;Ctrl+Shift+Z&nbsp;</span> redoes it.
+</td></tr></table>
+</section>
+
+<section data-title="Starting a project">
+<h2>Option A — Open a PDF plan</h2>
+<ol>
+<li>Menu <b>File → Open PDF…</b> (or drag the PDF onto the window).</li>
+<li>If the PDF was plotted from CAD, an <b>assistant</b> helps you prepare the sheet
+    (see the chapter «CAD PDF plans»).</li>
+<li>If it is a scan, the plan appears right away so you can draw on it.</li>
+</ol>
+
+<h2>Option B — Blank canvas (no PDF)</h2>
+<ol>
+<li>Menu <b>File → New canvas…</b> or <span class="key">&nbsp;Ctrl+N&nbsp;</span>.</li>
+<li>Choose the <b>sheet size</b> (A4, Letter, Tabloid, ANSI, ARCH… or custom sizes in
+    millimeters or inches) and the <b>orientation</b>.</li>
+<li>Choose the plan <b>scale</b>, for example 1" = 20'. The window shows how much real
+    ground fits on the sheet.</li>
+<li>Press <span class="btn">Create</span>. You draw and export just like on a PDF.</li>
+</ol>
+
+<h2>Saving and opening your work</h2>
+<ul>
+<li><b>Save:</b> <span class="key">&nbsp;Ctrl+S&nbsp;</span>. A <b>.digproj</b> file with the whole project is created.</li>
+<li><b>Save with another name:</b> <span class="key">&nbsp;Ctrl+Shift+S&nbsp;</span>.</li>
+<li><b>Open a project:</b> <b>File → Open project…</b></li>
+</ul>
+<table width="100%" cellspacing="0" cellpadding="12"><tr>
+<td width="6" bgcolor="{{warn_border}}"></td><td bgcolor="{{warn}}">
+<b>Attention:</b> a dot <b style="color:{{danger_border}};">●</b> next to the title means there are
+unsaved changes. Save often.
+</td></tr></table>
+</section>
+
+<section data-title="Moving around the plan">
+<table width="100%" cellspacing="4" cellpadding="10">
+<tr><th align="left">I want to…</th><th align="left">How</th></tr>
+<tr><td bgcolor="{{card}}">Zoom in or out</td><td bgcolor="{{card}}">Turn the <b>mouse wheel</b>, or use the magnifier buttons on the top bar.</td></tr>
+<tr><td bgcolor="{{card}}">Move the plan</td><td bgcolor="{{card}}">Hold the <b>wheel</b> (middle button) down and drag.</td></tr>
+<tr><td bgcolor="{{card}}">Change the PDF page</td><td bgcolor="{{card}}"><b>View and pages</b> section, ◀ ▶ arrows.</td></tr>
+<tr><td bgcolor="{{card}}">See my lines better</td><td bgcolor="{{card}}"><b>Opacity</b> button: fades only the PDF. You can also set a white or black background.</td></tr>
+<tr><td bgcolor="{{card}}">Switch dark / light mode</td><td bgcolor="{{card}}"><b>View</b> menu → light / dark theme.</td></tr>
+<tr><td bgcolor="{{card}}">Change the language</td><td bgcolor="{{card}}"><b>File → Options…</b> → Language. It changes instantly.</td></tr>
+</table>
+</section>
+
+<section data-title="CAD PDF plans (assistant)">
+<p>When the PDF comes straight from CAD, the app can <b>read the plan's lines</b> and save you
+from drawing them. The assistant has 3 screens:</p>
+
+<h2>1. Compose work sheet</h2>
+<ol>
+<li>On the left you choose the PDF and the sheet (you can <b>add more PDFs</b>).</li>
+<li>In the middle you draw a rectangle around the part of the plan you need and press
+    <span class="btn">Take area</span> (or <span class="btn">Take whole sheet</span>).</li>
+<li>On the right you place each piece. With the <b>Magnet</b> on, the lines of neighboring
+    pieces snap together; with <b>Bridges</b>, gaps between sheets are filled in.</li>
+<li>You can <b>rotate</b> a piece or fix its <b>scale</b> if the sheet doesn't state it.</li>
+</ol>
+
+<h2>2. Sheet layers</h2>
+<ul>
+<li>The plan's layers are grouped by utility (Water, Sewer, Storm drain, Gas, Electrical,
+    Telephone, Other), each with its color.</li>
+<li>Uncheck what you <b>don't</b> need: it is hidden and not used for recognition.</li>
+<li>With <b>◀ Sheet N / M ▶</b> you change sheets without leaving.</li>
+</ul>
+
+<h2>3. Recognition preview</h2>
+<ul>
+<li>Shows the electrical lines found, their vaults and the percentage checked.</li>
+<li><span class="btn">Continue and import into the editor</span> adds them to the project as pipes.</li>
+<li><b>Abandoned</b> lines («-A» layer with «/» marks) are imported marked <b>(AB)</b>.
+    Curved <b>bends</b> on the plan are imported with their real radius.</li>
+</ul>
+<table width="100%" cellspacing="0" cellpadding="12"><tr>
+<td width="6" bgcolor="{{tip_border}}"></td><td bgcolor="{{tip}}">
+<b>Tip:</b> if something isn't recognized, you can always draw it by hand (next chapter).
+</td></tr></table>
+</section>
+
+<section data-title="Drawing a pipe">
+<ol>
+<li>Open the <b>Draw utility</b> section of the left panel.</li>
+<li>Choose the <b>type</b>: water, sewer, storm drain, gas, electrical or telecom.</li>
+<li><b>Click</b> on the plan at each point the pipe passes through.</li>
+<li>Press <span class="key">&nbsp;Enter&nbsp;</span> to finish.</li>
+</ol>
+
+<h2>The green magnet (to join pipes precisely)</h2>
+<p>When you get close to another pipe of the same type, a green mark appears. Its shape tells you what the click will snap to:</p>
+<table width="100%" cellspacing="4" cellpadding="8">
+<tr><td bgcolor="{{card}}" width="44" align="center"><img src="mark:snap_extremo"></td>
+    <td bgcolor="{{card}}"><b>Circle:</b> the end of another pipe.</td></tr>
+<tr><td bgcolor="{{card}}" align="center"><img src="mark:snap_vertice"></td>
+    <td bgcolor="{{card}}"><b>Square:</b> a vertex (a bend) of another pipe.</td></tr>
+<tr><td bgcolor="{{card}}" align="center"><img src="mark:snap_tramo"></td>
+    <td bgcolor="{{card}}"><b>Triangle:</b> a point in the middle of a segment.</td></tr>
+</table>
+<p>If you start at the end of another pipe of the same type, the app asks whether to
+<b>continue it</b> (same utility) or <b>create a new one</b> that touches it.</p>
+
+<table width="100%" cellspacing="0" cellpadding="12"><tr>
+<td width="6" bgcolor="{{tip_border}}"></td><td bgcolor="{{tip}}">
+<b>Tip:</b> to fix a pipe, select it in the list and use <b>Edit/move</b> (right click), or
+<b>Precise move</b> to move it by an exact distance.
+</td></tr></table>
+</section>
+
+<section data-title="Pipe data">
+<p>Select the pipe in the <b>Utilities</b> list. In the <b>Properties</b> panel:</p>
+<table width="100%" cellspacing="4" cellpadding="10">
+<tr><th align="left" width="30%">Field</th><th align="left">What it is for</th></tr>
+<tr><td bgcolor="{{card}}"><b>Name</b></td><td bgcolor="{{card}}">Network name in Civil 3D (for example «Linea Norte»). If empty, the network is called RED-AGUA, RED-GAS, etc.</td></tr>
+<tr><td bgcolor="{{card}}"><b>Family and Size</b></td><td bgcolor="{{card}}">Civil 3D catalog part. Listed for the version and language chosen on the top bar.</td></tr>
+<tr><td bgcolor="{{card}}"><b>Start / end elevation</b></td><td bgcolor="{{card}}">Elevation of the pipe bottom (in feet) at the start and the end.</td></tr>
+<tr><td bgcolor="{{card}}"><b>Material</b></td><td bgcolor="{{card}}">From a fixed list that matches the catalog.</td></tr>
+<tr><td bgcolor="{{card}}"><b>Abandoned</b></td><td bgcolor="{{card}}">Marks a pipe that is out of service. In Civil 3D it shows dashed in 3D.</td></tr>
+<tr><td bgcolor="{{card}}"><b>Elevations per segment</b></td><td bgcolor="{{card}}">Press «Enable per-segment editing» to give each segment (T1, T2…) its own elevation.</td></tr>
+</table>
+
+<table width="100%" cellspacing="0" cellpadding="12"><tr>
+<td width="6" bgcolor="{{info_border}}"></td><td bgcolor="{{info}}">
+<b>Important about the name:</b> the name only identifies the network. Two pipes of the
+<b>same type</b> that touch are joined in Civil 3D <b>even if their names differ</b>: they go
+into the network of the first name.
+</td></tr></table>
+
+<h2>Curves</h2>
+<p>In the <b>Curves</b> list you can turn a bend into a curve and set its <b>radius</b> (in
+feet). If the number turns red, the radius does not fit the neighboring segments: the app
+shows the maximum allowed.</p>
+</section>
+
+<section data-title="Manholes and boxes">
+<ul>
+<li>The app automatically places a <b>manhole</b> (BZ-) at each sewer and storm drain vertex,
+    and a <b>box</b> (CAJA-) on electrical and telecom networks.</li>
+<li>In the <b>Manholes</b> list you change their family, size and elevations.</li>
+<li>To add one in the middle of a line: <b>Tools → Insert manhole in-line…</b></li>
+<li><b>Hide manhole</b> removes a manhole that does not really exist; the network stays connected.</li>
+</ul>
+<table width="100%" cellspacing="0" cellpadding="12"><tr>
+<td width="6" bgcolor="{{info_border}}"></td><td bgcolor="{{info}}">
+Water and gas are <b>pressure</b> networks: they have no manholes. Where pipes meet, Civil 3D
+places a fitting (elbow, Tee, Wye or cross).
+</td></tr></table>
+</section>
+
+<section data-title="Notes, arrows and areas">
+<table width="100%" cellspacing="4" cellpadding="10">
+<tr><td bgcolor="{{card}}" width="30%"><b>Leader</b> (arrow)</td><td bgcolor="{{card}}">Choose the orientation, click the tip and click the end.</td></tr>
+<tr><td bgcolor="{{card}}"><b>Free text</b></td><td bgcolor="{{card}}">Click where the text goes, type and press <span class="key">&nbsp;Enter&nbsp;</span>.</td></tr>
+<tr><td bgcolor="{{card}}"><b>Erase area</b></td><td bgcolor="{{card}}">Draw a closed outline: that part of the plan is not exported.</td></tr>
+<tr><td bgcolor="{{card}}"><b>Trace centerline</b></td><td bgcolor="{{card}}">Reference line on a street axis. It is not a pipe; it helps with georeferencing.</td></tr>
+</table>
+</section>
+
+<section data-title="Duct banks">
+<p>A duct bank is a concrete block with several conduits inside.</p>
+<ol>
+<li>Right-click an electrical or telecom pipe → <b>Create duct bank for this pipe</b>
+    (or the <b>Open Duct Bank Designer</b> button).</li>
+<li>Draw the section: block size, margins and rounded corners.</li>
+<li>Add the conduits. The outline is <b style="color:#2ea44f;">green</b> if it fits and
+    <b style="color:#d23c3c;">red</b> if it breaks a rule (minimum spacing or edge clearance).</li>
+<li><span class="btn">Save and close</span>. Civil 3D creates the 3D block with its conduits.</li>
+</ol>
+<table width="100%" cellspacing="0" cellpadding="12"><tr>
+<td width="6" bgcolor="{{tip_border}}"></td><td bgcolor="{{tip}}">
+<b>Tip:</b> the <b>Show dimensions</b> button draws the distances between conduits.
+<span class="key">&nbsp;Esc&nbsp;</span> drops the active tool without closing the window.
+</td></tr></table>
+</section>
+
+<section data-title="Colored signs on the plan">
+<p>While you draw, the app checks the design and places <b>signs</b> where something needs
+your attention. <b>Hover</b> over a sign to read what is going on, or <b>click</b> it for the
+details. They only appear at pipe crossings and joints.</p>
+
+<h2>Legend</h2>
+<table width="100%" cellspacing="4" cellpadding="10">
+<tr><th width="76">Sign</th><th align="left">What it means</th><th align="left">What to do</th></tr>
+<tr><td bgcolor="{{card}}" align="center"><img src="mark:conflicto"></td>
+    <td bgcolor="{{card}}"><b>Yellow with «!»</b><br>Two pipes touch <b>at the same elevation</b>.
+        If they are the same type and join (one ends on the other), the message tells you which
+        fitting Civil 3D will place. If they only cross, they <b>clash</b>.</td>
+    <td bgcolor="{{card}}">If it is a joint, nothing. If they clash, change one elevation or fix the drawing.</td></tr>
+<tr><td bgcolor="{{card}}" align="center"><img src="mark:sugerencia"></td>
+    <td bgcolor="{{card}}"><b>Blue with «↕»</b><br>Two pipes of the same type cross at
+        <b>different elevations</b>: one passes over the other.</td>
+    <td bgcolor="{{card}}">Click it if you want to <b>join them with a vertical pipe</b>.</td></tr>
+<tr><td bgcolor="{{card}}" align="center"><img src="mark:aprobado"></td>
+    <td bgcolor="{{card}}"><b>Green with «✓»</b><br>Vertical joint <b>approved</b>: Civil 3D will draw it.</td>
+    <td bgcolor="{{card}}">Click it if you want to remove the approval.</td></tr>
+<tr><td bgcolor="{{card}}" align="center"><img src="mark:alerta"></td>
+    <td bgcolor="{{card}}"><b>Red triangle</b><br>Civil 3D <b>cannot draw it as it is</b>.
+        The message says what it will do instead (see the next page).</td>
+    <td bgcolor="{{card}}">Read the message and decide whether to fix the drawing.</td></tr>
+</table>
+<p class="small">Signs can be hidden from the View menu («Show crossings/conflicts»).
+The status bar at the bottom counts how many there are of each kind.</p>
+</section>
+
+<section data-title="Red alerts: when they appear">
+<p>The red triangle <img src="mark:alerta"> appears in these cases. All refer to
+<b>pressure</b> networks (water and gas), except «different networks».</p>
+<table width="100%" cellspacing="4" cellpadding="10">
+<tr><th align="left" width="24%">Case</th><th align="left">When it appears</th><th align="left">What Civil 3D will do</th></tr>
+<tr><td bgcolor="{{danger}}"><b>Too many pipes</b></td>
+    <td bgcolor="{{card}}">5 or more pipes meet at the same point at the same elevation.</td>
+    <td bgcolor="{{card}}">It will not place any fitting there. <b>Fix the drawing.</b></td></tr>
+<tr><td bgcolor="{{danger}}"><b>Different networks</b></td>
+    <td bgcolor="{{card}}">Two utilities of a <b>different type</b> (for example water and storm drain) cross at the same elevation.</td>
+    <td bgcolor="{{card}}">It does not join them: they will clash. Change one elevation.</td></tr>
+<tr><td bgcolor="{{danger}}"><b>Elevation step</b></td>
+    <td bgcolor="{{card}}">At a vertex of one pipe, the incoming and outgoing segments have different elevations.</td>
+    <td bgcolor="{{card}}">It joins both segments at the <b>average elevation</b>.</td></tr>
+<tr><td bgcolor="{{danger}}"><b>Segment too short between elbows</b></td>
+    <td bgcolor="{{card}}">Between two consecutive bends there is a segment shorter than 3 diameters (minimum 1 foot).</td>
+    <td bgcolor="{{card}}">It places <b>a single elbow</b> instead of two.</td></tr>
+<tr><td bgcolor="{{danger}}"><b>Sloped vertical connection</b></td>
+    <td bgcolor="{{card}}">An approved vertical joint at a bend has too little elevation difference for two elbows.</td>
+    <td bgcolor="{{card}}">It places a Wye with a sloped branch and the incoming pipe gets a <b>slope</b>.</td></tr>
+</table>
+<table width="100%" cellspacing="0" cellpadding="12"><tr>
+<td width="6" bgcolor="{{info_border}}"></td><td bgcolor="{{info}}">
+These alerts do not appear on storm drain and sewer: there the manhole handles drops and joints.
+</td></tr></table>
+</section>
+
+<section data-title="Georeferencing (optional)">
+<p>Places the plan at its <b>real location</b> (Los Angeles coordinates, EPSG:2229). It is
+for preliminary design: exact data comes from the survey.</p>
+<ol>
+<li><b>Tools → Georeference…</b></li>
+<li>On the map on the <b>right</b>, type an address or a street intersection and press
+    <span class="btn">Search and download</span>.</li>
+<li>Click a point on the <b>plan</b> (left) and then the <b>same point</b> on the map.
+    Clicks snap to intersections and corners.</li>
+<li>Repeat with <b>3 or more</b> points, preferably far apart.</li>
+<li>Press <span class="btn">Fit + RMSE</span>. RMSE is the average error in feet: the lower, the better.</li>
+<li>Press <span class="btn">Save georeference</span>.</li>
+</ol>
+<p><span class="key">&nbsp;Ctrl+Z&nbsp;</span> deletes the last point. If you know the Civil 3D
+coordinate system code (for example <b>CA83VF</b>), type it and the drawing will be set up with it.</p>
+</section>
+
+<section data-title="Export and open in Civil 3D">
+<h2>In the app</h2>
+<ol>
+<li>Check that there are no red signs you don't understand.</li>
+<li>On the top bar, choose your <b>Civil 3D</b> version (2025, 2026 or 2027) and its <b>language</b>.</li>
+<li>Press <span class="btn">Export DXF</span> and choose where to save it.</li>
+</ol>
+<h2>In Civil 3D</h2>
+<ol>
+<li>Open the plugin panel (command <b>PANEL_REDES</b>).</li>
+<li>Press <b>Import network from DXF</b> and choose the file.</li>
+<li>The networks are created with their pipes, manholes, curves and duct banks.</li>
+</ol>
+<h2>What you will see in 3D</h2>
+<ul>
+<li>On water and gas, joints get <b>solid fittings</b>: <b>elbow</b> (bend), <b>Tee</b>
+    (90° branch), <b>Wye</b> (angled branch) and <b>cross</b> (4 pipes). Pipes go into the
+    fitting's bell.</li>
+<li>Each fitting stores its data (type, angle, diameters, material, network) in its properties.</li>
+<li>Approved vertical joints are drawn with elbows and a vertical segment.</li>
+</ul>
+<table width="100%" cellspacing="0" cellpadding="12"><tr>
+<td width="6" bgcolor="{{warn_border}}"></td><td bgcolor="{{warn}}">
+<b>Attention:</b> if you use your own families, install them first with
+<b>Tools → Install custom family…</b> and then run <b>PREPARAR_FAMILIAS</b> in Civil 3D.
+</td></tr></table>
+</section>
+
+<section data-title="Property Sets with Excel">
+<p>To add extra information to the pipes in Civil 3D (installation date, specification…):</p>
+<ol>
+<li>In the plugin panel: <b>Export pipes to Excel</b>. A sheet with each pipe's name and type is created.</li>
+<li>In Excel, add <b>one column per piece of data</b> and fill it in. Leave blank what doesn't apply.</li>
+<li>In the panel: <b>Import Property Sets from Excel</b>.</li>
+<li>Check it in Civil 3D: select a pipe → Properties → Extended Data.</li>
+</ol>
+<p class="small">You can import the same file several times: nothing gets duplicated.</p>
+<h2>Fitting data (elbows, tees, wyes, crosses)</h2>
+<p>Every fitting the plugin creates carries its data automatically.
+Select it → <b>Properties → Extended Data → PDFCAD_Accesorio</b>:</p>
+<ul>
+<li><b>Tipo_Accesorio</b>: fitting type (Codo = elbow, Tee, Wye, Cruz = cross).</li>
+<li><b>Angulo_Grados</b>: the fitting angle, in degrees.</li>
+<li><b>Diametro_Pulg</b>: the diameter in inches («12 x 8» if one outlet is smaller).</li>
+<li><b>Material</b>: the pipe material.</li>
+<li><b>Cota_Eje_Pies</b>: the elevation of the fitting's center, in feet.</li>
+</ul>
+<p class="small">A drawing imported with an older version? Type <b>PS_ACCESORIOS</b> in Civil 3D
+and its fittings get this data.</p>
+</section>
+
+<section data-title="Frequently asked questions">
+<h2>I don't see my pipes in Civil 3D</h2>
+<p>Check that you chose the same Civil 3D version and language on the top bar, and that the
+pipes have <b>elevations</b>.</p>
+<h2>A yellow sign appears where two pipes join</h2>
+<p>That is normal: hover over it to see which fitting Civil 3D will place. If it says they clash, fix the elevation.</p>
+<h2>I renamed a pipe and now it is in another network</h2>
+<p>Pipes of the same type that touch always go into the same network; it takes the first name.</p>
+<h2>I made a mistake</h2>
+<p><span class="key">&nbsp;Ctrl+Z&nbsp;</span> undoes it. If you closed without saving, open the last saved .digproj.</p>
+<h2>More help</h2>
+<p><b>Help → Keyboard shortcuts</b> lists all shortcut keys. <b>Help → About…</b> shows what's new in each version.</p>
+</section>

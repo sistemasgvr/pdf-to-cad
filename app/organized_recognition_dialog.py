@@ -9,15 +9,15 @@ import fitz
 from PySide6 import QtCore, QtGui, QtWidgets
 
 import pdf_layers
-from i18n import t as _tr
+from i18n import t as _tr, N_
 from layer_dialog import utility_qcolor
 from pdf_view_quality import FocusedPageQuality
 from widgets import ZoomPanView
 import theme as _theme
 
 
-_LABELS = {"main": "Principal", "top": "Superior", "left": "Izquierda",
-           "right": "Derecha", "bottom": "Inferior"}
+_LABELS = {"main": N_("Principal"), "top": N_("Superior"), "left": N_("Izquierda"),
+           "right": N_("Derecha"), "bottom": N_("Inferior")}
 
 
 def _rotated_point(x, y, width, height, angle):

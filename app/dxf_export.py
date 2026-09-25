@@ -135,6 +135,7 @@ def merge_into(win, doc, marks=True):
             (1000, f"ABANDONED={1 if p.get('ab') else 0}"),
             (1000, f"PIPE_IDX={pipe_idx}"),
             (1000, f"HAS_DUCT_BANK={1 if pipe_idx in _db_pipe_idxs else 0}"),
+            (1000, f"NET_NAME={p.get('name') or ''}"),
         ])
     _export_structures(win, doc, msp)
     _export_duct_banks(win, doc, msp)

@@ -251,6 +251,17 @@ alcantarillado, drenaje, gas, eléctrico, telecom). Todo en **unidades imperiale
     señal `THEME_BUS.changed` para que widgets con QSS custom se restilen, y
     preferencia persistida en QSettings. Menú **Ver** en la ventana principal
     permite alternar en vivo.
+  - `i18n.py` + `i18n_core.py` + `i18n_en.py` + `i18n_en_changelog.py` — traducción
+    ES → EN. La clave es el texto en español tal cual está en el código. UI:
+    `from i18n import t` (y `bind(widget, "setText", "Clave")` en widgets de vida
+    larga: se re-traducen solos con `LANG_BUS`; `bind_item` para ítems de combo);
+    lógica PURA (`duct_bank`, `recognition`, `civil_catalog`, `composite`):
+    `from i18n_core import t` (sin Qt). Reglas: plantillas `t("… {n}").format(n=…)`,
+    nunca f-string ni concatenación dentro de `t()`; el sangrado va fuera de la clave
+    (`"  " + t("Guardar")`); tablas de datos con `N_("…")` y `t()` al mostrar;
+    documentos largos en `app/docs/<nombre>.<idioma>.html` vía `load_doc`.
+    `tests/test_i18n.py` falla si un texto visible queda sin envolver/traducir, si
+    una traducción pierde `{marcadores}` o si quedan claves muertas.
   - `duct_bank.py` — modelo PURO del Duct Bank (sin Qt): `DuctBank` (envolvente
     rectangular en pulgadas + lista de `Conduit` + `pipe_idx` de la pipe asignada),
     `snap`, `validate`, `conduit_fits_envelope`, `conduits_overlap`. Testeado
@@ -343,7 +354,8 @@ alcantarillado, drenaje, gas, eléctrico, telecom). Todo en **unidades imperiale
 - Al mover código a un módulo nuevo: hacerlo **verbatim** y dejar en `Main` un
   método delgado que delega, para no romper menús/atajos ni la navegación.
 - Al cambiar comportamiento visible al usuario, actualizar `CHANGELOG` y la
-  versión en `app/model.py` (y el manual en `app_window.py` `show_manual`).
+  versión en `app/model.py` (y el manual: `app/docs/manual.es.html` + `manual.en.html`, un
+  `<section data-title>` por capítulo, colores `{{token}}` del tema; lo muestra `manual_dialog.py`).
 - Español en comentarios y textos de UI (el usuario y su equipo trabajan en español).
 
 ## Roadmap de arquitectura (incremental)

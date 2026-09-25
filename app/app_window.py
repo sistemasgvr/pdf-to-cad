@@ -48,8 +48,14 @@ from ui_common import (DOWNLOADS, btn_on_style, btn_off_style, aci_qcolor, layer
                        _extract_diam_from_size, swatch_icon)
 import theme as _theme
 import i18n as _i18n
-from i18n import t as _tr
+from i18n import t as _tr, bind as _bind, bind_item as _bind_item, N_
 from icons import icon as _icon
+
+# Cuánto más cerca tiene que estar el tramo que un vértice para ganarle en el
+# snap suave (ver `_pipe_soft_snap`). Junto a un vértice, la perpendicular a un
+# segmento oblicuo cae un pelo más cerca; sin este margen el punto se deslizaba
+# sobre el tramo y las utilidades no empalmaban en el vértice.
+PRIORIDAD_VERTICE = 0.55
 
 
 class Main(QtWidgets.QMainWindow):
@@ -81,6 +87,10 @@ class Main(QtWidgets.QMainWindow):
         self._scale_override = None  # escala de la hoja compuesta (pies/pt); None = detectar
         self._tmp_composite = None
         self.pdf_path = None; self.doc = None; self.project_path = None; self.leader_hpx = 40
+        # Proyecto sobre hoja en blanco (sin PDF de fondo). `paper` guarda el
+        # formato elegido para reponerlo al abrir el .digproj.
+        self.blank_canvas = False
+        self.paper = None
 
         self.cur_pts = []; self.pipes = []; self.leaders = []; self.text_marks = []
         self.erase_regions = []; self._erase_pts = []; self.structures = []
@@ -129,22 +139,15 @@ class Main(QtWidgets.QMainWindow):
 
     def _build_menu(self):
         mb = self.menuBar()
-        # Guardamos referencias a menús + acciones traducibles para poder
-        # retranslatarlas en vivo cuando cambia el idioma (_retranslate_menu).
-        self._i18n_menus = []   # lista de (menu, clave_es_original)
-        self._i18n_actions = []  # lista de (action, clave_es_original)
-
+        # Menús y acciones con _bind: se re-traducen solos al cambiar el idioma.
         def _menu(parent_bar, label_es):
-            m = parent_bar.addMenu(_tr(label_es))
-            self._i18n_menus.append((m, label_es))
-            return m
+            return _bind(parent_bar.addMenu(""), "setTitle", label_es)
 
         def _act(menu, label_es, fn, shortcut=None):
-            a = self._menu_act(menu, _tr(label_es), fn, shortcut)
-            self._i18n_actions.append((a, label_es))
-            return a
+            return _bind(self._menu_act(menu, "", fn, shortcut), "setText", label_es)
 
         mfile = _menu(mb, "&Archivo")
+        _act(mfile, "Nuevo lienzo…", self.new_blank_canvas, "Ctrl+N")
         _act(mfile, "Abrir PDF…", self.open_pdf)
         mfile.addSeparator()
         _act(mfile, "Abrir proyecto…", self.open_project)
@@ -175,21 +178,19 @@ class Main(QtWidgets.QMainWindow):
         # (círculos amarillos ⓘ = cruces sanos con distinta cota; círculos
         # rojos ⚠ = conflictos donde dos utilidades chocan). Encendido por
         # defecto — preferencia persistida en QSettings.
-        self.chk_show_conflicts = QtGui.QAction(_tr("Mostrar cruces/conflictos"), self)
+        self.chk_show_conflicts = _bind(QtGui.QAction(self), "setText", "Mostrar cruces/conflictos")
         self.chk_show_conflicts.setCheckable(True)
         try:
             _sc_pref = QtCore.QSettings("pdf-to-cad", "app").value("show_conflicts_v2", False, type=bool)
         except Exception:
             _sc_pref = False
         self.chk_show_conflicts.setChecked(bool(_sc_pref))
-        self.chk_show_conflicts.setToolTip(_tr(
-            "Marca los puntos donde dos utilidades se cruzan geométricamente en el plano.\n"
+        _bind(self.chk_show_conflicts, "setToolTip", "Marca los puntos donde dos utilidades se cruzan geométricamente en el plano.\n"
             "  · Amarillo ⓘ: cruce sano (distinta cota, se pasan por encima/debajo).\n"
             "  · Rojo ⚠: conflicto (misma cota o sin cota → chocan).\n"
-            "Apagarlo oculta las marcas y el contador de la barra de estado."))
+            "Apagarlo oculta las marcas y el contador de la barra de estado.")
         self.chk_show_conflicts.toggled.connect(self._on_toggle_show_conflicts)
         mview.addAction(self.chk_show_conflicts)
-        self._i18n_actions.append((self.chk_show_conflicts, "Mostrar cruces/conflictos"))
         mtools = _menu(mb, "&Herramientas")
         _act(mtools, "Insertar buzón en línea…", self.insert_manhole)
         _act(mtools, "Instalar familia personalizada…", self.open_install_family_dialog)
@@ -206,97 +207,23 @@ class Main(QtWidgets.QMainWindow):
         _i18n.LANG_BUS.changed.connect(self._retranslate_ui)
 
     def _retranslate_ui(self, *_):
-        """Actualiza los textos de la UI cuando cambia el idioma. Solo toca los
-        widgets que registramos como traducibles — sin recrear la ventana.
+        """Re-genera el contenido CALCULADO de la UI al cambiar el idioma.
 
-        Nota: hay muchos textos hardcodeados repartidos por la UI (labels
-        puntuales, tooltips, mensajes) que no viven en esta lista. Esos se
-        aplicarán la próxima vez que se abra la ventana correspondiente."""
-        for m, key in getattr(self, "_i18n_menus", []):
-            try: m.setTitle(_tr(key))
-            except Exception: pass
-        for a, key in getattr(self, "_i18n_actions", []):
-            try: a.setText(_tr(key))
-            except Exception: pass
-        # Título de la ventana (por si contiene texto traducible)
-        try: self._update_title()
-        except Exception: pass
-        # Refrescar título del theme action
-        try: self._refresh_theme_action_label()
-        except Exception: pass
-        # Docks: título del dock derecho ("Inventario")
-        try:
-            for dock in self.findChildren(QtWidgets.QDockWidget):
-                # Guardamos la clave original en una propiedad dinámica al construir
-                key = dock.property("i18n_key")
-                if key: dock.setWindowTitle(_tr(key))
-        except Exception: pass
-        # Tabs del inventario
-        try:
-            if hasattr(self, "tabs"):
-                labels_es = ["Utilidades", "Leaders", "Textos", "Zonas",
-                              "Buzones", "Curvas", "Centerlines", "Bancoductos"]
-                for i, es in enumerate(labels_es):
-                    if i < self.tabs.count():
-                        self.tabs.setTabText(i, _tr(es))
-                # y el combo que refleja los tabs
-                if hasattr(self, "tab_combo"):
-                    self.tab_combo.blockSignals(True)
-                    for i in range(min(self.tab_combo.count(), len(labels_es))):
-                        self.tab_combo.setItemText(i, _tr(labels_es[i]))
-                    self.tab_combo.blockSignals(False)
-        except Exception: pass
-        # Botones del panel de bancoductos
-        try:
-            if hasattr(self, "btn_db_new"): self.btn_db_new.setText(_tr("+ Nuevo"))
-            if hasattr(self, "btn_db_edit"): self.btn_db_edit.setText(_tr("Editar"))
-            if hasattr(self, "btn_db_dup"): self.btn_db_dup.setText(_tr("Duplicar"))
-            # Toolbar principal
-            if hasattr(self, "btn_export"): self.btn_export.setText(_tr("  Exportar DXF"))
-            # Toolbox (dock izquierdo) — botones de las secciones
-            if hasattr(self, "btn_pipe"): self.btn_pipe.setText("  " + _tr("Dibujar utilidad"))
-            if hasattr(self, "btn_leader_simple"): self.btn_leader_simple.setText("  " + _tr("Colocar Leader"))
-            if hasattr(self, "btn_text"): self.btn_text.setText("  " + _tr("Texto libre"))
-            if hasattr(self, "btn_erase"): self.btn_erase.setText("  " + _tr("Borrar zona"))
-            if hasattr(self, "btn_centerline"): self.btn_centerline.setText("  " + _tr("Trazar centerline"))
-            if hasattr(self, "btn_ductbank"):
-                self.btn_ductbank.setText("  " + _tr("Abrir diseñador de Duct Bank"))
-            if hasattr(self, "lbl_ductbank_count"):
-                self.lbl_ductbank_count.setText(_tr("Duct banks guardados: 0"))
-            if hasattr(self, "chk_ab"): self.chk_ab.setText(_tr("Abandonado"))
-            if hasattr(self, "chk_ext_same"): self.chk_ext_same.setText(_tr("Extender: continuar la misma"))
-            # Panel de propiedades
-            if hasattr(self, "lbl_prop_inv0"): self.lbl_prop_inv0.setText(_tr("Elev. de rasante inicial (ft):"))
-            if hasattr(self, "lbl_prop_inv1"): self.lbl_prop_inv1.setText(_tr("Elev. de rasante final (ft):"))
-            if hasattr(self, "lbl_prop_family"): self.lbl_prop_family.setText(_tr("Familia (catálogo):"))
-            if hasattr(self, "lbl_prop_size"): self.lbl_prop_size.setText(_tr("Tamaño (catálogo):"))
-            # Botones del panel derecho (bajo la lista)
-            if hasattr(self, "btn_ct"): self.btn_ct.setText(_tr("Cambiar tipo"))
-            if hasattr(self, "btn_mv"): self.btn_mv.setText(_tr("Editar/mover"))
-            if hasattr(self, "btn_edit"): self.btn_edit.setText(_tr("Editar texto"))
-            if hasattr(self, "btn_del"): self.btn_del.setText(_tr("Eliminar"))
-            # Toolbox: títulos de las secciones (leyendo del combo lang porque el
-            # acordeón guarda el label real). Los redraws de _page los reemplazan
-            # solo si se reabre; por eso los actualizamos aquí:
-            if hasattr(self, "toolbox"):
-                sec_labels = [_tr("Vista y páginas"), _tr("Dibujar utilidad"),
-                              _tr("Trazar centerline"), _tr("Leader (flecha simple)"),
-                              _tr("Texto libre"), _tr("Borrar zona"), _tr("Duct Bank")]
-                for i, lbl in enumerate(sec_labels):
-                    if i < self.toolbox.count():
-                        self.toolbox.setItemText(i, lbl)
-            # Barra de estado
-            if hasattr(self, "lbl_mode"): self.lbl_mode.setText(_tr("Modo: inactivo"))
-            if hasattr(self, "btn_opacity"): self.btn_opacity.setText("  " + _tr("Opacidad"))
-            self._update_geo_status()   # refresca "Georref: ..."
-            if hasattr(self, "_refresh_scale_label"):
-                self._refresh_scale_label()  # refresca "Escala ..."
-        except Exception: pass
-        # Refrescar la lista de bancoductos (incluye tooltips traducibles)
-        try:
-            if hasattr(self, "_refresh_db_list"):
-                self._refresh_db_list()
-        except Exception: pass
+        Los textos fijos (menús, docks, botones, etiquetas, tooltips…) ya los
+        re-traduce `i18n.retranslate_all` — se registraron con `_bind` al crear
+        cada widget, y LANG_BUS los reaplica antes de llamar aquí. Solo queda lo
+        que se arma con datos del proyecto: listas, panel de la selección, barra
+        de estado y título."""
+        for fn in (self._update_title, self._refresh_theme_action_label,
+                   self._update_page_label, self._refresh_scale_label,
+                   self._update_geo_status, self._refresh_unit_labels,
+                   self._refresh_lists, self._refresh_counts, self._refresh_db_list,
+                   self._refresh_catalog_panels, self._update_move_panel,
+                   self._update_ui, self._redraw):
+            try:
+                fn()
+            except Exception:   # un panel sin datos no debe cortar el resto
+                pass
 
     def show_options(self):
         """Delegador al diálogo de opciones (dialogs.show_options)."""
@@ -305,12 +232,12 @@ class Main(QtWidgets.QMainWindow):
 
     def _build_toolbar(self):
         # ── Barra de acción superior: zoom · deshacer/rehacer · imán · exportar ──
-        tb = self.addToolBar("Acciones"); tb.setMovable(False)
+        tb = _bind(self.addToolBar(""), "setWindowTitle", "Acciones"); tb.setMovable(False)
         # Los QAction llevan QIcon SVG; guardamos el mapa acción→nombre para
         # que _apply_theme_custom_styles pueda retintarlos al cambiar tema.
         self._action_icon_map = {}
         def tact(icon_name, tip, fn):
-            a = QtGui.QAction("", self); a.setToolTip(tip); a.triggered.connect(fn)
+            a = QtGui.QAction("", self); _bind(a, "setToolTip", tip); a.triggered.connect(fn)
             tb.addAction(a); self._action_icon_map[a] = icon_name; return a
         self._act_zoom_in = tact("mdi:magnify-plus-outline", "Acercar", self._zoom_in)
         self._act_zoom_out = tact("mdi:magnify-minus-outline", "Alejar", self._zoom_out)
@@ -322,7 +249,7 @@ class Main(QtWidgets.QMainWindow):
         # Sin selector de unidad: TODO va en pies por campo (cotas/coordenadas),
         # salvo los diámetros que van siempre en pulgadas (lista fija del catálogo).
         tb.addSeparator()
-        tb.addWidget(QtWidgets.QLabel("Civil 3D:"))
+        tb.addWidget(_bind(QtWidgets.QLabel(), "setText", "Civil 3D:"))
         self.cmb_civil = QtWidgets.QComboBox()
         import civil_catalog as _cc
         _all_years = list(_cc.SUPPORTED_YEARS); _inst = set(_cc.installed_versions())
@@ -331,21 +258,21 @@ class Main(QtWidgets.QMainWindow):
         if self.civil_year is not None:
             i = _all_years.index(self.civil_year); self.cmb_civil.setCurrentIndex(i)
         self.cmb_civil.currentIndexChanged.connect(self._on_civil_year_changed)
-        self.cmb_civil.setToolTip(_tr("Versión de Civil 3D. El catálogo imperial se busca en\n"
-                                  "C:\\ProgramData\\Autodesk\\C3D <año>\\<idioma>\\Pipes Catalog\\US Imperial Structures"))
+        _bind(self.cmb_civil, "setToolTip", "Versión de Civil 3D. El catálogo imperial se busca en\n"
+                                  "C:\\ProgramData\\Autodesk\\C3D <año>\\<idioma>\\Pipes Catalog\\US Imperial Structures")
         tb.addWidget(self.cmb_civil)
         # Selector de idioma del catálogo — se puebla dinámicamente al elegir año.
         # Si el cliente tiene tanto 'esp' como 'enu' instalados, puede elegir
         # cuál usar para la instalación de familias custom y el listado.
-        tb.addWidget(QtWidgets.QLabel(_tr("Idioma:")))
+        tb.addWidget(_bind(QtWidgets.QLabel(), "setText", "Idioma:"))
         self.cmb_lang = QtWidgets.QComboBox()
-        self.cmb_lang.setToolTip(_tr("Idioma del catálogo Civil 3D a usar (subcarpeta esp/enu/etc.)"))
+        _bind(self.cmb_lang, "setToolTip", "Idioma del catálogo Civil 3D a usar (subcarpeta esp/enu/etc.)")
         self.cmb_lang.currentIndexChanged.connect(self._on_civil_lang_changed)
         tb.addWidget(self.cmb_lang)
         # Poblamos el combo de idiomas por primera vez con la versión activa.
         self._refill_lang_combo()
         tb.addSeparator()
-        self.btn_export = QtWidgets.QPushButton(_tr("  Exportar DXF"))
+        self.btn_export = _bind(QtWidgets.QPushButton(), "setText", "Exportar DXF", pre='  ')
         self.btn_export.setIconSize(QtCore.QSize(18, 18))
         self.btn_export.clicked.connect(lambda: self.run_pipeline("todo"))
         tb.addWidget(self.btn_export)
@@ -361,8 +288,7 @@ class Main(QtWidgets.QMainWindow):
         # QToolBox = "acordeón" en Qt: contenedor con un botón-cabecera por página.
         # Al hacer clic en una cabecera, esa página se despliega y las demás se
         # colapsan. Es el mismo widget que usamos para el historial de "Acerca de".
-        ldock = QtWidgets.QDockWidget(_tr("Herramientas"), self)
-        ldock.setProperty("i18n_key", "Herramientas")   # para _retranslate_ui
+        ldock = _bind(QtWidgets.QDockWidget(self), "setWindowTitle", "Herramientas")
         ldock.setFeatures(QtWidgets.QDockWidget.NoDockWidgetFeatures)     # no se puede sacar/flotar
         left = QtWidgets.QWidget(); lv = QtWidgets.QVBoxLayout(left); lv.setContentsMargins(0, 0, 0, 0)
         self.toolbox = QtWidgets.QToolBox()
@@ -372,11 +298,12 @@ class Main(QtWidgets.QMainWindow):
         self._toolbox_icons = {}
 
         # ── Helper de creación: crea una página del toolbox con su layout vertical ──
-        def _page(title, key, icon_name=None):
+        def _page(title_es, key, icon_name=None):
             page = QtWidgets.QWidget()
             lay = QtWidgets.QVBoxLayout(page); lay.setSpacing(6)
-            self.toolbox.addItem(page, title)
+            self.toolbox.addItem(page, "")
             idx = self.toolbox.count() - 1
+            _bind(self.toolbox, "setItemText", title_es, idx)
             self._sec_idx[key] = idx
             if icon_name:
                 self._toolbox_icons[key] = icon_name
@@ -395,7 +322,7 @@ class Main(QtWidgets.QMainWindow):
         self.btn_next = QtWidgets.QPushButton(""); self.btn_next.setFixedWidth(34); self.btn_next.clicked.connect(self._next_page)
         self.btn_prev.setIconSize(QtCore.QSize(18, 18)); self.btn_next.setIconSize(QtCore.QSize(18, 18))
         self.page_edit = QtWidgets.QLineEdit(); self.page_edit.setAlignment(QtCore.Qt.AlignCenter)
-        self.page_edit.setToolTip(_tr("Escribe un número de página y pulsa Enter"))
+        _bind(self.page_edit, "setToolTip", "Escribe un número de página y pulsa Enter")
         # returnPressed = Enter en un QLineEdit; editingFinished = perdió el foco también
         self.page_edit.returnPressed.connect(self._goto_page_edit)
         self.page_edit.editingFinished.connect(self._goto_page_edit)
@@ -404,17 +331,17 @@ class Main(QtWidgets.QMainWindow):
 
         # Fila de transparencia del PDF de fondo (para ver mejor el marcado encima)
         self.gtr = QtWidgets.QWidget(); ltr = QtWidgets.QHBoxLayout(self.gtr); ltr.setContentsMargins(0, 0, 0, 0)
-        tb_l = QtWidgets.QPushButton("−"); tb_l.setFixedSize(38, 34); tb_l.setProperty("iconOnly", True); tb_l.setToolTip(_tr("Más translúcido")); tb_l.clicked.connect(lambda: self._bump_opacity(-10))
+        tb_l = QtWidgets.QPushButton("−"); tb_l.setFixedSize(38, 34); tb_l.setProperty("iconOnly", True); _bind(tb_l, "setToolTip", "Más translúcido"); tb_l.clicked.connect(lambda: self._bump_opacity(-10))
         self.lbl_opacity = QtWidgets.QLabel("100%"); self.lbl_opacity.setAlignment(QtCore.Qt.AlignCenter)
-        tb_r = QtWidgets.QPushButton("+"); tb_r.setFixedSize(38, 34); tb_r.setProperty("iconOnly", True); tb_r.setToolTip(_tr("Más opaco")); tb_r.clicked.connect(lambda: self._bump_opacity(10))
+        tb_r = QtWidgets.QPushButton("+"); tb_r.setFixedSize(38, 34); tb_r.setProperty("iconOnly", True); _bind(tb_r, "setToolTip", "Más opaco"); tb_r.clicked.connect(lambda: self._bump_opacity(10))
         ltr.addWidget(tb_l); ltr.addWidget(self.lbl_opacity, 1); ltr.addWidget(tb_r)
 
         # Botones de acción (uno por sección; el color verde/azul lo pone _update_ui)
-        self.btn_pipe = QtWidgets.QPushButton("  " + _tr("Dibujar utilidad")); self.btn_pipe.clicked.connect(self.toggle_pipe)
-        self.btn_leader_simple = QtWidgets.QPushButton("  " + _tr("Colocar Leader")); self.btn_leader_simple.clicked.connect(lambda: self.start_leader(True))
-        self.btn_text = QtWidgets.QPushButton("  " + _tr("Texto libre")); self.btn_text.clicked.connect(self.toggle_text_mode)
-        self.btn_erase = QtWidgets.QPushButton("  " + _tr("Borrar zona")); self.btn_erase.clicked.connect(self.toggle_erase)
-        self.btn_centerline = QtWidgets.QPushButton("  " + _tr("Trazar centerline")); self.btn_centerline.clicked.connect(self.toggle_centerline)
+        self.btn_pipe = _bind(QtWidgets.QPushButton(), "setText", "Dibujar utilidad", pre='  '); self.btn_pipe.clicked.connect(self.toggle_pipe)
+        self.btn_leader_simple = _bind(QtWidgets.QPushButton(), "setText", "Colocar Leader", pre='  '); self.btn_leader_simple.clicked.connect(lambda: self.start_leader(True))
+        self.btn_text = _bind(QtWidgets.QPushButton(), "setText", "Texto libre", pre='  '); self.btn_text.clicked.connect(self.toggle_text_mode)
+        self.btn_erase = _bind(QtWidgets.QPushButton(), "setText", "Borrar zona", pre='  '); self.btn_erase.clicked.connect(self.toggle_erase)
+        self.btn_centerline = _bind(QtWidgets.QPushButton(), "setText", "Trazar centerline", pre='  '); self.btn_centerline.clicked.connect(self.toggle_centerline)
         for _b in (self.btn_pipe, self.btn_leader_simple, self.btn_text, self.btn_erase, self.btn_centerline):
             _b.setIconSize(QtCore.QSize(20, 20))
 
@@ -426,36 +353,35 @@ class Main(QtWidgets.QMainWindow):
         self.type_combo.setSizePolicy(QtWidgets.QSizePolicy.Ignored, QtWidgets.QSizePolicy.Fixed)
         self.type_combo.setSizeAdjustPolicy(QtWidgets.QComboBox.AdjustToMinimumContentsLengthWithIcon)
         for label, layer in TIPOS:
-            self.type_combo.addItem(swatch_icon(layer_qcolor(layer)), _tr(label), layer)
+            _bind_item(self.type_combo, label, layer, icon=swatch_icon(layer_qcolor(layer)))
         self.type_combo.setCurrentIndex(0); self.type_combo.currentIndexChanged.connect(lambda _: self._redraw())
         # Etiquetas CORTAS a propósito: QCheckBox no hace word-wrap, así que un
         # texto largo impone un ancho mínimo que saca barra horizontal en el
         # dock. El detalle completo va al tooltip — y de paso se lee más fácil,
         # que es lo que necesita el usuario principal.
-        self.chk_ab = QtWidgets.QCheckBox(_tr("Abandonado"))
-        self.chk_ab.setToolTip(_tr("Marca la utilidad como abandonada: se dibuja con "
-                               "línea discontinua ──/── W ── en el DXF."))
-        self.chk_ext_same = QtWidgets.QCheckBox(_tr("Extender: continuar la misma"))
-        self.chk_ext_same.setToolTip(_tr(
-            "Al extender un extremo de una utilidad existente, los puntos nuevos "
-            "se añaden a ESA misma utilidad en vez de crear una nueva."))
+        self.chk_ab = _bind(QtWidgets.QCheckBox(), "setText", "Abandonado")
+        _bind(self.chk_ab, "setToolTip", "Marca la utilidad como abandonada: se dibuja con "
+                               "línea discontinua ──/── W ── en el DXF.")
+        self.chk_ext_same = _bind(QtWidgets.QCheckBox(), "setText", "Extender: continuar la misma")
+        _bind(self.chk_ext_same, "setToolTip", "Al extender un extremo de una utilidad existente, los puntos nuevos "
+            "se añaden a ESA misma utilidad en vez de crear una nueva.")
         self.chk_ext_same.setChecked(True)
         lgt.addWidget(self.type_combo); lgt.addWidget(self.chk_ab); lgt.addWidget(self.chk_ext_same)
 
         # Combo de ORIENTACIÓN del Leader.
         self.orient_combo = QtWidgets.QComboBox()
-        for oid, lbl in LEADER_ORIENT: self.orient_combo.addItem(_tr(lbl), oid)
+        for oid, lbl in LEADER_ORIENT: _bind_item(self.orient_combo, lbl, oid)
         self.orient_combo.currentIndexChanged.connect(lambda _: self._update_ui())
 
         # Grupo "Estilo de texto" (fuente, altura, negrita + rotación).
         # COMPARTIDO por Leader y Texto libre. La rotación solo aplica a
         # textos libres; la mostramos/ocultamos según la sección abierta.
-        self.gtxt = QtWidgets.QGroupBox(_tr("Estilo de texto")); lgx = QtWidgets.QVBoxLayout(self.gtxt)
+        self.gtxt = _bind(QtWidgets.QGroupBox(), "setTitle", "Estilo de texto"); lgx = QtWidgets.QVBoxLayout(self.gtxt)
         # QFontComboBox = combo que lista todas las fuentes instaladas en el sistema.
         self.font_combo = QtWidgets.QFontComboBox(); self.font_combo.setCurrentFont(QtGui.QFont(C.TEXT_FONT))
         self.font_combo.setSizePolicy(QtWidgets.QSizePolicy.Ignored, QtWidgets.QSizePolicy.Fixed)
         self.font_combo.currentFontChanged.connect(lambda _: self._style_changed())
-        r = QtWidgets.QHBoxLayout(); r.addWidget(QtWidgets.QLabel("Altura (pies):"))
+        r = QtWidgets.QHBoxLayout(); r.addWidget(_bind(QtWidgets.QLabel(), "setText", "Altura (pies):"))
         b_minus = QtWidgets.QPushButton("−"); b_minus.setFixedSize(38, 34); b_minus.setProperty("iconOnly", True); b_minus.clicked.connect(lambda: self._bump_size(-0.5))
         # QDoubleSpinBox = campo numérico decimal con incremento por flechas (aquí ocultas).
         self.size_spin = QtWidgets.QDoubleSpinBox(); self.size_spin.setRange(0.5, 200); self.size_spin.setValue(3.0)
@@ -463,23 +389,23 @@ class Main(QtWidgets.QMainWindow):
         self.size_spin.valueChanged.connect(lambda _: self._style_changed())
         b_plus = QtWidgets.QPushButton("+"); b_plus.setFixedSize(38, 34); b_plus.setProperty("iconOnly", True); b_plus.clicked.connect(lambda: self._bump_size(0.5))
         r.addWidget(b_minus); r.addWidget(self.size_spin); r.addWidget(b_plus)
-        self.chk_bold = QtWidgets.QCheckBox("Negrita"); self.chk_bold.toggled.connect(lambda _: self._style_changed())
+        self.chk_bold = _bind(QtWidgets.QCheckBox(), "setText", "Negrita"); self.chk_bold.toggled.connect(lambda _: self._style_changed())
         lgx.addWidget(self.font_combo); lgx.addLayout(r); lgx.addWidget(self.chk_bold)
         # Rotación (0-360°) — solo se usa para textos libres.
         self.rot_row = QtWidgets.QWidget(); rr2 = QtWidgets.QHBoxLayout(self.rot_row); rr2.setContentsMargins(0, 0, 0, 0)
-        rr2.addWidget(QtWidgets.QLabel("Rotación (°):"))
+        rr2.addWidget(_bind(QtWidgets.QLabel(), "setText", "Rotación (°):"))
         rb_l = QtWidgets.QPushButton("⟲"); rb_l.setFixedSize(38, 34); rb_l.setProperty("iconOnly", True); rb_l.clicked.connect(lambda: self._bump_rot(-1))
         self.rot_spin = QtWidgets.QSpinBox(); self.rot_spin.setRange(0, 360); self.rot_spin.setSingleStep(1); self.rot_spin.setWrapping(True)
         self.rot_spin.setButtonSymbols(QtWidgets.QAbstractSpinBox.NoButtons); self.rot_spin.valueChanged.connect(lambda _: self._style_changed())
         rb_r = QtWidgets.QPushButton("⟳"); rb_r.setFixedSize(38, 34); rb_r.setProperty("iconOnly", True); rb_r.clicked.connect(lambda: self._bump_rot(1))
         rr2.addWidget(rb_l); rr2.addWidget(self.rot_spin); rr2.addWidget(rb_r)
         lgx.addWidget(self.rot_row)
-        lgx.addWidget(QtWidgets.QLabel("<i>Guarda pulsando enter </i>"))
+        lgx.addWidget(_bind(QtWidgets.QLabel(), "setText", "<i>Guarda pulsando enter </i>"))
 
         # Grupo "En curso" (aparece cuando estás dibujando una utilidad o zona)
-        self.gcur = QtWidgets.QGroupBox("En curso"); lc = QtWidgets.QHBoxLayout(self.gcur)
-        self.btn_fin = QtWidgets.QPushButton("Finalizar (Enter)"); self.btn_fin.clicked.connect(self._on_enter)
-        b_up = QtWidgets.QPushButton("Deshacer punto"); b_up.clicked.connect(self.undo)
+        self.gcur = _bind(QtWidgets.QGroupBox(), "setTitle", "En curso"); lc = QtWidgets.QHBoxLayout(self.gcur)
+        self.btn_fin = _bind(QtWidgets.QPushButton(), "setText", "Finalizar (Enter)"); self.btn_fin.clicked.connect(self._on_enter)
+        b_up = _bind(QtWidgets.QPushButton(), "setText", "Deshacer punto"); b_up.clicked.connect(self.undo)
         lc.addWidget(self.btn_fin); lc.addWidget(b_up)
 
         # ═══════════════════════════════════════════════════════════════════════
@@ -489,15 +415,15 @@ class Main(QtWidgets.QMainWindow):
         # ═══════════════════════════════════════════════════════════════════════
 
         # ── Sección: Vista y páginas ──
-        p, l = _page(_tr("Vista y páginas"), "view", "mdi:file-document-outline")
-        l.addWidget(QtWidgets.QLabel(_tr("Página:"))); l.addWidget(self.gp)
-        l.addWidget(QtWidgets.QLabel(_tr("Transparencia del PDF:"))); l.addWidget(self.gtr)
+        p, l = _page("Vista y páginas", "view", "mdi:file-document-outline")
+        l.addWidget(_bind(QtWidgets.QLabel(), "setText", "Página:")); l.addWidget(self.gp)
+        l.addWidget(_bind(QtWidgets.QLabel(), "setText", "Transparencia del PDF:")); l.addWidget(self.gtr)
         l.addStretch(1)
 
         # ── Sección: Dibujar utilidad ──
-        p, l = _page(_tr("Dibujar utilidad"), "pipe", "mdi:pencil-outline")
+        p, l = _page("Dibujar utilidad", "pipe", "mdi:pencil-outline")
         l.addWidget(self.btn_pipe)
-        l.addWidget(QtWidgets.QLabel(_tr("Tipo de utilidad:")))
+        l.addWidget(_bind(QtWidgets.QLabel(), "setText", "Tipo de utilidad:"))
         l.addWidget(self.gt)
         self._slot_gcur_pipe = QtWidgets.QVBoxLayout(); l.addLayout(self._slot_gcur_pipe)   # slot: aquí va gcur al dibujar
         l.addStretch(1)
@@ -506,34 +432,33 @@ class Main(QtWidgets.QMainWindow):
         # Va JUSTO DESPUES de "Dibujar utilidad": las dos son de trazado de
         # geometria, el usuario suele alternarlas y tenerlas contiguas ahorra
         # clics.
-        p, l = _page(_tr("Trazar centerline"), "centerline", "mdi:ruler")
+        p, l = _page("Trazar centerline", "centerline", "mdi:ruler")
         l.addWidget(self.btn_centerline)
-        _lbl_cl = QtWidgets.QLabel(_tr(
-            "<i>Clic para agregar vértices, Enter "
-            "cierra. Se exporta al DXF en su propia capa.</i>"))
+        _lbl_cl = _bind(QtWidgets.QLabel(), "setText", "<i>Clic para agregar vértices, Enter "
+            "cierra. Se exporta al DXF en su propia capa.</i>")
         _lbl_cl.setWordWrap(True); l.addWidget(_lbl_cl)
         self._slot_gcur_cl = QtWidgets.QVBoxLayout(); l.addLayout(self._slot_gcur_cl)   # slot: gcur al trazar
         l.addStretch(1)
 
         # ── Sección: Leader (flecha simple) ──
-        p, l = _page(_tr("Leader (flecha simple)"), "leader", "mdi:arrow-decision-outline")
+        p, l = _page("Leader (flecha simple)", "leader", "mdi:arrow-decision-outline")
         l.addWidget(self.btn_leader_simple)
-        l.addWidget(QtWidgets.QLabel(_tr("Orientación:")))
+        l.addWidget(_bind(QtWidgets.QLabel(), "setText", "Orientación:"))
         self._slot_orient_ld = QtWidgets.QVBoxLayout(); l.addLayout(self._slot_orient_ld)   # slot: orient_combo
-        l.addWidget(QtWidgets.QLabel(_tr("<i>El Leader es solo flecha, sin texto.</i>")))
+        l.addWidget(_bind(QtWidgets.QLabel(), "setText", "<i>El Leader es solo flecha, sin texto.</i>"))
         l.addStretch(1)
 
         # ── Sección: Texto libre ──
-        p, l = _page(_tr("Texto libre"), "text", "mdi:format-text")
+        p, l = _page("Texto libre", "text", "mdi:format-text")
         l.addWidget(self.btn_text)
         self._slot_style_tx = QtWidgets.QVBoxLayout(); l.addLayout(self._slot_style_tx)     # slot: gtxt (estilo)
         l.addStretch(1)
 
         # ── Sección: Borrar zona ──
-        p, l = _page(_tr("Borrar zona"), "erase", "mdi:vector-rectangle")
+        p, l = _page("Borrar zona", "erase", "mdi:vector-rectangle")
         l.addWidget(self.btn_erase)
-        _lbl = QtWidgets.QLabel(_tr("<i>Clic para agregar vértices, Enter cierra. "
-                                     "Al exportar borra el plano dentro del polígono.</i>"))
+        _lbl = _bind(QtWidgets.QLabel(), "setText", "<i>Clic para agregar vértices, Enter cierra. "
+                                     "Al exportar borra el plano dentro del polígono.</i>")
         _lbl.setWordWrap(True); l.addWidget(_lbl)
         self._slot_gcur_erase = QtWidgets.QVBoxLayout(); l.addLayout(self._slot_gcur_erase)  # slot: gcur al borrar
         l.addStretch(1)
@@ -544,7 +469,7 @@ class Main(QtWidgets.QMainWindow):
         # "paso" en ft para movimientos rápidos, y campos ΔX/ΔY con botón
         # "Aplicar" para desplazamientos arbitrarios. Se habilita/deshabilita
         # en vivo según lo que esté seleccionado en el lienzo (ver _update_move_panel).
-        p, l = _page(_tr("Mover con precisión"), "move_precise", "mdi:cursor-move")
+        p, l = _page("Mover con precisión", "move_precise", "mdi:cursor-move")
         self._build_move_precise_panel(l)
         l.addStretch(1)
 
@@ -552,21 +477,20 @@ class Main(QtWidgets.QMainWindow):
         # Abre el diseñador de la sección (envolvente + conductos). El diseño se
         # guarda a nivel proyecto en self.duct_banks. La conexión con una utilidad
         # y el export en DXF/plugin es la fase 2 (pendiente).
-        p, l = _page(_tr("Duct Bank"), "ductbank", "mdi:grid")
-        self.btn_ductbank = QtWidgets.QPushButton(_tr("  Abrir diseñador de Duct Bank"))
+        p, l = _page("Duct Bank", "ductbank", "mdi:grid")
+        self.btn_ductbank = _bind(QtWidgets.QPushButton(), "setText", "Abrir diseñador de Duct Bank", pre='  ')
         self.btn_ductbank.setIconSize(QtCore.QSize(20, 20))
-        self.btn_ductbank.setToolTip(_tr("Diseña la sección transversal del Duct Bank\n"
-                                     "(envolvente rectangular + conductos internos)."))
+        _bind(self.btn_ductbank, "setToolTip", "Diseña la sección transversal del Duct Bank\n"
+                                     "(envolvente rectangular + conductos internos).")
         # Siempre abrir un diseño nuevo desde este botón — no cargar el
         # último editado ni el asignado a la pipe seleccionada (para eso
         # está el panel "Bancoductos" con doble-click / botón Editar).
         self.btn_ductbank.clicked.connect(lambda: self._open_duct_bank_designer(initial=None))
         l.addWidget(self.btn_ductbank)
-        _lbl_db = QtWidgets.QLabel(_tr(
-            "<i>Dibuja la cara interior del duct bank en pulgadas: primero el "
-            "rectángulo del contorno, luego cada conducto redondo dentro.</i>"))
+        _lbl_db = _bind(QtWidgets.QLabel(), "setText", "<i>Dibuja la cara interior del duct bank en pulgadas: primero el "
+            "rectángulo del contorno, luego cada conducto redondo dentro.</i>")
         _lbl_db.setWordWrap(True); l.addWidget(_lbl_db)
-        self.lbl_ductbank_count = QtWidgets.QLabel(_tr("Duct banks guardados: 0"))
+        self.lbl_ductbank_count = _bind(QtWidgets.QLabel(), "setText", "Duct banks guardados: 0")
         l.addWidget(self.lbl_ductbank_count)
         l.addStretch(1)
 
@@ -617,8 +541,7 @@ class Main(QtWidgets.QMainWindow):
 
     def _build_right_dock(self):
         # ── DOCK DERECHO: inventario y selección ──
-        rdock = QtWidgets.QDockWidget(_tr("Inventario"), self); rdock.setFeatures(QtWidgets.QDockWidget.NoDockWidgetFeatures)
-        rdock.setProperty("i18n_key", "Inventario")   # para _retranslate_ui
+        rdock = _bind(QtWidgets.QDockWidget(self), "setWindowTitle", "Inventario"); rdock.setFeatures(QtWidgets.QDockWidget.NoDockWidgetFeatures)
         right = QtWidgets.QWidget(); rv = QtWidgets.QVBoxLayout(right)
         self.tabs = QtWidgets.QTabWidget()
         self.pipe_list = QtWidgets.QListWidget(); self.pipe_list.currentRowChanged.connect(self._sel_pipe)
@@ -641,26 +564,26 @@ class Main(QtWidgets.QMainWindow):
         self.db_list.itemDoubleClicked.connect(lambda _it: self._db_edit())
         _dbv.addWidget(self.db_list, 1)
         _dbbar = QtWidgets.QHBoxLayout(); _dbbar.setSpacing(4)
-        self.btn_db_new = QtWidgets.QPushButton(_tr("+ Nuevo"))
-        self.btn_db_new.setToolTip(_tr("Crear un bancoducto nuevo desde cero."))
+        self.btn_db_new = _bind(QtWidgets.QPushButton(), "setText", "+ Nuevo")
+        _bind(self.btn_db_new, "setToolTip", "Crear un bancoducto nuevo desde cero.")
         self.btn_db_new.clicked.connect(self._db_new)
-        self.btn_db_edit = QtWidgets.QPushButton(_tr("Editar"))
-        self.btn_db_edit.setToolTip(_tr("Editar el bancoducto seleccionado.\n"
-                                    "También doble-click sobre la fila."))
+        self.btn_db_edit = _bind(QtWidgets.QPushButton(), "setText", "Editar")
+        _bind(self.btn_db_edit, "setToolTip", "Editar el bancoducto seleccionado.\n"
+                                    "También doble-click sobre la fila.")
         self.btn_db_edit.clicked.connect(self._db_edit)
-        self.btn_db_dup = QtWidgets.QPushButton(_tr("Duplicar"))
-        self.btn_db_dup.setToolTip(_tr("Duplicar el bancoducto seleccionado."))
+        self.btn_db_dup = _bind(QtWidgets.QPushButton(), "setText", "Duplicar")
+        _bind(self.btn_db_dup, "setToolTip", "Duplicar el bancoducto seleccionado.")
         self.btn_db_dup.clicked.connect(self._db_duplicate)
         for _b in (self.btn_db_new, self.btn_db_edit, self.btn_db_dup):
             _b.setMinimumHeight(30)
             _dbbar.addWidget(_b)
         _dbv.addLayout(_dbbar)
-        self.tabs.addTab(self.pipe_list, _tr("Utilidades"))
-        self.tabs.addTab(self.sleader_list, _tr("Leaders"))
-        self.tabs.addTab(self.txt_marks_list, _tr("Textos")); self.tabs.addTab(self.region_list, _tr("Zonas"))
-        self.tabs.addTab(self.bz_list, _tr("Buzones")); self.tabs.addTab(self.curve_list, _tr("Curvas"))
-        self.tabs.addTab(self.cl_list, _tr("Centerlines"))
-        self.tabs.addTab(self._db_tab_widget, _tr("Bancoductos"))
+        _bind(self.tabs, "setTabText", "Utilidades", self.tabs.addTab(self.pipe_list, ""))
+        _bind(self.tabs, "setTabText", "Leaders", self.tabs.addTab(self.sleader_list, ""))
+        _bind(self.tabs, "setTabText", "Textos", self.tabs.addTab(self.txt_marks_list, "")); _bind(self.tabs, "setTabText", "Zonas", self.tabs.addTab(self.region_list, ""))
+        _bind(self.tabs, "setTabText", "Buzones", self.tabs.addTab(self.bz_list, "")); _bind(self.tabs, "setTabText", "Curvas", self.tabs.addTab(self.curve_list, ""))
+        _bind(self.tabs, "setTabText", "Centerlines", self.tabs.addTab(self.cl_list, ""))
+        _bind(self.tabs, "setTabText", "Bancoductos", self.tabs.addTab(self._db_tab_widget, ""))
         # RESPONSIVO: los textos de los items son largos ("AGUA · 12" · 4
         # vértices · <nombre>"), así que por defecto QListWidget saca una barra
         # de desplazamiento HORIZONTAL y el usuario tiene que arrastrarla para
@@ -688,15 +611,16 @@ class Main(QtWidgets.QMainWindow):
         self.tab_combo = QtWidgets.QComboBox()
         self.tab_combo.setMaxVisibleItems(self.tabs.count() + 2)
         self.tab_combo.setStyleSheet("QComboBox { combobox-popup: 0; }")
-        for i in range(self.tabs.count()):
-            self.tab_combo.addItem(self.tabs.tabText(i))
+        for key in (N_("Utilidades"), N_("Leaders"), N_("Textos"), N_("Zonas"), N_("Buzones"), N_("Curvas"),
+                    N_("Centerlines"), N_("Bancoductos")):
+            _bind_item(self.tab_combo, key)
         self.tab_combo.currentIndexChanged.connect(self.tabs.setCurrentIndex)
         self.tabs.currentChanged.connect(self.tab_combo.setCurrentIndex)
         self.tabs.tabBar().hide()
         rv.addWidget(self.tab_combo)
         self.tabs.currentChanged.connect(self._tab_changed); rv.addWidget(self.tabs, 1)
         # Propiedades de la utilidad seleccionada (nombre, diámetro, unidad) → XDATA en el DXF
-        self.gprop = QtWidgets.QGroupBox("Propiedades de la utilidad"); fpr = QtWidgets.QFormLayout(self.gprop)
+        self.gprop = _bind(QtWidgets.QGroupBox(), "setTitle", "Propiedades de la utilidad"); fpr = QtWidgets.QFormLayout(self.gprop)
         self.prop_name = QtWidgets.QLineEdit(); self.prop_name.editingFinished.connect(self._prop_changed)
         # El diámetro va SIEMPRE en PULGADAS y SOLO de la lista estándar del
         # catálogo (12,15,18,…): un desplegable NO editable, sin valores libres,
@@ -704,7 +628,7 @@ class Main(QtWidgets.QMainWindow):
         # Es independiente de la unidad de trabajo (que rige coordenadas/cotas).
         # El diámetro ya no es un campo del UI: se deriva automáticamente del
         # "Tamaño (catálogo)" elegido. p["diam"] se calcula al guardar propiedades.
-        fpr.addRow("Nombre:", self.prop_name)
+        fpr.addRow(_bind(QtWidgets.QLabel(), "setText", "Nombre:"), self.prop_name)
         # Campos de la utilidad usados por el JSON de red 3.0 y por el DXF:
         #   - material: texto libre (p.ej. "HDPE"); viaja al JSON como `material`.
         #   - part (pieza): nombre del tipo de pieza; viaja al JSON como `part`.
@@ -715,24 +639,24 @@ class Main(QtWidgets.QMainWindow):
         # Material: desplegable con los valores exactos de Civil 3D (no texto libre).
         self.prop_material = QtWidgets.QComboBox()
         for m in PIPE_MATERIALS:
-            self.prop_material.addItem(_tr(m), m)   # data = valor real (no traducido)
+            _bind_item(self.prop_material, m, m)   # data = valor real (no traducido)
         self.prop_material.currentIndexChanged.connect(lambda _: self._prop_changed())
-        self.prop_part = QtWidgets.QLineEdit(); self.prop_part.setPlaceholderText(_tr("p.ej. 900 mm Corrugated HDPE Pipe"))
+        self.prop_part = QtWidgets.QLineEdit(); _bind(self.prop_part, "setPlaceholderText", "p.ej. 900 mm Corrugated HDPE Pipe")
         self.prop_part.editingFinished.connect(self._prop_changed)
         self.prop_nettype = QtWidgets.QComboBox()
-        self.prop_nettype.addItem("Automático (según la capa)", "")
-        self.prop_nettype.addItem("Con buzones (pipe)", "pipe")
-        self.prop_nettype.addItem("A presión (pressure)", "pressure")
+        _bind_item(self.prop_nettype, "Automático (según la capa)", "")
+        _bind_item(self.prop_nettype, "Con buzones (pipe)", "pipe")
+        _bind_item(self.prop_nettype, "A presión (pressure)", "pressure")
         self.prop_nettype.currentIndexChanged.connect(lambda _: self._prop_changed())
         self.prop_inv0 = QtWidgets.QDoubleSpinBox(); self.prop_inv1 = QtWidgets.QDoubleSpinBox()
         for sp in (self.prop_inv0, self.prop_inv1):
             sp.setRange(-100000, 100000); sp.setDecimals(3); sp.setButtonSymbols(QtWidgets.QAbstractSpinBox.NoButtons)
             sp.valueChanged.connect(lambda _: self._prop_changed())
-        fpr.addRow("Tipo de red:", self.prop_nettype)
+        fpr.addRow(_bind(QtWidgets.QLabel(), "setText", "Tipo de red:"), self.prop_nettype)
         # Labels dinámicas: se recomponen al cambiar la unidad de trabajo.
         # Nombre igual a Civil 3D: "Elevación de rasante" (no "Invert").
-        self.lbl_prop_inv0 = QtWidgets.QLabel(_tr("Elev. de rasante inicial (ft):")); fpr.addRow(self.lbl_prop_inv0, self.prop_inv0)
-        self.lbl_prop_inv1 = QtWidgets.QLabel(_tr("Elev. de rasante final (ft):"));   fpr.addRow(self.lbl_prop_inv1, self.prop_inv1)
+        self.lbl_prop_inv0 = _bind(QtWidgets.QLabel(), "setText", "Elev. de rasante inicial (ft):"); fpr.addRow(self.lbl_prop_inv0, self.prop_inv0)
+        self.lbl_prop_inv1 = _bind(QtWidgets.QLabel(), "setText", "Elev. de rasante final (ft):");   fpr.addRow(self.lbl_prop_inv1, self.prop_inv1)
         # Familia + tamaño del catálogo Civil 3D para esta pipe (solo gravedad).
         # Para presión y conduit no aplica: presión usa el sub-catálogo por material
         # y conduit se deja como polyline simple.
@@ -740,8 +664,8 @@ class Main(QtWidgets.QMainWindow):
         self.prop_family.currentIndexChanged.connect(self._pipe_family_changed)
         self.prop_size = QtWidgets.QComboBox()
         self.prop_size.currentIndexChanged.connect(lambda _: self._prop_changed())
-        self.lbl_prop_family = QtWidgets.QLabel(_tr("Familia (catálogo):"))
-        self.lbl_prop_size = QtWidgets.QLabel(_tr("Tamaño (catálogo):"))
+        self.lbl_prop_family = _bind(QtWidgets.QLabel(), "setText", "Familia (catálogo):")
+        self.lbl_prop_size = _bind(QtWidgets.QLabel(), "setText", "Tamaño (catálogo):")
         fpr.addRow(self.lbl_prop_family, self.prop_family)
         fpr.addRow(self.lbl_prop_size, self.prop_size)
 
@@ -756,21 +680,19 @@ class Main(QtWidgets.QMainWindow):
         # interpolación lineal de siempre — ver _interp_vertex_z y su espejo en
         # ImportarRed.cs (InterpolateZ). Clic en la columna "Tramo" lo resalta
         # y encuadra en el lienzo.
-        self.gprop_segs = QtWidgets.QGroupBox("Cotas por tramo")
+        self.gprop_segs = _bind(QtWidgets.QGroupBox(), "setTitle", "Cotas por tramo")
         segv = QtWidgets.QVBoxLayout(self.gprop_segs)
-        self.btn_seg_edit = QtWidgets.QPushButton("  Activar edición por tramo")
+        self.btn_seg_edit = _bind(QtWidgets.QPushButton(), "setText", "Activar edición por tramo", pre='  ')
         self.btn_seg_edit.setIconSize(QtCore.QSize(18, 18))
         self.btn_seg_edit.setCheckable(True)
-        self.btn_seg_edit.setToolTip(
-            "Activa la edición de cotas por tramo. Cuando está apagado se usan "
+        _bind(self.btn_seg_edit, "setToolTip", "Activa la edición de cotas por tramo. Cuando está apagado se usan "
             "solo las rasantes de inicio/fin (interpolación lineal). Cuando "
             "se enciende, cada Inicio y Fin es totalmente independiente y "
             "editable, y en el lienzo aparecen etiquetas T1, T2… por tramo.")
         self.btn_seg_edit.toggled.connect(self._seg_edit_toggled)
         segv.addWidget(self.btn_seg_edit)
         self.tbl_seg_inv = QtWidgets.QTableWidget(0, 4)
-        self.tbl_seg_inv.setHorizontalHeaderLabels(
-            ["Tramo", "Inicio (ft)", "Fin (ft)", "Long (ft)"])
+        _bind(self.tbl_seg_inv, "setHorizontalHeaderLabels", ["Tramo", "Inicio (ft)", "Fin (ft)", "Long (ft)"])
         hdr = self.tbl_seg_inv.horizontalHeader()
         # RESPONSIVO: "Tramo" y "Long" al ancho de su contenido (son cortos) y
         # las dos columnas de cota se reparten el resto. Con las 4 en
@@ -793,7 +715,7 @@ class Main(QtWidgets.QMainWindow):
         self.gprop_segs.setVisible(False)
         rv.addWidget(self.gprop_segs)
         # ── Propiedades del buzón seleccionado (tab Buzones) ───────────────────
-        self.gprop_bz = QtWidgets.QGroupBox("Propiedades del buzón"); fbz = QtWidgets.QFormLayout(self.gprop_bz)
+        self.gprop_bz = _bind(QtWidgets.QGroupBox(), "setTitle", "Propiedades del buzón"); fbz = QtWidgets.QFormLayout(self.gprop_bz)
         self.bz_cod = QtWidgets.QLineEdit(); self.bz_cod.editingFinished.connect(self._bz_prop_changed)
         self.bz_rim = QtWidgets.QDoubleSpinBox(); self.bz_sump = QtWidgets.QDoubleSpinBox()
         for sp in (self.bz_rim, self.bz_sump):
@@ -804,40 +726,36 @@ class Main(QtWidgets.QMainWindow):
         self.bz_height = QtWidgets.QDoubleSpinBox()
         self.bz_height.setRange(0, 1000); self.bz_height.setDecimals(2)
         self.bz_height.setButtonSymbols(QtWidgets.QAbstractSpinBox.NoButtons)
-        self.bz_height.setSpecialValueText("(automática)")
-        self.bz_height.setToolTip(
-            "Altura deseada del buzón, en pies. Si se llena, al importar la red en Civil3D\n"
+        _bind(self.bz_height, "setSpecialValueText", "(automática)")
+        _bind(self.bz_height, "setToolTip", "Altura deseada del buzón, en pies. Si se llena, al importar la red en Civil3D\n"
             "se ajusta la cota de tapa (Rim = Sump + esta altura) para que la propiedad\n"
             "'Altura de estructura' salga exacta. Vacío (0) = se calcula automático desde el terreno.")
         self.bz_height.valueChanged.connect(lambda _v: self._bz_prop_changed())
         self.bz_net_lbl = QtWidgets.QLabel("—")
         self.bz_origin_lbl = QtWidgets.QLabel("—")
-        fbz.addRow("Código:", self.bz_cod)
-        fbz.addRow("Familia:", self.bz_family)
-        fbz.addRow("Tamaño:", self.bz_size)
-        fbz.addRow("Altura (Pies):", self.bz_height)
-        fbz.addRow("Red:", self.bz_net_lbl)
-        fbz.addRow("Origen:", self.bz_origin_lbl)
-        self.bz_is_curve = QtWidgets.QPushButton("Cambiar a elemento curvo")
+        fbz.addRow(_bind(QtWidgets.QLabel(), "setText", "Código:"), self.bz_cod)
+        fbz.addRow(_bind(QtWidgets.QLabel(), "setText", "Familia:"), self.bz_family)
+        fbz.addRow(_bind(QtWidgets.QLabel(), "setText", "Tamaño:"), self.bz_size)
+        fbz.addRow(_bind(QtWidgets.QLabel(), "setText", "Altura (Pies):"), self.bz_height)
+        fbz.addRow(_bind(QtWidgets.QLabel(), "setText", "Red:"), self.bz_net_lbl)
+        fbz.addRow(_bind(QtWidgets.QLabel(), "setText", "Origen:"), self.bz_origin_lbl)
+        self.bz_is_curve = _bind(QtWidgets.QPushButton(), "setText", "Cambiar a elemento curvo")
         self.bz_is_curve.setCheckable(True)
-        self.bz_is_curve.setToolTip(
-            "Marca este vértice como la esquina de un elemento curvo (p.ej. el codo de un\n"
+        _bind(self.bz_is_curve, "setToolTip", "Marca este vértice como la esquina de un elemento curvo (p.ej. el codo de un\n"
             "bancoducto) en vez de un buzón/caja normal. Pasa a la pestaña 'Curvas' y no se\n"
             "exporta como buzón en el DXF (se marca con un punto PDFCAD_CURVE aparte).")
         self.bz_is_curve.toggled.connect(self._bz_curve_toggled)
         fbz.addRow("", self.bz_is_curve)
-        self.chk_bz_hidden = QtWidgets.QPushButton("Desactivar/activar buzón")
+        self.chk_bz_hidden = _bind(QtWidgets.QPushButton(), "setText", "Desactivar/activar buzón")
         self.chk_bz_hidden.setCheckable(True)
-        self.chk_bz_hidden.setToolTip(
-            "Este vértice se detectó automáticamente pero no quieres un buzón real ahí.\n"
+        _bind(self.chk_bz_hidden, "setToolTip", "Este vértice se detectó automáticamente pero no quieres un buzón real ahí.\n"
             "Se deja de dibujar en el lienzo y, al exportar/importar en Civil3D, se usa la\n"
             "familia 'Estructura nula' (invisible) en vez de un buzón visible — la red sigue\n"
             "conectada, solo no se ve el manhole.")
         self.chk_bz_hidden.toggled.connect(self._bz_hidden_toggled)
         fbz.addRow("", self.chk_bz_hidden)
         # Checkbox de etiquetas — entre la lista de buzones (tab) y el panel de propiedades.
-        self.chk_bz_labels = QtWidgets.QCheckBox(
-            "Ver etiquetas de buzón y en el DXF exportado")
+        self.chk_bz_labels = _bind(QtWidgets.QCheckBox(), "setText", "Ver etiquetas de buzón y en el DXF exportado")
         self.chk_bz_labels.setChecked(bool(self.show_bz_labels))
         def _toggle_bz_labels(v):
             self.show_bz_labels = bool(v); self._redraw()
@@ -845,14 +763,13 @@ class Main(QtWidgets.QMainWindow):
         rv.addWidget(self.chk_bz_labels)
         rv.addWidget(self.gprop_bz)
         # Mensaje guía cuando estás en la tab Buzones pero no seleccionaste nada.
-        self.lbl_bz_hint = QtWidgets.QLabel(
-            "Haz clic en un buzón de la lista (o en su círculo en el lienzo) para ver y editar sus propiedades.")
+        self.lbl_bz_hint = _bind(QtWidgets.QLabel(), "setText", "Haz clic en un buzón de la lista (o en su círculo en el lienzo) para ver y editar sus propiedades.")
         self.lbl_bz_hint.setWordWrap(True)
         # Estilo aplicado por _apply_theme_custom_styles (sigue el tema activo).
         rv.addWidget(self.lbl_bz_hint)
         self.gprop_bz.setVisible(False); self.lbl_bz_hint.setVisible(False)
         # ── Propiedades del elemento curvo seleccionado (tab Curvas) ───────────
-        self.gprop_curve = QtWidgets.QGroupBox("Propiedades del elemento curvo"); fcv = QtWidgets.QFormLayout(self.gprop_curve)
+        self.gprop_curve = _bind(QtWidgets.QGroupBox(), "setTitle", "Propiedades del elemento curvo"); fcv = QtWidgets.QFormLayout(self.gprop_curve)
         self.cv_cod = QtWidgets.QLineEdit(); self.cv_cod.editingFinished.connect(self._curve_prop_changed)
         # Familia/Tamaño NO se eligen aparte: siempre son los de la tubería recta que
         # pasa por este vértice (garantiza que la curva calce con los tramos rectos).
@@ -861,9 +778,8 @@ class Main(QtWidgets.QMainWindow):
         self.cv_radius = QtWidgets.QDoubleSpinBox()
         self.cv_radius.setRange(0, 10000); self.cv_radius.setDecimals(2)
         self.cv_radius.setButtonSymbols(QtWidgets.QAbstractSpinBox.NoButtons)
-        self.cv_radius.setSpecialValueText("(automático)")
-        self.cv_radius.setToolTip(
-            "Radio deseado de la tubería curva, en pies. Vacío (0) = automático:\n"
+        _bind(self.cv_radius, "setSpecialValueText", "(automático)")
+        _bind(self.cv_radius, "setToolTip", "Radio deseado de la tubería curva, en pies. Vacío (0) = automático:\n"
             "al importar en Civil3D se usa 6× el ancho/diámetro interior de la tubería.")
         self.cv_radius.valueChanged.connect(lambda _v: self._curve_prop_changed())
         # Aviso rojo debajo del radio con el máximo geométrico permitido y por qué.
@@ -875,33 +791,31 @@ class Main(QtWidgets.QMainWindow):
         self.cv_radius_warn.setVisible(False)
         self.cv_net_lbl = QtWidgets.QLabel("—")
         self.cv_origin_lbl = QtWidgets.QLabel("—")
-        fcv.addRow("Código:", self.cv_cod)
-        fcv.addRow("Familia (tubería):", self.cv_family_lbl)
-        fcv.addRow("Tamaño:", self.cv_size_lbl)
-        fcv.addRow("Radio (Pies):", self.cv_radius)
+        fcv.addRow(_bind(QtWidgets.QLabel(), "setText", "Código:"), self.cv_cod)
+        fcv.addRow(_bind(QtWidgets.QLabel(), "setText", "Familia (tubería):"), self.cv_family_lbl)
+        fcv.addRow(_bind(QtWidgets.QLabel(), "setText", "Tamaño:"), self.cv_size_lbl)
+        fcv.addRow(_bind(QtWidgets.QLabel(), "setText", "Radio (Pies):"), self.cv_radius)
         fcv.addRow("", self.cv_radius_warn)
-        fcv.addRow("Red:", self.cv_net_lbl)
-        fcv.addRow("Origen:", self.cv_origin_lbl)
-        self.curve_is_bz = QtWidgets.QPushButton("Volver a tratar como buzón/caja")
+        fcv.addRow(_bind(QtWidgets.QLabel(), "setText", "Red:"), self.cv_net_lbl)
+        fcv.addRow(_bind(QtWidgets.QLabel(), "setText", "Origen:"), self.cv_origin_lbl)
+        self.curve_is_bz = _bind(QtWidgets.QPushButton(), "setText", "Volver a tratar como buzón/caja")
         self.curve_is_bz.clicked.connect(self._curve_is_bz_toggled)
         fcv.addRow("", self.curve_is_bz)
         rv.addWidget(self.gprop_curve)
-        self.lbl_curve_hint = QtWidgets.QLabel(
-            "Haz clic en un elemento curvo de la lista (o en su marcador violeta en el lienzo) "
+        self.lbl_curve_hint = _bind(QtWidgets.QLabel(), "setText", "Haz clic en un elemento curvo de la lista (o en su marcador violeta en el lienzo) "
             "para ver y editar sus propiedades.")
         self.lbl_curve_hint.setWordWrap(True)
         # Estilo aplicado por _apply_theme_custom_styles.
         rv.addWidget(self.lbl_curve_hint)
         self.gprop_curve.setVisible(False); self.lbl_curve_hint.setVisible(False)
         # ── Propiedades del centerline seleccionado (tab Centerlines) ──────────
-        self.gprop_cl = QtWidgets.QGroupBox("Propiedades del centerline"); fcl = QtWidgets.QFormLayout(self.gprop_cl)
+        self.gprop_cl = _bind(QtWidgets.QGroupBox(), "setTitle", "Propiedades del centerline"); fcl = QtWidgets.QFormLayout(self.gprop_cl)
         self.cl_cod = QtWidgets.QLineEdit(); self.cl_cod.editingFinished.connect(self._cl_prop_changed)
         self.cl_len_lbl = QtWidgets.QLabel("—")
-        fcl.addRow("Código:", self.cl_cod)
-        fcl.addRow("Longitud (ft):", self.cl_len_lbl)
+        fcl.addRow(_bind(QtWidgets.QLabel(), "setText", "Código:"), self.cl_cod)
+        fcl.addRow(_bind(QtWidgets.QLabel(), "setText", "Longitud (ft):"), self.cl_len_lbl)
         rv.addWidget(self.gprop_cl)
-        self.lbl_cl_hint = QtWidgets.QLabel(
-            "Haz clic en un centerline de la lista (o en su línea magenta punteada en el "
+        self.lbl_cl_hint = _bind(QtWidgets.QLabel(), "setText", "Haz clic en un centerline de la lista (o en su línea magenta punteada en el "
             "lienzo) para ver y editar sus propiedades. Referencia propia de una calle "
             "(distinta de las utilidades) para calzar contra la calle real al "
             "georreferenciar — no representa ninguna tubería.")
@@ -913,10 +827,10 @@ class Main(QtWidgets.QMainWindow):
         self._bz_prop_guard = False                 # evita reentradas al setear valores desde el modelo
         self._curve_prop_guard = False
         rr = QtWidgets.QGridLayout()
-        self.btn_ct = QtWidgets.QPushButton(_tr("Cambiar tipo")); self.btn_ct.clicked.connect(self.change_pipe_type)
-        self.btn_mv = QtWidgets.QPushButton(_tr("Editar/mover")); self.btn_mv.clicked.connect(self.enter_move)
-        self.btn_edit = QtWidgets.QPushButton(_tr("Editar texto")); self.btn_edit.clicked.connect(self.edit_selected_text)
-        self.btn_del = QtWidgets.QPushButton(_tr("Eliminar")); self.btn_del.setProperty("danger", True)
+        self.btn_ct = _bind(QtWidgets.QPushButton(), "setText", "Cambiar tipo"); self.btn_ct.clicked.connect(self.change_pipe_type)
+        self.btn_mv = _bind(QtWidgets.QPushButton(), "setText", "Editar/mover"); self.btn_mv.clicked.connect(self.enter_move)
+        self.btn_edit = _bind(QtWidgets.QPushButton(), "setText", "Editar texto"); self.btn_edit.clicked.connect(self.edit_selected_text)
+        self.btn_del = _bind(QtWidgets.QPushButton(), "setText", "Eliminar"); self.btn_del.setProperty("danger", True)
         self.btn_del.clicked.connect(self.delete_selected)
         rr.addWidget(self.btn_ct, 0, 0); rr.addWidget(self.btn_mv, 0, 1)
         rr.addWidget(self.btn_edit, 1, 0); rr.addWidget(self.btn_del, 1, 1)
@@ -987,11 +901,17 @@ class Main(QtWidgets.QMainWindow):
     def _build_statusbar(self):
         # ── Barra de estado: modo · info · contadores en vivo · escala · georref ──
         self.status = self.statusBar(); self.status.setSizeGripEnabled(False)
-        self.lbl_mode = QtWidgets.QLabel(_tr("Modo: inactivo"))   # color por _apply_theme_custom_styles
+        self.lbl_mode = _bind(QtWidgets.QLabel(), "setText", "Modo: inactivo")   # color por _apply_theme_custom_styles
         self.status.addWidget(self.lbl_mode)
         self.status.addWidget(QtWidgets.QLabel("│"))
         self.lbl_info = QtWidgets.QLabel("")   # color por _apply_theme_custom_styles
         self.status.addWidget(self.lbl_info, 1)
+        # Aviso de snap activo mientras se dibuja. El marcador verde del lienzo
+        # puede pasar desapercibido con zoom bajo; este texto confirma que el
+        # click SÍ se va a pegar, y a qué.
+        self.lbl_snap = QtWidgets.QLabel("")
+        self.lbl_snap.setStyleSheet("color:#1ec83c; font-weight:bold;")
+        self.status.addWidget(self.lbl_snap)
         self.lbl_coords = QtWidgets.QLabel("X —  Y —  Z —")
         # Contadores en vivo: N utilidades · N leaders · N textos · dirty
         self.lbl_counts = QtWidgets.QLabel("—")
@@ -1001,21 +921,21 @@ class Main(QtWidgets.QMainWindow):
         # es interactivo y hace evidente el gesto (un QLabel se ve idéntico a
         # los otros textos de la barra de estado). Estilo consistente con la
         # barra: fondo transparente, sin borde salvo al pasar/pulsar.
-        self.btn_scale = QtWidgets.QPushButton(_tr("Escala —"))
+        self.btn_scale = _bind(QtWidgets.QPushButton(), "setText", "Escala —")
         self.btn_scale.setFlat(True); self.btn_scale.setCursor(QtCore.Qt.PointingHandCursor)
-        self.btn_scale.setToolTip(_tr("Clic para cambiar la escala del plano (1\"=X ft)"))
+        _bind(self.btn_scale, "setToolTip", "Clic para cambiar la escala del plano (1\"=X ft)")
         # Estilo por _apply_theme_custom_styles (btn plano de status bar).
         self.btn_scale.clicked.connect(self._prompt_scale)
         # Botón "Opacidad" al lado de la escala: abre un desplegable con un
         # deslizable (opacidad SOLO del PDF) y un botón para alternar el fondo
         # detrás del PDF entre blanco y negro.
-        self.btn_opacity = QtWidgets.QPushButton("  " + _tr("Opacidad"))
+        self.btn_opacity = _bind(QtWidgets.QPushButton(), "setText", "Opacidad", pre='  ')
         self.btn_opacity.setIconSize(QtCore.QSize(16, 16))
         self.btn_opacity.setFlat(True); self.btn_opacity.setCursor(QtCore.Qt.PointingHandCursor)
-        self.btn_opacity.setToolTip(_tr("Opacidad del PDF y color de fondo (blanco/negro)"))
+        _bind(self.btn_opacity, "setToolTip", "Opacidad del PDF y color de fondo (blanco/negro)")
         # Estilo por _apply_theme_custom_styles (idéntico a btn_scale).
         self.btn_opacity.clicked.connect(self._open_opacity_popup)
-        self.lbl_geo = QtWidgets.QLabel(_tr("Georref: no"))
+        self.lbl_geo = _bind(QtWidgets.QLabel(), "setText", "Georref: no")
         # Color por _apply_theme_custom_styles (usa text_info para contraste).
         for w in (self.lbl_coords, self.lbl_counts, self.lbl_dirty):
             self.status.addPermanentWidget(w)
@@ -1167,7 +1087,10 @@ class Main(QtWidgets.QMainWindow):
             v = 0.0
         # El icono de lápiz está seteado por _apply_theme_custom_styles (una sola
         # vez); aquí solo actualizamos el texto con el valor de escala actual.
-        self.btn_scale.setText(f"{_tr('Escala')} 1\"={v:.0f}'" if v > 0 else _tr("Escala —"))
+        if v > 0:
+            _bind(self.btn_scale, "setText", "Escala 1\"={v}'", fmt={"v": f"{v:.0f}"})
+        else:
+            _bind(self.btn_scale, "setText", "Escala —")
 
     def _prompt_scale(self):
         """Diálogo compacto para cambiar la escala del plano (1\"=X ft).
@@ -1180,8 +1103,8 @@ class Main(QtWidgets.QMainWindow):
             QtWidgets.QMessageBox.information(self, _tr("Escala"), _tr("Primero abre un PDF o proyecto.")); return
         cur = float(self.scale) * 72.0 if self.scale else 20.0
         val, ok = QtWidgets.QInputDialog.getDouble(
-            self, "Escala del plano",
-            "1 pulgada del PDF equivale a X pies reales:",
+            self, _tr("Escala del plano"),
+            _tr("1 pulgada del PDF equivale a X pies reales:"),
             cur, 0.01, 100000.0, 2)
         if not ok or val <= 0:
             return
@@ -1192,7 +1115,7 @@ class Main(QtWidgets.QMainWindow):
         self._refresh_scale_label()
         self._update_geo_status()
         self._redraw()
-        self._info(f"Escala cambiada a 1\"={val:g}'.")
+        self._info(_tr("Escala cambiada a 1\"={v}'.").format(v=f"{val:g}"))
 
     def _open_opacity_popup(self):
         """Desplegable junto al botón de escala: deslizable de opacidad del PDF y
@@ -1203,7 +1126,7 @@ class Main(QtWidgets.QMainWindow):
         box = QtWidgets.QWidget()
         lay = QtWidgets.QVBoxLayout(box); lay.setContentsMargins(12, 10, 12, 10); lay.setSpacing(8)
         pct = round(self.canvas.pdf_opacity * 100)
-        lbl = QtWidgets.QLabel(f"Opacidad del PDF: {pct}%")
+        lbl = QtWidgets.QLabel(_tr("Opacidad del PDF: {pct}%").format(pct=pct))
         sl = QtWidgets.QSlider(QtCore.Qt.Horizontal); sl.setRange(10, 100)
         sl.setValue(pct); sl.setMinimumWidth(240)
         # Accesibilidad: más contraste (canal oscuro + parte activa azul brillante)
@@ -1222,7 +1145,7 @@ class Main(QtWidgets.QMainWindow):
 
         def _on_val(v):
             self.canvas.set_pdf_opacity(v / 100.0)
-            lbl.setText(f"Opacidad del PDF: {v}%")
+            lbl.setText(_tr("Opacidad del PDF: {pct}%").format(pct=v))
             self.lbl_opacity.setText(f"{v}%")     # mantiene sincronizado el control del dock
         sl.valueChanged.connect(_on_val)
 
@@ -1233,7 +1156,7 @@ class Main(QtWidgets.QMainWindow):
 
         def _refresh_bg_btn():
             # El texto muestra la acción que hará el clic (viceversa del estado actual).
-            btn_bg.setText("Fondo blanco" if _is_black() else "Fondo negro")
+            btn_bg.setText(_tr("Fondo blanco") if _is_black() else _tr("Fondo negro"))
 
         def _toggle_bg():
             self.canvas.set_pdf_bg(QtGui.QColor(255, 255, 255) if _is_black()
@@ -1282,26 +1205,76 @@ class Main(QtWidgets.QMainWindow):
     def _update_pipe_snap_hint(self, x, y):
         """Feedback visual del snap suave a utilidades: al mover el mouse en
         modo Dibujar, si el cursor está cerca de una utilidad existente del
-        mismo tipo, dibuja un círculo verde en el punto donde se pegaría.
-        Sin costo cuando no hay hit (removeItem del previo y no dibuja nada)."""
+        MISMO tipo (capa), marca en verde el punto exacto donde se pegaría el
+        click. La forma del marcador dice a QUÉ se engancha:
+
+          ○ círculo  = extremo de la utilidad (al hacer click ahí, la app
+                       pregunta si quieres unirla o crear una nueva)
+          □ cuadrado = vértice intermedio
+          △ triángulo= punto cualquiera del tramo (proyección perpendicular)
+
+        Todo el cuerpo va en try/except: si algo falla aquí (un item de escena
+        ya destruido, por ejemplo) NO puede tumbar el movimiento del mouse ni
+        dejar al usuario sin saber si el snap está activo."""
         sc = self.canvas.scene()
+        # Soltar el marcador anterior. `scene().clear()` (cambio de página,
+        # abrir/cerrar proyecto) destruye el item de C++ pero deja este
+        # atributo apuntando a él: hay que tolerar el puntero colgante.
         prev = getattr(self, "_pipe_snap_hint", None)
         if prev is not None:
             try: sc.removeItem(prev)
             except (RuntimeError, ValueError): pass
             self._pipe_snap_hint = None
-        if self.mode != "pipe": return
-        hit = self._pipe_soft_snap(x, y)
-        if hit is None: return
+        if self.mode != "pipe":
+            self._set_snap_status(None)
+            return
+        try:
+            hit = self._pipe_soft_snap(x, y)
+        except Exception:
+            self._set_snap_status(None)
+            return
+        if hit is None:
+            self._set_snap_status(None)
+            return
+
         sx, sy = hit["pt"]
-        R_PX = 6.0
-        pen = QtGui.QPen(QtGui.QColor(30, 200, 60), 2.0); pen.setCosmetic(True)
-        it = sc.addEllipse(-R_PX, -R_PX, R_PX * 2, R_PX * 2, pen,
-                            QtGui.QBrush(QtCore.Qt.NoBrush))
-        it.setPos(sx, sy)
-        it.setFlag(QtWidgets.QGraphicsItem.ItemIgnoresTransformations)
-        it.setZValue(Z_MARK + 20)
-        self._pipe_snap_hint = it
+        kind = hit.get("kind")
+        R = 7.0
+        verde = QtGui.QColor(30, 200, 60)
+        pen = QtGui.QPen(verde, 2.0); pen.setCosmetic(True)
+        relleno = QtGui.QColor(30, 200, 60, 60)
+        try:
+            if kind == "endpoint":
+                it = sc.addEllipse(-R, -R, R * 2, R * 2, pen, QtGui.QBrush(relleno))
+            elif kind == "vertex":
+                it = sc.addRect(-R, -R, R * 2, R * 2, pen, QtGui.QBrush(relleno))
+            else:                                   # segmento
+                tri = QtGui.QPolygonF([QtCore.QPointF(0, -R),
+                                       QtCore.QPointF(R, R * 0.7),
+                                       QtCore.QPointF(-R, R * 0.7)])
+                it = sc.addPolygon(tri, pen, QtGui.QBrush(relleno))
+            it.setPos(sx, sy)
+            it.setFlag(QtWidgets.QGraphicsItem.ItemIgnoresTransformations)
+            it.setZValue(Z_MARK + 20)
+            self._pipe_snap_hint = it
+        except Exception:
+            self._pipe_snap_hint = None
+        self._set_snap_status(hit)
+
+    def _set_snap_status(self, hit):
+        """Texto en la barra de estado sobre el snap. Sin esto el marcador
+        verde es la única pista, y si el usuario no lo ve (zoom bajo, pantalla
+        pequeña) no sabe si el click se va a pegar o no."""
+        lbl = getattr(self, "lbl_snap", None)
+        if lbl is None: return
+        if not hit:
+            lbl.setText("")
+            return
+        nombre = {"endpoint": _tr("extremo"),
+                  "vertex": _tr("vértice"),
+                  "segment": _tr("tramo")}.get(hit.get("kind"), "")
+        lbl.setText(_tr("⊙ Snap a {q} de «{c}»").format(
+            q=nombre, c=self.active_layer()))
 
     def _update_hover_tooltip(self, x, y):
         thr = self.snap_r * 1.5
@@ -1318,7 +1291,8 @@ class Main(QtWidgets.QMainWindow):
                 if (x - px) ** 2 + (y - py) ** 2 < thr ** 2:
                     d = p.get("diam", "?")
                     tag = " (AB)" if p.get("ab") else ""
-                    tip = f"#{i+1} {p['layer']}{tag} — {d}\" · {len(pts)} vértices"
+                    tip = _tr("#{n} {capa}{tag} — {d}\" · {v} vértices").format(
+                        n=i + 1, capa=self._etq(p), tag=tag, d=d, v=len(pts))
                     self.canvas.setToolTip(tip)
                     return
         self.canvas.setToolTip("")
@@ -1329,10 +1303,10 @@ class Main(QtWidgets.QMainWindow):
             rms = f" · RMS {self.georef.rms:.2f} {unit}" if self.georef.rms is not None else ""
             cs = (getattr(self.georef, "cs_code", "") or "").strip()
             etq = cs if cs else f"EPSG:{self.georef.epsg}"
-            self.lbl_geo.setText(f"{_tr('Georref')}: {etq}{rms}")
+            _bind(self.lbl_geo, "setText", "Georref: {sistema}{rms}", fmt={"sistema": etq, "rms": rms})
             self.lbl_geo.setStyleSheet(f"color:{_theme.tokens().success};")
         else:
-            self.lbl_geo.setText(_tr("Georref: no (escala titleblock)"))
+            _bind(self.lbl_geo, "setText", "Georref: no (escala titleblock)")
             self.lbl_geo.setStyleSheet(f"color:{_theme.tokens().danger};")
 
     def _update_ui(self):
@@ -1359,7 +1333,7 @@ class Main(QtWidgets.QMainWindow):
         _toggle(self.btn_centerline, m == "centerline",
                 "  " + _tr("Terminar centerline (Enter)"), "  " + _tr("Trazar centerline"), "mdi:ruler")
         ti = self._current_tab()
-        self.gtxt.setTitle(_tr("Estilo de texto"))
+        _bind(self.gtxt, "setTitle", "Estilo de texto")
         self.gprop.setVisible(ti == TAB_PIPE and self.sel_pipe >= 0)
         # Panel de propiedades del buzón: visible en tab Buzones (aunque sin selección
         # se muestra el groupbox con campos deshabilitados para que el user vea que existe).
@@ -1381,27 +1355,31 @@ class Main(QtWidgets.QMainWindow):
         ti = self._current_tab()
         self.btn_ct.setVisible(ti == TAB_PIPE)
         self.btn_mv.setVisible(ti in (TAB_PIPE, TAB_LEADER, TAB_TEXT, TAB_REGION))
-        self.btn_mv.setText(_tr("Mover") if ti == TAB_TEXT else _tr("Editar/mover"))
+        _bind(self.btn_mv, "setText", "Mover" if ti == TAB_TEXT else "Editar/mover")
         self.btn_edit.setVisible(ti == TAB_TEXT)
         # "Eliminar" no aplica en la pestaña Buzones: los buzones se
         # auto-detectan de los vertices de las tuberias, borrarlos no tiene
         # efecto porque _rebuild_structures los repone. Se oculta el boton.
         self.btn_del.setVisible(ti != TAB_BZ)
         diag = self.orient_combo.currentData() == "d"
-        lead1 = _tr("Modo: Leader — clic en la cabeza de flecha (dónde señala)")
-        lead2 = (_tr("Modo: Leader — clic en el inicio del landing (bisagra)") if diag
-                 else _tr("Modo: Leader — clic en el final del cuerpo"))
-        lead3 = _tr("Modo: Leader — clic en el final del cuerpo")
-        self.lbl_mode.setText({"idle": _tr("Modo: inactivo  ·  clic en el dibujo para seleccionar"),
-                               "pipe": (_tr("Modo: EXTENDIENDO desde el vértice — clic agrega puntos, Enter finaliza")
-                                        if self._extending else _tr("Modo: dibujar utilidad  ·  Enter finaliza")),
-                               "leader1": lead1,
-                               "leader2": lead2,
-                               "leader3": lead3,
-                               "text": _tr("Modo: texto libre — clic donde escribir · Enter aplica"),
-                               "erase": _tr("Modo: borrar zona — clic para el polígono, Enter cierra"),
-                               "centerline": _tr("Modo: trazar centerline — clic agrega puntos, Enter finaliza"),
-                               "move": _tr("Modo: editar — arrastra vértice · clic en tramo inserta · clic-en-vértice extiende (F) · clic derecho elimina")}.get(m, ""))
+        lead_cuerpo = N_("Modo: Leader — clic en el final del cuerpo")
+        clave_modo = {
+            "idle": N_("Modo: inactivo  ·  clic en el dibujo para seleccionar"),
+            "pipe": (N_("Modo: EXTENDIENDO desde el vértice — clic agrega puntos, Enter finaliza")
+                     if self._extending else N_("Modo: dibujar utilidad  ·  Enter finaliza")),
+            "leader1": N_("Modo: Leader — clic en la cabeza de flecha (dónde señala)"),
+            "leader2": (N_("Modo: Leader — clic en el inicio del landing (bisagra)") if diag
+                        else lead_cuerpo),
+            "leader3": lead_cuerpo,
+            "text": N_("Modo: texto libre — clic donde escribir · Enter aplica"),
+            "erase": N_("Modo: borrar zona — clic para el polígono, Enter cierra"),
+            "centerline": N_("Modo: trazar centerline — clic agrega puntos, Enter finaliza"),
+            "move": N_("Modo: editar — arrastra vértice · clic en tramo inserta · clic-en-vértice extiende (F) · clic derecho elimina"),
+        }.get(m)
+        if clave_modo:
+            _bind(self.lbl_mode, "setText", clave_modo)
+        else:
+            self.lbl_mode.setText("")
         # Actualiza el panel "Mover con precisión" (habilita/deshabilita según la selección).
         if hasattr(self, "_update_move_panel"):
             self._update_move_panel()
@@ -1515,8 +1493,10 @@ class Main(QtWidgets.QMainWindow):
 
     def _update_undo_tooltips(self):
         u, r = len(self._undo), len(self._redo)
-        self._act_undo.setToolTip(f"Deshacer (Ctrl+Z) — {u} paso{'s' if u != 1 else ''}")
-        self._act_redo.setToolTip(f"Rehacer (Ctrl+Shift+Z) — {r} paso{'s' if r != 1 else ''}")
+        _bind(self._act_undo, "setToolTip", "Deshacer (Ctrl+Z) — {n} paso" if u == 1
+              else "Deshacer (Ctrl+Z) — {n} pasos", fmt={"n": u})
+        _bind(self._act_redo, "setToolTip", "Rehacer (Ctrl+Shift+Z) — {n} paso" if r == 1
+              else "Rehacer (Ctrl+Shift+Z) — {n} pasos", fmt={"n": r})
 
     # ─────────────────────────── abrir ───────────────────────────
     def _busy(self, m="Procesando…"):
@@ -1529,7 +1509,7 @@ class Main(QtWidgets.QMainWindow):
         elif low.endswith(".digproj"): self._open_project_path(path)
 
     def open_pdf(self):
-        path, _ = QtWidgets.QFileDialog.getOpenFileName(self, "Abrir PDF", DOWNLOADS, "PDF (*.pdf)")
+        path, _ = QtWidgets.QFileDialog.getOpenFileName(self, _tr("Abrir PDF"), DOWNLOADS, "PDF (*.pdf)")
         if path: self._open_pdf_path(path)
 
     def _open_pdf_path(self, path):
@@ -1560,6 +1540,88 @@ class Main(QtWidgets.QMainWindow):
             self._unbusy()
         # Asistente v1: tipo → hoja → cargar hoja → reconocer eléctricas → preview (sin import).
         self._run_recognition_wizard()
+
+    def new_blank_canvas(self):
+        """Crea un proyecto nuevo sobre una hoja EN BLANCO, sin PDF de fondo.
+
+        Todo el resto de la app (dibujo, cotas, exportación a DXF) funciona
+        igual: lo que necesita no es el PDF en sí, sino la imagen de fondo del
+        lienzo y la tupla de transformación (scale, zoom, rot, W, H, derot).
+        Aquí se construyen a mano a partir de la hoja y la escala que elige el
+        usuario, en vez de leerlas de una página de fitz.
+        """
+        if not self._confirm_discard(): return
+        import blank_canvas_dialog
+        cfg = blank_canvas_dialog.choose_canvas(
+            self, escala_actual=float(self.scale) * 72.0 if self.scale else 20.0)
+        if not cfg: return
+
+        self._busy(_tr("Creando lienzo…"))
+        try:
+            if self.doc:
+                self.doc.close()
+            self._cleanup_tmp_pdf()
+            # Sin PDF: doc/pdf_path quedan en None. `_open_project_path` ya
+            # contempla ese estado, así que el .digproj funciona igual.
+            self.doc = None
+            self.pdf_path = None
+            self.project_path = None
+            self.work_pdf_path = None
+            self.src_pdfs = []
+            self.composite = None
+            self._scale_override = None
+            self.hidden_ocgs = []
+            self.hidden_ocgs_by_source = {}
+            self._layer_roles = None
+            self._recog_ready = False
+            self.sheet_layout = None
+            self.sheet_rotations = {}
+            self.sheet_crops = {}
+            self.sheet_sources = []
+            self.sheet_external_pdfs = []
+            self.blank_canvas = True
+            self.paper = dict(cfg)
+            self._load_blank_page(cfg)
+            self._update_title()
+        finally:
+            self._unbusy()
+        self._info(_tr("Lienzo {n} · 1\"={e:g}'").format(
+            n=_tr(cfg["name"]), e=cfg["ft_per_inch"]))
+
+    def _load_blank_page(self, cfg):
+        """Monta el lienzo en blanco: equivalente a `_load_page` pero sin fitz.
+
+        Con rot=0 y derot identidad, `geometry.to_cad` se reduce a
+            X_cad = (x_px / zoom) * scale
+            Y_cad = (H - y_px / zoom) * scale
+        así que basta con dar W/H en PUNTOS de hoja y la escala en pies/punto
+        para que el DXF salga con las dimensiones correctas.
+        """
+        self.page_idx = 0
+        self.scale = float(cfg["scale_ft_per_pt"])
+        self.rot = 0
+        self.W = float(cfg["w_pt"])
+        self.H = float(cfg["h_pt"])
+        self.derot = fitz.Matrix(1, 0, 0, 1, 0, 0)
+
+        w_px = max(1, int(round(self.W * self.zoom)))
+        h_px = max(1, int(round(self.H * self.zoom)))
+        self.pageH_px = h_px
+        self.leader_hpx = max(14.0, min(
+            LEADER_TEXT_FT / self.scale * self.zoom, self.pageH_px * 0.05))
+
+        qimg = QtGui.QImage(w_px, h_px, QtGui.QImage.Format_RGB888)
+        qimg.fill(QtGui.QColor(255, 255, 255))
+        # `gray` lo usa el snap a tinta del plano; en blanco no hay nada a que
+        # engancharse, y `geometry.snap_point` ya tolera None devolviendo el
+        # punto tal cual.
+        self.gray = None
+
+        self._overlay = []
+        self.canvas.set_image(qimg)
+        self._reset_model()
+        self._update_page_label()
+        self._refresh_scale_label()
 
     def _run_recognition_wizard(self):
         """Elegir tipo/hoja, cargar esa hoja, reconocer ELECTRICO y mostrar preview. Sin importar pipes.
@@ -2007,7 +2069,7 @@ class Main(QtWidgets.QMainWindow):
         self.canvas.set_image(qimg)
         self._reset_model(); self._update_page_label()
         self._refresh_scale_label()
-        self._info(f"Página {idx + 1} cargada.")
+        self._info(_tr("Página {n} cargada.").format(n=idx + 1))
 
     def _reset_model(self):
         self.cur_pts = []; self.pipes = []; self.leaders = []; self.text_marks = []
@@ -2024,7 +2086,7 @@ class Main(QtWidgets.QMainWindow):
 
     # ─────────────────────────── proyecto ───────────────────────────
     def _write_project(self, path):
-        self._busy("Guardando proyecto…")
+        self._busy(_tr("Guardando proyecto…"))
         try:
             # La construcción del dict de datos vive en project_io (pura, testeable);
             # aquí queda solo lo de Qt/PDF (PNG del lienzo, zip, PDF fuente).
@@ -2045,7 +2107,7 @@ class Main(QtWidgets.QMainWindow):
                     for i, entry in enumerate(self.src_pdfs):
                         z.writestr(f"sources/{i:03d}.pdf", entry["data"])
             self.project_path = path; self._dirty = False; self._update_title()
-            self._info(f"Proyecto guardado: {os.path.basename(path)}")
+            self._info(_tr("Proyecto guardado: {archivo}").format(archivo=os.path.basename(path)))
             self._flash_save()
         finally: self._unbusy()
 
@@ -2082,16 +2144,16 @@ class Main(QtWidgets.QMainWindow):
         if self.canvas.pixmap_item is None:
             QtWidgets.QMessageBox.information(self, _tr("Nada que guardar"), _tr("Abre un PDF o proyecto primero.")); return
         base = self.project_path or os.path.join(DOWNLOADS, "proyecto.digproj")
-        path, _ = QtWidgets.QFileDialog.getSaveFileName(self, "Guardar proyecto como", base, "Proyecto (*.digproj)")
+        path, _ = QtWidgets.QFileDialog.getSaveFileName(self, _tr("Guardar proyecto como"), base, _tr("Proyecto (*.digproj)"))
         if path: self._write_project(path)
 
     def open_project(self):
-        path, _ = QtWidgets.QFileDialog.getOpenFileName(self, "Abrir proyecto", DOWNLOADS, "Proyecto (*.digproj)")
+        path, _ = QtWidgets.QFileDialog.getOpenFileName(self, _tr("Abrir proyecto"), DOWNLOADS, _tr("Proyecto (*.digproj)"))
         if path: self._open_project_path(path)
 
     def _open_project_path(self, path):
         if not self._confirm_discard(): return
-        self._busy("Abriendo proyecto…")
+        self._busy(_tr("Abriendo proyecto…"))
         try:
             if self.doc:
                 self.doc.close()
@@ -2132,6 +2194,8 @@ class Main(QtWidgets.QMainWindow):
             self.work_pdf_path = tmp_pdf
             self.composite = data.get("composite")
             self._scale_override = data.get("scale_override")
+            self.blank_canvas = bool(data.get("blank_canvas"))
+            self.paper = data.get("paper")
             if src_pdfs:
                 self.src_pdfs = src_pdfs
             elif src_bytes is not None:
@@ -2178,7 +2242,8 @@ class Main(QtWidgets.QMainWindow):
             self._restore_civil_selection(model.get("civil_year"), model.get("civil_lang"))
             import civil_catalog as _cc
             _cv = f" · Civil 3D {self.civil_year}/{_cc._current_lang or '—'}" if self.civil_year else ""
-            self._info(f"Proyecto abierto ({len(self.pipes)} utilidades){_cv}. Ctrl+S guarda en este mismo archivo.")
+            self._info(_tr("Proyecto abierto ({n} utilidades){civil}. Ctrl+S guarda en este mismo "
+                           "archivo.").format(n=len(self.pipes), civil=_cv))
             # Aviso si el proyecto referencia familias del catálogo que no están
             # instaladas en el Civil 3D activo — ofrece abrir el instalador.
             self._warn_missing_families()
@@ -2220,21 +2285,22 @@ class Main(QtWidgets.QMainWindow):
         missing = sorted(set(missing_p) | set(missing_s))
         if not missing: return
 
-        lines = ["<b>Este proyecto usa familias del catálogo que no están instaladas "
-                 f"en Civil 3D {self.civil_year} ({_cc._current_lang or '?'}):</b>", ""]
+        lines = ["<b>" + _tr("Este proyecto usa familias del catálogo que no están instaladas "
+                             "en Civil 3D {anio} ({idioma}):").format(
+                     anio=self.civil_year, idioma=_cc._current_lang or "?") + "</b>", ""]
         for m in missing[:25]: lines.append(f"  • <code>{m}</code>")
-        if len(missing) > 25: lines.append(f"  … y {len(missing)-25} más.")
-        lines += ["", "¿Quieres abrir el instalador de familias ahora? "
-                       "Puedes seguir trabajando con el proyecto igual — el aviso es "
-                       "solo para evitar sorpresas al exportar a DXF."]
+        if len(missing) > 25: lines.append("  " + _tr("… y {n} más.").format(n=len(missing) - 25))
+        lines += ["", _tr("¿Quieres abrir el instalador de familias ahora? "
+                          "Puedes seguir trabajando con el proyecto igual — el aviso es "
+                          "solo para evitar sorpresas al exportar a DXF.")]
 
         mb = QtWidgets.QMessageBox(self)
         mb.setIcon(QtWidgets.QMessageBox.Warning)
-        mb.setWindowTitle("Familias no instaladas")
+        mb.setWindowTitle(_tr("Familias no instaladas"))
         mb.setTextFormat(QtCore.Qt.RichText)
         mb.setText("<br>".join(lines))
-        btn_install = mb.addButton("Instalar familias…", QtWidgets.QMessageBox.AcceptRole)
-        mb.addButton("Seguir sin instalar", QtWidgets.QMessageBox.RejectRole)
+        btn_install = mb.addButton(_tr("Instalar familias…"), QtWidgets.QMessageBox.AcceptRole)
+        mb.addButton(_tr("Seguir sin instalar"), QtWidgets.QMessageBox.RejectRole)
         mb.exec()
         if mb.clickedButton() is btn_install:
             self.open_install_family_dialog()
@@ -2242,7 +2308,7 @@ class Main(QtWidgets.QMainWindow):
     def _confirm_discard(self):
         if not self._dirty or self.canvas.pixmap_item is None: return True
         r = QtWidgets.QMessageBox.question(
-            self, "Cambios sin guardar", "Hay cambios sin guardar. ¿Deseas guardarlos?",
+            self, _tr("Cambios sin guardar"), _tr("Hay cambios sin guardar. ¿Deseas guardarlos?"),
             QtWidgets.QMessageBox.Save | QtWidgets.QMessageBox.Discard | QtWidgets.QMessageBox.Cancel)
         if r == QtWidgets.QMessageBox.Cancel: return False
         if r == QtWidgets.QMessageBox.Save:
@@ -2257,6 +2323,7 @@ class Main(QtWidgets.QMainWindow):
         self._cleanup_tmp_pdf()
         self.canvas.scene().clear(); self.canvas.pixmap_item = None; self.canvas.pdf_bg_item = None
         self.pdf_path = None; self.doc = None; self.project_path = None; self.gray = None; self._update_title()
+        self.blank_canvas = False; self.paper = None
         self.sheet_layout = None
         self.sheet_rotations = {}
         self.sheet_crops = {}
@@ -2467,6 +2534,15 @@ class Main(QtWidgets.QMainWindow):
                 if t <= 0 or t >= 1: continue      # los extremos ya se cubren arriba
                 px = ax + t * dx; py = ay + t * dy
                 d2 = (px - x) ** 2 + (py - y) ** 2
+                # Los VÉRTICES mandan sobre la proyección al tramo: junto a un
+                # vértice, la perpendicular a un segmento oblicuo cae un pelo
+                # más cerca y le ganaba, así que el punto se deslizaba unas
+                # décimas sobre el tramo en vez de pegarse al vértice — y las
+                # utilidades no empalmaban exactamente donde el usuario veía
+                # el marcador. Un hit de vértice solo se cede si el tramo está
+                # claramente más cerca.
+                if best is not None and best["kind"] in ("endpoint", "vertex"):
+                    if d2 >= best_d2 * PRIORIDAD_VERTICE: continue
                 if d2 < best_d2:
                     best = {"pt": (px, py), "kind": "segment", "pipe_idx": pi, "port": si}
                     best_d2 = d2
@@ -2645,7 +2721,7 @@ class Main(QtWidgets.QMainWindow):
         if kind not in ("pipe", "region"): return
         pts = self.pipes[self.sel_pipe]["pts"] if kind == "pipe" else self.erase_regions[self.sel_region]["pts"]
         floor = 3 if kind == "region" else 2
-        if len(pts) <= floor: self._info(f"Necesita al menos {floor} puntos"); return
+        if len(pts) <= floor: self._info(_tr("Necesita al menos {n} puntos").format(n=floor)); return
         thr = self._thr(); vi, vd = -1, thr
         for i, (px, py) in enumerate(pts):
             d = math.hypot(px - x, py - y)
@@ -2754,9 +2830,9 @@ class Main(QtWidgets.QMainWindow):
         seg_edit = bool(p.get("seg_edit_enabled", False))
         self._prop_guard = True
         self.btn_seg_edit.setChecked(seg_edit)
-        self.btn_seg_edit.setText(
-            "✕  Desactivar edición por tramo" if seg_edit
-            else "✎  Activar edición por tramo")
+        _bind(self.btn_seg_edit, "setText",
+              "Desactivar edición por tramo" if seg_edit else "Activar edición por tramo",
+              pre="✕  " if seg_edit else "✎  ")
         self._prop_guard = False
         ov_out = p.get("vertex_inv_out") or {}
         ov_in  = p.get("vertex_inv_in") or {}
@@ -2778,9 +2854,9 @@ class Main(QtWidgets.QMainWindow):
             item = QtWidgets.QTableWidgetItem(f"T{si + 1}")
             item.setFlags(QtCore.Qt.ItemIsEnabled | QtCore.Qt.ItemIsSelectable)
             item.setData(QtCore.Qt.UserRole, si)
-            item.setToolTip(f"Tramo {si + 1}: vértice {v0} → vértice {v1}\n"
-                            f"Longitud {length:.2f} ft\n"
-                            "Clic para resaltarlo en el lienzo.")
+            item.setToolTip(_tr("Tramo {t}: vértice {v0} → vértice {v1}\nLongitud {largo} ft\n"
+                                "Clic para resaltarlo en el lienzo.").format(
+                                    t=si + 1, v0=v0, v1=v1, largo=f"{length:.2f}"))
             item.setTextAlignment(QtCore.Qt.AlignCenter)
             tbl.setItem(si, 0, item)
 
@@ -2911,6 +2987,10 @@ class Main(QtWidgets.QMainWindow):
         self.prop_inv1.setValue(p.get("inv_end") or 0.0)
         self._prop_guard = False
         self._rebuild_seg_inv_table(p)
+        # Reclasificar cruces: editar el extremo del primer/último tramo cambia
+        # la cota interpolada y puede volver un conflicto en sugerencia (o
+        # viceversa) — igual que hace _prop_changed al tocar la rasante arriba.
+        self._redraw()
 
     def _seg_row_label_clicked(self, row, col):
         if col != 0: return
@@ -2954,12 +3034,11 @@ class Main(QtWidgets.QMainWindow):
             # puede seleccionar. Se avisa (visible, no un mensaje de barra que se
             # pisa) para que el usuario entienda por qué quedó en otra versión.
             QtWidgets.QMessageBox.information(
-                self, "Civil 3D del proyecto no disponible",
-                f"El proyecto se guardó con Civil 3D {year}"
-                + (f" ({lang})" if lang else "") +
-                f", pero esa versión no está instalada/detectada en esta PC.\n\n"
-                f"Se mantiene la versión activa ({self.civil_year or '—'}). "
-                "El catálogo de familias saldrá de esa versión.")
+                self, _tr("Civil 3D del proyecto no disponible"),
+                _tr("El proyecto se guardó con Civil 3D {version}, pero esa versión no "
+                    "está instalada/detectada en esta PC.\n\nSe mantiene la versión activa "
+                    "({activa}). El catálogo de familias saldrá de esa versión.").format(
+                    version=f"{year} ({lang})" if lang else year, activa=self.civil_year or "—"))
             return
         idx = self.cmb_civil.findData(year)
         if idx < 0:
@@ -3057,8 +3136,9 @@ class Main(QtWidgets.QMainWindow):
                 f"<div style='background:{bg_css}; padding:6px 8px; border-radius:4px;'>"
                 f"<b style='color:{t.text}'>Duct Bank: {name}</b><br>"
                 f"<span style='color:{t.text_muted}'>"
-                f"{db.width_in:g}\" x {db.height_in:g}\" — {nc} conducto(s)</span>"
-                f"</div>")
+                + _tr("{ancho}\" x {alto}\" — {n} conducto(s)").format(
+                    ancho=f"{db.width_in:g}", alto=f"{db.height_in:g}", n=nc)
+                + "</span></div>")
             self.lbl_ductbank_assigned.setVisible(True)
             self.prop_family.blockSignals(False); self.prop_size.blockSignals(False)
             return
@@ -3071,7 +3151,7 @@ class Main(QtWidgets.QMainWindow):
             self.prop_family.blockSignals(False); self.prop_size.blockSignals(False); return
         fams = (_cc.pressure_pipes(self.civil_year) if kind == "pressure"
                 else _cc.imperial_pipes(self.civil_year))
-        self.prop_family.addItem("(por defecto)", "")
+        self.prop_family.addItem(_tr("(por defecto)"), "")
         for f in fams:
             idx = self.prop_family.count()
             self.prop_family.addItem(f"{f['pretty']}  [{f['subfolder']}]", f["id"])
@@ -3090,14 +3170,14 @@ class Main(QtWidgets.QMainWindow):
         import civil_catalog as _cc
         self.prop_size.blockSignals(True); self.prop_size.clear()
         if not fid or not self.civil_year:
-            self.prop_size.addItem("(sin familia)", ""); self.prop_size.setEnabled(False)
+            self.prop_size.addItem(_tr("(sin familia)"), ""); self.prop_size.setEnabled(False)
             self.prop_size.blockSignals(False); return
         sizes = (_cc.pressure_pipe_sizes(self.civil_year, fid) if kind == "pressure"
                  else _cc.pipe_sizes(self.civil_year, fid))
         if not sizes:
-            self.prop_size.addItem("(sin tamaños)", ""); self.prop_size.setEnabled(False)
+            self.prop_size.addItem(_tr("(sin tamaños)"), ""); self.prop_size.setEnabled(False)
         else:
-            self.prop_size.setEnabled(True); self.prop_size.addItem("(por defecto)", "")
+            self.prop_size.setEnabled(True); self.prop_size.addItem(_tr("(por defecto)"), "")
             for sz in sizes: self.prop_size.addItem(sz, sz)
             if current:
                 for i in range(self.prop_size.count()):
@@ -3246,8 +3326,12 @@ class Main(QtWidgets.QMainWindow):
             if self.prop_family.isVisible():
                 p["pipe_family"] = self.prop_family.currentData() or ""
                 p["pipe_size"] = self.prop_size.currentData() or "" if self.prop_size.isEnabled() else ""
-            # p["diam"] se calcula del pipe_size (p.ej. "24 in" → 24.0). Sin tamaño → 0.
-            p["diam"] = _extract_diam_from_size(p.get("pipe_size", ""))
+            # p["diam"] se calcula del pipe_size (p.ej. "24 in" → 24.0). Sin tamaño de
+            # catálogo se CONSERVA el diámetro que ya tenía: antes quedaba en 0 al
+            # editar cualquier campo (p. ej. el nombre) y cambiaban las alertas.
+            d_size = _extract_diam_from_size(p.get("pipe_size", ""))
+            if d_size or not p.get("diam"):
+                p["diam"] = d_size
             self._refresh_lists()
             self._rebuild_seg_inv_table(p)
             # Repintamos el lienzo para que los marcadores de cruces se
@@ -3260,14 +3344,15 @@ class Main(QtWidgets.QMainWindow):
         """Etiquetas de campo fijas: cotas en PIES, diámetro en PULGADAS.
         (Ya no hay selector de unidad; todo va por campo.)"""
         # (Diámetro se muestra vía combo de tamaño del catálogo, no necesita etiqueta aquí)
-        if hasattr(self, "lbl_prop_inv0"): self.lbl_prop_inv0.setText("Elev. de rasante inicial (ft):")
-        if hasattr(self, "lbl_prop_inv1"): self.lbl_prop_inv1.setText("Elev. de rasante final (ft):")
+        if hasattr(self, "lbl_prop_inv0"): _bind(self.lbl_prop_inv0, "setText", "Elev. de rasante inicial (ft):")
+        if hasattr(self, "lbl_prop_inv1"): _bind(self.lbl_prop_inv1, "setText", "Elev. de rasante final (ft):")
 
     def _refresh_counts(self):
         """Contadores en vivo en la barra de estado: utilidades, leaders, textos, zonas."""
         if not hasattr(self, "lbl_counts"): return
         n_p = len(self.pipes); n_l = len(self.leaders); n_t = len(self.text_marks); n_z = len(self.erase_regions)
-        self.lbl_counts.setText(f"{n_p} util · {n_l} lead · {n_t} txt · {n_z} zona")
+        _bind(self.lbl_counts, "setText", "{p} util · {l} lead · {t} txt · {z} zona",
+              fmt={"p": n_p, "l": n_l, "t": n_t, "z": n_z})
         # marca de "sin guardar"
         if hasattr(self, "lbl_dirty"):
             if self._dirty:
@@ -3329,23 +3414,25 @@ class Main(QtWidgets.QMainWindow):
         desc = None
         if ti == TAB_PIPE and 0 <= self.sel_pipe < len(self.pipes):
             p = self.pipes[self.sel_pipe]
-            desc = f"Utilidad #{self.sel_pipe+1} ({p['layer']}, {len(p.get('pts',[]))} vértices)"
+            desc = _tr("Utilidad #{n} ({capa}, {v} vértices)").format(
+                n=self.sel_pipe + 1, capa=self._etq(p), v=len(p.get("pts", [])))
         elif ti == TAB_LEADER and 0 <= self.sel_leader < len(self.leaders):
-            desc = f"Leader #{self.sel_leader+1}"
+            desc = _tr("Leader #{n}").format(n=self.sel_leader + 1)
         elif ti == TAB_TEXT and 0 <= self.sel_text < len(self.text_marks):
             txt = self.text_marks[self.sel_text].get("text", "")[:30]
-            desc = f"Texto #{self.sel_text+1} «{txt}»"
+            desc = _tr("Texto #{n} «{txt}»").format(n=self.sel_text + 1, txt=txt)
         elif ti == TAB_REGION and 0 <= self.sel_region < len(self.erase_regions):
-            desc = f"Zona de borrado #{self.sel_region+1}"
+            desc = _tr("Zona de borrado #{n}").format(n=self.sel_region + 1)
         elif ti == TAB_CL and 0 <= self.sel_cl < len(self.ref_centerlines):
-            desc = f"Centerline #{self.sel_cl+1}"
+            desc = _tr("Centerline #{n}").format(n=self.sel_cl + 1)
         elif ti == TAB_DB and 0 <= self.sel_db < len(getattr(self, "duct_banks", [])):
             db = self.duct_banks[self.sel_db]
-            desc = f"Bancoducto «{db.name or 'sin nombre'}» ({len(db.conduits)} conducto(s))"
+            desc = _tr("Bancoducto «{nombre}» ({n} conducto(s))").format(
+                nombre=db.name or _tr("sin nombre"), n=len(db.conduits))
         if desc is None:
             return
         r = QtWidgets.QMessageBox.question(
-            self, "Confirmar eliminación", f"¿Eliminar {desc}?",
+            self, _tr("Confirmar eliminación"), _tr("¿Eliminar {que}?").format(que=desc),
             QtWidgets.QMessageBox.Yes | QtWidgets.QMessageBox.No)
         if r != QtWidgets.QMessageBox.Yes:
             return
@@ -3365,7 +3452,7 @@ class Main(QtWidgets.QMainWindow):
         elif ti == TAB_DB:
             self._push(); self.duct_banks.pop(self.sel_db); self.sel_db = -1
             if hasattr(self, "lbl_ductbank_count"):
-                self.lbl_ductbank_count.setText(f"Duct banks guardados: {len(self.duct_banks)}")
+                _bind(self.lbl_ductbank_count, "setText", "Duct banks guardados: {n}", fmt={"n": len(self.duct_banks)})
             self._dirty = True
         self._refresh_lists(); self._redraw()
 
@@ -3400,15 +3487,18 @@ class Main(QtWidgets.QMainWindow):
             tag = " (AB)" if p.get("ab") else ""
             nm = f" · {p['name']}" if p.get("name") else ""
             n = len(p.get("pts") or [])
-            info = f"red:{p.get('net', '')}" if p.get("world") else str(n)
-            it = QtWidgets.QListWidgetItem(swatch_icon(layer_qcolor(p["layer"])), f"{i}. {p['layer']}{tag}{nm} ({info})")
+            info = (_tr("red: {red}").format(red=p.get("net", "")) if p.get("world")
+                    else _tr("{n} vért.").format(n=n))
+            it = QtWidgets.QListWidgetItem(swatch_icon(layer_qcolor(p["layer"])),
+                                           f"{i}. {self._tipo(p['layer'])}{tag}{nm} ({info})")
             self.pipe_list.addItem(it)
         self.pipe_list.blockSignals(False)
         self.sleader_list.blockSignals(True); self.sleader_list.clear()
         ns = 0
         for i, ld in enumerate(self.leaders):
-            ns += 1; o = {"h": "horizontal", "v": "vertical", "d": "diagonal"}.get(ld.get("orient", "d"), "")
-            it = QtWidgets.QListWidgetItem(f"{ns}. Leader {o}".rstrip())
+            ns += 1
+            o = next((_tr(lbl) for oid, lbl in LEADER_ORIENT if oid == ld.get("orient", "d")), "")
+            it = QtWidgets.QListWidgetItem(_tr("{n}. Leader {orientacion}").format(n=ns, orientacion=o.lower()).rstrip())
             it.setData(QtCore.Qt.UserRole, i); self.sleader_list.addItem(it)
         self.sleader_list.blockSignals(False)
         self.txt_marks_list.blockSignals(True); self.txt_marks_list.clear()
@@ -3416,7 +3506,7 @@ class Main(QtWidgets.QMainWindow):
         self.txt_marks_list.blockSignals(False)
         self.region_list.blockSignals(True); self.region_list.clear()
         for i, rg in enumerate(self.erase_regions, 1):
-            it = QtWidgets.QListWidgetItem(f"Zona {i} ({len(rg['pts'])} vértices)")
+            it = QtWidgets.QListWidgetItem(_tr("Zona {i} ({n} vértices)").format(i=i, n=len(rg['pts'])))
             it.setFlags(it.flags() | QtCore.Qt.ItemIsUserCheckable)
             it.setCheckState(QtCore.Qt.Checked if rg.get("enabled", True) else QtCore.Qt.Unchecked)
             self.region_list.addItem(it)
@@ -3431,11 +3521,11 @@ class Main(QtWidgets.QMainWindow):
             is_curve = bool(s.get("curve"))
             if is_curve:
                 p = self._pipe_at_vertex(s.get("x"), s.get("y")) if s.get("x") is not None else None
-                fam = (p.get("pipe_family") if p else "") or "(sin familia)"
+                fam = (p.get("pipe_family") if p else "") or _tr("(sin familia)")
                 sz = f"  {p['pipe_size']}" if p and p.get("pipe_size") else ""
                 item_icon = _icon("mdi:vector-curve", color="#a855f7")   # curva = violeta
             else:
-                fam = s.get("part") or "(sin familia)"
+                fam = s.get("part") or _tr("(sin familia)")
                 sz = f"  {s['part_size']}" if s.get("part_size") else ""
                 if s.get("hidden"):
                     item_icon = _icon("mdi:eye-off-outline", color=_theme.tokens().text_muted)
@@ -3446,7 +3536,7 @@ class Main(QtWidgets.QMainWindow):
             it = QtWidgets.QListWidgetItem(item_icon, f"{s.get('cod', '?')}  ·  {fam}{sz}")
             if not is_curve and s.get("hidden"):
                 it.setForeground(QtGui.QColor(_theme.tokens().text_muted))
-                it.setToolTip("Oculto — no se dibuja ni se crea en Civil3D como buzón real.")
+                it.setToolTip(_tr("Oculto — no se dibuja ni se crea en Civil3D como buzón real."))
             if is_curve: self.curve_list.addItem(it); self._curve_rows.append(i)
             else: self.bz_list.addItem(it); self._bz_rows.append(i)
         self.bz_list.blockSignals(False); self.curve_list.blockSignals(False)
@@ -3455,7 +3545,7 @@ class Main(QtWidgets.QMainWindow):
         for c in self.ref_centerlines:
             _it_cl = QtWidgets.QListWidgetItem(
                 _icon("mdi:vector-line", color="#22c55e"),
-                f"{c.get('cod', '?')}  ·  {len(c.get('pts') or [])} vértices")
+                _tr("{cod}  ·  {n} vértices").format(cod=c.get('cod', '?'), n=len(c.get('pts') or [])))
             self.cl_list.addItem(_it_cl)
         self.cl_list.blockSignals(False)
         self._sync_cl_panel()
@@ -3759,21 +3849,42 @@ class Main(QtWidgets.QMainWindow):
         p = self.pipes[pipe_idx]
         pts = p.get("pts") or []
         if seg_idx < 0 or seg_idx >= len(pts) - 1: return None
+        n = len(pts)
         zs = p.get("inv_start"); ze = p.get("inv_end")
         # None → 0.0 (coincide con el valor por defecto que ve el usuario).
         if zs is None: zs = 0.0 if ze is None else ze
         if ze is None: ze = zs
-        ov = p.get("vertex_inv") or {}
-        # Normaliza claves a int (json las guarda como str).
-        ov = {int(k): float(v) for k, v in ov.items()}
-        z_verts = model_ops.interp_vertex_z(pts, float(zs), float(ze), ov)
+        zs = float(zs); ze = float(ze)
+        # Cotas por tramo: el modelo usa DOS diccionarios independientes
+        # —vertex_inv_out (cota de SALIDA de cada vértice = "Inicio" del tramo
+        # que sale) y vertex_inv_in (cota de ENTRADA = "Fin" del tramo que
+        # llega)—. Antes esto leía el `vertex_inv` viejo (un solo dict), que
+        # `migrate_vertex_inv` YA elimina con pop → quedaba siempre {} y la
+        # detección de conflictos ignoraba las ediciones de la tabla "Cotas por
+        # tramo" (solo reaccionaba a inv_start/inv_end). Ahora se replica EXACTO
+        # el criterio de _rebuild_seg_inv_table para que el cruce se reclasifique
+        # igual que lo muestra la tabla.
+        def _norm(d): return {int(k): float(v) for k, v in (d or {}).items()}
+        ov_out = _norm(p.get("vertex_inv_out"))
+        ov_in  = _norm(p.get("vertex_inv_in"))
+        if not ov_out and not ov_in:
+            # Pipe aún sin migrar (no pasó por la tabla): usa el dict viejo.
+            viejo = _norm(p.get("vertex_inv"))
+            ov_out = dict(viejo); ov_in = dict(viejo)
+        auto_out = model_ops.interp_vertex_z(pts, zs, ze, ov_out)
+        auto_in  = model_ops.interp_vertex_z(pts, zs, ze, ov_in)
+        v0, v1 = seg_idx, seg_idx + 1
+        # z al INICIO del segmento = cota de salida del vértice v0.
+        z0 = zs if v0 == 0 else ov_out.get(v0, auto_out[v0])
+        # z al FIN del segmento = cota de entrada del vértice v1.
+        z1 = ze if v1 == n - 1 else ov_in.get(v1, auto_in[v1])
         # Interpolación lineal a lo largo del segmento.
         a = pts[seg_idx]; b = pts[seg_idx + 1]
         dx, dy = b[0] - a[0], b[1] - a[1]
         seg_len2 = dx * dx + dy * dy
-        if seg_len2 < 1e-9: return z_verts[seg_idx]
+        if seg_len2 < 1e-9: return z0
         t = max(0.0, min(1.0, ((x - a[0]) * dx + (y - a[1]) * dy) / seg_len2))
-        return z_verts[seg_idx] + (z_verts[seg_idx + 1] - z_verts[seg_idx]) * t
+        return z0 + (z1 - z0) * t
 
     def _on_toggle_show_conflicts(self, on):
         """Toggle del checkbox de la barra inferior 'Mostrar cruces/conflictos':
@@ -3810,6 +3921,11 @@ class Main(QtWidgets.QMainWindow):
         # los cross_connections aprobados se conservan (afectan el DXF).
         if hasattr(self, "chk_show_conflicts") and not self.chk_show_conflicts.isChecked():
             self._conflict_hits = []
+            self._exceso_hits = []
+            self._escalon_hits = []
+            self._codos_hits = []
+            self._inclinada_hits = []
+            self._redes_hits = []
             if hasattr(self, "lbl_info"):
                 # Deja el texto de info normal (sin el contador de cruces)
                 pass
@@ -3850,6 +3966,28 @@ class Main(QtWidgets.QMainWindow):
         greenbr   = QtGui.QBrush(QtGui.QColor(180, 240, 200))
         ign = QtWidgets.QGraphicsItem.ItemIgnoresTransformations
         n_conf = n_sug = n_ap = 0
+
+        # Puntos donde se juntan más tramos de los que el plugin une con un
+        # accesorio (5+): ahí Civil 3D no dibujará ninguna pieza. Se marcan con
+        # un triángulo rojo propio y se omiten los círculos de cruce de ese
+        # punto, que solo se apilaban sin decir lo importante.
+        tol_junta = 0.5 / self.scale * self.zoom if self.scale else 3.0   # 0.5 ft, como el plugin
+        self._exceso_hits = model_ops.junturas_excedidas(self.pipes, self._pipe_z_at, tol_junta)
+        tol_omitir2 = (tol_junta * 2.0) ** 2
+
+        def _en_exceso(x, y):
+            return any((e["x"] - x) ** 2 + (e["y"] - y) ** 2 <= tol_omitir2 for e in self._exceso_hits)
+
+        # Redes distintas que chocan (misma cota): el plugin nunca las une, así
+        # que en vez del círculo de conflicto van con la alerta roja. Un mismo
+        # punto puede salir de varios pares de tramos: se reporta una sola vez.
+        self._redes_hits = []
+
+        def _registrar_redes(x, y, red_a, red_b):
+            if any((e["x"] - x) ** 2 + (e["y"] - y) ** 2 <= tol_omitir2 for e in self._redes_hits):
+                return
+            self._redes_hits.append({"x": x, "y": y, "a": red_a, "b": red_b})
+
         for a in range(len(segs)):
             ia, ka, a1, a2, la = segs[a]
             for b in range(a + 1, len(segs)):
@@ -3858,16 +3996,30 @@ class Main(QtWidgets.QMainWindow):
                 cp = _seg_inter(a1, a2, b1, b2)
                 if cp is None: continue
                 cx, cy = cp
+                if _en_exceso(cx, cy): continue
                 za = self._pipe_z_at(ia, ka, cx, cy)
                 zb = self._pipe_z_at(ib, kb, cx, cy)
                 aprobado = ((min(ia, ib), max(ia, ib), round(cx, 3), round(cy, 3)) in approvals)
                 # Clasificación del cruce.
+                same_layer = (la == lb)
                 if za is None or zb is None:
                     estado = "conflicto"       # sin cotas → tratar como conflicto
                 elif abs(za - zb) <= Z_TOL:
                     estado = "conflicto"       # misma cota → chocan
+                elif not same_layer:
+                    continue                   # distinta utilidad + distinta cota → normal, no marcar
                 else:
+                    from model import network_kind as _nk
+                    if _nk(la) == "conduit":
+                        continue               # eléctrico/telecom no se une con vertical
                     estado = "aprobado" if aprobado else "sugerencia"
+                if estado == "conflicto" and za is not None and zb is not None and not same_layer:
+                    # Utilidades distintas (agua × drenaje…) nunca se unen. La MISMA
+                    # utilidad con nombres de red distintos sí: el plugin las junta
+                    # en una sola red (ver model_ops.red_civil_de_union).
+                    red_a, red_b = model_ops.red_de(self.pipes[ia]), model_ops.red_de(self.pipes[ib])
+                    _registrar_redes(cx, cy, self._etq(self.pipes[ia]), self._etq(self.pipes[ib]))
+                    continue
                 self._conflict_hits.append((cx, cy, ia, ib, ka, kb, za, zb, estado))
                 if estado == "conflicto":  n_conf += 1
                 elif estado == "aprobado": n_ap += 1
@@ -3895,35 +4047,209 @@ class Main(QtWidgets.QMainWindow):
                 # Tooltip por estado.
                 z_desc = ""
                 if za is not None and zb is not None:
-                    z_desc = f"\nZ «{la}» = {za:.2f} ft   |   Z «{lb}» = {zb:.2f} ft (Δ = {abs(za - zb):.2f} ft)"
+                    z_desc = (f"\nZ «{self._etq(self.pipes[ia])}» = {za:.2f} ft   |   "
+                              f"Z «{self._etq(self.pipes[ib])}» = {zb:.2f} ft (Δ = {abs(za - zb):.2f} ft)")
                 elif za is not None or zb is not None:
-                    z_desc = "\n(a una de las dos le falta la cota — no se puede confirmar Δ)"
+                    z_desc = "\n" + _tr("(a una de las dos le falta la cota — no se puede confirmar Δ)")
                 else:
-                    z_desc = "\n(sin cotas en ninguna — no se puede confirmar Δ)"
+                    z_desc = "\n" + _tr("(sin cotas en ninguna — no se puede confirmar Δ)")
+                union = self._union_civil(ia, ib, cx, cy, za, zb)
+                if union:
+                    circ.setToolTip(union)
+                    continue
                 if estado == "conflicto":
-                    tip = "⚠ CONFLICTO — cruce con la misma cota (las tuberías chocan). Revisa la geometría o las cotas."
+                    tip = "⚠ " + _tr("CONFLICTO — cruce con la misma cota (las tuberías chocan). "
+                                     "Revisa la geometría o las cotas.")
                 elif estado == "aprobado":
-                    tip = "✓ Conexión vertical aprobada — al importar se dibuja una tubería vertical uniendo las dos cotas."
+                    tip = "✓ " + _tr("Conexión vertical aprobada — al importar se dibuja una tubería "
+                                     "vertical uniendo las dos cotas.")
                 else:
-                    tip = "↕ Sugerencia — cotas distintas, pasan una por encima de la otra. Click para conectarlas con una tubería vertical."
-                pair = f"Dos tramos de «{la}»" if la == lb else f"«{la}» × «{lb}»"
+                    tip = "↕ " + _tr("Sugerencia — cotas distintas, pasan una por encima de la otra. "
+                                     "Click para conectarlas con una tubería vertical.")
+                ea, eb = self._etq(self.pipes[ia]), self._etq(self.pipes[ib])
+                pair = (_tr("Dos tramos de «{capa}»").format(capa=ea) if ea == eb
+                        else f"«{ea}» × «{eb}»")
                 circ.setToolTip(f"{tip}\n{pair}{z_desc}")
+
+        # Triángulo rojo con «!» blanco: algo que Civil 3D NO dibujará como está
+        # en la app. El mensaje (tooltip y clic) dice qué pasa y cómo quedará.
+        R_TRI = 10.0
+        tri = QtGui.QPolygonF([QtCore.QPointF(0, -R_TRI),
+                               QtCore.QPointF(R_TRI * 0.95, R_TRI * 0.75),
+                               QtCore.QPointF(-R_TRI * 0.95, R_TRI * 0.75)])
+
+        def _alerta_roja(x, y, mensaje):
+            pen = QtGui.QPen(QtGui.QColor(120, 0, 0), 1.5); pen.setCosmetic(True)
+            it = sc.addPolygon(tri, pen, QtGui.QBrush(QtGui.QColor(215, 25, 25)))
+            it.setPos(x, y); it.setFlag(ign)
+            it.setZValue(Z_HANDLE + 7); self._overlay.append(it)
+            t = sc.addText("!"); t.setDefaultTextColor(QtGui.QColor(255, 255, 255))
+            f = t.font(); f.setPixelSize(12); f.setBold(True); t.setFont(f)
+            t.document().setDocumentMargin(0)
+            br = t.boundingRect()
+            t.setPos(x, y); t.setFlag(ign)
+            t.setTransform(QtGui.QTransform().translate(-br.width() / 2, -br.height() / 2 + 2))
+            t.setZValue(Z_HANDLE + 8); self._overlay.append(t)
+            it.setToolTip(mensaje)
+
+        for e in self._exceso_hits:
+            _alerta_roja(e["x"], e["y"], self._msg_exceso(e))
+        self._escalon_hits = model_ops.escalones_en_vertices(self.pipes, self._pipe_z_at)
+        for e in self._escalon_hits:
+            _alerta_roja(e["x"], e["y"], self._msg_escalon(e))
+        ft_px = self.scale / self.zoom if self.scale and self.zoom else 0.0
+        self._codos_hits = model_ops.tramos_cortos_entre_codos(self.pipes, ft_px) if ft_px else []
+        for e in self._codos_hits:
+            _alerta_roja(e["x"], e["y"], self._msg_codos(e))
+        # Conexión vertical aprobada en un quiebre sin desnivel para dos codos:
+        # el plugin la resuelve con Wye inclinada + pendiente en la tubería.
+        self._inclinada_hits = []
+        tol_v = 0.5 / self.scale * self.zoom if self.scale else 3.0
+        for (hx, hy, ia, ib, _ka, _kb, za, zb, est) in self._conflict_hits:
+            if est != "aprobado" or any((e["x"] - hx) ** 2 + (e["y"] - hy) ** 2 <= tol_v * tol_v
+                                        for e in self._inclinada_hits):
+                continue
+            r = model_ops.conexion_vertical_inclinada(self.pipes[ia], self.pipes[ib], (hx, hy), za, zb, tol_v)
+            if r:
+                e = {"x": hx, "y": hy, "dz": r["dz"], "min": r["min"],
+                     "capa": self._etq(r["termina"])}
+                self._inclinada_hits.append(e)
+                _alerta_roja(hx, hy, self._msg_inclinada(e))
+        for e in self._redes_hits:
+            _alerta_roja(e["x"], e["y"], self._msg_redes(e))
 
         if hasattr(self, "lbl_info"):
             partes = []
-            if n_conf > 0: partes.append(f"⚠ {n_conf} conflicto(s)")
-            if n_sug > 0:  partes.append(f"↕ {n_sug} sugerencia(s)")
-            if n_ap > 0:   partes.append(f"✓ {n_ap} aprobada(s)")
+            if self._exceso_hits:
+                partes.append("▲ " + _tr("{n} punto(s) con 5+ tuberías").format(n=len(self._exceso_hits)))
+            if self._escalon_hits:
+                partes.append("▲ " + _tr("{n} escalón(es) de cota").format(n=len(self._escalon_hits)))
+            if self._inclinada_hits:
+                partes.append("▲ " + _tr("{n} conexión(es) vertical(es) con pendiente").format(
+                    n=len(self._inclinada_hits)))
+            if self._codos_hits:
+                partes.append("▲ " + _tr("{n} tramo(s) muy corto(s) entre codos").format(n=len(self._codos_hits)))
+            if self._redes_hits:
+                partes.append("▲ " + _tr("{n} choque(s) entre redes distintas").format(n=len(self._redes_hits)))
+            if n_conf > 0: partes.append("⚠ " + _tr("{n} conflicto(s)").format(n=n_conf))
+            if n_sug > 0:  partes.append("↕ " + _tr("{n} sugerencia(s)").format(n=n_sug))
+            if n_ap > 0:   partes.append("✓ " + _tr("{n} aprobada(s)").format(n=n_ap))
             if partes: self.lbl_info.setText(" · ".join(partes))
+
+    @staticmethod
+    def _msg_exceso(e):
+        return _tr("Hay {n} tuberías en el mismo punto, no se dibujará ningún accesorio "
+                   "en Civil 3D, por favor corrija el dibujo.").format(n=e["n"])
+
+    @staticmethod
+    def _msg_redes(e):
+        return _tr("«{a}» y «{b}» se cruzan a la misma cota, pero son redes distintas.\n\n"
+                   "En Civil 3D no se conectarán: las tuberías quedarán chocando.").format(
+            a=e["a"], b=e["b"])
+
+    def _union_civil(self, ia, ib, cx, cy, za, zb):
+        """Mensaje corto de lo que hará Civil 3D cuando dos tuberías de la MISMA
+        utilidad a presión se tocan a la misma cota: no es un choque, el plugin
+        las une con un accesorio sólido. None si no es ese caso."""
+        from model import network_kind
+        pa, pb = self.pipes[ia], self.pipes[ib]
+        la = pa.get("layer", "")
+        if (za is None or zb is None or abs(za - zb) > 0.01 or la != pb.get("layer", "")
+                or network_kind(la) != "pressure"):
+            return None
+        tol = 0.5 / self.scale * self.zoom if self.scale else 3.0      # 0.5 ft, como el plugin
+        # El plugin une donde una tubería TERMINA sobre la otra o donde las dos
+        # comparten un vértice. Un cruce en X a mitad de tramo no se une: choca.
+        def _cerca(q):
+            return (q[0] - cx) ** 2 + (q[1] - cy) ** 2 <= tol * tol
+        pts_a, pts_b = pa.get("pts") or [], pb.get("pts") or []
+        termina = any(_cerca(q) for q in (pts_a[:1] + pts_a[-1:] + pts_b[:1] + pts_b[-1:]))
+        vertice_comun = any(map(_cerca, pts_a)) and any(map(_cerca, pts_b))
+        if not (termina or vertice_comun):
+            return None
+        polis = [p.get("pts") or [] for p in self.pipes if p.get("layer", "") == la]
+        tipo = model_ops.accesorio_en_punto(polis, (cx, cy), tol)
+        nombres = {"codo": N_("un codo sólido"), "tee": N_("una Tee sólida"), "wye": N_("una Wye sólida"),
+                   "cruz": N_("una cruz sólida")}
+        if tipo not in nombres:
+            return None
+        red = model_ops.red_civil_de_union(self.pipes, ia, ib)
+        msg = _tr("Se unen aquí a {z:.2f} ft.\n\nEn Civil 3D: {accesorio} en la red «{red}».").format(
+            z=za, accesorio=_tr(nombres[tipo]), red=red)
+        na, nb = model_ops.red_de(pa), model_ops.red_de(pb)
+        if na != nb:
+            msg += "\n" + _tr("Tienen nombres de red distintos («{a}» / «{b}»): las dos quedan en «{red}».").format(
+                a=na, b=nb, red=red)
+        return msg
+
+    @staticmethod
+    def _tipo(capa):
+        """Nombre visible (traducido) del tipo de utilidad de una capa interna:
+        «AGUA» → «Agua» / «Water». La capa es un código interno: nunca se muestra."""
+        tipo = next((_tr(lbl) for lbl, lay in TIPOS if lay == capa), capa or "?")
+        return tipo.split(" (")[0]
+
+    @staticmethod
+    def _etq(p):
+        """Cómo se nombra una utilidad en los mensajes: «Agua - Linea Norte»
+        (tipo traducido + nombre de red si lo tiene), o solo «Agua»."""
+        tipo = Main._tipo(p.get("layer", "?"))
+        nombre = (p.get("name") or "").strip()
+        return f"{tipo} - {nombre}" if nombre else tipo
+
+    @staticmethod
+    def _msg_inclinada(e):
+        return _tr("Desnivel de {dz:.2f} ft: es muy poco para bajar con dos codos "
+                   "(mínimo {minimo:.2f} ft).\n\n"
+                   "En Civil 3D se pondrá una Wye con el ramal inclinado y la tubería "
+                   "«{capa}» se modificará para que llegue con pendiente.").format(
+            dz=e["dz"], minimo=e["min"], capa=e["capa"])
+
+    @staticmethod
+    def _msg_codos(e):
+        return _tr("El tramo T{t} mide {largo:.2f} ft: es muy corto para dos codos "
+                   "(mínimo {minimo:.2f} ft).\n\n"
+                   "En Civil 3D se reemplazará por un solo codo.").format(
+            t=e["tramo"], largo=e["largo_ft"], minimo=e["min_ft"])
+
+    @staticmethod
+    def _msg_escalon(e):
+        return _tr("En este vértice hay un escalón: el tramo T{a} llega a {za:.2f} ft "
+                   "y el T{b} sale a {zb:.2f} ft.\n\n"
+                   "En Civil 3D los dos se unirán a {zc:.2f} ft (el promedio).").format(
+            a=e["llega"], b=e["sale"], za=e["z_llega"], zb=e["z_sale"], zc=e["z_civil"])
 
     def _try_click_conflict(self, x, y):
         """Si el click está sobre una marca de cruce, abre el diálogo
         correspondiente. Devuelve True si consumió el click."""
-        hits = getattr(self, "_conflict_hits", None) or []
-        if not hits: return False
         m11 = max(1e-6, self.canvas.transform().m11())
         tol = 10.0 / m11
         tol2 = tol * tol
+        for e in getattr(self, "_exceso_hits", None) or []:
+            if (e["x"] - x) ** 2 + (e["y"] - y) ** 2 <= tol2:
+                QtWidgets.QMessageBox.warning(self, _tr("Demasiadas tuberías en un punto"),
+                                              self._msg_exceso(e))
+                return True
+        for e in getattr(self, "_inclinada_hits", None) or []:
+            if (e["x"] - x) ** 2 + (e["y"] - y) ** 2 <= tol2:
+                QtWidgets.QMessageBox.warning(self, _tr("Conexión vertical con pendiente"),
+                                              self._msg_inclinada(e))
+                return True
+        for e in getattr(self, "_codos_hits", None) or []:
+            if (e["x"] - x) ** 2 + (e["y"] - y) ** 2 <= tol2:
+                QtWidgets.QMessageBox.warning(self, _tr("Tramo muy corto entre codos"), self._msg_codos(e))
+                return True
+        for e in getattr(self, "_escalon_hits", None) or []:
+            if (e["x"] - x) ** 2 + (e["y"] - y) ** 2 <= tol2:
+                QtWidgets.QMessageBox.warning(self, _tr("Escalón de cota"), self._msg_escalon(e))
+                return True
+        for e in getattr(self, "_redes_hits", None) or []:
+            if (e["x"] - x) ** 2 + (e["y"] - y) ** 2 <= tol2:
+                QtWidgets.QMessageBox.warning(self, _tr("Redes distintas a la misma cota"),
+                                              self._msg_redes(e))
+                return True
+        hits = getattr(self, "_conflict_hits", None) or []
+        if not hits: return False
         for h in hits:
             cx, cy = h[0], h[1]
             if (cx - x) ** 2 + (cy - y) ** 2 <= tol2:
@@ -3937,21 +4263,30 @@ class Main(QtWidgets.QMainWindow):
           - "sugerencia" → pregunta si aprobar conexión vertical + válvula.
           - "aprobado"   → pregunta si retirar la aprobación."""
         cx, cy, ia, ib, ka, kb, za, zb, estado = hit
-        la = self.pipes[ia].get("layer", "?")
-        lb = self.pipes[ib].get("layer", "?")
+        la = self._etq(self.pipes[ia])
+        lb = self._etq(self.pipes[ib])
         if not hasattr(self, "cross_connections") or self.cross_connections is None:
             self.cross_connections = []
         z_info = ""
         if za is not None and zb is not None:
-            z_info = f"\n\nCotas en el punto de cruce:\n  • «{la}»: {za:.2f} ft\n  • «{lb}»: {zb:.2f} ft\n  • Diferencia: {abs(za - zb):.2f} ft"
+            z_info = "\n\n" + _tr("Cotas en el punto de cruce:\n  • «{la}»: {za} ft\n  • «{lb}»: {zb} ft"
+                         "\n  • Diferencia: {dz} ft").format(
+                la=la, lb=lb, za=f"{za:.2f}", zb=f"{zb:.2f}", dz=f"{abs(za - zb):.2f}")
         else:
-            z_info = "\n\n(⚠ falta cota en al menos una de las dos utilidades — pon cotas para poder decidir si es conflicto o sugerencia de unión)"
+            z_info = "\n\n" + _tr("(⚠ falta cota en al menos una de las dos utilidades — pon cotas para "
+                         "poder decidir si es conflicto o sugerencia de unión)")
 
+        union = self._union_civil(ia, ib, cx, cy, za, zb) if estado == "conflicto" else None
+        if union:
+            QtWidgets.QMessageBox.information(self, _tr("Unión en Civil 3D"), union)
+            return
         if estado == "conflicto":
             QtWidgets.QMessageBox.warning(
                 self, _tr("Conflicto físico"),
-                _tr(f"⚠ CONFLICTO entre «{la}» y «{lb}» — están a la MISMA cota en el cruce y chocan geométricamente.{z_info}\n\n"
-                    "No se ofrece conexión automática aquí: hay que corregir la geometría del plano o ajustar la cota de alguna de las dos tuberías."))
+                _tr("⚠ CONFLICTO entre «{la}» y «{lb}» — están a la MISMA cota en el cruce y chocan "
+                    "geométricamente.{cotas}\n\nNo se ofrece conexión automática aquí: hay que corregir "
+                    "la geometría del plano o ajustar la cota de alguna de las dos tuberías.").format(
+                    la=la, lb=lb, cotas=z_info))
             return
 
         if estado == "aprobado":
@@ -3963,8 +4298,9 @@ class Main(QtWidgets.QMainWindow):
                         and round(float(c["y"]), 3) == round(cy, 3)), None)
             resp = QtWidgets.QMessageBox.question(
                 self, _tr("Conexión vertical ya aprobada"),
-                _tr(f"Este cruce entre «{la}» y «{lb}» ya está marcado para conectarse con una tubería vertical al importar.{z_info}\n\n"
-                    "¿Deseas RETIRAR la aprobación?"),
+                _tr("Este cruce entre «{la}» y «{lb}» ya está marcado para conectarse con una tubería "
+                    "vertical al importar.{cotas}\n\n¿Deseas RETIRAR la aprobación?").format(
+                    la=la, lb=lb, cotas=z_info),
                 QtWidgets.QMessageBox.Yes | QtWidgets.QMessageBox.No, QtWidgets.QMessageBox.No)
             if resp == QtWidgets.QMessageBox.Yes and idx is not None:
                 self.cross_connections.pop(idx)
@@ -3974,10 +4310,11 @@ class Main(QtWidgets.QMainWindow):
         # sugerencia → ofrecer conectar.
         resp = QtWidgets.QMessageBox.question(
             self, _tr("Sugerencia de conexión vertical"),
-            _tr(f"Las utilidades «{la}» y «{lb}» se cruzan pero están a cotas distintas — no chocan, una pasa por encima de la otra.{z_info}\n\n"
-                "¿Quieres conectarlas con una tubería vertical al importar en Civil 3D?\n\n"
-                "Sí = se dibuja un tramo vertical uniendo ambas cotas.\n"
-                "No = se dejan como están (no se conectan)."),
+            _tr("Las utilidades «{la}» y «{lb}» se cruzan pero están a cotas distintas — no chocan, "
+                "una pasa por encima de la otra.{cotas}\n\n¿Quieres conectarlas con una tubería "
+                "vertical al importar en Civil 3D?\n\nSí = se dibuja un tramo vertical uniendo "
+                "ambas cotas.\nNo = se dejan como están (no se conectan).").format(
+                la=la, lb=lb, cotas=z_info),
             QtWidgets.QMessageBox.Yes | QtWidgets.QMessageBox.No, QtWidgets.QMessageBox.No)
         if resp == QtWidgets.QMessageBox.Yes:
             self.cross_connections.append({
@@ -4212,13 +4549,13 @@ class Main(QtWidgets.QMainWindow):
             from ezdxf.addons import odafc
             if not odafc.is_installed():
                 QtWidgets.QMessageBox.information(self, "DWG",
-                    "Para generar DWG necesitas instalar el ODA File Converter (gratuito).\n"
-                    "Se guardó solo el DXF; ábrelo en tu CAD y «Guardar como DWG» si lo necesitas ahora.")
+                    _tr("Para generar DWG necesitas instalar el ODA File Converter (gratuito).\n"
+                    "Se guardó solo el DXF; ábrelo en tu CAD y «Guardar como DWG» si lo necesitas ahora."))
                 return
             odafc.export_dwg(doc, dwg, replace=True)
-            self._info(f"DWG generado: {os.path.basename(dwg)}")
+            self._info(_tr("DWG generado: {archivo}").format(archivo=os.path.basename(dwg)))
         except Exception as e:
-            QtWidgets.QMessageBox.warning(self, "DWG", f"No se pudo generar el DWG (se conserva el DXF).\n\n{e}")
+            QtWidgets.QMessageBox.warning(self, "DWG", _tr("No se pudo generar el DWG (se conserva el DXF).\n\n{e}").format(e=e))
 
     def _plan_bbox_real(self):
         """Recuadro del plano en coordenadas reales (del georef), desde las esquinas
@@ -4238,17 +4575,17 @@ class Main(QtWidgets.QMainWindow):
         if not (want_streets or want_parcels):
             return
         if not self.georef.active() or int(self.georef.epsg) != 2229:
-            QtWidgets.QMessageBox.information(self, "Capas de LA",
-                "Las capas reales de LA solo se pueden agregar si el plano está "
-                "georreferenciado a EPSG:2229 (State Plane de LA)."); return
+            QtWidgets.QMessageBox.information(self, _tr("Capas de LA"),
+                _tr("Las capas reales de LA solo se pueden agregar si el plano está "
+                "georreferenciado a EPSG:2229 (State Plane de LA).")); return
         try:
             from geo.la_reference import add_reference_layers
             nc, npa = add_reference_layers(doc, self._plan_bbox_real(),
                                            streets=bool(want_streets), parcels=bool(want_parcels))
-            self._info(f"Capas de LA agregadas: {nc} tramos de calle, {npa} parcelas.")
+            self._info(_tr("Capas de LA agregadas: {calles} tramos de calle, {parcelas} parcelas.").format(calles=nc, parcelas=npa))
         except Exception as e:
-            QtWidgets.QMessageBox.warning(self, "Capas de LA",
-                f"No se pudieron descargar las capas de LA (¿internet?).\n\n{e}")
+            QtWidgets.QMessageBox.warning(self, _tr("Capas de LA"),
+                _tr("No se pudieron descargar las capas de LA (¿internet?).\n\n{e}").format(e=e))
 
     # ─────────────────────────── exportar ───────────────────────────
     def run_pipeline(self, mode="todo"):
@@ -4257,12 +4594,17 @@ class Main(QtWidgets.QMainWindow):
         if self.canvas.pixmap_item is None:
             QtWidgets.QMessageBox.information(self, _tr("Nada"), _tr("Abre un PDF o proyecto.")); return
         need_pdf = mode in ("todo", "pdf")
-        if need_pdf and (not self.pdf_path or not os.path.isfile(self.pdf_path)):
+        if need_pdf and getattr(self, "blank_canvas", False):
+            # Lienzo en blanco: no hay PDF que fusionar y nunca lo hubo, así
+            # que se exportan las anotaciones sin avisar de nada (el aviso de
+            # abajo daría a entender que se perdió un PDF que sí existía).
+            mode = "anot"; need_pdf = False
+        elif need_pdf and (not self.pdf_path or not os.path.isfile(self.pdf_path)):
             QtWidgets.QMessageBox.information(self, _tr("Sin PDF"), _tr("No se encontró el PDF original. Se exportarán solo las anotaciones (utilidades, leaders, textos)."))
             mode = "anot"; need_pdf = False
         base = os.path.splitext(os.path.basename(self.pdf_path))[0] if self.pdf_path else "proyecto"
         suffix = {"todo": "_completo", "pdf": "_plano", "anot": "_anotaciones"}[mode]
-        out, _ = QtWidgets.QFileDialog.getSaveFileName(self, "Guardar DXF", os.path.join(DOWNLOADS, base + suffix + ".dxf"), "DXF (*.dxf)")
+        out, _ = QtWidgets.QFileDialog.getSaveFileName(self, _tr("Guardar DXF"), os.path.join(DOWNLOADS, base + suffix + ".dxf"), "DXF (*.dxf)")
         if not out: return
         self._out = out; self._mode = mode
         if not need_pdf:                                   # solo anotaciones: sin pipeline
@@ -4279,26 +4621,28 @@ class Main(QtWidgets.QMainWindow):
                 if self.georef.matrix and not geo_active:
                     m = self.georef.matrix
                     det = m[0][0] * m[1][1] - m[0][1] * m[1][0]
-                    geo_msg = (f"\n\n⚠ Georef: matriz presente pero active()=False."
-                               f"\n  matrix[0]={m[0]}\n  matrix[1]={m[1]}"
-                               f"\n  det={det:.6f}, epsg={self.georef.epsg}"
-                               f"\n  → Exportado en coordenadas de escala.")
+                    geo_msg = "\n\n" + _tr("⚠ Georef: matriz presente pero active()=False."
+                                  "\n  matrix[0]={m0}\n  matrix[1]={m1}"
+                                  "\n  det={det}, epsg={epsg}"
+                                  "\n  → Exportado en coordenadas de escala.").format(
+                        m0=m[0], m1=m[1], det=f"{det:.6f}", epsg=self.georef.epsg)
                 elif not self.georef.matrix:
-                    geo_msg += "\n\n(Sin georreferenciación configurada.)"
-                QtWidgets.QMessageBox.information(self, "Listo", f"Exportado (solo anotaciones):\n{out}{geo_msg}")
-                self._info("DXF de anotaciones exportado." + (" (georef)" if geo_active else ""))
+                    geo_msg += "\n\n" + _tr("(Sin georreferenciación configurada.)")
+                QtWidgets.QMessageBox.information(self, _tr("Listo"), _tr("Exportado (solo anotaciones):\n{archivo}{georef}").format(
+                    archivo=out, georef=geo_msg))
+                self._info(_tr("DXF de anotaciones exportado (georef).") if geo_active else _tr("DXF de anotaciones exportado."))
             except Exception as e:
                 QtWidgets.QMessageBox.critical(self, "Error", str(e))
             return
         self._tmp = out + ".base.tmp.dxf"
-        self._prog = QtWidgets.QProgressDialog("Digitalizando el plano…", None, 0, 0, self)
-        self._prog.setWindowTitle("Procesando"); self._prog.setWindowModality(QtCore.Qt.WindowModal)
+        self._prog = QtWidgets.QProgressDialog(_tr("Digitalizando el plano…"), None, 0, 0, self)
+        self._prog.setWindowTitle(_tr("Procesando")); self._prog.setWindowModality(QtCore.Qt.WindowModal)
         self._prog.setCancelButton(None); self._prog.show()
         self._worker = PipelineWorker(self.pdf_path, self._tmp); self._worker.done.connect(self._pipeline_done); self._worker.start()
 
     def _pipeline_done(self, tmp, err):
         if getattr(self, "_prog", None): self._prog.close()
-        if err: QtWidgets.QMessageBox.critical(self, "Error al digitalizar", err); return
+        if err: QtWidgets.QMessageBox.critical(self, _tr("Error al digitalizar"), err); return
         try:
             marks = (self._mode == "todo")               # 'pdf' = solo el plano, sin anotaciones
             doc = ezdxf.readfile(tmp); C.apply_imperial_header(doc)   # reafirma imperial ($MEASUREMENT=0) tras leer el plano base
@@ -4316,22 +4660,27 @@ class Main(QtWidgets.QMainWindow):
             if self.georef.matrix and not geo_active:
                 m = self.georef.matrix
                 det = m[0][0] * m[1][1] - m[0][1] * m[1][0]
-                geo_warn = (f"\n\n⚠ Georreferenciación: matriz presente pero active()=False."
-                            f"\n  matrix[0]={m[0]}\n  matrix[1]={m[1]}"
-                            f"\n  det={det:.6f}, epsg={self.georef.epsg}"
-                            f"\n  → Se exportó en coordenadas de escala (sin georef).")
+                # Mismo aviso que la exportación de solo anotaciones (misma clave).
+                geo_warn = "\n\n" + _tr("⚠ Georef: matriz presente pero active()=False."
+                                        "\n  matrix[0]={m0}\n  matrix[1]={m1}"
+                                        "\n  det={det}, epsg={epsg}"
+                                        "\n  → Exportado en coordenadas de escala.").format(
+                    m0=m[0], m1=m[1], det=f"{det:.6f}", epsg=self.georef.epsg)
             elif not self.georef.matrix:
-                geo_warn = "\n\n(Sin georreferenciación configurada.)"
+                geo_warn = "\n\n" + _tr("(Sin georreferenciación configurada.)")
             geo_tag = " [georef]" if geo_active else ""
             if marks:
                 nreg = sum(1 for r in self.erase_regions if r.get("enabled", True))
-                msg = (f"Exportado (PDF + anotaciones){geo_tag}:\n{self._out}\n\n{len(self.pipes)} utilidades, "
-                       f"{len(self.leaders)} leaders, {len(self.text_marks)} textos, {nreg} zonas borradas.{geo_warn}")
+                msg = _tr("Exportado (PDF + anotaciones){georef}:\n{archivo}\n\n{np} utilidades, "
+                          "{nl} leaders, {nt} textos, {nz} zonas borradas.").format(
+                    georef=geo_tag, archivo=self._out, np=len(self.pipes), nl=len(self.leaders),
+                    nt=len(self.text_marks), nz=nreg) + geo_warn
             else:
-                msg = f"Exportado (solo el PDF digitalizado){geo_tag}:\n{self._out}{geo_warn}"
-            QtWidgets.QMessageBox.information(self, "Listo", msg); self._info("DXF exportado." + (" (georef)" if geo_active else ""))
+                msg = _tr("Exportado (solo el PDF digitalizado){georef}:\n{archivo}").format(
+                    georef=geo_tag, archivo=self._out) + geo_warn
+            QtWidgets.QMessageBox.information(self, _tr("Listo"), msg); self._info(_tr("DXF exportado (georef).") if geo_active else _tr("DXF exportado."))
         except Exception as e:
-            import traceback; QtWidgets.QMessageBox.critical(self, "Error al guardar", f"{e}\n{traceback.format_exc()}")
+            import traceback; QtWidgets.QMessageBox.critical(self, _tr("Error al guardar"), f"{e}\n{traceback.format_exc()}")
 
     def _merge_into(self, doc, marks=True):
         dxf_export.merge_into(self, doc, marks=marks)
@@ -4422,21 +4771,21 @@ class Main(QtWidgets.QMainWindow):
                       self.bz_height, self.bz_is_curve, self.chk_bz_hidden):
                 w.setEnabled(has_sel)
             if not has_sel:
-                self.gprop_bz.setTitle("Propiedades del buzón — selecciona uno de la lista")
+                _bind(self.gprop_bz, "setTitle", "Propiedades del buzón — selecciona uno de la lista")
                 self.bz_is_curve.setVisible(True)
                 self.bz_is_curve.setChecked(False)
                 self.chk_bz_hidden.setChecked(False)
                 return
             s = self.structures[self.sel_bz]
             net = s.get("net") or "gravity"
-            self.gprop_bz.setTitle("Propiedades de la caja" if net == "conduit"
-                                    else "Propiedades del buzón")
+            _bind(self.gprop_bz, "setTitle", "Propiedades de la caja" if net == "conduit"
+                  else "Propiedades del buzón")
             self.bz_cod.setText(s.get("cod", ""))
             self.bz_rim.setValue(float(s.get("rim") or 0.0))
             self.bz_sump.setValue(float(s.get("sump") or 0.0))
             self.bz_height.setValue(float(s.get("height_ft") or 0.0))
-            self.bz_net_lbl.setText("conduit (eléctrico/telecom)" if net == "conduit" else "gravedad")
-            self.bz_origin_lbl.setText("Excel" if s.get("world") else "dibujo")
+            self.bz_net_lbl.setText(_tr("conduit (eléctrico/telecom)") if net == "conduit" else _tr("gravedad"))
+            self.bz_origin_lbl.setText("Excel" if s.get("world") else _tr("dibujo"))
             # "Cambiar a elemento curvo" solo tiene sentido en una ESQUINA: un
             # vértice donde se juntan dos tramos (dos tangentes). Un buzón al final
             # de una línea conecta a una sola → no puede ser un codo/curva, así que
@@ -4447,7 +4796,7 @@ class Main(QtWidgets.QMainWindow):
             # Familias del catálogo imperial de estructuras (gravedad).
             self.bz_family.blockSignals(True); self.bz_family.clear()
             fams = _cc.imperial_structures(self.civil_year) if self.civil_year else []
-            self.bz_family.addItem("(por defecto)", "")
+            self.bz_family.addItem(_tr("(por defecto)"), "")
             for f in fams:
                 idx = self.bz_family.count()
                 self.bz_family.addItem(f"{f['pretty']}  [{f['subfolder']}]", f["id"])
@@ -4470,13 +4819,13 @@ class Main(QtWidgets.QMainWindow):
         import civil_catalog as _cc
         self.bz_size.blockSignals(True); self.bz_size.clear()
         if not fid or not self.civil_year:
-            self.bz_size.addItem("(sin familia)", ""); self.bz_size.setEnabled(False)
+            self.bz_size.addItem(_tr("(sin familia)"), ""); self.bz_size.setEnabled(False)
             self.bz_size.blockSignals(False); return
         sizes = _cc.structure_sizes(self.civil_year, fid)
         if not sizes:
-            self.bz_size.addItem("(sin tamaños detectados)", ""); self.bz_size.setEnabled(False)
+            self.bz_size.addItem(_tr("(sin tamaños detectados)"), ""); self.bz_size.setEnabled(False)
         else:
-            self.bz_size.setEnabled(True); self.bz_size.addItem("(por defecto)", "")
+            self.bz_size.setEnabled(True); self.bz_size.addItem(_tr("(por defecto)"), "")
             for sz in sizes: self.bz_size.addItem(sz, sz)
             if current:
                 for i in range(self.bz_size.count()):
@@ -4503,8 +4852,8 @@ class Main(QtWidgets.QMainWindow):
         if cod_new and cod_new != s.get("cod", ""):
             # Validar unicidad
             if any(o.get("cod") == cod_new for i, o in enumerate(self.structures) if i != self.sel_bz):
-                QtWidgets.QMessageBox.warning(self, "Código repetido",
-                    f"Ya existe un buzón con código '{cod_new}'. Elige otro.")
+                QtWidgets.QMessageBox.warning(self, _tr("Código repetido"),
+                    _tr("Ya existe un buzón con código «{cod}». Elige otro.").format(cod=cod_new))
                 self._bz_prop_guard = True; self.bz_cod.setText(s.get("cod", "")); self._bz_prop_guard = False
                 return
             s["cod"] = cod_new
@@ -4535,7 +4884,7 @@ class Main(QtWidgets.QMainWindow):
                 item.setForeground(QtGui.QColor(_theme.tokens().text_muted))
             else:
                 item.setData(QtCore.Qt.ForegroundRole, None)
-            item.setToolTip("Oculto — no se dibuja ni se crea en Civil3D como buzón real." if s.get("hidden") else "")
+            item.setToolTip(_tr("Oculto — no se dibuja ni se crea en Civil3D como buzón real.") if s.get("hidden") else "")
 
     def _bz_curve_toggled(self, v):
         """Checkbox 'No colocar buzón — es un elemento curvo' en la tab Buzones."""
@@ -4591,7 +4940,7 @@ class Main(QtWidgets.QMainWindow):
           · Campos ΔX / ΔY con botón "Aplicar" para vector arbitrario.
         Todo entra en el mismo contenedor `lay` (QVBoxLayout de la sección)."""
         # Encabezado: qué está seleccionado.
-        self.mv_lbl_sel = QtWidgets.QLabel(_tr("(nada seleccionado)"))
+        self.mv_lbl_sel = _bind(QtWidgets.QLabel(), "setText", "(nada seleccionado)")
         self.mv_lbl_sel.setWordWrap(True)
         self.mv_lbl_sel.setStyleSheet(
             "padding:6px 8px; border-radius:4px; background:#333; color:#ccc;")
@@ -4601,19 +4950,19 @@ class Main(QtWidgets.QMainWindow):
         self.mv_grp_scope = QtWidgets.QWidget()
         sc_l = QtWidgets.QVBoxLayout(self.mv_grp_scope); sc_l.setContentsMargins(0, 0, 0, 0)
         sc_l.setSpacing(2)
-        self.mv_rb_all = QtWidgets.QRadioButton(_tr("Toda la utilidad"))
-        self.mv_rb_vert = QtWidgets.QRadioButton(_tr("Un vértice"))
+        self.mv_rb_all = _bind(QtWidgets.QRadioButton(), "setText", "Toda la utilidad")
+        self.mv_rb_vert = _bind(QtWidgets.QRadioButton(), "setText", "Un vértice")
         self.mv_rb_all.setChecked(True)
         sc_grp = QtWidgets.QButtonGroup(self.mv_grp_scope)
         sc_grp.addButton(self.mv_rb_all); sc_grp.addButton(self.mv_rb_vert)
         # Fila del índice de vértice: label + spin al lado.
         vert_row = QtWidgets.QHBoxLayout(); vert_row.setContentsMargins(20, 0, 0, 0)
-        vert_row.addWidget(QtWidgets.QLabel(_tr("Vértice #:")))
+        vert_row.addWidget(_bind(QtWidgets.QLabel(), "setText", "Vértice #:"))
         self.mv_vert_idx = QtWidgets.QSpinBox()
         self.mv_vert_idx.setRange(0, 999); self.mv_vert_idx.setPrefix("V")
         self.mv_vert_idx.setMinimumWidth(60)
         self.mv_vert_idx.setSizePolicy(QtWidgets.QSizePolicy.Ignored, QtWidgets.QSizePolicy.Fixed)
-        self.mv_vert_idx.setToolTip(_tr("Índice del vértice a mover (0 = primero)."))
+        _bind(self.mv_vert_idx, "setToolTip", "Índice del vértice a mover (0 = primero).")
         self.mv_vert_idx.setEnabled(False)
         self.mv_rb_vert.toggled.connect(self.mv_vert_idx.setEnabled)
         vert_row.addWidget(self.mv_vert_idx, 1)
@@ -4622,7 +4971,7 @@ class Main(QtWidgets.QMainWindow):
 
         # Paso rápido con flechas
         step_row = QtWidgets.QHBoxLayout(); step_row.setContentsMargins(0, 0, 0, 0)
-        step_row.addWidget(QtWidgets.QLabel(_tr("Paso (ft):")))
+        step_row.addWidget(_bind(QtWidgets.QLabel(), "setText", "Paso (ft):"))
         self.mv_step_ft = QtWidgets.QDoubleSpinBox()
         self.mv_step_ft.setDecimals(2); self.mv_step_ft.setRange(0.01, 10000.0)
         self.mv_step_ft.setSingleStep(0.5); self.mv_step_ft.setValue(1.0)
@@ -4645,10 +4994,10 @@ class Main(QtWidgets.QMainWindow):
             b.setIconSize(QtCore.QSize(20, 20))
             b.setMinimumSize(32, 34)
             b.setSizePolicy(QtWidgets.QSizePolicy.Preferred, QtWidgets.QSizePolicy.Fixed)
-        self.mv_btn_up.setToolTip(_tr("Arriba (Y+) por Paso"))
-        self.mv_btn_dn.setToolTip(_tr("Abajo (Y−) por Paso"))
-        self.mv_btn_lf.setToolTip(_tr("Izquierda (X−) por Paso"))
-        self.mv_btn_rt.setToolTip(_tr("Derecha (X+) por Paso"))
+        _bind(self.mv_btn_up, "setToolTip", "Arriba (Y+) por Paso")
+        _bind(self.mv_btn_dn, "setToolTip", "Abajo (Y−) por Paso")
+        _bind(self.mv_btn_lf, "setToolTip", "Izquierda (X−) por Paso")
+        _bind(self.mv_btn_rt, "setToolTip", "Derecha (X+) por Paso")
         arrows.addWidget(self.mv_btn_up, 0, 1)
         arrows.addWidget(self.mv_btn_lf, 1, 0)
         arrows.addWidget(self.mv_btn_rt, 1, 2)
@@ -4665,7 +5014,7 @@ class Main(QtWidgets.QMainWindow):
         # borra el texto y deja el campo vacío, lo colapsa a 0.00 en vez de
         # dejar el valor anterior "pegado" (comportamiento raro de QDoubleSpinBox
         # por defecto — la primera versión de este panel lo tenía).
-        vec_lbl = QtWidgets.QLabel(_tr("O escribe un desplazamiento exacto:"))
+        vec_lbl = _bind(QtWidgets.QLabel(), "setText", "O escribe un desplazamiento exacto:")
         vec_lbl.setStyleSheet("margin-top:6px; color:#aaa;")
         vec_lbl.setWordWrap(True)
         lay.addWidget(vec_lbl)
@@ -4686,14 +5035,14 @@ class Main(QtWidgets.QMainWindow):
                     b.setValue(0.0)
             le.editingFinished.connect(_coerce_empty)
             return b
-        vec.addWidget(QtWidgets.QLabel("ΔX (ft):"), 0, 0)
+        vec.addWidget(_bind(QtWidgets.QLabel(), "setText", "ΔX (ft):"), 0, 0)
         self.mv_dx = _dsb_delta()
         vec.addWidget(self.mv_dx, 0, 1)
-        vec.addWidget(QtWidgets.QLabel("ΔY (ft):"), 1, 0)
+        vec.addWidget(_bind(QtWidgets.QLabel(), "setText", "ΔY (ft):"), 1, 0)
         self.mv_dy = _dsb_delta()
         vec.addWidget(self.mv_dy, 1, 1)
         vec.setColumnStretch(1, 1)
-        self.mv_btn_apply = QtWidgets.QPushButton("  " + _tr("Aplicar"))
+        self.mv_btn_apply = _bind(QtWidgets.QPushButton(), "setText", "Aplicar", pre='  ')
         self.mv_btn_apply.setIcon(_icon("mdi:check"))
         self.mv_btn_apply.setIconSize(QtCore.QSize(18, 18))
         self.mv_btn_apply.clicked.connect(
@@ -4702,8 +5051,7 @@ class Main(QtWidgets.QMainWindow):
         lay.addLayout(vec)
 
         # Nota UX
-        note = QtWidgets.QLabel(_tr(
-            "<i>ΔY+ = norte del plano. Cada movimiento respeta Deshacer (Ctrl+Z).</i>"))
+        note = _bind(QtWidgets.QLabel(), "setText", "<i>ΔY+ = norte del plano. Cada movimiento respeta Deshacer (Ctrl+Z).</i>")
         note.setWordWrap(True); note.setStyleSheet("color:#888; margin-top:4px;")
         lay.addWidget(note)
 
@@ -4719,7 +5067,7 @@ class Main(QtWidgets.QMainWindow):
                    self.mv_btn_lf, self.mv_btn_rt, self.mv_dx, self.mv_dy, self.mv_btn_apply)
         if info is None:
             for w in widgets: w.setEnabled(False)
-            self.mv_lbl_sel.setText(_tr("(nada seleccionado)"))
+            _bind(self.mv_lbl_sel, "setText", "(nada seleccionado)")
             self.mv_lbl_sel.setStyleSheet(
                 "padding:6px 8px; border-radius:4px; background:#333; color:#ccc;")
             return
@@ -4729,17 +5077,17 @@ class Main(QtWidgets.QMainWindow):
             layer = obj.get("layer", ""); diam = obj.get("diam") or "?"
             n = len(obj.get("pts") or [])
             col = layer_qcolor(layer).name()
-            self.mv_lbl_sel.setText(_tr("Utilidad {layer} · Ø{diam}\" · {n} vértices").format(
-                layer=layer, diam=diam, n=n))
+            _bind(self.mv_lbl_sel, "setText", "Utilidad {layer} · Ø{diam}\" · {n} vértices",
+                  fmt={"layer": self._etq(obj), "diam": diam, "n": n})
             self.mv_lbl_sel.setStyleSheet(
                 f"padding:6px 8px; border-radius:4px; background:{col}; color:white; font-weight:bold;")
             # Ajustar rango del spinbox de vértice
             self.mv_vert_idx.setRange(0, max(0, n - 1))
         elif kind == "struct":
-            cod = obj.get("cod") or "(sin código)"
+            cod = obj.get("cod") or _tr("(sin código)")
             es_curva = bool(obj.get("curve"))
-            tag = _tr("Curva") if es_curva else _tr("Buzón")
-            self.mv_lbl_sel.setText(f"{tag} · {cod}")
+            _bind(self.mv_lbl_sel, "setText", "Curva · {cod}" if es_curva else "Buzón · {cod}",
+                  fmt={"cod": cod})
             self.mv_lbl_sel.setStyleSheet(
                 "padding:6px 8px; border-radius:4px; background:#8a3ab9; color:white; font-weight:bold;")
             # Un buzón/curva es un punto — solo aplica "un vértice" implícito.
@@ -5008,12 +5356,12 @@ class Main(QtWidgets.QMainWindow):
             for w in (self.cv_cod, self.cv_radius, self.curve_is_bz):
                 w.setEnabled(has_sel)
             if not has_sel:
-                self.gprop_curve.setTitle("Propiedades del elemento curvo — selecciona uno de la lista")
+                _bind(self.gprop_curve, "setTitle", "Propiedades del elemento curvo — selecciona uno de la lista")
                 self.cv_family_lbl.setText("—"); self.cv_size_lbl.setText("—")
                 return
             s = self.structures[self.sel_curve]
             net = s.get("net") or "gravity"
-            self.gprop_curve.setTitle("Propiedades del elemento curvo")
+            _bind(self.gprop_curve, "setTitle", "Propiedades del elemento curvo")
             self.cv_cod.setText(s.get("cod", ""))
             # Calcular y aplicar el radio máximo geométrico ANTES de setValue.
             # Si no lo aplicamos, el usuario puede escribir p.ej. 100ft y el
@@ -5024,32 +5372,32 @@ class Main(QtWidgets.QMainWindow):
             valor_guardado = float(s.get("radius_ft") or 0.0)
             if r_max is not None and r_max > 0.01:
                 self.cv_radius.setMaximum(round(r_max, 2))
-                self.cv_radius.setToolTip(
-                    f"Radio deseado de la tubería curva, en pies. Vacío (0) = automático.\n"
-                    f"Máximo permitido por la geometría (tramos rectos adyacentes): "
-                    f"{r_max:.2f} ft.")
+                _bind(self.cv_radius, "setToolTip",
+                      "Radio deseado de la tubería curva, en pies. Vacío (0) = automático.\n"
+                      "Máximo permitido por la geometría (tramos rectos adyacentes): {r} ft.",
+                      fmt={"r": f"{r_max:.2f}"})
                 # Si el valor guardado excedía el nuevo máximo, sale aviso rojo
                 # (además del clamp automático que el spinbox aplica al setValue).
                 if valor_guardado > r_max + 1e-3:
-                    self.cv_radius_warn.setText(
-                        f"⚠ Máximo permitido: {r_max:.2f} ft (limitado por los tramos "
-                        f"rectos adyacentes). El valor guardado ({valor_guardado:.2f} ft) "
-                        f"se ajustó.")
+                    self.cv_radius_warn.setText(_tr(
+                        "⚠ Máximo permitido: {r} ft (limitado por los tramos rectos "
+                        "adyacentes). El valor guardado ({v} ft) se ajustó.").format(
+                            r=f"{r_max:.2f}", v=f"{valor_guardado:.2f}"))
                     self.cv_radius_warn.setVisible(True)
                 else:
                     self.cv_radius_warn.setText(
-                        f"Máximo permitido: {r_max:.2f} ft.")
+                        _tr("Máximo permitido: {r} ft.").format(r=f"{r_max:.2f}"))
                     self.cv_radius_warn.setVisible(True)
             else:
                 self.cv_radius.setMaximum(10000.0)
-                self.cv_radius.setToolTip(
-                    "Radio deseado de la tubería curva, en pies. Vacío (0) = automático:\n"
-                    "al importar en Civil3D se usa 6× el ancho/diámetro interior de la tubería.")
+                _bind(self.cv_radius, "setToolTip",
+                      "Radio deseado de la tubería curva, en pies. Vacío (0) = automático:\n"
+                      "al importar en Civil3D se usa 6× el ancho/diámetro interior de la tubería.")
                 self.cv_radius_warn.setVisible(False)
                 self.cv_radius_warn.setText("")
             self.cv_radius.setValue(valor_guardado)
-            self.cv_net_lbl.setText("conduit (eléctrico/telecom)" if net == "conduit" else "gravedad")
-            self.cv_origin_lbl.setText("Excel" if s.get("world") else "dibujo")
+            self.cv_net_lbl.setText(_tr("conduit (eléctrico/telecom)") if net == "conduit" else _tr("gravedad"))
+            self.cv_origin_lbl.setText("Excel" if s.get("world") else _tr("dibujo"))
             # Familia/tamaño heredados de la tubería recta que pasa por este vértice
             # (solo lectura: garantiza que la curva calce con los tramos rectos).
             x, y = s.get("x"), s.get("y")
@@ -5063,9 +5411,9 @@ class Main(QtWidgets.QMainWindow):
                         pretty = _cc.family_description(self.civil_year, fid, "pipe") or fid
                 except Exception: pass
                 self.cv_family_lbl.setText(pretty)
-                self.cv_size_lbl.setText(p.get("pipe_size") or "(por defecto)")
+                self.cv_size_lbl.setText(p.get("pipe_size") or _tr("(por defecto)"))
             else:
-                self.cv_family_lbl.setText("(sin tubería detectada)")
+                self.cv_family_lbl.setText(_tr("(sin tubería detectada)"))
                 self.cv_size_lbl.setText("—")
         finally:
             self._curve_prop_guard = False
@@ -5077,8 +5425,8 @@ class Main(QtWidgets.QMainWindow):
         cod_new = self.cv_cod.text().strip()
         if cod_new and cod_new != s.get("cod", ""):
             if any(o.get("cod") == cod_new for i, o in enumerate(self.structures) if i != self.sel_curve):
-                QtWidgets.QMessageBox.warning(self, "Código repetido",
-                    f"Ya existe un elemento con código '{cod_new}'. Elige otro.")
+                QtWidgets.QMessageBox.warning(self, _tr("Código repetido"),
+                    _tr("Ya existe un elemento con código «{cod}». Elige otro.").format(cod=cod_new))
                 self._curve_prop_guard = True; self.cv_cod.setText(s.get("cod", "")); self._curve_prop_guard = False
                 return
             s["cod"] = cod_new
@@ -5089,13 +5437,13 @@ class Main(QtWidgets.QMainWindow):
         r_max = getattr(self, "_cv_radius_max_ft", None)
         if r_max is not None and r_max > 0.01:
             if val_actual >= r_max - 1e-3 and val_actual > 0:
-                self.cv_radius_warn.setText(
-                    f"⚠ Alcanzaste el máximo permitido: {r_max:.2f} ft. "
-                    f"No se puede subir más porque los tramos rectos adyacentes "
-                    f"no dan espacio para una tangente mayor.")
+                self.cv_radius_warn.setText(_tr(
+                    "⚠ Alcanzaste el máximo permitido: {r} ft. No se puede subir más porque "
+                    "los tramos rectos adyacentes no dan espacio para una tangente mayor.").format(
+                        r=f"{r_max:.2f}"))
                 self.cv_radius_warn.setStyleSheet("color:#d33; font-weight:bold; font-size:14px;")
             else:
-                self.cv_radius_warn.setText(f"Máximo permitido: {r_max:.2f} ft.")
+                self.cv_radius_warn.setText(_tr("Máximo permitido: {r} ft.").format(r=f"{r_max:.2f}"))
                 self.cv_radius_warn.setStyleSheet("color:#d33; font-size:14px;")
             self.cv_radius_warn.setVisible(True)
         self._dirty = True
@@ -5156,11 +5504,11 @@ class Main(QtWidgets.QMainWindow):
             has_sel = 0 <= self.sel_cl < len(self.ref_centerlines)
             self.cl_cod.setEnabled(has_sel)
             if not has_sel:
-                self.gprop_cl.setTitle("Propiedades del centerline — selecciona uno de la lista")
+                _bind(self.gprop_cl, "setTitle", "Propiedades del centerline — selecciona uno de la lista")
                 self.cl_len_lbl.setText("—")
                 return
             c = self.ref_centerlines[self.sel_cl]
-            self.gprop_cl.setTitle("Propiedades del centerline")
+            _bind(self.gprop_cl, "setTitle", "Propiedades del centerline")
             self.cl_cod.setText(c.get("cod", ""))
             # Longitud real (respeta georreferencia activa vía _to_cad, igual que
             # el resto de la app — no una escala fija).
@@ -5178,8 +5526,8 @@ class Main(QtWidgets.QMainWindow):
         cod_new = self.cl_cod.text().strip()
         if cod_new and cod_new != c.get("cod", ""):
             if any(o.get("cod") == cod_new for i, o in enumerate(self.ref_centerlines) if i != self.sel_cl):
-                QtWidgets.QMessageBox.warning(self, "Código repetido",
-                    f"Ya existe un centerline con código '{cod_new}'. Elige otro.")
+                QtWidgets.QMessageBox.warning(self, _tr("Código repetido"),
+                    _tr("Ya existe un centerline con código «{cod}». Elige otro.").format(cod=cod_new))
                 self._cl_prop_guard = True; self.cl_cod.setText(c.get("cod", "")); self._cl_prop_guard = False
                 return
             c["cod"] = cod_new
@@ -5191,7 +5539,7 @@ class Main(QtWidgets.QMainWindow):
         c = self.ref_centerlines[idx]
         item = self.cl_list.item(idx)
         if item:
-            item.setText(f"{c.get('cod', '?')}  ·  {len(c.get('pts') or [])} vértices")
+            item.setText(_tr("{cod}  ·  {n} vértices").format(cod=c.get('cod', '?'), n=len(c.get('pts') or [])))
             item.setIcon(_icon("mdi:vector-line", color="#22c55e"))
 
     # ─────────────────────────── Instalador familias personalizadas ───────────
@@ -5213,11 +5561,10 @@ class Main(QtWidgets.QMainWindow):
         try:
             from geo.georef_dialog import GeorefDialog
         except Exception as e:
-            QtWidgets.QMessageBox.warning(self, "Falta un componente",
-                "La georreferenciación necesita matplotlib, pyproj y scikit-image.\n\n"
-                "Instálalos con tu Python 3.12:\n"
-                r"  C:\Users\Deyvy\AppData\Local\Programs\Python\Python312\python.exe -m pip install "
-                "matplotlib pyproj scikit-image" f"\n\nDetalle: {e}")
+            QtWidgets.QMessageBox.warning(self, _tr("Falta un componente"),
+                _tr("La georreferenciación necesita matplotlib, pyproj y scikit-image.\n\n"
+                    "Instálalos con:\n  {cmd}\n\nDetalle: {e}").format(
+                    cmd=f'"{sys.executable}" -m pip install matplotlib pyproj scikit-image', e=e))
             return
         # Solo el PDF crudo (sin utilidades/leaders horneados encima): el
         # diálogo dibuja las utilidades y centerlines como líneas vectoriales
@@ -5382,7 +5729,7 @@ class Main(QtWidgets.QMainWindow):
             pi = getattr(db, "pipe_idx", -1)
             if 0 <= pi < len(self.pipes):
                 p = self.pipes[pi]
-                pipe_lbl = f"#{pi+1} {p.get('layer', '?')}"
+                pipe_lbl = f"#{pi+1} {self._etq(p)}"
             else:
                 pipe_lbl = _tr("(sin asignar)")
             nm = db.name or _tr("(sin nombre)")
@@ -5468,9 +5815,9 @@ class Main(QtWidgets.QMainWindow):
         self.sel_db = len(self.duct_banks) - 1
         self._dirty = True
         if hasattr(self, "lbl_ductbank_count"):
-            self.lbl_ductbank_count.setText(f"Duct banks guardados: {len(self.duct_banks)}")
+            _bind(self.lbl_ductbank_count, "setText", "Duct banks guardados: {n}", fmt={"n": len(self.duct_banks)})
         self._refresh_lists()
-        self._info(f"Bancoducto duplicado como «{dup.name}».")
+        self._info(_tr("Bancoducto duplicado como «{nombre}».").format(nombre=dup.name))
 
     # Sentinel para distinguir "sin argumento" (comportamiento heredado del
     # botón viejo del toolbar) de "explícitamente None" (nuevo desde cero).
@@ -5532,20 +5879,23 @@ class Main(QtWidgets.QMainWindow):
                 if d is result or getattr(d, "pipe_idx", -1) != result.pipe_idx
             ]
         self._dirty = True   # marca proyecto para pedir guardar
-        pipe_info = ""
-        if result.pipe_idx >= 0 and result.pipe_idx < len(self.pipes):
-            p = self.pipes[result.pipe_idx]
-            pipe_info = f" → asignado a #{result.pipe_idx+1} {p.get('layer','?')}"
+        asignada = 0 <= result.pipe_idx < len(self.pipes)
+        datos = {"n": len(self.duct_banks), "nombre": result.name or _tr("sin nombre")}
+        if asignada:
+            datos.update(num=result.pipe_idx + 1,
+                         capa=self._etq(self.pipes[result.pipe_idx]))
         if hasattr(self, "lbl_ductbank_count"):
-            self.lbl_ductbank_count.setText(
-                f"Duct banks: {len(self.duct_banks)}{pipe_info}")
+            _bind(self.lbl_ductbank_count, "setText",
+                  "Duct banks: {n} → asignado a #{num} {capa}" if asignada else "Duct banks: {n}",
+                  fmt=datos)
         # Deja seleccionado el bancoducto que se acaba de editar/crear en la lista.
         try:
             self.sel_db = self.duct_banks.index(result)
         except ValueError:
             self.sel_db = -1
         self._refresh_lists()
-        self._info(f"Duct bank '{result.name or 'sin nombre'}' guardado{pipe_info}.")
+        self._info(_tr("Duct bank «{nombre}» guardado → asignado a #{num} {capa}." if asignada
+                       else "Duct bank «{nombre}» guardado.").format(**datos))
 
     # ─────────────────────────── drag & drop ───────────────────────────
     def dragEnterEvent(self, e):

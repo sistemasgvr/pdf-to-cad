@@ -224,3 +224,102 @@ def test_fillet_geo_arco_tangente_y_recorte():
     # recta o sin radio: nada
     assert fillet_geo((-10.0, 0.0), (0.0, 0.0), (10.0, 0.0), 30.0) is None
     assert fillet_geo((0.0, 10.0), (0.0, 0.0), (10.0, 0.0), 0.0) is None
+
+
+# ── Junturas con más tramos de los que el plugin une (5+) ──────────────────
+def _tubo(capa, pts, inv=-4.0, name=""):
+    return {"layer": capa, "pts": pts, "inv_start": inv, "inv_end": inv, "name": name}
+
+
+def _z_const(pipes):
+    """Solera constante por tubo (lo que devuelve _pipe_z_at con inv fijos)."""
+    return lambda i, k, x, y: pipes[i]["inv_start"]
+
+
+def _cruz_mas(n_extra, capa="AGUA", inv_extra=-4.0):
+    """Dos tubos que PASAN por (0,0) (2 tramos cada uno) + n_extra que terminan ahí."""
+    tubos = [_tubo(capa, [(-50, 0), (0, 0), (50, 0)]), _tubo(capa, [(0, -50), (0, 0), (0, 50)])]
+    for k in range(n_extra):
+        tubos.append(_tubo(capa, [(0, 0), (40 + 10 * k, 40)], inv=inv_extra))
+    return tubos
+
+
+def test_cinco_tramos_en_un_punto_se_avisan():
+    tubos = _cruz_mas(1)                       # caso E18: 3 polilíneas = 5 tramos
+    res = model_ops.junturas_excedidas(tubos, _z_const(tubos), tol_px=3.0)
+    assert len(res) == 1 and res[0]["n"] == 5
+    assert abs(res[0]["x"]) < 1e-9 and abs(res[0]["y"]) < 1e-9
+
+
+def test_seis_tramos_informa_seis():
+    tubos = _cruz_mas(2)
+    res = model_ops.junturas_excedidas(tubos, _z_const(tubos), tol_px=3.0)
+    assert [r["n"] for r in res] == [6]
+
+
+def test_cruz_de_cuatro_no_se_avisa():
+    tubos = _cruz_mas(0)                       # 4 tramos: el plugin pone una Cruz
+    assert model_ops.junturas_excedidas(tubos, _z_const(tubos), tol_px=3.0) == []
+
+
+def test_gravedad_no_se_avisa():
+    tubos = _cruz_mas(1, capa="DRENAJE")       # un buzón acepta los tubos que haga falta
+    assert model_ops.junturas_excedidas(tubos, _z_const(tubos), tol_px=3.0) == []
+
+
+def test_utilidad_a_otra_cota_no_cuenta():
+    tubos = _cruz_mas(1, inv_extra=-6.0)       # el ramal pasa 2 ft más abajo: quedan 4 + 1
+    assert model_ops.junturas_excedidas(tubos, _z_const(tubos), tol_px=3.0) == []
+
+
+def test_redes_con_nombre_distinto_no_se_suman():
+    tubos = _cruz_mas(1)
+    tubos[0]["name"] = tubos[2]["name"] = "Linea Norte"   # 3 tramos de otra red
+    assert model_ops.junturas_excedidas(tubos, _z_const(tubos), tol_px=3.0) == []
+
+
+# ── Escalón de cota en el vértice de una misma utilidad a presión ──────────
+def _z_por_tramo(tramos):
+    """z_at de juguete: `tramos[i]` = [(z_inicio, z_fin) por tramo]."""
+    def z_at(i, k, x, y):
+        p0 = _ESC_PIPES[i]["pts"][k]
+        z0, z1 = tramos[i][k]
+        return z0 if (x, y) == tuple(p0) else z1
+    return z_at
+
+
+_ESC_PIPES = []
+
+
+def _escalon(capa, z_llega, z_sale):
+    _ESC_PIPES[:] = [{"layer": capa, "pts": [(0, 0), (100, 0), (150, 80)]}]
+    return model_ops.escalones_en_vertices(
+        _ESC_PIPES, _z_por_tramo([[(-4.0, z_llega), (z_sale, -5.0)]]))
+
+
+def test_escalon_en_agua_se_avisa_con_el_promedio():
+    res = _escalon("AGUA", -4.0, -5.0)          # caso E22
+    assert len(res) == 1
+    e = res[0]
+    assert (e["llega"], e["sale"]) == (1, 2)    # T1 llega, T2 sale
+    assert (e["x"], e["y"]) == (100, 0)
+    assert abs(e["z_civil"] - (-4.5)) < 1e-9
+
+
+def test_sin_escalon_no_se_avisa():
+    assert _escalon("AGUA", -4.5, -4.5) == []
+
+
+def test_escalon_en_gravedad_no_se_avisa():
+    assert _escalon("DRENAJE", -4.0, -5.0) == []   # caída en el buzón: es válida
+
+
+def test_diferencia_minima_no_es_escalon():
+    assert _escalon("GAS", -4.000, -4.005) == []
+
+
+def test_red_de_usa_nombre_y_si_no_la_capa():
+    # Igual que el plugin: el nombre de red manda sobre la capa.
+    assert model_ops.red_de({"layer": "AGUA"}) == "AGUA"
+    assert model_ops.red_de({"layer": "AGUA", "name": "  Linea Sur "}) == "Linea Sur"
+    assert model_ops.red_de({"layer": "AGUA", "name": ""}) == "AGUA"

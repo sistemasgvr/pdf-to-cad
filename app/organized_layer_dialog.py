@@ -10,7 +10,7 @@ import fitz
 from PySide6 import QtCore, QtGui, QtWidgets
 
 import pdf_layers
-from i18n import t as _tr
+from i18n import t as _tr, N_
 from layer_dialog import utility_qcolor
 from organized_layers import aggregate_layers, hidden_from_states, selected_sheets
 from pdf_view_quality import FocusedPageQuality
@@ -25,8 +25,8 @@ _ROLE_GROUP = QtCore.Qt.UserRole
 _ROLE_UTILITY = QtCore.Qt.UserRole + 1
 _PREVIEW_SCALE = 0.65
 _RERENDER_DELAY_MS = 150
-_SLOT_LABELS = {"main": "Principal", "top": "Superior", "left": "Izquierda",
-                "right": "Derecha", "bottom": "Inferior"}
+_SLOT_LABELS = {"main": N_("Principal"), "top": N_("Superior"), "left": N_("Izquierda"),
+                "right": N_("Derecha"), "bottom": N_("Inferior")}
 
 
 class _SelectableSheetView(ZoomPanView):

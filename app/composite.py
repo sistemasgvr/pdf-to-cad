@@ -28,6 +28,8 @@ from typing import Dict, List, Optional, Sequence, Tuple
 
 import fitz
 
+from i18n_core import t as _tr   # etiquetas del esquema de hojas
+
 Pt = Tuple[float, float]
 
 MARGIN_PT = 36.0          # margen alrededor de las piezas en la hoja compuesta
@@ -267,7 +269,7 @@ def piece_layout(comp: Composite, page_sizes, names: Optional[Sequence[str]] = N
     out = []
     for p in comp.pieces:
         x0, y0, x1, y1 = piece_rect(p, page_sizes(p), comp.target_scale())
-        label = f"Hoja {p.page + 1}"
+        label = _tr("Hoja {n}").format(n=p.page + 1)
         if multi and names and p.source < len(names):
             label = f"{names[p.source]} · {label}"
         out.append(((x0 + dx, y0 + dy, x1 + dx, y1 + dy), label))

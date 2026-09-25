@@ -40,6 +40,7 @@ import urllib.request
 from PySide6 import QtCore, QtGui, QtWidgets
 import theme as _theme
 from icons import icon as _icon
+from i18n import t as _tr
 
 os.environ.setdefault("QT_API", "pyside6")   # matplotlib debe usar el MISMO binding Qt que el resto de la app
 import matplotlib
@@ -299,8 +300,8 @@ class _PdfPickView(QtWidgets.QGraphicsView):
         self.setRenderHints(QtGui.QPainter.Antialiasing | QtGui.QPainter.SmoothPixmapTransform)
         self.setTransformationAnchor(QtWidgets.QGraphicsView.AnchorUnderMouse)
         self.setBackgroundBrush(QtGui.QColor(28, 28, 28))
-        self.setToolTip("Clic izquierdo: punto de control (imán a la utilidad/centerline más cercana)\n"
-                        "Rueda: zoom · Rueda presionada + arrastrar: desplazar (como en Civil3D)")
+        self.setToolTip(_tr("Clic izquierdo: punto de control (imán a la utilidad/centerline más cercana)\n"
+                        "Rueda: zoom · Rueda presionada + arrastrar: desplazar (como en Civil3D)"))
         self.setMouseTracking(True)
         self._pan = False; self._pan0 = None
         # Cruz de ejes X/Y en MORADO al 50% de transparencia (antes amarillo).
@@ -479,7 +480,7 @@ class _FetchWorker(QtCore.QObject):
     def run(self):
         try:
             if self.center is not None:
-                cx_ft, cy_ft = self.center; matched = "zona ya georreferenciada"
+                cx_ft, cy_ft = self.center; matched = _tr("zona ya georreferenciada")
             else:
                 cx_ft, cy_ft, matched = geocode_2229(self.addr)
             from geo.la_reference import (fetch_streets_2229, fetch_parcels_2229,
@@ -508,7 +509,7 @@ class GeorefDialog(QtWidgets.QDialog):
     def __init__(self, parent, plan_qimage, pipes, ref_centerlines=None, init_georef=None):
         super().__init__(parent)
         self._main = parent
-        self.setWindowTitle("Georreferenciar plano")
+        self.setWindowTitle(_tr("Georreferenciar plano"))
         # Redimensionable/maximizable (QDialog no trae el botón de maximizar
         # por defecto) y con tamaño inicial ajustado al monitor, para que no
         # quede más grande que la pantalla en equipos con monitores chicos.
@@ -554,8 +555,9 @@ class GeorefDialog(QtWidgets.QDialog):
         self.lbl_prev = QtWidgets.QLabel(""); self.lbl_prev.setWordWrap(True)
         if init_georef is not None and init_georef.active():
             rms = f", RMS {init_georef.rms:.2f} ft" if init_georef.rms is not None else ""
-            self.lbl_prev.setText(f"✓ Este plano YA está georreferenciado (EPSG:{init_georef.epsg}{rms}). "
-                                  "Puedes recalcular con nuevos puntos o cerrar sin cambios.")
+            self.lbl_prev.setText(_tr("✓ Este plano YA está georreferenciado (EPSG:{epsg}{rms}). "
+                                      "Puedes recalcular con nuevos puntos o cerrar sin cambios.").format(
+                epsg=init_georef.epsg, rms=rms))
             self.lbl_prev.setStyleSheet("color:#5fd35f;font-weight:bold;")
             root.addWidget(self.lbl_prev)
 
@@ -563,7 +565,7 @@ class GeorefDialog(QtWidgets.QDialog):
 
         pdf_w = QtWidgets.QWidget(); pv = QtWidgets.QVBoxLayout(pdf_w); pv.setContentsMargins(0, 0, 0, 0)
         oprow = QtWidgets.QHBoxLayout()
-        oprow.addWidget(QtWidgets.QLabel("Opacidad PDF:"))
+        oprow.addWidget(QtWidgets.QLabel(_tr("Opacidad PDF:")))
         self.sl_pdf_op = QtWidgets.QSlider(QtCore.Qt.Horizontal)
         self.sl_pdf_op.setRange(10, 100); self.sl_pdf_op.setValue(100)
         self.sl_pdf_op.valueChanged.connect(lambda v: self.pdf.set_pdf_opacity(v / 100))
@@ -577,19 +579,19 @@ class GeorefDialog(QtWidgets.QDialog):
         map_w = QtWidgets.QWidget(); mv = QtWidgets.QVBoxLayout(map_w); mv.setContentsMargins(0, 0, 0, 0)
         srow = QtWidgets.QHBoxLayout()
         self.ed_addr = QtWidgets.QLineEdit()
-        self.ed_addr.setPlaceholderText("Dirección o intersección… ej: Colfax Ave & Chandler Blvd")
+        self.ed_addr.setPlaceholderText(_tr("Dirección o intersección… ej: Colfax Ave & Chandler Blvd"))
         self.ed_addr.returnPressed.connect(self._on_fetch)
         srow.addWidget(self.ed_addr, 1)
-        srow.addWidget(QtWidgets.QLabel("Radio (ft):"))
+        srow.addWidget(QtWidgets.QLabel(_tr("Radio (ft):")))
         self.sp_buffer = QtWidgets.QDoubleSpinBox()
         self.sp_buffer.setRange(300, 10000); self.sp_buffer.setValue(DEFAULT_BUFFER_FT); self.sp_buffer.setSingleStep(150)
         srow.addWidget(self.sp_buffer)
-        self.b_fetch = QtWidgets.QPushButton("  Buscar y descargar")
+        self.b_fetch = QtWidgets.QPushButton("  " + _tr("Buscar y descargar"))
         self.b_fetch.setIconSize(QtCore.QSize(18, 18))
         self.b_fetch.clicked.connect(self._on_fetch)
         srow.addWidget(self.b_fetch)
         mv.addLayout(srow)
-        mv.addWidget(QtWidgets.QLabel("Calles de LA (NavigateLA)  —  clic: punto de control (imán a la intersección)  |  rueda: zoom"))
+        mv.addWidget(QtWidgets.QLabel(_tr("Calles de LA (NavigateLA)  —  clic: punto de control (imán a la intersección)  |  rueda: zoom")))
         # Contenedor para poder poner el loader ENCIMA del mapa (overlay).
         map_holder = QtWidgets.QWidget(); mh = QtWidgets.QGridLayout(map_holder)
         mh.setContentsMargins(0, 0, 0, 0); mh.setSpacing(0)
@@ -604,7 +606,7 @@ class GeorefDialog(QtWidgets.QDialog):
         ll = QtWidgets.QVBoxLayout(self.loader); ll.setContentsMargins(18, 14, 18, 14); ll.setSpacing(8)
         self.loader_spin = QtWidgets.QLabel("⣾"); self.loader_spin.setAlignment(QtCore.Qt.AlignCenter)
         self.loader_spin.setStyleSheet("font-size:28px;color:#7ecbff;background:transparent;border:none;")
-        self.loader_msg = QtWidgets.QLabel("Cargando…"); self.loader_msg.setAlignment(QtCore.Qt.AlignCenter)
+        self.loader_msg = QtWidgets.QLabel(_tr("Cargando…")); self.loader_msg.setAlignment(QtCore.Qt.AlignCenter)
         ll.addWidget(self.loader_spin); ll.addWidget(self.loader_msg)
         mh.addWidget(self.loader, 0, 0, QtCore.Qt.AlignCenter)
         self.loader.hide()
@@ -622,31 +624,31 @@ class GeorefDialog(QtWidgets.QDialog):
         half = max(240, self._init_w // 2)
         split.setSizes([half, half]); root.addWidget(split, 1)
 
-        self.hint = QtWidgets.QLabel("1) Busca y descarga las calles de la zona · 2) clic en el plano (izquierda) "
+        self.hint = QtWidgets.QLabel(_tr("1) Busca y descarga las calles de la zona · 2) clic en el plano (izquierda) "
                                      "· 3) clic en la calle correspondiente (derecha). Mínimo 3 pares — puedes "
                                      "marcar puntos A LO LARGO de toda la calle, no solo en las esquinas: "
-                                     "más puntos bien repartidos mejoran el ajuste (RMSE).")
+                                     "más puntos bien repartidos mejoran el ajuste (RMSE)."))
         self._restyle_hint()   # color según tema (text_info, con contraste en claro y oscuro)
         root.addWidget(self.hint)
         _theme.THEME_BUS.changed.connect(lambda *_: self._restyle_hint())
 
-        rmse_tip = ("RMSE (Root Mean Square Error / error cuadrático medio): el error PROMEDIO, en pies, "
+        rmse_tip = _tr("RMSE (Root Mean Square Error / error cuadrático medio): el error PROMEDIO, en pies, "
                    "entre cada punto de control y donde el ajuste calculado lo ubica.\n\n"
                    "No es el error de un punto — es el error de TODOS a la vez: si un punto quedó mal "
                    "clickeado, el RMSE sube aunque los demás estén perfectos. Mientras más bajo, mejor "
                    "(verde <3 ft, amarillo <8 ft, rojo ≥8 ft).")
         crow = QtWidgets.QHBoxLayout()
-        self.b_fit = QtWidgets.QPushButton("  Ajustar + RMSE"); self.b_fit.setIconSize(QtCore.QSize(18, 18))
+        self.b_fit = QtWidgets.QPushButton("  " + _tr("Ajustar + RMSE")); self.b_fit.setIconSize(QtCore.QSize(18, 18))
         self.b_fit.clicked.connect(self._compute)
-        self.b_fit.setToolTip("Calcula la transformación (rotación + escala uniforme + traslación) que mejor "
+        self.b_fit.setToolTip(_tr("Calcula la transformación (rotación + escala uniforme + traslación) que mejor "
                               "hace coincidir todos los pares plano↔calle real, y muestra el RMSE. No deforma "
-                              "el plano: solo lo gira y escala parejo.\n\n" + rmse_tip)
+                              "el plano: solo lo gira y escala parejo.") + "\n\n" + rmse_tip)
         crow.addWidget(self.b_fit)
-        self.lbl_rms = QtWidgets.QLabel("RMSE: —"); self.lbl_rms.setToolTip(rmse_tip); crow.addWidget(self.lbl_rms, 1)
-        b_del = QtWidgets.QPushButton("  Eliminar sel."); b_del.setProperty("danger", True)
+        self.lbl_rms = QtWidgets.QLabel(_tr("RMSE: —")); self.lbl_rms.setToolTip(rmse_tip); crow.addWidget(self.lbl_rms, 1)
+        b_del = QtWidgets.QPushButton("  " + _tr("Eliminar sel.")); b_del.setProperty("danger", True)
         b_del.setIconSize(QtCore.QSize(18, 18))
         b_del.clicked.connect(self._del_pair); crow.addWidget(b_del); self.b_del = b_del
-        b_clear = QtWidgets.QPushButton("  Limpiar todos"); b_clear.setProperty("danger", True)
+        b_clear = QtWidgets.QPushButton("  " + _tr("Limpiar todos")); b_clear.setProperty("danger", True)
         b_clear.setIconSize(QtCore.QSize(18, 18))
         b_clear.clicked.connect(self._clear_pairs); crow.addWidget(b_clear); self.b_clear = b_clear
         root.addLayout(crow)
@@ -658,29 +660,29 @@ class GeorefDialog(QtWidgets.QDialog):
         # para NAD83 California zona V en pies = EPSG:2229). Se copia del diálogo
         # nativo "Huso" de Civil 3D si no se sabe de memoria. Se valida allí.
         csrow = QtWidgets.QHBoxLayout()
-        csrow.addWidget(QtWidgets.QLabel("Sistema de coordenadas (Huso) — código:"))
+        csrow.addWidget(QtWidgets.QLabel(_tr("Sistema de coordenadas (Huso) — código:")))
         self.ed_cs_code = QtWidgets.QLineEdit()
-        self.ed_cs_code.setPlaceholderText("ej: CA83VF  (código CS-MAP; vacío = no setear Huso)")
+        self.ed_cs_code.setPlaceholderText(_tr("ej: CA83VF  (código CS-MAP; vacío = no setear Huso)"))
         self.ed_cs_code.setToolTip(
-            "Código nativo CS-MAP del sistema de coordenadas que quedará seteado en el\n"
+            _tr("Código nativo CS-MAP del sistema de coordenadas que quedará seteado en el\n"
             "dibujo de Civil 3D al importar la red. Debe corresponder al EPSG con que\n"
             "georreferenciaste (para EPSG:2229 → 'CA83VF'). Cópialo del diálogo nativo\n"
             "de Civil 3D (Configuración de dibujo → Unidades y huso) si no lo sabes.\n"
-            "Vacío = el dibujo no se setea (lo puedes poner luego a mano).")
+            "Vacío = el dibujo no se setea (lo puedes poner luego a mano)."))
         if init_georef is not None and getattr(init_georef, "cs_code", ""):
             self.ed_cs_code.setText(init_georef.cs_code)
         csrow.addWidget(self.ed_cs_code, 1)
         root.addLayout(csrow)
 
         bb = QtWidgets.QHBoxLayout()
-        self.b_save = QtWidgets.QPushButton("  Guardar georreferenciación")
+        self.b_save = QtWidgets.QPushButton("  " + _tr("Guardar georreferenciación"))
         self.b_save.setIconSize(QtCore.QSize(18, 18))
         # Habilitado de entrada si el plano YA está georreferenciado, para poder
         # guardar aunque solo se cambie el código de Huso (sin recalcular).
         self.b_save.setEnabled(bool(init_georef is not None and init_georef.active()))
         self.b_save.clicked.connect(self._save)
         bb.addStretch(1); bb.addWidget(self.b_save)
-        b_cancel = QtWidgets.QPushButton("  Cerrar sin guardar")
+        b_cancel = QtWidgets.QPushButton("  " + _tr("Cerrar sin guardar"))
         b_cancel.setIconSize(QtCore.QSize(18, 18))
         b_cancel.clicked.connect(self.reject)
         bb.addWidget(b_cancel); self.b_cancel = b_cancel
@@ -707,7 +709,7 @@ class GeorefDialog(QtWidgets.QDialog):
                 buffer_ft = min(self.sp_buffer.maximum(), max(DEFAULT_BUFFER_FT, spread * 0.75 + 300))
                 self.sp_buffer.setValue(buffer_ft)
                 self._start_fetch(_FetchWorker(buffer_ft, center=(cx_ft, cy_ft)),
-                                  "Cargando la zona de la georreferenciación existente…")
+                                  _tr("Cargando la zona de la georreferenciación existente…"))
 
         # Ctrl+Z deshace el último punto/lote agregado — funciona en todo el
         # diálogo (plano y mapa comparten la misma lista de pares).
@@ -744,9 +746,9 @@ class GeorefDialog(QtWidgets.QDialog):
         # salida explícita sin preguntar; Guardar usa accept(), tampoco pregunta.)
         if getattr(self, "_dialog_dirty", False):
             r = QtWidgets.QMessageBox.question(
-                self, "Cerrar sin guardar",
-                "Hiciste cambios en la georreferenciación que no se han guardado.\n\n"
-                "¿Cerrar de todas formas y descartarlos?",
+                self, _tr("Cerrar sin guardar"),
+                _tr("Hiciste cambios en la georreferenciación que no se han guardado.\n\n"
+                "¿Cerrar de todas formas y descartarlos?"),
                 QtWidgets.QMessageBox.Yes | QtWidgets.QMessageBox.No,
                 QtWidgets.QMessageBox.No)
             if r != QtWidgets.QMessageBox.Yes:
@@ -761,9 +763,9 @@ class GeorefDialog(QtWidgets.QDialog):
     def _on_fetch(self):
         addr = self.ed_addr.text().strip()
         if not addr:
-            QtWidgets.QMessageBox.information(self, "Falta dirección", "Escribe una dirección o intersección."); return
+            QtWidgets.QMessageBox.information(self, _tr("Falta dirección"), _tr("Escribe una dirección o intersección.")); return
         self._start_fetch(_FetchWorker(self.sp_buffer.value(), addr=addr),
-                          "Buscando dirección y descargando calles/parcelas…")
+                          _tr("Buscando dirección y descargando calles/parcelas…"))
 
     def _loader_tick(self):
         self._loader_i = (self._loader_i + 1) % len(self._loader_frames)
@@ -806,12 +808,14 @@ class GeorefDialog(QtWidgets.QDialog):
     def _on_fetch_done(self, result):
         lines, parcels, matched, centers = result
         if not lines:
-            self.hint.setText("No se encontraron calles en esa zona. Prueba un radio mayor.")
+            self.hint.setText(_tr("No se encontraron calles en esa zona. Prueba un radio mayor."))
             return
         self.centerlines = lines; self.parcels = parcels
         self.arc_centers = centers or []
-        self.hint.setText(f"{len(lines)} tramos, {len(parcels)} parcelas, {len(self.arc_centers)} esquinas redondeadas — "
-                          f"{matched}. Marca puntos de control — clic cerca de un cruce imanta al cruce exacto")
+        self.hint.setText(_tr("{tramos} tramos, {parcelas} parcelas, {esquinas} esquinas redondeadas — "
+                              "{zona}. Marca puntos de control — clic cerca de un cruce imanta al cruce "
+                              "exacto").format(tramos=len(lines), parcelas=len(parcels),
+                                               esquinas=len(self.arc_centers), zona=matched))
         self._draw_map_base()
 
     def _on_fetch_failed(self, msg):
@@ -825,7 +829,7 @@ class GeorefDialog(QtWidgets.QDialog):
             self.pdf.scene().removeItem(self._pending_mark)
         self._pending_px = (sx, sy)
         self._pending_mark = self.pdf.add_mark(sx, sy, "#ff9a28")
-        self.hint.setText("Punto del plano fijado. Ahora clic en la calle correspondiente (derecha).")
+        self.hint.setText(_tr("Punto del plano fijado. Ahora clic en la calle correspondiente (derecha)."))
 
     def _snap_arc_center(self, pt, max_dist=SNAP_FT):
         """(x, y) del centro de radio más cercano dentro de `max_dist`, o None.
@@ -865,9 +869,9 @@ class GeorefDialog(QtWidgets.QDialog):
 
     def _on_map_click(self, x, y):
         if self._pending_px is None:
-            self.hint.setText("Primero clic en el plano (izquierda)."); return
+            self.hint.setText(_tr("Primero clic en el plano (izquierda).")); return
         if not self.centerlines:
-            self.hint.setText("Primero descarga las calles de la zona."); return
+            self.hint.setText(_tr("Primero descarga las calles de la zona.")); return
         # Prioridad del imán, de más preciso a menos:
         #   1) CENTRO del radio de una esquina redondeada de parcela — es un
         #      punto geométrico exacto (no un vértice aproximado del arco), así
@@ -888,7 +892,8 @@ class GeorefDialog(QtWidgets.QDialog):
         self._pending_px = None; self._pending_mark = None
         self._dialog_dirty = True
         self._refresh_list(); self._draw_map_markers()
-        self.hint.setText(f"Punto {len(self.pairs)} agregado. Repite (mínimo 3) y pulsa «Ajustar».")
+        self.hint.setText(_tr("Punto {n} agregado. Repite (mínimo 3) y pulsa «Ajustar».").format(
+            n=len(self.pairs)))
 
     def _del_pair(self):
         r = self.lst.currentRow()
@@ -900,7 +905,7 @@ class GeorefDialog(QtWidgets.QDialog):
                 self.pdf.scene().removeItem(p["mark"])
             self._dialog_dirty = True
             self._refresh_list(); self._draw_map_markers()
-            self.b_save.setEnabled(False); self.lbl_rms.setText("RMSE: —")
+            self.b_save.setEnabled(False); self.lbl_rms.setText(_tr("RMSE: —"))
 
     def _clear_pairs(self):
         for p in self.pairs:
@@ -911,7 +916,7 @@ class GeorefDialog(QtWidgets.QDialog):
             self.pdf.scene().removeItem(self._pending_mark); self._pending_mark = None
         self._dialog_dirty = True
         self._refresh_list(); self._draw_map_markers()
-        self.b_save.setEnabled(False); self.lbl_rms.setText("RMSE: —")
+        self.b_save.setEnabled(False); self.lbl_rms.setText(_tr("RMSE: —"))
 
     def _undo(self):
         """Ctrl+Z: cancela el punto pendiente (si hay uno a medias), o si no,
@@ -920,7 +925,7 @@ class GeorefDialog(QtWidgets.QDialog):
             if self._pending_mark:
                 self.pdf.scene().removeItem(self._pending_mark)
             self._pending_px = None; self._pending_mark = None
-            self.hint.setText("Punto pendiente cancelado (Ctrl+Z)."); return
+            self.hint.setText(_tr("Punto pendiente cancelado (Ctrl+Z).")); return
         while self._undo_stack:
             batch = self._undo_stack.pop()
             removed = False
@@ -934,32 +939,35 @@ class GeorefDialog(QtWidgets.QDialog):
                 break
         self._dialog_dirty = True
         self._refresh_list(); self._draw_map_markers()
-        self.b_save.setEnabled(False); self.lbl_rms.setText("RMSE: —")
-        self.hint.setText("Último punto/lote deshecho (Ctrl+Z).")
+        self.b_save.setEnabled(False); self.lbl_rms.setText(_tr("RMSE: —"))
+        self.hint.setText(_tr("Último punto/lote deshecho (Ctrl+Z)."))
 
     def _compute(self):
         if len(self.pairs) < 3:
-            QtWidgets.QMessageBox.information(self, "Faltan puntos", "Se necesitan al menos 3 puntos de control."); return
+            QtWidgets.QMessageBox.information(self, _tr("Faltan puntos"), _tr("Se necesitan al menos 3 puntos de control.")); return
         px = [p["px"] for p in self.pairs]; world = [p["world"] for p in self.pairs]
         try:
             # Similaridad (rotación + escala uniforme + traslación): no deforma el
             # plano y su RMSE es real incluso con 3 puntos (ver geo.georef.fit).
             matrix, rms, ttype = georef_mod.fit(px, world, kind="similarity")
         except Exception as e:
-            QtWidgets.QMessageBox.warning(self, "Ajuste", f"No se pudo ajustar la transformación.\n\n{e}"); return
+            QtWidgets.QMessageBox.warning(self, _tr("Ajuste"),
+                _tr("No se pudo ajustar la transformación.\n\n{e}").format(e=e)); return
         det = matrix[0][0] * matrix[1][1] - matrix[0][1] * matrix[1][0]
         if det > 0:
-            self.lbl_rms.setText("⚠ Ajuste ESPEJADO"); self.lbl_rms.setStyleSheet("color:#e06060;font-weight:bold;")
-            QtWidgets.QMessageBox.warning(self, "Ajuste espejado",
-                "El ajuste salió espejado: el plano se guardaría volteado.\n\n"
+            self.lbl_rms.setText(_tr("⚠ Ajuste ESPEJADO")); self.lbl_rms.setStyleSheet("color:#e06060;font-weight:bold;")
+            QtWidgets.QMessageBox.warning(self, _tr("Ajuste espejado"),
+                _tr("El ajuste salió espejado: el plano se guardaría volteado.\n\n"
                 "Causa típica: los puntos de control están casi en línea recta. Usa 3–4 puntos que "
-                "formen un triángulo amplio (en calles distintas o a ambos lados) y recalcula.")
+                "formen un triángulo amplio (en calles distintas o a ambos lados) y recalcula."))
             self.b_save.setEnabled(False); return
         self._fit_result = (matrix, rms, ttype)
         color = "#5fd35f" if rms < 3 else ("#e0c060" if rms < 8 else "#e06060")
-        self.lbl_rms.setText(f"RMSE: {rms:.2f} ft  ({ttype}, {len(px)} pts)")
+        self.lbl_rms.setText(_tr("RMSE: {rms} ft  ({tipo}, {n} pts)").format(
+            rms=f"{rms:.2f}", tipo=ttype, n=len(px)))
         self.lbl_rms.setStyleSheet(f"color:{color};font-weight:bold;")
-        self.hint.setText(f"✓ Ajuste OK (RMSE {rms:.2f} ft). Pulsa «Guardar georreferenciación».")
+        self.hint.setText(_tr("✓ Ajuste OK (RMSE {rms} ft). Pulsa «Guardar georreferenciación».").format(
+            rms=f"{rms:.2f}"))
         self.b_save.setEnabled(True)
 
     def _save(self):
@@ -979,10 +987,10 @@ class GeorefDialog(QtWidgets.QDialog):
                     self._dialog_dirty = False
                     self.accept()
                 except Exception as e:
-                    QtWidgets.QMessageBox.critical(self, "Error al guardar", str(e))
+                    QtWidgets.QMessageBox.critical(self, _tr("Error al guardar"), str(e))
                 return
-            QtWidgets.QMessageBox.information(self, "Falta ajustar",
-                "Primero pulsa «Ajustar + RMSE» para calcular la georreferenciación.")
+            QtWidgets.QMessageBox.information(self, _tr("Falta ajustar"),
+                _tr("Primero pulsa «Ajustar + RMSE» para calcular la georreferenciación."))
             return
         matrix, rms, ttype = self._fit_result
         pts = [{"px": list(p["px"]), "world": list(p["world"]), "label": p.get("label", "")}
@@ -994,19 +1002,20 @@ class GeorefDialog(QtWidgets.QDialog):
         try:
             self._main.save_project()
         except Exception as e:
-            QtWidgets.QMessageBox.critical(self, "Error al guardar",
-                f"La georreferenciación se aplicó, pero no se pudo guardar el proyecto.\n\n{e}")
+            QtWidgets.QMessageBox.critical(self, _tr("Error al guardar"),
+                _tr("La georreferenciación se aplicó, pero no se pudo guardar el proyecto.\n\n{e}").format(e=e))
             return
         saved_to = self._main.project_path
         if not saved_to:
             # No había project_path y el usuario canceló «Guardar como…» —
             # se deja el resultado ya aplicado en memoria, pero el diálogo
             # abierto para reintentar «Guardar» cuando quiera.
-            self.hint.setText("Georreferenciación calculada, pero falta guardarla en disco "
-                              "(cancelaste «Guardar como…»). Pulsa «Guardar georreferenciación» de nuevo.")
+            self.hint.setText(_tr("Georreferenciación calculada, pero falta guardarla en disco "
+                              "(cancelaste «Guardar como…»). Pulsa «Guardar georreferenciación» de nuevo."))
             return
-        QtWidgets.QMessageBox.information(self, "Georreferenciación guardada",
-            f"✓ Guardado en el proyecto:\n{saved_to}\n\nEPSG: {TARGET_EPSG}\nRMSE: {rms:.2f} ft")
+        QtWidgets.QMessageBox.information(self, _tr("Georreferenciación guardada"),
+            _tr("✓ Guardado en el proyecto:\n{archivo}\n\nEPSG: {epsg}\nRMSE: {rms} ft").format(
+                archivo=saved_to, epsg=TARGET_EPSG, rms=f"{rms:.2f}"))
         self._dialog_dirty = False
         self.accept()
 
@@ -1134,4 +1143,5 @@ class GeorefDialog(QtWidgets.QDialog):
             x, y = p["px"]; X, Y = p["world"]
             tag = f"  [{p['label']}]" if p.get("label") else ""
             self.lst.addItem(QtWidgets.QListWidgetItem(
-                f"{i}   plano({x:.0f},{y:.0f})  →  calle({X:.2f},{Y:.2f}) ft{tag}"))
+                _tr("{i}   plano({x},{y})  →  calle({X},{Y}) ft{etiqueta}").format(
+                    i=i, x=f"{x:.0f}", y=f"{y:.0f}", X=f"{X:.2f}", Y=f"{Y:.2f}", etiqueta=tag)))

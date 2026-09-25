@@ -13,6 +13,7 @@ Extraído de app_window.py sin cambios de comportamiento (solo reubicación).
 from PySide6 import QtCore, QtGui, QtWidgets
 
 import theme as _theme
+from i18n import t as _tr
 
 
 class InlineEdit(QtWidgets.QTextEdit):
@@ -337,7 +338,7 @@ class CollapsiblePanel(QtWidgets.QFrame):
         head.addWidget(lbl, 1)
         self.btn_collapse = QtWidgets.QToolButton()
         self.btn_collapse.setIcon(_icon("mdi:chevron-left")); self.btn_collapse.setAutoRaise(True)
-        self.btn_collapse.setToolTip("Plegar este panel para dar más sitio a los demás")
+        self.btn_collapse.setToolTip(_tr("Plegar este panel para dar más sitio a los demás"))
         self.btn_collapse.clicked.connect(lambda: self.set_collapsed(True))
         head.addWidget(self.btn_collapse)
         vbox.addLayout(head)
@@ -350,7 +351,7 @@ class CollapsiblePanel(QtWidgets.QFrame):
         sbox.setContentsMargins(2, 6, 2, 6); sbox.setSpacing(4)
         self.btn_expand = QtWidgets.QToolButton()
         self.btn_expand.setIcon(_icon("mdi:chevron-right")); self.btn_expand.setAutoRaise(True)
-        self.btn_expand.setToolTip("Desplegar")
+        self.btn_expand.setToolTip(_tr("Desplegar"))
         self.btn_expand.clicked.connect(lambda: self.set_collapsed(False))
         sbox.addWidget(self.btn_expand, 0, QtCore.Qt.AlignHCenter)
         sbox.addWidget(_VerticalLabel(title), 1)

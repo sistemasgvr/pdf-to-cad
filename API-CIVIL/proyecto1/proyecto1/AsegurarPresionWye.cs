@@ -58,7 +58,7 @@ namespace Civil3DBasico
         // SqliteConnection lanza TypeInitializationException. Con esta carga
         // manual el runtime la encuentra en el AppDomain como si fuera del
         // directorio del ensamblado.
-        private static void EnsureSqliteNativeLoaded(Editor ed = null)
+        internal static void EnsureSqliteNativeLoaded(Editor ed = null)
         {
             if (_nativeSqliteLoaded) return;
             try

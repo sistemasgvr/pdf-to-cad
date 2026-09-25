@@ -1,0 +1,24 @@
+PERFIL LONGITUDINAL (CREAR_PERFIL_RED) - LO QUE FALTA
+
+Estado: la ejecucion se pauso durante la implementacion. Puede haber archivos
+Perfil*.cs a medio hacer (stubs con NotImplementedException) y el build puede fallar.
+
+Documentos (scratchpad de la sesion):
+- Diseno completo: ...\scratchpad\perfil\DISENO.md (secciones A-L, checklist en L)
+- Contratos/duenos por archivo: ...\scratchpad\perfil\CONTRATOS.md (si llego a crearse)
+- Informes API: apiEstilos.md, apiEtiquetas.md, codigo.md
+
+Pasos pendientes:
+1. Revisar que archivos Perfil*.cs existen en API-CIVIL/proyecto1/proyecto1 y cuales siguen con NotImplementedException.
+2. Terminar los modulos faltantes segun DISENO.md:
+   - Puros: PerfilDiseno*.cs (maquetacion), PerfilRecorrido.cs, PerfilTextos.cs
+   - Civil: PerfilGrafoCivil/Presion, PerfilCruces, PerfilEje, PerfilEstilos*, PerfilVista, PerfilEtiquetas*, PerfilMaquetacion
+   - PerfilComando.cs (CREAR_PERFIL_RED + alias CREAR_PERFIL_PRESION) y PerfilPruebaHumo.cs
+3. Compilar: dotnet build -c Release en API-CIVIL/proyecto1/proyecto1 (0 errores).
+4. Correr arnes: dotnet run --project API-CIVIL/proyecto1/PerfilPruebas -c Release (0 fallos).
+5. Verificar que CREAR_PERFIL_RED / CREAR_PERFIL_PRESION / PDFCAD_PERFIL_PRUEBA existen una sola vez.
+6. Probar en Civil 3D: primero PDFCAD_PERFIL_PRUEBA (calibra unidades/rotacion de textos), luego el boton del panel con una red de presion, una de gravedad y una electrica.
+7. Revisar que nada salga como polilinea/texto suelto y que no haya textos solapados.
+
+Si se quiere volver atras: git checkout de AlineamientosPerfiles.cs, RedesPresionRamales.cs,
+PanelPipe.xaml y restaurar PerfilUtil.cs / PerfilLongitudinalDatos.cs (se borraron en el paso de contratos).

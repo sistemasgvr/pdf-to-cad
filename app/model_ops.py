@@ -379,3 +379,251 @@ def fillet_geo(prev, corner, nxt, r_px, max_frac=0.9, n_arc=32):
     arc = [(cx + r * math.cos(a1 + sweep * k / n_arc), cy + r * math.sin(a1 + sweep * k / n_arc))
            for k in range(n_arc + 1)]
     return {"t1": t1, "t2": t2, "center": (cx, cy), "r": r, "T": T, "arc": arc, "clamped": clamped}
+
+
+def red_de(pipe):
+    """Red de Civil 3D a la que irá la utilidad: el plugin agrupa por NOMBRE de
+    red si lo tiene y, si no, por capa (RED-AGUA, RED-DRENAJE…). Dos utilidades
+    de redes distintas nunca se unen con un accesorio."""
+    return (pipe.get("name") or "").strip() or (pipe.get("layer") or "")
+
+
+def red_civil_de_union(pipes, ia, ib):
+    """Nombre de la red de Civil 3D donde quedan DOS tuberías de la misma
+    utilidad que se tocan. El plugin las mete siempre en la misma red aunque
+    tengan nombres distintos (`RedesUnidasPorContacto` en ImportarRed.cs): toma
+    el nombre de la de menor índice que lo tenga; sin nombres, «RED-<capa>»."""
+    for i in sorted((ia, ib)):
+        nombre = (pipes[i].get("name") or "").strip()
+        if nombre:
+            return nombre
+    return "RED-" + (pipes[ia].get("layer") or "")
+
+
+def accesorio_en_punto(polilineas, pt, tol):
+    """Accesorio que el plugin pondrá donde se juntan tramos de UNA red a
+    presión: mira las salidas (direcciones) que parten de `pt` por cada tramo
+    que lo toca y aplica la misma regla que RedesPresionJunturas.cs:
+    2 salidas → «codo» (None si siguen rectas), 3 → «tee» si dos son
+    colineales (≥160°) y el ramal va a 90° ±20°, si no «wye», 4 → «cruz»,
+    5+ → None (no hay accesorio)."""
+    px, py = pt
+    salidas = []
+
+    def _agregar(dx, dy):
+        L = math.hypot(dx, dy)
+        if L <= tol:
+            return
+        ang = math.atan2(dy, dx)
+        if all(abs((ang - a + math.pi) % (2 * math.pi) - math.pi) > math.radians(1) for a in salidas):
+            salidas.append(ang)
+
+    for pts in polilineas:
+        for (ax, ay), (bx, by) in zip(pts, pts[1:]):
+            dx, dy = bx - ax, by - ay
+            L2 = dx * dx + dy * dy
+            if L2 <= 1e-12:
+                continue
+            t = max(0.0, min(1.0, ((px - ax) * dx + (py - ay) * dy) / L2))
+            if math.hypot(ax + dx * t - px, ay + dy * t - py) > tol:
+                continue
+            _agregar(ax - px, ay - py)
+            _agregar(bx - px, by - py)
+    n = len(salidas)
+
+    def _entre(a, b):
+        return math.degrees(abs((a - b + math.pi) % (2 * math.pi) - math.pi))
+
+    pares = [(i, j) for i in range(n) for j in range(i + 1, n) if _entre(salidas[i], salidas[j]) >= 160]
+    if n == 2:
+        return None if pares else "codo"
+    if n == 3:
+        # DecidirTeeOWye: Tee solo con tronco recto Y ramal a 90° ±20°; si no, Wye.
+        for i, j in pares:
+            ramal = _entre(salidas[3 - i - j], salidas[i])
+            if min(ramal, 180 - ramal) >= 70:
+                return "tee"
+        return "wye"
+    if n == 4:
+        return "cruz"
+    return None
+
+
+def largo_min_entre_codos_ft(diam_in):
+    """Largo mínimo de un tramo entre dos codos de una red a presión (misma
+    regla que `LargoMinEntreCodosFt` del plugin): 3 diámetros, mínimo 1 ft."""
+    try:
+        d_ft = float(diam_in) / 12.0
+    except (TypeError, ValueError):
+        d_ft = 0.0
+    return max(1.0, 3.0 * d_ft)
+
+
+def tramos_cortos_entre_codos(pipes, ft_per_px):
+    """Tramos de tuberías a presión entre DOS quiebres (giro ≥5°) más cortos que
+    `largo_min_entre_codos_ft`: ahí no entran dos codos y el plugin los
+    reemplaza por UNO solo (`FusionarCodosSeguidos`).
+    Devuelve [{"x", "y", "pipe", "tramo", "largo_ft", "min_ft"}] (x, y en px =
+    punto medio del tramo; tramo 1 = T1)."""
+    salida = []
+    for ip, p in enumerate(pipes):
+        if network_kind(p.get("layer") or "") != "pressure":
+            continue
+        pts = p.get("pts") or []
+        lmin = largo_min_entre_codos_ft(p.get("diam"))
+        for k in range(1, len(pts) - 2):
+            (ax, ay), (bx, by), (cx, cy), (dx, dy) = pts[k - 1], pts[k], pts[k + 1], pts[k + 2]
+            largo = math.hypot(cx - bx, cy - by) * ft_per_px
+            if largo <= 1e-9 or largo >= lmin - 1e-6:
+                continue
+            if _giro_deg((ax, ay), (bx, by), (cx, cy)) < 5 or _giro_deg((bx, by), (cx, cy), (dx, dy)) < 5:
+                continue
+            salida.append({"x": (bx + cx) / 2, "y": (by + cy) / 2, "pipe": ip, "tramo": k + 1,
+                           "largo_ft": largo, "min_ft": lmin})
+    return salida
+
+
+def desnivel_min_dos_codos_ft(diam_in):
+    """Desnivel mínimo (entre ejes) para bajar con dos codos sólidos de 90°:
+    2 × boca del codo + 0.05 ft; la boca de un codo de 90° mide 1.57·D
+    (WyeSolido: radio 1·D + collar 0.12·D + campana 0.45·D)."""
+    return 2 * 1.57 * (float(diam_in) / 12.0) + 0.05
+
+
+def conexion_vertical_inclinada(pa, pb, pt, za, zb, tol):
+    """Conexión vertical APROBADA entre una utilidad que pasa por `pt` con un
+    QUIEBRE y otra que termina ahí (diseño Wye + tubo aux + codo + vertical +
+    codo), cuando el desnivel no alcanza para los dos codos de 90°. El plugin
+    pone entonces la Wye con el ramal inclinado y le da pendiente a la tubería
+    que termina (`CrearCruceConWye`). Devuelve {"dz", "min", "termina"} o None."""
+    def _extremo(p):
+        pts = p.get("pts") or []
+        return any(math.hypot(q[0] - pt[0], q[1] - pt[1]) <= tol for q in pts[:1] + pts[-1:])
+
+    def _quiebre(p):
+        pts = p.get("pts") or []
+        return any(math.hypot(pts[k][0] - pt[0], pts[k][1] - pt[1]) <= tol
+                   and _giro_deg(pts[k - 1], pts[k], pts[k + 1]) >= 5
+                   for k in range(1, len(pts) - 1))
+
+    if za is None or zb is None or network_kind(pa.get("layer") or "") != "pressure":
+        return None
+    ea, eb = _extremo(pa), _extremo(pb)
+    if ea == eb:
+        return None
+    pasa, termina = (pb, pa) if ea else (pa, pb)
+    if not _quiebre(pasa):
+        return None
+    da, db = float(pa.get("diam") or 4), float(pb.get("diam") or 4)
+    dz = abs((za + da / 24.0) - (zb + db / 24.0))
+    minimo = desnivel_min_dos_codos_ft(min(da, db))
+    if dz >= minimo:
+        return None
+    return {"dz": dz, "min": minimo, "termina": termina}
+
+
+def _giro_deg(a, b, c):
+    ux, uy, wx, wy = b[0] - a[0], b[1] - a[1], c[0] - b[0], c[1] - b[1]
+    lu, lw = math.hypot(ux, uy), math.hypot(wx, wy)
+    if lu < 1e-12 or lw < 1e-12:
+        return 0.0
+    cos = max(-1.0, min(1.0, (ux * wx + uy * wy) / (lu * lw)))
+    return math.degrees(math.acos(cos))
+
+
+def escalones_en_vertices(pipes, z_at, tol=0.01):
+    """Vértices de una MISMA utilidad a presión donde el tramo que llega y el
+    que sale tienen soleras distintas (un escalón, p. ej. editado en «Cotas por
+    tramo»). El plugin no puede dibujar ese escalón en una red a presión: une
+    los dos extremos en la cota PROMEDIO (ver «[COTAS] cotas unificadas» en
+    ImportarRed). En gravedad no se avisa: ahí es una caída en el buzón.
+
+    `z_at(i_pipe, i_tramo, x, y)` da la solera del tramo en ese punto.
+    Devuelve [{"x", "y", "pipe", "llega", "sale", "z_llega", "z_sale", "z_civil"}]
+    con `llega`/`sale` = número de tramo (1 = T1) como en la tabla."""
+    salida = []
+    for i, p in enumerate(pipes):
+        if network_kind(p.get("layer") or "") != "pressure":
+            continue
+        pts = p.get("pts") or []
+        for v in range(1, len(pts) - 1):
+            x, y = pts[v]
+            z_llega, z_sale = z_at(i, v - 1, x, y), z_at(i, v, x, y)
+            if z_llega is None or z_sale is None or abs(z_llega - z_sale) <= tol:
+                continue
+            salida.append({"x": x, "y": y, "pipe": i, "llega": v, "sale": v + 1,
+                           "z_llega": z_llega, "z_sale": z_sale,
+                           "z_civil": (z_llega + z_sale) / 2.0})
+    return salida
+
+
+# Máximo de tramos que el plugin une con UN accesorio (la Cruz). Con más, el
+# plugin no dibuja ninguna pieza y deja la juntura sin resolver.
+MAX_TRAMOS_POR_ACCESORIO = 4
+
+
+def junturas_excedidas(pipes, z_at, tol_px, z_tol=0.10, maximo=MAX_TRAMOS_POR_ACCESORIO):
+    """Puntos donde se juntan MÁS de `maximo` tramos que el plugin intentaría
+    unir con un solo accesorio. Replica la regla del plugin
+    (ProcesarJunturasPresion + agrupación por cota de ImportarRed):
+
+      - solo redes de PRESIÓN: en gravedad/conduit un buzón o una estructura
+        nula acepta los tubos que haga falta;
+      - cuenta TRAMOS (un tubo que pasa por un vértice aporta dos), que es lo
+        que cuenta el plugin: el caso de 3 polilíneas en cruz + ramal son 5;
+      - misma red (nombre de red o, si no hay, la capa) y misma cota: cada
+        utilidad promedia su cota en el punto y utilidades distintas solo se
+        juntan a ≤ `z_tol`.
+
+    `z_at(i_pipe, i_tramo, x, y)` da la solera del tramo en ese punto.
+    Devuelve [{"x", "y", "n", "red"}] con n > maximo."""
+    extremos = []                                   # (x, y, red, i_pipe, z)
+    for i, p in enumerate(pipes):
+        capa = p.get("layer") or ""
+        if network_kind(capa) != "pressure":
+            continue
+        red = red_de(p)
+        pts = p.get("pts") or []
+        for k in range(len(pts) - 1):
+            for (x, y) in (pts[k], pts[k + 1]):
+                z = z_at(i, k, x, y)
+                extremos.append((x, y, red, i, 0.0 if z is None else float(z)))
+
+    tol2 = tol_px * tol_px
+    usado = [False] * len(extremos)
+    salida = []
+    for a in range(len(extremos)):
+        if usado[a]:
+            continue
+        usado[a] = True
+        grupo = [a]
+        sx, sy = extremos[a][0], extremos[a][1]
+        for b in range(a + 1, len(extremos)):
+            if usado[b] or extremos[b][2] != extremos[a][2]:
+                continue
+            cx, cy = sx / len(grupo), sy / len(grupo)
+            if (extremos[b][0] - cx) ** 2 + (extremos[b][1] - cy) ** 2 > tol2:
+                continue
+            usado[b] = True
+            grupo.append(b)
+            sx += extremos[b][0]; sy += extremos[b][1]
+        if len(grupo) <= maximo:
+            continue
+        # Por utilidad: cada una su cota media; luego se encadenan por cota.
+        por_pipe = {}
+        for e in grupo:
+            por_pipe.setdefault(extremos[e][3], []).append(e)
+        sub = sorted(((len(v), sum(extremos[e][4] for e in v) / len(v)) for v in por_pipe.values()),
+                     key=lambda s: s[1])
+        cadenas = [[sub[0]]]
+        for s in sub[1:]:
+            if abs(s[1] - cadenas[-1][-1][1]) <= z_tol:
+                cadenas[-1].append(s)
+            else:
+                cadenas.append([s])
+        for c in cadenas:
+            n = sum(cuantos for cuantos, _z in c)
+            if n > maximo:
+                salida.append({"x": sx / len(grupo), "y": sy / len(grupo), "n": n,
+                               "red": extremos[a][2]})
+    return salida
