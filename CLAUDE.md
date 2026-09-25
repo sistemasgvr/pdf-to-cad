@@ -229,6 +229,11 @@ alcantarillado, drenaje, gas, eléctrico, telecom). Todo en **unidades imperiale
     a 1×/2× el periodo — `MARKER_DOUBLE_STEPS_OK` —, dobles a ≤2 pasos de cada
     punta; sin «//» propio y corta → None = hereda la capa). La «/» simple sigue
     exigiendo capa `-A`.
+    Pasos entre «//» MÁS CORTOS que el periodo (≥`MARKER_DOUBLE_SHORT_MIN_PT`=12, con
+    ≥3 dobles en la línea) también cuentan: AutoCAD dibuja el linetype por tramo y en
+    tramos de 26–34 pt junto a una T el «//» sale más seguido (DU08 h.21 gas `C-NGAS-D`
+    x=1253, reportado por el usuario). Foto AB de las 5 utilidades × 4 PDFs antes/después:
+    geometría idéntica, 9 líneas `-D` pasan a AB (todas con «//» propio, revisadas).
     `Vault` trae además la geometría REAL del símbolo (`_fill_vault_geometry`: el
     path cerrado más grande del clúster → `outline` 4 esquinas con giro, `width`/
     `length` pt, `angle_deg` rumbo del lado largo, o `shape="circle"`); `recognition`
@@ -625,6 +630,34 @@ alcantarillado, drenaje, gas, eléctrico, telecom). Todo en **unidades imperiale
     distancia perpendicular a guiones paralelos ≥3 pt de su propia capa; ojo: sin esos
     filtros, las letras «ss» y los huecos dan cientos de falsos positivos). Referencia:
     859 tramos, 0 sin tinta, 0 «V», 3 «imprecisos» = ejes de tuberías con doble línea.
+  - **Perfil GAS (2026-09-25)**: `SUPPORTED_UTILITIES` suma GAS (kind `gas_ungd`; red a
+    PRESIÓN como el agua: sin cajas automáticas). `_classify_gas`: línea = capas de SOLO
+    estado de la red existente (`…REF-EXIST_NGAS|C-NGAS-A/-D/-E`, sin «UNGD»),
+    `C-N?GAS-(paquete-)?(UNGD|UGND|UNDG|PIPE)` y `PROP-GAS-ALGN` (alineamiento C3D del
+    LABOE), sin ANNO/TEXT/CASE/VALV/METR/RISR/…; estructura = V-NGAS-VALT (+ MANH/STRU,
+    C-NGAS-VALT/STRC); medidores, válvulas y risers = accesorios. Única regla de perfil:
+    `glyph_hooks` (`classify_paths` → `_glyph_hooks`): el gancho de la «G»/«g» del linetype
+    «—G—» es un path aparte que pasaba por CODO; un arco que cabe en una letra, la toca y se
+    repite ≥3 veces con el mismo largo es letra. Sin ella: 38 tramos sin tinta (la línea
+    entraba al gancho y saltaba a la vecina, DU10 h.7) y un rodeo de ~24 pt por cada «G».
+    Auditoría `scripts/audit_perfil.py GAS [config]` (genérica: cualquier utilidad; config
+    none/drain/water/sewer/profile/`profile+regla`): 68 hojas, 636 tramos, 0 sin tinta,
+    0 «V», cobertura ≥99.76 %, 1 impreciso (DU10 h.15, ramal 1 pt inclinado hacia el hueco
+    de la línea). Las reglas de drenaje/agua/alcantarillado no mejoran o empeoran (sewer: 41
+    sin tinta); `precise_junctions` quita ese impreciso pero traza cuerdas de 32 pt sin tinta
+    sobre los rodeos del gas alrededor de símbolos (LABOE h.26/30): NO usarla. Tests:
+    `tests/test_gas_profile.py` y `tests/test_gas_integration.py` (DU10 h.7 → DXF
+    NET_KIND=pressure, ABANDONED=1 en `C-NGAS-D` con «//»).
+    Duplicados: GAS está en `DEDUP_OCG_UTILITIES` y en `DEDUP_ADD_SUFFIX_UTILITIES`
+    (`duplicate_ocgs(ignore_add_suffix=True)`: «-E-ADD» ≡ «-E»; en empate se conserva la
+    capa sin «-ADD»): DU10/DU08 traen la existente en `REF-EXIST_NGAS|C-NGAS-UGND-E` y
+    otra vez en `REF-EXIST_SSWR|…-E-ADD` y `SERVICE_MAPS_CALLOUT|…-E-ADD` → la misma
+    tubería salía 3 veces (19 líneas de más en los 4 PDFs; foto de las 5 utilidades: solo
+    cambia gas). Ojo al revisar: en DU08 h.22 la etiqueta «10+00» tiene fondo BLANCO
+    dibujado DESPUÉS de la línea propuesta (`_Xref` con fill blanco) y tapa su final: la
+    línea SÍ llega a x=1255 (inicio del alineamiento sobre la existente); no es inventada.
+    Ojo también: `Shape.finish` de fitz cierra la polilínea por defecto (`closePath=True`)
+    — al dibujar overlays de revisión pasar `closePath=False` o se ven diagonales falsas.
   - `PDFCAD_CURVE` (punto): esquina de elemento curvo, con `RADIUS_FT`.
   - `PDFCAD_META` (punto): metadatos del proyecto, hoy `CS_CODE` (Huso).
   - `PDFCAD_DUCTBANK` (punto, capa `PDFCAD_DUCT_BANK`): sección transversal del

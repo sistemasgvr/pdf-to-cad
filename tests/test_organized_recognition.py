@@ -6,6 +6,7 @@ import fitz
 from PySide6 import QtCore, QtGui, QtWidgets
 
 from organized_layer_dialog import OrganizedLayersDialog
+import recognition as rec_mod
 from organized_layers import selected_sheets
 from organized_recognition_dialog import OrganizedRecognitionDialog, _rotated_point
 from pdf_view_quality import FocusedPageQuality, render_scale
@@ -36,10 +37,11 @@ def test_capas_de_hojas_organizadas_ofrece_casillas_de_utilidad_a_reconocer():
             None, [doc], [{"name": "a.pdf", "start": 0, "count": 1}],
             {"main": 0}, {})
         try:
-            assert set(dlg._recog_checks) == {"ELECTRICO", "DRENAJE", "AGUA", "ALCANTARILLADO"}
+            assert set(dlg._recog_checks) == set(rec_mod.SUPPORTED_UTILITIES)
             assert all(chk.isChecked() for chk in dlg._recog_checks.values())   # todas por defecto
             dlg._recog_checks["AGUA"].setChecked(False)
             dlg._recog_checks["ALCANTARILLADO"].setChecked(False)
+            dlg._recog_checks["GAS"].setChecked(False)
             dlg._recog_checks["ELECTRICO"].setChecked(False)
             dlg._recog_checks["DRENAJE"].setChecked(False)   # no deja las dos sin marcar
             assert dlg._recog_checks["DRENAJE"].isChecked()

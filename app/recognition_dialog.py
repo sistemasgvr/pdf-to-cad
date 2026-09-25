@@ -28,7 +28,7 @@ _UTILITY_LABEL = {key: label for label, key in TIPOS}
 # Toda centerline de un perfil es «Líneas» (así una utilidad nueva no se olvida aquí).
 _KIND_LABEL = {**{kind: N_("Líneas") for kind in rec.DRAW_KINDS}, "structure": N_("Estructuras")}
 # Cómo se llaman las estructuras de cada utilidad en la lista de capas.
-_STRUCT_LABEL = {"ELECTRICO": N_("Bóvedas"), "ALCANTARILLADO": N_("Buzones")}
+_STRUCT_LABEL = {"ELECTRICO": N_("Bóvedas"), "ALCANTARILLADO": N_("Buzones"), "GAS": N_("Bóvedas")}
 # Acciones que devuelve el preview.
 PREVIEW_IMPORT, PREVIEW_CANCEL = "import", "cancel"
 PREVIEW_CHANGE_SHEET, PREVIEW_ADJUST_LAYERS = "change_sheet", "adjust_layers"

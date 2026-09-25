@@ -81,6 +81,13 @@ CUT_GLYPH_TOUCH_PT = 0.75    # astas de una misma letra se tocan (≤0.75 pt)
 MARKER_ATTACH_PT = 0.5       # un trazo que nace en la punta de una curva la continúa: no es «/»
 MARKER_PAIR_PT = 6.0         # dos barras «//» a ≤6 pt una de otra = UN marcador
 MARKER_DOUBLE_STEPS_OK = 0.75  # «//»: fracción de pasos entre dobles que deben ir al periodo
+# «//» en tramos CORTOS del CAD: AutoCAD dibuja el linetype por segmento y en uno
+# de 26–34 pt pone su «//» más cerca que el periodo (DU08 h.21 gas `C-NGAS-D`,
+# x=1253: dobles a 26/27/34 pt junto a la T, luego a 69). Un paso más corto que el
+# periodo cuenta si mide ≥ este mínimo y la línea lleva ≥`MARKER_DOUBLE_SHORT_MIN_N`
+# dobles propios (dos marcas sueltas no bastan).
+MARKER_DOUBLE_SHORT_MIN_PT = 2 * 6.0
+MARKER_DOUBLE_SHORT_MIN_N = 3
 MARKER_PERIOD_TOL = 0.15     # paso entre marcadores: ±15 % del periodo (+ MARKER_PERIOD_SLACK_PT)
 MARKER_PERIOD_SLACK_PT = 3.0
 MARKER_MIN_AGREE = 2         # pasos iguales necesarios para aprender el periodo (= 3 marcadores seguidos)
@@ -136,6 +143,13 @@ class GeomOptions:
     # siguiente y la bóveda recibía dos líneas casi superpuestas (DU08 h.36
     # (1300, 982), alcantarillado «-D»).
     continuation_before_vault: bool = False
+    # El GANCHO de una letra (la cola de la «g», el brazo de la «G» del linetype
+    # «—G—» de gas) sale como su propio path: un arco abierto pequeño que pasaba
+    # por CODO y metía la línea dentro de la letra — y de ahí saltaba sin tinta a
+    # la línea vecina (DU10 h.7 (405, 830), DU06 h.3 (950, 1310)). Un arco que
+    # cabe en una letra, TOCA una letra y se REPITE con el mismo largo
+    # (≥`GLYPH_STROKE_MIN_REPEAT`) es parte de la letra (`_glyph_hooks`).
+    glyph_hooks: bool = False
 
 
 CHAIN_KINDS = ("corner", "bend", "edge")   # nodos de grado 2 que se encadenan (bóveda: regla propia)
@@ -682,7 +696,8 @@ def clip_path(path: dict, polygons: Sequence[Sequence[Pt]]) -> Optional[dict]:
 
 
 # ─────────────────────────── 1. clasificar ───────────────────────────
-def classify_paths(paths: Sequence[dict], keep_line_strokes: bool = False
+def classify_paths(paths: Sequence[dict], keep_line_strokes: bool = False,
+                   glyph_hooks: bool = False
                    ) -> Tuple[List[Dash], List[Glyph], List[List[Pt]]]:
     """Paths de la capa de LÍNEAS → (guiones, letras, curvas).
     Guion = tramo recto. Letra = trazo compuesto que cabe en GLYPH_MAX_DIM_PT.
@@ -791,7 +806,37 @@ def classify_paths(paths: Sequence[dict], keep_line_strokes: bool = False
             dashes = kept
     dashes, cut = _cut_letter_strokes(dashes)
     glyphs.extend(cut)
+    if glyph_hooks and curves and glyphs:
+        curves, hooks = _glyph_hooks(curves, glyphs)
+        glyphs.extend(hooks)
     return dashes, glyphs, curves
+
+
+def _glyph_hooks(curves: List[List[Pt]], glyphs: List[Glyph]
+                 ) -> Tuple[List[List[Pt]], List[Glyph]]:
+    """(perfil `glyph_hooks`) Arcos pequeños que son el gancho de una letra:
+    caben en `GLYPH_MAX_DIM_PT`, tocan (≤`GLYPH_STROKE_GAP_PT`) una letra ya
+    reconocida y su largo se repite (±1 pt) en ≥`GLYPH_STROKE_MIN_REPEAT`
+    candidatos — un codo real junto a una letra por coincidencia no se repite."""
+    def bbox(c):
+        xs = [q[0] for q in c]; ys = [q[1] for q in c]
+        return (min(xs), min(ys), max(xs), max(ys))
+    cand: List[Tuple[int, float]] = []
+    for i, c in enumerate(curves):
+        bb = bbox(c)
+        if (max(bb[2] - bb[0], bb[3] - bb[1]) <= GLYPH_MAX_DIM_PT
+                and any(_bbox_gap(bb, g.bbox) <= GLYPH_STROKE_GAP_PT for g in glyphs)):
+            cand.append((i, sum(_dist(p, q) for p, q in zip(c, c[1:]))))
+    hook = {i for i, L in cand
+            if sum(1 for _, L2 in cand if abs(L2 - L) <= 1.0) >= GLYPH_STROKE_MIN_REPEAT}
+    kept, out = [], []
+    for i, c in enumerate(curves):
+        if i in hook:
+            bb = bbox(c)
+            out.append(Glyph((bb[0] + bb[2]) / 2, (bb[1] + bb[3]) / 2, max(bb[2] - bb[0], bb[3] - bb[1])))
+        else:
+            kept.append(c)
+    return kept, out
 
 
 def _cut_letter_strokes(dashes: List[Dash]) -> Tuple[List[Dash], List[Glyph]]:
@@ -1039,7 +1084,9 @@ def marker_pattern(polylines: Sequence["Polyline"], markers: Sequence[Glyph]) ->
         tol = MARKER_PERIOD_TOL * per + MARKER_PERIOD_SLACK_PT
         if len(dl) >= 2:
             steps = list(zip(dl, dl[1:]))
-            ok = sum(1 for a, b in steps if any(abs((b - a) - k * per) <= tol * k for k in (1, 2)))
+            ok = sum(1 for a, b in steps if any(abs((b - a) - k * per) <= tol * k for k in (1, 2))
+                     or (len(dl) >= MARKER_DOUBLE_SHORT_MIN_N
+                         and MARKER_DOUBLE_SHORT_MIN_PT <= b - a < per))
             ends_ok = dl[0] <= 2.0 * per + tol and (pl.length - dl[-1]) <= 2.0 * per + tol
             dbl_verdict.append(bool(ok >= MARKER_DOUBLE_STEPS_OK * len(steps) and ends_ok))
         else:
@@ -2890,7 +2937,7 @@ def _polylines_from_uncovered(
 # ─────────────────────────── orquestación ───────────────────────────
 def reconstruct(line_paths: Sequence[dict], vault_paths: Sequence[dict] = (),
                 opts: GeomOptions = GeomOptions()) -> GeomResult:
-    dashes, glyphs, curves = classify_paths(line_paths, opts.precise_junctions)
+    dashes, glyphs, curves = classify_paths(line_paths, opts.precise_junctions, opts.glyph_hooks)
     dashes, markers = strip_crossing_markers(            # «/» del linetype abandonado
         dashes, [c[k] for c in curves if c for k in (0, -1)],
         curves if opts.markers_on_curves else ())
