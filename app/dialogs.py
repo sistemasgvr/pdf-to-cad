@@ -348,7 +348,8 @@ def show_manual(win):
     propia capa de la tubería) entran como estructuras circulares con su diámetro.
     Sus líneas y estructuras se
     asignan por nombre y se muestran juntas en la <b>vista previa del reconocimiento</b>,
-    cada una con su color y sus capas usadas.
+    cada una con su color y sus capas usadas. Un clic en un aviso de <b>Revisar</b>
+    lleva la vista al lugar de la hoja y lo marca (cada clic, el siguiente caso: 1/N).
     Desde ahí: <b>Continuar e importar</b>, <b>Componer hoja…</b> (compositor → capas
     → nueva vista previa) o <b>Ajustar capas…</b> (solo si el plot usa otros nombres).
     Después, al cambiar de hoja en el editor (◀ ▶ o nº de página) la nueva hoja se reconoce

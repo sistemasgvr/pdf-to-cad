@@ -270,6 +270,9 @@ def choose_layer_roles(parent, layers: list[dict], utility="ELECTRICO") -> dict 
 _PreviewView = ZoomPanView
 
 
+GOTO_MIN_SIDE_PX = 420.0   # clic en un aviso: lado mínimo de la zona mostrada (px de la imagen)
+
+
 def _draw_poly(scene, pts, color, width=2.0, dots=False, z=5, dashed=False):
     """Misma convención visual que Main._poly para pipes finalizados."""
     pen = QtGui.QPen(color, width)
@@ -433,6 +436,8 @@ class RecognitionPreviewDialog(QtWidgets.QDialog):
         # Resumen visual: tarjetas + barra por utilidad + «Revisar» (el detalle
         # de cada aviso va en su tooltip; lo informativo, plegado en «Detalles»).
         self.summary = SummaryPanel(self._results)
+        self.summary.locate.connect(self._go_to)
+        self._marker = None
         panel.addWidget(self.summary)
         self.lbl_summary = QtWidgets.QLabel()
         self.lbl_summary.setStyleSheet("color:%s;" % t.text_muted)
@@ -606,6 +611,37 @@ class RecognitionPreviewDialog(QtWidgets.QDialog):
                     _draw_vault_outline(sc, vg, color)
             for (vx, vy) in (getattr(result, "vault_orphans_px", None) or []):
                 _draw_vault(sc, vx, vy, QtGui.QColor("#ff8c00"), z=6, r=4.0)
+
+    def _go_to(self, rect: QtCore.QRectF):
+        """Clic en un aviso de «Revisar»: la vista va a ese lugar (con contexto
+        alrededor) y lo marca con un recuadro que parpadea y se desvanece."""
+        ctx = max(rect.width(), rect.height()) * 1.6 + 60
+        side = max(ctx, GOTO_MIN_SIDE_PX)
+        c = rect.center()
+        view_rect = QtCore.QRectF(c.x() - side / 2, c.y() - side / 2, side, side).united(
+            rect.adjusted(-20, -20, 20, 20))
+        self.view.resetTransform()
+        self.view.fitInView(view_rect, QtCore.Qt.KeepAspectRatio)
+        self.view.centerOn(c)
+        sc = self.view.scene()
+        if self._marker is not None and self._marker.scene() is sc:
+            sc.removeItem(self._marker)
+        pen = QtGui.QPen(QtGui.QColor("#ffb000"), 3)
+        pen.setCosmetic(True)
+        self._marker = sc.addRect(rect.adjusted(-6, -6, 6, 6), pen, QtGui.QBrush(QtGui.QColor(255, 176, 0, 40)))
+        self._marker.setZValue(50)
+        marker = self._marker
+        anim = QtCore.QVariantAnimation(self)
+        anim.setDuration(2600)
+        anim.setStartValue(0.0); anim.setEndValue(1.0)
+
+        def _step(v, m=marker):
+            if m.scene() is None:
+                return
+            # 3 destellos y luego se apaga (queda un contorno tenue hasta el próximo clic)
+            m.setOpacity(1.0 - 0.75 * v if v > 0.6 else (0.35 if int(v * 10) % 2 else 1.0))
+        anim.valueChanged.connect(_step)
+        anim.start(QtCore.QAbstractAnimation.DeleteWhenStopped)
 
     def _fit_view(self):
         self.view.resetTransform()

@@ -126,7 +126,14 @@ alcantarillado, drenaje, gas, eléctrico, telecom). Todo en **unidades imperiale
     aviso SIN regla cae en «revisar» — al agregar un `warnings.append` nuevo en
     `recognition.py`, sumar su regla en `_RULES`); `SummaryPanel` = 4 tarjetas +
     barra por utilidad (activas sólidas / AB rayadas, misma escala) + «Revisar» +
-    «Detalles» plegado. Tests: `tests/test_recognition_summary.py`.
+    «Detalles» plegado. **Clic en un aviso → ir al lugar** (pedido del usuario): cada regla
+    de `_RULES` lleva una CLAVE y `targets_for(clave, result)` da los recuadros (px de la
+    vista) — codos `loose`, ristras `curve` (uno por tramo), `uncovered_px`,
+    `vault_orphans_px`, y `RecognizedPolyline.review` (lo marca `recognize_page` en las
+    rutas que generan los avisos «-A» sin patrón / «//» / «-D» / «/» activa); la fila
+    emite `SummaryPanel.locate(QRectF)` y `RecognitionPreviewDialog._go_to` hace zoom
+    y marca con un recuadro ámbar (1/N por clic). Aviso nuevo con ubicación → clave +
+    rama en `targets_for`. Tests: `tests/test_recognition_summary.py`.
   - `recognition_geom.py` — **núcleo geométrico PURO** (sin Qt ni fitz): en el
     PDF la utilidad viene como linetype "explotado" (guiones + letras «e» +
     huecos), nunca como polilínea. Aprende el patrón del plano

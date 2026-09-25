@@ -147,6 +147,9 @@ class RecognizedPolyline:
     # arco es el del PDF (círculo ajustado a sus vértices); en el editor es la
     # estructura CV con `radius_ft`, como en el flujo manual.
     fillets: dict = field(default_factory=dict)
+    # Aviso de «Revisar» que generó esta ruta (vista previa: clic → ir a ella):
+    # a_no_pattern | double_active | to_abandon | marker_active | "" (ninguno).
+    review: str = ""
 
 
 @dataclass
@@ -1093,13 +1096,17 @@ def recognize_page(
                     n_segments_total += r.n_segments
                     if ab_layer and not ab:
                         n_layer_no_pattern += 1
+                        rec_pl.review = "a_no_pattern"
                     elif not ab_layer and ab:
                         n_double_active += 1
+                        rec_pl.review = "double_active"
                     elif not ab_layer and v:
                         if is_to_abandon_ocg(ocg):
                             n_to_abandon += 1
+                            rec_pl.review = "to_abandon"
                         else:
                             n_active_with_pattern += 1
+                            rec_pl.review = "marker_active"
             for rid, r in enumerate(raw):
                 rec_pl = _emit(r.pl, ocg, _ab(mp_raw.verdict[rid], _dbl(mp_raw, rid)), rid, 1,
                                through_r, ink_r[rid], st_r[rid])

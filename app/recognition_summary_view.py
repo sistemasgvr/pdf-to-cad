@@ -161,11 +161,17 @@ def _legend_swatch(color: QtGui.QColor, hatched: bool) -> QtGui.QPixmap:
 
 
 class _NoticeRow(QtWidgets.QWidget):
-    def __init__(self, n: rs.Notice, show_utility: bool):
+    """Una línea de aviso. Si el aviso señala algo en la hoja (`targets`), la fila
+    es cliqueable: cada clic lleva la vista previa al siguiente caso (1/N)."""
+
+    def __init__(self, n: rs.Notice, show_utility: bool, targets=None, on_locate=None):
         super().__init__()
         t = _theme.tokens()
+        self._targets = targets            # callable → [Rect] (se recalcula: «Unir rutas» cambia tramos)
+        self._on_locate = on_locate
+        self._idx = -1
         lay = QtWidgets.QHBoxLayout(self)
-        lay.setContentsMargins(0, 1, 0, 1); lay.setSpacing(6)
+        lay.setContentsMargins(2, 1, 2, 1); lay.setSpacing(6)
         ic = QtWidgets.QLabel(); ic.setPixmap(_level_icon(n.level).pixmap(16, 16))
         lay.addWidget(ic, 0, QtCore.Qt.AlignTop)
         util = (f"<span style='color:{t.text_muted}'>{_tr(_UTILITY_LABEL.get(n.utility, n.utility))} · </span>"
@@ -174,11 +180,41 @@ class _NoticeRow(QtWidgets.QWidget):
         lbl = QtWidgets.QLabel(f"{util}<span style='color:{ink}'>{_tr(n.label)}</span>")
         lbl.setWordWrap(True)
         lay.addWidget(lbl, 1)
-        self.setToolTip(_tr(n.text))
+        self.clickable = bool(targets and on_locate and targets())
+        tip = _tr(n.text)
+        if self.clickable:
+            self.counter = QtWidgets.QLabel("")
+            self.counter.setStyleSheet(f"color:{t.text_muted}; font-size:11px;")
+            lay.addWidget(self.counter, 0, QtCore.Qt.AlignTop)
+            go = QtWidgets.QLabel(); go.setPixmap(icon("mdi:crosshairs-gps", color=t.text_muted).pixmap(14, 14))
+            lay.addWidget(go, 0, QtCore.Qt.AlignTop)
+            self.setCursor(QtCore.Qt.PointingHandCursor)
+            self.setAttribute(QtCore.Qt.WA_Hover, True)
+            self.setObjectName("noticeRow")
+            self.setStyleSheet(f"#noticeRow {{ border-radius:4px; }}"
+                               f" #noticeRow:hover {{ background:{t.surface_alt}; }}")
+            self.setAttribute(QtCore.Qt.WA_StyledBackground, True)
+            tip += "\n\n" + _tr("Clic: ir al lugar en la hoja (cada clic, el siguiente).")
+        self.setToolTip(tip)
+
+    def mouseReleaseEvent(self, e):
+        if self.clickable and e.button() == QtCore.Qt.LeftButton:
+            rects = self._targets() or []
+            if rects:
+                self._idx = (self._idx + 1) % len(rects)
+                self.counter.setText(f"{self._idx + 1}/{len(rects)}")
+                self._on_locate(rects[self._idx])
+            return
+        super().mouseReleaseEvent(e)
 
 
 class SummaryPanel(QtWidgets.QWidget):
-    """Resumen del reconocimiento: tarjetas + barras por utilidad + avisos."""
+    """Resumen del reconocimiento: tarjetas + barras por utilidad + avisos.
+
+    `locate(QRectF)`: el usuario hizo clic en un aviso que señala algo de la
+    hoja; el rectángulo va en coordenadas de la escena de la vista previa."""
+
+    locate = QtCore.Signal(QtCore.QRectF)
 
     def __init__(self, results, parent=None):
         super().__init__(parent)
@@ -223,7 +259,7 @@ class SummaryPanel(QtWidgets.QWidget):
             ok.addWidget(ic); ok.addWidget(lb, 1)
             root.addLayout(ok)
         for n in act:
-            root.addWidget(_NoticeRow(n, multi))
+            root.addWidget(self._row(n, multi))
 
         self.btn_details = QtWidgets.QToolButton()
         self.btn_details.setCheckable(True)
@@ -246,7 +282,7 @@ class SummaryPanel(QtWidgets.QWidget):
                 hd.setStyleSheet(f"color:{t.text}; font-weight:bold; padding-top:4px;")
                 dl.addWidget(hd)
             for n in rows:
-                dl.addWidget(_NoticeRow(n, False))
+                dl.addWidget(self._row(n, False))
         dl.addStretch(1)
         self.details = QtWidgets.QScrollArea()
         self.details.setWidget(body); self.details.setWidgetResizable(True)
@@ -257,6 +293,13 @@ class SummaryPanel(QtWidgets.QWidget):
         root.addWidget(self.details)
         self.btn_details.toggled.connect(self._toggle_details)
         self.refresh()
+
+    def _row(self, n: rs.Notice, show_utility: bool) -> _NoticeRow:
+        result = next((r for r in self._results if r.utility == n.utility), None)
+        targets = (lambda: rs.targets_for(n.key, result)) if (n.key and result is not None) else None
+        return _NoticeRow(n, show_utility, targets,
+                          lambda r: self.locate.emit(QtCore.QRectF(QtCore.QPointF(r[0], r[1]),
+                                                                    QtCore.QPointF(r[2], r[3]))))
 
     def _toggle_details(self, on: bool):
         self.details.setVisible(on)
