@@ -42,8 +42,7 @@ class OrganizedRecognitionDialog(QtWidgets.QDialog):
         super().__init__(parent)
         self.rows = rows
         self.utilities = tuple(result.utility for result in _row_results(rows[0])) if rows else ("ELECTRICO",)
-        utility_label = ("Eléctrico y Drenaje" if len(self.utilities) > 1 else
-                         ("Drenaje" if self.utilities[0] == "DRENAJE" else "Eléctrico"))
+        utility_label = recognition.utilities_label(self.utilities)
         self.rotations = rotations or {}
         self._items = {}
         self.setWindowTitle(_tr("Vista previa del reconocimiento de {u} · hojas organizadas").format(
@@ -230,7 +229,7 @@ class OrganizedRecognitionDialog(QtWidgets.QDialog):
         results = _row_results(row)
         details_rows = []
         for result in results:
-            utility = "Drenaje" if result.utility == "DRENAJE" else "Eléctrico"
+            utility = recognition.utility_label(result.utility)
             details_rows.append(_tr("{u}: {n} tramos · {v} estructuras · cobertura {c:.1f}%").format(
                 u=utility, n=len(result.drawable), v=len(result.vault_pts), c=result.coverage * 100))
         details = "\n".join(details_rows)
@@ -240,7 +239,7 @@ class OrganizedRecognitionDialog(QtWidgets.QDialog):
         self.details.setText(details)
         self.layers.clear()
         for result in results:
-            utility = "Drenaje" if result.utility == "DRENAJE" else "Eléctrico"
+            utility = recognition.utility_label(result.utility)
             for layer in result.ocg_summary:
                 if layer.get("kind") not in (recognition.utility_line_kind(result.utility), "structure"):
                     continue

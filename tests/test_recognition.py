@@ -479,12 +479,22 @@ def test_dos_barras_sueltas_no_hacen_abandonada(tmp_path):
 
 
 def test_patron_de_marcadores_en_capa_activa_no_abandona(tmp_path):
-    """El patrón «//» regular en una capa ACTIVA no la vuelve abandonada (manda
-    la capa), pero se avisa para revisar."""
-    pdf = _abandoned_doc(tmp_path, [("C-ELEC-UNGD-E", (100, 300), (700, 300), 60.0, True)])
+    """El patrón «/» simple regular en una capa ACTIVA no la vuelve abandonada
+    (manda la capa), pero se avisa para revisar."""
+    pdf = _abandoned_doc(tmp_path, [("C-ELEC-UNGD-E", (100, 300), (700, 300), 60.0, False)])
     res = rec.recognize_page(pdf, 0, zoom=1.0)
     assert res.drawable and not any(p.abandoned for p in res.drawable)
     assert any("capa ACTIVA" in w for w in res.warnings)
+    assert res.coverage >= 0.99
+
+
+def test_patron_doble_slash_en_capa_activa_abandona(tmp_path):
+    """Regla del usuario (2026-09-25): el «//» a paso regular es abandonada en
+    cualquier capa, aunque no sea «-A»; se avisa."""
+    pdf = _abandoned_doc(tmp_path, [("C-ELEC-UNGD-E", (100, 300), (700, 300), 60.0, True)])
+    res = rec.recognize_page(pdf, 0, zoom=1.0)
+    assert res.drawable and all(p.abandoned for p in res.drawable)
+    assert any("Patrón «//»" in w for w in res.warnings)
     assert res.coverage >= 0.99
 
 
@@ -501,6 +511,24 @@ def test_marker_pattern_puro_espaciado_irregular_no_es_patron():
     assert G.marker_pattern([pl], regular[:3]).verdict == [False]
     # irregular: no hay paso
     assert G.marker_pattern([pl], [G.Glyph(x, 0.0, 7.5) for x in (30, 100, 250, 520)]).period is None
+
+
+def test_doble_slash_es_abandonada_en_cualquier_capa():
+    """Regla del usuario (2026-09-25): «//» = abandonada en cualquier utilidad y
+    capa (no hace falta «-A»); la «/» simple no. Un «//» intercalado (ramal junto
+    a una T, DU08 h.21) no tumba el veredicto de una línea larga."""
+    import recognition_geom as G
+    pl = G.Polyline([(0.0, 0.0), (600.0, 0.0)], ["end", "end"])
+    xs = (30, 90, 150, 210, 270, 330, 390, 450, 510, 570)
+    single = [G.Glyph(x, 0.0, 7.5) for x in xs]
+    mp = G.marker_pattern([pl], single)
+    assert mp.doubles == [False] and mp.double_verdict == [False] and not mp.has_double_pattern
+    extra = [G.Glyph(x, 0.0, 7.5) for x in (*xs, 115)]
+    double = [g for m in extra for g in (G.Glyph(m.cx - 1.6, 0.0, 7.5), G.Glyph(m.cx + 1.6, 0.0, 7.5))]
+    stub = G.Polyline([(0.0, 50.0), (30.0, 50.0)], ["end", "end"])
+    mp = G.marker_pattern([pl, stub], double)
+    assert mp.verdict[0] is False                    # el juicio estricto falla por el intruso
+    assert mp.doubles[0] and mp.double_verdict == [True, None] and mp.has_double_pattern
 
 
 # ─────────────── codos: el arco es EXACTAMENTE el trazo curvo del PDF ───────────────

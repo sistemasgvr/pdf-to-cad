@@ -16,14 +16,16 @@ from PySide6 import QtCore, QtGui, QtWidgets
 from i18n import t as _tr
 from model import TIPOS
 from ui_common import layer_qcolor, swatch_icon
+from icons import icon
 from widgets import ZoomPanView, maximize_on_show, side_panel_width
 import recognition as rec
+from recognition_summary_view import SummaryPanel
 import theme as _theme
 
 # Etiqueta de cada utilidad tal como en el desplegable «Tipo de utilidad».
 _UTILITY_LABEL = {key: label for label, key in TIPOS}
 # Etiquetas de los kinds de reconocimiento (informativo en el preview).
-_KIND_LABEL = {"elec_ungd": "Líneas", "drain_ungd": "Líneas",
+_KIND_LABEL = {"elec_ungd": "Líneas", "drain_ungd": "Líneas", "water_ungd": "Líneas",
                "structure": "Estructuras"}
 # Acciones que devuelve el preview.
 PREVIEW_IMPORT, PREVIEW_CANCEL = "import", "cancel"
@@ -384,7 +386,7 @@ class RecognitionPreviewDialog(QtWidgets.QDialog):
             raise ValueError("La vista previa necesita al menos un resultado")
         self._result = self._results[0]  # compatibilidad con consumidores antiguos
         utilities = tuple(item.utility for item in self._results)
-        utility_title = ("Eléctrico y Drenaje" if len(utilities) > 1 else
+        utility_title = (rec.utilities_label(utilities) if len(utilities) > 1 else
                          _UTILITY_LABEL.get(utilities[0], utilities[0]))
         self.action = PREVIEW_CANCEL
 
@@ -426,9 +428,12 @@ class RecognitionPreviewDialog(QtWidgets.QDialog):
         panel.addLayout(head)
 
         self._colors = {item.utility: layer_qcolor(item.utility) for item in self._results}
+        # Resumen visual: tarjetas + barra por utilidad + «Revisar» (el detalle
+        # de cada aviso va en su tooltip; lo informativo, plegado en «Detalles»).
+        self.summary = SummaryPanel(self._results)
+        panel.addWidget(self.summary)
         self.lbl_summary = QtWidgets.QLabel()
-        self.lbl_summary.setWordWrap(True)
-        panel.addWidget(self.lbl_summary)
+        self.lbl_summary.setStyleSheet("color:%s;" % t.text_muted)
         self.chk_routes = QtWidgets.QCheckBox(_tr("Unir tramos en rutas"))
         self.chk_routes.setToolTip(_tr(
             "En cada cruce sigue de frente; el ramal empieza otra ruta. "
@@ -442,12 +447,22 @@ class RecognitionPreviewDialog(QtWidgets.QDialog):
         cov = min(float(getattr(item, "coverage", 1.0) or 0.0) for item in self._results)
         n_unc = sum(len(getattr(item, "uncovered_px", None) or []) for item in self._results)
         n_off = sum(len(getattr(item, "offpattern_px", None) or []) for item in self._results)
-        qa = QtWidgets.QLabel(
-            _tr("Cobertura: {c:.1f}%  ·  sin cubrir: {m} (naranja)  ·  fuera de patrón: {o} (violeta)").format(
-                c=cov * 100, m=n_unc, o=n_off))
+        qa_ok = cov >= 0.98 and n_unc == 0
+        qa_row = QtWidgets.QHBoxLayout(); qa_row.setSpacing(6)
+        qa_ic = QtWidgets.QLabel()
+        qa_ic.setPixmap(icon("mdi:check-circle-outline" if qa_ok else "mdi:alert-outline",
+                             color=t.success if qa_ok else "#e08a00").pixmap(16, 16))
+        qa_txt = _tr("Cobertura {c:.1f} %").format(c=cov * 100)
+        if n_unc or n_off:
+            qa_txt += "  ·  " + _tr("{m} sin cubrir (naranja) · {o} fuera de patrón (violeta)").format(
+                m=n_unc, o=n_off)
+        qa = QtWidgets.QLabel(qa_txt)
         qa.setWordWrap(True)
-        qa.setStyleSheet("color:%s;" % (t.success if cov >= 0.98 and n_unc == 0 else "#e08a00"))
-        panel.addWidget(qa)
+        qa.setToolTip(_tr("Guiones del plano cubiertos por las líneas reconocidas. En el dibujo: "
+                          "naranja = sin cubrir, violeta = trazos fuera de patrón (leaders/flechas)."))
+        qa_row.addWidget(qa_ic, 0); qa_row.addWidget(qa, 1)
+        qa_row.addWidget(self.lbl_summary, 0)
+        panel.addLayout(qa_row)
         hidden = sorted({name for item in self._results
                          for name in (getattr(item, "hidden_ocgs", None) or [])})
         if hidden:
@@ -497,25 +512,6 @@ class RecognitionPreviewDialog(QtWidgets.QDialog):
             warn.setWordWrap(True)
             warn.setStyleSheet(f"color:{t.danger}; font-weight:bold;")
             panel.addWidget(warn)
-        else:
-            warnings = []
-            for item in self._results:
-                prefix = (_UTILITY_LABEL.get(item.utility, item.utility) + ": "
-                          if len(self._results) > 1 else "")
-                warnings.extend(prefix + text for text in item.warnings)
-            warn = QtWidgets.QLabel("\n".join(warnings))
-            warn.setWordWrap(True)
-            warn.setStyleSheet(f"color:{t.text_muted};")
-            if warnings:
-                panel.addWidget(warn)
-
-        note = QtWidgets.QLabel(
-            _tr("Al continuar, estas líneas se importan al editor como {u} "
-                "(igual que el dibujo manual, con sus puntos de quiebre). "
-                "Las estructuras se insertan como nodos de la red.").format(
-                    u=utility_title))
-        note.setWordWrap(True)
-        panel.addWidget(note)
 
         # ── botones: dos filas alineadas en cuadrícula (mismo ancho por columna).
         #    Fila 1, secundarias: Componer hoja… | Ajustar capas…
@@ -532,6 +528,10 @@ class RecognitionPreviewDialog(QtWidgets.QDialog):
         self.btn_cancel.clicked.connect(self.reject)
         self.btn_ok = QtWidgets.QPushButton(_tr("Continuar e importar al editor"))
         self.btn_ok.clicked.connect(lambda: self._finish(PREVIEW_IMPORT))
+        self.btn_ok.setToolTip(
+            _tr("Al continuar, estas líneas se importan al editor como {u} "
+                "(igual que el dibujo manual, con sus puntos de quiebre). "
+                "Las estructuras se insertan como nodos de la red.").format(u=utility_title))
         for b in (self.btn_sheet, self.btn_roles, self.btn_cancel):
             b.setProperty("secondary", True)
         for b in (self.btn_sheet, self.btn_roles, self.btn_cancel, self.btn_ok):
@@ -560,17 +560,8 @@ class RecognitionPreviewDialog(QtWidgets.QDialog):
 
     def _update_summary(self):
         drawable = self._drawable()
-        n_ab = sum(1 for p in drawable if getattr(p, "abandoned", False))
-        n_vault = sum(len(getattr(result, "vault_pts", None) or []) for result in self._results)
-        txt = _tr("Tramos listos: {n}  ·  Estructuras: {v}  ·  Escala: {s:.6f} pie/pt").format(
-            n=len(drawable), v=n_vault, s=self._result.scale_ft_per_pt)
-        n_routes = sum(int(getattr(result, "n_routes", 0) or 0) for result in self._results)
-        n_seg = sum(int(getattr(result, "n_segments_total", 0) or 0) for result in self._results)
-        if self.chk_routes.isChecked() and n_seg:
-            txt += "\n" + _tr("Rutas: {n} (unen {m} tramos)").format(n=n_routes or len(drawable), m=n_seg)
-        if n_ab:
-            txt += "\n" + _tr("Abandonadas (AB): {a} — mismo color; se distinguen por (AB).").format(a=n_ab)
-        self.lbl_summary.setText(txt)
+        self.lbl_summary.setText(_tr("Escala {s:.6f} pie/pt").format(s=self._result.scale_ft_per_pt))
+        self.summary.refresh()
         if hasattr(self, "btn_ok"):
             self.btn_ok.setEnabled(len(drawable) > 0)
 

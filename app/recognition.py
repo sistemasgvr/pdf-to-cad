@@ -42,16 +42,25 @@ RECOGNITION_LAYER_TOKENS: Sequence[Tuple[str, str]] = (
 )
 
 UTILITY_HINT = "ELECTRICO"
-SUPPORTED_UTILITIES = ("ELECTRICO", "DRENAJE")
+SUPPORTED_UTILITIES = ("ELECTRICO", "DRENAJE", "AGUA")
+# Selección por defecto al abrir un PDF (la de siempre). Agua se marca a mano en
+# el paso «Capas de la hoja»: así activarla no cambia lo que ya se importaba.
+DEFAULT_UTILITIES = ("ELECTRICO", "DRENAJE")
 UTILITY_LINE_KINDS = {
     "ELECTRICO": "elec_ungd",
     "DRENAJE": "drain_ungd",
+    "AGUA": "water_ungd",
 }
+# Nombre visible de cada perfil (textos de la UI: selector, progreso, preview).
+UTILITY_LABELS = {"ELECTRICO": "Eléctrico", "DRENAJE": "Drenaje", "AGUA": "Agua"}
 DRAW_KINDS = frozenset(UTILITY_LINE_KINDS.values())
 # Reglas del núcleo geométrico que activa cada perfil. El eléctrico usa las de
 # siempre (sin opciones): las correcciones de drenaje no lo tocan.
 UTILITY_GEOM_OPTIONS = {
     "DRENAJE": geom.GeomOptions(separate_vaults=True, nearest_vault=True, absorb_inside_runs=True),
+    # Agua: el núcleo de siempre + unir primero las puntas que el PDF dibuja unidas.
+    "AGUA": geom.GeomOptions(join_touching_ends=True, gap_turn_blocks=True,
+                             markers_on_curves=True),
 }
 # Perfiles que reconocen UNA sola vez una capa repetida por otro xref (`duplicate_ocgs`).
 DEDUP_OCG_UTILITIES = frozenset({"DRENAJE"})
@@ -145,10 +154,23 @@ class RecognitionResult:
         return [p for p in self.polylines if p.kind in DRAW_KINDS and p.pts_pdf]
 
 
+def utility_label(key: str) -> str:
+    """«Eléctrico», «Drenaje», «Agua»… (la clave tal cual si no es un perfil)."""
+    return UTILITY_LABELS.get((key or "").upper(), key)
+
+
+def utilities_label(keys) -> str:
+    """Selección → texto: «Eléctrico», «Eléctrico y Drenaje», «Eléctrico, Drenaje y Agua»."""
+    names = [utility_label(k) for k in keys]
+    if len(names) <= 1:
+        return names[0] if names else utility_label(UTILITY_HINT)
+    return ", ".join(names[:-1]) + " y " + names[-1]
+
+
 def normalize_utilities(value=None) -> tuple[str, ...]:
     """Normaliza una selección de reconocimiento y conserva el orden visual."""
     if value is None:
-        return SUPPORTED_UTILITIES
+        return DEFAULT_UTILITIES
     if isinstance(value, str):
         value = (value,)
     selected = {str(item).strip().upper() for item in value if item}
@@ -160,14 +182,11 @@ def recognition_choices(available=()) -> list[tuple[tuple[str, ...], str]]:
     """Opciones visibles para el selector según las capas presentes."""
     present = {str(item).upper() for item in available}
     supported = tuple(key for key in SUPPORTED_UTILITIES if not present or key in present)
-    if len(supported) == 2:
-        return [
-            (SUPPORTED_UTILITIES, "Eléctrico y Drenaje"),
-            (("ELECTRICO",), "Solo Eléctrico"),
-            (("DRENAJE",), "Solo Drenaje"),
-        ]
+    if len(supported) >= 2:
+        return [(supported, utilities_label(supported))] + [
+            ((key,), "Solo " + utility_label(key)) for key in supported]
     key = supported[0] if supported else UTILITY_HINT
-    return [((key,), "Eléctrico" if key == "ELECTRICO" else "Drenaje")]
+    return [((key,), utility_label(key))]
 
 
 def utility_line_kind(utility: str = UTILITY_HINT) -> str:
@@ -217,6 +236,8 @@ def classify_ocg(ocg: Optional[str], utility: str = UTILITY_HINT) -> Optional[st
     short = standard_short_name(ocg)
     up = ((ocg.rsplit("|", 1)[0] + "|") if "|" in ocg else "").upper() + short
     utility = (utility or UTILITY_HINT).strip().upper()
+    if utility == "AGUA":
+        return _classify_water(short)
     if utility == "DRENAJE":
         if not any(token in short for token in ("STRM", "STORM", "DRAN", "DRAIN")):
             return None
@@ -255,6 +276,30 @@ def classify_ocg(ocg: Optional[str], utility: str = UTILITY_HINT) -> Optional[st
 
 
 _ELEC_UG_LINE = re.compile(r"^C-ELEC-(?:[A-Z0-9]+-)?U(?:NGD|GND)(?:-|_|$)")
+
+# Agua (perfil AGUA). Centerline: C-WATR-UNGD-* (APDU y estándar BOE), sus
+# variantes de paquete (`C-WATR_UGND-E-ADD`, `C-WATER-UNGD-E-SHORT`) y la
+# tubería del estándar C-WATR-PIPE(-LTRL…). Estado por el sufijo como siempre
+# (-A abandonada, -D a abandonar, -E existente, -N nueva).
+_WATR_LINE = re.compile(r"^C-WATE?R[-_](?:[A-Z0-9]+-)?(?:UNGD|UGND|PIPE)(?:-|_|$)")
+# Dentro de esas capas: anotación, camisa, accesorios/válvulas/medidores e
+# hidrantes (símbolos, no la línea), muros, perfil, estructuras.
+_WATR_NOT_LINE = ("ANNO", "TEXT", "CASE", "FITT", "APPT", "VALV", "METR", "METER",
+                  "HYDR", "-FH", "-GV", "WALL", "PROF", "STRC", "VALT", "MANH",
+                  "MHOL", "IDEN", "PATT", "OTLN", "STAN")
+# Estructuras de agua con caja real (bóveda, pozo): las válvulas, medidores,
+# hidrantes, risers, backflow o cajas de riego son accesorios, no estructuras.
+_WATR_STRUCT = ("V-WATR-VALT", "V-WATR-MANH", "V-WATR-STRU", "V-FIRE-STRU",
+                "C-WATR-VALT", "C-WATR-MANH", "C-WATR-MHOL", "C-WATR-STRC")
+
+
+def _classify_water(short: str) -> Optional[str]:
+    """Perfil AGUA: nombre corto normalizado → kind, o None."""
+    if short.startswith(_WATR_STRUCT):
+        return "structure"
+    if _WATR_LINE.match(short) and not any(t in short for t in _WATR_NOT_LINE):
+        return utility_line_kind("AGUA")
+    return None
 
 
 # Capas de estructuras que NO son una bóveda existente: propuestas de otro
@@ -752,6 +797,7 @@ def recognize_page(
         n_layer_no_pattern = 0          # capa «-A» pero sin el patrón «/»
         n_active_with_pattern = 0       # patrón «/» en una capa activa (solo se avisa)
         n_to_abandon = 0                # …de ellas, en capa «-D» (leyenda: existente a abandonar «//»)
+        n_double_active = 0             # «//» fuera de capa «-A»: se importan ABANDONADAS
 
         def _through_dirs(polys):
             """{(x, y) px redondeado: dirección unitaria} de la línea que PASA por
@@ -847,11 +893,18 @@ def recognize_page(
             mp_joined = geom.marker_pattern([r.pl for r in joined], g.markers)
             mp_raw = geom.marker_pattern([r.pl for r in raw], g.markers)
             layer_has = mp_joined.has_pattern or mp_raw.has_pattern
-            ab_by_layer[ocg] = bool(ab_layer and layer_has)
+            # «//» = abandonada en CUALQUIER utilidad y capa (regla del usuario,
+            # 2026-09-25): no hace falta la capa «-A»; la «/» simple sí la exige.
+            layer_double = mp_joined.has_double_pattern or mp_raw.has_double_pattern
+            ab_by_layer[ocg] = bool((ab_layer and layer_has) or layer_double)
 
-            def _ab(v):
+            def _ab(v, dv=False):
                 follows = v if v is not None else layer_has
-                return bool(ab_layer and follows)
+                by_double = dv if dv is not None else layer_double
+                return bool((ab_layer and follows) or by_double)
+
+            def _dbl(mp, i):
+                return mp.double_verdict[i] if i < len(mp.double_verdict) else False
 
             through_j = _through_dirs([r.pl for r in joined])
             through_r = _through_dirs([r.pl for r in raw])
@@ -871,20 +924,24 @@ def recognize_page(
             ink_r = [ink_samples(v, step_pt=ink_step_px) for v in st_r]
             for rid, r in enumerate(joined):
                 v = mp_joined.verdict[rid]
-                rec_pl = _emit(r.pl, ocg, _ab(v), rid, r.n_segments, through_j, ink_j[rid], st_j[rid])
+                ab = _ab(v, _dbl(mp_joined, rid))
+                rec_pl = _emit(r.pl, ocg, ab, rid, r.n_segments, through_j, ink_j[rid], st_j[rid])
                 if rec_pl is not None:
                     polylines_joined.append(rec_pl)
                     n_routes += 1
                     n_segments_total += r.n_segments
-                    if ab_layer and not _ab(v):
+                    if ab_layer and not ab:
                         n_layer_no_pattern += 1
+                    elif not ab_layer and ab:
+                        n_double_active += 1
                     elif not ab_layer and v:
                         if is_to_abandon_ocg(ocg):
                             n_to_abandon += 1
                         else:
                             n_active_with_pattern += 1
             for rid, r in enumerate(raw):
-                rec_pl = _emit(r.pl, ocg, _ab(mp_raw.verdict[rid]), rid, 1, through_r, ink_r[rid], st_r[rid])
+                rec_pl = _emit(r.pl, ocg, _ab(mp_raw.verdict[rid], _dbl(mp_raw, rid)), rid, 1,
+                               through_r, ink_r[rid], st_r[rid])
                 if rec_pl is not None:
                     polylines_raw.append(rec_pl)
             uncovered_px += [(px(d.a), px(d.b)) for d in g.uncovered]
@@ -944,7 +1001,11 @@ def recognize_page(
                 "de estación/elevación): esa vista no es planta y no se reconoce.")
         n_ab = sum(1 for p in polylines if p.kind == line_kind and p.pts_pdf and p.abandoned)
         if n_ab:
-            warnings.append(f"Utilidades abandonadas (capa «-A» + patrón «/»): {n_ab} — se importan marcadas (AB).")
+            warnings.append(f"Utilidades abandonadas (capa «-A» + patrón «/», o patrón «//»): {n_ab} "
+                            "— se importan marcadas (AB).")
+        if n_double_active:
+            warnings.append(f"Patrón «//» en una capa que no es «-A»: {n_double_active} línea(s) "
+                            "— se importan ABANDONADAS (el «//» manda).")
         if n_layer_no_pattern:
             warnings.append(f"Capa «-A» sin el patrón de marcadores «/» a lo largo de la línea: "
                             f"{n_layer_no_pattern} — NO se marcan como abandonadas.")

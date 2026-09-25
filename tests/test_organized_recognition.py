@@ -36,7 +36,8 @@ def test_capas_de_hojas_organizadas_ofrece_casillas_de_utilidad_a_reconocer():
             None, [doc], [{"name": "a.pdf", "start": 0, "count": 1}],
             {"main": 0}, {})
         try:
-            assert set(dlg._recog_checks) == {"ELECTRICO", "DRENAJE"}
+            assert set(dlg._recog_checks) == {"ELECTRICO", "DRENAJE", "AGUA"}
+            assert not dlg._recog_checks["AGUA"].isChecked()
             assert dlg._recog_checks["ELECTRICO"].isChecked()
             assert dlg._recog_checks["DRENAJE"].isChecked()
             dlg._recog_checks["ELECTRICO"].setChecked(False)

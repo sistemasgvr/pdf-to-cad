@@ -339,8 +339,11 @@ def show_manual(win):
     <b>Todas</b> actúa sobre el conjunto. El buscador solo filtra la lista y
     <b>Mostrar/Ocultar todas</b> actúa sobre lo que se ve. Con <b>◀ Hoja N / M ▶</b> puedes cambiar de
     hoja sin salir (las capas marcadas se conservan). Las capas ocultas no se dibujan en
-    el lienzo ni se usan en el reconocimiento. En <b>Utilidades a reconocer</b> puedes elegir
-    <b>Eléctrico y Drenaje</b>, solo Eléctrico o solo Drenaje. Sus líneas y estructuras se
+    el lienzo ni se usan en el reconocimiento. En <b>Utilidades a reconocer</b> marcas las
+    que quieras de <b>Eléctrico</b>, <b>Drenaje</b> y <b>Agua</b> (por defecto Eléctrico y
+    Drenaje; Agua se activa solo si la hoja tiene capas de agua). El agua es red a
+    <b>presión</b>: se importan sus líneas, como al dibujarla a mano, sin cajas automáticas.
+    Sus líneas y estructuras se
     asignan por nombre y se muestran juntas en la <b>vista previa del reconocimiento</b>,
     cada una con su color y sus capas usadas.
     Desde ahí: <b>Continuar e importar</b>, <b>Componer hoja…</b> (compositor → capas

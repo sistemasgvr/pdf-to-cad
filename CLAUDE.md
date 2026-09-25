@@ -118,6 +118,14 @@ alcantarillado, drenaje, gas, eléctrico, telecom). Todo en **unidades imperiale
     importa como CAJA suelta `standalone=True` — `attach_vault_geometry` la crea,
     `rebuild_structures` la conserva como a las `world`, el lienzo la pinta con
     el color de la utilidad; las U-PROP/POLE/PBOX (`NON_VAULT_TOKENS`) no).
+  - `recognition_summary.py` (PURO) + `recognition_summary_view.py` — resumen
+    VISUAL de la vista previa (lo pidió el usuario: «evitar mucho texto»):
+    `classify_warning` pasa cada aviso de `recognize_page` a `Notice` (nivel
+    problema/revisar/info + etiqueta corta; el texto completo va al tooltip; un
+    aviso SIN regla cae en «revisar» — al agregar un `warnings.append` nuevo en
+    `recognition.py`, sumar su regla en `_RULES`); `SummaryPanel` = 4 tarjetas +
+    barra por utilidad (activas sólidas / AB rayadas, misma escala) + «Revisar» +
+    «Detalles» plegado. Tests: `tests/test_recognition_summary.py`.
   - `recognition_geom.py` — **núcleo geométrico PURO** (sin Qt ni fitz): en el
     PDF la utilidad viene como linetype "explotado" (guiones + letras «e» +
     huecos), nunca como polilínea. Aprende el patrón del plano
@@ -207,6 +215,12 @@ alcantarillado, drenaje, gas, eléctrico, telecom). Todo en **unidades imperiale
     las RUTAS (joined y raw) por OCG; DU06 h.9: paso 67.7 pt, línea de 282 pt
     True + 3 stubs None → 4 (AB). Capa `-A` sin patrón → se importa activa con
     aviso; patrón en capa activa → solo aviso.
+    **«//» = abandonada en CUALQUIER utilidad y capa** (regla del usuario
+    2026-09-25; DU08 h.21 agua `-D`): `MarkerPattern.doubles` (mayoría de
+    marcadores de 2 barras) y `double_verdict` (solo los dobles, ≥75 % de pasos
+    a 1×/2× el periodo — `MARKER_DOUBLE_STEPS_OK` —, dobles a ≤2 pasos de cada
+    punta; sin «//» propio y corta → None = hereda la capa). La «/» simple sigue
+    exigiendo capa `-A`.
     `Vault` trae además la geometría REAL del símbolo (`_fill_vault_geometry`: el
     path cerrado más grande del clúster → `outline` 4 esquinas con giro, `width`/
     `length` pt, `angle_deg` rumbo del lado largo, o `shape="circle"`); `recognition`
@@ -522,6 +536,22 @@ alcantarillado, drenaje, gas, eléctrico, telecom). Todo en **unidades imperiale
     en una letra, repetido ≥`CUT_GLYPH_MIN_REPEAT`=3 veces con los mismos largos =
     letra partida → glifo. Foto: DU06 0 puntos movidos (solo «end»→«cut» en extremos
     del borde); cambios de geometría solo en DU08 h.36/37/49 y LABOE h.26 (revisados).
+  - **Perfil AGUA (2026-09-24)**: `recognition.SUPPORTED_UTILITIES` = ELECTRICO, DRENAJE,
+    AGUA; `DEFAULT_UTILITIES` (selección al abrir) sigue siendo Eléctrico+Drenaje — Agua se
+    marca en «Capas de la hoja». Etiquetas: `UTILITY_LABELS`/`utility_label`/
+    `utilities_label` (no volver a escribir «Eléctrico y Drenaje» a mano en la UI).
+    `_classify_water`: línea `water_ungd` = `C-WATE?R[-_](paquete-)?(UNGD|UGND|PIPE)` sin
+    ANNO/TEXT/CASE/FITT/APPT/VALV/METR/HYDR/-FH/-GV/WALL/…; estructura = V-WATR-VALT/MANH/
+    STRU, V-FIRE-STRU, C-WATR-VALT/MANH/MHOL/STRC (válvulas, medidores, hidrantes =
+    accesorios, no). Red a PRESIÓN (`NETWORK_KIND`): `Main._import_recognized_pipes` no
+    llama `attach_vault_geometry` ni cuenta bóvedas importables para presión (como el
+    dibujo manual: `rebuild_structures` no crea nodos en presión). Reglas del perfil
+    (`GeomOptions`, SOLO agua): `join_touching_ends` (puntas a ≤1 pt se cosen primero;
+    punta JUSTO sobre una línea = T aunque esté cerca de su extremo — el join_gap del agua
+    llega a 70 pt), `gap_turn_blocks` (`build_runs` no cruza un hueco si en su borde nace
+    otro trazo no colineal), `markers_on_curves` (`strip_crossing_markers(curve_chains=)`).
+    Auditoría: `tests/test_water_profile.py`; 68 hojas sin tramos sin tinta ni «V»; foto
+    eléctrico/drenaje de los 4 PDFs = 0 diferencias.
   - `PDFCAD_CURVE` (punto): esquina de elemento curvo, con `RADIUS_FT`.
   - `PDFCAD_META` (punto): metadatos del proyecto, hoy `CS_CODE` (Huso).
   - `PDFCAD_DUCTBANK` (punto, capa `PDFCAD_DUCT_BANK`): sección transversal del

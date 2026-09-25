@@ -32,6 +32,7 @@ from organized_layers import selected_sheets
 from sheet_layout import normalize as normalize_sheet_layout, normalize_rotations
 from sheet_crops import normalize as normalize_sheet_crops
 import layer_dialog
+import recognition as _recognition
 import composite as composite_mod
 import composite_dialog
 import project_io
@@ -41,7 +42,7 @@ from model import (VERSION, TIPOS, ACI_RGB, LEADER_TEXT_FT, LEADER_ORIENT,
                    TAB_PIPE, TAB_LEADER, TAB_TEXT, TAB_REGION, TAB_BZ, TAB_CURVE, TAB_CL,
                    TAB_DB,
                    WORK_UNITS, DEFAULT_WORK_UNIT, CHANGELOG,
-                   PIPE_DIAMETERS_IN, PIPE_MATERIALS, DEFAULT_PIPE_MATERIAL)
+                   PIPE_DIAMETERS_IN, PIPE_MATERIALS, DEFAULT_PIPE_MATERIAL, NETWORK_KIND)
 
 # Constantes y helpers de UI compartidos (antes definidos aquí) → ui_common.py.
 from ui_common import (DOWNLOADS, btn_on_style, btn_off_style, aci_qcolor, layer_qcolor,
@@ -65,7 +66,7 @@ class Main(QtWidgets.QMainWindow):
         self.hidden_ocgs = []   # capas OCG ocultas en el paso «Capas de la hoja» (por PDF abierto)
         self.hidden_ocgs_by_source = {}  # selección de capas por PDF de la organización
         self._layer_roles_by_utility = {}  # roles OCG manuales separados por utilidad
-        self._recognition_utilities = ("ELECTRICO", "DRENAJE")
+        self._recognition_utilities = _recognition.DEFAULT_UTILITIES
         self._join_routes = True   # unir tramos de la misma capa en rutas (desactivable en el preview)
         self._recog_ready = False  # True cuando el asistente ya reconoció una hoja de este PDF (◀ ▶ vuelven a reconocer)
         self.sheet_layout = None  # hoja principal y vecinas del PDF; índices 0-based
@@ -1525,7 +1526,7 @@ class Main(QtWidgets.QMainWindow):
             self.hidden_ocgs = []   # capas OCG ocultas por el usuario (paso «Capas de la hoja»)
             self.hidden_ocgs_by_source = {}
             self._layer_roles_by_utility = {}
-            self._recognition_utilities = ("ELECTRICO", "DRENAJE")
+            self._recognition_utilities = _recognition.DEFAULT_UTILITIES
             self._recog_ready = False
             self.sheet_layout = None
             self.sheet_rotations = {}
@@ -1780,8 +1781,7 @@ class Main(QtWidgets.QMainWindow):
         if not self.doc or not self.sheet_layout or not self.pdf_path:
             return
         sheets = selected_sheets(self.sheet_layout, self.sheet_sources)
-        utility_text = ("Eléctrico y Drenaje" if len(self._recognition_utilities) > 1
-                        else ("Drenaje" if self._recognition_utilities[0] == "DRENAJE" else "Eléctrico"))
+        utility_text = _recognition.utilities_label(self._recognition_utilities)
         progress = QtWidgets.QProgressDialog(
             _tr("Reconociendo {u} en las hojas organizadas…").format(u=utility_text),
             None, 0, 0, self)
@@ -1867,7 +1867,7 @@ class Main(QtWidgets.QMainWindow):
         import pdf_layers as _pdf_layers
         utilities = tuple(self._recognition_utilities)
         if len(utilities) > 1:
-            labels = ["Eléctrico" if key == "ELECTRICO" else "Drenaje" for key in utilities]
+            labels = [_recognition.utility_label(key) for key in utilities]
             label, ok = QtWidgets.QInputDialog.getItem(
                 self, _tr("Ajustar capas"),
                 _tr("¿Qué utilidad quieres ajustar?"), labels, 0, False)
@@ -1891,8 +1891,7 @@ class Main(QtWidgets.QMainWindow):
         capas ocultas (`self.hidden_ocgs`) y roles separados por utilidad
         (sin ajuste manual = automático por nombre). Al terminar, `_recognition_done` muestra
         la vista previa. Lo usan el asistente y el cambio de hoja del editor."""
-        utility_text = ("Eléctrico y Drenaje" if len(self._recognition_utilities) > 1
-                        else ("Drenaje" if self._recognition_utilities[0] == "DRENAJE" else "Eléctrico"))
+        utility_text = _recognition.utilities_label(self._recognition_utilities)
         progress = QtWidgets.QProgressDialog(
             _tr("Reconociendo {u}…").format(u=utility_text),
             None, 0, 0, self)
@@ -2011,7 +2010,10 @@ class Main(QtWidgets.QMainWindow):
             snapped, skipped = rec.inject_vault_vertices(pipes, vaults)
             result.vaults_snapped = snapped
             result.vaults_skipped = skipped
-            has_importable_structure = any(
+            # Red a PRESIÓN (agua): como en el dibujo manual, sin estructuras
+            # automáticas — las bóvedas se ven en el preview pero no se importan.
+            pressure = NETWORK_KIND.get(utility) == "pressure"
+            has_importable_structure = not pressure and any(
                 vault.get("importable", False)
                 for vault in (getattr(result, "vaults_geo", None) or []))
             if pipes or has_importable_structure:
@@ -2030,6 +2032,8 @@ class Main(QtWidgets.QMainWindow):
         # …y les pone a las CAJA de bóveda real su forma, medidas (pies) y contorno.
         n_geo = n_alone = 0
         for result, utility, _pipes, _snapped, _skipped in batches:
+            if NETWORK_KIND.get(utility) == "pressure":
+                continue
             where = self._xdata_origin(result.page_index)
             added_geo, added_alone = model_ops.attach_vault_geometry(
                 self.structures, getattr(result, "vaults_geo", None) or [],
@@ -2047,7 +2051,7 @@ class Main(QtWidgets.QMainWindow):
             if not pipes:
                 continue
             n_seg = sum(int(getattr(pl, "n_segments", 1) or 1) for pl in result.drawable)
-            utility_name = "Drenaje" if utility == "DRENAJE" else "Eléctrico"
+            utility_name = _recognition.utility_label(utility)
             parts.append(_tr("{n} rutas ({m} tramos) de {u}").format(
                 n=len(pipes), m=n_seg, u=utility_name))
         msg = (_tr("Importadas: {items}.").format(items="; ".join(parts))

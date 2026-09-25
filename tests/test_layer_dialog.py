@@ -73,8 +73,10 @@ def test_lista_agrupada_por_utilidad_con_cabeceras(dlg):
 def test_selector_de_utilidad_permite_electrico_y_drenaje(dlg):
     """Casillas (no un desplegable), una por utilidad reconocible: se pueden
     combinar libremente, pero no queda ninguna sin marcar."""
-    assert set(dlg._recog_checks) == {"ELECTRICO", "DRENAJE"}
-    assert all(cb.isChecked() for cb in dlg._recog_checks.values())
+    assert set(dlg._recog_checks) == {"ELECTRICO", "DRENAJE", "AGUA"}
+    # por defecto, la selección de siempre; Agua se marca a mano
+    assert dlg._recog_checks["ELECTRICO"].isChecked() and dlg._recog_checks["DRENAJE"].isChecked()
+    assert not dlg._recog_checks["AGUA"].isChecked()
     assert dlg.recognition_utilities() == ("ELECTRICO", "DRENAJE")
     dlg._recog_checks["ELECTRICO"].setChecked(False)
     assert dlg.recognition_utilities() == ("DRENAJE",)

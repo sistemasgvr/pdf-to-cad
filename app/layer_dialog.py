@@ -50,7 +50,7 @@ _ROLE_UTILITY = QtCore.Qt.UserRole + 1     # clave de utilidad de la fila
 
 # Etiqueta corta de cada utilidad reconocible (recognition.SUPPORTED_UTILITIES)
 # para sus casillas «Utilidades a reconocer».
-_UTILITY_RECOG_LABEL = {"ELECTRICO": "Eléctrico", "DRENAJE": "Drenaje"}
+_UTILITY_RECOG_LABEL = dict(recognition.UTILITY_LABELS)
 
 
 def utility_qcolor(key: str) -> QtGui.QColor:
