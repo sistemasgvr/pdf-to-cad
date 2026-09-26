@@ -293,6 +293,12 @@ The status bar at the bottom counts how many there are of each kind.</p>
 <tr><td bgcolor="{{danger}}"><b>Sloped vertical connection</b></td>
     <td bgcolor="{{card}}">An approved vertical joint at a bend has too little elevation difference for two elbows.</td>
     <td bgcolor="{{card}}">It places a Wye with a sloped branch and the incoming pipe gets a <b>slope</b>.</td></tr>
+<tr><td bgcolor="{{danger}}"><b>No room for a vertical</b></td>
+    <td bgcolor="{{card}}">Two pipes end at the same point at different heights, but the difference is too small to join them with a vertical pipe.</td>
+    <td bgcolor="{{card}}">It gives a <b>slope</b> to the longer one (or to both, if they are the same length) and joins them with an elbow.</td></tr>
+<tr><td bgcolor="{{danger}}"><b>Return bend</b></td>
+    <td bgcolor="{{card}}">The pipe turns back almost in a U (turn over 135°) and the short segment is not long enough for the curve.</td>
+    <td bgcolor="{{card}}">It places a <b>U curve</b> at the vertex and shifts the short segment slightly to the side.</td></tr>
 </table>
 <table width="100%" cellspacing="0" cellpadding="12"><tr>
 <td width="6" bgcolor="{{info_border}}"></td><td bgcolor="{{info}}">

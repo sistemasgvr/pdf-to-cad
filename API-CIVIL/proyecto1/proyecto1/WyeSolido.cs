@@ -37,7 +37,7 @@ namespace Civil3DBasico
     //  seguirlos: todos salen horizontales desde una Z común y son los tubos
     //  los que se recortan contra la pieza. Ver `Aplanar`.
     // ─────────────────────────────────────────────────────────────────────────
-    internal static class WyeSolido
+    internal static partial class WyeSolido
     {
         internal const string CAPA = "PDFCAD_WYE_SOLIDO";
         internal const string APP_XDATA = "PDFCAD_FITTING";
@@ -127,6 +127,18 @@ namespace Civil3DBasico
             // Radio extra del CUERPO de este brazo (no de su campana). Solo lo
             // llevan los dos brazos del tronco de una Y: ver ENGROSE_TRONCO_Y_FT.
             internal double EngroseFt;
+            // Cota del EJE de su tubo en la juntura (null = desconocida). En las
+            // piezas rígidas en Z (Tee/Y/cruz) el centro va al eje del tubo de
+            // mayor diámetro y cada brazo más delgado se baja/sube a la altura de
+            // su propio tubo (OffsetZFt, dentro del cuerpo): así la boca queda
+            // coaxial con el tubo aunque compartan la cota de FONDO. Ver Aplanar.
+            // No se copia en Copia(): una pieza que reemplaza a otra conserva el
+            // centro de la original.
+            internal double? EjeZ;
+            internal double OffsetZFt;
+            // El desnivel no cabía dentro del cuerpo: al recortar, la punta del
+            // tubo se lleva a la altura de la boca (priorizar que conecte).
+            internal bool AjustarZTubo;
 
             // Distancia desde el centro hasta donde debe MORIR el tubo: la
             // punta entra en la campana pero no llega al fondo. Se le resta el
@@ -309,7 +321,23 @@ namespace Civil3DBasico
                 }
                 if (b.LargoCuerpoFt <= 1e-9) b.LargoCuerpoFt = b.DiamFt * factor;
             }
-            return centro;
+            if (!rigidoEnZ) return centro;
+
+            // Centro a la altura del EJE del tubo de mayor diámetro (el tronco).
+            // Antes se usaba el promedio de los ejes: con un ramal más delgado a la
+            // misma cota de fondo, ninguna boca quedaba coaxial con su tubo.
+            var conEje = brazos.Where(b => b.EjeZ.HasValue && !EsRamalVertical(b.Direccion)).ToList();
+            if (conEje.Count == 0) return centro;
+            double dMax = conEje.Max(b => b.DiamFt);
+            double zRef = conEje.Where(b => b.DiamFt >= dMax - 1e-6).Average(b => b.EjeZ.Value);
+            foreach (var b in conEje)
+            {
+                double pedido = b.EjeZ.Value - zRef;
+                double limite = Math.Max(0.0, (dMax - b.DiamFt) / 2.0);   // el brazo sigue dentro del cuerpo
+                b.OffsetZFt = Math.Max(-limite, Math.Min(limite, pedido));
+                b.AjustarZTubo = Math.Abs(pedido - b.OffsetZFt) > 0.01;
+            }
+            return new Point3d(centro.X, centro.Y, zRef);
         }
 
         // ¿Este brazo es una salida VERTICAL de verdad (una bajante/subida), o
@@ -501,6 +529,15 @@ namespace Civil3DBasico
                         continue;
                     }
                     Point3d destino = fijo + u * tDestino;
+                    if (b.AjustarZTubo)
+                    {
+                        // El desnivel con el tronco no cabía dentro del cuerpo: la
+                        // punta del tubo sube/baja a la boca (queda con pendiente).
+                        double z = centro.Z + b.OffsetZFt;
+                        ed?.WriteMessage($"\n    · [FITTING-SOLIDO] Tubo Ø{b.DiamFt * 12:F0}\": su punta pasa de " +
+                            $"Z {destino.Z:F2} a {z:F2} para entrar en la boca de la pieza.");
+                        destino = new Point3d(destino.X, destino.Y, z);
+                    }
 
                     if (b.Port == 0) pp.StartPoint = destino;
                     else pp.EndPoint = destino;
@@ -647,6 +684,16 @@ namespace Civil3DBasico
         {
             CurvaCodo(d, ang, out _, out double T, out _);
             return new Brazo { DiamFt = d, LargoCuerpoFt = T + d * COLLAR_CODO_D };
+        }
+
+        // Distancia vértice → tangencia (T) del codo de diámetro d y ángulo entre
+        // ejes `ang`, y si es un codo CERRADO (de retorno). Ver CurvaCodo.
+        internal static double TangenciaCodoFt(double d, double ang, out bool cerrado)
+        {
+            // Ejes casi superpuestos: no hay curva posible (se arma manguito recto).
+            if (ang * 180.0 / Math.PI < ANG_EJES_MIN_DEG) { cerrado = true; return double.PositiveInfinity; }
+            if (!CurvaCodo(d, ang, out _, out double T, out cerrado)) { cerrado = true; return double.PositiveInfinity; }
+            return T;
         }
 
         // ── Codo con curva real ─────────────────────────────────────────────
@@ -848,6 +895,8 @@ namespace Civil3DBasico
             Vector3d dir = b.Direccion;
             if (dir.Length < 1e-9) return null;
             dir = dir.GetNormal();
+            // Brazo más delgado a la altura de su propio tubo (ver Aplanar).
+            centro = centro + Vector3d.ZAxis * b.OffsetZFt;
 
             double rTubo = b.DiamFt / 2.0;
             double largoCuerpo = b.LargoCuerpoFt > 1e-9 ? b.LargoCuerpoFt : b.DiamFt * LARGO_BRAZO_D;

@@ -561,11 +561,125 @@ def tramos_cortos_entre_codos(pipes, ft_per_px):
     return salida
 
 
+def _codo_solido_ft(d, ang):
+    """(T, alcance, cerrado) del codo sólido del plugin (WyeSolido.CurvaCodo /
+    Brazo.AlcanceTuboFt): diámetro `d` en pies y ángulo ENTRE ejes `ang` (rad).
+    T = vértice → tangencia; alcance = vértice → donde muere el tubo."""
+    giro = math.pi - ang
+    cerrado = giro > math.radians(135.0)
+    tan_phi = math.tan(ang / 2.0)
+    if abs(tan_phi) < 1e-9 or math.degrees(ang) < 2.0:   # ejes casi superpuestos: manguito recto
+        return math.inf, math.inf, True
+    r = d * 1.0
+    t = r / tan_phi
+    if t > d * 0.85:
+        r_min = (d / 2.0 + 0.02 + 0.04 + 0.10 / 2.0) if cerrado else d * 1.0
+        t = max(d * 0.85, r_min / tan_phi)
+        if t * tan_phi < r_min - 1e-9:
+            t = r_min / tan_phi
+    alcance = (t + d * 0.12) + d * 0.45 * 0.75 - 0.12
+    return t, alcance, cerrado
+
+
+def codos_de_retorno(pipes, ft_per_px):
+    """Codos CERRADOS (giro > 135°) de redes a presión con un tramo vecino tan
+    corto que la curva no cabe (E07: 170° con 2 ft). El plugin hace ahí un codo
+    de RETORNO en el vértice y traslada el tramo corto de lado
+    (`CodosDeRetorno` en ImportarRed.cs). Devuelve
+    [{"x", "y", "pipe", "tramo", "giro", "largo_ft", "necesita_ft", "lateral_ft"}]
+    (x, y en px = vértice; tramo 1 = T1, el tramo corto)."""
+    salida = []
+    if not ft_per_px:
+        return salida
+    for ip, p in enumerate(pipes):
+        if network_kind(p.get("layer") or "") != "pressure":
+            continue
+        pts = p.get("pts") or []
+        try:
+            d = float(p.get("diam") or 0) / 12.0
+        except (TypeError, ValueError):
+            d = 0.0
+        if d <= 0:
+            continue
+        for k in range(1, len(pts) - 1):
+            (ax, ay), (px, py), (bx, by) = pts[k - 1], pts[k], pts[k + 1]
+            la = math.hypot(ax - px, ay - py) * ft_per_px
+            lb = math.hypot(bx - px, by - py) * ft_per_px
+            if la < 1e-9 or lb < 1e-9:
+                continue
+            giro = _giro_deg((ax, ay), (px, py), (bx, by))
+            ang = math.radians(180.0 - giro)
+            t, alcance, cerrado = _codo_solido_ft(d, ang)
+            if not cerrado or math.isinf(t):
+                continue
+            necesita = alcance + 0.05
+            if min(la, lb) >= necesita:
+                continue
+            corto_es_b = lb <= la
+            salida.append({"x": px, "y": py, "pipe": ip, "tramo": k + 1 if corto_es_b else k,
+                           "giro": giro, "largo_ft": min(la, lb), "necesita_ft": necesita,
+                           "lateral_ft": t * math.sin(ang)})
+    return salida
+
+
 def desnivel_min_dos_codos_ft(diam_in):
     """Desnivel mínimo (entre ejes) para bajar con dos codos sólidos de 90°:
     2 × boca del codo + 0.05 ft; la boca de un codo de 90° mide 1.57·D
     (WyeSolido: radio 1·D + collar 0.12·D + campana 0.45·D)."""
     return 2 * 1.57 * (float(diam_in) / 12.0) + 0.05
+
+
+def union_con_pendiente(pa, pb, pt, za, zb, tol, ft_per_px, z_tol=0.10):
+    """EXTREMO CON EXTREMO de la misma utilidad a presión, a distinta cota
+    (> z_tol, la app sugiere una vertical) pero sin altura para una conexión
+    vertical (dos codos de 90° + vertical: `desnivel_min_dos_codos_ft`). El
+    plugin no arma la vertical: la tubería más larga toma pendiente hasta la otra
+    y se unen (con un codo si giran); si miden lo mismo (±2 %), las dos van al
+    punto medio (`UnionConPendiente` en ImportarRed.cs).
+    «Largo» = el tramo que llega al punto (es el que toma la pendiente).
+    `za`/`zb` son soleras en el punto. Devuelve None o
+    {"dz", "min", "iguales", "larga" ("a"|"b"|None), "z_union", "tramo_a",
+     "tramo_b", "largo_a", "largo_b", "codo"}."""
+    if za is None or zb is None or abs(za - zb) <= z_tol:
+        return None
+    if (pa.get("layer") or "") != (pb.get("layer") or "") or network_kind(pa.get("layer") or "") != "pressure":
+        return None
+
+    def _extremo(p):
+        """(índice del tramo que llega, largo px, dirección saliente) o None."""
+        pts = p.get("pts") or []
+        if len(pts) < 2:
+            return None
+        for k_pt, k_seg, k_otro in ((0, 0, 1), (len(pts) - 1, len(pts) - 2, len(pts) - 2)):
+            x, y = pts[k_pt]
+            if math.hypot(x - pt[0], y - pt[1]) <= tol:
+                ox, oy = pts[k_otro]
+                return k_seg, math.hypot(ox - x, oy - y), (ox - x, oy - y)
+        return None
+
+    ea, eb = _extremo(pa), _extremo(pb)
+    if ea is None or eb is None:
+        return None
+    try:
+        da, db = float(pa.get("diam") or 0) / 12.0, float(pb.get("diam") or 0) / 12.0
+    except (TypeError, ValueError):
+        return None
+    if da <= 0 or db <= 0:
+        return None
+    dz_eje = abs((za + da / 2.0) - (zb + db / 2.0))
+    minimo = desnivel_min_dos_codos_ft(min(da, db) * 12.0)
+    if dz_eje >= minimo:
+        return None
+    la, lb = ea[1] * ft_per_px, eb[1] * ft_per_px
+    iguales = abs(la - lb) <= 0.02 * max(la, lb)
+    larga = None if iguales else ("a" if la > lb else "b")
+    z_union = (za + zb) / 2.0 if iguales else (zb if larga == "a" else za)
+    (ux, uy), (vx, vy) = ea[2], eb[2]
+    nu, nv = math.hypot(ux, uy), math.hypot(vx, vy)
+    entre = math.degrees(math.acos(max(-1.0, min(1.0, (ux * vx + uy * vy) / (nu * nv))))) if nu and nv else 180.0
+    return {"dz": abs(za - zb), "min": minimo, "iguales": iguales, "larga": larga, "z_union": z_union,
+            "tramo_a": ea[0] + 1, "tramo_b": eb[0] + 1, "largo_a": la, "largo_b": lb,
+            "codo": entre < 179.0}
 
 
 def conexion_vertical_inclinada(pa, pb, pt, za, zb, tol):

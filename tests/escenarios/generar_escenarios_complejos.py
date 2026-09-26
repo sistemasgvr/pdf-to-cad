@@ -316,14 +316,13 @@ def c09(lz, P):
     lz.tubo("AGUA", [P, (P[0] + L, P[1])], diams[1], (-4, -4))
     lz.tubo("AGUA", [P, pol(P, 45, L)], diams[2], (-4, -4))
     ejes = [_eje(-4.0, d) for d in diams]
-    zc = sum(ejes) / 3.0
-    desv = "/".join(f"{z - zc:+.2f}" for z in ejes)
     return dict(
         titulo="Y reductora de 3 diámetros: Ø18 entra, Ø12 sale, ramal Ø8 a 45° (misma solera)",
         app="conflicto (misma cota)",
-        c3d=(f"WYE sólida Ø18/12/8 asentada en el eje MEDIO (z={zc:.2f}): los ejes de los "
-             f"tubos quedan a {desv} ft de la pieza, con solo 0.02 ft de holgura de campana."),
-        nc="Con solera común cada brazo debería ir a la altura de SU tubo (pieza excéntrica).",
+        c3d=(f"WYE sólida Ø18/12/8 centrada en el eje del Ø18 (z={ejes[0]:.2f}); el brazo Ø12 y el "
+             "ramal Ø8 van a la altura de SU eje (fondo plano, pieza excéntrica): las tres bocas "
+             "quedan coaxiales con sus tubos."),
+        nc=None,
         marcas=[(P, "conflicto")])
 
 
@@ -403,17 +402,13 @@ def c14(lz, P):
 def c15(lz, P):
     _tronco_y_ramal(lz, P, 90, 36, 4)
     ejes = [_eje(-4.0, 36), _eje(-4.0, 36), _eje(-4.0, 4)]
-    zc = sum(ejes) / 3.0
-    bs = brazos("TEE", [180, 0, 90], [36, 36, 4])
     return dict(
         titulo="Tee reductora extrema: tronco Ø36, ramal Ø4 (misma solera)",
         app="conflicto (misma cota)",
-        c3d=(f"TEE en z={zc:.2f} (eje medio): tronco {ejes[0] - zc:+.2f} ft y ramal "
-             f"{ejes[2] - zc:+.2f} ft respecto a la pieza. El brazo del ramal mide "
-             f"{bs[2]['largo']:.2f} ft desde el CENTRO: su campana queda enterrada en el "
-             f"tronco (radio 1.50 ft) y el tubo Ø4 muere a {bs[2]['alcance']:.2f} ft del "
-             "centro, dentro del sólido."),
-        nc="Los brazos se miden desde el centro, no desde la pared del tronco, y la pieza no es excéntrica.",
+        c3d=(f"TEE centrada en el eje del Ø36 (z={ejes[0]:.2f}); el ramal Ø4 va a la altura de su "
+             f"eje ({ejes[2] - ejes[0]:+.2f} ft, fondo plano) y se alarga hasta sacar su campana "
+             "fuera del tronco: el tubo Ø4 entra en ella."),
+        nc=None,
         marcas=[(P, "conflicto")])
 
 

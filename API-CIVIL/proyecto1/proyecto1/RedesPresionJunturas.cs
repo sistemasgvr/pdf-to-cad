@@ -729,6 +729,30 @@ namespace Civil3DBasico
                                || tipo == CivilDB.PressurePartType.Tee
                                || tipo == CivilDB.PressurePartType.Elbow
                                || tipo == CivilDB.PressurePartType.Cross;
+                // Codo reductor: codo UNIFORME del diámetro mayor + reducción
+                // excéntrica hacia el menor (ver ReduccionSolida.cs). El cono
+                // doblado de antes no tiene equivalente comercial y dejaba las
+                // bocas a desnivel de los tubos.
+                if (FITTING_COMO_SOLIDO && codoReductor)
+                {
+                    var tubos = pipesInfo.Select(p => new WyeSolido.TuboJuntura
+                    {
+                        PipeId = p.PipeId, Port = p.Port,
+                        Cerca = p.Port == 0 ? p.pp.StartPoint : p.pp.EndPoint,
+                        Lejos = p.Port == 0 ? p.pp.EndPoint : p.pp.StartPoint,
+                        DiamFt = p.pp.NominalDiameter,
+                    }).OrderByDescending(t => t.DiamFt).ToList();
+                    ObjectId sidRed = WyeSolido.CrearCodoConReduccion(net.Database, tr, tubos[0], tubos[1],
+                        Math.Abs(deflex), SeguroMaterial(pipesInfo[0].pp), SeguroNombreRed(net), ed);
+                    if (sidRed != ObjectId.Null)
+                    {
+                        ed.WriteMessage($"\n  · [FITTING-SOLIDO] Codo Ø{tubos[0].DiamFt * 12:F0}\" + reducción " +
+                            $"{tubos[0].DiamFt * 12:F0}×{tubos[1].DiamFt * 12:F0}\" en " +
+                            $"({j.Ubicacion.X:F2},{j.Ubicacion.Y:F2}), giro {Math.Abs(deflex):F0}°.");
+                        nFit++;
+                        continue;
+                    }
+                }
                 if (FITTING_COMO_SOLIDO && tipoSolido)
                 {
                     var brazos = pipesInfo.Select(p =>
@@ -741,6 +765,10 @@ namespace Civil3DBasico
                             DiamFt = p.pp.NominalDiameter,
                             PipeId = p.PipeId,
                             Port = p.Port,
+                            // Cota del eje de este tubo en la juntura: la pieza se
+                            // centra en el eje del tronco y cada ramal queda a la
+                            // altura del suyo (bocas coaxiales).
+                            EjeZ = (p.Port == 0 ? p.pp.StartPoint : p.pp.EndPoint).Z,
                         };
                     }).ToList();
 

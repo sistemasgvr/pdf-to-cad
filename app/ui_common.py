@@ -54,3 +54,17 @@ def swatch_icon(color, size=14):
     pm = QtGui.QPixmap(size, size); pm.fill(QtCore.Qt.transparent)
     p = QtGui.QPainter(pm); p.setBrush(color); p.setPen(QtGui.QPen(QtGui.QColor(70, 70, 70)))
     p.drawRect(0, 0, size - 1, size - 1); p.end(); return QtGui.QIcon(pm)
+
+
+# Ancho del texto de los tooltips del lienzo (alertas y marcadores). Un mensaje
+# largo en una sola línea cruzaba media pantalla; así sale en un bloque de
+# ancho medio, casi cuadrado, y respeta los saltos de párrafo.
+TOOLTIP_ANCHO_PX = 340
+
+
+def tooltip_bloque(texto):
+    """Texto de tooltip envuelto a `TOOLTIP_ANCHO_PX` (Qt solo ajusta el ancho
+    de un tooltip si es texto enriquecido)."""
+    import html as _html
+    cuerpo = _html.escape(texto or "").replace("\n", "<br>")
+    return f'<table width="{TOOLTIP_ANCHO_PX}"><tr><td>{cuerpo}</td></tr></table>'

@@ -1895,4 +1895,32 @@ EN: dict[str, str] = {
         "Review ({n})",
     "{u}: {n} tramos — {a} activos, {b} abandonados (AB)\n{c} codos · {v} estructuras · cobertura {k:.1f} %":
         "{u}: {n} segments — {a} active, {b} abandoned (AB)\n{c} bends · {v} structures · coverage {k:.1f} %",
+
+    # ── app_window.py (codo de retorno) ──
+    "{n} codo(s) de retorno":
+        "{n} return bend(s)",
+    "Codo de retorno":
+        "Return bend",
+    "Giro de {giro:.0f}° muy cerrado: el codo necesita {necesita:.2f} ft de tubería y el tramo T{t} solo tiene {largo:.2f} ft.\n\nEn Civil 3D se pondrá un codo de retorno (curva en U) en el vértice y el tramo T{t} se correrá {lateral:.2f} ft hacia el costado para no montarse sobre el otro tubo.":
+        "Turn of {giro:.0f}° too tight: the elbow needs {necesita:.2f} ft of pipe and segment T{t} only has {largo:.2f} ft.\n\nIn Civil 3D a return bend (U curve) will be placed at the vertex and segment T{t} will be shifted {lateral:.2f} ft to the side so it does not ride on top of the other pipe.",
+
+    # ── app_window.py (codo con reducción) ──
+    "un codo sólido de {d1:g}\" con reducción {d1:g}×{d2:g}\"":
+        "a solid {d1:g}\" elbow with a {d1:g}×{d2:g}\" reducer",
+
+    # ── app_window.py (unión con pendiente, sin espacio para vertical) ──
+    "No hay espacio para una tubería vertical: la diferencia de altura es de {dz:.2f} ft y hacen falta al menos {minimo:.2f} ft.":
+        "There is no room for a vertical pipe: the height difference is {dz:.2f} ft and at least {minimo:.2f} ft are needed.",
+    "se unirán con un codo":
+        "they will be joined with an elbow",
+    "se unirán en línea recta":
+        "they will be joined in a straight line",
+    "En Civil 3D: las dos tuberías miden lo mismo, así que las dos tendrán una pendiente hasta un punto medio ({z:.2f} ft) y {union}.":
+        "In Civil 3D: both pipes are the same length, so both will get a slope to a midpoint ({z:.2f} ft) and {union}.",
+    "En Civil 3D: la tubería más larga («{nombre}», tramo T{t}) tendrá una pendiente para llegar a la más corta y {union}.":
+        "In Civil 3D: the longer pipe («{nombre}», segment T{t}) will get a slope to reach the shorter one and {union}.",
+    "Sin espacio para tubería vertical":
+        "No room for a vertical pipe",
+    "{n} unión(es) con pendiente":
+        "{n} sloped joint(s)",
 }

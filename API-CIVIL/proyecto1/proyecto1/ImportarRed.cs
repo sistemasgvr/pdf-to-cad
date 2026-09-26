@@ -64,6 +64,7 @@ namespace Civil3DBasico
             // Registro de piezas sólidas de ESTE import (lo consultan las
             // conexiones verticales para reemplazar un codo por una Wye).
             WyeSolido.Creadas.Clear();
+            _unionesConPendiente.Clear();
             Dbg("IMPORTAR_RED_INICIO", ("timestamp", DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss")));
             Document doc = Application.DocumentManager.MdiActiveDocument;
             Editor ed = doc.Editor;
@@ -2444,6 +2445,7 @@ namespace Civil3DBasico
             // tramo que pasa ANTES de crear nada, para que la juntura tenga sus
             // 3 extremos.
             FusionarCodosSeguidos(pipes, ed);
+            CodosDeRetorno(pipes, ed);
             PartirTramosEnTes(pipes, ed);
 
             // Crear tuberías con matching per-pipe por diámetro
@@ -2594,10 +2596,32 @@ namespace Civil3DBasico
                     double cx = ax / cl.Count, cy = ay / cl.Count;
 
                     // 2) Por utilidad de origen: cada una, su cota en ese punto.
-                    var subgrupos = cl
+                    List<(List<int> idxs, double z)> Subgrupos() => cl
                         .GroupBy(ix => fuenteTubo.TryGetValue(pts[ix].id, out int s) ? s : -1 - ix)
                         .Select(g => (idxs: g.ToList(), z: g.Average(ix => pts[ix].pos.Z)))
                         .OrderBy(sg => sg.z).ToList();
+                    var subgrupos = Subgrupos();
+
+                    // 2b) EXTREMO CON EXTREMO de la misma utilidad a distinta cota,
+                    //     sin altura para una conexión vertical (dos codos de 90° +
+                    //     vertical): la tubería más larga toma pendiente hasta la
+                    //     otra (o las dos hasta el punto medio si miden lo mismo) y
+                    //     se unen con un codo. Misma regla que la app
+                    //     (model_ops.union_con_pendiente), que lo avisa en la sugerencia.
+                    if (subgrupos.Count == 2 && subgrupos.All(sg => sg.idxs.Count == 1))
+                    {
+                        int ia = subgrupos[0].idxs[0], ib = subgrupos[1].idxs[0];
+                        var r = UnionConPendiente(pipes, pipeEndpoints, fuenteTubo, pts[ia], pts[ib], Z_TOL_JUNTA);
+                        if (r.HasValue)
+                        {
+                            var (zA, zB, texto) = r.Value;
+                            pts[ia] = (new Point3d(pts[ia].pos.X, pts[ia].pos.Y, zA), pts[ia].id, pts[ia].port);
+                            pts[ib] = (new Point3d(pts[ib].pos.X, pts[ib].pos.Y, zB), pts[ib].id, pts[ib].port);
+                            _unionesConPendiente.Add(new Point2d(cx, cy));
+                            ed.WriteMessage($"\n  · [UNION-PENDIENTE] ({cx:F2},{cy:F2}): {texto}");
+                            subgrupos = Subgrupos();
+                        }
+                    }
 
                     // 3) Utilidades distintas: juntas solo si están a la misma cota.
                     var grupos = new List<List<(List<int> idxs, double z)>>();
@@ -3681,6 +3705,102 @@ namespace Civil3DBasico
             }
         }
 
+        // Codo CERRADO (de retorno, giro > 135°) con un tramo vecino tan corto que
+        // la curva no cabe: el codo necesita T ft de tubo a cada lado del vértice y
+        // el tramo corto no los tiene, así que la curva salía ~T ft antes del
+        // vértice y el tramo corto quedaba suelto (E07: 170° con 2 ft). Aquí la U
+        // se lleva AL VÉRTICE: el vértice pasa a V = P + t·T sobre la recta del
+        // tramo largo (así la tangencia cae en P) y el tramo corto se traslada de
+        // lado —conserva dirección y largo visible— para que su recta pase por V.
+        // El corrimiento lateral es T·sen(ángulo entre ejes) (~1.2 ft en Ø12").
+        // Misma regla que model_ops.codos_de_retorno en la app (avisa con ▲ rojo).
+        private static void CodosDeRetorno(List<ImportPipe> pipes, Editor ed)
+        {
+            foreach (var ip in pipes)
+            {
+                if (!string.Equals(ip.NetKind, "pressure", StringComparison.OrdinalIgnoreCase)) continue;
+                var v = ip.Vertices;
+                int n = v?.Count ?? 0;
+                double d = string.Equals(ip.Unit, "mm", StringComparison.OrdinalIgnoreCase)
+                    ? ip.Diameter / 304.8 : ip.Diameter / 12.0;
+                if (d <= 0) continue;
+                for (int k = 1; k + 1 < n; k++)
+                {
+                    Vector2d uA = v[k - 1] - v[k], uB = v[k + 1] - v[k];      // salidas del vértice
+                    double lA = uA.Length, lB = uB.Length;
+                    if (lA < 1e-9 || lB < 1e-9) continue;
+                    uA = uA.GetNormal(); uB = uB.GetNormal();
+                    double ang = uA.GetAngleTo(uB);                             // ángulo entre ejes
+                    double T = WyeSolido.TangenciaCodoFt(d, ang, out bool cerrado);
+                    if (!cerrado || double.IsInfinity(T)) continue;
+                    double alcance = WyeSolido.BrazoDeCodo(d, ang).AlcanceTuboFt;
+                    double necesario = alcance + 0.05;                          // RecortarTubos exige ≥0.05 ft
+                    if (Math.Min(lA, lB) >= necesario) continue;
+
+                    // El tramo largo se queda en su recta; el corto se traslada.
+                    bool cortoEsB = lB <= lA;
+                    Vector2d uLargo = cortoEsB ? uA : uB, uCorto = cortoEsB ? uB : uA;
+                    double lCorto = cortoEsB ? lB : lA;
+                    Point2d P = v[k];
+                    Point2d V = P - uLargo * T;                                 // sobre la recta larga, pasado P
+                    Point2d lejos = V + uCorto * (alcance + lCorto);            // conserva largo visible
+                    int iCorto = cortoEsB ? k + 1 : k - 1;
+                    double lateral = T * Math.Sin(ang);
+                    ed?.WriteMessage($"\n  · [RETORNO] {ip.Layer} #{ip.PipeIdx}: codo de {(Math.PI - ang) * 180 / Math.PI:F0}° " +
+                        $"con tramo de {lCorto:F2} ft (necesita {necesario:F2} ft) → codo de retorno en el vértice; " +
+                        $"el tramo corto se corre {lateral:F2} ft de lado.");
+                    v[k] = V;
+                    v[iCorto] = lejos;
+                }
+            }
+        }
+
+        // Puntos donde dos extremos se unieron con pendiente (UnionConPendiente):
+        // ahí no se arma conexión vertical aunque la app la tuviera aprobada.
+        private static readonly List<Point2d> _unionesConPendiente = new List<Point2d>();
+
+        // ¿Dos extremos de la misma utilidad a presión, a distinta cota pero sin
+        // altura para una vertical, deben unirse con pendiente? Devuelve la cota
+        // (solera) nueva de cada extremo y un texto para el log; null si no aplica.
+        // «Tubería más larga» = el tramo que llega al punto (es el que toma la
+        // pendiente); si miden lo mismo (±2 %), las dos van al punto medio.
+        private static (double zA, double zB, string texto)? UnionConPendiente(
+            List<ImportPipe> pipes, List<(Point3d start, Point3d end, ObjectId id)> pipeEndpoints,
+            Dictionary<ObjectId, int> fuenteTubo,
+            (Point3d pos, ObjectId id, int port) a, (Point3d pos, ObjectId id, int port) b, double zTol)
+        {
+            if (!fuenteTubo.TryGetValue(a.id, out int sa) || !fuenteTubo.TryGetValue(b.id, out int sb)) return null;
+            if (sa < 0 || sb < 0 || sa >= pipes.Count || sb >= pipes.Count) return null;
+            ImportPipe pa = pipes[sa], pb = pipes[sb];
+            if (!string.Equals(pa.Layer, pb.Layer, StringComparison.OrdinalIgnoreCase)) return null;
+            if (!string.Equals(pa.NetKind, "pressure", StringComparison.OrdinalIgnoreCase)) return null;
+            double dz = Math.Abs(a.pos.Z - b.pos.Z);
+            if (dz <= zTol) return null;
+            double dA = pa.Diameter / 12.0, dB = pb.Diameter / 12.0;
+            double dzEje = Math.Abs((a.pos.Z + dA / 2) - (b.pos.Z + dB / 2));
+            double minDz = 2.0 * WyeSolido.BrazoDeCodo(Math.Min(dA, dB), Math.PI / 2.0).BocaFt + 0.05;
+            if (dzEje >= minDz) return null;                     // cabe una vertical: flujo de siempre
+
+            double Largo(ObjectId id)
+            {
+                foreach (var pe in pipeEndpoints)
+                    if (pe.id == id) return new Vector2d(pe.end.X - pe.start.X, pe.end.Y - pe.start.Y).Length;
+                return 0;
+            }
+            double lA = Largo(a.id), lB = Largo(b.id);
+            if (Math.Abs(lA - lB) <= 0.02 * Math.Max(lA, lB))
+            {
+                double zm = (a.pos.Z + b.pos.Z) / 2.0;
+                return (zm, zm, $"desnivel de {dz:F2} ft sin espacio para vertical (mínimo {minDz:F2} ft): " +
+                                $"las dos tuberías (mismo largo, {lA:F1} ft) toman pendiente hasta {zm:F2} ft y se unen.");
+            }
+            bool aLarga = lA > lB;
+            double zObj = aLarga ? b.pos.Z : a.pos.Z;
+            return (zObj, zObj, $"desnivel de {dz:F2} ft sin espacio para vertical (mínimo {minDz:F2} ft): " +
+                                $"la tubería más larga ({Math.Max(lA, lB):F1} ft) toma pendiente hasta {zObj:F2} ft " +
+                                $"y se une con la más corta ({Math.Min(lA, lB):F1} ft).");
+        }
+
         // Giro (grados) en b del camino a→b→c; 0 = sigue recto.
         private static double Giro(Point2d a, Point2d b, Point2d c)
         {
@@ -4241,6 +4361,12 @@ namespace Civil3DBasico
                 {
                     ed.WriteMessage($"\n[CROSS #{idx}] ⚠ pipe_idx inválido (fuera de rango 0..{pipes.Count - 1}).");
                     nFail++; continue;
+                }
+                if (_unionesConPendiente.Any(u => Math.Abs(u.X - cc.X) <= 0.5 && Math.Abs(u.Y - cc.Y) <= 0.5))
+                {
+                    ed.WriteMessage($"\n[CROSS #{idx}]   Sin altura para una vertical: los extremos ya se unieron " +
+                        "con pendiente ([UNION-PENDIENTE]) — no se crea la vertical.");
+                    continue;
                 }
                 var pA = pipes[cc.PipeA]; var pB = pipes[cc.PipeB];
                 ed.WriteMessage($"\n[CROSS #{idx}]   pipe_a: layer='{pA.Layer}', Ø={pA.Diameter:F1}\", NetKind='{pA.NetKind}'");

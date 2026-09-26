@@ -92,7 +92,9 @@ def e04(lz, P):
     codo(lz, (P[0], P[1] - 18), 140)
 def e05(lz, P): codo(lz, P, 160)
 def e06(lz, P): codo(lz, P, 176)
-def e07(lz, P): codo(lz, P, 170, l2=2.0)
+def e07(lz, P):
+    codo(lz, P, 170, l2=2.0)
+    return {"app": [(P, "retorno")]}
 def e08(lz, P): codo(lz, P, 60, inv=(-2.0, -10.0))
 def codo_reductor(lz, P, defl, d_entra, d_sale):
     """Dos utilidades de distinto diámetro que se unen en P girando `defl`°."""
@@ -137,7 +139,11 @@ def extremo_a_extremo(lz, P, inv_b):
     lz.tubo("AGUA", [P, pol(P, 60, L)], 12, (inv_b, inv_b))
 def e19(lz, P): extremo_a_extremo(lz, P, -4.00); return {"app": [(P, "conflicto")]}
 def e20(lz, P): extremo_a_extremo(lz, P, -4.08); return {"app": [(P, "conflicto")]}
-def e21(lz, P): extremo_a_extremo(lz, P, -4.15); return {"app": [(P, "sugerencia")]}
+def e21(lz, P): extremo_a_extremo(lz, P, -4.15); return {"app": [(P, "pendiente")]}
+def e49(lz, P):
+    lz.tubo("AGUA", [(P[0] - L, P[1]), P], 12, (-4.0, -4.0))
+    lz.tubo("AGUA", [P, pol(P, 60, 10.0)], 12, (-4.5, -4.5))
+    return {"app": [(P, "pendiente")]}
 def e22(lz, P):
     codo(lz, P, 60, inv=(-4.0, -5.0),
          vertex_inv_in={1: -4.0}, vertex_inv_out={1: -5.0}, seg_edit_enabled=True)
@@ -207,24 +213,25 @@ CASOS = [
      "130° curva normal; 140° «Codo cerrado» radio mínimo viable", e04),
     ("E05", "Codo cerrado 160°", "sin marcadores", "«Codo cerrado», tubos recortados", e05),
     ("E06", "Codo casi en U 176°", "sin marcadores", "«Codo cerrado», recorte largo; curva gira antes del vértice", e06),
-    ("E07", "Codo cerrado 170° con tramo de 2 ft", "sin marcadores",
-     "aviso «Tubo … demasiado corto para recortar»", e07),
+    ("E07", "Codo cerrado 170° con tramo de 2 ft", "▲ rojo: codo de retorno",
+     "CODO DE RETORNO (U) en el vértice; el tramo de 2 ft se corre ~1.2 ft de lado", e07),
     ("E08", "Codo con pendiente (-2 → -10)", "sin marcadores", "ELBOW inclinado: sigue la pendiente (no rígido en Z)", e08),
-    ("E09", "Codo reductor 45° Ø24→Ø12", "conflicto (misma cota)", "CODO REDUCTOR sólido (cuerpo que se estrecha)", e09),
+    ("E09", "Codo reductor 45° Ø24→Ø12", "conflicto (misma cota)", "CODO Ø24 + REDUCCIÓN excéntrica 24×12 (fondo plano, bocas a ras de los ejes)", e09),
     ("E10", "Y simétrica (3 tubos a 120°)", "conflicto (misma cota)", "WYE sólida", e10),
     ("E11", "Y reductora: tronco Ø24, ramal Ø12 a 45°", "conflicto (misma cota)",
-     "WYE: ramal alargado, campana entera fuera del Ø24", e11),
+     "WYE centrada en el eje del Ø24; ramal Ø12 a la altura de SU eje (fondo plano): bocas coaxiales", e11),
     ("E12", "Y con ramal muy cerrado (20°)", "conflicto (misma cota)",
      "WYE sin hundido: tronco con cuerpo más grueso, brazos alargados", e12),
     ("E13", "Tee 90° Ø18", "conflicto (misma cota)", "TEE sólida", e13),
-    ("E14", "Tee reductora Ø24 / Ø12", "conflicto (misma cota)", "TEE: ramal alargado, campana entera fuera del Ø24", e14),
+    ("E14", "Tee reductora Ø24 / Ø12", "conflicto (misma cota)", "TEE en el eje del Ø24; ramal Ø12 a su altura (fondo plano), campana fuera del Ø24", e14),
     ("E15", "Umbral Tee/Y: ramal a 72°", "conflicto (misma cota)", "TEE sin choque: ramal y brazo vecino ~0.92 ft", e15),
     ("E16", "Umbral Tee/Y: ramal a 66°", "conflicto (misma cota)", "WYE (ramal <70°)", e16),
     ("E17", "Cruz: 4 tubos en un punto", "conflicto (misma cota)", "CRUZ sólida: 4 brazos iguales; 2 ejes, sin diagonal", e17),
     ("E18", "5 tubos en un punto", "▲ rojo: «Hay 5 tuberías…»", "aviso «máximo de 4»; 3 ejes, sin diagonal", e18),
     ("E19", "Extremo con extremo, misma cota", "conflicto (misma cota)", "se unen: ELBOW 60°", e19),
     ("E20", "Extremo con extremo, Δ 0.08 ft", "conflicto (≤0.10)", "se unen + «[COTAS] cotas unificadas»", e20),
-    ("E21", "Extremo con extremo, Δ 0.15 ft", "sugerencia ↕ (>0.10)", "NO se unen: «[COTAS] … DISTINTA cota»", e21),
+    ("E21", "Extremo con extremo, Δ 0.15 ft", "▲ rojo: «no hay espacio para una vertical»",
+     "UNIÓN CON PENDIENTE: mismo largo → las dos a -4.08 y CODO («[UNION-PENDIENTE]»)", e21),
     ("E22", "Escalón en su propio vértice (-4.0 / -5.0)", "▲ rojo: «escalón… se unirán a -4.50»", "«[COTAS] cotas unificadas a -4.50»", e22),
     ("E23", "Extremo que muere a MITAD de otro tramo, misma cota", "conflicto (misma cota)",
      "TEE: se parte el tramo que pasa («[JUNTURA-T]»)", e23),
@@ -247,15 +254,17 @@ CASOS = [
     ("E39", "Dos codos de 60° separados 0.6 ft", "▲ rojo: tramo muy corto entre codos",
      "UN solo codo de 120° en la intersección (el tramo de 0.6 ft desaparece)", e39),
     ("E40", "Drenaje (gravedad) con quiebres — control", "sin marcadores", "buzones automáticos, sin cambios", e40),
-    ("E41", "Codo reductor 90° Ø24→Ø12", "conflicto (misma cota)", "CODO REDUCTOR sólido 90°", e41),
-    ("E42", "Codo reductor 90° Ø12→Ø24 (entra el delgado)", "conflicto (misma cota)", "CODO REDUCTOR que se ENSANCHA", e42),
-    ("E43", "Codo reductor CERRADO 160° Ø18→Ø12", "conflicto (misma cota)", "«Codo cerrado» + reductor, tubos recortados", e43),
-    ("E44", "Y reductora con ramal a 30° Ø24/Ø12", "conflicto (misma cota)", "WYE: ramal muy alargado (~3.2 ft)", e44),
+    ("E41", "Codo reductor 90° Ø24→Ø12", "conflicto (misma cota)", "CODO Ø24 90° + REDUCCIÓN excéntrica 24×12", e41),
+    ("E42", "Codo reductor 90° Ø12→Ø24 (entra el delgado)", "conflicto (misma cota)", "CODO Ø24 90° del lado del grueso + REDUCCIÓN 24×12 hacia el que entra", e42),
+    ("E43", "Codo reductor CERRADO 160° Ø18→Ø12", "conflicto (misma cota)", "«Codo cerrado» Ø18 + REDUCCIÓN excéntrica 18×12", e43),
+    ("E44", "Y reductora con ramal a 30° Ø24/Ø12", "conflicto (misma cota)", "WYE en el eje del Ø24; ramal Ø12 a su altura, muy alargado (~3.2 ft)", e44),
     ("E45", "6 tramos en un punto", "▲ rojo: «Hay 6 tuberías…»", "aviso «máximo de 4», sin accesorio", e45),
     ("E46", "5 tramos de DRENAJE en un punto", "sin ▲ (gravedad: lo resuelve el buzón)", "buzón con 5 tubos", e46),
     ("E47", "5 tramos, uno 2 ft más abajo", "sin ▲ (el de abajo no se une)", "CRUZ + tubo aparte a su cota", e47),
     ("E48", "Agua «Linea Sur» × agua sin nombre, misma cota (cruce en X)", "conflicto (misma cota)",
      "sin conexión: un cruce en X de dos tubos que siguen de largo no se une (quedan chocando)", e48),
+    ("E49", "Extremo con extremo, Δ 0.5 ft, largos distintos (38 / 10 ft)", "▲ rojo: «no hay espacio para una vertical»",
+     "UNIÓN CON PENDIENTE: la de 38 ft baja a -4.50 y CODO con la de 10 ft", e49),
 ]
 
 
@@ -310,7 +319,8 @@ def buscar_hit(win, pt_ft, par=None, tol_px=4.0):
 
 # Alertas rojas de la app, por el estado con que las nombran los casos.
 ALERTAS = {"exceso": "_exceso_hits", "escalon": "_escalon_hits", "redes": "_redes_hits",
-           "codos": "_codos_hits", "inclinada": "_inclinada_hits"}
+           "codos": "_codos_hits", "inclinada": "_inclinada_hits", "retorno": "_retorno_hits",
+           "pendiente": "_pendiente_hits"}
 
 
 def buscar_alerta(win, pt_ft, lista, tol_px=4.0):

@@ -36,7 +36,7 @@ namespace Civil3DBasico
 
         private static readonly (string nombre, AecPD.DataType tipo, string descripcion)[] PROPIEDADES =
         {
-            ("Tipo_Accesorio", AecPD.DataType.Text, "Tipo de accesorio: Codo, Tee, Wye o Cruz"),
+            ("Tipo_Accesorio", AecPD.DataType.Text, "Tipo de accesorio: Codo, Tee, Wye, Cruz o Reducción"),
             ("Angulo_Grados",  AecPD.DataType.Real, "Ángulo característico de la pieza, en grados"),
             ("Diametro_Pulg",  AecPD.DataType.Text, "Diámetro nominal en pulgadas (principal x ramal si reduce)"),
             ("Material",       AecPD.DataType.Text, "Material de la tubería que une"),
@@ -185,6 +185,7 @@ namespace Civil3DBasico
                 case "TEE": return "Tee";
                 case "WYE": return "Wye";
                 case "CROSS": return "Cruz";
+                case "REDUCER": return "Reducción";
                 default: return tipo ?? "";
             }
         }

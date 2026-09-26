@@ -383,3 +383,42 @@ def test_red_de_usa_nombre_y_si_no_la_capa():
     assert model_ops.red_de({"layer": "AGUA"}) == "AGUA"
     assert model_ops.red_de({"layer": "AGUA", "name": "  Linea Sur "}) == "Linea Sur"
     assert model_ops.red_de({"layer": "AGUA", "name": ""}) == "AGUA"
+
+
+def test_codos_de_retorno_solo_con_tramo_corto():
+    # 170° con tramo de 2 ft (E07): no cabe la curva → codo de retorno en el vértice.
+    import math
+    from model_ops import codos_de_retorno
+    ang = math.radians(170)
+    corto = {"layer": "AGUA", "diam": 12, "pts": [(-30, 0), (0, 0), (2 * math.cos(ang), 2 * math.sin(ang))]}
+    hits = codos_de_retorno([corto], 1.0)
+    assert len(hits) == 1 and hits[0]["tramo"] == 2
+    assert 1.1 < hits[0]["lateral_ft"] < 1.3 and hits[0]["necesita_ft"] > 2.0
+    # Mismo giro con tramos largos: la curva cabe, no hay alerta.
+    largo = dict(corto, pts=[(-30, 0), (0, 0), (30 * math.cos(ang), 30 * math.sin(ang))])
+    assert codos_de_retorno([largo], 1.0) == []
+    # Gravedad (buzón) y ejes casi superpuestos (179°: manguito recto) no aplican.
+    assert codos_de_retorno([dict(corto, layer="DRENAJE")], 1.0) == []
+    a179 = math.radians(179)
+    assert codos_de_retorno([dict(corto, pts=[(-30, 0), (0, 0), (2 * math.cos(a179), 2 * math.sin(a179))])], 1.0) == []
+
+
+def test_union_con_pendiente_extremo_con_extremo():
+    import math
+    from model_ops import union_con_pendiente
+    a = {"layer": "AGUA", "diam": 12, "pts": [(-38, 0), (0, 0)]}
+    fin = (10 * math.cos(math.radians(60)), 10 * math.sin(math.radians(60)))
+    b = {"layer": "AGUA", "diam": 12, "pts": [(0, 0), fin]}
+    # Δ 0.5 ft < 3.19 ft (dos codos de 90°): la más larga (a) va a la cota de b, con codo.
+    r = union_con_pendiente(a, b, (0, 0), -4.0, -4.5, 0.5, 1.0)
+    assert r and r["larga"] == "a" and r["z_union"] == -4.5 and r["codo"] and r["tramo_a"] == 1
+    # Mismo largo: las dos al punto medio.
+    b38 = dict(b, pts=[(0, 0), (38 * math.cos(math.radians(60)), 38 * math.sin(math.radians(60)))])
+    r = union_con_pendiente(a, b38, (0, 0), -4.0, -4.15, 0.5, 1.0)
+    assert r["iguales"] and abs(r["z_union"] + 4.075) < 1e-9
+    # Con altura para una vertical, misma cota, gravedad o un tubo que pasa: no aplica.
+    assert union_con_pendiente(a, b, (0, 0), -4.0, -8.0, 0.5, 1.0) is None
+    assert union_con_pendiente(a, b, (0, 0), -4.0, -4.05, 0.5, 1.0) is None
+    assert union_con_pendiente(dict(a, layer="DRENAJE"), dict(b, layer="DRENAJE"), (0, 0), -4.0, -4.5, 0.5, 1.0) is None
+    pasa = {"layer": "AGUA", "diam": 12, "pts": [(-38, 0), (0, 0), (38, 0)]}
+    assert union_con_pendiente(pasa, b, (0, 0), -4.0, -4.5, 0.5, 1.0) is None

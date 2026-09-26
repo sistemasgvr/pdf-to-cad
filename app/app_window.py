@@ -46,7 +46,7 @@ from model import (VERSION, TIPOS, ACI_RGB, LEADER_TEXT_FT, LEADER_ORIENT,
 
 # Constantes y helpers de UI compartidos (antes definidos aquí) → ui_common.py.
 from ui_common import (DOWNLOADS, btn_on_style, btn_off_style, aci_qcolor, layer_qcolor,
-                       _extract_diam_from_size, swatch_icon)
+                       _extract_diam_from_size, swatch_icon, tooltip_bloque)
 import theme as _theme
 import i18n as _i18n
 from i18n import t as _tr, bind as _bind, bind_item as _bind_item, N_
@@ -4043,6 +4043,8 @@ class Main(QtWidgets.QMainWindow):
             self._exceso_hits = []
             self._escalon_hits = []
             self._codos_hits = []
+            self._retorno_hits = []
+            self._pendiente_hits = []
             self._inclinada_hits = []
             self._redes_hits = []
             if hasattr(self, "lbl_info"):
@@ -4073,6 +4075,7 @@ class Main(QtWidgets.QMainWindow):
 
         # Cada hit lleva su "estado" ya clasificado.
         self._conflict_hits = []
+        self._pendiente_hits = []   # extremo con extremo sin altura para vertical (▲ rojo)
         approvals = {(int(c["pipe_a"]), int(c["pipe_b"]), round(float(c["x"]), 3), round(float(c["y"]), 3))
                       for c in (getattr(self, "cross_connections", None) or [])}
         Z_TOL = 0.10        # ft — misma cota si |za - zb| <= Z_TOL
@@ -4132,6 +4135,18 @@ class Main(QtWidgets.QMainWindow):
                     if _nk(la) == "conduit":
                         continue               # eléctrico/telecom no se une con vertical
                     estado = "aprobado" if aprobado else "sugerencia"
+                    # Extremo con extremo sin altura para la vertical: no hay nada
+                    # que aprobar, el plugin los une con pendiente (ver mensaje).
+                    tol_u = 0.5 / self.scale * self.zoom if self.scale else 3.0
+                    sin_esp = model_ops.union_con_pendiente(
+                        self.pipes[ia], self.pipes[ib], (cx, cy), za, zb, tol_u,
+                        self.scale / self.zoom if self.scale and self.zoom else 0.0)
+                    if sin_esp:
+                        tol2_u = tol_u * tol_u
+                        if not any((e["x"] - cx) ** 2 + (e["y"] - cy) ** 2 <= tol2_u
+                                   for e in self._pendiente_hits):
+                            self._pendiente_hits.append({"x": cx, "y": cy, "ia": ia, "ib": ib, "r": sin_esp})
+                        continue
                 if estado == "conflicto" and za is not None and zb is not None and not same_layer:
                     # Utilidades distintas (agua × drenaje…) nunca se unen. La MISMA
                     # utilidad con nombres de red distintos sí: el plugin las junta
@@ -4174,7 +4189,7 @@ class Main(QtWidgets.QMainWindow):
                     z_desc = "\n" + _tr("(sin cotas en ninguna — no se puede confirmar Δ)")
                 union = self._union_civil(ia, ib, cx, cy, za, zb)
                 if union:
-                    circ.setToolTip(union)
+                    circ.setToolTip(tooltip_bloque(union))
                     continue
                 if estado == "conflicto":
                     tip = "⚠ " + _tr("CONFLICTO — cruce con la misma cota (las tuberías chocan). "
@@ -4188,7 +4203,7 @@ class Main(QtWidgets.QMainWindow):
                 ea, eb = self._etq(self.pipes[ia]), self._etq(self.pipes[ib])
                 pair = (_tr("Dos tramos de «{capa}»").format(capa=ea) if ea == eb
                         else f"«{ea}» × «{eb}»")
-                circ.setToolTip(f"{tip}\n{pair}{z_desc}")
+                circ.setToolTip(tooltip_bloque(f"{tip}\n{pair}{z_desc}"))
 
         # Triángulo rojo con «!» blanco: algo que Civil 3D NO dibujará como está
         # en la app. El mensaje (tooltip y clic) dice qué pasa y cómo quedará.
@@ -4209,7 +4224,7 @@ class Main(QtWidgets.QMainWindow):
             t.setPos(x, y); t.setFlag(ign)
             t.setTransform(QtGui.QTransform().translate(-br.width() / 2, -br.height() / 2 + 2))
             t.setZValue(Z_HANDLE + 8); self._overlay.append(t)
-            it.setToolTip(mensaje)
+            it.setToolTip(tooltip_bloque(mensaje))
 
         for e in self._exceso_hits:
             _alerta_roja(e["x"], e["y"], self._msg_exceso(e))
@@ -4220,6 +4235,11 @@ class Main(QtWidgets.QMainWindow):
         self._codos_hits = model_ops.tramos_cortos_entre_codos(self.pipes, ft_px) if ft_px else []
         for e in self._codos_hits:
             _alerta_roja(e["x"], e["y"], self._msg_codos(e))
+        self._retorno_hits = model_ops.codos_de_retorno(self.pipes, ft_px) if ft_px else []
+        for e in self._retorno_hits:
+            _alerta_roja(e["x"], e["y"], self._msg_retorno(e))
+        for e in self._pendiente_hits:
+            _alerta_roja(e["x"], e["y"], self._msg_sin_espacio(e["ia"], e["ib"], e["r"]))
         # Conexión vertical aprobada en un quiebre sin desnivel para dos codos:
         # el plugin la resuelve con Wye inclinada + pendiente en la tubería.
         self._inclinada_hits = []
@@ -4246,6 +4266,10 @@ class Main(QtWidgets.QMainWindow):
             if self._inclinada_hits:
                 partes.append("▲ " + _tr("{n} conexión(es) vertical(es) con pendiente").format(
                     n=len(self._inclinada_hits)))
+            if self._pendiente_hits:
+                partes.append("▲ " + _tr("{n} unión(es) con pendiente").format(n=len(self._pendiente_hits)))
+            if self._retorno_hits:
+                partes.append("▲ " + _tr("{n} codo(s) de retorno").format(n=len(self._retorno_hits)))
             if self._codos_hits:
                 partes.append("▲ " + _tr("{n} tramo(s) muy corto(s) entre codos").format(n=len(self._codos_hits)))
             if self._redes_hits:
@@ -4293,8 +4317,17 @@ class Main(QtWidgets.QMainWindow):
         if tipo not in nombres:
             return None
         red = model_ops.red_civil_de_union(self.pipes, ia, ib)
+        accesorio = _tr(nombres[tipo])
+        try:
+            d_a, d_b = float(pa.get("diam") or 0), float(pb.get("diam") or 0)
+        except (TypeError, ValueError):
+            d_a = d_b = 0.0
+        if tipo == "codo" and d_a > 0 and d_b > 0 and abs(d_a - d_b) > 1e-6:
+            # Como el plugin: codo del diámetro mayor + reducción excéntrica.
+            mayor, menor = max(d_a, d_b), min(d_a, d_b)
+            accesorio = _tr("un codo sólido de {d1:g}\" con reducción {d1:g}×{d2:g}\"").format(d1=mayor, d2=menor)
         msg = _tr("Se unen aquí a {z:.2f} ft.\n\nEn Civil 3D: {accesorio} en la red «{red}».").format(
-            z=za, accesorio=_tr(nombres[tipo]), red=red)
+            z=za, accesorio=accesorio, red=red)
         na, nb = model_ops.red_de(pa), model_ops.red_de(pb)
         if na != nb:
             msg += "\n" + _tr("Tienen nombres de red distintos («{a}» / «{b}»): las dos quedan en «{red}».").format(
@@ -4323,6 +4356,32 @@ class Main(QtWidgets.QMainWindow):
                    "En Civil 3D se pondrá una Wye con el ramal inclinado y la tubería "
                    "«{capa}» se modificará para que llegue con pendiente.").format(
             dz=e["dz"], minimo=e["min"], capa=e["capa"])
+
+    def _msg_sin_espacio(self, ia, ib, r):
+        """Sugerencia de vertical sin altura suficiente (extremo con extremo):
+        qué hará Civil 3D en su lugar. Ver model_ops.union_con_pendiente."""
+        cabecera = "⚠ " + _tr("No hay espacio para una tubería vertical: la diferencia de altura es de "
+                              "{dz:.2f} ft y hacen falta al menos {minimo:.2f} ft.").format(dz=r["dz"], minimo=r["min"])
+        union = _tr(N_("se unirán con un codo") if r["codo"] else N_("se unirán en línea recta"))
+        if r["iguales"]:
+            cuerpo = _tr("En Civil 3D: las dos tuberías miden lo mismo, así que las dos tendrán una "
+                         "pendiente hasta un punto medio ({z:.2f} ft) y {union}.").format(z=r["z_union"], union=union)
+        else:
+            i_larga = ia if r["larga"] == "a" else ib
+            tramo = r["tramo_a"] if r["larga"] == "a" else r["tramo_b"]
+            cuerpo = _tr("En Civil 3D: la tubería más larga («{nombre}», tramo T{t}) tendrá una pendiente "
+                         "para llegar a la más corta y {union}.").format(
+                nombre=self._etq(self.pipes[i_larga]), t=tramo, union=union)
+        return cabecera + "\n\n" + cuerpo
+
+    @staticmethod
+    def _msg_retorno(e):
+        return _tr("Giro de {giro:.0f}° muy cerrado: el codo necesita {necesita:.2f} ft de tubería "
+                   "y el tramo T{t} solo tiene {largo:.2f} ft.\n\n"
+                   "En Civil 3D se pondrá un codo de retorno (curva en U) en el vértice y el tramo "
+                   "T{t} se correrá {lateral:.2f} ft hacia el costado para no montarse sobre el otro "
+                   "tubo.").format(giro=e["giro"], necesita=e["necesita_ft"], t=e["tramo"],
+                                   largo=e["largo_ft"], lateral=e["lateral_ft"])
 
     @staticmethod
     def _msg_codos(e):
@@ -4353,6 +4412,15 @@ class Main(QtWidgets.QMainWindow):
             if (e["x"] - x) ** 2 + (e["y"] - y) ** 2 <= tol2:
                 QtWidgets.QMessageBox.warning(self, _tr("Conexión vertical con pendiente"),
                                               self._msg_inclinada(e))
+                return True
+        for e in getattr(self, "_pendiente_hits", None) or []:
+            if (e["x"] - x) ** 2 + (e["y"] - y) ** 2 <= tol2:
+                QtWidgets.QMessageBox.warning(self, _tr("Sin espacio para tubería vertical"),
+                                              self._msg_sin_espacio(e["ia"], e["ib"], e["r"]))
+                return True
+        for e in getattr(self, "_retorno_hits", None) or []:
+            if (e["x"] - x) ** 2 + (e["y"] - y) ** 2 <= tol2:
+                QtWidgets.QMessageBox.warning(self, _tr("Codo de retorno"), self._msg_retorno(e))
                 return True
         for e in getattr(self, "_codos_hits", None) or []:
             if (e["x"] - x) ** 2 + (e["y"] - y) ** 2 <= tol2:
