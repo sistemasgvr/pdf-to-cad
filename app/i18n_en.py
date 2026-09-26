@@ -1853,6 +1853,10 @@ EN: dict[str, str] = {
         "No water lines were found on this sheet.",
     "No se encontraron líneas de alcantarillado en esta hoja.":
         "No sewer lines were found on this sheet.",
+    "No se encontraron líneas de gas en esta hoja.":
+        "No gas lines were found on this sheet.",
+    "No se encontraron líneas de telecomunicaciones en esta hoja.":
+        "No telecom lines were found on this sheet.",
     "No se encontraron líneas de drenaje en esta hoja.":
         "No storm drain lines were found on this sheet.",
     "No se encontraron líneas de {u} en esta hoja.":
@@ -1873,16 +1877,20 @@ EN: dict[str, str] = {
         "Assign at least one layer as «Lines».",
     "Buzones / estructuras":
         "Manholes / structures",
-    "Cobertura {c:.1f} %":
-        "Coverage {c:.1f} %",
+    "Cobertura":
+        "Coverage",
+    "Arrastra para cambiar el ancho":
+        "Drag to resize",
+    "{n} sin cubrir":
+        "{n} uncovered",
+    "{n} fuera de patrón":
+        "{n} off-pattern",
     "Debe haber al menos una capa en «Líneas» para continuar.":
         "There must be at least one layer in «Lines» to continue.",
     "Escala {s:.6f} pie/pt":
         "Scale {s:.6f} ft/pt",
     "Guiones del plano cubiertos por las líneas reconocidas. En el dibujo: naranja = sin cubrir, violeta = trazos fuera de patrón (leaders/flechas).":
         "Plan dashes covered by the recognized lines. In the drawing: orange = uncovered, purple = off-pattern strokes (leaders/arrows).",
-    "{m} sin cubrir (naranja) · {o} fuera de patrón (violeta)":
-        "{m} uncovered (orange) · {o} off-pattern (purple)",
 
     # ── recognition_summary_view.py (rama dev_santos_v2) ──
     "Clic: ir al lugar en la hoja (cada clic, el siguiente).":

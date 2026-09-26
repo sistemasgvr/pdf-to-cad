@@ -17,7 +17,7 @@ pytest.importorskip("fitz")
 
 
 def test_selector_de_reconocimiento_ofrece_ambas_o_cada_utilidad():
-    assert rec.normalize_utilities(None) == ("ELECTRICO", "DRENAJE")
+    assert rec.normalize_utilities(None) == rec.SUPPORTED_UTILITIES
     choices = rec.recognition_choices({"ELECTRICO", "DRENAJE"})
     assert [value for value, _label in choices] == [
         ("ELECTRICO", "DRENAJE"), ("ELECTRICO",), ("DRENAJE",)]

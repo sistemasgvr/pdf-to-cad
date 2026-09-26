@@ -453,6 +453,10 @@ def build_stylesheet(t: Theme) -> str:
         QDockWidget {{ color: {t.text}; font-weight: bold; }}
         QDockWidget::title {{ background: {t.surface_alt}; padding: 8px 10px;
                                border-bottom: 1px solid {t.border}; }}
+        /* separador de docks de la ventana principal: se nota y se ilumina al arrastrar */
+        QMainWindow::separator {{ background: {t.surface_alt}; width: 8px; height: 8px;
+                                  border-left: 1px solid {t.border}; border-right: 1px solid {t.border}; }}
+        QMainWindow::separator:hover {{ background: {t.accent}; border-color: {t.accent}; }}
         QSplitter::handle {{ background: {t.border}; }}
         QSplitter::handle:horizontal {{ width: 5px; }}
         QSplitter::handle:vertical {{ height: 5px; }}

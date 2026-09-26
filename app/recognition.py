@@ -44,20 +44,22 @@ RECOGNITION_LAYER_TOKENS: Sequence[Tuple[str, str]] = (
 )
 
 UTILITY_HINT = "ELECTRICO"
-SUPPORTED_UTILITIES = ("ELECTRICO", "DRENAJE", "AGUA", "ALCANTARILLADO")
-# Selección por defecto al abrir un PDF (la de siempre). Agua y Alcantarillado se
-# marcan a mano en el paso «Capas de la hoja»: así activarlos no cambia lo que ya
-# se importaba.
-DEFAULT_UTILITIES = ("ELECTRICO", "DRENAJE")
+SUPPORTED_UTILITIES = ("ELECTRICO", "DRENAJE", "AGUA", "ALCANTARILLADO", "GAS", "TELECOM")
+# Selección por defecto al abrir un PDF: TODAS las utilidades reconocibles (pedido
+# del usuario 2026-09-25); se desmarcan a mano en el paso «Capas de la hoja».
+DEFAULT_UTILITIES = SUPPORTED_UTILITIES
 UTILITY_LINE_KINDS = {
     "ELECTRICO": "elec_ungd",
     "DRENAJE": "drain_ungd",
     "AGUA": "water_ungd",
     "ALCANTARILLADO": "sewer_ungd",
+    "GAS": "gas_ungd",
+    "TELECOM": "tele_ungd",
 }
 # Nombre visible de cada perfil (textos de la UI: selector, progreso, preview).
 UTILITY_LABELS = {"ELECTRICO": "Eléctrico", "DRENAJE": "Drenaje", "AGUA": "Agua",
-                  "ALCANTARILLADO": "Alcantarillado"}
+                  "ALCANTARILLADO": "Alcantarillado", "GAS": "Gas",
+                  "TELECOM": "Telecomunicaciones"}
 DRAW_KINDS = frozenset(UTILITY_LINE_KINDS.values())
 # Reglas del núcleo geométrico que activa cada perfil. El eléctrico usa las de
 # siempre (sin opciones): las correcciones de drenaje no lo tocan.
@@ -77,9 +79,22 @@ UTILITY_GEOM_OPTIONS = {
                                        gap_turn_blocks=True, markers_on_curves=True,
                                        polygon_circles=True, precise_junctions=True,
                                        continuation_before_vault=True),
+    # Gas (presión, como el agua). `glyph_hooks`: la «G»/«g» del linetype
+    # «—G—» trae su gancho como path aparte y pasaba por codo.
+    "GAS": geom.GeomOptions(glyph_hooks=True),
+    # Telecom (conduit, como el eléctrico). `stroke_letters`: la «t» del linetype
+    # «—t—» son dos trazos sueltos (asta con gancho + travesaño) que pasaban por
+    # codo y guión.
+    "TELECOM": geom.GeomOptions(stroke_letters=True),
 }
 # Perfiles que reconocen UNA sola vez una capa repetida por otro xref (`duplicate_ocgs`).
-DEDUP_OCG_UTILITIES = frozenset({"DRENAJE"})
+DEDUP_OCG_UTILITIES = frozenset({"DRENAJE", "GAS"})
+# …y en estos perfiles el sufijo «-ADD» (la misma capa agregada por otro xref, mismo
+# estado) no la distingue: DU10/DU08 traen la línea de gas existente en
+# `REF-EXIST_NGAS|C-NGAS-UGND-E` y OTRA VEZ, trazo por trazo, en
+# `REF-EXIST_SSWR|C-NGAS-UGND-E-ADD` y `SERVICE_MAPS_CALLOUT|C-NGAS-UGND-E-ADD`:
+# se importaba la misma tubería tres veces (20 duplicados en los 4 PDFs).
+DEDUP_ADD_SUFFIX_UTILITIES = frozenset({"GAS"})
 # Perfiles cuya capa de LÍNEA también dibuja el anillo del buzón (alcantarillado:
 # el xref de la red existente traza el contorno del manhole en C-SSWR-UNGD-E,
 # un círculo de ~18 pt alrededor del símbolo V-SSWR-MANH). Ese anillo es
@@ -131,7 +146,7 @@ class RecognizedPolyline:
     layer_ocg: str
     utility_hint: str
     pts_pdf: list  # [(x, y), ...] en pixeles del pixmap a `zoom`
-    kind: str      # elec_ungd | drain_ungd | water_ungd | sewer_ungd | elec_ovhd | structure
+    kind: str      # elec_ungd | drain_ungd | water_ungd | sewer_ungd | gas_ungd | tele_ungd | elec_ovhd | structure
     # Tipo de cada vértice (mismo largo que pts_pdf): end | corner | bend |
     # junction | tee | vault | curve. Lo usa el import para decidir qué
     # vértices son cajas reales y cuáles solo quiebres (estructura oculta).
@@ -277,6 +292,10 @@ def classify_ocg(ocg: Optional[str], utility: str = UTILITY_HINT) -> Optional[st
         return _classify_water(short)
     if utility == "ALCANTARILLADO":
         return _classify_sewer(short)
+    if utility == "GAS":
+        return _classify_gas(short)
+    if utility == "TELECOM":
+        return _classify_telecom(short)
     if utility == "DRENAJE":
         if not any(token in short for token in ("STRM", "STORM", "DRAN", "DRAIN")):
             return None
@@ -366,10 +385,65 @@ def _classify_sewer(short: str) -> Optional[str]:
     return None
 
 
+# Gas natural (perfil GAS). Centerline: en los APDU la red existente viene en
+# capas de SOLO estado (`…REF-EXIST_NGAS|C-NGAS-A/-D/-E`, sin «UNGD»), la
+# propuesta en `…PROP_NGAS_PIPE_ALGN|C-NGAS-UNGD-N` (LABOE: `PROP-GAS-ALGN`, el
+# alineamiento de Civil 3D, «—G—» continua) y las variantes de paquete
+# `C-NGAS-UGND-E(-ADD)`/`-N`. Estado por el sufijo como siempre.
+_NGAS_LINE = re.compile(r"^C-N?GAS[-_](?:(?:[A-Z0-9]+-)?(?:UNGD|UGND|UNDG|PIPE)(?:-|_|$)|[ADEFMNTX](?:-|_|$))")
+_NGAS_ALIGN = re.compile(r"^PROP[-_](?:N?GAS)[-_](?:PIPE[-_])?ALGN$")
+# Dentro de esas capas: anotación, camisa, medidores, válvulas, risers
+# (símbolos, no la línea), muros, perfil, estructuras.
+_NGAS_NOT_LINE = ("ANNO", "TEXT", "CASE", "PATT", "WALL", "PROF", "STRC", "VALV", "VALT",
+                  "METR", "RISR", "MANH", "MHOL", "FITT", "APPT", "IDEN", "OTLN", "STAN",
+                  "CNTR", "DIAG")
+# Estructuras de gas con caja real: bóvedas (V-NGAS-VALT). Medidores (METR),
+# válvulas (VALV) y risers (RISR) son accesorios, como en agua.
+_NGAS_STRUCT = ("V-NGAS-VALT", "V-NGAS-MANH", "V-NGAS-STRU", "C-NGAS-VALT", "C-NGAS-MANH",
+                "C-NGAS-MHOL", "C-NGAS-STRC")
+
+
+def _classify_gas(short: str) -> Optional[str]:
+    """Perfil GAS: nombre corto normalizado → kind, o None."""
+    if short.startswith(_NGAS_STRUCT):
+        return "structure"
+    if ((_NGAS_LINE.match(short) or _NGAS_ALIGN.match(short))
+            and not any(t in short for t in _NGAS_NOT_LINE)):
+        return utility_line_kind("GAS")
+    return None
+
+
+# Telecomunicaciones (perfil TELECOM). Centerline: C-TELE-UNGD-* (APDU: -A/-D/-E/-N,
+# «—t—» existente, «//» a abandonar) y sus variantes (COMM/CATV/FIBR, paquete,
+# PIPE); la propuesta `T-PROP-COMM(_ATT)` (alineamiento C3D, DU06 h.3/8, LABOE h.5)
+# y el banco de ductos de comunicaciones de Metro `N-COMM-DUCT-BANK-PL(-SC/-SE)`
+# («—SC—», una sola línea con letras). Las aéreas (`C-TELE-OVHD`) quedan fuera,
+# como `C-ELEC-OVHD` en el eléctrico: van de poste a poste, no son un conducto.
+_TELE_LINE = re.compile(r"^C-(?:TELE|COMM|CATV|FIBR?|FO)[-_](?:[A-Z0-9]+-)?(?:UNGD|UGND|UNDG|PIPE)(?:-|_|$)")
+_TELE_PROP = re.compile(r"^(?:T-PROP-COMM|N-COMM-DUCT-BANK-PL)(?:[-_ ]|$)")
+_TELE_NOT_LINE = ("ANNO", "TEXT", "TEXL", "CASE", "PATT", "WALL", "PROF", "STRC", "VALT",
+                  "MANH", "MHOL", "PBOX", "IDEN", "OTLN", "STAN", "CNTR", "DIAG", "OVHD")
+# Estructuras: bóvedas y manholes (se importan como CAJA, como en el eléctrico) y
+# cajas de paso / junction boxes (definen dónde para la línea, pero no se importan:
+# `NON_VAULT_TOKENS`). Gabinetes (CABT) y risers (RISR) son accesorios.
+_TELE_STRUCT = ("C-TELE-VALT", "C-TELE-MANH", "C-TELE-MHOL", "C-TELE-STRC", "V-COMM-MANH",
+                "V-COMM-VALT", "V-COMM-STRU", "V-COMM-PBOX", "V-CATV-PBOX", "N-COMM-JUNCTION BOX")
+
+
+def _classify_telecom(short: str) -> Optional[str]:
+    """Perfil TELECOM: nombre corto normalizado → kind, o None."""
+    if short.startswith(_TELE_STRUCT) and not any(t in short for t in ("TEXT", "TEXL", "ANNO")):
+        return "structure"
+    if ((_TELE_LINE.match(short) or _TELE_PROP.match(short))
+            and not any(t in short for t in _TELE_NOT_LINE)):
+        return utility_line_kind("TELECOM")
+    return None
+
+
 # Capas de estructuras que NO son una bóveda existente: propuestas de otro
 # paquete (U-PROP…), postes, cajas de paso, luminarias, señales. Sus símbolos sin
 # línea no se importan (solo marca discreta en la vista previa).
-NON_VAULT_TOKENS = ("PROP", "POLE", "PBOX", "LITE", "SIGN", "METR", "TRAN")
+NON_VAULT_TOKENS = ("PROP", "POLE", "PBOX", "LITE", "SIGN", "METR", "TRAN", "JUNCTION")
 
 
 def is_vault_ocg(ocg: Optional[str]) -> bool:
@@ -564,7 +638,7 @@ def dedup_paths(paths: Sequence[dict], tol: float = DUP_PATH_TOL_PT) -> List[dic
     return out
 
 
-def duplicate_ocgs(by_ocg: dict) -> dict:
+def duplicate_ocgs(by_ocg: dict, ignore_add_suffix: bool = False) -> dict:
     """{ocg repetido: (ocg que se conserva, [paths propios del repetido])}.
 
     Dos xrefs distintos pueden traer la MISMA capa con la MISMA geometría (DU06
@@ -577,7 +651,10 @@ def duplicate_ocgs(by_ocg: dict) -> dict:
     tinta)."""
     pts = {ocg: [_path_points(p) for p in paths] for ocg, paths in by_ocg.items()}
     short = {ocg: (ocg.split("|")[-1] if "|" in ocg else ocg).strip().upper() for ocg in by_ocg}
-    order = sorted(by_ocg, key=lambda o: (-len(by_ocg[o]), o))
+    if ignore_add_suffix:                          # «C-NGAS-UGND-E-ADD» ≡ «C-NGAS-UGND-E»
+        short = {ocg: re.sub(r"[-_]ADD$", "", name) for ocg, name in short.items()}
+    # en empate manda la capa sin «-ADD» (la del xref propio de la utilidad)
+    order = sorted(by_ocg, key=lambda o: (-len(by_ocg[o]), bool(re.search(r"[-_]ADD$", o.upper())), o))
 
     def index(ocg):
         grid = defaultdict(list)
@@ -921,7 +998,8 @@ def recognize_page(
             by_ocg[ocg] = kept
         if n_dup_paths:
             warnings.append(f"Trazos repetidos (idénticos, en la misma capa): {n_dup_paths} — se usan una sola vez.")
-        dup_of = duplicate_ocgs(by_ocg) if utility in DEDUP_OCG_UTILITIES else {}
+        dup_of = (duplicate_ocgs(by_ocg, utility in DEDUP_ADD_SUFFIX_UTILITIES)
+                  if utility in DEDUP_OCG_UTILITIES else {})
         for ocg, (keep, own) in dup_of.items():
             by_ocg[keep].extend(own)
             del by_ocg[ocg]
@@ -1170,7 +1248,9 @@ def recognize_page(
             sin_lineas = {"ELECTRICO": N_("No se encontraron líneas eléctricas subterráneas en esta hoja."),
                           "DRENAJE": N_("No se encontraron líneas de drenaje en esta hoja."),
                           "AGUA": N_("No se encontraron líneas de agua en esta hoja."),
-                          "ALCANTARILLADO": N_("No se encontraron líneas de alcantarillado en esta hoja.")}
+                          "ALCANTARILLADO": N_("No se encontraron líneas de alcantarillado en esta hoja."),
+                          "GAS": N_("No se encontraron líneas de gas en esta hoja."),
+                          "TELECOM": N_("No se encontraron líneas de telecomunicaciones en esta hoja.")}
             if utility in sin_lineas:
                 warnings.append(_tr(sin_lineas[utility]))
             else:

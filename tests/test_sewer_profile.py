@@ -55,15 +55,15 @@ def test_capas_de_alcantarillado_no_entran_en_otros_perfiles():
 
 
 def test_registro_del_perfil():
-    assert rec.SUPPORTED_UTILITIES[-1] == "ALCANTARILLADO"
-    assert rec.DEFAULT_UTILITIES == ("ELECTRICO", "DRENAJE")          # no cambia lo de siempre
+    assert "ALCANTARILLADO" in rec.SUPPORTED_UTILITIES
+    assert rec.DEFAULT_UTILITIES == rec.SUPPORTED_UTILITIES          # todas marcadas al abrir
     assert rec.utility_line_kind("ALCANTARILLADO") == "sewer_ungd"
     assert "sewer_ungd" in rec.DRAW_KINDS
     assert rec.utility_label("ALCANTARILLADO") == "Alcantarillado"
     assert rec.normalize_utilities(["alcantarillado", "agua"]) == ("AGUA", "ALCANTARILLADO")
     assert NETWORK_KIND["ALCANTARILLADO"] == "gravity"
     labels = [label for _, label in rec.recognition_choices()]
-    assert labels[0] == "Eléctrico, Drenaje, Agua y Alcantarillado" and "Solo Alcantarillado" in labels
+    assert labels[0] == "Eléctrico, Drenaje, Agua, Alcantarillado, Gas y Telecomunicaciones" and "Solo Alcantarillado" in labels
 
 
 def test_reglas_de_otros_perfiles_no_cambian():
