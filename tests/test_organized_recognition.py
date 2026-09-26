@@ -42,6 +42,7 @@ def test_capas_de_hojas_organizadas_ofrece_casillas_de_utilidad_a_reconocer():
             dlg._recog_checks["AGUA"].setChecked(False)
             dlg._recog_checks["ALCANTARILLADO"].setChecked(False)
             dlg._recog_checks["GAS"].setChecked(False)
+            dlg._recog_checks["TELECOM"].setChecked(False)
             dlg._recog_checks["ELECTRICO"].setChecked(False)
             dlg._recog_checks["DRENAJE"].setChecked(False)   # no deja las dos sin marcar
             assert dlg._recog_checks["DRENAJE"].isChecked()

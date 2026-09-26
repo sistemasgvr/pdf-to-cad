@@ -1,13 +1,14 @@
 """Auditoría «no inventar / precisión» de UN perfil de reconocimiento en los 4 PDFs de prueba.
 
 Uso: python scripts/audit_perfil.py UTILIDAD [config] [salida.json]
-  UTILIDAD: GAS | AGUA | ALCANTARILLADO | DRENAJE | ELECTRICO
-  config: profile (las reglas que tiene recognition hoy) | none | drain | water | sewer
+  UTILIDAD: TELECOM | GAS | AGUA | ALCANTARILLADO | DRENAJE | ELECTRICO
+  config: profile (las reglas que tiene recognition hoy) | none | drain | water | sewer | gas
           (las `GeomOptions` de ese perfil aplicadas a esta utilidad) | profile+regla[+regla…]
           (el perfil de hoy con reglas extra, p. ej. profile+precise_junctions)
 Misma métrica que `audit_alcantarillado.py` (del que sale): por hoja, tramos, largo,
 cobertura, sin cubrir, fuera de patrón, segmentos SIN TINTA (>6 pt fuera de bóveda
-con <50 % de muestras a ≤2 pt), vértices en «V» (<73°, no fillet), IMPRECISOS (p90 de
+con <50 % de muestras a ≤2 pt; no cuentan los que llegan a la esquina C de un codo
+`fillet`: el editor y el plugin los dibujan con su arco), vértices en «V» (<73°, no fillet), IMPRECISOS (p90 de
 la distancia perpendicular a los guiones paralelos de su propia capa > 0.75 pt), AB,
 codos.
 """
@@ -34,7 +35,8 @@ def _opts(cfg):
     if cfg == "none":
         return geom.GeomOptions()
     return {"drain": rec.UTILITY_GEOM_OPTIONS["DRENAJE"], "water": rec.UTILITY_GEOM_OPTIONS["AGUA"],
-            "sewer": rec.UTILITY_GEOM_OPTIONS["ALCANTARILLADO"]}.get(cfg)
+            "sewer": rec.UTILITY_GEOM_OPTIONS["ALCANTARILLADO"],
+            "gas": rec.UTILITY_GEOM_OPTIONS["GAS"]}.get(cfg)
 
 
 def run(job):
@@ -112,8 +114,10 @@ def run(job):
     noink, vees, length = [], 0, 0.0
     for pl in res.drawable:
         pts = pl.pts_pdf
-        for a, b in zip(pts, pts[1:]):
+        for si, (a, b) in enumerate(zip(pts, pts[1:])):
             L = math.dist(a, b); length += L / Z
+            if "fillet" in (pl.kinds[si:si + 2] if pl.kinds else ()):
+                continue        # tramo hasta la esquina C de un codo: se dibuja con su arco
             if L <= 6 * Z:
                 continue
             n = max(2, int(L / (1.5 * Z)))

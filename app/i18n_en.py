@@ -1855,6 +1855,8 @@ EN: dict[str, str] = {
         "No sewer lines were found on this sheet.",
     "No se encontraron líneas de gas en esta hoja.":
         "No gas lines were found on this sheet.",
+    "No se encontraron líneas de telecomunicaciones en esta hoja.":
+        "No telecom lines were found on this sheet.",
     "No se encontraron líneas de drenaje en esta hoja.":
         "No storm drain lines were found on this sheet.",
     "No se encontraron líneas de {u} en esta hoja.":

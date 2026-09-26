@@ -81,6 +81,7 @@ def test_selector_de_utilidad_permite_electrico_y_drenaje(dlg):
     dlg._recog_checks["AGUA"].setChecked(False)
     dlg._recog_checks["ALCANTARILLADO"].setChecked(False)
     dlg._recog_checks["GAS"].setChecked(False)
+    dlg._recog_checks["TELECOM"].setChecked(False)
     assert dlg.recognition_utilities() == ("ELECTRICO", "DRENAJE")
     dlg._recog_checks["ELECTRICO"].setChecked(False)
     assert dlg.recognition_utilities() == ("DRENAJE",)

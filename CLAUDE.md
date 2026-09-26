@@ -658,6 +658,31 @@ alcantarillado, drenaje, gas, eléctrico, telecom). Todo en **unidades imperiale
     línea SÍ llega a x=1255 (inicio del alineamiento sobre la existente); no es inventada.
     Ojo también: `Shape.finish` de fitz cierra la polilínea por defecto (`closePath=True`)
     — al dibujar overlays de revisión pasar `closePath=False` o se ven diagonales falsas.
+  - **Perfil TELECOM (2026-09-25)**: `SUPPORTED_UTILITIES` suma TELECOM (kind `tele_ungd`;
+    red de CONDUCTOS como el eléctrico: CAJA solo en vértices de bóveda real). `_classify_telecom`:
+    línea = `C-(TELE|COMM|CATV|FIBR|FO)-(paquete-)?(UNGD|UGND|UNDG|PIPE)`, la propuesta
+    `T-PROP-COMM(_ATT)` y el banco de ductos de Metro `N-COMM-DUCT-BANK-PL(-SC/-SE)` («—SC—»,
+    una línea con letras); fuera `C-TELE-OVHD` (aérea, como `C-ELEC-OVHD`), ANNO/TEXT/TEXL.
+    Estructuras: C-TELE-VALT/MANH/MHOL/STRC, V-COMM-MANH/VALT/STRU, V-COMM-PBOX, V-CATV-PBOX,
+    `N-Comm-Junction Box*`; «JUNCTION» está en `NON_VAULT_TOKENS` (como PBOX: sin línea no se
+    importa suelta; con línea sí, igual que en el eléctrico). CABT/RISR = accesorios.
+    Única regla de perfil: `stroke_letters` — las letras del linetype son TRAZOS SUELTOS:
+    (1) la «t» de «—t—» = asta perpendicular con gancho (pasa por codo) + travesaño de 2.4 pt
+    (pasa por guión) → `_stroke_letters` (curva ≤12 pt + trazo ≤`LETTER_TICK_MAX_PT`=4 que se
+    tocan, pareja repetida ≥3); (2) «TE»/«SE» de Metro, solo trazos rectos: el travesaño de la
+    «T» toca la «E» y se funde en `classify_paths`, pero el asta solo toca ese travesaño →
+    pasadas extra `_swallow_letter_strokes` en `reconstruct` DESPUÉS de `strip_crossing_markers`
+    (antes se comían las barras del «//» y la línea dejaba de ser AB), solo trazos
+    ≤`LETTER_STROKE_MAX_PT`=8 (un guión de 11.5 pt de una curva a guiones es línea, LABOE h.26),
+    que NO continúen un guión largo (rumbo ±35°, desvío ≤1 pt + 10 % de lo que se aleja: en un
+    arco a guiones los cortos junto a la «t» giran con la curva) y con ≥2 repeticiones
+    (`LETTER_STROKE_MIN_REPEAT`: un tramo «—SE—» lleva solo dos «E», DU08 h.38).
+    Auditoría `scripts/audit_perfil.py TELECOM` (ahora NO cuenta como «sin tinta» el tramo hasta
+    la esquina C de un codo `fillet`: se dibuja con su arco; gas/alcantarillado tenían 0 codos):
+    sin reglas 110 sin tinta / 117 imprecisos; con el perfil 0 / 15, 0 «V», cobertura ≥99.51 %,
+    AB 99, 59 codos. Reglas de agua/alcantarillado/gas: no mejoran. Tests:
+    `tests/test_telecom_profile.py`, `tests/test_telecom_integration.py` (DU10 h.5 → CAJA con
+    medidas, DXF NET_KIND=conduit). Foto de las otras 5 utilidades antes/después: sin cambios.
   - `PDFCAD_CURVE` (punto): esquina de elemento curvo, con `RADIUS_FT`.
   - `PDFCAD_META` (punto): metadatos del proyecto, hoy `CS_CODE` (Huso).
   - `PDFCAD_DUCTBANK` (punto, capa `PDFCAD_DUCT_BANK`): sección transversal del

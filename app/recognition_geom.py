@@ -79,6 +79,11 @@ CLIP_EDGE_TOL_PT = 0.25      # un trazo a ≤0.25 pt por FUERA del clip se ve (m
 CUT_GLYPH_MIN_REPEAT = 3     # letra partida (por el clip): el mismo grupo de astas se repite ≥3 veces
 CUT_GLYPH_TOUCH_PT = 0.75    # astas de una misma letra se tocan (≤0.75 pt)
 MARKER_ATTACH_PT = 0.5       # un trazo que nace en la punta de una curva la continúa: no es «/»
+LETTER_TICK_MAX_PT = 4.0     # travesaño de una letra de dos trazos (la «t» de telecom: 2.4 pt)
+LETTER_TOUCH_PT = 0.5        # …que toca el asta
+LETTER_STROKE_MIN_REPEAT = 2  # pasadas extra de astas (perfil `stroke_letters`)
+LETTER_STROKE_MAX_PT = 8.0    # …solo trazos de letra (asta «T» 7.2, brazo «E» 4.5); un guión de
+                              # 11.5 pt de una curva a guiones (LABOE h.26) es línea
 MARKER_PAIR_PT = 6.0         # dos barras «//» a ≤6 pt una de otra = UN marcador
 MARKER_DOUBLE_STEPS_OK = 0.75  # «//»: fracción de pasos entre dobles que deben ir al periodo
 # «//» en tramos CORTOS del CAD: AutoCAD dibuja el linetype por segmento y en uno
@@ -150,6 +155,14 @@ class GeomOptions:
     # cabe en una letra, TOCA una letra y se REPITE con el mismo largo
     # (≥`GLYPH_STROKE_MIN_REPEAT`) es parte de la letra (`_glyph_hooks`).
     glyph_hooks: bool = False
+    # Letra de DOS trazos sueltos que no toca ninguna letra ya reconocida: la «t»
+    # del linetype «—t—» de telecom es un asta con gancho (pasa por codo) + un
+    # travesaño de ~2.4 pt (pasa por guión). Sin esto la línea se armaba con
+    # astas y travesaños y saltaba sin tinta a la vecina (DU10 h.5 (1017, 671)).
+    # Curva pequeña + trazo corto (≤`LETTER_TICK_MAX_PT`) que se tocan, caben
+    # juntos en una letra y se repiten iguales ≥`GLYPH_STROKE_MIN_REPEAT` veces =
+    # una letra (`_stroke_letters`).
+    stroke_letters: bool = False
 
 
 CHAIN_KINDS = ("corner", "bend", "edge")   # nodos de grado 2 que se encadenan (bóveda: regla propia)
@@ -697,7 +710,7 @@ def clip_path(path: dict, polygons: Sequence[Sequence[Pt]]) -> Optional[dict]:
 
 # ─────────────────────────── 1. clasificar ───────────────────────────
 def classify_paths(paths: Sequence[dict], keep_line_strokes: bool = False,
-                   glyph_hooks: bool = False
+                   glyph_hooks: bool = False, stroke_letters: bool = False
                    ) -> Tuple[List[Dash], List[Glyph], List[List[Pt]]]:
     """Paths de la capa de LÍNEAS → (guiones, letras, curvas).
     Guion = tramo recto. Letra = trazo compuesto que cabe en GLYPH_MAX_DIM_PT.
@@ -806,10 +819,85 @@ def classify_paths(paths: Sequence[dict], keep_line_strokes: bool = False,
             dashes = kept
     dashes, cut = _cut_letter_strokes(dashes)
     glyphs.extend(cut)
+    if stroke_letters and curves and dashes:
+        dashes, curves, letters = _stroke_letters(dashes, curves)
+        glyphs.extend(letters)
     if glyph_hooks and curves and glyphs:
         curves, hooks = _glyph_hooks(curves, glyphs)
         glyphs.extend(hooks)
     return dashes, glyphs, curves
+
+
+def _swallow_letter_strokes(dashes: List[Dash], glyphs: List[Glyph]
+                            ) -> Tuple[List[Dash], List[Glyph]]:
+    """Una pasada más de «astas de letra»: trazo ≤`LETTER_STROKE_MAX_PT`, pegado
+    (≤`GLYPH_STROKE_GAP_PT`) a una letra ya reconocida y con el mismo largo (±1 pt)
+    que ≥`LETTER_STROKE_MIN_REPEAT` candidatos → parte de la letra — solo si NO está
+    sobre la recta de un guión largo (ahí es un guión corto de la propia línea: con
+    2 repeticiones se comía los de las curvas, DU08 h.48). Basta con 2: un
+    tramo de «—SE—» entre dos bóvedas lleva solo dos «E» (DU08 h.38: el brazo de la
+    «E» a 3.9 pt del eje se unía con el de la otra «E» → paralela de 81 pt inventada)."""
+    longs = [d for d in dashes if d.length > LETTER_STROKE_MAX_PT]
+
+    def on_axis(d: Dash) -> bool:
+        # ¿CONTINÚA un guión largo de la capa? Rumbo ±35° y desvío lateral que
+        # cabe en una curva: ≤1 pt + 10 % de lo que se aleja de la punta del guión
+        # (en un arco a guiones los cortos junto a una «t» giran con la curva). Es
+        # un guión corto de la PROPIA línea, no un asta. El brazo de la «E» (3.9 pt
+        # de lado a ~13 pt) y el asta de la «T» (perpendicular) no pasan.
+        m = d.mid
+        for L in longs:
+            if _ang_diff(d.angle, L.angle) > 35.0:
+                continue
+            ux, uy = _unit(L.b[0] - L.a[0], L.b[1] - L.a[1])
+            t = (m[0] - L.a[0]) * ux + (m[1] - L.a[1]) * uy
+            ext = max(0.0, -t, t - L.length)
+            if ext <= 2.0 * GLYPH_MAX_DIM_PT and                     abs((m[0] - L.a[0]) * uy - (m[1] - L.a[1]) * ux) <= 1.0 + 0.1 * ext:
+                return True
+        return False
+    cand = [(i, d.length) for i, d in enumerate(dashes)
+            if d.length <= LETTER_STROKE_MAX_PT
+            and any(_bbox_gap(d.bbox, g.bbox) <= GLYPH_STROKE_GAP_PT for g in glyphs)
+            and not on_axis(d)]
+    swallow = {i for i, L in cand
+               if sum(1 for _, L2 in cand if abs(L2 - L) <= 1.0) >= LETTER_STROKE_MIN_REPEAT}
+    return ([d for i, d in enumerate(dashes) if i not in swallow],
+            [Glyph(dashes[i].mid[0], dashes[i].mid[1], dashes[i].length) for i in swallow])
+
+
+def _stroke_letters(dashes: List[Dash], curves: List[List[Pt]]
+                    ) -> Tuple[List[Dash], List[List[Pt]], List[Glyph]]:
+    """(perfil `stroke_letters`) Letra de dos trazos: curva pequeña (asta con
+    gancho) + trazo recto corto (travesaño) que se tocan y caben juntos en
+    `GLYPH_MAX_DIM_PT`. Solo cuenta si la PAREJA se repite (mismo largo de curva
+    ±1 pt y de travesaño ±0.5) ≥`GLYPH_STROKE_MIN_REPEAT` veces: un codo real con
+    un guión corto al lado por casualidad no se repite así."""
+    def bbox(pts):
+        xs = [q[0] for q in pts]; ys = [q[1] for q in pts]
+        return (min(xs), min(ys), max(xs), max(ys))
+    pairs: List[Tuple[int, int, float, float]] = []
+    for i, c in enumerate(curves):
+        cb = bbox(c)
+        if max(cb[2] - cb[0], cb[3] - cb[1]) > GLYPH_MAX_DIM_PT:
+            continue
+        clen = sum(_dist(p, q) for p, q in zip(c, c[1:]))
+        for j, d in enumerate(dashes):
+            if d.length > LETTER_TICK_MAX_PT or _bbox_gap(cb, d.bbox) > LETTER_TOUCH_PT:
+                continue
+            ub = (min(cb[0], d.bbox[0]), min(cb[1], d.bbox[1]), max(cb[2], d.bbox[2]), max(cb[3], d.bbox[3]))
+            if max(ub[2] - ub[0], ub[3] - ub[1]) <= GLYPH_MAX_DIM_PT:
+                pairs.append((i, j, clen, d.length))
+    keep = [(i, j) for i, j, cl, dl in pairs
+            if sum(1 for _, _, cl2, dl2 in pairs if abs(cl2 - cl) <= 1.0 and abs(dl2 - dl) <= 0.5)
+            >= GLYPH_STROKE_MIN_REPEAT]
+    ci = {i for i, _ in keep}
+    di = {j for _, j in keep}
+    letters = []
+    for i in ci:
+        cb = bbox(curves[i])
+        letters.append(Glyph((cb[0] + cb[2]) / 2, (cb[1] + cb[3]) / 2, max(cb[2] - cb[0], cb[3] - cb[1])))
+    return ([d for j, d in enumerate(dashes) if j not in di],
+            [c for i, c in enumerate(curves) if i not in ci], letters)
 
 
 def _glyph_hooks(curves: List[List[Pt]], glyphs: List[Glyph]
@@ -2937,11 +3025,26 @@ def _polylines_from_uncovered(
 # ─────────────────────────── orquestación ───────────────────────────
 def reconstruct(line_paths: Sequence[dict], vault_paths: Sequence[dict] = (),
                 opts: GeomOptions = GeomOptions()) -> GeomResult:
-    dashes, glyphs, curves = classify_paths(line_paths, opts.precise_junctions, opts.glyph_hooks)
+    dashes, glyphs, curves = classify_paths(line_paths, opts.precise_junctions, opts.glyph_hooks,
+                                            opts.stroke_letters)
     dashes, markers = strip_crossing_markers(            # «/» del linetype abandonado
         dashes, [c[k] for c in curves if c for k in (0, -1)],
         curves if opts.markers_on_curves else ())
     glyphs = glyphs + markers
+    if opts.stroke_letters:
+        # Letras de solo trazos rectos («TE»/«SE» del banco de ductos de Metro,
+        # DU06 h.11, DU08 h.38): el travesaño de la «T» toca la «E» y se funde en
+        # `classify_paths`, pero el asta solo toca ese travesaño — más pasadas
+        # (pegado a una letra + mismo largo repetido). Van DESPUÉS de separar las
+        # barras «/»: si no, las dos barras de un «//» junto a la «t» parecían
+        # astas repetidas y la línea perdía su marca de abandonada.
+        letters = [g for g in glyphs if g not in markers]
+        for _ in range(3):
+            dashes, more = _swallow_letter_strokes(dashes, letters)
+            if not more:
+                break
+            letters.extend(more)
+            glyphs = glyphs + more
     # Puntos donde el CLIP del PDF cortó la geometría (marco de la vista): un
     # extremo ahí no es un extremo real → no forma esquinas/T ni se prolonga.
     cut_pts: List[Pt] = [pt for pth in line_paths for pt in (pth.get("cut_pts") or [])]
