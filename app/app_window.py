@@ -1203,8 +1203,14 @@ class Main(QtWidgets.QMainWindow):
         else:
             self.lbl_coords.setText(f"X {cx:,.4f}  Y {cy:,.4f}  Z 0.0000")
         sc = self.canvas.scene(); r = sc.sceneRect()
+        # `scene().clear()` (abrir proyecto, cambiar de hoja, re-render del plano)
+        # destruye estas líneas pero la lista las sigue apuntando: sin tolerar el
+        # puntero colgante, CADA movimiento del mouse fallaba aquí y ya no se
+        # dibujaba el marcador verde del snap (el snap del clic sí funcionaba).
         for it in getattr(self, "_crosshair", []):
-            sc.removeItem(it)
+            try: sc.removeItem(it)
+            except (RuntimeError, ValueError): pass
+        self._crosshair = []
         cp = QtGui.QPen(QtGui.QColor(255, 255, 255, 60), 0); cp.setCosmetic(True)
         h = sc.addLine(r.left(), y, r.right(), y, cp); h.setZValue(Z_MARK + 10)
         v = sc.addLine(x, r.top(), x, r.bottom(), cp); v.setZValue(Z_MARK + 10)
@@ -4297,7 +4303,7 @@ class Main(QtWidgets.QMainWindow):
         from model import network_kind
         pa, pb = self.pipes[ia], self.pipes[ib]
         la = pa.get("layer", "")
-        if (za is None or zb is None or abs(za - zb) > 0.01 or la != pb.get("layer", "")
+        if (za is None or zb is None or abs(za - zb) > 0.10 or la != pb.get("layer", "")
                 or network_kind(la) != "pressure"):
             return None
         tol = 0.5 / self.scale * self.zoom if self.scale else 3.0      # 0.5 ft, como el plugin
@@ -4313,7 +4319,7 @@ class Main(QtWidgets.QMainWindow):
         polis = [p.get("pts") or [] for p in self.pipes if p.get("layer", "") == la]
         tipo = model_ops.accesorio_en_punto(polis, (cx, cy), tol)
         nombres = {"codo": N_("un codo sólido"), "tee": N_("una Tee sólida"), "wye": N_("una Wye sólida"),
-                   "cruz": N_("una cruz sólida")}
+                   "cruz": N_("una cruz sólida"), "recto": N_("un codo sólido")}
         if tipo not in nombres:
             return None
         red = model_ops.red_civil_de_union(self.pipes, ia, ib)
@@ -4326,8 +4332,10 @@ class Main(QtWidgets.QMainWindow):
             # Como el plugin: codo del diámetro mayor + reducción excéntrica.
             mayor, menor = max(d_a, d_b), min(d_a, d_b)
             accesorio = _tr("un codo sólido de {d1:g}\" con reducción {d1:g}×{d2:g}\"").format(d1=mayor, d2=menor)
+        elif tipo == "recto" and d_a > 0 and d_b > 0 and abs(d_a - d_b) > 1e-6:
+            accesorio = _tr("una reducción {d1:g}×{d2:g}\"").format(d1=max(d_a, d_b), d2=min(d_a, d_b))
         msg = _tr("Se unen aquí a {z:.2f} ft.\n\nEn Civil 3D: {accesorio} en la red «{red}».").format(
-            z=za, accesorio=accesorio, red=red)
+            z=(za + zb) / 2.0, accesorio=accesorio, red=red)   # ≤0.10 ft: el plugin promedia
         na, nb = model_ops.red_de(pa), model_ops.red_de(pb)
         if na != nb:
             msg += "\n" + _tr("Tienen nombres de red distintos («{a}» / «{b}»): las dos quedan en «{red}».").format(

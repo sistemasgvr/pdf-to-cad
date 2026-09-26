@@ -4357,9 +4357,15 @@ namespace Civil3DBasico
                 idx++;
                 ed.WriteMessage($"\n[CROSS #{idx}] Punto ({cc.X:F2},{cc.Y:F2}), pipe_a={cc.PipeA}, pipe_b={cc.PipeB}, z_a={FmtZ(cc.ZA)}, z_b={FmtZ(cc.ZB)}.");
 
-                if (cc.PipeA < 0 || cc.PipeA >= pipes.Count || cc.PipeB < 0 || cc.PipeB >= pipes.Count)
+                // Las dos utilidades se buscan por su PIPE_IDX (el número de la app),
+                // no por la posición en la lista: si el dibujo ya traía tuberías de
+                // otra importación o alguna no se exportó, la posición se corre y el
+                // codo tomaba la dirección de OTRA tubería (apuntaba a otro lado).
+                var pA = ResolverTuboCruce(pipes, cc.PipeA, cc.X, cc.Y, null, ed, $"[CROSS #{idx}] pipe_a");
+                var pB = ResolverTuboCruce(pipes, cc.PipeB, cc.X, cc.Y, pA, ed, $"[CROSS #{idx}] pipe_b");
+                if (pA == null || pB == null)
                 {
-                    ed.WriteMessage($"\n[CROSS #{idx}] ⚠ pipe_idx inválido (fuera de rango 0..{pipes.Count - 1}).");
+                    ed.WriteMessage($"\n[CROSS #{idx}] ⚠ No encontré las dos utilidades del cruce (pipe_a={cc.PipeA}, pipe_b={cc.PipeB}).");
                     nFail++; continue;
                 }
                 if (_unionesConPendiente.Any(u => Math.Abs(u.X - cc.X) <= 0.5 && Math.Abs(u.Y - cc.Y) <= 0.5))
@@ -4368,7 +4374,6 @@ namespace Civil3DBasico
                         "con pendiente ([UNION-PENDIENTE]) — no se crea la vertical.");
                     continue;
                 }
-                var pA = pipes[cc.PipeA]; var pB = pipes[cc.PipeB];
                 ed.WriteMessage($"\n[CROSS #{idx}]   pipe_a: layer='{pA.Layer}', Ø={pA.Diameter:F1}\", NetKind='{pA.NetKind}'");
                 ed.WriteMessage($"\n[CROSS #{idx}]   pipe_b: layer='{pB.Layer}', Ø={pB.Diameter:F1}\", NetKind='{pB.NetKind}'");
 
@@ -4916,6 +4921,41 @@ namespace Civil3DBasico
         // Se usa para decidir si en el cruce hay un Tee (pipe pasa a través)
         // o un Codo (pipe termina ahí). Tolerancia 0.5 ft (mismo criterio
         // que AgruparJunturas de presión).
+        // Utilidad de una conexión vertical: la que tiene PIPE_IDX = `idx` (el
+        // número de la app). Si no hay PIPE_IDX (DXF antiguo), la de esa posición.
+        // Se comprueba que pase por el punto del cruce (extremo o tramo, ≤0.5 ft);
+        // si no, se busca la que sí pasa (distinta de `otra`), para que el codo se
+        // oriente con SU tubería y no con otra.
+        private static ImportPipe ResolverTuboCruce(List<ImportPipe> pipes, int idx, double x, double y,
+            ImportPipe otra, Editor ed, string etiqueta)
+        {
+            bool Pasa(ImportPipe ip)
+            {
+                var v = ip?.Vertices;
+                if (v == null || v.Count < 2) return false;
+                var p = new Point2d(x, y);
+                for (int k = 0; k + 1 < v.Count; k++)
+                {
+                    Vector2d d = v[k + 1] - v[k];
+                    double L2 = d.DotProduct(d);
+                    double t = L2 < 1e-12 ? 0 : Math.Max(0, Math.Min(1, (p - v[k]).DotProduct(d) / L2));
+                    if (p.GetDistanceTo(v[k] + d * t) <= 0.5) return true;
+                }
+                return false;
+            }
+
+            ImportPipe ip = pipes.FirstOrDefault(p => p.PipeIdx == idx && idx >= 0);
+            if (ip == null && idx >= 0 && idx < pipes.Count && pipes[idx].PipeIdx < 0) ip = pipes[idx];
+            if (ip != null && !ReferenceEquals(ip, otra) && Pasa(ip)) return ip;
+
+            var alternativa = pipes.FirstOrDefault(p => !ReferenceEquals(p, otra) && Pasa(p)
+                                                        && (ip == null || p.Layer == ip.Layer));
+            ed.WriteMessage($"\n{etiqueta}: ⚠ la utilidad #{idx} " +
+                (ip == null ? "no está en el dibujo" : "no pasa por el punto del cruce") +
+                (alternativa != null ? $" — se usa la que sí pasa (#{alternativa.PipeIdx}, '{alternativa.Layer}')." : " — sin alternativa."));
+            return alternativa;
+        }
+
         private static bool EsExtremoDePipe(ImportPipe ip, double x, double y, double tol = 0.5)
         {
             if (ip?.Vertices == null || ip.Vertices.Count < 2) return false;
@@ -4938,20 +4978,33 @@ namespace Civil3DBasico
         {
             if (ip?.Vertices == null || ip.Vertices.Count < 2)
                 return TangenteImportPipeEn(ip, x, y);
-            var v0 = ip.Vertices[0];
-            var vN = ip.Vertices[ip.Vertices.Count - 1];
+            var v = ip.Vertices;
+            var v0 = v[0];
+            var vN = v[v.Count - 1];
             double tol2 = tol * tol;
-            if ((v0.X - x) * (v0.X - x) + (v0.Y - y) * (v0.Y - y) <= tol2)
+            bool Pegado(Point2d p) => (p.X - x) * (p.X - x) + (p.Y - y) * (p.Y - y) <= tol2;
+            // La dirección se toma hacia el primer vértice que está LEJOS del cruce:
+            // un tramito inicial/final de pocas pulgadas (p. ej. un doble clic al
+            // empezar a dibujar) apuntaba a cualquier lado y el codo salía girado.
+            if (Pegado(v0))
             {
-                var v1 = ip.Vertices[1];
-                var d = new Vector3d(v1.X - v0.X, v1.Y - v0.Y, 0);
-                return d.Length > 1e-9 ? d.GetNormal() : Vector3d.XAxis;
+                for (int k = 1; k < v.Count; k++)
+                {
+                    if (Pegado(v[k])) continue;
+                    var d = new Vector3d(v[k].X - x, v[k].Y - y, 0);
+                    if (d.Length > 1e-9) return d.GetNormal();
+                }
+                return TangenteImportPipeEn(ip, x, y);
             }
-            if ((vN.X - x) * (vN.X - x) + (vN.Y - y) * (vN.Y - y) <= tol2)
+            if (Pegado(vN))
             {
-                var vPrev = ip.Vertices[ip.Vertices.Count - 2];
-                var d = new Vector3d(vPrev.X - vN.X, vPrev.Y - vN.Y, 0);
-                return d.Length > 1e-9 ? d.GetNormal() : Vector3d.XAxis;
+                for (int k = v.Count - 2; k >= 0; k--)
+                {
+                    if (Pegado(v[k])) continue;
+                    var d = new Vector3d(v[k].X - x, v[k].Y - y, 0);
+                    if (d.Length > 1e-9) return d.GetNormal();
+                }
+                return TangenteImportPipeEn(ip, x, y);
             }
             // No es endpoint — usa la tangente normal.
             return TangenteImportPipeEn(ip, x, y);

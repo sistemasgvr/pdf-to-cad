@@ -44,7 +44,7 @@ def test_guarda_sin_pdf_y_reabre_igual(proyecto):
     w2._open_project_path(ruta)
     assert w2.blank_canvas and w2.doc is None
     assert len(w2.pipes) == len(win.pipes)
-    assert len(w2.cross_connections) == len(win.cross_connections) == 7
+    assert len(w2.cross_connections) == len(win.cross_connections) == 8
     assert abs(w2.scale - win.scale) < 1e-12
 
 
@@ -60,7 +60,7 @@ def test_exporta_dxf(proyecto):
         return xd[0][1] if xd else ""
     ents = list(doc.modelspace())
     assert sum(marcador(e) == "PDFCAD_PIPE" for e in ents) == len(win.pipes)
-    assert sum(marcador(e) == "PDFCAD_CROSS_CONNECT" for e in ents) == 7
+    assert sum(marcador(e) == "PDFCAD_CROSS_CONNECT" for e in ents) == 8
     nombres = [e for e in ents if marcador(e) == "PDFCAD_PIPE"
                and any(v == "NET_NAME=Linea Norte" for _c, v in e.get_xdata("PDFCAD"))]
     assert len(nombres) == 2

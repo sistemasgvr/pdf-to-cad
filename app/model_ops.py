@@ -482,7 +482,7 @@ def accesorio_en_punto(polilineas, pt, tol):
     """Accesorio que el plugin pondrá donde se juntan tramos de UNA red a
     presión: mira las salidas (direcciones) que parten de `pt` por cada tramo
     que lo toca y aplica la misma regla que RedesPresionJunturas.cs:
-    2 salidas → «codo» (None si siguen rectas), 3 → «tee» si dos son
+    2 salidas → «codo» si giran más de 1°, «recto» si no, 3 → «tee» si dos son
     colineales (≥160°) y el ramal va a 90° ±20°, si no «wye», 4 → «cruz»,
     5+ → None (no hay accesorio)."""
     px, py = pt
@@ -514,7 +514,10 @@ def accesorio_en_punto(polilineas, pt, tol):
 
     pares = [(i, j) for i in range(n) for j in range(i + 1, n) if _entre(salidas[i], salidas[j]) >= 160]
     if n == 2:
-        return None if pares else "codo"
+        # DecidirTipoFitting: codo desde 1° de giro; menos es una unión recta
+        # (antes «recto» llegaba hasta 20° y el lienzo decía «conflicto»).
+        giro = 180.0 - _entre(salidas[0], salidas[1])
+        return "codo" if giro > 1.0 else "recto"
     if n == 3:
         # DecidirTeeOWye: Tee solo con tronco recto Y ramal a 90° ±20°; si no, Wye.
         for i, j in pares:

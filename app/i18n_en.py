@@ -1931,4 +1931,8 @@ EN: dict[str, str] = {
         "No room for a vertical pipe",
     "{n} unión(es) con pendiente":
         "{n} sloped joint(s)",
+
+    # ── app_window.py (unión recta extremo con extremo) ──
+    "una reducción {d1:g}×{d2:g}\"":
+        "a {d1:g}×{d2:g}\" reducer",
 }

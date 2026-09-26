@@ -181,6 +181,11 @@ def e32(lz, P):
     a = lz.tubo("AGUA", [(P[0] - L, P[1]), P], 12, (-2, -2))
     b = lz.tubo("AGUA", [(P[0], P[1] - L), P], 12, (-8, -8))
     return {"app": [(P, "aprobado")], "aprobar": [(P, a, b)]}
+def e50(lz, P):
+    # Misma dirección: una TERMINA en P y la otra EMPIEZA en P (caso reportado).
+    a = lz.tubo("AGUA", [(P[0], P[1] + L / 2), P], 12, (-2, -2))
+    b = lz.tubo("AGUA", [P, (P[0] + 0.5, P[1] - L / 2)], 12, (-8, -8))
+    return {"app": [(P, "aprobado")], "aprobar": [(P, a, b)]}
 def e33(lz, P):
     d = quiebre_y_extremo(lz, P, -2.0, -4.0)
     d["app"] = d["app"] + [(P, "inclinada")]
@@ -265,6 +270,8 @@ CASOS = [
      "sin conexión: un cruce en X de dos tubos que siguen de largo no se une (quedan chocando)", e48),
     ("E49", "Extremo con extremo, Δ 0.5 ft, largos distintos (38 / 10 ft)", "▲ rojo: «no hay espacio para una vertical»",
      "UNIÓN CON PENDIENTE: la de 38 ft baja a -4.50 y CODO con la de 10 ft", e49),
+    ("E50", "Extremo con extremo EN LÍNEA (misma dirección), APROBADO", "aprobado ✓",
+     "CODO de cada tubería mirando hacia SU tubería (norte / sur) + vertical", e50),
 ]
 
 
