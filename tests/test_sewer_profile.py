@@ -221,3 +221,28 @@ def test_du08_h37_la_linea_no_se_corta_en_cada_doble_slash_ss():
     one = [pts for pts, k, lay in pls if any(math.dist(q, (576.8, 966.4)) < 0.5 for q in pts)
            and any(math.dist(q, (734.5, 1079.1)) < 0.5 for q in pts)]
     assert len(one) == 1
+
+
+def test_manhole_bend_solo_en_alcantarillado():
+    assert rec.UTILITY_GEOM_OPTIONS["ALCANTARILLADO"].manhole_bend
+    for util in rec.SUPPORTED_UTILITIES:
+        if util != "ALCANTARILLADO":
+            assert not rec.UTILITY_GEOM_OPTIONS.get(util, rec.geom.GeomOptions()).manhole_bend, util
+
+
+@pytest.mark.skipif(not DU08.is_file(), reason="PDF DU08 no disponible")
+def test_du08_h25_la_tuberia_gira_en_el_buzon_y_queda_conectada():
+    """Propuesta C-SSWR-UNGD-N: sube del suroeste, entra al buzón y gira al este
+    (las dos puntas se tocan en (1179.8, 504.1), dentro del anillo). Antes la
+    horizontal paraba en el borde (1188.3) y quedaban dos piezas sueltas; lo
+    preguntó el usuario («¿eso debería conectar?»)."""
+    r, pls = _sewer(DU08, 25)
+    node = [(pts, k) for pts, k, lay in pls if lay == "C-SSWR-UNGD-N"
+            and any(math.dist(q, (1179.8, 504.1)) <= 1.0 for q in pts)]
+    assert len(node) == 1
+    pts, kinds = node[0]
+    idx = next(i for i, q in enumerate(pts) if math.dist(q, (1179.8, 504.1)) <= 1.0)
+    assert kinds[idx] == "vault"
+    assert any(q[0] > 1400 for q in pts)                          # sigue al este
+    assert not any(math.dist(q, (1188.3, 504.2)) <= 1.0 for pts2, _k, lay in pls
+                   if lay == "C-SSWR-UNGD-N" for q in pts2)       # ya no corta en el borde

@@ -1129,60 +1129,27 @@ class Main(QtWidgets.QMainWindow):
 
     def _open_opacity_popup(self):
         """Desplegable junto al botón de escala: deslizable de opacidad del PDF y
-        botón para alternar el fondo detrás del PDF entre blanco y negro."""
+        botón para alternar el fondo detrás del PDF entre blanco y negro. El
+        mismo desplegable lo usan «Capas de la hoja» y la vista previa
+        (`wizard_widgets.show_opacity_popup`)."""
         if self.canvas.pixmap_item is None:
             QtWidgets.QMessageBox.information(self, _tr("Opacidad"), _tr("Primero abre un PDF o proyecto.")); return
-        menu = QtWidgets.QMenu(self)
-        box = QtWidgets.QWidget()
-        lay = QtWidgets.QVBoxLayout(box); lay.setContentsMargins(12, 10, 12, 10); lay.setSpacing(8)
-        pct = round(self.canvas.pdf_opacity * 100)
-        lbl = QtWidgets.QLabel(_tr("Opacidad del PDF: {pct}%").format(pct=pct))
-        sl = QtWidgets.QSlider(QtCore.Qt.Horizontal); sl.setRange(10, 100)
-        sl.setValue(pct); sl.setMinimumWidth(240)
-        # Accesibilidad: más contraste (canal oscuro + parte activa azul brillante)
-        # y un handle más ancho/visible, fácil de agarrar. Solo estético.
-        sl.setStyleSheet(
-            "QSlider::groove:horizontal { height: 10px; border-radius: 5px;"
-            " background: #202020; border: 1px solid #6a6a6a; }"
-            "QSlider::sub-page:horizontal { background: #4a90ff; border: 1px solid #8ec2ff;"
-            " border-radius: 5px; }"
-            "QSlider::add-page:horizontal { background: #2b2b2b; border: 1px solid #565656;"
-            " border-radius: 5px; }"
-            "QSlider::handle:horizontal { width: 26px; height: 22px; margin: -7px 0;"
-            " border-radius: 6px; background: #ffffff; border: 2px solid #2f6ad9; }"
-            "QSlider::handle:horizontal:hover { background: #eaf1ff; border: 2px solid #6ba3ff; }"
-            "QSlider::handle:horizontal:pressed { background: #cfe0ff; border: 2px solid #8ec2ff; }")
-
-        def _on_val(v):
-            self.canvas.set_pdf_opacity(v / 100.0)
-            lbl.setText(_tr("Opacidad del PDF: {pct}%").format(pct=v))
-            self.lbl_opacity.setText(f"{v}%")     # mantiene sincronizado el control del dock
-        sl.valueChanged.connect(_on_val)
-
-        btn_bg = QtWidgets.QPushButton()
+        from wizard_widgets import show_opacity_popup
 
         def _is_black():
             return self.canvas.pdf_bg_color.value() < 128
 
-        def _refresh_bg_btn():
-            # El texto muestra la acción que hará el clic (viceversa del estado actual).
-            btn_bg.setText(_tr("Fondo blanco") if _is_black() else _tr("Fondo negro"))
-
         def _toggle_bg():
             self.canvas.set_pdf_bg(QtGui.QColor(255, 255, 255) if _is_black()
                                    else QtGui.QColor(0, 0, 0))
-            _refresh_bg_btn()
             # Redibujar para que las zonas borradas adopten el color del fondo
             # (solo visual — nada cambia en el modelo).
             self._redraw()
-        btn_bg.clicked.connect(_toggle_bg)
-        _refresh_bg_btn()
 
-        lay.addWidget(lbl); lay.addWidget(sl); lay.addWidget(btn_bg)
-        wa = QtWidgets.QWidgetAction(menu); wa.setDefaultWidget(box); menu.addAction(wa)
-        # Se abre encima del botón; Qt reubica solo si no cabe (la barra está abajo).
-        pos = self.btn_opacity.mapToGlobal(QtCore.QPoint(0, 0))
-        menu.exec(QtCore.QPoint(pos.x(), pos.y() - menu.sizeHint().height()))
+        show_opacity_popup(self.btn_opacity, self.canvas.pdf_opacity, self.canvas.set_pdf_opacity,
+                           _is_black, _toggle_bg, above=True,
+                           # mantiene sincronizado el control del dock
+                           on_value_text=lambda v: self.lbl_opacity.setText(f"{v}%"))
 
     def _update_coords(self, x, y):
         if self.canvas.pixmap_item is None: return
@@ -1690,33 +1657,45 @@ class Main(QtWidgets.QMainWindow):
         finally:
             self._unbusy()
 
-    def _wizard_sheet_flow(self, start_idx):
-        """Componer la hoja de trabajo, elegir capas y reconocer.
-        Lo usa el asistente al abrir el PDF y «Cambiar de hoja…» del preview.
+    def _wizard_sheet_flow(self, start_idx, start_step=0):
+        """Asistente de PDF vectorial: 1 Componer hoja → 2 Capas de la hoja →
+        3 reconocer (vista previa). Lo usan la apertura del PDF, Ver → Componer
+        hoja y la barra de pasos del preview. `start_step`=1 empieza en «Capas»
+        con la hoja ya compuesta. «◀ Componer hoja» en Capas vuelve al paso 1
+        (pedido del usuario: poder volver atrás en cada paso).
         Devuelve False si se cancela el compositor. Al cancelar las capas, la
         hoja queda cargada sin reconocer."""
-        res = composite_dialog.compose_sheet(
-            self, self.src_pdfs, self.composite, self.hidden_ocgs_by_source, current_page=start_idx)
-        if res is None:
-            return False
-        comp, sources, hidden_by_source = res
-        self.src_pdfs = sources
-        self.composite = comp
-        self.hidden_ocgs_by_source = {k: list(v) for k, v in hidden_by_source.items()}
-        self._recog_ready = False
-        try:
-            self._apply_composite()
-        except Exception as exc:
-            QtWidgets.QMessageBox.warning(self, _tr("Componer hoja"),
-                _tr("No se pudo armar la hoja compuesta:\n\n{e}").format(e=exc))
-            return False
-        page_idx = self.page_idx
-        # Paso «Capas de la hoja»: el usuario decide qué capas OCG ver ANTES
-        # de dibujar. Deja la visibilidad aplicada en self.doc, así _load_page
-        # ya renderiza sin las ocultas.
-        chosen = layer_dialog.choose_sheet_layers(self, self.doc, page_idx,
-                                                  layout=getattr(self, "_composite_layout", None),
-                                                  recognition_utilities=self._recognition_utilities)
+        step = start_step
+        page_idx = start_idx
+        while True:
+            if step == 0:
+                res = composite_dialog.compose_sheet(
+                    self, self.src_pdfs, self.composite, self.hidden_ocgs_by_source, current_page=page_idx)
+                if res is None:
+                    return False
+                comp, sources, hidden_by_source = res
+                self.src_pdfs = sources
+                self.composite = comp
+                self.hidden_ocgs_by_source = {k: list(v) for k, v in hidden_by_source.items()}
+                self._recog_ready = False
+                try:
+                    self._apply_composite()
+                except Exception as exc:
+                    QtWidgets.QMessageBox.warning(self, _tr("Componer hoja"),
+                        _tr("No se pudo armar la hoja compuesta:\n\n{e}").format(e=exc))
+                    return False
+                page_idx = self.page_idx
+            # Paso «Capas de la hoja»: el usuario decide qué capas OCG ver ANTES
+            # de dibujar. Deja la visibilidad aplicada en self.doc, así _load_page
+            # ya renderiza sin las ocultas.
+            chosen = layer_dialog.choose_sheet_layers(self, self.doc, page_idx,
+                                                      layout=getattr(self, "_composite_layout", None),
+                                                      recognition_utilities=self._recognition_utilities,
+                                                      can_go_back=bool(self.src_pdfs))
+            if chosen == layer_dialog.LAYERS_BACK:
+                step = 0
+                continue
+            break
         if chosen is None:
             self._load_sheet_busy(page_idx)
             self._dirty = True
@@ -2041,6 +2020,11 @@ class Main(QtWidgets.QMainWindow):
         elif action == recognition_dialog.PREVIEW_CHANGE_SHEET:
             # Flujo pedido: lista de hojas → capas → preview de la hoja nueva.
             if not self._wizard_sheet_flow(page_index):
+                self._info(_tr("Cambio de hoja cancelado — se mantiene la hoja {n}.").format(
+                    n=page_index + 1))
+        elif action == recognition_dialog.PREVIEW_SHEET_LAYERS:
+            # Paso «2 Capas de la hoja» de la cabecera: volver (y desde ahí, si quiere, al 1).
+            if not self._wizard_sheet_flow(page_index, start_step=1):
                 self._info(_tr("Cambio de hoja cancelado — se mantiene la hoja {n}.").format(
                     n=page_index + 1))
         elif action == recognition_dialog.PREVIEW_ADJUST_LAYERS:

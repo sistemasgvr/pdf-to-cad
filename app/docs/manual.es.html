@@ -98,44 +98,80 @@ hay cambios sin guardar. Guarda a menudo.
 
 <section data-title="Planos PDF de CAD (asistente)">
 <p>Cuando el PDF viene directo de CAD, la app puede <b>leer las líneas del plano</b> y ahorrarte
-dibujarlas. El asistente tiene 3 pantallas:</p>
+dibujarlas. Al abrirlo, la app mira si es un plano de CAD o un escaneo; si no está segura, te lo
+pregunta. Un escaneo (o un plano calcado sin texto ni capas) va directo al dibujo a mano.</p>
+<p>El asistente tiene <b>3 pasos</b>. Arriba de cada pantalla verás
+<b>1 Componer hoja › 2 Capas de la hoja › 3 Vista previa</b>: el paso actual va resaltado y los
+pasos anteriores se pueden pulsar para <b>volver atrás</b> sin perder lo hecho. Abajo, en todo el
+ancho, están las opciones de la vista (como <b>Opacidad</b>) y los botones
+<span class="btn">Cancelar</span> y <span class="btn">Continuar</span>.</p>
 
 <h2>1. Componer hoja de trabajo</h2>
 <ol>
-<li>A la izquierda eliges el PDF y la hoja (puedes <b>agregar más PDF</b>).</li>
-<li>En el centro marcas con un rectángulo la parte del plano que necesitas y pulsas
-    <span class="btn">Tomar área</span> (o <span class="btn">Tomar hoja completa</span>).</li>
-<li>A la derecha colocas cada pieza en su sitio. Con el <b>Imán</b> activo, las líneas de dos
-    piezas vecinas se pegan solas; con <b>Puentes</b>, se completan los huecos entre hojas.</li>
-<li>Puedes <b>girar</b> una pieza o corregir su <b>escala</b> si la hoja no la trae escrita.</li>
+<li>A la izquierda (<b>Origen</b>) eliges el PDF y la hoja; con el botón de la carpeta puedes
+    <b>agregar más PDF</b>. Una hoja marcada «sin capas» es un plano aplanado: se puede usar, pero
+    el reconocimiento no encontrará utilidades en ella.</li>
+<li>En el centro (<b>Área a tomar</b>) marcas con un rectángulo la parte del plano que necesitas y
+    pulsas <span class="btn">Tomar área</span> (o <span class="btn">Hoja completa</span>). El imán a
+    líneas y el recorte de la línea de borde están en <b>Opciones</b>.</li>
+<li>A la derecha (<b>Hoja compuesta</b>) colocas cada pieza en su sitio arrastrándola. Con el
+    <b>Imán</b> activo, las líneas de dos piezas vecinas se pegan solas; con <b>Puentes</b>, se
+    completan los huecos entre hojas (los dos están en <b>Uniones</b>).</li>
+<li>Haz clic en una pieza para <b>girarla</b>, quitarla o, en <b>Ajustes</b>, corregir su ángulo
+    fino o su <b>escala</b> si la hoja no la trae escrita.</li>
+<li>Puedes plegar un panel para ganar sitio; siempre queda al menos uno abierto.</li>
+<li><span class="btn">Continuar</span> pasa al paso 2.</li>
 </ol>
 
 <h2>2. Capas de la hoja</h2>
 <ul>
-<li>Las capas del plano aparecen agrupadas por utilidad (Agua, Alcantarillado, Drenaje, Gas,
-    Eléctrico, Telefonía, Otras), cada una con su color.</li>
-<li>Desmarca lo que <b>no</b> necesitas: se oculta del plano y no se usa al reconocer.</li>
-<li>Con <b>◀ Hoja N / M ▶</b> cambias de hoja sin salir.</li>
-<li>En <b>Utilidades a reconocer</b> marcas cuáles quieres que la app lea:
-    <b>Eléctrico</b>, <b>Drenaje</b>, <b>Agua</b>, <b>Alcantarillado</b>, <b>Gas</b> y <b>Telecomunicaciones</b> (vienen todas
-    marcadas). Solo se pueden
-    marcar las que la hoja tiene.</li>
+<li><b>Reconocer:</b> marca qué utilidades quieres que la app lea (Eléctrico, Drenaje, Agua,
+    Alcantarillado, Gas y Telecomunicaciones). Vienen todas marcadas; <b>Todas</b> las marca o
+    desmarca de una vez. Solo se pueden marcar las que la hoja tiene, y hace falta al menos una
+    para continuar.</li>
+<li><b>Capas del plano:</b> las capas están agrupadas por utilidad (Agua, Alcantarillado, Drenaje,
+    Gas, Eléctrico, Telecomunicaciones, Otras), cada una con su color. La casilla de la utilidad
+    enciende o apaga <b>todas</b> sus capas; con la flecha ▸ la despliegas y eliges capa por capa.
+    Lo que desmarcas se oculta del plano y <b>no se usa al reconocer</b>.</li>
+<li>Escribe en <b>Buscar capa…</b> para encontrar una capa por su nombre; los botones del ojo
+    muestran u ocultan todas las capas que se ven en la lista.</li>
+<li><b>Opacidad</b> aclara el plano (y cambia el fondo a blanco o negro), igual que en el editor.</li>
+<li>Si la hoja tiene varias páginas, <b>◀ Hoja N / M ▶</b> cambia de hoja sin salir.</li>
+<li>Para volver al paso 1, pulsa <b>1 Componer hoja</b> en la barra de arriba;
+    <span class="btn">Continuar</span> reconoce la hoja y abre el paso 3. Si cancelas aquí, la hoja se carga en el editor sin
+    reconocer, para que dibujes a mano.</li>
 </ul>
 
 <h2>3. Vista previa del reconocimiento</h2>
 <ul>
-<li>Muestra las líneas que encontró de cada utilidad, cada una con su color, sus bóvedas o
-    buzones y el porcentaje revisado.</li>
-<li>Si aparece un aviso <b>Revisar</b>, haz clic en él: la vista te lleva al lugar exacto de la
-    hoja. Cada clic muestra el siguiente caso (1/N).</li>
-<li><span class="btn">Continuar e importar al editor</span> las agrega al proyecto como tuberías.</li>
+<li>Muestra las líneas que encontró de cada utilidad, cada una con su color, y sus bóvedas o
+    buzones. Arriba, unas tarjetas con los totales (tramos, abandonadas, codos, estructuras) y una
+    barra por utilidad.</li>
+<li>La barra de <b>Cobertura</b> dice qué parte de los trazos del plano quedó cubierta (verde =
+    completa). En el dibujo, naranja = trazos sin cubrir y violeta = trazos fuera de patrón
+    (flechas, leaders).</li>
+<li>Si aparece un aviso en <b>Revisar</b>, haz clic en él: la vista te lleva al lugar exacto de la
+    hoja. Cada clic muestra el siguiente caso (1/N). La información de más está plegada en
+    <b>Detalles</b>.</li>
+<li><b>Unir tramos en rutas</b> junta los tramos que siguen de frente en una sola tubería.</li>
+<li><b>Opacidad</b> aclara el plano para ver mejor <b>qué y cuánto</b> se reconoció.</li>
+<li>Para volver, pulsa <b>2 Capas de la hoja</b> o <b>1 Componer hoja</b> en la barra de arriba.
+    <span class="btn">Ajustar capas…</span> solo hace falta si el plano usa otros nombres de capa:
+    ahí indicas cuáles son líneas y cuáles bóvedas.</li>
+<li><span class="btn">Continuar e importar al editor</span> las agrega al proyecto como tuberías;
+    <span class="btn">Cancelar</span> deja el editor vacío.</li>
 <li>Las líneas <b>abandonadas</b> se importan marcadas como <b>(AB)</b>: las de la capa «-A»
     con marcas «/», y cualquier línea con marcas dobles «//».</li>
 <li>Los <b>codos</b> curvos del plano se importan con su radio real.</li>
-<li>El <b>agua</b> y el <b>gas</b> entran sin cajas (van a presión). El <b>alcantarillado</b> y el drenaje entran
-    con sus buzones; eléctrico y <b>telecomunicaciones</b>, con caja solo donde el plano
-    tiene una bóveda.</li>
+<li>El <b>agua</b> y el <b>gas</b> entran sin cajas (van a presión). El <b>alcantarillado</b> y el
+    drenaje entran con sus buzones; eléctrico y <b>telecomunicaciones</b>, con caja solo donde el
+    plano tiene una bóveda.</li>
 </ul>
+
+<h2>Volver a componer más tarde</h2>
+<p>Menú <b>Ver → Componer hoja de trabajo…</b> abre otra vez el paso 1, en el PDF y la hoja donde
+estabas trabajando, y repite los pasos 2 y 3 con la hoja nueva. Todo se guarda en el proyecto
+(.digproj), también los PDF de origen.</p>
 <table width="100%" cellspacing="0" cellpadding="12"><tr>
 <td width="6" bgcolor="{{tip_border}}"></td><td bgcolor="{{tip}}">
 <b>Consejo:</b> si algo no se reconoce, siempre puedes dibujarlo a mano (capítulo siguiente).

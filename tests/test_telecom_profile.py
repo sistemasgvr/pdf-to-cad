@@ -183,3 +183,27 @@ def test_laboe_h26_curva_a_guiones_cortos_con_doble_barra_sigue_abandonada():
     _res, pls = _pls(LABOE, 26)
     curve = [(pts, ab) for pts, _k, ab in pls if any(math.dist(q, (162.0, 1409.9)) <= 1.5 for q in pts)]
     assert curve and all(ab for _pts, ab in curve)
+
+
+def test_corner_before_vault_solo_en_telecom():
+    assert rec.UTILITY_GEOM_OPTIONS["TELECOM"].corner_before_vault
+    for util in rec.SUPPORTED_UTILITIES:
+        if util != "TELECOM":
+            assert not rec.UTILITY_GEOM_OPTIONS.get(util, geom.GeomOptions()).corner_before_vault, util
+
+
+@pytest.mark.skipif(not DU08.is_file(), reason="PDF DU08 no disponible")
+def test_du08_h26_la_diagonal_gira_hacia_la_caja_y_no_se_inventa():
+    """«—SC—» de Metro (lo reportó el usuario): la diagonal baja, gira 45° en el
+    hueco de la «SC» y sigue por el tramo que sale de la caja hasta su centro.
+    Antes se estiraba recta 30 pt sin tinta hasta la esquina de la caja
+    (758, 590) y el tramo (754→767, 578) quedaba suelto."""
+    res = rec.recognize_page(DU08, 25, utility="TELECOM", zoom=1.0)
+    sc = [([tuple(q) for q in p.pts_pdf], p.kinds) for p in res.drawable
+          if p.layer_ocg.endswith("PL-SC")]
+    assert not any(math.dist(q, (758.2, 590.4)) <= 2.0 for pts, _ in sc for q in pts)
+    corner = [(q, k) for pts, kinds in sc for q, k in zip(pts, kinds) if math.dist(q, (770.3, 578.1)) <= 1.5]
+    assert corner and corner[0][1] == "corner"
+    # la misma polilínea llega al centro de la caja (734.7, 578.5)
+    assert any(any(math.dist(q, (770.3, 578.1)) <= 1.5 for q in pts)
+               and any(math.dist(q, (734.7, 578.5)) <= 1.5 for q in pts) for pts, _ in sc)

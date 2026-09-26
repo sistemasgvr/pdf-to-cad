@@ -52,6 +52,8 @@ COLLINEAR_ANG_DEG = 1.0      # misma recta: rumbo ±1°
 COLLINEAR_PERP_PT = 1.5      # ...y ambos extremos a ≤1.5 pt de la recta
 CORNER_MIN_ANG_DEG = 8.0     # menos que esto = quiebre suave (bend), no esquina
 CORNER_MIN_INTERIOR_DEG = 73.0   # …y una esquina más CERRADA que esto no es de una sola línea
+CORNER_MIN_TURN_DEG = 20.0       # `corner_before_vault`: una esquina gira al menos esto (180° = de frente)
+MANHOLE_BEND_MIN_RUN_PT = 6.0    # `manhole_bend`: cada pieza que se une en el buzón mide al menos esto
 CORNER_MIN_INTERIOR_COS = math.cos(math.radians(CORNER_MIN_INTERIOR_DEG))
 CURVE_BACKSLIDE_PT = 1.0     # una curva puede «retroceder» a lo sumo esto hasta su esquina
 DASH_LONG_MAX_RATIO = 15.0   # el guión largo del patrón no pasa de esto × el largo más común
@@ -163,6 +165,20 @@ class GeomOptions:
     # juntos en una letra y se repiten iguales ≥`GLYPH_STROKE_MIN_REPEAT` veces =
     # una letra (`_stroke_letters`).
     stroke_letters: bool = False
+    # Una punta que forma ESQUINA con otra punta libre (ambas avanzan, ángulo
+    # interior ≥`CORNER_MIN_INTERIOR_DEG`, esquina a ≤ un hueco del patrón y fuera
+    # de la caja) antes que el borde de una bóveda no salta a la bóveda: la une
+    # la pasada de esquinas. DU08 h.26 (770, 578): la diagonal «—SC—» gira 45° en
+    # el hueco de la «SC» hacia el tramo que sale de la caja; se estiraba 30 pt
+    # sin tinta hasta la caja y el tramo quedaba suelto.
+    corner_before_vault: bool = False
+    # Buzón en un QUIEBRE: dos puntas de la misma capa que se TOCAN dentro del
+    # mismo buzón REDONDO se unen ahí y ese punto es el nodo del buzón (vault).
+    # La costura por contacto (`join_touching_ends`) excluye el interior de las
+    # bóvedas y el nodo de bóveda solo existe si una línea la atraviesa: la
+    # tubería que gira EN el buzón quedaba en dos piezas sueltas (DU08 h.25
+    # (1179.8, 504.1), alcantarillado propuesto; lo preguntó el usuario).
+    manhole_bend: bool = False
 
 
 CHAIN_KINDS = ("corner", "bend", "edge")   # nodos de grado 2 que se encadenan (bóveda: regla propia)
@@ -1954,7 +1970,9 @@ def resolve_nodes(runs: List[Run], pat: Pattern, vaults: Sequence[Vault],
                   cut_pts: Sequence[Pt] = (), nearest: bool = False,
                   glyphs: Sequence[Glyph] = (), touching: bool = False,
                   precise_junctions: bool = False,
-                  continuation_before_vault: bool = False) -> Tuple[List[Node], List[int]]:
+                  continuation_before_vault: bool = False,
+                  corner_before_vault: bool = False,
+                  manhole_bend: bool = False) -> Tuple[List[Node], List[int]]:
     """Asigna nodos a extremos e inserta vértices interiores.
     Devuelve (nodos, índices de bóvedas huérfanas)."""
     nodes: List[Node] = []
@@ -2133,7 +2151,11 @@ def resolve_nodes(runs: List[Run], pat: Pattern, vaults: Sequence[Vault],
             if not free[(i, s)]:
                 continue
             pe = endpoint(i, s)
-            if any(_dist(pe, c) <= 0.5 for c in cut_pts)                     or any(b[0] <= pe[0] <= b[2] and b[1] <= pe[1] <= b[3] for b in vboxes):
+            in_box = [vi for vi, b in enumerate(vboxes) if b[0] <= pe[0] <= b[2] and b[1] <= pe[1] <= b[3]]
+            # (perfil `manhole_bend`) dentro de un buzón REDONDO sí se cosen: la
+            # tubería gira en el buzón y ese punto es su nodo.
+            in_manhole = manhole_bend and len(in_box) == 1 and vaults[in_box[0]].round_entry
+            if any(_dist(pe, c) <= 0.5 for c in cut_pts) or (in_box and not in_manhole):
                 continue
             mates = [(k, sk) for (k, sk) in ends_all
                      if k != i and _dist(endpoint(k, sk), pe) <= ENDS_TOUCH_PT]
@@ -2154,6 +2176,16 @@ def resolve_nodes(runs: List[Run], pat: Pattern, vaults: Sequence[Vault],
                 continue
             q = endpoint(k, sk)
             P = ((pe[0] + q[0]) / 2, (pe[1] + q[1]) / 2)
+            if in_manhole:
+                b = vboxes[in_box[0]]
+                if not (b[0] <= q[0] <= b[2] and b[1] <= q[1] <= b[3]):
+                    continue                              # la otra punta no está en ese buzón
+                if min(runs[i].length, runs[k].length) < MANHOLE_BEND_MIN_RUN_PT:
+                    continue                              # una astilla del símbolo no es tubería (DU08 h.45)
+                node = new_node(P, "vault", in_box[0])
+                set_endpoint(i, s, P, node)
+                set_endpoint(k, sk, P, node)
+                continue
             ang = _ang_diff(_line_angle(runs[i].line(s)), _line_angle(runs[k].line(sk)))
             node = new_node(P, "bend" if ang < CORNER_MIN_ANG_DEG else "corner")
             set_endpoint(i, s, P, node)
@@ -2326,6 +2358,41 @@ def resolve_nodes(runs: List[Run], pat: Pattern, vaults: Sequence[Vault],
                 best = d
         return best
 
+    cos_corner = math.cos(math.radians(180.0 - CORNER_MIN_INTERIOR_DEG))
+    cos_turn = math.cos(math.radians(CORNER_MIN_TURN_DEG))
+
+    def corner_dist(i: int, s: str, bb) -> Optional[float]:
+        """(perfil `corner_before_vault`) Cuánto avanza la punta (i, s) hasta la
+        ESQUINA con otra punta libre (ambas hacia delante, ≤ join_gap, ángulo
+        interior ≥ CORNER_MIN_INTERIOR_DEG, esquina fuera de la caja `bb`), o None."""
+        pe, oe = endpoint(i, s), outward(i, s)
+        best = None
+        for k, sk in loose:
+            if k == i or not free.get((k, sk)):
+                continue
+            pf, of_ = endpoint(k, sk), outward(k, sk)
+            if bb[0] <= pf[0] <= bb[2] and bb[1] <= pf[1] <= bb[3]:
+                continue                                   # la otra punta está en la caja
+            cos_io = oe[0] * of_[0] + oe[1] * of_[1]
+            if cos_io > cos_corner:                        # más cerrada que una esquina real
+                continue
+            if cos_io < -cos_turn:                         # casi de frente: no es esquina (y la
+                continue                                   # intersección de casi-paralelas no vale)
+            den = oe[0] * of_[1] - oe[1] * of_[0]
+            if abs(den) < 1e-6:
+                continue                                   # paralelas: no hay esquina
+            wx, wy = pf[0] - pe[0], pf[1] - pe[1]
+            ti = (wx * of_[1] - wy * of_[0]) / den          # avance de (i, s)
+            tk = (wx * oe[1] - wy * oe[0]) / den            # avance de (k, sk)
+            if not (-0.5 <= ti <= pat.join_gap and -0.5 <= tk <= pat.join_gap):
+                continue
+            X = (pe[0] + ti * oe[0], pe[1] + ti * oe[1])
+            if bb[0] <= X[0] <= bb[2] and bb[1] <= X[1] <= bb[3]:
+                continue
+            if best is None or ti < best:
+                best = max(0.0, ti)
+        return best
+
     for vi, v in enumerate(vaults):
         bb = v.bbox(1.0)
         reach = pat.join_gap
@@ -2358,6 +2425,10 @@ def resolve_nodes(runs: List[Run], pat: Pattern, vaults: Sequence[Vault],
                 cd = continuation_dist(i, s)
                 if cd is not None and cd < move - 1.0:
                     continue              # su continuación está antes que la bóveda
+            if corner_before_vault and not runs[i].split:
+                cd = corner_dist(i, s, bb)
+                if cd is not None and cd < move - 1.0:
+                    continue              # su esquina con otra punta está antes que la bóveda
             if i not in best_by_run or move < best_by_run[i][0]:
                 best_by_run[i] = (move, s, E)
         # Los extremos que mueren junto a la bóveda sin entrar quedan LIBRES: las
@@ -3074,7 +3145,8 @@ def reconstruct(line_paths: Sequence[dict], vault_paths: Sequence[dict] = (),
     runs, offpattern = split_offpattern(runs, pat, vaults, glyphs)
     nodes, orphans = resolve_nodes(runs, pat, vaults, cut_pts, opts.nearest_vault, glyphs,
                                    opts.join_touching_ends, opts.precise_junctions,
-                                   opts.continuation_before_vault)
+                                   opts.continuation_before_vault, opts.corner_before_vault,
+                                   opts.manhole_bend)
     polys = [simplify_soft(pl) for pl in assemble(runs, nodes)]
     # Ruido: corridas cortas, aisladas y sin nodo topológico (restos de símbolos).
     min_len = max(2.0 * pat.dash_long, 3.0 * pat.join_gap)

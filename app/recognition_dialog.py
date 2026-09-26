@@ -18,6 +18,7 @@ from model import TIPOS
 from ui_common import layer_qcolor, swatch_icon
 from icons import icon
 from widgets import ZoomPanView, maximize_on_show, side_panel_width, GripSplitter
+from wizard_widgets import StepBar, OpacityButton, wizard_header, wizard_footer
 import recognition as rec
 from recognition_summary_view import SummaryPanel
 import theme as _theme
@@ -33,6 +34,7 @@ _STRUCT_LABEL = {"ELECTRICO": N_("Bóvedas"), "ALCANTARILLADO": N_("Buzones"), "
 # Acciones que devuelve el preview.
 PREVIEW_IMPORT, PREVIEW_CANCEL = "import", "cancel"
 PREVIEW_CHANGE_SHEET, PREVIEW_ADJUST_LAYERS = "change_sheet", "adjust_layers"
+PREVIEW_SHEET_LAYERS = "sheet_layers"      # paso «2 Capas de la hoja» de la cabecera
 
 
 # ─────────────────────────── Paso 1: tipo de PDF ───────────────────────────
@@ -372,7 +374,8 @@ class RecognitionPreviewDialog(QtWidgets.QDialog):
     """Muestra el PDF + overlay de líneas (listas para el editor) y bóvedas.
 
     `action` al cerrar: PREVIEW_IMPORT (Continuar), PREVIEW_CANCEL,
-    PREVIEW_CHANGE_SHEET («Componer hoja…») o PREVIEW_ADJUST_LAYERS
+    PREVIEW_CHANGE_SHEET (paso 1 «Componer hoja» de la barra de pasos),
+    PREVIEW_SHEET_LAYERS (paso 2 «Capas de la hoja») o PREVIEW_ADJUST_LAYERS
     («Ajustar capas…»). Quien lo abre (Main) ejecuta el flujo correspondiente.
     """
 
@@ -396,8 +399,16 @@ class RecognitionPreviewDialog(QtWidgets.QDialog):
                          _UTILITY_LABEL.get(utilities[0], utilities[0]))
         self.action = PREVIEW_CANCEL
 
-        root = QtWidgets.QHBoxLayout(self)
+        # Cabecera (pasos, a todo el ancho) · vista | panel · pie (opacidad y botones)
+        root = QtWidgets.QVBoxLayout(self)
         root.setContentsMargins(12, 12, 12, 12)   # margen uniforme alrededor de vista y panel
+        root.setSpacing(10)
+        # pasos del asistente: 1 y 2 son clicables (volver atrás); es la única navegación
+        self.steps = StepBar(2)
+        self.steps.stepClicked.connect(
+            lambda i: self._finish(PREVIEW_CHANGE_SHEET if i == 0 else PREVIEW_SHEET_LAYERS))
+        self.btn_sheet = self.steps.buttons[0]       # «1 Componer hoja»
+        root.addWidget(wizard_header(self.steps))
         self.view = _PreviewView()
         # Vista | panel derecho con divisor arrastrable (ancho según la ventana).
         self.split = GripSplitter(QtCore.Qt.Horizontal)   # tirador visible y arrastrable
@@ -502,18 +513,19 @@ class RecognitionPreviewDialog(QtWidgets.QDialog):
             warn.setStyleSheet(f"color:{t.danger}; font-weight:bold;")
             panel.addWidget(warn)
 
-        # ── botones: dos filas alineadas en cuadrícula (mismo ancho por columna).
-        #    Fila 1, secundarias: Componer hoja… | Ajustar capas…
-        #    Fila 2, decisión:    Cancelar       | Continuar e importar (primaria, por defecto)
-        grid = QtWidgets.QGridLayout()
-        grid.setHorizontalSpacing(8); grid.setVerticalSpacing(8)
-        self.btn_sheet = QtWidgets.QPushButton(_tr("Componer hoja…"))
-        self.btn_sheet.setToolTip(_tr("Elegir otra hoja del PDF, revisar sus capas y reconocerla."))
-        self.btn_sheet.clicked.connect(lambda: self._finish(PREVIEW_CHANGE_SHEET))
+        # «Ajustar capas…» es sobre la lista de arriba: va en el panel. Volver
+        # atrás = la cabecera; opacidad y la decisión final = el pie.
         self.btn_roles = QtWidgets.QPushButton(_tr("Ajustar capas…"))
         self.btn_roles.setToolTip(_tr("Solo si el plot usa otros nombres: indicar qué capas son líneas y bóvedas."))
         self.btn_roles.clicked.connect(lambda: self._finish(PREVIEW_ADJUST_LAYERS))
+        self.btn_roles.setProperty("secondary", True)
+        self.btn_roles.setMinimumHeight(32)
+        panel.addWidget(self.btn_roles)
+        # Opacidad del PDF (el mismo desplegable del editor): bajarla deja ver
+        # mejor QUÉ y CUÁNTO se reconoció sobre el plano.
+        self.opacity = OpacityButton(lambda: getattr(self, "_pixmap_item", None))
         self.btn_cancel = QtWidgets.QPushButton(_tr("Cancelar"))
+        self.btn_cancel.setProperty("secondary", True)
         self.btn_cancel.clicked.connect(self.reject)
         self.btn_ok = QtWidgets.QPushButton(_tr("Continuar e importar al editor"))
         self.btn_ok.clicked.connect(lambda: self._finish(PREVIEW_IMPORT))
@@ -521,21 +533,15 @@ class RecognitionPreviewDialog(QtWidgets.QDialog):
             _tr("Al continuar, estas líneas se importan al editor como {u} "
                 "(igual que el dibujo manual, con sus puntos de quiebre). "
                 "Las estructuras se insertan como nodos de la red.").format(u=utility_title))
-        for b in (self.btn_sheet, self.btn_roles, self.btn_cancel):
-            b.setProperty("secondary", True)
-        for b in (self.btn_sheet, self.btn_roles, self.btn_cancel, self.btn_ok):
-            b.setMinimumHeight(36)
-            b.setSizePolicy(QtWidgets.QSizePolicy.Expanding, QtWidgets.QSizePolicy.Fixed)
-        grid.addWidget(self.btn_sheet, 0, 0); grid.addWidget(self.btn_roles, 0, 1)
-        grid.addWidget(self.btn_cancel, 1, 0); grid.addWidget(self.btn_ok, 1, 1)
-        grid.setColumnStretch(0, 1); grid.setColumnStretch(1, 1)
-        panel.addLayout(grid)
+        root.addWidget(wizard_footer([self.opacity], _tr("Rueda = zoom · botón central = desplazar"),
+                                     [self.btn_cancel, self.btn_ok]))
         self.btn_ok.setDefault(True)
         self.btn_ok.setEnabled(n_draw > 0)
 
         sc = self.view.scene()
         pm = QtGui.QPixmap.fromImage(qimg)
         self._pixmap_item = sc.addPixmap(pm)
+        self.opacity.sync()
         self._redraw_overlay()
         self.view.setSceneRect(pm.rect())
         self._fit_pending = True
@@ -607,8 +613,9 @@ class RecognitionPreviewDialog(QtWidgets.QDialog):
 
     def _redraw_overlay(self):
         sc = self.view.scene()
+        keep = (self._pixmap_item, self.opacity.backdrop)     # el PDF y su fondo (Opacidad)
         for it in list(sc.items()):
-            if it is not self._pixmap_item:
+            if it not in keep:
                 sc.removeItem(it)
         for result in self._results:
             color = self._colors[result.utility]

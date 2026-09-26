@@ -277,7 +277,16 @@ alcantarillado, drenaje, gas, eléctrico, telecom). Todo en **unidades imperiale
     `_tool(checkable=True)` pone la propiedad `toggleTool` (QSS en `theme.py`:
     activo = verde + icono claro; `QPushButton[secondary="true"]` = acción
     secundaria neutra, la usa el preview en su cuadrícula 2×2) y `_notify_taken` muestra 5 s «✔ Área tomada
-    como pieza N» en el panel 2. `piece_map` reproduce exactamente el
+    como pieza N» en el panel 2. **UX (2026-09-26, pedido del usuario: «que no haya muchos
+    botones»)**: panel 2 = «Tomar área» (principal) + «Hoja completa» + menú «Opciones»
+    (`btn_area_snap`/`btn_trim` son QAction checables, mismo nombre que antes); panel 3 =
+    herramientas de pieza (`piece_tools`: girar, menú «Ajustes» con `spn_angle`/
+    `spn_piece_scale`, quitar) SOLO con una pieza seleccionada, y menú «Uniones»
+    (`btn_magnet`/`btn_anchors`/`btn_bridges` + `spn_gap`); `cmb_scale` solo visible con >1
+    escala. Siempre queda un panel abierto (`CollapsiblePanel.set_collapse_allowed`,
+    `_update_collapse_rules`). Abre en `Composite.last_view` ([pdf, hoja] al aceptar; va al
+    .digproj) — con una sola hoja entera, en su PDF + la hoja del editor; sin nada, la de la
+    última pieza (`_start_position`). `piece_map` reproduce exactamente el
     mapeo de `show_pdf_page` (centro a centro, giro antihorario, factor uniforme);
     `edge_anchors` da los anclajes (`Anchor`: cortes de trazos con el borde del
     clip + extremos sobre el borde ±0.75 pt, con dirección de salida y capa; se
@@ -392,6 +401,20 @@ alcantarillado, drenaje, gas, eléctrico, telecom). Todo en **unidades imperiale
     y `scale_override`; `work_pdf_path` es el PDF que ven los workers.
     Tests: `tests/test_composite.py` (puro) y `tests/test_composite_dialog.py`
     (Qt offscreen, punta a punta: dos hojas → una ruta).
+  - `wizard_widgets.py` — UI compartida por los pasos del asistente: `StepBar` («1 Componer
+    hoja › 2 Capas de la hoja › 3 Vista previa»; pasos anteriores clicables = volver),
+    `show_opacity_popup` (el desplegable de opacidad del editor, movido aquí: lo usan
+    `Main._open_opacity_popup`, Capas y el preview) y `OpacityButton` (opacidad del
+    pixmap del PDF + rectángulo de fondo blanco/negro debajo; `sync()` tras cada render;
+    quien limpie la escena debe conservar `backdrop`). Navegación (pedido del usuario
+    2026-09-26): `Main._wizard_sheet_flow(start_idx, start_step)` es un bucle —
+    Capas devuelve `layer_dialog.LAYERS_BACK` (paso 1 de la cabecera) → vuelve al
+    compositor; el preview devuelve `PREVIEW_SHEET_LAYERS` (paso 2) → `start_step=1`, o
+    `PREVIEW_CHANGE_SHEET` (paso 1; `btn_sheet` = ese botón de la barra). Diseño (el
+    usuario, 2026-09-26: «repetitivo… que ocupe todo el ancho»): los tres pasos usan
+    `wizard_header` (la barra de pasos a TODO el ancho = única navegación hacia atrás, sin
+    botones «◀» repetidos) y `wizard_footer` (a todo el ancho: opciones de vista como
+    Opacidad · ayuda · Cancelar | Continuar); el panel lateral queda solo con el contenido.
   - `pdf_layers.py` + `layer_dialog.py` — paso «Capas de la hoja» del asistente:
     lista las capas OCG con geometría y las apaga/enciende con
     `doc.set_layer_ui_config` (única API que afecta render **y** `get_drawings`;
@@ -399,11 +422,13 @@ alcantarillado, drenaje, gas, eléctrico, telecom). Todo en **unidades imperiale
     `fitz.Document` de `Main` (`self.hidden_ocgs` guarda los nombres); el worker
     abre su propio doc, por eso recibe `hidden_ocgs` y filtra por nombre.
     `pdf_layers.utility_of(name)` agrupa cada capa por tokens NCS en las
-    utilidades de la app (`model.TIPOS` + `OTRAS`); el diálogo las lista
-    agrupadas con su color, cada casilla del panel «Utilidades» APAGA/enciende
-    todas las capas de esa utilidad en la hoja y filtra la lista (`_set_utility_visible`
-    recuerda el estado por capa en `_util_memory` para reponerlo; el buscador solo
-    filtra), y
+    utilidades de la app (`model.TIPOS` + `OTRAS`); el diálogo (rediseño 2026-09-26)
+    tiene la tarjeta «Reconocer» (`chk_recog_all` «Todas» + `_recog_checks`; sin ninguna
+    marcada `btn_ok` se apaga y avisa) y «Capas del plano» = `QTreeWidget` con un grupo por
+    utilidad (plegado; su casilla APAGA/enciende todas sus capas —`set_utility_visible`,
+    `_set_utility_visible` recuerda el estado por capa en `_util_memory` para reponerlo— y
+    muestra «on/total» si es parcial), buscador que filtra y despliega, ojo mostrar/ocultar
+    sobre lo filtrado, «Opacidad», y
     «◀ Hoja N / M ▶» cambia de hoja sin salir. Devuelve `(ocultas, hoja)`.
     En `Main`, `_start_recognition(idx)` lanza el worker con
     `self.hidden_ocgs` + `self._layer_roles` (None = automático); `_change_page`
@@ -630,6 +655,14 @@ alcantarillado, drenaje, gas, eléctrico, telecom). Todo en **unidades imperiale
     distancia perpendicular a guiones paralelos ≥3 pt de su propia capa; ojo: sin esos
     filtros, las letras «ss» y los huecos dan cientos de falsos positivos). Referencia:
     859 tramos, 0 sin tinta, 0 «V», 3 «imprecisos» = ejes de tuberías con doble línea.
+    **Buzón en un quiebre (2026-09-26, pregunta del usuario en DU08 h.25)**: `manhole_bend`
+    (solo alcantarillado): dos puntas de la MISMA capa que se tocan (≤`ENDS_TOUCH_PT`) dentro
+    del mismo buzón REDONDO (`round_entry`) se cosen ahí con nodo `vault` (con su `vi`), si cada
+    pieza mide ≥`MANHOLE_BEND_MIN_RUN_PT`=6 (una astilla del símbolo no cuenta: DU08 h.45). La
+    costura por contacto excluía el interior de las bóvedas y el nodo de bóveda solo existe si
+    una línea la ATRAVIESA de frente: la tubería que gira en el buzón quedaba en dos piezas
+    (horizontal cortada en el borde + pieza interior). Auditoría: 6 hojas cambian, todas a una
+    pieza menos (≈8 pt de hueco cerrado); 0 sin tinta, 0 «V», 3 imprecisos = 3.
   - **Perfil GAS (2026-09-25)**: `SUPPORTED_UTILITIES` suma GAS (kind `gas_ungd`; red a
     PRESIÓN como el agua: sin cajas automáticas). `_classify_gas`: línea = capas de SOLO
     estado de la red existente (`…REF-EXIST_NGAS|C-NGAS-A/-D/-E`, sin «UNGD»),
@@ -683,6 +716,17 @@ alcantarillado, drenaje, gas, eléctrico, telecom). Todo en **unidades imperiale
     AB 99, 59 codos. Reglas de agua/alcantarillado/gas: no mejoran. Tests:
     `tests/test_telecom_profile.py`, `tests/test_telecom_integration.py` (DU10 h.5 → CAJA con
     medidas, DXF NET_KIND=conduit). Foto de las otras 5 utilidades antes/después: sin cambios.
+    2.ª regla (2026-09-26, reporte del usuario en DU08 h.26): `corner_before_vault` — en la
+    Fase B una punta que forma ESQUINA con otra punta libre (ambas avanzan ≤ join_gap, giro
+    ≥`CORNER_MIN_TURN_DEG`=20° —las casi-de-frente no, su intersección es inestable— e
+    interior ≥73°, esquina fuera de la caja) antes que el borde de la bóveda NO salta a la
+    bóveda; la une la pasada de esquinas. Caso: la diagonal «—SC—» gira 45° en el hueco de la
+    «SC» hacia el tramo que sale de la caja; se estiraba 30 pt sin tinta hasta la esquina de la
+    caja. El audit no lo veía (el tramo inventado pasaba sobre las letras, que son tinta de la
+    capa, y moría en el margen de la caja). Auditoría: 12 hojas cambian, todas a menos tramos;
+    0 sin tinta, 0 «V», imprecisos 15 = 15. Las líneas «TE» de esas hojas son
+    `U-TRPW-DBNK-P` (Traction Power duct bank de Metro = energía, NO telecom); hoy no las
+    reconoce ningún perfil y «Capas de la hoja» las lista en «Otras».
   - `PDFCAD_CURVE` (punto): esquina de elemento curvo, con `RADIUS_FT`.
   - `PDFCAD_META` (punto): metadatos del proyecto, hoy `CS_CODE` (Huso).
   - `PDFCAD_DUCTBANK` (punto, capa `PDFCAD_DUCT_BANK`): sección transversal del

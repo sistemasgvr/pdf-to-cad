@@ -31,6 +31,7 @@ from icons import icon as _icon
 from sheet_crop_dialog import _CropView
 from ui_common import DOWNLOADS
 from widgets import CollapsiblePanel, maximize_on_show, GripSplitter
+from wizard_widgets import StepBar, wizard_header, wizard_footer
 import theme as _theme
 
 _SETTINGS = ("PDFCAD", "AsistenteC3D")
@@ -77,6 +78,38 @@ def _tool(icon_name: str, text: str, tip: str = "", checkable: bool = False,
     return btn
 
 
+def _options_button(icon_name: str, text: str, tip: str) -> tuple[QtWidgets.QToolButton, QtWidgets.QMenu]:
+    """Botón «▾» que agrupa opciones poco usadas en un menú (casillas y campos):
+    el usuario ve una sola acción en vez de una fila de conmutadores."""
+    btn = QtWidgets.QToolButton()
+    btn.setIcon(_icon(icon_name)); btn.setIconSize(_ICON)
+    btn.setText(text); btn.setToolTip(tip)
+    btn.setToolButtonStyle(QtCore.Qt.ToolButtonTextBesideIcon)
+    btn.setPopupMode(QtWidgets.QToolButton.InstantPopup)
+    btn.setMinimumHeight(32)
+    menu = QtWidgets.QMenu(btn)
+    menu.setToolTipsVisible(True)
+    btn.setMenu(menu)
+    return btn, menu
+
+
+def _check_action(menu: QtWidgets.QMenu, text: str, tip: str, checked: bool = True) -> QtGui.QAction:
+    act = menu.addAction(text)
+    act.setCheckable(True); act.setChecked(checked); act.setToolTip(tip)
+    return act
+
+
+def _field_action(menu: QtWidgets.QMenu, label: str, field: QtWidgets.QWidget) -> QtWidgets.QWidgetAction:
+    """Campo (número, etc.) con su etiqueta dentro de un menú."""
+    w = QtWidgets.QWidget()
+    row = QtWidgets.QHBoxLayout(w); row.setContentsMargins(12, 4, 12, 4); row.setSpacing(8)
+    row.addWidget(QtWidgets.QLabel(label), 1); row.addWidget(field)
+    act = QtWidgets.QWidgetAction(menu)
+    act.setDefaultWidget(w)
+    menu.addAction(act)
+    return act
+
+
 def _spin(prefix: str = "", suffix: str = "", lo: float = 0.0, hi: float = 100.0,
           decimals: int = 2, step: float = 1.0) -> QtWidgets.QDoubleSpinBox:
     sp = QtWidgets.QDoubleSpinBox()
@@ -108,8 +141,7 @@ class CompositeDialog(QtWidgets.QDialog):
         self._thumb_cache: Dict[tuple, QtGui.QIcon] = {}
         self._guide_cache: Dict[tuple, dict] = {}
         self._layers_cache: Dict[tuple, bool] = {}   # (pdf, hoja) → ¿dibuja dentro de capas?
-        self._cur_source = 0
-        self._cur_page = current_page
+        self._cur_source, self._cur_page = self._start_position(current_page)
         self._page_item = None
         self._syncing_widgets = False
         self._editing = -1            # pieza cuya área se edita en el panel 2 (-1 = nueva pieza)
@@ -131,12 +163,33 @@ class CompositeDialog(QtWidgets.QDialog):
         self._refresh_summary()
         QtCore.QTimer.singleShot(0, self.view.fit_all)
 
+    def _start_position(self, current_page: int) -> tuple[int, int]:
+        """PDF y hoja con que se abre: donde el usuario estaba trabajando, no el
+        primer PDF. Una sola hoja entera (sin materializar) → su PDF y la hoja
+        del editor (◀ ▶ la cambian); si no, la última vista del compositor
+        (`Composite.last_view`); si no, la de la última pieza tomada."""
+        n = len(self.docs)
+
+        def valid(src, page):
+            return 0 <= src < n and 0 <= page < self.docs[src].page_count
+        pieces = self.comp.pieces
+        if self.comp.is_single_full_page() and valid(pieces[0].source, current_page):
+            return pieces[0].source, current_page
+        lv = self.comp.last_view
+        if lv is not None and valid(lv[0], lv[1]):
+            return int(lv[0]), int(lv[1])
+        if pieces and valid(pieces[-1].source, pieces[-1].page):
+            return pieces[-1].source, pieces[-1].page
+        return 0, current_page if valid(0, current_page) else 0
+
     # ── UI ──────────────────────────────────────────────────────────────
     def _build_ui(self):
         tokens = _theme.tokens()
         root = QtWidgets.QVBoxLayout(self)
         root.setContentsMargins(16, 12, 16, 12)
         root.setSpacing(10)
+        self.steps = StepBar(0)            # 1 Componer hoja › 2 Capas de la hoja › 3 Vista previa
+        root.addWidget(wizard_header(self.steps))
         self.intro = QtWidgets.QLabel(_tr(
             "Elige el PDF y la hoja, marca el área del plano que necesitas y tómala a la hoja "
             "compuesta. Acomoda las piezas arrastrándolas: el imán alinea los extremos de las líneas "
@@ -154,22 +207,17 @@ class CompositeDialog(QtWidgets.QDialog):
         split.setStretchFactor(0, 0); split.setStretchFactor(1, 3); split.setStretchFactor(2, 4)
         self._sizes_before: Dict[int, int] = {}
         self._apply_initial_sizes()
+        self._update_collapse_rules()
 
-        foot = QtWidgets.QHBoxLayout()
-        hint = QtWidgets.QLabel(_tr("Rueda = zoom · botón central = desplazar · Supr quita la pieza seleccionada"))
-        hint.setStyleSheet(f"color:{tokens.text_muted}; font-size:12px;")
-        hint.setWordWrap(True)
-        foot.addWidget(hint, 1)
         self.btn_cancel = QtWidgets.QPushButton(_tr("Cancelar"))
         self.btn_cancel.setProperty("secondary", True)
-        self.btn_cancel.setMinimumSize(120, 34)
         self.btn_cancel.clicked.connect(self.reject)
         self.btn_ok = QtWidgets.QPushButton(_tr("Continuar"))
-        self.btn_ok.setMinimumSize(140, 34)
         self.btn_ok.setDefault(True)
         self.btn_ok.clicked.connect(self.accept)
-        foot.addWidget(self.btn_cancel); foot.addWidget(self.btn_ok)
-        root.addLayout(foot)
+        root.addWidget(wizard_footer(
+            [], _tr("Rueda = zoom · botón central = desplazar · Supr quita la pieza seleccionada"),
+            [self.btn_cancel, self.btn_ok]))
         self._on_piece_selected(-1)
         sc = QtGui.QShortcut(QtGui.QKeySequence(QtCore.Qt.Key_Delete), self.view, self._delete)
         sc.setContext(QtCore.Qt.WidgetWithChildrenShortcut)   # no borrar piezas al editar un número
@@ -211,6 +259,13 @@ class CompositeDialog(QtWidgets.QDialog):
                 sizes[i] = max(120, sizes[i] - take // max(1, len(others)))
             sizes[index] = want
         self.split.setSizes(sizes)
+        self._update_collapse_rules()
+
+    def _update_collapse_rules(self):
+        """Siempre queda al menos un panel abierto: el último no se puede plegar."""
+        open_panels = [p for p in self.panels if not p.collapsed]
+        for p in self.panels:
+            p.set_collapse_allowed(len(open_panels) > 1 or p.collapsed)
 
     def resizeEvent(self, event):
         super().resizeEvent(event)
@@ -269,11 +324,17 @@ class CompositeDialog(QtWidgets.QDialog):
         self._crop_sharp = ViewportSharpener(self.crop, lambda: self.docs[self._cur_source][self._cur_page], z=1)
         lay.addWidget(self.crop, 1)
         row = QtWidgets.QHBoxLayout(); row.setSpacing(8)
-        self.btn_take = QtWidgets.QPushButton(_tr("Tomar área"))
+        # Una acción principal («Tomar área»), una secundaria y las opciones del
+        # rectángulo plegadas en un menú (antes eran cinco botones en fila).
+        self.btn_take = QtWidgets.QPushButton(_icon("mdi:plus", color=_theme.tokens().text_on_accent),
+                                              _tr("Tomar área"))
         self.btn_take.setMinimumHeight(34)
+        self.btn_take.setToolTip(_tr("Agregar el rectángulo marcado como una pieza nueva de la hoja compuesta"))
         self.btn_take.clicked.connect(lambda: self._take(full=False))
-        self.btn_take_full = QtWidgets.QPushButton(_tr("Tomar hoja completa"))
+        self.btn_take_full = QtWidgets.QPushButton(_tr("Hoja completa"))
+        self.btn_take_full.setProperty("secondary", True)
         self.btn_take_full.setMinimumHeight(34)
+        self.btn_take_full.setToolTip(_tr("Agregar la hoja entera como una pieza"))
         self.btn_take_full.clicked.connect(lambda: self._take(full=True))
         self.btn_new = QtWidgets.QPushButton(_icon("mdi:plus"), _tr("Nueva pieza"))
         self.btn_new.setMinimumHeight(34)
@@ -281,20 +342,20 @@ class CompositeDialog(QtWidgets.QDialog):
         self.btn_new.clicked.connect(lambda: self.view.select(-1))
         self.btn_new.hide()
         row.addWidget(self.btn_take); row.addWidget(self.btn_take_full); row.addWidget(self.btn_new)
-        self.btn_area_snap = _tool("mdi:magnet", _tr("Imán a líneas"),
-                                   _tr("Al arrastrar el rectángulo, sus lados saltan a las líneas generales de la "
-                                       "hoja (match lines, marcos, bordes largos), que se resaltan en celeste"),
-                                   checkable=True)
-        self.btn_area_snap.setChecked(True)
+        self.btn_area_opts, menu = _options_button(
+            "mdi:tune-vertical", _tr("Opciones"), _tr("Cómo se ajusta el rectángulo al plano"))
+        self.btn_area_snap = _check_action(
+            menu, _tr("Imán a líneas"),
+            _tr("Al arrastrar el rectángulo, sus lados saltan a las líneas generales de la "
+                "hoja (match lines, marcos, bordes largos), que se resaltan en celeste"))
         self.btn_area_snap.toggled.connect(lambda on: setattr(self.crop, "snap_enabled", bool(on)))
-        row.addWidget(self.btn_area_snap)
-        self.btn_trim = _tool("mdi:border-none-variant", _tr("Sin línea de borde"),
-                              _tr("Recortar el área por dentro de la línea larga que corra pegada a cada lado "
-                                  "(match line, marco de la vista), sea de la capa que sea, para que no aparezca "
-                                  "en la hoja compuesta"), checkable=True)
-        self.btn_trim.setChecked(True)
+        self.btn_trim = _check_action(
+            menu, _tr("Sin línea de borde"),
+            _tr("Recortar el área por dentro de la línea larga que corra pegada a cada lado "
+                "(match line, marco de la vista), sea de la capa que sea, para que no aparezca "
+                "en la hoja compuesta"))
         self.btn_trim.toggled.connect(self._on_trim_toggled)
-        row.addWidget(self.btn_trim)
+        row.addWidget(self.btn_area_opts)
         row.addStretch(1)
         self.lbl_area = QtWidgets.QLabel()
         self.lbl_area.setStyleSheet(f"color:{_theme.tokens().text_muted}; font-size:12px;")
@@ -325,26 +386,33 @@ class CompositeDialog(QtWidgets.QDialog):
 
     def _build_composite_panel(self) -> QtWidgets.QWidget:
         box, lay = _panel(_tr("3 · Hoja compuesta"))
-        # Barra de herramientas: pieza seleccionada | vista
+        # Arriba: herramientas de la pieza SELECCIONADA (solo se ven con una
+        # pieza elegida; si no, una indicación) | ajustar vista.
         bar = QtWidgets.QHBoxLayout(); bar.setSpacing(6)
+        self.piece_tools = QtWidgets.QWidget()
+        pt = QtWidgets.QHBoxLayout(self.piece_tools); pt.setContentsMargins(0, 0, 0, 0); pt.setSpacing(6)
         self.btn_ccw = _tool("mdi:rotate-left", _tr("Girar 90° antihorario"), icon_only=True)
         self.btn_ccw.clicked.connect(lambda: self._rotate(90))
         self.btn_cw = _tool("mdi:rotate-right", _tr("Girar 90° horario"), icon_only=True)
         self.btn_cw.clicked.connect(lambda: self._rotate(-90))
-        bar.addWidget(self.btn_ccw); bar.addWidget(self.btn_cw)
-        bar.addWidget(QtWidgets.QLabel(_tr("Ángulo")))
+        self.btn_del = _tool("mdi:trash-can-outline", _tr("Quitar la pieza seleccionada (Supr)"), icon_only=True)
+        self.btn_del.clicked.connect(self._delete)
+        self.btn_piece_opts, pmenu = _options_button(
+            "mdi:tune-vertical", _tr("Ajustes"), _tr("Ángulo fino y escala de la pieza seleccionada"))
         self.spn_angle = _spin("", "°", -360.0, 360.0, 2, 0.5)
         self.spn_angle.setToolTip(_tr("Ángulo fino de la pieza (antihorario)"))
         self.spn_angle.valueChanged.connect(self._on_angle_edited)
-        bar.addWidget(self.spn_angle)
-        bar.addWidget(QtWidgets.QLabel(_tr("Escala pieza")))
+        _field_action(pmenu, _tr("Ángulo"), self.spn_angle)
         self.spn_piece_scale = _spin('1" = ', "'", 0.1, 100000.0)
         self.spn_piece_scale.setToolTip(_tr("Escala de la hoja de origen de esta pieza"))
         self.spn_piece_scale.valueChanged.connect(self._on_piece_scale_edited)
-        bar.addWidget(self.spn_piece_scale)
-        self.btn_del = _tool("mdi:trash-can-outline", _tr("Quitar la pieza seleccionada (Supr)"), icon_only=True)
-        self.btn_del.clicked.connect(self._delete)
-        bar.addWidget(self.btn_del)
+        _field_action(pmenu, _tr("Escala pieza"), self.spn_piece_scale)
+        for w in (self.btn_ccw, self.btn_cw, self.btn_piece_opts, self.btn_del):
+            pt.addWidget(w)
+        bar.addWidget(self.piece_tools)
+        self.lbl_select_hint = QtWidgets.QLabel(_tr("Haz clic en una pieza para girarla, ajustarla o quitarla."))
+        self.lbl_select_hint.setStyleSheet(f"color:{_theme.tokens().text_muted}; font-size:12px;")
+        bar.addWidget(self.lbl_select_hint)
         bar.addStretch(1)
         btn_fit = _tool("mdi:fit-to-screen-outline", _tr("Ajustar la vista a todas las piezas"), icon_only=True)
         btn_fit.clicked.connect(self.view_fit)
@@ -357,41 +425,38 @@ class CompositeDialog(QtWidgets.QDialog):
         self.view.bridgesChanged.connect(self._on_bridges_changed)
         lay.addWidget(self.view, 1)
 
-        # Ayudas de unión | escala de la hoja
-        aid = QtWidgets.QHBoxLayout(); aid.setSpacing(6)
-        self.btn_magnet = _tool("mdi:magnet", _tr("Imán"),
-                                _tr("Al arrastrar, los extremos de las líneas se pegan (o se alinean) con los de la pieza vecina"),
-                                checkable=True)
-        self.btn_magnet.setChecked(True)
+        # Abajo: resumen | uniones (menú) | escala de la hoja (solo si hay varias)
+        srow = QtWidgets.QHBoxLayout(); srow.setSpacing(8)
+        self.lbl_summary = QtWidgets.QLabel()
+        self.lbl_summary.setStyleSheet(f"color:{_theme.tokens().text_muted}; font-size:12px;")
+        self.lbl_summary.setWordWrap(True)
+        srow.addWidget(self.lbl_summary, 1)
+        self.lbl_bridges = QtWidgets.QLabel()
+        self.lbl_bridges.setStyleSheet(f"color:{_theme.tokens().success}; font-weight:bold;")
+        srow.addWidget(self.lbl_bridges)
+        self.btn_join_opts, jmenu = _options_button(
+            "mdi:link-variant", _tr("Uniones"), _tr("Cómo se unen las piezas vecinas"))
+        self.btn_magnet = _check_action(
+            jmenu, _tr("Imán"),
+            _tr("Al arrastrar, los extremos de las líneas se pegan (o se alinean) con los de la pieza vecina"))
         self.btn_magnet.toggled.connect(lambda on: setattr(self.view, "magnet_enabled", bool(on)))
-        aid.addWidget(self.btn_magnet)
-        self.btn_anchors = _tool("mdi:circle-medium", _tr("Extremos"),
-                                 _tr("Mostrar los extremos de línea en el borde de cada pieza"), checkable=True)
-        self.btn_anchors.setChecked(True)
+        self.btn_anchors = _check_action(jmenu, _tr("Extremos"),
+                                         _tr("Mostrar los extremos de línea en el borde de cada pieza"))
         self.btn_anchors.toggled.connect(self._toggle_anchors)
-        aid.addWidget(self.btn_anchors)
-        self.btn_bridges = _tool("mdi:link-variant", _tr("Puentes"),
-                                 _tr("Unir con un trazo vectorial (misma capa) cada extremo con el que tiene enfrente en la pieza vecina"),
-                                 checkable=True)
-        self.btn_bridges.setChecked(bool(self.comp.bridges))
+        self.btn_bridges = _check_action(
+            jmenu, _tr("Puentes"),
+            _tr("Unir con un trazo vectorial (misma capa) cada extremo con el que tiene enfrente en la pieza vecina"),
+            checked=bool(self.comp.bridges))
         self.btn_bridges.toggled.connect(self._toggle_bridges)
-        aid.addWidget(self.btn_bridges)
-        aid.addWidget(QtWidgets.QLabel(_tr("hueco máx.")))
         self.spn_gap = _spin("", " pt", 1.0, 2000.0, 0, 10.0)
         self.spn_gap.setValue(float(self.comp.bridge_max_pt))
         self.spn_gap.setToolTip(_tr("Separación máxima entre dos extremos para unirlos con un puente"))
+        self.spn_gap.setEnabled(bool(self.comp.bridges))
         self.spn_gap.valueChanged.connect(self._on_gap_edited)
-        aid.addWidget(self.spn_gap)
-        self.lbl_bridges = QtWidgets.QLabel()
-        aid.addWidget(self.lbl_bridges)
-        aid.addStretch(1)
-        lay.addLayout(aid)
-        # resumen + escala de la hoja en una segunda línea (menos ancho mínimo)
-        srow = QtWidgets.QHBoxLayout(); srow.setSpacing(6)
-        self.lbl_summary = QtWidgets.QLabel()
-        self.lbl_summary.setStyleSheet(f"color:{_theme.tokens().text_muted}; font-size:12px;")
-        srow.addWidget(self.lbl_summary, 1)
-        srow.addWidget(QtWidgets.QLabel(_tr("Escala de la hoja")))
+        _field_action(jmenu, _tr("hueco máx."), self.spn_gap)
+        srow.addWidget(self.btn_join_opts)
+        self.lbl_target_scale = QtWidgets.QLabel(_tr("Escala de la hoja"))
+        srow.addWidget(self.lbl_target_scale)
         self.cmb_scale = QtWidgets.QComboBox()
         self.cmb_scale.setMinimumHeight(30)
         self.cmb_scale.setToolTip(_tr("Escala única de la hoja compuesta; cada pieza se ajusta a ella"))
@@ -677,6 +742,8 @@ class CompositeDialog(QtWidgets.QDialog):
         has = idx >= 0
         for w in (self.btn_ccw, self.btn_cw, self.spn_angle, self.spn_piece_scale, self.btn_del):
             w.setEnabled(has)
+        self.piece_tools.setVisible(has)
+        self.lbl_select_hint.setVisible(not has and bool(self.comp.pieces))
         if has:
             self._sync_piece_widgets(idx)
             if idx != self._editing:
@@ -723,6 +790,9 @@ class CompositeDialog(QtWidgets.QDialog):
                 self.cmb_scale.setCurrentIndex(i)
                 break
         self.cmb_scale.setEnabled(len(scales) > 1)
+        # con una sola escala no hay nada que elegir: ya va en el resumen
+        self.cmb_scale.setVisible(len(scales) > 1)
+        self.lbl_target_scale.setVisible(len(scales) > 1)
         self.cmb_scale.blockSignals(False)
 
     def _on_target_scale_changed(self, idx: int):
@@ -735,12 +805,15 @@ class CompositeDialog(QtWidgets.QDialog):
     def _refresh_summary(self):
         n = len(self.comp.pieces)
         self.btn_ok.setEnabled(n > 0)
+        if hasattr(self, "lbl_select_hint"):
+            self.lbl_select_hint.setVisible(n > 0 and self.view.selected_index() < 0)
         w, h, _, _ = C.sheet_geometry(self.comp, self.view.page_size)
         self.lbl_summary.setText(_tr("{n} pieza(s) · hoja compuesta {w:.0f} × {h:.0f} pt · {s}").format(
             n=n, w=w, h=h, s=_scale_label(self.comp.target_scale())))
 
     # ── cierre ──────────────────────────────────────────────────────────
     def result_tuple(self):
+        self.comp.last_view = [int(self._cur_source), int(self._cur_page)]
         return self.comp, self.sources, self.hidden_by_source
 
     def done(self, result):

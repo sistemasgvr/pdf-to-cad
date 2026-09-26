@@ -104,3 +104,23 @@ def test_preview_sin_lineas_deshabilita_continuar():
     assert any("Ajustar capas" in t for t in labels)
     assert dlg.lbl_sheet.text() == "Hoja 1 / 3"
     dlg.deleteLater()
+
+
+def test_preview_navegacion_y_opacidad():
+    """Cabecera de pasos (1 y 2 vuelven atrás; sin botón «◀» repetido) y la
+    opacidad del PDF, que sobrevive al redibujo del overlay."""
+    _app()
+    empty = rec.RecognitionResult(utility="ELECTRICO", page_index=0, scale_ft_per_pt=0.3, warnings=[])
+    for trigger, action in ((lambda d: d.steps.buttons[1].click(), rd.PREVIEW_SHEET_LAYERS),
+                            (lambda d: d.steps.buttons[0].click(), rd.PREVIEW_CHANGE_SHEET)):
+        dlg = rd.RecognitionPreviewDialog(None, _blank(), empty, "ELECTRICO", page_count=3)
+        trigger(dlg)
+        assert dlg.action == action
+        dlg.deleteLater()
+    dlg = rd.RecognitionPreviewDialog(None, _blank(), empty, "ELECTRICO", page_count=3)
+    assert not hasattr(dlg, "btn_back")
+    dlg.opacity.set_opacity(0.3)
+    dlg._redraw_overlay()
+    assert abs(dlg._pixmap_item.opacity() - 0.3) < 1e-6
+    assert dlg.opacity.backdrop is not None and dlg.opacity.backdrop.scene() is dlg.view.scene()
+    dlg.deleteLater()

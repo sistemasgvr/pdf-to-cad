@@ -110,6 +110,10 @@ class Composite:
     scale_ft_per_pt: Optional[float] = None   # None → escala de la primera pieza
     bridges: bool = True                      # unir extremos entre piezas con puentes vectoriales
     bridge_max_pt: float = BRIDGE_MAX_PT      # hueco máximo que salva un puente
+    # [pdf, hoja] que el usuario miraba al cerrar el compositor: al volver a
+    # componer se abre ahí y no en el primer PDF (con dos PDFs cargados, abrir
+    # siempre el primero confundía).
+    last_view: Optional[List[int]] = None
 
     def target_scale(self) -> float:
         if self.scale_ft_per_pt:
@@ -127,9 +131,12 @@ class Composite:
                 and abs(p.src_scale - self.target_scale()) < 1e-12)
 
     def to_dict(self) -> dict:
-        return dict(pieces=[p.to_dict() for p in self.pieces],
-                    scale_ft_per_pt=self.scale_ft_per_pt,
-                    bridges=bool(self.bridges), bridge_max_pt=float(self.bridge_max_pt))
+        d = dict(pieces=[p.to_dict() for p in self.pieces],
+                 scale_ft_per_pt=self.scale_ft_per_pt,
+                 bridges=bool(self.bridges), bridge_max_pt=float(self.bridge_max_pt))
+        if self.last_view is not None:
+            d["last_view"] = [int(v) for v in self.last_view]
+        return d
 
     @classmethod
     def from_dict(cls, d: Optional[dict]) -> Optional["Composite"]:
@@ -141,8 +148,13 @@ class Composite:
             gap = float(d.get("bridge_max_pt", BRIDGE_MAX_PT))
         except (TypeError, ValueError):
             gap = BRIDGE_MAX_PT
+        lv = d.get("last_view")
+        try:
+            last_view = [int(lv[0]), int(lv[1])] if lv is not None else None
+        except (TypeError, ValueError, IndexError):
+            last_view = None
         return cls(pieces=pieces, scale_ft_per_pt=float(s) if s else None,
-                   bridges=bool(d.get("bridges", True)), bridge_max_pt=gap)
+                   bridges=bool(d.get("bridges", True)), bridge_max_pt=gap, last_view=last_view)
 
 
 def normalize_clip(values) -> List[float]:

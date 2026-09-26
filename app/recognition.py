@@ -78,14 +78,15 @@ UTILITY_GEOM_OPTIONS = {
                                        absorb_inside_runs=True, join_touching_ends=True,
                                        gap_turn_blocks=True, markers_on_curves=True,
                                        polygon_circles=True, precise_junctions=True,
-                                       continuation_before_vault=True),
+                                       continuation_before_vault=True, manhole_bend=True),
     # Gas (presión, como el agua). `glyph_hooks`: la «G»/«g» del linetype
     # «—G—» trae su gancho como path aparte y pasaba por codo.
     "GAS": geom.GeomOptions(glyph_hooks=True),
     # Telecom (conduit, como el eléctrico). `stroke_letters`: la «t» del linetype
     # «—t—» son dos trazos sueltos (asta con gancho + travesaño) que pasaban por
-    # codo y guión.
-    "TELECOM": geom.GeomOptions(stroke_letters=True),
+    # codo y guión. `corner_before_vault`: una punta que gira en ESQUINA hacia el
+    # tramo que sale de una caja no se estira hasta la caja (DU08 h.26, «—SC—»).
+    "TELECOM": geom.GeomOptions(stroke_letters=True, corner_before_vault=True),
 }
 # Perfiles que reconocen UNA sola vez una capa repetida por otro xref (`duplicate_ocgs`).
 DEDUP_OCG_UTILITIES = frozenset({"DRENAJE", "GAS"})
