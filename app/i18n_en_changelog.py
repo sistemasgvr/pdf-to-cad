@@ -6,7 +6,7 @@ tests/test_i18n.py).
 """
 
 EN_CHANGELOG: dict[str, str] = {
-    # ── v1.3.0 ──
+    # ── v1.2.0 ──
     "Reconocimiento de TELECOMUNICACIONES: en «Capas de la hoja» → «Utilidades a reconocer» aparece la casilla Telecomunicaciones (marcada por defecto). Lee las líneas subterráneas de telecom (C-TELE-UNGD existentes, a abandonar y propuestas), el alineamiento propuesto T-PROP-COMM y el banco de ductos de comunicaciones de Metro («—SC—»), con sus abandonadas. Es red de conductos, como el eléctrico: se pone caja solo donde el plano tiene una bóveda o manhole, con sus medidas. Las letras del linetype («t», «TE», «SE») ya no se toman por pedazos de línea: probado en las 67 hojas con telecom de los 4 PDFs, sin tramos inventados. Las líneas aéreas (C-TELE-OVHD) no se importan.":
         "TELECOM recognition: «Sheet layers» → «Utilities to recognize» now has a Telecommunications checkbox (checked by default). It reads underground telecom lines (existing, to-abandon and proposed C-TELE-UNGD), the proposed T-PROP-COMM alignment and Metro's communications duct bank («—SC—»), with their abandoned lines. It is a conduit network, like electrical: a box is placed only where the plan has a vault or manhole, with its size. Linetype letters («t», «TE», «SE») are no longer taken as line pieces: tested on the 67 sheets with telecom in the 4 PDFs, with no invented segments. Overhead lines (C-TELE-OVHD) are not imported.",
     "Gas: la misma línea existente que el plano trae repetida por otros xrefs (capas C-NGAS-UGND-E y C-NGAS-UGND-E-ADD con la misma geometría) se importaba dos o tres veces superpuesta; ahora entra una sola vez (19 líneas repetidas menos en los 4 PDFs de prueba). Las demás utilidades no cambian.":

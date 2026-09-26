@@ -153,7 +153,7 @@ def default_network_type(layer):
 
 
 CHANGELOG = [
-    ("1.3.0", [
+    ("1.2.0", [
         ("added", "Reconocimiento de TELECOMUNICACIONES: en «Capas de la hoja» → «Utilidades a reconocer» aparece la casilla Telecomunicaciones (marcada por defecto). Lee las líneas subterráneas de telecom (C-TELE-UNGD existentes, a abandonar y propuestas), el alineamiento propuesto T-PROP-COMM y el banco de ductos de comunicaciones de Metro («—SC—»), con sus abandonadas. Es red de conductos, como el eléctrico: se pone caja solo donde el plano tiene una bóveda o manhole, con sus medidas. Las letras del linetype («t», «TE», «SE») ya no se toman por pedazos de línea: probado en las 67 hojas con telecom de los 4 PDFs, sin tramos inventados. Las líneas aéreas (C-TELE-OVHD) no se importan."),
         ("fixed", "Gas: la misma línea existente que el plano trae repetida por otros xrefs (capas C-NGAS-UGND-E y C-NGAS-UGND-E-ADD con la misma geometría) se importaba dos o tres veces superpuesta; ahora entra una sola vez (19 líneas repetidas menos en los 4 PDFs de prueba). Las demás utilidades no cambian."),
         ("fixed", "«//» en tramos cortos: una línea con su doble barra propia a lo largo ya se importa abandonada (AB) aunque cerca de una T o un quiebre el plano ponga las marcas más seguidas de lo normal (AutoCAD dibuja el linetype por tramo). Reportado en DU08 hoja 21 (gas «-D»); corrige también 3 líneas eléctricas «-D» del LABOE y 1 de agua del DU08. Nada más cambia en los 4 PDFs de prueba."),
