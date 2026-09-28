@@ -701,3 +701,57 @@ def test_hoja_sin_capas_se_marca_en_la_lista(app):
         assert not dlg.lbl_nolayers.isVisible()
     finally:
         dlg.close_docs(); dlg.close()
+
+
+def test_siempre_queda_un_panel_abierto(app):
+    """Pedido del usuario: Origen / Área / Hoja compuesta — nunca todos plegados."""
+    dlg = composite_dialog.CompositeDialog(None, [{"name": "a.pdf", "data": _two_sheet_pdf()}], None, {}, 0)
+    try:
+        dlg.panels[0].set_collapsed(True)
+        dlg.panels[1].set_collapsed(True)
+        assert not dlg.panels[2].collapsed                    # el último abierto no se pliega
+        dlg.panels[2].set_collapsed(True)
+        assert not dlg.panels[2].collapsed and not dlg.panels[2].btn_collapse.isEnabled()
+        dlg.panels[1].set_collapsed(False)                    # con dos abiertos, vuelve a poder
+        assert dlg.panels[2].btn_collapse.isEnabled()
+    finally:
+        dlg.close_docs()
+
+
+def _one_sheet_pdf(n_pages=1):
+    doc = fitz.open()
+    for _ in range(n_pages):
+        doc.new_page(width=300, height=200)
+    return doc.tobytes()
+
+
+def test_vuelve_a_abrir_en_el_ultimo_pdf_trabajado(app):
+    """Con dos PDFs, volver a componer abre el PDF (y la hoja) donde se estaba
+    trabajando, no el primero."""
+    sources = [{"name": "a.pdf", "data": _two_sheet_pdf()}, {"name": "b.pdf", "data": _one_sheet_pdf(3)}]
+    dlg = composite_dialog.CompositeDialog(None, sources, None, {}, 0)
+    try:
+        assert dlg._cur_source == 0
+        dlg.cmb_source.setCurrentIndex(1)
+        dlg.lst_pages.setCurrentRow(2)
+        dlg._take(full=True)
+        comp, srcs, _h = dlg.result_tuple()
+    finally:
+        dlg.close_docs()
+    assert comp.last_view == [1, 2]
+    assert C.Composite.from_dict(comp.to_dict()).last_view == [1, 2]     # va al .digproj
+    # una sola hoja entera: el editor está en esa hoja (Main pasa page_idx = 2)
+    dlg = composite_dialog.CompositeDialog(None, srcs, comp, {}, 2)
+    try:
+        assert (dlg._cur_source, dlg._cur_page) == (1, 2)
+        assert dlg.cmb_source.currentIndex() == 1 and dlg.lst_pages.currentRow() == 2
+    finally:
+        dlg.close_docs()
+    # proyecto viejo sin `last_view`: la hoja de la última pieza tomada
+    comp.last_view = None
+    comp.pieces.append(C.Piece(0, 1, [0.0, 0.0, 0.5, 1.0], src_scale=20 / 72.0))
+    dlg = composite_dialog.CompositeDialog(None, srcs, comp, {}, 0)
+    try:
+        assert (dlg._cur_source, dlg._cur_page) == (0, 1)
+    finally:
+        dlg.close_docs()

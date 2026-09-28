@@ -326,6 +326,7 @@ class CollapsiblePanel(QtWidgets.QFrame):
         from icons import icon as _icon
         self._title = title
         self._collapsed = False
+        self._can_collapse = True
         outer = QtWidgets.QHBoxLayout(self)
         outer.setContentsMargins(0, 0, 0, 0); outer.setSpacing(0)
         # cuerpo (cabecera + contenido)
@@ -362,9 +363,17 @@ class CollapsiblePanel(QtWidgets.QFrame):
     def collapsed(self) -> bool:
         return self._collapsed
 
+    def set_collapse_allowed(self, allowed: bool):
+        """El padre lo apaga en el ÚLTIMO panel abierto: siempre queda uno visible."""
+        self._can_collapse = bool(allowed)
+        self.btn_collapse.setEnabled(self._can_collapse)
+        self.btn_collapse.setToolTip(_tr("Plegar este panel para dar más sitio a los demás")
+                                     if self._can_collapse else
+                                     _tr("Siempre queda al menos un panel abierto"))
+
     def set_collapsed(self, on: bool):
         on = bool(on)
-        if on == self._collapsed:
+        if on == self._collapsed or (on and not self._can_collapse):
             return
         self._collapsed = on
         self.body.setVisible(not on)

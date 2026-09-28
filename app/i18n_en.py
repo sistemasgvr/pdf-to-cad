@@ -26,6 +26,26 @@ EN: dict[str, str] = {
     "Cerrar proyecto": "Close project",
     "Opciones…": "Options…",
     "Opciones": "Options",
+    "Casilla = toda la utilidad · ▸ = capa por capa":
+        "Checkbox = whole utility · ▸ = layer by layer",
+    "Reconocer":
+        "Recognize",
+    "Marcar o desmarcar todas las utilidades que tiene la hoja":
+        "Check or uncheck all the utilities on this sheet",
+    "Marca al menos una utilidad para reconocer.":
+        "Check at least one utility to recognize.",
+    "Capas del plano":
+        "Plan layers",
+    "Esta hoja no tiene capas de {u}":
+        "This sheet has no {u} layers",
+    "Capas de la hoja":
+        "Sheet layers",
+    "Vista previa":
+        "Preview",
+    "Volver a «{paso}»":
+        "Back to «{paso}»",
+    "Opacidad {pct}%":
+        "Opacity {pct}%",
     "Idioma": "Language",
     "Español": "Spanish",
     "Inglés": "English",
@@ -188,18 +208,32 @@ EN: dict[str, str] = {
     "Líneas": "Lines",
     "Bóvedas": "Vaults",
     "Hoja {n}": "Sheet {n}",
-    "Componer hoja…": "Compose sheet…",
     "Componer hoja de trabajo": "Compose working sheet",
     "Componer hoja de trabajo…": "Compose working sheet…",
     "Tomar área": "Take area",
-    "Tomar hoja completa": "Take whole sheet",
+    "Agregar el rectángulo marcado como una pieza nueva de la hoja compuesta":
+        "Add the marked rectangle as a new piece of the composite sheet",
+    "Agregar la hoja entera como una pieza":
+        "Add the whole sheet as a piece",
+    "Cómo se ajusta el rectángulo al plano":
+        "How the rectangle snaps to the plan",
+    "Ajustes":
+        "Adjust",
+    "Ángulo fino y escala de la pieza seleccionada":
+        "Fine angle and scale of the selected piece",
+    "Haz clic en una pieza para girarla, ajustarla o quitarla.":
+        "Click a piece to rotate, adjust or remove it.",
+    "Uniones":
+        "Joins",
+    "Cómo se unen las piezas vecinas":
+        "How neighbouring pieces are joined",
+    "Siempre queda al menos un panel abierto":
+        "At least one panel always stays open",
     "Hojas": "Sheets",
     "Escala de la hoja": "Sheet scale",
     "Escala pieza": "Piece scale",
     "Imán": "Magnet",
     "Ángulo": "Angle",
-    "Elegir otra hoja del PDF, revisar sus capas y reconocerla.":
-        "Pick another sheet of the PDF, review its layers and recognize it.",
     "Ajustar capas…": "Adjust layers…",
     "Solo si el plot usa otros nombres: indicar qué capas son líneas y bóvedas.":
         "Only if the plot uses other names: say which layers are lines and vaults.",
@@ -1339,8 +1373,6 @@ EN: dict[str, str] = {
         "Duct Bank (*.dbjson)",
 
     # ── layer_dialog.py ──
-    "Marca las capas que quieres ver. Las capas ocultas no se dibujan en el lienzo ni se usan en el reconocimiento. Una utilidad desmarcada apaga todas sus capas en la hoja.":
-        "Check the layers you want to see. Hidden layers are not drawn on the canvas nor used in recognition. An unchecked utility turns off all its layers on the sheet.",
 
     # ── organized_layer_dialog.py ──
     "Principal":

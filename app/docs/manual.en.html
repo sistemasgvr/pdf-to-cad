@@ -97,47 +97,84 @@ unsaved changes. Save often.
 
 <section data-title="CAD PDF plans (assistant)">
 <p>When the PDF comes straight from CAD, the app can <b>read the plan's lines</b> and save you
-from drawing them. The assistant has 3 screens:</p>
+from drawing them. When you open it, the app checks whether it is a CAD plan or a scan; if it is
+not sure, it asks you. A scan (or a traced plan without text or layers) goes straight to manual
+drawing.</p>
+<p>The assistant has <b>3 steps</b>. At the top of each screen you will see
+<b>1 Compose sheet › 2 Sheet layers › 3 Preview</b>: the current step is highlighted and earlier
+steps can be clicked to <b>go back</b> without losing your work. At the bottom, across the whole
+width, are the view options (such as <b>Opacity</b>) and the <span class="btn">Cancel</span> and
+<span class="btn">Continue</span> buttons.</p>
 
 <h2>1. Compose work sheet</h2>
 <ol>
-<li>On the left you choose the PDF and the sheet (you can <b>add more PDFs</b>).</li>
-<li>In the middle you draw a rectangle around the part of the plan you need and press
-    <span class="btn">Take area</span> (or <span class="btn">Take whole sheet</span>).</li>
-<li>On the right you place each piece. With the <b>Magnet</b> on, the lines of neighboring
-    pieces snap together; with <b>Bridges</b>, gaps between sheets are filled in.</li>
-<li>You can <b>rotate</b> a piece or fix its <b>scale</b> if the sheet doesn't state it.</li>
+<li>On the left (<b>Source</b>) you choose the PDF and the sheet; the folder button lets you
+    <b>add more PDFs</b>. A sheet marked «no layers» is a flattened plan: you can use it, but
+    recognition will not find utilities on it.</li>
+<li>In the middle (<b>Area to take</b>) you draw a rectangle around the part of the plan you need
+    and press <span class="btn">Take area</span> (or <span class="btn">Whole sheet</span>). Snapping
+    to lines and trimming the border line are under <b>Options</b>.</li>
+<li>On the right (<b>Composite sheet</b>) you drag each piece into place. With the <b>Magnet</b>
+    on, the lines of neighboring pieces snap together; with <b>Bridges</b>, gaps between sheets are
+    filled in (both are under <b>Joins</b>).</li>
+<li>Click a piece to <b>rotate</b> it, remove it or, under <b>Adjust</b>, fix its fine angle or its
+    <b>scale</b> if the sheet doesn't state it.</li>
+<li>You can collapse a panel to gain room; at least one always stays open.</li>
+<li><span class="btn">Continue</span> goes to step 2.</li>
 </ol>
 
 <h2>2. Sheet layers</h2>
 <ul>
-<li>The plan's layers are grouped by utility (Water, Sewer, Storm drain, Gas, Electrical,
-    Telephone, Other), each with its color.</li>
-<li>Uncheck what you <b>don't</b> need: it is hidden and not used for recognition.</li>
-<li>With <b>◀ Sheet N / M ▶</b> you change sheets without leaving.</li>
-<li>In <b>Utilities to recognize</b> you check which ones the app should read:
-    <b>Electrical</b>, <b>Storm drain</b>, <b>Water</b>, <b>Sewer</b>, <b>Gas</b> and <b>Telecom</b> (all checked
-    by default). Only the ones the
-    sheet has can be checked.</li>
+<li><b>Recognize:</b> check which utilities the app should read (Electrical, Storm drain, Water,
+    Sewer, Gas and Telecom). They all come checked; <b>All</b> checks or unchecks them at once.
+    Only the ones the sheet has can be checked, and at least one is needed to continue.</li>
+<li><b>Plan layers:</b> layers are grouped by utility (Water, Sewer, Storm drain, Gas,
+    Electrical, Telecom, Other), each with its color. The utility's checkbox turns <b>all</b> its
+    layers on or off; the ▸ arrow expands it so you can choose layer by layer. What you uncheck is
+    hidden from the plan and <b>not used for recognition</b>.</li>
+<li>Type in <b>Search layer…</b> to find a layer by name; the eye buttons show or hide all the
+    layers visible in the list.</li>
+<li><b>Opacity</b> lightens the plan (and switches the background to white or black), just like in
+    the editor.</li>
+<li>If the sheet has several pages, <b>◀ Sheet N / M ▶</b> changes sheet without leaving.</li>
+<li>To go back to step 1, click <b>1 Compose sheet</b> in the bar at the top;
+    <span class="btn">Continue</span> recognizes the sheet and opens step 3. If you cancel here, the sheet is loaded in the editor
+    without recognition, so you can draw by hand.</li>
 </ul>
 
 <h2>3. Recognition preview</h2>
 <ul>
-<li>Shows the lines found for each utility, each with its color, their vaults or manholes and
-    the percentage checked.</li>
-<li>If a <b>Review</b> notice appears, click it: the view takes you to the exact spot on the
-    sheet. Each click shows the next case (1/N).</li>
-<li><span class="btn">Continue and import into the editor</span> adds them to the project as pipes.</li>
+<li>Shows the lines found for each utility, each with its color, and their vaults or manholes.
+    At the top, cards with the totals (segments, abandoned, bends, structures) and a bar per
+    utility.</li>
+<li>The <b>Coverage</b> bar tells how much of the plan's strokes was covered (green = complete).
+    In the drawing, orange = uncovered strokes and violet = off-pattern strokes (arrows, leaders).</li>
+<li>If a notice appears under <b>Review</b>, click it: the view takes you to the exact spot on the
+    sheet. Each click shows the next case (1/N). Extra information is folded under
+    <b>Details</b>.</li>
+<li><b>Join segments into routes</b> joins segments that continue straight ahead into one pipe.</li>
+<li><b>Opacity</b> lightens the plan so you can better see <b>what and how much</b> was
+    recognized.</li>
+<li>To go back, click <b>2 Sheet layers</b> or <b>1 Compose sheet</b> in the bar at the top.
+    <span class="btn">Adjust layers…</span> is only needed if the plan uses other layer names:
+    there you say which are lines and which are vaults.</li>
+<li><span class="btn">Continue and import into the editor</span> adds them to the project as
+    pipes; <span class="btn">Cancel</span> leaves the editor empty.</li>
 <li><b>Abandoned</b> lines are imported marked <b>(AB)</b>: those on the «-A» layer with «/»
     marks, and any line with double «//» marks.</li>
 <li>Curved <b>bends</b> on the plan are imported with their real radius.</li>
-<li><b>Water</b> and <b>gas</b> come in without boxes (they are pressure networks). <b>Sewer</b> and storm
-    drain come in with their manholes; electrical and <b>telecom</b>, with a box only where
-    the plan has a vault.</li>
+<li><b>Water</b> and <b>gas</b> come in without boxes (they are pressure networks). <b>Sewer</b>
+    and storm drain come in with their manholes; electrical and <b>telecom</b>, with a box only
+    where the plan has a vault.</li>
 </ul>
+
+<h2>Composing again later</h2>
+<p>Menu <b>View → Compose work sheet…</b> opens step 1 again, on the PDF and sheet you were
+working on, and repeats steps 2 and 3 with the new sheet. Everything is saved in the project
+(.digproj), including the source PDFs.</p>
 <table width="100%" cellspacing="0" cellpadding="12"><tr>
 <td width="6" bgcolor="{{tip_border}}"></td><td bgcolor="{{tip}}">
-<b>Tip:</b> if something isn't recognized, you can always draw it by hand (next chapter).
+<b>Tip:</b> if something is not recognized, you can always draw it by hand (next chapter).
 </td></tr></table>
 </section>
 
