@@ -2111,20 +2111,23 @@ class Main(QtWidgets.QMainWindow):
         for _result, _utility, pipes, _snapped, _skipped in batches:
             self.pipes.extend(pipes)
         self._dirty = True
-        self._refresh_lists()                 # crea BZ en los vértices de gravedad y CAJA en las bóvedas reales…
+        self._refresh_lists()                 # crea BZ en los vértices de gravedad (conduit: ninguna)…
         # …y oculta las de quiebres/esquinas sin bóveda (siguen en el DXF como
         # "Estructura nula" para no romper la topología de la red).
         n_hidden = model_ops.hide_soft_vertex_structures(self.pipes, self.structures)
-        # …y les pone a las CAJA de bóveda real su forma, medidas (pies) y contorno.
+        # …y crea/asocia la CAJA de cada bóveda reconocida con su forma, medidas (pies) y contorno.
         n_geo = n_alone = 0
         for result, utility, _pipes, _snapped, _skipped in batches:
             if NETWORK_KIND.get(utility) == "pressure":
                 continue
             where = self._xdata_origin(result.page_index)
+            # En eléctrico/telecom la caja nace de la bóveda reconocida y va en el
+            # vértice por donde llega SU línea (los vértices solos nunca son caja).
             added_geo, added_alone = model_ops.attach_vault_geometry(
                 self.structures, getattr(result, "vaults_geo", None) or [],
                 net=NETWORK_KIND.get(utility, "conduit"), utility=utility,
-                origin=lambda c, where=where: where([c]))
+                origin=lambda c, where=where: where([c]),
+                pipes=[p for p in self.pipes if p.get("layer") == utility])
             n_geo += added_geo; n_alone += added_alone
         # …y los codos reconocidos quedan como esquina «CV» con su radio (flujo manual).
         n_cv = model_ops.attach_fillets(self.pipes, self.structures)
@@ -5382,7 +5385,8 @@ class Main(QtWidgets.QMainWindow):
           r_max = t_max · tan(Δ/2)
         donde Δ es el ángulo interno entre los dos tramos rectos (dot product de
         las direcciones que salen del vértice curvo), y cap es 0.48 si el vértice
-        vecino también es curva o 0.9 si es recto. Devuelve None si no aplica
+        vecino también es curva o 1.0 si es recto (model_ops.FILLET_CAP_*: la
+        tangencia puede llegar hasta el vértice vecino). Devuelve None si no aplica
         (curva sin tubería asociada, tramo casi recto, etc.)."""
         import math
         if not (0 <= curve_idx < len(self.structures)): return None
@@ -5409,8 +5413,8 @@ class Main(QtWidgets.QMainWindow):
                 if ox is None or oy is None: continue
                 if (ox - vx) ** 2 + (oy - vy) ** 2 <= tol2: return True
             return False
-        cap_prev = 0.48 if es_curva_en(vi - 1) else 0.9
-        cap_next = 0.48 if es_curva_en(vi + 1) else 0.9
+        cap_prev = model_ops.FILLET_CAP_CURVA if es_curva_en(vi - 1) else model_ops.FILLET_CAP_RECTA
+        cap_next = model_ops.FILLET_CAP_CURVA if es_curva_en(vi + 1) else model_ops.FILLET_CAP_RECTA
         # Distancias en pies (usar _to_cad para convertir de píxeles a CAD ft).
         try:
             cx_ft, cy_ft = self._to_cad(*p["pts"][vi])
@@ -5487,11 +5491,12 @@ class Main(QtWidgets.QMainWindow):
         # Cap por vecino curvo — mismo criterio del plugin.
         px_prev, py_prev = pts[vi - 1]
         px_next, py_next = pts[vi + 1]
-        cap_prev = 0.48 if self._structure_curve_at(px_prev, py_prev) else 0.9
-        cap_next = 0.48 if self._structure_curve_at(px_next, py_next) else 0.9
-        # fillet_geo usa un solo max_frac (mínimo de ambos lados es conservador).
+        cap_prev = model_ops.FILLET_CAP_CURVA if self._structure_curve_at(px_prev, py_prev) else model_ops.FILLET_CAP_RECTA
+        cap_next = model_ops.FILLET_CAP_CURVA if self._structure_curve_at(px_next, py_next) else model_ops.FILLET_CAP_RECTA
+        # Tope POR LADO, igual que el plugin y que _curve_max_radius_ft.
         geo = model_ops.fillet_geo((px_prev, py_prev), (sx, sy), (px_next, py_next),
-                                    r_px, max_frac=min(cap_prev, cap_next))
+                                    r_px, max_frac=cap_prev, max_frac_next=cap_next,
+                                    tol_r=model_ops.FILLET_TOL_RADIO_FT * float(self.zoom) / self.scale)
         if geo is None: return None
         # Enriquecemos el dict con las claves que usa el resto del editor
         # (p1/p2 = t1/t2 de fillet_geo; corner y vi para el marcador y el pipe).
@@ -5552,7 +5557,14 @@ class Main(QtWidgets.QMainWindow):
             self._cv_radius_max_ft = r_max
             valor_guardado = float(s.get("radius_ft") or 0.0)
             if r_max is not None and r_max > 0.01:
-                self.cv_radius.setMaximum(round(r_max, 2))
+                # Redondeo HACIA ARRIBA a los 2 decimales del campo: con round() un
+                # radio que calza justo en el tramo (tangencia sobre el vértice
+                # vecino, típico del reconocimiento) se recortaba 0.01 ft. El exceso
+                # (< 0.01 ft) lo absorben el plugin y el dibujo (FILLET_TOL_RADIO_FT).
+                import math as _m
+                r_max = _m.ceil(r_max * 100.0 - 1e-6) / 100.0
+                self._cv_radius_max_ft = r_max
+                self.cv_radius.setMaximum(r_max)
                 _bind(self.cv_radius, "setToolTip",
                       "Radio deseado de la tubería curva, en pies. Vacío (0) = automático.\n"
                       "Máximo permitido por la geometría (tramos rectos adyacentes): {r} ft.",

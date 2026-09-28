@@ -237,7 +237,7 @@ def test_attach_vault_geometry_drenaje_crea_buzon_de_gravedad():
 
 
 def test_redes_coincidentes_conservan_estructuras_separadas_por_tipo():
-    from model_ops import rebuild_structures, hide_soft_vertex_structures
+    from model_ops import attach_vault_geometry, rebuild_structures, hide_soft_vertex_structures
     # Eléctrico con BÓVEDA real en el mismo punto que un buzón de drenaje:
     # cada red conserva su propia estructura.
     pipes = [
@@ -247,25 +247,63 @@ def test_redes_coincidentes_conservan_estructuras_separadas_por_tipo():
          "vertex_kinds": ["vault", "end"]},
     ]
     structures = rebuild_structures(pipes, [])
+    vg = [{"center": (100.0, 0.0), "corners": [(90, -10), (110, -10), (110, 10), (90, 10)],
+           "shape": "rect", "width_ft": 5.0, "length_ft": 8.0, "angle_deg": 0.0, "importable": True}]
+    attach_vault_geometry(structures, vg, pipes=pipes[:1])
+    structures = rebuild_structures(pipes, structures)
     at_crossing = [s for s in structures if abs(s["x"] - 100) < 1e-9 and abs(s["y"]) < 1e-9]
     assert {s["net"] for s in at_crossing} == {"conduit", "gravity"}
     hide_soft_vertex_structures(pipes, structures)
     assert all(not s["hidden"] for s in at_crossing)
 
 
-def test_conduit_solo_crea_caja_en_bovedas_reales():
-    # Regla de dev_deyvy: eléctrico/telecom sin cajas automáticas en cada vértice;
-    # solo donde el reconocimiento marcó una bóveda real («vault» / «stop»).
+def test_conduit_nunca_pone_cajas_en_sus_vertices():
+    # Regla del usuario (2026-09-28): en eléctrico/telecom un VÉRTICE de la
+    # utilidad nunca es caja, ni dibujada a mano ni reconocida del PDF.
     from model_ops import rebuild_structures
+    pipes = [{"layer": "ELECTRICO", "pts": [(0, 0), (100, 0), (100, 100), (200, 100)],
+              "vertex_kinds": ["end", "corner", "vault", "stop"]},
+             {"layer": "TELECOM", "pts": [(0, 300), (80, 300), (80, 380)],
+              "vertex_kinds": ["stop", "vault", "end"]}]
+    assert rebuild_structures(pipes, []) == []
+    assert rebuild_structures([{"layer": "ELECTRICO", "pts": [(0, 0), (50, 0), (50, 50)]}], []) == []
+    # Las cajas que ya existen (a mano o de una bóveda) se conservan sin duplicarse.
+    mano = [{"cod": "CAJA-1", "x": 100, "y": 0, "rim": None, "sump": None, "part": "",
+             "part_size": "", "net": "conduit", "covered": True, "world": False, "hidden": False}]
+    assert rebuild_structures(pipes, mano) == mano
+
+
+def test_conduit_caja_solo_de_boveda_reconocida():
+    # La caja sale de la BÓVEDA reconocida en sus capas y se pone en el vértice
+    # por donde llega la línea (así Civil 3D la conecta). Un vértice «vault»/«stop»
+    # sin bóveda reconocida no crea nada.
+    from model_ops import attach_vault_geometry, rebuild_structures
     pipes = [{"layer": "ELECTRICO", "pts": [(0, 0), (100, 0), (100, 100), (200, 100)],
               "vertex_kinds": ["end", "corner", "vault", "stop"]}]
     structures = rebuild_structures(pipes, [])
-    assert sorted((s["x"], s["y"]) for s in structures) == [(100, 100), (200, 100)]
-    assert all(s["net"] == "conduit" and s["cod"].startswith("CAJA-") for s in structures)
-    # Una línea dibujada a mano (sin tipos de vértice) no lleva cajas automáticas.
-    assert rebuild_structures([{"layer": "ELECTRICO", "pts": [(0, 0), (50, 0), (50, 50)]}], []) == []
-    # Reconstruir de nuevo conserva las cajas existentes sin duplicarlas.
-    assert len(rebuild_structures(pipes, structures)) == 2
+    vg = [{"center": (102.0, 101.0), "corners": [(90, 90), (114, 90), (114, 112), (90, 112)],
+           "shape": "rect", "width_ft": 6.0, "length_ft": 9.0, "angle_deg": 0.0, "importable": True}]
+    done, created = attach_vault_geometry(structures, vg, pipes=pipes)
+    assert (done, created) == (1, 0)
+    assert [(s["x"], s["y"]) for s in structures] == [(100, 100)]          # en el vértice, no en el centro
+    st = structures[0]
+    assert st["cod"].startswith("CAJA-") and st["width_ft"] == 6.0 and not st.get("standalone")
+    # rebuild la conserva (con sus medidas) y no agrega la del vértice «stop» (200, 100)
+    again = rebuild_structures(pipes, structures)
+    assert [(s["x"], s["y"]) for s in again] == [(100, 100)] and again[0]["width_ft"] == 6.0
+    # re-importar no la duplica
+    assert attach_vault_geometry(again, vg, pipes=pipes) == (1, 0) and len(again) == 1
+    # Línea que muere en el BORDE de la bóveda («stop» dentro del contorno): caja ahí.
+    borde = [{"layer": "TELECOM", "pts": [(0, 0), (90, 0)], "vertex_kinds": ["end", "stop"]}]
+    vg2 = [{"center": (100.0, 0.0), "corners": [(90, -8), (110, -8), (110, 8), (90, 8)],
+            "shape": "rect", "width_ft": 4.0, "length_ft": 5.0, "angle_deg": 0.0, "importable": True}]
+    s2 = rebuild_structures(borde, [])
+    assert attach_vault_geometry(s2, vg2, pipes=borde) == (1, 0)
+    assert [(s["x"], s["y"]) for s in s2] == [(90, 0)]
+    # Bóveda de capa NO importable (p. ej. PBOX) sin línea que llegue: nada.
+    s3 = []
+    pbox = [dict(vg2[0], center=(500.0, 500.0), corners=None, importable=False)]
+    assert attach_vault_geometry(s3, pbox, pipes=borde) == (0, 0) and s3 == []
 
 
 def test_fillet_geo_arco_tangente_y_recorte():
@@ -278,9 +316,21 @@ def test_fillet_geo_arco_tangente_y_recorte():
     assert abs(g["center"][0] - 30.0) < 1e-9 and abs(g["center"][1] - 30.0) < 1e-9
     assert all(abs(math.dist(q, g["center"]) - 30.0) < 1e-9 for q in g["arc"])
     assert math.dist(g["arc"][0], g["t1"]) < 1e-9 and math.dist(g["arc"][-1], g["t2"]) < 1e-9
-    # el radio no entra en la pata corta (20 px): se recorta al 90 % y baja el radio
+    # el radio no entra en la pata corta (20 px): la tangencia llega como mucho al
+    # vértice vecino (tope 1.0) y baja el radio
     g2 = fillet_geo((0.0, 20.0), (0.0, 0.0), (100.0, 0.0), 30.0)
-    assert g2["clamped"] and abs(g2["T"] - 18.0) < 1e-9 and abs(g2["r"] - 18.0) < 1e-9
+    assert g2["clamped"] and abs(g2["T"] - 20.0) < 1e-9 and abs(g2["r"] - 20.0) < 1e-9
+    # tangencia JUSTO en el vértice vecino (así la escribe el reconocimiento cuando
+    # la recta sigue por un tee): cabe entera, sin recorte; y un exceso de redondeo
+    # (≤ tol_r) tampoco cuenta como recorte
+    g3 = fillet_geo((0.0, 30.0), (0.0, 0.0), (100.0, 0.0), 30.0)
+    assert g3 and not g3["clamped"] and abs(g3["T"] - 30.0) < 1e-9
+    assert math.dist(g3["t1"], (0.0, 30.0)) < 1e-9
+    g4 = fillet_geo((0.0, 30.0), (0.0, 0.0), (100.0, 0.0), 30.04)
+    assert not g4["clamped"] and abs(g4["r"] - 30.0) < 1e-9
+    # tope por lado: vecino curvo (0.48) solo en la recta siguiente
+    g5 = fillet_geo((0.0, 100.0), (0.0, 0.0), (50.0, 0.0), 30.0, max_frac=1.0, max_frac_next=0.48)
+    assert g5["clamped"] and abs(g5["T"] - 24.0) < 1e-9
     # recta o sin radio: nada
     assert fillet_geo((-10.0, 0.0), (0.0, 0.0), (10.0, 0.0), 30.0) is None
     assert fillet_geo((0.0, 10.0), (0.0, 0.0), (10.0, 0.0), 0.0) is None

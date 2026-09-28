@@ -82,13 +82,13 @@ def rebuild_structures(pipes, structures):
     """Detecta buzones por los VÉRTICES (extremos + intermedios) de las tuberías
     dibujadas:
       - Gravedad (SS/SD) → prefijo BZ- (buzones cilíndricos con tapa).
-      - Conduit (eléctrico/telecom) → SIN nodos automáticos. El estándar en
-        campo para redes eléctricas/telecom es tener MUY POCAS cajas de
-        registro; auto-crearlas en cada vértice obligaba al usuario a apagar
-        docenas a mano. Si necesita una caja puntual, la agrega con
-        Herramientas → «Insertar buzón en línea…». Excepción: en líneas
-        RECONOCIDAS del PDF se crea caja en los vértices que son bóveda real
-        (`VAULT_VERTEX_KINDS`); `attach_vault_geometry` les pone sus medidas.
+      - Conduit (eléctrico/telecom) → NUNCA nodos automáticos en sus vértices,
+        ni al dibujar a mano ni en líneas reconocidas del PDF (regla del
+        usuario 2026-09-28: un vértice de la utilidad no es una caja). El
+        estándar en campo es tener MUY POCAS cajas de registro; si necesita
+        una puntual, la agrega con Herramientas → «Insertar buzón en línea…».
+        Las cajas del reconocimiento salen SOLO de una bóveda reconocida en
+        sus capas (`attach_vault_geometry`) y aquí se conservan.
       - Presión (agua/gas) → sin nodos automáticos.
     Preserva ediciones (cod/rim/sump/part/part_size/covered) por coincidencia
     de coordenada. Los buzones importados de Excel (world) y las cajas ya
@@ -97,10 +97,10 @@ def rebuild_structures(pipes, structures):
     tol = _TOL
     def near(a, b): return math.hypot(a[0] - b[0], a[1] - b[1]) <= tol
     # Descarta buzones espurios de versiones previas con net inválida (p.ej. "pressure").
-    # Conduit (eléctrico/telecom) NO auto-detecta en cada vértice: sus cajas
-    # existentes (a mano, o de una bóveda REAL del reconocimiento: vértice
-    # «vault»/«stop») se conservan. Los importados de Excel (world) y las
-    # bóvedas reconocidas SIN línea (standalone) se conservan tal cual.
+    # Conduit (eléctrico/telecom) NO auto-detecta en sus vértices: sus cajas
+    # existentes (a mano, o de una bóveda reconocida vía attach_vault_geometry)
+    # se conservan. Los importados de Excel (world) y las bóvedas reconocidas
+    # SIN línea (standalone) se conservan tal cual.
     old_gravity = [s for s in structures
                    if not s.get("world") and not s.get("standalone")
                    and (s.get("net") or "gravity") == "gravity"]
@@ -112,25 +112,11 @@ def rebuild_structures(pipes, structures):
     for p in pipes:
         if p.get("world"): continue
         kind = network_kind(p.get("layer") or "")
-        # GRAVEDAD auto-detecta en todos los vértices. CONDUIT solo en los que el
-        # reconocimiento marcó como bóveda REAL del plano (VAULT_VERTEX_KINDS); el
-        # resto de sus cajas las agrega el usuario. Presión nunca.
-        if kind not in ("gravity", "conduit"): continue
+        # Solo GRAVEDAD auto-detecta, en todos los vértices. CONDUIT nunca (sus
+        # cajas vienen de bóvedas reconocidas o las pone el usuario). Presión nunca.
+        if kind != "gravity": continue
         pts = p.get("pts")
         if not pts or len(pts) < 2: continue
-        if kind == "conduit":
-            kinds = p.get("vertex_kinds") or []
-            for pt, vk in zip(pts, kinds):
-                if vk not in VAULT_VERTEX_KINDS:
-                    continue
-                if any(near(pt, (s["x"], s["y"])) for s in kept_conduit + detected
-                       if s.get("net") == "conduit"):
-                    continue
-                detected.append({"cod": "", "x": pt[0], "y": pt[1], "rim": None,
-                                 "sump": None, "part": "", "part_size": "",
-                                 "net": kind, "covered": True, "world": False,
-                                 "hidden": False})
-            continue
         for pt in pts:                              # todos los vértices (extremos + intermedios)
             if not any(s.get("net") == kind and near(pt, (s["x"], s["y"]))
                        for s in detected):
@@ -177,8 +163,9 @@ def rebuild_structures(pipes, structures):
     return combined
 
 
-# Vértices del reconocimiento que SÍ son una bóveda real del plano: la línea la
-# atraviesa («vault») o muere en su borde («stop»). En conduit solo ahí se crea caja.
+# Vértices del reconocimiento donde la línea llega a una bóveda: la atraviesa
+# («vault») o muere en su borde («stop»). En conduit NO crean caja por sí solos:
+# attach_vault_geometry pone ahí la caja de una bóveda RECONOCIDA para conectarla.
 VAULT_VERTEX_KINDS = ("vault", "stop")
 
 
@@ -303,7 +290,7 @@ VAULT_GEO_KEYS = ("shape", "width_ft", "length_ft", "rot_deg", "outline")
 
 
 def attach_vault_geometry(structures, vaults_geo, tol=12.0, net="conduit",
-                          utility="ELECTRICO", origin=None):
+                          utility="ELECTRICO", origin=None, pipes=None):
     """Asocia cada bóveda reconocida (`RecognitionResult.vaults_geo`) a la
     estructura más cercana a su centro (≤ `tol` px) y le copia forma, medidas
     y contorno. Una bóveda real sin estructura cerca (ninguna línea la atraviesa
@@ -311,7 +298,14 @@ def attach_vault_geometry(structures, vaults_geo, tol=12.0, net="conduit",
     (`standalone=True`, sin vértice: en Civil 3D será un sólido aislado); las
     cajas propuestas / postes no. Los datos extendidos (`xdata`) guardan la capa
     OCG del símbolo y el origen (`origin((x, y)) -> str`, opcional); los campos
-    que el usuario haya anotado se conservan. Devuelve (asignadas, sueltas_creadas)."""
+    que el usuario haya anotado se conservan. Devuelve (asignadas, sueltas_creadas).
+
+    Conduit (eléctrico/telecom): `rebuild_structures` no pone cajas en los
+    vértices, así que la caja de la bóveda nace AQUÍ, del símbolo reconocido.
+    Si una línea de `pipes` llega a la bóveda (vértice «vault»/«stop» sobre su
+    centro o dentro de su contorno), la caja va en ESE vértice para que en
+    Civil 3D la línea quede conectada a ella (una sola caja por bóveda). Un
+    vértice «vault»/«stop» sin bóveda reconocida no crea nada."""
     done = 0; created = 0
     for vg in vaults_geo or []:
         cx, cy = vg.get("center", (None, None))
@@ -336,6 +330,16 @@ def attach_vault_geometry(structures, vaults_geo, tol=12.0, net="conduit",
                     d = math.hypot(sx - cx, sy - cy)
                     if best is None or d < best[0]:
                         best = (d, s)
+        if best is None and net == "conduit" and pipes:
+            # La línea llega a la bóveda: su caja va en el vértice de llegada
+            # (conexión en Civil 3D), no suelta en el centro del símbolo.
+            pt = _vertice_de_boveda(pipes, vg, tol)
+            if pt is not None:
+                st = {"cod": "", "x": float(pt[0]), "y": float(pt[1]), "rim": None,
+                      "sump": None, "part": "", "part_size": "", "net": net,
+                      "covered": True, "world": False, "hidden": False}
+                structures.append(st)
+                best = (0.0, st)
         if best is None:
             if not vg.get("importable", False):
                 continue
@@ -369,13 +373,46 @@ def attach_vault_geometry(structures, vaults_geo, tol=12.0, net="conduit",
     return done, created
 
 
+def _vertice_de_boveda(pipes, vg, tol):
+    """Vértice «vault»/«stop» (`VAULT_VERTEX_KINDS`) de `pipes` por el que una
+    línea llega a la bóveda `vg`: a ≤ `tol` px de su centro o dentro de su
+    contorno (±2 px). Prefiere «vault» (la línea la atraviesa) y, a igualdad,
+    el más cercano al centro. None si ninguna línea llega a ella."""
+    cx, cy = vg["center"]
+    caja = None
+    if vg.get("corners"):
+        xs = [x for x, _ in vg["corners"]]; ys = [y for _, y in vg["corners"]]
+        caja = (min(xs) - 2, min(ys) - 2, max(xs) + 2, max(ys) + 2)
+    best = None
+    for p in pipes:
+        pts = p.get("pts") or []
+        kinds = p.get("vertex_kinds") or []
+        if len(kinds) != len(pts):
+            continue                              # dibujada a mano: sin bóvedas
+        for (x, y), k in zip(pts, kinds):
+            if k not in VAULT_VERTEX_KINDS:
+                continue
+            d = math.hypot(x - cx, y - cy)
+            dentro = caja is not None and caja[0] <= x <= caja[2] and caja[1] <= y <= caja[3]
+            if d > tol and not dentro:
+                continue
+            clave = (k != "vault", d)
+            if best is None or clave < best[0]:
+                best = (clave, (x, y))
+    return None if best is None else best[1]
+
+
 def _assign_standalone_codes(structures):
-    """Código CAJA-N/BZ-N a las estructuras sueltas (rebuild_structures no las
+    """Código CAJA-N/BZ-N a las estructuras sueltas y a las cajas de conduit
+    recién creadas por `attach_vault_geometry` (rebuild_structures no las
     numera: las conserva tal cual)."""
     used = {s.get("cod", "") for s in structures if s.get("cod")}
     n = 1
     for s in structures:
-        if s.get("standalone") and not s.get("cod"):
+        if s.get("cod"):
+            continue
+        if s.get("standalone") or (s.get("net") == "conduit" and not s.get("curve")
+                                   and not s.get("world")):
             prefix = "BZ-" if s.get("net") == "gravity" else "CAJA-"
             while f"{prefix}{n}" in used:
                 n += 1
@@ -420,12 +457,28 @@ def attach_fillets(pipes, structures, tol=1.0):
     return n
 
 
-def fillet_geo(prev, corner, nxt, r_px, max_frac=0.9, n_arc=32):
+# Tope de la tangencia de una esquina curva sobre cada recta vecina (fracción del
+# tramo) — MISMOS valores que ImportarRed.cs (CAP_CURVA_RECTA / CAP_CURVA_DOBLE).
+# Recta: la tangencia puede llegar hasta el vértice vecino (el reconocimiento
+# escribe ahí el vértice cuando la recta sigue por un tee: T = tramo completo).
+# Vecino también curvo: la mitad menos un poco, para que los arcos no se crucen.
+FILLET_CAP_RECTA = 1.0
+FILLET_CAP_CURVA = 0.48
+# Un radio pedido que supera el máximo en menos de esto (pies) no es un recorte:
+# es el redondeo del campo (2 decimales) o del DXF. Mismo valor que TOL_RADIO_FT
+# del plugin, que en ese caso usa el máximo sin avisar.
+FILLET_TOL_RADIO_FT = 0.01
+
+
+def fillet_geo(prev, corner, nxt, r_px, max_frac=FILLET_CAP_RECTA, n_arc=32, max_frac_next=None,
+               tol_r=0.05):
     """Arco tangente REAL de una esquina curva (CV) — el mismo que genera
     ImportarRed.cs: puntos de tangencia sobre cada recta vecina a
     T = r·tan(Δ/2) de la esquina (Δ = giro), centro del círculo y los puntos
-    del arco para dibujarlo. Si T no entra en las rectas vecinas se recorta a
-    `max_frac` del tramo más corto y el radio baja en proporción (`clamped`).
+    del arco para dibujarlo. `max_frac` es el tope sobre la recta ANTERIOR y
+    `max_frac_next` sobre la SIGUIENTE (None = el mismo). Si T no entra se
+    recorta a ese tope y el radio baja en proporción; `clamped` solo si el radio
+    pedido supera el máximo en más de `tol_r` (mismas unidades que `r_px`).
     Devuelve dict {t1, t2, center, r, T, arc: [pts], clamped} o None si la
     esquina es recta/degenerada."""
     d1x, d1y = prev[0] - corner[0], prev[1] - corner[1]
@@ -441,9 +494,14 @@ def fillet_geo(prev, corner, nxt, r_px, max_frac=0.9, n_arc=32):
     r = float(r_px)
     T = r / math.tan(phi / 2.0)
     clamped = False
-    t_max = min(L1, L2) * max_frac
-    if T > t_max + 0.05:                      # (0.05 px: el radio viaja redondeado a 3 decimales en pies)
-        T = t_max; r = T * math.tan(phi / 2.0); clamped = True
+    f_next = max_frac if max_frac_next is None else max_frac_next
+    t_max = min(L1 * max_frac, L2 * f_next)
+    if T > t_max:
+        # Un exceso de hasta `tol_r` en el radio es redondeo: la tangencia cae
+        # sobre el vértice vecino y no cuenta como recorte.
+        r_max = t_max * math.tan(phi / 2.0)
+        clamped = r > r_max + tol_r
+        T = t_max; r = r_max
     t1 = (corner[0] + d1x * T, corner[1] + d1y * T)
     t2 = (corner[0] + d2x * T, corner[1] + d2y * T)
     bx, by = d1x + d2x, d1y + d2y

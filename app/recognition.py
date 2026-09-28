@@ -906,8 +906,9 @@ def inject_vault_vertices(
         kinds = pipe.get("vertex_kinds")
         cerca = [k for k, (px, py) in enumerate(pts) if math.hypot(qx - px, qy - py) < near_vert]
         if cerca:
-            # Ya hay vértice ahí: queda marcado como bóveda real (en conduit solo
-            # esos vértices llevan caja, ver model_ops.VAULT_VERTEX_KINDS).
+            # Ya hay vértice ahí: queda marcado como llegada a bóveda (en conduit
+            # la caja de la bóveda reconocida se pone ahí, ver
+            # model_ops.attach_vault_geometry / VAULT_VERTEX_KINDS).
             if kinds and len(kinds) == len(pts) and kinds[cerca[0]] not in ("vault", "stop"):
                 kinds[cerca[0]] = "vault"
             snapped += 1
@@ -1602,6 +1603,10 @@ def _fit_circle_through(members, P, ua, Q):
 
 # Nodos donde una curva del plano puede MORIR sin recta que la continúe.
 NODE_KINDS_END = ("tee", "junction", "vault", "stop", "edge", "end", "cut")
+# De ellos, los que en el EXTREMO de la polilínea admiten el arco aunque ninguna
+# línea recta pase por el nodo: el nodo es un punto de la red (bifurcación de
+# curvas, santos h.26), no un corte ni el fin de la tinta.
+FILLET_NODE_PASS_KINDS = ("tee", "junction")
 
 
 def _close_at_node(P, u, A, Q, cx, cy, r, i_leg, i_node, rms, swap=False):
@@ -1938,7 +1943,12 @@ def fit_fillets(pts, kinds, tol_px: float = 1.0, tan_tol: float = None, debug=No
             for (P, u, i_leg, _free) in legs:
                 if i_leg == end:
                     continue
-                u_line = u if side > 0 else (-u[0], -u[1])
+                # Las rectas de los dos lados (`_side_legs`) ya vienen orientadas
+                # HACIA el arco, que es lo que pide `_fit_circle_through` (la
+                # tangencia cae entre la recta y el nodo). Antes el lado -1 se
+                # invertía y el círculo se buscaba del lado contrario (santos h.26:
+                # RMS 180 px en una curva que sí es arco).
+                u_line = u
                 fit_q = _fit_circle_through(members, P, u_line, pts[end])
                 if fit_q is None:
                     continue
@@ -1977,8 +1987,15 @@ def fit_fillets(pts, kinds, tol_px: float = 1.0, tan_tol: float = None, debug=No
         if hi - lo >= 2 and math.dist(pts[hi], pts[hi - 1]) >= chord_min:
             hi -= 1
         # el arco nace/muere en el extremo de la polilínea: solo hay recta si ese
-        # extremo es un tee/junction con línea pasante (ramal tangente)
-        if (lo <= 0 and not (lo == 0 and _through(0))) or (hi >= n - 1 and not (hi == n - 1 and _through(n - 1))):
+        # extremo es un tee/junction con línea pasante (ramal tangente). Sin línea
+        # pasante, un tee/junction igual es un punto del PLANO por el que pasa el
+        # arco (curvas que se bifurcan en «Y» y siguen curvando: la curva queda
+        # partida en ese nodo y cada mitad no tiene recta de ese lado) → se deja
+        # a `_try_span`, que la cierra con la recta del OTRO lado pasando por el
+        # nodo (`_fit_circle_through`); si del otro lado tampoco hay recta, nada.
+        def _end_ok(i):
+            return bool(_through(i)) or kinds[i] in FILLET_NODE_PASS_KINDS
+        if (lo <= 0 and not (lo == 0 and _end_ok(0))) or (hi >= n - 1 and not (hi == n - 1 and _end_ok(n - 1))):
             if debug is not None: debug.append((lo, hi, 'sin recta tangente'))
             queue.extend(subs)
             continue

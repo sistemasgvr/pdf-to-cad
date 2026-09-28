@@ -1548,8 +1548,13 @@ namespace Civil3DBasico
                     }
                     Dl(ed, $"\n  [CURVA] '{ip.Layer}' v{i} ang={deltaDeg:F1}° radio-pedido={(rEsExplicito ? r.ToString("F2") + "ft (explícito)" : r.ToString("F2") + "ft (auto 6× ancho)")}");
                     double t = r / Math.Tan(deltaRad / 2.0);
-                    // No recortar más allá de lo disponible en cada recta vecina (deja
-                    // margen del 10% para que siga quedando un tramo recto visible).
+                    // No recortar más allá de lo disponible en cada recta vecina: la
+                    // tangencia puede llegar HASTA el vértice vecino (cap 1.0). El
+                    // reconocimiento del PDF escribe ese vértice justo en la tangencia
+                    // cuando la recta sigue por un tee (_leg_vertex), así que T = tramo
+                    // completo es un caso real y válido: el arco empalma directo con
+                    // el vértice y el tramo recto de ese lado queda en cero (no se crea).
+                    // Antes el cap era 0.9 y recortaba el radio del plano (CV-2/CV-15).
                     // "Doble curva": si el vértice del OTRO extremo del segmento
                     // también está marcado como curva, hay que dejarle la MITAD del
                     // segmento a esa otra curva (si no, ambas se comen hasta el 90%
@@ -1558,10 +1563,16 @@ namespace Civil3DBasico
                     // Doble curva continua: cap 0.48 (no 0.5) para dejar un
                     // pequeño tramo recto entre los dos arcos y evitar puntos
                     // de tangencia coincidentes.
-                    double capPrev = ip.NoManholeVerts.Contains(i - 1) ? 0.48 : 0.9;
-                    double capNext = ip.NoManholeVerts.Contains(i + 1) ? 0.48 : 0.9;
+                    double capPrev = ip.NoManholeVerts.Contains(i - 1) ? CAP_CURVA_DOBLE : CAP_CURVA_RECTA;
+                    double capNext = ip.NoManholeVerts.Contains(i + 1) ? CAP_CURVA_DOBLE : CAP_CURVA_RECTA;
                     double tMax = Math.Min(distPrev * capPrev, distNext * capNext);
-                    if (t > tMax)
+                    if (t > tMax && r <= tMax * Math.Tan(deltaRad / 2.0) + TOL_RADIO_FT)
+                    {
+                        // Redondeo del radio (campo de 2 decimales / DXF): la tangencia
+                        // cae encima del vértice vecino. Se usa el máximo sin avisar.
+                        r = tMax * Math.Tan(deltaRad / 2.0); t = tMax;
+                    }
+                    else if (t > tMax)
                     {
                         double rAjustado = tMax * Math.Tan(deltaRad / 2.0);
                         ed.WriteMessage($"\n⚠ Curva en '{ip.Layer}' vértice {i}: radio {r:F2}' no entra " +
@@ -1650,17 +1661,30 @@ namespace Civil3DBasico
                 // tangencia en vez del vértice original — si no, el eje pasaría en
                 // línea recta justo por donde la tubería real ya se desvió.
                 var pipeTraza = new List<TrazaPt>();
+                // Con la tangencia sobre el vértice vecino (tramo recto nulo), P1/P2
+                // coinciden con ese vértice: no se repite el punto (el eje fallaría
+                // con un segmento de largo cero); si el que llega trae el bulge del
+                // arco, reemplaza al anterior.
+                void AgregarTraza(TrazaPt tp)
+                {
+                    if (pipeTraza.Count > 0 && pipeTraza[pipeTraza.Count - 1].P.DistanceTo(tp.P) < 1e-4)
+                    {
+                        if (Math.Abs(tp.Bulge) > 1e-12) pipeTraza[pipeTraza.Count - 1] = tp;
+                        return;
+                    }
+                    pipeTraza.Add(tp);
+                }
                 for (int i = 0; i < nVerts; i++)
                 {
                     if (curvasPorVertice.TryGetValue(i, out CurveGeom cgTraza))
                     {
                         // El bulge va en P1 (donde ARRANCA el arco): así el tramo
                         // P1→P2 del eje describe la misma curva que la tubería.
-                        pipeTraza.Add(new TrazaPt(cgTraza.P1, BulgeDeCurva(cgTraza)));
-                        pipeTraza.Add(new TrazaPt(cgTraza.P2));
+                        AgregarTraza(new TrazaPt(cgTraza.P1, BulgeDeCurva(cgTraza)));
+                        AgregarTraza(new TrazaPt(cgTraza.P2));
                     }
                     else
-                        pipeTraza.Add(new TrazaPt(new Point3d(ip.Vertices[i].X, ip.Vertices[i].Y, zOut[i])));
+                        AgregarTraza(new TrazaPt(new Point3d(ip.Vertices[i].X, ip.Vertices[i].Y, zOut[i])));
                 }
 
                 var vertStructIds = new List<ObjectId>();
@@ -1714,12 +1738,20 @@ namespace Civil3DBasico
                     if (!alturaExplicita && rim - sump < 1.0) rim = sump + Math.Max(depth, 3.0);
 
                     string key = $"{Math.Round(v.X, 2)}_{Math.Round(v.Y, 2)}";
-                    // En modo conduit (eléctrico/telecom): tanto si el usuario asignó
-                    // familia como si NO, siempre se crea structure en cada nodo. Si no
-                    // hay familia → se usa la "Estructura nula" default (invisible pero
-                    // permite que Civil 3D marque el nodo y conecte los tramos).
-                    // Nota: antes se saltaba con vertStructIds=Null, y algunos nodos
-                    // quedaban sin buzón — el usuario lo reportó.
+                    // Conduit (eléctrico/telecom): la app decide dónde van las CAJAS
+                    // (solo en bóvedas reales; el resto las pone el usuario) y exporta
+                    // un PDFCAD_STRUCT por cada una. Un vértice SIN PDFCAD_STRUCT no
+                    // lleva estructura: antes se creaba una en TODOS los vértices con
+                    // la «Estructura nula» — o, si la lista de piezas no la tenía, con
+                    // la primera estructura real (un buzón) — y en Civil 3D aparecían
+                    // buzones donde la app ya no los tiene. Los tramos se unen por
+                    // extremo libre, igual que en un vértice «oculto».
+                    if (sinBuzones && match == null)
+                    {
+                        Dbg("STRUCT_SKIP_CONDUIT_SIN_CAJA", ("x", v.X.ToString("F3")), ("y", v.Y.ToString("F3")));
+                        vertStructIds.Add(ObjectId.Null);
+                        continue;
+                    }
                     if (!createdStructs.ContainsKey(key))
                     {
                         ObjectId sFam, sSize;
@@ -1874,7 +1906,11 @@ namespace Civil3DBasico
                         Vector3d fwd = p3 - p2;
                         if (fwd.Length > 1e-6) p2 = p2 + fwd.GetNormal() * overlapFt;
                     }
-                    if (p1.DistanceTo(p2) < 1e-6) continue;
+                    // Tramo recto nulo: la tangencia del arco cae sobre el vértice
+                    // (T = tramo completo). No se crea el recto, pero SÍ el arco que
+                    // arranca en su extremo final (antes el `continue` se lo saltaba).
+                    bool tramoNulo = p1.DistanceTo(p2) < TRAMO_RECTO_MIN_FT;
+                    if (tramoNulo && !endEsCurva) continue;
 
                     // Override por segmento: si Python marcó familia/tamaño distintos
                     // para este tramo, los resolvemos ahora contra la PartsList; si no
@@ -1900,6 +1936,12 @@ namespace Civil3DBasico
                             if (BuscarTuberia(tr, partsList, ip.PipeFamily, ov.size, out f2, out s2, out nom2))
                             { segFam = f2; segSize = s2; }
                         }
+                    }
+
+                    if (tramoNulo)
+                    {
+                        Dbg("TRAMO_NULO_ARCO", ("pipe", ip.Layer), ("tramo", i.ToString()));
+                        goto __crearArco;
                     }
 
                     ObjectId pid = ObjectId.Null;
@@ -2037,6 +2079,7 @@ namespace Civil3DBasico
 
                     nPipes++;
 
+                __crearArco:
                     if (endEsCurva)
                     {
                         // El extremo FINAL de este tramo es la tangencia de entrada al
@@ -5626,8 +5669,8 @@ namespace Civil3DBasico
                         // Doble curva: si el vértice vecino también es curvo,
                         // reparte el segmento en dos mitades (ver comentario en
                         // CrearRedGravedadCompleta).
-                        double capPrevDb = matchPipe.NoManholeVerts.Contains(i - 1) ? 0.48 : 0.9;
-                        double capNextDb = matchPipe.NoManholeVerts.Contains(i + 1) ? 0.48 : 0.9;
+                        double capPrevDb = matchPipe.NoManholeVerts.Contains(i - 1) ? CAP_CURVA_DOBLE : CAP_CURVA_RECTA;
+                        double capNextDb = matchPipe.NoManholeVerts.Contains(i + 1) ? CAP_CURVA_DOBLE : CAP_CURVA_RECTA;
                         double tMax = Math.Min(distPrev * capPrevDb, distNext * capNextDb);
                         if (t > tMax) { r = tMax * Math.Tan(deltaRad / 2.0); t = tMax; }
                         try
@@ -5941,6 +5984,18 @@ namespace Civil3DBasico
         // Reconstruye P1/P2/Arco/Horario/Radio para una esquina ya analizada,
         // con un T (distancia de recorte) distinto — se usa tanto en el cálculo
         // inicial como en el ajuste por "tramo recto mínimo".
+        // Tope de la tangencia de una esquina curva sobre cada recta vecina (fracción
+        // del tramo). Misma regla en la app (model_ops.FILLET_CAP_*): el editor limita
+        // el radio con estos valores. Recta: hasta el vértice vecino. Otra curva en el
+        // vecino: la mitad menos un poco, para que los dos arcos no se crucen.
+        internal const double CAP_CURVA_RECTA = 1.0;
+        internal const double CAP_CURVA_DOBLE = 0.48;
+        // Un radio que supera el máximo en menos de esto (pies) es redondeo, no un
+        // recorte (= model_ops.FILLET_TOL_RADIO_FT): se usa el máximo sin avisar.
+        internal const double TOL_RADIO_FT = 0.01;
+        // Tramo recto más corto que se crea; por debajo, el arco empalma directo.
+        internal const double TRAMO_RECTO_MIN_FT = 0.01;
+
         private static CurveGeom BuildCurveGeom(double t, Point3d corner, Vector3d dirPrev, Vector3d dirNext,
                                                  double distPrev, double distNext, Point3d prevV, Point3d nextV,
                                                  double deltaRad)

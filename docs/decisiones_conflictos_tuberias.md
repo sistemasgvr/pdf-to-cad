@@ -32,7 +32,7 @@ función que implementan o comprueban esa decisión.
 7. [Cruces entre utilidades](#7-cruces-entre-utilidades)
 8. [Conexiones verticales aprobadas](#8-conexiones-verticales-aprobadas)
 9. [Nombres de red](#9-nombres-de-red)
-10. [Otros casos de control](#10-otros-casos-de-control)
+10. [Otros casos de control (y cajas en eléctrico/telecom)](#10-otros-casos-de-control)
 11. [Datos que viajan con cada accesorio (Property Set)](#11-datos-que-viajan-con-cada-accesorio-property-set)
 12. [Casos límite documentados (C01–C26, F01–F10)](#12-casos-límite-documentados-c01c26-f01f10)
 13. [Mapa rápido: dónde está cada regla](#13-mapa-rápido-dónde-está-cada-regla)
@@ -57,8 +57,8 @@ Decisiones sobre los mensajes:
 - Todos los textos se traducen al cambiar de idioma.
 
 **Dónde se valida:** mensajes en [app_window.py](../app/app_window.py) —
-`_union_civil` ([L4283](../app/app_window.py#L4283)), `_tipo` / `_etq`
-([L4330](../app/app_window.py#L4330)), `_msg_*` ([L4278–4386](../app/app_window.py#L4278));
+`_union_civil` ([L4283](../app/app_window.py#L4286)), `_tipo` / `_etq`
+([L4330](../app/app_window.py#L4333)), `_msg_*` ([L4281–4389](../app/app_window.py#L4281));
 bloque del tooltip: `tooltip_bloque` en [ui_common.py:65](../app/ui_common.py#L65);
 lista de alertas esperadas por caso: `ALERTAS` en
 [generar_escenarios.py](../tests/escenarios/generar_escenarios.py).
@@ -80,9 +80,9 @@ lista de alertas esperadas por caso: `ALERTAS` en
 **Dónde se valida:** `Z_TOL_JUNTA = 0.10` en
 [ImportarRed.cs:2565](../API-CIVIL/proyecto1/proyecto1/ImportarRed.cs#L2565);
 `MAX_TRAMOS_POR_ACCESORIO = 4` y `junturas_excedidas` en
-[model_ops.py:757](../app/model_ops.py#L757); aviso del plugin «máximo de 4» en
+[model_ops.py:794](../app/model_ops.py#L794); aviso del plugin «máximo de 4» en
 [RedesPresionJunturas.cs:613](../API-CIVIL/proyecto1/proyecto1/RedesPresionJunturas.cs#L613);
-diámetro al renombrar: `_prop_changed` en [app_window.py:3419](../app/app_window.py#L3419).
+diámetro al renombrar: `_prop_changed` en [app_window.py:3422](../app/app_window.py#L3422).
 
 ---
 
@@ -94,7 +94,7 @@ diámetro al renombrar: `_prop_changed` en [app_window.py:3419](../app/app_windo
 - **Decisión:** se pone codo desde **1° de giro**. Por debajo de 1° es una unión
   recta (sin pieza).
 
-**Dónde se valida:** `accesorio_en_punto` en [model_ops.py:481](../app/model_ops.py#L481)
+**Dónde se valida:** `accesorio_en_punto` en [model_ops.py:518](../app/model_ops.py#L518)
 («codo» si el giro > 1°); `DecidirTipoFitting` en
 [RedesPresionJunturas.cs:177](../API-CIVIL/proyecto1/proyecto1/RedesPresionJunturas.cs#L177);
 curva del sólido: `CurvaCodo` en [WyeSolido.cs:658](../API-CIVIL/proyecto1/proyecto1/WyeSolido.cs#L658).
@@ -119,9 +119,9 @@ constantes en Python comprobado por `test_espejo_de_wyesolido`
 - **Decisión del usuario:** «Codo de retorno en el vértice» (en vez de dejar un
   codo que no cabe o mover el vértice).
 
-**Dónde se valida:** `codos_de_retorno` en [model_ops.py:587](../app/model_ops.py#L587)
+**Dónde se valida:** `codos_de_retorno` en [model_ops.py:624](../app/model_ops.py#L624)
 (test `test_codos_de_retorno_solo_con_tramo_corto`,
-[test_model_ops.py:388](../tests/test_model_ops.py#L388)); plugin: `CodosDeRetorno` en
+[test_model_ops.py:426](../tests/test_model_ops.py#L426)); plugin: `CodosDeRetorno` en
 [ImportarRed.cs:3717](../API-CIVIL/proyecto1/proyecto1/ImportarRed.cs#L3717) (mensaje `[RETORNO]`).
 
 ### E08 · Codo con pendiente (-2 → -10)
@@ -141,7 +141,7 @@ orientación 3D del codo en `ConstruirCodo`
 - **Regla:** largo mínimo entre codos = **3 diámetros, mínimo 1 ft** (solo redes a presión).
 
 **Dónde se valida:** `largo_min_entre_codos_ft` y `tramos_cortos_entre_codos` en
-[model_ops.py:533](../app/model_ops.py#L533) y [model_ops.py:543](../app/model_ops.py#L543);
+[model_ops.py:570](../app/model_ops.py#L570) y [model_ops.py:580](../app/model_ops.py#L580);
 plugin: `LargoMinEntreCodosFt` y `FusionarCodosSeguidos` en
 [ImportarRed.cs:3639](../API-CIVIL/proyecto1/proyecto1/ImportarRed.cs#L3639) y
 [ImportarRed.cs:3650](../API-CIVIL/proyecto1/proyecto1/ImportarRed.cs#L3650).
@@ -202,15 +202,15 @@ campanas: `SepararBrazos` ([WyeSolido.cs:444](../API-CIVIL/proyecto1/proyecto1/W
 **Regla Tee / Wye:** es **Tee** solo si dos salidas son colineales (≥ 160°) **y**
 el ramal va a 90° ± 20° (es decir, ≥ 70°). Si no, **Wye**.
 
-**Dónde se valida:** `accesorio_en_punto` en [model_ops.py:481](../app/model_ops.py#L481)
+**Dónde se valida:** `accesorio_en_punto` en [model_ops.py:518](../app/model_ops.py#L518)
 (misma regla que el plugin); `DecidirTipoFitting` en
 [RedesPresionJunturas.cs:177](../API-CIVIL/proyecto1/proyecto1/RedesPresionJunturas.cs#L177)
 (umbral 70° en la [L215](../API-CIVIL/proyecto1/proyecto1/RedesPresionJunturas.cs#L215));
-exceso de tuberías: `junturas_excedidas` ([model_ops.py:760](../app/model_ops.py#L760)) y
+exceso de tuberías: `junturas_excedidas` ([model_ops.py:797](../app/model_ops.py#L797)) y
 tests `test_cinco_tramos_en_un_punto_se_avisan`, `test_seis_tramos_informa_seis`,
 `test_cruz_de_cuatro_no_se_avisa`, `test_gravedad_no_se_avisa`,
 `test_utilidad_a_otra_cota_no_cuenta`
-([test_model_ops.py:307–330](../tests/test_model_ops.py#L307)).
+([test_model_ops.py:345–368](../tests/test_model_ops.py#L345)).
 
 ---
 
@@ -224,7 +224,7 @@ tests `test_cinco_tramos_en_un_punto_se_avisan`, `test_seis_tramos_informa_seis`
   se unen **con un codo**. Si siguen casi en línea recta (≤ 1°) es una unión recta,
   pero el texto igualmente habla de «un codo sólido».
 
-**Dónde se valida:** `_union_civil` en [app_window.py:4283](../app/app_window.py#L4283)
+**Dónde se valida:** `_union_civil` en [app_window.py:4286](../app/app_window.py#L4286)
 (textos por tipo de accesorio, incluido `"recto"`).
 
 ### E20 · Extremo con extremo, diferencia de 0.08 ft
@@ -247,9 +247,9 @@ tests `test_cinco_tramos_en_un_punto_se_avisan`, `test_seis_tramos_informa_seis`
   dos; es alerta roja, no recomendación.
 
 **Dónde se valida:** `desnivel_min_dos_codos_ft` y `union_con_pendiente` en
-[model_ops.py:628](../app/model_ops.py#L628) y [model_ops.py:635](../app/model_ops.py#L635)
+[model_ops.py:665](../app/model_ops.py#L665) y [model_ops.py:672](../app/model_ops.py#L672)
 (test `test_union_con_pendiente_extremo_con_extremo`,
-[test_model_ops.py:406](../tests/test_model_ops.py#L406)); plugin: `UnionConPendiente` en
+[test_model_ops.py:444](../tests/test_model_ops.py#L444)); plugin: `UnionConPendiente` en
 [ImportarRed.cs:3767](../API-CIVIL/proyecto1/proyecto1/ImportarRed.cs#L3767), llamada en
 [ImportarRed.cs:2614](../API-CIVIL/proyecto1/proyecto1/ImportarRed.cs#L2614).
 
@@ -260,10 +260,10 @@ tests `test_cinco_tramos_en_un_punto_se_avisan`, `test_seis_tramos_informa_seis`
 - **Civil 3D:** `[COTAS] cotas unificadas a -4.50` (promedio).
 - En **gravedad** no se avisa (el buzón absorbe el escalón).
 
-**Dónde se valida:** `escalones_en_vertices` en [model_ops.py:729](../app/model_ops.py#L729)
+**Dónde se valida:** `escalones_en_vertices` en [model_ops.py:766](../app/model_ops.py#L766)
 (tests `test_escalon_en_agua_se_avisa_con_el_promedio`,
 `test_escalon_en_gravedad_no_se_avisa`, `test_diferencia_minima_no_es_escalon`,
-[test_model_ops.py:360–377](../tests/test_model_ops.py#L360)).
+[test_model_ops.py:398–415](../tests/test_model_ops.py#L398)).
 
 ---
 
@@ -284,8 +284,8 @@ tests `test_cinco_tramos_en_un_punto_se_avisan`, `test_seis_tramos_informa_seis`
 - Un **cruce en X a mitad de tramo** (dos tubos que siguen de largo) **no se une**:
   solo se unen tuberías que **terminan** en el punto o comparten un vértice.
 
-**Dónde se valida:** mensaje `_msg_redes` en [app_window.py:4278](../app/app_window.py#L4278)
-y regla del cruce en X en [app_window.py:4295](../app/app_window.py#L4295); plugin:
+**Dónde se valida:** mensaje `_msg_redes` en [app_window.py:4281](../app/app_window.py#L4281)
+y regla del cruce en X en [app_window.py:4298](../app/app_window.py#L4298); plugin:
 [ImportarRed.cs:4274](../API-CIVIL/proyecto1/proyecto1/ImportarRed.cs#L4274).
 
 ---
@@ -311,7 +311,7 @@ Cuando dos tuberías de la misma red se tocan a distinta cota, el usuario puede
 - **Decisión del usuario:** Wye + accesorio con pendiente + tubería con un poco de
   pendiente, con alerta roja.
 
-**Dónde se valida:** `conexion_vertical_inclinada` en [model_ops.py:688](../app/model_ops.py#L688);
+**Dónde se valida:** `conexion_vertical_inclinada` en [model_ops.py:725](../app/model_ops.py#L725);
 plugin: `CrearCruceConWye` (caso inclinado) en
 [ImportarRed.cs:5028](../API-CIVIL/proyecto1/proyecto1/ImportarRed.cs#L5028).
 
@@ -345,9 +345,9 @@ y `test_exporta_dxf` ([test_escenarios.py](../tests/escenarios/test_escenarios.p
   nombre; si ninguna tiene, «RED-<tipo>»). El nombre se usa solo en los mensajes.
 
 **Dónde se valida:** `red_de` y `red_civil_de_union` en
-[model_ops.py:462](../app/model_ops.py#L462) y [model_ops.py:469](../app/model_ops.py#L469)
+[model_ops.py:499](../app/model_ops.py#L499) y [model_ops.py:506](../app/model_ops.py#L506)
 (test `test_red_de_usa_nombre_y_si_no_la_capa`,
-[test_model_ops.py:381](../tests/test_model_ops.py#L381)); plugin: `RedesUnidasPorContacto` en
+[test_model_ops.py:419](../tests/test_model_ops.py#L419)); plugin: `RedesUnidasPorContacto` en
 [ImportarRed.cs:4243](../API-CIVIL/proyecto1/proyecto1/ImportarRed.cs#L4243); en el DXF,
 `test_exporta_dxf` comprueba `NET_NAME=Linea Norte`.
 
@@ -359,12 +359,46 @@ y `test_exporta_dxf` ([test_escenarios.py](../tests/escenarios/test_escenarios.p
 |---|---|---|
 | **E37** | Utilidad abandonada | Sin marcadores; en Civil 3D, estilo 3D **discontinuo** |
 | **E40** | Drenaje (gravedad) con quiebres | Buzones automáticos en cada vértice, sin cambios |
-| — | Eléctrico / telecom (conduit) | **Caja solo donde el plano tiene una bóveda real**; las demás las pone el usuario («muy pocas cajas») |
 
-**Dónde se valida:** `rebuild_structures` y `VAULT_VERTEX_KINDS` en
-[model_ops.py:81](../app/model_ops.py#L81) y [model_ops.py:182](../app/model_ops.py#L182)
-(test `test_conduit_solo_crea_caja_en_bovedas_reales`,
-[test_model_ops.py:256](../tests/test_model_ops.py#L256)).
+**Dónde se valida:** celdas E37 y E40 de
+[generar_escenarios.py](../tests/escenarios/generar_escenarios.py).
+
+### Eléctrico y telecomunicaciones: los vértices nunca son cajas
+
+- **Situación:** en las líneas eléctricas y de telecom, los vértices (quiebres,
+  esquinas, extremos, llegadas a una bóveda) se convertían en cajas (CAJA-). En líneas
+  reconocidas del PDF, cualquier vértice que el reconocimiento marcaba como «llega a una
+  bóveda» recibía una caja aunque ahí no hubiera ninguna bóveda reconocida. Por ejemplo,
+  en el DU06, 36 de las 73 cajas del eléctrico estaban en vértices sin bóveda.
+- **Decisión del usuario (2026-09-28):** en los dos flujos (dibujo a mano y
+  digitalización del PDF), **un vértice de la utilidad nunca se reconoce ni se agrega
+  automáticamente como buzón o caja**. Lo que **sí** está bien es la caja que sale de una
+  **bóveda reconocida en sus capas** (manhole, vault, pull box… del reconocimiento).
+- **Cómo queda:**
+  - Dibujo a mano: ninguna caja automática. Si hace falta una, el usuario la inserta
+    (Herramientas → «Insertar buzón en línea…»).
+  - Reconocimiento: **una caja por cada bóveda reconocida**, con su forma y sus
+    medidas. Si una línea llega a esa bóveda, la caja se coloca en el vértice por donde
+    llega, para que en Civil 3D la línea quede **conectada** a ella (el plugin solo usa
+    una caja si está a ≤ 1 ft de un vértice; en los demás vértices pone una «Estructura
+    nula» invisible). Una bóveda sin línea entra como caja suelta, igual que antes.
+  - Los codos reconocidos siguen como marca **CV** con su radio: son la esquina de la
+    curva, no una caja.
+  - Proyectos ya guardados: sus cajas existentes se conservan tal cual (pueden ser del
+    usuario). Al volver a importar el PDF ya salen con la regla nueva.
+- Gravedad (drenaje, alcantarillado) no cambia: buzón en cada vértice.
+
+**Dónde se valida:** `rebuild_structures` (conduit nunca crea en vértices) en
+[model_ops.py:81](../app/model_ops.py#L81); `attach_vault_geometry` (la caja nace de la
+bóveda reconocida) y `_vertice_de_boveda` (vértice de llegada) en
+[model_ops.py:292](../app/model_ops.py#L292) y [model_ops.py:376](../app/model_ops.py#L376);
+la importación le pasa las líneas de esa utilidad en `Main._import_recognized_pipes`
+([app_window.py:2126](../app/app_window.py#L2126)). Tests
+`test_conduit_nunca_pone_cajas_en_sus_vertices` y
+`test_conduit_caja_solo_de_boveda_reconocida`
+([test_model_ops.py:260](../tests/test_model_ops.py#L260) y
+[L276](../tests/test_model_ops.py#L276)). En el plugin, la «Estructura nula» de conduit:
+`CrearRedGravedadCompleta` ([ImportarRed.cs:1230](../API-CIVIL/proyecto1/proyecto1/ImportarRed.cs#L1230)).
 
 ---
 
@@ -456,6 +490,6 @@ pruebas en [test_escenarios_complejos.py](../tests/escenarios/test_escenarios_co
 | Vertical inclinada (Wye) | `model_ops.conexion_vertical_inclinada` | `ImportarRed.CrearCruceConWye` | escenario E33 |
 | Codo orientado en vertical | — | `ImportarRed.ResolverTuboCruce` / `DireccionAlejandoseDelCruce` | escenario E50 |
 | Misma red aunque cambie el nombre | `model_ops.red_civil_de_union` | `ImportarRed.RedesUnidasPorContacto` | `test_red_de_usa_nombre_…` |
-| Cajas solo en bóvedas (conduit) | `model_ops.rebuild_structures` | — | `test_conduit_solo_crea_caja_…` |
+| Vértices de eléctrico/telecom nunca son caja; caja solo de bóveda reconocida | `model_ops.rebuild_structures` / `attach_vault_geometry` | «Estructura nula» en `CrearRedGravedadCompleta` | `test_conduit_nunca_pone_cajas_…`, `test_conduit_caja_solo_de_boveda_…` |
 | Property Set del accesorio | — | `AccesorioPropertySet.AplicarDesdeXData` | revisión en Civil 3D |
 | Todas las alertas de un escenario | `ALERTAS` / `validar` | — | `tests/escenarios/test_escenarios.py` |
