@@ -3910,6 +3910,11 @@ class Main(QtWidgets.QMainWindow):
                 continue
             if a == b:
                 continue
+            # Solo redes a presión: una aprobación vieja entre tuberías de
+            # gravedad/conduit ya no se ve en el lienzo; no debe llegar al DXF.
+            if (self._pipe_net_kind(self.pipes[a]) != "pressure"
+                    or self._pipe_net_kind(self.pipes[b]) != "pressure"):
+                continue
             pa = self.pipes[a].get("pts") or []
             pb = self.pipes[b].get("pts") or []
             if len(pa) < 2 or len(pb) < 2:
@@ -4059,10 +4064,17 @@ class Main(QtWidgets.QMainWindow):
             if not (-eps <= t <= 1 + eps and -eps <= u <= 1 + eps): return None
             return (x1 + t * (x2 - x1), y1 + t * (y2 - y1))
 
+        # Solo redes a PRESIÓN (agua, gas): conflictos, sugerencias/aprobaciones
+        # de vertical y «redes distintas» no aplican a gravedad (drenaje,
+        # alcantarillado: lo resuelve el buzón) ni a conduit (eléctrico, telecom).
+        # Regla del usuario 2026-09-28. Las alertas rojas ya eran solo de presión.
+        from model import network_kind as _nk
         segs = []
         for i, p in enumerate(self.pipes):
-            pts = p.get("pts") or []
             lay = p.get("layer", "")
+            if _nk(lay) != "pressure":
+                continue
+            pts = p.get("pts") or []
             for k in range(len(pts) - 1):
                 segs.append((i, k, pts[k], pts[k + 1], lay))
 
@@ -4124,9 +4136,6 @@ class Main(QtWidgets.QMainWindow):
                 elif not same_layer:
                     continue                   # distinta utilidad + distinta cota → normal, no marcar
                 else:
-                    from model import network_kind as _nk
-                    if _nk(la) == "conduit":
-                        continue               # eléctrico/telecom no se une con vertical
                     estado = "aprobado" if aprobado else "sugerencia"
                     # Extremo con extremo sin altura para la vertical: no hay nada
                     # que aprobar, el plugin los une con pendiente (ver mensaje).

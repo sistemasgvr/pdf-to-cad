@@ -48,6 +48,9 @@ función que implementan o comprueban esa decisión.
 | **Aprobado ✓** | El usuario aprobó la conexión vertical. | — |
 | **▲ Alerta roja** | Algo que Civil 3D **no puede resolver como está dibujado**, o que resolverá cambiando el dibujo (p. ej. dando pendiente). El texto explica qué pasará. | Revisar; corregir el dibujo si no le sirve la solución automática. |
 
+> **Solo redes a presión (agua y gas).** Ninguna de estas señales aparece en drenaje,
+> alcantarillado, eléctrico ni telecomunicaciones (ver §2, «Señales solo en redes a presión»).
+
 Decisiones sobre los mensajes:
 
 - **Mensajes simples y con el nombre de la tubería**: cada tubería se nombra como
@@ -57,8 +60,8 @@ Decisiones sobre los mensajes:
 - Todos los textos se traducen al cambiar de idioma.
 
 **Dónde se valida:** mensajes en [app_window.py](../app/app_window.py) —
-`_union_civil` ([L4283](../app/app_window.py#L4286)), `_tipo` / `_etq`
-([L4330](../app/app_window.py#L4333)), `_msg_*` ([L4281–4389](../app/app_window.py#L4281));
+`_union_civil` ([L4295](../app/app_window.py#L4295)), `_tipo` / `_etq`
+([L4342](../app/app_window.py#L4342)), `_msg_*` ([L4290–4398](../app/app_window.py#L4290));
 bloque del tooltip: `tooltip_bloque` en [ui_common.py:65](../app/ui_common.py#L65);
 lista de alertas esperadas por caso: `ALERTAS` en
 [generar_escenarios.py](../tests/escenarios/generar_escenarios.py).
@@ -75,6 +78,7 @@ lista de alertas esperadas por caso: `ALERTAS` en
 | **Accesorios siempre conectados** | Prioridad absoluta: toda boca de un accesorio debe quedar alineada con su tubo (en planta y en altura). Por eso en las piezas reductoras cada brazo va a la altura del eje de **su** tubo. |
 | **Máximo 4 tuberías por accesorio** | La pieza más grande es la **Cruz** (4 salidas). Con 5 o más, alerta roja y no se pone pieza. |
 | **Solo redes a presión** llevan accesorios sólidos (agua, gas). En **gravedad** (drenaje, alcantarillado) las uniones las resuelve el **buzón**. En **conduit** (eléctrico, telecom) no hay accesorios. |
+| **Señales solo en redes a presión** | Conflictos, sugerencias y aprobaciones de vertical, «redes distintas» y todas las alertas rojas se calculan **solo con tuberías de agua y gas**. Una tubería de drenaje, alcantarillado, eléctrico o telecom no genera ninguna señal, ni sola ni cruzándose con una de presión. Una conexión vertical aprobada en un proyecto viejo entre tuberías que no son a presión se descarta y no llega al DXF. *(Decisión del usuario, 2026-09-28.)* |
 | **El nombre de la tubería no cambia su geometría ni su diámetro** | Renombrar una tubería solo cambia cómo se llama. (Se corrigió un error en el que renombrar ponía el diámetro en 0.) |
 
 **Dónde se valida:** `Z_TOL_JUNTA = 0.10` en
@@ -83,6 +87,12 @@ lista de alertas esperadas por caso: `ALERTAS` en
 [model_ops.py:794](../app/model_ops.py#L794); aviso del plugin «máximo de 4» en
 [RedesPresionJunturas.cs:613](../API-CIVIL/proyecto1/proyecto1/RedesPresionJunturas.cs#L613);
 diámetro al renombrar: `_prop_changed` en [app_window.py:3422](../app/app_window.py#L3422).
+Señales solo en redes a presión: filtro de tuberías en `_draw_pipe_conflicts`
+([app_window.py:4075](../app/app_window.py#L4075)) y descarte de aprobaciones viejas en
+`_prune_stale_cross_connections` ([app_window.py:3888](../app/app_window.py#L3888)); las alertas
+de `model_ops` ya filtraban `network_kind(...) == "pressure"`. Escenarios E24–E26 y E46
+(sin señales) en [generar_escenarios.py](../tests/escenarios/generar_escenarios.py) y F09 en
+[generar_escenarios_complejos.py](../tests/escenarios/generar_escenarios_complejos.py).
 
 ---
 
@@ -224,7 +234,7 @@ tests `test_cinco_tramos_en_un_punto_se_avisan`, `test_seis_tramos_informa_seis`
   se unen **con un codo**. Si siguen casi en línea recta (≤ 1°) es una unión recta,
   pero el texto igualmente habla de «un codo sólido».
 
-**Dónde se valida:** `_union_civil` en [app_window.py:4286](../app/app_window.py#L4286)
+**Dónde se valida:** `_union_civil` en [app_window.py:4295](../app/app_window.py#L4295)
 (textos por tipo de accesorio, incluido `"recto"`).
 
 ### E20 · Extremo con extremo, diferencia de 0.08 ft
@@ -272,20 +282,22 @@ tests `test_cinco_tramos_en_un_punto_se_avisan`, `test_seis_tramos_informa_seis`
 | Caso | Situación | App | Civil 3D |
 |---|---|---|---|
 | **E24** | Agua × drenaje a distinta cota | sin marcador | sin conexión |
-| **E25** | Agua × drenaje a la **misma** cota | **▲ «redes distintas»** | sin conexión |
+| **E25** | Agua × drenaje a la **misma** cota | sin marcador (el drenaje no es red a presión) | sin conexión |
 | **E28** | Gas × agua a la misma cota | **▲ «redes distintas»** | sin conexión |
-| **E26** | Eléctrico × eléctrico a distinta cota | sin marcador (conduit) | sin conexión |
+| **E26** | Eléctrico × eléctrico a distinta cota | sin marcador (no es red a presión) | sin conexión |
 | **E27** | Agua × agua a distinta cota, sin aprobar | **sugerencia ↕** | sin vertical |
 | **E48** | Agua × agua cruzándose **en X** a la misma cota | conflicto | **sin conexión** |
 
 **Decisiones:**
-- Utilidades de **distinto tipo** nunca se unen; si chocan a la misma cota, alerta roja
-  para que el usuario mueva una.
+- Utilidades de **distinto tipo** nunca se unen. Si son **dos redes a presión** (agua ×
+  gas) y chocan a la misma cota, alerta roja «redes distintas» para que el usuario mueva
+  una. Si una de las dos no es a presión (p. ej. agua × drenaje, E25), no hay señal
+  (ver §2, «Señales solo en redes a presión»).
 - Un **cruce en X a mitad de tramo** (dos tubos que siguen de largo) **no se une**:
   solo se unen tuberías que **terminan** en el punto o comparten un vértice.
 
-**Dónde se valida:** mensaje `_msg_redes` en [app_window.py:4281](../app/app_window.py#L4281)
-y regla del cruce en X en [app_window.py:4298](../app/app_window.py#L4298); plugin:
+**Dónde se valida:** mensaje `_msg_redes` en [app_window.py:4290](../app/app_window.py#L4290)
+y regla del cruce en X en [app_window.py:4307](../app/app_window.py#L4307); plugin:
 [ImportarRed.cs:4274](../API-CIVIL/proyecto1/proyecto1/ImportarRed.cs#L4274).
 
 ---
@@ -464,7 +476,7 @@ el plugin (el test `test_espejo_de_wyesolido` falla si el plugin cambia sus cons
 | F06 | Cruce a distinta cota con vértices en el punto | 4 sugerencias apiladas |
 | F07 | Vértice repetido (tramo de 0 ft) | Se omite; codo normal |
 | F08 | Curva suave dibujada con 30 tramos | 29 codos de 3° (falta criterio de deflexión admisible en junta) |
-| F09 | Eléctrico: derivación + quiebre | Sin sólidos (conduit) |
+| F09 | Eléctrico: derivación + quiebre | Sin sólidos (conduit) y, en la app, sin señales (solo redes a presión) |
 | F10 | Lista de lo no dibujable | Bajantes propias, bloques de anclaje, válvulas en extremos, reimportar en el mismo dibujo… |
 
 **Dónde se valida:** funciones `c01`…`c26`, `f01`…`f09` y `NO_DIBUJABLES` en
@@ -478,6 +490,7 @@ pruebas en [test_escenarios_complejos.py](../tests/escenarios/test_escenarios_co
 
 | Decisión | App (Python) | Plugin (C#) | Prueba |
 |---|---|---|---|
+| Señales solo en redes a presión (agua, gas) | `Main._draw_pipe_conflicts` / `_prune_stale_cross_connections` | — | escenarios E24–E26, F09 |
 | Qué accesorio va en un punto | `model_ops.accesorio_en_punto` | `RedesPresionJunturas.DecidirTipoFitting` | escenarios E01–E17 |
 | Máximo 4 tuberías | `model_ops.junturas_excedidas` | `RedesPresionJunturas` (aviso «máximo de 4») | `test_cinco_tramos_…` |
 | Codo cerrado / curva | — | `WyeSolido.CurvaCodo` | `test_espejo_de_wyesolido` |

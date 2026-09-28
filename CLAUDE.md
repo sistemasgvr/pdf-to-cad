@@ -89,7 +89,13 @@ alcantarillado, drenaje, gas, eléctrico, telecom). Todo en **unidades imperiale
     que llega y que PASA por el nodo (1-D sobre la tangencia, mejor ajuste a la
     tinta) y `_close_at_node` cierra la esquina con la tangente en el nodo →
     `fillets[idx]["node_a"/"node_b"]` (la auditoría no les exige tangente sobre
-    un guión: ahí no hay recta después). **Rectas «libres»**: la línea que PASA
+    un guión: ahí no hay recta después). **Bifurcación de curvas** (DU08 h.26,
+    2026-09-28): en el EXTREMO de la polilínea un `tee`/`junction` SIN línea pasante
+    (`FILLET_NODE_PASS_KINDS`) también admite el arco — antes la guarda «sin recta
+    tangente» lo tiraba y una «Y» de curvas partida en el nodo quedaba en cuerdas —; y
+    el lado −1 de ese respaldo ya no invierte la recta (ya viene orientada hacia el
+    arco; daba RMS 180 px). Foto DU06+DU08: +12 codos, 0 perdidos, todos sobre tinta
+    curva. **Rectas «libres»**: la línea que PASA
     por un tee se extiende a los dos lados, así que no se le aplica el orden
     P…A…C…B…N y, si la tangencia cae más allá del nodo, el vértice se escribe en
     la tangencia (`_leg_vertex`) — si no, el tramo recto queda más corto que T y

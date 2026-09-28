@@ -1539,7 +1539,13 @@ def _arc_spans(kinds, pts=None, max_gap=None):
             i += 1; continue
         j = i
         while True:
-            while j + 1 < n and kinds[j + 1] == "curve":
+            # dos vértices `curve` seguidos con una cuerda LARGA entre medio son el
+            # fin de un trazo curvo y el inicio del siguiente con una RECTA en medio
+            # (la simplificación marcó `curve` los dos extremos de la recta): la
+            # ristra se corta ahí (santos/DU08 h.26: recta de 409 pt entre dos codos)
+            while (j + 1 < n and kinds[j + 1] == "curve"
+                   and not (pts is not None and max_gap is not None
+                            and math.dist(pts[j], pts[j + 1]) >= max_gap)):
                 j += 1
             # nodo intermedio entre dos trazos curvos: curve, X, curve
             if j + 2 < n and kinds[j + 2] == "curve" and kinds[j + 1] in ("corner", "bend", "junction"):
@@ -1603,10 +1609,13 @@ def _fit_circle_through(members, P, ua, Q):
 
 # Nodos donde una curva del plano puede MORIR sin recta que la continúe.
 NODE_KINDS_END = ("tee", "junction", "vault", "stop", "edge", "end", "cut")
-# De ellos, los que en el EXTREMO de la polilínea admiten el arco aunque ninguna
-# línea recta pase por el nodo: el nodo es un punto de la red (bifurcación de
-# curvas, santos h.26), no un corte ni el fin de la tinta.
-FILLET_NODE_PASS_KINDS = ("tee", "junction")
+# De ellos, los NODOS DE RED que en el EXTREMO de la polilínea admiten el arco
+# aunque ninguna línea recta pase por el nodo: el arco se cierra con la recta del
+# otro lado pasando por el nodo (bifurcación de curvas, curva que termina en el
+# borde de una bóveda: santos/DU08 h.26). Un extremo libre (`end`), un corte de
+# la vista (`cut`) o un borde (`edge`) no: ahí la tinta puede seguir recta un
+# tramo corto antes de acabar (DU08 h.27: curva + recta de 39.6 pt hasta el fin).
+FILLET_NODE_PASS_KINDS = ("tee", "junction", "vault", "stop")
 
 
 def _close_at_node(P, u, A, Q, cx, cy, r, i_leg, i_node, rms, swap=False):
@@ -1839,10 +1848,28 @@ def fit_fillets(pts, kinds, tol_px: float = 1.0, tan_tol: float = None, debug=No
         A0, B0 = pts[lo], pts[hi]
         V0 = pts[lo - 1] if lo > 0 else pts[0]
         W0 = pts[hi + 1] if hi < n - 1 else pts[n - 1]
-        if not node_a and min(math.dist(A, A0), math.dist(A, V0)) > slip:
+
+        def _on_leg(Q, E, F):
+            """¿Q cae SOBRE el tramo recto E→F (el que sigue al extremo E del trazo
+            curvo), a ≤ 2·slip de E? Una letra del linetype («E», «T»…) suele
+            comerse el final del arco y la simplificación deja un vértice debajo
+            de ella: la tangencia real queda un poco más allá, sobre la recta del
+            plano (santos/DU08 h.26: 43 px con slip 42). Sobre esa recta hay tinta;
+            no es un arco inventado (la cobertura de tinta curva se sigue exigiendo)."""
+            dx, dy = F[0] - E[0], F[1] - E[1]
+            L = math.hypot(dx, dy)
+            if L < 1e-9 or math.dist(Q, E) > 2.0 * slip:
+                return False
+            t = ((Q[0] - E[0]) * dx + (Q[1] - E[1]) * dy) / (L * L)
+            perp = abs((Q[0] - E[0]) * dy - (Q[1] - E[1]) * dx) / L
+            return 0.0 <= t <= 1.0 and perp <= max(tol_use, FILLET_TANGENCY_TOL_PT * f_px)
+
+        if (not node_a and min(math.dist(A, A0), math.dist(A, V0)) > slip
+                and not (lo > 0 and _on_leg(A, A0, V0))):
             if debug is not None: debug.append((lo, hi, 'tangencia lejos del extremo', ia, ib))
             return None
-        if not node_b and min(math.dist(B, B0), math.dist(B, W0)) > slip:
+        if (not node_b and min(math.dist(B, B0), math.dist(B, W0)) > slip
+                and not (hi < n - 1 and _on_leg(B, B0, W0))):
             if debug is not None: debug.append((lo, hi, 'tangencia lejos del extremo', ia, ib))
             return None
         a0 = math.atan2(A[1] - cy, A[0] - cx); a1 = math.atan2(B[1] - cy, B[0] - cx)

@@ -678,10 +678,10 @@ def f09(lz, P):
     lz.tubo("ELECTRICO", [P, (P[0], P[1] - 30), (P[0] + 30, P[1] - 30)], 4, (-3, -3))
     return dict(
         titulo="Eléctrico: derivación en T + quiebre de 90°",
-        app="conflicto (misma cota)",
+        app="sin marcadores (las señales son solo de redes a presión)",
         c3d="Red conduit con estructuras nulas: NO se generan sólidos, ni TEE en la derivación ni codo en el quiebre.",
         nc="Las curvas (sweeps) y derivaciones de conduit eléctrico/telecom no se modelan.",
-        marcas=[(P, "conflicto")])
+        marcas=[(P, None)])
 
 
 NO_DIBUJABLES = [

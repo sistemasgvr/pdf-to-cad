@@ -286,7 +286,8 @@ places a fitting (elbow, Tee, Wye or cross).
 <section data-title="Colored signs on the plan">
 <p>While you draw, the app checks the design and places <b>signs</b> where something needs
 your attention. <b>Hover</b> over a sign to read what is going on, or <b>click</b> it for the
-details. They only appear at pipe crossings and joints.</p>
+details. They only appear at crossings and joints of <b>pressure</b> network pipes
+(water and gas): storm drain, sewer, electrical and telecom have no signs.</p>
 
 <h2>Legend</h2>
 <table width="100%" cellspacing="4" cellpadding="10">
@@ -314,14 +315,14 @@ The status bar at the bottom counts how many there are of each kind.</p>
 
 <section data-title="Red alerts: when they appear">
 <p>The red triangle <img src="mark:alerta"> appears in these cases. All refer to
-<b>pressure</b> networks (water and gas), except «different networks».</p>
+<b>pressure</b> networks (water and gas).</p>
 <table width="100%" cellspacing="4" cellpadding="10">
 <tr><th align="left" width="24%">Case</th><th align="left">When it appears</th><th align="left">What Civil 3D will do</th></tr>
 <tr><td bgcolor="{{danger}}"><b>Too many pipes</b></td>
     <td bgcolor="{{card}}">5 or more pipes meet at the same point at the same elevation.</td>
     <td bgcolor="{{card}}">It will not place any fitting there. <b>Fix the drawing.</b></td></tr>
 <tr><td bgcolor="{{danger}}"><b>Different networks</b></td>
-    <td bgcolor="{{card}}">Two utilities of a <b>different type</b> (for example water and storm drain) cross at the same elevation.</td>
+    <td bgcolor="{{card}}">Two pressure networks of a <b>different type</b> (water and gas) cross at the same elevation.</td>
     <td bgcolor="{{card}}">It does not join them: they will clash. Change one elevation.</td></tr>
 <tr><td bgcolor="{{danger}}"><b>Elevation step</b></td>
     <td bgcolor="{{card}}">At a vertex of one pipe, the incoming and outgoing segments have different elevations.</td>

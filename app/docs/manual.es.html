@@ -287,7 +287,8 @@ un accesorio (codo, Tee, Wye o cruz).
 <section data-title="Señales de colores en el plano">
 <p>Mientras dibujas, la app revisa el diseño y pone <b>señales</b> donde algo necesita tu
 atención. <b>Pasa el mouse</b> sobre una señal para leer qué pasa, o <b>haz clic</b> para ver
-el detalle. Solo aparecen en los cruces y uniones de tuberías.</p>
+el detalle. Solo aparecen en los cruces y uniones de tuberías de redes <b>a presión</b>
+(agua y gas): en drenaje, alcantarillado, eléctrico y telecomunicaciones no hay señales.</p>
 
 <h2>Leyenda</h2>
 <table width="100%" cellspacing="4" cellpadding="10">
@@ -315,14 +316,14 @@ La barra de estado, abajo, cuenta cuántas hay de cada tipo.</p>
 
 <section data-title="Alertas rojas: cuándo salen">
 <p>El triángulo rojo <img src="mark:alerta"> aparece en estos casos. Todos se refieren a redes
-<b>a presión</b> (agua y gas), salvo «redes distintas».</p>
+<b>a presión</b> (agua y gas).</p>
 <table width="100%" cellspacing="4" cellpadding="10">
 <tr><th align="left" width="24%">Caso</th><th align="left">Cuándo sale</th><th align="left">Qué hará Civil 3D</th></tr>
 <tr><td bgcolor="{{danger}}"><b>Demasiadas tuberías</b></td>
     <td bgcolor="{{card}}">5 o más tuberías se juntan en el mismo punto a la misma cota.</td>
     <td bgcolor="{{card}}">No pondrá ningún accesorio ahí. <b>Corrige el dibujo.</b></td></tr>
 <tr><td bgcolor="{{danger}}"><b>Redes distintas</b></td>
-    <td bgcolor="{{card}}">Dos utilidades de <b>distinto tipo</b> (por ejemplo agua y drenaje) se cruzan a la misma cota.</td>
+    <td bgcolor="{{card}}">Dos redes a presión de <b>distinto tipo</b> (agua y gas) se cruzan a la misma cota.</td>
     <td bgcolor="{{card}}">No las une: quedarán chocando. Cambia la cota de una.</td></tr>
 <tr><td bgcolor="{{danger}}"><b>Escalón de cota</b></td>
     <td bgcolor="{{card}}">En un vértice de una misma tubería, el tramo que llega y el que sale tienen cotas distintas.</td>
