@@ -87,18 +87,37 @@ LETTER_STROKE_MIN_REPEAT = 2  # pasadas extra de astas (perfil `stroke_letters`)
 LETTER_STROKE_MAX_PT = 8.0    # …solo trazos de letra (asta «T» 7.2, brazo «E» 4.5); un guión de
                               # 11.5 pt de una curva a guiones (LABOE h.26) es línea
 MARKER_PAIR_PT = 6.0         # dos barras «//» a ≤6 pt una de otra = UN marcador
-MARKER_DOUBLE_STEPS_OK = 0.75  # «//»: fracción de pasos entre dobles que deben ir al periodo
-# «//» en tramos CORTOS del CAD: AutoCAD dibuja el linetype por segmento y en uno
-# de 26–34 pt pone su «//» más cerca que el periodo (DU08 h.21 gas `C-NGAS-D`,
-# x=1253: dobles a 26/27/34 pt junto a la T, luego a 69). Un paso más corto que el
-# periodo cuenta si mide ≥ este mínimo y la línea lleva ≥`MARKER_DOUBLE_SHORT_MIN_N`
-# dobles propios (dos marcas sueltas no bastan).
-MARKER_DOUBLE_SHORT_MIN_PT = 2 * 6.0
-MARKER_DOUBLE_SHORT_MIN_N = 3
+# AutoCAD dibuja el linetype POR SEGMENTO: en cada vértice de la polilínea reinicia
+# el patrón, así que el paso entre dos marcadores que cruza un vértice cae en
+# cualquier punto entre ~0 y 2 periodos (DU08 h.26 alcantarillado «—//—ss—»: 90,
+# 75, 75 pt; DU10 h.19 agua «—/—w—»: 67.7 y 102.5 junto a un vértice) y el último
+# marcador queda a menos de 2 periodos de cada punta. Una línea SIGUE el patrón si
+# sus marcadores la cubren: ≥`MARKER_STEPS_OK` de los pasos entre
+# `MARKER_SHORT_MIN_PT` y `MARKER_GAP_MAX_PER` periodos (+ tolerancia; también un
+# marcador tapado por una bóveda o letra) y cada punta a ≤`MARKER_GAP_MAX_PER`
+# periodos del marcador más cercano. Antes se exigía 1× o 2× el periodo exacto y
+# se perdían abandonadas en 4 de los PDF de prueba.
+MARKER_STEPS_OK = 0.75       # fracción de pasos coherentes con el linetype
+MARKER_GAP_MAX_PER = 2.0     # tramo máximo sin marcador (pasos y puntas), en periodos
+# Paso MÁS CORTO que el periodo (tramo corto del CAD: DU08 h.21 gas `C-NGAS-D`,
+# x=1253: dobles a 26/27/34 pt junto a la T, luego a 69): cuenta si mide ≥ este
+# mínimo. Con «/» simple solo si la línea lleva ≥`MARKER_SHORT_MIN_N` marcadores
+# (dos barras sueltas a poca distancia no bastan); el «//» es un glifo propio del
+# linetype y basta con él.
+MARKER_SHORT_MIN_PT = 2 * 6.0
+MARKER_SHORT_MIN_N = 3
 MARKER_PERIOD_TOL = 0.15     # paso entre marcadores: ±15 % del periodo (+ MARKER_PERIOD_SLACK_PT)
 MARKER_PERIOD_SLACK_PT = 3.0
 MARKER_MIN_AGREE = 2         # pasos iguales necesarios para aprender el periodo (= 3 marcadores seguidos)
 MARKER_LOCAL_MIN_PT = 30.0   # sin paso en la capa: una línea con ≥2 marcadores a ≥30 pt define el suyo
+MARKER_LOCAL_REACH_PER = 1.5  # …y con ese paso propio (evidencia débil) sus puntas a ≤1.5 periodos
+# «//» suelto en una hoja donde su capa no tiene otro marcador (no hay paso que
+# aprender): tramo corto «—//—w—» de una capa «-D» (DU06 h.3, DU10 h.21 gas). Se
+# juzga con el periodo MÁS CORTO medido en los PDF de prueba (todos entre 66 y
+# 75 pt), así un «//» solo cubre ≤2 periodos a cada lado. La «/» simple no: sin
+# paso aprendido no hay patrón.
+MARKER_DEFAULT_PERIOD_PT = 67.7
+MARKER_ARC_CHORD_MAX_PT = 30.0  # cuerda de arco (≈ medio periodo): ver `_curve_spans`
 CODO_MAX_VERTEX_TURN_DEG = 60.0  # un «codo» pequeño es suave: ningún vértice gira más que esto (zigzag «//» no)
 # Llegada a una bóveda: «por su eje + quiebre CORTO». El quiebre es el desvío
 # lateral entre el eje de la línea que llega y el nodo interior; si hay que
@@ -1116,13 +1135,55 @@ def _marker_positions_n(polylines: Sequence["Polyline"],
     return out
 
 
+def _curve_spans(pl: "Polyline") -> List[Tuple[float, float]]:
+    """Tramos curvos de la polilínea (pt desde el inicio): cuerdas seguidas con un
+    vértice «curve» y ≤ `MARKER_ARC_CHORD_MAX_PT` (la recta larga que llega a la
+    curva no es arco)."""
+    spans: List[Tuple[float, float]] = []
+    s = 0.0
+    for a, b, ka, kb in zip(pl.pts, pl.pts[1:], pl.kinds, pl.kinds[1:]):
+        L = _dist(a, b)
+        if "curve" in (ka, kb) and L <= MARKER_ARC_CHORD_MAX_PT:
+            if spans and abs(spans[-1][1] - s) < 1e-6:
+                spans[-1] = (spans[-1][0], s + L)
+            else:
+                spans.append((s, s + L))
+        s += L
+    return spans
+
+
+def _covers(ts: Sequence[float], length: float, per: float, short_ok: bool,
+            reach_per: float = MARKER_GAP_MAX_PER,
+            arcs: Sequence[Tuple[float, float]] = ()) -> bool:
+    """¿Los marcadores en `ts` (pt desde el inicio, ordenados, ≥1) cubren una línea
+    de largo `length` con el linetype de paso `per`? Ver `MARKER_STEPS_OK`: pasos
+    coherentes con el reinicio del patrón en cada vértice y puntas a ≤`reach_per`
+    periodos. `short_ok`: se admiten pasos más cortos que el periodo (≥
+    MARKER_SHORT_MIN_PT). `arcs` (`_curve_spans`): cada arco es su propio segmento
+    del linetype y uno más corto que el periodo no lleva marcas, así que no cuenta
+    como tramo sin marcador (LABOE h.27: «//» cada 69 pt y la curva final sin
+    ninguno)."""
+    def span(t0: float, t1: float) -> float:
+        return (t1 - t0) - sum(min(per, max(0.0, min(b, t1) - max(a, t0))) for a, b in arcs)
+    tol = MARKER_PERIOD_TOL * per + MARKER_PERIOD_SLACK_PT
+    if len(ts) >= 2:
+        lo = MARKER_SHORT_MIN_PT if short_ok else per - tol
+        hi = MARKER_GAP_MAX_PER * (per + tol)
+        ok = sum(1 for a, b in zip(ts, ts[1:]) if b - a >= lo and span(a, b) <= hi)
+        if ok < MARKER_STEPS_OK * (len(ts) - 1):
+            return False
+    reach = reach_per * per + tol
+    return span(0.0, ts[0]) <= reach and span(ts[-1], length) <= reach
+
+
 def marker_pattern(polylines: Sequence["Polyline"], markers: Sequence[Glyph]) -> MarkerPattern:
     """Patrón de marcadores «/» de una capa (linetype abandonado «──/── e ──»).
     Dos barras sueltas NO hacen una abandonada: el paso se aprende de ≥3
     marcadores seguidos a la misma distancia (en una o varias líneas) y cada
-    línea se juzga sola: sigue el patrón si sus marcadores van a ese paso (o al
-    doble, donde una bóveda o letra ocupa el sitio) desde cerca del inicio hasta
-    cerca del final. Nada se inventa: sin paso aprendido no hay patrón."""
+    línea se juzga sola: sigue el patrón si sus marcadores la cubren de punta a
+    punta (`_covers`: pasos coherentes con el reinicio del linetype en cada
+    vértice, o un marcador tapado por una bóveda o letra). Nada se inventa: sin
+    paso aprendido no hay patrón."""
     pos_n = _marker_positions_n(polylines, markers)
     pos = [[t for t, _ in lst] for lst in pos_n]
     # «//»: la mayoría de los marcadores de la línea son dos barras pegadas.
@@ -1162,39 +1223,37 @@ def marker_pattern(polylines: Sequence["Polyline"], markers: Sequence[Glyph]) ->
             verdict.append(False)
             continue
         per = local.get(i, period)
-        tol = MARKER_PERIOD_TOL * per + MARKER_PERIOD_SLACK_PT
         if len(lst) >= 2:
-            steps_ok = all(any(abs((b - a) - k * per) <= tol * k for k in (1, 2)) for a, b in zip(lst, lst[1:]))
-            ends_ok = lst[0] <= 1.5 * per + tol and (L - lst[-1]) <= 1.5 * per + tol
-            verdict.append(bool(steps_ok and ends_ok))
+            # Paso definido por la propia línea (2 marcas, sin patrón en la capa):
+            # evidencia débil, puntas a ≤1.5 periodos y sin descontar arcos, como
+            # antes. DU06 h.12: dos «℄» a 173 pt sobre un banco de ductos pasaban por «/».
+            if i in local:
+                verdict.append(_covers(lst, L, per, len(lst) >= MARKER_SHORT_MIN_N, MARKER_LOCAL_REACH_PER))
+            else:
+                verdict.append(_covers(lst, L, per, len(lst) >= MARKER_SHORT_MIN_N, arcs=_curve_spans(pl)))
         elif len(lst) == 1:
             verdict.append(None if L < 2.0 * period else False)
         else:
             verdict.append(None if L < 1.5 * period else False)
     # «//» (regla del usuario: abandonada en cualquier utilidad y capa): se juzga
     # solo con los marcadores dobles, tolerando alguno intercalado (el «//» de
-    # un ramal junto a una T, DU08 h.21): ≥2 dobles, ≥75 % de los pasos a 1× o
-    # 2× el periodo y dobles hasta ≤2 pasos de cada punta.
+    # un ramal junto a una T, DU08 h.21). Un solo «//» propio basta si cubre la
+    # línea (tramo «—e—//—e—» corto de una capa «-D», DU10 h.21/23); y si los
+    # dobles solos no la cubren, vale el juicio con todos sus marcadores (un «//»
+    # cruzado por una flecha pierde una barra y queda como «/»: DU08 h.35). Sin
+    # paso en la capa, el «//» se juzga con `MARKER_DEFAULT_PERIOD_PT`.
     dbl_verdict: List[Optional[bool]] = []
     for i, (pl, lst) in enumerate(zip(polylines, pos_n)):
         dl = [t for t, n in lst if n >= 2]
         if period is None:
-            dbl_verdict.append(False)
+            dbl_verdict.append(bool(doubles[i]) and _covers(dl, pl.length, MARKER_DEFAULT_PERIOD_PT, True,
+                                                            arcs=_curve_spans(pl)))
             continue
         if not doubles[i]:                # corta y sin «//» propio: hereda de la capa
             dbl_verdict.append(None if verdict[i] is None else False)
             continue
-        per = local.get(i, period)
-        tol = MARKER_PERIOD_TOL * per + MARKER_PERIOD_SLACK_PT
-        if len(dl) >= 2:
-            steps = list(zip(dl, dl[1:]))
-            ok = sum(1 for a, b in steps if any(abs((b - a) - k * per) <= tol * k for k in (1, 2))
-                     or (len(dl) >= MARKER_DOUBLE_SHORT_MIN_N
-                         and MARKER_DOUBLE_SHORT_MIN_PT <= b - a < per))
-            ends_ok = dl[0] <= 2.0 * per + tol and (pl.length - dl[-1]) <= 2.0 * per + tol
-            dbl_verdict.append(bool(ok >= MARKER_DOUBLE_STEPS_OK * len(steps) and ends_ok))
-        else:
-            dbl_verdict.append(verdict[i])
+        dbl_verdict.append(_covers(dl, pl.length, local.get(i, period), True, arcs=_curve_spans(pl))
+                           or verdict[i] is True)
     return MarkerPattern(period, verdict, [len(l) for l in pos], doubles, dbl_verdict)
 
 

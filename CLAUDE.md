@@ -217,23 +217,33 @@ alcantarillado, drenaje, gas, eléctrico, telecom). Todo en **unidades imperiale
     abandonada (regla del usuario)** = capa `-A` **Y** patrón: `GeomResult.markers`
     guarda las barras y `marker_pattern(polylines, markers)` aprende el paso
     (≥`MARKER_MIN_AGREE`=2 espaciados iguales ±15 %+3 pt; «//» a ≤`MARKER_PAIR_PT`
-    = un marcador) y juzga cada polilínea: True (marcadores a paso 1× o 2× desde
-    ≤1.5 pasos del inicio hasta ≤1.5 del final), False, None (más corta que el
+    = un marcador) y juzga cada polilínea con `_covers` (ver más abajo): True,
+    False, None (más corta que el
     paso → hereda el veredicto de la capa). `recognize_page` lo calcula sobre
     las RUTAS (joined y raw) por OCG; DU06 h.9: paso 67.7 pt, línea de 282 pt
     True + 3 stubs None → 4 (AB). Capa `-A` sin patrón → se importa activa con
     aviso; patrón en capa activa → solo aviso.
     **«//» = abandonada en CUALQUIER utilidad y capa** (regla del usuario
     2026-09-25; DU08 h.21 agua `-D`): `MarkerPattern.doubles` (mayoría de
-    marcadores de 2 barras) y `double_verdict` (solo los dobles, ≥75 % de pasos
-    a 1×/2× el periodo — `MARKER_DOUBLE_STEPS_OK` —, dobles a ≤2 pasos de cada
-    punta; sin «//» propio y corta → None = hereda la capa). La «/» simple sigue
-    exigiendo capa `-A`.
-    Pasos entre «//» MÁS CORTOS que el periodo (≥`MARKER_DOUBLE_SHORT_MIN_PT`=12, con
-    ≥3 dobles en la línea) también cuentan: AutoCAD dibuja el linetype por tramo y en
-    tramos de 26–34 pt junto a una T el «//» sale más seguido (DU08 h.21 gas `C-NGAS-D`
-    x=1253, reportado por el usuario). Foto AB de las 5 utilidades × 4 PDFs antes/después:
-    geometría idéntica, 9 líneas `-D` pasan a AB (todas con «//» propio, revisadas).
+    marcadores de 2 barras) y `double_verdict` (solo los dobles, o todos los
+    marcadores si así cubren la línea; sin «//» propio y corta → None = hereda la
+    capa). La «/» simple sigue exigiendo capa `-A`.
+    **Cobertura (`_covers`, auditoría 2026-09-28, DU08 h.26 alcantarillado `-D`
+    «—//—ss—» con «//» a 90/75/75 pt que salía activa)**: AutoCAD dibuja el linetype
+    POR SEGMENTO y lo reinicia en cada vértice, así que el paso que cruza un vértice
+    cae entre ~0 y 2 periodos y el último marcador queda a <2 periodos de la punta.
+    Una línea sigue el patrón si ≥`MARKER_STEPS_OK`=75 % de sus pasos miden entre
+    `MARKER_SHORT_MIN_PT`=12 (con «/» simple solo si hay ≥3 marcas; si no, periodo −
+    tol) y 2×(periodo + tol), y cada punta queda a ≤2 periodos + tol. Los arcos cortos
+    (`_curve_spans`: cuerdas ≤30 pt junto a un vértice `curve`) no cuentan como tramo
+    sin marcador: cada arco es su propio segmento del linetype (LABOE h.27). Paso
+    definido por la propia línea (`local`, 2 marcas): puntas a ≤1.5 periodos y sin
+    descontar arcos (DU06 h.12: dos «℄» sobre un banco de ductos). «//» suelto sin paso
+    en la capa → `MARKER_DEFAULT_PERIOD_PT`=67.7 (acometidas `-D` de un solo «//»). Foto
+    6 utilidades × 4 PDFs (`scripts/audit_abandonadas.py` + `--diff`, 5235 rutas): 64
+    líneas pasan a AB (23 `-A` con
+    «/», 41 `-D` con «//»), 0 al revés, 0 avisos nuevos, geometría idéntica. Queda 1
+    sin AB: DU08 h.35 eléctrica `-D` con 190 pt sin marcador al cruzar una bóveda.
     `Vault` trae además la geometría REAL del símbolo (`_fill_vault_geometry`: el
     path cerrado más grande del clúster → `outline` 4 esquinas con giro, `width`/
     `length` pt, `angle_deg` rumbo del lado largo, o `shape="circle"`); `recognition`
