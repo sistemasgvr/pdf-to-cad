@@ -8,6 +8,7 @@ import recognition as rec
 
 ROOT = Path(__file__).resolve().parent.parent
 PDF = ROOT / "DU06_09_UD_Drainage_20251216(SUBMITTAL SET).pdf"
+DOCS_DU08 = Path(r"C:/Users/bernu/OneDrive/Documentos/docs prueba") / "03-DU08_09_10-APDU-SEG-B-SEWER-PLAN_100P.pdf"
 
 # Hoja 3 (índice 2) tiene C-ELEC-UNGD-E abundante según inspección previa.
 ELEC_PAGE = 2
@@ -527,8 +528,98 @@ def test_doble_slash_es_abandonada_en_cualquier_capa():
     double = [g for m in extra for g in (G.Glyph(m.cx - 1.6, 0.0, 7.5), G.Glyph(m.cx + 1.6, 0.0, 7.5))]
     stub = G.Polyline([(0.0, 50.0), (30.0, 50.0)], ["end", "end"])
     mp = G.marker_pattern([pl, stub], double)
-    assert mp.verdict[0] is False                    # el juicio estricto falla por el intruso
     assert mp.doubles[0] and mp.double_verdict == [True, None] and mp.has_double_pattern
+
+
+def test_marcadores_reinicio_del_linetype_en_un_vertice():
+    """AutoCAD reinicia el linetype en cada vértice: el paso que lo cruza cae entre
+    1 y 2 periodos (DU08 h.26 alcantarillado `C-SSWR-UNGD-D`: «//» a 90, 75, 75 pt
+    con periodo 75.2; DU10 h.19 agua `-A`: «/» a 67.7 y 102.5). La línea sigue el
+    patrón; un tramo de más de 2 periodos sin marcador, no."""
+    import recognition_geom as G
+
+    def dbl(xs):
+        return [g for x in xs for g in (G.Glyph(x - 2.2, 0.0, 7.5), G.Glyph(x + 2.2, 0.0, 7.5))]
+    pl = G.Polyline([(0.0, 0.0), (319.4, 0.0)], ["cut", "stop"])
+    ref = G.Polyline([(0.0, 50.0), (600.0, 50.0)], ["end", "end"])      # paso de la capa: 75.2
+    ref_marks = [G.Glyph(x, 50.0, 7.5) for x in (40.0, 115.2, 190.4, 265.6)]
+    mp = G.marker_pattern([pl, ref], dbl((67.7, 157.7, 232.8, 308.0)) + ref_marks)
+    assert abs(mp.period - 75.2) < 0.5
+    assert mp.double_verdict[0] is True
+    # «/» simple en capa «-A» con un paso de 1.5 periodos junto a un vértice
+    line = G.Polyline([(0.0, 0.0), (700.0, 0.0)], ["cut", "cut"])
+    xs = (18.2, 85.9, 153.6, 221.3, 323.8, 391.5, 459.2, 526.9, 594.6, 662.3)
+    mp = G.marker_pattern([line], [G.Glyph(x, 0.0, 7.6) for x in xs])
+    assert mp.verdict == [True]
+    # 4 periodos sin marcador en medio de la línea: NO sigue el patrón
+    gap = G.Polyline([(0.0, 0.0), (470.0, 0.0)], ["end", "end"])
+    mp = G.marker_pattern([gap], [G.Glyph(x, 0.0, 7.6) for x in (30.0, 97.7, 165.4, 436.2)])
+    assert mp.verdict == [False]
+    # …ni una línea cuyo último marcador queda a >2 periodos de la punta
+    tail = G.Polyline([(0.0, 0.0), (400.0, 0.0)], ["end", "end"])
+    mp = G.marker_pattern([tail], [G.Glyph(x, 0.0, 7.6) for x in (30.0, 97.7, 165.4)])
+    assert mp.verdict == [False]
+
+
+def test_un_solo_doble_slash_propio_cubre_un_tramo_corto():
+    """Tramo «—e—//—e—» de 184 pt con UN «//» propio (DU10 h.21, capa `-D`): el
+    marcador queda a <2 periodos de cada punta → abandonada. El mismo «//» en una
+    línea de 600 pt no la cubre."""
+    import recognition_geom as G
+    ref = G.Polyline([(0.0, 50.0), (600.0, 50.0)], ["end", "end"])
+    ref_marks = [g for x in (30.0, 99.1, 168.2, 237.3) for g in (G.Glyph(x - 2.2, 50.0, 7.5), G.Glyph(x + 2.2, 50.0, 7.5))]
+    short = G.Polyline([(0.0, 0.0), (184.3, 0.0)], ["end", "tee"])
+    long_ = G.Polyline([(0.0, 100.0), (600.0, 100.0)], ["end", "end"])
+    one = [G.Glyph(86.1 - 2.2, 0.0, 7.5), G.Glyph(86.1 + 2.2, 0.0, 7.5),
+           G.Glyph(300.0 - 2.2, 100.0, 7.5), G.Glyph(300.0 + 2.2, 100.0, 7.5)]
+    mp = G.marker_pattern([short, long_, ref], one + ref_marks)
+    assert mp.double_verdict[:2] == [True, False]
+
+
+def test_doble_slash_suelto_sin_paso_en_la_capa():
+    """Acometida «—//—w—» de 82 pt con el único «//» de su capa en la hoja (DU06
+    h.3, `C-WATR-UNGD-D`): no hay paso que aprender, se juzga con el periodo de
+    referencia (67.7 pt). El mismo «//» en medio de 600 pt no cubre la línea, y
+    una «/» simple suelta no es patrón."""
+    import recognition_geom as G
+
+    def dbl(x, y):
+        return [G.Glyph(x - 2.2, y, 7.5), G.Glyph(x + 2.2, y, 7.5)]
+    short = G.Polyline([(0.0, 0.0), (81.6, 0.0)], ["end", "tee"])
+    long_ = G.Polyline([(0.0, 100.0), (600.0, 100.0)], ["end", "end"])
+    mp = G.marker_pattern([short, long_], dbl(12.0, 0.0) + dbl(300.0, 100.0))
+    assert mp.period is None and mp.double_verdict == [True, False]
+    mp = G.marker_pattern([short], [G.Glyph(12.0, 0.0, 7.5)])
+    assert mp.verdict == [False] and mp.double_verdict == [False]
+
+
+def test_curva_corta_sin_marcas_no_es_hueco_del_patron():
+    """«//» cada 69.1 pt y la línea termina girando por una curva sin marcas (LABOE
+    h.27 `C-ELEC-UNGD-D`): cada arco es su propio segmento del linetype y uno más
+    corto que el periodo no lleva «//». La misma cola con quiebres rectos, sí es
+    un tramo sin marcador."""
+    import recognition_geom as G
+    c = (330.0, 25.0)
+    arc = [(c[0] + 25.0 * math.cos(math.radians(a)), c[1] + 25.0 * math.sin(math.radians(a)))
+           for a in (-90, -67.5, -45, -22.5, 0)]
+    pts = [(0.0, 0.0)] + arc + [(355.0, 125.0)]
+    xs = (30.0, 99.1, 168.2, 237.3, 306.4)
+    marks = [g for x in xs for g in (G.Glyph(x - 2.2, 0.0, 7.5), G.Glyph(x + 2.2, 0.0, 7.5))]
+    curve = G.Polyline(pts, ["end", "bend", "curve", "curve", "curve", "bend", "end"])
+    straight = G.Polyline(pts, ["end", "bend", "bend", "bend", "bend", "bend", "end"])
+    assert G.marker_pattern([curve], marks).double_verdict == [True]
+    assert G.marker_pattern([straight], marks).double_verdict == [False]
+
+
+@pytest.mark.skipif(not DOCS_DU08.is_file(), reason="PDF DU08 no disponible")
+def test_du08_h26_alcantarillado_a_abandonar_con_doble_slash_es_ab():
+    """Lo reportó el usuario: `C-SSWR-UNGD-D` «—//—ss—» (y≈510, x 1188–1508) salía
+    activa porque el «//» cruza un vértice a 90 pt (periodo 75.2)."""
+    res = rec.recognize_page(DOCS_DU08, 25, utility="ALCANTARILLADO", zoom=1.0)
+    line = [p for p in res.drawable if p.layer_ocg.endswith("C-SSWR-UNGD-D")
+            and all(500 <= q[1] <= 520 for q in p.pts_pdf)
+            and max(q[0] for q in p.pts_pdf) - min(q[0] for q in p.pts_pdf) > 300]
+    assert line and all(p.abandoned for p in line)
 
 
 # ─────────────── codos: el arco es EXACTAMENTE el trazo curvo del PDF ───────────────
