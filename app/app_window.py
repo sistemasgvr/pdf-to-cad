@@ -184,9 +184,9 @@ class Main(QtWidgets.QMainWindow):
         self.chk_show_conflicts = _bind(QtGui.QAction(self), "setText", "Mostrar cruces/conflictos")
         self.chk_show_conflicts.setCheckable(True)
         try:
-            _sc_pref = QtCore.QSettings("pdf-to-cad", "app").value("show_conflicts_v2", False, type=bool)
+            _sc_pref = QtCore.QSettings("pdf-to-cad", "app").value("show_conflicts_v2", True, type=bool)
         except Exception:
-            _sc_pref = False
+            _sc_pref = True
         self.chk_show_conflicts.setChecked(bool(_sc_pref))
         _bind(self.chk_show_conflicts, "setToolTip", "Marca los puntos donde dos utilidades se cruzan geométricamente en el plano.\n"
             "  · Amarillo ⓘ: cruce sano (distinta cota, se pasan por encima/debajo).\n"
