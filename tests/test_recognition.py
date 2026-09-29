@@ -5,6 +5,7 @@ from pathlib import Path
 import pytest
 
 import recognition as rec
+import recognition_arcs as arcs_mod
 
 ROOT = Path(__file__).resolve().parent.parent
 PDF = ROOT / "DU06_09_UD_Drainage_20251216(SUBMITTAL SET).pdf"
@@ -721,6 +722,13 @@ def _audit_fillets(page_index, n_expected, strict_tangents):
                       for a, b in zip(st, st[1:])
                       for k in range(9)
                       for q in ((a[0] + (b[0] - a[0]) * k / 8, a[1] + (b[1] - a[1]) * k / 8),)]
+        # …o tramos de ARCO APLANADO del trazo (cuerdas parecidas que giran siempre al
+        # mismo lado): una curva muy abierta (r≈560 pt) no llega a 0.5 pt de flecha por
+        # guión, pero sus vértices están sobre el círculo (2.ª pasada, recognition_arcs)
+        curved_pts += [q for pc in arcs_mod.arc_pieces(strokes, 1.0)[0] if pc.r >= 4.0
+                       for a, b in zip(pc.pts, pc.pts[1:])
+                       for k in range(9)
+                       for q in ((a[0] + (b[0] - a[0]) * k / 8, a[1] + (b[1] - a[1]) * k / 8),)]
         hit = 0
         for k in range(37):
             ang = a0 + sweep * k / 36
@@ -734,7 +742,10 @@ def _audit_fillets(page_index, n_expected, strict_tangents):
         cx, cy = f["center"]; r = f["r_px"]
         a0 = math.atan2(f["a"][1] - cy, f["a"][0] - cx); a1 = math.atan2(f["b"][1] - cy, f["b"][0] - cx)
         sweep = (a1 - a0 + 3 * math.pi) % (2 * math.pi) - math.pi
-        assert abs(math.degrees(sweep)) >= 8
+        # (curvas muy abiertas: la 2.ª pasada acepta desde INK_MIN_TURN_DEG=3°; el
+        #  editor y el plugin dibujan el arco desde 2°)
+        import recognition_arc_plan
+        assert abs(math.degrees(sweep)) >= min(rec.FILLET_MIN_TURN_DEG, recognition_arc_plan.INK_MIN_TURN_DEG)
         dev = []
         for k in range(41):
             ang = a0 + sweep * k / 40
@@ -803,7 +814,7 @@ def test_hoja4_arcos_de_codo_caen_sobre_los_trazos_curvos_del_pdf():
     de ellos aproximados (la curva del plano es una polilínea «a mano», ≤3 pt):
     tangentes EXACTAS sobre los guiones. Antes: el empalme run↔curva torcía la
     tangente 4.75° y dejaba la esquina 3.7 pt fuera (lo vio el usuario)."""
-    _audit_fillets(3, 8, strict_tangents=True)
+    _audit_fillets(3, 9, strict_tangents=True)
 
 
 @pytest.mark.skipif(not PDF.is_file(), reason="PDF de prueba DU06 no está en el repo")
@@ -817,7 +828,7 @@ def test_hoja3_arcos_de_curva_compuesta_sobre_la_tinta():
     asta como parte de la letra (ver `GLYPH_STROKE_MIN_REPEAT`), esos guiones
     sueltos rompían la topología cerca de (908,1123) y tapaban un codo real
     (arco sobre tinta curva verificada, r≈77 pt) — quedaba como esquina."""
-    _audit_fillets(2, 7, strict_tangents=False)
+    _audit_fillets(2, 12, strict_tangents=False)
 
 
 @pytest.mark.skipif(not PDF.is_file(), reason="PDF de prueba DU06 no está en el repo")
@@ -839,7 +850,7 @@ def test_hoja3_codos_no_dependen_del_zoom_de_reconocimiento():
 
     at_one = fillets_at(1.0)
     at_two = fillets_at(2.0)
-    assert len(at_one) == len(at_two) == 7
+    assert len(at_one) == len(at_two) == 12
     for expected, actual in zip(at_one, at_two):
         assert actual == pytest.approx(expected, abs=0.05)
 

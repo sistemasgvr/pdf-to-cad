@@ -65,9 +65,13 @@ def test_telecom_de_pdf_a_dxf(win, tmp_path):
     assert len(new) == len(res.drawable)
     assert all(("TELE" in str(p.get("xdata")) or "COMM" in str(p.get("xdata"))) for p in new)
     # red de CONDUCTOS (como el eléctrico): caja solo en la bóveda real, con sus medidas
-    cajas = [s for s in win.structures if s.get("net") == "conduit"]
+    cajas = [s for s in win.structures if s.get("net") == "conduit" and not s.get("curve")]
     assert cajas and all(str(s.get("cod", "")).startswith("CAJA-") for s in cajas)
     assert any(s.get("width_ft") and s.get("length_ft") for s in cajas)
+    # las esquinas redondeadas del banco de ductos «—SC—» (r≈15 pt) entran como codo CV
+    # con su radio (2.ª pasada de codos, desde la tinta)
+    codos = [s for s in win.structures if s.get("net") == "conduit" and s.get("curve")]
+    assert all(str(s.get("cod", "")).startswith("CV-") and s.get("radius_ft") for s in codos)
 
     import config as C
     doc = ezdxf.new("R2010", setup=True)

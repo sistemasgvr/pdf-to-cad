@@ -162,7 +162,13 @@ width, are the view options (such as <b>Opacity</b>) and the <span class="btn">C
     pipes; <span class="btn">Cancel</span> leaves the editor empty.</li>
 <li><b>Abandoned</b> lines are imported marked <b>(AB)</b>: those on the «-A» layer with «/»
     marks, and any line with double «//» marks.</li>
-<li>Curved <b>bends</b> on the plan are imported with their real radius.</li>
+<li>Curved <b>bends</b> on the plan are imported with their real radius, including very open
+    curves, small rounded corners and a curve that leaves another line or ends loose.
+    A <b>dashed</b> bend is approximate (on the plan it is not an exact arc): check it.</li>
+<li>Each line <b>ends where its ink ends</b>: if on the plan it stops in mid-air it is not joined
+    to the neighboring line. If it stops at its letter (or at a gap) right before the edge of the
+    view, it reaches the plan's <b>cut</b>; on a composite sheet, lines that cross the seam still
+    run from one piece to the other.</li>
 <li><b>Water</b> and <b>gas</b> come in without boxes (they are pressure networks). <b>Sewer</b>
     and storm drain come in with their manholes; electrical and <b>telecom</b>, with a box only
     where the plan has a vault.</li>

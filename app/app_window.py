@@ -5404,24 +5404,17 @@ class Main(QtWidgets.QMainWindow):
         if sx is None or sy is None: return None
         p = self._pipe_at_vertex(sx, sy)
         if p is None or not p.get("pts") or len(p["pts"]) < 3: return None
-        # Índice del vértice de la tubería que corresponde a esta curva
-        tol2 = 14.0 ** 2
-        vi = None
-        for i, (vx, vy) in enumerate(p["pts"]):
-            if (vx - sx) ** 2 + (vy - sy) ** 2 <= tol2:
-                vi = i; break
+        # Índice del vértice de la tubería que corresponde a esta curva (el más cercano)
+        vi = model_ops.nearest_vertex(p["pts"], sx, sy, 14.0)
         if vi is None or vi <= 0 or vi >= len(p["pts"]) - 1:
             return None
         # Detectar si los vecinos vi-1 y vi+1 también son vértices curvos
-        # (misma tubería). Usa la misma tolerancia que _no_manhole_vertex_indices.
+        # (misma tubería). Mismo criterio que _no_manhole_vertex_indices: cada
+        # estructura curva es de UN vértice (el más cercano).
+        cv = model_ops.curve_vertex_indices(p, self.structures, self.pipes)
+
         def es_curva_en(idx_v):
-            vx, vy = p["pts"][idx_v]
-            for o in self.structures:
-                if not o.get("curve") or o.get("world"): continue
-                ox, oy = o.get("x"), o.get("y")
-                if ox is None or oy is None: continue
-                if (ox - vx) ** 2 + (oy - vy) ** 2 <= tol2: return True
-            return False
+            return idx_v in cv
         cap_prev = model_ops.FILLET_CAP_CURVA if es_curva_en(vi - 1) else model_ops.FILLET_CAP_RECTA
         cap_next = model_ops.FILLET_CAP_CURVA if es_curva_en(vi + 1) else model_ops.FILLET_CAP_RECTA
         # Distancias en pies (usar _to_cad para convertir de píxeles a CAD ft).
@@ -5449,19 +5442,22 @@ class Main(QtWidgets.QMainWindow):
 
     # ───────────────────── arcos reales por vértice curvo ─────────────────────
     def _structure_curve_at(self, x, y, tol_px=14.0):
-        """Devuelve la estructura con curve=True cuyo (x,y) coincide con el punto
-        dado dentro de tolerancia (misma que usa el exportador DXF). Sirve para
-        el hit-test en el lienzo y para dibujar el arco real del pipe."""
-        tol2 = tol_px * tol_px
+        """Devuelve la estructura con curve=True MÁS CERCANA al punto dado dentro de
+        tolerancia (misma que usa el exportador DXF). Sirve para el hit-test en el
+        lienzo y para dibujar el arco real del pipe. La más cercana, no la primera:
+        dos codos reconocidos pueden quedar a menos de la tolerancia (DU08 h.26) y
+        una curva se dibujaba con el radio y la esquina de la otra."""
+        best, bd = None, tol_px * tol_px
         for s in self.structures:
             if not s.get("curve") or s.get("world"): continue
             sx, sy = s.get("x"), s.get("y")
             if sx is None or sy is None: continue
-            if (sx - x) ** 2 + (sy - y) ** 2 <= tol2:
-                return s
-        return None
+            d = (sx - x) ** 2 + (sy - y) ** 2
+            if d <= bd:
+                best, bd = s, d
+        return best
 
-    def _curve_arc_info(self, s, pipe):
+    def _curve_arc_info(self, s, pipe, cv=None):
         """Geometría del arco real de una curva sobre su pipe. Delega el cálculo
         base (tangencias, centro, discretización, radio efectivo) al helper
         puro `model_ops.fillet_geo` — mismo criterio que el plugin C#. Encima
@@ -5480,13 +5476,16 @@ class Main(QtWidgets.QMainWindow):
         if sx is None or sy is None: return None
         pts = (pipe or {}).get("pts") or []
         if len(pts) < 3: return None
-        tol2 = 14.0 ** 2
-        vi = None
-        for j, (vx, vy) in enumerate(pts):
-            if (vx - sx) ** 2 + (vy - sy) ** 2 <= tol2:
-                vi = j; break
+        # Vértice DUEÑO de esta estructura curva (el más cercano entre todas las
+        # tuberías): así una CV vecina (a < 14 px) no se toma por la de este vértice.
+        if cv is None:
+            cv = model_ops.curve_vertex_indices(pipe, self.structures, self.pipes)
+        vi = next((i for i, o in cv.items() if o is s), None)
         if vi is None or vi <= 0 or vi >= len(pts) - 1:
             return None
+        # La esquina es el VÉRTICE de la tubería (la estructura CV está sobre él; si
+        # quedó un poco corrida, el arco igual sale de la polilínea real).
+        sx, sy = pts[vi]
         if not self.scale or self.scale <= 1e-6: return None
         # Radio en pies: explícito o auto = 6 × diámetro interior.
         r_ft = float(s.get("radius_ft") or 0.0)
@@ -5500,8 +5499,8 @@ class Main(QtWidgets.QMainWindow):
         # Cap por vecino curvo — mismo criterio del plugin.
         px_prev, py_prev = pts[vi - 1]
         px_next, py_next = pts[vi + 1]
-        cap_prev = model_ops.FILLET_CAP_CURVA if self._structure_curve_at(px_prev, py_prev) else model_ops.FILLET_CAP_RECTA
-        cap_next = model_ops.FILLET_CAP_CURVA if self._structure_curve_at(px_next, py_next) else model_ops.FILLET_CAP_RECTA
+        cap_prev = model_ops.FILLET_CAP_CURVA if (vi - 1) in cv else model_ops.FILLET_CAP_RECTA
+        cap_next = model_ops.FILLET_CAP_CURVA if (vi + 1) in cv else model_ops.FILLET_CAP_RECTA
         # Tope POR LADO, igual que el plugin y que _curve_max_radius_ft.
         geo = model_ops.fillet_geo((px_prev, py_prev), (sx, sy), (px_next, py_next),
                                     r_px, max_frac=cap_prev, max_frac_next=cap_next,
@@ -5529,11 +5528,12 @@ class Main(QtWidgets.QMainWindow):
         pts = (pipe or {}).get("pts") or []
         n = len(pts)
         if n < 2: return list(pts)
+        cv = model_ops.curve_vertex_indices(pipe, self.structures, self.pipes) if n >= 3 else {}
         out = [pts[0]]
         for j in range(1, n):
             if 0 < j < n - 1:
-                s = self._structure_curve_at(*pts[j])
-                info = self._curve_arc_info(s, pipe) if s is not None else None
+                s = cv.get(j)
+                info = self._curve_arc_info(s, pipe, cv) if s is not None else None
                 if info is not None:
                     out.extend(self._arc_polyline(info, n_per_90=24))
                     continue

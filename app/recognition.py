@@ -29,6 +29,9 @@ if str(_ROOT) not in sys.path:
 
 import vector_pipeline as VP
 import recognition_geom as geom
+import recognition_arcs as arcs_mod
+import recognition_arc_plan as arc_plan
+import recognition_ends as ends_mod
 import routes as routes_mod
 from sheet_crops import page_rect as crop_page_rect, drawing_polygon
 from i18n_core import t as _tr, N_   # avisos de QA en el idioma activo
@@ -837,6 +840,10 @@ def gather_paths(page, kind_for, hidden=(), crop_polygon=None, stats: Optional[d
             path = geom.clip_path(path, [crop_polygon])
             if path is None:
                 continue
+        if path.get("clipped"):
+            # recortes que valen para este trazo: una línea que termina en una letra
+            # justo antes del borde de la vista se lleva hasta él (`recognition_ends`)
+            path["clip_polys"] = [tuple(map(tuple, pg)) for pg in polys + ([crop_polygon] if crop_polygon else [])]
         if path.get("clipped") and _path_length(path) < CLIP_SLIVER_PT:
             continue        # astilla que dejó el recorte (p.ej. 0.9 pt de un guión): no es geometría
         if regions and _region_hit(geom._path_bbox(path), regions):
@@ -1056,18 +1063,20 @@ def recognize_page(
         n_to_abandon = 0                # …de ellas, en capa «-D» (leyenda: existente a abandonar «//»)
         n_double_active = 0             # «//» fuera de capa «-A»: se importan ABANDONADAS
 
-        def _through_dirs(polys):
+        def _through_dirs(polys, end_kinds=("tee", "junction"), tol=1.0):
             """{(x, y) px redondeado: dirección unitaria} de la línea que PASA por
             el tee/junction final de otra polilínea: el tramo de otra polilínea
-            que contiene el punto (interior, ≤1 px) o el vértice cuyos dos tramos
-            son colineales (≤ FILLET_DIR_DEG)."""
+            que contiene el punto (interior, ≤ `tol` px) o el vértice cuyos dos
+            tramos son colineales (≤ FILLET_DIR_DEG). La 2.ª pasada de codos (tinta)
+            lo pide también para extremos `end`: un ramal que sale TANGENTE a otra
+            línea suele quedar como extremo libre apoyado en ella."""
             out = {}
             ends = []
             for i, pl in enumerate(polys):
                 if len(pl.pts) < 2:
                     continue
                 for j in (0, len(pl.pts) - 1):
-                    if pl.kinds[j] in ("tee", "junction"):
+                    if pl.kinds[j] in end_kinds:
                         ends.append((i, px(pl.pts[j])))
             if not ends:
                 return out
@@ -1087,14 +1096,14 @@ def recognize_page(
                         t = (q[0] - a[0]) * ux + (q[1] - a[1]) * uy
                         # solo por el INTERIOR del tramo: un ramal que muere en el mismo
                         # punto no es la línea que pasa
-                        if 1.0 < t < L - 1.0 and abs((q[0] - a[0]) * uy - (q[1] - a[1]) * ux) <= 1.0:
+                        if 1.0 < t < L - 1.0 and abs((q[0] - a[0]) * uy - (q[1] - a[1]) * ux) <= tol:
                             out[key] = (ux, uy); break
                     if key in out:
                         break
                     # …o un vértice de la otra polilínea cuyos dos tramos siguen de largo
                     # (colineales ≤ FILLET_DIR_DEG): la línea pasa por ahí con un vértice
                     for m in range(1, len(opts) - 1):
-                        if math.dist(opts[m], q) > 1.0:
+                        if math.dist(opts[m], q) > tol:
                             continue
                         u1 = _unit(opts[m][0] - opts[m - 1][0], opts[m][1] - opts[m - 1][1])
                         u2 = _unit(opts[m + 1][0] - opts[m][0], opts[m + 1][1] - opts[m][1])
@@ -1127,7 +1136,8 @@ def recognize_page(
             pieces.append(geom.Polyline(pts[start:], kinds[start:]))
             return pieces
 
-        def _emit(pl, ocg, ab, route_id, n_segments, through=None, ink=None, strokes=None):
+        def _emit(pl, ocg, ab, route_id, n_segments, through=None, ink=None, strokes=None,
+                  arcs=None, ink_lines=None, through_ink=None, cut_ctx=None):
             pts = [px(p) for p in pl.pts]
             clean, kinds = [], []
             for p, k in zip(pts, pl.kinds):
@@ -1136,14 +1146,29 @@ def recognize_page(
             if len(clean) < 2:
                 return None
             clean, kinds, fillets = fit_fillets(clean, kinds, tol_px=FILLET_FIT_TOL_PT * zoom,
-                                                through_dirs=through, ink=ink, strokes=strokes)
+                                                through_dirs=through, ink=ink, strokes=strokes,
+                                                arcs=arcs, ink_lines=ink_lines, through_ink=through_ink)
+            if cut_ctx is not None:
+                # extremo que muere en una letra/hueco del linetype justo antes del borde
+                # de la vista: la línea termina en el CORTE (por la recta del codo)
+                clip_px, glyphs_px, pattern_, siblings, ink_ix = cut_ctx
+                clean, kinds = ends_mod.extend_to_cut(
+                    clean, kinds, clip_px, glyphs_px, pattern_,
+                    lambda: [(px(a), px(b)) for o in siblings if o is not pl for a, b in zip(o.pts, o.pts[1:])],
+                    scale=zoom, ink=ink_ix)
             return RecognizedPolyline(
                 ocg, utility, clean, line_kind, kinds, abandoned=ab,
                 route_id=route_id, n_segments=n_segments, fillets=fillets)
 
         for ab_layer, ocg, g in results:
-            joined = routes_mod.build_routes(g.polylines, g.pattern)
-            raw = [routes_mod.Route(pl, 1, [i]) for i, pl in enumerate(g.polylines)]
+            # una línea que llega a otra por un tramo SIN tinta propia más largo que el
+            # hueco del linetype no llega ahí (el núcleo prolongó su extremo)
+            ink_pdf = [(a, b) for st in ink_strokes(by_ocg.get(ocg, []), lambda q: (q[0], q[1]))
+                       for a, b in zip(st, st[1:])]
+            g_polys = ends_mod.trim_inkless_tails(g.polylines, ink_pdf, g.pattern, getattr(g, "glyphs", ()),
+                                                  geom.Polyline)
+            joined = routes_mod.build_routes(g_polys, g.pattern)
+            raw = [routes_mod.Route(pl, 1, [i]) for i, pl in enumerate(g_polys)]
             joined = [routes_mod.Route(p, r.n_segments if k == 0 else 0, r.members)
                       for r in joined for k, p in enumerate(_split_sharp(r.pl))]
             raw = [routes_mod.Route(p, 1, r.members) for r in raw for p in _split_sharp(r.pl)]
@@ -1179,10 +1204,32 @@ def recognize_page(
             ink_step_px = 1.5 * zoom
             ink_j = [ink_samples(v, step_pt=ink_step_px) for v in st_j]
             ink_r = [ink_samples(v, step_pt=ink_step_px) for v in st_r]
+            # 2.ª pasada de codos: arcos aplanados de la tinta (y sus rectas), cada
+            # trozo a la polilínea sobre la que corre; y la línea que pasa por un
+            # extremo libre (ramal tangente a otra línea).
+            gboxes = []
+            for gl in getattr(g, "glyphs", ()):                # letras/marcas: su tinta no es arco
+                h = gl.size / 2.0
+                cs = [px((gl.cx + sx * h, gl.cy + sy * h)) for sx in (-1, 1) for sy in (-1, 1)]
+                gboxes.append((min(c[0] for c in cs), min(c[1] for c in cs),
+                               max(c[0] for c in cs), max(c[1] for c in cs)))
+            pcs, sls = arcs_mod.arc_pieces(st_all, zoom, gboxes)
+            arcs_j, lines_j = arcs_mod.assign_to_polylines(pcs, sls, [[px(p) for p in r.pl.pts] for r in joined], zoom)
+            arcs_r, lines_r = arcs_mod.assign_to_polylines(pcs, sls, [[px(p) for p in r.pl.pts] for r in raw], zoom)
+            thr_ink_j = _through_dirs([r.pl for r in joined], ("tee", "junction", "end"), 0.5 * zoom)
+            thr_ink_r = _through_dirs([r.pl for r in raw], ("tee", "junction", "end"), 0.5 * zoom)
+            # recortes de esta capa (borde de la vista, pieza de la hoja compuesta)
+            clip_polys = sorted({pg for pth in by_ocg.get(ocg, []) for pg in (pth.get("clip_polys") or ())})
+            clip_px = [[px(q) for q in pg] for pg in clip_polys]
+            glyphs_px = [(*px((gl.cx, gl.cy)), gl.size * zoom) for gl in getattr(g, "glyphs", ())]
+            ink_ix = ends_mod.ink_index([(a, b) for st in st_all for a, b in zip(st, st[1:])], zoom) if clip_polys else None
+            cut_j = (clip_px, glyphs_px, g.pattern, [r.pl for r in joined], ink_ix) if clip_polys else None
+            cut_r = (clip_px, glyphs_px, g.pattern, [r.pl for r in raw], ink_ix) if clip_polys else None
             for rid, r in enumerate(joined):
                 v = mp_joined.verdict[rid]
                 ab = _ab(v, _dbl(mp_joined, rid))
-                rec_pl = _emit(r.pl, ocg, ab, rid, r.n_segments, through_j, ink_j[rid], st_j[rid])
+                rec_pl = _emit(r.pl, ocg, ab, rid, r.n_segments, through_j, ink_j[rid], st_j[rid],
+                               arcs_j[rid], lines_j[rid], thr_ink_j, cut_j)
                 if rec_pl is not None:
                     polylines_joined.append(rec_pl)
                     n_routes += 1
@@ -1202,7 +1249,7 @@ def recognize_page(
                             rec_pl.review = "marker_active"
             for rid, r in enumerate(raw):
                 rec_pl = _emit(r.pl, ocg, _ab(mp_raw.verdict[rid], _dbl(mp_raw, rid)), rid, 1,
-                               through_r, ink_r[rid], st_r[rid])
+                               through_r, ink_r[rid], st_r[rid], arcs_r[rid], lines_r[rid], thr_ink_r, cut_r)
                 if rec_pl is not None:
                     polylines_raw.append(rec_pl)
             uncovered_px += [(px(d.a), px(d.b)) for d in g.uncovered]
@@ -1766,7 +1813,7 @@ def _fit_circle_tangent(members, C, ua, ub, s0):
 
 
 def fit_fillets(pts, kinds, tol_px: float = 1.0, tan_tol: float = None, debug=None, through_dirs=None,
-                ink=None, strokes=None):
+                ink=None, strokes=None, arcs=None, ink_lines=None, through_ink=None):
     """Sustituye cada codo por su esquina C (intersección de las rectas que
     llegan y salen) con kind «fillet», y guarda A/B (puntos de tangencia),
     centro y radio. Nada se inventa: el arco es EXACTAMENTE un trazo curvo del
@@ -1780,10 +1827,21 @@ def fit_fillets(pts, kinds, tol_px: float = 1.0, tan_tol: float = None, debug=No
     de la línea que PASA por ese tee/junction}: un arco que muere en un tee
     (ramal que entra tangente a la línea principal) se cierra con la recta de
     esa línea y el punto de tangencia FIJO en el tee (no se mueve el vértice:
-    el radio sale de T = |C·tee|). Devuelve (pts, kinds, fillets)."""
+    el radio sale de T = |C·tee|).
+
+    2.ª pasada (`arcs` = trozos de arco de la tinta de ESTA polilínea, ver
+    `recognition_arcs`; `ink_lines` = sus segmentos de tinta recta; `through_ink`
+    = línea que pasa por un extremo, también `end`): donde quedó tinta curva sin
+    codo —curva abierta que el núcleo dejó en 1–2 vértices o en `bend`, curva que
+    nace en otra línea o muere en un extremo libre, esquina redondeada chica—,
+    el arco sale de la tinta y se ajusta igual (tangente a las rectas o muriendo
+    en el nodo). Lo que ya puso la 1.ª pasada no cambia. Un vértice `curve` sin
+    tinta curva cerca se reetiqueta esquina/quiebre. Devuelve (pts, kinds, fillets)."""
     pts = list(pts); kinds = list(kinds)
     n = len(pts)
-    if n < 4:
+    if n < 2 or (n < 4 and not arcs):
+        if arcs is not None:
+            kinds = arcs_mod.relabel_false_curves(pts, kinds, arcs, tol_px / FILLET_FIT_TOL_PT)
         return pts, kinds, {}
     slip = FILLET_TANGENT_SLIP_PX * (tol_px / FILLET_FIT_TOL_PT)
     f_px = tol_px / FILLET_FIT_TOL_PT                     # px por pt
@@ -1996,7 +2054,7 @@ def fit_fillets(pts, kinds, tol_px: float = 1.0, tan_tol: float = None, debug=No
     plan = []                                   # (lo, hi, C, A, B, centro, R, ia, ib, fijoA, fijoB, loose, dev)
     chord_min = FILLET_CHORD_LEG_MIN_PT * (tol_px / FILLET_FIT_TOL_PT)
     loose_tol = FILLET_LOOSE_TOL_PT * (tol_px / FILLET_FIT_TOL_PT)
-    queue = [(lo, hi, tol_px) for lo, hi in _arc_spans(kinds, pts, chord_min)]
+    queue = [(lo, hi, tol_px) for lo, hi in _arc_spans(kinds, pts, chord_min)] if n >= 4 else []
     used = set()
     while queue:
         lo, hi, tol_use = queue.pop(0)
@@ -2061,8 +2119,6 @@ def fit_fillets(pts, kinds, tol_px: float = 1.0, tan_tol: float = None, debug=No
             # curvo por su cuenta (dos codos con una recta corta entre medio); y
             # si nada cierra con la tolerancia exacta, el intento aproximado.
             queue.extend(subs + retry)
-    if not plan:
-        return pts, kinds, {}
     out_pts, out_kinds, fillets = [], [], {}
     # Los `bend` de empalme que quedaron DENTRO de la recta (ia < lo-1 o ib > hi+1)
     # se absorben: la recta ya pasa por el vértice anterior/siguiente.
@@ -2090,6 +2146,28 @@ def fit_fillets(pts, kinds, tol_px: float = 1.0, tan_tol: float = None, debug=No
                 continue
         ok.append(e)
     plan = ok
+    ink_moves = {}
+    if arcs:
+        # 2.ª pasada: arcos de la TINTA que la 1.ª no cubrió (sin tocar sus vértices)
+        groups = arcs_mod.group_arcs(arcs, pts, f_px)
+
+        def _explained(g):
+            """¿Un codo de la 1.ª pasada ya dibuja este arco? (tinta sobre su círculo)"""
+            for e in plan:
+                (cx, cy), r = e[5], e[6]
+                if sum(1 for q in g.pts if abs(math.hypot(q[0] - cx, q[1] - cy) - r) <= 1.5 * f_px) >= 0.5 * len(g.pts):
+                    return True
+            return False
+        groups = [g for g in groups if not _explained(g)]
+        if groups:
+            extra, ink_moves = arc_plan.ink_fillet_plan(pts, kinds, groups, ink_lines or [],
+                                                        [(e[7], e[8], e[2], e[3], e[4]) for e in plan],
+                                                        through_ink or through_dirs, f_px, debug)
+            plan = sorted(plan + extra, key=lambda e: e[0])
+    if not plan:
+        if arcs is not None:
+            kinds = arcs_mod.relabel_false_curves(pts, kinds, arcs, f_px)
+        return pts, kinds, {}
     skip = set()
     for e in plan:
         lo, hi, ia, ib = e[0], e[1], e[7], e[8]
@@ -2118,6 +2196,7 @@ def fit_fillets(pts, kinds, tol_px: float = 1.0, tan_tol: float = None, debug=No
             repl[ia] = _leg_vertex(C, A, pts[ia], True)
         if frb:
             repl[ib] = _leg_vertex(C, B, pts[ib], True)
+    repl.update(ink_moves)          # anclas de la 2.ª pasada, sobre su recta de tinta
     k = 0; q = 0
     while k < n:
         if q < len(plan) and k == plan[q][0]:
@@ -2142,6 +2221,10 @@ def fit_fillets(pts, kinds, tol_px: float = 1.0, tan_tol: float = None, debug=No
         if k not in skip:
             _push(repl.get(k, pts[k]), kinds[k])
         k += 1
+    if arcs is not None:
+        out_kinds = arcs_mod.relabel_false_curves(out_pts, out_kinds, arcs, f_px,
+                                                  [(e[5], e[6]) for e in plan])
+        arcs_mod.fit_to_editor(out_pts, out_kinds, fillets, f_px)   # editor = plugin = esto
     return out_pts, out_kinds, fillets
 
 

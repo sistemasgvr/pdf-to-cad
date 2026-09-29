@@ -21,16 +21,60 @@ _TOL = 14.0   # tolerancia de coincidencia de coordenadas (px), compartida por a
 
 
 def pipe_at_vertex(pipes, x, y, tol=14.0):
-    """Tubería (dict, no 'world') cuyo pts tiene un vértice a distancia <= tol
-    de (x,y), o None. La familia/tamaño de un elemento curvo se hereda de esta
-    tubería — nunca se elige aparte, para que la curva calce con los tramos rectos."""
-    tol2 = tol * tol
+    """Tubería (dict, no 'world') con el vértice MÁS CERCANO a (x,y) a distancia
+    <= tol, o None. La familia/tamaño de un elemento curvo se hereda de esta
+    tubería — nunca se elige aparte, para que la curva calce con los tramos rectos.
+    El más cercano, no el primero: dos codos reconocidos pueden quedar a menos de
+    tol (DU08 h.26: dos curvas eléctricas que salen de la misma recta, esquinas a
+    3.8 pt = 13 px) y la curva de una se dibujaba con la tubería de la otra."""
+    best, bd = None, tol * tol
     for p in pipes:
         if p.get("world") or not p.get("pts"): continue
         for (vx, vy) in p["pts"]:
-            if (vx - x) ** 2 + (vy - y) ** 2 <= tol2:
-                return p
-    return None
+            d = (vx - x) ** 2 + (vy - y) ** 2
+            if d <= bd:
+                best, bd = p, d
+    return best
+
+
+def nearest_vertex(pts, x, y, tol=14.0):
+    """Índice del vértice de `pts` más cercano a (x,y) a distancia <= tol, o None."""
+    best, bd = None, tol * tol
+    for i, (vx, vy) in enumerate(pts or []):
+        d = (vx - x) ** 2 + (vy - y) ** 2
+        if d <= bd:
+            best, bd = i, d
+    return best
+
+
+def curve_vertex_indices(pipe, structures, pipes=(), tol=14.0):
+    """{índice de vértice: estructura CV} de los vértices de `pipe` que SON codo.
+    Cada estructura curva pertenece a UN solo vértice: el más cercano (a ≤ tol)
+    entre todas las tuberías (`pipes`). Antes bastaba con que hubiera una CV a ≤14 px:
+    con codos reconocidos juntos (DU08 h.26: el ancla de un codo a 13.6 px de su propia
+    esquina, dos esquinas de curvas distintas a 13 px) el editor tomaba por curvo un
+    vértice recto (tope 0.48 → radio recortado) y el DXF lo mandaba al plugin como
+    vértice sin buzón (curva de radio automático donde el plano no tiene ninguna)."""
+    pts = pipe.get("pts") or []
+    out = {}
+    for s in structures or ():
+        if not s.get("curve") or s.get("world"):
+            continue
+        sx, sy = s.get("x"), s.get("y")
+        if sx is None or sy is None:
+            continue
+        i = nearest_vertex(pts, sx, sy, tol)
+        if i is None:
+            continue
+        d = (pts[i][0] - sx) ** 2 + (pts[i][1] - sy) ** 2
+        if any(o is not pipe and not o.get("world")
+               and any((vx - sx) ** 2 + (vy - sy) ** 2 < d for vx, vy in (o.get("pts") or ()))
+               for o in pipes or ()):
+            continue                                 # es el codo de OTRA tubería (más cerca)
+        prev = out.get(i)
+        if prev is None or (prev["x"] - pts[i][0]) ** 2 + (prev["y"] - pts[i][1]) ** 2 > d:
+            out[i] = s
+    return out
 
 
 def leader_geo(ld, px_for_ft):

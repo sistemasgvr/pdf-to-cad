@@ -162,7 +162,13 @@ ancho, están las opciones de la vista (como <b>Opacidad</b>) y los botones
     <span class="btn">Cancelar</span> deja el editor vacío.</li>
 <li>Las líneas <b>abandonadas</b> se importan marcadas como <b>(AB)</b>: las de la capa «-A»
     con marcas «/», y cualquier línea con marcas dobles «//».</li>
-<li>Los <b>codos</b> curvos del plano se importan con su radio real.</li>
+<li>Los <b>codos</b> curvos del plano se importan con su radio real, también las curvas muy
+    abiertas, las esquinas redondeadas chicas y la curva que sale de otra línea o termina suelta.
+    Un codo <b>a trazos</b> es aproximado (en el plano no es un arco exacto): conviene revisarlo.</li>
+<li>Cada línea <b>termina donde termina su tinta</b>: si en el plano muere en el aire no se une a
+    la línea vecina. Si muere en su letra (o en un hueco) justo antes del borde de la vista, llega
+    hasta el <b>corte</b> del plano; en la hoja compuesta, las que cruzan la unión siguen de una
+    pieza a la otra.</li>
 <li>El <b>agua</b> y el <b>gas</b> entran sin cajas (van a presión). El <b>alcantarillado</b> y el
     drenaje entran con sus buzones; eléctrico y <b>telecomunicaciones</b>, con caja solo donde el
     plano tiene una bóveda.</li>

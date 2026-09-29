@@ -51,15 +51,11 @@ def _no_manhole_vertex_indices(win, p):
     importador cae al buzón por defecto porque no hay PDFCAD_STRUCT que matchee."""
     curves = [s for s in getattr(win, "structures", None) or [] if s.get("curve") and not s.get("world")]
     if not curves: return []
-    tol2 = 14.0 ** 2
-    out = []
-    for i, (px, py) in enumerate(p["pts"]):
-        for s in curves:
-            sx, sy = s.get("x"), s.get("y")
-            if sx is None or sy is None: continue
-            if (sx - px) ** 2 + (sy - py) ** 2 <= tol2:
-                out.append(i); break
-    return out
+    # Cada estructura curva es de UN vértice: el más cercano entre todas las tuberías
+    # (antes, cualquier vértice a ≤14 px de una CV; con codos reconocidos juntos el
+    # ancla recta de un codo salía como vértice curvo y el plugin le ponía una curva).
+    import model_ops
+    return sorted(model_ops.curve_vertex_indices(p, curves, getattr(win, "pipes", None) or ()))
 
 
 def _pipe_at_point(win, x, y, tol=14.0):

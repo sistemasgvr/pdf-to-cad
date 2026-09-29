@@ -384,6 +384,9 @@ class GeomResult:
     # Barras «/» que cruzan la línea (linetype abandonado), ya quitadas de los
     # guiones; `marker_pattern` decide con ellas si una línea SIGUE ese patrón.
     markers: List[Glyph] = field(default_factory=list)
+    # Todas las letras/marcas del linetype (incluye `markers`). Solo salida: la 2.ª
+    # pasada de codos (`recognition_arcs`) no toma su tinta curva por un arco.
+    glyphs: List[Glyph] = field(default_factory=list)
 
 
 @dataclass
@@ -3181,7 +3184,7 @@ def reconstruct(line_paths: Sequence[dict], vault_paths: Sequence[dict] = (),
     vaults = cluster_vaults(vault_paths, opts.separate_vaults, opts.polygon_circles)
     if not dashes and not curves:
         return GeomResult([], [], vaults, None, 1.0, [], list(range(len(vaults))), [],
-                          0, len(glyphs), 0, 0, markers=list(markers))
+                          0, len(glyphs), 0, 0, markers=list(markers), glyphs=list(glyphs))
     groups = group_collinear(dashes)
     pat = learn_pattern(dashes, glyphs, vaults, groups)
     runs = merge_overlapping_runs(build_runs(groups, pat, glyphs, vaults, curves,
@@ -3267,4 +3270,5 @@ def reconstruct(line_paths: Sequence[dict], vault_paths: Sequence[dict] = (),
         keep.extend(extra)
         cov, missing = coverage(pattern_dashes, keep)
     return GeomResult(keep, nodes, vaults, pat, cov, missing, orphans, offpattern,
-                      len(dashes), len(glyphs), len(curves), noise, markers=list(markers))
+                      len(dashes), len(glyphs), len(curves), noise, markers=list(markers),
+                      glyphs=list(glyphs))

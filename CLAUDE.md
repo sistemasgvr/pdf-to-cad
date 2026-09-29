@@ -125,6 +125,83 @@ alcantarillado, drenaje, gas, eléctrico, telecom). Todo en **unidades imperiale
     importa como CAJA suelta `standalone=True` — `attach_vault_geometry` la crea,
     `rebuild_structures` la conserva como a las `world`, el lienzo la pinta con
     el color de la utilidad; las U-PROP/POLE/PBOX (`NON_VAULT_TOKENS`) no).
+  - `recognition_arcs.py` (lee la tinta) + `recognition_arc_plan.py` (`ink_fillet_plan`:
+    rectas, nodos, ajuste y anclas), PUROS — **2.ª pasada de codos desde la TINTA** (2026-09-28,
+    pedido del usuario: «toda curva, mínima o muy abierta, en todas las utilidades»; caso
+    DU08 h.26: ramal de telecom que sale TANGENTE a la vertical y termina libre, quedaba
+    `end, curve, corner, curve, end`). AutoCAD exporta cada arco APLANADO con flecha
+    constante ~0.025 pt (cuerda ≈ √(8·r·0.025): 1.3 pt en r=7, 5.5 en r=150, ~14 en
+    r=1000) y cada recta como UN segmento: `arc_pieces` saca de los trazos de la capa los
+    trozos de arco (ristras de cuerdas parecidas, ±1.6×, que giran 0.15–20° al mismo lado;
+    vértices sobre el círculo ≤0.12 pt) y las rectas de tinta; descarta la tinta dentro de
+    las cajas de letras/marcas que reconoció el núcleo (`GeomResult.glyphs`, campo NUEVO
+    solo de salida; sin esto la panza de una «S» de «SS» se tomaba por arco);
+    `assign_to_polylines` reparte por polilínea; `group_arcs` junta los trozos del MISMO
+    círculo (RMS ≤0.1 pt, huecos/letras ≤60 pt) si corren sobre la polilínea y con su
+    rumbo. `ink_fillet_plan`: por arco, rectas = RECTAS DE TINTA exactas (alineadas con la
+    tangente del arco), la línea que PASA por un extremo (`through_ink`: también extremos
+    `end` apoyados en otra línea) o el NODO donde muere la tinta (extremo, corte, tee,
+    bóveda) si entre el fin del arco y el nodo no hay tinta recta; círculo tangente
+    (`fit_circle_line_node` sembrado con la tinta: en curvas abiertas la tangencia cae
+    lejos del nodo), tangencias ENTRE el fin de la tinta curva y la punta de la recta
+    (desvío d²/2r ≤0.75 pt si caen dentro), tinta sobre el arco ≥45 %, sin tinta recta
+    de la propia polilínea dentro del arco que se aparte >0.75 pt (línea POLIGONAL). RMS
+    ≤0.5 pt exacto; ≤1 pt (desvío ≤1.5) = `loose` (a trazos + aviso). Anclas: último
+    vértice antes de A / primero después de B; si es blando se lleva SOBRE la recta de
+    tinta (a la tangencia si caía dentro); dos codos con la recta del medio comparten
+    ancla, puesto entre B1 y A2 (la «U»). Los vértices quitados/movidos quedan ≤1.5 pt de
+    la forma recta–arco–recta. Al final cada codo se RECALCULA como lo dibuja el editor
+    (`_editor_geo` ≡ `model_ops.fillet_geo` con los anclas definitivos; si la tangencia se
+    pasa ≤1 pt del ancla —arco que muere en un nodo— se ajusta el radio) y se revalida
+    contra la tinta: editor = plugin = reconocimiento, sin recortes. Las rectas de
+    tinta se AJUSTAN con todos los guiones colineales (`_refine_line`, ≤0.3 pt, ±1°: el
+    rumbo de un guión corto trae ±0.25° de cuantización). Curva en «S» junto a un codo
+    de la 1.ª pasada con la MISMA recta (DU08 h.26, 2.º reporte): su ancla se comparte
+    deslizándolo sobre la recta del codo viejo (`_anchor_shared_p1`; un vértice
+    INTERIOR de un codo viejo nunca es ancla). `fit_to_editor` (en `recognition_arcs`,
+    usa `model_ops.fillet_geo` con topes 1.0/0.48): si el editor recortaría un codo
+    (también de la 1.ª pasada) por ≤1.5 pt de tangencia, se ajusta el radio al máximo.
+    **Editor/DXF (mismo reporte)**: una estructura CV pertenece a UN vértice, el más
+    cercano entre todas las tuberías (`model_ops.curve_vertex_indices`, `nearest_vertex`,
+    `pipe_at_vertex` = el más cercano). Antes cualquier vértice a ≤14 px de una CV era
+    «curvo»: con dos esquinas a 13 px el lienzo dibujaba una curva con la esquina y el
+    radio de la otra, y un ancla recta a 13.6 px de su esquina recortaba el radio (tope
+    0.48) y salía en NO_MANHOLE_VERTS (el plugin le ponía una curva de radio automático).
+    `tests/test_curvas_editor.py` comprueba, en la ventana real, que cada codo de DU08 h.26
+    se dibuja con sus tangencias reconocidas (≤0.1 pt) y sin recorte. La 1.ª pasada NO cambia (sus vértices quedan bloqueados;
+    `fit_fillets(arcs=None)` = comportamiento anterior) y `relabel_false_curves` marca
+    `corner`/`bend` los `curve` sin tinta curva cerca (esquinas de agua/gas: el aviso
+    «curvas que quedan como polilínea» solo cuenta curvas reales). Auditoría:
+    `scripts/audit_curvas.py salida.json [--sin-tinta]` + `--diff` (6 utilidades × 4
+    PDFs, ~5 min): codos, precisión p90 de la tinta curva sobre cada arco, curvas que
+    quedan como polilínea con su motivo y tinta curva sin arco. Foto 2026-09-28 vs 1.ª
+    pasada sola: eléctrico 429 → 986 codos, telecom 86 → 501, drenaje 2 → 6,
+    alcantarillado 0 → 8, gas 0 → 1 (p90 mediana 0.04 pt); 0 codos previos quitados;
+    «curvas que quedan como polilínea» 876 → 242. Se prueban TODOS los candidatos en
+    orden (loose, RMS) hasta uno con anclas válidas (si un nodo cae dentro del arco, el
+    arco que pasa por el nodo). Dos codos nuevos consecutivos pueden compartir un NODO
+    como ancla si ya está entre sus tangencias (no se mueve; DU08 h.39). Tests:
+    `tests/test_recognition_arcs.py`, `tests/test_curvas_editor.py`.
+  - `recognition_ends.py` (PURO) — **dónde TERMINA cada línea** (pedido del usuario
+    2026-09-28, DU08 h.26), sobre la salida del núcleo sin tocarlo:
+    `trim_inkless_tails` (coords PDF, antes de `build_routes`): un extremo tee/junction
+    cuyo tramo final no tiene tinta PROPIA (≤2.5 pt y paralela ±25°: la línea a la que
+    llega no cuenta) más larga que el hueco simple + 1 pt y sin letra suya (una letra
+    centrada sobre OTRA línea de la capa no vale: la «t» de la línea de abajo) se recorta
+    donde termina el trazo (su punta proyectada) → `end`. `extend_to_cut` (px, en `_emit`
+    DESPUÉS de `fit_fillets`: prolonga la recta del codo; antes, la cuerda de la curva, y
+    se perdían 7 codos): un extremo `end` sigue su recta hasta el borde del polígono de
+    recorte de su capa (`path["clip_polys"]` de `gather_paths`: clip de la vista y, en la
+    hoja compuesta, el BBox de cada pieza) si cada tramo sin tinta propia ni letra suya
+    centrada encima (±1 pt) mide ≤ hueco simple + 1 pt (≤40 pt en total); otra línea de
+    la capa sobre la prolongación la bloquea → `cut`. Hueco simple (`_plain_gap`) =
+    max(gap_max − letter, gap_max/2), o gap_max si la capa no tiene letras (su `letter`
+    es el 5 pt por defecto). Foto 4 PDFs × 6 utilidades: ~700 extremos al corte (mediana
+    4.6 pt, todos letra/hueco junto al borde), 27 colas recortadas (14 casos, revisados:
+    tramos sin tinta de su capa, a veces cubiertos por OTRA capa —-A→-E, -E→-D—), codos
+    sin cambios salvo los ramales recortados. En la hoja compuesta DU06 13+14 alineada no
+    queda ningún corte en la costura (las líneas se unen antes, en el núcleo). Tests:
+    `tests/test_recognition_ends.py`.
   - `recognition_summary.py` (PURO) + `recognition_summary_view.py` — resumen
     VISUAL de la vista previa (lo pidió el usuario: «evitar mucho texto»):
     `classify_warning` pasa cada aviso de `recognize_page` a `Notice` (nivel

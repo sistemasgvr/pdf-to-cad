@@ -181,7 +181,16 @@ def test_laboe_h26_curva_a_guiones_cortos_con_doble_barra_sigue_abandonada():
     """Curva «-D» de guiones cortos (11.5 pt) con «//»: sus guiones no son astas de
     letra (con esa confusión perdía el tramo del «//» y dejaba de ser AB)."""
     _res, pls = _pls(LABOE, 26)
-    curve = [(pts, ab) for pts, _k, ab in pls if any(math.dist(q, (162.0, 1409.9)) <= 1.5 for q in pts)]
+
+    def seg_d(q, a, b):
+        vx, vy = b[0] - a[0], b[1] - a[1]
+        L2 = vx * vx + vy * vy
+        t = 0.0 if L2 < 1e-12 else max(0.0, min(1.0, ((q[0] - a[0]) * vx + (q[1] - a[1]) * vy) / L2))
+        return math.hypot(q[0] - a[0] - vx * t, q[1] - a[1] - vy * t)
+    # (la línea pasa por ahí; su extremo ya no está en (162, 1409.9) sino en el CORTE
+    #  de la vista, 3.7 pt más allá: `recognition_ends.extend_to_cut`)
+    curve = [(pts, ab) for pts, _k, ab in pls
+             if any(seg_d((162.0, 1409.9), a, b) <= 1.5 for a, b in zip(pts, pts[1:]))]
     assert curve and all(ab for _pts, ab in curve)
 
 
