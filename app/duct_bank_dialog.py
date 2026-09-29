@@ -1126,7 +1126,7 @@ class DuctBankDialog(QtWidgets.QDialog):
     """Diseñador de sección del Duct Bank. Ver docstring del módulo."""
 
     def __init__(self, parent=None, initial: Optional[DuctBank] = None,
-                 pipes: Optional[list] = None):
+                 pipes: Optional[list] = None, pipe_thumb=None, taken=None):
         super().__init__(parent)
         self.setWindowTitle(_tr("Diseñador de Duct Bank"))
         # Ventana top-level normal — como la ventana principal y georreferenciar.
@@ -1160,6 +1160,11 @@ class DuctBankDialog(QtWidgets.QDialog):
         self._future: List[DuctBank] = []
 
         self._pipes = pipes or []
+        # pipe_thumb(i) -> QPixmap|None: miniatura de la utilidad i sobre el
+        # plano (hover en «Asignar a:»). taken = {pipe_idx: nombre} de las
+        # utilidades que ya tienen OTRO bancoducto (se reemplazaría).
+        self._pipe_thumb = pipe_thumb
+        self._taken = dict(taken or {})
         self.scene = _DuctBankScene(self)
         if initial is not None:
             self.scene.model = initial.copy()
@@ -1187,8 +1192,52 @@ class DuctBankDialog(QtWidgets.QDialog):
     # ── result API ─────────────────────────────────────────────────────────
     def result_model(self) -> DuctBank:
         m = self.scene.model.copy()
-        m.pipe_idx = self.cmb_pipe.currentData()
+        m.assign(self._assigned_idxs())
         return m
+
+    def _assigned_idxs(self) -> List[int]:
+        """Utilidades marcadas en «Asignar a:»."""
+        out = []
+        for r in range(self.lst_pipes.count()):
+            it = self.lst_pipes.item(r)
+            if it.checkState() == QtCore.Qt.Checked:
+                out.append(int(it.data(QtCore.Qt.UserRole)))
+        return out
+
+    def _set_all_pipes(self, checked: bool):
+        """Marca/desmarca las utilidades VISIBLES (respeta el filtro)."""
+        st = QtCore.Qt.Checked if checked else QtCore.Qt.Unchecked
+        self.lst_pipes.blockSignals(True)
+        for r in range(self.lst_pipes.count()):
+            it = self.lst_pipes.item(r)
+            if not it.isHidden():
+                it.setCheckState(st)
+        self.lst_pipes.blockSignals(False)
+        self._update_pipe_status()
+
+    def _filter_pipes(self, text: str):
+        q = (text or "").strip().lower()
+        for r in range(self.lst_pipes.count()):
+            it = self.lst_pipes.item(r)
+            it.setHidden(bool(q) and q not in it.text().lower())
+
+    def _pipe_preview(self, index):
+        """Miniatura + texto de la utilidad bajo el mouse en «Asignar a:»."""
+        it = self.lst_pipes.item(index.row())
+        if it is None:
+            return None
+        i = int(it.data(QtCore.Qt.UserRole))
+        pix = None
+        if self._pipe_thumb is not None:
+            try:
+                pix = self._pipe_thumb(i)
+            except Exception:
+                pix = None
+        cap = f"<b>{it.text()}</b>"
+        if i in self._taken:
+            cap += "<br>" + _tr("Ya tiene el bancoducto «{nombre}»: se reemplazará.").format(
+                nombre=self._taken[i] or _tr("sin nombre"))
+        return pix, cap
 
     # ── construcción de la UI ─────────────────────────────────────────────
     def _build_ui(self):
@@ -1382,23 +1431,46 @@ class DuctBankDialog(QtWidgets.QDialog):
         self.ed_name = QtWidgets.QLineEdit()
         self.ed_name.setPlaceholderText(_tr("Ej. Duct Bank A – Telecom"))
         gidl.addRow(_tr("Nombre:"), self.ed_name)
-        self.cmb_pipe = QtWidgets.QComboBox()
-        self.cmb_pipe.addItem(_tr("(Sin asignar)"), -1)
+        # «Asignar a:» — lista con casillas: un mismo diseño puede ir en VARIAS
+        # utilidades. Al pasar el mouse sale la miniatura de la utilidad sobre
+        # el plano (para saber cuál es antes de marcarla).
+        self.lst_pipes = QtWidgets.QListWidget()
+        self.lst_pipes.setUniformItemSizes(True)
+        self.lst_pipes.setMinimumHeight(120); self.lst_pipes.setMaximumHeight(190)
+        self.lst_pipes.setTextElideMode(QtCore.Qt.ElideRight)
+        self.lst_pipes.setHorizontalScrollBarPolicy(QtCore.Qt.ScrollBarAlwaysOff)
         _vertices_word = _tr("vértices")
+        cur = set(self.scene.model.assigned())
         for i, p in enumerate(self._pipes):
             if not p.get("pts"): continue
             layer = p.get("layer", "?")
             n_pts = len(p.get("pts", []))
             diam = p.get("diam") or "?"
             label = f"#{i+1}  {layer}  —  {diam}\"  ({n_pts} {_vertices_word})"
-            self.cmb_pipe.addItem(label, i)
-        cur_idx = self.scene.model.pipe_idx
-        if cur_idx >= 0:
-            for ci in range(self.cmb_pipe.count()):
-                if self.cmb_pipe.itemData(ci) == cur_idx:
-                    self.cmb_pipe.setCurrentIndex(ci)
-                    break
-        gidl.addRow(_tr("Asignar a:"), self.cmb_pipe)
+            it = QtWidgets.QListWidgetItem(label)
+            it.setData(QtCore.Qt.UserRole, i)
+            it.setFlags(it.flags() | QtCore.Qt.ItemIsUserCheckable)
+            it.setCheckState(QtCore.Qt.Checked if i in cur else QtCore.Qt.Unchecked)
+            self.lst_pipes.addItem(it)
+        from thumbnails import HoverPreview
+        self._pipe_hover = HoverPreview(self.lst_pipes, self._pipe_preview)
+        self.ed_pipe_filter = QtWidgets.QLineEdit()
+        self.ed_pipe_filter.setPlaceholderText(_tr("Filtrar utilidades…"))
+        self.ed_pipe_filter.setClearButtonEnabled(True)
+        self.btn_pipes_all = QtWidgets.QPushButton(_tr("Todas"))
+        self.btn_pipes_none = QtWidgets.QPushButton(_tr("Ninguna"))
+        self.btn_pipes_all.setToolTip(_tr("Marcar todas las utilidades de la lista (respeta el filtro)."))
+        self.btn_pipes_none.setToolTip(_tr("Desmarcar todas las utilidades de la lista (respeta el filtro)."))
+        _pw = QtWidgets.QWidget(); _pv = QtWidgets.QVBoxLayout(_pw)
+        _pv.setContentsMargins(0, 0, 0, 0); _pv.setSpacing(4)
+        _ph = QtWidgets.QHBoxLayout(); _ph.setSpacing(4)
+        _ph.addWidget(self.ed_pipe_filter, 1); _ph.addWidget(self.btn_pipes_all); _ph.addWidget(self.btn_pipes_none)
+        _pv.addLayout(_ph); _pv.addWidget(self.lst_pipes)
+        # A todo el ancho (etiqueta arriba): en la columna del formulario la
+        # lista quedaba angosta y con barra horizontal.
+        self._lbl_assign = QtWidgets.QLabel(_tr("Asignar a:"))
+        gidl.addRow(self._lbl_assign)
+        gidl.addRow(_pw)
         self.lbl_pipe_status = QtWidgets.QLabel("")
         self.lbl_pipe_status.setWordWrap(True)
         gidl.addRow(self.lbl_pipe_status)
@@ -1659,9 +1731,15 @@ class DuctBankDialog(QtWidgets.QDialog):
                 self.ed_name.setPlaceholderText(_tr("Ej. Duct Bank A – Telecom"))
             if hasattr(self, "sel_lbl"):
                 self.sel_lbl.setPlaceholderText(_tr("Etiqueta (opcional)"))
-            # Combo pipe: primer item "(Sin asignar)"
-            if hasattr(self, "cmb_pipe") and self.cmb_pipe.count() > 0:
-                self.cmb_pipe.setItemText(0, _tr("(Sin asignar)"))
+            # «Asignar a:»: filtro y botones Todas/Ninguna
+            if hasattr(self, "lst_pipes"):
+                self._lbl_assign.setText(_tr("Asignar a:"))
+                self.ed_pipe_filter.setPlaceholderText(_tr("Filtrar utilidades…"))
+                self.btn_pipes_all.setText(_tr("Todas"))
+                self.btn_pipes_none.setText(_tr("Ninguna"))
+                self.btn_pipes_all.setToolTip(_tr("Marcar todas las utilidades de la lista (respeta el filtro)."))
+                self.btn_pipes_none.setToolTip(_tr("Desmarcar todas las utilidades de la lista (respeta el filtro)."))
+                self._update_pipe_status()
             # Labels de filas del sub-form del conducto
             for lbl_attr, key in (
                 ("_row_new_diam", "Diámetro:"),
@@ -1723,7 +1801,10 @@ class DuctBankDialog(QtWidgets.QDialog):
         self.sel_d.valueChanged.connect(lambda v: self._edit_sel(d=v))
         self.sel_lbl.textChanged.connect(lambda s: self._edit_sel(lbl=s))
         self.btn_del_sel.clicked.connect(self._del_selected)
-        self.cmb_pipe.currentIndexChanged.connect(lambda _: self._update_pipe_status())
+        self.lst_pipes.itemChanged.connect(lambda _it: self._update_pipe_status())
+        self.ed_pipe_filter.textChanged.connect(self._filter_pipes)
+        self.btn_pipes_all.clicked.connect(lambda: self._set_all_pipes(True))
+        self.btn_pipes_none.clicked.connect(lambda: self._set_all_pipes(False))
 
         self.scene.conduit_double_clicked.connect(self._on_conduit_dblclick)
 
@@ -2226,12 +2307,19 @@ class DuctBankDialog(QtWidgets.QDialog):
     def _update_pipe_status(self):
         # Usa tokens del tema activo para legibilidad en dark y light.
         t = _theme.tokens()
-        idx = self.cmb_pipe.currentData()
-        if idx is not None and idx >= 0:
+        idxs = self._assigned_idxs()
+        ya = sum(1 for i in idxs if i in self._taken)
+        extra = ("<br>" + _tr("{n} ya tenía(n) otro bancoducto: se reemplazará.").format(n=ya)) if ya else ""
+        if len(idxs) == 1:
             self.lbl_pipe_status.setText(
                 f"<span style='color:{t.success};font-weight:600;font-size:11px;'>"
                 f"✓ {_tr('Al exportar, esta utilidad será un duct bank (no una tubería normal).')}"
-                "</span>")
+                f"{extra}</span>")
+        elif idxs:
+            msg = _tr("Al exportar, estas {n} utilidades serán un duct bank con este mismo diseño.").format(n=len(idxs))
+            self.lbl_pipe_status.setText(
+                f"<span style='color:{t.success};font-weight:600;font-size:11px;'>"
+                f"✓ {msg}{extra}</span>")
         else:
             self.lbl_pipe_status.setText(
                 f"<span style='color:{t.text_muted};font-size:11px;'>"
@@ -2255,7 +2343,15 @@ class DuctBankDialog(QtWidgets.QDialog):
 def open_designer(win, initial: Optional[DuctBank] = None) -> Optional[DuctBank]:
     """Abre el diálogo y devuelve el DuctBank final si el usuario aceptó, o None."""
     pipes = getattr(win, "pipes", None) or []
-    dlg = DuctBankDialog(win, initial=initial, pipes=pipes)
+    # Utilidades que ya tienen OTRO bancoducto (se reemplazaría al asignarlas).
+    taken = {}
+    for d in getattr(win, "duct_banks", None) or []:
+        if d is initial:
+            continue
+        for i in d.assigned():
+            taken[i] = d.name
+    thumb = getattr(win, "_pipe_thumbnail", None)
+    dlg = DuctBankDialog(win, initial=initial, pipes=pipes, pipe_thumb=thumb, taken=taken)
     if dlg.exec() == QtWidgets.QDialog.Accepted:
         return dlg.result_model()
     return None

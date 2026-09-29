@@ -226,3 +226,27 @@ def test_rules_and_render_envelope_roundtrip():
     assert d3.render_envelope is True
     assert d3.margin_top == 3.0 and d3.margin_right == 3.0
     assert d3.margin_bottom == 3.0 and d3.margin_left == 3.0
+
+
+def test_varias_pipes_roundtrip_y_compat():
+    """Un diseño en varias pipes: `assigned()` es la lista, `pipe_idx` la primera;
+    un proyecto viejo (solo pipe_idx) sigue leyéndose igual."""
+    d = DuctBank(width_in=12, height_in=8)
+    d.assign([5, 2, 5, -1])
+    assert d.assigned() == [2, 5] and d.pipe_idx == 2
+    d2 = DuctBank.from_dict(d.to_dict())
+    assert d2.assigned() == [2, 5] and d2.pipe_idx == 2
+    viejo = {"width_in": 12, "height_in": 8, "pipe_idx": 4}
+    d3 = DuctBank.from_dict(viejo)
+    assert d3.assigned() == [4] and d3.pipe_idx == 4
+    d3.assign([])
+    assert d3.assigned() == [] and d3.pipe_idx == -1
+
+
+def test_reindex_al_borrar_pipe():
+    from duct_bank import reindex_after_pipe_delete
+    a = DuctBank(); a.assign([1, 3, 6])
+    b = DuctBank(pipe_idx=3)
+    reindex_after_pipe_delete([a, b], 3)
+    assert a.assigned() == [1, 5]
+    assert b.assigned() == [] and b.pipe_idx == -1

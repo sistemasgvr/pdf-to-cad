@@ -80,6 +80,7 @@ def load_lang() -> str:
     al arrancar la app, ANTES de construir la UI."""
     saved = _settings().value(_settings_key, DEFAULT_LANG)
     _core.activate(saved if saved in SUPPORTED_LANGS else DEFAULT_LANG)
+    _install_qt_translator(get_lang())
     return get_lang()
 
 
@@ -89,7 +90,50 @@ def set_lang(lang: str) -> None:
     if not _core.activate(lang):
         return
     _settings().setValue(_settings_key, lang)
+    _install_qt_translator(lang)
     LANG_BUS.changed.emit(lang)
+
+
+# ── Textos propios de Qt ─────────────────────────────────────────────────────
+# Los botones estándar (Sí/No, Aceptar/Cancelar, Guardar/Descartar… de
+# QMessageBox y QDialogButtonBox) los escribe Qt, no la app: sin su traducción
+# (qtbase_<idioma>.qm, viene con PySide6) salen en inglés aunque la app esté en
+# español. El inglés es el idioma base de Qt: no necesita archivo.
+_qt_translator = None
+
+
+def _qt_translation_dirs():
+    import sys
+    dirs = [QtCore.QLibraryInfo.path(QtCore.QLibraryInfo.LibraryPath.TranslationsPath)]
+    try:
+        import PySide6
+        dirs.append(os.path.join(os.path.dirname(PySide6.__file__), "translations"))
+    except Exception:
+        pass
+    base = getattr(sys, "_MEIPASS", None)                # ejecutable de PyInstaller
+    if base:
+        dirs += [os.path.join(base, "PySide6", "translations"), os.path.join(base, "translations")]
+    return dirs
+
+
+def _install_qt_translator(lang: str) -> None:
+    """Instala en la aplicación la traducción de Qt del idioma `lang` (y quita
+    la anterior). Sin QApplication (tests puros) no hace nada."""
+    global _qt_translator
+    app = QtCore.QCoreApplication.instance()
+    if app is None:
+        return
+    if _qt_translator is not None:
+        app.removeTranslator(_qt_translator)
+        _qt_translator = None
+    if lang == "en":
+        return
+    tr = QtCore.QTranslator(app)
+    for d in _qt_translation_dirs():
+        if d and tr.load(f"qtbase_{lang}", d):
+            app.installTranslator(tr)
+            _qt_translator = tr
+            return
 
 
 # ── Textos vivos ─────────────────────────────────────────────────────────────

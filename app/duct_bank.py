@@ -94,8 +94,12 @@ class DuctBank:
 
     # ── Asignación a pipe (alineamiento) ─────────────────────────────────
     # Índice de la pipe en win.pipes a la que se extruye este duct bank.
-    # -1 = no asignado.
+    # -1 = no asignado. Un mismo diseño puede ir en VARIAS pipes: la lista
+    # completa vive en `pipe_idxs` y `pipe_idx` queda como la primera (compat
+    # con proyectos viejos y con `DuctBank(pipe_idx=…)`). Leer siempre con
+    # `assigned()` y escribir con `assign()`.
     pipe_idx: int = -1
+    pipe_idxs: List[int] = field(default_factory=list)
 
     # ── Reglas de diseño (customizables) ─────────────────────────────────
     # Chequeos que el usuario puede activar/desactivar por bancoducto:
@@ -134,6 +138,7 @@ class DuctBank:
                 "guide_rows": int(self.guide_rows),
                 "guide_cols": int(self.guide_cols),
                 "pipe_idx": int(self.pipe_idx),
+                "pipe_idxs": [int(i) for i in self.assigned()],
                 "rules_enabled": bool(self.rules_enabled),
                 "rule_min_conduit_sep_in": float(self.rule_min_conduit_sep_in),
                 "rule_min_edge_clearance_in": float(self.rule_min_edge_clearance_in),
@@ -157,11 +162,32 @@ class DuctBank:
                    guide_rows=int(d.get("guide_rows", 1)),
                    guide_cols=int(d.get("guide_cols", 1)),
                    pipe_idx=int(d.get("pipe_idx", -1)),
+                   pipe_idxs=[int(i) for i in d.get("pipe_idxs", []) or []],
                    rules_enabled=bool(d.get("rules_enabled", True)),
                    rule_min_conduit_sep_in=float(d.get("rule_min_conduit_sep_in", 0.0)),
                    rule_min_edge_clearance_in=float(d.get("rule_min_edge_clearance_in", 0.0)),
                    render_envelope=bool(d.get("render_envelope", True)),
                    conduits=[Conduit.from_dict(cc) for cc in d.get("conduits", [])])
+
+    def __post_init__(self):
+        self.assign(self.assigned())
+
+    # ── Asignación a pipes ───────────────────────────────────────────────
+    def assigned(self) -> List[int]:
+        """Índices de las pipes a las que va este diseño (ordenados, sin
+        repetir). Sin lista → la `pipe_idx` suelta de proyectos viejos."""
+        if self.pipe_idxs:
+            return sorted({int(i) for i in self.pipe_idxs if int(i) >= 0})
+        return [int(self.pipe_idx)] if int(self.pipe_idx) >= 0 else []
+
+    def assign(self, idxs) -> None:
+        """Asigna el diseño a estas pipes (reemplaza la lista)."""
+        lst = sorted({int(i) for i in (idxs or []) if int(i) >= 0})
+        self.pipe_idxs = lst
+        self.pipe_idx = lst[0] if lst else -1
+
+    def is_assigned_to(self, pipe_idx: int) -> bool:
+        return int(pipe_idx) in self.assigned()
 
     # ── Helpers derivados ────────────────────────────────────────────────
     def inner_rect(self):
@@ -194,6 +220,15 @@ class DuctBank:
 
     def copy(self) -> "DuctBank":
         return DuctBank.from_dict(self.to_dict())
+
+
+def reindex_after_pipe_delete(dbs: List[DuctBank], deleted_idx: int) -> None:
+    """Al borrar la pipe `deleted_idx` las posteriores bajan un índice: cada
+    duct bank pierde esa pipe y corre las demás. Un diseño que se queda sin
+    pipes se conserva (sin asignar)."""
+    for db in dbs or []:
+        db.assign([i - 1 if i > deleted_idx else i
+                   for i in db.assigned() if i != deleted_idx])
 
 
 def snap(v: float, step: float = DEFAULT_SNAP_IN) -> float:

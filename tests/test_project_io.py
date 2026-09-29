@@ -195,3 +195,26 @@ def test_dxf_pipe_without_duct_bank():
     assert xd["HAS_DUCT_BANK"] == "0"
     pts = [e for e in msp if e.dxftype() == "POINT" and e.dxf.layer == "PDFCAD_DUCT_BANK"]
     assert len(pts) == 0
+
+
+def test_dxf_un_diseno_en_varias_pipes():
+    """Un bancoducto asignado a dos pipes: las dos llevan HAS_DUCT_BANK=1 y hay
+    un PDFCAD_DUCTBANK por pipe, con nombre distinto (redes de conductos
+    separadas en el plugin)."""
+    import dxf_export
+    win = _fake_dxf_win()
+    win.pipes.append({"layer": "ELECTRICO", "pts": [(100, 400), (300, 400)],
+                      "diam": 6, "ab": False})
+    win.duct_banks[0].assign([0, 1])
+    doc = ezdxf.new("R2018", setup=True)
+    dxf_export.merge_into(win, doc, marks=True)
+    msp = doc.modelspace()
+
+    def xd(e):
+        return {str(t.value).split("=", 1)[0]: str(t.value).split("=", 1)[1]
+                for t in e.get_xdata("PDFCAD") if t.code == 1000 and "=" in str(t.value)}
+    polys = [xd(e) for e in msp if e.dxftype() == "LWPOLYLINE"]
+    assert [p["HAS_DUCT_BANK"] for p in polys] == ["1", "1"]
+    pts = [xd(e) for e in msp if e.dxftype() == "POINT" and e.dxf.layer == "PDFCAD_DUCT_BANK"]
+    assert sorted(p["PIPE_IDX"] for p in pts) == ["0", "1"]
+    assert sorted(p["NAME"] for p in pts) == ["24kV-P1", "24kV-P2"]

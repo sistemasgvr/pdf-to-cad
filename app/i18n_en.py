@@ -108,7 +108,6 @@ EN: dict[str, str] = {
     "Nombre:": "Name:",
     "Ej. Duct Bank A – Telecom": "Ex. Duct Bank A – Telecom",
     "Asignar a:": "Assign to:",
-    "(Sin asignar)": "(Not assigned)",
     "Reglas de diseño": "Design rules",
     "Aplicar reglas": "Apply rules",
     "Sep. entre conductos:": "Conduit spacing:",
@@ -1967,4 +1966,38 @@ EN: dict[str, str] = {
     # ── app_window.py (unión recta extremo con extremo) ──
     "una reducción {d1:g}×{d2:g}\"":
         "a {d1:g}×{d2:g}\" reducer",
+
+    # ── Bancoductos: varias utilidades por diseño + selección masiva ──
+    "{n} utilidades": "{n} utilities",
+    "Bancoducto «{nombre}» asignado a {n} utilidad(es).":
+        "Duct bank «{nombre}» assigned to {n} utility(ies).",
+    "Bancoducto quitado de {n} utilidad(es); el diseño queda en la lista.":
+        "Duct bank removed from {n} utility(ies); the design stays in the list.",
+    "{n} utilidades seleccionadas — clic derecho para acciones en bloque.":
+        "{n} utilities selected — right-click for bulk actions.",
+    "Seleccionar todas las utilidades (Ctrl+A)": "Select all utilities (Ctrl+A)",
+    "Seleccionar todas las de tipo «{tipo}»": "Select all of type «{tipo}»",
+    "Asignar bancoducto existente": "Assign existing duct bank",
+    "{nombre}  ·  {n} conducto(s)": "{nombre}  ·  {n} conduit(s)",
+    "{n} utilidades seleccionadas": "{n} utilities selected",
+    "Cambiar tipo ({n})": "Change type ({n})",
+    "Crear un bancoducto para las {n} utilidades": "Create one duct bank for the {n} utilities",
+    "Quitar el bancoducto de las {n} utilidades": "Remove the duct bank from the {n} utilities",
+    "Eliminar {n} utilidades": "Delete {n} utilities",
+    "{n} utilidades ({lista})": "{n} utilities ({lista})",
+    "Duct banks: {n} → asignado a {k} utilidades": "Duct banks: {n} → assigned to {k} utilities",
+    "Duct bank «{nombre}» guardado → asignado a {k} utilidades.":
+        "Duct bank «{nombre}» saved → assigned to {k} utilities.",
+    "Ya tiene el bancoducto «{nombre}»: se reemplazará.":
+        "Already has the duct bank «{nombre}»: it will be replaced.",
+    "Filtrar utilidades…": "Filter utilities…",
+    "Ninguna": "None",
+    "Marcar todas las utilidades de la lista (respeta el filtro).":
+        "Check every utility in the list (respects the filter).",
+    "Desmarcar todas las utilidades de la lista (respeta el filtro).":
+        "Uncheck every utility in the list (respects the filter).",
+    "{n} ya tenía(n) otro bancoducto: se reemplazará.":
+        "{n} already had another duct bank: it will be replaced.",
+    "Al exportar, estas {n} utilidades serán un duct bank con este mismo diseño.":
+        "On export, these {n} utilities will be a duct bank with this same design.",
 }

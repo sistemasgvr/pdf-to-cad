@@ -548,6 +548,11 @@ class Main(QtWidgets.QMainWindow):
         right = QtWidgets.QWidget(); rv = QtWidgets.QVBoxLayout(right)
         self.tabs = QtWidgets.QTabWidget()
         self.pipe_list = QtWidgets.QListWidget(); self.pipe_list.currentRowChanged.connect(self._sel_pipe)
+        # Selección MASIVA: Ctrl+clic / Shift+clic / Ctrl+A. El panel de
+        # propiedades sigue mostrando la fila actual; eliminar, cambiar tipo y
+        # asignar bancoducto actúan sobre todas las seleccionadas.
+        self.pipe_list.setSelectionMode(QtWidgets.QAbstractItemView.ExtendedSelection)
+        self.pipe_list.itemSelectionChanged.connect(self._pipe_selection_changed)
         self.sleader_list = QtWidgets.QListWidget(); self.sleader_list.currentRowChanged.connect(self._sel_sleader)
         self.txt_marks_list = QtWidgets.QListWidget(); self.txt_marks_list.currentRowChanged.connect(self._sel_text)
         self.region_list = QtWidgets.QListWidget(); self.region_list.currentRowChanged.connect(self._sel_region)
@@ -565,6 +570,9 @@ class Main(QtWidgets.QMainWindow):
         self.db_list = QtWidgets.QListWidget()
         self.db_list.currentRowChanged.connect(self._sel_db)
         self.db_list.itemDoubleClicked.connect(lambda _it: self._db_edit())
+        # Hover sobre una fila → miniatura de la sección del bancoducto.
+        from thumbnails import HoverPreview
+        self._db_hover = HoverPreview(self.db_list, self._db_preview)
         _dbv.addWidget(self.db_list, 1)
         _dbbar = QtWidgets.QHBoxLayout(); _dbbar.setSpacing(4)
         self.btn_db_new = _bind(QtWidgets.QPushButton(), "setText", "+ Nuevo")
@@ -1454,7 +1462,8 @@ class Main(QtWidgets.QMainWindow):
     def _snap_state(self):
         return copy.deepcopy(dict(cur_pts=self.cur_pts, pipes=self.pipes, leaders=self.leaders,
                                   text_marks=self.text_marks, erase_regions=self.erase_regions,
-                                  structures=self.structures))
+                                  structures=self.structures,
+                                  duct_banks=getattr(self, "duct_banks", []) or []))
 
     def _push(self):
         self._undo.append(self._snap_state()); self._redo.clear(); self._dirty = True
@@ -1465,6 +1474,10 @@ class Main(QtWidgets.QMainWindow):
         self.leaders, self.text_marks = s["leaders"], s["text_marks"]
         self.erase_regions = s.get("erase_regions", [])
         self.structures = s.get("structures", [])
+        if "duct_banks" in s:
+            self.duct_banks = s["duct_banks"]
+            if not (0 <= getattr(self, "sel_db", -1) < len(self.duct_banks)):
+                self.sel_db = -1
         self._refresh_lists(); self._update_ui(); self._redraw()
 
     def undo(self):
@@ -3213,9 +3226,102 @@ class Main(QtWidgets.QMainWindow):
     def _duct_bank_for_pipe(self, pipe_idx):
         """Devuelve el DuctBank asignado a esta pipe, o None."""
         for db in getattr(self, "duct_banks", []):
-            if getattr(db, "pipe_idx", -1) == pipe_idx:
+            if pipe_idx in db.assigned():
                 return db
         return None
+
+    def _pipe_thumbnail(self, pipe_idx):
+        """Miniatura de la utilidad sobre el plano (hover en el diseñador)."""
+        from thumbnails import pipe_pixmap
+        if not (0 <= pipe_idx < len(self.pipes)):
+            return None
+        p = self.pipes[pipe_idx]
+        return pipe_pixmap(self.canvas.scene(), p.get("pts"),
+                           color=layer_qcolor(p.get("layer", "")).name())
+
+    def _db_pipes_label(self, db):
+        """«#3 Eléctrico» (una) o «#3, #5, #7 +2» (varias)."""
+        idxs = [i for i in db.assigned() if 0 <= i < len(self.pipes)]
+        if not idxs:
+            return _tr("(sin asignar)")
+        if len(idxs) == 1:
+            return f"#{idxs[0] + 1} {self._etq(self.pipes[idxs[0]])}"
+        txt = ", ".join(f"#{i + 1}" for i in idxs[:3])
+        return txt + (f" +{len(idxs) - 3}" if len(idxs) > 3 else "")
+
+    def _db_preview(self, index):
+        """Miniatura + resumen del bancoducto bajo el mouse en la lista."""
+        from thumbnails import duct_bank_pixmap
+        dbs = getattr(self, "duct_banks", []) or []
+        r = index.row()
+        if not (0 <= r < len(dbs)):
+            return None
+        db = dbs[r]
+        nm = db.name or _tr("(sin nombre)")
+        idxs = [i for i in db.assigned() if 0 <= i < len(self.pipes)]
+        if len(idxs) > 1:
+            tub = _tr("{n} utilidades").format(n=len(idxs)) + ": " + ", ".join(
+                f"#{i + 1}" for i in idxs[:10]) + (" …" if len(idxs) > 10 else "")
+        else:
+            tub = self._db_pipes_label(db)
+        cap = (f"<b>{nm}</b><br>{_tr('Envolvente')}: {db.width_in:g}\" × {db.height_in:g}\""
+               f"<br>{_tr('Conductos')}: {len(db.conduits)}<br>{_tr('Tubería')}: {tub}"
+               f"<br><i>{_tr('Doble-click para editar.')}</i>")
+        return duct_bank_pixmap(db), cap
+
+    def _db_new_for_pipes(self, rows):
+        """Crear UN bancoducto asignado a varias utilidades."""
+        from duct_bank import DuctBank
+        seed = DuctBank(name="")
+        seed.assign(rows)
+        self._open_duct_bank_designer(initial=seed)
+
+    def _db_take_pipes(self, keep, idxs):
+        """Quita estas utilidades de los OTROS bancoductos (una utilidad lleva un
+        solo bancoducto). Un bancoducto que se queda sin utilidades porque todas
+        pasaron a `keep` se elimina — mismo criterio que al rediseñar."""
+        idxs = set(idxs)
+        out = []
+        for d in self.duct_banks:
+            if d is not keep:
+                prev = d.assigned()
+                if prev and set(prev) & idxs:
+                    d.assign([i for i in prev if i not in idxs])
+                    if not d.assigned():
+                        continue
+            out.append(d)
+        self.duct_banks = out
+
+    def _db_assign_to_pipes(self, db_index, rows):
+        """Suma estas utilidades a la asignación del bancoducto `db_index`."""
+        dbs = getattr(self, "duct_banks", []) or []
+        if not (0 <= db_index < len(dbs)) or not rows:
+            return
+        self._push()
+        db = dbs[db_index]
+        db.assign(db.assigned() + list(rows))
+        self._db_take_pipes(db, rows)
+        self._dirty = True
+        try:
+            self.sel_db = self.duct_banks.index(db)
+        except ValueError:
+            self.sel_db = -1
+        self._refresh_lists(); self._reselect_pipes(rows)
+        self._info(_tr("Bancoducto «{nombre}» asignado a {n} utilidad(es).").format(
+            nombre=db.name or _tr("sin nombre"), n=len(rows)))
+
+    def _db_unassign_pipes(self, rows):
+        """Estas utilidades dejan de ser bancoducto (el diseño se conserva)."""
+        rows = set(rows)
+        hit = [d for d in getattr(self, "duct_banks", []) or [] if set(d.assigned()) & rows]
+        if not hit:
+            return
+        self._push()
+        for d in hit:
+            d.assign([i for i in d.assigned() if i not in rows])
+        self._dirty = True
+        self._refresh_lists(); self._reselect_pipes(sorted(rows))
+        self._info(_tr("Bancoducto quitado de {n} utilidad(es); el diseño queda en la lista.").format(n=len(rows)))
 
     def _reload_pipe_families(self, p):
         """Repuebla los combos prop_family y prop_size según la capa del pipe y el
@@ -3474,9 +3580,60 @@ class Main(QtWidgets.QMainWindow):
         self._update_title()
 
     def change_pipe_type(self):
-        if 0 <= self.sel_pipe < len(self.pipes):
-            self._push(); self.pipes[self.sel_pipe]["layer"] = self.active_layer()
-            self.pipes[self.sel_pipe]["ab"] = self.chk_ab.isChecked(); self._refresh_lists(); self._redraw()
+        rows = self._selected_pipe_rows()
+        if rows:
+            self._push()
+            for r in rows:
+                self.pipes[r]["layer"] = self.active_layer()
+                self.pipes[r]["ab"] = self.chk_ab.isChecked()
+            self._refresh_lists(); self._reselect_pipes(rows); self._redraw()
+
+    # ── selección múltiple de utilidades ──
+    def _selected_pipe_rows(self):
+        """Filas seleccionadas en «Utilidades». Solo cuenta como selección
+        múltiple si incluye la utilidad actual (`sel_pipe`); si no, la actual
+        sola (así nada actúa sobre una selección vieja de la lista)."""
+        if not (0 <= self.sel_pipe < len(self.pipes)):
+            return []
+        rows = sorted({self.pipe_list.row(it) for it in self.pipe_list.selectedItems()})
+        rows = [r for r in rows if 0 <= r < len(self.pipes)]
+        if len(rows) > 1 and self.sel_pipe in rows:
+            return rows
+        return [self.sel_pipe]
+
+    def _reselect_pipes(self, rows):
+        """Vuelve a seleccionar estas filas tras rehacer la lista."""
+        rows = [r for r in rows if 0 <= r < self.pipe_list.count()]
+        if not rows:
+            return
+        cur = self.sel_pipe if self.sel_pipe in rows else rows[0]
+        self._no_center = True
+        try:
+            self.pipe_list.setCurrentRow(cur)
+            sm = self.pipe_list.selectionModel()
+            for r in rows:
+                sm.select(self.pipe_list.model().index(r, 0),
+                          QtCore.QItemSelectionModel.Select)
+        finally:
+            self._no_center = False
+
+    def _pipe_selection_changed(self):
+        n = len(self.pipe_list.selectedItems())
+        if n > 1:
+            self._info(_tr("{n} utilidades seleccionadas — clic derecho para acciones en bloque.").format(n=n))
+
+    def _select_all_pipes(self, layer=None):
+        """Selecciona todas las utilidades (o solo las de esa capa/tipo)."""
+        rows = [i for i, p in enumerate(self.pipes) if layer is None or p.get("layer") == layer]
+        if not rows:
+            return
+        if self.sel_pipe not in rows:
+            self._no_center = True
+            try:
+                self.pipe_list.setCurrentRow(rows[0])
+            finally:
+                self._no_center = False
+        self._reselect_pipes(rows)
 
     def edit_selected_text(self):
         ti = self._current_tab()
@@ -3492,8 +3649,16 @@ class Main(QtWidgets.QMainWindow):
                 menu.exec(listw.viewport().mapToGlobal(pos))
             return
         if self._current_tab() != tab_idx: self._show_tab(tab_idx)
-        listw.setCurrentRow(listw.row(item))          # selecciona la fila bajo el cursor
+        # Clic derecho sobre una fila YA seleccionada de una selección múltiple
+        # (utilidades) la conserva; si no, selecciona la fila bajo el cursor.
+        if not (tab_idx == TAB_PIPE and item.isSelected()
+                and len(listw.selectedItems()) > 1):
+            listw.setCurrentRow(listw.row(item))
         menu = QtWidgets.QMenu(self)
+        if tab_idx == TAB_PIPE and len(self._selected_pipe_rows()) > 1:
+            self._pipe_bulk_menu(menu)
+            menu.exec(listw.viewport().mapToGlobal(pos))
+            return
         if tab_idx == TAB_PIPE:
             self._menu_act(menu, "Cambiar tipo", self.change_pipe_type)
             self._menu_act(menu, "Editar/mover", self.enter_move)
@@ -3507,6 +3672,8 @@ class Main(QtWidgets.QMainWindow):
                 else:
                     self._menu_act(menu, "Crear bancoducto para esta tubería",
                                    lambda: self._db_new_for_pipe(self.sel_pipe))
+                self._pipe_assign_db_submenu(menu, [self.sel_pipe])
+                self._pipe_select_menu(menu, self.pipes[self.sel_pipe].get("layer"))
         elif tab_idx == TAB_LEADER:
             self._menu_act(menu, "Editar/mover", self.enter_move)
         elif tab_idx == TAB_TEXT:
@@ -3521,10 +3688,65 @@ class Main(QtWidgets.QMainWindow):
         self._menu_act(menu, "Eliminar", self.delete_selected)
         menu.exec(listw.viewport().mapToGlobal(pos))
 
+    def _pipe_select_menu(self, menu, layer):
+        """Entradas de selección masiva del menú de «Utilidades»."""
+        menu.addSeparator()
+        self._menu_act(menu, _tr("Seleccionar todas las utilidades (Ctrl+A)"), lambda: self._select_all_pipes())
+        if layer:
+            self._menu_act(menu, _tr("Seleccionar todas las de tipo «{tipo}»").format(tipo=self._tipo(layer)),
+                           lambda: self._select_all_pipes(layer))
+
+    def _pipe_assign_db_submenu(self, menu, rows):
+        """Submenú «Asignar bancoducto existente» para estas utilidades."""
+        dbs = getattr(self, "duct_banks", []) or []
+        if not dbs:
+            return
+        sub = menu.addMenu(_tr("Asignar bancoducto existente"))
+        for k, db in enumerate(dbs):
+            nm = db.name or _tr("(sin nombre)")
+            a = sub.addAction(_icon("mdi:grid"), _tr("{nombre}  ·  {n} conducto(s)").format(
+                nombre=nm, n=len(db.conduits)))
+            a.triggered.connect(lambda _=False, k=k: self._db_assign_to_pipes(k, rows))
+
+    def _pipe_bulk_menu(self, menu):
+        """Menú contextual con VARIAS utilidades seleccionadas."""
+        rows = self._selected_pipe_rows()
+        head = menu.addAction(_tr("{n} utilidades seleccionadas").format(n=len(rows)))
+        head.setEnabled(False)
+        menu.addSeparator()
+        self._menu_act(menu, _tr("Cambiar tipo ({n})").format(n=len(rows)), self.change_pipe_type)
+        menu.addSeparator()
+        self._menu_act(menu, _tr("Crear un bancoducto para las {n} utilidades").format(n=len(rows)),
+                       lambda: self._db_new_for_pipes(rows))
+        self._pipe_assign_db_submenu(menu, rows)
+        if any(self._duct_bank_for_pipe(r) is not None for r in rows):
+            self._menu_act(menu, _tr("Quitar el bancoducto de las {n} utilidades").format(n=len(rows)),
+                           lambda: self._db_unassign_pipes(rows))
+        self._pipe_select_menu(menu, self.pipes[self.sel_pipe].get("layer"))
+        menu.addSeparator()
+        self._menu_act(menu, _tr("Eliminar {n} utilidades").format(n=len(rows)), self.delete_selected)
+
+    def _delete_pipes(self, rows):
+        """Borra estas utilidades (de mayor a menor índice) y corre los índices
+        de las conexiones verticales y de los bancoductos asignados."""
+        from duct_bank import reindex_after_pipe_delete
+        for r in sorted(set(rows), reverse=True):
+            if not (0 <= r < len(self.pipes)):
+                continue
+            self.pipes.pop(r)
+            self._reindex_cross_connections_on_pipe_delete(r)
+            reindex_after_pipe_delete(getattr(self, "duct_banks", []) or [], r)
+        self.sel_pipe = -1
+
     def delete_selected(self):
         ti = self._current_tab()
         desc = None
-        if ti == TAB_PIPE and 0 <= self.sel_pipe < len(self.pipes):
+        rows = self._selected_pipe_rows() if ti == TAB_PIPE else []
+        if ti == TAB_PIPE and len(rows) > 1:
+            desc = _tr("{n} utilidades ({lista})").format(
+                n=len(rows), lista=", ".join(f"#{r + 1}" for r in rows[:12])
+                + (" …" if len(rows) > 12 else ""))
+        elif ti == TAB_PIPE and 0 <= self.sel_pipe < len(self.pipes):
             p = self.pipes[self.sel_pipe]
             desc = _tr("Utilidad #{n} ({capa}, {v} vértices)").format(
                 n=self.sel_pipe + 1, capa=self._etq(p), v=len(p.get("pts", [])))
@@ -3550,9 +3772,7 @@ class Main(QtWidgets.QMainWindow):
             return
         if ti == TAB_PIPE:
             self._push()
-            deleted_idx = self.sel_pipe
-            self.pipes.pop(self.sel_pipe); self.sel_pipe = -1
-            self._reindex_cross_connections_on_pipe_delete(deleted_idx)
+            self._delete_pipes(rows or [self.sel_pipe])
         elif ti == TAB_LEADER:
             self._push(); self.leaders.pop(self.sel_leader); self.sel_leader = -1
         elif ti == TAB_TEXT:
@@ -5926,14 +6146,11 @@ class Main(QtWidgets.QMainWindow):
         self.db_list.clear()
         dbs = getattr(self, "duct_banks", []) or []
         cur_pipe = getattr(self, "sel_pipe", -1)
+        if hasattr(self, "_db_hover"):
+            self._db_hover.clear_cache()
         for db in dbs:
-            # Tubería asignada
-            pi = getattr(db, "pipe_idx", -1)
-            if 0 <= pi < len(self.pipes):
-                p = self.pipes[pi]
-                pipe_lbl = f"#{pi+1} {self._etq(p)}"
-            else:
-                pipe_lbl = _tr("(sin asignar)")
+            # Tubería(s) asignada(s)
+            pipe_lbl = self._db_pipes_label(db)
             nm = db.name or _tr("(sin nombre)")
             nc = len(db.conduits)
             unit_c = _tr("conducto(s)")
@@ -5944,7 +6161,7 @@ class Main(QtWidgets.QMainWindow):
                           f"{_tr('Conductos')}: {nc}\n"
                           f"{_tr('Tubería')}: {pipe_lbl}\n\n"
                           f"{_tr('Doble-click para editar.')}")
-            if pi == cur_pipe and cur_pipe >= 0:
+            if cur_pipe >= 0 and cur_pipe in db.assigned():
                 # Resaltar la fila del bancoducto asignado a la tubería
                 # actualmente seleccionada. No cambiamos el color del texto (en
                 # dark, un accent azul sobre fondo negro queda ilegible), sino
@@ -6011,7 +6228,7 @@ class Main(QtWidgets.QMainWindow):
         src = dbs[self.sel_db]
         dup = src.copy()
         dup.name = f"{src.name or 'sin nombre'} (copia)"
-        dup.pipe_idx = -1   # no heredamos asignación para evitar superposición
+        dup.assign([])   # no heredamos asignación para evitar superposición
         self._push()
         self.duct_banks.append(dup)
         self.sel_db = len(self.duct_banks) - 1
@@ -6055,6 +6272,7 @@ class Main(QtWidgets.QMainWindow):
             return
         if not getattr(self, "duct_banks", None):
             self.duct_banks = []
+        self._push()   # guardar/rediseñar un bancoducto se puede deshacer
         # Reemplazo:
         #   - Si `current` es un DuctBank ya guardado, sustituimos ESE objeto
         #     (identidad) — así "Editar" nunca crea duplicados aunque el usuario
@@ -6074,21 +6292,20 @@ class Main(QtWidgets.QMainWindow):
                 self.duct_banks[existing] = result
             else:
                 self.duct_banks.append(result)
-        # Eliminar otros duct banks que apunten a la misma pipe (evita superposición).
-        if result.pipe_idx >= 0:
-            self.duct_banks = [
-                d for d in self.duct_banks
-                if d is result or getattr(d, "pipe_idx", -1) != result.pipe_idx
-            ]
+        # Quitar estas pipes de los otros duct banks (evita superposición).
+        if result.assigned():
+            self._db_take_pipes(result, result.assigned())
         self._dirty = True   # marca proyecto para pedir guardar
-        asignada = 0 <= result.pipe_idx < len(self.pipes)
-        datos = {"n": len(self.duct_banks), "nombre": result.name or _tr("sin nombre")}
+        asign = [i for i in result.assigned() if 0 <= i < len(self.pipes)]
+        asignada = len(asign) == 1
+        datos = {"n": len(self.duct_banks), "nombre": result.name or _tr("sin nombre"),
+                 "k": len(asign)}
         if asignada:
-            datos.update(num=result.pipe_idx + 1,
-                         capa=self._etq(self.pipes[result.pipe_idx]))
+            datos.update(num=asign[0] + 1, capa=self._etq(self.pipes[asign[0]]))
         if hasattr(self, "lbl_ductbank_count"):
             _bind(self.lbl_ductbank_count, "setText",
-                  "Duct banks: {n} → asignado a #{num} {capa}" if asignada else "Duct banks: {n}",
+                  "Duct banks: {n} → asignado a #{num} {capa}" if asignada
+                  else ("Duct banks: {n} → asignado a {k} utilidades" if asign else "Duct banks: {n}"),
                   fmt=datos)
         # Deja seleccionado el bancoducto que se acaba de editar/crear en la lista.
         try:
@@ -6096,8 +6313,11 @@ class Main(QtWidgets.QMainWindow):
         except ValueError:
             self.sel_db = -1
         self._refresh_lists()
-        self._info(_tr("Duct bank «{nombre}» guardado → asignado a #{num} {capa}." if asignada
-                       else "Duct bank «{nombre}» guardado.").format(**datos))
+        if len(asign) > 1:
+            self._info(_tr("Duct bank «{nombre}» guardado → asignado a {k} utilidades.").format(**datos))
+        else:
+            self._info(_tr("Duct bank «{nombre}» guardado → asignado a #{num} {capa}." if asignada
+                           else "Duct bank «{nombre}» guardado.").format(**datos))
 
     # ─────────────────────────── drag & drop ───────────────────────────
     def dragEnterEvent(self, e):

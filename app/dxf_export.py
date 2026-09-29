@@ -85,8 +85,8 @@ def merge_into(win, doc, marks=True):
         return
     if "PDFCAD" not in doc.appids: doc.appids.add("PDFCAD")
     work_unit = getattr(win, 'work_unit', 'ft')
-    _db_pipe_idxs = {db.pipe_idx for db in getattr(win, "duct_banks", []) or []
-                     if getattr(db, "pipe_idx", -1) >= 0}
+    _db_pipe_idxs = {i for db in getattr(win, "duct_banks", []) or []
+                     for i in _db_assigned(db)}
     for pipe_idx, p in enumerate(win.pipes):
         layer = p["layer"]; VP.ensure_layer(doc, layer)
         att = {"layer": layer}
@@ -337,6 +337,14 @@ def _export_structures(win, doc, msp):
             t.set_placement((cx + h * 0.8, cy + h * 0.4), align=TextEntityAlignment.LEFT)
 
 
+def _db_assigned(db):
+    """Pipes asignadas a un duct bank (lista nueva o `pipe_idx` suelta)."""
+    if hasattr(db, "assigned"):
+        return db.assigned()
+    pi = getattr(db, "pipe_idx", -1)
+    return [pi] if pi >= 0 else []
+
+
 def _export_duct_banks(win, doc, msp):
     """Exporta los duct banks como puntos XDATA PDFCAD_DUCTBANK sobre el primer
     vértice de la pipe asignada. El plugin C# lee estos datos para extruir la
@@ -347,8 +355,9 @@ def _export_duct_banks(win, doc, msp):
     if "PDFCAD" not in doc.appids: doc.appids.add("PDFCAD")
     VP.ensure_layer(doc, "PDFCAD_DUCT_BANK")
     seen_pipes = set()
-    for db in dbs:
-        pi = getattr(db, "pipe_idx", -1)
+    # Un mismo diseño puede ir en varias pipes: un punto PDFCAD_DUCTBANK por
+    # pipe asignada (el plugin empareja cada punto con su PIPE_IDX).
+    for db, pi in [(db, pi) for db in dbs for pi in _db_assigned(db)]:
         if pi < 0 or pi >= len(pipes): continue
         if pi in seen_pipes: continue
         seen_pipes.add(pi)
@@ -367,10 +376,16 @@ def _export_duct_banks(win, doc, msp):
         # 3D del contenedor. Se envía siempre (default 1) para que versiones
         # nuevas y viejas del plugin sepan qué hacer.
         render_env = 1 if getattr(db, "render_envelope", True) else 0
+        # Diseño compartido por varias pipes: el plugin nombra las redes de los
+        # conductos «DUCTBANK-<NAME>-<conducto>», así que cada copia lleva su
+        # pipe en el nombre para que no se fundan en una sola red.
+        db_name = db.name
+        if len(_db_assigned(db)) > 1:
+            db_name = f"{db.name}-P{pi + 1}" if db.name else ""
         pt.set_xdata("PDFCAD", [
             (1000, "PDFCAD_DUCTBANK"),
             (1000, f"PIPE_IDX={pi}"),
-            (1000, f"NAME={db.name}"),
+            (1000, f"NAME={db_name}"),
             (1000, f"WIDTH_IN={db.width_in}"),
             (1000, f"HEIGHT_IN={db.height_in}"),
             (1000, f"MARGIN_TOP={db.margin_top}"),

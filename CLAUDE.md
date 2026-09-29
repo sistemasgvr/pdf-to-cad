@@ -560,6 +560,15 @@ alcantarillado, drenaje, gas, eléctrico, telecom). Todo en **unidades imperiale
     `snap`, `validate`, `conduit_fits_envelope`, `conduits_overlap`. Testeado
     headless. La sección se asigna a una pipe específica y se exporta como
     `PDFCAD_DUCTBANK` en el DXF; el plugin C# la extruye como sólido 3D.
+    **Un diseño en VARIAS pipes** (2026-09-29): `pipe_idxs` + `assigned()`/`assign()`
+    (`pipe_idx` = la primera, compat); leer SIEMPRE con `assigned()`. El DXF emite un
+    `PDFCAD_DUCTBANK` por pipe (NAME `<nombre>-P<n>` si se comparte: el plugin nombra las
+    redes de conductos con NAME). Al borrar pipes `reindex_after_pipe_delete`; el estado
+    de deshacer (`_snap_state`) incluye `duct_banks`. Una pipe lleva UN bancoducto
+    (`Main._db_take_pipes`). Lista «Utilidades» con selección múltiple
+    (`_selected_pipe_rows`: solo cuenta si incluye `sel_pipe`) y menú en bloque.
+    `thumbnails.py`: `HoverPreview` (globo con miniatura en vez del tooltip),
+    `duct_bank_pixmap`, `pipe_pixmap` (recorte de la escena del lienzo).
   - `duct_bank_dialog.py` — diálogo del **Diseñador de Duct Bank** (botón del
     toolbar, se guarda en `.digproj` como parte del proyecto). UI grande y
     accesible (usuario +60): grid en pulgadas, snap por defecto, solo una

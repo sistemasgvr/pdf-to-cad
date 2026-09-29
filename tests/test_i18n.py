@@ -303,3 +303,21 @@ def test_listas_del_panel_derecho_se_traducen(qapp, monkeypatch):
         n=1, orientacion=EN["Horizontal"].lower())
     i18n.set_lang("es")
     w.close()
+
+
+def test_botones_de_qt_siguen_el_idioma(qapp, monkeypatch):
+    # Los botones estándar (Sí/No, Aceptar/Cancelar…) los escribe Qt: sin su
+    # traducción (qtbase_es.qm) salían en inglés con la app en español.
+    from PySide6 import QtWidgets
+    monkeypatch.setattr(i18n, "_settings", lambda: type("S", (), {"setValue": lambda *a: None})())
+
+    def botones():
+        m = QtWidgets.QMessageBox()
+        m.setStandardButtons(QtWidgets.QMessageBox.Yes | QtWidgets.QMessageBox.No
+                             | QtWidgets.QMessageBox.Ok | QtWidgets.QMessageBox.Cancel)
+        return {b.text().replace("&", "") for b in m.buttons()}
+
+    i18n.set_lang("en")
+    assert botones() == {"Yes", "No", "OK", "Cancel"}
+    i18n.set_lang("es")
+    assert botones() == {"Sí", "No", "Aceptar", "Cancelar"}
