@@ -54,20 +54,28 @@ def win(monkeypatch):
     app.processEvents()
 
 
-@pytest.mark.skipif(not DU08.is_file(), reason="PDF DU08 no disponible")
-@pytest.mark.parametrize("utility", ["ELECTRICO", "TELECOM"])
-def test_du08_h26_el_editor_dibuja_el_arco_reconocido(win, utility):
-    """Cada codo reconocido en DU08 h.26 se dibuja en el lienzo con SU esquina y SU
-    radio: tangencias del editor = tangencias reconocidas (≤0.1 pt), sin recorte."""
-    win._open_pdf_path(str(DU08))
-    page = 25
+DU06 = ROOT / "DU06_09_UD_Drainage_20251216(SUBMITTAL SET).pdf"
+
+
+@pytest.mark.parametrize("pdf, page, utility", [
+    pytest.param(DU08, 25, "ELECTRICO", marks=pytest.mark.skipif(not DU08.is_file(), reason="PDF DU08 no disponible")),
+    pytest.param(DU08, 25, "TELECOM", marks=pytest.mark.skipif(not DU08.is_file(), reason="PDF DU08 no disponible")),
+    # reporte 2026-09-29: curva en «S» de telecom `-E`, banco de ductos, drenaje r≈145 pt
+    pytest.param(DU06, 3, "TELECOM", marks=pytest.mark.skipif(not DU06.is_file(), reason="PDF DU06 no disponible")),
+    pytest.param(DU06, 3, "DRENAJE", marks=pytest.mark.skipif(not DU06.is_file(), reason="PDF DU06 no disponible")),
+])
+def test_el_editor_dibuja_el_arco_reconocido(win, pdf, page, utility):
+    """Cada codo reconocido se dibuja en el lienzo con SU esquina y SU radio:
+    tangencias del editor = tangencias reconocidas (≤0.1 pt), sin recorte. También
+    los dos codos de una curva en «S» que comparten el punto de inflexión."""
+    win._open_pdf_path(str(pdf))
     win._load_page(page)
     res = rec.recognize_page(win.work_pdf_path or win.pdf_path, page, utility=utility,
                              zoom=win.zoom, doc=None)
     win._import_recognized_pipes([res])
     Z = win.zoom
     fil = [(pl, i, f) for pl in res.drawable for i, f in (pl.fillets or {}).items()]
-    assert len(fil) >= 3
+    assert len(fil) >= (3 if utility != "DRENAJE" else 1)
     checked = 0
     for pl, i, f in fil:
         C = pl.pts_pdf[i]

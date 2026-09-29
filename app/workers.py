@@ -24,8 +24,10 @@ class PipelineWorker(QtCore.QThread):
 
 
 class RecognitionWorker(QtCore.QThread):
-    """Reconocimiento OCG en segundo plano. `done(result_or_None, error_str)`."""
+    """Reconocimiento OCG en segundo plano. `done(result_or_None, error_str)`;
+    `progress(i, n, utilidad)` antes de reconocer cada utilidad."""
     done = QtCore.Signal(object, str)
+    progress = QtCore.Signal(int, int, str)
 
     def __init__(self, pdf_path, page_index, zoom=1.0, utility="ELECTRICO",
                  hidden_ocgs=None, layer_roles=None, join_routes=True,
@@ -47,7 +49,8 @@ class RecognitionWorker(QtCore.QThread):
         try:
             import recognition as rec
             results = []
-            for utility in self.utilities:
+            for i, utility in enumerate(self.utilities):
+                self.progress.emit(i, len(self.utilities), utility)
                 roles = self.roles_by_utility.get(utility) or self.layer_roles or None
                 results.append(rec.recognize_page(
                     self.pdf_path, page_index=self.page_index,

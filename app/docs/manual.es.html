@@ -105,6 +105,10 @@ pregunta. Un escaneo (o un plano calcado sin texto ni capas) va directo al dibuj
 pasos anteriores se pueden pulsar para <b>volver atrás</b> sin perder lo hecho. Abajo, en todo el
 ancho, están las opciones de la vista (como <b>Opacidad</b>) y los botones
 <span class="btn">Cancelar</span> y <span class="btn">Continuar</span>.</p>
+<p>Cuando un paso tarda unos segundos (hojas grandes, varias piezas, muchas utilidades), la
+ventana o el panel que se está actualizando se atenúa y aparece una tarjeta <b>«Cargando…»</b>
+con un indicador que gira y lo que la app está haciendo (por ejemplo «Reconociendo… · Drenaje
+(3 de 6)»). No hace falta hacer clic: la tarjeta se va sola al terminar.</p>
 
 <h2>1. Componer hoja de trabajo</h2>
 <ol>
@@ -163,12 +167,16 @@ ancho, están las opciones de la vista (como <b>Opacidad</b>) y los botones
 <li>Las líneas <b>abandonadas</b> se importan marcadas como <b>(AB)</b>: las de la capa «-A»
     con marcas «/», y cualquier línea con marcas dobles «//».</li>
 <li>Los <b>codos</b> curvos del plano se importan con su radio real, también las curvas muy
-    abiertas, las esquinas redondeadas chicas y la curva que sale de otra línea o termina suelta.
+    abiertas, las esquinas redondeadas chicas, la curva que sale de otra línea o termina suelta y
+    dos curvas <b>unidas</b> sin recta entre medio (curva en «S»: un codo por curva, que se tocan en
+    el punto de inflexión). Cada codo cubre toda su curva del plano, de punta a punta.
     Un codo <b>a trazos</b> es aproximado (en el plano no es un arco exacto): conviene revisarlo.</li>
 <li>Cada línea <b>termina donde termina su tinta</b>: si en el plano muere en el aire no se une a
     la línea vecina. Si muere en su letra (o en un hueco) justo antes del borde de la vista, llega
     hasta el <b>corte</b> del plano; en la hoja compuesta, las que cruzan la unión siguen de una
-    pieza a la otra.</li>
+    pieza a la otra. Una línea cuya letra queda tapada por un texto del plano sigue de corrido.</li>
+<li>Si el plano trae la <b>misma línea dibujada dos veces</b> en la misma capa (encimada, con los
+    guiones corridos), se importa <b>una sola</b> línea.</li>
 <li>El <b>agua</b> y el <b>gas</b> entran sin cajas (van a presión). El <b>alcantarillado</b> y el
     drenaje entran con sus buzones; eléctrico y <b>telecomunicaciones</b>, con caja solo donde el
     plano tiene una bóveda.</li>

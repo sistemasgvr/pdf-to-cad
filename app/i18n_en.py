@@ -1833,6 +1833,43 @@ EN: dict[str, str] = {
         "Recognizing {u} on the organized sheets…",
     "Reconociendo {u}…":
         "Recognizing {u}…",
+    # ── capa «Cargando…» del asistente (busy.py) ──
+    "Analizando el PDF…":
+        "Analyzing the PDF…",
+    "Armando la hoja compuesta…":
+        "Building the composite sheet…",
+    "{n} piezas · vectores, capas y textos intactos":
+        "{n} pieces · vectors, layers and text kept intact",
+    "Hoja {n} · leyendo las líneas y estructuras de cada capa":
+        "Sheet {n} · reading the lines and structures of each layer",
+    "Hoja {p} · {u} ({i} de {n})":
+        "Sheet {p} · {u} ({i} of {n})",
+    "Importando al editor…":
+        "Importing into the editor…",
+    "Preparando la vista previa…":
+        "Preparing the preview…",
+    "Dibujando lo reconocido sobre la hoja":
+        "Drawing the recognized items over the sheet",
+    "Cargando hoja {n}…":
+        "Loading sheet {n}…",
+    "Leyendo sus capas":
+        "Reading its layers",
+    "Actualizando la vista…":
+        "Updating the view…",
+    "Leyendo las capas de la hoja…":
+        "Reading the sheet layers…",
+    "Contando los trazos de cada capa":
+        "Counting the strokes in each layer",
+    "Líneas generales y escala de la hoja":
+        "Sheet guide lines and scale",
+    "Agregando la pieza…":
+        "Adding the piece…",
+    "Bordes, extremos de línea y uniones con las vecinas":
+        "Edges, line ends and joins with neighboring pieces",
+    "Abriendo «Componer hoja»…":
+        "Opening «Compose sheet»…",
+    "Preparando las hojas del PDF":
+        "Preparing the PDF sheets",
     "Utilidad #{n}":
         "Utility #{n}",
     "{n} rutas ({m} tramos) de {u}":

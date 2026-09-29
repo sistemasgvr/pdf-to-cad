@@ -116,8 +116,9 @@ def test_la_t_es_letra_y_la_linea_sigue_recta():
     paths = _linea_con_t()
     antes = geom.reconstruct(paths, (), geom.GeomOptions())
     ahora = geom.reconstruct(paths, (), geom.GeomOptions(stroke_letters=True))
-    assert any(abs(p[0] - 100.0) > 1.0 and abs(p[0] - 115.0) > 1.0
-               for pl in antes.polylines for p in pl.pts)          # sin la regla: se sale de su recta
+    # The generic endpoint guard now also prevents those false extensions.
+    # Verify glyph classification itself, without requiring the old bad line.
+    assert antes.n_curves > ahora.n_curves
     assert all(abs(p[0] - 100.0) <= 0.5 or abs(p[0] - 115.0) <= 0.5
                for pl in ahora.polylines for p in pl.pts)
     assert ahora.n_curves == 0 and ahora.coverage >= 0.99

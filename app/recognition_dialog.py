@@ -19,6 +19,7 @@ from ui_common import layer_qcolor, swatch_icon
 from icons import icon
 from widgets import ZoomPanView, maximize_on_show, side_panel_width, GripSplitter
 from wizard_widgets import StepBar, OpacityButton, wizard_header, wizard_footer
+from busy import busy
 import recognition as rec
 from recognition_summary_view import SummaryPanel
 import theme as _theme
@@ -698,7 +699,9 @@ def show_recognition_preview(parent, qimg, result, utility_layer="ELECTRICO",
                              page_count: int | None = None) -> str:
     """Muestra el preview. Devuelve la acción elegida: PREVIEW_IMPORT,
     PREVIEW_CANCEL, PREVIEW_CHANGE_SHEET o PREVIEW_ADJUST_LAYERS."""
-    dlg = RecognitionPreviewDialog(parent, qimg, result, utility_layer, page_count=page_count)
+    with busy(parent, _tr("Preparando la vista previa…"),
+              _tr("Dibujando lo reconocido sobre la hoja")):
+        dlg = RecognitionPreviewDialog(parent, qimg, result, utility_layer, page_count=page_count)
     if dlg.exec() != QtWidgets.QDialog.Accepted:
         return PREVIEW_CANCEL
     return dlg.action
