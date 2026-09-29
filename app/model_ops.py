@@ -924,3 +924,76 @@ def junturas_excedidas(pipes, z_at, tol_px, z_tol=0.10, maximo=MAX_TRAMOS_POR_AC
                 salida.append({"x": sx / len(grupo), "y": sy / len(grupo), "n": n,
                                "red": extremos[a][2]})
     return salida
+
+
+def choques_sin_conexion(pipes, z_at, tol_px, structures=(), z_tol=0.10):
+    """Cruces COMPLETOS a la misma cota que Civil 3D no conecta, cuando al menos
+    una de las dos tuberías NO es a presión (los cruces entre dos redes a
+    presión los clasifica `Main._draw_pipe_conflicts`: accesorio, conflicto o
+    «redes distintas»). Pedido del usuario 2026-09-29: dos utilidades
+    cualesquiera que se atraviesan a la misma cota sin conexión se avisan para
+    que corrija el dibujo o las cotas.
+
+      - cruce completo: las DOS pasan por el punto (ninguna termina ahí, a
+        ≤ `tol_px` de su primer o último vértice); un extremo que llega a otra
+        tubería es una unión (buzón, caja) o se ve en otro aviso;
+      - misma cota: soleras en el punto a ≤ `z_tol` (sin cota no se puede
+        confirmar el choque: no se avisa);
+      - sin conexión: utilidades distintas nunca se conectan; la MISMA de
+        gravedad se une si las dos tienen un vértice ahí (el buzón del
+        vértice); la misma de conduit, solo si además hay una CAJA ahí (sin
+        caja el plugin no pone estructura en el vértice).
+
+    `z_at(i_pipe, i_tramo, x, y)` da la solera del tramo en ese punto.
+    Devuelve [{"x", "y", "ia", "ib", "za", "zb"}], uno por punto."""
+    tol2 = tol_px * tol_px
+
+    def _cerca(a, b):
+        return (a[0] - b[0]) ** 2 + (a[1] - b[1]) ** 2 <= tol2
+
+    def _inter(p1, p2, p3, p4):
+        (x1, y1), (x2, y2), (x3, y3), (x4, y4) = p1, p2, p3, p4
+        den = (x1 - x2) * (y3 - y4) - (y1 - y2) * (x3 - x4)
+        if abs(den) < 1e-9:
+            return None
+        t = ((x1 - x3) * (y3 - y4) - (y1 - y3) * (x3 - x4)) / den
+        u = -((x1 - x2) * (y1 - y3) - (y1 - y2) * (x1 - x3)) / den
+        if not (-1e-6 <= t <= 1 + 1e-6 and -1e-6 <= u <= 1 + 1e-6):
+            return None
+        return (x1 + t * (x2 - x1), y1 + t * (y2 - y1))
+
+    datos = []
+    for i, p in enumerate(pipes):
+        pts = p.get("pts") or []
+        if p.get("world") or len(pts) < 2:
+            continue
+        datos.append((i, p.get("layer") or "", network_kind(p.get("layer") or ""), pts))
+    cajas = [(float(s.get("x", 1e12)), float(s.get("y", 1e12))) for s in structures or ()
+             if (s.get("net") or "") == "conduit" and not s.get("curve") and not s.get("world")]
+    salida = []
+    for a in range(len(datos)):
+        ia, la, na, pa = datos[a]
+        for b in range(a + 1, len(datos)):
+            ib, lb, nb, pb = datos[b]
+            if na == "pressure" and nb == "pressure":
+                continue
+            for ka in range(len(pa) - 1):
+                for kb in range(len(pb) - 1):
+                    cp = _inter(pa[ka], pa[ka + 1], pb[kb], pb[kb + 1])
+                    if cp is None:
+                        continue
+                    if any(_cerca(cp, q) for q in (pa[0], pa[-1], pb[0], pb[-1])):
+                        continue                         # una termina ahí: no atraviesa
+                    if any(_cerca(cp, (e["x"], e["y"])) for e in salida):
+                        continue
+                    za, zb = z_at(ia, ka, cp[0], cp[1]), z_at(ib, kb, cp[0], cp[1])
+                    if za is None or zb is None or abs(za - zb) > z_tol:
+                        continue
+                    if la == lb and any(_cerca(cp, q) for q in pa) and any(_cerca(cp, q) for q in pb):
+                        if na == "gravity":
+                            continue                     # el buzón del vértice las une
+                        if na == "conduit" and any(_cerca(cp, c) for c in cajas):
+                            continue                     # la caja las une
+                    salida.append({"x": cp[0], "y": cp[1], "ia": ia, "ib": ib,
+                                   "za": float(za), "zb": float(zb)})
+    return salida

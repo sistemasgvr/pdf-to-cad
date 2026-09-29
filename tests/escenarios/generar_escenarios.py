@@ -157,7 +157,7 @@ def cruce(lz, P, capa_a, inv_a, capa_b, inv_b, d_a=12.0, d_b=12.0):
     b = lz.tubo(capa_b, [(P[0], P[1] - L), (P[0], P[1] + L)], d_b, (inv_b, inv_b))
     return a, b
 def e24(lz, P): cruce(lz, P, "AGUA", -4, "DRENAJE", -8); return {"app": [(P, None)]}
-def e25(lz, P): cruce(lz, P, "AGUA", -4, "DRENAJE", -4); return {"app": [(P, None), (P, "sin_redes")]}
+def e25(lz, P): cruce(lz, P, "AGUA", -4, "DRENAJE", -4); return {"app": [(P, None), (P, "sin_redes"), (P, "choque")]}
 def e26(lz, P): cruce(lz, P, "ELECTRICO", -3, "ELECTRICO", -5); return {"app": [(P, None)]}
 def e27(lz, P): cruce(lz, P, "AGUA", -3, "AGUA", -6); return {"app": [(P, "sugerencia")]}
 def e28(lz, P): cruce(lz, P, "GAS", -4, "AGUA", -4); return {"app": [(P, "redes")]}
@@ -241,7 +241,7 @@ CASOS = [
     ("E23", "Extremo que muere a MITAD de otro tramo, misma cota", "conflicto (misma cota)",
      "TEE: se parte el tramo que pasa («[JUNTURA-T]»)", e23),
     ("E24", "Agua × drenaje a distinta cota", "sin marcador (solo redes a presión)", "sin conexión", e24),
-    ("E25", "Agua × drenaje a la misma cota", "sin marcador (las señales son solo de redes a presión)", "sin conexión (redes distintas)", e25),
+    ("E25", "Agua × drenaje a la misma cota", "▲ rojo: se cruzan a la misma cota sin conexión (corregir dibujo o cotas)", "sin conexión: quedan chocando", e25),
     ("E26", "Eléctrico × eléctrico a distinta cota", "sin marcador (solo redes a presión)", "sin conexión", e26),
     ("E27", "Agua × agua a distinta cota, SIN aprobar", "sugerencia ↕", "sin vertical", e27),
     ("E28", "Gas × agua a la misma cota", "▲ rojo: «redes distintas»", "sin conexión", e28),
@@ -327,7 +327,7 @@ def buscar_hit(win, pt_ft, par=None, tol_px=4.0):
 # Alertas rojas de la app, por el estado con que las nombran los casos.
 ALERTAS = {"exceso": "_exceso_hits", "escalon": "_escalon_hits", "redes": "_redes_hits",
            "codos": "_codos_hits", "inclinada": "_inclinada_hits", "retorno": "_retorno_hits",
-           "pendiente": "_pendiente_hits"}
+           "pendiente": "_pendiente_hits", "choque": "_choque_hits"}
 
 
 def buscar_alerta(win, pt_ft, lista, tol_px=4.0):

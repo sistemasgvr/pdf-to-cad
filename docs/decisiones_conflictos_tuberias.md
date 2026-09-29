@@ -49,7 +49,8 @@ función que implementan o comprueban esa decisión.
 | **▲ Alerta roja** | Algo que Civil 3D **no puede resolver como está dibujado**, o que resolverá cambiando el dibujo (p. ej. dando pendiente). El texto explica qué pasará. | Revisar; corregir el dibujo si no le sirve la solución automática. |
 
 > **Solo redes a presión (agua y gas).** Ninguna de estas señales aparece en drenaje,
-> alcantarillado, eléctrico ni telecomunicaciones (ver §2, «Señales solo en redes a presión»).
+> alcantarillado, eléctrico ni telecomunicaciones (ver §2, «Señales solo en redes a presión»),
+> **salvo** la alerta roja «Tuberías que chocan» (§7), que avisa en cualquier utilidad.
 
 Decisiones sobre los mensajes:
 
@@ -78,7 +79,7 @@ lista de alertas esperadas por caso: `ALERTAS` en
 | **Accesorios siempre conectados** | Prioridad absoluta: toda boca de un accesorio debe quedar alineada con su tubo (en planta y en altura). Por eso en las piezas reductoras cada brazo va a la altura del eje de **su** tubo. |
 | **Máximo 4 tuberías por accesorio** | La pieza más grande es la **Cruz** (4 salidas). Con 5 o más, alerta roja y no se pone pieza. |
 | **Solo redes a presión** llevan accesorios sólidos (agua, gas). En **gravedad** (drenaje, alcantarillado) las uniones las resuelve el **buzón**. En **conduit** (eléctrico, telecom) no hay accesorios. |
-| **Señales solo en redes a presión** | Conflictos, sugerencias y aprobaciones de vertical, «redes distintas» y todas las alertas rojas se calculan **solo con tuberías de agua y gas**. Una tubería de drenaje, alcantarillado, eléctrico o telecom no genera ninguna señal, ni sola ni cruzándose con una de presión. Una conexión vertical aprobada en un proyecto viejo entre tuberías que no son a presión se descarta y no llega al DXF. *(Decisión del usuario, 2026-09-28.)* |
+| **Señales solo en redes a presión** | Conflictos, sugerencias y aprobaciones de vertical, «redes distintas» y todas las alertas rojas se calculan **solo con tuberías de agua y gas**. Una tubería de drenaje, alcantarillado, eléctrico o telecom no genera ninguna de esas señales, ni sola ni cruzándose con una de presión; la **única excepción** es la alerta «Tuberías que chocan» (§7). Una conexión vertical aprobada en un proyecto viejo entre tuberías que no son a presión se descarta y no llega al DXF. *(Decisión del usuario, 2026-09-28.)* |
 | **El nombre de la tubería no cambia su geometría ni su diámetro** | Renombrar una tubería solo cambia cómo se llama. (Se corrigió un error en el que renombrar ponía el diámetro en 0.) |
 
 **Dónde se valida:** `Z_TOL_JUNTA = 0.10` en
@@ -282,7 +283,7 @@ tests `test_cinco_tramos_en_un_punto_se_avisan`, `test_seis_tramos_informa_seis`
 | Caso | Situación | App | Civil 3D |
 |---|---|---|---|
 | **E24** | Agua × drenaje a distinta cota | sin marcador | sin conexión |
-| **E25** | Agua × drenaje a la **misma** cota | sin marcador (el drenaje no es red a presión) | sin conexión |
+| **E25** | Agua × drenaje a la **misma** cota | **▲ «Tuberías que chocan»** | sin conexión: quedan chocando |
 | **E28** | Gas × agua a la misma cota | **▲ «redes distintas»** | sin conexión |
 | **E26** | Eléctrico × eléctrico a distinta cota | sin marcador (no es red a presión) | sin conexión |
 | **E27** | Agua × agua a distinta cota, sin aprobar | **sugerencia ↕** | sin vertical |
@@ -291,8 +292,8 @@ tests `test_cinco_tramos_en_un_punto_se_avisan`, `test_seis_tramos_informa_seis`
 **Decisiones:**
 - Utilidades de **distinto tipo** nunca se unen. Si son **dos redes a presión** (agua ×
   gas) y chocan a la misma cota, alerta roja «redes distintas» para que el usuario mueva
-  una. Si una de las dos no es a presión (p. ej. agua × drenaje, E25), no hay señal
-  (ver §2, «Señales solo en redes a presión»).
+  una. Si una de las dos no es a presión (p. ej. agua × drenaje, E25), alerta roja
+  «Tuberías que chocan» (ver abajo).
 - Un **cruce en X a mitad de tramo** (dos tubos que siguen de largo) **no se une**:
   solo se unen tuberías que **terminan** en el punto o comparten un vértice.
 
@@ -300,6 +301,30 @@ tests `test_cinco_tramos_en_un_punto_se_avisan`, `test_seis_tramos_informa_seis`
 y regla del cruce en X en [app_window.py:4307](../app/app_window.py#L4307); plugin:
 [ImportarRed.cs:4274](../API-CIVIL/proyecto1/proyecto1/ImportarRed.cs#L4274).
 
+
+### Tuberías que chocan (cualquier utilidad)
+
+- **Situación:** dos tuberías se **atraviesan** (las dos pasan por el punto; ninguna
+  termina ahí) a la **misma cota** (±0.10 ft) y Civil 3D no las conecta. Caso de la
+  imagen del usuario: E25, agua × drenaje.
+- **Decisión del usuario (2026-09-29):** aunque las demás señales sean solo de redes a
+  presión, este choque **se avisa en cualquier utilidad**, con alerta roja, para que
+  el usuario corrija el dibujo o las cotas.
+- **Cuándo NO se avisa** (porque sí quedan conectadas o no chocan):
+  - a distinta cota (una pasa sobre la otra, E24);
+  - si una de las dos **termina** en el punto (es una unión o una llegada, no un cruce);
+  - misma utilidad de **gravedad** con vértice compartido: el buzón del vértice las une;
+  - misma utilidad de **conduit** con vértice compartido **y una caja ahí**; sin caja
+    el plugin no pone estructura en el vértice, así que sí se avisa;
+  - dos redes **a presión**: ya las cubren el conflicto (E48), el accesorio (E17) o
+    «redes distintas» (E28);
+  - si falta la cota de alguna (no se puede confirmar el choque).
+
+**Dónde se valida:** `choques_sin_conexion` en [model_ops.py:929](../app/model_ops.py#L929);
+el lienzo la dibuja con `_msg_choque` en `_draw_pipe_conflicts`
+([app_window.py:4509](../app/app_window.py#L4509)). Tests `test_choque_*`
+([test_model_ops.py:487](../tests/test_model_ops.py#L487)) y escenario E25 (`"choque"` en
+`ALERTAS` de [generar_escenarios.py](../tests/escenarios/generar_escenarios.py)).
 ---
 
 ## 8. Conexiones verticales aprobadas
@@ -491,6 +516,7 @@ pruebas en [test_escenarios_complejos.py](../tests/escenarios/test_escenarios_co
 | Decisión | App (Python) | Plugin (C#) | Prueba |
 |---|---|---|---|
 | Señales solo en redes a presión (agua, gas) | `Main._draw_pipe_conflicts` / `_prune_stale_cross_connections` | — | escenarios E24–E26, F09 |
+| Tuberías que chocan (cualquier utilidad) | `model_ops.choques_sin_conexion` | — | `test_choque_*`, escenario E25 |
 | Qué accesorio va en un punto | `model_ops.accesorio_en_punto` | `RedesPresionJunturas.DecidirTipoFitting` | escenarios E01–E17 |
 | Máximo 4 tuberías | `model_ops.junturas_excedidas` | `RedesPresionJunturas` (aviso «máximo de 4») | `test_cinco_tramos_…` |
 | Codo cerrado / curva | — | `WyeSolido.CurvaCodo` | `test_espejo_de_wyesolido` |

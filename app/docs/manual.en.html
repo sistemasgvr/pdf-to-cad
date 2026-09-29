@@ -309,7 +309,8 @@ In the <b>Duct banks</b> list, hover a row to see the section.</p>
 <p>While you draw, the app checks the design and places <b>signs</b> where something needs
 your attention. <b>Hover</b> over a sign to read what is going on, or <b>click</b> it for the
 details. They only appear at crossings and joints of <b>pressure</b> network pipes
-(water and gas): storm drain, sewer, electrical and telecom have no signs.</p>
+(water and gas). On storm drain, sewer, electrical and telecom you are only warned when two
+pipes cross at the same elevation without being connected («Clashing pipes»).</p>
 
 <h2>Legend</h2>
 <table width="100%" cellspacing="4" cellpadding="10">
@@ -337,7 +338,7 @@ The status bar at the bottom counts how many there are of each kind.</p>
 
 <section data-title="Red alerts: when they appear">
 <p>The red triangle <img src="mark:alerta"> appears in these cases. All refer to
-<b>pressure</b> networks (water and gas).</p>
+<b>pressure</b> networks (water and gas), except «clashing pipes», which warns on any utility.</p>
 <table width="100%" cellspacing="4" cellpadding="10">
 <tr><th align="left" width="24%">Case</th><th align="left">When it appears</th><th align="left">What Civil 3D will do</th></tr>
 <tr><td bgcolor="{{danger}}"><b>Too many pipes</b></td>
@@ -346,6 +347,11 @@ The status bar at the bottom counts how many there are of each kind.</p>
 <tr><td bgcolor="{{danger}}"><b>Different networks</b></td>
     <td bgcolor="{{card}}">Two pressure networks of a <b>different type</b> (water and gas) cross at the same elevation.</td>
     <td bgcolor="{{card}}">It does not join them: they will clash. Change one elevation.</td></tr>
+<tr><td bgcolor="{{danger}}"><b>Clashing pipes</b></td>
+    <td bgcolor="{{card}}">Two pipes of <b>any utility</b> (at least one that is not water or gas)
+        cross each other at the same elevation and are not connected: for example water and storm
+        drain, or two electrical lines crossing mid-segment without a box.</td>
+    <td bgcolor="{{card}}">It does not join them: they will clash. <b>Fix the drawing or change one elevation.</b></td></tr>
 <tr><td bgcolor="{{danger}}"><b>Elevation step</b></td>
     <td bgcolor="{{card}}">At a vertex of one pipe, the incoming and outgoing segments have different elevations.</td>
     <td bgcolor="{{card}}">It joins both segments at the <b>average elevation</b>.</td></tr>

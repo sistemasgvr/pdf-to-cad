@@ -267,3 +267,35 @@ def busy(host, text: str, detail: str = ""):
         yield ov
     finally:
         ov.end()
+
+
+class Toast(QtWidgets.QLabel):
+    """Aviso breve de confirmación («✔ Proyecto guardado») centrado sobre `host`;
+    desaparece solo. No bloquea nada ni se come el ratón."""
+
+    def __init__(self, host: QtWidgets.QWidget):
+        super().__init__(host)
+        self.setObjectName("appToast")
+        self.setAttribute(QtCore.Qt.WA_TransparentForMouseEvents)
+        self.setAlignment(QtCore.Qt.AlignCenter)
+        self._timer = QtCore.QTimer(self); self._timer.setSingleShot(True)
+        self._timer.timeout.connect(self.hide)
+        self.hide()
+
+    def show_text(self, text: str, ms: int = 2000):
+        t = _theme.tokens()
+        self.setStyleSheet(f"#appToast {{ background:{t.success}; color:{t.text_on_accent};"
+                           "font-size:16px; font-weight:700; padding:14px 28px;"
+                           "border-radius:10px; }")
+        self.setText(text)
+        self.adjustSize()
+        host = self.parentWidget()
+        self.move((host.width() - self.width()) // 2, (host.height() - self.height()) // 2)
+        self.show(); self.raise_()
+        self._timer.start(ms)
+
+
+def toast(host: QtWidgets.QWidget, text: str, ms: int = 2000):
+    """Muestra `text` unos `ms` sobre `host` (reutiliza el mismo aviso)."""
+    tw = host.findChild(Toast, "appToast", QtCore.Qt.FindDirectChildrenOnly)
+    (tw or Toast(host)).show_text(text, ms)

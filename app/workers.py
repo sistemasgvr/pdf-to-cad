@@ -13,12 +13,13 @@ from PySide6 import QtCore
 class PipelineWorker(QtCore.QThread):
     done = QtCore.Signal(str, str)
 
-    def __init__(self, pdf, tmp): super().__init__(); self.pdf, self.tmp = pdf, tmp
+    def __init__(self, pdf, tmp, pages=None):
+        super().__init__(); self.pdf, self.tmp, self.pages = pdf, tmp, pages
 
     def run(self):
         try:
             import digitize
-            digitize.main(self.pdf, self.tmp, verbose=False); self.done.emit(self.tmp, "")
+            digitize.main(self.pdf, self.tmp, verbose=False, pages=self.pages); self.done.emit(self.tmp, "")
         except Exception as e:
             import traceback; self.done.emit("", f"{e}\n\n{traceback.format_exc()}")
 

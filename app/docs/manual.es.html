@@ -309,7 +309,8 @@ En la lista <b>Bancoductos</b>, pasa el mouse sobre una fila para ver la secció
 <p>Mientras dibujas, la app revisa el diseño y pone <b>señales</b> donde algo necesita tu
 atención. <b>Pasa el mouse</b> sobre una señal para leer qué pasa, o <b>haz clic</b> para ver
 el detalle. Solo aparecen en los cruces y uniones de tuberías de redes <b>a presión</b>
-(agua y gas): en drenaje, alcantarillado, eléctrico y telecomunicaciones no hay señales.</p>
+(agua y gas). En drenaje, alcantarillado, eléctrico y telecomunicaciones solo se avisa cuando
+dos tuberías se cruzan a la misma cota sin conectarse («Tuberías que chocan»).</p>
 
 <h2>Leyenda</h2>
 <table width="100%" cellspacing="4" cellpadding="10">
@@ -337,7 +338,7 @@ La barra de estado, abajo, cuenta cuántas hay de cada tipo.</p>
 
 <section data-title="Alertas rojas: cuándo salen">
 <p>El triángulo rojo <img src="mark:alerta"> aparece en estos casos. Todos se refieren a redes
-<b>a presión</b> (agua y gas).</p>
+<b>a presión</b> (agua y gas), salvo «tuberías que chocan», que avisa en cualquier utilidad.</p>
 <table width="100%" cellspacing="4" cellpadding="10">
 <tr><th align="left" width="24%">Caso</th><th align="left">Cuándo sale</th><th align="left">Qué hará Civil 3D</th></tr>
 <tr><td bgcolor="{{danger}}"><b>Demasiadas tuberías</b></td>
@@ -346,6 +347,11 @@ La barra de estado, abajo, cuenta cuántas hay de cada tipo.</p>
 <tr><td bgcolor="{{danger}}"><b>Redes distintas</b></td>
     <td bgcolor="{{card}}">Dos redes a presión de <b>distinto tipo</b> (agua y gas) se cruzan a la misma cota.</td>
     <td bgcolor="{{card}}">No las une: quedarán chocando. Cambia la cota de una.</td></tr>
+<tr><td bgcolor="{{danger}}"><b>Tuberías que chocan</b></td>
+    <td bgcolor="{{card}}">Dos tuberías de <b>cualquier utilidad</b> (al menos una que no sea de agua o gas)
+        se atraviesan a la misma cota y no se conectan: por ejemplo agua y drenaje, o dos
+        eléctricas que se cruzan a mitad de tramo sin caja.</td>
+    <td bgcolor="{{card}}">No las une: quedarán chocando. <b>Corrige el dibujo o cambia la cota de una.</b></td></tr>
 <tr><td bgcolor="{{danger}}"><b>Escalón de cota</b></td>
     <td bgcolor="{{card}}">En un vértice de una misma tubería, el tramo que llega y el que sale tienen cotas distintas.</td>
     <td bgcolor="{{card}}">Unirá los dos tramos a la <b>cota promedio</b>.</td></tr>

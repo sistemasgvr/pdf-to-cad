@@ -920,6 +920,10 @@ EN: dict[str, str] = {
         "Elevation step",
     "Redes distintas a la misma cota":
         "Different networks at the same elevation",
+    "Tuberías que chocan":
+        "Clashing pipes",
+    "«{a}» y «{b}» se cruzan a la misma cota ({za:.2f} / {zb:.2f} ft) y no se conectan: en Civil 3D quedarán chocando.\n\nCorrige el dibujo o cambia la cota de una de las dos.":
+        "«{a}» and «{b}» cross at the same elevation ({za:.2f} / {zb:.2f} ft) and are not connected: in Civil 3D they will clash.\n\nFix the drawing or change the elevation of one of them.",
     "Cotas en el punto de cruce:\n  • «{la}»: {za} ft\n  • «{lb}»: {zb} ft\n  • Diferencia: {dz} ft":
         "Elevations at the crossing point:\n  • «{la}»: {za} ft\n  • «{lb}»: {zb} ft\n  • Difference: {dz} ft",
     "(⚠ falta cota en al menos una de las dos utilidades — pon cotas para poder decidir si es conflicto o sugerencia de unión)":
@@ -1520,6 +1524,8 @@ EN: dict[str, str] = {
         "{n} approved",
     "{n} choque(s) entre redes distintas":
         "{n} clash(es) between different networks",
+    "{n} cruce(s) a la misma cota sin conexión":
+        "{n} crossing(s) at the same elevation without connection",
     "{n} conflicto(s)":
         "{n} conflict(s)",
     "{n} escalón(es) de cota":
@@ -2037,4 +2043,6 @@ EN: dict[str, str] = {
         "{n} already had another duct bank: it will be replaced.",
     "Al exportar, estas {n} utilidades serán un duct bank con este mismo diseño.":
         "On export, these {n} utilities will be a duct bank with this same design.",
+    "Proyecto guardado": "Project saved",
+    "Guardando el DXF…": "Saving the DXF…",
 }

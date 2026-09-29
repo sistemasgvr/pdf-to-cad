@@ -2256,6 +2256,9 @@ class Main(QtWidgets.QMainWindow):
             self._info(_tr("Proyecto guardado: {archivo}").format(archivo=os.path.basename(path)))
             self._flash_save()
         finally: self._unbusy()
+        # Confirmación visible 2 s, DESPUÉS de quitar el «Guardando…».
+        if not self._dirty and self.project_path == path:
+            _busy_mod.toast(self, "✔ " + _tr("Proyecto guardado"))
 
     def _flash_save(self):
         t = _theme.tokens()
@@ -4286,6 +4289,7 @@ class Main(QtWidgets.QMainWindow):
             self._pendiente_hits = []
             self._inclinada_hits = []
             self._redes_hits = []
+            self._choque_hits = []
             if hasattr(self, "lbl_info"):
                 # Deja el texto de info normal (sin el contador de cruces)
                 pass
@@ -4499,6 +4503,13 @@ class Main(QtWidgets.QMainWindow):
                 _alerta_roja(hx, hy, self._msg_inclinada(e))
         for e in self._redes_hits:
             _alerta_roja(e["x"], e["y"], self._msg_redes(e))
+        # Cruce completo a la misma cota sin conexión con al menos una tubería
+        # que NO es a presión (drenaje, alcantarillado, eléctrico, telecom): el
+        # resto de señales es solo de presión, pero un choque se avisa siempre.
+        self._choque_hits = model_ops.choques_sin_conexion(
+            self.pipes, self._pipe_z_at, tol_junta, self.structures)
+        for e in self._choque_hits:
+            _alerta_roja(e["x"], e["y"], self._msg_choque(e))
 
         if hasattr(self, "lbl_info"):
             partes = []
@@ -4517,6 +4528,9 @@ class Main(QtWidgets.QMainWindow):
                 partes.append("▲ " + _tr("{n} tramo(s) muy corto(s) entre codos").format(n=len(self._codos_hits)))
             if self._redes_hits:
                 partes.append("▲ " + _tr("{n} choque(s) entre redes distintas").format(n=len(self._redes_hits)))
+            if self._choque_hits:
+                partes.append("▲ " + _tr("{n} cruce(s) a la misma cota sin conexión").format(
+                    n=len(self._choque_hits)))
             if n_conf > 0: partes.append("⚠ " + _tr("{n} conflicto(s)").format(n=n_conf))
             if n_sug > 0:  partes.append("↕ " + _tr("{n} sugerencia(s)").format(n=n_sug))
             if n_ap > 0:   partes.append("✓ " + _tr("{n} aprobada(s)").format(n=n_ap))
@@ -4532,6 +4546,13 @@ class Main(QtWidgets.QMainWindow):
         return _tr("«{a}» y «{b}» se cruzan a la misma cota, pero son redes distintas.\n\n"
                    "En Civil 3D no se conectarán: las tuberías quedarán chocando.").format(
             a=e["a"], b=e["b"])
+
+    def _msg_choque(self, e):
+        return _tr("«{a}» y «{b}» se cruzan a la misma cota ({za:.2f} / {zb:.2f} ft) y no "
+                   "se conectan: en Civil 3D quedarán chocando.\n\n"
+                   "Corrige el dibujo o cambia la cota de una de las dos.").format(
+            a=self._etq(self.pipes[e["ia"]]), b=self._etq(self.pipes[e["ib"]]),
+            za=e["za"], zb=e["zb"])
 
     def _union_civil(self, ia, ib, cx, cy, za, zb):
         """Mensaje corto de lo que hará Civil 3D cuando dos tuberías de la MISMA
@@ -4679,6 +4700,10 @@ class Main(QtWidgets.QMainWindow):
             if (e["x"] - x) ** 2 + (e["y"] - y) ** 2 <= tol2:
                 QtWidgets.QMessageBox.warning(self, _tr("Redes distintas a la misma cota"),
                                               self._msg_redes(e))
+                return True
+        for e in getattr(self, "_choque_hits", None) or []:
+            if (e["x"] - x) ** 2 + (e["y"] - y) ** 2 <= tol2:
+                QtWidgets.QMessageBox.warning(self, _tr("Tuberías que chocan"), self._msg_choque(e))
                 return True
         hits = getattr(self, "_conflict_hits", None) or []
         if not hits: return False
@@ -5072,11 +5097,14 @@ class Main(QtWidgets.QMainWindow):
         self._prog = QtWidgets.QProgressDialog(_tr("Digitalizando el plano…"), None, 0, 0, self)
         self._prog.setWindowTitle(_tr("Procesando")); self._prog.setWindowModality(QtCore.Qt.WindowModal)
         self._prog.setCancelButton(None); self._prog.show()
-        self._worker = PipelineWorker(self.pdf_path, self._tmp); self._worker.done.connect(self._pipeline_done); self._worker.start()
+        # Solo la hoja que se ve en el editor (la de las anotaciones).
+        pages = [self.page_idx] if self.doc and 0 <= self.page_idx < self.doc.page_count else None
+        self._worker = PipelineWorker(self.pdf_path, self._tmp, pages=pages); self._worker.done.connect(self._pipeline_done); self._worker.start()
 
     def _pipeline_done(self, tmp, err):
         if getattr(self, "_prog", None): self._prog.close()
         if err: QtWidgets.QMessageBox.critical(self, _tr("Error al digitalizar"), err); return
+        self._busy(_tr("Guardando el DXF…"))
         try:
             marks = (self._mode == "todo")               # 'pdf' = solo el plano, sin anotaciones
             doc = ezdxf.readfile(tmp); C.apply_imperial_header(doc)   # reafirma imperial ($MEASUREMENT=0) tras leer el plano base
@@ -5089,6 +5117,7 @@ class Main(QtWidgets.QMainWindow):
             doc.saveas(self._out)
             self._maybe_export_dwg(doc, self._out)       # además .dwg si se activó (ODA)
             if os.path.exists(tmp): os.remove(tmp)
+            self._unbusy()
             geo_active = self.georef.active()
             geo_warn = ""
             if self.georef.matrix and not geo_active:
@@ -5114,6 +5143,7 @@ class Main(QtWidgets.QMainWindow):
                     georef=geo_tag, archivo=self._out) + geo_warn
             QtWidgets.QMessageBox.information(self, _tr("Listo"), msg); self._info(_tr("DXF exportado (georef).") if geo_active else _tr("DXF exportado."))
         except Exception as e:
+            _busy_mod.overlay_for(self).end() if _busy_mod.overlay_for(self).active else None
             import traceback; QtWidgets.QMessageBox.critical(self, _tr("Error al guardar"), f"{e}\n{traceback.format_exc()}")
 
     def _merge_into(self, doc, marks=True):

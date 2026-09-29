@@ -472,3 +472,55 @@ def test_union_con_pendiente_extremo_con_extremo():
     assert union_con_pendiente(dict(a, layer="DRENAJE"), dict(b, layer="DRENAJE"), (0, 0), -4.0, -4.5, 0.5, 1.0) is None
     pasa = {"layer": "AGUA", "diam": 12, "pts": [(-38, 0), (0, 0), (38, 0)]}
     assert union_con_pendiente(pasa, b, (0, 0), -4.0, -4.5, 0.5, 1.0) is None
+
+
+# ── Cruce completo a la misma cota sin conexión (cualquier utilidad) ────────
+def _cruce(capa_a, capa_b, za=-4.0, zb=-4.0, vertice_a=False, vertice_b=False):
+    """Horizontal (a) × vertical (b) que se atraviesan en (100, 100)."""
+    a = [(0, 100), (100, 100), (200, 100)] if vertice_a else [(0, 100), (200, 100)]
+    b = [(100, 0), (100, 100), (100, 200)] if vertice_b else [(100, 0), (100, 200)]
+    pipes = [{"layer": capa_a, "pts": a}, {"layer": capa_b, "pts": b}]
+    z = {0: za, 1: zb}
+    return pipes, (lambda i, k, x, y: z[i])
+
+
+def test_choque_entre_utilidades_distintas_a_la_misma_cota():
+    from model_ops import choques_sin_conexion
+    pipes, z_at = _cruce("AGUA", "DRENAJE")                       # E25
+    hits = choques_sin_conexion(pipes, z_at, tol_px=3.0)
+    assert [(round(h["x"]), round(h["y"]), h["ia"], h["ib"]) for h in hits] == [(100, 100, 0, 1)]
+    pipes, z_at = _cruce("ELECTRICO", "TELECOM", za=-3.0, zb=-3.05)
+    assert len(choques_sin_conexion(pipes, z_at, tol_px=3.0)) == 1
+
+
+def test_choque_no_se_avisa_a_distinta_cota_ni_entre_redes_a_presion():
+    from model_ops import choques_sin_conexion
+    pipes, z_at = _cruce("AGUA", "DRENAJE", za=-4.0, zb=-8.0)        # E24: pasan una sobre otra
+    assert choques_sin_conexion(pipes, z_at, tol_px=3.0) == []
+    pipes, z_at = _cruce("AGUA", "GAS")                               # presión × presión: otro aviso
+    assert choques_sin_conexion(pipes, z_at, tol_px=3.0) == []
+    pipes, z_at = _cruce("AGUA", "DRENAJE", zb=None)                  # sin cota: no se confirma
+    assert choques_sin_conexion(pipes, lambda i, k, x, y: None, tol_px=3.0) == []
+
+
+def test_choque_solo_si_las_dos_atraviesan():
+    from model_ops import choques_sin_conexion
+    # El drenaje termina sobre el agua: no es un cruce completo.
+    pipes = [{"layer": "AGUA", "pts": [(0, 100), (200, 100)]},
+             {"layer": "DRENAJE", "pts": [(100, 0), (100, 100)]}]
+    assert choques_sin_conexion(pipes, lambda i, k, x, y: -4.0, tol_px=3.0) == []
+
+
+def test_choque_misma_utilidad_conectada_no_se_avisa():
+    from model_ops import choques_sin_conexion
+    # Drenaje × drenaje con vértice compartido: el buzón del vértice las une.
+    pipes, z_at = _cruce("DRENAJE", "DRENAJE", vertice_a=True, vertice_b=True)
+    assert choques_sin_conexion(pipes, z_at, tol_px=3.0) == []
+    # …pero a mitad de tramo, sin vértice, chocan.
+    pipes, z_at = _cruce("DRENAJE", "DRENAJE")
+    assert len(choques_sin_conexion(pipes, z_at, tol_px=3.0)) == 1
+    # Eléctrico × eléctrico con vértice compartido: solo lo une una CAJA ahí.
+    pipes, z_at = _cruce("ELECTRICO", "ELECTRICO", vertice_a=True, vertice_b=True)
+    assert len(choques_sin_conexion(pipes, z_at, tol_px=3.0)) == 1
+    caja = [{"cod": "CAJA-1", "x": 100, "y": 100, "net": "conduit"}]
+    assert choques_sin_conexion(pipes, z_at, tol_px=3.0, structures=caja) == []

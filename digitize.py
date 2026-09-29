@@ -161,9 +161,12 @@ def validate(msp, zones=None):
 # ─────────────────────────────────────────────────────────────────────────────
 # Main
 # ─────────────────────────────────────────────────────────────────────────────
-def main(pdf_path, dxf_out, force=None, verbose=True):
+def main(pdf_path, dxf_out, force=None, verbose=True, pages=None):
     """
     force: None (auto) | 'vector' | 'raster'
+    pages: índices de hoja a digitalizar (None = todas). La app pasa SOLO la
+      hoja del editor: cada hoja usa su propio origen, así que con todas el DXF
+      salía con las N hojas superpuestas (y un PDF de 50 hojas tardaba minutos).
     Devuelve lista de warnings de QA.
     """
     import vector_pipeline
@@ -182,6 +185,8 @@ def main(pdf_path, dxf_out, force=None, verbose=True):
     all_zones = []
     last_scale = C.DEFAULT_SCALE_FT_PER_PT
     for i, page in enumerate(doc):
+        if pages is not None and i not in pages:
+            continue
         kind, info = classify_page(page)
         if force in ("vector", "raster"):
             kind = force
