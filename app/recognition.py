@@ -31,7 +31,12 @@ import vector_pipeline as VP
 import recognition_geom as geom
 import recognition_arcs as arcs_mod
 import recognition_arc_plan as arc_plan
+import recognition_arc_chain as chain_mod
 import recognition_ends as ends_mod
+import recognition_dupink as dupink_mod
+import recognition_trace as trace_mod
+import recognition_contacts as contacts_mod
+import recognition_text_gaps as text_gaps_mod
 import routes as routes_mod
 from sheet_crops import page_rect as crop_page_rect, drawing_polygon
 from i18n_core import t as _tr, N_   # avisos de QA en el idioma activo
@@ -1004,9 +1009,14 @@ def recognize_page(
         for ocg in list(by_ocg):                       # el mismo trazo repetido en la capa: uno solo
             kept = dedup_paths(by_ocg[ocg])
             n_dup_paths += len(by_ocg[ocg]) - len(kept)
+            # …y la misma línea dibujada dos veces con el linetype desfasado (los
+            # guiones de una copia sobre los huecos de la otra): una sola tinta
+            kept, n_trim = dupink_mod.trim_repeated_ink(kept, geom._Rect)
+            n_dup_paths += n_trim
             by_ocg[ocg] = kept
         if n_dup_paths:
-            warnings.append(f"Trazos repetidos (idénticos, en la misma capa): {n_dup_paths} — se usan una sola vez.")
+            warnings.append(f"Trazos repetidos (idénticos o superpuestos, en la misma capa): {n_dup_paths} "
+                            "— se usan una sola vez.")
         dup_of = (duplicate_ocgs(by_ocg, utility in DEDUP_ADD_SUFFIX_UTILITIES)
                   if utility in DEDUP_OCG_UTILITIES else {})
         for ocg, (keep, own) in dup_of.items():
@@ -1037,6 +1047,11 @@ def recognize_page(
             warnings.append(f"Anillos de buzón dibujados en la capa de la línea: {n_rings} — se toman "
                             "como contorno de la estructura, no como tubería.")
         geom_opts = UTILITY_GEOM_OPTIONS.get(utility, geom.GeomOptions())
+        contacts = contacts_mod.source_contacts(
+            by_ocg, lambda paths: ink_strokes(paths, lambda q: q))
+        for ocg, points in contacts.items():
+            if points and by_ocg[ocg]:
+                by_ocg[ocg][0] = dict(by_ocg[ocg][0], contact_pts=[q for q, _u in points])
         results: List[Tuple[bool, str, object]] = []
         for ocg, paths in sorted(by_ocg.items()):
             results.append((is_abandoned_ocg(ocg), ocg, geom.reconstruct(paths, vault_paths, geom_opts)))
@@ -1108,7 +1123,13 @@ def recognize_page(
                         u1 = _unit(opts[m][0] - opts[m - 1][0], opts[m][1] - opts[m - 1][1])
                         u2 = _unit(opts[m + 1][0] - opts[m][0], opts[m + 1][1] - opts[m][1])
                         if math.degrees(math.acos(max(-1.0, min(1.0, u1[0] * u2[0] + u1[1] * u2[1])))) <= FILLET_DIR_DEG:
-                            out[key] = _unit(u1[0] + u2[0], u1[1] + u2[1]); break
+                            # si un lado es la primera cuerda de una CURVA, la línea que
+                            # pasa es la del lado recto (el promedio la torcía hasta 3.5°:
+                            # DU10 h.10, «Y» de curvas que baja a una vertical)
+                            c1, c2 = o.kinds[m - 1] == "curve", o.kinds[m + 1] == "curve"
+                            out[key] = (u2 if c1 and not c2 else u1 if c2 and not c1
+                                        else _unit(u1[0] + u2[0], u1[1] + u2[1]))
+                            break
                     if key in out:
                         break
             return out
@@ -1167,6 +1188,7 @@ def recognize_page(
                        for a, b in zip(st, st[1:])]
             g_polys = ends_mod.trim_inkless_tails(g.polylines, ink_pdf, g.pattern, getattr(g, "glyphs", ()),
                                                   geom.Polyline)
+            g_polys = contacts_mod.insert_contacts(g_polys, contacts.get(ocg, ()), geom.Polyline)
             joined = routes_mod.build_routes(g_polys, g.pattern)
             raw = [routes_mod.Route(pl, 1, [i]) for i, pl in enumerate(g_polys)]
             joined = [routes_mod.Route(p, r.n_segments if k == 0 else 0, r.members)
@@ -1252,6 +1274,11 @@ def recognize_page(
                                through_r, ink_r[rid], st_r[rid], arcs_r[rid], lines_r[rid], thr_ink_r, cut_r)
                 if rec_pl is not None:
                     polylines_raw.append(rec_pl)
+            if g.pattern is not None:
+                for variants in (polylines_joined, polylines_raw):
+                    text_gaps_mod.connect_text_gaps(
+                        [p for p in variants if p.layer_ocg == ocg], glyphs_px,
+                        g.pattern.glyph_bridge*zoom, zoom)
             uncovered_px += [(px(d.a), px(d.b)) for d in g.uncovered]
             offpattern_px += [[px(p) for p in pl.pts] for pl in g.offpattern]
             n_dashes += g.n_dashes; n_glyphs += g.n_glyphs
@@ -1460,7 +1487,8 @@ def ink_strokes(paths, px) -> List[List[Tuple[float, float]]]:
             if it[0] == "l":
                 seq = [it[1], it[2]]
             elif it[0] == "c":
-                seq = [it[1], it[2], it[3], it[4]]
+                from recognition_bezier import flatten_cubic
+                seq = flatten_cubic([(float(q[0]), float(q[1])) for q in it[1:5]])
             else:
                 continue
             xy = [px((float(q.x), float(q.y))) if hasattr(q, "x") else px((float(q[0]), float(q[1]))) for q in seq]
@@ -1472,7 +1500,20 @@ def ink_strokes(paths, px) -> List[List[Tuple[float, float]]]:
                 pts = list(xy)
         if len(pts) >= 2:
             out.append(pts)
-    return out
+    # A CAD path may draw one branch to a structure, then reverse over the
+    # shared straight leg to draw another branch. They are independent traces
+    # for assignment/fitting, even though the PDF stores one continuous path.
+    strokes = []
+    for pts in out:
+        start = 0
+        for i in range(1, len(pts)-1):
+            a,b,c = pts[i-1:i+2]
+            u,v = _unit(b[0]-a[0],b[1]-a[1]), _unit(c[0]-b[0],c[1]-b[1])
+            if u[0]*v[0]+u[1]*v[1] < -0.95:
+                strokes.append(pts[start:i+1])
+                start = i
+        strokes.append(pts[start:])
+    return strokes
 
 
 def strokes_by_polyline(strokes, polys, tol):
@@ -1814,6 +1855,20 @@ def _fit_circle_tangent(members, C, ua, ub, s0):
 
 def fit_fillets(pts, kinds, tol_px: float = 1.0, tan_tol: float = None, debug=None, through_dirs=None,
                 ink=None, strokes=None, arcs=None, ink_lines=None, through_ink=None):
+    """Shared curve reconstruction: circular fillets plus bounded source tracing.
+
+    Continuous major/variable-radius curves are subdivided only where the
+    regular fit fails the source-ink precision check. All profiles use this
+    same entry point and the same editor-compatible geometry.
+    """
+    return trace_mod.fit_continuous(
+        pts, kinds, _fit_fillets, tol_px=tol_px, tan_tol=tan_tol, debug=debug,
+        through_dirs=through_dirs, ink=ink, strokes=strokes, arcs=arcs,
+        ink_lines=ink_lines, through_ink=through_ink)
+
+
+def _fit_fillets(pts, kinds, tol_px: float = 1.0, tan_tol: float = None, debug=None, through_dirs=None,
+                ink=None, strokes=None, arcs=None, ink_lines=None, through_ink=None):
     """Sustituye cada codo por su esquina C (intersección de las rectas que
     llegan y salen) con kind «fillet», y guarda A/B (puntos de tangencia),
     centro y radio. Nada se inventa: el arco es EXACTAMENTE un trazo curvo del
@@ -1966,6 +2021,10 @@ def fit_fillets(pts, kinds, tol_px: float = 1.0, tan_tol: float = None, debug=No
             if cover < FILLET_INK_COVER:
                 if debug is not None: debug.append((lo, hi, 'sin tinta CURVA sobre el arco', ia, ib, round(cover, 2)))
                 return None
+        if ink_lines and chain_mod.straight_off_arc(ink_lines, (cx, cy), r, A, B, pts, f_px):
+            # el arco pasa por encima de una RECTA de tinta de esta línea (DU10 h.10)
+            if debug is not None: debug.append((lo, hi, 'tinta recta dentro del arco', ia, ib))
+            return None
         return (lo, hi, C, A, B, (cx, cy), r, ia, ib, node_a, node_b, tol_use > tol_px, dev,
                 bool(free_a), bool(free_b))
 
@@ -2151,19 +2210,32 @@ def fit_fillets(pts, kinds, tol_px: float = 1.0, tan_tol: float = None, debug=No
         # 2.ª pasada: arcos de la TINTA que la 1.ª no cubrió (sin tocar sus vértices)
         groups = arcs_mod.group_arcs(arcs, pts, f_px)
 
-        def _explained(g):
-            """¿Un codo de la 1.ª pasada ya dibuja este arco? (tinta sobre su círculo)"""
-            for e in plan:
-                (cx, cy), r = e[5], e[6]
-                if sum(1 for q in g.pts if abs(math.hypot(q[0] - cx, q[1] - cy) - r) <= 1.5 * f_px) >= 0.5 * len(g.pts):
-                    return True
-            return False
-        groups = [g for g in groups if not _explained(g)]
-        if groups:
-            extra, ink_moves = arc_plan.ink_fillet_plan(pts, kinds, groups, ink_lines or [],
-                                                        [(e[7], e[8], e[2], e[3], e[4]) for e in plan],
-                                                        through_ink or through_dirs, f_px, debug)
-            plan = sorted(plan + extra, key=lambda e: e[0])
+        def _run_ink(base):
+            """Plan de la 2.ª pasada con los codos `base` de la 1.ª ya puestos: solo los
+            arcos de tinta que ninguno dibuja (tinta sobre su círculo Y dentro de A→B)."""
+            free = [g for g in groups if not any(chain_mod.entry_explains(e, g, f_px) for e in base)]
+            if not free:
+                return [], {}
+            return arc_plan.ink_fillet_plan(pts, kinds, free, ink_lines or [],
+                                            [(e[7], e[8], e[2], e[3], e[4]) for e in base],
+                                            through_ink or through_dirs, f_px, debug, all_groups=groups)
+        # Un codo de la 1.ª pasada que se queda CORTO (la tinta curva de su círculo
+        # sigue pasada una tangencia: tomó por recta una cuerda de la propia curva,
+        # DU06 h.4 drenaje r≈145 pt) se rehace con la tinta; si la 2.ª pasada no lo
+        # logra, se conserva (mejor medio arco que ninguno).
+        short = [e for e in plan if chain_mod.is_short(e, groups, f_px)]
+        base = [e for e in plan if e not in short]
+        extra, ink_moves = _run_ink(base)
+        keep = [e for e in short
+                if not all(any(chain_mod.entry_explains(x, g, f_px) for x in extra)
+                           for g in chain_mod.groups_on(e, groups, f_px))]
+        if keep:
+            if debug is not None: debug.append(("tinta", "codo corto sin reemplazo", len(keep)))
+            base = sorted(base + keep, key=lambda e: e[0])
+            extra, ink_moves = _run_ink(base)
+        elif short and debug is not None:
+            debug.append(("tinta", "codo corto rehecho", len(short)))
+        plan = sorted(base + extra, key=lambda e: e[0])
     if not plan:
         if arcs is not None:
             kinds = arcs_mod.relabel_false_curves(pts, kinds, arcs, f_px)

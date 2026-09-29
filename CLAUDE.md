@@ -24,6 +24,18 @@ alcantarillado, drenaje, gas, eléctrico, telecom). Todo en **unidades imperiale
     usa el compositor para pantallas pequeñas)).
   - `ui_common.py` — constantes/helpers de UI compartidos (`DOWNLOADS`, estilos de
     botón, `layer_qcolor`, `swatch_icon`, …). Sin estado; los usa toda la app.
+  - `busy.py` — capa «Cargando…» (pedido del usuario 2026-09-29: que un paso lento no
+    parezca congelado). `BusyOverlay` = hijo que tapa una ventana o una vista (atenúa,
+    come ratón/teclado/atajos y el cierre, tarjeta con indicador giratorio + texto +
+    detalle + barra i/n); `with busy(widget, texto):` para trabajo en el hilo de la UI
+    (se pinta ANTES de empezar; `step()` repinta entre pasos: fitz no suelta el hilo) y
+    `overlay_for(w).begin/end` para trabajo en otro hilo (reconocimiento, con
+    `RecognitionWorker.progress` por utilidad; ahí `step(pump=False)`). Anidable (pila de
+    mensajes). `Main._busy/_unbusy` la usan (abrir PDF/proyecto, guardar, cargar hoja).
+    En el asistente: abrir el compositor (sus miniaturas ya se cargan de a una con un
+    QTimer), cambiar de hoja/tomar área/agregar PDF, armar la hoja compuesta, leer capas,
+    ◀ ▶ de «Capas» (y el re-render al marcar capas, solo si el anterior tardó >0.25 s),
+    reconocer, preparar la vista previa e importar. Paso nuevo lento → envolverlo igual.
   - `workers.py` — hilos de fondo (`PipelineWorker`, `RecognitionWorker`).
   - `recognition.py` + `recognition_dialog.py` — asistente al abrir un PDF
     vectorial: componer hoja → capas → reconocer (perfiles Eléctrico, Drenaje, Agua y
@@ -202,6 +214,53 @@ alcantarillado, drenaje, gas, eléctrico, telecom). Todo en **unidades imperiale
     sin cambios salvo los ramales recortados. En la hoja compuesta DU06 13+14 alineada no
     queda ningún corte en la costura (las líneas se unen antes, en el núcleo). Tests:
     `tests/test_recognition_ends.py`.
+  - **Reporte DU06 h.4 (2026-09-29, cuatro casos, TODAS las utilidades)**:
+    `recognition_dupink.py` (PURO) — la MISMA línea dibujada dos veces en la misma capa
+    con el linetype desfasado (banco de ductos `N-COMM-DUCT-BANK-PL`: dos entidades
+    superpuestas; salían dos polilíneas encimadas con T y empalmes inventados, «la línea
+    está doble»). `trim_repeated_ink` (en `recognize_page`, tras `dedup_paths`): de los
+    trazos más cortos se recorta lo que corre SOBRE un trazo más largo de la capa (≤0.25
+    pt, ≥2 pt de solape; recto con recto ±1.5°; cuerda de arco con cuerda de arco ±10° y
+    SOLO si giran al mismo lado —dos curvas de una «Y» nacen tangentes y van ~3 pt a
+    <0.25 pt: DU10 h.5—; una cuerda de arco sobre un guión recto es una curva que llega
+    TANGENTE, DU08 h.26: no se toca); lo que queda es lo que la otra copia pone en los
+    huecos. En un linetype normal dos trazos de la capa nunca se solapan. Auditoría de
+    solapes (4 PDFs): DU06 h.4/5/11, LABOE h.5, borde del cajetín de DU10 en capas de
+    utilidad y solapes chicos. Núcleo (`resolve_nodes`): la unión DE FRENTE con una letra
+    del linetype en el hueco (`letter_in_gap`) vale en todas las utilidades (antes solo
+    `precise_junctions`), también entre dos corridas «continuas» (guiones de 144 pt en
+    una capa de 50 pt) si hay letra en medio o se TOCAN de frente: la «TE» bajo el texto
+    «105+00» cortaba la línea. Fuera de `precise_junctions`, si el hueco supera
+    `join_gap` esa unión («bend_letter») se resuelve DESPUÉS de las esquinas: la línea de
+    gas que rodea un símbolo tiene su «g» en el hueco y la recta de frente la cruzaba sin
+    tinta (LABOE h.26). `recognition_arc_chain.py` (PURO): curva en «S» sin recta entre
+    medio (`common_tangent`: tangente INTERIOR a dos arcos seguidos que giran al revés,
+    cada uno con ≥3 pt de arco, opción de recta de `ink_fillet_plan`; los dos codos
+    comparten el ancla en la inflexión, `_place` tolera ≤1 pt de cruce; NO para arcos del
+    mismo giro: el aplanado mezcla la punta de una recta con la primera cuerda del arco y
+    daba curvas compuestas falsas, `-D` de h.4 r=45→77); `merge_same_circle` (en
+    `group_arcs`): grupos seguidos del mismo giro a ≤60 pt que un círculo ajusta (RMS
+    ≤0.08, máx ≤0.5) con radio coherente con el de cada uno (÷/×1.5) son un arco (con RMS
+    0.2 y sin la coherencia juntaba dos codos r=14.5 a 63 pt en uno de r=126 —DU10 h.9— o
+    dos arcos r 313/286 que ya no eran tangentes a sus rectas —DU08 h.25—); `explains`
+    (`fit_fillets._run_ink`): un codo explica un grupo solo si la tinta cae DENTRO de su
+    arco A→B (antes bastaba el círculo); `is_short`/`overshoot`: un codo de la 1.ª pasada
+    cuya tinta curva sigue sobre su círculo pasada una tangencia (se aparta >0.75 pt de la
+    recta: tomó por recta una cuerda de la curva, drenaje r≈145 pt de h.4 a medias) se
+    rehace con la 2.ª pasada; si ésta no lo reemplaza, se conserva; `straight_off_arc`
+    (1.ª pasada, `_accept`): un arco que pasa por encima de un guión RECTO (≥8 pt: no el
+    brazo de una letra) de ESTA línea (≤1 pt de la polilínea, ±10°) se rechaza como en la
+    2.ª pasada (DU10 h.10: «Y» de curvas que baja a una vertical, el arco se comía 13 pt
+    de vertical y salía de 103°). `_through_dirs`: si un lado del vértice de paso es la
+    primera cuerda de una curva, la línea que pasa es la del lado recto (el promedio la
+    torcía 3.5°). Auditoría final (4 PDFs, 6 utilidades): eléctrico 986→1019 codos
+    (imprecisos p90>0.5: 70→55), telecom 501→529, alcantarillado 8→16, drenaje 6→7;
+    «sin tinta» y «V» iguales en las 6; los codos que desaparecen están revisados (el
+    mismo arco rehecho mejor, o arcos sin tinta curva). Pendiente conocido:
+    un ramal cuya entidad CAD arranca ENCIMA de la línea principal (DU06 h.4 «554+00»,
+    24 pt) sale con el tee en ese punto y no en su tangencia (coincide exacto, no se ve
+    doble). Tests: `tests/test_curvas_encadenadas.py`, `tests/test_curvas_editor.py`
+    (DU06 h.4 telecom/drenaje).
   - `recognition_summary.py` (PURO) + `recognition_summary_view.py` — resumen
     VISUAL de la vista previa (lo pidió el usuario: «evitar mucho texto»):
     `classify_warning` pasa cada aviso de `recognize_page` a `Notice` (nivel

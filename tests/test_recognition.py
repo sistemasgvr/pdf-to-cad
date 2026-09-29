@@ -827,8 +827,12 @@ def test_hoja3_arcos_de_curva_compuesta_sobre_la_tinta():
     «d» de "sd" en drenaje) y antes de que `classify_paths` reconociera esa
     asta como parte de la letra (ver `GLYPH_STROKE_MIN_REPEAT`), esos guiones
     sueltos rompían la topología cerca de (908,1123) y tapaban un codo real
-    (arco sobre tinta curva verificada, r≈77 pt) — quedaba como esquina."""
-    _audit_fillets(2, 12, strict_tangents=False)
+    (arco sobre tinta curva verificada, r≈77 pt) — quedaba como esquina.
+
+    13, no 12 (2026-09-29, curvas en «S»): la curva en «S» que entra a la bóveda
+    en (917, 1408) —dos arcos que giran al revés sin recta entre medio— era toda
+    cuerdas; ahora su arco de abajo es un codo (tangente común con el de arriba)."""
+    _audit_fillets(2, 13, strict_tangents=False)
 
 
 @pytest.mark.skipif(not PDF.is_file(), reason="PDF de prueba DU06 no está en el repo")
@@ -850,7 +854,7 @@ def test_hoja3_codos_no_dependen_del_zoom_de_reconocimiento():
 
     at_one = fillets_at(1.0)
     at_two = fillets_at(2.0)
-    assert len(at_one) == len(at_two) == 12
+    assert len(at_one) == len(at_two) == 13
     for expected, actual in zip(at_one, at_two):
         assert actual == pytest.approx(expected, abs=0.05)
 

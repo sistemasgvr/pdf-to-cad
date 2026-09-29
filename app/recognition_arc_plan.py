@@ -10,6 +10,7 @@ from __future__ import annotations
 import math
 from typing import Sequence
 
+import recognition_arc_chain as chain_mod
 from recognition_arcs import (ARC_CORRIDOR_PT, ARC_R_MIN_PT, STRAIGHT_MIN_PT, ArcGroup, Pt,
                               _cumlen, _seg_dist, _tangent_at, _unit, arc_cover,
                               fit_circle_line_node, fit_circle_two_nodes, project)
@@ -34,15 +35,18 @@ SOFT_DROP_KINDS = ("bend", "corner", "curve")
 
 
 def ink_fillet_plan(pts, kinds, groups: Sequence[ArcGroup], straights, taken, through_dirs,
-                    f: float = 1.0, debug=None):
+                    f: float = 1.0, debug=None, all_groups: Sequence[ArcGroup] = None):
     """Codos de los arcos de tinta que la 1.ª pasada no cubrió: (entradas del plan
     de `fit_fillets`, mismo formato; {índice: posición nueva} de los anclas).
     Rectas de cada lado = RECTAS DE TINTA (todos sus guiones), la línea que PASA por
-    el extremo, o el NODO donde muere el arco; gana el círculo de menor RMS contra la
-    tinta que cumple tangencias y cobertura. Ancla = último vértice antes de la
-    tangencia (primero después), llevado sobre la recta de tinta; dos codos con la
-    misma recta comparten ancla entre sus tangencias (también con un codo de la 1.ª
-    pasada, `taken` = [(ia, ib, C, A, B)], cuyos vértices no se tocan salvo ese)."""
+    el extremo, el NODO donde muere el arco, o —si el arco sigue en OTRO arco que gira
+    al revés sin tinta recta entre medio (curva en «S»)— la tangente común a los dos
+    círculos (`recognition_arc_chain`, vecinos entre `all_groups`); gana el círculo
+    de menor RMS contra la tinta que cumple tangencias y cobertura. Ancla = último
+    vértice antes de la tangencia (primero después), llevado sobre la recta de tinta;
+    dos codos con la misma recta comparten ancla entre sus tangencias (también con un
+    codo de la 1.ª pasada, `taken` = [(ia, ib, C, A, B)], cuyos vértices no se tocan
+    salvo ese)."""
     import recognition as R        # perezoso: recognition importa este módulo
     n = len(pts)
     if n < 2 or not groups:
@@ -146,8 +150,15 @@ def ink_fillet_plan(pts, kinds, groups: Sequence[ArcGroup], straights, taken, th
 
     def _options(g, side):
         """[('line', P, u, libre, índice|None, punta) | ('node', Q, None, False, k, None)];
-        u = sentido de avance; punta = extremo de la recta de tinta del lado del arco."""
+        u = sentido de avance; punta = extremo de la recta de tinta del lado del arco
+        (None en la TANGENTE COMÚN con el arco vecino: curva en «S»)."""
         res = [("line", P, u, False, None, near) for P, u, near in _ink_lines(g, side)]
+        h = neigh.get(id(g), (None, None))[0 if side < 0 else 1]
+        if h is not None:
+            ct = chain_mod.common_tangent(h, g, f) if side < 0 else chain_mod.common_tangent(g, h, f)
+            if ct is not None:
+                u, T1, T2 = ct
+                res.append(("line", T2 if side < 0 else T1, u, False, None, None))
         end = 0 if side < 0 else n - 1
         E = g.E0 if side < 0 else g.E1
         d = _through(end)
@@ -412,7 +423,13 @@ def ink_fillet_plan(pts, kinds, groups: Sequence[ArcGroup], straights, taken, th
                        and (q[0] - prev["B"][0]) * u1[0] + (q[1] - prev["B"][1]) * u1[1] >= -0.05 * f
                        and (geo["A"][0] - q[0]) * u1[0] + (geo["A"][1] - q[1]) * u1[1] >= -0.05 * f)
             soft_ok = m not in locked and kinds[m] in SOFT_DROP_KINDS
-            if not (same and gap >= -0.05 * f and (soft_ok or node_ok) and m < ib):
+            # tangente común de una curva en «S» sin recta entre medio: las dos
+            # tangencias caen en el mismo punto y los ajustes pueden cruzarlas un poco
+            # (el editor lo absorbe al recalcular con el ancla compartido)
+            oa = geo["oa"]
+            gap_min = (-chain_mod.TANGENT_OVERLAP_PT if oa[0] == "line" and oa[5] is None and not oa[3]
+                       else -0.05) * f
+            if not (same and gap >= gap_min and (soft_ok or node_ok) and m < ib):
                 if debug is not None: debug.append(("tinta", "choca con el codo anterior"))
                 return None
             ia = m
@@ -432,6 +449,7 @@ def ink_fillet_plan(pts, kinds, groups: Sequence[ArcGroup], straights, taken, th
             return None
         return ia, qa, ib, qb
 
+    neigh = chain_mod.neighbours(all_groups or groups, _straight_between, slip, LEG_INK_SEG_MIN_PT * f, f)
     entries, moves = [], {}
     prev = None
     for g in sorted(groups, key=lambda g: g.s0):

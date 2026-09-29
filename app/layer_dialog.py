@@ -30,9 +30,13 @@ vive en ``pdf_layers.py`` (puro, testeable). Aquí solo va la UI.
 """
 from __future__ import annotations
 
+import time
+
 from PySide6 import QtCore, QtGui, QtWidgets
 
 import fitz
+
+from busy import busy
 
 from i18n import t as _tr
 from icons import icon as _icon
@@ -49,6 +53,9 @@ from wizard_widgets import StepBar, OpacityButton, wizard_header, wizard_footer
 _PREVIEW_ZOOM = 3.0
 # Espera tras el último clic en una casilla antes de re-renderizar (ms).
 _RERENDER_DELAY_MS = 150
+# Un re-render más lento que esto muestra «Actualizando la vista…» en el
+# siguiente (en hojas rápidas la capa solo parpadearía).
+_SLOW_RENDER_S = 0.25
 # Ancho del panel derecho; la vista previa toma el resto.
 _PANEL_WIDTH = 440
 # Roles de datos de las filas del árbol.
@@ -104,6 +111,7 @@ class SheetLayersDialog(QtWidgets.QDialog):
         # `layers` permite reutilizar el listado ya calculado por quien nos llama.
         self._layers = layers if layers is not None else pdf_layers.page_layers(doc, page_index)
         self._pix_item = None
+        self._slow_render = False          # el último render tardó: el próximo avisa
         self._groups: dict[str, QtWidgets.QTreeWidgetItem] = {}
         # estado por capa de una utilidad apagada, para reponerlo al encenderla
         self._util_memory: dict[str, dict[str, bool]] = {}
@@ -238,7 +246,7 @@ class SheetLayersDialog(QtWidgets.QDialog):
         self._timer = QtCore.QTimer(self)
         self._timer.setSingleShot(True)
         self._timer.setInterval(_RERENDER_DELAY_MS)
-        self._timer.timeout.connect(self._render)
+        self._timer.timeout.connect(self._render_live)
 
         self._fit_pending = True
         self._fill_list()
@@ -469,6 +477,11 @@ class SheetLayersDialog(QtWidgets.QDialog):
         if not (0 <= idx < self._doc.page_count) or idx == self._page_index:
             return
         self._timer.stop()
+        with busy(self, _tr("Cargando hoja {n}…").format(n=idx + 1),
+                  _tr("Leyendo sus capas")):
+            self._load_sheet(idx)
+
+    def _load_sheet(self, idx: int):
         # La visibilidad es del documento: lo marcado hasta ahora se conserva y
         # `page_layers` lo lee de ahí; solo cambian los conteos de trazos.
         pdf_layers.set_hidden(self._doc, self.hidden_names())
@@ -487,7 +500,17 @@ class SheetLayersDialog(QtWidgets.QDialog):
         self._render(first=True)
 
     # ── render ──────────────────────────────────────────────────────────────
+    def _render_live(self):
+        """Re-render tras marcar/desmarcar capas; si la hoja es lenta, con aviso
+        sobre la vista (el panel queda a la vista, la hoja se atenúa)."""
+        if self._slow_render and self.isVisible():
+            with busy(self.view, _tr("Actualizando la vista…")):
+                self._render()
+        else:
+            self._render()
+
     def _render(self, first: bool = False):
+        t0 = time.perf_counter()
         pdf_layers.set_hidden(self._doc, self.hidden_names())
         z = _PREVIEW_ZOOM
         pix = self._page.get_pixmap(matrix=fitz.Matrix(z, z), alpha=False)
@@ -511,6 +534,7 @@ class SheetLayersDialog(QtWidgets.QDialog):
             self.minimap.set_thumbnail(pm, QtCore.QRectF(pm.rect()))   # refleja las capas visibles
         if first:
             self._fit_view()
+        self._slow_render = time.perf_counter() - t0 > _SLOW_RENDER_S
 
     # ── cierre ──────────────────────────────────────────────────────────────
     def _go_back(self):
@@ -538,12 +562,14 @@ def choose_sheet_layers(parent, doc, page_index: int, layout=None, recognition_u
     `can_go_back`), o None si
     cancela (visibilidad restaurada en ambos casos). `layout`: disposición de las
     hojas de la página compuesta para el minimapa (ver composite.piece_layout)."""
-    layers = pdf_layers.page_layers(doc, page_index)
-    if not layers:
-        # Hoja sin capas OCG (PDF aplanado): no hay nada que elegir.
-        return [], page_index, recognition.normalize_utilities(recognition_utilities)
-    dlg = SheetLayersDialog(parent, doc, page_index, layers=layers, layout=layout,
-                            recognition_utilities=recognition_utilities, can_go_back=can_go_back)
+    with busy(parent, _tr("Leyendo las capas de la hoja…"),
+              _tr("Contando los trazos de cada capa")):
+        layers = pdf_layers.page_layers(doc, page_index)
+        if not layers:
+            # Hoja sin capas OCG (PDF aplanado): no hay nada que elegir.
+            return [], page_index, recognition.normalize_utilities(recognition_utilities)
+        dlg = SheetLayersDialog(parent, doc, page_index, layers=layers, layout=layout,
+                                recognition_utilities=recognition_utilities, can_go_back=can_go_back)
     if dlg.exec() != QtWidgets.QDialog.Accepted:
         return LAYERS_BACK if dlg.went_back else None
     return dlg.hidden_names(), dlg.page_index(), dlg.recognition_utilities()

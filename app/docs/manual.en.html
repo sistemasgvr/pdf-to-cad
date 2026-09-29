@@ -105,6 +105,10 @@ drawing.</p>
 steps can be clicked to <b>go back</b> without losing your work. At the bottom, across the whole
 width, are the view options (such as <b>Opacity</b>) and the <span class="btn">Cancel</span> and
 <span class="btn">Continue</span> buttons.</p>
+<p>When a step takes a few seconds (large sheets, several pieces, many utilities), the window or
+the panel being updated is dimmed and a <b>«Loading…»</b> card appears with a spinning indicator
+and what the app is doing (for example «Recognizing… · Storm Drain (3 of 6)»). There is no need to
+click anything: the card goes away by itself when it finishes.</p>
 
 <h2>1. Compose work sheet</h2>
 <ol>
@@ -163,12 +167,17 @@ width, are the view options (such as <b>Opacity</b>) and the <span class="btn">C
 <li><b>Abandoned</b> lines are imported marked <b>(AB)</b>: those on the «-A» layer with «/»
     marks, and any line with double «//» marks.</li>
 <li>Curved <b>bends</b> on the plan are imported with their real radius, including very open
-    curves, small rounded corners and a curve that leaves another line or ends loose.
+    curves, small rounded corners, a curve that leaves another line or ends loose and two curves
+    <b>joined</b> with no straight segment between them (an «S» curve: one bend per curve, touching
+    at the inflection point). Each bend covers its whole curve on the plan, end to end.
     A <b>dashed</b> bend is approximate (on the plan it is not an exact arc): check it.</li>
 <li>Each line <b>ends where its ink ends</b>: if on the plan it stops in mid-air it is not joined
     to the neighboring line. If it stops at its letter (or at a gap) right before the edge of the
     view, it reaches the plan's <b>cut</b>; on a composite sheet, lines that cross the seam still
-    run from one piece to the other.</li>
+    run from one piece to the other. A line whose letter is covered by a text label on the plan
+    stays continuous.</li>
+<li>If the plan has the <b>same line drawn twice</b> on the same layer (overlapping, with shifted
+    dashes), <b>a single</b> line is imported.</li>
 <li><b>Water</b> and <b>gas</b> come in without boxes (they are pressure networks). <b>Sewer</b>
     and storm drain come in with their manholes; electrical and <b>telecom</b>, with a box only
     where the plan has a vault.</li>

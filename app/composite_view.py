@@ -273,6 +273,11 @@ class CompositeView(ZoomPanView):
         # arrastre que junta dos piezas: ahí la UI se trababa un momento.
         QtCore.QTimer.singleShot(0, self._warm_seams)
 
+    def warm_seams_now(self):
+        """Lo mismo que el `_warm_seams` diferido de `rebuild`, pero ya: quien
+        muestra una capa «Cargando…» lo corre bajo ella (queda en caché)."""
+        self._warm_seams()
+
     def _warm_seams(self):
         if not self.pieces_ready() or any(getattr(d, "is_closed", False) for d in self.docs):
             return

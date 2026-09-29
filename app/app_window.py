@@ -22,6 +22,7 @@ from geometry import qimage_to_gray
 # arquitectura). El lienzo, los widgets reutilizables y el worker de fondo.
 from canvas import Canvas
 from widgets import InlineEdit, _SegInvSpinBox, _NoWheelFilter
+import busy as _busy_mod
 from workers import PipelineWorker, RecognitionWorker, OrganizedRecognitionWorker
 import dialogs
 import recognition_dialog
@@ -1039,7 +1040,7 @@ class Main(QtWidgets.QMainWindow):
         ya reconoció una hoja de este PDF, la nueva se reconoce con las mismas
         capas ocultas y roles (mismo PDF = mismas capas) y se muestra la vista
         previa para importar."""
-        self.page_idx = idx; self._load_page(idx)
+        self._load_sheet_busy(idx)
         if self.composite is not None and self.composite.is_single_full_page():
             self.composite.pieces[0].page = idx
         if self._recog_ready and self.pdf_path:
@@ -1496,9 +1497,10 @@ class Main(QtWidgets.QMainWindow):
               else "Rehacer (Ctrl+Shift+Z) — {n} pasos", fmt={"n": r})
 
     # ─────────────────────────── abrir ───────────────────────────
-    def _busy(self, m="Procesando…"):
-        QtWidgets.QApplication.setOverrideCursor(QtCore.Qt.WaitCursor); self._info(m); QtWidgets.QApplication.processEvents()
-    def _unbusy(self): QtWidgets.QApplication.restoreOverrideCursor()
+    def _busy(self, m="Procesando…", detail=""):
+        """Capa «Cargando…» sobre la ventana (busy.py): se ve que la app trabaja."""
+        self._info(m); _busy_mod.overlay_for(self).begin(m, detail)
+    def _unbusy(self): _busy_mod.overlay_for(self).end()
 
     def open_path(self, path):
         low = path.lower()
@@ -1642,7 +1644,8 @@ class Main(QtWidgets.QMainWindow):
 
         # Clasificación automática (página 0) — misma heurística que digitize.
         import detect as _detect
-        kind, info = _detect.classify_page(self.doc[0])
+        with _busy_mod.busy(self, _tr("Analizando el PDF…")):
+            kind, info = _detect.classify_page(self.doc[0])
         n_paths = info.get("n_paths", 0)
         img_cover = float(info.get("max_image_cover") or 0.0)
 
@@ -1761,25 +1764,32 @@ class Main(QtWidgets.QMainWindow):
             self._scale_override = None
             self.page_idx = piece.page if piece else 0
         else:
-            docs = [fitz.open(stream=e["data"], filetype="pdf") for e in self.src_pdfs]
-            try:
-                for i, d in enumerate(docs):      # capas apagadas: sin trazos ni anclajes
-                    _pdf_layers.set_hidden(d, self.hidden_ocgs_by_source.get(str(i), ()))
-                bridges = composite_mod.compute_bridges(comp, docs)
-                built = composite_mod.build_document(comp, docs, self.hidden_ocgs_by_source, bridges)
-                data = built.tobytes(deflate=True); built.close()
-                sizes = lambda p: (docs[p.source][p.page].rect.width, docs[p.source][p.page].rect.height)
-                self._composite_layout = composite_mod.piece_layout(
-                    comp, sizes, [e.get("name", "") for e in self.src_pdfs])
-            finally:
-                for d in docs: d.close()
-            path = self._write_tmp_composite(data, suffix="_compuesta")
-            self.doc = fitz.open(path)     # reabrir: así fitz lee el catálogo de capas nuevo
-            self.work_pdf_path = path
-            self.hidden_ocgs = sorted(_pdf_layers.hidden_layers(self.doc))
-            self._scale_override = comp.target_scale()
-            self.page_idx = 0
+            with _busy_mod.busy(self, _tr("Armando la hoja compuesta…"),
+                                _tr("{n} piezas · vectores, capas y textos intactos").format(
+                                    n=len(comp.pieces))):
+                self._build_composite_doc(comp, _pdf_layers)
         self._load_sheet_busy(self.page_idx)
+
+    def _build_composite_doc(self, comp, _pdf_layers):
+        """Materializa la hoja compuesta como PDF temporal y la deja en `self.doc`."""
+        docs = [fitz.open(stream=e["data"], filetype="pdf") for e in self.src_pdfs]
+        try:
+            for i, d in enumerate(docs):      # capas apagadas: sin trazos ni anclajes
+                _pdf_layers.set_hidden(d, self.hidden_ocgs_by_source.get(str(i), ()))
+            bridges = composite_mod.compute_bridges(comp, docs)
+            built = composite_mod.build_document(comp, docs, self.hidden_ocgs_by_source, bridges)
+            data = built.tobytes(deflate=True); built.close()
+            sizes = lambda p: (docs[p.source][p.page].rect.width, docs[p.source][p.page].rect.height)
+            self._composite_layout = composite_mod.piece_layout(
+                comp, sizes, [e.get("name", "") for e in self.src_pdfs])
+        finally:
+            for d in docs: d.close()
+        path = self._write_tmp_composite(data, suffix="_compuesta")
+        self.doc = fitz.open(path)     # reabrir: así fitz lee el catálogo de capas nuevo
+        self.work_pdf_path = path
+        self.hidden_ocgs = sorted(_pdf_layers.hidden_layers(self.doc))
+        self._scale_override = comp.target_scale()
+        self.page_idx = 0
 
     def _write_tmp_composite(self, data, suffix=""):
         import tempfile
@@ -1986,15 +1996,13 @@ class Main(QtWidgets.QMainWindow):
         (sin ajuste manual = automático por nombre). Al terminar, `_recognition_done` muestra
         la vista previa. Lo usan el asistente y el cambio de hoja del editor."""
         utility_text = _recognition.utilities_label(self._recognition_utilities)
-        progress = QtWidgets.QProgressDialog(
-            _tr("Reconociendo {u}…").format(u=utility_text),
-            None, 0, 0, self)
-        progress.setWindowTitle(_tr("Reconocimiento"))
-        progress.setWindowModality(QtCore.Qt.WindowModal)
-        progress.setMinimumDuration(0)
-        progress.show()
-        QtWidgets.QApplication.processEvents()
-        self._recog_progress = progress
+        # Capa «Cargando…» sobre la ventana (la misma de todo el asistente): el
+        # trabajo va en otro hilo, así que el indicador gira mientras tanto.
+        self._end_recognition_busy()
+        self._recog_busy = _busy_mod.overlay_for(self)
+        self._recog_busy.begin(_tr("Reconociendo {u}…").format(u=utility_text),
+                               _tr("Hoja {n} · leyendo las líneas y estructuras de cada capa").format(
+                                   n=page_idx + 1))
         self._recog_worker = RecognitionWorker(
             self.work_pdf_path or self.pdf_path, page_idx, zoom=self.zoom,
             utilities=self._recognition_utilities,
@@ -2002,13 +2010,25 @@ class Main(QtWidgets.QMainWindow):
             roles_by_utility=self._layer_roles_by_utility,
             join_routes=self._join_routes, scale_ft_per_pt=self._scale_override)
         self._recog_worker.done.connect(self._recognition_done)
+        self._recog_worker.progress.connect(self._recognition_progress)
         self._recog_worker.start()
 
+    def _recognition_progress(self, i, n, utility):
+        ov = getattr(self, "_recog_busy", None)
+        if ov is not None and n > 1:
+            ov.step(detail=_tr("Hoja {p} · {u} ({i} de {n})").format(
+                p=self._recog_worker.page_index + 1, u=_tr(_recognition.utility_label(utility)),
+                i=i + 1, n=n),
+                done=i, total=n, pump=False)
+
+    def _end_recognition_busy(self):
+        ov = getattr(self, "_recog_busy", None)
+        self._recog_busy = None
+        if ov is not None:
+            ov.end()
+
     def _recognition_done(self, results, error):
-        prog = getattr(self, "_recog_progress", None)
-        if prog is not None:
-            prog.close()
-            self._recog_progress = None
+        self._end_recognition_busy()
         if error:
             QtWidgets.QMessageBox.warning(
                 self, _tr("Reconocimiento"),
@@ -2035,7 +2055,8 @@ class Main(QtWidgets.QMainWindow):
         self._join_routes = all(bool(getattr(result, "join_routes", True)) for result in results)
         page_index = results[0].page_index
         if action == recognition_dialog.PREVIEW_IMPORT:
-            self._import_recognized_pipes(results)
+            with _busy_mod.busy(self, _tr("Importando al editor…")):
+                self._import_recognized_pipes(results)
         elif action == recognition_dialog.PREVIEW_CHANGE_SHEET:
             # Flujo pedido: lista de hojas → capas → preview de la hoja nueva.
             if not self._wizard_sheet_flow(page_index):

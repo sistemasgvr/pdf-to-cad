@@ -22,6 +22,8 @@ import math
 from dataclasses import dataclass
 from typing import Dict, List, Sequence, Tuple
 
+import recognition_arc_chain as chain_mod
+
 # El plan de codos (rectas, nodos, ajuste tangente, anclas) vive en
 # `recognition_arc_plan.py`; este módulo solo LEE la tinta.
 
@@ -143,6 +145,7 @@ def arc_pieces(strokes: Sequence[Sequence[Pt]], f: float = 1.0, glyph_boxes=()):
     y corre pegada a la línea — no es curva del plano (DU06 h.4: un codo a través
     de «SS»)."""
     pieces: List[ArcPiece] = []
+    masked_pieces: List[ArcPiece] = []
     straights: List[Tuple[Pt, Pt]] = []
     pad = GLYPH_PAD_PT * f
     boxes = [(b[0] - pad, b[1] - pad, b[2] + pad, b[3] + pad) for b in glyph_boxes]
@@ -193,15 +196,48 @@ def arc_pieces(strokes: Sequence[Sequence[Pt]], f: float = 1.0, glyph_boxes=()):
                 cx, cy, r, rms, mx = fit
                 if (ARC_R_MIN_PT * f <= r <= ARC_R_MAX_PT * f and rms <= ARC_PIECE_RMS_PT * f
                         and mx <= 2.5 * ARC_PIECE_RMS_PT * f
-                        and abs(_sweep_deg(P, cx, cy)) >= ARC_PIECE_MIN_SWEEP_DEG
-                        and (not boxes or sum(in_glyph(p) for p in P) < 0.5 * len(P))):
-                    pieces.append(ArcPiece(list(P), cx, cy, r, rms))
-                    for m in range(k, j + 2):
-                        used[m] = True
+                        and abs(_sweep_deg(P, cx, cy)) >= ARC_PIECE_MIN_SWEEP_DEG):
+                    piece = ArcPiece(list(P), cx, cy, r, rms)
+                    if boxes and sum(in_glyph(p) for p in P) >= 0.5 * len(P):
+                        masked_pieces.append(piece)
+                    else:
+                        pieces.append(piece)
+                        for m in range(k, j + 2):
+                            used[m] = True
             k = j + 1
         for m in range(n - 1):
             if not used[m] and ch[m] >= STRAIGHT_MIN_PT * f:
                 straights.append((q[m], q[m + 1]))
+    # A slash/text bounding box can cover real curve ink underneath it.
+    # Recover that ink only when an unmasked neighbouring arc supports the
+    # SAME circle. Never turn an isolated glyph into a curve or use the
+    # recovered flattened chords as straight tangent legs.
+    recovered = set()
+    pending = list(masked_pieces)
+    while pending:
+        progress = False
+        for pc in list(pending):
+            if len(pc.pts) < 4:
+                continue
+            for seed in pieces:
+                if len(seed.pts) < 4 or not (1/1.5 <= pc.r/seed.r <= 1.5):
+                    continue
+                if min(math.dist(a, b) for a in (pc.pts[0], pc.pts[-1])
+                       for b in (seed.pts[0], seed.pts[-1])) > 12.0*f:
+                    continue
+                fit = circle_fit(pc.pts + seed.pts)
+                if (fit is None or fit[3] > 0.08*f or fit[4] > 0.15*f
+                        or not (1/1.2 <= fit[2]/seed.r <= 1.2)):
+                    continue
+                pieces.append(pc)
+                recovered.update(zip(pc.pts, pc.pts[1:]))
+                pending.remove(pc)
+                progress = True
+                break
+        if not progress:
+            break
+    if recovered:
+        straights = [(a, b) for a, b in straights if (a, b) not in recovered]
     return pieces, straights
 
 
@@ -321,18 +357,23 @@ def group_arcs(pieces: Sequence[ArcPiece], pts: Sequence[Pt], f: float = 1.0) ->
                 g["n"] += 1
                 continue
         groups.append({"pts": list(P), "chords": list(zip(P, P[1:])), "s0": s0, "s1": s1, "sign": sg, "n": 1})
+    def make(P, chords, s0, s1, n):
+        fit = circle_fit(P)
+        if fit is None:
+            return None
+        cx, cy, r, rms, _mx = fit
+        sw = _sweep_deg(P, cx, cy)
+        return ArcGroup(P, chords, cx, cy, r, rms, s0, s1, 1 if sw > 0 else -1, abs(sw), n)
     out: List[ArcGroup] = []
     for g in groups:
         if len(g["pts"]) < ARC_GROUP_MIN_PTS:
             continue
-        fit = circle_fit(g["pts"])
-        if fit is None:
-            continue
-        cx, cy, r, rms, _mx = fit
-        sw = _sweep_deg(g["pts"], cx, cy)
-        out.append(ArcGroup(g["pts"], g["chords"], cx, cy, r, rms, g["s0"], g["s1"],
-                            1 if sw > 0 else -1, abs(sw), g["n"]))
-    return out
+        ag = make(g["pts"], g["chords"], g["s0"], g["s1"], g["n"])
+        if ag is not None:
+            out.append(ag)
+    # dos grupos seguidos del mismo giro que un solo círculo ajusta son UN arco
+    # (un tramo corto junto a una inflexión sale con otro radio: DU06 h.4)
+    return chain_mod.merge_same_circle(out, circle_fit, make, f)
 
 
 # ── ajustes de círculo (los usa el plan de codos) ──

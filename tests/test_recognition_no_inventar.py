@@ -160,7 +160,10 @@ def test_du08_h21_una_sola_linea_llega_y_la_curva_muere_en_su_tinta():
     assert len(left_top) == 1, left_top
     # 2. ningún vértice en el punto inventado; la curva termina en T sobre la vertical
     assert not any(math.dist(p, (721.4, 911.0)) <= 2.0 for pts in pls for p in pts)
-    assert any(math.dist(pts[k], (719.1, 902.0)) <= 1.5 and math.dist(pts[k - 1], (719.2, 891.9)) <= 1.5
+    # (desde 2026-09-28 la curva es un CODO: el vértice anterior es su esquina, que
+    # queda sobre la vertical entre (719.2, 891.9) y la T)
+    assert any(math.dist(pts[k], (719.1, 902.0)) <= 1.5 and abs(pts[k - 1][0] - 719.2) <= 1.0
+               and 891.0 <= pts[k - 1][1] <= 901.0
                for pts in pls for k in range(1, len(pts)))
     # …y la diagonal sigue hasta el círculo (718.8, 925.4)
     assert any(math.dist(pts[0], (718.8, 925.4)) <= 1.5 or math.dist(pts[-1], (718.8, 925.4)) <= 1.5

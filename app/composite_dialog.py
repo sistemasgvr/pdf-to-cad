@@ -30,6 +30,7 @@ from i18n import t as _tr
 from icons import icon as _icon
 from sheet_crop_dialog import _CropView
 from ui_common import DOWNLOADS
+from busy import busy
 from widgets import CollapsiblePanel, maximize_on_show, GripSplitter
 from wizard_widgets import StepBar, wizard_header, wizard_footer
 import theme as _theme
@@ -150,6 +151,11 @@ class CompositeDialog(QtWidgets.QDialog):
         self._crop_timer.setSingleShot(True)
         self._crop_timer.setInterval(200)
         self._crop_timer.timeout.connect(self._apply_crop_edit)
+        self._thumb_queue: List[tuple] = []
+        self._thumb_timer = QtCore.QTimer(self)
+        self._thumb_timer.setSingleShot(True)
+        self._thumb_timer.setInterval(0)
+        self._thumb_timer.timeout.connect(self._next_thumb)
 
         self.setWindowTitle(_tr("Componer hoja de trabajo"))
         self.setWindowFlags(self.windowFlags() | QtCore.Qt.WindowMinimizeButtonHint
@@ -480,8 +486,15 @@ class CompositeDialog(QtWidgets.QDialog):
         self.lst_pages.blockSignals(True)
         self.lst_pages.clear()
         muted = QtGui.QColor(_theme.tokens().text_muted)
+        # Miniaturas de a una tras mostrar la lista (antes se renderizaban todas
+        # aquí: ~1.5 s con 19 hojas y el compositor tardaba en abrir).
+        self._thumb_queue = []
         for i in range(doc.page_count):
-            item = QtWidgets.QListWidgetItem(self._thumb(self._cur_source, i), _tr("Hoja {n}").format(n=i + 1))
+            key = (self._cur_source, i)
+            icon = self._thumb_cache.get(key) or self._thumb_placeholder(doc[i])
+            if key not in self._thumb_cache:
+                self._thumb_queue.append(key)
+            item = QtWidgets.QListWidgetItem(icon, _tr("Hoja {n}").format(n=i + 1))
             if not self._uses_layers(self._cur_source, i):
                 item.setText(_tr("Hoja {n} · sin capas").format(n=i + 1))
                 item.setForeground(muted)
@@ -493,6 +506,36 @@ class CompositeDialog(QtWidgets.QDialog):
         self.lst_pages.setCurrentRow(row)
         self.lst_pages.blockSignals(False)
         self._on_page_changed(row)
+        if self._thumb_queue:
+            self._thumb_timer.start()
+
+    def _thumb_placeholder(self, page) -> QtGui.QIcon:
+        """Recuadro del tamaño de la miniatura mientras se renderiza."""
+        w = _THUMB_W
+        h = max(1, int(round(w * page.rect.height / max(page.rect.width, 1.0))))
+        key = ("placeholder", h)
+        if key not in self._thumb_cache:
+            t = _theme.tokens()
+            pm = QtGui.QPixmap(w, h)
+            pm.fill(QtGui.QColor(t.surface_alt))
+            p = QtGui.QPainter(pm)
+            p.setPen(QtGui.QColor(t.border)); p.drawRect(0, 0, w - 1, h - 1)
+            p.end()
+            self._thumb_cache[key] = QtGui.QIcon(pm)
+        return self._thumb_cache[key]
+
+    def _next_thumb(self):
+        """Renderiza UNA miniatura pendiente (la UI sigue respondiendo entre una y otra)."""
+        while self._thumb_queue:
+            source, page = self._thumb_queue.pop(0)
+            if source != self._cur_source or not self.docs:
+                continue                      # se cambió de PDF: esa lista ya no está
+            item = self.lst_pages.item(page)
+            if item is not None:
+                item.setIcon(self._thumb(source, page))
+            break
+        if self._thumb_queue:
+            self._thumb_timer.start()
 
     def _uses_layers(self, source: int, page: int) -> bool:
         key = (source, page)
@@ -553,9 +596,12 @@ class CompositeDialog(QtWidgets.QDialog):
             self.lbl_nolayers.show()
         if self._editing >= 0 and not self._syncing_crop:
             self.view.select(-1)          # cambiar de hoja a mano = empezar una pieza nueva
-        self._render_current_page(first=True)
+        with busy(self.crop, _tr("Cargando hoja {n}…").format(n=row + 1),
+                  _tr("Líneas generales y escala de la hoja")):
+            self._render_current_page(first=True)
+            scale = self._detected_scale(self._cur_source, row)
         self.spn_src_scale.blockSignals(True)
-        self.spn_src_scale.setValue(self._detected_scale(self._cur_source, row) * 72.0)
+        self.spn_src_scale.setValue(scale * 72.0)
         self.spn_src_scale.blockSignals(False)
 
     def _render_current_page(self, first: bool = False):
@@ -654,6 +700,10 @@ class CompositeDialog(QtWidgets.QDialog):
         path, _ = QtWidgets.QFileDialog.getOpenFileName(self, _tr("Agregar PDF"), DOWNLOADS, "PDF (*.pdf)")
         if not path:
             return
+        with busy(self, _tr("Abriendo PDF…"), os.path.basename(path)):
+            self._open_extra_pdf(path)
+
+    def _open_extra_pdf(self, path: str):
         try:
             with open(path, "rb") as fp:
                 data = fp.read()
@@ -672,6 +722,11 @@ class CompositeDialog(QtWidgets.QDialog):
 
     # ── piezas ──────────────────────────────────────────────────────────
     def _take(self, full: bool):
+        with busy(self.view, _tr("Agregando la pieza…"),
+                  _tr("Bordes, extremos de línea y uniones con las vecinas")):
+            self._take_area(full)
+
+    def _take_area(self, full: bool):
         res = self._current_clip(full)
         if res is None:
             return
@@ -689,6 +744,7 @@ class CompositeDialog(QtWidgets.QDialog):
         self.view.fit_all()
         self._refresh_summary()
         self._notify_taken(piece, len(self.comp.pieces) - 1)
+        self.view.warm_seams_now()        # las match lines ya, bajo la misma capa de carga
 
     def _delete(self):
         idx = self.view.selected_index()
@@ -822,6 +878,8 @@ class CompositeDialog(QtWidgets.QDialog):
         super().done(result)
 
     def close_docs(self):
+        self._thumb_timer.stop()
+        self._thumb_queue = []
         for d in self.docs:
             try:
                 d.close()
@@ -834,7 +892,9 @@ def compose_sheet(parent, sources: List[dict], comp: Optional[C.Composite],
                   hidden_by_source: Optional[Dict[str, List[str]]], current_page: int = 0):
     """Abre el compositor. Devuelve ``(composite, sources, hidden_by_source)`` o
     None si se cancela. `sources` son dicts ``{name, data(bytes), path?}``."""
-    dlg = CompositeDialog(parent, sources, comp, hidden_by_source, current_page)
+    with busy(parent, _tr("Abriendo «Componer hoja»…"),
+              _tr("Preparando las hojas del PDF")):
+        dlg = CompositeDialog(parent, sources, comp, hidden_by_source, current_page)
     try:
         if dlg.exec() != QtWidgets.QDialog.Accepted:   # showEvent lo maximiza al aparecer
             return None
