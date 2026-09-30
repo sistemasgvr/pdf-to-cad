@@ -26,6 +26,9 @@ INK_MIN_TURN_DEG = 3.0       # curvas muy abiertas: el plugin y el editor dibuja
 INK_EDGE_IN_PT = 1.5         # la tangencia puede caer así de DENTRO de la tinta del arco
 INK_EDGE_SLIP_PT = 12.0      # = FILLET_TANGENT_SLIP_PX: …o así de lejos del fin de la tinta (hueco)
 INK_COVER = 0.45             # = FILLET_INK_COVER
+ON_ARC_TOL_PT = 0.25         # cuerda de OTRO trozo de tinta que va SOBRE el círculo (extremos y medio)
+END_DASH_LEAVE_PT = 1.0      # …y la recta de su guión se APARTA del círculo al menos esto (en su punta):
+                             # en un arco muy abierto (r ≈ 900 pt) un guión recto no se distingue del arco
 DROP_TOL_PT = 1.5            # un vértice que el codo quita está a ≤ esto de recta–arco–recta
 ANCHOR_NODE_TOL_PT = 0.5     # un ancla que no se mueve (nodo) tiene que estar así de cerca de la recta
 LINE_REFINE_OFF_PT = 0.3     # guiones de la MISMA recta (su rumbo se ajusta con todos)
@@ -35,7 +38,8 @@ SOFT_DROP_KINDS = ("bend", "corner", "curve")
 
 
 def ink_fillet_plan(pts, kinds, groups: Sequence[ArcGroup], straights, taken, through_dirs,
-                    f: float = 1.0, debug=None, all_groups: Sequence[ArcGroup] = None):
+                    f: float = 1.0, debug=None, all_groups: Sequence[ArcGroup] = None,
+                    arc_ends=None):
     """Codos de los arcos de tinta que la 1.ª pasada no cubrió: (entradas del plan
     de `fit_fillets`, mismo formato; {índice: posición nueva} de los anclas).
     Rectas de cada lado = RECTAS DE TINTA (todos sus guiones), la línea que PASA por
@@ -46,7 +50,10 @@ def ink_fillet_plan(pts, kinds, groups: Sequence[ArcGroup], straights, taken, th
     vértice antes de la tangencia (primero después), llevado sobre la recta de tinta;
     dos codos con la misma recta comparten ancla entre sus tangencias (también con un
     codo de la 1.ª pasada, `taken` = [(ia, ib, C, A, B)], cuyos vértices no se tocan
-    salvo ese)."""
+    salvo ese). `arc_ends` = [(cuerda corta, cuerda larga)] de los guiones rectos donde
+    un arco nace o muere (`recognition_arcs.dash_arc_ends`): la corta cuenta como tinta
+    del arco si va sobre su círculo y la larga sirve de recta del codo en el lado sin
+    ninguna otra recta de tinta (DU10 h.3, codo chico a guiones)."""
     import recognition as R        # perezoso: recognition importa este módulo
     n = len(pts)
     if n < 2 or not groups:
@@ -100,17 +107,61 @@ def ink_fillet_plan(pts, kinds, groups: Sequence[ArcGroup], straights, taken, th
             if u[0] * tan[0] + u[1] * tan[1] < math.cos(math.radians(min(allow, 60.0))):
                 continue
             cands.append((dist_arc, -L, a, u, near))
+        if not cands and arc_ends:
+            cands = _end_dash_lines(g, side, tan)          # la recta DENTRO del guión donde muere el arco
         cands.sort(key=lambda c: (c[0], c[1]))
         lines = []
         for _d, _L, a, u, near in cands:
             if any(abs(u[0] * w[1] - u[1] * w[0]) < 0.005
                    and abs((a[0] - p[0]) * w[1] - (a[1] - p[1]) * w[0]) < 0.2 * f for p, w, _n in lines):
                 continue                                   # misma recta (otro guión)
-            a, u = _refine_line(a, u, g, side)
+            if (a, near) not in end_dash:
+                a, u = _refine_line(a, u, g, side)
             lines.append((a, u, near))
             if len(lines) >= 3:
                 break
         return lines
+
+    end_dash = set()
+
+    def _end_dash_lines(g, side, tan):
+        """Cuerda LARGA de un guión cuya cuerda corta va sobre el círculo del arco g, del
+        lado pedido y con el rumbo de su tangente: la recta del plano después (antes) de
+        un arco que muere (nace) dentro de ese guión."""
+        out = []
+        for short, (a, b) in _end_dashes((g.cx, g.cy), g.r):
+            L = math.dist(a, b)
+            if L < LEG_INK_SEG_MIN_PT * f:
+                continue
+            j = a if a in short else b                      # punta pegada al arco
+            far = b if j is a else a
+            if min(math.dist(far, pts[0]), math.dist(far, pts[-1])) > 1.0 * f:
+                continue                                    # solo la recta que llega al FIN de la línea
+            sj, dj, _k = project(pts, S, j)
+            if dj > ARC_CORRIDOR_PT * f or (sj < g.s1 - edge_in if side > 0 else sj > g.s0 + edge_in):
+                continue
+            u = _unit(far[0] - j[0], far[1] - j[1]) if side > 0 else _unit(j[0] - far[0], j[1] - far[1])
+            dist_arc = (sj - g.s1) if side > 0 else (g.s0 - sj)
+            allow = LEG_ALIGN_DEG + math.degrees(max(0.0, dist_arc) / max(g.r, 1e-6))   # = `_ink_lines`
+            if u[0] * tan[0] + u[1] * tan[1] < math.cos(math.radians(min(allow, 60.0))):
+                continue
+            end_dash.add((far if side > 0 else j, j))
+            out.append((dist_arc, -L, far if side > 0 else j, u, j))
+        return out
+
+    def _end_dashes(ctr, r):
+        """Pares de `arc_ends` de ESTE arco: la cuerda corta va sobre el círculo y la
+        recta de su guión se aparta de él (es la recta que sale del arco, no un arco
+        tan abierto que un guión recto ya no se distingue)."""
+        out = []
+        for short, long_ in arc_ends or ():
+            if any(abs(math.hypot(q[0] - ctr[0], q[1] - ctr[1]) - r) > ON_ARC_TOL_PT * f for q in short):
+                continue
+            far = long_[1] if long_[0] in short else long_[0]
+            if abs(math.hypot(far[0] - ctr[0], far[1] - ctr[1]) - r) < END_DASH_LEAVE_PT * f:
+                continue
+            out.append((short, long_))
+        return out
 
     def _refine_line(a, u, g, side):
         """Recta ajustada (mínimos cuadrados, pesos = largo) a TODOS los guiones de esta
@@ -320,6 +371,11 @@ def ink_fillet_plan(pts, kinds, groups: Sequence[ArcGroup], straights, taken, th
                 if abs(math.degrees(sweep)) < INK_MIN_TURN_DEG or sweep * g.sign <= 0:
                     continue
                 cover = arc_cover(g.chords, ctr, r, a0, sweep, 1.0 * f)
+                if cover < INK_COVER and arc_ends:
+                    extra = _chords_on_arc([sh for sh, _lg in _end_dashes(ctr, r)], ctr, r, a0, sweep,
+                                           ON_ARC_TOL_PT * f)
+                    if extra:
+                        cover = arc_cover(list(g.chords) + extra, ctr, r, a0, sweep, 1.0 * f)
                 if cover < INK_COVER:
                     if debug is not None: debug.append(("tinta", "poca tinta sobre el arco", round(cover, 2)))
                     continue
@@ -490,6 +546,23 @@ def ink_fillet_plan(pts, kinds, groups: Sequence[ArcGroup], straights, taken, th
         used.update((ia, ib))
     moves = {k: v for k, v in moves.items() if k in used}
     return out, moves
+
+
+def _chords_on_arc(chords, ctr: Pt, r: float, a0: float, sweep: float, tol: float):
+    """Cuerdas que van SOBRE el arco (extremos y punto medio a ≤ tol del círculo,
+    punto medio dentro del sector A→B). Se usa con las cuerdas CORTAS de `arc_ends`:
+    en un codo chico el linetype deja casi la mitad en huecos, y el aplanado empieza
+    y termina DENTRO de los guiones rectos vecinos (DU10 h.3, r = 10.8 pt: cobertura
+    0.35 → 0.6 con esas dos cuerdas)."""
+    out = []
+    for a, b in chords:
+        m = ((a[0] + b[0]) / 2, (a[1] + b[1]) / 2)
+        if any(abs(math.hypot(q[0] - ctr[0], q[1] - ctr[1]) - r) > tol for q in (a, b, m)):
+            continue
+        da = (math.atan2(m[1] - ctr[1], m[0] - ctr[0]) - a0 + 3.0 * math.pi) % (2.0 * math.pi) - math.pi
+        if 0.0 < da * (1.0 if sweep > 0 else -1.0) < abs(sweep):
+            out.append((a, b))
+    return out
 
 
 def _editor_geo(C: Pt, qa: Pt, qb: Pt, r: float, f: float):

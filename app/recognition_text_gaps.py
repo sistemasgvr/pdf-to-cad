@@ -1,13 +1,17 @@
 """Restore curved linetype gaps supported by nearby text and measured tangents.
 
 Runs keep their original ink. Only a free curved endpoint may be continued,
-either into a compatible curve or tangentially into an existing straight leg.
+either into a compatible curve or tangentially into an existing straight leg,
+or straight into another free end next to a bend when both legs point along
+the gap (the middle of an «S» curve under the line's own letters).
 The bridge is a tangent biarc, encoded with the same circles as the editor.
 """
 import math
 
 from recognition_arcs import _unit
 from recognition_trace import _encode
+
+STRAIGHT_GAP_COS = math.cos(math.radians(6.))   # both legs within 6° of the straight gap
 
 
 def _dot(a, b):
@@ -54,6 +58,9 @@ def biarc(a, b, ta, tb):
 def _reverse(parts):
     out = []
     for a,b,arc in reversed(parts):
+        if arc is None:
+            out.append((b,a,None))
+            continue
         _,_,c,r,a0,sw = arc
         out.append((b,a,(b,a,c,r,a0+sw,-sw)))
     return out
@@ -72,6 +79,19 @@ def _ends(pl, scale):
         u = _unit(-(p[1]-c[1]), p[0]-c[0])
         sign = (1 if sw > 0 else -1) * (-1 if side == 0 else 1)
         yield side, p, (u[0]*sign,u[1]*sign), c, g['r_px']
+
+
+def _bend_ends(pl):
+    """Free ends next to a bend (fillet corner as neighbour vertex), with the
+    outward direction of their last leg (at a fillet it is the arc tangent or
+    the straight leg before the arc)."""
+    P, n = pl.pts_pdf, len(pl.pts_pdf)
+    if n < 3:
+        return
+    if pl.kinds[0] == 'end' and 1 in pl.fillets:
+        yield 0, P[0], _unit(P[0][0]-P[1][0], P[0][1]-P[1][1])
+    if pl.kinds[-1] == 'end' and n-2 in pl.fillets:
+        yield 1, P[-1], _unit(P[-1][0]-P[-2][0], P[-1][1]-P[-2][1])
 
 
 def _text_in_gap(parts, glyphs, scale):
@@ -161,6 +181,24 @@ def connect_text_gaps(lines, glyphs, reach, scale=1.):
                     if (parts and all(.5*r <= a[2][3] <= 2*r for a in parts)
                             and _text_in_gap(parts,glyphs,scale)):
                         choices.append((d,i,side,j,None,k,parts))
+        # The straight middle of a reverse («S») curve hidden by the line's
+        # own text (DU10 h.10 «—SC—», 2026-09-30): two free ends next to a bend
+        # whose legs point along the gap. No point is added: the two existing
+        # ends are joined straight.
+        free = [(i,*e) for i,pl in enumerate(lines) for e in _bend_ends(pl)]
+        for n,(i,side,p,t) in enumerate(free):
+            for j,other,q,u in free[n+1:]:
+                if (i == j or lines[i].abandoned != lines[j].abandoned
+                        or lines[i].layer_ocg != lines[j].layer_ocg):
+                    continue
+                d = math.dist(p,q)
+                v = _unit(q[0]-p[0],q[1]-p[1])
+                if (not scale < d <= reach or _dot(t,v) < STRAIGHT_GAP_COS
+                        or -_dot(u,v) < STRAIGHT_GAP_COS):
+                    continue
+                parts = [(p,q,None)]
+                if _text_in_gap(parts,glyphs,scale):
+                    choices.append((d,i,side,j,other,None,parts))
         if not choices:
             break
         _,i,side,j,other,k,parts = min(choices,key=lambda c:c[0])

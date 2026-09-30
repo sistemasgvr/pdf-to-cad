@@ -202,6 +202,19 @@ alcantarillado, drenaje, gas, eléctrico, telecom). Todo en **unidades imperiale
     las dos mitades EXACTAS (A, M, B, centro, sin recorte) y ningún vecino es otro codo. Foto
     1799 codos (4 PDFs × 6 utilidades): 0 entre 120° y 170°, 1 ≥170° (ese). Tests:
     `tests/test_codos_abiertos.py`.
+    **DU10 h.3 (2026-09-30, «curvas que quedan como polilínea»)**: (1) `fit_continuous.gap`
+    solo fija los extremos que son EMPALME con un trazo validado; el extremo propio de la
+    polilínea puede moverse como sin parche (un tee a la tangencia de su línea): antes se
+    descartaba el reajuste entero y se perdía un codo r=126 pt. (2) `recognition_arcs.
+    dash_arc_ends`: un «trozo» de DOS cuerdas muy distintas (3 puntos siempre caben en un
+    círculo) = arco que nace/muere DENTRO de un guión recto → (cuerda corta = arco, cuerda
+    larga = recta). En `ink_fillet_plan(arc_ends=)`: la corta suma cobertura si va sobre el
+    círculo (≤`ON_ARC_TOL_PT`=0.25) y la recta del guión se APARTA ≥`END_DASH_LEAVE_PT`=1
+    (en arcos muy abiertos un guión recto no se distingue del arco: LABOE h.29 empeoraba);
+    la larga es recta del codo SOLO en un lado sin otra recta de tinta y si llega al FIN de
+    la línea (en una «S» la recta del medio le quitaba las anclas al otro codo: DU08 h.22).
+    No entra en la lista global de rectas (`_refine_line` movía radios en 50 hojas). Foto
+    846 hoja×utilidad: cambian 4, todas a mejor (DU10 h.3/4, DU08 h.40, DU08 h.35).
   - `recognition_ends.py` (PURO) — **dónde TERMINA cada línea** (pedido del usuario
     2026-09-28, DU08 h.26), sobre la salida del núcleo sin tocarlo:
     `trim_inkless_tails` (coords PDF, antes de `build_routes`): un extremo tee/junction
@@ -433,6 +446,22 @@ alcantarillado, drenaje, gas, eléctrico, telecom). Todo en **unidades imperiale
     no se une nada. No inventa ni mueve puntos; no cruza capas ni activas con
     abandonadas (eso lo garantiza `recognize_page`, que llama `build_routes`
     una vez por OCG). `join_routes=False` deja las polilíneas cortadas.
+    **Continuidad tras los codos** (`join_emitted`, pedido del usuario 2026-09-30, DU06
+    h.5 telecom: la «U» salía partida donde `recognition_text_gaps.connect_text_gaps`
+    cierra el hueco de sus letras «TE»): en `recognize_page`, después de `_emit` y de los
+    huecos de texto, solo en las rutas UNIDAS, dos rutas de la misma capa/estado que
+    comparten un extremo (grado 2, nada más pasa por ahí) se concatenan si siguen de frente
+    con el rumbo LOCAL (≤100°, ≤35° con «tee»; nunca «cut» ni si cierra un lazo). No toca
+    vértices ni codos (índices corridos, a/b invertidos si hace falta); junction/tee/end de
+    la unión → «bend». Las «Y» (3 extremos, bancos de ductos que se abren) NO se tocan.
+    `connect_text_gaps` suma un 3.er caso: dos puntas libres junto a un codo cuyas rectas
+    miran al hueco (±6°) con letras de la capa encima se unen en RECTA, sin puntos nuevos
+    (tramo recto del medio de una «S» bajo «SC», DU10 h.10).
+    Auditoría `scripts/audit_continuidad.py salida.json` + `--diff` (6 utilidades × 4 PDFs,
+    ~5 min): cortes de grado 2, pares sin unir en nodos, huecos entre puntas enfrentadas y
+    codos por hoja. Foto 2026-09-30: cortes 3 → 0 (DU06 h.5, DU10 h.3 telecom; DU08 h.37
+    eléctrico), huecos 1 → 0 (DU10 h.10), 0 codos distintos. Tests: `tests/test_routes.py`
+    (`join_emitted`), `tests/test_recognition_text_gaps.py` (la «S»).
   - `composite.py` + `composite_view.py` + `composite_dialog.py` — **hoja compuesta**
     (v1.2.0), primer paso del asistente para PDF vectorial (reemplaza a «Organizar
     hojas»; sus entradas ya no están en el menú Ver, los métodos siguen para

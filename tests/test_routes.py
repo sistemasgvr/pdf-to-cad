@@ -246,3 +246,133 @@ def test_du06_hoja13_prop_comm_y_haynes_en_pocas_rutas():
         assert 1 <= len(hit) <= 3, [(r.n_segments, r.pl.kinds) for r in routes]
     finally:
         doc.close()
+
+
+# ─────────────── rutas ya emitidas (con codos): `join_emitted` ───────────────
+# Pedido del usuario 2026-09-30 (DU06 h.5, telecom): la «U» cuyo hueco de letras
+# cierra `connect_text_gaps` quedaba en dos rutas justo donde se une.
+from dataclasses import dataclass, field  # noqa: E402
+
+import model_ops  # noqa: E402
+import recognition_trace as trace  # noqa: E402
+from routes import join_emitted  # noqa: E402
+
+
+@dataclass
+class _E:
+    """Lo que `join_emitted` usa de una `RecognizedPolyline`."""
+    pts_pdf: list
+    kinds: list
+    fillets: dict = field(default_factory=dict)
+    layer_ocg: str = "capa"
+    abandoned: bool = False
+    n_segments: int = 1
+    review: str = ""
+
+
+def _emitted(parts, k0="end", k1="junction", **kw):
+    P, K, F = trace._encode(parts, k0, k1)
+    return _E(P, K, F, **kw)
+
+
+def _arc(r, deg0, deg1, c=(0.0, 0.0)):
+    a0, a1 = math.radians(deg0), math.radians(deg1)
+    pa = (c[0] + r * math.cos(a0), c[1] + r * math.sin(a0))
+    pb = (c[0] + r * math.cos(a1), c[1] + r * math.sin(a1))
+    return pa, pb, (pa, pb, c, r, a0, a1 - a0)
+
+
+def _u_halves():
+    """«U» de r = 30 partida en (−30, 0): la mitad de abajo va AL REVÉS."""
+    a1, b1, arc1 = _arc(30.0, 90, 180)
+    top = _emitted([((100.0, 30.0), a1, None), (a1, b1, arc1)])
+    a2, b2, arc2 = _arc(30.0, 270, 180)
+    low = _emitted([((100.0, -30.0), a2, None), (a2, b2, arc2)])
+    return top, low
+
+
+def _editor_ok(pl):
+    for i, fl in pl.fillets.items():
+        g = model_ops.fillet_geo(pl.pts_pdf[i - 1], pl.pts_pdf[i], pl.pts_pdf[i + 1], fl["r_px"])
+        assert g and not g["clamped"]
+        assert math.dist(g["t1"], fl["a"]) < 1e-6 and math.dist(g["t2"], fl["b"]) < 1e-6
+
+
+def test_emitidas_curva_partida_en_su_hueco_es_una_ruta():
+    top, low = _u_halves()
+    pts_in = {(round(x, 6), round(y, 6)) for p in (top, low) for x, y in p.pts_pdf}
+    arcs_in = {(round(f["center"][0], 6), round(f["center"][1], 6), f["r_px"])
+               for p in (top, low) for f in p.fillets.values()}
+    gone = join_emitted([top, low])
+    assert gone == [low]
+    assert top.pts_pdf[0] == (100.0, 30.0) and top.pts_pdf[-1] == (100.0, -30.0)
+    assert {(round(x, 6), round(y, 6)) for x, y in top.pts_pdf} == pts_in      # nada inventado ni movido
+    k = min(range(len(top.pts_pdf)), key=lambda i: math.dist(top.pts_pdf[i], (-30.0, 0.0)))
+    assert top.kinds[k] == "bend" and top.kinds[0] == top.kinds[-1] == "end"
+    assert {(round(f["center"][0], 6), round(f["center"][1], 6), f["r_px"])
+            for f in top.fillets.values()} == arcs_in
+    assert top.n_segments == 2
+    _editor_ok(top)                                   # el editor dibuja los mismos arcos (a/b invertidos bien)
+
+
+def test_emitidas_no_se_unen_si_no_es_la_misma_trayectoria():
+    def fresh():
+        return list(_u_halves())
+    a, b = fresh(); b.kinds[-1] = "cut"                              # borde de la vista
+    assert join_emitted([a, b]) == []
+    a, b = fresh(); b.layer_ocg = "otra"                             # otra capa
+    assert join_emitted([a, b]) == []
+    a, b = fresh(); b.abandoned = True                               # otro estado (AB)
+    assert join_emitted([a, b]) == []
+    a, b = fresh()
+    ramal = _E([(-30.0, 0.0), (-80.0, 0.0)], ["junction", "end"])    # «Y»: tres extremos
+    assert join_emitted([a, b, ramal]) == []
+    a, b = fresh()
+    pasa = _E([(-30.0, -50.0), (-30.0, 50.0)], ["end", "end"])       # una línea pasa por el nodo
+    assert join_emitted([a, b, pasa]) == []
+    # vuelta cerrada > 100°: dos líneas que se juntan en «V», no una trayectoria
+    v1 = _E([(0.0, 0.0), (100.0, 0.0)], ["end", "junction"])
+    v2 = _E([(100.0, 0.0), (100 - 100 * math.cos(math.radians(30)), 50.0)], ["junction", "end"])
+    assert join_emitted([v1, v2]) == []
+    # lazo: dos piezas que ya comparten las dos puntas (contorno de un tubo)
+    l1 = _E([(0.0, 0.0), (0.0, 100.0), (17.0, 100.0), (17.0, 0.0)], ["vault", "corner", "corner", "vault"])
+    l2 = _E([(0.0, 0.0), (17.0, 0.0)], ["vault", "vault"])
+    assert join_emitted([l1, l2]) == []
+
+
+def test_emitidas_esquina_de_grado_2_como_build_routes():
+    """Mismo umbral que `_pair` en grado 2 (≤100°) con el rumbo local; con «tee», ≤35°."""
+    a = _E([(0.0, 0.0), (100.0, 0.0)], ["end", "bend"])
+    b = _E([(100.0, 0.0), (100.0, 80.0)], ["bend", "end"])
+    assert len(join_emitted([a, b])) == 1 and a.pts_pdf == [(0.0, 0.0), (100.0, 0.0), (100.0, 80.0)]
+    a = _E([(0.0, 0.0), (100.0, 0.0)], ["end", "tee"])
+    b = _E([(100.0, 0.0), (100.0, 80.0)], ["tee", "end"])
+    assert join_emitted([a, b]) == []
+
+
+@pytest.mark.skipif(not PDF.is_file(), reason="PDF de prueba DU06 no está en el repo")
+def test_du06_h5_telecom_la_u_sigue_su_trayectoria():
+    """Caja → vertical → toda la «U» → recta de arriba: UNA ruta, con los mismos codos
+    que las polilíneas sin unir (la curva no cambia) y dibujables por el editor."""
+    import recognition as rec
+    r = rec.recognize_page(PDF, 4, utility="TELECOM", zoom=1.0)
+    duct = [p for p in r.polylines_joined if p.layer_ocg.endswith("N-COMM-DUCT-BANK-PL")]
+    raw = [p for p in r.polylines_raw if p.layer_ocg.endswith("N-COMM-DUCT-BANK-PL")]
+    low = (663.06, 1251.96)
+    u = [p for p in duct if any(math.dist(q, low) < 0.05 for q in p.pts_pdf)]
+    assert len(u) == 1
+    u = u[0]
+    ends = sorted([u.pts_pdf[0], u.pts_pdf[-1]])
+    assert math.dist(ends[0], (691.92, 1132.08)) < 0.05 and math.dist(ends[1], (755.82, 1195.86)) < 0.05
+    assert {u.kinds[0], u.kinds[-1]} == {"vault", "end"}
+    assert len(u.fillets) == 5 and u.n_segments == 2
+
+    def arcs(pls):
+        return sorted((round(f["center"][0], 3), round(f["center"][1], 3), round(f["r_px"], 3))
+                      for p in pls for f in p.fillets.values())
+    halves = [p for p in raw if any(math.dist(q, low) < 0.05 for q in p.pts_pdf)]
+    assert len(halves) == 2 and arcs([u]) == arcs(halves)             # los mismos codos: la curva no cambia
+    for i, fl in u.fillets.items():
+        g = model_ops.fillet_geo(u.pts_pdf[i - 1], u.pts_pdf[i], u.pts_pdf[i + 1], fl["r_px"])
+        assert g and not g["clamped"]
+        assert math.dist(g["t1"], fl["a"]) < 0.05 and math.dist(g["t2"], fl["b"]) < 0.05

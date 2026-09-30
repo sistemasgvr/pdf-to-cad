@@ -1279,6 +1279,12 @@ def recognize_page(
                     text_gaps_mod.connect_text_gaps(
                         [p for p in variants if p.layer_ocg == ocg], glyphs_px,
                         g.pattern.glyph_bridge*zoom, zoom)
+            # Rutas que (ya con sus codos) comparten un extremo y siguen de frente:
+            # una sola ruta (la «U» de DU06 h.5 cortada en el hueco de sus letras).
+            gone = routes_mod.join_emitted([p for p in polylines_joined if p.layer_ocg == ocg], zoom)
+            if gone:
+                polylines_joined[:] = [p for p in polylines_joined if not any(p is x for x in gone)]
+                n_routes -= len(gone)
             uncovered_px += [(px(d.a), px(d.b)) for d in g.uncovered]
             offpattern_px += [[px(p) for p in pl.pts] for pl in g.offpattern]
             n_dashes += g.n_dashes; n_glyphs += g.n_glyphs
@@ -2211,6 +2217,7 @@ def _fit_fillets(pts, kinds, tol_px: float = 1.0, tan_tol: float = None, debug=N
     if arcs:
         # 2.ª pasada: arcos de la TINTA que la 1.ª no cubrió (sin tocar sus vértices)
         groups = arcs_mod.group_arcs(arcs, pts, f_px)
+        arc_ends = arcs_mod.dash_arc_ends(arcs, f_px)      # arco que nace/muere dentro de un guión
 
         def _run_ink(base):
             """Plan de la 2.ª pasada con los codos `base` de la 1.ª ya puestos: solo los
@@ -2220,7 +2227,8 @@ def _fit_fillets(pts, kinds, tol_px: float = 1.0, tan_tol: float = None, debug=N
                 return [], {}
             return arc_plan.ink_fillet_plan(pts, kinds, free, ink_lines or [],
                                             [(e[7], e[8], e[2], e[3], e[4]) for e in base],
-                                            through_ink or through_dirs, f_px, debug, all_groups=groups)
+                                            through_ink or through_dirs, f_px, debug, all_groups=groups,
+                                            arc_ends=arc_ends)
         # Un codo de la 1.ª pasada que se queda CORTO (la tinta curva de su círculo
         # sigue pasada una tangencia: tomó por recta una cuerda de la propia curva,
         # DU06 h.4 drenaje r≈145 pt) se rehace con la tinta; si la 2.ª pasada no lo
