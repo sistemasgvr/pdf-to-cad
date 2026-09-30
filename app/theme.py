@@ -65,6 +65,17 @@ class Theme:
     success: str          # botón toggle activado
     success_hover: str
 
+    # Botones de color del compositor (pedido del usuario 2026-09-30: «Hoja
+    # completa», «Opciones», «Uniones» se confundían con el fondo):
+    # acción secundaria destacada = tinte del acento; botón con menú = violeta.
+    soft: str
+    soft_hover: str
+    soft_text: str
+    options: str
+    options_hover: str
+    options_border: str
+    options_text: str
+
     # Bordes y separadores
     border: str
     border_soft: str
@@ -103,6 +114,8 @@ DARK = Theme(
     danger="#d1352d", danger_hover="#e0453c",
     focus="#6ba3ff",
     success="#1f8f4a", success_hover="#26a758",
+    soft="#1f3b6b", soft_hover="#284b85", soft_text="#e3edff",
+    options="#3b3168", options_hover="#4a3e82", options_border="#8b78e6", options_text="#ebe5ff",
     border="#4d4d4d", border_soft="#3f3f3f",
     hover="#3a3a3a",
     grid_bg="#252525", grid_line_minor="#3a3a3a", grid_line_major="#4d4d4d",
@@ -127,6 +140,8 @@ LIGHT = Theme(
     danger="#c22a2a", danger_hover="#d43535",
     focus="#4d8eff",
     success="#218a4d", success_hover="#2ba85e",
+    soft="#dde8fc", soft_hover="#cbdcfa", soft_text="#1d4fae",
+    options="#eee9fd", options_hover="#e0d8fb", options_border="#7a5fd6", options_text="#4b35a8",
     border="#d4dbe6", border_soft="#e6eaf1",
     hover="#e6ecf7",
     grid_bg="#fcfcff", grid_line_minor="#e4e6ec", grid_line_major="#c8ccd6",
@@ -256,6 +271,19 @@ def _spinbox_arrow_dir(color: str, disabled_color: str) -> str:
     return _arrow_dir.replace("\\", "/")
 
 
+def _menu_chevron(t: Theme) -> str:
+    """«▾» de los botones con menú (tono options), con el color del tema. Un
+    archivo por tema: Qt guarda en caché la imagen de cada url()."""
+    arrow_dir = _spinbox_arrow_dir(t.text, t.text_disabled)
+    name = f"chevron_options_{t.name}.svg"
+    svg = ('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 12 12">'
+           '<polyline points="2.5,4.5 6,8 9.5,4.5" fill="none" stroke="{c}" stroke-width="1.8" '
+           'stroke-linecap="round" stroke-linejoin="round"/></svg>').format(c=t.options_text)
+    with open(os.path.join(_arrow_dir, name), "w", encoding="utf-8") as f:
+        f.write(svg)
+    return f"{arrow_dir}/{name}"
+
+
 # ── Stylesheet global ──────────────────────────────────────────────────────
 def build_stylesheet(t: Theme) -> str:
     """CSS global de QApplication, formateado con los tokens del tema `t`.
@@ -264,6 +292,7 @@ def build_stylesheet(t: Theme) -> str:
     manuales (btn_export, header de diálogos, etc.) deben leer `tokens()` y
     re-aplicar cuando llegue `THEME_BUS.changed`."""
     ad = _spinbox_arrow_dir(t.text, t.text_disabled)
+    chevron = _menu_chevron(t)
     return f"""
         /* ═══════════════════════════════════════════════════════════════════
            Tema {t.name} — generado desde app/theme.py.
@@ -346,6 +375,21 @@ def build_stylesheet(t: Theme) -> str:
         QPushButton[secondary="true"]:pressed {{ background: {t.surface_alt}; }}
         QPushButton[secondary="true"]:disabled {{ background: {t.surface_alt}; color: {t.text_disabled};
                                                    border: 1px solid {t.border_soft}; }}
+
+        /* Acción secundaria DESTACADA junto a la primaria (tinte del acento:
+           «Hoja completa») y botones con menú de opciones (violeta: «Opciones»,
+           «Uniones», «Ajustes»). Mismo alto que un QPushButton normal. */
+        QPushButton[soft="true"] {{ background: {t.soft}; color: {t.soft_text}; border: 1px solid {t.accent}; }}
+        QPushButton[soft="true"]:hover {{ background: {t.soft_hover}; border: 1px solid {t.focus}; }}
+        QPushButton[soft="true"]:pressed {{ background: {t.soft}; }}
+        QPushButton[options="true"] {{ background: {t.options}; color: {t.options_text};
+                                        border: 1px solid {t.options_border}; padding-right: 30px; }}
+        QPushButton[options="true"]:hover, QPushButton[options="true"]:open {{
+            background: {t.options_hover}; border: 1px solid {t.options_border}; }}
+        QPushButton[options="true"]::menu-indicator {{ image: url({chevron}); width: 12px; height: 12px;
+            subcontrol-origin: padding; subcontrol-position: center right; right: 10px; }}
+        QPushButton[soft="true"]:disabled, QPushButton[options="true"]:disabled {{
+            background: {t.surface_alt}; color: {t.text_disabled}; border: 1px solid {t.border_soft}; }}
 
         /* Acción de consulta destacada (verde): «Ver datos extendidos» */
         QPushButton[success="true"] {{ background: {t.success}; color: {t.text_on_accent};

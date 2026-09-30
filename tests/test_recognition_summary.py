@@ -117,3 +117,91 @@ def test_clic_en_aviso_lleva_la_vista_al_lugar():
         assert dlg._marker is not None and dlg._marker.rect().contains(QtCore.QPointF(cx, cy))
         assert row.counter.text() == "1/1"
     dlg.close()
+
+
+# ─────────── «Revisar»: tope con scroll y marca de revisado (2026-09-30) ───────────
+def _preview(warnings, polylines, orphans=()):
+    import os
+    os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+    from PySide6 import QtCore, QtGui, QtWidgets
+    app = QtWidgets.QApplication.instance() or QtWidgets.QApplication([])
+    import recognition_dialog as rd
+    res = SimpleNamespace(
+        utility="ELECTRICO", page_index=0, scale_ft_per_pt=20 / 72, polylines=list(polylines),
+        drawable=list(polylines), polylines_joined=list(polylines), polylines_raw=list(polylines),
+        warnings=list(warnings), vault_orphans_px=list(orphans), vault_pts=[], vaults_geo=[],
+        uncovered_px=[], offpattern_px=[], coverage=1.0, hidden_ocgs=[], ocg_summary=[], join_routes=True)
+    img = QtGui.QImage(2000, 2000, QtGui.QImage.Format_RGB32); img.fill(QtCore.Qt.white)
+    dlg = rd.RecognitionPreviewDialog(None, img, [res])
+    dlg.resize(1200, 800); dlg.show(); app.processEvents()
+    return app, dlg
+
+
+def _click(row, button=None):
+    from PySide6 import QtCore, QtGui
+    button = button or QtCore.Qt.LeftButton
+    ev = QtGui.QMouseEvent(QtCore.QEvent.MouseButtonRelease, QtCore.QPointF(3, 3), QtCore.QPointF(3, 3),
+                           button, QtCore.Qt.NoButton, QtCore.Qt.NoModifier)
+    row.mouseReleaseEvent(ev)
+
+
+def test_revisar_con_muchos_avisos_tiene_tope_y_scroll():
+    """Con muchos avisos, «Revisar» no crece sin límite: alto máximo y scroll."""
+    import recognition_summary_view as rsv
+    warnings = [f"Aviso nuevo número {i} que nadie clasificó todavía." for i in range(25)]
+    app, dlg = _preview(warnings, [_pl([(0, 0), (100, 0)])])
+    try:
+        area = dlg.summary.review
+        assert len(dlg.summary.review_rows) == 25
+        assert area.height() <= rsv.REVIEW_MAX_H
+        assert area.verticalScrollBar().maximum() > 0          # el resto, con scroll
+    finally:
+        dlg.close()
+    app, dlg = _preview(warnings[:2], [_pl([(0, 0), (100, 0)])])
+    try:                                                         # pocos: sin scroll ni hueco
+        assert dlg.summary.review.verticalScrollBar().maximum() == 0
+    finally:
+        dlg.close()
+
+
+def test_aviso_revisado_al_ver_todos_sus_casos():
+    """Clic en un aviso → va al lugar; vistos todos sus casos queda «revisado»
+    (✔) y en la hoja cada lugar visitado conserva un recuadro verde."""
+    from PySide6 import QtCore
+    curva = _pl([(0, 0), (10, 0), (20, 5), (30, 15), (40, 40)], ["end", "corner", "curve", "curve", "end"])
+    app, dlg = _preview(["Bóvedas sin línea cercana: 2.", "Aviso nuevo que nadie clasificó todavía."],
+                        [curva], orphans=[(1800, 300), (300, 1800)])
+    try:
+        rows = dlg.summary.review_rows
+        orph = next(r for r in rows if r.clickable)
+        other = next(r for r in rows if not r.clickable)
+        assert dlg.summary.lbl_reviewed.text() == "0 de 2 revisados"
+        _click(orph); app.processEvents()
+        assert not orph.reviewed and orph.counter.text() == "1/2"
+        _click(orph); app.processEvents()
+        assert orph.reviewed and dlg.summary.lbl_reviewed.text() == "1 de 2 revisados"
+        assert len(dlg._reviewed) == 2
+        _click(other)                                            # sin lugar: el clic lo marca
+        assert other.reviewed and dlg.summary.lbl_reviewed.text() == "✔ Todo revisado"
+        _click(other)                                            # y otro clic lo desmarca
+        assert not other.reviewed
+        dlg.chk_routes.setChecked(False); app.processEvents()   # redibujo: los recuadros siguen
+        greens = [it for it in dlg.view.scene().items()
+                  if it.toolTip() == "Revisado"]
+        assert len(greens) == 2
+        assert all(it.rect().contains(QtCore.QPointF(*p)) for it, p in
+                   zip(sorted(greens, key=lambda i: i.rect().x()), ((300, 1800), (1800, 300))))
+    finally:
+        dlg.close()
+
+
+def test_unir_tramos_va_en_el_pie():
+    """«Unir tramos en rutas» dejó el panel del resumen: es un botón del pie."""
+    app, dlg = _preview([], [_pl([(0, 0), (100, 0)])])
+    try:
+        side = dlg.split.widget(1)
+        assert not side.isAncestorOf(dlg.chk_routes)
+        assert dlg.chk_routes.isCheckable() and dlg.chk_routes.isChecked()
+        assert dlg.summary.lbl_scale.text() == "Escala 1\"=20'"
+    finally:
+        dlg.close()

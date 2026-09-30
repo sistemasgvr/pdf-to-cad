@@ -39,6 +39,14 @@ _SETTINGS = ("PDFCAD", "AsistenteC3D")
 
 _THUMB_W = 150
 _ICON = QtCore.QSize(20, 20)
+_BTN_H = 38            # alto de TODOS los botones del compositor (= QPushButton del tema)
+_SIDE_MIN, _SIDE_MAX = 240, 460   # ancho del panel «Origen» (no crece al plegar los otros)
+
+
+def _settings() -> QtCore.QSettings:
+    """Preferencias del compositor (ancho de los paneles). Aparte para que las
+    pruebas no escriban en la configuración real del usuario."""
+    return QtCore.QSettings(*_SETTINGS)
 
 
 def _scale_label(ft_per_pt: float) -> str:
@@ -65,9 +73,9 @@ def _tool(icon_name: str, text: str, tip: str = "", checkable: bool = False,
                            else QtCore.Qt.ToolButtonTextBesideIcon)
     btn.setCheckable(checkable)
     btn.setAutoRaise(False)
-    btn.setMinimumHeight(32)
+    btn.setMinimumHeight(_BTN_H)
     if icon_only:
-        btn.setFixedSize(34, 32)
+        btn.setFixedSize(_BTN_H, _BTN_H)
     if checkable:
         # Estado activo bien visible (fondo verde del tema + icono claro): el
         # usuario no distinguía si «Imán a líneas» / «Sin línea de borde» estaban
@@ -79,15 +87,17 @@ def _tool(icon_name: str, text: str, tip: str = "", checkable: bool = False,
     return btn
 
 
-def _options_button(icon_name: str, text: str, tip: str) -> tuple[QtWidgets.QToolButton, QtWidgets.QMenu]:
+def _options_button(icon_name: str, text: str, tip: str) -> tuple[QtWidgets.QPushButton, QtWidgets.QMenu]:
     """Botón «▾» que agrupa opciones poco usadas en un menú (casillas y campos):
-    el usuario ve una sola acción en vez de una fila de conmutadores."""
-    btn = QtWidgets.QToolButton()
-    btn.setIcon(_icon(icon_name)); btn.setIconSize(_ICON)
-    btn.setText(text); btn.setToolTip(tip)
-    btn.setToolButtonStyle(QtCore.Qt.ToolButtonTextBesideIcon)
-    btn.setPopupMode(QtWidgets.QToolButton.InstantPopup)
-    btn.setMinimumHeight(32)
+    el usuario ve una sola acción en vez de una fila de conmutadores. Es un
+    QPushButton (mismo alto que «Hoja completa») en violeta (`options` del
+    tema): antes, un QToolButton más bajo y del color del fondo, no se notaba."""
+    btn = QtWidgets.QPushButton(_icon(icon_name, color=_theme.tokens().options_text), text)
+    btn.setProperty("options", True)
+    btn.setIconSize(_ICON)
+    btn.setToolTip(tip)
+    btn.setAutoDefault(False)          # Enter no abre el menú: sigue siendo «Continuar»
+    btn.setMinimumHeight(_BTN_H)
     menu = QtWidgets.QMenu(btn)
     menu.setToolTipsVisible(True)
     btn.setMenu(menu)
@@ -212,6 +222,9 @@ class CompositeDialog(QtWidgets.QDialog):
             panel.toggled.connect(lambda on, i=i: self._on_panel_toggled(i, on))
         split.setStretchFactor(0, 0); split.setStretchFactor(1, 3); split.setStretchFactor(2, 4)
         self._sizes_before: Dict[int, int] = {}
+        self._side_w, self._flex_ratio = self._size_prefs()
+        self._sizes_auto = True           # False en cuanto el usuario mueve un divisor o pliega
+        split.splitterMoved.connect(lambda *_: setattr(self, "_sizes_auto", False))
         self._apply_initial_sizes()
         self._update_collapse_rules()
 
@@ -229,37 +242,58 @@ class CompositeDialog(QtWidgets.QDialog):
         sc.setContext(QtCore.Qt.WidgetWithChildrenShortcut)   # no borrar piezas al editar un número
 
     # ── responsivo: tamaños iniciales, plegado, pantallas pequeñas ─────────
-    def _apply_initial_sizes(self):
-        """Ancho inicial de los paneles proporcional a la ventana (recordado entre
-        sesiones si el usuario lo movió)."""
-        w = max(900, self.width())
-        st = QtCore.QSettings(*_SETTINGS)
-        saved = st.value("compositor/splitter")
+    def _size_prefs(self) -> tuple[Optional[int], float]:
+        """(ancho de «Origen» en px o None, proporción Área / (Área + Hoja
+        compuesta)), recordados entre sesiones si el usuario movió los divisores."""
+        saved = _settings().value("compositor/splitter")
         if isinstance(saved, (list, tuple)) and len(saved) == 3:
             try:
                 sizes = [int(v) for v in saved]
-                if sum(sizes) > 0:
-                    total = sum(sizes)
-                    self.split.setSizes([int(v * w / total) for v in sizes])
-                    return
+                if sizes[0] > 0 and sizes[1] > 0 and sizes[2] > 0:
+                    return max(_SIDE_MIN, min(_SIDE_MAX, sizes[0])), sizes[1] / float(sizes[1] + sizes[2])
             except (TypeError, ValueError):
                 pass
-        left = max(240, min(330, int(w * 0.22)))
-        rest = w - left
-        self.split.setSizes([left, int(rest * 0.44), rest - int(rest * 0.44)])
+        return None, 0.44
+
+    def _apply_initial_sizes(self, real: bool = False):
+        """Ancho inicial: «Origen» con ancho PROPIO en px (no escala con la
+        ventana) y el resto repartido entre «Área a tomar» y «Hoja compuesta».
+        `resizeEvent` lo repite con el ancho REAL (al mostrarse y maximizarse)
+        hasta que el usuario mueva un divisor o pliegue un panel: `setSizes`
+        reparte la diferencia con el ancho real en proporción a cada tamaño, y
+        «Origen» crecía con la ventana (330 → 470 px)."""
+        sp = self.split
+        # `real`: el layout ya le dio al divisor su ancho (en resizeEvent, también
+        # el primero, que llega al mostrarse antes de que el divisor sea visible)
+        total = sp.width() if real else max(900, self.width() - 32)
+        avail = max(0, total - sp.handleWidth() * (sp.count() - 1))
+        if self._side_w is None:
+            self._side_w = max(_SIDE_MIN, min(330, int(avail * 0.22)))
+        rest = max(0, avail - self._side_w)
+        sp.setSizes([self._side_w, int(rest * self._flex_ratio), rest - int(rest * self._flex_ratio)])
+
+    # «Origen» (0) es la barra lateral: conserva su ancho. El sitio que se libera
+    # o se pide al plegar/desplegar lo ponen «Área a tomar» (1) y «Hoja
+    # compuesta» (2). Antes se repartía también con «Origen», que crecía hasta
+    # compartir media ventana con la hoja compuesta (reporte del usuario 2026-09-30).
+    _FLEX = (1, 2)
+
+    def _flex_open(self, exclude: int = -1) -> List[int]:
+        return [i for i in self._FLEX if i != exclude and not self.panels[i].collapsed]
 
     def _on_panel_toggled(self, index: int, collapsed: bool):
+        self._sizes_auto = False
         sizes = self.split.sizes()
+        others = self._flex_open(exclude=index) or \
+            [i for i in range(len(sizes)) if i != index and not self.panels[i].collapsed]
         if collapsed:
             self._sizes_before[index] = sizes[index]
             freed = max(0, sizes[index] - CollapsiblePanel.STRIP_W)
             sizes[index] = CollapsiblePanel.STRIP_W
-            others = [i for i in range(len(sizes)) if i != index and not self.panels[i].collapsed]
-            for i in others:
-                sizes[i] += freed // max(1, len(others))
+            for k, i in enumerate(others):
+                sizes[i] += freed // len(others) + (freed % len(others) if k == 0 else 0)
         else:
             want = self._sizes_before.pop(index, max(260, int(sum(sizes) * 0.3)))
-            others = [i for i in range(len(sizes)) if i != index and not self.panels[i].collapsed]
             take = want - sizes[index]
             for i in others:
                 sizes[i] = max(120, sizes[i] - take // max(1, len(others)))
@@ -268,15 +302,19 @@ class CompositeDialog(QtWidgets.QDialog):
         self._update_collapse_rules()
 
     def _update_collapse_rules(self):
-        """Siempre queda al menos un panel abierto: el último no se puede plegar."""
-        open_panels = [p for p in self.panels if not p.collapsed]
-        for p in self.panels:
-            p.set_collapse_allowed(len(open_panels) > 1 or p.collapsed)
+        """Siempre queda abierto «Área a tomar» u «Hoja compuesta»: el último de
+        los dos no se puede plegar («Origen» solo, estirado a toda la ventana,
+        no sirve de nada). «Origen» se puede plegar siempre."""
+        flex_open = self._flex_open()
+        for i, p in enumerate(self.panels):
+            p.set_collapse_allowed(i not in self._FLEX or p.collapsed or len(flex_open) > 1)
 
     def resizeEvent(self, event):
         super().resizeEvent(event)
         # en ventanas estrechas el texto de ayuda se esconde para ganar alto
         self.intro.setVisible(self.width() >= 1250 and self.height() >= 700)
+        if getattr(self, "_sizes_auto", False):
+            self._apply_initial_sizes(real=True)
 
     def _build_source_panel(self) -> QtWidgets.QWidget:
         box, lay = _panel(_tr("1 · Origen"))
@@ -323,6 +361,26 @@ class CompositeDialog(QtWidgets.QDialog):
         self.lbl_mode.setStyleSheet(f"color:{_theme.tokens().text_muted}; font-size:12px;")
         self.lbl_mode.setWordWrap(True)
         lay.addWidget(self.lbl_mode)
+        # Aviso «esta hoja aún no está en la hoja compuesta» (reporte del usuario
+        # 2026-09-30: al volver a componer elegía otra hoja en la lista, no la
+        # tomaba y al continuar seguía saliendo solo la anterior).
+        t = _theme.tokens()
+        self.pending_box = QtWidgets.QFrame()
+        self.pending_box.setObjectName("pendingBox")
+        self.pending_box.setStyleSheet(
+            f"QFrame#pendingBox {{ background:{t.surface_alt}; border:1px solid {t.selection}; "
+            f"border-left:4px solid {t.selection}; border-radius:4px; }}"
+            f"QFrame#pendingBox QLabel {{ background:transparent; border:none; }}")
+        prow = QtWidgets.QHBoxLayout(self.pending_box)
+        prow.setContentsMargins(10, 6, 10, 6); prow.setSpacing(8)
+        warn = QtWidgets.QLabel()
+        warn.setPixmap(_icon("mdi:alert-outline", color=t.selection).pixmap(_ICON))
+        prow.addWidget(warn, 0, QtCore.Qt.AlignTop)
+        self.lbl_pending = QtWidgets.QLabel()
+        self.lbl_pending.setWordWrap(True)
+        prow.addWidget(self.lbl_pending, 1)
+        self.pending_box.hide()
+        lay.addWidget(self.pending_box)
         self.crop = _CropView()
         self.crop.selectionChanged.connect(self._on_selection_changed)
         # La hoja se muestra a 72 dpi; al hacer zoom, la parte visible se
@@ -334,16 +392,21 @@ class CompositeDialog(QtWidgets.QDialog):
         # rectángulo plegadas en un menú (antes eran cinco botones en fila).
         self.btn_take = QtWidgets.QPushButton(_icon("mdi:plus", color=_theme.tokens().text_on_accent),
                                               _tr("Tomar área"))
-        self.btn_take.setMinimumHeight(34)
+        self.btn_take.setIconSize(_ICON)
+        self.btn_take.setMinimumHeight(_BTN_H)
         self.btn_take.setToolTip(_tr("Agregar el rectángulo marcado como una pieza nueva de la hoja compuesta"))
         self.btn_take.clicked.connect(lambda: self._take(full=False))
-        self.btn_take_full = QtWidgets.QPushButton(_tr("Hoja completa"))
-        self.btn_take_full.setProperty("secondary", True)
-        self.btn_take_full.setMinimumHeight(34)
+        self.btn_take_full = QtWidgets.QPushButton(
+            _icon("mdi:file-document-outline", color=_theme.tokens().soft_text), _tr("Hoja completa"))
+        self.btn_take_full.setProperty("soft", True)      # con color: se confundía con el fondo
+        self.btn_take_full.setIconSize(_ICON)
+        self.btn_take_full.setMinimumHeight(_BTN_H)
         self.btn_take_full.setToolTip(_tr("Agregar la hoja entera como una pieza"))
         self.btn_take_full.clicked.connect(lambda: self._take(full=True))
-        self.btn_new = QtWidgets.QPushButton(_icon("mdi:plus"), _tr("Nueva pieza"))
-        self.btn_new.setMinimumHeight(34)
+        self.btn_new = QtWidgets.QPushButton(_icon("mdi:plus", color=_theme.tokens().text_on_accent),
+                                             _tr("Nueva pieza"))
+        self.btn_new.setIconSize(_ICON)
+        self.btn_new.setMinimumHeight(_BTN_H)
         self.btn_new.setToolTip(_tr("Dejar de editar la pieza seleccionada y marcar un área nueva"))
         self.btn_new.clicked.connect(lambda: self.view.select(-1))
         self.btn_new.hide()
@@ -369,7 +432,6 @@ class CompositeDialog(QtWidgets.QDialog):
         lay.addLayout(row)
         # Aviso de confirmación al tomar (el usuario puede tener el panel 3
         # plegado y no ver que la pieza ya se agregó). Se apaga solo.
-        t = _theme.tokens()
         self.lbl_taken = QtWidgets.QLabel()
         self.lbl_taken.setWordWrap(True)
         self.lbl_taken.setStyleSheet(
@@ -485,7 +547,6 @@ class CompositeDialog(QtWidgets.QDialog):
         doc = self.docs[self._cur_source]
         self.lst_pages.blockSignals(True)
         self.lst_pages.clear()
-        muted = QtGui.QColor(_theme.tokens().text_muted)
         # Miniaturas de a una tras mostrar la lista (antes se renderizaban todas
         # aquí: ~1.5 s con 19 hojas y el compositor tardaba en abrir).
         self._thumb_queue = []
@@ -494,13 +555,8 @@ class CompositeDialog(QtWidgets.QDialog):
             icon = self._thumb_cache.get(key) or self._thumb_placeholder(doc[i])
             if key not in self._thumb_cache:
                 self._thumb_queue.append(key)
-            item = QtWidgets.QListWidgetItem(icon, _tr("Hoja {n}").format(n=i + 1))
-            if not self._uses_layers(self._cur_source, i):
-                item.setText(_tr("Hoja {n} · sin capas").format(n=i + 1))
-                item.setForeground(muted)
-                item.setToolTip(_tr("Esta hoja no interactúa con las capas: sus vectores no están en "
-                                    "ninguna capa del PDF (hoja aplanada). Apagar capas no la cambia y el "
-                                    "reconocimiento por capas no encontrará utilidades en ella."))
+            item = QtWidgets.QListWidgetItem(icon, "")
+            self._label_page_item(item, i)
             self.lst_pages.addItem(item)
         row = self._cur_page if 0 <= self._cur_page < doc.page_count else 0
         self.lst_pages.setCurrentRow(row)
@@ -508,6 +564,52 @@ class CompositeDialog(QtWidgets.QDialog):
         self._on_page_changed(row)
         if self._thumb_queue:
             self._thumb_timer.start()
+
+    def _pieces_on_page(self, source: int, page: int) -> int:
+        return sum(1 for p in self.comp.pieces if p.source == source and p.page == page)
+
+    def _label_page_item(self, item: QtWidgets.QListWidgetItem, page: int):
+        """Texto de una hoja de la lista: «sin capas» (hoja aplanada) y «✔ Tomada»
+        en negrita si ya está en la hoja compuesta (así se ve cuáles entran)."""
+        taken = self._pieces_on_page(self._cur_source, page)
+        flat = not self._uses_layers(self._cur_source, page)
+        text = (_tr("Hoja {n} · sin capas") if flat else _tr("Hoja {n}")).format(n=page + 1)
+        tips = []
+        if taken:
+            text += "\n" + (_tr("✔ Tomada") if taken == 1 else
+                            _tr("✔ Tomada ({n} piezas)").format(n=taken))
+            tips.append(_tr("Esta hoja ya está en la hoja compuesta."))
+        if flat:
+            tips.append(_tr("Esta hoja no interactúa con las capas: sus vectores no están en "
+                            "ninguna capa del PDF (hoja aplanada). Apagar capas no la cambia y el "
+                            "reconocimiento por capas no encontrará utilidades en ella."))
+        item.setText(text)
+        item.setToolTip("\n\n".join(tips))
+        font = item.font(); font.setBold(bool(taken)); item.setFont(font)
+        if flat:
+            item.setForeground(QtGui.QColor(_theme.tokens().text_muted))
+        else:
+            item.setData(QtCore.Qt.ForegroundRole, None)
+
+    def _on_pieces_changed(self):
+        """Tras tomar o quitar piezas: marcas de la lista y aviso de hoja sin tomar."""
+        for i in range(self.lst_pages.count()):
+            self._label_page_item(self.lst_pages.item(i), i)
+        self._refresh_pending()
+
+    def _page_pending(self) -> bool:
+        """¿La hoja a la vista en el panel 2 falta en la hoja compuesta? Solo
+        cuenta con piezas ya tomadas (sin ninguna, «Continuar» ni se habilita)."""
+        return (bool(self.comp.pieces) and self._editing < 0
+                and not self._pieces_on_page(self._cur_source, self._cur_page))
+
+    def _refresh_pending(self):
+        pending = self._page_pending()
+        if pending:
+            self.lbl_pending.setText(_tr(
+                "La hoja {n} aún no está en la hoja compuesta: marca un área y pulsa «Tomar área», "
+                "o pulsa «Hoja completa».").format(n=self._cur_page + 1))
+        self.pending_box.setVisible(pending)
 
     def _thumb_placeholder(self, page) -> QtGui.QIcon:
         """Recuadro del tamaño de la miniatura mientras se renderiza."""
@@ -603,6 +705,7 @@ class CompositeDialog(QtWidgets.QDialog):
         self.spn_src_scale.blockSignals(True)
         self.spn_src_scale.setValue(scale * 72.0)
         self.spn_src_scale.blockSignals(False)
+        self._refresh_pending()
 
     def _render_current_page(self, first: bool = False):
         page = self.docs[self._cur_source][self._cur_page]
@@ -743,6 +846,7 @@ class CompositeDialog(QtWidgets.QDialog):
         self.view.rebuild(keep_selection=len(self.comp.pieces) - 1)
         self.view.fit_all()
         self._refresh_summary()
+        self._on_pieces_changed()
         self._notify_taken(piece, len(self.comp.pieces) - 1)
         self.view.warm_seams_now()        # las match lines ya, bajo la misma capa de carga
 
@@ -755,6 +859,7 @@ class CompositeDialog(QtWidgets.QDialog):
         self.view.rebuild()
         self._refresh_summary()
         self._on_piece_selected(-1)
+        self._on_pieces_changed()
 
     def _rotate(self, delta: float):
         idx = self.view.selected_index()
@@ -809,6 +914,7 @@ class CompositeDialog(QtWidgets.QDialog):
             self._editing = -1
             self._crop_timer.stop()
             self._leave_edit_mode()
+        self._refresh_pending()
 
     # ── ayudas de unión ─────────────────────────────────────────────────
     def _toggle_anchors(self, on: bool):
@@ -868,13 +974,78 @@ class CompositeDialog(QtWidgets.QDialog):
             n=n, w=w, h=h, s=_scale_label(self.comp.target_scale())))
 
     # ── cierre ──────────────────────────────────────────────────────────
+    def accept(self):
+        if self._page_pending() and not self._resolve_pending_page():
+            return
+        super().accept()
+
+    def _has_area(self) -> bool:
+        sel = self.crop._selection
+        return sel is not None and sel.width() >= C.MIN_PIECE_PT and sel.height() >= C.MIN_PIECE_PT
+
+    def _resolve_pending_page(self) -> bool:
+        """«Continuar» con una hoja a la vista que NO está en la hoja compuesta:
+        se pregunta antes de seguir solo con lo ya tomado. False = quedarse."""
+        choice = self._ask_pending_page()
+        if choice == "back":
+            return False
+        if choice == "replace":
+            self.comp.pieces.clear()
+            self.comp.scale_ft_per_pt = None      # la escala pasa a ser la de la hoja nueva
+        if choice in ("add", "replace"):
+            self._take(full=not self._has_area())
+        return True
+
+    def _ask_pending_page(self) -> str:
+        """'add' | 'replace' | 'skip' | 'back'. «Usar solo esta hoja» solo con una
+        única hoja entera (no se pierde trabajo de piezas acomodadas)."""
+        n = self._cur_page + 1
+        area = self._has_area()
+        multi = len({p.source for p in self.comp.pieces} | {self._cur_source}) > 1
+        names: List[str] = []
+        for p in self.comp.pieces:
+            s = (_tr("{pdf} · hoja {n}").format(pdf=self.sources[p.source]["name"], n=p.page + 1)
+                 if multi else _tr("Hoja {n}").format(n=p.page + 1))
+            if s not in names:
+                names.append(s)
+        box = QtWidgets.QMessageBox(self)
+        box.setIcon(QtWidgets.QMessageBox.Warning)
+        box.setWindowTitle(_tr("Hoja sin tomar"))
+        box.setText(_tr("La hoja {n} que estás viendo aún no está en la hoja compuesta.").format(n=n))
+        box.setInformativeText(_tr("Si continúas así, solo se usará lo que ya tomaste: {taken}.").format(
+            taken=", ".join(names)))
+        b_add = box.addButton(_tr("Agregar el área marcada") if area else
+                              _tr("Agregar la hoja {n} completa").format(n=n), QtWidgets.QMessageBox.AcceptRole)
+        b_rep = None
+        if self.comp.is_single_full_page():
+            b_rep = box.addButton(_tr("Usar solo el área marcada") if area else
+                                  _tr("Usar solo la hoja {n}").format(n=n), QtWidgets.QMessageBox.AcceptRole)
+            b_rep.setProperty("soft", True)
+        b_skip = box.addButton(_tr("Continuar sin ella"), QtWidgets.QMessageBox.DestructiveRole)
+        b_back = box.addButton(_tr("Volver"), QtWidgets.QMessageBox.RejectRole)
+        for b in (b_skip, b_back):
+            b.setProperty("secondary", True)
+        for b in box.buttons():            # la propiedad llegó después del estilo: re-aplicarlo
+            b.style().unpolish(b); b.style().polish(b)
+        box.setDefaultButton(b_add)
+        box.setEscapeButton(b_back)
+        box.exec()
+        clicked = box.clickedButton()
+        if clicked is b_add:
+            return "add"
+        if b_rep is not None and clicked is b_rep:
+            return "replace"
+        if clicked is b_skip:
+            return "skip"
+        return "back"
+
     def result_tuple(self):
         self.comp.last_view = [int(self._cur_source), int(self._cur_page)]
         return self.comp, self.sources, self.hidden_by_source
 
     def done(self, result):
         if not any(p.collapsed for p in self.panels):
-            QtCore.QSettings(*_SETTINGS).setValue("compositor/splitter", [int(v) for v in self.split.sizes()])
+            _settings().setValue("compositor/splitter", [int(v) for v in self.split.sizes()])
         super().done(result)
 
     def close_docs(self):

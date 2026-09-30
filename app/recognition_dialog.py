@@ -442,28 +442,32 @@ class RecognitionPreviewDialog(QtWidgets.QDialog):
         panel.addLayout(head)
 
         self._colors = {item.utility: layer_qcolor(item.utility) for item in self._results}
-        # Resumen visual: tarjetas + barra por utilidad + «Revisar» (el detalle
-        # de cada aviso va en su tooltip; lo informativo, plegado en «Detalles»).
+        # Resumen visual: tarjetas + barra por utilidad + leyenda y cobertura +
+        # «Revisar» (el detalle de cada aviso va en su tooltip; lo informativo,
+        # plegado en «Detalles»).
         self.summary = SummaryPanel(self._results)
         self.summary.locate.connect(self._go_to)
         self._marker = None
+        self._reviewed: list = []          # lugares ya visitados desde «Revisar» (recuadro verde)
         panel.addWidget(self.summary)
-        self.lbl_summary = QtWidgets.QLabel()
-        self.lbl_summary.setStyleSheet("color:%s;" % t.text_muted)
-        self.chk_routes = QtWidgets.QCheckBox(_tr("Unir tramos en rutas"))
-        self.chk_routes.setToolTip(_tr(
+        # «Unir tramos en rutas» va en el pie, junto a «Opacidad» (en el panel,
+        # entre los avisos y la cobertura, descuadraba el resumen).
+        self.chk_routes = QtWidgets.QToolButton()
+        self.chk_routes.setText(_tr("Unir tramos"))
+        self.chk_routes.setCheckable(True)
+        self.chk_routes.setProperty("toggleTool", True)      # activo = verde (theme.py)
+        self.chk_routes.setToolButtonStyle(QtCore.Qt.ToolButtonTextBesideIcon)
+        self.chk_routes.setIconSize(QtCore.QSize(18, 18))
+        self.chk_routes.setMinimumHeight(38)
+        self.chk_routes.setToolTip(_tr("Unir tramos en rutas") + "\n" + _tr(
             "En cada cruce sigue de frente; el ramal empieza otra ruta. "
             "Si no hay trayectoria clara, no une nada. No mueve puntos."))
         self.chk_routes.setChecked(all(bool(getattr(item, "join_routes", True))
                                       for item in self._results))
+        self._sync_routes_icon(self.chk_routes.isChecked())
+        self.chk_routes.toggled.connect(self._sync_routes_icon)
         self.chk_routes.toggled.connect(self._toggle_routes)
-        panel.addWidget(self.chk_routes)
         self._update_summary()
-        # QA de un vistazo: cuánto del plano quedó cubierto y qué se dejó fuera.
-        cov = min(float(getattr(item, "coverage", 1.0) or 0.0) for item in self._results)
-        n_unc = sum(len(getattr(item, "uncovered_px", None) or []) for item in self._results)
-        n_off = sum(len(getattr(item, "offpattern_px", None) or []) for item in self._results)
-        panel.addLayout(self._coverage_bar(t, cov, n_unc, n_off))
         hidden = sorted({name for item in self._results
                          for name in (getattr(item, "hidden_ocgs", None) or [])})
         if hidden:
@@ -534,7 +538,8 @@ class RecognitionPreviewDialog(QtWidgets.QDialog):
             _tr("Al continuar, estas líneas se importan al editor como {u} "
                 "(igual que el dibujo manual, con sus puntos de quiebre). "
                 "Las estructuras se insertan como nodos de la red.").format(u=utility_title))
-        root.addWidget(wizard_footer([self.opacity], _tr("Rueda = zoom · botón central = desplazar"),
+        root.addWidget(wizard_footer([self.opacity, self.chk_routes],
+                                     _tr("Rueda = zoom · botón central = desplazar"),
                                      [self.btn_cancel, self.btn_ok]))
         self.btn_ok.setDefault(True)
         self.btn_ok.setEnabled(n_draw > 0)
@@ -554,49 +559,13 @@ class RecognitionPreviewDialog(QtWidgets.QDialog):
     def _n_draw(self):
         return len(self._drawable())
 
-    def _coverage_bar(self, t, cov: float, n_unc: int, n_off: int) -> QtWidgets.QLayout:
-        """Cobertura como barra de avance 0–100 % (verde ≥98 % sin huecos, ámbar
-        ≥90 %, rojo por debajo) + chips de color con lo que quedó fuera."""
-        qa_ok = cov >= 0.98 and n_unc == 0
-        bar_color = t.success if qa_ok else ("#e08a00" if cov >= 0.90 else t.danger)
-        box = QtWidgets.QVBoxLayout(); box.setSpacing(3)
-        top = QtWidgets.QHBoxLayout(); top.setSpacing(6)
-        ic = QtWidgets.QLabel()
-        ic.setPixmap(icon("mdi:check-circle-outline" if qa_ok else "mdi:alert-outline",
-                          color=bar_color).pixmap(16, 16))
-        top.addWidget(ic, 0)
-        top.addWidget(QtWidgets.QLabel(_tr("Cobertura")), 0)
-        bar = QtWidgets.QProgressBar()
-        bar.setRange(0, 1000)
-        bar.setValue(int(round(max(0.0, min(1.0, cov)) * 1000)))
-        bar.setFormat(f"{cov * 100:.1f} %")
-        bar.setTextVisible(True)
-        bar.setAlignment(QtCore.Qt.AlignCenter)
-        bar.setFixedHeight(18)
-        bar.setStyleSheet(
-            f"QProgressBar {{ border:1px solid {t.border}; border-radius:4px;"
-            f" background:{t.surface_alt}; color:{t.text}; font-weight:bold; }}"
-            f"QProgressBar::chunk {{ background:{bar_color}; border-radius:3px; }}")
-        bar.setToolTip(_tr("Guiones del plano cubiertos por las líneas reconocidas. En el dibujo: "
-                           "naranja = sin cubrir, violeta = trazos fuera de patrón (leaders/flechas)."))
-        top.addWidget(bar, 1)
-        box.addLayout(top)
-        info = QtWidgets.QHBoxLayout(); info.setSpacing(12)
-        for n, color, text in ((n_unc, "#ff8c00", _tr("{n} sin cubrir").format(n=n_unc)),
-                               (n_off, "#8a6cff", _tr("{n} fuera de patrón").format(n=n_off))):
-            dot = QtWidgets.QLabel()
-            dot.setPixmap(swatch_icon(QtGui.QColor(color), 10).pixmap(10, 10))
-            chip = QtWidgets.QLabel(text)
-            chip.setStyleSheet("color:%s;" % (t.text if n else t.text_muted))
-            info.addWidget(dot, 0); info.addWidget(chip, 0)
-        info.addStretch(1)
-        info.addWidget(self.lbl_summary, 0)
-        box.addLayout(info)
-        return box
+    def _sync_routes_icon(self, on: bool):
+        t = _theme.tokens()
+        self.chk_routes.setIcon(icon("mdi:link-variant", color=t.text_on_accent) if on
+                                else icon("mdi:link-variant-off", color=t.text))
 
     def _update_summary(self):
         drawable = self._drawable()
-        self.lbl_summary.setText(_tr("Escala {s:.6f} pie/pt").format(s=self._result.scale_ft_per_pt))
         self.summary.refresh()
         if hasattr(self, "btn_ok"):
             self.btn_ok.setEnabled(len(drawable) > 0)
@@ -641,10 +610,24 @@ class RecognitionPreviewDialog(QtWidgets.QDialog):
                     _draw_vault_outline(sc, vg, color)
             for (vx, vy) in (getattr(result, "vault_orphans_px", None) or []):
                 _draw_vault(sc, vx, vy, QtGui.QColor("#ff8c00"), z=6, r=4.0)
+        for rect in getattr(self, "_reviewed", []):
+            self._draw_reviewed(rect)
+
+    def _draw_reviewed(self, rect: QtCore.QRectF):
+        """Recuadro verde a trazos: este lugar ya se revisó desde «Revisar»."""
+        pen = QtGui.QPen(QtGui.QColor(_theme.tokens().success), 2, QtCore.Qt.DashLine)
+        pen.setCosmetic(True)
+        it = self.view.scene().addRect(rect.adjusted(-6, -6, 6, 6), pen)
+        it.setZValue(49)
+        it.setToolTip(_tr("Revisado"))
 
     def _go_to(self, rect: QtCore.QRectF):
         """Clic en un aviso de «Revisar»: la vista va a ese lugar (con contexto
-        alrededor) y lo marca con un recuadro que parpadea y se desvanece."""
+        alrededor) y lo marca con un recuadro que parpadea y se desvanece; debajo
+        queda un recuadro verde a trazos (ya revisado) hasta cerrar la vista previa."""
+        if not any(r == rect for r in self._reviewed):
+            self._reviewed.append(QtCore.QRectF(rect))
+            self._draw_reviewed(rect)
         ctx = max(rect.width(), rect.height()) * 1.6 + 60
         side = max(ctx, GOTO_MIN_SIDE_PX)
         c = rect.center()

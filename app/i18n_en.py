@@ -1891,6 +1891,44 @@ EN: dict[str, str] = {
         "Sheet {n} · no layers",
     "✔ Área tomada como pieza {n} ({label}). Ya está en la hoja compuesta ({total} pieza(s)).":
         "✔ Area taken as piece {n} ({label}). It is already on the composite sheet ({total} piece(s)).",
+    "✔ Tomada": "✔ Taken",
+    "✔ Tomada ({n} piezas)": "✔ Taken ({n} pieces)",
+    "Esta hoja ya está en la hoja compuesta.": "This sheet is already on the composite sheet.",
+    "La hoja {n} aún no está en la hoja compuesta: marca un área y pulsa «Tomar área», o pulsa «Hoja completa».":
+        "Sheet {n} is not on the composite sheet yet: draw an area and press «Take area», or press «Full sheet».",
+    "Hoja sin tomar": "Sheet not taken",
+    "La hoja {n} que estás viendo aún no está en la hoja compuesta.":
+        "Sheet {n}, the one you are viewing, is not on the composite sheet yet.",
+    "Si continúas así, solo se usará lo que ya tomaste: {taken}.":
+        "If you continue now, only what you already took will be used: {taken}.",
+    "{pdf} · hoja {n}": "{pdf} · sheet {n}",
+    "Agregar el área marcada": "Add the marked area",
+    "Agregar la hoja {n} completa": "Add full sheet {n}",
+    "Usar solo el área marcada": "Use only the marked area",
+    "Usar solo la hoja {n}": "Use only sheet {n}",
+    "Continuar sin ella": "Continue without it",
+    "Volver": "Go back",
+    # ── vista previa del reconocimiento: resumen (2026-09-30) ──
+    "Tramos": "Segments",
+    "Abandonadas": "Abandoned",
+    "Codos": "Bends",
+    "Polilíneas que se importan al editor.": "Polylines imported into the editor.",
+    "Tramos marcados (AB): capa «-A» + patrón «/», o patrón «//».":
+        "Marked segments (AB): «-A» layer + «/» pattern, or «//» pattern.",
+    "Esquinas con radio (curvas reales del plano).": "Corners with a radius (real curves of the plan).",
+    "Bóvedas que quedan como nodos de las líneas.": "Vaults that become nodes of the lines.",
+    "activas": "active",
+    "abandonadas (AB)": "abandoned (AB)",
+    "Unir tramos": "Join segments",
+    "Revisado": "Reviewed",
+    "Al ver todos los casos queda marcado como revisado.": "Once every case has been viewed it is marked as reviewed.",
+    "Clic: marcar como revisado.": "Click: mark as reviewed.",
+    "Marcar como pendiente": "Mark as pending",
+    "Marcar como revisado": "Mark as reviewed",
+    "Avisos ya revisados. Clic derecho en un aviso: marcarlo como pendiente.":
+        "Notices already reviewed. Right-click a notice to mark it as pending.",
+    "✔ Todo revisado": "✔ All reviewed",
+    "{k} de {n} revisados": "{k} of {n} reviewed",
 
     # ── layer_dialog.py (rama dev_santos_v2) ──
     "Utilidades a reconocer:":

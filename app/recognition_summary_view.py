@@ -4,24 +4,33 @@ Reemplaza el bloque de texto de avisos por:
   1. cuatro tarjetas con las cifras (tramos, abandonadas, codos, estructuras);
   2. una barra por utilidad (misma escala): activas en sólido, abandonadas (AB)
      rayadas del mismo color — el color es la utilidad, igual que en el lienzo;
-  3. «Revisar»: solo los avisos que piden una decisión, en una línea con icono;
-     el texto completo va en el tooltip. Lo informativo queda plegado en
-     «Detalles».
+  3. una leyenda en UNA fila (salta de línea si no cabe): activas, AB, lo que el
+     QA pinta sobre la hoja (sin cubrir, fuera de patrón) y la escala; debajo la
+     barra de cobertura (pedido del usuario 2026-09-30: juntar el QA con las cifras);
+  4. «Revisar»: solo los avisos que piden una decisión, en una línea con icono,
+     con alto máximo y scroll; el texto completo va en el tooltip. Clic = ir al
+     lugar; vistos todos sus casos, el aviso queda «revisado» (✔). Lo
+     informativo queda plegado en «Detalles».
 Los datos salen de `recognition_summary` (puro).
 """
 from __future__ import annotations
 
 from PySide6 import QtCore, QtGui, QtWidgets
 
-from i18n import t as _tr
+from i18n import t as _tr, N_
 from icons import icon
 from model import TIPOS
-from ui_common import layer_qcolor
+from ui_common import layer_qcolor, swatch_icon
+from widgets import FlowLayout
 import recognition_summary as rs
 import theme as _theme
 
 _UTILITY_LABEL = {key: label for label, key in TIPOS}
 WARN_COLOR = "#e08a00"          # ámbar de «revisar» (el mismo del QA de cobertura)
+UNCOVERED_COLOR = "#ff8c00"     # guiones sin cubrir (así se pintan en la vista previa)
+OFFPATTERN_COLOR = "#8a6cff"    # trazos fuera de patrón (leaders/flechas)
+REVIEW_MAX_H = 170              # «Revisar»: ~6 avisos; más → scroll (no aplasta el panel)
+DETAILS_MAX_H = 200
 
 
 def _needs_outline(color: QtGui.QColor) -> bool:
@@ -55,7 +64,7 @@ class _Tile(QtWidgets.QFrame):
         # el QSS global fija el tamaño de letra: la cifra grande va por QSS también
         self.value.setStyleSheet(
             f"color:{t.text}; background:transparent; border:none; font-size:20px; font-weight:bold;")
-        cap = QtWidgets.QLabel(_tr(label))
+        cap = QtWidgets.QLabel(_tr(label))          # label/tooltip: claves marcadas con N_()
         cap.setStyleSheet(f"color:{t.text_muted}; background:transparent; border:none; font-size:11px;")
         lay.addWidget(self.value); lay.addWidget(cap)
         if tooltip:
@@ -160,56 +169,178 @@ def _legend_swatch(color: QtGui.QColor, hatched: bool) -> QtGui.QPixmap:
     return pm
 
 
+def _legend_item(pixmap: QtGui.QPixmap, text: str, ink: str) -> QtWidgets.QWidget:
+    """Muestra de color + texto como UNA pieza de la leyenda (salta de línea entera)."""
+    w = QtWidgets.QWidget()
+    lay = QtWidgets.QHBoxLayout(w)
+    lay.setContentsMargins(0, 0, 0, 0); lay.setSpacing(5)
+    sw = QtWidgets.QLabel(); sw.setPixmap(pixmap)
+    lb = QtWidgets.QLabel(text); lb.setStyleSheet(f"color:{ink}; font-size:12px;")
+    lay.addWidget(sw); lay.addWidget(lb)
+    return w
+
+
+def _coverage_bar(t, cov: float, n_unc: int) -> QtWidgets.QLayout:
+    """Cobertura como barra de avance 0–100 % (verde ≥98 % sin huecos, ámbar
+    ≥90 %, rojo por debajo). Lo que quedó fuera va en la leyenda de arriba."""
+    qa_ok = cov >= 0.98 and n_unc == 0
+    bar_color = t.success if qa_ok else (WARN_COLOR if cov >= 0.90 else t.danger)
+    top = QtWidgets.QHBoxLayout(); top.setSpacing(6)
+    ic = QtWidgets.QLabel()
+    ic.setPixmap(icon("mdi:check-circle-outline" if qa_ok else "mdi:alert-outline",
+                      color=bar_color).pixmap(16, 16))
+    top.addWidget(ic, 0)
+    top.addWidget(QtWidgets.QLabel(_tr("Cobertura")), 0)
+    bar = QtWidgets.QProgressBar()
+    bar.setRange(0, 1000)
+    bar.setValue(int(round(max(0.0, min(1.0, cov)) * 1000)))
+    bar.setFormat(f"{cov * 100:.1f} %")
+    bar.setTextVisible(True)
+    bar.setAlignment(QtCore.Qt.AlignCenter)
+    bar.setFixedHeight(18)
+    bar.setStyleSheet(
+        f"QProgressBar {{ border:1px solid {t.border}; border-radius:4px;"
+        f" background:{t.surface_alt}; color:{t.text}; font-weight:bold; }}"
+        f"QProgressBar::chunk {{ background:{bar_color}; border-radius:3px; }}")
+    bar.setToolTip(_tr("Guiones del plano cubiertos por las líneas reconocidas. En el dibujo: "
+                       "naranja = sin cubrir, violeta = trazos fuera de patrón (leaders/flechas)."))
+    top.addWidget(bar, 1)
+    return top
+
+
+class _CappedScroll(QtWidgets.QScrollArea):
+    """Lista con su alto natural hasta `cap` px; si hay más, scroll (el panel no
+    crece sin límite con muchos avisos)."""
+
+    def __init__(self, body: QtWidgets.QWidget, cap: int):
+        super().__init__()
+        self._cap = int(cap)
+        self.setWidget(body)
+        self.setWidgetResizable(True)
+        self.setFrameShape(QtWidgets.QFrame.NoFrame)
+        self.setHorizontalScrollBarPolicy(QtCore.Qt.ScrollBarAlwaysOff)
+        self.setSizePolicy(QtWidgets.QSizePolicy.Preferred, QtWidgets.QSizePolicy.Fixed)
+        self.setFixedHeight(min(self._cap, body.sizeHint().height()))
+
+    def natural_height(self, width: int) -> int:
+        lay = self.widget().layout()
+        if lay is not None and lay.hasHeightForWidth():
+            return lay.totalHeightForWidth(width)
+        return self.widget().sizeHint().height()
+
+    def resizeEvent(self, e):
+        super().resizeEvent(e)
+        # las líneas largas se parten según el ancho: el alto se recalcula aquí
+        h = min(self._cap, self.natural_height(self.viewport().width()))
+        if h != self.height():
+            self.setFixedHeight(h)
+
+
 class _NoticeRow(QtWidgets.QWidget):
     """Una línea de aviso. Si el aviso señala algo en la hoja (`targets`), la fila
-    es cliqueable: cada clic lleva la vista previa al siguiente caso (1/N)."""
+    es cliqueable: cada clic lleva la vista previa al siguiente caso (1/N).
+    `reviewable` (avisos de «Revisar», pedido del usuario 2026-09-30): vistos
+    TODOS sus casos —o con un clic, si no señala nada en la hoja— queda
+    «revisado» (✔ verde, texto atenuado); clic derecho lo desmarca."""
 
-    def __init__(self, n: rs.Notice, show_utility: bool, targets=None, on_locate=None):
+    reviewedChanged = QtCore.Signal(bool)
+
+    def __init__(self, n: rs.Notice, show_utility: bool, targets=None, on_locate=None,
+                 reviewable: bool = False):
         super().__init__()
         t = _theme.tokens()
+        self._notice = n
         self._targets = targets            # callable → [Rect] (se recalcula: «Unir rutas» cambia tramos)
         self._on_locate = on_locate
         self._idx = -1
+        self._seen: set = set()            # casos ya vistos (índices en la lista de targets)
+        self._n_targets = 0
+        self.reviewable = bool(reviewable)
+        self.reviewed = False
         lay = QtWidgets.QHBoxLayout(self)
         lay.setContentsMargins(2, 1, 2, 1); lay.setSpacing(6)
-        ic = QtWidgets.QLabel(); ic.setPixmap(_level_icon(n.level).pixmap(16, 16))
-        lay.addWidget(ic, 0, QtCore.Qt.AlignTop)
-        util = (f"<span style='color:{t.text_muted}'>{_tr(_UTILITY_LABEL.get(n.utility, n.utility))} · </span>"
-                if show_utility else "")
-        ink = t.text if n.level != rs.INFO else t.text_muted
-        lbl = QtWidgets.QLabel(f"{util}<span style='color:{ink}'>{_tr(n.label)}</span>")
-        lbl.setWordWrap(True)
-        lay.addWidget(lbl, 1)
+        self.ic = QtWidgets.QLabel()
+        lay.addWidget(self.ic, 0, QtCore.Qt.AlignTop)
+        self._util = (f"<span style='color:{t.text_muted}'>{_tr(_UTILITY_LABEL.get(n.utility, n.utility))} · </span>"
+                      if show_utility else "")
+        self.lbl = QtWidgets.QLabel()
+        self.lbl.setWordWrap(True)
+        lay.addWidget(self.lbl, 1)
         self.clickable = bool(targets and on_locate and targets())
+        self.counter = QtWidgets.QLabel("")
+        self.counter.setStyleSheet(f"color:{t.text_muted}; font-size:11px;")
         tip = _tr(n.text)
         if self.clickable:
-            self.counter = QtWidgets.QLabel("")
-            self.counter.setStyleSheet(f"color:{t.text_muted}; font-size:11px;")
             lay.addWidget(self.counter, 0, QtCore.Qt.AlignTop)
             go = QtWidgets.QLabel(); go.setPixmap(icon("mdi:crosshairs-gps", color=t.text_muted).pixmap(14, 14))
             lay.addWidget(go, 0, QtCore.Qt.AlignTop)
+            tip += "\n\n" + _tr("Clic: ir al lugar en la hoja (cada clic, el siguiente).")
+            if self.reviewable:
+                tip += "\n" + _tr("Al ver todos los casos queda marcado como revisado.")
+        elif self.reviewable:
+            tip += "\n\n" + _tr("Clic: marcar como revisado.")
+        if self.clickable or self.reviewable:
             self.setCursor(QtCore.Qt.PointingHandCursor)
             self.setAttribute(QtCore.Qt.WA_Hover, True)
             self.setObjectName("noticeRow")
             self.setStyleSheet(f"#noticeRow {{ border-radius:4px; }}"
                                f" #noticeRow:hover {{ background:{t.surface_alt}; }}")
             self.setAttribute(QtCore.Qt.WA_StyledBackground, True)
-            tip += "\n\n" + _tr("Clic: ir al lugar en la hoja (cada clic, el siguiente).")
         self.setToolTip(tip)
+        self._render()
+
+    def _render(self):
+        t = _theme.tokens()
+        n = self._notice
+        if self.reviewed:
+            self.ic.setPixmap(icon("mdi:check-circle-outline", color=t.success).pixmap(16, 16))
+            ink = t.text_muted
+        else:
+            self.ic.setPixmap(_level_icon(n.level).pixmap(16, 16))
+            ink = t.text if n.level != rs.INFO else t.text_muted
+        self.lbl.setText(f"{self._util}<span style='color:{ink}'>{_tr(n.label)}</span>")
+
+    def set_reviewed(self, on: bool):
+        on = bool(on)
+        if on == self.reviewed:
+            return
+        self.reviewed = on
+        if not on:
+            self._seen.clear()
+        self._render()
+        self.reviewedChanged.emit(on)
 
     def mouseReleaseEvent(self, e):
-        if self.clickable and e.button() == QtCore.Qt.LeftButton:
+        if e.button() == QtCore.Qt.LeftButton and self.clickable:
             rects = self._targets() or []
             if rects:
+                if len(rects) != self._n_targets:        # «Unir rutas» cambió los casos
+                    self._n_targets, self._idx = len(rects), -1
+                    self._seen.clear()
                 self._idx = (self._idx + 1) % len(rects)
+                self._seen.add(self._idx)
                 self.counter.setText(f"{self._idx + 1}/{len(rects)}")
                 self._on_locate(rects[self._idx])
+                if self.reviewable and len(self._seen) >= len(rects):
+                    self.set_reviewed(True)
+            return
+        if e.button() == QtCore.Qt.LeftButton and self.reviewable:
+            self.set_reviewed(not self.reviewed)
             return
         super().mouseReleaseEvent(e)
 
+    def contextMenuEvent(self, e):
+        if not self.reviewable:
+            return super().contextMenuEvent(e)
+        menu = QtWidgets.QMenu(self)
+        act = menu.addAction(_tr("Marcar como pendiente") if self.reviewed else _tr("Marcar como revisado"))
+        if menu.exec(e.globalPos()) is act:
+            self.set_reviewed(not self.reviewed)
+
 
 class SummaryPanel(QtWidgets.QWidget):
-    """Resumen del reconocimiento: tarjetas + barras por utilidad + avisos.
+    """Resumen del reconocimiento: tarjetas + barras por utilidad + leyenda y
+    cobertura + avisos.
 
     `locate(QRectF)`: el usuario hizo clic en un aviso que señala algo de la
     hoja; el rectángulo va en coordenadas de la escena de la vista previa."""
@@ -225,32 +356,51 @@ class SummaryPanel(QtWidgets.QWidget):
         root.setContentsMargins(0, 0, 0, 0); root.setSpacing(8)
 
         tiles = QtWidgets.QGridLayout(); tiles.setSpacing(6)
-        self.t_tramos = _Tile("Tramos", "Polilíneas que se importan al editor.")
-        self.t_ab = _Tile("Abandonadas", "Tramos marcados (AB): capa «-A» + patrón «/», o patrón «//».")
-        self.t_codos = _Tile("Codos", "Esquinas con radio (curvas reales del plano).")
-        self.t_est = _Tile("Estructuras", "Bóvedas que quedan como nodos de las líneas.")
+        self.t_tramos = _Tile(N_("Tramos"), N_("Polilíneas que se importan al editor."))
+        self.t_ab = _Tile(N_("Abandonadas"), N_("Tramos marcados (AB): capa «-A» + patrón «/», o patrón «//»."))
+        self.t_codos = _Tile(N_("Codos"), N_("Esquinas con radio (curvas reales del plano)."))
+        self.t_est = _Tile(N_("Estructuras"), N_("Bóvedas que quedan como nodos de las líneas."))
         for i, w in enumerate((self.t_tramos, self.t_ab, self.t_codos, self.t_est)):
             tiles.addWidget(w, 0, i)
         root.addLayout(tiles)
 
         self.bars = UtilityBars()
         root.addWidget(self.bars)
-        leg = QtWidgets.QHBoxLayout(); leg.setSpacing(6)
+        # Leyenda en UNA fila (salta de línea si no cabe): lo que muestran las
+        # barras (activas / AB), lo que el QA pinta sobre la hoja y la escala.
+        cov = min(float(getattr(r, "coverage", 1.0) or 0.0) for r in self._results)
+        n_unc = sum(len(getattr(r, "uncovered_px", None) or []) for r in self._results)
+        n_off = sum(len(getattr(r, "offpattern_px", None) or []) for r in self._results)
+        legend = FlowLayout(h_spacing=14, v_spacing=4)
         base = layer_qcolor(self._results[0].utility) if not multi else QtGui.QColor(t.text_muted)
-        for hatched, text in ((False, "activas"), (True, "abandonadas (AB)")):
-            sw = QtWidgets.QLabel(); sw.setPixmap(_legend_swatch(base, hatched))
-            lb = QtWidgets.QLabel(_tr(text)); lb.setStyleSheet(f"color:{t.text_muted};")
-            leg.addWidget(sw); leg.addWidget(lb); leg.addSpacing(8)
-        leg.addStretch(1)
-        root.addLayout(leg)
+        legend.addWidget(_legend_item(_legend_swatch(base, False), _tr(N_("activas")), t.text_muted))
+        legend.addWidget(_legend_item(_legend_swatch(base, True), _tr(N_("abandonadas (AB)")), t.text_muted))
+        for n, color, text in ((n_unc, UNCOVERED_COLOR, _tr("{n} sin cubrir").format(n=n_unc)),
+                               (n_off, OFFPATTERN_COLOR, _tr("{n} fuera de patrón").format(n=n_off))):
+            legend.addWidget(_legend_item(swatch_icon(QtGui.QColor(color), 10).pixmap(10, 10), text,
+                                          t.text if n else t.text_muted))
+        scale = float(getattr(self._results[0], "scale_ft_per_pt", 0.0) or 0.0)
+        self.lbl_scale = QtWidgets.QLabel(_tr("Escala 1\"={v}'").format(v=f"{round(scale * 72.0, 3):g}"))
+        self.lbl_scale.setStyleSheet(f"color:{t.text_muted}; font-size:12px;")
+        self.lbl_scale.setToolTip(_tr("Escala {s:.6f} pie/pt").format(s=scale))
+        legend.addWidget(self.lbl_scale)
+        root.addLayout(legend)
+        root.addLayout(_coverage_bar(t, cov, n_unc))
 
         notices = rs.notices_for(self._results)
         act = [n for n in notices if n.level != rs.INFO]
         info = [n for n in notices if n.level == rs.INFO]
+        self.lbl_reviewed = None
         if act:
+            hrow = QtWidgets.QHBoxLayout()
             head = QtWidgets.QLabel(_tr("Revisar ({n})").format(n=len(act)))
             hf = head.font(); hf.setBold(True); head.setFont(hf)
-            root.addWidget(head)
+            hrow.addWidget(head, 1)
+            self.lbl_reviewed = QtWidgets.QLabel()
+            self.lbl_reviewed.setToolTip(_tr("Avisos ya revisados. Clic derecho en un aviso: "
+                                             "marcarlo como pendiente."))
+            hrow.addWidget(self.lbl_reviewed, 0)
+            root.addLayout(hrow)
         else:
             ok = QtWidgets.QHBoxLayout()
             ic = QtWidgets.QLabel(); ic.setPixmap(icon("mdi:check-circle-outline", color=t.success).pixmap(16, 16))
@@ -258,8 +408,17 @@ class SummaryPanel(QtWidgets.QWidget):
             lf = lb.font(); lf.setBold(True); lb.setFont(lf)
             ok.addWidget(ic); ok.addWidget(lb, 1)
             root.addLayout(ok)
-        for n in act:
-            root.addWidget(self._row(n, multi))
+        # «Revisar» con alto máximo: con muchos avisos, scroll (pedido del usuario)
+        body = QtWidgets.QWidget()
+        rl = QtWidgets.QVBoxLayout(body); rl.setContentsMargins(0, 0, 0, 0); rl.setSpacing(2)
+        self.review_rows = [self._row(n, multi, reviewable=True) for n in act]
+        for row in self.review_rows:
+            row.reviewedChanged.connect(lambda _on: self._refresh_reviewed())
+            rl.addWidget(row)
+        self.review = _CappedScroll(body, REVIEW_MAX_H)
+        self.review.setVisible(bool(act))
+        root.addWidget(self.review)
+        self._refresh_reviewed()
 
         self.btn_details = QtWidgets.QToolButton()
         self.btn_details.setCheckable(True)
@@ -283,23 +442,32 @@ class SummaryPanel(QtWidgets.QWidget):
                 dl.addWidget(hd)
             for n in rows:
                 dl.addWidget(self._row(n, False))
-        dl.addStretch(1)
-        self.details = QtWidgets.QScrollArea()
-        self.details.setWidget(body); self.details.setWidgetResizable(True)
-        self.details.setFrameShape(QtWidgets.QFrame.NoFrame)
-        self.details.setHorizontalScrollBarPolicy(QtCore.Qt.ScrollBarAlwaysOff)
-        self.details.setMaximumHeight(200)
+        self.details = _CappedScroll(body, DETAILS_MAX_H)
         self.details.setVisible(False)
         root.addWidget(self.details)
         self.btn_details.toggled.connect(self._toggle_details)
         self.refresh()
 
-    def _row(self, n: rs.Notice, show_utility: bool) -> _NoticeRow:
+    def _row(self, n: rs.Notice, show_utility: bool, reviewable: bool = False) -> _NoticeRow:
         result = next((r for r in self._results if r.utility == n.utility), None)
         targets = (lambda: rs.targets_for(n.key, result)) if (n.key and result is not None) else None
         return _NoticeRow(n, show_utility, targets,
                           lambda r: self.locate.emit(QtCore.QRectF(QtCore.QPointF(r[0], r[1]),
-                                                                    QtCore.QPointF(r[2], r[3]))))
+                                                                    QtCore.QPointF(r[2], r[3]))),
+                          reviewable=reviewable)
+
+    def _refresh_reviewed(self):
+        """«k de N revisados» junto a «Revisar»; en verde cuando no queda ninguno."""
+        if self.lbl_reviewed is None:
+            return
+        t = _theme.tokens()
+        done = sum(1 for r in self.review_rows if r.reviewed)
+        if done >= len(self.review_rows):
+            self.lbl_reviewed.setText(_tr("✔ Todo revisado"))
+            self.lbl_reviewed.setStyleSheet(f"color:{t.success}; font-weight:bold; font-size:12px;")
+        else:
+            self.lbl_reviewed.setText(_tr("{k} de {n} revisados").format(k=done, n=len(self.review_rows)))
+            self.lbl_reviewed.setStyleSheet(f"color:{t.text_muted}; font-size:12px;")
 
     def _toggle_details(self, on: bool):
         self.details.setVisible(on)

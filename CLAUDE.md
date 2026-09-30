@@ -267,14 +267,21 @@ alcantarillado, drenaje, gas, eléctrico, telecom). Todo en **unidades imperiale
     problema/revisar/info + etiqueta corta; el texto completo va al tooltip; un
     aviso SIN regla cae en «revisar» — al agregar un `warnings.append` nuevo en
     `recognition.py`, sumar su regla en `_RULES`); `SummaryPanel` = 4 tarjetas +
-    barra por utilidad (activas sólidas / AB rayadas, misma escala) + «Revisar» +
-    «Detalles» plegado. **Clic en un aviso → ir al lugar** (pedido del usuario): cada regla
+    barra por utilidad (activas sólidas / AB rayadas, misma escala) + UNA leyenda
+    (`widgets.FlowLayout`: activas, AB, sin cubrir, fuera de patrón, escala) + barra de
+    cobertura + «Revisar» (`_CappedScroll`, tope `REVIEW_MAX_H`, scroll) + «Detalles»
+    plegado; «Unir tramos» (`chk_routes`, QToolButton `toggleTool`) va en el PIE junto a
+    «Opacidad» (2026-09-30). **Clic en un aviso → ir al lugar** (pedido del usuario): cada regla
     de `_RULES` lleva una CLAVE y `targets_for(clave, result)` da los recuadros (px de la
     vista) — codos `loose`, ristras `curve` (uno por tramo), `uncovered_px`,
     `vault_orphans_px`, y `RecognizedPolyline.review` (lo marca `recognize_page` en las
     rutas que generan los avisos «-A» sin patrón / «//» / «-D» / «/» activa); la fila
     emite `SummaryPanel.locate(QRectF)` y `RecognitionPreviewDialog._go_to` hace zoom
-    y marca con un recuadro ámbar (1/N por clic). Aviso nuevo con ubicación → clave +
+    y marca con un recuadro ámbar (1/N por clic). **Revisado** (2026-09-30): vistos todos
+    sus casos (`_NoticeRow._seen`) —o un clic si no tiene lugar— la fila queda ✔
+    (`reviewedChanged`; clic derecho = pendiente), «k de N revisados» junto a «Revisar», y
+    cada lugar visitado queda con un recuadro verde a trazos (`_reviewed`, se redibuja en
+    `_redraw_overlay`). Aviso nuevo con ubicación → clave +
     rama en `targets_for`. Tests: `tests/test_recognition_summary.py`.
   - `recognition_geom.py` — **núcleo geométrico PURO** (sin Qt ni fitz): en el
     PDF la utilidad viene como linetype "explotado" (guiones + letras «e» +
@@ -435,8 +442,16 @@ alcantarillado, drenaje, gas, eléctrico, telecom). Todo en **unidades imperiale
     herramientas de pieza (`piece_tools`: girar, menú «Ajustes» con `spn_angle`/
     `spn_piece_scale`, quitar) SOLO con una pieza seleccionada, y menú «Uniones»
     (`btn_magnet`/`btn_anchors`/`btn_bridges` + `spn_gap`); `cmb_scale` solo visible con >1
-    escala. Siempre queda un panel abierto (`CollapsiblePanel.set_collapse_allowed`,
-    `_update_collapse_rules`). Abre en `Composite.last_view` ([pdf, hoja] al aceptar; va al
+    escala. Siempre queda abierto «Área a tomar» u «Hoja compuesta» (`_FLEX`,
+    `CollapsiblePanel.set_collapse_allowed`, `_update_collapse_rules`); «Origen» conserva su
+    ancho en px al plegar/desplegar (el sitio lo reparten los `_FLEX`) y `_apply_initial_sizes`
+    se repite en `resizeEvent` con el ancho REAL hasta que el usuario mueva un divisor
+    (`setSizes` antes de mostrarse reparte en proporción y «Origen» crecía). Botones: «Hoja
+    completa» = `QPushButton[soft="true"]`, «Opciones»/«Uniones»/«Ajustes» =
+    `QPushButton[options="true"]` con menú, todos `_BTN_H`=38. Hoja a la vista que NO está en
+    la hoja compuesta: la lista marca «✔ Tomada» las que sí, `pending_box` avisa y `accept`
+    pregunta (`_ask_pending_page`: agregar / usar solo esa hoja si era una hoja entera /
+    seguir sin ella / volver). Abre en `Composite.last_view` ([pdf, hoja] al aceptar; va al
     .digproj) — con una sola hoja entera, en su PDF + la hoja del editor; sin nada, la de la
     última pieza (`_start_position`). `piece_map` reproduce exactamente el
     mapeo de `show_pdf_page` (centro a centro, giro antihorario, factor uniforme);

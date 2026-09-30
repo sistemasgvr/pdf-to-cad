@@ -718,6 +718,134 @@ def test_siempre_queda_un_panel_abierto(app):
         dlg.close_docs()
 
 
+def _settle(app, n=5):
+    for _ in range(n):
+        app.processEvents()
+
+
+class _MemSettings:
+    """QSettings en memoria: las pruebas no tocan las preferencias del usuario."""
+    def __init__(self):
+        self.store = {}
+
+    def value(self, key, default=None):
+        return self.store.get(key, default)
+
+    def setValue(self, key, value):
+        self.store[key] = value
+
+
+def test_origen_conserva_su_ancho_al_plegar(app, monkeypatch):
+    """Reporte del usuario 2026-09-30: al plegar «Área a tomar» u «Hoja
+    compuesta», «Origen» crecía y compartía media ventana con la hoja compuesta.
+    Ahora conserva su ancho; el sitio lo toma el otro panel. «Origen» solo
+    (estirado a toda la ventana) no se permite."""
+    mem = _MemSettings()
+    monkeypatch.setattr(composite_dialog, "_settings", lambda: mem)
+    dlg = composite_dialog.CompositeDialog(None, [{"name": "a.pdf", "data": _two_sheet_pdf()}], None, {}, 0)
+    try:
+        dlg.resize(1600, 900); dlg.show(); _settle(app)
+        w0 = dlg.split.sizes()[0]
+        # (sin fuentes, offscreen, el mínimo del panel sale mayor que en Windows)
+        assert w0 <= max(composite_dialog._SIDE_MAX, dlg.panels[0].minimumSizeHint().width())
+        dlg.panels[1].set_collapsed(True); _settle(app)
+        s = dlg.split.sizes()
+        assert abs(s[0] - w0) <= 2 and s[1] <= dlg.panels[1].STRIP_W + 2
+        assert not dlg.panels[2].btn_collapse.isEnabled()    # queda «Hoja compuesta»: no se pliega
+        assert dlg.panels[0].btn_collapse.isEnabled()
+        dlg.panels[1].set_collapsed(False); _settle(app)
+        assert abs(dlg.split.sizes()[0] - w0) <= 2
+        dlg.panels[2].set_collapsed(True); _settle(app)
+        s = dlg.split.sizes()
+        assert abs(s[0] - w0) <= 2 and s[2] <= dlg.panels[2].STRIP_W + 2
+        assert not dlg.panels[1].btn_collapse.isEnabled()
+        dlg.panels[2].set_collapsed(False); _settle(app)
+        assert abs(dlg.split.sizes()[0] - w0) <= 2
+    finally:
+        dlg.close_docs(); dlg.close()
+    # el ancho recordado de «Origen» es en px (no una proporción de la ventana)
+    mem.store["compositor/splitter"] = [300, 500, 700]
+    dlg = composite_dialog.CompositeDialog(None, [{"name": "a.pdf", "data": _two_sheet_pdf()}], None, {}, 0)
+    try:
+        dlg.resize(1600, 900); dlg.show(); _settle(app)
+        assert abs(dlg.split.sizes()[0] - max(300, dlg.panels[0].minimumSizeHint().width())) <= 2
+    finally:
+        dlg.close_docs(); dlg.close()
+
+
+def test_botones_de_opciones_con_color_y_mismo_alto(app):
+    """«Opciones» y «Uniones» se veían más bajos que «Hoja completa» y del color
+    del fondo: ahora son botones del mismo alto, con tono propio."""
+    dlg = composite_dialog.CompositeDialog(None, [{"name": "a.pdf", "data": _two_sheet_pdf()}], None, {}, 0)
+    try:
+        dlg.show(); _settle(app)
+        assert dlg.btn_take_full.property("soft") is True
+        for b in (dlg.btn_area_opts, dlg.btn_join_opts):
+            assert b.property("options") is True and b.menu() is not None
+            assert b.minimumHeight() == dlg.btn_take_full.minimumHeight() == composite_dialog._BTN_H
+    finally:
+        dlg.close_docs(); dlg.close()
+
+
+def test_hoja_sin_tomar_avisa_y_pregunta_al_continuar(app, monkeypatch):
+    """Reporte del usuario 2026-09-30: con una hoja ya compuesta, volver a
+    componer, elegir otra hoja en la lista SIN tomarla y pulsar «Continuar»
+    seguía usando solo la anterior, sin aviso. Ahora la lista marca «✔ Tomada»,
+    el panel 2 avisa y «Continuar» pregunta."""
+    monkeypatch.setattr(composite_dialog, "_settings", _MemSettings)
+    data = _two_sheet_pdf()
+
+    def open_dlg():
+        comp = C.Composite(pieces=[C.Piece(0, 0, [0.0, 0.0, 1.0, 1.0], src_scale=20 / 72.0)])
+        dlg = composite_dialog.CompositeDialog(None, [{"name": "a.pdf", "data": data}], comp, {}, 0)
+        dlg.show(); _settle(app)
+        return dlg
+
+    dlg = open_dlg()
+    try:
+        assert "Tomada" in dlg.lst_pages.item(0).text() and "Tomada" not in dlg.lst_pages.item(1).text()
+        assert dlg.pending_box.isHidden()
+        dlg.lst_pages.setCurrentRow(1); _settle(app)
+        assert not dlg.pending_box.isHidden() and "2" in dlg.lbl_pending.text()
+        monkeypatch.setattr(dlg, "_ask_pending_page", lambda: "back")
+        dlg.accept()
+        assert dlg.result() != QtWidgets.QDialog.Accepted and len(dlg.comp.pieces) == 1
+        monkeypatch.setattr(dlg, "_ask_pending_page", lambda: "add")
+        dlg.accept()
+        assert dlg.result() == QtWidgets.QDialog.Accepted
+        assert [p.page for p in dlg.comp.pieces] == [0, 1]
+        assert "Tomada" in dlg.lst_pages.item(1).text()
+    finally:
+        dlg.close_docs(); dlg.close()
+
+    dlg = open_dlg()                          # «Usar solo esta hoja»: cambia de hoja
+    try:
+        dlg.lst_pages.setCurrentRow(1); _settle(app)
+        monkeypatch.setattr(dlg, "_ask_pending_page", lambda: "replace")
+        dlg.accept()
+        comp, _s, _h = dlg.result_tuple()
+        assert [p.page for p in comp.pieces] == [1]
+    finally:
+        dlg.close_docs(); dlg.close()
+
+    dlg = open_dlg()                          # «Continuar sin ella»: queda lo que había
+    try:
+        dlg.lst_pages.setCurrentRow(1); _settle(app)
+        monkeypatch.setattr(dlg, "_ask_pending_page", lambda: "skip")
+        dlg.accept()
+        assert dlg.result() == QtWidgets.QDialog.Accepted and [p.page for p in dlg.comp.pieces] == [0]
+    finally:
+        dlg.close_docs(); dlg.close()
+
+    dlg = open_dlg()                          # en una hoja ya tomada no pregunta nada
+    try:
+        monkeypatch.setattr(dlg, "_ask_pending_page", lambda: pytest.fail("no debía preguntar"))
+        dlg.accept()
+        assert dlg.result() == QtWidgets.QDialog.Accepted
+    finally:
+        dlg.close_docs(); dlg.close()
+
+
 def _one_sheet_pdf(n_pages=1):
     doc = fitz.open()
     for _ in range(n_pages):

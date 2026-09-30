@@ -114,17 +114,21 @@ con un indicador que gira y lo que la app está haciendo (por ejemplo «Reconoci
 <ol>
 <li>A la izquierda (<b>Origen</b>) eliges el PDF y la hoja; con el botón de la carpeta puedes
     <b>agregar más PDF</b>. Una hoja marcada «sin capas» es un plano aplanado: se puede usar, pero
-    el reconocimiento no encontrará utilidades en ella.</li>
+    el reconocimiento no encontrará utilidades en ella. Las hojas marcadas <b>«✔ Tomada»</b> ya están
+    en la hoja compuesta.</li>
 <li>En el centro (<b>Área a tomar</b>) marcas con un rectángulo la parte del plano que necesitas y
     pulsas <span class="btn">Tomar área</span> (o <span class="btn">Hoja completa</span>). El imán a
-    líneas y el recorte de la línea de borde están en <b>Opciones</b>.</li>
+    líneas y el recorte de la línea de borde están en <b>Opciones</b>. Elegir una hoja en la lista
+    no la agrega: mientras no la tomes, un aviso naranja lo recuerda.</li>
 <li>A la derecha (<b>Hoja compuesta</b>) colocas cada pieza en su sitio arrastrándola. Con el
     <b>Imán</b> activo, las líneas de dos piezas vecinas se pegan solas; con <b>Puentes</b>, se
     completan los huecos entre hojas (los dos están en <b>Uniones</b>).</li>
 <li>Haz clic en una pieza para <b>girarla</b>, quitarla o, en <b>Ajustes</b>, corregir su ángulo
     fino o su <b>escala</b> si la hoja no la trae escrita.</li>
-<li>Puedes plegar un panel para ganar sitio; siempre queda al menos uno abierto.</li>
-<li><span class="btn">Continuar</span> pasa al paso 2.</li>
+<li>Puedes plegar un panel para ganar sitio: <b>Origen</b> conserva su ancho y siempre queda
+    abierto <b>Área a tomar</b> u <b>Hoja compuesta</b>.</li>
+<li><span class="btn">Continuar</span> pasa al paso 2. Si estás viendo una hoja que no tomaste, la
+    app pregunta si agregarla, usar solo esa hoja o seguir sin ella.</li>
 </ol>
 
 <h2>2. Capas de la hoja</h2>
@@ -151,14 +155,19 @@ con un indicador que gira y lo que la app está haciendo (por ejemplo «Reconoci
 <li>Muestra las líneas que encontró de cada utilidad, cada una con su color, y sus bóvedas o
     buzones. Arriba, unas tarjetas con los totales (tramos, abandonadas, codos, estructuras) y una
     barra por utilidad.</li>
-<li>La barra de <b>Cobertura</b> dice qué parte de los trazos del plano quedó cubierta (verde =
-    completa). En el dibujo, naranja = trazos sin cubrir y violeta = trazos fuera de patrón
-    (flechas, leaders).</li>
+<li>Debajo de las barras, una sola leyenda: activas, abandonadas (AB), trazos <b>sin cubrir</b>
+    (naranja en el dibujo), trazos <b>fuera de patrón</b> (violeta: flechas, leaders) y la escala.
+    La barra de <b>Cobertura</b> dice qué parte de los trazos del plano quedó cubierta (verde =
+    completa).</li>
 <li>Si aparece un aviso en <b>Revisar</b>, haz clic en él: la vista te lleva al lugar exacto de la
-    hoja. Cada clic muestra el siguiente caso (1/N). La información de más está plegada en
-    <b>Detalles</b>.</li>
-<li><b>Unir tramos en rutas</b> junta los tramos que siguen de frente en una sola tubería.</li>
-<li><b>Opacidad</b> aclara el plano para ver mejor <b>qué y cuánto</b> se reconoció.</li>
+    hoja. Cada clic muestra el siguiente caso (1/N). Cuando viste todos sus casos, el aviso queda
+    marcado <b>✔ revisado</b> y en la hoja cada lugar visitado conserva un recuadro verde a trazos;
+    arriba ves cuántos llevas («1 de 4 revisados»). Un aviso sin lugar se marca con un clic; clic
+    derecho lo vuelve a pendiente. Si hay muchos avisos, la lista tiene scroll. La información de
+    más está plegada en <b>Detalles</b>.</li>
+<li>Abajo a la izquierda: <b>Opacidad</b> aclara el plano para ver mejor <b>qué y cuánto</b> se
+    reconoció, y <b>Unir tramos</b> (verde = activo) junta los tramos que siguen de frente en una
+    sola tubería.</li>
 <li>Para volver, pulsa <b>2 Capas de la hoja</b> o <b>1 Componer hoja</b> en la barra de arriba.
     <span class="btn">Ajustar capas…</span> solo hace falta si el plano usa otros nombres de capa:
     ahí indicas cuáles son líneas y cuáles bóvedas.</li>
