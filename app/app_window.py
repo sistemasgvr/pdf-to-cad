@@ -164,7 +164,6 @@ class Main(QtWidgets.QMainWindow):
         _act(medit, "Deshacer", self.undo, "Ctrl+Z")
         _act(medit, "Rehacer", self.redo, "Ctrl+Shift+Z")
         mview = _menu(mb, "&Ver")
-        _act(mview, "Componer hoja de trabajo…", self.compose_sheet)
         # «Organizar hojas…» / «Capas de hojas organizadas…» (flujo antiguo) ya no
         # van en el menú: la hoja compuesta los reemplaza. Los métodos siguen
         # (proyectos viejos con sheet_layout), pero no se ofrecen al usuario.
@@ -196,6 +195,8 @@ class Main(QtWidgets.QMainWindow):
         self.chk_show_conflicts.toggled.connect(self._on_toggle_show_conflicts)
         mview.addAction(self.chk_show_conflicts)
         mtools = _menu(mb, "&Herramientas")
+        _act(mtools, "Componer hoja de trabajo…", self.compose_sheet)
+        mtools.addSeparator()
         _act(mtools, "Insertar buzón en línea…", self.insert_manhole)
         _act(mtools, "Instalar familia personalizada…", self.open_install_family_dialog)
         _act(mtools, "Desinstalar familia personalizada…", self.open_uninstall_family_dialog)
@@ -749,6 +750,27 @@ class Main(QtWidgets.QMainWindow):
         fbz.addRow(_bind(QtWidgets.QLabel(), "setText", "Familia:"), self.bz_family)
         fbz.addRow(_bind(QtWidgets.QLabel(), "setText", "Tamaño:"), self.bz_size)
         fbz.addRow(_bind(QtWidgets.QLabel(), "setText", "Altura (Pies):"), self.bz_height)
+        # SÓLIDO (caja cuadrada reconocida del PDF): sin familia/tamaño de catálogo;
+        # largo × ancho (precargados del plano, editables: cambian el dibujo) y
+        # altura. En Civil 3D se dibuja como sólido 3D.
+        self._fbz = fbz
+        self.sld_len = QtWidgets.QDoubleSpinBox(); self.sld_wid = QtWidgets.QDoubleSpinBox()
+        self.sld_h = QtWidgets.QDoubleSpinBox()
+        for sp in (self.sld_len, self.sld_wid, self.sld_h):
+            sp.setRange(0.01, 1000); sp.setDecimals(3)
+            sp.setButtonSymbols(QtWidgets.QAbstractSpinBox.NoButtons)
+            sp.setKeyboardTracking(False)
+            sp.valueChanged.connect(lambda _v: self._solid_prop_changed())
+        self.sld_h.setDecimals(5)                   # 6.56168 ft = 2 m exactos
+        _bind(self.sld_len, "setToolTip", "Largo del sólido (lado largo), en pies. Viene medido del plano; al cambiarlo se redibuja en el lienzo.")
+        _bind(self.sld_wid, "setToolTip", "Ancho del sólido (lado corto), en pies. Viene medido del plano; al cambiarlo se redibuja en el lienzo.")
+        _bind(self.sld_h, "setToolTip", "Altura del sólido 3D en Civil 3D, en pies (por defecto 6.56168 ft = 2 m).")
+        self._lbl_sld_len = _bind(QtWidgets.QLabel(), "setText", "Largo (Pies):")
+        self._lbl_sld_wid = _bind(QtWidgets.QLabel(), "setText", "Ancho (Pies):")
+        self._lbl_sld_h = _bind(QtWidgets.QLabel(), "setText", "Altura del sólido (Pies):")
+        fbz.addRow(self._lbl_sld_len, self.sld_len)
+        fbz.addRow(self._lbl_sld_wid, self.sld_wid)
+        fbz.addRow(self._lbl_sld_h, self.sld_h)
         fbz.addRow(_bind(QtWidgets.QLabel(), "setText", "Red:"), self.bz_net_lbl)
         fbz.addRow(_bind(QtWidgets.QLabel(), "setText", "Origen:"), self.bz_origin_lbl)
         self.bz_is_curve = _bind(QtWidgets.QPushButton(), "setText", "Cambiar a elemento curvo")
@@ -2454,8 +2476,50 @@ class Main(QtWidgets.QMainWindow):
         if mb.clickedButton() is btn_install:
             self.open_install_family_dialog()
 
+    # ── «¿hay cambios sin guardar?» por CONTENIDO ──
+    # `_dirty` lo encienden muchas rutas (refrescos, re-armado de buzones, cambio
+    # de hoja…) aunque el proyecto no cambie. Al quedar limpio (guardar/abrir) se
+    # toma la huella del modelo que se guarda en el .digproj y antes de preguntar
+    # se compara: si es la misma, no hay nada que guardar.
+    @property
+    def _dirty(self):
+        return self.__dict__.get("_dirty_flag", False)
+
+    @_dirty.setter
+    def _dirty(self, value):
+        self._dirty_flag = bool(value)
+        if not value:
+            self._clean_sig = None
+            # Diferida: incluye lo que se normaliza justo después de abrir.
+            QtCore.QTimer.singleShot(0, self._take_clean_sig)
+
+    def _take_clean_sig(self):
+        # Aunque la marca ya se haya vuelto a encender (lo hacen rutas de la misma
+        # carga/guardado), el contenido en este instante es el guardado.
+        self._clean_sig = self._content_sig()
+
+    def _content_sig(self):
+        try:
+            m = project_io.build_model_dict(self)
+            for k in ("page_idx", "version", "pdf_name"):
+                m.pop(k, None)
+            return hash(json.dumps(m, sort_keys=True, default=str))
+        except Exception:
+            return None
+
+    def _has_real_changes(self):
+        if not self._dirty:
+            return False
+        sig = getattr(self, "_clean_sig", None)
+        if sig is not None and sig == self._content_sig():
+            self._dirty_flag = False
+            try: self._update_title()
+            except Exception: pass
+            return False
+        return True
+
     def _confirm_discard(self):
-        if not self._dirty or self.canvas.pixmap_item is None: return True
+        if self.canvas.pixmap_item is None or not self._has_real_changes(): return True
         r = QtWidgets.QMessageBox.question(
             self, _tr("Cambios sin guardar"), _tr("Hay cambios sin guardar. ¿Deseas guardarlos?"),
             QtWidgets.QMessageBox.Save | QtWidgets.QMessageBox.Discard | QtWidgets.QMessageBox.Cancel)
@@ -3885,11 +3949,14 @@ class Main(QtWidgets.QMainWindow):
                 sz = f"  {s['part_size']}" if s.get("part_size") else ""
                 if s.get("hidden"):
                     item_icon = _icon("mdi:eye-off-outline", color=_theme.tokens().text_muted)
+                elif s.get("solid"):
+                    item_icon = _icon("mdi:cube-outline", color="#f97316")    # sólido 3D = cubo
                 elif s.get("net") == "conduit":
                     item_icon = _icon("mdi:circle-medium", color="#f97316")   # conducto = naranja
                 else:
                     item_icon = _icon("mdi:circle-medium", color="#3b82f6")   # buzón = azul
-            it = QtWidgets.QListWidgetItem(item_icon, f"{s.get('cod', '?')}  ·  {fam}{sz}")
+            it = QtWidgets.QListWidgetItem(item_icon, self._solid_label(s) if s.get("solid") and not is_curve
+                                           else f"{s.get('cod', '?')}  ·  {fam}{sz}")
             if not is_curve and s.get("hidden"):
                 it.setForeground(QtGui.QColor(_theme.tokens().text_muted))
                 it.setToolTip(_tr("Oculto — no se dibuja ni se crea en Civil3D como buzón real."))
@@ -5232,7 +5299,8 @@ class Main(QtWidgets.QMainWindow):
             has_sel = 0 <= self.sel_bz < len(self.structures)
             # Habilitar/deshabilitar todos los controles del groupbox según haya selección
             for w in (self.bz_cod, self.bz_rim, self.bz_sump, self.bz_family, self.bz_size,
-                      self.bz_height, self.bz_is_curve, self.chk_bz_hidden):
+                      self.bz_height, self.bz_is_curve, self.chk_bz_hidden,
+                      self.sld_len, self.sld_wid, self.sld_h):
                 w.setEnabled(has_sel)
             if not has_sel:
                 _bind(self.gprop_bz, "setTitle", "Propiedades del buzón — selecciona uno de la lista")
@@ -5242,8 +5310,17 @@ class Main(QtWidgets.QMainWindow):
                 return
             s = self.structures[self.sel_bz]
             net = s.get("net") or "gravity"
-            _bind(self.gprop_bz, "setTitle", "Propiedades de la caja" if net == "conduit"
-                  else "Propiedades del buzón")
+            solid = bool(s.get("solid"))
+            _bind(self.gprop_bz, "setTitle", "Propiedades del sólido" if solid
+                  else ("Propiedades de la caja" if net == "conduit" else "Propiedades del buzón"))
+            for w in (self.bz_family, self.bz_size, self.bz_height):
+                self._fbz.setRowVisible(w, not solid)
+            for w in (self.sld_len, self.sld_wid, self.sld_h):
+                self._fbz.setRowVisible(w, solid)
+            if solid:
+                self.sld_len.setValue(float(s.get("length_ft") or 0.01))
+                self.sld_wid.setValue(float(s.get("width_ft") or 0.01))
+                self.sld_h.setValue(float(s.get("solid_height_ft") or 6.56168))
             self.bz_cod.setText(s.get("cod", ""))
             self.bz_rim.setValue(float(s.get("rim") or 0.0))
             self.bz_sump.setValue(float(s.get("sump") or 0.0))
@@ -5256,6 +5333,8 @@ class Main(QtWidgets.QMainWindow):
             # ahí se oculta la opción.
             self.bz_is_curve.setVisible(self._bz_segment_count(s) >= 2)
             self.bz_is_curve.setChecked(bool(s.get("curve")))
+            # Un sólido no puede pasar a elemento curvo.
+            self.bz_is_curve.setEnabled(not solid)
             self.chk_bz_hidden.setChecked(bool(s.get("hidden")))
             # Familias del catálogo imperial de estructuras (gravedad).
             self.bz_family.blockSignals(True); self.bz_family.clear()
@@ -5333,6 +5412,28 @@ class Main(QtWidgets.QMainWindow):
         self._refresh_bz_list_item(self.sel_bz)
         self._redraw()
 
+    def _solid_prop_changed(self):
+        """Largo/ancho/altura del SÓLIDO: rehace su contorno a escala y redibuja."""
+        if self._bz_prop_guard: return
+        if not (0 <= self.sel_bz < len(self.structures)): return
+        s = self.structures[self.sel_bz]
+        if not s.get("solid"): return
+        import model_ops
+        px_per_ft = (self.zoom / self.scale) if self.scale else self.zoom
+        if (abs(float(s.get("length_ft") or 0) - self.sld_len.value()) > 1e-6
+                or abs(float(s.get("width_ft") or 0) - self.sld_wid.value()) > 1e-6):
+            self._push()
+            model_ops.resize_solid(s, self.sld_len.value(), self.sld_wid.value(), px_per_ft)
+        s["solid_height_ft"] = float(self.sld_h.value())
+        self._dirty = True
+        self._refresh_bz_list_item(self.sel_bz)
+        self._redraw()
+
+    def _solid_label(self, s):
+        return _tr("{cod}  ·  Sólido {l:g} × {a:g} × {h:g} ft").format(
+            cod=s.get("cod", "?"), l=round(float(s.get("length_ft") or 0), 2),
+            a=round(float(s.get("width_ft") or 0), 2), h=round(float(s.get("solid_height_ft") or 0), 2))
+
     def _refresh_bz_list_item(self, idx):
         """idx es un índice de self.structures (no una fila de bz_list): se
         resuelve la fila visible vía self._bz_rows."""
@@ -5342,7 +5443,9 @@ class Main(QtWidgets.QMainWindow):
         sz = f"  {s['part_size']}" if s.get("part_size") else ""
         emoji = "🚫" if s.get("hidden") else ("🟠" if s.get("net") == "conduit" else "🔵")
         item = self.bz_list.item(self._bz_rows.index(idx))
-        if item:
+        if item and s.get("solid"):
+            item.setText(self._solid_label(s))
+        elif item:
             item.setText(f"{emoji} {s.get('cod', '?')}  ·  {fam}{sz}")
             if s.get("hidden"):
                 item.setForeground(QtGui.QColor(_theme.tokens().text_muted))
@@ -5356,6 +5459,10 @@ class Main(QtWidgets.QMainWindow):
         if not (0 <= self.sel_bz < len(self.structures)): return
         s = self.structures[self.sel_bz]
         if bool(s.get("curve")) == bool(v): return
+        if s.get("solid") and v:
+            self._bz_prop_guard = True; self.bz_is_curve.setChecked(False); self._bz_prop_guard = False
+            self._info(_tr("Un sólido no se puede cambiar a elemento curvo."))
+            return
         s["curve"] = bool(v)
         if v: s["part"] = ""; s["part_size"] = ""   # cambia de catálogo (estructura → tubería)
         s["cod"] = ""                               # fuerza a _rebuild_structures a asignar

@@ -309,34 +309,9 @@ def show_manual(win):
 
 
 def show_shortcuts(win):
-    t = _theme.tokens()
-    rows = []
-    for a in win.findChildren(QtGui.QAction):
-        sc = a.shortcut().toString()
-        txt = a.text().replace("&", "")
-        if sc and txt:
-            rows.append((sc, txt))
-    for sc_w in win.findChildren(QtGui.QShortcut):
-        sc = sc_w.key().toString()
-        if sc:
-            rows.append((sc, ""))
-    seen = set()
-    unique = []
-    for k, d in rows:
-        if k not in seen:
-            seen.add(k); unique.append((k, d))
-    extra = [("Enter",        _tr("Aplicar: finaliza utilidad/zona, o agrega texto/edición")),
-             ("Escape",       _tr("Quitar la selección; si no hay, salir del modo")),
-             (_tr("Doble clic"),   _tr("Sobre un texto: editarlo")),
-             (_tr("Clic derecho"), _tr("Finaliza línea/zona; en editar, elimina el vértice")),
-             (_tr("Rueda"),        _tr("Zoom · Botón central + arrastrar: desplazar"))]
-    for k, d in extra:
-        if k not in seen:
-            seen.add(k); unique.append((k, d))
-    body = "".join(f'<tr><td style="padding:4px 14px;color:{t.accent};"><b>{k}</b></td>'
-                   f'<td style="padding:4px;">{d}</td></tr>' for k, d in unique)
-    title = _tr("Atajos de teclado")
-    show_html(win, title, f"<h2>{title}</h2><table>{body}</table>", 640, 500)
+    """Atajos de teclado (ver shortcuts_dialog.py)."""
+    from shortcuts_dialog import show_shortcuts as _mostrar
+    _mostrar(win)
 
 
 # ─────────────────────────── Opciones (Preferencias) ───────────────────────────

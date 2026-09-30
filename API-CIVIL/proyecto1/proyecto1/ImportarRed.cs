@@ -204,6 +204,15 @@ namespace Civil3DBasico
                             // aplicar el factor de conversión k que sí usan RIM/SUMP.
                             HeightFt = XdNullDouble(xd, "HEIGHT_FT"),
                             Hidden = XdStr(xd, "HIDDEN", "0") == "1",
+                            // SÓLIDO (caja cuadrada reconocida del PDF): sin pieza de
+                            // catálogo; se dibuja como Solid3d (CrearSolidos). Medidas en pies.
+                            Solid = XdStr(xd, "SOLID", "0") == "1",
+                            SolidLFt = XdNullDouble(xd, "LENGTH_FT") ?? 0.0,
+                            SolidWFt = XdNullDouble(xd, "WIDTH_FT") ?? 0.0,
+                            SolidHFt = XdNullDouble(xd, "SOLID_H_FT") ?? 6.56168,
+                            SolidRotDeg = XdNullDouble(xd, "SOLID_ROT_DEG") ?? 0.0,
+                            SolidCenter = new Point2d(XdNullDouble(xd, "SOLID_CX") ?? pt.Position.X,
+                                                      XdNullDouble(xd, "SOLID_CY") ?? pt.Position.Y),
                         };
                         structs.Add(newSt);
                         Dbg("XDATA_STRUCT", ("id", newSt.Id), ("x", pt.Position.X.ToString("F3")),
@@ -600,6 +609,24 @@ namespace Civil3DBasico
             // NOTA: BuscarEstructura/BuscarTuberia ya NO crean tamaños dinámicamente — solo
             // eligen entre los que ya existen en el catálogo (ver RedesTuberia.cs, SizeMasCercano).
             LimpiarDuplicadosPartSize(ed, db);
+
+            // ── 5c-bis. SÓLIDOS (cajas cuadradas reconocidas) — Solid3d ──────
+            if (structs.Exists(x => x.Solid))
+            {
+                using (Transaction trS = db.TransactionManager.StartTransaction())
+                {
+                    try
+                    {
+                        CrearSolidos(ed, db, trS, structs);
+                        trS.Commit();
+                    }
+                    catch (Exception exS)
+                    {
+                        ed.WriteMessage($"\n✗ Error sólidos: {exS.Message}");
+                        trS.Abort();
+                    }
+                }
+            }
 
             // ── 5d. Duct Banks — sólidos 3D ────────────────────────────────
             if (ductBanks.Count > 0)
@@ -1749,6 +1776,17 @@ namespace Civil3DBasico
                     if (sinBuzones && match == null)
                     {
                         Dbg("STRUCT_SKIP_CONDUIT_SIN_CAJA", ("x", v.X.ToString("F3")), ("y", v.Y.ToString("F3")));
+                        vertStructIds.Add(ObjectId.Null);
+                        continue;
+                    }
+                    // SÓLIDO: no lleva estructura de catálogo (la caja la dibuja
+                    // CrearSolidos como Solid3d). Los tramos se unen por extremo libre,
+                    // igual que en un vértice oculto; la base del sólido va al sump.
+                    if (match != null && match.Solid)
+                    {
+                        if (!match.SolidBaseZ.HasValue || sump < match.SolidBaseZ.Value)
+                            match.SolidBaseZ = sump;
+                        Dbg("STRUCT_SOLIDO", ("id", match.Id), ("sump", sump.ToString("F3")));
                         vertStructIds.Add(ObjectId.Null);
                         continue;
                     }
@@ -5585,6 +5623,54 @@ namespace Civil3DBasico
             return v.Length > 1e-9 ? v.GetNormal() : Vector3d.XAxis;
         }
 
+        /// <summary>
+        /// Dibuja cada SÓLIDO como un Solid3d (caja LARGO × ANCHO × ALTURA) en la
+        /// capa PDFCAD_SOLIDOS: centrado en su contorno del plano, girado con el
+        /// lado largo y con la base en el sump de la línea que llega (o el SUMP
+        /// explícito; o RIM − altura; o 0 si es una caja suelta sin cotas).
+        /// </summary>
+        private void CrearSolidos(Editor ed, Database db, Transaction tr, List<ImportStruct> structs)
+        {
+            const string capa = "PDFCAD_SOLIDOS";
+            LayerTable lt = (LayerTable)tr.GetObject(db.LayerTableId, OpenMode.ForRead);
+            if (!lt.Has(capa))
+            {
+                lt.UpgradeOpen();
+                var lr = new LayerTableRecord { Name = capa, Color = Autodesk.AutoCAD.Colors.Color.FromColorIndex(Autodesk.AutoCAD.Colors.ColorMethod.ByAci, 30) };
+                lt.Add(lr); tr.AddNewlyCreatedDBObject(lr, true);
+            }
+            BlockTableRecord ms = (BlockTableRecord)tr.GetObject(
+                SymbolUtilityServices.GetBlockModelSpaceId(db), OpenMode.ForWrite);
+            double k = FactorConversion("ft", db);          // pies → unidades del dibujo
+            int n = 0;
+            foreach (var st in structs)
+            {
+                if (!st.Solid || st.SolidLFt <= 0 || st.SolidWFt <= 0) continue;
+                double h = (st.SolidHFt > 0 ? st.SolidHFt : 6.56168) * k;
+                double z0 = st.Sump ?? st.SolidBaseZ ?? (st.Rim.HasValue ? st.Rim.Value - h : 0.0);
+                try
+                {
+                    var sol = new Solid3d();
+                    sol.CreateBox(st.SolidLFt * k, st.SolidWFt * k, h);   // centrada en el origen
+                    sol.TransformBy(Matrix3d.Rotation(st.SolidRotDeg * Math.PI / 180.0,
+                                                      Vector3d.ZAxis, Point3d.Origin));
+                    sol.TransformBy(Matrix3d.Displacement(new Vector3d(
+                        st.SolidCenter.X, st.SolidCenter.Y, z0 + h / 2.0)));
+                    sol.Layer = capa;
+                    ms.AppendEntity(sol); tr.AddNewlyCreatedDBObject(sol, true);
+                    n++;
+                    Dbg("SOLIDO_OK", ("id", st.Id), ("l", st.SolidLFt.ToString("F2")),
+                        ("w", st.SolidWFt.ToString("F2")), ("h", st.SolidHFt.ToString("F2")),
+                        ("z0", z0.ToString("F3")));
+                }
+                catch (Exception ex)
+                {
+                    ed.WriteMessage($"\n  ⚠ Sólido '{st.Id}': {ex.Message}");
+                }
+            }
+            ed.WriteMessage($"\n  · {n} sólido(s) 3D en '{capa}'.");
+        }
+
         private void CrearDuctBanks(Editor ed, Database db, Transaction tr,
             List<ImportDuctBank> dbs, List<ImportPipe> pipes)
         {
@@ -6027,6 +6113,10 @@ namespace Civil3DBasico
             public string NetKind = "gravity";      // "gravity" | "pressure"
             public double? HeightFt;                // "Altura (Pies)" de Python — fuerza Rim = Sump + esto
             public bool Hidden;                      // "Ocultar buzón" de Python — fuerza "Estructura nula"
+            public bool Solid;                       // SÓLIDO: se dibuja como Solid3d, sin pieza de catálogo
+            public double SolidLFt, SolidWFt, SolidHFt, SolidRotDeg;
+            public Point2d SolidCenter;
+            public double? SolidBaseZ;               // sump de la línea que llega (lo pone el loop de vértices)
         }
 
         private class DuctConduit

@@ -204,7 +204,7 @@ def rebuild_structures(pipes, structures):
         else:
             while f"CAJA-{cnt_caja}" in used: cnt_caja += 1
             s["cod"] = f"CAJA-{cnt_caja}"; used.add(s["cod"]); cnt_caja += 1
-    return combined
+    return normalize_solids(combined)
 
 
 # Vértices del reconocimiento donde la línea llega a una bóveda: la atraviesa
@@ -414,6 +414,7 @@ def attach_vault_geometry(structures, vaults_geo, tol=12.0, net="conduit",
             xdata.set_auto(st, xdata.auto_fields(vg.get("layer"), where))
         done += 1
     _assign_standalone_codes(structures)
+    normalize_solids(structures)
     return done, created
 
 
@@ -997,3 +998,73 @@ def choques_sin_conexion(pipes, z_at, tol_px, structures=(), z_tol=0.10):
                     salida.append({"x": cp[0], "y": cp[1], "ia": ia, "ib": ib,
                                    "za": float(za), "zb": float(zb)})
     return salida
+
+
+# ── SÓLIDOS: cajas cuadradas reconocidas del PDF (conduit) ──────────────────
+# Una caja de eléctrico/telecom reconocida con su contorno RECTANGULAR no es una
+# estructura del catálogo: se lista en «Buzones» como SÓLIDO-N, sin familia ni
+# tamaño de catálogo, con largo × ancho (del plano, editables) y altura
+# (`solid_height_ft`, por defecto 2 m); en Civil 3D se dibuja como Solid3d.
+SOLID_DEFAULT_H_FT = 6.56168
+SOLID_PREFIX = "SÓLIDO-"
+
+
+def is_solid(s):
+    """¿La estructura es un SÓLIDO? (caja conduit con contorno rectangular)."""
+    return (not s.get("curve") and not s.get("world")
+            and (s.get("net") or "") == "conduit"
+            and (s.get("shape") or "") == "rect"
+            and bool(s.get("outline")) and len(s.get("outline") or []) >= 4)
+
+
+def normalize_solids(structures):
+    """Marca los sólidos (`solid=True`), les quita familia/tamaño de catálogo,
+    pone la altura por defecto y los renombra de CAJA-N a SÓLIDO-N (un código
+    puesto a mano por el usuario se respeta). Idempotente."""
+    used = {s.get("cod", "") for s in structures if s.get("cod")}
+    n = 1
+    for s in structures:
+        if not is_solid(s):
+            s.pop("solid", None)
+            continue
+        s["solid"] = True
+        s["part"] = ""; s["part_size"] = ""
+        if not s.get("solid_height_ft"):
+            s["solid_height_ft"] = SOLID_DEFAULT_H_FT
+        cod = s.get("cod") or ""
+        if not cod or cod.startswith("CAJA-"):
+            used.discard(cod)
+            while f"{SOLID_PREFIX}{n}" in used:
+                n += 1
+            s["cod"] = f"{SOLID_PREFIX}{n}"; used.add(s["cod"]); n += 1
+    return structures
+
+
+def solid_center(s):
+    """Centro del contorno del sólido (px)."""
+    o = s.get("outline") or []
+    return (sum(x for x, _ in o) / len(o), sum(y for _, y in o) / len(o))
+
+
+def solid_axes(s):
+    """(u_largo, u_ancho): vectores unitarios de los lados del contorno (px)."""
+    o = s["outline"]
+    e1 = (o[1][0] - o[0][0], o[1][1] - o[0][1])
+    e2 = (o[2][0] - o[1][0], o[2][1] - o[1][1])
+    l1, l2 = math.hypot(*e1), math.hypot(*e2)
+    if l1 < 1e-9 or l2 < 1e-9:
+        return (1.0, 0.0), (0.0, 1.0)
+    a, b = ((e1[0] / l1, e1[1] / l1), (e2[0] / l2, e2[1] / l2))
+    return (a, b) if l1 >= l2 else (b, a)
+
+
+def resize_solid(s, length_ft, width_ft, px_per_ft):
+    """Cambia largo × ancho del sólido y rehace su contorno a escala, con el
+    mismo centro y giro (lo que se ve en el lienzo)."""
+    length_ft = max(float(length_ft), 0.01); width_ft = max(float(width_ft), 0.01)
+    cx, cy = solid_center(s)
+    ul, uw = solid_axes(s)
+    hl = length_ft * px_per_ft / 2.0; hw = width_ft * px_per_ft / 2.0
+    s["outline"] = [(cx + sl * hl * ul[0] + sw * hw * uw[0], cy + sl * hl * ul[1] + sw * hw * uw[1])
+                    for sl, sw in ((-1, -1), (1, -1), (1, 1), (-1, 1))]
+    s["length_ft"] = length_ft; s["width_ft"] = width_ft

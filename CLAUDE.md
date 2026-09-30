@@ -647,6 +647,14 @@ alcantarillado, drenaje, gas, eléctrico, telecom). Todo en **unidades imperiale
     (`VAULT_GEO_KEYS`: shape, width_ft, length_ft, rot_deg, outline en px; las
     huérfanas no inventan buzón; `rebuild_structures` los conserva por coordenada).
     El lienzo dibuja `outline` como polígono a escala y la medida al seleccionar.
+    **SÓLIDOS** (2026-09-30): caja CONDUIT con `shape="rect"` + `outline` (`is_solid`) →
+    `normalize_solids` (al final de `rebuild_structures` y `attach_vault_geometry`):
+    `solid=True`, sin `part`/`part_size`, `solid_height_ft` (defecto `SOLID_DEFAULT_H_FT`
+    = 6.56168), código CAJA-N → SÓLIDO-N. Panel: Largo/Ancho/Altura (`resize_solid` rehace
+    el contorno con el mismo centro/giro, px/ft = zoom/scale); no puede ser CV. DXF:
+    `PDFCAD_STRUCT` + `SOLID=1, SOLID_CX/CY, SOLID_ROT_DEG, SOLID_H_FT` (+ LENGTH/WIDTH_FT);
+    el plugin NO crea estructura en ese vértice (tramos por extremo libre) y `CrearSolidos`
+    dibuja un Solid3d en `PDFCAD_SOLIDOS` con base en el sump (o SUMP, RIM−h, 0).
     `Main` delega y solo asigna/dibuja.
   - `model.py` — constantes, `VERSION`, `CHANGELOG`, capas Z, tabs.
   - `dxf_export.py` — exporta el DXF con XDATA `PDFCAD`.

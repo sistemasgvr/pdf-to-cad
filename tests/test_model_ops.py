@@ -208,7 +208,7 @@ def test_attach_vault_geometry_asocia_medidas_a_la_caja():
     st = next(s for s in structures if abs(s["x"] - 100) < 1e-9)
     assert st["shape"] == "rect" and st["width_ft"] == 6.3 and st["length_ft"] == 8.5 and len(st["outline"]) == 4
     alone = next(s for s in structures if s.get("standalone"))
-    assert (alone["x"], alone["y"]) == (700.0, 300.0) and alone["net"] == "conduit" and alone["cod"].startswith("CAJA-")
+    assert (alone["x"], alone["y"]) == (700.0, 300.0) and alone["net"] == "conduit" and alone["cod"].startswith("SÓLIDO-") and alone["solid"]
     assert alone["width_ft"] == 9.9 and len(alone["outline"]) == 4 and not alone["hidden"]
     n = len(structures)
     # rebuild conserva la geometría por coordenada y la caja suelta tal cual
@@ -287,7 +287,7 @@ def test_conduit_caja_solo_de_boveda_reconocida():
     assert (done, created) == (1, 0)
     assert [(s["x"], s["y"]) for s in structures] == [(100, 100)]          # en el vértice, no en el centro
     st = structures[0]
-    assert st["cod"].startswith("CAJA-") and st["width_ft"] == 6.0 and not st.get("standalone")
+    assert st["cod"].startswith("SÓLIDO-") and st["part"] == "" and st["width_ft"] == 6.0 and not st.get("standalone")
     # rebuild la conserva (con sus medidas) y no agrega la del vértice «stop» (200, 100)
     again = rebuild_structures(pipes, structures)
     assert [(s["x"], s["y"]) for s in again] == [(100, 100)] and again[0]["width_ft"] == 6.0
@@ -524,3 +524,27 @@ def test_choque_misma_utilidad_conectada_no_se_avisa():
     assert len(choques_sin_conexion(pipes, z_at, tol_px=3.0)) == 1
     caja = [{"cod": "CAJA-1", "x": 100, "y": 100, "net": "conduit"}]
     assert choques_sin_conexion(pipes, z_at, tol_px=3.0, structures=caja) == []
+
+
+def test_solido_caja_rectangular_conduit():
+    """Caja conduit con contorno rectangular = SÓLIDO: renombrada, sin familia,
+    altura por defecto; al cambiar largo × ancho el contorno se rehace a escala
+    con el mismo centro y giro. Un buzón de gravedad o una caja sin contorno no."""
+    import math
+    import model_ops
+    s = {"cod": "CAJA-3", "x": 10, "y": 10, "net": "conduit", "shape": "rect",
+         "part": "Caja X", "part_size": "4x4",
+         "outline": [(0, 0), (40, 0), (40, 20), (0, 20)], "length_ft": 4.0, "width_ft": 2.0}
+    bz = {"cod": "BZ-1", "x": 0, "y": 0, "net": "gravity", "shape": "rect",
+          "outline": [(0, 0), (4, 0), (4, 4), (0, 4)]}
+    otra = {"cod": "CAJA-1", "x": 0, "y": 0, "net": "conduit"}
+    model_ops.normalize_solids([s, bz, otra])
+    assert s["solid"] and s["cod"].startswith("SÓLIDO-") and s["part"] == "" and s["part_size"] == ""
+    assert s["solid_height_ft"] == model_ops.SOLID_DEFAULT_H_FT
+    assert not bz.get("solid") and not otra.get("solid") and otra["cod"] == "CAJA-1"
+    model_ops.resize_solid(s, 8.0, 3.0, px_per_ft=10.0)     # 10 px/ft
+    xs = [x for x, _ in s["outline"]]; ys = [y for _, y in s["outline"]]
+    assert math.isclose(max(xs) - min(xs), 80) and math.isclose(max(ys) - min(ys), 30)
+    assert model_ops.solid_center(s) == (20.0, 10.0)
+    assert (s["length_ft"], s["width_ft"]) == (8.0, 3.0)
+    cod = s["cod"]; model_ops.normalize_solids([s]); assert s["cod"] == cod   # idempotente

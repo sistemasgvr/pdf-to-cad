@@ -279,6 +279,24 @@ def _cs_meta_anchor(win):
     return (0.0, 0.0)
 
 
+def _solid_items(win, s):
+    """XDATA del SÓLIDO (caja cuadrada reconocida): el plugin no crea estructura
+    de catálogo ahí, dibuja un Solid3d de LENGTH × WIDTH × SOLID_H_FT centrado en
+    SOLID_CX/CY (coordenadas del DXF) y girado SOLID_ROT_DEG (lado largo, grados
+    antihorarios en el DXF), con la base en el sump de la línea que llega."""
+    if not s.get("solid") or not s.get("outline"):
+        return [(1000, "SOLID=0")]
+    import model_ops
+    cx, cy = win._to_cad(*model_ops.solid_center(s))
+    ul, _uw = model_ops.solid_axes(s)
+    c0 = model_ops.solid_center(s)
+    ax, ay = win._to_cad(c0[0] + ul[0] * 10.0, c0[1] + ul[1] * 10.0)
+    rot = math.degrees(math.atan2(ay - cy, ax - cx))
+    h = float(s.get("solid_height_ft") or model_ops.SOLID_DEFAULT_H_FT)
+    return [(1000, "SOLID=1"), (1000, f"SOLID_CX={cx}"), (1000, f"SOLID_CY={cy}"),
+            (1000, f"SOLID_ROT_DEG={rot}"), (1000, f"SOLID_H_FT={h}")]
+
+
 def _export_structures(win, doc, msp):
     structs = getattr(win, 'structures', None)
     if not structs: return
@@ -329,7 +347,7 @@ def _export_structures(win, doc, msp):
             (1000, f"WIDTH_FT={s.get('width_ft') if s.get('width_ft') else ''}"),
             (1000, f"LENGTH_FT={s.get('length_ft') if s.get('length_ft') else ''}"),
             (1000, f"ROT_DEG={s.get('rot_deg') if s.get('rot_deg') is not None and s.get('shape') else ''}"),
-        ] + [(1000, item) for item in xdata.dxf_items(s)])       # datos extendidos (XD_*/XDU_*)
+        ] + _solid_items(win, s) + [(1000, item) for item in xdata.dxf_items(s)])       # datos extendidos (XD_*/XDU_*)
         if show_labels and s.get("cod") and not s.get("hidden"):
             h = LEADER_TEXT_FT * 0.3                 # etiquetas compactas al lado del buzón
             t = msp.add_text(s["cod"], height=h,
