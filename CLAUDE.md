@@ -430,7 +430,15 @@ alcantarillado, drenaje, gas, eléctrico, telecom). Todo en **unidades imperiale
     corrida (no llega a bóvedas vecinas, no forma esquina con terceros:
     5c-bis). Un tick corto sobre el que muere otra corrida queda «capped»
     (sus puntas son extremos puros: ni esquina, ni T, ni prolongación). `slide_ok`: ninguna esquina/T desliza un
-    extremo más de media corrida. `SOFT_SIMPLIFY_PT`=0.5 para bend/corner (era 1.5: dejaba la centerline hasta 1.5 pt fuera de los guiones en quiebres suaves),
+    extremo más de media corrida. **Cruces con tinta** (2026-09-30, DU10 h.11 alcantarillado):
+    `slide_ok(keep_ink=True)` además no deja retroceder sobre más de `RETRACT_INK_MAX_PT`=3 pt
+    de guiones PROPIOS (`_ink_beyond`). En esquinas (5b) solo se rechaza si las DOS corridas
+    siguen pasado el cruce (una «X» = dos rectas enteras; exigirlo a cada una por separado
+    cambiaba codos del eléctrico en ~20 hojas); en T (5d) la T se forma como siempre y la tinta
+    del otro lado queda como corrida-cola que nace en el mismo nodo (lateral «ss» que cruza la
+    principal; una cola < `floor` se va como ruido: el guión que se pasa unos pt no cambia).
+    Foto 6 utilidades × 4 PDFs: 16 hojas, todas ganan tinta, 0 codos distintos. Tests:
+    `tests/test_cruces_con_tinta.py`. `SOFT_SIMPLIFY_PT`=0.5 para bend/corner (era 1.5: dejaba la centerline hasta 1.5 pt fuera de los guiones en quiebres suaves),
     `CURVE_SIMPLIFY_SOFT_PT`=1.0 en tramos con vértices de curva. Ojo: `git checkout --`
     sobre archivos *staged* descarta el trabajo no staged — no usarlo aquí.
     `edge`/`stop` nunca se simplifican. Devuelve cobertura de guiones,

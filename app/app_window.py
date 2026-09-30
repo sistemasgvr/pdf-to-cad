@@ -5125,7 +5125,11 @@ class Main(QtWidgets.QMainWindow):
             # que se exportan las anotaciones sin avisar de nada (el aviso de
             # abajo daría a entender que se perdió un PDF que sí existía).
             mode = "anot"; need_pdf = False
-        elif need_pdf and (not self.pdf_path or not os.path.isfile(self.pdf_path)):
+        # PDF de TRABAJO: el de la hoja que está en el editor. Tras «Componer hoja»
+        # con otro PDF, `pdf_path` sigue siendo el primero que se abrió y el DXF
+        # salía con esa hoja, desfasada de las utilidades (reporte 2026-09-30).
+        src_pdf = self._export_pdf_path()
+        if need_pdf and not src_pdf:
             QtWidgets.QMessageBox.information(self, _tr("Sin PDF"), _tr("No se encontró el PDF original. Se exportarán solo las anotaciones (utilidades, leaders, textos)."))
             mode = "anot"; need_pdf = False
         base = os.path.splitext(os.path.basename(self.pdf_path))[0] if self.pdf_path else "proyecto"
@@ -5166,7 +5170,15 @@ class Main(QtWidgets.QMainWindow):
         self._prog.setCancelButton(None); self._prog.show()
         # Solo la hoja que se ve en el editor (la de las anotaciones).
         pages = [self.page_idx] if self.doc and 0 <= self.page_idx < self.doc.page_count else None
-        self._worker = PipelineWorker(self.pdf_path, self._tmp, pages=pages); self._worker.done.connect(self._pipeline_done); self._worker.start()
+        self._worker = PipelineWorker(src_pdf, self._tmp, pages=pages); self._worker.done.connect(self._pipeline_done); self._worker.start()
+
+    def _export_pdf_path(self):
+        """PDF que digitaliza «Exportar DXF»: el de trabajo (hoja del editor, también
+        la hoja compuesta) y, si no hay, el abierto. None si no existe en disco."""
+        for path in (self.work_pdf_path, self.pdf_path):
+            if path and os.path.isfile(path):
+                return path
+        return None
 
     def _pipeline_done(self, tmp, err):
         if getattr(self, "_prog", None): self._prog.close()
