@@ -194,6 +194,7 @@ def run(job):
                     "sweep": round(math.degrees(sweep), 1),
                     "A": [round(A[0], 2), round(A[1], 2)], "B": [round(B[0], 2), round(B[1], 2)],
                     "loose": bool(f.get("loose")), "node_a": bool(f.get("node_a")), "node_b": bool(f.get("node_b")),
+                    "split": bool(f.get("split_a") or f.get("split_b")),
                     "dev": round(f.get("dev_px", 0.0) / Z, 2),
                     "ink_n": len(rad),
                     "p90": round(rad[int(0.9 * (len(rad) - 1))], 2) if rad else None,

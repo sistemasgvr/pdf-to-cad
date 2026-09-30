@@ -63,6 +63,8 @@ DU06 = ROOT / "DU06_09_UD_Drainage_20251216(SUBMITTAL SET).pdf"
     # reporte 2026-09-29: curva en «S» de telecom `-E`, banco de ductos, drenaje r≈145 pt
     pytest.param(DU06, 3, "TELECOM", marks=pytest.mark.skipif(not DU06.is_file(), reason="PDF DU06 no disponible")),
     pytest.param(DU06, 3, "DRENAJE", marks=pytest.mark.skipif(not DU06.is_file(), reason="PDF DU06 no disponible")),
+    # 2026-09-30: la «U» de telecom (178.7°) partida en dos codos del mismo arco
+    pytest.param(DU06, 4, "TELECOM", marks=pytest.mark.skipif(not DU06.is_file(), reason="PDF DU06 no disponible")),
 ])
 def test_el_editor_dibuja_el_arco_reconocido(win, pdf, page, utility):
     """Cada codo reconocido se dibuja en el lienzo con SU esquina y SU radio:

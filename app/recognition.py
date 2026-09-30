@@ -1861,10 +1861,12 @@ def fit_fillets(pts, kinds, tol_px: float = 1.0, tan_tol: float = None, debug=No
     regular fit fails the source-ink precision check. All profiles use this
     same entry point and the same editor-compatible geometry.
     """
-    return trace_mod.fit_continuous(
+    pts, kinds, fillets = trace_mod.fit_continuous(
         pts, kinds, _fit_fillets, tol_px=tol_px, tan_tol=tan_tol, debug=debug,
         through_dirs=through_dirs, ink=ink, strokes=strokes, arcs=arcs,
         ink_lines=ink_lines, through_ink=through_ink)
+    # codo casi en «U»: su esquina cae lejísimos → dos codos sobre el mismo arco
+    return trace_mod.split_wide_fillets(pts, kinds, fillets, f=tol_px / FILLET_FIT_TOL_PT)
 
 
 def _fit_fillets(pts, kinds, tol_px: float = 1.0, tan_tol: float = None, debug=None, through_dirs=None,

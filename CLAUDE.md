@@ -194,6 +194,14 @@ alcantarillado, drenaje, gas, eléctrico, telecom). Todo en **unidades imperiale
     arco que pasa por el nodo). Dos codos nuevos consecutivos pueden compartir un NODO
     como ancla si ya está entre sus tangencias (no se mueve; DU08 h.39). Tests:
     `tests/test_recognition_arcs.py`, `tests/test_curvas_editor.py`.
+    **Codo casi en «U»** (2026-09-30, DU06 h.5 telecom 178.7°: esquina a 2514 px, fuera de la
+    hoja): `fit_fillets` termina con `recognition_trace.split_wide_fillets` — giro ≥
+    `WIDE_FILLET_DEG`=150° → DOS codos de Δ/2 del MISMO círculo, unidos en el punto medio M
+    del arco por un vértice `bend` (formato de `_encode`); `split_b`/`split_a` marcan ese lado
+    (tangente del arco, sin guión recto: la auditoría no la exige). Solo si `fillet_geo` dibuja
+    las dos mitades EXACTAS (A, M, B, centro, sin recorte) y ningún vecino es otro codo. Foto
+    1799 codos (4 PDFs × 6 utilidades): 0 entre 120° y 170°, 1 ≥170° (ese). Tests:
+    `tests/test_codos_abiertos.py`.
   - `recognition_ends.py` (PURO) — **dónde TERMINA cada línea** (pedido del usuario
     2026-09-28, DU08 h.26), sobre la salida del núcleo sin tocarlo:
     `trim_inkless_tails` (coords PDF, antes de `build_routes`): un extremo tee/junction

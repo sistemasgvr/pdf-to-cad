@@ -793,10 +793,11 @@ def _audit_fillets(page_index, n_expected, strict_tangents):
         tb = (N[0] - C[0], N[1] - C[1]); lb = math.hypot(*tb); tb = (tb[0] / lb, tb[1] / lb)
         if strict_tangents:
             # (un extremo que MUERE en un nodo del plano no tiene recta después:
-            #  su tangente es la del propio arco, no la de un guión)
-            if not f.get("node_a"):
+            #  su tangente es la del propio arco, no la de un guión; igual el punto
+            #  medio de un codo muy abierto partido en dos, `split_*`)
+            if not f.get("node_a") and not f.get("split_a"):
                 assert _on_dash_line(A, ta, dashes), (A, ta)
-            if not f.get("node_b"):
+            if not f.get("node_b") and not f.get("split_b"):
                 assert _on_dash_line(B, tb, dashes), (B, tb)
         p = by_pl[id(pl)]
         r_px = p["fillets"][i] / res.scale_ft_per_pt * Z

@@ -271,3 +271,86 @@ def fit_continuous(pts, kinds, fitter, **kw):
                 return baseline
             progress = max(progress, station)
     return out, kk, ff
+
+
+# ─── Codos muy abiertos → dos codos (pedido del usuario 2026-09-30) ───────────
+# Un codo cuyo giro se acerca a 180° (curva casi en «U», DU06 h.5 telecom: 178.7°,
+# r = 28 px) tiene la esquina —intersección de las tangentes— a T = r·tan(Δ/2) del
+# arco: 2514 px, fuera de la hoja. El arco es correcto, pero la esquina lejana se ve
+# como un «trazo gigante» en la vista previa, y con Δ > 179° el editor ni lo dibuja
+# (`fillet_geo` exige un ángulo interior ≥1°). Se escribe como DOS codos de Δ/2 sobre
+# el MISMO círculo, unidos en el punto medio del arco por un vértice «bend» (mismo
+# formato que `_encode`): el arco dibujado —A, B, centro y radio— no cambia.
+# Foto 4 PDFs × 6 utilidades (1799 codos): 0 entre 120° y 170°, 1 ≥170° (ese caso).
+WIDE_FILLET_DEG = 150.0
+
+
+def _half_corners(f):
+    """(C1, M, C2) de un codo partido en su punto medio M, o None. El sentido sale
+    de la esquina C (la bisectriz apunta a ella), no de A/B: con Δ ≈ 180° el
+    ángulo A→B es ambiguo."""
+    a, c, r = f["a"], f["center"], float(f["r_px"])
+    corner = f["_corner"]
+    va = (a[0] - c[0], a[1] - c[1])
+    vc = (corner[0] - c[0], corner[1] - c[1])
+    half = math.atan2(va[0] * vc[1] - va[1] * vc[0], va[0] * vc[0] + va[1] * vc[1])   # A→bisectriz
+    a0 = math.atan2(va[1], va[0])
+    am = a0 + half                                     # punto medio del arco
+    q = half / 2.0                                     # cada mitad gira Δ/2: su esquina a Δ/4
+    d = r / math.cos(q)
+    M = (c[0] + r * math.cos(am), c[1] + r * math.sin(am))
+    C1 = (c[0] + d * math.cos(a0 + q), c[1] + d * math.sin(a0 + q))
+    C2 = (c[0] + d * math.cos(am + q), c[1] + d * math.sin(am + q))
+    return C1, M, C2
+
+
+def split_wide_fillets(pts, kinds, fillets, f=1.0, max_deg=WIDE_FILLET_DEG):
+    """Parte en dos cada codo de giro ≥ `max_deg` (ver arriba). Solo si el editor
+    dibuja las dos mitades EXACTAMENTE sobre el arco reconocido (mismas tangencias
+    A, M, B y centro, sin recorte); si no, el codo queda como estaba. No toca codos
+    con otro codo pegado (recta compartida con tope 0.48). `f` = px por pt."""
+    import model_ops as MO
+    if not fillets:
+        return pts, kinds, fillets
+    tol = 0.05 * f
+    out_p, out_k, out_f = [], [], {}
+    for i, (p, k) in enumerate(zip(pts, kinds)):
+        fl = fillets.get(i)
+        parts = None
+        if (fl is not None and 0 < i < len(pts) - 1
+                and kinds[i - 1] != "fillet" and kinds[i + 1] != "fillet"):
+            parts = _split_parts(pts[i - 1], p, pts[i + 1], fl, tol, max_deg, MO)
+        if parts is None:
+            if fl is not None:
+                out_f[len(out_p)] = fl
+            out_p.append(p); out_k.append(k)
+            continue
+        (C1, f1), M, (C2, f2) = parts
+        out_f[len(out_p)] = f1; out_p.append(C1); out_k.append(k)
+        out_p.append(M); out_k.append("bend")
+        out_f[len(out_p)] = f2; out_p.append(C2); out_k.append(k)
+    return out_p, out_k, out_f
+
+
+def _split_parts(prev, corner, nxt, fl, tol, max_deg, MO):
+    a, b, c, r = fl["a"], fl["b"], fl["center"], float(fl["r_px"])
+    u = _unit(a[0] - corner[0], a[1] - corner[1])
+    v = _unit(b[0] - corner[0], b[1] - corner[1])
+    turn = 180.0 - math.degrees(math.acos(max(-1.0, min(1.0, u[0] * v[0] + u[1] * v[1]))))
+    if turn < max_deg:
+        return None
+    C1, M, C2 = _half_corners(dict(fl, _corner=corner))
+    g1 = MO.fillet_geo(prev, C1, M, r, max_frac=MO.FILLET_CAP_RECTA, max_frac_next=MO.FILLET_CAP_RECTA,
+                       tol_r=tol)
+    g2 = MO.fillet_geo(M, C2, nxt, r, max_frac=MO.FILLET_CAP_RECTA, max_frac_next=MO.FILLET_CAP_RECTA,
+                       tol_r=tol)
+    if not g1 or not g2 or g1["clamped"] or g2["clamped"]:
+        return None
+    for got, want in ((g1["t1"], a), (g1["t2"], M), (g2["t1"], M), (g2["t2"], b),
+                      (g1["center"], c), (g2["center"], c)):
+        if math.dist(got, want) > tol:
+            return None
+    # mitad «split_*»: de ese lado no hay recta del plano; la tangente es la del arco
+    f1 = dict(fl, b=M, node_b=False, split_b=True)
+    f2 = dict(fl, a=M, node_a=False, split_a=True)
+    return (C1, f1), M, (C2, f2)
