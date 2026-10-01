@@ -1716,6 +1716,8 @@ EN: dict[str, str] = {
         "Vaults detected: {n} (they are already line vertices).",
     "Bóvedas sin línea cercana: {n}.":
         "Vaults with no nearby line: {n}.",
+    "Puntas unidas a su bóveda (imán): {n} — quedaban a menos de {d} pt de su contorno y se llevaron hasta él por su propia recta.":
+        "Line ends joined to their vault (magnet): {n} — they were less than {d} pt from its outline and were moved onto it along their own line.",
     "Capa «-A» sin el patrón de marcadores «/» a lo largo de la línea: {n} — NO se marcan como abandonadas.":
         "«-A» layer without the «/» marker pattern along the line: {n} — NOT marked as abandoned.",
     "Cobertura de guiones: {pct:.1f}% ({n} sin cubrir, en naranja).":

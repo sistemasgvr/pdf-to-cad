@@ -264,6 +264,10 @@ class Vault:
     width: float = 0.0
     length: float = 0.0
     layer: str = ""               # OCG mayoritaria del símbolo (para saber si es bóveda real o propuesta/poste)
+    # Buzón redondo: (cx, cy, r) del círculo DIBUJADO (pt). Solo dato de salida
+    # (el núcleo no lo usa): con él `recognition_vault_snap` lleva las puntas al
+    # anillo real y el import reconoce qué estructura está sobre él.
+    circle: Optional[Tuple[float, float, float]] = None
 
     @property
     def center(self) -> Pt:
@@ -1917,6 +1921,7 @@ def _fill_vault_geometry(v: "Vault", cluster: Sequence[dict], polygon_circles: b
         v.width = v.length = (pb[2] - pb[0] + pb[3] - pb[1]) / 2.0
         v.angle_deg = 0.0
         v.round_entry = polygon_circles
+        v.circle = ((pb[0] + pb[2]) / 2.0, (pb[1] + pb[3]) / 2.0, v.width / 2.0)
         return
     chains = _path_chains(path)
     pts = [q for ch in chains for q in ch]
@@ -1928,6 +1933,7 @@ def _fill_vault_geometry(v: "Vault", cluster: Sequence[dict], polygon_circles: b
         v.width = v.length = 2.0 * circ[2]
         v.angle_deg = 0.0
         v.round_entry = True
+        v.circle = (circ[0], circ[1], circ[2])
         return
     _rect_geometry(v, pts, chains)
 

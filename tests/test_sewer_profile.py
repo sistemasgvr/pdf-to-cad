@@ -218,8 +218,9 @@ def test_du08_h37_la_linea_no_se_corta_en_cada_doble_slash_ss():
     """«—//—ss—»: el trozo de línea entre el «//» y la «ss» se leía como asta de
     letra y la línea quedaba cortada 16–27 pt en cada ciclo."""
     _, pls = _sewer(DU08, 37)
-    one = [pts for pts, k, lay in pls if any(math.dist(q, (576.8, 966.4)) < 0.5 for q in pts)
-           and any(math.dist(q, (734.5, 1079.1)) < 0.5 for q in pts)]
+    # sus dos puntas, sobre el anillo de cada buzón (el imán las lleva ahí: estaban 1 pt fuera)
+    one = [pts for pts, k, lay in pls if any(math.dist(q, (576.17, 965.63)) < 0.5 for q in pts)
+           and any(math.dist(q, (735.4, 1079.52)) < 0.5 for q in pts)]
     assert len(one) == 1
 
 

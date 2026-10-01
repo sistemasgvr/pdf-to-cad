@@ -184,6 +184,11 @@ con un indicador que gira y lo que la app está haciendo (por ejemplo «Reconoci
     la línea vecina. Si muere en su letra (o en un hueco) justo antes del borde de la vista, llega
     hasta el <b>corte</b> del plano; en la hoja compuesta, las que cruzan la unión siguen de una
     pieza a la otra. Una línea cuya letra queda tapada por un texto del plano sigue de corrido.</li>
+<li><b>Imán a bóvedas y buzones</b>: una línea que llega a una bóveda o buzón y quedó a menos de
+    3 pt de su borde se lleva hasta el borde dibujado, por su propia recta (sin quiebres); una
+    línea suelta, solo si está a menos de 1.5 pt. Al importar, la caja, el sólido o el buzón queda
+    <b>unido</b> a esa línea en vez de suelto en el centro. Una bóveda sin línea cerca no se toca.
+    El aviso <b>Puntas unidas a su bóveda</b> te lleva a cada una.</li>
 <li>Si el plano trae la <b>misma línea dibujada dos veces</b> en la misma capa (encimada, con los
     guiones corridos), se importa <b>una sola</b> línea.</li>
 <li>El <b>agua</b> y el <b>gas</b> entran sin cajas (van a presión). El <b>alcantarillado</b> y el

@@ -345,6 +345,9 @@ def _draw_vault_outline(scene, vg: dict, color, z=5):
     if vg.get("corners"):
         poly = QtGui.QPolygonF([QtCore.QPointF(x, y) for x, y in vg["corners"]])
         it = scene.addPolygon(poly, pen, QtGui.QBrush(fill))
+    elif vg.get("circle"):                 # buzón redondo: el anillo dibujado en el PDF
+        cx, cy, r = vg["circle"]
+        it = scene.addEllipse(cx - r, cy - r, 2 * r, 2 * r, pen, QtGui.QBrush(fill))
     else:
         cx, cy = vg["center"]
         r = max(4.0, 0.5 * vg.get("width_ft", 0.0) / max(1e-9, 1.0))   # radio aprox. en px lo pone el llamador

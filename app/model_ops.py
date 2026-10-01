@@ -362,15 +362,16 @@ def attach_vault_geometry(structures, vaults_geo, tol=12.0, net="conduit",
             d = math.hypot(float(s.get("x", 1e9)) - cx, float(s.get("y", 1e9)) - cy)
             if d <= tol and (best is None or d < best[0]):
                 best = (d, s)
-        if best is None and vg.get("corners"):
+        if best is None and (vg.get("corners") or vg.get("circle")):
             # Sin CAJA en el centro (las líneas mueren en el borde con «stop», caso
-            # típico de la bóveda abandonada): la más cercana DENTRO del contorno.
-            xs = [x for x, _ in vg["corners"]]; ys = [y for _, y in vg["corners"]]
+            # típico de la bóveda abandonada): la más cercana DENTRO del contorno
+            # (o del anillo de un buzón redondo: la BZ de la punta que llega a él;
+            # si no, quedaban dos estructuras, la de la punta y otra suelta al centro).
             for s in structures:
                 if s.get("world") or s.get("curve") or (s.get("net") or "gravity") != net:
                     continue
                 sx, sy = float(s.get("x", 1e9)), float(s.get("y", 1e9))
-                if min(xs) - 2 <= sx <= max(xs) + 2 and min(ys) - 2 <= sy <= max(ys) + 2:
+                if _dentro_de_boveda(vg, sx, sy):
                     d = math.hypot(sx - cx, sy - cy)
                     if best is None or d < best[0]:
                         best = (d, s)
@@ -418,16 +419,23 @@ def attach_vault_geometry(structures, vaults_geo, tol=12.0, net="conduit",
     return done, created
 
 
+def _dentro_de_boveda(vg, x, y, pad=2.0):
+    """¿(x, y) cae en la bóveda reconocida `vg`? Recuadro de su contorno ±`pad` px
+    o, en un buzón redondo, su círculo dibujado (`circle`) + `pad`."""
+    if vg.get("corners"):
+        xs = [q[0] for q in vg["corners"]]; ys = [q[1] for q in vg["corners"]]
+        return min(xs) - pad <= x <= max(xs) + pad and min(ys) - pad <= y <= max(ys) + pad
+    circ = vg.get("circle")
+    return bool(circ) and math.hypot(x - circ[0], y - circ[1]) <= circ[2] + pad
+
+
 def _vertice_de_boveda(pipes, vg, tol):
     """Vértice «vault»/«stop» (`VAULT_VERTEX_KINDS`) de `pipes` por el que una
     línea llega a la bóveda `vg`: a ≤ `tol` px de su centro o dentro de su
-    contorno (±2 px). Prefiere «vault» (la línea la atraviesa) y, a igualdad,
-    el más cercano al centro. None si ninguna línea llega a ella."""
+    contorno / anillo (±2 px; el imán del reconocimiento deja la punta sobre él).
+    Prefiere «vault» (la línea la atraviesa) y, a igualdad, el más cercano al
+    centro. None si ninguna línea llega a ella."""
     cx, cy = vg["center"]
-    caja = None
-    if vg.get("corners"):
-        xs = [x for x, _ in vg["corners"]]; ys = [y for _, y in vg["corners"]]
-        caja = (min(xs) - 2, min(ys) - 2, max(xs) + 2, max(ys) + 2)
     best = None
     for p in pipes:
         pts = p.get("pts") or []
@@ -438,7 +446,7 @@ def _vertice_de_boveda(pipes, vg, tol):
             if k not in VAULT_VERTEX_KINDS:
                 continue
             d = math.hypot(x - cx, y - cy)
-            dentro = caja is not None and caja[0] <= x <= caja[2] and caja[1] <= y <= caja[3]
+            dentro = _dentro_de_boveda(vg, x, y)
             if d > tol and not dentro:
                 continue
             clave = (k != "vault", d)

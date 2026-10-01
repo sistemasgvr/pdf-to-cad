@@ -88,6 +88,15 @@ def test_targets_de_cada_aviso():
     assert rs.targets_for("", r) == [] and rs.targets_for("offpattern", r) == []
 
 
+def test_puntas_unidas_a_su_boveda_es_info_y_ubica_cada_punta():
+    n = rs.classify_warning("Puntas unidas a su bóveda (imán): 3 — quedaban a menos de 3 pt de su "
+                            "contorno y se llevaron hasta él por su propia recta.")
+    assert (n.level, n.label, n.key) == (rs.INFO, "3 puntas unidas a su bóveda", "vault_snaps")
+    r = SimpleNamespace(drawable=[], vault_snaps_px=[(300.0, 40.0), (10.0, 40.0)])
+    boxes = rs.targets_for("vault_snaps", r)
+    assert [((b[0] + b[2]) / 2, (b[1] + b[3]) / 2) for b in boxes] == [(10.0, 40.0), (300.0, 40.0)]
+
+
 def test_clic_en_aviso_lleva_la_vista_al_lugar():
     import os
     os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")

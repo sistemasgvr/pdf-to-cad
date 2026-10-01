@@ -235,6 +235,29 @@ alcantarillado, drenaje, gas, eléctrico, telecom). Todo en **unidades imperiale
     sin cambios salvo los ramales recortados. En la hoja compuesta DU06 13+14 alineada no
     queda ningún corte en la costura (las líneas se unen antes, en el núcleo). Tests:
     `tests/test_recognition_ends.py`.
+  - `recognition_vault_snap.py` (PURO) — **imán de puntas a bóvedas** (pedido del usuario
+    2026-10-01, captura de un SÓLIDO eléctrico de DU06 h.5: «las líneas quedan separadas del
+    buzón… que se una solito, sin alterar el reconocimiento, solo bien cerca»). Paso APARTE al
+    final de `recognize_page` (tras `_vaults_geometry`, sobre `polylines_joined` y `_raw`): el
+    núcleo corta la llegada en el recuadro del CLÚSTER +1 pt (`v.bbox(1.0)`, o el círculo +1),
+    así que la punta «stop» quedaba ~1 pt FUERA del contorno; a zoom 3.5 (editor) son 3.5 px y
+    `attach_vault_geometry` (±2 px) no veía la llegada → caja SUELTA en el centro (235 de 604
+    bóvedas con línea). `snap_ends_to_vaults`: punta «stop» (≤`SNAP_STOP_PT`=3 pt, adelante o
+    atrás si la línea pasó por encima) o «end» (≤`SNAP_END_PT`=1.5, solo adelante) → el cruce
+    MÁS CERCANO de SU recta con el contorno (`corners`, girado, o `circle` = anillo dibujado:
+    `Vault.circle`, campo NUEVO solo de salida del núcleo) y queda «stop». No se mueve: punta
+    dentro de un contorno, recta que no lo corta (de costado/esquina), rumbo poco fiable
+    (`end_direction`), recorte que pase el vértice anterior o entre en el arco de un codo
+    vecino, ni punta que coincide con otra línea salvo que todas vayan al MISMO punto (grupo).
+    Bóveda «sin línea» a la que llega una punta pasa a `orphan=False` (y su punto sale de
+    `vault_orphans_px`); aviso «Puntas unidas a su bóveda (imán): N» (info, clic → cada punta,
+    `vault_snaps_px`). `model_ops._dentro_de_boveda`: el import reconoce también el ANILLO de
+    un buzón redondo (la BZ de la punta se lleva el buzón; antes quedaba otra BZ suelta al
+    centro). Foto 6 utilidades × 4 PDFs (846 hoja×utilidad): 626 puntas (eléctrico 225,
+    drenaje 156, alcantarillado 119, telecom 114, agua 12), mediana 1.0 pt, máx 3.0; ningún
+    vértice interior ni codo distinto. Import (zoom 3.5): caja unida a la línea 366 → 581,
+    suelta 235 → 18 (nodos de varias líneas fuera del contorno y bóvedas anidadas: no se
+    tocan), estructuras 3993 → 3838. Tests: `tests/test_recognition_vault_snap.py`.
   - **Reporte DU06 h.4 (2026-09-29, cuatro casos, TODAS las utilidades)**:
     `recognition_dupink.py` (PURO) — la MISMA línea dibujada dos veces en la misma capa
     con el linetype desfasado (banco de ductos `N-COMM-DUCT-BANK-PL`: dos entidades
