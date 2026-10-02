@@ -229,7 +229,12 @@ def fit_continuous(pts, kinds, fitter, **kw):
         if kb in SOFT:
             locked[-1] = 'end'
         data = fitter(P, locked, **kw)
-        if math.dist(data[0][0], pa) > 1e-6 or math.dist(data[0][-1], pb) > 1e-6:
+        # Only splice anchors are fixed. The route's own first/last vertex may move
+        # exactly as in the baseline (a tee moved to the tangency of its through
+        # line); rejecting that dropped a valid bend (DU10 h.3, 3MI r=126 pt).
+        fixed_a, fixed_b = a > 1e-6, b < S[-1] - 1e-6
+        if ((fixed_a and math.dist(data[0][0], pa) > 1e-6)
+                or (fixed_b and math.dist(data[0][-1], pb) > 1e-6)):
             data = P, K, {}
         else:
             data[1][0], data[1][-1] = ka, kb

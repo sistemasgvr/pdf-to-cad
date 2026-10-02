@@ -89,6 +89,8 @@ _RULES = [
     (r"^Anillos de buzón dibujados en la capa de la línea: (\d+)", INFO,
      lambda m: _pl(_n(m), "anillo de buzón", "anillos de buzón") + " en la capa de la línea", ""),
     (r"^Bóvedas detectadas: (\d+)", INFO, lambda m: _pl(_n(m), "bóveda", "bóvedas") + " en las líneas", "vaults"),
+    (r"^Puntas unidas a su bóveda[^:]*: (\d+)", INFO,
+     lambda m: _pl(_n(m), "punta unida a su bóveda", "puntas unidas a su bóveda"), "vault_snaps"),
 ]
 _COMPILED = [(re.compile(p), lvl, lab, key) for p, lvl, lab, key in _RULES]
 
@@ -198,6 +200,8 @@ def targets_for(key: str, result) -> List[Rect]:
         out = [_around(p) for p in (getattr(result, "vault_orphans_px", None) or [])]
     elif key == "vaults":
         out = [_around(p) for p in (getattr(result, "vault_pts", None) or [])]
+    elif key == "vault_snaps":
+        out = [_around(p) for p in (getattr(result, "vault_snaps_px", None) or [])]
     elif key == "offpattern":
         out = [b for pts in (getattr(result, "offpattern_px", None) or []) if (b := _bbox(pts))]
     elif key == "abandoned":

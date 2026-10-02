@@ -55,6 +55,7 @@ def win(monkeypatch):
 
 
 DU06 = ROOT / "DU06_09_UD_Drainage_20251216(SUBMITTAL SET).pdf"
+DU10 = Path(r"C:/Users/bernu/OneDrive/Documentos/docs prueba/DU10 - APDU Seg B3 100_ Sewer DR_Verification.pdf")
 
 
 @pytest.mark.parametrize("pdf, page, utility", [
@@ -65,6 +66,8 @@ DU06 = ROOT / "DU06_09_UD_Drainage_20251216(SUBMITTAL SET).pdf"
     pytest.param(DU06, 3, "DRENAJE", marks=pytest.mark.skipif(not DU06.is_file(), reason="PDF DU06 no disponible")),
     # 2026-09-30: la «U» de telecom (178.7°) partida en dos codos del mismo arco
     pytest.param(DU06, 4, "TELECOM", marks=pytest.mark.skipif(not DU06.is_file(), reason="PDF DU06 no disponible")),
+    # 2026-09-30: DU10 h.3, codo chico a guiones + curva r=126 pt tras un parche de trazo continuo
+    pytest.param(DU10, 2, "ELECTRICO", marks=pytest.mark.skipif(not DU10.is_file(), reason="PDF DU10 no disponible")),
 ])
 def test_el_editor_dibuja_el_arco_reconocido(win, pdf, page, utility):
     """Cada codo reconocido se dibuja en el lienzo con SU esquina y SU radio:

@@ -12,7 +12,7 @@ from pathlib import Path
 import pytest
 
 fitz = pytest.importorskip("fitz")
-from PySide6 import QtGui, QtWidgets
+from PySide6 import QtCore, QtGui, QtWidgets
 
 import recognition as rec
 import recognition_dialog as rd
@@ -104,6 +104,46 @@ def test_preview_sin_lineas_deshabilita_continuar():
     assert any("Ajustar capas" in t for t in labels)
     assert dlg.lbl_sheet.text() == "Hoja 1 / 3"
     dlg.deleteLater()
+
+
+@pytest.mark.parametrize("width,height", [(950, 480), (1200, 700), (950, 700)])
+def test_preview_scroll_prevents_overlapping_with_all_utilities(width, height):
+    app = _app()
+    results = [rec.RecognitionResult(utility=u, page_index=0, scale_ft_per_pt=20/72,
+        warnings=["No se encontraron líneas de drenaje en esta hoja.",
+                  "Esta hoja no tiene capas: plano aplanado.",
+                  "Codos como esquina + radio: 16."]) for u in rec.DEFAULT_UTILITIES]
+    dlg = rd.RecognitionPreviewDialog(None, _blank(), results, page_count=1)
+    try:
+        dlg.show()
+        app.processEvents()
+        dlg.setWindowState(QtCore.Qt.WindowNoState)
+        dlg.resize(width, height)
+        dlg.split.setSizes([width-340, 340])
+        dlg.summary.btn_details.setChecked(True)
+        for _ in range(8):
+            app.processEvents()
+        assert dlg.panel_scroll.verticalScrollBar().maximum() > 0
+        assert dlg.summary.bars.height() == 6*24+2
+        layout = dlg.summary.layout()
+        visible_items = [layout.itemAt(i) for i in range(layout.count())
+                         if not (layout.itemAt(i).widget() and layout.itemAt(i).widget().isHidden())]
+        for before, after in zip(visible_items, visible_items[1:]):
+            assert before.geometry().bottom() < after.geometry().top()
+        assert dlg.used_layers.height() <= 200
+        assert not dlg.panel_scroll.isAncestorOf(dlg.btn_roles)
+        assert not dlg.panel_scroll.isAncestorOf(dlg.btn_ok)
+        expanded_height = dlg.panel_scroll.widget().minimumHeight()
+        dlg.summary.btn_details.setChecked(False)
+        for _ in range(8):
+            app.processEvents()
+        assert dlg.panel_scroll.widget().minimumHeight() < expanded_height
+        dlg.panel_scroll.verticalScrollBar().setValue(dlg.panel_scroll.verticalScrollBar().maximum())
+        app.processEvents()
+        assert dlg.used_layers.mapTo(dlg.panel_scroll.viewport(), QtCore.QPoint()).y() < dlg.panel_scroll.viewport().height()
+    finally:
+        dlg.close()
+        dlg.deleteLater()
 
 
 def test_preview_navegacion_y_opacidad():

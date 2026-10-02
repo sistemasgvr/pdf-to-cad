@@ -153,17 +153,22 @@ class MiniMap(QtWidgets.QWidget):
     MARGIN = 10
     MAX_W, MAX_H = 150, 110       # pequeño: en pantallas chicas no puede robar sitio a la vista
 
-    def __init__(self, view):
+    def __init__(self, view, sync_zoom=False):
         super().__init__(view.viewport())
         self.view = view
+        self._sync_zoom = sync_zoom
         self._thumb = None            # QPixmap ya escalado al tamaño del widget
         self._src = None              # QPixmap original
         self._layout = None           # [(QRectF escena, etiqueta)] en modo esquema
         self._scene_rect = QtCore.QRectF()
+        self._full_scene_rect = QtCore.QRectF()
+        self._zoom = 1.0
         self._dragging = False
         self.setCursor(QtCore.Qt.PointingHandCursor)
+        if sync_zoom:
+            self.setToolTip(_tr("Zoom sincronizado con la vista · clic o arrastre: navegar · doble clic: ver todas las hojas"))
         self.setAttribute(QtCore.Qt.WA_TransparentForMouseEvents, False)
-        view.viewChanged.connect(self.update)
+        view.viewChanged.connect(self._on_view_changed)
         view.viewport().installEventFilter(self)
         self.hide()
 
@@ -171,7 +176,7 @@ class MiniMap(QtWidgets.QWidget):
         """Modo imagen: `pixmap` es toda la hoja; `scene_rect` su rect en la escena."""
         self._layout = None
         self._src = pixmap
-        self._scene_rect = QtCore.QRectF(scene_rect)
+        self._set_extent(scene_rect)
         if pixmap is None or pixmap.isNull() or self._scene_rect.isEmpty():
             self.hide(); return
         scale = min(self.MAX_W / pixmap.width(), self.MAX_H / pixmap.height())
@@ -185,12 +190,63 @@ class MiniMap(QtWidgets.QWidget):
         self._thumb = None
         self._src = None
         self._layout = [(QtCore.QRectF(r), str(label)) for r, label in items]
-        self._scene_rect = QtCore.QRectF(scene_rect)
+        self._set_extent(scene_rect)
         if not self._layout or self._scene_rect.isEmpty():
             self.hide(); return
-        scale = min(self.MAX_W / self._scene_rect.width(), self.MAX_H / self._scene_rect.height())
-        self._fit_and_show(max(1, int(self._scene_rect.width() * scale)),
-                           max(1, int(self._scene_rect.height() * scale)))
+        scale = min(self.MAX_W / self._full_scene_rect.width(), self.MAX_H / self._full_scene_rect.height())
+        self._fit_and_show(max(1, int(self._full_scene_rect.width() * scale)),
+                           max(1, int(self._full_scene_rect.height() * scale)))
+
+    def _set_extent(self, scene_rect):
+        self._full_scene_rect = QtCore.QRectF(scene_rect)
+        if self._full_scene_rect.isEmpty():
+            self._zoom = 1.0
+            self._scene_rect = QtCore.QRectF(self._full_scene_rect)
+            return
+        self._sync_zoom_to_view()
+
+    def _sync_zoom_to_view(self):
+        full = self._full_scene_rect
+        if full.isEmpty():
+            return
+        if not self._sync_zoom:
+            self._zoom = 1.0
+            self._scene_rect = QtCore.QRectF(full)
+            return
+        viewport = self.view.viewport()
+        fit_scale = min(max(1, viewport.width())/full.width(), max(1, viewport.height())/full.height())
+        transform = self.view.transform()
+        scale = (transform.m11()**2 + transform.m12()**2)**0.5
+        self._zoom = max(1.0, min(256.0, scale/fit_scale))
+        self._set_zoom_rect(self.view.mapToScene(viewport.rect().center()))
+
+    def _set_zoom_rect(self, center):
+        full = self._full_scene_rect
+        w, h = full.width()/self._zoom, full.height()/self._zoom
+        x = max(full.left(), min(full.right()-w, center.x()-w/2))
+        y = max(full.top(), min(full.bottom()-h, center.y()-h/2))
+        self._scene_rect = QtCore.QRectF(x, y, w, h)
+
+    def wheelEvent(self, event):
+        viewport = self.view.viewport()
+        position = viewport.rect().center()
+        forwarded = QtGui.QWheelEvent(QtCore.QPointF(position), QtCore.QPointF(viewport.mapToGlobal(position)),
+            event.pixelDelta(), event.angleDelta(), event.buttons(), event.modifiers(),
+            event.phase(), event.inverted())
+        self.view.wheelEvent(forwarded)
+        event.accept()
+
+    def mouseDoubleClickEvent(self, event):
+        if event.button() == QtCore.Qt.LeftButton:
+            self._dragging = False
+            if hasattr(self.view, "fit_all"):
+                self.view.fit_all()
+            else:
+                self.view.fitInView(self._full_scene_rect, QtCore.Qt.KeepAspectRatio)
+                self.view.viewChanged.emit()
+            event.accept()
+            return
+        super().mouseDoubleClickEvent(event)
 
     def _fit_and_show(self, w, h):
         self._map_w, self._map_h = w, h
@@ -208,6 +264,14 @@ class MiniMap(QtWidgets.QWidget):
     def _place(self):
         vp = self.view.viewport()
         self.move(self.MARGIN, vp.height() - self.height() - self.MARGIN)
+
+    def _on_view_changed(self):
+        # QGraphicsView scrolls its viewport children along with the scene.
+        # Restore this overlay to viewport coordinates after every camera move.
+        self._place()
+        self._sync_zoom_to_view()
+        self.raise_()
+        self.update()
 
     # ── coords ──
     def _scene_to_map(self, p):
@@ -230,7 +294,11 @@ class MiniMap(QtWidgets.QWidget):
         painter.setRenderHint(QtGui.QPainter.Antialiasing)
         painter.fillRect(self.rect(), QtGui.QColor(255, 255, 255, 235))
         if self._thumb is not None:
-            painter.drawPixmap(1, 1, self._thumb)
+            full, area = self._full_scene_rect, self._scene_rect
+            source = QtCore.QRectF((area.x()-full.x())/full.width()*self._src.width(),
+                (area.y()-full.y())/full.height()*self._src.height(),
+                area.width()/full.width()*self._src.width(), area.height()/full.height()*self._src.height())
+            painter.drawPixmap(QtCore.QRectF(1, 1, self._map_w, self._map_h), self._src, source)
         else:
             # esquema: una caja por hoja con su etiqueta, en su posición relativa
             font = painter.font(); font.setPointSize(8); font.setBold(True); painter.setFont(font)

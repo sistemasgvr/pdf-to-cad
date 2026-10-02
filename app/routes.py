@@ -268,6 +268,141 @@ def _stronger(a: str, b: str) -> str:
     return a if _KIND_RANK.get(a, 9) <= _KIND_RANK.get(b, 9) else b
 
 
+# ─────────────── rutas YA emitidas (con sus codos): seguir la trayectoria ───────────────
+EMIT_HEADING_MIN_PT = 1.0    # rumbo local: primer tramo de al menos esto (en un codo = su tangente)
+_PASS_KINDS = ("junction", "tee", "end")   # sin tercera línea en el nodo: la ruta solo pasa → «bend»
+
+
+def join_emitted(lines, scale: float = 1.0) -> list:
+    """Une rutas de la MISMA capa y estado (AB) que comparten un extremo y siguen su
+    trayectoria, DESPUÉS de ajustar los codos. Solo concatena: ningún vértice ni codo
+    cambia, así que el arco que dibuja el editor es el mismo. `lines` son
+    `RecognizedPolyline` (px a `scale` = zoom) de UNA capa; se modifican en sitio.
+
+    Es la regla de `_pair` con el rumbo LOCAL (el primer tramo; si nace en un codo,
+    la tangente exacta del arco) en vez del medido a ~66 pt, que en una curva cerrada
+    daba >100° aunque la línea siga de frente, y para nodos que aparecen después de
+    `build_routes` (el hueco de letras que cierra `connect_text_gaps`: la «U» de
+    telecom de DU06 h.5 quedaba en dos rutas). Nodo = solo esos DOS extremos (≤
+    `NODE_TOL_PT`) y ninguna otra línea de la capa pasando por ahí; giro ≤
+    `THETA_DEG2_DEG` (≤ `THETA_JUNCTION_DEG` si un extremo es «tee»); nunca «cut» ni
+    si cerraría un lazo (LABOE h.30: el tubo de alcantarillado dibujado como
+    rectángulo de 17 pt salía en dos piezas que ya comparten las dos esquinas).
+    Una bifurcación («Y», tres extremos) no se toca: no hay una sola trayectoria.
+    Devuelve las rutas absorbidas (quien llama las quita de su lista)."""
+    live = [pl for pl in lines if len(pl.pts_pdf) >= 2]
+    gone = []
+    while True:
+        best = _best_emitted_pair(live, NODE_TOL_PT * scale, EMIT_HEADING_MIN_PT * scale)
+        if best is None:
+            return gone
+        _d, i, si, j, sj = best
+        _absorb(live[i], si, live[j], sj)
+        gone.append(live.pop(j))
+
+
+def _best_emitted_pair(live, tol, min_len):
+    ends = [(i, s, pl.pts_pdf[0] if s == 0 else pl.pts_pdf[-1])
+            for i, pl in enumerate(live) for s in (0, 1)]
+    cell = max(tol, 1e-6) * 4
+    grid: Dict[Tuple[int, int], List[int]] = {}
+    for n, (_i, _s, p) in enumerate(ends):
+        grid.setdefault((int(p[0] // cell), int(p[1] // cell)), []).append(n)
+    best = None
+    for n, (i, si, p) in enumerate(ends):
+        kx, ky = int(p[0] // cell), int(p[1] // cell)
+        # grado del nodo: TODOS los extremos de la capa (también los de otro estado AB)
+        near = sorted(m for dx in (-1, 0, 1) for dy in (-1, 0, 1) for m in grid.get((kx + dx, ky + dy), ())
+                      if math.dist(ends[m][2], p) <= tol and live[ends[m][0]].layer_ocg == live[i].layer_ocg)
+        if len(near) != 2 or near[0] != n:
+            continue                                  # nodo de grado ≠ 2 (o ya visto)
+        j, sj, q = ends[near[1]]
+        if i == j or not _same_net(live[i], live[j]):
+            continue                                  # lazo, u otro estado (AB): no es la misma utilidad
+        far_i = live[i].pts_pdf[-1 if si == 0 else 0]
+        far_j = live[j].pts_pdf[-1 if sj == 0 else 0]
+        if math.dist(far_i, far_j) <= tol:
+            continue                                  # cerraría un lazo (contorno de un tubo): no es trayectoria
+        ka = live[i].kinds[0 if si == 0 else -1]
+        kb = live[j].kinds[0 if sj == 0 else -1]
+        if "cut" in (ka, kb):
+            continue
+        if any(_passes(o, p, tol) for o in live if o.layer_ocg == live[i].layer_ocg):
+            continue                                  # otra línea pasa por el nodo: es una T
+        d = _defl(_local_heading(live[i].pts_pdf, si == 0, min_len),
+                  _local_heading(live[j].pts_pdf, sj == 0, min_len))
+        theta = THETA_JUNCTION_DEG if "tee" in (ka, kb) else THETA_DEG2_DEG
+        if d <= theta and (best is None or (d, i, j) < (best[0], best[1], best[3])):
+            best = (d, i, si, j, sj)
+    return best
+
+
+def _same_net(a, b) -> bool:
+    return a.layer_ocg == b.layer_ocg and bool(a.abandoned) == bool(b.abandoned)
+
+
+def _local_heading(pts, first: bool, min_len: float) -> Tuple[float, float]:
+    """Rumbo con el que la ruta LLEGA a su extremo, con el primer tramo ≥ `min_len`."""
+    seq = pts if first else pts[::-1]
+    q = seq[0]
+    back = next((p for p in seq[1:] if math.dist(p, q) >= min_len), seq[-1])
+    return _unit(q[0] - back[0], q[1] - back[1])
+
+
+def _passes(pl, q: Pt, tol: float) -> bool:
+    """La ruta pasa por q por su INTERIOR (un extremo suyo ahí no cuenta)."""
+    pts = pl.pts_pdf
+    if math.dist(pts[0], q) <= tol or math.dist(pts[-1], q) <= tol:
+        return False
+    for a, b in zip(pts, pts[1:]):
+        L = math.dist(a, b)
+        if L < 1e-9:
+            continue
+        ux, uy = (b[0] - a[0]) / L, (b[1] - a[1]) / L
+        t = (q[0] - a[0]) * ux + (q[1] - a[1]) * uy
+        if -tol <= t <= L + tol and abs((q[0] - a[0]) * uy - (q[1] - a[1]) * ux) <= tol:
+            return True
+    return False
+
+
+def _reversed_fillets(fillets: dict, n: int) -> dict:
+    """Codos de la polilínea invertida: índice n-1-i y los lados a/b cambiados."""
+    out = {}
+    for i, g in fillets.items():
+        h = dict(g)
+        for x, y in (("a", "b"), ("node_a", "node_b"), ("split_a", "split_b")):
+            if x in g or y in g:
+                h.pop(x, None); h.pop(y, None)
+                if y in g:
+                    h[x] = g[y]
+                if x in g:
+                    h[y] = g[x]
+        out[n - 1 - i] = h
+    return out
+
+
+def _absorb(a, sa: int, b, sb: int) -> None:
+    """`a` se queda con `b` pegada por el extremo compartido (sin invertir `a`)."""
+    n = len(b.pts_pdf)
+    bp, bk, bf = list(b.pts_pdf), list(b.kinds), dict(b.fillets or {})
+    if (sa == 1) == (sb == 1):                        # `b` tiene que llegar/salir por el otro lado
+        bp, bk, bf = bp[::-1], bk[::-1], _reversed_fillets(bf, n)
+    ap, ak, af = list(a.pts_pdf), list(a.kinds), dict(a.fillets or {})
+    if sa == 1:                                       # a … nodo … b
+        first, fk, ff, second, sk, sf = ap, ak, af, bp, bk, bf
+    else:                                             # b … nodo … a
+        first, fk, ff, second, sk, sf = bp, bk, bf, ap, ak, af
+    joint = _stronger(fk[-1], sk[0])
+    if joint in _PASS_KINDS:
+        joint = "bend"
+    shift = len(first) - 1
+    a.pts_pdf = first + second[1:]
+    a.kinds = fk[:-1] + [joint] + sk[1:]
+    a.fillets = {**ff, **{i + shift: g for i, g in sf.items()}}
+    a.n_segments = int(a.n_segments or 0) + int(b.n_segments or 0)
+    a.review = a.review or b.review
+
+
 def _unit(dx: float, dy: float) -> Tuple[float, float]:
     L = math.hypot(dx, dy)
     return (dx / L, dy / L) if L > 1e-12 else (1.0, 0.0)

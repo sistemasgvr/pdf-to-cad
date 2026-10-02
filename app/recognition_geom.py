@@ -67,6 +67,8 @@ VAULT_SEPARATE_GAP_PT = 1.5  # que no se tocan (hueco ≥1.5 pt): estructuras ve
 COVERAGE_TOL_PT = 2.5        # guión cubierto si sus puntos están a ≤2 pt
 OFFPATTERN_FACTOR = 1.5      # trazo continuo solo, más largo que 1.5×guión = anotación
 PATTERN_DASH_FACTOR = 2.0    # un guión del patrón cuenta hasta 2×dash_long (un poco más largo no es leader)
+RETRACT_INK_MAX_PT = 3.0     # tinta propia que un extremo puede «tragarse» al retroceder hasta un nodo
+                             # (lo que un guión se pasa de la esquina o de la línea donde hace T)
 NODE_OFF_LINE_PT = 3.0       # nodo compartido válido si la recta pasa a ≤3 pt
 LINE_STROKE_TOUCH_PT = 0.5   # (precise_junctions) trozo que nace en la punta de un guión (no letra)…
 LINE_STROKE_ANG_DEG = 5.0    # …con su rumbo: es línea, no asta de letra
@@ -262,6 +264,10 @@ class Vault:
     width: float = 0.0
     length: float = 0.0
     layer: str = ""               # OCG mayoritaria del símbolo (para saber si es bóveda real o propuesta/poste)
+    # Buzón redondo: (cx, cy, r) del círculo DIBUJADO (pt). Solo dato de salida
+    # (el núcleo no lo usa): con él `recognition_vault_snap` lleva las puntas al
+    # anillo real y el import reconoce qué estructura está sobre él.
+    circle: Optional[Tuple[float, float, float]] = None
 
     @property
     def center(self) -> Pt:
@@ -299,6 +305,18 @@ class Node:
     y: float
     kind: str             # end | corner | bend | junction | tee | vault | edge | stop | cut
     vault_idx: int = -1
+
+
+def _ink_beyond(r, P: Pt, o: Tuple[float, float]) -> float:
+    """Largo de los guiones de la corrida `r` que quedan MÁS ALLÁ de P en la
+    dirección `o` (hacia afuera del extremo): la tinta que se pierde si el
+    extremo retrocede hasta P."""
+    out = 0.0
+    for d in r.dashes:
+        sa = (d.a[0] - P[0]) * o[0] + (d.a[1] - P[1]) * o[1]
+        sb = (d.b[0] - P[0]) * o[0] + (d.b[1] - P[1]) * o[1]
+        out += max(0.0, max(sa, sb)) - max(0.0, min(sa, sb))
+    return out
 
 
 @dataclass
@@ -1903,6 +1921,7 @@ def _fill_vault_geometry(v: "Vault", cluster: Sequence[dict], polygon_circles: b
         v.width = v.length = (pb[2] - pb[0] + pb[3] - pb[1]) / 2.0
         v.angle_deg = 0.0
         v.round_entry = polygon_circles
+        v.circle = ((pb[0] + pb[2]) / 2.0, (pb[1] + pb[3]) / 2.0, v.width / 2.0)
         return
     chains = _path_chains(path)
     pts = [q for ch in chains for q in ch]
@@ -1914,6 +1933,7 @@ def _fill_vault_geometry(v: "Vault", cluster: Sequence[dict], polygon_circles: b
         v.width = v.length = 2.0 * circ[2]
         v.angle_deg = 0.0
         v.round_entry = True
+        v.circle = (circ[0], circ[1], circ[2])
         return
     _rect_geometry(v, pts, chains)
 
@@ -2113,7 +2133,7 @@ def resolve_nodes(runs: List[Run], pat: Pattern, vaults: Sequence[Vault],
         nodes.append(Node(p[0], p[1], kind, vi))
         return len(nodes) - 1
 
-    def slide_ok(i: int, side: str, P: Pt) -> bool:
+    def slide_ok(i: int, side: str, P: Pt, keep_ink: bool = False) -> bool:
         """Deslizar el extremo `side` hasta P no puede tragarse más de media
         corrida (si no, un tick o un guión corto colapsa o se da vuelta)."""
         r = runs[i]
@@ -2126,7 +2146,11 @@ def resolve_nodes(runs: List[Run], pat: Pattern, vaults: Sequence[Vault],
             o = outward(i, side)
             return (P[0] - pe[0]) * o[0] + (P[1] - pe[1]) * o[1] >= -CURVE_BACKSLIDE_PT
         t, _ = r.param(P)
-        return t <= 0.5 if side == "a" else t >= 0.5
+        if not (t <= 0.5 if side == "a" else t >= 0.5):
+            return False
+        # `keep_ink`: además, no retroceder sobre más de RETRACT_INK_MAX_PT de
+        # GUIONES propios (la corrida CRUZA el nodo: su tinta sigue del otro lado).
+        return not keep_ink or _ink_beyond(r, P, outward(i, side)) <= RETRACT_INK_MAX_PT
 
     def stretch_ok(i: int, side: str, P: Pt) -> bool:
         """Una pieza de UN solo guión (tick «|», patita de un símbolo) no se
@@ -2825,6 +2849,13 @@ def resolve_nodes(runs: List[Run], pat: Pattern, vaults: Sequence[Vault],
                     continue
                 if not slide_ok(*e, P) or not slide_ok(*f, P):
                     continue
+                # Las DOS siguen con tinta propia pasado P: no es una esquina, es una «X»
+                # (dos rectas que se cruzan de punta a punta). DU10 h.11 alcantarillado:
+                # dos «V» que se tocan sobre la principal salían como un «<» y se perdían
+                # los brazos de la derecha. Si solo UNA se pasa, es la esquina de siempre
+                # (con esa condición ninguna curva cambia en los 4 PDFs).
+                if not slide_ok(*e, P, True) and not slide_ok(*f, P, True):
+                    continue
                 if not stretch_ok(*e, P) or not stretch_ok(*f, P):
                     continue
                 pairs.append((d, e, f, P, "corner"))
@@ -2981,6 +3012,18 @@ def resolve_nodes(runs: List[Run], pat: Pattern, vaults: Sequence[Vault],
         node_idx = new_node(P, "tee")
         if not any(abs(tt - t) < 1e-6 for tt, _ in runs[j].inner):
             runs[j].inner.append((t, node_idx))
+        # La tinta del ramal que SIGUE del otro lado de la línea (lateral «ss» que
+        # cruza la principal, DU10 h.11 alcantarillado) no se descarta: queda como
+        # una pieza que nace en la misma T. Un guión que solo se pasa unos pt de la
+        # línea es la T de siempre (y una cola < `floor` se va como ruido).
+        o = outward(i, s)
+        tail = [d for d in runs[i].dashes
+                if (d.mid[0] - P[0]) * o[0] + (d.mid[1] - P[1]) * o[1] > 0]
+        if _ink_beyond(runs[i], P, o) > RETRACT_INK_MAX_PT and tail and not runs[i].is_curve:
+            runs.append(Run(P, pe, *_unit(pe[0] - P[0], pe[1] - P[1]), tail, origin=runs[i].origin))
+            runs[-1].node_a = node_idx
+            free[(len(runs) - 1, "a")] = False
+            free[(len(runs) - 1, "b")] = True
         set_endpoint(i, s, P, node_idx)
 
     # — 5d-bis. convergencia rasante: un extremo libre que muere a ≤3 pt de

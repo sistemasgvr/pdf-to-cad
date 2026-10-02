@@ -15,15 +15,36 @@ repartido entre las piezas a la vista. Las franjas blancas de `Piece.covers`
 """
 from __future__ import annotations
 
+import math
 from typing import Dict, List, Optional
 
 import fitz
 from PySide6 import QtCore, QtGui, QtWidgets
 
 import composite as C
+import composite_scan as CS
+from alignment_tools import AlignmentRuler, PieceProtractor
+from composite_measure import MeasureTool
 import composite_seam as S
 from pdf_view_quality import MAX_RENDER_PIXELS, MAX_RENDER_SCALE, render_region
-from widgets import ZoomPanView
+from widgets import ZoomPanView, MiniMap
+from i18n import t as _tr
+
+
+class _BlendPixmap(QtWidgets.QGraphicsPixmapItem):
+    """Recorte nítido de una pieza: con «Fundir bordes» se pinta en modo
+    oscurecer, igual que su pieza (ver `PieceItem.paint`)."""
+
+    def __init__(self, pixmap, parent: "PieceItem"):
+        super().__init__(pixmap, parent)
+        self.owner = parent
+
+    def paint(self, painter, option, widget=None):
+        painter.save()
+        if self.owner.view.comp.blends():
+            painter.setCompositionMode(QtGui.QPainter.CompositionMode_Darken)
+        super().paint(painter, option, widget)
+        painter.restore()
 
 
 def _qpixmap(pix: fitz.Pixmap) -> QtGui.QPixmap:
@@ -51,6 +72,8 @@ class PieceItem(QtWidgets.QGraphicsPixmapItem):
         self.setShapeMode(QtWidgets.QGraphicsPixmapItem.BoundingRectShape)
         self.setTransformationMode(QtCore.Qt.SmoothTransformation)
         self.setCursor(QtCore.Qt.OpenHandCursor)
+        self.setAcceptHoverEvents(True)
+        self._hover = False
         # contorno como hijo con z alto: queda sobre el recorte nítido y las franjas
         self._outline = QtWidgets.QGraphicsRectItem(self)
         self._outline.setZValue(10)
@@ -93,8 +116,34 @@ class PieceItem(QtWidgets.QGraphicsPixmapItem):
         pen = QtGui.QPen(QtGui.QColor("#2b6fd1") if self.isSelected() else QtGui.QColor(255, 154, 0, 200), 0)
         pen.setCosmetic(True)
         pen.setWidth(3 if self.isSelected() else 1)
+        # Escaneos: el contorno naranja sobre la costura se leía como un corte
+        # (usuario 2026-10-02); solo se ve en la pieza elegida o bajo el ratón.
+        if self.view.comp.manual and not self.isSelected() and not self._hover:
+            pen = QtGui.QPen(QtCore.Qt.NoPen)
         self._outline.setPen(pen)
         self._outline.setBrush(QtCore.Qt.NoBrush)
+
+    def hoverEnterEvent(self, e):
+        self._hover = True
+        self._refresh_outline()
+        super().hoverEnterEvent(e)
+
+    def hoverLeaveEvent(self, e):
+        self._hover = False
+        self._refresh_outline()
+        super().hoverLeaveEvent(e)
+
+    def paper_polygon(self) -> QtGui.QPolygonF:
+        """Lo visible de la pieza (su cuadrilátero o su clip) en la escena."""
+        p = self.piece
+        size = self.view.page_size(p)
+        fn = C.piece_map(p, size, self.view.comp.target_scale())
+        if p.polygon:
+            pts = [fn(x * size[0], y * size[1]) for x, y in p.polygon]
+        else:
+            x0, y0, x1, y1 = C.clip_rect_pt(size, p.clip)
+            pts = [fn(x0, y0), fn(x1, y0), fn(x1, y1), fn(x0, y1)]
+        return QtGui.QPolygonF([QtCore.QPointF(x, y) for x, y in pts])
 
     # ── coords: escena ↔ píxeles del pixmap base ─────────────────────────
     def scene_to_raw(self, x: float, y: float) -> QtCore.QPointF:
@@ -156,6 +205,7 @@ class PieceItem(QtWidgets.QGraphicsPixmapItem):
         pm = render_region(self.view.page(p), (sx0, sy0, sx1, sy1), scale)
         if pm is None or pm.isNull():
             return
+        pm = self.view.mask_polygon(pm, p, sx0, sy0, scale)
         if abs(p.rotation % 360.0) > 1e-9:
             pm = pm.transformed(QtGui.QTransform().rotate(-p.rotation), QtCore.Qt.SmoothTransformation)
         # caja del recorte en escena → en píxeles del pixmap base (coords del padre)
@@ -165,7 +215,7 @@ class PieceItem(QtWidgets.QGraphicsPixmapItem):
         rx0 = min(q.x() for q in raw); rx1 = max(q.x() for q in raw)
         ry0 = min(q.y() for q in raw); ry1 = max(q.y() for q in raw)
         self.clear_sharp()
-        it = QtWidgets.QGraphicsPixmapItem(pm, self)
+        it = _BlendPixmap(pm, self)
         it.setTransformationMode(QtCore.Qt.SmoothTransformation)
         it.setZValue(5)
         it.setAcceptedMouseButtons(QtCore.Qt.NoButton)
@@ -196,20 +246,37 @@ class PieceItem(QtWidgets.QGraphicsPixmapItem):
 
     def paint(self, painter, option, widget=None):
         option.state &= ~QtWidgets.QStyle.State_Selected      # sin el marco punteado de Qt
+        painter.save()                    # el modo y el recorte no pasan a otros items
+        if self.view.comp.blends():
+            # «Fundir bordes»: modo oscurecer sobre el papel blanco que pinta la
+            # vista debajo de TODAS las piezas (`drawBackground`): en una
+            # superposición se ve la tinta de ambas y el blanco no tapa nada.
+            painter.setCompositionMode(QtGui.QPainter.CompositionMode_Darken)
+            if self._sharp is not None:
+                # bajo el recorte nítido no va la imagen base: oscurecer
+                # dejaría su tinta borrosa como halo alrededor de la nítida.
+                outside = QtGui.QPainterPath()
+                outside.addRect(self.boundingRect())
+                inner = QtGui.QPainterPath()
+                inner.addRect(self._sharp.mapRectToParent(self._sharp.boundingRect()))
+                painter.setClipPath(outside.subtracted(inner), QtCore.Qt.IntersectClip)
         super().paint(painter, option, widget)
+        painter.restore()
 
 
 class CompositeView(ZoomPanView):
     pieceMoved = QtCore.Signal(int)
     selectionChangedIdx = QtCore.Signal(int)
     bridgesChanged = QtCore.Signal(int)
+    protractorAngleChanged = QtCore.Signal(float)
+    rotateRequested = QtCore.Signal(float)     # teclas + / − sobre la pieza elegida
 
     def __init__(self, comp: C.Composite, docs: List[fitz.Document]):
         super().__init__()
         self.comp = comp
         self.docs = docs
-        self.magnet_enabled = True
-        self.show_anchors = True
+        self.magnet_enabled = not comp.manual
+        self.show_anchors = not comp.manual
         self.items: List[PieceItem] = []
         self._edge_cache: Dict[tuple, List[C.Anchor]] = {}  # (pdf, hoja, clip) → anclajes (coords hoja origen)
         self._seam_cache: Dict[tuple, object] = {}          # (…, lado) → extremos de la match line
@@ -229,6 +296,87 @@ class CompositeView(ZoomPanView):
         self.pieceMoved.connect(lambda _i: self._timer.start())
         self.setBackgroundBrush(QtGui.QColor("#d8dbe0"))
         self.setDragMode(QtWidgets.QGraphicsView.NoDrag)
+        # Zoom is anchored explicitly; Qt's implicit mouse anchor can jump when
+        # the work area becomes smaller than the viewport.
+        self.setTransformationAnchor(QtWidgets.QGraphicsView.NoAnchor)
+        self.setResizeAnchor(QtWidgets.QGraphicsView.NoAnchor)
+        self.minimap = MiniMap(self, sync_zoom=True)
+        self.pieceMoved.connect(lambda _i: self._update_minimap())
+        self.viewport().setMouseTracking(True)       # línea elástica de «Medir»/«Enderezar»
+        self.measure = MeasureTool(self)
+        self.pieceMoved.connect(lambda _i: self.measure.clear())
+        self.alignment_ruler = AlignmentRuler(self.comp.target_scale)
+        self.scene().addItem(self.alignment_ruler)
+        self.alignment_ruler.hide()
+        self.alignment_ruler.changed.connect(self._save_alignment_ruler)
+        self.protractor = PieceProtractor()
+        self.scene().addItem(self.protractor)
+        self.protractor.hide()
+        self.protractor_enabled = False
+        self.protractor.angleChanged.connect(self.protractorAngleChanged)
+        self.selectionChangedIdx.connect(lambda _i: self.update_protractor())
+        self.pieceMoved.connect(lambda _i: self.update_protractor())
+        saved = self.comp.alignment_ruler
+        if saved:
+            self.alignment_ruler.configure(saved.get("length", 600), saved.get("width", 40),
+                                           saved.get("angle", 0), saved.get("locked", False))
+            self.alignment_ruler.setPos(float(saved.get("x", 0)), float(saved.get("y", 0)))
+            self.alignment_ruler.setVisible(bool(saved.get("visible", False)))
+
+    def _save_alignment_ruler(self):
+        r = self.alignment_ruler
+        self.comp.alignment_ruler = dict(x=r.x(), y=r.y(), length=r.length, width=r.width,
+            angle=-r.rotation(), locked=r.locked, visible=r.isVisible())
+        if self.pieces_ready() and not any(getattr(doc, "is_closed", False) for doc in self.docs):
+            self._update_scene_rect()
+
+    def show_alignment_ruler(self, visible):
+        r = self.alignment_ruler
+        if visible and not self.comp.alignment_ruler:
+            bb = C.bounds(self.comp, self.page_size)
+            if bb:
+                r.configure(length=max(100, bb[2]-bb[0]), width=max(10, (bb[3]-bb[1])*0.08))
+                r.setPos(bb[0], (bb[1]+bb[3])/2)
+            else:
+                center = self.mapToScene(self.viewport().rect().center())
+                r.setPos(center.x()-r.length/2, center.y())
+        r.setVisible(visible)
+        self._save_alignment_ruler()
+
+    def show_protractor(self, visible):
+        self.protractor_enabled = bool(visible)
+        self.update_protractor()
+
+    def update_protractor(self):
+        index = self.selected_index()
+        self.protractor.setVisible(self.protractor_enabled and index >= 0)
+        if index >= 0:
+            p = self.comp.pieces[index]
+            w, h = C.piece_size(p, self.page_size(p), self.comp.target_scale())
+            self.protractor.configure(QtCore.QPointF(p.x+w/2, p.y+h/2), angle=CS.signed_angle(p.rotation))
+
+    def set_blend(self, on: bool):
+        """«Fundir bordes» (solo escaneos): ver `PieceItem.paint`."""
+        self.comp.seam_blend = bool(on)
+        for it in self.items:
+            it._refresh_outline()
+        self.scene().update()
+        self.viewport().update()
+
+    def drawBackground(self, painter, rect):
+        super().drawBackground(painter, rect)
+        if (not self.comp.blends() or not self.pieces_ready()
+                or any(getattr(d, "is_closed", False) for d in self.docs)):
+            return
+        # Papel blanco bajo TODAS las piezas: oscurecer contra el gris del fondo
+        # dejaría el papel gris; contra blanco, la pieza se ve tal cual.
+        painter.save()
+        painter.setPen(QtCore.Qt.NoPen)
+        painter.setBrush(QtGui.QColor("#ffffff"))
+        for it in self.items:
+            if it.sceneBoundingRect().intersects(rect):
+                painter.drawPolygon(it.paper_polygon())
+        painter.restore()
 
     # ── modelo ──────────────────────────────────────────────────────────
     def page(self, p: C.Piece) -> fitz.Page:
@@ -251,10 +399,28 @@ class CompositeView(ZoomPanView):
         x0, y0, x1, y1 = C.clip_rect_pt(self.page_size(p), p.clip)
         clip = fitz.Rect(page.rect.x0 + x0, page.rect.y0 + y0, page.rect.x0 + x1, page.rect.y0 + y1)
         pix = page.get_pixmap(matrix=fitz.Matrix(scale, scale), alpha=False, clip=clip)
-        return _qpixmap(pix)
+        return self.mask_polygon(_qpixmap(pix), p, x0, y0, scale)
+
+    def mask_polygon(self, pixmap, piece, x0, y0, scale):
+        if not piece.polygon:
+            return pixmap
+        w, h = self.page_size(piece)
+        path = QtGui.QPainterPath()
+        path.addPolygon(QtGui.QPolygonF([QtCore.QPointF(x*w*scale-math.floor(x0*scale),
+            y*h*scale-math.floor(y0*scale)) for x, y in piece.polygon]))
+        path.closeSubpath()
+        masked = QtGui.QPixmap(pixmap.size())
+        masked.fill(QtCore.Qt.white)
+        painter = QtGui.QPainter(masked)
+        painter.setRenderHint(QtGui.QPainter.Antialiasing)
+        painter.setClipPath(path)
+        painter.drawPixmap(0, 0, pixmap)
+        painter.end()
+        return masked
 
     def rebuild(self, keep_selection: int = -1):
         """Vuelve a crear todos los items desde `self.comp`."""
+        self.measure.clear()
         for it in self.items:
             self.scene().removeItem(it)
         self.items = []
@@ -265,9 +431,11 @@ class CompositeView(ZoomPanView):
             it.set_raw(self.render_piece(p, ov), ov)
             self.items.append(it)
         self._update_scene_rect()
+        self.measure.apply_cursor()
         if 0 <= keep_selection < len(self.items):
             self.items[keep_selection].setSelected(True)
         self.refresh_overlay()
+        self.update_protractor()
         self._timer.start()
         # La match line de cada lado se calcula ya (tras pintar), no en el primer
         # arrastre que junta dos piezas: ahí la UI se trababa un momento.
@@ -279,6 +447,8 @@ class CompositeView(ZoomPanView):
         self._warm_seams()
 
     def _warm_seams(self):
+        if self.comp.manual:
+            return
         if not self.pieces_ready() or any(getattr(d, "is_closed", False) for d in self.docs):
             return
         for i in range(len(self.comp.pieces)):
@@ -287,6 +457,7 @@ class CompositeView(ZoomPanView):
                 self._rule(i, side)
 
     def refresh_piece(self, index: int, rerender: bool = False):
+        self.measure.clear()
         it = self.items[index]
         if rerender:
             ov = self.overview_scale(it.piece)
@@ -297,10 +468,12 @@ class CompositeView(ZoomPanView):
         self._update_scene_rect()
         self._bridge_timer.start()
         self._timer.start()
+        self.update_protractor()
 
     def refresh_all(self):
         for i in range(len(self.items)):
             self.refresh_piece(i)
+        self.alignment_ruler.update()
 
     def rerender_source(self, source: int):
         """Tras cambiar capas de un PDF origen: nuevos pixmaps de sus piezas."""
@@ -311,15 +484,91 @@ class CompositeView(ZoomPanView):
         self.refresh_overlay()
 
     def _update_scene_rect(self):
+        self._update_minimap()
         bb = C.bounds(self.comp, self.page_size)
         if bb is None:
             self.setSceneRect(QtCore.QRectF(0, 0, 800, 600))
             return
         x0, y0, x1, y1 = bb
+        if self.alignment_ruler.isVisible():
+            r = self.alignment_ruler.sceneBoundingRect()
+            x0, y0 = min(x0, r.left()), min(y0, r.top())
+            x1, y1 = max(x1, r.right()), max(y1, r.bottom())
         pad = max(200.0, 0.5 * max(x1 - x0, y1 - y0))
-        self.setSceneRect(QtCore.QRectF(x0 - pad, y0 - pad, (x1 - x0) + 2 * pad, (y1 - y0) + 2 * pad))
+        center = self.mapToScene(self.viewport().rect().center())
+        work = QtCore.QRectF(x0 - pad, y0 - pad, (x1 - x0) + 2 * pad, (y1 - y0) + 2 * pad)
+        self.setSceneRect(self.sceneRect().united(work))
+        self._ensure_navigation_room(center)
+        self.centerOn(center)
+
+    def _ensure_navigation_room(self, center):
+        """Leave room around the camera at every zoom level, including blank space."""
+        scale = max(1e-9, abs(self.transform().m11()))
+        w = max(1, self.viewport().width()) / scale
+        h = max(1, self.viewport().height()) / scale
+        room = QtCore.QRectF(center.x()-1.5*w, center.y()-1.5*h, 3*w, 3*h)
+        if not self.sceneRect().contains(room):
+            self.setSceneRect(self.sceneRect().united(room))
+
+    def wheelEvent(self, event):
+        delta = event.angleDelta().y()
+        if not delta:
+            event.ignore()
+            return
+        position = event.position().toPoint()
+        anchor = self.mapToScene(position)
+        factor = 1.15 if delta > 0 else 1/1.15
+        self.scale(factor, factor)
+        self._ensure_navigation_room(anchor)
+        offset = self.mapToScene(position)-self.mapToScene(self.viewport().rect().center())
+        self.centerOn(anchor-offset)
+        self.viewChanged.emit()
+        event.accept()
+
+    def _pan_move(self, event):
+        if self._pan and self._pan0 is not None:
+            delta = event.position().toPoint()-self._pan0
+            self._pan0 = event.position().toPoint()
+            scale = max(1e-9, abs(self.transform().m11()))
+            center = self.mapToScene(self.viewport().rect().center())-QtCore.QPointF(delta.x()/scale, delta.y()/scale)
+            self._ensure_navigation_room(center)
+            self.centerOn(center)
+            self.viewChanged.emit()
+            event.accept()
+            return
+        super().mouseMoveEvent(event)
+
+    def resizeEvent(self, event):
+        center = self.mapToScene(self.viewport().rect().center()) if self.scene() else QtCore.QPointF()
+        super().resizeEvent(event)
+        if self.scene():
+            self._ensure_navigation_room(center)
+            self.centerOn(center)
+
+    def _update_minimap(self):
+        """Live sheet layout in compositor coordinates, without PDF rendering."""
+        if any(getattr(doc, "is_closed", False) for doc in self.docs):
+            return
+        bb = C.bounds(self.comp, self.page_size)
+        if bb is None:
+            self.minimap.set_layout([], QtCore.QRectF())
+            return
+        multi = len({p.source for p in self.comp.pieces}) > 1
+        layout = []
+        for p in self.comp.pieces:
+            x0, y0, x1, y1 = C.piece_rect(p, self.page_size(p), self.comp.target_scale())
+            label = _tr("Hoja {n}").format(n=p.page + 1)
+            if multi:
+                label = p.label or f"{p.source + 1} · {label}"
+            layout.append((QtCore.QRectF(x0, y0, x1-x0, y1-y0), label))
+        x0, y0, x1, y1 = bb
+        margin = C.MARGIN_PT
+        self.minimap.set_layout(layout,
+            QtCore.QRectF(x0-margin, y0-margin, x1-x0+2*margin, y1-y0+2*margin))
 
     def fit_all(self):
+        if any(getattr(doc, "is_closed", False) for doc in self.docs):
+            return
         bb = C.bounds(self.comp, self.page_size)
         if bb is None:
             return
@@ -604,7 +853,8 @@ class CompositeView(ZoomPanView):
         if not self.pieces_ready():
             self._bridges = []
             return
-        by_piece = {i: self._mapped_anchors(i) for i in range(len(self.comp.pieces))}
+        by_piece = ({i: self._mapped_anchors(i) for i in range(len(self.comp.pieces))}
+                    if not self.comp.manual else {})
         self._bridges = (C.find_bridges(by_piece, self.comp.bridge_max_pt)
                          if self.comp.bridges and len(self.comp.pieces) > 1 else [])
         bridged = {(b.piece_a, b.a) for b in self._bridges} | {(b.piece_b, b.b) for b in self._bridges}
@@ -651,11 +901,75 @@ class CompositeView(ZoomPanView):
         for it in shown:
             it.update_sharp(visible, wanted, budget)
 
-    # ── ratón ───────────────────────────────────────────────────────────
+    # ── ratón y teclado ─────────────────────────────────────────────────
+    def _guide_hit(self, pos) -> bool:
+        """¿El clic cae en una guía que lo usa (regla sin bloquear, su asa, el
+        punto del transportador)? Esas se arrastran aunque haya una herramienta."""
+        it = self.itemAt(pos)
+        guides = (self.alignment_ruler, self.alignment_ruler.handle, self.protractor)
+        return it in guides and bool(it.acceptedMouseButtons() & QtCore.Qt.LeftButton)
+
+    def piece_at(self, scene_point: QtCore.QPointF) -> int:
+        """Índice de la pieza visible bajo el punto (−1 si ninguna), mirando
+        a través de las guías."""
+        for it in self.scene().items(scene_point):
+            while it is not None and not isinstance(it, PieceItem):
+                it = it.parentItem()
+            if it is not None:
+                return it.index
+        return -1
+
     def mousePressEvent(self, e):
+        if e.button() == QtCore.Qt.LeftButton and self._guide_hit(e.position().toPoint()):
+            ZoomPanView.mousePressEvent(self, e)
+            return
+        if self.measure.mode and e.button() == QtCore.Qt.LeftButton:
+            point = self.mapToScene(e.position().toPoint())
+            self.measure.press(point, self.piece_at(point), e.modifiers())
+            e.accept()
+            return
         if e.button() == QtCore.Qt.LeftButton:
             it = self.itemAt(e.position().toPoint())
             if it is None:
                 self.scene().clearSelection()
                 self.selectionChangedIdx.emit(-1)
         super().mousePressEvent(e)
+
+    def mouseMoveEvent(self, e):
+        if self._pan:
+            self._pan_move(e)
+            return
+        if self.measure.pending():
+            self.measure.move(self.mapToScene(e.position().toPoint()), e.modifiers())
+        super().mouseMoveEvent(e)
+
+    # + / − giran la pieza elegida (Ctrl: centésimas; Shift o * / _ : 1°)
+    _ROTATE_KEYS = {QtCore.Qt.Key_Plus: 1, QtCore.Qt.Key_Equal: 1, QtCore.Qt.Key_Minus: -1,
+                    QtCore.Qt.Key_Asterisk: 10, QtCore.Qt.Key_Underscore: -10}
+
+    def keyPressEvent(self, event):
+        if event.key() == QtCore.Qt.Key_Escape and self.measure.cancel():
+            event.accept()
+            return
+        direction = {QtCore.Qt.Key_Left: (-1, 0), QtCore.Qt.Key_Right: (1, 0),
+                     QtCore.Qt.Key_Up: (0, -1), QtCore.Qt.Key_Down: (0, 1)}.get(event.key())
+        index = self.selected_index()
+        if direction and index >= 0:
+            step = 0.1 if event.modifiers() & QtCore.Qt.ControlModifier else 10 if event.modifiers() & QtCore.Qt.ShiftModifier else 1
+            item = self.items[index]
+            item.setPos(item.pos()+QtCore.QPointF(direction[0]*step, direction[1]*step))
+            event.accept()
+            return
+        turn = self._ROTATE_KEYS.get(event.key())
+        if turn and index >= 0 and self.comp.manual:
+            mods = event.modifiers()
+            if abs(turn) == 10 or mods & QtCore.Qt.ShiftModifier:   # «*» y «_» = Shift en teclado español
+                step = 1.0
+            elif mods & QtCore.Qt.ControlModifier:
+                step = 0.01
+            else:
+                step = 0.1
+            self.rotateRequested.emit(math.copysign(step, turn))
+            event.accept()
+            return
+        super().keyPressEvent(event)

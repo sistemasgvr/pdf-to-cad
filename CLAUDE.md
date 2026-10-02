@@ -202,6 +202,19 @@ alcantarillado, drenaje, gas, eléctrico, telecom). Todo en **unidades imperiale
     las dos mitades EXACTAS (A, M, B, centro, sin recorte) y ningún vecino es otro codo. Foto
     1799 codos (4 PDFs × 6 utilidades): 0 entre 120° y 170°, 1 ≥170° (ese). Tests:
     `tests/test_codos_abiertos.py`.
+    **DU10 h.3 (2026-09-30, «curvas que quedan como polilínea»)**: (1) `fit_continuous.gap`
+    solo fija los extremos que son EMPALME con un trazo validado; el extremo propio de la
+    polilínea puede moverse como sin parche (un tee a la tangencia de su línea): antes se
+    descartaba el reajuste entero y se perdía un codo r=126 pt. (2) `recognition_arcs.
+    dash_arc_ends`: un «trozo» de DOS cuerdas muy distintas (3 puntos siempre caben en un
+    círculo) = arco que nace/muere DENTRO de un guión recto → (cuerda corta = arco, cuerda
+    larga = recta). En `ink_fillet_plan(arc_ends=)`: la corta suma cobertura si va sobre el
+    círculo (≤`ON_ARC_TOL_PT`=0.25) y la recta del guión se APARTA ≥`END_DASH_LEAVE_PT`=1
+    (en arcos muy abiertos un guión recto no se distingue del arco: LABOE h.29 empeoraba);
+    la larga es recta del codo SOLO en un lado sin otra recta de tinta y si llega al FIN de
+    la línea (en una «S» la recta del medio le quitaba las anclas al otro codo: DU08 h.22).
+    No entra en la lista global de rectas (`_refine_line` movía radios en 50 hojas). Foto
+    846 hoja×utilidad: cambian 4, todas a mejor (DU10 h.3/4, DU08 h.40, DU08 h.35).
   - `recognition_ends.py` (PURO) — **dónde TERMINA cada línea** (pedido del usuario
     2026-09-28, DU08 h.26), sobre la salida del núcleo sin tocarlo:
     `trim_inkless_tails` (coords PDF, antes de `build_routes`): un extremo tee/junction
@@ -222,6 +235,29 @@ alcantarillado, drenaje, gas, eléctrico, telecom). Todo en **unidades imperiale
     sin cambios salvo los ramales recortados. En la hoja compuesta DU06 13+14 alineada no
     queda ningún corte en la costura (las líneas se unen antes, en el núcleo). Tests:
     `tests/test_recognition_ends.py`.
+  - `recognition_vault_snap.py` (PURO) — **imán de puntas a bóvedas** (pedido del usuario
+    2026-10-01, captura de un SÓLIDO eléctrico de DU06 h.5: «las líneas quedan separadas del
+    buzón… que se una solito, sin alterar el reconocimiento, solo bien cerca»). Paso APARTE al
+    final de `recognize_page` (tras `_vaults_geometry`, sobre `polylines_joined` y `_raw`): el
+    núcleo corta la llegada en el recuadro del CLÚSTER +1 pt (`v.bbox(1.0)`, o el círculo +1),
+    así que la punta «stop» quedaba ~1 pt FUERA del contorno; a zoom 3.5 (editor) son 3.5 px y
+    `attach_vault_geometry` (±2 px) no veía la llegada → caja SUELTA en el centro (235 de 604
+    bóvedas con línea). `snap_ends_to_vaults`: punta «stop» (≤`SNAP_STOP_PT`=3 pt, adelante o
+    atrás si la línea pasó por encima) o «end» (≤`SNAP_END_PT`=1.5, solo adelante) → el cruce
+    MÁS CERCANO de SU recta con el contorno (`corners`, girado, o `circle` = anillo dibujado:
+    `Vault.circle`, campo NUEVO solo de salida del núcleo) y queda «stop». No se mueve: punta
+    dentro de un contorno, recta que no lo corta (de costado/esquina), rumbo poco fiable
+    (`end_direction`), recorte que pase el vértice anterior o entre en el arco de un codo
+    vecino, ni punta que coincide con otra línea salvo que todas vayan al MISMO punto (grupo).
+    Bóveda «sin línea» a la que llega una punta pasa a `orphan=False` (y su punto sale de
+    `vault_orphans_px`); aviso «Puntas unidas a su bóveda (imán): N» (info, clic → cada punta,
+    `vault_snaps_px`). `model_ops._dentro_de_boveda`: el import reconoce también el ANILLO de
+    un buzón redondo (la BZ de la punta se lleva el buzón; antes quedaba otra BZ suelta al
+    centro). Foto 6 utilidades × 4 PDFs (846 hoja×utilidad): 626 puntas (eléctrico 225,
+    drenaje 156, alcantarillado 119, telecom 114, agua 12), mediana 1.0 pt, máx 3.0; ningún
+    vértice interior ni codo distinto. Import (zoom 3.5): caja unida a la línea 366 → 581,
+    suelta 235 → 18 (nodos de varias líneas fuera del contorno y bóvedas anidadas: no se
+    tocan), estructuras 3993 → 3838. Tests: `tests/test_recognition_vault_snap.py`.
   - **Reporte DU06 h.4 (2026-09-29, cuatro casos, TODAS las utilidades)**:
     `recognition_dupink.py` (PURO) — la MISMA línea dibujada dos veces en la misma capa
     con el linetype desfasado (banco de ductos `N-COMM-DUCT-BANK-PL`: dos entidades
@@ -417,7 +453,15 @@ alcantarillado, drenaje, gas, eléctrico, telecom). Todo en **unidades imperiale
     corrida (no llega a bóvedas vecinas, no forma esquina con terceros:
     5c-bis). Un tick corto sobre el que muere otra corrida queda «capped»
     (sus puntas son extremos puros: ni esquina, ni T, ni prolongación). `slide_ok`: ninguna esquina/T desliza un
-    extremo más de media corrida. `SOFT_SIMPLIFY_PT`=0.5 para bend/corner (era 1.5: dejaba la centerline hasta 1.5 pt fuera de los guiones en quiebres suaves),
+    extremo más de media corrida. **Cruces con tinta** (2026-09-30, DU10 h.11 alcantarillado):
+    `slide_ok(keep_ink=True)` además no deja retroceder sobre más de `RETRACT_INK_MAX_PT`=3 pt
+    de guiones PROPIOS (`_ink_beyond`). En esquinas (5b) solo se rechaza si las DOS corridas
+    siguen pasado el cruce (una «X» = dos rectas enteras; exigirlo a cada una por separado
+    cambiaba codos del eléctrico en ~20 hojas); en T (5d) la T se forma como siempre y la tinta
+    del otro lado queda como corrida-cola que nace en el mismo nodo (lateral «ss» que cruza la
+    principal; una cola < `floor` se va como ruido: el guión que se pasa unos pt no cambia).
+    Foto 6 utilidades × 4 PDFs: 16 hojas, todas ganan tinta, 0 codos distintos. Tests:
+    `tests/test_cruces_con_tinta.py`. `SOFT_SIMPLIFY_PT`=0.5 para bend/corner (era 1.5: dejaba la centerline hasta 1.5 pt fuera de los guiones en quiebres suaves),
     `CURVE_SIMPLIFY_SOFT_PT`=1.0 en tramos con vértices de curva. Ojo: `git checkout --`
     sobre archivos *staged* descarta el trabajo no staged — no usarlo aquí.
     `edge`/`stop` nunca se simplifican. Devuelve cobertura de guiones,
@@ -433,6 +477,22 @@ alcantarillado, drenaje, gas, eléctrico, telecom). Todo en **unidades imperiale
     no se une nada. No inventa ni mueve puntos; no cruza capas ni activas con
     abandonadas (eso lo garantiza `recognize_page`, que llama `build_routes`
     una vez por OCG). `join_routes=False` deja las polilíneas cortadas.
+    **Continuidad tras los codos** (`join_emitted`, pedido del usuario 2026-09-30, DU06
+    h.5 telecom: la «U» salía partida donde `recognition_text_gaps.connect_text_gaps`
+    cierra el hueco de sus letras «TE»): en `recognize_page`, después de `_emit` y de los
+    huecos de texto, solo en las rutas UNIDAS, dos rutas de la misma capa/estado que
+    comparten un extremo (grado 2, nada más pasa por ahí) se concatenan si siguen de frente
+    con el rumbo LOCAL (≤100°, ≤35° con «tee»; nunca «cut» ni si cierra un lazo). No toca
+    vértices ni codos (índices corridos, a/b invertidos si hace falta); junction/tee/end de
+    la unión → «bend». Las «Y» (3 extremos, bancos de ductos que se abren) NO se tocan.
+    `connect_text_gaps` suma un 3.er caso: dos puntas libres junto a un codo cuyas rectas
+    miran al hueco (±6°) con letras de la capa encima se unen en RECTA, sin puntos nuevos
+    (tramo recto del medio de una «S» bajo «SC», DU10 h.10).
+    Auditoría `scripts/audit_continuidad.py salida.json` + `--diff` (6 utilidades × 4 PDFs,
+    ~5 min): cortes de grado 2, pares sin unir en nodos, huecos entre puntas enfrentadas y
+    codos por hoja. Foto 2026-09-30: cortes 3 → 0 (DU06 h.5, DU10 h.3 telecom; DU08 h.37
+    eléctrico), huecos 1 → 0 (DU10 h.10), 0 codos distintos. Tests: `tests/test_routes.py`
+    (`join_emitted`), `tests/test_recognition_text_gaps.py` (la «S»).
   - `composite.py` + `composite_view.py` + `composite_dialog.py` — **hoja compuesta**
     (v1.2.0), primer paso del asistente para PDF vectorial (reemplaza a «Organizar
     hojas»; sus entradas ya no están en el menú Ver, los métodos siguen para
@@ -576,6 +636,23 @@ alcantarillado, drenaje, gas, eléctrico, telecom). Todo en **unidades imperiale
     y `scale_override`; `work_pdf_path` es el PDF que ven los workers.
     Tests: `tests/test_composite.py` (puro) y `tests/test_composite_dialog.py`
     (Qt offscreen, punta a punta: dos hojas → una ruta).
+  - **Compositor de escaneos** (`Composite.manual`, PDF imagen/escaneo → editor sin capas ni
+    reconocimiento): `scan_crop_view.py` (área con 4 esquinas → `Piece.polygon`),
+    `alignment_tools.py` (regla con asa de giro, transportador de tamaño FIJO en pantalla con
+    imán a 0/90/180/270°, Ctrl ×0.1, Shift 15°, doble clic = eje), `composite_measure.py`
+    (Medir / Enderezar: dos clics con línea elástica, Esc), `composite_scan.py` (PURO:
+    `snap_angle`, `rotate_piece`/`scale_piece` con punto fijo, `calibrated_scale`) y
+    `composite_scan_ui.py` (`ScanToolsMixin` de `CompositeDialog`: barra y acciones). UI
+    (pedido del usuario 2026-10-02): UNA barra (`tool_strip.ToolStrip`, pasa a solo icono si no
+    cabe) — guías a la izquierda, acciones de la pieza a la derecha — y la indicación de la
+    herramienta en `lbl_status` bajo la hoja, nunca filas de texto encima. «Enderezar» elige el
+    eje solo (`ruler_correction(vertical=None)`). **Fundir bordes** (`Composite.seam_blend`,
+    `blends()`): modo OSCURECER en la vista (`PieceItem.paint` + papel blanco en
+    `CompositeView.drawBackground`; bajo el recorte nítido no se pinta la base) y en el PDF
+    (`build_document`: `/PdfcadDarken gs` por pieza, ExtGState `/BM /Darken`): el papel de una
+    pieza no tapa la tinta de otra y la superposición no oscurece el papel. Solo escaneos: en el
+    vectorial las franjas `covers` DEBEN tapar. Tests: `tests/test_scan_composition.py`,
+    `tests/test_scan_tools.py`.
   - `wizard_widgets.py` — UI compartida por los pasos del asistente: `StepBar` («1 Componer
     hoja › 2 Capas de la hoja › 3 Vista previa»; pasos anteriores clicables = volver),
     `show_opacity_popup` (el desplegable de opacidad del editor, movido aquí: lo usan

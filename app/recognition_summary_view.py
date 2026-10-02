@@ -96,7 +96,9 @@ class UtilityBars(QtWidgets.QWidget):
         name_w = max([fm.horizontalAdvance(_tr(_UTILITY_LABEL.get(s.utility, s.utility)))
                       for s in self._stats] + [40]) + 22
         num_w = max([fm.horizontalAdvance(self._numbers(s)) for s in self._stats] + [30]) + 10
-        bar_w = max(40, self.width() - name_w - num_w)
+        name_w = min(name_w, int(self.width() * 0.48))
+        num_w = min(num_w, int(self.width() * 0.32))
+        bar_w = max(20, self.width() - name_w - num_w)
         return name_w, bar_w, num_w
 
     @staticmethod
@@ -120,7 +122,8 @@ class UtilityBars(QtWidgets.QWidget):
             p.drawRoundedRect(QtCore.QRectF(0.5, y + (self.ROW_H - 10) / 2, 10, 10), 2, 2)
             p.setPen(QtGui.QColor(t.text))
             p.drawText(QtCore.QRectF(16, y, name_w - 16, self.ROW_H), QtCore.Qt.AlignVCenter,
-                       _tr(_UTILITY_LABEL.get(s.utility, s.utility)))
+                       self.fontMetrics().elidedText(_tr(_UTILITY_LABEL.get(s.utility, s.utility)),
+                           QtCore.Qt.ElideRight, max(1, name_w-18)))
             by = y + (self.ROW_H - self.BAR_H) / 2
             # carril tenue = escala común
             p.setPen(QtCore.Qt.NoPen); p.setBrush(QtGui.QColor(t.border_soft))
@@ -350,17 +353,24 @@ class SummaryPanel(QtWidgets.QWidget):
     def __init__(self, results, parent=None):
         super().__init__(parent)
         self._results = list(results)
+        self.setSizePolicy(QtWidgets.QSizePolicy.Preferred, QtWidgets.QSizePolicy.Fixed)
+        self._height_timer = QtCore.QTimer(self)
+        self._height_timer.setSingleShot(True)
+        self._height_timer.timeout.connect(self._sync_minimum_height)
         multi = len(self._results) > 1
         t = _theme.tokens()
         root = QtWidgets.QVBoxLayout(self)
         root.setContentsMargins(0, 0, 0, 0); root.setSpacing(8)
 
         tiles = QtWidgets.QGridLayout(); tiles.setSpacing(6)
+        self.tiles_layout = tiles
         self.t_tramos = _Tile(N_("Tramos"), N_("Polilíneas que se importan al editor."))
         self.t_ab = _Tile(N_("Abandonadas"), N_("Tramos marcados (AB): capa «-A» + patrón «/», o patrón «//»."))
         self.t_codos = _Tile(N_("Codos"), N_("Esquinas con radio (curvas reales del plano)."))
         self.t_est = _Tile(N_("Estructuras"), N_("Bóvedas que quedan como nodos de las líneas."))
-        for i, w in enumerate((self.t_tramos, self.t_ab, self.t_codos, self.t_est)):
+        self.tiles = (self.t_tramos, self.t_ab, self.t_codos, self.t_est)
+        self._tile_columns = 4
+        for i, w in enumerate(self.tiles):
             tiles.addWidget(w, 0, i)
         root.addLayout(tiles)
 
@@ -447,6 +457,27 @@ class SummaryPanel(QtWidgets.QWidget):
         root.addWidget(self.details)
         self.btn_details.toggled.connect(self._toggle_details)
         self.refresh()
+
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        columns = 2 if self.width() < 360 else 4
+        if columns != self._tile_columns:
+            self._tile_columns = columns
+            for i, tile in enumerate(self.tiles):
+                self.tiles_layout.removeWidget(tile)
+                self.tiles_layout.addWidget(tile, i//columns, i%columns)
+        self._sync_minimum_height()
+
+    def event(self, event):
+        if event.type() == QtCore.QEvent.LayoutRequest and hasattr(self, "_height_timer"):
+            self._height_timer.start(0)
+        return super().event(event)
+
+    def _sync_minimum_height(self):
+        layout = self.layout()
+        height = layout.totalHeightForWidth(self.width())
+        if height > 0 and height != self.minimumHeight():
+            self.setMinimumHeight(height)
 
     def _row(self, n: rs.Notice, show_utility: bool, reviewable: bool = False) -> _NoticeRow:
         result = next((r for r in self._results if r.utility == n.utility), None)

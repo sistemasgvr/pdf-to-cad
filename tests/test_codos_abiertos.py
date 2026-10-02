@@ -101,3 +101,75 @@ def test_du06_h5_telecom_la_u_queda_en_dos_codos():
         g = MO.fillet_geo(pl.pts_pdf[i - 1], pl.pts_pdf[i], pl.pts_pdf[i + 1], fl["r_px"])
         assert g and not g["clamped"]
         assert math.dist(g["t1"], fl["a"]) < 0.05 and math.dist(g["t2"], fl["b"]) < 0.05
+
+
+# ─── DU10 h.3 eléctrico: dos curvas que quedaban como polilínea (2026-09-30) ───
+DU10 = Path(r"C:/Users/bernu/OneDrive/Documentos/docs prueba/DU10 - APDU Seg B3 100_ Sewer DR_Verification.pdf")
+
+
+@pytest.mark.skipif(not DU10.is_file(), reason="PDF DU10 no disponible")
+def test_du10_h3_electrico_ninguna_curva_queda_como_polilinea():
+    """(1) `C-ELEC-UNGD-E`: codo chico (r = 10.8 pt) a guiones. El linetype deja casi
+    la mitad del arco en huecos y la cobertura solo contaba el guión curvo del medio
+    (35 %); la última cuerda del arco + la recta vertical eran un «trozo» de 3 puntos
+    y el codo se apoyaba en el extremo de la línea. Ahora: tangente a la horizontal
+    y = 633.7 y a la vertical x = 910.08 del PDF.
+    (2) `C-ELEC-3MI-UGND-N`: curva r = 126 pt que la 2.ª pasada encontraba, pero
+    `fit_continuous` descartaba el reajuste del tramo final porque el tee del extremo
+    se corría a la tangencia de su línea (como sin parche)."""
+    import recognition as rec
+    r = rec.recognize_page(DU10, 2, utility="ELECTRICO", zoom=1.0)
+    assert not any("curve" in pl.kinds for pl in r.drawable)
+    fil = [(pl, i, f) for pl in r.drawable for i, f in pl.fillets.items()]
+
+    def at(C, tol=0.3):
+        got = [x for x in fil if math.dist(x[0].pts_pdf[x[1]], C) < tol]
+        assert len(got) == 1, (C, [x[0].pts_pdf[x[1]] for x in fil if math.dist(x[0].pts_pdf[x[1]], C) < 20])
+        return got[0]
+    pl, i, f = at((910.08, 633.78))
+    assert f["r_px"] == pytest.approx(10.82, abs=0.1) and not f["loose"] and f["dev_px"] < 0.1
+    assert abs(f["a"][1] - 633.72) < 0.1 and abs(f["b"][0] - 910.08) < 0.1        # tangencias sobre la tinta
+    pl2, i2, f2 = at((1367.87, 670.0), tol=0.5)
+    assert f2["r_px"] == pytest.approx(126.1, abs=0.5) and not f2["loose"] and f2["dev_px"] < 0.1
+    for p, k, fl in ((pl, i, f), (pl2, i2, f2)):                                 # editor = reconocimiento
+        g = MO.fillet_geo(p.pts_pdf[k - 1], p.pts_pdf[k], p.pts_pdf[k + 1], fl["r_px"])
+        assert g and not g["clamped"]
+        assert {round(v, 2) for v in (math.dist(g["t1"], fl["a"]), math.dist(g["t2"], fl["b"]))} <= {0.0, 0.01}
+
+
+DU08 = Path(r"C:/Users/bernu/OneDrive/Documentos/docs prueba/03-DU08_09_10-APDU-SEG-B-SEWER-PLAN_100P.pdf")
+
+
+@pytest.mark.skipif(not DU08.is_file(), reason="PDF DU08 no disponible")
+def test_du08_recta_escondida_solo_la_que_llega_al_fin_de_la_linea():
+    """La recta «escondida» en un guión de dos cuerdas (arco que muere dentro del
+    guión) solo sirve de recta del codo si llega al FIN de la línea. h.22: en una
+    curva en «S» esa recta está ENTRE los dos arcos y usarla le quitaba las anclas al
+    codo que ya salía bien (r = 127 pt en (527.2, 907.2)). h.40: la curva que muere en
+    el guión que llega al extremo (548 → 572) ahora es codo, tangente a esa recta."""
+    import recognition as rec
+    r = rec.recognize_page(DU08, 21, utility="ELECTRICO", zoom=1.0)
+    near = [f for pl in r.drawable for i, f in pl.fillets.items() if math.dist(pl.pts_pdf[i], (527.2, 907.2)) < 1.0]
+    assert len(near) == 1 and near[0]["r_px"] == pytest.approx(127.0, abs=1.0)
+    r = rec.recognize_page(DU08, 39, utility="ELECTRICO", zoom=1.0)
+    (pl, i, f), = [(pl, i, f) for pl in r.drawable for i, f in pl.fillets.items()
+                   if math.dist(pl.pts_pdf[i], (534.1, 1141.5)) < 1.0]
+    assert f["r_px"] == pytest.approx(124.9, abs=0.5) and not f["loose"]
+    assert abs(f["b"][1] - 1141.44) < 0.05 and pl.pts_pdf[-1] == pytest.approx((572.04, 1141.38), abs=0.05)
+
+
+@pytest.mark.skipif(not DU08.is_file(), reason="PDF DU08 no disponible")
+def test_du08_h35_telecom_una_curva_un_codo_y_llega_al_tee():
+    """La tinta es UN arco (r ≈ 116 pt: (1231, 803), (1203, 847), (1140, 880) a 116 ± 0.3
+    del mismo centro). Antes salían dos codos aproximados (desvío 0.65 pt) y la línea
+    terminaba a 7.7 pt del tee de la horizontal; ahora un codo exacto que muere en ese tee."""
+    import recognition as rec
+    r = rec.recognize_page(DU08, 34, utility="TELECOM", zoom=1.0)
+    pls = [pl for pl in r.drawable if pl.pts_pdf and math.dist(pl.pts_pdf[0], (1237.7, 748.2)) < 1.0]
+    assert len(pls) == 1
+    pl = pls[0]
+    assert len(pl.fillets) == 1
+    (f,) = pl.fillets.values()
+    assert f["r_px"] == pytest.approx(116.2, abs=0.5) and f["dev_px"] < 0.3
+    tee = [q for o in r.drawable if o is not pl for q in o.pts_pdf if math.dist(q, pl.pts_pdf[-1]) < 0.05]
+    assert tee, pl.pts_pdf[-1]                                  # el extremo ES el vértice de la otra línea

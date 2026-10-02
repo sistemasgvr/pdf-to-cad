@@ -57,7 +57,8 @@ el último cambio y <span class="key">&nbsp;Ctrl+Shift+Z&nbsp;</span> lo vuelve 
 <li>Menú <b>Archivo → Abrir PDF…</b> (o arrastra el PDF sobre la ventana).</li>
 <li>Si el PDF viene bien ploteado desde CAD, se abre un <b>asistente</b> que te ayuda a
     preparar la hoja (lo explica el capítulo «Planos PDF de CAD»).</li>
-<li>Si es un escaneo, el plano aparece directamente para que dibujes encima.</li>
+<li>Si es un escaneo, primero compones la hoja (recortar, enderezar y unir sus hojas) y luego
+    dibujas encima (lo explica el capítulo «Planos PDF de CAD», sección escaneos).</li>
 </ol>
 
 <h2>Opción B — Lienzo en blanco (sin PDF)</h2>
@@ -99,7 +100,8 @@ hay cambios sin guardar. Guarda a menudo.
 <section data-title="Planos PDF de CAD (asistente)">
 <p>Cuando el PDF viene directo de CAD, la app puede <b>leer las líneas del plano</b> y ahorrarte
 dibujarlas. Al abrirlo, la app mira si es un plano de CAD o un escaneo; si no está segura, te lo
-pregunta. Un escaneo (o un plano calcado sin texto ni capas) va directo al dibujo a mano.</p>
+pregunta. Un escaneo (o un plano calcado sin texto ni capas) pasa por «Componer hoja» y luego
+al dibujo a mano (ver «PDF imagen o escaneo» más abajo).</p>
 <p>El asistente tiene <b>3 pasos</b>. Arriba de cada pantalla verás
 <b>1 Componer hoja › 2 Capas de la hoja › 3 Vista previa</b>: el paso actual va resaltado y los
 pasos anteriores se pueden pulsar para <b>volver atrás</b> sin perder lo hecho. Abajo, en todo el
@@ -130,6 +132,41 @@ con un indicador que gira y lo que la app está haciendo (por ejemplo «Reconoci
 <li><span class="btn">Continuar</span> pasa al paso 2. Si estás viendo una hoja que no tomaste, la
     app pregunta si agregarla, usar solo esa hoja o seguir sin ella.</li>
 </ol>
+
+<h2>PDF imagen o escaneo: componer a mano</h2>
+<p>Un escaneo también pasa por <b>Componer hoja de trabajo</b> (o menú <b>Herramientas → Componer PDF
+imagen/escaneo…</b>), pero sin capas ni reconocimiento: al final,
+<span class="btn">Importar hoja al editor</span> la deja de fondo para dibujar a mano.</p>
+<ul>
+<li>En <b>Área a tomar</b> arrastras un rectángulo y luego mueves <b>cada esquina por separado</b> para
+    seguir un borde torcido del escaneo.</li>
+<li>En <b>Hoja compuesta</b> todas las herramientas están en <b>una sola barra</b>: a la izquierda las
+    guías (siempre en el mismo sitio) y a la derecha las acciones de la pieza elegida (girar 90°,
+    <b>Ajustes</b>, quitar). Si el panel es angosto, los botones quedan solo con su icono; el nombre
+    sale al pasar el ratón. Abajo, una línea dice qué hacer con la herramienta activa.</li>
+<li><b>Regla ▾</b>: un clic la muestra u oculta; la flecha ▾ abre sus opciones (<b>Bloquear regla</b>,
+    <b>Girar 90°</b>, <b>Traer a la vista</b>, largo, ancho, posición y ángulo). Su borde inferior es la
+    guía para alinear; el punto verde de su extremo la gira y se imanta a 0° y 90°. Bloqueada (candado
+    rojo) no se mueve y las hojas se arrastran por debajo.</li>
+<li><b>Transportador</b>: los grados de la pieza elegida, siempre del mismo tamaño en pantalla.
+    Arrastra el punto verde para girarla sobre su centro: <b>se imanta a 0°, 90°, 180° y 270°</b>
+    (la lectura se pone verde con ✔). <b>Ctrl</b> = ajuste fino (el ratón gira 10 veces menos, en
+    centésimas), <b>Shift</b> = pasos de 15°, <b>doble clic</b> en el punto = volver a 0°.</li>
+<li>Con una pieza elegida: <b>flechas</b> la mueven (Ctrl 0.1 pt, Shift 10 pt) y <b>+ / −</b> la giran
+    0.1° (Ctrl 0.01°, Shift 1°). En <b>Ajustes</b> están el ángulo exacto, la escala y <b>Girar a 0°</b>.</li>
+<li><b>Medir</b>: clic en dos puntos; la línea sigue al ratón con la distancia en pies y el rumbo
+    (Shift = horizontal/vertical). Si los dos puntos caen en la misma pieza aparece
+    <span class="btn">Calibrar escala…</span>: escribe cuánto mide en realidad (por ejemplo entre dos
+    estaciones a 100 ft) y la escala de esa hoja se corrige.</li>
+<li><b>Enderezar</b>: clic en dos puntos de una línea que debería ir horizontal o vertical y la pieza
+    gira hasta dejarla derecha (elige sola el eje más cercano); la línea no se mueve de su sitio.
+    <b>Esc</b> cancela el punto marcado o sale de la herramienta.</li>
+<li><b>Fundir bordes</b> (activo, en verde): donde dos piezas se superponen se ve la tinta de las dos y
+    el papel de una no tapa las líneas de la otra. Superpón un poco las piezas en la unión y no queda
+    ni corte ni franja blanca; también se aplica a la hoja que pasa al editor. El contorno de cada
+    pieza solo se ve al elegirla o al pasar el ratón.</li>
+</ul>
+<p>La regla y el transportador son ayudas: no aparecen en la hoja del editor ni en el DXF.</p>
 
 <h2>2. Capas de la hoja</h2>
 <ul>
@@ -184,6 +221,11 @@ con un indicador que gira y lo que la app está haciendo (por ejemplo «Reconoci
     la línea vecina. Si muere en su letra (o en un hueco) justo antes del borde de la vista, llega
     hasta el <b>corte</b> del plano; en la hoja compuesta, las que cruzan la unión siguen de una
     pieza a la otra. Una línea cuya letra queda tapada por un texto del plano sigue de corrido.</li>
+<li><b>Imán a bóvedas y buzones</b>: una línea que llega a una bóveda o buzón y quedó a menos de
+    3 pt de su borde se lleva hasta el borde dibujado, por su propia recta (sin quiebres); una
+    línea suelta, solo si está a menos de 1.5 pt. Al importar, la caja, el sólido o el buzón queda
+    <b>unido</b> a esa línea en vez de suelto en el centro. Una bóveda sin línea cerca no se toca.
+    El aviso <b>Puntas unidas a su bóveda</b> te lleva a cada una.</li>
 <li>Si el plano trae la <b>misma línea dibujada dos veces</b> en la misma capa (encimada, con los
     guiones corridos), se importa <b>una sola</b> línea.</li>
 <li>El <b>agua</b> y el <b>gas</b> entran sin cajas (van a presión). El <b>alcantarillado</b> y el

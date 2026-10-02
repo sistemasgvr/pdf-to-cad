@@ -57,7 +57,8 @@ the last change and <span class="key">&nbsp;Ctrl+Shift+Z&nbsp;</span> redoes it.
 <li>Menu <b>File → Open PDF…</b> (or drag the PDF onto the window).</li>
 <li>If the PDF was plotted from CAD, an <b>assistant</b> helps you prepare the sheet
     (see the chapter «CAD PDF plans»).</li>
-<li>If it is a scan, the plan appears right away so you can draw on it.</li>
+<li>If it is a scan, you first compose the sheet (crop, straighten and join its sheets) and then
+    draw on it (see the chapter «CAD PDF plans», scans section).</li>
 </ol>
 
 <h2>Option B — Blank canvas (no PDF)</h2>
@@ -98,8 +99,8 @@ unsaved changes. Save often.
 <section data-title="CAD PDF plans (assistant)">
 <p>When the PDF comes straight from CAD, the app can <b>read the plan's lines</b> and save you
 from drawing them. When you open it, the app checks whether it is a CAD plan or a scan; if it is
-not sure, it asks you. A scan (or a traced plan without text or layers) goes straight to manual
-drawing.</p>
+not sure, it asks you. A scan (or a traced plan without text or layers) goes through «Compose
+sheet» and then to manual drawing (see «Image or scanned PDF» below).</p>
 <p>The assistant has <b>3 steps</b>. At the top of each screen you will see
 <b>1 Compose sheet › 2 Sheet layers › 3 Preview</b>: the current step is highlighted and earlier
 steps can be clicked to <b>go back</b> without losing your work. At the bottom, across the whole
@@ -130,6 +131,41 @@ click anything: the card goes away by itself when it finishes.</p>
 <li><span class="btn">Continue</span> goes to step 2. If you are viewing a sheet you have not taken,
     the app asks whether to add it, use only that sheet or go on without it.</li>
 </ol>
+
+<h2>Image or scanned PDF: composing by hand</h2>
+<p>A scan also goes through <b>Compose work sheet</b> (or menu <b>Tools → Compose image/scanned
+PDF…</b>), but without layers or recognition: at the end, <span class="btn">Import sheet into
+editor</span> leaves it as the background to draw by hand.</p>
+<ul>
+<li>In <b>Area to take</b> you drag a rectangle and then move <b>each corner separately</b> to follow a
+    skewed edge of the scan.</li>
+<li>In <b>Composite sheet</b> all tools are in <b>a single bar</b>: guides on the left (always in the
+    same place) and the selected piece's actions on the right (rotate 90°, <b>Adjust</b>, remove).
+    If the panel is narrow, buttons show only their icon; the name appears on hover. Below, a line
+    tells you what to do with the active tool.</li>
+<li><b>Ruler ▾</b>: one click shows or hides it; the ▾ arrow opens its options (<b>Lock ruler</b>,
+    <b>Rotate 90°</b>, <b>Bring into view</b>, length, width, position and angle). Its bottom edge is the
+    alignment guide; the green dot at its end rotates it and snaps to 0° and 90°. When locked (red
+    padlock) it does not move and sheets are dragged underneath.</li>
+<li><b>Protractor</b>: the degrees of the selected piece, always the same size on screen. Drag the
+    green dot to rotate it about its centre: <b>it snaps to 0°, 90°, 180° and 270°</b> (the reading
+    turns green with ✔). <b>Ctrl</b> = fine adjustment (the mouse turns 10 times less, in hundredths),
+    <b>Shift</b> = 15° steps, <b>double-click</b> on the dot = back to 0°.</li>
+<li>With a piece selected: <b>arrows</b> move it (Ctrl 0.1 pt, Shift 10 pt) and <b>+ / −</b> rotate it
+    0.1° (Ctrl 0.01°, Shift 1°). <b>Adjust</b> holds the exact angle, the scale and <b>Rotate to 0°</b>.</li>
+<li><b>Measure</b>: click two points; the line follows the mouse with the distance in feet and the
+    bearing (Shift = horizontal/vertical). If both points fall on the same piece,
+    <span class="btn">Calibrate scale…</span> appears: type the real length (for example between two
+    stations 100 ft apart) and that sheet's scale is corrected.</li>
+<li><b>Straighten</b>: click two points on a line that should be horizontal or vertical and the piece
+    rotates to straighten it (it picks the nearest axis); the line stays in place. <b>Esc</b> cancels
+    the marked point or leaves the tool.</li>
+<li><b>Blend edges</b> (on, in green): where two pieces overlap the ink of both shows and one piece's
+    paper does not hide the other's lines. Overlap the pieces slightly at the join and no cut or
+    white strip is left; it also applies to the sheet sent to the editor. Each piece's outline only
+    shows when selected or under the mouse.</li>
+</ul>
+<p>The ruler and the protractor are aids: they do not appear on the editor sheet or in the DXF.</p>
 
 <h2>2. Sheet layers</h2>
 <ul>
@@ -184,6 +220,11 @@ click anything: the card goes away by itself when it finishes.</p>
     view, it reaches the plan's <b>cut</b>; on a composite sheet, lines that cross the seam still
     run from one piece to the other. A line whose letter is covered by a text label on the plan
     stays continuous.</li>
+<li><b>Magnet to vaults and manholes</b>: a line that reaches a vault or manhole and was left
+    less than 3 pt from its edge is brought to the drawn edge, along its own line (no kinks); a
+    loose line, only if it is less than 1.5 pt away. On import, the box, solid or manhole is
+    <b>joined</b> to that line instead of left loose at the center. A vault with no line nearby is
+    not touched. The <b>Line ends joined to their vault</b> notice takes you to each one.</li>
 <li>If the plan has the <b>same line drawn twice</b> on the same layer (overlapping, with shifted
     dashes), <b>a single</b> line is imported.</li>
 <li><b>Water</b> and <b>gas</b> come in without boxes (they are pressure networks). <b>Sewer</b>

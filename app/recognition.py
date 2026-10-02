@@ -37,6 +37,7 @@ import recognition_dupink as dupink_mod
 import recognition_trace as trace_mod
 import recognition_contacts as contacts_mod
 import recognition_text_gaps as text_gaps_mod
+import recognition_vault_snap as vault_snap_mod
 import routes as routes_mod
 from sheet_crops import page_rect as crop_page_rect, drawing_polygon
 from i18n_core import t as _tr, N_   # avisos de QA en el idioma activo
@@ -206,9 +207,13 @@ class RecognitionResult:
     offpattern_px: List[List[Tuple[float, float]]] = field(default_factory=list)  # leaders, flechas…
     vault_orphans_px: List[Tuple[float, float]] = field(default_factory=list)      # bóvedas sin línea
     # Geometría real de cada bóveda (px del lienzo + medidas en pies): dicts con
-    # center, corners (4 puntos o None si circular), shape, width_ft, length_ft,
-    # angle_deg, layer (OCG), orphan (sin línea que la atraviese).
+    # center, corners (4 puntos o None si circular), circle ((cx, cy, r) del
+    # círculo dibujado o None), shape, width_ft, length_ft, angle_deg, layer
+    # (OCG), orphan (sin línea que la atraviese).
     vaults_geo: List[dict] = field(default_factory=list)
+    # Puntas que el imán llevó al contorno de su bóveda (`recognition_vault_snap`),
+    # posición final en px: el aviso «Puntas unidas a su bóveda» las ubica.
+    vault_snaps_px: List[Tuple[float, float]] = field(default_factory=list)
 
     @property
     def drawable(self) -> List[RecognizedPolyline]:
@@ -1279,6 +1284,12 @@ def recognize_page(
                     text_gaps_mod.connect_text_gaps(
                         [p for p in variants if p.layer_ocg == ocg], glyphs_px,
                         g.pattern.glyph_bridge*zoom, zoom)
+            # Rutas que (ya con sus codos) comparten un extremo y siguen de frente:
+            # una sola ruta (la «U» de DU06 h.5 cortada en el hueco de sus letras).
+            gone = routes_mod.join_emitted([p for p in polylines_joined if p.layer_ocg == ocg], zoom)
+            if gone:
+                polylines_joined[:] = [p for p in polylines_joined if not any(p is x for x in gone)]
+                n_routes -= len(gone)
             uncovered_px += [(px(d.a), px(d.b)) for d in g.uncovered]
             offpattern_px += [[px(p) for p in pl.pts] for pl in g.offpattern]
             n_dashes += g.n_dashes; n_glyphs += g.n_glyphs
@@ -1309,6 +1320,23 @@ def recognize_page(
         vaults_geo = _vaults_geometry(results, px, scale, zoom, vault_orph, vault_seen, ab_by_layer)
         for vault in vaults_geo:
             vault["utility"] = utility
+        # Imán (pedido del usuario 2026-10-01): la punta que llega a una bóveda —o que
+        # quedó a un pelo de ella— se lleva a su contorno DIBUJADO por su propia recta.
+        # Paso aparte (`recognition_vault_snap`): el núcleo no cambia.
+        vault_snaps_px: List[Tuple[float, float]] = []
+        for variant in (polylines_joined, polylines_raw):
+            for snap in vault_snap_mod.snap_ends_to_vaults(variant, vaults_geo, zoom):
+                vg = vaults_geo[snap["vault"]]
+                if vg.get("orphan"):                   # ya le llega una línea: deja de ser «sin línea»
+                    vg["orphan"] = False
+                    vg["importable"] = True
+                    mine = [q for q in orphans_px if vault_snap_mod.vault_contains(vg, q, pad=zoom)]
+                    if mine:                           # su punto (no el de otra anidada)
+                        c = vault_snap_mod.vault_centroid(vg)
+                        orphans_px.remove(min(mine, key=lambda q: math.hypot(q[0] - c[0], q[1] - c[1])))
+                if not any(math.hypot(snap["to"][0] - q[0], snap["to"][1] - q[1]) < 0.5 * zoom
+                           for q in vault_snaps_px):
+                    vault_snaps_px.append(snap["to"])
 
         stubs = []
         for ocg, kind in kind_by_ocg.items():          # stubs informativos (no dibujables)
@@ -1393,6 +1421,10 @@ def recognize_page(
                 n=len(vault_pts)))
         if orphans_px:
             warnings.append(_tr("Bóvedas sin línea cercana: {n}.").format(n=len(orphans_px)))
+        if vault_snaps_px:
+            warnings.append(_tr("Puntas unidas a su bóveda (imán): {n} — quedaban a menos de {d} pt "
+                                "de su contorno y se llevaron hasta él por su propia recta.").format(
+                n=len(vault_snaps_px), d=f"{vault_snap_mod.SNAP_STOP_PT:g}"))
 
         roles_out = roles if use_roles else roles_from_suggestions(list(kind_by_ocg.keys()), utility)
         return RecognitionResult(
@@ -1401,6 +1433,7 @@ def recognize_page(
             hidden_ocgs=sorted(hidden), vault_pts=vault_pts, layer_roles=dict(roles_out),
             coverage=coverage_total, uncovered_px=uncovered_px, offpattern_px=offpattern_px,
             vault_orphans_px=orphans_px, join_routes=join_routes, vaults_geo=vaults_geo,
+            vault_snaps_px=vault_snaps_px,
             n_routes=n_routes, n_segments_total=n_segments_total,
             polylines_joined=polylines_joined, polylines_raw=polylines_raw,
         )
@@ -2211,6 +2244,7 @@ def _fit_fillets(pts, kinds, tol_px: float = 1.0, tan_tol: float = None, debug=N
     if arcs:
         # 2.ª pasada: arcos de la TINTA que la 1.ª no cubrió (sin tocar sus vértices)
         groups = arcs_mod.group_arcs(arcs, pts, f_px)
+        arc_ends = arcs_mod.dash_arc_ends(arcs, f_px)      # arco que nace/muere dentro de un guión
 
         def _run_ink(base):
             """Plan de la 2.ª pasada con los codos `base` de la 1.ª ya puestos: solo los
@@ -2220,7 +2254,8 @@ def _fit_fillets(pts, kinds, tol_px: float = 1.0, tan_tol: float = None, debug=N
                 return [], {}
             return arc_plan.ink_fillet_plan(pts, kinds, free, ink_lines or [],
                                             [(e[7], e[8], e[2], e[3], e[4]) for e in base],
-                                            through_ink or through_dirs, f_px, debug, all_groups=groups)
+                                            through_ink or through_dirs, f_px, debug, all_groups=groups,
+                                            arc_ends=arc_ends)
         # Un codo de la 1.ª pasada que se queda CORTO (la tinta curva de su círculo
         # sigue pasada una tangencia: tomó por recta una cuerda de la propia curva,
         # DU06 h.4 drenaje r≈145 pt) se rehace con la tinta; si la 2.ª pasada no lo
@@ -2328,9 +2363,12 @@ def _vaults_geometry(results, px, scale: float, zoom: float, vault_orph: dict, v
             if min(v.width, v.length) * scale < VAULT_MIN_FT:
                 continue                    # caja de paso / poste: no es bóveda (no se mide ni se dibuja)
             orphan = vault_orph.get(key, 0) == vault_seen.get(key, 0)
+            # buzón redondo: el círculo dibujado (centro + radio en px del lienzo)
+            circle = (px(v.circle[:2]) + (v.circle[2] * zoom,)) if v.circle else None
             out.append({
                 "center": px((cx, cy)),
                 "corners": corners,
+                "circle": circle,
                 "shape": v.shape,
                 "width_ft": round(v.width * scale, 3),
                 "length_ft": round(v.length * scale, 3),

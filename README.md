@@ -82,6 +82,42 @@ reconocimiento; la alineación y unión geométrica de las hojas es un paso post
 
 ### Pruebas y build
 
+Los PDFs imagen, escaneos y planos vectorizados sin capas pasan por el mismo
+compositor antes de abrir el editor. Selecciona una hoja, arrastra un área y
+ajusta sus cuatro esquinas de forma independiente para seguir un borde
+inclinado. Puedes combinar áreas de varias hojas o PDFs, moverlas y ajustar
+su giro fino y escala. El recorte y los giros conservan el PDF fuente.
+
+En **Hoja compuesta** todas las herramientas van en una sola barra: a la
+izquierda las guías y a la derecha las acciones de la pieza elegida (con poco
+ancho quedan solo los iconos); abajo, una línea indica qué hace la herramienta
+activa. **Regla ▾** (clic = mostrar/ocultar; ▾ = bloquear, girar 90°, traer a la
+vista, largo/ancho/posición/ángulo) superpone una regla graduada en pies; su
+borde inferior es la guía de alineación y el punto verde de su extremo la gira
+con imán a 0°/90°. Bloqueada, las hojas se mueven por debajo. Con una pieza
+elegida, las flechas la mueven (Ctrl: 0.1 pt, normal: 1 pt, Shift: 10 pt) y
+**+ / −** la giran 0.1° (Ctrl: 0.01°, Shift: 1°). **Transportador** muestra los
+grados de la pieza elegida (tamaño fijo en pantalla): su punto verde la gira
+sobre su centro con imán a 0°/90°/180°/270°, Ctrl = ajuste fino, Shift = 15°,
+doble clic = 0°.
+
+**Medir**: dos clics dan la distancia en pies y el rumbo; con los dos puntos en
+una pieza, **Calibrar escala…** corrige la escala de su hoja con una distancia
+conocida. **Enderezar**: dos clics sobre una línea y la pieza gira hasta dejarla
+horizontal o vertical (el eje más cercano), sin mover la línea. **Fundir bordes**
+(activo): las piezas se combinan en modo oscurecer, en la vista y en el PDF, así
+el papel de una no tapa la tinta de la otra y una unión superpuesta no deja
+corte ni franja blanca. Verifica la escala de cada origen antes de
+dibujar. **Importar hoja al editor** carga la composición como fondo para
+dibujar las utilidades a mano, sin elegir capas ni ejecutar reconocimiento.
+El proyecto `.digproj` conserva las áreas, giros, escala y PDFs originales.
+Para un PDF mixto o una clasificación ambigua, puedes activar esta ruta desde
+**Herramientas → Componer PDF imagen/escaneo…**.
+Esta corrección gira la imagen; no corrige la perspectiva ni las deformaciones
+del escaneo.
+La regla y el transportador son ayudas de composición: no se incluyen en el PDF
+de fondo importado al editor ni en las exportaciones.
+
 ```bash
 pytest                        # pruebas de humo (rápidas, sin abrir la interfaz)
 build_all.bat                 # (Windows) compila plugin C# + exe Python + instalador; pregunta la versión

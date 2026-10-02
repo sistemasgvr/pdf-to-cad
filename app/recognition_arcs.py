@@ -241,6 +241,26 @@ def arc_pieces(strokes: Sequence[Sequence[Pt]], f: float = 1.0, glyph_boxes=()):
     return pieces, straights
 
 
+def dash_arc_ends(pieces: Sequence[ArcPiece], f: float = 1.0) -> List[Tuple[Tuple[Pt, Pt], Tuple[Pt, Pt]]]:
+    """«Trozos» de solo DOS cuerdas muy distintas → [(cuerda corta, cuerda larga)].
+    Es un arco que nace o muere DENTRO de un guión recto: la cuerda corta es la
+    primera/última cuerda del aplanado y la larga es la RECTA del guión. 3 puntos
+    siempre caben en un círculo, así que el «trozo» no prueba ningún arco (DU10 h.3,
+    codo r = 10.8 pt: 1.2 pt de arco + 7 pt de recta vertical). `arc_pieces` no
+    cambia (también la usan los contactos): la 2.ª pasada de codos usa estos pares
+    solo para ese arco (`ink_fillet_plan`, `arc_ends`)."""
+    out = []
+    for pc in pieces:
+        if len(pc.pts) != 3:
+            continue
+        a, b, c = pc.pts
+        l1, l2 = math.dist(a, b), math.dist(b, c)
+        if max(l1, l2) <= ARC_CHORD_RATIO * min(l1, l2) + 0.1 * f or max(l1, l2) < STRAIGHT_MIN_PT * f:
+            continue
+        out.append(((b, c), (a, b)) if l1 > l2 else ((a, b), (b, c)))
+    return out
+
+
 class _SegGrid:
     def __init__(self, cell: float):
         self.cell = max(1e-6, cell)

@@ -345,6 +345,9 @@ def _draw_vault_outline(scene, vg: dict, color, z=5):
     if vg.get("corners"):
         poly = QtGui.QPolygonF([QtCore.QPointF(x, y) for x, y in vg["corners"]])
         it = scene.addPolygon(poly, pen, QtGui.QBrush(fill))
+    elif vg.get("circle"):                 # buzón redondo: el anillo dibujado en el PDF
+        cx, cy, r = vg["circle"]
+        it = scene.addEllipse(cx - r, cy - r, 2 * r, 2 * r, pen, QtGui.QBrush(fill))
     else:
         cx, cy = vg["center"]
         r = max(4.0, 0.5 * vg.get("width_ft", 0.0) / max(1e-9, 1.0))   # radio aprox. en px lo pone el llamador
@@ -369,6 +372,40 @@ def _draw_vault(scene, x, y, color, z=6, r=None):
     r = 6.0 if r is None else float(r)
     it = scene.addEllipse(x - r, y - r, 2 * r, 2 * r, pen, brush)
     it.setZValue(z)
+
+
+class _PreviewPanelScroll(QtWidgets.QScrollArea):
+    """Keep the sidebar's natural height; overflow scrolls instead of shrinking."""
+
+    def __init__(self, body):
+        super().__init__()
+        self.setFrameShape(QtWidgets.QFrame.NoFrame)
+        self.setWidgetResizable(True)
+        self.setHorizontalScrollBarPolicy(QtCore.Qt.ScrollBarAlwaysOff)
+        self.setWidget(body)
+        self._sync_timer = QtCore.QTimer(self)
+        self._sync_timer.setSingleShot(True)
+        self._sync_timer.timeout.connect(self._sync_height)
+        body.installEventFilter(self)
+
+    def _sync_height(self):
+        layout = self.widget().layout()
+        if layout is None:
+            return
+        width = self.viewport().width()
+        height = layout.totalHeightForWidth(width) if layout.hasHeightForWidth() else layout.sizeHint().height()
+        height = max(height, layout.minimumSize().height())
+        if self.widget().minimumHeight() != height:
+            self.widget().setMinimumHeight(height)
+
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        self._sync_timer.start(0)
+
+    def eventFilter(self, obj, event):
+        if event.type() == QtCore.QEvent.LayoutRequest:
+            self._sync_timer.start(0)
+        return super().eventFilter(obj, event)
 
 
 class RecognitionPreviewDialog(QtWidgets.QDialog):
@@ -416,9 +453,14 @@ class RecognitionPreviewDialog(QtWidgets.QDialog):
         self.split.addWidget(self.view)
         side = QtWidgets.QWidget()
         side.setMinimumWidth(300)
-        panel = QtWidgets.QVBoxLayout(side)
+        side_layout = QtWidgets.QVBoxLayout(side)
+        side_layout.setContentsMargins(0, 0, 0, 0)
+        body = QtWidgets.QWidget()
+        panel = QtWidgets.QVBoxLayout(body)
         panel.setContentsMargins(10, 0, 0, 0)   # aire entre el divisor y los controles
         panel.setSpacing(8)
+        self.panel_scroll = _PreviewPanelScroll(body)
+        side_layout.addWidget(self.panel_scroll, 1)
         self.split.addWidget(side)
         self.split.setStretchFactor(0, 1); self.split.setStretchFactor(1, 0)
         root.addWidget(self.split, 1)
@@ -432,14 +474,17 @@ class RecognitionPreviewDialog(QtWidgets.QDialog):
         sw.setPixmap(swatch_icon(color, 16).pixmap(16, 16))
         head.addWidget(sw)
         title = QtWidgets.QLabel(_tr(utility_title))
+        title.setWordWrap(True)
+        title.setMinimumWidth(0)
+        title.setSizePolicy(QtWidgets.QSizePolicy.Ignored, QtWidgets.QSizePolicy.Preferred)
         tf = title.font(); tf.setBold(True); tf.setPointSize(tf.pointSize() + 3); title.setFont(tf)
         head.addWidget(title, 1)
         sheet = (_tr("Hoja {n} / {total}").format(n=self._result.page_index + 1, total=page_count)
                  if page_count else _tr("Hoja {n}").format(n=self._result.page_index + 1))
         self.lbl_sheet = QtWidgets.QLabel(sheet)
         sf = self.lbl_sheet.font(); sf.setBold(True); self.lbl_sheet.setFont(sf)
-        head.addWidget(self.lbl_sheet, 0)
         panel.addLayout(head)
+        panel.addWidget(self.lbl_sheet, 0, QtCore.Qt.AlignRight)
 
         self._colors = {item.utility: layer_qcolor(item.utility) for item in self._results}
         # Resumen visual: tarjetas + barra por utilidad + leyenda y cobertura +
@@ -506,7 +551,12 @@ class RecognitionPreviewDialog(QtWidgets.QDialog):
                     layer_item = QtWidgets.QListWidgetItem(
                         f"    {short}  ({x.get('path_count', 0)}){tag}")
                     layer_item.setToolTip(x["ocg"]); lst.addItem(layer_item)
-        panel.addWidget(lst, 1)
+        self.used_layers = lst
+        lst.setMinimumHeight(100)
+        lst.setMaximumHeight(200)
+        lst.setSizePolicy(QtWidgets.QSizePolicy.Expanding, QtWidgets.QSizePolicy.Fixed)
+        lst.setFixedHeight(min(200, max(100, lst.sizeHintForRow(0) * min(8, lst.count()) + 8)))
+        panel.addWidget(lst)
 
         n_draw = self._n_draw()
         if n_draw == 0:
@@ -525,7 +575,8 @@ class RecognitionPreviewDialog(QtWidgets.QDialog):
         self.btn_roles.clicked.connect(lambda: self._finish(PREVIEW_ADJUST_LAYERS))
         self.btn_roles.setProperty("secondary", True)
         self.btn_roles.setMinimumHeight(32)
-        panel.addWidget(self.btn_roles)
+        panel.addStretch(1)
+        side_layout.addWidget(self.btn_roles)
         # Opacidad del PDF (el mismo desplegable del editor): bajarla deja ver
         # mejor QUÉ y CUÁNTO se reconoció sobre el plano.
         self.opacity = OpacityButton(lambda: getattr(self, "_pixmap_item", None))

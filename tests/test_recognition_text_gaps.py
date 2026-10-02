@@ -76,10 +76,19 @@ def test_reported_text_gaps_are_connected_in_pdf(sheets, variant):
     lines = [p for p in getattr(sheets[5,'TELECOM'],variant)
              if p.layer_ocg.endswith('N-COMM-DUCT-BANK-PL')]
     lower = (663.0599975585938*3.5,1251.9599609375*3.5)
-    # The bottom arc has a real shared endpoint, not two visually close ends.
     touching = [p for p in lines if lower in p.pts_pdf]
-    assert len(touching) == 2
-    assert all(p.kinds[p.pts_pdf.index(lower)] == 'junction' for p in touching)
+    if variant == 'polylines_raw':
+        # The bottom arc has a real shared endpoint, not two visually close ends.
+        assert len(touching) == 2
+        assert all(p.kinds[p.pts_pdf.index(lower)] == 'junction' for p in touching)
+    else:
+        # Joined routes follow the trajectory (user request 2026-09-30): vault →
+        # vertical → whole «U» → top straight, one route; the gap is a pass-through.
+        assert len(touching) == 1
+        u = touching[0]
+        k = u.pts_pdf.index(lower)
+        assert 0 < k < len(u.pts_pdf)-1 and u.kinds[k] == 'bend'
+        assert {u.kinds[0], u.kinds[-1]} == {'vault', 'end'}
     # The side branch shares a node on the vertical leg; both text gaps use
     # circular bridges and remain representable by the actual editor.
     branch = next(p for p in lines if any(g.get('text_gap') and
@@ -89,3 +98,44 @@ def test_reported_text_gaps_are_connected_in_pdf(sheets, variant):
     assert sum(q in p.pts_pdf for p in lines) == 2
     for p in touching+[branch]:
         _editor((p.pts_pdf,p.kinds,p.fillets))
+
+
+def _s_halves(turn_right_deg=0., layer='line'):
+    """Reverse («S») curve r=15 whose straight middle (20 px) is hidden by text."""
+    a0, sw = math.radians(-90.), math.radians(30.)
+    c1 = (0., 15.)
+    p = (c1[0]+15*math.cos(a0+sw), c1[1]+15*math.sin(a0+sw))
+    left = trace._encode([((-100.,0.),(0.,0.),None), ((0.,0.),p,((0.,0.),p,c1,15.,a0,sw))],'end','end')
+    t = (math.cos(math.radians(30.+turn_right_deg)), math.sin(math.radians(30.+turn_right_deg)))
+    q = (p[0]+20*t[0], p[1]+20*t[1])
+    c2 = (q[0]+15*t[1], q[1]-15*t[0])
+    b0 = math.atan2(q[1]-c2[1], q[0]-c2[0])
+    e2 = (c2[0]+15*math.cos(b0-sw), c2[1]+15*math.sin(b0-sw))
+    right = trace._encode([(q,e2,(q,e2,c2,15.,b0,-sw)), (e2,(e2[0]+100.,e2[1]),None)],'end','end')
+    def mk(data, lay):
+        return rec.RecognizedPolyline(lay,'TELECOM',data[0],'tele_ungd',data[1],fillets=data[2])
+    return mk(left,'line'), mk(right,layer), ((p[0]+q[0])/2,(p[1]+q[1])/2)
+
+
+@pytest.mark.parametrize('blocked',[None,'no_text','tangent','layer'])
+def test_s_curve_straight_middle_under_text_is_bridged(blocked):
+    """DU10 h.10 «—SC—» (2026-09-30): the two arcs of an «S» meet through a straight
+    stretch covered by the line's own letters. The two existing ends are joined
+    straight (no point added) and the joined routes become ONE (routes.join_emitted);
+    both arcs stay exactly as recognized."""
+    import routes
+    a,b,mid = _s_halves(turn_right_deg=10. if blocked == 'tangent' else 0.,
+                        layer='other' if blocked == 'layer' else 'line')
+    glyphs = [] if blocked == 'no_text' else [(mid[0],mid[1],7.)]
+    original = copy.deepcopy([a,b])
+    gaps.connect_text_gaps([a,b],glyphs,40.)
+    if blocked:
+        assert [a,b] == original
+        return
+    assert a.pts_pdf[-1] == b.pts_pdf[0] == original[1].pts_pdf[0]
+    assert a.pts_pdf[:-1] == original[0].pts_pdf and b.pts_pdf == original[1].pts_pdf
+    assert routes.join_emitted([a,b]) == [b]
+    assert a.pts_pdf == original[0].pts_pdf + original[1].pts_pdf
+    assert [g['center'] for g in a.fillets.values()] == \
+        [g['center'] for p in original for g in p.fillets.values()]
+    _editor((a.pts_pdf,a.kinds,a.fillets))

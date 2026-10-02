@@ -367,6 +367,14 @@ def build_stylesheet(t: Theme) -> str:
         QToolButton[toggleTool="true"]:checked {{ background: {t.success}; color: {t.text_on_accent};
                                                   border: 2px solid {t.success_hover}; font-weight: bold; }}
         QToolButton[toggleTool="true"]:checked:hover {{ background: {t.success_hover}; }}
+        /* …con menú de opciones a la derecha (botón dividido «Regla ▾»): la flecha
+           lleva el violeta de los botones de opciones */
+        QToolButton[toggleTool="true"][popupMode="1"] {{ padding-right: 32px; }}
+        QToolButton[toggleTool="true"]::menu-button {{ background: {t.options};
+            border: 1px solid {t.options_border}; width: 26px;
+            border-top-right-radius: 4px; border-bottom-right-radius: 4px; }}
+        QToolButton[toggleTool="true"]::menu-button:hover {{ background: {t.options_hover}; }}
+        QToolButton[toggleTool="true"]::menu-arrow {{ image: url({chevron}); width: 12px; height: 12px; }}
 
         /* Acciones secundarias (junto a una primaria): fondo neutro, borde */
         QPushButton[secondary="true"] {{ background: {t.surface_alt}; color: {t.text};
