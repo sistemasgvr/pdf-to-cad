@@ -196,6 +196,7 @@ class Main(QtWidgets.QMainWindow):
         mview.addAction(self.chk_show_conflicts)
         mtools = _menu(mb, "&Herramientas")
         _act(mtools, "Componer hoja de trabajo…", self.compose_sheet)
+        _act(mtools, "Componer PDF imagen/escaneo…", self.compose_scan_sheet)
         mtools.addSeparator()
         _act(mtools, "Insertar buzón en línea…", self.insert_manhole)
         _act(mtools, "Instalar familia personalizada…", self.open_install_family_dialog)
@@ -1657,8 +1658,9 @@ class Main(QtWidgets.QMainWindow):
         _load = self._load_sheet_busy
 
         def _go_manual(msg):
-            _load(0)
             self._info(msg)
+            if not self._wizard_sheet_flow(0, manual=True):
+                _load(0)
 
         def _go_plotted():
             if not self._wizard_sheet_flow(0):
@@ -1701,7 +1703,7 @@ class Main(QtWidgets.QMainWindow):
         finally:
             self._unbusy()
 
-    def _wizard_sheet_flow(self, start_idx, start_step=0):
+    def _wizard_sheet_flow(self, start_idx, start_step=0, manual=False):
         """Asistente de PDF vectorial: 1 Componer hoja → 2 Capas de la hoja →
         3 reconocer (vista previa). Lo usan la apertura del PDF, Ver → Componer
         hoja y la barra de pasos del preview. `start_step`=1 empieza en «Capas»
@@ -1714,7 +1716,8 @@ class Main(QtWidgets.QMainWindow):
         while True:
             if step == 0:
                 res = composite_dialog.compose_sheet(
-                    self, self.src_pdfs, self.composite, self.hidden_ocgs_by_source, current_page=page_idx)
+                    self, self.src_pdfs, self.composite, self.hidden_ocgs_by_source, current_page=page_idx,
+                    manual=manual)
                 if res is None:
                     return False
                 comp, sources, hidden_by_source = res
@@ -1729,6 +1732,10 @@ class Main(QtWidgets.QMainWindow):
                         _tr("No se pudo armar la hoja compuesta:\n\n{e}").format(e=exc))
                     return False
                 page_idx = self.page_idx
+                if comp.manual:
+                    self._dirty = True
+                    self._info(_tr("Hoja compuesta importada al editor. Dibuja las utilidades a mano."))
+                    return True
             # Paso «Capas de la hoja»: el usuario decide qué capas OCG ver ANTES
             # de dibujar. Deja la visibilidad aplicada en self.doc, así _load_page
             # ya renderiza sin las ocultas.
@@ -1783,7 +1790,7 @@ class Main(QtWidgets.QMainWindow):
             hidden = list(self.hidden_ocgs_by_source.get(str(src), []))
             _pdf_layers.set_hidden(self.doc, hidden)
             self.hidden_ocgs = hidden
-            self._scale_override = None
+            self._scale_override = comp.target_scale() if comp and comp.manual else None
             self.page_idx = piece.page if piece else 0
         else:
             with _busy_mod.busy(self, _tr("Armando la hoja compuesta…"),
@@ -1850,7 +1857,19 @@ class Main(QtWidgets.QMainWindow):
             return
         if not self._confirm_discard():
             return
-        if not self._wizard_sheet_flow(self.page_idx):
+        if not self._wizard_sheet_flow(self.page_idx,
+                manual=bool(self.composite and self.composite.manual)):
+            self._info(_tr("Composición cancelada — se mantiene la hoja actual."))
+
+    def compose_scan_sheet(self):
+        """Explicit manual composition for mixed PDFs or ambiguous detection."""
+        if not self.doc or not self.src_pdfs:
+            QtWidgets.QMessageBox.information(self, _tr("Componer hoja de trabajo"),
+                _tr("Abre un PDF para componer su hoja de trabajo."))
+            return
+        if not self._confirm_discard():
+            return
+        if not self._wizard_sheet_flow(self.page_idx, manual=True):
             self._info(_tr("Composición cancelada — se mantiene la hoja actual."))
 
     def organize_sheets(self):

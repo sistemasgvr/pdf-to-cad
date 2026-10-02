@@ -85,12 +85,14 @@ class Piece:
     # El clip pasa por el CENTRO de la línea (los vectores de debajo se conservan
     # para el reconocimiento) y la franja esconde su tinta en la hoja compuesta.
     covers: Dict[str, float] = field(default_factory=dict)
+    polygon: List[Pt] = field(default_factory=list)  # normalized visible-page corners
 
     def to_dict(self) -> dict:
         return dict(source=int(self.source), page=int(self.page),
                     clip=[float(v) for v in self.clip], x=float(self.x), y=float(self.y),
                     rotation=float(self.rotation), src_scale=float(self.src_scale),
-                    label=self.label, covers={k: float(v) for k, v in self.covers.items()})
+                    label=self.label, covers={k: float(v) for k, v in self.covers.items()},
+                    polygon=[list(p) for p in self.polygon])
 
     @classmethod
     def from_dict(cls, d: dict) -> "Piece":
@@ -99,7 +101,7 @@ class Piece:
                    clip=clip, x=float(d.get("x", 0.0)), y=float(d.get("y", 0.0)),
                    rotation=float(d.get("rotation", 0.0)) % 360.0,
                    src_scale=float(d.get("src_scale", 20 / 72.0)) or 20 / 72.0,
-                   label=str(d.get("label", "")),
+                   label=str(d.get("label", "")), polygon=normalize_polygon(d.get("polygon")),
                    covers={str(k): float(v) for k, v in (d.get("covers") or {}).items()
                            if k in SIDES and float(v) > 0})
 
@@ -114,6 +116,12 @@ class Composite:
     # componer se abre ahí y no en el primer PDF (con dos PDFs cargados, abrir
     # siempre el primero confundía).
     last_view: Optional[List[int]] = None
+    manual: bool = False
+    alignment_ruler: dict = field(default_factory=dict)
+    # Escaneos: «Fundir bordes» — las piezas se combinan en modo OSCURECER (en la
+    # vista y en el PDF), así el papel de una pieza nunca tapa la tinta de la otra
+    # y una costura superpuesta no deja corte ni franja blanca.
+    seam_blend: bool = True
 
     def target_scale(self) -> float:
         if self.scale_ft_per_pt:
@@ -127,15 +135,18 @@ class Composite:
         if len(self.pieces) != 1:
             return False
         p = self.pieces[0]
-        return (abs(p.rotation % 360.0) < 1e-9 and normalize_clip(p.clip) == [0.0, 0.0, 1.0, 1.0]
+        return (not p.polygon and abs(p.rotation % 360.0) < 1e-9 and normalize_clip(p.clip) == [0.0, 0.0, 1.0, 1.0]
                 and abs(p.src_scale - self.target_scale()) < 1e-12)
 
     def to_dict(self) -> dict:
         d = dict(pieces=[p.to_dict() for p in self.pieces],
                  scale_ft_per_pt=self.scale_ft_per_pt,
-                 bridges=bool(self.bridges), bridge_max_pt=float(self.bridge_max_pt))
+                 bridges=bool(self.bridges), bridge_max_pt=float(self.bridge_max_pt), manual=self.manual,
+                 seam_blend=bool(self.seam_blend))
         if self.last_view is not None:
             d["last_view"] = [int(v) for v in self.last_view]
+        if self.alignment_ruler:
+            d["alignment_ruler"] = dict(self.alignment_ruler)
         return d
 
     @classmethod
@@ -154,7 +165,43 @@ class Composite:
         except (TypeError, ValueError, IndexError):
             last_view = None
         return cls(pieces=pieces, scale_ft_per_pt=float(s) if s else None,
-                   bridges=bool(d.get("bridges", True)), bridge_max_pt=gap, last_view=last_view)
+                   bridges=bool(d.get("bridges", True)), bridge_max_pt=gap, last_view=last_view,
+                   manual=bool(d.get("manual", False)),
+                   alignment_ruler=dict(d.get("alignment_ruler") or {}),
+                   seam_blend=bool(d.get("seam_blend", True)))
+
+    def blends(self) -> bool:
+        """¿Las piezas se funden (modo oscurecer)? Solo en la composición manual."""
+        return bool(self.manual and self.seam_blend)
+
+
+def normalize_polygon(values):
+    """Accept only finite, convex quadrilaterals in page coordinates."""
+    try:
+        points = [(float(x), float(y)) for x, y in values]
+    except (TypeError, ValueError):
+        return []
+    if len(points) != 4 or any(not math.isfinite(v) or not 0 <= v <= 1 for p in points for v in p):
+        return []
+    crosses = []
+    for i in range(4):
+        a, b, c = points[i], points[(i + 1) % 4], points[(i + 2) % 4]
+        crosses.append((b[0]-a[0])*(c[1]-b[1]) - (b[1]-a[1])*(c[0]-b[0]))
+    return points if all(v > 1e-8 for v in crosses) or all(v < -1e-8 for v in crosses) else []
+
+
+def ruler_correction(a, b, vertical=False):
+    """Giro antihorario que deja la recta a→b horizontal (o vertical). Con
+    `vertical=None` elige el eje más cercano (una línea a menos de 45° de la
+    horizontal se endereza horizontal)."""
+    if math.hypot(b[0]-a[0], b[1]-a[1]) < 2:
+        return None
+    angle = math.degrees(math.atan2(b[1]-a[1], b[0]-a[0]))
+    if vertical is None:
+        h = (angle + 90) % 180 - 90
+        v = (angle - 90 + 90) % 180 - 90
+        return h if abs(h) <= abs(v) else v
+    return (angle - (90 if vertical else 0) + 90) % 180 - 90
 
 
 def normalize_clip(values) -> List[float]:
@@ -1089,6 +1136,8 @@ def build_document(comp: Composite, docs: Sequence[fitz.Document],
     target = comp.target_scale()
     dst = fitz.open()
     page = dst.new_page(width=width, height=height)
+    if comp.blends():                  # antes de las piezas: show_pdf_page relee el contenido
+        _add_blend_state(dst, page)
     seen = _ocg_xrefs(dst)
     ocg_source: Dict[int, int] = {}
     for piece in comp.pieces:
@@ -1105,6 +1154,17 @@ def build_document(comp: Composite, docs: Sequence[fitz.Document],
         rect = fitz.Rect(px0 + dx, py0 + dy, px1 + dx, py1 + dy)
         page.show_pdf_page(rect, src, piece.page, clip=clip,
                            rotate=piece.rotation - spage.rotation)
+        # Envoltorio de la pieza: modo oscurecer («Fundir bordes») y/o el recorte
+        # por su cuadrilátero (escaneos con el área ajustada esquina a esquina).
+        prefix = f"/{_BLEND_GS} gs " if comp.blends() else ""
+        if piece.polygon:
+            fn = piece_map(piece, page_sizes(piece), target)
+            points = [fn(x * spage.rect.width, y * spage.rect.height) for x, y in piece.polygon]
+            prefix += " ".join(f"{x + dx:.8f} {height - y - dy:.8f} {'m' if i == 0 else 'l'}"
+                               for i, (x, y) in enumerate(points)) + " h W n"
+        if prefix:
+            xref = page.get_contents()[-1]
+            dst.update_stream(xref, ("q " + prefix + "\n").encode() + dst.xref_stream(xref) + b"\nQ")
         # Franjas blancas que tapan la tinta de la línea de borde (sin capa: el
         # reconocimiento no las ve; los vectores de debajo siguen en el XObject).
         for poly in cover_polygons(piece, page_sizes(piece), target):
@@ -1132,6 +1192,25 @@ def build_document(comp: Composite, docs: Sequence[fitz.Document],
             for p, q in bridge_segments_poly(pts, br.dash):
                 page.draw_line(p, q, **kw)
     return dst
+
+
+_BLEND_GS = "PdfcadDarken"
+
+
+def _add_blend_state(doc: fitz.Document, page: fitz.Page):
+    """Registra en la hoja el ExtGState «oscurecer» que usan las piezas fundidas:
+    en la superposición gana la tinta más oscura de las dos (el papel blanco o
+    gris claro de una pieza no tapa las líneas de la otra ni oscurece el fondo)."""
+    xref, path = page.xref, ""
+    for name in ("Resources", "ExtGState"):    # seguir las referencias indirectas
+        key = f"{path}/{name}" if path else name
+        kind, val = doc.xref_get_key(xref, key)
+        if kind == "xref":
+            xref, path = int(val.split()[0]), ""
+        else:
+            path = key
+    doc.xref_set_key(xref, f"{path}/{_BLEND_GS}" if path else _BLEND_GS,
+                     "<</Type/ExtGState/BM/Darken>>")
 
 
 def bridge_segments(a: Pt, b: Pt, dash: float, gap_ratio: float = BRIDGE_GAP_RATIO) -> List[Tuple[Pt, Pt]]:

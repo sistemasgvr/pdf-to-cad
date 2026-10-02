@@ -636,6 +636,23 @@ alcantarillado, drenaje, gas, eléctrico, telecom). Todo en **unidades imperiale
     y `scale_override`; `work_pdf_path` es el PDF que ven los workers.
     Tests: `tests/test_composite.py` (puro) y `tests/test_composite_dialog.py`
     (Qt offscreen, punta a punta: dos hojas → una ruta).
+  - **Compositor de escaneos** (`Composite.manual`, PDF imagen/escaneo → editor sin capas ni
+    reconocimiento): `scan_crop_view.py` (área con 4 esquinas → `Piece.polygon`),
+    `alignment_tools.py` (regla con asa de giro, transportador de tamaño FIJO en pantalla con
+    imán a 0/90/180/270°, Ctrl ×0.1, Shift 15°, doble clic = eje), `composite_measure.py`
+    (Medir / Enderezar: dos clics con línea elástica, Esc), `composite_scan.py` (PURO:
+    `snap_angle`, `rotate_piece`/`scale_piece` con punto fijo, `calibrated_scale`) y
+    `composite_scan_ui.py` (`ScanToolsMixin` de `CompositeDialog`: barra y acciones). UI
+    (pedido del usuario 2026-10-02): UNA barra (`tool_strip.ToolStrip`, pasa a solo icono si no
+    cabe) — guías a la izquierda, acciones de la pieza a la derecha — y la indicación de la
+    herramienta en `lbl_status` bajo la hoja, nunca filas de texto encima. «Enderezar» elige el
+    eje solo (`ruler_correction(vertical=None)`). **Fundir bordes** (`Composite.seam_blend`,
+    `blends()`): modo OSCURECER en la vista (`PieceItem.paint` + papel blanco en
+    `CompositeView.drawBackground`; bajo el recorte nítido no se pinta la base) y en el PDF
+    (`build_document`: `/PdfcadDarken gs` por pieza, ExtGState `/BM /Darken`): el papel de una
+    pieza no tapa la tinta de otra y la superposición no oscurece el papel. Solo escaneos: en el
+    vectorial las franjas `covers` DEBEN tapar. Tests: `tests/test_scan_composition.py`,
+    `tests/test_scan_tools.py`.
   - `wizard_widgets.py` — UI compartida por los pasos del asistente: `StepBar` («1 Componer
     hoja › 2 Capas de la hoja › 3 Vista previa»; pasos anteriores clicables = volver),
     `show_opacity_popup` (el desplegable de opacidad del editor, movido aquí: lo usan
