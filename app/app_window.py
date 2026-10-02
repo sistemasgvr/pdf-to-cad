@@ -38,6 +38,7 @@ import composite as composite_mod
 import composite_dialog
 import project_io
 import model_ops
+import normativas
 from model import (VERSION, TIPOS, ACI_RGB, LEADER_TEXT_FT, LEADER_ORIENT,
                    Z_PDF, Z_ERASE, Z_MARK, Z_HANDLE, GRAVITY_LAYERS,
                    TAB_PIPE, TAB_LEADER, TAB_TEXT, TAB_REGION, TAB_BZ, TAB_CURVE, TAB_CL,
@@ -100,6 +101,11 @@ class Main(QtWidgets.QMainWindow):
         self.ref_centerlines = []; self._cl_pts = []
         self.duct_banks = []   # colección del proyecto — ver duct_bank.py
         self.cross_connections = []   # conexiones aprobadas en cruces físicos
+        # Normativas de diseño: catálogo GLOBAL (valores) + qué reglas activa este
+        # proyecto ({id: bool}, va al .digproj). Ver normativas.py.
+        self.normas = normativas.cargar_catalogo(); self.normas_estado = {}
+        self.normas_anexos = normativas.cargar_anexos()     # referencias/notas del Excel
+        self._normas_lista = []; self._normas_dlg = None
         self.mode = "idle"; self._pending = None
         self.snap = False; self.snap_r = 14
         self.sel_pipe = -1; self.sel_leader = -1; self.sel_region = -1; self.sel_text = -1; self.sel_bz = -1
@@ -163,6 +169,8 @@ class Main(QtWidgets.QMainWindow):
         medit = _menu(mb, "&Edición")
         _act(medit, "Deshacer", self.undo, "Ctrl+Z")
         _act(medit, "Rehacer", self.redo, "Ctrl+Shift+Z")
+        medit.addSeparator()
+        _act(medit, "Unir utilidades seleccionadas", self.unir_utilidades, "Ctrl+J")
         mview = _menu(mb, "&Ver")
         # «Organizar hojas…» / «Capas de hojas organizadas…» (flujo antiguo) ya no
         # van en el menú: la hoja compuesta los reemplaza. Los métodos siguen
@@ -203,6 +211,23 @@ class Main(QtWidgets.QMainWindow):
         mtools.addSeparator()
         _act(mtools, "Georreferenciar…", self.open_georef)
         _act(mtools, "Quitar georreferencia", self.clear_georef)
+        # Normativas de diseño (normativas.py + ventana HTML normativas_dialog.py).
+        mnorm = _menu(mb, "&Normativas")
+        _act(mnorm, "Normativas de diseño…", self.open_normativas, "Ctrl+Shift+N")
+        mnorm.addSeparator()
+        # Etiquetas «Codo 45°», «Tee 90°»… de los accesorios de presión en el lienzo.
+        self.act_show_acc = _bind(QtGui.QAction(self), "setText", "Mostrar accesorios (tipo y ángulo)")
+        self.act_show_acc.setCheckable(True)
+        try:
+            _acc_pref = QtCore.QSettings("pdf-to-cad", "app").value("show_accesorios", True, type=bool)
+        except Exception:
+            _acc_pref = True
+        self.act_show_acc.setChecked(bool(_acc_pref))
+        _bind(self.act_show_acc, "setToolTip", "Muestra junto a cada codo, Tee, Wye o cruz de agua y gas el accesorio "
+              "que se pondrá en Civil 3D y su ángulo; en rojo si incumple una normativa.")
+        self.act_show_acc.toggled.connect(self._on_toggle_show_acc)
+        mnorm.addAction(self.act_show_acc)
+        mview.addAction(self.act_show_acc)
         mhelp = _menu(mb, "A&yuda")
         _act(mhelp, "Acerca de…", self.show_about)
         _act(mhelp, "Manual de usuario", self.show_manual)
@@ -680,7 +705,10 @@ class Main(QtWidgets.QMainWindow):
         self.lbl_prop_family = _bind(QtWidgets.QLabel(), "setText", "Familia (catálogo):")
         self.lbl_prop_size = _bind(QtWidgets.QLabel(), "setText", "Tamaño (catálogo):")
         fpr.addRow(self.lbl_prop_family, self.prop_family)
-        fpr.addRow(self.lbl_prop_size, self.prop_size)
+        # Botón verde «+»: agrega un tamaño nuevo a la familia (catalogo_tamanos.py).
+        self.btn_add_size = self._boton_mas(lambda: self._agregar_tamano("pipe"))
+        self._prop_size_box = self._con_boton(self.prop_size, self.btn_add_size)
+        fpr.addRow(self.lbl_prop_size, self._prop_size_box)
 
         rv.addWidget(self.gprop)
         # ── Cotas por tramo (edición de rasante por segmento) ──────────────────
@@ -748,7 +776,9 @@ class Main(QtWidgets.QMainWindow):
         self.bz_origin_lbl = QtWidgets.QLabel("—")
         fbz.addRow(_bind(QtWidgets.QLabel(), "setText", "Código:"), self.bz_cod)
         fbz.addRow(_bind(QtWidgets.QLabel(), "setText", "Familia:"), self.bz_family)
-        fbz.addRow(_bind(QtWidgets.QLabel(), "setText", "Tamaño:"), self.bz_size)
+        self.btn_add_bz_size = self._boton_mas(lambda: self._agregar_tamano("structure"))
+        self._bz_size_box = self._con_boton(self.bz_size, self.btn_add_bz_size)
+        fbz.addRow(_bind(QtWidgets.QLabel(), "setText", "Tamaño:"), self._bz_size_box)
         fbz.addRow(_bind(QtWidgets.QLabel(), "setText", "Altura (Pies):"), self.bz_height)
         # SÓLIDO (caja cuadrada reconocida del PDF): sin familia/tamaño de catálogo;
         # largo × ancho (precargados del plano, editables: cambian el dibujo) y
@@ -771,6 +801,26 @@ class Main(QtWidgets.QMainWindow):
         fbz.addRow(self._lbl_sld_len, self.sld_len)
         fbz.addRow(self._lbl_sld_wid, self.sld_wid)
         fbz.addRow(self._lbl_sld_h, self.sld_h)
+        # Cota SUPERIOR del sólido: manda la tapa (base = cota − altura). Por
+        # defecto la de la utilidad a la que está unida; editable.
+        self.sld_top = QtWidgets.QDoubleSpinBox()
+        self.sld_top.setRange(-100000, 100000); self.sld_top.setDecimals(3)
+        self.sld_top.setButtonSymbols(QtWidgets.QAbstractSpinBox.NoButtons)
+        self.sld_top.setKeyboardTracking(False)
+        self.sld_top.valueChanged.connect(lambda _v: self._solid_top_changed())
+        _bind(self.sld_top, "setToolTip", "Cota de la parte SUPERIOR del sólido, en pies (la base queda en cota − altura).\n"
+            "Por defecto es la cota de la utilidad a la que está unido.")
+        self.btn_sld_top_auto = QtWidgets.QToolButton()
+        self.btn_sld_top_auto.setIcon(_icon("mdi:restore"))
+        _bind(self.btn_sld_top_auto, "setToolTip", "Volver a la cota de la utilidad unida")
+        self.btn_sld_top_auto.clicked.connect(self._solid_top_reset)
+        self._sld_top_w = QtWidgets.QWidget(); _h = QtWidgets.QHBoxLayout(self._sld_top_w)
+        _h.setContentsMargins(0, 0, 0, 0); _h.setSpacing(4)
+        _h.addWidget(self.sld_top, 1); _h.addWidget(self.btn_sld_top_auto)
+        self.lbl_sld_top_src = QtWidgets.QLabel("")
+        self._lbl_sld_top = _bind(QtWidgets.QLabel(), "setText", "Cota superior (Pies):")
+        fbz.addRow(self._lbl_sld_top, self._sld_top_w)
+        fbz.addRow("", self.lbl_sld_top_src)
         fbz.addRow(_bind(QtWidgets.QLabel(), "setText", "Red:"), self.bz_net_lbl)
         fbz.addRow(_bind(QtWidgets.QLabel(), "setText", "Origen:"), self.bz_origin_lbl)
         self.bz_is_curve = _bind(QtWidgets.QPushButton(), "setText", "Cambiar a elemento curvo")
@@ -953,6 +1003,15 @@ class Main(QtWidgets.QMainWindow):
         self.lbl_snap = QtWidgets.QLabel("")
         self.lbl_snap.setStyleSheet("color:#1ec83c; font-weight:bold;")
         self.status.addWidget(self.lbl_snap)
+        # Incumplimientos de normativas: botón rojo que abre la ventana (oculto si todo cumple).
+        self.btn_normas = QtWidgets.QPushButton("")
+        self.btn_normas.setFlat(True); self.btn_normas.setCursor(QtCore.Qt.PointingHandCursor)
+        self.btn_normas.setStyleSheet("QPushButton{color:#ff5a5a; font-weight:bold; border:0; padding:0 6px;}"
+                                      "QPushButton:hover{text-decoration:underline;}")
+        _bind(self.btn_normas, "setToolTip", "Accesorios que no cumplen las normativas activas. Clic para verlos.")
+        self.btn_normas.clicked.connect(self.open_normativas)
+        self.btn_normas.hide()
+        self.status.addWidget(self.btn_normas)
         self.lbl_coords = QtWidgets.QLabel("X —  Y —  Z —")
         # Contadores en vivo: N utilidades · N leaders · N textos · dirty
         self.lbl_counts = QtWidgets.QLabel("—")
@@ -1226,6 +1285,9 @@ class Main(QtWidgets.QMainWindow):
                        pregunta si quieres unirla o crear una nueva)
           □ cuadrado = vértice intermedio
           △ triángulo= punto cualquiera del tramo (proyección perpendicular)
+          ◇ rombo    = contorno (borde o esquina) de un SÓLIDO
+
+        También al arrastrar el extremo de una utilidad en modo Mover.
 
         Todo el cuerpo va en try/except: si algo falla aquí (un item de escena
         ya destruido, por ejemplo) NO puede tumbar el movimiento del mouse ni
@@ -1239,11 +1301,12 @@ class Main(QtWidgets.QMainWindow):
             try: sc.removeItem(prev)
             except (RuntimeError, ValueError): pass
             self._pipe_snap_hint = None
-        if self.mode != "pipe":
+        arrastre = self._endpoint_drag() if self.mode == "move" else None
+        if self.mode != "pipe" and arrastre is None:
             self._set_snap_status(None)
             return
         try:
-            hit = self._pipe_soft_snap(x, y)
+            hit = self._drag_snap(x, y)[2] if arrastre else self._pipe_soft_snap(x, y)
         except Exception:
             self._set_snap_status(None)
             return
@@ -1262,6 +1325,10 @@ class Main(QtWidgets.QMainWindow):
                 it = sc.addEllipse(-R, -R, R * 2, R * 2, pen, QtGui.QBrush(relleno))
             elif kind == "vertex":
                 it = sc.addRect(-R, -R, R * 2, R * 2, pen, QtGui.QBrush(relleno))
+            elif kind == "solid":                   # rombo: contorno de un sólido
+                rombo = QtGui.QPolygonF([QtCore.QPointF(0, -R), QtCore.QPointF(R, 0),
+                                         QtCore.QPointF(0, R), QtCore.QPointF(-R, 0)])
+                it = sc.addPolygon(rombo, pen, QtGui.QBrush(relleno))
             else:                                   # segmento
                 tri = QtGui.QPolygonF([QtCore.QPointF(0, -R),
                                        QtCore.QPointF(R, R * 0.7),
@@ -1284,11 +1351,17 @@ class Main(QtWidgets.QMainWindow):
         if not hit:
             lbl.setText("")
             return
+        if hit.get("kind") == "solid":
+            k = hit.get("port")
+            st = self.structures[k] if isinstance(k, int) and 0 <= k < len(self.structures) else {}
+            lbl.setText(_tr("⊙ Snap al sólido «{c}»").format(c=st.get("cod", "")))
+            return
+        ex = self._endpoint_drag() if self.mode == "move" else None
+        capa = self.pipes[ex[0]].get("layer", "") if ex else self.active_layer()
         nombre = {"endpoint": _tr("extremo"),
                   "vertex": _tr("vértice"),
                   "segment": _tr("tramo")}.get(hit.get("kind"), "")
-        lbl.setText(_tr("⊙ Snap a {q} de «{c}»").format(
-            q=nombre, c=self.active_layer()))
+        lbl.setText(_tr("⊙ Snap a {q} de «{c}»").format(q=nombre, c=capa))
 
     def _update_hover_tooltip(self, x, y):
         thr = self.snap_r * 1.5
@@ -1486,7 +1559,9 @@ class Main(QtWidgets.QMainWindow):
         return copy.deepcopy(dict(cur_pts=self.cur_pts, pipes=self.pipes, leaders=self.leaders,
                                   text_marks=self.text_marks, erase_regions=self.erase_regions,
                                   structures=self.structures,
-                                  duct_banks=getattr(self, "duct_banks", []) or []))
+                                  duct_banks=getattr(self, "duct_banks", []) or [],
+                                  # apuntan a utilidades por índice: borrar/unir los corre
+                                  cross_connections=getattr(self, "cross_connections", []) or []))
 
     def _push(self):
         self._undo.append(self._snap_state()); self._redo.clear(); self._dirty = True
@@ -1497,6 +1572,8 @@ class Main(QtWidgets.QMainWindow):
         self.leaders, self.text_marks = s["leaders"], s["text_marks"]
         self.erase_regions = s.get("erase_regions", [])
         self.structures = s.get("structures", [])
+        if "cross_connections" in s:
+            self.cross_connections = s["cross_connections"]
         if "duct_banks" in s:
             self.duct_banks = s["duct_banks"]
             if not (0 <= getattr(self, "sel_db", -1) < len(self.duct_banks)):
@@ -2245,6 +2322,7 @@ class Main(QtWidgets.QMainWindow):
         self.ref_centerlines = []; self._cl_pts = []
         self.duct_banks = []
         self.cross_connections = []
+        self.normas_estado = {}
         self.sel_pipe = self.sel_leader = self.sel_region = self.sel_text = -1
         self.sel_cl = -1
         self._overlay = []; self._close_editor(); self._dirty = False; self._extending = False
@@ -2401,6 +2479,7 @@ class Main(QtWidgets.QMainWindow):
             self.ref_centerlines = data["ref_centerlines"]
             self.duct_banks = data.get("duct_banks", [])
             self.cross_connections = data.get("cross_connections", []) or []
+            self.normas_estado = data.get("normativas_activas", {}) or {}
             self.georef = data["georef"]
             self.work_unit = data["work_unit"]
             self.cur_pts = []; self._erase_pts = []; self.sel_pipe = self.sel_leader = self.sel_region = self.sel_text = -1
@@ -2545,7 +2624,7 @@ class Main(QtWidgets.QMainWindow):
         self.hidden_ocgs_by_source = {}
         self.hidden_ocgs = []
         self.pipes = []; self.leaders = []; self.text_marks = []; self.erase_regions = []; self.structures = []
-        self.duct_banks = []; self.cross_connections = []
+        self.duct_banks = []; self.cross_connections = []; self.normas_estado = {}
         self.ref_centerlines = []; self._cl_pts = []
         self.cur_pts = []; self._erase_pts = []; self._overlay = []; self._close_editor()
         self.sel_pipe = self.sel_leader = self.sel_region = self.sel_text = self.sel_cl = self.sel_db = -1
@@ -2568,6 +2647,7 @@ class Main(QtWidgets.QMainWindow):
             elif self.mode == "erase": self.finish_erase()
             elif self.mode == "centerline": self.finish_centerline()
             elif self.mode == "move": self._delete_vertex(x, y)
+            elif self.mode == "idle": self._canvas_context_menu(x, y)
             return
         # Left-click sobre una marca de conflicto (círculo amarillo con !):
         # abre el diálogo de aprobación para conectar con válvula. Tiene
@@ -2694,21 +2774,31 @@ class Main(QtWidgets.QMainWindow):
         if best_cl >= 0:
             self._no_center = True; self._show_tab(TAB_CL); self.cl_list.setCurrentRow(best_cl)
             self._no_center = False; return
-        best, bd = -1, thr
-        for i, p in enumerate(self.pipes):
-            if not p.get("pts"): continue               # tramos importados (world) no están en el lienzo
-            for a, b in zip(p["pts"], p["pts"][1:]):
-                d = G.pt_seg_dist(x, y, a[0], a[1], b[0], b[1])
-                if d < bd: bd, best = d, i
+        best = self._pipe_at(x, y)
+        if best >= 0 and QtWidgets.QApplication.keyboardModifiers() & QtCore.Qt.ControlModifier:
+            self._toggle_pipe_selection(best); return
         if best >= 0:
-            self._no_center = True; self._show_tab(TAB_PIPE); self.pipe_list.setCurrentRow(best)
+            self._no_center = True; self._show_tab(TAB_PIPE); self.pipe_list.clearSelection(); self.pipe_list.setCurrentRow(best)
             self._no_center = False
+            self._scroll_pipe_list_to(best)
+
+    def _scroll_pipe_list_to(self, row):
+        """Lleva la lista «Utilidades» hasta la fila `row` (centrada). Diferido: el
+        cambio de pestaña y el panel de propiedades se acomodan en el mismo ciclo
+        y un scroll inmediato quedaba sin efecto (la lista no bajaba a la utilidad
+        elegida en el lienzo)."""
+        def _go():
+            it = self.pipe_list.item(row) if 0 <= row < self.pipe_list.count() else None
+            if it is not None:
+                self.pipe_list.scrollToItem(it, QtWidgets.QAbstractItemView.PositionAtCenter)
+        _go()
+        QtCore.QTimer.singleShot(0, _go)
 
     def _snap(self, x, y):
         if not self.snap: return (x, y)
         return G.snap_point(self.gray, x, y, self.snap_r)
 
-    def _pipe_soft_snap(self, x, y, layer=None):
+    def _pipe_soft_snap(self, x, y, layer=None, exclude=None, skip_structs=()):
         """Snap suave a utilidades EXISTENTES del mismo tipo (capa) mientras se
         dibuja una nueva. Busca dentro de un radio en pixels de pantalla el
         candidato más cercano y devuelve un dict:
@@ -2720,11 +2810,18 @@ class Main(QtWidgets.QMainWindow):
 
         Sólo compara contra pipes cuya capa == `layer` (o self.active_layer()
         si no se pasa). Radio de snap = 12 px de pantalla, convertidos a
-        unidades de escena según el zoom actual."""
+        unidades de escena según el zoom actual.
+
+        Además se engancha al CONTORNO de los SÓLIDOS (de cualquier utilidad):
+        kind "solid", `pipe_idx` None y `port` = índice de la estructura; sus
+        esquinas mandan como un vértice. `exclude` = (pipe_idx, vi) del vértice
+        que se está arrastrando (ni él ni sus dos tramos cuentan) y
+        `skip_structs` = estructuras que se mueven con él."""
         lay = layer or self.active_layer()
         m11 = max(1e-6, self.canvas.transform().m11())
         tol = 12.0 / m11
         best = None; best_d2 = tol * tol
+        ex_pi, ex_vi = exclude if exclude else (None, None)
         for pi, p in enumerate(self.pipes):
             if p.get("layer") != lay: continue
             pts = p.get("pts") or []
@@ -2732,6 +2829,7 @@ class Main(QtWidgets.QMainWindow):
             if n < 2: continue
             # 1) Vértices (endpoints + intermedios).
             for vi, (vx, vy) in enumerate(pts):
+                if pi == ex_pi and vi == ex_vi: continue
                 d2 = (vx - x) ** 2 + (vy - y) ** 2
                 if d2 < best_d2:
                     kind = "endpoint" if (vi == 0 or vi == n - 1) else "vertex"
@@ -2739,6 +2837,7 @@ class Main(QtWidgets.QMainWindow):
                     best_d2 = d2
             # 2) Proyección perpendicular sobre cada segmento.
             for si in range(n - 1):
+                if pi == ex_pi and si in (ex_vi - 1, ex_vi): continue   # tramos del vértice arrastrado
                 ax, ay = pts[si]; bx, by = pts[si + 1]
                 dx, dy = bx - ax, by - ay
                 seg_len2 = dx * dx + dy * dy
@@ -2759,7 +2858,53 @@ class Main(QtWidgets.QMainWindow):
                 if d2 < best_d2:
                     best = {"pt": (px, py), "kind": "segment", "pipe_idx": pi, "port": si}
                     best_d2 = d2
+        # 3) Contorno de los SÓLIDOS: esquinas (como un vértice) y el borde.
+        salta = {id(st) for st in skip_structs or ()}
+        for k, st in enumerate(self.structures):
+            if not st.get("solid") or id(st) in salta: continue
+            poly = [tuple(q) for q in (st.get("outline") or [])]
+            if len(poly) < 3: continue
+            for cx, cy in poly:
+                d2 = (cx - x) ** 2 + (cy - y) ** 2
+                if best is not None and best["kind"] in ("endpoint", "vertex") and d2 >= best_d2: continue
+                if d2 < best_d2:
+                    best = {"pt": (cx, cy), "kind": "solid", "pipe_idx": None, "port": k, "corner": True}
+                    best_d2 = d2
+            for (ax, ay), (bx, by) in zip(poly, poly[1:] + poly[:1]):
+                dx, dy = bx - ax, by - ay
+                seg_len2 = dx * dx + dy * dy
+                if seg_len2 < 1e-9: continue
+                t = ((x - ax) * dx + (y - ay) * dy) / seg_len2
+                if t <= 0 or t >= 1: continue
+                px = ax + t * dx; py = ay + t * dy
+                d2 = (px - x) ** 2 + (py - y) ** 2
+                # Igual que con los tramos: un vértice (o una esquina) cercano manda.
+                if best is not None and (best["kind"] in ("endpoint", "vertex") or best.get("corner")):
+                    if d2 >= best_d2 * PRIORIDAD_VERTICE: continue
+                if d2 < best_d2:
+                    best = {"pt": (px, py), "kind": "solid", "pipe_idx": None, "port": k}
+                    best_d2 = d2
         return best
+
+    def _endpoint_drag(self):
+        """(pipe_idx, vi) si se está arrastrando el vértice INICIAL o FINAL de la
+        utilidad seleccionada (modo Mover); None si no. Ese extremo se engancha
+        con el mismo snap suave que al dibujar."""
+        vi = getattr(self, "_drag_vertex", None)
+        if getattr(self, "_move_kind", None) != "pipe" or vi is None \
+                or not (0 <= self.sel_pipe < len(self.pipes)):
+            return None
+        n = len(self.pipes[self.sel_pipe].get("pts") or [])
+        return (self.sel_pipe, vi) if n >= 2 and vi in (0, n - 1) else None
+
+    def _drag_snap(self, x, y):
+        """Snap del extremo arrastrado: devuelve (x, y, hit)."""
+        ex = self._endpoint_drag()
+        if ex is None: return x, y, None
+        hit = self._pipe_soft_snap(x, y, layer=self.pipes[ex[0]].get("layer"), exclude=ex,
+                                   skip_structs=getattr(self, "_move_structs", None) or ())
+        if hit is None: return x, y, None
+        return hit["pt"][0], hit["pt"][1], hit
 
     def _pipe_snap_and_ask(self, x, y):
         """Aplica el snap suave para el modo Dibujar. Si el snap cae en el
@@ -2829,6 +2974,7 @@ class Main(QtWidgets.QMainWindow):
         kind = self._current_kind()
         if not kind: return
         self._push(); self._moved = False; self._move_kind = kind
+        self._move_structs = []                          # estructuras que acompañan al arrastre
         self._press_xy = (x, y); self._last_xy = (x, y); thr = self._thr()
         if kind == "text":
             self._move0 = (x, y); self._drag_vertex = None; self._edit_pts = None; return
@@ -2852,7 +2998,10 @@ class Main(QtWidgets.QMainWindow):
             d = math.hypot(px - x, py - y)
             if d < vd: vd, vi = d, i
         if vi >= 0:
-            self._drag_vertex = vi; self._move0 = None; return
+            self._drag_vertex = vi; self._move0 = None
+            if kind == "pipe":                          # el buzón/caja del vértice se mueve con él
+                self._move_structs = model_ops.structures_at_vertex(self.pipes, self.structures, self.sel_pipe, vi)
+            return
         si, sd = -1, thr
         for idx, a, b in self._segments(pts, self._edit_closed):
             d = G.pt_seg_dist(x, y, a[0], a[1], b[0], b[1])
@@ -2866,6 +3015,15 @@ class Main(QtWidgets.QMainWindow):
                 self._rebuild_seg_inv_table(p)
             self._refresh_lists(); return
         self._drag_vertex = None; self._move0 = (x, y)
+        if kind == "pipe":                              # mover la utilidad entera: sus buzones propios también
+            vistos = set()
+            for i in range(len(pts)):
+                for st in model_ops.structures_at_vertex(self.pipes, self.structures, self.sel_pipe, i):
+                    compartida = any(math.hypot(st["x"] - qx, st["y"] - qy) <= model_ops._TOL
+                                     for pj, p in enumerate(self.pipes) if pj != self.sel_pipe
+                                     for qx, qy in (p.get("pts") or []))
+                    if id(st) not in vistos and not compartida:     # el nudo con otra utilidad se queda
+                        vistos.add(id(st)); self._move_structs.append(st)
 
     def do_move(self, x, y):
         self._moved = True; self._last_xy = (x, y)
@@ -2889,10 +3047,18 @@ class Main(QtWidgets.QMainWindow):
         pts = self._edit_pts
         if pts is None: return
         if self._drag_vertex is not None:
-            pts[self._drag_vertex] = (x, y); self._redraw(); return
+            if self._move_kind == "pipe":                # extremo: mismo snap suave que al dibujar
+                x, y, _ = self._drag_snap(x, y)
+            ox, oy = pts[self._drag_vertex]
+            pts[self._drag_vertex] = (x, y)
+            for st in getattr(self, "_move_structs", None) or []:
+                model_ops.translate_structure(st, x - ox, y - oy)
+            self._redraw(); return
         if self._move0 is not None:
             dx, dy = x - self._move0[0], y - self._move0[1]; self._move0 = (x, y)
             for i in range(len(pts)): pts[i] = (pts[i][0] + dx, pts[i][1] + dy)
+            for st in getattr(self, "_move_structs", None) or []:
+                model_ops.translate_structure(st, dx, dy)
             self._redraw()
 
     def end_move(self):
@@ -2903,7 +3069,11 @@ class Main(QtWidgets.QMainWindow):
                 and 0 <= self.sel_pipe < len(self.pipes)):
             self._move0 = None; self._move_kind = None
             self._start_extension(self.sel_pipe, self._drag_vertex); self._drag_vertex = None; return
+        movidos = bool(getattr(self, "_move_structs", None)) and self._moved
         self._move0 = None; self._drag_vertex = None; self._move_kind = None; self._edit_leader = None
+        self._move_structs = []
+        if movidos:
+            self._refresh_lists(); self._redraw()       # lista de buzones y conexiones al día
 
     def _sync_leader(self):
         """Vuelca los vértices editados (self._edit_pts) al leader (arrow / landing / tp)."""
@@ -3324,7 +3494,12 @@ class Main(QtWidgets.QMainWindow):
         if not (0 <= pipe_idx < len(self.pipes)):
             return None
         p = self.pipes[pipe_idx]
-        return pipe_pixmap(self.canvas.scene(), p.get("pts"),
+        # La polilínea DE DIBUJO (con los arcos reales de sus curvas), igual que el lienzo.
+        try:
+            pts = self._pipe_display_pts(p)
+        except Exception:
+            pts = p.get("pts")
+        return pipe_pixmap(self.canvas.scene(), pts,
                            color=layer_qcolor(p.get("layer", "")).name())
 
     def _db_pipes_label(self, db):
@@ -3428,7 +3603,7 @@ class Main(QtWidgets.QMainWindow):
             fpr.addRow(self.lbl_ductbank_assigned)
         if db is not None:
             self.lbl_prop_family.setVisible(False); self.prop_family.setVisible(False)
-            self.lbl_prop_size.setVisible(False); self.prop_size.setVisible(False)
+            self.lbl_prop_size.setVisible(False); self._prop_size_box.setVisible(False)
             t = _theme.tokens()
             name = db.name or "(sin nombre)"
             nc = len(db.conduits)
@@ -3452,7 +3627,7 @@ class Main(QtWidgets.QMainWindow):
         kind = self._pipe_net_kind(p)
         show = kind in ("gravity", "pressure", "conduit") and bool(self.civil_year)
         self.lbl_prop_family.setVisible(show); self.prop_family.setVisible(show)
-        self.lbl_prop_size.setVisible(show); self.prop_size.setVisible(show)
+        self.lbl_prop_size.setVisible(show); self._prop_size_box.setVisible(show)
         if not show:
             self.prop_family.blockSignals(False); self.prop_size.blockSignals(False); return
         fams = (_cc.pressure_pipes(self.civil_year) if kind == "pressure"
@@ -3474,6 +3649,8 @@ class Main(QtWidgets.QMainWindow):
 
     def _load_pipe_sizes(self, kind, fid, current):
         import civil_catalog as _cc
+        # Solo si la familia está en el catálogo de esta versión (la del desplegable).
+        self.btn_add_size.setEnabled(bool(fid and self.civil_year and self.prop_family.currentData() == fid))
         self.prop_size.blockSignals(True); self.prop_size.clear()
         if not fid or not self.civil_year:
             self.prop_size.addItem(_tr("(sin familia)"), ""); self.prop_size.setEnabled(False)
@@ -3490,6 +3667,60 @@ class Main(QtWidgets.QMainWindow):
                     if self.prop_size.itemData(i) == current:
                         self.prop_size.setCurrentIndex(i); break
         self.prop_size.blockSignals(False)
+
+    def _boton_mas(self, fn):
+        """Botón verde «+» (agregar tamaño), grande y con nombre accesible."""
+        b = QtWidgets.QToolButton()
+        b.setIcon(_icon("mdi:plus", color="#ffffff")); b.setIconSize(QtCore.QSize(20, 20))
+        b.setFixedSize(34, 34); b.setCursor(QtCore.Qt.PointingHandCursor)
+        b.setStyleSheet("QToolButton{background:#1f8f4a; border:1px solid #17703a; border-radius:6px;}"
+                        "QToolButton:hover{background:#26a758;}"
+                        "QToolButton:disabled{background:#7d8a82; border-color:#6a756e;}")
+        _bind(b, "setToolTip", "Agregar un tamaño nuevo a esta familia (en Civil 3D 2025 en adelante, en español e inglés)")
+        _bind(b, "setAccessibleName", "Agregar tamaño")
+        b.setEnabled(False)
+        b.clicked.connect(fn)
+        return b
+
+    @staticmethod
+    def _con_boton(combo, boton):
+        caja = QtWidgets.QWidget()
+        h = QtWidgets.QHBoxLayout(caja); h.setContentsMargins(0, 0, 0, 0); h.setSpacing(6)
+        h.addWidget(combo, 1); h.addWidget(boton)
+        return caja
+
+    def _agregar_tamano(self, cual):
+        """«+» junto al tamaño: agrega un tamaño a la familia elegida en el catálogo
+        de Civil 3D (catalogo_tamanos_dialog) y lo deja seleccionado."""
+        import civil_catalog as _cc
+        import catalogo_tamanos_dialog
+        if not self.civil_year:
+            return
+        if cual == "pipe":
+            if not (0 <= self.sel_pipe < len(self.pipes)):
+                return
+            red = self._pipe_net_kind(self.pipes[self.sel_pipe])
+            kind = "pressure" if red == "pressure" else "pipe"
+            fid, familia = self.prop_family.currentData() or "", self.prop_family.currentText()
+        else:
+            if not (0 <= self.sel_bz < len(self.structures)):
+                return
+            kind, red = "structure", None
+            fid, familia = self.bz_family.currentData() or "", self.bz_family.currentText()
+        if not fid:
+            QtWidgets.QMessageBox.information(self, _tr("Agregar tamaño"), _tr("Elige primero una familia."))
+            return
+        texto = catalogo_tamanos_dialog.abrir(self, kind, fid, familia.split("  [")[0],
+                                              self.civil_year, _cc._current_lang)
+        if not texto:
+            return
+        if cual == "pipe":
+            self._load_pipe_sizes(red, fid, texto)
+            self._prop_changed()
+        else:
+            self._load_bz_sizes(fid, texto)
+            self._bz_prop_changed()
+        self._info(_tr("Tamaño {s} agregado a «{f}».").format(s=texto, f=familia.split("  [")[0]))
 
     def _pipe_family_changed(self, _idx):
         if self._prop_guard: return
@@ -3709,6 +3940,14 @@ class Main(QtWidgets.QMainWindow):
         n = len(self.pipe_list.selectedItems())
         if n > 1:
             self._info(_tr("{n} utilidades seleccionadas — clic derecho para acciones en bloque.").format(n=n))
+        # Orden en que se fueron seleccionando: la PRIMERA es la base al unir.
+        actuales = {self.pipe_list.row(it) for it in self.pipe_list.selectedItems()}
+        previo = [r for r in getattr(self, "_orden_sel", []) if r in actuales]
+        self._orden_sel = previo + sorted(actuales - set(previo))
+        filas = tuple(self._selected_pipe_rows())
+        if filas != getattr(self, "_multi_dibujada", ()):      # resaltar en el lienzo
+            self._multi_dibujada = filas
+            self._redraw()
 
     def _select_all_pipes(self, layer=None):
         """Selecciona todas las utilidades (o solo las de esa capa/tipo)."""
@@ -3748,20 +3987,7 @@ class Main(QtWidgets.QMainWindow):
             menu.exec(listw.viewport().mapToGlobal(pos))
             return
         if tab_idx == TAB_PIPE:
-            self._menu_act(menu, "Cambiar tipo", self.change_pipe_type)
-            self._menu_act(menu, "Editar/mover", self.enter_move)
-            # Bancoducto asignado a esta tubería: editar o crear.
-            if 0 <= self.sel_pipe < len(self.pipes):
-                db = self._duct_bank_for_pipe(self.sel_pipe)
-                menu.addSeparator()
-                if db is not None:
-                    self._menu_act(menu, f"Editar bancoducto «{db.name or 'sin nombre'}»",
-                                   lambda: self._db_edit_for_pipe(self.sel_pipe))
-                else:
-                    self._menu_act(menu, "Crear bancoducto para esta tubería",
-                                   lambda: self._db_new_for_pipe(self.sel_pipe))
-                self._pipe_assign_db_submenu(menu, [self.sel_pipe])
-                self._pipe_select_menu(menu, self.pipes[self.sel_pipe].get("layer"))
+            self._pipe_single_menu(menu)
         elif tab_idx == TAB_LEADER:
             self._menu_act(menu, "Editar/mover", self.enter_move)
         elif tab_idx == TAB_TEXT:
@@ -3775,6 +4001,172 @@ class Main(QtWidgets.QMainWindow):
         menu.addSeparator()
         self._menu_act(menu, "Eliminar", self.delete_selected)
         menu.exec(listw.viewport().mapToGlobal(pos))
+
+    def _pipe_single_menu(self, menu):
+        """Entradas del menú contextual de UNA utilidad (lista y lienzo)."""
+        self._menu_act(menu, "Cambiar tipo", self.change_pipe_type)
+        self._menu_act(menu, "Editar/mover", self.enter_move)
+        # Bancoducto asignado a esta tubería: editar o crear.
+        if 0 <= self.sel_pipe < len(self.pipes):
+            db = self._duct_bank_for_pipe(self.sel_pipe)
+            menu.addSeparator()
+            if db is not None:
+                self._menu_act(menu, f"Editar bancoducto «{db.name or 'sin nombre'}»",
+                               lambda: self._db_edit_for_pipe(self.sel_pipe))
+            else:
+                self._menu_act(menu, "Crear bancoducto para esta tubería",
+                               lambda: self._db_new_for_pipe(self.sel_pipe))
+            self._pipe_assign_db_submenu(menu, [self.sel_pipe])
+            self._pipe_select_menu(menu, self.pipes[self.sel_pipe].get("layer"))
+
+    def _canvas_context_menu(self, x, y):
+        """Clic derecho en el lienzo (sin herramienta activa) sobre una utilidad:
+        el mismo menú que en la lista. Si era parte de la selección múltiple, la
+        conserva; si no, la selecciona sola."""
+        best = self._pipe_at(x, y)
+        if best < 0:
+            return
+        if best not in self._selected_pipe_rows():
+            self._no_center = True
+            try:
+                self._show_tab(TAB_PIPE); self.pipe_list.clearSelection(); self.pipe_list.setCurrentRow(best)
+            finally:
+                self._no_center = False
+        elif best != self.sel_pipe:
+            filas = self._selected_pipe_rows()
+            self._no_center = True
+            try:
+                self.pipe_list.setCurrentRow(best)
+            finally:
+                self._no_center = False
+            self._reselect_pipes(filas)
+        menu = QtWidgets.QMenu(self)
+        if len(self._selected_pipe_rows()) > 1:
+            self._pipe_bulk_menu(menu)
+        else:
+            self._pipe_single_menu(menu)
+            menu.addSeparator()
+            self._menu_act(menu, "Eliminar", self.delete_selected)
+        menu.exec(QtGui.QCursor.pos())
+
+    def _pipe_at(self, x, y):
+        """Índice de la utilidad más cercana al punto (a ≤ 10 px de pantalla) o -1."""
+        thr = 10.0 / max(1e-6, self.canvas.transform().m11())
+        best, bd = -1, thr
+        for i, p in enumerate(self.pipes):
+            if not p.get("pts"): continue               # tramos importados (world) no están en el lienzo
+            for a, b in zip(p["pts"], p["pts"][1:]):
+                d = G.pt_seg_dist(x, y, a[0], a[1], b[0], b[1])
+                if d < bd: bd, best = d, i
+        return best
+
+    def _toggle_pipe_selection(self, i):
+        """Ctrl+clic en el lienzo: suma o quita la utilidad i de la selección
+        (igual que Ctrl+clic en la lista)."""
+        filas = set(self._selected_pipe_rows())
+        orden = [r for r in getattr(self, "_orden_sel", []) if r in filas] or sorted(filas)
+        if i in filas and len(filas) > 1:
+            filas.discard(i)
+            actual = self.sel_pipe if self.sel_pipe in filas else min(filas)
+        else:
+            filas.add(i); actual = i
+        self._no_center = True
+        try:
+            self._show_tab(TAB_PIPE)
+            self.pipe_list.setCurrentRow(actual)
+        finally:
+            self._no_center = False
+        self.pipe_list.clearSelection()
+        self._reselect_pipes(sorted(filas))
+        # Rehacer la selección la reordena: se repone el orden real (la 1.ª = base al unir).
+        self._orden_sel = [r for r in orden if r in filas] + [r for r in sorted(filas) if r not in orden]
+        self._scroll_pipe_list_to(i)
+        self._redraw()
+
+    def unir_utilidades(self):
+        """Une las utilidades seleccionadas en UNA (unir_utilidades.py): vista
+        previa en el lienzo, confirmación y un solo paso de deshacer."""
+        import unir_utilidades as U
+        filas = self._selected_pipe_rows()
+        if len(filas) < 2:
+            QtWidgets.QMessageBox.information(self, _tr("Unir utilidades"), _tr(
+                "Selecciona dos o más utilidades: Ctrl+clic en la lista «Utilidades» o sobre ellas en el lienzo."))
+            return
+        # Base = la primera que se seleccionó (sus datos mandan).
+        base = next((r for r in getattr(self, "_orden_sel", []) if r in filas), self.sel_pipe)
+        ft_px = self.scale / self.zoom if self.scale and self.zoom else 0.0
+        plan = U.planificar(self.pipes, filas, base, ft_px)
+        if not plan.ok:
+            QtWidgets.QMessageBox.warning(self, _tr("Unir utilidades"), plan.error)
+            return
+        vista = self._preview_union(plan)
+        try:
+            huecos = [e for e in plan.empalmes if e.hueco_ft > 0]
+            texto = _tr("Se unirán {n} utilidades en la #{b} ({k} empalme(s), en verde en el plano).").format(
+                n=len(filas), b=base + 1, k=len(plan.empalmes))
+            if huecos:
+                texto += "\n\n" + _tr("Huecos que se cierran con un tramo recto: {lista}.").format(
+                    lista=", ".join(f"{e.hueco_ft:.2f} ft" for e in huecos))
+            if plan.avisos:
+                texto += "\n\n" + _tr("Se conservan los datos de la #{b}:").format(b=base + 1)
+                texto += "\n" + "\n".join("• " + a for a in plan.avisos[:8])
+            texto += "\n\n" + _tr("Se puede deshacer con Ctrl+Z.")
+            resp = QtWidgets.QMessageBox.question(self, _tr("Unir utilidades"), texto,
+                                                  QtWidgets.QMessageBox.Yes | QtWidgets.QMessageBox.No,
+                                                  QtWidgets.QMessageBox.Yes)
+        finally:
+            sc = self.canvas.scene()
+            for it in vista:
+                try: sc.removeItem(it)
+                except (RuntimeError, ValueError): pass
+        if resp != QtWidgets.QMessageBox.Yes:
+            return
+        self._push()
+        self.pipes[base] = plan.pipe
+        # Conexiones verticales y bancoducto de las absorbidas pasan a la base.
+        for c in list(getattr(self, "cross_connections", None) or []):
+            for k in ("pipe_a", "pipe_b"):
+                if int(c.get(k, -1)) in plan.unidas:
+                    c[k] = base
+            if c.get("pipe_a") == c.get("pipe_b"):
+                self.cross_connections.remove(c)
+        if self._duct_bank_for_pipe(base) is None:
+            for j in plan.unidas:
+                db = self._duct_bank_for_pipe(j)
+                if db is not None:
+                    db.assign(db.assigned() + [base]); break
+        self._delete_pipes(plan.unidas)
+        nueva = base - sum(1 for j in plan.unidas if j < base)
+        self._refresh_lists()
+        self._no_center = True
+        try:
+            self._show_tab(TAB_PIPE); self.pipe_list.clearSelection(); self.pipe_list.setCurrentRow(nueva)
+        finally:
+            self._no_center = False
+        self._redraw()
+        self._info(_tr("Se unieron {n} utilidades en la #{b}.").format(n=len(filas), b=nueva + 1))
+
+    def _preview_union(self, plan):
+        """Vista previa: la utilidad resultante en verde a trazos y un círculo en
+        cada empalme (los tramos nuevos que cierran un hueco, más gruesos)."""
+        sc = self.canvas.scene(); items = []
+        verde = QtGui.QColor(30, 200, 60)
+        pen = QtGui.QPen(verde, 5.0, QtCore.Qt.DashLine); pen.setCosmetic(True)
+        path = QtGui.QPainterPath()
+        pts = plan.pipe["pts"]
+        path.moveTo(*pts[0])
+        for q in pts[1:]:
+            path.lineTo(*q)
+        it = sc.addPath(path, pen); it.setZValue(Z_HANDLE + 5); items.append(it)
+        pen_c = QtGui.QPen(QtGui.QColor(20, 20, 20), 2.0); pen_c.setCosmetic(True)
+        for e in plan.empalmes:
+            r = 9.0
+            c = sc.addEllipse(-r, -r, 2 * r, 2 * r, pen_c, QtGui.QBrush(verde))
+            c.setPos(e.x, e.y); c.setFlag(QtWidgets.QGraphicsItem.ItemIgnoresTransformations)
+            c.setZValue(Z_HANDLE + 6); items.append(c)
+        self.canvas.viewport().update()
+        QtWidgets.QApplication.processEvents()
+        return items
 
     def _pipe_select_menu(self, menu, layer):
         """Entradas de selección masiva del menú de «Utilidades»."""
@@ -3802,6 +4194,8 @@ class Main(QtWidgets.QMainWindow):
         head = menu.addAction(_tr("{n} utilidades seleccionadas").format(n=len(rows)))
         head.setEnabled(False)
         menu.addSeparator()
+        self._menu_act(menu, _tr("Unir en una utilidad (Ctrl+J)"), self.unir_utilidades)
+        menu.addSeparator()
         self._menu_act(menu, _tr("Cambiar tipo ({n})").format(n=len(rows)), self.change_pipe_type)
         menu.addSeparator()
         self._menu_act(menu, _tr("Crear un bancoducto para las {n} utilidades").format(n=len(rows)),
@@ -3825,6 +4219,32 @@ class Main(QtWidgets.QMainWindow):
             self._reindex_cross_connections_on_pipe_delete(r)
             reindex_after_pipe_delete(getattr(self, "duct_banks", []) or [], r)
         self.sel_pipe = -1
+
+    def _delete_duct_bank_warning(self, rows):
+        """Aviso resaltado (HTML) si alguna de estas utilidades lleva bancoducto:
+        cuáles, con qué diseño, y qué pasa con ese diseño. "" si ninguna lo lleva."""
+        import html as _html
+        t = _theme.tokens()
+        filas = []
+        for r in rows:
+            db = self._duct_bank_for_pipe(r) if 0 <= r < len(self.pipes) else None
+            if db is not None:
+                filas.append(_tr("Utilidad #{n} → bancoducto «{nombre}» ({c} conducto(s))").format(
+                    n=r + 1, nombre=db.name or _tr("sin nombre"), c=len(db.conduits)))
+        if not filas:
+            return ""
+        lista = "".join(f"<li>{_html.escape(f)}</li>" for f in filas[:10])
+        if len(filas) > 10:
+            lista += "<li>…</li>"
+        return (f"<p style='color:{t.danger}; font-weight:700;'>⚠ "
+                + _html.escape(_tr("Tiene bancoducto asignado:") if len(filas) == 1
+                               else _tr("{n} utilidades tienen bancoducto asignado:").format(n=len(filas)))
+                + f"</p><ul style='margin-top:0;'>{lista}</ul>"
+                f"<p style='color:{t.text_muted};'>"
+                + _html.escape(_tr("Al eliminarla(s) se quita esa asignación. El diseño del bancoducto se "
+                                   "conserva en la lista «Bancoductos» (sin asignar si no queda en ninguna "
+                                   "otra utilidad). Se puede deshacer con Ctrl+Z."))
+                + "</p>")
 
     def delete_selected(self):
         ti = self._current_tab()
@@ -3853,8 +4273,13 @@ class Main(QtWidgets.QMainWindow):
                 nombre=db.name or _tr("sin nombre"), n=len(db.conduits))
         if desc is None:
             return
+        msg = _tr("¿Eliminar {que}?").format(que=desc)
+        aviso = self._delete_duct_bank_warning(rows or [self.sel_pipe]) if ti == TAB_PIPE else ""
+        if aviso:
+            import html as _html
+            msg = f"<p>{_html.escape(msg)}</p>{aviso}"
         r = QtWidgets.QMessageBox.question(
-            self, _tr("Confirmar eliminación"), _tr("¿Eliminar {que}?").format(que=desc),
+            self, _tr("Confirmar eliminación"), msg,
             QtWidgets.QMessageBox.Yes | QtWidgets.QMessageBox.No)
         if r != QtWidgets.QMessageBox.Yes:
             return
@@ -4105,10 +4530,11 @@ class Main(QtWidgets.QMainWindow):
                 pen = QtGui.QPen(QtCore.Qt.NoPen); brush = QtGui.QBrush(fill_full)
             pen.setCosmetic(True); it = sc.addPolygon(qp, pen, brush); it.setZValue(Z_ERASE); self._overlay.append(it)
             if sel and self.mode == "move": self._handles(rg["pts"])
-        # utilidades
+        # utilidades (con selección múltiple se resaltan todas las seleccionadas)
+        multi = set(self._selected_pipe_rows()) if hasattr(self, "pipe_list") else set()
         for i, p in enumerate(self.pipes):
             if not p.get("pts"): continue               # tramos importados (world): no se dibujan
-            sel = (i == self.sel_pipe)
+            sel = (i == self.sel_pipe) or (len(multi) > 1 and i in multi)
             # Dibujo la polilínea del pipe con arcos REALES sustituyendo cada
             # esquina que tenga un elemento curvo — mismo radio y tangencia
             # que el plugin usará en Civil 3D.
@@ -4165,6 +4591,8 @@ class Main(QtWidgets.QMainWindow):
         # Marcas de conflicto: pares de segmentos que se cruzan geométricamente
         # (dos utilidades pasando una por encima de la otra sin ser juntura).
         self._draw_pipe_conflicts()
+        # Accesorios de presión (codo/Tee/Wye/cruz) con su ángulo + normativas.
+        self._draw_accesorios()
         # textos
         for i, tm in enumerate(self.text_marks):
             t = sc.addText(tm["text"]); t.setDefaultTextColor(QtGui.QColor(120, 220, 120)); t.document().setDocumentMargin(0)
@@ -5300,7 +5728,7 @@ class Main(QtWidgets.QMainWindow):
             # Habilitar/deshabilitar todos los controles del groupbox según haya selección
             for w in (self.bz_cod, self.bz_rim, self.bz_sump, self.bz_family, self.bz_size,
                       self.bz_height, self.bz_is_curve, self.chk_bz_hidden,
-                      self.sld_len, self.sld_wid, self.sld_h):
+                      self.sld_len, self.sld_wid, self.sld_h, self.sld_top):
                 w.setEnabled(has_sel)
             if not has_sel:
                 _bind(self.gprop_bz, "setTitle", "Propiedades del buzón — selecciona uno de la lista")
@@ -5313,14 +5741,15 @@ class Main(QtWidgets.QMainWindow):
             solid = bool(s.get("solid"))
             _bind(self.gprop_bz, "setTitle", "Propiedades del sólido" if solid
                   else ("Propiedades de la caja" if net == "conduit" else "Propiedades del buzón"))
-            for w in (self.bz_family, self.bz_size, self.bz_height):
+            for w in (self.bz_family, self._bz_size_box, self.bz_height):
                 self._fbz.setRowVisible(w, not solid)
-            for w in (self.sld_len, self.sld_wid, self.sld_h):
+            for w in (self.sld_len, self.sld_wid, self.sld_h, self._sld_top_w, self.lbl_sld_top_src):
                 self._fbz.setRowVisible(w, solid)
             if solid:
                 self.sld_len.setValue(float(s.get("length_ft") or 0.01))
                 self.sld_wid.setValue(float(s.get("width_ft") or 0.01))
                 self.sld_h.setValue(float(s.get("solid_height_ft") or 6.56168))
+                self._sync_solid_top(s)
             self.bz_cod.setText(s.get("cod", ""))
             self.bz_rim.setValue(float(s.get("rim") or 0.0))
             self.bz_sump.setValue(float(s.get("sump") or 0.0))
@@ -5360,6 +5789,7 @@ class Main(QtWidgets.QMainWindow):
     def _load_bz_sizes(self, fid, current):
         """Repuebla self.bz_size según la familia (siempre catálogo de gravedad)."""
         import civil_catalog as _cc
+        self.btn_add_bz_size.setEnabled(bool(fid and self.civil_year and self.bz_family.currentData() == fid))
         self.bz_size.blockSignals(True); self.bz_size.clear()
         if not fid or not self.civil_year:
             self.bz_size.addItem(_tr("(sin familia)"), ""); self.bz_size.setEnabled(False)
@@ -5428,6 +5858,68 @@ class Main(QtWidgets.QMainWindow):
         self._dirty = True
         self._refresh_bz_list_item(self.sel_bz)
         self._redraw()
+
+    def _solid_default_top(self, s):
+        """Cota de la utilidad unida al sólido en su vértice (la mayor si llegan
+        varias), o None si es un sólido suelto."""
+        x, y = s.get("x"), s.get("y")
+        if x is None:
+            return None
+        zs = []
+        for pi, p in enumerate(self.pipes):
+            pts = p.get("pts") or []
+            for vi, (vx, vy) in enumerate(pts):
+                if abs(vx - x) <= 1.0 and abs(vy - y) <= 1.0 and len(pts) >= 2:
+                    seg = vi if vi < len(pts) - 1 else vi - 1
+                    z = self._pipe_z_at(pi, seg, vx, vy)
+                    if z is not None:
+                        zs.append(z)
+                    break
+        return max(zs) if zs else None
+
+    def _solid_top_value(self, s):
+        """(cota, es_automática): la del usuario si la fijó; si no, la de la utilidad."""
+        if s.get("solid_top_z") is not None:
+            return float(s["solid_top_z"]), False
+        return self._solid_default_top(s), True
+
+    def _sync_solid_top(self, s):
+        z, auto = self._solid_top_value(s)
+        self.sld_top.setValue(float(z or 0.0))
+        self.btn_sld_top_auto.setEnabled(not auto)
+        if auto and z is None:
+            self.lbl_sld_top_src.setText(_tr("Sin utilidad unida: se usa la cota de fondo o 0."))
+        elif auto:
+            self.lbl_sld_top_src.setText(_tr("Automática: cota de la utilidad unida."))
+        else:
+            self.lbl_sld_top_src.setText(_tr("Fijada por el usuario."))
+
+    def _solid_top_changed(self):
+        if self._bz_prop_guard: return
+        if not (0 <= self.sel_bz < len(self.structures)): return
+        s = self.structures[self.sel_bz]
+        if not s.get("solid"): return
+        auto = self._solid_default_top(s)
+        v = float(self.sld_top.value())
+        if s.get("solid_top_z") is None and auto is not None and abs(v - auto) < 1e-6:
+            return
+        self._push()
+        s["solid_top_z"] = v
+        self._dirty = True
+        self._bz_prop_guard = True
+        try: self._sync_solid_top(s)
+        finally: self._bz_prop_guard = False
+
+    def _solid_top_reset(self):
+        if not (0 <= self.sel_bz < len(self.structures)): return
+        s = self.structures[self.sel_bz]
+        if s.get("solid_top_z") is None: return
+        self._push()
+        s["solid_top_z"] = None
+        self._dirty = True
+        self._bz_prop_guard = True
+        try: self._sync_solid_top(s)
+        finally: self._bz_prop_guard = False
 
     def _solid_label(self, s):
         return _tr("{cod}  ·  Sólido {l:g} × {a:g} × {h:g} ft").format(
@@ -6185,6 +6677,62 @@ class Main(QtWidgets.QMainWindow):
     def show_shortcuts(self):
         dialogs.show_shortcuts(self)
 
+    # ─────────────────────────── normativas ───────────────────────────
+    def open_normativas(self):
+        """Ventana flotante de normativas (normativas_dialog.py)."""
+        import normativas_dialog
+        normativas_dialog.abrir(self)
+
+    def _on_toggle_show_acc(self, on):
+        try:
+            QtCore.QSettings("pdf-to-cad", "app").setValue("show_accesorios", bool(on))
+        except Exception:
+            pass
+        self._redraw()
+
+    def _draw_accesorios(self):
+        """Evalúa las normativas activas y dibuja los accesorios de presión con
+        su tipo y ángulo (accesorios_view.py). Deja `_accesorios`,
+        `_normas_res` y `_normas_lista` para la ventana y la barra de estado."""
+        self._accesorios = []; self._normas_res = {}; self._normas_lista = []
+        ft_px = self.scale / self.zoom if self.scale and self.zoom else 0.0
+        if ft_px and self.pipes:
+            ctx = normativas.Contexto(self.pipes, self.structures, self._pipe_z_at, ft_px)
+            self._normas_res = normativas.evaluar(self.normas, self.normas_estado, ctx)
+            self._normas_lista = normativas.incumplimientos(self._normas_res, self.normas)
+            act = getattr(self, "act_show_acc", None)
+            if act is None or act.isChecked():
+                self._accesorios = ctx.accesorios
+                import accesorios_view
+                tol = 0.5 / ft_px
+                self._overlay += accesorios_view.dibujar(self.canvas.scene(), self._accesorios,
+                                                         self._normas_lista, tol)
+        n = len(self._normas_lista)
+        if hasattr(self, "btn_normas"):
+            self.btn_normas.setText("✗ " + _tr("{n} fuera de normativa").format(n=n) if n else "")
+            self.btn_normas.setVisible(bool(n))
+        if self._normas_dlg is not None:
+            self._normas_dlg.refrescar()
+
+    def _normas_ir_a(self, n):
+        """Centra el lienzo en el incumplimiento n y lo marca un momento."""
+        if not (0 <= n < len(self._normas_lista)):
+            return
+        inc = self._normas_lista[n][0]
+        self.canvas.centerOn(inc.x, inc.y)
+        sc = self.canvas.scene()
+        pen = QtGui.QPen(QtGui.QColor(255, 60, 60), 3); pen.setCosmetic(True)
+        r = 26.0
+        it = sc.addEllipse(-r, -r, 2 * r, 2 * r, pen)
+        it.setPos(inc.x, inc.y); it.setFlag(QtWidgets.QGraphicsItem.ItemIgnoresTransformations)
+        it.setZValue(Z_HANDLE + 9)
+
+        def _quitar():
+            try: sc.removeItem(it)
+            except (RuntimeError, ValueError): pass
+        QtCore.QTimer.singleShot(1800, _quitar)
+        self.raise_(); self.activateWindow()
+
     def _toggle_theme(self):
         # Alterna claro↔oscuro globalmente. El módulo `theme` se encarga de
         # aplicar paleta + stylesheet + persistir la preferencia. Los widgets
@@ -6486,6 +7034,8 @@ class Main(QtWidgets.QMainWindow):
 
 
 def main():
+    # La ventana de Normativas usa QtWebEngine: exige esto ANTES de crear la app.
+    QtCore.QCoreApplication.setAttribute(QtCore.Qt.AA_ShareOpenGLContexts)
     app = QtWidgets.QApplication(sys.argv)
     app._no_wheel_filter = _NoWheelFilter(app)
     app.installEventFilter(app._no_wheel_filter)

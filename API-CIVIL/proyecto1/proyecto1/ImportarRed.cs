@@ -85,6 +85,10 @@ namespace Civil3DBasico
             // ── 0. Forzar unidades imperiales (pies) antes de leer cotas ────
             ComandosUnidades.ForzarImperial(db, ed, true);
 
+            // ── 0.a Tamaños nuevos agregados desde la app («+»): regenerar el
+            //        catálogo de piezas y relanzar IMPORTAR_RED (CatalogoTamanos.cs).
+            if (RegenerarCatalogoSiPendiente(doc, ed, "IMPORTAR_RED")) return;
+
             // ── 0.b Familias PERSONALIZADAS (Bancoductos / Bancos Tubos / Buzones):
             //        NO agregarlas todas automáticamente. Antes se llamaba a
             //        `CatalogoBancos.AddBancosYBuzones` acá, pero eso metía TODAS las
@@ -213,7 +217,15 @@ namespace Civil3DBasico
                             SolidRotDeg = XdNullDouble(xd, "SOLID_ROT_DEG") ?? 0.0,
                             SolidCenter = new Point2d(XdNullDouble(xd, "SOLID_CX") ?? pt.Position.X,
                                                       XdNullDouble(xd, "SOLID_CY") ?? pt.Position.Y),
+                            // Cota SUPERIOR (manda la tapa): la del usuario o la de la
+                            // utilidad unida; ya en pies como el resto de medidas del sólido.
+                            SolidTopZ = XdNullDouble(xd, "SOLID_TOP_Z"),
                         };
+                        // Datos extendidos de la app (XD_* / XDU_*) → Property Set del sólido.
+                        foreach (var kv in xd)
+                            if (kv.Key.StartsWith("XD_", StringComparison.OrdinalIgnoreCase)
+                                || kv.Key.StartsWith("XDU_", StringComparison.OrdinalIgnoreCase))
+                                newSt.Extendidos[kv.Key] = kv.Value ?? "";
                         structs.Add(newSt);
                         Dbg("XDATA_STRUCT", ("id", newSt.Id), ("x", pt.Position.X.ToString("F3")),
                             ("y", pt.Position.Y.ToString("F3")), ("net", newSt.NetKind),
@@ -400,6 +412,10 @@ namespace Civil3DBasico
                         parent.CurveRadiusByVert[viCurve] = bancoRadioFt;
                 }
             }
+
+            // Quiebres casi rectos (≤ 2°) sin nada encima en gravedad/conduit: un solo
+            // tubo recto en vez de dos que se montan/abren en la unión (ImportarRedEnderezar.cs).
+            EnderezarQuiebres(pipes, structs, crossConns, FactorConversion("ft", db), ed);
 
             var gravedad = new Dictionary<string, List<ImportPipe>>(StringComparer.OrdinalIgnoreCase);
             var presion = new Dictionary<string, List<ImportPipe>>(StringComparer.OrdinalIgnoreCase);
@@ -2554,6 +2570,8 @@ namespace Civil3DBasico
                 etiquetaFuente[srcIdx] = ip.PipeIdx >= 0
                     ? $"utilidad #{ip.PipeIdx}"
                     : $"'{ip.Layer}' ({srcIdx + 1})";
+                // Tamaño agregado con el «+» de la app: copiarlo del catálogo a la lista.
+                tubos = AsegurarTuboPresion(pl, tubos, ip.Diameter, ip.PipeFamily, ed);
                 PresStyles.PressurePartSize tuboElegido = MatchPresionTubo(tubos, ip.Diameter, ip.PipeFamily);
                 Dbg("PIPE_PRES_MATCH", ("pedido_fam", ip.PipeFamily ?? ""),
                     ("pedido_size", ip.PipeSize ?? ""), ("diam", ip.Diameter.ToString("F1")),
@@ -4194,7 +4212,10 @@ namespace Civil3DBasico
                 foreach (var t in tubos)
                 {
                     string dNorm = (t.Description ?? "").Replace(" ", "").Replace(",", "").ToLowerInvariant();
-                    if (dNorm.Contains(famNorm) || famNorm.Contains(dNorm)) filtrados.Add(t);
+                    // La Description lleva el diámetro DENTRO del nombre de la familia
+                    // («pipe-10 in-flanged-…» vs «pipe-flanged-…»): DescripcionDeFamilia.
+                    if (dNorm.Contains(famNorm) || famNorm.Contains(dNorm) ||
+                        DescripcionDeFamilia(t.Description, famName)) filtrados.Add(t);
                 }
                 if (filtrados.Count > 0) pool = filtrados;
             }
@@ -5647,7 +5668,9 @@ namespace Civil3DBasico
             {
                 if (!st.Solid || st.SolidLFt <= 0 || st.SolidWFt <= 0) continue;
                 double h = (st.SolidHFt > 0 ? st.SolidHFt : 6.56168) * k;
-                double z0 = st.Sump ?? st.SolidBaseZ ?? (st.Rim.HasValue ? st.Rim.Value - h : 0.0);
+                // Manda la cota SUPERIOR (tapa); sin ella, la base va al sump como antes.
+                double z0 = st.SolidTopZ.HasValue ? st.SolidTopZ.Value * k - h
+                          : (st.Sump ?? st.SolidBaseZ ?? (st.Rim.HasValue ? st.Rim.Value - h : 0.0));
                 try
                 {
                     var sol = new Solid3d();
@@ -5659,6 +5682,8 @@ namespace Civil3DBasico
                     sol.Layer = capa;
                     ms.AppendEntity(sol); tr.AddNewlyCreatedDBObject(sol, true);
                     n++;
+                    SolidoPropertySet.Aplicar(db, tr, sol, ed, st.Id, st.SolidLFt, st.SolidWFt,
+                        st.SolidHFt, (z0 + h) / k, z0 / k, st.Extendidos);
                     Dbg("SOLIDO_OK", ("id", st.Id), ("l", st.SolidLFt.ToString("F2")),
                         ("w", st.SolidWFt.ToString("F2")), ("h", st.SolidHFt.ToString("F2")),
                         ("z0", z0.ToString("F3")));
@@ -5805,134 +5830,159 @@ namespace Civil3DBasico
                     Point3d? last = null;
                     foreach (var pt in rawPts)
                     {
-                        if (last.HasValue && last.Value.DistanceTo(pt) < 1e-4) continue;
+                        // < 0.01 ft: el reconocimiento deja la tangencia a milésimas del
+                        // vértice siguiente (0.002 ft) y ese micro-tramo rompe el barrido.
+                        if (last.HasValue && last.Value.DistanceTo(pt) < 0.01) continue;
                         pathPts.Add(pt); last = pt;
                     }
                     if (pathPts.Count < 2) continue;
 
-                    // Base ORTONORMAL a partir del tangente inicial del path.
-                    // Antes usábamos up = ZAxis directamente, pero si dir tiene
-                    // componente Z (path con pendiente) up ya no es perpendicular
-                    // a dir → la matriz de alineación introduce shear y
-                    // ExtrudeAlongPath lanza eCannotScaleNonUniformly.
-                    // Corregido: right = dir × Zaxis (horizontal), y luego
-                    // up = right × dir (perpendicular a dir en el plano
-                    // vertical). Fallback si dir es casi vertical.
-                    Vector3d dir = (pathPts[1] - pathPts[0]).GetNormal();
-                    Vector3d rightCand = dir.CrossProduct(Vector3d.ZAxis);
-                    if (rightCand.Length < 1e-9)   // dir ≈ vertical
-                        rightCand = dir.CrossProduct(Vector3d.XAxis);
-                    Vector3d right = rightCand.GetNormal();
-                    Vector3d up = right.CrossProduct(dir).GetNormal();
-                    Point3d origin = pathPts[0];
-
-                    Matrix3d mat = Matrix3d.AlignCoordinateSystem(
-                        Point3d.Origin, Vector3d.XAxis, Vector3d.YAxis, Vector3d.ZAxis,
-                        origin, right, up, dir);
-
-                    // ── Envolvente rectangular ──────────────────────────────
-                    using (var pathPoly = new Polyline3d(Poly3dType.SimplePoly, pathPts, false))
+                    // Perfil (envolvente con esquinas redondeadas) perpendicular al
+                    // path en `p0`, mirando hacia `p1`. Base ORTONORMAL: right = dir ×
+                    // Zaxis (horizontal), up = right × dir (con pendiente, up = ZAxis
+                    // metía shear → eCannotScaleNonUniformly). Fallback si dir ≈ vertical.
+                    Func<Point3d, Point3d, Polyline> hacerPerfil = (p0, p1) =>
                     {
-                        ms.AppendEntity(pathPoly);
-                        tr.AddNewlyCreatedDBObject(pathPoly, true);
-
-                        using (var profile = new Polyline())
+                        Vector3d dir = (p1 - p0).GetNormal();
+                        Vector3d rightCand = dir.CrossProduct(Vector3d.ZAxis);
+                        if (rightCand.Length < 1e-9)
+                            rightCand = dir.CrossProduct(Vector3d.XAxis);
+                        Vector3d right = rightCand.GetNormal();
+                        Vector3d up = right.CrossProduct(dir).GetNormal();
+                        Matrix3d mat = Matrix3d.AlignCoordinateSystem(
+                            Point3d.Origin, Vector3d.XAxis, Vector3d.YAxis, Vector3d.ZAxis,
+                            p0, right, up, dir);
+                        var profile = new Polyline();
+                        // Radios de fillet por esquina (en ft), acotados a la mitad
+                        // del lado más corto para que no se pisen.
+                        double halfMin = Math.Min(wFt, hFt) / 2.0;
+                        double rTL = Math.Max(0, Math.Min(dbk.CornerTL / 12.0, halfMin));
+                        double rTR = Math.Max(0, Math.Min(dbk.CornerTR / 12.0, halfMin));
+                        double rBR = Math.Max(0, Math.Min(dbk.CornerBR / 12.0, halfMin));
+                        double rBL = Math.Max(0, Math.Min(dbk.CornerBL / 12.0, halfMin));
+                        const double B90 = 0.41421356237309503;   // tan(90°/4)
+                        double xL = -wFt / 2, xR = wFt / 2;
+                        double yB = -hFt / 2, yT = hFt / 2;
+                        // Perfil recorrido en CCW: BL → BR → TR → TL. Cada esquina con
+                        // r>0 lleva dos vértices (tangente-in con bulge=+tan(22.5°),
+                        // tangente-out con bulge=0); sin redondeo, un solo vértice.
+                        int pv = 0;
+                        if (rBL > 0)
                         {
-                            // Radios de fillet por esquina (en ft), acotados a
-                            // la mitad del lado más corto para que no se pisen.
-                            double halfMin = Math.Min(wFt, hFt) / 2.0;
-                            double rTL = Math.Max(0, Math.Min(dbk.CornerTL / 12.0, halfMin));
-                            double rTR = Math.Max(0, Math.Min(dbk.CornerTR / 12.0, halfMin));
-                            double rBR = Math.Max(0, Math.Min(dbk.CornerBR / 12.0, halfMin));
-                            double rBL = Math.Max(0, Math.Min(dbk.CornerBL / 12.0, halfMin));
-                            const double B90 = 0.41421356237309503;   // tan(90°/4)
-                            double xL = -wFt / 2, xR = wFt / 2;
-                            double yB = -hFt / 2, yT = hFt / 2;
-                            // Perfil recorrido en CCW: BL → BR → TR → TL.
-                            // Para cada esquina con r>0 insertamos dos vértices
-                            // (tangente-in con bulge=+tan(22.5°), tangente-out
-                            // con bulge=0). Sin redondeo (r=0) va un solo vértice.
-                            int vi = 0;
-                            // BL
-                            if (rBL > 0)
-                            {
-                                profile.AddVertexAt(vi++, new Point2d(xL, yB + rBL), 0, 0, 0);
-                                profile.SetBulgeAt(vi - 1, B90);
-                                profile.AddVertexAt(vi++, new Point2d(xL + rBL, yB), 0, 0, 0);
-                            }
-                            else profile.AddVertexAt(vi++, new Point2d(xL, yB), 0, 0, 0);
-                            // BR
-                            if (rBR > 0)
-                            {
-                                profile.AddVertexAt(vi++, new Point2d(xR - rBR, yB), 0, 0, 0);
-                                profile.SetBulgeAt(vi - 1, B90);
-                                profile.AddVertexAt(vi++, new Point2d(xR, yB + rBR), 0, 0, 0);
-                            }
-                            else profile.AddVertexAt(vi++, new Point2d(xR, yB), 0, 0, 0);
-                            // TR
-                            if (rTR > 0)
-                            {
-                                profile.AddVertexAt(vi++, new Point2d(xR, yT - rTR), 0, 0, 0);
-                                profile.SetBulgeAt(vi - 1, B90);
-                                profile.AddVertexAt(vi++, new Point2d(xR - rTR, yT), 0, 0, 0);
-                            }
-                            else profile.AddVertexAt(vi++, new Point2d(xR, yT), 0, 0, 0);
-                            // TL
-                            if (rTL > 0)
-                            {
-                                profile.AddVertexAt(vi++, new Point2d(xL + rTL, yT), 0, 0, 0);
-                                profile.SetBulgeAt(vi - 1, B90);
-                                profile.AddVertexAt(vi++, new Point2d(xL, yT - rTL), 0, 0, 0);
-                            }
-                            else profile.AddVertexAt(vi++, new Point2d(xL, yT), 0, 0, 0);
-                            profile.Closed = true;
-                            profile.TransformBy(mat);
-
-                            ms.AppendEntity(profile);
-                            tr.AddNewlyCreatedDBObject(profile, true);
-
-                            var curves = new DBObjectCollection { profile };
-                            var regions = Region.CreateFromCurves(curves);
-                            if (regions.Count > 0)
-                            {
-                                var region = (Region)regions[0];
-                                ms.AppendEntity(region);
-                                tr.AddNewlyCreatedDBObject(region, true);
-
-                                // Extrusión: si falla, hay que borrar TAMBIÉN la
-                                // region (si no queda huérfana en modelspace y se
-                                // ve como "solo la cara" del bancoducto).
-                                bool extOk = false;
-                                using (var solid = new Solid3d())
-                                {
-                                    try
-                                    {
-                                        solid.ExtrudeAlongPath(region, pathPoly, 0);
-                                        solid.Layer = "PDFCAD_DUCT_BANK";
-                                        ms.AppendEntity(solid);
-                                        tr.AddNewlyCreatedDBObject(solid, true);
-                                        extOk = true;
-                                    }
-                                    catch (Exception exExt)
-                                    {
-                                        ed.WriteMessage($"\n  ⚠ Duct bank '{dbk.Name}': " +
-                                                         $"ExtrudeAlongPath falló ({exExt.Message}). Se omite el sólido.");
-                                    }
-                                }
-                                profile.Erase();
-                                pathPoly.Erase();
-                                region.Erase();
-                                if (extOk) created++;
-                                else failed++;
-                            }
-                            else
-                            {
-                                profile.Erase();
-                                pathPoly.Erase();
-                                ed.WriteMessage($"\n  ⚠ Duct bank '{dbk.Name}': no se pudo crear la región del perfil.");
-                                failed++;
-                            }
+                            profile.AddVertexAt(pv++, new Point2d(xL, yB + rBL), 0, 0, 0);
+                            profile.SetBulgeAt(pv - 1, B90);
+                            profile.AddVertexAt(pv++, new Point2d(xL + rBL, yB), 0, 0, 0);
                         }
+                        else profile.AddVertexAt(pv++, new Point2d(xL, yB), 0, 0, 0);
+                        if (rBR > 0)
+                        {
+                            profile.AddVertexAt(pv++, new Point2d(xR - rBR, yB), 0, 0, 0);
+                            profile.SetBulgeAt(pv - 1, B90);
+                            profile.AddVertexAt(pv++, new Point2d(xR, yB + rBR), 0, 0, 0);
+                        }
+                        else profile.AddVertexAt(pv++, new Point2d(xR, yB), 0, 0, 0);
+                        if (rTR > 0)
+                        {
+                            profile.AddVertexAt(pv++, new Point2d(xR, yT - rTR), 0, 0, 0);
+                            profile.SetBulgeAt(pv - 1, B90);
+                            profile.AddVertexAt(pv++, new Point2d(xR - rTR, yT), 0, 0, 0);
+                        }
+                        else profile.AddVertexAt(pv++, new Point2d(xR, yT), 0, 0, 0);
+                        if (rTL > 0)
+                        {
+                            profile.AddVertexAt(pv++, new Point2d(xL + rTL, yT), 0, 0, 0);
+                            profile.SetBulgeAt(pv - 1, B90);
+                            profile.AddVertexAt(pv++, new Point2d(xL, yT - rTL), 0, 0, 0);
+                        }
+                        else profile.AddVertexAt(pv++, new Point2d(xL, yT), 0, 0, 0);
+                        profile.Closed = true;
+                        profile.TransformBy(mat);
+                        return profile;
+                    };
+
+                    // Barre la envolvente por `pts`. Devuelve el sólido (sin agregar al
+                    // dibujo) o null; borra siempre el path, el perfil y la región
+                    // auxiliares (si no, queda «solo la cara» del bancoducto).
+                    string ultimoError = null;
+                    Func<List<Point3d>, Solid3d> extruir = pts =>
+                    {
+                        Polyline3d pathPoly = null; Polyline prof = null; Region region = null;
+                        try
+                        {
+                            pathPoly = new Polyline3d(Poly3dType.SimplePoly, new Point3dCollection(pts.ToArray()), false);
+                            ms.AppendEntity(pathPoly); tr.AddNewlyCreatedDBObject(pathPoly, true);
+                            prof = hacerPerfil(pts[0], pts[1]);
+                            ms.AppendEntity(prof); tr.AddNewlyCreatedDBObject(prof, true);
+                            var regs = Region.CreateFromCurves(new DBObjectCollection { prof });
+                            if (regs.Count == 0) { ultimoError = "no se pudo crear la región del perfil"; return null; }
+                            region = (Region)regs[0];
+                            ms.AppendEntity(region); tr.AddNewlyCreatedDBObject(region, true);
+                            var sol = new Solid3d();
+                            try { sol.ExtrudeAlongPath(region, pathPoly, 0); return sol; }
+                            catch (Exception exExt) { ultimoError = exExt.Message; sol.Dispose(); return null; }
+                        }
+                        catch (Exception ex) { ultimoError = ex.Message; return null; }
+                        finally
+                        {
+                            try { pathPoly?.Erase(); } catch { }
+                            try { prof?.Erase(); } catch { }
+                            try { region?.Erase(); } catch { }
+                        }
+                    };
+
+                    // Si el barrido entero falla (camino que se CRUZA a sí mismo —lazo
+                    // casi circular del reconocimiento— o geometría que el modelador no
+                    // resuelve), se arma POR TRAMOS: se parte por la MITAD de un tramo
+                    // recto (misma dirección a los dos lados → las caras coinciden, sin
+                    // rendija) hasta que cada pieza se pueda barrer. Luego se unen.
+                    var piezas = new List<Solid3d>();
+                    int tramosSinSolido = 0;
+                    Action<List<Point3d>, int> barrer = null;
+                    barrer = (pts, prof) =>
+                    {
+                        var sol = extruir(pts);
+                        if (sol != null) { piezas.Add(sol); return; }
+                        if (pts.Count <= 2 || prof > 14) { tramosSinSolido++; return; }
+                        int k = (pts.Count - 2) / 2;                      // tramo del medio
+                        Point3d mid = pts[k] + (pts[k + 1] - pts[k]) * 0.5;
+                        var izq = new List<Point3d>(pts.GetRange(0, k + 1)) { mid };
+                        var der = new List<Point3d> { mid };
+                        der.AddRange(pts.GetRange(k + 1, pts.Count - k - 1));
+                        barrer(izq, prof + 1);
+                        barrer(der, prof + 1);
+                    };
+                    var todos = new List<Point3d>();
+                    foreach (Point3d q in pathPts) todos.Add(q);
+                    barrer(todos, 0);
+
+                    if (piezas.Count == 0)
+                    {
+                        ed.WriteMessage($"\n  ⚠ Duct bank '{dbk.Name}': ExtrudeAlongPath falló ({ultimoError}). Se omite el sólido.");
+                        failed++;
+                    }
+                    else
+                    {
+                        // Unir las piezas en un solo sólido; la que no se deje unir queda aparte.
+                        Solid3d total = piezas[0];
+                        var sueltas = new List<Solid3d>();
+                        for (int pi = 1; pi < piezas.Count; pi++)
+                        {
+                            try { total.BooleanOperation(BooleanOperationType.BoolUnite, piezas[pi]); piezas[pi].Dispose(); }
+                            catch { sueltas.Add(piezas[pi]); }
+                        }
+                        foreach (var sol in new[] { total }.Concat(sueltas))
+                        {
+                            sol.Layer = "PDFCAD_DUCT_BANK";
+                            ms.AppendEntity(sol);
+                            tr.AddNewlyCreatedDBObject(sol, true);
+                        }
+                        created++;
+                        if (piezas.Count > 1)
+                            ed.WriteMessage($"\n  · Duct bank '{dbk.Name}': el recorrido no se podía barrer de una vez " +
+                                            $"(curva cerrada o que se cruza consigo misma) → armado en {piezas.Count} tramos" +
+                                            (sueltas.Count > 0 ? $" ({sueltas.Count} sin unir)" : " unidos") + ".");
+                        if (tramosSinSolido > 0)
+                            ed.WriteMessage($"\n  ⚠ Duct bank '{dbk.Name}': {tramosSinSolido} tramo(s) sin sólido ({ultimoError}).");
                     }
 
                     // Los conductos internos se crean como Pipe Network (paso 5e).
@@ -6117,6 +6167,8 @@ namespace Civil3DBasico
             public double SolidLFt, SolidWFt, SolidHFt, SolidRotDeg;
             public Point2d SolidCenter;
             public double? SolidBaseZ;               // sump de la línea que llega (lo pone el loop de vértices)
+            public double? SolidTopZ;                // SOLID_TOP_Z: cota de la cara superior (pies)
+            public Dictionary<string, string> Extendidos = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
         }
 
         private class DuctConduit

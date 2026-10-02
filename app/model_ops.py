@@ -47,6 +47,41 @@ def nearest_vertex(pts, x, y, tol=14.0):
     return best
 
 
+def structures_at_vertex(pipes, structures, pipe_idx, vi, tol=_TOL):
+    """Estructuras (buzón, caja, sólido, CV) que pertenecen al vértice `vi` de la
+    tubería `pipe_idx`: a ≤ tol px y SIN otro vértice más cercano en ninguna
+    tubería (mismo criterio que curve_vertex_indices). Las importadas (world) no."""
+    pts = (pipes[pipe_idx].get("pts") or []) if 0 <= pipe_idx < len(pipes) else []
+    if not (0 <= vi < len(pts)):
+        return []
+    vx, vy = pts[vi]
+    out = []
+    for s in structures or []:
+        if s.get("world") or s.get("x") is None:
+            continue
+        sx, sy = float(s["x"]), float(s["y"])
+        d = math.hypot(sx - vx, sy - vy)
+        if d > tol:
+            continue
+        mejor = True
+        for pj, p in enumerate(pipes):
+            for vj, (qx, qy) in enumerate(p.get("pts") or []):
+                if (pj, vj) != (pipe_idx, vi) and math.hypot(sx - qx, sy - qy) < d - 1e-9:
+                    mejor = False; break
+            if not mejor:
+                break
+        if mejor:
+            out.append(s)
+    return out
+
+
+def translate_structure(s, dx, dy):
+    """Desplaza una estructura (y el contorno de su bóveda/sólido) en px."""
+    s["x"] = float(s["x"]) + dx; s["y"] = float(s["y"]) + dy
+    if s.get("outline"):
+        s["outline"] = [(float(x) + dx, float(y) + dy) for x, y in s["outline"]]
+
+
 def curve_vertex_indices(pipe, structures, pipes=(), tol=14.0):
     """{índice de vértice: estructura CV} de los vértices de `pipe` que SON codo.
     Cada estructura curva pertenece a UN solo vértice: el más cercano (a ≤ tol)

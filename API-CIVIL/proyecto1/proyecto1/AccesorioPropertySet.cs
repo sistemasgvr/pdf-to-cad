@@ -20,6 +20,10 @@ using Exception = System.Exception;
 //
 //    Tipo_Accesorio  Codo | Tee | Wye | Cruz      (pedido de material)
 //    Angulo_Grados   ángulo característico         (pedido de material)
+//                    codo = ángulo ENTRE las dos tuberías (180° = recta; un codo
+//                    AWWA de 45° da 135°), como lo pide el usuario y lo muestra la
+//                    app. El XDATA ANGULO sigue guardando el GIRO (deflexión): lo usa
+//                    el rótulo del perfil «45° BEND». Ver AnguloVisible.
 //    Diametro_Pulg   «12» o «12 x 8» si reduce     (pedido de material)
 //    Material        material de la red            (pedido de material)
 //    Cota_Eje_Pies   elevación del eje en la pieza (replanteo / perfil)
@@ -34,10 +38,21 @@ namespace Civil3DBasico
     {
         internal const string NOMBRE = "PDFCAD_Accesorio";
 
+        /// <summary>
+        /// Ángulo que ve el usuario a partir del XDATA ANGULO: en el codo, el ángulo
+        /// ENTRE las dos tuberías (180° − giro); en Tee/Wye/cruz, el mismo del XDATA
+        /// (ramal contra tronco / entre las dos rectas).
+        /// </summary>
+        internal static double AnguloVisible(string tipo, double anguloXData)
+        {
+            bool codo = string.Equals((tipo ?? "").Trim(), "ELBOW", StringComparison.OrdinalIgnoreCase);
+            return codo && anguloXData > 0 ? 180.0 - anguloXData : anguloXData;
+        }
+
         private static readonly (string nombre, AecPD.DataType tipo, string descripcion)[] PROPIEDADES =
         {
             ("Tipo_Accesorio", AecPD.DataType.Text, "Tipo de accesorio: Codo, Tee, Wye, Cruz o Reducción"),
-            ("Angulo_Grados",  AecPD.DataType.Real, "Ángulo característico de la pieza, en grados"),
+            ("Angulo_Grados",  AecPD.DataType.Real, "Ángulo de la pieza en grados (codo: ángulo entre las dos tuberías)"),
             ("Diametro_Pulg",  AecPD.DataType.Text, "Diámetro nominal en pulgadas (principal x ramal si reduce)"),
             ("Material",       AecPD.DataType.Text, "Material de la tubería que une"),
             ("Cota_Eje_Pies",  AecPD.DataType.Real, "Elevación del eje de la pieza, en pies"),
@@ -75,13 +90,14 @@ namespace Civil3DBasico
                     : $"{pal.ToString("0.##", CultureInfo.InvariantCulture)} x {ram.ToString("0.##", CultureInfo.InvariantCulture)}";
 
                 Escribir(ps, "Tipo_Accesorio", NombreTipo(V("TIPO")));
-                Escribir(ps, "Angulo_Grados", Math.Round(Num(V("ANGULO")), 1));
+                double ang = AnguloVisible(V("TIPO"), Num(V("ANGULO")));
+                Escribir(ps, "Angulo_Grados", Math.Round(ang, 2));
                 Escribir(ps, "Diametro_Pulg", diam);
                 Escribir(ps, "Material", V("MATERIAL"));
                 Escribir(ps, "Cota_Eje_Pies", Math.Round(Num(V("COTA_EJE_FT")), 3));
 
                 ed?.WriteMessage($"\n    · [PROPERTY SET] «{NOMBRE}»: {NombreTipo(V("TIPO"))}, " +
-                    $"{Num(V("ANGULO")):F1}°, Ø{diam}\", {V("MATERIAL")}, eje {Num(V("COTA_EJE_FT")):F2} ft.");
+                    $"{ang:0.##}°, Ø{diam}\", {V("MATERIAL")}, eje {Num(V("COTA_EJE_FT")):F2} ft.");
                 return true;
             }
             catch (Exception ex)

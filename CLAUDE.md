@@ -678,10 +678,73 @@ alcantarillado, drenaje, gas, eléctrico, telecom). Todo en **unidades imperiale
     `PDFCAD_STRUCT` + `SOLID=1, SOLID_CX/CY, SOLID_ROT_DEG, SOLID_H_FT` (+ LENGTH/WIDTH_FT);
     el plugin NO crea estructura en ese vértice (tramos por extremo libre) y `CrearSolidos`
     dibuja un Solid3d en `PDFCAD_SOLIDOS` con base en el sump (o SUMP, RIM−h, 0).
+    Cota SUPERIOR (2026-09-30): `solid_top_z` (None = automática = cota de la utilidad
+    unida en su vértice, `Main._solid_default_top` vía `_pipe_z_at`, la mayor si llegan
+    varias) → `SOLID_TOP_Z`; si viene, manda: base = top − h. Property Set
+    `PDFCAD_Solido` (`SolidoPropertySet.cs`): Codigo, Largo/Ancho/Altura, Cota_Superior/
+    Base + cada `XD_*` (sin prefijo) y `XDU_*` («Usuario_…») de la estructura; la
+    definición se amplía sola con los campos que falten.
     `Main` delega y solo asigna/dibuja.
+  - **Normativas de diseño** (2026-09-30): `normativas.py` (PURO) = motor escalable: `TIPOS` (tipo de
+    regla: categoría, `Campo`s que la ventana dibuja sola —`grados_lista|grados|pies|utilidades`— y
+    `verificar(regla, Contexto) -> Resultado`), `REGLAS_BASE` (valores iniciales AWWA: codos
+    11.25/22.5/45/90° = 168.75/157.5/135/90° ENTRE tuberías, Tee 90°, Wye 45°, cruz 90°, ±1°;
+    el CODO se mide entre las dos tuberías —«lado B», pedido del usuario 2026-10-01— y su giro va en
+    `a["giro"]`; el catálogo v1 guardaba giros y `cargar_catalogo` los convierte), catálogo GLOBAL (`ruta_global`, %APPDATA%/
+    pdf-to-cad/normativas.json, solo las diferencias con la base; env `PDFCAD_NORMATIVAS` en tests) y
+    activación POR PROYECTO (`Main.normas_estado` → `.digproj` `normativas_activas`). Regla nueva =
+    un `TipoRegla` + (opcional) su entrada en `REGLAS_BASE`; la UI no cambia. `accesorios.py` (PURO):
+    tipo + ángulo de cada accesorio de presión con las reglas del plugin (extremos de tramo de la
+    misma red a ≤0.5 ft y ≤0.10 ft de cota, T a mitad de tramo, `FusionarCodosSeguidos` ANTES de
+    agrupar; rejilla espacial: 300 utilidades ≈ 90 ms). `accesorios_view.py`: etiqueta «Codo 45°»
+    (roja = obligatoria incumplida, ámbar = recomendada) en `Main._draw_accesorios` (cada `_redraw`);
+    `btn_normas` en la barra de estado; toggle `act_show_acc` (Ver y Normativas). Ventana
+    `normativas_dialog.py` = QWebEngineView + QWebChannel (`PuenteNormas`) sobre
+    `docs/normativas_ui.html` (SIN textos propios: llegan en `_TEXTOS` traducidos; tema por tokens);
+    `main()` fija `AA_ShareOpenGLContexts` antes de la QApplication. Solo avisa: no mueve geometría
+    ni cambia el plugin. Tests: `tests/test_normativas.py`.
+    **Excel** (2026-10-02): `normativas_excel.py` = plantilla UNIVERSAL (`COLUMNAS`: una fila por regla,
+    encabezados/listas en español fijo = formato de datos, columnas grises de TRAZABILIDAD; hojas
+    Instrucciones/Reglas/Referencias/Notas/Documento/Listas; `exportar`/`importar` → reglas, anexos,
+    errores por fila). `normativas_clearance.py` convierte el Excel de «clearance tables» de los
+    ingenieros (tablas por hoja, «5' MIN.¹», superíndices = referencias por hoja → `REF-nn` únicas,
+    asteriscos → notas): NADA se pierde (`celdas_no_usadas` = [] y test de textos sobre el Excel
+    real); lo dudoso = estado «Revisar». Tipos nuevos `separacion_horizontal|vertical`, `recubrimiento`,
+    `requisito` (`_sin_revision`: se guardan/editan, aún no se verifican; `Resultado.pendiente`).
+    `normativas.json` guarda además `referencias`/`notas`/`documento` (`cargar_anexos`,
+    `Main.normas_anexos`); `fusionar` (importar) y `quitar` (reglas importadas). Ventana simplificada
+    (fila: interruptor · título · valor · estado · Detalles; buscador). Tests:
+    `tests/test_normativas_excel.py`.
+  - **Unir utilidades** (2026-10-02): `unir_utilidades.py` (PURO) `planificar(pipes, filas, base,
+    ft_per_px)` → `Plan` (pipe unida, empalmes, absorbidas, avisos): encadena punta con punta desde la
+    BASE (la 1.ª seleccionada, `Main._orden_sel`; sus datos mandan), `invertir` las que van al revés,
+    ≤0.5 ft = mismo vértice, hueco ≤10 ft = tramo recto; ramal (T), otro tipo o lejos → error con motivo.
+    Cotas: en el empalme quedan explícitas la de llegada/salida y, si no coinciden, antes se congelan
+    (`snapshot_seg_values`) las interpoladas; corre `vertex_kinds`/`fillets`. `Main.unir_utilidades`
+    (Ctrl+J, Edición, menú en bloque, clic derecho en el lienzo `_canvas_context_menu`): vista previa
+    verde, confirma, pasa bancoducto y `cross_connections` a la base y `_delete_pipes`. Ctrl+clic en el
+    lienzo = `_toggle_pipe_selection`; todas las seleccionadas se resaltan. `_snap_state` ahora guarda
+    `cross_connections`. Tests: `tests/test_unir_utilidades.py`.
   - `model.py` — constantes, `VERSION`, `CHANGELOG`, capas Z, tabs.
   - `dxf_export.py` — exporta el DXF con XDATA `PDFCAD`.
   - `civil_catalog.py` — lee el catálogo imperial de Civil 3D (familias/tamaños/GUID).
+  - **Agregar tamaño** (2026-10-02, botón verde «+» junto a `prop_size`/`bz_size`:
+    `Main._boton_mas`/`_agregar_tamano`): `catalogo_tamanos.py` (PURO) + `_presion.py` +
+    `_dialog.py`. Escribe en TODAS las instalaciones ≥2025 × idioma (`instalaciones()`); la
+    familia se identifica por lo que NO se traduce: nombre del ARCHIVO .xml (gravedad,
+    conductos, buzones) o `subcat|PART_FAMILY_NAME` (presión; PART_FAMILY_ID se repite).
+    Formatos: FILAS (`<Column>/<Row>` + `RowUnique` UUID v5 determinista; extras como WTh
+    interpolados), LISTAS (`<ColumnConstList>/<Item>`), PRESIÓN (clona la fila
+    `WA_PIPE_MODEL` más cercana + `WA_CONNECTION_POINT` y crea los accesorios que falten).
+    XML editado como TEXTO (BOM, CRLF y xlink intactos), respaldo `.pdfcad.bak`, repetir =
+    `ya_existia`. Gravedad deja `Pipes Catalog/pdfcad_regenerar.txt`: el plugin
+    (`CatalogoTamanos.cs`) lo ve al empezar IMPORTAR_RED → encola `PARTCATALOGREGEN` P y S +
+    IMPORTAR_RED (PREPARAR_FAMILIAS borra la marca); `AgregarTamanoExacto` mete la medida
+    exacta en la lista del dibujo (estructuras W×L/diámetro y tuberías W×H; el diámetro
+    circular ya lo hacía `AgregarTamañoPipe`); presión: `AsegurarTuboPresion` copia el tubo
+    del `pl.Catalog` (reflexión) con `AddPart`, y `MatchPresionTubo` ahora sí filtra por
+    familia (`DescripcionDeFamilia`: la Description lleva «N in-» dentro del nombre).
+    Tests: `tests/test_catalogo_tamanos.py` (ProgramData sintético) y `_ventana.py`.
   - `geo/` — georreferenciación: `georef.py` (ajuste), `georef_dialog.py` (UI),
     `la_reference.py` (calles/parcelas de NavigateLA).
 - Raíz — **pipeline de digitalización**: `config.py`, `vector_pipeline.py`,
@@ -693,6 +756,22 @@ alcantarillado, drenaje, gas, eléctrico, telecom). Todo en **unidades imperiale
   la página sin OCG = escaneo aunque lleve anotaciones vectoriales con texto).
 - `API-CIVIL/proyecto1/proyecto1/` — **plugin C# de Civil 3D** (.NET 8). Lee el DXF
   y crea las redes. Comando clave: `IMPORTAR_RED` ([ImportarRed.cs]).
+  **Perfil longitudinal** (`CREAR_PERFIL_RED`, alias `CREAR_PERFIL_PRESION`; prueba de humo
+  `PDFCAD_PERFIL_PRUEBA`): 19 archivos `Perfil*.cs` según `API-CIVIL/proyecto1/docs/PERFIL_DISENO.md`
+  (fases T0–T6, todo nativo: eje propio `PDFCAD_PERFIL_EJE`, terreno, ProfileView por hoja,
+  AddToProfileView + overrides, StationElevationLabel con override de texto). Cinco módulos PUROS
+  (`PerfilRecorrido`, `PerfilDiseno*` ×3, `PerfilTextos`, sin `using Autodesk`) con arnés
+  `API-CIVIL/proyecto1/PerfilPruebas` (`dotnet run -c Release`, 173 casos de F.12). Ojo: el diseño
+  C.5 decía que un arco con bulge > 0 cae «a la izquierda»: cae a la DERECHA (corregido en código).
+  Log de cada ejecución: `%TEMP%\PDFCAD_Perfil.log`.
+  **Quiebres mínimos** (2026-09-30): `EnderezarQuiebres` (`ImportarRedEnderezar.cs`, antes de agrupar redes)
+  quita en gravedad/conduit los vértices con giro ≤2° y ≤0.25 ft de la recta sin nada encima (buzón visible,
+  caja, sólido, curva, ANCLA de un codo —vecino de un vértice curvo: mide el tubo del codo—, otra tubería a ≤1 ft,
+  pieza distinta, caída o cambio de pendiente) → un tubo recto (dos en ángulo se montan/abren en planta y 3D; no
+  hay limpieza de uniones en la API de estilos). Núcleo PURO `EnderezarNucleo.cs`, casos en el arnés `PerfilPruebas`.
+  **Ángulo del codo** (2026-10-01): el XDATA `ANGULO` de la pieza sigue siendo el GIRO (lo usa el rótulo del
+  perfil «45° BEND»); el Property Set `PDFCAD_Accesorio.Angulo_Grados` y `LISTAR_ACCESORIOS` muestran el
+  ángulo ENTRE tuberías (`AccesorioPropertySet.AnguloVisible`: codo = 180° − giro), igual que la app.
 - `installer/` — bundle del plugin + Inno Setup. `build_all.bat` (raíz) arma todo.
 - `tests/` — pruebas de humo headless (pytest, 27): georref (`fit`), modelo Georef,
   catálogo (`family_guid`), serialización (`project_io`) y operaciones de modelo

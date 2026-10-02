@@ -91,15 +91,19 @@ def test_disenador_asigna_varias(win):
     from duct_bank_dialog import DuctBankDialog
     dlg = DuctBankDialog(win, initial=win.duct_banks[0], pipes=win.pipes,
                          pipe_thumb=win._pipe_thumbnail, taken={4: "B"})
-    marcadas = [dlg.lst_pipes.item(r).checkState() == QtCore.Qt.Checked
-                for r in range(dlg.lst_pipes.count())]
-    assert marcadas == [False, True, False, True, False]
+    filas = [(int(dlg.lst_pipes.item(r).data(QtCore.Qt.UserRole)),
+              dlg.lst_pipes.item(r).checkState() == QtCore.Qt.Checked)
+             for r in range(dlg.lst_pipes.count())]
+    # Las asignadas van PRIMERO (en orden de número), luego el resto.
+    assert filas == [(1, True), (3, True), (0, False), (2, False), (4, False)]
     assert dlg.result_model().assigned() == [1, 3]
     dlg.ed_pipe_filter.setText("#5")
     dlg._set_all_pipes(True)                 # solo la visible (#5)
     assert dlg.result_model().assigned() == [1, 3, 4]
+    dlg._sort_pipes()
+    assert [int(dlg.lst_pipes.item(r).data(QtCore.Qt.UserRole)) for r in range(5)] == [1, 3, 4, 0, 2]
     assert "reemplazar" in dlg.lbl_pipe_status.text()
-    pix, cap = dlg._pipe_preview(dlg.lst_pipes.model().index(4, 0))
+    pix, cap = dlg._pipe_preview(dlg.lst_pipes.model().index(2, 0))   # fila 2 = utilidad #5 (tras ordenar)
     assert pix is not None and "B" in cap           # ya tiene «B»: se avisa
     # Sin show(): mostrar el diseñador en el proceso de pytest deja un objeto
     # que revienta después en la recolección de basura (pasa igual con el
@@ -123,3 +127,17 @@ def test_globo_de_miniatura_reemplaza_tooltip(win):
     assert tip(0) is True and hp._popup.isVisible()
     assert tip(1) is False and not hp._popup.isVisible()   # None → tooltip normal
     lst.close()
+
+
+def test_borrar_utilidad_con_bancoducto_lo_avisa(win, monkeypatch):
+    vistos = []
+    monkeypatch.setattr(QtWidgets.QMessageBox, "question",
+                        lambda *a, **k: (vistos.append(a[2]), QtWidgets.QMessageBox.No)[1])
+    win._show_tab(0)
+    _select(win, [1, 2], current=1)          # la #2 lleva «A», la #3 no
+    win.delete_selected()
+    assert "⚠" in vistos[-1] and "«A»" in vistos[-1] and "#2" in vistos[-1]
+    win.pipe_list.clearSelection(); _select(win, [], current=0)   # solo la #1 (sin bancoducto)
+    win.delete_selected()
+    assert "⚠" not in vistos[-1]
+    assert len(win.pipes) == 5               # respondió «No»: nada borrado

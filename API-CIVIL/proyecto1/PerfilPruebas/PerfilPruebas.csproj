@@ -1,0 +1,19 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- Arnés de pruebas de los módulos PUROS del perfil longitudinal (DISENO.md A.2 / F.12).
+       Fuera de proyecto1/ para que el glob del plugin no lo compile. Sin referencias Autodesk. -->
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net8.0</TargetFramework>
+    <ImplicitUsings>disable</ImplicitUsings>
+    <Nullable>disable</Nullable>
+    <LangVersion>latest</LangVersion>
+  </PropertyGroup>
+  <ItemGroup>
+    <Compile Include="..\proyecto1\PerfilRecorrido.cs" />
+    <Compile Include="..\proyecto1\PerfilDiseno.cs" />
+    <Compile Include="..\proyecto1\PerfilDisenoFranjas.cs" />
+    <Compile Include="..\proyecto1\PerfilDisenoFila.cs" />
+    <Compile Include="..\proyecto1\PerfilTextos.cs" />
+    <Compile Include="..\proyecto1\EnderezarNucleo.cs" />
+  </ItemGroup>
+</Project>

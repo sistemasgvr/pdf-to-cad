@@ -1213,7 +1213,35 @@ class DuctBankDialog(QtWidgets.QDialog):
             if not it.isHidden():
                 it.setCheckState(st)
         self.lst_pipes.blockSignals(False)
+        self._sort_pipes()
         self._update_pipe_status()
+
+    def _sort_pipes(self):
+        """Las utilidades MARCADAS van primero (en orden de número), luego el
+        resto: así se ven juntas todas las asignadas. Conserva el filtro y la
+        fila bajo el cursor."""
+        lst = self.lst_pipes
+        items = [lst.item(r) for r in range(lst.count())]
+        key = lambda it: (it.checkState() != QtCore.Qt.Checked, int(it.data(QtCore.Qt.UserRole)))
+        if [id(i) for i in items] == [id(i) for i in sorted(items, key=key)]:
+            return
+        cur = lst.currentItem()
+        cur_i = int(cur.data(QtCore.Qt.UserRole)) if cur is not None else None
+        bar = lst.verticalScrollBar().value()
+        lst.blockSignals(True)
+        try:
+            taken = [(lst.takeItem(0)) for _ in range(lst.count())]
+            for it in sorted(taken, key=key):
+                lst.addItem(it)
+            if cur_i is not None:
+                for r in range(lst.count()):
+                    if int(lst.item(r).data(QtCore.Qt.UserRole)) == cur_i:
+                        lst.setCurrentRow(r); break
+            lst.verticalScrollBar().setValue(bar)
+        finally:
+            lst.blockSignals(False)
+        if getattr(self, "_pipe_hover", None) is not None:
+            self._pipe_hover.clear_cache()      # la caché va por fila
 
     def _filter_pipes(self, text: str):
         q = (text or "").strip().lower()
@@ -1454,6 +1482,7 @@ class DuctBankDialog(QtWidgets.QDialog):
             self.lst_pipes.addItem(it)
         from thumbnails import HoverPreview
         self._pipe_hover = HoverPreview(self.lst_pipes, self._pipe_preview)
+        self._sort_pipes()                         # las ya asignadas, arriba
         self.ed_pipe_filter = QtWidgets.QLineEdit()
         self.ed_pipe_filter.setPlaceholderText(_tr("Filtrar utilidades…"))
         self.ed_pipe_filter.setClearButtonEnabled(True)
@@ -1801,7 +1830,9 @@ class DuctBankDialog(QtWidgets.QDialog):
         self.sel_d.valueChanged.connect(lambda v: self._edit_sel(d=v))
         self.sel_lbl.textChanged.connect(lambda s: self._edit_sel(lbl=s))
         self.btn_del_sel.clicked.connect(self._del_selected)
-        self.lst_pipes.itemChanged.connect(lambda _it: self._update_pipe_status())
+        # Reordenar DESPUÉS del clic (no mover el ítem dentro de su propia señal).
+        self.lst_pipes.itemChanged.connect(
+            lambda _it: (self._update_pipe_status(), QtCore.QTimer.singleShot(0, self._sort_pipes)))
         self.ed_pipe_filter.textChanged.connect(self._filter_pipes)
         self.btn_pipes_all.clicked.connect(lambda: self._set_all_pipes(True))
         self.btn_pipes_none.clicked.connect(lambda: self._set_all_pipes(False))

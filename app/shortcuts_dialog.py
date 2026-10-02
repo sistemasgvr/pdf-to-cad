@@ -19,6 +19,8 @@ _FIXED = [
         (N_("Ctrl + clic"), N_("Agregar o quitar una utilidad de la selección")),
         (N_("Shift + clic"), N_("Seleccionar un rango de utilidades")),
         ("Ctrl+A", N_("Seleccionar todas las utilidades (con la lista activa)")),
+        (N_("Ctrl + clic (lienzo)"), N_("Sobre una utilidad: sumarla o quitarla de la selección")),
+        (N_("Clic derecho (lienzo)"), N_("Sobre una utilidad: su menú (con varias seleccionadas, «Unir en una utilidad»)")),
         (N_("Clic derecho"), N_("Con varias seleccionadas: eliminar, cambiar tipo, crear o asignar bancoducto, quitarlo")),
         (N_("Clic derecho"), N_("Seleccionar todas las de un mismo tipo")),
         ("Supr", N_("Eliminar las utilidades seleccionadas (pide confirmación)")),

@@ -256,6 +256,28 @@ Los tres flujos se pueden re-ejecutar sin duplicar: gravedad salta familias/tama
 ya presentes; el filler usa PID determinista + COUNT previo; Wye salta por
 `Description` los `PartType==Wye` ya cargados.
 
+### 4.7 Tamaño nuevo desde la app (botón verde «+», 2026-10-02)
+
+La APP escribe el catálogo (`app/catalogo_tamanos.py`) y el plugin solo lo usa:
+
+- **Clave de familia que no cambia con el idioma**: archivo `.xml` (gravedad,
+  conductos, buzones; su `desc` SÍ se traduce) o `subcat|PART_FAMILY_NAME` (presión).
+  Se escribe en todas las C3D ≥ 2025 × `esp`/`enu` instaladas.
+- **XML**: filas (`<Row>` en cada `<Column>` + `<RowUnique>` UUID v5) o listas
+  (`<Item>` en cada `<ColumnConstList>`), editado como texto. Deja
+  `Pipes Catalog\pdfcad_regenerar.txt` → `IMPORTAR_RED` (`CatalogoTamanos.cs`) encola
+  `PARTCATALOGREGEN` P y S y se relanza; luego `AgregarTamanoExacto` (técnica de §1:
+  cada eje fijo, demás listas en `ValueList[0]`, sin multi-select) pone la medida
+  exacta en la lista del dibujo.
+- **SQLite de presión**: clona el tubo más cercano + sus puntos de conexión y crea
+  los accesorios del diámetro (como el filler de §2). Exige Civil 3D CERRADO (el
+  sqlite queda bloqueado y C3D lo cachea). En el plugin `AsegurarTuboPresion`
+  copia el tubo de `pl.Catalog` (reflexión, §4.2) con `AddPart`; ojo: es el
+  catálogo PROPIO de la lista (§3), una familia de otro `.sqlite` no aparece ahí.
+- La `Description` de presión lleva el diámetro DENTRO del nombre de la familia
+  (`pipe-10 in-flanged-…` vs `pipe-flanged-…`): para emparejar hay que quitar
+  «N in-» antes de comparar (`DescripcionDeFamilia`).
+
 ---
 
 ## 5. Comandos de diagnóstico (dejar en el plugin)

@@ -293,8 +293,15 @@ def _solid_items(win, s):
     ax, ay = win._to_cad(c0[0] + ul[0] * 10.0, c0[1] + ul[1] * 10.0)
     rot = math.degrees(math.atan2(ay - cy, ax - cx))
     h = float(s.get("solid_height_ft") or model_ops.SOLID_DEFAULT_H_FT)
+    # Cota SUPERIOR (manda la tapa): la del usuario o la de la utilidad unida.
+    top = None
+    if hasattr(win, "_solid_top_value"):
+        top, _auto = win._solid_top_value(s)
+    elif s.get("solid_top_z") is not None:
+        top = float(s["solid_top_z"])
     return [(1000, "SOLID=1"), (1000, f"SOLID_CX={cx}"), (1000, f"SOLID_CY={cy}"),
-            (1000, f"SOLID_ROT_DEG={rot}"), (1000, f"SOLID_H_FT={h}")]
+            (1000, f"SOLID_ROT_DEG={rot}"), (1000, f"SOLID_H_FT={h}"),
+            (1000, f"SOLID_TOP_Z={top if top is not None else ''}")]
 
 
 def _export_structures(win, doc, msp):

@@ -164,14 +164,14 @@
                     </StackPanel>
                 </Border>
 
-                <!-- PERFIL LONGITUDINAL: vista de perfil con rasante, buzones y cotas -->
+                <!-- PERFIL LONGITUDINAL: CREAR_PERFIL_RED (eje, terreno, tuberías, cruces y rótulos nativos) -->
                 <Border Style="{StaticResource Tarjeta}">
                     <StackPanel>
                         <StackPanel Orientation="Horizontal" Margin="0,0,0,4">
                             <Border Width="4" CornerRadius="2" Background="{StaticResource brVerde}" Margin="0,1,9,1"/>
                             <StackPanel>
                                 <TextBlock Text="PERFIL LONGITUDINAL" Foreground="{StaticResource brTexto}" FontSize="12.5" FontWeight="Bold"/>
-                                <TextBlock Text="Rasante, buzones y cotas máx/mín de una red de gravedad" Foreground="{StaticResource brTextoTenue}" FontSize="10.5"/>
+                                <TextBlock Text="Eje, terreno, tuberías, cruces y rótulos nativos (gravedad, conduit y presión)" Foreground="{StaticResource brTextoTenue}" FontSize="10.5"/>
                             </StackPanel>
                         </StackPanel>
                         <Button x:Name="btnPerfilLongitudinal" Style="{StaticResource Boton}" Background="{StaticResource brVerde}"

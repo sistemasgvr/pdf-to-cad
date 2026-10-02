@@ -218,7 +218,11 @@ working on, and repeats steps 2 and 3 with the new sheet. Everything is saved in
     <td bgcolor="{{card}}"><b>Square:</b> a vertex (a bend) of another pipe.</td></tr>
 <tr><td bgcolor="{{card}}" align="center"><img src="mark:snap_tramo"></td>
     <td bgcolor="{{card}}"><b>Triangle:</b> a point in the middle of a segment.</td></tr>
+<tr><td bgcolor="{{card}}" align="center"><img src="mark:snap_solido"></td>
+    <td bgcolor="{{card}}"><b>Diamond:</b> the edge or a corner of a <b>solid</b> (of any utility).</td></tr>
 </table>
+<p>The same magnet works when you <b>edit/move</b>: dragging the <b>first or last</b> vertex of a
+pipe snaps it to another pipe of the same type or to the edge of a solid.</p>
 <p>If you start at the end of another pipe of the same type, the app asks whether to
 <b>continue it</b> (same utility) or <b>create a new one</b> that touches it.</p>
 
@@ -229,17 +233,83 @@ working on, and repeats steps 2 and 3 with the new sheet. Everything is saved in
 </td></tr></table>
 </section>
 
+<section data-title="Joining utilities">
+<p>Joins two or more utilities of the same type into <b>a single one</b> (one polyline and one network in
+Civil 3D). It is useful, for example, when recognition left a pipe split into several pieces.</p>
+
+<h2>How to do it</h2>
+<ol>
+<li><b>Select the utilities</b>, in one of these two ways:
+    <ul>
+    <li>In the <b>Utilities</b> list: <span class="key">&nbsp;Ctrl&nbsp;</span> + click on each one.</li>
+    <li>On the <b>plan</b>: <span class="key">&nbsp;Ctrl&nbsp;</span> + click on each line. Selected ones
+        look thicker; another Ctrl + click on one removes it.</li>
+    </ul></li>
+<li>Press <span class="key">&nbsp;Ctrl+J&nbsp;</span>, or <b>right click</b> (in the list or on one of the
+    lines on the plan) → <b>Join into one utility</b>. It is also in <b>Edit → Join selected
+    utilities</b>.</li>
+<li>A <b>preview</b> appears: the resulting utility as a <b>dashed green</b> line and a green circle at each
+    joint. Read the message and press <b>Yes</b> to join or <b>No</b> to leave it as it was.</li>
+</ol>
+
+<h2>What must be true</h2>
+<table width="100%" cellspacing="4" cellpadding="10">
+<tr><td bgcolor="{{card}}" width="32%"><b>End to end</b></td>
+    <td bgcolor="{{card}}">They are joined at their ends. If they touch (less than 0.5 ft apart) they are
+        joined at one vertex. If there is a gap of up to 10 ft, it is closed with a <b>straight run</b>
+        and the message warns you first.</td></tr>
+<tr><td bgcolor="{{card}}"><b>Same type</b></td>
+    <td bgcolor="{{card}}">Water with water, gas with gas… Types are not mixed.</td></tr>
+<tr><td bgcolor="{{danger}}"><b>Not a branch</b></td>
+    <td bgcolor="{{card}}">If one ends in the <b>middle</b> of the other, that is a tee (a branch), not a
+        continuation: they are not joined and the app explains why.</td></tr>
+</table>
+
+<h2>What happens to the data</h2>
+<ul>
+<li>The <b>first</b> utility you selected wins: its name, diameter, material and family go to the whole
+    joined utility. If any had other values, the preview message tells you which change.</li>
+<li>The <b>elevations</b> of each run are kept; at each joint the arriving and leaving elevations stay.</li>
+<li>Curves, manholes and boxes, the duct bank and approved vertical connections are kept.</li>
+<li>If one was drawn backwards, it is reversed automatically.</li>
+</ul>
+<table width="100%" cellspacing="0" cellpadding="12"><tr>
+<td width="6" bgcolor="{{tip_border}}"></td><td bgcolor="{{tip}}">
+<b>Tip:</b> everything is undone at once with <span class="key">&nbsp;Ctrl+Z&nbsp;</span>.
+</td></tr></table>
+</section>
+
 <section data-title="Pipe data">
 <p>Select the pipe in the <b>Utilities</b> list. In the <b>Properties</b> panel:</p>
 <table width="100%" cellspacing="4" cellpadding="10">
 <tr><th align="left" width="30%">Field</th><th align="left">What it is for</th></tr>
 <tr><td bgcolor="{{card}}"><b>Name</b></td><td bgcolor="{{card}}">Network name in Civil 3D (for example «Linea Norte»). If empty, the network is called RED-AGUA, RED-GAS, etc.</td></tr>
-<tr><td bgcolor="{{card}}"><b>Family and Size</b></td><td bgcolor="{{card}}">Civil 3D catalog part. Listed for the version and language chosen on the top bar.</td></tr>
+<tr><td bgcolor="{{card}}"><b>Family and Size</b></td><td bgcolor="{{card}}">Civil 3D catalog part. Listed for the version and language chosen on the top bar. If the size you need is missing, use the green <b>+</b> button (see below).</td></tr>
 <tr><td bgcolor="{{card}}"><b>Start / end elevation</b></td><td bgcolor="{{card}}">Elevation of the pipe bottom (in feet) at the start and the end.</td></tr>
 <tr><td bgcolor="{{card}}"><b>Material</b></td><td bgcolor="{{card}}">From a fixed list that matches the catalog.</td></tr>
 <tr><td bgcolor="{{card}}"><b>Abandoned</b></td><td bgcolor="{{card}}">Marks a pipe that is out of service. In Civil 3D it shows dashed in 3D.</td></tr>
 <tr><td bgcolor="{{card}}"><b>Elevations per segment</b></td><td bgcolor="{{card}}">Press «Enable per-segment editing» to give each segment (T1, T2…) its own elevation.</td></tr>
 </table>
+
+<h2>Adding a size that is not in the catalog</h2>
+<p>The green <span class="btn">+</span> button to the right of <b>Size</b> (in <b>Utilities</b>
+and in <b>Manholes</b>) adds a new size to the chosen family:</p>
+<ol>
+<li>Choose the <b>family</b> first.</li>
+<li>Press <span class="btn">+</span> and type the size: the diameter, or the width and height
+    (or length, for manholes).</li>
+<li>The wall thickness and other data are calculated from the neighboring sizes; you can
+    correct them.</li>
+<li>Check which Civil 3D gets it (every version from 2025 on, in Spanish and English) and press
+    <span class="btn">Add size</span>. The new size is selected.</li>
+</ol>
+<p>When the DXF is imported, the plugin updates the Civil 3D catalog and draws the exact size.</p>
+<table width="100%" cellspacing="0" cellpadding="12"><tr>
+<td width="6" bgcolor="{{info_border}}"></td><td bgcolor="{{info}}">
+<b>Water and gas:</b> close Civil 3D before adding the size (its catalog is in use while it is
+open). The app also creates the bends and other fittings of that diameter.<br>
+If you see «No permission to write the catalog», run the app as administrator.
+</td></tr></table>
 
 <h2>Extended data</h2>
 <p>The green <span class="btn">View extended data</span> button (next to «Delete», also in
@@ -269,8 +339,8 @@ shows the maximum allowed.</p>
 <li>The app automatically places a <b>manhole</b> (BZ-) at each sewer and storm drain vertex.</li>
 <li><b>Electrical and telecom</b> networks have few boxes: the app only places a <b>box</b>
     (CAJA-) where the PDF plan has a real vault, with its measurements. You add the rest.</li>
-<li>In the <b>Manholes</b> list you change their family, size and elevations.</li>
-<li>Square boxes coming from the PDF show as <b>SÓLIDO</b> (solid): no family; you adjust their <b>Length</b> and <b>Width</b> (the drawing resizes) and their <b>Height</b> (2 m by default). In Civil 3D they are created as 3D solids.</li>
+<li>In the <b>Manholes</b> list you change their family, size and elevations. If a size is missing, the green <b>+</b> button adds it (see «Pipe data»).</li>
+<li>Square boxes coming from the PDF show as <b>SÓLIDO</b> (solid): no family; you adjust their <b>Length</b> and <b>Width</b> (the drawing resizes) and their <b>Height</b> (2 m by default). The <b>Top elevation</b> drives the top: by default the attached utility's (↺ returns to it). In Civil 3D they are created as 3D solids with their extended data as a Property Set.</li>
 <li>To add one in the middle of a line: <b>Tools → Insert manhole in-line…</b></li>
 <li><b>Hide manhole</b> removes a manhole that does not really exist; the network stays connected.</li>
 </ul>
@@ -383,6 +453,99 @@ These alerts do not appear on storm drain and sewer: there the manhole handles d
 </td></tr></table>
 </section>
 
+<section data-title="Design standards">
+<p>The <b>Standards → Design standards…</b> menu (<span class="key">&nbsp;Ctrl+Shift+N&nbsp;</span>)
+opens a window with the rules the app checks in your design before taking it to Civil 3D.
+You can keep it open while you draw: it updates by itself.</p>
+
+<h2>Fittings on the plan</h2>
+<p>In water and gas, next to each point where Civil 3D will place a solid fitting there is a label
+with its <b>type and angle</b>: «Bend 135°», «Tee 90°», «Wye 45°», «Cross 90°».</p>
+<p>For a bend, the angle is the one <b>the two pipes form with each other</b> (180° = straight).
+A commercial «45°» bend leaves the pipes at <b>135°</b>; the tooltip also shows how much the
+pipe turns. The same angle goes to the bend's Property Set in Civil 3D.</p>
+<table width="100%" cellspacing="4" cellpadding="10">
+<tr><td bgcolor="{{card}}" width="30%"><b>Dark label</b></td>
+    <td bgcolor="{{card}}">Meets the active design standards.</td></tr>
+<tr><td bgcolor="{{danger}}"><b>Red label ✗</b></td>
+    <td bgcolor="{{card}}">Breaks a <b>mandatory</b> standard. Hover to see which one and the closest allowed angle.</td></tr>
+<tr><td bgcolor="{{card}}"><b>Amber label ✗</b></td>
+    <td bgcolor="{{card}}">Breaks a <b>recommended</b> standard.</td></tr>
+</table>
+<p>The status bar shows «✗ N outside the standards»; click it to open the window. To hide the
+labels: <b>View → Show fittings (type and angle)</b> (checking keeps working).
+The app only warns: it does not move anything in the drawing.</p>
+
+<h2>The standards window</h2>
+<ol>
+<li>On the left, pick a category (fittings, clearances, cover, other requirements) or <b>Violations</b>,
+    each with a <b>Show on the plan</b> button.</li>
+<li>Each rule is <b>one row</b>: the switch (<b>active in this project</b>), its name, the value (for
+    example «≥ 5 ft») and its status (✓ meets, ✗ fails, or «Not checked on the plan yet»).</li>
+<li><b>Details</b> opens everything else: original text, measured from, references, notes,
+    <b>Mandatory / Recommended</b> (red or amber warning) and the values to edit them.</li>
+<li><b>Search rule…</b> filters by any word («gas track», «cover»…).</li>
+<li><b>A− / A+</b> change the text size. Everything works with the keyboard: Tab to move,
+    Space or Enter to activate.</li>
+</ol>
+<p>Initial values (AWWA): bends of 11.25°, 22.5°, 45° and 90°, which between pipes are
+<b>168.75°, 157.5°, 135° and 90°</b>; tee at 90°; wye at 45°; cross at 90°; tolerance ±1°.
+Clearances, cover and requirements that come from the Excel are stored, edited and exported, but they
+are <b>not checked on the plan yet</b> (each row says so).</p>
+
+<h2>Standards in Excel (for the engineers)</h2>
+<p>Rules are exchanged with a <b>universal Excel template</b>: one row per rule, with drop-down lists, so
+the engineer does not have to type free text.</p>
+<table width="100%" cellspacing="4" cellpadding="10">
+<tr><td bgcolor="{{card}}" width="28%"><b>Export Excel</b></td>
+    <td bgcolor="{{card}}">Saves the template with <b>all</b> the rules you have now (changed or not), with
+        their references and notes. It also works as a blank format: add rows at the end.</td></tr>
+<tr><td bgcolor="{{card}}"><b>Import Excel</b></td>
+    <td bgcolor="{{card}}">Reads the filled template. Before saving it shows how many rules are new, how many
+        are updated and the rows with errors (with their row number); those are not imported. It also
+        accepts the <b>clearance tables</b> Excel the engineers used: it converts it automatically.</td></tr>
+</table>
+<p>Template sheets:</p>
+<ul>
+<li><b>Instrucciones</b>: how to fill it in, with an example and the meaning of each column.</li>
+<li><b>Reglas</b>: Type, Utility, Condition, Against (another utility or object: railroad track, curb,
+    manhole…), Minimum and Maximum <b>in feet</b>, Measured from, References, Notes, Mandatory, Active and
+    Status. The <b>grey</b> columns are the <b>traceability</b>: the text as it came in the source table.</li>
+<li><b>Referencias</b> (which book, standard or email each rule comes from), <b>Notas</b> (clarifications)
+    and <b>Documento</b> (source file, titles and tables).</li>
+</ul>
+<table width="100%" cellspacing="0" cellpadding="12"><tr>
+<td width="6" bgcolor="{{tip_border}}"></td><td bgcolor="{{tip}}">
+<b>Nothing is lost:</b> when the tables Excel is converted, every text ends up in a rule, a reference, a
+note or the Documento sheet. Whatever the conversion did not fully understand (conditions, exceptions)
+gets the <b>Revisar</b> (review) status so the engineer can fix it in the template.
+</td></tr></table>
+
+<h2>Where the rules are stored</h2>
+<p>Each rule has two parts that are stored in different places:</p>
+<table width="100%" cellspacing="4" cellpadding="10">
+<tr><th align="left" width="24%">What</th><th align="left">Where</th><th align="left">Scope</th></tr>
+<tr><td bgcolor="{{card}}"><b>The values</b><br>(allowed angles, distances, tolerance, which
+    utilities it applies to, mandatory or recommended), the <b>rules imported</b> from Excel and their
+    <b>references and notes</b></td>
+    <td bgcolor="{{card}}">On your computer, in the file<br><b>%APPDATA%\pdf-to-cad\normativas.json</b><br>
+    (for example <i>C:\Users\your-user\AppData\Roaming\pdf-to-cad\normativas.json</i>).</td>
+    <td bgcolor="{{card}}">They apply to <b>all your projects</b> on this computer.</td></tr>
+<tr><td bgcolor="{{card}}"><b>On or off</b><br>(the «Active in this project» switch)</td>
+    <td bgcolor="{{card}}">Inside the project itself (<b>.digproj</b>), when you save it.</td>
+    <td bgcolor="{{card}}">Only that project: it travels with it if you send it to someone.</td></tr>
+</table>
+<ul>
+<li>The <b>initial values</b> come inside the app. The <i>normativas.json</i> file only stores what you
+    <b>changed</b>; if you never changed anything, it does not even exist.</li>
+<li><b>Restore initial values</b> deletes your change for that rule and goes back to the app's value.
+    <b>Remove this rule</b> deletes an imported rule (you can bring it back by importing the Excel).</li>
+<li>If a new version of the app improves the initial values, you get them automatically for the rules you did not touch.</li>
+<li>To use the same rules on another computer, <b>Export Excel</b> here and <b>Import Excel</b> there
+    (or copy the <i>normativas.json</i> file to the same folder).</li>
+</ul>
+</section>
+
 <section data-title="Georeferencing (optional)">
 <p>Places the plan at its <b>real location</b> (Los Angeles coordinates, EPSG:2229). It is
 for preliminary design: exact data comes from the survey.</p>
@@ -425,6 +588,78 @@ coordinate system code (for example <b>CA83VF</b>), type it and the drawing will
 <td width="6" bgcolor="{{warn_border}}"></td><td bgcolor="{{warn}}">
 <b>Attention:</b> if you use your own families, install them first with
 <b>Tools → Install custom family…</b> and then run <b>PREPARAR_FAMILIAS</b> in Civil 3D.
+</td></tr></table>
+</section>
+
+<section data-title="How the data travels to Civil 3D">
+<p>A summary to explain the process to a client or someone who does not use the app.
+The information goes through <b>three stages</b>:</p>
+
+<table width="100%" cellspacing="4" cellpadding="12">
+<tr>
+<td bgcolor="{{accent}}" width="30%" align="center"><font color="{{on_accent}}"><b>1 · The app</b><br>
+    You draw or recognize the pipes on the plan and fill in their data.</font></td>
+<td align="center" width="5%"><b>➜</b></td>
+<td bgcolor="{{accent}}" width="30%" align="center"><font color="{{on_accent}}"><b>2 · The DXF file</b><br>
+    It carries the lines and, attached to each one, a «data card».</font></td>
+<td align="center" width="5%"><b>➜</b></td>
+<td bgcolor="{{accent}}" width="30%" align="center"><font color="{{on_accent}}"><b>3 · The Civil 3D plugin</b><br>
+    It reads each card and builds the network in 3D.</font></td>
+</tr>
+</table>
+
+<h2>1. In the app: the drawing and its data</h2>
+<p>Each utility is a line with points on the plan. The app adds to that line what Civil 3D needs
+to know and the paper plan does not say by itself:</p>
+<ul>
+<li><b>What it is</b>: water, gas, storm drain, sewer, electrical or telecom.</li>
+<li><b>What it is like</b>: diameter, material, Civil 3D catalog family and size.</li>
+<li><b>How deep it goes</b>: elevations at the start, at the end and at each bend.</li>
+<li><b>What it carries</b>: manholes or boxes (with their rim and sump), curves with their radius,
+    solids, duct banks and whether the pipe is abandoned.</li>
+<li><b>Where it is in the world</b>: the georeference (real Los Angeles coordinates).</li>
+</ul>
+<p>Everything in <b>feet</b>. The plan scale turns each drawn point into its real measurement.</p>
+
+<h2>2. The DXF file: lines + hidden cards</h2>
+<p>When you press <span class="btn">Export DXF</span> a standard drawing file is created:</p>
+<table width="100%" cellspacing="4" cellpadding="10">
+<tr><td bgcolor="{{card}}" width="30%"><b>One line per pipe</b></td>
+    <td bgcolor="{{card}}">With its vertices in real coordinates, on one layer per utility type.</td></tr>
+<tr><td bgcolor="{{card}}"><b>One point per manhole or box</b></td>
+    <td bgcolor="{{card}}">At its location, with its code, elevations and dimensions.</td></tr>
+<tr><td bgcolor="{{card}}"><b>A «card» on each object</b></td>
+    <td bgcolor="{{card}}">Data stored inside the object itself (diameter, material, elevations, network…).
+        It is not visible in the drawing but travels with it. Only the plugin knows how to read it.</td></tr>
+</table>
+<p>If you open that DXF in AutoCAD you will only see lines and points: the cards travel inside
+them without being drawn.</p>
+
+<h2>3. In Civil 3D: the plugin builds the network</h2>
+<p>With <b>Import network from DXF</b> the plugin goes through the file and reads each object's card:</p>
+<ol>
+<li><b>It groups</b> the pipes into networks: pipes of the same type that touch end up in the same network.</li>
+<li><b>It picks the parts</b> from the Civil 3D catalog for each diameter and material.</li>
+<li><b>It raises everything to its height</b> with the card's elevations. If there is a ground
+    surface, it uses it for the manhole rims.</li>
+<li><b>It joins the parts</b> according to the network type:
+    <ul>
+    <li>Water and gas: solid bends, tees, wyes and crosses at each joint.</li>
+    <li>Storm drain and sewer: manholes at the vertices.</li>
+    <li>Electrical and telecom: boxes only where there are any, and curves with their radius.</li>
+    </ul></li>
+<li><b>It adds the extras</b>: 3D solids for the boxes, duct banks that follow the pipe, the
+    dashed style of abandoned pipes and each object's extra data (Property Sets).</li>
+<li><b>It applies the project's coordinate system</b> so everything sits in its real place.</li>
+</ol>
+<p>The result is <b>native Civil 3D objects</b> (pipe networks, structures, fittings), not loose
+drawings: they can be edited, labeled, shown in profile and measured like any network built by
+hand in Civil 3D.</p>
+
+<table width="100%" cellspacing="0" cellpadding="12"><tr>
+<td width="6" bgcolor="{{info_border}}"></td><td bgcolor="{{info}}">
+<b>In one sentence:</b> the app draws and adds the data, the DXF carries it hidden inside each
+line, and the plugin reads it to create the real network in 3D.
 </td></tr></table>
 </section>
 

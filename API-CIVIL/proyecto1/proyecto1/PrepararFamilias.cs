@@ -86,6 +86,9 @@ namespace Civil3DBasico
             // acepta tokens inline en todas las builds. Si en tu build no
             // avanza automáticamente, elige Pipe (paso 1) y Structure (paso 2)
             // manualmente cuando aparezca el diálogo — el resto sigue igual.
+            // Esta regeneración ya incluye los tamaños agregados desde la app
+            // («+»): se borra su marca para que IMPORTAR_RED no regenere otra vez.
+            ComandosRedes.TomarMarcasRegen();
             doc.SendStringToExecute("_PARTCATALOGREGEN _P ", true, false, false);
             doc.SendStringToExecute("_PARTCATALOGREGEN _S ", true, false, false);
             // Paso 2 se enqueua acá y por eso corre DESPUÉS de los dos regens.

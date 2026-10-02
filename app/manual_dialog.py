@@ -62,6 +62,9 @@ def _marca(nombre: str, lado: int = 26) -> QtGui.QImage:
             p.drawEllipse(r)
         elif nombre == "snap_vertice":
             p.drawRect(r)
+        elif nombre == "snap_solido":
+            p.drawPolygon(QtGui.QPolygonF([QtCore.QPointF(c, 4), QtCore.QPointF(lado - 4, c),
+                                           QtCore.QPointF(c, lado - 4), QtCore.QPointF(4, c)]))
         else:
             p.drawPolygon(QtGui.QPolygonF([QtCore.QPointF(c, 4), QtCore.QPointF(lado - 4, lado - 5),
                                            QtCore.QPointF(4, lado - 5)]))
@@ -70,7 +73,7 @@ def _marca(nombre: str, lado: int = 26) -> QtGui.QImage:
 
 
 _MARCAS = ("conflicto", "sugerencia", "aprobado", "alerta",
-           "snap_extremo", "snap_vertice", "snap_tramo")
+           "snap_extremo", "snap_vertice", "snap_tramo", "snap_solido")
 
 
 def _colores() -> dict:

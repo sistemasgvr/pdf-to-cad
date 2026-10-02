@@ -32,6 +32,9 @@ def build_model_dict(win):
         ref_centerlines=win.ref_centerlines,
         duct_banks=[d.to_dict() for d in getattr(win, "duct_banks", []) or []],
         cross_connections=list(getattr(win, "cross_connections", None) or []),
+        # Normativas que este proyecto activa/desactiva ({id: bool}); los valores
+        # de cada regla son globales (normativas.ruta_global).
+        normativas_activas=dict(getattr(win, "normas_estado", None) or {}),
         georef=win.georef.to_dict(),
         sheet_layout=getattr(win, "sheet_layout", None),
         sheet_rotations=getattr(win, "sheet_rotations", {}),
@@ -99,6 +102,7 @@ def parse_model(model):
         ref_centerlines=model.get("ref_centerlines", []),  # retrocompat: sin centerlines
         duct_banks=[DuctBank.from_dict(d) for d in model.get("duct_banks", [])],  # retrocompat: sin duct banks
         cross_connections=list(model.get("cross_connections", []) or []),  # retrocompat: sin conexiones aprobadas
+        normativas_activas={str(k): bool(v) for k, v in (model.get("normativas_activas") or {}).items()},
         georef=georef_mod.Georef.from_dict(model.get("georef")),  # retrocompat: sin georref → escala
         work_unit="ft",
         civil_year=model.get("civil_year"),

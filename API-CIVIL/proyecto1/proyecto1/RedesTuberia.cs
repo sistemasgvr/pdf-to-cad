@@ -679,7 +679,22 @@ namespace Civil3DBasico
                     }
                     Editor edLocal = null;
                     try { edLocal = Application.DocumentManager.MdiActiveDocument?.Editor; } catch { }
-                    if (diamNum > 0 && AgregarTamañoPipe(tr, fam, diamNum, edLocal))
+                    if (wPedido.HasValue && hPedido.HasValue)
+                    {
+                        // «W x H» (bancoducto, elíptica…): ancho y alto EXACTOS del
+                        // catálogo (tamaño agregado con el «+» de la app).
+                        var vals = new Dictionary<CivilDB.PartContextType, double>
+                        {
+                            [CivilDB.PartContextType.PipeInnerWidth] = wPedido.Value,
+                            [CivilDB.PartContextType.PipeInnerHeight] = hPedido.Value,
+                        };
+                        ObjectId reRect = SizeExacto(tr, fam, vals, out string nomRect);
+                        if (reRect == ObjectId.Null && AgregarTamanoExacto(fam, vals, edLocal))
+                            reRect = SizeExacto(tr, fam, vals, out nomRect);
+                        if (reRect != ObjectId.Null)
+                        { sizeElegido = reRect; sizeNombre = nomRect; exacto = true; }
+                    }
+                    else if (diamNum > 0 && AgregarTamañoPipe(tr, fam, diamNum, edLocal))
                     {
                         // Re-buscar: primero por InnerWidth, luego por número en el nombre
                         ObjectId reId = SizeMasCercano(tr, fam, diamNum, diamNum,
@@ -866,8 +881,23 @@ namespace Civil3DBasico
                         }
                     }
                 }
-                // Sin match exacto: NO se crea un tamaño nuevo en el catálogo — solo
-                // se permite elegir entre los que YA existen en la familia. Si el
+                // Sin match exacto: si el catálogo TRAE esa medida (tamaño agregado
+                // desde la app con el «+», CatalogoTamanos.cs) se agrega a la lista de
+                // piezas del dibujo y se usa. Si no, NO se inventa: solo se elige
+                // entre los que YA existen en la familia. Si el
+                if (!sizeExacto && !string.IsNullOrWhiteSpace(radio))
+                {
+                    var vals = ValoresEstructura(radio);
+                    var edS = Application.DocumentManager.MdiActiveDocument?.Editor;
+                    string nomNuevo = "";
+                    if (vals != null && (SizeExacto(tr, fam, vals, out nomNuevo) != ObjectId.Null
+                                         || AgregarTamanoExacto(fam, vals, edS)))
+                    {
+                        ObjectId nuevo = SizeExacto(tr, fam, vals, out nomNuevo);
+                        if (nuevo != ObjectId.Null)
+                        { elegidoSize = nuevo; elegidoSizeName = nomNuevo; sizeExacto = true; }
+                    }
+                }
                 // 'radio' pedido tiene forma "W x L in", buscamos el más cercano
                 // disponible; si no hay ninguno parseable, avisamos y usamos el
                 // primero de la familia.

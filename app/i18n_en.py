@@ -782,6 +782,8 @@ EN: dict[str, str] = {
         "vertex",
     "tramo":
         "segment",
+    "⊙ Snap al sólido «{c}»":
+        "⊙ Snap to solid «{c}»",
     "⊙ Snap a {q} de «{c}»":
         "⊙ Snap to {q} of «{c}»",
     "Georref: {sistema}{rms}":
@@ -2111,4 +2113,375 @@ EN: dict[str, str] = {
     "Propiedades del sólido": "Solid properties",
     "Un sólido no se puede cambiar a elemento curvo.": "A solid cannot be changed to a curved element.",
     "{cod}  ·  Sólido {l:g} × {a:g} × {h:g} ft": "{cod}  ·  Solid {l:g} × {a:g} × {h:g} ft",
+    "Cota superior (Pies):": "Top elevation (Feet):",
+    "Cota de la parte SUPERIOR del sólido, en pies (la base queda en cota − altura).\n"
+    "Por defecto es la cota de la utilidad a la que está unido.":
+        "Elevation of the TOP of the solid, in feet (the base is elevation − height).\n"
+        "By default it is the elevation of the utility it is attached to.",
+    "Volver a la cota de la utilidad unida": "Back to the attached utility's elevation",
+    "Sin utilidad unida: se usa la cota de fondo o 0.": "No attached utility: the bottom elevation or 0 is used.",
+    "Automática: cota de la utilidad unida.": "Automatic: elevation of the attached utility.",
+    "Fijada por el usuario.": "Set by the user.",
+    "Utilidad #{n} → bancoducto «{nombre}» ({c} conducto(s))":
+        "Utility #{n} → duct bank «{nombre}» ({c} conduit(s))",
+    "Tiene bancoducto asignado:":
+        "It has a duct bank assigned:",
+    "{n} utilidades tienen bancoducto asignado:":
+        "{n} utilities have a duct bank assigned:",
+    "Al eliminarla(s) se quita esa asignación. El diseño del bancoducto se conserva en la lista «Bancoductos» (sin asignar si no queda en ninguna otra utilidad). Se puede deshacer con Ctrl+Z.":
+        "Deleting it (them) removes that assignment. The duct bank design is kept in the «Duct banks» list (unassigned if no other utility uses it). You can undo with Ctrl+Z.",
+    # ── Normativas de diseño (normativas.py, normativas_dialog.py, accesorios_view.py) ──
+    "En Civil 3D: {acc} de {ang} (accesorio sólido) en la red «{red}».":
+        "In Civil 3D: {acc} of {ang} (solid fitting) in network «{red}».",
+    "Reúne dos quiebres muy juntos: Civil 3D pone un solo codo.":
+        "It merges two very close bends: Civil 3D places a single bend.",
+    "Obligatoria":
+        "Mandatory",
+    "Recomendada":
+        "Recommended",
+    "Cumple las normativas activas.":
+        "Meets the active design standards.",
+    "Menú Normativas → Normativas de diseño… para ver o cambiar las reglas.":
+        "Standards menu → Design standards… to view or change the rules.",
+    "&Normativas":
+        "&Standards",
+    "Normativas de diseño…":
+        "Design standards…",
+    "Mostrar accesorios (tipo y ángulo)":
+        "Show fittings (type and angle)",
+    "Muestra junto a cada codo, Tee, Wye o cruz de agua y gas el accesorio que se pondrá en Civil 3D y su ángulo; en rojo si incumple una normativa.":
+        "Shows next to each water and gas bend, tee, wye or cross the fitting that Civil 3D will place and its angle; in red if it breaks a design standard.",
+    "Accesorios que no cumplen las normativas activas. Clic para verlos.":
+        "Fittings that do not meet the active design standards. Click to see them.",
+    "{n} fuera de normativa":
+        "{n} outside the standards",
+    "Accesorios de conexión":
+        "Connection fittings",
+    "Separaciones entre utilidades":
+        "Separation between utilities",
+    "Buzones y estructuras":
+        "Manholes and structures",
+    "Codo":
+        "Bend",
+    "Tee":
+        "Tee",
+    "Wye":
+        "Wye",
+    "Cruz":
+        "Cross",
+    "{acc} de {ang} en {capa}: fuera de norma. Permitidos: {lista} (±{tol}). El más cercano es {cerca}.":
+        "{acc} of {ang} in {capa}: outside the standard. Allowed: {lista} (±{tol}). The closest is {cerca}.",
+    "Ángulos permitidos de un accesorio":
+        "Allowed angles of a fitting",
+    "Ángulos permitidos":
+        "Allowed angles",
+    "Escribe un ángulo en grados y pulsa Agregar. Quita uno con su botón ×.":
+        "Type an angle in degrees and press Add. Remove one with its × button.",
+    "Tolerancia":
+        "Tolerance",
+    "Cuánto puede apartarse el ángulo dibujado de uno permitido.":
+        "How far the drawn angle may be from an allowed one.",
+    "Se aplica a":
+        "Applies to",
+    "AWWA C110 / C153 — valores iniciales":
+        "AWWA C110 / C153 — initial values",
+    "Codos: solo ángulos comerciales":
+        "Bends: standard angles only",
+    "Los codos se fabrican en ángulos fijos. Se mide el ángulo ENTRE las dos tuberías (180° = sigue recta): los codos AWWA de 11.25°, 22.5°, 45° y 90° dan 168.75°, 157.5°, 135° y 90°.":
+        "Bends are made in fixed angles. The angle BETWEEN the two pipes is measured (180° = straight): AWWA bends of 11.25°, 22.5°, 45° and 90° give 168.75°, 157.5°, 135° and 90°.",
+    "Ángulo entre las dos tuberías (la tubería gira {g}).":
+        "Angle between the two pipes (the pipe turns {g}).",
+    "Tee: ramal a 90°":
+        "Tee: branch at 90°",
+    "La Tee une un ramal perpendicular a una tubería recta.":
+        "A tee joins a perpendicular branch to a straight pipe.",
+    "Wye: ramal a 45°":
+        "Wye: branch at 45°",
+    "La Wye une un ramal inclinado a una tubería.":
+        "A wye joins an angled branch to a pipe.",
+    "Cruz: líneas a 90°":
+        "Cross: lines at 90°",
+    "La cruz une dos tuberías que se cruzan en ángulo recto.":
+        "A cross joins two pipes that cross at a right angle.",
+    "Campo desconocido: {c}":
+        "Unknown field: {c}",
+    "Debe quedar al menos un ángulo permitido.":
+        "At least one allowed angle must remain.",
+    "Cada ángulo debe estar entre {a} y {b}.":
+        "Each angle must be between {a} and {b}.",
+    "El valor debe estar entre {a} y {b}.":
+        "The value must be between {a} and {b}.",
+    "Elige al menos una utilidad.":
+        "Choose at least one utility.",
+    "Valor no válido.":
+        "Invalid value.",
+    "Normativas de diseño":
+        "Design standards",
+    "Reducir el tamaño del texto":
+        "Make text smaller",
+    "Aumentar el tamaño del texto":
+        "Make text larger",
+    "fuera de norma":
+        "outside the standard",
+    "Categorías":
+        "Categories",
+    "Incumplimientos":
+        "Violations",
+    "Todo cumple las normativas activas.":
+        "Everything meets the active design standards.",
+    "Activa en este proyecto":
+        "Active in this project",
+    "Importancia":
+        "Importance",
+    "Fuente":
+        "Source",
+    "Agregar":
+        "Add",
+    "Quitar {v}":
+        "Remove {v}",
+    "Nuevo ángulo en grados":
+        "New angle in degrees",
+    "grados":
+        "degrees",
+    "pies":
+        "feet",
+    "Restablecer valores iniciales":
+        "Restore initial values",
+    "Valores cambiados":
+        "Values changed",
+    "Ver en el plano":
+        "Show on the plan",
+    "Cumple: {n} revisado(s).":
+        "Meets the rule: {n} checked.",
+    "El plano no tiene escala: no se pueden medir los accesorios. Fija la escala en la barra de estado.":
+        "The plan has no scale: fittings cannot be measured. Set the scale in the status bar.",
+    "Cambios guardados.":
+        "Changes saved.",
+    "Regla desconocida.":
+        "Unknown rule.",
+    "Falta el componente de navegador integrado (QtWebEngine).":
+        "The built-in browser component (QtWebEngine) is missing.",
+    # ── Unir utilidades (unir_utilidades.py) ──
+    "Unir utilidades seleccionadas":
+        "Join selected utilities",
+    "Unir utilidades":
+        "Join utilities",
+    "Selecciona dos o más utilidades: Ctrl+clic en la lista «Utilidades» o sobre ellas en el lienzo.":
+        "Select two or more utilities: Ctrl+click in the «Utilities» list or on them on the canvas.",
+    "Se unirán {n} utilidades en la #{b} ({k} empalme(s), en verde en el plano).":
+        "{n} utilities will be joined into #{b} ({k} joint(s), in green on the plan).",
+    "Huecos que se cierran con un tramo recto: {lista}.":
+        "Gaps closed with a straight run: {lista}.",
+    "Se conservan los datos de la #{b}:":
+        "The data of #{b} is kept:",
+    "Se puede deshacer con Ctrl+Z.":
+        "You can undo it with Ctrl+Z.",
+    "Se unieron {n} utilidades en la #{b}.":
+        "{n} utilities were joined into #{b}.",
+    "Unir en una utilidad (Ctrl+J)":
+        "Join into one utility (Ctrl+J)",
+    "El plano no tiene escala: fija la escala antes de unir utilidades.":
+        "The plan has no scale: set the scale before joining utilities.",
+    "Selecciona al menos dos utilidades para unirlas.":
+        "Select at least two utilities to join them.",
+    "La utilidad #{n} no se puede unir (no está dibujada en el lienzo).":
+        "Utility #{n} cannot be joined (it is not drawn on the canvas).",
+    "La utilidad #{n} es de otro tipo («{a}» y «{b}»): solo se unen utilidades del mismo tipo.":
+        "Utility #{n} is of another type («{a}» and «{b}»): only utilities of the same type are joined.",
+    "La utilidad #{n} termina a mitad de otra: es un ramal (una T), no una continuación. Solo se unen utilidades punta con punta.":
+        "Utility #{n} ends in the middle of another: it is a branch (a tee), not a continuation. Utilities are only joined end to end.",
+    "La utilidad #{n} no toca a las demás: su punta más cercana está a {d:.2f} ft (se cierran huecos de hasta {m:g} ft).":
+        "Utility #{n} does not touch the others: its closest end is {d:.2f} ft away (gaps of up to {m:g} ft are closed).",
+    "#{n}: {campo} «{v}» → «{w}» (como la #{b}).":
+        "#{n}: {campo} «{v}» → «{w}» (like #{b}).",
+    "sí":
+        "yes",
+    "no":
+        "no",
+    "diámetro":
+        "diameter",
+    "material":
+        "material",
+    "abandonada":
+        "abandoned",
+    "familia":
+        "family",
+    "tamaño":
+        "size",
+    "Ctrl + clic (lienzo)":
+        "Ctrl + click (canvas)",
+    "Sobre una utilidad: sumarla o quitarla de la selección":
+        "On a utility: add it to or remove it from the selection",
+    "Clic derecho (lienzo)":
+        "Right click (canvas)",
+    "Sobre una utilidad: su menú (con varias seleccionadas, «Unir en una utilidad»)":
+        "On a utility: its menu (with several selected, «Join into one utility»)",
+    # ── Normativas: Excel (normativas_excel.py, normativas_clearance.py) ──
+    "Recubrimiento":
+        "Cover",
+    "Otros requisitos":
+        "Other requirements",
+    "Agua":
+        "Water",
+    "Alcantarillado":
+        "Sewer",
+    "Drenaje":
+        "Storm drain",
+    "Gas":
+        "Gas",
+    "Eléctrico":
+        "Electrical",
+    "Telecomunicaciones":
+        "Telecommunications",
+    "Vía férrea":
+        "Railroad track",
+    "Bordillo y cuneta":
+        "Curb & gutter",
+    "Sumidero":
+        "Catch basin",
+    "Buzón":
+        "Manhole",
+    "Otra tubería":
+        "Other pipeline",
+    "Superficie":
+        "Surface",
+    "Mínimo":
+        "Minimum",
+    "Máximo":
+        "Maximum",
+    "Separación horizontal":
+        "Horizontal clearance",
+    "Separación vertical":
+        "Vertical clearance",
+    "Requisito (texto)":
+        "Requirement (text)",
+    "El máximo no puede ser menor que el mínimo.":
+        "The maximum cannot be less than the minimum.",
+    "{a} de {t} reglas activas en este proyecto":
+        "{a} of {t} rules active in this project",
+    "Los valores valen para todos tus proyectos; activar o desactivar una regla solo cambia este proyecto.":
+        "Values apply to all your projects; turning a rule on or off only changes this project.",
+    "Buscar regla…":
+        "Search rule…",
+    "Importar Excel":
+        "Import Excel",
+    "Exportar Excel":
+        "Export Excel",
+    "Referencias":
+        "References",
+    "Notas":
+        "Notes",
+    "Texto original":
+        "Original text",
+    "Medido desde":
+        "Measured from",
+    "Detalles":
+        "Details",
+    "Quitar esta regla":
+        "Remove this rule",
+    "Revisar":
+        "Review",
+    "La conversión del Excel no entendió del todo esta regla: mira su texto original.":
+        "The Excel conversion did not fully understand this rule: check its original text.",
+    "✗ {k} de {n}":
+        "✗ {k} of {n}",
+    "Sin casos":
+        "No cases",
+    "Aún no se revisa en el plano":
+        "Not checked on the plan yet",
+    "Desactivada":
+        "Off",
+    "Ninguna regla coincide con la búsqueda.":
+        "No rule matches the search.",
+    "¿Quitar la regla «{r}»? Puedes volver a traerla importando el Excel.":
+        "Remove the rule «{r}»? You can bring it back by importing the Excel.",
+    "Exportadas {n} reglas a {archivo}.":
+        "Exported {n} rules to {archivo}.",
+    "No se pudo leer el archivo: {e}":
+        "The file could not be read: {e}",
+    "Fila":
+        "Row",
+    "El archivo no trae reglas.":
+        "The file has no rules.",
+    "Se importarán {n} reglas: {a} nuevas y {b} que ya existían (se actualizan).":
+        "{n} rules will be imported: {a} new and {b} that already existed (they are updated).",
+    "El archivo tiene el formato de tablas de los ingenieros: se convirtió a reglas. Exporta el Excel para revisarlo en la plantilla nueva.":
+        "The file has the engineers' table format: it was converted to rules. Export the Excel to review it in the new template.",
+    "{n} quedan marcadas «Revisar» (no se entendieron del todo).":
+        "{n} are marked «Review» (not fully understood).",
+    "{n} fila(s) con error no se importan:":
+        "{n} row(s) with errors are not imported:",
+    "Importadas {n} reglas.":
+        "Imported {n} rules.",
+    "Excel (*.xlsx)":
+        "Excel (*.xlsx)",
+    "Excel (*.xlsx *.xlsm)":
+        "Excel (*.xlsx *.xlsm)",
+    # ── Agregar tamaño a una familia (catalogo_tamanos) ──
+    'Agregar un tamaño nuevo a esta familia (en Civil 3D 2025 en adelante, en español e inglés)':
+        'Add a new size to this family (in Civil 3D 2025 and later, in Spanish and English)',
+    'Agregar tamaño':
+        'Add size',
+    'Elige primero una familia.':
+        'Choose a family first.',
+    'Tamaño {s} agregado a «{f}».':
+        'Size {s} added to “{f}”.',
+    'Diámetro interior':
+        'Inside diameter',
+    'Ancho interior':
+        'Inside width',
+    'Alto interior':
+        'Inside height',
+    'Largo interior':
+        'Inside length',
+    'español':
+        'Spanish',
+    'inglés':
+        'English',
+    'Civil 3D {a} · {i}':
+        'Civil 3D {a} · {i}',
+    'Diámetro nominal':
+        'Nominal diameter',
+    'Diámetro exterior':
+        'Outside diameter',
+    'Grosor de pared':
+        'Wall thickness',
+    'La familia no está en esta instalación.':
+        'This installation does not have the family.',
+    'Sin permiso para escribir el catálogo: ejecuta la app como administrador.':
+        'No permission to write the catalog: run the app as administrator.',
+    'El catálogo está en uso: cierra Civil 3D y vuelve a intentarlo.':
+        'The catalog is in use: close Civil 3D and try again.',
+    'Agregar un tamaño a «{f}»':
+        'Add a size to “{f}”',
+    'Tamaños actuales: {lista}':
+        'Current sizes: {lista}',
+    'Medidas del tamaño nuevo':
+        'New size dimensions',
+    'En esta familia las dos medidas se combinan con las que ya existen: el valor nuevo de cada una se podrá usar con todas las de la otra.':
+        'In this family the two dimensions combine with the existing ones: the new value of each can be used with every value of the other.',
+    'Otros datos (calculados de los tamaños vecinos; puedes corregirlos)':
+        'Other data (calculated from the neighboring sizes; you can correct them)',
+    'Agregar en':
+        'Add to',
+    '(no tiene esta familia)':
+        '(does not have this family)',
+    'Si Civil 3D está abierto y el catálogo de presión no se puede escribir, ciérralo y vuelve a intentarlo.':
+        'If Civil 3D is open and the pressure catalog cannot be written, close it and try again.',
+    'Civil 3D regenera su catálogo solo la próxima vez que importes la red (o con el comando PREPARAR_FAMILIAS).':
+        'Civil 3D regenerates its catalog by itself the next time you import the network (or with the PREPARAR_FAMILIAS command).',
+    'Marca al menos una instalación de Civil 3D.':
+        'Check at least one Civil 3D installation.',
+    'agregado':
+        'added',
+    'no tiene esta familia':
+        'does not have this family',
+    'error':
+        'error',
+    'No se pudo agregar el tamaño:':
+        'The size could not be added:',
+    'Tamaño {s}:':
+        'Size {s}:',
+    'Esta familia no tiene una tabla de tamaños que la app pueda ampliar.':
+        'This family has no size table the app can extend.',
 }

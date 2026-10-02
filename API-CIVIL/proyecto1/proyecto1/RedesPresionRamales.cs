@@ -259,79 +259,8 @@ namespace Civil3DBasico
             }
         }
 
-        // =====================================================================
-        // CREAR_PERFIL_PRESION — crea el perfil (vista de perfil) del EJE de la red
-        //   a presión, y opcionalmente el perfil del TERRENO desde una superficie.
-        // =====================================================================
-        [CommandMethod("CREAR_PERFIL_PRESION")]
-        public void CrearPerfilPresion()
-        {
-            Document doc = Application.DocumentManager.MdiActiveDocument;
-            Editor ed = doc.Editor;
-            Database db = doc.Database;
-            CivilDocument civilDoc = CivilApplication.ActiveDocument;
-
-            using (Transaction tr = db.TransactionManager.StartTransaction())
-            {
-                try
-                {
-                    ObjectIdCollection nets = civilDoc.GetPressurePipeNetworkIds();
-                    if (nets.Count == 0) { ed.WriteMessage("\nNo hay redes a presión."); tr.Abort(); return; }
-                    ObjectId netSel = ElegirRedId(ed, tr, nets);
-                    if (netSel == ObjectId.Null) { tr.Abort(); return; }
-                    CivilDB.PressurePipeNetwork net = (CivilDB.PressurePipeNetwork)tr.GetObject(netSel, OpenMode.ForRead);
-
-                    // Buscar el EJE de la red (en los runs o en los tubos)
-                    ObjectId alignId = ObjectId.Null;
-                    for (int i = 0; i < net.PipeRuns.Count && alignId == ObjectId.Null; i++)
-                        if (net.PipeRuns[i].AlignmentId.IsValid && !net.PipeRuns[i].AlignmentId.IsNull) alignId = net.PipeRuns[i].AlignmentId;
-                    if (alignId == ObjectId.Null)
-                        foreach (ObjectId pid in net.GetPipeIds())
-                        {
-                            var pp = tr.GetObject(pid, OpenMode.ForRead) as CivilDB.PressurePipe;
-                            if (pp != null && pp.ReferenceAlignmentId.IsValid && !pp.ReferenceAlignmentId.IsNull) { alignId = pp.ReferenceAlignmentId; break; }
-                        }
-                    if (alignId == ObjectId.Null)
-                    { ed.WriteMessage("\nEsta red no tiene EJE. Créala con polilínea/CogoPoints (ahora generan el eje) y reintenta."); tr.Abort(); return; }
-
-                    ObjectId pStyle = civilDoc.Styles.ProfileStyles[0];
-                    ObjectId pLabel = civilDoc.Styles.LabelSetStyles.ProfileLabelSetStyles[0];
-
-                    // Perfil de terreno opcional
-                    PromptKeywordOptions pkT = new PromptKeywordOptions("\n¿Dibujar el perfil del TERRENO desde una superficie? [Si/No] <No>:", "Si No");
-                    pkT.AllowNone = true;
-                    PromptResult rT = ed.GetKeywords(pkT);
-                    if (rT.Status == PromptStatus.OK && rT.StringResult == "Si")
-                    {
-                        PromptEntityOptions peoS = new PromptEntityOptions("\nSeleccione la Superficie (TIN):");
-                        peoS.SetRejectMessage("\nDebe ser una superficie TIN.");
-                        peoS.AddAllowedClass(typeof(CivilDB.TinSurface), true);
-                        PromptEntityResult perS = ed.GetEntity(peoS);
-                        if (perS.Status == PromptStatus.OK)
-                            try { CivilDB.Profile.CreateFromSurface("Terreno-Presion", alignId, perS.ObjectId, db.Clayer, pStyle, pLabel); }
-                            catch (Exception ex) { ed.WriteMessage($"\n(No se pudo crear el perfil de terreno: {ex.Message})"); }
-                    }
-
-                    // Vista de perfil
-                    PromptPointResult pIns = ed.GetPoint("\nPunto de inserción de la vista de perfil:");
-                    if (pIns.Status != PromptStatus.OK) { tr.Abort(); return; }
-                    ObjectId pvId = CivilDB.ProfileView.Create(alignId, pIns.Value);
-
-                    // Rango vertical: +5 sobre la cota máxima y -5 bajo la mínima (perfil no aplastado)
-                    CivilDB.ProfileView pvW = tr.GetObject(pvId, OpenMode.ForWrite) as CivilDB.ProfileView;
-                    bool rango = PerfilUtil.AjustarRango(pvW, alignId, tr);
-
-                    tr.Commit();
-                    ed.WriteMessage("\n✓ Vista de perfil creada para el eje de la red a presión." +
-                                    (rango ? " Rango vertical ajustado (±5 m)." : ""));
-                }
-                catch (Exception ex)
-                {
-                    ed.WriteMessage($"\nError: {ex.Message}");
-                    tr.Abort();
-                }
-            }
-        }
+        // CREAR_PERFIL_PRESION ahora es un alias de CREAR_PERFIL_RED (PerfilComando.cs):
+        // dos [CommandMethod] con el mismo nombre rompen la carga del plugin.
 
         // =====================================================================
         // INVERTIR_ALINEAMIENTO — invierte la DIRECCIÓN (sentido de estaciones) de

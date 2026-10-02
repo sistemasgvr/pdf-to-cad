@@ -218,7 +218,11 @@ estabas trabajando, y repite los pasos 2 y 3 con la hoja nueva. Todo se guarda e
     <td bgcolor="{{card}}"><b>Cuadrado:</b> a un vértice (un quiebre) de otra tubería.</td></tr>
 <tr><td bgcolor="{{card}}" align="center"><img src="mark:snap_tramo"></td>
     <td bgcolor="{{card}}"><b>Triángulo:</b> a un punto en medio de un tramo.</td></tr>
+<tr><td bgcolor="{{card}}" align="center"><img src="mark:snap_solido"></td>
+    <td bgcolor="{{card}}"><b>Rombo:</b> al borde o a una esquina de un <b>sólido</b> (de cualquier utilidad).</td></tr>
 </table>
+<p>El mismo imán funciona al <b>editar/mover</b>: al arrastrar el vértice <b>inicial o final</b> de una
+tubería, se pega a otra tubería del mismo tipo o al borde de un sólido.</p>
 <p>Si empiezas en el extremo de otra tubería del mismo tipo, la app pregunta si quieres
 <b>continuarla</b> (misma utilidad) o <b>crear una nueva</b> que la toca.</p>
 
@@ -229,17 +233,83 @@ estabas trabajando, y repite los pasos 2 y 3 con la hoja nueva. Todo se guarda e
 </td></tr></table>
 </section>
 
+<section data-title="Unir utilidades">
+<p>Junta dos o más utilidades del mismo tipo en <b>una sola</b> (una sola polilínea y una sola red en
+Civil 3D). Sirve, por ejemplo, cuando el reconocimiento dejó una tubería partida en varios trozos.</p>
+
+<h2>Cómo se hace</h2>
+<ol>
+<li><b>Selecciona las utilidades</b>, de una de estas dos formas:
+    <ul>
+    <li>En la lista <b>Utilidades</b>: <span class="key">&nbsp;Ctrl&nbsp;</span> + clic en cada una.</li>
+    <li>En el <b>plano</b>: <span class="key">&nbsp;Ctrl&nbsp;</span> + clic sobre cada línea. Las seleccionadas
+        se ven más gruesas; otro Ctrl + clic sobre una la quita.</li>
+    </ul></li>
+<li>Pulsa <span class="key">&nbsp;Ctrl+J&nbsp;</span>, o haz <b>clic derecho</b> (en la lista o sobre una de
+    las líneas del plano) → <b>Unir en una utilidad</b>. También está en <b>Edición → Unir utilidades
+    seleccionadas</b>.</li>
+<li>Aparece una <b>vista previa</b>: la utilidad resultante en <b>verde a trazos</b> y un círculo verde en
+    cada empalme. Revisa el mensaje y pulsa <b>Sí</b> para unir o <b>No</b> para dejarlo como estaba.</li>
+</ol>
+
+<h2>Qué tiene que cumplirse</h2>
+<table width="100%" cellspacing="4" cellpadding="10">
+<tr><td bgcolor="{{card}}" width="32%"><b>Punta con punta</b></td>
+    <td bgcolor="{{card}}">Se unen por sus extremos. Si se tocan (a menos de 0.5 ft) quedan empalmadas en
+        un vértice. Si hay un hueco de hasta 10 ft, se cierra con un <b>tramo recto</b> y el mensaje lo
+        avisa antes.</td></tr>
+<tr><td bgcolor="{{card}}"><b>Mismo tipo</b></td>
+    <td bgcolor="{{card}}">Agua con agua, gas con gas… No se mezclan tipos.</td></tr>
+<tr><td bgcolor="{{danger}}"><b>No es un ramal</b></td>
+    <td bgcolor="{{card}}">Si una termina a <b>mitad</b> de la otra, eso es una T (un ramal), no una
+        continuación: no se unen y la app lo explica.</td></tr>
+</table>
+
+<h2>Qué pasa con los datos</h2>
+<ul>
+<li>Manda la <b>primera</b> utilidad que seleccionaste: su nombre, diámetro, material y familia pasan a
+    toda la unida. Si alguna tenía otros valores, el mensaje de la vista previa dice cuáles cambian.</li>
+<li>Las <b>cotas</b> de cada tramo se conservan; en cada empalme queda la cota de llegada y la de salida.</li>
+<li>Se conservan las curvas, los buzones y cajas, el bancoducto y las conexiones verticales aprobadas.</li>
+<li>Si alguna estaba al revés, se da vuelta sola.</li>
+</ul>
+<table width="100%" cellspacing="0" cellpadding="12"><tr>
+<td width="6" bgcolor="{{tip_border}}"></td><td bgcolor="{{tip}}">
+<b>Consejo:</b> todo se deshace de una vez con <span class="key">&nbsp;Ctrl+Z&nbsp;</span>.
+</td></tr></table>
+</section>
+
 <section data-title="Datos de la tubería">
 <p>Selecciona la tubería en la lista <b>Utilidades</b>. En el panel <b>Propiedades</b>:</p>
 <table width="100%" cellspacing="4" cellpadding="10">
 <tr><th align="left" width="30%">Campo</th><th align="left">Para qué sirve</th></tr>
 <tr><td bgcolor="{{card}}"><b>Nombre</b></td><td bgcolor="{{card}}">Nombre de la red en Civil 3D (por ejemplo «Linea Norte»). Si lo dejas vacío, la red se llama RED-AGUA, RED-GAS, etc.</td></tr>
-<tr><td bgcolor="{{card}}"><b>Familia y Tamaño</b></td><td bgcolor="{{card}}">Pieza del catálogo de Civil 3D. Se listan según la versión e idioma elegidos en la barra superior.</td></tr>
+<tr><td bgcolor="{{card}}"><b>Familia y Tamaño</b></td><td bgcolor="{{card}}">Pieza del catálogo de Civil 3D. Se listan según la versión e idioma elegidos en la barra superior. Si falta la medida que necesitas, usa el botón verde <b>+</b> (ver abajo).</td></tr>
 <tr><td bgcolor="{{card}}"><b>Elevación inicial / final</b></td><td bgcolor="{{card}}">Cota del fondo de la tubería (en pies) al empezar y al terminar.</td></tr>
 <tr><td bgcolor="{{card}}"><b>Material</b></td><td bgcolor="{{card}}">De una lista fija que coincide con el catálogo.</td></tr>
 <tr><td bgcolor="{{card}}"><b>Abandonado</b></td><td bgcolor="{{card}}">Marca una tubería fuera de servicio. En Civil 3D se ve a trazos en 3D.</td></tr>
 <tr><td bgcolor="{{card}}"><b>Cotas por tramo</b></td><td bgcolor="{{card}}">Pulsa «Activar edición por tramo» para poner una cota distinta a cada tramo (T1, T2…).</td></tr>
 </table>
+
+<h2>Agregar un tamaño que no está en el catálogo</h2>
+<p>El botón verde <span class="btn">+</span> a la derecha de <b>Tamaño</b> (en <b>Utilidades</b> y
+en <b>Buzones</b>) agrega una medida nueva a la familia elegida:</p>
+<ol>
+<li>Elige primero la <b>familia</b>.</li>
+<li>Pulsa <span class="btn">+</span> y escribe la medida: el diámetro, o el ancho y el alto
+    (o el largo, en buzones).</li>
+<li>El grosor de pared y los demás datos se calculan solos a partir de los tamaños vecinos;
+    puedes corregirlos.</li>
+<li>Marca en qué Civil 3D se agrega (todas las versiones 2025 en adelante, en español y en
+    inglés) y pulsa <span class="btn">Agregar tamaño</span>. El tamaño nuevo queda elegido.</li>
+</ol>
+<p>Al importar el DXF, el plugin actualiza el catálogo de Civil 3D y dibuja la medida exacta.</p>
+<table width="100%" cellspacing="0" cellpadding="12"><tr>
+<td width="6" bgcolor="{{info_border}}"></td><td bgcolor="{{info}}">
+<b>Agua y gas:</b> cierra Civil 3D antes de agregar el tamaño (su catálogo está en uso mientras
+está abierto). La app crea también los codos y demás accesorios de ese diámetro.<br>
+Si sale «Sin permiso para escribir el catálogo», abre la app como administrador.
+</td></tr></table>
 
 <h2>Datos extendidos</h2>
 <p>El botón verde <span class="btn">Ver datos extendidos</span> (junto a «Eliminar», también en
@@ -270,8 +340,8 @@ el máximo permitido.</p>
 <li>Las redes <b>eléctricas y de telecomunicaciones</b> llevan pocas cajas: la app solo pone
     una <b>caja</b> (CAJA-) donde el plano del PDF tiene una bóveda real, con sus medidas.
     Las demás las agregas tú.</li>
-<li>En la lista <b>Buzones</b> cambias su familia, tamaño y cotas.</li>
-<li>Las cajas cuadradas que vienen del PDF salen como <b>SÓLIDO</b>: no llevan familia; ajustas su <b>Largo</b> y <b>Ancho</b> (el dibujo cambia de tamaño) y su <b>Altura</b> (2 m por defecto). En Civil 3D se crean como sólido 3D.</li>
+<li>En la lista <b>Buzones</b> cambias su familia, tamaño y cotas. Si falta una medida, el botón verde <b>+</b> la agrega (ver «Datos de la tubería»).</li>
+<li>Las cajas cuadradas que vienen del PDF salen como <b>SÓLIDO</b>: no llevan familia; ajustas su <b>Largo</b> y <b>Ancho</b> (el dibujo cambia de tamaño) y su <b>Altura</b> (2 m por defecto). La <b>Cota superior</b> manda la tapa: por defecto la de la utilidad unida (↺ vuelve a ella). En Civil 3D se crean como sólido 3D con sus datos extendidos como Property Set.</li>
 <li>Para agregar uno en medio de una línea: <b>Herramientas → Insertar buzón en línea…</b></li>
 <li><b>Ocultar buzón</b> quita un buzón que en realidad no existe; la red sigue unida.</li>
 </ul>
@@ -384,6 +454,99 @@ En drenaje y alcantarillado estas alertas no salen: ahí el buzón resuelve los 
 </td></tr></table>
 </section>
 
+<section data-title="Normativas de diseño">
+<p>En el menú <b>Normativas → Normativas de diseño…</b> (<span class="key">&nbsp;Ctrl+Shift+N&nbsp;</span>)
+se abre una ventana con las reglas que la app revisa en tu diseño antes de llevarlo a Civil 3D.
+Puedes dejarla abierta mientras dibujas: se actualiza sola.</p>
+
+<h2>Accesorios en el plano</h2>
+<p>En agua y gas, junto a cada punto donde Civil 3D pondrá un accesorio sólido aparece una etiqueta
+con su <b>tipo y ángulo</b>: «Codo 135°», «Tee 90°», «Wye 45°», «Cruz 90°».</p>
+<p>En el codo, el ángulo es el que forman <b>las dos tuberías entre sí</b> (180° = sigue recta).
+Un codo comercial «de 45°» deja las tuberías a <b>135°</b>; el globo también muestra cuánto gira
+la tubería. El mismo ángulo va al Property Set del codo en Civil 3D.</p>
+<table width="100%" cellspacing="4" cellpadding="10">
+<tr><td bgcolor="{{card}}" width="30%"><b>Etiqueta oscura</b></td>
+    <td bgcolor="{{card}}">Cumple las normativas activas.</td></tr>
+<tr><td bgcolor="{{danger}}"><b>Etiqueta roja ✗</b></td>
+    <td bgcolor="{{card}}">Incumple una normativa <b>obligatoria</b>. Pasa el mouse para ver cuál y el ángulo permitido más cercano.</td></tr>
+<tr><td bgcolor="{{card}}"><b>Etiqueta ámbar ✗</b></td>
+    <td bgcolor="{{card}}">Incumple una normativa <b>recomendada</b>.</td></tr>
+</table>
+<p>La barra de estado muestra «✗ N fuera de normativa»; con un clic se abre la ventana. Para ocultar las
+etiquetas: <b>Ver → Mostrar accesorios (tipo y ángulo)</b> (la revisión sigue funcionando).
+La app solo avisa: no mueve nada del dibujo.</p>
+
+<h2>La ventana de normativas</h2>
+<ol>
+<li>A la izquierda eliges la categoría (accesorios, separaciones, recubrimiento, otros requisitos) o
+    <b>Incumplimientos</b>, con el botón <b>Ver en el plano</b> en cada uno.</li>
+<li>Cada regla es <b>una fila</b>: el interruptor (<b>activa en este proyecto</b>), su nombre, el valor
+    (por ejemplo «≥ 5 ft») y cómo va (✓ cumple, ✗ incumple, o «Aún no se revisa en el plano»).</li>
+<li><b>Detalles</b> abre todo lo demás: texto original, desde dónde se mide, referencias, notas,
+    <b>Obligatoria / Recomendada</b> (aviso rojo o ámbar) y los valores para editarlos.</li>
+<li><b>Buscar regla…</b> filtra por cualquier palabra («gas vía», «cover»…).</li>
+<li><b>A− / A+</b> cambian el tamaño del texto. Todo se usa con el teclado: Tab para moverte,
+    Espacio o Enter para activar.</li>
+</ol>
+<p>Valores iniciales de accesorios (AWWA): codos de 11.25°, 22.5°, 45° y 90°, que entre tuberías son
+<b>168.75°, 157.5°, 135° y 90°</b>; Tee a 90°; Wye a 45°; cruz a 90°; tolerancia ±1°.
+Las separaciones, el recubrimiento y los requisitos que llegan del Excel se guardan, se editan y se
+exportan, pero <b>todavía no se revisan sobre el plano</b> (lo indica cada fila).</p>
+
+<h2>Normativas en Excel (para los ingenieros)</h2>
+<p>Las reglas se intercambian con una <b>plantilla de Excel universal</b>: una fila por regla, con listas
+desplegables, para que el ingeniero no tenga que escribir texto libre.</p>
+<table width="100%" cellspacing="4" cellpadding="10">
+<tr><td bgcolor="{{card}}" width="28%"><b>Exportar Excel</b></td>
+    <td bgcolor="{{card}}">Guarda la plantilla con <b>todas</b> las reglas que tienes ahora (cambiadas o no),
+        con sus referencias y notas. Sirve también como formato en blanco: se agregan filas al final.</td></tr>
+<tr><td bgcolor="{{card}}"><b>Importar Excel</b></td>
+    <td bgcolor="{{card}}">Lee la plantilla llena. Antes de guardar muestra cuántas reglas son nuevas, cuántas
+        se actualizan y las filas con error (con su número de fila); esas no se importan. También acepta el
+        Excel de <b>tablas de separación</b> que usaban los ingenieros: lo convierte solo.</td></tr>
+</table>
+<p>Hojas de la plantilla:</p>
+<ul>
+<li><b>Instrucciones</b>: cómo se llena, con un ejemplo y la explicación de cada columna.</li>
+<li><b>Reglas</b>: Tipo, Utilidad, Condición, Contra (otra utilidad u objeto: vía férrea, bordillo, buzón…),
+    Mínimo y Máximo <b>en pies</b>, Medido desde, Referencias, Notas, Obligatoria, Activa y Estado.
+    Las columnas <b>grises</b> son la <b>trazabilidad</b>: el texto tal como venía en la tabla de origen.</li>
+<li><b>Referencias</b> (de qué libro, norma o correo sale cada regla), <b>Notas</b> (aclaraciones) y
+    <b>Documento</b> (archivo de origen, títulos y tablas).</li>
+</ul>
+<table width="100%" cellspacing="0" cellpadding="12"><tr>
+<td width="6" bgcolor="{{tip_border}}"></td><td bgcolor="{{tip}}">
+<b>Nada se pierde:</b> al convertir el Excel de tablas, cada texto queda en una regla, una referencia, una
+nota o en la hoja Documento. Lo que la conversión no entendió del todo (condiciones, excepciones) queda
+con estado <b>Revisar</b> para que el ingeniero lo corrija en la plantilla.
+</td></tr></table>
+
+<h2>Dónde se guardan las reglas</h2>
+<p>Cada regla tiene dos partes que se guardan en sitios distintos:</p>
+<table width="100%" cellspacing="4" cellpadding="10">
+<tr><th align="left" width="24%">Qué</th><th align="left">Dónde</th><th align="left">Alcance</th></tr>
+<tr><td bgcolor="{{card}}"><b>Los valores</b><br>(ángulos permitidos, distancias, tolerancia, a qué
+    utilidades se aplica, obligatoria o recomendada), las <b>reglas importadas</b> del Excel y sus
+    <b>referencias y notas</b></td>
+    <td bgcolor="{{card}}">En tu computadora, en el archivo<br><b>%APPDATA%\pdf-to-cad\normativas.json</b><br>
+    (por ejemplo <i>C:\Users\tu-usuario\AppData\Roaming\pdf-to-cad\normativas.json</i>).</td>
+    <td bgcolor="{{card}}">Valen para <b>todos tus proyectos</b> en esta computadora.</td></tr>
+<tr><td bgcolor="{{card}}"><b>Activa o no</b><br>(el interruptor «Activa en este proyecto»)</td>
+    <td bgcolor="{{card}}">Dentro del propio proyecto (<b>.digproj</b>), al guardarlo.</td>
+    <td bgcolor="{{card}}">Solo ese proyecto: viaja con él si lo envías a otra persona.</td></tr>
+</table>
+<ul>
+<li>Los <b>valores iniciales</b> vienen dentro de la app. El archivo <i>normativas.json</i> solo guarda lo que
+    <b>cambiaste</b>; si nunca cambiaste nada, ni siquiera existe.</li>
+<li><b>Restablecer valores iniciales</b> borra tu cambio de esa regla y vuelve al valor de la app.
+    <b>Quitar esta regla</b> borra una regla importada (se puede volver a traer importando el Excel).</li>
+<li>Si una nueva versión de la app mejora los valores iniciales, te llegan solos en las reglas que no tocaste.</li>
+<li>Para usar tus mismas reglas en otra computadora, <b>Exportar Excel</b> aquí e <b>Importar Excel</b>
+    allá (o copia el archivo <i>normativas.json</i> a la misma carpeta).</li>
+</ul>
+</section>
+
 <section data-title="Georreferenciar (opcional)">
 <p>Sirve para que el plano quede en su <b>ubicación real</b> (coordenadas de Los Ángeles,
 EPSG:2229). Es para anteproyecto: el dato exacto viene de la topografía.</p>
@@ -426,6 +589,78 @@ sistema de coordenadas de Civil 3D (por ejemplo <b>CA83VF</b>), escríbelo y el 
 <td width="6" bgcolor="{{warn_border}}"></td><td bgcolor="{{warn}}">
 <b>Atención:</b> si usas familias propias, instálalas antes con
 <b>Herramientas → Instalar familia personalizada…</b> y luego ejecuta <b>PREPARAR_FAMILIAS</b> en Civil 3D.
+</td></tr></table>
+</section>
+
+<section data-title="Cómo viajan los datos a Civil 3D">
+<p>Resumen para explicar el proceso a un cliente o a alguien que no usa la app.
+La información pasa por <b>tres etapas</b>:</p>
+
+<table width="100%" cellspacing="4" cellpadding="12">
+<tr>
+<td bgcolor="{{accent}}" width="30%" align="center"><font color="{{on_accent}}"><b>1 · La app</b><br>
+    Dibujas o reconoces las tuberías sobre el plano y completas sus datos.</font></td>
+<td align="center" width="5%"><b>➜</b></td>
+<td bgcolor="{{accent}}" width="30%" align="center"><font color="{{on_accent}}"><b>2 · El archivo DXF</b><br>
+    Lleva las líneas y, pegada a cada una, una «ficha» con sus datos.</font></td>
+<td align="center" width="5%"><b>➜</b></td>
+<td bgcolor="{{accent}}" width="30%" align="center"><font color="{{on_accent}}"><b>3 · El plugin de Civil 3D</b><br>
+    Lee cada ficha y construye la red en 3D.</font></td>
+</tr>
+</table>
+
+<h2>1. En la app: el dibujo y sus datos</h2>
+<p>Cada utilidad es una línea con puntos sobre el plano. A esa línea la app le suma lo que
+Civil 3D necesita saber y que el plano en papel no dice por sí solo:</p>
+<ul>
+<li><b>Qué es</b>: agua, gas, drenaje, alcantarillado, eléctrico o telecomunicaciones.</li>
+<li><b>Cómo es</b>: diámetro, material, familia y tamaño del catálogo de Civil 3D.</li>
+<li><b>A qué profundidad va</b>: cotas al inicio, al final y en cada quiebre.</li>
+<li><b>Qué lleva encima</b>: buzones o cajas (con su tapa y su fondo), curvas con su radio,
+    sólidos, bancoductos y si la tubería está abandonada.</li>
+<li><b>Dónde está en el mundo</b>: la georreferencia (coordenadas reales de Los Ángeles).</li>
+</ul>
+<p>Todo en <b>pies</b>. La escala del plano convierte cada punto dibujado a su medida real.</p>
+
+<h2>2. El archivo DXF: líneas + fichas ocultas</h2>
+<p>Al pulsar <span class="btn">Exportar DXF</span> se crea un archivo de dibujo estándar:</p>
+<table width="100%" cellspacing="4" cellpadding="10">
+<tr><td bgcolor="{{card}}" width="30%"><b>Una línea por tubería</b></td>
+    <td bgcolor="{{card}}">Con sus vértices en coordenadas reales, en una capa por tipo de utilidad.</td></tr>
+<tr><td bgcolor="{{card}}"><b>Un punto por buzón o caja</b></td>
+    <td bgcolor="{{card}}">En su ubicación, con su código, cotas y medidas.</td></tr>
+<tr><td bgcolor="{{card}}"><b>Una «ficha» en cada objeto</b></td>
+    <td bgcolor="{{card}}">Datos guardados dentro del propio objeto (diámetro, material, cotas, red…).
+        No se ven en el dibujo, pero viajan con él. Solo el plugin sabe leerlos.</td></tr>
+</table>
+<p>Si abres ese DXF en AutoCAD verás solo líneas y puntos: las fichas viajan dentro de ellos
+sin dibujarse.</p>
+
+<h2>3. En Civil 3D: el plugin construye la red</h2>
+<p>Con <b>Importar red desde DXF</b> el plugin recorre el archivo y, por cada objeto, lee su ficha:</p>
+<ol>
+<li><b>Agrupa</b> las tuberías en redes: las que se tocan y son del mismo tipo quedan en la misma red.</li>
+<li><b>Elige las piezas</b> del catálogo de Civil 3D que corresponden a cada diámetro y material.</li>
+<li><b>Levanta todo a su altura</b> con las cotas de la ficha. Si hay superficie de terreno, la usa
+    para la tapa de los buzones.</li>
+<li><b>Une las piezas</b> según el tipo de red:
+    <ul>
+    <li>Agua y gas: codos, Tee, Wye y cruces sólidos en cada unión.</li>
+    <li>Drenaje y alcantarillado: buzones en los vértices.</li>
+    <li>Eléctrico y telecomunicaciones: cajas solo donde las hay, y curvas con su radio.</li>
+    </ul></li>
+<li><b>Agrega los extras</b>: sólidos 3D de las cajas, bancoductos que siguen la tubería, el
+    estilo a trazos de las abandonadas y los datos extra de cada objeto (Property Sets).</li>
+<li><b>Aplica el sistema de coordenadas</b> del proyecto para que todo quede en su lugar real.</li>
+</ol>
+<p>El resultado son objetos <b>nativos de Civil 3D</b> (redes de tuberías, estructuras, accesorios),
+no dibujos sueltos: se pueden editar, etiquetar, sacar en perfil y medir como cualquier red hecha
+a mano en Civil 3D.</p>
+
+<table width="100%" cellspacing="0" cellpadding="12"><tr>
+<td width="6" bgcolor="{{info_border}}"></td><td bgcolor="{{info}}">
+<b>En una frase:</b> la app dibuja y pone los datos, el DXF los transporta escondidos dentro de cada
+línea, y el plugin los lee para crear la red real en 3D.
 </td></tr></table>
 </section>
 
