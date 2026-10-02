@@ -27,7 +27,8 @@ from alignment_tools import AlignmentRuler, PieceProtractor
 from composite_measure import MeasureTool
 import composite_seam as S
 from pdf_view_quality import MAX_RENDER_PIXELS, MAX_RENDER_SCALE, render_region
-from widgets import ZoomPanView
+from widgets import ZoomPanView, MiniMap
+from i18n import t as _tr
 
 
 class _BlendPixmap(QtWidgets.QGraphicsPixmapItem):
@@ -295,6 +296,12 @@ class CompositeView(ZoomPanView):
         self.pieceMoved.connect(lambda _i: self._timer.start())
         self.setBackgroundBrush(QtGui.QColor("#d8dbe0"))
         self.setDragMode(QtWidgets.QGraphicsView.NoDrag)
+        # Zoom is anchored explicitly; Qt's implicit mouse anchor can jump when
+        # the work area becomes smaller than the viewport.
+        self.setTransformationAnchor(QtWidgets.QGraphicsView.NoAnchor)
+        self.setResizeAnchor(QtWidgets.QGraphicsView.NoAnchor)
+        self.minimap = MiniMap(self, sync_zoom=True)
+        self.pieceMoved.connect(lambda _i: self._update_minimap())
         self.viewport().setMouseTracking(True)       # línea elástica de «Medir»/«Enderezar»
         self.measure = MeasureTool(self)
         self.pieceMoved.connect(lambda _i: self.measure.clear())
@@ -477,6 +484,7 @@ class CompositeView(ZoomPanView):
         self.refresh_overlay()
 
     def _update_scene_rect(self):
+        self._update_minimap()
         bb = C.bounds(self.comp, self.page_size)
         if bb is None:
             self.setSceneRect(QtCore.QRectF(0, 0, 800, 600))
@@ -487,7 +495,76 @@ class CompositeView(ZoomPanView):
             x0, y0 = min(x0, r.left()), min(y0, r.top())
             x1, y1 = max(x1, r.right()), max(y1, r.bottom())
         pad = max(200.0, 0.5 * max(x1 - x0, y1 - y0))
-        self.setSceneRect(QtCore.QRectF(x0 - pad, y0 - pad, (x1 - x0) + 2 * pad, (y1 - y0) + 2 * pad))
+        center = self.mapToScene(self.viewport().rect().center())
+        work = QtCore.QRectF(x0 - pad, y0 - pad, (x1 - x0) + 2 * pad, (y1 - y0) + 2 * pad)
+        self.setSceneRect(self.sceneRect().united(work))
+        self._ensure_navigation_room(center)
+        self.centerOn(center)
+
+    def _ensure_navigation_room(self, center):
+        """Leave room around the camera at every zoom level, including blank space."""
+        scale = max(1e-9, abs(self.transform().m11()))
+        w = max(1, self.viewport().width()) / scale
+        h = max(1, self.viewport().height()) / scale
+        room = QtCore.QRectF(center.x()-1.5*w, center.y()-1.5*h, 3*w, 3*h)
+        if not self.sceneRect().contains(room):
+            self.setSceneRect(self.sceneRect().united(room))
+
+    def wheelEvent(self, event):
+        delta = event.angleDelta().y()
+        if not delta:
+            event.ignore()
+            return
+        position = event.position().toPoint()
+        anchor = self.mapToScene(position)
+        factor = 1.15 if delta > 0 else 1/1.15
+        self.scale(factor, factor)
+        self._ensure_navigation_room(anchor)
+        offset = self.mapToScene(position)-self.mapToScene(self.viewport().rect().center())
+        self.centerOn(anchor-offset)
+        self.viewChanged.emit()
+        event.accept()
+
+    def _pan_move(self, event):
+        if self._pan and self._pan0 is not None:
+            delta = event.position().toPoint()-self._pan0
+            self._pan0 = event.position().toPoint()
+            scale = max(1e-9, abs(self.transform().m11()))
+            center = self.mapToScene(self.viewport().rect().center())-QtCore.QPointF(delta.x()/scale, delta.y()/scale)
+            self._ensure_navigation_room(center)
+            self.centerOn(center)
+            self.viewChanged.emit()
+            event.accept()
+            return
+        super().mouseMoveEvent(event)
+
+    def resizeEvent(self, event):
+        center = self.mapToScene(self.viewport().rect().center()) if self.scene() else QtCore.QPointF()
+        super().resizeEvent(event)
+        if self.scene():
+            self._ensure_navigation_room(center)
+            self.centerOn(center)
+
+    def _update_minimap(self):
+        """Live sheet layout in compositor coordinates, without PDF rendering."""
+        if any(getattr(doc, "is_closed", False) for doc in self.docs):
+            return
+        bb = C.bounds(self.comp, self.page_size)
+        if bb is None:
+            self.minimap.set_layout([], QtCore.QRectF())
+            return
+        multi = len({p.source for p in self.comp.pieces}) > 1
+        layout = []
+        for p in self.comp.pieces:
+            x0, y0, x1, y1 = C.piece_rect(p, self.page_size(p), self.comp.target_scale())
+            label = _tr("Hoja {n}").format(n=p.page + 1)
+            if multi:
+                label = p.label or f"{p.source + 1} · {label}"
+            layout.append((QtCore.QRectF(x0, y0, x1-x0, y1-y0), label))
+        x0, y0, x1, y1 = bb
+        margin = C.MARGIN_PT
+        self.minimap.set_layout(layout,
+            QtCore.QRectF(x0-margin, y0-margin, x1-x0+2*margin, y1-y0+2*margin))
 
     def fit_all(self):
         if any(getattr(doc, "is_closed", False) for doc in self.docs):
@@ -859,6 +936,9 @@ class CompositeView(ZoomPanView):
         super().mousePressEvent(e)
 
     def mouseMoveEvent(self, e):
+        if self._pan:
+            self._pan_move(e)
+            return
         if self.measure.pending():
             self.measure.move(self.mapToScene(e.position().toPoint()), e.modifiers())
         super().mouseMoveEvent(e)

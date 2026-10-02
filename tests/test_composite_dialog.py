@@ -306,6 +306,116 @@ def test_minimapa_en_capas_de_la_hoja(app):
         dlg.close()
 
 
+@pytest.mark.parametrize("manual", [False, True])
+def test_compositor_minimapa_en_tiempo_real(app, manual):
+    from PySide6 import QtTest
+    dlg = composite_dialog.CompositeDialog(None,
+        [{"name": "a.pdf", "data": _two_sheet_pdf()}], None, {}, manual=manual)
+    try:
+        assert dlg.view.minimap.isHidden()
+        dlg._take_area(True)
+        dlg.lst_pages.setCurrentRow(1)
+        dlg._take_area(True)
+        minimap = dlg.view.minimap
+        assert not minimap.isHidden()
+        assert [label for _, label in minimap._layout] == ["Hoja 1", "Hoja 2"]
+        dlg.view.magnet_enabled = False
+        dlg.view.items[1].setPos(-400, 170)
+        assert minimap._layout[1][0].topLeft() == QtCore.QPointF(-400, 170)
+        assert minimap._full_scene_rect.contains(minimap._layout[1][0])
+        dlg._rotate(90)
+        assert minimap._layout[1][0].width() == pytest.approx(200)
+        assert minimap._layout[1][0].height() == pytest.approx(300)
+        dlg.show()
+        app.processEvents()
+        dlg.view.fit_all()
+        dlg.view.centerOn(150, 100)
+        before = dlg.view.mapToScene(dlg.view.viewport().rect().center())
+        target = minimap._scene_to_map(minimap._layout[1][0].center()).toPoint()
+        QtTest.QTest.mouseClick(minimap, QtCore.Qt.LeftButton, pos=target)
+        after = dlg.view.mapToScene(dlg.view.viewport().rect().center())
+        assert after.x() < before.x()-100
+        dlg.view.select(1)
+        dlg._delete()
+        assert len(minimap._layout) == 1
+        dlg.view.select(0)
+        dlg._delete()
+        assert minimap.isHidden()
+    finally:
+        dlg.close_docs()
+        dlg.close()
+
+
+def test_minimapa_zoom_sigue_composicion(app):
+    from PySide6 import QtTest
+    dlg = composite_dialog.CompositeDialog(None,
+        [{"name": "a.pdf", "data": _two_sheet_pdf()}], None, {}, manual=True)
+    try:
+        dlg._take_area(True)
+        dlg.lst_pages.setCurrentRow(1)
+        dlg._take_area(True)
+        dlg.view.magnet_enabled = False
+        dlg.view.items[1].setPos(20000, 8000)
+        dlg.show()
+        app.processEvents()
+        view, minimap = dlg.view, dlg.view.minimap
+        view.fit_all()
+        overview_width = minimap._scene_rect.width()
+        view.scale(20, 20)
+        view.centerOn(20150, 8100)
+        view.viewChanged.emit()
+        assert minimap._scene_rect.width() < overview_width/15
+        assert minimap._scene_rect.contains(QtCore.QPointF(20150, 8100))
+        assert minimap.pos() == QtCore.QPoint(minimap.MARGIN,
+            view.viewport().height()-minimap.height()-minimap.MARGIN)
+        QtTest.QTest.mouseDClick(minimap, QtCore.Qt.LeftButton, pos=minimap.rect().center())
+        assert minimap._zoom == pytest.approx(1, abs=0.1)
+    finally:
+        dlg.close_docs()
+        dlg.close()
+
+
+def test_compositor_zoom_anclado_y_navegacion_libre(app):
+    from PySide6 import QtGui, QtTest
+    dlg = composite_dialog.CompositeDialog(None,
+        [{"name": "a.pdf", "data": _two_sheet_pdf()}], None, {}, manual=True)
+    try:
+        dlg._take_area(True)
+        dlg.show()
+        app.processEvents()
+        view = dlg.view
+        view.fit_all()
+        position = view.viewport().rect().center()+QtCore.QPoint(30, -20)
+        def assert_minimap_in_corner():
+            minimap = view.minimap
+            assert minimap.pos() == QtCore.QPoint(minimap.MARGIN,
+                view.viewport().height()-minimap.height()-minimap.MARGIN)
+        for _ in range(30):
+            anchor = view.mapToScene(position)
+            event = QtGui.QWheelEvent(QtCore.QPointF(position), QtCore.QPointF(view.viewport().mapToGlobal(position)),
+                QtCore.QPoint(), QtCore.QPoint(0, -120), QtCore.Qt.NoButton,
+                QtCore.Qt.NoModifier, QtCore.Qt.NoScrollPhase, False)
+            view.wheelEvent(event)
+            drift = view.mapFromScene(anchor)-position
+            assert abs(drift.x()) <= 2 and abs(drift.y()) <= 2
+            assert_minimap_in_corner()
+        # Even when the sheets are tiny, repeated pans can cross every boundary.
+        start = view.viewport().rect().center()
+        initial = view.mapToScene(start)
+        for _ in range(6):
+            QtTest.QTest.mousePress(view.viewport(), QtCore.Qt.MiddleButton, pos=start)
+            QtTest.QTest.mouseMove(view.viewport(), start+QtCore.QPoint(100, 80))
+            QtTest.QTest.mouseRelease(view.viewport(), QtCore.Qt.MiddleButton, pos=start+QtCore.QPoint(100, 80))
+            assert_minimap_in_corner()
+        after = view.mapToScene(start)
+        assert after.x() < initial.x()-500/abs(view.transform().m11())
+        assert after.y() < initial.y()-400/abs(view.transform().m11())
+        assert dlg.comp.pieces[0].x == 0 and dlg.comp.pieces[0].y == 0
+    finally:
+        dlg.close_docs()
+        dlg.close()
+
+
 def test_paneles_plegables_y_pantalla_pequena(app):
     data = _two_sheet_pdf()
     dlg = composite_dialog.CompositeDialog(None, [{"name": "a.pdf", "data": data}], None, {}, 0)

@@ -17,6 +17,7 @@ contiene datos: el motor (``t``, ``bind``, cambio de idioma) vive en i18n.py.
 #     usamos ``t("Utilidad #{n}").format(n=i)`` o ``t()`` sobre la parte fija.
 # ─────────────────────────────────────────────────────────────────────────────
 EN: dict[str, str] = {
+    "Zoom sincronizado con la vista · clic o arrastre: navegar · doble clic: ver todas las hojas": "Zoom synchronized with view · click or drag: navigate · double click: show all sheets",
     "Largo": "Length",
     "Ancho": "Width",
     "Bloquear regla": "Lock ruler",
