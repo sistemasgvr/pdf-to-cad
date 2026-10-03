@@ -90,10 +90,12 @@ def test_anillo_de_buzon_y_tuberia_en_contorno():
         for a in range(0, 90, 10)]}                                     # un codo (90°): NO es anillo
     rings, rest = rec.ring_symbol_paths([ring, arc])
     assert rings == [ring] and rest == [arc]
-    box = {"layer": "C-SSWR-UNGD-N", "items": [("qu", _Q(1402.26, 1049.46, 1405.86, 1259.28))]}
-    square = {"layer": "C-SSWR-UNGD-N", "items": [("qu", _Q(0, 0, 20, 20))]}   # no es delgado
-    out, n = rec.outline_axis_paths([box, square])
-    assert n == 1 and out[1] is square
+    box = {"layer": "C-SSWR-UNGD-N", "color": (0, 0, 0), "items": [("qu", _Q(1402.26, 1049.46, 1405.86, 1259.28))]}
+    square = {"layer": "C-SSWR-UNGD-N", "color": (0, 0, 0), "items": [("qu", _Q(0, 0, 20, 20))]}   # no es delgado
+    # barra RELLENA de 0.9 × 9 pt de la leyenda de una capa `-D` (DU10 h.4): no es tubería
+    bar = {"layer": "C-NGAS-D", "color": None, "fill": (0, 0, 0), "items": [("qu", _Q(1593.1, 1591.9, 1594.0, 1600.9))]}
+    out, n = rec.outline_axis_paths([box, square, bar])
+    assert n == 1 and out[1] is square and out[2] is bar
     (_, p, q), = out[0]["items"]
     assert abs(p.x - 1404.06) < 1e-6 and abs(q.x - 1404.06) < 1e-6 and abs(abs(p.y - q.y) - 209.82) < 1e-3
 

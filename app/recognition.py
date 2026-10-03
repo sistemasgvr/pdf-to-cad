@@ -38,6 +38,7 @@ import recognition_trace as trace_mod
 import recognition_contacts as contacts_mod
 import recognition_text_gaps as text_gaps_mod
 import recognition_vault_snap as vault_snap_mod
+import recognition_walls as walls_mod
 import routes as routes_mod
 from sheet_crops import page_rect as crop_page_rect, drawing_polygon
 from i18n_core import t as _tr, N_   # avisos de QA en el idioma activo
@@ -120,9 +121,15 @@ RING_MIN_POINTS = 8
 # 3.6 × 210 pt (1 ft de ancho a 1"=20') — salía como una polilínea que daba la
 # vuelta al rectángulo. Su centerline es el EJE: la mediana de los dos lados
 # largos, que los vectores definen exactamente (`outline_axis_paths`).
-OUTLINE_AXIS_UTILITIES = frozenset({"ALCANTARILLADO"})
+# Es la misma tubería «con sus paredes» (`recognition_walls`) cerrada con sus tapones
+# en un solo trazo: vale en TODAS las utilidades (pedido del usuario 2026-10-02). En
+# los 6 PDFs de prueba solo aparece en alcantarillado (DU06 h.4, LABOE h.21/28); fuera
+# de él solo había barras RELLENAS de 0.9 × 9 pt de la leyenda de las capas `-D` de
+# gas/agua (DU10 h.4/28, DU08 h.28) → contorno = con TRAZO y lado largo ≥ 20 pt.
+OUTLINE_AXIS_UTILITIES = frozenset(SUPPORTED_UTILITIES)
 OUTLINE_MAX_WIDTH_PT = 8.0    # lado corto (≈2 ft a 1"=20')
 OUTLINE_MIN_ASPECT = 6.0      # largo / ancho
+OUTLINE_MIN_LEN_PT = 20.0     # = WALL_MIN_LEN_PT: una barra o un guión no es una tubería
 ROLE_LINEAS = "lineas"
 ROLE_BUZONES = "buzones"
 ROLE_IGNORAR = "ignorar"
@@ -214,6 +221,9 @@ class RecognitionResult:
     # Puntas que el imán llevó al contorno de su bóveda (`recognition_vault_snap`),
     # posición final en px: el aviso «Puntas unidas a su bóveda» las ubica.
     vault_snaps_px: List[Tuple[float, float]] = field(default_factory=list)
+    # Tuberías dibujadas con sus DOS PAREDES (`recognition_walls`): la línea media
+    # que las reemplazó (px), para que el aviso lleve a cada una.
+    walls_px: List[List[Tuple[float, float]]] = field(default_factory=list)
 
     @property
     def drawable(self) -> List[RecognizedPolyline]:
@@ -578,15 +588,17 @@ def _rect_corners(path: dict) -> Optional[List[Tuple[float, float]]]:
 
 def outline_axis_paths(paths: Sequence[dict]) -> Tuple[List[dict], int]:
     """Cambia cada rectángulo DELGADO (lado corto ≤ OUTLINE_MAX_WIDTH_PT, largo ≥
-    OUTLINE_MIN_ASPECT veces) por un trazo recto en su EJE (de la mitad de un lado
-    corto a la del otro). Devuelve (paths, nº de contornos convertidos)."""
+    OUTLINE_MIN_ASPECT veces, con trazo y largo ≥ OUTLINE_MIN_LEN_PT) por un trazo
+    recto en su EJE (de la mitad de un lado corto a la del otro). Devuelve (paths, nº
+    de contornos convertidos)."""
     out, n = [], 0
     for path in paths:
-        c = _rect_corners(path)
+        c = _rect_corners(path) if path.get("color") is not None else None
         if c:
             s1, s2 = math.dist(c[0], c[1]), math.dist(c[1], c[2])
             short, long_ = min(s1, s2), max(s1, s2)
-            if 0.1 < short <= OUTLINE_MAX_WIDTH_PT and long_ >= OUTLINE_MIN_ASPECT * short:
+            if (0.1 < short <= OUTLINE_MAX_WIDTH_PT and long_ >= OUTLINE_MIN_ASPECT * short
+                    and long_ >= OUTLINE_MIN_LEN_PT):
                 if s1 <= s2:          # lados cortos: c0-c1 y c2-c3
                     m1 = ((c[0][0] + c[1][0]) / 2, (c[0][1] + c[1][1]) / 2)
                     m2 = ((c[2][0] + c[3][0]) / 2, (c[2][1] + c[3][1]) / 2)
@@ -940,6 +952,27 @@ def inject_vault_vertices(
     return snapped, skipped
 
 
+def _recognized_walls(changes: List[dict], polylines, px, zoom: float) -> List[dict]:
+    """Cambios de `recognition_walls` cuya línea media (o eje) quedó como línea
+    reconocida (≥ la mitad de sus muestras a ≤ 1 pt de alguna polilínea)."""
+    if not changes:
+        return []
+    segs = [(a, b) for pl in polylines if pl.kind in DRAW_KINDS
+            for a, b in zip(pl.pts_pdf, pl.pts_pdf[1:])]
+    tol = 1.0 * zoom
+    out = []
+    for c in changes:
+        pts = [px(q) for q in walls_mod._samples(c["mid"], max(2.0, walls_mod._length(c["mid"]) / 20.0))]
+        x0 = min(q[0] for q in pts) - tol; x1 = max(q[0] for q in pts) + tol
+        y0 = min(q[1] for q in pts) - tol; y1 = max(q[1] for q in pts) + tol
+        local = [s for s in segs if min(s[0][0], s[1][0]) <= x1 and max(s[0][0], s[1][0]) >= x0
+                 and min(s[0][1], s[1][1]) <= y1 and max(s[0][1], s[1][1]) >= y0]
+        near = sum(1 for q in pts if any(walls_mod._closest(q, s)[0] <= tol for s in local))
+        if near >= 0.5 * len(pts):
+            out.append(c)
+    return out
+
+
 def recognize_page(
     pdf_path: str | Path,
     page_index: int = 0,
@@ -1048,6 +1081,15 @@ def recognize_page(
         if n_outlines:
             warnings.append(f"Tuberías dibujadas como contorno (rectángulo delgado): {n_outlines} — se "
                             "toma su eje como centerline.")
+        # Tubería dibujada con sus dos PAREDES (o paredes + eje): una sola línea, la
+        # del medio. Todas las utilidades; ver `recognition_walls` (qué NO es pared).
+        wall_changes: List[dict] = []
+        for ocg in list(by_ocg):
+            others = [q for o, ps in by_ocg.items() if o != ocg for q in ps]
+            by_ocg[ocg], ch = walls_mod.merge_walls(by_ocg[ocg], others, geom._Rect)
+            wall_changes += ch
+        # (el aviso va al final: solo cuentan las que quedan como línea reconocida —
+        # el marco del cajetín de DU10, tres rayas en capas de utilidad, no lo es)
         if n_rings:
             warnings.append(f"Anillos de buzón dibujados en la capa de la línea: {n_rings} — se toman "
                             "como contorno de la estructura, no como tubería.")
@@ -1421,6 +1463,15 @@ def recognize_page(
                 n=len(vault_pts)))
         if orphans_px:
             warnings.append(_tr("Bóvedas sin línea cercana: {n}.").format(n=len(orphans_px)))
+        wall_changes = _recognized_walls(wall_changes, polylines, px, zoom)
+        n_walls = sum(1 for c in wall_changes if c["kind"] == "walls")
+        n_center = len(wall_changes) - n_walls
+        if n_walls:
+            warnings.append(_tr("Tuberías dibujadas con sus dos paredes: {n} — se toma la línea del "
+                                "medio (una sola utilidad).").format(n=n_walls))
+        if n_center:
+            warnings.append(_tr("Tuberías dibujadas con paredes y eje: {n} — se usa el eje y se "
+                                "omiten las paredes.").format(n=n_center))
         if vault_snaps_px:
             warnings.append(_tr("Puntas unidas a su bóveda (imán): {n} — quedaban a menos de {d} pt "
                                 "de su contorno y se llevaron hasta él por su propia recta.").format(
@@ -1434,6 +1485,7 @@ def recognize_page(
             coverage=coverage_total, uncovered_px=uncovered_px, offpattern_px=offpattern_px,
             vault_orphans_px=orphans_px, join_routes=join_routes, vaults_geo=vaults_geo,
             vault_snaps_px=vault_snaps_px,
+            walls_px=[[px(q) for q in c["mid"]] for c in wall_changes],
             n_routes=n_routes, n_segments_total=n_segments_total,
             polylines_joined=polylines_joined, polylines_raw=polylines_raw,
         )

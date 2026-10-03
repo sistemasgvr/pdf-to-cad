@@ -228,6 +228,12 @@ imagen/escaneo…</b>), pero sin capas ni reconocimiento: al final,
     El aviso <b>Puntas unidas a su bóveda</b> te lleva a cada una.</li>
 <li>Si el plano trae la <b>misma línea dibujada dos veces</b> en la misma capa (encimada, con los
     guiones corridos), se importa <b>una sola</b> línea.</li>
+<li>Si la tubería está dibujada con sus <b>dos paredes</b> (dos líneas paralelas que van juntas de
+    inicio a fin) se importa <b>una sola</b> utilidad, por la línea del medio. Igual si trae paredes
+    y eje (se usa el eje), paredes y un cuerpo relleno de color, paredes a trazos o un contorno
+    cerrado delgado (se usa su eje). Vale para todas las utilidades. El aviso
+    <b>tuberías con dos paredes</b> te lleva a cada una. Tres o más líneas paralelas juntas no se
+    tocan.</li>
 <li>El <b>agua</b> y el <b>gas</b> entran sin cajas (van a presión). El <b>alcantarillado</b> y el
     drenaje entran con sus buzones; eléctrico y <b>telecomunicaciones</b>, con caja solo donde el
     plano tiene una bóveda.</li>

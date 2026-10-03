@@ -305,6 +305,33 @@ alcantarillado, drenaje, gas, eléctrico, telecom). Todo en **unidades imperiale
     24 pt) sale con el tee en ese punto y no en su tangencia (coincide exacto, no se ve
     doble). Tests: `tests/test_curvas_encadenadas.py`, `tests/test_curvas_editor.py`
     (DU06 h.4 telecom/drenaje).
+  - `recognition_walls.py` + `recognition_wall_runs.py` (PUROS) — **tubería dibujada con
+    sus PAREDES** (reporte del usuario 2026-10-02, `C-SSWR-PIPE` a 1.3 pt: salían dos
+    utilidades pegadas). Regla del usuario: «si las líneas van juntas de inicio a fin, es una
+    sola utilidad» → la línea del MEDIO. `merge_walls` (en `recognize_page` tras el
+    contorno/anillo, TODAS las utilidades, por capa con las demás capas de la utilidad como
+    `others`): trazos abiertos de solo rectas ≥20 pt (encadenados punta con punta, salvo un
+    trazo corto que gira fuerte = TAPÓN), gemelos a separación CONSTANTE 0.5–30 pt (menos: la misma línea dibujada dos veces algo corrida, LABOE h.32 a 0.42 pt) (±max(0.2,
+    8 %)) en ≥90 % de cada uno, puntas juntas (≤ sep + max(2, 2·sep); una punta cortada por el
+    clip no cuenta) y largo ≥8·sep. Formas halladas (ET-004 drenaje): paredes; paredes + eje
+    (tinta ≥50 % sobre el medio, de cualquier capa de la utilidad, o 3 gemelas con la del medio
+    centrada → se quita solo lo de afuera); paredes + CUERPO relleno (relleno >8 pt entero en la
+    banda sale); paredes A TRAZOS (`dash_runs`: guiones colineales, huecos ≤12 pt, solapes ≤2 pt
+    de dos copias, partidos en tramos rectos; el eje sale a trazos con la unión de los guiones;
+    `joint_leftovers`: el guión que dobla en un quiebre 2°–100° sale y va el conector
+    fin→vértice→inicio). NO se toca: grupos de ≥3 paralelas (marco del cajetín de DU10, 4
+    líneas de telecom DU10 h.27, 3 de agua «—W—» DU10 h.25), figuras cerradas (DU06 h.4), y
+    líneas con LETRAS (tinta ≤8 pt que cruza la recta en algún hueco de sus guiones, hasta
+    300 pt; la pared de otra tubería que cruza junto al buzón no es letra). Aviso «Tuberías
+    dibujadas con sus dos paredes / con paredes y eje: N» solo si el cambio quedó como línea
+    reconocida (`_recognized_walls`; clave `walls`, `RecognitionResult.walls_px`). Foto: los 4
+    PDFs de prueba × 6 utilidades sin cambios; reporte 6 → 3 líneas (eje ≤0.08 pt del centro),
+    ET-004 h.1 73 → 19, h.2 35 → 20 (una por tubería). El CONTORNO cerrado delgado
+    (`outline_axis_paths`, paredes + tapones en un trazo) pasó de solo alcantarillado a TODAS
+    (`OUTLINE_AXIS_UTILITIES` = `SUPPORTED_UTILITIES`) con trazo y largo ≥`OUTLINE_MIN_LEN_PT`=20
+    (las barras RELLENAS de 0.9×9 pt de la leyenda de capas `-D` de gas/agua no son tubería).
+    Tests: `tests/test_recognition_walls.py` (paredes, paredes + eje, a trazos y contorno en
+    las 6 utilidades).
   - `recognition_summary.py` (PURO) + `recognition_summary_view.py` — resumen
     VISUAL de la vista previa (lo pidió el usuario: «evitar mucho texto»):
     `classify_warning` pasa cada aviso de `recognize_page` a `Notice` (nivel
@@ -904,7 +931,8 @@ alcantarillado, drenaje, gas, eléctrico, telecom). Todo en **unidades imperiale
     guión del medio de una curva se estiraba ENCIMA del siguiente → dos tramos
     superpuestos); `OUTLINE_AXIS_UTILITIES` + `outline_axis_paths`: rectángulo delgado
     (≤8 pt, largo ≥6×) en la capa de la línea = tubería en contorno → su EJE (DU06 h.4
-    `PROP_SEWER_PIPE_ALGN|C-SSWR-UNGD-N`). GLOBAL (núcleo): el filtro de ruido compara
+    `PROP_SEWER_PIPE_ALGN|C-SSWR-UNGD-N`; desde 2026-10-02 en TODAS las utilidades, ver
+    `recognition_walls`). GLOBAL (núcleo): el filtro de ruido compara
     `pl.length >= dash_long - 0.5` (dash_long sale de largos redondeados: un trazo de 209.8
     con dash_long=210 se tiraba) — cambia drenaje (DU10 h.17/18: lateral propuesto de 120
     pt recuperado) y agua (18 trazos sueltos recuperados, todos con tinta); eléctrico 0.

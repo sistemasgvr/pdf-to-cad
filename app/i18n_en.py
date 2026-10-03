@@ -1757,6 +1757,10 @@ EN: dict[str, str] = {
         "Vaults detected: {n} (they are already line vertices).",
     "Bóvedas sin línea cercana: {n}.":
         "Vaults with no nearby line: {n}.",
+    "Tuberías dibujadas con sus dos paredes: {n} — se toma la línea del medio (una sola utilidad).":
+        "Pipes drawn with their two walls: {n} — the middle line is used (a single utility).",
+    "Tuberías dibujadas con paredes y eje: {n} — se usa el eje y se omiten las paredes.":
+        "Pipes drawn with walls and centerline: {n} — the centerline is used and the walls are skipped.",
     "Puntas unidas a su bóveda (imán): {n} — quedaban a menos de {d} pt de su contorno y se llevaron hasta él por su propia recta.":
         "Line ends joined to their vault (magnet): {n} — they were less than {d} pt from its outline and were moved onto it along their own line.",
     "Capa «-A» sin el patrón de marcadores «/» a lo largo de la línea: {n} — NO se marcan como abandonadas.":

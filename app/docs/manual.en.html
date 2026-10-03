@@ -225,6 +225,12 @@ editor</span> leaves it as the background to draw by hand.</p>
     loose line, only if it is less than 1.5 pt away. On import, the box, solid or manhole is
     <b>joined</b> to that line instead of left loose at the center. A vault with no line nearby is
     not touched. The <b>Line ends joined to their vault</b> notice takes you to each one.</li>
+<li>If a pipe is drawn with its <b>two walls</b> (two parallel lines running together from start to
+    end) a <b>single</b> utility is imported, along the middle line. The same if it has walls and a
+    centerline (the centerline is used), walls and a colored filled body, dashed walls or a thin
+    closed outline (its centerline is used). It applies to every utility. The
+    notice <b>pipes with two walls</b> takes you to each one. Three or more parallel lines together
+    are left untouched.</li>
 <li>If the plan has the <b>same line drawn twice</b> on the same layer (overlapping, with shifted
     dashes), <b>a single</b> line is imported.</li>
 <li><b>Water</b> and <b>gas</b> come in without boxes (they are pressure networks). <b>Sewer</b>

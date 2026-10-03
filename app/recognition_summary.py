@@ -86,6 +86,12 @@ _RULES = [
      lambda m: f"{_n(m)} leaders/flechas (violeta, no se importan)", "offpattern"),
     (r"^Tuberías dibujadas como contorno[^:]*: (\d+)", INFO,
      lambda m: _pl(_n(m), "tubería en contorno: se usa su eje", "tuberías en contorno: se usa su eje"), ""),
+    (r"^Tuberías dibujadas con sus dos paredes: (\d+)", INFO,
+     lambda m: _pl(_n(m), "tubería con dos paredes: se usa la línea del medio",
+                   "tuberías con dos paredes: se usa la línea del medio"), "walls"),
+    (r"^Tuberías dibujadas con paredes y eje: (\d+)", INFO,
+     lambda m: _pl(_n(m), "tubería con paredes y eje: se usa el eje",
+                   "tuberías con paredes y eje: se usa el eje"), "walls"),
     (r"^Anillos de buzón dibujados en la capa de la línea: (\d+)", INFO,
      lambda m: _pl(_n(m), "anillo de buzón", "anillos de buzón") + " en la capa de la línea", ""),
     (r"^Bóvedas detectadas: (\d+)", INFO, lambda m: _pl(_n(m), "bóveda", "bóvedas") + " en las líneas", "vaults"),
@@ -202,6 +208,8 @@ def targets_for(key: str, result) -> List[Rect]:
         out = [_around(p) for p in (getattr(result, "vault_pts", None) or [])]
     elif key == "vault_snaps":
         out = [_around(p) for p in (getattr(result, "vault_snaps_px", None) or [])]
+    elif key == "walls":
+        out = [b for pts in (getattr(result, "walls_px", None) or []) if (b := _bbox(pts))]
     elif key == "offpattern":
         out = [b for pts in (getattr(result, "offpattern_px", None) or []) if (b := _bbox(pts))]
     elif key == "abandoned":
