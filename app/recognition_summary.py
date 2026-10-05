@@ -3,15 +3,22 @@
 La vista previa mostraba los avisos de `recognize_page` como un bloque de texto
 largo. Aquí cada aviso se clasifica en un nivel y una etiqueta corta, y se
 calculan las cifras por utilidad; `recognition_summary_view` los dibuja como
-tarjetas, barras y una lista corta de «Revisar» (el texto completo queda en el
+tarjetas, barras y la lista «Para verificar» (el texto completo queda en el
 tooltip). Los textos de `recognition.py` no cambian: si aparece uno nuevo sin
-regla, cae en «Revisar» para que nunca quede escondido.
+regla, cae en «Para verificar» para que nunca quede escondido.
+
+Cada aviso que se muestra en «Para verificar» lleva además una EXPLICACIÓN corta en
+lenguaje llano (`Notice.hint`, `_HINTS`): qué se encontró y qué se hizo con ello. El
+usuario pidió (2026-10-03) que no parezcan errores: la hoja SÍ se reconoció; son
+puntos que conviene mirar antes de importar. Solo PROBLEM son problemas de verdad.
 """
 from __future__ import annotations
 
 import re
 from dataclasses import dataclass
 from typing import List, Optional, Sequence, Tuple
+
+from i18n_core import N_
 
 PROBLEM, REVIEW, INFO = "problema", "revisar", "info"
 LEVEL_ORDER = {PROBLEM: 0, REVIEW: 1, INFO: 2}
@@ -24,6 +31,7 @@ class Notice:
     label: str            # etiqueta corta para la lista
     text: str             # aviso completo (tooltip)
     key: str = ""         # qué ubica en la hoja (`targets_for`); "" = nada que ubicar
+    hint: str = ""        # explicación llana (clave i18n; solo PROBLEM/REVIEW)
 
 
 @dataclass
@@ -71,7 +79,7 @@ _RULES = [
                 else f"{_n(m)} codos (esquina + radio)"), "fillets"),
     (r"^Cobertura de guiones: ([\d.]+)%(?: \((\d+) sin cubrir)?",
      lambda m: REVIEW if m.group(2) else INFO,
-     lambda m: (_pl(_n(m, 2), "guion sin cubrir", "guiones sin cubrir") + " (naranja)" if m.group(2)
+     lambda m: (_pl(_n(m, 2), "guion sin cubrir", "guiones sin cubrir") + " (magenta)" if m.group(2)
                 else f"Cobertura {m.group(1)} %"), "uncovered"),
     (r"^Trazos repetidos[^:]*: (\d+)", INFO, lambda m: f"{_n(m)} trazos repetidos (usados una vez)", ""),
     (r"^Capas repetidas por otro xref[^:]*: (\d+)", INFO, lambda m: f"{_n(m)} capas repetidas por xref", ""),
@@ -83,7 +91,7 @@ _RULES = [
     (r"^Rutas: (\d+) \(unen (\d+)", INFO, lambda m: f"{_n(m)} rutas unen {_n(m, 2)} tramos", ""),
     (r"^Se omitieron (\d+) trazos de marcador", INFO, lambda m: f"{_n(m)} letras/barras omitidas", ""),
     (r"^Trazos continuos fuera de patrón[^:]*: (\d+)", INFO,
-     lambda m: f"{_n(m)} leaders/flechas (violeta, no se importan)", "offpattern"),
+     lambda m: f"{_n(m)} leaders/flechas (turquesa, no se importan)", "offpattern"),
     (r"^Tuberías dibujadas como contorno[^:]*: (\d+)", INFO,
      lambda m: _pl(_n(m), "tubería en contorno: se usa su eje", "tuberías en contorno: se usa su eje"), ""),
     (r"^Tuberías dibujadas con sus dos paredes: (\d+)", INFO,
@@ -98,18 +106,50 @@ _RULES = [
     (r"^Puntas unidas a su bóveda[^:]*: (\d+)", INFO,
      lambda m: _pl(_n(m), "punta unida a su bóveda", "puntas unidas a su bóveda"), "vault_snaps"),
 ]
-_COMPILED = [(re.compile(p), lvl, lab, key) for p, lvl, lab, key in _RULES]
+# Explicación de cada aviso de «Para verificar»: qué se encontró y qué se hizo con
+# ello, sin tono de error (la vista los traduce con `t()`). Clave = patrón de `_RULES`.
+_HINTS = {
+    r"^No se encontraron líneas": N_(
+        "No hay líneas de esta utilidad en la hoja. Si el plano usa otros nombres de capa, "
+        "indícalos con «Ajustar capas…»."),
+    r"^Esta hoja no tiene capas": N_(
+        "El PDF no trae capas en esta hoja y no se puede reconocer sola. Puedes dibujar a mano en "
+        "el editor."),
+    r"^Ninguna capa OCG coincidió": N_(
+        "Ningún nombre de capa es conocido. Indica cuáles son las líneas con «Ajustar capas…»."),
+    r"^Capa «-A» sin el patrón[^:]*: (\d+)": N_(
+        "Su capa dice «abandonada» (-A), pero la línea no lleva las marcas «/». Se importan como "
+        "activas: confirma si lo son."),
+    r"^Existentes A ABANDONAR[^:]*: (\d+)": N_(
+        "Su capa es «existente a abandonar» (-D). Se importan como activas hasta que tú decidas."),
+    r"^Patrón de marcadores «/» en una capa ACTIVA: (\d+)": N_(
+        "Llevan las marcas «/» de abandonada, pero su capa es activa. Se importan como activas."),
+    r"^Curvas que quedan como polilínea: (\d+)": N_(
+        "El plano no las dibuja como un arco exacto (radio que cambia o esquina cortada). Se "
+        "importan como tramos rectos que siguen la curva."),
+    r"^Bóvedas sin línea cercana: (\d+)": N_(
+        "Están en el plano, pero ninguna línea llega a ellas (anillo magenta). Mira si les falta "
+        "una línea."),
+    r"^Codos como esquina \+ radio: (\d+)(?: \((\d+) aproximado)?": N_(
+        "La curva del plano no es un arco perfecto. Se importó el arco que mejor la sigue (a "
+        "trazos en la hoja)."),
+    r"^Cobertura de guiones: ([\d.]+)%(?: \((\d+) sin cubrir)?": N_(
+        "Trozos de línea del plano que no quedaron dentro de ninguna línea reconocida (en "
+        "magenta). Suelen ser restos sueltos del dibujo."),
+}
+_COMPILED = [(re.compile(p), lvl, lab, key, _HINTS.get(p, "")) for p, lvl, lab, key in _RULES]
 
 
 def classify_warning(text: str, utility: str = "") -> Notice:
     """Aviso de `recognize_page` → `Notice`. Sin regla: REVIEW con el texto tal cual."""
-    for rx, lvl, lab, key in _COMPILED:
+    for rx, lvl, lab, key, hint in _COMPILED:
         m = rx.search(text)
         if m:
             level = lvl(m) if callable(lvl) else lvl
-            return Notice(utility, level, lab(m), text, key)
-    short = text if len(text) <= 60 else text[:57].rstrip() + "…"
-    return Notice(utility, REVIEW, short, text)
+            return Notice(utility, level, lab(m), text, key, hint if level != INFO else "")
+    if len(text) <= 60:
+        return Notice(utility, REVIEW, text, text)
+    return Notice(utility, REVIEW, text[:57].rstrip() + "…", text, hint=text)    # el resto, a la vista
 
 
 def notices_for(results: Sequence) -> List[Notice]:

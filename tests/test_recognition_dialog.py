@@ -108,6 +108,8 @@ def test_preview_sin_lineas_deshabilita_continuar():
 
 @pytest.mark.parametrize("width,height", [(950, 480), (1200, 700), (950, 700)])
 def test_preview_scroll_prevents_overlapping_with_all_utilities(width, height):
+    """Seis utilidades con avisos en una ventana chica: nada se encima, cada panel
+    hace scroll por su cuenta y los botones quedan siempre a la vista."""
     app = _app()
     results = [rec.RecognitionResult(utility=u, page_index=0, scale_ft_per_pt=20/72,
         warnings=["No se encontraron líneas de drenaje en esta hoja.",
@@ -119,28 +121,34 @@ def test_preview_scroll_prevents_overlapping_with_all_utilities(width, height):
         app.processEvents()
         dlg.setWindowState(QtCore.Qt.WindowNoState)
         dlg.resize(width, height)
-        dlg.split.setSizes([width-340, 340])
-        dlg.summary.btn_details.setChecked(True)
+        dlg.review_panel.btn_details.setChecked(True)
         for _ in range(8):
             app.processEvents()
-        assert dlg.panel_scroll.verticalScrollBar().maximum() > 0
+        # panel derecho: el resumen sin solapes (barras de las 6 utilidades)
         assert dlg.summary.bars.height() == 6*24+2
         layout = dlg.summary.layout()
         visible_items = [layout.itemAt(i) for i in range(layout.count())
                          if not (layout.itemAt(i).widget() and layout.itemAt(i).widget().isHidden())]
         for before, after in zip(visible_items, visible_items[1:]):
             assert before.geometry().bottom() < after.geometry().top()
-        assert dlg.used_layers.height() <= 200
         assert not dlg.panel_scroll.isAncestorOf(dlg.btn_roles)
         assert not dlg.panel_scroll.isAncestorOf(dlg.btn_ok)
-        expanded_height = dlg.panel_scroll.widget().minimumHeight()
-        dlg.summary.btn_details.setChecked(False)
-        for _ in range(8):
-            app.processEvents()
-        assert dlg.panel_scroll.widget().minimumHeight() < expanded_height
+        if height < 600:
+            assert dlg.panel_scroll.verticalScrollBar().maximum() > 0
         dlg.panel_scroll.verticalScrollBar().setValue(dlg.panel_scroll.verticalScrollBar().maximum())
         app.processEvents()
         assert dlg.used_layers.mapTo(dlg.panel_scroll.viewport(), QtCore.QPoint()).y() < dlg.panel_scroll.viewport().height()
+        # panel izquierdo: 12 avisos + «Detalles» abierto → scroll; cerrarlo achica el contenido
+        assert len(dlg.review_panel.review_rows) == 12
+        assert dlg.review_scroll.verticalScrollBar().maximum() > 0
+        expanded_height = dlg.review_scroll.widget().minimumHeight()
+        dlg.review_panel.btn_details.setChecked(False)
+        for _ in range(8):
+            app.processEvents()
+        assert dlg.review_scroll.widget().minimumHeight() < expanded_height
+        rows = dlg.review_panel.review_rows
+        for before, after in zip(rows, rows[1:]):
+            assert before.geometry().bottom() < after.geometry().top()
     finally:
         dlg.close()
         dlg.deleteLater()

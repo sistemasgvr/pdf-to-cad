@@ -21,7 +21,8 @@ alcantarillado, drenaje, gas, eléctrico, telecom). Todo en **unidades imperiale
     la ÚNICA forma fiable de abrir un QDialog maximizado en Windows (setWindowState
     diferido tras el primer Show; `exec()` pisa un showMaximized previo);
     `side_panel_width`; `CollapsiblePanel` (cabecera + plegado a tira vertical, lo
-    usa el compositor para pantallas pequeñas)).
+    usa «Para verificar» de la vista previa; el compositor ya no: va en pestañas); `NaturalHeightScroll` (scroll de
+    un panel lateral que respeta el alto natural de su contenido)).
   - `ui_common.py` — constantes/helpers de UI compartidos (`DOWNLOADS`, estilos de
     botón, `layer_qcolor`, `swatch_icon`, …). Sin estado; los usa toda la app.
   - `busy.py` — capa «Cargando…» (pedido del usuario 2026-09-29: que un paso lento no
@@ -332,28 +333,54 @@ alcantarillado, drenaje, gas, eléctrico, telecom). Todo en **unidades imperiale
     (las barras RELLENAS de 0.9×9 pt de la leyenda de capas `-D` de gas/agua no son tubería).
     Tests: `tests/test_recognition_walls.py` (paredes, paredes + eje, a trazos y contorno en
     las 6 utilidades).
-  - `recognition_summary.py` (PURO) + `recognition_summary_view.py` — resumen
-    VISUAL de la vista previa (lo pidió el usuario: «evitar mucho texto»):
-    `classify_warning` pasa cada aviso de `recognize_page` a `Notice` (nivel
-    problema/revisar/info + etiqueta corta; el texto completo va al tooltip; un
-    aviso SIN regla cae en «revisar» — al agregar un `warnings.append` nuevo en
-    `recognition.py`, sumar su regla en `_RULES`); `SummaryPanel` = 4 tarjetas +
-    barra por utilidad (activas sólidas / AB rayadas, misma escala) + UNA leyenda
-    (`widgets.FlowLayout`: activas, AB, sin cubrir, fuera de patrón, escala) + barra de
-    cobertura + «Revisar» (`_CappedScroll`, tope `REVIEW_MAX_H`, scroll) + «Detalles»
-    plegado; «Unir tramos» (`chk_routes`, QToolButton `toggleTool`) va en el PIE junto a
-    «Opacidad» (2026-09-30). **Clic en un aviso → ir al lugar** (pedido del usuario): cada regla
+  - `recognition_summary.py` (PURO) + `recognition_summary_view.py` +
+    `recognition_review_view.py` + `recognition_layers_view.py` +
+    `recognition_preview_draw.py` — resumen VISUAL de la vista previa (lo pidió el
+    usuario: «evitar mucho texto»): `classify_warning` pasa cada aviso de
+    `recognize_page` a `Notice` (nivel problema/revisar/info + etiqueta corta + `hint` =
+    explicación llana de `_HINTS`; el texto completo va al tooltip; un aviso SIN regla cae
+    en «revisar» — al agregar un `warnings.append` nuevo en `recognition.py`, sumar su
+    regla en `_RULES` y, si se muestra en «Para verificar», su `_HINTS`). **Tres
+    columnas** (pedido del usuario 2026-10-03): `RecognitionPreviewDialog` = `review_box`
+    (`CollapsiblePanel` «Para verificar (N)», plegable: la hoja gana su ancho) | hoja |
+    `side_panel` (hoja + escala `lbl_scale`, `SummaryPanel`, `layers_panel` «Capas usadas»
+    que crece con el panel, «Ajustar capas…» fuera del scroll); anchos ~20 %/~28 % (240–300 /
+    300–400 px) que siguen a la ventana hasta que el usuario mueve un divisor; cada panel con
+    su `widgets.NaturalHeightScroll`. `SummaryPanel` (derecha) = 4 tarjetas + barra por
+    utilidad (activas sólidas / AB rayadas, misma escala) con su leyenda + «Cobertura»
+    (cifra, barra fina NEUTRA, el estado lo da el icono: ✔ / ojo / rojo <90 %) y las marcas
+    del control de calidad que haya (`qa_kinds`). **«Para verificar» NO son errores**
+    (2.º pedido, mismo día): `ReviewPanel` (izquierda) = frase arriba (`lbl_intro`: «Todo
+    se reconoció… no son errores»; otra si hay un PROBLEM), avance «k de N vistos» + barra,
+    puntos AGRUPADOS por utilidad (cuadrito + nombre una vez; primero el grupo con un
+    problema) como tarjetas `_NoticeRow` con icono de ojo neutro (solo PROBLEM: octágono y
+    borde rojos) y la explicación debajo (`row.hint`); Tab + Enter/Espacio = clic;
+    «Detalles» plegado, agrupado igual. **«Capas usadas» → ver en la hoja**
+    (`UsedLayersPanel.focusChanged`): clic en una capa, en «Líneas»/«Bóvedas» o en la
+    utilidad → `_on_layer_focus`: `_hit(utility, kind, ocg)` decide qué es de lo elegido
+    (líneas por `pl.layer_ocg`, bóvedas por `vaults_geo[i]["layer"]`; puntos de bóveda y
+    marcas de calidad solo con la utilidad entera), halo del color de la utilidad
+    (`draw_line_halo`/`draw_vault_halo`), lo demás a `DIM_OPACITY`, encuadre con
+    `_show_rect` y «Resaltado: … · N líneas, M bóvedas»; otro clic o «Ver todo» lo quita.
+    Las funciones `_draw_*` (en `recognition_preview_draw`) devuelven sus ítems para eso. **Colores del control de calidad** (`ui_common.QA_*`): ninguno
+    es de utilidad y cada uno con su forma — guion sin cubrir = línea magenta, bóveda sin
+    línea = anillo magenta, fuera de patrón = turquesa a puntos (antes naranja = telecom y
+    violeta ≈ agua; `test_colores_de_calidad_no_son_de_ninguna_utilidad` exige ≥30° de tono).
+    «Unir tramos» (`chk_routes`, QToolButton `toggleTool`) va en el PIE junto a
+    «Opacidad». **Clic en un aviso → ir al lugar** (pedido del usuario): cada regla
     de `_RULES` lleva una CLAVE y `targets_for(clave, result)` da los recuadros (px de la
     vista) — codos `loose`, ristras `curve` (uno por tramo), `uncovered_px`,
     `vault_orphans_px`, y `RecognizedPolyline.review` (lo marca `recognize_page` en las
     rutas que generan los avisos «-A» sin patrón / «//» / «-D» / «/» activa); la fila
-    emite `SummaryPanel.locate(QRectF)` y `RecognitionPreviewDialog._go_to` hace zoom
-    y marca con un recuadro ámbar (1/N por clic). **Revisado** (2026-09-30): vistos todos
+    emite `ReviewPanel.locate(QRectF)` y `RecognitionPreviewDialog._go_to` hace zoom
+    y marca con un recuadro blanco + trazos negros (1/N por clic). **Revisado** (2026-09-30): vistos todos
     sus casos (`_NoticeRow._seen`) —o un clic si no tiene lugar— la fila queda ✔
-    (`reviewedChanged`; clic derecho = pendiente), «k de N revisados» junto a «Revisar», y
+    (`reviewedChanged`; clic derecho = pendiente), «k de N vistos» arriba, y
     cada lugar visitado queda con un recuadro verde a trazos (`_reviewed`, se redibuja en
     `_redraw_overlay`). Aviso nuevo con ubicación → clave +
-    rama en `targets_for`. Tests: `tests/test_recognition_summary.py`.
+    rama en `targets_for`. Ojo: un ítem con `ItemIgnoresTransformations` (esquina C del
+    codo) se dibuja centrado en (0,0) y con `setPos` — en coordenadas de la hoja sale
+    corrido con zoom ≠ 1. Tests: `tests/test_recognition_summary.py`.
   - `recognition_geom.py` — **núcleo geométrico PURO** (sin Qt ni fitz): en el
     PDF la utilidad viene como linetype "explotado" (guiones + letras «e» +
     huecos), nunca como polilínea. Aprende el patrón del plano
@@ -530,18 +557,32 @@ alcantarillado, drenaje, gas, eléctrico, telecom). Todo en **unidades imperiale
     pieza se escala por `src_scale/target`). Botones conmutables del compositor:
     `_tool(checkable=True)` pone la propiedad `toggleTool` (QSS en `theme.py`:
     activo = verde + icono claro; `QPushButton[secondary="true"]` = acción
-    secundaria neutra, la usa el preview en su cuadrícula 2×2) y `_notify_taken` muestra 5 s «✔ Área tomada
-    como pieza N» en el panel 2. **UX (2026-09-26, pedido del usuario: «que no haya muchos
-    botones»)**: panel 2 = «Tomar área» (principal) + «Hoja completa» + menú «Opciones»
-    (`btn_area_snap`/`btn_trim` son QAction checables, mismo nombre que antes); panel 3 =
-    herramientas de pieza (`piece_tools`: girar, menú «Ajustes» con `spn_angle`/
+    secundaria neutra, la usa el preview en su cuadrícula 2×2). **PESTAÑAS (2026-10-03, pedido
+    del usuario: en tres columnas a cada vista le quedaba poco sitio)**: `WorkTabs`
+    (`composite_tabs.py`, pintadas a mano con insignia: nº de piezas / «!» pendiente) + un
+    `QStackedWidget` (`self.stack`, `self.pages`): «Origen» (`composite_source_page.
+    SourcePageMixin`: galería IconMode `lst_pages` con miniaturas de `THUMB_W`=220 — sigue
+    siendo la hoja actual: `setCurrentRow` dispara `_on_page_changed`; doble clic o
+    `btn_go_area` → Área), «Área a tomar» (‹ › `_step_page`, `lbl_page` «Hoja N de M»,
+    `btn_all_pages`; `spn_src_scale` junto a «Tomar»; `taken_box` verde con «Ver hoja
+    compuesta ›») y «Hoja compuesta» (`btn_edit_area` en `piece_tools` → Área). `_go_tab(i)`
+    centraliza todo (Atrás/Siguiente del pie, Ctrl+RePág/AvPág, encuadre la 1.ª vez que se ve
+    cada vista —y otra vez al maximizarse, `changeEvent`—). `_start_tab`: sin piezas → Origen;
+    una hoja entera (la del editor) → Área; si no → Hoja compuesta. Ojo en pruebas: la vista de
+    una pestaña oculta no está visible (`isVisibleTo` falso, `centerOn` sin efecto) →
+    `dlg._go_tab(TAB_SHEET)` antes. **Validaciones** (`composite_checks.py`, PURO): sin piezas
+    ni área marcada → `btn_ok` apagado; área marcada sin tomar (`_sel_dirty`: la marcó el
+    usuario, no la de una pieza en edición) o hoja a la vista sin tomar → aviso ámbar en el pie
+    (`lbl_check`, enlace `take`/`tab:N`) + «!» en la pestaña; «Siguiente» desde Área y `accept`
+    preguntan (`_ask_untaken_area`: tomar / seguir sin ella / volver); con solo un área
+    marcada, `accept` la toma. «Para continuar…» va en tono neutro: no es un error.
+    **UX (2026-09-26, pedido del usuario: «que no haya muchos
+    botones»)**: Área = «Tomar área» (principal) + «Hoja completa» + menú «Opciones»
+    (`btn_area_snap`/`btn_trim` son QAction checables, mismo nombre que antes); Hoja compuesta =
+    herramientas de pieza (`piece_tools`: editar área, girar, menú «Ajustes» con `spn_angle`/
     `spn_piece_scale`, quitar) SOLO con una pieza seleccionada, y menú «Uniones»
     (`btn_magnet`/`btn_anchors`/`btn_bridges` + `spn_gap`); `cmb_scale` solo visible con >1
-    escala. Siempre queda abierto «Área a tomar» u «Hoja compuesta» (`_FLEX`,
-    `CollapsiblePanel.set_collapse_allowed`, `_update_collapse_rules`); «Origen» conserva su
-    ancho en px al plegar/desplegar (el sitio lo reparten los `_FLEX`) y `_apply_initial_sizes`
-    se repite en `resizeEvent` con el ancho REAL hasta que el usuario mueva un divisor
-    (`setSizes` antes de mostrarse reparte en proporción y «Origen» crecía). Botones: «Hoja
+    escala. Botones: «Hoja
     completa» = `QPushButton[soft="true"]`, «Opciones»/«Uniones»/«Ajustes» =
     `QPushButton[options="true"]` con menú, todos `_BTN_H`=38. Hoja a la vista que NO está en
     la hoja compuesta: la lista marca «✔ Tomada» las que sí, `pending_box` avisa y `accept`

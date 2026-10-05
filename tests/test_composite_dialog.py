@@ -356,6 +356,7 @@ def test_minimapa_zoom_sigue_composicion(app):
         dlg._take_area(True)
         dlg.view.magnet_enabled = False
         dlg.view.items[1].setPos(20000, 8000)
+        dlg._go_tab(composite_dialog.TAB_SHEET)          # la hoja compuesta vive en su pestaña
         dlg.show()
         app.processEvents()
         view, minimap = dlg.view, dlg.view.minimap
@@ -416,23 +417,44 @@ def test_compositor_zoom_anclado_y_navegacion_libre(app):
         dlg.close()
 
 
-def test_paneles_plegables_y_pantalla_pequena(app):
-    data = _two_sheet_pdf()
-    dlg = composite_dialog.CompositeDialog(None, [{"name": "a.pdf", "data": data}], None, {}, 0)
+def test_pestanas_a_ventana_completa_y_navegacion(app):
+    """Pedido del usuario 2026-10-03: en tres columnas a cada vista le quedaba poco
+    sitio. Ahora son pestañas (Origen · Área a tomar · Hoja compuesta), cada una a
+    ventana completa, siempre clicables, con «‹ Atrás / Siguiente ›» y ‹ › de hoja
+    dentro de «Área a tomar»."""
+    T = composite_dialog
+    dlg = T.CompositeDialog(None, [{"name": "a.pdf", "data": _two_sheet_pdf()}], None, {}, 0)
     try:
-        dlg.resize(1100, 640); dlg.show(); app.processEvents()
-        assert not dlg.intro.isVisible()                      # ventana estrecha: sin texto de ayuda
-        w_before = dlg.split.sizes()
-        dlg.panels[0].set_collapsed(True)                     # plegar «Origen»
-        assert dlg.panels[0].collapsed and dlg.panels[0].maximumWidth() == dlg.panels[0].STRIP_W
-        sizes = dlg.split.sizes()
-        assert sizes[0] <= dlg.panels[0].STRIP_W + 2 and sizes[1] + sizes[2] > w_before[1] + w_before[2]
-        dlg.panels[0].set_collapsed(False)                    # y desplegar: recupera su ancho
-        assert not dlg.panels[0].collapsed and dlg.split.sizes()[0] > 200
-        dlg.resize(1600, 900); app.processEvents()
-        assert dlg.intro.isVisible()
+        dlg.resize(1100, 640); dlg.show(); _settle(app)
+        assert dlg.tabs.current() == T.TAB_SOURCE and dlg.stack.currentIndex() == T.TAB_SOURCE
+        assert dlg.btn_back.isHidden() and not dlg.btn_next.isHidden()
+        assert not dlg.btn_ok.isEnabled() and "Para continuar" in dlg.lbl_check.text()
+        # la galería ocupa la ventana: cada vista usa casi todo el ancho del diálogo
+        assert dlg.lst_pages.width() > 0.85 * dlg.stack.width()
+        dlg.btn_next.click(); _settle(app)                          # → «Área a tomar»
+        assert dlg.stack.currentIndex() == T.TAB_AREA and not dlg.btn_back.isHidden()
+        assert dlg.crop.width() > 0.85 * dlg.stack.width()
+        assert dlg.lbl_page.text() == "Hoja 1 de 2" and not dlg.btn_prev_page.isEnabled()
+        dlg.btn_next_page.click(); _settle(app)                     # ‹ › cambian de hoja aquí mismo
+        assert dlg.lst_pages.currentRow() == 1 and dlg.lbl_page.text() == "Hoja 2 de 2"
+        assert not dlg.btn_next_page.isEnabled()
+        dlg.btn_all_pages.click(); _settle(app)                     # «Ver todas las hojas» → Origen
+        assert dlg.stack.currentIndex() == T.TAB_SOURCE
+        dlg.lst_pages.itemDoubleClicked.emit(dlg.lst_pages.item(0)); _settle(app)
+        assert dlg.stack.currentIndex() == T.TAB_AREA                # doble clic en una hoja → Área
+        dlg._take(full=True); _settle(app)
+        assert not dlg.taken_box.isHidden() and dlg.tabs.tabs[T.TAB_SHEET].badge == ("1", "count")
+        dlg.btn_see_sheet.click(); _settle(app)                     # «Ver hoja compuesta ›»
+        assert dlg.stack.currentIndex() == T.TAB_SHEET and dlg.btn_next.isHidden()
+        assert dlg.btn_ok.isEnabled() and "Lista para continuar" in dlg.lbl_check.text()
+        dlg.btn_edit_area.click(); _settle(app)                     # pieza elegida → «Editar área»
+        assert dlg.stack.currentIndex() == T.TAB_AREA and "Editando" in dlg.lbl_mode.text()
+        dlg.tabs.tabs[T.TAB_SOURCE].click(); _settle(app)           # las pestañas, siempre clicables
+        assert dlg.stack.currentIndex() == T.TAB_SOURCE
+        dlg._go_tab(T.TAB_SHEET); dlg.btn_back.click(); _settle(app)
+        assert dlg.stack.currentIndex() == T.TAB_AREA
     finally:
-        dlg.close_docs()
+        dlg.close_docs(); dlg.close()
 
 
 def test_capas_y_preview_con_divisor(app):
@@ -804,28 +826,30 @@ def test_hoja_sin_capas_se_marca_en_la_lista(app):
         dlg.show(); app.processEvents()
         assert "sin capas" not in dlg.lst_pages.item(0).text()
         assert "sin capas" in dlg.lst_pages.item(1).text()
-        assert not dlg.lbl_nolayers.isVisible()
+        assert dlg.nolayers_box.isHidden()
         dlg.lst_pages.setCurrentRow(1); app.processEvents()
-        assert dlg.lbl_nolayers.isVisible()
+        assert not dlg.nolayers_box.isHidden() and "sin capas" in dlg.lbl_nolayers.text()
         dlg.lst_pages.setCurrentRow(0); app.processEvents()
-        assert not dlg.lbl_nolayers.isVisible()
+        assert dlg.nolayers_box.isHidden()
     finally:
         dlg.close_docs(); dlg.close()
 
 
-def test_siempre_queda_un_panel_abierto(app):
-    """Pedido del usuario: Origen / Área / Hoja compuesta — nunca todos plegados."""
-    dlg = composite_dialog.CompositeDialog(None, [{"name": "a.pdf", "data": _two_sheet_pdf()}], None, {}, 0)
-    try:
-        dlg.panels[0].set_collapsed(True)
-        dlg.panels[1].set_collapsed(True)
-        assert not dlg.panels[2].collapsed                    # el último abierto no se pliega
-        dlg.panels[2].set_collapsed(True)
-        assert not dlg.panels[2].collapsed and not dlg.panels[2].btn_collapse.isEnabled()
-        dlg.panels[1].set_collapsed(False)                    # con dos abiertos, vuelve a poder
-        assert dlg.panels[2].btn_collapse.isEnabled()
-    finally:
-        dlg.close_docs()
+def test_abre_en_la_pestana_que_toca(app):
+    """Sin piezas → «Origen»; con la hoja entera que pone el editor → «Área a
+    tomar» (sobre esa hoja); con piezas acomodadas → «Hoja compuesta»."""
+    T = composite_dialog
+    data = _two_sheet_pdf()
+    cases = ((None, T.TAB_SOURCE),
+             (C.Composite(pieces=[C.Piece(0, 0, [0.0, 0.0, 1.0, 1.0], src_scale=20 / 72.0)]), T.TAB_AREA),
+             (C.Composite(pieces=[C.Piece(0, 0, [0.0, 0.0, 0.5, 1.0], src_scale=20 / 72.0),
+                                  C.Piece(0, 1, [0.5, 0.0, 1.0, 1.0], src_scale=20 / 72.0)]), T.TAB_SHEET))
+    for comp, tab in cases:
+        dlg = T.CompositeDialog(None, [{"name": "a.pdf", "data": data}], comp, {}, 0)
+        try:
+            assert dlg.tabs.current() == tab and dlg.stack.currentIndex() == tab
+        finally:
+            dlg.close_docs()
 
 
 def _settle(app, n=5):
@@ -833,52 +857,53 @@ def _settle(app, n=5):
         app.processEvents()
 
 
-class _MemSettings:
-    """QSettings en memoria: las pruebas no tocan las preferencias del usuario."""
-    def __init__(self):
-        self.store = {}
-
-    def value(self, key, default=None):
-        return self.store.get(key, default)
-
-    def setValue(self, key, value):
-        self.store[key] = value
-
-
-def test_origen_conserva_su_ancho_al_plegar(app, monkeypatch):
-    """Reporte del usuario 2026-09-30: al plegar «Área a tomar» u «Hoja
-    compuesta», «Origen» crecía y compartía media ventana con la hoja compuesta.
-    Ahora conserva su ancho; el sitio lo toma el otro panel. «Origen» solo
-    (estirado a toda la ventana) no se permite."""
-    mem = _MemSettings()
-    monkeypatch.setattr(composite_dialog, "_settings", lambda: mem)
-    dlg = composite_dialog.CompositeDialog(None, [{"name": "a.pdf", "data": _two_sheet_pdf()}], None, {}, 0)
+def test_valida_lo_pendiente_antes_de_continuar(app, monkeypatch):
+    """Sin piezas no se puede continuar; un área marcada sin tomar se avisa (pie
+    + «!» en la pestaña) y se pregunta al salir de «Área a tomar» y al continuar."""
+    T = composite_dialog
+    dlg = T.CompositeDialog(None, [{"name": "a.pdf", "data": _two_sheet_pdf()}], None, {}, 0)
     try:
-        dlg.resize(1600, 900); dlg.show(); _settle(app)
-        w0 = dlg.split.sizes()[0]
-        # (sin fuentes, offscreen, el mínimo del panel sale mayor que en Windows)
-        assert w0 <= max(composite_dialog._SIDE_MAX, dlg.panels[0].minimumSizeHint().width())
-        dlg.panels[1].set_collapsed(True); _settle(app)
-        s = dlg.split.sizes()
-        assert abs(s[0] - w0) <= 2 and s[1] <= dlg.panels[1].STRIP_W + 2
-        assert not dlg.panels[2].btn_collapse.isEnabled()    # queda «Hoja compuesta»: no se pliega
-        assert dlg.panels[0].btn_collapse.isEnabled()
-        dlg.panels[1].set_collapsed(False); _settle(app)
-        assert abs(dlg.split.sizes()[0] - w0) <= 2
-        dlg.panels[2].set_collapsed(True); _settle(app)
-        s = dlg.split.sizes()
-        assert abs(s[0] - w0) <= 2 and s[2] <= dlg.panels[2].STRIP_W + 2
-        assert not dlg.panels[1].btn_collapse.isEnabled()
-        dlg.panels[2].set_collapsed(False); _settle(app)
-        assert abs(dlg.split.sizes()[0] - w0) <= 2
+        dlg.show(); dlg._go_tab(T.TAB_AREA); _settle(app)
+        assert not dlg.btn_ok.isEnabled()
+        dlg.crop.set_selection(QtCore.QRectF(20, 20, 150, 120)); _settle(app)    # marca, no toma
+        assert dlg._area_untaken() and dlg.btn_ok.isEnabled()                    # Continuar la tomará
+        assert "sin tomar" in dlg.lbl_check.text() and dlg.tabs.tabs[T.TAB_AREA].badge == ("!", "warn")
+        monkeypatch.setattr(dlg, "_ask_untaken_area", lambda: "back")
+        dlg.btn_next.click(); _settle(app)                                       # «Volver»: se queda
+        assert dlg.stack.currentIndex() == T.TAB_AREA and not dlg.comp.pieces
+        monkeypatch.setattr(dlg, "_ask_untaken_area", lambda: "take")
+        dlg.btn_next.click(); _settle(app)                                       # «Tomar el área»
+        assert dlg.stack.currentIndex() == T.TAB_SHEET and len(dlg.comp.pieces) == 1
+        assert not dlg._area_untaken() and dlg.tabs.tabs[T.TAB_AREA].badge is None
+        # otra área en la misma hoja (ya tomada) y «Continuar»: se pregunta
+        dlg.view.select(-1); dlg._go_tab(T.TAB_AREA)
+        dlg.crop.set_selection(QtCore.QRectF(180, 20, 100, 120)); _settle(app)
+        monkeypatch.setattr(dlg, "_ask_untaken_area", lambda: "back")
+        dlg.accept()
+        assert dlg.result() != QtWidgets.QDialog.Accepted and len(dlg.comp.pieces) == 1
+        monkeypatch.setattr(dlg, "_ask_untaken_area", lambda: "skip")
+        dlg.accept()
+        assert dlg.result() == QtWidgets.QDialog.Accepted and len(dlg.comp.pieces) == 1
     finally:
         dlg.close_docs(); dlg.close()
-    # el ancho recordado de «Origen» es en px (no una proporción de la ventana)
-    mem.store["compositor/splitter"] = [300, 500, 700]
-    dlg = composite_dialog.CompositeDialog(None, [{"name": "a.pdf", "data": _two_sheet_pdf()}], None, {}, 0)
+    # solo un área marcada (ninguna pieza): «Continuar» la toma, sin preguntar
+    dlg = T.CompositeDialog(None, [{"name": "a.pdf", "data": _two_sheet_pdf()}], None, {}, 0)
     try:
-        dlg.resize(1600, 900); dlg.show(); _settle(app)
-        assert abs(dlg.split.sizes()[0] - max(300, dlg.panels[0].minimumSizeHint().width())) <= 2
+        dlg.show(); dlg._go_tab(T.TAB_AREA); _settle(app)
+        dlg.crop.set_selection(QtCore.QRectF(20, 20, 150, 120)); _settle(app)
+        monkeypatch.setattr(dlg, "_ask_untaken_area", lambda: pytest.fail("no debía preguntar"))
+        dlg.accept()
+        assert dlg.result() == QtWidgets.QDialog.Accepted and len(dlg.comp.pieces) == 1
+    finally:
+        dlg.close_docs(); dlg.close()
+    # el enlace del pie arregla lo que falta
+    dlg = T.CompositeDialog(None, [{"name": "a.pdf", "data": _two_sheet_pdf()}], None, {}, 0)
+    try:
+        dlg.show(); dlg._go_tab(T.TAB_AREA); _settle(app)
+        dlg.crop.set_selection(QtCore.QRectF(20, 20, 150, 120)); _settle(app)
+        assert "href='take'" in dlg.lbl_check.text()
+        dlg._on_check_link("take"); _settle(app)
+        assert len(dlg.comp.pieces) == 1 and "Lista para continuar" in dlg.lbl_check.text()
     finally:
         dlg.close_docs(); dlg.close()
 
@@ -902,7 +927,6 @@ def test_hoja_sin_tomar_avisa_y_pregunta_al_continuar(app, monkeypatch):
     componer, elegir otra hoja en la lista SIN tomarla y pulsar «Continuar»
     seguía usando solo la anterior, sin aviso. Ahora la lista marca «✔ Tomada»,
     el panel 2 avisa y «Continuar» pregunta."""
-    monkeypatch.setattr(composite_dialog, "_settings", _MemSettings)
     data = _two_sheet_pdf()
 
     def open_dlg():

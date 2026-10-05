@@ -1452,7 +1452,7 @@ def recognize_page(
                                 "solo se dibuja la centerline.").format(n=n_glyphs))
         if n_dashes:
             pct = coverage_total * 100
-            warnings.append(_tr("Cobertura de guiones: {pct:.1f}% ({n} sin cubrir, en naranja).").format(
+            warnings.append(_tr("Cobertura de guiones: {pct:.1f}% ({n} sin cubrir, en magenta).").format(
                 pct=pct, n=n_uncovered) if n_uncovered else
                 _tr("Cobertura de guiones: {pct:.1f}%.").format(pct=pct))
         if n_offpattern:

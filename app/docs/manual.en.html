@@ -112,24 +112,34 @@ and what the app is doing (for example «Recognizing… · Storm Drain (3 of 6)�
 click anything: the card goes away by itself when it finishes.</p>
 
 <h2>1. Compose work sheet</h2>
+<p>This step has three <b>tabs</b>, each one full screen: <b>Source</b>, <b>Area to take</b> and
+<b>Composite sheet</b>. You can switch between them at any time by clicking them, with
+<span class="btn">‹ Back</span> / <span class="btn">Next ›</span> at the bottom, or with
+<b>Ctrl+PgUp / Ctrl+PgDn</b>. The <b>Composite sheet</b> tab shows how many pieces you have and
+<b>Area to take</b> shows a <b>!</b> if you left something half done.</p>
 <ol>
-<li>On the left (<b>Source</b>) you choose the PDF and the sheet; the folder button lets you
-    <b>add more PDFs</b>. A sheet marked «no layers» is a flattened plan: you can use it, but
+<li><b>Source</b>: choose the PDF (<span class="btn">Add PDF…</span> adds others) and the sheet in
+    the thumbnail gallery. A sheet marked «no layers» is a flattened plan: you can use it, but
     recognition will not find utilities on it. Sheets marked <b>«✔ Taken»</b> are already on the
-    composite sheet.</li>
-<li>In the middle (<b>Area to take</b>) you draw a rectangle around the part of the plan you need
-    and press <span class="btn">Take area</span> (or <span class="btn">Full sheet</span>). Snapping
-    to lines and trimming the border line are under <b>Options</b>. Picking a sheet in the list does
-    not add it: until you take it, an orange notice reminds you.</li>
-<li>On the right (<b>Composite sheet</b>) you drag each piece into place. With the <b>Magnet</b>
-    on, the lines of neighboring pieces snap together; with <b>Bridges</b>, gaps between sheets are
-    filled in (both are under <b>Joins</b>).</li>
-<li>Click a piece to <b>rotate</b> it, remove it or, under <b>Adjust</b>, fix its fine angle or its
-    <b>scale</b> if the sheet doesn't state it.</li>
-<li>You can collapse a panel to gain room: <b>Source</b> keeps its width and <b>Area to take</b> or
-    <b>Composite sheet</b> always stays open.</li>
-<li><span class="btn">Continue</span> goes to step 2. If you are viewing a sheet you have not taken,
-    the app asks whether to add it, use only that sheet or go on without it.</li>
+    composite sheet. Double-click a sheet, or <span class="btn">Take area of this sheet</span>, to go
+    to the next tab.</li>
+<li><b>Area to take</b>: the top says which sheet you are viewing (<b>‹ Sheet 21 of 50 ›</b>); the
+    arrows move to the previous or next sheet without going back to Source. Draw a rectangle around
+    the part of the plan you need and press <span class="btn">Take area</span> (or
+    <span class="btn">Full sheet</span>); a green confirmation appears with
+    <span class="btn">See composite sheet ›</span>. The sheet scale is next to those buttons;
+    snapping to lines and trimming the border line are under <b>Options</b>. Picking a sheet does not
+    add it: until you take it, a notice reminds you.</li>
+<li><b>Composite sheet</b>: drag each piece into place. With the <b>Magnet</b> on, the lines of
+    neighboring pieces snap together; with <b>Bridges</b>, gaps between sheets are filled in (both
+    are under <b>Joins</b>).</li>
+<li>Click a piece to <b>rotate</b> it, remove it, fix its fine angle or its <b>scale</b> under
+    <b>Adjust</b>, or adjust its crop with <span class="btn">Edit area</span>.</li>
+<li>At the bottom left you see what is missing to go on. With no piece,
+    <span class="btn">Continue</span> is disabled. If you marked an area and did not take it, or you
+    are viewing a sheet you did not take, a notice says so (with a link to fix it) and on continuing
+    the app asks what to do: take it, use only that sheet, go on without it or go back.</li>
+<li><span class="btn">Continue</span> goes to step 2.</li>
 </ol>
 
 <h2>Image or scanned PDF: composing by hand</h2>
@@ -189,17 +199,31 @@ editor</span> leaves it as the background to draw by hand.</p>
 <h2>3. Recognition preview</h2>
 <ul>
 <li>Shows the lines found for each utility, each with its color, and their vaults or manholes.
-    At the top, cards with the totals (segments, abandoned, bends, structures) and a bar per
-    utility.</li>
-<li>Below the bars, a single legend: active, abandoned (AB), <b>uncovered</b> strokes (orange in
-    the drawing), <b>off-pattern</b> strokes (violet: arrows, leaders) and the scale. The
-    <b>Coverage</b> bar tells how much of the plan's strokes was covered (green = complete).</li>
-<li>If a notice appears under <b>Review</b>, click it: the view takes you to the exact spot on the
-    sheet. Each click shows the next case (1/N). Once you have seen all its cases, the notice is
-    marked <b>✔ reviewed</b> and every visited spot on the sheet keeps a dashed green box; at the
-    top you see your progress («1 of 4 reviewed»). A notice with no spot is marked with one click;
-    right-click sets it back to pending. With many notices the list scrolls. Extra information is
-    folded under <b>Details</b>.</li>
+    The screen has three columns: <b>To check</b> on the left, the sheet in the middle and the
+    summary on the right.</li>
+<li>On the right: the sheet and its scale, cards with the totals (segments, abandoned, bends,
+    structures), a bar per utility (active solid, abandoned hatched) and the <b>Coverage</b>: how
+    much of the plan's strokes was covered (green ✔ = complete). If the quality check marked
+    something on the sheet, it says what below: <b>uncovered</b> dashes (magenta line),
+    <b>vaults without a line</b> (magenta ring) and <b>off-pattern</b> strokes (dotted turquoise:
+    arrows, leaders). Those colors belong to no utility.</li>
+<li>At the bottom, <b>Layers used</b>: the layers taken as lines and vaults. Click one (or pick it
+    with the arrow keys and press Enter) and the sheet shows it: that layer's items get a halo in
+    their color, the rest fades and the view zooms to that area; below the title it says how many
+    lines and vaults there are. Clicking <b>Lines</b>, <b>Vaults</b> or the utility name shows that
+    whole group. Another click on the same row, or <b>✕ Show all</b>, shows the whole sheet
+    again.</li>
+<li>On the left, <b>To check</b>: <b>these are not errors</b>. The sheet was already recognized;
+    these are points worth a look before importing (a curve imported as an approximation, a vault
+    no line reaches…). Each one says below what was found and what was done with it. Only what
+    shows in <b>red</b> is a real problem (for example, a sheet without layers). The points are
+    grouped by utility. Click one (or reach it with Tab and press Enter): the view takes you to the
+    exact spot on the sheet, marked with a black and white box. Each click shows the next case
+    (1/N). Once you have seen all its cases it is marked <b>✔</b> and every visited spot on the
+    sheet keeps a dashed green box; at the top you see your progress («1 of 4 seen»). One with no
+    spot is marked with one click; right-click sets it back to pending. Extra information is folded
+    under <b>Details</b>. The <b>‹</b> button collapses the panel to see the sheet larger;
+    collapsed, a strip shows «To check (N)».</li>
 <li>At the bottom left: <b>Opacity</b> lightens the plan so you can better see <b>what and how
     much</b> was recognized, and <b>Join segments</b> (green = on) joins segments that continue
     straight ahead into one pipe.</li>
