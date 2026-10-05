@@ -43,6 +43,8 @@ def build_model_dict(win):
         composite=(win.composite.to_dict() if getattr(win, "composite", None) else None),
         src_names=[e.get("name", "") for e in getattr(win, "src_pdfs", []) or []],
         hidden_ocgs=list(getattr(win, "hidden_ocgs", []) or []),
+        # capas que el usuario decidió NO reconocer por las letras de su línea
+        letters_off=sorted(getattr(win, "_letters_off", ()) or ()),
         scale_override=getattr(win, "_scale_override", None),
         page_idx=getattr(win, "page_idx", 0),
         work_unit=win.work_unit,                 # unidad de trabajo del proyecto
@@ -111,6 +113,7 @@ def parse_model(model):
         composite=Composite.from_dict(model.get("composite")),   # retrocompat: sin hoja compuesta
         src_names=list(model.get("src_names") or []),
         hidden_ocgs=list(model.get("hidden_ocgs") or []),
+        letters_off=list(model.get("letters_off") or []),      # retrocompat: sin decisiones
         scale_override=model.get("scale_override"),
         page_idx=model.get("page_idx", 0),
         # Retrocompat: los proyectos anteriores no traen estas claves y son

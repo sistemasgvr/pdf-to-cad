@@ -464,10 +464,13 @@ def test_capas_y_preview_con_divisor(app):
     dlg = layer_dialog.SheetLayersDialog(None, doc, 0)
     dlg.resize(1000, 600); dlg.show(); app.processEvents()
     try:
-        assert dlg.split.count() == 2
+        assert dlg.split.count() == 3                                  # leyenda | hoja | capas
         dlg._apply_side_width()
         sizes = dlg.split.sizes()
-        assert 300 <= sizes[1] <= int(1000 * 0.32) + 1                 # ≤ 32 % de la ventana
+        assert 300 <= sizes[2] <= int(1000 * 0.32) + 1                 # ≤ 32 % de la ventana
+        # sin leyenda en el PDF ni capas por sus letras, el panel izquierdo queda plegado
+        from widgets import CollapsiblePanel
+        assert dlg.info_box.collapsed and sizes[0] == CollapsiblePanel.STRIP_W
     finally:
         dlg.close()
 

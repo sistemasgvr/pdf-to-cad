@@ -78,6 +78,53 @@ EN: dict[str, str] = {
         "Plan layers",
     "Esta hoja no tiene capas de {u}":
         "This sheet has no {u} layers",
+    "Su nombre dice {n}, pero las letras de su línea («{c}») dicen {u}: se reconoce como {u}.":
+        "Its name says {n}, but the letters on its line («{c}») say {u}: it is recognized as {u}.",
+    "Capa con líneas de varias utilidades ({u}). Cada línea se reconoce por sus letras.":
+        "Layer with lines of several utilities ({u}). Each line is recognized by its letters.",
+    "Su nombre no es de ninguna utilidad, pero las letras de su línea («{c}») dicen {u}: se reconoce como {u}.":
+        "Its name is not a utility's, but the letters on its line («{c}») say {u}: it is recognized as {u}.",
+    # ── layer_info_panel.py / layer_dialog_info.py (panel «Leyenda» de «Capas de la hoja») ──
+    "Leyenda":
+        "Legend",
+    "Por las letras de su línea ({n})":
+        "By the letters on their line ({n})",
+    "Su nombre no dice la utilidad; las letras de su línea sí. Desmarca las que no quieras usar.":
+        "Their name does not say the utility; the letters on their line do. Uncheck the ones you do not want to use.",
+    "Usar: reconocer esta capa por las letras de su línea":
+        "Use: recognize this layer by the letters on its line",
+    "Clic: ver sus líneas en la hoja (otro clic, ver todo).":
+        "Click: see its lines on the sheet (click again to see everything).",
+    "su nombre dice {u}":
+        "its name says {u}",
+    "línea por línea":
+        "line by line",
+    "su nombre no dice la utilidad":
+        "its name does not say the utility",
+    "Leyenda: {d}":
+        "Legend: {d}",
+    "Leyenda del plano":
+        "Plan legend",
+    "Buscando la leyenda en el PDF…":
+        "Looking for the legend in the PDF…",
+    "Este PDF no trae una leyenda de líneas.":
+        "This PDF has no line legend.",
+    "hoja {n}":
+        "sheet {n}",
+    "hojas {n}":
+        "sheets {n}",
+    "Del propio PDF ({donde}): las líneas que hay en esta hoja.":
+        "From the PDF itself ({donde}): the lines on this sheet.",
+    "Del propio PDF ({donde}). En negrita, las de esta hoja.":
+        "From the PDF itself ({donde}). In bold, the ones on this sheet.",
+    "Del propio PDF ({donde}).":
+        "From the PDF itself ({donde}).",
+    "Solo esta hoja":
+        "This sheet only",
+    "Ver toda ({n})":
+        "See all ({n})",
+    "Clic: ver en la hoja las líneas «{c}» (otro clic, ver todo).":
+        "Click: see the «{c}» lines on the sheet (click again to see everything).",
     "Capas de la hoja":
         "Sheet layers",
     "Vista previa":
@@ -1819,6 +1866,10 @@ EN: dict[str, str] = {
         "Pipes drawn with walls and centerline: {n} — the centerline is used and the walls are skipped.",
     "Puntas unidas a su bóveda (imán): {n} — quedaban a menos de {d} pt de su contorno y se llevaron hasta él por su propia recta.":
         "Line ends joined to their vault (magnet): {n} — they were less than {d} pt from its outline and were moved onto it along their own line.",
+    "Reconocidas por las letras de su línea (no por el nombre de la capa): {n} — {capas}.":
+        "Recognized by the letters on their line (not by the layer name): {n} — {capas}.",
+    "(su nombre decía {u})":
+        "(its name said {u})",
     "Capa «-A» sin el patrón de marcadores «/» a lo largo de la línea: {n} — NO se marcan como abandonadas.":
         "«-A» layer without the «/» marker pattern along the line: {n} — NOT marked as abandoned.",
     "Cobertura de guiones: {pct:.1f}% ({n} sin cubrir, en magenta).":
@@ -2170,6 +2221,8 @@ EN: dict[str, str] = {
         "The plan's curve is not a perfect arc. The arc that best follows it was imported (dashed on the sheet).",
     "Trozos de línea del plano que no quedaron dentro de ninguna línea reconocida (en magenta). Suelen ser restos sueltos del dibujo.":
         "Pieces of plan line that did not end up inside any recognized line (in magenta). They are usually loose leftovers of the drawing.",
+    "El nombre de su capa no dice esta utilidad, pero las letras de la línea sí (por ejemplo «—TE—»). Confirma que es así; si no, cámbialo con «Ajustar capas…».":
+        "Their layer name does not say this utility, but the letters on the line do (for example «—TE—»). Confirm it; if not, change it with «Adjust layers…».",
     "Se asignan automáticamente por su nombre. «Ajustar capas…» solo hace falta si el plano usa otros nombres.":
         "Assigned automatically by name. «Adjust layers…» is only needed if the plan uses other names.",
     "{n} ocultas por ti":

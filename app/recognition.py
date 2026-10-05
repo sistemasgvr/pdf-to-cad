@@ -16,9 +16,9 @@ import math
 import re
 import sys
 from collections import defaultdict
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from pathlib import Path
-from typing import List, Optional, Sequence, Tuple
+from typing import Dict, List, Optional, Sequence, Tuple
 
 import fitz
 
@@ -39,6 +39,7 @@ import recognition_contacts as contacts_mod
 import recognition_text_gaps as text_gaps_mod
 import recognition_vault_snap as vault_snap_mod
 import recognition_walls as walls_mod
+import recognition_letters as letters_mod
 import routes as routes_mod
 from sheet_crops import page_rect as crop_page_rect, drawing_polygon
 from i18n_core import t as _tr, N_   # avisos de QA en el idioma activo
@@ -183,6 +184,9 @@ class RecognizedPolyline:
     # Aviso de «Revisar» que generó esta ruta (vista previa: clic → ir a ella):
     # a_no_pattern | double_active | to_abandon | marker_active | "" (ninguno).
     review: str = ""
+    # Letras del linetype que la hicieron de esta utilidad cuando el NOMBRE de su capa
+    # no lo dice («TE» en `U-TRPW-DBNK-P`, ver `recognition_letters`); "" = por nombre.
+    letters: str = ""
 
 
 @dataclass
@@ -521,6 +525,117 @@ def roles_from_suggestions(ocg_names: Sequence[str], utility: str = UTILITY_HINT
     return {ROLE_LINEAS: lineas, ROLE_BUZONES: buzones}
 
 
+# ───────────── utilidad por las LETRAS del linetype (`recognition_letters`) ─────────────
+def page_letters(page, drawings=None) -> Dict[str, "letters_mod.LayerLetters"]:
+    """Lo que dicen las letras de cada capa de la hoja ({capa: LayerLetters}). Se
+    leen todas las capas con trazos salvo anotación, cajetín y aéreas
+    (`letters_mod.letters_candidate`); ~1 s por hoja en los PDF de prueba."""
+    if drawings is None:
+        drawings = page.get_drawings()
+    by_layer: dict = defaultdict(list)
+    for d in drawings:
+        name = d.get("layer") or ""
+        if name and d.get("type") not in ("clip", "group") and letters_mod.letters_candidate(name):
+            by_layer[name].append(d)
+    out = {}
+    for name, paths in by_layer.items():
+        got = letters_mod.read_layer(paths)
+        if got is not None:
+            out[name] = got
+    return out
+
+
+@dataclass
+class LetterUse:
+    """Cómo se reconoce una capa por las letras de sus líneas."""
+    utility: Optional[str]                    # TODA la capa es de esta utilidad…
+    paths: Dict[tuple, str] = field(default_factory=dict)   # …o, si es MEZCLADA, la de cada trazo
+    code: str = ""                            # lo leído, para avisos y la lista de capas («TE», «G · W»)
+    name_utility: str = ""                    # su NOMBRE decía esta otra utilidad (manda la letra)
+    codes: Dict[str, str] = field(default_factory=dict)     # utilidad → sus códigos («W»)
+    main: str = ""                            # grupo en «Capas de la hoja» (la de más sitios)
+
+    @property
+    def utilities(self) -> List[str]:
+        return [self.utility] if self.utility else sorted(set(self.paths.values()))
+
+    def code_for(self, utility: str) -> str:
+        return self.codes.get(utility) or self.code
+
+
+def letter_uses(letters: Dict[str, "letters_mod.LayerLetters"]) -> Dict[str, LetterUse]:
+    """Capas que se reconocen por sus LETRAS (pedido del usuario 2026-10-05):
+
+    · el nombre no la hace línea ni estructura de NINGUNA utilidad → sus letras la
+      clasifican LÍNEA POR LÍNEA (una capa genérica mezcla utilidades —`_Xref` con
+      «—G—» y «—W—»— o trae otras cosas: comentarios, vistas de perfil), o la capa
+      ENTERA si es dedicada (`LayerLetters.dedicated`: `U-TRPW-DBNK-P`);
+    · el nombre la hace línea de una utilidad y sus letras, UNÁNIMES y en muchos sitios,
+      dicen otra (`N-COMM-DUCT-BANK-PL-SE`: «SE» = Station Electrification según la
+      leyenda de DU08 h.33) → manda la letra;
+    · estructuras, aéreas y capas cuyas letras confirman su nombre: como siempre."""
+    out: Dict[str, LetterUse] = {}
+    for ocg, lt in letters.items():
+        kinds = {u: classify_ocg(ocg, u) for u in SUPPORTED_UTILITIES}
+        by_name = [u for u, k in kinds.items() if k == utility_line_kind(u)]
+        if by_name:
+            other = lt.unanimous
+            if other and other not in by_name:
+                use = LetterUse(other, name_utility=by_name[0])
+            else:
+                continue
+        elif any(kinds.values()):
+            continue                      # estructura o aérea por su nombre
+        elif lt.dedicated:
+            use = LetterUse(lt.dedicated)
+        elif lt.by_path:
+            use = LetterUse(None, dict(lt.by_path))
+        else:
+            continue
+        use.code = lt.label()
+        use.codes = {u: lt.label(u) for u in use.utilities}
+        use.main = use.utility or max(use.utilities, key=lambda u: lt.utilities.get(u, 0))
+        out[ocg] = use
+    return out
+
+
+def line_selectors(utility: str, letter_use: Dict[str, LetterUse]):
+    """(`kind_for(ocg)`, `keep(ocg, path)`) para `gather_paths`: las capas de `utility`
+    por su NOMBRE (`classify_ocg`) y por las LETRAS de sus líneas (`letter_uses`). Lo
+    usan `recognize_page` y las auditorías «sin tinta» (la tinta de una línea leída
+    por sus letras está en su capa, aunque el nombre no sea de la utilidad)."""
+    utility = (utility or UTILITY_HINT).strip().upper()
+    line_kind = utility_line_kind(utility)
+
+    def kind_for(ocg: str) -> Optional[str]:
+        use = letter_use.get(ocg)
+        if use is not None:
+            if utility in use.utilities:
+                return line_kind
+            if use.name_utility:
+                return None               # su nombre decía esta utilidad; sus letras, otra
+        return classify_ocg(ocg, utility)
+
+    def keep(ocg: str, path: dict) -> bool:
+        use = letter_use.get(ocg)
+        if use is None or use.name_utility:
+            return True
+        if path.get("fill") is not None:
+            return False                  # el linetype es trazo; un relleno (fondo de rótulo) no es línea
+        return use.utility is not None or use.paths.get(letters_mod.path_key(path)) == utility
+
+    return kind_for, keep
+
+
+def utility_line_paths(page, utility: str = UTILITY_HINT, letters: Optional[dict] = None):
+    """Trazos (ya recortados) de las líneas y estructuras de `utility` en la hoja, como
+    los toma `recognize_page` sin roles manuales: (line_paths, vault_paths)."""
+    use = letter_uses(page_letters(page) if letters is None else letters)
+    kind_for, keep = line_selectors(utility, use)
+    lp, vp, _counts, _kinds = gather_paths(page, kind_for, set(), None, keep=keep if use else None)
+    return lp, vp
+
+
 DUP_OCG_TOL_PT = 0.5      # mismo trazo en dos xrefs: puntos a ≤0.5 pt (recortes distintos)
 DUP_OCG_MIN_SHARE = 0.9   # …y ≥90 % de los trazos de una capa están en la otra
 
@@ -822,7 +937,8 @@ def _region_hit(bb, regions) -> bool:
     return any(r[0] <= cx <= r[2] and r[1] <= cy <= r[3] for r in regions)
 
 
-def gather_paths(page, kind_for, hidden=(), crop_polygon=None, stats: Optional[dict] = None):
+def gather_paths(page, kind_for, hidden=(), crop_polygon=None, stats: Optional[dict] = None,
+                 keep=None):
     """Paths de la hoja por rol, ya RECORTADOS por los clips del PDF.
 
     extended=True trae también los CLIPS (marco de la vista de planta, XCLIP de
@@ -831,7 +947,9 @@ def gather_paths(page, kind_for, hidden=(), crop_polygon=None, stats: Optional[d
     activo (pila por `level`). También descarta lo que caiga dentro de una
     VISTA DE PERFIL detectada (`profile_view_regions`). Devuelve (line_paths,
     vault_paths, path_counts, kind_by_ocg); si se pasa `stats` (dict), se le
-    añade `profile_excluded` con cuántos trazos se excluyeron por eso."""
+    añade `profile_excluded` con cuántos trazos se excluyeron por eso.
+    `keep(ocg, path)`: filtro por TRAZO (antes de recortarlo) — capa que mezcla
+    utilidades, cada línea por sus letras (`letter_uses`)."""
     hidden = set(hidden or ())
     path_counts: dict = defaultdict(int)
     kind_by_ocg: dict = {}
@@ -852,6 +970,8 @@ def gather_paths(page, kind_for, hidden=(), crop_polygon=None, stats: Optional[d
             continue
         kind = kind_for(ocg)
         if kind is None:
+            continue
+        if keep is not None and not keep(ocg, path):
             continue
         polys = [pg for l, pg in clip_stack.items() if l < lvl and pg]
         if polys:
@@ -984,6 +1104,7 @@ def recognize_page(
     join_routes: bool = True,
     crop: Optional[Sequence[float]] = None,
     scale_ft_per_pt: Optional[float] = None,
+    letters: Optional[dict] = None,
 ) -> RecognitionResult:
     """Reconoce una utilidad vectorial en una hoja. Abre el PDF si `doc` es None.
 
@@ -993,6 +1114,8 @@ def recognize_page(
     `join_routes`: une tramos de la misma capa en rutas (buena continuación).
     False devuelve las polilíneas tal como las corta el núcleo geométrico.
         `scale_ft_per_pt`: escala fija (hoja compuesta); None = leerla del texto.
+    `letters`: `page_letters` de esta hoja ya leído (el worker lo lee una vez para
+    todas las utilidades); None = leerlo aquí. Con `layer_roles` no se usa.
     """
     utility = (utility or UTILITY_HINT).strip().upper()
     line_kind = utility_line_kind(utility)
@@ -1014,6 +1137,13 @@ def recognize_page(
         visual_crop = crop_page_rect(page, crop)
         crop_polygon = drawing_polygon(page, visual_crop) if crop else None
 
+        # Capas que se reconocen por las LETRAS de sus líneas (el nombre no lo dice o
+        # las letras lo contradicen): ver `letter_uses`. Los roles manuales mandan.
+        letter_use: Dict[str, LetterUse] = {}
+        if not use_roles:
+            letter_use = letter_uses(page_letters(page) if letters is None else letters)
+        _by_name_or_letters, _keep = line_selectors(utility, letter_use)
+
         def _kind_for(ocg: str) -> Optional[str]:
             if use_roles:
                 if ocg in lineas_set:
@@ -1021,11 +1151,13 @@ def recognize_page(
                 if ocg in buzones_set:
                     return "structure"
                 return None
-            return classify_ocg(ocg, utility)
+            return _by_name_or_letters(ocg)
 
         gather_stats: dict = {}
         line_paths, vault_paths, path_counts, kind_by_ocg = gather_paths(
-            page, _kind_for, hidden, crop_polygon, stats=gather_stats)
+            page, _kind_for, hidden, crop_polygon, stats=gather_stats,
+            keep=_keep if letter_use else None)
+        letter_layers = {ocg: use for ocg, use in letter_use.items() if kind_by_ocg.get(ocg) == line_kind}
 
         ocg_summary = [{
             "ocg": ocg, "kind": kind_by_ocg.get(ocg, ""), "path_count": n,
@@ -1101,7 +1233,11 @@ def recognize_page(
                 by_ocg[ocg][0] = dict(by_ocg[ocg][0], contact_pts=[q for q, _u in points])
         results: List[Tuple[bool, str, object]] = []
         for ocg, paths in sorted(by_ocg.items()):
-            results.append((is_abandoned_ocg(ocg), ocg, geom.reconstruct(paths, vault_paths, geom_opts)))
+            # una capa reconocida por sus letras no tiene perfil probado: sus letras son
+            # trazos sueltos («TE» = asta + travesaño + «E» de tres trazos), como las de
+            # Metro del perfil TELECOM (`stroke_letters`; DU08 h.26: cobertura 99.8 → 100 %)
+            opts = replace(geom_opts, stroke_letters=True) if ocg in letter_layers else geom_opts
+            results.append((is_abandoned_ocg(ocg), ocg, geom.reconstruct(paths, vault_paths, opts)))
         if not results:
             results = [(False, "", geom.reconstruct([], vault_paths, geom_opts))]
 
@@ -1224,9 +1360,11 @@ def recognize_page(
                     clean, kinds, clip_px, glyphs_px, pattern_,
                     lambda: [(px(a), px(b)) for o in siblings if o is not pl for a, b in zip(o.pts, o.pts[1:])],
                     scale=zoom, ink=ink_ix)
+            use = letter_layers.get(ocg)
             return RecognizedPolyline(
                 ocg, utility, clean, line_kind, kinds, abandoned=ab,
-                route_id=route_id, n_segments=n_segments, fillets=fillets)
+                route_id=route_id, n_segments=n_segments, fillets=fillets,
+                letters=use.code_for(utility) if use is not None else "")
 
         for ab_layer, ocg, g in results:
             # una línea que llega a otra por un tramo SIN tinta propia más largo que el
@@ -1389,6 +1527,16 @@ def recognize_page(
         polylines_joined.extend(stubs)
         polylines_raw.extend(stubs)
 
+        n_letter = sum(1 for p in polylines if p.kind == line_kind and p.pts_pdf and p.letters)
+        if n_letter:
+            parts = []
+            for ocg, use in sorted(letter_layers.items()):
+                part = "«{c}» {capa}".format(c=use.code_for(utility), capa=ocg.split("|")[-1])
+                if use.name_utility:
+                    part += " " + _tr("(su nombre decía {u})").format(u=_tr(utility_label(use.name_utility)))
+                parts.append(part)
+            warnings.append(_tr("Reconocidas por las letras de su línea (no por el nombre de la capa): {n} "
+                                "— {capas}.").format(n=n_letter, capas=", ".join(parts)))
         if not any(p.kind == line_kind and p.pts_pdf for p in polylines):
             # Frase entera por utilidad (traducible); las demás, con su nombre.
             sin_lineas = {"ELECTRICO": N_("No se encontraron líneas eléctricas subterráneas en esta hoja."),

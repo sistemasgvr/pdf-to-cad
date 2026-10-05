@@ -105,6 +105,9 @@ _RULES = [
     (r"^Bóvedas detectadas: (\d+)", INFO, lambda m: _pl(_n(m), "bóveda", "bóvedas") + " en las líneas", "vaults"),
     (r"^Puntas unidas a su bóveda[^:]*: (\d+)", INFO,
      lambda m: _pl(_n(m), "punta unida a su bóveda", "puntas unidas a su bóveda"), "vault_snaps"),
+    (r"^Reconocidas por las letras de su línea[^:]*: (\d+)", REVIEW,
+     lambda m: _pl(_n(m), "línea reconocida por sus letras", "líneas reconocidas por sus letras"),
+     "letters"),
 ]
 # Explicación de cada aviso de «Para verificar»: qué se encontró y qué se hizo con
 # ello, sin tono de error (la vista los traduce con `t()`). Clave = patrón de `_RULES`.
@@ -136,6 +139,9 @@ _HINTS = {
     r"^Cobertura de guiones: ([\d.]+)%(?: \((\d+) sin cubrir)?": N_(
         "Trozos de línea del plano que no quedaron dentro de ninguna línea reconocida (en "
         "magenta). Suelen ser restos sueltos del dibujo."),
+    r"^Reconocidas por las letras de su línea[^:]*: (\d+)": N_(
+        "El nombre de su capa no dice esta utilidad, pero las letras de la línea sí (por ejemplo "
+        "«—TE—»). Confirma que es así; si no, cámbialo con «Ajustar capas…»."),
 }
 _COMPILED = [(re.compile(p), lvl, lab, key, _HINTS.get(p, "")) for p, lvl, lab, key in _RULES]
 
@@ -254,6 +260,8 @@ def targets_for(key: str, result) -> List[Rect]:
         out = [b for pts in (getattr(result, "offpattern_px", None) or []) if (b := _bbox(pts))]
     elif key == "abandoned":
         out = [b for pl in lines if getattr(pl, "abandoned", False) and (b := _bbox(pl.pts_pdf))]
+    elif key == "letters":
+        out = [b for pl in lines if getattr(pl, "letters", "") and (b := _bbox(pl.pts_pdf))]
     elif key in ("a_no_pattern", "double_active", "to_abandon", "marker_active"):
         out = [b for pl in joined if getattr(pl, "review", "") == key and (b := _bbox(pl.pts_pdf))]
     # puntos/segmentos degenerados → recuadro mínimo visible

@@ -186,6 +186,23 @@ editor</span> leaves it as the background to draw by hand.</p>
     Electrical, Telecom, Other), each with its color. The utility's checkbox turns <b>all</b> its
     layers on or off; the ▸ arrow expands it so you can choose layer by layer. What you uncheck is
     hidden from the plan and <b>not used for recognition</b>.</li>
+<li><b>By the letters on the line:</b> the app does not only look at the layer name; it also reads
+    the letters each line carries (—TE—, —SC—, —W—, —G—, —ss—…). A layer whose name is not a
+    utility's, but whose lines say so, appears under its utility with the letters next to it, for
+    example <b>U-TRPW-DBNK-P (517) «TE»</b> under Electrical (hover to see why), and it is
+    recognized. The letters follow the plan's legend: «TE» and «SE» are electrification duct banks
+    (Electrical), «SC» signal &amp; communication (Telecom). In layers that mix everything
+    (<b>_Xref</b>, <b>G-XREF</b>, layer <b>0</b>) each line goes to the utility of its letters and the
+    rest is left alone. Overhead «(oh)» and unknown «unk» lines are not recognized.</li>
+<li><b>«Legend» panel (on the left):</b> at the top, <b>By the letters on their line</b> lists those
+    layers as cards: the utility and its letters, the layer, why (its name does not say the utility,
+    or says another one) and what the PDF's legend says about those letters. Each card's checkbox
+    decides whether they are used: unchecked, the layer goes back to its group by name and is not
+    recognized by its letters (the decision is saved in the project). Below, <b>Plan legend</b> shows
+    the legend that comes in the PDF itself (each line's sample and its description), the lines on
+    this sheet first; <b>See all</b> shows the rest. Clicking a card or a row highlights those lines
+    on the sheet and zooms in; another click shows everything again. If the PDF has no legend and
+    there are no layers by letters, the panel collapses by itself (‹ / › collapses and expands it).</li>
 <li>Type in <b>Search layer…</b> to find a layer by name; the eye buttons show or hide all the
     layers visible in the list.</li>
 <li><b>Opacity</b> lightens the plan (and switches the background to white or black), just like in
@@ -229,7 +246,8 @@ editor</span> leaves it as the background to draw by hand.</p>
     straight ahead into one pipe.</li>
 <li>To go back, click <b>2 Sheet layers</b> or <b>1 Compose sheet</b> in the bar at the top.
     <span class="btn">Adjust layers…</span> is only needed if the plan uses other layer names:
-    there you say which are lines and which are vaults.</li>
+    there you say which are lines and which are vaults (also if you disagree with a line that was
+    recognized by its letters: what you choose there rules).</li>
 <li><span class="btn">Continue and import into the editor</span> adds them to the project as
     pipes; <span class="btn">Cancel</span> leaves the editor empty.</li>
 <li><b>Abandoned</b> lines are imported marked <b>(AB)</b>: those on the «-A» layer with «/»

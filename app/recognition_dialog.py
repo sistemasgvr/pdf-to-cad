@@ -149,6 +149,18 @@ _ROLE_LABELS = (
 )
 
 
+def _suggest_role(L: dict, utility: str) -> str:
+    """Rol sugerido: por el nombre de la capa y, si sus líneas lo dicen con sus LETRAS
+    (`pdf_layers.page_layers` → `letter_utilities`), por las letras: una capa que es
+    TODA de esta utilidad por sus letras es «Líneas»; la que su nombre hacía de esta
+    utilidad y sus letras dicen otra, «Ignorar»."""
+    if list(L.get("letter_utilities") or ()) == [utility]:
+        return rec.ROLE_LINEAS
+    if L.get("name_utility") == utility:
+        return rec.ROLE_IGNORAR
+    return rec.suggest_layer_role(L["name"], utility)
+
+
 class LayerRolesDialog(QtWidgets.QDialog):
     """Ajuste OPCIONAL de qué capas son líneas y cuáles bóvedas (si el plot usa
     otros nombres). Se abre desde «Ajustar capas…» del preview."""
@@ -187,7 +199,7 @@ class LayerRolesDialog(QtWidgets.QDialog):
         ordered = sorted(
             layers,
             key=lambda L: (
-                0 if rec.suggest_layer_role(L["name"], utility) != rec.ROLE_IGNORAR else 1,
+                0 if _suggest_role(L, utility) != rec.ROLE_IGNORAR else 1,
                 -int(L.get("path_count") or 0),
                 (L.get("short") or L["name"]).upper(),
             ),
@@ -208,7 +220,7 @@ class LayerRolesDialog(QtWidgets.QDialog):
             combo = QtWidgets.QComboBox()
             for role, label in _ROLE_LABELS:
                 combo.addItem(_tr(label), role)
-            sug = rec.suggest_layer_role(name, utility)
+            sug = _suggest_role(L, utility)
             idx = next((i for i, (r, _) in enumerate(_ROLE_LABELS) if r == sug), 2)
             combo.setCurrentIndex(idx)
             self.table.setCellWidget(row, 2, combo)

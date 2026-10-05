@@ -51,7 +51,7 @@ def run(job):
     if not res.drawable:
         return out
     page = doc[pno]
-    lp, _vp, _c, _k = rec.gather_paths(page, lambda n: rec.classify_ocg(n, U), set(), None)
+    lp, _vp = rec.utility_line_paths(page, U)        # por nombre y por las letras de sus líneas
     px = lambda q: (q[0] * Z, q[1] * Z)  # noqa: E731
     by = {}
     for p_ in lp:

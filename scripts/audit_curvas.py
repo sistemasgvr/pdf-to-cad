@@ -128,7 +128,7 @@ def run(job):
         # tinta de la capa (pt), por capa: trozos de ARCO aplanado (misma detección
         # que la 2.ª pasada, `recognition_arcs.arc_pieces`)
         import recognition_arcs as ra
-        lp, _vp, _c, _k = rec.gather_paths(page, lambda n: rec.classify_ocg(n, U), set(), None)
+        lp, _vp = rec.utility_line_paths(page, U)        # por nombre y por las letras de sus líneas
         by = {}
         for p_ in lp:
             by.setdefault(p_.get("layer") or "", []).append(p_)

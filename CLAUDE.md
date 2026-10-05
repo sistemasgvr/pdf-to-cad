@@ -333,6 +333,39 @@ alcantarillado, drenaje, gas, eléctrico, telecom). Todo en **unidades imperiale
     (las barras RELLENAS de 0.9×9 pt de la leyenda de capas `-D` de gas/agua no son tubería).
     Tests: `tests/test_recognition_walls.py` (paredes, paredes + eje, a trazos y contorno en
     las 6 utilidades).
+  - `recognition_letters.py` + `recognition_letter_lines.py` + `recognition_letter_shapes.py`
+    (PUROS, numpy) — **utilidad por las LETRAS del linetype** (pedido del usuario 2026-10-05,
+    DU08 h.26: `U-TRPW-DBNK-P` «—TE—» caía en «Otras» y no se reconocía). Las letras son
+    vectores SHX: `recognition_letter_shapes.read_letter` las compara con plantillas de trazos
+    (A–Z, a–z, «(», «)», «/»; chaflán simétrico, estirada al ancho de la letra, puntaje ≤0.08 =
+    confiable; caché por forma). `recognition_letter_lines`: huecos entre guiones COLINEALES
+    enfrentados (≤40 pt; sentido de lectura = cola del guión) y sus trazos; `read_text` lee el
+    rótulo en los dos sentidos (empate → el que da un código conocido, luego el del guión),
+    solo con trazos CENTRADOS en el eje (tres líneas de agua juntas metían sus «w»). Votos por
+    SITIO (lecturas a ≤10 pt = uno). `LETTER_CODES` según la LEYENDA del propio PDF (DU08
+    h.3/h.33): e/E, SE (Station Electrification), TE (Traction Electrification) = ELECTRICO; t/T,
+    SC (Signal & Communication) = TELECOM; w/W AGUA; g/G GAS; ss/SS/S ALCANTARILLADO; sd/SD
+    DRENAJE; «(oh)» aérea y «unk», «o» = nada. `recognition.page_letters(page)` (~0.5–1.3 s por
+    hoja, sin capas ANNO/TEXT/TTLB/LOGO/OVHD: la leyenda de h.33 va en `G-ANNO-TEXT`) +
+    `letter_uses` deciden: (1) capa que el NOMBRE no hace línea/estructura de ninguna utilidad →
+    LÍNEA POR LÍNEA (`split_by_line`: une guiones del hueco, puntas que se tocan, esquinas,
+    guiones de una curva, letras y barras «/»; cada línea a la utilidad de SUS letras), o la capa
+    ENTERA si es dedicada (`dedicated`: ≥90 % un código y el reparto cubre ≥75 % de su tinta;
+    `U-TRPW-DBNK-P` 96–98 %); las genéricas (`_Xref` «G»+«W», `G-XREF`, la capa «0» de LABOE con
+    comentarios, perfil y UNA línea «—S—»: 1–22 %) solo aportan sus líneas con letras;
+    (2) capa de LÍNEA cuyo nombre contradicen letras UNÁNIMES (≥5 sitios, ≥95 %) → manda la
+    letra (`N-COMM-DUCT-BANK-PL-SE` → ELECTRICO; antes TELECOM por nombre). Ruido: trazos
+    rellenos fuera (logo de Metro), códigos con <2 sitios, y capa cuyas «letras» no son ≥50 %
+    códigos (`W-Plantry`) no clasifica. `recognize_page(letters=)`: `_kind_for` + filtro por
+    trazo `gather_paths(keep=)` (clave `path_key` = rect + nº de items: el `seqno` cambia al
+    apagar capas), `stroke_letters=True` para esas capas, `RecognizedPolyline.letters` y aviso
+    «Reconocidas por las letras de su línea…» (REVIEW, clave `letters`). `RecognitionWorker`
+    lee las letras UNA vez por hoja; una capa que el usuario asignó a mano a otra utilidad
+    («Ajustar capas…») no se toma por letras. «Capas de la hoja»: `pdf_layers.page_layers` trae
+    `letters`/`letter_utilities`/`letter_codes`/`name_utility`; la capa va al grupo de su
+    utilidad con «TE» al lado y tooltip. Foto 4 PDFs (141 hojas): 190 líneas en 51 hojas, 0 sin
+    tinta, 0 «V», 138 codos; ajenas: solo un vértice de unión donde una línea nueva toca otra.
+    Tests: `tests/test_recognition_letters.py`.
   - `recognition_summary.py` (PURO) + `recognition_summary_view.py` +
     `recognition_review_view.py` + `recognition_layers_view.py` +
     `recognition_preview_draw.py` — resumen VISUAL de la vista previa (lo pidió el
@@ -749,7 +782,26 @@ alcantarillado, drenaje, gas, eléctrico, telecom). Todo en **unidades imperiale
     `_set_utility_visible` recuerda el estado por capa en `_util_memory` para reponerlo— y
     muestra «on/total» si es parcial), buscador que filtra y despliega, ojo mostrar/ocultar
     sobre lo filtrado, «Opacidad», y
-    «◀ Hoja N / M ▶» cambia de hoja sin salir. Devuelve `(ocultas, hoja)`.
+    «◀ Hoja N / M ▶» cambia de hoja sin salir. Devuelve `(ocultas, hoja, utilidades, letras_no)`.
+    **Panel izquierdo «Leyenda»** (pedido del usuario 2026-10-05; `layer_dialog_info.LayerInfoMixin` +
+    `layer_info_panel.LayerInfoPanel`, `CollapsiblePanel` como «Para verificar»): (1) «Por las letras de
+    su línea (N)» = tarjetas de las capas con `letter_utilities` (utilidad + letras, capa, por qué, y
+    `legend_texts`: lo que dice la leyenda del PDF de ese código —misma caja «g»/«G» si alguna fila la
+    tiene, primera hoja de leyenda, sin las variantes «ABANDONED»—) con casilla «Usar» →
+    `self._letters_off` y el árbol se rearma con `pdf_layers.without_letters` (vuelve a su grupo por
+    nombre: `name_group`). La decisión vuelve a `Main._letters_off`, va al `.digproj` (`letters_off`),
+    a `RecognitionWorker(letters_off=)` (quita esas capas de `letters`) y a «Ajustar capas…». (2) «Leyenda
+    del plano» = `pdf_legend.document_legend` de los PDF de ORIGEN (`Main._legend_sources`: en una hoja
+    compuesta la de trabajo es un temporal sin leyenda), leída en otro hilo (`LegendWorker`, ~4 s; caché
+    `Main._legend_cache` por PDF), primero las filas de las letras de esta hoja (`read_codes` +
+    `letter_raw` de `page_layers`), «Ver toda». Clic en tarjeta o fila = resaltar (velo blanco sobre la
+    hoja + trazos de esas capas con el color de su utilidad; en una capa mezclada solo los suyos, por
+    `letter_paths`) y encuadrar; otro clic lo quita. Sin capas por letras ni leyenda, se pliega solo.
+    `pdf_legend` (sin Qt): hojas con LEGEND/LEYENDA ordenadas por filas «EXISTING/PROPOSED…» (máx. 3);
+    fila = texto con una muestra HORIZONTAL (≤12 pt de alto, ≥60 pt de largo) contigua a su izquierda;
+    solo columnas de ≥3 filas a PASO REGULAR (tolera filas sin leer: paso ×2/×3) con letras en ≥30 %:
+    las etiquetas con flecha de LABOE h.8/h.9 y el cajetín no entran. DU08/DU10/LABOE: 34–37 filas;
+    DU06: sin leyenda. Tests: `tests/test_layer_legend.py`.
     En `Main`, `_start_recognition(idx)` lanza el worker con
     `self.hidden_ocgs` + `self._layer_roles` (None = automático); `_change_page`
     (◀ ▶ / nº de página del editor) lo reutiliza si `self._recog_ready`.
@@ -1063,8 +1115,9 @@ alcantarillado, drenaje, gas, eléctrico, telecom). Todo en **unidades imperiale
     caja. El audit no lo veía (el tramo inventado pasaba sobre las letras, que son tinta de la
     capa, y moría en el margen de la caja). Auditoría: 12 hojas cambian, todas a menos tramos;
     0 sin tinta, 0 «V», imprecisos 15 = 15. Las líneas «TE» de esas hojas son
-    `U-TRPW-DBNK-P` (Traction Power duct bank de Metro = energía, NO telecom); hoy no las
-    reconoce ningún perfil y «Capas de la hoja» las lista en «Otras».
+    `U-TRPW-DBNK-P` (Traction Electrification ductbank de Metro, leyenda de DU08 h.33 =
+    energía, NO telecom): desde 2026-10-05 entran a ELECTRICO por sus letras
+    (`recognition_letters`), igual que `N-COMM-DUCT-BANK-PL-SE` («SE»).
   - `PDFCAD_CURVE` (punto): esquina de elemento curvo, con `RADIUS_FT`.
   - `PDFCAD_META` (punto): metadatos del proyecto, hoy `CS_CODE` (Huso).
   - `PDFCAD_DUCTBANK` (punto, capa `PDFCAD_DUCT_BANK`): sección transversal del

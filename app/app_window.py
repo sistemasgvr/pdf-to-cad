@@ -73,6 +73,8 @@ class Main(QtWidgets.QMainWindow):
         self.hidden_ocgs = []   # capas OCG ocultas en el paso «Capas de la hoja» (por PDF abierto)
         self.hidden_ocgs_by_source = {}  # selección de capas por PDF de la organización
         self._layer_roles_by_utility = {}  # roles OCG manuales separados por utilidad
+        self._letters_off = set()  # capas que NO se reconocen por las letras de su línea (paso «Capas»)
+        self._legend_cache = {}    # leyenda del PDF ya leída (paso «Capas»), por PDF de origen
         self._recognition_utilities = _recognition.DEFAULT_UTILITIES
         self._join_routes = True   # unir tramos de la misma capa en rutas (desactivable en el preview)
         self._recog_ready = False  # True cuando el asistente ya reconoció una hoja de este PDF (◀ ▶ vuelven a reconocer)
@@ -1551,6 +1553,7 @@ class Main(QtWidgets.QMainWindow):
             self.hidden_ocgs = []   # capas OCG ocultas por el usuario (paso «Capas de la hoja»)
             self.hidden_ocgs_by_source = {}
             self._layer_roles_by_utility = {}
+            self._letters_off = set()
             self._recognition_utilities = _recognition.DEFAULT_UTILITIES
             self._recog_ready = False
             self.sheet_layout = None
@@ -1595,6 +1598,7 @@ class Main(QtWidgets.QMainWindow):
             self._scale_override = None
             self.hidden_ocgs = []
             self.hidden_ocgs_by_source = {}
+            self._letters_off = set()
             self._layer_roles = None
             self._recog_ready = False
             self.sheet_layout = None
@@ -1742,7 +1746,10 @@ class Main(QtWidgets.QMainWindow):
             chosen = layer_dialog.choose_sheet_layers(self, self.doc, page_idx,
                                                       layout=getattr(self, "_composite_layout", None),
                                                       recognition_utilities=self._recognition_utilities,
-                                                      can_go_back=bool(self.src_pdfs))
+                                                      can_go_back=bool(self.src_pdfs),
+                                                      letters_off=self._letters_off,
+                                                      legend_sources=self._legend_sources(),
+                                                      legend_cache=self._legend_cache)
             if chosen == layer_dialog.LAYERS_BACK:
                 step = 0
                 continue
@@ -1752,7 +1759,8 @@ class Main(QtWidgets.QMainWindow):
             self._dirty = True
             self._info(_tr("Reconocimiento cancelado — hoja cargada con las capas elegidas."))
             return True
-        hidden, page_idx, self._recognition_utilities = chosen
+        hidden, page_idx, self._recognition_utilities, letters_off = chosen
+        self._letters_off = set(letters_off)
         if self.composite is not None and self.composite.is_single_full_page():
             self.composite.pieces[0].page = page_idx
         self.hidden_ocgs = list(hidden)
@@ -2006,6 +2014,16 @@ class Main(QtWidgets.QMainWindow):
         self.sheet_sources = sources
         return True
 
+    def _legend_sources(self):
+        """PDFs cuya LEYENDA muestra el paso «Capas de la hoja»: los de origen de la hoja
+        (también los de una hoja compuesta: la de trabajo es un PDF temporal sin leyenda)."""
+        if self.src_pdfs:
+            return [{"name": e.get("name", ""), "data": e.get("data"), "path": e.get("path")}
+                    for e in self.src_pdfs]
+        if self.pdf_path:
+            return [{"name": os.path.basename(self.pdf_path), "path": self.pdf_path}]
+        return []
+
     def _adjust_layer_roles(self, page_idx):
         """«Ajustar capas…» del preview: elegir a mano qué capas visibles son
         líneas / bóvedas y volver a reconocer la hoja con esos roles."""
@@ -2021,7 +2039,7 @@ class Main(QtWidgets.QMainWindow):
             utility = utilities[labels.index(label)]
         else:
             utility = utilities[0]
-        all_layers = _pdf_layers.page_layers(self.doc, page_idx)
+        all_layers = _pdf_layers.without_letters(_pdf_layers.page_layers(self.doc, page_idx), self._letters_off)
         visible = [L for L in all_layers if L["name"] not in set(self.hidden_ocgs)]
         roles = recognition_dialog.choose_layer_roles(
             self, visible, utility=utility)
@@ -2049,6 +2067,7 @@ class Main(QtWidgets.QMainWindow):
             utilities=self._recognition_utilities,
             hidden_ocgs=self.hidden_ocgs,
             roles_by_utility=self._layer_roles_by_utility,
+            letters_off=self._letters_off,
             join_routes=self._join_routes, scale_ft_per_pt=self._scale_override)
         self._recog_worker.done.connect(self._recognition_done)
         self._recog_worker.progress.connect(self._recognition_progress)
@@ -2406,6 +2425,7 @@ class Main(QtWidgets.QMainWindow):
                 data.get("sheet_crops"), self.sheet_layout) if self.sheet_layout else {}
             self.hidden_ocgs_by_source = data.get("hidden_ocgs_by_source", {})
             self.hidden_ocgs = list(data.get("hidden_ocgs") or self.hidden_ocgs_by_source.get("0", []))
+            self._letters_off = set(data.get("letters_off") or [])
             if self.doc and (self.hidden_ocgs or "0" in self.hidden_ocgs_by_source):
                 import pdf_layers as _pdf_layers
                 _pdf_layers.set_hidden(self.doc, self.hidden_ocgs)

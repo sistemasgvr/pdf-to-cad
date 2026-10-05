@@ -188,6 +188,23 @@ imagen/escaneo…</b>), pero sin capas ni reconocimiento: al final,
     Gas, Eléctrico, Telecomunicaciones, Otras), cada una con su color. La casilla de la utilidad
     enciende o apaga <b>todas</b> sus capas; con la flecha ▸ la despliegas y eliges capa por capa.
     Lo que desmarcas se oculta del plano y <b>no se usa al reconocer</b>.</li>
+<li><b>Por las letras de la línea:</b> la app no solo mira el nombre de la capa; también lee las
+    letras que lleva cada línea (—TE—, —SC—, —W—, —G—, —ss—…). Una capa cuyo nombre no es de
+    ninguna utilidad, pero cuyas líneas sí lo dicen, aparece en su utilidad con las letras al lado,
+    por ejemplo <b>U-TRPW-DBNK-P (517) «TE»</b> en Eléctrico (pasa el ratón para ver por qué), y se
+    reconoce. Las letras siguen la leyenda del plano: «TE» y «SE» son bancos de ductos de
+    electrificación (Eléctrico), «SC» de señales y comunicaciones (Telecomunicaciones). En capas que
+    mezclan de todo (<b>_Xref</b>, <b>G-XREF</b>, la capa <b>0</b>) cada línea va a la utilidad de sus
+    letras y lo demás no se toca. Las aéreas «(oh)» y las desconocidas «unk» no se reconocen.</li>
+<li><b>Panel «Leyenda» (a la izquierda):</b> arriba, <b>Por las letras de su línea</b> lista esas capas
+    en tarjetas: la utilidad y sus letras, la capa, por qué (su nombre no dice la utilidad, o dice
+    otra) y lo que dice de esas letras la leyenda del PDF. La casilla de cada tarjeta decide si se
+    usan: desmarcada, la capa vuelve a su grupo por nombre y no se reconoce por sus letras (la
+    decisión se guarda en el proyecto). Abajo, <b>Leyenda del plano</b> muestra la leyenda que trae
+    el propio PDF (la muestra de cada línea y su descripción), primero las líneas que hay en esta
+    hoja; <b>Ver toda</b> muestra el resto. Clic en una tarjeta o en una fila resalta esas líneas en
+    la hoja y acerca la vista; otro clic vuelve a mostrar todo. Si el PDF no trae leyenda ni hay
+    capas por letras, el panel se pliega solo (‹ / › lo pliega y despliega).</li>
 <li>Escribe en <b>Buscar capa…</b> para encontrar una capa por su nombre; los botones del ojo
     muestran u ocultan todas las capas que se ven en la lista.</li>
 <li><b>Opacidad</b> aclara el plano (y cambia el fondo a blanco o negro), igual que en el editor.</li>
@@ -230,7 +247,8 @@ imagen/escaneo…</b>), pero sin capas ni reconocimiento: al final,
     sola tubería.</li>
 <li>Para volver, pulsa <b>2 Capas de la hoja</b> o <b>1 Componer hoja</b> en la barra de arriba.
     <span class="btn">Ajustar capas…</span> solo hace falta si el plano usa otros nombres de capa:
-    ahí indicas cuáles son líneas y cuáles bóvedas.</li>
+    ahí indicas cuáles son líneas y cuáles bóvedas (también si no estás de acuerdo con una línea que
+    se reconoció por sus letras: lo que elijas ahí manda).</li>
 <li><span class="btn">Continuar e importar al editor</span> las agrega al proyecto como tuberías;
     <span class="btn">Cancelar</span> deja el editor vacío.</li>
 <li>Las líneas <b>abandonadas</b> se importan marcadas como <b>(AB)</b>: las de la capa «-A»
