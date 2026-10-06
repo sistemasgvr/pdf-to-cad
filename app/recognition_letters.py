@@ -214,6 +214,7 @@ def _split_letters(strokes, height):
 
 
 _TEXT_CACHE: Dict[tuple, Optional[Tuple[str, float]]] = {}
+_TEXT_Q = 100.0          # el rótulo se redondea a 0.01 pt para la caché (y se lee ESE redondeo)
 
 
 def read_text(strokes, sure: bool = False) -> Optional[Tuple[str, float]]:
@@ -221,11 +222,13 @@ def read_text(strokes, sure: bool = False) -> Optional[Tuple[str, float]]:
     None si no se puede leer. Prueba los dos sentidos; si empatan, gana el que da un
     código conocido y, si no, el del sentido del guión (`sure`). El mismo rótulo se
     repite a lo largo de la línea: cada forma se lee una sola vez."""
-    key = (sure, tuple(sorted(tuple((round(x * 4), round(y * 4)) for x, y in s) for s in strokes)))
+    key = (sure, tuple(sorted(tuple((round(x * _TEXT_Q), round(y * _TEXT_Q)) for x, y in s) for s in strokes)))
     if key not in _TEXT_CACHE:
         if len(_TEXT_CACHE) > 20000:
             _TEXT_CACHE.clear()
-        _TEXT_CACHE[key] = _read_text(strokes, sure)
+        # se lee la CLAVE (trazos redondeados y ordenados), no el primer rótulo que llegó
+        # con ella: así la lectura no depende de las hojas leídas antes (ver shapes._CACHE_STEP)
+        _TEXT_CACHE[key] = _read_text([[(x / _TEXT_Q, y / _TEXT_Q) for x, y in s] for s in key[1]], sure)
     return _TEXT_CACHE[key]
 
 

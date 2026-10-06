@@ -3,15 +3,19 @@
 Antes era la columna izquierda, angosta, con miniaturas de 150 px en una lista
 (pedido del usuario 2026-10-03: «me queda poco espacio para seleccionar y
 visualizar las hojas»). Ahora es una pestaña a ventana completa: el PDF (se pueden
-agregar más) y una GALERÍA de hojas con miniaturas grandes; cada hoja dice si «✔ ya
-está tomada» o si es una hoja «sin capas». Clic = elegirla; doble clic o «Tomar
-área de esta hoja ›» = ir a «Área a tomar» con esa hoja.
+agregar más) y una GALERÍA de hojas con miniaturas grandes; cada hoja dice si está en
+la hoja compuesta («✔ Hoja completa» / «✔ Área tomada») o si es una hoja «sin capas».
+Clic (o flechas) = ELEGIRLA: mientras la hoja compuesta sea una sola hoja entera, la
+elegida pasa a serlo (pedido del usuario 2026-10-05: elegía la hoja, pulsaba
+«Siguiente» y la hoja compuesta quedaba vacía); Ctrl+clic = agregarla entera además
+de las que ya están; doble clic o «Tomar área de esta hoja» = ir a «Área a tomar».
 
 Las funciones de PDFs, hojas y miniaturas se movieron TAL CUAL desde
 composite_dialog (mismos nombres: `lst_pages` sigue siendo la hoja actual).
 Requiere de la clase: `self.docs`, `self.sources`, `self.comp`, `self._cur_source`,
 `self._cur_page`, `self._thumb_cache`, `self._layers_cache`, `self._thumb_queue`,
-`self._thumb_timer`, `_on_page_changed`, `_go_tab` y `_refresh_pending`.
+`self._thumb_timer`, `_on_page_changed`, `_choose_page`, `_add_sheet`, `_simple`,
+`_is_full`, `_go_tab` y `_refresh_pending`.
 """
 from __future__ import annotations
 
@@ -31,6 +35,40 @@ import theme as _theme
 THUMB_W = 220          # ancho de la miniatura en la galería (antes 150 en una lista angosta)
 
 
+class PageGallery(QtWidgets.QListWidget):
+    """Galería de hojas que distingue lo que hace el USUARIO de los cambios por
+    código (sincronizar la hoja de una pieza, pruebas): `picked(fila)` al elegir
+    una hoja con el ratón o el teclado; `added(fila)` con Ctrl+clic."""
+    picked = QtCore.Signal(int)
+    added = QtCore.Signal(int)
+    picking = False         # un gesto del usuario está cambiando la hoja (antes de `picked`)
+
+    def mousePressEvent(self, e):
+        item = self.itemAt(e.position().toPoint()) if e.button() == QtCore.Qt.LeftButton else None
+        if item is not None and e.modifiers() & QtCore.Qt.ControlModifier:
+            self.setCurrentItem(item)           # se muestra (Área a tomar) y se agrega
+            self.added.emit(self.row(item))
+            e.accept()
+            return
+        self.picking = item is not None
+        try:
+            super().mousePressEvent(e)
+        finally:
+            self.picking = False
+        if item is not None:
+            self.picked.emit(self.row(item))
+
+    def keyPressEvent(self, e):
+        before = self.currentRow()
+        self.picking = True
+        try:
+            super().keyPressEvent(e)
+        finally:
+            self.picking = False
+        if self.currentRow() >= 0 and self.currentRow() != before:
+            self.picked.emit(self.currentRow())
+
+
 class SourcePageMixin:
     # ── UI ──────────────────────────────────────────────────────────────
     def _build_source_page(self, tool, btn_h: int) -> QtWidgets.QWidget:
@@ -38,11 +76,10 @@ class SourcePageMixin:
         page = QtWidgets.QWidget()
         lay = QtWidgets.QVBoxLayout(page)
         lay.setContentsMargins(14, 12, 14, 12); lay.setSpacing(10)
-        hint = QtWidgets.QLabel(_tr("Elige la hoja del plano. Doble clic, o «Tomar área de esta hoja», "
-                                    "para marcar el área que necesitas."))
-        hint.setWordWrap(True)
-        hint.setStyleSheet(f"color:{t.text_muted};")
-        lay.addWidget(hint)
+        self.lbl_source_hint = QtWidgets.QLabel()
+        self.lbl_source_hint.setWordWrap(True)
+        self.lbl_source_hint.setStyleSheet(f"color:{t.text_muted};")
+        lay.addWidget(self.lbl_source_hint)
         row = QtWidgets.QHBoxLayout(); row.setSpacing(8)
         row.addWidget(QtWidgets.QLabel(_tr("PDF")))
         self.cmb_source = QtWidgets.QComboBox()
@@ -55,7 +92,7 @@ class SourcePageMixin:
         row.addWidget(btn_add)
         lay.addLayout(row)
 
-        self.lst_pages = QtWidgets.QListWidget()
+        self.lst_pages = PageGallery()
         self.lst_pages.setViewMode(QtWidgets.QListView.IconMode)
         self.lst_pages.setIconSize(QtCore.QSize(THUMB_W, int(THUMB_W * 0.72)))
         self.lst_pages.setGridSize(QtCore.QSize(THUMB_W + 28, int(THUMB_W * 0.72) + 58))
@@ -66,6 +103,8 @@ class SourcePageMixin:
         self.lst_pages.setSpacing(8)
         self.lst_pages.setUniformItemSizes(True)
         self.lst_pages.currentRowChanged.connect(self._on_page_changed)
+        self.lst_pages.picked.connect(self._choose_page)
+        self.lst_pages.added.connect(self._add_sheet)
         self.lst_pages.itemDoubleClicked.connect(lambda _it: self._go_tab(1))
         lay.addWidget(self.lst_pages, 1)
 
@@ -78,15 +117,25 @@ class SourcePageMixin:
         self.btn_go_area.setMinimumHeight(btn_h)
         self.btn_go_area.setAutoDefault(False)
         self.btn_go_area.setToolTip(_tr("Ir a «Área a tomar» con la hoja elegida"))
-        self.btn_go_area.clicked.connect(lambda: self._go_tab(1))
+        self.btn_go_area.clicked.connect(lambda: (self._choose_page(), self._go_tab(1)))
         bottom.addWidget(self.btn_go_area)
         lay.addLayout(bottom)
         return page
 
     def _refresh_source_selection(self):
-        """Pie de la galería: qué hoja está elegida y si ya está en la hoja compuesta."""
+        """Pie de la galería: qué hoja está elegida y si ya está en la hoja compuesta;
+        arriba, qué hace un clic (depende de si la hoja compuesta es una sola hoja)."""
         if not hasattr(self, "lbl_source_sel"):
             return
+        if self._simple():
+            hint = _tr("Haz clic en la hoja del plano: esa hoja pasa a la hoja compuesta. Si solo "
+                       "necesitas una parte, márcala en «Área a tomar» (doble clic). Ctrl+clic agrega "
+                       "otra hoja.")
+        else:
+            hint = _tr("La hoja compuesta ya está armada: un clic solo muestra la hoja. Para "
+                       "agregarla, toma su área en «Área a tomar» (doble clic) o usa Ctrl+clic para "
+                       "agregarla entera.")
+        self.lbl_source_hint.setText(hint)
         n = self._cur_page + 1
         taken = self._pieces_on_page(self._cur_source, self._cur_page)
         text = _tr("Elegida: hoja {n} de {total}").format(n=n, total=self.docs[self._cur_source].page_count)
@@ -117,6 +166,9 @@ class SourcePageMixin:
             if key not in self._thumb_cache:
                 self._thumb_queue.append(key)
             item = QtWidgets.QListWidgetItem(icon, "")
+            # alto para DOS líneas («Hoja 26» + «✔ Área tomada»): con tamaños uniformes
+            # todas toman el de la primera hoja (una línea) y la marca quedaba «Hoja 26…»
+            item.setSizeHint(QtCore.QSize(THUMB_W + 20, int(THUMB_W * 0.72) + 46))
             self._label_page_item(item, i)
             self.lst_pages.addItem(item)
         row = self._cur_page if 0 <= self._cur_page < doc.page_count else 0
@@ -130,15 +182,16 @@ class SourcePageMixin:
         return sum(1 for p in self.comp.pieces if p.source == source and p.page == page)
 
     def _label_page_item(self, item: QtWidgets.QListWidgetItem, page: int):
-        """Texto de una hoja de la lista: «sin capas» (hoja aplanada) y «✔ Tomada»
-        en negrita si ya está en la hoja compuesta (así se ve cuáles entran)."""
-        taken = self._pieces_on_page(self._cur_source, page)
+        """Texto de una hoja de la lista: «sin capas» (hoja aplanada) y, en negrita,
+        cómo está en la hoja compuesta («✔ Hoja completa», «✔ Área tomada»)."""
+        mine = [p for p in self.comp.pieces if p.source == self._cur_source and p.page == page]
+        taken = len(mine)
         flat = not self._uses_layers(self._cur_source, page)
         text = (_tr("Hoja {n} · sin capas") if flat else _tr("Hoja {n}")).format(n=page + 1)
         tips = []
         if taken:
-            text += "\n" + (_tr("✔ Tomada") if taken == 1 else
-                            _tr("✔ Tomada ({n} piezas)").format(n=taken))
+            text += "\n" + (_tr("✔ {n} piezas").format(n=taken) if taken > 1 else
+                            _tr("✔ Hoja completa") if self._is_full(mine[0]) else _tr("✔ Área tomada"))
             tips.append(_tr("Esta hoja ya está en la hoja compuesta."))
         if flat:
             tips.append(_tr("Esta hoja no interactúa con las capas: sus vectores no están en "

@@ -18,9 +18,10 @@ from ui_common import layer_qcolor, QA_UNCOVERED, QA_OFFPATTERN
 from icons import icon
 from widgets import (ZoomPanView, maximize_on_show, GripSplitter,
                      CollapsiblePanel, NaturalHeightScroll)
-from wizard_widgets import StepBar, OpacityButton, wizard_header, wizard_footer
+from wizard_widgets import NoEscapeClose, StepBar, OpacityButton, wizard_header, wizard_footer
 from busy import busy
 import recognition as rec
+import recognition_cache
 from recognition_summary_view import SummaryPanel, separator, utility_swatch
 from recognition_review_view import ReviewPanel
 from recognition_layers_view import UsedLayersPanel
@@ -292,13 +293,14 @@ GOTO_MIN_SIDE_PX = 420.0   # clic en un aviso: lado mínimo de la zona mostrada 
 # recognition_layers_view (clic = resaltar la capa en la hoja).
 
 
-class RecognitionPreviewDialog(QtWidgets.QDialog):
+class RecognitionPreviewDialog(NoEscapeClose, QtWidgets.QDialog):
     """Muestra el PDF + overlay de líneas (listas para el editor) y bóvedas.
 
     `action` al cerrar: PREVIEW_IMPORT (Continuar), PREVIEW_CANCEL,
     PREVIEW_CHANGE_SHEET (paso 1 «Componer hoja» de la barra de pasos),
     PREVIEW_SHEET_LAYERS (paso 2 «Capas de la hoja») o PREVIEW_ADJUST_LAYERS
     («Ajustar capas…»). Quien lo abre (Main) ejecuta el flujo correspondiente.
+    Esc no la cierra (`NoEscapeClose`): quita el resaltado de «Capas usadas».
     """
 
     def __init__(self, parent, qimg: QtGui.QImage, result, utility_layer="ELECTRICO",
@@ -509,13 +511,7 @@ class RecognitionPreviewDialog(QtWidgets.QDialog):
             self.btn_ok.setEnabled(len(drawable) > 0)
 
     def _toggle_routes(self, checked):
-        for result in self._results:
-            joined = getattr(result, "polylines_joined", None)
-            raw = getattr(result, "polylines_raw", None)
-            if not joined or not raw:
-                continue
-            result.join_routes = bool(checked)
-            result.polylines = list(joined if checked else raw)
+        recognition_cache.set_join_routes(self._results, checked)
         self._update_summary()
         self._redraw_overlay()
 
@@ -623,6 +619,13 @@ class RecognitionPreviewDialog(QtWidgets.QDialog):
         xs = [p[0] for p in pts]; ys = [p[1] for p in pts]
         rect = QtCore.QRectF(QtCore.QPointF(min(xs), min(ys)), QtCore.QPointF(max(xs), max(ys)))
         self._show_rect(rect, margin=0.08)
+
+    def _escape(self) -> bool:
+        """Esc (la ventana no se cierra: `NoEscapeClose`) = «Ver todo» si hay algo resaltado."""
+        if self._focus is None:
+            return False
+        self.layers_panel.clear_focus()          # emite focusChanged(None) → _on_layer_focus
+        return True
 
     def _draw_reviewed(self, rect: QtCore.QRectF):
         """Recuadro verde a trazos: este lugar ya se vio desde «Para verificar»."""

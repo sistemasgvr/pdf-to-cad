@@ -14,7 +14,8 @@ import composite_checks as CK  # noqa: E402
 def test_sin_piezas_no_se_puede_continuar():
     found = CK.checks(0)
     assert [c.code for c in found] == ["no_pieces"] and not CK.ready(found)
-    assert found[0].tab == CK.TAB_AREA
+    # la hoja elegida entra sola: sin piezas solo queda elegir una hoja (en «Origen»)
+    assert found[0].tab == CK.TAB_SOURCE and "elige una hoja" in found[0].text
 
 
 def test_area_marcada_sin_piezas_no_bloquea():

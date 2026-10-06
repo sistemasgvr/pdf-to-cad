@@ -5,7 +5,9 @@ usuario 2026-10-03: en tres columnas a cada vista le quedaba poco sitio) y antes
 «Continuar» revisa lo que el usuario podría haber dejado a medias:
 
   - ERROR  no hay ninguna pieza ni área marcada: «Continuar» queda apagado (con
-           solo un área marcada, «Continuar» la toma: es lo único útil);
+           solo un área marcada, «Continuar» la toma: es lo único útil). Desde
+           2026-10-05 la hoja elegida entra sola, así que solo pasa si el usuario
+           quitó todas las piezas;
   - AVISO  hay un área marcada sin tomar (marcó el rectángulo y no pulsó «Tomar»);
   - AVISO  la hoja a la vista no está en la hoja compuesta (eligió otra hoja y no
            la tomó: reporte del usuario 2026-09-30).
@@ -39,7 +41,7 @@ def checks(n_pieces: int, untaken_area_page: Optional[int] = None,
     # sin piezas pero con un área marcada no se bloquea: «Continuar» la toma
     if n_pieces <= 0 and untaken_area_page is None:
         out.append(Check(ERROR, "no_pieces",
-                         N_("Para continuar, toma un área o una hoja completa en «Área a tomar»."), tab=TAB_AREA))
+                         N_("Para continuar, elige una hoja del plano."), tab=TAB_SOURCE))
     if untaken_area_page is not None:
         out.append(Check(WARN, "untaken_area", N_("Hay un área marcada en la hoja {n} sin tomar."),
                          untaken_area_page, TAB_AREA))

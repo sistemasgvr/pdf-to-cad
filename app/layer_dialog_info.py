@@ -200,6 +200,13 @@ class LayerInfoMixin:
         self._remove_highlight()
         self.info.clear_focus()
 
+    def _escape(self) -> bool:
+        """Esc (la ventana no se cierra: `NoEscapeClose`) quita el resaltado de la leyenda."""
+        if not self._hl_items:
+            return False
+        self._clear_focus()
+        return True
+
     def _focus_lines(self, spec):
         """`spec` = {"layers": [...]} o {"codes": [...]}; None = quitar el resaltado."""
         self._remove_highlight()

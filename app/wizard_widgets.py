@@ -10,6 +10,7 @@ PDF vectorial (Componer hoja → Capas de la hoja → Vista previa) y el editor.
   · `OpacityButton`: botón «Opacidad» para una vista con un PDF de fondo
     (un QGraphicsPixmapItem): maneja la opacidad del item y un rectángulo de
     fondo blanco/negro debajo de él, igual que `canvas.Canvas`.
+  · `NoEscapeClose`: las ventanas de los pasos no se cierran con Esc.
 """
 from __future__ import annotations
 
@@ -35,6 +36,27 @@ _SLIDER_QSS = (
     " border-radius: 6px; background: #ffffff; border: 2px solid #2f6ad9; }"
     "QSlider::handle:horizontal:hover { background: #eaf1ff; border: 2px solid #6ba3ff; }"
     "QSlider::handle:horizontal:pressed { background: #cfe0ff; border: 2px solid #8ec2ff; }")
+
+
+class NoEscapeClose:
+    """Mezcla para las VENTANAS de los pasos del asistente (Componer hoja, Capas
+    de la hoja, Vista previa): Esc no las cierra (pedido del usuario 2026-10-05:
+    un toque sin querer tiraba el paso entero y volvía al editor). Si la ventana
+    tiene algo que Esc deba deshacer (un resaltado), lo hace `_escape()`. Los
+    controles que ya usan Esc (medir, menús, desplegables) la reciben antes; las
+    preguntas y los cuadros chicos («Ajustar capas…», «¿Tomar el área?») siguen
+    cerrando con Esc. Para salir quedan «Cancelar» y la X de la ventana."""
+
+    def keyPressEvent(self, event):
+        if event.key() == QtCore.Qt.Key_Escape or event.matches(QtGui.QKeySequence.Cancel):
+            self._escape()
+            event.accept()
+            return
+        super().keyPressEvent(event)
+
+    def _escape(self) -> bool:
+        """Lo que Esc deshace en esta ventana (True si hizo algo). Nada por defecto."""
+        return False
 
 
 class StepBar(QtWidgets.QWidget):

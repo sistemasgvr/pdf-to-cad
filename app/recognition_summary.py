@@ -131,8 +131,8 @@ _HINTS = {
         "El plano no las dibuja como un arco exacto (radio que cambia o esquina cortada). Se "
         "importan como tramos rectos que siguen la curva."),
     r"^Bóvedas sin línea cercana: (\d+)": N_(
-        "Están en el plano, pero ninguna línea llega a ellas (anillo magenta). Mira si les falta "
-        "una línea."),
+        "Están en el plano, pero ninguna línea llega a ellas (anillo magenta). Se importan igual, "
+        "como cajas sueltas; mira si les falta una línea."),
     r"^Codos como esquina \+ radio: (\d+)(?: \((\d+) aproximado)?": N_(
         "La curva del plano no es un arco perfecto. Se importó el arco que mejor la sigue (a "
         "trazos en la hoja)."),

@@ -14,6 +14,7 @@ _SNAP_TOL_MAX_PT = 30.0 # …pero nunca más de esto en pt (con la hoja entera a
 
 class _CropView(ZoomPanView):
     selectionChanged = QtCore.Signal(object)
+    dragFinished = QtCore.Signal()          # se soltó el ratón tras marcar o ajustar el área
 
     def __init__(self):
         super().__init__()
@@ -96,9 +97,24 @@ class _CropView(ZoomPanView):
             if g and g[0] > y0 + 2: y1 = g[0]; used.append(("y", g))
         return (x0, y0, x1, y1), used
 
+    def is_whole_page(self, rect) -> bool:
+        """¿El área es la hoja entera? (±0.5 pt)"""
+        r, p = rect, self._page_rect
+        return (r is not None and p is not None and p.width() > 0
+                and abs(r.left() - p.left()) < 0.5 and abs(r.top() - p.top()) < 0.5
+                and abs(r.right() - p.right()) < 0.5 and abs(r.bottom() - p.bottom()) < 0.5)
+
+    def _fill_for(self, rect) -> QtGui.QBrush:
+        """Relleno del área: la hoja ENTERA va sin tinte (solo borde y asas); teñirla
+        de naranja entera confundía. Un área parcial sí se tiñe."""
+        if self.is_whole_page(rect):
+            return QtGui.QBrush(QtCore.Qt.NoBrush)
+        return QtGui.QBrush(QtGui.QColor(255, 154, 0, 45))
+
     def set_selection(self, rect):
         self._selection = QtCore.QRectF(rect).normalized() if rect is not None else None
         self._shape.setRect(self._selection or QtCore.QRectF())
+        self._shape.setBrush(self._fill_for(self._selection))
         self._shape.setVisible(self._selection is not None)
         if self._selection is not None and self._selection.width() >= 2 and self._selection.height() >= 2:
             r = self._selection
@@ -215,6 +231,7 @@ class _CropView(ZoomPanView):
             self._drag_initial = None
             self._show_guides([])
             event.accept()
+            self.dragFinished.emit()
             return
         super().mouseReleaseEvent(event)
 

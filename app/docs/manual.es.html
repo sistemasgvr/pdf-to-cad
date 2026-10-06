@@ -106,7 +106,8 @@ al dibujo a mano (ver «PDF imagen o escaneo» más abajo).</p>
 <b>1 Componer hoja › 2 Capas de la hoja › 3 Vista previa</b>: el paso actual va resaltado y los
 pasos anteriores se pueden pulsar para <b>volver atrás</b> sin perder lo hecho. Abajo, en todo el
 ancho, están las opciones de la vista (como <b>Opacidad</b>) y los botones
-<span class="btn">Cancelar</span> y <span class="btn">Continuar</span>.</p>
+<span class="btn">Cancelar</span> y <span class="btn">Continuar</span>. La tecla <b>Esc</b> no
+cierra estas ventanas (solo quita un resaltado): para salir usa <span class="btn">Cancelar</span>.</p>
 <p>Cuando un paso tarda unos segundos (hojas grandes, varias piezas, muchas utilidades), la
 ventana o el panel que se está actualizando se atenúa y aparece una tarjeta <b>«Cargando…»</b>
 con un indicador que gira y lo que la app está haciendo (por ejemplo «Reconociendo… · Drenaje
@@ -120,26 +121,34 @@ con <span class="btn">‹ Atrás</span> / <span class="btn">Siguiente ›</span>
 <b>Área a tomar</b> se marca con <b>!</b> si dejaste algo a medias.</p>
 <ol>
 <li><b>Origen</b>: eliges el PDF (con <span class="btn">Agregar PDF…</span> puedes sumar otros) y la
-    hoja en la galería de miniaturas. Una hoja marcada «sin capas» es un plano aplanado: se puede
-    usar, pero el reconocimiento no encontrará utilidades en ella. Las hojas marcadas
-    <b>«✔ Tomada»</b> ya están en la hoja compuesta. Doble clic en una hoja, o
+    hoja en la galería de miniaturas. <b>La hoja que eliges es la que se usa</b>: al abrir, la hoja a
+    la vista ya está en la hoja compuesta y un clic en otra la cambia; abajo dice
+    «Lista para continuar: hoja N completa». Su miniatura dice <b>«✔ Hoja completa»</b> o
+    <b>«✔ Área tomada»</b>. Una hoja marcada «sin capas» es un plano aplanado: se puede usar, pero
+    el reconocimiento no encontrará utilidades en ella. Doble clic en una hoja, o
     <span class="btn">Tomar área de esta hoja</span>, te lleva a la pestaña siguiente.</li>
 <li><b>Área a tomar</b>: arriba dice qué hoja estás viendo (<b>‹ Hoja 21 de 50 ›</b>); con las
-    flechas pasas a la hoja anterior o siguiente sin volver a Origen. Marca con un rectángulo la
-    parte del plano que necesitas y pulsa <span class="btn">Tomar área</span> (o
-    <span class="btn">Hoja completa</span>); aparece una confirmación verde con
-    <span class="btn">Ver hoja compuesta ›</span>. La escala de la hoja va junto a esos botones; el
-    imán a líneas y el recorte de la línea de borde están en <b>Opciones</b>. Elegir una hoja no la
-    agrega: mientras no la tomes, un aviso lo recuerda.</li>
+    flechas pasas a la hoja anterior o siguiente sin volver a Origen (también la eligen). La hoja
+    entera se ve con su borde y sus asas. Si solo necesitas una parte, arrastra un rectángulo sobre
+    el plano o mueve las esquinas: la hoja compuesta se actualiza sola, sin pulsar nada;
+    <span class="btn">Hoja completa</span> vuelve a usar toda la hoja. La escala de la hoja va
+    abajo a la derecha; el imán a líneas y el recorte de la línea de borde están en
+    <b>Opciones</b>.</li>
+<li><b>Varias hojas</b>: con el área de la primera ya marcada, pasa a otra hoja: un aviso dice que
+    aún no está; marca su área y pulsa <span class="btn">Tomar área</span> (o
+    <span class="btn">Hoja completa</span>). En Origen, <b>Ctrl+clic</b> en una miniatura la agrega
+    entera. Si en realidad querías otra hoja en vez de la primera, el aviso ofrece
+    <span class="btn">Usar solo esta hoja</span>.</li>
 <li><b>Hoja compuesta</b>: colocas cada pieza en su sitio arrastrándola. Con el <b>Imán</b> activo,
     las líneas de dos piezas vecinas se pegan solas; con <b>Puentes</b>, se completan los huecos
     entre hojas (los dos están en <b>Uniones</b>).</li>
 <li>Haz clic en una pieza para <b>girarla</b>, quitarla, corregir en <b>Ajustes</b> su ángulo fino o
     su <b>escala</b>, o ajustar su recorte con <span class="btn">Editar área</span>.</li>
-<li>Abajo a la izquierda ves qué falta para seguir. Sin ninguna pieza,
-    <span class="btn">Continuar</span> queda apagado. Si marcaste un área y no la tomaste, o estás
-    viendo una hoja que no tomaste, se avisa (con un enlace para arreglarlo) y al continuar la app
-    pregunta qué hacer: tomarla, usar solo esa hoja, seguir sin ella o volver.</li>
+<li>Abajo a la izquierda ves qué falta para seguir. Si quitaste todas las piezas,
+    <span class="btn">Continuar</span> queda apagado y el enlace <b>Usar la hoja N</b> la vuelve a
+    poner. Si marcaste un área para otra pieza y no la tomaste, o estás viendo una hoja que no
+    tomaste, se avisa (con un enlace para arreglarlo) y al continuar la app pregunta qué hacer:
+    tomarla, usar solo esa hoja, seguir sin ella o volver.</li>
 <li><span class="btn">Continuar</span> pasa al paso 2.</li>
 </ol>
 
@@ -275,15 +284,22 @@ imagen/escaneo…</b>), pero sin capas ni reconocimiento: al final,
     cerrado delgado (se usa su eje). Vale para todas las utilidades. El aviso
     <b>tuberías con dos paredes</b> te lleva a cada una. Tres o más líneas paralelas juntas no se
     tocan.</li>
-<li>El <b>agua</b> y el <b>gas</b> entran sin cajas (van a presión). El <b>alcantarillado</b> y el
-    drenaje entran con sus buzones; eléctrico y <b>telecomunicaciones</b>, con caja solo donde el
-    plano tiene una bóveda.</li>
+<li>El <b>alcantarillado</b> y el drenaje entran con sus buzones; eléctrico y
+    <b>telecomunicaciones</b>, con caja solo donde el plano tiene una bóveda. El <b>agua</b> y el
+    <b>gas</b> van a presión: sus vértices no llevan nodos, pero sus bóvedas sí entran.</li>
+<li><b>Toda bóveda que ves en la vista previa llega al editor</b>, también las que no tienen
+    ninguna línea (anillo magenta): entran como <b>caja suelta</b> con su forma y medidas (las
+    rectangulares, como <b>SÓLIDO</b>), sin tocar las líneas. Pasa también con cajas de paso,
+    postes y estructuras propuestas.</li>
 </ul>
 
 <h2>Volver a componer más tarde</h2>
 <p>Menú <b>Herramientas → Componer hoja de trabajo…</b> abre otra vez el paso 1, en el PDF y la hoja donde
 estabas trabajando, y repite los pasos 2 y 3 con la hoja nueva. Todo se guarda en el proyecto
 (.digproj), también los PDF de origen.</p>
+<p>Si sigues sin cambiar nada (ni la composición, ni las capas, ni las utilidades), la vista previa
+se abre al instante con el reconocimiento anterior: queda en memoria mientras el proyecto está
+abierto. Basta un cambio en cualquiera de esos pasos para que se reconozca de nuevo.</p>
 <table width="100%" cellspacing="0" cellpadding="12"><tr>
 <td width="6" bgcolor="{{tip_border}}"></td><td bgcolor="{{tip}}">
 <b>Consejo:</b> si algo no se reconoce, siempre puedes dibujarlo a mano (capítulo siguiente).
@@ -367,7 +383,7 @@ el máximo permitido.</p>
 <table width="100%" cellspacing="0" cellpadding="12"><tr>
 <td width="6" bgcolor="{{info_border}}"></td><td bgcolor="{{info}}">
 Agua y gas van <b>a presión</b>: no llevan buzones. Donde se juntan tuberías, Civil 3D pone
-un accesorio (codo, Tee, Wye o cruz).
+un accesorio (codo, Tee, Wye o cruz). Sus bóvedas reconocidas del PDF entran como SÓLIDO.
 </td></tr></table>
 </section>
 

@@ -447,7 +447,9 @@ class CompositeView(ZoomPanView):
         self._warm_seams()
 
     def _warm_seams(self):
-        if self.comp.manual:
+        # con una sola pieza no hay costura que juntar (elegir hoja en «Origen» no
+        # debe pagar el escaneo de sus bordes en cada clic)
+        if self.comp.manual or len(self.comp.pieces) < 2:
             return
         if not self.pieces_ready() or any(getattr(d, "is_closed", False) for d in self.docs):
             return

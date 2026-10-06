@@ -512,3 +512,19 @@ def test_clic_en_encabezados_y_capa_de_bovedas():
         assert dlg._focus["ocg"] == "X|C-SSWR-UNGD-E"
     finally:
         dlg.close()
+
+
+def test_esc_quita_el_resaltado_y_no_cierra_la_vista_previa():
+    """Pedido del usuario 2026-10-05: Esc cerraba la vista previa (se perdía el paso).
+    Ahora Esc solo quita el resaltado de «Capas usadas»; la ventana sigue abierta."""
+    from PySide6 import QtCore, QtTest
+    app, dlg = _layers_preview()
+    try:
+        dlg.layers_panel.list.itemClicked.emit(_item(dlg, "C-ELEC-UNGD-E")); app.processEvents()
+        assert dlg._focus is not None
+        QtTest.QTest.keyClick(dlg, QtCore.Qt.Key_Escape); app.processEvents()
+        assert dlg._focus is None and dlg.layers_panel.btn_all.isHidden() and dlg.isVisible()
+        QtTest.QTest.keyClick(dlg, QtCore.Qt.Key_Escape); app.processEvents()
+        assert dlg.isVisible() and dlg.result() == 0
+    finally:
+        dlg.close()

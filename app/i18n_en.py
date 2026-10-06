@@ -934,6 +934,8 @@ EN: dict[str, str] = {
         "Recognition finished, but there is no sheet image for the preview.",
     "Reconocimiento cancelado — editor vacío.":
         "Recognition cancelled — empty editor.",
+    "Sin cambios en la hoja ni en sus capas: se usa el reconocimiento anterior.":
+        "No changes to the sheet or its layers: the previous recognition is reused.",
     "Codos como esquina + radio (CV): {c}.":
         "Bends as corner + radius (CV): {c}.",
     "Página {n} cargada.":
@@ -1072,6 +1074,39 @@ EN: dict[str, str] = {
         "conduit (electrical/telecom)",
     "gravedad":
         "gravity",
+    "presión (agua/gas)":
+        "pressure (water/gas)",
+    # ── composite_choice.py / composite_dialog.py: la hoja elegida (2026-10-05) ──
+    "Para continuar, elige una hoja del plano.":
+        "To continue, choose a sheet of the plan.",
+    "La hoja {n} entera está en la hoja compuesta. Si solo necesitas una parte, arrastra un área sobre el plano o mueve las esquinas: la hoja compuesta se actualiza sola.":
+        "The whole sheet {n} is in the composite sheet. If you only need part of it, drag an area over the plan or move the corners: the composite sheet updates by itself.",
+    "La hoja compuesta usa el área marcada de la hoja {n}. Ajústala, o pulsa «Hoja completa» para volver a usar toda la hoja.":
+        "The composite sheet uses the marked area of sheet {n}. Adjust it, or press «Full sheet» to use the whole sheet again.",
+    "Volver a usar la hoja entera en esta pieza":
+        "Use the whole sheet in this piece again",
+    "✔ Lista para continuar: hoja {n} completa":
+        "✔ Ready to continue: full sheet {n}",
+    "✔ Lista para continuar: área de la hoja {n}":
+        "✔ Ready to continue: area of sheet {n}",
+    "Usar la hoja {n}":
+        "Use sheet {n}",
+    "Usar solo esta hoja":
+        "Use only this sheet",
+    "Quitar lo tomado y usar solo la hoja que estás viendo":
+        "Drop what was taken and use only the sheet you are viewing",
+    "La hoja {n} aún no está en la hoja compuesta (que usa: {donde}). Para sumarla, marca un área y pulsa «Tomar área», o pulsa «Hoja completa».":
+        "Sheet {n} is not in the composite sheet yet (it uses: {donde}). To add it, mark an area and press «Take area», or press «Full sheet».",
+    "Haz clic en la hoja del plano: esa hoja pasa a la hoja compuesta. Si solo necesitas una parte, márcala en «Área a tomar» (doble clic). Ctrl+clic agrega otra hoja.":
+        "Click the plan's sheet: that sheet goes into the composite sheet. If you only need part of it, mark it in «Area to take» (double click). Ctrl+click adds another sheet.",
+    "La hoja compuesta ya está armada: un clic solo muestra la hoja. Para agregarla, toma su área en «Área a tomar» (doble clic) o usa Ctrl+clic para agregarla entera.":
+        "The composite sheet is already put together: a click only shows the sheet. To add it, take its area in «Area to take» (double click) or use Ctrl+click to add it whole.",
+    "✔ {n} piezas":
+        "✔ {n} pieces",
+    "✔ Hoja completa":
+        "✔ Full sheet",
+    "✔ Área tomada":
+        "✔ Area taken",
     "(sin tamaños detectados)":
         "(no sizes detected)",
     "Código repetido":
@@ -1374,8 +1409,6 @@ EN: dict[str, str] = {
         "{i}   plan({x},{y})  →  street({X},{Y}) ft{etiqueta}",
 
     # ── composite_dialog.py ──
-    "Para continuar, toma un área o una hoja completa en «Área a tomar».":
-        "To continue, take an area or a whole sheet in «Area to take».",
     "Hay un área marcada en la hoja {n} sin tomar.":
         "There is a marked area on sheet {n} that was not taken.",
     "La hoja {n} que estás viendo no está en la hoja compuesta.":
@@ -1434,8 +1467,6 @@ EN: dict[str, str] = {
         "Take the area",
     "Seguir sin tomarla":
         "Continue without it",
-    "Elige la hoja del plano. Doble clic, o «Tomar área de esta hoja», para marcar el área que necesitas.":
-        "Choose the plan sheet. Double-click, or «Take area of this sheet», to mark the area you need.",
     "Tomar área de esta hoja":
         "Take area of this sheet",
     "Ir a «Área a tomar» con la hoja elegida":
@@ -1968,8 +1999,8 @@ EN: dict[str, str] = {
         "Composed sheet",
 
     # ── app_window.py (rama dev_santos_v2) ──
-    "({a} sin línea, importadas como cajas sueltas.)":
-        "({a} with no line, imported as standalone boxes.)",
+    "({a} como cajas sueltas, sin unir a una línea.)":
+        "({a} as standalone boxes, not joined to a line.)",
     "Ajustar capas":
         "Adjust layers",
     "Capa del PDF de la que salió (disciplina, sistema, ubicación, estado) y tus propios campos. Se guardan en el proyecto y van al DXF.":
@@ -2045,8 +2076,6 @@ EN: dict[str, str] = {
         "Sheet {n} · no layers",
     "✔ Área tomada como pieza {n} ({label}). Ya está en la hoja compuesta ({total} pieza(s)).":
         "✔ Area taken as piece {n} ({label}). It is already on the composite sheet ({total} piece(s)).",
-    "✔ Tomada": "✔ Taken",
-    "✔ Tomada ({n} piezas)": "✔ Taken ({n} pieces)",
     "Esta hoja ya está en la hoja compuesta.": "This sheet is already on the composite sheet.",
     "La hoja {n} aún no está en la hoja compuesta: marca un área y pulsa «Tomar área», o pulsa «Hoja completa».":
         "Sheet {n} is not on the composite sheet yet: draw an area and press «Take area», or press «Full sheet».",
@@ -2215,8 +2244,8 @@ EN: dict[str, str] = {
         "They carry the abandoned «/» marks, but their layer is active. They are imported as active.",
     "El plano no las dibuja como un arco exacto (radio que cambia o esquina cortada). Se importan como tramos rectos que siguen la curva.":
         "The plan does not draw them as an exact arc (changing radius or cut corner). They are imported as straight segments that follow the curve.",
-    "Están en el plano, pero ninguna línea llega a ellas (anillo magenta). Mira si les falta una línea.":
-        "They are on the plan, but no line reaches them (magenta ring). Check whether a line is missing.",
+    "Están en el plano, pero ninguna línea llega a ellas (anillo magenta). Se importan igual, como cajas sueltas; mira si les falta una línea.":
+        "They are on the plan, but no line reaches them (magenta ring). They are imported anyway, as standalone boxes; check whether a line is missing.",
     "La curva del plano no es un arco perfecto. Se importó el arco que mejor la sigue (a trazos en la hoja).":
         "The plan's curve is not a perfect arc. The arc that best follows it was imported (dashed on the sheet).",
     "Trozos de línea del plano que no quedaron dentro de ninguna línea reconocida (en magenta). Suelen ser restos sueltos del dibujo.":

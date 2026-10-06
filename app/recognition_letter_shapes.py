@@ -32,7 +32,12 @@ NARROW = 0.3            # ancho/alto: por debajo, la letra (o la plantilla) no s
 STEP = 0.06             # paso de muestreo de los trazos, en altos de letra
 WIDTH_PENALTY = 0.08    # × |ln(ancho letra / ancho plantilla)|
 GOOD_SCORE = 0.08       # lectura confiable (medido: letras reales 0.002–0.06; ruido ≥0.1)
-_CACHE_STEP = 0.05      # la forma se redondea a esto (alto 1) para no leerla dos veces
+# La forma se redondea a esto (alto 1) para no leer dos veces la misma letra, y se LEE
+# la forma redondeada: con la letra que llegaba primero, dos formas con la misma clave
+# compartían su lectura y el resultado de una hoja dependía de las hojas leídas antes
+# (LABOE h.5 drenaje: 14 o 17 líneas según el orden). Fina: la misma letra del linetype
+# repite la clave; la lectura no cambia por el redondeo.
+_CACHE_STEP = 0.005
 
 
 def _ellipse(cx: float, cy: float, rx: float, ry: float, n: int = 24) -> List[Pt]:
@@ -215,7 +220,7 @@ def read_letter(strokes: Sequence[Sequence[Pt]]) -> Tuple[str, float]:
                              for x, y in s) for s in strokes))
     hit = _READ.get(key)
     if hit is None:
-        sc = scores(strokes)
+        sc = scores([[(kx * _CACHE_STEP, ky * _CACHE_STEP) for kx, ky in s] for s in key])
         i = int(np.argmin(sc))
         hit = (_bank().chars[i], float(sc[i]))
         if len(_READ) > 20000:

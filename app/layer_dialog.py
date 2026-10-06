@@ -46,7 +46,7 @@ import theme as _theme
 from ui_common import aci_qcolor, layer_qcolor, swatch_icon
 from widgets import ZoomPanView, MiniMap, maximize_on_show, side_panel_width, GripSplitter
 from layer_dialog_info import LayerInfoMixin, layer_tooltip as _layer_tooltip
-from wizard_widgets import StepBar, OpacityButton, wizard_header, wizard_footer
+from wizard_widgets import NoEscapeClose, StepBar, OpacityButton, wizard_header, wizard_footer
 
 # Zoom del render PDF (matriz PyMuPDF). El lienzo principal usa ~3.5; aquí
 # 3.0 da nitidez al acercar con la rueda sin ralentizar demasiado el
@@ -96,10 +96,10 @@ def _card(title: str) -> tuple[QtWidgets.QFrame, QtWidgets.QVBoxLayout, QtWidget
     return box, lay, head
 
 
-class SheetLayersDialog(LayerInfoMixin, QtWidgets.QDialog):
+class SheetLayersDialog(LayerInfoMixin, NoEscapeClose, QtWidgets.QDialog):
     """Mostrar/ocultar capas OCG de una hoja con vista previa en vivo; a la izquierda,
     las capas que se toman por las LETRAS de su línea y la leyenda del PDF
-    (`layer_dialog_info`)."""
+    (`layer_dialog_info`). Esc no la cierra (`NoEscapeClose`): quita el resaltado."""
 
     def __init__(self, parent, doc: fitz.Document, page_index: int, layers=None, layout=None,
                  recognition_utilities=None, can_go_back: bool = False, letters_off=None,

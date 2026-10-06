@@ -105,7 +105,8 @@ sheet» and then to manual drawing (see «Image or scanned PDF» below).</p>
 <b>1 Compose sheet › 2 Sheet layers › 3 Preview</b>: the current step is highlighted and earlier
 steps can be clicked to <b>go back</b> without losing your work. At the bottom, across the whole
 width, are the view options (such as <b>Opacity</b>) and the <span class="btn">Cancel</span> and
-<span class="btn">Continue</span> buttons.</p>
+<span class="btn">Continue</span> buttons. The <b>Esc</b> key does not close these windows (it only
+clears a highlight): to leave, use <span class="btn">Cancel</span>.</p>
 <p>When a step takes a few seconds (large sheets, several pieces, many utilities), the window or
 the panel being updated is dimmed and a <b>«Loading…»</b> card appears with a spinning indicator
 and what the app is doing (for example «Recognizing… · Storm Drain (3 of 6)»). There is no need to
@@ -119,26 +120,34 @@ click anything: the card goes away by itself when it finishes.</p>
 <b>Area to take</b> shows a <b>!</b> if you left something half done.</p>
 <ol>
 <li><b>Source</b>: choose the PDF (<span class="btn">Add PDF…</span> adds others) and the sheet in
-    the thumbnail gallery. A sheet marked «no layers» is a flattened plan: you can use it, but
-    recognition will not find utilities on it. Sheets marked <b>«✔ Taken»</b> are already on the
-    composite sheet. Double-click a sheet, or <span class="btn">Take area of this sheet</span>, to go
-    to the next tab.</li>
+    the thumbnail gallery. <b>The sheet you choose is the one used</b>: on opening, the sheet in view
+    is already on the composite sheet and a click on another one switches it; the bottom says
+    «Ready to continue: full sheet N». Its thumbnail says <b>«✔ Full sheet»</b> or
+    <b>«✔ Area taken»</b>. A sheet marked «no layers» is a flattened plan: you can use it, but
+    recognition will not find utilities on it. Double-click a sheet, or
+    <span class="btn">Take area of this sheet</span>, to go to the next tab.</li>
 <li><b>Area to take</b>: the top says which sheet you are viewing (<b>‹ Sheet 21 of 50 ›</b>); the
-    arrows move to the previous or next sheet without going back to Source. Draw a rectangle around
-    the part of the plan you need and press <span class="btn">Take area</span> (or
-    <span class="btn">Full sheet</span>); a green confirmation appears with
-    <span class="btn">See composite sheet ›</span>. The sheet scale is next to those buttons;
-    snapping to lines and trimming the border line are under <b>Options</b>. Picking a sheet does not
-    add it: until you take it, a notice reminds you.</li>
+    arrows move to the previous or next sheet without going back to Source (they also choose it).
+    The whole sheet is shown with its border and handles. If you only need part of it, drag a
+    rectangle over the plan or move the corners: the composite sheet updates by itself, with no
+    button to press; <span class="btn">Full sheet</span> uses the whole sheet again. The sheet scale
+    is at the bottom right; snapping to lines and trimming the border line are under
+    <b>Options</b>.</li>
+<li><b>Several sheets</b>: with the first one's area already marked, go to another sheet: a notice
+    says it is not in yet; mark its area and press <span class="btn">Take area</span> (or
+    <span class="btn">Full sheet</span>). In Source, <b>Ctrl+click</b> on a thumbnail adds it whole.
+    If you actually wanted another sheet instead of the first one, the notice offers
+    <span class="btn">Use only this sheet</span>.</li>
 <li><b>Composite sheet</b>: drag each piece into place. With the <b>Magnet</b> on, the lines of
     neighboring pieces snap together; with <b>Bridges</b>, gaps between sheets are filled in (both
     are under <b>Joins</b>).</li>
 <li>Click a piece to <b>rotate</b> it, remove it, fix its fine angle or its <b>scale</b> under
     <b>Adjust</b>, or adjust its crop with <span class="btn">Edit area</span>.</li>
-<li>At the bottom left you see what is missing to go on. With no piece,
-    <span class="btn">Continue</span> is disabled. If you marked an area and did not take it, or you
-    are viewing a sheet you did not take, a notice says so (with a link to fix it) and on continuing
-    the app asks what to do: take it, use only that sheet, go on without it or go back.</li>
+<li>At the bottom left you see what is missing to go on. If you removed every piece,
+    <span class="btn">Continue</span> is disabled and the <b>Use sheet N</b> link puts it back. If
+    you marked an area for another piece and did not take it, or you are viewing a sheet you did not
+    take, a notice says so (with a link to fix it) and on continuing the app asks what to do: take
+    it, use only that sheet, go on without it or go back.</li>
 <li><span class="btn">Continue</span> goes to step 2.</li>
 </ol>
 
@@ -275,15 +284,22 @@ editor</span> leaves it as the background to draw by hand.</p>
     are left untouched.</li>
 <li>If the plan has the <b>same line drawn twice</b> on the same layer (overlapping, with shifted
     dashes), <b>a single</b> line is imported.</li>
-<li><b>Water</b> and <b>gas</b> come in without boxes (they are pressure networks). <b>Sewer</b>
-    and storm drain come in with their manholes; electrical and <b>telecom</b>, with a box only
-    where the plan has a vault.</li>
+<li><b>Sewer</b> and storm drain come in with their manholes; electrical and <b>telecom</b>,
+    with a box only where the plan has a vault. <b>Water</b> and <b>gas</b> are pressure networks:
+    their vertices get no nodes, but their vaults do come in.</li>
+<li><b>Every vault you see in the preview reaches the editor</b>, also the ones with no line at
+    all (magenta ring): they come in as a <b>standalone box</b> with their shape and size
+    (rectangular ones as <b>SÓLIDO</b>), without touching the lines. This also applies to pull boxes,
+    poles and proposed structures.</li>
 </ul>
 
 <h2>Composing again later</h2>
 <p>Menu <b>Tools → Compose work sheet…</b> opens step 1 again, on the PDF and sheet you were
 working on, and repeats steps 2 and 3 with the new sheet. Everything is saved in the project
 (.digproj), including the source PDFs.</p>
+<p>If you continue without changing anything (not the composition, the layers or the utilities),
+the preview opens instantly with the previous recognition: it stays in memory while the project
+is open. Any change in those steps is enough for the sheet to be recognized again.</p>
 <table width="100%" cellspacing="0" cellpadding="12"><tr>
 <td width="6" bgcolor="{{tip_border}}"></td><td bgcolor="{{tip}}">
 <b>Tip:</b> if something is not recognized, you can always draw it by hand (next chapter).
@@ -366,7 +382,7 @@ shows the maximum allowed.</p>
 <table width="100%" cellspacing="0" cellpadding="12"><tr>
 <td width="6" bgcolor="{{info_border}}"></td><td bgcolor="{{info}}">
 Water and gas are <b>pressure</b> networks: they have no manholes. Where pipes meet, Civil 3D
-places a fitting (elbow, Tee, Wye or cross).
+places a fitting (elbow, Tee, Wye or cross). Their vaults recognized from the PDF come in as SÓLIDO.
 </td></tr></table>
 </section>
 

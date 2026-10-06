@@ -38,6 +38,16 @@ alcantarillado, drenaje, gas, eléctrico, telecom). Todo en **unidades imperiale
     ◀ ▶ de «Capas» (y el re-render al marcar capas, solo si el anterior tardó >0.25 s),
     reconocer, preparar la vista previa e importar. Paso nuevo lento → envolverlo igual.
   - `workers.py` — hilos de fondo (`PipelineWorker`, `RecognitionWorker`).
+  - `recognition_cache.py` (PURO) — el reconocimiento queda EN MEMORIA (pedido del usuario
+    2026-10-06: con lo reconocido ya importado, Herramientas → «Componer hoja…» y seguir sin
+    cambios reconocía todo otra vez). `Main._start_recognition` arma la clave
+    (`_recognition_key`: sha1 de los PDF de origen, composición sin `last_view`, hoja, capas
+    ocultas, utilidades, roles de «Ajustar capas…», `letters_off`, escala, zoom); si está en
+    `_recog_cache` (las 4 últimas; se vacía al cerrar el proyecto) abre la vista previa con ese
+    resultado (QTimer, como el hilo) sin `RecognitionWorker`. «Unir tramos» no va en la clave
+    (`set_join_routes`). OJO: un parámetro NUEVO que cambie el reconocimiento se suma a
+    `recognition_key`, o el caché devolvería un resultado viejo. Tests:
+    `tests/test_recognition_cache.py`.
   - `recognition.py` + `recognition_dialog.py` — asistente al abrir un PDF
     vectorial: componer hoja → capas → reconocer (perfiles Eléctrico, Drenaje, Agua y
     Alcantarillado; v1 fue eléctricas `C-ELEC-UNGD`;
@@ -133,11 +143,16 @@ alcantarillado, drenaje, gas, eléctrico, telecom). Todo en **unidades imperiale
     ninguno aproximado ni recortado por el editor/plugin (tras el filtro de
     chaflanes: 15, h.3 = 6, h.4 = 8, h.15 = 1); lo que queda como
     polilínea son chaflanes y curvas compuestas (aviso «Curvas que quedan como polilínea»)) y `_vaults_geometry` (geometría real de bóvedas, `VAULT_MIN_FT`=2:
-    cajas de paso/postes no cuentan; `Vault.layer` + `is_vault_ocg` → `importable`:
-    una bóveda SIN línea de capa VALT/MANH (o lazo en la capa de la línea) se
-    importa como CAJA suelta `standalone=True` — `attach_vault_geometry` la crea,
-    `rebuild_structures` la conserva como a las `world`, el lienzo la pinta con
-    el color de la utilidad; las U-PROP/POLE/PBOX (`NON_VAULT_TOKENS`) no).
+    cajas de paso/postes no cuentan): TODA bóveda de `vaults_geo` es `importable` (pedido del
+    usuario 2026-10-05: «se reconoció el buzón sin líneas y al importar no está»; antes las de
+    capas U-PROP/POLE/PBOX/JUNCTION —`NON_VAULT_TOKENS`, hoy solo clasifica— y todas las de
+    agua/gas quedaban fuera: 129 en los 4 PDFs). Una bóveda SIN línea se importa como CAJA
+    suelta `standalone=True` — `attach_vault_geometry` la crea, `rebuild_structures` la
+    conserva como a las `world`, el lienzo la pinta con el color de la utilidad. En agua/gas
+    (red a PRESIÓN) toda bóveda es suelta y, rectangular, SÓLIDO (`model_ops.SOLID_NETS`); el
+    DXF exporta los sólidos de presión y el plugin los dibuja (no cuentan como «nodos de
+    presión descartados»). Foto antes/después (4 PDFs × 6 utilidades): 129 → 0 sin importar,
+    ninguna estructura previa movida ni quitada, líneas idénticas.)
   - `recognition_arcs.py` (lee la tinta) + `recognition_arc_plan.py` (`ink_fillet_plan`:
     rectas, nodos, ajuste y anclas), PUROS — **2.ª pasada de codos desde la TINTA** (2026-09-28,
     pedido del usuario: «toda curva, mínima o muy abierta, en todas las utilidades»; caso
@@ -338,7 +353,10 @@ alcantarillado, drenaje, gas, eléctrico, telecom). Todo en **unidades imperiale
     DU08 h.26: `U-TRPW-DBNK-P` «—TE—» caía en «Otras» y no se reconocía). Las letras son
     vectores SHX: `recognition_letter_shapes.read_letter` las compara con plantillas de trazos
     (A–Z, a–z, «(», «)», «/»; chaflán simétrico, estirada al ancho de la letra, puntaje ≤0.08 =
-    confiable; caché por forma). `recognition_letter_lines`: huecos entre guiones COLINEALES
+    confiable; caché por forma REDONDEADA —letra 0.005 del alto, rótulo 0.01 pt— y se lee esa
+    forma redondeada: antes se leía la primera que llegaba con la clave y el resultado de una hoja
+    dependía de las hojas leídas antes en el mismo proceso, LABOE h.5 drenaje 14 o 17 líneas).
+    `recognition_letter_lines`: huecos entre guiones COLINEALES
     enfrentados (≤40 pt; sentido de lectura = cola del guión) y sus trazos; `read_text` lee el
     rótulo en los dos sentidos (empate → el que da un código conocido, luego el del guión),
     solo con trazos CENTRADOS en el eje (tres líneas de agua juntas metían sus «w»). Votos por
@@ -603,8 +621,22 @@ alcantarillado, drenaje, gas, eléctrico, telecom). Todo en **unidades imperiale
     cada vista —y otra vez al maximizarse, `changeEvent`—). `_start_tab`: sin piezas → Origen;
     una hoja entera (la del editor) → Área; si no → Hoja compuesta. Ojo en pruebas: la vista de
     una pestaña oculta no está visible (`isVisibleTo` falso, `centerOn` sin efecto) →
-    `dlg._go_tab(TAB_SHEET)` antes. **Validaciones** (`composite_checks.py`, PURO): sin piezas
-    ni área marcada → `btn_ok` apagado; área marcada sin tomar (`_sel_dirty`: la marcó el
+    `dlg._go_tab(TAB_SHEET)` antes. **La hoja ELEGIDA es la hoja compuesta**
+    (`composite_choice.ChosenSheetMixin`, pedido del usuario 2026-10-05: elegía la hoja, pulsaba
+    «Siguiente» y quedaba vacía): mientras la hoja compuesta sea vacía o UNA hoja entera
+    (`_simple`), elegir hoja la reemplaza (`_choose_page`: al abrir, clic/flechas en la galería
+    —`composite_source_page.PageGallery.picked`, solo gestos del USUARIO; `setCurrentRow` por
+    código no elige—, ‹ ›, «Tomar área de esta hoja») y la deja EN EDICIÓN: un área marcada (o
+    sus esquinas movidas) la recorta al momento con el `_apply_crop_edit` de siempre y «Hoja
+    completa» la devuelve (`_set_piece_area`; `_take`/`_take_area` sobre la pieza en edición de
+    la hoja a la vista = actualizarla, no agregar). La hoja entera se ve SIN tinte (borde +
+    asas: `_CropView.is_whole_page`/`_fill_for`). Con trabajo de verdad (un área, ≥2 piezas)
+    elegir otra hoja solo la muestra (aviso `pending_box` con «Usar solo esta hoja» si hay una
+    pieza: `_use_only_this_sheet`); Ctrl+clic en la galería (`PageGallery.added`) agrega la
+    hoja entera. Esc no cierra el diálogo (`wizard_widgets.NoEscapeClose`). Tests:
+    `tests/test_composite_dialog.py::test_la_hoja_elegida_es_la_hoja_compuesta` y siguientes.
+    **Validaciones** (`composite_checks.py`, PURO): sin piezas
+    ni área marcada → `btn_ok` apagado (enlace «Usar la hoja N» = `pick`); área marcada sin tomar (`_sel_dirty`: la marcó el
     usuario, no la de una pieza en edición) o hoja a la vista sin tomar → aviso ámbar en el pie
     (`lbl_check`, enlace `take`/`tab:N`) + «!» en la pestaña; «Siguiente» desde Área y `accept`
     preguntan (`_ask_untaken_area`: tomar / seguir sin ella / volver); con solo un área
@@ -618,9 +650,9 @@ alcantarillado, drenaje, gas, eléctrico, telecom). Todo en **unidades imperiale
     escala. Botones: «Hoja
     completa» = `QPushButton[soft="true"]`, «Opciones»/«Uniones»/«Ajustes» =
     `QPushButton[options="true"]` con menú, todos `_BTN_H`=38. Hoja a la vista que NO está en
-    la hoja compuesta: la lista marca «✔ Tomada» las que sí, `pending_box` avisa y `accept`
-    pregunta (`_ask_pending_page`: agregar / usar solo esa hoja si era una hoja entera /
-    seguir sin ella / volver). Abre en `Composite.last_view` ([pdf, hoja] al aceptar; va al
+    la hoja compuesta: la lista marca las que sí («✔ Hoja completa» / «✔ Área tomada»),
+    `pending_box` avisa y `accept` pregunta (`_ask_pending_page`: agregar / usar solo esa hoja
+    si hay UNA pieza / seguir sin ella / volver). Abre en `Composite.last_view` ([pdf, hoja] al aceptar; va al
     .digproj) — con una sola hoja entera, en su PDF + la hoja del editor; sin nada, la de la
     última pieza (`_start_position`). `piece_map` reproduce exactamente el
     mapeo de `show_pdf_page` (centro a centro, giro antihorario, factor uniforme);
@@ -759,7 +791,10 @@ alcantarillado, drenaje, gas, eléctrico, telecom). Todo en **unidades imperiale
     `show_opacity_popup` (el desplegable de opacidad del editor, movido aquí: lo usan
     `Main._open_opacity_popup`, Capas y el preview) y `OpacityButton` (opacidad del
     pixmap del PDF + rectángulo de fondo blanco/negro debajo; `sync()` tras cada render;
-    quien limpie la escena debe conservar `backdrop`). Navegación (pedido del usuario
+    quien limpie la escena debe conservar `backdrop`) y `NoEscapeClose` (pedido del usuario
+    2026-10-05: Esc cerraba los pasos y se perdía el trabajo; mezcla de `CompositeDialog`,
+    `SheetLayersDialog` y `RecognitionPreviewDialog`: Esc no cierra, solo `_escape()` —quitar el
+    resaltado—; los cuadros chicos y preguntas siguen cerrando con Esc). Navegación (pedido del usuario
     2026-09-26): `Main._wizard_sheet_flow(start_idx, start_step)` es un bucle —
     Capas devuelve `layer_dialog.LAYERS_BACK` (paso 1 de la cabecera) → vuelve al
     compositor; el preview devuelve `PREVIEW_SHEET_LAYERS` (paso 2) → `start_step=1`, o
@@ -867,7 +902,8 @@ alcantarillado, drenaje, gas, eléctrico, telecom). Todo en **unidades imperiale
     (`VAULT_GEO_KEYS`: shape, width_ft, length_ft, rot_deg, outline en px; las
     huérfanas no inventan buzón; `rebuild_structures` los conserva por coordenada).
     El lienzo dibuja `outline` como polígono a escala y la medida al seleccionar.
-    **SÓLIDOS** (2026-09-30): caja CONDUIT con `shape="rect"` + `outline` (`is_solid`) →
+    **SÓLIDOS** (2026-09-30): caja CONDUIT —o bóveda de PRESIÓN, 2026-10-05— con
+    `shape="rect"` + `outline` (`is_solid`, `SOLID_NETS`) →
     `normalize_solids` (al final de `rebuild_structures` y `attach_vault_geometry`):
     `solid=True`, sin `part`/`part_size`, `solid_height_ft` (defecto `SOLID_DEFAULT_H_FT`
     = 6.56168), código CAJA-N → SÓLIDO-N. Panel: Largo/Ancho/Altura (`resize_solid` rehace
@@ -985,9 +1021,10 @@ alcantarillado, drenaje, gas, eléctrico, telecom). Todo en **unidades imperiale
     `_classify_water`: línea `water_ungd` = `C-WATE?R[-_](paquete-)?(UNGD|UGND|PIPE)` sin
     ANNO/TEXT/CASE/FITT/APPT/VALV/METR/HYDR/-FH/-GV/WALL/…; estructura = V-WATR-VALT/MANH/
     STRU, V-FIRE-STRU, C-WATR-VALT/MANH/MHOL/STRC (válvulas, medidores, hidrantes =
-    accesorios, no). Red a PRESIÓN (`NETWORK_KIND`): `Main._import_recognized_pipes` no
-    llama `attach_vault_geometry` ni cuenta bóvedas importables para presión (como el
-    dibujo manual: `rebuild_structures` no crea nodos en presión). Reglas del perfil
+    accesorios, no). Red a PRESIÓN (`NETWORK_KIND`): como en el dibujo manual,
+    `rebuild_structures` no crea nodos en sus vértices; desde 2026-10-05 sus bóvedas
+    reconocidas sí entran (`attach_vault_geometry(net="pressure")`: caja suelta, SÓLIDO si es
+    rectangular). Reglas del perfil
     (`GeomOptions`, SOLO agua): `join_touching_ends` (puntas a ≤1 pt se cosen primero;
     punta JUSTO sobre una línea = T aunque esté cerca de su extremo — el join_gap del agua
     llega a 70 pt), `gap_turn_blocks` (`build_runs` no cruza un hueco si en su borde nace
@@ -1087,8 +1124,8 @@ alcantarillado, drenaje, gas, eléctrico, telecom). Todo en **unidades imperiale
     `T-PROP-COMM(_ATT)` y el banco de ductos de Metro `N-COMM-DUCT-BANK-PL(-SC/-SE)` («—SC—»,
     una línea con letras); fuera `C-TELE-OVHD` (aérea, como `C-ELEC-OVHD`), ANNO/TEXT/TEXL.
     Estructuras: C-TELE-VALT/MANH/MHOL/STRC, V-COMM-MANH/VALT/STRU, V-COMM-PBOX, V-CATV-PBOX,
-    `N-Comm-Junction Box*`; «JUNCTION» está en `NON_VAULT_TOKENS` (como PBOX: sin línea no se
-    importa suelta; con línea sí, igual que en el eléctrico). CABT/RISR = accesorios.
+    `N-Comm-Junction Box*`; «JUNCTION» está en `NON_VAULT_TOKENS` (como PBOX; sin línea
+    también se importa, como caja suelta, desde 2026-10-05). CABT/RISR = accesorios.
     Única regla de perfil: `stroke_letters` — las letras del linetype son TRAZOS SUELTOS:
     (1) la «t» de «—t—» = asta perpendicular con gancho (pasa por codo) + travesaño de 2.4 pt
     (pasa por guión) → `_stroke_letters` (curva ≤12 pt + trazo ≤`LETTER_TICK_MAX_PT`=4 que se

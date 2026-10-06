@@ -34,6 +34,7 @@ from sheet_layout import normalize as normalize_sheet_layout, normalize_rotation
 from sheet_crops import normalize as normalize_sheet_crops
 import layer_dialog
 import recognition as _recognition
+import recognition_cache
 import composite as composite_mod
 import composite_dialog
 import project_io
@@ -78,6 +79,11 @@ class Main(QtWidgets.QMainWindow):
         self._recognition_utilities = _recognition.DEFAULT_UTILITIES
         self._join_routes = True   # unir tramos de la misma capa en rutas (desactivable en el preview)
         self._recog_ready = False  # True cuando el asistente ya reconoció una hoja de este PDF (◀ ▶ vuelven a reconocer)
+        # Reconocimientos ya hechos, por todo lo que los decide (`recognition_cache`):
+        # volver a componer/capas sin cambios abre la vista previa sin reconocer otra vez.
+        self._recog_cache = recognition_cache.RecognitionCache()
+        self._src_fingerprints = recognition_cache.SourceFingerprints()
+        self._recog_pending_key = None   # clave del reconocimiento que corre en el hilo
         self.sheet_layout = None  # hoja principal y vecinas del PDF; índices 0-based
         self.sheet_rotations = {}  # giros de vista por posición, múltiplos de 90°
         self.sheet_crops = {}  # ventana no destructiva del plano por posición
@@ -2053,7 +2059,20 @@ class Main(QtWidgets.QMainWindow):
         """Lanza el reconocimiento de la hoja `page_idx` en segundo plano con las
         capas ocultas (`self.hidden_ocgs`) y roles separados por utilidad
         (sin ajuste manual = automático por nombre). Al terminar, `_recognition_done` muestra
-        la vista previa. Lo usan el asistente y el cambio de hoja del editor."""
+        la vista previa. Lo usan el asistente y el cambio de hoja del editor.
+        Si nada cambió desde un reconocimiento anterior (misma composición, hoja,
+        capas, utilidades…), reutiliza ese resultado: no vuelve a leer el PDF."""
+        key = self._recognition_key(page_idx)
+        cached = self._recog_cache.get(key)
+        if cached is not None:
+            self._end_recognition_busy()
+            self._recog_pending_key = None
+            recognition_cache.set_join_routes(cached, self._join_routes)
+            self._info(_tr("Sin cambios en la hoja ni en sus capas: se usa el reconocimiento anterior."))
+            # como el hilo: la vista previa se abre al volver al bucle de eventos
+            QtCore.QTimer.singleShot(0, lambda: self._recognition_done(cached, ""))
+            return
+        self._recog_pending_key = key
         utility_text = _recognition.utilities_label(self._recognition_utilities)
         # Capa «Cargando…» sobre la ventana (la misma de todo el asistente): el
         # trabajo va en otro hilo, así que el indicador gira mientras tanto.
@@ -2073,6 +2092,15 @@ class Main(QtWidgets.QMainWindow):
         self._recog_worker.progress.connect(self._recognition_progress)
         self._recog_worker.start()
 
+    def _recognition_key(self, page_idx):
+        """Clave de `recognition_cache` con el estado actual del asistente."""
+        document = (self._src_fingerprints(self.src_pdfs) if self.src_pdfs
+                    else ("path", self.work_pdf_path or self.pdf_path))
+        return recognition_cache.recognition_key(
+            document, self.composite, page_idx, hidden_ocgs=self.hidden_ocgs,
+            utilities=self._recognition_utilities, roles_by_utility=self._layer_roles_by_utility,
+            letters_off=self._letters_off, scale_ft_per_pt=self._scale_override, zoom=self.zoom)
+
     def _recognition_progress(self, i, n, utility):
         ov = getattr(self, "_recog_busy", None)
         if ov is not None and n > 1:
@@ -2089,6 +2117,7 @@ class Main(QtWidgets.QMainWindow):
 
     def _recognition_done(self, results, error):
         self._end_recognition_busy()
+        key, self._recog_pending_key = self._recog_pending_key, None
         if error:
             QtWidgets.QMessageBox.warning(
                 self, _tr("Reconocimiento"),
@@ -2101,6 +2130,7 @@ class Main(QtWidgets.QMainWindow):
         results = [result for result in results if result is not None]
         if not results:
             return
+        self._recog_cache.put(key, results)      # None (resultado reutilizado) no guarda nada
         qimg = None
         if self.canvas.pixmap_item is not None:
             qimg = self.canvas.pixmap_item.pixmap().toImage()
@@ -2190,10 +2220,11 @@ class Main(QtWidgets.QMainWindow):
             snapped, skipped = rec.inject_vault_vertices(pipes, vaults)
             result.vaults_snapped = snapped
             result.vaults_skipped = skipped
-            # Red a PRESIÓN (agua): como en el dibujo manual, sin estructuras
-            # automáticas — las bóvedas se ven en el preview pero no se importan.
-            pressure = NETWORK_KIND.get(utility) == "pressure"
-            has_importable_structure = not pressure and any(
+            # Toda bóveda que la vista previa muestra se importa (pedido del usuario
+            # 2026-10-05), también sin línea y en las redes a PRESIÓN (agua/gas): sus
+            # vértices siguen sin nodos, como en el dibujo manual; la bóveda entra como
+            # caja suelta (en Civil 3D, un sólido aislado). Las líneas no cambian.
+            has_importable_structure = any(
                 vault.get("importable", False)
                 for vault in (getattr(result, "vaults_geo", None) or []))
             if pipes or has_importable_structure:
@@ -2212,11 +2243,10 @@ class Main(QtWidgets.QMainWindow):
         # …y crea/asocia la CAJA de cada bóveda reconocida con su forma, medidas (pies) y contorno.
         n_geo = n_alone = 0
         for result, utility, _pipes, _snapped, _skipped in batches:
-            if NETWORK_KIND.get(utility) == "pressure":
-                continue
             where = self._xdata_origin(result.page_index)
             # En eléctrico/telecom la caja nace de la bóveda reconocida y va en el
             # vértice por donde llega SU línea (los vértices solos nunca son caja).
+            # Presión: sin estructuras en la red, cada bóveda es una caja suelta.
             added_geo, added_alone = model_ops.attach_vault_geometry(
                 self.structures, getattr(result, "vaults_geo", None) or [],
                 net=NETWORK_KIND.get(utility, "conduit"), utility=utility,
@@ -2242,7 +2272,7 @@ class Main(QtWidgets.QMainWindow):
         if n_geo:
             msg += " " + _tr("Estructuras con medidas: {g}.").format(g=n_geo)
             if n_alone:
-                msg += " " + _tr("({a} sin línea, importadas como cajas sueltas.)").format(a=n_alone)
+                msg += " " + _tr("({a} como cajas sueltas, sin unir a una línea.)").format(a=n_alone)
         if n_cv:
             msg += " " + _tr("Codos como esquina + radio (CV): {c}.").format(c=n_cv)
         n_ab = sum(1 for _r, _u, pipes, _s, _k in batches for p in pipes if p.get("ab"))
@@ -2586,6 +2616,7 @@ class Main(QtWidgets.QMainWindow):
         self.pipes = []; self.leaders = []; self.text_marks = []; self.erase_regions = []; self.structures = []
         self.duct_banks = []; self.cross_connections = []
         self.ref_centerlines = []; self._cl_pts = []
+        self._recog_cache.clear()
         self.cur_pts = []; self._erase_pts = []; self._overlay = []; self._close_editor()
         self.sel_pipe = self.sel_leader = self.sel_region = self.sel_text = self.sel_cl = self.sel_db = -1
         self._undo.clear(); self._redo.clear(); self._dirty = False
@@ -5376,7 +5407,8 @@ class Main(QtWidgets.QMainWindow):
             self.bz_rim.setValue(float(s.get("rim") or 0.0))
             self.bz_sump.setValue(float(s.get("sump") or 0.0))
             self.bz_height.setValue(float(s.get("height_ft") or 0.0))
-            self.bz_net_lbl.setText(_tr("conduit (eléctrico/telecom)") if net == "conduit" else _tr("gravedad"))
+            self.bz_net_lbl.setText(_tr("conduit (eléctrico/telecom)") if net == "conduit"
+                                    else _tr("presión (agua/gas)") if net == "pressure" else _tr("gravedad"))
             self.bz_origin_lbl.setText("Excel" if s.get("world") else _tr("dibujo"))
             # "Cambiar a elemento curvo" solo tiene sentido en una ESQUINA: un
             # vértice donde se juntan dos tramos (dos tangentes). Un buzón al final

@@ -452,8 +452,8 @@ _TELE_PROP = re.compile(r"^(?:T-PROP-COMM|N-COMM-DUCT-BANK-PL)(?:[-_ ]|$)")
 _TELE_NOT_LINE = ("ANNO", "TEXT", "TEXL", "CASE", "PATT", "WALL", "PROF", "STRC", "VALT",
                   "MANH", "MHOL", "PBOX", "IDEN", "OTLN", "STAN", "CNTR", "DIAG", "OVHD")
 # Estructuras: bóvedas y manholes (se importan como CAJA, como en el eléctrico) y
-# cajas de paso / junction boxes (definen dónde para la línea, pero no se importan:
-# `NON_VAULT_TOKENS`). Gabinetes (CABT) y risers (RISR) son accesorios.
+# cajas de paso / junction boxes (definen dónde para la línea; sin línea, caja
+# suelta como cualquier bóveda). Gabinetes (CABT) y risers (RISR) son accesorios.
 _TELE_STRUCT = ("C-TELE-VALT", "C-TELE-MANH", "C-TELE-MHOL", "C-TELE-STRC", "V-COMM-MANH",
                 "V-COMM-VALT", "V-COMM-STRU", "V-COMM-PBOX", "V-CATV-PBOX", "N-COMM-JUNCTION BOX")
 
@@ -469,8 +469,9 @@ def _classify_telecom(short: str) -> Optional[str]:
 
 
 # Capas de estructuras que NO son una bóveda existente: propuestas de otro
-# paquete (U-PROP…), postes, cajas de paso, luminarias, señales. Sus símbolos sin
-# línea no se importan (solo marca discreta en la vista previa).
+# paquete (U-PROP…), postes, cajas de paso, luminarias, señales. Solo clasifica:
+# desde 2026-10-05 sus símbolos sin línea también se importan, como caja suelta
+# (antes la vista previa los mostraba y el import los dejaba fuera).
 NON_VAULT_TOKENS = ("PROP", "POLE", "PBOX", "LITE", "SIGN", "METR", "TRAN", "JUNCTION")
 
 
@@ -2576,10 +2577,13 @@ def _vaults_geometry(results, px, scale: float, zoom: float, vault_orph: dict, v
                 "orphan": orphan,
                 "abandoned": abandoned,
                 "layer": v.layer,
-                # Se importa aunque no llegue ninguna línea: es una bóveda real del
-                # plano (capa de bóvedas existentes o contorno en la capa de la línea)
-                # y en Civil 3D será un sólido. Las propuestas/postes/cajas de paso no.
-                "importable": (not orphan) or (v.n_paths >= 4 and v.outline is not None) or is_vault_ocg(v.layer),
+                # Se importa aunque no llegue ninguna línea, como caja suelta (en Civil 3D,
+                # un sólido aislado: no toca las líneas). Antes las de capas de cajas de
+                # paso / postes / propuestas (`is_vault_ocg` falso) se veían en la vista
+                # previa pero no llegaban al editor (reporte del usuario 2026-10-05: «se
+                # reconoció el buzón sin líneas y al importar no está»): lo que la vista
+                # previa muestra, se importa.
+                "importable": True,
             })
     return out
 
