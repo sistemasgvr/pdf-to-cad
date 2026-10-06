@@ -509,6 +509,13 @@ def build_stylesheet(t: Theme) -> str:
         QMainWindow::separator {{ background: {t.surface_alt}; width: 8px; height: 8px;
                                   border-left: 1px solid {t.border}; border-right: 1px solid {t.border}; }}
         QMainWindow::separator:hover {{ background: {t.accent}; border-color: {t.accent}; }}
+        /* Paneles laterales que se ocultan solos (side_panels.py): cabecera con chincheta
+           y panel desplegado encima del plano */
+        QWidget#panelHeader {{ background: {t.surface_alt}; border-bottom: 1px solid {t.border}; }}
+        QLabel#panelHeaderTitle {{ background: transparent; color: {t.text}; font-weight: bold; }}
+        QToolButton#panelPin {{ background: transparent; border: 1px solid transparent; border-radius: 4px; }}
+        QToolButton#panelPin:hover {{ background: {t.surface}; border: 1px solid {t.focus}; }}
+        QFrame#panelOverlay {{ background: {t.surface}; border: 1px solid {t.focus}; }}
         QSplitter::handle {{ background: {t.border}; }}
         QSplitter::handle:horizontal {{ width: 5px; }}
         QSplitter::handle:vertical {{ height: 5px; }}

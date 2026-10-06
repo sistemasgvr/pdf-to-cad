@@ -2163,7 +2163,8 @@ EN: dict[str, str] = {
         "By default it is the elevation of the utility it is attached to.",
     "Volver a la cota de la utilidad unida": "Back to the attached utility's elevation",
     "Sin utilidad unida: se usa la cota de fondo o 0.": "No attached utility: the bottom elevation or 0 is used.",
-    "Automática: cota de la utilidad unida.": "Automatic: elevation of the attached utility.",
+    "Automática: la utilidad unida llega al centro del sólido.":
+        "Automatic: the attached utility reaches the middle of the solid.",
     "Fijada por el usuario.": "Set by the user.",
     "Utilidad #{n} → bancoducto «{nombre}» ({c} conducto(s))":
         "Utility #{n} → duct bank «{nombre}» ({c} conduit(s))",
@@ -2527,4 +2528,49 @@ EN: dict[str, str] = {
         'Size {s}:',
     'Esta familia no tiene una tabla de tamaños que la app pueda ampliar.':
         'This family has no size table the app can extend.',
+    # ── Unir utilidades con ramales (unir_ramales) ──
+    'Quedan aparte {k} trozo(s) partido(s) en la T (en ámbar en el plano).':
+        '{k} piece(s) cut at the tee stay separate (in amber on the plan).',
+    'La #{n} se cruza en una T justo sobre un codo: no se puede partir ahí.':
+        '#{n} meets a tee right on a bend: it cannot be cut there.',
+    'Las utilidades seleccionadas se ramifican y no caben en una sola línea: quedaría fuera la #{n}. Únelas por partes.':
+        'The selected utilities branch out and do not fit in a single line: #{n} would be left out. Join them in parts.',
+    'La #{n} se parte en la T: el trozo que no entra queda como utilidad aparte.':
+        '#{n} is cut at the tee: the piece that does not fit stays as a separate utility.',
+    # ── Paneles laterales que se ocultan solos (side_panels) ──
+    'Ocultar automáticamente: el panel queda como una pestaña en el borde y se abre al pasar el ratón':
+        'Auto-hide: the panel becomes a tab on the edge and opens when you hover over it',
+    'Ocultar automáticamente':
+        'Auto-hide',
+    'Fijar el panel (que no se oculte)':
+        'Pin the panel (keep it open)',
+    'Fijar el panel':
+        'Pin the panel',
+    'Ocultar automáticamente el panel izquierdo':
+        'Auto-hide the left panel',
+    'Ocultar automáticamente el panel derecho':
+        'Auto-hide the right panel',
+    # ── Autoguardado y recuperación (autoguardado) ──
+    'Recuperar trabajo sin guardar':
+        'Recover unsaved work',
+    'Trabajo recuperado. Guárdalo (Ctrl+S) para conservarlo.':
+        'Work recovered. Save it (Ctrl+S) to keep it.',
+    'No se pudo guardar la copia automática: {error}':
+        'The automatic backup could not be saved: {error}',
+    'Proyecto sin nombre':
+        'Untitled project',
+    'La aplicación se cerró sin guardar los últimos cambios, pero hay una copia automática:':
+        'The application closed without saving the latest changes, but there is an automatic backup:',
+    '«{nombre}» · {n} utilidades · copia del {fecha}':
+        '“{nombre}” · {n} utilities · backup from {fecha}',
+    '¿Quieres recuperarla?':
+        'Do you want to recover it?',
+    'Hay {k} copia(s) más antiguas: se ofrecerán la próxima vez.':
+        'There are {k} older backup(s): they will be offered next time.',
+    'Recuperar':
+        'Recover',
+    'Descartar':
+        'Discard',
+    'Más tarde':
+        'Later',
 }

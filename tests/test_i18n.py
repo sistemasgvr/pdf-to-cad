@@ -296,7 +296,8 @@ def test_listas_del_panel_derecho_se_traducen(qapp, monkeypatch):
     i18n.set_lang("en")
     filas = [w.pipe_list.item(i).text() for i in range(w.pipe_list.count())]
     for (lbl, capa), fila in zip(model.TIPOS, filas):
-        assert capa not in fila, fila
+        # Lo que va tras « · » es el nombre de la red en Civil 3D («AGUA-1»): dato, no se traduce.
+        assert capa not in fila.split(" · ")[0], fila
         assert EN[lbl].split(" (")[0] in fila, fila
     assert "vért." not in " ".join(filas)
     assert w.sleader_list.item(0).text() == EN["{n}. Leader {orientacion}"].format(

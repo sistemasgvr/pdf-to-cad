@@ -75,3 +75,23 @@ def test_mas_de_buzon(win, monkeypatch):
     win._agregar_tamano("structure")
     assert win.bz_size.currentText() == T.texto_tamano("structure", BUZON, {"SIW": 30, "SIL": 30}, 2025, "esp")
     assert s["part_size"] == win.bz_size.currentText()
+
+
+def test_ventana_arranca_vacia_y_sin_boton(pd):
+    """Sin medida escrita no se puede agregar (antes arrancaba en 0.01 y se
+    colaba un 0.01 in en el catálogo)."""
+    app = QtWidgets.QApplication.instance() or QtWidgets.QApplication([])
+    cc.set_current_lang("esp")
+    d = catalogo_tamanos_dialog.AgregarTamanoDialog(None, "structure", BUZON, "Buzon", 2025, "esp")
+    assert all(sp.value() == 0 and sp.text().strip() == "" for sp in d.ejes.values())
+    assert not d.btn_ok.isEnabled()
+    d.ejes["SIW"].setValue(30)
+    assert not d.btn_ok.isEnabled()                       # falta el largo
+    d.ejes["SIL"].setValue(30)
+    assert d.btn_ok.isEnabled()
+    d.deleteLater()
+
+
+def test_custom_copiada_de_autodesk_no_manda_guid(tmp_path, monkeypatch):
+    monkeypatch.setattr(cc, "pipe_family_xml", lambda y, f: str(tmp_path / "x.xml"))
+    assert cc.family_guid(2025, "AeccRectangularConcretePipe_Imperial CBA", "pipe") == ""

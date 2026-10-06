@@ -163,7 +163,7 @@ namespace Civil3DBasico
                             ? new Dictionary<int, double>(vertexInv)
                             : ParseVertexInv(viInStr, k);
 
-                        pipes.Add(new ImportPipe
+                        var nuevaPipe = new ImportPipe
                         {
                             Layer = poly.Layer,
                             Vertices = verts,
@@ -185,9 +185,16 @@ namespace Civil3DBasico
                             VertexInvIn = vertexInvIn,
                             Abandoned = XdStr(xd, "ABANDONED", "0").Trim() == "1",
                             NetName = XdStr(xd, "NET_NAME", ""),
+                            NetNameDefault = XdStr(xd, "NET_NAME_DEFAULT", ""),
                             PipeIdx = string.IsNullOrWhiteSpace(XdStr(xd, "PIPE_IDX", "")) ? -1 : (int)XdDouble(xd, "PIPE_IDX"),
                             HasDuctBank = XdStr(xd, "HAS_DUCT_BANK", "0").Trim() == "1",
-                        });
+                        };
+                        // Datos extendidos de la app (XD_* / XDU_*) → Property Set «PDFCAD_Utilidad».
+                        foreach (var kvx in xd)
+                            if (kvx.Key.StartsWith("XD_", StringComparison.OrdinalIgnoreCase)
+                                || kvx.Key.StartsWith("XDU_", StringComparison.OrdinalIgnoreCase))
+                                nuevaPipe.Extendidos[kvx.Key] = kvx.Value ?? "";
+                        pipes.Add(nuevaPipe);
                     }
                     else if (marker == "PDFCAD_STRUCT" && ent is DBPoint pt)
                     {
@@ -478,6 +485,9 @@ namespace Civil3DBasico
             // ── 4. Redes de GRAVEDAD ────────────────────────────────────────
             var createdNetIds = new List<ObjectId>();
             var alignmentsPendientes = new List<DatosAlignment>();
+            // Red creada → polilíneas de origen: al final cada pieza va a la capa de su
+            // utilidad (ImportarRedCapas.cs).
+            var redesConOrigen = new Dictionary<ObjectId, List<ImportPipe>>();
             foreach (var kv in gravedad)
             {
                 bool hasCustomName = kv.Value.Any(pp => !string.IsNullOrWhiteSpace(pp.NetName));
@@ -489,7 +499,7 @@ namespace Civil3DBasico
                         ObjectId netId = CrearRedGravedadCompleta(ed, db, civilDoc, tr,
                             netName, surfId, defaultDepth, kv.Value, structsGravedad,
                             sinBuzones: false, out List<DatosAlignment> dAligns);
-                        if (netId != ObjectId.Null) createdNetIds.Add(netId);
+                        if (netId != ObjectId.Null) { createdNetIds.Add(netId); redesConOrigen[netId] = kv.Value; }
                         if (dAligns != null) alignmentsPendientes.AddRange(dAligns);
                         tr.Commit();
                     }
@@ -513,7 +523,7 @@ namespace Civil3DBasico
                         ObjectId netId = CrearRedGravedadCompleta(ed, db, civilDoc, tr,
                             netName, surfId, defaultDepth, kv.Value,
                             structsConduit, sinBuzones: true, out List<DatosAlignment> dAligns);
-                        if (netId != ObjectId.Null) createdNetIds.Add(netId);
+                        if (netId != ObjectId.Null) { createdNetIds.Add(netId); redesConOrigen[netId] = kv.Value; }
                         if (dAligns != null) alignmentsPendientes.AddRange(dAligns);
                         tr.Commit();
                     }
@@ -600,7 +610,7 @@ namespace Civil3DBasico
                     {
                         ObjectId pnId = CrearRedPresionCompleta(ed, db, civilDoc, tr, netName, surfId,
                             defaultDepth, kv.Value);
-                        if (pnId != ObjectId.Null) createdPresIds.Add(pnId);
+                        if (pnId != ObjectId.Null) { createdPresIds.Add(pnId); redesConOrigen[pnId] = kv.Value; }
                         tr.Commit();
                     }
                     catch (Exception ex)
@@ -1018,6 +1028,10 @@ namespace Civil3DBasico
                     var cp = new ImportPipe
                     {
                         Layer = "PDFCAD_DUCT_BANK",
+                        // Los conductos son de la utilidad de su tubería: sus datos extendidos.
+                        Utilidad = parent.Layer,
+                        IdxOrigen = parent.PipeIdx,
+                        Extendidos = new Dictionary<string, string>(parent.Extendidos, StringComparer.OrdinalIgnoreCase),
                         Vertices = offsetVerts,
                         Diameter = cond.Diam,
                         Unit = "in",
@@ -1064,7 +1078,7 @@ namespace Civil3DBasico
                                 netName, surfId, defaultDepth, singleList,
                                 new List<ImportStruct>(), sinBuzones: true,
                                 out List<DatosAlignment> _);
-                            if (nId != ObjectId.Null) conduitNetCount++;
+                            if (nId != ObjectId.Null) { conduitNetCount++; redesConOrigen[nId] = singleList; }
                             trCond.Commit();
                         }
                         catch (Exception exCond)
@@ -1095,6 +1109,12 @@ namespace Civil3DBasico
                     }
                 }
             }
+
+            // ── 5g. Cada pieza en la CAPA de su utilidad (ELECTRICO, TELECOM…) ──
+            //        Al final: las conexiones verticales (5f) también agregan tuberías.
+            AsignarCapasDeUtilidad(ed, db, redesConOrigen);
+            // ── 5h. Datos extendidos de la app en cada pieza (Property Sets) ──
+            AdjuntarDatosExtendidos(ed, db, redesConOrigen, structs);
 
             // ── 6. Diagnóstico inline ───────────────────────────────────────
             if (createdNetIds.Count > 0)
@@ -1396,7 +1416,15 @@ namespace Civil3DBasico
             try { partsList.UpgradeOpen(); } catch { }
             var diamsFaltantes = new HashSet<double>();
             foreach (var ip in pipes)
+            {
+                // Solo las utilidades SIN familia elegida: las que traen PIPE_FAMILY ya
+                // reciben su tamaño exacto en SU familia (BuscarTuberiaPorId:
+                // AgregarTamañoPipe / AgregarTamanoExacto). Antes un «13 in x 13 in» de un
+                // bancoducto metía un 13" CIRCULAR en Concrete, HDPE, PVC… del catálogo.
+                if (!string.IsNullOrWhiteSpace(ip.PipeFamily)) continue;
+                if (TryParseRectSize(ip.PipeSize, out double? rw, out double? rh) && rw.HasValue && rh.HasValue) continue;
                 if (ip.Diameter > 0) diamsFaltantes.Add(ip.Diameter);
+            }
             foreach (double diam in diamsFaltantes)
             {
                 if (ExisteTamañoPipeExacto(tr, partsList, diam))
@@ -3348,6 +3376,11 @@ namespace Civil3DBasico
                     if (MatchCatalogIdPublic(catalogId, desc))
                     { elegido = dpf; break; }
                 }
+                // GUID que no existe: familia PERSONALIZADA copiada de una de Autodesk (su
+                // archivo empieza por «Aecc…» pero Civil 3D le dio otro GUID). Se busca
+                // por su descripción, como cualquier familia personalizada.
+                if (elegido == null && usaGuid && !string.IsNullOrWhiteSpace(catalogId))
+                    elegido = disp.FirstOrDefault(dpf => MatchCatalogIdPublic(catalogId, dpf.Description ?? ""));
                 if (elegido == null)
                 {
                     Dbg("ASEGURAR_FAM_NO_ENCONTRADA_EN_CATALOGO", ("pedido", usaGuid ? "guid:" + guid : catalogId),
@@ -4387,6 +4420,15 @@ namespace Civil3DBasico
                 int r = raiz(i);
                 if (!nombreGrupo.ContainsKey(r) && !string.IsNullOrWhiteSpace(pipes[i].NetName))
                     nombreGrupo[r] = pipes[i].NetName.Trim();
+            }
+            // Grupo sin nombre propio: el nombre por defecto de la app de su utilidad de
+            // menor número («TELECOM-13»). DXF viejos sin NET_NAME_DEFAULT: «RED-<capa>».
+            foreach (int i in Enumerable.Range(0, n)
+                         .OrderBy(i => pipes[i].PipeIdx < 0 ? int.MaxValue : pipes[i].PipeIdx).ThenBy(i => i))
+            {
+                int r = raiz(i);
+                if (!nombreGrupo.ContainsKey(r) && !string.IsNullOrWhiteSpace(pipes[i].NetNameDefault))
+                    nombreGrupo[r] = pipes[i].NetNameDefault.Trim();
             }
             var res = new Dictionary<ImportPipe, string>();
             for (int i = 0; i < n; i++)
@@ -6003,6 +6045,12 @@ namespace Civil3DBasico
         private class ImportPipe
         {
             public string Layer;
+            // Datos extendidos de la app (XD_* / XDU_*) → Property Set «PDFCAD_Utilidad».
+            public Dictionary<string, string> Extendidos = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+            // Utilidad y número de la app de los que sale (conductos de bancoducto: los de
+            // su tubería, aunque su capa sea PDFCAD_DUCT_BANK). Vacío / −1 = los propios.
+            public string Utilidad = "";
+            public int IdxOrigen = -1;
             public List<Point2d> Vertices;
             public double Diameter;
             public string Unit;
@@ -6036,6 +6084,9 @@ namespace Civil3DBasico
             // cuyo display 3D usa un linetype discontinuo. Planta/perfil quedan igual.
             public bool Abandoned;
             public string NetName = "";
+            // Nombre por defecto de la app para una utilidad SIN nombre («TELECOM-13» =
+            // tipo + su número en la lista). Solo se usa si su grupo no trae nombre propio.
+            public string NetNameDefault = "";
             // Tramo de la app (0 = T1) al que corresponde cada tramo actual. Solo
             // difiere de la identidad si el plugin partió un tramo para una T
             // (PartirTramosEnTes); así los logs siguen nombrando los tramos

@@ -38,6 +38,9 @@ import composite as composite_mod
 import composite_dialog
 import project_io
 import model_ops
+from responsive import WrapButton, WrapCheckBox, ResponsiveGroupBox, GridAdaptable  # noqa: E402
+import side_panels  # noqa: E402
+import autoguardado  # noqa: E402
 import normativas
 from model import (VERSION, TIPOS, ACI_RGB, LEADER_TEXT_FT, LEADER_ORIENT,
                    Z_PDF, Z_ERASE, Z_MARK, Z_HANDLE, GRAVITY_LAYERS,
@@ -130,6 +133,9 @@ class Main(QtWidgets.QMainWindow):
         # al bus para reaccionar cuando el usuario alterne claro↔oscuro.
         self._apply_theme_custom_styles()
         _theme.THEME_BUS.changed.connect(self._apply_theme_custom_styles)
+        # Copias automáticas del proyecto (autoguardado.py). Arrancan solo desde main()
+        # con iniciar_autoguardado(): las pruebas que crean la ventana no escriben nada.
+        self.autoguardado = autoguardado.Autoguardado(self)
 
     # ─────────────────────────── UI ───────────────────────────
     def _build_ui(self):
@@ -140,6 +146,7 @@ class Main(QtWidgets.QMainWindow):
         self._build_toolbar()
         self._build_left_dock()
         self._build_right_dock()
+        self._build_side_panels()
         self._build_statusbar()
         # Todo listo: coloca los widgets compartidos del acordeón en la sección
         # inicial (esto necesita que self.tabs, self.gprop y self.lbl_mode existan).
@@ -172,6 +179,7 @@ class Main(QtWidgets.QMainWindow):
         medit.addSeparator()
         _act(medit, "Unir utilidades seleccionadas", self.unir_utilidades, "Ctrl+J")
         mview = _menu(mb, "&Ver")
+        self._mview = mview                        # _build_side_panels agrega sus opciones
         # «Organizar hojas…» / «Capas de hojas organizadas…» (flujo antiguo) ya no
         # van en el menú: la hoja compuesta los reemplaza. Los métodos siguen
         # (proyectos viejos con sheet_layout), pero no se ofrecen al usuario.
@@ -320,6 +328,7 @@ class Main(QtWidgets.QMainWindow):
         # Al hacer clic en una cabecera, esa página se despliega y las demás se
         # colapsan. Es el mismo widget que usamos para el historial de "Acerca de".
         ldock = _bind(QtWidgets.QDockWidget(self), "setWindowTitle", "Herramientas")
+        self._ldock = ldock
         ldock.setFeatures(QtWidgets.QDockWidget.NoDockWidgetFeatures)     # no se puede sacar/flotar
         left = QtWidgets.QWidget(); lv = QtWidgets.QVBoxLayout(left); lv.setContentsMargins(0, 0, 0, 0)
         self.toolbox = QtWidgets.QToolBox()
@@ -368,11 +377,11 @@ class Main(QtWidgets.QMainWindow):
         ltr.addWidget(tb_l); ltr.addWidget(self.lbl_opacity, 1); ltr.addWidget(tb_r)
 
         # Botones de acción (uno por sección; el color verde/azul lo pone _update_ui)
-        self.btn_pipe = _bind(QtWidgets.QPushButton(), "setText", "Dibujar utilidad", pre='  '); self.btn_pipe.clicked.connect(self.toggle_pipe)
-        self.btn_leader_simple = _bind(QtWidgets.QPushButton(), "setText", "Colocar Leader", pre='  '); self.btn_leader_simple.clicked.connect(lambda: self.start_leader(True))
-        self.btn_text = _bind(QtWidgets.QPushButton(), "setText", "Texto libre", pre='  '); self.btn_text.clicked.connect(self.toggle_text_mode)
-        self.btn_erase = _bind(QtWidgets.QPushButton(), "setText", "Borrar zona", pre='  '); self.btn_erase.clicked.connect(self.toggle_erase)
-        self.btn_centerline = _bind(QtWidgets.QPushButton(), "setText", "Trazar centerline", pre='  '); self.btn_centerline.clicked.connect(self.toggle_centerline)
+        self.btn_pipe = _bind(WrapButton(), "setText", "Dibujar utilidad", pre='  '); self.btn_pipe.clicked.connect(self.toggle_pipe)
+        self.btn_leader_simple = _bind(WrapButton(), "setText", "Colocar Leader", pre='  '); self.btn_leader_simple.clicked.connect(lambda: self.start_leader(True))
+        self.btn_text = _bind(WrapButton(), "setText", "Texto libre", pre='  '); self.btn_text.clicked.connect(self.toggle_text_mode)
+        self.btn_erase = _bind(WrapButton(), "setText", "Borrar zona", pre='  '); self.btn_erase.clicked.connect(self.toggle_erase)
+        self.btn_centerline = _bind(WrapButton(), "setText", "Trazar centerline", pre='  '); self.btn_centerline.clicked.connect(self.toggle_centerline)
         for _b in (self.btn_pipe, self.btn_leader_simple, self.btn_text, self.btn_erase, self.btn_centerline):
             _b.setIconSize(QtCore.QSize(20, 20))
 
@@ -390,10 +399,10 @@ class Main(QtWidgets.QMainWindow):
         # texto largo impone un ancho mínimo que saca barra horizontal en el
         # dock. El detalle completo va al tooltip — y de paso se lee más fácil,
         # que es lo que necesita el usuario principal.
-        self.chk_ab = _bind(QtWidgets.QCheckBox(), "setText", "Abandonado")
+        self.chk_ab = _bind(WrapCheckBox(), "setText", "Abandonado")
         _bind(self.chk_ab, "setToolTip", "Marca la utilidad como abandonada: se dibuja con "
                                "línea discontinua ──/── W ── en el DXF.")
-        self.chk_ext_same = _bind(QtWidgets.QCheckBox(), "setText", "Extender: continuar la misma")
+        self.chk_ext_same = _bind(WrapCheckBox(), "setText", "Extender: continuar la misma")
         _bind(self.chk_ext_same, "setToolTip", "Al extender un extremo de una utilidad existente, los puntos nuevos "
             "se añaden a ESA misma utilidad en vez de crear una nueva.")
         self.chk_ext_same.setChecked(True)
@@ -407,7 +416,7 @@ class Main(QtWidgets.QMainWindow):
         # Grupo "Estilo de texto" (fuente, altura, negrita + rotación).
         # COMPARTIDO por Leader y Texto libre. La rotación solo aplica a
         # textos libres; la mostramos/ocultamos según la sección abierta.
-        self.gtxt = _bind(QtWidgets.QGroupBox(), "setTitle", "Estilo de texto"); lgx = QtWidgets.QVBoxLayout(self.gtxt)
+        self.gtxt = _bind(ResponsiveGroupBox(), "setTitle", "Estilo de texto"); lgx = QtWidgets.QVBoxLayout(self.gtxt)
         # QFontComboBox = combo que lista todas las fuentes instaladas en el sistema.
         self.font_combo = QtWidgets.QFontComboBox(); self.font_combo.setCurrentFont(QtGui.QFont(C.TEXT_FONT))
         self.font_combo.setSizePolicy(QtWidgets.QSizePolicy.Ignored, QtWidgets.QSizePolicy.Fixed)
@@ -420,23 +429,23 @@ class Main(QtWidgets.QMainWindow):
         self.size_spin.valueChanged.connect(lambda _: self._style_changed())
         b_plus = QtWidgets.QPushButton("+"); b_plus.setFixedSize(38, 34); b_plus.setProperty("iconOnly", True); b_plus.clicked.connect(lambda: self._bump_size(0.5))
         r.addWidget(b_minus); r.addWidget(self.size_spin); r.addWidget(b_plus)
-        self.chk_bold = _bind(QtWidgets.QCheckBox(), "setText", "Negrita"); self.chk_bold.toggled.connect(lambda _: self._style_changed())
+        self.chk_bold = _bind(WrapCheckBox(), "setText", "Negrita"); self.chk_bold.toggled.connect(lambda _: self._style_changed())
         lgx.addWidget(self.font_combo); lgx.addLayout(r); lgx.addWidget(self.chk_bold)
         # Rotación (0-360°) — solo se usa para textos libres.
         self.rot_row = QtWidgets.QWidget(); rr2 = QtWidgets.QHBoxLayout(self.rot_row); rr2.setContentsMargins(0, 0, 0, 0)
         rr2.addWidget(_bind(QtWidgets.QLabel(), "setText", "Rotación (°):"))
-        rb_l = QtWidgets.QPushButton("⟲"); rb_l.setFixedSize(38, 34); rb_l.setProperty("iconOnly", True); rb_l.clicked.connect(lambda: self._bump_rot(-1))
+        rb_l = QtWidgets.QPushButton("⟲"); rb_l.setFixedSize(40, 34); rb_l.setProperty("iconOnly", True); rb_l.clicked.connect(lambda: self._bump_rot(-1))
         self.rot_spin = QtWidgets.QSpinBox(); self.rot_spin.setRange(0, 360); self.rot_spin.setSingleStep(1); self.rot_spin.setWrapping(True)
         self.rot_spin.setButtonSymbols(QtWidgets.QAbstractSpinBox.NoButtons); self.rot_spin.valueChanged.connect(lambda _: self._style_changed())
-        rb_r = QtWidgets.QPushButton("⟳"); rb_r.setFixedSize(38, 34); rb_r.setProperty("iconOnly", True); rb_r.clicked.connect(lambda: self._bump_rot(1))
+        rb_r = QtWidgets.QPushButton("⟳"); rb_r.setFixedSize(40, 34); rb_r.setProperty("iconOnly", True); rb_r.clicked.connect(lambda: self._bump_rot(1))
         rr2.addWidget(rb_l); rr2.addWidget(self.rot_spin); rr2.addWidget(rb_r)
         lgx.addWidget(self.rot_row)
         lgx.addWidget(_bind(QtWidgets.QLabel(), "setText", "<i>Guarda pulsando enter </i>"))
 
         # Grupo "En curso" (aparece cuando estás dibujando una utilidad o zona)
-        self.gcur = _bind(QtWidgets.QGroupBox(), "setTitle", "En curso"); lc = QtWidgets.QHBoxLayout(self.gcur)
-        self.btn_fin = _bind(QtWidgets.QPushButton(), "setText", "Finalizar (Enter)"); self.btn_fin.clicked.connect(self._on_enter)
-        b_up = _bind(QtWidgets.QPushButton(), "setText", "Deshacer punto"); b_up.clicked.connect(self.undo)
+        self.gcur = _bind(ResponsiveGroupBox(), "setTitle", "En curso"); lc = GridAdaptable(self.gcur, max_cols=2)
+        self.btn_fin = _bind(WrapButton(), "setText", "Finalizar (Enter)"); self.btn_fin.clicked.connect(self._on_enter)
+        b_up = _bind(WrapButton(), "setText", "Deshacer punto"); b_up.clicked.connect(self.undo)
         lc.addWidget(self.btn_fin); lc.addWidget(b_up)
 
         # ═══════════════════════════════════════════════════════════════════════
@@ -509,7 +518,7 @@ class Main(QtWidgets.QMainWindow):
         # guarda a nivel proyecto en self.duct_banks. La conexión con una utilidad
         # y el export en DXF/plugin es la fase 2 (pendiente).
         p, l = _page("Duct Bank", "ductbank", "mdi:grid")
-        self.btn_ductbank = _bind(QtWidgets.QPushButton(), "setText", "Abrir diseñador de Duct Bank", pre='  ')
+        self.btn_ductbank = _bind(WrapButton(), "setText", "Abrir diseñador de Duct Bank", pre='  ')
         self.btn_ductbank.setIconSize(QtCore.QSize(20, 20))
         _bind(self.btn_ductbank, "setToolTip", "Diseña la sección transversal del Duct Bank\n"
                                      "(envolvente rectangular + conductos internos).")
@@ -556,7 +565,7 @@ class Main(QtWidgets.QMainWindow):
         for _bt in self.toolbox.findChildren(QtWidgets.QPushButton):
             if 0 < _bt.maximumWidth() <= 40:
                 _bt.setProperty("iconOnly", True)
-                _bt.setFixedSize(38, 34)
+                _bt.setFixedSize(40, 34)            # 40: el glifo ⟲/⟳ pedía 2 px más que 38
             else:
                 _bt.setMinimumHeight(32)
 
@@ -573,6 +582,7 @@ class Main(QtWidgets.QMainWindow):
     def _build_right_dock(self):
         # ── DOCK DERECHO: inventario y selección ──
         rdock = _bind(QtWidgets.QDockWidget(self), "setWindowTitle", "Inventario"); rdock.setFeatures(QtWidgets.QDockWidget.NoDockWidgetFeatures)
+        self._rdock = rdock
         right = QtWidgets.QWidget(); rv = QtWidgets.QVBoxLayout(right)
         self.tabs = QtWidgets.QTabWidget()
         self.pipe_list = QtWidgets.QListWidget(); self.pipe_list.currentRowChanged.connect(self._sel_pipe)
@@ -602,15 +612,15 @@ class Main(QtWidgets.QMainWindow):
         from thumbnails import HoverPreview
         self._db_hover = HoverPreview(self.db_list, self._db_preview)
         _dbv.addWidget(self.db_list, 1)
-        _dbbar = QtWidgets.QHBoxLayout(); _dbbar.setSpacing(4)
-        self.btn_db_new = _bind(QtWidgets.QPushButton(), "setText", "+ Nuevo")
+        _dbbar = GridAdaptable(max_cols=3, spacing=4)     # 3, 2 o 1 por fila según el ancho
+        self.btn_db_new = _bind(WrapButton(), "setText", "+ Nuevo")
         _bind(self.btn_db_new, "setToolTip", "Crear un bancoducto nuevo desde cero.")
         self.btn_db_new.clicked.connect(self._db_new)
-        self.btn_db_edit = _bind(QtWidgets.QPushButton(), "setText", "Editar")
+        self.btn_db_edit = _bind(WrapButton(), "setText", "Editar")
         _bind(self.btn_db_edit, "setToolTip", "Editar el bancoducto seleccionado.\n"
                                     "También doble-click sobre la fila.")
         self.btn_db_edit.clicked.connect(self._db_edit)
-        self.btn_db_dup = _bind(QtWidgets.QPushButton(), "setText", "Duplicar")
+        self.btn_db_dup = _bind(WrapButton(), "setText", "Duplicar")
         _bind(self.btn_db_dup, "setToolTip", "Duplicar el bancoducto seleccionado.")
         self.btn_db_dup.clicked.connect(self._db_duplicate)
         for _b in (self.btn_db_new, self.btn_db_edit, self.btn_db_dup):
@@ -659,7 +669,7 @@ class Main(QtWidgets.QMainWindow):
         rv.addWidget(self.tab_combo)
         self.tabs.currentChanged.connect(self._tab_changed); rv.addWidget(self.tabs, 1)
         # Propiedades de la utilidad seleccionada (nombre, diámetro, unidad) → XDATA en el DXF
-        self.gprop = _bind(QtWidgets.QGroupBox(), "setTitle", "Propiedades de la utilidad"); fpr = QtWidgets.QFormLayout(self.gprop)
+        self.gprop = _bind(ResponsiveGroupBox(), "setTitle", "Propiedades de la utilidad"); fpr = QtWidgets.QFormLayout(self.gprop)
         self.prop_name = QtWidgets.QLineEdit(); self.prop_name.editingFinished.connect(self._prop_changed)
         # El diámetro va SIEMPRE en PULGADAS y SOLO de la lista estándar del
         # catálogo (12,15,18,…): un desplegable NO editable, sin valores libres,
@@ -722,9 +732,9 @@ class Main(QtWidgets.QMainWindow):
         # interpolación lineal de siempre — ver _interp_vertex_z y su espejo en
         # ImportarRed.cs (InterpolateZ). Clic en la columna "Tramo" lo resalta
         # y encuadra en el lienzo.
-        self.gprop_segs = _bind(QtWidgets.QGroupBox(), "setTitle", "Cotas por tramo")
+        self.gprop_segs = _bind(ResponsiveGroupBox(), "setTitle", "Cotas por tramo")
         segv = QtWidgets.QVBoxLayout(self.gprop_segs)
-        self.btn_seg_edit = _bind(QtWidgets.QPushButton(), "setText", "Activar edición por tramo", pre='  ')
+        self.btn_seg_edit = _bind(WrapButton(), "setText", "Activar edición por tramo", pre='  ')
         self.btn_seg_edit.setIconSize(QtCore.QSize(18, 18))
         self.btn_seg_edit.setCheckable(True)
         _bind(self.btn_seg_edit, "setToolTip", "Activa la edición de cotas por tramo. Cuando está apagado se usan "
@@ -757,7 +767,7 @@ class Main(QtWidgets.QMainWindow):
         self.gprop_segs.setVisible(False)
         rv.addWidget(self.gprop_segs)
         # ── Propiedades del buzón seleccionado (tab Buzones) ───────────────────
-        self.gprop_bz = _bind(QtWidgets.QGroupBox(), "setTitle", "Propiedades del buzón"); fbz = QtWidgets.QFormLayout(self.gprop_bz)
+        self.gprop_bz = _bind(ResponsiveGroupBox(), "setTitle", "Propiedades del buzón"); fbz = QtWidgets.QFormLayout(self.gprop_bz)
         self.bz_cod = QtWidgets.QLineEdit(); self.bz_cod.editingFinished.connect(self._bz_prop_changed)
         self.bz_rim = QtWidgets.QDoubleSpinBox(); self.bz_sump = QtWidgets.QDoubleSpinBox()
         for sp in (self.bz_rim, self.bz_sump):
@@ -824,14 +834,14 @@ class Main(QtWidgets.QMainWindow):
         fbz.addRow("", self.lbl_sld_top_src)
         fbz.addRow(_bind(QtWidgets.QLabel(), "setText", "Red:"), self.bz_net_lbl)
         fbz.addRow(_bind(QtWidgets.QLabel(), "setText", "Origen:"), self.bz_origin_lbl)
-        self.bz_is_curve = _bind(QtWidgets.QPushButton(), "setText", "Cambiar a elemento curvo")
+        self.bz_is_curve = _bind(WrapButton(), "setText", "Cambiar a elemento curvo")
         self.bz_is_curve.setCheckable(True)
         _bind(self.bz_is_curve, "setToolTip", "Marca este vértice como la esquina de un elemento curvo (p.ej. el codo de un\n"
             "bancoducto) en vez de un buzón/caja normal. Pasa a la pestaña 'Curvas' y no se\n"
             "exporta como buzón en el DXF (se marca con un punto PDFCAD_CURVE aparte).")
         self.bz_is_curve.toggled.connect(self._bz_curve_toggled)
         fbz.addRow("", self.bz_is_curve)
-        self.chk_bz_hidden = _bind(QtWidgets.QPushButton(), "setText", "Desactivar/activar buzón")
+        self.chk_bz_hidden = _bind(WrapButton(), "setText", "Desactivar/activar buzón")
         self.chk_bz_hidden.setCheckable(True)
         _bind(self.chk_bz_hidden, "setToolTip", "Este vértice se detectó automáticamente pero no quieres un buzón real ahí.\n"
             "Se deja de dibujar en el lienzo y, al exportar/importar en Civil3D, se usa la\n"
@@ -840,7 +850,7 @@ class Main(QtWidgets.QMainWindow):
         self.chk_bz_hidden.toggled.connect(self._bz_hidden_toggled)
         fbz.addRow("", self.chk_bz_hidden)
         # Checkbox de etiquetas — entre la lista de buzones (tab) y el panel de propiedades.
-        self.chk_bz_labels = _bind(QtWidgets.QCheckBox(), "setText", "Ver etiquetas de buzón y en el DXF exportado")
+        self.chk_bz_labels = _bind(WrapCheckBox(), "setText", "Ver etiquetas de buzón y en el DXF exportado")
         self.chk_bz_labels.setChecked(bool(self.show_bz_labels))
         def _toggle_bz_labels(v):
             self.show_bz_labels = bool(v); self._redraw()
@@ -854,7 +864,7 @@ class Main(QtWidgets.QMainWindow):
         rv.addWidget(self.lbl_bz_hint)
         self.gprop_bz.setVisible(False); self.lbl_bz_hint.setVisible(False)
         # ── Propiedades del elemento curvo seleccionado (tab Curvas) ───────────
-        self.gprop_curve = _bind(QtWidgets.QGroupBox(), "setTitle", "Propiedades del elemento curvo"); fcv = QtWidgets.QFormLayout(self.gprop_curve)
+        self.gprop_curve = _bind(ResponsiveGroupBox(), "setTitle", "Propiedades del elemento curvo"); fcv = QtWidgets.QFormLayout(self.gprop_curve)
         self.cv_cod = QtWidgets.QLineEdit(); self.cv_cod.editingFinished.connect(self._curve_prop_changed)
         # Familia/Tamaño NO se eligen aparte: siempre son los de la tubería recta que
         # pasa por este vértice (garantiza que la curva calce con los tramos rectos).
@@ -883,7 +893,7 @@ class Main(QtWidgets.QMainWindow):
         fcv.addRow("", self.cv_radius_warn)
         fcv.addRow(_bind(QtWidgets.QLabel(), "setText", "Red:"), self.cv_net_lbl)
         fcv.addRow(_bind(QtWidgets.QLabel(), "setText", "Origen:"), self.cv_origin_lbl)
-        self.curve_is_bz = _bind(QtWidgets.QPushButton(), "setText", "Volver a tratar como buzón/caja")
+        self.curve_is_bz = _bind(WrapButton(), "setText", "Volver a tratar como buzón/caja")
         self.curve_is_bz.clicked.connect(self._curve_is_bz_toggled)
         fcv.addRow("", self.curve_is_bz)
         rv.addWidget(self.gprop_curve)
@@ -894,7 +904,7 @@ class Main(QtWidgets.QMainWindow):
         rv.addWidget(self.lbl_curve_hint)
         self.gprop_curve.setVisible(False); self.lbl_curve_hint.setVisible(False)
         # ── Propiedades del centerline seleccionado (tab Centerlines) ──────────
-        self.gprop_cl = _bind(QtWidgets.QGroupBox(), "setTitle", "Propiedades del centerline"); fcl = QtWidgets.QFormLayout(self.gprop_cl)
+        self.gprop_cl = _bind(ResponsiveGroupBox(), "setTitle", "Propiedades del centerline"); fcl = QtWidgets.QFormLayout(self.gprop_cl)
         self.cl_cod = QtWidgets.QLineEdit(); self.cl_cod.editingFinished.connect(self._cl_prop_changed)
         self.cl_len_lbl = QtWidgets.QLabel("—")
         fcl.addRow(_bind(QtWidgets.QLabel(), "setText", "Código:"), self.cl_cod)
@@ -911,21 +921,22 @@ class Main(QtWidgets.QMainWindow):
         self._cl_prop_guard = False
         self._bz_prop_guard = False                 # evita reentradas al setear valores desde el modelo
         self._curve_prop_guard = False
-        rr = QtWidgets.QGridLayout()
-        self.btn_ct = _bind(QtWidgets.QPushButton(), "setText", "Cambiar tipo"); self.btn_ct.clicked.connect(self.change_pipe_type)
-        self.btn_mv = _bind(QtWidgets.QPushButton(), "setText", "Editar/mover"); self.btn_mv.clicked.connect(self.enter_move)
-        self.btn_edit = _bind(QtWidgets.QPushButton(), "setText", "Editar texto"); self.btn_edit.clicked.connect(self.edit_selected_text)
-        self.btn_del = _bind(QtWidgets.QPushButton(), "setText", "Eliminar"); self.btn_del.setProperty("danger", True)
+        rr = GridAdaptable(max_cols=2)              # 2 columnas si caben; 1 si el panel es angosto
+        self.btn_ct = _bind(WrapButton(), "setText", "Cambiar tipo"); self.btn_ct.clicked.connect(self.change_pipe_type)
+        self.btn_mv = _bind(WrapButton(), "setText", "Editar/mover"); self.btn_mv.clicked.connect(self.enter_move)
+        self.btn_edit = _bind(WrapButton(), "setText", "Editar texto"); self.btn_edit.clicked.connect(self.edit_selected_text)
+        self.btn_del = _bind(WrapButton(), "setText", "Eliminar"); self.btn_del.setProperty("danger", True)
         self.btn_del.clicked.connect(self.delete_selected)
         # Datos extendidos (capa OCG de origen + campos del usuario), junto a Eliminar
-        self.btn_xd = _bind(QtWidgets.QPushButton(), "setText", "Ver datos extendidos")
+        self.btn_xd = _bind(WrapButton(), "setText", "Ver datos extendidos")
         self.btn_xd.setProperty("success", True)
         _bind(self.btn_xd, "setToolTip", "Capa del PDF de la que salió (disciplina, sistema, ubicación, estado) "
                                          "y tus propios campos. Se guardan en el proyecto y van al DXF.")
         self.btn_xd.clicked.connect(self.show_xdata)
-        rr.addWidget(self.btn_ct, 0, 0); rr.addWidget(self.btn_mv, 0, 1)
-        rr.addWidget(self.btn_edit, 1, 0); rr.addWidget(self.btn_del, 1, 1)
-        rr.addWidget(self.btn_xd, 1, 0)       # comparte celda con «Editar texto» (solo pestaña Textos)
+        # Mismo orden que la rejilla de antes: [Cambiar tipo, Editar/mover] [Editar texto o
+        # Ver datos extendidos (nunca los dos a la vez), Eliminar]; los ocultos no ocupan celda.
+        for _b in (self.btn_ct, self.btn_mv, self.btn_edit, self.btn_xd, self.btn_del):
+            rr.addWidget(_b)
         rv.addLayout(rr)
         # RESPONSIVO: en un QFormLayout la etiqueta y el campo van en la MISMA
         # fila, así que etiquetas largas ("Material de la tubería:") imponen un
@@ -989,6 +1000,30 @@ class Main(QtWidgets.QMainWindow):
         # 250 los campos quedaban demasiado estrechos.
         rdock.setMinimumWidth(300)
         self.addDockWidget(QtCore.Qt.RightDockWidgetArea, rdock)
+
+    def _build_side_panels(self):
+        # Los dos paneles se pueden ocultar solos como una pestaña en su borde, como
+        # las paletas de Civil 3D (side_panels.py): chincheta en su cabecera y una
+        # opción por panel en el menú Ver. Estado y ancho se recuerdan.
+        self.panel_izq = side_panels.AutoHidePanel(self, self._ldock, "Herramientas",
+                                                   "mdi:toolbox-outline", "left", "izq")
+        self.panel_der = side_panels.AutoHidePanel(self, self._rdock, "Inventario",
+                                                   "mdi:format-list-bulleted", "right", "der")
+        self._mview.addSeparator()
+        acciones = []
+        for panel, texto in ((self.panel_izq, "Ocultar automáticamente el panel izquierdo"),
+                             (self.panel_der, "Ocultar automáticamente el panel derecho")):
+            act = _bind(QtGui.QAction(self), "setText", texto)
+            act.setCheckable(True)
+            act.toggled.connect(panel.set_autohide)
+
+            def _sync(on, a=act):
+                a.blockSignals(True); a.setChecked(on); a.blockSignals(False)
+            panel.toggled.connect(_sync)
+            self._mview.addAction(act)
+            acciones.append(act)
+            panel.restore()
+        self.act_panel_izq, self.act_panel_der = acciones
 
     def _build_statusbar(self):
         # ── Barra de estado: modo · info · contadores en vivo · escala · georref ──
@@ -2588,6 +2623,11 @@ class Main(QtWidgets.QMainWindow):
         self._dirty_flag = bool(value)
         if not value:
             self._clean_sig = None
+            self._forzar_cambios = False
+            # Guardado, recién abierto o descartado: la copia automática ya no sirve.
+            ag = self.__dict__.get("autoguardado")
+            if ag is not None:
+                ag.limpiar()
             # Diferida: incluye lo que se normaliza justo después de abrir.
             QtCore.QTimer.singleShot(0, self._take_clean_sig)
 
@@ -2608,6 +2648,8 @@ class Main(QtWidgets.QMainWindow):
     def _has_real_changes(self):
         if not self._dirty:
             return False
+        if self.__dict__.get("_forzar_cambios"):     # trabajo recuperado: aún no se guardó
+            return True
         sig = getattr(self, "_clean_sig", None)
         if sig is not None and sig == self._content_sig():
             self._dirty_flag = False
@@ -2653,10 +2695,57 @@ class Main(QtWidgets.QMainWindow):
 
     def closeEvent(self, e):
         if self._confirm_discard():
+            ag = self.__dict__.get("autoguardado")
+            if ag is not None:
+                ag.cerrar()                         # cierre normal: no queda nada por recuperar
             if self.doc:
                 self.doc.close()
             self._cleanup_tmp_pdf(); e.accept()
         else: e.ignore()
+
+    # ── autoguardado y recuperación (autoguardado.py) ──
+    def iniciar_autoguardado(self):
+        """Arranca las copias automáticas y, si una sesión anterior se cerró sin
+        guardar, ofrece recuperarla. True si se recuperó un proyecto."""
+        import dialogs as _dlg
+        self.autoguardado.iniciar()
+        try:
+            copias = autoguardado.recuperables(self.autoguardado.base)
+        except Exception:
+            copias = []
+        if not copias:
+            return False
+        resp = _dlg.preguntar_recuperacion(self, copias[0], len(copias) - 1)
+        if resp == "recuperar":
+            return self._recuperar_copia(copias[0])
+        if resp == "descartar":
+            autoguardado.descartar(copias[0])
+        return False
+
+    def _recuperar_copia(self, meta):
+        """Abre la copia automática `meta` como proyecto SIN guardar (Ctrl+S la guarda
+        en el archivo original, si lo tenía)."""
+        tmp = os.path.join(self.autoguardado.base, f"recuperado-{meta.get('sesion', 'copia')}.digproj")
+        try:
+            autoguardado.armar_digproj(meta["dir"], tmp)
+        except Exception as e:
+            QtWidgets.QMessageBox.critical(self, _tr("Recuperar trabajo sin guardar"), str(e))
+            return False
+        self._open_project_path(tmp)
+        try:
+            os.remove(tmp)                          # ya está en memoria (el PDF de trabajo va aparte)
+        except OSError:
+            pass
+        if self.project_path != tmp:                # no se pudo abrir: la copia se conserva
+            return False
+        original = meta.get("proyecto") or None
+        self.project_path = original if original and os.path.isdir(os.path.dirname(original)) else None
+        self._forzar_cambios = True                 # sigue «sin guardar» hasta que se guarde
+        self._dirty_flag = True
+        self._update_title()
+        autoguardado.descartar(meta)
+        self._info(_tr("Trabajo recuperado. Guárdalo (Ctrl+S) para conservarlo."))
+        return True
 
     # ─────────────────────────── clics ───────────────────────────
     def on_click(self, x, y, button):
@@ -3180,6 +3269,8 @@ class Main(QtWidgets.QMainWindow):
                     mid = pts[len(pts) // 2]; self.canvas.centerOn(mid[0], mid[1])
             self._prop_guard = True
             self.prop_name.setText(p.get("name", ""))
+            # Vacío = nombre por defecto «TIPO-NÚMERO» (se renumera solo al borrar).
+            self.prop_name.setPlaceholderText(model_ops.nombre_por_defecto(p, self.sel_pipe))
             # El diámetro se deriva del "Tamaño" del catálogo (elegido más abajo).
             self.prop_part.setText(p.get("part", ""))
             self.prop_inv0.setValue(p.get("inv_start") or 0.0); self.prop_inv1.setValue(p.get("inv_end") or 0.0)
@@ -3879,7 +3970,7 @@ class Main(QtWidgets.QMainWindow):
             p["material"] = self.prop_material.currentData() or self.prop_material.currentText()
             p["net_type"] = self.prop_nettype.currentData() or ""
             # Familia + tamaño del catálogo Civil 3D. El diámetro se deriva del tamaño.
-            if self.prop_family.isVisible():
+            if self.prop_family.isVisibleTo(self.gprop):     # no depende de que el panel esté desplegado
                 p["pipe_family"] = self.prop_family.currentData() or ""
                 p["pipe_size"] = self.prop_size.currentData() or "" if self.prop_size.isEnabled() else ""
             # p["diam"] se calcula del pipe_size (p.ej. "24 in" → 24.0). Sin tamaño de
@@ -4126,6 +4217,9 @@ class Main(QtWidgets.QMainWindow):
             if huecos:
                 texto += "\n\n" + _tr("Huecos que se cierran con un tramo recto: {lista}.").format(
                     lista=", ".join(f"{e.hueco_ft:.2f} ft" for e in huecos))
+            if plan.sobrantes:
+                texto += "\n\n" + _tr("Quedan aparte {k} trozo(s) partido(s) en la T (en ámbar en el plano).").format(
+                    k=len(plan.sobrantes))
             if plan.avisos:
                 texto += "\n\n" + _tr("Se conservan los datos de la #{b}:").format(b=base + 1)
                 texto += "\n" + "\n".join("• " + a for a in plan.avisos[:8])
@@ -4156,6 +4250,11 @@ class Main(QtWidgets.QMainWindow):
                     db.assign(db.assigned() + [base]); break
         self._delete_pipes(plan.unidas)
         nueva = base - sum(1 for j in plan.unidas if j < base)
+        if plan.sobrantes:
+            # Trozos de una utilidad partida en la T: utilidades aparte (al final de la
+            # lista) y buzones/cajas en el vértice nuevo de la T.
+            self.pipes.extend(plan.sobrantes)
+            self._rebuild_structures()
         self._refresh_lists()
         self._no_center = True
         try:
@@ -4172,11 +4271,21 @@ class Main(QtWidgets.QMainWindow):
         verde = QtGui.QColor(30, 200, 60)
         pen = QtGui.QPen(verde, 5.0, QtCore.Qt.DashLine); pen.setCosmetic(True)
         path = QtGui.QPainterPath()
-        pts = plan.pipe["pts"]
+        # Con sus codos, igual que el lienzo (los vértices de la unida coinciden con
+        # los de las originales: cada CV sigue siendo de su vértice).
+        pts = self._pipe_display_pts(plan.pipe)
         path.moveTo(*pts[0])
         for q in pts[1:]:
             path.lineTo(*q)
         it = sc.addPath(path, pen); it.setZValue(Z_HANDLE + 5); items.append(it)
+        # Trozos partidos en una T que quedan como utilidades aparte: en ámbar.
+        pen_s = QtGui.QPen(QtGui.QColor(240, 170, 20), 4.0, QtCore.Qt.DashDotLine); pen_s.setCosmetic(True)
+        for sob in plan.sobrantes:
+            ps = self._pipe_display_pts(sob)
+            ruta = QtGui.QPainterPath(); ruta.moveTo(*ps[0])
+            for q in ps[1:]:
+                ruta.lineTo(*q)
+            it = sc.addPath(ruta, pen_s); it.setZValue(Z_HANDLE + 5); items.append(it)
         pen_c = QtGui.QPen(QtGui.QColor(20, 20, 20), 2.0); pen_c.setCosmetic(True)
         for e in plan.empalmes:
             r = 9.0
@@ -4349,7 +4458,7 @@ class Main(QtWidgets.QMainWindow):
         self.pipe_list.blockSignals(True); self.pipe_list.clear()
         for i, p in enumerate(self.pipes, 1):
             tag = " (AB)" if p.get("ab") else ""
-            nm = f" · {p['name']}" if p.get("name") else ""
+            nm = " · " + ((p.get("name") or "").strip() or model_ops.nombre_por_defecto(p, i - 1))
             n = len(p.get("pts") or [])
             info = (_tr("red: {red}").format(red=p.get("net", "")) if p.get("world")
                     else _tr("{n} vért.").format(n=n))
@@ -5887,15 +5996,23 @@ class Main(QtWidgets.QMainWindow):
             model_ops.resize_solid(s, self.sld_len.value(), self.sld_wid.value(), px_per_ft)
         s["solid_height_ft"] = float(self.sld_h.value())
         self._dirty = True
+        if s.get("solid_top_z") is None:                  # automática: sigue centrada en la utilidad
+            self._bz_prop_guard = True
+            try: self._sync_solid_top(s)
+            finally: self._bz_prop_guard = False
         self._refresh_bz_list_item(self.sel_bz)
         self._redraw()
 
     def _solid_default_top(self, s):
-        """Cota de la utilidad unida al sólido en su vértice (la mayor si llegan
-        varias), o None si es un sólido suelto."""
+        """Cota superior automática: la que deja el EJE de la utilidad unida en su
+        vértice justo a media altura del sólido (la mayor si llegan varias), o None
+        si es un sólido suelto. La cota de la utilidad es su solera; el plugin sube
+        el eje medio alto interior (model_ops.solid_top_centrado)."""
+        import model_ops
         x, y = s.get("x"), s.get("y")
         if x is None:
             return None
+        h = float(s.get("solid_height_ft") or model_ops.SOLID_DEFAULT_H_FT)
         zs = []
         for pi, p in enumerate(self.pipes):
             pts = p.get("pts") or []
@@ -5904,7 +6021,7 @@ class Main(QtWidgets.QMainWindow):
                     seg = vi if vi < len(pts) - 1 else vi - 1
                     z = self._pipe_z_at(pi, seg, vx, vy)
                     if z is not None:
-                        zs.append(z)
+                        zs.append(model_ops.solid_top_centrado(z, model_ops.alto_interior_ft(p), h))
                     break
         return max(zs) if zs else None
 
@@ -5921,7 +6038,7 @@ class Main(QtWidgets.QMainWindow):
         if auto and z is None:
             self.lbl_sld_top_src.setText(_tr("Sin utilidad unida: se usa la cota de fondo o 0."))
         elif auto:
-            self.lbl_sld_top_src.setText(_tr("Automática: cota de la utilidad unida."))
+            self.lbl_sld_top_src.setText(_tr("Automática: la utilidad unida llega al centro del sólido."))
         else:
             self.lbl_sld_top_src.setText(_tr("Fijada por el usuario."))
 
@@ -6136,7 +6253,7 @@ class Main(QtWidgets.QMainWindow):
         self.mv_dy = _dsb_delta()
         vec.addWidget(self.mv_dy, 1, 1)
         vec.setColumnStretch(1, 1)
-        self.mv_btn_apply = _bind(QtWidgets.QPushButton(), "setText", "Aplicar", pre='  ')
+        self.mv_btn_apply = _bind(WrapButton(), "setText", "Aplicar", pre='  ')
         self.mv_btn_apply.setIcon(_icon("mdi:check"))
         self.mv_btn_apply.setIconSize(QtCore.QSize(18, 18))
         self.mv_btn_apply.clicked.connect(
@@ -7079,7 +7196,8 @@ def main():
     # hardcodeado ahora vive en app/theme.py, parametrizado por tokens de color.
     _theme.apply_theme(app, _theme.load_preference("dark"))
     win = Main(); win.show()
-    if len(sys.argv) > 1:
+    recuperado = win.iniciar_autoguardado()      # copias automáticas + ofrecer recuperar
+    if len(sys.argv) > 1 and not recuperado:
         win.open_path(sys.argv[1])
     sys.exit(app.exec())
 

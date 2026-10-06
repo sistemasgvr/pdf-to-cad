@@ -12,9 +12,12 @@ import catalogo_tamanos as T
 from i18n import t as _tr
 
 
-def _spin(unidad, valor=None, minimo=0.01):
+def _spin(unidad, valor=None, minimo=0.0):
+    """Casilla de medida. En 0 se ve VACÍA (specialValueText): antes arrancaba en
+    0.01 y un clic en «Agregar tamaño» metía 0.01 in en el catálogo."""
     sp = QtWidgets.QDoubleSpinBox()
     sp.setRange(minimo, 10000.0)
+    sp.setSpecialValueText(" ")
     sp.setDecimals(4 if unidad == "in" else 3)
     sp.setSuffix(" " + unidad)                         # in / ft: como en los desplegables de tamaño
     sp.setMinimumWidth(150)
@@ -101,12 +104,22 @@ class AgregarTamanoDialog(QtWidgets.QDialog):
         lay.addWidget(bb)
         self._recalcular()
         next(iter(self.ejes.values())).setFocus()
+        next(iter(self.ejes.values())).selectAll()
+
+    def _completo(self):
+        return all(sp.value() > 0 for sp in self.ejes.values())
 
     def valores(self):
         return {k: sp.value() for k, sp in self.ejes.items()}
 
     def _recalcular(self, *_):
+        self.btn_ok.setEnabled(self._completo())
         if not self.extras:
+            return
+        if not self._completo():                       # sin medida: datos vacíos, no centésimas
+            for k, sp in self.extras.items():
+                if k not in self._tocados:
+                    sp.blockSignals(True); sp.setValue(0.0); sp.blockSignals(False)
             return
         try:
             prop = T.proponer(self.kind, self.fid, self.year, self.lang, self.valores())
@@ -118,6 +131,8 @@ class AgregarTamanoDialog(QtWidgets.QDialog):
             sp.blockSignals(True); sp.setValue(float(prop[k])); sp.blockSignals(False)
 
     def _agregar(self):
+        if not self._completo():
+            return
         destinos = [d for d, ch in self.destinos if ch.isChecked()]
         if not destinos:
             QtWidgets.QMessageBox.information(self, _tr("Agregar tamaño"), _tr("Marca al menos una instalación de Civil 3D."))

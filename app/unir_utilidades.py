@@ -4,7 +4,9 @@ Una utilidad es una sola polilínea, así que solo se unen PUNTA con PUNTA:
   - las puntas a ≤ `TOL_UNION_FT` (0.5 ft, el snap) se empalman en un vértice;
   - un hueco de hasta `HUECO_MAX_FT` se cierra con un tramo recto (la ventana
     lo enseña en la vista previa y pide confirmación);
-  - una punta que cae a MITAD de la otra es un ramal (T): no se une;
+  - una punta que cae a MITAD de otra seleccionada es un ramal (T): la de paso
+    se parte ahí y la unión sigue por las seleccionadas; el trozo que no entra
+    queda como utilidad aparte (`unir_ramales.py`);
   - solo utilidades del mismo tipo (capa).
 Se encadenan desde la utilidad BASE (la seleccionada; sus datos mandan:
 nombre, diámetro, material, familia…); cada una se da vuelta si hace falta.
@@ -22,6 +24,7 @@ import math
 from dataclasses import dataclass, field
 
 from i18n_core import N_, t
+import unir_ramales as R
 from model_ops import migrate_vertex_inv, snapshot_seg_values
 
 TOL_UNION_FT = 0.5
@@ -49,6 +52,7 @@ class Plan:
     empalmes: list = field(default_factory=list)
     unidas: list = field(default_factory=list)       # índices que se absorben en la base
     avisos: list = field(default_factory=list)       # datos que cambian (ya traducidos)
+    sobrantes: list = field(default_factory=list)    # trozos partidos en una T que quedan aparte
 
 
 def _ints(d):
@@ -193,6 +197,14 @@ def planificar(pipes, filas, base, ft_per_px, permitir_hueco=True):
         migrate_vertex_inv(q)
         return q
 
+    piezas, partidas = R.partir_en_tes([(i, _norm(pipes[i])) for i in filas], tol)
+    if piezas is None:
+        return Plan(False, t("La #{n} se cruza en una T justo sobre un codo: no se puede partir ahí.").format(
+            n=partidas + 1))
+    if partidas:
+        return _plan_con_ramales(pipes, filas, base, ft_per_px, piezas, partidas, tol,
+                                 hueco_max if permitir_hueco else tol, _norm(pipes[base]))
+
     cadena = _norm(pipes[base])
     quedan = [i for i in filas if i != base]
     empalmes, unidas = [], []
@@ -239,6 +251,10 @@ def planificar(pipes, filas, base, ft_per_px, permitir_hueco=True):
         unidas.append(j)
         quedan.remove(j)
 
+    return Plan(True, pipe=cadena, empalmes=empalmes, unidas=unidas, avisos=_avisos(pipes, unidas, base))
+
+
+def _avisos(pipes, unidas, base):
     avisos = []
     pb = pipes[base]
     for i in unidas:
@@ -246,7 +262,41 @@ def planificar(pipes, filas, base, ft_per_px, permitir_hueco=True):
             if pipes[i].get(clave) not in (None, "") and pipes[i].get(clave) != pb.get(clave):
                 avisos.append(t("#{n}: {campo} «{v}» → «{w}» (como la #{b}).").format(
                     n=i + 1, campo=t(nombre), v=_fmt(pipes[i].get(clave)), b=base + 1, w=_fmt(pb.get(clave))))
-    return Plan(True, pipe=cadena, empalmes=empalmes, unidas=unidas, avisos=avisos)
+    return avisos
+
+
+def _plan_con_ramales(pipes, filas, base, ft_per_px, piezas, partidas, tol, hueco_max, datos_base):
+    """Unión con ramales: las partidas en su T ya están en `piezas`; se toma el
+    recorrido que pasa por todas y los trozos que sobran quedan aparte."""
+    camino, faltan = R.mejor_recorrido(piezas, tol, hueco_max)
+    if faltan:
+        return Plan(False, t("Las utilidades seleccionadas se ramifican y no caben en una sola línea: "
+                             "quedaría fuera la #{n}. Únelas por partes.").format(
+            n=", #".join(str(i + 1) for i in faltan)))
+
+    def orientada(i, rev):
+        p = piezas[i][1]
+        return invertir(p) if rev else copy.deepcopy(p)
+
+    i0, r0, _h = camino[0]
+    cadena = orientada(i0, r0)
+    empalmes = []
+    for i, rev, h in camino[1:]:
+        punto = cadena["pts"][-1]
+        cadena = _concatenar(cadena, orientada(i, rev), h > 0)
+        empalmes.append(Empalme(punto[0], punto[1], h * ft_per_px))
+    for k in DATOS_BASE:                                   # los datos de la base mandan
+        if datos_base.get(k) is None:
+            cadena.pop(k, None)
+        else:
+            cadena[k] = copy.deepcopy(datos_base[k])
+    en_camino = {i for i, _r, _h in camino}
+    sobrantes = [p for k, (_o, p) in enumerate(piezas) if k not in en_camino]
+    unidas = [i for i in filas if i != base]
+    avisos = [t("La #{n} se parte en la T: el trozo que no entra queda como utilidad aparte.").format(n=o + 1)
+              for o in sorted(partidas)]
+    return Plan(True, pipe=cadena, empalmes=empalmes, unidas=unidas,
+                avisos=avisos + _avisos(pipes, unidas, base), sobrantes=sobrantes)
 
 
 def _fmt(v):

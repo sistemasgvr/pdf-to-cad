@@ -72,6 +72,11 @@ namespace Civil3DBasico
 {
     public class ComandosPrepararFamilias
     {
+        // Paso 5: completar los tamaños que faltan en los catálogos SQLite de presión
+        // (PressureCatalogFiller). DESACTIVADO por ahora (pedido del usuario 2026-10-05):
+        // el código queda intacto; poner true para volver a activarlo.
+        internal static readonly bool RELLENAR_CATALOGOS_PRESION = false;
+
         [CommandMethod("PREPARAR_FAMILIAS")]
         public void PrepararFamilias()
         {
@@ -322,6 +327,9 @@ namespace Civil3DBasico
             Guardar(log, ed);
 
             // 5) Llenar gaps en catálogos SQLite de presión (idempotente)
+            if (!RELLENAR_CATALOGOS_PRESION)
+                L("→ Catálogos de presión: completar tamaños DESACTIVADO (no se modifican).");
+            else
             try
             {
                 var (catFilled, recFilled) = PressureCatalogFiller.FillAllGapsAllVersions(s => L(s));

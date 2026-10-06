@@ -605,6 +605,13 @@ def fillet_geo(prev, corner, nxt, r_px, max_frac=FILLET_CAP_RECTA, n_arc=32, max
     return {"t1": t1, "t2": t2, "center": (cx, cy), "r": r, "T": T, "arc": arc, "clamped": clamped}
 
 
+def nombre_por_defecto(pipe, idx):
+    """Nombre de red de una utilidad SIN nombre: «TIPO-NÚMERO» con su número en la
+    lista (idx + 1), p.ej. «TELECOM-13». No se guarda: se calcula al mostrar y al
+    exportar, así al borrar utilidades se renumera solo."""
+    return f"{(pipe.get('layer') or '').strip()}-{idx + 1}"
+
+
 def red_de(pipe):
     """Red de Civil 3D a la que irá la utilidad: el plugin agrupa por NOMBRE de
     red si lo tiene y, si no, por capa (RED-AGUA, RED-DRENAJE…). Dos utilidades
@@ -616,12 +623,14 @@ def red_civil_de_union(pipes, ia, ib):
     """Nombre de la red de Civil 3D donde quedan DOS tuberías de la misma
     utilidad que se tocan. El plugin las mete siempre en la misma red aunque
     tengan nombres distintos (`RedesUnidasPorContacto` en ImportarRed.cs): toma
-    el nombre de la de menor índice que lo tenga; sin nombres, «RED-<capa>»."""
+    el nombre de la de menor índice que lo tenga; sin nombres, el nombre por
+    defecto («TIPO-NÚMERO») de la de menor índice."""
     for i in sorted((ia, ib)):
         nombre = (pipes[i].get("name") or "").strip()
         if nombre:
             return nombre
-    return "RED-" + (pipes[ia].get("layer") or "")
+    i = min(ia, ib)
+    return nombre_por_defecto(pipes[i], i)
 
 
 def accesorio_en_punto(polilineas, pt, tol):
@@ -1099,6 +1108,22 @@ def solid_axes(s):
         return (1.0, 0.0), (0.0, 1.0)
     a, b = ((e1[0] / l1, e1[1] / l1), (e2[0] / l2, e2[1] / l2))
     return (a, b) if l1 >= l2 else (b, a)
+
+
+def alto_interior_ft(pipe):
+    """Alto interior de la tubería en pies: el 2.º número de un tamaño «W x H»
+    (bancoducto, rectangular) o el diámetro. El plugin sube el eje del tubo
+    justo esto ÷ 2 sobre la cota de la app (solera): `OffsetEjeARasante`."""
+    import re
+    nums = re.findall(r"\d+(?:\.\d+)?", str(pipe.get("pipe_size") or ""))
+    pulg = float(nums[1]) if len(nums) >= 2 else float(nums[0]) if nums else float(pipe.get("diam") or 0.0)
+    return max(pulg, 0.0) / 12.0
+
+
+def solid_top_centrado(z_solera, alto_tubo_ft, alto_solido_ft):
+    """Cota SUPERIOR del sólido para que el EJE de la tubería que llega (solera +
+    medio alto interior) quede justo a media altura del sólido."""
+    return float(z_solera) + alto_tubo_ft / 2.0 + float(alto_solido_ft) / 2.0
 
 
 def resize_solid(s, length_ft, width_ft, px_per_ft):

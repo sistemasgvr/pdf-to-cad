@@ -93,7 +93,26 @@ unsaved changes. Save often.
 <tr><td bgcolor="{{card}}">See my lines better</td><td bgcolor="{{card}}"><b>Opacity</b> button: fades only the PDF. You can also set a white or black background.</td></tr>
 <tr><td bgcolor="{{card}}">Switch dark / light mode</td><td bgcolor="{{card}}"><b>View</b> menu → light / dark theme.</td></tr>
 <tr><td bgcolor="{{card}}">Change the language</td><td bgcolor="{{card}}"><b>File → Options…</b> → Language. It changes instantly.</td></tr>
+<tr><td bgcolor="{{card}}">Get more room for the plan</td><td bgcolor="{{card}}">Hide the side panels (see below).</td></tr>
 </table>
+
+<h2>Hiding the side panels</h2>
+<p>Both panels (<b>Tools</b> on the left and <b>Inventory</b> on the right) can hide themselves, just
+like Civil 3D palettes:</p>
+<ol>
+<li>Press the <b>pin</b> 📌 on the panel header (or <b>View → Auto-hide the left / right panel</b>).</li>
+<li>The panel becomes a <b>vertical tab</b> on its edge and the plan gets that space.</li>
+<li>Hover over the tab (or click it): the panel opens <b>over the plan</b>. When you move the mouse
+    away or click on the plan, it folds back.</li>
+<li>To keep it open again, press the pin on its header.</li>
+</ol>
+<table width="100%" cellspacing="0" cellpadding="12"><tr>
+<td width="6" bgcolor="{{tip_border}}"></td><td bgcolor="{{tip}}">
+<b>Tip:</b> while you type in a field of the panel, or a drop-down or a window is open, the panel does
+not fold by itself. Drag its inner edge to make it wider. The app remembers how you left each panel.
+</td></tr></table>
+<p>The panels adapt to their width: long buttons wrap onto two lines and button rows rearrange, so
+you never need to scroll sideways.</p>
 </section>
 
 <section data-title="CAD PDF plans (assistant)">
@@ -289,8 +308,8 @@ Civil 3D). It is useful, for example, when recognition left a pipe split into se
 <li>Press <span class="key">&nbsp;Ctrl+J&nbsp;</span>, or <b>right click</b> (in the list or on one of the
     lines on the plan) → <b>Join into one utility</b>. It is also in <b>Edit → Join selected
     utilities</b>.</li>
-<li>A <b>preview</b> appears: the resulting utility as a <b>dashed green</b> line and a green circle at each
-    joint. Read the message and press <b>Yes</b> to join or <b>No</b> to leave it as it was.</li>
+<li>A <b>preview</b> appears: the resulting utility as a <b>dashed green</b> line (with its curves, as on the
+    canvas) and a green circle at each joint. Read the message and press <b>Yes</b> to join or <b>No</b> to leave it as it was.</li>
 </ol>
 
 <h2>What must be true</h2>
@@ -301,9 +320,12 @@ Civil 3D). It is useful, for example, when recognition left a pipe split into se
         and the message warns you first.</td></tr>
 <tr><td bgcolor="{{card}}"><b>Same type</b></td>
     <td bgcolor="{{card}}">Water with water, gas with gas… Types are not mixed.</td></tr>
-<tr><td bgcolor="{{danger}}"><b>Not a branch</b></td>
-    <td bgcolor="{{card}}">If one ends in the <b>middle</b> of the other, that is a tee (a branch), not a
-        continuation: they are not joined and the app explains why.</td></tr>
+<tr><td bgcolor="{{card}}"><b>Branches (tees)</b></td>
+    <td bgcolor="{{card}}">If a selected one starts in the <b>middle</b> of another selected one, the
+        through one is <b>cut at the tee</b>: the join follows the selected ones and the piece that does
+        not fit stays as a <b>separate utility</b> (in <b>amber</b> in the preview). Utilities you did not
+        select are never touched. If the selected ones branch so much that they do not fit in a single
+        line, the app explains it: join them in parts.</td></tr>
 </table>
 
 <h2>What happens to the data</h2>
@@ -324,7 +346,7 @@ Civil 3D). It is useful, for example, when recognition left a pipe split into se
 <p>Select the pipe in the <b>Utilities</b> list. In the <b>Properties</b> panel:</p>
 <table width="100%" cellspacing="4" cellpadding="10">
 <tr><th align="left" width="30%">Field</th><th align="left">What it is for</th></tr>
-<tr><td bgcolor="{{card}}"><b>Name</b></td><td bgcolor="{{card}}">Network name in Civil 3D (for example «Linea Norte»). If empty, the network is called RED-AGUA, RED-GAS, etc.</td></tr>
+<tr><td bgcolor="{{card}}"><b>Name</b></td><td bgcolor="{{card}}">Network name in Civil 3D (for example «Linea Norte»). If empty, it is called <b>TYPE-NUMBER</b> with its number in the list (for example «TELECOM-13»); if you delete utilities, the number updates itself.</td></tr>
 <tr><td bgcolor="{{card}}"><b>Family and Size</b></td><td bgcolor="{{card}}">Civil 3D catalog part. Listed for the version and language chosen on the top bar. If the size you need is missing, use the green <b>+</b> button (see below).</td></tr>
 <tr><td bgcolor="{{card}}"><b>Start / end elevation</b></td><td bgcolor="{{card}}">Elevation of the pipe bottom (in feet) at the start and the end.</td></tr>
 <tr><td bgcolor="{{card}}"><b>Material</b></td><td bgcolor="{{card}}">From a fixed list that matches the catalog.</td></tr>
@@ -360,13 +382,18 @@ If you see «No permission to write the catalog», run the app as administrator.
     and what its name says (type, whether it is new, existing or abandoned, and the source
     sheet). They are for reference only.</li>
 <li>With <b>Add field</b> you write down your own data. It is saved in the project and goes into the DXF.</li>
+<li>In <b>Civil 3D</b> you see them when you select the part: <b>Properties</b> palette →
+    <b>Extended Data</b> tab. Each pipe (and fitting) carries «PDFCAD_Utilidad» (utility type, its
+    number in the app list, the network and this data) and each manhole or box «PDFCAD_Estructura»
+    (its code, the network and its data). Your own fields show as «Usuario_…».</li>
 </ul>
 
 <table width="100%" cellspacing="0" cellpadding="12"><tr>
 <td width="6" bgcolor="{{info_border}}"></td><td bgcolor="{{info}}">
 <b>Important about the name:</b> the name only identifies the network. Two pipes of the
 <b>same type</b> that touch are joined in Civil 3D <b>even if their names differ</b>: they go
-into the network of the first name.
+into the network of the first name (a name you typed wins over a default one). The ones that do
+not touch go into separate networks.
 </td></tr></table>
 
 <h2>Curves</h2>
@@ -381,7 +408,7 @@ shows the maximum allowed.</p>
 <li><b>Electrical and telecom</b> networks have few boxes: the app only places a <b>box</b>
     (CAJA-) where the PDF plan has a real vault, with its measurements. You add the rest.</li>
 <li>In the <b>Manholes</b> list you change their family, size and elevations. If a size is missing, the green <b>+</b> button adds it (see «Pipe data»).</li>
-<li>Square boxes coming from the PDF show as <b>SÓLIDO</b> (solid): no family; you adjust their <b>Length</b> and <b>Width</b> (the drawing resizes) and their <b>Height</b> (2 m by default). The <b>Top elevation</b> drives the top: by default the attached utility's (↺ returns to it). In Civil 3D they are created as 3D solids with their extended data as a Property Set.</li>
+<li>Square boxes coming from the PDF show as <b>SÓLIDO</b> (solid): no family; you adjust their <b>Length</b> and <b>Width</b> (the drawing resizes) and their <b>Height</b> (2 m by default). The <b>Top elevation</b> drives the top: by default it is calculated so the attached utility reaches the <b>middle</b> of the solid (its centerline at mid-height; ↺ returns to it). In Civil 3D they are created as 3D solids with their extended data as a Property Set.</li>
 <li>To add one in the middle of a line: <b>Tools → Insert manhole in-line…</b></li>
 <li><b>Hide manhole</b> removes a manhole that does not really exist; the network stays connected.</li>
 </ul>
@@ -534,8 +561,23 @@ The app only warns: it does not move anything in the drawing.</p>
 Clearances, cover and requirements that come from the Excel are stored, edited and exported, but they
 are <b>not checked on the plan yet</b> (each row says so).</p>
 
+<h2>Simple format (the official one for new standards)</h2>
+<p><b>Export Excel</b> saves the format proposed by the civil engineers, in English and readable without the
+app. <b>Import Excel</b> recognizes it automatically (also the template below and the clearance tables).</p>
+<ul>
+<li><b>All (Flat)</b>: one row per rule — Utility A, Utility B (another utility, RAILROAD TRACK, CURB &amp;
+    GUTTER, CATCH BASIN, MAINTENANCE HOLE or COVER = depth of cover), Orientation (Horizontal/Vertical), Case
+    («General» or the condition), Min and Max with their unit (<b>ft</b> or <b>in</b>), Measured From, Notes,
+    Reference(s) («W-2:7») and Source Sheet. A row without a number is a written requirement.</li>
+<li><b>References</b>: Source Sheet, Ref # and the text of each reference.</li>
+<li>One tab per utility (a copy for reading; edit «All (Flat)»), <b>Legend</b> and
+    <b>How to Add a Utility</b>. The grey columns on the right (Rule ID, Active, Mandatory, Status,
+    Note IDs) are filled by the app; leave them empty in new rules.</li>
+</ul>
+<p>Whatever the app does not know (a new element, a reference missing from «References») is still imported
+with the <b>Review</b> status.</p>
 <h2>Standards in Excel (for the engineers)</h2>
-<p>Rules are exchanged with a <b>universal Excel template</b>: one row per rule, with drop-down lists, so
+<p>Previously, rules were exchanged with a <b>universal Excel template</b> (it can still be imported): one row per rule, with drop-down lists, so
 the engineer does not have to type free text.</p>
 <table width="100%" cellspacing="4" cellpadding="10">
 <tr><td bgcolor="{{card}}" width="28%"><b>Export Excel</b></td>
@@ -624,6 +666,10 @@ coordinate system code (for example <b>CA83VF</b>), type it and the drawing will
     fitting's bell.</li>
 <li>Each fitting stores its data (type, angle, diameters, material, network) in its properties.</li>
 <li>Approved vertical joints are drawn with elbows and a vertical segment.</li>
+<li>Each pipe, manhole or box and fitting goes on its <b>utility's layer</b> (ELECTRICO,
+    TELECOM, AGUA…), the same as the DXF lines: you can turn each utility on or off by its layer.
+    The DXF 2D lines are erased once they become the network. The conduits of a duct bank go on
+    the duct bank's layer.</li>
 </ul>
 <table width="100%" cellspacing="0" cellpadding="12"><tr>
 <td width="6" bgcolor="{{warn_border}}"></td><td bgcolor="{{warn}}">
@@ -736,7 +782,17 @@ pipes have <b>elevations</b>.</p>
 <h2>I renamed a pipe and now it is in another network</h2>
 <p>Pipes of the same type that touch always go into the same network; it takes the first name.</p>
 <h2>I made a mistake</h2>
-<p><span class="key">&nbsp;Ctrl+Z&nbsp;</span> undoes it. If you closed without saving, open the last saved .digproj.</p>
+<p><span class="key">&nbsp;Ctrl+Z&nbsp;</span> undoes it. If you closed without saving on purpose («Don't save»), open the last saved .digproj.</p>
+<h2>The app closed suddenly (power cut, crash…)</h2>
+<p>While you work, the app saves a <b>backup of your changes every 2 minutes</b> by itself (only when
+there are unsaved changes). If it closes without you closing it, the next time you open it you are
+offered to <b>Recover</b> that backup. The project opens as «unsaved»: press
+<span class="key">&nbsp;Ctrl+S&nbsp;</span> to save it to its usual file. You can also <b>Discard</b> the
+backup or decide <b>Later</b>.</p>
+<p>The backup is deleted by itself when you save, when you choose not to save and when you close the app
+normally. It lives in <code>%LOCALAPPDATA%\pdf-to-cad
+ecuperacion</code>; it does not replace saving the
+project.</p>
 <h2>More help</h2>
 <p><b>Help → Keyboard shortcuts</b> lists all shortcut keys. <b>Help → About…</b> shows what's new in each version.</p>
 </section>

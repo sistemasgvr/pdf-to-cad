@@ -368,3 +368,30 @@ def show_options(win):
         new_lang = cmb.currentData()
         if new_lang != _i18n.get_lang():
             _i18n.set_lang(new_lang)   # emite LANG_BUS.changed
+
+
+def preguntar_recuperacion(win, meta, otras=0):
+    """Ofrece recuperar la copia automática de una sesión que se cerró sin guardar.
+    Devuelve "recuperar", "descartar" o "despues"."""
+    import time as _time
+    nombre = meta.get("nombre") or _tr("Proyecto sin nombre")
+    fecha = _time.strftime("%d/%m/%Y %H:%M", _time.localtime(float(meta.get("fecha") or 0)))
+    texto = _tr("La aplicación se cerró sin guardar los últimos cambios, pero hay una copia automática:")
+    detalle = _tr("«{nombre}» · {n} utilidades · copia del {fecha}").format(
+        nombre=nombre, n=int(meta.get("utilidades") or 0), fecha=fecha)
+    mb = QtWidgets.QMessageBox(win)
+    mb.setIcon(QtWidgets.QMessageBox.Question)
+    mb.setWindowTitle(_tr("Recuperar trabajo sin guardar"))
+    mb.setText(texto + "\n\n" + detalle + "\n\n" + _tr("¿Quieres recuperarla?"))
+    if otras:
+        mb.setInformativeText(_tr("Hay {k} copia(s) más antiguas: se ofrecerán la próxima vez.").format(k=otras))
+    b_rec = mb.addButton(_tr("Recuperar"), QtWidgets.QMessageBox.AcceptRole)
+    b_desc = mb.addButton(_tr("Descartar"), QtWidgets.QMessageBox.DestructiveRole)
+    mb.addButton(_tr("Más tarde"), QtWidgets.QMessageBox.RejectRole)
+    mb.setDefaultButton(b_rec)
+    mb.exec()
+    if mb.clickedButton() is b_rec:
+        return "recuperar"
+    if mb.clickedButton() is b_desc:
+        return "descartar"
+    return "despues"

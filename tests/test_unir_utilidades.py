@@ -68,13 +68,63 @@ def test_tres_en_cadena_en_cualquier_orden():
 
 
 @pytest.mark.parametrize("pipes,texto", [
-    ([_p([(0, 0), (200, 0)]), _p([(100, 0), (100, 100)])], "ramal"),
     ([_p([(0, 0), (100, 0)]), _p([(100, 0), (200, 0)], layer="GAS")], "otro tipo"),
     ([_p([(0, 0), (100, 0)]), _p([(300, 0), (400, 0)])], "100.00 ft"),
 ])
 def test_no_se_unen(pipes, texto):
     pl = U.planificar(pipes, [0, 1], 0, FT)
     assert not pl.ok and texto in pl.error
+
+
+def test_ramal_parte_la_de_paso_en_la_t():
+    # B nace a mitad de A: A se parte en (100, 0); la unión sigue A(0→100)→B o
+    # A(200→100)→B y el otro trozo de A queda aparte con sus datos.
+    pl = U.planificar([_p([(0, 0), (200, 0)], name="A"), _p([(100, 0), (100, 100)], name="B")], [0, 1], 0, FT)
+    assert pl.ok and pl.unidas == [1] and len(pl.sobrantes) == 1
+    assert pl.pipe["name"] == "A" and pl.pipe["pts"][-1] == (100, 100) and (100.0, 0.0) in pl.pipe["pts"]
+    assert len(pl.pipe["pts"]) == 3 and all(e.hueco_ft == 0 for e in pl.empalmes)
+    sob = pl.sobrantes[0]["pts"]
+    assert sorted([sob[0], sob[-1]]) in ([(0, 0), (100.0, 0.0)], [(100.0, 0.0), (200, 0)])
+    assert any("se parte en la T" in a for a in pl.avisos)
+
+
+def test_ramal_en_un_vertice_y_cotas_del_trozo():
+    # C nace en el vértice interior (100, 0) de A; A trae cotas: cada trozo conserva las suyas.
+    a = _p([(0, 0), (100, 0), (200, 0)], inv_start=100.0, inv_end=98.0)
+    b = _p([(-100, 0), (0, 0)])                       # sigue a A por su inicio
+    c = _p([(100, 0), (100, 100)])
+    pl = U.planificar([a, b, c], [0, 1, 2], 0, FT)
+    assert pl.ok and pl.pipe["pts"] == [(-100, 0), (0, 0), (100, 0), (100, 100)]
+    sob = pl.sobrantes[0]
+    assert sob["pts"] == [(100, 0), (200, 0)]
+    assert sob["inv_start"] == pytest.approx(99.0) and sob["inv_end"] == pytest.approx(98.0)
+
+
+def test_ramal_en_mitad_de_tramo_con_cotas_y_tipos():
+    a = _p([(0, 0), (200, 0)], inv_start=100.0, inv_end=98.0, vertex_kinds=["end", "end"])
+    b = _p([(50, 0), (50, 80)])
+    pl = U.planificar([a, b], [0, 1], 0, FT)
+    assert pl.ok
+    zs = [pl.pipe.get("inv_start"), pl.pipe.get("inv_end")]
+    sob = pl.sobrantes[0]
+    # la T queda en (50, 0) con la cota del tramo en ese punto (99.5)
+    z_t = sob["inv_start"] if sob["pts"][0] == (50.0, 0.0) else sob["inv_end"]
+    assert z_t == pytest.approx(99.5)
+    assert "tee" in (sob.get("vertex_kinds") or []) and None not in zs
+
+
+def test_ramales_que_no_caben_en_una_linea():
+    # Cruz: A horizontal y B, C, D nacen en su mitad → cuatro puntas libres.
+    pipes = [_p([(0, 0), (200, 0)]), _p([(100, 0), (100, 100)]), _p([(100, 0), (100, -100)]),
+             _p([(150, 0), (150, 50)])]
+    pl = U.planificar(pipes, [0, 1, 2, 3], 0, FT)
+    assert not pl.ok and "no caben en una sola línea" in pl.error
+
+
+def test_un_hueco_no_vuelve_a_la_t():
+    # Con huecos de hasta 10 ft el recorrido no puede saltar de la punta de A a la T.
+    pl = U.planificar([_p([(0, 0), (20, 0)]), _p([(10, 0), (10, 30)])], [0, 1], 0, FT)
+    assert pl.ok and all(e.hueco_ft == 0 for e in pl.empalmes) and len(pl.pipe["pts"]) == 3
 
 
 def test_avisa_los_datos_que_cambian():
@@ -149,3 +199,17 @@ def test_unir_con_una_sola_o_de_otro_tipo_avisa(win):
 def test_ctrl_j_en_el_menu(win):
     acts = [a for a in win.findChildren(type(win.act_show_acc)) if a.shortcut().toString() == "Ctrl+J"]
     assert acts
+
+
+def test_unir_con_ramal_deja_el_trozo_aparte(win):
+    win.pipes = [_p([(100, 100), (700, 100)], name="A"), _p([(400, 100), (400, 400)], name="R")]
+    win.duct_banks, win.cross_connections = [], []
+    win._refresh_lists(); win._show_tab(0); win.pipe_list.setCurrentRow(0)
+    win._toggle_pipe_selection(1)
+    win.unir_utilidades()
+    assert len(win.pipes) == 2
+    unida, trozo = win.pipes
+    assert unida["name"] == "A" and unida["pts"][-1] == (400, 400) and (400.0, 100.0) in unida["pts"]
+    assert len(trozo["pts"]) == 2 and (400.0, 100.0) in trozo["pts"] and trozo["name"] == "A"
+    win.undo()
+    assert [p["pts"] for p in win.pipes] == [[(100, 100), (700, 100)], [(400, 100), (400, 400)]]

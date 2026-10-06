@@ -378,8 +378,11 @@ def family_guid(year, fid, kind):
     nombre único es exacto e inequívoco) — el camino que ya funcionaba."""
     if not fid or "|" in fid:
         return ""                                  # presión (SQLite): sin XML/GUID
-    if not fid.startswith("Aecc"):
-        return ""                                  # custom: se empareja por Description
+    if not fid.startswith("Aecc") or any(c.isspace() for c in fid):
+        # custom: se empareja por Description. Una copia de una de Autodesk hecha en
+        # Part Builder conserva el «Aecc…» pero lleva un sufijo con espacio
+        # («AeccRectangularConcretePipe_Imperial CBA»): las de Autodesk nunca tienen espacios.
+        return ""
     path = pipe_family_xml(year, fid) if kind == "pipe" else structure_family_xml(year, fid)
     if path is None:
         return ""

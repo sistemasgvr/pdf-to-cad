@@ -94,7 +94,28 @@ hay cambios sin guardar. Guarda a menudo.
 <tr><td bgcolor="{{card}}">Ver mejor mis líneas</td><td bgcolor="{{card}}">Botón <b>Opacidad</b>: aclara solo el PDF. También puedes poner el fondo blanco o negro.</td></tr>
 <tr><td bgcolor="{{card}}">Cambiar a modo oscuro o claro</td><td bgcolor="{{card}}">Menú <b>Ver</b> → tema claro / oscuro.</td></tr>
 <tr><td bgcolor="{{card}}">Cambiar el idioma</td><td bgcolor="{{card}}"><b>Archivo → Opciones…</b> → Idioma. Cambia al instante.</td></tr>
+<tr><td bgcolor="{{card}}">Tener más espacio para el plano</td><td bgcolor="{{card}}">Ocultar los paneles laterales (ver abajo).</td></tr>
 </table>
+
+<h2>Ocultar los paneles laterales</h2>
+<p>Los dos paneles (<b>Herramientas</b> a la izquierda e <b>Inventario</b> a la derecha) se pueden
+ocultar solos, igual que las paletas de Civil 3D:</p>
+<ol>
+<li>Pulsa la <b>chincheta</b> 📌 de la cabecera del panel (o menú <b>Ver → Ocultar automáticamente el
+    panel izquierdo / derecho</b>).</li>
+<li>El panel queda como una <b>pestaña vertical</b> en su borde y el plano gana ese espacio.</li>
+<li>Pasa el ratón por la pestaña (o haz clic en ella): el panel se abre <b>encima del plano</b>.
+    Al alejar el ratón o al hacer clic en el plano, se vuelve a recoger.</li>
+<li>Para dejarlo fijo otra vez, pulsa la chincheta de su cabecera.</li>
+</ol>
+<table width="100%" cellspacing="0" cellpadding="12"><tr>
+<td width="6" bgcolor="{{tip_border}}"></td><td bgcolor="{{tip}}">
+<b>Consejo:</b> mientras escribes en un campo del panel, o tienes abierto un desplegable o una ventana,
+el panel no se recoge solo. Arrastra su borde interior para hacerlo más ancho. La app recuerda cómo
+dejaste cada panel.
+</td></tr></table>
+<p>Los paneles se adaptan a su ancho: los botones largos pasan a dos líneas y las filas de botones se
+reacomodan, así nunca hace falta desplazarse hacia los lados.</p>
 </section>
 
 <section data-title="Planos PDF de CAD (asistente)">
@@ -290,8 +311,8 @@ Civil 3D). Sirve, por ejemplo, cuando el reconocimiento dejó una tubería parti
 <li>Pulsa <span class="key">&nbsp;Ctrl+J&nbsp;</span>, o haz <b>clic derecho</b> (en la lista o sobre una de
     las líneas del plano) → <b>Unir en una utilidad</b>. También está en <b>Edición → Unir utilidades
     seleccionadas</b>.</li>
-<li>Aparece una <b>vista previa</b>: la utilidad resultante en <b>verde a trazos</b> y un círculo verde en
-    cada empalme. Revisa el mensaje y pulsa <b>Sí</b> para unir o <b>No</b> para dejarlo como estaba.</li>
+<li>Aparece una <b>vista previa</b>: la utilidad resultante en <b>verde a trazos</b> (con sus curvas, como en el
+    lienzo) y un círculo verde en cada empalme. Revisa el mensaje y pulsa <b>Sí</b> para unir o <b>No</b> para dejarlo como estaba.</li>
 </ol>
 
 <h2>Qué tiene que cumplirse</h2>
@@ -302,9 +323,12 @@ Civil 3D). Sirve, por ejemplo, cuando el reconocimiento dejó una tubería parti
         avisa antes.</td></tr>
 <tr><td bgcolor="{{card}}"><b>Mismo tipo</b></td>
     <td bgcolor="{{card}}">Agua con agua, gas con gas… No se mezclan tipos.</td></tr>
-<tr><td bgcolor="{{danger}}"><b>No es un ramal</b></td>
-    <td bgcolor="{{card}}">Si una termina a <b>mitad</b> de la otra, eso es una T (un ramal), no una
-        continuación: no se unen y la app lo explica.</td></tr>
+<tr><td bgcolor="{{card}}"><b>Ramales (T)</b></td>
+    <td bgcolor="{{card}}">Si una seleccionada nace a <b>mitad</b> de otra seleccionada, la de paso se
+        <b>parte en la T</b>: la unión sigue por las seleccionadas y el trozo que no entra queda como
+        <b>utilidad aparte</b> (en <b>ámbar</b> en la vista previa). Las que no seleccionaste no se tocan.
+        Si las seleccionadas se ramifican tanto que no caben en una sola línea, la app lo explica:
+        únelas por partes.</td></tr>
 </table>
 
 <h2>Qué pasa con los datos</h2>
@@ -325,7 +349,7 @@ Civil 3D). Sirve, por ejemplo, cuando el reconocimiento dejó una tubería parti
 <p>Selecciona la tubería en la lista <b>Utilidades</b>. En el panel <b>Propiedades</b>:</p>
 <table width="100%" cellspacing="4" cellpadding="10">
 <tr><th align="left" width="30%">Campo</th><th align="left">Para qué sirve</th></tr>
-<tr><td bgcolor="{{card}}"><b>Nombre</b></td><td bgcolor="{{card}}">Nombre de la red en Civil 3D (por ejemplo «Linea Norte»). Si lo dejas vacío, la red se llama RED-AGUA, RED-GAS, etc.</td></tr>
+<tr><td bgcolor="{{card}}"><b>Nombre</b></td><td bgcolor="{{card}}">Nombre de la red en Civil 3D (por ejemplo «Linea Norte»). Si lo dejas vacío, se llama <b>TIPO-NÚMERO</b> con su número en la lista (por ejemplo «TELECOM-13»); si borras utilidades, el número se actualiza solo.</td></tr>
 <tr><td bgcolor="{{card}}"><b>Familia y Tamaño</b></td><td bgcolor="{{card}}">Pieza del catálogo de Civil 3D. Se listan según la versión e idioma elegidos en la barra superior. Si falta la medida que necesitas, usa el botón verde <b>+</b> (ver abajo).</td></tr>
 <tr><td bgcolor="{{card}}"><b>Elevación inicial / final</b></td><td bgcolor="{{card}}">Cota del fondo de la tubería (en pies) al empezar y al terminar.</td></tr>
 <tr><td bgcolor="{{card}}"><b>Material</b></td><td bgcolor="{{card}}">De una lista fija que coincide con el catálogo.</td></tr>
@@ -361,13 +385,18 @@ Si sale «Sin permiso para escribir el catálogo», abre la app como administrad
     lo que dice su nombre (tipo, si es nueva, existente o abandonada, y la hoja de origen).
     Son solo de referencia.</li>
 <li>Con <b>Agregar campo</b> anotas tus propios datos. Se guardan en el proyecto y salen en el DXF.</li>
+<li>En <b>Civil 3D</b> los ves al seleccionar la pieza: paleta <b>Propiedades</b> → pestaña
+    <b>Datos extendidos</b>. Cada tubería (y accesorio) lleva «PDFCAD_Utilidad» (tipo de utilidad,
+    su número en la lista de la app, la red y estos datos) y cada buzón o caja «PDFCAD_Estructura»
+    (su código, la red y sus datos). Tus campos aparecen como «Usuario_…».</li>
 </ul>
 
 <table width="100%" cellspacing="0" cellpadding="12"><tr>
 <td width="6" bgcolor="{{info_border}}"></td><td bgcolor="{{info}}">
 <b>Importante sobre el nombre:</b> el nombre solo sirve para identificar la red. Dos tuberías
 del <b>mismo tipo</b> que se tocan se unen en Civil 3D <b>aunque tengan nombres distintos</b>:
-quedan en la red del primer nombre.
+quedan en la red del primer nombre (un nombre que escribiste manda sobre uno por defecto). Las que no
+se tocan quedan en redes separadas.
 </td></tr></table>
 
 <h2>Curvas</h2>
@@ -383,7 +412,7 @@ el máximo permitido.</p>
     una <b>caja</b> (CAJA-) donde el plano del PDF tiene una bóveda real, con sus medidas.
     Las demás las agregas tú.</li>
 <li>En la lista <b>Buzones</b> cambias su familia, tamaño y cotas. Si falta una medida, el botón verde <b>+</b> la agrega (ver «Datos de la tubería»).</li>
-<li>Las cajas cuadradas que vienen del PDF salen como <b>SÓLIDO</b>: no llevan familia; ajustas su <b>Largo</b> y <b>Ancho</b> (el dibujo cambia de tamaño) y su <b>Altura</b> (2 m por defecto). La <b>Cota superior</b> manda la tapa: por defecto la de la utilidad unida (↺ vuelve a ella). En Civil 3D se crean como sólido 3D con sus datos extendidos como Property Set.</li>
+<li>Las cajas cuadradas que vienen del PDF salen como <b>SÓLIDO</b>: no llevan familia; ajustas su <b>Largo</b> y <b>Ancho</b> (el dibujo cambia de tamaño) y su <b>Altura</b> (2 m por defecto). La <b>Cota superior</b> manda la tapa: por defecto se calcula para que la utilidad unida llegue justo al <b>centro</b> del sólido (su eje a media altura; ↺ vuelve a ella). En Civil 3D se crean como sólido 3D con sus datos extendidos como Property Set.</li>
 <li>Para agregar uno en medio de una línea: <b>Herramientas → Insertar buzón en línea…</b></li>
 <li><b>Ocultar buzón</b> quita un buzón que en realidad no existe; la red sigue unida.</li>
 </ul>
@@ -536,8 +565,23 @@ La app solo avisa: no mueve nada del dibujo.</p>
 Las separaciones, el recubrimiento y los requisitos que llegan del Excel se guardan, se editan y se
 exportan, pero <b>todavía no se revisan sobre el plano</b> (lo indica cada fila).</p>
 
+<h2>Formato simple (el oficial para normativas nuevas)</h2>
+<p><b>Exportar Excel</b> guarda el formato que propusieron los ingenieros civiles, en inglés y legible sin la
+app. <b>Importar Excel</b> lo reconoce solo (también la plantilla de abajo y las tablas de separación).</p>
+<ul>
+<li><b>All (Flat)</b>: una fila por regla — Utility A, Utility B (otra utilidad, RAILROAD TRACK, CURB &amp;
+    GUTTER, CATCH BASIN, MAINTENANCE HOLE o COVER = recubrimiento), Orientation (Horizontal/Vertical), Case
+    («General» o la condición), Min y Max con su unidad (<b>ft</b> o <b>in</b>), Measured From, Notes,
+    Reference(s) («W-2:7») y Source Sheet. Una fila sin número es un requisito de texto.</li>
+<li><b>References</b>: Source Sheet, Ref # y el texto de cada referencia.</li>
+<li>Una pestaña por utilidad (copia para leer; se edita «All (Flat)»), <b>Legend</b> y
+    <b>How to Add a Utility</b>. Las columnas grises de la derecha (Rule ID, Active, Mandatory, Status,
+    Note IDs) las llena la app; en reglas nuevas se dejan vacías.</li>
+</ul>
+<p>Lo que la app no conoce (un elemento nuevo, una referencia que no está en «References») se importa
+igual con estado <b>Revisar</b>.</p>
 <h2>Normativas en Excel (para los ingenieros)</h2>
-<p>Las reglas se intercambian con una <b>plantilla de Excel universal</b>: una fila por regla, con listas
+<p>Antes, las reglas se intercambiaban con una <b>plantilla de Excel universal</b> (se sigue pudiendo importar): una fila por regla, con listas
 desplegables, para que el ingeniero no tenga que escribir texto libre.</p>
 <table width="100%" cellspacing="4" cellpadding="10">
 <tr><td bgcolor="{{card}}" width="28%"><b>Exportar Excel</b></td>
@@ -626,6 +670,10 @@ sistema de coordenadas de Civil 3D (por ejemplo <b>CA83VF</b>), escríbelo y el 
     tuberías entran en la campana del accesorio.</li>
 <li>Cada accesorio guarda sus datos (tipo, ángulo, diámetros, material, red) en sus propiedades.</li>
 <li>Las uniones verticales aprobadas se dibujan con codos y un tramo vertical.</li>
+<li>Cada tubería, buzón o caja y accesorio queda en la <b>capa de su utilidad</b> (ELECTRICO,
+    TELECOM, AGUA…), la misma de las líneas del DXF: puedes apagar o encender cada utilidad por su
+    capa. Las líneas 2D del DXF se borran al convertirse en la red. Los conductos de un bancoducto
+    van en la capa del bancoducto.</li>
 </ul>
 <table width="100%" cellspacing="0" cellpadding="12"><tr>
 <td width="6" bgcolor="{{warn_border}}"></td><td bgcolor="{{warn}}">
@@ -738,7 +786,16 @@ tuberías tienen <b>cotas</b>.</p>
 <h2>Cambié el nombre de una tubería y ahora está en otra red</h2>
 <p>Las tuberías del mismo tipo que se tocan siempre quedan en la misma red; toma el nombre de la primera.</p>
 <h2>Me equivoqué</h2>
-<p><span class="key">&nbsp;Ctrl+Z&nbsp;</span> deshace. Si cerraste sin guardar, abre el último .digproj guardado.</p>
+<p><span class="key">&nbsp;Ctrl+Z&nbsp;</span> deshace. Si cerraste sin guardar a propósito («No guardar»), abre el último .digproj guardado.</p>
+<h2>La app se cerró de golpe (corte de luz, cuelgue…)</h2>
+<p>Mientras trabajas, la app guarda sola una <b>copia de tus cambios cada 2 minutos</b> (solo si hay
+cambios sin guardar). Si se cierra sin que la cierres tú, la próxima vez que la abras te ofrece
+<b>Recuperar</b> esa copia. El proyecto se abre como «sin guardar»: pulsa
+<span class="key">&nbsp;Ctrl+S&nbsp;</span> para guardarlo en su archivo de siempre. También puedes
+<b>Descartar</b> la copia o decidir <b>Más tarde</b>.</p>
+<p>La copia se borra sola cuando guardas, cuando eliges no guardar y cuando cierras la app normalmente.
+Está en <code>%LOCALAPPDATA%\pdf-to-cad
+ecuperacion</code>; no reemplaza a guardar el proyecto.</p>
 <h2>Más ayuda</h2>
 <p><b>Ayuda → Atajos de teclado</b> muestra todas las teclas rápidas. <b>Ayuda → Acerca de…</b> muestra las novedades de cada versión.</p>
 </section>

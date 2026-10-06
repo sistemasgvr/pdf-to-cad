@@ -79,6 +79,7 @@ def text_style(doc, font, bold):
 
 
 def merge_into(win, doc, marks=True):
+    import model_ops
     VP.setup_linetypes(doc); msp = doc.modelspace()
     apply_erase(win, msp)                             # las zonas de borrado recortan el plano base
     if not marks:                                     # 'solo PDF': no agregar utilidades/leaders/textos
@@ -133,6 +134,8 @@ def merge_into(win, doc, marks=True):
             (1000, f"PIPE_IDX={pipe_idx}"),
             (1000, f"HAS_DUCT_BANK={1 if pipe_idx in _db_pipe_idxs else 0}"),
             (1000, f"NET_NAME={p.get('name') or ''}"),
+            # Sin nombre: «TIPO-NÚMERO» (el plugin lo usa si su red no trae nombre propio).
+            (1000, f"NET_NAME_DEFAULT={model_ops.nombre_por_defecto(p, pipe_idx)}"),
         ] + [(1000, item) for item in xdata.dxf_items(p)])       # datos extendidos (XD_*/XDU_*)
     _export_structures(win, doc, msp)
     _export_duct_banks(win, doc, msp)

@@ -244,9 +244,9 @@ class PuenteNormas(QtCore.QObject):
         return self.exportar_a(ruta) if ruta else ""
 
     def exportar_a(self, ruta):
-        import normativas_excel
+        import normativas_simple
         try:
-            normativas_excel.exportar(self.win.normas, getattr(self.win, "normas_anexos", None) or {},
+            normativas_simple.exportar(self.win.normas, getattr(self.win, "normas_anexos", None) or {},
                                       ruta, VERSION)
         except (OSError, PermissionError) as e:
             return _tr("No se pudo guardar: {e}").format(e=e)

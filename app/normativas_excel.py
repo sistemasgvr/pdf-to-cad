@@ -9,7 +9,8 @@ pierde al pasar del Excel libre a la plantilla.
 Los encabezados y las listas van en español fijo: es un formato de datos (el
 importador lee por nombre de columna, en cualquier orden).
 
-`importar(ruta)` acepta la plantilla y también el Excel de «clearance tables»
+`importar(ruta)` acepta el formato SIMPLE (`normativas_simple`, el oficial desde
+2026-10-06: es el que exporta la app), esta plantilla y también el Excel de «clearance tables»
 original (lo convierte `normativas_clearance`).
 """
 from __future__ import annotations
@@ -24,6 +25,7 @@ from openpyxl.worksheet.datavalidation import DataValidation
 
 import normativas as N
 import normativas_clearance as CL
+import normativas_simple as SIMPLE
 
 TIPO_ETIQUETA = {
     "separacion_horizontal": "Separación horizontal",
@@ -282,8 +284,11 @@ def _anexos_de(wb):
 
 def importar(ruta):
     """(reglas, anexos, errores, formato). `errores` = [(fila, texto)]; las filas
-    con error no se importan. `formato` = "plantilla" | "clearance"."""
+    con error no se importan. `formato` = "simple" | "plantilla" | "clearance"."""
     wb = openpyxl.load_workbook(ruta, data_only=True)
+    if "Reglas" not in wb.sheetnames and SIMPLE.es_formato_simple(wb):
+        reglas, anexos, errores = SIMPLE.importar(wb, archivo=ruta.replace("\\", "/").rsplit("/", 1)[-1])
+        return reglas, anexos, errores, "simple"
     if "Reglas" not in wb.sheetnames and CL.es_formato_clearance(wb):
         reglas, anexos = CL.convertir(wb, archivo=ruta.replace("\\", "/").rsplit("/", 1)[-1])
         return reglas, anexos, [], "clearance"

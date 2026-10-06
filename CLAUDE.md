@@ -24,6 +24,37 @@ alcantarillado, drenaje, gas, eléctrico, telecom). Todo en **unidades imperiale
     usa el compositor para pantallas pequeñas)).
   - `ui_common.py` — constantes/helpers de UI compartidos (`DOWNLOADS`, estilos de
     botón, `layer_qcolor`, `swatch_icon`, …). Sin estado; los usa toda la app.
+  - `side_panels.py` — los dos docks de la ventana (`Main._ldock` «Herramientas», `_rdock`
+    «Inventario») se ocultan solos como las paletas de Civil 3D (pedido del usuario 2026-10-05):
+    `AutoHidePanel` (`Main.panel_izq/panel_der`) pone una cabecera con chincheta; «ocultar
+    automáticamente» mueve el contenido (los MISMOS widgets) a un `QFrame#panelOverlay` hijo de la
+    ventana, encima del `centralWidget`, y deja una tira con `SideTab` (pestaña vertical) en su
+    borde. Hover 250 ms o clic → se abre; se recoge con el ratón fuera 500 ms (sondeo cada 100 ms) o
+    al hacer clic fuera (filtro de eventos de la app SOLO mientras está abierto), no con
+    desplegable/menú/modal abiertos, botón del ratón apretado ni escribiendo en un campo del panel.
+    Borde interior arrastrable (`_Grip`). Estado y ancho en QSettings («pdf-to-cad»/«app»,
+    `panel_izq_auto`/`_ancho`…; las pruebas lo cambian por memoria en `tests/conftest.py`). Menú Ver
+    `act_panel_izq/der`. OJO: con el panel recogido sus widgets NO están «visibles» → no usar
+    `isVisible()` para lógica (`_prop_changed` usa `isVisibleTo(self.gprop)`).
+  - `autoguardado.py` — copias automáticas y recuperación (pedido del usuario 2026-10-05).
+    `Main.autoguardado` (`Autoguardado`) arranca SOLO desde `main()` con `Main.iniciar_autoguardado()`
+    (las pruebas que crean la ventana no escriben nada): cada 2 min, si `_has_real_changes()` y la huella
+    del modelo cambió, escribe en `%LOCALAPPDATA%/pdf-to-cad/recuperacion/<sesión>/` las partes del
+    .digproj — `model.json` siempre; `page.png` (clave = `pixmap().cacheKey()`) y los PDF (copia del
+    archivo `pdf_path`, o `doc.tobytes` si no hay archivo; `external/`, `sources/`) solo si cambiaron, en
+    un HILO (`QImage.save` y `shutil.copyfile`, sin tocar fitz ni widgets); `meta.json` al final. Un
+    `QLockFile` por sesión (`setStaleLockTime(0)`): si su proceso murió, `recuperables()` la ofrece
+    (`dialogs.preguntar_recuperacion`: Recuperar/Descartar/Más tarde). Recuperar = `armar_digproj` →
+    `_open_project_path` → `project_path` original y `_forzar_cambios` (sigue «sin guardar»). El setter de
+    `_dirty` (False = guardado/abierto/descartado) llama `limpiar()`; `closeEvent` → `cerrar()`. Pruebas:
+    `tests/test_autoguardado.py`; `tests/conftest.py` manda `PDFCAD_RECUPERACION` a una carpeta temporal.
+  - `responsive.py` — controles para que los paneles NUNCA corten ni pidan scroll horizontal:
+    `WrapButton`/`WrapCheckBox` (parten el texto en líneas; mínimo = palabra más larga; `text()` =
+    texto completo), `ResponsiveGroupBox` (título con «…», no impone ancho) y `GridAdaptable`
+    (filas de botones de 1 a N columnas según quepan). En los paneles: botones con texto → `WrapButton`,
+    casillas → `WrapCheckBox`, grupos → `ResponsiveGroupBox`, filas de botones → `GridAdaptable`.
+    `tests/test_paneles.py::test_nada_se_corta_al_ancho_minimo` recorre cada sección y pestaña a 300 px
+    en español e inglés: un control nuevo que no quepa lo hace fallar.
   - `busy.py` — capa «Cargando…» (pedido del usuario 2026-09-29: que un paso lento no
     parezca congelado). `BusyOverlay` = hijo que tapa una ventana o una vista (atenúa,
     come ratón/teclado/atajos y el cierre, tarjeta con indicador giratorio + texto +
@@ -755,9 +786,10 @@ alcantarillado, drenaje, gas, eléctrico, telecom). Todo en **unidades imperiale
     `PDFCAD_STRUCT` + `SOLID=1, SOLID_CX/CY, SOLID_ROT_DEG, SOLID_H_FT` (+ LENGTH/WIDTH_FT);
     el plugin NO crea estructura en ese vértice (tramos por extremo libre) y `CrearSolidos`
     dibuja un Solid3d en `PDFCAD_SOLIDOS` con base en el sump (o SUMP, RIM−h, 0).
-    Cota SUPERIOR (2026-09-30): `solid_top_z` (None = automática = cota de la utilidad
-    unida en su vértice, `Main._solid_default_top` vía `_pipe_z_at`, la mayor si llegan
-    varias) → `SOLID_TOP_Z`; si viene, manda: base = top − h. Property Set
+    Cota SUPERIOR (2026-09-30): `solid_top_z` (None = automática: desde 2026-10-02 el EJE de la
+    utilidad unida queda a media altura — `model_ops.solid_top_centrado(solera, alto_interior_ft, h)`,
+    alto = 2.º número de «W x H» o el diámetro, como `OffsetEjeARasante` del plugin —;
+    `Main._solid_default_top` vía `_pipe_z_at`, la mayor si llegan varias) → `SOLID_TOP_Z`; si viene, manda: base = top − h. Property Set
     `PDFCAD_Solido` (`SolidoPropertySet.cs`): Codigo, Largo/Ancho/Altura, Cota_Superior/
     Base + cada `XD_*` (sin prefijo) y `XDU_*` («Usuario_…») de la estructura; la
     definición se amplía sola con los campos que falten.
@@ -792,10 +824,23 @@ alcantarillado, drenaje, gas, eléctrico, telecom). Todo en **unidades imperiale
     `Main.normas_anexos`); `fusionar` (importar) y `quitar` (reglas importadas). Ventana simplificada
     (fila: interruptor · título · valor · estado · Detalles; buscador). Tests:
     `tests/test_normativas_excel.py`.
+    **Formato SIMPLE** (2026-10-06, contrapropuesta de los ingenieros = formato OFICIAL): `normativas_simple.py`
+    (PURO) — «All (Flat)» una fila por regla en inglés (Utility A/B, Orientation, Case, Min/Max + unidad ft|in,
+    Measured From, Notes, Reference(s) «HOJA:n», Source Sheet; grises opcionales Rule ID/Active/Mandatory/Status/
+    Note IDs para el ida y vuelta), «References», pestaña por utilidad (solo lectura), «Fitting Angles» y «App
+    Notes» (lo que el formato no cubre). `normativas_excel.importar` lo detecta por la hoja «All (Flat)»;
+    «Exportar Excel» usa `normativas_simple.exportar` (la plantilla vieja sigue importándose). Tests:
+    `tests/test_normativas_simple.py`.
   - **Unir utilidades** (2026-10-02): `unir_utilidades.py` (PURO) `planificar(pipes, filas, base,
     ft_per_px)` → `Plan` (pipe unida, empalmes, absorbidas, avisos): encadena punta con punta desde la
     BASE (la 1.ª seleccionada, `Main._orden_sel`; sus datos mandan), `invertir` las que van al revés,
-    ≤0.5 ft = mismo vértice, hueco ≤10 ft = tramo recto; ramal (T), otro tipo o lejos → error con motivo.
+    ≤0.5 ft = mismo vértice, hueco ≤10 ft = tramo recto; otro tipo o lejos → error con motivo. RAMAL (2026-10-02, `unir_ramales.py`): si una seleccionada nace a
+    mitad de otra seleccionada, ésta se PARTE en la T (`partir_en_tes`: vértice nuevo con cota del tramo,
+    corre cotas/kinds/fillets; T sobre un codo = error) y `mejor_recorrido` (DFS) elige el recorrido punta
+    con punta que cubre todas (de una partida basta un trozo; menos hueco > más trozos > menos giro; un
+    hueco solo entre puntas LIBRES y nunca entre trozos de la misma); los trozos sobrantes →
+    `Plan.sobrantes` (utilidades aparte, `_rebuild_structures`, ámbar en la vista previa, que dibuja los
+    codos con `_pipe_display_pts` igual que el lienzo). Las no seleccionadas nunca se tocan.
     Cotas: en el empalme quedan explícitas la de llegada/salida y, si no coinciden, antes se congelan
     (`snapshot_seg_values`) las interpoladas; corre `vertex_kinds`/`fillets`. `Main.unir_utilidades`
     (Ctrl+J, Edición, menú en bloque, clic derecho en el lienzo `_canvas_context_menu`): vista previa
@@ -846,6 +891,14 @@ alcantarillado, drenaje, gas, eléctrico, telecom). Todo en **unidades imperiale
   caja, sólido, curva, ANCLA de un codo —vecino de un vértice curvo: mide el tubo del codo—, otra tubería a ≤1 ft,
   pieza distinta, caída o cambio de pendiente) → un tubo recto (dos en ángulo se montan/abren en planta y 3D; no
   hay limpieza de uniones en la API de estilos). Núcleo PURO `EnderezarNucleo.cs`, casos en el arnés `PerfilPruebas`.
+  **Capa de la utilidad** (2026-10-05, `ImportarRedCapas.cs`, paso 5g de IMPORTAR_RED, tras las
+  conexiones verticales): cada pieza de cada red creada (tuberías, estructuras, accesorios/apurtenencias de
+  presión) pasa a la capa de su polilínea de origen (`redesConOrigen`: red → ImportPipe; red de capas
+  mezcladas → la polilínea más cercana). Antes quedaban en la capa por defecto de Civil 3D. Conductos de
+  bancoducto → `PDFCAD_DUCT_BANK` (su ImportPipe ya trae esa capa); sólidos sin cambio.
+  **PREPARAR_FAMILIAS paso 5** (`PressureCatalogFiller`, completar tamaños de los SQLite de presión):
+  DESACTIVADO desde 2026-10-05 con `ComandosPrepararFamilias.RELLENAR_CATALOGOS_PRESION = false`
+  (código intacto; `true` lo reactiva). Los tamaños nuevos van por el «+» de la app.
   **Ángulo del codo** (2026-10-01): el XDATA `ANGULO` de la pieza sigue siendo el GIRO (lo usa el rótulo del
   perfil «45° BEND»); el Property Set `PDFCAD_Accesorio.Angulo_Grados` y `LISTAR_ACCESORIOS` muestran el
   ángulo ENTRE tuberías (`AccesorioPropertySet.AnguloVisible`: codo = 180° − giro), igual que la app.
@@ -861,7 +914,10 @@ alcantarillado, drenaje, gas, eléctrico, telecom). Todo en **unidades imperiale
   - `PDFCAD_PIPE` (polilínea): `DIAMETER, UNIT, MATERIAL, NET_KIND, NET_TYPE,
     INV_START, INV_END, MANNINGS_N, COVER_MIN, PIPE_FAMILY, PIPE_GUID, PIPE_SIZE,
     NO_MANHOLE_VERTS, SEG_OVERRIDES, VERTEX_INV, VERTEX_INV_IN, ABANDONED,
-    PIPE_IDX, HAS_DUCT_BANK`.
+    PIPE_IDX, HAS_DUCT_BANK, NET_NAME, NET_NAME_DEFAULT`.
+    `NET_NAME_DEFAULT` (2026-10-02) = «TIPO-NÚMERO» (`model_ops.nombre_por_defecto`: capa +
+    índice+1, no se guarda: se renumera al borrar); `RedesUnidasPorContacto` lo usa solo si el
+    grupo de contacto no trae NET_NAME propio (nombre escrito > defecto; DXF viejo → «RED-<capa>»).
     `HAS_DUCT_BANK=1` → el plugin excluye esta pipe del flujo de redes normales;
     el duct bank la reemplaza con un sólido 3D. `PIPE_IDX` es el índice Python
     de la pipe, usado para emparejar con el `PDFCAD_DUCTBANK` correspondiente.
@@ -888,7 +944,13 @@ alcantarillado, drenaje, gas, eléctrico, telecom). Todo en **unidades imperiale
     (`set_auto`) no borra lo del usuario. Van al .digproj tal cual y al DXF como claves
     extra de `PDFCAD_PIPE`/`PDFCAD_STRUCT`: `XD_CAPA_OCG, XD_XREF, XD_CAPA,
     XD_DISCIPLINA, XD_SISTEMA, XD_UBICACION, XD_ESTADO, XD_MODIFICADORES, XD_ORIGEN` y
-    `XDU_<NOMBRE>` (ASCII, ≤250 car.). El plugin aún no las usa (candidato: Property Sets).
+    `XDU_<NOMBRE>` (ASCII, ≤250 car.). En Civil 3D (2026-10-06, `ImportarRedDatos.cs`, paso 5h de
+    IMPORTAR_RED, con `PropertySetPdfcad.cs` genérico): Property Set «PDFCAD_Utilidad» en cada tubería/
+    accesorio/apurtenencia de presión (Utilidad, Numero_App = PIPE_IDX+1, Red + XD_* sin prefijo y
+    XDU_* como «Usuario_…» de su polilínea de origen; red de varias capas → la más cercana; conductos
+    de bancoducto → los de su tubería) y «PDFCAD_Estructura» en cada estructura (Codigo, Red + los de la
+    `ImportStruct` a ≤0.5 ft; las estructuras nulas de extremos libres no llevan). Clases por
+    `RXObject.GetClass` (nunca nombres a mano). Paleta Propiedades → «Datos extendidos».
   - **Estándar de capas BOE/NCS** (manual en `Documentos/docs prueba/BOE_CADD_Manual_210610.pdf`,
     §8.1): DISC(1 letra + opcional subconjunto nivel 2)-MAYOR(4, relleno «~»)-menor(es)-ESTADO
     (A D E F M N T X, 1–9 fases). `recognition.standard_short_name` normaliza (quita «~» y la
