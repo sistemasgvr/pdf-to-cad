@@ -447,7 +447,9 @@ class CompositeView(ZoomPanView):
         self._warm_seams()
 
     def _warm_seams(self):
-        if self.comp.manual:
+        # con una sola pieza no hay costura que juntar (elegir hoja en «Origen» no
+        # debe pagar el escaneo de sus bordes en cada clic)
+        if self.comp.manual or len(self.comp.pieces) < 2:
             return
         if not self.pieces_ready() or any(getattr(d, "is_closed", False) for d in self.docs):
             return
@@ -495,11 +497,21 @@ class CompositeView(ZoomPanView):
             x0, y0 = min(x0, r.left()), min(y0, r.top())
             x1, y1 = max(x1, r.right()), max(y1, r.bottom())
         pad = max(200.0, 0.5 * max(x1 - x0, y1 - y0))
-        center = self.mapToScene(self.viewport().rect().center())
         work = QtCore.QRectF(x0 - pad, y0 - pad, (x1 - x0) + 2 * pad, (y1 - y0) + 2 * pad)
-        self.setSceneRect(self.sceneRect().united(work))
-        self._ensure_navigation_room(center)
-        self.centerOn(center)
+        # Solo si la escena CRECE: recentrar desplaza la vista y, en pleno arrastre de
+        # la regla o del transportador, Qt repite el último movimiento del ratón sobre
+        # el item → se mueve otra vez → otra vez aquí… (desbordaba la pila al arrastrar
+        # la regla; el transportador saltaba 10°). Tampoco se reentra.
+        if self.sceneRect().contains(work) or getattr(self, "_in_scene_rect", False):
+            return
+        self._in_scene_rect = True
+        try:
+            center = self.mapToScene(self.viewport().rect().center())
+            self.setSceneRect(self.sceneRect().united(work))
+            self._ensure_navigation_room(center)
+            self.centerOn(center)
+        finally:
+            self._in_scene_rect = False
 
     def _ensure_navigation_room(self, center):
         """Leave room around the camera at every zoom level, including blank space."""

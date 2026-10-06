@@ -10,28 +10,28 @@ Textos en español vía i18n.
 """
 from __future__ import annotations
 
-import math
 from PySide6 import QtCore, QtGui, QtWidgets
 
 from i18n import t as _tr, N_
 from model import TIPOS
-from ui_common import layer_qcolor, swatch_icon
+from ui_common import layer_qcolor, QA_UNCOVERED, QA_OFFPATTERN
 from icons import icon
-from widgets import ZoomPanView, maximize_on_show, side_panel_width, GripSplitter
-from wizard_widgets import StepBar, OpacityButton, wizard_header, wizard_footer
+from widgets import (ZoomPanView, maximize_on_show, GripSplitter,
+                     CollapsiblePanel, NaturalHeightScroll)
+from wizard_widgets import NoEscapeClose, StepBar, OpacityButton, wizard_header, wizard_footer
 from busy import busy
 import recognition as rec
-from recognition_summary_view import SummaryPanel
+import recognition_cache
+from recognition_summary_view import SummaryPanel, separator, utility_swatch
+from recognition_review_view import ReviewPanel
+from recognition_layers_view import UsedLayersPanel
+from recognition_preview_draw import (DIM_OPACITY, _display_runs, _draw_fillet, _draw_orphan,
+                                      _draw_poly, _draw_vault, _draw_vault_outline,
+                                      draw_line_halo, draw_vault_halo, vault_points)
 import theme as _theme
 
 # Etiqueta de cada utilidad tal como en el desplegable «Tipo de utilidad».
 _UTILITY_LABEL = {key: label for label, key in TIPOS}
-# Etiquetas de los kinds de reconocimiento (informativo en el preview).
-# Toda centerline de un perfil es «Líneas» (así una utilidad nueva no se olvida aquí).
-_KIND_LABEL = {**{kind: N_("Líneas") for kind in rec.DRAW_KINDS}, "structure": N_("Estructuras")}
-# Cómo se llaman las estructuras de cada utilidad en la lista de capas.
-_STRUCT_LABEL = {"ELECTRICO": N_("Bóvedas"), "ALCANTARILLADO": N_("Buzones"), "GAS": N_("Bóvedas"),
-                 "TELECOM": N_("Bóvedas")}
 # Acciones que devuelve el preview.
 PREVIEW_IMPORT, PREVIEW_CANCEL = "import", "cancel"
 PREVIEW_CHANGE_SHEET, PREVIEW_ADJUST_LAYERS = "change_sheet", "adjust_layers"
@@ -150,6 +150,18 @@ _ROLE_LABELS = (
 )
 
 
+def _suggest_role(L: dict, utility: str) -> str:
+    """Rol sugerido: por el nombre de la capa y, si sus líneas lo dicen con sus LETRAS
+    (`pdf_layers.page_layers` → `letter_utilities`), por las letras: una capa que es
+    TODA de esta utilidad por sus letras es «Líneas»; la que su nombre hacía de esta
+    utilidad y sus letras dicen otra, «Ignorar»."""
+    if list(L.get("letter_utilities") or ()) == [utility]:
+        return rec.ROLE_LINEAS
+    if L.get("name_utility") == utility:
+        return rec.ROLE_IGNORAR
+    return rec.suggest_layer_role(L["name"], utility)
+
+
 class LayerRolesDialog(QtWidgets.QDialog):
     """Ajuste OPCIONAL de qué capas son líneas y cuáles bóvedas (si el plot usa
     otros nombres). Se abre desde «Ajustar capas…» del preview."""
@@ -188,7 +200,7 @@ class LayerRolesDialog(QtWidgets.QDialog):
         ordered = sorted(
             layers,
             key=lambda L: (
-                0 if rec.suggest_layer_role(L["name"], utility) != rec.ROLE_IGNORAR else 1,
+                0 if _suggest_role(L, utility) != rec.ROLE_IGNORAR else 1,
                 -int(L.get("path_count") or 0),
                 (L.get("short") or L["name"]).upper(),
             ),
@@ -209,7 +221,7 @@ class LayerRolesDialog(QtWidgets.QDialog):
             combo = QtWidgets.QComboBox()
             for role, label in _ROLE_LABELS:
                 combo.addItem(_tr(label), role)
-            sug = rec.suggest_layer_role(name, utility)
+            sug = _suggest_role(L, utility)
             idx = next((i for i, (r, _) in enumerate(_ROLE_LABELS) if r == sug), 2)
             combo.setCurrentIndex(idx)
             self.table.setCellWidget(row, 2, combo)
@@ -277,144 +289,18 @@ _PreviewView = ZoomPanView
 GOTO_MIN_SIDE_PX = 420.0   # clic en un aviso: lado mínimo de la zona mostrada (px de la imagen)
 
 
-def _draw_poly(scene, pts, color, width=2.0, dots=False, z=5, dashed=False):
-    """Misma convención visual que Main._poly para pipes finalizados."""
-    pen = QtGui.QPen(color, width)
-    pen.setCosmetic(True)
-    if dashed:
-        pen.setDashPattern([6.0, 4.0])
-    for a, b in zip(pts, pts[1:]):
-        it = scene.addLine(a[0], a[1], b[0], b[1], pen)
-        it.setZValue(z)
-    if dots:
-        for (x, y) in pts:
-            it = scene.addEllipse(
-                x - 3, y - 3, 6, 6, pen, QtGui.QBrush(color))
-            it.setZValue(z)
+# El dibujo sobre la hoja vive en recognition_preview_draw; «Capas usadas», en
+# recognition_layers_view (clic = resaltar la capa en la hoja).
 
 
-def _display_runs(pl):
-    """Tramos rectos para DIBUJAR: en un codo la recta llega hasta A (tangencia)
-    y se reanuda en B; el arco entre A y B se pinta aparte (`_draw_fillet`)."""
-    fillets = getattr(pl, "fillets", None) or {}
-    if not fillets:
-        return [pl.pts_pdf]
-    runs, cur = [], []
-    for i, p in enumerate(pl.pts_pdf):
-        f = fillets.get(i)
-        if f:
-            cur.append(f["a"]); runs.append(cur); cur = [f["b"]]
-        else:
-            cur.append(p)
-    runs.append(cur)
-    return [r for r in runs if len(r) >= 2]
-
-
-def _draw_fillet(scene, corner, f: dict, color, z=6):
-    """Arco del codo (círculo ajustado al PDF) entre A y B, la esquina C punteada
-    y el radio en la etiqueta."""
-    cx, cy = f["center"]; r = f["r_px"]
-    a0 = math.degrees(math.atan2(-(f["a"][1] - cy), f["a"][0] - cx))
-    a1 = math.degrees(math.atan2(-(f["b"][1] - cy), f["b"][0] - cx))
-    span = (a1 - a0 + 540.0) % 360.0 - 180.0          # el camino corto
-    path = QtGui.QPainterPath()
-    path.arcMoveTo(QtCore.QRectF(cx - r, cy - r, 2 * r, 2 * r), a0)
-    path.arcTo(QtCore.QRectF(cx - r, cy - r, 2 * r, 2 * r), a0, span)
-    pen = QtGui.QPen(color, 2.5); pen.setCosmetic(True)
-    if f.get("loose"):
-        # codo APROXIMADO: la curva del plano no es un arco tangente exacto (polilínea
-        # «a mano»); el arco queda a ≤3 pt de ella. Se pinta a trazos para que se note.
-        pen.setStyle(QtCore.Qt.DashLine)
-    it = scene.addPath(path, pen); it.setZValue(z)
-    dash = QtGui.QPen(color, 1); dash.setCosmetic(True); dash.setStyle(QtCore.Qt.DashLine)
-    for q in (f["a"], f["b"]):
-        ln = scene.addLine(q[0], q[1], corner[0], corner[1], dash); ln.setZValue(z)
-    m = scene.addRect(corner[0] - 4, corner[1] - 4, 8, 8, QtGui.QPen(QtGui.QColor("#ffffff"), 1.5), QtGui.QBrush(color))
-    m.setFlag(QtWidgets.QGraphicsItem.ItemIgnoresTransformations); m.setZValue(z + 2)
-
-
-def _draw_vault_outline(scene, vg: dict, color, z=5):
-    """Rectángulo (o círculo) del símbolo de bóveda tal como está en el PDF, con
-    el MISMO color de la utilidad que usan las cajas en el editor (una sola
-    regla de color en toda la app), y «ancho × largo ft» al lado. Solo informa:
-    el vértice de la línea sigue siendo el punto de referencia."""
-    color = QtGui.QColor(color)
-    pen = QtGui.QPen(color, 2)
-    pen.setCosmetic(True)
-    fill = QtGui.QColor(color); fill.setAlpha(40)
-    if vg.get("corners"):
-        poly = QtGui.QPolygonF([QtCore.QPointF(x, y) for x, y in vg["corners"]])
-        it = scene.addPolygon(poly, pen, QtGui.QBrush(fill))
-    elif vg.get("circle"):                 # buzón redondo: el anillo dibujado en el PDF
-        cx, cy, r = vg["circle"]
-        it = scene.addEllipse(cx - r, cy - r, 2 * r, 2 * r, pen, QtGui.QBrush(fill))
-    else:
-        cx, cy = vg["center"]
-        r = max(4.0, 0.5 * vg.get("width_ft", 0.0) / max(1e-9, 1.0))   # radio aprox. en px lo pone el llamador
-        it = scene.addEllipse(cx - r, cy - r, 2 * r, 2 * r, pen)
-    it.setZValue(z)
-    if vg.get("width_ft") and vg.get("length_ft"):
-        label = f"{vg['width_ft']:.1f} × {vg['length_ft']:.1f} ft" + (" (AB)" if vg.get("abandoned") else "")
-        txt = scene.addSimpleText(label)
-        txt.setBrush(QtGui.QBrush(color))
-        txt.setFlag(QtWidgets.QGraphicsItem.ItemIgnoresTransformations)
-        xs = [x for x, _ in vg["corners"]] if vg.get("corners") else [vg["center"][0]]
-        ys = [y for _, y in vg["corners"]] if vg.get("corners") else [vg["center"][1]]
-        txt.setPos(max(xs) + 3, min(ys))
-        txt.setZValue(z + 1)
-
-
-def _draw_vault(scene, x, y, color, z=6, r=None):
-    """Punto de bóveda ≈ caja del lienzo (elipse rellena)."""
-    pen = QtGui.QPen(QtGui.QColor("#ffffff"), 1.5)
-    pen.setCosmetic(True)
-    brush = QtGui.QBrush(color)
-    r = 6.0 if r is None else float(r)
-    it = scene.addEllipse(x - r, y - r, 2 * r, 2 * r, pen, brush)
-    it.setZValue(z)
-
-
-class _PreviewPanelScroll(QtWidgets.QScrollArea):
-    """Keep the sidebar's natural height; overflow scrolls instead of shrinking."""
-
-    def __init__(self, body):
-        super().__init__()
-        self.setFrameShape(QtWidgets.QFrame.NoFrame)
-        self.setWidgetResizable(True)
-        self.setHorizontalScrollBarPolicy(QtCore.Qt.ScrollBarAlwaysOff)
-        self.setWidget(body)
-        self._sync_timer = QtCore.QTimer(self)
-        self._sync_timer.setSingleShot(True)
-        self._sync_timer.timeout.connect(self._sync_height)
-        body.installEventFilter(self)
-
-    def _sync_height(self):
-        layout = self.widget().layout()
-        if layout is None:
-            return
-        width = self.viewport().width()
-        height = layout.totalHeightForWidth(width) if layout.hasHeightForWidth() else layout.sizeHint().height()
-        height = max(height, layout.minimumSize().height())
-        if self.widget().minimumHeight() != height:
-            self.widget().setMinimumHeight(height)
-
-    def resizeEvent(self, event):
-        super().resizeEvent(event)
-        self._sync_timer.start(0)
-
-    def eventFilter(self, obj, event):
-        if event.type() == QtCore.QEvent.LayoutRequest:
-            self._sync_timer.start(0)
-        return super().eventFilter(obj, event)
-
-
-class RecognitionPreviewDialog(QtWidgets.QDialog):
+class RecognitionPreviewDialog(NoEscapeClose, QtWidgets.QDialog):
     """Muestra el PDF + overlay de líneas (listas para el editor) y bóvedas.
 
     `action` al cerrar: PREVIEW_IMPORT (Continuar), PREVIEW_CANCEL,
     PREVIEW_CHANGE_SHEET (paso 1 «Componer hoja» de la barra de pasos),
     PREVIEW_SHEET_LAYERS (paso 2 «Capas de la hoja») o PREVIEW_ADJUST_LAYERS
     («Ajustar capas…»). Quien lo abre (Main) ejecuta el flujo correspondiente.
+    Esc no la cierra (`NoEscapeClose`): quita el resaltado de «Capas usadas».
     """
 
     def __init__(self, parent, qimg: QtGui.QImage, result, utility_layer="ELECTRICO",
@@ -437,9 +323,11 @@ class RecognitionPreviewDialog(QtWidgets.QDialog):
                          _UTILITY_LABEL.get(utilities[0], utilities[0]))
         self.action = PREVIEW_CANCEL
 
-        # Cabecera (pasos, a todo el ancho) · vista | panel · pie (opacidad y botones)
+        # Cabecera (pasos, a todo el ancho) · Para verificar | vista | resumen · pie
+        # (pedido del usuario 2026-10-03: «Revisar» y «Detalles» a la IZQUIERDA; el
+        # panel derecho juntaba resumen, avisos y capas y la izquierda quedaba vacía).
         root = QtWidgets.QVBoxLayout(self)
-        root.setContentsMargins(12, 12, 12, 12)   # margen uniforme alrededor de vista y panel
+        root.setContentsMargins(12, 12, 12, 12)   # margen uniforme alrededor de vista y paneles
         root.setSpacing(10)
         # pasos del asistente: 1 y 2 son clicables (volver atrás); es la única navegación
         self.steps = StepBar(2)
@@ -447,53 +335,89 @@ class RecognitionPreviewDialog(QtWidgets.QDialog):
             lambda i: self._finish(PREVIEW_CHANGE_SHEET if i == 0 else PREVIEW_SHEET_LAYERS))
         self.btn_sheet = self.steps.buttons[0]       # «1 Componer hoja»
         root.addWidget(wizard_header(self.steps))
+        t = _theme.tokens()
+        panel_qss = (f"QFrame#previewPanel {{ background:{t.surface}; border:1px solid {t.border};"
+                     f" border-radius:8px; }}")
+        self.split = GripSplitter(QtCore.Qt.Horizontal)   # tiradores visibles y arrastrables
+
+        # ── izquierda: «Para verificar» + «Detalles» (plegable: en pantallas chicas deja
+        # la hoja más ancha; plegado muestra «Para verificar (N)» en vertical) ──
+        self.review_panel = ReviewPanel(self._results)
+        self.review_panel.locate.connect(self._go_to)
+        n_review = len(self.review_panel.review_rows)
+        # «Para verificar», no «Revisar»: lo encontrado que conviene mirar, no errores
+        self.review_box = CollapsiblePanel(_tr("Para verificar ({n})").format(n=n_review) if n_review
+                                           else _tr("Para verificar"))
+        self.review_box.setObjectName("previewPanel")
+        self.review_box.setStyleSheet(panel_qss)
+        self.review_scroll = NaturalHeightScroll(self.review_panel)
+        self.review_box.body_layout.addWidget(self.review_scroll, 1)
+        self.review_box.setMinimumWidth(240)
+        self.review_box.toggled.connect(self._on_review_toggled)
+        self.split.addWidget(self.review_box)
+
         self.view = _PreviewView()
-        # Vista | panel derecho con divisor arrastrable (ancho según la ventana).
-        self.split = GripSplitter(QtCore.Qt.Horizontal)   # tirador visible y arrastrable
         self.split.addWidget(self.view)
-        side = QtWidgets.QWidget()
+
+        # ── derecha: hoja + resumen + capas usadas; «Ajustar capas…» fuera del scroll ──
+        side = QtWidgets.QFrame()
+        side.setObjectName("previewPanel")
+        side.setStyleSheet(panel_qss)
         side.setMinimumWidth(300)
+        self.side_panel = side
         side_layout = QtWidgets.QVBoxLayout(side)
-        side_layout.setContentsMargins(0, 0, 0, 0)
+        side_layout.setContentsMargins(12, 10, 12, 10)
+        side_layout.setSpacing(8)
         body = QtWidgets.QWidget()
         panel = QtWidgets.QVBoxLayout(body)
-        panel.setContentsMargins(10, 0, 0, 0)   # aire entre el divisor y los controles
-        panel.setSpacing(8)
-        self.panel_scroll = _PreviewPanelScroll(body)
+        panel.setContentsMargins(0, 0, 4, 0)    # aire para la barra de scroll
+        panel.setSpacing(10)
+        self.panel_scroll = NaturalHeightScroll(body)
         side_layout.addWidget(self.panel_scroll, 1)
         self.split.addWidget(side)
-        self.split.setStretchFactor(0, 1); self.split.setStretchFactor(1, 0)
+        self.split.setStretchFactor(0, 0); self.split.setStretchFactor(1, 1); self.split.setStretchFactor(2, 0)
+        self._sizes_auto = True            # False en cuanto el usuario mueve un divisor
+        self.split.splitterMoved.connect(lambda *_: setattr(self, "_sizes_auto", False))
+        self._sizes_timer = QtCore.QTimer(self)
+        self._sizes_timer.setSingleShot(True)
+        self._sizes_timer.timeout.connect(lambda: self._sizes_auto and self._apply_side_width())
         root.addWidget(self.split, 1)
 
         color = layer_qcolor(utilities[0])
-        t = _theme.tokens()
 
-        # ── cabecera: utilidad (con su color) y hoja ──
-        head = QtWidgets.QHBoxLayout()
-        sw = QtWidgets.QLabel()
-        sw.setPixmap(swatch_icon(color, 16).pixmap(16, 16))
-        head.addWidget(sw)
+        # ── cabecera: hoja (lo que se está viendo) + escala; debajo, las utilidades ──
+        head = QtWidgets.QHBoxLayout(); head.setSpacing(8)
+        sheet = (_tr("Hoja {n} / {total}").format(n=self._result.page_index + 1, total=page_count)
+                 if page_count else _tr("Hoja {n}").format(n=self._result.page_index + 1))
+        self.lbl_sheet = QtWidgets.QLabel(sheet)
+        sf = self.lbl_sheet.font(); sf.setBold(True); sf.setPointSize(sf.pointSize() + 3)
+        self.lbl_sheet.setFont(sf)
+        head.addWidget(self.lbl_sheet, 1)
+        scale = float(getattr(self._result, "scale_ft_per_pt", 0.0) or 0.0)
+        self.lbl_scale = QtWidgets.QLabel(_tr("Escala 1\"={v}'").format(v=f"{round(scale * 72.0, 3):g}"))
+        self.lbl_scale.setStyleSheet(f"color:{t.text_muted};")
+        self.lbl_scale.setToolTip(_tr("Escala {s:.6f} pie/pt").format(s=scale))
+        head.addWidget(self.lbl_scale, 0, QtCore.Qt.AlignVCenter)
+        panel.addLayout(head)
+        sub = QtWidgets.QHBoxLayout(); sub.setSpacing(6)
+        if len(utilities) == 1:            # con varias, el color de cada una está en sus barras
+            sw = QtWidgets.QLabel()
+            sw.setPixmap(utility_swatch(color, 12))
+            sub.addWidget(sw, 0, QtCore.Qt.AlignTop)
         title = QtWidgets.QLabel(_tr(utility_title))
         title.setWordWrap(True)
         title.setMinimumWidth(0)
         title.setSizePolicy(QtWidgets.QSizePolicy.Ignored, QtWidgets.QSizePolicy.Preferred)
-        tf = title.font(); tf.setBold(True); tf.setPointSize(tf.pointSize() + 3); title.setFont(tf)
-        head.addWidget(title, 1)
-        sheet = (_tr("Hoja {n} / {total}").format(n=self._result.page_index + 1, total=page_count)
-                 if page_count else _tr("Hoja {n}").format(n=self._result.page_index + 1))
-        self.lbl_sheet = QtWidgets.QLabel(sheet)
-        sf = self.lbl_sheet.font(); sf.setBold(True); self.lbl_sheet.setFont(sf)
-        panel.addLayout(head)
-        panel.addWidget(self.lbl_sheet, 0, QtCore.Qt.AlignRight)
+        title.setStyleSheet(f"color:{t.text_muted};")
+        sub.addWidget(title, 1)
+        panel.addLayout(sub)
 
         self._colors = {item.utility: layer_qcolor(item.utility) for item in self._results}
-        # Resumen visual: tarjetas + barra por utilidad + leyenda y cobertura +
-        # «Revisar» (el detalle de cada aviso va en su tooltip; lo informativo,
-        # plegado en «Detalles»).
+        # Resumen visual: tarjetas + barra por utilidad + cobertura (los avisos van
+        # en el panel izquierdo).
         self.summary = SummaryPanel(self._results)
-        self.summary.locate.connect(self._go_to)
         self._marker = None
-        self._reviewed: list = []          # lugares ya visitados desde «Revisar» (recuadro verde)
+        self._reviewed: list = []          # lugares ya vistos desde «Para verificar» (recuadro verde)
         panel.addWidget(self.summary)
         # «Unir tramos en rutas» va en el pie, junto a «Opacidad» (en el panel,
         # entre los avisos y la cobertura, descuadraba el resumen).
@@ -513,50 +437,14 @@ class RecognitionPreviewDialog(QtWidgets.QDialog):
         self.chk_routes.toggled.connect(self._sync_routes_icon)
         self.chk_routes.toggled.connect(self._toggle_routes)
         self._update_summary()
-        hidden = sorted({name for item in self._results
-                         for name in (getattr(item, "hidden_ocgs", None) or [])})
-        if hidden:
-            hid = QtWidgets.QLabel(_tr("Capas ocultas por ti: {n} (no se dibujan ni se reconocen)").format(
-                n=len(hidden)))
-            hid.setWordWrap(True)
-            hid.setToolTip("\n".join(hidden))
-            panel.addWidget(hid)
 
-        # ── capas usadas (informativo: asignación automática por nombre) ──
-        lbl_used = QtWidgets.QLabel(_tr("Capas usadas (asignadas automáticamente por su nombre):"))
-        lbl_used.setWordWrap(True)
-        panel.addWidget(lbl_used)
-        lst = QtWidgets.QListWidget()
-        for item in self._results:
-            item_color = self._colors[item.utility]
-            if len(self._results) > 1:
-                utility_header = QtWidgets.QListWidgetItem(
-                    swatch_icon(item_color, 12), _tr(_UTILITY_LABEL.get(item.utility, item.utility)))
-                utility_header.setFlags(QtCore.Qt.ItemIsEnabled)
-                uf = utility_header.font(); uf.setBold(True); utility_header.setFont(uf)
-                utility_header.setForeground(item_color); lst.addItem(utility_header)
-            for kind in (rec.utility_line_kind(item.utility), "structure"):
-                rows = [x for x in item.ocg_summary if x.get("kind") == kind]
-                if not rows:
-                    continue
-                kind_label = (_STRUCT_LABEL.get(item.utility, _KIND_LABEL[kind])
-                              if kind == "structure" else _KIND_LABEL[kind])
-                hdr = QtWidgets.QListWidgetItem(_tr(kind_label))
-                hdr.setFlags(QtCore.Qt.ItemIsEnabled)
-                hf = hdr.font(); hf.setBold(True); hdr.setFont(hf)
-                hdr.setForeground(item_color); lst.addItem(hdr)
-                for x in rows:
-                    short = x["ocg"].split("|")[-1] if "|" in x["ocg"] else x["ocg"]
-                    tag = "  (AB)" if x.get("abandoned") else ""
-                    layer_item = QtWidgets.QListWidgetItem(
-                        f"    {short}  ({x.get('path_count', 0)}){tag}")
-                    layer_item.setToolTip(x["ocg"]); lst.addItem(layer_item)
-        self.used_layers = lst
-        lst.setMinimumHeight(100)
-        lst.setMaximumHeight(200)
-        lst.setSizePolicy(QtWidgets.QSizePolicy.Expanding, QtWidgets.QSizePolicy.Fixed)
-        lst.setFixedHeight(min(200, max(100, lst.sizeHintForRow(0) * min(8, lst.count()) + 8)))
-        panel.addWidget(lst)
+        # ── capas usadas: clic en una = resaltarla en la hoja (pedido del usuario 2026-10-03) ──
+        panel.addWidget(separator())
+        self.layers_panel = UsedLayersPanel(self._results, self._colors)
+        self.layers_panel.focusChanged.connect(self._on_layer_focus)
+        self.used_layers = self.layers_panel.list
+        self._focus = None
+        panel.addWidget(self.layers_panel, 1)
 
         n_draw = self._n_draw()
         if n_draw == 0:
@@ -568,14 +456,15 @@ class RecognitionPreviewDialog(QtWidgets.QDialog):
             warn.setStyleSheet(f"color:{t.danger}; font-weight:bold;")
             panel.addWidget(warn)
 
-        # «Ajustar capas…» es sobre la lista de arriba: va en el panel. Volver
-        # atrás = la cabecera; opacidad y la decisión final = el pie.
-        self.btn_roles = QtWidgets.QPushButton(_tr("Ajustar capas…"))
+        # «Ajustar capas…» es sobre la lista de arriba: va en el panel, fuera del
+        # scroll. Volver atrás = la cabecera; opacidad y la decisión final = el pie.
+        self.btn_roles = QtWidgets.QPushButton(icon("mdi:tune-vertical", color=t.soft_text),
+                                               _tr("Ajustar capas…"))
         self.btn_roles.setToolTip(_tr("Solo si el plot usa otros nombres: indicar qué capas son líneas y bóvedas."))
         self.btn_roles.clicked.connect(lambda: self._finish(PREVIEW_ADJUST_LAYERS))
-        self.btn_roles.setProperty("secondary", True)
-        self.btn_roles.setMinimumHeight(32)
-        panel.addStretch(1)
+        self.btn_roles.setProperty("soft", True)
+        self.btn_roles.setAutoDefault(False)
+        self.btn_roles.setMinimumHeight(38)
         side_layout.addWidget(self.btn_roles)
         # Opacidad del PDF (el mismo desplegable del editor): bajarla deja ver
         # mejor QUÉ y CUÁNTO se reconoció sobre el plano.
@@ -622,15 +511,22 @@ class RecognitionPreviewDialog(QtWidgets.QDialog):
             self.btn_ok.setEnabled(len(drawable) > 0)
 
     def _toggle_routes(self, checked):
-        for result in self._results:
-            joined = getattr(result, "polylines_joined", None)
-            raw = getattr(result, "polylines_raw", None)
-            if not joined or not raw:
-                continue
-            result.join_routes = bool(checked)
-            result.polylines = list(joined if checked else raw)
+        recognition_cache.set_join_routes(self._results, checked)
         self._update_summary()
         self._redraw_overlay()
+
+    def _hit(self, utility, kind, ocg=None):
+        """¿Esto es de lo elegido en «Capas usadas»? None = no hay nada elegido.
+        Lo que no lleva capa (puntos de bóveda sobre las líneas, marcas del control
+        de calidad) solo cuenta cuando se eligió la utilidad entera."""
+        f = self._focus
+        if f is None:
+            return None
+        if f["utility"] != utility:
+            return False
+        if f["kind"] is None:
+            return True
+        return kind == f["kind"] and (f["ocg"] is None or ocg == f["ocg"])
 
     def _redraw_overlay(self):
         sc = self.view.scene()
@@ -638,48 +534,111 @@ class RecognitionPreviewDialog(QtWidgets.QDialog):
         for it in list(sc.items()):
             if it not in keep:
                 sc.removeItem(it)
+        dim = []                           # lo que no es de la capa elegida: atenuado
+
+        def put(items, hit):
+            if hit is False:
+                dim.extend(items if isinstance(items, list) else [items])
+
         for result in self._results:
             color = self._colors[result.utility]
+            u = result.utility
             for pts in (getattr(result, "offpattern_px", None) or []):
-                _draw_poly(sc, pts, QtGui.QColor("#8a6cff"), width=1.5, dots=False, z=4)
+                put(_draw_poly(sc, pts, QtGui.QColor(QA_OFFPATTERN), width=2.0, dots=False, z=4, dotted=True),
+                    self._hit(u, "qa"))
             for pl in result.drawable:
+                hit = self._hit(u, "line", getattr(pl, "layer_ocg", None))
+                items = []
                 for run in _display_runs(pl):
-                    _draw_poly(sc, run, color, width=2.0, dots=True, z=5)
+                    items += _draw_poly(sc, run, color, width=2.0, dots=True, z=5)
                 for idx, f in (getattr(pl, "fillets", None) or {}).items():
-                    _draw_fillet(sc, pl.pts_pdf[idx], f, color)
+                    items += _draw_fillet(sc, pl.pts_pdf[idx], f, color)
                 x, y = pl.pts_pdf[0]
                 start = sc.addEllipse(
                     x - 5, y - 5, 10, 10, QtGui.QPen(QtGui.QColor("#ffffff"), 1.5),
                     QtGui.QBrush(color))
                 start.setZValue(8)
+                items.append(start)
+                put(items, hit)
+                if hit:
+                    draw_line_halo(sc, pl, color)
             for a, b in (getattr(result, "uncovered_px", None) or []):
-                _draw_poly(sc, [a, b], QtGui.QColor("#ff8c00"), width=4.0, dots=False, z=7)
+                put(_draw_poly(sc, [a, b], QtGui.QColor(QA_UNCOVERED), width=4.0, dots=False, z=7),
+                    self._hit(u, "qa"))
             for (vx, vy) in (getattr(result, "vault_pts", None) or []):
-                _draw_vault(sc, vx, vy, color, z=6)
+                put(_draw_vault(sc, vx, vy, color, z=6), self._hit(u, "node"))
             for vg in (getattr(result, "vaults_geo", None) or []):
                 if not vg.get("orphan") or vg.get("importable", False):
-                    _draw_vault_outline(sc, vg, color)
+                    hit = self._hit(u, "structure", vg.get("layer"))
+                    put(_draw_vault_outline(sc, vg, color), hit)
+                    if hit:
+                        draw_vault_halo(sc, vg, color)
             for (vx, vy) in (getattr(result, "vault_orphans_px", None) or []):
-                _draw_vault(sc, vx, vy, QtGui.QColor("#ff8c00"), z=6, r=4.0)
+                put(_draw_orphan(sc, vx, vy, z=6), self._hit(u, "qa"))
+        for it in dim:
+            it.setOpacity(DIM_OPACITY)
         for rect in getattr(self, "_reviewed", []):
             self._draw_reviewed(rect)
 
+    def _focus_points(self):
+        """Lo elegido en «Capas usadas»: (puntos que ocupa, nº de líneas, nº de bóvedas)."""
+        pts, n_lines, n_vaults = [], 0, 0
+        for result in self._results:
+            u = result.utility
+            for pl in result.drawable:
+                if self._hit(u, "line", getattr(pl, "layer_ocg", None)):
+                    n_lines += 1
+                    pts += list(pl.pts_pdf)
+            for vg in (getattr(result, "vaults_geo", None) or []):
+                if (not vg.get("orphan") or vg.get("importable", False)) and \
+                        self._hit(u, "structure", vg.get("layer")):
+                    n_vaults += 1
+                    pts += vault_points(vg)
+        return pts, n_lines, n_vaults
+
+    def _on_layer_focus(self, focus):
+        """Clic en «Capas usadas»: resalta lo de esa capa (halo del color de la
+        utilidad, lo demás atenuado) y encuadra la zona; sin elección, toda la hoja."""
+        self._focus = focus
+        self._redraw_overlay()
+        if focus is None:
+            self._fit_view()
+            return
+        pts, n_lines, n_vaults = self._focus_points()
+        if not pts:
+            self.layers_panel.set_status(
+                _tr("{what}: no hay nada reconocido de esta capa en la hoja.").format(what=focus["label"]))
+            return
+        parts = []
+        if n_lines:
+            parts.append(_tr("1 línea") if n_lines == 1 else _tr("{n} líneas").format(n=n_lines))
+        if n_vaults:
+            parts.append(_tr("1 bóveda") if n_vaults == 1 else _tr("{n} bóvedas").format(n=n_vaults))
+        self.layers_panel.set_status(_tr("Resaltado: {what} · {parts}").format(
+            what=focus["label"], parts=", ".join(parts)))
+        xs = [p[0] for p in pts]; ys = [p[1] for p in pts]
+        rect = QtCore.QRectF(QtCore.QPointF(min(xs), min(ys)), QtCore.QPointF(max(xs), max(ys)))
+        self._show_rect(rect, margin=0.08)
+
+    def _escape(self) -> bool:
+        """Esc (la ventana no se cierra: `NoEscapeClose`) = «Ver todo» si hay algo resaltado."""
+        if self._focus is None:
+            return False
+        self.layers_panel.clear_focus()          # emite focusChanged(None) → _on_layer_focus
+        return True
+
     def _draw_reviewed(self, rect: QtCore.QRectF):
-        """Recuadro verde a trazos: este lugar ya se revisó desde «Revisar»."""
+        """Recuadro verde a trazos: este lugar ya se vio desde «Para verificar»."""
         pen = QtGui.QPen(QtGui.QColor(_theme.tokens().success), 2, QtCore.Qt.DashLine)
         pen.setCosmetic(True)
         it = self.view.scene().addRect(rect.adjusted(-6, -6, 6, 6), pen)
         it.setZValue(49)
-        it.setToolTip(_tr("Revisado"))
+        it.setToolTip(_tr("Visto"))
 
-    def _go_to(self, rect: QtCore.QRectF):
-        """Clic en un aviso de «Revisar»: la vista va a ese lugar (con contexto
-        alrededor) y lo marca con un recuadro que parpadea y se desvanece; debajo
-        queda un recuadro verde a trazos (ya revisado) hasta cerrar la vista previa."""
-        if not any(r == rect for r in self._reviewed):
-            self._reviewed.append(QtCore.QRectF(rect))
-            self._draw_reviewed(rect)
-        ctx = max(rect.width(), rect.height()) * 1.6 + 60
+    def _show_rect(self, rect: QtCore.QRectF, margin: float = 0.0):
+        """Lleva la vista a `rect` con contexto alrededor (nunca menos de
+        GOTO_MIN_SIDE_PX de lado: un punto suelto no queda a zoom máximo)."""
+        ctx = max(rect.width(), rect.height()) * (1.0 + 2 * margin if margin else 1.6) + 60
         side = max(ctx, GOTO_MIN_SIDE_PX)
         c = rect.center()
         view_rect = QtCore.QRectF(c.x() - side / 2, c.y() - side / 2, side, side).united(
@@ -687,12 +646,28 @@ class RecognitionPreviewDialog(QtWidgets.QDialog):
         self.view.resetTransform()
         self.view.fitInView(view_rect, QtCore.Qt.KeepAspectRatio)
         self.view.centerOn(c)
+
+    def _go_to(self, rect: QtCore.QRectF):
+        """Clic en un punto de «Para verificar»: la vista va a ese lugar (con
+        contexto alrededor) y lo marca con un recuadro que parpadea y se desvanece;
+        debajo queda un recuadro verde a trazos (ya visto) hasta cerrar la vista previa."""
+        if not any(r == rect for r in self._reviewed):
+            self._reviewed.append(QtCore.QRectF(rect))
+            self._draw_reviewed(rect)
+        self._show_rect(rect)
         sc = self.view.scene()
         if self._marker is not None and self._marker.scene() is sc:
             sc.removeItem(self._marker)
-        pen = QtGui.QPen(QtGui.QColor("#ffb000"), 3)
-        pen.setCosmetic(True)
-        self._marker = sc.addRect(rect.adjusted(-6, -6, 6, 6), pen, QtGui.QBrush(QtGui.QColor(255, 176, 0, 40)))
+        # Recuadro blanco + trazos negros encima: se ve sobre papel blanco y sobre
+        # fondo negro, y no tiene el tono de ninguna utilidad (el ámbar de antes se
+        # confundía con gas/telecom).
+        box = rect.adjusted(-6, -6, 6, 6)
+        halo = QtGui.QPen(QtGui.QColor("#ffffff"), 6)
+        halo.setCosmetic(True)
+        self._marker = sc.addRect(box, halo)
+        ants = QtGui.QPen(QtGui.QColor("#111111"), 2.5, QtCore.Qt.DashLine)
+        ants.setCosmetic(True)
+        QtWidgets.QGraphicsRectItem(box, self._marker).setPen(ants)
         self._marker.setZValue(50)
         marker = self._marker
         anim = QtCore.QVariantAnimation(self)
@@ -719,10 +694,41 @@ class RecognitionPreviewDialog(QtWidgets.QDialog):
             QtCore.QTimer.singleShot(0, self._apply_side_width)
             QtCore.QTimer.singleShot(0, self._fit_view)
 
+    @staticmethod
+    def _review_width(total: int) -> int:
+        return max(240, min(300, int(total * 0.20)))
+
     def _apply_side_width(self):
-        w = self.width()
-        side_w = side_panel_width(w, 400)
-        self.split.setSizes([max(200, w - side_w), side_w])
+        """Para verificar (240–300 px, ~20 %) | hoja | resumen (300–400 px, ~28 %): con
+        1280 px la hoja conserva ~600 px."""
+        w = self.split.width() or self.width()
+        right = max(300, min(400, int(w * 0.28)))
+        left = CollapsiblePanel.STRIP_W if self.review_box.collapsed else self._review_width(w)
+        self.split.setSizes([left, max(200, w - left - right), right])
+
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        # hasta que el usuario mueva un divisor, los anchos siguen a la ventana
+        # (maximize_on_show maximiza DESPUÉS del primer show). Un ciclo después:
+        # aquí el divisor todavía tiene el ancho anterior.
+        if getattr(self, "_sizes_auto", False) and not getattr(self, "_fit_pending", True):
+            self._sizes_timer.start(0)
+
+    def _on_review_toggled(self, collapsed: bool):
+        """Plegar «Para verificar» le da su ancho a la hoja; desplegar lo recupera."""
+        sizes = self.split.sizes()
+        if collapsed:
+            self._review_w = sizes[0]
+            sizes[1] += max(0, sizes[0] - CollapsiblePanel.STRIP_W)
+            sizes[0] = CollapsiblePanel.STRIP_W
+        else:
+            # CollapsiblePanel deja el mínimo en 0 al desplegar: sin el de 240 px, los
+            # textos que se parten (explicaciones) ensanchaban el panel
+            self.review_box.setMinimumWidth(240)
+            want = getattr(self, "_review_w", 0) or self._review_width(sum(sizes))
+            sizes[1] = max(200, sizes[1] - (want - sizes[0]))
+            sizes[0] = want
+        self.split.setSizes(sizes)
 
     def _finish(self, action: str):
         self.action = action

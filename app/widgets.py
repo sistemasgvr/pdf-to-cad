@@ -7,6 +7,8 @@ Piezas pequeñas que no dependen de la ventana principal (solo de PySide6):
 - ZoomPanView: QGraphicsView de solo lectura con zoom (rueda) y pan (botón
   central). La usan las vistas previas del asistente (capas de la hoja y
   reconocimiento). Movida verbatim desde recognition_dialog._PreviewView.
+- NaturalHeightScroll: scroll de un panel lateral que respeta el alto natural
+  de su contenido (paneles de la vista previa del reconocimiento).
 
 Extraído de app_window.py sin cambios de comportamiento (solo reubicación).
 """
@@ -362,6 +364,43 @@ def side_panel_width(total_width: int, preferred: int = 420, minimum: int = 300)
     """Ancho para un panel lateral: el preferido, pero nunca más del 32 % de la
     ventana ni menos del mínimo (pantallas pequeñas)."""
     return max(minimum, min(preferred, int(total_width * 0.32)))
+
+
+class NaturalHeightScroll(QtWidgets.QScrollArea):
+    """Panel lateral con scroll: el contenido conserva su alto natural (las
+    filas que se parten según el ancho no se aplastan) y lo que no cabe se
+    desplaza. Movido de recognition_dialog._PreviewPanelScroll: lo usan los dos
+    paneles de la vista previa del reconocimiento."""
+
+    def __init__(self, body):
+        super().__init__()
+        self.setFrameShape(QtWidgets.QFrame.NoFrame)
+        self.setWidgetResizable(True)
+        self.setHorizontalScrollBarPolicy(QtCore.Qt.ScrollBarAlwaysOff)
+        self.setWidget(body)
+        self._sync_timer = QtCore.QTimer(self)
+        self._sync_timer.setSingleShot(True)
+        self._sync_timer.timeout.connect(self._sync_height)
+        body.installEventFilter(self)
+
+    def _sync_height(self):
+        layout = self.widget().layout()
+        if layout is None:
+            return
+        width = self.viewport().width()
+        height = layout.totalHeightForWidth(width) if layout.hasHeightForWidth() else layout.sizeHint().height()
+        height = max(height, layout.minimumSize().height())
+        if self.widget().minimumHeight() != height:
+            self.widget().setMinimumHeight(height)
+
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        self._sync_timer.start(0)
+
+    def eventFilter(self, obj, event):
+        if event.type() == QtCore.QEvent.LayoutRequest:
+            self._sync_timer.start(0)
+        return super().eventFilter(obj, event)
 
 
 class _VerticalLabel(QtWidgets.QWidget):

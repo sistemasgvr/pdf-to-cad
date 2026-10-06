@@ -63,11 +63,14 @@ def test_arbol_agrupado_por_utilidad(dlg):
     groups = [u for u, name, _, _ in rows if name is None]
     assert groups == [u for u in order if u in groups]
     cur = None
+    listed = {L["name"]: L for L in dlg._layers}
     for u, name, _, _ in rows:
         if name is None:
             cur = u
         else:
-            assert u == cur and pdf_layers.utility_of(name) == u
+            # por su nombre o, si su nombre no lo dice, por las letras de su línea
+            assert u == cur and u == listed[name]["utility"]
+            assert listed[name]["letters"] or pdf_layers.utility_of(name) == u
     assert "ELECTRICO" in groups and "OTRAS" in groups
     # grupos plegados al abrir; todas visibles; el conteo cuenta solo capas
     assert not any(dlg.group_item(u).isExpanded() for u in groups)

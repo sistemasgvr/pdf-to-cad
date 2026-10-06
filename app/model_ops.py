@@ -374,8 +374,9 @@ def attach_vault_geometry(structures, vaults_geo, tol=12.0, net="conduit",
     estructura más cercana a su centro (≤ `tol` px) y le copia forma, medidas
     y contorno. Una bóveda real sin estructura cerca (ninguna línea la atraviesa
     ni muere en ella; `importable`) se importa igual como CAJA SUELTA
-    (`standalone=True`, sin vértice: en Civil 3D será un sólido aislado); las
-    cajas propuestas / postes no. Los datos extendidos (`xdata`) guardan la capa
+    (`standalone=True`, sin vértice: en Civil 3D será un sólido aislado). En una
+    red a PRESIÓN (`net="pressure"`, agua/gas) toda bóveda es suelta: la red no
+    lleva estructuras. Los datos extendidos (`xdata`) guardan la capa
     OCG del símbolo y el origen (`origin((x, y)) -> str`, opcional); los campos
     que el usuario haya anotado se conservan. Devuelve (asignadas, sueltas_creadas).
 
@@ -1052,19 +1053,23 @@ def choques_sin_conexion(pipes, z_at, tol_px, structures=(), z_tol=0.10):
     return salida
 
 
-# ── SÓLIDOS: cajas cuadradas reconocidas del PDF (conduit) ──────────────────
+# ── SÓLIDOS: cajas cuadradas reconocidas del PDF (conduit y presión) ────────
 # Una caja de eléctrico/telecom reconocida con su contorno RECTANGULAR no es una
 # estructura del catálogo: se lista en «Buzones» como SÓLIDO-N, sin familia ni
 # tamaño de catálogo, con largo × ancho (del plano, editables) y altura
 # (`solid_height_ft`, por defecto 2 m); en Civil 3D se dibuja como Solid3d.
+# La bóveda de una red a PRESIÓN (agua/gas, desde 2026-10-05) también: esa red no
+# lleva estructuras, así que su bóveda reconocida solo puede ser un sólido aislado.
 SOLID_DEFAULT_H_FT = 6.56168
 SOLID_PREFIX = "SÓLIDO-"
+SOLID_NETS = ("conduit", "pressure")
 
 
 def is_solid(s):
-    """¿La estructura es un SÓLIDO? (caja conduit con contorno rectangular)."""
+    """¿La estructura es un SÓLIDO? (caja de conduit o bóveda de presión con
+    contorno rectangular)."""
     return (not s.get("curve") and not s.get("world")
-            and (s.get("net") or "") == "conduit"
+            and (s.get("net") or "") in SOLID_NETS
             and (s.get("shape") or "") == "rect"
             and bool(s.get("outline")) and len(s.get("outline") or []) >= 4)
 

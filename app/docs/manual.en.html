@@ -124,31 +124,50 @@ sheet» and then to manual drawing (see «Image or scanned PDF» below).</p>
 <b>1 Compose sheet › 2 Sheet layers › 3 Preview</b>: the current step is highlighted and earlier
 steps can be clicked to <b>go back</b> without losing your work. At the bottom, across the whole
 width, are the view options (such as <b>Opacity</b>) and the <span class="btn">Cancel</span> and
-<span class="btn">Continue</span> buttons.</p>
+<span class="btn">Continue</span> buttons. The <b>Esc</b> key does not close these windows (it only
+clears a highlight): to leave, use <span class="btn">Cancel</span>.</p>
 <p>When a step takes a few seconds (large sheets, several pieces, many utilities), the window or
 the panel being updated is dimmed and a <b>«Loading…»</b> card appears with a spinning indicator
 and what the app is doing (for example «Recognizing… · Storm Drain (3 of 6)»). There is no need to
 click anything: the card goes away by itself when it finishes.</p>
 
 <h2>1. Compose work sheet</h2>
+<p>This step has three <b>tabs</b>, each one full screen: <b>Source</b>, <b>Area to take</b> and
+<b>Composite sheet</b>. You can switch between them at any time by clicking them, with
+<span class="btn">‹ Back</span> / <span class="btn">Next ›</span> at the bottom, or with
+<b>Ctrl+PgUp / Ctrl+PgDn</b>. The <b>Composite sheet</b> tab shows how many pieces you have and
+<b>Area to take</b> shows a <b>!</b> if you left something half done.</p>
 <ol>
-<li>On the left (<b>Source</b>) you choose the PDF and the sheet; the folder button lets you
-    <b>add more PDFs</b>. A sheet marked «no layers» is a flattened plan: you can use it, but
-    recognition will not find utilities on it. Sheets marked <b>«✔ Taken»</b> are already on the
-    composite sheet.</li>
-<li>In the middle (<b>Area to take</b>) you draw a rectangle around the part of the plan you need
-    and press <span class="btn">Take area</span> (or <span class="btn">Full sheet</span>). Snapping
-    to lines and trimming the border line are under <b>Options</b>. Picking a sheet in the list does
-    not add it: until you take it, an orange notice reminds you.</li>
-<li>On the right (<b>Composite sheet</b>) you drag each piece into place. With the <b>Magnet</b>
-    on, the lines of neighboring pieces snap together; with <b>Bridges</b>, gaps between sheets are
-    filled in (both are under <b>Joins</b>).</li>
-<li>Click a piece to <b>rotate</b> it, remove it or, under <b>Adjust</b>, fix its fine angle or its
-    <b>scale</b> if the sheet doesn't state it.</li>
-<li>You can collapse a panel to gain room: <b>Source</b> keeps its width and <b>Area to take</b> or
-    <b>Composite sheet</b> always stays open.</li>
-<li><span class="btn">Continue</span> goes to step 2. If you are viewing a sheet you have not taken,
-    the app asks whether to add it, use only that sheet or go on without it.</li>
+<li><b>Source</b>: choose the PDF (<span class="btn">Add PDF…</span> adds others) and the sheet in
+    the thumbnail gallery. <b>The sheet you choose is the one used</b>: on opening, the sheet in view
+    is already on the composite sheet and a click on another one switches it; the bottom says
+    «Ready to continue: full sheet N». Its thumbnail says <b>«✔ Full sheet»</b> or
+    <b>«✔ Area taken»</b>. A sheet marked «no layers» is a flattened plan: you can use it, but
+    recognition will not find utilities on it. Double-click a sheet, or
+    <span class="btn">Take area of this sheet</span>, to go to the next tab.</li>
+<li><b>Area to take</b>: the top says which sheet you are viewing (<b>‹ Sheet 21 of 50 ›</b>); the
+    arrows move to the previous or next sheet without going back to Source (they also choose it).
+    The whole sheet is shown with its border and handles. If you only need part of it, drag a
+    rectangle over the plan or move the corners: the composite sheet updates by itself, with no
+    button to press; <span class="btn">Full sheet</span> uses the whole sheet again. The sheet scale
+    is at the bottom right; snapping to lines and trimming the border line are under
+    <b>Options</b>.</li>
+<li><b>Several sheets</b>: with the first one's area already marked, go to another sheet: a notice
+    says it is not in yet; mark its area and press <span class="btn">Take area</span> (or
+    <span class="btn">Full sheet</span>). In Source, <b>Ctrl+click</b> on a thumbnail adds it whole.
+    If you actually wanted another sheet instead of the first one, the notice offers
+    <span class="btn">Use only this sheet</span>.</li>
+<li><b>Composite sheet</b>: drag each piece into place. With the <b>Magnet</b> on, the lines of
+    neighboring pieces snap together; with <b>Bridges</b>, gaps between sheets are filled in (both
+    are under <b>Joins</b>).</li>
+<li>Click a piece to <b>rotate</b> it, remove it, fix its fine angle or its <b>scale</b> under
+    <b>Adjust</b>, or adjust its crop with <span class="btn">Edit area</span>.</li>
+<li>At the bottom left you see what is missing to go on. If you removed every piece,
+    <span class="btn">Continue</span> is disabled and the <b>Use sheet N</b> link puts it back. If
+    you marked an area for another piece and did not take it, or you are viewing a sheet you did not
+    take, a notice says so (with a link to fix it) and on continuing the app asks what to do: take
+    it, use only that sheet, go on without it or go back.</li>
+<li><span class="btn">Continue</span> goes to step 2.</li>
 </ol>
 
 <h2>Image or scanned PDF: composing by hand</h2>
@@ -195,6 +214,23 @@ editor</span> leaves it as the background to draw by hand.</p>
     Electrical, Telecom, Other), each with its color. The utility's checkbox turns <b>all</b> its
     layers on or off; the ▸ arrow expands it so you can choose layer by layer. What you uncheck is
     hidden from the plan and <b>not used for recognition</b>.</li>
+<li><b>By the letters on the line:</b> the app does not only look at the layer name; it also reads
+    the letters each line carries (—TE—, —SC—, —W—, —G—, —ss—…). A layer whose name is not a
+    utility's, but whose lines say so, appears under its utility with the letters next to it, for
+    example <b>U-TRPW-DBNK-P (517) «TE»</b> under Electrical (hover to see why), and it is
+    recognized. The letters follow the plan's legend: «TE» and «SE» are electrification duct banks
+    (Electrical), «SC» signal &amp; communication (Telecom). In layers that mix everything
+    (<b>_Xref</b>, <b>G-XREF</b>, layer <b>0</b>) each line goes to the utility of its letters and the
+    rest is left alone. Overhead «(oh)» and unknown «unk» lines are not recognized.</li>
+<li><b>«Legend» panel (on the left):</b> at the top, <b>By the letters on their line</b> lists those
+    layers as cards: the utility and its letters, the layer, why (its name does not say the utility,
+    or says another one) and what the PDF's legend says about those letters. Each card's checkbox
+    decides whether they are used: unchecked, the layer goes back to its group by name and is not
+    recognized by its letters (the decision is saved in the project). Below, <b>Plan legend</b> shows
+    the legend that comes in the PDF itself (each line's sample and its description), the lines on
+    this sheet first; <b>See all</b> shows the rest. Clicking a card or a row highlights those lines
+    on the sheet and zooms in; another click shows everything again. If the PDF has no legend and
+    there are no layers by letters, the panel collapses by itself (‹ / › collapses and expands it).</li>
 <li>Type in <b>Search layer…</b> to find a layer by name; the eye buttons show or hide all the
     layers visible in the list.</li>
 <li><b>Opacity</b> lightens the plan (and switches the background to white or black), just like in
@@ -208,23 +244,38 @@ editor</span> leaves it as the background to draw by hand.</p>
 <h2>3. Recognition preview</h2>
 <ul>
 <li>Shows the lines found for each utility, each with its color, and their vaults or manholes.
-    At the top, cards with the totals (segments, abandoned, bends, structures) and a bar per
-    utility.</li>
-<li>Below the bars, a single legend: active, abandoned (AB), <b>uncovered</b> strokes (orange in
-    the drawing), <b>off-pattern</b> strokes (violet: arrows, leaders) and the scale. The
-    <b>Coverage</b> bar tells how much of the plan's strokes was covered (green = complete).</li>
-<li>If a notice appears under <b>Review</b>, click it: the view takes you to the exact spot on the
-    sheet. Each click shows the next case (1/N). Once you have seen all its cases, the notice is
-    marked <b>✔ reviewed</b> and every visited spot on the sheet keeps a dashed green box; at the
-    top you see your progress («1 of 4 reviewed»). A notice with no spot is marked with one click;
-    right-click sets it back to pending. With many notices the list scrolls. Extra information is
-    folded under <b>Details</b>.</li>
+    The screen has three columns: <b>To check</b> on the left, the sheet in the middle and the
+    summary on the right.</li>
+<li>On the right: the sheet and its scale, cards with the totals (segments, abandoned, bends,
+    structures), a bar per utility (active solid, abandoned hatched) and the <b>Coverage</b>: how
+    much of the plan's strokes was covered (green ✔ = complete). If the quality check marked
+    something on the sheet, it says what below: <b>uncovered</b> dashes (magenta line),
+    <b>vaults without a line</b> (magenta ring) and <b>off-pattern</b> strokes (dotted turquoise:
+    arrows, leaders). Those colors belong to no utility.</li>
+<li>At the bottom, <b>Layers used</b>: the layers taken as lines and vaults. Click one (or pick it
+    with the arrow keys and press Enter) and the sheet shows it: that layer's items get a halo in
+    their color, the rest fades and the view zooms to that area; below the title it says how many
+    lines and vaults there are. Clicking <b>Lines</b>, <b>Vaults</b> or the utility name shows that
+    whole group. Another click on the same row, or <b>✕ Show all</b>, shows the whole sheet
+    again.</li>
+<li>On the left, <b>To check</b>: <b>these are not errors</b>. The sheet was already recognized;
+    these are points worth a look before importing (a curve imported as an approximation, a vault
+    no line reaches…). Each one says below what was found and what was done with it. Only what
+    shows in <b>red</b> is a real problem (for example, a sheet without layers). The points are
+    grouped by utility. Click one (or reach it with Tab and press Enter): the view takes you to the
+    exact spot on the sheet, marked with a black and white box. Each click shows the next case
+    (1/N). Once you have seen all its cases it is marked <b>✔</b> and every visited spot on the
+    sheet keeps a dashed green box; at the top you see your progress («1 of 4 seen»). One with no
+    spot is marked with one click; right-click sets it back to pending. Extra information is folded
+    under <b>Details</b>. The <b>‹</b> button collapses the panel to see the sheet larger;
+    collapsed, a strip shows «To check (N)».</li>
 <li>At the bottom left: <b>Opacity</b> lightens the plan so you can better see <b>what and how
     much</b> was recognized, and <b>Join segments</b> (green = on) joins segments that continue
     straight ahead into one pipe.</li>
 <li>To go back, click <b>2 Sheet layers</b> or <b>1 Compose sheet</b> in the bar at the top.
     <span class="btn">Adjust layers…</span> is only needed if the plan uses other layer names:
-    there you say which are lines and which are vaults.</li>
+    there you say which are lines and which are vaults (also if you disagree with a line that was
+    recognized by its letters: what you choose there rules).</li>
 <li><span class="btn">Continue and import into the editor</span> adds them to the project as
     pipes; <span class="btn">Cancel</span> leaves the editor empty.</li>
 <li><b>Abandoned</b> lines are imported marked <b>(AB)</b>: those on the «-A» layer with «/»
@@ -244,17 +295,30 @@ editor</span> leaves it as the background to draw by hand.</p>
     loose line, only if it is less than 1.5 pt away. On import, the box, solid or manhole is
     <b>joined</b> to that line instead of left loose at the center. A vault with no line nearby is
     not touched. The <b>Line ends joined to their vault</b> notice takes you to each one.</li>
+<li>If a pipe is drawn with its <b>two walls</b> (two parallel lines running together from start to
+    end) a <b>single</b> utility is imported, along the middle line. The same if it has walls and a
+    centerline (the centerline is used), walls and a colored filled body, dashed walls or a thin
+    closed outline (its centerline is used). It applies to every utility. The
+    notice <b>pipes with two walls</b> takes you to each one. Three or more parallel lines together
+    are left untouched.</li>
 <li>If the plan has the <b>same line drawn twice</b> on the same layer (overlapping, with shifted
     dashes), <b>a single</b> line is imported.</li>
-<li><b>Water</b> and <b>gas</b> come in without boxes (they are pressure networks). <b>Sewer</b>
-    and storm drain come in with their manholes; electrical and <b>telecom</b>, with a box only
-    where the plan has a vault.</li>
+<li><b>Sewer</b> and storm drain come in with their manholes; electrical and <b>telecom</b>,
+    with a box only where the plan has a vault. <b>Water</b> and <b>gas</b> are pressure networks:
+    their vertices get no nodes, but their vaults do come in.</li>
+<li><b>Every vault you see in the preview reaches the editor</b>, also the ones with no line at
+    all (magenta ring): they come in as a <b>standalone box</b> with their shape and size
+    (rectangular ones as <b>SÓLIDO</b>), without touching the lines. This also applies to pull boxes,
+    poles and proposed structures.</li>
 </ul>
 
 <h2>Composing again later</h2>
 <p>Menu <b>Tools → Compose work sheet…</b> opens step 1 again, on the PDF and sheet you were
 working on, and repeats steps 2 and 3 with the new sheet. Everything is saved in the project
 (.digproj), including the source PDFs.</p>
+<p>If you continue without changing anything (not the composition, the layers or the utilities),
+the preview opens instantly with the previous recognition: it stays in memory while the project
+is open. Any change in those steps is enough for the sheet to be recognized again.</p>
 <table width="100%" cellspacing="0" cellpadding="12"><tr>
 <td width="6" bgcolor="{{tip_border}}"></td><td bgcolor="{{tip}}">
 <b>Tip:</b> if something is not recognized, you can always draw it by hand (next chapter).
@@ -415,7 +479,7 @@ shows the maximum allowed.</p>
 <table width="100%" cellspacing="0" cellpadding="12"><tr>
 <td width="6" bgcolor="{{info_border}}"></td><td bgcolor="{{info}}">
 Water and gas are <b>pressure</b> networks: they have no manholes. Where pipes meet, Civil 3D
-places a fitting (elbow, Tee, Wye or cross).
+places a fitting (elbow, Tee, Wye or cross). Their vaults recognized from the PDF come in as SÓLIDO.
 </td></tr></table>
 </section>
 

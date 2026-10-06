@@ -21,7 +21,8 @@ alcantarillado, drenaje, gas, eléctrico, telecom). Todo en **unidades imperiale
     la ÚNICA forma fiable de abrir un QDialog maximizado en Windows (setWindowState
     diferido tras el primer Show; `exec()` pisa un showMaximized previo);
     `side_panel_width`; `CollapsiblePanel` (cabecera + plegado a tira vertical, lo
-    usa el compositor para pantallas pequeñas)).
+    usa «Para verificar» de la vista previa; el compositor ya no: va en pestañas); `NaturalHeightScroll` (scroll de
+    un panel lateral que respeta el alto natural de su contenido)).
   - `ui_common.py` — constantes/helpers de UI compartidos (`DOWNLOADS`, estilos de
     botón, `layer_qcolor`, `swatch_icon`, …). Sin estado; los usa toda la app.
   - `side_panels.py` — los dos docks de la ventana (`Main._ldock` «Herramientas», `_rdock`
@@ -68,6 +69,16 @@ alcantarillado, drenaje, gas, eléctrico, telecom). Todo en **unidades imperiale
     ◀ ▶ de «Capas» (y el re-render al marcar capas, solo si el anterior tardó >0.25 s),
     reconocer, preparar la vista previa e importar. Paso nuevo lento → envolverlo igual.
   - `workers.py` — hilos de fondo (`PipelineWorker`, `RecognitionWorker`).
+  - `recognition_cache.py` (PURO) — el reconocimiento queda EN MEMORIA (pedido del usuario
+    2026-10-06: con lo reconocido ya importado, Herramientas → «Componer hoja…» y seguir sin
+    cambios reconocía todo otra vez). `Main._start_recognition` arma la clave
+    (`_recognition_key`: sha1 de los PDF de origen, composición sin `last_view`, hoja, capas
+    ocultas, utilidades, roles de «Ajustar capas…», `letters_off`, escala, zoom); si está en
+    `_recog_cache` (las 4 últimas; se vacía al cerrar el proyecto) abre la vista previa con ese
+    resultado (QTimer, como el hilo) sin `RecognitionWorker`. «Unir tramos» no va en la clave
+    (`set_join_routes`). OJO: un parámetro NUEVO que cambie el reconocimiento se suma a
+    `recognition_key`, o el caché devolvería un resultado viejo. Tests:
+    `tests/test_recognition_cache.py`.
   - `recognition.py` + `recognition_dialog.py` — asistente al abrir un PDF
     vectorial: componer hoja → capas → reconocer (perfiles Eléctrico, Drenaje, Agua y
     Alcantarillado; v1 fue eléctricas `C-ELEC-UNGD`;
@@ -163,11 +174,16 @@ alcantarillado, drenaje, gas, eléctrico, telecom). Todo en **unidades imperiale
     ninguno aproximado ni recortado por el editor/plugin (tras el filtro de
     chaflanes: 15, h.3 = 6, h.4 = 8, h.15 = 1); lo que queda como
     polilínea son chaflanes y curvas compuestas (aviso «Curvas que quedan como polilínea»)) y `_vaults_geometry` (geometría real de bóvedas, `VAULT_MIN_FT`=2:
-    cajas de paso/postes no cuentan; `Vault.layer` + `is_vault_ocg` → `importable`:
-    una bóveda SIN línea de capa VALT/MANH (o lazo en la capa de la línea) se
-    importa como CAJA suelta `standalone=True` — `attach_vault_geometry` la crea,
-    `rebuild_structures` la conserva como a las `world`, el lienzo la pinta con
-    el color de la utilidad; las U-PROP/POLE/PBOX (`NON_VAULT_TOKENS`) no).
+    cajas de paso/postes no cuentan): TODA bóveda de `vaults_geo` es `importable` (pedido del
+    usuario 2026-10-05: «se reconoció el buzón sin líneas y al importar no está»; antes las de
+    capas U-PROP/POLE/PBOX/JUNCTION —`NON_VAULT_TOKENS`, hoy solo clasifica— y todas las de
+    agua/gas quedaban fuera: 129 en los 4 PDFs). Una bóveda SIN línea se importa como CAJA
+    suelta `standalone=True` — `attach_vault_geometry` la crea, `rebuild_structures` la
+    conserva como a las `world`, el lienzo la pinta con el color de la utilidad. En agua/gas
+    (red a PRESIÓN) toda bóveda es suelta y, rectangular, SÓLIDO (`model_ops.SOLID_NETS`); el
+    DXF exporta los sólidos de presión y el plugin los dibuja (no cuentan como «nodos de
+    presión descartados»). Foto antes/después (4 PDFs × 6 utilidades): 129 → 0 sin importar,
+    ninguna estructura previa movida ni quitada, líneas idénticas.)
   - `recognition_arcs.py` (lee la tinta) + `recognition_arc_plan.py` (`ink_fillet_plan`:
     rectas, nodos, ajuste y anclas), PUROS — **2.ª pasada de codos desde la TINTA** (2026-09-28,
     pedido del usuario: «toda curva, mínima o muy abierta, en todas las utilidades»; caso
@@ -336,28 +352,117 @@ alcantarillado, drenaje, gas, eléctrico, telecom). Todo en **unidades imperiale
     24 pt) sale con el tee en ese punto y no en su tangencia (coincide exacto, no se ve
     doble). Tests: `tests/test_curvas_encadenadas.py`, `tests/test_curvas_editor.py`
     (DU06 h.4 telecom/drenaje).
-  - `recognition_summary.py` (PURO) + `recognition_summary_view.py` — resumen
-    VISUAL de la vista previa (lo pidió el usuario: «evitar mucho texto»):
-    `classify_warning` pasa cada aviso de `recognize_page` a `Notice` (nivel
-    problema/revisar/info + etiqueta corta; el texto completo va al tooltip; un
-    aviso SIN regla cae en «revisar» — al agregar un `warnings.append` nuevo en
-    `recognition.py`, sumar su regla en `_RULES`); `SummaryPanel` = 4 tarjetas +
-    barra por utilidad (activas sólidas / AB rayadas, misma escala) + UNA leyenda
-    (`widgets.FlowLayout`: activas, AB, sin cubrir, fuera de patrón, escala) + barra de
-    cobertura + «Revisar» (`_CappedScroll`, tope `REVIEW_MAX_H`, scroll) + «Detalles»
-    plegado; «Unir tramos» (`chk_routes`, QToolButton `toggleTool`) va en el PIE junto a
-    «Opacidad» (2026-09-30). **Clic en un aviso → ir al lugar** (pedido del usuario): cada regla
+  - `recognition_walls.py` + `recognition_wall_runs.py` (PUROS) — **tubería dibujada con
+    sus PAREDES** (reporte del usuario 2026-10-02, `C-SSWR-PIPE` a 1.3 pt: salían dos
+    utilidades pegadas). Regla del usuario: «si las líneas van juntas de inicio a fin, es una
+    sola utilidad» → la línea del MEDIO. `merge_walls` (en `recognize_page` tras el
+    contorno/anillo, TODAS las utilidades, por capa con las demás capas de la utilidad como
+    `others`): trazos abiertos de solo rectas ≥20 pt (encadenados punta con punta, salvo un
+    trazo corto que gira fuerte = TAPÓN), gemelos a separación CONSTANTE 0.5–30 pt (menos: la misma línea dibujada dos veces algo corrida, LABOE h.32 a 0.42 pt) (±max(0.2,
+    8 %)) en ≥90 % de cada uno, puntas juntas (≤ sep + max(2, 2·sep); una punta cortada por el
+    clip no cuenta) y largo ≥8·sep. Formas halladas (ET-004 drenaje): paredes; paredes + eje
+    (tinta ≥50 % sobre el medio, de cualquier capa de la utilidad, o 3 gemelas con la del medio
+    centrada → se quita solo lo de afuera); paredes + CUERPO relleno (relleno >8 pt entero en la
+    banda sale); paredes A TRAZOS (`dash_runs`: guiones colineales, huecos ≤12 pt, solapes ≤2 pt
+    de dos copias, partidos en tramos rectos; el eje sale a trazos con la unión de los guiones;
+    `joint_leftovers`: el guión que dobla en un quiebre 2°–100° sale y va el conector
+    fin→vértice→inicio). NO se toca: grupos de ≥3 paralelas (marco del cajetín de DU10, 4
+    líneas de telecom DU10 h.27, 3 de agua «—W—» DU10 h.25), figuras cerradas (DU06 h.4), y
+    líneas con LETRAS (tinta ≤8 pt que cruza la recta en algún hueco de sus guiones, hasta
+    300 pt; la pared de otra tubería que cruza junto al buzón no es letra). Aviso «Tuberías
+    dibujadas con sus dos paredes / con paredes y eje: N» solo si el cambio quedó como línea
+    reconocida (`_recognized_walls`; clave `walls`, `RecognitionResult.walls_px`). Foto: los 4
+    PDFs de prueba × 6 utilidades sin cambios; reporte 6 → 3 líneas (eje ≤0.08 pt del centro),
+    ET-004 h.1 73 → 19, h.2 35 → 20 (una por tubería). El CONTORNO cerrado delgado
+    (`outline_axis_paths`, paredes + tapones en un trazo) pasó de solo alcantarillado a TODAS
+    (`OUTLINE_AXIS_UTILITIES` = `SUPPORTED_UTILITIES`) con trazo y largo ≥`OUTLINE_MIN_LEN_PT`=20
+    (las barras RELLENAS de 0.9×9 pt de la leyenda de capas `-D` de gas/agua no son tubería).
+    Tests: `tests/test_recognition_walls.py` (paredes, paredes + eje, a trazos y contorno en
+    las 6 utilidades).
+  - `recognition_letters.py` + `recognition_letter_lines.py` + `recognition_letter_shapes.py`
+    (PUROS, numpy) — **utilidad por las LETRAS del linetype** (pedido del usuario 2026-10-05,
+    DU08 h.26: `U-TRPW-DBNK-P` «—TE—» caía en «Otras» y no se reconocía). Las letras son
+    vectores SHX: `recognition_letter_shapes.read_letter` las compara con plantillas de trazos
+    (A–Z, a–z, «(», «)», «/»; chaflán simétrico, estirada al ancho de la letra, puntaje ≤0.08 =
+    confiable; caché por forma REDONDEADA —letra 0.005 del alto, rótulo 0.01 pt— y se lee esa
+    forma redondeada: antes se leía la primera que llegaba con la clave y el resultado de una hoja
+    dependía de las hojas leídas antes en el mismo proceso, LABOE h.5 drenaje 14 o 17 líneas).
+    `recognition_letter_lines`: huecos entre guiones COLINEALES
+    enfrentados (≤40 pt; sentido de lectura = cola del guión) y sus trazos; `read_text` lee el
+    rótulo en los dos sentidos (empate → el que da un código conocido, luego el del guión),
+    solo con trazos CENTRADOS en el eje (tres líneas de agua juntas metían sus «w»). Votos por
+    SITIO (lecturas a ≤10 pt = uno). `LETTER_CODES` según la LEYENDA del propio PDF (DU08
+    h.3/h.33): e/E, SE (Station Electrification), TE (Traction Electrification) = ELECTRICO; t/T,
+    SC (Signal & Communication) = TELECOM; w/W AGUA; g/G GAS; ss/SS/S ALCANTARILLADO; sd/SD
+    DRENAJE; «(oh)» aérea y «unk», «o» = nada. `recognition.page_letters(page)` (~0.5–1.3 s por
+    hoja, sin capas ANNO/TEXT/TTLB/LOGO/OVHD: la leyenda de h.33 va en `G-ANNO-TEXT`) +
+    `letter_uses` deciden: (1) capa que el NOMBRE no hace línea/estructura de ninguna utilidad →
+    LÍNEA POR LÍNEA (`split_by_line`: une guiones del hueco, puntas que se tocan, esquinas,
+    guiones de una curva, letras y barras «/»; cada línea a la utilidad de SUS letras), o la capa
+    ENTERA si es dedicada (`dedicated`: ≥90 % un código y el reparto cubre ≥75 % de su tinta;
+    `U-TRPW-DBNK-P` 96–98 %); las genéricas (`_Xref` «G»+«W», `G-XREF`, la capa «0» de LABOE con
+    comentarios, perfil y UNA línea «—S—»: 1–22 %) solo aportan sus líneas con letras;
+    (2) capa de LÍNEA cuyo nombre contradicen letras UNÁNIMES (≥5 sitios, ≥95 %) → manda la
+    letra (`N-COMM-DUCT-BANK-PL-SE` → ELECTRICO; antes TELECOM por nombre). Ruido: trazos
+    rellenos fuera (logo de Metro), códigos con <2 sitios, y capa cuyas «letras» no son ≥50 %
+    códigos (`W-Plantry`) no clasifica. `recognize_page(letters=)`: `_kind_for` + filtro por
+    trazo `gather_paths(keep=)` (clave `path_key` = rect + nº de items: el `seqno` cambia al
+    apagar capas), `stroke_letters=True` para esas capas, `RecognizedPolyline.letters` y aviso
+    «Reconocidas por las letras de su línea…» (REVIEW, clave `letters`). `RecognitionWorker`
+    lee las letras UNA vez por hoja; una capa que el usuario asignó a mano a otra utilidad
+    («Ajustar capas…») no se toma por letras. «Capas de la hoja»: `pdf_layers.page_layers` trae
+    `letters`/`letter_utilities`/`letter_codes`/`name_utility`; la capa va al grupo de su
+    utilidad con «TE» al lado y tooltip. Foto 4 PDFs (141 hojas): 190 líneas en 51 hojas, 0 sin
+    tinta, 0 «V», 138 codos; ajenas: solo un vértice de unión donde una línea nueva toca otra.
+    Tests: `tests/test_recognition_letters.py`.
+  - `recognition_summary.py` (PURO) + `recognition_summary_view.py` +
+    `recognition_review_view.py` + `recognition_layers_view.py` +
+    `recognition_preview_draw.py` — resumen VISUAL de la vista previa (lo pidió el
+    usuario: «evitar mucho texto»): `classify_warning` pasa cada aviso de
+    `recognize_page` a `Notice` (nivel problema/revisar/info + etiqueta corta + `hint` =
+    explicación llana de `_HINTS`; el texto completo va al tooltip; un aviso SIN regla cae
+    en «revisar» — al agregar un `warnings.append` nuevo en `recognition.py`, sumar su
+    regla en `_RULES` y, si se muestra en «Para verificar», su `_HINTS`). **Tres
+    columnas** (pedido del usuario 2026-10-03): `RecognitionPreviewDialog` = `review_box`
+    (`CollapsiblePanel` «Para verificar (N)», plegable: la hoja gana su ancho) | hoja |
+    `side_panel` (hoja + escala `lbl_scale`, `SummaryPanel`, `layers_panel` «Capas usadas»
+    que crece con el panel, «Ajustar capas…» fuera del scroll); anchos ~20 %/~28 % (240–300 /
+    300–400 px) que siguen a la ventana hasta que el usuario mueve un divisor; cada panel con
+    su `widgets.NaturalHeightScroll`. `SummaryPanel` (derecha) = 4 tarjetas + barra por
+    utilidad (activas sólidas / AB rayadas, misma escala) con su leyenda + «Cobertura»
+    (cifra, barra fina NEUTRA, el estado lo da el icono: ✔ / ojo / rojo <90 %) y las marcas
+    del control de calidad que haya (`qa_kinds`). **«Para verificar» NO son errores**
+    (2.º pedido, mismo día): `ReviewPanel` (izquierda) = frase arriba (`lbl_intro`: «Todo
+    se reconoció… no son errores»; otra si hay un PROBLEM), avance «k de N vistos» + barra,
+    puntos AGRUPADOS por utilidad (cuadrito + nombre una vez; primero el grupo con un
+    problema) como tarjetas `_NoticeRow` con icono de ojo neutro (solo PROBLEM: octágono y
+    borde rojos) y la explicación debajo (`row.hint`); Tab + Enter/Espacio = clic;
+    «Detalles» plegado, agrupado igual. **«Capas usadas» → ver en la hoja**
+    (`UsedLayersPanel.focusChanged`): clic en una capa, en «Líneas»/«Bóvedas» o en la
+    utilidad → `_on_layer_focus`: `_hit(utility, kind, ocg)` decide qué es de lo elegido
+    (líneas por `pl.layer_ocg`, bóvedas por `vaults_geo[i]["layer"]`; puntos de bóveda y
+    marcas de calidad solo con la utilidad entera), halo del color de la utilidad
+    (`draw_line_halo`/`draw_vault_halo`), lo demás a `DIM_OPACITY`, encuadre con
+    `_show_rect` y «Resaltado: … · N líneas, M bóvedas»; otro clic o «Ver todo» lo quita.
+    Las funciones `_draw_*` (en `recognition_preview_draw`) devuelven sus ítems para eso. **Colores del control de calidad** (`ui_common.QA_*`): ninguno
+    es de utilidad y cada uno con su forma — guion sin cubrir = línea magenta, bóveda sin
+    línea = anillo magenta, fuera de patrón = turquesa a puntos (antes naranja = telecom y
+    violeta ≈ agua; `test_colores_de_calidad_no_son_de_ninguna_utilidad` exige ≥30° de tono).
+    «Unir tramos» (`chk_routes`, QToolButton `toggleTool`) va en el PIE junto a
+    «Opacidad». **Clic en un aviso → ir al lugar** (pedido del usuario): cada regla
     de `_RULES` lleva una CLAVE y `targets_for(clave, result)` da los recuadros (px de la
     vista) — codos `loose`, ristras `curve` (uno por tramo), `uncovered_px`,
     `vault_orphans_px`, y `RecognizedPolyline.review` (lo marca `recognize_page` en las
     rutas que generan los avisos «-A» sin patrón / «//» / «-D» / «/» activa); la fila
-    emite `SummaryPanel.locate(QRectF)` y `RecognitionPreviewDialog._go_to` hace zoom
-    y marca con un recuadro ámbar (1/N por clic). **Revisado** (2026-09-30): vistos todos
+    emite `ReviewPanel.locate(QRectF)` y `RecognitionPreviewDialog._go_to` hace zoom
+    y marca con un recuadro blanco + trazos negros (1/N por clic). **Revisado** (2026-09-30): vistos todos
     sus casos (`_NoticeRow._seen`) —o un clic si no tiene lugar— la fila queda ✔
-    (`reviewedChanged`; clic derecho = pendiente), «k de N revisados» junto a «Revisar», y
+    (`reviewedChanged`; clic derecho = pendiente), «k de N vistos» arriba, y
     cada lugar visitado queda con un recuadro verde a trazos (`_reviewed`, se redibuja en
     `_redraw_overlay`). Aviso nuevo con ubicación → clave +
-    rama en `targets_for`. Tests: `tests/test_recognition_summary.py`.
+    rama en `targets_for`. Ojo: un ítem con `ItemIgnoresTransformations` (esquina C del
+    codo) se dibuja centrado en (0,0) y con `setPos` — en coordenadas de la hoja sale
+    corrido con zoom ≠ 1. Tests: `tests/test_recognition_summary.py`.
   - `recognition_geom.py` — **núcleo geométrico PURO** (sin Qt ni fitz): en el
     PDF la utilidad viene como linetype "explotado" (guiones + letras «e» +
     huecos), nunca como polilínea. Aprende el patrón del plano
@@ -534,23 +639,51 @@ alcantarillado, drenaje, gas, eléctrico, telecom). Todo en **unidades imperiale
     pieza se escala por `src_scale/target`). Botones conmutables del compositor:
     `_tool(checkable=True)` pone la propiedad `toggleTool` (QSS en `theme.py`:
     activo = verde + icono claro; `QPushButton[secondary="true"]` = acción
-    secundaria neutra, la usa el preview en su cuadrícula 2×2) y `_notify_taken` muestra 5 s «✔ Área tomada
-    como pieza N» en el panel 2. **UX (2026-09-26, pedido del usuario: «que no haya muchos
-    botones»)**: panel 2 = «Tomar área» (principal) + «Hoja completa» + menú «Opciones»
-    (`btn_area_snap`/`btn_trim` son QAction checables, mismo nombre que antes); panel 3 =
-    herramientas de pieza (`piece_tools`: girar, menú «Ajustes» con `spn_angle`/
+    secundaria neutra, la usa el preview en su cuadrícula 2×2). **PESTAÑAS (2026-10-03, pedido
+    del usuario: en tres columnas a cada vista le quedaba poco sitio)**: `WorkTabs`
+    (`composite_tabs.py`, pintadas a mano con insignia: nº de piezas / «!» pendiente) + un
+    `QStackedWidget` (`self.stack`, `self.pages`): «Origen» (`composite_source_page.
+    SourcePageMixin`: galería IconMode `lst_pages` con miniaturas de `THUMB_W`=220 — sigue
+    siendo la hoja actual: `setCurrentRow` dispara `_on_page_changed`; doble clic o
+    `btn_go_area` → Área), «Área a tomar» (‹ › `_step_page`, `lbl_page` «Hoja N de M»,
+    `btn_all_pages`; `spn_src_scale` junto a «Tomar»; `taken_box` verde con «Ver hoja
+    compuesta ›») y «Hoja compuesta» (`btn_edit_area` en `piece_tools` → Área). `_go_tab(i)`
+    centraliza todo (Atrás/Siguiente del pie, Ctrl+RePág/AvPág, encuadre la 1.ª vez que se ve
+    cada vista —y otra vez al maximizarse, `changeEvent`—). `_start_tab`: sin piezas → Origen;
+    una hoja entera (la del editor) → Área; si no → Hoja compuesta. Ojo en pruebas: la vista de
+    una pestaña oculta no está visible (`isVisibleTo` falso, `centerOn` sin efecto) →
+    `dlg._go_tab(TAB_SHEET)` antes. **La hoja ELEGIDA es la hoja compuesta**
+    (`composite_choice.ChosenSheetMixin`, pedido del usuario 2026-10-05: elegía la hoja, pulsaba
+    «Siguiente» y quedaba vacía): mientras la hoja compuesta sea vacía o UNA hoja entera
+    (`_simple`), elegir hoja la reemplaza (`_choose_page`: al abrir, clic/flechas en la galería
+    —`composite_source_page.PageGallery.picked`, solo gestos del USUARIO; `setCurrentRow` por
+    código no elige—, ‹ ›, «Tomar área de esta hoja») y la deja EN EDICIÓN: un área marcada (o
+    sus esquinas movidas) la recorta al momento con el `_apply_crop_edit` de siempre y «Hoja
+    completa» la devuelve (`_set_piece_area`; `_take`/`_take_area` sobre la pieza en edición de
+    la hoja a la vista = actualizarla, no agregar). La hoja entera se ve SIN tinte (borde +
+    asas: `_CropView.is_whole_page`/`_fill_for`). Con trabajo de verdad (un área, ≥2 piezas)
+    elegir otra hoja solo la muestra (aviso `pending_box` con «Usar solo esta hoja» si hay una
+    pieza: `_use_only_this_sheet`); Ctrl+clic en la galería (`PageGallery.added`) agrega la
+    hoja entera. Esc no cierra el diálogo (`wizard_widgets.NoEscapeClose`). Tests:
+    `tests/test_composite_dialog.py::test_la_hoja_elegida_es_la_hoja_compuesta` y siguientes.
+    **Validaciones** (`composite_checks.py`, PURO): sin piezas
+    ni área marcada → `btn_ok` apagado (enlace «Usar la hoja N» = `pick`); área marcada sin tomar (`_sel_dirty`: la marcó el
+    usuario, no la de una pieza en edición) o hoja a la vista sin tomar → aviso ámbar en el pie
+    (`lbl_check`, enlace `take`/`tab:N`) + «!» en la pestaña; «Siguiente» desde Área y `accept`
+    preguntan (`_ask_untaken_area`: tomar / seguir sin ella / volver); con solo un área
+    marcada, `accept` la toma. «Para continuar…» va en tono neutro: no es un error.
+    **UX (2026-09-26, pedido del usuario: «que no haya muchos
+    botones»)**: Área = «Tomar área» (principal) + «Hoja completa» + menú «Opciones»
+    (`btn_area_snap`/`btn_trim` son QAction checables, mismo nombre que antes); Hoja compuesta =
+    herramientas de pieza (`piece_tools`: editar área, girar, menú «Ajustes» con `spn_angle`/
     `spn_piece_scale`, quitar) SOLO con una pieza seleccionada, y menú «Uniones»
     (`btn_magnet`/`btn_anchors`/`btn_bridges` + `spn_gap`); `cmb_scale` solo visible con >1
-    escala. Siempre queda abierto «Área a tomar» u «Hoja compuesta» (`_FLEX`,
-    `CollapsiblePanel.set_collapse_allowed`, `_update_collapse_rules`); «Origen» conserva su
-    ancho en px al plegar/desplegar (el sitio lo reparten los `_FLEX`) y `_apply_initial_sizes`
-    se repite en `resizeEvent` con el ancho REAL hasta que el usuario mueva un divisor
-    (`setSizes` antes de mostrarse reparte en proporción y «Origen» crecía). Botones: «Hoja
+    escala. Botones: «Hoja
     completa» = `QPushButton[soft="true"]`, «Opciones»/«Uniones»/«Ajustes» =
     `QPushButton[options="true"]` con menú, todos `_BTN_H`=38. Hoja a la vista que NO está en
-    la hoja compuesta: la lista marca «✔ Tomada» las que sí, `pending_box` avisa y `accept`
-    pregunta (`_ask_pending_page`: agregar / usar solo esa hoja si era una hoja entera /
-    seguir sin ella / volver). Abre en `Composite.last_view` ([pdf, hoja] al aceptar; va al
+    la hoja compuesta: la lista marca las que sí («✔ Hoja completa» / «✔ Área tomada»),
+    `pending_box` avisa y `accept` pregunta (`_ask_pending_page`: agregar / usar solo esa hoja
+    si hay UNA pieza / seguir sin ella / volver). Abre en `Composite.last_view` ([pdf, hoja] al aceptar; va al
     .digproj) — con una sola hoja entera, en su PDF + la hoja del editor; sin nada, la de la
     última pieza (`_start_position`). `piece_map` reproduce exactamente el
     mapeo de `show_pdf_page` (centro a centro, giro antihorario, factor uniforme);
@@ -689,7 +822,10 @@ alcantarillado, drenaje, gas, eléctrico, telecom). Todo en **unidades imperiale
     `show_opacity_popup` (el desplegable de opacidad del editor, movido aquí: lo usan
     `Main._open_opacity_popup`, Capas y el preview) y `OpacityButton` (opacidad del
     pixmap del PDF + rectángulo de fondo blanco/negro debajo; `sync()` tras cada render;
-    quien limpie la escena debe conservar `backdrop`). Navegación (pedido del usuario
+    quien limpie la escena debe conservar `backdrop`) y `NoEscapeClose` (pedido del usuario
+    2026-10-05: Esc cerraba los pasos y se perdía el trabajo; mezcla de `CompositeDialog`,
+    `SheetLayersDialog` y `RecognitionPreviewDialog`: Esc no cierra, solo `_escape()` —quitar el
+    resaltado—; los cuadros chicos y preguntas siguen cerrando con Esc). Navegación (pedido del usuario
     2026-09-26): `Main._wizard_sheet_flow(start_idx, start_step)` es un bucle —
     Capas devuelve `layer_dialog.LAYERS_BACK` (paso 1 de la cabecera) → vuelve al
     compositor; el preview devuelve `PREVIEW_SHEET_LAYERS` (paso 2) → `start_step=1`, o
@@ -712,7 +848,26 @@ alcantarillado, drenaje, gas, eléctrico, telecom). Todo en **unidades imperiale
     `_set_utility_visible` recuerda el estado por capa en `_util_memory` para reponerlo— y
     muestra «on/total» si es parcial), buscador que filtra y despliega, ojo mostrar/ocultar
     sobre lo filtrado, «Opacidad», y
-    «◀ Hoja N / M ▶» cambia de hoja sin salir. Devuelve `(ocultas, hoja)`.
+    «◀ Hoja N / M ▶» cambia de hoja sin salir. Devuelve `(ocultas, hoja, utilidades, letras_no)`.
+    **Panel izquierdo «Leyenda»** (pedido del usuario 2026-10-05; `layer_dialog_info.LayerInfoMixin` +
+    `layer_info_panel.LayerInfoPanel`, `CollapsiblePanel` como «Para verificar»): (1) «Por las letras de
+    su línea (N)» = tarjetas de las capas con `letter_utilities` (utilidad + letras, capa, por qué, y
+    `legend_texts`: lo que dice la leyenda del PDF de ese código —misma caja «g»/«G» si alguna fila la
+    tiene, primera hoja de leyenda, sin las variantes «ABANDONED»—) con casilla «Usar» →
+    `self._letters_off` y el árbol se rearma con `pdf_layers.without_letters` (vuelve a su grupo por
+    nombre: `name_group`). La decisión vuelve a `Main._letters_off`, va al `.digproj` (`letters_off`),
+    a `RecognitionWorker(letters_off=)` (quita esas capas de `letters`) y a «Ajustar capas…». (2) «Leyenda
+    del plano» = `pdf_legend.document_legend` de los PDF de ORIGEN (`Main._legend_sources`: en una hoja
+    compuesta la de trabajo es un temporal sin leyenda), leída en otro hilo (`LegendWorker`, ~4 s; caché
+    `Main._legend_cache` por PDF), primero las filas de las letras de esta hoja (`read_codes` +
+    `letter_raw` de `page_layers`), «Ver toda». Clic en tarjeta o fila = resaltar (velo blanco sobre la
+    hoja + trazos de esas capas con el color de su utilidad; en una capa mezclada solo los suyos, por
+    `letter_paths`) y encuadrar; otro clic lo quita. Sin capas por letras ni leyenda, se pliega solo.
+    `pdf_legend` (sin Qt): hojas con LEGEND/LEYENDA ordenadas por filas «EXISTING/PROPOSED…» (máx. 3);
+    fila = texto con una muestra HORIZONTAL (≤12 pt de alto, ≥60 pt de largo) contigua a su izquierda;
+    solo columnas de ≥3 filas a PASO REGULAR (tolera filas sin leer: paso ×2/×3) con letras en ≥30 %:
+    las etiquetas con flecha de LABOE h.8/h.9 y el cajetín no entran. DU08/DU10/LABOE: 34–37 filas;
+    DU06: sin leyenda. Tests: `tests/test_layer_legend.py`.
     En `Main`, `_start_recognition(idx)` lanza el worker con
     `self.hidden_ocgs` + `self._layer_roles` (None = automático); `_change_page`
     (◀ ▶ / nº de página del editor) lo reutiliza si `self._recog_ready`.
@@ -778,7 +933,8 @@ alcantarillado, drenaje, gas, eléctrico, telecom). Todo en **unidades imperiale
     (`VAULT_GEO_KEYS`: shape, width_ft, length_ft, rot_deg, outline en px; las
     huérfanas no inventan buzón; `rebuild_structures` los conserva por coordenada).
     El lienzo dibuja `outline` como polígono a escala y la medida al seleccionar.
-    **SÓLIDOS** (2026-09-30): caja CONDUIT con `shape="rect"` + `outline` (`is_solid`) →
+    **SÓLIDOS** (2026-09-30): caja CONDUIT —o bóveda de PRESIÓN, 2026-10-05— con
+    `shape="rect"` + `outline` (`is_solid`, `SOLID_NETS`) →
     `normalize_solids` (al final de `rebuild_structures` y `attach_vault_geometry`):
     `solid=True`, sin `part`/`part_size`, `solid_height_ft` (defecto `SOLID_DEFAULT_H_FT`
     = 6.56168), código CAJA-N → SÓLIDO-N. Panel: Largo/Ancho/Altura (`resize_solid` rehace
@@ -1006,9 +1162,10 @@ alcantarillado, drenaje, gas, eléctrico, telecom). Todo en **unidades imperiale
     `_classify_water`: línea `water_ungd` = `C-WATE?R[-_](paquete-)?(UNGD|UGND|PIPE)` sin
     ANNO/TEXT/CASE/FITT/APPT/VALV/METR/HYDR/-FH/-GV/WALL/…; estructura = V-WATR-VALT/MANH/
     STRU, V-FIRE-STRU, C-WATR-VALT/MANH/MHOL/STRC (válvulas, medidores, hidrantes =
-    accesorios, no). Red a PRESIÓN (`NETWORK_KIND`): `Main._import_recognized_pipes` no
-    llama `attach_vault_geometry` ni cuenta bóvedas importables para presión (como el
-    dibujo manual: `rebuild_structures` no crea nodos en presión). Reglas del perfil
+    accesorios, no). Red a PRESIÓN (`NETWORK_KIND`): como en el dibujo manual,
+    `rebuild_structures` no crea nodos en sus vértices; desde 2026-10-05 sus bóvedas
+    reconocidas sí entran (`attach_vault_geometry(net="pressure")`: caja suelta, SÓLIDO si es
+    rectangular). Reglas del perfil
     (`GeomOptions`, SOLO agua): `join_touching_ends` (puntas a ≤1 pt se cosen primero;
     punta JUSTO sobre una línea = T aunque esté cerca de su extremo — el join_gap del agua
     llega a 70 pt), `gap_turn_blocks` (`build_runs` no cruza un hueco si en su borde nace
@@ -1045,7 +1202,8 @@ alcantarillado, drenaje, gas, eléctrico, telecom). Todo en **unidades imperiale
     guión del medio de una curva se estiraba ENCIMA del siguiente → dos tramos
     superpuestos); `OUTLINE_AXIS_UTILITIES` + `outline_axis_paths`: rectángulo delgado
     (≤8 pt, largo ≥6×) en la capa de la línea = tubería en contorno → su EJE (DU06 h.4
-    `PROP_SEWER_PIPE_ALGN|C-SSWR-UNGD-N`). GLOBAL (núcleo): el filtro de ruido compara
+    `PROP_SEWER_PIPE_ALGN|C-SSWR-UNGD-N`; desde 2026-10-02 en TODAS las utilidades, ver
+    `recognition_walls`). GLOBAL (núcleo): el filtro de ruido compara
     `pl.length >= dash_long - 0.5` (dash_long sale de largos redondeados: un trazo de 209.8
     con dash_long=210 se tiraba) — cambia drenaje (DU10 h.17/18: lateral propuesto de 120
     pt recuperado) y agua (18 trazos sueltos recuperados, todos con tinta); eléctrico 0.
@@ -1107,8 +1265,8 @@ alcantarillado, drenaje, gas, eléctrico, telecom). Todo en **unidades imperiale
     `T-PROP-COMM(_ATT)` y el banco de ductos de Metro `N-COMM-DUCT-BANK-PL(-SC/-SE)` («—SC—»,
     una línea con letras); fuera `C-TELE-OVHD` (aérea, como `C-ELEC-OVHD`), ANNO/TEXT/TEXL.
     Estructuras: C-TELE-VALT/MANH/MHOL/STRC, V-COMM-MANH/VALT/STRU, V-COMM-PBOX, V-CATV-PBOX,
-    `N-Comm-Junction Box*`; «JUNCTION» está en `NON_VAULT_TOKENS` (como PBOX: sin línea no se
-    importa suelta; con línea sí, igual que en el eléctrico). CABT/RISR = accesorios.
+    `N-Comm-Junction Box*`; «JUNCTION» está en `NON_VAULT_TOKENS` (como PBOX; sin línea
+    también se importa, como caja suelta, desde 2026-10-05). CABT/RISR = accesorios.
     Única regla de perfil: `stroke_letters` — las letras del linetype son TRAZOS SUELTOS:
     (1) la «t» de «—t—» = asta perpendicular con gancho (pasa por codo) + travesaño de 2.4 pt
     (pasa por guión) → `_stroke_letters` (curva ≤12 pt + trazo ≤`LETTER_TICK_MAX_PT`=4 que se
@@ -1135,8 +1293,9 @@ alcantarillado, drenaje, gas, eléctrico, telecom). Todo en **unidades imperiale
     caja. El audit no lo veía (el tramo inventado pasaba sobre las letras, que son tinta de la
     capa, y moría en el margen de la caja). Auditoría: 12 hojas cambian, todas a menos tramos;
     0 sin tinta, 0 «V», imprecisos 15 = 15. Las líneas «TE» de esas hojas son
-    `U-TRPW-DBNK-P` (Traction Power duct bank de Metro = energía, NO telecom); hoy no las
-    reconoce ningún perfil y «Capas de la hoja» las lista en «Otras».
+    `U-TRPW-DBNK-P` (Traction Electrification ductbank de Metro, leyenda de DU08 h.33 =
+    energía, NO telecom): desde 2026-10-05 entran a ELECTRICO por sus letras
+    (`recognition_letters`), igual que `N-COMM-DUCT-BANK-PL-SE` («SE»).
   - `PDFCAD_CURVE` (punto): esquina de elemento curvo, con `RADIUS_FT`.
   - `PDFCAD_META` (punto): metadatos del proyecto, hoy `CS_CODE` (Huso).
   - `PDFCAD_DUCTBANK` (punto, capa `PDFCAD_DUCT_BANK`): sección transversal del

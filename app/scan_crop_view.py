@@ -29,6 +29,12 @@ class ScanCropView(_CropView):
         self._selection = poly.boundingRect()
         self._shape.hide()
         self._poly_item.setPolygon(poly)
+        whole = len(self.polygon) == 4 and self.is_whole_page(self._selection) and all(
+            any(abs(q.x() - c.x()) < 0.5 and abs(q.y() - c.y()) < 0.5 for q in self.polygon)
+            for c in (self._page_rect.topLeft(), self._page_rect.topRight(),
+                      self._page_rect.bottomRight(), self._page_rect.bottomLeft()))
+        self._poly_item.setBrush(self._fill_for(self._selection) if whole
+                                 else QtGui.QBrush(QtGui.QColor(255, 154, 0, 45)))
         for marker in self._handles.values():
             marker.hide()
         for name, point in zip(("tl", "tr", "br", "bl"), self.polygon):

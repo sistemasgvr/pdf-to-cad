@@ -108,7 +108,7 @@ def analyze(job):
     doc = fitz.open(pdf)
     res = rec.recognize_page(pdf, pno, utility=U, zoom=Z, doc=doc)
     page = doc[pno]
-    lp, _vp, _c, _k = rec.gather_paths(page, lambda n: rec.classify_ocg(n, U), set(), None)
+    lp, _vp = rec.utility_line_paths(page, U)        # por nombre y por las letras de sus líneas
     if not res.drawable and not lp:
         return []
     rm = page.rotation_matrix

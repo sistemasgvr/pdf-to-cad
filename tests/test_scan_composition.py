@@ -141,7 +141,8 @@ def test_overlay_ruler_stays_fixed_while_aligning_sheets(app):
     doc = scan_pdf()
     dlg = CompositeDialog(None, [{"name": "scan.pdf", "data": doc.tobytes()}], None, {}, manual=True)
     try:
-        dlg._take_area(True)
+        dlg._take_area(True)            # la hoja a la vista ya es la pieza 1 (en edición)
+        dlg.view.select(-1)             # «Nueva pieza»: la siguiente es otra pieza
         dlg._take_area(True)
         dlg.btn_rule.setChecked(True)
         ruler = dlg.view.alignment_ruler

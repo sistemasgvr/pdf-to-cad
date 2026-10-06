@@ -13,6 +13,7 @@ import recognition
 from i18n import t as _tr, N_
 from layer_dialog import utility_qcolor
 from pdf_view_quality import FocusedPageQuality
+from ui_common import QA_UNCOVERED, QA_OFFPATTERN
 from widgets import ZoomPanView
 import theme as _theme
 
@@ -174,7 +175,8 @@ class OrganizedRecognitionDialog(QtWidgets.QDialog):
                 color = utility_qcolor(result.utility)
                 for pts in result.offpattern_px:
                     points = [self._point(row, p) for p in pts]
-                    pen = QtGui.QPen(QtGui.QColor("#8a6cff"), 1.5); pen.setCosmetic(True)
+                    pen = QtGui.QPen(QtGui.QColor(QA_OFFPATTERN), 2.0); pen.setCosmetic(True)
+                    pen.setCapStyle(QtCore.Qt.RoundCap); pen.setDashPattern([0.1, 2.2])
                     for a, b in zip(points, points[1:]):
                         line = scene.addLine(a[0], a[1], b[0], b[1], pen)
                         line.setZValue(4); self._overlays.append(line)
@@ -189,7 +191,7 @@ class OrganizedRecognitionDialog(QtWidgets.QDialog):
                         dot.setZValue(6); self._overlays.append(dot)
                 for a, b in result.uncovered_px:
                     start, end = self._point(row, a), self._point(row, b)
-                    pen = QtGui.QPen(QtGui.QColor("#ff8c00"), 4); pen.setCosmetic(True)
+                    pen = QtGui.QPen(QtGui.QColor(QA_UNCOVERED), 4); pen.setCosmetic(True)
                     line = scene.addLine(start[0], start[1], end[0], end[1], pen)
                     line.setZValue(8); self._overlays.append(line)
                 for point in result.vault_pts:
@@ -200,9 +202,9 @@ class OrganizedRecognitionDialog(QtWidgets.QDialog):
                     dot.setZValue(7); self._overlays.append(dot)
                 for point in result.vault_orphans_px:
                     x, y = self._point(row, point)
-                    dot = scene.addEllipse(x - 6, y - 6, 12, 12,
-                                           QtGui.QPen(QtGui.QColor("#ffffff"), 1.5),
-                                           QtGui.QBrush(QtGui.QColor("#ff8c00")))
+                    ring = QtGui.QPen(QtGui.QColor(QA_UNCOVERED), 3); ring.setCosmetic(True)
+                    dot = scene.addEllipse(x - 6, y - 6, 12, 12, ring,
+                                           QtGui.QBrush(QtCore.Qt.NoBrush))
                     dot.setZValue(7); self._overlays.append(dot)
 
     def _toggle_routes(self, checked):
@@ -233,7 +235,7 @@ class OrganizedRecognitionDialog(QtWidgets.QDialog):
             details_rows.append(_tr("{u}: {n} tramos · {v} estructuras · cobertura {c:.1f}%").format(
                 u=utility, n=len(result.drawable), v=len(result.vault_pts), c=result.coverage * 100))
         details = "\n".join(details_rows)
-        details += "\n" + _tr("Sin cubrir: {n} (naranja) · Fuera de patrón: {m} (violeta)").format(
+        details += "\n" + _tr("Sin cubrir: {n} (magenta) · Fuera de patrón: {m} (turquesa)").format(
             n=sum(len(result.uncovered_px) for result in results),
             m=sum(len(result.offpattern_px) for result in results))
         self.details.setText(details)

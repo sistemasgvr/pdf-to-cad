@@ -32,7 +32,7 @@ class RecognitionWorker(QtCore.QThread):
 
     def __init__(self, pdf_path, page_index, zoom=1.0, utility="ELECTRICO",
                  hidden_ocgs=None, layer_roles=None, join_routes=True,
-                 scale_ft_per_pt=None, utilities=None, roles_by_utility=None):
+                 scale_ft_per_pt=None, utilities=None, roles_by_utility=None, letters_off=None):
         super().__init__()
         self.pdf_path = pdf_path
         self.scale_ft_per_pt = scale_ft_per_pt   # hoja compuesta: escala fija
@@ -45,20 +45,37 @@ class RecognitionWorker(QtCore.QThread):
         self.roles_by_utility = {str(k): dict(v or {})
                                  for k, v in (roles_by_utility or {}).items()}
         self.join_routes = join_routes
+        # capas que el usuario decidió NO tomar por las letras de su línea («Capas de la hoja»)
+        self.letters_off = set(letters_off or ())
 
     def run(self):
         try:
+            import fitz
             import recognition as rec
             results = []
-            for i, utility in enumerate(self.utilities):
-                self.progress.emit(i, len(self.utilities), utility)
-                roles = self.roles_by_utility.get(utility) or self.layer_roles or None
-                results.append(rec.recognize_page(
-                    self.pdf_path, page_index=self.page_index,
-                    utility=utility, zoom=self.zoom,
-                    hidden_ocgs=self.hidden_ocgs, layer_roles=roles,
-                    join_routes=self.join_routes,
-                    scale_ft_per_pt=self.scale_ft_per_pt))
+            # un solo documento y UNA lectura de las letras del linetype para todas las
+            # utilidades (`recognition.page_letters`, ~0.5–1 s por hoja)
+            with fitz.open(self.pdf_path) as doc:
+                letters = None
+                if any(not (self.roles_by_utility.get(u) or self.layer_roles) for u in self.utilities):
+                    letters = rec.page_letters(doc[self.page_index])
+                for i, utility in enumerate(self.utilities):
+                    self.progress.emit(i, len(self.utilities), utility)
+                    roles = self.roles_by_utility.get(utility) or self.layer_roles or None
+                    mine = letters
+                    if letters is not None:
+                        # una capa que el usuario asignó a mano («Ajustar capas…») a OTRA
+                        # utilidad no se toma aquí por sus letras: manda su elección
+                        claimed = {name for u, r in self.roles_by_utility.items() if u != utility
+                                   for name in [*(r.get(rec.ROLE_LINEAS) or ()), *(r.get(rec.ROLE_BUZONES) or ())]}
+                        mine = {k: v for k, v in letters.items()
+                                if k not in claimed and k not in self.letters_off}
+                    results.append(rec.recognize_page(
+                        self.pdf_path, page_index=self.page_index,
+                        utility=utility, zoom=self.zoom, doc=doc,
+                        hidden_ocgs=self.hidden_ocgs, layer_roles=roles,
+                        join_routes=self.join_routes,
+                        scale_ft_per_pt=self.scale_ft_per_pt, letters=mine))
             self.done.emit(results, "")
         except Exception as e:
             import traceback
@@ -100,10 +117,11 @@ class OrganizedRecognitionWorker(QtCore.QThread):
                 hidden = list(self.hidden_by_source.get(str(source), ()))
                 crop = self.crops.get(sheet["slot"])
                 pdf_layers.set_hidden(doc, hidden)
+                letters = recognition.page_letters(doc[sheet["page"]])
                 results = [recognition.recognize_page(
                     self.base_path, page_index=sheet["page"], doc=doc,
                     zoom=self.zoom, utility=utility, hidden_ocgs=hidden,
-                    join_routes=self.join_routes, crop=crop)
+                    join_routes=self.join_routes, crop=crop, letters=letters)
                     for utility in self.utilities]
                 pix = doc[sheet["page"]].get_pixmap(
                     matrix=fitz.Matrix(self.zoom, self.zoom), alpha=False,

@@ -468,7 +468,8 @@ namespace Civil3DBasico
                 defaultDepth = pipes[0].CoverMin;
 
             // Separar structures por red: gravedad (BZ-) y conduit (CAJA-).
-            // Las de presión se descartan (agua/gas no llevan nodos automáticos).
+            // Las de presión no entran a ninguna red (agua/gas no llevan nodos); su
+            // bóveda reconocida llega como SÓLIDO y la dibuja CrearSolidos (5c-bis).
             var structsGravedad = new List<ImportStruct>();
             var structsConduit = new List<ImportStruct>();
             int nDescartadas = 0;
@@ -477,7 +478,7 @@ namespace Civil3DBasico
                 string nk = (s.NetKind ?? "").ToLowerInvariant();
                 if (nk == "" || nk == "gravity") structsGravedad.Add(s);
                 else if (nk == "conduit") structsConduit.Add(s);
-                else nDescartadas++;
+                else if (!s.Solid) nDescartadas++;
             }
             if (nDescartadas > 0)
                 ed.WriteMessage($"\n(Se descartaron {nDescartadas} nodo(s) de presión — solo gravedad y conduit llevan nodos.)");

@@ -81,42 +81,79 @@ def set_hidden(doc, hidden: Iterable[str]) -> None:
             doc.set_layer_ui_config(c["number"], action=_ACTION_ON if want_on else _ACTION_OFF)
 
 
-def page_layers(doc, page_index: int) -> List[dict]:
+def page_layers(doc, page_index: int, letters: bool = True) -> List[dict]:
     """Todas las capas OCG del documento, con conteo de trazos en la hoja.
 
-    Devuelve dicts ``{name, short, number, path_count, on, utility}`` para **cada**
-    entrada de ``layer_ui_configs`` (como Okular), aunque ``path_count`` sea 0
-    en esa hoja. Orden: primero las que tienen trazos (``path_count`` desc),
-    luego las de 0 trazos por nombre corto. Para contar se encienden TODAS las
-    capas un instante (los trazos de capas apagadas no salen en
-    ``get_drawings``) y se restaura la visibilidad previa antes de devolver.
-    Los trazos sin capa (marcos, bordes de Bluebeam) no se listan: no se pueden
-    apagar."""
+    Devuelve dicts ``{name, short, number, path_count, on, utility, letters,
+    letter_utilities, letter_codes, name_utility}`` para **cada** entrada de ``layer_ui_configs``
+    (como Okular), aunque ``path_count`` sea 0 en esa hoja. Orden: primero las que
+    tienen trazos (``path_count`` desc), luego las de 0 trazos por nombre corto.
+    Para contar se encienden TODAS las capas un instante (los trazos de capas
+    apagadas no salen en ``get_drawings``) y se restaura la visibilidad previa
+    antes de devolver. Los trazos sin capa (marcos, bordes de Bluebeam) no se
+    listan: no se pueden apagar.
+
+    Con `letters` se leen además las LETRAS del linetype de cada capa
+    (`recognition.letter_uses`): una capa cuyo nombre no es de ninguna utilidad pero
+    sus líneas dicen «—TE—» va al grupo de su utilidad (``letters`` = «TE»,
+    ``letter_utilities`` = las que se reconocen por letras, ``letter_codes`` = el código
+    de cada una; ``name_utility`` = la que decía su nombre si las letras la contradicen)."""
     cfgs = _ui_configs(doc)
     if not cfgs:
         return []
     prev_hidden = hidden_layers(doc)
     set_hidden(doc, ())
     try:
-        counts = Counter(d.get("layer") or "" for d in doc[page_index].get_drawings())
+        page = doc[page_index]
+        drawings = page.get_drawings()
+        counts = Counter(d.get("layer") or "" for d in drawings)
+        uses, read = {}, {}
+        if letters:
+            import recognition                      # pesado: solo aquí (pdf_layers lo usa el compositor)
+            read = recognition.page_letters(page, drawings)
+            uses = recognition.letter_uses(read)
     finally:
         set_hidden(doc, prev_hidden)
     out = []
     for c in cfgs:
         name = c["text"]
         n = counts.get(name, 0)
+        use = uses.get(name)
+        lt = read.get(name)
         out.append({
             "name": name,
             "short": short_name(name),
             "number": c["number"],
             "path_count": n,
             "on": name not in prev_hidden,
-            "utility": utility_of(name),
+            "utility": use.main if use is not None else utility_of(name),
+            "name_group": utility_of(name),
+            "letters": use.code if use is not None else "",
+            "letter_utilities": list(use.utilities) if use is not None else [],
+            "letter_codes": dict(use.codes) if use is not None else {},
+            "letter_paths": dict(use.paths) if use is not None else {},
+            "name_utility": use.name_utility if use is not None else "",
+            # códigos de utilidad leídos en sus líneas (la leyenda marca los de esta hoja)
+            "read_codes": [k for k, v in lt.codes.items() if v >= 2 and not k.endswith("(OH)")] if lt else [],
+            "letter_raw": dict(lt.raw) if lt else {},       # código → letras con su caja («G», «e»)
         })
     # Con trazos primero (más → menos); sin trazos al final, por short.
     out.sort(key=lambda d: (0 if d["path_count"] > 0 else 1,
                             -d["path_count"],
                             d["short"].upper()))
+    return out
+
+
+def without_letters(layers: List[dict], off: Iterable[str]) -> List[dict]:
+    """`page_layers` con la decisión del usuario: las capas de `off` NO se toman por las
+    letras de su línea (vuelven a su grupo por nombre y pierden la etiqueta)."""
+    off = set(off or ())
+    out = []
+    for L in layers:
+        if L["name"] in off and L.get("letter_utilities"):
+            L = dict(L, utility=L.get("name_group") or utility_of(L["name"]), letters="",
+                     letter_utilities=[], letter_codes={}, letter_paths={}, name_utility="")
+        out.append(L)
     return out
 
 

@@ -45,7 +45,8 @@ import recognition
 import theme as _theme
 from ui_common import aci_qcolor, layer_qcolor, swatch_icon
 from widgets import ZoomPanView, MiniMap, maximize_on_show, side_panel_width, GripSplitter
-from wizard_widgets import StepBar, OpacityButton, wizard_header, wizard_footer
+from layer_dialog_info import LayerInfoMixin, layer_tooltip as _layer_tooltip
+from wizard_widgets import NoEscapeClose, StepBar, OpacityButton, wizard_header, wizard_footer
 
 # Zoom del render PDF (matriz PyMuPDF). El lienzo principal usa ~3.5; aquí
 # 3.0 da nitidez al acercar con la rueda sin ralentizar demasiado el
@@ -95,11 +96,14 @@ def _card(title: str) -> tuple[QtWidgets.QFrame, QtWidgets.QVBoxLayout, QtWidget
     return box, lay, head
 
 
-class SheetLayersDialog(QtWidgets.QDialog):
-    """Mostrar/ocultar capas OCG de una hoja con vista previa en vivo."""
+class SheetLayersDialog(LayerInfoMixin, NoEscapeClose, QtWidgets.QDialog):
+    """Mostrar/ocultar capas OCG de una hoja con vista previa en vivo; a la izquierda,
+    las capas que se toman por las LETRAS de su línea y la leyenda del PDF
+    (`layer_dialog_info`). Esc no la cierra (`NoEscapeClose`): quita el resaltado."""
 
     def __init__(self, parent, doc: fitz.Document, page_index: int, layers=None, layout=None,
-                 recognition_utilities=None, can_go_back: bool = False):
+                 recognition_utilities=None, can_go_back: bool = False, letters_off=None,
+                 legend_sources=None, legend_cache=None):
         super().__init__(parent)
         self._doc = doc
         self._page_index = page_index
@@ -109,7 +113,10 @@ class SheetLayersDialog(QtWidgets.QDialog):
         self._page = doc[page_index]
         self._initial_hidden = pdf_layers.hidden_layers(doc)
         # `layers` permite reutilizar el listado ya calculado por quien nos llama.
-        self._layers = layers if layers is not None else pdf_layers.page_layers(doc, page_index)
+        self._layers_raw = layers if layers is not None else pdf_layers.page_layers(doc, page_index)
+        # capas que el usuario decidió NO tomar por las letras de su línea (panel izquierdo)
+        self._letters_off = set(letters_off or ())
+        self._layers = pdf_layers.without_letters(self._layers_raw, self._letters_off)
         self._pix_item = None
         self._slow_render = False          # el último render tardó: el próximo avisa
         self._groups: dict[str, QtWidgets.QTreeWidgetItem] = {}
@@ -248,6 +255,9 @@ class SheetLayersDialog(QtWidgets.QDialog):
         self._timer.setInterval(_RERENDER_DELAY_MS)
         self._timer.timeout.connect(self._render_live)
 
+        # ── izquierda: «Leyenda» (capas por sus letras + leyenda del PDF) ──
+        self._build_info_panel(legend_sources, legend_cache)
+
         self._fit_pending = True
         self._fill_list()
         self._refresh_recog_checks()
@@ -265,8 +275,7 @@ class SheetLayersDialog(QtWidgets.QDialog):
 
     def _apply_side_width(self):
         w = self.width()
-        side_w = side_panel_width(w, _PANEL_WIDTH)
-        self.split.setSizes([max(200, w - side_w), side_w])
+        self._apply_three_columns(side_panel_width(w, _PANEL_WIDTH))
 
     def _fit_view(self):
         if self._pix_item is not None:
@@ -296,8 +305,11 @@ class SheetLayersDialog(QtWidgets.QDialog):
             self.tree.addTopLevelItem(hdr)
             self._groups[key] = hdr
             for L in group:
-                it = QtWidgets.QTreeWidgetItem([f"{L['short']}  ({L['path_count']})"])
-                it.setToolTip(0, L["name"])
+                text = f"{L['short']}  ({L['path_count']})"
+                if L.get("letters"):
+                    text += f"  «{L['letters']}»"       # en su grupo por las letras de su línea
+                it = QtWidgets.QTreeWidgetItem([text])
+                it.setToolTip(0, _layer_tooltip(L))
                 it.setFlags(QtCore.Qt.ItemIsEnabled | QtCore.Qt.ItemIsUserCheckable)
                 it.setCheckState(0, QtCore.Qt.Checked if L["on"] else QtCore.Qt.Unchecked)
                 it.setData(0, _ROLE_NAME, L["name"])
@@ -353,8 +365,8 @@ class SheetLayersDialog(QtWidgets.QDialog):
     def _refresh_recog_checks(self):
         """Solo se marcan las utilidades que la hoja tiene; «Todas» refleja el
         conjunto; sin ninguna marcada no se puede continuar."""
-        available = {layer.get("utility") for layer in self._layers
-                     if int(layer.get("path_count") or 0) > 0}
+        available = {u for layer in self._layers if int(layer.get("path_count") or 0) > 0
+                     for u in [layer.get("utility")] + list(layer.get("letter_utilities") or ())}
         for key, cb in self._recog_checks.items():
             has = key in available
             cb.setEnabled(has)
@@ -487,7 +499,8 @@ class SheetLayersDialog(QtWidgets.QDialog):
         pdf_layers.set_hidden(self._doc, self.hidden_names())
         self._page_index = idx
         self._page = self._doc[idx]
-        self._layers = pdf_layers.page_layers(self._doc, idx)
+        self._layers_raw = pdf_layers.page_layers(self._doc, idx)
+        self._layers = pdf_layers.without_letters(self._layers_raw, self._letters_off)
         # El buscador es solo de VISTA: no debe seguir puesto al cambiar de hoja,
         # o la nueva podía verse vacía aunque sí tuviera capas (usuario: «página
         # 3 parece no tener capas, pero sí tiene»). Lo OCULTO en el documento
@@ -497,6 +510,7 @@ class SheetLayersDialog(QtWidgets.QDialog):
         self._fill_list()
         self._refresh_recog_checks()
         self._update_sheet_widgets()
+        self._info_reload()
         self._render(first=True)
 
     # ── render ──────────────────────────────────────────────────────────────
@@ -545,31 +559,40 @@ class SheetLayersDialog(QtWidgets.QDialog):
 
     def accept(self):
         self._timer.stop()
+        self._stop_legend()
         pdf_layers.set_hidden(self._doc, self.hidden_names())
         super().accept()
 
     def reject(self):
         self._timer.stop()
+        self._stop_legend()
         pdf_layers.set_hidden(self._doc, self._initial_hidden)   # deshacer cambios
         super().reject()
 
 
 def choose_sheet_layers(parent, doc, page_index: int, layout=None, recognition_utilities=None,
-                        can_go_back: bool = False):
-    """Devuelve ``(capas_ocultas, indice_de_hoja, utilidades)`` si el usuario
+                        can_go_back: bool = False, letters_off=None, legend_sources=None,
+                        legend_cache=None):
+    """Devuelve ``(capas_ocultas, indice_de_hoja, utilidades, letras_no)`` si el usuario
     continúa (la hoja puede haber cambiado con ◀ ▶; la lista puede ser vacía),
     `LAYERS_BACK` si pulsa el paso «1 Componer hoja» de la cabecera (solo con
     `can_go_back`), o None si
     cancela (visibilidad restaurada en ambos casos). `layout`: disposición de las
-    hojas de la página compuesta para el minimapa (ver composite.piece_layout)."""
+    hojas de la página compuesta para el minimapa (ver composite.piece_layout).
+    `letters_off`: capas que NO se toman por las letras de su línea (las devuelve
+    actualizadas como `letras_no`); `legend_sources`: PDFs de origen
+    ([{name, data|path}]) cuya leyenda se muestra; `legend_cache`: dict de la ventana
+    principal donde queda la leyenda ya leída."""
     with busy(parent, _tr("Leyendo las capas de la hoja…"),
               _tr("Contando los trazos de cada capa")):
         layers = pdf_layers.page_layers(doc, page_index)
         if not layers:
             # Hoja sin capas OCG (PDF aplanado): no hay nada que elegir.
-            return [], page_index, recognition.normalize_utilities(recognition_utilities)
+            return [], page_index, recognition.normalize_utilities(recognition_utilities), sorted(letters_off or ())
         dlg = SheetLayersDialog(parent, doc, page_index, layers=layers, layout=layout,
-                                recognition_utilities=recognition_utilities, can_go_back=can_go_back)
+                                recognition_utilities=recognition_utilities, can_go_back=can_go_back,
+                                letters_off=letters_off, legend_sources=legend_sources,
+                                legend_cache=legend_cache)
     if dlg.exec() != QtWidgets.QDialog.Accepted:
         return LAYERS_BACK if dlg.went_back else None
-    return dlg.hidden_names(), dlg.page_index(), dlg.recognition_utilities()
+    return dlg.hidden_names(), dlg.page_index(), dlg.recognition_utilities(), dlg.letters_off()

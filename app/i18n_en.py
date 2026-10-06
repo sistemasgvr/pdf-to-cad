@@ -25,7 +25,6 @@ EN: dict[str, str] = {
     "Transportador": "Protractor",
     "Indica la escala real del plano escaneado; las medidas de la regla y del editor dependen de ella.": "Enter the scanned plan's actual scale; ruler and editor measurements depend on it.",
     "Componer PDF imagen/escaneo…": "Compose image/scanned PDF…",
-    "PDF imagen/escaneo: selecciona la hoja, ajusta las cuatro esquinas del área y compón la hoja. Usa la regla para enderezar cada pieza y pásala al editor para dibujar las utilidades a mano.": "Image/scanned PDF: select a sheet, adjust the four area corners and compose the sheet. Use the ruler to straighten each piece, then import it into the editor to draw utilities manually.",
     "Importar hoja al editor": "Import sheet into editor",
     "Arrastra un área y mueve cada esquina para seguir el borde inclinado del plano.": "Drag an area and move each corner to follow the slanted plan border.",
     "Regla": "Ruler",
@@ -79,6 +78,53 @@ EN: dict[str, str] = {
         "Plan layers",
     "Esta hoja no tiene capas de {u}":
         "This sheet has no {u} layers",
+    "Su nombre dice {n}, pero las letras de su línea («{c}») dicen {u}: se reconoce como {u}.":
+        "Its name says {n}, but the letters on its line («{c}») say {u}: it is recognized as {u}.",
+    "Capa con líneas de varias utilidades ({u}). Cada línea se reconoce por sus letras.":
+        "Layer with lines of several utilities ({u}). Each line is recognized by its letters.",
+    "Su nombre no es de ninguna utilidad, pero las letras de su línea («{c}») dicen {u}: se reconoce como {u}.":
+        "Its name is not a utility's, but the letters on its line («{c}») say {u}: it is recognized as {u}.",
+    # ── layer_info_panel.py / layer_dialog_info.py (panel «Leyenda» de «Capas de la hoja») ──
+    "Leyenda":
+        "Legend",
+    "Por las letras de su línea ({n})":
+        "By the letters on their line ({n})",
+    "Su nombre no dice la utilidad; las letras de su línea sí. Desmarca las que no quieras usar.":
+        "Their name does not say the utility; the letters on their line do. Uncheck the ones you do not want to use.",
+    "Usar: reconocer esta capa por las letras de su línea":
+        "Use: recognize this layer by the letters on its line",
+    "Clic: ver sus líneas en la hoja (otro clic, ver todo).":
+        "Click: see its lines on the sheet (click again to see everything).",
+    "su nombre dice {u}":
+        "its name says {u}",
+    "línea por línea":
+        "line by line",
+    "su nombre no dice la utilidad":
+        "its name does not say the utility",
+    "Leyenda: {d}":
+        "Legend: {d}",
+    "Leyenda del plano":
+        "Plan legend",
+    "Buscando la leyenda en el PDF…":
+        "Looking for the legend in the PDF…",
+    "Este PDF no trae una leyenda de líneas.":
+        "This PDF has no line legend.",
+    "hoja {n}":
+        "sheet {n}",
+    "hojas {n}":
+        "sheets {n}",
+    "Del propio PDF ({donde}): las líneas que hay en esta hoja.":
+        "From the PDF itself ({donde}): the lines on this sheet.",
+    "Del propio PDF ({donde}). En negrita, las de esta hoja.":
+        "From the PDF itself ({donde}). In bold, the ones on this sheet.",
+    "Del propio PDF ({donde}).":
+        "From the PDF itself ({donde}).",
+    "Solo esta hoja":
+        "This sheet only",
+    "Ver toda ({n})":
+        "See all ({n})",
+    "Clic: ver en la hoja las líneas «{c}» (otro clic, ver todo).":
+        "Click: see the «{c}» lines on the sheet (click again to see everything).",
     "Capas de la hoja":
         "Sheet layers",
     "Vista previa":
@@ -243,8 +289,8 @@ EN: dict[str, str] = {
     "Trazos": "Paths",
     "Rol": "Role",
     "Ignorar": "Ignore",
-    "Capas usadas (asignadas automáticamente por su nombre):":
-        "Layers used (assigned automatically by name):",
+    "Capas usadas":
+        "Layers used",
     "Líneas": "Lines",
     "Bóvedas": "Vaults",
     "Hoja {n}": "Sheet {n}",
@@ -269,7 +315,6 @@ EN: dict[str, str] = {
         "How neighbouring pieces are joined",
     "Siempre queda al menos un panel abierto":
         "At least one panel always stays open",
-    "Hojas": "Sheets",
     "Escala de la hoja": "Sheet scale",
     "Escala pieza": "Piece scale",
     "Imán": "Magnet",
@@ -891,6 +936,8 @@ EN: dict[str, str] = {
         "Recognition finished, but there is no sheet image for the preview.",
     "Reconocimiento cancelado — editor vacío.":
         "Recognition cancelled — empty editor.",
+    "Sin cambios en la hoja ni en sus capas: se usa el reconocimiento anterior.":
+        "No changes to the sheet or its layers: the previous recognition is reused.",
     "Codos como esquina + radio (CV): {c}.":
         "Bends as corner + radius (CV): {c}.",
     "Página {n} cargada.":
@@ -1029,6 +1076,39 @@ EN: dict[str, str] = {
         "conduit (electrical/telecom)",
     "gravedad":
         "gravity",
+    "presión (agua/gas)":
+        "pressure (water/gas)",
+    # ── composite_choice.py / composite_dialog.py: la hoja elegida (2026-10-05) ──
+    "Para continuar, elige una hoja del plano.":
+        "To continue, choose a sheet of the plan.",
+    "La hoja {n} entera está en la hoja compuesta. Si solo necesitas una parte, arrastra un área sobre el plano o mueve las esquinas: la hoja compuesta se actualiza sola.":
+        "The whole sheet {n} is in the composite sheet. If you only need part of it, drag an area over the plan or move the corners: the composite sheet updates by itself.",
+    "La hoja compuesta usa el área marcada de la hoja {n}. Ajústala, o pulsa «Hoja completa» para volver a usar toda la hoja.":
+        "The composite sheet uses the marked area of sheet {n}. Adjust it, or press «Full sheet» to use the whole sheet again.",
+    "Volver a usar la hoja entera en esta pieza":
+        "Use the whole sheet in this piece again",
+    "✔ Lista para continuar: hoja {n} completa":
+        "✔ Ready to continue: full sheet {n}",
+    "✔ Lista para continuar: área de la hoja {n}":
+        "✔ Ready to continue: area of sheet {n}",
+    "Usar la hoja {n}":
+        "Use sheet {n}",
+    "Usar solo esta hoja":
+        "Use only this sheet",
+    "Quitar lo tomado y usar solo la hoja que estás viendo":
+        "Drop what was taken and use only the sheet you are viewing",
+    "La hoja {n} aún no está en la hoja compuesta (que usa: {donde}). Para sumarla, marca un área y pulsa «Tomar área», o pulsa «Hoja completa».":
+        "Sheet {n} is not in the composite sheet yet (it uses: {donde}). To add it, mark an area and press «Take area», or press «Full sheet».",
+    "Haz clic en la hoja del plano: esa hoja pasa a la hoja compuesta. Si solo necesitas una parte, márcala en «Área a tomar» (doble clic). Ctrl+clic agrega otra hoja.":
+        "Click the plan's sheet: that sheet goes into the composite sheet. If you only need part of it, mark it in «Area to take» (double click). Ctrl+click adds another sheet.",
+    "La hoja compuesta ya está armada: un clic solo muestra la hoja. Para agregarla, toma su área en «Área a tomar» (doble clic) o usa Ctrl+clic para agregarla entera.":
+        "The composite sheet is already put together: a click only shows the sheet. To add it, take its area in «Area to take» (double click) or use Ctrl+click to add it whole.",
+    "✔ {n} piezas":
+        "✔ {n} pieces",
+    "✔ Hoja completa":
+        "✔ Full sheet",
+    "✔ Área tomada":
+        "✔ Area taken",
     "(sin tamaños detectados)":
         "(no sizes detected)",
     "Código repetido":
@@ -1331,12 +1411,70 @@ EN: dict[str, str] = {
         "{i}   plan({x},{y})  →  street({X},{Y}) ft{etiqueta}",
 
     # ── composite_dialog.py ──
-    "Elige el PDF y la hoja, marca el área del plano que necesitas y tómala a la hoja compuesta. Acomoda las piezas arrastrándolas: el imán alinea los extremos de las líneas y los puentes (verde) los unen. Cada pieza conserva sus vectores, capas, textos y medidas.":
-        "Choose the PDF and the sheet, mark the area of the plan you need and take it to the composite sheet. Arrange the pieces by dragging them: the magnet aligns the line ends and the bridges (green) join them. Each piece keeps its vectors, layers, texts and measurements.",
-    "Rueda = zoom · botón central = desplazar · Supr quita la pieza seleccionada":
-        "Wheel = zoom · middle button = pan · Del removes the selected piece",
-    "1 · Origen":
-        "1 · Source",
+    "Hay un área marcada en la hoja {n} sin tomar.":
+        "There is a marked area on sheet {n} that was not taken.",
+    "La hoja {n} que estás viendo no está en la hoja compuesta.":
+        "Sheet {n}, which you are viewing, is not in the composite sheet.",
+    "Origen":
+        "Source",
+    "Área a tomar":
+        "Area to take",
+    "Elegir el PDF y la hoja":
+        "Choose the PDF and the sheet",
+    "Marcar el área de la hoja y tomarla":
+        "Mark the sheet area and take it",
+    "Acomodar las piezas tomadas":
+        "Arrange the pieces taken",
+    "Atrás":
+        "Back",
+    "Siguiente: Área a tomar":
+        "Next: Area to take",
+    "Siguiente: Hoja compuesta":
+        "Next: Composite sheet",
+    "✔ Lista para continuar: {n} pieza(s)":
+        "✔ Ready to continue: {n} piece(s)",
+    "Tomarla":
+        "Take it",
+    "Tomar la hoja {n}":
+        "Take sheet {n}",
+    "Ir":
+        "Go",
+    "Ver todas las hojas":
+        "See all sheets",
+    "Volver a «Origen» para elegir otra hoja":
+        "Back to «Source» to choose another sheet",
+    "Ver hoja compuesta":
+        "See composite sheet",
+    "Hoja {n} de {total}":
+        "Sheet {n} of {total}",
+    "✔ ya está en la hoja compuesta":
+        "✔ already in the composite sheet",
+    "Acomoda las piezas arrastrándolas: el imán alinea los extremos de las líneas y los puentes (verde) los unen. Cada pieza conserva sus vectores, capas, textos y medidas.":
+        "Arrange the pieces by dragging them: the magnet aligns the line ends and the bridges (green) join them. Each piece keeps its vectors, layers, texts and measurements.",
+    "Usa la regla para enderezar cada pieza y pásala al editor para dibujar las utilidades a mano.":
+        "Use the ruler to straighten each piece and send it to the editor to draw the utilities by hand.",
+    "Editar área":
+        "Edit area",
+    "Ajustar en «Área a tomar» el recorte de la pieza seleccionada":
+        "Adjust the selected piece's crop in «Area to take»",
+    "Aún no hay piezas: toma un área en «Área a tomar».":
+        "No pieces yet: take an area in «Area to take».",
+    "Área sin tomar":
+        "Area not taken",
+    "Marcaste un área en la hoja {n} pero no la tomaste.":
+        "You marked an area on sheet {n} but did not take it.",
+    "Si no la tomas, no estará en la hoja compuesta.":
+        "If you do not take it, it will not be in the composite sheet.",
+    "Tomar el área":
+        "Take the area",
+    "Seguir sin tomarla":
+        "Continue without it",
+    "Tomar área de esta hoja":
+        "Take area of this sheet",
+    "Ir a «Área a tomar» con la hoja elegida":
+        "Go to «Area to take» with the chosen sheet",
+    "Elegida: hoja {n} de {total}":
+        "Chosen: sheet {n} of {total}",
     "PDF":
         "PDF",
     "Agregar PDF…":
@@ -1345,8 +1483,6 @@ EN: dict[str, str] = {
         "Add another PDF",
     "Escala leída del texto de la hoja; corrígela si no es la del plano.":
         "Scale read from the sheet text; correct it if it is not the plan's scale.",
-    "2 · Área a tomar":
-        "2 · Area to take",
     "Arrastra un rectángulo sobre el plano; esquinas y lados se ajustan.":
         "Drag a rectangle over the plan; corners and sides can be adjusted.",
     "Nueva pieza":
@@ -1361,8 +1497,6 @@ EN: dict[str, str] = {
         "No border line",
     "Recortar el área por dentro de la línea larga que corra pegada a cada lado (match line, marco de la vista), sea de la capa que sea, para que no aparezca en la hoja compuesta":
         "Crop the area inside the long line running next to each side (match line, view frame), whatever its layer, so it does not appear in the composite sheet",
-    "3 · Hoja compuesta":
-        "3 · Composite sheet",
     "Girar 90° antihorario":
         "Rotate 90° counterclockwise",
     "Girar 90° horario":
@@ -1453,8 +1587,8 @@ EN: dict[str, str] = {
         "Back to layers",
     "Cerrar vista previa":
         "Close preview",
-    "Sin cubrir: {n} (naranja) · Fuera de patrón: {m} (violeta)":
-        "Uncovered: {n} (orange) · Off-pattern: {m} (purple)",
+    "Sin cubrir: {n} (magenta) · Fuera de patrón: {m} (turquesa)":
+        "Uncovered: {n} (magenta) · Off-pattern: {m} (turquoise)",
 
     # ── recognition_dialog.py ──
     "Tipo de PDF":
@@ -1759,12 +1893,20 @@ EN: dict[str, str] = {
         "Vaults detected: {n} (they are already line vertices).",
     "Bóvedas sin línea cercana: {n}.":
         "Vaults with no nearby line: {n}.",
+    "Tuberías dibujadas con sus dos paredes: {n} — se toma la línea del medio (una sola utilidad).":
+        "Pipes drawn with their two walls: {n} — the middle line is used (a single utility).",
+    "Tuberías dibujadas con paredes y eje: {n} — se usa el eje y se omiten las paredes.":
+        "Pipes drawn with walls and centerline: {n} — the centerline is used and the walls are skipped.",
     "Puntas unidas a su bóveda (imán): {n} — quedaban a menos de {d} pt de su contorno y se llevaron hasta él por su propia recta.":
         "Line ends joined to their vault (magnet): {n} — they were less than {d} pt from its outline and were moved onto it along their own line.",
+    "Reconocidas por las letras de su línea (no por el nombre de la capa): {n} — {capas}.":
+        "Recognized by the letters on their line (not by the layer name): {n} — {capas}.",
+    "(su nombre decía {u})":
+        "(its name said {u})",
     "Capa «-A» sin el patrón de marcadores «/» a lo largo de la línea: {n} — NO se marcan como abandonadas.":
         "«-A» layer without the «/» marker pattern along the line: {n} — NOT marked as abandoned.",
-    "Cobertura de guiones: {pct:.1f}% ({n} sin cubrir, en naranja).":
-        "Dash coverage: {pct:.1f}% ({n} uncovered, in orange).",
+    "Cobertura de guiones: {pct:.1f}% ({n} sin cubrir, en magenta).":
+        "Dash coverage: {pct:.1f}% ({n} uncovered, in magenta).",
     "Cobertura de guiones: {pct:.1f}%.":
         "Dash coverage: {pct:.1f}%.",
     "Ninguna capa OCG coincidió con los roles / tokens de reconocimiento.":
@@ -1859,8 +2001,8 @@ EN: dict[str, str] = {
         "Composed sheet",
 
     # ── app_window.py (rama dev_santos_v2) ──
-    "({a} sin línea, importadas como cajas sueltas.)":
-        "({a} with no line, imported as standalone boxes.)",
+    "({a} como cajas sueltas, sin unir a una línea.)":
+        "({a} as standalone boxes, not joined to a line.)",
     "Ajustar capas":
         "Adjust layers",
     "Capa del PDF de la que salió (disciplina, sistema, ubicación, estado) y tus propios campos. Se guardan en el proyecto y van al DXF.":
@@ -1936,8 +2078,6 @@ EN: dict[str, str] = {
         "Sheet {n} · no layers",
     "✔ Área tomada como pieza {n} ({label}). Ya está en la hoja compuesta ({total} pieza(s)).":
         "✔ Area taken as piece {n} ({label}). It is already on the composite sheet ({total} piece(s)).",
-    "✔ Tomada": "✔ Taken",
-    "✔ Tomada ({n} piezas)": "✔ Taken ({n} pieces)",
     "Esta hoja ya está en la hoja compuesta.": "This sheet is already on the composite sheet.",
     "La hoja {n} aún no está en la hoja compuesta: marca un área y pulsa «Tomar área», o pulsa «Hoja completa».":
         "Sheet {n} is not on the composite sheet yet: draw an area and press «Take area», or press «Full sheet».",
@@ -1965,15 +2105,7 @@ EN: dict[str, str] = {
     "activas": "active",
     "abandonadas (AB)": "abandoned (AB)",
     "Unir tramos": "Join segments",
-    "Revisado": "Reviewed",
-    "Al ver todos los casos queda marcado como revisado.": "Once every case has been viewed it is marked as reviewed.",
-    "Clic: marcar como revisado.": "Click: mark as reviewed.",
     "Marcar como pendiente": "Mark as pending",
-    "Marcar como revisado": "Mark as reviewed",
-    "Avisos ya revisados. Clic derecho en un aviso: marcarlo como pendiente.":
-        "Notices already reviewed. Right-click a notice to mark it as pending.",
-    "✔ Todo revisado": "✔ All reviewed",
-    "{k} de {n} revisados": "{k} of {n} reviewed",
 
     # ── layer_dialog.py (rama dev_santos_v2) ──
     "Utilidades a reconocer:":
@@ -2046,18 +2178,92 @@ EN: dict[str, str] = {
         "There must be at least one layer in «Lines» to continue.",
     "Escala {s:.6f} pie/pt":
         "Scale {s:.6f} ft/pt",
-    "Guiones del plano cubiertos por las líneas reconocidas. En el dibujo: naranja = sin cubrir, violeta = trazos fuera de patrón (leaders/flechas).":
-        "Plan dashes covered by the recognized lines. In the drawing: orange = uncovered, purple = off-pattern strokes (leaders/arrows).",
+    "Guiones del plano cubiertos por las líneas reconocidas. En el dibujo: magenta = sin cubrir, turquesa a puntos = trazos fuera de patrón (leaders/flechas).":
+        "Plan dashes covered by the recognized lines. In the drawing: magenta = uncovered, dotted turquoise = off-pattern strokes (leaders/arrows).",
+    "1 bóveda sin línea":
+        "1 vault without a line",
+    "{n} bóvedas sin línea":
+        "{n} vaults without a line",
+
+    # ── recognition_review_view.py / recognition_dialog.py (paneles 2026-10-03) ──
+    "Para verificar ({n})":
+        "To check ({n})",
+    "Para verificar":
+        "To check",
+    "Nada que verificar":
+        "Nothing to check",
+    "{what}: no hay nada reconocido de esta capa en la hoja.":
+        "{what}: nothing from this layer was recognized on the sheet.",
+    "1 línea":
+        "1 line",
+    "{n} líneas":
+        "{n} lines",
+    "1 bóveda":
+        "1 vault",
+    "{n} bóvedas":
+        "{n} vaults",
+    "Resaltado: {what} · {parts}":
+        "Highlighted: {what} · {parts}",
+    "Visto":
+        "Seen",
+    "Ver todo":
+        "Show all",
+    "Quitar el resaltado y ver toda la hoja.":
+        "Remove the highlight and show the whole sheet.",
+    "Clic: verla resaltada en la hoja (otro clic la quita).":
+        "Click: see it highlighted on the sheet (click again to remove).",
+    "Clic en una capa para verla en la hoja.":
+        "Click a layer to see it on the sheet.",
+    "Al ver todos los casos queda marcado como visto.":
+        "Once all cases have been seen it is marked as seen.",
+    "Clic: marcar como visto.":
+        "Click: mark as seen.",
+    "Marcar como visto":
+        "Mark as seen",
+    "Todo se reconoció sin dudas: no hay nada que mirar antes de importar.":
+        "Everything was recognized without doubts: nothing to look at before importing.",
+    "En rojo, lo que no se pudo reconocer. Lo demás se reconoció y conviene mirarlo en la hoja antes de importar.":
+        "In red, what could not be recognized. The rest was recognized and is worth a look on the sheet before importing.",
+    "Todo se reconoció. Estos puntos conviene mirarlos en la hoja antes de importar; no son errores. Clic en uno para verlo.":
+        "Everything was recognized. These points are worth a look on the sheet before importing; they are not errors. Click one to see it.",
+    "Puntos ya vistos. Clic derecho en uno: marcarlo como pendiente.":
+        "Points already seen. Right-click one: mark it as pending.",
+    "✔ Todos vistos":
+        "✔ All seen",
+    "{k} de {n} vistos":
+        "{k} of {n} seen",
+    "No hay líneas de esta utilidad en la hoja. Si el plano usa otros nombres de capa, indícalos con «Ajustar capas…».":
+        "There are no lines of this utility on the sheet. If the plan uses other layer names, set them with «Adjust layers…».",
+    "El PDF no trae capas en esta hoja y no se puede reconocer sola. Puedes dibujar a mano en el editor.":
+        "The PDF has no layers on this sheet, so it cannot be recognized automatically. You can draw by hand in the editor.",
+    "Ningún nombre de capa es conocido. Indica cuáles son las líneas con «Ajustar capas…».":
+        "No layer name is known. Tell which ones are the lines with «Adjust layers…».",
+    "Su capa dice «abandonada» (-A), pero la línea no lleva las marcas «/». Se importan como activas: confirma si lo son.":
+        "Their layer says «abandoned» (-A), but the line has no «/» marks. They are imported as active: confirm whether they are.",
+    "Su capa es «existente a abandonar» (-D). Se importan como activas hasta que tú decidas.":
+        "Their layer is «existing to be abandoned» (-D). They are imported as active until you decide.",
+    "Llevan las marcas «/» de abandonada, pero su capa es activa. Se importan como activas.":
+        "They carry the abandoned «/» marks, but their layer is active. They are imported as active.",
+    "El plano no las dibuja como un arco exacto (radio que cambia o esquina cortada). Se importan como tramos rectos que siguen la curva.":
+        "The plan does not draw them as an exact arc (changing radius or cut corner). They are imported as straight segments that follow the curve.",
+    "Están en el plano, pero ninguna línea llega a ellas (anillo magenta). Se importan igual, como cajas sueltas; mira si les falta una línea.":
+        "They are on the plan, but no line reaches them (magenta ring). They are imported anyway, as standalone boxes; check whether a line is missing.",
+    "La curva del plano no es un arco perfecto. Se importó el arco que mejor la sigue (a trazos en la hoja).":
+        "The plan's curve is not a perfect arc. The arc that best follows it was imported (dashed on the sheet).",
+    "Trozos de línea del plano que no quedaron dentro de ninguna línea reconocida (en magenta). Suelen ser restos sueltos del dibujo.":
+        "Pieces of plan line that did not end up inside any recognized line (in magenta). They are usually loose leftovers of the drawing.",
+    "El nombre de su capa no dice esta utilidad, pero las letras de la línea sí (por ejemplo «—TE—»). Confirma que es así; si no, cámbialo con «Ajustar capas…».":
+        "Their layer name does not say this utility, but the letters on the line do (for example «—TE—»). Confirm it; if not, change it with «Adjust layers…».",
+    "Se asignan automáticamente por su nombre. «Ajustar capas…» solo hace falta si el plano usa otros nombres.":
+        "Assigned automatically by name. «Adjust layers…» is only needed if the plan uses other names.",
+    "{n} ocultas por ti":
+        "{n} hidden by you",
 
     # ── recognition_summary_view.py (rama dev_santos_v2) ──
     "Clic: ir al lugar en la hoja (cada clic, el siguiente).":
         "Click: go to the spot on the sheet (each click, the next one).",
     "Detalles ({n})":
         "Details ({n})",
-    "Nada que revisar":
-        "Nothing to review",
-    "Revisar ({n})":
-        "Review ({n})",
     "{u}: {n} tramos — {a} activos, {b} abandonados (AB)\n{c} codos · {v} estructuras · cobertura {k:.1f} %":
         "{u}: {n} segments — {a} active, {b} abandoned (AB)\n{c} bends · {v} structures · coverage {k:.1f} %",
 

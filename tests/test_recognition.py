@@ -877,7 +877,9 @@ def test_du06_ningun_tramo_sin_tinta_debajo():
             if not res.drawable:
                 continue
             page = doc[pno]
-            lp, _vp, _c, _k = rec.gather_paths(page, rec.classify_ocg, set(), None)
+            # la tinta de las capas que usa el reconocimiento: por su nombre y por las
+            # letras de sus líneas (`recognition_letters`: «—SE—» en `G-XREF`)
+            lp, _vp = rec.utility_line_paths(page, "ELECTRICO")
             px = lambda q: (q[0] * Z, q[1] * Z)                       # noqa: E731
             by = {}
             for p_ in lp:

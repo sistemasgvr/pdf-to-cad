@@ -193,6 +193,7 @@ def test_measure_then_calibrate_whole_sheet(app, monkeypatch):
     dlg = open_dialog(doc)
     try:
         dlg._take_area(True)
+        dlg._go_tab(2)                                   # la hoja compuesta vive en su pestaña
         dlg.show(); app.processEvents()
         dlg.view.fit_all()
         dlg.btn_measure.setChecked(True)
@@ -287,10 +288,12 @@ def test_blend_view_shows_ink_under_overlap(app):
     doc = line_scan()
     dlg = open_dialog(doc)
     try:
-        dlg._take_area(True)
+        dlg._take_area(True)            # la hoja a la vista ya es la pieza 1 (en edición)
+        dlg.view.select(-1)             # «Nueva pieza»: la siguiente es otra pieza
         dlg._take_area(True)
         dlg.comp.pieces[1].x, dlg.comp.pieces[1].y = 60.0, 0.0
         dlg.view.refresh_all()
+        dlg._go_tab(2)                                   # la hoja compuesta vive en su pestaña
         dlg.show(); app.processEvents()
         dlg.view.scene().clearSelection()
         dlg.view.fitInView(QtCore.QRectF(0, 0, 360, 200), QtCore.Qt.KeepAspectRatio)

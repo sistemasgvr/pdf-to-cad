@@ -41,6 +41,15 @@ def aci_qcolor(a): return QtGui.QColor(*ACI_RGB.get(a, (235, 235, 235)))
 def layer_qcolor(l): return aci_qcolor(C.OUTPUT_LAYERS.get(l, 7))
 
 
+# Colores del control de calidad que se pintan SOBRE la hoja (vista previa del
+# reconocimiento). Ninguno es tono de utilidad (rojo, naranja, amarillo, verde,
+# azul, blanco): «sin cubrir» era naranja, igual que telecom, y el violeta de
+# «fuera de patrón» rozaba el azul del agua (pedido del usuario 2026-10-03).
+# Además cada uno tiene su FORMA (línea gruesa, anillo, puntos): no solo color.
+QA_UNCOVERED = "#ff2bd6"     # magenta: guion sin cubrir (línea gruesa) y bóveda sin línea (anillo)
+QA_OFFPATTERN = "#16b8c9"    # turquesa a puntos: trazos fuera de patrón (leaders/flechas)
+
+
 def _extract_diam_from_size(size_str):
     """Extrae el primer número de un tamaño del catálogo, p.ej. '24 in' → 24.0,
     '12 in x 8 in' → 12.0. Retorna 0.0 si no encuentra número."""
