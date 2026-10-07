@@ -119,8 +119,8 @@ namespace Civil3DBasico
             else
             {
                 W("");
-                W("  ✓ Hay familias custom en el catálogo. Para usarlas en la Parts List");
-                W("  del dibujo actual, ejecuta el comando: BB  (o AGREGAR_BANCOS_Y_BUZONES)");
+                W("  ✓ Hay familias custom en el catálogo. Para usarlas, asígnalas a la");
+                W("  tubería o estructura en la app: IMPORTAR_RED las agrega a la Parts List.");
             }
 
             // 3) Estado de la Parts List del dibujo activo

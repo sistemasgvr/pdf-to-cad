@@ -215,7 +215,9 @@ namespace Civil3DBasico
     internal sealed class ContextoPerfil
     {
         public Document Doc; public Editor Ed; public Database Db; public CivilDocument CivDoc;
-        public double S = 20.0;                          // DrawingScale (ft por in de ploteo)
+        public double S = 20.0;                          // escala del perfil (ft por in de ploteo)
+        public double SDibujo = 20.0;                    // DrawingScale del dibujo (escala de las etiquetas nativas)
+        public bool SAuto;                               // S elegida por el largo (DrawingScale < S_MIN_PERFIL)
         public bool Metros;                              // DrawingUnits == Meters (G.0)
         public double FactorPl, FactorPlInicial;         // I-1 / F.10
         public string OrigenFactorPl = "";

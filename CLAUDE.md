@@ -1042,6 +1042,10 @@ alcantarillado, drenaje, gas, eléctrico, telecom). Todo en **unidades imperiale
   `API-CIVIL/proyecto1/PerfilPruebas` (`dotnet run -c Release`, 173 casos de F.12). Ojo: el diseño
   C.5 decía que un arco con bulge > 0 cae «a la izquierda»: cae a la DERECHA (corregido en código).
   Log de cada ejecución: `%TEMP%\PDFCAD_Perfil.log`.
+  Escala: `ctx.S` = DrawingScale, salvo escala de DETALLE (< `PerfilDiseno.S_MIN_PERFIL`=10, p. ej.
+  1"=1'): entonces `EscalaAuto(largo)` (menor de 10/20/30/40/50/60/100… con el recorrido ≤ 24 in) y
+  `FactorPlInicial ×= S/SDibujo` (las etiquetas nativas escalan con el dibujo). Con S=1 la VE era 1: perfil
+  aplanado (2026-10-06).
   **Quiebres mínimos** (2026-09-30): `EnderezarQuiebres` (`ImportarRedEnderezar.cs`, antes de agrupar redes)
   quita en gravedad/conduit los vértices con giro ≤2° y ≤0.25 ft de la recta sin nada encima (buzón visible,
   caja, sólido, curva, ANCLA de un codo —vecino de un vértice curvo: mide el tubo del codo—, otra tubería a ≤1 ft,
@@ -1051,13 +1055,30 @@ alcantarillado, drenaje, gas, eléctrico, telecom). Todo en **unidades imperiale
   conexiones verticales): cada pieza de cada red creada (tuberías, estructuras, accesorios/apurtenencias de
   presión) pasa a la capa de su polilínea de origen (`redesConOrigen`: red → ImportPipe; red de capas
   mezcladas → la polilínea más cercana). Antes quedaban en la capa por defecto de Civil 3D. Conductos de
-  bancoducto → `PDFCAD_DUCT_BANK` (su ImportPipe ya trae esa capa); sólidos sin cambio.
+  bancoducto → `PDFCAD_DUCT_BANK` (su ImportPipe ya trae esa capa). SÓLIDOS (2026-10-06,
+  `AsignarCapasDeSolidos`): los Solid3d de ESTE import (handle ≥ `db.Handseed` al empezar) en
+  `PDFCAD_WYE_SOLIDO` (accesorios de presión: codo/Tee/Wye/cruz/reducción) y `PDFCAD_SOLIDOS` (buzones/cajas)
+  → capa de la polilínea de utilidad más cercana, dentro de su red si el XDATA trae `RED=`; bancoducto no.
+  **Nombres y consola** (2026-10-06): paso 5i `NombrarTuberiasPorRed` → «RED - (n)»; el diagnóstico de
+  pendiente ≈ 0 omite redes conduit (estructuras nulas) y agrupa por red; los mensajes por accesorio
+  ([CODO-DBG], [XDATA], [WYE-PRESCAN], [JUNTURA-WYE-SCAN], [FITTING-SOLIDO] sin ⚠) van por `ComandosRedes.Dl`
+  (solo con `DEBUG_LOGS`).
   **PREPARAR_FAMILIAS paso 5** (`PressureCatalogFiller`, completar tamaños de los SQLite de presión):
   DESACTIVADO desde 2026-10-05 con `ComandosPrepararFamilias.RELLENAR_CATALOGOS_PRESION = false`
   (código intacto; `true` lo reactiva). Los tamaños nuevos van por el «+» de la app.
   **Ángulo del codo** (2026-10-01): el XDATA `ANGULO` de la pieza sigue siendo el GIRO (lo usa el rótulo del
-  perfil «45° BEND»); el Property Set `PDFCAD_Accesorio.Angulo_Grados` y `LISTAR_ACCESORIOS` muestran el
+  perfil «45° BEND»); el Property Set `PDFCAD_Accesorio.Angulo_Grados` muestra el
   ángulo ENTRE tuberías (`AccesorioPropertySet.AnguloVisible`: codo = 180° − giro), igual que la app.
+  **Comandos quitados** (2026-10-07, pedido del usuario): CREAR_RED, CREAR_RED_COMPLETA,
+  CREAR_RED_POLILINEA, CREAR_RED_COGO, UNIR_TUBERIAS_RED, AGREGAR_FAMILIA, AGREGAR_TAMANOS,
+  AGREGAR_BANCOS_Y_BUZONES/BB, todos los manuales de presión (CREAR_RED_PRESION, CREAR_RUN_PRESION[_COGO],
+  AGREGAR_TUBO/ELEMENTO_PRESION, UNIR_TUBERIAS/VARIAS_PRESION, RAMIFICAR_PRESION, CORREGIR_FITTINGS_PRESION,
+  SEGUIR_RASANTE_PRESION, LISTAR_PIEZAS_PRESION, EXPORTAR_RED_PRESION_EXCEL, INVERTIR_ALINEAMIENTO),
+  LISTAR_ACCESORIOS, DATOS_ACCESORIO, PS_ACCESORIOS y ADJUNTAR_PROPERTY_SET. Se fueron sus archivos
+  (`RedesTuberiaEntrada`, `RedesPresionRamales`, `ListarAccesoriosSolidos`, `CatalogoBancos`, `VentanaPropertySet`);
+  `RedesPresion.cs` quedó solo con `CorregirFittingsDeRed` (lo usa IMPORTAR_RED, sin preguntar) y
+  `RedesTuberia.cs` con la elección de familias/tamaños de IMPORTAR_RED. No volver a crearlos sin que el
+  usuario lo pida.
 - `installer/` — bundle del plugin + Inno Setup. `build_all.bat` (raíz) arma todo.
 - `tests/` — pruebas de humo headless (pytest, 27): georref (`fit`), modelo Georef,
   catálogo (`family_guid`), serialización (`project_io`) y operaciones de modelo

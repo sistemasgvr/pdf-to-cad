@@ -42,11 +42,48 @@ namespace Civil3DBasico
             ObjectId aStyle, aLabel;
             try
             {
-                aStyle = civilDoc.Styles.AlignmentStyles[0];
+                aStyle = EstiloEjeVisible(civilDoc, tr);
                 aLabel = civilDoc.Styles.LabelSetStyles.AlignmentLabelSetStyles[0];
             }
             catch { return ObjectId.Null; }
-            return CrearAlineamientoDesdePts(db, civilDoc, tr, pts, nombre, db.Clayer, aStyle, aLabel);
+            return CrearAlineamientoDesdePts(db, civilDoc, tr, pts, nombre, CapaEjeVisible(db, tr), aStyle, aLabel);
+        }
+
+        // Estilo de eje que SÍ dibuja la línea en planta (2026-10-06: con
+        // AlignmentStyles[0] el eje salía invisible —solo sus etiquetas— cuando el
+        // primer estilo del dibujo era uno sin visualización, p. ej. «_No Display»,
+        // que por el «_» queda primero). Orden: el primero sin «_» con la línea
+        // visible, luego cualquiera con la línea visible, y si no, el primero.
+        internal static ObjectId EstiloEjeVisible(CivilDocument civilDoc, Transaction tr)
+        {
+            var col = civilDoc.Styles.AlignmentStyles;
+            ObjectId conGuion = ObjectId.Null;
+            foreach (ObjectId id in col)
+            {
+                try
+                {
+                    var st = tr.GetObject(id, OpenMode.ForRead) as Autodesk.Civil.DatabaseServices.Styles.AlignmentStyle;
+                    if (st == null) continue;
+                    if (!st.GetDisplayStylePlan(Autodesk.Civil.DatabaseServices.Styles.AlignmentDisplayStyleType.Line).Visible) continue;
+                    if (!st.Name.StartsWith("_")) return id;
+                    if (conGuion.IsNull) conGuion = id;
+                }
+                catch { }
+            }
+            return conGuion.IsNull ? col[0] : conGuion;
+        }
+
+        // Capa actual, salvo que esté apagada o congelada: entonces «0» (el eje no puede nacer invisible).
+        internal static ObjectId CapaEjeVisible(Database db, Transaction tr)
+        {
+            try
+            {
+                var ltr = (LayerTableRecord)tr.GetObject(db.Clayer, OpenMode.ForRead);
+                if (!ltr.IsOff && !ltr.IsFrozen) return db.Clayer;
+                var lt = (LayerTable)tr.GetObject(db.LayerTableId, OpenMode.ForRead);
+                return lt["0"];
+            }
+            catch { return db.Clayer; }
         }
 
         // Sobrecarga con capa, estilo y juego de etiquetas explícitos (DISENO.md D.2).

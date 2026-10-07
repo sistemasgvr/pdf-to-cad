@@ -13,10 +13,7 @@ using Exception = System.Exception;
 //  (Codo/Reductor/Unión/Tee/Cruz) compartida entre:
 //    · IMPORTAR_RED (ImportarRed.cs, ComandosRedes.CrearRedPresionCompleta) —
 //      antes reinventaba esto mal (solo Codo, diámetro de un solo lado).
-//    · UNIR_TUBERIAS_PRESION / UNIR_VARIAS_PRESION (RedesPresion.cs /
-//      RedesPresionRamales.cs) — ya tenían la lógica correcta, ahora extraída
-//      aquí para que import la reutilice en vez de duplicarla.
-//    · CORREGIR_FITTINGS_PRESION (RedesPresion.cs, CorregirFittingsDeRed).
+//    · la corrección de fittings del import (RedesPresion.cs, CorregirFittingsDeRed).
 // ============================================================================
 
 namespace Civil3DBasico
@@ -167,12 +164,10 @@ namespace Civil3DBasico
             return candidatos.OrderBy(c => c.Score).First().Part;
         }
 
-        // Decide qué TIPO de accesorio corresponde a una juntura de N tuberías,
-        // con la MISMA lógica que ya usaban (por separado) UNIR_TUBERIAS_PRESION
-        // (2 tubos: Reductor si difieren en diámetro, Codo si hay deflexión,
-        // Unión si no) y UNIR_VARIAS_PRESION (3 tubos → Tee, 4 → Cruz) — extraída
-        // aquí para que el import automático use la misma decisión en vez de
-        // reinventarla. d1/d2/deflexDeg solo se usan cuando nMiembros==2.
+        // Decide qué TIPO de accesorio corresponde a una juntura de N tuberías:
+        // 2 tubos → Reductor si difieren en diámetro, Codo si hay deflexión,
+        // Unión si no; 3 tubos → Tee; 4 → Cruz.
+        // d1/d2/deflexDeg solo se usan cuando nMiembros==2.
         // Devuelve null para 1 miembro (no es juntura) o 5+ (no soportado).
         internal static CivilDB.PressurePartType? DecidirTipoFitting(
             int nMiembros, double d1, double d2, double deflexDeg)
@@ -284,7 +279,7 @@ namespace Civil3DBasico
         // Dado el punto de la juntura y, por cada tubo miembro, el punto de su
         // extremo LEJANO (el que no está en la juntura), decide qué 2 tubos son
         // el "paso" (los más opuestos entre sí -> puertos 0,1) y cuáles son
-        // "ramal" (resto -> puertos 2,3...). Misma lógica que UNIR_VARIAS_PRESION.
+        // "ramal" (resto -> puertos 2,3...).
 
         // ── Wye: identificación de puertos y orientación ─────────────────────
         // En una Wye NINGÚN par de puertos es anti-paralelo (a diferencia del
@@ -569,25 +564,25 @@ namespace Civil3DBasico
                         posibleWye = true;
                 }
                 if (junt3 == 0)
-                    ed.WriteMessage($"\n  · [JUNTURA-WYE-SCAN] Ninguna juntura de 3 tuberías detectada — no se necesita Wye.");
+                    ComandosRedes.Dl(ed, $"\n  · [JUNTURA-WYE-SCAN] Ninguna juntura de 3 tuberías detectada — no se necesita Wye.");
                 bool yaHayWye = (fittingsDisponibles ?? new List<PresStyles.PressurePartSize>())
                     .Any(f => f.PartType == CivilDB.PressurePartType.Wye);
-                ed.WriteMessage($"\n  · [WYE-PRESCAN] posibleWye={posibleWye}, yaHayWye={yaHayWye}, partsListId={(net.PartsListId != ObjectId.Null ? "ok" : "NULL")}.");
+                ComandosRedes.Dl(ed, $"\n  · [WYE-PRESCAN] posibleWye={posibleWye}, yaHayWye={yaHayWye}, partsListId={(net.PartsListId != ObjectId.Null ? "ok" : "NULL")}.");
                 // Con las Y como sólido 3D no hace falta ninguna familia Wye de
                 // catálogo: cargar las 116 del Steel en cada import solo
                 // ensuciaba la lista 'Standard'.
                 if (FITTING_COMO_SOLIDO && posibleWye)
-                    ed.WriteMessage("\n  · [WYE-PRESCAN] Carga de Wye Steel omitida: las Y se generan como sólido 3D.");
+                    ComandosRedes.Dl(ed, "\n  · [WYE-PRESCAN] Carga de Wye Steel omitida: las Y se generan como sólido 3D.");
                 if (!FITTING_COMO_SOLIDO && posibleWye && !yaHayWye && net.PartsListId != ObjectId.Null)
                 {
                     var pl = tr.GetObject(net.PartsListId, OpenMode.ForRead)
                              as PresStyles.PressurePartList;
-                    ed.WriteMessage($"\n  · [WYE-PRESCAN] PartsList obtenida: {(pl != null ? "'" + pl.Name + "'" : "NULL cast")}.");
+                    ComandosRedes.Dl(ed, $"\n  · [WYE-PRESCAN] PartsList obtenida: {(pl != null ? "'" + pl.Name + "'" : "NULL cast")}.");
                     if (pl != null)
                     {
                         int nuevas = AsegurarPresionWye.AsegurarEnPartsList(
                             pl, fittingsDisponibles, tr, null, ed);
-                        ed.WriteMessage($"\n  · [WYE-PRESCAN] AsegurarEnPartsList devolvió {nuevas} familia(s) nuevas.");
+                        ComandosRedes.Dl(ed, $"\n  · [WYE-PRESCAN] AsegurarEnPartsList devolvió {nuevas} familia(s) nuevas.");
                         if (nuevas > 0)
                         {
                             // Refrescar la lista de fittings para incluir las Wye recién agregadas.
@@ -611,7 +606,7 @@ namespace Civil3DBasico
                 {
                     ed.WriteMessage($"\n  ⚠ [JUNTURA] {j.Miembros.Count} tuberías se encuentran en " +
                         $"({j.Ubicacion.X:F2},{j.Ubicacion.Y:F2}) — supera el máximo de 4 (Cruz) que soporta " +
-                        "Civil 3D. No se crea accesorio automático aquí; únelas manualmente con UNIR_VARIAS_PRESION.");
+                        "Civil 3D. No se crea accesorio aquí; corrige el dibujo en la app.");
                     nFail++;
                     continue;
                 }
@@ -746,7 +741,7 @@ namespace Civil3DBasico
                         Math.Abs(deflex), SeguroMaterial(pipesInfo[0].pp), SeguroNombreRed(net), ed);
                     if (sidRed != ObjectId.Null)
                     {
-                        ed.WriteMessage($"\n  · [FITTING-SOLIDO] Codo Ø{tubos[0].DiamFt * 12:F0}\" + reducción " +
+                        ComandosRedes.Dl(ed, $"\n  · [FITTING-SOLIDO] Codo Ø{tubos[0].DiamFt * 12:F0}\" + reducción " +
                             $"{tubos[0].DiamFt * 12:F0}×{tubos[1].DiamFt * 12:F0}\" en " +
                             $"({j.Ubicacion.X:F2},{j.Ubicacion.Y:F2}), giro {Math.Abs(deflex):F0}°.");
                         nFit++;
@@ -803,7 +798,7 @@ namespace Civil3DBasico
                     ObjectId sid = WyeSolido.Crear(net.Database, tr, j.Ubicacion, brazos, info, ed);
                     if (sid != ObjectId.Null)
                     {
-                        ed.WriteMessage($"\n  · [FITTING-SOLIDO] {info.Tipo} generada como Solid3d en " +
+                        ComandosRedes.Dl(ed, $"\n  · [FITTING-SOLIDO] {info.Tipo} generada como Solid3d en " +
                             $"({j.Ubicacion.X:F2},{j.Ubicacion.Y:F2}) — {brazos.Count} brazos, " +
                             $"Ø {string.Join("/", brazos.Select(b => (b.DiamFt * 12.0).ToString("F0") + "\""))}, " +
                             $"ángulo {info.AnguloDeg:F0}° (capa {WyeSolido.CAPA}).");
@@ -894,8 +889,7 @@ namespace Civil3DBasico
                             }
                         }
 
-                        // Recortar cada tubo al puerto real del accesorio (igual patrón
-                        // que UNIR_TUBERIAS_PRESION/UNIR_VARIAS_PRESION) para que no
+                        // Recortar cada tubo al puerto real del accesorio para que no
                         // queden solapados/con hueco en el nudo.
                         try
                         {

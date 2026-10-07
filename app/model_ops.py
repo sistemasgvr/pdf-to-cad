@@ -15,7 +15,23 @@ probar en aislamiento:
 import copy
 import math
 
-from model import network_kind, LEADER_TEXT_FT
+from model import network_kind, LEADER_TEXT_FT, PIPE_DIAMETERS_IN
+
+# Diámetro PRECARGADO (2026-10-06): toda utilidad sin tamaño de catálogo elegido lleva
+# este diámetro y se muestra «12" (Por defecto)». Las normativas de diámetros lo
+# validan igual que uno elegido, pero lo marcan como por defecto.
+DIAM_DEFECTO_IN = float(PIPE_DIAMETERS_IN[0])
+
+
+def diametro(p):
+    """(diámetro en pulgadas, es_por_defecto) de una utilidad: por defecto si no tiene
+    tamaño de catálogo (`pipe_size`) elegido."""
+    if not (p.get("pipe_size") or "").strip():
+        return DIAM_DEFECTO_IN, True
+    try:
+        return float(p.get("diam") or DIAM_DEFECTO_IN), False
+    except (TypeError, ValueError):
+        return DIAM_DEFECTO_IN, True
 
 _TOL = 14.0   # tolerancia de coincidencia de coordenadas (px), compartida por ambas
 

@@ -1145,8 +1145,10 @@ EN: dict[str, str] = {
         "Apply",
     "<i>ΔY+ = norte del plano. Cada movimiento respeta Deshacer (Ctrl+Z).</i>":
         "<i>ΔY+ = plan north. Every move supports Undo (Ctrl+Z).</i>",
-    "Utilidad {layer} · Ø{diam}\" · {n} vértices":
-        "Utility {layer} · Ø{diam}\" · {n} vertices",
+    "Utilidad {layer} · Ø{diam} · {n} vértices":
+        "Utility {layer} · Ø{diam} · {n} vertices",
+    "{d} (Por defecto)":
+        "{d} (Default)",
     "(sin código)":
         "(no code)",
     "Curva · {cod}":
@@ -1665,8 +1667,8 @@ EN: dict[str, str] = {
         "Expand",
 
     # ── app_window.py (mensajes armados en variables) ──
-    "#{n} {capa}{tag} — {d}\" · {v} vértices":
-        "#{n} {capa}{tag} — {d}\" · {v} vertices",
+    "#{n} {capa}{tag} — {d} · {v} vértices":
+        "#{n} {capa}{tag} — {d} · {v} vertices",
     "(a una de las dos le falta la cota — no se puede confirmar Δ)":
         "(one of the two is missing its elevation — Δ cannot be confirmed)",
     "(sin cotas en ninguna — no se puede confirmar Δ)":

@@ -18,6 +18,7 @@ import geometry as G
 import dxf_export
 from geo import georef as georef_mod
 from geometry import qimage_to_gray
+import model_ops
 # Clases de UI extraídas a módulos propios (mismo comportamiento, ver plan de
 # arquitectura). El lienzo, los widgets reutilizables y el worker de fondo.
 from canvas import Canvas
@@ -1420,9 +1421,9 @@ class Main(QtWidgets.QMainWindow):
                 t = max(0, min(1, ((x - ax) * dx + (y - ay) * dy) / ln2))
                 px, py = ax + t * dx, ay + t * dy
                 if (x - px) ** 2 + (y - py) ** 2 < thr ** 2:
-                    d = p.get("diam", "?")
+                    d = self._diam_txt(p)
                     tag = " (AB)" if p.get("ab") else ""
-                    tip = _tr("#{n} {capa}{tag} — {d}\" · {v} vértices").format(
+                    tip = _tr("#{n} {capa}{tag} — {d} · {v} vértices").format(
                         n=i + 1, capa=self._etq(p), tag=tag, d=d, v=len(pts))
                     self.canvas.setToolTip(tip)
                     return
@@ -3808,6 +3809,12 @@ class Main(QtWidgets.QMainWindow):
         self._load_pipe_sizes(kind, cur, p.get("pipe_size", "") or "")
         self.prop_family.blockSignals(False); self.prop_size.blockSignals(False)
 
+    def _diam_txt(self, p):
+        """«24"» o «12" (Por defecto)» si la utilidad no tiene tamaño de catálogo."""
+        d, defecto = model_ops.diametro(p)
+        txt = f'{d:g}"'
+        return _tr("{d} (Por defecto)").format(d=txt) if defecto else txt
+
     def _load_pipe_sizes(self, kind, fid, current):
         import civil_catalog as _cc
         # Solo si la familia está en el catálogo de esta versión (la del desplegable).
@@ -3821,7 +3828,9 @@ class Main(QtWidgets.QMainWindow):
         if not sizes:
             self.prop_size.addItem(_tr("(sin tamaños)"), ""); self.prop_size.setEnabled(False)
         else:
-            self.prop_size.setEnabled(True); self.prop_size.addItem(_tr("(por defecto)"), "")
+            self.prop_size.setEnabled(True)
+            self.prop_size.addItem(_tr("{d} (Por defecto)").format(
+                d=f'{model_ops.DIAM_DEFECTO_IN:g}"'), "")
             for sz in sizes: self.prop_size.addItem(sz, sz)
             if current:
                 for i in range(self.prop_size.count()):
@@ -4027,7 +4036,8 @@ class Main(QtWidgets.QMainWindow):
             # p["diam"] se calcula del pipe_size (p.ej. "24 in" → 24.0). Sin tamaño de
             # catálogo se CONSERVA el diámetro que ya tenía: antes quedaba en 0 al
             # editar cualquier campo (p. ej. el nombre) y cambiaban las alertas.
-            d_size = _extract_diam_from_size(p.get("pipe_size", ""))
+            # Sin tamaño de catálogo = diámetro PRECARGADO (model_ops.DIAM_DEFECTO_IN).
+            d_size = _extract_diam_from_size(p.get("pipe_size", "")) or model_ops.DIAM_DEFECTO_IN
             if d_size or not p.get("diam"):
                 p["diam"] = d_size
             self._refresh_lists()
@@ -6337,10 +6347,10 @@ class Main(QtWidgets.QMainWindow):
         for w in widgets: w.setEnabled(True)
         kind, obj = info
         if kind == "pipe":
-            layer = obj.get("layer", ""); diam = obj.get("diam") or "?"
+            layer = obj.get("layer", ""); diam = self._diam_txt(obj)
             n = len(obj.get("pts") or [])
             col = layer_qcolor(layer).name()
-            _bind(self.mv_lbl_sel, "setText", "Utilidad {layer} · Ø{diam}\" · {n} vértices",
+            _bind(self.mv_lbl_sel, "setText", "Utilidad {layer} · Ø{diam} · {n} vértices",
                   fmt={"layer": self._etq(obj), "diam": diam, "n": n})
             self.mv_lbl_sel.setStyleSheet(
                 f"padding:6px 8px; border-radius:4px; background:{col}; color:white; font-weight:bold;")
@@ -6683,7 +6693,7 @@ class Main(QtWidgets.QMainWindow):
                         pretty = _cc.family_description(self.civil_year, fid, "pipe") or fid
                 except Exception: pass
                 self.cv_family_lbl.setText(pretty)
-                self.cv_size_lbl.setText(p.get("pipe_size") or _tr("(por defecto)"))
+                self.cv_size_lbl.setText(p.get("pipe_size") or self._diam_txt(p))
             else:
                 self.cv_family_lbl.setText(_tr("(sin tubería detectada)"))
                 self.cv_size_lbl.setText("—")

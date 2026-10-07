@@ -95,7 +95,10 @@ namespace Civil3DBasico
                 if (ctx.Metros) PerfilLog.Aviso("UNIDADES", "El dibujo está en metros: los textos pueden requerir calibración");
             }
             catch (Exception ex) { PerfilLog.Error("UNIDADES", "DrawingScale", ex); ctx.S = 20; }
-            PerfilLog.Log("CMD", "S = " + ctx.S);
+            ctx.SDibujo = ctx.S;
+            // Escala de detalle (1"=1'…5'): el perfil elige la suya por el largo del recorrido (T0).
+            ctx.SAuto = !ctx.Metros && ctx.S < PerfilDiseno.S_MIN_PERFIL;
+            PerfilLog.Log("CMD", "S = " + ctx.S + (ctx.SAuto ? " (escala de detalle: el perfil elige la suya)" : ""));
             return ctx;
         }
 
@@ -126,7 +129,19 @@ namespace Civil3DBasico
                 if (!ok) { ed.WriteMessage("\n✗ La red no tiene tuberías válidas para el perfil."); tr.Commit(); return false; }
                 var rec = PerfilGrafoCivil.ArmarRecorrido(red, ctx.EntidadId, ctx.S, out msg);
                 if (rec == null) { ed.WriteMessage("\n" + (string.IsNullOrEmpty(msg) ? "✗ No se pudo formar un recorrido desde esa entidad." : msg)); tr.Commit(); return false; }
+                if (ctx.SAuto)
+                {
+                    double largo = 0; foreach (var p in rec.Pasos) largo += p.Tramo.Longitud2D;
+                    double sAuto = PerfilDiseno.EscalaAuto(largo);
+                    PerfilLog.Aviso("UNIDADES", $"Escala del dibujo 1\"={ctx.SDibujo:0.##}': el perfil usa 1\"={sAuto:0}' ({largo:0.0} ft de recorrido)");
+                    ed.WriteMessage($"\n  · Escala del perfil 1\"={sAuto:0}' (la del dibujo, 1\"={ctx.SDibujo:0.##}', es de detalle y lo dejaría aplanado).");
+                    ctx.S = sAuto;
+                    var rec2 = PerfilGrafoCivil.ArmarRecorrido(red, ctx.EntidadId, ctx.S, out string msg2);
+                    if (rec2 != null) rec = rec2;
+                }
                 ctx.Rec = rec;
+                PerfilLog.Log("GRAFO", $"entidad elegida {ctx.EntidadId.Handle}: el perfil sigue la red '{red.NombreRed}' de punta a punta " +
+                    $"desde ella → {rec.Pasos.Count} tubo(s) de {red.Tramos.Count} en la red, {rec.EstFin - rec.EstIni:0.0} ft");
                 ctx.SinSuperficie = !PerfilEje.MuestrearTerreno(tr, rec, red.SuperficieId);
                 if (ctx.SinSuperficie) PerfilLog.Aviso("Sin superficie: no se dibuja terreno ni recubrimientos");
                 ctx.Cruces = PerfilCruces.BuscarCandidatos(tr, ctx.CivDoc, rec, out var verts);
@@ -135,6 +150,13 @@ namespace Civil3DBasico
                 if (red.Tipo == TipoRed.Presion) PerfilGrafoCivil.MarcarRamalesVerticales(red, ctx.VerticalesTodas);
                 int grupos = PerfilCruces.Agrupar(ctx.Cruces, ctx.S);
                 ctx.FactorPlInicial = PerfilEstilos.FactorPlInicial(tr, ctx.CivDoc, ctx.Metros, out string origen);
+                // Las etiquetas nativas se escalan con la escala del DIBUJO; el diseño mide en
+                // pulgadas de la escala del PERFIL: se compensa (la calibración afina después).
+                if (ctx.SAuto && ctx.SDibujo > 0)
+                {
+                    ctx.FactorPlInicial *= ctx.S / ctx.SDibujo;
+                    origen += $" ×{ctx.S / ctx.SDibujo:G4} (escala del perfil)";
+                }
                 ctx.FactorPl = ctx.FactorPlInicial; ctx.OrigenFactorPl = origen;
                 var callouts = PerfilEtiquetas.ArmarCallouts(tr, ctx);
                 ctx.Rotulos = PerfilEtiquetas.ArmarRotulos(ctx, callouts);

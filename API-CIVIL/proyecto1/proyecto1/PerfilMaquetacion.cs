@@ -42,6 +42,21 @@ namespace Civil3DBasico
             var est = rec.Nodos.Select(n => rec.EstNodo[n]).ToList();
             var rangos = PerfilDiseno.PartirEnHojas(est, ctx.S);
             if (rangos.Count == 0) rangos.Add(new[] { rec.EstIni, rec.EstFin });
+            // Diagnóstico (2026-10-06: un perfil salía en 13 vistas): por qué se parte en hojas.
+            double largoRec = rec.EstFin - rec.EstIni;
+            PerfilLog.Log("HOJAS", $"{rangos.Count} hoja(s): recorrido {largoRec:0.0} ft, {rec.Pasos.Count} tubo(s), " +
+                $"escala 1\"={ctx.S:0.##}' (dibujo 1\"={ctx.SDibujo:0.##}'{(ctx.SAuto ? ", automática" : "")}), " +
+                $"máx. {PerfilDiseno.ANCHO_MAX_MARCO:0} in = {PerfilDiseno.ANCHO_MAX_MARCO * ctx.S:0.#} ft por hoja");
+            for (int k = 0; k < rangos.Count; k++)
+                PerfilLog.Log("HOJAS", $"  hoja {k + 1}: est {rangos[k][0]:0.00}–{rangos[k][1]:0.00} ({rangos[k][1] - rangos[k][0]:0.0} ft)");
+            if (rangos.Count > 3)
+            {
+                string m = $"⚠ El perfil sale en {rangos.Count} vistas: {largoRec:0} ft de recorrido ({rec.Pasos.Count} tubos) " +
+                           $"a 1\"={ctx.S:0.##}' caben {PerfilDiseno.ANCHO_MAX_MARCO * ctx.S:0} ft por vista.";
+                if (ctx.S < PerfilDiseno.S_MIN_PERFIL) m += " La escala del dibujo es muy chica: revisa la escala de anotación.";
+                PerfilLog.Aviso("HOJAS", m);
+                ctx.Ed?.WriteMessage("\n" + m);
+            }
             ctx.Hojas.Clear();
             bool rasanteUsada = false;
             for (int k = 0; k < rangos.Count; k++)

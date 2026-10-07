@@ -92,6 +92,13 @@ internal static class Program
                      && Cerca(it.EstMayor, t.eM) && Cerca(it.EstMenor, t.em),
                      $"Tabla F.3 S={t.s}: V={v} VE={t.s / v} int={it.CotaMayor}/{it.CotaMenor} {it.EstMayor}/{it.EstMenor}");
         }
+        // Escala propia del perfil cuando el dibujo está a escala de detalle (S < 10).
+        Num(PerfilDiseno.EscalaAuto(100), 10, "EscalaAuto(100 ft)");
+        Num(PerfilDiseno.EscalaAuto(219), 10, "EscalaAuto(219 ft)");
+        Num(PerfilDiseno.EscalaAuto(241), 20, "EscalaAuto(241 ft)");
+        Num(PerfilDiseno.EscalaAuto(1500), 100, "EscalaAuto(1500 ft)");
+        Num(PerfilDiseno.EscalaAuto(0), 10, "EscalaAuto(0)");
+        Num(PerfilDiseno.EscalaAuto(1e7), 1000, "EscalaAuto(enorme)");
         Num(PerfilDiseno.SiguienteV(4, 10), 5, "SiguienteV(4,10)");
         Num(PerfilDiseno.SiguienteV(5, 10), 10, "SiguienteV(5,10)");
         Num(PerfilDiseno.SiguienteV(10, 10), 10, "SiguienteV(10,10)");
