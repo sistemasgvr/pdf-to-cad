@@ -897,24 +897,47 @@ alcantarillado, drenaje, gas, eléctrico, telecom). Todo en **unidades imperiale
     `letter_paths`) y encuadrar; otro clic o «Ver todo» (`focus_bar` arriba del panel, «Resaltado: …»)
     lo quita. La TARJETA resalta su capa con halo y, en línea fina, el RESTO de las líneas de su utilidad
     que se reconocerán (2.º reporte 2026-10-07, DU06 h.5: junto a las «T» de G-XREF iban sin resaltar las
-    «t» de C-TELE-UNGD-E/-D, telecom al importar). **Sin leyenda en el PDF** (DU06) → leyenda del
-    ESTÁNDAR BOE (mismo pedido): `leyenda_estandar.py` (PURO) arma, con las capas de la hoja ya con
-    `without_letters`, un `Grupo` por utilidad y una `Fila` por (estado, abreviatura BOE) de sus líneas +
-    una de sus estructuras. Datos del manual (`Documentos/docs prueba/BOE_CADD_Manual_210610.pdf`):
-    fig. 3.1.7.1-1/-2 «Utility Linetypes» (`LINETYPES`: ELEC, HV ELEC, NGAS, PW, FPW, IRR, SSWR, SD,
-    TEL, FO; `STRUCTURES`: ELECTRICAL VAULTS, SSMH, SDMH; propuesta ≤12" = línea continua) y §8.1.6
-    estados (`estado_capa`: letra de estado del nombre NCS sin la disciplina ni el paquete «__UA4»; si no,
-    PROP/EXIST/ABND en el nombre o en el xref; si no, la caja de sus letras: MAYÚSCULA = propuesta).
-    `rol_capa`/`es_trazo_de` deciden qué capa —y en una capa mezclada qué trazo— es línea/estructura de
-    cada utilidad IGUAL que `recognition.line_selectors`, y solo lo VISIBLE: `trazos_visibles` (una
-    pasada de `get_drawings(extended=True)`: mismos recortes y vistas de perfil que `gather_paths`,
-    solo las capas de utilidad, atajo para clips rectangulares; 0.5–1.3 s) da (original, recortado):
-    se decide con el original (`letter_paths` se leyó sobre él) y se dibuja lo recortado; la leyenda
-    lista solo capas con algo visible (`LayerInfoPanel.visible_layers`). Capas con trazos que NO están
-    en la lista del PDF (`layer_ui_configs`; DU06 h.2 `…(A2_TRIM)|V-ELEC-MANH`): por su nombre
-    (`capa_sin_lista`), como el reconocimiento. Auditado: mismas capas en las 141 hojas × 6 utilidades. UI `layer_std_legend.py` (`StandardLegend`: cabecera = toda la utilidad, fila = esas
-    capas; `LineSample` dibuja la muestra: a trazos/continua, letras leídas, «//» a demoler). Sin
-    utilidades, capas por letras ni leyenda, el panel se pliega solo. Tests: `tests/test_leyenda_estandar.py`.
+    «t» de C-TELE-UNGD-E/-D, telecom al importar). **«Leyenda de esta hoja» POR UTILIDAD** (pedidos
+    2026-10-07: DU06 sin leyenda; DU08 h.26 «ubicarlas e interpretarlas… para cada una de las
+    utilidades»: con la leyenda del PDF aparte, «EXISTING ELECTRICAL» marcaba solo las «e» y las «E», «TE»,
+    «SE» no se marcaban con nada), SIEMPRE (con o sin leyenda en el PDF): `leyenda_estandar.leyenda(layers,
+    pdf_rows=)` (PURO) arma, con las capas de la hoja ya con `without_letters`, un `Grupo` por utilidad y
+    una `Fila` por (rol, estado, código de letras, abreviatura) —«E», «TE», «SE» filas distintas—; roles
+    LINE, STRUCTURE y OVERHEAD (aérea: token OVHD + `utility_of`; está en el filtro, NO se reconoce: fila
+    «No se reconoce», el clic en la utilidad no la incluye). `codigos_capa`: códigos de la utilidad leídos,
+    el más leído primero (`page_layers` → `read_counts`; si ninguno ≥2, los de `letter_raw`). Estado
+    (`estado_capa`): letra de estado del nombre NCS sin la disciplina ni el paquete «__UA4»; si no,
+    PROP/EXIST/ABND en el nombre o en el xref; si no, con leyenda del PDF lo que ésta dice de esas letras
+    (`leyenda_cruce.estado_por_leyenda`: misma caja, todas las filas de acuerdo; «W» queda sin estado:
+    DU08 usa «W» para existente y propuesta) y sin leyenda la caja (MAYÚSCULA = propuesta).
+    `leyenda_cruce.py` (PURO) cruza cada fila con la leyenda del PDF: `estado_de_texto` (EXISTING E,
+    PROPOSED/NEW N, «… ABANDONED» A, «TO BE ABAN…» D —errata «ABANONDED»—), `utilidad_de_fila` (código o
+    palabras: «PROPOSED STORM DRAIN» no tiene letras), `emparejar` (utilidad, aérea, estado, mismo código o
+    si no otro de la utilidad —«S» leída / «SS»—, misma caja si alguna); dos filas con la misma
+    descripción se juntan (`_juntar_por_leyenda`). DU08 h.26: todas las líneas de las 6 utilidades con su
+    descripción. Datos BOE (`Documentos/docs prueba/BOE_CADD_Manual_210610.pdf`): fig. 3.1.7.1-1/-2
+    «Utility Linetypes» (`LINETYPES`: ELEC, HV ELEC, NGAS, PW, FPW, IRR, SSWR, SD, TEL, FO; `STRUCTURES`:
+    ELECTRICAL VAULTS, SSMH, SDMH; propuesta ≤12" = línea continua) y §8.1.6 estados. `rol_capa`/
+    `es_trazo_de` deciden qué capa —y en una capa mezclada qué trazo— es línea/estructura de cada
+    utilidad IGUAL que `recognition.line_selectors`, y solo lo VISIBLE: `leyenda_trazos.trazos_visibles`
+    (una pasada de `get_drawings(extended=True)`: mismos recortes y vistas de perfil que `gather_paths`,
+    solo las capas de utilidad, atajo para clips rectangulares; 0.5–1.3 s) da (original, recortado): se
+    decide con el original (`letter_paths` se leyó sobre él) y se dibuja lo recortado; la leyenda lista
+    solo capas con algo visible (`LayerInfoPanel.visible_layers`). Capas con trazos que NO están en la
+    lista del PDF (`layer_ui_configs`; DU06 h.2 `…(A2_TRIM)|V-ELEC-MANH`): por su nombre
+    (`capa_sin_lista`), como el reconocimiento. Auditado: mismas capas en las 141 hojas × 6 utilidades.
+    UI `layer_std_legend.py` (`StandardLegend` con CASILLAS —3.er pedido 2026-10-07: «activar más de una
+    utilidad… ahorita no sé cuál está activa»—: la de la cabecera (`toggle_utility`) marca todo lo que se
+    reconocerá —líneas y estructuras, no las aéreas— y queda a medias si solo hay algunas filas; la de cada
+    fila, esas capas; clic = casilla. Lo marcado se SUMA a las tarjetas por letras y filas del PDF activas
+    (`LayerInfoPanel._extra`, otro clic las quita) y va junto al diálogo (`focusRequested({"specs": …,
+    "label": summary})` → `_union_sets`: cada trazo una vez, lo fuerte manda sobre lo fino, «Resaltado: A ·
+    B · N capas»); en el panel lo activo lleva borde y fondo OPACO del color de su utilidad (`active_qss`:
+    la tarjeta mezclada al 22 %, se lee en claro y oscuro; drenaje en gris en tema claro: `accent`); `LineSample` dibuja la muestra: a trazos/continua, letras leídas, «//» a demoler; la
+    muestra del PDF reducida no deja leer las letras). Debajo, plegada, «Leyenda completa del PDF (N)»
+    (`btn_all`): filas de esta hoja (`StandardLegend.matched`) en negrita y clicables → las capas de las
+    filas que describen (`filas_de_pdf`). Sin utilidades, capas por letras ni leyenda, el panel se pliega
+    solo. Tests: `tests/test_leyenda_estandar.py`, `tests/test_leyenda_cruce.py` (DU08 h.26).
     `pdf_legend` (sin Qt): hojas con LEGEND/LEYENDA ordenadas por filas «EXISTING/PROPOSED…» (máx. 3);
     fila = texto con una muestra HORIZONTAL (≤12 pt de alto, ≥60 pt de largo) contigua a su izquierda;
     solo columnas de ≥3 filas a PASO REGULAR (tolera filas sin leer: paso ×2/×3) con letras en ≥30 %:

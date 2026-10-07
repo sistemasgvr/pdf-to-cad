@@ -166,11 +166,13 @@ def test_clic_resalta_sus_lineas_y_otro_clic_lo_quita(du08_legend):
 def test_leyenda_marca_las_de_esta_hoja(du08_legend):
     app, doc, dlg = _dialog(du08_legend)
     try:
-        assert "esta hoja" in dlg.info.lbl_legend.text()
-        assert dlg.info.btn_all.isVisible() or not dlg.isVisible()
-        shown = dlg.info.legend_box.count()
+        assert "leyenda del PDF" in dlg.info.lbl_legend.text()
+        assert dlg.info.btn_all.isVisibleTo(dlg.info)
+        assert dlg.info.legend_box.count() == 0                    # la leyenda completa va plegada
         dlg.info._toggle_all()
-        assert dlg.info.legend_box.count() > shown                 # «Ver toda»
+        assert dlg.info.legend_box.count() == len(dlg.info._rows) > 30
+        here = dlg.info.std.matched()
+        assert {dlg.info._rows[i][1].text for i in here} >= {"EXISTING ELECTRICAL", "PROPOSED ELECTRICAL"}
     finally:
         dlg._timer.stop(); dlg._stop_legend(); dlg.deleteLater(); doc.close()
 

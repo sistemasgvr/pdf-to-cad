@@ -21,6 +21,7 @@ for p in (str(ROOT / "app"), str(ROOT)):
         sys.path.insert(0, p)
 
 import leyenda_estandar as le  # noqa: E402
+import leyenda_trazos  # noqa: E402
 
 DU06 = ROOT / "DU06_09_UD_Drainage_20251216(SUBMITTAL SET).pdf"
 needs_du06 = pytest.mark.skipif(not DU06.exists(), reason="PDF de prueba DU06 no está en el repo")
@@ -60,7 +61,8 @@ def test_rol_de_la_capa_como_el_reconocimiento():
     assert le.rol_capa(_layer("X|C-TELE-UNGD-E"), "TELECOM") == (le.LINE, False)
     assert le.rol_capa(_layer("X|C-TELE-VALT-E"), "TELECOM") == (le.STRUCTURE, False)
     assert le.rol_capa(_layer("X|C-TELE-UNGD-E"), "ELECTRICO") == (None, False)
-    assert le.rol_capa(_layer("X|C-ELEC-OVHD-E"), "ELECTRICO") == (None, False)        # aérea: no
+    assert le.rol_capa(_layer("X|C-ELEC-OVHD-E"), "ELECTRICO") == (le.OVERHEAD, False)  # aérea: no se reconoce
+    assert le.rol_capa(_layer("X|C-ELEC-OVHD-E"), "TELECOM") == (None, False)
     mixta = _layer("G-XREF", letter_utilities=["AGUA", "TELECOM"],
                    letter_paths={(1,): "TELECOM", (2,): "AGUA"})
     assert le.rol_capa(mixta, "TELECOM") == (le.LINE, True)
@@ -158,9 +160,9 @@ def test_du06_clic_en_la_utilidad_y_en_una_fila(du06_h5):
                 for f in g.filas if f.estado == "D")
     strong, _soft, _what = dlg._utility_sets({"utility": "TELECOM", "layers": fila.capas, "role": fila.rol})
     assert {d["layer"].split("|")[-1] for d in strong["TELECOM"]} == {"C-TELE-UNGD-D"}
-    dlg.info.std.activated.emit({"utility": "TELECOM", "label": "Telecom"})
+    dlg.info.std.toggle_utility("TELECOM")
     assert dlg._hl_items
-    dlg.info.std.activated.emit({"utility": "TELECOM", "label": "Telecom"})      # otro clic: ver todo
+    dlg.info.std.toggle_utility("TELECOM")                     # otro clic: la desmarca
     assert dlg._hl_items == []
 
 
@@ -179,7 +181,7 @@ def test_du06_la_leyenda_toma_lo_mismo_que_el_reconocimiento(page_i):
         Ls = {L["name"]: L for L in pdf_layers.page_layers(doc, page_i)}
         page = doc[page_i]
         letters = rec.page_letters(page)
-        pares = le.trazos_visibles(page, le.capas_de_utilidad(Ls.values()))
+        pares = leyenda_trazos.trazos_visibles(page, le.capas_de_utilidad(Ls.values()))
         vis = {d["layer"] for d, _shown in pares}
         for n in vis - set(Ls):
             Ls[n] = le.capa_sin_lista(n)
@@ -193,3 +195,32 @@ def test_du06_la_leyenda_toma_lo_mismo_que_el_reconocimiento(page_i):
             filas = grupos[u].filas if u in grupos else []
             assert {n for f in filas if f.rol == le.LINE for n in f.capas} == mine[le.LINE], u
             assert {n for f in filas if f.rol == le.STRUCTURE for n in f.capas} == mine[le.STRUCTURE], u
+
+
+@needs_du06
+def test_du06_varias_utilidades_a_la_vez_y_se_ve_cual_esta_activa(du06_h5):
+    """3.er pedido (2026-10-07): casillas para activar MÁS DE UNA utilidad, y que en el
+    panel se note cuál está activa (con halo en la hoja)."""
+    from PySide6 import QtCore
+    _app, dlg = du06_h5
+    std = dlg.info.std
+    std.toggle_utility("TELECOM")
+    std.toggle_utility("ELECTRICO")
+    utils = {k[1] for k in std.active_keys()}
+    assert utils == {"TELECOM", "ELECTRICO"}
+    assert std._heads["TELECOM"]["chk"].checkState() == QtCore.Qt.Checked
+    assert std._heads["AGUA"]["chk"].checkState() == QtCore.Qt.Unchecked
+    on = next(k for k in std.active_keys() if k[1] == "TELECOM")
+    assert "solid" in std._rows[on]["w"].styleSheet()            # marco del color de su utilidad
+    assert "Telecomunicaciones" in dlg.info.lbl_focus.text() and "Eléctrico" in dlg.info.lbl_focus.text()
+    strong, _soft, _what = dlg._union_sets({"specs": dlg.info.active()})
+    assert set(strong) == {"TELECOM", "ELECTRICO"} and dlg._hl_items
+    # una fila de agua además: la utilidad queda a medias
+    fila = next(k for k in std._heads["AGUA"]["keys"])
+    std.set_row(fila, True)
+    assert std._heads["AGUA"]["chk"].checkState() == QtCore.Qt.PartiallyChecked
+    # la tarjeta por letras se suma a lo marcado
+    dlg.info._cards["G-XREF"].activated.emit("G-XREF")
+    assert dlg.info._cards["G-XREF"].highlighted and len(dlg.info.active()) > len(std.active_keys())
+    dlg.info.btn_focus_off.click()                               # «Ver todo»: nada activo
+    assert std.active_keys() == [] and not dlg.info._cards["G-XREF"].highlighted and dlg._hl_items == []

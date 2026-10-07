@@ -31,6 +31,7 @@ from layer_info_panel import LayerInfoPanel, LegendWorker
 from ui_common import layer_qcolor
 from widgets import CollapsiblePanel, NaturalHeightScroll
 import leyenda_estandar as le
+import leyenda_trazos
 import pdf_layers
 import recognition_letters as letters_mod
 from recognition import utility_label as _utility_label
@@ -196,7 +197,7 @@ class LayerInfoMixin:
         if self._drawings is None:
             pdf_layers.set_hidden(self._doc, ())
             try:
-                self._drawings = le.trazos_visibles(self._page, le.capas_de_utilidad(self._layers_raw))
+                self._drawings = leyenda_trazos.trazos_visibles(self._page, le.capas_de_utilidad(self._layers_raw))
             finally:
                 pdf_layers.set_hidden(self._doc, self.hidden_names())
         return self._drawings
@@ -230,23 +231,25 @@ class LayerInfoMixin:
         return True
 
     def _focus_lines(self, spec):
-        """Resalta lo pedido por el panel izquierdo; None = quitar el resaltado. `spec`:
+        """Resalta lo ACTIVO en el panel izquierdo; None = quitar el resaltado. `spec` =
+        {"specs": [...], "label": [...]} (todo lo marcado, junto: 3.er pedido 2026-10-07,
+        «activar más de una utilidad») o uno solo:
           · {"layers": [capa]} (tarjeta por letras): sus líneas con halo y, en línea fina,
             el resto de las líneas de su utilidad que se reconocerán;
           · {"codes": [...], "raw": letras}: fila de la leyenda del PDF;
-          · {"utility": U[, "layers": [...], "role": rol], "label": texto}: leyenda del
-            estándar — toda la utilidad (sus capas visibles) o esas capas."""
+          · {"utility": U[, "layers": [...], "role": rol], "label": texto}: leyenda por
+            utilidad — toda la utilidad (sus capas visibles) o esas capas."""
         self._remove_highlight()
         if not spec or self._pix_item is None:
-            self.info.clear_focus()
+            self.info.set_focus_status("")
             return
         if self._drawings is None:
             with busy(self.view, _tr("Leyendo las líneas de la hoja…")):
                 self._all_drawings()
-        strong, soft, what = self._focus_sets(spec)
+        strong, soft, what = self._union_sets(spec)
+        self.info.set_focus_status(_tr("Resaltado: {what}").format(what=what))
         if not strong:
-            self.info.clear_focus()
-            return
+            return                                  # lo marcado no tiene líneas visibles en esta hoja
         sc = self.view.scene()
         veil = QtWidgets.QGraphicsRectItem(self._pix_item.sceneBoundingRect())
         bg = QtGui.QColor(255, 255, 255, DIM_ALPHA)
@@ -275,7 +278,35 @@ class LayerInfoMixin:
                     box = box.united(whole.boundingRect())
         pad = max(box.width(), box.height()) * 0.08 + 30
         self.view.fitInView(box.adjusted(-pad, -pad, pad, pad), QtCore.Qt.KeepAspectRatio)
-        self.info.set_focus_status(_tr("Resaltado: {what}").format(what=what))
+
+    def _union_sets(self, spec):
+        """(fuertes, finos, texto) de todo lo activo junto: cada trazo una vez, lo fuerte
+        manda sobre lo fino; el texto, lo activo en corto + cuántas capas."""
+        specs = spec["specs"] if "specs" in spec else [spec]
+        strong, soft, whats, seen = defaultdict(list), defaultdict(list), [], set()
+        for sp in specs:
+            st, so, w = self._focus_sets(sp)
+            whats.append(w)
+            for u, ds in st.items():
+                for d in ds:
+                    if id(d) not in seen:
+                        seen.add(id(d))
+                        strong[u].append(d)
+            for u, ds in so.items():
+                soft[u].extend(ds)
+        thin, done = defaultdict(list), set(seen)
+        for u, ds in soft.items():
+            for d in ds:
+                if id(d) not in done:
+                    done.add(id(d))
+                    thin[u].append(d)
+        if len(specs) == 1:
+            return strong, thin, whats[0]
+        labels = [x for x in (spec.get("label") or whats) if x]
+        short = (" · ".join(labels) if len(labels) <= 3 else
+                 _tr("{capas} y {n} más").format(capas=" · ".join(labels[:3]), n=len(labels) - 3))
+        n = len({d.get("layer") for ds in strong.values() for d in ds})
+        return strong, thin, _tr("{what} · {n} capas").format(what=short, n=n)
 
     def _focus_sets(self, spec):
         """(fuertes, finos, texto): trazos de `get_drawings` por utilidad a resaltar."""
@@ -325,19 +356,21 @@ class LayerInfoMixin:
         return strong, soft, what
 
     def _utility_sets(self, spec):
-        """Leyenda del estándar: toda la utilidad (capas visibles) o las capas de una fila."""
+        """«Leyenda de esta hoja»: toda la utilidad —lo que se reconocerá: líneas y
+        estructuras de las capas visibles, sin las aéreas— o las capas de una fila."""
         strong = defaultdict(list)
         util, role = spec["utility"], spec.get("role")
+        roles = {role} if role else {le.LINE, le.STRUCTURE}
         names = set(spec.get("layers") or ())
         hidden = set(self.hidden_names())
+        names = (names - hidden) or names           # una capa oculta no se reconoce (salvo que sean todas)
         eff = {L["name"]: L for L in self._layers}
         used = set()
         for d, shown in self._all_drawings():
             L = self._layer_of(eff, d.get("layer") or "")
             if L["name"] not in names if names else L["name"] in hidden:
                 continue
-            r = le.es_trazo_de(L, util, d)
-            if r is None or (role and r != role):
+            if le.es_trazo_de(L, util, d) not in roles:
                 continue
             strong[util].append(shown)
             used.add(L["name"])
