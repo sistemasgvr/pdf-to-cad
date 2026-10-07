@@ -20,7 +20,9 @@ import recognition_geom as geom
 
 Pt = Tuple[float, float]
 
-DASH_MIN_PT = 8.0        # guión de la línea: tramo recto ≥ esto en la punta del trazo (asta de letra ≤7.2)
+DASH_MIN_PT = 8.0        # guión de la línea: tramo recto ≥ esto en la punta del trazo (asta de letra ≤7.2)…
+DASH_STUB_MIN_PT = 1.0   # …o un tramo corto en la punta si el siguiente ya es guión: el rótulo cae justo
+                         # antes de un vértice y la línea gira ahí (DU06 h.5: «—W—» en `G-XREF`, 1.4 pt)
 GAP_MAX_PT = 40.0        # hueco máximo entre dos guiones (el texto del linetype va dentro)
 AXIS_TOL_PT = 0.6        # los dos guiones del hueco van sobre la misma recta…
 PARALLEL_COS = math.cos(math.radians(2.0))   # …y con el mismo rumbo
@@ -74,12 +76,17 @@ def stroke_chains(paths: Sequence[dict]) -> Tuple[List[List[Pt]], List[int]]:
 
 
 def dash_ends(chains):
-    """Puntas de guión: (punto, dirección hacia afuera, cadena, ¿es la COLA del trazo?)."""
+    """Puntas de guión: (punto, dirección hacia afuera, cadena, ¿es la COLA del trazo?).
+    El rumbo es el del último tramo; si es corto (≥`DASH_STUB_MIN_PT`) vale cuando el
+    tramo siguiente del trazo es un guión: la línea gira en un vértice justo después de
+    su rótulo (una letra suelta no tiene tramos de guión)."""
     ends = []
     for ci, ch in enumerate(chains):
-        for a, b, tail in ((ch[1], ch[0], False), (ch[-2], ch[-1], True)):
+        nxt = (ch[2], ch[-3]) if len(ch) > 2 else (None, None)
+        for a, b, c, tail in ((ch[1], ch[0], nxt[0], False), (ch[-2], ch[-1], nxt[1], True)):
             L = math.dist(a, b)
-            if L >= DASH_MIN_PT:
+            if L >= DASH_MIN_PT or (L >= DASH_STUB_MIN_PT and c is not None
+                                    and math.dist(a, c) >= DASH_MIN_PT):
                 ends.append((b, ((b[0] - a[0]) / L, (b[1] - a[1]) / L), ci, tail))
     return ends
 

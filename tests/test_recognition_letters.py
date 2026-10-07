@@ -140,6 +140,59 @@ def test_aerea_no_es_una_linea_de_red():
     assert rec.letter_uses({"X|C-POWR-AERIAL": lt}) == {}
 
 
+def _w_antes_de_un_quiebre(origin=(100.0, 300.0)):
+    """Tramo «—W—» como el de `G-XREF` en DU06 h.5: recta, quiebre a 45°, guión de 9 pt,
+    la «W» y, pasado el hueco, 1.4 pt de diagonal antes de volver a girar a la recta."""
+    paths = _line(origin, -45.0, _glyph("W"), n=2, dash=9.0, gap=12.0)
+    a, b = paths[0], paths[-1]
+    a_pts = [a["items"][0][1], a["items"][0][2]]
+    b_pts = [b["items"][0][1], b["items"][0][2]]
+    u = (math.cos(math.radians(-45.0)), math.sin(math.radians(-45.0)))
+    stub = (b_pts[0][0] + 1.4 * u[0], b_pts[0][1] + 1.4 * u[1])
+    paths[0] = _path([(a_pts[0][0] - 18.0, a_pts[0][1])] + a_pts)
+    paths[-1] = _path([b_pts[0], stub, (stub[0] + 60.0, stub[1])])
+    return paths
+
+
+def test_rotulo_justo_antes_de_un_quiebre_se_lee():
+    """La punta de un guión puede ser un tramo corto si el que sigue ya es guión (la línea
+    gira justo después de su rótulo); los trazos de una letra suelta no son puntas."""
+    chains, _owner = lines.stroke_chains(_w_antes_de_un_quiebre())
+    ends = lines.dash_ends(chains)
+    short = [e for e in ends if e[2] == len(chains) - 1 and not e[3]]
+    assert len(short) == 1                               # la punta de 1.4 pt antes del quiebre
+    gaps, _touching = lines.gaps(ends)
+    assert len(gaps) == 1 and 11.0 < gaps[0][2] < 13.0   # el hueco de la «W»
+    zigzag = [(0.0, 0.0), (6.2, 3.9), (2.4, -2.4), (8.7, 1.6), (4.8, -4.8)]   # una «W»: tramos < 8 pt
+    assert lines.dash_ends([zigzag]) == []
+
+
+def test_codigo_de_un_solo_sitio_vale_si_la_hoja_lo_usa():
+    """DU06 h.5 (reporte del usuario 2026-10-07): `G-XREF` trae líneas «—T—» de telecom y
+    un tramo «—W—» de agua con UNA «W». Un código en un solo sitio es ruido… salvo que la
+    hoja lo use como linetype en otra capa (`C-WATR-UNGD-E`): entonces la capa es de DOS
+    utilidades y el tramo va al agua; nunca la capa entera a telecom."""
+    tele = _line((100, 600), 0, _glyph("T"), n=8)
+    agua = _w_antes_de_un_quiebre()
+    lt = letters.read_layer(tele + agua)
+    assert lt.codes["W"] == 1 and "W" in lt.noisy and set(lt.utilities) == {"TELECOM"}
+    assert not any(lt.by_path.get(letters.path_key(p)) for p in agua)
+    otra = letters.read_layer(_line((100, 900), 0, _glyph("W")))
+    letters.confirm_across({"G-XREF": lt, "C-WATR-UNGD-E": otra})
+    assert "W" not in lt.noisy and set(lt.utilities) == {"TELECOM", "AGUA"}
+    assert lt.dedicated is None
+    assert {lt.by_path.get(letters.path_key(p)) for p in (agua[0], agua[-1])} == {"AGUA"}
+    assert {lt.by_path.get(letters.path_key(p)) for p in tele if len(p["items"]) == 1
+            and math.dist(*p["items"][0][1:]) > 40} == {"TELECOM"}
+    use = rec.letter_uses({"G-XREF": lt})["G-XREF"]
+    assert use.utilities == ["AGUA", "TELECOM"] and use.main == "TELECOM"
+    assert use.codes == {"AGUA": "W", "TELECOM": "T"}
+    # sin otra capa que use «W», la «W» suelta sigue siendo ruido
+    sola = letters.read_layer(tele + agua)
+    letters.confirm_across({"G-XREF": sola})
+    assert "W" in sola.noisy and set(sola.utilities) == {"TELECOM"}
+
+
 def test_lecturas_basura_no_clasifican():
     """DU06 h.2 `W-Plantry`: entre ~70 «letras» que no son código salían 3 «G»."""
     paths = _line((100, 100), 0, _glyph("II")) + _line((100, 300), 0, _glyph("NXN"))

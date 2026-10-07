@@ -83,6 +83,25 @@ def test_trazo_de_una_capa_mezclada(monkeypatch):
     assert le.es_trazo_de(mixta, "TELECOM", {"k": (1,), "fill": (1, 1, 1)}) is None  # relleno: no
 
 
+def test_reconocer_una_utilidad_con_todas_sus_capas_ocultas():
+    """4.º pedido (2026-10-07): marcar una utilidad para reconocer con sus capas ocultas
+    «no puede ser». Cuentan sus capas de LÍNEA (por nombre o por letras; sin líneas, las de
+    sus estructuras): su caja sola no basta."""
+    capas = [_layer("X|C-TELE-UNGD-E"), _layer("X|C-TELE-VALT-E"), _layer("X|C-WATR-UNGD-E"),
+             _layer("G-XREF", letter_utilities=["AGUA", "TELECOM"],
+                    letter_paths={(1,): "TELECOM", (2,): "AGUA"}),
+             _layer("X|C-NGAS-VALT"), _layer("X|C-SSWR-UNGD-E", path_count=0)]
+    assert le.capas_que_reconoce(capas, "TELECOM") == (["X|C-TELE-UNGD-E", "G-XREF"], ["X|C-TELE-VALT-E"])
+    todas = ["TELECOM", "AGUA", "GAS", "ALCANTARILLADO"]
+    assert le.sin_capas_visibles(capas, [], todas) == []
+    assert le.sin_capas_visibles(capas, ["X|C-TELE-UNGD-E", "G-XREF"], todas) == ["TELECOM"]
+    assert le.sin_capas_visibles(capas, ["X|C-TELE-UNGD-E"], todas) == []          # G-XREF (sus «T») se ve
+    assert le.sin_capas_visibles(capas, ["X|C-WATR-UNGD-E", "G-XREF"], todas) == ["AGUA"]
+    assert le.sin_capas_visibles(capas, ["X|C-WATR-UNGD-E", "G-XREF"], ["TELECOM"]) == []   # no la pidió
+    assert le.sin_capas_visibles(capas, ["X|C-NGAS-VALT"], todas) == ["GAS"]       # solo estructuras
+    # alcantarillado no tiene trazos en la hoja: no hay nada que avisar
+
+
 def test_leyenda_agrupa_por_utilidad_y_estado():
     layers = [
         _layer("R-EXIST|C-TELE-UNGD-E", read_codes=["T"], letter_raw={"T": "t"}),
@@ -195,6 +214,41 @@ def test_du06_la_leyenda_toma_lo_mismo_que_el_reconocimiento(page_i):
             filas = grupos[u].filas if u in grupos else []
             assert {n for f in filas if f.rol == le.LINE for n in f.capas} == mine[le.LINE], u
             assert {n for f in filas if f.rol == le.STRUCTURE for n in f.capas} == mine[le.STRUCTURE], u
+
+
+@needs_du06
+def test_du06_g_xref_trae_dos_utilidades(du06_h5):
+    """4.º reporte (2026-10-07): en DU06 h.5 `G-XREF` trae las líneas «—T—» de telecom y un
+    tramo «—W—» de agua. La leyenda del Agua lo lista (propuesta, «W») y al marcarla se
+    resalta SOLO ese tramo; la fila de Telecom de esa capa, solo sus «T»."""
+    _app, dlg = du06_h5
+    grupos = {g.utilidad: g for g in dlg.info.standard_groups()}
+    fila = next(f for f in grupos["AGUA"].filas if f.rol == le.LINE and "G-XREF" in f.capas)
+    assert fila.estado == "N" and "W" in fila.letras and fila.por_letras
+    tramo = (900.0, 970.0, 1005.0, 996.0)                       # el «—W—» (recta, quiebre, W, recta)
+
+    def dentro(d):
+        r = d["rect"]
+        return tramo[0] <= r.x0 and r.x1 <= tramo[2] and tramo[1] <= r.y0 and r.y1 <= tramo[3]
+    strong, _soft, _what = dlg._utility_sets({"utility": "AGUA", "layers": ["G-XREF"], "role": le.LINE})
+    assert len(strong["AGUA"]) == 3 and all(dentro(d) for d in strong["AGUA"])
+    strong, _soft, _what = dlg._utility_sets({"utility": "TELECOM", "layers": ["G-XREF"], "role": le.LINE})
+    assert strong["TELECOM"] and not any(dentro(d) for d in strong["TELECOM"])
+
+
+@needs_du06
+def test_du06_tooltip_con_la_muestra_en_grande(du06_h5):
+    """4.º pedido: al pasar el ratón por una fila de la leyenda, la miniatura en GRANDE."""
+    import layer_std_legend as lsl
+    _app, dlg = du06_h5
+    std = dlg.info.std
+    key = next(k for k in std._rows if k[1] == "AGUA" and "G-XREF" in k[2])
+    tip = std._rows[key]["w"].toolTip()
+    w = round(lsl.SAMPLE_W * lsl.TIP_SCALE)
+    assert "data:image/png;base64," in tip and f"width='{w}'" in tip
+    assert "Clic" in tip                                          # la descripción, debajo
+    pm = lsl.sample_pixmap(std._rows[key]["fila"])
+    assert pm.width() / pm.devicePixelRatio() == w
 
 
 @needs_du06

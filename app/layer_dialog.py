@@ -8,14 +8,17 @@ minimapa). Derecha, de arriba abajo:
   · «◀ Hoja N / M ▶» para
     cambiar de hoja sin salir (las capas marcadas se conservan: la visibilidad
     es del documento);
-  · tarjeta «Reconocer»: qué utilidades se reconocen — «Todas» + una casilla
-    por utilidad con su color (sin ninguna marcada no se puede continuar);
+  · tarjeta «Reconocer» (`layer_dialog_recog`): qué utilidades se reconocen — «Todas»
+    + una casilla por utilidad con su color (sin ninguna marcada, o con una marcada y
+    todas sus capas ocultas, no se puede continuar);
   · tarjeta «Capas del plano»: árbol por utilidad (Agua, Alcantarillado,
     Drenaje, Gas, Eléctrico, Telecom, Otras — las del desplegable «Tipo de
     utilidad» de la app). La casilla del GRUPO enciende/apaga todas las capas
     de esa utilidad en la hoja (al volver a encenderla cada capa recupera el
-    estado que tenía); desplegándolo se marca capa por capa. Buscador y
-    «Mostrar / Ocultar todas» sobre lo filtrado.
+    estado que tenía); desplegándolo se marca capa por capa. Una capa con líneas
+    de VARIAS utilidades (por sus letras: `G-XREF` con «—T—» y «—W—») sale en el
+    grupo de cada una, con las dos filas sincronizadas (`pdf_layers.layer_groups`).
+    Buscador y «Mostrar / Ocultar todas» sobre lo filtrado.
   · (pie a todo el ancho) «Opacidad» del PDF — el mismo desplegable del
     editor —, ayuda y Cancelar | Continuar.
 Cada cambio re-renderiza la hoja en vivo.
@@ -43,9 +46,11 @@ from icons import icon as _icon
 import pdf_layers
 import recognition
 import theme as _theme
-from ui_common import aci_qcolor, layer_qcolor, swatch_icon
+from ui_common import swatch_icon
 from widgets import ZoomPanView, MiniMap, maximize_on_show, side_panel_width, GripSplitter
 from layer_dialog_info import LayerInfoMixin, layer_tooltip as _layer_tooltip
+from layer_dialog_recog import (RecogCardMixin, card as _card, utility_qcolor,  # noqa: F401
+                                _UTILITY_RECOG_LABEL)
 from wizard_widgets import NoEscapeClose, StepBar, OpacityButton, wizard_header, wizard_footer
 
 # Zoom del render PDF (matriz PyMuPDF). El lienzo principal usa ~3.5; aquí
@@ -66,37 +71,8 @@ _ROLE_UTILITY = QtCore.Qt.UserRole + 1     # clave de utilidad de la fila
 # `choose_sheet_layers` devuelve esto si el usuario pulsa «◀ Componer hoja».
 LAYERS_BACK = "back"
 
-# Etiqueta corta de cada utilidad reconocible (recognition.SUPPORTED_UTILITIES)
-# para sus casillas de «Reconocer».
-_UTILITY_RECOG_LABEL = dict(recognition.UTILITY_LABELS)
 
-
-def utility_qcolor(key: str) -> QtGui.QColor:
-    """Color de una utilidad: el de su capa de salida (igual que en la app);
-    «Otras» en gris."""
-    if key == pdf_layers.UTILITY_OTHER:
-        return aci_qcolor(8)
-    return layer_qcolor(key)
-
-
-def _card(title: str) -> tuple[QtWidgets.QFrame, QtWidgets.QVBoxLayout, QtWidgets.QHBoxLayout]:
-    """Tarjeta con título (y un hueco a la derecha del título para acciones)."""
-    t = _theme.tokens()
-    box = QtWidgets.QFrame()
-    box.setObjectName("layerCard")
-    box.setStyleSheet(f"QFrame#layerCard {{ background:{t.surface}; border:1px solid {t.border};"
-                      " border-radius:8px; }")
-    lay = QtWidgets.QVBoxLayout(box)
-    lay.setContentsMargins(12, 10, 12, 10); lay.setSpacing(8)
-    head = QtWidgets.QHBoxLayout(); head.setSpacing(8)
-    lbl = QtWidgets.QLabel(title)
-    f = lbl.font(); f.setBold(True); f.setPointSize(f.pointSize() + 1); lbl.setFont(f)
-    head.addWidget(lbl, 1)
-    lay.addLayout(head)
-    return box, lay, head
-
-
-class SheetLayersDialog(LayerInfoMixin, NoEscapeClose, QtWidgets.QDialog):
+class SheetLayersDialog(LayerInfoMixin, RecogCardMixin, NoEscapeClose, QtWidgets.QDialog):
     """Mostrar/ocultar capas OCG de una hoja con vista previa en vivo; a la izquierda,
     las capas que se toman por las LETRAS de su línea y la leyenda del PDF
     (`layer_dialog_info`). Esc no la cierra (`NoEscapeClose`): quita el resaltado."""
@@ -120,6 +96,7 @@ class SheetLayersDialog(LayerInfoMixin, NoEscapeClose, QtWidgets.QDialog):
         self._pix_item = None
         self._slow_render = False          # el último render tardó: el próximo avisa
         self._groups: dict[str, QtWidgets.QTreeWidgetItem] = {}
+        self._items_by_name: dict[str, list] = {}   # capa → sus filas (una por grupo si es compartida)
         # estado por capa de una utilidad apagada, para reponerlo al encenderla
         self._util_memory: dict[str, dict[str, bool]] = {}
         self._syncing = False
@@ -179,35 +156,11 @@ class SheetLayersDialog(LayerInfoMixin, NoEscapeClose, QtWidgets.QDialog):
         nav.addWidget(self.btn_prev); nav.addWidget(self.lbl_sheet, 1); nav.addWidget(self.btn_next)
         panel.addLayout(nav)
 
-        # ── tarjeta «Reconocer»: qué utilidades se leen del plano ──
-        card, lay, head = _card(_tr("Reconocer"))
-        self.chk_recog_all = QtWidgets.QCheckBox(_tr("Todas"))
-        self.chk_recog_all.setToolTip(_tr("Marcar o desmarcar todas las utilidades que tiene la hoja"))
-        self.chk_recog_all.clicked.connect(self._on_recog_all_clicked)
-        head.addWidget(self.chk_recog_all)
-        grid = QtWidgets.QGridLayout()
-        grid.setHorizontalSpacing(10); grid.setVerticalSpacing(6)
-        self._recog_checks: dict[str, QtWidgets.QCheckBox] = {}
-        selected = recognition.normalize_utilities(recognition_utilities)
-        for n, key in enumerate(recognition.SUPPORTED_UTILITIES):
-            cb = QtWidgets.QCheckBox(_tr(_UTILITY_RECOG_LABEL.get(key, key)))
-            cb.setIcon(swatch_icon(utility_qcolor(key)))
-            cb.setChecked(key in selected)
-            cb.toggled.connect(self._on_recog_utility_toggled)
-            self._recog_checks[key] = cb
-            # 2 columnas: con 3 los nombres se cortaban en un panel estrecho
-            grid.addWidget(cb, n // 2, n % 2)
-        for c in range(2):
-            grid.setColumnStretch(c, 1)
-        lay.addLayout(grid)
-        self.lbl_recog_warn = QtWidgets.QLabel(_tr("Marca al menos una utilidad para reconocer."))
-        self.lbl_recog_warn.setStyleSheet(f"color:{t.danger}; font-weight:bold;")
-        self.lbl_recog_warn.hide()
-        lay.addWidget(self.lbl_recog_warn)
-        panel.addWidget(card)
+        # ── tarjeta «Reconocer»: qué utilidades se leen del plano (`layer_dialog_recog`) ──
+        self._build_recog_card(panel, recognition_utilities)
 
         # ── tarjeta «Capas del plano»: árbol por utilidad ──
-        card, lay, head = _card(_tr("Capas del plano"))
+        box, lay, head = _card(_tr("Capas del plano"))
         self.btn_all = QtWidgets.QToolButton()
         self.btn_all.setIcon(_icon("mdi:eye-outline")); self.btn_all.setToolTip(_tr("Mostrar todas"))
         self.btn_none = QtWidgets.QToolButton()
@@ -235,7 +188,7 @@ class SheetLayersDialog(LayerInfoMixin, NoEscapeClose, QtWidgets.QDialog):
         self.lbl_count = QtWidgets.QLabel()
         self.lbl_count.setStyleSheet(f"color:{t.text_muted};")
         lay.addWidget(self.lbl_count)
-        panel.addWidget(card, 1)
+        panel.addWidget(box, 1)
 
         # ── pie a todo el ancho: opacidad · ayuda · Cancelar | Continuar ──
         # (volver a «Componer hoja» es el paso 1 de la cabecera: un solo sitio)
@@ -288,9 +241,11 @@ class SheetLayersDialog(LayerInfoMixin, NoEscapeClose, QtWidgets.QDialog):
         self._syncing = True
         self.tree.clear()
         self._groups.clear()
+        self._items_by_name = {}
         by_util: dict[str, list[dict]] = {}
         for L in self._layers:
-            by_util.setdefault(L["utility"], []).append(L)
+            for key in pdf_layers.layer_groups(L):      # compartida: en el grupo de cada utilidad
+                by_util.setdefault(key, []).append(L)
         for key, label in pdf_layers.UTILITIES:
             group = by_util.get(key, [])
             if not group:
@@ -305,22 +260,34 @@ class SheetLayersDialog(LayerInfoMixin, NoEscapeClose, QtWidgets.QDialog):
             self.tree.addTopLevelItem(hdr)
             self._groups[key] = hdr
             for L in group:
+                shared = [u for u in pdf_layers.layer_groups(L) if u != key]
+                code = (L.get("letter_codes") or {}).get(key) if shared else L.get("letters")
                 text = f"{L['short']}  ({L['path_count']})"
-                if L.get("letters"):
-                    text += f"  «{L['letters']}»"       # en su grupo por las letras de su línea
+                if code:
+                    text += f"  «{code}»"               # en su grupo por las letras de su línea
                 it = QtWidgets.QTreeWidgetItem([text])
-                it.setToolTip(0, _layer_tooltip(L))
+                tip = _layer_tooltip(L)
+                if shared:
+                    it.setIcon(0, _icon("mdi:link-variant", color=_theme.tokens().text_muted))
+                    tip += "\n" + _tr("Es UNA sola capa del PDF: también está en {u}. Ocultarla oculta "
+                                      "sus líneas de todas las utilidades; para ver solo las de una, "
+                                      "márcala en la «Leyenda».").format(
+                        u=", ".join(_tr(dict(pdf_layers.UTILITIES).get(u, u)) for u in shared))
+                it.setToolTip(0, tip)
                 it.setFlags(QtCore.Qt.ItemIsEnabled | QtCore.Qt.ItemIsUserCheckable)
                 it.setCheckState(0, QtCore.Qt.Checked if L["on"] else QtCore.Qt.Unchecked)
                 it.setData(0, _ROLE_NAME, L["name"])
                 it.setData(0, _ROLE_UTILITY, key)
                 hdr.addChild(it)
+                self._items_by_name.setdefault(L["name"], []).append(it)
             hdr.setExpanded(False)          # plegados: se ve la hoja por utilidades de un vistazo
         self._syncing = False
         for key in self._groups:
             self._refresh_group(key)
         self._apply_filter()
         self._update_count()
+        if hasattr(self, "_recog_checks"):
+            self._sync_recog_all()
 
     def _layer_items(self):
         """Filas de capa (sin grupos), en el orden del árbol."""
@@ -348,75 +315,49 @@ class SheetLayersDialog(LayerInfoMixin, NoEscapeClose, QtWidgets.QDialog):
 
     # ── estado ──────────────────────────────────────────────────────────────
     def hidden_names(self) -> list[str]:
-        """Nombres completos de las capas desmarcadas (en el orden del árbol)."""
-        return [it.data(0, _ROLE_NAME) for it in self._layer_items()
-                if it.checkState(0) != QtCore.Qt.Checked]
+        """Nombres completos de las capas desmarcadas (en el orden del árbol; una
+        capa compartida, una vez)."""
+        return list(dict.fromkeys(it.data(0, _ROLE_NAME) for it in self._layer_items()
+                                  if it.checkState(0) != QtCore.Qt.Checked))
 
     def page_index(self) -> int:
         """Hoja mostrada al cerrar (puede cambiar con ◀ ▶)."""
         return self._page_index
 
-    def recognition_utilities(self) -> tuple[str, ...]:
-        chosen = tuple(key for key in recognition.SUPPORTED_UTILITIES
-                       if self._recog_checks[key].isChecked())
-        return recognition.normalize_utilities(chosen)
-
-    # ── «Reconocer» ─────────────────────────────────────────────────────────
-    def _refresh_recog_checks(self):
-        """Solo se marcan las utilidades que la hoja tiene; «Todas» refleja el
-        conjunto; sin ninguna marcada no se puede continuar."""
-        available = {u for layer in self._layers if int(layer.get("path_count") or 0) > 0
-                     for u in [layer.get("utility")] + list(layer.get("letter_utilities") or ())}
-        for key, cb in self._recog_checks.items():
-            has = key in available
-            cb.setEnabled(has)
-            cb.setToolTip("" if has else _tr("Esta hoja no tiene capas de {u}").format(
-                u=_tr(_UTILITY_RECOG_LABEL.get(key, key))))
-        self._sync_recog_all()
-
-    def _enabled_recog(self):
-        return [cb for cb in self._recog_checks.values() if cb.isEnabled()]
-
-    def _sync_recog_all(self):
-        enabled = self._enabled_recog()
-        n_on = sum(1 for cb in enabled if cb.isChecked())
-        self.chk_recog_all.blockSignals(True)
-        self.chk_recog_all.setTristate(0 < n_on < len(enabled))
-        self.chk_recog_all.setCheckState(
-            QtCore.Qt.Checked if enabled and n_on == len(enabled) else
-            QtCore.Qt.PartiallyChecked if n_on else QtCore.Qt.Unchecked)
-        self.chk_recog_all.setEnabled(bool(enabled))
-        self.chk_recog_all.blockSignals(False)
-        ok = n_on > 0 or not enabled          # hoja sin utilidades: se puede seguir (avisa el preview)
-        self.lbl_recog_warn.setVisible(not ok)
-        self.btn_ok.setEnabled(ok)
-
-    def _on_recog_all_clicked(self, _checked=False):
-        enabled = self._enabled_recog()
-        target = not all(cb.isChecked() for cb in enabled)
-        for cb in enabled:
-            cb.blockSignals(True); cb.setChecked(target); cb.blockSignals(False)
-        self._sync_recog_all()
-
-    def _on_recog_utility_toggled(self, _on: bool):
-        self._sync_recog_all()
-
     # ── capas ───────────────────────────────────────────────────────────────
     def _update_count(self):
-        total = sum(1 for _ in self._layer_items())
+        total = len(self._items_by_name)
         visible = total - len(self.hidden_names())
         self.lbl_count.setText(_tr("Visibles: {v} de {t} capas").format(v=visible, t=total))
+
+    def _sync_twins(self, items) -> set:
+        """Las otras filas de una capa COMPARTIDA (está en dos grupos) toman el estado de
+        la que cambió; devuelve los grupos que tocó."""
+        touched = set()
+        prev, self._syncing = self._syncing, True
+        for it in items:
+            for twin in self._items_by_name.get(it.data(0, _ROLE_NAME), ()):
+                if twin is not it and twin.checkState(0) != it.checkState(0):
+                    twin.setCheckState(0, it.checkState(0))
+                    touched.add(twin.data(0, _ROLE_UTILITY))
+        self._syncing = prev
+        return touched
 
     def _on_item_changed(self, item, _col=0):
         if self._syncing:
             return
         key = item.data(0, _ROLE_UTILITY)
         if item.data(0, _ROLE_NAME) is None:           # casilla del grupo = toda la utilidad
+            grp = self._groups[key]
             self._set_utility_visible(key, item.checkState(0) != QtCore.Qt.Unchecked)
+            touched = self._sync_twins([grp.child(j) for j in range(grp.childCount())])
         else:
             self._util_memory.pop(key, None)            # el usuario eligió capa por capa
-        self._refresh_group(key)
+            touched = self._sync_twins([item])
+        for k in {key} | touched:
+            self._refresh_group(k)
         self._update_count()
+        self._sync_recog_all()
         self._timer.start()
 
     def set_utility_visible(self, key: str, on: bool):
@@ -452,14 +393,16 @@ class SheetLayersDialog(LayerInfoMixin, NoEscapeClose, QtWidgets.QDialog):
         # Solo las filas visibles en el buscador (así «Ocultar todas» con un filtro
         # escrito actúa sobre lo que el usuario ve).
         self._syncing = True
-        for it in self._layer_items():
-            if not it.isHidden():
-                it.setCheckState(0, QtCore.Qt.Checked if on else QtCore.Qt.Unchecked)
+        shown = [it for it in self._layer_items() if not it.isHidden()]
+        for it in shown:
+            it.setCheckState(0, QtCore.Qt.Checked if on else QtCore.Qt.Unchecked)
         self._syncing = False
+        self._sync_twins(shown)
         self._util_memory.clear()
         for key in self._groups:
             self._refresh_group(key)
         self._update_count()
+        self._sync_recog_all()
         self._timer.start()
 
     def _apply_filter(self, _text=None):

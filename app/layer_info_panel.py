@@ -28,7 +28,8 @@ from typing import Dict, List, Optional
 from PySide6 import QtCore, QtGui, QtWidgets
 
 from i18n import t as _tr
-from layer_std_legend import StandardLegend, accent, active_qss
+from layer_std_legend import (StandardLegend, TIP_PDF_MAX_W, accent, active_qss, img_html, pdf_sample,
+                              tooltip_html)
 from recognition_summary_view import utility_swatch
 from ui_common import layer_qcolor
 import leyenda_estandar as le
@@ -201,7 +202,10 @@ class _LegendRowWidget(QtWidgets.QFrame):
         self.utility = row.utility
         if self.clickable:
             self.setCursor(QtCore.Qt.PointingHandCursor)
-            self.setToolTip(_tr("Clic: ver estas líneas en la hoja (otro clic, ver todo)."))
+        # tooltip con la muestra del PDF en GRANDE (la de la fila es una miniatura)
+        tip = row.text + ("\n" + _tr("Clic: ver estas líneas en la hoja (otro clic, ver todo).")
+                          if self.clickable else "")
+        self.setToolTip(tooltip_html([img_html(pixmap, TIP_PDF_MAX_W)], tip))
         self.set_highlighted(False)
 
     def set_highlighted(self, on: bool):
@@ -469,17 +473,4 @@ class LayerInfoPanel(QtWidgets.QWidget):
 
     @staticmethod
     def _crop(src, row, cache) -> Optional[QtGui.QPixmap]:
-        img = src.get("images", {}).get(row.page)
-        if not img:
-            return None
-        key = (id(src), row.page)
-        if key not in cache:
-            pm = QtGui.QPixmap()
-            pm.loadFromData(img[0], "PNG")
-            cache[key] = pm
-        pm = cache[key]
-        x0, y0, _x1, _y1 = img[1]
-        k = 3.0                                  # zoom del render de `LegendWorker`
-        s = row.sample
-        return pm.copy(QtCore.QRect(int((s[0] - 2 - x0) * k), int((s[1] - 2 - y0) * k),
-                                    int((s[2] - s[0] + 4) * k), int((s[3] - s[1] + 4) * k)))
+        return pdf_sample(src, row, cache)

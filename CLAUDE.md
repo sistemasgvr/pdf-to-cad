@@ -428,7 +428,18 @@ alcantarillado, drenaje, gas, eléctrico, telecom). Todo en **unidades imperiale
     `letters`/`letter_utilities`/`letter_codes`/`name_utility`; la capa va al grupo de su
     utilidad con «TE» al lado y tooltip. Foto 4 PDFs (141 hojas): 190 líneas en 51 hojas, 0 sin
     tinta, 0 «V», 138 codos; ajenas: solo un vértice de unión donde una línea nueva toca otra.
-    Tests: `tests/test_recognition_letters.py`.
+    Tests: `tests/test_recognition_letters.py`. **Capa de DOS utilidades** (reporte 2026-10-07, DU06 h.5:
+    `G-XREF` con las «—T—» de telecom y un tramo «—W—» de agua con UNA «W» que no se leía —la línea
+    gira 1.4 pt después de la letra— y el agua no lo reconocía): `dash_ends` acepta una punta de guión
+    corta (≥`DASH_STUB_MIN_PT`=1) si el tramo siguiente del trazo ya es guión; un código en un solo
+    sitio (ruido, `MIN_SITES_CODE`) vale si la MISMA hoja lo usa en ≥2 sitios de otra capa
+    (`confirm_across`, al final de `page_letters`; `LayerLetters.noisy`/`confirm`); `dedicated` nunca
+    con dos utilidades (todo línea por línea). Foto de letras 141 hojas: solo 7 capas cambian, todas
+    tramos de agua de capas genéricas que ahora son agua (DU06 h.4 `PROP_WATER_PIPE_ALGN|P-INST`, h.5,
+    h.12, h.14 y DU08 h.36/37 `G-XREF`; `U-Rearr-Tel` de h.4 pasa a capa entera con los mismos 23
+    trazos). El árbol pone la capa en el grupo de CADA utilidad (`pdf_layers.layer_groups`, con su
+    código y un icono de enlace; `_items_by_name` + `_sync_twins`: las dos filas van juntas, la capa
+    cuenta una vez en `hidden_names`/«Visibles»).
     **Reparto por línea sin uniones falsas (2026-10-06, DU06 h.5: una línea «—W—» de agua en
     `G-XREF` salía como telecom)**: `_link_corners` no une una punta con una línea que PASA de
     largo por la «esquina» si la punta no llega a tocarla (`_passes_beyond`: tinta de guión sobre
@@ -943,6 +954,15 @@ alcantarillado, drenaje, gas, eléctrico, telecom). Todo en **unidades imperiale
     solo columnas de ≥3 filas a PASO REGULAR (tolera filas sin leer: paso ×2/×3) con letras en ≥30 %:
     las etiquetas con flecha de LABOE h.8/h.9 y el cajetín no entran. DU08/DU10/LABOE: 34–37 filas;
     DU06: sin leyenda. Tests: `tests/test_layer_legend.py`.
+    **«Reconocer» con sus capas ocultas no puede ser** (pedido 2026-10-07): tarjeta en
+    `layer_dialog_recog.RecogCardMixin` (también `card`, `utility_qcolor`; `layer_dialog` los
+    re-exporta): `leyenda_estandar.sin_capas_visibles` (utilidad marcada con TODAS sus capas de línea
+    —o, sin líneas, de estructura; `capas_que_reconoce` = mismos roles que el reconocimiento—
+    ocultas) → icono de aviso en su casilla, frase con «Mostrar sus capas» / «No reconocerla» y
+    `btn_ok` apagado; se revisa en `_sync_recog_all` (tras cada cambio del árbol). Tooltip de cada
+    fila de la leyenda con la muestra en GRANDE (`layer_std_legend.sample_pixmap`/`paint_sample`, 3×)
+    y la del PDF (`pdf_sample`), como `<img>` data URI (`img_html`/`tooltip_html`; el tooltip de Qt 6
+    los muestra); igual en las filas de la leyenda completa del PDF.
     En `Main`, `_start_recognition(idx)` lanza el worker con
     `self.hidden_ocgs` + `self._layer_roles` (None = automático); `_change_page`
     (◀ ▶ / nº de página del editor) lo reutiliza si `self._recog_ready`.

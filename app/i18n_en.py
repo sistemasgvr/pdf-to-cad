@@ -74,6 +74,24 @@ EN: dict[str, str] = {
         "Check or uncheck all the utilities on this sheet",
     "Marca al menos una utilidad para reconocer.":
         "Check at least one utility to recognize.",
+    "Sus capas están ocultas en «Capas del plano»: no se reconocería nada.":
+        "Its layers are hidden in «Plan layers»: nothing would be recognized.",
+    "{u}: sus capas están ocultas, no se reconocería nada.":
+        "{u}: its layers are hidden, nothing would be recognized.",
+    "{u}: sus capas están ocultas, no se reconocería nada de ellas.":
+        "{u}: their layers are hidden, nothing would be recognized from them.",
+    "Mostrar sus capas":
+        "Show its layers",
+    "No reconocerla":
+        "Don't recognize it",
+    "No reconocerlas":
+        "Don't recognize them",
+    "Es UNA sola capa del PDF: también está en {u}. Ocultarla oculta sus líneas de todas las utilidades; "
+    "para ver solo las de una, márcala en la «Leyenda».":
+        "It is ONE single PDF layer: it is also in {u}. Hiding it hides its lines of every utility; "
+        "to see only one utility's lines, check it in the «Legend».",
+    "Muestra en la leyenda del PDF:":
+        "Sample in the PDF legend:",
     "Capas del plano":
         "Plan layers",
     "Esta hoja no tiene capas de {u}":

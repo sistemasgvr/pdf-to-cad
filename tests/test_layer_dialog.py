@@ -68,13 +68,14 @@ def test_arbol_agrupado_por_utilidad(dlg):
         if name is None:
             cur = u
         else:
-            # por su nombre o, si su nombre no lo dice, por las letras de su línea
-            assert u == cur and u == listed[name]["utility"]
+            # por su nombre o, si su nombre no lo dice, por las letras de su línea (una capa
+            # con líneas de varias utilidades está en el grupo de cada una)
+            assert u == cur and u in pdf_layers.layer_groups(listed[name])
             assert listed[name]["letters"] or pdf_layers.utility_of(name) == u
     assert "ELECTRICO" in groups and "OTRAS" in groups
-    # grupos plegados al abrir; todas visibles; el conteo cuenta solo capas
+    # grupos plegados al abrir; todas visibles; el conteo cuenta capas (una compartida, una vez)
     assert not any(dlg.group_item(u).isExpanded() for u in groups)
-    n_layers = sum(1 for _, name, _, _ in rows if name is not None)
+    n_layers = len({name for _, name, _, _ in rows if name is not None})
     assert dlg.hidden_names() == []
     assert f"{n_layers}" in dlg.lbl_count.text()
 
@@ -192,3 +193,61 @@ def test_sin_vuelta_atras_no_hay_boton():
         assert d.lbl_sheet.isHidden()                          # una sola hoja: sin navegador
     finally:
         d._timer.stop(); d.deleteLater()
+
+
+# ── DU06 h.5: una capa con líneas de DOS utilidades (reporte del usuario 2026-10-07) ──
+@pytest.fixture
+def dlg5():
+    _app()
+    doc = fitz.open(str(PDF))
+    d = layer_dialog.SheetLayersDialog(None, doc, 4)
+    yield d
+    d._timer.stop()
+    d.deleteLater()
+    doc.close()
+
+
+@needs_pdf
+def test_capa_de_dos_utilidades_esta_en_los_dos_grupos(dlg5):
+    """`G-XREF` trae las líneas «—T—» de telecom y un tramo «—W—» de agua: sale en los dos
+    grupos, cada fila con SU código, y es UNA capa: ocultarla en uno la oculta en el otro
+    (también con la casilla del grupo) y se cuenta una vez."""
+    items = [it for it in dlg5._layer_items() if it.data(0, layer_dialog._ROLE_NAME) == "G-XREF"]
+    by_group = {it.data(0, layer_dialog._ROLE_UTILITY): it for it in items}
+    assert sorted(by_group) == ["AGUA", "TELECOM"]
+    assert "«W»" in by_group["AGUA"].text(0) and "«T»" in by_group["TELECOM"].text(0)
+    assert "Telecomunicaciones" in by_group["AGUA"].toolTip(0)
+    total = len({it.data(0, layer_dialog._ROLE_NAME) for it in dlg5._layer_items()})
+    assert f"{total} de {total}" in dlg5.lbl_count.text()
+    by_group["AGUA"].setCheckState(0, QtCore.Qt.Unchecked)
+    assert by_group["TELECOM"].checkState(0) == QtCore.Qt.Unchecked
+    assert dlg5.hidden_names() == ["G-XREF"]
+    assert dlg5.group_item("TELECOM").checkState(0) == QtCore.Qt.PartiallyChecked
+    by_group["TELECOM"].setCheckState(0, QtCore.Qt.Checked)
+    assert by_group["AGUA"].checkState(0) == QtCore.Qt.Checked and dlg5.hidden_names() == []
+    dlg5.set_utility_visible("AGUA", False)
+    assert by_group["TELECOM"].checkState(0) == QtCore.Qt.Unchecked
+    dlg5.set_utility_visible("AGUA", True)
+    assert by_group["TELECOM"].checkState(0) == QtCore.Qt.Checked and dlg5.hidden_names() == []
+
+
+@needs_pdf
+def test_reconocer_una_utilidad_con_sus_capas_ocultas_no_continua(dlg5):
+    """Pedido del usuario: «si quiero reconocer telecomunicaciones pero no tengo activada la
+    capa, no puede ser». Aviso + «Continuar» apagado; se arregla mostrando sus capas o
+    dejando de reconocerla."""
+    assert dlg5._recog_checks["TELECOM"].isChecked() and dlg5.btn_ok.isEnabled()
+    dlg5.set_utility_visible("TELECOM", False)
+    assert dlg5._recog_hidden == ["TELECOM"]                 # agua sigue: sus capas C-WATR se ven
+    assert not dlg5.btn_ok.isEnabled() and not dlg5.lbl_recog_hidden.isHidden()
+    assert "Telecomunicaciones" in dlg5.lbl_recog_hidden.text()
+    dlg5.lbl_recog_hidden.linkActivated.emit("show")         # «Mostrar sus capas»
+    assert dlg5._recog_hidden == [] and dlg5.btn_ok.isEnabled() and dlg5.lbl_recog_hidden.isHidden()
+    assert dlg5.group_item("TELECOM").checkState(0) == QtCore.Qt.Checked
+    dlg5.set_utility_visible("TELECOM", False)
+    dlg5.lbl_recog_hidden.linkActivated.emit("skip")         # «No reconocerla»
+    assert not dlg5._recog_checks["TELECOM"].isChecked() and "TELECOM" not in dlg5.recognition_utilities()
+    assert dlg5.btn_ok.isEnabled() and dlg5.lbl_recog_hidden.isHidden()
+    # volver a marcarla con sus capas ocultas: otra vez el aviso
+    dlg5._recog_checks["TELECOM"].setChecked(True)
+    assert not dlg5.btn_ok.isEnabled() and dlg5._recog_hidden == ["TELECOM"]

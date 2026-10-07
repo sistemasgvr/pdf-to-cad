@@ -145,6 +145,15 @@ def page_layers(doc, page_index: int, letters: bool = True) -> List[dict]:
     return out
 
 
+def layer_groups(L: dict) -> List[str]:
+    """Grupos de «Capas del plano» donde va la capa: el de su utilidad y, si las letras de
+    sus líneas la hacen de VARIAS (capa mezclada: `G-XREF` de DU06 h.5 trae las líneas
+    «—T—» de telecom y un tramo «—W—» de agua), también el de cada una de las otras. Es
+    UNA capa del PDF: sale en los dos grupos y ocultarla oculta las líneas de ambas."""
+    main = L.get("utility") or UTILITY_OTHER
+    return [main] + [u for u in (L.get("letter_utilities") or ()) if u != main]
+
+
 def without_letters(layers: List[dict], off: Iterable[str]) -> List[dict]:
     """`page_layers` con la decisión del usuario: las capas de `off` NO se toman por las
     letras de su línea (vuelven a su grupo por nombre y pierden la etiqueta)."""

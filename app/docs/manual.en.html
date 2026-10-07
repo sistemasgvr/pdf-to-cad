@@ -209,7 +209,10 @@ editor</span> leaves it as the background to draw by hand.</p>
 <ul>
 <li><b>Recognize:</b> check which utilities the app should read (Electrical, Storm drain, Water,
     Sewer, Gas and Telecom). They all come checked; <b>All</b> checks or unchecks them at once.
-    Only the ones the sheet has can be checked, and at least one is needed to continue.</li>
+    Only the ones the sheet has can be checked, and at least one is needed to continue. If you check
+    a utility with <b>all its layers hidden</b>, nothing would be recognized: its checkbox shows a
+    warning and <b>Continue</b> is disabled until you click <b>Show its layers</b> or <b>Don't
+    recognize it</b>.</li>
 <li><b>Plan layers:</b> layers are grouped by utility (Water, Sewer, Storm drain, Gas,
     Electrical, Telecom, Other), each with its color. The utility's checkbox turns <b>all</b> its
     layers on or off; the ▸ arrow expands it so you can choose layer by layer. What you uncheck is
@@ -221,7 +224,11 @@ editor</span> leaves it as the background to draw by hand.</p>
     recognized. The letters follow the plan's legend: «TE» and «SE» are electrification duct banks
     (Electrical), «SC» signal &amp; communication (Telecom). In layers that mix everything
     (<b>_Xref</b>, <b>G-XREF</b>, layer <b>0</b>) each line goes to the utility of its letters and the
-    rest is left alone. Overhead «(oh)» and unknown «unk» lines are not recognized.</li>
+    rest is left alone. Overhead «(oh)» and unknown «unk» lines are not recognized. A layer with
+    lines of <b>two utilities</b> (G-XREF with telecom «—T—» lines and a water «—W—» segment) shows in
+    each one's group, with its letter and a link icon: it is <b>one single</b> PDF layer, so hiding it
+    hides it in both. To see only one utility's lines, check it in the <b>Legend</b> (they are
+    highlighted with a halo).</li>
 <li><b>«Legend» panel (on the left):</b> at the top, <b>By the letters on their line</b> lists those
     layers as cards: the utility and its letters, the layer, why (its name does not say the utility,
     or says another one) and what the PDF's legend says about those letters. Each card's checkbox
@@ -243,7 +250,8 @@ editor</span> leaves it as the background to draw by hand.</p>
     that color (the utility's checkbox shows partial if only some of its kinds are checked). A letters card
     adds with a click: its lines with a halo and, as a thin line, the rest of its utility. The top of the
     panel says what is highlighted and how many layers; another click removes that one, <b>Show all</b>
-    unchecks everything. Below, collapsed, the <b>Full PDF
+    unchecks everything. Hover a row to see its sample <b>large</b> (and the PDF legend's, if it has
+    one). Below, collapsed, the <b>Full PDF
     legend</b> (this sheet's rows in bold; click = their lines). If the sheet has no utilities and no
     layers by letters, the panel collapses by itself (‹ / › collapses and expands it).</li>
 <li>Type in <b>Search layer…</b> to find a layer by name; the eye buttons show or hide all the

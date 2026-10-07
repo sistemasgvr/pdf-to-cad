@@ -213,7 +213,9 @@ imagen/escaneo…</b>), pero sin capas ni reconocimiento: al final,
 <li><b>Reconocer:</b> marca qué utilidades quieres que la app lea (Eléctrico, Drenaje, Agua,
     Alcantarillado, Gas y Telecomunicaciones). Vienen todas marcadas; <b>Todas</b> las marca o
     desmarca de una vez. Solo se pueden marcar las que la hoja tiene, y hace falta al menos una
-    para continuar.</li>
+    para continuar. Si marcas una utilidad con <b>todas sus capas ocultas</b>, no se reconocería
+    nada: su casilla lleva un aviso y <b>Continuar</b> se apaga hasta que pulses <b>Mostrar sus
+    capas</b> o <b>No reconocerla</b>.</li>
 <li><b>Capas del plano:</b> las capas están agrupadas por utilidad (Agua, Alcantarillado, Drenaje,
     Gas, Eléctrico, Telecomunicaciones, Otras), cada una con su color. La casilla de la utilidad
     enciende o apaga <b>todas</b> sus capas; con la flecha ▸ la despliegas y eliges capa por capa.
@@ -225,7 +227,11 @@ imagen/escaneo…</b>), pero sin capas ni reconocimiento: al final,
     reconoce. Las letras siguen la leyenda del plano: «TE» y «SE» son bancos de ductos de
     electrificación (Eléctrico), «SC» de señales y comunicaciones (Telecomunicaciones). En capas que
     mezclan de todo (<b>_Xref</b>, <b>G-XREF</b>, la capa <b>0</b>) cada línea va a la utilidad de sus
-    letras y lo demás no se toca. Las aéreas «(oh)» y las desconocidas «unk» no se reconocen.</li>
+    letras y lo demás no se toca. Las aéreas «(oh)» y las desconocidas «unk» no se reconocen.
+    Una capa con líneas de <b>dos utilidades</b> (G-XREF con «—T—» de telecomunicaciones y un tramo
+    «—W—» de agua) sale en el grupo de cada una, con su letra y un icono de enlace: es <b>una sola
+    capa</b> del PDF, así que ocultarla la oculta en las dos. Para ver solo las líneas de una
+    utilidad, márcala en la <b>Leyenda</b> (se resaltan con halo).</li>
 <li><b>Panel «Leyenda» (a la izquierda):</b> arriba, <b>Por las letras de su línea</b> lista esas capas
     en tarjetas: la utilidad y sus letras, la capa, por qué (su nombre no dice la utilidad, o dice
     otra) y lo que dice de esas letras la leyenda del PDF. La casilla de cada tarjeta decide si se
@@ -246,7 +252,8 @@ imagen/escaneo…</b>), pero sin capas ni reconocimiento: al final,
     en la hoja, cada utilidad con su color, y en el panel queda con borde y fondo de ese color (la casilla
     de la utilidad queda a medias si solo marcaste algunos de sus tipos). Una tarjeta de letras se suma con
     un clic: sus líneas con halo y, en línea fina, el resto de su utilidad. Arriba del panel dice qué se
-    resalta y cuántas capas; otro clic quita esa, <b>Ver todo</b> desmarca todo. Debajo, plegada, la <b>Leyenda completa
+    resalta y cuántas capas; otro clic quita esa, <b>Ver todo</b> desmarca todo. Pasa el ratón por una fila
+    para ver su muestra en <b>grande</b> (y la de la leyenda del PDF, si la trae). Debajo, plegada, la <b>Leyenda completa
     del PDF</b> (en negrita, las filas que hay en esta hoja; clic = sus líneas). Si la hoja no tiene
     utilidades ni capas por letras, el panel se pliega solo (‹ / › lo pliega y despliega).</li>
 <li>Escribe en <b>Buscar capa…</b> para encontrar una capa por su nombre; los botones del ojo
