@@ -1450,6 +1450,9 @@ alcantarillado, drenaje, gas, eléctrico, telecom). Todo en **unidades imperiale
 - Quitar el plugin del autoload de C3D (testing): `uninstall_plugin.bat`
 - Compilar solo el plugin C#: `dotnet build -c Release` en
   `API-CIVIL/proyecto1/proyecto1` (baseline: 0 errores, 4 warnings).
+  El `.csproj` toma las DLL de la PRIMERA AutoCAD instalada (`AcadDir`: 2025 → 2026 → 2027;
+  forzar con `-p:AcadDir="…"`) y su .NET (`AcadTfm`: net8 para 2025/2026, net10 para 2027,
+  14 warnings). El DLL solo sirve para la versión con la que se compiló.
 
 ## Convenciones
 
