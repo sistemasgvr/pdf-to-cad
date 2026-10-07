@@ -104,6 +104,22 @@ namespace Civil3DBasico
             return Math.Ceiling(vObj / 100.0 - 1e-9) * 100.0;
         }
 
+        /// <summary>Escala del dibujo por debajo de la cual el perfil elige la suya (1"=1'…1"=5'
+        /// es escala de detalle: con S=1 la VE quedaba en 1 y el perfil salía aplanado, 2026-10-06).</summary>
+        public const double S_MIN_PERFIL = 10.0;
+        public const double ANCHO_OBJ_PERFIL = 24.0;                   // in de ploteo del recorrido
+        public static readonly double[] S_ESTANDAR = { 10, 20, 30, 40, 50, 60, 100, 200, 500, 1000 };
+
+        /// <summary>Escala del perfil (ft por in) para un recorrido de `largoFt`: la menor
+        /// estándar con la que el recorrido mide ≤ ANCHO_OBJ_PERFIL in (como el plano de
+        /// referencia: 1"=10' y VE 2.5 en un cruce de ~100 ft).</summary>
+        public static double EscalaAuto(double largoFt)
+        {
+            if (double.IsNaN(largoFt) || largoFt <= 0) return S_ESTANDAR[0];
+            foreach (double s in S_ESTANDAR) if (largoFt / s <= ANCHO_OBJ_PERFIL + 1e-9) return s;
+            return S_ESTANDAR[S_ESTANDAR.Length - 1];
+        }
+
         /// <summary>Siguiente V estándar mayor que v; s si lo supera (VE = 1); v si v ≥ s. F.3.</summary>
         public static double SiguienteV(double v, double s)
         {

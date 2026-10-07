@@ -124,8 +124,8 @@ Detalles de los valores:
 
 **Lectura**
 - `WyeSolido.LeerXData(Entity)` (910-925) devuelve `List<string>` "CLAVE=valor" o null.
-- Ejemplo de parseo a diccionario: ListarAccesoriosSolidos.cs:68-81.
-- Filtro rápido de sólidos: `id.ObjectClass.DxfName == "3DSOLID"` (ListarAccesoriosSolidos.cs:70).
+- Ejemplo de parseo a diccionario: `AccesorioPropertySet.LeerCampos`.
+- Filtro rápido de sólidos: `id.ObjectClass.DxfName == "3DSOLID"` (PerfilGrafoPresion.cs).
 
 **Centro del accesorio**
 - Sale directamente de la XDATA: COORD_X, COORD_Y, COTA_EJE_FT = `centroPlano` (Aplanar devuelve el centro sin cambiar, 312; se graba en 253 y 566-568). Es el punto de la juntura a cota de **eje**; no hace falta centroide ni GeometricExtents.
@@ -133,7 +133,7 @@ Detalles de los valores:
 
 **Property Set** `PDFCAD_Accesorio` (AccesorioPropertySet.cs:35-44)
 - Campos: Tipo_Accesorio, Angulo_Grados, Diametro_Pulg, Material, Cota_Eje_Pies.
-- Aplicado desde la XDATA (48-92). Comando PS_ACCESORIOS (193-220).
+- Aplicado desde la XDATA al crear cada pieza (`AplicarDesdeXData`).
 
 **Conexiones verticales** (ImportarRed.cs:4200-4516)
 - Tramo vertical PressurePipe en la red CROSS-CONNECTS.
@@ -198,8 +198,9 @@ Limitaciones:
 - Cada nueva ejecución duplica los perfiles "-terreno" y "-rasante"; puede fallar por nombre repetido (sin verificar).
 - Los prompts ocurren dentro de la transacción.
 
-**CREAR_PERFIL_PRESION** (RedesPresionRamales.cs:266-334, partial `ComandosPresion`):
-- Elige la red por número con `ElegirRedId` (RedesPresion.cs:1392-1408).
+**CREAR_PERFIL_PRESION** antiguo (estaba en RedesPresionRamales.cs, archivo ya eliminado; hoy
+CREAR_PERFIL_PRESION es un alias de CREAR_PERFIL_RED en PerfilComando.cs):
+- Elegía la red por número con `ElegirRedId` (eliminado).
 - Busca el eje en `PipeRuns[i].AlignmentId` y luego en `pp.ReferenceAlignmentId`; ignora `PressurePipeNetwork.ReferenceAlignmentId`.
 - Terreno opcional por prompt: "Terreno-Presion" con nombre fijo y `ProfileStyles[0]`.
 - `ProfileView.Create` + `AjustarRango`. Mensaje "±5 m".
@@ -240,21 +241,20 @@ Limitaciones:
 
 - **Namespace**: `Civil3DBasico` (el RootNamespace del csproj es `proyecto1`).
   - Clases de comandos: `public class Comandos*` con `[CommandMethod("MAYUSCULAS")] public void X()`. No hay `CommandClass`: AutoCAD escanea el ensamblado. `ExtensionApp.cs` registra `IExtensionApplication` (assembly attribute, línea 10).
-  - Clases partial: `ComandosRedes` (ImportarRed, RedesTuberia, RedesTuberiaEntrada, ElementosCurvos) y `ComandosPresion` (RedesPresion, RedesPresionJunturas, RedesPresionRamales).
+  - Clases partial: `ComandosRedes` (ImportarRed, RedesTuberia, ElementosCurvos) y `ComandosPresion` (RedesPresion, RedesPresionJunturas).
   - Helpers como `internal static class`: PerfilUtil, PerfilLongitudinalDatos, WyeSolido, AccesorioPropertySet.
 - **Usings**: `using CivilDB = Autodesk.Civil.DatabaseServices; using PresStyles/PartsStyles = ...Styles; using Exception = System.Exception;`. ImplicitUsings y Nullable desactivados.
 - **Transacciones**:
   - Patrón: `using (Transaction tr = db.TransactionManager.StartTransaction()) { try { ...; tr.Commit(); ed.WriteMessage("\n✓ ..."); } catch (Exception ex) { ed.WriteMessage($"\nError: {ex.Message}"); tr.Abort(); } }`.
   - Cada lectura frágil va en su propio try/catch.
-  - `LockDocument` solo en PS_ACCESORIOS; los comandos se lanzan desde la paleta con SendStringToExecute.
+  - `LockDocument`: no se usa; los comandos se lanzan desde la paleta con SendStringToExecute.
 - **Mensajes**: en español, con prefijo `\n` y marcas `✓ / ⚠ / ✗ / ·`. Tags de depuración `[TAG]` solo a través de `Dl`.
-- **Tamaño de archivos**: la guía del proyecto pide menos de 500 líneas. Los del perfil cumplen (191/138/124); ImportarRed tiene 5831, RedesPresion 1795, RedesTuberia 1582.
+- **Tamaño de archivos**: la guía del proyecto pide menos de 500 líneas. Los del perfil cumplen (191/138/124); ImportarRed tiene 6275, RedesPresion 314, RedesTuberia 1168.
 - **Build**:
   - net8.0-windows x64, UseWPF.
   - Referencias con Private=false a `C:/Program Files/Autodesk/AutoCAD 2025/`: accoremgd, acdbmgd, acmgd, ACA/AecBaseMgd, C3D/AeccDbMgd, C3D/AeccPressurePipesMgd, ACA/AecPropDataMgd (proyecto1.csproj:28-57).
   - `dotnet build -c Release`; línea base según CLAUDE.md: 0 errores, 4 warnings.
 
 **Comentarios desactualizados** (conviene corregirlos al tocar estos archivos):
-- AlineamientosPerfiles.cs:14-15 y 24-25: CREAR_RED_POLILINEA/COGO ya no usan `CrearAlineamientoDesdePts`; solo lo usa ImportarRed.
 - ImportarRed.cs:592 (conduit), 2005 (estructuras en conduit), 2147-2150 (eje en conduit).
-- PerfilUtil.cs:11 y RedesPresionRamales.cs:320/326: dicen "m" cuando las unidades son pies.
+- PerfilUtil.cs:11: dice "m" cuando las unidades son pies.

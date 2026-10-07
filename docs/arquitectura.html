@@ -957,11 +957,11 @@ flowchart LR
       <div class="fitem" onclick="toggleItem(this)">
         <div class="fitem-header">
           <span class="fitem-name">RedesPresion.cs <span class="tag tag-core">principal</span></span>
-          <span class="fitem-short">Crea redes a presión (agua potable, gas). Es distinto a las de gravedad y necesita su propio manejo.</span>
+          <span class="fitem-short">Corrige los accesorios de las redes a presión (agua potable, gas) que crea IMPORTAR_RED: tipo y diámetro de cada pieza.</span>
           <span class="fitem-toggle">▶</span>
         </div>
         <div class="fitem-long">
-          Las redes de agua y gas funcionan a presión — el líquido no baja por gravedad. Civil 3D las maneja de forma diferente y este archivo tiene toda la lógica para eso.
+          Las redes de agua y gas funcionan a presión — el líquido no baja por gravedad. Después de crearlas, IMPORTAR_RED usa este archivo para revisar cada accesorio y cambiarlo por el que corresponde si el tipo o el diámetro no coinciden con sus tuberías.
           <div class="analogy"><strong>Analogía:</strong> es el <b>plomero</b> especializado en agua a presión — usa herramientas y técnicas distintas al de desagües.</div>
         </div>
       </div>
@@ -975,29 +975,6 @@ flowchart LR
         <div class="fitem-long">
           Cada vez que dos tuberías a presión se juntan, hace falta una pieza especial. Este archivo elige la pieza correcta según el tipo de unión.
           <div class="analogy"><strong>Analogía:</strong> es el que <b>elige las piezas de conexión</b> — como cuando en ferretería te preguntan "¿va en codo o en te?".</div>
-        </div>
-      </div>
-
-      <div class="fitem" onclick="toggleItem(this)">
-        <div class="fitem-header">
-          <span class="fitem-name">RedesPresionRamales.cs</span>
-          <span class="fitem-short">Otro ayudante: divide una red grande en ramales cuando hace falta.</span>
-          <span class="fitem-toggle">▶</span>
-        </div>
-        <div class="fitem-long">
-          Cuando una red de agua tiene varias derivaciones, este archivo las separa correctamente para que cada tramo se comporte como una red independiente.
-        </div>
-      </div>
-
-      <div class="fitem" onclick="toggleItem(this)">
-        <div class="fitem-header">
-          <span class="fitem-name">RedesTuberiaEntrada.cs</span>
-          <span class="fitem-short">Prepara el terreno para crear una red: crea el eje sobre el que se apoyará y el catálogo de piezas que se usarán.</span>
-          <span class="fitem-toggle">▶</span>
-        </div>
-        <div class="fitem-long">
-          Antes de poner tuberías, Civil 3D necesita saber sobre qué línea van y qué piezas tiene disponibles. Este archivo prepara ambas cosas.
-          <div class="analogy"><strong>Analogía:</strong> es el <b>topógrafo</b> que llega antes que el plomero para marcar por dónde irá la zanja.</div>
         </div>
       </div>
 
@@ -1069,17 +1046,6 @@ flowchart LR
         <div class="fitem-long">
           Comando <code>CUADRO_BUZONES</code>. Deja lista una tabla que se puede insertar en la lámina como parte del plano final.
           <div class="analogy"><strong>Analogía:</strong> es el que <b>arma el listado de precios</b> para pegar en la pared del negocio.</div>
-        </div>
-      </div>
-
-      <div class="fitem" onclick="toggleItem(this)">
-        <div class="fitem-header">
-          <span class="fitem-name">CatalogoBancos.cs</span>
-          <span class="fitem-short">Añade varias familias y tamaños al catálogo del proyecto en un solo paso.</span>
-          <span class="fitem-toggle">▶</span>
-        </div>
-        <div class="fitem-long">
-          Comando <code>AGREGAR_BANCOS_Y_BUZONES</code>. Ahorra tiempo cuando hay que preparar el catálogo antes de empezar a modelar.
         </div>
       </div>
 

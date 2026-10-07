@@ -2,10 +2,8 @@ using System;
 using System.Collections.Generic;
 using System.Collections.Specialized;
 using System.Globalization;
-using Autodesk.AutoCAD.ApplicationServices;
 using Autodesk.AutoCAD.DatabaseServices;
 using Autodesk.AutoCAD.EditorInput;
-using Autodesk.AutoCAD.Runtime;
 using AecPS = Autodesk.Aec.PropertyData.DatabaseServices;
 using AecPD = Autodesk.Aec.PropertyData;
 using Exception = System.Exception;
@@ -28,8 +26,7 @@ using Exception = System.Exception;
 //    Material        material de la red            (pedido de material)
 //    Cota_Eje_Pies   elevación del eje en la pieza (replanteo / perfil)
 //
-//  Se aplica solo al crear cada pieza (WyeSolido.Crear). PS_ACCESORIOS lo
-//  agrega a las piezas de dibujos importados antes, leyendo su XDATA.
+//  Se aplica solo al crear cada pieza (WyeSolido.Crear), leyendo su XDATA.
 // ============================================================================
 
 namespace Civil3DBasico
@@ -96,7 +93,7 @@ namespace Civil3DBasico
                 Escribir(ps, "Material", V("MATERIAL"));
                 Escribir(ps, "Cota_Eje_Pies", Math.Round(Num(V("COTA_EJE_FT")), 3));
 
-                ed?.WriteMessage($"\n    · [PROPERTY SET] «{NOMBRE}»: {NombreTipo(V("TIPO"))}, " +
+                ComandosRedes.Dl(ed, $"\n    · [PROPERTY SET] «{NOMBRE}»: {NombreTipo(V("TIPO"))}, " +
                     $"{ang:0.##}°, Ø{diam}\", {V("MATERIAL")}, eje {Num(V("COTA_EJE_FT")):F2} ft.");
                 return true;
             }
@@ -203,36 +200,6 @@ namespace Civil3DBasico
                 case "CROSS": return "Cruz";
                 case "REDUCER": return "Reducción";
                 default: return tipo ?? "";
-            }
-        }
-    }
-
-    public class ComandosAccesorioPropertySet
-    {
-        // Dibujos importados antes de esta versión: sus piezas tienen XDATA pero
-        // no el Property Set. Este comando se lo agrega (o lo actualiza) a todas.
-        [CommandMethod("PS_ACCESORIOS")]
-        public void AplicarATodos()
-        {
-            Document doc = Application.DocumentManager.MdiActiveDocument;
-            Editor ed = doc.Editor;
-            Database db = doc.Database;
-            using (doc.LockDocument())
-            using (Transaction tr = db.TransactionManager.StartTransaction())
-            {
-                var bt = (BlockTable)tr.GetObject(db.BlockTableId, OpenMode.ForRead);
-                var ms = (BlockTableRecord)tr.GetObject(bt[BlockTableRecord.ModelSpace], OpenMode.ForRead);
-                int ok = 0, total = 0;
-                foreach (ObjectId id in ms)
-                {
-                    if (id.ObjectClass.DxfName != "3DSOLID") continue;
-                    var ent = (Entity)tr.GetObject(id, OpenMode.ForRead);
-                    if (WyeSolido.LeerXData(ent) == null) continue;
-                    total++;
-                    if (AccesorioPropertySet.AplicarDesdeXData(db, tr, ent, null)) ok++;
-                }
-                tr.Commit();
-                ed.WriteMessage($"\n✓ Property Set «{AccesorioPropertySet.NOMBRE}» aplicado a {ok} de {total} accesorio(s).");
             }
         }
     }

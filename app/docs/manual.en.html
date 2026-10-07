@@ -762,7 +762,8 @@ coordinate system code (for example <b>CA83VF</b>), type it and the drawing will
 <li>Each pipe, manhole or box and fitting goes on its <b>utility's layer</b> (ELECTRICO,
     TELECOM, AGUA…), the same as the DXF lines: you can turn each utility on or off by its layer.
     The DXF 2D lines are erased once they become the network. The conduits of a duct bank go on
-    the duct bank's layer.</li>
+    the duct bank's layer. <b>Solids</b> too: water and gas fittings drawn as a 3D solid (bend, Tee, Wye, reducer)
+    go on their network's layer, and the solids that represent manholes or boxes on their utility's layer.</li>
 </ul>
 <table width="100%" cellspacing="0" cellpadding="12"><tr>
 <td width="6" bgcolor="{{warn_border}}"></td><td bgcolor="{{warn}}">
@@ -862,8 +863,6 @@ Select it → <b>Properties → Extended Data → PDFCAD_Accesorio</b>:</p>
 <li><b>Material</b>: the pipe material.</li>
 <li><b>Cota_Eje_Pies</b>: the elevation of the fitting's center, in feet.</li>
 </ul>
-<p class="small">A drawing imported with an older version? Type <b>PS_ACCESORIOS</b> in Civil 3D
-and its fittings get this data.</p>
 </section>
 
 <section data-title="Frequently asked questions">

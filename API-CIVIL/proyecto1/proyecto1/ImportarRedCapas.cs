@@ -4,6 +4,7 @@ using System.Linq;
 using Autodesk.AutoCAD.DatabaseServices;
 using Autodesk.AutoCAD.EditorInput;
 using Autodesk.AutoCAD.Geometry;
+using Autodesk.AutoCAD.Runtime;
 using CivilDB = Autodesk.Civil.DatabaseServices;
 using Exception = System.Exception;
 
@@ -82,6 +83,151 @@ namespace Civil3DBasico
                                 string.Join(", ", porCapa.Select(kv => $"{kv.Key} {kv.Value}")) + ".");
             if (nFallos > 0)
                 ed.WriteMessage($"\n  ⚠ {nFallos} pieza(s) no se pudieron pasar a la capa de su utilidad (¿capa bloqueada?).");
+        }
+
+        /// <summary>SÓLIDOS creados en este import → capa de su utilidad (pedido del usuario
+        /// 2026-10-06): accesorios de presión dibujados como Solid3d (codo, Tee, Wye,
+        /// cruz, reducción; capa PDFCAD_WYE_SOLIDO) y sólidos que representan buzones/
+        /// cajas (PDFCAD_SOLIDOS). Solo los de handle ≥ `handleInicio` (los de imports
+        /// anteriores no se tocan); el bancoducto (PDFCAD_DUCT_BANK) queda como está.
+        /// Utilidad: la de la red que el accesorio guarda en su XDATA (RED=) y, dentro de
+        /// ella o si no hay, la polilínea de origen más cercana.</summary>
+        private static void AsignarCapasDeSolidos(Editor ed, Database db,
+            Dictionary<ObjectId, List<ImportPipe>> redes, List<ImportPipe> pipes, long handleInicio)
+        {
+            // Polilíneas de UTILIDAD (no las auxiliares PDFCAD_*: conductos del bancoducto).
+            var todas = (pipes ?? new List<ImportPipe>())
+                .Where(p => p != null && !string.IsNullOrWhiteSpace(p.Layer)
+                            && !p.Layer.StartsWith("PDFCAD_", StringComparison.OrdinalIgnoreCase)).ToList();
+            if (todas.Count == 0) return;
+            var capasSolidos = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+                { WyeSolido.CAPA, "PDFCAD_SOLIDOS" };
+            int nCambiadas = 0, nFallos = 0;
+            var porCapa = new SortedDictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+            using (Transaction tr = db.TransactionManager.StartTransaction())
+            {
+                try
+                {
+                    // Red (nombre) → sus polilíneas de utilidad.
+                    var porRed = new Dictionary<string, List<ImportPipe>>(StringComparer.OrdinalIgnoreCase);
+                    foreach (var kv in redes ?? new Dictionary<ObjectId, List<ImportPipe>>())
+                    {
+                        if (kv.Key.IsNull || kv.Key.IsErased) continue;
+                        string nom = NombreDeRed(tr, kv.Key);
+                        var f = (kv.Value ?? new List<ImportPipe>()).Where(p => todas.Contains(p)).ToList();
+                        if (nom.Length > 0 && f.Count > 0) porRed[nom] = f;
+                    }
+                    var bt = (BlockTable)tr.GetObject(db.BlockTableId, OpenMode.ForRead);
+                    var ms = (BlockTableRecord)tr.GetObject(bt[BlockTableRecord.ModelSpace], OpenMode.ForRead);
+                    var capasListas = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+                    foreach (ObjectId id in ms)
+                    {
+                        if (id.Handle.Value < handleInicio || id.IsErased) continue;
+                        if (!id.ObjectClass.IsDerivedFrom(RXObject.GetClass(typeof(Solid3d)))) continue;
+                        try
+                        {
+                            var sol = (Solid3d)tr.GetObject(id, OpenMode.ForRead);
+                            if (!capasSolidos.Contains(sol.Layer)) continue;
+                            Point2d? centro = null;
+                            try
+                            {
+                                var ext = sol.GeometricExtents;
+                                centro = new Point2d((ext.MinPoint.X + ext.MaxPoint.X) / 2.0,
+                                                     (ext.MinPoint.Y + ext.MaxPoint.Y) / 2.0);
+                            }
+                            catch { }
+                            if (centro == null) continue;
+                            var candidatas = todas;
+                            string red = RedDeXData(sol);
+                            if (red.Length > 0 && porRed.TryGetValue(red, out var deRed)) candidatas = deRed;
+                            string capa = FuenteMasCercana(candidatas, centro)?.Layer?.Trim();
+                            if (string.IsNullOrEmpty(capa)) continue;
+                            if (!capasListas.Contains(capa))
+                            {
+                                if (!AsegurarCapa(tr, db, capa)) { nFallos++; continue; }
+                                capasListas.Add(capa);
+                            }
+                            sol.UpgradeOpen();
+                            sol.Layer = capa;
+                            nCambiadas++;
+                            porCapa[capa] = porCapa.TryGetValue(capa, out int c) ? c + 1 : 1;
+                        }
+                        catch { nFallos++; }
+                    }
+                    tr.Commit();
+                }
+                catch (Exception ex)
+                {
+                    tr.Abort();
+                    ed.WriteMessage($"\n(No se pudieron poner los sólidos en la capa de su utilidad: {ex.Message})");
+                    return;
+                }
+            }
+            if (nCambiadas > 0)
+                ed.WriteMessage($"\n  · {nCambiadas} sólido(s) (accesorios y buzones) en la capa de su utilidad: " +
+                                string.Join(", ", porCapa.Select(kv => $"{kv.Key} {kv.Value}")) + ".");
+            if (nFallos > 0)
+                ed.WriteMessage($"\n  ⚠ {nFallos} sólido(s) no se pudieron pasar a la capa de su utilidad (¿capa bloqueada?).");
+        }
+
+        /// <summary>Tuberías de cada red creada → «RED - (n)» en vez de «Pipe - (n)» (pedido del
+        /// usuario 2026-10-06: con muchas redes no se sabía de cuál era cada tubería). Si el
+        /// nombre ya existe (o Civil 3D lo rechaza), la tubería conserva el suyo.</summary>
+        private static void NombrarTuberiasPorRed(Editor ed, Database db, IEnumerable<ObjectId> netIds)
+        {
+            int n = 0;
+            using (Transaction tr = db.TransactionManager.StartTransaction())
+            {
+                try
+                {
+                    foreach (ObjectId nid in netIds ?? Enumerable.Empty<ObjectId>())
+                    {
+                        if (nid.IsNull || nid.IsErased) continue;
+                        string red = NombreDeRed(tr, nid);
+                        if (string.IsNullOrWhiteSpace(red)) continue;
+                        var tubos = new List<ObjectId>();
+                        var obj = tr.GetObject(nid, OpenMode.ForRead);
+                        if (obj is CivilDB.Network net) foreach (ObjectId id in net.GetPipeIds()) tubos.Add(id);
+                        else if (obj is CivilDB.PressurePipeNetwork pn) foreach (ObjectId id in pn.GetPipeIds()) tubos.Add(id);
+                        int k = 0;
+                        foreach (ObjectId id in tubos)
+                        {
+                            k++;
+                            try
+                            {
+                                var o = tr.GetObject(id, OpenMode.ForWrite);
+                                string nuevo = $"{red} - ({k})";
+                                if (o is CivilDB.Pipe gp) { if (gp.Name == nuevo) continue; gp.Name = nuevo; }
+                                else if (o is CivilDB.PressurePipe pp) { if (pp.Name == nuevo) continue; pp.Name = nuevo; }
+                                else continue;
+                                n++;
+                            }
+                            catch { }                       // nombre repetido o pieza bloqueada: queda el de Civil 3D
+                        }
+                    }
+                    tr.Commit();
+                }
+                catch (Exception ex)
+                {
+                    tr.Abort();
+                    ed.WriteMessage($"\n(No se pudieron renombrar las tuberías por su red: {ex.Message})");
+                    return;
+                }
+            }
+            if (n > 0) ed.WriteMessage($"\n  · {n} tubería(s) nombradas con su red («RED - (n)»).");
+        }
+
+        /// <summary>Valor RED= del XDATA del accesorio sólido ("" si no tiene).</summary>
+        private static string RedDeXData(Entity ent)
+        {
+            try
+            {
+                foreach (string s in WyeSolido.LeerXData(ent) ?? new List<string>())
+                    if (s != null && s.StartsWith("RED=", StringComparison.OrdinalIgnoreCase))
+                        return s.Substring(4).Trim();
+            }
+            catch { }
+            return "";
         }
 
         /// <summary>Tuberías y estructuras (gravedad/conduit) o tuberías, accesorios y

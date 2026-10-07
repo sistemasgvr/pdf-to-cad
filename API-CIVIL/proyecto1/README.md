@@ -196,33 +196,22 @@ Con este molde en la cabeza, cualquiera de los 26 comandos se lee igual: *pedir 
 ### Redes de tubería (`RedesTuberia.cs`)
 | Comando | Qué hace |
 |---|---|
-| `CREAR_RED` | Crea una red vacía + le asigna una Parts List + superficie de referencia opcional |
 | `LISTAR_PARTSLISTS` | Lista las Parts Lists (catálogos) del dibujo |
 | `LISTAR_PIEZAS` | Lista las familias (tipos) y tamaños de estructuras y tuberías de la Parts List |
-| `AGREGAR_FAMILIA` | Añade una familia del catálogo a la Parts List, con todos sus tamaños |
-| `AGREGAR_TAMANOS` | Añade diámetros específicos a una familia (útil en tuberías paramétricas) |
 | `CREAR_RED_DESDE_CSV` | Red simple en cadena: buzones consecutivos unidos por tubería (auto-elige pieza) |
 | `CREAR_RED_AVANZADA` | Buzón con tipo/radio por fila del CSV + tuberías **por tramo** (material+diámetro) |
-| `CREAR_RED_COMPLETA` | Red 100% desde datos: **dos CSV** (buzones + tuberías) |
 
 ---
 
 ## 7. Formatos de CSV
 
-**Buzones** (`CREAR_RED_AVANZADA`, `CREAR_RED_COMPLETA`):
+**Buzones** (`CREAR_RED_AVANZADA`):
 ```
 Name,X,Y,CotaSup,CotaInf,Type,Radius
 B1,1000,5000,101.0,98.5,Cylindrical,1200
 ```
 - `CotaSup` = cota de tapa (rim). `CotaInf` = cota de fondo (invert/sump).
 - `Type` = familia de estructura (busca por texto contenido). `Radius` = tamaño.
-
-**Tuberías** (`CREAR_RED_COMPLETA`):
-```
-Desde,Hasta,Material,Diametro
-B1,B2,PVC Pipe,110
-```
-- `Desde/Hasta` = nombres de buzones. `Material` = familia de tubería. `Diametro` = diámetro.
 
 **CogoPoints** (`CREAR_COGOPOINTS` opción CSV):
 ```
@@ -231,11 +220,10 @@ X,Y,Z,Descripcion
 ```
 
 > El lector de CSV es **tolerante**: acepta separador `,` o `;` y decimales con `.` o `,`.
-> El emparejamiento de `Type/Material` es por *texto contenido*, y `Radius/Diametro` por número
+> El emparejamiento de `Type` es por *texto contenido*, y `Radius` por número
 > (ignora comas/espacios: `1300` encuentra `1,300`).
 
-Archivos de ejemplo incluidos: `puntos_ejemplo.csv`, `red_ejemplo.csv`, `red_avanzada_ejemplo.csv`,
-`red_buzones.csv`, `red_tuberias.csv`.
+Archivos de ejemplo incluidos: `puntos_ejemplo.csv`, `red_ejemplo.csv`, `red_avanzada_ejemplo.csv`.
 
 ---
 
@@ -254,8 +242,7 @@ CREAR_CORREDOR (o _TRAMOS / _REGIONES)  →  CREAR_SUPERFICIE_CORREDOR / EXTRAER
 
 **Red de tubería**
 ```
-(una vez) Set Pipe Network Catalog en la UI  →  AGREGAR_FAMILIA (buzón y tubería)  →
-LISTAR_PIEZAS (ver qué hay)  →  preparar CSV  →  CREAR_RED_COMPLETA
+App PDF-a-CAD (digitalizar y exportar el DXF)  →  IMPORTAR_RED
 ```
 
 ---

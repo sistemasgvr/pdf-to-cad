@@ -44,7 +44,7 @@ namespace Civil3DBasico
         // (todos los mensajes con prefijo [TAG] tipo [ATP-*], [CURVA-*], [PIPE-CREADO], etc.).
         // Cambiar a true SOLO cuando se depura un problema puntual.
         internal const bool DEBUG_LOGS = false;
-        internal static void Dl(Editor ed, string s) { if (DEBUG_LOGS) ed.WriteMessage(s); }
+        internal static void Dl(Editor ed, string s) { if (DEBUG_LOGS) ed?.WriteMessage(s); }
 
         private static void Dbg(string tag, params (string k, object v)[] fields)
         {
@@ -90,15 +90,17 @@ namespace Civil3DBasico
             if (RegenerarCatalogoSiPendiente(doc, ed, "IMPORTAR_RED")) return;
 
             // ── 0.b Familias PERSONALIZADAS (Bancoductos / Bancos Tubos / Buzones):
-            //        NO agregarlas todas automáticamente. Antes se llamaba a
-            //        `CatalogoBancos.AddBancosYBuzones` acá, pero eso metía TODAS las
-            //        familias custom en la Parts List — y bastaba con eso para que
+            //        NO agregarlas todas automáticamente. Antes se agregaban acá
+            //        TODAS las familias custom a la Parts List — y bastaba con eso para que
             //        una pipe sin `pipe_family` explícito terminara heredando una
             //        custom porque quedaba entre las candidatas del matcher.
             //        Ahora las custom SOLO se agregan bajo demanda: cada pipe/struct
             //        que traiga `PIPE_FAMILY`/`PART` en su XDATA dispara un
             //        `AsegurarFamiliaPorId` puntual más adelante en el flujo. Si el
             //        usuario no seteó familia para una pipe, esa pipe no toca custom.
+
+            // Todo lo que se cree desde aquí tiene un handle ≥ éste (5g: sólidos a su capa).
+            long handleInicio = db.Handseed.Value;
 
             // ── 1. Escanear modelspace ──────────────────────────────────────
             var pipes = new List<ImportPipe>();
@@ -630,9 +632,9 @@ namespace Civil3DBasico
             BorrarPolylinesConvertidas(ed, db);
 
             // ── 5c. Limpiar duplicados "-N" con dimensiones idénticas al padre ──
-            // Debe correr DESPUÉS de crear las redes (pasos 4-5): CatalogoBancos.AddBancosYBuzones
-            // (paso 0.b) y el propio AddPartSize de Civil3D pueden dejar variantes "- N" al
-            // agregar tamaños del catálogo; limpiar antes (como estaba) no encontraba nada que limpiar.
+            // Debe correr DESPUÉS de crear las redes (pasos 4-5): el propio AddPartSize de
+            // Civil3D puede dejar variantes "- N" al agregar tamaños del catálogo; limpiar
+            // antes (como estaba) no encontraba nada que limpiar.
             // NOTA: BuscarEstructura/BuscarTuberia ya NO crean tamaños dinámicamente — solo
             // eligen entre los que ya existen en el catálogo (ver RedesTuberia.cs, SizeMasCercano).
             LimpiarDuplicadosPartSize(ed, db);
@@ -1114,8 +1116,13 @@ namespace Civil3DBasico
             // ── 5g. Cada pieza en la CAPA de su utilidad (ELECTRICO, TELECOM…) ──
             //        Al final: las conexiones verticales (5f) también agregan tuberías.
             AsignarCapasDeUtilidad(ed, db, redesConOrigen);
+            //        Y los SÓLIDOS de este import: accesorios de presión (codo/Tee/Wye/
+            //        reducción) y sólidos que representan buzones/cajas.
+            AsignarCapasDeSolidos(ed, db, redesConOrigen, pipes, handleInicio);
             // ── 5h. Datos extendidos de la app en cada pieza (Property Sets) ──
             AdjuntarDatosExtendidos(ed, db, redesConOrigen, structs);
+            // ── 5i. Tuberías con el nombre de su red («TELECOM-12 - (3)») ──
+            NombrarTuberiasPorRed(ed, db, redesConOrigen.Keys);
 
             // ── 6. Diagnóstico inline ───────────────────────────────────────
             if (createdNetIds.Count > 0)
@@ -2834,10 +2841,8 @@ namespace Civil3DBasico
             // para entonces la pieza YA está conectada y Civil 3D re-resuelve la
             // conexión arrastrando los tubos con ella, así que el desfase RELATIVO
             // codo-tubo sobrevive (y el contador seguía diciendo "realineados N/N").
-            // Los flujos que SÍ funcionan insertan el accesorio en un punto que ya
-            // está a nivel de eje: UNIR_TUBERIAS_PRESION (RedesPresion.cs:799),
-            // UNIR_VARIAS_PRESION (RedesPresionRamales.cs:81) y RAMAL
-            // (RedesPresionRamales.cs:238). El import era el único que no lo hacía.
+            // Lo que SÍ funciona es insertar el accesorio en un punto que ya está
+            // a nivel de eje.
             //
             // Aquí los tubos todavía NO están conectados a nada, así que escribir
             // StartPoint/EndPoint es una operación libre y segura.
@@ -2881,8 +2886,7 @@ namespace Civil3DBasico
 
             // Agrupa TODOS los extremos por sitio físico (no por PAR) y decide un
             // solo accesorio por juntura — Codo/Reductor/Unión para 2 tuberías,
-            // Tee/Cruz para 3/4 — reutilizando la misma lógica que
-            // UNIR_TUBERIAS_PRESION/UNIR_VARIAS_PRESION (ver RedesPresionJunturas.cs).
+            // Tee/Cruz para 3/4 (ver RedesPresionJunturas.cs).
             // Antes esto era un bucle PAREADO que, en un empalme de 3+ tuberías,
             // podía crear varios codos superpuestos conectados solo de a 2.
             var (nFit, nDirect, nFail) = ComandosPresion.ProcesarJunturasPresion(
@@ -2926,10 +2930,9 @@ namespace Civil3DBasico
 
             // Corrección automática de fittings: el DXF trae el fitting original
             // (p.ej. un codo 4x4) sin ajustarlo al diámetro real del tubo con el
-            // que quedó conectado (p.ej. 12"). Reutiliza la misma lógica de
-            // CORREGIR_FITTINGS_PRESION, sin preguntar (ver RedesPresion.cs).
+            // que quedó conectado (p.ej. 12"). Ver CorregirFittingsDeRed (RedesPresion.cs).
             var (fitDetectados, fitCorregidos, fitFallidos) =
-                ComandosPresion.CorregirFittingsDeRed(net, tr, ed, preguntar: false);
+                ComandosPresion.CorregirFittingsDeRed(net, tr, ed);
             if (fitDetectados > 0)
                 ed.WriteMessage($"\n  · Fittings con diámetro incorrecto: {fitCorregidos}/{fitDetectados} corregido(s)" +
                                 (fitFallidos > 0 ? $", {fitFallidos} sin pieza disponible en la Parts List" : "") + ".");
@@ -3063,15 +3066,28 @@ namespace Civil3DBasico
                 CivilDB.Network net = tr.GetObject(nid, OpenMode.ForRead) as CivilDB.Network;
                 if (net == null) continue;
 
-                foreach (ObjectId pid in net.GetPipeIds())
+                // Pendiente ≈ 0: solo en GRAVEDAD (en conductos eléctricos/telecom, todos con
+                // estructuras nulas, ir horizontal es normal) y UNA línea por red (2026-10-06:
+                // antes una por tubería, 78 avisos en un import de conductos).
+                int nEst = 0, nNulas = 0;
+                foreach (ObjectId sid in net.GetStructureIds())
                 {
-                    CivilDB.Pipe p = tr.GetObject(pid, OpenMode.ForRead) as CivilDB.Pipe;
-                    if (p == null) continue;
-                    if (Math.Abs(p.Slope) < 0.0005)
+                    nEst++;
+                    try { if (PerfilGrafoCivil.EsEstructuraNula((CivilDB.Structure)tr.GetObject(sid, OpenMode.ForRead))) nNulas++; } catch { }
+                }
+                bool esConduit = nEst == 0 || nNulas == nEst;
+                var planas = new List<string>();
+                if (!esConduit)
+                    foreach (ObjectId pid in net.GetPipeIds())
                     {
-                        problemas++;
-                        ed.WriteMessage($"\n⚠ '{p.Name}': pendiente ≈ 0 ({p.Slope:P2}).");
+                        CivilDB.Pipe p = tr.GetObject(pid, OpenMode.ForRead) as CivilDB.Pipe;
+                        if (p != null && Math.Abs(p.Slope) < 0.0005) planas.Add(p.Name);
                     }
+                if (planas.Count > 0)
+                {
+                    problemas++;
+                    ed.WriteMessage($"\n⚠ Red '{net.Name}': {planas.Count} tubería(s) con pendiente ≈ 0 (" +
+                                    string.Join(", ", planas.Take(5)) + (planas.Count > 5 ? ", …" : "") + ").");
                 }
 
                 foreach (ObjectId sid in net.GetStructureIds())
@@ -5435,7 +5451,7 @@ namespace Civil3DBasico
                     double antes = (usaStart ? pp.StartPoint : pp.EndPoint).DistanceTo(centro);
                     if (usaStart) pp.StartPoint = destino; else pp.EndPoint = destino;
                     n++;
-                    ed.WriteMessage($"\n{etiqueta}: [FITTING-SOLIDO] tubo recortado — " +
+                    ComandosRedes.Dl(ed, $"\n{etiqueta}: [FITTING-SOLIDO] tubo recortado — " +
                         $"extremo pasó de {antes:F2} a {alcance:F2} ft del centro de la pieza.");
                 }
             }
@@ -5511,7 +5527,7 @@ namespace Civil3DBasico
                 Point3d fin = pos + dv * brazoV.AlcanceTuboFt;
                 string diams = Math.Abs(troncoIn - ramalIn) < 1e-6
                     ? $"Ø{troncoIn:F0}\"" : $"Ø{troncoIn:F0}\" con ramal Ø{ramalIn:F0}\" (reductora)";
-                ed.WriteMessage($"\n{etiqueta}: [FITTING-SOLIDO] {info.Tipo} {diams} " +
+                ComandosRedes.Dl(ed, $"\n{etiqueta}: [FITTING-SOLIDO] {info.Tipo} {diams} " +
                     $"en Z={pos.Z:F2}, ramal {(branchArriba ? "arriba" : "abajo")} " +
                     $"hasta Z={fin.Z:F2} (capa {WyeSolido.CAPA}).");
                 // branchPort = -1: no hay puertos que conectar, es geometría.

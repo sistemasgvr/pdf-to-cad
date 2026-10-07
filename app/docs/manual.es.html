@@ -763,7 +763,9 @@ sistema de coordenadas de Civil 3D (por ejemplo <b>CA83VF</b>), escríbelo y el 
 <li>Cada tubería, buzón o caja y accesorio queda en la <b>capa de su utilidad</b> (ELECTRICO,
     TELECOM, AGUA…), la misma de las líneas del DXF: puedes apagar o encender cada utilidad por su
     capa. Las líneas 2D del DXF se borran al convertirse en la red. Los conductos de un bancoducto
-    van en la capa del bancoducto.</li>
+    van en la capa del bancoducto. Los <b>sólidos</b> también: los accesorios de agua y gas dibujados
+    como sólido 3D (codo, Tee, Wye, reducción) van en la capa de su red, y los sólidos que representan
+    buzones o cajas, en la de su utilidad.</li>
 </ul>
 <table width="100%" cellspacing="0" cellpadding="12"><tr>
 <td width="6" bgcolor="{{warn_border}}"></td><td bgcolor="{{warn}}">
@@ -863,8 +865,6 @@ Selecciónalo → <b>Propiedades → Extended Data → PDFCAD_Accesorio</b>:</p>
 <li><b>Material</b>: el de la tubería.</li>
 <li><b>Cota_Eje_Pies</b>: la elevación del centro de la pieza.</li>
 </ul>
-<p class="small">¿Un dibujo importado con una versión anterior? Escribe <b>PS_ACCESORIOS</b> en Civil 3D
-y los accesorios reciben estos datos.</p>
 </section>
 
 <section data-title="Preguntas frecuentes">

@@ -416,7 +416,7 @@ namespace Civil3DBasico
                     if (s0 + monta > requerido) { requerido = s0 + monta; grueso = j; }
                 }
                 if (grueso == null || requerido <= i.LargoCuerpoFt + 1e-6) continue;
-                ed?.WriteMessage($"\n    [FITTING-SOLIDO] Brazo Ø{i.DiamFt * 12.0:F0}\" alargado " +
+                ComandosRedes.Dl(ed, $"\n    [FITTING-SOLIDO] Brazo Ø{i.DiamFt * 12.0:F0}\" alargado " +
                     $"{i.LargoCuerpoFt:F2} → {requerido:F2} ft para que su campana quede fuera del " +
                     $"cuerpo Ø{grueso.DiamFt * 12.0:F0}\" (a {i.Direccion.GetAngleTo(grueso.Direccion) * 180.0 / Math.PI:F0}°).");
                 i.LargoCuerpoFt = requerido;
@@ -486,7 +486,7 @@ namespace Civil3DBasico
                     double antesA = a.LargoCuerpoFt, antesB = b.LargoCuerpoFt;
                     a.LargoCuerpoFt = Math.Max(a.LargoCuerpoFt, largoA);
                     b.LargoCuerpoFt = Math.Max(b.LargoCuerpoFt, largoB);
-                    ed?.WriteMessage($"\n    [FITTING-SOLIDO] Campanas a {ang * 180.0 / Math.PI:F0}° " +
+                    ComandosRedes.Dl(ed, $"\n    [FITTING-SOLIDO] Campanas a {ang * 180.0 / Math.PI:F0}° " +
                         $"separadas {d:F2} ft < mínimo {minimo:F2} ft — brazos " +
                         $"{antesA:F2}/{antesB:F2} → {a.LargoCuerpoFt:F2}/{b.LargoCuerpoFt:F2} ft.");
                 }
@@ -534,7 +534,7 @@ namespace Civil3DBasico
                         // El desnivel con el tronco no cabía dentro del cuerpo: la
                         // punta del tubo sube/baja a la boca (queda con pendiente).
                         double z = centro.Z + b.OffsetZFt;
-                        ed?.WriteMessage($"\n    · [FITTING-SOLIDO] Tubo Ø{b.DiamFt * 12:F0}\": su punta pasa de " +
+                        ComandosRedes.Dl(ed, $"\n    · [FITTING-SOLIDO] Tubo Ø{b.DiamFt * 12:F0}\": su punta pasa de " +
                             $"Z {destino.Z:F2} a {z:F2} para entrar en la boca de la pieza.");
                         destino = new Point3d(destino.X, destino.Y, z);
                     }
@@ -625,7 +625,7 @@ namespace Civil3DBasico
                     {
                         int n = chk.AsArray().Count(t =>
                             t.TypeCode == (int)DxfCode.ExtendedDataAsciiString);
-                        ed?.WriteMessage($"\n    · [XDATA] {info.Tipo}: {n} campos grabados " +
+                        ComandosRedes.Dl(ed, $"\n    · [XDATA] {info.Tipo}: {n} campos grabados " +
                             $"(app '{APP_XDATA}') — TIPO={info.Tipo} ANGULO={info.AnguloDeg:F1}°.");
                     }
                 }
@@ -733,7 +733,7 @@ namespace Civil3DBasico
                 // El semiángulo para la tangencia se mide sobre los EJES, que es
                 // el ángulo que forman los dos tramos rectos entre sí.
                 if (ed != null)
-                    ed.WriteMessage($"\n    [CODO-DBG] ejes a {ang * 180.0 / Math.PI:F1}° " +
+                    ComandosRedes.Dl(ed, $"\n    [CODO-DBG] ejes a {ang * 180.0 / Math.PI:F1}° " +
                         $"→ deflexión {giro * 180.0 / Math.PI:F1}°, " +
                         (reductor ? $"REDUCTOR Ø{a.DiamFt * 12.0:F0}\"→Ø{b.DiamFt * 12.0:F0}\"."
                                   : $"Ø{a.DiamFt * 12.0:F0}\"."));
@@ -772,7 +772,7 @@ namespace Civil3DBasico
                 if (cerrado)
                 {
                     double giroAntes = R / Math.Sin(phi) - R;   // vértice → punto más cercano de la curva
-                    ed?.WriteMessage($"\n    [FITTING-SOLIDO] Codo cerrado (deflexión {giro * 180.0 / Math.PI:F0}°): " +
+                    ComandosRedes.Dl(ed, $"\n    [FITTING-SOLIDO] Codo cerrado (deflexión {giro * 180.0 / Math.PI:F0}°): " +
                         $"radio mínimo viable R={R:F3} ft ({R / d:F2}·D); los tubos se recortan " +
                         $"~{a.AlcanceTuboFt:F2} ft desde el vértice y la curva gira {giroAntes:F2} ft antes de él.");
                 }
@@ -868,7 +868,7 @@ namespace Civil3DBasico
             }
             catch (Exception ex)
             {
-                ed?.WriteMessage($"\n    [FITTING-SOLIDO] Codo curvo falló ({ex.Message}) — se usa el recto.");
+                ComandosRedes.Dl(ed, $"\n    [FITTING-SOLIDO] Codo curvo falló ({ex.Message}) — se usa el recto.");
                 return null;
             }
         }
