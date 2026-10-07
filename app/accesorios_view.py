@@ -75,7 +75,7 @@ def tooltip_accesorio(a, nivel, inc, regla):
         acc=_tr(normativas.NOMBRE_ACCESORIO.get(a["tipo"], a["tipo"])), ang=acc.texto_angulo(a["angulo"]),
         red=a["red"])]
     if a.get("giro") is not None:
-        lineas.append(_tr("Ángulo entre las dos tuberías (la tubería gira {g}).").format(
+        lineas.append(_tr("Medido sobre el eje: desvío de {g} respecto del lado recto prolongado.").format(
             g=acc.texto_angulo(a["giro"])))
     if a.get("fundido"):
         lineas.append(_tr("Reúne dos quiebres muy juntos: Civil 3D pone un solo codo."))

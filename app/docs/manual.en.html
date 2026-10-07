@@ -618,10 +618,10 @@ You can keep it open while you draw: it updates by itself.</p>
 
 <h2>Fittings on the plan</h2>
 <p>In water and gas, next to each point where Civil 3D will place a solid fitting there is a label
-with its <b>type and angle</b>: «Bend 135°», «Tee 90°», «Wye 45°», «Cross 90°».</p>
-<p>For a bend, the angle is the one <b>the two pipes form with each other</b> (180° = straight).
-A commercial «45°» bend leaves the pipes at <b>135°</b>; the tooltip also shows how much the
-pipe turns. The same angle goes to the bend's Property Set in Civil 3D.</p>
+with its <b>type and angle</b>: «Bend 45°», «Tee 90°», «Wye 45°», «Cross 90°».</p>
+<p>For a bend, the angle is measured on the <b>axis</b>: the axis of the straight side is extended
+and you read how much the other side deviates (0° = straight). A commercial «45°» bend reads
+<b>45°</b>, as it is purchased. The same angle goes to the bend's Property Set in Civil 3D.</p>
 <table width="100%" cellspacing="4" cellpadding="10">
 <tr><td bgcolor="{{card}}" width="30%"><b>Dark label</b></td>
     <td bgcolor="{{card}}">Meets the active design standards.</td></tr>
@@ -646,8 +646,8 @@ The app only warns: it does not move anything in the drawing.</p>
 <li><b>A− / A+</b> change the text size. Everything works with the keyboard: Tab to move,
     Space or Enter to activate.</li>
 </ol>
-<p>Initial values (AWWA): bends of 11.25°, 22.5°, 45° and 90°, which between pipes are
-<b>168.75°, 157.5°, 135° and 90°</b>; tee at 90°; wye at 45°; cross at 90°; tolerance ±1°.
+<p>Initial values (AWWA): bends of <b>11.25°, 22.5°, 45° and 90°</b>
+(deviation on the axis); tee at 90°; wye at 45°; cross at 90°; tolerance ±1°.
 Clearances, cover and requirements that come from the Excel are stored, edited and exported, but they
 are <b>not checked on the plan yet</b> (each row says so).</p>
 

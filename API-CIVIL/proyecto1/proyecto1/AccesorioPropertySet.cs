@@ -18,10 +18,9 @@ using Exception = System.Exception;
 //
 //    Tipo_Accesorio  Codo | Tee | Wye | Cruz      (pedido de material)
 //    Angulo_Grados   ángulo característico         (pedido de material)
-//                    codo = ángulo ENTRE las dos tuberías (180° = recta; un codo
-//                    AWWA de 45° da 135°), como lo pide el usuario y lo muestra la
-//                    app. El XDATA ANGULO sigue guardando el GIRO (deflexión): lo usa
-//                    el rótulo del perfil «45° BEND». Ver AnguloVisible.
+//                    codo = DEFLEXIÓN sobre el eje (se prolonga el lado recto;
+//                    un codo AWWA de 45° da 45°), como lo mide el ingeniero y
+//                    la app (2026-10-07). Es el mismo valor del XDATA ANGULO.
 //    Diametro_Pulg   «12» o «12 x 8» si reduce     (pedido de material)
 //    Material        material de la red            (pedido de material)
 //    Cota_Eje_Pies   elevación del eje en la pieza (replanteo / perfil)
@@ -36,20 +35,20 @@ namespace Civil3DBasico
         internal const string NOMBRE = "PDFCAD_Accesorio";
 
         /// <summary>
-        /// Ángulo que ve el usuario a partir del XDATA ANGULO: en el codo, el ángulo
-        /// ENTRE las dos tuberías (180° − giro); en Tee/Wye/cruz, el mismo del XDATA
-        /// (ramal contra tronco / entre las dos rectas).
+        /// Ángulo que ve el usuario: el del XDATA ANGULO (codo = deflexión sobre el eje;
+        /// Tee/Wye/cruz = ramal contra tronco / entre las dos rectas).
         /// </summary>
         internal static double AnguloVisible(string tipo, double anguloXData)
         {
-            bool codo = string.Equals((tipo ?? "").Trim(), "ELBOW", StringComparison.OrdinalIgnoreCase);
-            return codo && anguloXData > 0 ? 180.0 - anguloXData : anguloXData;
+            // 2026-10-07: el codo se mide como su DEFLEXIÓN sobre el eje (= XDATA ANGULO);
+            // del 2026-10-01 al 06 se mostraba 180° − giro (ángulo entre tuberías).
+            return anguloXData;
         }
 
         private static readonly (string nombre, AecPD.DataType tipo, string descripcion)[] PROPIEDADES =
         {
             ("Tipo_Accesorio", AecPD.DataType.Text, "Tipo de accesorio: Codo, Tee, Wye, Cruz o Reducción"),
-            ("Angulo_Grados",  AecPD.DataType.Real, "Ángulo de la pieza en grados (codo: ángulo entre las dos tuberías)"),
+            ("Angulo_Grados",  AecPD.DataType.Real, "Ángulo de la pieza en grados (codo: desvío sobre el eje del lado recto prolongado)"),
             ("Diametro_Pulg",  AecPD.DataType.Text, "Diámetro nominal en pulgadas (principal x ramal si reduce)"),
             ("Material",       AecPD.DataType.Text, "Material de la tubería que une"),
             ("Cota_Eje_Pies",  AecPD.DataType.Real, "Elevación del eje de la pieza, en pies"),

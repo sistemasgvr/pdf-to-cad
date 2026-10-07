@@ -2536,9 +2536,9 @@ EN: dict[str, str] = {
         "AWWA C110 / C153 — initial values",
     "Codos: solo ángulos comerciales":
         "Bends: standard angles only",
-    "Los codos se fabrican en ángulos fijos. Se mide el ángulo ENTRE las dos tuberías (180° = sigue recta): los codos AWWA de 11.25°, 22.5°, 45° y 90° dan 168.75°, 157.5°, 135° y 90°.":
-        "Bends are made in fixed angles. The angle BETWEEN the two pipes is measured (180° = straight): AWWA bends of 11.25°, 22.5°, 45° and 90° give 168.75°, 157.5°, 135° and 90°.",
-    "Ángulo entre las dos tuberías (la tubería gira {g}).":
+    "Los codos se fabrican en ángulos fijos: 11.25°, 22.5°, 45° y 90°. El ángulo se mide sobre el EJE: se prolonga el eje del lado recto y se ve cuánto se desvía el otro lado (0° = sigue recta).":
+        "Bends are made in fixed angles: 11.25°, 22.5°, 45° and 90°. The angle is measured on the AXIS: the axis of the straight side is extended and the deviation of the other side is read (0° = straight).",
+    "Medido sobre el eje: desvío de {g} respecto del lado recto prolongado.":
         "Angle between the two pipes (the pipe turns {g}).",
     "Tee: ramal a 90°":
         "Tee: branch at 90°",

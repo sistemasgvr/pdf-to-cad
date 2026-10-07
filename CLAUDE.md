@@ -1028,9 +1028,10 @@ alcantarillado, drenaje, gas, eléctrico, telecom). Todo en **unidades imperiale
   - **Normativas de diseño** (2026-09-30): `normativas.py` (PURO) = motor escalable: `TIPOS` (tipo de
     regla: categoría, `Campo`s que la ventana dibuja sola —`grados_lista|grados|pies|utilidades`— y
     `verificar(regla, Contexto) -> Resultado`), `REGLAS_BASE` (valores iniciales AWWA: codos
-    11.25/22.5/45/90° = 168.75/157.5/135/90° ENTRE tuberías, Tee 90°, Wye 45°, cruz 90°, ±1°;
-    el CODO se mide entre las dos tuberías —«lado B», pedido del usuario 2026-10-01— y su giro va en
-    `a["giro"]`; el catálogo v1 guardaba giros y `cargar_catalogo` los convierte), catálogo GLOBAL (`ruta_global`, %APPDATA%/
+    11.25/22.5/45/90°, Tee 90°, Wye 45°, cruz 90°, ±1°; el CODO se mide como DEFLEXIÓN sobre el EJE
+    —se prolonga el eje del lado recto, pedido del ingeniero 2026-10-07; del 10-01 al 10-06 fue el ángulo
+    ENTRE tuberías—, `a["angulo"]` = `a["giro"]`; catálogo v3: la v2 guardaba ángulos entre tuberías y
+    `cargar_catalogo` los convierte, la v1 ya eran giros), catálogo GLOBAL (`ruta_global`, %APPDATA%/
     pdf-to-cad/normativas.json, solo las diferencias con la base; env `PDFCAD_NORMATIVAS` en tests) y
     activación POR PROYECTO (`Main.normas_estado` → `.digproj` `normativas_activas`). Regla nueva =
     un `TipoRegla` + (opcional) su entrada en `REGLAS_BASE`; la UI no cambia. `accesorios.py` (PURO):
@@ -1142,8 +1143,8 @@ alcantarillado, drenaje, gas, eléctrico, telecom). Todo en **unidades imperiale
   DESACTIVADO desde 2026-10-05 con `ComandosPrepararFamilias.RELLENAR_CATALOGOS_PRESION = false`
   (código intacto; `true` lo reactiva). Los tamaños nuevos van por el «+» de la app.
   **Ángulo del codo** (2026-10-01): el XDATA `ANGULO` de la pieza sigue siendo el GIRO (lo usa el rótulo del
-  perfil «45° BEND»); el Property Set `PDFCAD_Accesorio.Angulo_Grados` muestra el
-  ángulo ENTRE tuberías (`AccesorioPropertySet.AnguloVisible`: codo = 180° − giro), igual que la app.
+  perfil «45° BEND»); el Property Set `PDFCAD_Accesorio.Angulo_Grados` muestra la
+  deflexión sobre el eje (= ANGULO; 2026-10-07, antes 180° − giro), igual que la app.
   **Comandos quitados** (2026-10-07, pedido del usuario): CREAR_RED, CREAR_RED_COMPLETA,
   CREAR_RED_POLILINEA, CREAR_RED_COGO, UNIR_TUBERIAS_RED, AGREGAR_FAMILIA, AGREGAR_TAMANOS,
   AGREGAR_BANCOS_Y_BUZONES/BB, todos los manuales de presión (CREAR_RED_PRESION, CREAR_RUN_PRESION[_COGO],

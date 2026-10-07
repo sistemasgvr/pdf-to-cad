@@ -37,7 +37,7 @@ TIPO_ETIQUETA = {
 CONTRA_ETIQUETA = {k: v for k, v in N.CONTRAS.items()}          # textos en español (N_ = la clave)
 ACCESORIO_ETIQUETA = {"codo": "Codo", "tee": "Tee", "wye": "Wye", "cruz": "Cruz"}
 MEDIDO = sorted({n for _p, n in CL.MEDIDO_DE} | set(CL.MEDIDO_DEFECTO.values())
-                | {"Ángulo entre las dos tuberías", "Ángulo del ramal contra el tronco"})
+                | {"Desvío sobre el eje prolongado", "Ángulo del ramal contra el tronco"})
 SI_NO = ("Sí", "No")
 ESTADOS = ("OK", "Revisar")
 
@@ -53,7 +53,7 @@ COLUMNAS = [
     ("condicion_contra", "Condición del contra", 28, "Igual que la condición, pero de lo que está del otro lado (texto libre)."),
     ("minimo", "Mínimo (ft)", 11, "En PIES (18 pulgadas = 1.5). Vacío si no hay mínimo."),
     ("maximo", "Máximo (ft)", 11, "En PIES. Vacío si no hay máximo. Para un valor exacto, pon el mismo en mínimo y máximo."),
-    ("angulos", "Ángulos permitidos (°)", 22, "Solo en «Ángulo de accesorio»: lista separada por «;», p. ej. 90; 135."),
+    ("angulos", "Ángulos permitidos (°)", 22, "Solo en «Ángulo de accesorio»: lista separada por «;», p. ej. 11.25; 22.5; 45; 90."),
     ("tolerancia", "Tolerancia (°)", 12, "Solo en «Ángulo de accesorio»: cuánto puede apartarse (1 si se deja vacío)."),
     ("medido", "Medido desde", 32, "Desde dónde hasta dónde se mide (elige de la lista o escribe)."),
     ("refs", "Referencias", 18, "IDs de la hoja «Referencias», separados por «;» (de qué libro o norma sale)."),
@@ -100,7 +100,7 @@ def _fila_de(regla):
         contra = ACCESORIO_ETIQUETA.get(p.get("accesorio"), p.get("accesorio", ""))
         angulos = "; ".join(f"{a:g}" for a in p.get("angulos") or [])
         tol = p.get("tolerancia")
-        medido = "Ángulo entre las dos tuberías" if p.get("accesorio") == "codo" else "Ángulo del ramal contra el tronco"
+        medido = "Desvío sobre el eje prolongado" if p.get("accesorio") == "codo" else "Ángulo del ramal contra el tronco"
     else:
         contra = CONTRA_ETIQUETA.get(p.get("contra"), p.get("contra", ""))
         angulos, tol, medido = "", None, p.get("medido_desde", "")

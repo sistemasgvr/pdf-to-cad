@@ -17,9 +17,10 @@ cruz) devuelve su TIPO y su ÁNGULO, con las mismas reglas que el plugin:
     vecinas (`FusionarCodosSeguidos`, que corre antes de crear la red).
 
 Ángulo de cada accesorio (el que se compara con las normativas):
-  codo = ángulo ENTRE las dos tuberías (180° = recta: un codo AWWA de 45° da
-  135°; pedido del usuario, «lado B»); el giro va aparte en "giro" (el plugin lo
-  sigue usando en el XDATA y el perfil). Tee/Wye = ángulo AGUDO entre el ramal y
+  codo = DEFLEXIÓN sobre el EJE: se prolonga el eje del lado recto y se mide cuánto
+  se aparta el eje del otro lado (0° = recta; un codo AWWA de 45° da 45°). Así lo
+  mide el ingeniero civil y así se compran (2026-10-07; del 2026-10-01 al 06 fue el
+  ángulo ENTRE tuberías, 135°). "giro" = el mismo valor (lo usa el plugin). Tee/Wye = ángulo AGUDO entre el ramal y
   el tronco; cruz = ángulo agudo entre sus dos líneas.
 """
 from __future__ import annotations
@@ -72,8 +73,8 @@ def clasificar(salidas):
     None si no hay accesorio (unión recta, 1 salida o 5+)."""
     n = len(salidas)
     if n == 2:
-        entre = _entre(salidas[0], salidas[1])          # ángulo entre las dos tuberías
-        return ("codo", entre) if 180.0 - entre > GIRO_CODO_MIN_DEG else None
+        giro = 180.0 - _entre(salidas[0], salidas[1])   # deflexión sobre el eje prolongado
+        return ("codo", giro) if giro > GIRO_CODO_MIN_DEG else None
     if n == 3:
         pares = sorted(((i, j) for i in range(3) for j in range(i + 1, 3)),
                        key=lambda ij: -_entre(salidas[ij[0]], salidas[ij[1]]))
@@ -232,7 +233,7 @@ def accesorios(pipes, z_at, ft_per_px):
             x = sum(ext[e][0] for e in miembros) / len(miembros)
             y = sum(ext[e][1] for e in miembros) / len(miembros)
             nodo = {"x": x, "y": y, "tipo": tipo, "angulo": ang, "red": ext[miembros[0]][2],
-                    "giro": 180.0 - ang if tipo == "codo" else None,
+                    "giro": ang if tipo == "codo" else None,
                     "capa": pipes[ids[0]].get("layer") or "", "pipes": ids, "n": len(miembros)}
             if tipo == "codo" and any((fx - x) ** 2 + (fy - y) ** 2 <= tol2 for fx, fy in fundidos):
                 nodo["fundido"] = True

@@ -38,8 +38,8 @@ def test_codo_tee_wye_cruz_con_su_angulo():
         _p([(0, 900), (200, 900)]), _p([(100, 800), (100, 1000)]),             # cruce en X a mitad: NO
         _p([(0, 1200), (100, 1200), (200, 1200)]), _p([(100, 1100), (100, 1200), (100, 1300)]),  # cruz
     ]
-    # codo = ángulo ENTRE las dos tuberías (lado B): un giro de 37° da 143°
-    assert _acc(pipes) == [("codo", 143.0), ("cruz", 90.0), ("tee", 90.0), ("wye", 45.0)]
+    # codo = deflexión sobre el eje (2026-10-07): un giro de 37° da 37°
+    assert _acc(pipes) == [("codo", 37.0), ("cruz", 90.0), ("tee", 90.0), ("wye", 45.0)]
 
 
 def test_solo_redes_a_presion_y_union_recta_sin_accesorio():
@@ -79,13 +79,13 @@ def _reglas():
 
 
 def test_codo_fuera_de_norma_y_tolerancia():
-    pipes = [_p([(0, 0), (100, 0), _polar((100, 0), 37, 100)]),           # entre tuberías 143°
-             _p([(0, 300), (100, 300), _polar((100, 300), 45.8, 100)])]      # 134.2° ≤ ±1 de 135: cumple
+    pipes = [_p([(0, 0), (100, 0), _polar((100, 0), 37, 100)]),           # deflexión 37°
+             _p([(0, 300), (100, 300), _polar((100, 300), 45.8, 100)])]      # 45.8° ≤ ±1 de 45: cumple
     res = N.evaluar(_reglas(), {}, N.Contexto(pipes, None, None, FT_PX))
     codo = res["conex_codo"]
     assert codo.evaluados == 2 and len(codo.incumplimientos) == 1
     inc = codo.incumplimientos[0]
-    assert round(inc.valor) == 143 and inc.esperado == 135.0 and "135°" in inc.mensaje
+    assert round(inc.valor) == 37 and inc.esperado == 45.0 and "45°" in inc.mensaje
 
 
 def test_desactivar_por_proyecto_y_utilidades():
@@ -111,26 +111,31 @@ def test_guardado_global_solo_diferencias_y_restablecer(tmp_path):
     ruta = str(tmp_path / "n.json")
     reglas = N.cargar_catalogo(ruta)
     r = next(x for x in reglas if x["id"] == "conex_codo")
-    N.aplicar_cambio(r, "angulos", [90, 135, 150, 157.5, 168.75])
+    N.aplicar_cambio(r, "angulos", [11.25, 22.5, 30, 45, 90])
     N.guardar_catalogo(reglas, ruta)
     datos = json.load(open(ruta, encoding="utf-8"))
-    assert datos["version"] == 2
-    assert datos["reglas"] == {"conex_codo": {"params": {"angulos": [90.0, 135.0, 150.0, 157.5, 168.75]}}}
+    assert datos["version"] == 3
+    assert datos["reglas"] == {"conex_codo": {"params": {"angulos": [11.25, 22.5, 30.0, 45.0, 90.0]}}}
     otra = N.cargar_catalogo(ruta)
-    assert 150.0 in next(x for x in otra if x["id"] == "conex_codo")["params"]["angulos"]
+    assert 30.0 in next(x for x in otra if x["id"] == "conex_codo")["params"]["angulos"]
     assert N.modificada(next(x for x in otra if x["id"] == "conex_codo"))
     N.restablecer(otra, "conex_codo")
     N.guardar_catalogo(otra, ruta)
     assert json.load(open(ruta, encoding="utf-8"))["reglas"] == {}
 
 
-def test_catalogo_viejo_con_giros_se_convierte(tmp_path):
-    # versión 1 guardaba los codos como GIRO: 11.25/22.5/30/45/90 → entre tuberías
+def test_catalogos_viejos_quedan_en_deflexion(tmp_path):
+    # v1 guardaba GIROS (se quedan); v2 ángulos ENTRE tuberías (→ 180° − a)
     ruta = tmp_path / "v1.json"
     ruta.write_text(json.dumps({"version": 1, "reglas": {"conex_codo": {"params": {
         "angulos": [11.25, 22.5, 30.0, 45.0, 90.0]}}}}), encoding="utf-8")
     r = next(x for x in N.cargar_catalogo(str(ruta)) if x["id"] == "conex_codo")
-    assert r["params"]["angulos"] == [90.0, 135.0, 150.0, 157.5, 168.75]
+    assert r["params"]["angulos"] == [11.25, 22.5, 30.0, 45.0, 90.0]
+    ruta2 = tmp_path / "v2.json"
+    ruta2.write_text(json.dumps({"version": 2, "reglas": {"conex_codo": {"params": {
+        "angulos": [90.0, 135.0, 150.0, 157.5, 168.75]}}}}), encoding="utf-8")
+    r = next(x for x in N.cargar_catalogo(str(ruta2)) if x["id"] == "conex_codo")
+    assert r["params"]["angulos"] == [11.25, 22.5, 30.0, 45.0, 90.0]
 
 
 def test_todo_tipo_de_regla_tiene_categoria_y_campos_editables():
@@ -171,7 +176,7 @@ def win(monkeypatch, tmp_path):
 def test_etiquetas_en_el_lienzo_y_barra_de_estado(win):
     import accesorios_view
     textos = sorted(it._texto for it in win._overlay if isinstance(it, accesorios_view.EtiquetaAccesorio))
-    assert textos == ["Codo 143° ✗", "Codo 90°"]
+    assert textos == ["Codo 37° ✗", "Codo 90°"]
     assert not win.btn_normas.isHidden() and "1" in win.btn_normas.text()
     win.act_show_acc.setChecked(False)
     assert not [it for it in win._overlay if isinstance(it, accesorios_view.EtiquetaAccesorio)]
@@ -192,7 +197,7 @@ def test_puente_de_la_ventana(win):
     assert project_io.build_model_dict(win)["normativas_activas"] == {"conex_codo": False}
     assert pu.activar("conex_codo", True) == "" and win.normas_estado == {}
     # cambiar un valor: se guarda global y deja de incumplir
-    assert pu.cambiar("conex_codo", "angulos", json.dumps([90, 135, 143, 157.5, 168.75])) == ""
+    assert pu.cambiar("conex_codo", "angulos", json.dumps([11.25, 22.5, 37, 45, 90])) == ""
     assert win.btn_normas.isHidden()
     assert os.path.isfile(os.environ["PDFCAD_NORMATIVAS"])
     assert pu.cambiar("conex_codo", "angulos", "[]") != ""   # error: no se aplica

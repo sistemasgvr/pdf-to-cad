@@ -188,11 +188,11 @@ FUENTE_AWWA = N_("AWWA C110 / C153 — valores iniciales")
 REGLAS_BASE = [
     {"id": "conex_codo", "tipo": "angulos_accesorio",
      "titulo": N_("Codos: solo ángulos comerciales"),
-     "descripcion": N_("Los codos se fabrican en ángulos fijos. Se mide el ángulo ENTRE las dos tuberías "
-                       "(180° = sigue recta): los codos AWWA de 11.25°, 22.5°, 45° y 90° dan 168.75°, "
-                       "157.5°, 135° y 90°."),
+     "descripcion": N_("Los codos se fabrican en ángulos fijos: 11.25°, 22.5°, 45° y 90°. El ángulo se mide "
+                       "sobre el EJE: se prolonga el eje del lado recto y se ve cuánto se desvía el otro "
+                       "lado (0° = sigue recta)."),
      "fuente": FUENTE_AWWA, "utilidades": list(UTILIDADES_PRESION), "obligatoria": True, "activa": True,
-     "params": {"accesorio": "codo", "angulos": [90.0, 135.0, 157.5, 168.75], "tolerancia": 1.0}},
+     "params": {"accesorio": "codo", "angulos": [11.25, 22.5, 45.0, 90.0], "tolerancia": 1.0}},
     {"id": "conex_tee", "tipo": "angulos_accesorio",
      "titulo": N_("Tee: ramal a 90°"),
      "descripcion": N_("La Tee une un ramal perpendicular a una tubería recta."),
@@ -326,9 +326,10 @@ def cargar_catalogo(ruta=None):
     except (OSError, ValueError):
         return reglas
     cambios = (datos or {}).get("reglas") or {}
-    # Versión 1: los ángulos de codo se guardaban como GIRO; desde la 2 son el
-    # ángulo entre las dos tuberías (180° − giro).
-    if int((datos or {}).get("version", 1)) < 2:
+    # Ángulos de codo: versión 1 = GIRO (deflexión), versión 2 = ángulo ENTRE tuberías
+    # (180° − giro), versión 3 (2026-10-07) = otra vez la deflexión sobre el eje. Solo la
+    # versión 2 se convierte.
+    if int((datos or {}).get("version", 1)) == 2:
         for cam in cambios.values():
             p = cam.get("params") if isinstance(cam, dict) else None
             if isinstance(p, dict) and isinstance(p.get("angulos"), list) and cam is cambios.get("conex_codo"):
@@ -376,7 +377,7 @@ def guardar_catalogo(reglas, ruta=None, anexos=None):
     os.makedirs(os.path.dirname(ruta), exist_ok=True)
     tmp = ruta + ".tmp"
     with open(tmp, "w", encoding="utf-8") as f:
-        json.dump({"version": 2, "reglas": cambios, "extra": extra, **anexos}, f, ensure_ascii=False, indent=1)
+        json.dump({"version": 3, "reglas": cambios, "extra": extra, **anexos}, f, ensure_ascii=False, indent=1)
     os.replace(tmp, ruta)
 
 

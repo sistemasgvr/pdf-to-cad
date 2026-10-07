@@ -619,10 +619,10 @@ Puedes dejarla abierta mientras dibujas: se actualiza sola.</p>
 
 <h2>Accesorios en el plano</h2>
 <p>En agua y gas, junto a cada punto donde Civil 3D pondrá un accesorio sólido aparece una etiqueta
-con su <b>tipo y ángulo</b>: «Codo 135°», «Tee 90°», «Wye 45°», «Cruz 90°».</p>
-<p>En el codo, el ángulo es el que forman <b>las dos tuberías entre sí</b> (180° = sigue recta).
-Un codo comercial «de 45°» deja las tuberías a <b>135°</b>; el globo también muestra cuánto gira
-la tubería. El mismo ángulo va al Property Set del codo en Civil 3D.</p>
+con su <b>tipo y ángulo</b>: «Codo 45°», «Tee 90°», «Wye 45°», «Cruz 90°».</p>
+<p>En el codo, el ángulo se mide sobre el <b>eje</b>: se prolonga el eje del lado recto y se ve
+cuánto se desvía el otro lado (0° = sigue recta). Un codo comercial «de 45°» marca <b>45°</b>, como
+se compra. El mismo ángulo va al Property Set del codo en Civil 3D.</p>
 <table width="100%" cellspacing="4" cellpadding="10">
 <tr><td bgcolor="{{card}}" width="30%"><b>Etiqueta oscura</b></td>
     <td bgcolor="{{card}}">Cumple las normativas activas.</td></tr>
@@ -647,8 +647,8 @@ La app solo avisa: no mueve nada del dibujo.</p>
 <li><b>A− / A+</b> cambian el tamaño del texto. Todo se usa con el teclado: Tab para moverte,
     Espacio o Enter para activar.</li>
 </ol>
-<p>Valores iniciales de accesorios (AWWA): codos de 11.25°, 22.5°, 45° y 90°, que entre tuberías son
-<b>168.75°, 157.5°, 135° y 90°</b>; Tee a 90°; Wye a 45°; cruz a 90°; tolerancia ±1°.
+<p>Valores iniciales de accesorios (AWWA): codos de <b>11.25°, 22.5°, 45° y 90°</b>
+(desvío sobre el eje); Tee a 90°; Wye a 45°; cruz a 90°; tolerancia ±1°.
 Las separaciones, el recubrimiento y los requisitos que llegan del Excel se guardan, se editan y se
 exportan, pero <b>todavía no se revisan sobre el plano</b> (lo indica cada fila).</p>
 
