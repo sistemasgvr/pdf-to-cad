@@ -135,10 +135,17 @@ def test_du06_h13_laterales_verticales_sobre_su_tinta(monkeypatch):
     _, pls = _sewer(DU06, 13)
     for (x, _y), feet in zip(((632.64, 0), (272.64, 0)), _lateral_feet(pls)):
         assert feet and all(abs(q[0] - x) <= 0.3 for q in feet), feet
-    # sin `precise_junctions` vuelve el defecto: la prueba sí lo detecta
+    # desde 2026-10-06 el cruce vale en TODAS las utilidades para un ramal recto que se
+    # torcía (DU08 h.26): sin `precise_junctions` los laterales siguen sobre su tinta…
     import dataclasses
+    import recognition_geom as geom
     monkeypatch.setitem(rec.UTILITY_GEOM_OPTIONS, "ALCANTARILLADO", dataclasses.replace(
         rec.UTILITY_GEOM_OPTIONS["ALCANTARILLADO"], precise_junctions=False))
+    _, pls = _sewer(DU06, 13)
+    for (x, _y), feet in zip(((632.64, 0), (272.64, 0)), _lateral_feet(pls)):
+        assert feet and all(abs(q[0] - x) <= 0.3 for q in feet), feet
+    # …y sin ninguna de las dos reglas vuelve el defecto: la prueba sí lo detecta
+    monkeypatch.setattr(geom, "JUNCTION_TILT_MIN_PT", float("inf"))
     _, pls = _sewer(DU06, 13)
     assert any(abs(q[0] - x) > 1.0 for (x, _y), feet in zip(((632.64, 0), (272.64, 0)), _lateral_feet(pls))
                for q in feet)

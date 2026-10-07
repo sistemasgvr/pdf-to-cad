@@ -741,6 +741,36 @@ def test_cruce_en_x_con_hueco_no_es_T():
     assert "tee" not in H.kinds and "junction" not in H.kinds
 
 
+def test_ramal_que_muere_en_el_hueco_llega_por_su_recta():
+    """DU08 h.26 (842, 579): la línea sigue de frente por el hueco de su letra
+    (los dos tramos van 2.4° desalineados → nodo «bend» en el hueco) y un ramal a
+    45° muere justo antes, con su recta cortando la línea a 4 pt del CENTRO del
+    hueco. El nodo va al CRUCE: el ramal no se tuerce hasta el centro del hueco
+    (antes se inclinaba ~2.8 pt; en DU08 la diagonal «TE» iba hasta 2.4 pt fuera de
+    su tinta) y la línea sigue sobre sus propias rectas, en todas las utilidades."""
+    sh = Sheet()
+    slope = math.tan(math.radians(2.4))
+    sh.dashed((300, 400), (150, 400 - 150 * slope))      # tramo izquierdo, termina en x=300
+    sh.letter_e("LINES", 306, 400)                        # letra en el hueco 300–312
+    sh.dashed((312, 400), (650, 400))                     # tramo derecho, horizontal
+    xc = 302.0                                            # cruce del ramal: 4 pt del centro (306)
+    u = (math.cos(math.radians(45)), math.sin(math.radians(45)))
+    end = (xc - 5 * u[0], 400 - 5 * u[1])                 # la tinta del ramal muere 5 pt antes
+    sh.dashed(end, (end[0] - 160 * u[0], end[1] - 160 * u[1]))
+    res = sh.run()
+    branch = [pl for pl in res.polylines if any(p[1] < 350 for p in pl.pts)]
+    assert len(branch) == 1, [(pl.pts, pl.kinds) for pl in res.polylines]
+    pl = branch[0]
+    k = min(range(len(pl.pts)), key=lambda i: math.dist(pl.pts[i], (xc, 400)))
+    q = pl.pts[k]
+    assert pl.kinds[k] == "junction"
+    # sobre la recta del ramal (su tinta) y sobre la línea, dentro del hueco
+    assert abs((q[0] - end[0]) * u[1] - (q[1] - end[1]) * u[0]) <= 0.1, q
+    assert _near(q, (xc, 400), 0.3), q
+    others = [o for o in res.polylines if o is not pl and any(_near(p, q, 1e-6) for p in o.pts)]
+    assert others                                         # la línea pasa por el mismo nodo
+
+
 def test_linea_que_atraviesa_boveda_y_sigue_un_trozo_corto():
     """Sale de la bóveda y termina 15 pt más allá: borde, nodo, borde y extremo
     (antes el trozo corto se recortaba al borde y quedaba sin cubrir)."""

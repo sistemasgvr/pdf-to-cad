@@ -35,10 +35,12 @@ from sheet_crops import normalize as normalize_sheet_crops
 import layer_dialog
 import recognition as _recognition
 import recognition_cache
+import respaldo_editor
 import composite as composite_mod
 import composite_dialog
 import project_io
 import model_ops
+import quiebres_curvas
 from responsive import WrapButton, WrapCheckBox, ResponsiveGroupBox, GridAdaptable  # noqa: E402
 import side_panels  # noqa: E402
 import autoguardado  # noqa: E402
@@ -101,6 +103,9 @@ class Main(QtWidgets.QMainWindow):
         self.work_pdf_path = None
         self._scale_override = None  # escala de la hoja compuesta (pies/pt); None = detectar
         self._tmp_composite = None
+        # Editor tal como estaba al abrir el asistente desde Herramientas (respaldo_editor):
+        # «Cancelar» en cualquier paso lo repone; importar lo suelta.
+        self._respaldo = None
         self.pdf_path = None; self.doc = None; self.project_path = None; self.leader_hpx = 40
         # Proyecto sobre hoja en blanco (sin PDF de fondo). `paper` guarda el
         # formato elegido para reponerlo al abrir el .digproj.
@@ -1832,7 +1837,8 @@ class Main(QtWidgets.QMainWindow):
         con la hoja ya compuesta. «◀ Componer hoja» en Capas vuelve al paso 1
         (pedido del usuario: poder volver atrás en cada paso).
         Devuelve False si se cancela el compositor. Al cancelar las capas, la
-        hoja queda cargada sin reconocer."""
+        hoja queda cargada sin reconocer — o, si se entró desde el editor (hay
+        `_respaldo`), el editor vuelve a como estaba."""
         step = start_step
         page_idx = start_idx
         while True:
@@ -1843,6 +1849,11 @@ class Main(QtWidgets.QMainWindow):
                 if res is None:
                     return False
                 comp, sources, hidden_by_source = res
+                if (comp.manual and getattr(self, "_respaldo", None) is not None
+                        and self._misma_composicion(comp, sources, hidden_by_source)):
+                    # Escaneo: «Continuar» sin cambiar la hoja no borra lo dibujado.
+                    self._reponer_respaldo(_tr("La hoja compuesta no cambió — el editor queda como estaba."))
+                    return True
                 self.src_pdfs = sources
                 self.composite = comp
                 self.hidden_ocgs_by_source = {k: list(v) for k, v in hidden_by_source.items()}
@@ -1855,6 +1866,8 @@ class Main(QtWidgets.QMainWindow):
                     return False
                 page_idx = self.page_idx
                 if comp.manual:
+                    if getattr(self, "_respaldo", None) is not None:
+                        self._soltar_respaldo()      # hoja nueva en el editor: la anterior ya no vuelve
                     self._dirty = True
                     self._info(_tr("Hoja compuesta importada al editor. Dibuja las utilidades a mano."))
                     return True
@@ -1873,6 +1886,8 @@ class Main(QtWidgets.QMainWindow):
                 continue
             break
         if chosen is None:
+            if self._reponer_respaldo(_tr("Reconocimiento cancelado — el editor queda como estaba.")):
+                return True
             self._load_sheet_busy(page_idx)
             self._dirty = True
             self._info(_tr("Reconocimiento cancelado — hoja cargada con las capas elegidas."))
@@ -1900,7 +1915,9 @@ class Main(QtWidgets.QMainWindow):
         comp = self.composite
         import pdf_layers as _pdf_layers
         if self.doc:
-            self.doc.close(); self.doc = None
+            if not respaldo_editor.lo_guarda(self._respaldo, doc=self.doc):   # «Cancelar» lo repone
+                self.doc.close()
+            self.doc = None
         self._cleanup_tmp_composite()
         self._composite_layout = None      # esquema para el minimapa de «Capas de la hoja»
         if comp is None or comp.is_single_full_page():
@@ -1956,7 +1973,8 @@ class Main(QtWidgets.QMainWindow):
 
     def _cleanup_tmp_composite(self):
         tmp = getattr(self, "_tmp_composite", None)
-        if tmp and os.path.isfile(tmp):
+        if tmp and os.path.isfile(tmp) and not respaldo_editor.lo_guarda(
+                getattr(self, "_respaldo", None), tmp=tmp):
             try: os.remove(tmp)
             except Exception: pass
         self._tmp_composite = None
@@ -1983,9 +2001,11 @@ class Main(QtWidgets.QMainWindow):
             return
         if not self._confirm_discard():
             return
+        self._tomar_respaldo()
         if not self._wizard_sheet_flow(self.page_idx,
                 manual=bool(self.composite and self.composite.manual)):
-            self._info(_tr("Composición cancelada — se mantiene la hoja actual."))
+            self._cancelar_asistente(_tr("Composición cancelada — el editor queda como estaba."),
+                                     _tr("Composición cancelada — se mantiene la hoja actual."))
 
     def compose_scan_sheet(self):
         """Explicit manual composition for mixed PDFs or ambiguous detection."""
@@ -1995,8 +2015,46 @@ class Main(QtWidgets.QMainWindow):
             return
         if not self._confirm_discard():
             return
+        self._tomar_respaldo()
         if not self._wizard_sheet_flow(self.page_idx, manual=True):
-            self._info(_tr("Composición cancelada — se mantiene la hoja actual."))
+            self._cancelar_asistente(_tr("Composición cancelada — el editor queda como estaba."),
+                                     _tr("Composición cancelada — se mantiene la hoja actual."))
+
+    # ── «Cancelar» en el asistente abierto desde el editor (respaldo_editor) ──
+    def _tomar_respaldo(self):
+        """Guarda el editor tal como está: si el asistente termina sin importar, vuelve así.
+        Sin trabajo que perder no hace falta (cancelar deja la hoja nueva, como siempre)."""
+        self._soltar_respaldo()
+        if self.canvas.pixmap_item is not None and respaldo_editor.hay_trabajo(self):
+            self._respaldo = respaldo_editor.tomar(self)
+
+    def _soltar_respaldo(self):
+        """Hoja nueva en el editor (importar): el respaldo ya no vuelve."""
+        r, self._respaldo = self._respaldo, None
+        respaldo_editor.soltar(self, r)
+
+    def _reponer_respaldo(self, msg):
+        """Editor a como estaba al abrir el asistente. False si no había respaldo."""
+        r, self._respaldo = self._respaldo, None
+        if r is None:
+            return False
+        respaldo_editor.reponer(self, r)
+        self._info(msg)
+        return True
+
+    def _cancelar_asistente(self, msg, msg_sin_respaldo=None):
+        """Fin del asistente SIN importar: con respaldo el editor vuelve a como estaba
+        (`msg`); sin él (asistente al abrir el PDF) queda lo que hay (`msg_sin_respaldo`)."""
+        if not self._reponer_respaldo(msg) and msg_sin_respaldo:
+            self._info(msg_sin_respaldo)
+
+    def _misma_composicion(self, comp, sources, hidden_by_source):
+        """¿El compositor devolvió la misma hoja de trabajo que hay en el editor?"""
+        sig = recognition_cache.composition_signature
+        hidden = lambda h: {str(k): set(v) for k, v in (h or {}).items() if v}
+        return (sig(comp) == sig(self.composite)
+                and self._src_fingerprints(sources) == self._src_fingerprints(self.src_pdfs)
+                and hidden(hidden_by_source) == hidden(self.hidden_ocgs_by_source))
 
     def organize_sheets(self):
         """Reopen the arrangement without changing the current drawing or layers."""
@@ -2144,7 +2202,8 @@ class Main(QtWidgets.QMainWindow):
 
     def _adjust_layer_roles(self, page_idx):
         """«Ajustar capas…» del preview: elegir a mano qué capas visibles son
-        líneas / bóvedas y volver a reconocer la hoja con esos roles."""
+        líneas / bóvedas y volver a reconocer la hoja con esos roles. Cancelar
+        vuelve a la MISMA vista previa (sin cambios, sale de `recognition_cache`)."""
         import pdf_layers as _pdf_layers
         utilities = tuple(self._recognition_utilities)
         if len(utilities) > 1:
@@ -2153,6 +2212,7 @@ class Main(QtWidgets.QMainWindow):
                 self, _tr("Ajustar capas"),
                 _tr("¿Qué utilidad quieres ajustar?"), labels, 0, False)
             if not ok:
+                self._start_recognition(page_idx)
                 return
             utility = utilities[labels.index(label)]
         else:
@@ -2161,10 +2221,8 @@ class Main(QtWidgets.QMainWindow):
         visible = [L for L in all_layers if L["name"] not in set(self.hidden_ocgs)]
         roles = recognition_dialog.choose_layer_roles(
             self, visible, utility=utility)
-        if roles is None:
-            self._info(_tr("Reconocimiento cancelado — hoja cargada con las capas elegidas."))
-            return
-        self._layer_roles_by_utility[utility] = roles
+        if roles is not None:
+            self._layer_roles_by_utility[utility] = roles
         self._start_recognition(page_idx)
 
     def _start_recognition(self, page_idx):
@@ -2230,17 +2288,23 @@ class Main(QtWidgets.QMainWindow):
     def _recognition_done(self, results, error):
         self._end_recognition_busy()
         key, self._recog_pending_key = self._recog_pending_key, None
+        # Cualquier salida sin importar devuelve el editor a como estaba si el
+        # asistente se abrió desde él (Herramientas → Componer hoja; respaldo_editor).
+        cancelled = _tr("Reconocimiento cancelado — el editor queda como estaba.")
         if error:
             QtWidgets.QMessageBox.warning(
                 self, _tr("Reconocimiento"),
                 _tr("No se pudo reconocer la hoja:\n\n{e}").format(e=error))
+            self._cancelar_asistente(cancelled)
             return
         if results is None:
+            self._cancelar_asistente(cancelled)
             return
         if not isinstance(results, (list, tuple)):
             results = [results]
         results = [result for result in results if result is not None]
         if not results:
+            self._cancelar_asistente(cancelled)
             return
         self._recog_cache.put(key, results)      # None (resultado reutilizado) no guarda nada
         qimg = None
@@ -2250,29 +2314,38 @@ class Main(QtWidgets.QMainWindow):
             QtWidgets.QMessageBox.information(
                 self, _tr("Reconocimiento"),
                 _tr("Reconocimiento listo, pero no hay imagen de la hoja para la vista previa."))
+            self._cancelar_asistente(cancelled)
             return
         action = recognition_dialog.show_recognition_preview(
             self, qimg, results,
             page_count=self.doc.page_count if self.doc else None)
+        del qimg                                 # copia de la hoja: no retenerla mientras se sigue
         self._join_routes = all(bool(getattr(result, "join_routes", True)) for result in results)
         page_index = results[0].page_index
         if action == recognition_dialog.PREVIEW_IMPORT:
             with _busy_mod.busy(self, _tr("Importando al editor…")):
-                self._import_recognized_pipes(results)
+                imported = self._import_recognized_pipes(results)
+            if imported:
+                self._soltar_respaldo()
+            else:
+                self._cancelar_asistente(
+                    _tr("No hay tramos reconocidos para importar — el editor queda como estaba."))
         elif action == recognition_dialog.PREVIEW_CHANGE_SHEET:
             # Flujo pedido: lista de hojas → capas → preview de la hoja nueva.
             if not self._wizard_sheet_flow(page_index):
-                self._info(_tr("Cambio de hoja cancelado — se mantiene la hoja {n}.").format(
-                    n=page_index + 1))
+                self._cancelar_asistente(
+                    _tr("Composición cancelada — el editor queda como estaba."),
+                    _tr("Cambio de hoja cancelado — se mantiene la hoja {n}.").format(n=page_index + 1))
         elif action == recognition_dialog.PREVIEW_SHEET_LAYERS:
             # Paso «2 Capas de la hoja» de la cabecera: volver (y desde ahí, si quiere, al 1).
             if not self._wizard_sheet_flow(page_index, start_step=1):
-                self._info(_tr("Cambio de hoja cancelado — se mantiene la hoja {n}.").format(
-                    n=page_index + 1))
+                self._cancelar_asistente(
+                    _tr("Composición cancelada — el editor queda como estaba."),
+                    _tr("Cambio de hoja cancelado — se mantiene la hoja {n}.").format(n=page_index + 1))
         elif action == recognition_dialog.PREVIEW_ADJUST_LAYERS:
             self._adjust_layer_roles(page_index)
         else:
-            self._info(_tr("Reconocimiento cancelado — editor vacío."))
+            self._cancelar_asistente(cancelled, _tr("Reconocimiento cancelado — editor vacío."))
 
     def _xdata_origin(self, page_index: int):
         """Función (puntos del lienzo) → «PDF · Hoja N» de donde salió el objeto,
@@ -2319,7 +2392,8 @@ class Main(QtWidgets.QMainWindow):
         self._dirty = True
 
     def _import_recognized_pipes(self, results):
-        """Añade centerlines reconocidas e inserta sus estructuras como nodos."""
+        """Añade centerlines reconocidas e inserta sus estructuras como nodos.
+        Devuelve False si no había nada que importar."""
         import recognition as rec
         if not isinstance(results, (list, tuple)):
             results = [results]
@@ -2343,8 +2417,9 @@ class Main(QtWidgets.QMainWindow):
                 batches.append((result, utility, pipes, snapped, skipped))
         if not batches:
             self._info(_tr("No hay tramos reconocidos para importar."))
-            return
+            return False
         self._push()
+        n_prev = len(self.pipes)
         for _result, _utility, pipes, _snapped, _skipped in batches:
             self.pipes.extend(pipes)
         self._dirty = True
@@ -2367,7 +2442,14 @@ class Main(QtWidgets.QMainWindow):
             n_geo += added_geo; n_alone += added_alone
         # …y los codos reconocidos quedan como esquina «CV» con su radio (flujo manual).
         n_cv = model_ops.attach_fillets(self.pipes, self.structures)
-        if n_hidden or n_geo or n_cv:
+        # …y cada QUIEBRE del plano de gravedad/conduit es una curva mal dibujada
+        # (regla de los ingenieros): CV con el radio mínimo de la regla (automático),
+        # solo donde entra sin tocar otra curva. Agua y gas no.
+        fpp = self.scale / self.zoom if self.scale and self.zoom else 0.0
+        curvas_q, sin_lugar = quiebres_curvas.curvas_en_quiebres(
+            self.pipes, self.structures, fpp, indices=range(n_prev, len(self.pipes)))
+        n_hidden -= sum(1 for s in curvas_q if s.get("net") == "gravity")   # el buzón oculto ahora es la curva
+        if n_hidden or n_geo or n_cv or curvas_q:
             self._refresh_lists()
         self._update_ui()
         self._redraw()
@@ -2387,6 +2469,11 @@ class Main(QtWidgets.QMainWindow):
                 msg += " " + _tr("({a} como cajas sueltas, sin unir a una línea.)").format(a=n_alone)
         if n_cv:
             msg += " " + _tr("Codos como esquina + radio (CV): {c}.").format(c=n_cv)
+        if curvas_q:
+            msg += " " + _tr("Quiebres como curva de radio mínimo: {q}.").format(q=len(curvas_q))
+        if sin_lugar:
+            msg += " " + _tr("Quiebres sin lugar para la curva mínima (tramos cortos), quedan como quiebre: {s}.").format(
+                s=len(sin_lugar))
         n_ab = sum(1 for _r, _u, pipes, _s, _k in batches for p in pipes if p.get("ab"))
         if n_ab:
             msg += " " + _tr("Abandonadas (AB): {a}.").format(a=n_ab)
@@ -2397,6 +2484,7 @@ class Main(QtWidgets.QMainWindow):
         if n_hidden:
             msg += " " + _tr("Quiebres sin bóveda: {h} (cajas ocultas).").format(h=n_hidden)
         self._info(msg)
+        return True
 
     def _load_page(self, idx):
         self._close_editor()
@@ -2721,6 +2809,7 @@ class Main(QtWidgets.QMainWindow):
     def close_project(self):
         if self.canvas.pixmap_item is None: return
         if not self._confirm_discard(): return
+        self._soltar_respaldo()
         if self.doc:
             self.doc.close()
         self._cleanup_tmp_pdf()
@@ -6560,8 +6649,7 @@ class Main(QtWidgets.QMainWindow):
         # Radio en pies: explícito o auto = 6 × diámetro interior.
         r_ft = float(s.get("radius_ft") or 0.0)
         if r_ft <= 0.01:
-            diam_in = float(pipe.get("diam") or 12.0)
-            r_ft = 6.0 * (diam_in / 12.0)
+            r_ft = model_ops.radio_auto_ft(pipe)
         # Conversión ft → scene px: los pts se renderizan a self.zoom × puntos
         # PDF, y self.scale es ft por punto PDF. → scene_px = ft × zoom / scale.
         r_px = r_ft * float(self.zoom) / self.scale
@@ -6669,7 +6757,9 @@ class Main(QtWidgets.QMainWindow):
                 self.cv_radius_warn.setText("")
             self.cv_radius.setValue(valor_guardado)
             self.cv_net_lbl.setText(_tr("conduit (eléctrico/telecom)") if net == "conduit" else _tr("gravedad"))
-            self.cv_origin_lbl.setText("Excel" if s.get("world") else _tr("dibujo"))
+            self.cv_origin_lbl.setText("Excel" if s.get("world") else
+                                       _tr("quiebre del plano (radio mínimo)") if s.get("quiebre")
+                                       else _tr("dibujo"))
             # Familia/tamaño heredados de la tubería recta que pasa por este vértice
             # (solo lectura: garantiza que la curva calce con los tramos rectos).
             x, y = s.get("x"), s.get("y")
@@ -6742,6 +6832,7 @@ class Main(QtWidgets.QMainWindow):
         if not (0 <= self.sel_curve < len(self.structures)): return
         s = self.structures[self.sel_curve]
         s["curve"] = False; s["part"] = ""; s["part_size"] = ""
+        s.pop("quiebre", None)                      # ya no es la curva de un quiebre del plano
         s["cod"] = ""                               # fuerza a asignar prefijo BZ-/CAJA-
         x0, y0 = s.get("x"), s.get("y")
         self._dirty = True

@@ -53,9 +53,11 @@ class Canvas(QtWidgets.QGraphicsView):
         self.pdf_bg_color = QtGui.QColor(255, 255, 255)
 
     def set_image(self, qimg):
+        """Hoja nueva en el lienzo: `qimg` es QImage o un QPixmap ya hecho (el del
+        respaldo del editor, `respaldo_editor`: se repone sin copiar la imagen)."""
         self.scene().clear()
         # Rectángulo de fondo (blanco/negro) por debajo del PDF, de su mismo tamaño.
-        pm = QtGui.QPixmap.fromImage(qimg)
+        pm = qimg if isinstance(qimg, QtGui.QPixmap) else QtGui.QPixmap.fromImage(qimg)
         self.pdf_bg_item = self.scene().addRect(
             QtCore.QRectF(pm.rect()), QtGui.QPen(QtCore.Qt.NoPen),
             QtGui.QBrush(self.pdf_bg_color))

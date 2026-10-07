@@ -73,6 +73,7 @@ NODE_OFF_LINE_PT = 3.0       # nodo compartido válido si la recta pasa a ≤3 p
 LINE_STROKE_TOUCH_PT = 0.5   # (precise_junctions) trozo que nace en la punta de un guión (no letra)…
 LINE_STROKE_ANG_DEG = 5.0    # …con su rumbo: es línea, no asta de letra
 JUNCTION_GAP_SLACK_PT = 2.0  # (precise_junctions) el cruce ramal×línea puede caer hasta 2 pt fuera del hueco
+JUNCTION_TILT_MIN_PT = 0.25  # ramal recto que llega al hueco: va al cruce si el punto medio queda a >0.25 pt de su recta
 GRAZE_MIN_APPROACH_PT = 2.0  # convergencia rasante solo si la corrida se ACERCA ≥2 pt a la otra (no paralela)
 RUN_FIT_TOL_PT = 0.75        # la polilínea sigue los guiones a ≤0.75 pt (se parte donde se apartan más)
 MIN_JUNCTION_DASHES = 3      # solo líneas de red (≥3 guiones) definen el nodo interior de una bóveda
@@ -2867,6 +2868,15 @@ def resolve_nodes(runs: List[Run], pat: Pattern, vaults: Sequence[Vault],
                 # a la misma altura NO son un quiebre.
                 if _perp_line(L1, pf) > 2 * NODE_OFF_LINE_PT or _perp_line(L2, pe) > 2 * NODE_OFF_LINE_PT:
                     continue
+                # …y una CURVA arranca donde sigue la otra recta: su punta no queda más de
+                # NODE_OFF_LINE_PT al costado de lo que explica el giro (DU08 h.39: una recta
+                # «—T—» y una curva de OTRA línea, paralelas a 5.4 pt, se cosían en el centro
+                # del hueco y la recta se torcía 2.9 pt). Entre dos rectas no se exige: los
+                # guiones de una curva a guiones dejan ese desfase (LABOE h.28 y h.31).
+                if (runs[e[0]].is_curve or runs[f[0]].is_curve) and max(
+                        _perp_line(L1, pf), _perp_line(L2, pe)) - d * math.sin(
+                        math.radians(_ang_diff(_line_angle(L1), _line_angle(L2)))) > NODE_OFF_LINE_PT:
+                    continue
                 oe, of_ = outward(*e), outward(*f)
                 cos30 = 0.866
                 if d > 1.0 and (pf[0] - pe[0]) * oe[0] + (pf[1] - pe[1]) * oe[1] < cos30 * d:
@@ -2880,6 +2890,52 @@ def resolve_nodes(runs: List[Run], pat: Pattern, vaults: Sequence[Vault],
                 late = d > pat.join_gap and not precise_junctions
                 pairs.append((d, e, f, ((pe[0] + pf[0]) / 2, (pe[1] + pf[1]) / 2),
                               "bend_letter" if late else "bend"))
+    # LETRA en el hueco = la línea SIGUE (pedido del usuario 2026-10-06, en todas las
+    # utilidades y con letras mayúsculas o minúsculas): dos puntas que se MIRAN (la otra
+    # por delante, ±30°) y giran ≤`CONTINUES_MAX_TURN_DEG`, con una letra del linetype
+    # entre ellas, son la misma línea aunque gire justo en su rótulo o una sea CURVA cuyo
+    # rumbo de punta no es fiable. Antes quedaban cortadas: dos tramos «continuos» no
+    # forman esquina (DU06 h.9 «E», h.10 «SE») y la esquina de una curva caía 2.4 pt
+    # DETRÁS de su punta (DU06 h.5, «—T—» que baja en diagonal y sigue en curva). Nodo:
+    # el cruce de las dos rectas si cae por delante de las dos puntas; si no, con una
+    # RECTA y una curva, sobre la recta frente a la punta de la curva (la recta nunca se
+    # inclina: DU08 h.39 se torcía 2.9 pt hasta el centro del hueco) y, con dos curvas, el
+    # centro del hueco; la punta de la curva a ≤`NODE_OFF_LINE_PT` de la otra recta. Van
+    # al final (como «bend_letter»): solo unen puntas que nada más tomó.
+    paired = {frozenset((e, f)) for _, e, f, _, _ in pairs}
+    cos_turn = math.cos(math.radians(CONTINUES_MAX_TURN_DEG))
+    for x in range(len(ends_free)):
+        for y in range(x + 1, len(ends_free)):
+            e, f = ends_free[x], ends_free[y]
+            if e[0] == f[0] or frozenset((e, f)) in paired:
+                continue
+            pe, pf = endpoint(*e), endpoint(*f)
+            d = _dist(pe, pf)
+            if d <= ENDS_TOUCH_PT or not letter_in_gap(pe, pf, d):
+                continue
+            oe, of_ = outward(*e), outward(*f)
+            if (oe[0] * of_[0] + oe[1] * of_[1] > -cos_turn
+                    or (pf[0] - pe[0]) * oe[0] + (pf[1] - pe[1]) * oe[1] < 0.866 * d
+                    or (pe[0] - pf[0]) * of_[0] + (pe[1] - pf[1]) * of_[1] < 0.866 * d):
+                continue
+            L1, L2 = runs[e[0]].line(e[1]), runs[f[0]].line(f[1])
+            P = (_isect(L1, L2) if _ang_diff(_line_angle(L1), _line_angle(L2)) >= CORNER_MIN_ANG_DEG
+                 else None)
+            ce, cf = runs[e[0]].is_curve, runs[f[0]].is_curve
+            if P is not None and all(-CURVE_BACKSLIDE_PT <= (P[0] - q[0]) * o[0] + (P[1] - q[1]) * o[1] <= d
+                                     for q, o in ((pe, oe), (pf, of_))) \
+                    and slide_ok(*e, P) and slide_ok(*f, P):
+                pairs.append((d, e, f, P, "corner_letter"))
+            elif ce and cf:
+                if _perp_line(L1, pf) <= NODE_OFF_LINE_PT and _perp_line(L2, pe) <= NODE_OFF_LINE_PT:
+                    pairs.append((d, e, f, ((pe[0] + pf[0]) / 2, (pe[1] + pf[1]) / 2), "bend_letter"))
+            elif ce or cf:
+                (s, ps, Ls, os_), pc = ((f, pf, L2, of_), pe) if ce else ((e, pe, L1, oe), pf)
+                P = _foot_on(Ls, pc)
+                if (_perp_line(Ls, pc) <= NODE_OFF_LINE_PT
+                        and (P[0] - ps[0]) * os_[0] + (P[1] - ps[1]) * os_[1] >= -CURVE_BACKSLIDE_PT
+                        and slide_ok(*s, P)):
+                    pairs.append((d, e, f, P, "corner_letter"))
     # Una CONTINUACIÓN recta (quiebre suave: mismo eje, extremos mirándose dentro
     # del hueco del patrón) se resuelve ANTES que cualquier esquina. Donde dos
     # líneas se CRUZAN, las puntas de una quedan a veces más cerca de las de la
@@ -2897,6 +2953,8 @@ def resolve_nodes(runs: List[Run], pat: Pattern, vaults: Sequence[Vault],
             continue
         if kind == "bend_letter":
             kind = "bend"
+        elif kind == "corner_letter":
+            kind = "corner"
         node_idx = new_node(P, kind)
         if kind == "bend":
             bend_gap[node_idx] = (endpoint(*e), endpoint(*f), e)
@@ -2920,16 +2978,26 @@ def resolve_nodes(runs: List[Run], pat: Pattern, vaults: Sequence[Vault],
             P = (nodes[n].x, nodes[n].y)
             d = _dist(P, pe)
             reach = 0.5 * pat.join_gap if nodes[n].kind == "bend" else pat.corner_tol
-            # (perfil `precise_junctions`) el ramal que cae en un hueco ANCHO no
-            # pasa por su punto medio, pero sí corta la línea dentro del hueco
-            # (DU06 h.10 (1424.5, 1002.4)): vale el cruce, no el punto medio.
-            Q = (_gap_crossing(n, i, s) if precise_junctions and n in bend_gap
+            # El ramal RECTO que muere en el hueco de una línea que sigue de frente
+            # llega al CRUCE de su recta con la línea, no al punto medio del hueco: si
+            # no, se torcía hasta NODE_OFF_LINE_PT (DU08 h.26 (842, 579.4): la diagonal
+            # «TE» iba 2.4 pt fuera de su tinta; lo reportó el usuario). En TODAS las
+            # utilidades, con las mismas uniones de antes (`mid_ok`) y solo si el punto
+            # medio queda fuera de su recta (`JUNCTION_TILT_MIN_PT`): correr el nodo por
+            # una línea casi paralela no gana nada y movía decisiones en el filo (la
+            # ruta de DU08 h.25 en (983.5, 455.8)); la tangente en la punta de una CURVA
+            # no es fiable (DU10 h.19: se perdían dos codos). (perfil
+            # `precise_junctions`) vale además el cruce de un ramal que no pasa cerca
+            # del punto medio de un hueco ANCHO (DU06 h.10 (1424.5, 1002.4)).
+            mid_ok = d <= reach and _perp_line(L, P) <= NODE_OFF_LINE_PT and slide_ok(i, s, P)
+            tilted = (mid_ok and not runs[i].is_curve
+                      and _perp_line(L, P) > JUNCTION_TILT_MIN_PT)
+            Q = (_gap_crossing(n, i, s) if (precise_junctions or tilted) and n in bend_gap
                  and nodes[n].kind == "bend" else None)
             if Q is not None:
                 if best is None or _dist(Q, pe) < best[0]:
                     best = (_dist(Q, pe), n, Q)
-            elif (d <= reach and _perp_line(L, P) <= NODE_OFF_LINE_PT and slide_ok(i, s, P)
-                    and (best is None or d < best[0])):
+            elif mid_ok and (best is None or d < best[0]):
                 best = (d, n, None)
         if best is not None:
             n = best[1]

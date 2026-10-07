@@ -213,6 +213,8 @@ def rebuild_structures(pipes, structures):
                          curve=bool(o.get("curve", False)),
                          radius_ft=o.get("radius_ft", 0.0),
                          hidden=bool(o.get("hidden", False)))
+                if o.get("curve") and o.get("quiebre"):   # curva de un quiebre del plano (quiebres_curvas)
+                    s["quiebre"] = True
                 # geometría real de la bóveda reconocida (ver attach_vault_geometry)
                 for k in VAULT_GEO_KEYS:
                     if k in o:
@@ -557,6 +559,19 @@ FILLET_CAP_CURVA = 0.48
 # es el redondeo del campo (2 decimales) o del DXF. Mismo valor que TOL_RADIO_FT
 # del plugin, que en ese caso usa el máximo sin avisar.
 FILLET_TOL_RADIO_FT = 0.01
+# Radio AUTOMÁTICO de una curva (CV sin radio escrito): 6 × el ancho interior de la
+# tubería, como ImportarRed.cs. Es el radio mínimo de la regla: los quiebres del
+# plano entran como curva con él (quiebres_curvas).
+RADIO_AUTO_FACTOR = 6.0
+
+
+def radio_auto_ft(pipe):
+    """Radio automático (pies) de una curva de `pipe`: 6 × su diámetro (pulgadas → pies)."""
+    try:
+        d_in = float((pipe or {}).get("diam") or 12.0)
+    except (TypeError, ValueError):
+        d_in = 12.0
+    return RADIO_AUTO_FACTOR * d_in / 12.0
 
 
 def fillet_geo(prev, corner, nxt, r_px, max_frac=FILLET_CAP_RECTA, n_arc=32, max_frac_next=None,
