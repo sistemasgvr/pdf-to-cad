@@ -1,0 +1,195 @@
+"""Leyenda según el ESTÁNDAR BOE en «Capas de la hoja» (pedido del usuario 2026-10-07).
+
+DU06 no trae leyenda («Este PDF no trae una leyenda de líneas»): con el manual BOE
+(tipos de línea por utilidad, fig. 3.1.7.1; estado del nombre de la capa, §8.1.6) se
+arma una con las líneas de la hoja, y cada utilidad o fila resalta lo suyo. Además la
+tarjeta de una capa por sus letras («T» de G-XREF en DU06 h.5) muestra el RESTO de las
+líneas de su utilidad: las «t» de C-TELE-UNGD-E van pegadas y al importar también son
+telecom, pero no se veían.
+"""
+import os
+os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+
+import sys
+from pathlib import Path
+
+import pytest
+
+ROOT = Path(__file__).resolve().parent.parent
+for p in (str(ROOT / "app"), str(ROOT)):
+    if p not in sys.path:
+        sys.path.insert(0, p)
+
+import leyenda_estandar as le  # noqa: E402
+
+DU06 = ROOT / "DU06_09_UD_Drainage_20251216(SUBMITTAL SET).pdf"
+needs_du06 = pytest.mark.skipif(not DU06.exists(), reason="PDF de prueba DU06 no está en el repo")
+
+
+def _layer(name, **kw):
+    return dict({"name": name, "short": name.split("|")[-1], "utility": "OTRAS", "name_group": "OTRAS",
+                 "letters": "", "letter_utilities": [], "letter_codes": {}, "letter_paths": {},
+                 "name_utility": "", "read_codes": [], "letter_raw": {}, "on": True, "path_count": 9}, **kw)
+
+
+# ─────────────────────────────── lógica pura ───────────────────────────────
+def test_estado_del_nombre_del_xref_o_de_las_letras():
+    assert le.estado_capa(_layer("X-REF-EXIST_TELECOM|C-TELE-UNGD-E")) == ("E", le.FROM_NAME)
+    assert le.estado_capa(_layer("X|C-ELEC-UGND-N__UA4")) == ("N", le.FROM_NAME)      # sin el paquete
+    assert le.estado_capa(_layer("X|CU-STRM-UNGD-D")) == ("D", le.FROM_NAME)          # disciplina nivel 2
+    assert le.estado_capa(_layer("X|C-NGAS-A")) == ("A", le.FROM_NAME)
+    assert le.estado_capa(_layer("T-PROP-COMM")) == ("N", le.FROM_NAME)
+    # la «N» de `N-COMM-…` es la disciplina, no el estado
+    assert le.estado_capa(_layer("N-COMM-DUCT-BANK-PL")) == ("", "")
+    assert le.estado_capa(_layer("PS-REF-PROP_WATER|C-WATR-PIPE")) == ("N", le.FROM_XREF)
+    assert le.estado_capa(_layer("G-XREF"), ["T"]) == ("N", le.FROM_LETTERS)          # mayúscula = propuesta
+    assert le.estado_capa(_layer("G-XREF"), ["t"]) == ("E", le.FROM_LETTERS)
+    assert le.estado_capa(_layer("G-XREF"), ["T", "t"]) == ("", "")
+
+
+def test_abreviatura_boe():
+    assert le.abbr_capa(_layer("C-TELE-UNGD-E"), "TELECOM") == "TEL"
+    assert le.abbr_capa(_layer("C-COMM-FO-UNGD-N"), "TELECOM") == "FO"
+    assert le.abbr_capa(_layer("C-FIRE-UNGD-E"), "AGUA") == "FPW"
+    assert le.abbr_capa(_layer("C-WATR-UNGD-E"), "AGUA") == "PW"
+    assert le.abbr_capa(_layer("C-ELEC-UNGD-E"), "ELECTRICO") == "ELEC"
+    assert le.linetype("TEL")[0] == "TELEPHONE / COMM"
+
+
+def test_rol_de_la_capa_como_el_reconocimiento():
+    assert le.rol_capa(_layer("X|C-TELE-UNGD-E"), "TELECOM") == (le.LINE, False)
+    assert le.rol_capa(_layer("X|C-TELE-VALT-E"), "TELECOM") == (le.STRUCTURE, False)
+    assert le.rol_capa(_layer("X|C-TELE-UNGD-E"), "ELECTRICO") == (None, False)
+    assert le.rol_capa(_layer("X|C-ELEC-OVHD-E"), "ELECTRICO") == (None, False)        # aérea: no
+    mixta = _layer("G-XREF", letter_utilities=["AGUA", "TELECOM"],
+                   letter_paths={(1,): "TELECOM", (2,): "AGUA"})
+    assert le.rol_capa(mixta, "TELECOM") == (le.LINE, True)
+    assert le.rol_capa(mixta, "GAS") == (None, False)
+    # su nombre dice telecom, sus letras («SE») eléctrico: manda la letra, la capa entera
+    se = _layer("X|N-COMM-DUCT-BANK-PL-SE", letter_utilities=["ELECTRICO"], name_utility="TELECOM")
+    assert le.rol_capa(se, "ELECTRICO") == (le.LINE, False)
+    assert le.rol_capa(se, "TELECOM") == (None, False)
+
+
+def test_trazo_de_una_capa_mezclada(monkeypatch):
+    monkeypatch.setattr(le.letters_mod, "path_key", lambda d: d["k"])
+    mixta = _layer("G-XREF", letter_utilities=["AGUA", "TELECOM"],
+                   letter_paths={(1,): "TELECOM", (2,): "AGUA"})
+    assert le.es_trazo_de(mixta, "TELECOM", {"k": (1,), "fill": None}) == le.LINE
+    assert le.es_trazo_de(mixta, "TELECOM", {"k": (2,), "fill": None}) is None
+    assert le.es_trazo_de(mixta, "TELECOM", {"k": (3,), "fill": None}) is None      # sin letras: no
+    assert le.es_trazo_de(mixta, "TELECOM", {"k": (1,), "fill": (1, 1, 1)}) is None  # relleno: no
+
+
+def test_leyenda_agrupa_por_utilidad_y_estado():
+    layers = [
+        _layer("R-EXIST|C-TELE-UNGD-E", read_codes=["T"], letter_raw={"T": "t"}),
+        _layer("R-EXIST2|C-TELE-UNGD-E", read_codes=["T"], letter_raw={"T": "t"}),
+        _layer("R-EXIST|C-TELE-UNGD-D", read_codes=["T"], letter_raw={"T": "t"}),
+        _layer("G-XREF", letter_utilities=["TELECOM"], letter_codes={"TELECOM": "T"},
+               letter_paths={(1,): "TELECOM"}, read_codes=["T"], letter_raw={"T": "T"}),
+        _layer("R|C-TELE-VALT-E"),
+        _layer("R|C-ELEC-UNGD-E", read_codes=["E"], letter_raw={"E": "e"}),
+        _layer("R|C-ELEC-UNGD-N", path_count=0),                 # sin trazos en la hoja: no
+        _layer("R|V-ROAD-CURB"),
+    ]
+    grupos = {g.utilidad: g for g in le.leyenda(layers)}
+    assert list(grupos) == ["ELECTRICO", "TELECOM"]              # orden de «Capas del plano»
+    tele = grupos["TELECOM"]
+    assert tele.abbr == "TEL"
+    filas = [(f.rol, f.estado, f.letras, f.marcas, f.continua, f.por_letras, len(f.capas)) for f in tele.filas]
+    assert filas == [(le.LINE, "E", ["t"], "", False, False, 2),
+                     (le.LINE, "D", ["t"], "//", False, False, 1),
+                     (le.LINE, "N", ["T"], "", True, True, 1),
+                     (le.STRUCTURE, "", [], "", False, False, 1)]
+    assert [f.estado for f in grupos["ELECTRICO"].filas] == ["E"]
+
+
+# ─────────────────────────────── DU06 h.5 ───────────────────────────────
+@pytest.fixture(scope="module")
+def du06_h5():
+    if not DU06.exists():
+        pytest.skip("PDF de prueba DU06 no está en el repo")
+    import fitz
+    import pdf_layers
+    from PySide6 import QtWidgets
+    import layer_dialog
+    app = QtWidgets.QApplication.instance() or QtWidgets.QApplication([])
+    doc = fitz.open(str(DU06))
+    dlg = layer_dialog.SheetLayersDialog(None, doc, 4, layers=pdf_layers.page_layers(doc, 4), legend_sources=[])
+    yield app, dlg
+    dlg._timer.stop(); dlg._stop_legend(); dlg.deleteLater(); doc.close()
+
+
+@needs_du06
+def test_du06_sin_leyenda_muestra_la_del_estandar(du06_h5):
+    _app, dlg = du06_h5
+    grupos = {g.utilidad: g for g in dlg.info.standard_groups()}
+    assert set(grupos) == {"AGUA", "ALCANTARILLADO", "DRENAJE", "GAS", "ELECTRICO", "TELECOM"}
+    tele = [(f.estado, [n.split("|")[-1] for n in f.capas]) for f in grupos["TELECOM"].filas if f.rol == le.LINE]
+    assert ("E", ["C-TELE-UNGD-E"]) in tele and ("D", ["C-TELE-UNGD-D"]) in tele
+    assert any(e == "N" and "G-XREF" in capas for e, capas in tele)
+    assert "estándar BOE" in dlg.info.lbl_legend.text()
+
+
+@needs_du06
+def test_du06_tarjeta_t_muestra_el_resto_de_telecom(du06_h5):
+    """La tarjeta «Telecomunicaciones «T»» (G-XREF): sus líneas con halo y, en línea
+    fina, las de C-TELE-UNGD-E/-D que van al lado (las flechas del reporte)."""
+    _app, dlg = du06_h5
+    strong, soft, _what = dlg._focus_sets({"layers": ["G-XREF"]})
+    assert {d["layer"] for d in strong["TELECOM"]} == {"G-XREF"}
+    finos = {d["layer"].split("|")[-1] for d in soft["TELECOM"]}
+    assert {"C-TELE-UNGD-E", "C-TELE-UNGD-D"} <= finos and "G-XREF" not in finos
+    dlg.info._cards["G-XREF"].activated.emit("G-XREF")
+    assert dlg._hl_items and "G-XREF" in dlg.info.lbl_focus.text()
+    dlg.info.btn_focus_off.click()                               # «Ver todo»
+    assert dlg._hl_items == [] and not dlg.info.focus_bar.isVisibleTo(dlg.info)
+
+
+@needs_du06
+def test_du06_clic_en_la_utilidad_y_en_una_fila(du06_h5):
+    _app, dlg = du06_h5
+    strong, _soft, what = dlg._utility_sets({"utility": "TELECOM", "label": "Telecom"})
+    capas = {d["layer"].split("|")[-1] for d in strong["TELECOM"]}
+    assert {"C-TELE-UNGD-E", "C-TELE-UNGD-D", "G-XREF", "C-TELE-VALT-E"} <= capas
+    assert "7" in what
+    fila = next(f for g in dlg.info.standard_groups() if g.utilidad == "TELECOM"
+                for f in g.filas if f.estado == "D")
+    strong, _soft, _what = dlg._utility_sets({"utility": "TELECOM", "layers": fila.capas, "role": fila.rol})
+    assert {d["layer"].split("|")[-1] for d in strong["TELECOM"]} == {"C-TELE-UNGD-D"}
+    dlg.info.std.activated.emit({"utility": "TELECOM", "label": "Telecom"})
+    assert dlg._hl_items
+    dlg.info.std.activated.emit({"utility": "TELECOM", "label": "Telecom"})      # otro clic: ver todo
+    assert dlg._hl_items == []
+
+
+@needs_du06
+@pytest.mark.parametrize("page_i", [4, 2, 1])
+def test_du06_la_leyenda_toma_lo_mismo_que_el_reconocimiento(page_i):
+    """Qué capas son líneas/estructuras de cada utilidad: lo mismo que toma
+    `recognize_page` (por nombre y por las letras de su línea), solo lo VISIBLE: en
+    h.3 las bóvedas de un xref recortado fuera de la vista no se pintan, no se
+    reconocen y tampoco van a la leyenda ni se resaltan. En h.2 hay bóvedas de capas que
+    no están en la lista de capas del PDF (`…(A2_TRIM)|V-ELEC-MANH`): se toman por nombre."""
+    import fitz
+    import pdf_layers
+    import recognition as rec
+    with fitz.open(str(DU06)) as doc:
+        Ls = {L["name"]: L for L in pdf_layers.page_layers(doc, page_i)}
+        page = doc[page_i]
+        letters = rec.page_letters(page)
+        pares = le.trazos_visibles(page, le.capas_de_utilidad(Ls.values()))
+        vis = {d["layer"] for d, _shown in pares}
+        for n in vis - set(Ls):
+            Ls[n] = le.capa_sin_lista(n)
+        grupos = {g.utilidad: g for g in le.leyenda([L for L in Ls.values() if L["name"] in vis])}
+        for u in rec.SUPPORTED_UTILITIES:
+            lp, vp = rec.utility_line_paths(page, u, letters)
+            mine = {r: {d["layer"] for d, _shown in pares
+                        if le.es_trazo_de(Ls[d["layer"]], u, d) == r} for r in (le.LINE, le.STRUCTURE)}
+            assert mine[le.LINE] == {p.get("layer") for p in lp}, u
+            assert mine[le.STRUCTURE] == {p.get("layer") for p in vp}, u
+            filas = grupos[u].filas if u in grupos else []
+            assert {n for f in filas if f.rol == le.LINE for n in f.capas} == mine[le.LINE], u
+            assert {n for f in filas if f.rol == le.STRUCTURE for n in f.capas} == mine[le.STRUCTURE], u

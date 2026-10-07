@@ -233,7 +233,18 @@ imagen/escaneo…</b>), pero sin capas ni reconocimiento: al final,
     decisión se guarda en el proyecto). Abajo, <b>Leyenda del plano</b> muestra la leyenda que trae
     el propio PDF (la muestra de cada línea y su descripción), primero las líneas que hay en esta
     hoja; <b>Ver toda</b> muestra el resto. Clic en una tarjeta o en una fila resalta esas líneas en
-    la hoja y acerca la vista; otro clic vuelve a mostrar todo. Si el PDF no trae leyenda ni hay
+    la hoja y acerca la vista; otro clic (o <b>Ver todo</b>, arriba del panel) vuelve a mostrar todo.
+    La tarjeta de una capa por letras resalta sus líneas con halo y, en línea fina, <b>el resto de las
+    líneas de esa utilidad</b> que se van a reconocer (por ejemplo, junto a las «T» de G-XREF, las «t»
+    de C-TELE-UNGD-E).</li>
+<li><b>Sin leyenda en el PDF</b> (DU06), la <b>Leyenda del plano</b> se arma con el <b>estándar BOE</b>
+    (manual «BOE CADD Standards»: tipos de línea de cada utilidad y estado del nombre de cada capa —E
+    existente, D a demoler, A abandonada, N nueva—) y las capas de la hoja: por utilidad, su
+    abreviatura (TEL, ELEC, PW, SSWR, SD, NGAS…) y una fila por tipo de línea con su muestra
+    —a trazos si es existente, continua si es propuesta, con las letras leídas y «//» si va a
+    demoler— más sus estructuras. Si el nombre no dice el estado, lo dicen sus letras: MAYÚSCULA =
+    propuesta, minúscula = existente. Clic en la utilidad resalta todas sus líneas y estructuras; en
+    una fila, solo esas capas: lo resaltado es lo que se va a reconocer. Si no hay utilidades ni
     capas por letras, el panel se pliega solo (‹ / › lo pliega y despliega).</li>
 <li>Escribe en <b>Buscar capa…</b> para encontrar una capa por su nombre; los botones del ojo
     muestran u ocultan todas las capas que se ven en la lista.</li>
@@ -280,7 +291,8 @@ imagen/escaneo…</b>), pero sin capas ni reconocimiento: al final,
     ahí indicas cuáles son líneas y cuáles bóvedas (también si no estás de acuerdo con una línea que
     se reconoció por sus letras: lo que elijas ahí manda).</li>
 <li><span class="btn">Continuar e importar al editor</span> las agrega al proyecto como tuberías;
-    <span class="btn">Cancelar</span> deja el editor vacío.</li>
+    <span class="btn">Cancelar</span> deja la hoja en el editor, sin líneas (si ya tenías líneas en
+    el editor y volviste a componer, lo deja como estaba).</li>
 <li>Las líneas <b>abandonadas</b> se importan marcadas como <b>(AB)</b>: las de la capa «-A»
     con marcas «/», y cualquier línea con marcas dobles «//».</li>
 <li>Los <b>codos</b> curvos del plano se importan con su radio real, también las curvas muy
@@ -288,6 +300,13 @@ imagen/escaneo…</b>), pero sin capas ni reconocimiento: al final,
     dos curvas <b>unidas</b> sin recta entre medio (curva en «S»: un codo por curva, que se tocan en
     el punto de inflexión). Cada codo cubre toda su curva del plano, de punta a punta.
     Un codo <b>a trazos</b> es aproximado (en el plano no es un arco exacto): conviene revisarlo.</li>
+<li>En <b>eléctrico, telecomunicaciones, drenaje y alcantarillado</b> cada <b>quiebre</b> de la línea
+    (donde cambia de rumbo sin bóveda ni ramal) entra como <b>curva</b>: en obra no hay quiebres.
+    También los quiebres de una línea que el plano dibuja como un solo trazo de varias rectas.
+    Lleva el radio <b>mínimo</b> de la regla (automático: 6 veces el ancho interior de la tubería; si
+    cambias el diámetro, la curva lo sigue), así no se agranda el error del dibujo. Donde la curva
+    mínima no cabe (tramos muy cortos, o se recortaría otra curva) queda el quiebre. Agua y gas no
+    cambian: en presión el quiebre es un codo.</li>
 <li>Cada línea <b>termina donde termina su tinta</b>: si en el plano muere en el aire no se une a
     la línea vecina. Si muere en su letra (o en un hueco) justo antes del borde de la vista, llega
     hasta el <b>corte</b> del plano; en la hoja compuesta, las que cruzan la unión siguen de una
@@ -321,6 +340,10 @@ estabas trabajando, y repite los pasos 2 y 3 con la hoja nueva. Todo se guarda e
 <p>Si sigues sin cambiar nada (ni la composición, ni las capas, ni las utilidades), la vista previa
 se abre al instante con el reconocimiento anterior: queda en memoria mientras el proyecto está
 abierto. Basta un cambio en cualquiera de esos pasos para que se reconozca de nuevo.</p>
+<p>Lo que ya tienes en el editor no se pierde hasta que importas: <span class="btn">Cancelar</span> en
+cualquiera de los tres pasos (o un error al reconocer) deja el editor <b>exactamente como estaba</b>,
+con la misma hoja, sus líneas, Deshacer y los cambios sin guardar. Solo
+<span class="btn">Continuar e importar al editor</span> reemplaza lo que había.</p>
 <table width="100%" cellspacing="0" cellpadding="12"><tr>
 <td width="6" bgcolor="{{tip_border}}"></td><td bgcolor="{{tip}}">
 <b>Consejo:</b> si algo no se reconoce, siempre puedes dibujarlo a mano (capítulo siguiente).
@@ -465,7 +488,8 @@ se tocan quedan en redes separadas.
 <h2>Curvas</h2>
 <p>En la lista <b>Curvas</b> puedes convertir un quiebre en curva y darle su <b>radio</b>
 (en pies). Si el número se pone rojo, el radio no cabe en los tramos vecinos: la app te dice
-el máximo permitido.</p>
+el máximo permitido. Las curvas que salieron de un quiebre del plano dicen
+<b>Origen: quiebre del plano</b>; «Volver a tratar como buzón/caja» las quita.</p>
 </section>
 
 <section data-title="Buzones y cajas">

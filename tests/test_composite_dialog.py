@@ -472,9 +472,20 @@ def test_capas_y_preview_con_divisor(app):
         dlg._apply_side_width()
         sizes = dlg.split.sizes()
         assert 300 <= sizes[2] <= int(1000 * 0.32) + 1                 # ≤ 32 % de la ventana
-        # sin leyenda en el PDF ni capas por sus letras, el panel izquierdo queda plegado
+        # sin leyenda en el PDF: la del estándar BOE con la línea eléctrica de la hoja (2026-10-07)
+        assert not dlg.info_box.collapsed
+        assert [g.utilidad for g in dlg.info.standard_groups()] == ["ELECTRICO"]
+    finally:
+        dlg.close()
+    # sin leyenda, sin utilidades ni capas por sus letras, el panel izquierdo queda plegado
+    doc = fitz.open(); ocg = doc.add_ocg("V-ROAD-CURB", on=True)
+    page = doc.new_page(width=600, height=400); _dashed(page, (20, 200), (580, 200), ocg)
+    dlg = layer_dialog.SheetLayersDialog(None, doc, 0)
+    dlg.resize(1000, 600); dlg.show(); app.processEvents()
+    try:
+        dlg._apply_side_width()
         from widgets import CollapsiblePanel
-        assert dlg.info_box.collapsed and sizes[0] == CollapsiblePanel.STRIP_W
+        assert dlg.info_box.collapsed and dlg.split.sizes()[0] == CollapsiblePanel.STRIP_W
     finally:
         dlg.close()
 

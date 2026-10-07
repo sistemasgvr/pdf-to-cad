@@ -233,6 +233,41 @@ def test_du08_h26_te_es_electrico_y_se_reconoce():
         assert listed["N-COMM-DUCT-BANK-PL-SE"]["name_utility"] == "TELECOM"
 
 
+@needs_du08
+def test_du08_h26_diagonal_te_llega_a_la_linea_por_su_recta():
+    """Reporte del usuario (2026-10-06): la diagonal «TE» que baja a la línea de abajo
+    muere justo antes de la «TE» de esa línea. El nodo quedaba en el CENTRO de ese
+    hueco (847.8, 579.5) y la diagonal se torcía hasta 2.4 pt fuera de su tinta; va
+    al cruce de su recta con la línea (≈842.3, 579.45), dentro del hueco, y toda la
+    diagonal queda a ≤0.15 pt de su tinta (con su recta ya bien, la pasada de codos
+    reconoce además el arquito con el que nace de la horizontal)."""
+    import fitz
+    import math
+    with fitz.open(str(DU08)) as doc:
+        res = rec.recognize_page(None, 25, utility="ELECTRICO", zoom=2.0, doc=doc)
+    ink_a, ink_b = (796.14, 552.9), (836.4, 576.12)       # tramo recto de la tinta de la diagonal
+    L = math.dist(ink_a, ink_b)
+    u = ((ink_b[0] - ink_a[0]) / L, (ink_b[1] - ink_a[1]) / L)
+    off = lambda q: abs((q[0] - ink_a[0]) * u[1] - (q[1] - ink_a[1]) * u[0])  # noqa: E731
+    hits = []
+    for pl in res.drawable:
+        pts = [(x / 2.0, y / 2.0) for x, y in pl.pts_pdf]
+        for k in range(len(pts) - 1):
+            p, q = sorted(pts[k:k + 2])
+            if 788 <= p[0] <= 797 and 549 <= p[1] <= 553 and 838 <= q[0] <= 852 and 577 <= q[1] <= 582:
+                hits.append((p, q, pl.kinds[k:k + 2]))
+    assert len(hits) == 1, hits
+    p, q, _ = hits[0]
+    assert 840.0 <= q[0] <= 852.0 and abs(q[1] - 579.4) <= 0.3, q     # en el hueco, sobre la línea
+    for t in (0.0, 0.25, 0.5, 0.75, 1.0):                          # la diagonal sobre su tinta
+        s = (ink_a[0] + t * (ink_b[0] - ink_a[0]), ink_a[1] + t * (ink_b[1] - ink_a[1]))
+        v = (q[0] - p[0], q[1] - p[1])
+        w = ((s[0] - p[0]) * v[0] + (s[1] - p[1]) * v[1]) / (v[0] ** 2 + v[1] ** 2)
+        foot = (p[0] + w * v[0], p[1] + w * v[1])
+        assert math.dist(s, foot) <= 0.15, (t, s, foot)
+    assert off(q) <= 0.1, q
+
+
 @pytest.mark.skipif(not LABOE.exists(), reason="PDF de prueba LABOE no disponible")
 def test_laboe_capa_0_solo_su_linea_de_alcantarillado():
     import fitz

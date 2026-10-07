@@ -12,9 +12,12 @@ cada una de esas capas». Dos secciones:
     desmarcada, la capa vuelve a su grupo por nombre y no se reconoce por sus letras.
   · «Leyenda del plano»: las filas de la leyenda que trae el propio PDF
     (`pdf_legend`: muestra de la línea + descripción), primero las de las letras que
-    hay en esta hoja. Se lee en otro hilo (`LegendWorker`, ~4 s por PDF).
-Clic en una tarjeta o en una fila con líneas en la hoja = `focusRequested`: el
-diálogo resalta esas líneas y lleva la vista ahí (otro clic lo quita).
+    hay en esta hoja. Se lee en otro hilo (`LegendWorker`, ~4 s por PDF). Si el PDF no
+    trae leyenda (DU06), la del ESTÁNDAR BOE con las líneas de esta hoja
+    (`layer_std_legend`, pedido del usuario 2026-10-07).
+Clic en una tarjeta, una utilidad o una fila con líneas en la hoja = `focusRequested`:
+el diálogo resalta esas líneas y lleva la vista ahí; arriba queda «Resaltado: …» con
+«Ver todo» (otro clic en lo mismo también lo quita).
 """
 from __future__ import annotations
 
@@ -23,8 +26,11 @@ from typing import Dict, List, Optional
 from PySide6 import QtCore, QtGui, QtWidgets
 
 from i18n import t as _tr
+from layer_std_legend import StandardLegend
 from recognition_summary_view import utility_swatch
 from ui_common import layer_qcolor
+import leyenda_estandar as le
+import pdf_layers
 import recognition
 import recognition_letters as letters_mod
 import theme as _theme
@@ -237,8 +243,28 @@ class LayerInfoPanel(QtWidgets.QWidget):
         self._show_all = False
         self._focus_key = None
         self._cards: Dict[str, _LetterCard] = {}
+        # () -> capas con algo VISIBLE en la hoja (lo pone el diálogo); None = todas
+        self.visible_layers = None
         root = QtWidgets.QVBoxLayout(self)
         root.setContentsMargins(0, 0, 4, 0); root.setSpacing(8)
+        # ── qué se está resaltando en la hoja (solo mientras hay algo) ──
+        self.focus_bar = QtWidgets.QFrame()
+        self.focus_bar.setObjectName("focusBar")
+        t = _theme.tokens()
+        self.focus_bar.setStyleSheet(f"#focusBar {{ background:{t.surface_alt}; border:1px solid {t.border};"
+                                     " border-radius:6px; } #focusBar QLabel { background:transparent; }")
+        fb = QtWidgets.QHBoxLayout(self.focus_bar); fb.setContentsMargins(8, 4, 4, 4); fb.setSpacing(6)
+        self.lbl_focus = QtWidgets.QLabel()
+        self.lbl_focus.setWordWrap(True)
+        self.lbl_focus.setStyleSheet("font-size:11px;")
+        fb.addWidget(self.lbl_focus, 1)
+        self.btn_focus_off = QtWidgets.QToolButton()
+        self.btn_focus_off.setText(_tr("Ver todo"))
+        self.btn_focus_off.setAutoRaise(True)
+        self.btn_focus_off.clicked.connect(self._unfocus)
+        fb.addWidget(self.btn_focus_off, 0, QtCore.Qt.AlignTop)
+        self.focus_bar.hide()
+        root.addWidget(self.focus_bar)
         # ── por las letras ──
         self.sec_letters = QtWidgets.QWidget()
         sl = QtWidgets.QVBoxLayout(self.sec_letters); sl.setContentsMargins(0, 0, 0, 0); sl.setSpacing(6)
@@ -265,6 +291,11 @@ class LayerInfoPanel(QtWidgets.QWidget):
         root.addWidget(self.lbl_legend)
         self.legend_box = QtWidgets.QVBoxLayout(); self.legend_box.setSpacing(4)
         root.addLayout(self.legend_box)
+        # leyenda del ESTÁNDAR: solo si el PDF no trae una
+        self.std = StandardLegend()
+        self.std.activated.connect(self._on_std)
+        self.std.hide()
+        root.addWidget(self.std)
         root.addStretch(1)
 
     # ── datos ──
@@ -278,7 +309,7 @@ class LayerInfoPanel(QtWidgets.QWidget):
         mine = [L for L in self._layers if L.get("letter_utilities")]
         for L in mine:
             card = _LetterCard(L, L["name"] not in self._off)
-            card.toggled.connect(self.includeChanged)
+            card.toggled.connect(self._on_card_toggled)
             card.activated.connect(lambda name: self._request(("layer", name), {"layers": [name]}))
             self.cards_box.addWidget(card)
             self._cards[L["name"]] = card
@@ -301,8 +332,44 @@ class LayerInfoPanel(QtWidgets.QWidget):
 
     def clear_focus(self):
         self._focus_key = None
+        self.set_focus_status("")
+
+    def set_focus_status(self, text: str) -> None:
+        """Qué se resalta en la hoja («Resaltado: …»); vacío = nada (se oculta)."""
+        self.lbl_focus.setText(text)
+        self.focus_bar.setVisible(bool(text))
+
+    def standard_groups(self) -> list:
+        """Utilidades de la leyenda del estándar (vacía si el PDF trae leyenda)."""
+        return self.std.groups if self.std.isVisibleTo(self) else []
 
     # ── interno ──
+    def _unfocus(self):
+        self._focus_key = None
+        self.focusRequested.emit(None)
+
+    def _on_card_toggled(self, name: str, used: bool):
+        (self._off.discard if used else self._off.add)(name)
+        self.includeChanged.emit(name, used)
+        if self.std.isVisibleTo(self):              # la capa cambia de utilidad (o vuelve a su nombre)
+            if self._focus_key and self._focus_key[0] == "std":
+                self._unfocus()                     # lo resaltado era de la leyenda vieja
+            self.std.set_layers(self._std_layers())
+
+    def _std_layers(self) -> List[dict]:
+        """Capas para la leyenda del estándar: con la decisión «Usar» y solo las que se ven."""
+        layers = pdf_layers.without_letters(self._layers, self._off)
+        vis = self.visible_layers() if self.visible_layers is not None else None
+        if vis is None:
+            return layers
+        known = {L["name"] for L in layers}
+        # + las capas con trazos que no están en la lista del PDF (el reconocimiento las toma)
+        return [L for L in layers if L["name"] in vis] + [le.capa_sin_lista(n) for n in sorted(vis - known)]
+
+    def _on_std(self, spec):
+        key = ("std", spec.get("utility"), tuple(spec.get("layers") or ()), spec.get("role"))
+        self._request(key, spec)
+
     def _request(self, key, spec):
         if self._focus_key == key:
             self._focus_key = None
@@ -317,16 +384,27 @@ class LayerInfoPanel(QtWidgets.QWidget):
 
     def _fill_legend(self):
         _clear(self.legend_box)
+        self.std.hide()
+        self.lbl_legend.setToolTip("")
         if self._legend is None:
             self.lbl_legend.setText(_tr("Buscando la leyenda en el PDF…"))
             self.btn_all.hide()
             return
         rows = [(src, r) for src in self._legend for r in src["rows"]]
         if not rows:
-            self.lbl_legend.setText(_tr("Este PDF no trae una leyenda de líneas."))
+            # sin leyenda en el PDF: la del estándar BOE con las líneas de ESTA hoja
             self.btn_all.hide()
             for card in self._cards.values():
                 card.set_legend_text("")
+            self.std.set_layers(self._std_layers())
+            self.std.setVisible(bool(self.std.groups))
+            self.lbl_legend.setText(
+                _tr("Sin leyenda en el PDF: armada con el estándar BOE y las capas de esta hoja.")
+                if self.std.groups else _tr("Este PDF no trae una leyenda de líneas."))
+            self.lbl_legend.setToolTip(
+                _tr("Tipos de línea del BOE (fig. 3.1.7.1) y el estado del nombre de cada capa "
+                    "(§8.1.6). Clic en una utilidad o en una fila para verla en la hoja.")
+                if self.std.groups else "")
             return
         codes = self.sheet_codes()
         in_sheet = self._in_sheet(rows, codes)

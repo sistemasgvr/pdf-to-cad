@@ -79,6 +79,20 @@ alcantarillado, drenaje, gas, eléctrico, telecom). Todo en **unidades imperiale
     (`set_join_routes`). OJO: un parámetro NUEVO que cambie el reconocimiento se suma a
     `recognition_key`, o el caché devolvería un resultado viejo. Tests:
     `tests/test_recognition_cache.py`.
+  - `respaldo_editor.py` — **Cancelar no borra el editor** (pedido del usuario 2026-10-07: con lo
+    importado, Herramientas → «Componer hoja…» y Cancelar dejaba la hoja sin líneas: aceptar el
+    compositor recarga la hoja —`_apply_composite` → `_load_page` → `_reset_model`— ANTES de Capas y
+    de la vista previa). Si el editor tiene trabajo (`hay_trabajo`: líneas, estructuras, marcas,
+    georref…; sin él todo sigue como antes), `compose_sheet`/`compose_scan_sheet` toman `Main._respaldo` (`tomar`: PDF de
+    trabajo ABIERTO + su temporal, composición/capas, QPixmap y vista del lienzo, modelo, deshacer,
+    `_dirty_flag`/`_clean_sig`); toda salida SIN importar (compositor tras volver de Capas, Capas,
+    vista previa, error, nada que importar) → `_cancelar_asistente` → `reponer` (sin releer el PDF; la
+    huella de guardado se repone tras el `_take_clean_sig` pendiente); importar → `_soltar_respaldo`
+    (cierra el PDF viejo). Mientras hay respaldo, `_apply_composite`/`_cleanup_tmp_composite` no
+    cierran ese PDF ni borran su temporal (`lo_guarda`). OJO: un atributo NUEVO de la ventana que el
+    asistente cambie va en `respaldo_editor.CLAVES`, o «Cancelar» lo dejaría cambiado. «Ajustar
+    capas…» cancelado vuelve a la misma vista previa (caché); escaneo con la misma composición
+    (`_misma_composicion`) no recarga. Tests: `tests/test_respaldo_editor.py`.
   - `recognition.py` + `recognition_dialog.py` — asistente al abrir un PDF
     vectorial: componer hoja → capas → reconocer (perfiles Eléctrico, Drenaje, Agua y
     Alcantarillado; v1 fue eléctricas `C-ELEC-UNGD`;
@@ -415,6 +429,24 @@ alcantarillado, drenaje, gas, eléctrico, telecom). Todo en **unidades imperiale
     utilidad con «TE» al lado y tooltip. Foto 4 PDFs (141 hojas): 190 líneas en 51 hojas, 0 sin
     tinta, 0 «V», 138 codos; ajenas: solo un vértice de unión donde una línea nueva toca otra.
     Tests: `tests/test_recognition_letters.py`.
+    **Reparto por línea sin uniones falsas (2026-10-06, DU06 h.5: una línea «—W—» de agua en
+    `G-XREF` salía como telecom)**: `_link_corners` no une una punta con una línea que PASA de
+    largo por la «esquina» si la punta no llega a tocarla (`_passes_beyond`: tinta de guión sobre
+    su eje pasado ese punto), ni una punta que ya SIGUE de frente en otro trazo
+    (`_continuations`); los trazos de una letra de varios trazos («T»: dos rectas, `_letter_pairs`)
+    van juntos, no «continúan» ninguna línea y, si caen en el hueco de una continuación, van con
+    esa línea (`_link_gap_letters`). Foto de letras (141 hojas): 50 trazos cambian — letras que
+    pasan a su línea, y tres líneas que dejan de tomar la utilidad de otra (agua de `G-XREF` que
+    era telecom en DU08 h.36/37, una línea de referencia con flecha de `_Xref` que era agua en
+    DU10 h.8). **Letra en el hueco = la línea SIGUE** (núcleo, `resolve_nodes`, todas las
+    utilidades, mayúscula o minúscula): dos puntas libres que se miran (±30°, giro ≤35°) con una
+    letra del linetype en medio se unen al final de la pasada de esquinas — en el cruce de sus
+    rectas si cae delante de las dos; recta + curva: sobre la recta frente a la punta de la curva;
+    dos curvas: el centro del hueco (≤3 pt de la otra recta). Antes quedaban cortadas: dos tramos
+    «continuos» no forman esquina (DU06 h.9 «E», h.10 «SE») y la esquina de una curva caía detrás
+    de su punta (DU06 h.5 «—T—»). El quiebre suave no cose una CURVA con una recta paralela
+    desplazada (desfase que el giro no explica > `NODE_OFF_LINE_PT`; DU08 h.39, DU06 h.3).
+    Auditoría de continuidad: huecos 3 → 0. Tests: `tests/test_letra_en_el_hueco.py`.
   - `recognition_summary.py` (PURO) + `recognition_summary_view.py` +
     `recognition_review_view.py` + `recognition_layers_view.py` +
     `recognition_preview_draw.py` — resumen VISUAL de la vista previa (lo pidió el
@@ -862,7 +894,27 @@ alcantarillado, drenaje, gas, eléctrico, telecom). Todo en **unidades imperiale
     `Main._legend_cache` por PDF), primero las filas de las letras de esta hoja (`read_codes` +
     `letter_raw` de `page_layers`), «Ver toda». Clic en tarjeta o fila = resaltar (velo blanco sobre la
     hoja + trazos de esas capas con el color de su utilidad; en una capa mezclada solo los suyos, por
-    `letter_paths`) y encuadrar; otro clic lo quita. Sin capas por letras ni leyenda, se pliega solo.
+    `letter_paths`) y encuadrar; otro clic o «Ver todo» (`focus_bar` arriba del panel, «Resaltado: …»)
+    lo quita. La TARJETA resalta su capa con halo y, en línea fina, el RESTO de las líneas de su utilidad
+    que se reconocerán (2.º reporte 2026-10-07, DU06 h.5: junto a las «T» de G-XREF iban sin resaltar las
+    «t» de C-TELE-UNGD-E/-D, telecom al importar). **Sin leyenda en el PDF** (DU06) → leyenda del
+    ESTÁNDAR BOE (mismo pedido): `leyenda_estandar.py` (PURO) arma, con las capas de la hoja ya con
+    `without_letters`, un `Grupo` por utilidad y una `Fila` por (estado, abreviatura BOE) de sus líneas +
+    una de sus estructuras. Datos del manual (`Documentos/docs prueba/BOE_CADD_Manual_210610.pdf`):
+    fig. 3.1.7.1-1/-2 «Utility Linetypes» (`LINETYPES`: ELEC, HV ELEC, NGAS, PW, FPW, IRR, SSWR, SD,
+    TEL, FO; `STRUCTURES`: ELECTRICAL VAULTS, SSMH, SDMH; propuesta ≤12" = línea continua) y §8.1.6
+    estados (`estado_capa`: letra de estado del nombre NCS sin la disciplina ni el paquete «__UA4»; si no,
+    PROP/EXIST/ABND en el nombre o en el xref; si no, la caja de sus letras: MAYÚSCULA = propuesta).
+    `rol_capa`/`es_trazo_de` deciden qué capa —y en una capa mezclada qué trazo— es línea/estructura de
+    cada utilidad IGUAL que `recognition.line_selectors`, y solo lo VISIBLE: `trazos_visibles` (una
+    pasada de `get_drawings(extended=True)`: mismos recortes y vistas de perfil que `gather_paths`,
+    solo las capas de utilidad, atajo para clips rectangulares; 0.5–1.3 s) da (original, recortado):
+    se decide con el original (`letter_paths` se leyó sobre él) y se dibuja lo recortado; la leyenda
+    lista solo capas con algo visible (`LayerInfoPanel.visible_layers`). Capas con trazos que NO están
+    en la lista del PDF (`layer_ui_configs`; DU06 h.2 `…(A2_TRIM)|V-ELEC-MANH`): por su nombre
+    (`capa_sin_lista`), como el reconocimiento. Auditado: mismas capas en las 141 hojas × 6 utilidades. UI `layer_std_legend.py` (`StandardLegend`: cabecera = toda la utilidad, fila = esas
+    capas; `LineSample` dibuja la muestra: a trazos/continua, letras leídas, «//» a demoler). Sin
+    utilidades, capas por letras ni leyenda, el panel se pliega solo. Tests: `tests/test_leyenda_estandar.py`.
     `pdf_legend` (sin Qt): hojas con LEGEND/LEYENDA ordenadas por filas «EXISTING/PROPOSED…» (máx. 3);
     fila = texto con una muestra HORIZONTAL (≤12 pt de alto, ≥60 pt de largo) contigua a su izquierda;
     solo columnas de ≥3 filas a PASO REGULAR (tolera filas sin leer: paso ×2/×3) con letras en ≥30 %:
@@ -950,6 +1002,29 @@ alcantarillado, drenaje, gas, eléctrico, telecom). Todo en **unidades imperiale
     Base + cada `XD_*` (sin prefijo) y `XDU_*` («Usuario_…») de la estructura; la
     definición se amplía sola con los campos que falten.
     `Main` delega y solo asigna/dibuja.
+  - `quiebres_curvas.py` (PURO) — **los quiebres del plano son curvas** (regla de los ingenieros,
+    pedido del usuario 2026-10-06 con una línea eléctrica de dos quiebres): en gravedad y conduit (agua y
+    gas NO: en presión el quiebre es un codo) `Main._import_recognized_pipes` llama
+    `curvas_en_quiebres(indices=las tuberías nuevas)` después de `attach_fillets`. Cada vértice
+    `bend`/`corner` —y `curve` que quedó SIN codo (2.º reporte 2026-10-07, DU06 h.5 eléctrico: una línea
+    dibujada como UN trazo de tres rectas, el núcleo la marcó «curve»; o curva que quedó como polilínea)—
+    con giro > `GIRO_MIN_DEG`=2° pasa a CV con radio AUTOMÁTICO (`radius_ft`=0 →
+    `model_ops.radio_auto_ft` = 6 × diam, el mismo del editor y del plugin: el mínimo de la regla, la curva
+    más chica; sigue al diámetro) y la marca `quiebre` (panel «Origen: quiebre del plano»;
+    `rebuild_structures` la conserva, «Volver a tratar como buzón/caja» la quita). Solo si entra tal cual la
+    dibujan editor y plugin: sin recorte con los topes 1.0/0.48, sin cambiar ninguna curva vecina (con una
+    curva al lado el tope de un codo de la tinta baja a 0.48: se compara su `fillet_geo` antes/después) y con
+    el tramo recto mínimo del plugin entre dos curvas seguidas (1 × ancho, ×`HOLGURA_RECTO`=1.1); primero los
+    que más giran. No en un vértice compartido (otro vértice a ≤14 px; en gravedad tampoco de la misma
+    tubería, su buzón se reconcilia por coordenada), junto a una estructura visible ni dentro de una bóveda.
+    Lo que no entra queda como quiebre y lo cuenta el mensaje de la importación. Foto (simulación de la
+    importación a zoom 3.5, 4 PDFs × 4 utilidades): 531 curvas (eléctrico 265, telecom 208, drenaje 32,
+    alcantarillado 26; con los `curve` sin codo 613: eléctrico 316, telecom 238, drenaje 33, alcantarillado
+    26, 0 recortadas), 0 curvas existentes cambian, 0 pares sin recto mínimo; sin lugar 300 (310): 205 en la
+    punta de un codo de la tinta cuyo arco llega justo al quiebre (la curva del plano sigue y el
+    reconocimiento no la cubrió entera: es otro problema), tramos < 3 pt y esquinas de 90° con tramos más
+    cortos que T. Tests: `tests/test_quiebres_curvas.py`,
+    `tests/test_curvas_editor.py::test_quiebre_del_plano_entra_como_curva_minima` (ventana real → DXF).
   - **Normativas de diseño** (2026-09-30): `normativas.py` (PURO) = motor escalable: `TIPOS` (tipo de
     regla: categoría, `Campo`s que la ventana dibuja sola —`grados_lista|grados|pies|utilidades`— y
     `verificar(regla, Contexto) -> Resultado`), `REGLAS_BASE` (valores iniciales AWWA: codos
@@ -1218,7 +1293,17 @@ alcantarillado, drenaje, gas, eléctrico, telecom). Todo en **unidades imperiale
     las líneas»)**: `precise_junctions` — un ramal que muere en el HUECO del linetype de
     una línea que sigue de frente (nodo «bend» en el centro del hueco) lleva el nodo al
     CRUCE de las rectas si cae en el hueco ±`JUNCTION_GAP_SLACK_PT`=2 (DU06 h.13: laterales
-    2 pt inclinados); `continuation_before_vault` — una punta cuya continuación de
+    2 pt inclinados). Desde 2026-10-06 (reporte del usuario, DU08 h.26: la diagonal «TE» iba
+    hasta 2.4 pt fuera de su tinta hasta el centro del hueco de la «TE» de abajo) el cruce vale
+    en TODAS las utilidades, pero solo para un ramal RECTO que ya se unía a ese nodo y cuya
+    recta pasa a >`JUNCTION_TILT_MIN_PT`=0.25 pt del punto medio (mismas uniones; un ramal casi
+    paralelo ya está sobre su recta y correrlo cambió una ruta en el filo de 35° en DU08 h.25;
+    la tangente de una CURVA no sirve: DU10 h.19 perdía dos codos). Foto 6 utilidades × 4
+    PDFs (`scripts/audit_perfil.py`): solo se mueven esos nodos (0.5–5.5 pt), en eléctrico,
+    telecom, agua y gas; imprecisos 64 → 57 (eléctrico 33 → 29, agua 7 → 5, gas 1 → 0), sin
+    tinta y «V» iguales, codos 1250 → 1254 (DU08 h.25/26: el arquito donde la diagonal nace de
+    la horizontal); dibujado→tinta p90 igual o mejor (telecom DU08 h.40 neutro). Tests:
+    `test_ramal_que_muere_en_el_hueco_llega_por_su_recta`, `test_du08_h26_diagonal_te_…`; `continuation_before_vault` — una punta cuya continuación de
     frente está más cerca que el borde de la bóveda no salta a la bóveda (DU08 h.36: el
     guión del medio de una curva se estiraba ENCIMA del siguiente → dos tramos
     superpuestos); `OUTLINE_AXIS_UTILITIES` + `outline_axis_paths`: rectángulo delgado

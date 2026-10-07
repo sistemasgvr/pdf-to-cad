@@ -229,8 +229,20 @@ editor</span> leaves it as the background to draw by hand.</p>
     recognized by its letters (the decision is saved in the project). Below, <b>Plan legend</b> shows
     the legend that comes in the PDF itself (each line's sample and its description), the lines on
     this sheet first; <b>See all</b> shows the rest. Clicking a card or a row highlights those lines
-    on the sheet and zooms in; another click shows everything again. If the PDF has no legend and
-    there are no layers by letters, the panel collapses by itself (‹ / › collapses and expands it).</li>
+    on the sheet and zooms in; another click (or <b>Show all</b>, at the top of the panel) shows
+    everything again. A card of a layer by letters highlights its lines with a halo and, as a thin
+    line, <b>the rest of that utility's lines</b> that will be recognized (for example, next to the «T»
+    of G-XREF, the «t» of C-TELE-UNGD-E).</li>
+<li><b>No legend in the PDF</b> (DU06): the <b>Plan legend</b> is built from the <b>BOE standard</b>
+    (the «BOE CADD Standards» manual: each utility's linetypes and the status in each layer name —E
+    existing, D to demolish, A abandoned, N new—) and the sheet's layers: per utility, its
+    abbreviation (TEL, ELEC, PW, SSWR, SD, NGAS…) and one row per kind of line with its sample
+    —dashed if existing, continuous if proposed, with the letters read and «//» if it is to be
+    demolished— plus its structures. If the name has no status, its letters say it: UPPERCASE =
+    proposed, lowercase = existing. Clicking the utility highlights all its lines and structures;
+    a row, only those layers: what is highlighted is what will be recognized. If there are no
+    utilities and no layers by letters, the panel collapses by itself (‹ / › collapses and
+    expands it).</li>
 <li>Type in <b>Search layer…</b> to find a layer by name; the eye buttons show or hide all the
     layers visible in the list.</li>
 <li><b>Opacity</b> lightens the plan (and switches the background to white or black), just like in
@@ -277,7 +289,8 @@ editor</span> leaves it as the background to draw by hand.</p>
     there you say which are lines and which are vaults (also if you disagree with a line that was
     recognized by its letters: what you choose there rules).</li>
 <li><span class="btn">Continue and import into the editor</span> adds them to the project as
-    pipes; <span class="btn">Cancel</span> leaves the editor empty.</li>
+    pipes; <span class="btn">Cancel</span> leaves the sheet in the editor, without lines (if you
+    already had lines in the editor and came back to compose, it leaves it as it was).</li>
 <li><b>Abandoned</b> lines are imported marked <b>(AB)</b>: those on the «-A» layer with «/»
     marks, and any line with double «//» marks.</li>
 <li>Curved <b>bends</b> on the plan are imported with their real radius, including very open
@@ -285,6 +298,14 @@ editor</span> leaves it as the background to draw by hand.</p>
     <b>joined</b> with no straight segment between them (an «S» curve: one bend per curve, touching
     at the inflection point). Each bend covers its whole curve on the plan, end to end.
     A <b>dashed</b> bend is approximate (on the plan it is not an exact arc): check it.</li>
+<li>In <b>electrical, telecommunications, storm drain and sewer</b> every <b>kink</b> of the line
+    (where it changes direction with no vault or branch) is imported as a <b>curve</b>: there are
+    no kinks in the field (also the kinks of a line that the plan draws as a single stroke of
+    several straight pieces). It gets the <b>minimum</b> radius of the rule (automatic: 6 times the
+    pipe's inside width; if you change the diameter, the curve follows it), so the drawing error
+    does not grow. Where the minimum curve does not fit (very short segments, or another curve
+    would be trimmed) the kink stays. Water and gas do not change: in a pressure network a kink is
+    a fitting bend.</li>
 <li>Each line <b>ends where its ink ends</b>: if on the plan it stops in mid-air it is not joined
     to the neighboring line. If it stops at its letter (or at a gap) right before the edge of the
     view, it reaches the plan's <b>cut</b>; on a composite sheet, lines that cross the seam still
@@ -319,6 +340,10 @@ working on, and repeats steps 2 and 3 with the new sheet. Everything is saved in
 <p>If you continue without changing anything (not the composition, the layers or the utilities),
 the preview opens instantly with the previous recognition: it stays in memory while the project
 is open. Any change in those steps is enough for the sheet to be recognized again.</p>
+<p>What you already have in the editor is not lost until you import: <span class="btn">Cancel</span>
+in any of the three steps (or an error while recognizing) leaves the editor <b>exactly as it
+was</b>, with the same sheet, its lines, Undo and unsaved changes. Only
+<span class="btn">Continue and import into the editor</span> replaces what was there.</p>
 <table width="100%" cellspacing="0" cellpadding="12"><tr>
 <td width="6" bgcolor="{{tip_border}}"></td><td bgcolor="{{tip}}">
 <b>Tip:</b> if something is not recognized, you can always draw it by hand (next chapter).
@@ -463,7 +488,8 @@ not touch go into separate networks.
 <h2>Curves</h2>
 <p>In the <b>Curves</b> list you can turn a bend into a curve and set its <b>radius</b> (in
 feet). If the number turns red, the radius does not fit the neighboring segments: the app
-shows the maximum allowed.</p>
+shows the maximum allowed. Curves that came from a kink in the plan show
+<b>Source: kink in the plan</b>; «Treat as manhole/box again» removes them.</p>
 </section>
 
 <section data-title="Manholes and boxes">

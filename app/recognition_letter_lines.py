@@ -31,6 +31,7 @@ CONTINUITY_DEG = 30.0    # dos guiones de una curva se miran de frente con hasta
 CONTINUITY_BACK_PT = 2.0  # …y el rumbo de cada punta se toma con sus últimos 2 pt
 MARKER_MAX_PT = 18.0     # barra «/» (= `geom.MARKER_MAX_LEN_PT`)…
 MARKER_ATTACH_PT = 1.5   # …que cruza un guión a ≤ esto de su centro: es de esa línea
+LETTER_TOUCH_PT = 0.5    # dos trazos chicos que se tocan (la punta de uno sobre el otro) = la misma letra
 SITE_PT = 10.0           # lecturas a ≤ esto una de otra = el MISMO sitio (copias superpuestas)
 LINE_INK_MIN_PT = 3.0    # tinta «de línea» para la cobertura del reparto (sin letras ni astillas)
 LINE_SHARE = 0.6         # una línea es del código que tiene ≥60 % de sus sitios
@@ -196,59 +197,142 @@ def _link_touching(chains, skip, uf):
                 uf.join(who[k], who[m])
 
 
-def _link_corners(ends, uf):
+def _dash_segments(chains):
+    """Tramos de guión (≥`DASH_MIN_PT`) y su rejilla, para saber por dónde PASA una línea."""
+    segs = [(a, b) for ch in chains for a, b in zip(ch, ch[1:]) if math.dist(a, b) >= DASH_MIN_PT]
+    grid = defaultdict(list)
+    for si, (a, b) in enumerate(segs):
+        for gx in range(int(min(a[0], b[0]) // GAP_MAX_PT), int(max(a[0], b[0]) // GAP_MAX_PT) + 1):
+            for gy in range(int(min(a[1], b[1]) // GAP_MAX_PT), int(max(a[1], b[1]) // GAP_MAX_PT) + 1):
+                grid[(gx, gy)].append(si)
+    return segs, grid
+
+
+def _passes_beyond(segs, grid, q, w, t) -> bool:
+    """¿La línea del guión que termina en `q` (rumbo `w`) SIGUE pasado el punto
+    X = q + t·w? Hay tinta de guión sobre su eje (±`AXIS_TOL_PT`, mismo rumbo) más allá
+    de X que empieza a menos de un hueco: X cae sobre un guión suyo o en su hueco."""
+    X = (q[0] + w[0] * t, q[1] + w[1] * t)
+    seen = set()
+    for si in _near(grid, X, GAP_MAX_PT):
+        if si in seen:
+            continue
+        seen.add(si)
+        a, b = segs[si]
+        L = math.dist(a, b)
+        if abs((b[0] - a[0]) * w[0] + (b[1] - a[1]) * w[1]) < PARALLEL_COS * L:
+            continue
+        if any(abs((c[1] - q[1]) * w[0] - (c[0] - q[0]) * w[1]) > AXIS_TOL_PT for c in (a, b)):
+            continue
+        ta = (a[0] - q[0]) * w[0] + (a[1] - q[1]) * w[1]
+        tb = (b[0] - q[0]) * w[0] + (b[1] - q[1]) * w[1]
+        if max(ta, tb) > t + TOUCH_PT and min(ta, tb) <= t + GAP_MAX_PT:
+            return True
+    return False
+
+
+def _link_corners(ends, uf, chains=None, cont=None):
     """Une dos guiones cuyas puntas forman ESQUINA (las rectas se cortan a ≤`GAP_MAX_PT`
     por delante de ambas): AutoCAD reinicia el patrón en cada vértice y a veces el
-    tramo termina en un hueco, así que la línea no se toca en el vértice."""
+    tramo termina en un hueco, así que la línea no se toca en el vértice.
+    No es esquina si una de las dos líneas PASA de largo por ese punto y la otra punta
+    no llega a tocarla, ni con una punta que ya SIGUE de frente en otro trazo (`cont`):
+    DU06 h.5, una línea de agua «—W—» en `G-XREF` que termina antes de dos líneas «—T—»
+    —una vertical que pasa de largo y una diagonal que sigue por su «T» hacia una
+    curva— se volvía telecom (lo reportó el usuario). Una T de verdad —la punta llega a
+    la línea que pasa— sí se une."""
     grid = _grid([e[0] for e in ends], GAP_MAX_PT)
     min_sin = math.sin(math.radians(CORNER_MIN_DEG))
-    for k, (p, u, ck, _t) in enumerate(ends):
+    segs, sgrid = _dash_segments(chains) if chains is not None else ([], {})
+    cont = cont or {}
+    for k, (p, u, ck, tk) in enumerate(ends):
         for m in _near(grid, p, GAP_MAX_PT):
-            q, w, cm, _tm = ends[m]
+            q, w, cm, tm = ends[m]
             if m <= k or cm == ck:
                 continue
+            if cont.get((ck, tk), (cm,))[0] != cm or cont.get((cm, tm), (ck,))[0] != ck:
+                continue                      # una de las dos ya sigue de frente en otro trazo
             den = u[0] * w[1] - u[1] * w[0]
             if abs(den) < min_sin:
                 continue                      # casi paralelas: eso es un hueco, no una esquina
             vx, vy = q[0] - p[0], q[1] - p[1]
             s = (vx * w[1] - vy * w[0]) / den
             t = (vx * u[1] - vy * u[0]) / den
-            if -0.5 <= s <= GAP_MAX_PT and -0.5 <= t <= GAP_MAX_PT:
-                uf.join(ck, cm)
+            if not (-0.5 <= s <= GAP_MAX_PT and -0.5 <= t <= GAP_MAX_PT):
+                continue
+            if segs and ((s > TOUCH_PT and _passes_beyond(segs, sgrid, q, w, t))
+                         or (t > TOUCH_PT and _passes_beyond(segs, sgrid, p, u, s))):
+                continue                      # una pasa de largo y la otra no la toca
+            uf.join(ck, cm)
 
 
-def _link_continuity(chains, skip, uf):
-    """Une dos trazos que siguen la MISMA línea a través de un hueco aunque no sean
-    colineales: en una curva a guiones cada guión gira un poco y sus puntas ya no
-    están sobre una misma recta (DU06 h.4 `U-Rearr-Tel`, esquina redondeada «—T—»).
-    Puntas enfrentadas (±`CONTINUITY_DEG`) a ≤`GAP_MAX_PT`, la otra cerca de la
-    prolongación de la primera (desvío ≤ 0.6 pt + 25 % de la distancia)."""
+def _continuations(chains, skip):
+    """(cadena, ¿es su punta final?) → (la cadena que la CONTINÚA de frente a través de un
+    hueco, punta, punta de la otra) (ver `_link_continuity`)."""
     ends = []
     for ci, ch in enumerate(chains):
         if ci in skip:
             continue
-        for pts in (ch, ch[::-1]):
+        for pts, last in ((ch, True), (ch[::-1], False)):
             P = pts[-1]
             back = next((q for q in reversed(pts[:-1]) if math.dist(P, q) >= CONTINUITY_BACK_PT), None)
             if back is None:
                 continue                          # trazo de menos de 2 pt: no da rumbo
             L = math.dist(P, back)
-            ends.append((P, ((P[0] - back[0]) / L, (P[1] - back[1]) / L), ci))
+            ends.append((P, ((P[0] - back[0]) / L, (P[1] - back[1]) / L), ci, last))
     grid = _grid([e[0] for e in ends], GAP_MAX_PT)
     cos_lim = math.cos(math.radians(CONTINUITY_DEG))
-    for p, u, ci in ends:
+    out = {}
+    for p, u, ci, last in ends:
         best = None
         for m in _near(grid, p, GAP_MAX_PT):
-            q, w, cj = ends[m]
+            q, w, cj, _l = ends[m]
             if cj == ci or u[0] * w[0] + u[1] * w[1] > -cos_lim:
                 continue
             vx, vy = q[0] - p[0], q[1] - p[1]
             along = vx * u[0] + vy * u[1]
             if 0.0 < along <= GAP_MAX_PT and abs(vy * u[0] - vx * u[1]) <= 0.6 + 0.25 * along:
                 if best is None or along < best[0]:
-                    best = (along, cj)
+                    best = (along, cj, q)
         if best is not None:
-            uf.join(ci, best[1])
+            out[(ci, last)] = (best[1], p, best[2])
+    return out
+
+
+def _link_gap_letters(chains, cont, uf):
+    """Las letras que caen en el hueco de una continuación (`_continuations`: la línea
+    sigue por una curva o gira en su rótulo) van con la línea, como las de un hueco recto
+    (`group_members`): la «T» entre la diagonal y la curva de DU06 h.5."""
+    cell = 2 * TEXT_HALF_PT
+    grid = defaultdict(list)
+    for ci, ch in enumerate(chains):
+        xs = [q[0] for q in ch]; ys = [q[1] for q in ch]
+        if max(max(xs) - min(xs), max(ys) - min(ys)) <= geom.GLYPH_MAX_DIM_PT:
+            grid[(int(xs[0] // cell), int(ys[0] // cell))].append(ci)
+    for (ci, _last), (cj, p, q) in cont.items():
+        L = math.dist(p, q)
+        if L < 1e-6:
+            continue
+        u = ((q[0] - p[0]) / L, (q[1] - p[1]) / L)
+        mid = ((p[0] + q[0]) / 2.0, (p[1] + q[1]) / 2.0)
+        for gx in range(int((mid[0] - L) // cell) - 1, int((mid[0] + L) // cell) + 2):
+            for gy in range(int((mid[1] - L) // cell) - 1, int((mid[1] + L) // cell) + 2):
+                for lk in grid.get((gx, gy), ()):
+                    if lk in (ci, cj):
+                        continue
+                    loc = to_local(chains[lk], p, u)
+                    if all(-0.5 <= x <= L + 0.5 and abs(y) <= TEXT_HALF_PT for x, y in loc):
+                        uf.join(ci, lk)
+
+
+def _link_continuity(chains, skip, uf, cont=None):
+    """Une dos trazos que siguen la MISMA línea a través de un hueco aunque no sean
+    colineales: en una curva a guiones cada guión gira un poco y sus puntas ya no
+    están sobre una misma recta (DU06 h.4 `U-Rearr-Tel`, esquina redondeada «—T—»).
+    Puntas enfrentadas (±`CONTINUITY_DEG`) a ≤`GAP_MAX_PT`, la otra cerca de la
+    prolongación de la primera (desvío ≤ 0.6 pt + 25 % de la distancia)."""
+    for (ci, _last), (cj, _p, _q) in (_continuations(chains, skip) if cont is None else cont).items():
+        uf.join(ci, cj)
 
 
 def _link_markers(chains, skip, uf):
@@ -279,6 +363,33 @@ def _link_markers(chains, skip, uf):
                 break
 
 
+def _letter_pairs(chains):
+    """Pares de trazos de UNA misma letra: dos trazos chicos (caben en una letra) donde la
+    punta de uno toca al otro (≤`LETTER_TOUCH_PT`). La «T» del linetype son dos trazos
+    rectos —el asta nace en el medio del travesaño—: ninguno es un guión de la línea."""
+    small = []
+    for ci, ch in enumerate(chains):
+        xs = [q[0] for q in ch]; ys = [q[1] for q in ch]
+        if max(max(xs) - min(xs), max(ys) - min(ys)) <= geom.GLYPH_MAX_DIM_PT:
+            small.append(ci)
+    cell = geom.GLYPH_MAX_DIM_PT
+    grid = defaultdict(list)
+    for ci in small:
+        c = chains[ci][0]
+        grid[(int(c[0] // cell), int(c[1] // cell))].append(ci)
+
+    def touches(a, b):
+        return any(geom._pt_seg_dist(e, s0, s1) <= LETTER_TOUCH_PT
+                   for e in (chains[a][0], chains[a][-1]) for s0, s1 in zip(chains[b], chains[b][1:]))
+    pairs = []
+    for ci in small:
+        c = chains[ci][0]
+        for cj in _near(grid, c, cell):
+            if cj > ci and (touches(ci, cj) or touches(cj, ci)):
+                pairs.append((ci, cj))
+    return pairs
+
+
 def split_by_line(paths, chains, owner, ends, found_gaps, touching, members_by_gap, readings,
                   utility_of: Callable[[str], Optional[str]]) -> Tuple[Dict[tuple, str], float]:
     """Utilidad de cada trazo (clave `path_key`) según las letras de SU línea, y la
@@ -295,9 +406,17 @@ def split_by_line(paths, chains, owner, ends, found_gaps, touching, members_by_g
     for ca, cb in touching:
         uf.join(ca, cb)
     _link_touching(chains, members, uf)
-    _link_corners(ends, uf)
-    _link_continuity(chains, members, uf)
+    # Los trazos de una letra de varios trazos («T») van juntos y con la línea de su
+    # hueco, pero no son guiones: no «continúan» ninguna línea (el asta de la «T» de
+    # DU06 h.5 seguía a una línea de agua 37 pt más allá y la volvía telecom).
+    letter_pairs = _letter_pairs(chains)
+    cont = _continuations(chains, members | {c for pair in letter_pairs for c in pair})
+    _link_corners(ends, uf, chains, cont)
+    _link_continuity(chains, members, uf, cont)
+    _link_gap_letters(chains, cont, uf)
     _link_markers(chains, members, uf)
+    for ci, cj in letter_pairs:
+        uf.join(ci, cj)
     votes = defaultdict(lambda: defaultdict(list))
     for ca, site, code, overhead in readings:
         votes[uf.find(ca)]["(OH)" if overhead else code].append(site)

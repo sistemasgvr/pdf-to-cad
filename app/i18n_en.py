@@ -109,6 +109,90 @@ EN: dict[str, str] = {
         "Looking for the legend in the PDF…",
     "Este PDF no trae una leyenda de líneas.":
         "This PDF has no line legend.",
+    "Sin leyenda en el PDF: armada con el estándar BOE y las capas de esta hoja.":
+        "No legend in the PDF: built from the BOE standard and this sheet's layers.",
+    "Tipos de línea del BOE (fig. 3.1.7.1) y el estado del nombre de cada capa (§8.1.6). Clic en una utilidad o en una fila para verla en la hoja.":
+        "BOE linetypes (fig. 3.1.7.1) and the status in each layer name (§8.1.6). Click a utility or a row to see it on the sheet.",
+    "Resaltado: {what}":
+        "Highlighted: {what}",
+    "Leyendo las líneas de la hoja…":
+        "Reading the sheet's lines…",
+    "{capa} con halo; en línea fina, el resto de {u}":
+        "{capa} with a halo; thin line, the rest of {u}",
+    "{what} · {n} capas":
+        "{what} · {n} layers",
+    "{capa} (por sus letras)":
+        "{capa} (by its letters)",
+    "{capas} y {n} más":
+        "{capas} and {n} more",
+    "Capas: {capas}":
+        "Layers: {capas}",
+    "Estado «{c}» del nombre de la capa (BOE §8.1.6).":
+        "Status «{c}» from the layer name (BOE §8.1.6).",
+    "Estado tomado del nombre del xref de la capa.":
+        "Status taken from the name of the layer's xref.",
+    "El nombre no dice el estado: letras en MAYÚSCULA = propuesta, en minúscula = existente (leyendas de los planos).":
+        "The name has no status: UPPERCASE letters = proposed, lowercase = existing (plan legends).",
+    "«{m}» sobre la línea = a abandonar / abandonada.":
+        "«{m}» on the line = to be abandoned / abandoned.",
+    "Propuesta: línea continua (BOE fig. 3.1.7.1-2).":
+        "Proposed: continuous line (BOE fig. 3.1.7.1-2).",
+    "Letras leídas: {l}":
+        "Letters read: {l}",
+    "Estándar BOE: {a} — {en} ({es}).":
+        "BOE standard: {a} — {en} ({es}).",
+    "Clic: ver estas líneas en la hoja (otro clic, ver todo).":
+        "Click: see these lines on the sheet (click again to see everything).",
+    "Clic: ver en la hoja todas sus líneas y estructuras (otro clic, ver todo).":
+        "Click: see all its lines and structures on the sheet (click again to see everything).",
+    "Eléctrico de alta tensión (4160 V o más)":
+        "High voltage electrical (4160 V and up)",
+    "Eléctrico de baja tensión":
+        "Low voltage electrical",
+    "Gas natural":
+        "Natural gas",
+    "Agua contra incendios":
+        "Fire protection water",
+    "Riego":
+        "Irrigation",
+    "Agua potable":
+        "Potable water",
+    "Alcantarillado sanitario":
+        "Sanitary sewer",
+    "Drenaje pluvial":
+        "Storm drain",
+    "Fibra óptica":
+        "Fiber optic",
+    "Teléfono / comunicaciones":
+        "Telephone / communications",
+    "Bóvedas eléctricas":
+        "Electrical vaults",
+    "Buzones de alcantarillado":
+        "Sanitary sewer manholes",
+    "Buzones de drenaje":
+        "Storm drain manholes",
+    "Estructuras (bóvedas, buzones)":
+        "Structures (vaults, manholes)",
+    "Existente":
+        "Existing",
+    "Existente a demoler":
+        "Existing to demolish",
+    "Abandonada":
+        "Abandoned",
+    "A retirar":
+        "To be removed",
+    "Nueva (propuesta)":
+        "New (proposed)",
+    "Temporal":
+        "Temporary",
+    "Futura":
+        "Future",
+    "Fuera de contrato":
+        "Not in contract",
+    "Fase {n}":
+        "Phase {n}",
+    "Sin estado en el nombre":
+        "No status in the name",
     "hoja {n}":
         "sheet {n}",
     "hojas {n}":
@@ -425,6 +509,7 @@ EN: dict[str, str] = {
     "Rotación (°):": "Rotation (°):",
     "Excel": "Excel",
     "dibujo": "drawing",
+    "quiebre del plano (radio mínimo)": "kink in the plan (minimum radius)",
 
     # ── Menú contextual / acciones sobre selección ────────────────────
     "Oculto — no se dibuja ni se crea en Civil3D como buzón real.":
@@ -906,6 +991,14 @@ EN: dict[str, str] = {
         "Open a PDF to compose its work sheet.",
     "Composición cancelada — se mantiene la hoja actual.":
         "Composition cancelled — the current sheet is kept.",
+    "Composición cancelada — el editor queda como estaba.":
+        "Composition cancelled — the editor is left as it was.",
+    "Reconocimiento cancelado — el editor queda como estaba.":
+        "Recognition cancelled — the editor is left as it was.",
+    "La hoja compuesta no cambió — el editor queda como estaba.":
+        "The composite sheet did not change — the editor is left as it was.",
+    "No hay tramos reconocidos para importar — el editor queda como estaba.":
+        "There are no recognized segments to import — the editor is left as it was.",
     "Organizar hojas":
         "Arrange sheets",
     "Abre un PDF para organizar sus hojas.":
@@ -940,6 +1033,10 @@ EN: dict[str, str] = {
         "No changes to the sheet or its layers: the previous recognition is reused.",
     "Codos como esquina + radio (CV): {c}.":
         "Bends as corner + radius (CV): {c}.",
+    "Quiebres como curva de radio mínimo: {q}.":
+        "Kinks as curves with the minimum radius: {q}.",
+    "Quiebres sin lugar para la curva mínima (tramos cortos), quedan como quiebre: {s}.":
+        "Kinks with no room for the minimum curve (short segments), left as kinks: {s}.",
     "Página {n} cargada.":
         "Page {n} loaded.",
     "Guardando proyecto…":
