@@ -18,20 +18,26 @@ Qué capas —y, en una capa mezclada, qué trazos— son de cada utilidad lo de
 igual que el reconocimiento (`recognition.classify_ocg` por el nombre; por las letras, el
 reparto de `recognition.letter_uses`, ya con la decisión «Usar» del usuario aplicada por
 `pdf_layers.without_letters`): lo que se resalta al hacer clic es lo que se reconocerá.
+
+2.º reporte (2026-10-07, DU08 h.26, «ubicarlas e interpretarlas, en todas las
+utilidades»): la leyenda por utilidad sale SIEMPRE, también si el PDF trae la suya; cada
+fila es un código de letras («E», «TE», «SE» por separado) con la descripción de la
+leyenda del PDF que le corresponde (`leyenda_cruce`), y las líneas AÉREAS («e(oh)»,
+`C-ELEC-OVHD`) tienen su fila: se ven en el filtro, pero no se reconocen.
 """
 from __future__ import annotations
 
 import re
 from dataclasses import dataclass, field
-from typing import Callable, Dict, Iterable, List, Optional, Tuple
+from typing import Callable, Dict, Iterable, List, Optional, Sequence, Tuple
 
 from i18n_core import N_
+import leyenda_cruce as cruce
 import pdf_layers
 import recognition
-import recognition_geom as geom
 import recognition_letters as letters_mod
 
-LINE, STRUCTURE = "line", "structure"
+LINE, STRUCTURE, OVERHEAD = "line", "structure", "overhead"     # OVERHEAD: aérea, no se reconoce
 
 # Fig. 3.1.7.1-1/-2 «UNDERGROUND UTILITY LINETYPES»: (abreviatura, nombre en el manual,
 # nombre en la app, utilidad, tokens del nombre de capa que la eligen). Sin tokens = la
@@ -68,7 +74,7 @@ PHASE = N_("Fase {n}")
 NO_STATUS = N_("Sin estado en el nombre")
 
 # De dónde salió el estado (para el tooltip).
-FROM_NAME, FROM_XREF, FROM_LETTERS = "name", "xref", "letters"
+FROM_NAME, FROM_XREF, FROM_LEGEND, FROM_LETTERS = "name", "xref", "legend", "letters"
 _EXIST_TOKENS = ("EXIST", "EXST", "EXISTING")
 _PROP_TOKENS = ("PROP", "PROPOSED")
 _ABAND_TOKENS = ("ABND", "ABAN", "ABANDON", "ABANDONED")
@@ -78,13 +84,15 @@ _ABAND_TOKENS = ("ABND", "ABAN", "ABANDON", "ABANDONED")
 class Fila:
     """Una entrada de la leyenda: un tipo de línea (o las estructuras) de una utilidad."""
     utilidad: str
-    rol: str                                   # LINE | STRUCTURE
+    rol: str                                   # LINE | STRUCTURE | OVERHEAD
     estado: str = ""                           # código §8.1.6 o ""
-    origen: str = ""                           # FROM_NAME | FROM_XREF | FROM_LETTERS | ""
+    origen: str = ""                           # FROM_NAME | FROM_XREF | FROM_LEGEND | FROM_LETTERS | ""
     abbr: str = ""                             # abreviatura BOE (TEL, ELEC…)
+    code: str = ""                             # código de sus letras («E», «TE»), "" sin letras
     capas: List[str] = field(default_factory=list)       # nombres completos
     letras: List[str] = field(default_factory=list)      # letras leídas, con su caja («t», «T»)
     por_letras: bool = False                   # alguna capa entra por las letras de su línea
+    pdf: List[int] = field(default_factory=list)         # filas de la leyenda del PDF que la describen
 
     @property
     def marcas(self) -> str:
@@ -98,7 +106,7 @@ class Fila:
 
     @property
     def clave(self) -> tuple:
-        return (self.utilidad, self.rol, self.estado, self.abbr)
+        return (self.utilidad, self.rol, self.estado, self.code, self.abbr)
 
 
 @dataclass
@@ -124,7 +132,8 @@ class Grupo:
 # ── qué es cada capa para el reconocimiento ──────────────────────────────────
 def rol_capa(L: dict, utilidad: str) -> Tuple[Optional[str], bool]:
     """Cómo entra la capa `L` (de `pdf_layers.page_layers`, ya con `without_letters`)
-    en el reconocimiento de `utilidad`: (rol, por_trazo). `rol` = LINE, STRUCTURE o None;
+    en el reconocimiento de `utilidad`: (rol, por_trazo). `rol` = LINE, STRUCTURE,
+    OVERHEAD (aérea de esa utilidad: NO se reconoce) o None;
     `por_trazo` = solo los trazos de `L["letter_paths"]` que son de esa utilidad (capa
     mezclada leída línea por línea), si no la capa entera. Igual que
     `recognition.line_selectors` (`kind_for` + `keep`)."""
@@ -134,11 +143,14 @@ def rol_capa(L: dict, utilidad: str) -> Tuple[Optional[str], bool]:
             return LINE, bool(L.get("letter_paths")) and not L.get("name_utility")
         if L.get("name_utility"):
             return None, False                 # su nombre decía esta utilidad; sus letras, otra
-    kind = recognition.classify_ocg(L.get("name") or "", utilidad)
+    name = L.get("name") or ""
+    kind = recognition.classify_ocg(name, utilidad)
     if kind == recognition.utility_line_kind(utilidad):
         return LINE, False
     if kind == "structure":
         return STRUCTURE, False
+    if "OVHD" in _tokens(recognition.standard_short_name(name)) and pdf_layers.utility_of(name) == utilidad:
+        return OVERHEAD, False                 # aérea («e(oh)»): está en el filtro, no se reconoce
     return None, False
 
 
@@ -185,80 +197,18 @@ def capas_de_utilidad(layers: Iterable[dict]) -> Callable[[str], bool]:
     return quiere
 
 
-def _rect_poly(pg) -> Optional[Tuple[float, float, float, float]]:
-    """(x0, y0, x1, y1) si el polígono de clip es un rectángulo alineado a los ejes."""
-    if len(pg) != 4:
-        return None
-    xs = sorted({round(q[0], 6) for q in pg})
-    ys = sorted({round(q[1], 6) for q in pg})
-    return (xs[0], ys[0], xs[1], ys[1]) if len(xs) == 2 and len(ys) == 2 else None
-
-
-def _recortar(path: dict, polys: list) -> Optional[dict]:
-    """`geom.clip_path`, con atajo: un trazo que cae entero dentro de clips
-    rectangulares (el caso común: el marco de la vista) queda tal cual."""
-    if not polys:
-        return path
-    r = path.get("rect")
-    if r is not None:
-        rects = [_rect_poly(pg) for pg in polys]
-        if all(b is not None and b[0] <= r.x0 and b[1] <= r.y0 and r.x1 <= b[2] and r.y1 <= b[3]
-               for b in rects):
-            return path
-    return geom.clip_path(path, polys)
-
-
-def trazos_visibles(page, capas: Optional[Callable[[str], bool]] = None) -> List[Tuple[dict, dict]]:
-    """(trazo de `get_drawings`, lo que se VE de él) de cada trazo de la hoja, como los
-    toma `recognition.gather_paths`: recortado por los clips del PDF (marco de la vista,
-    XCLIP de un xref, el BBox de cada pieza de la hoja compuesta), sin las astillas del
-    recorte ni lo que cae en una vista de perfil (`recognition.profile_view_regions`,
-    aquí en la MISMA pasada). Lo que queda fuera no se pinta ni se reconoce: tampoco se
-    resalta ni va a la leyenda (auditoría 2026-10-07: bóvedas de un xref recortado en
-    DU06 h.3). El original sirve para decidir de qué utilidad es (`letter_paths` se
-    leyó sobre él); el recortado, para dibujar. `capas`: solo esas (recortar toda la
-    hoja tarda 2–4 s; así, lo que tarda leer sus trazos). Con todas las capas encendidas."""
-    page_rect = page.rect
-    clip_stack: Dict[int, list] = {}
-    cand: List[Tuple[dict, dict]] = []
-    prof: list = []
-    for path in page.get_drawings(extended=True):
-        lvl = int(path.get("level", 0) or 0)
-        if path.get("type") == "clip":
-            clip_stack = {lv: pg for lv, pg in clip_stack.items() if lv < lvl}
-            clip_stack[lvl] = recognition._clip_polygon(path, page_rect)
-            continue
-        if path.get("type") == "group" or not path.get("items"):
-            continue
-        layer = path.get("layer") or ""
-        is_prof = recognition.PROFILE_LAYER_TOKEN in pdf_layers.short_name(layer).upper()
-        mine = capas is None or capas(layer)
-        if not (mine or is_prof):
-            continue
-        shown = _recortar(path, [pg for lv, pg in clip_stack.items() if lv < lvl and pg])
-        if shown is None:
-            continue
-        if is_prof:
-            bb = geom._path_bbox(shown)
-            if bb is not None:
-                prof.append(bb)
-        if not mine or (shown.get("clipped") and recognition._path_length(shown) < recognition.CLIP_SLIVER_PT):
-            continue
-        cand.append((path, shown))
-    regions = recognition._merge_close_boxes(prof, recognition.PROFILE_REGION_PAD_PT) if prof else []
-    return [(p, s) for p, s in cand if not (regions and recognition._region_hit(geom._path_bbox(s), regions))]
-
-
 # ── estado y abreviatura de una capa ─────────────────────────────────────────
 def _tokens(text: str) -> List[str]:
     return [t for t in re.split(r"[-_ |]+", (text or "").upper().replace("~", "")) if t]
 
 
-def estado_capa(L: dict, letras: Iterable[str] = ()) -> Tuple[str, str]:
+def estado_capa(L: dict, letras: Iterable[str] = (), code: str = "",
+                pdf_rows: Optional[Sequence] = None) -> Tuple[str, str]:
     """(código de estado §8.1.6, origen). Por orden: la letra de estado del nombre NCS
     (la última suelta, sin contar la disciplina ni el paquete «__UA4»); «PROP»/«EXIST»/
-    «ABND» en el nombre o, si no, en el xref; la CAJA de las letras de su línea (las
-    leyendas de los planos: existente en minúscula, propuesta en MAYÚSCULA)."""
+    «ABND» en el nombre o, si no, en el xref; con leyenda del PDF, lo que ésta dice de
+    esas letras (`leyenda_cruce.estado_por_leyenda`); sin leyenda, la CAJA de las letras
+    (las leyendas de los planos: existente en minúscula, propuesta en MAYÚSCULA)."""
     name = L.get("name") or ""
     xref, _, short = name.rpartition("|")
     base = recognition.standard_short_name(short).partition("__")[0]
@@ -274,6 +224,10 @@ def estado_capa(L: dict, letras: Iterable[str] = ()) -> Tuple[str, str]:
             return "N", origin
         if any(tk in _EXIST_TOKENS for tk in source):
             return "E", origin
+    letras = list(letras)
+    if pdf_rows:
+        st = cruce.estado_por_leyenda(code, letras[0] if letras else "", pdf_rows)
+        return (st, FROM_LEGEND) if st else ("", "")
     alpha = [x for x in letras if any(c.isalpha() for c in x)]
     if alpha and all(x == x.upper() for x in alpha):
         return "N", FROM_LETTERS
@@ -296,21 +250,25 @@ def abbr_capa(L: dict, utilidad: str) -> str:
     return fallback
 
 
-def letras_capa(L: dict, utilidad: str) -> List[str]:
-    """Letras del linetype leídas en la capa que son de `utilidad`, con su caja."""
+def codigos_capa(L: dict, utilidad: str) -> List[Tuple[str, str]]:
+    """[(código, letras con su caja)] de `utilidad` leídos en la capa, el más leído
+    primero; si ninguno se leyó dos veces, los leídos una vez (`C-ELEC-UNGD-D`: una «e»)."""
     raw = L.get("letter_raw") or {}
-    out = []
+    counts = L.get("read_counts") or {}
     codes = list(L.get("read_codes") or ())
     label = (L.get("letter_codes") or {}).get(utilidad)
     if label:
         codes += [c.strip() for c in label.split("·")]
-    for code in codes:
-        if letters_mod.code_utility(code) != utilidad:
-            continue
-        txt = raw.get(code) or code
-        if txt not in out:
-            out.append(txt)
-    return out
+    if not any(letters_mod.code_utility(c) == utilidad for c in codes):
+        codes += list(raw)
+    mine = [c for c in dict.fromkeys(codes) if letters_mod.code_utility(c) == utilidad]
+    mine.sort(key=lambda c: -int(counts.get(c, 0)))
+    return [(c, raw.get(c) or c) for c in mine]
+
+
+def letras_capa(L: dict, utilidad: str) -> List[str]:
+    """Letras del linetype leídas en la capa que son de `utilidad`, con su caja."""
+    return list(dict.fromkeys(r for _c, r in codigos_capa(L, utilidad)))
 
 
 # ── la leyenda ───────────────────────────────────────────────────────────────
@@ -319,10 +277,13 @@ def _orden_estado(code: str) -> int:
     return i if i >= 0 else len(STATUS_ORDER)
 
 
-def leyenda(layers: Iterable[dict], utilidades: Optional[Iterable[str]] = None) -> List[Grupo]:
+def leyenda(layers: Iterable[dict], utilidades: Optional[Iterable[str]] = None,
+            pdf_rows: Optional[Sequence] = None) -> List[Grupo]:
     """Leyenda de la hoja: un `Grupo` por utilidad con trazos en ella (en el orden de
-    «Capas del plano»), y en cada uno una `Fila` por (estado, abreviatura) de sus líneas
-    + una de sus estructuras. Solo capas con trazos en la hoja (`path_count`)."""
+    «Capas del plano»), y en cada uno una `Fila` por (rol, estado, código de letras,
+    abreviatura) — líneas, aéreas y estructuras. Con `pdf_rows` (la leyenda del PDF,
+    `pdf_legend.LegendRow`) el estado de las capas que no lo dicen sale de ella y cada
+    fila lleva las suyas (`Fila.pdf`). Solo capas con trazos en la hoja (`path_count`)."""
     utils = [u for u in (utilidades or recognition.SUPPORTED_UTILITIES)]
     order = [k for k, _label in pdf_layers.UTILITIES if k in utils] + [
         u for u in utils if u not in dict(pdf_layers.UTILITIES)]
@@ -337,19 +298,46 @@ def leyenda(layers: Iterable[dict], utilidades: Optional[Iterable[str]] = None) 
             if rol == STRUCTURE:
                 f = filas.setdefault((u, STRUCTURE), Fila(u, STRUCTURE, abbr=STRUCTURES.get(u, ("",))[0]))
             else:
-                letras = letras_capa(L, u)
-                estado, origen = estado_capa(L, letras)
+                cods = codigos_capa(L, u) if rol == LINE else []
+                code = cods[0][0] if cods else ""
+                letras = [r for _c, r in cods]
+                estado, origen = estado_capa(L, letras, code, pdf_rows)
                 abbr = abbr_capa(L, u)
-                f = filas.setdefault((u, LINE, estado, abbr), Fila(u, LINE, estado, origen, abbr))
+                f = filas.setdefault((u, rol, estado, code, abbr), Fila(u, rol, estado, origen, abbr, code))
                 if origen and f.origen != FROM_NAME:
                     f.origen = origen if f.origen in ("", FROM_LETTERS) else f.origen
-                f.letras += [x for x in letras if x not in f.letras]
+                f.letras += [x for x in letras[:1] if x not in f.letras]
                 f.por_letras = f.por_letras or u in (L.get("letter_utilities") or ())
             f.capas.append(L["name"])
         if filas:
-            rows = sorted(filas.values(), key=lambda f: (f.rol == STRUCTURE, _orden_estado(f.estado), f.abbr))
+            rows = sorted(filas.values(), key=lambda f: (
+                (f.rol == STRUCTURE) * 2 + (f.rol == OVERHEAD), _orden_estado(f.estado), f.code, f.abbr))
+            if pdf_rows:
+                rows = _juntar_por_leyenda(rows, pdf_rows)
             grupos.append(Grupo(u, rows))
     return grupos
+
+
+def _juntar_por_leyenda(rows: List[Fila], pdf_rows: Sequence) -> List[Fila]:
+    """Cada fila con las de la leyenda del PDF que la describen; dos filas que describe
+    la MISMA (dos xrefs de `C-STRM-UNGD-N`, uno sin letras y otro con «SD») son una."""
+    out: List[Fila] = []
+    by_desc: Dict[tuple, Fila] = {}
+    for f in rows:
+        if f.rol != STRUCTURE:
+            f.pdf = cruce.emparejar(f.utilidad, f.rol == OVERHEAD, f.estado, f.code, f.letras, pdf_rows)
+        key = (f.rol, f.estado, tuple(pdf_rows[i].text for i in f.pdf))
+        first = by_desc.get(key) if f.pdf else None
+        if first is None:
+            if f.pdf:
+                by_desc[key] = f
+            out.append(f)
+            continue
+        first.capas += [n for n in f.capas if n not in first.capas]
+        first.letras += [x for x in f.letras if x not in first.letras]
+        first.code = first.code or f.code
+        first.por_letras = first.por_letras or f.por_letras
+    return out
 
 
 def nombre_estado(code: str) -> str:

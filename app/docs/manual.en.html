@@ -226,23 +226,26 @@ editor</span> leaves it as the background to draw by hand.</p>
     layers as cards: the utility and its letters, the layer, why (its name does not say the utility,
     or says another one) and what the PDF's legend says about those letters. Each card's checkbox
     decides whether they are used: unchecked, the layer goes back to its group by name and is not
-    recognized by its letters (the decision is saved in the project). Below, <b>Plan legend</b> shows
-    the legend that comes in the PDF itself (each line's sample and its description), the lines on
-    this sheet first; <b>See all</b> shows the rest. Clicking a card or a row highlights those lines
-    on the sheet and zooms in; another click (or <b>Show all</b>, at the top of the panel) shows
-    everything again. A card of a layer by letters highlights its lines with a halo and, as a thin
-    line, <b>the rest of that utility's lines</b> that will be recognized (for example, next to the «T»
-    of G-XREF, the «t» of C-TELE-UNGD-E).</li>
-<li><b>No legend in the PDF</b> (DU06): the <b>Plan legend</b> is built from the <b>BOE standard</b>
-    (the «BOE CADD Standards» manual: each utility's linetypes and the status in each layer name —E
-    existing, D to demolish, A abandoned, N new—) and the sheet's layers: per utility, its
-    abbreviation (TEL, ELEC, PW, SSWR, SD, NGAS…) and one row per kind of line with its sample
-    —dashed if existing, continuous if proposed, with the letters read and «//» if it is to be
-    demolished— plus its structures. If the name has no status, its letters say it: UPPERCASE =
-    proposed, lowercase = existing. Clicking the utility highlights all its lines and structures;
-    a row, only those layers: what is highlighted is what will be recognized. If there are no
-    utilities and no layers by letters, the panel collapses by itself (‹ / › collapses and
-    expands it).</li>
+    recognized by its letters (the decision is saved in the project). Below, <b>This sheet's legend</b>,
+    <b>by utility</b> (all of them): each kind of line on the sheet with a drawn sample —its color, dashed
+    if existing and continuous if proposed, the letters read on its lines and «//» if it is to be
+    abandoned— and what the <b>PDF's own legend</b> says about it (in electrical, for example: «e»
+    EXISTING ELECTRICAL, «E» PROPOSED ELECTRICAL, «TE» and «SE» Metro's electrical ductbanks). If the PDF
+    has no legend (DU06), the description comes from the <b>BOE standard</b> (the «BOE CADD Standards»
+    manual: each utility's linetypes and the status in each layer name —E existing, D to demolish, A
+    abandoned, N new—; with no status in the name, UPPERCASE = proposed). <b>Overhead</b> lines
+    («e(oh)») have their own row with «Not recognized»: they show with their utility in «Plan layers»,
+    but they are not imported.</li>
+<li><b>See it on the sheet (checkboxes):</b> a <b>utility</b>'s checkbox checks all its lines and structures
+    (upper or lower case: what will be recognized); a <b>row</b>'s, only that kind of line; clicking the
+    utility or the row does the same. You can check <b>several</b>: everything checked is highlighted
+    together on the sheet, each utility in its color, and in the panel it gets a border and background of
+    that color (the utility's checkbox shows partial if only some of its kinds are checked). A letters card
+    adds with a click: its lines with a halo and, as a thin line, the rest of its utility. The top of the
+    panel says what is highlighted and how many layers; another click removes that one, <b>Show all</b>
+    unchecks everything. Below, collapsed, the <b>Full PDF
+    legend</b> (this sheet's rows in bold; click = their lines). If the sheet has no utilities and no
+    layers by letters, the panel collapses by itself (‹ / › collapses and expands it).</li>
 <li>Type in <b>Search layer…</b> to find a layer by name; the eye buttons show or hide all the
     layers visible in the list.</li>
 <li><b>Opacity</b> lightens the plan (and switches the background to white or black), just like in

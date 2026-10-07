@@ -136,6 +136,7 @@ def page_layers(doc, page_index: int, letters: bool = True) -> List[dict]:
             # códigos de utilidad leídos en sus líneas (la leyenda marca los de esta hoja)
             "read_codes": [k for k, v in lt.codes.items() if v >= 2 and not k.endswith("(OH)")] if lt else [],
             "letter_raw": dict(lt.raw) if lt else {},       # código → letras con su caja («G», «e»)
+            "read_counts": dict(lt.codes) if lt else {},    # código → sitios donde se leyó
         })
     # Con trazos primero (más → menos); sin trazos al final, por short.
     out.sort(key=lambda d: (0 if d["path_count"] > 0 else 1,

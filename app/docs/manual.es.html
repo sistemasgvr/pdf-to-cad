@@ -230,22 +230,25 @@ imagen/escaneo…</b>), pero sin capas ni reconocimiento: al final,
     en tarjetas: la utilidad y sus letras, la capa, por qué (su nombre no dice la utilidad, o dice
     otra) y lo que dice de esas letras la leyenda del PDF. La casilla de cada tarjeta decide si se
     usan: desmarcada, la capa vuelve a su grupo por nombre y no se reconoce por sus letras (la
-    decisión se guarda en el proyecto). Abajo, <b>Leyenda del plano</b> muestra la leyenda que trae
-    el propio PDF (la muestra de cada línea y su descripción), primero las líneas que hay en esta
-    hoja; <b>Ver toda</b> muestra el resto. Clic en una tarjeta o en una fila resalta esas líneas en
-    la hoja y acerca la vista; otro clic (o <b>Ver todo</b>, arriba del panel) vuelve a mostrar todo.
-    La tarjeta de una capa por letras resalta sus líneas con halo y, en línea fina, <b>el resto de las
-    líneas de esa utilidad</b> que se van a reconocer (por ejemplo, junto a las «T» de G-XREF, las «t»
-    de C-TELE-UNGD-E).</li>
-<li><b>Sin leyenda en el PDF</b> (DU06), la <b>Leyenda del plano</b> se arma con el <b>estándar BOE</b>
-    (manual «BOE CADD Standards»: tipos de línea de cada utilidad y estado del nombre de cada capa —E
-    existente, D a demoler, A abandonada, N nueva—) y las capas de la hoja: por utilidad, su
-    abreviatura (TEL, ELEC, PW, SSWR, SD, NGAS…) y una fila por tipo de línea con su muestra
-    —a trazos si es existente, continua si es propuesta, con las letras leídas y «//» si va a
-    demoler— más sus estructuras. Si el nombre no dice el estado, lo dicen sus letras: MAYÚSCULA =
-    propuesta, minúscula = existente. Clic en la utilidad resalta todas sus líneas y estructuras; en
-    una fila, solo esas capas: lo resaltado es lo que se va a reconocer. Si no hay utilidades ni
-    capas por letras, el panel se pliega solo (‹ / › lo pliega y despliega).</li>
+    decisión se guarda en el proyecto). Abajo, la <b>Leyenda de esta hoja</b>, <b>por utilidad</b>
+    (en todas): cada tipo de línea que hay en la hoja con una muestra dibujada —su color, a trazos si es
+    existente y continua si es propuesta, las letras que se leen en sus líneas y «//» si va a
+    abandonarse— y lo que dice de ella la <b>leyenda del propio PDF</b> (en eléctrico, por ejemplo: «e»
+    EXISTING ELECTRICAL, «E» PROPOSED ELECTRICAL, «TE» y «SE» los bancos de ductos eléctricos de Metro).
+    Si el PDF no trae leyenda (DU06), la descripción sale del <b>estándar BOE</b> (manual «BOE CADD
+    Standards»: tipos de línea de cada utilidad y estado del nombre de cada capa —E existente, D a
+    demoler, A abandonada, N nueva—; sin estado en el nombre, MAYÚSCULA = propuesta). Las líneas
+    <b>aéreas</b> («e(oh)») tienen su fila con «No se reconoce»: se ven con su utilidad en «Capas del
+    plano», pero no se importan.</li>
+<li><b>Ver en la hoja (casillas):</b> la casilla de una <b>utilidad</b> marca todas sus líneas y estructuras
+    (mayúscula o minúscula: lo que se va a reconocer); la de una <b>fila</b>, solo ese tipo de línea; un clic
+    en la utilidad o en la fila hace lo mismo. Puedes marcar <b>varias</b>: todo lo marcado se resalta junto
+    en la hoja, cada utilidad con su color, y en el panel queda con borde y fondo de ese color (la casilla
+    de la utilidad queda a medias si solo marcaste algunos de sus tipos). Una tarjeta de letras se suma con
+    un clic: sus líneas con halo y, en línea fina, el resto de su utilidad. Arriba del panel dice qué se
+    resalta y cuántas capas; otro clic quita esa, <b>Ver todo</b> desmarca todo. Debajo, plegada, la <b>Leyenda completa
+    del PDF</b> (en negrita, las filas que hay en esta hoja; clic = sus líneas). Si la hoja no tiene
+    utilidades ni capas por letras, el panel se pliega solo (‹ / › lo pliega y despliega).</li>
 <li>Escribe en <b>Buscar capa…</b> para encontrar una capa por su nombre; los botones del ojo
     muestran u ocultan todas las capas que se ven en la lista.</li>
 <li><b>Opacidad</b> aclara el plano (y cambia el fondo a blanco o negro), igual que en el editor.</li>

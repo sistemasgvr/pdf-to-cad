@@ -103,16 +103,38 @@ EN: dict[str, str] = {
         "its name does not say the utility",
     "Leyenda: {d}":
         "Legend: {d}",
-    "Leyenda del plano":
-        "Plan legend",
     "Buscando la leyenda en el PDF…":
         "Looking for the legend in the PDF…",
-    "Este PDF no trae una leyenda de líneas.":
-        "This PDF has no line legend.",
-    "Sin leyenda en el PDF: armada con el estándar BOE y las capas de esta hoja.":
-        "No legend in the PDF: built from the BOE standard and this sheet's layers.",
-    "Tipos de línea del BOE (fig. 3.1.7.1) y el estado del nombre de cada capa (§8.1.6). Clic en una utilidad o en una fila para verla en la hoja.":
-        "BOE linetypes (fig. 3.1.7.1) and the status in each layer name (§8.1.6). Click a utility or a row to see it on the sheet.",
+    "Leyenda de esta hoja":
+        "This sheet's legend",
+    "Cada utilidad con los tipos de línea que hay en esta hoja. Marca una o varias (casilla o clic) para verlas juntas en la hoja: lo marcado se ve con halo y aquí con el color de su utilidad.":
+        "Each utility with the kinds of line on this sheet. Check one or more (box or click) to see them together on the sheet: what is checked shows with a halo, and here with its utility's color.",
+    "Ver en la hoja todas sus líneas y estructuras":
+        "See all its lines and structures on the sheet",
+    "Ver estas líneas en la hoja":
+        "See these lines on the sheet",
+    "Esta hoja no tiene líneas de utilidades.":
+        "This sheet has no utility lines.",
+    "Según el estándar BOE (buscando la leyenda en el PDF…).":
+        "Per the BOE standard (looking for the legend in the PDF…).",
+    "Según la leyenda del PDF ({donde}).":
+        "Per the PDF's legend ({donde}).",
+    "Según el estándar BOE: el PDF no trae leyenda.":
+        "Per the BOE standard: the PDF has no legend.",
+    "Leyenda completa del PDF ({n})":
+        "Full PDF legend ({n})",
+    "Aérea · {estado}":
+        "Overhead · {estado}",
+    "Leyenda del PDF: {d}":
+        "PDF legend: {d}",
+    "Línea AÉREA: se ve con su utilidad en «Capas del plano», pero no se reconoce (la app reconoce las subterráneas).":
+        "OVERHEAD line: it shows with its utility in «Plan layers», but it is not recognized (the app recognizes underground lines).",
+    "Estado según la leyenda del PDF para esas letras.":
+        "Status according to the PDF's legend for those letters.",
+    "{estado} · {capas}":
+        "{estado} · {capas}",
+    "No se reconoce":
+        "Not recognized",
     "Resaltado: {what}":
         "Highlighted: {what}",
     "Leyendo las líneas de la hoja…":
@@ -197,18 +219,6 @@ EN: dict[str, str] = {
         "sheet {n}",
     "hojas {n}":
         "sheets {n}",
-    "Del propio PDF ({donde}): las líneas que hay en esta hoja.":
-        "From the PDF itself ({donde}): the lines on this sheet.",
-    "Del propio PDF ({donde}). En negrita, las de esta hoja.":
-        "From the PDF itself ({donde}). In bold, the ones on this sheet.",
-    "Del propio PDF ({donde}).":
-        "From the PDF itself ({donde}).",
-    "Solo esta hoja":
-        "This sheet only",
-    "Ver toda ({n})":
-        "See all ({n})",
-    "Clic: ver en la hoja las líneas «{c}» (otro clic, ver todo).":
-        "Click: see the «{c}» lines on the sheet (click again to see everything).",
     "Capas de la hoja":
         "Sheet layers",
     "Vista previa":
