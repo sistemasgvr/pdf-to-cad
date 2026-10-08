@@ -41,7 +41,7 @@ def _paneles_con_ajustes_en_memoria(monkeypatch):
     """Los paneles laterales (side_panels.py) arrancan siempre fijados en las
     pruebas: no leen ni guardan las preferencias reales («ocultar automáticamente»)."""
     try:
-        import side_panels
+        from ui.comun import side_panels
     except Exception:          # pruebas sin Qt disponible
         yield
         return

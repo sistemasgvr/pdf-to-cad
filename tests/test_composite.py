@@ -14,8 +14,8 @@ for p in (os.path.join(ROOT, "app"), ROOT):
     if p not in sys.path:
         sys.path.insert(0, p)
 
-import composite as C  # noqa: E402
-import pdf_layers  # noqa: E402
+from hoja import composite as C  # noqa: E402
+from hoja import pdf_layers  # noqa: E402
 
 
 def _src_doc(rotation=0, layer="C-ELEC-UNGD-E"):
@@ -79,7 +79,7 @@ def test_clip_parcial_recorta_los_vectores():
     piece = C.Piece(0, 0, [0, 0, 0.5, 1])  # mitad izquierda: la roja se corta en x=100
     dst = _reopen(C.build_document(C.Composite([piece]), [src]))
     sys.path.insert(0, os.path.join(ROOT, "app"))
-    import recognition as rec
+    from reconocimiento import recognition as rec
     lp, _, counts, _ = rec.gather_paths(dst[0], lambda o: "elec_ungd" if "ELEC" in o else None)
     xs = [q.x if hasattr(q, "x") else q[0] for p in lp for it in p["items"] for q in (it[1], it[2])]
     assert max(xs) <= C.MARGIN_PT + 100 + 0.05
@@ -222,7 +222,7 @@ def test_puentes_unen_extremos_y_reconocen_una_ruta():
     assert C.compute_bridges(comp, [doc]) == []
     comp.bridges = True
     # materializar con puentes → el puente está en la capa eléctrica y la ruta es una sola
-    import recognition as rec
+    from reconocimiento import recognition as rec
     dst = _reopen(C.build_document(comp, [doc], None, bridges))
     elec = [d for d in dst[0].get_drawings(extended=True) if d.get("layer") == "C-ELEC-UNGD-E"]
     xs = sorted(x for d in elec for it in d["items"] for q in (it[1], it[2]) for x in [q.x])

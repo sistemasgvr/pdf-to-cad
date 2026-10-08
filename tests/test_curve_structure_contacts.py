@@ -3,8 +3,8 @@ import math
 from pathlib import Path
 
 import pytest
-import recognition as rec
-import recognition_trace as trace
+from reconocimiento import recognition as rec
+from reconocimiento import recognition_trace as trace
 from test_curve_precision import _editor
 
 PDF = Path('C:/Users/bernu/OneDrive/Documentos/docs prueba/03-DU08_09_10-APDU-SEG-B-SEWER-PLAN_100P.pdf')

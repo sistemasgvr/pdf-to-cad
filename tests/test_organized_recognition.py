@@ -5,13 +5,13 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 import fitz
 from PySide6 import QtCore, QtGui, QtWidgets
 
-from organized_layer_dialog import OrganizedLayersDialog
-import recognition as rec_mod
-from organized_layers import selected_sheets
-from organized_recognition_dialog import OrganizedRecognitionDialog, _rotated_point
-from pdf_view_quality import FocusedPageQuality, render_scale
-from workers import OrganizedRecognitionWorker
-from widgets import ZoomPanView
+from ui.asistente.organized_layer_dialog import OrganizedLayersDialog
+from reconocimiento import recognition as rec_mod
+from hoja.organized_layers import selected_sheets
+from ui.asistente.organized_recognition_dialog import OrganizedRecognitionDialog, _rotated_point
+from ui.asistente.pdf_view_quality import FocusedPageQuality, render_scale
+from ui.comun.workers import OrganizedRecognitionWorker
+from ui.comun.widgets import ZoomPanView
 
 
 def _app():
@@ -72,7 +72,7 @@ def test_worker_uses_each_pdf_and_its_hidden_layers(tmp_path, monkeypatch):
         calls.append((page_index, doc.page_count, list(hidden_ocgs), crop, utility))
         return object()
 
-    import recognition
+    from reconocimiento import recognition
     monkeypatch.setattr(recognition, "recognize_page", fake_recognize)
     worker = OrganizedRecognitionWorker(
         str(base), [{"name": "extra.pdf", "data": extra}], sheets,
@@ -97,7 +97,7 @@ def test_worker_uses_each_pdf_and_its_hidden_layers(tmp_path, monkeypatch):
 def test_combined_preview_opens_with_rotated_pages(monkeypatch):
     monkeypatch.setenv("QT_QPA_PLATFORM", "offscreen")
     app = QtWidgets.QApplication.instance() or QtWidgets.QApplication([])
-    from recognition import RecognitionResult
+    from reconocimiento.recognition import RecognitionResult
     image = QtGui.QImage(120, 80, QtGui.QImage.Format_RGB888)
     image.fill(QtGui.QColor("white"))
     samples = bytes(image.constBits())

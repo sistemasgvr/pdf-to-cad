@@ -12,7 +12,7 @@ for p in (os.path.join(ROOT, "app"), ROOT):
     if p not in sys.path:
         sys.path.insert(0, p)
 
-import xdata  # noqa: E402
+from nucleo import xdata  # noqa: E402
 
 
 def test_parse_layer_drenaje_con_xref():
@@ -90,7 +90,7 @@ def test_origen_por_pieza_de_la_hoja_compuesta():
 
 
 def test_reconocimiento_lleva_la_capa_a_la_pipe():
-    import recognition as rec
+    from reconocimiento import recognition as rec
     pl = rec.RecognizedPolyline("XREF|C-STRM-UNGD-N", "DRENAJE", [(0, 0), (10, 0)], "drain_ungd",
                                 ["end", "end"])
     res = types.SimpleNamespace(drawable=[pl], scale_ft_per_pt=20.0 / 72.0)
@@ -102,7 +102,7 @@ def test_reconocimiento_lleva_la_capa_a_la_pipe():
 
 
 def test_estructura_reconocida_y_rebuild_conservan_xdata():
-    from model_ops import attach_vault_geometry, rebuild_structures
+    from nucleo.model_ops import attach_vault_geometry, rebuild_structures
     pipes = [{"layer": "DRENAJE", "pts": [(0.0, 0.0), (100.0, 0.0)]}]
     structures = rebuild_structures(pipes, [])
     vg = [{"center": (100.0, 0.0), "shape": "rect", "width_ft": 4.0, "length_ft": 6.0, "angle_deg": 0.0,
@@ -118,7 +118,7 @@ def test_estructura_reconocida_y_rebuild_conservan_xdata():
 
 def test_dxf_exporta_xdata_de_pipe_y_estructura():
     ezdxf = pytest.importorskip("ezdxf")
-    import dxf_export
+    from exportar import dxf_export
     from test_project_io import _fake_dxf_win
     win = _fake_dxf_win()
     win.duct_banks = []
@@ -146,7 +146,7 @@ def test_modal_campos_del_pdf_bloqueados_y_del_usuario_editables():
     os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
     QtWidgets = pytest.importorskip("PySide6.QtWidgets")
     from PySide6 import QtCore
-    import xdata_dialog
+    from ui.dialogos import xdata_dialog
     app = QtWidgets.QApplication.instance() or QtWidgets.QApplication([])  # noqa: F841
     obj = {"xdata": xdata.make("XREF|C-STRM-UNGD-N", "DU06 · Hoja 4")}
     xdata.set_user(obj, {"Contratista": "ACME"})

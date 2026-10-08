@@ -6,8 +6,8 @@ import os
 import fitz
 import pytest
 
-import recognition as rec
-import recognition_walls as W
+from reconocimiento import recognition as rec
+from reconocimiento import recognition_walls as W
 
 REAL = r"C:/Users/bernu/OneDrive/Documentos/NUEVOS DOCS PRUEBA/proyecto02.10.digproj.src.pdf"
 

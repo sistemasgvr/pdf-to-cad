@@ -16,8 +16,8 @@ import pytest
 ROOT = Path(__file__).resolve().parent.parent
 sys.path[:0] = [str(ROOT / "app"), str(ROOT)]
 
-import recognition as rec  # noqa: E402
-import recognition_letter_lines as lines  # noqa: E402
+from reconocimiento import recognition as rec  # noqa: E402
+from reconocimiento import recognition_letter_lines as lines  # noqa: E402
 
 DU06 = Path(r"C:/Users/bernu/OneDrive/Documentos/docs prueba/DU06_09_UD_Drainage_20251216(SUBMITTAL SET).pdf")
 needs_du06 = pytest.mark.skipif(not DU06.is_file(), reason="PDF DU06 no disponible")

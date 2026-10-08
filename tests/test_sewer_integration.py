@@ -21,7 +21,7 @@ fitz = pytest.importorskip("fitz")
 ezdxf = pytest.importorskip("ezdxf")
 from PySide6 import QtWidgets  # noqa: E402
 
-import recognition as rec  # noqa: E402
+from reconocimiento import recognition as rec  # noqa: E402
 
 DOCS = Path(r"C:/Users/bernu/OneDrive/Documentos/docs prueba")
 DU10 = DOCS / "DU10 - APDU Seg B3 100_ Sewer DR_Verification.pdf"
@@ -39,9 +39,9 @@ def _xdata(e):
 @pytest.fixture
 def win(monkeypatch):
     app = QtWidgets.QApplication.instance() or QtWidgets.QApplication([])
-    import theme
+    from ui.comun import theme
     theme.save_preference = lambda *_a, **_k: None          # no tocar QSettings del usuario
-    import app_window
+    from ui.ventana import app_window
     monkeypatch.setattr(app_window.Main, "_run_recognition_wizard", lambda self: None)
     monkeypatch.setattr(QtWidgets.QMessageBox, "information", lambda *a, **k: None)
     monkeypatch.setattr(QtWidgets.QMessageBox, "warning", lambda *a, **k: None)

@@ -6,9 +6,9 @@ import os
 import openpyxl
 import pytest
 
-import normativas as N
-import normativas_clearance as CL
-import normativas_excel as X
+from nucleo import normativas as N
+from nucleo import normativas_clearance as CL
+from nucleo import normativas_excel as X
 
 ORIGINAL = r"C:\Users\User\Downloads\Utility_Design_Aid_Clearance_Tables.xlsx"
 

@@ -23,8 +23,8 @@ for p in (str(ROOT / "app"), str(ROOT)):
 pytest.importorskip("fitz")
 from PySide6 import QtWidgets  # noqa: E402
 
-import model_ops  # noqa: E402
-import recognition as rec  # noqa: E402
+from nucleo import model_ops  # noqa: E402
+from reconocimiento import recognition as rec  # noqa: E402
 
 DU08 = Path(r"C:/Users/bernu/OneDrive/Documentos/docs prueba/03-DU08_09_10-APDU-SEG-B-SEWER-PLAN_100P.pdf")
 
@@ -41,9 +41,9 @@ def test_pipe_at_vertex_y_nearest_vertex_toman_el_mas_cercano():
 @pytest.fixture
 def win(monkeypatch):
     app = QtWidgets.QApplication.instance() or QtWidgets.QApplication([])
-    import theme
+    from ui.comun import theme
     theme.save_preference = lambda *_a, **_k: None          # no tocar QSettings del usuario
-    import app_window
+    from ui.ventana import app_window
     monkeypatch.setattr(app_window.Main, "_run_recognition_wizard", lambda self: None)
     monkeypatch.setattr(QtWidgets.QMessageBox, "information", lambda *a, **k: None)
     monkeypatch.setattr(QtWidgets.QMessageBox, "warning", lambda *a, **k: None)

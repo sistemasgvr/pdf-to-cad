@@ -4,8 +4,8 @@ from pathlib import Path
 
 import pytest
 
-import recognition as rec
-import recognition_arcs as arcs_mod
+from reconocimiento import recognition as rec
+from reconocimiento import recognition_arcs as arcs_mod
 
 ROOT = Path(__file__).resolve().parent.parent
 PDF = ROOT / "DU06_09_UD_Drainage_20251216(SUBMITTAL SET).pdf"
@@ -501,7 +501,7 @@ def test_patron_doble_slash_en_capa_activa_abandona(tmp_path):
 
 
 def test_marker_pattern_puro_espaciado_irregular_no_es_patron():
-    import recognition_geom as G
+    from reconocimiento import recognition_geom as G
     pl = G.Polyline([(0.0, 0.0), (600.0, 0.0)], ["end", "end"])
     regular = [G.Glyph(x, 0.0, 7.5) for x in (30, 90, 150, 210, 270, 330, 390, 450, 510, 570)]
     mp = G.marker_pattern([pl], regular)
@@ -519,7 +519,7 @@ def test_doble_slash_es_abandonada_en_cualquier_capa():
     """Regla del usuario (2026-09-25): «//» = abandonada en cualquier utilidad y
     capa (no hace falta «-A»); la «/» simple no. Un «//» intercalado (ramal junto
     a una T, DU08 h.21) no tumba el veredicto de una línea larga."""
-    import recognition_geom as G
+    from reconocimiento import recognition_geom as G
     pl = G.Polyline([(0.0, 0.0), (600.0, 0.0)], ["end", "end"])
     xs = (30, 90, 150, 210, 270, 330, 390, 450, 510, 570)
     single = [G.Glyph(x, 0.0, 7.5) for x in xs]
@@ -537,7 +537,7 @@ def test_marcadores_reinicio_del_linetype_en_un_vertice():
     1 y 2 periodos (DU08 h.26 alcantarillado `C-SSWR-UNGD-D`: «//» a 90, 75, 75 pt
     con periodo 75.2; DU10 h.19 agua `-A`: «/» a 67.7 y 102.5). La línea sigue el
     patrón; un tramo de más de 2 periodos sin marcador, no."""
-    import recognition_geom as G
+    from reconocimiento import recognition_geom as G
 
     def dbl(xs):
         return [g for x in xs for g in (G.Glyph(x - 2.2, 0.0, 7.5), G.Glyph(x + 2.2, 0.0, 7.5))]
@@ -566,7 +566,7 @@ def test_un_solo_doble_slash_propio_cubre_un_tramo_corto():
     """Tramo «—e—//—e—» de 184 pt con UN «//» propio (DU10 h.21, capa `-D`): el
     marcador queda a <2 periodos de cada punta → abandonada. El mismo «//» en una
     línea de 600 pt no la cubre."""
-    import recognition_geom as G
+    from reconocimiento import recognition_geom as G
     ref = G.Polyline([(0.0, 50.0), (600.0, 50.0)], ["end", "end"])
     ref_marks = [g for x in (30.0, 99.1, 168.2, 237.3) for g in (G.Glyph(x - 2.2, 50.0, 7.5), G.Glyph(x + 2.2, 50.0, 7.5))]
     short = G.Polyline([(0.0, 0.0), (184.3, 0.0)], ["end", "tee"])
@@ -582,7 +582,7 @@ def test_doble_slash_suelto_sin_paso_en_la_capa():
     h.3, `C-WATR-UNGD-D`): no hay paso que aprender, se juzga con el periodo de
     referencia (67.7 pt). El mismo «//» en medio de 600 pt no cubre la línea, y
     una «/» simple suelta no es patrón."""
-    import recognition_geom as G
+    from reconocimiento import recognition_geom as G
 
     def dbl(x, y):
         return [G.Glyph(x - 2.2, y, 7.5), G.Glyph(x + 2.2, y, 7.5)]
@@ -599,7 +599,7 @@ def test_curva_corta_sin_marcas_no_es_hueco_del_patron():
     h.27 `C-ELEC-UNGD-D`): cada arco es su propio segmento del linetype y uno más
     corto que el periodo no lleva «//». La misma cola con quiebres rectos, sí es
     un tramo sin marcador."""
-    import recognition_geom as G
+    from reconocimiento import recognition_geom as G
     c = (330.0, 25.0)
     arc = [(c[0] + 25.0 * math.cos(math.radians(a)), c[1] + 25.0 * math.sin(math.radians(a)))
            for a in (-90, -67.5, -45, -22.5, 0)]
@@ -689,7 +689,7 @@ def _audit_fillets(page_index, n_expected, strict_tangents):
     de la capa (≤0.5 pt, mismo rumbo ±1°); y el arco que dibuja el editor /
     genera el plugin (esquina + radio en pies) es el mismo arco."""
     import fitz
-    import model_ops
+    from nucleo import model_ops
     Z = 2.0
     res = rec.recognize_page(PDF, page_index, zoom=Z)
     page = fitz.open(str(PDF))[page_index]
@@ -744,7 +744,7 @@ def _audit_fillets(page_index, n_expected, strict_tangents):
         sweep = (a1 - a0 + 3 * math.pi) % (2 * math.pi) - math.pi
         # (curvas muy abiertas: la 2.ª pasada acepta desde INK_MIN_TURN_DEG=3°; el
         #  editor y el plugin dibujan el arco desde 2°)
-        import recognition_arc_plan
+        from reconocimiento import recognition_arc_plan
         assert abs(math.degrees(sweep)) >= min(rec.FILLET_MIN_TURN_DEG, recognition_arc_plan.INK_MIN_TURN_DEG)
         dev = []
         for k in range(41):
@@ -868,7 +868,7 @@ def test_du06_ningun_tramo_sin_tinta_debajo():
     salía un abanico de líneas hacia el nodo de una bóveda grande y un extremo se
     prolongaba 29 pt sin tinta para alcanzarla."""
     import fitz
-    import recognition_geom as geom
+    from reconocimiento import recognition_geom as geom
     Z = 2.0
     doc = fitz.open(str(PDF))
     try:
@@ -932,7 +932,7 @@ def test_du06_nodos_de_boveda_dentro_del_simbolo():
     """El nodo interior (la CAJA) tiene que caer DENTRO del recuadro de la bóveda:
     el usuario vio un triángulo de líneas apuntando a un vértice fuera de ella."""
     import fitz
-    import recognition_geom as geom
+    from reconocimiento import recognition_geom as geom
     doc = fitz.open(str(PDF))
     try:
         for pno in range(doc.page_count):

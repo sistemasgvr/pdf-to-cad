@@ -10,16 +10,16 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 from PySide6 import QtGui, QtWidgets  # noqa: E402
 
-import autoguardado as A  # noqa: E402
+from ui.ventana import autoguardado as A  # noqa: E402
 
 
 def _ventana(monkeypatch):
     app = QtWidgets.QApplication.instance() or QtWidgets.QApplication([])
-    import i18n
-    import i18n_core
+    from traduccion import i18n
+    from traduccion import i18n_core
     monkeypatch.setattr(i18n, "_settings", lambda: type("S", (), {"setValue": lambda *a: None})())
     i18n_core._current_lang = "es"
-    from app_window import Main
+    from ui.ventana.app_window import Main
     w = Main()
     img = QtGui.QImage(400, 300, QtGui.QImage.Format_RGB32); img.fill(QtGui.QColor(255, 255, 255))
     w.canvas.set_image(img)
@@ -95,7 +95,7 @@ def test_cierre_de_golpe_se_recupera(monkeypatch, tmp_path):
     assert len(copias) == 1 and copias[0]["nombre"] == "mi_proyecto.digproj"
     # Al abrir otra vez la app se ofrece y se recupera.
     app, w2 = _ventana(monkeypatch)
-    import dialogs
+    from ui.dialogos import dialogs
     monkeypatch.setattr(dialogs, "preguntar_recuperacion", lambda *a, **k: "recuperar")
     assert w2.iniciar_autoguardado()
     assert [p["name"] for p in w2.pipes] == ["Sin guardar"]
@@ -111,7 +111,7 @@ def test_descartar_y_mas_tarde(monkeypatch):
     w.autoguardado.iniciar(); _cambio(w)
     w.autoguardado.guardar_ahora(); w.autoguardado.esperar()
     w.autoguardado._lock.unlock(); w.autoguardado._lock = None
-    import dialogs
+    from ui.dialogos import dialogs
     app, w2 = _ventana(monkeypatch)
     monkeypatch.setattr(dialogs, "preguntar_recuperacion", lambda *a, **k: "despues")
     assert not w2.iniciar_autoguardado() and len(A.recuperables(w2.autoguardado.base)) == 1

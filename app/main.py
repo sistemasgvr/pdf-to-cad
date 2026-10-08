@@ -1,11 +1,13 @@
 """main.py — Punto de entrada de la aplicación (QApplication).
 
-Módulos de la app (en esta carpeta app/):
-  app_window.py     → la ventana Main (UI y eventos)
-  model.py          → estructuras de datos y constantes
-  geometry.py       → transformaciones de coordenadas y geometría
-  dxf_export.py     → exportación a DXF
-  sidecar_export.py → salida JSON de red 3D
+Paquetes de la app (en esta carpeta app/):
+  ui/             → interfaz Qt: ventana Main (ui/ventana/app_window.py), asistente, diálogos, comunes
+  nucleo/         → modelo y lógica pura del dominio (model, model_ops, normativas…)
+  reconocimiento/ → lectura del PDF vectorial
+  hoja/           → hoja compuesta, capas y leyenda del PDF
+  catalogo/       → catálogo de piezas de Civil 3D
+  exportar/       → exportación a DXF
+  geo/            → georreferenciación
 Los módulos del pipeline (config, vector_pipeline, digitize, …) están en la raíz
 del proyecto (carpeta superior).
 """
@@ -18,7 +20,7 @@ for _p in (_HERE, _ROOT):                                   # app/ para los mód
     if _p not in sys.path:
         sys.path.insert(0, _p)
 
-from app_window import main
+from ui.ventana.app_window import main
 
 if __name__ == "__main__":
     main()

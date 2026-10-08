@@ -18,8 +18,8 @@ import pytest
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
-import i18n  # noqa: E402
-import i18n_core  # noqa: E402
+from traduccion import i18n  # noqa: E402
+from traduccion import i18n_core  # noqa: E402
 
 APP = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "app")
 EN = i18n.TRANSLATIONS["en"]
@@ -225,8 +225,8 @@ def test_traduccion_conserva_formato(es):
 
 
 def test_tablas_de_datos_traducidas():
-    import model
-    import pdf_layers
+    from nucleo import model
+    from hoja import pdf_layers
     textos = ([label for label, _layer in model.TIPOS]
               + [label for _oid, label in model.LEADER_ORIENT]
               + list(model.PIPE_MATERIALS)
@@ -238,11 +238,13 @@ def test_tablas_de_datos_traducidas():
 
 def test_modulos_puros_traducen_sin_qt():
     # La lógica pura traduce con i18n_core (sin Qt); i18n.py es la capa de UI.
-    for nombre in ("i18n_core.py", "i18n_en.py", "i18n_en_changelog.py", "duct_bank.py",
-                   "recognition.py", "civil_catalog.py", "composite.py"):
+    for nombre in (os.path.join("traduccion", "i18n_core.py"), os.path.join("traduccion", "i18n_en.py"),
+                   os.path.join("traduccion", "i18n_en_changelog.py"), os.path.join("nucleo", "duct_bank.py"),
+                   os.path.join("reconocimiento", "recognition.py"), os.path.join("catalogo", "civil_catalog.py"), os.path.join("hoja", "composite.py")):
         src = open(os.path.join(APP, nombre), encoding="utf-8").read()
         assert "PySide6" not in src, nombre
-        assert not re.search(r"^\s*(import i18n\b|from i18n import)", src, re.M), nombre
+        assert not re.search(r"^\s*(import i18n\b|from i18n import|from traduccion import i18n\b|"
+                             r"from traduccion\.i18n import|import traduccion\.i18n\b)", src, re.M), nombre
 
 
 def test_manual_en_ambos_idiomas():
@@ -282,8 +284,8 @@ def test_bind_retraduce_en_vivo(qapp, monkeypatch):
 def test_listas_del_panel_derecho_se_traducen(qapp, monkeypatch):
     # Las listas muestran el TIPO traducido, nunca el código interno de la capa
     # («AGUA», «DRENAJE»…), y se rehacen solas al cambiar el idioma.
-    from app_window import Main
-    import model
+    from ui.ventana.app_window import Main
+    from nucleo import model
     monkeypatch.setattr(i18n, "_settings", lambda: type("S", (), {"setValue": lambda *a: None})())
     i18n_core._current_lang = "es"
     w = Main()

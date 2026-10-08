@@ -5,9 +5,9 @@ ROOT=Path(__file__).resolve().parents[1]
 sys.path[:0]=[str(ROOT/'app'),str(ROOT)]
 import fitz
 from PIL import Image,ImageDraw
-import recognition as rec
-import recognition_trace as trace
-import model_ops
+from reconocimiento import recognition as rec
+from reconocimiento import recognition_trace as trace
+from nucleo import model_ops
 PDF=Path('C:/Users/bernu/OneDrive/Documentos/docs prueba/03-DU08_09_10-APDU-SEG-B-SEWER-PLAN_100P.pdf')
 r=rec.recognize_page(PDF,21,utility='ELECTRICO',zoom=1.)
 doc=fitz.open(PDF)

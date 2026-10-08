@@ -16,8 +16,8 @@ for p in (str(ROOT / "app"), str(ROOT)):
     if p not in sys.path:
         sys.path.insert(0, p)
 
-import recognition as rec  # noqa: E402
-import recognition_geom as geom  # noqa: E402
+from reconocimiento import recognition as rec  # noqa: E402
+from reconocimiento import recognition_geom as geom  # noqa: E402
 
 DOCS = Path(r"C:/Users/bernu/OneDrive/Documentos/docs prueba")
 DU06 = DOCS / "DU06_09_UD_Drainage_20251216(SUBMITTAL SET).pdf"
@@ -58,7 +58,7 @@ def test_capas_de_gas_no_entran_en_otros_perfiles():
 
 
 def test_gas_es_perfil_y_red_a_presion():
-    from model import NETWORK_KIND
+    from nucleo.model import NETWORK_KIND
     assert "GAS" in rec.SUPPORTED_UTILITIES and "GAS" in rec.DEFAULT_UTILITIES
     assert rec.utility_line_kind("GAS") == "gas_ungd" and "gas_ungd" in rec.DRAW_KINDS
     assert rec.utility_label("GAS") == "Gas"

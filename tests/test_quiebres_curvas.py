@@ -8,8 +8,8 @@ la dibujan el editor y el plugin y sin cambiar ninguna otra curva. Agua y gas no
 """
 import math
 
-import model_ops
-import quiebres_curvas as qc
+from nucleo import model_ops
+from nucleo import quiebres_curvas as qc
 
 FPP = 0.1                     # pies por px: el radio automático de 12" (6 ft) mide 60 px
 

@@ -22,8 +22,8 @@ for p in (str(ROOT / "app"), str(ROOT)):
     if p not in sys.path:
         sys.path.insert(0, p)
 
-import leyenda_cruce as cruce  # noqa: E402
-import leyenda_estandar as le  # noqa: E402
+from hoja import leyenda_cruce as cruce  # noqa: E402
+from hoja import leyenda_estandar as le  # noqa: E402
 
 DU08 = Path(r"C:/Users/bernu/OneDrive/Documentos/docs prueba/03-DU08_09_10-APDU-SEG-B-SEWER-PLAN_100P.pdf")
 needs_du08 = pytest.mark.skipif(not DU08.exists(), reason="PDF de prueba DU08 no disponible")
@@ -113,9 +113,9 @@ def du08_h26():
         pytest.skip("PDF de prueba DU08 no disponible")
     import fitz
     from PySide6 import QtWidgets
-    import layer_dialog
-    import layer_dialog_info
-    from layer_info_panel import LegendWorker
+    from ui.asistente import layer_dialog
+    from ui.asistente import layer_dialog_info
+    from ui.asistente.layer_info_panel import LegendWorker
     app = QtWidgets.QApplication.instance() or QtWidgets.QApplication([])
     got = {}
     worker = LegendWorker([{"name": "DU08.pdf", "path": str(DU08)}])

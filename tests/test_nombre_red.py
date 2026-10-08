@@ -7,7 +7,7 @@ import pytest
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
-import model_ops  # noqa: E402
+from nucleo import model_ops  # noqa: E402
 
 
 def _p(layer, pts, name=""):
@@ -26,13 +26,13 @@ def test_nombre_por_defecto_y_union():
 @pytest.fixture
 def win(monkeypatch):
     from PySide6 import QtWidgets
-    import i18n
-    import i18n_core
+    from traduccion import i18n
+    from traduccion import i18n_core
     app = QtWidgets.QApplication.instance() or QtWidgets.QApplication([])
     monkeypatch.setattr(i18n, "_settings", lambda: type("S", (), {"setValue": lambda *a: None})())
     previo = i18n_core._current_lang
     i18n_core._current_lang = "es"
-    from app_window import Main
+    from ui.ventana.app_window import Main
     w = Main()
     w.pipes = [_p("TELECOM", [(0, 0), (100, 0)]), _p("ELECTRICO", [(0, 50), (100, 50)], name="Norte"),
                _p("TELECOM", [(0, 200), (100, 200)])]
@@ -46,7 +46,7 @@ def win(monkeypatch):
 
 def _nombres_dxf(w):
     import ezdxf
-    import dxf_export
+    from exportar import dxf_export
     doc = ezdxf.new("R2018")
     dxf_export.merge_into(w, doc)
     out = {}

@@ -6,7 +6,7 @@ import pytest
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
-import unir_utilidades as U  # noqa: E402
+from nucleo import unir_utilidades as U  # noqa: E402
 
 FT = 0.5                                    # pies por px → tolerancia 0.5 ft = 1 px
 
@@ -138,14 +138,14 @@ def test_avisa_los_datos_que_cambian():
 @pytest.fixture
 def win(monkeypatch):
     from PySide6 import QtGui, QtWidgets
-    import i18n
-    import i18n_core
+    from traduccion import i18n
+    from traduccion import i18n_core
     app = QtWidgets.QApplication.instance() or QtWidgets.QApplication([])
     monkeypatch.setattr(i18n, "_settings", lambda: type("S", (), {"setValue": lambda *a: None})())
     previo = i18n_core._current_lang
     i18n_core._current_lang = "es"
-    from app_window import Main
-    from duct_bank import DuctBank
+    from ui.ventana.app_window import Main
+    from nucleo.duct_bank import DuctBank
     w = Main()
     img = QtGui.QImage(1500, 1500, QtGui.QImage.Format_RGB32); img.fill(QtGui.QColor(255, 255, 255))
     w.canvas.set_image(img)

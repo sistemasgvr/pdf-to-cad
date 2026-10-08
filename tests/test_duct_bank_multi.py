@@ -8,8 +8,8 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 from PySide6 import QtCore, QtGui, QtWidgets  # noqa: E402
 
-import i18n  # noqa: E402
-import i18n_core  # noqa: E402
+from traduccion import i18n  # noqa: E402
+from traduccion import i18n_core  # noqa: E402
 
 
 @pytest.fixture
@@ -18,8 +18,8 @@ def win(monkeypatch):
     monkeypatch.setattr(i18n, "_settings", lambda: type("S", (), {"setValue": lambda *a: None})())
     previo = i18n_core._current_lang
     i18n_core._current_lang = "es"
-    from app_window import Main
-    from duct_bank import DuctBank, Conduit
+    from ui.ventana.app_window import Main
+    from nucleo.duct_bank import DuctBank, Conduit
     w = Main()
     w.pipes = [{"layer": "ELECTRICO", "pts": [(0, 100 * i), (200, 100 * i)], "name": ""}
                for i in range(5)]
@@ -88,7 +88,7 @@ def test_miniaturas(win):
 
 
 def test_disenador_asigna_varias(win):
-    from duct_bank_dialog import DuctBankDialog
+    from ui.dialogos.duct_bank_dialog import DuctBankDialog
     dlg = DuctBankDialog(win, initial=win.duct_banks[0], pipes=win.pipes,
                          pipe_thumb=win._pipe_thumbnail, taken={4: "B"})
     filas = [(int(dlg.lst_pipes.item(r).data(QtCore.Qt.UserRole)),
@@ -112,7 +112,7 @@ def test_disenador_asigna_varias(win):
 
 
 def test_globo_de_miniatura_reemplaza_tooltip(win):
-    from thumbnails import HoverPreview
+    from ui.comun.thumbnails import HoverPreview
     lst = QtWidgets.QListWidget()
     lst.addItems(["a", "b"])
     pm = QtGui.QPixmap(40, 30); pm.fill(QtGui.QColor("red"))

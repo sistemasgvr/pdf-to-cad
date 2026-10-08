@@ -24,9 +24,9 @@ for p in (str(ROOT / "app"), str(ROOT)):
 
 fitz = pytest.importorskip("fitz")
 
-import recognition as rec  # noqa: E402
-import recognition_geom as G  # noqa: E402
-import routes  # noqa: E402
+from reconocimiento import recognition as rec  # noqa: E402
+from reconocimiento import recognition_geom as G  # noqa: E402
+from reconocimiento import routes  # noqa: E402
 from test_recognition_geom import Sheet  # noqa: E402
 
 DU08 = Path(r"C:/Users/bernu/OneDrive/Documentos/docs prueba/03-DU08_09_10-APDU-SEG-B-SEWER-PLAN_100P.pdf")

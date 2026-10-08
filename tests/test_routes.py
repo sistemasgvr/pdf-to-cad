@@ -9,9 +9,9 @@ from pathlib import Path
 
 import pytest
 
-import recognition_geom as G
-from recognition_geom import Pattern, Polyline
-from routes import build_routes
+from reconocimiento import recognition_geom as G
+from reconocimiento.recognition_geom import Pattern, Polyline
+from reconocimiento.routes import build_routes
 from test_recognition_geom import PDF, Sheet, needs_pdf
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -179,7 +179,7 @@ def test_determinismo_y_lookahead_no_inventa_puntos():
 @pytest.mark.parametrize("page", [2, 3, 8, 12, 13])
 def test_du06_invariantes_de_rutas(page):
     import fitz
-    import recognition as rec
+    from reconocimiento import recognition as rec
 
     doc = fitz.open(str(PDF))
     try:
@@ -213,7 +213,7 @@ def test_du06_invariantes_de_rutas(page):
 def test_du06_hoja13_prop_comm_y_haynes_en_pocas_rutas():
     """Las dos «PROP COMM DB» y la vertical de Haynes St no se parten: ≤ 3 rutas."""
     import fitz
-    import recognition as rec
+    from reconocimiento import recognition as rec
 
     doc = fitz.open(str(PDF))
     try:
@@ -253,9 +253,9 @@ def test_du06_hoja13_prop_comm_y_haynes_en_pocas_rutas():
 # cierra `connect_text_gaps` quedaba en dos rutas justo donde se une.
 from dataclasses import dataclass, field  # noqa: E402
 
-import model_ops  # noqa: E402
-import recognition_trace as trace  # noqa: E402
-from routes import join_emitted  # noqa: E402
+from nucleo import model_ops  # noqa: E402
+from reconocimiento import recognition_trace as trace  # noqa: E402
+from reconocimiento.routes import join_emitted  # noqa: E402
 
 
 @dataclass
@@ -354,7 +354,7 @@ def test_emitidas_esquina_de_grado_2_como_build_routes():
 def test_du06_h5_telecom_la_u_sigue_su_trayectoria():
     """Caja → vertical → toda la «U» → recta de arriba: UNA ruta, con los mismos codos
     que las polilíneas sin unir (la curva no cambia) y dibujables por el editor."""
-    import recognition as rec
+    from reconocimiento import recognition as rec
     r = rec.recognize_page(PDF, 4, utility="TELECOM", zoom=1.0)
     duct = [p for p in r.polylines_joined if p.layer_ocg.endswith("N-COMM-DUCT-BANK-PL")]
     raw = [p for p in r.polylines_raw if p.layer_ocg.endswith("N-COMM-DUCT-BANK-PL")]

@@ -8,12 +8,12 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 from PySide6 import QtWidgets  # noqa: E402
 
-import i18n  # noqa: E402
-import i18n_core  # noqa: E402
-import catalogo_tamanos as T  # noqa: E402
-import catalogo_tamanos_dialog  # noqa: E402
-import civil_catalog as cc  # noqa: E402
-from model import TAB_BZ, TAB_PIPE  # noqa: E402
+from traduccion import i18n  # noqa: E402
+from traduccion import i18n_core  # noqa: E402
+from catalogo import catalogo_tamanos as T  # noqa: E402
+from ui.dialogos import catalogo_tamanos_dialog  # noqa: E402
+from catalogo import civil_catalog as cc  # noqa: E402
+from nucleo.model import TAB_BZ, TAB_PIPE  # noqa: E402
 from test_catalogo_tamanos import BUZON, TUBO, pd  # noqa: E402,F401  (pd = fixture)
 
 
@@ -23,7 +23,7 @@ def win(pd, monkeypatch):
     monkeypatch.setattr(i18n, "_settings", lambda: type("S", (), {"setValue": lambda *a: None})())
     previo = i18n_core._current_lang
     i18n_core._current_lang = "es"
-    from app_window import Main
+    from ui.ventana.app_window import Main
     w = Main()
     w.civil_year = 2025
     cc.set_current_lang("esp")

@@ -18,7 +18,7 @@ import fitz
 from collections import Counter, defaultdict
 from PySide6 import QtWidgets, QtCore
 app = QtWidgets.QApplication([])
-import composite as C, composite_dialog
+from hoja import composite as C; from ui.asistente import composite_dialog
 
 PD = os.environ.get("PDFCAD_DOCS", os.path.join(os.path.expanduser("~"), "OneDrive", "Documentos", "docs prueba")) + os.sep
 PDFS = sys.argv[1:] or ["DU06_09_UD_Drainage_20251216(SUBMITTAL SET).pdf",

@@ -16,9 +16,9 @@ fitz = pytest.importorskip("fitz")
 QtWidgets = pytest.importorskip("PySide6.QtWidgets")
 from PySide6 import QtCore  # noqa: E402
 
-import composite as C  # noqa: E402
-import composite_dialog  # noqa: E402
-import recognition  # noqa: E402
+from hoja import composite as C  # noqa: E402
+from ui.asistente import composite_dialog  # noqa: E402
+from reconocimiento import recognition  # noqa: E402
 
 
 @pytest.fixture(scope="module")
@@ -121,7 +121,7 @@ def test_compositor_no_aplica_capas_ocultas_de_la_hoja_ya_compuesta(app):
     capas visibles — si no, una hoja cuyo contenido está solo en una capa ya
     oculta parecía no tener nada que tomar (usuario: «la página 3 no me
     muestra capas»). El valor recibido se conserva para devolverlo igual."""
-    import pdf_layers
+    from hoja import pdf_layers
     data = _two_sheet_pdf()
     dlg = composite_dialog.CompositeDialog(
         None, [{"name": "a.pdf", "data": data}], None, {"0": ["C-ELEC-UNGD-E"]}, 0)
@@ -152,7 +152,7 @@ def test_compositor_capas_puentes_y_hueco(app):
         assert dlg.lbl_bridges.text().startswith("1")
         # una capa apagada en el origen (sesión anterior) no da anclajes ni puentes
         dlg.hidden_by_source["0"] = ["C-ELEC-UNGD-E"]
-        import pdf_layers
+        from hoja import pdf_layers
         pdf_layers.set_hidden(dlg.docs[0], ["C-ELEC-UNGD-E"])
         dlg.view.rerender_source(0)
         assert dlg.view.bridges() == []
@@ -284,7 +284,7 @@ def test_nitidez_al_hacer_zoom_en_ambos_paneles(app):
 def test_minimapa_en_capas_de_la_hoja(app):
     """El diálogo «Capas de la hoja» muestra un minimapa con la hoja y el
     recuadro de lo visible; clic en el mapa centra la vista ahí."""
-    import layer_dialog
+    from ui.asistente import layer_dialog
     from PySide6 import QtGui
     doc = fitz.open(); ocg = doc.add_ocg("C-ELEC-UNGD-E", on=True)
     page = doc.new_page(width=1200, height=400); _dashed(page, (20, 200), (1180, 200), ocg)
@@ -462,7 +462,7 @@ def test_pestanas_a_ventana_completa_y_navegacion(app):
 
 
 def test_capas_y_preview_con_divisor(app):
-    import layer_dialog
+    from ui.asistente import layer_dialog
     doc = fitz.open(); ocg = doc.add_ocg("C-ELEC-UNGD-E", on=True)
     page = doc.new_page(width=600, height=400); _dashed(page, (20, 200), (580, 200), ocg)
     dlg = layer_dialog.SheetLayersDialog(None, doc, 0)
@@ -484,7 +484,7 @@ def test_capas_y_preview_con_divisor(app):
     dlg.resize(1000, 600); dlg.show(); app.processEvents()
     try:
         dlg._apply_side_width()
-        from widgets import CollapsiblePanel
+        from ui.comun.widgets import CollapsiblePanel
         assert dlg.info_box.collapsed and dlg.split.sizes()[0] == CollapsiblePanel.STRIP_W
     finally:
         dlg.close()
@@ -494,7 +494,7 @@ def test_codo_reconocido_como_esquina_mas_radio(app):
     """Dos rectas unidas por un arco (R=60 pt) dibujado a guiones → el
     reconocimiento devuelve un vértice «fillet» en la esquina con el radio en
     pies, y al importar la CAJA de ese vértice es una esquina curva (CV)."""
-    import model_ops
+    from nucleo import model_ops
     doc = fitz.open(); ocg = doc.add_ocg("C-ELEC-UNGD-E", on=True)
     page = doc.new_page(width=800, height=600)
     R, C = 60.0, (400.0, 300.0)
@@ -1003,7 +1003,7 @@ def test_esc_no_cierra_las_ventanas_del_asistente(app):
     """Pedido del usuario 2026-10-05: Esc cerraba «Componer hoja», «Capas de la hoja» y
     la vista previa (se perdía el paso). Ahora no; Cancelar sí."""
     from PySide6 import QtTest
-    import layer_dialog
+    from ui.asistente import layer_dialog
     dlg = composite_dialog.CompositeDialog(None, [{"name": "a.pdf", "data": _two_sheet_pdf()}], None, {}, 0)
     try:
         dlg.show(); _settle(app)

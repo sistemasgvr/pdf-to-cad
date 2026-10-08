@@ -11,9 +11,9 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path[:0] = [str(ROOT/'app'), str(ROOT)]
 import fitz
 from PIL import Image, ImageDraw, ImageFont
-import recognition as rec
-import recognition_trace as trace
-import model_ops
+from reconocimiento import recognition as rec
+from reconocimiento import recognition_trace as trace
+from nucleo import model_ops
 
 
 def main():

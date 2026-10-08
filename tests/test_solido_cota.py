@@ -7,7 +7,7 @@ import pytest
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
-import model_ops  # noqa: E402
+from nucleo import model_ops  # noqa: E402
 
 
 def test_alto_interior_y_cota_centrada():
@@ -22,13 +22,13 @@ def test_alto_interior_y_cota_centrada():
 @pytest.fixture
 def win(monkeypatch):
     from PySide6 import QtWidgets
-    import i18n
-    import i18n_core
+    from traduccion import i18n
+    from traduccion import i18n_core
     app = QtWidgets.QApplication.instance() or QtWidgets.QApplication([])
     monkeypatch.setattr(i18n, "_settings", lambda: type("S", (), {"setValue": lambda *a: None})())
     previo = i18n_core._current_lang
     i18n_core._current_lang = "es"
-    from app_window import Main
+    from ui.ventana.app_window import Main
     w = Main()
     w.pipes = [{"layer": "ELECTRICO", "pts": [(400, 500), (600, 500)], "name": "", "diam": 4.0,
                 "pipe_size": "4 in", "inv_start": 101.0, "inv_end": 100.0}]
@@ -43,7 +43,7 @@ def win(monkeypatch):
 
 
 def _top_dxf(w, s):
-    import dxf_export
+    from exportar import dxf_export
     d = dict(str(v).split("=", 1) for _c, v in dxf_export._solid_items(w, s) if "=" in str(v))
     return float(d["SOLID_TOP_Z"])
 

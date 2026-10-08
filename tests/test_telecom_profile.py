@@ -18,8 +18,8 @@ for p in (str(ROOT / "app"), str(ROOT)):
     if p not in sys.path:
         sys.path.insert(0, p)
 
-import recognition as rec  # noqa: E402
-import recognition_geom as geom  # noqa: E402
+from reconocimiento import recognition as rec  # noqa: E402
+from reconocimiento import recognition_geom as geom  # noqa: E402
 
 DOCS = Path(r"C:/Users/bernu/OneDrive/Documentos/docs prueba")
 DU06 = DOCS / "DU06_09_UD_Drainage_20251216(SUBMITTAL SET).pdf"
@@ -66,7 +66,7 @@ def test_capas_de_telecom_no_entran_en_otros_perfiles():
 
 
 def test_telecom_es_perfil_y_red_de_conductos():
-    from model import NETWORK_KIND
+    from nucleo.model import NETWORK_KIND
     assert "TELECOM" in rec.SUPPORTED_UTILITIES and "TELECOM" in rec.DEFAULT_UTILITIES
     assert rec.utility_line_kind("TELECOM") == "tele_ungd" and "tele_ungd" in rec.DRAW_KINDS
     assert NETWORK_KIND["TELECOM"] == "conduit"             # CAJA solo en bóvedas reales

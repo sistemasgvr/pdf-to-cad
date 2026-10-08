@@ -28,9 +28,9 @@ def _pdf(path, text, pages=1):
 @pytest.fixture
 def win(monkeypatch):
     app = QtWidgets.QApplication.instance() or QtWidgets.QApplication([])
-    import theme
+    from ui.comun import theme
     theme.save_preference = lambda *_a, **_k: None
-    import app_window
+    from ui.ventana import app_window
     monkeypatch.setattr(app_window.Main, "_run_recognition_wizard", lambda self: None)
     for name in ("information", "warning", "critical"):
         monkeypatch.setattr(QtWidgets.QMessageBox, name, lambda *a, **k: None)
@@ -42,8 +42,8 @@ def win(monkeypatch):
 
 
 def test_exporta_la_hoja_compuesta_de_otro_pdf(win, tmp_path, monkeypatch):
-    import app_window
-    import composite as composite_mod
+    from ui.ventana import app_window
+    from hoja import composite as composite_mod
     a = _pdf(tmp_path / "primero.pdf", "A", pages=3)
     b = _pdf(tmp_path / "segundo.pdf", "B", pages=2)
     win._open_pdf_path(a)

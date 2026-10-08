@@ -1,5 +1,5 @@
 """The organizer keeps one valid PDF page in each position."""
-from sheet_layout import normalize, normalize_rotations
+from hoja.sheet_layout import normalize, normalize_rotations
 
 
 def test_normalize_prevents_duplicates_and_out_of_range_pages():

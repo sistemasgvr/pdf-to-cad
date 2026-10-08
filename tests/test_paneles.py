@@ -12,14 +12,14 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 from PySide6 import QtCore, QtGui, QtWidgets  # noqa: E402
 
-import responsive as R  # noqa: E402
-import side_panels  # noqa: E402
+from ui.comun import responsive as R  # noqa: E402
+from ui.comun import side_panels  # noqa: E402
 
 
 @pytest.fixture(scope="module")
 def app():
     a = QtWidgets.QApplication.instance() or QtWidgets.QApplication([])
-    import theme
+    from ui.comun import theme
     viejo = a.styleSheet()
     a.setStyleSheet(theme.build_stylesheet(theme.DARK))      # medidas con el QSS real (sin guardar el tema)
     yield a
@@ -84,12 +84,12 @@ def test_rejilla_adaptable_baja_a_una_columna(app):
 
 @pytest.fixture
 def win(app, monkeypatch):
-    import i18n
-    import i18n_core
+    from traduccion import i18n
+    from traduccion import i18n_core
     monkeypatch.setattr(i18n, "_settings", lambda: type("S", (), {"setValue": lambda *a: None})())
     previo = i18n_core._current_lang
     i18n_core._current_lang = "es"
-    from app_window import Main
+    from ui.ventana.app_window import Main
     w = Main()
     w.resize(1400, 820); w.show()
     w.pipes = [{"layer": "DRENAJE", "pts": [(100, 100), (400, 100), (400, 400)], "name": "Linea Norte",
@@ -179,8 +179,8 @@ def _cortados(sc):
 
 @pytest.mark.parametrize("lang", ["es", "en"])
 def test_nada_se_corta_al_ancho_minimo(win, app, lang):
-    import i18n
-    from model import TAB_BZ, TAB_CL, TAB_CURVE, TAB_DB, TAB_PIPE
+    from traduccion import i18n
+    from nucleo.model import TAB_BZ, TAB_CL, TAB_CURVE, TAB_DB, TAB_PIPE
     i18n.set_lang(lang); app.processEvents()
     win.resizeDocks([win._ldock, win._rdock], [side_panels.MIN_W] * 2, QtCore.Qt.Horizontal)
     app.processEvents()

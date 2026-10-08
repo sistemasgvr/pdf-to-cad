@@ -20,8 +20,8 @@ for p in (str(ROOT / "app"), str(ROOT)):
     if p not in sys.path:
         sys.path.insert(0, p)
 
-import leyenda_estandar as le  # noqa: E402
-import leyenda_trazos  # noqa: E402
+from hoja import leyenda_estandar as le  # noqa: E402
+from hoja import leyenda_trazos  # noqa: E402
 
 DU06 = ROOT / "DU06_09_UD_Drainage_20251216(SUBMITTAL SET).pdf"
 needs_du06 = pytest.mark.skipif(not DU06.exists(), reason="PDF de prueba DU06 no está en el repo")
@@ -113,9 +113,9 @@ def du06_h5():
     if not DU06.exists():
         pytest.skip("PDF de prueba DU06 no está en el repo")
     import fitz
-    import pdf_layers
+    from hoja import pdf_layers
     from PySide6 import QtWidgets
-    import layer_dialog
+    from ui.asistente import layer_dialog
     app = QtWidgets.QApplication.instance() or QtWidgets.QApplication([])
     doc = fitz.open(str(DU06))
     dlg = layer_dialog.SheetLayersDialog(None, doc, 4, layers=pdf_layers.page_layers(doc, 4), legend_sources=[])
@@ -175,8 +175,8 @@ def test_du06_la_leyenda_toma_lo_mismo_que_el_reconocimiento(page_i):
     reconocen y tampoco van a la leyenda ni se resaltan. En h.2 hay bóvedas de capas que
     no están en la lista de capas del PDF (`…(A2_TRIM)|V-ELEC-MANH`): se toman por nombre."""
     import fitz
-    import pdf_layers
-    import recognition as rec
+    from hoja import pdf_layers
+    from reconocimiento import recognition as rec
     with fitz.open(str(DU06)) as doc:
         Ls = {L["name"]: L for L in pdf_layers.page_layers(doc, page_i)}
         page = doc[page_i]

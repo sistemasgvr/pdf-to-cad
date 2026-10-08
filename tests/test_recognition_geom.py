@@ -15,7 +15,7 @@ import pytest
 
 fitz = pytest.importorskip("fitz")
 
-import recognition_geom as G
+from reconocimiento import recognition_geom as G
 
 ROOT = Path(__file__).resolve().parent.parent
 PDF = ROOT / "DU06_09_UD_Drainage_20251216(SUBMITTAL SET).pdf"
@@ -897,7 +897,7 @@ def _dashed_line(sh, a, b, dash=21.6, gap=3.6, phase=0.0):
 
 
 def _recon(sh):
-    import recognition as rec
+    from reconocimiento import recognition as rec
     lp, vp, _, _ = rec.gather_paths(sh.page, lambda o: "elec_ungd" if o == "LINES" else ("structure" if o == "VAULTS" else None))
     return G.reconstruct(lp, vp)
 

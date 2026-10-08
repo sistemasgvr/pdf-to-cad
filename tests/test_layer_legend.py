@@ -22,8 +22,8 @@ for p in (str(ROOT / "app"), str(ROOT)):
 
 fitz = pytest.importorskip("fitz")
 
-import pdf_layers  # noqa: E402
-import pdf_legend  # noqa: E402
+from hoja import pdf_layers  # noqa: E402
+from hoja import pdf_legend  # noqa: E402
 import project_io  # noqa: E402
 
 DOCS = Path(r"C:/Users/bernu/OneDrive/Documentos/docs prueba")
@@ -58,7 +58,7 @@ def test_la_decision_se_guarda_en_el_proyecto():
 
 
 def test_descripcion_de_un_codigo_segun_la_leyenda():
-    from layer_info_panel import legend_texts
+    from ui.asistente.layer_info_panel import legend_texts
     R = pdf_legend.LegendRow
     src = {"name": "DU08.pdf"}
     rows = [(src, R(2, (0, 0, 1, 1), "EXISTING ABANDONED GAS", "g", "G")),
@@ -107,7 +107,7 @@ def test_pdf_sin_leyenda():
 def du08_legend():
     if not DU08.exists():
         pytest.skip("PDF de prueba DU08 no disponible")
-    from layer_info_panel import LegendWorker
+    from ui.asistente.layer_info_panel import LegendWorker
     got = {}
     worker = LegendWorker([{"name": "DU08.pdf", "path": str(DU08)}])
     worker.done.connect(lambda res: got.setdefault("res", res))
@@ -117,7 +117,7 @@ def du08_legend():
 
 def _dialog(legend):
     from PySide6 import QtWidgets
-    import layer_dialog, layer_dialog_info
+    from ui.asistente import layer_dialog; from ui.asistente import layer_dialog_info
     app = QtWidgets.QApplication.instance() or QtWidgets.QApplication([])
     doc = fitz.open(str(DU08))
     sources = [{"name": "DU08.pdf", "path": str(DU08)}]
@@ -180,7 +180,7 @@ def test_leyenda_marca_las_de_esta_hoja(du08_legend):
 @needs_du08
 def test_reconocimiento_respeta_la_decision():
     from PySide6 import QtCore
-    import workers
+    from ui.comun import workers
     QtCore.QCoreApplication.instance() or QtCore.QCoreApplication([])
     te = "PS89616000_B3-NX-REF-MODL-001|U-TRPW-DBNK-P"
     got = {}

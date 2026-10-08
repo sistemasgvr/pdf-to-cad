@@ -4,7 +4,7 @@ Cubren la auto-detección de buzones y el conteo de conexiones, ambas con lógic
 geométrica sutil (tolerancia de coincidencia, reconciliación por coordenada,
 extremos vs vértices intermedios).
 """
-import model_ops
+from nucleo import model_ops
 
 
 def _gravity_pipe(pts, layer="ALCANTARILLADO"):
@@ -153,7 +153,7 @@ def test_snapshot_congela_intermedios_y_evita_cascada():
 def test_hide_soft_vertex_structures():
     """Vértices bend/corner/curve de pipes reconocidas → CAJA oculta; bóvedas,
     extremos y vértices compartidos con una bóveda de otra pipe siguen visibles."""
-    from model_ops import rebuild_structures, hide_soft_vertex_structures
+    from nucleo.model_ops import rebuild_structures, hide_soft_vertex_structures
     pipes = [
         {"layer": "ELECTRICO", "pts": [(0, 0), (100, 0), (200, 0), (300, 0)],
          "vertex_kinds": ["end", "bend", "vault", "corner"]},
@@ -188,7 +188,7 @@ def test_hide_soft_vertex_structures():
 
 
 def test_attach_vault_geometry_asocia_medidas_a_la_caja():
-    from model_ops import attach_vault_geometry, rebuild_structures
+    from nucleo.model_ops import attach_vault_geometry, rebuild_structures
     pipes = [{"layer": "ELECTRICO", "pts": [(0, 0), (100, 0), (200, 0)]}]
     # Conduit ya no auto-detecta; se siembran cajas por vértice a mano.
     seeded = [{"cod": "", "x": x, "y": y, "rim": None, "sump": None, "part": "",
@@ -223,7 +223,7 @@ def test_attach_vault_geometry_asocia_medidas_a_la_caja():
 
 
 def test_attach_vault_geometry_drenaje_crea_buzon_de_gravedad():
-    from model_ops import attach_vault_geometry
+    from nucleo.model_ops import attach_vault_geometry
     structures = []
     vault = [{"center": (50.0, 80.0), "corners": [(40, 70), (60, 70), (60, 90), (40, 90)],
               "shape": "rect", "width_ft": 4.0, "length_ft": 5.0,
@@ -237,7 +237,7 @@ def test_attach_vault_geometry_drenaje_crea_buzon_de_gravedad():
 
 
 def test_redes_coincidentes_conservan_estructuras_separadas_por_tipo():
-    from model_ops import attach_vault_geometry, rebuild_structures, hide_soft_vertex_structures
+    from nucleo.model_ops import attach_vault_geometry, rebuild_structures, hide_soft_vertex_structures
     # Eléctrico con BÓVEDA real en el mismo punto que un buzón de drenaje:
     # cada red conserva su propia estructura.
     pipes = [
@@ -260,7 +260,7 @@ def test_redes_coincidentes_conservan_estructuras_separadas_por_tipo():
 def test_conduit_nunca_pone_cajas_en_sus_vertices():
     # Regla del usuario (2026-09-28): en eléctrico/telecom un VÉRTICE de la
     # utilidad nunca es caja, ni dibujada a mano ni reconocida del PDF.
-    from model_ops import rebuild_structures
+    from nucleo.model_ops import rebuild_structures
     pipes = [{"layer": "ELECTRICO", "pts": [(0, 0), (100, 0), (100, 100), (200, 100)],
               "vertex_kinds": ["end", "corner", "vault", "stop"]},
              {"layer": "TELECOM", "pts": [(0, 300), (80, 300), (80, 380)],
@@ -277,7 +277,7 @@ def test_conduit_caja_solo_de_boveda_reconocida():
     # La caja sale de la BÓVEDA reconocida en sus capas y se pone en el vértice
     # por donde llega la línea (así Civil 3D la conecta). Un vértice «vault»/«stop»
     # sin bóveda reconocida no crea nada.
-    from model_ops import attach_vault_geometry, rebuild_structures
+    from nucleo.model_ops import attach_vault_geometry, rebuild_structures
     pipes = [{"layer": "ELECTRICO", "pts": [(0, 0), (100, 0), (100, 100), (200, 100)],
               "vertex_kinds": ["end", "corner", "vault", "stop"]}]
     structures = rebuild_structures(pipes, [])
@@ -308,7 +308,7 @@ def test_conduit_caja_solo_de_boveda_reconocida():
 
 def test_fillet_geo_arco_tangente_y_recorte():
     import math
-    from model_ops import fillet_geo
+    from nucleo.model_ops import fillet_geo
     # esquina de 90°: T = r, centro a r·√2 de la esquina, arco de 90°
     g = fillet_geo((0.0, 100.0), (0.0, 0.0), (100.0, 0.0), 30.0)
     assert g and not g["clamped"] and abs(g["T"] - 30.0) < 1e-9
@@ -438,7 +438,7 @@ def test_red_de_usa_nombre_y_si_no_la_capa():
 def test_codos_de_retorno_solo_con_tramo_corto():
     # 170° con tramo de 2 ft (E07): no cabe la curva → codo de retorno en el vértice.
     import math
-    from model_ops import codos_de_retorno
+    from nucleo.model_ops import codos_de_retorno
     ang = math.radians(170)
     corto = {"layer": "AGUA", "diam": 12, "pts": [(-30, 0), (0, 0), (2 * math.cos(ang), 2 * math.sin(ang))]}
     hits = codos_de_retorno([corto], 1.0)
@@ -455,7 +455,7 @@ def test_codos_de_retorno_solo_con_tramo_corto():
 
 def test_union_con_pendiente_extremo_con_extremo():
     import math
-    from model_ops import union_con_pendiente
+    from nucleo.model_ops import union_con_pendiente
     a = {"layer": "AGUA", "diam": 12, "pts": [(-38, 0), (0, 0)]}
     fin = (10 * math.cos(math.radians(60)), 10 * math.sin(math.radians(60)))
     b = {"layer": "AGUA", "diam": 12, "pts": [(0, 0), fin]}
@@ -485,7 +485,7 @@ def _cruce(capa_a, capa_b, za=-4.0, zb=-4.0, vertice_a=False, vertice_b=False):
 
 
 def test_choque_entre_utilidades_distintas_a_la_misma_cota():
-    from model_ops import choques_sin_conexion
+    from nucleo.model_ops import choques_sin_conexion
     pipes, z_at = _cruce("AGUA", "DRENAJE")                       # E25
     hits = choques_sin_conexion(pipes, z_at, tol_px=3.0)
     assert [(round(h["x"]), round(h["y"]), h["ia"], h["ib"]) for h in hits] == [(100, 100, 0, 1)]
@@ -494,7 +494,7 @@ def test_choque_entre_utilidades_distintas_a_la_misma_cota():
 
 
 def test_choque_no_se_avisa_a_distinta_cota_ni_entre_redes_a_presion():
-    from model_ops import choques_sin_conexion
+    from nucleo.model_ops import choques_sin_conexion
     pipes, z_at = _cruce("AGUA", "DRENAJE", za=-4.0, zb=-8.0)        # E24: pasan una sobre otra
     assert choques_sin_conexion(pipes, z_at, tol_px=3.0) == []
     pipes, z_at = _cruce("AGUA", "GAS")                               # presión × presión: otro aviso
@@ -504,7 +504,7 @@ def test_choque_no_se_avisa_a_distinta_cota_ni_entre_redes_a_presion():
 
 
 def test_choque_solo_si_las_dos_atraviesan():
-    from model_ops import choques_sin_conexion
+    from nucleo.model_ops import choques_sin_conexion
     # El drenaje termina sobre el agua: no es un cruce completo.
     pipes = [{"layer": "AGUA", "pts": [(0, 100), (200, 100)]},
              {"layer": "DRENAJE", "pts": [(100, 0), (100, 100)]}]
@@ -512,7 +512,7 @@ def test_choque_solo_si_las_dos_atraviesan():
 
 
 def test_choque_misma_utilidad_conectada_no_se_avisa():
-    from model_ops import choques_sin_conexion
+    from nucleo.model_ops import choques_sin_conexion
     # Drenaje × drenaje con vértice compartido: el buzón del vértice las une.
     pipes, z_at = _cruce("DRENAJE", "DRENAJE", vertice_a=True, vertice_b=True)
     assert choques_sin_conexion(pipes, z_at, tol_px=3.0) == []
@@ -531,7 +531,7 @@ def test_solido_caja_rectangular_conduit():
     altura por defecto; al cambiar largo × ancho el contorno se rehace a escala
     con el mismo centro y giro. Un buzón de gravedad o una caja sin contorno no."""
     import math
-    import model_ops
+    from nucleo import model_ops
     s = {"cod": "CAJA-3", "x": 10, "y": 10, "net": "conduit", "shape": "rect",
          "part": "Caja X", "part_size": "4x4",
          "outline": [(0, 0), (40, 0), (40, 20), (0, 20)], "length_ft": 4.0, "width_ft": 2.0}

@@ -15,8 +15,8 @@ for p in (str(ROOT / "app"), str(ROOT)):
     if p not in sys.path:
         sys.path.insert(0, p)
 
-import recognition as rec  # noqa: E402
-from model import NETWORK_KIND  # noqa: E402
+from reconocimiento import recognition as rec  # noqa: E402
+from nucleo.model import NETWORK_KIND  # noqa: E402
 
 
 @pytest.mark.parametrize("name, kind", [
@@ -68,7 +68,7 @@ def test_registro_del_perfil():
 
 def test_reglas_de_otros_perfiles_no_cambian():
     """Agregar alcantarillado no toca las GeomOptions de los perfiles existentes."""
-    import recognition_geom as geom
+    from reconocimiento import recognition_geom as geom
     assert rec.UTILITY_GEOM_OPTIONS.get("ELECTRICO", geom.GeomOptions()) == geom.GeomOptions()
     assert rec.UTILITY_GEOM_OPTIONS["DRENAJE"] == geom.GeomOptions(
         separate_vaults=True, nearest_vault=True, absorb_inside_runs=True)
@@ -138,7 +138,7 @@ def test_du06_h13_laterales_verticales_sobre_su_tinta(monkeypatch):
     # desde 2026-10-06 el cruce vale en TODAS las utilidades para un ramal recto que se
     # torcía (DU08 h.26): sin `precise_junctions` los laterales siguen sobre su tinta…
     import dataclasses
-    import recognition_geom as geom
+    from reconocimiento import recognition_geom as geom
     monkeypatch.setitem(rec.UTILITY_GEOM_OPTIONS, "ALCANTARILLADO", dataclasses.replace(
         rec.UTILITY_GEOM_OPTIONS["ALCANTARILLADO"], precise_junctions=False))
     _, pls = _sewer(DU06, 13)
@@ -194,7 +194,7 @@ def test_hoja_compuesta_13_14_la_principal_no_se_corta_en_el_lateral(tmp_path):
     cortaba en el hueco del linetype junto al lateral de x=632.6 (el lateral
     TOCA la punta del guión y `join_touching_ends` los cosía como esquina)."""
     import fitz
-    import composite as C
+    from hoja import composite as C
     src = fitz.open(DU06)
     W, H = src[12].rect.width, src[12].rect.height
     a = C.Piece(source=0, page=12, clip=[0, 0, 1610 / W, 1])

@@ -93,7 +93,7 @@ _CALLS = {}
 def run(job):
     pdf, pno, utils, no_ink = job
     import warnings; warnings.filterwarnings("ignore")
-    import fitz, recognition as rec
+    import fitz; from reconocimiento import recognition as rec
     if no_ink and not hasattr(rec, "_audit_no_ink"):
         # línea base: solo la 1.ª pasada (sin codos de la tinta ni reetiquetado)
         rec._audit_no_ink = True
@@ -127,7 +127,7 @@ def run(job):
             continue
         # tinta de la capa (pt), por capa: trozos de ARCO aplanado (misma detección
         # que la 2.ª pasada, `recognition_arcs.arc_pieces`)
-        import recognition_arcs as ra
+        from reconocimiento import recognition_arcs as ra
         lp, _vp = rec.utility_line_paths(page, U)        # por nombre y por las letras de sus líneas
         by = {}
         for p_ in lp:

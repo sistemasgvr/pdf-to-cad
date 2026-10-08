@@ -9,9 +9,9 @@ import pytest
 import fitz
 from PIL import Image
 from PySide6 import QtCore, QtWidgets, QtTest
-import composite as C
-from composite_dialog import CompositeDialog
-from app_window import Main
+from hoja import composite as C
+from ui.asistente.composite_dialog import CompositeDialog
+from ui.ventana.app_window import Main
 
 
 @pytest.fixture(scope="module")
@@ -77,7 +77,7 @@ def test_manual_dialog_crop_and_straighten(app):
 
 
 def test_manual_flow_skips_layers_and_recognition(monkeypatch):
-    import app_window
+    from ui.ventana import app_window
     comp = C.Composite([C.Piece(0, 1, [0, 0, 1, 1])], manual=True, bridges=False)
     monkeypatch.setattr(app_window.composite_dialog, "compose_sheet", lambda *a, **kw: (comp, [], {}))
     def unexpected(*args, **kwargs):
@@ -91,7 +91,7 @@ def test_manual_flow_skips_layers_and_recognition(monkeypatch):
 
 
 def test_detected_scan_opens_manual_compositor(monkeypatch):
-    import app_window
+    from ui.ventana import app_window
     doc = scan_pdf()
     calls = []
     win = QtWidgets.QWidget()

@@ -16,7 +16,7 @@ for p in (str(ROOT / "app"), str(ROOT)):
     if p not in sys.path:
         sys.path.insert(0, p)
 
-import recognition as rec  # noqa: E402
+from reconocimiento import recognition as rec  # noqa: E402
 
 DOCS = Path(r"C:/Users/bernu/OneDrive/Documentos/docs prueba")
 DU06 = DOCS / "DU06_09_UD_Drainage_20251216(SUBMITTAL SET).pdf"

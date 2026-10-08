@@ -18,9 +18,9 @@ for p in (str(ROOT / "app"), str(ROOT)):
 pytest.importorskip("fitz")
 from PySide6 import QtCore, QtGui, QtWidgets  # noqa: E402
 
-import composite as C  # noqa: E402
-import recognition as rec  # noqa: E402
-import recognition_cache as RC  # noqa: E402
+from hoja import composite as C  # noqa: E402
+from reconocimiento import recognition as rec  # noqa: E402
+from reconocimiento import recognition_cache as RC  # noqa: E402
 
 
 def _comp(page=0, clip=(0, 0, 1, 1)):
@@ -117,9 +117,9 @@ class _FakeWorker(QtCore.QObject):
 @pytest.fixture
 def win(monkeypatch):
     app = QtWidgets.QApplication.instance() or QtWidgets.QApplication([])
-    import theme
+    from ui.comun import theme
     theme.save_preference = lambda *_a, **_k: None          # no tocar QSettings del usuario
-    import app_window
+    from ui.ventana import app_window
     monkeypatch.setattr(app_window.Main, "_run_recognition_wizard", lambda self: None)
     monkeypatch.setattr(app_window, "RecognitionWorker", _FakeWorker)
     _FakeWorker.started = []
@@ -137,7 +137,7 @@ def win(monkeypatch):
 
 
 def test_sin_cambios_no_reconoce_otra_vez(win, monkeypatch):
-    import app_window
+    from ui.ventana import app_window
     shown = []
     monkeypatch.setattr(app_window.recognition_dialog, "show_recognition_preview",
                         lambda parent, qimg, results, **kw: shown.append(list(results)) or

@@ -19,10 +19,10 @@ import pytest
 
 fitz = pytest.importorskip("fitz")
 
-import recognition as rec
-import recognition_arc_chain as chain
-import recognition_arcs as ra
-import recognition_dupink as dup
+from reconocimiento import recognition as rec
+from reconocimiento import recognition_arc_chain as chain
+from reconocimiento import recognition_arcs as ra
+from reconocimiento import recognition_dupink as dup
 
 SAG = 0.025          # flecha del aplanado de AutoCAD
 

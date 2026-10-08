@@ -11,8 +11,8 @@ from pathlib import Path
 
 import pytest
 
-import recognition as rec
-import recognition_arcs as ra
+from reconocimiento import recognition as rec
+from reconocimiento import recognition_arcs as ra
 
 SAG = 0.025          # flecha del aplanado de AutoCAD (medida en los 4 PDFs)
 
@@ -45,7 +45,7 @@ def test_curva_abierta_que_el_nucleo_dejo_en_quiebres():
     """Recta → arco r=150 de 30° → recta. El núcleo la dejó en quiebres `bend`
     (centerline a ≤1 pt de la tinta): la 1.ª pasada no la intenta; la 2.ª la ve en
     la tinta y pone la esquina en la intersección de las rectas con el radio del plano."""
-    import recognition_geom as geom
+    from reconocimiento import recognition_geom as geom
     a30 = math.radians(30)
     arc = _arc((100.0, -150.0), 150.0, math.pi / 2, math.pi / 2 - a30)
     end = (arc[-1][0] + 100 * math.cos(a30), arc[-1][1] - 100 * math.sin(a30))

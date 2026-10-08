@@ -15,8 +15,8 @@ from types import SimpleNamespace
 
 import pytest
 
-import recognition_vault_snap as vs
-import model_ops
+from reconocimiento import recognition_vault_snap as vs
+from nucleo import model_ops
 
 RECT = {"corners": [(100.0, 100.0), (160.0, 100.0), (160.0, 140.0), (100.0, 140.0)],
         "center": (130.0, 120.0)}
@@ -183,7 +183,7 @@ DU06 = Path(r"C:/Users/bernu/OneDrive/Documentos/docs prueba/DU06_09_UD_Drainage
 
 @pytest.mark.skipif(not DU06.is_file(), reason="PDF DU06 no disponible")
 def test_du06_h5_solido_electrico_de_la_captura():
-    import recognition as rec
+    from reconocimiento import recognition as rec
     z = 3.5                                                            # zoom del editor
     res = rec.recognize_page(str(DU06), 4, utility="ELECTRICO", zoom=z)
     vg = next(v for v in res.vaults_geo

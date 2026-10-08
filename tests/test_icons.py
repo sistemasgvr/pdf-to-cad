@@ -4,7 +4,7 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 from PySide6 import QtGui, QtWidgets
 
-import icons
+from ui.comun import icons
 
 
 def _app():

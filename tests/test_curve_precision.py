@@ -4,11 +4,11 @@ from pathlib import Path
 
 import pytest
 
-import recognition as rec
-import recognition_geom as geom
-import recognition_trace as trace
-import model_ops
-from recognition_bezier import flatten_cubic
+from reconocimiento import recognition as rec
+from reconocimiento import recognition_geom as geom
+from reconocimiento import recognition_trace as trace
+from nucleo import model_ops
+from reconocimiento.recognition_bezier import flatten_cubic
 
 PDF = Path(__file__).resolve().parents[1] / 'DU06_09_UD_Drainage_20251216(SUBMITTAL SET).pdf'
 
@@ -58,7 +58,7 @@ def test_collinear_bezier_that_reverses_does_not_collapse():
 
 
 def test_glyph_mask_recovers_only_curve_supported_by_neighbouring_circle():
-    from recognition_arcs import arc_pieces
+    from reconocimiento.recognition_arcs import arc_pieces
     a = [(40*math.cos(t), 40*math.sin(t)) for t in [i*.04 for i in range(9)]]
     b = [(40*math.cos(t), 40*math.sin(t)) for t in [.40+i*.04 for i in range(9)]]
     box = [(min(x for x, y in a), min(y for x, y in a),
@@ -113,7 +113,7 @@ def test_fork_shares_source_contact_without_extending_branch_to_vault(sheets):
 
 @pytest.mark.parametrize('offset,expected', [(0., True), (.3, False)])
 def test_source_contact_requires_ink_at_branch_endpoint(offset, expected):
-    from recognition_contacts import source_contacts
+    from reconocimiento.recognition_contacts import source_contacts
     # The circle starts tangent to y=0. A neighbouring parallel line is
     # separate geometry and must never attract its endpoint.
     curve = [(40*math.sin(t), 40*(1-math.cos(t)))

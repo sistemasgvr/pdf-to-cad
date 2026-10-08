@@ -16,16 +16,16 @@ sin abrir la interfaz.
 """
 import os
 
-from model import VERSION
+from nucleo.model import VERSION
 from geo import georef as georef_mod
-from duct_bank import DuctBank
-from composite import Composite
+from nucleo.duct_bank import DuctBank
+from hoja.composite import Composite
 
 
 def build_model_dict(win):
     """Arma el dict que se guarda como model.json. `win` es la ventana (o cualquier
     objeto con los mismos atributos). Lectura pura, sin efectos secundarios."""
-    import civil_catalog as _cc
+    from catalogo import civil_catalog as _cc
     return dict(
         pipes=win.pipes, leaders=win.leaders, text_marks=win.text_marks,
         erase_regions=win.erase_regions, structures=win.structures,

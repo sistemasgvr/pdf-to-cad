@@ -13,9 +13,9 @@ from types import SimpleNamespace
 
 import pytest
 
-import recognition as rec
-import recognition_ends as ends
-import recognition_geom as geom
+from reconocimiento import recognition as rec
+from reconocimiento import recognition_ends as ends
+from reconocimiento import recognition_geom as geom
 
 # «—t—» de telecom en DU08: hueco con letra 9 pt, letra 7.2 pt → hueco simple 4.5 pt
 PAT = SimpleNamespace(gap_max=9.0, letter=7.2, glyph_bridge=36.0)

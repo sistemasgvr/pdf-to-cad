@@ -1,6 +1,6 @@
 """Pruebas del modelo de Duct Bank (headless, sin Qt)."""
-import duct_bank as db_mod
-from duct_bank import DuctBank, Conduit, snap, validate, conduits_overlap, conduit_fits_envelope
+from nucleo import duct_bank as db_mod
+from nucleo.duct_bank import DuctBank, Conduit, snap, validate, conduits_overlap, conduit_fits_envelope
 
 
 def test_snap_quarter_inch():
@@ -244,7 +244,7 @@ def test_varias_pipes_roundtrip_y_compat():
 
 
 def test_reindex_al_borrar_pipe():
-    from duct_bank import reindex_after_pipe_delete
+    from nucleo.duct_bank import reindex_after_pipe_delete
     a = DuctBank(); a.assign([1, 3, 6])
     b = DuctBank(pipe_idx=3)
     reindex_after_pipe_delete([a, b], 3)

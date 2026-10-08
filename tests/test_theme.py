@@ -2,7 +2,7 @@
 import os
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
-import theme
+from ui.comun import theme
 from PySide6 import QtWidgets
 
 

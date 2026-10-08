@@ -12,8 +12,8 @@ for p in (os.path.join(ROOT, "app"), ROOT):
     if p not in sys.path:
         sys.path.insert(0, p)
 
-import recognition as rec  # noqa: E402
-import xdata  # noqa: E402
+from reconocimiento import recognition as rec  # noqa: E402
+from nucleo import xdata  # noqa: E402
 
 LINE_D = rec.utility_line_kind("DRENAJE")
 LINE_E = rec.utility_line_kind("ELECTRICO")

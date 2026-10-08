@@ -104,7 +104,7 @@ def end_dir(pts, first):
 
 def analyze(job):
     pdf, pno, U, outdir, images = job
-    import fitz, recognition as rec
+    import fitz; from reconocimiento import recognition as rec
     doc = fitz.open(pdf)
     res = rec.recognize_page(pdf, pno, utility=U, zoom=Z, doc=doc)
     page = doc[pno]
@@ -330,7 +330,7 @@ def render(page, doc, U, layer, strokes, drawn, pls, probs, outdir, pno):
 
 
 def main():
-    import fitz, recognition as rec
+    import fitz; from reconocimiento import recognition as rec
     ap = argparse.ArgumentParser()
     ap.add_argument("pdf")
     ap.add_argument("--hojas", default="")

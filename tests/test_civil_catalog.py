@@ -7,7 +7,7 @@ Cubren el criterio clave de emparejamiento de familias:
   - La lectura del GUID (`Catalog_PartID`) y de la descripción localizada
     (`Catalog_PartDesc`) del XML, con un fixture pequeño.
 """
-import civil_catalog as cc
+from catalogo import civil_catalog as cc
 
 
 SAMPLE_XML = """<?xml version="1.0"?><LandPart>

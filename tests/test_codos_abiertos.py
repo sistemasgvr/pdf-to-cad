@@ -17,8 +17,8 @@ for p in (str(ROOT / "app"), str(ROOT)):
     if p not in sys.path:
         sys.path.insert(0, p)
 
-import model_ops as MO  # noqa: E402
-import recognition_trace as trace_mod  # noqa: E402
+from nucleo import model_ops as MO  # noqa: E402
+from reconocimiento import recognition_trace as trace_mod  # noqa: E402
 
 DU06 = ROOT / "DU06_09_UD_Drainage_20251216(SUBMITTAL SET).pdf"
 
@@ -82,7 +82,7 @@ def test_codos_que_no_se_tocan():
 
 @pytest.mark.skipif(not DU06.is_file(), reason="PDF DU06 no está en el repo")
 def test_du06_h5_telecom_la_u_queda_en_dos_codos():
-    import recognition as rec
+    from reconocimiento import recognition as rec
     r = rec.recognize_page(DU06, 4, utility="TELECOM", zoom=1.0)
     fil = [(pl, i, f) for pl in r.drawable for i, f in pl.fillets.items()]
     W, H = 2592, 1728                                        # hoja 36×24 in a 72 dpi
@@ -117,7 +117,7 @@ def test_du10_h3_electrico_ninguna_curva_queda_como_polilinea():
     (2) `C-ELEC-3MI-UGND-N`: curva r = 126 pt que la 2.ª pasada encontraba, pero
     `fit_continuous` descartaba el reajuste del tramo final porque el tee del extremo
     se corría a la tangencia de su línea (como sin parche)."""
-    import recognition as rec
+    from reconocimiento import recognition as rec
     r = rec.recognize_page(DU10, 2, utility="ELECTRICO", zoom=1.0)
     assert not any("curve" in pl.kinds for pl in r.drawable)
     fil = [(pl, i, f) for pl in r.drawable for i, f in pl.fillets.items()]
@@ -147,7 +147,7 @@ def test_du08_recta_escondida_solo_la_que_llega_al_fin_de_la_linea():
     curva en «S» esa recta está ENTRE los dos arcos y usarla le quitaba las anclas al
     codo que ya salía bien (r = 127 pt en (527.2, 907.2)). h.40: la curva que muere en
     el guión que llega al extremo (548 → 572) ahora es codo, tangente a esa recta."""
-    import recognition as rec
+    from reconocimiento import recognition as rec
     r = rec.recognize_page(DU08, 21, utility="ELECTRICO", zoom=1.0)
     near = [f for pl in r.drawable for i, f in pl.fillets.items() if math.dist(pl.pts_pdf[i], (527.2, 907.2)) < 1.0]
     assert len(near) == 1 and near[0]["r_px"] == pytest.approx(127.0, abs=1.0)
@@ -163,7 +163,7 @@ def test_du08_h35_telecom_una_curva_un_codo_y_llega_al_tee():
     """La tinta es UN arco (r ≈ 116 pt: (1231, 803), (1203, 847), (1140, 880) a 116 ± 0.3
     del mismo centro). Antes salían dos codos aproximados (desvío 0.65 pt) y la línea
     terminaba a 7.7 pt del tee de la horizontal; ahora un codo exacto que muere en ese tee."""
-    import recognition as rec
+    from reconocimiento import recognition as rec
     r = rec.recognize_page(DU08, 34, utility="TELECOM", zoom=1.0)
     pls = [pl for pl in r.drawable if pl.pts_pdf and math.dist(pl.pts_pdf[0], (1237.7, 748.2)) < 1.0]
     assert len(pls) == 1

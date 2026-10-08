@@ -3,9 +3,9 @@ import math
 
 import pytest
 
-import recognition as rec
-import recognition_text_gaps as gaps
-import recognition_trace as trace
+from reconocimiento import recognition as rec
+from reconocimiento import recognition_text_gaps as gaps
+from reconocimiento import recognition_trace as trace
 from test_curve_precision import _editor, sheets  # shared real-PDF fixture
 
 
@@ -123,7 +123,7 @@ def test_s_curve_straight_middle_under_text_is_bridged(blocked):
     stretch covered by the line's own letters. The two existing ends are joined
     straight (no point added) and the joined routes become ONE (routes.join_emitted);
     both arcs stay exactly as recognized."""
-    import routes
+    from reconocimiento import routes
     a,b,mid = _s_halves(turn_right_deg=10. if blocked == 'tangent' else 0.,
                         layer='other' if blocked == 'layer' else 'line')
     glyphs = [] if blocked == 'no_text' else [(mid[0],mid[1],7.)]

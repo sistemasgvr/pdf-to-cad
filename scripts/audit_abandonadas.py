@@ -25,7 +25,7 @@ UTILS = ["ELECTRICO", "DRENAJE", "AGUA", "ALCANTARILLADO", "GAS", "TELECOM"]
 
 def run(job):
     pdf, pno = job
-    import fitz, recognition as rec, recognition_geom as geom
+    import fitz; from reconocimiento import recognition as rec; from reconocimiento import recognition_geom as geom
     orig = geom.marker_pattern
     calls = []                                   # por capa: (rutas joined, raw)
 

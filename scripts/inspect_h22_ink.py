@@ -1,7 +1,7 @@
 import sys
 from pathlib import Path
 sys.path.insert(0,str(Path(__file__).resolve().parents[1]/'app'))
-import fitz,recognition as r
+import fitz; from reconocimiento import recognition as r
 p=fitz.open('C:/Users/bernu/OneDrive/Documentos/docs prueba/03-DU08_09_10-APDU-SEG-B-SEWER-PLAN_100P.pdf')[21]
 paths,*_=r.gather_paths(p,lambda o:r.classify_ocg(o,'ELECTRICO'),set(),None)
 for path in paths:

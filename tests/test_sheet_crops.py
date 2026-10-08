@@ -3,10 +3,10 @@ import fitz
 from PySide6 import QtCore, QtGui, QtWidgets
 from PySide6.QtTest import QTest
 
-import recognition
-import organized_layer_dialog
-from sheet_crop_dialog import SheetCropDialog
-from sheet_crops import (drawing_polygon, move_rect, normalize, page_rect,
+from reconocimiento import recognition
+from ui.asistente import organized_layer_dialog
+from ui.asistente.sheet_crop_dialog import SheetCropDialog
+from hoja.sheet_crops import (drawing_polygon, move_rect, normalize, page_rect,
                          resize_corner, resize_side)
 
 

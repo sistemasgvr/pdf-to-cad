@@ -16,8 +16,8 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 fitz = pytest.importorskip("fitz")
 from PySide6 import QtCore, QtWidgets  # noqa: E402
 
-import composite as C  # noqa: E402
-import recognition as rec  # noqa: E402
+from hoja import composite as C  # noqa: E402
+from reconocimiento import recognition as rec  # noqa: E402
 
 LINEA = {"layer": "DRENAJE", "pts": [(10, 10), (200, 10), (200, 120)], "name": "", "diam": 12.0}
 HOJA = [0.0, 0.0, 1.0, 1.0]
@@ -62,9 +62,9 @@ def app():
 
 @pytest.fixture
 def win(app, monkeypatch):
-    import theme
+    from ui.comun import theme
     theme.save_preference = lambda *_a, **_k: None
-    import app_window
+    from ui.ventana import app_window
     monkeypatch.setattr(app_window.Main, "_run_recognition_wizard", lambda self: None)
     monkeypatch.setattr(app_window, "RecognitionWorker", _FakeWorker)
     _FakeWorker.started, _FakeWorker.error = [], ""
@@ -103,7 +103,7 @@ def _foto(win):
 
 def _stubs(monkeypatch, win, compositor, capas, vista_previa):
     """Respuestas de cada paso, en orden. Devuelve lo que vio la vista previa."""
-    import app_window
+    from ui.ventana import app_window
     rd = app_window.recognition_dialog
     vio = []
 
@@ -134,8 +134,8 @@ def _otra():
 @pytest.mark.parametrize("donde", ["compositor", "capas", "vista_previa", "capas_volver_compositor",
                                    "error", "ajustar_capas", "importar_sin_tramos"])
 def test_cancelar_deja_el_editor_como_estaba(win, app, tmp_path, monkeypatch, base, donde):
-    import app_window
-    from layer_dialog import LAYERS_BACK
+    from ui.ventana import app_window
+    from ui.asistente.layer_dialog import LAYERS_BACK
     rd = app_window.recognition_dialog
     _editor_con_lineas(win, tmp_path, base)
     antes = _foto(win)
@@ -175,7 +175,7 @@ def test_cancelar_deja_el_editor_como_estaba(win, app, tmp_path, monkeypatch, ba
 
 
 def test_importar_reemplaza_y_suelta_la_hoja_de_antes(win, app, tmp_path, monkeypatch):
-    import app_window
+    from ui.ventana import app_window
     rd = app_window.recognition_dialog
     _editor_con_lineas(win, tmp_path, AREA)
     doc_antes, tmp_antes = win.doc, win._tmp_composite
@@ -192,7 +192,7 @@ def test_importar_reemplaza_y_suelta_la_hoja_de_antes(win, app, tmp_path, monkey
 
 
 def test_hoja_guardada_sigue_guardada_al_cancelar(win, app, tmp_path, monkeypatch):
-    import app_window
+    from ui.ventana import app_window
     _editor_con_lineas(win, tmp_path, HOJA)
     win._dirty = False                               # como recién guardado
     app.processEvents()

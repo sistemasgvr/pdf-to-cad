@@ -18,11 +18,11 @@ for p in (str(ROOT / "app"), str(ROOT)):
     if p not in sys.path:
         sys.path.insert(0, p)
 
-import recognition as rec  # noqa: E402
-import recognition_letter_shapes as shapes  # noqa: E402
-import recognition_letter_lines as lines  # noqa: E402
-import recognition_letters as letters  # noqa: E402
-import recognition_summary as rs  # noqa: E402
+from reconocimiento import recognition as rec  # noqa: E402
+from reconocimiento import recognition_letter_shapes as shapes  # noqa: E402
+from reconocimiento import recognition_letter_lines as lines  # noqa: E402
+from reconocimiento import recognition_letters as letters  # noqa: E402
+from reconocimiento import recognition_summary as rs  # noqa: E402
 
 DOCS = Path(r"C:/Users/bernu/OneDrive/Documentos/docs prueba")
 DU08 = DOCS / "03-DU08_09_10-APDU-SEG-B-SEWER-PLAN_100P.pdf"
@@ -207,7 +207,7 @@ def test_leyenda_de_du08_se_lee_entera():
 @needs_du08
 def test_du08_h26_te_es_electrico_y_se_reconoce():
     import fitz
-    import pdf_layers
+    from hoja import pdf_layers
     with fitz.open(str(DU08)) as doc:
         found = rec.page_letters(doc[25])
         uses = {k.split("|")[-1]: u for k, u in rec.letter_uses(found).items()}

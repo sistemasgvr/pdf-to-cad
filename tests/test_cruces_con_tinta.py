@@ -15,7 +15,7 @@ from pathlib import Path
 
 import pytest
 
-import recognition_geom as G
+from reconocimiento import recognition_geom as G
 from test_recognition_geom import Sheet
 
 
@@ -82,7 +82,7 @@ DU10 = Path(r"C:/Users/bernu/OneDrive/Documentos/docs prueba/DU10 - APDU Seg B3 
 
 @pytest.mark.skipif(not DU10.is_file(), reason="PDF DU10 no disponible")
 def test_du10_h11_alcantarillado_x_y_laterales_completos():
-    import recognition as rec
+    from reconocimiento import recognition as rec
     r = rec.recognize_page(DU10, 10, utility="ALCANTARILLADO", zoom=1.0)
     pls = [G.Polyline(p.pts_pdf, p.kinds) for p in r.drawable]
     assert _covers(pls, (675.7, 682.8), (727.7, 735.6))             # las dos diagonales de la «X»

@@ -800,7 +800,7 @@ def marcadores_fuera_de_lugar(win, datos, tol_px=4.0):
 def generar(ruta=SALIDA):
     from PySide6 import QtWidgets
     QtWidgets.QApplication.instance() or QtWidgets.QApplication([])
-    from app_window import Main
+    from ui.ventana.app_window import Main
     win = Main()
     datos = construir(win)
     win.project_path = ruta

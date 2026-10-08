@@ -8,9 +8,52 @@ alcantarillado, drenaje, gas, eléctrico, telecom). Todo en **unidades imperiale
 
 - `app/` — **app de escritorio (PySide6)** donde el usuario digitaliza sobre el PDF.
   - `main.py` — punto de entrada (arma `sys.path`: `app/` + raíz).
+  - **Carpetas por capa (2026-10-08, en curso)**: `app/nucleo/` = lógica PURA del dominio (sin Qt ni fitz):
+    `model`, `model_ops`, `xdata`, `duct_bank`, `unir_utilidades`, `unir_ramales`, `quiebres_curvas`,
+    `accesorios`, `normativas`, `normativas_excel`, `normativas_simple`, `normativas_clearance`. Se importan
+    como `from nucleo import model_ops` / `from nucleo.model import …` (nunca `import model_ops`: ese nombre
+    ya no existe). Regla: la interfaz usa `nucleo`, `nucleo` NUNCA importa la interfaz (PySide6, `i18n`,
+    ventana…; sí `i18n_core`). Más abajo los módulos se nombran sin la carpeta: `model_ops.py` = `app/nucleo/
+    model_ops.py`. `app/reconocimiento/` (mismo día) = lectura PURA del PDF vectorial: `recognition`,
+    `recognition_geom`, `routes` y los demás `recognition_*` sin Qt (`from reconocimiento import recognition`;
+    `recognition.py` sube TRES carpetas para poner la raíz del repo en `sys.path`). Las vistas Qt del asistente
+    (`recognition_dialog`, `_summary_view`, `_review_view`, `_layers_view`, `_preview_draw`) siguen en `app/`.
+    `app/hoja/` (mismo día) = hoja de trabajo PURA: `composite`, `composite_checks`, `composite_scan`,
+    `composite_seam`, `pdf_layers`, `pdf_legend`, `sheet_crops`, `sheet_layout`, `organized_layers`,
+    `leyenda_cruce`, `leyenda_estandar`, `leyenda_trazos` (`from hoja import composite`). Los diálogos y vistas
+    del compositor/capas (y `composite_choice`, que usa `i18n`) siguen en `app/`.
+    `app/catalogo/` = `civil_catalog`, `catalogo_tamanos`, `catalogo_tamanos_presion` (PUROS) y `app/exportar/` =
+    `dxf_export` (NO puro: recibe la ventana `win` y usa `geometry.point_in_poly`; `geometry` importa QtGui).
+    `app/ui/` (mismo día) = TODA la interfaz Qt, en cuatro subpaquetes: `ui/ventana/` (`app_window`, `ventana_*`,
+    `ventana_comun`, `respaldo_editor`, `autoguardado`), `ui/asistente/` (compositor, capas de la hoja, leyenda,
+    vista previa del reconocimiento y sus vistas: `composite_dialog`/`_view`/`_choice`…, `layer_dialog*`,
+    `layer_info_panel`, `layer_std_legend`, `recognition_dialog` y `recognition_*_view`/`_preview_draw`,
+    `wizard_widgets`, `pdf_view_quality`, `alignment_tools`, `tool_strip`…), `ui/dialogos/` (`dialogs`,
+    `normativas_dialog`, `duct_bank_dialog`, `xdata_dialog`, `catalogo_tamanos_dialog`, `manual_dialog`,
+    `shortcuts_dialog`, `blank_canvas_dialog`) y `ui/comun/` (`canvas`, `widgets`, `ui_common`, `theme`, `icons`,
+    `busy`, `responsive`, `side_panels`, `thumbnails`, `workers`, `accesorios_view`). Se importan como
+    `from ui.ventana import app_window`, `from ui.comun import widgets`… OJO rutas de recursos: `icons.py` y
+    `normativas_dialog.py` suben TRES carpetas para llegar a `app/icons` y `app/docs` (en el .exe usan
+    `sys._MEIPASS`, donde PDF-a-CAD.spec deja `icons/` y `docs/`). `app/traduccion/` (mismo día) = `i18n`,
+    `i18n_core`, `i18n_en`, `i18n_en_changelog` (NO se llama `i18n/`: chocaría con el módulo `i18n.py` y el motor
+    puro arrastraría Qt); `i18n.py` sube DOS carpetas para `app/docs` (en el .exe, `_MEIPASS/docs`). En `app/`
+    quedan solo `main.py`, `geometry` y `project_io`. Cada traslado se verificó con la suite completa
+    antes/después y fotos con el código viejo vs. el nuevo (reconocimiento de un PDF real, capas/leyenda/
+    composición, DXF exportado y catálogo): idénticas. Para mover más: el mismo método (script que mueve y
+    reescribe imports, `git add -A` para que Git vea renombres).
   - `app_window.py` — ventana principal `Main`. La UI se arma en `_build_ui`, que
     llama a `_build_menu` / `_build_toolbar` / `_build_left_dock` / `_build_right_dock`
     / `_build_statusbar` (todos dejan sus widgets como `self.*`, en ese orden).
+    **Partida en clases mezcla (2026-10-08)**: los métodos de `Main` se movieron TAL CUAL, por tema,
+    a `ventana_*.py` (`MenuMixin`, `PanelIzquierdoMixin`, `PanelDerechoMixin`, `ModosMixin`, `ClicsMixin`,
+    `UtilidadesMixin`, `CatalogoMixin`, `SeleccionMixin`, `ListasMixin`, `MarcasMixin`, `DibujoMixin`,
+    `ConflictosMixin`, `CoordsMixin`, `BuzonesMixin`, `MoverPrecisoMixin`, `CurvasMixin`, `HerramientasMixin`,
+    `BancoductosMixin`) y `Main` las hereda: `win.<método>` sigue igual (313 métodos, mismo código).
+    `ventana_comun.py` = las MISMAS importaciones de app_window (`from ventana_comun import *`).
+    En app_window quedan `__init__`, páginas, deshacer, abrir/asistente, proyecto (con `_dirty`: usa
+    `self.__…`, que no puede ir a una mezcla), exportar y arrastrar-soltar. OJO: los métodos que crean
+    `RecognitionWorker`/`PipelineWorker` se quedan en app_window (las pruebas los cambian con
+    `monkeypatch.setattr(app_window, …)`); en una mezcla no se usa `Main.` (usar `self.` o la clase mezcla).
   - `canvas.py` — el lienzo (`Canvas`, QGraphicsView).
   - `widgets.py` — widgets reutilizables (`InlineEdit`, `_SegInvSpinBox`, `_NoWheelFilter`,
     `ZoomPanView`, `MiniMap`: minimapa con recuadro de lo visible sobre una ZoomPanView;
@@ -964,12 +1007,12 @@ alcantarillado, drenaje, gas, eléctrico, telecom). Todo en **unidades imperiale
     señal `THEME_BUS.changed` para que widgets con QSS custom se restilen, y
     preferencia persistida en QSettings. Menú **Ver** en la ventana principal
     permite alternar en vivo.
-  - `i18n.py` + `i18n_core.py` + `i18n_en.py` + `i18n_en_changelog.py` — traducción
+  - `traduccion/` = `i18n.py` + `i18n_core.py` + `i18n_en.py` + `i18n_en_changelog.py` — traducción
     ES → EN. La clave es el texto en español tal cual está en el código. UI:
-    `from i18n import t` (y `bind(widget, "setText", "Clave")` en widgets de vida
+    `from traduccion.i18n import t` (y `bind(widget, "setText", "Clave")` en widgets de vida
     larga: se re-traducen solos con `LANG_BUS`; `bind_item` para ítems de combo);
     lógica PURA (`duct_bank`, `recognition`, `civil_catalog`, `composite`):
-    `from i18n_core import t` (sin Qt). Reglas: plantillas `t("… {n}").format(n=…)`,
+    `from traduccion.i18n_core import t` (sin Qt). Reglas: plantillas `t("… {n}").format(n=…)`,
     nunca f-string ni concatenación dentro de `t()`; el sangrado va fuera de la clave
     (`"  " + t("Guardar")`); tablas de datos con `N_("…")` y `t()` al mostrar;
     documentos largos en `app/docs/<nombre>.<idioma>.html` vía `load_doc`.
@@ -1455,7 +1498,7 @@ alcantarillado, drenaje, gas, eléctrico, telecom). Todo en **unidades imperiale
 ## Convenciones
 
 - Apuntar a archivos **< 500 líneas**; una responsabilidad por módulo.
-- Dónde va cada cosa: lienzo → `canvas.py`; widgets reutilizables → `widgets.py`;
+- Dónde va cada cosa: lógica pura del dominio → `app/nucleo/`; lienzo → `canvas.py`; widgets reutilizables → `widgets.py`;
   hilos → `workers.py`; diálogos secundarios → `dialogs.py` (el de georref vive en
   `geo/georef_dialog.py`); lógica de catálogo → `civil_catalog.py`; export →
   `dxf_export.py`.

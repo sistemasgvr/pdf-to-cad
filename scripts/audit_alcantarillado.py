@@ -25,7 +25,7 @@ Z = 2.0
 
 
 def _opts(cfg):
-    import recognition_geom as geom, dataclasses, recognition as rec
+    from reconocimiento import recognition_geom as geom; import dataclasses; from reconocimiento import recognition as rec
     if cfg == "profile_nocbv":
         return dataclasses.replace(rec.UTILITY_GEOM_OPTIONS[U], continuation_before_vault=False)
     if cfg == "profile_nopj":
@@ -41,7 +41,7 @@ def _opts(cfg):
 
 def run(job):
     cfg, pdf, pno = job
-    import fitz, recognition as rec
+    import fitz; from reconocimiento import recognition as rec
     o = _opts(cfg)
     if o is not None:
         rec.UTILITY_GEOM_OPTIONS[U] = o

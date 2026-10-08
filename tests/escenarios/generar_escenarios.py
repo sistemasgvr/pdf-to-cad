@@ -53,7 +53,7 @@ class Lienzo:
         return (x / w.scale * w.zoom, (w.H - y / w.scale) * w.zoom)
 
     def tubo(self, capa, pts_ft, diam=12.0, inv=(-4.0, -4.0), **extra):
-        from model import DEFAULT_PIPE_MATERIAL
+        from nucleo.model import DEFAULT_PIPE_MATERIAL
         p = {"layer": capa, "pts": [self.px(*q) for q in pts_ft], "ab": False,
              "diam": float(diam), "diam_unit": "in", "material": DEFAULT_PIPE_MATERIAL,
              "inv_start": float(inv[0]), "inv_end": float(inv[1])}
@@ -366,7 +366,7 @@ def marcadores_fuera_de_lugar(win, datos, tol_px=4.0):
 def generar(ruta=SALIDA):
     from PySide6 import QtWidgets
     app = QtWidgets.QApplication.instance() or QtWidgets.QApplication([])
-    from app_window import Main
+    from ui.ventana.app_window import Main
     win = Main()
     datos = construir(win)
     win.project_path = ruta

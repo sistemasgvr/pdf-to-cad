@@ -15,9 +15,9 @@ import pytest
 fitz = pytest.importorskip("fitz")
 from PySide6 import QtCore, QtWidgets
 
-import layer_dialog
-import pdf_layers
-import recognition as rec_mod
+from ui.asistente import layer_dialog
+from hoja import pdf_layers
+from reconocimiento import recognition as rec_mod
 
 ROOT = Path(__file__).resolve().parent.parent
 PDF = ROOT / "DU06_09_UD_Drainage_20251216(SUBMITTAL SET).pdf"

@@ -10,7 +10,7 @@ sutiles de persistencia:
 """
 import types
 
-import civil_catalog as _cc
+from catalogo import civil_catalog as _cc
 import project_io
 from geo import georef
 import ezdxf
@@ -24,7 +24,7 @@ def _fake_win():
     g = georef.Georef(
         matrix=[[2.5, 0.3, 6_444_000.0], [0.3, -2.5, 1_883_000.0], [0.0, 0.0, 1.0]],
         epsg=2229, kind="similarity", rms=1.1, cs_code="CA83VF")
-    from duct_bank import DuctBank, Conduit
+    from nucleo.duct_bank import DuctBank, Conduit
     db = DuctBank(name="A-Telecom", width_in=16, height_in=10,
                   conduits=[Conduit(cx=3, cy=3, diam=4, label="T1"),
                             Conduit(cx=9, cy=3, diam=4, label="T2")])
@@ -138,7 +138,7 @@ def test_roundtrip_build_parse_conserva_datos():
 
 def _fake_dxf_win():
     """Win mínimo con _to_cad para tests de dxf_export."""
-    from duct_bank import DuctBank, Conduit
+    from nucleo.duct_bank import DuctBank, Conduit
     db = DuctBank(name="24kV", width_in=16, height_in=10, pipe_idx=0,
                   conduits=[Conduit(cx=3, cy=3, diam=4, label="E1")])
     win = types.SimpleNamespace(
@@ -155,7 +155,7 @@ def _fake_dxf_win():
 
 def test_dxf_pipe_idx_and_duct_bank_xdata():
     """El DXF emite PIPE_IDX y HAS_DUCT_BANK en cada pipe, y PDFCAD_DUCTBANK como punto."""
-    import dxf_export
+    from exportar import dxf_export
     win = _fake_dxf_win()
     doc = ezdxf.new("R2018", setup=True)
     dxf_export.merge_into(win, doc, marks=True)
@@ -181,7 +181,7 @@ def test_dxf_pipe_idx_and_duct_bank_xdata():
 
 def test_dxf_pipe_without_duct_bank():
     """Pipe sin duct bank asignado: HAS_DUCT_BANK=0."""
-    import dxf_export
+    from exportar import dxf_export
     win = _fake_dxf_win()
     win.duct_banks = []
     doc = ezdxf.new("R2018", setup=True)
@@ -201,7 +201,7 @@ def test_dxf_un_diseno_en_varias_pipes():
     """Un bancoducto asignado a dos pipes: las dos llevan HAS_DUCT_BANK=1 y hay
     un PDFCAD_DUCTBANK por pipe, con nombre distinto (redes de conductos
     separadas en el plugin)."""
-    import dxf_export
+    from exportar import dxf_export
     win = _fake_dxf_win()
     win.pipes.append({"layer": "ELECTRICO", "pts": [(100, 400), (300, 400)],
                       "diam": 6, "ab": False})

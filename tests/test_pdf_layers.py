@@ -5,8 +5,8 @@ import pytest
 
 fitz = pytest.importorskip("fitz")
 
-import pdf_layers
-import recognition as rec
+from hoja import pdf_layers
+from reconocimiento import recognition as rec
 
 ROOT = Path(__file__).resolve().parent.parent
 PDF = ROOT / "DU06_09_UD_Drainage_20251216(SUBMITTAL SET).pdf"

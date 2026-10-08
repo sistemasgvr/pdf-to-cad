@@ -67,7 +67,7 @@ def _passes(pl, q, tol=NODE_TOL):
 
 def run(job):
     U, pdf, pno = job
-    import recognition as rec
+    from reconocimiento import recognition as rec
     res = rec.recognize_page(D + pdf, pno, utility=U, zoom=1.0)
     pls = [p for p in res.drawable if len(p.pts_pdf) >= 2]
     out = {"u": U, "pdf": pdf[:5], "h": pno + 1, "n": len(pls),

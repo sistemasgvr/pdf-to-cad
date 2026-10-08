@@ -28,7 +28,7 @@ cfg_utility = [None]
 
 
 def _opts(cfg):
-    import recognition_geom as geom, recognition as rec, dataclasses
+    from reconocimiento import recognition_geom as geom; from reconocimiento import recognition as rec; import dataclasses
     if cfg.startswith("profile+"):                # el perfil de hoy + reglas extra
         extra = {k: True for k in cfg.split("+")[1:]}
         return dataclasses.replace(rec.UTILITY_GEOM_OPTIONS.get(cfg_utility[0], geom.GeomOptions()), **extra)
@@ -42,7 +42,7 @@ def _opts(cfg):
 def run(job):
     U, cfg, pdf, pno = job
     cfg_utility[0] = U
-    import fitz, recognition as rec
+    import fitz; from reconocimiento import recognition as rec
     o = _opts(cfg)
     if o is not None:
         rec.UTILITY_GEOM_OPTIONS[U] = o

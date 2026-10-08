@@ -9,8 +9,8 @@ import pytest
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
-import accesorios as A  # noqa: E402
-import normativas as N  # noqa: E402
+from nucleo import accesorios as A  # noqa: E402
+from nucleo import normativas as N  # noqa: E402
 
 FT_PX = 0.5
 
@@ -151,14 +151,14 @@ def test_todo_tipo_de_regla_tiene_categoria_y_campos_editables():
 @pytest.fixture
 def win(monkeypatch, tmp_path):
     from PySide6 import QtGui, QtWidgets
-    import i18n
-    import i18n_core
+    from traduccion import i18n
+    from traduccion import i18n_core
     app = QtWidgets.QApplication.instance() or QtWidgets.QApplication([])
     monkeypatch.setenv("PDFCAD_NORMATIVAS", str(tmp_path / "normativas.json"))
     monkeypatch.setattr(i18n, "_settings", lambda: type("S", (), {"setValue": lambda *a: None})())
     previo = i18n_core._current_lang
     i18n_core._current_lang = "es"
-    from app_window import Main
+    from ui.ventana.app_window import Main
     w = Main()
     w.normas = N.cargar_catalogo()
     img = QtGui.QImage(1500, 1500, QtGui.QImage.Format_RGB32); img.fill(QtGui.QColor(255, 255, 255))
@@ -174,7 +174,7 @@ def win(monkeypatch, tmp_path):
 
 
 def test_etiquetas_en_el_lienzo_y_barra_de_estado(win):
-    import accesorios_view
+    from ui.comun import accesorios_view
     textos = sorted(it._texto for it in win._overlay if isinstance(it, accesorios_view.EtiquetaAccesorio))
     assert textos == ["Codo 37° ✗", "Codo 90°"]
     assert not win.btn_normas.isHidden() and "1" in win.btn_normas.text()
@@ -185,7 +185,7 @@ def test_etiquetas_en_el_lienzo_y_barra_de_estado(win):
 
 
 def test_puente_de_la_ventana(win):
-    import normativas_dialog
+    from ui.dialogos import normativas_dialog
     pu = normativas_dialog.PuenteNormas(win)
     e = json.loads(pu.estado())
     assert e["resumen"] == {"activas": 4, "total": 4, "revisados": 2, "fuera": 1}

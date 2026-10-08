@@ -11,10 +11,10 @@ import pytest
 from PIL import Image, ImageDraw
 from PySide6 import QtCore, QtWidgets, QtTest
 
-import composite as C
-import composite_scan as CS
-from alignment_tools import AngleDrag
-from composite_dialog import CompositeDialog
+from hoja import composite as C
+from hoja import composite_scan as CS
+from ui.asistente.alignment_tools import AngleDrag
+from ui.asistente.composite_dialog import CompositeDialog
 
 
 @pytest.fixture(scope="module")

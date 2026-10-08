@@ -39,7 +39,7 @@ def test_guarda_sin_pdf_y_reabre_igual(proyecto):
         modelo = json.loads(z.read("model.json"))
     assert modelo["blank_canvas"] is True
 
-    from app_window import Main
+    from ui.ventana.app_window import Main
     w2 = Main()
     w2._open_project_path(ruta)
     assert w2.blank_canvas and w2.doc is None
@@ -51,7 +51,7 @@ def test_guarda_sin_pdf_y_reabre_igual(proyecto):
 def test_exporta_dxf(proyecto):
     _ruta, win, _datos = proyecto
     import ezdxf
-    import dxf_export
+    from exportar import dxf_export
     doc = ezdxf.new(setup=True)
     dxf_export.merge_into(win, doc, marks=True)
 

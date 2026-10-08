@@ -12,8 +12,8 @@ import pytest
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path[:0] = [os.path.join(HERE, "..", "app"), os.path.join(HERE, "..")]
 
-import catalogo_tamanos as T          # noqa: E402
-import civil_catalog as cc            # noqa: E402
+from catalogo import catalogo_tamanos as T          # noqa: E402
+from catalogo import civil_catalog as cc            # noqa: E402
 
 TUBO = "AeccCircularConcretePipe_Imperial"
 BUZON = "Buzon CBA Imperial"

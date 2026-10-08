@@ -38,9 +38,9 @@ import urllib.parse
 import urllib.request
 
 from PySide6 import QtCore, QtGui, QtWidgets
-import theme as _theme
-from icons import icon as _icon
-from i18n import t as _tr
+from ui.comun import theme as _theme
+from ui.comun.icons import icon as _icon
+from traduccion.i18n import t as _tr
 
 os.environ.setdefault("QT_API", "pyside6")   # matplotlib debe usar el MISMO binding Qt que el resto de la app
 import matplotlib

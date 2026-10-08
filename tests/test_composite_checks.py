@@ -8,7 +8,7 @@ for p in (os.path.join(ROOT, "app"), ROOT):
         sys.path.insert(0, p)
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
-import composite_checks as CK  # noqa: E402
+from hoja import composite_checks as CK  # noqa: E402
 
 
 def test_sin_piezas_no_se_puede_continuar():
@@ -43,7 +43,7 @@ def test_hoja_sin_tomar_sin_piezas_la_tapa_el_paso_siguiente():
 def test_pestanas_insignias_y_teclado():
     from PySide6 import QtCore, QtTest, QtWidgets
     app = QtWidgets.QApplication.instance() or QtWidgets.QApplication([])
-    import composite_tabs as CT
+    from ui.asistente import composite_tabs as CT
     tabs = CT.WorkTabs([("mdi:file-document-outline", "Origen"), ("mdi:vector-rectangle", "Área a tomar"),
                         ("mdi:vector-combine", "Hoja compuesta")])
     seen = []

@@ -2,8 +2,8 @@
 import openpyxl
 import pytest
 
-import normativas_excel as E
-import normativas_simple as S
+from nucleo import normativas_excel as E
+from nucleo import normativas_simple as S
 
 CAB = ["Utility A", "Utility B", "Orientation", "Case / Sub-type", "Min (value)", "Min (unit)",
        "Max (value)", "Max (unit)", "Measured From", "Notes", "Reference(s)", "Source Sheet"]

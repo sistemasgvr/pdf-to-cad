@@ -1,5 +1,5 @@
 """Grouped controls keep independent OCG names for each source PDF."""
-from organized_layers import selected_sheets, aggregate_layers, hidden_from_states
+from hoja.organized_layers import selected_sheets, aggregate_layers, hidden_from_states
 
 
 def test_selected_sheets_resolve_sources_and_positions():

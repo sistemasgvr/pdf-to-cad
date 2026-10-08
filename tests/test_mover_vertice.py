@@ -9,8 +9,8 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 from PySide6 import QtWidgets  # noqa: E402
 
-import i18n  # noqa: E402
-import i18n_core  # noqa: E402
+from traduccion import i18n  # noqa: E402
+from traduccion import i18n_core  # noqa: E402
 
 
 @pytest.fixture
@@ -19,7 +19,7 @@ def win(monkeypatch):
     monkeypatch.setattr(i18n, "_settings", lambda: type("S", (), {"setValue": lambda *a: None})())
     previo = i18n_core._current_lang
     i18n_core._current_lang = "es"
-    from app_window import Main
+    from ui.ventana.app_window import Main
     w = Main()
     # 0: drenaje (gravedad: BZ en cada vértice); 1: otro drenaje que nace en el vértice 2 de la 0
     w.pipes = [{"layer": "DRENAJE", "pts": [(0, 0), (200, 0), (400, 0)], "name": ""},

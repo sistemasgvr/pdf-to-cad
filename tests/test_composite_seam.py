@@ -18,8 +18,8 @@ for p in (os.path.join(ROOT, "app"), ROOT):
 
 fitz = pytest.importorskip("fitz")
 
-import composite as C  # noqa: E402
-import composite_seam as S  # noqa: E402
+from hoja import composite as C  # noqa: E402
+from hoja import composite_seam as S  # noqa: E402
 
 T = (-200.0, 12.0)            # hoja B = hoja A + T
 ML_X = 300.0                  # match line en la hoja A (en y = 150)
@@ -152,7 +152,7 @@ def test_compositor_une_sin_grada(jitter, drop_dy, trim, snap):
     os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
     QtWidgets = pytest.importorskip("PySide6.QtWidgets")
     from PySide6 import QtCore
-    import composite_dialog
+    from ui.asistente import composite_dialog
     app = QtWidgets.QApplication.instance() or QtWidgets.QApplication([])  # noqa: F841
     data = _two_sheets().tobytes()
     dlg = composite_dialog.CompositeDialog(None, [{"name": "a.pdf", "data": data}], None, {}, 0)

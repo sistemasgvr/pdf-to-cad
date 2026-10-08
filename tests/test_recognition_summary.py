@@ -8,7 +8,7 @@ for p in (str(ROOT / "app"), str(ROOT)):
     if p not in sys.path:
         sys.path.insert(0, p)
 
-import recognition_summary as rs  # noqa: E402
+from reconocimiento import recognition_summary as rs  # noqa: E402
 
 
 def test_avisos_se_clasifican_con_etiqueta_corta():
@@ -102,8 +102,8 @@ def test_clic_en_aviso_lleva_la_vista_al_lugar():
     os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
     from PySide6 import QtCore, QtGui, QtWidgets
     app = QtWidgets.QApplication.instance() or QtWidgets.QApplication([])
-    import recognition_dialog as rd
-    import recognition_review_view as rrv
+    from ui.asistente import recognition_dialog as rd
+    from ui.asistente import recognition_review_view as rrv
     curva = _pl([(0, 0), (10, 0), (20, 5), (30, 15), (40, 40)], ["end", "corner", "curve", "curve", "end"])
     lejos = _pl([(1500, 1500), (1900, 1900)])
     res = SimpleNamespace(
@@ -134,7 +134,7 @@ def _preview(warnings, polylines, orphans=(), utility="ELECTRICO", extra=()):
     os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
     from PySide6 import QtCore, QtGui, QtWidgets
     app = QtWidgets.QApplication.instance() or QtWidgets.QApplication([])
-    import recognition_dialog as rd
+    from ui.asistente import recognition_dialog as rd
 
     def _res(utility, warnings, polylines, orphans=()):
         return SimpleNamespace(
@@ -186,7 +186,7 @@ def test_revisar_y_detalles_van_en_el_panel_izquierdo():
 
 
 def test_revisar_se_pliega_y_le_da_su_ancho_a_la_hoja():
-    from widgets import CollapsiblePanel
+    from ui.comun.widgets import CollapsiblePanel
     app, dlg = _preview(["Bóvedas sin línea cercana: 1."], [_pl([(0, 0), (100, 0)])], orphans=[(500, 500)])
     try:
         w_left, w_view, _ = dlg.split.sizes()
@@ -304,8 +304,8 @@ def test_colores_de_calidad_no_son_de_ninguna_utilidad():
     """«Sin cubrir» era naranja como telecom: los colores del control de calidad
     quedan lejos (≥30° de tono) de todas las utilidades con color."""
     from PySide6 import QtGui
-    from model import TIPOS
-    from ui_common import layer_qcolor, QA_UNCOVERED, QA_OFFPATTERN
+    from nucleo.model import TIPOS
+    from ui.comun.ui_common import layer_qcolor, QA_UNCOVERED, QA_OFFPATTERN
     for qa in (QA_UNCOVERED, QA_OFFPATTERN):
         q = QtGui.QColor(qa)
         for _label, key in TIPOS:
@@ -320,9 +320,9 @@ def test_vista_previa_pinta_el_control_de_calidad_con_sus_colores_y_formas():
     import os
     os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
     from PySide6 import QtCore, QtGui, QtWidgets
-    from ui_common import QA_UNCOVERED, QA_OFFPATTERN
+    from ui.comun.ui_common import QA_UNCOVERED, QA_OFFPATTERN
     app = QtWidgets.QApplication.instance() or QtWidgets.QApplication([])
-    import recognition_dialog as rd
+    from ui.asistente import recognition_dialog as rd
     res = SimpleNamespace(
         utility="TELECOM", page_index=0, scale_ft_per_pt=20 / 72, polylines=[], drawable=[],
         polylines_joined=[], polylines_raw=[], warnings=[], vault_orphans_px=[(300, 300)], vault_pts=[],
@@ -352,7 +352,7 @@ def test_esquina_del_codo_queda_en_su_lugar_con_cualquier_zoom():
     os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
     from PySide6 import QtCore, QtGui, QtWidgets
     app = QtWidgets.QApplication.instance() or QtWidgets.QApplication([])
-    import recognition_dialog as rd
+    from ui.asistente import recognition_dialog as rd
     codo = _pl([(0, 0), (300, 0), (300, 300)])
     codo.fillets = {1: {"a": (250, 0), "b": (300, 50), "center": (250, 50), "r_px": 50.0}}
     res = SimpleNamespace(
@@ -428,7 +428,7 @@ def _layers_preview():
     os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
     from PySide6 import QtCore, QtGui, QtWidgets
     app = QtWidgets.QApplication.instance() or QtWidgets.QApplication([])
-    import recognition_dialog as rd
+    from ui.asistente import recognition_dialog as rd
     a = _pl([(100, 100), (300, 100)], layer_ocg="X|C-ELEC-UNGD-E")
     b = _pl([(1500, 1500), (1800, 1500)], layer_ocg="X|C-ELEC-UNGD-N")
     vault = {"center": (1650, 400), "corners": [(1600, 380), (1700, 380), (1700, 420), (1600, 420)],
@@ -466,8 +466,8 @@ def _line_items(dlg, color_name):
 
 def test_clic_en_una_capa_la_resalta_y_lleva_la_vista_ahi():
     from PySide6 import QtCore, QtWidgets
-    from ui_common import layer_qcolor
-    import recognition_preview_draw as rpd
+    from ui.comun.ui_common import layer_qcolor
+    from ui.asistente import recognition_preview_draw as rpd
     app, dlg = _layers_preview()
     try:
         red, green = layer_qcolor("ELECTRICO").name(), layer_qcolor("ALCANTARILLADO").name()

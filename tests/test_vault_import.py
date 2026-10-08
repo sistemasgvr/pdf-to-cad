@@ -21,9 +21,9 @@ for p in (str(ROOT / "app"), str(ROOT)):
     if p not in sys.path:
         sys.path.insert(0, p)
 
-import model_ops  # noqa: E402
-import recognition as rec  # noqa: E402
-from recognition_geom import Vault  # noqa: E402
+from nucleo import model_ops  # noqa: E402
+from reconocimiento import recognition as rec  # noqa: E402
+from reconocimiento.recognition_geom import Vault  # noqa: E402
 
 DOCS = Path(r"C:/Users/bernu/OneDrive/Documentos/docs prueba")
 DU06 = DOCS / "DU06_09_UD_Drainage_20251216(SUBMITTAL SET).pdf"
@@ -75,7 +75,7 @@ def test_dxf_lleva_el_solido_de_presion():
     """El DXF exporta el SÓLIDO de agua/gas (el plugin lo dibuja como Solid3d); una
     caja de presión que no es sólido sigue fuera (esa red no lleva nodos)."""
     ezdxf = pytest.importorskip("ezdxf")
-    import dxf_export
+    from exportar import dxf_export
     structures = []
     vg = [{"center": (100.0, 0.0), "corners": [(90, -8), (110, -8), (110, 8), (90, 8)], "shape": "rect",
            "width_ft": 4.5, "length_ft": 5.0, "angle_deg": 0.0, "importable": True},
@@ -101,9 +101,9 @@ def test_dxf_lleva_el_solido_de_presion():
 def win(monkeypatch):
     from PySide6 import QtWidgets
     app = QtWidgets.QApplication.instance() or QtWidgets.QApplication([])
-    import theme
+    from ui.comun import theme
     theme.save_preference = lambda *_a, **_k: None          # no tocar QSettings del usuario
-    import app_window
+    from ui.ventana import app_window
     monkeypatch.setattr(app_window.Main, "_run_recognition_wizard", lambda self: None)
     monkeypatch.setattr(QtWidgets.QMessageBox, "information", lambda *a, **k: None)
     monkeypatch.setattr(QtWidgets.QMessageBox, "warning", lambda *a, **k: None)
