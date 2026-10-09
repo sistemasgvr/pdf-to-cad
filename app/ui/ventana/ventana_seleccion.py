@@ -239,6 +239,11 @@ class SeleccionMixin:
         """Entradas del menú contextual de UNA utilidad (lista y lienzo)."""
         self._menu_act(menu, "Cambiar tipo", self.change_pipe_type)
         self._menu_act(menu, "Editar/mover", self.enter_move)
+        menu.addSeparator()
+        self._menu_act(menu, _tr("Copiar propiedades"), self.copiar_propiedades)
+        if getattr(self, "_props_copiadas", None):
+            self._menu_act(menu, _tr("Pegar propiedades de la #{n}").format(n=self._props_copiadas[2]),
+                           self.pegar_propiedades)
         # Bancoducto asignado a esta tubería: editar o crear.
         if 0 <= self.sel_pipe < len(self.pipes):
             db = self._duct_bank_for_pipe(self.sel_pipe)

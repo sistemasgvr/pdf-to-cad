@@ -2449,7 +2449,6 @@ EN: dict[str, str] = {
     "Shift + clic": "Shift + click",
     "Seleccionar un rango de utilidades": "Select a range of utilities",
     "Seleccionar todas las utilidades (con la lista activa)": "Select all utilities (with the list focused)",
-    "Con varias seleccionadas: eliminar, cambiar tipo, crear o asignar bancoducto, quitarlo": "With several selected: delete, change type, create or assign a duct bank, remove it",
     "Seleccionar todas las de un mismo tipo": "Select all of the same type",
     "Eliminar las utilidades seleccionadas (pide confirmación)": "Delete the selected utilities (asks for confirmation)",
     "Diseñador de bancoducto": "Duct bank designer",
@@ -2890,4 +2889,140 @@ EN: dict[str, str] = {
         'Discard',
     'Más tarde':
         'Later',
+    # ── Edición en bloque y copiar/pegar propiedades (edicion_bloque) ──
+    'Solo cambia lo que elijas; lo que quede en «(sin cambios)» se respeta en cada utilidad. Se puede deshacer con Ctrl+Z.':
+        'Only what you choose changes; anything left as “(no change)” is kept on each utility. Can be undone with Ctrl+Z.',
+    'Propiedades':
+        'Properties',
+    'Familia':
+        'Family',
+    '(sin cambios)':
+        '(no change)',
+    'Tamaño (diámetro)':
+        'Size (diameter)',
+    'Tamaño (diámetro):':
+        'Size (diameter):',
+    'Tipo de tubería':
+        'Pipe type',
+    'Tipo de tubería:':
+        'Pipe type:',
+    'Material':
+        'Material',
+    'Material:':
+        'Material:',
+    'Estado':
+        'Status',
+    'Activa':
+        'Active',
+    'Abandonada (AB)':
+        'Abandoned (AB)',
+    'Estado:':
+        'Status:',
+    'Sin catálogo de Civil 3D: elige la versión en la barra superior.':
+        'No Civil 3D catalog: choose the version in the top bar.',
+    '{n} utilidades de tipo «{tipo}»':
+        '{n} utilities of type “{tipo}”',
+    'Aplicar a {n} utilidades':
+        'Apply to {n} utilities',
+    'Tienen familias distintas: elige una familia para cambiar el tamaño.':
+        'They have different families: choose a family to change the size.',
+    'Pegar también los datos extendidos del usuario ({n})':
+        'Also paste the user extended data ({n})',
+    'Con bancoducto ({k}): su familia y tamaño no cambian (los define el bancoducto).':
+        'With a duct bank ({k}): their family and size do not change (the duct bank defines them).',
+    'Las de otro tipo ({k}) no se tocan.':
+        'Those of another type ({k}) are left untouched.',
+    'Editar en bloque':
+        'Bulk edit',
+    'Pegar propiedades':
+        'Paste properties',
+    'Copiar propiedades':
+        'Copy properties',
+    'Selecciona dos o más utilidades del mismo tipo: Ctrl+clic en la lista «Utilidades» o sobre ellas en el lienzo, o clic derecho → «Seleccionar todas las de tipo …».':
+        'Select two or more utilities of the same type: Ctrl+click in the “Utilities” list or on them in the canvas, or right-click → “Select all of type …”.',
+    'Selecciona la utilidad de la que quieres copiar las propiedades.':
+        'Select the utility whose properties you want to copy.',
+    'Primero copia las propiedades de una utilidad: clic derecho sobre ella → «Copiar propiedades».':
+        'First copy the properties of a utility: right-click on it → “Copy properties”.',
+    'Las utilidades seleccionadas son de tipos distintos ({tipos}). Esto se hace solo con utilidades del mismo tipo: clic derecho → «Seleccionar todas las de tipo …».':
+        'The selected utilities are of different types ({tipos}). This only works with utilities of the same type: right-click → “Select all of type …”.',
+    'Propiedades de la utilidad #{n} copiadas: selecciona otras de tipo «{tipo}» y elige «Pegar propiedades».':
+        'Properties of utility #{n} copied: select others of type “{tipo}” and choose “Paste properties”.',
+    'Pegar propiedades de la utilidad #{n}':
+        'Paste properties of utility #{n}',
+    'Copiar propiedades de la utilidad #{n}':
+        'Copy properties of utility #{n}',
+    'Se actualizaron {n} de {total} utilidades.':
+        '{n} of {total} utilities were updated.',
+    'Las propiedades copiadas son de una utilidad de tipo «{tipo}»: solo se pegan en utilidades de ese tipo.':
+        'The copied properties belong to a utility of type “{tipo}”: they can only be pasted on utilities of that type.',
+    'Editar en bloque: familia, diámetro… ({n})':
+        'Bulk edit: family, diameter… ({n})',
+    'Copiar propiedades de la #{n} a las demás':
+        'Copy properties of #{n} to the others',
+    'Pegar propiedades de la #{n}':
+        'Paste properties of #{n}',
+    'Editar utilidades seleccionadas en bloque…':
+        'Bulk edit selected utilities…',
+    'Copiar propiedades de la utilidad':
+        'Copy utility properties',
+    'Pegar propiedades en las seleccionadas':
+        'Paste properties on the selected',
+    'Con varias seleccionadas: editar en bloque (familia, diámetro…), copiar propiedades, eliminar, cambiar tipo, crear o asignar bancoducto, quitarlo':
+        'With several selected: bulk edit (family, diameter…), copy properties, delete, change type, create or assign a duct bank, remove it',
+    # ── Revisar y limpiar el dibujo (limpieza) ──
+    'Revisar y limpiar el dibujo':
+        'Review and clean up the drawing',
+    'Revisar y limpiar el dibujo…':
+        'Review and clean up the drawing…',
+    'Tramos rectos diminutos (menos de {min} ft): en Civil 3D salen como tuberías diminutas':
+        'Tiny straight runs (under {min} ft): they come out as tiny pipes in Civil 3D',
+    'Puntas casi unidas (hasta {max} ft): se unen exacto a la otra utilidad':
+        'Ends that almost touch (up to {max} ft): they are joined exactly to the other utility',
+    'Utilidades más cortas que {corta} ft: se eliminan':
+        'Utilities shorter than {corta} ft: they are deleted',
+    'Utilidades repetidas (la misma línea dos veces): se elimina la copia':
+        'Repeated utilities (the same line twice): the copy is deleted',
+    'se quita un vértice que sobra':
+        'an extra vertex is removed',
+    'la curva se estira hasta el vértice':
+        'the curve is stretched to the vertex',
+    'la curva arranca justo en el vértice':
+        'the curve starts exactly at the vertex',
+    'Antes de exportar: esto saldría mal en Civil 3D o habría que corregirlo a mano.':
+        'Before exporting: this would come out wrong in Civil 3D or would have to be fixed by hand.',
+    'Lo que en Civil 3D saldría mal o habría que corregir a mano.':
+        'What would come out wrong in Civil 3D or would have to be fixed by hand.',
+    'Desmarca lo que no quieras arreglar. Clic en un caso para verlo en el plano. Se puede deshacer con Ctrl+Z.':
+        'Uncheck what you do not want fixed. Click a case to see it on the plan. Can be undone with Ctrl+Z.',
+    'Clic para verlo en el plano.':
+        'Click to see it on the plan.',
+    'Arreglar y exportar':
+        'Fix and export',
+    'Exportar sin cambios':
+        'Export without changes',
+    'Arreglar lo marcado':
+        'Fix what is checked',
+    'Para revisar a mano (no se cambian)':
+        'To review by hand (not changed)',
+    '{u} · tramo de {l} ft: {como}':
+        '{u} · {l} ft run: {como}',
+    '{u} · tramo de {l} ft: no se arregla solo (junto a un buzón, una unión u otra curva)':
+        '{u} · {l} ft run: not fixed automatically (next to a manhole, a junction or another curve)',
+    '{u} · punta a {l} ft de otra de su tipo: se une':
+        '{u} · end {l} ft from another of its type: joined',
+    '{u} · punta a {l} ft de otra de su tipo: no se une sola (el tramo quedaría muy corto)':
+        '{u} · end {l} ft from another of its type: not joined automatically (the run would be too short)',
+    '{u} · mide {l} ft':
+        '{u} · {l} ft long',
+    '{u} · repetida ({l} ft)':
+        '{u} · repeated ({l} ft)',
+    '{u} · mide {l} ft y no toca ninguna otra de su tipo':
+        '{u} · {l} ft long and touches no other of its type',
+    'No hay utilidades dibujadas (o falta la escala de la hoja).':
+        'There are no utilities drawn (or the sheet scale is missing).',
+    'Todo en orden: no hay nada que limpiar.':
+        'All good: there is nothing to clean up.',
+    'Dibujo limpio: {n} arreglo(s).':
+        'Drawing cleaned: {n} fix(es).',
 }

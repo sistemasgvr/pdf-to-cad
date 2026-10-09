@@ -140,6 +140,14 @@ class ListasMixin:
         self._menu_act(menu, _tr("Unir en una utilidad (Ctrl+J)"), self.unir_utilidades)
         menu.addSeparator()
         self._menu_act(menu, _tr("Cambiar tipo ({n})").format(n=len(rows)), self.change_pipe_type)
+        self._menu_act(menu, _tr("Editar en bloque: familia, diámetro… ({n})").format(n=len(rows)),
+                       self.editar_en_bloque)
+        base = next((r for r in getattr(self, "_orden_sel", []) if r in rows), rows[0])
+        self._menu_act(menu, _tr("Copiar propiedades de la #{n} a las demás").format(n=base + 1),
+                       self.copiar_de_la_primera)
+        if getattr(self, "_props_copiadas", None):
+            self._menu_act(menu, _tr("Pegar propiedades de la #{n}").format(n=self._props_copiadas[2]),
+                           self.pegar_propiedades)
         menu.addSeparator()
         self._menu_act(menu, _tr("Crear un bancoducto para las {n} utilidades").format(n=len(rows)),
                        lambda: self._db_new_for_pipes(rows))

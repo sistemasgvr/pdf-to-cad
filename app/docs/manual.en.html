@@ -434,6 +434,43 @@ Civil 3D). It is useful, for example, when recognition left a pipe split into se
 </td></tr></table>
 </section>
 
+<section data-title="Editing several at once">
+<p>Set the <b>family</b>, the <b>diameter</b> (size), the pipe type, the material or the status on many
+utilities at once, or copy them from one utility to others. Only between utilities of the
+<b>same type</b> (electrical with electrical, water with water…): families depend on the type.</p>
+
+<h2>Bulk edit</h2>
+<ol>
+<li>Select the utilities: <span class="key">&nbsp;Ctrl&nbsp;</span> + click in the list or on the plan,
+    or right-click → <b>Select all of type …</b></li>
+<li>Press <span class="key">&nbsp;Ctrl+E&nbsp;</span>, or right-click → <b>Bulk edit</b>.</li>
+<li>Every field starts as <b>(no change)</b>: choose only what you want to change and press
+    <b>Apply</b>.</li>
+</ol>
+<ul>
+<li>The <b>size</b> is chosen after the family. If the selected utilities have different families,
+    choose the family first.</li>
+<li>Those with a <b>duct bank</b> keep their family and size (the duct bank defines them); the other
+    fields do change.</li>
+</ul>
+
+<h2>Copy properties</h2>
+<ol>
+<li>Right-click the utility that is already right → <b>Copy properties</b>
+    (<span class="key">&nbsp;Ctrl+Shift+C&nbsp;</span>).</li>
+<li>Select the others and right-click → <b>Paste properties</b>
+    (<span class="key">&nbsp;Ctrl+Shift+V&nbsp;</span>). The same window opens with the copied values:
+    change them or leave as <b>(no change)</b> what you don't want to paste. Utilities of another type
+    are left untouched.</li>
+</ol>
+<p>With several selected there is also <b>Copy properties of #N to the others</b>: the first one you
+selected passes its data to the rest.</p>
+<table width="100%" cellspacing="0" cellpadding="12"><tr>
+<td width="6" bgcolor="{{tip_border}}"></td><td bgcolor="{{tip}}">
+<b>Tip:</b> everything is undone at once with <span class="key">&nbsp;Ctrl+Z&nbsp;</span>.
+</td></tr></table>
+</section>
+
 <section data-title="Pipe data">
 <p>Select the pipe in the <b>Utilities</b> list. In the <b>Properties</b> panel:</p>
 <table width="100%" cellspacing="4" cellpadding="10">
@@ -746,6 +783,20 @@ coordinate system code (for example <b>CA83VF</b>), type it and the drawing will
 <li>On the top bar, choose your <b>Civil 3D</b> version (2025, 2026 or 2027) and its <b>language</b>.</li>
 <li>Press <span class="btn">Export DXF</span> and choose where to save it.</li>
 </ol>
+<h2>Review and clean up the drawing</h2>
+<p>When exporting, if something would come out wrong in Civil 3D, the app shows it first and fixes it
+with <b>Fix and export</b> (or goes on as it is with <b>Export without changes</b>). It is also in
+<b>Tools → Review and clean up the drawing…</b> Click each case to see it on the plan; uncheck what
+you don't want fixed.</p>
+<ul>
+<li><b>Tiny straight runs</b> (under 1 ft): they came out as a tiny pipe in Civil 3D. The extra
+    vertex is removed, or the neighboring curve starts exactly at the vertex (a slightly larger radius).</li>
+<li><b>Ends that almost touch</b> (up to 1 ft): the end is joined exactly to the other utility of the
+    same type. Never sideways against a parallel line.</li>
+<li><b>Utilities shorter than 1 ft</b> or <b>repeated</b> (the same line twice): they are deleted.</li>
+<li><b>To review by hand</b>: what is not fixed automatically (for example next to a manhole) and short
+    utilities that touch no other of their type.</li>
+</ul>
 <h2>In Civil 3D</h2>
 <ol>
 <li>Open the plugin panel (command <b>PANEL_REDES</b>).</li>

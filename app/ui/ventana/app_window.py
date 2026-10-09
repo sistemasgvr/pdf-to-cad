@@ -87,9 +87,10 @@ from ui.ventana.ventana_mover import MoverPrecisoMixin
 from ui.ventana.ventana_curvas import CurvasMixin
 from ui.ventana.ventana_herramientas import HerramientasMixin
 from ui.ventana.ventana_bancoductos import BancoductosMixin
+from ui.ventana.ventana_bloque import EdicionBloqueMixin
 
 
-class Main(MenuMixin, PanelIzquierdoMixin, PanelDerechoMixin, ModosMixin, ClicsMixin, UtilidadesMixin, CatalogoMixin, SeleccionMixin, ListasMixin, MarcasMixin, DibujoMixin, ConflictosMixin, CoordsMixin, BuzonesMixin, MoverPrecisoMixin, CurvasMixin, HerramientasMixin, BancoductosMixin,
+class Main(MenuMixin, PanelIzquierdoMixin, PanelDerechoMixin, ModosMixin, ClicsMixin, UtilidadesMixin, CatalogoMixin, SeleccionMixin, ListasMixin, MarcasMixin, DibujoMixin, ConflictosMixin, CoordsMixin, BuzonesMixin, MoverPrecisoMixin, CurvasMixin, HerramientasMixin, BancoductosMixin, EdicionBloqueMixin,
            QtWidgets.QMainWindow):
     def __init__(self):
         super().__init__()
@@ -1519,6 +1520,9 @@ class Main(MenuMixin, PanelIzquierdoMixin, PanelDerechoMixin, ModosMixin, ClicsM
         if need_pdf and not src_pdf:
             QtWidgets.QMessageBox.information(self, _tr("Sin PDF"), _tr("No se encontró el PDF original. Se exportarán solo las anotaciones (utilidades, leaders, textos)."))
             mode = "anot"; need_pdf = False
+        # Limpieza antes de exportar (2026-10-08): solo pregunta si hay algo que arreglar.
+        if mode in ("todo", "anot") and not self.revisar_dibujo(exportando=True):
+            return
         base = os.path.splitext(os.path.basename(self.pdf_path))[0] if self.pdf_path else "proyecto"
         suffix = {"todo": "_completo", "pdf": "_plano", "anot": "_anotaciones"}[mode]
         out, _ = QtWidgets.QFileDialog.getSaveFileName(self, _tr("Guardar DXF"), os.path.join(DOWNLOADS, base + suffix + ".dxf"), "DXF (*.dxf)")

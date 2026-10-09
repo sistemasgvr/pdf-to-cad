@@ -10,7 +10,8 @@ alcantarillado, drenaje, gas, eléctrico, telecom). Todo en **unidades imperiale
   - `main.py` — punto de entrada (arma `sys.path`: `app/` + raíz).
   - **Carpetas por capa (2026-10-08, en curso)**: `app/nucleo/` = lógica PURA del dominio (sin Qt ni fitz):
     `model`, `model_ops`, `xdata`, `duct_bank`, `unir_utilidades`, `unir_ramales`, `quiebres_curvas`,
-    `accesorios`, `normativas`, `normativas_excel`, `normativas_simple`, `normativas_clearance`. Se importan
+    `accesorios`, `normativas`, `normativas_excel`, `normativas_simple`, `normativas_clearance`, `edicion_bloque`,
+    `limpieza`, `limpieza_tramos`. Se importan
     como `from nucleo import model_ops` / `from nucleo.model import …` (nunca `import model_ops`: ese nombre
     ya no existe). Regla: la interfaz usa `nucleo`, `nucleo` NUNCA importa la interfaz (PySide6, `i18n`,
     ventana…; sí `i18n_core`). Más abajo los módulos se nombran sin la carpeta: `model_ops.py` = `app/nucleo/
@@ -48,7 +49,7 @@ alcantarillado, drenaje, gas, eléctrico, telecom). Todo en **unidades imperiale
     a `ventana_*.py` (`MenuMixin`, `PanelIzquierdoMixin`, `PanelDerechoMixin`, `ModosMixin`, `ClicsMixin`,
     `UtilidadesMixin`, `CatalogoMixin`, `SeleccionMixin`, `ListasMixin`, `MarcasMixin`, `DibujoMixin`,
     `ConflictosMixin`, `CoordsMixin`, `BuzonesMixin`, `MoverPrecisoMixin`, `CurvasMixin`, `HerramientasMixin`,
-    `BancoductosMixin`) y `Main` las hereda: `win.<método>` sigue igual (313 métodos, mismo código).
+    `BancoductosMixin`, y desde 2026-10-08 `EdicionBloqueMixin` de `ventana_bloque`) y `Main` las hereda: `win.<método>` sigue igual (313 métodos, mismo código).
     `ventana_comun.py` = las MISMAS importaciones de app_window (`from ventana_comun import *`).
     En app_window quedan `__init__`, páginas, deshacer, abrir/asistente, proyecto (con `_dirty`: usa
     `self.__…`, que no puede ir a una mezcla), exportar y arrastrar-soltar. OJO: los métodos que crean
@@ -1145,6 +1146,30 @@ alcantarillado, drenaje, gas, eléctrico, telecom). Todo en **unidades imperiale
     verde, confirma, pasa bancoducto y `cross_connections` a la base y `_delete_pipes`. Ctrl+clic en el
     lienzo = `_toggle_pipe_selection`; todas las seleccionadas se resaltan. `_snap_state` ahora guarda
     `cross_connections`. Tests: `tests/test_unir_utilidades.py`.
+  - **Editar en bloque y copiar/pegar propiedades** (2026-10-08, cliente ferroviario: mapea lo existente, no
+    diseña; automatizar el modelado): `nucleo/edicion_bloque.py` (PURO: `aplicar(pipes, filas, cambios,
+    sin_familia)`, `cambios` = solo lo que cambia —familia/tamano/net_type/material/ab/datos—; cambiar la
+    familia sin tamaño = diámetro por defecto, como el panel; con bancoducto no cambia familia/tamaño) +
+    `ui/dialogos/edicion_bloque_dialog.py` (todo arranca en «(sin cambios)»; al pegar, con los valores
+    copiados) + `ui/ventana/ventana_bloque.py` (`EdicionBloqueMixin`: `editar_en_bloque` Ctrl+E,
+    `copiar_propiedades` Ctrl+Shift+C, `pegar_propiedades` Ctrl+Shift+V, `copiar_de_la_primera`; SOLO entre
+    utilidades de la MISMA capa). Tests: `tests/test_edicion_bloque.py`.
+  - **Revisar y limpiar el dibujo** (2026-10-08, Herramientas y antes de exportar —`run_pipeline` llama
+    `revisar_dibujo(exportando=True)`, que solo pregunta si hay algo que arreglar—): `nucleo/limpieza.py`
+    (PURO, en sitio; la vista previa corre sobre copias y la ventana borra con `_delete_pipes`): puntas a
+    ≤1 ft de otra de la misma capa y estado → exacto al vértice/línea (nunca de costado contra una paralela:
+    `_destino_valido`), utilidades <1 ft y repetidas (borrar; las de bancoducto/conexión vertical nunca),
+    aviso de cortas <5 ft sin contacto. `nucleo/limpieza_tramos.py`: tramo RECTO del plugin (tangencia a
+    tangencia, `fillet_geo` con sus topes) de 0.02–1 ft = tubería diminuta en Civil 3D («ELECTRICO-47
+    (19)»: curva cuyo ancla quedó a 0.07 ft de la T; «(20)», 0.31 ft rectos entre dos curvas seguidas de una
+    curva compuesta: con el umbral de 0.25 ft se escapaba). Arreglos en orden, cada uno solo si BAJA la
+    cantidad de diminutos y no cambia/recorta otra curva: quitar vértice (sin otra utilidad a ≤0.01 ft —más
+    tolerancia tomaba por unión el ancla a 0.07 ft—, sin buzón/caja visible, desvío <`DESVIO_MAX_FT`=0.25),
+    estirar la curva hasta el vértice (radio redondeado HACIA ARRIBA a 0.01: T = tramo entero), correr la
+    esquina ≤0.5 ft por la recta del otro lado con esa tangencia fija (la esquina es virtual: sobre otra
+    utilidad solo si sigue sobre ella), o quitar el ancla + correr la esquina. Foto del proyecto de prueba
+    (2.ª versión): 9 tramos arreglados, 0 sin arreglar; lo DIBUJADO (rectas + arcos) se aparta <0.05 ft.
+    Tests: `tests/test_limpieza.py` (incluye la geometría real de la #52 y que el dibujo no cambia).
   - `model.py` — constantes, `VERSION`, `CHANGELOG`, capas Z, tabs.
   - `dxf_export.py` — exporta el DXF con XDATA `PDFCAD`.
   - `civil_catalog.py` — lee el catálogo imperial de Civil 3D (familias/tamaños/GUID).

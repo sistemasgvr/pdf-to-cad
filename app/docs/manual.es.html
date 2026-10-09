@@ -434,6 +434,42 @@ Civil 3D). Sirve, por ejemplo, cuando el reconocimiento dejó una tubería parti
 </td></tr></table>
 </section>
 
+<section data-title="Editar varias a la vez">
+<p>Pon la <b>familia</b>, el <b>diámetro</b> (tamaño), el tipo de tubería, el material o el estado a
+muchas utilidades de una vez, o copia los de una utilidad a otras. Solo entre utilidades del
+<b>mismo tipo</b> (eléctrico con eléctrico, agua con agua…): las familias dependen del tipo.</p>
+
+<h2>Editar en bloque</h2>
+<ol>
+<li>Selecciona las utilidades: <span class="key">&nbsp;Ctrl&nbsp;</span> + clic en la lista o en el plano,
+    o clic derecho → <b>Seleccionar todas las de tipo …</b></li>
+<li>Pulsa <span class="key">&nbsp;Ctrl+E&nbsp;</span>, o clic derecho → <b>Editar en bloque</b>.</li>
+<li>Cada campo arranca en <b>(sin cambios)</b>: elige solo lo que quieras cambiar y pulsa
+    <b>Aplicar</b>.</li>
+</ol>
+<ul>
+<li>El <b>tamaño</b> se elige después de la familia. Si las seleccionadas tienen familias distintas,
+    elige primero la familia.</li>
+<li>Las que llevan <b>bancoducto</b> no cambian de familia ni de tamaño (los define el bancoducto); el
+    resto de campos sí.</li>
+</ul>
+
+<h2>Copiar propiedades</h2>
+<ol>
+<li>Clic derecho sobre la utilidad que ya está bien → <b>Copiar propiedades</b>
+    (<span class="key">&nbsp;Ctrl+Shift+C&nbsp;</span>).</li>
+<li>Selecciona las otras y clic derecho → <b>Pegar propiedades</b>
+    (<span class="key">&nbsp;Ctrl+Shift+V&nbsp;</span>). Se abre la misma ventana con los valores
+    copiados: cambia o deja en <b>(sin cambios)</b> lo que no quieras pegar. Las de otro tipo no se tocan.</li>
+</ol>
+<p>Con varias seleccionadas también está <b>Copiar propiedades de la #N a las demás</b>: la primera que
+seleccionaste pasa sus datos al resto.</p>
+<table width="100%" cellspacing="0" cellpadding="12"><tr>
+<td width="6" bgcolor="{{tip_border}}"></td><td bgcolor="{{tip}}">
+<b>Consejo:</b> todo se deshace de una vez con <span class="key">&nbsp;Ctrl+Z&nbsp;</span>.
+</td></tr></table>
+</section>
+
 <section data-title="Datos de la tubería">
 <p>Selecciona la tubería en la lista <b>Utilidades</b>. En el panel <b>Propiedades</b>:</p>
 <table width="100%" cellspacing="4" cellpadding="10">
@@ -747,6 +783,20 @@ sistema de coordenadas de Civil 3D (por ejemplo <b>CA83VF</b>), escríbelo y el 
 <li>Arriba, elige tu versión de <b>Civil 3D</b> (2025, 2026 o 2027) y su <b>idioma</b>.</li>
 <li>Pulsa <span class="btn">Exportar DXF</span> y elige dónde guardarlo.</li>
 </ol>
+<h2>Revisar y limpiar el dibujo</h2>
+<p>Al exportar, si hay algo que en Civil 3D saldría mal, la app lo muestra antes y lo arregla con
+<b>Arreglar y exportar</b> (o sigue igual con <b>Exportar sin cambios</b>). También está en
+<b>Herramientas → Revisar y limpiar el dibujo…</b> Clic en cada caso para verlo en el plano; desmarca
+lo que no quieras arreglar.</p>
+<ul>
+<li><b>Tramos rectos diminutos</b> (menos de 1 ft): en Civil 3D salían como una tubería diminuta.
+    Se quita el vértice que sobra o la curva vecina arranca justo en el vértice (radio apenas mayor).</li>
+<li><b>Puntas casi unidas</b> (hasta 1 ft): la punta se une exacto a la otra utilidad del mismo tipo.
+    Nunca de costado contra una línea paralela.</li>
+<li><b>Utilidades más cortas que 1 ft</b> o <b>repetidas</b> (la misma línea dos veces): se eliminan.</li>
+<li><b>Para revisar a mano</b>: lo que no se arregla solo (por ejemplo junto a un buzón) y las
+    utilidades cortas que no tocan ninguna otra de su tipo.</li>
+</ul>
 <h2>En Civil 3D</h2>
 <ol>
 <li>Abre el panel del plugin (comando <b>PANEL_REDES</b>).</li>

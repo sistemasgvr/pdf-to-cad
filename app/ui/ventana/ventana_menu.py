@@ -49,6 +49,10 @@ class MenuMixin:
         _act(medit, "Rehacer", self.redo, "Ctrl+Shift+Z")
         medit.addSeparator()
         _act(medit, "Unir utilidades seleccionadas", self.unir_utilidades, "Ctrl+J")
+        medit.addSeparator()
+        _act(medit, "Editar utilidades seleccionadas en bloque…", self.editar_en_bloque, "Ctrl+E")
+        _act(medit, "Copiar propiedades de la utilidad", self.copiar_propiedades, "Ctrl+Shift+C")
+        _act(medit, "Pegar propiedades en las seleccionadas", self.pegar_propiedades, "Ctrl+Shift+V")
         mview = _menu(mb, "&Ver")
         self._mview = mview                        # _build_side_panels agrega sus opciones
         # «Organizar hojas…» / «Capas de hojas organizadas…» (flujo antiguo) ya no
@@ -86,6 +90,7 @@ class MenuMixin:
         _act(mtools, "Componer PDF imagen/escaneo…", self.compose_scan_sheet)
         mtools.addSeparator()
         _act(mtools, "Insertar buzón en línea…", self.insert_manhole)
+        _act(mtools, "Revisar y limpiar el dibujo…", self.revisar_dibujo)
         _act(mtools, "Instalar familia personalizada…", self.open_install_family_dialog)
         _act(mtools, "Desinstalar familia personalizada…", self.open_uninstall_family_dialog)
         mtools.addSeparator()
