@@ -13,9 +13,15 @@
     al importar, y no se veían). Qué trazo es de qué utilidad: `leyenda_estandar`.
   · La leyenda del PDF se lee en otro hilo (`LegendWorker`) y queda en `legend_cache`
     (de la ventana principal): al volver a este paso ya está.
-El diálogo aporta `self.split` (vista | panel derecho), `self.view`, `self._page`,
-`self._doc`, `self._layers_raw`, `self._layers`, `self._letters_off`, `hidden_names()`,
-`_fill_list()` y `_refresh_recog_checks()`.
+  · Anchos (pedido del usuario 2026-10-09: la leyenda quedaba amontonada en 260 px y el
+    panel derecho ancho): la leyenda ~22 % y el panel derecho más angosto, y SIGUEN a la
+    ventana hasta que el usuario mueve un divisor — `maximize_on_show` maximiza después
+    del primer show y antes quedaban los anchos de 1240 px, con la hoja chica en el
+    centro: mientras el usuario no mueva la vista, la hoja vuelve a entrar entera.
+El diálogo aporta `self.split` (vista | panel derecho), `self.view`, `self.minimap`,
+`self._page`, `self._doc`, `self._layers_raw`, `self._layers`, `self._letters_off`,
+`hidden_names()`, `_fill_list()`, `_refresh_recog_checks()`, `_fit_view()` y
+`_apply_side_width()`.
 """
 from __future__ import annotations
 
@@ -38,7 +44,21 @@ from reconocimiento.recognition import utility_label as _utility_label
 from ui.comun import theme as _theme
 
 INFO_MIN_W = 260
+INFO_W = (300, 420, 0.22)  # ancho inicial de la «Leyenda»: entre 300 y 420 px, ~22 % de la ventana
 DIM_ALPHA = 175          # velo sobre la hoja mientras se resalta (0–255)
+
+
+class _UserMovesView(QtCore.QObject):
+    """Rueda o clic en la hoja o en el minimapa: el usuario eligió qué ver (`on_move`)."""
+
+    def __init__(self, on_move, parent):
+        super().__init__(parent)
+        self._on_move = on_move
+
+    def eventFilter(self, obj, event):
+        if event.type() in (QtCore.QEvent.Wheel, QtCore.QEvent.MouseButtonPress):
+            self._on_move()
+        return False
 
 
 def _sources_key(sources) -> tuple:
@@ -141,6 +161,7 @@ class LayerInfoMixin:
             self._legend_worker = worker
             worker.start()
         self._auto_collapse_info()
+        self._init_auto_sizes()
 
     # ── decisiones y datos ──
     def letters_off(self) -> list:
@@ -278,6 +299,7 @@ class LayerInfoMixin:
                     box = box.united(whole.boundingRect())
         pad = max(box.width(), box.height()) * 0.08 + 30
         self.view.fitInView(box.adjusted(-pad, -pad, pad, pad), QtCore.Qt.KeepAspectRatio)
+        self._view_auto = False                     # encuadrada en lo resaltado: no volver a la hoja entera
 
     def _union_sets(self, spec):
         """(fuertes, finos, texto) de todo lo activo junto: cada trazo una vez, lo fuerte
@@ -384,9 +406,36 @@ class LayerInfoMixin:
         return pm.width() / max(rect.width, 1e-6) if pm.width() else 3.0
 
     # ── tres columnas ──
+    def _init_auto_sizes(self):
+        """Hasta que el usuario mueva un divisor, los anchos siguen a la ventana; hasta que
+        mueva la vista (rueda, clic, minimapa, un resaltado), la hoja entra entera."""
+        self._sizes_auto = True
+        self._view_auto = True
+        self.split.splitterMoved.connect(lambda *_: setattr(self, "_sizes_auto", False))
+        self._sizes_timer = QtCore.QTimer(self)
+        self._sizes_timer.setSingleShot(True)
+        self._sizes_timer.timeout.connect(self._follow_window)
+        moved = _UserMovesView(lambda: setattr(self, "_view_auto", False), self)
+        self.view.viewport().installEventFilter(moved)
+        self.minimap.installEventFilter(moved)
+
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        # un ciclo después: aquí el divisor todavía tiene el ancho anterior
+        if getattr(self, "_sizes_auto", False) and not getattr(self, "_fit_pending", True):
+            self._sizes_timer.start(0)
+
+    def _follow_window(self):
+        if not self._sizes_auto:
+            return
+        self._apply_side_width()
+        if self._view_auto:
+            QtCore.QTimer.singleShot(0, self._fit_view)
+
     @staticmethod
     def _info_width(total: int) -> int:
-        return max(INFO_MIN_W, min(320, int(total * 0.2)))
+        lo, hi, frac = INFO_W
+        return max(lo, min(hi, int(total * frac)))
 
     def _apply_three_columns(self, side_w: int):
         w = self.split.width() or self.width()

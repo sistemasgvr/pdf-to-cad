@@ -86,8 +86,11 @@ def estado_por_leyenda(code: str, raw: str, rows: Sequence) -> str:
 
 
 def emparejar(utilidad: str, aerea: bool, estado: str, code: str, letras: Iterable[str],
-              rows: Sequence) -> List[int]:
-    """Índices de las filas de la leyenda que describen ese tipo de línea de la hoja."""
+              rows: Sequence, paredes: bool = True) -> List[int]:
+    """Índices de las filas de la leyenda que describen ese tipo de línea de la hoja.
+    `paredes` = la hoja tiene paredes de tubería de esa utilidad y estado: sin ellas, una
+    fila cuya muestra las dibuja («EXISTING SANITARY SEWER (24" OR LARGER)», `walls`) no
+    la describe (DU08 h.26, reporte del usuario 2026-10-09), salvo que sea la única."""
     cands = [i for i, r in enumerate(rows)
              if bool(r.overhead) == aerea and utilidad_de_fila(r) == utilidad]
     if estado:
@@ -103,6 +106,8 @@ def emparejar(utilidad: str, aerea: bool, estado: str, code: str, letras: Iterab
     cores = {_core(x) for x in letras}
     exact = [i for i in cands if _core(rows[i].raw) in cores]
     cands = exact or cands
+    if not paredes:
+        cands = [i for i in cands if not getattr(rows[i], "walls", False)] or cands
     out, seen = [], set()
     for i in cands:
         if rows[i].text not in seen:

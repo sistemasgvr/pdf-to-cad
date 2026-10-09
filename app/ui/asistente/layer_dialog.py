@@ -62,8 +62,9 @@ _RERENDER_DELAY_MS = 150
 # Un re-render más lento que esto muestra «Actualizando la vista…» en el
 # siguiente (en hojas rápidas la capa solo parpadearía).
 _SLOW_RENDER_S = 0.25
-# Ancho del panel derecho; la vista previa toma el resto.
-_PANEL_WIDTH = 440
+# Ancho del panel derecho; la vista previa toma el resto (era 440: pedido del usuario
+# 2026-10-09, más angosto; «Reconocer» en dos columnas necesita ~325 px).
+_PANEL_WIDTH = 350
 # Roles de datos de las filas del árbol.
 _ROLE_NAME = QtCore.Qt.UserRole            # nombre completo de la capa (None en grupos)
 _ROLE_UTILITY = QtCore.Qt.UserRole + 1     # clave de utilidad de la fila
@@ -223,8 +224,8 @@ class SheetLayersDialog(LayerInfoMixin, RecogCardMixin, NoEscapeClose, QtWidgets
         # se repite al mostrar para que la hoja entre completa.
         if self._fit_pending and self._pix_item is not None:
             self._fit_pending = False
+            QtCore.QTimer.singleShot(0, self._apply_side_width)   # primero los anchos: la hoja entra en SU columna
             QtCore.QTimer.singleShot(0, self._fit_view)
-            QtCore.QTimer.singleShot(0, self._apply_side_width)
 
     def _apply_side_width(self):
         w = self.width()
@@ -234,6 +235,7 @@ class SheetLayersDialog(LayerInfoMixin, RecogCardMixin, NoEscapeClose, QtWidgets
         if self._pix_item is not None:
             self.view.resetTransform()
             self.view.fitInView(self._pix_item, QtCore.Qt.KeepAspectRatio)
+            self._view_auto = True          # hoja entera: sigue a la ventana (`_follow_window`)
 
     # ── árbol ───────────────────────────────────────────────────────────────
     def _fill_list(self):

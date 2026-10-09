@@ -424,22 +424,27 @@ class StandardLegend(QtWidgets.QWidget):
         dim = fila.rol == le.OVERHEAD
         w = _Clickable(); w.setObjectName("stdRow"); w.setStyleSheet(_row_qss(dim, on, accent(fila.utilidad)))
         w.setCursor(QtCore.Qt.PointingHandCursor)
-        lay = QtWidgets.QHBoxLayout(w); lay.setContentsMargins(6, 4, 6, 4); lay.setSpacing(6)
+        # casilla | muestra | descripción en la 1.ª línea; estado y capas DEBAJO, desde la
+        # muestra hasta el borde (pedido del usuario 2026-10-09: con todo a la derecha de la
+        # muestra el texto se partía en una columna angosta y bajo la muestra quedaba vacío)
+        lay = QtWidgets.QGridLayout(w); lay.setContentsMargins(6, 4, 6, 4)
+        lay.setHorizontalSpacing(6); lay.setVerticalSpacing(2)
         chk = QtWidgets.QCheckBox()
         chk.setChecked(on)
         chk.setToolTip(_tr("Ver estas líneas en la hoja"))
-        lay.addWidget(chk, 0, QtCore.Qt.AlignTop)
+        # a lo alto de toda la fila: la casilla es más alta que la muestra y, en la 1.ª
+        # línea sola, dejaba un hueco antes del estado y las capas
+        lay.addWidget(chk, 0, 0, 3, 1, QtCore.Qt.AlignTop)
         texts = [self._pdf[i][1].text for i in fila.pdf]
         # muestra DIBUJADA (las letras leídas, legibles): la del PDF reducida a este
         # tamaño no deja ver las letras; va entera en la «Leyenda completa del PDF»
-        lay.addWidget(LineSample(fila), 0, QtCore.Qt.AlignTop)
-        col = QtWidgets.QVBoxLayout(); col.setContentsMargins(0, 0, 0, 0); col.setSpacing(1)
+        lay.addWidget(LineSample(fila), 0, 1, QtCore.Qt.AlignVCenter)
         status = status_text(fila)
         title = texts[0] if texts else status
         top = QtWidgets.QLabel(title)
         top.setWordWrap(True)
         top.setStyleSheet(f"color:{t.text_muted if dim else t.text}; font-size:{11 if texts else 12}px;")
-        col.addWidget(top)
+        lay.addWidget(top, 0, 2)
         all_names = _layer_names(layers, fila)
         sub = _layers_text(all_names)
         if texts:
@@ -447,12 +452,12 @@ class StandardLegend(QtWidgets.QWidget):
         names = QtWidgets.QLabel(sub)
         names.setWordWrap(True)
         names.setStyleSheet(f"color:{t.text_muted}; font-size:11px;")
-        col.addWidget(names)
+        lay.addWidget(names, 1, 1, 1, 2)
         if dim:
             note = QtWidgets.QLabel(_tr("No se reconoce"))
             note.setStyleSheet(f"color:{t.text_muted}; font-size:11px; font-style:italic;")
-            col.addWidget(note)
-        lay.addLayout(col, 1)
+            lay.addWidget(note, 2, 1, 1, 2)
+        lay.setColumnStretch(2, 1)
         tip = _row_tooltip(fila, texts)
         if len(all_names) > MAX_NAMES:
             tip = _tr("Capas: {capas}").format(capas=", ".join(all_names)) + "\n" + tip

@@ -206,14 +206,29 @@ def capa_sin_lista(name: str) -> dict:
             "unlisted": True}
 
 
+def paredes_de(L: dict) -> Optional[str]:
+    """Utilidad de una capa de PAREDES de tubería (grupo menor NCS «WALL»: Civil 3D dibuja
+    así las de 24" o más, `C-SSWR-UNGD-WALL-E`), o None. El reconocimiento no la toma, pero
+    dice qué fila de la leyenda del PDF describe la hoja: «EXISTING SANITARY SEWER (24" OR
+    LARGER)» solo si hay paredes de alcantarillado existente (reporte del usuario
+    2026-10-09, DU08 h.26: no las hay)."""
+    name = L.get("name") or ""
+    if "WALL" not in _tokens(recognition.standard_short_name(name.rpartition("|")[2])):
+        return None
+    u = pdf_layers.utility_of(name)
+    return u if u in recognition.SUPPORTED_UTILITIES else None
+
+
 def _de_utilidad(L: dict) -> bool:
-    return bool(L.get("letter_utilities")) or any(rol_capa(L, u)[0] for u in recognition.SUPPORTED_UTILITIES)
+    return (bool(L.get("letter_utilities")) or any(rol_capa(L, u)[0] for u in recognition.SUPPORTED_UTILITIES)
+            or paredes_de(L) is not None)
 
 
 def capas_de_utilidad(layers: Iterable[dict]) -> Callable[[str], bool]:
     """¿La capa puede ser línea o estructura de alguna utilidad (por su nombre o por las
-    letras de su línea)? Las únicas que se resaltan. Una capa que no está en `layers`
-    (fuera de la lista del PDF) se juzga por su nombre."""
+    letras de su línea), o sus paredes (`paredes_de`)? Las únicas cuyos trazos se leen para
+    resaltar (las paredes no se resaltan: `es_trazo_de` no les da rol). Una capa que no
+    está en `layers` (fuera de la lista del PDF) se juzga por su nombre."""
     layers = list(layers)
     known = {L["name"] for L in layers}
     yes = {L["name"] for L in layers if _de_utilidad(L)}
@@ -320,6 +335,11 @@ def leyenda(layers: Iterable[dict], utilidades: Optional[Iterable[str]] = None,
         u for u in utils if u not in dict(pdf_layers.UTILITIES)]
     grupos: List[Grupo] = []
     layers = [L for L in layers if int(L.get("path_count") or 0) > 0]
+    paredes: Dict[str, set] = {}                    # utilidad → estados con paredes («*» = sin estado)
+    for L in layers:
+        pu = paredes_de(L)
+        if pu:
+            paredes.setdefault(pu, set()).add(estado_capa(L)[0] or "*")
     for u in order:
         filas: Dict[tuple, Fila] = {}
         for L in layers:
@@ -344,19 +364,21 @@ def leyenda(layers: Iterable[dict], utilidades: Optional[Iterable[str]] = None,
             rows = sorted(filas.values(), key=lambda f: (
                 (f.rol == STRUCTURE) * 2 + (f.rol == OVERHEAD), _orden_estado(f.estado), f.code, f.abbr))
             if pdf_rows:
-                rows = _juntar_por_leyenda(rows, pdf_rows)
+                rows = _juntar_por_leyenda(rows, pdf_rows, paredes.get(u, set()))
             grupos.append(Grupo(u, rows))
     return grupos
 
 
-def _juntar_por_leyenda(rows: List[Fila], pdf_rows: Sequence) -> List[Fila]:
+def _juntar_por_leyenda(rows: List[Fila], pdf_rows: Sequence, paredes: set = frozenset("*")) -> List[Fila]:
     """Cada fila con las de la leyenda del PDF que la describen; dos filas que describe
-    la MISMA (dos xrefs de `C-STRM-UNGD-N`, uno sin letras y otro con «SD») son una."""
+    la MISMA (dos xrefs de `C-STRM-UNGD-N`, uno sin letras y otro con «SD») son una.
+    `paredes`: estados de la utilidad con paredes de tubería en la hoja (`paredes_de`)."""
     out: List[Fila] = []
     by_desc: Dict[tuple, Fila] = {}
     for f in rows:
         if f.rol != STRUCTURE:
-            f.pdf = cruce.emparejar(f.utilidad, f.rol == OVERHEAD, f.estado, f.code, f.letras, pdf_rows)
+            con = f.estado in paredes or "*" in paredes or (not f.estado and bool(paredes))   # sin estado: cualquiera
+            f.pdf = cruce.emparejar(f.utilidad, f.rol == OVERHEAD, f.estado, f.code, f.letras, pdf_rows, paredes=con)
         key = (f.rol, f.estado, tuple(pdf_rows[i].text for i in f.pdf))
         first = by_desc.get(key) if f.pdf else None
         if first is None:
