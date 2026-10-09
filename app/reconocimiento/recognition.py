@@ -543,6 +543,7 @@ def page_letters(page, drawings=None) -> Dict[str, "letters_mod.LayerLetters"]:
         got = letters_mod.read_layer(paths)
         if got is not None:
             out[name] = got
+    letters_mod.confirm_across(out)
     return out
 
 

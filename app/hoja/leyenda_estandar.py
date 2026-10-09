@@ -167,6 +167,37 @@ def es_trazo_de(L: dict, utilidad: str, path: dict) -> Optional[str]:
     return rol
 
 
+def capas_que_reconoce(layers: Iterable[dict], utilidad: str) -> Tuple[List[str], List[str]]:
+    """(líneas, estructuras): nombres de las capas con trazos en la hoja que el
+    reconocimiento de `utilidad` toma (`rol_capa`; las aéreas no)."""
+    lineas, estructuras = [], []
+    for L in layers:
+        if int(L.get("path_count") or 0) <= 0:
+            continue
+        rol, _por_trazo = rol_capa(L, utilidad)
+        if rol == LINE:
+            lineas.append(L["name"])
+        elif rol == STRUCTURE:
+            estructuras.append(L["name"])
+    return lineas, estructuras
+
+
+def sin_capas_visibles(layers: Iterable[dict], ocultas: Iterable[str],
+                       utilidades: Iterable[str]) -> List[str]:
+    """Utilidades marcadas para reconocer cuyas capas están TODAS ocultas: sus líneas (o,
+    si la hoja no tiene líneas suyas, sus estructuras). No se reconocería nada de ellas
+    (pedido del usuario 2026-10-07: «si quiero reconocer telecomunicaciones pero no tengo
+    activada la capa, no puede ser»)."""
+    layers, ocultas = list(layers), set(ocultas or ())
+    out = []
+    for u in utilidades:
+        lineas, estructuras = capas_que_reconoce(layers, u)
+        base = lineas or estructuras
+        if base and all(n in ocultas for n in base):
+            out.append(u)
+    return out
+
+
 def capa_sin_lista(name: str) -> dict:
     """Capa con trazos en la hoja que NO está en la lista de capas del PDF
     (`layer_ui_configs`; DU06 h.2: `…(A2_TRIM)|V-ELEC-MANH`): no se puede apagar, pero el

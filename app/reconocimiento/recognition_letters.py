@@ -52,7 +52,8 @@ DUP_STROKE_PT = 0.15     # el mismo trazo dos veces (xref duplicado): uno solo
 ORIENT_TIE = 0.02        # los dos sentidos de lectura empatan: decide el código conocido o el guión
 MIN_PATHS = 6            # capa con menos trazos: no se lee
 MIN_SITES_LAYER = 3      # capa sin utilidad por su nombre: ≥3 sitios con letras para clasificarla
-MIN_SITES_CODE = 2       # capa MEZCLADA: cada código necesita ≥2 sitios (si no, es ruido)
+MIN_SITES_CODE = 2       # capa MEZCLADA: cada código necesita ≥2 sitios (si no, es ruido)… salvo
+                         # que la hoja lo use en ≥2 sitios de OTRA capa (`confirm_across`)
 MAPPED_SHARE = 0.5       # los códigos de utilidad son ≥50 % de lo leído en la capa: si no, sus
                          # «letras» son dibujo (DU06 h.2 `W-Plantry`: 3 «G» entre ~70 lecturas basura)
 LAYER_SHARE = 0.9        # código dominante ≥90 % de los sitios = capa homogénea…
@@ -115,6 +116,7 @@ class LayerLetters:
     utilities: Counter = field(default_factory=Counter)   # utilidad → sitios (sin aéreas)
     sites: int = 0                                        # sitios con letras legibles (sin aéreas)
     raw: Dict[str, str] = field(default_factory=dict)     # código → como se lee más («G», «e»)
+    noisy: set = field(default_factory=set)               # códigos en <`MIN_SITES_CODE` sitios: ruido
     _split: Optional[Tuple[Dict[tuple, str], float]] = field(default=None, repr=False)
     _splitter: Optional[Callable[[], Tuple[Dict[tuple, str], float]]] = field(default=None, repr=False)
 
@@ -122,8 +124,31 @@ class LayerLetters:
         if self._split is None:
             ok = self._splitter is not None and self.utilities
             self._split = self._splitter() if ok else ({}, 0.0)
-            self._splitter = None
         return self._split
+
+    def _tally(self) -> None:
+        """`sites` y `utilities` a partir de `codes`, sin el ruido."""
+        self.sites, self.utilities = 0, Counter()
+        for code, n in self.codes.items():
+            if code.endswith("(OH)"):
+                continue
+            self.sites += n
+            util = code_utility(code)
+            if util and code not in self.noisy:
+                self.utilities[util] += n
+        if sum(self.utilities.values()) < MAPPED_SHARE * self.sites:
+            self.utilities.clear()          # casi todo lo «leído» no es un código: no es un linetype
+
+    def confirm(self, codes) -> bool:
+        """Los códigos de `codes` que aquí se leyeron en un solo sitio dejan de ser ruido
+        (la hoja los usa como linetype en otra capa). True si cambió algo."""
+        ok = self.noisy & set(codes)
+        if not ok:
+            return False
+        self.noisy -= ok
+        self._tally()
+        self._split = None
+        return True
 
     @property
     def by_path(self) -> Dict[tuple, str]:
@@ -142,9 +167,13 @@ class LayerLetters:
         ≥`DEDICATED_SHARE` de su tinta (`U-TRPW-DBNK-P`: 89–93 %; lo que falta son
         tramos junto a curvas y cruces). Una capa GENÉRICA con una sola línea con
         letras no lo es: la capa «0» de LABOE h.26 (comentarios de revisión, una vista
-        de perfil y UNA línea «—S—»: 2 %) o `G-XREF` (9–18 %)."""
+        de perfil y UNA línea «—S—»: 2 %) o `G-XREF` (9–18 %). Tampoco una capa con
+        líneas de OTRA utilidad aunque sean pocas (DU06 h.5 `G-XREF`: 12 «T» y una «W»):
+        se reparte línea por línea."""
         u = self.utility
-        return u if u is not None and self.coverage >= DEDICATED_SHARE else None
+        if u is None or len(self.utilities) > 1:
+            return None
+        return u if self.coverage >= DEDICATED_SHARE else None
 
     @property
     def utility(self) -> Optional[str]:
@@ -173,7 +202,7 @@ class LayerLetters:
         """Códigos de utilidad leídos, para mostrar: «TE», «G · W»; con `utility`, solo
         los suyos (el ruido —«A», «IG»— no se muestra)."""
         keep = [c for c, n in self.codes.most_common()
-                if (n >= MIN_SITES_CODE or self.utility) and code_utility(c)
+                if (c not in self.noisy or self.utility) and code_utility(c)
                 and (utility is None or code_utility(c) == utility)]
         return " · ".join(keep[:3])
 
@@ -308,17 +337,22 @@ def read_layer(paths: Sequence[dict]) -> Optional[LayerLetters]:
         by_code[code + ("(OH)" if overhead else "")].append(site)
     for code, sites in by_code.items():
         out.codes[code] = site_count(sites)
-    noisy = {c for c, n in out.codes.items() if n < MIN_SITES_CODE}
-    for code, n in out.codes.items():
-        if code.endswith("(OH)"):
-            continue
-        out.sites += n
-        util = code_utility(code)
-        if util and code not in noisy:
-            out.utilities[util] += n
-    if sum(out.utilities.values()) < MAPPED_SHARE * out.sites:
-        out.utilities.clear()           # casi todo lo «leído» no es un código: no es un linetype
+    out.noisy = {c for c, n in out.codes.items() if n < MIN_SITES_CODE}
+    out._tally()
     out._splitter = lambda: lines.split_by_line(
         paths, chains, owner, ends, gaps, touching, members_by_gap, readings,
-        lambda code: None if code in noisy else code_utility(code))
+        lambda code: None if code in out.noisy else code_utility(code))
     return out
+
+
+def confirm_across(letters: Dict[str, LayerLetters]) -> None:
+    """Un código leído en UN solo sitio de una capa es ruido (`MIN_SITES_CODE`)… salvo que
+    la MISMA hoja lo use como linetype en otra capa (≥2 sitios): entonces es una línea
+    corta de esa utilidad con una sola letra. DU06 h.5 (lo reportó el usuario): `G-XREF`
+    trae las líneas «—T—» de telecom y un tramo «—W—» de agua propuesta con UNA «W»; la
+    hoja tiene «W» en `C-WATR-UNGD-E` → la capa es de DOS utilidades, cada línea a la suya."""
+    used = {code for lt in letters.values() for code, n in lt.codes.items()
+            if n >= MIN_SITES_CODE and code_utility(code)}
+    if used:
+        for lt in letters.values():
+            lt.confirm(used)

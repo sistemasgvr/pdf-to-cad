@@ -53,7 +53,10 @@ def test_du06_h5_telecom_sigue_por_su_letra_t():
 
 
 @needs_du06
-def test_du06_h5_linea_de_agua_de_g_xref_no_es_telecom():
+def test_du06_h5_linea_de_agua_de_g_xref_es_agua():
+    """2.º reporte (2026-10-07): la línea «—W—» de `G-XREF` (UNA «W», justo antes de un
+    quiebre: el guión siguiente mide 1.4 pt) no era de nadie y el agua no la reconocía. La
+    hoja usa «W» en `C-WATR-UNGD-E` → es agua; las «T» de la capa siguen siendo telecom."""
     import fitz
     with fitz.open(str(DU06)) as doc:
         page = doc[4]
@@ -63,10 +66,14 @@ def test_du06_h5_linea_de_agua_de_g_xref_no_es_telecom():
                  and abs(p["rect"].x0 - 939.2) < 0.2 and abs(p["rect"].x1 - 1002.1) < 0.2]
         letter_t = [p for p in page.get_drawings() if (p.get("layer") or "").endswith("G-XREF")
                     and 1037.5 < p["rect"].x0 < 1039.5 and p["rect"].x1 < 1046.0 and 977.5 < p["rect"].y0 < 979.0]
-    assert len(water) == 1 and use.paths.get(lines.path_key(water[0])) is None
+    assert len(water) == 1 and use.paths.get(lines.path_key(water[0])) == "AGUA"
+    assert sorted(use.utilities) == ["AGUA", "TELECOM"] and use.main == "TELECOM"
     assert len(letter_t) == 2 and all(use.paths.get(lines.path_key(p)) == "TELECOM" for p in letter_t)
     pls = _lines(5, "TELECOM")
     assert not any(_dist_to(pts, (970.0, 975.5)) <= 1.0 for pts in pls)
+    # el agua la reconoce entera, por su tinta: recta, quiebre, la «W» y recta
+    agua = _lines(5, "AGUA")
+    assert _one_line_through(agua, (904.2, 993.2), (922.1, 993.3), (940.3, 975.4), (1002.0, 975.6))
 
 
 @needs_du06
