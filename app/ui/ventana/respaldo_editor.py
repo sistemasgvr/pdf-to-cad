@@ -61,6 +61,8 @@ class Respaldo:
     rehacer: list = field(default_factory=list)
     imagen: object = None              # QPixmap de la hoja (compartido: no copia la imagen)
     vista: tuple | None = None         # (QTransform, nivel de zoom, centro en la escena)
+    escala: float = 1.0                # hoja enorme a menos resolución (fondo_pdf)
+    tam: tuple | None = None           # su tamaño en px de la escena
 
 
 def _copia(valor):
@@ -88,7 +90,9 @@ def tomar(win) -> Respaldo:
         valores={k: _copia(d[k]) for k in CLAVES if k in d},
         faltan=tuple(k for k in CLAVES if k not in d),
         deshacer=list(win._undo), rehacer=list(win._redo),
-        imagen=item.pixmap() if item is not None else None, vista=vista)
+        imagen=item.pixmap() if item is not None else None, vista=vista,
+        escala=getattr(canvas, "fondo_escala", 1.0),
+        tam=canvas.tam_hoja() if item is not None and hasattr(canvas, "tam_hoja") else None)
 
 
 def lo_guarda(r: Respaldo | None, *, doc=None, tmp=None) -> bool:
@@ -138,7 +142,7 @@ def reponer(win, r: Respaldo) -> None:
     win._undo[:] = r.deshacer
     win._redo[:] = r.rehacer
     if r.imagen is not None:
-        win.canvas.set_image(r.imagen)
+        win.canvas.set_image(r.imagen, r.escala, r.tam)
         transform, nivel, centro = r.vista
         win.canvas.setTransform(transform)
         win.canvas._zoom_level = nivel

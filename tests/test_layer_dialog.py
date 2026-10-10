@@ -13,7 +13,7 @@ from pathlib import Path
 import pytest
 
 fitz = pytest.importorskip("fitz")
-from PySide6 import QtCore, QtWidgets
+from PySide6 import QtCore, QtGui, QtWidgets
 
 from ui.asistente import layer_dialog
 from hoja import pdf_layers
@@ -180,6 +180,56 @@ def test_opacidad_del_pdf(dlg):
     assert dlg.opacity.is_black() and dlg.opacity.backdrop.brush().color().value() == 0
     dlg._render()                                             # un re-render conserva la opacidad
     assert abs(dlg._pix_item.opacity() - 0.4) < 1e-6
+
+
+def _resize(dlg, w, h):
+    app = _app()
+    dlg.resize(w, h)
+    for _ in range(6):
+        app.processEvents()
+
+
+def _sheet_fits(dlg) -> bool:
+    """La hoja entra entera y llena la vista en ancho o en alto (`fitInView` deja 2 px por lado)."""
+    r = dlg.view.mapFromScene(dlg._pix_item.sceneBoundingRect()).boundingRect()
+    vp = dlg.view.viewport().rect()
+    return (r.width() <= vp.width() and r.height() <= vp.height()
+            and (vp.width() - r.width() <= 6 or vp.height() - r.height() <= 6))
+
+
+@needs_pdf
+def test_anchos_siguen_a_la_ventana_al_maximizar(dlg):
+    """Pedido del usuario 2026-10-09: la «Leyenda» quedaba en 260 px (amontonada) y el panel
+    derecho en ~400: los anchos se calculaban con la ventana de 1240 px, ANTES de que
+    `maximize_on_show` la maximizara. Ahora siguen a la ventana (y la hoja vuelve a entrar
+    entera) hasta que el usuario mueve un divisor o la vista."""
+    dlg._maximized_once = True                                # offscreen: sin maximizar solo
+    _resize(dlg, 1240, 780); dlg.show(); _resize(dlg, 1240, 780)
+    _resize(dlg, 1900, 1000)                                  # «maximizada»
+    left, _mid, right = dlg.split.sizes()
+    assert not dlg.info_box.collapsed
+    assert left >= 400 and right <= 350
+    assert _sheet_fits(dlg)
+    # fila de la leyenda: el estado y las capas van DEBAJO de la muestra (no en una columna angosta)
+    row = next(r for r in dlg.info.std._rows.values())
+    labels = row["w"].findChildren(QtWidgets.QLabel)
+    sample = next(c for c in row["w"].children() if type(c).__name__ == "LineSample")
+    assert any(abs(lb.x() - sample.x()) <= 1 and lb.y() > sample.y() for lb in labels)
+    # el usuario acerca con la rueda: los anchos siguen a la ventana, su zoom se respeta
+    p = QtCore.QPointF(50, 50)
+    QtWidgets.QApplication.sendEvent(dlg.view.viewport(), QtGui.QWheelEvent(
+        p, p, QtCore.QPoint(0, 0), QtCore.QPoint(0, 120), QtCore.Qt.NoButton, QtCore.Qt.NoModifier,
+        QtCore.Qt.NoScrollPhase, False))
+    assert not dlg._view_auto
+    zoom = dlg.view.transform().m11()
+    _resize(dlg, 1700, 1000)
+    assert dlg.split.sizes()[0] < left and abs(dlg.view.transform().m11() - zoom) < 1e-9
+    # mueve un divisor: desde ahí los anchos son suyos
+    dlg.split.moveSplitter(330, 1)
+    mine = dlg.split.sizes()[0]
+    _resize(dlg, 1500, 1000)
+    assert dlg.split.sizes()[0] == mine
+    dlg.hide()
 
 
 def test_sin_vuelta_atras_no_hay_boton():

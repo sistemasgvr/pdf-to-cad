@@ -280,7 +280,7 @@ def snap_to_intersection(pt, polylines, max_dist):
 class _PdfPickView(QtWidgets.QGraphicsView):
     clicked = QtCore.Signal(float, float)
 
-    def __init__(self, qimg, pipe_lines=None, cl_lines=None):
+    def __init__(self, qimg, pipe_lines=None, cl_lines=None, img_escala=1.0):
         super().__init__(); sc = QtWidgets.QGraphicsScene(self); self.setScene(sc)
         # El PDF va SOLO como pixmap (capa propia, con su propia opacidad —
         # ver set_pdf_opacity); las utilidades/centerlines se dibujan aparte
@@ -288,6 +288,11 @@ class _PdfPickView(QtWidgets.QGraphicsView):
         # hacer zoom y la opacidad del PDF no las afecta.
         self._pm = sc.addPixmap(QtGui.QPixmap.fromImage(qimg))
         self._pm.setZValue(0)
+        if img_escala != 1.0:
+            # hoja enorme a menos resolución (ui/comun/fondo_pdf): se agranda para
+            # quedar en las coordenadas del editor (las de las utilidades y los clics)
+            self._pm.setScale(1.0 / img_escala)
+            self._pm.setTransformationMode(QtCore.Qt.SmoothTransformation)
         pen_u = QtGui.QPen(QtGui.QColor(120, 200, 255, 220)); pen_u.setCosmetic(True); pen_u.setWidthF(1.6)
         for pts in (pipe_lines or []):
             for a, b in zip(pts, pts[1:]):
@@ -506,7 +511,7 @@ class _FetchWorker(QtCore.QObject):
 
 
 class GeorefDialog(QtWidgets.QDialog):
-    def __init__(self, parent, plan_qimage, pipes, ref_centerlines=None, init_georef=None):
+    def __init__(self, parent, plan_qimage, pipes, ref_centerlines=None, init_georef=None, img_escala=1.0):
         super().__init__(parent)
         self._main = parent
         self.setWindowTitle(_tr("Georreferenciar plano"))
@@ -571,7 +576,7 @@ class GeorefDialog(QtWidgets.QDialog):
         self.sl_pdf_op.valueChanged.connect(lambda v: self.pdf.set_pdf_opacity(v / 100))
         oprow.addWidget(self.sl_pdf_op, 1)
         pv.addLayout(oprow)
-        self.pdf = _PdfPickView(plan_qimage, self._pipe_lines, self._ref_cl_lines)
+        self.pdf = _PdfPickView(plan_qimage, self._pipe_lines, self._ref_cl_lines, img_escala)
         self.pdf.clicked.connect(self._on_pdf_click)
         pv.addWidget(self.pdf, 1)
         split.addWidget(pdf_w)

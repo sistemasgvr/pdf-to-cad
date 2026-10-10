@@ -56,6 +56,22 @@ alcantarillado, drenaje, gas, eléctrico, telecom). Todo en **unidades imperiale
     `RecognitionWorker`/`PipelineWorker` se quedan en app_window (las pruebas los cambian con
     `monkeypatch.setattr(app_window, …)`); en una mezcla no se usa `Main.` (usar `self.` o la clase mezcla).
   - `canvas.py` — el lienzo (`Canvas`, QGraphicsView).
+  - `fondo_pdf.py` — **hoja enorme** (reporte del usuario 2026-10-09: 18 piezas → «code=5: Overly large
+    image»: MuPDF no crea pixmaps de más de 1 GiB, ancho × alto × 3 ≤ 2³⁰; 18 hojas del DU06 a zoom 3.5 =
+    1006 Mpx). `render_pix(page, zoom)`: si cabe, EL MISMO `get_pixmap` de siempre (`escala`=1); si no, a
+    ≈`PRESUPUESTO_PX`=100 Mpx con `escala` < 1 = px de la imagen por px de la vista. Las coordenadas NO
+    cambian (pt × zoom): `Canvas.set_image(qimg, escala, tam)` agranda la imagen 1/escala (`FondoItem`) y la
+    escena mide `tam`; usar `canvas.tam_hoja()` (no `pixmap().width()`) para el tamaño de la hoja en px.
+    `Nitidez` (en el lienzo, «Capas de la hoja» y la vista previa): al acercarse re-dibuja nítida la parte
+    visible como hijo del `FondoItem` (lista de dibujo de MuPDF en caché: 0.7 s una vez, luego 20–100 ms;
+    el padre no se pinta debajo, si no la opacidad del PDF la oscurecía); el imán a la tinta mira la ventana
+    del clic a resolución completa (`snap_nitido`: mismo punto que con la hoja normal). El .digproj guarda
+    `fondo_escala`/`fondo_tam` SOLO si la hoja va reducida; `leer_png` quita el tope de 256 MB de
+    `QImageReader` (antes un proyecto con hoja compuesta de ~2 hojas no se reabría). `gris`: grises por
+    bloques (idéntico byte a byte). Si `_apply_composite` falla, `_volver_a_la_hoja` recarga la hoja anterior
+    (sin respaldo el editor quedaba sin PDF). Tests: `tests/test_hoja_enorme.py` (bajan el límite con
+    `chica`). Pendiente: con 18 hojas, armar tarda ~28 s (`compute_bridges` relee los vectores de cada hoja)
+    y «Capas de la hoja» ~49 s (`page_layers`, letras, `trazos_visibles` sobre toda la hoja compuesta).
   - `widgets.py` — widgets reutilizables (`InlineEdit`, `_SegInvSpinBox`, `_NoWheelFilter`,
     `ZoomPanView`, `MiniMap`: minimapa con recuadro de lo visible sobre una ZoomPanView;
     `set_layout(items, scene_rect)` = esquema de hojas (cajas con etiqueta, lo que
@@ -363,6 +379,40 @@ alcantarillado, drenaje, gas, eléctrico, telecom). Todo en **unidades imperiale
     vértice interior ni codo distinto. Import (zoom 3.5): caja unida a la línea 366 → 581,
     suelta 235 → 18 (nodos de varias líneas fuera del contorno y bóvedas anidadas: no se
     tocan), estructuras 3993 → 3838. Tests: `tests/test_recognition_vault_snap.py`.
+  - **Fase B sin inventos** (reporte del usuario 2026-10-09, DU06 h.10/h.12, «—SC—» de telecom: «hay que
+    interpretar lo que da el PDF, no dibujar cosas que no existen», en TODAS las utilidades). En
+    `recognition_geom.resolve_nodes` (llegadas a bóvedas): (A) `_vault_entry(run=)`: una CURVA que ya
+    atravesó la bóveda no se recorta hacia atrás sobre más de `RETRACT_INK_MAX_PT` de su tinta
+    (`_curve_ink_beyond`; antes: vuelta en U de 28 pt hasta el borde y el arco perdido); (B)
+    `letter_continuation`: una punta no se estira HACIA ADELANTE hasta la bóveda si antes tiene su
+    continuación de frente con una letra del linetype en el hueco (la une «letra en el hueco»), o si esa
+    continuación, casi igual de cerca (≤ entrada + `NODE_OFF_LINE_PT`), es la punta de un trazo TODO dentro de
+    la caja (DU08 h.21, DU10 h.11: la diagonal se prolongaba hasta la esquina de la caja). Ojo: con la bóveda
+    DETRÁS `move` es un retroceso (la regla volteaba llegadas buenas, DU08 h.26) y la punta de una línea que
+    ATRAVIESA la caja no es «continuación»: es la llegada opuesta que da el nodo (DU06 h.4); (C) una llegada
+    no puede pasar el OTRO extremo de su recta: ≤`RETRACT_INK_MAX_PT` se queda en ese extremo (el último guión
+    que entra en el margen de la caja), más no es llegada (la corrida quedaba al revés y un paso posterior la
+    pegaba hacia atrás al nodo: zigzags hasta las esquinas de la caja, DU10 h.3/4, DU08 h.35–39); (D) recta
+    TODA dentro de la caja, que CABE en ella (largo ≤ lado menor) y sin llegada por un borde →
+    `Run.absorbed` al final de la Fase B (no sale: `assemble` la salta), aunque a su capa no le llegue nada:
+    el núcleo corre POR CAPA y la línea que atraviesa puede ser de otra (LABOE h.26 alcantarillado), y las
+    bóvedas solapadas se procesan una a una; si toca la línea que atraviesa, su tinta marca el NODO (la «T» de
+    LABOE h.26/29/30 drenaje). Paso aparte `recognition_vault_through.py` (PURO): línea que ATRAVIESA su
+    bóveda sin nodo (trazo curvo que la cruza recto: Fase A solo parte rectas) → vértice «vault» en el pie
+    del centro sobre su parte recta dibujada, sin mover nada; no en bóvedas solapadas con otra que ya tiene
+    nodo (DU08 h.36). Auditoría nueva `scripts/audit_sin_tinta.py salida.json` + `--diff` (6 utilidades × 4
+    PDFs, ~10 min): hueco CONTINUO sin tinta de lo que se dibuja (rectas entre tangencias + arcos de los
+    codos; `audit_perfil` salta los tramos hasta un codo y mira la mitad: no veía estos casos) y
+    «retrocesos» (dos rutas que salen del mismo vértice suelto una encima de la otra = vuelta en U). Para
+    revisar cada hoja que cambia: reconocer con el código viejo y el nuevo y dibujar ambos sobre el PDF con
+    la tinta de la utilidad encima (no basta con los contadores). Foto 6 utilidades × 4 PDFs: huecos sin tinta
+    eléctrico 32 → 24 y telecom 24 → 22 (0 nuevos en ninguna utilidad), vueltas en U eléctrico 9 → 1 y telecom
+    3 → 2; `audit_perfil` «sin tinta» eléctrico 16 → 8, drenaje 1 → 0, imprecisos telecom 15 → 13; rutas 5451 →
+    5384 (cortes en nodo 88 → 85, 0 cortes); codos distintos en 13 hojas (el mismo arco rehecho sobre la tinta
+    o curvas que ya no terminan en un tramo inventado). 45 hoja×utilidad cambian, todas revisadas a la vista.
+    Pendiente conocido: curva que se funde TANGENTE con otra línea junto a una bóveda y vuelve ~6 pt sobre ella
+    (DU08 h.37 (1116, 991), h.38 (765, 1179) telecom; ya estaba).
+    Tests: `tests/test_bovedas_no_inventar.py`.
   - **Reporte DU06 h.4 (2026-09-29, cuatro casos, TODAS las utilidades)**:
     `recognition_dupink.py` (PURO) — la MISMA línea dibujada dos veces en la misma capa
     con el linetype desfasado (banco de ductos `N-COMM-DUCT-BANK-PL`: dos entidades
@@ -869,7 +919,14 @@ alcantarillado, drenaje, gas, eléctrico, telecom). Todo en **unidades imperiale
     solape; gana la de más cobertura); `_CropView` (sheet_crop_dialog) las usa al
     arrastrar y las resalta. Nitidez: `pdf_view_quality.ViewportSharpener` (panel 2)
     y `PieceItem.update_sharp` (todas las piezas a la vista, presupuesto de píxeles
-    repartido) re-renderizan solo la región visible como overlay. `recognition.
+    repartido) re-renderizan solo la región visible como overlay. **Colocación EXACTA** (reporte
+    2026-10-09, escaneos: «al hacer zoom como que se mueve»): MuPDF redondea el recorte hacia afuera
+    (el pixmap empieza en `floor(x0·escala)` = `pix.x`), así que la imagen base NO se estira a la caja: va
+    sin girar y `PieceItem._raw_transform` (≡ `piece_map`, con el origen `pix.x/pix.y`) pone giro, escala y
+    desfase; el recorte nítido es hijo con solo escala + origen, y ambos se recortan al clip exacto en
+    `paint`. Antes la base quedaba corrida hasta 1 px de la vista general (1–2 pt) y la pieza saltaba al
+    aparecer el recorte. `scene_box()` = caja de la pieza (contorno, clic y nitidez; `sceneBoundingRect`
+    es mayor con giro). Tests: `tests/test_piezas_exactas.py`. `recognition.
     gather_paths` descarta astillas <1.5 pt creadas por un clip (`CLIP_SLIVER_PT`):
     con eso DU06 hoja 4 partida en dos con hueco = 13 rutas, igual que entera.
     OJO: `theme.apply_theme` PERSISTE la preferencia en QSettings; en scripts de

@@ -84,6 +84,28 @@ def test_cada_tipo_de_linea_con_su_descripcion():
     assert desc("AGUA", "", "W", ["W"]) == ["EXISTING WATER", "PROPOSED WATER"]     # sin estado: las dos
 
 
+def test_fila_con_paredes_solo_si_la_hoja_las_tiene():
+    """Reporte del usuario 2026-10-09 (DU08 h.26): «EXISTING SANITARY SEWER (24" OR LARGER)»
+    se dibuja con PAREDES (eje + dos paralelas, capa `C-SSWR-UNGD-WALL-E`). Sin paredes de
+    alcantarillado existente en la hoja, esa fila no describe sus líneas; con ellas, sí (y la
+    sencilla también: puede haber tuberías chicas). Si es la única fila, se queda."""
+    plain = _row("EXISTING SANITARY SEWER", "ss")
+    big = SimpleNamespace(**vars(_row('EXISTING SANITARY SEWER (24" OR LARGER)', "ss")), walls=True)
+    rows = [plain, big]
+
+    def desc(paredes, rs=rows):
+        return [rs[i].text for i in cruce.emparejar("ALCANTARILLADO", False, "E", "SS", ["ss"], rs, paredes=paredes)]
+    assert desc(False) == ["EXISTING SANITARY SEWER"]
+    assert desc(True) == ["EXISTING SANITARY SEWER", 'EXISTING SANITARY SEWER (24" OR LARGER)']
+    assert desc(False, [big]) == ['EXISTING SANITARY SEWER (24" OR LARGER)']
+    layers = [_layer("R|C-SSWR-UNGD-E", read_codes=["SS"], letter_raw={"SS": "ss"})]
+    fila = le.leyenda(layers, pdf_rows=rows)[0].filas[0]
+    assert [rows[i].text for i in fila.pdf] == ["EXISTING SANITARY SEWER"]
+    fila = le.leyenda(layers + [_layer("R|C-SSWR-UNGD-WALL-E")], pdf_rows=rows)[0].filas[0]
+    assert len(fila.pdf) == 2
+    fila = le.leyenda(layers + [_layer("R|C-STRM-UNGD-WALL-E")], pdf_rows=rows)[0].filas[0]
+    assert len(fila.pdf) == 1                                   # paredes de OTRA utilidad no cuentan
+
 def test_leyenda_por_utilidad_con_la_del_pdf():
     layers = [
         _layer("R|C-ELEC-UNGD-E", read_codes=["E"], letter_raw={"E": "e"}),
@@ -147,6 +169,22 @@ def test_du08_todas_las_lineas_electricas_con_su_descripcion(du08_h26):
     assert {"EXISTING ELECTRICAL", "EXISTING ELECTRICAL - TO BE ABANDONED", "PROPOSED ELECTRICAL"} <= textos
     for g in dlg.info.standard_groups():                     # en TODAS las utilidades: toda línea descrita
         assert all(f.pdf for f in g.filas if f.rol != le.STRUCTURE), g.utilidad
+
+
+@needs_du08
+def test_du08_h26_alcantarillado_sin_la_fila_de_24_pulgadas(du08_h26):
+    """Reporte del usuario 2026-10-09: el tooltip de «EXISTING SANITARY SEWER» traía también
+    la muestra de «(24" OR LARGER)», recortada sin su pared de arriba. La hoja no tiene
+    paredes de alcantarillado (`C-SSWR-UNGD-WALL-E` sin trazos): esa fila no la describe. La
+    muestra del PDF va completa, con sus paredes, en la leyenda completa."""
+    _app, dlg = du08_h26
+    rows = dlg.info._rows
+    sewer = next(g for g in dlg.info.standard_groups() if g.utilidad == "ALCANTARILLADO")
+    exist = next(f for f in sewer.filas if f.rol == le.LINE and f.estado == "E")
+    assert [rows[i][1].text for i in exist.pdf] == ["EXISTING SANITARY SEWER"]
+    big = next(r for _s, r in rows if r.text.startswith("EXISTING SANITARY SEWER (24"))
+    assert big.walls and big.sample[3] - big.sample[1] >= 15          # eje + las dos paredes
+    assert not any(r.walls for _s, r in rows if r.text in ("EXISTING SANITARY SEWER", "PROPOSED SANITARY SEWER"))
 
 
 @needs_du08

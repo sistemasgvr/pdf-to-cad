@@ -14,6 +14,9 @@ con la descripción que le da el propio plano.
     ≥`ROW_MIN` filas alineadas con muestra larga (≥`SAMPLE_MIN_PT`) y letras en
     ≥`CODE_SHARE` de ellas: el cajetín, las tablas y los textos sueltos no.
   · `document_legend(doc)`: todas las hojas con leyenda, sin repetir filas.
+  · Muestra con PAREDES (eje + paralelas, `_with_walls`): la caja incluye las paralelas
+    que quedan fuera de la franja del texto y la fila queda `walls` (`leyenda_cruce`
+    solo la empareja si la hoja tiene paredes de esa utilidad y estado).
 Las letras se leen con `recognition_letters` (las mismas que clasifican las capas).
 """
 from __future__ import annotations
@@ -40,17 +43,27 @@ ROW_MIN = 3               # una leyenda es una COLUMNA de varias filas alineadas
 ROW_PITCH_TOL = 0.35      # …a paso regular (± 35 % del paso típico)…
 CODE_SHARE = 0.3          # …y la mayoría de sus muestras lleva letras
 COLUMN_TOL_PT = 8.0       # textos de la misma columna: mismo x de inicio (± esto)
+# Muestra con PAREDES (tubería de 24" o más, «PROPOSED STORM DRAIN»: eje + dos paralelas;
+# DU08/DU10 h.3, LABOE h.3): las paredes quedan fuera de la franja del texto y la muestra
+# salía sin la de arriba (reporte del usuario 2026-10-09). Paralela = trazos horizontales
+# de ≥`WALL_MIN_PT` (las letras son más cortas) que cubren ≥`WALL_COVER` del largo de la
+# muestra, a ≤`WALL_REACH_PT` de su centro y más cerca de ella que de la fila vecina.
+WALL_MIN_PT = 6.0
+WALL_COVER = 0.3
+WALL_REACH_PT = 12.0
+WALL_SAME_Y_PT = 1.0      # dos niveles a menos de esto son la misma línea
 
 
 @dataclass
 class LegendRow:
     page: int
-    sample: Tuple[float, float, float, float]   # x0, y0, x1, y1 (pt) de la muestra
+    sample: Tuple[float, float, float, float]   # x0, y0, x1, y1 (pt) de la muestra (con sus paredes)
     text: str                                   # descripción tal como la trae el PDF
     raw: str = ""                               # letras como se leyeron («e», «TE», «e(oh)»)
     code: str = ""                              # código normalizado («E», «TE»), "" sin letras
     overhead: bool = False
     utility: Optional[str] = None               # utilidad del código (`letters.LETTER_CODES`)
+    walls: bool = False                         # muestra de líneas PARALELAS: tubería con paredes
 
 
 def legend_pages(doc, should_stop: Optional[Callable[[], bool]] = None) -> List[int]:
@@ -99,6 +112,35 @@ def _sample_box(band: Sequence[dict], text_x0: float):
         return None
     return (min(r.x0 for r in picked), min(r.y0 for r in picked),
             max(r.x1 for r in picked), max(r.y1 for r in picked))
+
+
+def _with_walls(box, drawings, lo: float, hi: float):
+    """(caja, con_paredes): la muestra con las líneas PARALELAS a ella (sus paredes) entre
+    `lo` y `hi` (mitad del paso a las filas vecinas)."""
+    x0, y0, x1, y1 = box
+    ym = (y0 + y1) / 2.0
+    lo, hi = max(lo, ym - WALL_REACH_PT), min(hi, ym + WALL_REACH_PT)
+    acc = defaultdict(float)
+    for d in drawings:
+        r = d["rect"]
+        if r.x0 < x0 - 2.0 or r.x1 > x1 + 2.0 or r.y1 < lo or r.y0 > hi:
+            continue
+        for it in d.get("items") or ():
+            if it[0] != "l":
+                continue
+            a, b = it[1], it[2]
+            if abs(a.y - b.y) <= 0.2 and abs(a.x - b.x) >= WALL_MIN_PT and lo <= a.y <= hi:
+                acc[round(a.y, 1)] += abs(a.x - b.x)
+    levels: List[List[float]] = []                  # [y, largo] de cada línea horizontal
+    for y in sorted(acc):
+        if levels and y - levels[-1][0] < WALL_SAME_Y_PT:
+            levels[-1][1] += acc[y]
+        else:
+            levels.append([y, acc[y]])
+    ys = [y for y, length in levels if length >= WALL_COVER * (x1 - x0)]
+    if len(ys) < 2:
+        return box, False
+    return (x0, min(y0, ys[0] - 0.5), x1, max(y1, ys[-1] + 0.5)), True
 
 
 def _regular_run(col):
@@ -152,13 +194,17 @@ def page_legend(page) -> List[LegendRow]:
     rows: List[LegendRow] = []
     for col in columns.values():
         built = []
-        for x0, yc, band_h, box, text in _regular_run(col):
+        run = _regular_run(col)
+        for k, (x0, yc, band_h, box, text) in enumerate(run):
             found = [t for (p, t) in sites
                      if abs(p[1] - yc) <= band_h and box[0] - 2.0 <= p[0] <= box[2] + 2.0]
             raw = max(set(found), key=found.count) if found else ""
             code, overhead = letters.normalize_code(raw)
+            lo = (run[k - 1][1] + yc) / 2.0 if k else float("-inf")
+            hi = (run[k + 1][1] + yc) / 2.0 if k + 1 < len(run) else float("inf")
+            box, walls = _with_walls(box, drawings, lo, hi)
             built.append(LegendRow(page.number, box, text, raw, code, overhead,
-                                   None if overhead else letters.code_utility(code)))
+                                   None if overhead else letters.code_utility(code), walls))
         if len(built) >= ROW_MIN and sum(1 for r in built if r.code) >= CODE_SHARE * len(built):
             rows += built
     return sorted(rows, key=lambda r: (r.sample[0] // 200, r.sample[1]))

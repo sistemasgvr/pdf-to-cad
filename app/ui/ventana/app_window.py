@@ -24,6 +24,7 @@ from nucleo import model_ops
 from ui.comun.canvas import Canvas
 from ui.comun.widgets import InlineEdit, _SegInvSpinBox, _NoWheelFilter
 from ui.comun import busy as _busy_mod
+from ui.comun import fondo_pdf
 from ui.comun.workers import PipelineWorker, RecognitionWorker, OrganizedRecognitionWorker
 from ui.dialogos import dialogs
 from ui.asistente import recognition_dialog
@@ -100,6 +101,8 @@ class Main(MenuMixin, PanelIzquierdoMixin, PanelDerechoMixin, ModosMixin, ClicsM
         self.setAcceptDrops(True)
         self.canvas = Canvas(self); self.canvas.clicked.connect(self.on_click)
         self.canvas.dbl.connect(self.on_dblclick); self.setCentralWidget(self.canvas)
+        # Hoja enorme (fondo_pdf): recorte nítido de la parte visible al acercarse.
+        self.canvas.nitidez = fondo_pdf.Nitidez(self.canvas, lambda: self.zoom, self._pagina_fondo)
         self.zoom = 3.5; self.scale = 20 / 72.0; self.rot = 0; self.W = 0; self.H = 0
         self.derot = fitz.Matrix(1, 0, 0, 1, 0, 0); self.gray = None; self.page_idx = 0; self.pageH_px = 0
         self.hidden_ocgs = []   # capas OCG ocultas en el paso «Capas de la hoja» (por PDF abierto)
@@ -468,6 +471,7 @@ class Main(MenuMixin, PanelIzquierdoMixin, PanelDerechoMixin, ModosMixin, ClicsM
                     # Escaneo: «Continuar» sin cambiar la hoja no borra lo dibujado.
                     self._reponer_respaldo(_tr("La hoja compuesta no cambió — el editor queda como estaba."))
                     return True
+                antes = (self.src_pdfs, self.composite, self.hidden_ocgs_by_source)
                 self.src_pdfs = sources
                 self.composite = comp
                 self.hidden_ocgs_by_source = {k: list(v) for k, v in hidden_by_source.items()}
@@ -477,6 +481,7 @@ class Main(MenuMixin, PanelIzquierdoMixin, PanelDerechoMixin, ModosMixin, ClicsM
                 except Exception as exc:
                     QtWidgets.QMessageBox.warning(self, _tr("Componer hoja"),
                         _tr("No se pudo armar la hoja compuesta:\n\n{e}").format(e=exc))
+                    self._volver_a_la_hoja(antes)
                     return False
                 page_idx = self.page_idx
                 if comp.manual:
@@ -520,6 +525,21 @@ class Main(MenuMixin, PanelIzquierdoMixin, PanelDerechoMixin, ModosMixin, ClicsM
         self._recog_ready = True
         self._start_recognition(page_idx)
         return True
+
+    def _volver_a_la_hoja(self, antes):
+        """No se pudo armar la hoja compuesta: `_apply_composite` ya cerró el PDF de la
+        hoja anterior. Con respaldo (editor con trabajo) lo repone quien llamó
+        (`_cancelar_asistente`); sin él se vuelve a cargar la hoja anterior para que el
+        editor no quede sin PDF (antes quedaba vacío, «Página: /—»)."""
+        if getattr(self, "_respaldo", None) is not None:
+            return
+        self.src_pdfs, self.composite, self.hidden_ocgs_by_source = antes
+        if not self.src_pdfs:
+            return
+        try:
+            self._apply_composite()
+        except Exception:
+            pass
 
     def _apply_composite(self):
         """Deja en `self.doc` la hoja de trabajo según `self.composite`:
@@ -763,11 +783,11 @@ class Main(MenuMixin, PanelIzquierdoMixin, PanelDerechoMixin, ModosMixin, ClicsM
         """Update the PDF background after OCG changes without losing annotations."""
         if not self.doc or self.canvas.pixmap_item is None:
             return
-        pix = self.doc[self.page_idx].get_pixmap(
-            matrix=fitz.Matrix(self.zoom, self.zoom), alpha=False)
+        fondo = fondo_pdf.render_pix(self.doc[self.page_idx], self.zoom)
+        pix = fondo.pix
         qimg = QtGui.QImage(bytes(pix.samples), pix.width, pix.height,
                             pix.stride, QtGui.QImage.Format_RGB888).copy()
-        self.canvas.pixmap_item.setPixmap(QtGui.QPixmap.fromImage(qimg))
+        self.canvas.cambiar_imagen(qimg, fondo.escala)
         self.gray = qimage_to_gray(qimg)
         self._redraw()
 
@@ -930,9 +950,13 @@ class Main(MenuMixin, PanelIzquierdoMixin, PanelDerechoMixin, ModosMixin, ClicsM
                 _tr("Reconocimiento listo, pero no hay imagen de la hoja para la vista previa."))
             self._cancelar_asistente(cancelled)
             return
+        extra = {}
+        if self.canvas.fondo_escala < 1.0:       # hoja enorme a menos resolución (fondo_pdf)
+            extra["fondo"] = {"escala": self.canvas.fondo_escala, "tam": self.canvas.tam_hoja(),
+                              "zoom": self.zoom, "pagina": self._pagina_fondo}
         action = recognition_dialog.show_recognition_preview(
             self, qimg, results,
-            page_count=self.doc.page_count if self.doc else None)
+            page_count=self.doc.page_count if self.doc else None, **extra)
         del qimg                                 # copia de la hoja: no retenerla mientras se sigue
         self._join_routes = all(bool(getattr(result, "join_routes", True)) for result in results)
         page_index = results[0].page_index
@@ -1100,6 +1124,18 @@ class Main(MenuMixin, PanelIzquierdoMixin, PanelDerechoMixin, ModosMixin, ClicsM
         self._info(msg)
         return True
 
+    def _pagina_fondo(self):
+        """La hoja del PDF que muestra el lienzo, para el recorte nítido de una hoja
+        enorme (fondo_pdf), o None si el fondo no es esa hoja (proyecto sin el PDF)."""
+        tam = self.canvas.tam_hoja()
+        if not self.doc or tam is None or not 0 <= self.page_idx < self.doc.page_count:
+            return None
+        page = self.doc[self.page_idx]
+        if (abs(page.rect.width * self.zoom - tam[0]) > 2
+                or abs(page.rect.height * self.zoom - tam[1]) > 2):
+            return None
+        return page
+
     def _load_page(self, idx):
         self._close_editor()
         page = self.doc[idx]; self.page_idx = idx; self.scale = VP.detect_scale(page)
@@ -1107,16 +1143,20 @@ class Main(MenuMixin, PanelIzquierdoMixin, PanelDerechoMixin, ModosMixin, ClicsM
             self.scale = float(self._scale_override)
         self.rot = page.rotation; mbx = page.mediabox; self.W, self.H = mbx.width, mbx.height
         self.derot = page.derotation_matrix
-        pix = page.get_pixmap(matrix=fitz.Matrix(self.zoom, self.zoom), alpha=False)
-        self.pageH_px = pix.height
+        # La hoja entera a zoom 3.5; si es enorme (hoja compuesta de muchas piezas),
+        # a menos resolución con las MISMAS coordenadas (fondo_pdf).
+        fondo = fondo_pdf.render_pix(page, self.zoom)
+        pix = fondo.pix
+        self.pageH_px = fondo.alto
         # tamaño de marca acotado: evita textos/Multileaders gigantes por escala mal detectada
         self.leader_hpx = max(14.0, min(LEADER_TEXT_FT / self.scale * self.zoom, self.pageH_px * 0.05))
         buf = bytes(pix.samples)
         qimg = QtGui.QImage(buf, pix.width, pix.height, pix.stride, QtGui.QImage.Format_RGB888).copy()
-        arr = np.frombuffer(buf, np.uint8).reshape(pix.height, pix.stride)[:, :pix.width * 3].reshape(pix.height, pix.width, 3)
-        self.gray = (0.299 * arr[:, :, 0] + 0.587 * arr[:, :, 1] + 0.114 * arr[:, :, 2]).astype(np.uint8)
+        self.gray = fondo_pdf.gris(buf, pix.width, pix.height, pix.stride)
+        escala, tam = fondo.escala, (fondo.ancho, fondo.alto)
+        del buf, pix, fondo                   # la hoja ya está en `qimg`: no duplicarla en memoria
         self._overlay = []
-        self.canvas.set_image(qimg)
+        self.canvas.set_image(qimg, escala, tam)
         self._reset_model(); self._update_page_label()
         self._refresh_scale_label()
         self._info(_tr("Página {n} cargada.").format(n=idx + 1))
@@ -1229,16 +1269,21 @@ class Main(MenuMixin, PanelIzquierdoMixin, PanelDerechoMixin, ModosMixin, ClicsM
                 src_pdfs = [{"name": src_names[i] if i < len(src_names) else f"PDF {i + 1}",
                              "data": z.read(f"sources/{i:03d}.pdf")}
                             for i in range(len(src_names)) if f"sources/{i:03d}.pdf" in z.namelist()]
-            qimg = QtGui.QImage.fromData(png, "PNG")
-            self._overlay = []; self._close_editor()
-            self.canvas.set_image(qimg); self.gray = qimage_to_gray(qimg)
+            # sin el tope de 256 MB de Qt: la hoja de una hoja compuesta lo pasa fácil
+            qimg = fondo_pdf.leer_png(png)
+            if qimg.isNull():
+                raise ValueError(_tr("No se pudo leer la imagen de la hoja del proyecto."))
             # Normalización de los datos (casteo de cotas por vértice, zonas de
             # borrado, reconstrucción de Georef) vive en project_io (pura, testeable);
             # aquí solo se ASIGNAN a self.* y se hace lo de Qt/PDF.
             data = project_io.parse_model(model)
+            # hoja enorme guardada a menos resolución (fondo_pdf): mismas coordenadas
+            escala, tam = data["fondo_escala"], data["fondo_tam"]
+            self._overlay = []; self._close_editor()
+            self.canvas.set_image(qimg, escala, tam); self.gray = qimage_to_gray(qimg)
             self.scale = data["scale"]; self.zoom = data["zoom"]; self.rot = data["rot"]
             self.W, self.H = data["W"], data["H"]; self.derot = fitz.Matrix(*data["derot"])
-            self.pageH_px = qimg.height()
+            self.pageH_px = self.canvas.tam_hoja()[1] if escala < 1.0 else qimg.height()
             self.leader_hpx = max(14.0, min(LEADER_TEXT_FT / self.scale * self.zoom, self.pageH_px * 0.05))
             if tmp_pdf:
                 self.pdf_path = tmp_pdf; self.doc = fitz.open(tmp_pdf)
@@ -1291,6 +1336,7 @@ class Main(MenuMixin, PanelIzquierdoMixin, PanelDerechoMixin, ModosMixin, ClicsM
             self.set_mode("idle"); self._refresh_lists(); self._update_page_label(); self._redraw()
             self._refresh_scale_label(); self._update_geo_status()
             self._refresh_unit_labels()
+            self.canvas.nitidez.programar()          # ya está el PDF: recorte nítido si hace falta
             # Reponer la versión/idioma de Civil 3D con que se guardó el proyecto
             # (si esa versión sigue instalada). Debe ir ANTES de _warn_missing_families.
             self._restore_civil_selection(model.get("civil_year"), model.get("civil_lang"))

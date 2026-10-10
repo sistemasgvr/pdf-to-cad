@@ -11,6 +11,7 @@ Extraído de app_window.py sin cambios de comportamiento (solo reubicación).
 from PySide6 import QtCore, QtGui, QtWidgets
 
 from nucleo.model import Z_PDF
+from ui.comun import fondo_pdf
 
 
 _ZOOM_MIN = 0.3
@@ -34,6 +35,7 @@ class Canvas(QtWidgets.QGraphicsView):
     clicked = QtCore.Signal(float, float, object)
     dbl = QtCore.Signal(float, float)
     moved = QtCore.Signal(float, float)
+    viewChanged = QtCore.Signal()          # zoom, desplazamiento o tamaño (recorte nítido)
 
     def __init__(self, win):
         super().__init__(); self.win = win
@@ -51,23 +53,92 @@ class Canvas(QtWidgets.QGraphicsView):
         # Se puede alternar a negro (ver set_pdf_bg / botón "Opacidad").
         self.pdf_bg_item = None
         self.pdf_bg_color = QtGui.QColor(255, 255, 255)
+        # Hoja enorme (fondo_pdf): la imagen va a `fondo_escala` px por px de la
+        # escena y `nitidez` (la pone Main) re-dibuja nítida la parte visible.
+        self.fondo_escala = 1.0
+        self._tam_hoja = None
+        self.nitidez = None
 
-    def set_image(self, qimg):
+    def set_image(self, qimg, escala=1.0, tam=None):
         """Hoja nueva en el lienzo: `qimg` es QImage o un QPixmap ya hecho (el del
-        respaldo del editor, `respaldo_editor`: se repone sin copiar la imagen)."""
+        respaldo del editor, `respaldo_editor`: se repone sin copiar la imagen).
+        `escala` < 1 = hoja enorme dibujada a menos resolución (`fondo_pdf`): se
+        agranda 1/escala y la escena sigue midiendo `tam` = (ancho, alto) px."""
+        if self.nitidez is not None:
+            self.nitidez.soltar()             # su recorte se va con la escena
         self.scene().clear()
-        # Rectángulo de fondo (blanco/negro) por debajo del PDF, de su mismo tamaño.
         pm = qimg if isinstance(qimg, QtGui.QPixmap) else QtGui.QPixmap.fromImage(qimg)
+        escala = float(escala or 1.0)
+        self.fondo_escala = escala if escala < 1.0 else 1.0
+        if self.fondo_escala < 1.0:
+            w, h = tam if tam else (pm.width() / escala, pm.height() / escala)
+            rect = QtCore.QRectF(0, 0, w, h)
+            self._tam_hoja = (w, h)
+        else:
+            rect = QtCore.QRectF(pm.rect())
+            self._tam_hoja = None
+        # Rectángulo de fondo (blanco/negro) por debajo del PDF, de su mismo tamaño.
         self.pdf_bg_item = self.scene().addRect(
-            QtCore.QRectF(pm.rect()), QtGui.QPen(QtCore.Qt.NoPen),
+            rect, QtGui.QPen(QtCore.Qt.NoPen),
             QtGui.QBrush(self.pdf_bg_color))
         self.pdf_bg_item.setZValue(Z_PDF - 1)
-        self.pixmap_item = self.scene().addPixmap(pm)
+        if self.fondo_escala < 1.0:
+            self.pixmap_item = fondo_pdf.nuevo_item(pm, self.fondo_escala)
+            self.scene().addItem(self.pixmap_item)
+        else:
+            self.pixmap_item = self.scene().addPixmap(pm)
         self.pixmap_item.setZValue(Z_PDF)
         self.pixmap_item.setOpacity(self.pdf_opacity)
-        self.setSceneRect(self.pixmap_item.boundingRect())
+        self.setSceneRect(self.pixmap_item.boundingRect() if self.fondo_escala >= 1.0 else rect)
         self.resetTransform(); self.fitInView(self.pixmap_item, QtCore.Qt.KeepAspectRatio)
         self._zoom_level = 1.0
+        if self.nitidez is not None:
+            self.nitidez.fijar(self.pixmap_item)
+
+    def cambiar_imagen(self, qimg, escala=1.0):
+        """Otra imagen de la MISMA hoja (capas cambiadas) sin tocar lo dibujado encima."""
+        if self.pixmap_item is None:
+            return
+        pm = qimg if isinstance(qimg, QtGui.QPixmap) else QtGui.QPixmap.fromImage(qimg)
+        escala = float(escala or 1.0)
+        escala = escala if escala < 1.0 else 1.0
+        if escala == self.fondo_escala:
+            self.pixmap_item.setPixmap(pm)
+            if self.nitidez is not None:
+                self.nitidez.invalidar()
+            return
+        # otra resolución (proyecto guardado con otro tope): otro item, mismo lugar
+        if self.nitidez is not None:
+            self.nitidez.soltar()
+        tam = self.tam_hoja()
+        self.scene().removeItem(self.pixmap_item)
+        self.fondo_escala = escala
+        self._tam_hoja = tuple(tam) if escala < 1.0 else None
+        self.pixmap_item = (fondo_pdf.nuevo_item(pm, escala) if escala < 1.0
+                            else QtWidgets.QGraphicsPixmapItem(pm))
+        self.scene().addItem(self.pixmap_item)
+        self.pixmap_item.setZValue(Z_PDF)
+        self.pixmap_item.setOpacity(self.pdf_opacity)
+        if self.nitidez is not None:
+            self.nitidez.fijar(self.pixmap_item)
+
+    def tam_hoja(self):
+        """(ancho, alto) de la hoja en px de la escena (pt × zoom), sea cual sea la
+        resolución de la imagen de fondo. None sin hoja."""
+        if self.pixmap_item is None:
+            return None
+        if self._tam_hoja is not None:
+            return self._tam_hoja
+        pm = self.pixmap_item.pixmap()
+        return pm.width(), pm.height()
+
+    def scrollContentsBy(self, dx, dy):
+        super().scrollContentsBy(dx, dy)
+        self.viewChanged.emit()
+
+    def resizeEvent(self, e):
+        super().resizeEvent(e)
+        self.viewChanged.emit()
 
     def set_pdf_opacity(self, val):
         self.pdf_opacity = max(0.1, min(1.0, val))
@@ -106,6 +177,7 @@ class Canvas(QtWidgets.QGraphicsView):
             return False
         self._zoom_level = new
         self.scale(factor, factor)
+        self.viewChanged.emit()
         return True
 
     def mousePressEvent(self, e):

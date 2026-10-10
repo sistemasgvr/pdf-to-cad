@@ -343,6 +343,7 @@ class Run:
     # tramito borde→referencia, que es diagonal).
     chain_dir: Optional[Tuple[float, float]] = None
     continuous: bool = False  # trazo continuo sin patrón (curva/transición rescatada)
+    absorbed: bool = False    # trazo TODO dentro de una bóveda: lo reemplaza su nodo (no sale)
 
     @property
     def is_curve(self) -> bool:
@@ -2044,11 +2045,24 @@ def _line_bbox_hits(p: Pt, u: Tuple[float, float], bb: Tuple[float, float, float
 NEAREST_VAULT_MARGIN_PT = 0.5  # otra bóveda gana el extremo solo si entra claramente más cerca
 
 
+def _curve_ink_beyond(r, P: Pt, o: Tuple[float, float]) -> float:
+    """Como `_ink_beyond`, para una corrida CURVA: su propio trazo (a, mid…, b)
+    que queda más allá de P hacia `o`."""
+    pts = [r.a] + list(r.mid) + [r.b]
+    out = 0.0
+    for p, q in zip(pts, pts[1:]):
+        sa = (p[0] - P[0]) * o[0] + (p[1] - P[1]) * o[1]
+        sb = (q[0] - P[0]) * o[0] + (q[1] - P[1]) * o[1]
+        out += max(0.0, max(sa, sb)) - max(0.0, min(sa, sb))
+    return out
+
+
 def _vault_entry(v: "Vault", pe: Pt, o: Tuple[float, float], L: Line,
-                 reach: float, *, preserve_curve: bool = False) -> Optional[Tuple[Pt, float]]:
+                 reach: float, *, preserve_curve: bool = False, run=None) -> Optional[Tuple[Pt, float]]:
     """(E, |desplazamiento|) donde la recta del extremo `pe` (saliendo hacia
     `o`) toca el borde de la bóveda `v`, o None si queda claramente detrás /
-    de costado o más lejos que `reach`."""
+    de costado o más lejos que `reach`. `run`: la corrida del extremo (una curva
+    que ya ATRAVESÓ la bóveda no se recorta hacia atrás sobre su tinta)."""
     # A curved source trace already on the actual outline has arrived. Keep
     # its contact instead of retracting it to the padded search boundary.
     # Rotated outlines also need their true boundary, not an axis-aligned box.
@@ -2088,6 +2102,13 @@ def _vault_entry(v: "Vault", pe: Pt, o: Tuple[float, float], L: Line,
         if -hits[1] > reach:
             return None
         t = hits[1]                       # sobrepaso corto: recortar al cruce cercano
+        # …salvo una CURVA cuya tinta sigue pasada la bóveda: la atravesó y sigue
+        # (DU06 h.12 (775, 1084), «—SC—»: cruza la caja y empieza a curvarse bajo
+        # sus letras). Recortarla dejaba su punta DETRÁS de sus propios vértices:
+        # una vuelta en U de 28 pt sin tinta hasta el borde, y el arco perdido.
+        if run is not None and run.is_curve and _curve_ink_beyond(
+                run, (pe[0] + t * o[0], pe[1] + t * o[1]), o) > RETRACT_INK_MAX_PT:
+            return None
     else:
         t = hits[0]                       # primer cruce hacia adelante
         # …pero solo se prolonga lo que dura un hueco del linetype: más
@@ -2417,6 +2438,23 @@ def resolve_nodes(runs: List[Run], pat: Pattern, vaults: Sequence[Vault],
     capped = {j for j, _ in t_end.values()
               if len(runs[j].dashes) == 1 and not runs[j].continuous and runs[j].length <= short}
 
+    def letter_in_gap(pe: Pt, pf: Pt, d: float) -> bool:
+        """Letra del linetype («ss», «TE») dentro del hueco entre dos guiones:
+        evidencia para cruzarlo hasta `glyph_bridge`, también en una curva (DU08
+        h.37 (803.6, 1086.8): la línea se cortaba en cada «ss»). En TODAS las
+        utilidades (2026-09-29, DU06 h.4 (1551, 1111): el banco de ductos «—TE—»
+        se cortaba donde la «TE» caía entre el fin de una curva y el guión
+        siguiente, bajo el texto «105+00»; entre dos guiones rectos ya se unía en
+        `build_runs` con la misma evidencia)."""
+        if d > pat.glyph_bridge:
+            return False
+        for g in glyphs:
+            c = (g.cx, g.cy)
+            t = ((c[0] - pe[0]) * (pf[0] - pe[0]) + (c[1] - pe[1]) * (pf[1] - pe[1])) / (d * d)
+            if 0.0 < t < 1.0 and _pt_seg_dist(c, pe, pf) <= g.size / 2.0 + 1.0:
+                return True
+        return False
+
     # Fase B: extremos que llegan a una bóveda.
     # Reglas del usuario (apuntes + revisión):
     #   · SIEMPRE un vértice donde la línea choca con el borde (entrada y salida).
@@ -2453,7 +2491,7 @@ def resolve_nodes(runs: List[Run], pat: Pattern, vaults: Sequence[Vault],
             if not (br[0] <= pe[0] <= br[2] and br[1] <= pe[1] <= br[3]):
                 continue
             ep = _vault_entry(v, pe, outward(i, s), runs[i].line(s), pat.join_gap,
-                              preserve_curve=bool(runs[i].mid))
+                              preserve_curve=bool(runs[i].mid), run=runs[i])
             if ep is not None:
                 inside = v.x0 < pe[0] < v.x1 and v.y0 < pe[1] < v.y1
                 hits.append((not inside, ep[1], vi))
@@ -2513,6 +2551,31 @@ def resolve_nodes(runs: List[Run], pat: Pattern, vaults: Sequence[Vault],
                 best = d
         return best
 
+    def letter_continuation(i: int, s: str, where: bool = False):
+        """Distancia a la punta de OTRA corrida que continúa ésta de frente con una
+        LETRA del linetype en el hueco (las condiciones de «letra en el hueco = la
+        línea sigue» de la pasada 5b), o None. En TODAS las utilidades. Con
+        `where`, (distancia, punta) o None."""
+        pe, oe = endpoint(i, s), outward(i, s)
+        cos_cont_turn = math.cos(math.radians(CONTINUES_MAX_TURN_DEG))
+        best = None
+        for k, sk in loose:
+            if k == i or not free.get((k, sk)):
+                continue
+            pf, of_ = endpoint(k, sk), outward(k, sk)
+            d = _dist(pe, pf)
+            if d <= ENDS_TOUCH_PT or not letter_in_gap(pe, pf, d):
+                continue
+            if (oe[0] * of_[0] + oe[1] * of_[1] > -cos_cont_turn
+                    or (pf[0] - pe[0]) * oe[0] + (pf[1] - pe[1]) * oe[1] < 0.866 * d
+                    or (pe[0] - pf[0]) * of_[0] + (pe[1] - pf[1]) * of_[1] < 0.866 * d):
+                continue
+            if best is None or d < best[0]:
+                best = (d, pf, k)
+        if best is None:
+            return None
+        return best if where else best[0]
+
     cos_corner = math.cos(math.radians(180.0 - CORNER_MIN_INTERIOR_DEG))
     cos_turn = math.cos(math.radians(CORNER_MIN_TURN_DEG))
 
@@ -2548,6 +2611,7 @@ def resolve_nodes(runs: List[Run], pat: Pattern, vaults: Sequence[Vault],
                 best = max(0.0, ti)
         return best
 
+    absorb_later: Set[int] = set()           # rectas TODAS dentro de una bóveda (ver abajo)
     for vi, v in enumerate(vaults):
         bb = v.bbox(1.0)
         reach = pat.join_gap
@@ -2567,11 +2631,12 @@ def resolve_nodes(runs: List[Run], pat: Pattern, vaults: Sequence[Vault],
             """(E, |desplazamiento|) donde la recta del extremo toca el borde, o
             None si la bóveda queda claramente detrás / de costado."""
             return _vault_entry(v, endpoint(i, s), outward(i, s), runs[i].line(s), reach,
-                                preserve_curve=bool(runs[i].mid))
+                                preserve_curve=bool(runs[i].mid), run=runs[i])
 
         # Un solo extremo por corrida: el que menos hay que mover para tocar el borde.
         best_by_run: Dict[int, Tuple[float, str, Pt]] = {}
         beside: List[Tuple[int, str]] = []
+        inside_ends: Dict[int, Set[str]] = defaultdict(set)    # recta TODA dentro de la caja
         for i, s in ends:
             ep = entry_point(i, s)
             if ep is None:
@@ -2580,6 +2645,21 @@ def resolve_nodes(runs: List[Run], pat: Pattern, vaults: Sequence[Vault],
             E, move = ep
             r = runs[i]
             other = r.b if s == 'a' else r.a
+            # La llegada no puede pasar el OTRO extremo de su corrida (una recta que
+            # está toda dentro de la caja): la corrida quedaba al revés y después se
+            # pegaba hacia atrás al nodo, una vuelta sin tinta encima de la bóveda
+            # (DU10 h.3 (917, 798): el trazo centro→borde de la «—SC—» no seguía por
+            # sus letras). Si lo pasa poco (≤ RETRACT_INK_MAX_PT: el último guión de una
+            # línea que entra en el margen de la caja) se queda en ese extremo; más, no
+            # es una llegada.
+            if not r.is_curve:
+                o_e = outward(i, s)
+                past = (other[0] - E[0]) * o_e[0] + (other[1] - E[1]) * o_e[1]
+                if past > RETRACT_INK_MAX_PT:
+                    inside_ends[i].add(s)
+                    continue
+                if past > 0.0:
+                    E, move = other, _dist(endpoint(i, s), other)
             # A single short stub already attached to a structure does not
             # establish a second connection across empty paper. Keep its free
             # source endpoint unless a linetype letter supports that gap.
@@ -2596,6 +2676,26 @@ def resolve_nodes(runs: List[Run], pat: Pattern, vaults: Sequence[Vault],
                 cd = continuation_dist(i, s)
                 if cd is not None and cd < move - 1.0:
                     continue              # su continuación está antes que la bóveda
+            # En TODAS las utilidades: la línea sigue por su LETRA hacia una
+            # continuación que está antes que la bóveda, DELANTE (DU06 h.10 (744, 1107),
+            # «—SC—»: baja en diagonal, «SC» y sigue en curva hasta la caja; se
+            # estiraba recta 46 pt sin tinta hasta el borde). La une la pasada
+            # «letra en el hueco» (5b).
+            pe_i, o_i = endpoint(i, s), outward(i, s)
+            ahead = (E[0] - pe_i[0]) * o_i[0] + (E[1] - pe_i[1]) * o_i[1] > 0.0
+            if ahead and not runs[i].split:
+                lc = letter_continuation(i, s, where=True)
+                # …o, casi igual de cerca, si esa punta es la de un trazo que está TODO
+                # dentro de la bóveda (la línea que sale de ella por donde entraría ésta):
+                # por la letra también se llega, sobre la tinta (DU08 h.21 (872, 780): si
+                # no, la diagonal se prolongaba hasta la esquina de la caja). La punta de
+                # una línea que ATRAVIESA la caja no cuenta: ésta es su llegada opuesta y
+                # sin ella no hay nodo (DU06 h.4 (1500, 1033)).
+                in_bb = lambda q: bb[0] <= q[0] <= bb[2] and bb[1] <= q[1] <= bb[3]  # noqa: E731
+                if lc is not None and (lc[0] < move - 1.0
+                                       or (not in_bb(pe_i) and lc[0] <= move + NODE_OFF_LINE_PT
+                                           and in_bb(runs[lc[2]].a) and in_bb(runs[lc[2]].b))):
+                    continue
             if corner_before_vault and not runs[i].split:
                 cd = corner_dist(i, s, bb)
                 if cd is not None and cd < move - 1.0:
@@ -2607,6 +2707,22 @@ def resolve_nodes(runs: List[Run], pat: Pattern, vaults: Sequence[Vault],
         # muere sobre la vertical justo debajo del borde).
 
         arrivals = [(i, s, E) for i, (_, s, E) in best_by_run.items()]
+        # Trazos rectos TODOS dentro de la caja (ninguna de sus puntas llega por un
+        # borde): no son una línea, el nodo de la bóveda los reemplaza. Antes se
+        # «llegaba» con la punta de dentro hasta el borde de enfrente y la corrida
+        # quedaba al revés: un tramo inventado saliendo de la caja (LABOE h.26 (404,
+        # 1233), drenaje). Su tinta sí dice dónde está el nodo (`interior`).
+        # …y que CABE en la bóveda (largo ≤ su lado menor): una línea real que corre
+        # dentro de una caja grande nunca se absorbe. Aunque a ESTA capa no le llegue
+        # nada: la línea que atraviesa puede ser de otra capa (LABOE h.26 (500, 1145),
+        # alcantarillado). Se absorbe al final de la Fase B, si sigue suelta.
+        bb_in = v.bbox(1.0 + ENDS_TOUCH_PT)       # (la punta puede quedar un pelo fuera del margen)
+        side = min(v.x1 - v.x0, v.y1 - v.y0)
+        interior = [i for i, ss in inside_ends.items() if len(ss) == 2 and i not in best_by_run
+                    and runs[i].length <= side
+                    and all(bb_in[0] <= q[0] <= bb_in[2] and bb_in[1] <= q[1] <= bb_in[3]
+                            for q in (runs[i].a, runs[i].b))]
+        absorb_later.update(interior)
         limit = OFFPATTERN_FACTOR * pat.dash_long
         # "Línea de red" (define el nodo) vs stub: se mide sobre TODA la corrida
         # original (los trozos partidos por ajuste comparten `origin`), o por
@@ -2700,7 +2816,18 @@ def resolve_nodes(runs: List[Run], pat: Pattern, vaults: Sequence[Vault],
             Es = [E for _, _, E in strong]
             centroid = (sum(e[0] for e in Es) / len(Es), sum(e[1] for e in Es) / len(Es))
             P = None
-            if len(thr_lines) >= 2:
+            # Un trazo interior que TOCA la línea que atraviesa marca el nodo con su
+            # tinta: el ramal llega ahí (la «T» de LABOE h.26).
+            Ls_thr = list(thr_lines.values())
+            if interior and Ls_thr and all(            # una sola recta (la partida y la «virtual» coinciden)
+                    _ang_diff(_line_angle(L), _line_angle(Ls_thr[0])) < CORNER_MIN_ANG_DEG
+                    and _perp_line(Ls_thr[0], (L[0], L[1])) <= NODE_OFF_LINE_PT for L in Ls_thr):
+                Lt0 = Ls_thr[0]
+                touch = [_foot_on(Lt0, q) for k in interior for q in (runs[k].a, runs[k].b)
+                         if _perp_line(Lt0, q) <= ENDS_TOUCH_PT]
+                if touch:
+                    P = min(touch, key=lambda q: _dist(q, centroid))
+            if P is None and len(thr_lines) >= 2:
                 P = _concurrent_point(list(thr_lines.values()), centroid, v.radius + reach)
             if P is None and len(thr_lines) >= 1:
                 Lt = next(iter(thr_lines.values()))
@@ -2776,6 +2903,11 @@ def resolve_nodes(runs: List[Run], pat: Pattern, vaults: Sequence[Vault],
             for i, s, E in arrivals:
                 set_endpoint(i, s, E, new_node(E, "stop", vi))
 
+    for k in sorted(absorb_later):
+        if free[(k, "a")] and free[(k, "b")]:
+            runs[k].absorbed = True
+            free[(k, "a")] = free[(k, "b")] = False
+
     # Extremos creados por el clip del PDF: nodo 'cut' (duro), fuera de toda pareja.
     for (i, s), fr in list(free.items()):
         if fr:
@@ -2794,23 +2926,6 @@ def resolve_nodes(runs: List[Run], pat: Pattern, vaults: Sequence[Vault],
     # las rectas: ≥8° esquina (nodo = intersección), <8° quiebre suave
     # (nodo = punto medio). Nunca se promedian intersecciones de 3+ extremos:
     # un tercer ramal solo se suma si su recta pasa de verdad por el nodo.
-    def letter_in_gap(pe: Pt, pf: Pt, d: float) -> bool:
-        """Letra del linetype («ss», «TE») dentro del hueco entre dos guiones:
-        evidencia para cruzarlo hasta `glyph_bridge`, también en una curva (DU08
-        h.37 (803.6, 1086.8): la línea se cortaba en cada «ss»). En TODAS las
-        utilidades (2026-09-29, DU06 h.4 (1551, 1111): el banco de ductos «—TE—»
-        se cortaba donde la «TE» caía entre el fin de una curva y el guión
-        siguiente, bajo el texto «105+00»; entre dos guiones rectos ya se unía en
-        `build_runs` con la misma evidencia)."""
-        if d > pat.glyph_bridge:
-            return False
-        for g in glyphs:
-            c = (g.cx, g.cy)
-            t = ((c[0] - pe[0]) * (pf[0] - pe[0]) + (c[1] - pe[1]) * (pf[1] - pe[1])) / (d * d)
-            if 0.0 < t < 1.0 and _pt_seg_dist(c, pe, pf) <= g.size / 2.0 + 1.0:
-                return True
-        return False
-
     ends_free = [(i, s) for (i, s), fr in free.items() if fr and (i, s) not in t_end and i not in capped]
     pairs = []
     for x in range(len(ends_free)):
@@ -3168,6 +3283,8 @@ def assemble(runs: List[Run], nodes: List[Node]) -> List[Polyline]:
     y corta en nodos de grado ≥3 (junction / T): el vértice queda compartido."""
     incident: Dict[int, List[Tuple[int, str]]] = defaultdict(list)
     for i, r in enumerate(runs):
+        if r.absorbed:
+            continue
         incident[r.node_a].append((i, "a"))
         incident[r.node_b].append((i, "b"))
         for _, n in r.inner:
@@ -3233,7 +3350,7 @@ def assemble(runs: List[Run], nodes: List[Node]) -> List[Polyline]:
                 cands.append((j, s))
         return cands[0] if len(cands) == 1 else None
 
-    used = [False] * len(runs)
+    used = [r.absorbed for r in runs]          # (las absorbidas por una bóveda no salen)
     out: List[Polyline] = []
 
     def extend(i: int, entry: str) -> Tuple[List[Pt], List[str]]:
