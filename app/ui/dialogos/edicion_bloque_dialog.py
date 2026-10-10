@@ -35,7 +35,8 @@ class EdicionBloqueDialog(QtWidgets.QDialog):
     campos del usuario que se pueden pegar."""
 
     def __init__(self, parent, titulo, n, tipo, familias, tamanos_de, familia_comun,
-                 materiales, tipos_red, inicial=None, datos=None, con_bancoducto=0, saltadas=0):
+                 materiales, tipos_red, inicial=None, datos=None, con_bancoducto=0, saltadas=0,
+                 tipos=(), con_amperaje=False):
         super().__init__(parent)
         self.tamanos_de = tamanos_de
         self.familia_comun = familia_comun
@@ -89,6 +90,22 @@ class EdicionBloqueDialog(QtWidgets.QDialog):
         self.cmb_estado.addItem(_tr("Activa"), False)
         self.cmb_estado.addItem(_tr("Abandonada (AB)"), True)
         form.addRow(_tr("Estado:"), self.cmb_estado)
+        # Tipo (normativas) y amperaje (solo eléctrico).
+        self.cmb_tipo = _combo()
+        self.cmb_tipo.setAccessibleName(_tr("Tipo"))
+        self.cmb_tipo.addItem(_tr("(sin cambios)"), SIN)
+        self.cmb_tipo.addItem(_tr("(sin tipo)"), "")
+        for tp in tipos:
+            self.cmb_tipo.addItem(tp, tp)
+        form.addRow(_tr("Tipo:"), self.cmb_tipo)
+        self.spn_amp = None
+        if con_amperaje:
+            self.spn_amp = QtWidgets.QDoubleSpinBox()
+            self.spn_amp.setRange(-1.0, 100000.0); self.spn_amp.setDecimals(1); self.spn_amp.setSuffix(" A")
+            self.spn_amp.setSpecialValueText(_tr("(sin cambios)")); self.spn_amp.setValue(-1.0)
+            self.spn_amp.setMinimumHeight(34)
+            self.spn_amp.setToolTip(_tr("0 = sin dato."))
+            form.addRow(_tr("Amperaje:"), self.spn_amp)
         lay.addWidget(caja)
 
         self.chk_datos = None
@@ -125,6 +142,12 @@ class EdicionBloqueDialog(QtWidgets.QDialog):
             _elegir(self.cmb_red, inicial.get("net_type", ""))
             _elegir(self.cmb_material, inicial.get("material", ""))
             _elegir(self.cmb_estado, bool(inicial.get("ab")))
+            if "tipo" in inicial:
+                if self.cmb_tipo.findData(inicial["tipo"] or "") < 0:
+                    self.cmb_tipo.addItem(inicial["tipo"], inicial["tipo"])
+                _elegir(self.cmb_tipo, inicial["tipo"] or "")
+            if self.spn_amp is not None and inicial.get("amperaje") is not None:
+                self.spn_amp.setValue(float(inicial["amperaje"]))
         self._llenar_tamanos()
         if inicial and self.cmb_tamano.isEnabled():
             _elegir(self.cmb_tamano, inicial.get("tamano", ""))
@@ -168,9 +191,12 @@ class EdicionBloqueDialog(QtWidgets.QDialog):
             out["tamano"] = tam if tam not in (None, SIN) else ""
         elif tam not in (None, SIN) and self.cmb_tamano.isEnabled():
             out["tamano"] = tam
-        for clave, cb in (("net_type", self.cmb_red), ("material", self.cmb_material), ("ab", self.cmb_estado)):
+        for clave, cb in (("net_type", self.cmb_red), ("material", self.cmb_material), ("ab", self.cmb_estado),
+                          ("tipo", self.cmb_tipo)):
             if cb.currentData() != SIN:
                 out[clave] = cb.currentData()
+        if self.spn_amp is not None and self.spn_amp.value() >= 0:
+            out["amperaje"] = self.spn_amp.value() or None
         if self.chk_datos is not None and self.chk_datos.isChecked():
             out["datos"] = dict(self.datos)
         return out

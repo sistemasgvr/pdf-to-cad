@@ -42,7 +42,7 @@ from nucleo import quiebres_curvas
 from ui.comun.responsive import WrapButton, WrapCheckBox, ResponsiveGroupBox, GridAdaptable  # noqa: E402
 from ui.comun import side_panels  # noqa: E402
 from ui.ventana import autoguardado  # noqa: E402
-from nucleo import normativas
+from nucleo import normas_catalogo, normas_validar
 from nucleo.model import (VERSION, TIPOS, ACI_RGB, LEADER_TEXT_FT, LEADER_ORIENT,
                    Z_PDF, Z_ERASE, Z_MARK, Z_HANDLE, GRAVITY_LAYERS,
                    TAB_PIPE, TAB_LEADER, TAB_TEXT, TAB_REGION, TAB_BZ, TAB_CURVE, TAB_CL,

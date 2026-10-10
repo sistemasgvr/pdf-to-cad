@@ -67,6 +67,7 @@ class UtilidadesMixin:
             idx = self.prop_nettype.findData(p.get("net_type", "") or "")
             self.prop_nettype.setCurrentIndex(idx if idx >= 0 else 0)
             self._reload_pipe_families(p)
+            self._cargar_tipos_panel(p)
             self._prop_guard = False
             self._rebuild_seg_inv_table(p)
         else:

@@ -2513,32 +2513,12 @@ EN: dict[str, str] = {
         "In Civil 3D: {acc} of {ang} (solid fitting) in network «{red}».",
     "Reúne dos quiebres muy juntos: Civil 3D pone un solo codo.":
         "It merges two very close bends: Civil 3D places a single bend.",
-    "Obligatoria":
-        "Mandatory",
-    "Recomendada":
-        "Recommended",
-    "Cumple las normativas activas.":
-        "Meets the active design standards.",
-    "Menú Normativas → Normativas de diseño… para ver o cambiar las reglas.":
-        "Standards menu → Design standards… to view or change the rules.",
     "&Normativas":
         "&Standards",
     "Normativas de diseño…":
         "Design standards…",
     "Mostrar accesorios (tipo y ángulo)":
         "Show fittings (type and angle)",
-    "Muestra junto a cada codo, Tee, Wye o cruz de agua y gas el accesorio que se pondrá en Civil 3D y su ángulo; en rojo si incumple una normativa.":
-        "Shows next to each water and gas bend, tee, wye or cross the fitting that Civil 3D will place and its angle; in red if it breaks a design standard.",
-    "Accesorios que no cumplen las normativas activas. Clic para verlos.":
-        "Fittings that do not meet the active design standards. Click to see them.",
-    "{n} fuera de normativa":
-        "{n} outside the standards",
-    "Accesorios de conexión":
-        "Connection fittings",
-    "Separaciones entre utilidades":
-        "Separation between utilities",
-    "Buzones y estructuras":
-        "Manholes and structures",
     "Codo":
         "Bend",
     "Tee":
@@ -2547,98 +2527,10 @@ EN: dict[str, str] = {
         "Wye",
     "Cruz":
         "Cross",
-    "{acc} de {ang} en {capa}: fuera de norma. Permitidos: {lista} (±{tol}). El más cercano es {cerca}.":
-        "{acc} of {ang} in {capa}: outside the standard. Allowed: {lista} (±{tol}). The closest is {cerca}.",
-    "Ángulos permitidos de un accesorio":
-        "Allowed angles of a fitting",
-    "Ángulos permitidos":
-        "Allowed angles",
-    "Escribe un ángulo en grados y pulsa Agregar. Quita uno con su botón ×.":
-        "Type an angle in degrees and press Add. Remove one with its × button.",
-    "Tolerancia":
-        "Tolerance",
-    "Cuánto puede apartarse el ángulo dibujado de uno permitido.":
-        "How far the drawn angle may be from an allowed one.",
-    "Se aplica a":
-        "Applies to",
-    "AWWA C110 / C153 — valores iniciales":
-        "AWWA C110 / C153 — initial values",
-    "Codos: solo ángulos comerciales":
-        "Bends: standard angles only",
-    "Los codos se fabrican en ángulos fijos: 11.25°, 22.5°, 45° y 90°. El ángulo se mide sobre el EJE: se prolonga el eje del lado recto y se ve cuánto se desvía el otro lado (0° = sigue recta).":
-        "Bends are made in fixed angles: 11.25°, 22.5°, 45° and 90°. The angle is measured on the AXIS: the axis of the straight side is extended and the deviation of the other side is read (0° = straight).",
     "Medido sobre el eje: desvío de {g} respecto del lado recto prolongado.":
         "Angle between the two pipes (the pipe turns {g}).",
-    "Tee: ramal a 90°":
-        "Tee: branch at 90°",
-    "La Tee une un ramal perpendicular a una tubería recta.":
-        "A tee joins a perpendicular branch to a straight pipe.",
-    "Wye: ramal a 45°":
-        "Wye: branch at 45°",
-    "La Wye une un ramal inclinado a una tubería.":
-        "A wye joins an angled branch to a pipe.",
-    "Cruz: líneas a 90°":
-        "Cross: lines at 90°",
-    "La cruz une dos tuberías que se cruzan en ángulo recto.":
-        "A cross joins two pipes that cross at a right angle.",
-    "Campo desconocido: {c}":
-        "Unknown field: {c}",
-    "Debe quedar al menos un ángulo permitido.":
-        "At least one allowed angle must remain.",
-    "Cada ángulo debe estar entre {a} y {b}.":
-        "Each angle must be between {a} and {b}.",
-    "El valor debe estar entre {a} y {b}.":
-        "The value must be between {a} and {b}.",
-    "Elige al menos una utilidad.":
-        "Choose at least one utility.",
-    "Valor no válido.":
-        "Invalid value.",
     "Normativas de diseño":
         "Design standards",
-    "Reducir el tamaño del texto":
-        "Make text smaller",
-    "Aumentar el tamaño del texto":
-        "Make text larger",
-    "fuera de norma":
-        "outside the standard",
-    "Categorías":
-        "Categories",
-    "Incumplimientos":
-        "Violations",
-    "Todo cumple las normativas activas.":
-        "Everything meets the active design standards.",
-    "Activa en este proyecto":
-        "Active in this project",
-    "Importancia":
-        "Importance",
-    "Fuente":
-        "Source",
-    "Agregar":
-        "Add",
-    "Quitar {v}":
-        "Remove {v}",
-    "Nuevo ángulo en grados":
-        "New angle in degrees",
-    "grados":
-        "degrees",
-    "pies":
-        "feet",
-    "Restablecer valores iniciales":
-        "Restore initial values",
-    "Valores cambiados":
-        "Values changed",
-    "Ver en el plano":
-        "Show on the plan",
-    "Cumple: {n} revisado(s).":
-        "Meets the rule: {n} checked.",
-    "El plano no tiene escala: no se pueden medir los accesorios. Fija la escala en la barra de estado.":
-        "The plan has no scale: fittings cannot be measured. Set the scale in the status bar.",
-    "Cambios guardados.":
-        "Changes saved.",
-    "Regla desconocida.":
-        "Unknown rule.",
-    "Falta el componente de navegador integrado (QtWebEngine).":
-        "The built-in browser component (QtWebEngine) is missing.",
     # ── Unir utilidades (unir_utilidades.py) ──
     "Unir utilidades seleccionadas":
         "Join selected utilities",
@@ -2695,10 +2587,6 @@ EN: dict[str, str] = {
     "Sobre una utilidad: su menú (con varias seleccionadas, «Unir en una utilidad»)":
         "On a utility: its menu (with several selected, «Join into one utility»)",
     # ── Normativas: Excel (normativas_excel.py, normativas_clearance.py) ──
-    "Recubrimiento":
-        "Cover",
-    "Otros requisitos":
-        "Other requirements",
     "Agua":
         "Water",
     "Alcantarillado":
@@ -2711,90 +2599,10 @@ EN: dict[str, str] = {
         "Electrical",
     "Telecomunicaciones":
         "Telecommunications",
-    "Vía férrea":
-        "Railroad track",
-    "Bordillo y cuneta":
-        "Curb & gutter",
-    "Sumidero":
-        "Catch basin",
     "Buzón":
         "Manhole",
-    "Otra tubería":
-        "Other pipeline",
-    "Superficie":
-        "Surface",
-    "Mínimo":
-        "Minimum",
-    "Máximo":
-        "Maximum",
-    "Separación horizontal":
-        "Horizontal clearance",
-    "Separación vertical":
-        "Vertical clearance",
-    "Requisito (texto)":
-        "Requirement (text)",
-    "El máximo no puede ser menor que el mínimo.":
-        "The maximum cannot be less than the minimum.",
-    "{a} de {t} reglas activas en este proyecto":
-        "{a} of {t} rules active in this project",
-    "Los valores valen para todos tus proyectos; activar o desactivar una regla solo cambia este proyecto.":
-        "Values apply to all your projects; turning a rule on or off only changes this project.",
-    "Buscar regla…":
-        "Search rule…",
-    "Importar Excel":
-        "Import Excel",
-    "Exportar Excel":
-        "Export Excel",
-    "Referencias":
-        "References",
-    "Notas":
-        "Notes",
-    "Texto original":
-        "Original text",
-    "Medido desde":
-        "Measured from",
-    "Detalles":
-        "Details",
-    "Quitar esta regla":
-        "Remove this rule",
-    "Revisar":
-        "Review",
-    "La conversión del Excel no entendió del todo esta regla: mira su texto original.":
-        "The Excel conversion did not fully understand this rule: check its original text.",
-    "✗ {k} de {n}":
-        "✗ {k} of {n}",
-    "Sin casos":
-        "No cases",
-    "Aún no se revisa en el plano":
-        "Not checked on the plan yet",
-    "Desactivada":
-        "Off",
-    "Ninguna regla coincide con la búsqueda.":
-        "No rule matches the search.",
-    "¿Quitar la regla «{r}»? Puedes volver a traerla importando el Excel.":
-        "Remove the rule «{r}»? You can bring it back by importing the Excel.",
-    "Exportadas {n} reglas a {archivo}.":
-        "Exported {n} rules to {archivo}.",
-    "No se pudo leer el archivo: {e}":
-        "The file could not be read: {e}",
-    "Fila":
-        "Row",
-    "El archivo no trae reglas.":
-        "The file has no rules.",
-    "Se importarán {n} reglas: {a} nuevas y {b} que ya existían (se actualizan).":
-        "{n} rules will be imported: {a} new and {b} that already existed (they are updated).",
-    "El archivo tiene el formato de tablas de los ingenieros: se convirtió a reglas. Exporta el Excel para revisarlo en la plantilla nueva.":
-        "The file has the engineers' table format: it was converted to rules. Export the Excel to review it in the new template.",
-    "{n} quedan marcadas «Revisar» (no se entendieron del todo).":
-        "{n} are marked «Review» (not fully understood).",
-    "{n} fila(s) con error no se importan:":
-        "{n} row(s) with errors are not imported:",
-    "Importadas {n} reglas.":
-        "Imported {n} rules.",
     "Excel (*.xlsx)":
         "Excel (*.xlsx)",
-    "Excel (*.xlsx *.xlsm)":
-        "Excel (*.xlsx *.xlsm)",
     # ── Agregar tamaño a una familia (catalogo_tamanos) ──
     'Agregar un tamaño nuevo a esta familia (en Civil 3D 2025 en adelante, en español e inglés)':
         'Add a new size to this family (in Civil 3D 2025 and later, in Spanish and English)',
@@ -3007,18 +2815,10 @@ EN: dict[str, str] = {
         'the curve is stretched to the vertex',
     'la curva arranca justo en el vértice':
         'the curve starts exactly at the vertex',
-    'Antes de exportar: esto saldría mal en Civil 3D o habría que corregirlo a mano.':
-        'Before exporting: this would come out wrong in Civil 3D or would have to be fixed by hand.',
-    'Lo que en Civil 3D saldría mal o habría que corregir a mano.':
-        'What would come out wrong in Civil 3D or would have to be fixed by hand.',
-    'Desmarca lo que no quieras arreglar. Clic en un caso para verlo en el plano. Se puede deshacer con Ctrl+Z.':
-        'Uncheck what you do not want fixed. Click a case to see it on the plan. Can be undone with Ctrl+Z.',
     'Clic para verlo en el plano.':
         'Click to see it on the plan.',
     'Arreglar y exportar':
         'Fix and export',
-    'Exportar sin cambios':
-        'Export without changes',
     'Arreglar lo marcado':
         'Fix what is checked',
     'Para revisar a mano (no se cambian)':
@@ -3043,4 +2843,364 @@ EN: dict[str, str] = {
         'All good: there is nothing to clean up.',
     'Dibujo limpio: {n} arreglo(s).':
         'Drawing cleaned: {n} fix(es).',
+    # ── Normativas en tablas, tabla de datos y avisos (normas_*.py, tabla_datos*, avisos_view) ──
+    'Tipo de utilidad':
+        'Utility type',
+    'Diámetro':
+        'Diameter',
+    'Diámetro según amperaje y largo':
+        'Diameter by amperage and length',
+    'Accesorio':
+        'Fitting',
+    'Condición de uso':
+        'Condition of use',
+    'T domiciliaria':
+        'Service tee',
+    'Sin tipo: elige su tipo para revisar sus normativas.':
+        'No type: choose its type to check its standards.',
+    'El tipo «{tipo}» ya no está en la lista de tipos.':
+        'The type “{tipo}” is no longer in the list of types.',
+    'Diámetro {d}: es de «{otro}» y esta utilidad es «{tipo}». Para su tipo: {lista}.':
+        'Diameter {d}: it belongs to “{otro}” and this utility is “{tipo}”. For its type: {lista}.',
+    'Diámetro {d} no permitido para «{tipo}». Permitidos: {lista}.':
+        'Diameter {d} not allowed for “{tipo}”. Allowed: {lista}.',
+    'Diámetro {d}: solo se permite en {nota}.':
+        'Diameter {d}: only allowed in {nota}.',
+    'Falta el amperaje: escríbelo para revisar su diámetro.':
+        'Amperage missing: enter it to check its diameter.',
+    'debe ser {lista}':
+        'must be {lista}',
+    'mínimo {d}':
+        'minimum {d}',
+    'máximo {d}':
+        'maximum {d}',
+    '{r} ft de largo':
+        '{r} ft long',
+    'Diámetro {d}: {req}':
+        'Diameter {d}: {req}',
+    'T domiciliaria: el ramal debe ser {lista}; es {d}.':
+        'Service tee: the branch must be {lista}; it is {d}.',
+    '{acc} no permitida en «{tipo}».':
+        '{acc} not allowed in “{tipo}”.',
+    '{acc} solo se permite en «{tipo}».':
+        '{acc} only allowed in “{tipo}”.',
+    '{acc}: la principal debe ser {lista}; es {d}.':
+        '{acc}: the main line must be {lista}; it is {d}.',
+    '{acc}: no hay un tamaño menor que {d} en {lista} para el ramal.':
+        '{acc}: there is no size smaller than {d} in {lista} for the branch.',
+    '{acc}: el ramal debe ser {r} (un tamaño menor que {d}); es {dr}.':
+        '{acc}: the branch must be {r} (one size smaller than {d}); it is {dr}.',
+    'Codo de {ang}: fuera de norma. Permitidos: {lista}.':
+        '{ang} bend: out of standard. Allowed: {lista}.',
+    'Gravedad':
+        'Gravity',
+    'Presión':
+        'Pressure',
+    'Nombre':
+        'Name',
+    'Utilidad':
+        'Utility',
+    'Tipo':
+        'Type',
+    'Tamaño':
+        'Size',
+    'Diámetro (in)':
+        'Diameter (in)',
+    'Largo (ft)':
+        'Length (ft)',
+    'Vértices':
+        'Vertices',
+    'Rasante inicial (ft)':
+        'Start invert (ft)',
+    'Rasante final (ft)':
+        'End invert (ft)',
+    'Amperaje (A)':
+        'Amperage (A)',
+    'Inicio X':
+        'Start X',
+    'Inicio Y':
+        'Start Y',
+    'Fin X':
+        'End X',
+    'Fin Y':
+        'End Y',
+    'Avisos':
+        'Warnings',
+    'Por defecto':
+        'Default',
+    'Buzones y cajas':
+        'Manholes and boxes',
+    'Código':
+        'Code',
+    'Clase':
+        'Class',
+    'Red':
+        'Network',
+    'Tapa (ft)':
+        'Rim (ft)',
+    'Fondo (ft)':
+        'Sump (ft)',
+    'Visible':
+        'Visible',
+    'Forma':
+        'Shape',
+    'Ancho (ft)':
+        'Width (ft)',
+    'Alto (ft)':
+        'Height (ft)',
+    'Vértice':
+        'Vertex',
+    'Radio (ft)':
+        'Radius (ft)',
+    'Automático ({r} ft)':
+        'Automatic ({r} ft)',
+    'Automático':
+        'Automatic',
+    'Quiebre del plano':
+        'Bend from the plan',
+    'Curva':
+        'Curve',
+    'Sólido':
+        'Solid',
+    'Caja':
+        'Box',
+    'No':
+        'No',
+    'Sí':
+        'Yes',
+    'Ancho (in)':
+        'Width (in)',
+    'Alto (in)':
+        'Height (in)',
+    'Avisos de normativa':
+        'Standards warnings',
+    'Tipo de aviso':
+        'Warning type',
+    'Mensaje':
+        'Message',
+    'Información':
+        'Information',
+    'Cumple las normativas.':
+        'Meets the standards.',
+    'Menú Normativas → Normativas de diseño… para ver las tablas.':
+        'Standards menu → Design standards… to see the tables.',
+    'Utilidad {n}':
+        'Utility {n}',
+    '(sin tipo)':
+        '(no type)',
+    'Tipo:':
+        'Type:',
+    '0 = sin dato.':
+        '0 = no data.',
+    'Amperaje:':
+        'Amperage:',
+    '{n} línea(s) que casi tocan a otra: se unirán':
+        '{n} line(s) that almost touch another: they will be joined',
+    '{n} línea(s) muy cortas (menos de {corta} ft): se borrarán':
+        '{n} very short line(s) (under {corta} ft): they will be deleted',
+    '{n} línea(s) repetidas: se borrará la copia':
+        '{n} repeated line(s): the copy will be deleted',
+    '{n} tramo(s) rectos diminutos: se corrigen':
+        '{n} tiny straight run(s): they are fixed',
+    'Antes de exportar':
+        'Before exporting',
+    'Encontramos algunas cosas que conviene arreglar antes de exportar:':
+        'We found a few things worth fixing before exporting:',
+    'Esto saldría mal en Civil 3D o habría que corregirlo a mano:':
+        'This would come out wrong in Civil 3D or would have to be fixed by hand:',
+    '{n} caso(s) para revisar a mano':
+        '{n} case(s) to review by hand',
+    'Ver detalles (elegir qué arreglar, ir a cada caso)':
+        'See details (choose what to fix, go to each case)',
+    'Exportar sin arreglar':
+        'Export without fixing',
+    'Tipos':
+        'Types',
+    'Diámetros (presión)':
+        'Diameters (pressure)',
+    'Accesorios (presión)':
+        'Fittings (pressure)',
+    'Eléctrico y telecom':
+        'Electrical and telecom',
+    'Las normativas vienen de un Excel simple: expórtalo, edítalo en Excel e impórtalo. Valen para todos tus proyectos.':
+        'The standards come from a simple Excel file: export it, edit it in Excel and import it. They apply to all your projects.',
+    'Importar Excel…':
+        'Import Excel…',
+    'Exportar Excel…':
+        'Export Excel…',
+    'Volver a los valores iniciales':
+        'Restore the initial values',
+    'Aviso':
+        'Warning',
+    'Todo cumple las normativas.':
+        'Everything meets the standards.',
+    'Avisos ({n})':
+        'Warnings ({n})',
+    'Importar Excel de normativas':
+        'Import standards Excel',
+    'No se pudo leer el Excel.\n\n{e}':
+        'The Excel file could not be read.\n\n{e}',
+    'Normativas importadas: {t} tipos, {d} filas de diámetros, {a} de accesorios y {e} de eléctrico y telecom.':
+        'Standards imported: {t} types, {d} diameter rows, {a} fitting rows and {e} electrical and telecom rows.',
+    'No se encontraron estas hojas (quedan vacías): {h}.':
+        'These sheets were not found (left empty): {h}.',
+    'Exportar Excel de normativas':
+        'Export standards Excel',
+    'No se pudo guardar el Excel (¿está abierto?).\n\n{e}':
+        'The Excel file could not be saved (is it open?).\n\n{e}',
+    'Normativas exportadas: {ruta}':
+        'Standards exported: {ruta}',
+    'Se reemplazan las normativas por las iniciales (los tipos que agregaste también se quitan). ¿Seguir?':
+        'The standards are replaced by the initial ones (the types you added are removed too). Continue?',
+    'Tabla de datos':
+        'Data table',
+    'Buscar en la tabla…':
+        'Search in the table…',
+    'Actualizar':
+        'Refresh',
+    'Exportar a Excel…':
+        'Export to Excel…',
+    'Doble clic en una fila para verla en el plano. Clic en un encabezado para ordenar.':
+        'Double-click a row to see it on the plan. Click a header to sort.',
+    'Exportar a Excel':
+        'Export to Excel',
+    'Tabla de datos exportada: {ruta}':
+        'Data table exported: {ruta}',
+    'No se pudieron guardar las normativas: {e}':
+        'The standards could not be saved: {e}',
+    '{n} avisos de normativa':
+        '{n} standards warnings',
+    'Agregar tipo':
+        'Add type',
+    'Tipo nuevo para {utilidad} (por ejemplo «Distribución secundaria»):':
+        'New type for {utilidad} (for example “Secondary distribution”):',
+    'Tipo «{tipo}» agregado.':
+        'Type “{tipo}” added.',
+    'Tabla de datos…':
+        'Data table…',
+    'Muestra junto a cada codo, Tee, Wye o cruz de agua y gas el accesorio que se pondrá en Civil 3D y su ángulo; en ámbar si tiene un aviso de normativa.':
+        'Shows next to each water and gas bend, tee, wye or cross the fitting that Civil 3D will place and its angle; in amber if it has a standards warning.',
+    'Mostrar avisos de normativa':
+        'Show standards warnings',
+    'Un circulito pequeño donde una utilidad o un accesorio no cumple las normativas (tipo, diámetro, amperaje…). Pasa el ratón para leerlo.':
+        'A small circle where a utility or a fitting does not meet the standards (type, diameter, amperage…). Hover over it to read it.',
+    'Mostrar todos':
+        'Show all',
+    'Ocultar todos':
+        'Hide all',
+    'Tabla de datos: utilidades, buzones, curvas… (Ctrl+Shift+T)':
+        'Data table: utilities, manholes, curves… (Ctrl+Shift+T)',
+    'Avisos de normativa del proyecto. Clic para verlos.':
+        'Project standards warnings. Click to see them.',
+    'Agregar un tipo nuevo a esta utilidad: se guarda en las normativas y sale en su Excel al exportarlo':
+        'Add a new type to this utility: it is saved in the standards and goes into its Excel when exporting it',
+    'Amperaje de la línea (dato informativo): con él se revisa su diámetro según las normativas. Vacío (—) = sin dato.':
+        'Line amperage (informative): it is used to check its diameter against the standards. Empty (—) = no data.',
+    # ── Vista 3D (1.3.0) ──
+    'Vista 3D':
+        '3D view',
+    'Vista 3D: lo que Civil 3D va a construir (F3)':
+        '3D view: what Civil 3D will build (F3)',
+    'Ver en 3D':
+        'Show in 3D',
+    'Dibuja o importa utilidades para verlas en 3D.':
+        'Draw or import utilities to see them in 3D.',
+    'Encuadrar todo':
+        'Zoom to all',
+    'Ver todo el modelo (Inicio)':
+        'Show the whole model (Home)',
+    'Arriba':
+        'Top',
+    'Frente':
+        'Front',
+    'Lateral':
+        'Side',
+    'Isométrica':
+        'Isometric',
+    'Seguir la selección':
+        'Follow the selection',
+    'Al elegir una utilidad o un buzón en el plano, la vista 3D lo encuadra':
+        'When you pick a utility or a manhole on the plan, the 3D view zooms to it',
+    'Mostrar':
+        'Show',
+    'Buzones, cajas y sólidos':
+        'Manholes, boxes and solids',
+    'Accesorios (codos, Tee, Wye…)':
+        'Fittings (bends, tees, wyes…)',
+    'Avisos de normativa y choques':
+        'Standards warnings and clashes',
+    'Suelo':
+        'Ground',
+    'Mostrar el suelo':
+        'Show the ground',
+    'Cota':
+        'Elevation',
+    'Automática':
+        'Automatic',
+    'Automática: la tapa más alta de los buzones o, sin buzones, 3 ft sobre la tubería más alta':
+        'Automatic: the highest manhole rim or, without manholes, 3 ft above the highest pipe',
+    'Rueda: zoom · Botón central: desplazar · Shift + botón central o arrastrar: girar · Clic: elegir · Doble clic: encuadrar':
+        'Wheel: zoom · Middle button: pan · Shift + middle button or drag: orbit · Click: pick · Double-click: zoom to it',
+    'Actualizando la vista 3D…':
+        'Updating the 3D view…',
+    'No se pudo iniciar la vista 3D (OpenGL 2.1): {e}':
+        'The 3D view could not start (OpenGL 2.1): {e}',
+    '{u} utilidades · {e} buzones/cajas · {a} accesorios · suelo a {z} ft':
+        '{u} utilities · {e} manholes/boxes · {a} fittings · ground at {z} ft',
+    'solera {a} → {b} ft':
+        'invert {a} → {b} ft',
+    'Bancoducto «{n}»':
+        'Duct bank «{n}»',
+    '{cod} · fondo {a} ft · tapa {b} ft':
+        '{cod} · sump {a} ft · rim {b} ft',
+    'Restablecer':
+        'Reset',
+    'Volver a los valores por defecto del suelo: visible, opacidad 18 % y cota automática':
+        'Back to the default ground values: visible, 18 % opacity and automatic elevation',
+    # ── Cubo de vistas (Vista 3D) ──
+    'SUPERIOR':
+        'TOP',
+    'INFERIOR':
+        'BOTTOM',
+    'FRONTAL':
+        'FRONT',
+    'POSTERIOR':
+        'BACK',
+    'DERECHA':
+        'RIGHT',
+    'IZQUIERDA':
+        'LEFT',
+    'N':
+        'N',
+    'E':
+        'E',
+    'S':
+        'S',
+    'O':
+        'W',
+    'El proyecto aún no tiene archivo: se hizo una copia de recuperación. Guárdalo con Ctrl+S.':
+        'The project has no file yet: a recovery copy was made. Save it with Ctrl+S.',
+    # ── Ficha de la Vista 3D ──
+    'Copia la ficha (para pegarla en Excel o en un correo)':
+        'Copies the sheet (to paste it in Excel or an email)',
+    'Copiar':
+        'Copy',
+    'Cota del eje (ft)':
+        'Axis elevation (ft)',
+    'Diámetros':
+        'Diameters',
+    'Fondo en 3D (ft)':
+        'Sump in 3D (ft)',
+    'Haz clic en una tubería, un accesorio o un buzón para ver sus datos.':
+        'Click a pipe, a fitting or a manhole to see its data.',
+    'Pendiente (%)':
+        'Slope (%)',
+    'Selección':
+        'Selection',
+    'Tapa en 3D (ft)':
+        'Rim in 3D (ft)',
+    'Une las utilidades':
+        'Joins the utilities',
+    'Ver en el plano':
+        'Show on the plan',
 }

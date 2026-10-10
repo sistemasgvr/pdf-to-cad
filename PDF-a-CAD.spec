@@ -12,10 +12,9 @@ datas = [
     ('app/docs', 'docs'),
 ]
 binaries = []
-hiddenimports = [
-    # Ventana «Normativas de diseño» (normativas_dialog.py): HTML con QtWebEngine.
-    'PySide6.QtWebEngineWidgets', 'PySide6.QtWebEngineCore', 'PySide6.QtWebChannel',
-]
+# (2026-10-09) La ventana de normativas ya no usa QtWebEngine (normas_dialog.py es Qt
+# simple): sin esas librerías el .exe pesa bastante menos.
+hiddenimports = []
 
 # Iconos SVG MDI (app/icons/mdi/*.svg) — sin esto el exe muestra X rojas
 # (_fallback_icon). Destino 'icons' al lado de icons.py en _MEIPASS.

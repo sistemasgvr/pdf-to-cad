@@ -107,6 +107,34 @@ class PanelDerechoMixin:
         # El diámetro ya no es un campo del UI: se deriva automáticamente del
         # "Tamaño (catálogo)" elegido. p["diam"] se calcula al guardar propiedades.
         fpr.addRow(_bind(QtWidgets.QLabel(), "setText", "Nombre:"), self.prop_name)
+        # Tipo de la utilidad para las normativas en tablas (Distribución principal,
+        # Instalación domiciliaria…; normas_catalogo) + «+» para agregar uno nuevo, y el
+        # amperaje (solo eléctrico): con ellos se revisan diámetros y accesorios.
+        self.prop_tipo = QtWidgets.QComboBox()
+        self.prop_tipo.setSizeAdjustPolicy(QtWidgets.QComboBox.AdjustToMinimumContentsLengthWithIcon)
+        self.prop_tipo.setMinimumContentsLength(6)
+        self.prop_tipo.currentIndexChanged.connect(lambda _: self._prop_changed())
+        self.btn_add_tipo = self._boton_mas(self._agregar_tipo)
+        _bind(self.btn_add_tipo, "setToolTip", "Agregar un tipo nuevo a esta utilidad: se guarda en las "
+              "normativas y sale en su Excel al exportarlo")
+        _bind(self.btn_add_tipo, "setAccessibleName", "Agregar tipo")
+        self.btn_add_tipo.setEnabled(True)
+        fpr.addRow(_bind(QtWidgets.QLabel(), "setText", "Tipo:"), self._con_boton(self.prop_tipo, self.btn_add_tipo))
+        self.prop_amp = QtWidgets.QDoubleSpinBox()
+        self.prop_amp.setRange(0.0, 100000.0); self.prop_amp.setDecimals(1)
+        self.prop_amp.setSuffix(" A"); self.prop_amp.setSpecialValueText("—")
+        self.prop_amp.setButtonSymbols(QtWidgets.QAbstractSpinBox.NoButtons)
+        _bind(self.prop_amp, "setToolTip", "Amperaje de la línea (dato informativo): con él se revisa su "
+              "diámetro según las normativas. Vacío (—) = sin dato.")
+        self.prop_amp.editingFinished.connect(self._prop_changed)
+        self.lbl_prop_amp = _bind(QtWidgets.QLabel(), "setText", "Amperaje:")
+        fpr.addRow(self.lbl_prop_amp, self.prop_amp)
+        # Avisos de normativa de ESTA utilidad (texto discreto; vacío si cumple).
+        self.lbl_normas_pipe = QtWidgets.QLabel("")
+        self.lbl_normas_pipe.setWordWrap(True)
+        self.lbl_normas_pipe.setStyleSheet("color:#c98a00;")
+        self.lbl_normas_pipe.setVisible(False)
+        fpr.addRow(self.lbl_normas_pipe)
         # Campos de la utilidad usados por el JSON de red 3.0 y por el DXF:
         #   - material: texto libre (p.ej. "HDPE"); viaja al JSON como `material`.
         #   - part (pieza): nombre del tipo de pieza; viaja al JSON como `part`.

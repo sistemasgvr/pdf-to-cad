@@ -72,10 +72,21 @@ class HerramientasMixin:
         dialogs.show_shortcuts(self)
 
     # ─────────────────────────── normativas ───────────────────────────
-    def open_normativas(self):
-        """Ventana flotante de normativas (normativas_dialog.py)."""
-        from ui.dialogos import normativas_dialog
-        normativas_dialog.abrir(self)
+    def open_normativas(self, en_avisos=False):
+        """Ventana de normativas en tablas (normas_dialog.py)."""
+        from ui.dialogos import normas_dialog
+        normas_dialog.abrir(self, en_avisos=en_avisos)
+
+    def _usar_normas(self, cat):
+        """Reemplaza el catálogo de normativas (global), lo guarda y redibuja."""
+        self.normas_cat = normas_catalogo.normalizar(cat)
+        try:
+            normas_catalogo.guardar(self.normas_cat)
+        except OSError as e:
+            self._info(_tr("No se pudieron guardar las normativas: {e}").format(e=e))
+        if 0 <= getattr(self, "sel_pipe", -1) < len(self.pipes):
+            self._cargar_tipos_panel(self.pipes[self.sel_pipe])
+        self._redraw()
 
     def _on_toggle_show_acc(self, on):
         try:
@@ -84,41 +95,73 @@ class HerramientasMixin:
             pass
         self._redraw()
 
+    def _on_toggle_show_normas(self, on):
+        try:
+            QtCore.QSettings("pdf-to-cad", "app").setValue("show_normas", bool(on))
+        except Exception:
+            pass
+        self._redraw()
+
+    def _mostrar_avisos(self, on):
+        """Ver → Avisos → Mostrar todos / Ocultar todos."""
+        for a in (self.chk_show_conflicts, self.act_show_acc, self.act_show_normas):
+            a.setChecked(bool(on))
+
     def _draw_accesorios(self):
-        """Evalúa las normativas activas y dibuja los accesorios de presión con
-        su tipo y ángulo (accesorios_view.py). Deja `_accesorios`,
-        `_normas_res` y `_normas_lista` para la ventana y la barra de estado."""
-        self._accesorios = []; self._normas_res = {}; self._normas_lista = []
+        """Revisa las normativas en tablas (normas_validar) y dibuja los accesorios de
+        presión con su tipo y ángulo (accesorios_view) y los avisos (avisos_view).
+        Deja `_accesorios` y `_normas_avisos` para la ventana y la barra de estado."""
+        self._accesorios = []; self._normas_avisos = []
         ft_px = self.scale / self.zoom if self.scale and self.zoom else 0.0
         if ft_px and self.pipes:
-            ctx = normativas.Contexto(self.pipes, self.structures, self._pipe_z_at, ft_px)
-            self._normas_res = normativas.evaluar(self.normas, self.normas_estado, ctx)
-            self._normas_lista = normativas.incumplimientos(self._normas_res, self.normas)
-            act = getattr(self, "act_show_acc", None)
-            if act is None or act.isChecked():
-                self._accesorios = ctx.accesorios
+            from nucleo import accesorios as _acc
+            accs = _acc.accesorios(self.pipes, self._pipe_z_at, ft_px)
+            con_db = {i for db in getattr(self, "duct_banks", []) or [] for i in db.assigned()}
+            self._normas_avisos = normas_validar.validar(self.normas_cat, self.pipes, accs, ft_px, con_db)
+            tol = 0.5 / ft_px
+            ver_acc = getattr(self, "act_show_acc", None) is None or self.act_show_acc.isChecked()
+            if ver_acc:
+                self._accesorios = accs
                 from ui.comun import accesorios_view
-                tol = 0.5 / ft_px
-                self._overlay += accesorios_view.dibujar(self.canvas.scene(), self._accesorios,
-                                                         self._normas_lista, tol)
-        n = len(self._normas_lista)
+                self._overlay += accesorios_view.dibujar(self.canvas.scene(), accs, self._normas_avisos, tol)
+            if getattr(self, "act_show_normas", None) is None or self.act_show_normas.isChecked():
+                from ui.comun import avisos_view
+                self._overlay += avisos_view.dibujar(self.canvas.scene(), self._normas_avisos, tol * 2, ver_acc)
+        n = sum(1 for a in self._normas_avisos if not a.info)
         if hasattr(self, "btn_normas"):
-            self.btn_normas.setText("✗ " + _tr("{n} fuera de normativa").format(n=n) if n else "")
+            self.btn_normas.setText("⚠ " + _tr("{n} avisos de normativa").format(n=n) if n else "")
             self.btn_normas.setVisible(bool(n))
         if self._normas_dlg is not None:
             self._normas_dlg.refrescar()
+        if getattr(self, "lbl_normas_pipe", None) is not None:
+            self._mostrar_avisos_de_la_utilidad()
+        self._vista3d_al_dia()
 
     def _normas_ir_a(self, n):
-        """Centra el lienzo en el incumplimiento n y lo marca un momento."""
-        if not (0 <= n < len(self._normas_lista)):
+        """Centra el lienzo en el aviso n y lo marca un momento."""
+        if not (0 <= n < len(self._normas_avisos)):
             return
-        inc = self._normas_lista[n][0]
-        self.canvas.centerOn(inc.x, inc.y)
+        a = self._normas_avisos[n]
+        self._ir_a_elemento(a.x, a.y, "pipe", a.pipe)
+
+    def _ir_a_elemento(self, x, y, objeto=None, indice=-1):
+        """Lleva el lienzo a (x, y), selecciona el elemento y lo marca un momento."""
+        self._no_center = True
+        try:
+            if objeto == "pipe" and indice is not None and 0 <= indice < len(self.pipes):
+                self._show_tab(TAB_PIPE); self.pipe_list.clearSelection(); self.pipe_list.setCurrentRow(indice)
+            elif objeto == "struct" and indice in getattr(self, "_bz_rows", []):
+                self._show_tab(TAB_BZ); self.bz_list.setCurrentRow(self._bz_rows.index(indice))
+            elif objeto == "curve" and indice in getattr(self, "_curve_rows", []):
+                self._show_tab(TAB_CURVE); self.curve_list.setCurrentRow(self._curve_rows.index(indice))
+        finally:
+            self._no_center = False
+        self.canvas.centerOn(x, y)
         sc = self.canvas.scene()
-        pen = QtGui.QPen(QtGui.QColor(255, 60, 60), 3); pen.setCosmetic(True)
+        pen = QtGui.QPen(QtGui.QColor(240, 170, 20), 3); pen.setCosmetic(True)
         r = 26.0
         it = sc.addEllipse(-r, -r, 2 * r, 2 * r, pen)
-        it.setPos(inc.x, inc.y); it.setFlag(QtWidgets.QGraphicsItem.ItemIgnoresTransformations)
+        it.setPos(x, y); it.setFlag(QtWidgets.QGraphicsItem.ItemIgnoresTransformations)
         it.setZValue(Z_HANDLE + 9)
 
         def _quitar():
@@ -126,6 +169,78 @@ class HerramientasMixin:
             except (RuntimeError, ValueError): pass
         QtCore.QTimer.singleShot(1800, _quitar)
         self.raise_(); self.activateWindow()
+
+    # ─────────────────────── tipo y amperaje de la utilidad ───────────────────────
+    def _cargar_tipos_panel(self, p):
+        """Llena «Tipo» con los tipos de la utilidad (normativas) y muestra el amperaje
+        solo en eléctrico. Sin disparar `_prop_changed`."""
+        if not hasattr(self, "prop_tipo"):
+            return
+        cb = self.prop_tipo
+        cb.blockSignals(True)
+        cb.clear()
+        cb.addItem(_tr("(sin tipo)"), "")
+        for tp in normas_catalogo.tipos_de(self.normas_cat, p.get("layer")):
+            cb.addItem(tp, tp)
+        actual = (p.get("tipo") or "").strip()
+        if actual and cb.findData(actual) < 0:
+            cb.addItem(actual, actual)             # tipo que ya no está en las normativas
+        cb.setCurrentIndex(max(0, cb.findData(actual)))
+        cb.blockSignals(False)
+        es_elec = (p.get("layer") or "") == "ELECTRICO"
+        self.lbl_prop_amp.setVisible(es_elec)
+        self.prop_amp.setVisible(es_elec)
+        self.prop_amp.blockSignals(True)
+        self.prop_amp.setValue(float(normas_catalogo.numero(p.get("amperaje")) or 0.0))
+        self.prop_amp.blockSignals(False)
+        self._mostrar_avisos_de_la_utilidad()
+
+    def _mostrar_avisos_de_la_utilidad(self):
+        lbl = getattr(self, "lbl_normas_pipe", None)
+        if lbl is None:
+            return
+        suyos = [a for a in getattr(self, "_normas_avisos", []) or [] if a.pipe == self.sel_pipe]
+        lbl.setText("\n".join(("ⓘ " if a.info else "⚠ ") + a.mensaje for a in suyos[:4]))
+        lbl.setVisible(bool(suyos))
+
+    def _agregar_tipo(self):
+        """«+» junto a «Tipo»: un tipo nuevo para esta utilidad (queda en las
+        normativas, para todos los proyectos, y sale al exportar su Excel)."""
+        if not (0 <= self.sel_pipe < len(self.pipes)):
+            return
+        p = self.pipes[self.sel_pipe]
+        texto, ok = QtWidgets.QInputDialog.getText(
+            self, _tr("Agregar tipo"), _tr("Tipo nuevo para {utilidad} (por ejemplo «Distribución secundaria»):")
+            .format(utilidad=self._tipo(p.get("layer"))))
+        if not ok or not texto.strip():
+            return
+        nombre = normas_catalogo.agregar_tipo(self.normas_cat, p.get("layer"), texto)
+        try:
+            normas_catalogo.guardar(self.normas_cat)
+        except OSError as e:
+            self._info(_tr("No se pudieron guardar las normativas: {e}").format(e=e))
+        self._push()
+        p["tipo"] = nombre
+        self._cargar_tipos_panel(p)
+        self._refresh_lists(); self._reselect_pipes([self.sel_pipe]); self._redraw()
+        self._info(_tr("Tipo «{tipo}» agregado.").format(tipo=nombre))
+
+    # ─────────────────────────── tabla de datos ───────────────────────────
+    def abrir_tabla_datos(self):
+        """Herramientas → «Tabla de datos…»: todo el proyecto en tablas (y a Excel)."""
+        from ui.dialogos import tabla_datos_dialog
+        tabla_datos_dialog.abrir(self)
+
+    def _tablas_de_datos(self):
+        from nucleo import tabla_datos
+        ft_px = self.scale / self.zoom if self.scale and self.zoom else 0.0
+
+        def familia(fid):
+            nombre = dxf_export._resolve_family(self, fid, "pipe")
+            return nombre.split("|")[-1] if nombre else fid
+        return tabla_datos.armar(self.pipes, self.structures, getattr(self, "duct_banks", []),
+                                 getattr(self, "_normas_avisos", []), self._to_cad, ft_px,
+                                 nombre_utilidad=self._tipo, nombre_familia=familia)
 
     def _toggle_theme(self):
         # Alterna claro↔oscuro globalmente. El módulo `theme` se encarga de

@@ -1,8 +1,11 @@
 """Ventana «Revisar y limpiar el dibujo» (Herramientas, y antes de exportar el DXF).
 
-Muestra lo que encontró `nucleo.limpieza` (sobre una COPIA del dibujo): un grupo por
-tipo de arreglo, con casilla para elegir qué se arregla, y un grupo «Para revisar»
-con lo que no se arregla solo. Clic en un caso = ir a ese lugar del lienzo.
+Muestra lo que encontró `nucleo.limpieza` (sobre una COPIA del dibujo). Arriba, un
+RESUMEN en palabras simples («3 líneas que casi tocan a otra: se unirán»); debajo,
+«Ver detalles» con un grupo por tipo de arreglo (casilla para elegir qué se arregla),
+un grupo «Para revisar» con lo que no se arregla solo y clic en un caso = ir a ese
+lugar. Al exportar (pedido del usuario 2026-10-09: «más fácil de entender, más
+resumido») el detalle arranca plegado.
 """
 from __future__ import annotations
 
@@ -24,6 +27,13 @@ _COMO = {
     "esquina": N_("la curva arranca justo en el vértice"),
     "ancla": N_("la curva arranca justo en el vértice"),
 }
+# Resumen de cada grupo, en palabras simples (clave = Cambio.tipo).
+_RESUMEN = {
+    "punta": N_("{n} línea(s) que casi tocan a otra: se unirán"),
+    "corta": N_("{n} línea(s) muy cortas (menos de {corta} ft): se borrarán"),
+    "duplicada": N_("{n} línea(s) repetidas: se borrará la copia"),
+    "tramo": N_("{n} tramo(s) rectos diminutos: se corrigen"),
+}
 _ROL = QtCore.Qt.UserRole
 
 
@@ -37,21 +47,36 @@ class LimpiezaDialog(QtWidgets.QDialog):
         self.ir_a = ir_a
         self.accion = "cancelar"
         self._exportando = exportando
-        self.setWindowTitle(_tr("Revisar y limpiar el dibujo"))
-        self.setMinimumSize(640, 460)
+        self.setWindowTitle(_tr("Antes de exportar") if exportando else _tr("Revisar y limpiar el dibujo"))
+        self.setMinimumWidth(520)
         lay = QtWidgets.QVBoxLayout(self)
         lay.setSpacing(10)
-        txt = (_tr("Antes de exportar: esto saldría mal en Civil 3D o habría que corregirlo a mano.")
-               if exportando else
-               _tr("Lo que en Civil 3D saldría mal o habría que corregir a mano."))
+        txt = (_tr("Encontramos algunas cosas que conviene arreglar antes de exportar:")
+               if exportando else _tr("Esto saldría mal en Civil 3D o habría que corregirlo a mano:"))
         cab = QtWidgets.QLabel(txt)
         f = cab.font(); f.setBold(True); f.setPointSizeF(f.pointSizeF() * 1.1); cab.setFont(f)
         cab.setWordWrap(True)
         lay.addWidget(cab)
-        ayuda = QtWidgets.QLabel(_tr("Desmarca lo que no quieras arreglar. Clic en un caso para verlo en el plano. "
-                                     "Se puede deshacer con Ctrl+Z."))
+        fmt0 = {"corta": f"{limpieza.UTILIDAD_MIN_FT:g}"}
+        lineas = [_tr(_RESUMEN[tp]).format(n=len(res.de(tp, True)), **fmt0)
+                  for tp in limpieza.ARREGLABLES if res.de(tp, True)]
+        if not exportando and res.avisos:
+            lineas.append(_tr("{n} caso(s) para revisar a mano").format(n=len(res.avisos)))
+        resumen = QtWidgets.QLabel("<br>".join("•&nbsp;" + ln for ln in lineas))
+        resumen.setTextFormat(QtCore.Qt.RichText)
+        resumen.setWordWrap(True)
+        resumen.setStyleSheet("font-size: 11pt;")
+        lay.addWidget(resumen)
+        ayuda = QtWidgets.QLabel(_tr("Se puede deshacer con Ctrl+Z."))
         ayuda.setWordWrap(True); ayuda.setProperty("muted", True)
         lay.addWidget(ayuda)
+        self.btn_detalles = QtWidgets.QToolButton()
+        self.btn_detalles.setCheckable(True)
+        self.btn_detalles.setToolButtonStyle(QtCore.Qt.ToolButtonTextBesideIcon)
+        self.btn_detalles.setArrowType(QtCore.Qt.RightArrow)
+        self.btn_detalles.setText(_tr("Ver detalles (elegir qué arreglar, ir a cada caso)"))
+        self.btn_detalles.setStyleSheet("QToolButton{border:0; padding:2px;}")
+        lay.addWidget(self.btn_detalles, 0, QtCore.Qt.AlignLeft)
 
         self.arbol = QtWidgets.QTreeWidget()
         self.arbol.setHeaderHidden(True)
@@ -85,7 +110,7 @@ class LimpiezaDialog(QtWidgets.QDialog):
         bb = QtWidgets.QDialogButtonBox()
         if exportando:
             self.btn_ok = bb.addButton(_tr("Arreglar y exportar"), QtWidgets.QDialogButtonBox.AcceptRole)
-            b = bb.addButton(_tr("Exportar sin cambios"), QtWidgets.QDialogButtonBox.ActionRole)
+            b = bb.addButton(_tr("Exportar sin arreglar"), QtWidgets.QDialogButtonBox.ActionRole)
             b.clicked.connect(lambda: self._cerrar("seguir"))
             b.setMinimumHeight(36); b.setProperty("secondary", True)
             c = bb.addButton(_tr("Cancelar"), QtWidgets.QDialogButtonBox.RejectRole)
@@ -98,7 +123,18 @@ class LimpiezaDialog(QtWidgets.QDialog):
         bb.rejected.connect(self.reject)
         lay.addWidget(bb)
         self.arbol.itemChanged.connect(lambda *_: self._actualizar_boton())
+        self.btn_detalles.toggled.connect(self._ver_detalles)
+        self.btn_detalles.setChecked(not exportando)
+        self._ver_detalles(not exportando)
         self._actualizar_boton()
+
+    def _ver_detalles(self, ver):
+        self.arbol.setVisible(ver)
+        self.btn_detalles.setArrowType(QtCore.Qt.DownArrow if ver else QtCore.Qt.RightArrow)
+        if ver:
+            self.resize(max(self.width(), 680), max(self.height(), 480))
+        else:
+            self.adjustSize()
 
     def _fila(self, c, etiqueta):
         quien = etiqueta(c.pipe)

@@ -55,3 +55,10 @@ def _recuperacion_en_carpeta_temporal(monkeypatch, tmp_path):
     """Las copias automáticas (autoguardado.py) nunca van a %LOCALAPPDATA% en las pruebas."""
     monkeypatch.setenv("PDFCAD_RECUPERACION", str(tmp_path / "recuperacion"))
     yield
+
+
+@pytest.fixture(autouse=True)
+def _normativas_en_carpeta_temporal(monkeypatch, tmp_path):
+    """El catálogo de normativas (normas_catalogo.ruta) nunca va a %APPDATA% en las pruebas."""
+    monkeypatch.setenv("PDFCAD_NORMAS_TABLAS", str(tmp_path / "normativas_tablas.json"))
+    yield

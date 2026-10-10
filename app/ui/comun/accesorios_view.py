@@ -2,15 +2,14 @@
 
 Cada accesorio que Civil 3D pondrá (ver `accesorios.py`) lleva un rombo en su
 punto y, al costado, una pastilla con su tipo y ángulo. Tamaño fijo en pantalla
-(ignora el zoom). Color: neutro si cumple las normativas activas, ROJO si
-incumple una obligatoria y ÁMBAR si solo una recomendada; el globo (tooltip)
-dice qué norma y el ángulo permitido más cercano."""
+(ignora el zoom). Color: neutro si cumple las normativas y ÁMBAR si tiene un aviso
+(`normas_validar`); el globo (tooltip) dice cuál."""
 from __future__ import annotations
 
 from PySide6 import QtCore, QtGui, QtWidgets
 
 from nucleo import accesorios as acc
-from nucleo import normativas
+from nucleo.normas_validar import NOMBRE_ACC, en_punto
 from traduccion.i18n import t as _tr
 from nucleo.model import Z_HANDLE
 from ui.comun.ui_common import layer_qcolor, tooltip_bloque
@@ -66,39 +65,38 @@ class EtiquetaAccesorio(QtWidgets.QGraphicsItem):
 
 
 def texto_accesorio(a):
-    return "{tipo} {ang}".format(tipo=_tr(normativas.NOMBRE_ACCESORIO.get(a["tipo"], a["tipo"])),
+    return "{tipo} {ang}".format(tipo=_tr(NOMBRE_ACC.get(a["tipo"], a["tipo"])),
                                  ang=acc.texto_angulo(a["angulo"]))
 
 
-def tooltip_accesorio(a, nivel, inc, regla):
+def tooltip_accesorio(a, avisos):
     lineas = [_tr("En Civil 3D: {acc} de {ang} (accesorio sólido) en la red «{red}».").format(
-        acc=_tr(normativas.NOMBRE_ACCESORIO.get(a["tipo"], a["tipo"])), ang=acc.texto_angulo(a["angulo"]),
+        acc=_tr(NOMBRE_ACC.get(a["tipo"], a["tipo"])), ang=acc.texto_angulo(a["angulo"]),
         red=a["red"])]
     if a.get("giro") is not None:
         lineas.append(_tr("Medido sobre el eje: desvío de {g} respecto del lado recto prolongado.").format(
             g=acc.texto_angulo(a["giro"])))
     if a.get("fundido"):
         lineas.append(_tr("Reúne dos quiebres muy juntos: Civil 3D pone un solo codo."))
-    if inc is not None:
-        clase = _tr("Obligatoria") if nivel == "obligatoria" else _tr("Recomendada")
+    if avisos:
         lineas.append("")
-        lineas.append("✗ " + _tr(regla.get("titulo", "")) + f" ({clase})")
-        lineas.append(inc.mensaje)
+        lineas += ["⚠ " + av.mensaje for av in avisos]
     else:
-        lineas.append("✓ " + _tr("Cumple las normativas activas."))
-    lineas.append(_tr("Menú Normativas → Normativas de diseño… para ver o cambiar las reglas."))
+        lineas.append("✓ " + _tr("Cumple las normativas."))
+    lineas.append(_tr("Menú Normativas → Normativas de diseño… para ver las tablas."))
     return "\n".join(lineas)
 
 
-def dibujar(scene, accesorios, lista_incumplimientos, tol_px):
+def dibujar(scene, accesorios, avisos, tol_px):
     """Agrega las etiquetas a `scene` y devuelve los items (van al overlay)."""
     items = []
     for a in accesorios:
-        nivel, inc, regla = normativas.estado_de_punto(a["x"], a["y"], lista_incumplimientos, tol_px)
-        texto = texto_accesorio(a) + (" ✗" if nivel else "")
+        suyos = en_punto(avisos, a["x"], a["y"], tol_px)
+        nivel = "recomendada" if suyos else None
+        texto = texto_accesorio(a) + (" ⚠" if nivel else "")
         it = EtiquetaAccesorio(texto, layer_qcolor(a["capa"]), nivel)
         it.setPos(a["x"], a["y"])
-        it.setToolTip(tooltip_bloque(tooltip_accesorio(a, nivel, inc, regla)))
+        it.setToolTip(tooltip_bloque(tooltip_accesorio(a, suyos)))
         scene.addItem(it)
         items.append(it)
     return items

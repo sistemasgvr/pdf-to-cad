@@ -32,9 +32,6 @@ def build_model_dict(win):
         ref_centerlines=win.ref_centerlines,
         duct_banks=[d.to_dict() for d in getattr(win, "duct_banks", []) or []],
         cross_connections=list(getattr(win, "cross_connections", None) or []),
-        # Normativas que este proyecto activa/desactiva ({id: bool}); los valores
-        # de cada regla son globales (normativas.ruta_global).
-        normativas_activas=dict(getattr(win, "normas_estado", None) or {}),
         georef=win.georef.to_dict(),
         sheet_layout=getattr(win, "sheet_layout", None),
         sheet_rotations=getattr(win, "sheet_rotations", {}),

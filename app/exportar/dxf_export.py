@@ -58,6 +58,19 @@ def _no_manhole_vertex_indices(win, p):
     return sorted(model_ops.curve_vertex_indices(p, curves, getattr(win, "pipes", None) or ()))
 
 
+def _items_normas(p):
+    """XD_TIPO / XD_AMPERAJE (normativas en tablas): el plugin los pone solos en el
+    Property Set «PDFCAD_Utilidad» como «TIPO» y «AMPERAJE»."""
+    from nucleo import normas_catalogo
+    out = []
+    if (p.get("tipo") or "").strip():
+        out.append((1000, "XD_TIPO=" + normas_catalogo.clave(p["tipo"])[:240]))
+    amp = normas_catalogo.numero(p.get("amperaje"))
+    if amp:
+        out.append((1000, f"XD_AMPERAJE={amp:g}"))
+    return out
+
+
 def _pipe_at_point(win, x, y, tol=14.0):
     """Tubería (dict) con un vértice a distancia <= tol de (x,y), o None. La curva
     hereda familia/tamaño de esta tubería — nunca lleva los suyos aparte."""
@@ -78,7 +91,43 @@ def text_style(doc, font, bold):
     return name
 
 
+def _sin_tramos_diminutos(win):
+    """(pipes, structures) para el DXF: COPIAS sin tramos rectos diminutos
+    (`limpieza_tramos.arreglar`: < 1 ft, que el plugin creaba como tuberías diminutas,
+    p. ej. «ELECTRICO-47 (20)»). Pedido del usuario 2026-10-09: «resuélvelo de una vez»
+    — ya no depende de pulsar «Arreglar» en «Revisar y limpiar el dibujo»: el DXF sale
+    siempre así y el proyecto no se toca. El dibujo se aparta < 0.05 ft."""
+    import copy
+    from nucleo import limpieza_tramos
+    pipes = copy.deepcopy(list(getattr(win, "pipes", None) or []))
+    structs = copy.deepcopy(list(getattr(win, "structures", None) or []))
+    scale, zoom = getattr(win, "scale", None), getattr(win, "zoom", None)
+    if not scale or not zoom:
+        return pipes, structs
+    ft = scale / zoom
+    for i, p in enumerate(pipes):
+        if not p.get("world") and len(p.get("pts") or []) >= 3:
+            try:
+                limpieza_tramos.arreglar(pipes, structs, i, ft)
+            except Exception:                      # nunca impedir la exportación
+                pipes[i] = copy.deepcopy(win.pipes[i])
+    return pipes, structs
+
+
 def merge_into(win, doc, marks=True):
+    """Escribe el modelo en el DXF. Las utilidades y estructuras van SIN tramos
+    rectos diminutos (`_sin_tramos_diminutos`, sobre copias)."""
+    if not marks:
+        return _merge_into(win, doc, marks)
+    reales = (win.pipes, win.structures)
+    win.pipes, win.structures = _sin_tramos_diminutos(win)
+    try:
+        return _merge_into(win, doc, marks)
+    finally:
+        win.pipes, win.structures = reales
+
+
+def _merge_into(win, doc, marks=True):
     from nucleo import model_ops
     VP.setup_linetypes(doc); msp = doc.modelspace()
     apply_erase(win, msp)                             # las zonas de borrado recortan el plano base
@@ -136,7 +185,8 @@ def merge_into(win, doc, marks=True):
             (1000, f"NET_NAME={p.get('name') or ''}"),
             # Sin nombre: «TIPO-NÚMERO» (el plugin lo usa si su red no trae nombre propio).
             (1000, f"NET_NAME_DEFAULT={model_ops.nombre_por_defecto(p, pipe_idx)}"),
-        ] + [(1000, item) for item in xdata.dxf_items(p)])       # datos extendidos (XD_*/XDU_*)
+        ] + [(1000, item) for item in xdata.dxf_items(p)]        # datos extendidos (XD_*/XDU_*)
+          + _items_normas(p))                                  # tipo y amperaje (Property Set)
     _export_structures(win, doc, msp)
     _export_duct_banks(win, doc, msp)
     _export_cross_connects(win, doc, msp)

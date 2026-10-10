@@ -211,3 +211,22 @@ def test_copiar_de_la_primera_a_las_demas(win, monkeypatch):
     win.copiar_de_la_primera()
     assert vistos[0]["inicial"]["material"] == "HDPE" and vistos[0]["n"] == 1
     assert win.pipes[0]["material"] == "HDPE"
+
+
+def test_tipo_y_amperaje_en_bloque():
+    pipes = [_p(tipo="DISTRIBUCION PRINCIPAL"), _p(amperaje=200.0)]
+    n = E.aplicar(pipes, [0, 1], {"tipo": "INSTALACION DOMICILIARIA", "amperaje": 350.0})
+    assert n == 2 and all(p["tipo"] == "INSTALACION DOMICILIARIA" and p["amperaje"] == 350.0 for p in pipes)
+    E.aplicar(pipes, [0], {"tipo": "", "amperaje": 0})
+    assert pipes[0]["tipo"] == "" and pipes[0]["amperaje"] is None
+    assert E.valores_de(pipes[1])["tipo"] == "INSTALACION DOMICILIARIA"
+
+
+def test_dialogo_tipo_y_amperaje(qapp):
+    from ui.dialogos.edicion_bloque_dialog import EdicionBloqueDialog
+    d = EdicionBloqueDialog(None, "t", 2, "Eléctrico", [], lambda f: [], None, [], [],
+                            tipos=["DISTRIBUCION PRINCIPAL", "INSTALACION DOMICILIARIA"], con_amperaje=True)
+    assert d.cambios() == {}
+    d.cmb_tipo.setCurrentIndex(d.cmb_tipo.findData("INSTALACION DOMICILIARIA"))
+    d.spn_amp.setValue(320)
+    assert d.cambios() == {"tipo": "INSTALACION DOMICILIARIA", "amperaje": 320.0}

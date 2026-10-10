@@ -10,7 +10,7 @@ alcantarillado, drenaje, gas, eléctrico, telecom). Todo en **unidades imperiale
   - `main.py` — punto de entrada (arma `sys.path`: `app/` + raíz).
   - **Carpetas por capa (2026-10-08, en curso)**: `app/nucleo/` = lógica PURA del dominio (sin Qt ni fitz):
     `model`, `model_ops`, `xdata`, `duct_bank`, `unir_utilidades`, `unir_ramales`, `quiebres_curvas`,
-    `accesorios`, `normativas`, `normativas_excel`, `normativas_simple`, `normativas_clearance`, `edicion_bloque`,
+    `accesorios`, `normas_catalogo`, `normas_excel`, `normas_validar`, `tabla_datos`, `modelo3d`, `mallas3d`, `accesorios3d`, `edicion_bloque`,
     `limpieza`, `limpieza_tramos`. Se importan
     como `from nucleo import model_ops` / `from nucleo.model import …` (nunca `import model_ops`: ese nombre
     ya no existe). Regla: la interfaz usa `nucleo`, `nucleo` NUNCA importa la interfaz (PySide6, `i18n`,
@@ -30,11 +30,11 @@ alcantarillado, drenaje, gas, eléctrico, telecom). Todo en **unidades imperiale
     vista previa del reconocimiento y sus vistas: `composite_dialog`/`_view`/`_choice`…, `layer_dialog*` (incl. `layer_dialog_recog`, de dev_santos_v2),
     `layer_info_panel`, `layer_std_legend`, `recognition_dialog` y `recognition_*_view`/`_preview_draw`,
     `wizard_widgets`, `pdf_view_quality`, `alignment_tools`, `tool_strip`…), `ui/dialogos/` (`dialogs`,
-    `normativas_dialog`, `duct_bank_dialog`, `xdata_dialog`, `catalogo_tamanos_dialog`, `manual_dialog`,
+    `normas_dialog`, `tabla_datos_dialog`, `vista3d_dialog`, `edicion_bloque_dialog`, `limpieza_dialog`, `duct_bank_dialog`, `xdata_dialog`, `catalogo_tamanos_dialog`, `manual_dialog`,
     `shortcuts_dialog`, `blank_canvas_dialog`) y `ui/comun/` (`canvas`, `widgets`, `ui_common`, `theme`, `icons`,
-    `busy`, `responsive`, `side_panels`, `thumbnails`, `workers`, `accesorios_view`). Se importan como
-    `from ui.ventana import app_window`, `from ui.comun import widgets`… OJO rutas de recursos: `icons.py` y
-    `normativas_dialog.py` suben TRES carpetas para llegar a `app/icons` y `app/docs` (en el .exe usan
+    `busy`, `responsive`, `side_panels`, `thumbnails`, `workers`, `accesorios_view`, `avisos_view`, `visor3d`, `cubo_vistas`). Se importan como
+    `from ui.ventana import app_window`, `from ui.comun import widgets`… OJO rutas de recursos: `icons.py` sube
+    TRES carpetas para llegar a `app/icons` (en el .exe usan
     `sys._MEIPASS`, donde PDF-a-CAD.spec deja `icons/` y `docs/`). `app/traduccion/` (mismo día) = `i18n`,
     `i18n_core`, `i18n_en`, `i18n_en_changelog` (NO se llama `i18n/`: chocaría con el módulo `i18n.py` y el motor
     puro arrastraría Qt); `i18n.py` sube DOS carpetas para `app/docs` (en el .exe, `_MEIPASS/docs`). En `app/`
@@ -49,7 +49,7 @@ alcantarillado, drenaje, gas, eléctrico, telecom). Todo en **unidades imperiale
     a `ventana_*.py` (`MenuMixin`, `PanelIzquierdoMixin`, `PanelDerechoMixin`, `ModosMixin`, `ClicsMixin`,
     `UtilidadesMixin`, `CatalogoMixin`, `SeleccionMixin`, `ListasMixin`, `MarcasMixin`, `DibujoMixin`,
     `ConflictosMixin`, `CoordsMixin`, `BuzonesMixin`, `MoverPrecisoMixin`, `CurvasMixin`, `HerramientasMixin`,
-    `BancoductosMixin`, y desde 2026-10-08 `EdicionBloqueMixin` de `ventana_bloque`) y `Main` las hereda: `win.<método>` sigue igual (313 métodos, mismo código).
+    `BancoductosMixin`, y desde 2026-10-08 `EdicionBloqueMixin` de `ventana_bloque`, desde 2026-10-10 `Vista3DMixin` de `ventana_vista3d`) y `Main` las hereda: `win.<método>` sigue igual (313 métodos, mismo código).
     `ventana_comun.py` = las MISMAS importaciones de app_window (`from ventana_comun import *`).
     En app_window quedan `__init__`, páginas, deshacer, abrir/asistente, proyecto (con `_dirty`: usa
     `self.__…`, que no puede ir a una mezcla), exportar y arrastrar-soltar. OJO: los métodos que crean
@@ -1112,44 +1112,92 @@ alcantarillado, drenaje, gas, eléctrico, telecom). Todo en **unidades imperiale
     reconocimiento no la cubrió entera: es otro problema), tramos < 3 pt y esquinas de 90° con tramos más
     cortos que T. Tests: `tests/test_quiebres_curvas.py`,
     `tests/test_curvas_editor.py::test_quiebre_del_plano_entra_como_curva_minima` (ventana real → DXF).
-  - **Normativas de diseño** (2026-09-30): `normativas.py` (PURO) = motor escalable: `TIPOS` (tipo de
-    regla: categoría, `Campo`s que la ventana dibuja sola —`grados_lista|grados|pies|utilidades`— y
-    `verificar(regla, Contexto) -> Resultado`), `REGLAS_BASE` (valores iniciales AWWA: codos
-    11.25/22.5/45/90°, Tee 90°, Wye 45°, cruz 90°, ±1°; el CODO se mide como DEFLEXIÓN sobre el EJE
-    —se prolonga el eje del lado recto, pedido del ingeniero 2026-10-07; del 10-01 al 10-06 fue el ángulo
-    ENTRE tuberías—, `a["angulo"]` = `a["giro"]`; catálogo v3: la v2 guardaba ángulos entre tuberías y
-    `cargar_catalogo` los convierte, la v1 ya eran giros), catálogo GLOBAL (`ruta_global`, %APPDATA%/
-    pdf-to-cad/normativas.json, solo las diferencias con la base; env `PDFCAD_NORMATIVAS` en tests) y
-    activación POR PROYECTO (`Main.normas_estado` → `.digproj` `normativas_activas`). Regla nueva =
-    un `TipoRegla` + (opcional) su entrada en `REGLAS_BASE`; la UI no cambia. `accesorios.py` (PURO):
-    tipo + ángulo de cada accesorio de presión con las reglas del plugin (extremos de tramo de la
-    misma red a ≤0.5 ft y ≤0.10 ft de cota, T a mitad de tramo, `FusionarCodosSeguidos` ANTES de
-    agrupar; rejilla espacial: 300 utilidades ≈ 90 ms). `accesorios_view.py`: etiqueta «Codo 45°»
-    (roja = obligatoria incumplida, ámbar = recomendada) en `Main._draw_accesorios` (cada `_redraw`);
-    `btn_normas` en la barra de estado; toggle `act_show_acc` (Ver y Normativas). Ventana
-    `normativas_dialog.py` = QWebEngineView + QWebChannel (`PuenteNormas`) sobre
-    `docs/normativas_ui.html` (SIN textos propios: llegan en `_TEXTOS` traducidos; tema por tokens);
-    `main()` fija `AA_ShareOpenGLContexts` antes de la QApplication. Solo avisa: no mueve geometría
-    ni cambia el plugin. Tests: `tests/test_normativas.py`.
-    **Excel** (2026-10-02): `normativas_excel.py` = plantilla UNIVERSAL (`COLUMNAS`: una fila por regla,
-    encabezados/listas en español fijo = formato de datos, columnas grises de TRAZABILIDAD; hojas
-    Instrucciones/Reglas/Referencias/Notas/Documento/Listas; `exportar`/`importar` → reglas, anexos,
-    errores por fila). `normativas_clearance.py` convierte el Excel de «clearance tables» de los
-    ingenieros (tablas por hoja, «5' MIN.¹», superíndices = referencias por hoja → `REF-nn` únicas,
-    asteriscos → notas): NADA se pierde (`celdas_no_usadas` = [] y test de textos sobre el Excel
-    real); lo dudoso = estado «Revisar». Tipos nuevos `separacion_horizontal|vertical`, `recubrimiento`,
-    `requisito` (`_sin_revision`: se guardan/editan, aún no se verifican; `Resultado.pendiente`).
-    `normativas.json` guarda además `referencias`/`notas`/`documento` (`cargar_anexos`,
-    `Main.normas_anexos`); `fusionar` (importar) y `quitar` (reglas importadas). Ventana simplificada
-    (fila: interruptor · título · valor · estado · Detalles; buscador). Tests:
-    `tests/test_normativas_excel.py`.
-    **Formato SIMPLE** (2026-10-06, contrapropuesta de los ingenieros = formato OFICIAL): `normativas_simple.py`
-    (PURO) — «All (Flat)» una fila por regla en inglés (Utility A/B, Orientation, Case, Min/Max + unidad ft|in,
-    Measured From, Notes, Reference(s) «HOJA:n», Source Sheet; grises opcionales Rule ID/Active/Mandatory/Status/
-    Note IDs para el ida y vuelta), «References», pestaña por utilidad (solo lectura), «Fitting Angles» y «App
-    Notes» (lo que el formato no cubre). `normativas_excel.importar` lo detecta por la hoja «All (Flat)»;
-    «Exportar Excel» usa `normativas_simple.exportar` (la plantilla vieja sigue importándose). Tests:
-    `tests/test_normativas_simple.py`.
+  - **Normativas de diseño EN TABLAS** (2026-10-09; reemplazan al motor de reglas `normativas*.py` y su ventana
+    QtWebEngine, borrados: el .exe ya no lleva QtWebEngine). Formato = el Excel que hizo el ingeniero a mano:
+    `normas_catalogo.py` (PURO) — `BASE` = su contenido (tipos por utilidad, `diametros` de agua/gas por tipo con
+    nota, `accesorios` Y/T/Cruz/Codo/T-Domiciliaria —permitido/prohibido/solo_en, diámetro principal, ramal
+    «-1» = un tamaño menor en la lista del tipo, ángulos del codo solo en DISTRIBUCION PRINCIPAL—, `electricas`
+    por tipo/amperaje/largo); celda vacía = sin restricción o no aplica. Catálogo GLOBAL `ruta()` =
+    %APPDATA%/pdf-to-cad/normativas_tablas.json (env `PDFCAD_NORMAS_TABLAS`; `tests/conftest.py` lo manda a
+    tmp); `normalizar` suma a TIPOS los tipos usados en las tablas; `agregar_tipo` (botón «+»). `normas_excel.py`
+    — `importar` (encabezados por nombre) / `exportar`: hojas TIPOS, PRESION-DIAMETROS, PRESION-ACCESORIOS,
+    ELECT-TELECOM como tablas; desplegables: UTILIDAD = `TIPOS!$K$1:$P$1`, TIPO = `OFFSET(TIPOS!$K$2,…)` sobre un
+    bloque auxiliar OCULTO K:P (ArrayFormula `_xlfn._xlws.FILTER`, una columna por utilidad) que se rellena solo
+    con las filas nuevas de TIPOS. Fórmulas de validación en INGLÉS con openpyxl (por COM Excel las espera
+    localizadas). `normas_validar.py` (PURO) — `validar(cat, pipes, accesorios, ft_per_px, con_bancoducto)` →
+    `Aviso(x, y, clase, mensaje, pipe, info)`: sin tipo / tipo que ya no existe, diámetro según el tipo (nombra el
+    otro tipo si el diámetro es de él; la nota va como `info`), eléctricas (sin amperaje = aviso; con bancoducto
+    no se revisa), accesorios sobre el tipo de la PRINCIPAL (`accesorios.tronco_y_ramal`: nodos T/Y traen
+    `tronco`/`ramal`), T con ramal domiciliario = SOLO la fila «T - Domiciliaria», codo ±1° (`a["angulo"]` =
+    deflexión sobre el eje). Solo avisa: nunca mueve geometría. UI (pedido: «avisos NO invasivos»):
+    `ui/comun/avisos_view.py` (`InsigniaAviso`: circulito ámbar «!», celeste «i» = info; agrupa por punto; «sin
+    tipo» NO se dibuja —52 insignias en un proyecto recién importado—), etiqueta del accesorio en ámbar con «⚠»
+    (`accesorios_view`), `btn_normas` «⚠ N avisos de normativa» (fondo transparente, clic →
+    `open_normativas(en_avisos=True)`), `lbl_normas_pipe` en el panel. `Main._draw_accesorios` calcula todo en
+    cada `_redraw` (`self._normas_avisos`). Panel: `prop_tipo` + «+» verde (`_boton_mas(self._agregar_tipo)`) y
+    `prop_amp` (solo ELECTRICO) → `p["tipo"]`/`p["amperaje"]`; también en `edicion_bloque` y copiar/pegar. DXF:
+    `XD_TIPO`, `XD_AMPERAJE` en `PDFCAD_PIPE` (Property Set de Civil 3D sin tocar el plugin). Ver → submenú
+    `menu_avisos` («Avisos»: conflictos, `act_show_acc`, `act_show_normas` —QSettings `show_normas`—, mostrar/
+    ocultar todos). `ui/dialogos/normas_dialog.py`: pestaña Avisos (clic → `_normas_ir_a`) + las tablas de solo
+    lectura; Importar/Exportar Excel, «Volver a los valores iniciales» (se edita en Excel). `.digproj`: ya no
+    escribe `normativas_activas` (la lee y la ignora). Tests: `tests/test_normas.py`.
+  - **Tabla de datos** (2026-10-09, Herramientas, Ctrl+Shift+T, botón `_act_tabla` `mdi:table-large`):
+    `nucleo/tabla_datos.py` (PURO: `armar(...)` → `Tabla` utilidades/buzones/curvas/bancoductos/avisos, con
+    `lugares` para ir al plano; `exportar_excel` una hoja por tabla) + `ui/dialogos/tabla_datos_dialog.py` (no
+    modal, buscar, ordenar —`_Item` compara números como números—, doble clic → `Main._ir_a_elemento`).
+  - **Vista 3D** (2026-10-10, Ver → «Vista 3D», F3, botón `_act_3d` `mdi:cube-outline`, clic derecho → «Ver en
+    3D»): lo que Civil 3D va a construir, sin exportar. `nucleo/modelo3d.py` (PURO) `construir(pipes, structures,
+    ft, colores, duct_banks, cruces, avisos, choques, ocultas, ver, suelo_z)` → `Escena` (mallas numpy de
+    triángulos, 15 floats por vértice: pos, normal, color, **id** del objeto, eje + radio de la sección en las
+    TUBERÍAS —`barrido_camino(minimo=True)`: el shader las engrosa desde su eje hasta `RADIO_MIN_PX`=1 px de radio
+    si de lejos quedarían más finas (pedido 2026-10-10: en la vista encuadrada desaparecían); accesorios,
+    buzones y sólidos a tamaño real (radio 0)—; `picks` = cápsulas para elegir;
+    `objetos` id → datos; centrada y con el suelo en z = 0). Reglas = las del plugin: eje = solera + medio alto
+    interior; cotas por tramo con `model_ops.cotas_tramo`/`z_en_tramo` (sacadas VERBATIM de `Main._pipe_z_at`,
+    que ahora delega); curvas con `limpieza_tramos.curvas` (= `fillet_geo`); bancoducto reemplaza a su utilidad,
+    FONDO en la cota (CrearDuctBanks); buzón = fondo en la solera más baja (o SUMP), tapa = RIM o fondo +
+    COVER_MIN (5 ft), «Altura» manda, mínimo 1 ft (ImportarRed); sólidos con `solid_top_centrado`; accesorios de
+    `accesorios.accesorios` con la forma de `WyeSolido.cs` en `nucleo/accesorios3d.py` (PURO; espejo de
+    sus constantes, `test_espejo_de_wyesolido`): Tee/Wye/cruz = brazo por tubo (cuerpo 0.75·D/1.25·D, tronco de la
+    Wye +0.03 ft) + campana; `aplanar`, `sacar_campanas`, `separar` como el plugin; codo = cuerpo CURVO
+    (`curva_codo`) + 2 campanas; cada tubo se RECORTA hasta su `alcance` (`cortar`). Sin bolas: el usuario las
+    rechazó (2026-10-10, «no refleja la realidad»), tampoco en los quiebres de las tuberías: `barrido_camino`
+    comparte los anillos en INGLETE (bisectriz, 1/cos(giro/2)) y la curva queda lisa. Dos líneas casi encimadas
+    (Wye a 0.4°) dan brazos de cientos de ft: es lo que haría `SepararBrazos` en Civil 3D; «sin tipo» no se marca (como
+    en el plano). Ids: utilidad i+1, estructura `ID_ESTRUCTURA`+j+1, accesorio, aviso (`objeto_de`). Suelo
+    automático = tapa más alta o 3 ft sobre el tope de la tubería más alta. `nucleo/mallas3d.py`: primitivas
+    (`barrido_camino` VECTORIZADO —un tramo por llamada tardaba 1.4 s con 66 utilidades, ahora ~0.3 s—, `prisma`, `esfera`, `elegir` = rayo contra cápsulas con
+    radio mínimo). `ui/comun/visor3d.py`: `QOpenGLWidget` + shaders GLSL 120 de Qt (SIN dependencias nuevas;
+    pyqtgraph no está instalado y sumaría PyOpenGL al .exe), resaltado por UNIFORMES (`uSel`/`uHov` contra el id
+    del vértice: elegir no reconstruye); los ACCESORIOS no llevan tamaño mínimo (el usuario lo pidió quitar), solo las tuberías; `glBlendFuncSeparate(..., ZERO, ONE)`: con
+    el alfa del framebuffer < 1 Qt componía el widget con el fondo y lo semitransparente salía azul. Navegación
+    Civil 3D (rueda = zoom HACIA EL CURSOR, y en `DIST_MIN_FT` la cámara avanza en vez de trabarse; desplazar con
+    `_pies_por_px` = 60 % del ratón (`DESPLAZAR`), con piso de 0.5 % del modelo —de muy cerca no se movía—; doble clic central = encuadrar todo; central =
+    desplazar, Shift + central = girar; izquierdo = girar, derecho/Ctrl = desplazar). La cámara NO se recuerda:
+    `abrir` → `visor.reiniciar()` si la ventana estaba cerrada. Zoom 5 % por clic (`ZOOM_PASO`=0.95; 15 % y 8 % eran muy
+    sensibles); giro 0.22°/0.16° por píxel (`GIRO_DEG_PX`). **Cubo de vistas** (`ui/comun/cubo_vistas.py`, pedido 2026-10-10, como el ViewCube de Civil 3D):
+    QPainter ENCIMA del GL (proyección ortográfica con la orientación de la cámara), caras con su nombre deformado
+    con `QTransform.quadToQuad`, anillo N/E/S/O (+X este, +Y norte); clic en cara/letra → `Visor3D.animar` (giro
+    suave por el camino corto), arrastrar → orbitar; letras detrás del cubo tapadas y sin clic. OJO OpenGL: el VAO
+    se enlaza SOLO mientras se dibuja el modelo y se apagan los atributos y el test de profundidad antes de
+    QPainter (si no, sus rellenos no salían); `paintGL` repone depth/blend al empezar.
+    **Ficha** (pedido 2026-10-10): `nucleo/ficha3d.py` (PURO, de las MISMAS tablas que «Tabla de datos» sin
+    coordenadas + pendiente + avisos; accesorio: tipo, ángulo, une, diámetros, cota del eje —`modelo3d` registra
+    `pipes/eje_z/x/y`—) + `ui/dialogos/vista3d_ficha.FichaPanel` (Campo | Valor arriba del panel, «Ver en el
+    plano», «Copiar»); sigue la selección del plano; un accesorio elegido en 3D = `_sel_local`. Esc NO cierra
+    (`keyPressEvent`): `deseleccionar` (3D, ficha y plano) o nada; clic en el vacío también deselecciona.
+    Abandonadas A TRAZOS (`mallas3d.trozos`, trazo ≥3 ft o 4·D, hueco 60 %; antes semitransparentes). Cámara
+    por defecto en PLANTA (`VISTAS["arriba"]`) y encuadrada.
+    `ui/dialogos/vista3d_dialog.py`: ventana no modal (barra Encuadrar/Arriba/Frente/Lateral/Isométrica/«Seguir
+    la selección», panel = utilidades con su color = leyenda, mostrar, suelo con «Restablecer»; sin exagerar la altura: el
+    usuario la pidió quitar), línea de estado con
+    lo que hay bajo el cursor); `construir` corre en `QThreadPool` sobre COPIAS, con pausa de 350 ms y firma
+    (json de los datos: si no cambió, no recalcula). `ui/ventana/ventana_vista3d.py` (`Vista3DMixin`):
+    `abrir_vista3d`, `ver_en_3d`, `_vista3d_al_dia` (al final de `_draw_accesorios`, o sea de cada `_redraw`).
+    Al abrir, `_guardar_antes_de_3d` (pedido 2026-10-10, «por si acaso»): con archivo y `_has_real_changes` →
+    `_write_project`; sin archivo → `autoguardado.guardar_ahora()` (copia de recuperación), NUNCA «Guardar como».
+    Ajustes en QSettings «pdf-to-cad»/«vista3d». Sin OpenGL 2.1 la ventana lo dice (no se cae; offscreen arma la
+    escena sin dibujar). Tests: `tests/test_vista3d.py`.
   - **Unir utilidades** (2026-10-02): `unir_utilidades.py` (PURO) `planificar(pipes, filas, base,
     ft_per_px)` → `Plan` (pipe unida, empalmes, absorbidas, avisos): encadena punta con punta desde la
     BASE (la 1.ª seleccionada, `Main._orden_sel`; sus datos mandan), `invertir` las que van al revés,
@@ -1189,7 +1237,11 @@ alcantarillado, drenaje, gas, eléctrico, telecom). Todo en **unidades imperiale
     esquina ≤0.5 ft por la recta del otro lado con esa tangencia fija (la esquina es virtual: sobre otra
     utilidad solo si sigue sobre ella), o quitar el ancla + correr la esquina. Foto del proyecto de prueba
     (2.ª versión): 9 tramos arreglados, 0 sin arreglar; lo DIBUJADO (rectas + arcos) se aparta <0.05 ft.
-    Tests: `tests/test_limpieza.py` (incluye la geometría real de la #52 y que el dibujo no cambia).
+    Tests: `tests/test_limpieza.py` (incluye la geometría real de la #52 y que el dibujo no cambia). **El DXF
+    SIEMPRE sin tramos diminutos** (2026-10-09, «resuélvelo de una vez»: el usuario exportaba sin pulsar
+    «Arreglar» / con un .exe viejo): `dxf_export.merge_into` cambia por un rato `win.pipes/structures` por
+    COPIAS pasadas por `limpieza_tramos.arreglar` (`_sin_tramos_diminutos`) y escribe con `_merge_into`;
+    el proyecto no se toca. Test `test_el_dxf_sale_sin_tramos_diminutos_aunque_no_se_limpie`.
   - `model.py` — constantes, `VERSION`, `CHANGELOG`, capas Z, tabs.
   - `dxf_export.py` — exporta el DXF con XDATA `PDFCAD`.
   - `civil_catalog.py` — lee el catálogo imperial de Civil 3D (familias/tamaños/GUID).

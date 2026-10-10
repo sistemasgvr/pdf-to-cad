@@ -104,7 +104,8 @@ class EdicionBloqueMixin:
             self, titulo, len(filas), self._tipo(capa), familias, tamanos,
             edicion_bloque.familia_comun(self.pipes, filas),
             self._items_combo(self.prop_material), self._items_combo(self.prop_nettype),
-            inicial=inicial, datos=(inicial or {}).get("datos"), con_bancoducto=len(con_db), saltadas=saltadas)
+            inicial=inicial, datos=(inicial or {}).get("datos"), con_bancoducto=len(con_db), saltadas=saltadas,
+            tipos=normas_catalogo.tipos_de(self.normas_cat, capa), con_amperaje=(capa == "ELECTRICO"))
         if dlg.exec() != QtWidgets.QDialog.Accepted:
             return
         cambios = dlg.cambios()
@@ -162,8 +163,11 @@ class EdicionBloqueMixin:
                     "No hay utilidades dibujadas (o falta la escala de la hoja)."))
             return True
         protegidas = self._protegidas_limpieza()
+        # Al exportar, los tramos diminutos no se preguntan: el DXF los corrige solo
+        # (dxf_export._sin_tramos_diminutos). Solo lo que cambia el dibujo de verdad.
+        tipos = ("punta", "corta", "duplicada") if exportando else limpieza.TIPOS
         previa = limpieza.limpiar(copy.deepcopy(self.pipes), copy.deepcopy(self.structures), ft,
-                                  protegidas=protegidas)
+                                  tipos=tipos, protegidas=protegidas)
         if exportando and not previa.arreglos:
             return True
         if not previa.cambios:

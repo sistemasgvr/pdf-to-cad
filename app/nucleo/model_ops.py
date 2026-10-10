@@ -329,6 +329,62 @@ def interp_vertex_z(pts, z_start, z_end, overrides):
     return z
 
 
+def cotas_tramo(p, seg_idx):
+    """(z al inicio, z al fin) del tramo `seg_idx` de la utilidad `p` (soleras), o None.
+    Usa las cotas por vértice (VertexInv/VertexInvIn) con el mismo criterio que
+    `interp_vertex_z`. Sin `inv_start`/`inv_end` (tubería recién dibujada) asume Z=0
+    — mismo valor que muestra el spinbox de la UI por defecto. Lo usan el lienzo
+    (`Main._pipe_z_at`) y la vista 3D."""
+    pts = p.get("pts") or []
+    if seg_idx < 0 or seg_idx >= len(pts) - 1: return None
+    n = len(pts)
+    zs = p.get("inv_start"); ze = p.get("inv_end")
+    # None → 0.0 (coincide con el valor por defecto que ve el usuario).
+    if zs is None: zs = 0.0 if ze is None else ze
+    if ze is None: ze = zs
+    zs = float(zs); ze = float(ze)
+    # Cotas por tramo: el modelo usa DOS diccionarios independientes
+    # —vertex_inv_out (cota de SALIDA de cada vértice = "Inicio" del tramo
+    # que sale) y vertex_inv_in (cota de ENTRADA = "Fin" del tramo que
+    # llega)—. Antes esto leía el `vertex_inv` viejo (un solo dict), que
+    # `migrate_vertex_inv` YA elimina con pop → quedaba siempre {} y la
+    # detección de conflictos ignoraba las ediciones de la tabla "Cotas por
+    # tramo" (solo reaccionaba a inv_start/inv_end). Ahora se replica EXACTO
+    # el criterio de _rebuild_seg_inv_table para que el cruce se reclasifique
+    # igual que lo muestra la tabla.
+    def _norm(d): return {int(k): float(v) for k, v in (d or {}).items()}
+    ov_out = _norm(p.get("vertex_inv_out"))
+    ov_in  = _norm(p.get("vertex_inv_in"))
+    if not ov_out and not ov_in:
+        # Pipe aún sin migrar (no pasó por la tabla): usa el dict viejo.
+        viejo = _norm(p.get("vertex_inv"))
+        ov_out = dict(viejo); ov_in = dict(viejo)
+    auto_out = interp_vertex_z(pts, zs, ze, ov_out)
+    auto_in  = interp_vertex_z(pts, zs, ze, ov_in)
+    v0, v1 = seg_idx, seg_idx + 1
+    # z al INICIO del segmento = cota de salida del vértice v0.
+    z0 = zs if v0 == 0 else ov_out.get(v0, auto_out[v0])
+    # z al FIN del segmento = cota de entrada del vértice v1.
+    z1 = ze if v1 == n - 1 else ov_in.get(v1, auto_in[v1])
+    return z0, z1
+
+
+def z_en_tramo(p, seg_idx, x, y):
+    """Cota Z (solera) de la utilidad `p` en (x, y), que cae en el tramo `seg_idx`
+    (entre pts[seg_idx] y pts[seg_idx+1]): interpolación lineal sobre el tramo."""
+    zz = cotas_tramo(p, seg_idx)
+    if zz is None: return None
+    z0, z1 = zz
+    # Interpolación lineal a lo largo del segmento.
+    pts = p["pts"]
+    a = pts[seg_idx]; b = pts[seg_idx + 1]
+    dx, dy = b[0] - a[0], b[1] - a[1]
+    seg_len2 = dx * dx + dy * dy
+    if seg_len2 < 1e-9: return z0
+    t = max(0.0, min(1.0, ((x - a[0]) * dx + (y - a[1]) * dy) / seg_len2))
+    return z0 + (z1 - z0) * t
+
+
 def migrate_vertex_inv(p):
     """Migra el formato viejo (vertex_inv compartido) al nuevo
     (vertex_inv_out + vertex_inv_in independientes)."""

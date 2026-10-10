@@ -91,6 +91,11 @@ class SeleccionMixin:
             # Guardamos el VALOR real (data), no el texto traducido en pantalla.
             p["material"] = self.prop_material.currentData() or self.prop_material.currentText()
             p["net_type"] = self.prop_nettype.currentData() or ""
+            # Tipo y amperaje de las normativas en tablas (normas_validar).
+            if self.prop_tipo.count():
+                p["tipo"] = self.prop_tipo.currentData() or ""
+            if (p.get("layer") or "") == "ELECTRICO":
+                p["amperaje"] = self.prop_amp.value() or None
             # Familia + tamaño del catálogo Civil 3D. El diámetro se deriva del tamaño.
             if self.prop_family.isVisibleTo(self.gprop):     # no depende de que el panel esté desplegado
                 p["pipe_family"] = self.prop_family.currentData() or ""
@@ -239,6 +244,7 @@ class SeleccionMixin:
         """Entradas del menú contextual de UNA utilidad (lista y lienzo)."""
         self._menu_act(menu, "Cambiar tipo", self.change_pipe_type)
         self._menu_act(menu, "Editar/mover", self.enter_move)
+        self._menu_act(menu, _tr("Ver en 3D"), self.ver_en_3d)
         menu.addSeparator()
         self._menu_act(menu, _tr("Copiar propiedades"), self.copiar_propiedades)
         if getattr(self, "_props_copiadas", None):

@@ -45,7 +45,7 @@ from nucleo import quiebres_curvas
 from ui.comun.responsive import WrapButton, WrapCheckBox, ResponsiveGroupBox, GridAdaptable  # noqa: E402
 from ui.comun import side_panels  # noqa: E402
 from ui.ventana import autoguardado  # noqa: E402
-from nucleo import normativas
+from nucleo import normas_catalogo, normas_validar
 from nucleo.model import (VERSION, TIPOS, ACI_RGB, LEADER_TEXT_FT, LEADER_ORIENT,
                    Z_PDF, Z_ERASE, Z_MARK, Z_HANDLE, GRAVITY_LAYERS,
                    TAB_PIPE, TAB_LEADER, TAB_TEXT, TAB_REGION, TAB_BZ, TAB_CURVE, TAB_CL,
@@ -88,9 +88,10 @@ from ui.ventana.ventana_curvas import CurvasMixin
 from ui.ventana.ventana_herramientas import HerramientasMixin
 from ui.ventana.ventana_bancoductos import BancoductosMixin
 from ui.ventana.ventana_bloque import EdicionBloqueMixin
+from ui.ventana.ventana_vista3d import Vista3DMixin
 
 
-class Main(MenuMixin, PanelIzquierdoMixin, PanelDerechoMixin, ModosMixin, ClicsMixin, UtilidadesMixin, CatalogoMixin, SeleccionMixin, ListasMixin, MarcasMixin, DibujoMixin, ConflictosMixin, CoordsMixin, BuzonesMixin, MoverPrecisoMixin, CurvasMixin, HerramientasMixin, BancoductosMixin, EdicionBloqueMixin,
+class Main(MenuMixin, PanelIzquierdoMixin, PanelDerechoMixin, ModosMixin, ClicsMixin, UtilidadesMixin, CatalogoMixin, SeleccionMixin, ListasMixin, MarcasMixin, DibujoMixin, ConflictosMixin, CoordsMixin, BuzonesMixin, MoverPrecisoMixin, CurvasMixin, HerramientasMixin, BancoductosMixin, EdicionBloqueMixin, Vista3DMixin,
            QtWidgets.QMainWindow):
     def __init__(self):
         super().__init__()
@@ -141,11 +142,10 @@ class Main(MenuMixin, PanelIzquierdoMixin, PanelDerechoMixin, ModosMixin, ClicsM
         self.ref_centerlines = []; self._cl_pts = []
         self.duct_banks = []   # colección del proyecto — ver duct_bank.py
         self.cross_connections = []   # conexiones aprobadas en cruces físicos
-        # Normativas de diseño: catálogo GLOBAL (valores) + qué reglas activa este
-        # proyecto ({id: bool}, va al .digproj). Ver normativas.py.
-        self.normas = normativas.cargar_catalogo(); self.normas_estado = {}
-        self.normas_anexos = normativas.cargar_anexos()     # referencias/notas del Excel
-        self._normas_lista = []; self._normas_dlg = None
+        # Normativas de diseño en tablas: catálogo GLOBAL (el Excel del usuario, ver
+        # normas_catalogo.py) y los avisos del proyecto (normas_validar, en cada redibujo).
+        self.normas_cat = normas_catalogo.cargar()
+        self._normas_avisos = []; self._normas_dlg = None; self._tabla_dlg = None
         self.mode = "idle"; self._pending = None
         self.snap = False; self.snap_r = 14
         self.sel_pipe = -1; self.sel_leader = -1; self.sel_region = -1; self.sel_text = -1; self.sel_bz = -1
@@ -1127,7 +1127,6 @@ class Main(MenuMixin, PanelIzquierdoMixin, PanelDerechoMixin, ModosMixin, ClicsM
         self.ref_centerlines = []; self._cl_pts = []
         self.duct_banks = []
         self.cross_connections = []
-        self.normas_estado = {}
         self.sel_pipe = self.sel_leader = self.sel_region = self.sel_text = -1
         self.sel_cl = -1
         self._overlay = []; self._close_editor(); self._dirty = False; self._extending = False
@@ -1285,7 +1284,6 @@ class Main(MenuMixin, PanelIzquierdoMixin, PanelDerechoMixin, ModosMixin, ClicsM
             self.ref_centerlines = data["ref_centerlines"]
             self.duct_banks = data.get("duct_banks", [])
             self.cross_connections = data.get("cross_connections", []) or []
-            self.normas_estado = data.get("normativas_activas", {}) or {}
             self.georef = data["georef"]
             self.work_unit = data["work_unit"]
             self.cur_pts = []; self._erase_pts = []; self.sel_pipe = self.sel_leader = self.sel_region = self.sel_text = -1
@@ -1438,7 +1436,7 @@ class Main(MenuMixin, PanelIzquierdoMixin, PanelDerechoMixin, ModosMixin, ClicsM
         self.hidden_ocgs_by_source = {}
         self.hidden_ocgs = []
         self.pipes = []; self.leaders = []; self.text_marks = []; self.erase_regions = []; self.structures = []
-        self.duct_banks = []; self.cross_connections = []; self.normas_estado = {}
+        self.duct_banks = []; self.cross_connections = []
         self.ref_centerlines = []; self._cl_pts = []
         self._recog_cache.clear()
         self.cur_pts = []; self._erase_pts = []; self._overlay = []; self._close_editor()
@@ -1628,7 +1626,7 @@ class Main(MenuMixin, PanelIzquierdoMixin, PanelDerechoMixin, ModosMixin, ClicsM
 
 
 def main():
-    # La ventana de Normativas usa QtWebEngine: exige esto ANTES de crear la app.
+    # La Vista 3D usa QOpenGLWidget: Qt pide esto ANTES de crear la app.
     QtCore.QCoreApplication.setAttribute(QtCore.Qt.AA_ShareOpenGLContexts)
     app = QtWidgets.QApplication(sys.argv)
     app._no_wheel_filter = _NoWheelFilter(app)

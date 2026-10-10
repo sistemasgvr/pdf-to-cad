@@ -93,6 +93,16 @@ def clasificar(salidas):
     return None
 
 
+def tronco_y_ramal(salidas):
+    """(índices de las dos salidas del TRONCO, índice del RAMAL) de un nodo de 3
+    salidas: el tronco es el par más abierto (como `clasificar`). None si no son 3."""
+    if len(salidas) != 3:
+        return None
+    i, j = max(((i, j) for i in range(3) for j in range(i + 1, 3)),
+               key=lambda ij: _entre(salidas[ij[0]], salidas[ij[1]]))
+    return (i, j), 3 - i - j
+
+
 def _proyeccion(p, a, b):
     """(t, distancia) de p sobre el segmento a→b."""
     dx, dy = b[0] - a[0], b[1] - a[1]
@@ -235,6 +245,11 @@ def accesorios(pipes, z_at, ft_per_px):
             nodo = {"x": x, "y": y, "tipo": tipo, "angulo": ang, "red": ext[miembros[0]][2],
                     "giro": ang if tipo == "codo" else None,
                     "capa": pipes[ids[0]].get("layer") or "", "pipes": ids, "n": len(miembros)}
+            tr = tronco_y_ramal([ext[e][5] for e in miembros])
+            if tr is not None:                     # Tee/Wye: qué utilidad es el ramal
+                (ti, tj), ri = tr
+                nodo["tronco"] = sorted({ext[miembros[ti]][3], ext[miembros[tj]][3]})
+                nodo["ramal"] = ext[miembros[ri]][3]
             if tipo == "codo" and any((fx - x) ** 2 + (fy - y) ** 2 <= tol2 for fx, fy in fundidos):
                 nodo["fundido"] = True
             nodos.append(nodo)

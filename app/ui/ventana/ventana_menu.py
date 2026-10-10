@@ -84,10 +84,18 @@ class MenuMixin:
             "  · Rojo ⚠: conflicto (misma cota o sin cota → chocan).\n"
             "Apagarlo oculta las marcas y el contador de la barra de estado.")
         self.chk_show_conflicts.toggled.connect(self._on_toggle_show_conflicts)
-        mview.addAction(self.chk_show_conflicts)
+        # Ver → Avisos ▸ (pedido del usuario 2026-10-09): todos los tipos de aviso del
+        # lienzo juntos en un submenú que se abre al pasar el ratón, con «Mostrar todos»
+        # y «Ocultar todos». Las acciones son las mismas de siempre (y van también en
+        # el menú Normativas).
+        self.menu_avisos = _menu(mview, "Avisos")
+        # Vista 3D (2026-10-10): lo que Civil 3D va a construir, sin exportar.
+        _act(mview, "Vista 3D", self.abrir_vista3d, "F3")
         mtools = _menu(mb, "&Herramientas")
         _act(mtools, "Componer hoja de trabajo…", self.compose_sheet)
         _act(mtools, "Componer PDF imagen/escaneo…", self.compose_scan_sheet)
+        mtools.addSeparator()
+        _act(mtools, "Tabla de datos…", self.abrir_tabla_datos, "Ctrl+Shift+T")
         mtools.addSeparator()
         _act(mtools, "Insertar buzón en línea…", self.insert_manhole)
         _act(mtools, "Revisar y limpiar el dibujo…", self.revisar_dibujo)
@@ -96,7 +104,7 @@ class MenuMixin:
         mtools.addSeparator()
         _act(mtools, "Georreferenciar…", self.open_georef)
         _act(mtools, "Quitar georreferencia", self.clear_georef)
-        # Normativas de diseño (normativas.py + ventana HTML normativas_dialog.py).
+        # Normativas de diseño en tablas (normas_catalogo/normas_validar + normas_dialog.py).
         mnorm = _menu(mb, "&Normativas")
         _act(mnorm, "Normativas de diseño…", self.open_normativas, "Ctrl+Shift+N")
         mnorm.addSeparator()
@@ -109,10 +117,26 @@ class MenuMixin:
             _acc_pref = True
         self.act_show_acc.setChecked(bool(_acc_pref))
         _bind(self.act_show_acc, "setToolTip", "Muestra junto a cada codo, Tee, Wye o cruz de agua y gas el accesorio "
-              "que se pondrá en Civil 3D y su ángulo; en rojo si incumple una normativa.")
+              "que se pondrá en Civil 3D y su ángulo; en ámbar si tiene un aviso de normativa.")
         self.act_show_acc.toggled.connect(self._on_toggle_show_acc)
+        # Avisos de normativa (tipo, diámetro, amperaje, accesorios): circulito discreto.
+        self.act_show_normas = _bind(QtGui.QAction(self), "setText", "Mostrar avisos de normativa")
+        self.act_show_normas.setCheckable(True)
+        try:
+            _nor_pref = QtCore.QSettings("pdf-to-cad", "app").value("show_normas", True, type=bool)
+        except Exception:
+            _nor_pref = True
+        self.act_show_normas.setChecked(bool(_nor_pref))
+        _bind(self.act_show_normas, "setToolTip", "Un circulito pequeño donde una utilidad o un accesorio no cumple "
+              "las normativas (tipo, diámetro, amperaje…). Pasa el ratón para leerlo.")
+        self.act_show_normas.toggled.connect(self._on_toggle_show_normas)
+        mnorm.addAction(self.act_show_normas)
         mnorm.addAction(self.act_show_acc)
-        mview.addAction(self.act_show_acc)
+        for a in (self.chk_show_conflicts, self.act_show_acc, self.act_show_normas):
+            self.menu_avisos.addAction(a)
+        self.menu_avisos.addSeparator()
+        _act(self.menu_avisos, "Mostrar todos", lambda: self._mostrar_avisos(True))
+        _act(self.menu_avisos, "Ocultar todos", lambda: self._mostrar_avisos(False))
         mhelp = _menu(mb, "A&yuda")
         _act(mhelp, "Acerca de…", self.show_about)
         _act(mhelp, "Manual de usuario", self.show_manual)
@@ -159,6 +183,10 @@ class MenuMixin:
         tb.addSeparator()
         self._act_undo = tact("mdi:undo-variant", "Deshacer (Ctrl+Z)", self.undo)
         self._act_redo = tact("mdi:redo-variant", "Rehacer (Ctrl+Shift+Z)", self.redo)
+        tb.addSeparator()
+        self._act_tabla = tact("mdi:table-large", "Tabla de datos: utilidades, buzones, curvas… (Ctrl+Shift+T)",
+                               self.abrir_tabla_datos)
+        self._act_3d = tact("mdi:cube-outline", "Vista 3D: lo que Civil 3D va a construir (F3)", self.abrir_vista3d)
         tb.addSeparator()
         spacer = QtWidgets.QWidget(); spacer.setSizePolicy(QtWidgets.QSizePolicy.Expanding, QtWidgets.QSizePolicy.Preferred); tb.addWidget(spacer)
         # Sin selector de unidad: TODO va en pies por campo (cotas/coordenadas),
@@ -230,13 +258,14 @@ class MenuMixin:
         self.lbl_snap = QtWidgets.QLabel("")
         self.lbl_snap.setStyleSheet("color:#1ec83c; font-weight:bold;")
         self.status.addWidget(self.lbl_snap)
-        # Incumplimientos de normativas: botón rojo que abre la ventana (oculto si todo cumple).
+        # Avisos de normativa: texto discreto (ámbar) que abre la lista (oculto si todo cumple).
         self.btn_normas = QtWidgets.QPushButton("")
         self.btn_normas.setFlat(True); self.btn_normas.setCursor(QtCore.Qt.PointingHandCursor)
-        self.btn_normas.setStyleSheet("QPushButton{color:#ff5a5a; font-weight:bold; border:0; padding:0 6px;}"
+        self.btn_normas.setStyleSheet("QPushButton{color:#e0a020; background:transparent; font-weight:600; "
+                                      "border:0; padding:0 6px;}"
                                       "QPushButton:hover{text-decoration:underline;}")
-        _bind(self.btn_normas, "setToolTip", "Accesorios que no cumplen las normativas activas. Clic para verlos.")
-        self.btn_normas.clicked.connect(self.open_normativas)
+        _bind(self.btn_normas, "setToolTip", "Avisos de normativa del proyecto. Clic para verlos.")
+        self.btn_normas.clicked.connect(lambda: self.open_normativas(en_avisos=True))
         self.btn_normas.hide()
         self.status.addWidget(self.btn_normas)
         self.lbl_coords = QtWidgets.QLabel("X —  Y —  Z —")

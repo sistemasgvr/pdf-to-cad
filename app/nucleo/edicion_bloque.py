@@ -15,6 +15,8 @@ presión o conducto) y una familia de agua no sirve para una línea eléctrica.
   ab       → abandonada (True/False)
   datos    → campos de los datos extendidos del usuario (se suman; uno con el mismo
              nombre se reemplaza, los demás se conservan)
+  tipo     → tipo de la utilidad para las normativas («» = sin tipo; normas_catalogo)
+  amperaje → amperaje en A (None = sin dato; solo tiene sentido en eléctrico)
 """
 from __future__ import annotations
 
@@ -23,7 +25,7 @@ import re
 from nucleo import xdata
 from nucleo.model_ops import DIAM_DEFECTO_IN
 
-CAMPOS = ("familia", "tamano", "net_type", "material", "ab", "datos")
+CAMPOS = ("familia", "tamano", "net_type", "material", "ab", "datos", "tipo", "amperaje")
 
 
 def tipos(pipes, filas):
@@ -57,6 +59,8 @@ def valores_de(p):
         "material": p.get("material") or "",
         "ab": bool(p.get("ab")),
         "datos": dict(xdata.get(p)[xdata.USER]),
+        "tipo": p.get("tipo") or "",
+        "amperaje": p.get("amperaje"),
     }
 
 
@@ -93,6 +97,10 @@ def aplicar(pipes, filas, cambios, sin_familia=()):
             p["material"] = cambios["material"]
         if "ab" in cambios:
             p["ab"] = bool(cambios["ab"])
+        if "tipo" in cambios:
+            p["tipo"] = cambios["tipo"] or ""
+        if "amperaje" in cambios:
+            p["amperaje"] = cambios["amperaje"] or None
         if cambios.get("datos"):
             user = xdata.get(p)[xdata.USER]
             user.update({str(k): str(v) for k, v in cambios["datos"].items()})

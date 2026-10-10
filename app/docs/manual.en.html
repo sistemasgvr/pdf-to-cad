@@ -660,111 +660,126 @@ These alerts do not appear on storm drain and sewer: there the manhole handles d
 </section>
 
 <section data-title="Design standards">
-<p>The <b>Standards → Design standards…</b> menu (<span class="key">&nbsp;Ctrl+Shift+N&nbsp;</span>)
-opens a window with the rules the app checks in your design before taking it to Civil 3D.
-You can keep it open while you draw: it updates by itself.</p>
+<p>The standards are a <b>simple Excel file</b> with four tables. <b>Standards → Design standards…</b>
+(<span class="key">&nbsp;Ctrl+Shift+N&nbsp;</span>) shows them as they are, together with the project
+<b>warnings</b>. They apply to all your projects on this computer.</p>
 
-<h2>Fittings on the plan</h2>
-<p>In water and gas, next to each point where Civil 3D will place a solid fitting there is a label
-with its <b>type and angle</b>: «Bend 45°», «Tee 90°», «Wye 45°», «Cross 90°».</p>
-<p>For a bend, the angle is measured on the <b>axis</b>: the axis of the straight side is extended
-and you read how much the other side deviates (0° = straight). A commercial «45°» bend reads
-<b>45°</b>, as it is purchased. The same angle goes to the bend's Property Set in Civil 3D.</p>
+<h2>The tables</h2>
 <table width="100%" cellspacing="4" cellpadding="10">
-<tr><td bgcolor="{{card}}" width="30%"><b>Dark label</b></td>
-    <td bgcolor="{{card}}">Meets the active design standards.</td></tr>
-<tr><td bgcolor="{{danger}}"><b>Red label ✗</b></td>
-    <td bgcolor="{{card}}">Breaks a <b>mandatory</b> standard. Hover to see which one and the closest allowed angle.</td></tr>
-<tr><td bgcolor="{{card}}"><b>Amber label ✗</b></td>
-    <td bgcolor="{{card}}">Breaks a <b>recommended</b> standard.</td></tr>
+<tr><td bgcolor="{{card}}" width="28%"><b>TIPOS</b></td>
+    <td bgcolor="{{card}}">The types each utility can choose: main distribution, service connection…</td></tr>
+<tr><td bgcolor="{{card}}"><b>PRESION-DIAMETROS</b></td>
+    <td bgcolor="{{card}}">Which diameters each water or gas type uses (with a note if it is only allowed in one
+        case, for example cul-de-sacs).</td></tr>
+<tr><td bgcolor="{{card}}"><b>PRESION-ACCESORIOS</b></td>
+    <td bgcolor="{{card}}">Where each fitting (Y, T, Cross, Bend, service T) is allowed or forbidden, the main line
+        diameter, the branch one (<b>-1</b> = one size smaller in the list) and the bend angles.</td></tr>
+<tr><td bgcolor="{{card}}"><b>ELECT-TELECOM</b></td>
+    <td bgcolor="{{card}}">Fixed, minimum or maximum diameter by type, <b>amperage</b> and line length.</td></tr>
 </table>
-<p>The status bar shows «✗ N outside the standards»; click it to open the window. To hide the
-labels: <b>View → Show fittings (type and angle)</b> (checking keeps working).
-The app only warns: it does not move anything in the drawing.</p>
+<p>Empty cell = no restriction or not applicable. Lists with “;” and decimal comma (<i>1; 1,5; 2</i>), ranges
+like <i>0-320</i>.</p>
 
-<h2>The standards window</h2>
+<h2>Editing the standards</h2>
 <ol>
-<li>On the left, pick a category (fittings, clearances, cover, other requirements) or <b>Violations</b>,
-    each with a <b>Show on the plan</b> button.</li>
-<li>Each rule is <b>one row</b>: the switch (<b>active in this project</b>), its name, the value (for
-    example «≥ 5 ft») and its status (✓ meets, ✗ fails, or «Not checked on the plan yet»).</li>
-<li><b>Details</b> opens everything else: original text, measured from, references, notes,
-    <b>Mandatory / Recommended</b> (red or amber warning) and the values to edit them.</li>
-<li><b>Search rule…</b> filters by any word («gas track», «cover»…).</li>
-<li><b>A− / A+</b> change the text size. Everything works with the keyboard: Tab to move,
-    Space or Enter to activate.</li>
+<li><b>Export Excel…</b> saves the Excel file with everything there is now (also the types you added).</li>
+<li>Edit it in Excel. The drop-downs help: <b>UTILIDAD</b> lists the six utilities and <b>TIPO</b> only the
+    types of that row's utility. A new type written as a new row in the TIPOS sheet appears in the drop-downs by
+    itself.</li>
+<li><b>Import Excel…</b> brings it back. <b>Restore the initial values</b> undoes everything.</li>
 </ol>
-<p>Initial values (AWWA): bends of <b>11.25°, 22.5°, 45° and 90°</b>
-(deviation on the axis); tee at 90°; wye at 45°; cross at 90°; tolerance ±1°.
-Clearances, cover and requirements that come from the Excel are stored, edited and exported, but they
-are <b>not checked on the plan yet</b> (each row says so).</p>
 
-<h2>Simple format (the official one for new standards)</h2>
-<p><b>Export Excel</b> saves the format proposed by the civil engineers, in English and readable without the
-app. <b>Import Excel</b> recognizes it automatically (also the template below and the clearance tables).</p>
+<h2>Type and amperage of each utility</h2>
+<p>In <b>Utility properties</b> choose its <b>Type</b>. The green <b>+</b> button adds a new type to that utility:
+it stays in the standards and goes into their Excel when exporting it. On electrical lines also enter the
+<b>Amperage</b> (informative). For several at once: <b>Bulk edit</b> (Ctrl+E).</p>
+
+<h2>Warnings</h2>
+<p>The app only warns: it never changes the drawing. Warnings are discreet:</p>
 <ul>
-<li><b>All (Flat)</b>: one row per rule — Utility A, Utility B (another utility, RAILROAD TRACK, CURB &amp;
-    GUTTER, CATCH BASIN, MAINTENANCE HOLE or COVER = depth of cover), Orientation (Horizontal/Vertical), Case
-    («General» or the condition), Min and Max with their unit (<b>ft</b> or <b>in</b>), Measured From, Notes,
-    Reference(s) («W-2:7») and Source Sheet. A row without a number is a written requirement.</li>
-<li><b>References</b>: Source Sheet, Ref # and the text of each reference.</li>
-<li>One tab per utility (a copy for reading; edit «All (Flat)»), <b>Legend</b> and
-    <b>How to Add a Utility</b>. The grey columns on the right (Rule ID, Active, Mandatory, Status,
-    Note IDs) are filled by the app; leave them empty in new rules.</li>
+<li>a small <b>amber “!” circle</b> where something does not comply (light blue “i” if it is only a condition
+    of use); hover over it to read it;</li>
+<li>the fitting label in <b>amber</b> (“30° bend ⚠”);</li>
+<li>the text under <b>Amperage</b> in the utility panel;</li>
+<li>“⚠ N standards warnings” on the status bar: a click opens the list; clicking a warning goes to the place.</li>
 </ul>
-<p>Whatever the app does not know (a new element, a reference missing from «References») is still imported
-with the <b>Review</b> status.</p>
-<h2>Standards in Excel (for the engineers)</h2>
-<p>Previously, rules were exchanged with a <b>universal Excel template</b> (it can still be imported): one row per rule, with drop-down lists, so
-the engineer does not have to type free text.</p>
-<table width="100%" cellspacing="4" cellpadding="10">
-<tr><td bgcolor="{{card}}" width="28%"><b>Export Excel</b></td>
-    <td bgcolor="{{card}}">Saves the template with <b>all</b> the rules you have now (changed or not), with
-        their references and notes. It also works as a blank format: add rows at the end.</td></tr>
-<tr><td bgcolor="{{card}}"><b>Import Excel</b></td>
-    <td bgcolor="{{card}}">Reads the filled template. Before saving it shows how many rules are new, how many
-        are updated and the rows with errors (with their row number); those are not imported. It also
-        accepts the <b>clearance tables</b> Excel the engineers used: it converts it automatically.</td></tr>
-</table>
-<p>Template sheets:</p>
+<p>“No type” is not marked on the plan (a freshly imported project would have dozens): it shows in the panel,
+the list and the counter. Warning types are shown or hidden in <b>View → Warnings</b> (crossings and
+conflicts, fittings, standards warnings, show or hide all).</p>
+<table width="100%" cellspacing="0" cellpadding="12"><tr>
+<td width="6" bgcolor="{{tip_border}}"></td><td bgcolor="{{tip}}">
+<b>Example:</b> on a water tee, if the branch is of type service connection it is checked with the
+“T - Domiciliaria” row (branch of 1, 1.5 or 2 in); otherwise with the “T” row: main line in main distribution and
+the branch one size smaller (12 → 8). A 6 in main has no smaller size: warning.
+</td></tr></table>
+</section>
+
+<section data-title="Data table">
+<p><b>Tools → Data table…</b> (<span class="key">&nbsp;Ctrl+Shift+T&nbsp;</span>, or the table button on the top bar)
+shows all the project information in tabs: <b>utilities</b> (name, type, status, family, size, diameter, length,
+elevations, amperage, duct bank, coordinates and warnings), <b>manholes and boxes</b>, <b>curves</b>,
+<b>duct banks</b> and <b>standards warnings</b>.</p>
 <ul>
-<li><b>Instrucciones</b>: how to fill it in, with an example and the meaning of each column.</li>
-<li><b>Reglas</b>: Type, Utility, Condition, Against (another utility or object: railroad track, curb,
-    manhole…), Minimum and Maximum <b>in feet</b>, Measured from, References, Notes, Mandatory, Active and
-    Status. The <b>grey</b> columns are the <b>traceability</b>: the text as it came in the source table.</li>
-<li><b>Referencias</b> (which book, standard or email each rule comes from), <b>Notas</b> (clarifications)
-    and <b>Documento</b> (source file, titles and tables).</li>
+<li>Click a header to sort; <b>Search in the table…</b> filters.</li>
+<li>Double-click a row to see it on the plan.</li>
+<li><b>Export to Excel…</b> saves everything, one sheet per tab.</li>
+</ul>
+</section>
+
+<section data-title="3D view">
+<p>To see what <b>Civil 3D will build</b> without exporting: <b>View → 3D view</b>
+(<span class="key">&nbsp;F3&nbsp;</span>), the cube button on the top bar, or right-click a utility →
+<b>Show in 3D</b>. It opens in its own window that you can keep next to the plan: it updates by itself while
+you edit. When it opens, the project is saved just in case (if it has no file yet, a recovery copy is made).</p>
+
+<h2>What it shows (with the plugin rules)</h2>
+<ul>
+<li>Each utility with its diameter (or its “W x H” section), the axis at invert + half the diameter, the
+    elevations per segment and its <b>curves</b> with their real radius. Abandoned ones, <b>dashed</b> (like their 3D style in Civil 3D).</li>
+<li><b>Manholes and boxes</b> from sump to rim (the rim you entered or sump + cover) and the <b>solids</b>
+    with their outline and top elevation.</li>
+<li><b>Duct banks</b> with their envelope (bottom at the utility elevation) and their conduits inside.</li>
+<li>Water and gas <b>fittings</b> with the shape the plugin gives them (tee, wye and cross with one arm and one
+    bell per pipe; curved bend), in a light tone, with each pipe entering its bell; approved vertical connections and the marks of the standards warnings (amber) and of clashing pipes (red).</li>
+<li>The <b>ground</b>, semi-transparent, to see what is underground.</li>
+</ul>
+
+<h2>Moving around</h2>
+<table width="100%" cellspacing="4" cellpadding="8">
+<tr><td bgcolor="{{card}}" width="40%">Wheel</td><td bgcolor="{{card}}">Zoom in / out toward the cursor</td></tr>
+<tr><td bgcolor="{{card}}">Double-click the wheel</td><td bgcolor="{{card}}">Zoom to all</td></tr>
+<tr><td bgcolor="{{card}}">Middle button (or right, or Ctrl + left) and drag</td><td bgcolor="{{card}}">Pan</td></tr>
+<tr><td bgcolor="{{card}}">Shift + middle button (or left) and drag</td><td bgcolor="{{card}}">Orbit</td></tr>
+<tr><td bgcolor="{{card}}">Click</td><td bgcolor="{{card}}">Pick: it is also selected on the plan</td></tr>
+<tr><td bgcolor="{{card}}">Double-click</td><td bgcolor="{{card}}">Zoom to it (on empty space: everything)</td></tr>
+</table>
+<p><b>View cube</b> (top right corner, as in Civil 3D): click a face (TOP, FRONT, RIGHT…) to look at it
+straight on, click <b>N</b>, <b>E</b>, <b>S</b> or <b>W</b> to look from that side, and drag the cube or its
+ring to orbit.</p>
+<p>At the top: <b>Zoom to all</b> (<span class="key">&nbsp;Home&nbsp;</span>) and the <b>Top</b>, <b>Front</b>,
+<b>Side</b> and <b>Isometric</b> views. With <b>Follow the selection</b>, what you pick on the plan is zoomed
+to in 3D. Every time you open the window it starts in <b>plan</b> (top view) with everything in view. <b>Esc</b> clears the
+selection (it does not close the window). When hovering, the bottom line says what it is (number, diameter, inverts, type; or manhole sump and
+rim; or the warning).</p>
+
+<h2>Attribute sheet</h2>
+<p>Click a pipe, a fitting (bend, tee, wye…) or a manhole: its <b>sheet</b> appears at the top of the right
+panel (utility, type, status, family, diameter, length, inverts, slope, warnings; for a fitting, its angle, the
+utilities it joins, their diameters and the axis elevation). <b>Show on the plan</b> shows it on the plan and
+<b>Copy</b> copies it to paste in Excel. It also follows what you pick on the plan.</p>
+
+<h2>Options (right panel)</h2>
+<ul>
+<li><b>Utilities</b>: it is also the color legend; untick the ones you do not want to see.</li>
+<li><b>Show</b>: manholes and solids, fittings, warnings.</li>
+<li><b>Ground</b>: show it, its opacity and its elevation (automatic = the highest rim, or 3 ft above the
+    highest pipe when there are no manholes). <b>Reset</b> goes back to the defaults.</li>
 </ul>
 <table width="100%" cellspacing="0" cellpadding="12"><tr>
 <td width="6" bgcolor="{{tip_border}}"></td><td bgcolor="{{tip}}">
-<b>Nothing is lost:</b> when the tables Excel is converted, every text ends up in a rule, a reference, a
-note or the Documento sheet. Whatever the conversion did not fully understand (conditions, exceptions)
-gets the <b>Revisar</b> (review) status so the engineer can fix it in the template.
+It is a <b>preview</b>: it follows the same rules as the plugin, but fittings keep their basic shape (no details such as flanges) and the
+ground is flat (Civil 3D uses your surface).
 </td></tr></table>
-
-<h2>Where the rules are stored</h2>
-<p>Each rule has two parts that are stored in different places:</p>
-<table width="100%" cellspacing="4" cellpadding="10">
-<tr><th align="left" width="24%">What</th><th align="left">Where</th><th align="left">Scope</th></tr>
-<tr><td bgcolor="{{card}}"><b>The values</b><br>(allowed angles, distances, tolerance, which
-    utilities it applies to, mandatory or recommended), the <b>rules imported</b> from Excel and their
-    <b>references and notes</b></td>
-    <td bgcolor="{{card}}">On your computer, in the file<br><b>%APPDATA%\pdf-to-cad\normativas.json</b><br>
-    (for example <i>C:\Users\your-user\AppData\Roaming\pdf-to-cad\normativas.json</i>).</td>
-    <td bgcolor="{{card}}">They apply to <b>all your projects</b> on this computer.</td></tr>
-<tr><td bgcolor="{{card}}"><b>On or off</b><br>(the «Active in this project» switch)</td>
-    <td bgcolor="{{card}}">Inside the project itself (<b>.digproj</b>), when you save it.</td>
-    <td bgcolor="{{card}}">Only that project: it travels with it if you send it to someone.</td></tr>
-</table>
-<ul>
-<li>The <b>initial values</b> come inside the app. The <i>normativas.json</i> file only stores what you
-    <b>changed</b>; if you never changed anything, it does not even exist.</li>
-<li><b>Restore initial values</b> deletes your change for that rule and goes back to the app's value.
-    <b>Remove this rule</b> deletes an imported rule (you can bring it back by importing the Excel).</li>
-<li>If a new version of the app improves the initial values, you get them automatically for the rules you did not touch.</li>
-<li>To use the same rules on another computer, <b>Export Excel</b> here and <b>Import Excel</b> there
-    (or copy the <i>normativas.json</i> file to the same folder).</li>
-</ul>
 </section>
 
 <section data-title="Georeferencing (optional)">

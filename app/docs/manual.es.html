@@ -659,111 +659,128 @@ En drenaje y alcantarillado estas alertas no salen: ahí el buzón resuelve los 
 </section>
 
 <section data-title="Normativas de diseño">
-<p>En el menú <b>Normativas → Normativas de diseño…</b> (<span class="key">&nbsp;Ctrl+Shift+N&nbsp;</span>)
-se abre una ventana con las reglas que la app revisa en tu diseño antes de llevarlo a Civil 3D.
-Puedes dejarla abierta mientras dibujas: se actualiza sola.</p>
+<p>Las normativas son un <b>Excel simple</b> con cuatro tablas. En <b>Normativas → Normativas de diseño…</b>
+(<span class="key">&nbsp;Ctrl+Shift+N&nbsp;</span>) se ven tal cual, junto con los <b>avisos</b> del proyecto.
+Valen para todos tus proyectos en esta computadora.</p>
 
-<h2>Accesorios en el plano</h2>
-<p>En agua y gas, junto a cada punto donde Civil 3D pondrá un accesorio sólido aparece una etiqueta
-con su <b>tipo y ángulo</b>: «Codo 45°», «Tee 90°», «Wye 45°», «Cruz 90°».</p>
-<p>En el codo, el ángulo se mide sobre el <b>eje</b>: se prolonga el eje del lado recto y se ve
-cuánto se desvía el otro lado (0° = sigue recta). Un codo comercial «de 45°» marca <b>45°</b>, como
-se compra. El mismo ángulo va al Property Set del codo en Civil 3D.</p>
+<h2>Las tablas</h2>
 <table width="100%" cellspacing="4" cellpadding="10">
-<tr><td bgcolor="{{card}}" width="30%"><b>Etiqueta oscura</b></td>
-    <td bgcolor="{{card}}">Cumple las normativas activas.</td></tr>
-<tr><td bgcolor="{{danger}}"><b>Etiqueta roja ✗</b></td>
-    <td bgcolor="{{card}}">Incumple una normativa <b>obligatoria</b>. Pasa el mouse para ver cuál y el ángulo permitido más cercano.</td></tr>
-<tr><td bgcolor="{{card}}"><b>Etiqueta ámbar ✗</b></td>
-    <td bgcolor="{{card}}">Incumple una normativa <b>recomendada</b>.</td></tr>
+<tr><td bgcolor="{{card}}" width="28%"><b>TIPOS</b></td>
+    <td bgcolor="{{card}}">Los tipos que cada utilidad puede elegir: Distribución principal, Instalación
+        domiciliaria…</td></tr>
+<tr><td bgcolor="{{card}}"><b>PRESION-DIAMETROS</b></td>
+    <td bgcolor="{{card}}">Qué diámetros lleva cada tipo de agua o gas (con una nota si solo se permite en
+        un caso, por ejemplo calles sin salida).</td></tr>
+<tr><td bgcolor="{{card}}"><b>PRESION-ACCESORIOS</b></td>
+    <td bgcolor="{{card}}">Dónde se permite o se prohíbe cada accesorio (Y, T, Cruz, Codo, T domiciliaria), el
+        diámetro de la principal, el del ramal (<b>-1</b> = un tamaño menor en la lista) y los ángulos del codo.</td></tr>
+<tr><td bgcolor="{{card}}"><b>ELECT-TELECOM</b></td>
+    <td bgcolor="{{card}}">Diámetro fijo, mínimo o máximo según el tipo, el <b>amperaje</b> y el largo de la línea.</td></tr>
 </table>
-<p>La barra de estado muestra «✗ N fuera de normativa»; con un clic se abre la ventana. Para ocultar las
-etiquetas: <b>Ver → Mostrar accesorios (tipo y ángulo)</b> (la revisión sigue funcionando).
-La app solo avisa: no mueve nada del dibujo.</p>
+<p>Celda vacía = sin restricción o no aplica. Listas con «;» y decimales con coma (<i>1; 1,5; 2</i>), rangos
+como <i>0-320</i>.</p>
 
-<h2>La ventana de normativas</h2>
+<h2>Editar las normativas</h2>
 <ol>
-<li>A la izquierda eliges la categoría (accesorios, separaciones, recubrimiento, otros requisitos) o
-    <b>Incumplimientos</b>, con el botón <b>Ver en el plano</b> en cada uno.</li>
-<li>Cada regla es <b>una fila</b>: el interruptor (<b>activa en este proyecto</b>), su nombre, el valor
-    (por ejemplo «≥ 5 ft») y cómo va (✓ cumple, ✗ incumple, o «Aún no se revisa en el plano»).</li>
-<li><b>Detalles</b> abre todo lo demás: texto original, desde dónde se mide, referencias, notas,
-    <b>Obligatoria / Recomendada</b> (aviso rojo o ámbar) y los valores para editarlos.</li>
-<li><b>Buscar regla…</b> filtra por cualquier palabra («gas vía», «cover»…).</li>
-<li><b>A− / A+</b> cambian el tamaño del texto. Todo se usa con el teclado: Tab para moverte,
-    Espacio o Enter para activar.</li>
+<li><b>Exportar Excel…</b> guarda el Excel con todo lo que hay ahora (también los tipos que agregaste).</li>
+<li>Edítalo en Excel. Los desplegables ayudan: en <b>UTILIDAD</b> salen las seis utilidades y en <b>TIPO</b>
+    solo los tipos de la utilidad de esa fila. Un tipo nuevo escrito como fila nueva en la hoja TIPOS aparece
+    solo en los desplegables.</li>
+<li><b>Importar Excel…</b> lo trae de vuelta. <b>Volver a los valores iniciales</b> deshace todo.</li>
 </ol>
-<p>Valores iniciales de accesorios (AWWA): codos de <b>11.25°, 22.5°, 45° y 90°</b>
-(desvío sobre el eje); Tee a 90°; Wye a 45°; cruz a 90°; tolerancia ±1°.
-Las separaciones, el recubrimiento y los requisitos que llegan del Excel se guardan, se editan y se
-exportan, pero <b>todavía no se revisan sobre el plano</b> (lo indica cada fila).</p>
 
-<h2>Formato simple (el oficial para normativas nuevas)</h2>
-<p><b>Exportar Excel</b> guarda el formato que propusieron los ingenieros civiles, en inglés y legible sin la
-app. <b>Importar Excel</b> lo reconoce solo (también la plantilla de abajo y las tablas de separación).</p>
+<h2>Tipo y amperaje de cada utilidad</h2>
+<p>En <b>Propiedades de la utilidad</b> elige su <b>Tipo</b>. El botón verde <b>+</b> agrega un tipo nuevo a esa
+utilidad: queda en las normativas y sale en su Excel al exportarlo. En las eléctricas escribe además el
+<b>Amperaje</b> (dato informativo). Para varias a la vez: <b>Editar en bloque</b> (Ctrl+E).</p>
+
+<h2>Avisos</h2>
+<p>La app solo avisa: nunca cambia el dibujo. Los avisos son discretos:</p>
 <ul>
-<li><b>All (Flat)</b>: una fila por regla — Utility A, Utility B (otra utilidad, RAILROAD TRACK, CURB &amp;
-    GUTTER, CATCH BASIN, MAINTENANCE HOLE o COVER = recubrimiento), Orientation (Horizontal/Vertical), Case
-    («General» o la condición), Min y Max con su unidad (<b>ft</b> o <b>in</b>), Measured From, Notes,
-    Reference(s) («W-2:7») y Source Sheet. Una fila sin número es un requisito de texto.</li>
-<li><b>References</b>: Source Sheet, Ref # y el texto de cada referencia.</li>
-<li>Una pestaña por utilidad (copia para leer; se edita «All (Flat)»), <b>Legend</b> y
-    <b>How to Add a Utility</b>. Las columnas grises de la derecha (Rule ID, Active, Mandatory, Status,
-    Note IDs) las llena la app; en reglas nuevas se dejan vacías.</li>
+<li>un <b>circulito ámbar «!»</b> donde algo no cumple (celeste «i» si es solo una condición de uso); pasa el
+    mouse para leerlo;</li>
+<li>la etiqueta del accesorio en <b>ámbar</b> («Codo 30° ⚠»);</li>
+<li>el texto bajo <b>Amperaje</b> en el panel de la utilidad;</li>
+<li>«⚠ N avisos de normativa» en la barra de estado: un clic abre la lista; clic en un aviso lleva al lugar.</li>
 </ul>
-<p>Lo que la app no conoce (un elemento nuevo, una referencia que no está en «References») se importa
-igual con estado <b>Revisar</b>.</p>
-<h2>Normativas en Excel (para los ingenieros)</h2>
-<p>Antes, las reglas se intercambiaban con una <b>plantilla de Excel universal</b> (se sigue pudiendo importar): una fila por regla, con listas
-desplegables, para que el ingeniero no tenga que escribir texto libre.</p>
-<table width="100%" cellspacing="4" cellpadding="10">
-<tr><td bgcolor="{{card}}" width="28%"><b>Exportar Excel</b></td>
-    <td bgcolor="{{card}}">Guarda la plantilla con <b>todas</b> las reglas que tienes ahora (cambiadas o no),
-        con sus referencias y notas. Sirve también como formato en blanco: se agregan filas al final.</td></tr>
-<tr><td bgcolor="{{card}}"><b>Importar Excel</b></td>
-    <td bgcolor="{{card}}">Lee la plantilla llena. Antes de guardar muestra cuántas reglas son nuevas, cuántas
-        se actualizan y las filas con error (con su número de fila); esas no se importan. También acepta el
-        Excel de <b>tablas de separación</b> que usaban los ingenieros: lo convierte solo.</td></tr>
-</table>
-<p>Hojas de la plantilla:</p>
+<p>«Sin tipo» no se marca en el plano (en un proyecto recién importado serían decenas): se ve en el panel,
+en la lista y en el contador. Los tipos de aviso se muestran u ocultan en <b>Ver → Avisos</b>
+(cruces y conflictos, accesorios, avisos de normativa, mostrar u ocultar todos).</p>
+<table width="100%" cellspacing="0" cellpadding="12"><tr>
+<td width="6" bgcolor="{{tip_border}}"></td><td bgcolor="{{tip}}">
+<b>Ejemplo:</b> en una T de agua, si el ramal es de tipo Instalación domiciliaria se revisa con la fila
+«T - Domiciliaria» (ramal de 1, 1,5 o 2 in); si no, con la fila «T»: la principal en distribución principal y
+el ramal un tamaño menor (12 → 8). Una principal de 6 in no tiene tamaño menor: aviso.
+</td></tr></table>
+</section>
+
+<section data-title="Tabla de datos">
+<p><b>Herramientas → Tabla de datos…</b> (<span class="key">&nbsp;Ctrl+Shift+T&nbsp;</span>, o el botón de tabla en
+la barra superior) muestra toda la información del proyecto en pestañas: <b>utilidades</b> (nombre, tipo,
+estado, familia, tamaño, diámetro, largo, cotas, amperaje, bancoducto, coordenadas y avisos), <b>buzones y
+cajas</b>, <b>curvas</b>, <b>bancoductos</b> y <b>avisos de normativa</b>.</p>
 <ul>
-<li><b>Instrucciones</b>: cómo se llena, con un ejemplo y la explicación de cada columna.</li>
-<li><b>Reglas</b>: Tipo, Utilidad, Condición, Contra (otra utilidad u objeto: vía férrea, bordillo, buzón…),
-    Mínimo y Máximo <b>en pies</b>, Medido desde, Referencias, Notas, Obligatoria, Activa y Estado.
-    Las columnas <b>grises</b> son la <b>trazabilidad</b>: el texto tal como venía en la tabla de origen.</li>
-<li><b>Referencias</b> (de qué libro, norma o correo sale cada regla), <b>Notas</b> (aclaraciones) y
-    <b>Documento</b> (archivo de origen, títulos y tablas).</li>
+<li>Clic en un encabezado para ordenar; <b>Buscar en la tabla…</b> filtra.</li>
+<li>Doble clic en una fila la muestra en el plano.</li>
+<li><b>Exportar a Excel…</b> guarda todo, una hoja por pestaña.</li>
+</ul>
+</section>
+
+<section data-title="Vista 3D">
+<p>Para ver lo que <b>Civil 3D va a construir</b> sin exportar: <b>Ver → Vista 3D</b>
+(<span class="key">&nbsp;F3&nbsp;</span>), el botón del cubo en la barra superior, o clic derecho sobre una
+utilidad → <b>Ver en 3D</b>. Se abre en una ventana aparte que puedes dejar al lado del plano: se actualiza
+sola mientras editas. Al abrirla, el proyecto se guarda por si acaso (si aún no tiene archivo, se hace una
+copia de recuperación).</p>
+
+<h2>Qué muestra (con las reglas del plugin)</h2>
+<ul>
+<li>Cada utilidad con su diámetro (o su sección «W x H»), el eje a solera + medio diámetro, las cotas por
+    tramo y sus <b>curvas</b> con el radio real. Las abandonadas, <b>a trazos</b> (como su estilo 3D en Civil 3D).</li>
+<li><b>Buzones y cajas</b> del fondo a la tapa (la tapa que pusiste o fondo + recubrimiento) y los
+    <b>sólidos</b> con su contorno y su cota superior.</li>
+<li><b>Bancoductos</b> con su envolvente (fondo en la cota de la utilidad) y sus conductos adentro.</li>
+<li><b>Accesorios</b> de agua y gas con la forma que les da el plugin (Tee, Wye y cruz con un brazo y una
+    campana por tubo; codo curvo), en un tono claro, con cada tubo entrando en su campana; conexiones verticales aprobadas y las marcas de los avisos de normativa (ámbar) y de las tuberías que chocan (rojo).</li>
+<li>El <b>suelo</b>, semitransparente, para ver lo que queda bajo tierra.</li>
+</ul>
+
+<h2>Moverse</h2>
+<table width="100%" cellspacing="4" cellpadding="8">
+<tr><td bgcolor="{{card}}" width="40%">Rueda</td><td bgcolor="{{card}}">Acercar / alejar hacia donde apunta el cursor</td></tr>
+<tr><td bgcolor="{{card}}">Doble clic con la rueda</td><td bgcolor="{{card}}">Encuadrar todo</td></tr>
+<tr><td bgcolor="{{card}}">Botón central (o derecho, o Ctrl + izquierdo) y arrastrar</td><td bgcolor="{{card}}">Desplazar</td></tr>
+<tr><td bgcolor="{{card}}">Shift + botón central (o izquierdo) y arrastrar</td><td bgcolor="{{card}}">Girar</td></tr>
+<tr><td bgcolor="{{card}}">Clic</td><td bgcolor="{{card}}">Elegir: la selecciona también en el plano</td></tr>
+<tr><td bgcolor="{{card}}">Doble clic</td><td bgcolor="{{card}}">Encuadrar eso (en el vacío: todo)</td></tr>
+</table>
+<p><b>Cubo de vistas</b> (esquina superior derecha, como en Civil 3D): clic en una cara (SUPERIOR, FRONTAL,
+DERECHA…) para verla de frente, clic en <b>N</b>, <b>E</b>, <b>S</b> u <b>O</b> para mirar desde ese lado, y
+arrastrar el cubo o su anillo para girar.</p>
+<p>Arriba: <b>Encuadrar todo</b> (<span class="key">&nbsp;Inicio&nbsp;</span>) y las vistas <b>Arriba</b>,
+<b>Frente</b>, <b>Lateral</b> e <b>Isométrica</b>. Con <b>Seguir la selección</b>, lo que eliges en el plano
+se encuadra en 3D. Cada vez que abres la ventana arranca en <b>planta</b> (vista superior) con todo encuadrado. <b>Esc</b> quita la
+selección (no cierra la ventana). Al pasar el ratón, la línea de abajo dice qué es (número, diámetro, soleras, tipo; o
+fondo y tapa del buzón; o el aviso).</p>
+
+<h2>Ficha de atributos</h2>
+<p>Clic en una tubería, un accesorio (codo, Tee, Wye…) o un buzón: arriba del panel derecho aparece su
+<b>ficha</b> (utilidad, tipo, estado, familia, diámetro, largo, soleras, pendiente, avisos; en un accesorio, su
+ángulo, las utilidades que une, sus diámetros y la cota del eje). <b>Ver en el plano</b> lo muestra en el plano y
+<b>Copiar</b> la copia para pegarla en Excel. También sigue lo que eliges en el plano.</p>
+
+<h2>Opciones (panel de la derecha)</h2>
+<ul>
+<li><b>Utilidades</b>: también es la leyenda de colores; desmarca las que no quieras ver.</li>
+<li><b>Mostrar</b>: buzones y sólidos, accesorios, avisos.</li>
+<li><b>Suelo</b>: mostrarlo, su opacidad y su cota (automática = la tapa más alta, o 3 ft sobre la tubería
+    más alta si no hay buzones). <b>Restablecer</b> vuelve a lo de fábrica.</li>
 </ul>
 <table width="100%" cellspacing="0" cellpadding="12"><tr>
 <td width="6" bgcolor="{{tip_border}}"></td><td bgcolor="{{tip}}">
-<b>Nada se pierde:</b> al convertir el Excel de tablas, cada texto queda en una regla, una referencia, una
-nota o en la hoja Documento. Lo que la conversión no entendió del todo (condiciones, excepciones) queda
-con estado <b>Revisar</b> para que el ingeniero lo corrija en la plantilla.
+Es una <b>vista previa</b>: sigue las mismas reglas que el plugin, pero los accesorios se dibujan
+con su forma de fábrica (sin detalles como bridas) y el suelo es plano (Civil 3D usa tu superficie).
 </td></tr></table>
-
-<h2>Dónde se guardan las reglas</h2>
-<p>Cada regla tiene dos partes que se guardan en sitios distintos:</p>
-<table width="100%" cellspacing="4" cellpadding="10">
-<tr><th align="left" width="24%">Qué</th><th align="left">Dónde</th><th align="left">Alcance</th></tr>
-<tr><td bgcolor="{{card}}"><b>Los valores</b><br>(ángulos permitidos, distancias, tolerancia, a qué
-    utilidades se aplica, obligatoria o recomendada), las <b>reglas importadas</b> del Excel y sus
-    <b>referencias y notas</b></td>
-    <td bgcolor="{{card}}">En tu computadora, en el archivo<br><b>%APPDATA%\pdf-to-cad\normativas.json</b><br>
-    (por ejemplo <i>C:\Users\tu-usuario\AppData\Roaming\pdf-to-cad\normativas.json</i>).</td>
-    <td bgcolor="{{card}}">Valen para <b>todos tus proyectos</b> en esta computadora.</td></tr>
-<tr><td bgcolor="{{card}}"><b>Activa o no</b><br>(el interruptor «Activa en este proyecto»)</td>
-    <td bgcolor="{{card}}">Dentro del propio proyecto (<b>.digproj</b>), al guardarlo.</td>
-    <td bgcolor="{{card}}">Solo ese proyecto: viaja con él si lo envías a otra persona.</td></tr>
-</table>
-<ul>
-<li>Los <b>valores iniciales</b> vienen dentro de la app. El archivo <i>normativas.json</i> solo guarda lo que
-    <b>cambiaste</b>; si nunca cambiaste nada, ni siquiera existe.</li>
-<li><b>Restablecer valores iniciales</b> borra tu cambio de esa regla y vuelve al valor de la app.
-    <b>Quitar esta regla</b> borra una regla importada (se puede volver a traer importando el Excel).</li>
-<li>Si una nueva versión de la app mejora los valores iniciales, te llegan solos en las reglas que no tocaste.</li>
-<li>Para usar tus mismas reglas en otra computadora, <b>Exportar Excel</b> aquí e <b>Importar Excel</b>
-    allá (o copia el archivo <i>normativas.json</i> a la misma carpeta).</li>
-</ul>
 </section>
 
 <section data-title="Georreferenciar (opcional)">

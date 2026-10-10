@@ -266,3 +266,24 @@ def test_al_exportar_solo_pregunta_si_hay_algo_que_arreglar(win, monkeypatch):
     win.pipes.append(_p([(250, 106), (250, 300)]))           # punta casi unida
     assert win.revisar_dibujo(exportando=True) is False and abiertos   # «Cancelar» = no exporta
     assert win.pipes[1]["pts"][0] == (250, 106)              # sin arreglar no cambia nada
+
+
+def test_el_dxf_sale_sin_tramos_diminutos_aunque_no_se_limpie(win):
+    """Pedido del usuario 2026-10-09 («resuélvelo de una vez»): el DXF sale SIEMPRE sin
+    tuberías diminutas, sin depender de «Arreglar»; el proyecto no cambia."""
+    import ezdxf
+    import config as C
+    from exportar import dxf_export
+    ft, pipes, structs = _electrico_47()
+    win.scale, win.zoom = ft, 1.0
+    win.pipes, win.structures = pipes, structs
+    antes = copy.deepcopy((win.pipes, win.structures))
+    doc = ezdxf.new("R2010", setup=True); C.apply_imperial_header(doc)
+    dxf_export.merge_into(win, doc, marks=True)
+    assert (win.pipes, win.structures) == antes                       # el proyecto no se toca
+    ramal = next(e for e in doc.modelspace() if e.dxftype() == "LWPOLYLINE"
+                 and "PIPE_IDX=1" in [v for _c, v in e.get_xdata("PDFCAD")])
+    assert len(list(ramal.get_points())) == 6                          # sin las dos anclas
+    radios = sorted(float(v.split("=")[1]) for e in doc.modelspace() if e.dxftype() == "POINT"
+                    for _c, v in e.get_xdata("PDFCAD") if v.startswith("RADIUS_FT="))
+    assert radios[0] > 1.419 and radios[1] > 6.291                    # las curvas llegan a la T y entre sí
