@@ -20,6 +20,7 @@ from ui.comun.widgets import (ZoomPanView, maximize_on_show, GripSplitter,
                      CollapsiblePanel, NaturalHeightScroll)
 from ui.asistente.wizard_widgets import NoEscapeClose, StepBar, OpacityButton, wizard_header, wizard_footer
 from ui.comun.busy import busy
+from ui.comun import fondo_pdf
 from reconocimiento import recognition as rec
 from reconocimiento import recognition_cache
 from ui.asistente.recognition_summary_view import SummaryPanel, separator, utility_swatch
@@ -304,7 +305,7 @@ class RecognitionPreviewDialog(NoEscapeClose, QtWidgets.QDialog):
     """
 
     def __init__(self, parent, qimg: QtGui.QImage, result, utility_layer="ELECTRICO",
-                 page_count: int | None = None):
+                 page_count: int | None = None, fondo: dict | None = None):
         super().__init__(parent)
         self.setWindowTitle(_tr("Vista previa del reconocimiento"))
         self.setWindowFlags(
@@ -486,10 +487,20 @@ class RecognitionPreviewDialog(NoEscapeClose, QtWidgets.QDialog):
 
         sc = self.view.scene()
         pm = QtGui.QPixmap.fromImage(qimg)
-        self._pixmap_item = sc.addPixmap(pm)
+        # Hoja enorme (fondo_pdf): `qimg` es la imagen reducida del editor; se agranda
+        # a su tamaño (`fondo["tam"]`) y se re-dibuja nítida la parte visible.
+        escala = float(fondo["escala"]) if fondo else 1.0
+        self._pixmap_item = fondo_pdf.nuevo_item(pm, escala)
+        sc.addItem(self._pixmap_item)
+        self._nitidez = None
+        if escala < 1.0:
+            zoom = float(fondo["zoom"])
+            self._nitidez = fondo_pdf.Nitidez(self.view, lambda: zoom, fondo["pagina"])
+            self._nitidez.fijar(self._pixmap_item)
         self.opacity.sync()
         self._redraw_overlay()
-        self.view.setSceneRect(pm.rect())
+        self.view.setSceneRect(QtCore.QRectF(pm.rect()) if escala >= 1.0
+                               else QtCore.QRectF(0, 0, *fondo["tam"]))
         self._fit_pending = True
         self._fit_view()
 
@@ -532,7 +543,8 @@ class RecognitionPreviewDialog(NoEscapeClose, QtWidgets.QDialog):
         sc = self.view.scene()
         keep = (self._pixmap_item, self.opacity.backdrop)     # el PDF y su fondo (Opacidad)
         for it in list(sc.items()):
-            if it not in keep:
+            # el recorte nítido de una hoja enorme es hijo del PDF: se queda con él
+            if it not in keep and it.topLevelItem() is not self._pixmap_item:
                 sc.removeItem(it)
         dim = []                           # lo que no es de la capa elegida: atenuado
 
@@ -736,12 +748,12 @@ class RecognitionPreviewDialog(NoEscapeClose, QtWidgets.QDialog):
 
 
 def show_recognition_preview(parent, qimg, result, utility_layer="ELECTRICO",
-                             page_count: int | None = None) -> str:
+                             page_count: int | None = None, fondo: dict | None = None) -> str:
     """Muestra el preview. Devuelve la acción elegida: PREVIEW_IMPORT,
     PREVIEW_CANCEL, PREVIEW_CHANGE_SHEET o PREVIEW_ADJUST_LAYERS."""
     with busy(parent, _tr("Preparando la vista previa…"),
               _tr("Dibujando lo reconocido sobre la hoja")):
-        dlg = RecognitionPreviewDialog(parent, qimg, result, utility_layer, page_count=page_count)
+        dlg = RecognitionPreviewDialog(parent, qimg, result, utility_layer, page_count=page_count, fondo=fondo)
     if dlg.exec() != QtWidgets.QDialog.Accepted:
         return PREVIEW_CANCEL
     return dlg.action

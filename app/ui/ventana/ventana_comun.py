@@ -21,6 +21,7 @@ from nucleo import model_ops
 from ui.comun.canvas import Canvas
 from ui.comun.widgets import InlineEdit, _SegInvSpinBox, _NoWheelFilter
 from ui.comun import busy as _busy_mod
+from ui.comun import fondo_pdf
 from ui.comun.workers import PipelineWorker, RecognitionWorker, OrganizedRecognitionWorker
 from ui.dialogos import dialogs
 from ui.asistente import recognition_dialog

@@ -43,17 +43,20 @@ class HerramientasMixin:
         # Las coordenadas de las zonas están en el mismo espacio de píxeles del
         # pixmap, así que se dibujan directamente sobre la imagen.
         regions = [r for r in self.erase_regions if r.get("enabled", True)]
+        escala = self.canvas.fondo_escala           # hoja enorme a menos resolución (fondo_pdf)
         if regions:
             img = img.convertToFormat(QtGui.QImage.Format_RGB32)
             painter = QtGui.QPainter(img)
             painter.setRenderHint(QtGui.QPainter.Antialiasing)
+            if escala != 1.0:
+                painter.scale(escala, escala)
             painter.setPen(QtCore.Qt.NoPen)
             painter.setBrush(QtGui.QBrush(QtGui.QColor(255, 255, 255)))
             for rg in regions:
                 poly = QtGui.QPolygonF([QtCore.QPointF(px, py) for (px, py) in rg["pts"]])
                 painter.drawPolygon(poly)
             painter.end()
-        dlg = GeorefDialog(self, img, self.pipes, self.ref_centerlines, self.georef)
+        dlg = GeorefDialog(self, img, self.pipes, self.ref_centerlines, self.georef, img_escala=escala)
         dlg.exec()
         # El propio diálogo guarda self.georef y el proyecto (botón "Guardar
         # georreferenciación"); no hace falta repetir ese trabajo acá.

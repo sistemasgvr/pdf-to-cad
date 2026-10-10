@@ -26,7 +26,7 @@ def build_model_dict(win):
     """Arma el dict que se guarda como model.json. `win` es la ventana (o cualquier
     objeto con los mismos atributos). Lectura pura, sin efectos secundarios."""
     from catalogo import civil_catalog as _cc
-    return dict(
+    model = dict(
         pipes=win.pipes, leaders=win.leaders, text_marks=win.text_marks,
         erase_regions=win.erase_regions, structures=win.structures,
         ref_centerlines=win.ref_centerlines,
@@ -63,6 +63,14 @@ def build_model_dict(win):
         blank_canvas=bool(getattr(win, "blank_canvas", False)),
         paper=getattr(win, "paper", None),
         pdf_name=os.path.basename(win.pdf_path or ""), version=VERSION)
+    # Hoja enorme (hoja compuesta de muchas piezas): page.png va a menos resolución
+    # (`fondo_pdf`); al reabrir se agranda a su tamaño en px. Solo entonces.
+    canvas = getattr(win, "canvas", None)
+    escala = float(getattr(canvas, "fondo_escala", 1.0) or 1.0)
+    if escala < 1.0:
+        model["fondo_escala"] = escala
+        model["fondo_tam"] = list(canvas.tam_hoja())
+    return model
 
 
 def parse_model(model):
@@ -124,4 +132,7 @@ def parse_model(model):
         # todos con PDF, así que el default False/None es el correcto.
         blank_canvas=bool(model.get("blank_canvas", False)),
         paper=model.get("paper"),
+        # Retrocompat: sin estas claves la imagen es la de siempre (px = px de la vista).
+        fondo_escala=float(model.get("fondo_escala") or 1.0),
+        fondo_tam=(tuple(model["fondo_tam"]) if model.get("fondo_tam") else None),
     )

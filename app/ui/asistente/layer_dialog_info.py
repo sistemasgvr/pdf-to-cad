@@ -32,6 +32,7 @@ from PySide6 import QtCore, QtGui, QtWidgets
 import fitz
 
 from ui.comun.busy import busy
+from ui.comun import fondo_pdf
 from traduccion.i18n import t as _tr
 from ui.asistente.layer_info_panel import LayerInfoPanel, LegendWorker
 from ui.comun.ui_common import layer_qcolor
@@ -403,7 +404,8 @@ class LayerInfoMixin:
     def _render_zoom(self) -> float:
         rect = self._page.rect
         pm = self._pix_item.pixmap()
-        return pm.width() / max(rect.width, 1e-6) if pm.width() else 3.0
+        w = pm.width() / fondo_pdf.escala_de(self._pix_item)      # hoja enorme: imagen reducida
+        return w / max(rect.width, 1e-6) if pm.width() else 3.0
 
     # ── tres columnas ──
     def _init_auto_sizes(self):

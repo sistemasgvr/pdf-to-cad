@@ -165,7 +165,14 @@ class ClicsMixin:
 
     def _snap(self, x, y):
         if not self.snap: return (x, y)
-        return G.snap_point(self.gray, x, y, self.snap_r)
+        if self.canvas.fondo_escala < 1.0:          # hoja enorme (fondo_pdf): tinta a resolución completa
+            page = self._pagina_fondo()
+            if page is not None:
+                try:
+                    return fondo_pdf.snap_nitido(self.canvas.nitidez, page, self.zoom, x, y, self.snap_r)
+                except Exception:
+                    pass
+        return G.snap_point(self.gray, x, y, self.snap_r, self.canvas.fondo_escala)
 
     def _pipe_soft_snap(self, x, y, layer=None, exclude=None, skip_structs=()):
         """Snap suave a utilidades EXISTENTES del mismo tipo (capa) mientras se

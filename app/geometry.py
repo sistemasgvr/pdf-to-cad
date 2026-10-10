@@ -58,10 +58,15 @@ def to_cad(x, y, scale, rot, W, H, derot, zoom):
     return (py * s, px * s)
 
 
-def snap_point(gray, x, y, r):
-    """Ajusta (x,y) al centroide de píxeles oscuros en una ventana de radio r."""
+def snap_point(gray, x, y, r, escala=1.0):
+    """Ajusta (x,y) al centroide de píxeles oscuros en una ventana de radio r.
+    `escala` = px de `gray` por px de (x, y): una hoja enorme se guarda a menos
+    resolución (ui/comun/fondo_pdf) y las coordenadas siguen siendo las de siempre."""
     if gray is None:
         return (x, y)
+    if escala != 1.0:
+        sx, sy = snap_point(gray, x * escala, y * escala, max(1, int(round(r * escala))))
+        return (sx / escala, sy / escala)
     h, w = gray.shape; xi, yi = int(x), int(y)
     win = gray[max(0, yi - r):min(h, yi + r + 1), max(0, xi - r):min(w, xi + r + 1)] < 128
     if not win.any():

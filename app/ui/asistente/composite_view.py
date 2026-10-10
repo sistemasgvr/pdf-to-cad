@@ -26,14 +26,15 @@ from hoja import composite_scan as CS
 from ui.asistente.alignment_tools import AlignmentRuler, PieceProtractor
 from ui.asistente.composite_measure import MeasureTool
 from hoja import composite_seam as S
-from ui.asistente.pdf_view_quality import MAX_RENDER_PIXELS, MAX_RENDER_SCALE, render_region
+from ui.asistente.pdf_view_quality import MAX_RENDER_PIXELS, MAX_RENDER_SCALE
 from ui.comun.widgets import ZoomPanView, MiniMap
 from traduccion.i18n import t as _tr
 
 
 class _BlendPixmap(QtWidgets.QGraphicsPixmapItem):
     """Recorte nítido de una pieza: con «Fundir bordes» se pinta en modo
-    oscurecer, igual que su pieza (ver `PieceItem.paint`)."""
+    oscurecer, igual que su pieza (ver `PieceItem.paint`). Se recorta al clip
+    EXACTO de la pieza, como la imagen base."""
 
     def __init__(self, pixmap, parent: "PieceItem"):
         super().__init__(pixmap, parent)
@@ -41,6 +42,8 @@ class _BlendPixmap(QtWidgets.QGraphicsPixmapItem):
 
     def paint(self, painter, option, widget=None):
         painter.save()
+        if self.owner._clip_raw is not None:
+            painter.setClipRect(self.mapRectFromParent(self.owner._clip_raw), QtCore.Qt.IntersectClip)
         if self.owner.view.comp.blends():
             painter.setCompositionMode(QtGui.QPainter.CompositionMode_Darken)
         super().paint(painter, option, widget)
@@ -53,9 +56,37 @@ def _qpixmap(pix: fitz.Pixmap) -> QtGui.QPixmap:
     return QtGui.QPixmap.fromImage(img)
 
 
+def _render_clip(page: fitz.Page, rect_pt, scale: float):
+    """Pixmap del rectángulo `rect_pt` (x0, y0, x1, y1 en pt de la hoja VISIBLE)
+    a `scale` px/pt y su origen (ox, oy) en píxeles del dispositivo: MuPDF
+    redondea el recorte hacia afuera, así que el píxel (u, v) del pixmap es el
+    punto ((ox + u)/scale, (oy + v)/scale) de la hoja, no el de `rect_pt`."""
+    x0, y0, x1, y1 = rect_pt
+    clip = fitz.Rect(page.rect.x0 + x0, page.rect.y0 + y0, page.rect.x0 + x1, page.rect.y0 + y1)
+    if clip.is_empty or clip.width < 1e-3 or clip.height < 1e-3:
+        return None
+    pix = page.get_pixmap(matrix=fitz.Matrix(scale, scale), alpha=False, clip=clip)
+    return _qpixmap(pix), (pix.x, pix.y)
+
+
+def _cos_sin(deg: float):
+    """cos/sin del giro; exactos en múltiplos de 90° (sin borrosidad de 1e-17)."""
+    q = deg / 90.0
+    if abs(q - round(q)) < 1e-9:
+        return ((1.0, 0.0), (0.0, 1.0), (-1.0, 0.0), (0.0, -1.0))[int(round(q)) % 4]
+    th = math.radians(deg)
+    return math.cos(th), math.sin(th)
+
+
 class PieceItem(QtWidgets.QGraphicsPixmapItem):
-    """Una pieza en el lienzo. `pixmap` es el clip SIN girar a `ov` px/pt; el
-    giro y la escala van en la transformación del item."""
+    """Una pieza en el lienzo. `pixmap` es el clip SIN girar a `ov` px/pt tal
+    cual lo dio MuPDF: su píxel (u, v) es el punto ((ox + u)/ov, (oy + v)/ov) de
+    la hoja origen visible (`origin` = (ox, oy)). El giro, la escala y ese
+    desfase van en la transformación del item (`_raw_transform`), que reproduce
+    `piece_map`: la imagen base y el recorte nítido caen EXACTOS a cualquier
+    zoom. Antes la base se estiraba a la caja teórica de la pieza y quedaba
+    corrida hasta 1 px de la vista general (≈1–2 pt): al acercar aparecía el
+    recorte nítido en su sitio y la pieza «se movía»."""
 
     def __init__(self, index: int, view: "CompositeView"):
         super().__init__()
@@ -63,6 +94,10 @@ class PieceItem(QtWidgets.QGraphicsPixmapItem):
         self.view = view
         self.ov = 1.0
         self._raw: Optional[QtGui.QPixmap] = None
+        self._origin = (0, 0)
+        self._clip_raw: Optional[QtCore.QRectF] = None     # clip de la pieza en px del pixmap base
+        self._box_path: Optional[QtGui.QPainterPath] = None   # caja de la pieza en la escena (px base)
+        self._box_rect: Optional[QtCore.QRectF] = None
         self._sharp: Optional[QtWidgets.QGraphicsPixmapItem] = None
         self._sharp_key = None
         self._covers: List[QtWidgets.QGraphicsItem] = []
@@ -75,7 +110,7 @@ class PieceItem(QtWidgets.QGraphicsPixmapItem):
         self.setAcceptHoverEvents(True)
         self._hover = False
         # contorno como hijo con z alto: queda sobre el recorte nítido y las franjas
-        self._outline = QtWidgets.QGraphicsRectItem(self)
+        self._outline = QtWidgets.QGraphicsPolygonItem(self)
         self._outline.setZValue(10)
         self._outline.setAcceptedMouseButtons(QtCore.Qt.NoButton)
 
@@ -83,34 +118,83 @@ class PieceItem(QtWidgets.QGraphicsPixmapItem):
     def piece(self) -> C.Piece:
         return self.view.comp.pieces[self.index]
 
-    def set_raw(self, pixmap: QtGui.QPixmap, ov: float):
+    def set_raw(self, pixmap: QtGui.QPixmap, ov: float, origin=None):
+        """`origin` = (ox, oy) del render (ver `_render_clip`); sin él se toma el
+        redondeo de MuPDF sobre el clip de la pieza."""
         self._raw, self.ov = pixmap, ov
+        if origin is None:
+            x0, y0, _, _ = C.clip_rect_pt(self.view.page_size(self.piece), self.piece.clip)
+            origin = (math.floor(x0 * ov), math.floor(y0 * ov))
+        self._origin = (float(origin[0]), float(origin[1]))
         self.refresh()
+
+    def _raw_transform(self) -> QtGui.QTransform:
+        """Píxeles del pixmap base → coordenadas del item (escena − pos), igual
+        que `C.piece_map`: giro antihorario alrededor del centro del clip,
+        factor de escala y caja envolvente con la esquina en (piece.x, piece.y)."""
+        p = self.piece
+        size = self.view.page_size(p)
+        target = self.view.comp.target_scale()
+        x0, y0, x1, y1 = C.clip_rect_pt(size, p.clip)
+        f = C.piece_factor(p, target)
+        w, h = C.piece_size(p, size, target)
+        c, s = _cos_sin(p.rotation)
+        k = f / self.ov
+        # el píxel (0, 0) del pixmap respecto al centro del clip, en pt de la hoja origen
+        ux = self._origin[0] / self.ov - (x0 + x1) / 2.0
+        uy = self._origin[1] / self.ov - (y0 + y1) / 2.0
+        return QtGui.QTransform(k * c, -k * s, k * s, k * c,
+                                w / 2.0 + f * (c * ux + s * uy),
+                                h / 2.0 + f * (-s * ux + c * uy))
 
     def refresh(self):
         """Reaplica giro, escala y posición desde el modelo."""
         if self._raw is None:
             return
         p = self.piece
-        pm = self._raw
-        if abs(p.rotation % 360.0) > 1e-9:
-            # Qt gira horario con ángulo positivo; el modelo es antihorario.
-            pm = pm.transformed(QtGui.QTransform().rotate(-p.rotation),
-                                QtCore.Qt.SmoothTransformation)
-        super().setPixmap(pm)
-        f = C.piece_factor(p, self.view.comp.target_scale())
-        w, h = C.piece_size(p, self.view.page_size(p), self.view.comp.target_scale())
-        # El pixmap girado puede diferir en ±1 px de la caja teórica: escalar por eje.
-        sx = w / pm.width() if pm.width() else f / self.ov
-        sy = h / pm.height() if pm.height() else f / self.ov
-        self.setTransform(QtGui.QTransform().scale(sx, sy))
+        super().setPixmap(self._raw)
+        self.setTransform(self._raw_transform())
         self._syncing = True
         self.setPos(p.x, p.y)
         self._syncing = False
-        self._outline.setRect(QtCore.QRectF(0, 0, pm.width(), pm.height()))
+        size = self.view.page_size(p)
+        x0, y0, x1, y1 = C.clip_rect_pt(size, p.clip)
+        ox, oy = self._origin
+        clip_raw = QtCore.QRectF(x0 * self.ov - ox, y0 * self.ov - oy,
+                                 (x1 - x0) * self.ov, (y1 - y0) * self.ov)
+        # La caja envolvente de la pieza en la escena (como antes, cuando el pixmap
+        # iba girado): contorno y zona de clic no cambian (`scene_box`).
+        w, h = C.piece_size(p, size, self.view.comp.target_scale())
+        inv, _ = self.transform().inverted()
+        box = QtGui.QPolygonF([inv.map(QtCore.QPointF(a, b)) for a, b in ((0, 0), (w, 0), (w, h), (0, h))])
+        path = QtGui.QPainterPath()
+        path.addPolygon(box)
+        path.closeSubpath()
+        self.prepareGeometryChange()
+        self._clip_raw = clip_raw
+        self._box_path = path
+        self._box_rect = box.boundingRect()
+        self._outline.setPolygon(box)
         self._refresh_outline()
         self._refresh_covers()
         self.clear_sharp()
+
+    def scene_box(self) -> QtCore.QRectF:
+        """Caja envolvente de la pieza en la escena (`C.piece_rect`). Con giro,
+        `sceneBoundingRect` es algo mayor: la caja va girada en coords del item."""
+        if self._box_path is None:
+            return self.sceneBoundingRect()
+        return self.mapToScene(self._box_path).boundingRect()
+
+    def boundingRect(self) -> QtCore.QRectF:
+        if self._box_rect is None:
+            return super().boundingRect()
+        return self._box_rect
+
+    def shape(self) -> QtGui.QPainterPath:
+        if self._box_path is None:
+            return super().shape()
+        return self._box_path
 
     def _refresh_outline(self):
         pen = QtGui.QPen(QtGui.QColor("#2b6fd1") if self.isSelected() else QtGui.QColor(255, 154, 0, 200), 0)
@@ -180,11 +264,12 @@ class PieceItem(QtWidgets.QGraphicsPixmapItem):
         `wanted`: px de pantalla por pt de la hoja compuesta; `pixel_budget`: px
         máximos para esta pieza."""
         p = self.piece
-        region = visible_scene.intersected(self.sceneBoundingRect())
+        box = self.scene_box()
+        region = visible_scene.intersected(box)
         if region.isEmpty():
             self.clear_sharp(); return
         pad = 0.2 * max(region.width(), region.height())
-        region = region.adjusted(-pad, -pad, pad, pad).intersected(self.sceneBoundingRect())
+        region = region.adjusted(-pad, -pad, pad, pad).intersected(box)
         target = self.view.comp.target_scale()
         f = C.piece_factor(p, target)
         # la región de escena → rect en la hoja origen (visible), acotado al clip
@@ -202,25 +287,21 @@ class PieceItem(QtWidgets.QGraphicsPixmapItem):
         key = (round(sx0, 1), round(sy0, 1), round(sx1, 1), round(sy1, 1), round(scale, 2))
         if self._sharp is not None and key == self._sharp_key:
             return
-        pm = render_region(self.view.page(p), (sx0, sy0, sx1, sy1), scale)
-        if pm is None or pm.isNull():
+        got = _render_clip(self.view.page(p), (sx0, sy0, sx1, sy1), scale)
+        if got is None or got[0].isNull():
             return
-        pm = self.view.mask_polygon(pm, p, sx0, sy0, scale)
-        if abs(p.rotation % 360.0) > 1e-9:
-            pm = pm.transformed(QtGui.QTransform().rotate(-p.rotation), QtCore.Qt.SmoothTransformation)
-        # caja del recorte en escena → en píxeles del pixmap base (coords del padre)
-        fn = C.piece_map(p, self.view.page_size(p), target)
-        sc = [fn(sx0, sy0), fn(sx1, sy0), fn(sx1, sy1), fn(sx0, sy1)]
-        raw = [self.scene_to_raw(x, y) for x, y in sc]
-        rx0 = min(q.x() for q in raw); rx1 = max(q.x() for q in raw)
-        ry0 = min(q.y() for q in raw); ry1 = max(q.y() for q in raw)
+        pm, (ox, oy) = got
+        pm = self.view.mask_polygon(pm, p, sx0, sy0, scale, origin=(ox, oy))
+        # Mismo espacio que el pixmap base (hoja origen SIN girar): solo cambia la
+        # escala y el origen; el giro lo pone el padre. Exacto, sin redondeos.
+        k = self.ov / scale
         self.clear_sharp()
         it = _BlendPixmap(pm, self)
         it.setTransformationMode(QtCore.Qt.SmoothTransformation)
         it.setZValue(5)
         it.setAcceptedMouseButtons(QtCore.Qt.NoButton)
-        it.setPos(rx0, ry0)
-        it.setTransform(QtGui.QTransform().scale((rx1 - rx0) / pm.width(), (ry1 - ry0) / pm.height()))
+        it.setPos(ox * k - self._origin[0], oy * k - self._origin[1])
+        it.setTransform(QtGui.QTransform().scale(k, k))
         self._sharp = it
         self._sharp_key = key
 
@@ -247,6 +328,9 @@ class PieceItem(QtWidgets.QGraphicsPixmapItem):
     def paint(self, painter, option, widget=None):
         option.state &= ~QtWidgets.QStyle.State_Selected      # sin el marco punteado de Qt
         painter.save()                    # el modo y el recorte no pasan a otros items
+        if self._clip_raw is not None:
+            # el render de MuPDF trae hasta 1 px de más alrededor del clip: fuera
+            painter.setClipRect(self._clip_raw, QtCore.Qt.IntersectClip)
         if self.view.comp.blends():
             # «Fundir bordes»: modo oscurecer sobre el papel blanco que pinta la
             # vista debajo de TODAS las piezas (`drawBackground`): en una
@@ -374,7 +458,7 @@ class CompositeView(ZoomPanView):
         painter.setPen(QtCore.Qt.NoPen)
         painter.setBrush(QtGui.QColor("#ffffff"))
         for it in self.items:
-            if it.sceneBoundingRect().intersects(rect):
+            if it.scene_box().intersects(rect):
                 painter.drawPolygon(it.paper_polygon())
         painter.restore()
 
@@ -395,19 +479,25 @@ class CompositeView(ZoomPanView):
         return min(1.0, 1400.0 / longest)
 
     def render_piece(self, p: C.Piece, scale: float) -> QtGui.QPixmap:
+        return self.render_piece_raw(p, scale)[0]
+
+    def render_piece_raw(self, p: C.Piece, scale: float):
+        """(pixmap del clip de la pieza a `scale` px/pt, origen (ox, oy) del render)."""
         page = self.page(p)
         x0, y0, x1, y1 = C.clip_rect_pt(self.page_size(p), p.clip)
         clip = fitz.Rect(page.rect.x0 + x0, page.rect.y0 + y0, page.rect.x0 + x1, page.rect.y0 + y1)
         pix = page.get_pixmap(matrix=fitz.Matrix(scale, scale), alpha=False, clip=clip)
-        return self.mask_polygon(_qpixmap(pix), p, x0, y0, scale)
+        origin = (pix.x, pix.y)
+        return self.mask_polygon(_qpixmap(pix), p, x0, y0, scale, origin=origin), origin
 
-    def mask_polygon(self, pixmap, piece, x0, y0, scale):
+    def mask_polygon(self, pixmap, piece, x0, y0, scale, origin=None):
         if not piece.polygon:
             return pixmap
         w, h = self.page_size(piece)
+        ox, oy = origin if origin is not None else (math.floor(x0*scale), math.floor(y0*scale))
         path = QtGui.QPainterPath()
-        path.addPolygon(QtGui.QPolygonF([QtCore.QPointF(x*w*scale-math.floor(x0*scale),
-            y*h*scale-math.floor(y0*scale)) for x, y in piece.polygon]))
+        path.addPolygon(QtGui.QPolygonF([QtCore.QPointF(x*w*scale-ox, y*h*scale-oy)
+                                         for x, y in piece.polygon]))
         path.closeSubpath()
         masked = QtGui.QPixmap(pixmap.size())
         masked.fill(QtCore.Qt.white)
@@ -428,7 +518,8 @@ class CompositeView(ZoomPanView):
             it = PieceItem(i, self)
             self.scene().addItem(it)
             ov = self.overview_scale(p)
-            it.set_raw(self.render_piece(p, ov), ov)
+            pm, origin = self.render_piece_raw(p, ov)
+            it.set_raw(pm, ov, origin)
             self.items.append(it)
         self._update_scene_rect()
         self.measure.apply_cursor()
@@ -463,7 +554,8 @@ class CompositeView(ZoomPanView):
         it = self.items[index]
         if rerender:
             ov = self.overview_scale(it.piece)
-            it.set_raw(self.render_piece(it.piece, ov), ov)
+            pm, origin = self.render_piece_raw(it.piece, ov)
+            it.set_raw(pm, ov, origin)
             self._edge_cache.pop(self._anchor_key(it.piece), None)
         else:
             it.refresh()
@@ -903,7 +995,7 @@ class CompositeView(ZoomPanView):
         visible = self.mapToScene(self.viewport().rect()).boundingRect()
         screen = abs(self.transform().m11()) * self.devicePixelRatioF()
         wanted = screen * 1.15                          # px de pantalla por pt de la hoja compuesta
-        shown = [it for it in self.items if it.sceneBoundingRect().intersects(visible)]
+        shown = [it for it in self.items if it.scene_box().intersects(visible)]
         for it in self.items:
             if it not in shown:
                 it.clear_sharp()

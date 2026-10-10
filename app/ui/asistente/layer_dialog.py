@@ -40,6 +40,7 @@ from PySide6 import QtCore, QtGui, QtWidgets
 import fitz
 
 from ui.comun.busy import busy
+from ui.comun import fondo_pdf
 
 from traduccion.i18n import t as _tr
 from ui.comun.icons import icon as _icon
@@ -122,6 +123,8 @@ class SheetLayersDialog(LayerInfoMixin, RecogCardMixin, NoEscapeClose, QtWidgets
         # Minimapa (esquina inferior izquierda): esquema de la hoja mostrada con
         # el recuadro de lo visible; clic/arrastre centra la vista.
         self.minimap = MiniMap(self.view)
+        # hoja enorme (hoja compuesta de muchas piezas): imagen reducida + recorte nítido
+        self._nitidez = fondo_pdf.Nitidez(self.view, lambda: _PREVIEW_ZOOM, lambda: self._page)
 
         # Vista | panel derecho, con divisor arrastrable: el panel arranca con un
         # ancho acorde a la ventana (nunca más del 32 %) y el usuario lo ajusta.
@@ -472,25 +475,35 @@ class SheetLayersDialog(LayerInfoMixin, RecogCardMixin, NoEscapeClose, QtWidgets
         t0 = time.perf_counter()
         pdf_layers.set_hidden(self._doc, self.hidden_names())
         z = _PREVIEW_ZOOM
-        pix = self._page.get_pixmap(matrix=fitz.Matrix(z, z), alpha=False)
+        # la hoja entera a zoom 3; si es enorme, reducida con las MISMAS coordenadas
+        fondo = fondo_pdf.render_pix(self._page, z)
+        pix = fondo.pix
         qimg = QtGui.QImage(bytes(pix.samples), pix.width, pix.height,
                             pix.stride, QtGui.QImage.Format_RGB888).copy()
         pm = QtGui.QPixmap.fromImage(qimg)
         sc = self.view.scene()
-        if self._pix_item is None:
-            self._pix_item = sc.addPixmap(pm)
-            self.view.setSceneRect(QtCore.QRectF(pm.rect()))
+        rect = (QtCore.QRectF(pm.rect()) if fondo.escala >= 1.0
+                else QtCore.QRectF(0, 0, fondo.ancho, fondo.alto))
+        if self._pix_item is None or fondo_pdf.escala_de(self._pix_item) != fondo.escala:
+            self._nitidez.soltar()
+            if self._pix_item is not None:
+                sc.removeItem(self._pix_item)
+            self._pix_item = fondo_pdf.nuevo_item(pm, fondo.escala)
+            sc.addItem(self._pix_item)
+            self.view.setSceneRect(rect)
+            self._nitidez.fijar(self._pix_item)
         else:
             self._pix_item.setPixmap(pm)   # conserva zoom/pan del usuario
-            self.view.setSceneRect(QtCore.QRectF(pm.rect()))
+            self.view.setSceneRect(rect)
+            self._nitidez.invalidar()      # capas cambiadas: el recorte nítido ya no sirve
         self.opacity.sync()
         if self._layout:
             # esquema de la organización (número y posición de cada hoja), sin dibujo
             self.minimap.set_layout(
                 [(QtCore.QRectF(x0 * z, y0 * z, (x1 - x0) * z, (y1 - y0) * z), label)
-                 for (x0, y0, x1, y1), label in self._layout], QtCore.QRectF(pm.rect()))
+                 for (x0, y0, x1, y1), label in self._layout], rect)
         else:
-            self.minimap.set_thumbnail(pm, QtCore.QRectF(pm.rect()))   # refleja las capas visibles
+            self.minimap.set_thumbnail(pm, rect)   # refleja las capas visibles
         if first:
             self._fit_view()
         self._slow_render = time.perf_counter() - t0 > _SLOW_RENDER_S

@@ -22,8 +22,7 @@ class CoordsMixin:
         (base = G.to_cad(px), real = georef.to_world(px)) y la aplicamos a todas
         las entidades del modelspace. Así base + anotaciones quedan alineados."""
         from ezdxf.math import Matrix44
-        pm = self.canvas.pixmap_item.pixmap()
-        w, h = pm.width(), pm.height()
+        w, h = self.canvas.tam_hoja()               # px de la escena (hoja enorme: fondo_pdf)
         samples = [(0.1 * w, 0.1 * h), (0.9 * w, 0.15 * h), (0.15 * w, 0.9 * h)]
         src = [G.to_cad(x, y, self.scale, self.rot, self.W, self.H, self.derot, self.zoom) for (x, y) in samples]
         dst = [self.georef.to_world(x, y) for (x, y) in samples]
@@ -86,8 +85,7 @@ class CoordsMixin:
     def _plan_bbox_real(self):
         """Recuadro del plano en coordenadas reales (del georef), desde las esquinas
         de la página. Devuelve (xmin, ymin, xmax, ymax)."""
-        pm = self.canvas.pixmap_item.pixmap()
-        w, h = pm.width(), pm.height()
+        w, h = self.canvas.tam_hoja()               # px de la escena (hoja enorme: fondo_pdf)
         cs = [self.georef.to_world(x, y) for (x, y) in ((0, 0), (w, 0), (w, h), (0, h))]
         xs = [c[0] for c in cs]; ys = [c[1] for c in cs]
         return (min(xs), min(ys), max(xs), max(ys))

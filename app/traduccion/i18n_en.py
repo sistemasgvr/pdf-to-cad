@@ -1015,6 +1015,8 @@ EN: dict[str, str] = {
         "Compose sheet",
     "No se pudo armar la hoja compuesta:\n\n{e}":
         "The composite sheet could not be built:\n\n{e}",
+    "No se pudo leer la imagen de la hoja del proyecto.":
+        "The sheet image of the project could not be read.",
     "Abre un PDF para componer su hoja de trabajo.":
         "Open a PDF to compose its work sheet.",
     "Composición cancelada — se mantiene la hoja actual.":

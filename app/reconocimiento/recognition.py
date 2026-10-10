@@ -38,6 +38,7 @@ from reconocimiento import recognition_trace as trace_mod
 from reconocimiento import recognition_contacts as contacts_mod
 from reconocimiento import recognition_text_gaps as text_gaps_mod
 from reconocimiento import recognition_vault_snap as vault_snap_mod
+from reconocimiento import recognition_vault_through as vault_through_mod
 from reconocimiento import recognition_walls as walls_mod
 from reconocimiento import recognition_letters as letters_mod
 from reconocimiento import routes as routes_mod
@@ -1502,6 +1503,20 @@ def recognize_page(
         vaults_geo = _vaults_geometry(results, px, scale, zoom, vault_orph, vault_seen, ab_by_layer)
         for vault in vaults_geo:
             vault["utility"] = utility
+        # Línea que ATRAVIESA su bóveda sin nodo (trazo curvo que la cruza recto: el
+        # núcleo solo parte rectas): su caja va en la línea (`recognition_vault_through`).
+        for variant in (polylines_joined, polylines_raw):
+            for hit in vault_through_mod.mark_through_vaults(variant, vaults_geo, zoom):
+                vg = vaults_geo[hit["vault"]]
+                if vg.get("orphan"):
+                    vg["orphan"] = False
+                    vg["importable"] = True
+                    mine = [q for q in orphans_px if vault_snap_mod.vault_contains(vg, q, pad=zoom)]
+                    if mine:
+                        c = vault_snap_mod.vault_centroid(vg)
+                        orphans_px.remove(min(mine, key=lambda q: math.hypot(q[0] - c[0], q[1] - c[1])))
+                if not any(math.hypot(hit["at"][0] - q[0], hit["at"][1] - q[1]) < 0.5 for q in vault_pts):
+                    vault_pts.append(hit["at"])
         # Imán (pedido del usuario 2026-10-01): la punta que llega a una bóveda —o que
         # quedó a un pelo de ella— se lleva a su contorno DIBUJADO por su propia recta.
         # Paso aparte (`recognition_vault_snap`): el núcleo no cambia.
