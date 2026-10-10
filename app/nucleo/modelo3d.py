@@ -14,7 +14,7 @@ las MISMAS reglas que el plugin, para verlo sin exportar:
   • Accesorios de presión (`accesorios.accesorios`) con la forma de WyeSolido.cs
     (`accesorios3d`): brazos con campana (Tee/Wye/cruz) o cuerpo curvo (codo), en un tono
     claro de la utilidad; cada tubo se RECORTA hasta entrar en su campana, como en Civil 3D.
-  • Conexiones verticales aprobadas, avisos de normativa y choques (marcas).
+  • Conexiones verticales aprobadas, avisos de normativa y CONFLICTOS numerados C-n (`marcas3d`).
 
 `construir(...)` → `Escena` con mallas (numpy) listas para la GPU, los volúmenes para
 elegir con el ratón y los datos de cada objeto. Coordenadas en pies, centradas en el
@@ -32,6 +32,7 @@ from nucleo import accesorios as acc
 from nucleo import accesorios3d as A3
 from nucleo import limpieza_tramos as LT
 from nucleo import mallas3d as M
+from nucleo import marcas3d
 from nucleo import model_ops
 from nucleo.model import network_kind
 
@@ -39,6 +40,7 @@ PROFUNDIDAD_FT = 5.0          # recubrimiento por defecto del plugin (defaultDep
 BUZON_DIAM_FT = 4.0           # buzón sin tamaño: 48"
 CAJA_LADO_FT = 4.0
 RECUBRIMIENTO_SUELO_FT = 3.0  # suelo automático sin tapas: 3 ft sobre la tubería más alta
+RECORTE_MAX = 0.45            # una campana nunca recorta más del 45 % de una tubería
 TRAZO_AB_FT, TRAZO_AB_D, HUECO_AB = 3.0, 4.0, 0.6   # abandonadas: trazo ≥3 ft o 4·D, hueco 60 %
 CLARO_ACC = 0.55              # accesorios: color de la utilidad aclarado (se distinguen del tubo)
 LADOS = 12                    # lados de la sección circular
@@ -46,17 +48,16 @@ LADOS = 12                    # lados de la sección circular
 ID_ESTRUCTURA = 100000
 ID_ACCESORIO = 200000
 ID_AVISO = 300000
+ID_CONFLICTO = 400000
 
 COLOR_BANCODUCTO = (0.66, 0.66, 0.62, 0.45)
-COLOR_AVISO = (1.0, 0.72, 0.1, 1.0)
-COLOR_INFO = (0.35, 0.65, 1.0, 1.0)
-COLOR_CHOQUE = (0.9, 0.12, 0.12, 1.0)
 
 
 def objeto_de(ident):
-    """(«pipe»|«struct»|«accesorio»|«aviso», índice) de un id de malla."""
+    """(«pipe»|«struct»|«accesorio»|«aviso»|«conflicto», índice) de un id de malla."""
     ident = int(round(ident))
-    for base, tipo in ((ID_AVISO, "aviso"), (ID_ACCESORIO, "accesorio"), (ID_ESTRUCTURA, "struct")):
+    for base, tipo in ((ID_CONFLICTO, "conflicto"), (ID_AVISO, "aviso"), (ID_ACCESORIO, "accesorio"),
+                       (ID_ESTRUCTURA, "struct")):
         if ident > base:
             return tipo, ident - base - 1
     return ("pipe", ident - 1) if ident > 0 else (None, -1)
@@ -73,6 +74,7 @@ class Escena:
     caja: tuple = ((0, 0, 0), (0, 0, 0))            # límites de lo dibujado (sin suelo)
     suelo_z: float = 0.0
     cuentas: dict = field(default_factory=dict)
+    etiquetas: list = field(default_factory=list)   # [(id, punto 3D, «C-n»)] de los conflictos
 
     @property
     def vacia(self):
@@ -182,6 +184,9 @@ def _utilidad(ar, pipes, structures, i, con_bancoducto, cortes=()):
     if len(camino) < 2:
         return
     ab = bool(p.get("ab"))
+    # Ningún recorte se come la tubería: cada campana entra como mucho el 45 % de su largo.
+    largo = float(np.sum(np.linalg.norm(np.diff(np.asarray(camino)[:, :2], axis=0), axis=1)))
+    cortes = [(c, u, min(alc, largo * RECORTE_MAX)) for c, u, alc in cortes]
     for parte in A3.cortar(camino, cortes):          # el tubo muere dentro de la campana del accesorio
         # Abandonada = A TRAZOS, como su estilo 3D en Civil 3D (linetype discontinuo).
         for tramo in (M.trozos(parte, *trazos_abandonada(alto)) if ab else [parte]):
@@ -348,60 +353,15 @@ def _verticales(ar, pipes, cruces):
                                          ar.color(pipes[ia].get("layer")), ia + 1, 14))
 
 
-def _marca_en_utilidad(ar, pipes, i, x, y):
-    """Punto 3D (eje + radio) de la utilidad i más cercano a (x, y), o None."""
-    if not (0 <= i < len(pipes)):
-        return None
-    p = pipes[i]
-    pts = p.get("pts") or []
-    mejor = None
-    for k in range(len(pts) - 1):
-        z = model_ops.z_en_tramo(p, k, x, y)
-        a, b = pts[k], pts[k + 1]
-        L2 = (b[0] - a[0]) ** 2 + (b[1] - a[1]) ** 2
-        t = 0.0 if L2 < 1e-9 else max(0.0, min(1.0, ((x - a[0]) * (b[0] - a[0]) + (y - a[1]) * (b[1] - a[1])) / L2))
-        q = (a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t)
-        dd = math.dist(q, (x, y))
-        if mejor is None or dd < mejor[0]:
-            mejor = (dd, z)
-    _p, alto = seccion(p)
-    return None if mejor is None else ar.mundo(x, y, mejor[1] + alto)
-
-
-def _marcas(ar, pipes, avisos, choques):
-    base = 0
-    for m, a in enumerate(avisos or []):
-        if a.get("clase") == "tipo":                  # como en el plano: «sin tipo» no se marca
-            continue
-        q = _marca_en_utilidad(ar, pipes, a.get("pipe", -1), a["x"], a["y"])
-        if q is None:
-            continue
-        ident = ID_AVISO + m + 1
-        r = max(0.6, diametro_ft(pipes[a["pipe"]]) * 0.5)
-        ar.op.append(M.esfera((q[0], q[1], q[2] + r), r, COLOR_INFO if a.get("info") else COLOR_AVISO, ident))
-        ar.picks.capsula((q[0], q[1], q[2] + r), (q[0], q[1], q[2] + r), r, ident)
-        ar.registrar(ident, "aviso", m, [q], mensaje=a.get("mensaje", ""), info=bool(a.get("info")))
-        base = m + 1
-    for k, e in enumerate(choques or []):
-        cerca = min(range(len(pipes)), key=lambda i: min(math.dist(q, (e["x"], e["y"]))
-                                                           for q in pipes[i].get("pts") or [(1e18, 1e18)]),
-                    default=None)
-        q = _marca_en_utilidad(ar, pipes, cerca, e["x"], e["y"]) if cerca is not None else None
-        if q is None:
-            continue
-        ident = ID_AVISO + base + k + 1
-        ar.op.append(M.esfera((q[0], q[1], q[2] + 0.8), 0.8, COLOR_CHOQUE, ident))
-        ar.picks.capsula((q[0], q[1], q[2] + 0.8), (q[0], q[1], q[2] + 0.8), 0.8, ident)
-        ar.registrar(ident, "aviso", -1, [q], mensaje=e.get("mensaje", ""), choque=True)
-
 
 # ─────────────────────────── escena completa ───────────────────────────
 
-def construir(pipes, structures, ft, colores=None, duct_banks=(), cruces=(), avisos=(), choques=(),
+def construir(pipes, structures, ft, colores=None, duct_banks=(), cruces=(), avisos=(), conflictos=(),
               ocultas=(), ver=None, suelo_z=None):
     """Escena 3D. `ft` = pies por px del lienzo; `colores` = {capa: (r, g, b)} 0–1;
     `duct_banks` = [{name, width_in, height_in, conduits, pipes}]; `avisos` =
-    [{x, y, clase, mensaje, pipe, info}]; `choques` = [{x, y}]; `ocultas` = capas que
+    [{x, y, clase, mensaje, pipe, info}]; `conflictos` = [{id, titulo, x, y, mensaje, pipes,
+    cotas}] (C-n de `nucleo/conflictos.py`); `ocultas` = capas que
     no se dibujan; `ver` = {estructuras, accesorios, avisos} (todo por defecto);
     `suelo_z` = cota del suelo (None = automática)."""
     ver = dict(dict(estructuras=True, accesorios=True, avisos=True), **(ver or {}))
@@ -427,8 +387,10 @@ def construir(pipes, structures, ft, colores=None, duct_banks=(), cruces=(), avi
             if r:
                 sueltos.append(r[1])
     _verticales(ar, vis_pipes, cruces)
+    etiquetas = []
     if ver["avisos"]:
-        _marcas(ar, vis_pipes, [a for a in avisos or [] if a.get("pipe", -1) in visibles], choques)
+        etiquetas = marcas3d.marcas(ar, vis_pipes, [a for a in avisos or [] if a.get("pipe", -1) in visibles],
+                                    conflictos, ID_AVISO, ID_CONFLICTO)
 
     todo = [m for m in ar.op + ar.tr if len(m)]
     if not todo and not sueltos:
@@ -461,4 +423,6 @@ def construir(pipes, structures, ft, colores=None, duct_banks=(), cruces=(), avi
                   objetos=ar.objetos, origen=tuple(origen), caja=(lo - origen, hi - origen), suelo_z=suelo_z,
                   cuentas=dict(utilidades=sum(1 for o in ar.objetos.values() if o["tipo"] == "pipe"),
                                estructuras=sum(1 for o in ar.objetos.values() if o["tipo"] == "struct"),
-                               accesorios=n_acc))
+                               accesorios=n_acc,
+                               conflictos=sum(1 for o in ar.objetos.values() if o["tipo"] == "conflicto")),
+                  etiquetas=[(i, tuple(np.asarray(p) - origen), txt) for i, p, txt in etiquetas])

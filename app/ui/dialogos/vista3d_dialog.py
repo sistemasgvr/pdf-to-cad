@@ -103,7 +103,6 @@ class Vista3DDialog(QtWidgets.QDialog):
         self.lbl_estado = QtWidgets.QLabel()
         self.lbl_estado.setTextInteractionFlags(QtCore.Qt.TextSelectableByMouse)
         lay.addWidget(self.lbl_estado)
-        self.visor.setToolTip(_tr(_CONTROLES))
 
         self.visor.elegido.connect(self._elegido)
         self.visor.doble.connect(self._doble)
@@ -141,7 +140,7 @@ class Vista3DDialog(QtWidgets.QDialog):
         f = QtWidgets.QVBoxLayout(g)
         self.chk = {}
         for clave, texto in (("estructuras", "Buzones, cajas y sólidos"), ("accesorios", "Accesorios (codos, Tee, Wye…)"),
-                             ("avisos", "Avisos de normativa y choques")):
+                             ("avisos", "Avisos y conflictos")):
             c = QtWidgets.QCheckBox(_tr(texto)); c.setChecked(True)
             c.toggled.connect(lambda _on: self.actualizar(forzar=True))
             f.addWidget(c); self.chk[clave] = c
@@ -172,6 +171,7 @@ class Vista3DDialog(QtWidgets.QDialog):
         v.addWidget(ayuda)
         v.addStretch(1)
         sc = QtWidgets.QScrollArea(); sc.setWidget(caja); sc.setWidgetResizable(True)
+        sc.setHorizontalScrollBarPolicy(QtCore.Qt.ScrollBarAlwaysOff)
         sc.setMinimumWidth(240)
         return sc
 
@@ -250,11 +250,12 @@ class Vista3DDialog(QtWidgets.QDialog):
                for d in getattr(w, "duct_banks", []) or []]
         avisos = [dict(x=a.x, y=a.y, clase=a.clase, mensaje=a.mensaje, pipe=a.pipe, info=a.info)
                   for a in getattr(w, "_normas_avisos", []) or []]
-        choques = [dict(x=e["x"], y=e["y"]) for e in getattr(w, "_choque_hits", []) or []]
+        conflictos = [dict(id=c.id, titulo=c.titulo, x=c.x, y=c.y, mensaje=c.mensaje, pipes=list(c.pipes),
+                           cotas=list(c.cotas)) for c in getattr(w, "_conflictos", []) or []]
         suelo = None if self.spn_suelo.value() <= _SIN_SUELO else self.spn_suelo.value()
         return dict(pipes=copy.deepcopy(w.pipes), structures=copy.deepcopy(w.structures), ft=ft,
                     colores=colores, duct_banks=dbs, cruces=copy.deepcopy(getattr(w, "cross_connections", [])),
-                    avisos=avisos, choques=choques,
+                    avisos=avisos, conflictos=conflictos,
                     ocultas=[c for c, chk in self._capas.items() if not chk.isChecked()],
                     ver={k: c.isChecked() for k, c in self.chk.items()}, suelo_z=suelo)
 
@@ -305,9 +306,10 @@ class Vista3DDialog(QtWidgets.QDialog):
         if self.escena.vacia:
             self.lbl_estado.setText("")
             return
-        self.lbl_estado.setText(_tr("{u} utilidades · {e} buzones/cajas · {a} accesorios · suelo a {z} ft").format(
+        self.lbl_estado.setText(_tr("{u} utilidades · {e} buzones/cajas · {a} accesorios · {k} conflictos · "
+                                    "suelo a {z} ft").format(
             u=c.get("utilidades", 0), e=c.get("estructuras", 0), a=c.get("accesorios", 0),
-            z=f"{self.escena.suelo_z:.2f}"))
+            k=c.get("conflictos", 0), z=f"{self.escena.suelo_z:.2f}"))
 
     # ── selección ──
     def _id_del_plano(self):
@@ -351,6 +353,8 @@ class Vista3DDialog(QtWidgets.QDialog):
             elif tipo == "struct":
                 titulo, filas = ficha3d.de_estructura(w._tablas_de_datos(), k, (o or {}).get("z0"),
                                                       (o or {}).get("z1"))
+            elif tipo == "conflicto" and o:
+                titulo, filas = ficha3d.de_conflicto(o)
             elif tipo == "accesorio" and o:
                 ft = w.scale / w.zoom if w.scale and w.zoom else 1.0
                 titulo, filas = ficha3d.de_accesorio(o, w.pipes, self._avisos_dicts(), w._tipo, tol_px=1.0 / ft)
@@ -366,7 +370,7 @@ class Vista3DDialog(QtWidgets.QDialog):
         o = self.escena.objetos.get(self.visor.sel_id) or {}
         if tipo in ("pipe", "struct"):
             self._elegido(self.visor.sel_id)
-        elif tipo == "accesorio" and o.get("x") is not None:
+        elif tipo in ("accesorio", "conflicto") and o.get("x") is not None:
             self.win._ir_a_elemento(o["x"], o["y"])
 
     def deseleccionar(self):
@@ -405,7 +409,7 @@ class Vista3DDialog(QtWidgets.QDialog):
         if not ident:                                         # clic en el vacío: quita la selección
             self.deseleccionar()
             return
-        if tipo == "accesorio":                               # solo existe en 3D: ficha y resaltado
+        if tipo in ("accesorio", "conflicto"):                # no se elige en el plano: ficha y resaltado
             if self._id_del_plano():
                 w._deselect_all()
             self._sel_local = ident
@@ -464,6 +468,8 @@ class Vista3DDialog(QtWidgets.QDialog):
             return f"{nombre} {acc.texto_angulo(ang)}" if ang is not None else nombre
         if o["tipo"] == "aviso":
             return o.get("mensaje") or _tr("Tuberías que chocan")
+        if o["tipo"] == "conflicto":
+            return f"{o.get('codigo', '')} · {_tr(o.get('titulo', ''))} — " + " ".join((o.get("mensaje") or "").split())
         return ""
 
 

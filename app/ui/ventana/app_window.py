@@ -90,9 +90,10 @@ from ui.ventana.ventana_herramientas import HerramientasMixin
 from ui.ventana.ventana_bancoductos import BancoductosMixin
 from ui.ventana.ventana_bloque import EdicionBloqueMixin
 from ui.ventana.ventana_vista3d import Vista3DMixin
+from ui.ventana.ventana_conflictos_lista import ConflictosListaMixin
 
 
-class Main(MenuMixin, PanelIzquierdoMixin, PanelDerechoMixin, ModosMixin, ClicsMixin, UtilidadesMixin, CatalogoMixin, SeleccionMixin, ListasMixin, MarcasMixin, DibujoMixin, ConflictosMixin, CoordsMixin, BuzonesMixin, MoverPrecisoMixin, CurvasMixin, HerramientasMixin, BancoductosMixin, EdicionBloqueMixin, Vista3DMixin,
+class Main(MenuMixin, PanelIzquierdoMixin, PanelDerechoMixin, ModosMixin, ClicsMixin, UtilidadesMixin, CatalogoMixin, SeleccionMixin, ListasMixin, MarcasMixin, DibujoMixin, ConflictosMixin, CoordsMixin, BuzonesMixin, MoverPrecisoMixin, CurvasMixin, HerramientasMixin, BancoductosMixin, EdicionBloqueMixin, Vista3DMixin, ConflictosListaMixin,
            QtWidgets.QMainWindow):
     def __init__(self):
         super().__init__()

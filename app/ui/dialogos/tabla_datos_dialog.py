@@ -1,14 +1,16 @@
 """Ventana «Tabla de datos» (Herramientas): toda la información de cada elemento en
-pestañas (utilidades, buzones y cajas, curvas, bancoductos, avisos) y «Exportar a
-Excel». Doble clic en una fila = ir a ese elemento en el plano. No modal: se puede
-dejar abierta mientras se trabaja («Actualizar» relee el proyecto)."""
+pestañas (utilidades, buzones y cajas, curvas, bancoductos, avisos, conflictos C-n, cotas
+por vértice) y el Excel de IDA Y VUELTA (`nucleo/tabla_excel.py`): «Exportar a Excel» con
+las columnas editables en verde e «Importar Excel…», que muestra los cambios antes de
+aplicarlos (se deshacen con Ctrl+Z). Doble clic en una fila = ir a ese elemento en el
+plano. No modal: se puede dejar abierta mientras se trabaja."""
 from __future__ import annotations
 
 import os
 
 from PySide6 import QtCore, QtWidgets
 
-from nucleo import tabla_datos
+from nucleo import tabla_excel
 from traduccion.i18n import t as _tr
 from ui.comun.ui_common import DOWNLOADS
 
@@ -44,9 +46,15 @@ class TablaDatosDialog(QtWidgets.QDialog):
         self.btn_act.setProperty("secondary", True)
         self.btn_act.clicked.connect(self.refrescar)
         self.btn_xls = QtWidgets.QPushButton(_tr("Exportar a Excel…"))
+        self.btn_xls.setToolTip(_tr("Las columnas verdes se pueden editar en Excel y volver a cargar"))
         self.btn_xls.clicked.connect(self.exportar)
+        self.btn_imp = QtWidgets.QPushButton(_tr("Importar Excel…"))
+        self.btn_imp.setToolTip(_tr("Carga un Excel exportado y editado: cotas, tapas y fondos, radios, nombre, "
+                                    "tipo y amperaje. Verás los cambios antes de aplicarlos."))
+        self.btn_imp.clicked.connect(self.importar)
         fila.addWidget(self.btn_act)
         fila.addWidget(self.btn_xls)
+        fila.addWidget(self.btn_imp)
         lay.addLayout(fila)
         ayuda = QtWidgets.QLabel(_tr("Doble clic en una fila para verla en el plano. Clic en un encabezado para ordenar."))
         ayuda.setProperty("muted", True)
@@ -58,7 +66,7 @@ class TablaDatosDialog(QtWidgets.QDialog):
 
     def refrescar(self):
         actual = self.pestanas.currentIndex()
-        self.tablas = self.win._tablas_de_datos()
+        self.tablas = self.win._tablas_de_datos() + [tabla_excel.tabla_vertices(self.win.pipes, self.win._to_cad)]
         self.pestanas.clear()
         for tb in self.tablas:
             w = QtWidgets.QTableWidget(len(tb.filas), len(tb.columnas))
@@ -107,12 +115,48 @@ class TablaDatosDialog(QtWidgets.QDialog):
         if not ruta:
             return
         try:
-            tabla_datos.exportar_excel(self.tablas, ruta)
+            tabla_excel.exportar(self.tablas, ruta)
         except Exception as e:                      # archivo abierto en Excel, sin permiso…
             QtWidgets.QMessageBox.warning(self, _tr("Exportar a Excel"), _tr(
                 "No se pudo guardar el Excel (¿está abierto?).\n\n{e}").format(e=e))
             return
         self.win._info(_tr("Tabla de datos exportada: {ruta}").format(ruta=ruta))
+
+    def importar(self, ruta=None, confirmar=True):
+        """Carga un Excel editado: muestra los cambios, los aplica (con deshacer) y recalcula."""
+        w = self.win
+        if not ruta:
+            ruta, _ = QtWidgets.QFileDialog.getOpenFileName(self, _tr("Importar Excel"), DOWNLOADS, _FILTRO_XLSX)
+        if not ruta:
+            return []
+        try:
+            cambios, errores = tabla_excel.cambios(w.pipes, w.structures, tabla_excel.importar(ruta))
+        except Exception as e:                      # no es un Excel de la app, está abierto…
+            QtWidgets.QMessageBox.warning(self, _tr("Importar Excel"), _tr(
+                "No se pudo leer el Excel.\n\n{e}").format(e=e))
+            return []
+        avisos = ("\n\n" + _tr("No se aplicaron:") + "\n• " + "\n• ".join(errores[:8])) if errores else ""
+        if not cambios:
+            QtWidgets.QMessageBox.information(self, _tr("Importar Excel"),
+                                              _tr("El Excel no trae cambios respecto del proyecto.") + avisos)
+            return []
+        lineas = [tabla_excel.texto(c) for c in cambios[:15]]
+        if len(cambios) > 15:
+            lineas.append(_tr("… y {n} más").format(n=len(cambios) - 15))
+        msg = (_tr("Se aplicarán {n} cambio(s):").format(n=len(cambios)) + "\n• " + "\n• ".join(lineas) + avisos
+               + "\n\n" + _tr("Se puede deshacer con Ctrl+Z."))
+        if confirmar and QtWidgets.QMessageBox.question(
+                self, _tr("Importar Excel"), msg, QtWidgets.QMessageBox.Yes | QtWidgets.QMessageBox.Cancel,
+                QtWidgets.QMessageBox.Yes) != QtWidgets.QMessageBox.Yes:
+            return []
+        antes = len(getattr(w, "_conflictos", []) or [])
+        w._push()
+        tabla_excel.aplicar(w.pipes, w.structures, cambios)
+        w._refresh_lists(); w._update_ui(); w._redraw()
+        self.refrescar()
+        w._info(_tr("Excel importado: {n} cambio(s). Conflictos: {a} → {b}.").format(
+            n=len(cambios), a=antes, b=len(getattr(w, "_conflictos", []) or [])))
+        return cambios
 
 
 def abrir(win):

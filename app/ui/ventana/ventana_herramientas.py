@@ -243,7 +243,8 @@ class HerramientasMixin:
             return nombre.split("|")[-1] if nombre else fid
         return tabla_datos.armar(self.pipes, self.structures, getattr(self, "duct_banks", []),
                                  getattr(self, "_normas_avisos", []), self._to_cad, ft_px,
-                                 nombre_utilidad=self._tipo, nombre_familia=familia)
+                                 nombre_utilidad=self._tipo, nombre_familia=familia,
+                                 conflictos=getattr(self, "_conflictos", []))
 
     def _toggle_theme(self):
         # Alterna claro↔oscuro globalmente. El módulo `theme` se encarga de

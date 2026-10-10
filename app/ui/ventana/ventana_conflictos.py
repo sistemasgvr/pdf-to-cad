@@ -40,6 +40,7 @@ class ConflictosMixin:
             self._inclinada_hits = []
             self._redes_hits = []
             self._choque_hits = []
+            self._conflictos = []
             if hasattr(self, "lbl_info"):
                 # Deja el texto de info normal (sin el contador de cruces)
                 pass
@@ -260,6 +261,7 @@ class ConflictosMixin:
             self.pipes, self._pipe_z_at, tol_junta, self.structures)
         for e in self._choque_hits:
             _alerta_roja(e["x"], e["y"], self._msg_choque(e))
+        self._numerar_conflictos()          # C-1, C-2… (ventana_conflictos_lista)
 
         if hasattr(self, "lbl_info"):
             partes = []

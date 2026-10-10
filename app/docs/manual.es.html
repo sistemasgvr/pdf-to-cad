@@ -625,6 +625,8 @@ La barra de estado, abajo, cuenta cuántas hay de cada tipo.</p>
 </section>
 
 <section data-title="Alertas rojas: cuándo salen">
+<p>Cada conflicto lleva un <b>número</b> (C-1, C-2…, en orden de lectura del plano) junto a su marca; el mismo
+número sale en la Tabla de datos (pestaña «Conflictos»), en su Excel y en la Vista 3D.</p>
 <p>El triángulo rojo <img src="mark:alerta"> aparece en estos casos. Todos se refieren a redes
 <b>a presión</b> (agua y gas), salvo «tuberías que chocan», que avisa en cualquier utilidad.</p>
 <table width="100%" cellspacing="4" cellpadding="10">
@@ -722,12 +724,25 @@ el ramal un tamaño menor (12 → 8). Una principal de 6 in no tiene tamaño men
 <p><b>Herramientas → Tabla de datos…</b> (<span class="key">&nbsp;Ctrl+Shift+T&nbsp;</span>, o el botón de tabla en
 la barra superior) muestra toda la información del proyecto en pestañas: <b>utilidades</b> (nombre, tipo,
 estado, familia, tamaño, diámetro, largo, cotas, amperaje, bancoducto, coordenadas y avisos), <b>buzones y
-cajas</b>, <b>curvas</b>, <b>bancoductos</b> y <b>avisos de normativa</b>.</p>
+cajas</b>, <b>curvas</b>, <b>bancoductos</b>, <b>avisos de normativa</b>, <b>conflictos</b> (C-1, C-2…) y
+<b>cotas por vértice</b>.</p>
 <ul>
 <li>Clic en un encabezado para ordenar; <b>Buscar en la tabla…</b> filtra.</li>
 <li>Doble clic en una fila la muestra en el plano.</li>
-<li><b>Exportar a Excel…</b> guarda todo, una hoja por pestaña.</li>
 </ul>
+
+<h2>Editar en Excel y volver a cargar</h2>
+<ol>
+<li><b>Exportar a Excel…</b> guarda todo, una hoja por pestaña, más una hoja «Léeme». Las columnas
+    <b>verdes</b> se pueden editar: nombre, tipo, amperaje y rasantes inicial y final de cada utilidad; tapa y
+    fondo de los buzones; radio de las curvas; y, en «Cotas por vértice», la cota de llegada y de salida de
+    cada vértice (vacía = automática). Las grises son de consulta.</li>
+<li>Edita en Excel (los decimales con punto o coma).</li>
+<li><b>Importar Excel…</b> muestra la lista de cambios antes de aplicarlos; lo que no se pudo leer (un texto
+    donde va un número, una utilidad que no existe) se avisa y no se aplica. Se deshace con
+    <span class="key">&nbsp;Ctrl+Z&nbsp;</span>.</li>
+</ol>
+<p>Al importar, los <b>conflictos</b> se recalculan: así se ve enseguida si un cambio de cota resolvió el choque.</p>
 </section>
 
 <section data-title="Vista 3D">
@@ -745,7 +760,7 @@ copia de recuperación).</p>
     <b>sólidos</b> con su contorno y su cota superior.</li>
 <li><b>Bancoductos</b> con su envolvente (fondo en la cota de la utilidad) y sus conductos adentro.</li>
 <li><b>Accesorios</b> de agua y gas con la forma que les da el plugin (Tee, Wye y cruz con un brazo y una
-    campana por tubo; codo curvo), en un tono claro, con cada tubo entrando en su campana; conexiones verticales aprobadas y las marcas de los avisos de normativa (ámbar) y de las tuberías que chocan (rojo).</li>
+    campana por tubo; codo curvo), en un tono claro, con cada tubo entrando en su campana; conexiones verticales aprobadas y las marcas de los avisos de normativa (ámbar) y de los <b>conflictos</b> (rojo, con su número C-n; clic = su ficha).</li>
 <li>El <b>suelo</b>, semitransparente, para ver lo que queda bajo tierra.</li>
 </ul>
 

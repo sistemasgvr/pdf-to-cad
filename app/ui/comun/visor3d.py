@@ -19,6 +19,7 @@ from PySide6.QtOpenGL import QOpenGLBuffer, QOpenGLShader, QOpenGLShaderProgram,
 from PySide6.QtOpenGLWidgets import QOpenGLWidget
 
 from nucleo import mallas3d as M
+from ui.comun import etiquetas3d
 from ui.comun.cubo_vistas import CuboVistas
 
 GL_TRIANGLES = 0x0004
@@ -70,11 +71,11 @@ void main() {
 """
 
 RADIO_MIN_PX = 1.0      # tuberías: radio mínimo en pantalla (~2 px de ancho; no desaparecen al alejar)
-DIST_MIN_FT = 1.0       # la cámara no se acerca más que esto a su objetivo: de ahí en más AVANZA
+DIST_MIN_FT = 1.0       # el zoom se detiene a esta distancia de la superficie bajo el cursor (no la atraviesa)
 ZOOM_PASO = 0.95        # cada «clic» de la rueda acerca un 5 % (8 % y 15 % eran muy sensibles)
 GIRO_DEG_PX = (0.22, 0.16)   # grados de giro por píxel arrastrado (horizontal, vertical)
 DESPLAZAR = 0.6         # el modelo se mueve el 60 % de lo que se mueve el ratón (1:1 era muy sensible)
-PISO_DESPLAZAR = 0.005  # de muy cerca, desplazar nunca baja de esta fracción del modelo
+PROF_MIN_FT = 0.25      # profundidad mínima para desplazar (nunca se traba)
 ANIM_MS, ANIM_PASOS = 240, 12   # giro animado del cubo de vistas
 
 VISTAS = {"arriba": (-90.0, 89.5), "frente": (-90.0, 0.0), "lateral": (0.0, 0.0), "iso": (-55.0, 30.0)}
@@ -291,8 +292,15 @@ class Visor3D(QOpenGLWidget):
             self._vao.release()
         f.glDisable(GL_DEPTH_TEST)                       # el cubo va ENCIMA del modelo
         pintor = QtGui.QPainter(self)
+        self._dibujar_etiquetas(pintor)
         self.cubo.dibujar(pintor, self.width(), self.cam, self.oscuro)
         pintor.end()
+
+    def _dibujar_etiquetas(self, pintor):
+        """Número de cada conflicto («C-n») junto a su esfera, encima del modelo."""
+        etiquetas3d.dibujar(pintor, getattr(self.escena, "etiquetas", None) or [],
+                            _np(self.cam.matriz(self.width() / max(self.height(), 1), self.radio())),
+                            self.width(), self.height(), self.sel_id, self.hov_id)
 
     # ── elegir ──
     def rayo(self, x, y):
@@ -321,6 +329,12 @@ class Visor3D(QOpenGLWidget):
 
     # ── ratón y teclado ──
     def mousePressEvent(self, e):
+        # Profundidad de lo agarrado: al desplazar, eso sigue al ratón (también muy de cerca).
+        self._prof_agarre = None
+        if self.escena is not None:
+            p, _d = self._punto_bajo(e.position().x(), e.position().y())
+            adelante = self.cam.objetivo - self.cam.ojo()
+            self._prof_agarre = float(np.dot(p - self.cam.ojo(), adelante / np.linalg.norm(adelante)))
         obj = self.cubo.que_hay(e.position()) if self.escena is not None else None
         if obj and e.button() == QtCore.Qt.LeftButton:
             self._cubo_press = obj
@@ -363,7 +377,7 @@ class Visor3D(QOpenGLWidget):
             self.cam.pitch = max(-89.5, min(89.5, self.cam.pitch + dy * GIRO_DEG_PX[1]))
         else:
             der, arriba = self.cam.ejes()
-            k = self._pies_por_px()
+            k = self._pies_por_px(getattr(self, "_prof_agarre", None))
             self.cam.objetivo = self.cam.objetivo - der * dx * k + arriba * dy * k
         self.update()
 
@@ -405,36 +419,53 @@ class Visor3D(QOpenGLWidget):
             self._press = None
             self.encuadrar()
 
-    def _pies_por_px(self):
+    def _pies_por_px(self, prof=None):
         """Cuánto se mueve el objetivo por píxel al desplazar: el tamaño de un píxel a la
-        distancia de la cámara, pero nunca menos que una fracción del modelo (de muy
-        cerca el desplazamiento dejaba de moverse)."""
-        d = max(self.cam.dist, self.radio() * PISO_DESPLAZAR)
+        PROFUNDIDAD de lo que se agarró (lo que hay bajo el cursor sigue al ratón). Antes un
+        piso fijo del 0.5 % del modelo hacía que de muy cerca se moviera varias veces más
+        rápido que el ratón."""
+        d = max(prof if prof is not None else self.cam.dist, PROF_MIN_FT)
         return DESPLAZAR * d * math.tan(math.radians(self.cam.fov) / 2.0) * 2.0 / max(self.height(), 1)
 
+    def _punto_bajo(self, x, y):
+        """(punto 3D bajo el cursor, dirección del rayo): la superficie del objeto que hay
+        ahí o, si no hay nada, el plano del objetivo (perpendicular a la vista)."""
+        ojo = self.cam.ojo()
+        o, d = self.rayo(x, y)
+        d = d / np.linalg.norm(d)
+        if self.escena is not None and len(self.escena.picks) and len(self.escena.picks[3]):
+            _i, t = M.choque(self.escena.picks, ojo, d)
+            if t is not None and t > 1e-6:
+                return ojo + d * t, d
+        adelante = self.cam.objetivo - ojo
+        adelante /= np.linalg.norm(adelante)
+        den = float(np.dot(d, adelante))
+        s = float(np.dot(self.cam.objetivo - ojo, adelante)) / den if abs(den) > 1e-6 else self.cam.dist
+        return ojo + d * max(s, DIST_MIN_FT), d
+
     def zoom(self, pasos, x=None, y=None):
-        """Acercar (pasos > 0) / alejar hacia el punto bajo el cursor (x, y), como Civil 3D.
-        Al llegar a `DIST_MIN_FT` la cámara AVANZA (lleva el objetivo hacia adelante) en vez
-        de quedarse trabada."""
-        f = ZOOM_PASO ** pasos
+        """Acercar (pasos > 0) / alejar hacia el punto EXACTO bajo el cursor (la superficie de
+        la tubería, o el plano del objetivo si no hay nada), como Civil 3D: la cámara se mueve
+        por el rayo del cursor sin girar, y el objetivo (centro de giro) queda a la
+        profundidad de ese punto. Se detiene a `DIST_MIN_FT` de la superficie: nunca la
+        atraviesa (antes, en el zoom máximo, cada clic empujaba ~1 % del modelo y saltaba)."""
         cam = self.cam
-        if x is not None and y is not None:
-            o, d = self.rayo(x, y)
-            d = d / np.linalg.norm(d)
-            adelante = cam.objetivo - cam.ojo()
-            adelante /= np.linalg.norm(adelante)
-            den = float(np.dot(d, adelante))
-            if abs(den) > 1e-6:                  # punto del cursor en el plano del objetivo
-                p = o + d * float(np.dot(cam.objetivo - o, adelante)) / den
-                cam.objetivo = cam.objetivo + (p - cam.objetivo) * (1.0 - f)
-        nueva = cam.dist * f
-        if nueva < DIST_MIN_FT:
-            adelante = cam.objetivo - cam.ojo()
-            adelante /= np.linalg.norm(adelante)
-            avance = max(cam.dist - nueva, self.radio() * 0.01) if pasos > 0 else 0.0
-            cam.objetivo = cam.objetivo + adelante * avance
-            nueva = DIST_MIN_FT
-        cam.dist = nueva
+        ojo = cam.ojo()
+        adelante = cam.objetivo - ojo
+        adelante /= np.linalg.norm(adelante)
+        if x is None or y is None:
+            x, y = self.width() / 2.0, self.height() / 2.0
+        p, d = self._punto_bajo(x, y)
+        actual = float(np.linalg.norm(p - ojo))
+        nueva = actual * (ZOOM_PASO ** pasos)
+        if pasos > 0:
+            nueva = max(nueva, min(actual, DIST_MIN_FT))
+        else:
+            nueva = min(nueva, max(actual, self.radio() * 20.0))
+        ojo2 = p - d * nueva
+        prof = max(float(np.dot(p - ojo2, adelante)), DIST_MIN_FT)
+        cam.objetivo = ojo2 + adelante * prof
+        cam.dist = prof
         self.update()
 
     def wheelEvent(self, e):

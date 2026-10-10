@@ -155,9 +155,14 @@ def sacar_campanas(brazos):
 
 
 def separar(brazos):
-    """Campanas que no se tocan entre sí (`SepararBrazos`)."""
+    """Campanas que no se tocan entre sí (`SepararBrazos`). Dos brazos SUPERPUESTOS (menos de
+    `ANG_EJES_MIN_DEG` entre ejes: dos tuberías dibujadas una encima de la otra) no se pueden
+    separar: alargarlos daba brazos de miles de pies (2026-10-10, 0.01° → 9 349 ft) y el tubo se
+    recortaba entero. Se dejan como están."""
     for n, a in enumerate(brazos):
         for b in brazos[n + 1:]:
+            if _ang(a.dir, b.dir) < math.radians(ANG_EJES_MIN_DEG):
+                continue
             cos = math.cos(_ang(a.dir, b.dir))
             minimo = a.r_campana + b.r_campana + SEPARACION_MIN_FT
             ca = a.largo + a.d * LARGO_CAMPANA_D / 2.0

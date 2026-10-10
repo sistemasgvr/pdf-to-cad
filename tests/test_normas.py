@@ -185,7 +185,7 @@ def test_tabla_de_datos_y_excel(tmp_path):
     db = DuctBank(name="DB1"); db.assign([1])
     av = nv.validar(nc.nuevo(), pipes, [], FT)
     tablas = tabla_datos.armar(pipes, structs, [db], av, lambda x, y: (x * FT, -y * FT), FT)
-    ut, bz, cu, bd, avs = tablas
+    ut, bz, cu, bd, avs, co = tablas
     assert [f[0] for f in ut.filas] == [1, 2] and ut.filas[0][3] == "DISTRIBUCION PRINCIPAL"
     assert ut.filas[0][8] == pytest.approx(10.0) and ut.filas[1][14] == "DB1"
     assert [f[0] for f in bz.filas] == ["BZ-1"] and len(cu.filas) == 1 and len(bd.filas) == 1
@@ -193,7 +193,7 @@ def test_tabla_de_datos_y_excel(tmp_path):
     ruta = tmp_path / "datos.xlsx"
     tabla_datos.exportar_excel(tablas, ruta)
     wb = openpyxl.load_workbook(ruta)
-    assert len(wb.sheetnames) == 5 and wb.worksheets[0].max_row == 3
+    assert len(wb.sheetnames) == 7 and wb.worksheets[1].max_row == 3      # «Léeme» + 6 tablas
 
 
 # ─────────────────────────── ventana ───────────────────────────
@@ -247,5 +247,5 @@ def test_ver_avisos_y_ventanas(win):
     win.open_normativas(en_avisos=True)
     assert win._normas_dlg.lst_avisos.topLevelItemCount() == 2
     win.abrir_tabla_datos()
-    assert win._tabla_dlg.pestanas.count() == 5
+    assert win._tabla_dlg.pestanas.count() == 7          # + conflictos y cotas por vértice
     win._tabla_dlg.close(); win._normas_dlg.close()

@@ -47,7 +47,7 @@ def _largo_px(pts):
 
 
 def armar(pipes, structures, duct_banks, avisos, a_cad, ft_per_px,
-          nombre_utilidad=lambda c: c, nombre_familia=lambda f: f):
+          nombre_utilidad=lambda c: c, nombre_familia=lambda f: f, conflictos=()):
     pipes = pipes or []
     structures = structures or []
     db_de = {}
@@ -129,31 +129,22 @@ def armar(pipes, structures, duct_banks, avisos, a_cad, ft_per_px,
                          t(CLASES.get(a.clase, a.clase)) + (" · " + t("Información") if a.info else ""),
                          a.mensaje, x, y])
         av.lugares.append((a.x, a.y, "pipe", a.pipe))
-    return [ut, bz, cu, bd, av]
+
+    co = Tabla("conflictos", N_("Conflictos"), [
+        N_("ID"), N_("Tipo de conflicto"), N_("Utilidades"), N_("Cota A (ft)"), N_("Cota B (ft)"),
+        N_("Diferencia (ft)"), N_("Detalle"), N_("X"), N_("Y")])
+    for c in conflictos or []:
+        x, y = _xy(a_cad, (c.x, c.y))
+        za = c.cotas[0] if len(c.cotas) > 0 else None
+        zb = c.cotas[1] if len(c.cotas) > 1 else None
+        co.filas.append([c.id, t(c.titulo), ", ".join(f"#{i + 1}" for i in c.pipes), _r(za, 3), _r(zb, 3),
+                         _r(c.diferencia, 3), " ".join(c.mensaje.split()), x, y])
+        co.lugares.append((c.x, c.y, "pipe" if c.pipes else None, c.pipes[0] if c.pipes else -1))
+    return [ut, bz, cu, bd, av, co]
 
 
 def exportar_excel(tablas, ruta):
-    """Un libro con una hoja por tabla (encabezados ya traducidos)."""
-    import openpyxl
-    from openpyxl.styles import Font
-    from openpyxl.worksheet.table import Table as TablaXL, TableStyleInfo
-    wb = openpyxl.Workbook()
-    wb.remove(wb.active)
-    for n, tb in enumerate(tablas, 1):
-        ws = wb.create_sheet(t(tb.titulo)[:31])
-        cab = [t(c) for c in tb.columnas]
-        ws.append(cab)
-        for f in tb.filas:
-            ws.append(list(f))
-        for c in ws[1]:
-            c.font = Font(bold=True)
-        for k, titulo in enumerate(cab, 1):
-            largo = max([len(str(titulo))] + [len(str(f[k - 1])) for f in tb.filas if f[k - 1] is not None])
-            ws.column_dimensions[openpyxl.utils.get_column_letter(k)].width = min(60, max(8, largo + 2))
-        ws.freeze_panes = "A2"
-        if tb.filas:
-            ref = f"A1:{openpyxl.utils.get_column_letter(len(cab))}{len(tb.filas) + 1}"
-            tabla = TablaXL(displayName=f"Tabla{n}", ref=ref)
-            tabla.tableStyleInfo = TableStyleInfo(name="TableStyleMedium2", showRowStripes=True)
-            ws.add_table(tabla)
-    wb.save(ruta)
+    """Un libro con una hoja por tabla (encabezados ya traducidos). Lo arma `tabla_excel`
+    (columnas editables en verde, hoja «Léeme»): se puede editar y volver a cargar."""
+    from nucleo import tabla_excel
+    tabla_excel.exportar(tablas, ruta)

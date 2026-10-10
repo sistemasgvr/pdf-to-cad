@@ -77,6 +77,23 @@ def de_estructura(tablas, s_idx, z0=None, z1=None):
     return str(d.get(N_("Código")) or ""), filas
 
 
+def de_conflicto(obj):
+    """(título, [(campo, valor)]) de un conflicto numerado (C-n) del modelo 3D."""
+    titulo = f"{obj.get('codigo', '')} · {t(obj.get('titulo', ''))}"
+    filas = [(N_("Conflicto"), obj.get("codigo", "")), (N_("Tipo de conflicto"), t(obj.get("titulo", "")))]
+    if obj.get("pipes"):
+        filas.append((N_("Utilidades"), ", ".join(f"#{i + 1}" for i in obj["pipes"])))
+    cotas = obj.get("cotas") or []
+    for k, campo in enumerate((N_("Cota A (ft)"), N_("Cota B (ft)"))):
+        if k < len(cotas) and cotas[k] is not None:
+            filas.append((campo, _valor(round(cotas[k], 3))))
+    z = [c for c in cotas if c is not None]
+    if len(z) >= 2:
+        filas.append((N_("Diferencia (ft)"), _valor(round(abs(z[0] - z[1]), 3))))
+    filas.append((N_("Detalle"), " ".join((obj.get("mensaje") or "").split())))
+    return titulo, filas
+
+
 def de_accesorio(obj, pipes, avisos, nombre_utilidad=lambda c: c, tol_px=None):
     """(título, [(campo, valor)]) de un accesorio del modelo 3D (`modelo3d.objetos`)."""
     nombre = t(NOMBRE_ACC.get(obj.get("acc_tipo"), N_("Accesorio")))

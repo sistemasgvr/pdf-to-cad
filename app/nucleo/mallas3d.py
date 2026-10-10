@@ -226,9 +226,15 @@ class Picks:
 def elegir(picks, origen, direccion, r_min=0.0):
     """id del objeto más cercano que corta el rayo (0 = nada);
     `r_min` = radio mínimo (pies) para poder señalar una tubería fina de lejos."""
+    return choque(picks, origen, direccion, r_min)[0]
+
+
+def choque(picks, origen, direccion, r_min=0.0):
+    """(id, distancia) del primer objeto que corta el rayo: la distancia es hasta su
+    SUPERFICIE (entrada en la cápsula). (0, None) si no corta nada."""
     A, B, R, I = picks if isinstance(picks, tuple) else picks.arreglos()
     if not len(I):
-        return 0
+        return 0, None
     o = np.asarray(origen, float); d = np.asarray(direccion, float)
     d = d / np.linalg.norm(d)
     u = B - A
@@ -244,8 +250,10 @@ def elegir(picks, origen, direccion, r_min=0.0):
     p_seg = A + u * sc[:, None]
     tr = np.maximum((p_seg - o) @ d, 0.0)
     dist = np.linalg.norm(o + d[None] * tr[:, None] - p_seg, axis=1)
-    ok = dist <= np.maximum(R, r_min)
+    rad = np.maximum(R, r_min)
+    ok = dist <= rad
     if not ok.any():
-        return 0
-    k = np.argmin(np.where(ok, tr, np.inf))
-    return int(I[k])
+        return 0, None
+    entrada = tr - np.sqrt(np.maximum(rad * rad - dist * dist, 0.0))
+    k = np.argmin(np.where(ok, entrada, np.inf))
+    return int(I[k]), float(max(entrada[k], 0.0))

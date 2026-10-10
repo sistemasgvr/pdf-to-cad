@@ -10,7 +10,7 @@ alcantarillado, drenaje, gas, eléctrico, telecom). Todo en **unidades imperiale
   - `main.py` — punto de entrada (arma `sys.path`: `app/` + raíz).
   - **Carpetas por capa (2026-10-08, en curso)**: `app/nucleo/` = lógica PURA del dominio (sin Qt ni fitz):
     `model`, `model_ops`, `xdata`, `duct_bank`, `unir_utilidades`, `unir_ramales`, `quiebres_curvas`,
-    `accesorios`, `normas_catalogo`, `normas_excel`, `normas_validar`, `tabla_datos`, `modelo3d`, `mallas3d`, `accesorios3d`, `edicion_bloque`,
+    `accesorios`, `normas_catalogo`, `normas_excel`, `normas_validar`, `tabla_datos`, `tabla_excel`, `conflictos`, `modelo3d`, `mallas3d`, `accesorios3d`, `marcas3d`, `ficha3d`, `edicion_bloque`,
     `limpieza`, `limpieza_tramos`. Se importan
     como `from nucleo import model_ops` / `from nucleo.model import …` (nunca `import model_ops`: ese nombre
     ya no existe). Regla: la interfaz usa `nucleo`, `nucleo` NUNCA importa la interfaz (PySide6, `i18n`,
@@ -1220,7 +1220,10 @@ alcantarillado, drenaje, gas, eléctrico, telecom). Todo en **unidades imperiale
     (`curva_codo`) + 2 campanas; cada tubo se RECORTA hasta su `alcance` (`cortar`). Sin bolas: el usuario las
     rechazó (2026-10-10, «no refleja la realidad»), tampoco en los quiebres de las tuberías: `barrido_camino`
     comparte los anillos en INGLETE (bisectriz, 1/cos(giro/2)) y la curva queda lisa. Dos líneas casi encimadas
-    (Wye a 0.4°) dan brazos de cientos de ft: es lo que haría `SepararBrazos` en Civil 3D; «sin tipo» no se marca (como
+    (Wye a 0.4°) daban brazos de cientos/miles de ft y con 0.01° el tubo se recortaba ENTERO (santos_proyecto_prueba,
+    #8 de agua: solo se veían sus codos): `separar` y `SepararBrazos` (WyeSolido.cs) ya NO separan brazos a <
+    `ANG_EJES_MIN_DEG` (superpuestos; el plugin lo avisa), y `RECORTE_MAX`=0.45: una campana nunca recorta más
+    del 45 % de una tubería (ninguna puede desaparecer). Largos y diámetros 3D = DXF (verificado: diferencia 0); «sin tipo» no se marca (como
     en el plano). Ids: utilidad i+1, estructura `ID_ESTRUCTURA`+j+1, accesorio, aviso (`objeto_de`). Suelo
     automático = tapa más alta o 3 ft sobre el tope de la tubería más alta. `nucleo/mallas3d.py`: primitivas
     (`barrido_camino` VECTORIZADO —un tramo por llamada tardaba 1.4 s con 66 utilidades, ahora ~0.3 s—, `prisma`, `esfera`, `elegir` = rayo contra cápsulas con
@@ -1228,8 +1231,11 @@ alcantarillado, drenaje, gas, eléctrico, telecom). Todo en **unidades imperiale
     pyqtgraph no está instalado y sumaría PyOpenGL al .exe), resaltado por UNIFORMES (`uSel`/`uHov` contra el id
     del vértice: elegir no reconstruye); los ACCESORIOS no llevan tamaño mínimo (el usuario lo pidió quitar), solo las tuberías; `glBlendFuncSeparate(..., ZERO, ONE)`: con
     el alfa del framebuffer < 1 Qt componía el widget con el fondo y lo semitransparente salía azul. Navegación
-    Civil 3D (rueda = zoom HACIA EL CURSOR, y en `DIST_MIN_FT` la cámara avanza en vez de trabarse; desplazar con
-    `_pies_por_px` = 60 % del ratón (`DESPLAZAR`), con piso de 0.5 % del modelo —de muy cerca no se movía—; doble clic central = encuadrar todo; central =
+    Civil 3D (rueda = zoom hacia el punto EXACTO bajo el cursor —superficie de la tubería, `mallas3d.choque`, o el
+    plano del objetivo—: la cámara se mueve por el rayo sin girar, el objetivo queda a la profundidad de ese punto
+    y se detiene a `DIST_MIN_FT`=1 ft de la superficie, nunca la atraviesa (antes, en el zoom máximo, cada clic
+    empujaba ~1 % del modelo y saltaba); desplazar = 60 % del ratón (`DESPLAZAR`) a la PROFUNDIDAD de lo agarrado
+    al apretar (`_prof_agarre`; antes un piso del 0.5 % del modelo lo disparaba de cerca); doble clic central = encuadrar todo; central =
     desplazar, Shift + central = girar; izquierdo = girar, derecho/Ctrl = desplazar). La cámara NO se recuerda:
     `abrir` → `visor.reiniciar()` si la ventana estaba cerrada. Zoom 5 % por clic (`ZOOM_PASO`=0.95; 15 % y 8 % eran muy
     sensibles); giro 0.22°/0.16° por píxel (`GIRO_DEG_PX`). **Cubo de vistas** (`ui/comun/cubo_vistas.py`, pedido 2026-10-10, como el ViewCube de Civil 3D):
@@ -1255,6 +1261,21 @@ alcantarillado, drenaje, gas, eléctrico, telecom). Todo en **unidades imperiale
     `_write_project`; sin archivo → `autoguardado.guardar_ahora()` (copia de recuperación), NUNCA «Guardar como».
     Ajustes en QSettings «pdf-to-cad»/«vista3d». Sin OpenGL 2.1 la ventana lo dice (no se cae; offscreen arma la
     escena sin dibujar). Tests: `tests/test_vista3d.py`.
+  - **Conflictos NUMERADOS + Excel de ida y vuelta** (2026-10-10, pedido del usuario): `nucleo/conflictos.py` (PURO)
+    `numerar(items)` → `Conflicto` C-1, C-2… en orden de LECTURA (filas de `FILA_PX`, luego x) y sin repetidos (el
+    mismo cruce visto por varios pares de tramos en un vértice = uno; antes C-10…C-13 en el mismo punto);
+    `agrupar` (etiqueta «C-10 · C-13» si coinciden). `ui/ventana/ventana_conflictos_lista.ConflictosListaMixin.
+    _numerar_conflictos` (al final de `_draw_pipe_conflicts`) junta los cruces «conflicto» que el plugin NO une
+    (`_union_civil` vacío) y TODAS las alertas rojas (`_exceso/_escalon/_codos/_retorno/_pendiente/_inclinada/_redes/
+    _choque_hits`, con sus `_msg_*`) → `Main._conflictos` y `ui/comun/conflictos_view.dibujar` (etiqueta roja ARRIBA
+    A LA IZQUIERDA de la marca: a la derecha va la del accesorio). Tabla de datos: pestaña «Conflictos»
+    (`tabla_datos.armar(conflictos=)`) y «Cotas por vértice» (`tabla_excel.tabla_vertices`). `nucleo/tabla_excel.py`
+    (PURO): `exportar` (columnas `EDITABLES` en verde, «Léeme»), `importar` (hojas y encabezados en ES o EN vía
+    `TRANSLATIONS`), `cambios` (tolerancia del redondeo del Excel: lo no tocado no cambia; coma decimal; errores por
+    fila), `aplicar`; el diálogo confirma, `_push` (Ctrl+Z) y recalcula. 3D: `nucleo/marcas3d.py` (avisos y
+    conflictos; `ID_CONFLICTO`, `Escena.etiquetas`, `ui/comun/etiquetas3d.dibujar` con QPainter), ficha
+    `ficha3d.de_conflicto`; sin el tooltip de instrucciones en el visor (tapaba el de los conflictos). Tests:
+    `tests/test_conflictos_excel.py`.
   - **Unir utilidades** (2026-10-02): `unir_utilidades.py` (PURO) `planificar(pipes, filas, base,
     ft_per_px)` → `Plan` (pipe unida, empalmes, absorbidas, avisos): encadena punta con punta desde la
     BASE (la 1.ª seleccionada, `Main._orden_sel`; sus datos mandan), `invertir` las que van al revés,

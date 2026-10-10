@@ -33,6 +33,10 @@ class FichaPanel(QtWidgets.QGroupBox):
         self.tabla.setWordWrap(True)
         self.tabla.setShowGrid(False)
         self.tabla.setFocusPolicy(QtCore.Qt.ClickFocus)
+        # El texto largo se ajusta al ancho del panel (nunca lo ensancha ni pide barra horizontal).
+        self.tabla.setHorizontalScrollBarPolicy(QtCore.Qt.ScrollBarAlwaysOff)
+        self.tabla.setSizePolicy(QtWidgets.QSizePolicy.Ignored, QtWidgets.QSizePolicy.Fixed)
+        self.lbl_titulo.setSizePolicy(QtWidgets.QSizePolicy.Ignored, QtWidgets.QSizePolicy.Preferred)
         v.addWidget(self.tabla)
         fila = QtWidgets.QHBoxLayout()
         self.btn_plano = QtWidgets.QPushButton(_icon("mdi:crosshairs-gps"), _tr("Ver en el plano"))
@@ -65,13 +69,21 @@ class FichaPanel(QtWidgets.QGroupBox):
             b.setToolTip(str(valor))
             self.tabla.setItem(r, 0, a)
             self.tabla.setItem(r, 1, b)
-        self.tabla.resizeRowsToContents()
-        alto = sum(self.tabla.rowHeight(r) for r in range(len(filas))) + 6
-        self.tabla.setFixedHeight(min(max(alto, 40), 360))
+        self._ajustar_alto()
         for w in (self.lbl_titulo, self.tabla, self.btn_copiar):
             w.setVisible(True)
         self.btn_plano.setVisible(con_plano)
         self.lbl_vacio.setVisible(False)
+
+    def _ajustar_alto(self):
+        self.tabla.resizeRowsToContents()
+        alto = sum(self.tabla.rowHeight(r) for r in range(self.tabla.rowCount())) + 6
+        self.tabla.setFixedHeight(min(max(alto, 40), 360))
+
+    def resizeEvent(self, e):
+        super().resizeEvent(e)
+        if self.tabla.rowCount():
+            self._ajustar_alto()                     # el texto se re-parte con el nuevo ancho
 
     def limpiar(self):
         self.tabla.setRowCount(0)

@@ -267,18 +267,27 @@ def test_cortar_tubo_en_el_accesorio():
     assert len(A3.cortar(camino, [((20, 0), (-1, 0), 4.0)])) == 1
 
 
-def test_zoom_no_se_traba_y_doble_clic_central_encuadra_todo(win):
+def test_zoom_de_cerca_no_atraviesa_y_doble_clic_central_encuadra_todo(win):
     from PySide6 import QtCore, QtGui
     from ui.comun import visor3d as V
     dlg = win.abrir_vista3d(); _esperar(dlg)
     v = dlg.visor
     v.resize(800, 600)
-    antes = v.cam.objetivo.copy()
-    for _ in range(200):                                       # mucho más allá del zoom máximo
+    # sobre una tubería: el zoom va a SU superficie y se detiene a DIST_MIN_FT, sin atravesarla
+    lo, hi = dlg.escena.objetos[1]["caja"]
+    v.cam.objetivo = (np.asarray(lo) + np.asarray(hi)) / 2
+    for _ in range(300):                                       # mucho más allá del zoom máximo
         v.zoom(1, 400, 300)
-    assert v.cam.dist == pytest.approx(V.DIST_MIN_FT)
-    assert np.linalg.norm(v.cam.objetivo - antes) > 1.0         # siguió avanzando, no se trabó
-    assert v._pies_por_px() >= V.DESPLAZAR * v.radio() * V.PISO_DESPLAZAR * 0.7 / 600   # desplazar sigue moviendo
+        p, _d = v._punto_bajo(400, 300)
+        assert np.linalg.norm(p - v.cam.ojo()) >= V.DIST_MIN_FT - 1e-6
+    assert np.isfinite(v.cam.objetivo).all() and v.cam.dist >= V.DIST_MIN_FT - 1e-6
+    cerca = v.cam.dist
+    v.zoom(-3, 400, 300)
+    assert v.cam.dist > cerca                                    # y se vuelve a alejar
+    # desplazar: lo agarrado sigue al ratón a SU profundidad (de cerca no se dispara)
+    k = v._pies_por_px(2.0)
+    assert k == pytest.approx(V.DESPLAZAR * 2.0 * np.tan(np.radians(v.cam.fov) / 2) * 2 / 600)
+    assert v._pies_por_px(0.0) > 0                               # nunca se traba
     ev = QtGui.QMouseEvent(QtCore.QEvent.MouseButtonDblClick, QtCore.QPointF(10, 10), QtCore.QPointF(10, 10),
                            QtCore.Qt.MiddleButton, QtCore.Qt.MiddleButton, QtCore.Qt.NoModifier)
     v.mouseDoubleClickEvent(ev)
@@ -403,3 +412,18 @@ def test_clic_muestra_la_ficha_y_esc_deselecciona_sin_cerrar(win):
 def test_la_vista_arranca_en_planta():
     from ui.comun.visor3d import VISTAS, Camara
     assert (Camara().yaw, Camara().pitch) == VISTAS["arriba"]
+
+
+def test_tuberias_encimadas_no_hacen_brazos_gigantes_ni_desaparecen():
+    # Caso real (santos_proyecto_prueba, utilidad #8 de agua): en cada punta de la #1 otra
+    # tubería sale ENCIMA, en la misma dirección (Wye a 0.01°). Antes los brazos medían miles
+    # de pies y el tubo se recortaba entero: en 3D solo quedaban sus codos.
+    brazos = [A3.Brazo(dir=np.array(u, float), d=1.0) for u in ((1, 0, 0), (1, 0.0002, 0), (-1, 0, 0))]
+    A3.pieza("wye", np.zeros(3), brazos, (1, 1, 1, 1), 1)
+    assert max(b.largo for b in brazos) < 5.0
+    pipes = [_p(pts=((0, 0), (300, 0), (300, 200), (600, 200)), diam=12),
+             _p(pts=((0, 0), (200, 0)), diam=12), _p(pts=((0, 0), (-200, 0)), diam=12)]
+    esc = M3.construir(pipes, [], FT)
+    assert all((esc.opacos[:, 10] == i + 1).any() for i in range(3))     # todas se dibujan
+    x = esc.opacos[esc.opacos[:, 10] == 1, 0] + esc.origen[0]
+    assert x.max() - x.min() > 40                                          # la #1 sigue entera (60 ft)

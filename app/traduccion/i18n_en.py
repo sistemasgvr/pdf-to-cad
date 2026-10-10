@@ -3129,8 +3129,6 @@ EN: dict[str, str] = {
         'Manholes, boxes and solids',
     'Accesorios (codos, Tee, Wye…)':
         'Fittings (bends, tees, wyes…)',
-    'Avisos de normativa y choques':
-        'Standards warnings and clashes',
     'Suelo':
         'Ground',
     'Mostrar el suelo':
@@ -3147,8 +3145,6 @@ EN: dict[str, str] = {
         'Updating the 3D view…',
     'No se pudo iniciar la vista 3D (OpenGL 2.1): {e}':
         'The 3D view could not start (OpenGL 2.1): {e}',
-    '{u} utilidades · {e} buzones/cajas · {a} accesorios · suelo a {z} ft':
-        '{u} utilities · {e} manholes/boxes · {a} fittings · ground at {z} ft',
     'solera {a} → {b} ft':
         'invert {a} → {b} ft',
     'Bancoducto «{n}»':
@@ -3205,4 +3201,93 @@ EN: dict[str, str] = {
         'Joins the utilities',
     'Ver en el plano':
         'Show on the plan',
+    # ── Conflictos numerados y Excel de ida y vuelta ──
+    '(vacío)':
+        '(empty)',
+    '1. Cambia solo las columnas VERDES (cotas, tapas y fondos, radios, nombre, tipo, amperaje).':
+        '1. Change only the GREEN columns (elevations, rims and sumps, radii, name, type, amperage).',
+    '2. Las columnas grises son de consulta: no se importan.':
+        '2. Grey columns are for reference: they are not imported.',
+    '3. En la app: Herramientas → Tabla de datos → «Importar Excel…». Verás los cambios antes de aplicarlos y se pueden deshacer con Ctrl+Z.':
+        '3. In the app: Tools → Data table → «Import Excel…». You will see the changes before applying them and they can be undone with Ctrl+Z.',
+    '4. En «Cotas por vértice», una celda vacía = cota automática (interpolada).':
+        '4. In «Elevations per vertex», an empty cell = automatic elevation (interpolated).',
+    '5 o más tuberías en un punto':
+        '5 or more pipes at one point',
+    '5. Los conflictos (hoja «Conflictos», C-1, C-2…) se recalculan al importar.':
+        '5. Conflicts (sheet «Conflicts», C-1, C-2…) are recalculated when importing.',
+    'Automática (ft)':
+        'Automatic (ft)',
+    'Carga un Excel exportado y editado: cotas, tapas y fondos, radios, nombre, tipo y amperaje. Verás los cambios antes de aplicarlos.':
+        'Loads an exported and edited Excel: elevations, rims and sumps, radii, name, type and amperage. You will see the changes before applying them.',
+    'Choque entre redes distintas':
+        'Clash between different networks',
+    'Conflicto':
+        'Conflict',
+    'Conflictos':
+        'Conflicts',
+    'Cota A (ft)':
+        'Elevation A (ft)',
+    'Cota B (ft)':
+        'Elevation B (ft)',
+    'Cota de llegada (ft)':
+        'Incoming elevation (ft)',
+    'Cota de salida (ft)':
+        'Outgoing elevation (ft)',
+    'Cotas por vértice':
+        'Elevations per vertex',
+    'Cruce a la misma cota':
+        'Crossing at the same elevation',
+    'Cruce sin conexión':
+        'Crossing without connection',
+    'Cómo editar este Excel y volver a cargarlo':
+        'How to edit this Excel and load it back',
+    'Detalle':
+        'Detail',
+    'Diferencia (ft)':
+        'Difference (ft)',
+    'El Excel no trae cambios respecto del proyecto.':
+        'The Excel has no changes compared with the project.',
+    'Excel importado: {n} cambio(s). Conflictos: {a} → {b}.':
+        'Excel imported: {n} change(s). Conflicts: {a} → {b}.',
+    'ID':
+        'ID',
+    'Importar Excel':
+        'Import Excel',
+    'Las columnas verdes se pueden editar en Excel y volver a cargar':
+        'Green columns can be edited in Excel and loaded back',
+    'Léeme':
+        'Read me',
+    'No se aplicaron:':
+        'Not applied:',
+    'Se aplicarán {n} cambio(s):':
+        '{n} change(s) will be applied:',
+    'Tipo de conflicto':
+        'Conflict type',
+    'Unión con pendiente':
+        'Sloped joint',
+    'Utilidad #{n} · vértice {v} · {campo}':
+        'Utility #{n} · vertex {v} · {campo}',
+    'Utilidad #{n} · {campo}':
+        'Utility #{n} · {campo}',
+    'Utilidad #{n}, vértice {v}: no existe.':
+        'Utility #{n}, vertex {v}: does not exist.',
+    'Utilidad #{n}: no existe en el proyecto.':
+        'Utility #{n}: does not exist in the project.',
+    'Utilidad N°':
+        'Utility No.',
+    '{donde}: «{v}» no es un número.':
+        '{donde}: «{v}» is not a number.',
+    '{u} utilidades · {e} buzones/cajas · {a} accesorios · {k} conflictos · suelo a {z} ft':
+        '{u} utilities · {e} manholes/boxes · {a} fittings · {k} conflicts · ground at {z} ft',
+    '«{a}» y «{b}» se cruzan a la misma cota ({za:.2f} / {zb:.2f} ft) y no se unen: las tuberías chocan. Cambia la cota de una de las dos o corrige el dibujo.':
+        '«{a}» and «{b}» cross at the same elevation ({za:.2f} / {zb:.2f} ft) and are not joined: the pipes clash. Change the elevation of one of them or fix the drawing.',
+    '«{a}» y «{b}» se cruzan y a una de las dos le falta la cota: no se puede confirmar que pasen a distinta altura.':
+        '«{a}» and «{b}» cross and one of them has no elevation: it cannot be confirmed that they pass at different heights.',
+    '«{cod}»: no existe en el proyecto.':
+        '«{cod}»: does not exist in the project.',
+    '… y {n} más':
+        '… and {n} more',
+    'Avisos y conflictos':
+        'Warnings and conflicts',
 }

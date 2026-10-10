@@ -448,6 +448,16 @@ namespace Civil3DBasico
                 {
                     var a = brazos[i]; var b = brazos[k];
                     double ang = a.Direccion.GetAngleTo(b.Direccion);
+                    // Dos brazos SUPERPUESTOS (dos tuberías dibujadas una encima de la otra):
+                    // no hay separación posible y la fórmula de abajo daba brazos de miles de
+                    // pies (0.01° → 9 349 ft) que recortaban el tubo entero. Se dejan como están
+                    // (igual que el codo con ANG_EJES_MIN_DEG). Espejo: accesorios3d.separar.
+                    if (ang < ANG_EJES_MIN_DEG * Math.PI / 180.0)
+                    {
+                        ed?.WriteMessage($"\n    ⚠ [FITTING-SOLIDO] Dos tubos superpuestos en la juntura " +
+                            $"({ang * 180.0 / Math.PI:F2}° entre ejes) — revisa el trazado; no se separan.");
+                        continue;
+                    }
                     double cos = Math.Cos(ang);
                     // Radio EXTERIOR de cada campana.
                     double rA = a.DiamFt / 2.0 + HOLGURA_FT + PARED_FT;
