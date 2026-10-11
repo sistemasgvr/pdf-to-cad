@@ -752,9 +752,10 @@ class CompositeDialog(NoEscapeClose, ChosenSheetMixin, SourcePageMixin, ScanTool
         if self.comp.manual or self._uses_layers(self._cur_source, row):
             self.nolayers_box.hide()
         else:
-            self.lbl_nolayers.setText(_tr("Hoja {n} sin capas: sus vectores no están en ninguna capa del "
-                                          "PDF. Apagar capas no la cambia y el reconocimiento de "
-                                          "utilidades por capa no encontrará nada aquí.").format(n=row + 1))
+            self.lbl_nolayers.setText(_tr("Hoja {n} sin capas originales: sus líneas se agrupan por "
+                                          "estilo (color y grosor). En «Capas de la hoja» asigna el "
+                                          "estilo de la red a su utilidad. Si la red está en una "
+                                          "imagen, requiere dibujo manual.").format(n=row + 1))
             self.nolayers_box.show()
         # cambiar de hoja a mano = empezar una pieza nueva; salvo si el usuario ELIGE la hoja
         # y la hoja compuesta es solo la elegida: `_choose_page` la cambia enseguida (si no,

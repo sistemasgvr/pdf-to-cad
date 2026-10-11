@@ -2199,10 +2199,6 @@ EN: dict[str, str] = {
         "Which utility do you want to adjust?",
 
     # ── composite_dialog.py (rama dev_santos_v2) ──
-    "Esta hoja no interactúa con las capas: sus vectores no están en ninguna capa del PDF (hoja aplanada). Apagar capas no la cambia y el reconocimiento por capas no encontrará utilidades en ella.":
-        "This sheet does not interact with layers: its vectors are not on any PDF layer (flattened sheet). Turning layers off does not change it and layer-based recognition will not find utilities on it.",
-    "Hoja {n} sin capas: sus vectores no están en ninguna capa del PDF. Apagar capas no la cambia y el reconocimiento de utilidades por capa no encontrará nada aquí.":
-        "Sheet {n} has no layers: its vectors are not on any PDF layer. Turning layers off does not change it and layer-based utility recognition will not find anything here.",
     "Hoja {n} · sin capas":
         "Sheet {n} · no layers",
     "✔ Área tomada como pieza {n} ({label}). Ya está en la hoja compuesta ({total} pieza(s)).":
@@ -2263,8 +2259,6 @@ EN: dict[str, str] = {
         "Bends as corner + radius: {n}",
     "Curvas que quedan como polilínea: {n} tramo(s) — curva compuesta (radio variable) o sin recta tangente a un lado; no se inventa un arco que no está en el plano.":
         "Curves left as polylines: {n} segment(s) — compound curve (variable radius) or no tangent line on one side; no arc that is not on the plan is made up.",
-    "Esta hoja no tiene capas: sus vectores no están en ninguna capa del PDF (hoja aplanada), así que el reconocimiento por capas no puede encontrar utilidades en ella.":
-        "This sheet has no layers: its vectors are not on any PDF layer (flattened sheet), so layer-based recognition cannot find utilities on it.",
     "Existentes A ABANDONAR (capa «-D», marcadores «//» de la leyenda): {n} línea(s) — hoy se importan activas; revisar.":
         "Existing TO BE ABANDONED («-D» layer, «//» markers from the legend): {n} line(s) — imported as active for now; review.",
     "No se encontraron líneas de agua en esta hoja.":
@@ -2363,8 +2357,6 @@ EN: dict[str, str] = {
         "{k} of {n} seen",
     "No hay líneas de esta utilidad en la hoja. Si el plano usa otros nombres de capa, indícalos con «Ajustar capas…».":
         "There are no lines of this utility on the sheet. If the plan uses other layer names, set them with «Adjust layers…».",
-    "El PDF no trae capas en esta hoja y no se puede reconocer sola. Puedes dibujar a mano en el editor.":
-        "The PDF has no layers on this sheet, so it cannot be recognized automatically. You can draw by hand in the editor.",
     "Ningún nombre de capa es conocido. Indica cuáles son las líneas con «Ajustar capas…».":
         "No layer name is known. Tell which ones are the lines with «Adjust layers…».",
     "Su capa dice «abandonada» (-A), pero la línea no lleva las marcas «/». Se importan como activas: confirma si lo son.":
@@ -2383,8 +2375,6 @@ EN: dict[str, str] = {
         "Pieces of plan line that did not end up inside any recognized line (in magenta). They are usually loose leftovers of the drawing.",
     "El nombre de su capa no dice esta utilidad, pero las letras de la línea sí (por ejemplo «—TE—»). Confirma que es así; si no, cámbialo con «Ajustar capas…».":
         "Their layer name does not say this utility, but the letters on the line do (for example «—TE—»). Confirm it; if not, change it with «Adjust layers…».",
-    "Se asignan automáticamente por su nombre. «Ajustar capas…» solo hace falta si el plano usa otros nombres.":
-        "Assigned automatically by name. «Adjust layers…» is only needed if the plan uses other names.",
     "{n} ocultas por ti":
         "{n} hidden by you",
 
@@ -3045,4 +3035,55 @@ EN: dict[str, str] = {
         'All good: there is nothing to clean up.',
     'Dibujo limpio: {n} arreglo(s).':
         'Drawing cleaned: {n} fix(es).',
+    # ── hojas sin capas: capas por estilo, escala (2026-10-10) ──
+    'Asigna un estilo a {u} en «Capas del plano» para reconocerla.':
+        'Assign a style to {u} in «Plan layers» to recognize it.',
+    'Automática':
+        'Automatic',
+    'Buzones donde terminan las tuberías del mapa (capa por estilo): {n} — cada tubería va de buzón a buzón.':
+        "Manholes where the map's pipes end (style layer): {n} — each pipe runs from manhole to manhole.",
+    'Calibra la escala con una distancia conocida: un PDF reducido puede no coincidir con la escala del rótulo.':
+        'Calibrate the scale with a known distance: a reduced PDF may not match the title block scale.',
+    'Calibrar con una distancia conocida…':
+        'Calibrate with a known distance…',
+    'Calibrar escala: clic en dos puntos de una distancia conocida · Esc = salir':
+        'Calibrate scale: click two points of a known distance · Esc = exit',
+    'Capa virtual por estilo. La casilla excluye sus trazos del reconocimiento; no cambia la imagen del PDF. Selecciónala para asignar utilidad y rol.':
+        'Virtual style layer. The checkbox excludes its strokes from recognition; it does not change the PDF image. Select it to assign utility and role.',
+    'Capas por estilo asignadas manualmente: revisa líneas y símbolos antes de importar. El estilo no determina si una red está abandonada.':
+        'Style layers assigned by hand: review lines and symbols before importing. The style does not tell whether a network is abandoned.',
+    'Capas por estilo de trazo continuo: {n} — cada trazo del plano es el eje de la tubería, sin unir ni mover nada.':
+        'Continuous-stroke style layers: {n} — each stroke of the plan is the pipe centerline, nothing joined or moved.',
+    'Clic en una capa para resaltarla y asignar su utilidad y rol abajo. Las casillas excluyen estilos del reconocimiento; el PDF conserva su imagen. Calibra la escala antes de importar.':
+        'Click a layer to highlight it and assign its utility and role below. The checkboxes exclude styles from recognition; the PDF keeps its image. Calibrate the scale before importing.',
+    'Codos en el extremo de una tubería del mapa: {n} — revisa si ahí hay un buzón.':
+        'Bends at the end of a map pipe: {n} — check whether there is a manhole there.',
+    'Distancia real entre los dos puntos (pies):':
+        'Real distance between the two points (feet):',
+    'El PDF no trae capas: sus líneas se agrupan por estilo (color y grosor). Asigna el estilo de la red a esta utilidad en «Capas de la hoja» o con «Ajustar capas…». Si la red es una imagen, dibújala a mano en el editor.':
+        "The PDF has no layers: its lines are grouped by style (color and weight). Assign the network's style to this utility in «Sheet layers» or with «Adjust layers…». If the network is an image, draw it by hand in the editor.",
+    'En el mapa, las tuberías van de buzón a buzón; aquí un codo cae donde termina una. Mira si es una curva o un buzón.':
+        'On the map, pipes run from manhole to manhole; here a bend falls where one ends. Check whether it is a curve or a manhole.',
+    'Escala del plano (pies por pulgada del PDF). Los radios y largos se calculan con ella al reconocer: si el PDF está impreso reducido, calíbrala aquí.':
+        'Plan scale (feet per PDF inch). Radii and lengths are computed with it when recognizing: if the PDF is printed reduced, calibrate it here.',
+    'Escribir la escala…':
+        'Type the scale…',
+    'Esta hoja no tiene capas originales: asigna el estilo de la red a esta utilidad en «Capas de la hoja» o con «Ajustar capas…». Si la red está en una imagen, requiere dibujo manual.':
+        "This sheet has no original layers: assign the network's style to this utility in «Sheet layers» or with «Adjust layers…». If the network is in an image, it needs manual drawing.",
+    'Hoja sin capas originales: sus líneas se agrupan por estilo (color y grosor) y en «Capas de la hoja» se asigna el de la red a su utilidad. Si la red está en una imagen, requiere dibujo manual.':
+        "Sheet without original layers: its lines are grouped by style (color and weight) and in «Sheet layers» the network's style is assigned to its utility. If the network is in an image, it needs manual drawing.",
+    'Hoja sin capas: elige abajo el estilo de la red y asígnale su utilidad (o Cancelar para dibujar a mano).':
+        "Sheet without layers: pick the network's style below and assign its utility (or Cancel to draw by hand).",
+    'Hoja {n} sin capas originales: sus líneas se agrupan por estilo (color y grosor). En «Capas de la hoja» asigna el estilo de la red a su utilidad. Si la red está en una imagen, requiere dibujo manual.':
+        "Sheet {n} without original layers: its lines are grouped by style (color and weight). In «Sheet layers» assign the network's style to its utility. If the network is in an image, it needs manual drawing.",
+    'La escala no se leyó del plano o puede no ser la real (un PDF impreso reducido). Calíbrala en «Capas de la hoja» con una distancia conocida: los radios y largos dependen de ella.':
+        'The scale was not read from the plan or may not be the real one (a PDF printed reduced). Calibrate it in «Sheet layers» with a known distance: radii and lengths depend on it.',
+    'Se asignan por su nombre o por tus decisiones en «Capas de la hoja». «Ajustar capas…» permite modificarlas.':
+        'Assigned by their name or by your choices in «Sheet layers». «Adjust layers…» lets you change them.',
+    'Selecciona una capa para asignar su utilidad.':
+        'Select a layer to assign its utility.',
+    'Utilidad':
+        'Utility',
+    '✓ {n}':
+        '✓ {n}',
 }

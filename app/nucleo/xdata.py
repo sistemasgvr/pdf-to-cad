@@ -23,6 +23,7 @@ AUTO, USER = "auto", "user"
 
 # Campos automáticos, en el orden en que se muestran → clave del DXF.
 F_OCG = "Capa OCG"
+STYLE_PREFIX = "PDF_STYLE:"      # = hoja.pdf_styles.PREFIX (capas virtuales por estilo)
 F_XREF = "Xref de origen"
 F_LAYER = "Capa"
 F_DISC = "Disciplina"
@@ -100,6 +101,12 @@ def parse_layer(ocg: str) -> Dict[str, str]:
     ocg = (ocg or "").strip()
     out: Dict[str, str] = {}
     if not ocg:
+        return out
+    if ocg.startswith(STYLE_PREFIX):
+        # capa VIRTUAL por estilo de una hoja sin capas (`hoja.pdf_styles`): su nombre interno
+        # es un JSON; al dato va el legible y nada de NCS (no tiene disciplina ni estado)
+        from hoja.pdf_styles import style_label
+        out[F_OCG] = out[F_LAYER] = "Estilo " + style_label(ocg)
         return out
     out[F_OCG] = ocg
     xref, _, short = ocg.rpartition("|")

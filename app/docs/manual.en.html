@@ -221,6 +221,22 @@ editor</span> leaves it as the background to draw by hand.</p>
     Electrical, Telecom, Other), each with its color. The utility's checkbox turns <b>all</b> its
     layers on or off; the ▸ arrow expands it so you can choose layer by layer. What you uncheck is
     hidden from the plan and <b>not used for recognition</b>.</li>
+<li><b>Sheet without layers (flattened PDF):</b> if the PDF has no layers —a map from a GIS system or a
+    PDF «flattened» by Bluebeam, like the Phoenix Quarter Section maps—, its lines are grouped by
+    <b>style</b>: color, weight and stroke type (for example <b>Black 0.73 pt · continuous</b>), and they all
+    start in <b>Others</b>. Click a style to see its lines highlighted and, below the list, choose its
+    <b>Utility</b> and <b>Role</b> (lines or structures): it moves to that utility's group and only the
+    utilities you assigned a style to are recognized (until you assign one, <b>Continue</b> is disabled;
+    <b>Cancel</b> leaves the sheet loaded to draw by hand). If that style's lines are continuous strokes, each
+    stroke of the plan is taken as is as the pipe centerline (nothing joined or moved) and, in sewer and storm
+    drain, a <b>manhole</b> is placed where two map pipes end. If the network is in an <b>image</b> (Phoenix's
+    blue storm drain), there are no vectors to assign: draw it by hand. The style checkboxes only exclude
+    them from recognition; the PDF still looks the same.</li>
+<li><b>Scale:</b> the <b>Scale 1"=X'</b> button at the bottom shows the sheet's scale, read from its text.
+    If the text cannot be read or the PDF is printed reduced (the title block says 1"=100' and it is not),
+    correct it <b>before continuing</b>: <b>Calibrate with a known distance…</b> (two clicks on the sheet and the
+    real distance in feet; Esc exits) or <b>Type the scale…</b>. Curve radii and lengths are computed with
+    it when recognizing.</li>
 <li><b>By the letters on the line:</b> the app does not only look at the layer name; it also reads
     the letters each line carries (—TE—, —SC—, —W—, —G—, —ss—…). A layer whose name is not a
     utility's, but whose lines say so, appears under its utility with the letters next to it, for

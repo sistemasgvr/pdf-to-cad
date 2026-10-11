@@ -20,6 +20,7 @@ from ui.comun.icons import icon
 from nucleo.model import TIPOS
 from ui.comun.ui_common import swatch_icon
 from reconocimiento import recognition as rec
+from hoja import pdf_styles
 from ui.comun import theme as _theme
 
 _UTILITY_LABEL = {key: label for label, key in TIPOS}
@@ -66,8 +67,8 @@ class UsedLayersPanel(QtWidgets.QWidget):
         head.addWidget(title, 0)
         info = QtWidgets.QLabel()
         info.setPixmap(icon("mdi:information-outline", color=t.text_muted).pixmap(16, 16))
-        info.setToolTip(_tr("Se asignan automáticamente por su nombre. «Ajustar capas…» solo hace "
-                            "falta si el plano usa otros nombres."))
+        info.setToolTip(_tr("Se asignan por su nombre o por tus decisiones en «Capas de la hoja». "
+                            "«Ajustar capas…» permite modificarlas."))
         head.addWidget(info, 0)
         head.addStretch(1)
         hidden = sorted({name for r in results for name in (getattr(r, "hidden_ocgs", None) or [])})
@@ -120,6 +121,8 @@ class UsedLayersPanel(QtWidgets.QWidget):
                 lst.addItem(kh)
                 for x in rows:
                     short = x["ocg"].split("|")[-1] if "|" in x["ocg"] else x["ocg"]
+                    if short.startswith(pdf_styles.PREFIX):
+                        short = pdf_styles.style_label(short)
                     tag = "  (AB)" if x.get("abandoned") else ""
                     it = QtWidgets.QListWidgetItem(f"    {short}  ({x.get('path_count', 0)}){tag}")
                     it.setData(FOCUS_ROLE, {"utility": r.utility, "kind": kind, "ocg": x["ocg"], "label": short})

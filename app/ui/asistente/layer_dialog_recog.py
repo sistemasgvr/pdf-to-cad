@@ -99,20 +99,32 @@ class RecogCardMixin:
         lay.addWidget(self.lbl_recog_hidden)
         panel.addWidget(box)
 
+    def _flat_sheet(self) -> bool:
+        """Hoja SIN capas: sus capas son virtuales, por estilo (`pdf_styles`)."""
+        return any(L.get("source") == "style" for L in self._layers)
+
     def recognition_utilities(self) -> tuple[str, ...]:
+        # hoja sin capas: solo las utilidades con un estilo asignado (las demás no
+        # encontrarían nada y llenaban la vista previa de «Sin líneas»)
+        flat = self._flat_sheet()
         chosen = tuple(key for key in recognition.SUPPORTED_UTILITIES
-                       if self._recog_checks[key].isChecked())
+                       if self._recog_checks[key].isChecked()
+                       and (self._recog_checks[key].isEnabled() or not flat))
         return recognition.normalize_utilities(chosen)
 
     def _refresh_recog_checks(self):
         """Solo se marcan las utilidades que la hoja tiene; «Todas» refleja el
-        conjunto; sin ninguna marcada no se puede continuar."""
+        conjunto; sin ninguna marcada no se puede continuar. En una hoja sin capas, la
+        tiene si le asignaste un estilo (`layer_assignments`)."""
         available = {u for layer in self._layers if int(layer.get("path_count") or 0) > 0
                      for u in [layer.get("utility")] + list(layer.get("letter_utilities") or ())}
+        flat = self._flat_sheet()
         for key, cb in self._recog_checks.items():
             has = key in available
             cb.setEnabled(has)
-            cb.setToolTip("" if has else _tr("Esta hoja no tiene capas de {u}").format(u=_label(key)))
+            cb.setToolTip("" if has else
+                          _tr("Asigna un estilo a {u} en «Capas del plano» para reconocerla.").format(u=_label(key))
+                          if flat else _tr("Esta hoja no tiene capas de {u}").format(u=_label(key)))
         self._sync_recog_all()
 
     def _enabled_recog(self):
@@ -128,7 +140,18 @@ class RecogCardMixin:
             QtCore.Qt.PartiallyChecked if n_on else QtCore.Qt.Unchecked)
         self.chk_recog_all.setEnabled(bool(enabled))
         self.chk_recog_all.blockSignals(False)
-        ok = n_on > 0 or not enabled          # hoja sin utilidades: se puede seguir (avisa el preview)
+        flat = self._flat_sheet()
+        # hoja sin utilidades: se puede seguir (avisa el preview); sin capas, primero se
+        # asigna el estilo de la red (Cancelar deja la hoja cargada para dibujar a mano)
+        ok = n_on > 0 or (not enabled and not flat)
+        self.lbl_recog_warn.setText(
+            _tr("Hoja sin capas: elige abajo el estilo de la red y asígnale su utilidad (o Cancelar "
+                "para dibujar a mano).") if flat and not enabled else
+            _tr("Marca al menos una utilidad para reconocer."))
+        self.lbl_recog_warn.setWordWrap(True)
+        t = _theme.tokens()                    # guía, no error: sin rojo (como «Para continuar…»)
+        self.lbl_recog_warn.setStyleSheet(f"color:{t.text};" if flat and not enabled
+                                          else f"color:{t.danger}; font-weight:bold;")
         self.lbl_recog_warn.setVisible(not ok)
         hidden = self._check_recog_hidden()
         self.btn_ok.setEnabled(ok and not hidden)

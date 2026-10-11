@@ -224,6 +224,22 @@ imagen/escaneo…</b>), pero sin capas ni reconocimiento: al final,
     Gas, Eléctrico, Telecomunicaciones, Otras), cada una con su color. La casilla de la utilidad
     enciende o apaga <b>todas</b> sus capas; con la flecha ▸ la despliegas y eliges capa por capa.
     Lo que desmarcas se oculta del plano y <b>no se usa al reconocer</b>.</li>
+<li><b>Hoja sin capas (PDF aplanado):</b> si el PDF no trae capas —un mapa de un sistema SIG o un
+    PDF «aplanado» por Bluebeam, como los Quarter Section de Phoenix—, sus líneas se agrupan por
+    <b>estilo</b>: color, grosor y tipo de trazo (por ejemplo <b>Negro 0.73 pt · continuo</b>), y todas
+    empiezan en <b>Otras</b>. Haz clic en un estilo para ver sus líneas resaltadas y, debajo de la lista,
+    elige su <b>Utilidad</b> y su <b>Rol</b> (líneas o estructuras): pasa al grupo de esa utilidad y solo se
+    reconocen las utilidades a las que les asignaste un estilo (hasta asignar uno, <b>Continuar</b> está
+    apagado; <b>Cancelar</b> deja la hoja cargada para dibujar a mano). Si las líneas de ese estilo son
+    trazos continuos, cada trazo del plano se toma tal cual como el eje de la tubería (sin unir ni mover
+    nada) y, en alcantarillado y drenaje, donde terminan dos tuberías del mapa se pone su <b>buzón</b>. Si
+    la red está en una <b>imagen</b> (el drenaje azul de Phoenix), no hay vectores que asignar: dibújala a
+    mano. Las casillas de los estilos solo los excluyen del reconocimiento; el PDF se sigue viendo igual.</li>
+<li><b>Escala:</b> el botón <b>Escala 1"=X'</b> del pie muestra la escala de la hoja, leída de su texto.
+    Si el texto no se puede leer o el PDF está impreso reducido (el rótulo dice 1"=100' y es otra), corrígela
+    <b>antes de continuar</b>: <b>Calibrar con una distancia conocida…</b> (dos clics en la hoja y la distancia
+    real en pies; Esc sale) o <b>Escribir la escala…</b>. Los radios de las curvas y los largos se calculan
+    con ella al reconocer.</li>
 <li><b>Por las letras de la línea:</b> la app no solo mira el nombre de la capa; también lee las
     letras que lleva cada línea (—TE—, —SC—, —W—, —G—, —ss—…). Una capa cuyo nombre no es de
     ninguna utilidad, pero cuyas líneas sí lo dicen, aparece en su utilidad con las letras al lado,

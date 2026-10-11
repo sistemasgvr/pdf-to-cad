@@ -498,6 +498,9 @@ class Main(MenuMixin, PanelIzquierdoMixin, PanelDerechoMixin, ModosMixin, ClicsM
                                                       recognition_utilities=self._recognition_utilities,
                                                       can_go_back=bool(self.src_pdfs),
                                                       letters_off=self._letters_off,
+                                                      roles_by_utility=self._layer_roles_by_utility,
+                                                      include_roles=True,
+                                                      scale_ft_per_pt=self._scale_editable(),
                                                       legend_sources=self._legend_sources(),
                                                       legend_cache=self._legend_cache)
             if chosen == layer_dialog.LAYERS_BACK:
@@ -511,7 +514,7 @@ class Main(MenuMixin, PanelIzquierdoMixin, PanelDerechoMixin, ModosMixin, ClicsM
             self._dirty = True
             self._info(_tr("Reconocimiento cancelado — hoja cargada con las capas elegidas."))
             return True
-        hidden, page_idx, self._recognition_utilities, letters_off = chosen
+        hidden, page_idx, self._recognition_utilities, letters_off = chosen[:4]
         self._letters_off = set(letters_off)
         if self.composite is not None and self.composite.is_single_full_page():
             self.composite.pieces[0].page = page_idx
@@ -519,12 +522,31 @@ class Main(MenuMixin, PanelIzquierdoMixin, PanelDerechoMixin, ModosMixin, ClicsM
         self._sync_hidden_to_sources(hidden)
         # Los roles (qué capas son líneas / bóvedas) se asignan solos por
         # nombre y se muestran en el preview; «Ajustar capas…» los cambia.
-        self._layer_roles_by_utility = {}
+        self._layer_roles_by_utility = chosen[4] if len(chosen) > 4 else {}
+        if len(chosen) > 5 and chosen[5]:
+            self._calibrated_scale(chosen[5])          # «Escala» de «Capas de la hoja»
         self._load_sheet_busy(page_idx)
         self._dirty = True
         self._recog_ready = True
         self._start_recognition(page_idx)
         return True
+
+    def _scale_editable(self):
+        """Escala actual (pies/pt) para el botón «Escala» de «Capas de la hoja», o None si la
+        hoja es compuesta de varias piezas (ahí manda la del compositor)."""
+        comp = self.composite
+        if comp is not None and not comp.is_single_full_page():
+            return None
+        return float(self.scale) if self.scale else None
+
+    def _calibrated_scale(self, ft_per_pt: float):
+        """La escala calibrada en «Capas de la hoja» pasa a ser la de la hoja (y la de su
+        pieza, para que el compositor la muestre igual)."""
+        self._scale_override = float(ft_per_pt)
+        comp = self.composite
+        if comp is not None and comp.is_single_full_page():
+            comp.pieces[0].src_scale = float(ft_per_pt)
+            comp.scale_ft_per_pt = None
 
     def _volver_a_la_hoja(self, antes):
         """No se pudo armar la hoja compuesta: `_apply_composite` ya cerró el PDF de la
@@ -569,6 +591,15 @@ class Main(MenuMixin, PanelIzquierdoMixin, PanelDerechoMixin, ModosMixin, ClicsM
             self.hidden_ocgs = hidden
             self._scale_override = comp.target_scale() if comp and comp.manual else None
             self.page_idx = piece.page if piece else 0
+            # una hoja: la escala del compositor si el usuario la corrigió (antes se tomaba
+            # siempre la leída del texto y lo escrito en «1" = X'» no servía)
+            if comp and not comp.manual and piece is not None:
+                try:
+                    leida = float(VP.detect_scale(self.doc[piece.page]))
+                except Exception:
+                    leida = None
+                if leida is not None and abs(comp.target_scale() - leida) > 1e-9:
+                    self._scale_override = comp.target_scale()
         else:
             with _busy_mod.busy(self, _tr("Armando la hoja compuesta…"),
                                 _tr("{n} piezas · vectores, capas y textos intactos").format(
@@ -854,7 +885,7 @@ class Main(MenuMixin, PanelIzquierdoMixin, PanelDerechoMixin, ModosMixin, ClicsM
         all_layers = _pdf_layers.without_letters(_pdf_layers.page_layers(self.doc, page_idx), self._letters_off)
         visible = [L for L in all_layers if L["name"] not in set(self.hidden_ocgs)]
         roles = recognition_dialog.choose_layer_roles(
-            self, visible, utility=utility)
+            self, visible, utility=utility, current_roles=self._layer_roles_by_utility.get(utility))
         if roles is not None:
             self._layer_roles_by_utility[utility] = roles
         self._start_recognition(page_idx)

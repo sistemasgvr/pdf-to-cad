@@ -137,6 +137,15 @@ def rol_capa(L: dict, utilidad: str) -> Tuple[Optional[str], bool]:
     `por_trazo` = solo los trazos de `L["letter_paths"]` que son de esa utilidad (capa
     mezclada leída línea por línea), si no la capa entera. Igual que
     `recognition.line_selectors` (`kind_for` + `keep`)."""
+    if "assigned_role" in L:
+        role = L["assigned_role"]
+        if L.get("utility") != utilidad:
+            return None, False
+        if role == recognition.ROLE_LINEAS:
+            return LINE, False
+        if role == recognition.ROLE_BUZONES:
+            return STRUCTURE, False
+        return None, False
     lu = L.get("letter_utilities") or ()
     if lu:
         if utilidad in lu:
@@ -231,7 +240,7 @@ def capas_de_utilidad(layers: Iterable[dict]) -> Callable[[str], bool]:
     está en `layers` (fuera de la lista del PDF) se juzga por su nombre."""
     layers = list(layers)
     known = {L["name"] for L in layers}
-    yes = {L["name"] for L in layers if _de_utilidad(L)}
+    yes = {L["name"] for L in layers if _de_utilidad(L) or L.get("source") == "style"}
     memo: Dict[str, bool] = {}
 
     def quiere(name: str) -> bool:

@@ -21,6 +21,7 @@ from collections import Counter
 from typing import Iterable, List, Set
 
 from nucleo.model import TIPOS
+from hoja import pdf_styles
 
 # Códigos de `Document.set_layer_ui_config(number, action)`.
 _ACTION_ON, _ACTION_TOGGLE, _ACTION_OFF = 0, 1, 2
@@ -57,6 +58,8 @@ def utility_of(name: str) -> str:
 def short_name(name: str) -> str:
     """'PS89616000-A1-UE-REF-EXIST_ELEC|C-ELEC-UNGD-E' → 'C-ELEC-UNGD-E'.
     Los prefijos son el XREF de origen; el usuario reconoce la capa por el sufijo."""
+    if name.startswith(pdf_styles.PREFIX):
+        return pdf_styles.style_label(name)
     return name.split("|")[-1] if "|" in name else name
 
 
@@ -69,12 +72,14 @@ def _ui_configs(doc) -> list:
 
 def hidden_layers(doc) -> Set[str]:
     """Nombres (completos) de las capas apagadas ahora en el documento."""
-    return {c["text"] for c in _ui_configs(doc) if not c.get("on", 1)}
+    return {c["text"] for c in _ui_configs(doc) if not c.get("on", 1)} | set(
+        getattr(doc, "_pdf_style_hidden", ()))
 
 
 def set_hidden(doc, hidden: Iterable[str]) -> None:
     """Apaga exactamente las capas de `hidden` y enciende todas las demás."""
     hidden = set(hidden or ())
+    doc._pdf_style_hidden = {name for name in hidden if name.startswith(pdf_styles.PREFIX)}
     for c in _ui_configs(doc):
         want_on = c["text"] not in hidden
         if bool(c.get("on", 1)) != want_on:
@@ -82,7 +87,7 @@ def set_hidden(doc, hidden: Iterable[str]) -> None:
 
 
 def page_layers(doc, page_index: int, letters: bool = True) -> List[dict]:
-    """Todas las capas OCG del documento, con conteo de trazos en la hoja.
+    """Capas OCG y, en hojas aplanadas, capas virtuales por estilo.
 
     Devuelve dicts ``{name, short, number, path_count, on, utility, letters,
     letter_utilities, letter_codes, name_utility}`` para **cada** entrada de ``layer_ui_configs``
@@ -90,8 +95,9 @@ def page_layers(doc, page_index: int, letters: bool = True) -> List[dict]:
     tienen trazos (``path_count`` desc), luego las de 0 trazos por nombre corto.
     Para contar se encienden TODAS las capas un instante (los trazos de capas
     apagadas no salen en ``get_drawings``) y se restaura la visibilidad previa
-    antes de devolver. Los trazos sin capa (marcos, bordes de Bluebeam) no se
-    listan: no se pueden apagar.
+    antes de devolver. En hojas con geometría OCG se omiten los trazos sin capa
+    (marcos, bordes). En hojas sin geometría OCG se agrupan por estilo: sus
+    casillas excluyen trazos del reconocimiento, sin modificar el render.
 
     Con `letters` se leen además las LETRAS del linetype de cada capa
     (`recognition.letter_uses`): una capa cuyo nombre no es de ninguna utilidad pero
@@ -100,12 +106,12 @@ def page_layers(doc, page_index: int, letters: bool = True) -> List[dict]:
     de cada una; ``name_utility`` = la que decía su nombre si las letras la contradicen)."""
     cfgs = _ui_configs(doc)
     if not cfgs:
-        return []
+        return pdf_styles.layer_rows(pdf_styles.drawings(doc[page_index]), hidden_layers(doc))
     prev_hidden = hidden_layers(doc)
     set_hidden(doc, ())
     try:
         page = doc[page_index]
-        drawings = page.get_drawings()
+        drawings = pdf_styles.drawings(page)
         counts = Counter(d.get("layer") or "" for d in drawings)
         uses, read = {}, {}
         if letters:
@@ -138,6 +144,7 @@ def page_layers(doc, page_index: int, letters: bool = True) -> List[dict]:
             "letter_raw": dict(lt.raw) if lt else {},       # código → letras con su caja («G», «e»)
             "read_counts": dict(lt.codes) if lt else {},    # código → sitios donde se leyó
         })
+    out.extend(pdf_styles.layer_rows(drawings, prev_hidden))
     # Con trazos primero (más → menos); sin trazos al final, por short.
     out.sort(key=lambda d: (0 if d["path_count"] > 0 else 1,
                             -d["path_count"],

@@ -103,6 +103,9 @@ def layer_tooltip(L: dict) -> str:
     """Nombre completo de la capa y, si va a su grupo por las LETRAS de su línea,
     por qué (`pdf_layers.page_layers` → `letters`, `letter_utilities`, `name_utility`)."""
     tip = L["name"]
+    if L.get("source") == "style":
+        return L["short"] + "\n" + _tr("Capa virtual por estilo. La casilla excluye sus trazos "
+            "del reconocimiento; no cambia la imagen del PDF. Selecciónala para asignar utilidad y rol.")
     utils = list(L.get("letter_utilities") or ())
     if not L.get("letters") or not utils:
         return tip
@@ -144,7 +147,7 @@ class LayerInfoMixin:
         self._drawings = None                 # (trazo, lo visible) de las capas de utilidad (para resaltar)
         self._legend_worker = None
         self.info.visible_layers = self._visible_layers      # la leyenda del estándar: solo lo que se ve
-        self.info.set_layers(self._layers_raw, self._letters_off)
+        self.info.set_layers(self._layers, self._letters_off)
         self._legend_cache = legend_cache if legend_cache is not None else {}
         sources = [s for s in (legend_sources or []) if s.get("data") or s.get("path")]
         key = _sources_key(sources)
@@ -174,7 +177,7 @@ class LayerInfoMixin:
         hidden = set(self.hidden_names())
         open_groups = {k for k, g in self._groups.items() if g.isExpanded()}
         self._layers = [dict(L, on=L["name"] not in hidden)
-                        for L in pdf_layers.without_letters(self._layers_raw, self._letters_off)]
+                        for L in self._effective_layers()]
         self._fill_list()
         for k in open_groups:
             if k in self._groups:
@@ -197,7 +200,7 @@ class LayerInfoMixin:
         """Cambió la hoja (◀ ▶): tarjetas y leyenda con las capas de la nueva."""
         self._clear_focus()
         self._drawings = None
-        self.info.set_layers(self._layers_raw, self._letters_off)
+        self.info.set_layers(self._layers, self._letters_off)
 
     def _stop_legend(self):
         worker = self._legend_worker
@@ -219,7 +222,7 @@ class LayerInfoMixin:
         if self._drawings is None:
             pdf_layers.set_hidden(self._doc, ())
             try:
-                self._drawings = leyenda_trazos.trazos_visibles(self._page, le.capas_de_utilidad(self._layers_raw))
+                self._drawings = leyenda_trazos.trazos_visibles(self._page, le.capas_de_utilidad(self._layers))
             finally:
                 pdf_layers.set_hidden(self._doc, self.hidden_names())
         return self._drawings
@@ -336,7 +339,7 @@ class LayerInfoMixin:
         if "utility" in spec:
             return self._utility_sets(spec)
         strong, soft = defaultdict(list), defaultdict(list)
-        by_name = {L["name"]: L for L in self._layers_raw}
+        by_name = {L["name"]: L for L in self._layers}
         codes = set(spec.get("codes") or ())
         names = spec.get("layers") or [n for n, L in by_name.items() if codes & set(L.get("read_codes") or ())]
         raw = spec.get("raw") or ""
