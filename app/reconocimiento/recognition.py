@@ -39,10 +39,13 @@ from reconocimiento import recognition_contacts as contacts_mod
 from reconocimiento import recognition_text_gaps as text_gaps_mod
 from reconocimiento import recognition_vault_snap as vault_snap_mod
 from reconocimiento import recognition_vault_through as vault_through_mod
+from reconocimiento import recognition_style_nodes as style_nodes_mod
+from reconocimiento import recognition_ink_lines as ink_lines_mod
 from reconocimiento import recognition_walls as walls_mod
 from reconocimiento import recognition_letters as letters_mod
 from reconocimiento import routes as routes_mod
 from hoja.sheet_crops import page_rect as crop_page_rect, drawing_polygon
+from hoja import pdf_styles
 from traduccion.i18n_core import t as _tr, N_   # avisos de QA en el idioma activo
 
 # Tokens locales — NO modificar config.LAYER_TOKENS del export.
@@ -533,11 +536,11 @@ def page_letters(page, drawings=None) -> Dict[str, "letters_mod.LayerLetters"]:
     leen todas las capas con trazos salvo anotación, cajetín y aéreas
     (`letters_mod.letters_candidate`); ~1 s por hoja en los PDF de prueba."""
     if drawings is None:
-        drawings = page.get_drawings()
+        drawings = pdf_styles.drawings(page)
     by_layer: dict = defaultdict(list)
     for d in drawings:
         name = d.get("layer") or ""
-        if name and d.get("type") not in ("clip", "group") and letters_mod.letters_candidate(name):
+        if name and not name.startswith(pdf_styles.PREFIX) and d.get("type") not in ("clip", "group") and letters_mod.letters_candidate(name):
             by_layer[name].append(d)
     out = {}
     for name, paths in by_layer.items():
@@ -908,7 +911,7 @@ def profile_view_regions(page, crop_polygon=None) -> List[Tuple[float, float, fl
     page_rect = page.rect
     clip_stack: dict = {}
     boxes: List[Tuple[float, float, float, float]] = []
-    for path in page.get_drawings(extended=True):
+    for path in pdf_styles.drawings(page, extended=True):
         lvl = int(path.get("level", 0) or 0)
         if path.get("type") == "clip":
             clip_stack = {l: pg for l, pg in clip_stack.items() if l < lvl}
@@ -962,7 +965,7 @@ def gather_paths(page, kind_for, hidden=(), crop_polygon=None, stats: Optional[d
     clip_stack: dict = {}
     regions = profile_view_regions(page, crop_polygon)
     n_profile_excluded = 0
-    for path in page.get_drawings(extended=True):
+    for path in pdf_styles.drawings(page, extended=True):
         lvl = int(path.get("level", 0) or 0)
         if path.get("type") == "clip":
             clip_stack = {l: pg for l, pg in clip_stack.items() if l < lvl}
@@ -1172,9 +1175,19 @@ def recognize_page(
         # Cada capa OCG de líneas se reconstruye SOLA: no se cosen ni se
         # imanan trazos de otra capa (aunque ambas sean «ELEC»). Activas y
         # abandonadas ya salen aparte porque son nombres OCG distintos.
+        # la matriz de giro de la hoja UNA vez y cada punto una vez: pedirla a PyMuPDF en
+        # cada punto costaba 20 s en un mapa SIG de 180 trazos (`_through_dirs` convierte
+        # todas las polilíneas por cada punta). Misma cuenta, mismo resultado.
+        rot_m = page.rotation_matrix
+        px_cache: dict = {}
+
         def px(point):
-            x, y = _pdf_pt_to_view_px(point[0], point[1], zoom, page)
-            return x - visual_crop.x0 * zoom, y - visual_crop.y0 * zoom
+            key = (point[0], point[1])
+            got = px_cache.get(key)
+            if got is None:
+                p = fitz.Point(point[0], point[1]) * rot_m
+                got = px_cache[key] = (p.x * zoom - visual_crop.x0 * zoom, p.y * zoom - visual_crop.y0 * zoom)
+            return got
         by_ocg: dict[str, List[dict]] = defaultdict(list)
         for pth in line_paths:
             by_ocg[pth.get("layer") or ""].append(pth)
@@ -1223,6 +1236,12 @@ def recognize_page(
             others = [q for o, ps in by_ocg.items() if o != ocg for q in ps]
             by_ocg[ocg], ch = walls_mod.merge_walls(by_ocg[ocg], others, geom._Rect)
             wall_changes += ch
+        # Mapa SIG sin capas (capa por ESTILO) de una red por gravedad: cada tubería es un
+        # trazo de buzón a buzón; sus extremos compartidos son buzones (`recognition_style_nodes`).
+        from nucleo.model import NETWORK_KIND as _NET_KIND
+        style_nodes = ({ocg: style_nodes_mod.feature_nodes(ps) for ocg, ps in by_ocg.items()
+                        if style_nodes_mod.is_style_layer(ocg)}
+                       if _NET_KIND.get(utility) == "gravity" else {})
         # (el aviso va al final: solo cuentan las que quedan como línea reconocida —
         # el marco del cajetín de DU10, tres rayas en capas de utilidad, no lo es)
         if n_rings:
@@ -1235,12 +1254,22 @@ def recognize_page(
             if points and by_ocg[ocg]:
                 by_ocg[ocg][0] = dict(by_ocg[ocg][0], contact_pts=[q for q, _u in points])
         results: List[Tuple[bool, str, object]] = []
+        n_ink_layers = 0
         for ocg, paths in sorted(by_ocg.items()):
             # una capa reconocida por sus letras no tiene perfil probado: sus letras son
             # trazos sueltos («TE» = asta + travesaño + «E» de tres trazos), como las de
             # Metro del perfil TELECOM (`stroke_letters`; DU08 h.26: cobertura 99.8 → 100 %)
             opts = replace(geom_opts, stroke_letters=True) if ocg in letter_layers else geom_opts
+            # capa por ESTILO de trazos continuos (mapa SIG aplanado): la tinta es el eje;
+            # el núcleo es para tipos de línea a guiones (`recognition_ink_lines`)
+            if style_nodes_mod.is_style_layer(ocg) and ink_lines_mod.continuous_layer(paths):
+                n_ink_layers += 1
+                results.append((False, ocg, ink_lines_mod.ink_reconstruct(paths, vault_paths, opts)))
+                continue
             results.append((is_abandoned_ocg(ocg), ocg, geom.reconstruct(paths, vault_paths, opts)))
+        if n_ink_layers:
+            warnings.append(_tr("Capas por estilo de trazo continuo: {n} — cada trazo del plano es el eje de "
+                                "la tubería, sin unir ni mover nada.").format(n=n_ink_layers))
         if not results:
             results = [(False, "", geom.reconstruct([], vault_paths, geom_opts))]
 
@@ -1281,6 +1310,12 @@ def recognize_page(
                         ends.append((i, px(pl.pts[j])))
             if not ends:
                 return out
+            # cada polilínea en px UNA vez, con su caja (+tol): una punta fuera de la caja no
+            # puede estar sobre ella (mismo resultado; con 600 trazos de un mapa SIG, 5 s → ms)
+            all_opts = [[px(p) for p in o.pts] if len(o.pts) >= 2 else [] for o in polys]
+            boxes = [(min(x for x, _ in op) - tol - 1.0, min(y for _, y in op) - tol - 1.0,
+                      max(x for x, _ in op) + tol + 1.0, max(y for _, y in op) + tol + 1.0) if op else None
+                     for op in all_opts]
             for i, q in ends:
                 key = (round(q[0], 1), round(q[1], 1))
                 if key in out:
@@ -1288,7 +1323,10 @@ def recognize_page(
                 for k, o in enumerate(polys):
                     if k == i or len(o.pts) < 2:
                         continue
-                    opts = [px(p) for p in o.pts]
+                    bx = boxes[k]
+                    if not (bx[0] <= q[0] <= bx[2] and bx[1] <= q[1] <= bx[3]):
+                        continue
+                    opts = all_opts[k]
                     for a, b in zip(opts, opts[1:]):
                         L = math.dist(a, b)
                         if L < 1e-6:
@@ -1388,9 +1426,12 @@ def recognize_page(
             # «//» = abandonada en CUALQUIER utilidad y capa (regla del usuario,
             # 2026-09-25): no hace falta la capa «-A»; la «/» simple sí la exige.
             layer_double = mp_joined.has_double_pattern or mp_raw.has_double_pattern
-            ab_by_layer[ocg] = bool((ab_layer and layer_has) or layer_double)
+            ab_by_layer[ocg] = (False if ocg.startswith(pdf_styles.PREFIX) else
+                                bool((ab_layer and layer_has) or layer_double))
 
             def _ab(v, dv=False):
+                if ocg.startswith(pdf_styles.PREFIX):
+                    return False  # style alone does not prove an abandonment convention
                 follows = v if v is not None else layer_has
                 by_double = dv if dv is not None else layer_double
                 return bool((ab_layer and follows) or by_double)
@@ -1450,7 +1491,7 @@ def recognize_page(
                     elif not ab_layer and ab:
                         n_double_active += 1
                         rec_pl.review = "double_active"
-                    elif not ab_layer and v:
+                    elif not ab_layer and v and not ocg.startswith(pdf_styles.PREFIX):
                         if is_to_abandon_ocg(ocg):
                             n_to_abandon += 1
                             rec_pl.review = "to_abandon"
@@ -1517,6 +1558,24 @@ def recognize_page(
                         orphans_px.remove(min(mine, key=lambda q: math.hypot(q[0] - c[0], q[1] - c[1])))
                 if not any(math.hypot(hit["at"][0] - q[0], hit["at"][1] - q[1]) < 0.5 for q in vault_pts):
                     vault_pts.append(hit["at"])
+        nodes_px = {o: [px(q) for q in ns] for o, ns in style_nodes.items() if ns}
+        if nodes_px:
+            marked = None
+            for variant in ((polylines_joined, polylines_raw) if join_routes else (polylines_raw, polylines_joined)):
+                got = style_nodes_mod.mark_feature_nodes(variant, nodes_px, zoom)
+                marked = marked or got                 # la cuenta, de la variante que se importa
+            mine: List[Tuple[float, float]] = []
+            for q in marked["at"]:
+                if not any(math.hypot(q[0] - p[0], q[1] - p[1]) < 0.5 for p in mine):
+                    mine.append(q)
+                if not any(math.hypot(q[0] - p[0], q[1] - p[1]) < 0.5 for p in vault_pts):
+                    vault_pts.append(q)
+            if mine:
+                warnings.append(_tr("Buzones donde terminan las tuberías del mapa (capa por estilo): {n} — "
+                                    "cada tubería va de buzón a buzón.").format(n=len(mine)))
+            if marked["fillet"]:
+                warnings.append(_tr("Codos en el extremo de una tubería del mapa: {n} — revisa si ahí hay "
+                                    "un buzón.").format(n=marked["fillet"]))
         # Imán (pedido del usuario 2026-10-01): la punta que llega a una bóveda —o que
         # quedó a un pelo de ella— se lleva a su contorno DIBUJADO por su propia recta.
         # Paso aparte (`recognition_vault_snap`): el núcleo no cambia.
@@ -1569,11 +1628,17 @@ def recognize_page(
                     u=utility_label(utility).lower()))
         if not path_counts:
             if _page_is_flat(doc, page_index):
-                warnings.append(_tr("Esta hoja no tiene capas: sus vectores no están en ninguna capa del PDF "
-                                    "(hoja aplanada), así que el reconocimiento por capas no puede encontrar "
-                                    "utilidades en ella."))
+                warnings.append(_tr("Esta hoja no tiene capas originales: asigna el estilo de la red a esta "
+                                    "utilidad en «Capas de la hoja» o con «Ajustar capas…». Si la red está "
+                                    "en una imagen, requiere dibujo manual."))
             else:
                 warnings.append(_tr("Ninguna capa OCG coincidió con los roles / tokens de reconocimiento."))
+        if any(name.startswith(pdf_styles.PREFIX) for name in path_counts):
+            warnings.append(_tr("Capas por estilo asignadas manualmente: revisa líneas y símbolos antes "
+                                "de importar. El estilo no determina si una red está abandonada."))
+            if scale_ft_per_pt is None:
+                warnings.append(_tr("Calibra la escala con una distancia conocida: un PDF reducido "
+                                    "puede no coincidir con la escala del rótulo."))
         n_profile = gather_stats.get("profile_excluded", 0)
         if n_profile:
             warnings.append(_tr("Se excluyeron {n} trazo(s) dentro de una vista de PERFIL (grilla "

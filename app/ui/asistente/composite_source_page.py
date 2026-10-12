@@ -194,9 +194,9 @@ class SourcePageMixin:
                             _tr("✔ Hoja completa") if self._is_full(mine[0]) else _tr("✔ Área tomada"))
             tips.append(_tr("Esta hoja ya está en la hoja compuesta."))
         if flat:
-            tips.append(_tr("Esta hoja no interactúa con las capas: sus vectores no están en "
-                            "ninguna capa del PDF (hoja aplanada). Apagar capas no la cambia y el "
-                            "reconocimiento por capas no encontrará utilidades en ella."))
+            tips.append(_tr("Hoja sin capas originales: sus líneas se agrupan por estilo (color y "
+                            "grosor) y en «Capas de la hoja» se asigna el de la red a su utilidad. "
+                            "Si la red está en una imagen, requiere dibujo manual."))
         item.setText(text)
         item.setToolTip("\n\n".join(tips))
         font = item.font(); font.setBold(bool(taken)); item.setFont(font)

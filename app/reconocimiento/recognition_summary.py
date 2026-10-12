@@ -108,6 +108,16 @@ _RULES = [
     (r"^Reconocidas por las letras de su línea[^:]*: (\d+)", REVIEW,
      lambda m: _pl(_n(m), "línea reconocida por sus letras", "líneas reconocidas por sus letras"),
      "letters"),
+    # hoja SIN capas: capas virtuales por estilo (`pdf_styles`, `recognition_ink_lines`,
+    # `recognition_style_nodes`)
+    (r"^Calibra la escala con una distancia conocida", REVIEW, lambda m: "Escala sin calibrar", ""),
+    (r"^Codos en el extremo de una tubería del mapa: (\d+)", REVIEW,
+     lambda m: _pl(_n(m), "codo donde podría haber un buzón", "codos donde podría haber un buzón"), "fillets"),
+    (r"^Capas por estilo asignadas manualmente", INFO, lambda m: "Capas por estilo elegidas por ti", ""),
+    (r"^Capas por estilo de trazo continuo: (\d+)", INFO,
+     lambda m: _pl(_n(m), "capa de trazo continuo: la tinta es el eje", "capas de trazo continuo: la tinta es el eje"), ""),
+    (r"^Buzones donde terminan las tuberías del mapa[^:]*: (\d+)", INFO,
+     lambda m: _pl(_n(m), "buzón donde terminan sus tuberías", "buzones donde terminan sus tuberías"), "vaults"),
 ]
 # Explicación de cada aviso de «Para verificar»: qué se encontró y qué se hizo con
 # ello, sin tono de error (la vista los traduce con `t()`). Clave = patrón de `_RULES`.
@@ -116,8 +126,15 @@ _HINTS = {
         "No hay líneas de esta utilidad en la hoja. Si el plano usa otros nombres de capa, "
         "indícalos con «Ajustar capas…»."),
     r"^Esta hoja no tiene capas": N_(
-        "El PDF no trae capas en esta hoja y no se puede reconocer sola. Puedes dibujar a mano en "
-        "el editor."),
+        "El PDF no trae capas: sus líneas se agrupan por estilo (color y grosor). Asigna el estilo de "
+        "la red a esta utilidad en «Capas de la hoja» o con «Ajustar capas…». Si la red es una "
+        "imagen, dibújala a mano en el editor."),
+    r"^Calibra la escala con una distancia conocida": N_(
+        "La escala no se leyó del plano o puede no ser la real (un PDF impreso reducido). Calíbrala "
+        "en «Capas de la hoja» con una distancia conocida: los radios y largos dependen de ella."),
+    r"^Codos en el extremo de una tubería del mapa: (\d+)": N_(
+        "En el mapa, las tuberías van de buzón a buzón; aquí un codo cae donde termina una. Mira "
+        "si es una curva o un buzón."),
     r"^Ninguna capa OCG coincidió": N_(
         "Ningún nombre de capa es conocido. Indica cuáles son las líneas con «Ajustar capas…»."),
     r"^Capa «-A» sin el patrón[^:]*: (\d+)": N_(

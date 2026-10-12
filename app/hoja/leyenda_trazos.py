@@ -12,6 +12,7 @@ from __future__ import annotations
 from typing import Callable, Dict, List, Optional, Tuple
 
 from hoja import pdf_layers
+from hoja import pdf_styles
 from reconocimiento import recognition
 from reconocimiento import recognition_geom as geom
 
@@ -52,7 +53,7 @@ def trazos_visibles(page, capas: Optional[Callable[[str], bool]] = None) -> List
     clip_stack: Dict[int, list] = {}
     cand: List[Tuple[dict, dict]] = []
     prof: list = []
-    for path in page.get_drawings(extended=True):
+    for path in pdf_styles.drawings(page, extended=True):
         lvl = int(path.get("level", 0) or 0)
         if path.get("type") == "clip":
             clip_stack = {lv: pg for lv, pg in clip_stack.items() if lv < lvl}

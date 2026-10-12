@@ -167,7 +167,7 @@ class LayerRolesDialog(QtWidgets.QDialog):
     """Ajuste OPCIONAL de qué capas son líneas y cuáles bóvedas (si el plot usa
     otros nombres). Se abre desde «Ajustar capas…» del preview."""
 
-    def __init__(self, parent, layers: list[dict], utility="ELECTRICO"):
+    def __init__(self, parent, layers: list[dict], utility="ELECTRICO", current_roles=None):
         super().__init__(parent)
         self.utility = utility
         utility_name = _tr(_UTILITY_LABEL.get(utility, utility))
@@ -222,11 +222,21 @@ class LayerRolesDialog(QtWidgets.QDialog):
             combo = QtWidgets.QComboBox()
             for role, label in _ROLE_LABELS:
                 combo.addItem(_tr(label), role)
-            sug = _suggest_role(L, utility)
+            sug = (_suggest_role(L, utility) if current_roles is None else
+                   next((role for role in (rec.ROLE_LINEAS, rec.ROLE_BUZONES)
+                         if name in current_roles.get(role, ())), rec.ROLE_IGNORAR))
             idx = next((i for i, (r, _) in enumerate(_ROLE_LABELS) if r == sug), 2)
             combo.setCurrentIndex(idx)
             self.table.setCellWidget(row, 2, combo)
             self._rows.append((name, combo))
+
+        # A themed combo is taller than Qt's default table row. Give every
+        # row room for the full control, including its border and padding.
+        row_height = max((combo.sizeHint().height() + 6 for _, combo in self._rows),
+                         default=self.table.fontMetrics().height() + 12)
+        self.table.verticalHeader().setMinimumSectionSize(row_height)
+        self.table.verticalHeader().setDefaultSectionSize(row_height)
+        self.table.verticalHeader().setSectionResizeMode(QtWidgets.QHeaderView.Fixed)
 
         hint = QtWidgets.QLabel(_tr(
             "Debe haber al menos una capa en «Líneas» para continuar."))
@@ -270,7 +280,7 @@ class LayerRolesDialog(QtWidgets.QDialog):
         self.accept()
 
 
-def choose_layer_roles(parent, layers: list[dict], utility="ELECTRICO") -> dict | None:
+def choose_layer_roles(parent, layers: list[dict], utility="ELECTRICO", current_roles=None) -> dict | None:
     """Devuelve {lineas:[…], buzones:[…]} o None si cancela.
 
     `layers`: dicts de pdf_layers.page_layers (al menos name, short, path_count).
@@ -278,7 +288,7 @@ def choose_layer_roles(parent, layers: list[dict], utility="ELECTRICO") -> dict 
     candidates = [L for L in layers if int(L.get("path_count") or 0) > 0]
     if not candidates:
         return {rec.ROLE_LINEAS: [], rec.ROLE_BUZONES: []}
-    dlg = LayerRolesDialog(parent, candidates, utility)
+    dlg = LayerRolesDialog(parent, candidates, utility, current_roles=current_roles)
     if dlg.exec() != QtWidgets.QDialog.Accepted:
         return None
     return dlg.roles()

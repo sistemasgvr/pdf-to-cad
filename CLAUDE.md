@@ -413,6 +413,27 @@ alcantarillado, drenaje, gas, eléctrico, telecom). Todo en **unidades imperiale
     Pendiente conocido: curva que se funde TANGENTE con otra línea junto a una bóveda y vuelve ~6 pt sobre ella
     (DU08 h.37 (1116, 991), h.38 (765, 1179) telecom; ya estaba).
     Tests: `tests/test_bovedas_no_inventar.py`.
+  - **Hojas SIN capas (PDF aplanado / mapa SIG; 2026-10-10, Quarter Section de Phoenix, una utilidad
+    por PDF, `docs/flattened-pdf-recognition.md`)**: `hoja/pdf_styles.py` da a cada trazo sin OCG de una hoja
+    sin geometría OCG una capa VIRTUAL `PDF_STYLE:[json]` (color, grosor, guiones, relleno, opacidad;
+    `style_label` = «Negro 0.73 pt · continuo»); `pdf_styles.drawings(page)` reemplaza a `get_drawings` en
+    `gather_paths`, `page_layers`, `trazos_visibles`… (en hojas CON OCG devuelve lo mismo). «Capas de la hoja»:
+    `layer_assignments.LayerAssignmentsMixin` (utilidad + rol por capa → `roles_by_utility`, 5.º valor de
+    `choose_sheet_layers(include_roles=True)`); en hoja sin capas solo se reconocen las utilidades con estilo
+    asignado (`RecogCardMixin._flat_sheet`; sin ninguno, «Continuar» apagado). Escala: `layer_dialog_scale`
+    (botón «Escala» del pie, calibrar con dos clics o escribir; 6.º valor → `Main._calibrated_scale` →
+    `_scale_override` + `src_scale` de la pieza) y `_apply_composite` usa la escala del compositor de UNA
+    hoja si el usuario la corrigió. Reconocimiento (solo capas por estilo): `recognition_ink_lines` — capa
+    de trazos CONTINUOS (`continuous_layer`: casi ninguna punta con otra enfrente a un hueco de guion y ≥60 %
+    de tinta en trazos ≥25 pt) → la tinta es el eje (`ink_reconstruct`, Douglas–Peucker 0.5 pt contra el
+    zigzag SIG); a guiones (CAD aplanado, DU08 h.4–19) → núcleo; `recognition_style_nodes` (solo GRAVEDAD):
+    extremo compartido por ≥2 trazos ≥10 pt = buzón → vértice «vault» (insertado si la línea pasa de largo).
+    Sin regla «//» en capas por estilo; `xdata.parse_layer` guarda «Estilo …». Rendimiento: `px()` de
+    `recognize_page` con la matriz de giro guardada + caché y `_through_dirs` con cajas (mismo resultado;
+    Phoenix 13 s → 1–4 s). Foto 15 hojas × 6 utilidades (DU06/DU08/DU10/LABOE) = 0 diferencias. Tests:
+    `tests/test_pdf_styles.py`, `tests/test_mapas_sin_capas.py` (Phoenix 17-10 ventana → DXF: 69 líneas, 102
+    buzones). OJO al dibujar revisiones sobre estas hojas: tienen `/Rotate 90` → `pts_pdf` (px de la vista) por
+    `page.derotation_matrix` antes de dibujar en la página.
   - **Reporte DU06 h.4 (2026-09-29, cuatro casos, TODAS las utilidades)**:
     `recognition_dupink.py` (PURO) — la MISMA línea dibujada dos veces en la misma capa
     con el linetype desfasado (banco de ductos `N-COMM-DUCT-BANK-PL`: dos entidades
