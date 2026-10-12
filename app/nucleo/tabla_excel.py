@@ -7,7 +7,8 @@ inglés), `cambios` compara con el proyecto (con la tolerancia del redondeo del 
 un valor que no se tocó no cuenta como cambio) y `aplicar` los pone en el modelo. La
 ventana muestra los cambios antes de aplicarlos y se pueden deshacer.
 
-Editables: utilidades (nombre, tipo, amperaje, rasante inicial y final), buzones y cajas
+Editables: utilidades (nombre, tipo, estado, familia, tamaño o diámetro, material, amperaje,
+rasante inicial y final; familia y tamaño se validan contra el catálogo de Civil 3D), buzones y cajas
 (tapa, fondo), curvas (radio; «Automático» = el radio por defecto) y cotas por vértice
 (llegada y salida; vacío = automática, interpolada). Los conflictos se recalculan solos.
 """
@@ -22,6 +23,9 @@ from traduccion.i18n_core import N_, TRANSLATIONS, t
 
 EDITABLES = {
     "utilidades": {N_("Nombre"): ("name", "texto", 0), N_("Tipo"): ("tipo", "texto", 0),
+                   N_("Estado"): ("ab", "estado", 0), N_("Familia"): ("pipe_family", "familia", 0),
+                   N_("Tamaño"): ("pipe_size", "tamano", 0), N_("Diámetro (in)"): ("diam", "diametro", 0.0006),
+                   N_("Material"): ("material", "texto", 0),
                    N_("Amperaje (A)"): ("amperaje", "num", 0.06),
                    N_("Rasante inicial (ft)"): ("inv_start", "num", 0.0006),
                    N_("Rasante final (ft)"): ("inv_end", "num", 0.0006)},
@@ -43,6 +47,7 @@ class Cambio:
     despues: object
     etiqueta: str          # «Utilidad #3 · Rasante inicial (ft)»
     vertice: int = -1
+    textos: tuple = None   # (antes, después) como se muestran (familia: su nombre, no su id)
 
 
 # ─────────────────────────── exportar ───────────────────────────
@@ -78,7 +83,10 @@ def exportar(tablas, ruta):
     ley.title = t("Léeme")[:31]
     for fila in (
             [t("Cómo editar este Excel y volver a cargarlo")],
-            [t("1. Cambia solo las columnas VERDES (cotas, tapas y fondos, radios, nombre, tipo, amperaje).")],
+            [t("1. Cambia solo las columnas VERDES (cotas, tapas y fondos, radios, nombre, tipo, estado, familia, "
+               "tamaño o diámetro, material, amperaje).")],
+            ["   " + t("Familia y tamaño se escriben como en el catálogo de Civil 3D; un diámetro nuevo elige el "
+                      "tamaño de esa medida en la familia de la utilidad. «Por defecto» = sin familia o tamaño.")],
             [t("2. Las columnas grises son de consulta: no se importan.")],
             [t("3. En la app: Herramientas → Tabla de datos → «Importar Excel…». Verás los cambios antes de "
                "aplicarlos y se pueden deshacer con Ctrl+Z.")],
@@ -165,9 +173,109 @@ def _distinto(a, b, tol):
     return abs(float(a) - float(b)) > tol
 
 
-def cambios(pipes, structures, leido):
-    """([Cambio], [errores]) entre el Excel leído y el proyecto."""
+# ───────────── sección de la utilidad: estado, familia, tamaño, diámetro ─────────────
+
+_SECCION = ("estado", "familia", "tamano", "diametro")
+_A_BLOQUE = {"ab": "ab", "pipe_family": "familia", "pipe_size": "tamano"}
+_POR_DEFECTO = {_norm(N_("Por defecto")), "default", ""}
+_ACTIVA = {_norm(N_("Activa")), "active"}
+_ABANDONADA = {_norm(N_("Abandonada")), "abandoned"}
+
+
+def _txt(v):
+    return "" if v is None else (f"{v:g}" if isinstance(v, float) else str(v)).strip()
+
+
+def _cambios_seccion(p, i, fila, catalogo, con_bancoducto, out, errores):
+    """Estado, familia y tamaño (o diámetro) de la utilidad i desde su fila del Excel."""
+    from nucleo.edicion_bloque import diam_de_tamano
+    etq = lambda col: t("Utilidad #{n} · {campo}").format(n=i + 1, campo=t(col))  # noqa: E731
+
+    if N_("Estado") in fila and fila[N_("Estado")] not in (None, ""):
+        v = _norm(fila[N_("Estado")])
+        if v not in _ACTIVA | _ABANDONADA:
+            errores.append(t("{donde}: «{v}» no es «Activa» ni «Abandonada».").format(
+                donde=etq(N_("Estado")), v=fila[N_("Estado")]))
+        elif (v in _ABANDONADA) != bool(p.get("ab")):
+            out.append(Cambio("pipe", i, "ab", bool(p.get("ab")), v in _ABANDONADA, etq(N_("Estado")),
+                              textos=(t("Abandonada") if p.get("ab") else t("Activa"),
+                                      t("Abandonada") if v in _ABANDONADA else t("Activa"))))
+
+    familias, tamanos_de = catalogo(p) if catalogo else ([], lambda _f: [])
+    fam_actual = p.get("pipe_family") or ""
+    fam = fam_actual
+    nombres_actual = next((n for f, n in familias if f == fam_actual), set()) | {_norm(fam_actual)}
+    if N_("Familia") in fila:
+        v = _norm(fila[N_("Familia")])
+        if (v in _POR_DEFECTO and not fam_actual) or (fam_actual and v in {_norm(n) for n in nombres_actual}):
+            pass                                                       # sin tocar
+        elif v in _POR_DEFECTO:
+            fam = ""
+        else:
+            fam = next((f for f, n in familias if v in {_norm(x) for x in n}), None)
+            if fam is None:
+                errores.append(t("{donde}: «{v}» no está en el catálogo de Civil 3D de esta utilidad.").format(
+                    donde=etq(N_("Familia")), v=fila[N_("Familia")]))
+                fam = fam_actual
+
+    from nucleo import model_ops as _mo
+    tam_actual = p.get("pipe_size") or ""
+    tam = tam_actual
+    tamanos = tamanos_de(fam) if fam else []
+    v = _txt(fila[N_("Tamaño")]) if N_("Tamaño") in fila else None
+    editado = v is not None and not (_norm(v) == _norm(tam_actual) or (_norm(v) in _POR_DEFECTO and not tam_actual))
+    d = None
+    if N_("Diámetro (in)") in fila:
+        try:
+            d = _num(fila[N_("Diámetro (in)")])
+        except ValueError:
+            errores.append(t("{donde}: «{v}» no es un número.").format(donde=etq(N_("Diámetro (in)")),
+                                                                       v=fila[N_("Diámetro (in)")]))
+    d_actual = _mo.diametro(p)[0]
+    d_cambia = d is not None and abs(d - d_actual) > 0.0006
+    if editado:                                       # el tamaño escrito manda sobre el diámetro
+        if _norm(v) in _POR_DEFECTO:
+            tam = ""
+        else:
+            tam = next((x for x in tamanos if _norm(x) == _norm(v)), None)
+            if tam is None and not tamanos:
+                tam = v if re.match(r"\s*\d", v) else None
+            if tam is None:
+                errores.append(t("{donde}: «{v}» no es un tamaño de su familia.").format(
+                    donde=etq(N_("Tamaño")), v=v))
+                return
+    elif d_cambia or fam != fam_actual:               # el diámetro elige el tamaño (en la familia nueva)
+        meta = d if d is not None else d_actual
+        if tamanos:
+            tam = next((x for x in tamanos if abs(diam_de_tamano(x) - meta) <= 0.01), None)
+        else:
+            tam = f"{meta:g} in" if (d_cambia and not fam and meta > 0) else ("" if not d_cambia else None)
+        if tam is None:
+            if d_cambia:
+                errores.append(t("{donde}: no hay un tamaño de {d} in en su familia.").format(
+                    donde=etq(N_("Diámetro (in)")), d=f"{meta:g}"))
+                return
+            tam = ""                                  # familia nueva sin esa medida: su tamaño por defecto
+    if (fam, tam) == (fam_actual, tam_actual):
+        return
+    if con_bancoducto:
+        errores.append(t("Utilidad #{n}: lleva bancoducto; su sección la define el bancoducto.").format(n=i + 1))
+        return
+    nombre = lambda f: next((sorted(n, key=len)[0] for g, n in familias if g == f and n), f) or t("Por defecto")  # noqa: E731
+    if fam != fam_actual:
+        out.append(Cambio("pipe", i, "pipe_family", fam_actual, fam, etq(N_("Familia")),
+                          textos=(nombre(fam_actual), nombre(fam))))
+    if tam != tam_actual or fam != fam_actual:
+        out.append(Cambio("pipe", i, "pipe_size", tam_actual, tam, etq(N_("Tamaño")),
+                          textos=(tam_actual or t("Por defecto"), tam or t("Por defecto"))))
+
+
+def cambios(pipes, structures, leido, catalogo=None, con_bancoducto=()):
+    """([Cambio], [errores]) entre el Excel leído y el proyecto. `catalogo(p)` →
+    ([(id, {nombres})], tamanos_de(id) → [tamaño]) de las familias de Civil 3D para esa
+    utilidad (None = sin catálogo: solo se aceptan «Por defecto» y diámetros sin familia)."""
     out, errores = [], []
+    con_bancoducto = set(con_bancoducto or ())
 
     def valor(tipo, v, etiqueta):
         try:
@@ -185,8 +293,9 @@ def cambios(pipes, structures, leido):
             errores.append(t("Utilidad #{n}: no existe en el proyecto.").format(n=i + 1))
             continue
         p = pipes[i]
+        _cambios_seccion(p, i, fila, catalogo, i in con_bancoducto, out, errores)
         for col, (campo, tipo, tol) in EDITABLES["utilidades"].items():
-            if col not in fila:
+            if col not in fila or tipo in _SECCION:
                 continue
             etq = t("Utilidad #{n} · {campo}").format(n=i + 1, campo=t(col))
             try:
@@ -261,8 +370,20 @@ def cambios(pipes, structures, leido):
 
 
 def aplicar(pipes, structures, lista):
-    """Pone los cambios en el modelo (en sitio)."""
+    """Pone los cambios en el modelo (en sitio). Estado, familia y tamaño van por
+    `edicion_bloque.aplicar` (el diámetro sale del tamaño, como en el panel)."""
+    from nucleo import edicion_bloque
+    seccion = {}
     for c in lista:
+        if c.objeto == "pipe" and c.campo in _A_BLOQUE:
+            seccion.setdefault(c.indice, {})[_A_BLOQUE[c.campo]] = c.despues
+    for i, cb in seccion.items():
+        if "familia" in cb and "tamano" not in cb:
+            cb["tamano"] = ""
+        edicion_bloque.aplicar(pipes, [i], cb)
+    for c in lista:
+        if c.objeto == "pipe" and c.campo in _A_BLOQUE:
+            continue
         if c.objeto == "pipe":
             pipes[c.indice][c.campo] = c.despues
         elif c.objeto == "struct":
@@ -283,4 +404,5 @@ def texto(c):
         if v is None or v == "":
             return t("(vacío)")
         return f"{v:g}" if isinstance(v, float) else str(v)
-    return f"{c.etiqueta}: {f(c.antes)} → {f(c.despues)}"
+    a, b = c.textos if c.textos else (c.antes, c.despues)
+    return f"{c.etiqueta}: {f(a)} → {f(b)}"

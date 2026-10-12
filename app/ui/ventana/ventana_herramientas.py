@@ -121,6 +121,7 @@ class HerramientasMixin:
             accs = _acc.accesorios(self.pipes, self._pipe_z_at, ft_px)
             con_db = {i for db in getattr(self, "duct_banks", []) or [] for i in db.assigned()}
             self._normas_avisos = normas_validar.validar(self.normas_cat, self.pipes, accs, ft_px, con_db)
+            normas_aprobacion.marcar(self._normas_avisos, self.pipes, getattr(self, "normas_aprobados", []))
             tol = 0.5 / ft_px
             ver_acc = getattr(self, "act_show_acc", None) is None or self.act_show_acc.isChecked()
             if ver_acc:
@@ -130,15 +131,45 @@ class HerramientasMixin:
             if getattr(self, "act_show_normas", None) is None or self.act_show_normas.isChecked():
                 from ui.comun import avisos_view
                 self._overlay += avisos_view.dibujar(self.canvas.scene(), self._normas_avisos, tol * 2, ver_acc)
-        n = sum(1 for a in self._normas_avisos if not a.info)
+        n = len(normas_aprobacion.pendientes(self._normas_avisos))
+        n_ap = sum(1 for a in self._normas_avisos if a.aprobado)
         if hasattr(self, "btn_normas"):
-            self.btn_normas.setText("⚠ " + _tr("{n} avisos de normativa").format(n=n) if n else "")
-            self.btn_normas.setVisible(bool(n))
+            if n:
+                texto = "⚠ " + _tr("{n} avisos de normativa").format(n=n)
+            else:
+                texto = "✔ " + _tr("{n} avisos aprobados").format(n=n_ap) if n_ap else ""
+            self.btn_normas.setText(texto)
+            self.btn_normas.setVisible(bool(n or n_ap))
         if self._normas_dlg is not None:
             self._normas_dlg.refrescar()
         if getattr(self, "lbl_normas_pipe", None) is not None:
             self._mostrar_avisos_de_la_utilidad()
         self._vista3d_al_dia()
+
+    def aprobar_avisos(self, avisos, nota=""):
+        """Aprueba esos avisos de normativa (con deshacer): dejan de marcarse en el plano y
+        queda el registro (quién, cuándo, nota) en el proyecto."""
+        if not avisos:
+            return 0
+        self._push()
+        n = normas_aprobacion.aprobar(self.normas_aprobados, avisos, self.pipes, nota)
+        self._redraw()
+        self._info(_tr("{n} aviso(s) de normativa aprobado(s).").format(n=n))
+        return n
+
+    def quitar_aprobacion(self, avisos, claves_viejas=()):
+        """Los avisos vuelven a quedar pendientes (y se borran los registros que ya no aplican)."""
+        if not avisos and not claves_viejas:
+            return 0
+        self._push()
+        n = normas_aprobacion.quitar(self.normas_aprobados, avisos, self.pipes)
+        viejas = set(claves_viejas)
+        antes = len(self.normas_aprobados)
+        self.normas_aprobados[:] = [r for r in self.normas_aprobados if r.get("clave") not in viejas]
+        n += antes - len(self.normas_aprobados)
+        self._redraw()
+        self._info(_tr("Aprobación quitada: {n} aviso(s).").format(n=n))
+        return n
 
     def _normas_ir_a(self, n):
         """Centra el lienzo en el aviso n y lo marca un momento."""
@@ -203,7 +234,8 @@ class HerramientasMixin:
         if lbl is None:
             return
         suyos = [a for a in getattr(self, "_normas_avisos", []) or [] if a.pipe == self.sel_pipe]
-        lbl.setText("\n".join(("ⓘ " if a.info else "⚠ ") + a.mensaje for a in suyos[:4]))
+        lbl.setText("\n".join(("✔ " + _tr("Aprobado:") + " " if a.aprobado else ("ⓘ " if a.info else "⚠ "))
+                              + a.mensaje for a in suyos[:4]))
         lbl.setVisible(bool(suyos))
 
     def _agregar_tipo(self):
@@ -234,13 +266,38 @@ class HerramientasMixin:
         from ui.dialogos import tabla_datos_dialog
         tabla_datos_dialog.abrir(self)
 
+    def _nombre_familia_tabla(self, fid):
+        """Nombre de la familia como sale en la Tabla de datos y su Excel."""
+        nombre = dxf_export._resolve_family(self, fid, "pipe")
+        return nombre.split("|")[-1] if nombre else fid
+
+    def _catalogo_excel(self):
+        """catalogo(p) → ([(id, {nombres})], tamanos_de) para `tabla_excel.cambios`: las
+        familias de Civil 3D de esa utilidad con los nombres que puede traer el Excel."""
+        cache = {}
+
+        def catalogo(p):
+            capa = p.get("layer") or ""
+            if capa not in cache:
+                try:
+                    fams, tamanos = self._catalogo_para(capa)
+                except Exception:                       # sin Civil 3D instalado o catálogo ilegible
+                    fams, tamanos = [], lambda _f: []
+                lista = [(fid, {txt, txt.split("  [")[0], self._nombre_familia_tabla(fid), fid})
+                         for fid, txt in fams]
+                cache[capa] = (lista, tamanos)
+            lista, tamanos = cache[capa]
+            fid = p.get("pipe_family") or ""
+            if fid and all(f != fid for f, _n in lista):
+                lista = lista + [(fid, {self._nombre_familia_tabla(fid), fid})]
+            return lista, tamanos
+        return catalogo
+
     def _tablas_de_datos(self):
         from nucleo import tabla_datos
         ft_px = self.scale / self.zoom if self.scale and self.zoom else 0.0
 
-        def familia(fid):
-            nombre = dxf_export._resolve_family(self, fid, "pipe")
-            return nombre.split("|")[-1] if nombre else fid
+        familia = self._nombre_familia_tabla
         return tabla_datos.armar(self.pipes, self.structures, getattr(self, "duct_banks", []),
                                  getattr(self, "_normas_avisos", []), self._to_cad, ft_px,
                                  nombre_utilidad=self._tipo, nombre_familia=familia,

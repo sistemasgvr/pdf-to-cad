@@ -728,6 +728,20 @@ it stays in the standards and goes into their Excel when exporting it. On electr
 <p>“No type” is not marked on the plan (a freshly imported project would have dozens): it shows in the panel,
 the list and the counter. Warning types are shown or hidden in <b>View → Warnings</b> (crossings and
 conflicts, fittings, standards warnings, show or hide all).</p>
+
+<h2>Review and approve warnings</h2>
+<p>A warning may be fine as it is (the engineer or the client accepts it). In the <b>Warnings</b> tab:</p>
+<ol>
+<li>Select one or more warnings (Ctrl or Shift + click).</li>
+<li><b>Approve selected…</b> and type the reason (optional).</li>
+</ol>
+<p>An approved warning is <b>no longer marked</b> on the plan or in the 3D view and does not count in
+“⚠ N warnings”, but it <b>stays on record</b>: it remains in the list with <b>✔ Approved</b>, the date, who
+approved it and the note, and in the Data table and its Excel (Status, Approved by, Approval date and Note
+columns). It is saved with the project. If what was reviewed changes (type, family, size, amperage, status or the
+place), the warning becomes <b>pending</b> again and the old approval shows as “No longer applies”.
+<b>Remove approval</b> undoes it (or <span class="key">&nbsp;Ctrl+Z&nbsp;</span>); <b>Show approved</b> hides them
+from the list.</p>
 <table width="100%" cellspacing="0" cellpadding="12"><tr>
 <td width="6" bgcolor="{{tip_border}}"></td><td bgcolor="{{tip}}">
 <b>Example:</b> on a water tee, if the branch is of type service connection it is checked with the
@@ -749,10 +763,13 @@ elevations, amperage, duct bank, coordinates and warnings), <b>manholes and boxe
 <h2>Edit in Excel and load it back</h2>
 <ol>
 <li><b>Export to Excel…</b> saves everything, one sheet per tab, plus a «Read me» sheet. The <b>green</b>
-    columns can be edited: name, type, amperage and start and end inverts of each utility; rim and sump of the
+    columns can be edited: name, type, <b>status</b> (Active / Abandoned), <b>family</b>, <b>size or
+    diameter</b>, material, amperage and start and end inverts of each utility; rim and sump of the
     manholes; radius of the curves; and, in «Elevations per vertex», the incoming and outgoing elevation of each
     vertex (empty = automatic). Grey ones are for reference.</li>
-<li>Edit in Excel (decimals with a point or a comma).</li>
+<li>Edit in Excel (decimals with a point or a comma). Family and size are written as in the Civil 3D catalog
+    (as they show in the table); if you change only the <b>diameter</b>, the size of that measure in the utility's
+    family is picked. “Default” = no family or no size. Utilities with a duct bank do not change section.</li>
 <li><b>Import Excel…</b> shows the list of changes before applying them; anything that could not be read (text
     where a number goes, a utility that does not exist) is reported and not applied. Undo with
     <span class="key">&nbsp;Ctrl+Z&nbsp;</span>.</li>

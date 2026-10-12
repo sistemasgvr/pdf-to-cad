@@ -146,6 +146,7 @@ class Main(MenuMixin, PanelIzquierdoMixin, PanelDerechoMixin, ModosMixin, ClicsM
         self.ref_centerlines = []; self._cl_pts = []
         self.duct_banks = []   # colección del proyecto — ver duct_bank.py
         self.cross_connections = []   # conexiones aprobadas en cruces físicos
+        self.normas_aprobados = []    # avisos de normativa aprobados (normas_aprobacion)
         # Normativas de diseño en tablas: catálogo GLOBAL (el Excel del usuario, ver
         # normas_catalogo.py) y los avisos del proyecto (normas_validar, en cada redibujo).
         self.normas_cat = normas_catalogo.cargar()
@@ -228,7 +229,8 @@ class Main(MenuMixin, PanelIzquierdoMixin, PanelDerechoMixin, ModosMixin, ClicsM
                                   structures=self.structures,
                                   duct_banks=getattr(self, "duct_banks", []) or [],
                                   # apuntan a utilidades por índice: borrar/unir los corre
-                                  cross_connections=getattr(self, "cross_connections", []) or []))
+                                  cross_connections=getattr(self, "cross_connections", []) or [],
+                                  normas_aprobados=getattr(self, "normas_aprobados", []) or []))
 
     def _push(self):
         self._undo.append(self._snap_state()); self._redo.clear(); self._dirty = True
@@ -241,6 +243,8 @@ class Main(MenuMixin, PanelIzquierdoMixin, PanelDerechoMixin, ModosMixin, ClicsM
         self.structures = s.get("structures", [])
         if "cross_connections" in s:
             self.cross_connections = s["cross_connections"]
+        if "normas_aprobados" in s:
+            self.normas_aprobados = s["normas_aprobados"]
         if "duct_banks" in s:
             self.duct_banks = s["duct_banks"]
             if not (0 <= getattr(self, "sel_db", -1) < len(self.duct_banks)):
@@ -1199,6 +1203,7 @@ class Main(MenuMixin, PanelIzquierdoMixin, PanelDerechoMixin, ModosMixin, ClicsM
         self.ref_centerlines = []; self._cl_pts = []
         self.duct_banks = []
         self.cross_connections = []
+        self.normas_aprobados = []
         self.sel_pipe = self.sel_leader = self.sel_region = self.sel_text = -1
         self.sel_cl = -1
         self._overlay = []; self._close_editor(); self._dirty = False; self._extending = False
@@ -1361,6 +1366,7 @@ class Main(MenuMixin, PanelIzquierdoMixin, PanelDerechoMixin, ModosMixin, ClicsM
             self.ref_centerlines = data["ref_centerlines"]
             self.duct_banks = data.get("duct_banks", [])
             self.cross_connections = data.get("cross_connections", []) or []
+            self.normas_aprobados = data.get("normas_aprobados", []) or []
             self.georef = data["georef"]
             self.work_unit = data["work_unit"]
             self.cur_pts = []; self._erase_pts = []; self.sel_pipe = self.sel_leader = self.sel_region = self.sel_text = -1
@@ -1514,7 +1520,7 @@ class Main(MenuMixin, PanelIzquierdoMixin, PanelDerechoMixin, ModosMixin, ClicsM
         self.hidden_ocgs_by_source = {}
         self.hidden_ocgs = []
         self.pipes = []; self.leaders = []; self.text_marks = []; self.erase_regions = []; self.structures = []
-        self.duct_banks = []; self.cross_connections = []
+        self.duct_banks = []; self.cross_connections = []; self.normas_aprobados = []
         self.ref_centerlines = []; self._cl_pts = []
         self._recog_cache.clear()
         self.cur_pts = []; self._erase_pts = []; self._overlay = []; self._close_editor()

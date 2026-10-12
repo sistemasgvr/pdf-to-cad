@@ -10,7 +10,7 @@ alcantarillado, drenaje, gas, eléctrico, telecom). Todo en **unidades imperiale
   - `main.py` — punto de entrada (arma `sys.path`: `app/` + raíz).
   - **Carpetas por capa (2026-10-08, en curso)**: `app/nucleo/` = lógica PURA del dominio (sin Qt ni fitz):
     `model`, `model_ops`, `xdata`, `duct_bank`, `unir_utilidades`, `unir_ramales`, `quiebres_curvas`,
-    `accesorios`, `normas_catalogo`, `normas_excel`, `normas_validar`, `tabla_datos`, `tabla_excel`, `conflictos`, `modelo3d`, `mallas3d`, `accesorios3d`, `marcas3d`, `ficha3d`, `edicion_bloque`,
+    `accesorios`, `normas_catalogo`, `normas_excel`, `normas_validar`, `normas_aprobacion`, `tabla_datos`, `tabla_excel`, `conflictos`, `modelo3d`, `mallas3d`, `accesorios3d`, `marcas3d`, `ficha3d`, `edicion_bloque`,
     `limpieza`, `limpieza_tramos`. Se importan
     como `from nucleo import model_ops` / `from nucleo.model import …` (nunca `import model_ops`: ese nombre
     ya no existe). Regla: la interfaz usa `nucleo`, `nucleo` NUNCA importa la interfaz (PySide6, `i18n`,
@@ -1217,7 +1217,15 @@ alcantarillado, drenaje, gas, eléctrico, telecom). Todo en **unidades imperiale
     `XD_TIPO`, `XD_AMPERAJE` en `PDFCAD_PIPE` (Property Set de Civil 3D sin tocar el plugin). Ver → submenú
     `menu_avisos` («Avisos»: conflictos, `act_show_acc`, `act_show_normas` —QSettings `show_normas`—, mostrar/
     ocultar todos). `ui/dialogos/normas_dialog.py`: pestaña Avisos (clic → `_normas_ir_a`) + las tablas de solo
-    lectura; Importar/Exportar Excel, «Volver a los valores iniciales» (se edita en Excel). `.digproj`: ya no
+    lectura; Importar/Exportar Excel, «Volver a los valores iniciales» (se edita en Excel). **Aprobar avisos**
+    (2026-10-12): `nucleo/normas_aprobacion.py` (PURO) — registro `Main.normas_aprobados` (.digproj, deshacer,
+    `respaldo_editor`) con clave = clase + utilidad + lugar (2 px) + `huella` (capa, tipo, familia, tamaño, amperaje,
+    ab): si cambia, vuelve a pendiente y el registro queda «Ya no aplica»; `marcar` (en `_draw_accesorios`) pone
+    `Aviso.aprobado`; `en_punto`, `avisos_view`, `marcas3d` y el contador lo saltan; Tabla de datos con Estado/
+    Aprobado por/Fecha/Nota; `reindexar` al borrar una utilidad. Pestaña Avisos: «Aprobar seleccionados…»,
+    «Quitar aprobación», «Mostrar aprobados»; `Main.aprobar_avisos`/`quitar_aprobacion`. Tests:
+    `tests/test_normas_aprobacion.py` (también el Excel con estado/familia/tamaño/diámetro/material:
+    `tabla_excel._cambios_seccion`, `catalogo=Main._catalogo_excel()`, aplica por `edicion_bloque.aplicar`). `.digproj`: ya no
     escribe `normativas_activas` (la lee y la ignora). Tests: `tests/test_normas.py`.
   - **Tabla de datos** (2026-10-09, Herramientas, Ctrl+Shift+T, botón `_act_tabla` `mdi:table-large`):
     `nucleo/tabla_datos.py` (PURO: `armar(...)` → `Tabla` utilidades/buzones/curvas/bancoductos/avisos, con

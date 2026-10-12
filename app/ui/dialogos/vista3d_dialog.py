@@ -248,7 +248,8 @@ class Vista3DDialog(QtWidgets.QDialog):
         dbs = [dict(name=d.name, width_in=d.width_in, height_in=d.height_in,
                     conduits=[c.to_dict() for c in d.conduits], pipes=list(d.assigned()))
                for d in getattr(w, "duct_banks", []) or []]
-        avisos = [dict(x=a.x, y=a.y, clase=a.clase, mensaje=a.mensaje, pipe=a.pipe, info=a.info)
+        avisos = [dict(x=a.x, y=a.y, clase=a.clase, mensaje=a.mensaje, pipe=a.pipe, info=a.info,
+                    aprobado=bool(a.aprobado))
                   for a in getattr(w, "_normas_avisos", []) or []]
         conflictos = [dict(id=c.id, titulo=c.titulo, x=c.x, y=c.y, mensaje=c.mensaje, pipes=list(c.pipes),
                            cotas=list(c.cotas)) for c in getattr(w, "_conflictos", []) or []]
@@ -336,7 +337,8 @@ class Vista3DDialog(QtWidgets.QDialog):
 
     # ── ficha de atributos ──
     def _avisos_dicts(self):
-        return [dict(x=a.x, y=a.y, clase=a.clase, mensaje=a.mensaje, pipe=a.pipe, info=a.info)
+        return [dict(x=a.x, y=a.y, clase=a.clase, mensaje=a.mensaje, pipe=a.pipe, info=a.info,
+                    aprobado=bool(a.aprobado))
                 for a in getattr(self.win, "_normas_avisos", []) or []]
 
     def _mostrar_ficha(self, ident):

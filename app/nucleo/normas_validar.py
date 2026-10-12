@@ -51,6 +51,7 @@ class Aviso:
     mensaje: str
     pipe: int = -1                   # utilidad (o la principal del accesorio)
     info: bool = False               # True = solo informativo (no es un incumplimiento)
+    aprobado: object = None          # registro de aprobación (normas_aprobacion) o None = pendiente
 
 
 def _largo_px(pts):
@@ -274,4 +275,4 @@ def validar(cat, pipes, accesorios_, ft_per_px, con_bancoducto=()):
 
 def en_punto(avisos, x, y, tol):
     """Avisos (no informativos) a ≤ tol del punto."""
-    return [a for a in avisos if not a.info and (a.x - x) ** 2 + (a.y - y) ** 2 <= tol * tol]
+    return [a for a in avisos if not a.info and not a.aprobado and (a.x - x) ** 2 + (a.y - y) ** 2 <= tol * tol]

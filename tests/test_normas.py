@@ -187,7 +187,7 @@ def test_tabla_de_datos_y_excel(tmp_path):
     tablas = tabla_datos.armar(pipes, structs, [db], av, lambda x, y: (x * FT, -y * FT), FT)
     ut, bz, cu, bd, avs, co = tablas
     assert [f[0] for f in ut.filas] == [1, 2] and ut.filas[0][3] == "DISTRIBUCION PRINCIPAL"
-    assert ut.filas[0][8] == pytest.approx(10.0) and ut.filas[1][14] == "DB1"
+    assert ut.filas[0][9] == pytest.approx(10.0) and ut.filas[1][15] == "DB1"
     assert [f[0] for f in bz.filas] == ["BZ-1"] and len(cu.filas) == 1 and len(bd.filas) == 1
     assert len(avs.filas) == 1                                               # la eléctrica sin tipo
     ruta = tmp_path / "datos.xlsx"

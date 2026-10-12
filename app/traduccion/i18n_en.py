@@ -3194,8 +3194,6 @@ EN: dict[str, str] = {
     # ── Conflictos numerados y Excel de ida y vuelta ──
     '(vacío)':
         '(empty)',
-    '1. Cambia solo las columnas VERDES (cotas, tapas y fondos, radios, nombre, tipo, amperaje).':
-        '1. Change only the GREEN columns (elevations, rims and sumps, radii, name, type, amperage).',
     '2. Las columnas grises son de consulta: no se importan.':
         '2. Grey columns are for reference: they are not imported.',
     '3. En la app: Herramientas → Tabla de datos → «Importar Excel…». Verás los cambios antes de aplicarlos y se pueden deshacer con Ctrl+Z.':
@@ -3208,8 +3206,6 @@ EN: dict[str, str] = {
         '5. Conflicts (sheet «Conflicts», C-1, C-2…) are recalculated when importing.',
     'Automática (ft)':
         'Automatic (ft)',
-    'Carga un Excel exportado y editado: cotas, tapas y fondos, radios, nombre, tipo y amperaje. Verás los cambios antes de aplicarlos.':
-        'Loads an exported and edited Excel: elevations, rims and sumps, radii, name, type and amperage. You will see the changes before applying them.',
     'Choque entre redes distintas':
         'Clash between different networks',
     'Conflicto':
@@ -3329,6 +3325,54 @@ EN: dict[str, str] = {
         'Select a layer to assign its utility.',
     'Utilidad':
         'Utility',
-    '✓ {n}':
-        '✓ {n}',
+    'Aprobado:':
+        'Approved:',
+    'Aprobado':
+        'Approved',
+    'Pendiente':
+        'Pending',
+    'Aprobado por':
+        'Approved by',
+    'Fecha de aprobación':
+        'Approval date',
+    'Nota':
+        'Note',
+    '1. Cambia solo las columnas VERDES (cotas, tapas y fondos, radios, nombre, tipo, estado, familia, tamaño o diámetro, material, amperaje).':
+        '1. Change only the GREEN columns (elevations, rims and sumps, radii, name, type, status, family, size or diameter, material, amperage).',
+    'Familia y tamaño se escriben como en el catálogo de Civil 3D; un diámetro nuevo elige el tamaño de esa medida en la familia de la utilidad. «Por defecto» = sin familia o tamaño.':
+        "Family and size are written as in the Civil 3D catalog; a new diameter picks the size of that measure in the utility's family. «Default» = no family or size.",
+    '{donde}: «{v}» no es «Activa» ni «Abandonada».':
+        '{donde}: «{v}» is neither «Active» nor «Abandoned».',
+    '{donde}: «{v}» no está en el catálogo de Civil 3D de esta utilidad.':
+        '{donde}: «{v}» is not in the Civil 3D catalog for this utility.',
+    '{donde}: «{v}» no es un tamaño de su familia.':
+        '{donde}: «{v}» is not a size of its family.',
+    '{donde}: no hay un tamaño de {d} in en su familia.':
+        '{donde}: there is no {d} in size in its family.',
+    'Utilidad #{n}: lleva bancoducto; su sección la define el bancoducto.':
+        'Utility #{n}: it has a duct bank; its section is defined by the duct bank.',
+    'Aprobar seleccionados…':
+        'Approve selected…',
+    'Revisaste el aviso y se acepta así: deja de marcarse en el plano y queda registrado como aprobado (quién, cuándo y por qué).':
+        'You reviewed the warning and accept it as is: it is no longer marked on the plan and is recorded as approved (who, when and why).',
+    'Quitar aprobación':
+        'Remove approval',
+    'Mostrar aprobados':
+        'Show approved',
+    'Nota: {nota}':
+        'Note: {nota}',
+    'Ya no aplica (aprobado {fecha})':
+        'No longer applies (approved {fecha})',
+    'Aprobar avisos':
+        'Approve warnings',
+    'Se aprobarán {n} aviso(s). Queda registrado quién y cuándo.\nMotivo o nota (opcional):':
+        '{n} warning(s) will be approved. Who and when is recorded.\nReason or note (optional):',
+    'Carga un Excel exportado y editado: cotas, tapas y fondos, radios, nombre, tipo, estado, familia, tamaño o diámetro, material y amperaje. Verás los cambios antes de aplicarlos.':
+        'Loads an exported and edited Excel: elevations, rims and sumps, radii, name, type, status, family, size or diameter, material and amperage. You will see the changes before applying them.',
+    '{n} avisos aprobados':
+        '{n} approved warnings',
+    '{n} aviso(s) de normativa aprobado(s).':
+        '{n} standards warning(s) approved.',
+    'Aprobación quitada: {n} aviso(s).':
+        'Approval removed: {n} warning(s).',
 }

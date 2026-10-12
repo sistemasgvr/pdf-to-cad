@@ -42,7 +42,7 @@ def _avisos(avisos, pipes_idx, x=None, y=None, tol=None):
             continue
         if tol is not None and ((a["x"] - x) ** 2 + (a["y"] - y) ** 2) > tol * tol:
             continue
-        out.append(a.get("mensaje", ""))
+        out.append(("✔ " + t("Aprobado:") + " " if a.get("aprobado") else "") + a.get("mensaje", ""))
     return out
 
 

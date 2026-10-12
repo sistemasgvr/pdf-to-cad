@@ -728,6 +728,19 @@ utilidad: queda en las normativas y sale en su Excel al exportarlo. En las eléc
 <p>«Sin tipo» no se marca en el plano (en un proyecto recién importado serían decenas): se ve en el panel,
 en la lista y en el contador. Los tipos de aviso se muestran u ocultan en <b>Ver → Avisos</b>
 (cruces y conflictos, accesorios, avisos de normativa, mostrar u ocultar todos).</p>
+
+<h2>Revisar y aprobar avisos</h2>
+<p>Un aviso puede estar bien así (lo acepta el ingeniero o el cliente). En la pestaña <b>Avisos</b>:</p>
+<ol>
+<li>Selecciona uno o varios avisos (Ctrl o Mayús + clic).</li>
+<li><b>Aprobar seleccionados…</b> y escribe el motivo (opcional).</li>
+</ol>
+<p>El aviso aprobado <b>deja de marcarse</b> en el plano y en la Vista 3D y no cuenta en «⚠ N avisos», pero
+<b>queda registrado</b>: sigue en la lista con <b>✔ Aprobado</b>, la fecha, quién lo aprobó y la nota, y en la
+Tabla de datos y su Excel (columnas Estado, Aprobado por, Fecha de aprobación y Nota). Se guarda con el proyecto.
+Si cambia lo que se revisó (tipo, familia, tamaño, amperaje, estado o el lugar), el aviso vuelve a quedar
+<b>pendiente</b> y la aprobación vieja se ve como «Ya no aplica». <b>Quitar aprobación</b> la deshace (o
+<span class="key">&nbsp;Ctrl+Z&nbsp;</span>); <b>Mostrar aprobados</b> los oculta de la lista.</p>
 <table width="100%" cellspacing="0" cellpadding="12"><tr>
 <td width="6" bgcolor="{{tip_border}}"></td><td bgcolor="{{tip}}">
 <b>Ejemplo:</b> en una T de agua, si el ramal es de tipo Instalación domiciliaria se revisa con la fila
@@ -750,10 +763,14 @@ cajas</b>, <b>curvas</b>, <b>bancoductos</b>, <b>avisos de normativa</b>, <b>con
 <h2>Editar en Excel y volver a cargar</h2>
 <ol>
 <li><b>Exportar a Excel…</b> guarda todo, una hoja por pestaña, más una hoja «Léeme». Las columnas
-    <b>verdes</b> se pueden editar: nombre, tipo, amperaje y rasantes inicial y final de cada utilidad; tapa y
+    <b>verdes</b> se pueden editar: nombre, tipo, <b>estado</b> (Activa / Abandonada), <b>familia</b>,
+    <b>tamaño o diámetro</b>, material, amperaje y rasantes inicial y final de cada utilidad; tapa y
     fondo de los buzones; radio de las curvas; y, en «Cotas por vértice», la cota de llegada y de salida de
     cada vértice (vacía = automática). Las grises son de consulta.</li>
-<li>Edita en Excel (los decimales con punto o coma).</li>
+<li>Edita en Excel (los decimales con punto o coma). La familia y el tamaño se escriben como en el catálogo de
+    Civil 3D (como salen en la tabla); si cambias solo el <b>diámetro</b>, se elige el tamaño de esa medida en la
+    familia de la utilidad. «Por defecto» = sin familia o sin tamaño. Las utilidades con bancoducto no cambian
+    de sección.</li>
 <li><b>Importar Excel…</b> muestra la lista de cambios antes de aplicarlos; lo que no se pudo leer (un texto
     donde va un número, una utilidad que no existe) se avisa y no se aplica. Se deshace con
     <span class="key">&nbsp;Ctrl+Z&nbsp;</span>.</li>

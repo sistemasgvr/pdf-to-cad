@@ -51,7 +51,7 @@ def dibujar(scene, avisos, tol_px, con_accesorios_visibles):
     for a in avisos:
         if a.clase == "accesorio" and con_accesorios_visibles:
             continue
-        if a.clase == "tipo":
+        if a.clase == "tipo" or a.aprobado:
             continue          # «sin tipo»: en el panel, la lista y la barra de estado (no llena el plano)
         for g in grupos:
             if (g[0] - a.x) ** 2 + (g[1] - a.y) ** 2 <= tol_px * tol_px:

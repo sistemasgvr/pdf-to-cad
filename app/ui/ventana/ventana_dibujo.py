@@ -121,6 +121,8 @@ class DibujoMixin:
         conexiones aprobadas (`cross_connections`) para reflejar eso:
           - Se DESCARTA la que referencia a la pipe borrada (queda huérfana).
           - En las demás, si pipe_a > deleted_idx se le resta 1 (idem pipe_b)."""
+        from nucleo import normas_aprobacion
+        normas_aprobacion.reindexar(getattr(self, "normas_aprobados", None) or [], deleted_idx)
         if not getattr(self, "cross_connections", None): return
         nuevas = []
         for c in self.cross_connections:

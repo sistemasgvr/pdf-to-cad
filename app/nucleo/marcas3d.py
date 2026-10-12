@@ -45,7 +45,7 @@ def marcas(ar, pipes, avisos, conflictos, id_aviso, id_conflicto):
     """Dibuja las marcas en `ar`. Devuelve [(id, punto 3D, texto)] de las etiquetas «C-n»."""
     from nucleo.modelo3d import diametro_ft
     for m, a in enumerate(avisos or []):
-        if a.get("clase") == "tipo":                  # como en el plano: «sin tipo» no se marca
+        if a.get("clase") == "tipo" or a.get("aprobado"):  # como en el plano: «sin tipo» y aprobados no
             continue
         q = marca_en_utilidad(ar, pipes, a.get("pipe", -1), a["x"], a["y"])
         if q is None:

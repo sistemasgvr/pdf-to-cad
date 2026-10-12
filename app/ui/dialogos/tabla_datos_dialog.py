@@ -50,7 +50,8 @@ class TablaDatosDialog(QtWidgets.QDialog):
         self.btn_xls.clicked.connect(self.exportar)
         self.btn_imp = QtWidgets.QPushButton(_tr("Importar Excel…"))
         self.btn_imp.setToolTip(_tr("Carga un Excel exportado y editado: cotas, tapas y fondos, radios, nombre, "
-                                    "tipo y amperaje. Verás los cambios antes de aplicarlos."))
+                                    "tipo, estado, familia, tamaño o diámetro, material y amperaje. Verás los cambios "
+                                    "antes de aplicarlos."))
         self.btn_imp.clicked.connect(self.importar)
         fila.addWidget(self.btn_act)
         fila.addWidget(self.btn_xls)
@@ -130,7 +131,9 @@ class TablaDatosDialog(QtWidgets.QDialog):
         if not ruta:
             return []
         try:
-            cambios, errores = tabla_excel.cambios(w.pipes, w.structures, tabla_excel.importar(ruta))
+            con_db = {i for db in getattr(w, "duct_banks", []) or [] for i in db.assigned()}
+            cambios, errores = tabla_excel.cambios(w.pipes, w.structures, tabla_excel.importar(ruta),
+                                                   catalogo=w._catalogo_excel(), con_bancoducto=con_db)
         except Exception as e:                      # no es un Excel de la app, está abierto…
             QtWidgets.QMessageBox.warning(self, _tr("Importar Excel"), _tr(
                 "No se pudo leer el Excel.\n\n{e}").format(e=e))

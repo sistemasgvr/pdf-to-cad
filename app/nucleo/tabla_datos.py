@@ -46,6 +46,17 @@ def _largo_px(pts):
     return sum(math.dist(a, b) for a, b in zip(pts, pts[1:]))
 
 
+def _estado_aviso(a):
+    if getattr(a, "aprobado", None):
+        return t("Aprobado")
+    return t("Información") if a.info else t("Pendiente")
+
+
+def _registro(a):
+    r = getattr(a, "aprobado", None) or {}
+    return r.get("usuario", ""), r.get("fecha", ""), r.get("nota", "")
+
+
 def armar(pipes, structures, duct_banks, avisos, a_cad, ft_per_px,
           nombre_utilidad=lambda c: c, nombre_familia=lambda f: f, conflictos=()):
     pipes = pipes or []
@@ -56,12 +67,12 @@ def armar(pipes, structures, duct_banks, avisos, a_cad, ft_per_px,
             db_de[i] = db.name or t("(sin nombre)")
     avisos_de = {}
     for a in avisos or []:
-        if not a.info:
+        if not a.info and not getattr(a, "aprobado", None):
             avisos_de[a.pipe] = avisos_de.get(a.pipe, 0) + 1
 
     ut = Tabla("utilidades", N_("Utilidades"), [
         N_("N°"), N_("Nombre"), N_("Utilidad"), N_("Tipo"), N_("Estado"), N_("Familia"), N_("Tamaño"),
-        N_("Diámetro (in)"), N_("Largo (ft)"), N_("Vértices"), N_("Curvas"), N_("Rasante inicial (ft)"),
+        N_("Diámetro (in)"), N_("Material"), N_("Largo (ft)"), N_("Vértices"), N_("Curvas"), N_("Rasante inicial (ft)"),
         N_("Rasante final (ft)"), N_("Amperaje (A)"), N_("Bancoducto"), N_("Inicio X"), N_("Inicio Y"),
         N_("Fin X"), N_("Fin Y"), N_("Avisos")])
     curva_de = {}
@@ -80,7 +91,7 @@ def armar(pipes, structures, duct_banks, avisos, a_cad, ft_per_px,
             nombre_utilidad(p.get("layer") or ""), p.get("tipo") or "",
             t("Abandonada") if p.get("ab") else t("Activa"),
             nombre_familia(p.get("pipe_family") or "") if p.get("pipe_family") else t("Por defecto"),
-            p.get("pipe_size") or t("Por defecto"), _r(d, 3), _r(_largo_px(pts) * (ft_per_px or 0)), len(pts),
+            p.get("pipe_size") or t("Por defecto"), _r(d, 3), p.get("material") or "", _r(_largo_px(pts) * (ft_per_px or 0)), len(pts),
             len(cv), _r(p.get("inv_start"), 3), _r(p.get("inv_end"), 3), _r(p.get("amperaje"), 1),
             db_de.get(i, ""), ix, iy, fx, fy, avisos_de.get(i, 0)])
         ut.lugares.append((pts[len(pts) // 2][0], pts[len(pts) // 2][1], "pipe", i))
@@ -121,13 +132,14 @@ def armar(pipes, structures, duct_banks, avisos, a_cad, ft_per_px,
         bd.lugares.append(None)
 
     av = Tabla("avisos", N_("Avisos de normativa"), [
-        N_("N°"), N_("Utilidad"), N_("Tipo de aviso"), N_("Mensaje"), N_("X"), N_("Y")])
+        N_("N°"), N_("Utilidad"), N_("Tipo de aviso"), N_("Mensaje"), N_("Estado"), N_("Aprobado por"),
+        N_("Fecha de aprobación"), N_("Nota"), N_("X"), N_("Y")])
     from nucleo.normas_validar import CLASES
     for n, a in enumerate(avisos or [], 1):
         x, y = _xy(a_cad, (a.x, a.y))
         av.filas.append([n, (a.pipe + 1) if a.pipe is not None and a.pipe >= 0 else "",
                          t(CLASES.get(a.clase, a.clase)) + (" · " + t("Información") if a.info else ""),
-                         a.mensaje, x, y])
+                         a.mensaje, _estado_aviso(a), *_registro(a), x, y])
         av.lugares.append((a.x, a.y, "pipe", a.pipe))
 
     co = Tabla("conflictos", N_("Conflictos"), [

@@ -1,7 +1,8 @@
 """Ventana «Normativas de diseño» (formato de tablas del usuario, 2026-10-09).
 
 Las normativas son un Excel simple (`normas_excel`): aquí se ven sus tablas tal cual,
-la lista de avisos del proyecto (clic = ir al lugar) y los botones para importar el
+la lista de avisos del proyecto (clic = ir al lugar; se APRUEBAN con una nota y queda
+el registro de quién y cuándo, `nucleo/normas_aprobacion`) y los botones para importar el
 Excel, exportarlo (para editarlo en Excel) o volver a los valores iniciales. Los tipos
 nuevos que el usuario agrega con el «+» del panel ya están en el catálogo y salen al
 exportar. No modal: se refresca sola al redibujar el plano."""
@@ -9,7 +10,7 @@ from __future__ import annotations
 
 import os
 
-from PySide6 import QtCore, QtWidgets
+from PySide6 import QtCore, QtGui, QtWidgets
 
 from nucleo import normas_catalogo as nc
 from nucleo import normas_excel
@@ -67,11 +68,33 @@ class NormasDialog(QtWidgets.QDialog):
         lay.addLayout(fila)
         self.pestanas = QtWidgets.QTabWidget()
         lay.addWidget(self.pestanas, 1)
+        pag = QtWidgets.QWidget()
+        pl = QtWidgets.QVBoxLayout(pag)
+        barra = QtWidgets.QHBoxLayout()
+        self.btn_aprobar = QtWidgets.QPushButton(_tr("Aprobar seleccionados…"))
+        self.btn_aprobar.setToolTip(_tr("Revisaste el aviso y se acepta así: deja de marcarse en el plano y queda "
+                                        "registrado como aprobado (quién, cuándo y por qué)."))
+        self.btn_quitar = QtWidgets.QPushButton(_tr("Quitar aprobación"))
+        self.btn_quitar.setProperty("secondary", True)
+        self.chk_aprobados = QtWidgets.QCheckBox(_tr("Mostrar aprobados"))
+        self.chk_aprobados.setChecked(True)
+        self.btn_aprobar.clicked.connect(lambda: self.aprobar())
+        self.btn_quitar.clicked.connect(self.quitar_aprobacion)
+        self.chk_aprobados.toggled.connect(lambda _on: self.refrescar())
+        for b in (self.btn_aprobar, self.btn_quitar):
+            b.setMinimumHeight(32)
+            barra.addWidget(b)
+        barra.addWidget(self.chk_aprobados)
+        barra.addStretch(1)
+        pl.addLayout(barra)
         self.lst_avisos = QtWidgets.QTreeWidget()
-        self.lst_avisos.setHeaderLabels([_tr("Utilidad"), _tr("Aviso")])
+        self.lst_avisos.setHeaderLabels([_tr("Utilidad"), _tr("Aviso"), _tr("Estado")])
         self.lst_avisos.setRootIsDecorated(False)
+        self.lst_avisos.setSelectionMode(QtWidgets.QAbstractItemView.ExtendedSelection)
         self.lst_avisos.itemClicked.connect(self._ir)
-        self.pestanas.addTab(self.lst_avisos, _tr("Avisos"))
+        self.lst_avisos.itemSelectionChanged.connect(self._botones)
+        pl.addWidget(self.lst_avisos, 1)
+        self.pestanas.addTab(pag, _tr("Avisos"))
         self.vistas = []
         for titulo, columnas, _f in _PESTANAS:
             w = QtWidgets.QTableWidget(0, len(columnas))
@@ -85,16 +108,44 @@ class NormasDialog(QtWidgets.QDialog):
     def refrescar(self):
         avisos = getattr(self.win, "_normas_avisos", None) or []
         self.lst_avisos.clear()
-        for n, a in enumerate(avisos):
+        ver_ap = self.chk_aprobados.isChecked()
+        orden = sorted(range(len(avisos)), key=lambda k: (bool(avisos[k].aprobado), avisos[k].info))
+        for n in orden:                                  # primero los pendientes
+            a = avisos[n]
+            if a.aprobado and not ver_ap:
+                continue
             quien = f"#{a.pipe + 1}" if a.pipe is not None and a.pipe >= 0 else ""
-            it = QtWidgets.QTreeWidgetItem([quien, ("ⓘ " if a.info else "⚠ ") + a.mensaje])
-            it.setToolTip(1, _tr(CLASES.get(a.clase, a.clase)) + "\n" + a.mensaje)
+            r = a.aprobado or {}
+            if a.aprobado:
+                estado = " · ".join(x for x in ("✔ " + _tr("Aprobado"), r.get("fecha"), r.get("usuario"),
+                                                 r.get("nota")) if x)
+                marca = "✔ "
+            else:
+                estado, marca = (_tr("Información"), "ⓘ ") if a.info else (_tr("Pendiente"), "⚠ ")
+            it = QtWidgets.QTreeWidgetItem([quien, marca + a.mensaje, estado])
+            tip = _tr(CLASES.get(a.clase, a.clase)) + "\n" + a.mensaje
+            if r.get("nota"):
+                tip += "\n\n" + _tr("Nota: {nota}").format(nota=r["nota"])
+            for c in range(3):
+                it.setToolTip(c, tip)
+            if a.aprobado:
+                it.setForeground(1, QtGui.QBrush(QtGui.QColor(60, 150, 80)))
             it.setData(0, _ROL, n)
+            self.lst_avisos.addTopLevelItem(it)
+        for r in (self._registros_viejos() if ver_ap else []):     # aprobados cuyo aviso ya no está
+            u = r.get("utilidad")
+            it = QtWidgets.QTreeWidgetItem([f"#{u + 1}" if isinstance(u, int) and u >= 0 else "",
+                                            "✔ " + (r.get("mensaje") or ""),
+                                            _tr("Ya no aplica (aprobado {fecha})").format(fecha=r.get("fecha", ""))])
+            it.setForeground(1, QtGui.QBrush(QtGui.QColor(140, 140, 140)))
+            it.setData(0, _ROL + 1, r.get("clave"))
             self.lst_avisos.addTopLevelItem(it)
         if not avisos:
             self.lst_avisos.addTopLevelItem(QtWidgets.QTreeWidgetItem(["", _tr("Todo cumple las normativas.")]))
         self.lst_avisos.resizeColumnToContents(0)
-        n = sum(1 for a in avisos if not a.info)
+        self.lst_avisos.setColumnWidth(1, 520)
+        self._botones()
+        n = sum(1 for a in avisos if not a.info and not a.aprobado)
         self.pestanas.setTabText(0, _tr("Avisos ({n})").format(n=n) if n else _tr("Avisos"))
         cat = self.win.normas_cat
         for w, (_t, _c, filas_de) in zip(self.vistas, _PESTANAS):
@@ -104,6 +155,39 @@ class NormasDialog(QtWidgets.QDialog):
                 for c, v in enumerate(fila):
                     w.setItem(r, c, QtWidgets.QTableWidgetItem(str(v)))
             w.resizeColumnsToContents()
+
+    def _registros_viejos(self):
+        usadas = {a.aprobado.get("clave") for a in getattr(self.win, "_normas_avisos", None) or [] if a.aprobado}
+        return [r for r in getattr(self.win, "normas_aprobados", None) or [] if r.get("clave") not in usadas]
+
+    def _elegidos(self):
+        avisos = getattr(self.win, "_normas_avisos", None) or []
+        sel = self.lst_avisos.selectedItems()
+        idx = [it.data(0, _ROL) for it in sel]
+        viejos = [it.data(0, _ROL + 1) for it in sel if it.data(0, _ROL + 1)]
+        return [avisos[int(n)] for n in idx if n is not None and 0 <= int(n) < len(avisos)], viejos
+
+    def _botones(self):
+        av, viejos = self._elegidos()
+        self.btn_aprobar.setEnabled(any(not a.info and not a.aprobado for a in av))
+        self.btn_quitar.setEnabled(any(a.aprobado for a in av) or bool(viejos))
+
+    def aprobar(self, nota=None):
+        """Aprueba los avisos seleccionados (pide un motivo opcional)."""
+        av = [a for a in self._elegidos()[0] if not a.info and not a.aprobado]
+        if not av:
+            return 0
+        if nota is None:
+            nota, ok = QtWidgets.QInputDialog.getText(
+                self, _tr("Aprobar avisos"), _tr("Se aprobarán {n} aviso(s). Queda registrado quién y cuándo.\n"
+                                                 "Motivo o nota (opcional):").format(n=len(av)))
+            if not ok:
+                return 0
+        return self.win.aprobar_avisos(av, nota)
+
+    def quitar_aprobacion(self):
+        av, viejos = self._elegidos()
+        return self.win.quitar_aprobacion([a for a in av if a.aprobado], viejos)
 
     def _ir(self, item, _col):
         n = item.data(0, _ROL)
