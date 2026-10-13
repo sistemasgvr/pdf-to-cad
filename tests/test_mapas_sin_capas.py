@@ -226,7 +226,8 @@ def test_phoenix_alcantarillado_de_pdf_sin_capas_a_dxf(win, tmp_path):
     from ui.comun.workers import RecognitionWorker
     win._open_pdf_path(str(SEWER))
     win._load_page(0)
-    assert abs(win.scale * 72 - 20.0) < 1e-6                      # el texto no se lee: 1"=20' por defecto
+    # el texto Type3 ya se lee por la forma de sus letras (`texto_pdf`): «SCALE: 1" = 100'»
+    assert abs(win.scale * 72 - 100.0) < 1e-6
     dlg = layer_dialog.SheetLayersDialog(win, win.doc, 0, recognition_utilities=win._recognition_utilities,
                                          scale_ft_per_pt=win._scale_editable())
     name = _style(win.doc, 0.73)
