@@ -39,7 +39,7 @@ Coordenadas DIBUJADAS en PÍXELES (se convierten con geometry.to_cad al exportar
 coordenadas IMPORTADAS de Excel ya son reales de mundo (world=True → se usan tal cual).
 """
 
-VERSION = "1.3.0"
+VERSION = "1.3.1"
 
 # Capas de red por GRAVEDAD (tramos entre buzones, con invert inicio/fin).
 GRAVITY_LAYERS = {"ALCANTARILLADO", "DRENAJE"}
@@ -153,6 +153,9 @@ def default_network_type(layer):
 
 
 CHANGELOG = [
+    ("1.3.1", [
+        ('fixed', 'Copiar y pegar propiedades ahora copia también las COTAS: la rasante inicial y final y, en las utilidades con la misma cantidad de vértices, las cotas de llegada y salida de cada vértice (y la edición por tramo). La ventana de pegar lo ofrece con la casilla «Pegar también las cotas» (marcada); en utilidades con otros vértices solo se pegan las rasantes y el resto queda interpolado. Se deshace con Ctrl+Z.'),
+    ]),
     ("1.3.0", [
         ('added', 'Avisos de normativa: se REVISAN y APRUEBAN. En Normativas → pestaña Avisos, selecciona uno o varios y «Aprobar seleccionados…» (con un motivo opcional). El aprobado deja de marcarse en el plano y en la Vista 3D y no cuenta en «⚠ N avisos», pero queda REGISTRADO: sigue en la lista con ✔, fecha, quién y la nota, y en la Tabla de datos y su Excel (Estado, Aprobado por, Fecha de aprobación, Nota); se guarda en el proyecto. Si cambia lo revisado (tipo, familia, tamaño, amperaje, estado o lugar) vuelve a quedar pendiente. «Quitar aprobación» o Ctrl+Z lo deshacen. Excel de la Tabla de datos: ahora también se editan y vuelven a cargar el ESTADO (Activa/Abandonada), la FAMILIA, el TAMAÑO o el DIÁMETRO (elige el tamaño de esa medida en la familia) y el MATERIAL de cada utilidad, validados contra el catálogo de Civil 3D (lo que no existe se avisa y no se aplica; con bancoducto la sección no cambia).'),
         ('added', 'Conflictos NUMERADOS (C-1, C-2…, en orden de lectura del plano): cruces a la misma cota y todas las alertas rojas llevan su número junto a la marca en el plano, en la Vista 3D (esfera roja con su etiqueta y su ficha al hacer clic) y en la Tabla de datos (pestaña «Conflictos»: tipo, utilidades, cotas, diferencia y detalle). El mismo cruce visto por varios tramos cuenta una sola vez. Excel de la Tabla de datos de IDA Y VUELTA: las columnas verdes (nombre, tipo, amperaje y rasantes de cada utilidad; tapa y fondo de buzones; radio de curvas; cotas de llegada y salida de cada vértice) se editan en Excel e «Importar Excel…» muestra los cambios antes de aplicarlos (se deshacen con Ctrl+Z) y recalcula los conflictos. Vista 3D: sin el globo de instrucciones que tapaba el detalle de los conflictos.'),

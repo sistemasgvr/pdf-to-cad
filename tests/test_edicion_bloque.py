@@ -230,3 +230,41 @@ def test_dialogo_tipo_y_amperaje(qapp):
     d.cmb_tipo.setCurrentIndex(d.cmb_tipo.findData("INSTALACION DOMICILIARIA"))
     d.spn_amp.setValue(320)
     assert d.cambios() == {"tipo": "INSTALACION DOMICILIARIA", "amperaje": 320.0}
+
+
+# ─────────────────── cotas (1.3.1: copiar/pegar no las copiaba) ───────────────────
+
+def test_copiar_cotas_rasantes_y_por_vertice():
+    src = _p(pts=[(0, 0), (50, 0), (100, 0)], inv_start=-4.0, inv_end=-6.5, seg_edit=True,
+             vertex_inv_in={1: -5.0}, vertex_inv_out={1: -5.2})
+    igual = _p(pts=[(0, 9), (40, 9), (90, 9)], inv_start=-1.0, inv_end=-1.0, vertex_inv_out={1: -9.0})
+    otra = _p(pts=[(0, 5), (100, 5)], inv_start=-1.0, inv_end=-1.0)
+    assert E.aplicar([igual, otra], [0, 1], {"cotas": E.valores_de(src)["cotas"]}) == 2
+    assert (igual["inv_start"], igual["inv_end"]) == (-4.0, -6.5)
+    assert igual["vertex_inv_in"] == {1: -5.0} and igual["vertex_inv_out"] == {1: -5.2} and igual["seg_edit"]
+    assert (otra["inv_start"], otra["inv_end"]) == (-4.0, -6.5) and "vertex_inv_in" not in otra  # otros vértices
+    src["vertex_inv_in"][1] = 0.0
+    assert igual["vertex_inv_in"] == {1: -5.0}                       # copia, no la misma referencia
+
+
+def test_dialogo_pegar_ofrece_las_cotas(qapp):
+    v = E.valores_de(_p(inv_start=-3.0, inv_end=-4.0))
+    d = _dlg(inicial=v)
+    assert d.chk_cotas is not None and d.chk_cotas.isChecked() and "-3" in d.chk_cotas.text()
+    assert d.cambios()["cotas"]["inv_end"] == -4.0
+    d.chk_cotas.setChecked(False)
+    assert "cotas" not in d.cambios()
+    assert _dlg().chk_cotas is None                                  # editar en bloque: sin cotas
+
+
+def test_pegar_propiedades_pega_las_cotas_en_la_ventana(win, monkeypatch):
+    from ui.dialogos import edicion_bloque_dialog as D
+    win.pipes[0].update(inv_start=-7.25, inv_end=-8.5)
+    _seleccionar(win, [0])
+    win.copiar_propiedades()
+    monkeypatch.setattr(D.EdicionBloqueDialog, "exec", lambda self: 1)   # el diálogo real, aceptado tal cual
+    _seleccionar(win, [1])
+    win.pegar_propiedades()
+    assert (win.pipes[1]["inv_start"], win.pipes[1]["inv_end"]) == (-7.25, -8.5)
+    win.undo()
+    assert win.pipes[1].get("inv_start") != -7.25

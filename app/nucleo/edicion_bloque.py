@@ -17,6 +17,9 @@ presión o conducto) y una familia de agua no sirve para una línea eléctrica.
              nombre se reemplaza, los demás se conservan)
   tipo     → tipo de la utilidad para las normativas («» = sin tipo; normas_catalogo)
   amperaje → amperaje en A (None = sin dato; solo tiene sentido en eléctrico)
+  cotas    → rasante inicial y final (`inv_start`/`inv_end`) y, SOLO en utilidades con
+             la misma cantidad de vértices, las cotas por vértice (llegada/salida) y la
+             edición por tramo (1.3.1: copiar/pegar no copiaba las cotas)
 """
 from __future__ import annotations
 
@@ -25,7 +28,36 @@ import re
 from nucleo import xdata
 from nucleo.model_ops import DIAM_DEFECTO_IN
 
-CAMPOS = ("familia", "tamano", "net_type", "material", "ab", "datos", "tipo", "amperaje")
+CAMPOS = ("familia", "tamano", "net_type", "material", "ab", "datos", "tipo", "amperaje", "cotas")
+_POR_VERTICE = ("vertex_inv_in", "vertex_inv_out", "vertex_inv")
+
+
+def cotas_de(p):
+    """Cotas copiables de una utilidad: rasantes y, por vértice, llegada/salida."""
+    out = {"inv_start": p.get("inv_start"), "inv_end": p.get("inv_end"),
+           "n_vertices": len(p.get("pts") or []), "seg_edit": bool(p.get("seg_edit"))}
+    for k in _POR_VERTICE:
+        if p.get(k):
+            out[k] = {int(v): z for v, z in p[k].items()}
+    return out
+
+
+def pegar_cotas(p, cotas):
+    """Pone las cotas copiadas en p. Las por vértice solo si p tiene los mismos vértices
+    (si no, no hay a qué vértice ponerlas: quedan las suyas, interpoladas entre las
+    rasantes nuevas). Devuelve True si las por vértice se pegaron."""
+    for k in ("inv_start", "inv_end"):
+        if cotas.get(k) is not None:
+            p[k] = float(cotas[k])
+    if cotas.get("n_vertices") != len(p.get("pts") or []):
+        return False
+    for k in _POR_VERTICE:
+        if cotas.get(k):
+            p[k] = {int(v): z for v, z in cotas[k].items()}
+        else:
+            p.pop(k, None)
+    p["seg_edit"] = bool(cotas.get("seg_edit"))
+    return True
 
 
 def tipos(pipes, filas):
@@ -61,6 +93,7 @@ def valores_de(p):
         "datos": dict(xdata.get(p)[xdata.USER]),
         "tipo": p.get("tipo") or "",
         "amperaje": p.get("amperaje"),
+        "cotas": cotas_de(p),
     }
 
 
@@ -101,6 +134,8 @@ def aplicar(pipes, filas, cambios, sin_familia=()):
             p["tipo"] = cambios["tipo"] or ""
         if "amperaje" in cambios:
             p["amperaje"] = cambios["amperaje"] or None
+        if cambios.get("cotas"):
+            pegar_cotas(p, cambios["cotas"])
         if cambios.get("datos"):
             user = xdata.get(p)[xdata.USER]
             user.update({str(k): str(v) for k, v in cambios["datos"].items()})

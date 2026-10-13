@@ -116,6 +116,17 @@ class EdicionBloqueDialog(QtWidgets.QDialog):
             self.chk_datos.setToolTip("\n".join(f"{k}: {v}" for k, v in list(self.datos.items())[:12]))
             lay.addWidget(self.chk_datos)
 
+        self.cotas = (inicial or {}).get("cotas")
+        self.chk_cotas = None
+        if self.cotas and (self.cotas.get("inv_start") is not None or self.cotas.get("inv_end") is not None):
+            self.chk_cotas = QtWidgets.QCheckBox(_tr("Pegar también las cotas (rasante inicial {a} ft, final {b} ft)")
+                                                 .format(a=f"{float(self.cotas.get('inv_start') or 0):g}",
+                                                         b=f"{float(self.cotas.get('inv_end') or 0):g}"))
+            self.chk_cotas.setChecked(True)
+            self.chk_cotas.setToolTip(_tr("Las cotas por vértice (llegada y salida) se pegan solo en las utilidades "
+                                          "con la misma cantidad de vértices; en las demás quedan interpoladas."))
+            lay.addWidget(self.chk_cotas)
+
         self.lbl_nota = QtWidgets.QLabel()
         self.lbl_nota.setWordWrap(True); self.lbl_nota.setProperty("muted", True)
         lay.addWidget(self.lbl_nota)
@@ -197,6 +208,8 @@ class EdicionBloqueDialog(QtWidgets.QDialog):
                 out[clave] = cb.currentData()
         if self.spn_amp is not None and self.spn_amp.value() >= 0:
             out["amperaje"] = self.spn_amp.value() or None
+        if self.chk_cotas is not None and self.chk_cotas.isChecked():
+            out["cotas"] = dict(self.cotas)
         if self.chk_datos is not None and self.chk_datos.isChecked():
             out["datos"] = dict(self.datos)
         return out
