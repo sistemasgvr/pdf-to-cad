@@ -282,6 +282,8 @@ class SheetLayersDialog(ScaleCalibrationMixin, LayerAssignmentsMixin, LayerInfoM
                 text = f"{L['short']}  ({L['path_count']})"
                 if code:
                     text += f"  «{code}»"               # en su grupo por las letras de su línea
+                if L.get("legend"):                     # mapa sin capas: lo que dice su leyenda
+                    text += "  — " + ", ".join(L["legend"][:3]) + ("…" if len(L["legend"]) > 3 else "")
                 it = QtWidgets.QTreeWidgetItem([text])
                 tip = _layer_tooltip(L)
                 if shared:

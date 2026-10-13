@@ -10,9 +10,11 @@ y MuPDF no crea imágenes de más de 1 GiB (≈358 Mpx en RGB): 18 hojas del DU0
   menos resolución (≈`PRESUPUESTO_PX`) y `escala` = px de la imagen por px de la vista
   (< 1). Las coordenadas de la vista NO cambian (siguen siendo pt × zoom): la imagen se
   muestra agrandada 1/escala (`FondoItem`).
-- `Nitidez`: al acercarse, vuelve a dibujar nítida SOLO la parte visible (hasta la
-  resolución de siempre), como el compositor; con una lista de dibujo de MuPDF en caché
-  (DU06 ×18: 0.7 s una vez, luego 20–100 ms por recorte).
+- `Nitidez`: al acercarse, vuelve a dibujar nítida SOLO la parte visible, como el
+  compositor; con una lista de dibujo de MuPDF en caché (DU06 ×18: 0.7 s una vez, luego
+  20–100 ms por recorte). Desde 2026-10-13 (pedido del usuario: «cargar la calidad original
+  al hacer zoom») también en la hoja NORMAL y a la resolución de la pantalla, no solo hasta
+  la de la imagen (`recorte_nitido`); la imagen de la hoja y sus coordenadas no cambian.
 - `gris`: la imagen en grises para el imán a la tinta, por bloques de filas (antes tres
   matrices float64 del tamaño de la hoja); el resultado es idéntico byte a byte.
 - `leer_png`: Qt no abre por defecto imágenes de más de 256 MB (`QImageReader`): un
@@ -27,9 +29,10 @@ import fitz
 import numpy as np
 from PySide6 import QtCore, QtGui, QtWidgets
 
+from ui.comun.recorte_nitido import REFINO_MS, TOPE_LETRAS_MPX, TOPE_REFINO_MPX, Hojas, escala_para
+
 LIMITE_BYTES = 1 << 30            # MuPDF: pixmap ≤ 1 GiB (medido: ancho × alto × 3 ≤ 2³⁰)
 PRESUPUESTO_PX = 100_000_000      # hoja reducida: ≈ 2 hojas de 36"×24" a zoom 3.5
-NITIDO_MAX_PX = 24_000_000        # recorte nítido (como `pdf_view_quality`)
 
 
 class Fondo(NamedTuple):
@@ -116,10 +119,9 @@ def escala_de(item) -> float:
 
 
 def nuevo_item(pm: QtGui.QPixmap, escala: float) -> QtWidgets.QGraphicsPixmapItem:
-    """Item para la imagen de la hoja: el de siempre si `escala` = 1."""
-    if escala >= 1.0:
-        return QtWidgets.QGraphicsPixmapItem(pm)
-    return FondoItem(pm, escala)
+    """Item para la imagen de la hoja (`FondoItem`: con `escala` = 1 se pinta igual que un
+    QGraphicsPixmapItem, pero admite el recorte nítido de `Nitidez`)."""
+    return FondoItem(pm, min(1.0, float(escala)))
 
 
 def _vivo(item) -> bool:
@@ -130,16 +132,18 @@ def _vivo(item) -> bool:
 
 
 class FondoItem(QtWidgets.QGraphicsPixmapItem):
-    """Imagen reducida de la hoja, agrandada 1/escala para ocupar la hoja entera en
-    las coordenadas de la vista. Bajo el recorte nítido (`nitido`, hijo) no se pinta:
-    con la opacidad del PDF < 100 % las dos imágenes se sumarían (tinta más oscura)."""
+    """Imagen de la hoja: reducida (`escala` < 1) se agranda 1/escala para ocupar la hoja
+    entera en las coordenadas de la vista; con `escala` = 1 es la imagen de siempre, con los
+    mismos ajustes de un QGraphicsPixmapItem. Bajo el recorte nítido (`nitido`, hijo) no se
+    pinta: con la opacidad del PDF < 100 % las dos imágenes se sumarían (tinta más oscura)."""
 
     def __init__(self, pm: QtGui.QPixmap, escala: float):
         super().__init__(pm)
         self.escala = float(escala)
         self.nitido: Optional[QtWidgets.QGraphicsPixmapItem] = None
-        self.setScale(1.0 / self.escala)
-        self.setTransformationMode(QtCore.Qt.SmoothTransformation)
+        if self.escala < 1.0:
+            self.setScale(1.0 / self.escala)
+            self.setTransformationMode(QtCore.Qt.SmoothTransformation)
 
     def paint(self, painter, option, widget=None):
         n = self.nitido
@@ -157,10 +161,10 @@ class FondoItem(QtWidgets.QGraphicsPixmapItem):
 
 
 class Nitidez(QtCore.QObject):
-    """Recorte nítido de la parte visible de un `FondoItem` (hoja reducida) en una
-    vista con señal `viewChanged`. `zoom()` = px de la vista por pt de la hoja;
-    `pagina()` = la fitz.Page que muestra el fondo (None = no hay). Con un fondo
-    normal (escala 1) no hace nada."""
+    """Recorte nítido de la parte visible de un `FondoItem` en una vista con señal
+    `viewChanged`, a la resolución de la pantalla (`recorte_nitido`). `zoom()` = px de la
+    vista por pt de la hoja; `pagina()` = la fitz.Page que muestra el fondo (None = no hay).
+    Sin acercarse más allá de la imagen (×1.4) no pone nada: la hoja se ve como siempre."""
 
     def __init__(self, view, zoom: Callable[[], float], pagina: Callable[[], Optional[fitz.Page]],
                  delay_ms: int = 150):
@@ -170,35 +174,42 @@ class Nitidez(QtCore.QObject):
         self._pagina = pagina
         self.item: Optional[FondoItem] = None
         self._clave = None
-        self._lista = None                     # ((documento, hoja), página, lista de dibujo de MuPDF)
+        self._hojas = Hojas(max_hojas=1)       # lista de dibujo de MuPDF (y letras Type3) de la hoja
         self._timer = QtCore.QTimer(self)
         self._timer.setSingleShot(True)
         self._timer.setInterval(delay_ms)
         self._timer.timeout.connect(self.actualizar)
+        # hoja con letras Type3 caras: con la vista quieta, otra vez con más resolución
+        self._refino = QtCore.QTimer(self)
+        self._refino.setSingleShot(True)
+        self._refino.setInterval(REFINO_MS)
+        self._refino.timeout.connect(lambda: self.actualizar(refinar=True))
         view.viewChanged.connect(self.programar)
 
     def fijar(self, item) -> None:
-        """Fondo nuevo en la vista (o el de siempre: entonces queda inactiva)."""
+        """Fondo nuevo en la vista (un item que no es `FondoItem` la deja inactiva)."""
         self.soltar()
         self.item = item if isinstance(item, FondoItem) else None
-        self._lista = None
+        self._hojas.soltar()
         self.programar()
 
     def soltar(self) -> None:
         """Quita el recorte (llamar ANTES de vaciar la escena)."""
         self._timer.stop()
+        self._refino.stop()
         self._quitar()
         self.item = None
         self._clave = None
 
     def invalidar(self) -> None:
         """La hoja cambió (capas): el recorte y la lista de dibujo ya no sirven."""
-        self._lista = None
+        self._hojas.soltar()
         self._quitar()
         self._clave = None
         self.programar()
 
     def programar(self) -> None:
+        self._refino.stop()
         if self.item is not None:
             self._timer.start()
 
@@ -219,13 +230,13 @@ class Nitidez(QtCore.QObject):
         return (id(page.parent), page.number)
 
     def _lista_de(self, page):
-        # `doc[i]` da un objeto nuevo en cada llamada: la clave es (documento, hoja).
-        # Al cambiar de hoja o de PDF pasa por `fijar`, que la descarta.
-        if self._lista is None or self._lista[0] != self._id(page):
-            self._lista = (self._id(page), page, page.get_displaylist())
-        return self._lista[2]
+        """Lista de dibujo de MuPDF de la hoja (la usa también `snap_nitido`). `doc[i]` da
+        un objeto nuevo en cada llamada: la clave es (documento, hoja); al cambiar de hoja o
+        de PDF pasa por `fijar`, que la descarta."""
+        return self._hojas.lista(page)
 
-    def actualizar(self) -> None:
+    def actualizar(self, refinar: bool = False) -> None:
+        self._refino.stop()                                   # se decide otra vez abajo
         it = self.item
         if not _vivo(it):
             self.item = None
@@ -237,9 +248,9 @@ class Nitidez(QtCore.QObject):
         zoom = float(self._zoom() or 0.0)
         if page is None or zoom <= 0:
             self._quitar(); return
-        base = zoom * it.escala                               # px/pt de la imagen reducida
+        base = zoom * it.escala                               # px/pt de la imagen de la hoja
         pantalla = abs(self.view.transform().m11()) * self.view.devicePixelRatioF()
-        quiero = min(zoom, pantalla * zoom * 1.15)            # nunca más que la de siempre
+        quiero = pantalla * zoom * 1.15                       # px/pt de la pantalla
         if quiero < base * 1.4:
             self._quitar(); self._clave = None
             return
@@ -252,16 +263,20 @@ class Nitidez(QtCore.QObject):
         region = region.adjusted(-pad, -pad, pad, pad).intersected(hoja)
         x0, y0 = region.left() / zoom, region.top() / zoom
         x1, y1 = region.right() / zoom, region.bottom() / zoom
-        area = max(1.0, (x1 - x0) * (y1 - y0))
-        escala = min(quiero, math.sqrt(NITIDO_MAX_PX / area))
+        rect = (x0, y0, x1, y1)
+        # antes el tope era la resolución de la imagen (`zoom`): nunca menos que eso
+        escala = self._hojas.escala(page, rect, quiero, minimo=zoom,
+                                    tope_mpx=TOPE_REFINO_MPX if refinar else TOPE_LETRAS_MPX)
         if escala < base * 1.4:
             self._quitar(); self._clave = None
             return
-        clave = (self._id(page), round(x0, 1), round(y0, 1), round(x1, 1), round(y1, 1), round(escala, 3))
-        if clave == self._clave and _vivo(it.nitido):
+        zona = (self._id(page), round(x0, 1), round(y0, 1), round(x1, 1), round(y1, 1))
+        if (self._clave is not None and self._clave[0] == zona and _vivo(it.nitido)
+                and self._clave[1] >= round(escala, 3)):
+            return                                            # el recorte que hay ya basta
+        pix = self._hojas.render(page, rect, escala)
+        if pix is None:
             return
-        clip = fitz.Rect(page.rect.x0 + x0, page.rect.y0 + y0, page.rect.x0 + x1, page.rect.y0 + y1)
-        pix = self._lista_de(page).get_pixmap(matrix=fitz.Matrix(escala, escala), alpha=False, clip=clip)
         pm = QtGui.QPixmap.fromImage(qimage(pix))
         if pm.isNull():
             return
@@ -276,4 +291,6 @@ class Nitidez(QtCore.QObject):
         n.setTransform(QtGui.QTransform.fromScale(k, k))
         it.nitido = n
         it.update()
-        self._clave = clave
+        self._clave = (zona, round(escala, 3))
+        if not refinar and escala < 0.98 * escala_para(quiero, rect):
+            self._refino.start()                              # letras Type3: quedó corto

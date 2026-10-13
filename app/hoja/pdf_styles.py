@@ -30,7 +30,20 @@ def _opacity(value):
     return None if value is None else round(float(value), 3)
 
 
+def symbol_name(font, key):
+    """Capa virtual de un SÍMBOLO de la fuente (válvula, hidrante, buzón de un mapa SIG):
+    sus glifos superpuestos con su color (`texto_pdf.Simbolo.clave`). Ver `leyenda_mapa`."""
+    return PREFIX + json.dumps(["sym", font, [[int(g), list(c)] for g, c in key]], separators=(",", ":"))
+
+
+def is_symbol(name):
+    return name.startswith(PREFIX + '["sym"')
+
+
 def style_label(name):
+    if is_symbol(name):
+        glyphs = json.loads(name[len(PREFIX):])[2]
+        return "Símbolo " + "+".join(str(g) for g, _c in glyphs)
     kind, color, width, dash, fill, *_ = json.loads(name[len(PREFIX):])
     rgb = color if color is not None else fill
     if rgb is None:
@@ -46,7 +59,12 @@ def style_label(name):
 
 
 def drawings(page, *, extended=False):
-    """Native drawings plus deterministic identities for unlayered vectors."""
+    """Native drawings plus deterministic identities for unlayered vectors.
+
+    En un mapa sin capas cuya fuente es Type3 sin mapa de caracteres (mapas SIG de
+    Phoenix), también los SÍMBOLOS que describe su leyenda (válvulas, hidrantes,
+    buzones: glifos de la fuente, no vectores) como círculos virtuales en su propia capa
+    (`leyenda_mapa.simbolos_capas`), al final y sin recorte."""
     paths = page.get_drawings(extended=extended)
     if any(p.get("layer") for p in paths if p.get("type") not in ("clip", "group")):
         return paths
@@ -57,6 +75,9 @@ def drawings(page, *, extended=False):
             if name:
                 path = dict(path, layer=name)
         out.append(path)
+    from hoja import leyenda_mapa                  # usa este módulo: importarlo aquí
+    if leyenda_mapa.aplica(page):
+        out.extend(dict(p) for p in leyenda_mapa.simbolos_capas(page))
     return out
 
 

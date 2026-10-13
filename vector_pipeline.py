@@ -285,6 +285,27 @@ _SCALE_EQ_RE = re.compile(r'1\s*["\']?\s*=\s*(\d+(?:\.\d+)?)\s*[\'`]?', re.I)
 _SCALE_RATIO_RE = re.compile(r'1\s*:\s*(\d+)')
 
 
+def _scale_texts(page):
+    """Textos de la hoja donde buscar la escala: los spans de `get_text`, o, si su fuente
+    es Type3 sin mapa de caracteres (mapas SIG de Phoenix: `get_text` da basura y la
+    «escala» salía 1"=585.9'), el texto leído por la forma de las letras
+    (`hoja.texto_pdf`, 2026-10-13)."""
+    try:
+        from hoja import texto_pdf
+        if texto_pdf.necesita_decodificar(page):
+            return texto_pdf.textos(page)
+    except ImportError:                       # vector_pipeline usado sin la app en sys.path
+        pass
+    out = []
+    for b in page.get_text("dict")["blocks"]:
+        if b.get("type") != 0:
+            continue
+        for line in b["lines"]:
+            for span in line["spans"]:
+                out.append(span.get("text") or "")
+    return out
+
+
 def detect_scale(page):
     """Lee la escala del texto del plano (1\"=20', 1:240). Devuelve pies/punto.
 
@@ -298,19 +319,15 @@ def detect_scale(page):
         return C.SCALE_FT_PER_PT_OVERRIDE
 
     found = []   # lista de (pies por pulgada)
-    for b in page.get_text("dict")["blocks"]:
-        if b.get("type") != 0:
+    for txt in _scale_texts(page):
+        txt = (txt or "").strip()
+        m = _SCALE_EQ_RE.search(txt)
+        if m:
+            found.append(float(m.group(1)))          # 1"=X'  -> X pie/pulg
             continue
-        for line in b["lines"]:
-            for span in line["spans"]:
-                txt = (span.get("text") or "").strip()
-                m = _SCALE_EQ_RE.search(txt)
-                if m:
-                    found.append(float(m.group(1)))          # 1"=X'  -> X pie/pulg
-                    continue
-                m = _SCALE_RATIO_RE.search(txt)
-                if m:
-                    found.append(float(m.group(1)) / 12.0)   # 1:N -> N/12 pie/pulg
+        m = _SCALE_RATIO_RE.search(txt)
+        if m:
+            found.append(float(m.group(1)) / 12.0)   # 1:N -> N/12 pie/pulg
     if not found:
         return C.DEFAULT_SCALE_FT_PER_PT
 

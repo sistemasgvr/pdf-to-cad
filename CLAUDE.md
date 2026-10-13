@@ -32,7 +32,7 @@ alcantarillado, drenaje, gas, eléctrico, telecom). Todo en **unidades imperiale
     `wizard_widgets`, `pdf_view_quality`, `alignment_tools`, `tool_strip`…), `ui/dialogos/` (`dialogs`,
     `normas_dialog`, `tabla_datos_dialog`, `vista3d_dialog`, `edicion_bloque_dialog`, `limpieza_dialog`, `duct_bank_dialog`, `xdata_dialog`, `catalogo_tamanos_dialog`, `manual_dialog`,
     `shortcuts_dialog`, `blank_canvas_dialog`) y `ui/comun/` (`canvas`, `widgets`, `ui_common`, `theme`, `icons`,
-    `busy`, `responsive`, `side_panels`, `thumbnails`, `workers`, `accesorios_view`, `avisos_view`, `visor3d`, `cubo_vistas`). Se importan como
+    `busy`, `responsive`, `side_panels`, `thumbnails`, `workers`, `accesorios_view`, `avisos_view`, `visor3d`, `cubo_vistas`, `fondo_pdf`, `recorte_nitido`). Se importan como
     `from ui.ventana import app_window`, `from ui.comun import widgets`… OJO rutas de recursos: `icons.py` sube
     TRES carpetas para llegar a `app/icons` (en el .exe usan
     `sys._MEIPASS`, donde PDF-a-CAD.spec deja `icons/` y `docs/`). `app/traduccion/` (mismo día) = `i18n`,
@@ -70,7 +70,24 @@ alcantarillado, drenaje, gas, eléctrico, telecom). Todo en **unidades imperiale
     `QImageReader` (antes un proyecto con hoja compuesta de ~2 hojas no se reabría). `gris`: grises por
     bloques (idéntico byte a byte). Si `_apply_composite` falla, `_volver_a_la_hoja` recarga la hoja anterior
     (sin respaldo el editor quedaba sin PDF). Tests: `tests/test_hoja_enorme.py` (bajan el límite con
-    `chica`). Pendiente: con 18 hojas, armar tarda ~28 s (`compute_bridges` relee los vectores de cada hoja)
+    `chica`). **Nítida a CUALQUIER zoom** (pedido del usuario 2026-10-13, compositor sobre el «QS Water» de
+    Phoenix borroso): `recorte_nitido.py` (sin Qt) lo usan `Nitidez` (editor, Capas, vista previa: ahora
+    también con la hoja NORMAL —`nuevo_item` da siempre `FondoItem`; con escala 1 se pinta igual que un
+    QGraphicsPixmapItem: misma imagen, sin `setScale` ni modo suave— y sin el tope «la resolución de la
+    imagen»), `ViewportSharpener` («Área a tomar», sin el tope de 4 px/pt y con el recorte EXACTO en
+    `pix.x/pix.y`, antes se estiraba al rectángulo) y `PieceItem.update_sharp`. `Hojas` = caché de listas
+    de dibujo por (documento, hoja) —`soltar()` al cambiar capas— y `escala` (pantalla × 1.15, `MAX_PX`
+    24 Mpx, `MAX_ESCALA` 64 px/pt; nunca menos que el tope de antes: `minimo`). **Fuentes Type3** (mapas SIG
+    de Phoenix): MuPDF rasteriza cada letra en su caja DECLARADA (FontBBox ~20× la letra) aunque caiga
+    fuera del recorte —a 24 px/pt 6 s, a 60 px/pt 1 min—; si la hoja usa Type3 (`usa_type3`), el recorte
+    pasa por `fz_new_culling_device_with_rects2` (descarta una letra si >50 % de su caja cae en los
+    rectángulos) con rectángulos fuera de la zona que contiene TODA caja de letra que toca el recorte (cajas
+    medidas igual que MuPDF con un `FzDevice2` Python, `Medidor`): mismos píxeles byte a byte (verificado en
+    recortes al azar, también hoja girada). Si las letras a dibujar pasan de `TOPE_LETRAS_MPX` (≈0.3 s) la
+    escala baja y, con la vista quieta `REFINO_MS`, se repite con `TOPE_REFINO_MPX` (≈0.9 s): Phoenix vista
+    a 16 px/pt → 9.3 y luego 16 px/pt (antes 4). Sin Type3 (DU06/DU08/LABOE, Type0) el camino de siempre
+    (`dl.get_pixmap`), a la resolución de la pantalla en 6–35 ms. El imán, las coordenadas y la imagen base
+    no cambian. Tests: `tests/test_nitidez_zoom.py`. Pendiente: con 18 hojas, armar tarda ~28 s (`compute_bridges` relee los vectores de cada hoja)
     y «Capas de la hoja» ~49 s (`page_layers`, letras, `trazos_visibles` sobre toda la hoja compuesta).
   - `widgets.py` — widgets reutilizables (`InlineEdit`, `_SegInvSpinBox`, `_NoWheelFilter`,
     `ZoomPanView`, `MiniMap`: minimapa con recuadro de lo visible sobre una ZoomPanView;
@@ -940,7 +957,8 @@ alcantarillado, drenaje, gas, eléctrico, telecom). Todo en **unidades imperiale
     solape; gana la de más cobertura); `_CropView` (sheet_crop_dialog) las usa al
     arrastrar y las resalta. Nitidez: `pdf_view_quality.ViewportSharpener` (panel 2)
     y `PieceItem.update_sharp` (todas las piezas a la vista, presupuesto de píxeles
-    repartido) re-renderizan solo la región visible como overlay. **Colocación EXACTA** (reporte
+    repartido) re-renderizan solo la región visible como overlay, a la resolución de la
+    pantalla (`recorte_nitido`, ver `fondo_pdf`). **Colocación EXACTA** (reporte
     2026-10-09, escaneos: «al hacer zoom como que se mueve»): MuPDF redondea el recorte hacia afuera
     (el pixmap empieza en `floor(x0·escala)` = `pix.x`), así que la imagen base NO se estira a la caja: va
     sin girar y `PieceItem._raw_transform` (≡ `piece_map`, con el origen `pix.x/pix.y`) pone giro, escala y

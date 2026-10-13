@@ -197,13 +197,22 @@ def test_hoja_normal_sin_cambios(win, tmp_path):
     """Sin bajar el límite: la hoja compuesta de dos hojas se ve como siempre."""
     _compuesta(win, tmp_path)
     cv = win.canvas
-    assert cv.fondo_escala == 1.0 and type(cv.pixmap_item) is QtWidgets.QGraphicsPixmapItem
-    pm = cv.pixmap_item.pixmap()
+    it = cv.pixmap_item
+    # el mismo item de siempre (con escala 1 `FondoItem` no cambia nada de un pixmap)
+    assert cv.fondo_escala == 1.0 and isinstance(it, fondo_pdf.FondoItem) and it.escala == 1.0
+    assert it.scale() == 1.0 and it.transformationMode() == QtCore.Qt.FastTransformation
+    assert it.pos() == QtCore.QPointF(0, 0) and it.offset() == QtCore.QPointF(0, 0)
+    pm = it.pixmap()
     ref = win.doc[0].get_pixmap(matrix=fitz.Matrix(win.zoom, win.zoom), alpha=False)
     assert (pm.width(), pm.height()) == (ref.width, ref.height) == cv.tam_hoja()
     assert cv.sceneRect() == QtCore.QRectF(0, 0, ref.width, ref.height)
+    img = pm.toImage().convertToFormat(QtGui.QImage.Format_RGB888)
+    fila = img.bytesPerLine()
+    datos = bytes(img.constBits())
+    assert all(datos[y * fila:y * fila + ref.width * 3] == ref.samples[y * ref.stride:y * ref.stride + ref.width * 3]
+               for y in range(0, ref.height, 37))     # misma imagen, byte a byte
     cv.resetTransform(); cv.nitidez.actualizar()
-    assert cv.nitidez.item is None                     # inactiva
+    assert it.nitido is None                           # a 1:1 no hay recorte: se ve como siempre
 
 
 def test_guardar_y_reabrir_hoja_enorme(win, chica, tmp_path):

@@ -1,6 +1,12 @@
-"""Direct utility/role assignment in the sheet layer step."""
+"""Direct utility/role assignment in the sheet layer step.
+
+Hoja SIN capas con su leyenda legible (mapas SIG de Phoenix, 2026-10-13: `leyenda_mapa`):
+al abrir, cada estilo / símbolo que la leyenda describe como línea o estructura de una
+utilidad queda ya asignado (el usuario lo revisa y cambia como cualquier asignación) y
+cada capa virtual muestra lo que la leyenda dice de ella («Standard Main, Fire Main…»).
+"""
 from PySide6 import QtWidgets
-from hoja import pdf_layers
+from hoja import leyenda_mapa, pdf_layers
 from reconocimiento import recognition as rec
 from traduccion.i18n import t as _tr
 
@@ -17,15 +23,70 @@ class LayerAssignmentsMixin:
             for role in (rec.ROLE_LINEAS, rec.ROLE_BUZONES):
                 for name in roles.get(role, ()):
                     self._assignments[name] = (utility, role)
+        self._map_legend = None            # (leyenda, asignadas, ambiguas) de un mapa sin capas
+        self._legend_desc = {}             # capa virtual → descripciones de la leyenda
+        self._apply_map_legend()
+
+    def _apply_map_legend(self):
+        """Mapa sin capas con leyenda legible: lo que ella dice, asignado (si el usuario aún
+        no eligió roles: con roles previos, mandan los suyos)."""
+        if not any(L.get("source") == "style" for L in self._layers_raw):
+            return
+        page = self._doc[self._page_index]
+        if not leyenda_mapa.aplica(page):
+            return
+        ley = leyenda_mapa.leer(self._doc, page)
+        if not ley.filas:
+            return
+        self._legend_desc = leyenda_mapa.descripciones(ley)
+        if self._base_roles:
+            return
+        en_mapa = {L['name']: int(L.get('path_count') or 0) for L in self._layers_raw}
+        asig, amb = leyenda_mapa.asignaciones(ley, en_mapa)
+        self._map_legend = (ley, asig, amb)
+        for name, (utility, role) in asig.items():
+            self._assignments[name] = (utility, role)
+            self._touched_utilities.add(utility)
+        if asig:
+            self._assignments_changed = True
+
+    def _map_legend_summary(self):
+        """(texto corto, detalle para el tooltip) de lo que asignó la leyenda; ("", "") sin ella."""
+        if not self._map_legend:
+            return "", ""
+        ley, asig, amb = self._map_legend
+        if not asig:
+            return (_tr("Leyenda del plano leída, pero ningún estilo es solo de una red: asígnalos abajo."), "")
+        utils = sorted({u for u, _r in asig.values()})
+        n_lin = sum(1 for _u, r in asig.values() if r == rec.ROLE_LINEAS)
+        n_est = len(asig) - n_lin
+        texto = _tr("Leyenda del plano: {u} — {l} estilo(s) de líneas y {e} de estructuras ya asignados. "
+                    "Revísalos y cambia lo que haga falta.").format(
+            u=", ".join(_tr(rec.utility_label(u)) for u in utils), l=n_lin, e=n_est)
+        rol = {rec.ROLE_LINEAS: _tr("Líneas"), rec.ROLE_BUZONES: _tr("Estructuras")}
+        det = [f"{pdf_layers.short_name(n)} → {_tr(rec.utility_label(u))} · {rol[r]}: "
+               + ", ".join(self._legend_desc.get(n, ())[:4]) for n, (u, r) in asig.items()]
+        if amb:
+            det.append(_tr("Sin asignar (la leyenda también los usa para lotes, anotaciones u otra red):"))
+            det += [f"  {pdf_layers.short_name(n)}: " + ", ".join(ts[:4]) for n, ts in amb.items()]
+        return texto, "\n".join(det)
 
     def _effective_layers(self):
         out = pdf_layers.without_letters(self._layers_raw, self._letters_off)
+        out = [dict(L, legend=self._legend_desc.get(L['name'], ())) if L['name'] in self._legend_desc else L
+               for L in out]
         return [dict(L, utility=self._assignments[L['name']][0],
                      assigned_role=self._assignments[L['name']][1],
                      letter_utilities=[], letter_codes={}, letter_paths={}, letters="")
                 if L['name'] in self._assignments else L for L in out]
 
     def _build_assignment_controls(self, layout):
+        texto, detalle = self._map_legend_summary()
+        self.lbl_map_legend = QtWidgets.QLabel(texto)
+        self.lbl_map_legend.setWordWrap(True)
+        self.lbl_map_legend.setToolTip(detalle)
+        self.lbl_map_legend.setVisible(bool(texto))
+        layout.addWidget(self.lbl_map_legend)
         self.assignment_label = QtWidgets.QLabel(_tr("Selecciona una capa para asignar su utilidad."))
         self.assignment_label.setWordWrap(True)
         layout.addWidget(self.assignment_label)
@@ -57,7 +118,10 @@ class LayerAssignmentsMixin:
         self.assignment_role.setCurrentIndex(max(0, self.assignment_role.findData(role)))
         self.assignment_utility.setEnabled(bool(name))
         self.assignment_role.setEnabled(bool(name) and utility not in ("", pdf_layers.UTILITY_OTHER))
-        label = next((L['short'] for L in self._layers if L['name'] == name), "")
+        L = next((L for L in self._layers if L['name'] == name), None)
+        label = L['short'] if L else ""
+        if L and L.get("legend"):
+            label += " — " + ", ".join(L["legend"])
         self.assignment_label.setText(label or _tr("Selecciona una capa para asignar su utilidad."))
         for combo in (self.assignment_utility, self.assignment_role):
             combo.blockSignals(False)

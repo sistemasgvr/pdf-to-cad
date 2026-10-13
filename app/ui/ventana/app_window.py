@@ -986,10 +986,10 @@ class Main(MenuMixin, PanelIzquierdoMixin, PanelDerechoMixin, ModosMixin, ClicsM
                 _tr("Reconocimiento listo, pero no hay imagen de la hoja para la vista previa."))
             self._cancelar_asistente(cancelled)
             return
-        extra = {}
-        if self.canvas.fondo_escala < 1.0:       # hoja enorme a menos resolución (fondo_pdf)
-            extra["fondo"] = {"escala": self.canvas.fondo_escala, "tam": self.canvas.tam_hoja(),
-                              "zoom": self.zoom, "pagina": self._pagina_fondo}
+        # la hoja del editor (a menos resolución si es enorme, fondo_pdf) y su página, para
+        # que la vista previa la re-dibuje nítida al acercarse
+        extra = {"fondo": {"escala": self.canvas.fondo_escala, "tam": self.canvas.tam_hoja(),
+                           "zoom": self.zoom, "pagina": self._pagina_fondo}}
         action = recognition_dialog.show_recognition_preview(
             self, qimg, results,
             page_count=self.doc.page_count if self.doc else None, **extra)
@@ -1161,8 +1161,8 @@ class Main(MenuMixin, PanelIzquierdoMixin, PanelDerechoMixin, ModosMixin, ClicsM
         return True
 
     def _pagina_fondo(self):
-        """La hoja del PDF que muestra el lienzo, para el recorte nítido de una hoja
-        enorme (fondo_pdf), o None si el fondo no es esa hoja (proyecto sin el PDF)."""
+        """La hoja del PDF que muestra el lienzo, para el recorte nítido al acercarse
+        (fondo_pdf), o None si el fondo no es esa hoja (proyecto sin el PDF)."""
         tam = self.canvas.tam_hoja()
         if not self.doc or tam is None or not 0 <= self.page_idx < self.doc.page_count:
             return None

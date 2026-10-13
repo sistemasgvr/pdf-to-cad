@@ -15,7 +15,7 @@ from __future__ import annotations
 import math
 import re
 import sys
-from collections import defaultdict
+from collections import Counter, defaultdict
 from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Dict, List, Optional, Sequence, Tuple
@@ -46,6 +46,7 @@ from reconocimiento import recognition_letters as letters_mod
 from reconocimiento import routes as routes_mod
 from hoja.sheet_crops import page_rect as crop_page_rect, drawing_polygon
 from hoja import pdf_styles
+from hoja import leyenda_mapa as leyenda_mod
 from traduccion.i18n_core import t as _tr, N_   # avisos de QA en el idioma activo
 
 # Tokens locales — NO modificar config.LAYER_TOKENS del export.
@@ -944,7 +945,7 @@ def _region_hit(bb, regions) -> bool:
 
 
 def gather_paths(page, kind_for, hidden=(), crop_polygon=None, stats: Optional[dict] = None,
-                 keep=None):
+                 keep=None, legend_regions=()):
     """Paths de la hoja por rol, ya RECORTADOS por los clips del PDF.
 
     extended=True trae también los CLIPS (marco de la vista de planta, XCLIP de
@@ -955,7 +956,9 @@ def gather_paths(page, kind_for, hidden=(), crop_polygon=None, stats: Optional[d
     vault_paths, path_counts, kind_by_ocg); si se pasa `stats` (dict), se le
     añade `profile_excluded` con cuántos trazos se excluyeron por eso.
     `keep(ocg, path)`: filtro por TRAZO (antes de recortarlo) — capa que mezcla
-    utilidades, cada línea por sus letras (`letter_uses`)."""
+    utilidades, cada línea por sus letras (`letter_uses`). `legend_regions`: cajas de la
+    LEYENDA de un mapa sin capas (`leyenda_mapa`): los trazos de capas por estilo que caen
+    ahí son muestras, no tuberías (`stats["legend_excluded"]`)."""
     hidden = set(hidden or ())
     path_counts: dict = defaultdict(int)
     kind_by_ocg: dict = {}
@@ -965,6 +968,7 @@ def gather_paths(page, kind_for, hidden=(), crop_polygon=None, stats: Optional[d
     clip_stack: dict = {}
     regions = profile_view_regions(page, crop_polygon)
     n_profile_excluded = 0
+    n_legend_excluded = 0
     for path in pdf_styles.drawings(page, extended=True):
         lvl = int(path.get("level", 0) or 0)
         if path.get("type") == "clip":
@@ -979,6 +983,9 @@ def gather_paths(page, kind_for, hidden=(), crop_polygon=None, stats: Optional[d
             continue
         if keep is not None and not keep(ocg, path):
             continue
+        if legend_regions and ocg.startswith(pdf_styles.PREFIX) and _region_hit(geom._path_bbox(path), legend_regions):
+            n_legend_excluded += 1
+            continue        # muestra de la leyenda del mapa, no una tubería
         polys = [pg for l, pg in clip_stack.items() if l < lvl and pg]
         if polys:
             path = geom.clip_path(path, polys)
@@ -1005,6 +1012,7 @@ def gather_paths(page, kind_for, hidden=(), crop_polygon=None, stats: Optional[d
             line_paths.append(path)
     if stats is not None:
         stats["profile_excluded"] = n_profile_excluded
+        stats["legend_excluded"] = n_legend_excluded
     return line_paths, vault_paths, path_counts, kind_by_ocg
 
 
@@ -1142,6 +1150,18 @@ def recognize_page(
         scale = float(scale_ft_per_pt) if scale_ft_per_pt else VP.detect_scale(page)
         visual_crop = crop_page_rect(page, crop)
         crop_polygon = drawing_polygon(page, visual_crop) if crop else None
+        # Mapa SIN capas con su texto en Type3 (mapas SIG de Phoenix): su LEYENDA dice qué
+        # estilo es qué (`leyenda_mapa`). Sin roles elegidos, los de la leyenda; y sus
+        # muestras (dentro del cuadro de la leyenda) nunca son tuberías del mapa.
+        ley_mapa = leyenda_mod.leer(doc, page) if leyenda_mod.aplica(page) else None
+        roles_leyenda = False
+        if roles is None and ley_mapa is not None and ley_mapa.filas:
+            en_mapa = Counter(d.get("layer") or "" for d in pdf_styles.drawings(page))
+            asig, _amb = leyenda_mod.asignaciones(ley_mapa, en_mapa)
+            roles = {ROLE_LINEAS: [n for n, (u, r) in asig.items() if u == utility and r == ROLE_LINEAS],
+                     ROLE_BUZONES: [n for n, (u, r) in asig.items() if u == utility and r == ROLE_BUZONES]}
+            lineas_set, buzones_set, use_roles = set(roles[ROLE_LINEAS]), set(roles[ROLE_BUZONES]), True
+            roles_leyenda = bool(lineas_set or buzones_set)
 
         # Capas que se reconocen por las LETRAS de sus líneas (el nombre no lo dice o
         # las letras lo contradicen): ver `letter_uses`. Los roles manuales mandan.
@@ -1162,7 +1182,8 @@ def recognize_page(
         gather_stats: dict = {}
         line_paths, vault_paths, path_counts, kind_by_ocg = gather_paths(
             page, _kind_for, hidden, crop_polygon, stats=gather_stats,
-            keep=_keep if letter_use else None)
+            keep=_keep if letter_use else None,
+            legend_regions=ley_mapa.zonas if ley_mapa is not None else ())
         letter_layers = {ocg: use for ocg, use in letter_use.items() if kind_by_ocg.get(ocg) == line_kind}
 
         ocg_summary = [{
@@ -1255,6 +1276,7 @@ def recognize_page(
                 by_ocg[ocg][0] = dict(by_ocg[ocg][0], contact_pts=[q for q, _u in points])
         results: List[Tuple[bool, str, object]] = []
         n_ink_layers = 0
+        ink_ocgs: set = set()
         for ocg, paths in sorted(by_ocg.items()):
             # una capa reconocida por sus letras no tiene perfil probado: sus letras son
             # trazos sueltos («TE» = asta + travesaño + «E» de tres trazos), como las de
@@ -1264,6 +1286,7 @@ def recognize_page(
             # el núcleo es para tipos de línea a guiones (`recognition_ink_lines`)
             if style_nodes_mod.is_style_layer(ocg) and ink_lines_mod.continuous_layer(paths):
                 n_ink_layers += 1
+                ink_ocgs.add(ocg)
                 results.append((False, ocg, ink_lines_mod.ink_reconstruct(paths, vault_paths, opts)))
                 continue
             results.append((is_abandoned_ocg(ocg), ocg, geom.reconstruct(paths, vault_paths, opts)))
@@ -1390,9 +1413,16 @@ def recognize_page(
                     clean.append(p); kinds.append(k)
             if len(clean) < 2:
                 return None
-            clean, kinds, fillets = fit_fillets(clean, kinds, tol_px=FILLET_FIT_TOL_PT * zoom,
-                                                through_dirs=through, ink=ink, strokes=strokes,
-                                                arcs=arcs, ink_lines=ink_lines, through_ink=through_ink)
+            if ocg in ink_ocgs and _NET_KIND.get(utility) == "pressure":
+                # mapa sin capas, red a PRESIÓN (agua, gas): en Civil 3D no hay tubos curvos
+                # (cada quiebre es un codo), así que la curva queda como la dibuja la tinta
+                # —vértices SOBRE ella—; un codo «esquina + radio» dejaba la tubería en la
+                # esquina, hasta 10 pt fuera de la curva (reporte 2026-10-13, Phoenix agua)
+                fillets = {}
+            else:
+                clean, kinds, fillets = fit_fillets(clean, kinds, tol_px=FILLET_FIT_TOL_PT * zoom,
+                                                    through_dirs=through, ink=ink, strokes=strokes,
+                                                    arcs=arcs, ink_lines=ink_lines, through_ink=through_ink)
             if cut_ctx is not None:
                 # extremo que muere en una letra/hueco del linetype justo antes del borde
                 # de la vista: la línea termina en el CORTE (por la recta del codo)
@@ -1634,11 +1664,20 @@ def recognize_page(
             else:
                 warnings.append(_tr("Ninguna capa OCG coincidió con los roles / tokens de reconocimiento."))
         if any(name.startswith(pdf_styles.PREFIX) for name in path_counts):
-            warnings.append(_tr("Capas por estilo asignadas manualmente: revisa líneas y símbolos antes "
-                                "de importar. El estilo no determina si una red está abandonada."))
-            if scale_ft_per_pt is None:
+            if roles_leyenda:
+                warnings.append(_tr("Capas por estilo asignadas por la leyenda del plano: revisa líneas y "
+                                    "símbolos antes de importar."))
+            else:
+                warnings.append(_tr("Capas por estilo asignadas manualmente: revisa líneas y símbolos antes "
+                                    "de importar. El estilo no determina si una red está abandonada."))
+            escala_leida = ley_mapa is not None and ley_mapa.escala_ft_pt is not None
+            if scale_ft_per_pt is None and not escala_leida:
                 warnings.append(_tr("Calibra la escala con una distancia conocida: un PDF reducido "
                                     "puede no coincidir con la escala del rótulo."))
+        n_legend = gather_stats.get("legend_excluded", 0)
+        if n_legend:
+            warnings.append(_tr("Leyenda del plano: {n} trazo(s) de sus muestras no se reconocen como "
+                                "tuberías.").format(n=n_legend))
         n_profile = gather_stats.get("profile_excluded", 0)
         if n_profile:
             warnings.append(_tr("Se excluyeron {n} trazo(s) dentro de una vista de PERFIL (grilla "

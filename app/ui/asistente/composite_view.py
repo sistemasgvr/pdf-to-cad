@@ -27,6 +27,7 @@ from ui.asistente.alignment_tools import AlignmentRuler, PieceProtractor
 from ui.asistente.composite_measure import MeasureTool
 from hoja import composite_seam as S
 from ui.asistente.pdf_view_quality import MAX_RENDER_PIXELS, MAX_RENDER_SCALE
+from ui.comun.recorte_nitido import REFINO_MS, TOPE_LETRAS_MPX, TOPE_REFINO_MPX, Hojas, escala_para
 from ui.comun.widgets import ZoomPanView, MiniMap
 from traduccion.i18n import t as _tr
 
@@ -56,16 +57,16 @@ def _qpixmap(pix: fitz.Pixmap) -> QtGui.QPixmap:
     return QtGui.QPixmap.fromImage(img)
 
 
-def _render_clip(page: fitz.Page, rect_pt, scale: float):
+def _render_clip(hojas: Hojas, page: fitz.Page, rect_pt, scale: float):
     """Pixmap del rectángulo `rect_pt` (x0, y0, x1, y1 en pt de la hoja VISIBLE)
     a `scale` px/pt y su origen (ox, oy) en píxeles del dispositivo: MuPDF
     redondea el recorte hacia afuera, así que el píxel (u, v) del pixmap es el
-    punto ((ox + u)/scale, (oy + v)/scale) de la hoja, no el de `rect_pt`."""
-    x0, y0, x1, y1 = rect_pt
-    clip = fitz.Rect(page.rect.x0 + x0, page.rect.y0 + y0, page.rect.x0 + x1, page.rect.y0 + y1)
-    if clip.is_empty or clip.width < 1e-3 or clip.height < 1e-3:
+    punto ((ox + u)/scale, (oy + v)/scale) de la hoja, no el de `rect_pt`.
+    Mismos píxeles que `page.get_pixmap` (`recorte_nitido`: lista de dibujo en
+    caché y, con fuentes Type3, sin las letras de fuera)."""
+    pix = hojas.render(page, rect_pt, scale)
+    if pix is None:
         return None
-    pix = page.get_pixmap(matrix=fitz.Matrix(scale, scale), alpha=False, clip=clip)
     return _qpixmap(pix), (pix.x, pix.y)
 
 
@@ -259,15 +260,18 @@ class PieceItem(QtWidgets.QGraphicsPixmapItem):
             self._sharp = None
             self._sharp_key = None
 
-    def update_sharp(self, visible_scene: QtCore.QRectF, wanted: float, pixel_budget: float):
+    def update_sharp(self, visible_scene: QtCore.QRectF, wanted: float, pixel_budget: float,
+                     tope_mpx: float = TOPE_LETRAS_MPX) -> bool:
         """Pone (o actualiza) el recorte nítido de la parte de la pieza que se ve.
         `wanted`: px de pantalla por pt de la hoja compuesta; `pixel_budget`: px
-        máximos para esta pieza."""
+        máximos para esta pieza; `tope_mpx`: tope de letras Type3 (`recorte_nitido`).
+        Devuelve True si el recorte quedó por debajo de la pantalla por las letras
+        (la vista lo refina con la vista quieta)."""
         p = self.piece
         box = self.scene_box()
         region = visible_scene.intersected(box)
         if region.isEmpty():
-            self.clear_sharp(); return
+            self.clear_sharp(); return False
         pad = 0.2 * max(region.width(), region.height())
         region = region.adjusted(-pad, -pad, pad, pad).intersected(box)
         target = self.view.comp.target_scale()
@@ -280,16 +284,21 @@ class PieceItem(QtWidgets.QGraphicsPixmapItem):
         sx0 = max(cx0, min(q[0] for q in pts)); sx1 = min(cx1, max(q[0] for q in pts))
         sy0 = max(cy0, min(q[1] for q in pts)); sy1 = min(cy1, max(q[1] for q in pts))
         if sx1 - sx0 < 1e-3 or sy1 - sy0 < 1e-3:
-            self.clear_sharp(); return
-        scale = min(MAX_RENDER_SCALE, wanted * f, (pixel_budget / max(1.0, (sx1 - sx0) * (sy1 - sy0))) ** 0.5)
+            self.clear_sharp(); return False
+        # la escala de la pantalla (antes con tope de 4 px/pt: borroso al acercarse)
+        rect = (sx0, sy0, sx1, sy1)
+        quiero = min(wanted * f, (pixel_budget / max(1.0, (sx1 - sx0) * (sy1 - sy0))) ** 0.5)
+        page = self.view.page(p)
+        scale = self.view.hojas.escala(page, rect, quiero, minimo=MAX_RENDER_SCALE, tope_mpx=tope_mpx)
         if scale < self.ov * 1.4:
-            self.clear_sharp(); return
-        key = (round(sx0, 1), round(sy0, 1), round(sx1, 1), round(sy1, 1), round(scale, 2))
-        if self._sharp is not None and key == self._sharp_key:
-            return
-        got = _render_clip(self.view.page(p), (sx0, sy0, sx1, sy1), scale)
+            self.clear_sharp(); return False
+        zona = tuple(round(v, 1) for v in rect)
+        if self._sharp is not None and self._sharp_key is not None and self._sharp_key[0] == zona \
+                and self._sharp_key[1] >= round(scale, 2):
+            return False                              # el recorte que hay ya basta
+        got = _render_clip(self.view.hojas, page, rect, scale)
         if got is None or got[0].isNull():
-            return
+            return False
         pm, (ox, oy) = got
         pm = self.view.mask_polygon(pm, p, sx0, sy0, scale, origin=(ox, oy))
         # Mismo espacio que el pixmap base (hoja origen SIN girar): solo cambia la
@@ -303,7 +312,8 @@ class PieceItem(QtWidgets.QGraphicsPixmapItem):
         it.setPos(ox * k - self._origin[0], oy * k - self._origin[1])
         it.setTransform(QtGui.QTransform().scale(k, k))
         self._sharp = it
-        self._sharp_key = key
+        self._sharp_key = (zona, round(scale, 2))
+        return scale < 0.98 * escala_para(quiero, rect)
 
     def itemChange(self, change, value):
         if change == QtWidgets.QGraphicsItem.ItemPositionChange and not getattr(self, "_syncing", False):
@@ -359,6 +369,8 @@ class CompositeView(ZoomPanView):
         super().__init__()
         self.comp = comp
         self.docs = docs
+        # listas de dibujo para el recorte nítido (el compositor no cambia las capas)
+        self.hojas = Hojas(max_hojas=6)
         self.magnet_enabled = not comp.manual
         self.show_anchors = not comp.manual
         self.items: List[PieceItem] = []
@@ -378,6 +390,13 @@ class CompositeView(ZoomPanView):
         self._timer.timeout.connect(self._update_quality)
         self.viewChanged.connect(self._timer.start)
         self.pieceMoved.connect(lambda _i: self._timer.start())
+        # hoja con letras Type3 caras: con la vista quieta, otra vez con más resolución
+        self._refine = QtCore.QTimer(self)
+        self._refine.setSingleShot(True)
+        self._refine.setInterval(REFINO_MS)
+        self._refine.timeout.connect(lambda: self._update_quality(refine=True))
+        self.viewChanged.connect(self._refine.stop)
+        self.pieceMoved.connect(lambda _i: self._refine.stop())
         self.setBackgroundBrush(QtGui.QColor("#d8dbe0"))
         self.setDragMode(QtWidgets.QGraphicsView.NoDrag)
         # Zoom is anchored explicitly; Qt's implicit mouse anchor can jump when
@@ -987,7 +1006,8 @@ class CompositeView(ZoomPanView):
         self.bridgesChanged.emit(len(self._bridges))
 
     # ── nitidez al hacer zoom (todas las piezas a la vista) ─────────────
-    def _update_quality(self):
+    def _update_quality(self, refine: bool = False):
+        self._refine.stop()                           # se decide otra vez abajo
         if not self.docs or any(getattr(d, "is_closed", False) for d in self.docs):
             return                                    # el diálogo ya cerró sus PDFs (temporizador pendiente)
         if not self.pieces_ready():
@@ -1002,8 +1022,10 @@ class CompositeView(ZoomPanView):
         if not shown:
             return
         budget = MAX_RENDER_PIXELS / len(shown)
-        for it in shown:
-            it.update_sharp(visible, wanted, budget)
+        tope = TOPE_REFINO_MPX if refine else TOPE_LETRAS_MPX
+        corto = [it.update_sharp(visible, wanted, budget, tope) for it in shown]
+        if any(corto) and not refine:
+            self._refine.start()
 
     # ── ratón y teclado ─────────────────────────────────────────────────
     def _guide_hit(self, pos) -> bool:
