@@ -54,7 +54,8 @@ class Canvas(QtWidgets.QGraphicsView):
         self.pdf_bg_item = None
         self.pdf_bg_color = QtGui.QColor(255, 255, 255)
         # Hoja enorme (fondo_pdf): la imagen va a `fondo_escala` px por px de la
-        # escena y `nitidez` (la pone Main) re-dibuja nítida la parte visible.
+        # escena. `nitidez` (la pone Main) re-dibuja nítida la parte visible al
+        # acercarse, en toda hoja (normal o enorme).
         self.fondo_escala = 1.0
         self._tam_hoja = None
         self.nitidez = None
@@ -82,11 +83,9 @@ class Canvas(QtWidgets.QGraphicsView):
             rect, QtGui.QPen(QtCore.Qt.NoPen),
             QtGui.QBrush(self.pdf_bg_color))
         self.pdf_bg_item.setZValue(Z_PDF - 1)
-        if self.fondo_escala < 1.0:
-            self.pixmap_item = fondo_pdf.nuevo_item(pm, self.fondo_escala)
-            self.scene().addItem(self.pixmap_item)
-        else:
-            self.pixmap_item = self.scene().addPixmap(pm)
+        # con escala 1 se pinta igual que `addPixmap`; admite el recorte nítido al acercarse
+        self.pixmap_item = fondo_pdf.nuevo_item(pm, self.fondo_escala)
+        self.scene().addItem(self.pixmap_item)
         self.pixmap_item.setZValue(Z_PDF)
         self.pixmap_item.setOpacity(self.pdf_opacity)
         self.setSceneRect(self.pixmap_item.boundingRect() if self.fondo_escala >= 1.0 else rect)
@@ -114,8 +113,7 @@ class Canvas(QtWidgets.QGraphicsView):
         self.scene().removeItem(self.pixmap_item)
         self.fondo_escala = escala
         self._tam_hoja = tuple(tam) if escala < 1.0 else None
-        self.pixmap_item = (fondo_pdf.nuevo_item(pm, escala) if escala < 1.0
-                            else QtWidgets.QGraphicsPixmapItem(pm))
+        self.pixmap_item = fondo_pdf.nuevo_item(pm, escala)
         self.scene().addItem(self.pixmap_item)
         self.pixmap_item.setZValue(Z_PDF)
         self.pixmap_item.setOpacity(self.pdf_opacity)

@@ -498,12 +498,13 @@ class RecognitionPreviewDialog(NoEscapeClose, QtWidgets.QDialog):
         sc = self.view.scene()
         pm = QtGui.QPixmap.fromImage(qimg)
         # Hoja enorme (fondo_pdf): `qimg` es la imagen reducida del editor; se agranda
-        # a su tamaño (`fondo["tam"]`) y se re-dibuja nítida la parte visible.
+        # a su tamaño (`fondo["tam"]`). Con `fondo` (la página del editor), al acercarse
+        # se re-dibuja nítida la parte visible.
         escala = float(fondo["escala"]) if fondo else 1.0
         self._pixmap_item = fondo_pdf.nuevo_item(pm, escala)
         sc.addItem(self._pixmap_item)
         self._nitidez = None
-        if escala < 1.0:
+        if fondo:
             zoom = float(fondo["zoom"])
             self._nitidez = fondo_pdf.Nitidez(self.view, lambda: zoom, fondo["pagina"])
             self._nitidez.fijar(self._pixmap_item)
