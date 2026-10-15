@@ -147,6 +147,47 @@ class ZoomPanView(QtWidgets.QGraphicsView):
         super().mouseReleaseEvent(e)
 
 
+def etiquetas_cortas(labels):
+    """Etiquetas de hojas para el minimapa, cortas y distintas: «QS Water_Indian School_North.pdf
+    · 4 · 17-10» → «17-10» (el código de la hoja si lo hay), «a.pdf · Hoja 3» → «Hoja 3» o, con
+    varios PDF, la PALABRA de su nombre que los distingue («North 3»)."""
+    import os
+    import re
+    partes = [[q.strip() for q in str(l).split(" · ") if q.strip()] for l in labels]
+    pdfs = sorted({q for ps in partes for q in ps if q.lower().endswith(".pdf")})
+    tag = {}
+    if len(pdfs) > 1:
+        palabras = [re.split(r"[\s_\-.]+", os.path.splitext(n)[0]) for n in pdfs]
+        pre = 0
+        while all(len(w) > pre for w in palabras) and len({w[pre] for w in palabras}) == 1:
+            pre += 1
+        suf = 0
+        while all(len(w) > pre + suf for w in palabras) and len({w[-1 - suf] for w in palabras}) == 1:
+            suf += 1
+        for n, w in zip(pdfs, palabras):
+            core = " ".join(w[pre:len(w) - suf]) or os.path.splitext(n)[0]
+            tag[n] = core[:14]
+    out = []
+    for ps in partes:
+        resto = [q for q in ps if q not in pdfs]
+        codigo = next((q for q in reversed(resto) if re.search(r"[A-Za-z0-9]-\d|^[A-Z]{1,4}-?\d", q)
+                       and not q.lower().startswith("hoja")), None)
+        if codigo:
+            out.append(codigo)
+            continue
+        hoja = next((q for q in resto if q.lower().startswith("hoja")),
+                    next((q for q in reversed(resto) if q.isdigit()), resto[-1] if resto else ""))
+        num = re.sub(r"(?i)^hoja\s*", "", hoja)
+        pdf = next((q for q in ps if q in tag), None)
+        if pdf:
+            out.append(f"{tag[pdf]} {num}")
+        elif len(resto) > 1 and resto[0].isdigit() and resto[0] != hoja:
+            out.append(f"{resto[0]}·{num}")          # «1 · Hoja 3» (PDF 1, hoja 3) sin nombres
+        else:
+            out.append(f"Hoja {num}" if num else hoja)
+    return out
+
+
 class MiniMap(QtWidgets.QWidget):
     """Minimapa en la esquina inferior izquierda de una `ZoomPanView`: miniatura
     de la hoja mostrada con un recuadro de lo que se ve en pantalla. Clic o
@@ -154,6 +195,10 @@ class MiniMap(QtWidgets.QWidget):
     lo alimenta (la miniatura se reescala sola); `viewChanged` lo redibuja."""
     MARGIN = 10
     MAX_W, MAX_H = 150, 110       # pequeño: en pantallas chicas no puede robar sitio a la vista
+    # esquema de hojas: crece con la vista (36 hojas en fila daban una tira de 150×18 px ilegible;
+    # pedido del usuario 2026-10-14) hasta esta parte del ancho / alto de la vista
+    LAYOUT_W_FRAC, LAYOUT_H_FRAC = 0.42, 0.32
+    LAYOUT_MAX_W, LAYOUT_MAX_H = 520, 300
 
     def __init__(self, view, sync_zoom=False):
         super().__init__(view.viewport())
@@ -186,18 +231,32 @@ class MiniMap(QtWidgets.QWidget):
         self._thumb = pixmap.scaled(w, h, QtCore.Qt.KeepAspectRatio, QtCore.Qt.SmoothTransformation)
         self._fit_and_show(self._thumb.width(), self._thumb.height())
 
-    def set_layout(self, items, scene_rect):
-        """Modo esquema: `items` = [(QRectF en escena, etiqueta), …] — cómo están
-        organizadas las hojas (posición relativa y número), sin el dibujo."""
+    def set_layout(self, items, scene_rect, sync_zoom=None):
+        """Modo esquema: `items` = [(QRectF en escena, etiqueta[, detalle]), …] — cómo están
+        organizadas las hojas (posición relativa y número), sin el dibujo. El detalle (o la
+        etiqueta) sale al pasar el ratón por la hoja. `sync_zoom=True`: el esquema se acerca
+        con la vista (en una tira de muchas hojas, así se lee la hoja a la vista)."""
         self._thumb = None
         self._src = None
-        self._layout = [(QtCore.QRectF(r), str(label)) for r, label in items]
+        if sync_zoom is not None:
+            self._sync_zoom = bool(sync_zoom)
+        self._layout = [(QtCore.QRectF(it[0]), str(it[1])) for it in items]
+        self._detalles = [str(it[2] if len(it) > 2 else it[1]) for it in items]
         self._set_extent(scene_rect)
         if not self._layout or self._scene_rect.isEmpty():
             self.hide(); return
-        scale = min(self.MAX_W / self._full_scene_rect.width(), self.MAX_H / self._full_scene_rect.height())
-        self._fit_and_show(max(1, int(self._full_scene_rect.width() * scale)),
-                           max(1, int(self._full_scene_rect.height() * scale)))
+        self._fit_layout()
+
+    def _layout_box(self):
+        vp = self.view.viewport()
+        return (max(self.MAX_W, min(self.LAYOUT_MAX_W, int(vp.width() * self.LAYOUT_W_FRAC))),
+                max(self.MAX_H, min(self.LAYOUT_MAX_H, int(vp.height() * self.LAYOUT_H_FRAC))))
+
+    def _fit_layout(self):
+        mw, mh = self._layout_box()
+        full = self._full_scene_rect
+        scale = min(mw / full.width(), mh / full.height())
+        self._fit_and_show(max(1, int(full.width() * scale)), max(1, int(full.height() * scale)))
 
     def _set_extent(self, scene_rect):
         self._full_scene_rect = QtCore.QRectF(scene_rect)
@@ -259,8 +318,13 @@ class MiniMap(QtWidgets.QWidget):
         self.update()
 
     def eventFilter(self, obj, event):
-        if obj is self.view.viewport() and event.type() == QtCore.QEvent.Resize:
-            self._place()
+        try:
+            if obj is self.view.viewport() and event.type() == QtCore.QEvent.Resize:
+                if self._layout and not self._full_scene_rect.isEmpty():
+                    self._fit_layout()            # el esquema sigue el tamaño de la vista
+                self._place()
+        except RuntimeError:                      # la vista ya se destruyó
+            return False
         return super().eventFilter(obj, event)
 
     def _place(self):
@@ -294,7 +358,9 @@ class MiniMap(QtWidgets.QWidget):
             return
         painter = QtGui.QPainter(self)
         painter.setRenderHint(QtGui.QPainter.Antialiasing)
-        painter.fillRect(self.rect(), QtGui.QColor(255, 255, 255, 235))
+        t = _theme.tokens()
+        fondo = QtGui.QColor(t.surface if self._layout else "#ffffff"); fondo.setAlpha(240)
+        painter.fillRect(self.rect(), fondo)
         if self._thumb is not None:
             full, area = self._full_scene_rect, self._scene_rect
             source = QtCore.QRectF((area.x()-full.x())/full.width()*self._src.width(),
@@ -302,16 +368,49 @@ class MiniMap(QtWidgets.QWidget):
                 area.width()/full.width()*self._src.width(), area.height()/full.height()*self._src.height())
             painter.drawPixmap(QtCore.QRectF(1, 1, self._map_w, self._map_h), self._src, source)
         else:
-            # esquema: una caja por hoja con su etiqueta, en su posición relativa
-            font = painter.font(); font.setPointSize(8); font.setBold(True); painter.setFont(font)
-            for r, label in self._layout:
+            # esquema: una caja por hoja con su etiqueta, en su posición relativa; la hoja en el
+            # centro de la vista, resaltada. La letra se achica hasta que la etiqueta CABE (antes
+            # se cortaba en el medio y no se leía); si ni así, va sin texto y sale al pasar el ratón
+            centro = self.view.mapToScene(self.view.viewport().rect().center())
+            actual = self._item_at_scene(centro)
+            painter.setClipRect(QtCore.QRectF(1, 1, self._map_w, self._map_h))
+            font = painter.font(); font.setBold(True)
+            area = QtCore.QRectF(1, 1, self._map_w, self._map_h)
+            cajas = []
+            for k, (r, label) in enumerate(self._layout):
                 box = QtCore.QRectF(self._scene_to_map(r.topLeft()), self._scene_to_map(r.bottomRight()))
-                painter.setBrush(QtGui.QColor(232, 240, 253))
-                painter.setPen(QtGui.QPen(QtGui.QColor("#5b7fb5"), 1))
+                if not box.intersects(area):
+                    continue
+                cajas.append((k, box, label))
+                es = k == actual
+                painter.setBrush(QtGui.QColor(t.soft_hover if es else t.soft))
+                painter.setPen(QtGui.QPen(QtGui.QColor(t.accent if es else t.border), 2 if es else 1))
                 painter.drawRect(box)
-                painter.setPen(QtGui.QColor("#1f3a68"))
-                text = painter.fontMetrics().elidedText(label, QtCore.Qt.ElideMiddle, int(max(10.0, box.width() - 4)))
-                painter.drawText(box, QtCore.Qt.AlignCenter | QtCore.Qt.TextDontClip, text)
+            # las etiquetas DESPUÉS de todas las cajas (las hojas de un mapa se solapan: la de
+            # al lado tapaba el número) y en la parte VISIBLE de la caja (acercado, su centro
+            # puede quedar fuera del minimapa); en el solape con la vecina, solo lo propio
+            for k, box, label in cajas:
+                vis = box.intersected(area)
+                for k2, box2, _l in cajas:
+                    if k2 != k and box2.intersects(vis):
+                        cut = box2.intersected(vis)
+                        if cut.width() >= vis.width() - 0.5 and cut.top() > vis.top():
+                            vis.setBottom(cut.top())
+                        elif cut.width() >= vis.width() - 0.5 and cut.bottom() < vis.bottom():
+                            vis.setTop(cut.bottom())
+                        elif cut.height() >= vis.height() - 0.5 and cut.left() > vis.left():
+                            vis.setRight(cut.left())
+                        elif cut.height() >= vis.height() - 0.5 and cut.right() < vis.right():
+                            vis.setLeft(cut.right())
+                for px in (12, 11, 10, 9, 8, 7, 6):
+                    font.setPixelSize(px)
+                    fm = QtGui.QFontMetrics(font)
+                    if fm.horizontalAdvance(label) <= vis.width() - 3 and fm.height() <= vis.height() - 1:
+                        painter.setFont(font)
+                        painter.setPen(QtGui.QColor(t.soft_text))
+                        painter.drawText(vis, QtCore.Qt.AlignCenter, label)
+                        break
+            painter.setClipping(False)
         painter.setPen(QtGui.QPen(QtGui.QColor(120, 120, 120), 1))
         painter.setBrush(QtCore.Qt.NoBrush)
         painter.drawRect(self.rect().adjusted(0, 0, -1, -1))
@@ -323,6 +422,27 @@ class MiniMap(QtWidgets.QWidget):
             painter.setPen(QtGui.QPen(QtGui.QColor("#2b6fd1"), 2))
             painter.drawRect(box)
         painter.end()
+
+    def _item_at_scene(self, p) -> int:
+        """Índice de la hoja del esquema que contiene el punto de la escena (-1: ninguna;
+        en el solape de dos, la de centro más cercano)."""
+        best, bd = -1, None
+        for k, (r, _l) in enumerate(self._layout or ()):
+            if r.contains(p):
+                d = (r.center().x() - p.x()) ** 2 + (r.center().y() - p.y()) ** 2
+                if bd is None or d < bd:
+                    best, bd = k, d
+        return best
+
+    def event(self, ev):
+        if ev.type() == QtCore.QEvent.ToolTip and self._layout:
+            k = self._item_at_scene(self._map_to_scene(QtCore.QPointF(ev.pos())))
+            if k >= 0:
+                QtWidgets.QToolTip.showText(ev.globalPos(), self._detalles[k], self)
+            else:
+                QtWidgets.QToolTip.hideText()
+            return True
+        return super().event(ev)
 
     # ── navegar ──
     def mousePressEvent(self, event):

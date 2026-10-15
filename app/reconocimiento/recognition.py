@@ -52,6 +52,7 @@ from hoja.sheet_crops import page_rect as crop_page_rect, drawing_polygon
 from hoja import pdf_styles
 from hoja import leyenda_mapa as leyenda_mod
 from hoja import acometidas_mapa
+from nucleo import avance as avance_mod
 from traduccion.i18n_core import t as _tr, N_   # avisos de QA en el idioma activo
 
 # Tokens locales — NO modificar config.LAYER_TOKENS del export.
@@ -1190,6 +1191,7 @@ def recognize_page(
             return _by_name_or_letters(ocg)
 
         gather_stats: dict = {}
+        avance_mod.avisar(_tr("Leyendo los trazos de las capas de {u}…").format(u=_tr(utility_label(utility))))
         line_paths, vault_paths, path_counts, kind_by_ocg = gather_paths(
             page, _kind_for, hidden, crop_polygon, stats=gather_stats,
             keep=_keep if letter_use else None,
@@ -1291,6 +1293,9 @@ def recognize_page(
         for k_capa, (ocg, paths) in enumerate(sorted(by_ocg.items())):
             if avance is not None:              # «capa k de n» (no cambia nada del resultado)
                 avance(k_capa, len(by_ocg))
+            avance_mod.avisar(_tr("Reconstruyendo las líneas de la capa {c}…").format(
+                c=pdf_styles.style_label(ocg) if style_nodes_mod.is_style_layer(ocg) else ocg.split("|")[-1]),
+                k_capa + 1, len(by_ocg))
             # una capa reconocida por sus letras no tiene perfil probado: sus letras son
             # trazos sueltos («TE» = asta + travesaño + «E» de tres trazos), como las de
             # Metro del perfil TELECOM (`stroke_letters`; DU08 h.26: cobertura 99.8 → 100 %)
@@ -1595,6 +1600,7 @@ def recognize_page(
                 if k == "vault" and not any(math.hypot(p[0] - q[0], p[1] - q[1]) < 0.5 for q in vault_pts):
                     vault_pts.append(p)
         orphans_px = [px(key) for key, n in vault_seen.items() if vault_orph.get(key, 0) == n]
+        avance_mod.avisar(_tr("Midiendo las bóvedas y buzones y uniendo sus líneas…"))
         vaults_geo = _vaults_geometry(results, px, scale, zoom, vault_orph, vault_seen, ab_by_layer)
         for vault in vaults_geo:
             vault["utility"] = utility

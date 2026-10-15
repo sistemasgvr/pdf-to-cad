@@ -40,6 +40,7 @@ Reglas (la de oro del núcleo: un extremo solo se desliza por SU recta):
 import math
 from typing import List, Optional, Sequence, Tuple
 
+from reconocimiento import recognition_indice as indice_mod
 Pt = Tuple[float, float]
 
 SNAP_STOP_PT = 3.0        # punta «stop»: hueco máximo hasta el contorno (pt)
@@ -154,6 +155,14 @@ def snap_ends_to_vaults(polylines: Sequence, vaults_geo: Sequence[dict], zoom: f
     if not bounds:
         return []
     lines = [pl for pl in polylines if len(getattr(pl, "pts_pdf", None) or ()) >= 2]
+    # cada punta mira solo las bóvedas cuya caja (± el imán) la alcanza (`recognition_indice`;
+    # en orden: mismo resultado)
+    def _caja(b):
+        kind, g = b
+        if kind == "circle":
+            return g[0] - g[2], g[1] - g[2], g[0] + g[2], g[1] + g[2]
+        return min(p[0] for p in g), min(p[1] for p in g), max(p[0] for p in g), max(p[1] for p in g)
+    i_cajas = indice_mod.IndiceCajas([_caja(b) for _vi, b in bounds], max(stop_pt, end_pt) * z + 1.0)
     # 1) destino de cada punta candidata, con las posiciones ORIGINALES
     cand = {}                                          # (li, end) → (p, t, vi)
     for li, pl in enumerate(lines):
@@ -165,14 +174,15 @@ def snap_ends_to_vaults(polylines: Sequence, vaults_geo: Sequence[dict], zoom: f
             if k not in SNAP_KINDS:
                 continue
             q = pts[end]
-            if any(contains(b, q) for _vi, b in bounds):
+            cerca = [bounds[i] for i in i_cajas.cerca(q)]
+            if any(contains(b, q) for _vi, b in cerca):
                 continue                               # ya dentro: unida
             u = end_direction(pts, end, DIR_MIN_PT * z, DIR_COLLINEAR_PT * z)
             if u is None:
                 continue
             lim = (stop_pt if k == "stop" else end_pt) * z
             best = None
-            for vi, b in bounds:
+            for vi, b in cerca:
                 for t in crossings(q, u, b):
                     if k != "stop" and t <= 0:
                         continue                       # punta libre: solo prolongar

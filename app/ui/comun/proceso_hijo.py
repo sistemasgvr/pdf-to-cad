@@ -128,9 +128,12 @@ def bucle(entrada, salida, tope_mb: int):
             return
         tid, objetivo, args, kwargs = msg
         try:
+            from nucleo import avance
             nombre, fn = objetivo.split(":")
             f = getattr(importlib.import_module(nombre), fn)
-            res = f(*args, progreso=lambda *a, tid=tid: salida.put(("avance", tid, a)), **kwargs)
+            # las etapas que avisa el código puro («Leyendo la leyenda de cada hoja… 12 de 36»)
+            with avance.escuchar(lambda t, i, n, tid=tid: salida.put(("avance", tid, ("detalle", t, i, n)))):
+                res = f(*args, progreso=lambda *a, tid=tid: salida.put(("avance", tid, a)), **kwargs)
             salida.put(("ok", tid, res, memoria_mb()))
         except MemoryError:
             salida.put(("memoria", tid))
@@ -148,3 +151,36 @@ def eco(valor, pasos: int = 0, progreso=None):
         if progreso is not None:
             progreso(i + 1, pasos)
     return valor, os.getpid()
+
+
+MAX_PARALELOS = 4            # procesos a la vez: más no acelera (lectura del PDF, memoria)
+
+
+def memoria_libre_mb() -> int:
+    """RAM física libre del equipo (MB); 0 si no se sabe."""
+    try:
+        if os.name == "nt":
+            import ctypes
+
+            class MS(ctypes.Structure):
+                _fields_ = [("dwLength", ctypes.c_ulong), ("dwMemoryLoad", ctypes.c_ulong)] + [
+                    (n, ctypes.c_ulonglong) for n in ("ullTotalPhys", "ullAvailPhys", "ullTotalPageFile",
+                                                      "ullAvailPageFile", "ullTotalVirtual", "ullAvailVirtual",
+                                                      "ullAvailExtendedVirtual")]
+            m = MS(); m.dwLength = ctypes.sizeof(MS)
+            ctypes.windll.kernel32.GlobalMemoryStatusEx(ctypes.byref(m))
+            return int(m.ullAvailPhys // 2**20)
+        return int(os.sysconf("SC_PAGE_SIZE") * os.sysconf("SC_AVPHYS_PAGES") // 2**20)
+    except Exception:
+        return 0
+
+
+def paralelos(n_trabajos: int, mb_por_trabajo: int = 1200) -> int:
+    """Cuántos procesos a la vez para `n_trabajos` iguales: la mitad de los núcleos (el resto
+    queda para la ventana y el equipo), lo que deja la RAM LIBRE (cada uno lee su hoja) y a
+    lo sumo `MAX_PARALELOS`."""
+    if n_trabajos <= 1:
+        return 1
+    libre = memoria_libre_mb()
+    por_ram = max(1, libre // max(1, mb_por_trabajo)) if libre else 1
+    return int(max(1, min(n_trabajos, max(1, (os.cpu_count() or 2) // 2), por_ram, MAX_PARALELOS)))

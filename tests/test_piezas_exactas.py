@@ -15,6 +15,7 @@ from PySide6 import QtCore, QtWidgets
 
 from hoja import composite as C
 from ui.asistente.composite_view import CompositeView
+from ui.comun import teselas as T
 
 W, H = 2592.0, 1728.0
 
@@ -62,19 +63,19 @@ def test_recorte_nitido_sobre_piece_map(app, rotation):
     doc, view, it, fn = _vista(rotation)
     try:
         cx, cy = fn(1500.37, 900.0)
-        it.update_sharp(QtCore.QRectF(cx - 40, cy - 40, 80, 80), 4.0, 24e6)
-        sharp = it._sharp
-        assert sharp is not None
-        scale = it._sharp_key[-1]
-        # píxel (u, v) del recorte = punto ((ox' + u)/scale, …) de la hoja: lo mismo que la base
-        p0 = sharp.mapToParent(QtCore.QPointF(0, 0))
-        ox_s = (p0.x() + it._origin[0]) * scale / it.ov
-        oy_s = (p0.y() + it._origin[1]) * scale / it.ov
-        assert abs(ox_s - round(ox_s)) < 1e-6 and abs(oy_s - round(oy_s)) < 1e-6
-        for u, v in ((0, 0), (sharp.pixmap().width(), sharp.pixmap().height()), (5.5, 9.25)):
-            got = sharp.mapToScene(QtCore.QPointF(u, v))
-            want = fn((ox_s + u) / scale, (oy_s + v) / scale)
-            assert abs(got.x() - want[0]) < 1e-6 and abs(got.y() - want[1]) < 1e-6
+        it.update_sharp(QtCore.QRectF(cx - 40, cy - 40, 80, 80), 4.0)
+        sup = it.superficie
+        lst = sup.listas()
+        assert lst
+        # píxel (u, v) de la tesela = punto ((x + u)/s, (y + v)/s) de la hoja: como la base
+        for c, t in lst:
+            s = T.escala_nivel(c[3])
+            r = sup._rect_t(t)
+            for u, v in ((0, 0), (t.w, t.h), (5.5, 9.25)):
+                got = it.mapToScene(QtCore.QPointF(r.left() + u * r.width() / t.w,
+                                                   r.top() + v * r.height() / t.h))
+                want = fn((t.x + u) / s, (t.y + v) / s)
+                assert abs(got.x() - want[0]) < 1e-6 and abs(got.y() - want[1]) < 1e-6
     finally:
         doc.close()
 

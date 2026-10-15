@@ -87,7 +87,7 @@ unsaved changes. Save often.
 <section data-title="Moving around the plan">
 <table width="100%" cellspacing="4" cellpadding="10">
 <tr><th align="left">I want to…</th><th align="left">How</th></tr>
-<tr><td bgcolor="{{card}}">Zoom in or out</td><td bgcolor="{{card}}">Turn the <b>mouse wheel</b>, or use the magnifier buttons on the top bar. When you zoom in, what you see is redrawn sharp from the PDF, at the original quality (also in Compose sheet, Sheet layers and the preview).</td></tr>
+<tr><td bgcolor="{{card}}">Zoom in or out</td><td bgcolor="{{card}}">Turn the <b>mouse wheel</b>, or use the magnifier buttons on the top bar. When you zoom in, what you see is redrawn sharp from the PDF, at the original quality (also in Compose sheet, Sheet layers and the preview). It is drawn in tiles, separately: the window never stops; the sharp image arrives in a moment, the center first, and a place or zoom already seen appears instantly.</td></tr>
 <tr><td bgcolor="{{card}}">Move the plan</td><td bgcolor="{{card}}">Hold the <b>wheel</b> (middle button) down and drag.</td></tr>
 <tr><td bgcolor="{{card}}">Change the PDF page</td><td bgcolor="{{card}}"><b>View and pages</b> section, ◀ ▶ arrows.</td></tr>
 <tr><td bgcolor="{{card}}">See my lines better</td><td bgcolor="{{card}}"><b>Opacity</b> button: fades only the PDF. You can also set a white or black background.</td></tr>
@@ -136,7 +136,17 @@ when it finishes the memory goes back to the system. While recognizing, the card
 utility and the layer being read («Water (1 of 2) · layer 3 of 8»), what is already recognized is
 drawn on the sheet as it goes, and <span class="btn">Cancel</span> stops it at once. If a sheet
 needs more memory than is free, the app tells you: compose fewer sheets or recognize fewer
-utilities at a time.</p>
+utilities at a time. With several utilities, each one is recognized in its own process at the
+same time (depending on the cores and free RAM). In every step the card shows the exact stage:
+reading the vectors, the legend of each sheet («12 of 36»), copying each sheet, drawing the sheet
+on screen…</p>
+<p>The step bar at the top marks finished steps with ✓: they are buttons, one click goes back to
+that step. The <b>minimap</b> of a composed sheet (bottom left) shows each sheet with its short
+code («17-10», «UD-201»), highlights the one in front of you, gives the full name on hover and
+zooms with the view; double click = see all sheets. The same minimap appears in the recognition
+preview and in the editor; in the editor each sheet also has a <b>watermark</b> (its dashed
+outline and code, faint): it covers and cuts nothing and is not exported. Turn them off in
+View → «Sheet minimap» / «Sheet marks».</p>
 
 <h2>1. Compose work sheet</h2>
 <p>This step has three <b>tabs</b>, each one full screen: <b>Source</b>, <b>Area to take</b> and
@@ -195,7 +205,8 @@ map names sheets that are in <b>another PDF in the same folder</b> (Phoenix «�
 <li>You can join many sheets. If the composite sheet is very large (more than about 6 sheets of
     36"×24"), the editor shows it at a lower resolution and, when you zoom in, the part you see is
     redrawn sharp; everything else works the same. Building it and reading its layers takes a few
-    seconds per sheet.</li>
+    seconds per sheet. Zooming is smooth at any size: the sharp image is drawn in tiles in the
+    background.</li>
 <li><span class="btn">Continue</span> goes to step 2.</li>
 </ol>
 

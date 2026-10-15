@@ -88,7 +88,7 @@ hay cambios sin guardar. Guarda a menudo.
 <section data-title="Moverse por el plano">
 <table width="100%" cellspacing="4" cellpadding="10">
 <tr><th align="left">Quiero…</th><th align="left">Cómo se hace</th></tr>
-<tr><td bgcolor="{{card}}">Acercar o alejar</td><td bgcolor="{{card}}">Girar la <b>rueda del mouse</b>, o los botones de lupa de la barra superior. Al acercarte, lo que ves se vuelve a dibujar nítido desde el PDF, con la calidad original (igual en Componer hoja, Capas de la hoja y la vista previa).</td></tr>
+<tr><td bgcolor="{{card}}">Acercar o alejar</td><td bgcolor="{{card}}">Girar la <b>rueda del mouse</b>, o los botones de lupa de la barra superior. Al acercarte, lo que ves se vuelve a dibujar nítido desde el PDF, con la calidad original (igual en Componer hoja, Capas de la hoja y la vista previa). Se dibuja por cuadros, aparte: la ventana nunca se detiene; lo nítido llega en un momento, primero el centro, y un lugar o un zoom ya visto aparece al instante.</td></tr>
 <tr><td bgcolor="{{card}}">Mover el plano</td><td bgcolor="{{card}}">Mantener apretada la <b>rueda</b> (botón central) y arrastrar.</td></tr>
 <tr><td bgcolor="{{card}}">Cambiar de página del PDF</td><td bgcolor="{{card}}">Sección <b>Vista y páginas</b>, flechas ◀ ▶.</td></tr>
 <tr><td bgcolor="{{card}}">Ver mejor mis líneas</td><td bgcolor="{{card}}">Botón <b>Opacidad</b>: aclara solo el PDF. También puedes poner el fondo blanco o negro.</td></tr>
@@ -138,7 +138,17 @@ con un indicador que gira y lo que la app está haciendo (por ejemplo «Reconoci
 terminar la memoria vuelve al sistema. Al reconocer, la tarjeta dice la utilidad y la capa que
 va leyendo («Agua (1 de 2) · capa 3 de 8»), lo ya reconocido se va dibujando sobre la hoja y
 <span class="btn">Cancelar</span> lo corta al instante. Si una hoja necesita más memoria de la
-que hay libre, la app lo avisa: compón menos hojas o reconoce menos utilidades a la vez.</p>
+que hay libre, la app lo avisa: compón menos hojas o reconoce menos utilidades a la vez. Con varias
+utilidades, cada una se reconoce en su propio proceso a la vez (según los núcleos y la RAM libre).
+En todos los pasos la tarjeta dice la etapa exacta: leer los vectores, la leyenda de cada hoja
+(«12 de 36»), copiar cada hoja, dibujar la hoja en pantalla…</p>
+<p>La barra de pasos de arriba marca los pasos ya hechos con ✓: son botones, un clic vuelve a ese
+paso. El <b>minimapa</b> de una hoja compuesta (abajo a la izquierda) muestra cada hoja con su
+código corto («17-10», «UD-201»), resalta la que tienes enfrente, da el nombre completo al pasar el
+ratón y se acerca con la vista; doble clic = ver todas las hojas. El mismo minimapa sale en la
+vista previa del reconocimiento y en el editor; en el editor cada hoja lleva además una
+<b>marca de agua</b> (su borde a trazos y su código, tenues): no tapa ni corta nada y no se
+exporta. Se apagan en Ver → «Minimapa de las hojas» / «Marcas de las hojas».</p>
 
 <h2>1. Componer hoja de trabajo</h2>
 <p>Este paso tiene tres <b>pestañas</b>, cada una a pantalla completa: <b>Origen</b>, <b>Área a
@@ -196,7 +206,7 @@ pregunta antes de agregarlo. Los PDF escaneados no tienen sugerencia: se compone
 <li>Puedes juntar muchas hojas. Si la hoja compuesta es muy grande (más de unas 6 hojas de
     36"×24"), el editor la muestra a menos resolución y, al acercarte, la parte que ves se vuelve a
     dibujar nítida; todo lo demás funciona igual. Armarla y leer sus capas tarda unos segundos por
-    hoja.</li>
+    hoja. El zoom es fluido a cualquier tamaño: lo nítido se dibuja por cuadros en segundo plano.</li>
 <li><span class="btn">Continuar</span> pasa al paso 2.</li>
 </ol>
 

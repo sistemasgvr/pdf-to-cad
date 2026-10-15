@@ -26,48 +26,15 @@ from hoja import composite_scan as CS
 from ui.asistente.alignment_tools import AlignmentRuler, PieceProtractor
 from ui.asistente.composite_measure import MeasureTool
 from hoja import composite_seam as S
-from ui.asistente.pdf_view_quality import MAX_RENDER_PIXELS, MAX_RENDER_SCALE
-from ui.comun.recorte_nitido import REFINO_MS, TOPE_LETRAS_MPX, TOPE_REFINO_MPX, Hojas, escala_para
-from ui.comun.widgets import ZoomPanView, MiniMap
+from ui.comun.teselas_vista import Superficie
+from ui.comun.widgets import etiquetas_cortas, ZoomPanView, MiniMap
 from traduccion.i18n import t as _tr
-
-
-class _BlendPixmap(QtWidgets.QGraphicsPixmapItem):
-    """Recorte nítido de una pieza: con «Fundir bordes» se pinta en modo
-    oscurecer, igual que su pieza (ver `PieceItem.paint`). Se recorta al clip
-    EXACTO de la pieza, como la imagen base."""
-
-    def __init__(self, pixmap, parent: "PieceItem"):
-        super().__init__(pixmap, parent)
-        self.owner = parent
-
-    def paint(self, painter, option, widget=None):
-        painter.save()
-        if self.owner._clip_raw is not None:
-            painter.setClipRect(self.mapRectFromParent(self.owner._clip_raw), QtCore.Qt.IntersectClip)
-        if self.owner.view.comp.blends():
-            painter.setCompositionMode(QtGui.QPainter.CompositionMode_Darken)
-        super().paint(painter, option, widget)
-        painter.restore()
 
 
 def _qpixmap(pix: fitz.Pixmap) -> QtGui.QPixmap:
     img = QtGui.QImage(bytes(pix.samples), pix.width, pix.height,
                        pix.stride, QtGui.QImage.Format_RGB888).copy()
     return QtGui.QPixmap.fromImage(img)
-
-
-def _render_clip(hojas: Hojas, page: fitz.Page, rect_pt, scale: float):
-    """Pixmap del rectángulo `rect_pt` (x0, y0, x1, y1 en pt de la hoja VISIBLE)
-    a `scale` px/pt y su origen (ox, oy) en píxeles del dispositivo: MuPDF
-    redondea el recorte hacia afuera, así que el píxel (u, v) del pixmap es el
-    punto ((ox + u)/scale, (oy + v)/scale) de la hoja, no el de `rect_pt`.
-    Mismos píxeles que `page.get_pixmap` (`recorte_nitido`: lista de dibujo en
-    caché y, con fuentes Type3, sin las letras de fuera)."""
-    pix = hojas.render(page, rect_pt, scale)
-    if pix is None:
-        return None
-    return _qpixmap(pix), (pix.x, pix.y)
 
 
 def _cos_sin(deg: float):
@@ -99,8 +66,9 @@ class PieceItem(QtWidgets.QGraphicsPixmapItem):
         self._clip_raw: Optional[QtCore.QRectF] = None     # clip de la pieza en px del pixmap base
         self._box_path: Optional[QtGui.QPainterPath] = None   # caja de la pieza en la escena (px base)
         self._box_rect: Optional[QtCore.QRectF] = None
-        self._sharp: Optional[QtWidgets.QGraphicsPixmapItem] = None
-        self._sharp_key = None
+        self._poly_raw: Optional[QtGui.QPainterPath] = None   # pieza poligonal: su cuadrilátero (px base)
+        # teselas nítidas de la hoja origen al acercarse (`teselas_vista`)
+        self.superficie = Superficie(self)
         self._covers: List[QtWidgets.QGraphicsItem] = []
         self.setFlags(QtWidgets.QGraphicsItem.ItemIsMovable
                       | QtWidgets.QGraphicsItem.ItemIsSelectable
@@ -120,9 +88,10 @@ class PieceItem(QtWidgets.QGraphicsPixmapItem):
         return self.view.comp.pieces[self.index]
 
     def set_raw(self, pixmap: QtGui.QPixmap, ov: float, origin=None):
-        """`origin` = (ox, oy) del render (ver `_render_clip`); sin él se toma el
-        redondeo de MuPDF sobre el clip de la pieza."""
+        """`origin` = (ox, oy) del render (`CompositeView.render_piece_raw`); sin él se
+        toma el redondeo de MuPDF sobre el clip de la pieza."""
         self._raw, self.ov = pixmap, ov
+        self.superficie.invalidar()            # imagen nueva (capas cambiadas): otras teselas
         if origin is None:
             x0, y0, _, _ = C.clip_rect_pt(self.view.page_size(self.piece), self.piece.clip)
             origin = (math.floor(x0 * ov), math.floor(y0 * ov))
@@ -178,7 +147,16 @@ class PieceItem(QtWidgets.QGraphicsPixmapItem):
         self._outline.setPolygon(box)
         self._refresh_outline()
         self._refresh_covers()
-        self.clear_sharp()
+        self._poly_raw = None
+        if p.polygon:
+            poly = QtGui.QPainterPath()
+            poly.addPolygon(QtGui.QPolygonF([QtCore.QPointF(x * size[0] * self.ov - ox, y * size[1] * self.ov - oy)
+                                             for x, y in p.polygon]))
+            poly.closeSubpath()
+            self._poly_raw = poly
+        # las teselas son píxeles de la hoja origen: mover o girar la pieza no las cambia
+        self.superficie.fijar(self.view.page(p), k=self.ov, dx=-ox, dy=-oy, base=self.ov,
+                              limite=(x0, y0, x1, y1))
 
     def scene_box(self) -> QtCore.QRectF:
         """Caja envolvente de la pieza en la escena (`C.piece_rect`). Con giro,
@@ -251,69 +229,27 @@ class PieceItem(QtWidgets.QGraphicsPixmapItem):
             it.setAcceptedMouseButtons(QtCore.Qt.NoButton)
             self._covers.append(it)
 
-    # ── recorte nítido de la parte visible ───────────────────────────────
+    # ── teselas nítidas de la parte visible ──────────────────────────────
     def clear_sharp(self):
-        if self._sharp is not None:
-            self._sharp.setParentItem(None)
-            if self._sharp.scene():
-                self._sharp.scene().removeItem(self._sharp)
-            self._sharp = None
-            self._sharp_key = None
+        """Fuera de la vista: no pide teselas (las que llegaron siguen en la caché)."""
+        self.superficie.pausar()
 
-    def update_sharp(self, visible_scene: QtCore.QRectF, wanted: float, pixel_budget: float,
-                     tope_mpx: float = TOPE_LETRAS_MPX) -> bool:
-        """Pone (o actualiza) el recorte nítido de la parte de la pieza que se ve.
-        `wanted`: px de pantalla por pt de la hoja compuesta; `pixel_budget`: px
-        máximos para esta pieza; `tope_mpx`: tope de letras Type3 (`recorte_nitido`).
-        Devuelve True si el recorte quedó por debajo de la pantalla por las letras
-        (la vista lo refina con la vista quieta)."""
+    def update_sharp(self, visible_scene: QtCore.QRectF, wanted: float, *_compat) -> None:
+        """Pide las teselas de la parte de la pieza dentro de `visible_scene` para verla a
+        `wanted` px de pantalla por pt de la hoja compuesta (la vista usa
+        `superficie.actualizar(vista)`; esto es lo mismo con la región a mano)."""
         p = self.piece
         box = self.scene_box()
         region = visible_scene.intersected(box)
         if region.isEmpty():
-            self.clear_sharp(); return False
-        pad = 0.2 * max(region.width(), region.height())
-        region = region.adjusted(-pad, -pad, pad, pad).intersected(box)
+            self.clear_sharp()
+            return
         target = self.view.comp.target_scale()
-        f = C.piece_factor(p, target)
-        # la región de escena → rect en la hoja origen (visible), acotado al clip
         unmap = C.piece_unmap(p, self.view.page_size(p), target)
         pts = [unmap(region.left(), region.top()), unmap(region.right(), region.top()),
                unmap(region.right(), region.bottom()), unmap(region.left(), region.bottom())]
-        cx0, cy0, cx1, cy1 = C.clip_rect_pt(self.view.page_size(p), p.clip)
-        sx0 = max(cx0, min(q[0] for q in pts)); sx1 = min(cx1, max(q[0] for q in pts))
-        sy0 = max(cy0, min(q[1] for q in pts)); sy1 = min(cy1, max(q[1] for q in pts))
-        if sx1 - sx0 < 1e-3 or sy1 - sy0 < 1e-3:
-            self.clear_sharp(); return False
-        # la escala de la pantalla (antes con tope de 4 px/pt: borroso al acercarse)
-        rect = (sx0, sy0, sx1, sy1)
-        quiero = min(wanted * f, (pixel_budget / max(1.0, (sx1 - sx0) * (sy1 - sy0))) ** 0.5)
-        page = self.view.page(p)
-        scale = self.view.hojas.escala(page, rect, quiero, minimo=MAX_RENDER_SCALE, tope_mpx=tope_mpx)
-        if scale < self.ov * 1.4:
-            self.clear_sharp(); return False
-        zona = tuple(round(v, 1) for v in rect)
-        if self._sharp is not None and self._sharp_key is not None and self._sharp_key[0] == zona \
-                and self._sharp_key[1] >= round(scale, 2):
-            return False                              # el recorte que hay ya basta
-        got = _render_clip(self.view.hojas, page, rect, scale)
-        if got is None or got[0].isNull():
-            return False
-        pm, (ox, oy) = got
-        pm = self.view.mask_polygon(pm, p, sx0, sy0, scale, origin=(ox, oy))
-        # Mismo espacio que el pixmap base (hoja origen SIN girar): solo cambia la
-        # escala y el origen; el giro lo pone el padre. Exacto, sin redondeos.
-        k = self.ov / scale
-        self.clear_sharp()
-        it = _BlendPixmap(pm, self)
-        it.setTransformationMode(QtCore.Qt.SmoothTransformation)
-        it.setZValue(5)
-        it.setAcceptedMouseButtons(QtCore.Qt.NoButton)
-        it.setPos(ox * k - self._origin[0], oy * k - self._origin[1])
-        it.setTransform(QtGui.QTransform().scale(k, k))
-        self._sharp = it
-        self._sharp_key = (zona, round(scale, 2))
-        return scale < 0.98 * escala_para(quiero, rect)
+        rect = (min(q[0] for q in pts), min(q[1] for q in pts), max(q[0] for q in pts), max(q[1] for q in pts))
+        self.superficie.pedir_region(rect, wanted * C.piece_factor(p, target))
 
     def itemChange(self, change, value):
         if change == QtWidgets.QGraphicsItem.ItemPositionChange and not getattr(self, "_syncing", False):
@@ -341,20 +277,16 @@ class PieceItem(QtWidgets.QGraphicsPixmapItem):
         if self._clip_raw is not None:
             # el render de MuPDF trae hasta 1 px de más alrededor del clip: fuera
             painter.setClipRect(self._clip_raw, QtCore.Qt.IntersectClip)
-        if self.view.comp.blends():
+        blends = self.view.comp.blends()
+        if blends:
             # «Fundir bordes»: modo oscurecer sobre el papel blanco que pinta la
             # vista debajo de TODAS las piezas (`drawBackground`): en una
-            # superposición se ve la tinta de ambas y el blanco no tapa nada.
+            # superposición se ve la tinta de ambas y el blanco no tapa nada. Bajo
+            # una tesela no va la imagen base: oscurecer dejaría su tinta borrosa
+            # como halo alrededor de la nítida (`exclusivo`).
             painter.setCompositionMode(QtGui.QPainter.CompositionMode_Darken)
-            if self._sharp is not None:
-                # bajo el recorte nítido no va la imagen base: oscurecer
-                # dejaría su tinta borrosa como halo alrededor de la nítida.
-                outside = QtGui.QPainterPath()
-                outside.addRect(self.boundingRect())
-                inner = QtGui.QPainterPath()
-                inner.addRect(self._sharp.mapRectToParent(self._sharp.boundingRect()))
-                painter.setClipPath(outside.subtracted(inner), QtCore.Qt.IntersectClip)
-        super().paint(painter, option, widget)
+        base = lambda: QtWidgets.QGraphicsPixmapItem.paint(self, painter, option, widget)  # noqa: E731
+        self.superficie.pintar(painter, base, exclusivo=blends, recorte=self._poly_raw)
         painter.restore()
 
 
@@ -369,8 +301,6 @@ class CompositeView(ZoomPanView):
         super().__init__()
         self.comp = comp
         self.docs = docs
-        # listas de dibujo para el recorte nítido (el compositor no cambia las capas)
-        self.hojas = Hojas(max_hojas=6)
         self.magnet_enabled = not comp.manual
         self.show_anchors = not comp.manual
         self.items: List[PieceItem] = []
@@ -386,17 +316,10 @@ class CompositeView(ZoomPanView):
         self.pieceMoved.connect(lambda _i: self._bridge_timer.start())
         self._timer = QtCore.QTimer(self)
         self._timer.setSingleShot(True)
-        self._timer.setInterval(180)
+        self._timer.setInterval(80)
         self._timer.timeout.connect(self._update_quality)
         self.viewChanged.connect(self._timer.start)
         self.pieceMoved.connect(lambda _i: self._timer.start())
-        # hoja con letras Type3 caras: con la vista quieta, otra vez con más resolución
-        self._refine = QtCore.QTimer(self)
-        self._refine.setSingleShot(True)
-        self._refine.setInterval(REFINO_MS)
-        self._refine.timeout.connect(lambda: self._update_quality(refine=True))
-        self.viewChanged.connect(self._refine.stop)
-        self.pieceMoved.connect(lambda _i: self._refine.stop())
         self.setBackgroundBrush(QtGui.QColor("#d8dbe0"))
         self.setDragMode(QtWidgets.QGraphicsView.NoDrag)
         # Zoom is anchored explicitly; Qt's implicit mouse anchor can jump when
@@ -531,9 +454,13 @@ class CompositeView(ZoomPanView):
         """Vuelve a crear todos los items desde `self.comp`."""
         self.measure.clear()
         for it in self.items:
+            it.superficie.soltar()
             self.scene().removeItem(it)
         self.items = []
+        from nucleo import avance
         for i, p in enumerate(self.comp.pieces):
+            # quien muestre «Cargando…» (`busy`) dice cuál va (36 hojas: varios segundos)
+            avance.avisar(_tr("Dibujando cada hoja en la hoja compuesta…"), i + 1, len(self.comp.pieces))
             it = PieceItem(i, self)
             self.scene().addItem(it)
             ov = self.overview_scale(p)
@@ -677,13 +604,16 @@ class CompositeView(ZoomPanView):
             self.minimap.set_layout([], QtCore.QRectF())
             return
         multi = len({p.source for p in self.comp.pieces}) > 1
-        layout = []
+        rects, labels = [], []
         for p in self.comp.pieces:
             x0, y0, x1, y1 = C.piece_rect(p, self.page_size(p), self.comp.target_scale())
             label = _tr("Hoja {n}").format(n=p.page + 1)
-            if multi:
+            if multi or p.label:
                 label = p.label or f"{p.source + 1} · {label}"
-            layout.append((QtCore.QRectF(x0, y0, x1-x0, y1-y0), label))
+            rects.append(QtCore.QRectF(x0, y0, x1-x0, y1-y0))
+            labels.append(label)
+        # corta en la caja («17-10», «North 3»), completa al pasar el ratón
+        layout = list(zip(rects, etiquetas_cortas(labels), labels))
         x0, y0, x1, y1 = bb
         margin = C.MARGIN_PT
         self.minimap.set_layout(layout,
@@ -1007,25 +937,18 @@ class CompositeView(ZoomPanView):
 
     # ── nitidez al hacer zoom (todas las piezas a la vista) ─────────────
     def _update_quality(self, refine: bool = False):
-        self._refine.stop()                           # se decide otra vez abajo
+        """Cada pieza a la vista pide sus teselas (`teselas_vista`; se dibujan en otro
+        proceso, la ventana no espera); las demás no piden nada."""
         if not self.docs or any(getattr(d, "is_closed", False) for d in self.docs):
             return                                    # el diálogo ya cerró sus PDFs (temporizador pendiente)
         if not self.pieces_ready():
             return
         visible = self.mapToScene(self.viewport().rect()).boundingRect()
-        screen = abs(self.transform().m11()) * self.devicePixelRatioF()
-        wanted = screen * 1.15                          # px de pantalla por pt de la hoja compuesta
-        shown = [it for it in self.items if it.scene_box().intersects(visible)]
         for it in self.items:
-            if it not in shown:
-                it.clear_sharp()
-        if not shown:
-            return
-        budget = MAX_RENDER_PIXELS / len(shown)
-        tope = TOPE_REFINO_MPX if refine else TOPE_LETRAS_MPX
-        corto = [it.update_sharp(visible, wanted, budget, tope) for it in shown]
-        if any(corto) and not refine:
-            self._refine.start()
+            if it.scene_box().intersects(visible):
+                it.superficie.actualizar(self)
+            else:
+                it.superficie.pausar()
 
     # ── ratón y teclado ─────────────────────────────────────────────────
     def _guide_hit(self, pos) -> bool:

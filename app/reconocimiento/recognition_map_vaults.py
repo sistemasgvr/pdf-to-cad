@@ -26,6 +26,7 @@ from typing import List, Sequence, Tuple
 
 from hoja import pdf_styles
 from reconocimiento import recognition_vault_through as through_mod
+from reconocimiento import recognition_indice as indice_mod
 
 Pt = Tuple[float, float]
 
@@ -49,13 +50,22 @@ def mark_symbol_vaults(polylines: Sequence, vaults_geo: Sequence[dict], zoom: fl
              if (pl.layer_ocg or "").startswith(pdf_styles.PREFIX) and len(pl.pts_pdf) >= 2
              and len(pl.kinds) == len(pl.pts_pdf)]
     done = []
+    # solo las líneas con algún tramo a su alcance (`recognition_indice`; en una hoja compuesta
+    # de 36 mapas, 2000 buzones contra 5000 líneas eran minutos). Insertar un vértice no cambia
+    # el dibujo de la línea: el índice de antes sigue valiendo. Mismo orden, mismo resultado.
+    lims = {vi: _radius_px(vg, zoom, scale_ft_per_pt) + TOL_PT * zoom
+            for vi, vg in enumerate(vaults_geo) if pdf_styles.is_symbol(vg.get("layer") or "")}
+    if not lims or not lines:
+        return done
+    indice = indice_mod.IndiceTramos([list(zip(pl.pts_pdf, pl.pts_pdf[1:])) for pl in lines], max(lims.values()))
     for vi, vg in enumerate(vaults_geo):
         if not pdf_styles.is_symbol(vg.get("layer") or ""):
             continue
         c = tuple(vg["center"])
-        lim = _radius_px(vg, zoom, scale_ft_per_pt) + TOL_PT * zoom
+        lim = lims[vi]
         at = []
-        for pl in lines:
+        for li in indice_mod.lineas_cerca(indice, c):
+            pl = lines[li]
             fl = pl.fillets or {}
             near = [j for j, p in enumerate(pl.pts_pdf) if j not in fl and math.dist(p, c) <= lim]
             if near:

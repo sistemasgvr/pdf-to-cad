@@ -299,9 +299,23 @@ def busy(host, text: str, detail: str = ""):
     ov = overlay_for(host)
     ov.begin(text, detail)
     try:
-        yield ov
+        with escuchar_en(ov):
+            yield ov
     finally:
         ov.end()
+
+
+def detalle_de(texto: str, i=None, n=None) -> str:
+    """Texto de una etapa (`nucleo.avance`) con su «i de n»."""
+    return _tr("{texto} ({i} de {n})").format(texto=texto, i=i, n=n) if i and n and n > 1 else texto
+
+
+def escuchar_en(ov):
+    """Los avisos de etapa (`nucleo.avance`) de este hilo van al detalle de la capa `ov`
+    (pedido del usuario 2026-10-14: ver QUÉ se está cargando, no solo «Cargando…»)."""
+    from nucleo import avance
+    return avance.escuchar(lambda t, i, n: ov.step(detail=detalle_de(t, i, n),
+                                                   done=i if n else None, total=n if n else None))
 
 
 class Toast(QtWidgets.QLabel):

@@ -8,6 +8,8 @@ piezas tardaba 7–28 s con la ventana trabada y dejaba la memoria ocupada.
 from __future__ import annotations
 
 from typing import Dict, List, Sequence
+from nucleo import avance
+from traduccion.i18n_core import t as _tr
 
 
 def materializar(comp_dict: dict, fuentes: Sequence[bytes], ocultas: Dict[str, list],
@@ -26,6 +28,7 @@ def materializar(comp_dict: dict, fuentes: Sequence[bytes], ocultas: Dict[str, l
         bridges = composite_mod.compute_bridges(comp, docs)
         avisar("armar")
         built = composite_mod.build_document(comp, docs, ocultas, bridges)
+        avance.avisar(_tr("Guardando la hoja compuesta…"))
         data = built.tobytes(deflate=True); built.close()
         sizes = lambda p: (docs[p.source][p.page].rect.width, docs[p.source][p.page].rect.height)  # noqa: E731
         layout: List = composite_mod.piece_layout(comp, sizes, list(nombres))

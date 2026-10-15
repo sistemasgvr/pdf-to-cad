@@ -22,6 +22,7 @@ import math
 from typing import List, Sequence, Tuple
 
 from reconocimiento import recognition_vault_snap as snap_mod
+from reconocimiento import recognition_indice as indice_mod
 
 Pt = Tuple[float, float]
 
@@ -91,27 +92,41 @@ def mark_through_vaults(polylines: Sequence, vaults_geo: Sequence[dict], zoom: f
     [{"vault": índice, "at": (x, y) px}, …]."""
     done = []
     lines = [pl for pl in polylines if len(pl.pts_pdf) >= 2 and len(pl.kinds) == len(pl.pts_pdf)]
+    # índices espaciales (`recognition_indice`): cada bóveda mira solo los nodos, bóvedas y
+    # líneas cercanas (en una hoja compuesta de 36 mapas, todas contra todas eran minutos).
+    # Mismo orden de recorrido: mismo resultado.
+    nodos = [p for pl in lines for p, k in zip(pl.pts_pdf, pl.kinds) if k in NODE_KINDS]
+    i_nodos = indice_mod.IndicePuntos(nodos, max(8.0 * zoom, 1.0))
 
     def has_node(vg) -> bool:
-        return any(k in NODE_KINDS and snap_mod.vault_contains(vg, p, pad=zoom)
-                   for pl in lines for p, k in zip(pl.pts_pdf, pl.kinds))
+        bb = _bbox(vg)
+        if bb is None:
+            return False
+        return any(snap_mod.vault_contains(vg, nodos[i], pad=zoom)
+                   for i in i_nodos.en_caja(bb[0] - zoom, bb[1] - zoom, bb[2] + zoom, bb[3] + zoom))
 
     boxes = [_bbox(vg) for vg in vaults_geo]
     with_node = [boundary is not None and has_node(vg)
                  for vg, boundary in ((vg, snap_mod.boundary(vg)) for vg in vaults_geo)]
+    i_cajas = indice_mod.IndiceCajas(boxes)
+    lims = [MAX_OFF_FRAC * _min_side(b) if b is not None else 0.0
+            for b in (snap_mod.boundary(vg) for vg in vaults_geo)]
+    i_lineas = indice_mod.IndiceTramos([list(zip(pl.pts_pdf, pl.pts_pdf[1:])) for pl in lines],
+                                       max(lims + [1.0]))
     for vi, vg in enumerate(vaults_geo):
         b = snap_mod.boundary(vg)
         if b is None or with_node[vi]:
             continue                                   # ya le llega una línea
         # Bóvedas que se SOLAPAN son el mismo nodo (regla del núcleo): una anidada en
         # otra que ya tiene su nodo no lleva otro (DU08 h.36: dos cajas a 13 pt).
-        if any(j != vi and with_node[j] and boxes[j] and boxes[vi] and _overlap(boxes[vi], boxes[j])
-               for j in range(len(vaults_geo))):
+        if boxes[vi] and any(j != vi and with_node[j] and boxes[j] and _overlap(boxes[vi], boxes[j])
+                             for j in i_cajas.tocan(boxes[vi])):
             continue
         c = snap_mod.vault_centroid(vg)
         lim = MAX_OFF_FRAC * _min_side(b)
         best = None
-        for pl in lines:
+        for li in indice_mod.lineas_cerca(i_lineas, c):
+            pl = lines[li]
             if (snap_mod.vault_contains(vg, pl.pts_pdf[0], pad=zoom)
                     or snap_mod.vault_contains(vg, pl.pts_pdf[-1], pad=zoom)):
                 continue                               # nace o muere en ella: no la atraviesa

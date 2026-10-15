@@ -42,7 +42,7 @@ def clave_de(fuentes: Sequence[dict]) -> tuple:
 
 
 def calcular(fuentes: Sequence[dict], progreso=None, cancelado=None,
-             fichas_cache: Optional[Dict[str, list]] = None) -> Optional[Resultado]:
+             fichas_cache: Optional[Dict[str, list]] = None, paralelo: int = 1) -> Optional[Resultado]:
     """Todo el análisis: fichas de TODAS las hojas, uniones, grupos armados y el PDF
     hermano. Lo corre el hilo; las pruebas lo llaman directo. None = cancelado."""
     def avisar(etapa, i=0, n=0):
@@ -61,8 +61,15 @@ def calcular(fuentes: Sequence[dict], progreso=None, cancelado=None,
                 fs = [dataclasses.replace(x, doc=i) for x in fichas_cache[h]]
             else:
                 base = hechas
-                fs = F.fichas(d, i, progreso=lambda k, n, b=base: avisar("hojas", b + k, total),
-                              cancelado=cancelado)
+                aviso = lambda k, n, b=base: avisar("hojas", b + k, total)  # noqa: E731
+                fs = None
+                if paralelo > 1 and d.page_count >= HOJAS_PARA_PARALELO:
+                    try:
+                        fs = _fichas_en_paralelo(f, d, i, paralelo, aviso)
+                    except Exception:             # sin procesos (memoria, permisos): de a una
+                        fs = None
+                if fs is None:
+                    fs = F.fichas(d, i, progreso=aviso, cancelado=cancelado)
                 if cancelado is not None and cancelado():
                     return None
                 if fichas_cache is not None:
@@ -91,10 +98,54 @@ def calcular(fuentes: Sequence[dict], progreso=None, cancelado=None,
 
 _FICHAS: Dict[str, list] = OrderedDict()      # caché del proceso trabajador
 
+HOJAS_PARA_PARALELO = 6      # con menos, arrancar los procesos tarda más que leerlas
+HOJAS_POR_ENCARGO = 3        # hojas que lee cada proceso de una vez (el avance va de a tantas)
+
+
+def _fichas_de(fuente, doc_index: int, paginas: Sequence[int]) -> list:
+    """Fichas de esas hojas (lo que hace `composicion_ficha.fichas`, hoja por hoja)."""
+    d = fitz.open(fuente) if isinstance(fuente, str) else fitz.open(stream=fuente, filetype="pdf")
+    try:
+        out = []
+        for h in paginas:
+            try:
+                out.append(F.ficha(d[h], doc_index))
+            except Exception:
+                out.append(F.Ficha(doc_index, h, (d[h].rect.width, d[h].rect.height)))
+        return out
+    finally:
+        d.close()
+
+
+def _fichas_en_paralelo(f: dict, d, doc_index: int, n_proc: int, aviso) -> list:
+    """Las fichas de todas las hojas repartidas en `n_proc` procesos (cada hoja es
+    independiente: mismo resultado que de a una). Con el archivo a mano, cada proceso lo abre;
+    si no, recibe los bytes UNA vez por proceso."""
+    import concurrent.futures as cf
+    import multiprocessing as mp
+    import os
+    ruta = f.get("path")
+    fuente = ruta if ruta and os.path.isfile(ruta) else f["data"]
+    n = d.page_count
+    paso = HOJAS_POR_ENCARGO if isinstance(fuente, str) else max(1, -(-n // n_proc))
+    encargos = [list(range(k, min(n, k + paso))) for k in range(0, n, paso)]
+    por_hoja: Dict[int, object] = {}
+    with cf.ProcessPoolExecutor(max_workers=n_proc, mp_context=mp.get_context("spawn")) as ex:
+        futuros = [ex.submit(_fichas_de, fuente, doc_index, e) for e in encargos]
+        for fut in cf.as_completed(futuros):
+            for fi in fut.result():
+                por_hoja[fi.hoja] = fi
+            aviso(len(por_hoja), n)
+    return [por_hoja[h] for h in range(n)]
+
 
 def analizar(fuentes: Sequence[dict], progreso=None) -> Optional[Resultado]:
-    """`calcular` en el trabajador, con su caché, devolviendo el resultado liviano."""
-    res = calcular(fuentes, (lambda e, i, n: progreso(e, i, n)) if progreso else None, None, _FICHAS)
+    """`calcular` en el trabajador, con su caché, devolviendo el resultado liviano. Las hojas
+    se leen en varios procesos a la vez (`proceso_hijo.paralelos`; las fichas pesan poco)."""
+    from ui.comun import proceso_hijo
+    n_proc = proceso_hijo.paralelos(proceso_hijo.MAX_PARALELOS, mb_por_trabajo=400)
+    res = calcular(fuentes, (lambda e, i, n: progreso(e, i, n)) if progreso else None, None, _FICHAS,
+                   paralelo=n_proc)
     if res is not None and res.analisis is not None:
         res.analisis.fichas = {k: dataclasses.replace(f, lineas=[]) for k, f in res.analisis.fichas.items()}             if isinstance(res.analisis.fichas, dict) else res.analisis.fichas
     return res

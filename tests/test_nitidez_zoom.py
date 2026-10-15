@@ -6,6 +6,8 @@ hoja», la vista previa y el editor nunca pasaban de la resolución de su imagen
 recorte va a la resolución de la pantalla (`recorte_nitido`). En hojas con fuentes Type3 (el
 mapa de Phoenix: cada letra declara una caja ~20× su tamaño y MuPDF la dibuja entera aunque
 caiga fuera) el recorte descarta las letras de fuera: mismos píxeles, de 6 s a <1 s.
+Desde 2026-10-15 lo nítido va en TESELAS dibujadas en otro proceso (`teselas`, pruebas propias
+en `test_teselas.py`); aquí, que cada vista las pida y caigan en su lugar.
 """
 import math
 import os
@@ -20,7 +22,7 @@ fitz = pytest.importorskip("fitz")
 from PySide6 import QtCore, QtGui, QtWidgets  # noqa: E402
 
 from hoja import composite as C  # noqa: E402
-from ui.comun import fondo_pdf, recorte_nitido as R  # noqa: E402
+from ui.comun import fondo_pdf, recorte_nitido as R, teselas as T  # noqa: E402
 
 PHOENIX = Path(r"C:/Users/bernu/OneDrive/Documentos/DOCS DE PRUEBA IND/QS Water_Indian School_South.pdf")
 LX, LY = 300.7, 200.3
@@ -219,6 +221,20 @@ def _centro_columna(scene, x, y, lado=40, px=8):
     return x - lado / 2 + (col * (np.arange(n) + 0.5)).sum() / col.sum() / px
 
 
+def _teselas_en_su_lugar(item, page, k):
+    """Cada tesela lista de la superficie cae EXACTA: su píxel (u, v) es el punto
+    ((x + u)/s, (y + v)/s) de la hoja, que en el item es ese punto × `k`."""
+    sup = item.superficie
+    lst = sup.listas()
+    assert lst and sup.nivel is not None
+    for c, t in lst:
+        s = T.escala_nivel(c[3])
+        r = sup._rect_t(t)
+        assert abs(r.left() - t.x / s * k) < 1e-6 and abs(r.top() - t.y / s * k) < 1e-6
+        assert abs(r.width() - t.w / s * k) < 1e-6 and abs(r.height() - t.h / s * k) < 1e-6
+    return sup.escala()
+
+
 def _abrir(win, tmp_path):
     win._open_pdf_path(_pdf_texto(tmp_path / "plano.pdf"))
     win._load_page(0)                                  # (el asistente está apagado en la prueba)
@@ -232,20 +248,15 @@ def test_editor_hoja_normal_nitida_mas_alla_de_su_imagen(win, tmp_path):
     x, y = LX * win.zoom, 120 * win.zoom
     cv.resetTransform(); cv.scale(6.0, 6.0); cv.centerOn(x, y)
     cv.nitidez.actualizar()
-    n = cv.pixmap_item.nitido
-    assert n is not None and n.parentItem() is cv.pixmap_item
-    escala = cv.nitidez._clave[-1]
+    escala = _teselas_en_su_lugar(cv.pixmap_item, win.doc[0], win.zoom)
     assert escala > 4 * win.zoom                        # antes: nunca más que la imagen (3.5)
-    p0 = n.mapToScene(QtCore.QPointF(0, 0))
-    ox, oy = p0.x() / win.zoom * escala, p0.y() / win.zoom * escala
-    assert abs(ox - round(ox)) < 1e-6 and abs(oy - round(oy)) < 1e-6
     assert abs(_centro_columna(cv.scene(), x, y) - x) < 0.25     # la línea, donde debe
     # el imán sigue mirando la imagen de siempre (mismo punto)
     win.snap = True
     sx, _ = win._snap(x + 6, y)
     assert abs(sx - x) <= 1.0
     cv.resetTransform(); cv.nitidez.actualizar()
-    assert cv.pixmap_item.nitido is None
+    assert cv.pixmap_item.superficie.nivel is None      # a 1:1 basta la imagen de la hoja
 
 
 def test_capas_de_la_hoja_normal_nitida(app):
@@ -256,7 +267,7 @@ def test_capas_de_la_hoja_normal_nitida(app):
         z = layer_dialog._PREVIEW_ZOOM
         dlg.view.resetTransform(); dlg.view.scale(5.0, 5.0); dlg.view.centerOn(LX * z, LY * z)
         dlg._nitidez.actualizar()
-        assert dlg._pix_item.nitido is not None and dlg._nitidez._clave[-1] > 4 * z
+        assert _teselas_en_su_lugar(dlg._pix_item, doc[0], z) > 4 * z
         dlg.reject()
     finally:
         doc.close()
@@ -274,7 +285,7 @@ def test_vista_previa_normal_nitida(win, tmp_path):
         assert dlg.view.sceneRect() == QtCore.QRectF(cv.pixmap_item.pixmap().rect())
         dlg.view.resetTransform(); dlg.view.scale(5.0, 5.0); dlg.view.centerOn(LX * win.zoom, LY * win.zoom)
         dlg._nitidez.actualizar()
-        assert dlg._pixmap_item.nitido is not None
+        assert _teselas_en_su_lugar(dlg._pixmap_item, win.doc[0], win.zoom) > 4 * win.zoom
     finally:
         dlg.reject()
 
@@ -290,71 +301,28 @@ def test_compositor_nitido_mas_alla_de_4_px_por_pt(app):
         dlg.crop.resetTransform(); dlg.crop.scale(12.0, 12.0); dlg.crop.centerOn(LX, LY)
         dlg._crop_sharp.update_quality()
         it = dlg._crop_sharp._item
-        escala = dlg._crop_sharp._key[-1]
-        assert it is not None and escala > 4.0
-        assert abs(it.transform().m11() - 1.0 / escala) < 1e-12
-        ox, oy = it.pos().x() * escala, it.pos().y() * escala
-        assert abs(ox - round(ox)) < 1e-6 and abs(oy - round(oy)) < 1e-6
+        assert it is not None and it.zValue() == 1
+        assert _teselas_en_su_lugar(it, dlg.docs[0][0], 1.0) > 4.0
         assert abs(_centro_columna(dlg.crop.scene(), LX, LY + 15, lado=10, px=24) - LX) < 0.05
         # «Hoja compuesta»: igual en cada pieza
         dlg._take(full=True)
         dlg.view.resetTransform(); dlg.view.scale(12.0, 12.0); dlg.view.centerOn(LX, LY)
         dlg.view._update_quality()
         pieza = dlg.view.items[0]
-        assert pieza._sharp is not None and pieza._sharp_key[-1] > 4.0
+        assert pieza.superficie.escala() > 4.0 and pieza.superficie.listas()
     finally:
         dlg.close_docs()
 
 
-def test_type3_primero_rapido_y_con_la_vista_quieta_a_resolucion_completa(app, monkeypatch):
-    """Hoja con muchas letras Type3: al moverse, el recorte con tope de letras; con la
-    vista quieta, otro con más resolución; volver a pedir el primero no lo empeora."""
-    from ui.asistente import composite_dialog
-    monkeypatch.setattr(R, "TOPE_LETRAS_MPX", 40.0)
-    import ui.asistente.pdf_view_quality as Q
-    import ui.asistente.composite_view as V
-    monkeypatch.setattr(Q, "TOPE_LETRAS_MPX", 40.0)
-    monkeypatch.setattr(V, "TOPE_LETRAS_MPX", 40.0)
-    data = _pdf_type3(n=1500).tobytes()
-    dlg = composite_dialog.CompositeDialog(None, [{"name": "a.pdf", "data": data}], None, {}, 0)
-    try:
-        dlg.resize(1400, 800); dlg.show()
-        sh = dlg._crop_sharp
-        dlg.crop.resetTransform(); dlg.crop.scale(12.0, 12.0); dlg.crop.centerOn(200, 150)
-        sh.update_quality()
-        rapido = sh._key[-1]
-        assert 4.0 <= rapido < 12 * 1.15 * 0.98 and sh._refine.isActive()
-        sh.update_quality(refine=True)
-        fino = sh._key[-1]
-        assert fino > rapido
-        sh.update_quality()                         # misma vista: se queda el fino
-        assert sh._key[-1] == fino and not sh._refine.isActive()
-        # «Hoja compuesta»: igual
-        dlg._take(full=True)
-        v = dlg.view
-        v.resetTransform(); v.scale(12.0, 12.0); v.centerOn(200, 150)
-        v._update_quality()
-        pieza = v.items[0]
-        rapido = pieza._sharp_key[-1]
-        assert v._refine.isActive()
-        v._update_quality(refine=True)
-        assert pieza._sharp_key[-1] > rapido
-    finally:
-        dlg.close_docs()
-
-
-def test_type3_en_el_editor_se_refina(win, tmp_path, monkeypatch):
-    import ui.comun.fondo_pdf as F
-    monkeypatch.setattr(F, "TOPE_LETRAS_MPX", 300.0)
+def test_type3_en_el_editor_teselas_a_resolucion_de_pantalla(win, tmp_path):
+    """Con letras Type3 caras, las teselas van a la resolución de la pantalla desde el primer
+    momento (antes: un recorte con tope de letras y otro «refinado» con la vista quieta)."""
     ruta = tmp_path / "t3.pdf"
     _pdf_type3(n=1500).save(str(ruta))
     win._open_pdf_path(str(ruta)); win._load_page(0)
     cv = win.canvas
     cv.resetTransform(); cv.scale(4.0, 4.0); cv.centerOn(200 * win.zoom, 150 * win.zoom)
     cv.nitidez.actualizar()
-    rapido = cv.nitidez._clave[-1]
-    assert cv.pixmap_item.nitido is not None and cv.nitidez._refino.isActive()
-    cv.nitidez.actualizar(refinar=True)
-    assert cv.nitidez._clave[-1] > rapido
-    cv.nitidez.programar()                          # la vista se mueve: no refina sola
-    assert not cv.nitidez._refino.isActive()
+    escala = _teselas_en_su_lugar(cv.pixmap_item, win.doc[0], win.zoom)
+    ppp = 4.0 * win.zoom * cv.devicePixelRatioF()
+    assert ppp <= escala < ppp * 1.415

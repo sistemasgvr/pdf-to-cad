@@ -156,10 +156,12 @@ class Trabajador(QtCore.QObject):
         def correr(tid=t.id):
             import importlib
             import traceback
+            from nucleo import avance
             try:
                 nombre, fn = t.objetivo.split(":")
                 f = getattr(importlib.import_module(nombre), fn)
-                res = f(*t.args, progreso=lambda *a: self._hilo_res.put(("avance", tid, a)), **t.kwargs)
+                with avance.escuchar(lambda tx, i, n: self._hilo_res.put(("avance", tid, ("detalle", tx, i, n)))):
+                    res = f(*t.args, progreso=lambda *a: self._hilo_res.put(("avance", tid, a)), **t.kwargs)
                 self._hilo_res.put(("ok", tid, res, 0))
             except MemoryError:
                 self._hilo_res.put(("memoria", tid))

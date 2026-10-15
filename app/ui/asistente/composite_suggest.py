@@ -94,7 +94,7 @@ class Servicio(QtCore.QObject):
             if proceso.activo():
                 t = proceso.Tarea("hoja.composicion_trabajo:analizar",
                                   ([{k: f.get(k) for k in ("data", "name", "path")} for f in fuentes],))
-                t.avance.connect(lambda a, clave=clave: self._avance(clave, *a))
+                t.avance.connect(lambda a, clave=clave: self._avance(clave, *a) if a and a[0] != "detalle" else None)
                 t.terminado.connect(lambda r, e, clave=clave: self._terminado(
                     clave, r if not e else (None if e == "cancelado" else Resultado(clave, None, error=e))))
                 self._hilos[clave] = t

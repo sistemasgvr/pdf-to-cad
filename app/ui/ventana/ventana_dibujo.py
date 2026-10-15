@@ -101,6 +101,8 @@ class DibujoMixin:
         self._draw_pipe_conflicts()
         # Accesorios de presión (codo/Tee/Wye/cruz) con su ángulo + normativas.
         self._draw_accesorios()
+        # Hoja compuesta: minimapa y marcas de agua de cada hoja (`ventana_hojas`).
+        self._dibujar_hojas()
         # textos
         for i, tm in enumerate(self.text_marks):
             t = sc.addText(tm["text"]); t.setDefaultTextColor(QtGui.QColor(120, 220, 120)); t.document().setDocumentMargin(0)

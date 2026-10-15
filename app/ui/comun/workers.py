@@ -37,6 +37,7 @@ class RecognitionWorker(QtCore.QThread):
     progress = QtCore.Signal(int, int, str)
     layer = QtCore.Signal(int, int, str, int, int)
     partial = QtCore.Signal(str, object)
+    stage = QtCore.Signal(str, object, object)        # etapa (`nucleo.avance`): texto, i, n
 
     def __init__(self, pdf_path, page_index, zoom=1.0, utility="ELECTRICO",
                  hidden_ocgs=None, layer_roles=None, join_routes=True,
@@ -56,6 +57,9 @@ class RecognitionWorker(QtCore.QThread):
         # capas que el usuario decidió NO tomar por las letras de su línea («Capas de la hoja»)
         self.letters_off = set(letters_off or ())
         self._tarea = None
+        self._tareas = []
+        self._partes = None
+        self._hechas = 0
 
     def _kwargs(self):
         return dict(pdf_path=self.pdf_path, page_index=self.page_index, zoom=self.zoom,
@@ -71,16 +75,62 @@ class RecognitionWorker(QtCore.QThread):
             self.layer.emit(a[1], a[2], a[3], a[4], a[5])
         elif a[0] == "hecha":
             self.partial.emit(a[3], a[4])
+        elif a[0] == "detalle":
+            self.stage.emit(a[1], a[2], a[3])
 
     def start(self, *args):
-        from ui.comun import proceso
+        """Al proceso trabajador. Con varias utilidades, cada una en su proceso a la vez
+        (`proceso_hijo.paralelos`: la mitad de los núcleos y lo que deje la RAM libre); los
+        resultados vuelven en el orden de siempre y son los mismos (cada utilidad se
+        reconoce sola, como en la vuelta de siempre)."""
+        from ui.comun import proceso, proceso_hijo
         if not proceso.activo():
             return super().start(*args)
-        t = self._tarea = proceso.Tarea("reconocimiento.recognition_trabajo:reconocer_hoja",
-                                        kwargs=self._kwargs())
-        t.avance.connect(self._avance)
-        t.terminado.connect(self._fin_proceso)
-        proceso.trabajador("principal").enviar(t)
+        n_par = proceso_hijo.paralelos(len(self.utilities))
+        grupos = ([tuple(self.utilities)] if n_par <= 1
+                  else [(u,) for u in self.utilities])
+        self._partes = [None] * len(grupos)
+        self._tareas = []
+        self._hechas = 0
+        for k, us in enumerate(grupos):
+            kw = self._kwargs()
+            kw["utilities"] = us
+            t = proceso.Tarea("reconocimiento.recognition_trabajo:reconocer_hoja", kwargs=kw)
+            t.avance.connect(lambda a, k=k, n=len(grupos): self._avance(a) if n == 1 else self._avance_parte(k, a))
+            t.terminado.connect(lambda r, e, k=k: self._fin_parte(k, r, e))
+            self._tareas.append(t)
+            proceso.trabajador("principal" if k % n_par == 0 else f"principal-{k % n_par}").enviar(t)
+        self._tarea = self._tareas[0]
+
+    def _avance_parte(self, k, a):
+        """Avance de UNA utilidad de las que corren a la vez (su índice es el de la lista)."""
+        n = len(self.utilities)
+        if a[0] == "utilidad":
+            self.progress.emit(self._hechas, n, self.utilities[k])
+        elif a[0] == "capa":
+            self.layer.emit(k, n, a[3], a[4], a[5])
+        elif a[0] == "hecha":
+            self.partial.emit(a[3], a[4])
+        elif a[0] == "detalle":
+            self.stage.emit(a[1], a[2], a[3])
+
+    def _fin_parte(self, k, res, err):
+        if self._partes is None:
+            return                                    # ya terminó (error o cancelado)
+        if err:
+            for t in self._tareas:
+                if not t.hecha:
+                    t.cancelar()
+            self._partes = None
+            self._fin_proceso(None, err)
+            return
+        self._partes[k] = res
+        self._hechas += 1
+        if self._hechas < len(self._partes):
+            self.progress.emit(self._hechas, len(self.utilities), self.utilities[min(self._hechas, len(self.utilities) - 1)])
+            return
+        partes, self._partes = self._partes, None
+        self._fin_proceso([r for parte in partes for r in (parte or [])], "")
 
     def _fin_proceso(self, res, err):
         self._tarea = None
@@ -95,14 +145,17 @@ class RecognitionWorker(QtCore.QThread):
             self.done.emit(res, err)
 
     def cancel(self):
-        if self._tarea is not None:
-            self._tarea.cancelar()
+        for t in list(getattr(self, "_tareas", None) or ([self._tarea] if self._tarea else [])):
+            if t is not None and not t.hecha:
+                t.cancelar()
 
     def run(self):
         try:
+            from nucleo import avance
             from reconocimiento import recognition_trabajo
-            results = recognition_trabajo.reconocer_hoja(
-                progreso=lambda *a: self._avance(a), **self._kwargs())
+            with avance.escuchar(lambda t, i, n: self._avance(("detalle", t, i, n))):
+                results = recognition_trabajo.reconocer_hoja(
+                    progreso=lambda *a: self._avance(a), **self._kwargs())
             self.done.emit(results, "")
         except Exception as e:
             import traceback

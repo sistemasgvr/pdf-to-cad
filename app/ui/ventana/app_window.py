@@ -92,9 +92,10 @@ from ui.ventana.ventana_bancoductos import BancoductosMixin
 from ui.ventana.ventana_bloque import EdicionBloqueMixin
 from ui.ventana.ventana_vista3d import Vista3DMixin
 from ui.ventana.ventana_conflictos_lista import ConflictosListaMixin
+from ui.ventana.ventana_hojas import HojasEditorMixin
 
 
-class Main(MenuMixin, PanelIzquierdoMixin, PanelDerechoMixin, ModosMixin, ClicsMixin, UtilidadesMixin, CatalogoMixin, SeleccionMixin, ListasMixin, MarcasMixin, DibujoMixin, ConflictosMixin, CoordsMixin, BuzonesMixin, MoverPrecisoMixin, CurvasMixin, HerramientasMixin, BancoductosMixin, EdicionBloqueMixin, Vista3DMixin, ConflictosListaMixin,
+class Main(MenuMixin, PanelIzquierdoMixin, PanelDerechoMixin, ModosMixin, ClicsMixin, UtilidadesMixin, CatalogoMixin, SeleccionMixin, ListasMixin, MarcasMixin, DibujoMixin, ConflictosMixin, CoordsMixin, BuzonesMixin, MoverPrecisoMixin, CurvasMixin, HerramientasMixin, BancoductosMixin, EdicionBloqueMixin, Vista3DMixin, ConflictosListaMixin, HojasEditorMixin,
            QtWidgets.QMainWindow):
     def __init__(self):
         super().__init__()
@@ -449,7 +450,8 @@ class Main(MenuMixin, PanelIzquierdoMixin, PanelDerechoMixin, ModosMixin, ClicsM
         self._busy(_tr("Cargando hoja…"))
         try:
             self.page_idx = idx
-            self._load_page(idx)
+            with _busy_mod.escuchar_en(_busy_mod.overlay_for(self)):   # «Dibujando la hoja (… px)…»
+                self._load_page(idx)
         finally:
             self._unbusy()
 
@@ -500,7 +502,7 @@ class Main(MenuMixin, PanelIzquierdoMixin, PanelDerechoMixin, ModosMixin, ClicsM
             # de dibujar. Deja la visibilidad aplicada en self.doc, así _load_page
             # ya renderiza sin las ocultas.
             chosen = layer_dialog.choose_sheet_layers(self, self.doc, page_idx,
-                                                      layout=getattr(self, "_composite_layout", None),
+                                                      layout=self._layout_minimapa(),
                                                       recognition_utilities=self._recognition_utilities,
                                                       can_go_back=bool(self.src_pdfs),
                                                       letters_off=self._letters_off,
@@ -618,11 +620,17 @@ class Main(MenuMixin, PanelIzquierdoMixin, PanelDerechoMixin, ModosMixin, ClicsM
         trabajo va al proceso trabajador (`proceso.ejecutar`): la ventana sigue pintándose
         y la memoria que usa vuelve al sistema (`hoja.composite_trabajo.materializar`)."""
         from ui.comun import proceso
+        ov = _busy_mod.overlay_for(self)
+
+        def etapa(a):                       # lo que va haciendo el trabajador
+            if a and a[0] == "detalle" and ov.active:
+                ov.step(detail=_busy_mod.detalle_de(a[1], a[2], a[3]),
+                        done=a[2] if a[3] else None, total=a[3] if a[3] else None, pump=False)
         res, err = proceso.ejecutar(
             "hoja.composite_trabajo:materializar", comp.to_dict(),
             [e["data"] for e in self.src_pdfs],
             {k: list(v) for k, v in self.hidden_ocgs_by_source.items()},
-            [e.get("name", "") for e in self.src_pdfs])
+            [e.get("name", "") for e in self.src_pdfs], al_avanzar=etapa)
         if err or res is None:
             raise RuntimeError(_tr("La hoja compuesta necesita más memoria de la que hay libre en el equipo.")
                                if err == "memoria" else (err or _tr("No se pudo armar la hoja compuesta.")))
@@ -934,6 +942,8 @@ class Main(MenuMixin, PanelIzquierdoMixin, PanelDerechoMixin, ModosMixin, ClicsM
         if hasattr(self._recog_worker, "layer"):         # (los dobles de las pruebas no lo traen)
             self._recog_worker.layer.connect(self._recognition_layer)
             self._recog_worker.partial.connect(self._recognition_partial)
+            self._recog_worker.stage.connect(self._recognition_stage)
+        self._recog_linea = ""
         self._recog_worker.start()
 
     def _recognition_key(self, page_idx):
@@ -957,10 +967,18 @@ class Main(MenuMixin, PanelIzquierdoMixin, PanelDerechoMixin, ModosMixin, ClicsM
         """Avance dentro de una utilidad: «capa k de m» (el reconocimiento va capa por capa)."""
         ov = getattr(self, "_recog_busy", None)
         if ov is not None and m:
-            ov.step(detail=_tr("Hoja {p} · {u} ({i} de {n}) · capa {k} de {m}").format(
+            self._recog_linea = _tr("Hoja {p} · {u} ({i} de {n}) · capa {k} de {m}").format(
                 p=self._recog_worker.page_index + 1, u=_tr(_recognition.utility_label(utility)),
-                i=i + 1, n=n, k=k + 1, m=m),
-                done=i * m + k, total=n * m, pump=False)
+                i=i + 1, n=n, k=k + 1, m=m)
+            ov.step(detail=self._recog_linea, done=i * m + k, total=n * m, pump=False)
+
+    def _recognition_stage(self, texto, i, n):
+        """Qué está haciendo ahora («Reconstruyendo las líneas de la capa Negro 0.71 pt…»),
+        debajo de la utilidad y la capa."""
+        ov = getattr(self, "_recog_busy", None)
+        if ov is not None:
+            linea = getattr(self, "_recog_linea", "")
+            ov.step(detail=(linea + "\n" if linea else "") + _busy_mod.detalle_de(texto, i, n), pump=False)
 
     def _recognition_partial(self, utility, trazos):
         """Lo ya reconocido de una utilidad se dibuja sobre la hoja mientras sigue el resto
@@ -1039,7 +1057,7 @@ class Main(MenuMixin, PanelIzquierdoMixin, PanelDerechoMixin, ModosMixin, ClicsM
                            "zoom": self.zoom, "pagina": self._pagina_fondo}}
         action = recognition_dialog.show_recognition_preview(
             self, qimg, results,
-            page_count=self.doc.page_count if self.doc else None, **extra)
+            page_count=self.doc.page_count if self.doc else None, hojas=self._hojas_px(), **extra)
         del qimg                                 # copia de la hoja: no retenerla mientras se sigue
         self._join_routes = all(bool(getattr(result, "join_routes", True)) for result in results)
         page_index = results[0].page_index

@@ -19,7 +19,7 @@ fitz = pytest.importorskip("fitz")
 from PySide6 import QtCore, QtGui, QtWidgets  # noqa: E402
 
 from hoja import composite as C  # noqa: E402
-from ui.comun import fondo_pdf  # noqa: E402
+from ui.comun import fondo_pdf, teselas as T  # noqa: E402
 
 LX, LY = 300.7, 200.3          # línea vertical y horizontal de cada hoja (pt)
 
@@ -144,18 +144,24 @@ def test_editor_con_hoja_enorme(win, chica, tmp_path):
     sx, sy = win._snap(x_linea + 6, y)
     assert abs(sx - x_linea) <= 1.0 / cv.fondo_escala
 
-    # al acercarse: recorte nítido EXACTO (px del recorte = px de MuPDF a su escala)
+    # al acercarse: teselas EXACTAS (px de la tesela = px de MuPDF a su escala)
     cv.resetTransform(); cv.centerOn(x_linea, y)
     cv.nitidez.actualizar()
-    n = cv.pixmap_item.nitido
-    assert n is not None and n.parentItem() is cv.pixmap_item
-    escala = cv.nitidez._clave[-1]
-    p0 = n.mapToScene(QtCore.QPointF(0, 0))
-    ox, oy = p0.x() / win.zoom * escala, p0.y() / win.zoom * escala
-    assert abs(ox - round(ox)) < 1e-6 and abs(oy - round(oy)) < 1e-6
-    assert abs(n.sceneTransform().m11() - win.zoom / escala) < 1e-9
+    it = cv.pixmap_item
+    sup = it.superficie
+    lst = sup.listas()
+    assert lst and sup.nivel is not None
+    for c, t in lst:
+        s = T.escala_nivel(c[3])
+        p0 = it.mapToScene(sup._rect_t(t).topLeft())
+        assert abs(p0.x() - t.x / s * win.zoom) < 1e-6 and abs(p0.y() - t.y / s * win.zoom) < 1e-6
+    # entre todas cubren lo que se ve
     vis = cv.mapToScene(cv.viewport().rect()).boundingRect().intersected(cv.sceneRect())
-    assert n.sceneBoundingRect().contains(vis)
+    cubre = QtGui.QPainterPath()
+    for _c, t in lst:
+        cubre.addRect(it.mapRectToScene(sup._rect_t(t)))
+    cubre = cubre.simplified()
+    assert cubre.contains(vis.adjusted(1, 1, -1, -1))
     # la línea cae donde debe en la imagen nítida
     img = QtGui.QImage(80, 80, QtGui.QImage.Format_Grayscale8); img.fill(255)
     p = QtGui.QPainter(img)
@@ -166,10 +172,10 @@ def test_editor_con_hoja_enorme(win, chica, tmp_path):
     centro = (col * (np.arange(80) + 0.5)).sum() / col.sum()
     assert abs(centro - 40) <= 1.0
 
-    # alejarse quita el recorte
+    # alejarse: solo la imagen de la hoja
     cv.resetTransform(); cv.scale(0.05, 0.05)
     cv.nitidez.actualizar()
-    assert cv.pixmap_item.nitido is None
+    assert cv.pixmap_item.superficie.nivel is None
 
     # capas cambiadas: misma imagen reducida, el recorte se rehace
     item = cv.pixmap_item
@@ -212,7 +218,7 @@ def test_hoja_normal_sin_cambios(win, tmp_path):
     assert all(datos[y * fila:y * fila + ref.width * 3] == ref.samples[y * ref.stride:y * ref.stride + ref.width * 3]
                for y in range(0, ref.height, 37))     # misma imagen, byte a byte
     cv.resetTransform(); cv.nitidez.actualizar()
-    assert it.nitido is None                           # a 1:1 no hay recorte: se ve como siempre
+    assert it.superficie.nivel is None                 # a 1:1 no hay teselas: se ve como siempre
 
 
 def test_guardar_y_reabrir_hoja_enorme(win, chica, tmp_path):
@@ -284,7 +290,7 @@ def test_capas_de_la_hoja_enorme(app, chica, tmp_path):
         assert dlg._pix_item is item
         dlg.view.resetTransform(); dlg.view.centerOn(LX * 3, LY * 3)
         dlg._nitidez.actualizar()
-        assert item.nitido is not None
+        assert item.superficie.listas()
         dlg.reject()
     finally:
         doc.close()
@@ -303,9 +309,11 @@ def test_vista_previa_con_hoja_enorme(win, chica, tmp_path):
         assert isinstance(dlg._pixmap_item, fondo_pdf.FondoItem)
         dlg.view.resetTransform(); dlg.view.centerOn(1000, 700)
         dlg._nitidez.actualizar()
-        n = dlg._pixmap_item.nitido
-        assert n is not None
-        dlg._redraw_overlay()                          # redibujar lo reconocido no quita el recorte
-        assert dlg._pixmap_item.nitido is n and n.scene() is dlg.view.scene()
+        it = dlg._pixmap_item
+        antes = [c for c, _t in it.superficie.listas()]
+        assert antes
+        dlg._redraw_overlay()                          # redibujar lo reconocido no quita las teselas
+        assert dlg._pixmap_item is it and it.scene() is dlg.view.scene()
+        assert [c for c, _t in it.superficie.listas()] == antes
     finally:
         dlg.reject()

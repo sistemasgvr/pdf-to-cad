@@ -34,6 +34,7 @@ from __future__ import annotations
 import json
 import math
 import re
+from collections import Counter
 from dataclasses import dataclass, field
 from typing import Dict, List, Optional, Sequence, Tuple
 
@@ -115,8 +116,9 @@ class LeyendaMapa:
     titulo: str = ""
     diam_acometida_in: Optional[float] = None           # nota «taps are .75" in diameter»
     material: str = ""                                   # nota «main material is ACP (…)»
-    diam_acometida_in: Optional[float] = None           # nota «taps are .75" in diameter»
-    material: str = ""                                   # nota «main material is ACP (…)»
+    # hoja COMPUESTA: las filas de la leyenda de CADA hoja (`leyenda_mapa_lectura`); cada una
+    # decide como en su hoja suelta y `asignaciones` junta por mayoría
+    por_hoja: List[List[FilaMapa]] = field(default_factory=list)
 
 
 # ── significado de una descripción ──────────────────────────────────────────
@@ -173,7 +175,41 @@ def _trazo_principal(fila: FilaMapa) -> Optional[str]:
 _OTRA_RED = ("otra red",)       # voto de una fila de red que no es de la app («Reclaimed Main»)
 
 
+MAYORIA_HOJAS = 0.5         # hoja compuesta: un estilo es de una red si lo dice ≥ esto de las hojas que lo nombran
+
+
 def asignaciones(ley: LeyendaMapa, en_mapa: Dict[str, int]) -> Tuple[Dict[str, Tuple[str, str]], Dict[str, List[str]]]:
+    """Ver `_asignaciones`. En una hoja COMPUESTA (`ley.por_hoja`, pedido del usuario 2026-10-14:
+    36 mapas de alcantarillado no reconocían ninguna línea) cada hoja decide con SU leyenda, como si
+    estuviera sola, y gana lo que dice la mayoría de las hojas que nombran ese estilo: juntando las
+    filas, «Standard Main» contaba una vez y dos muestras sueltas de otras filas lo dejaban ambiguo."""
+    if len(ley.por_hoja) <= 1:
+        return _asignaciones(ley, en_mapa)
+    votos: Dict[str, Counter] = {}
+    dudas: Dict[str, List[str]] = {}
+    for filas in ley.por_hoja:
+        sola = LeyendaMapa(filas, ley.utilidad, ley.escala_ft_pt, ley.zonas, ley.titulo,
+                           ley.diam_acometida_in, ley.material)
+        a, amb = _asignaciones(sola, en_mapa)
+        for capa, q in a.items():
+            votos.setdefault(capa, Counter())[q] += 1
+        for capa, textos in amb.items():
+            votos.setdefault(capa, Counter())[None] += 1
+            dudas.setdefault(capa, [])
+            dudas[capa] += [t for t in textos if t not in dudas[capa]]
+    out, ambiguas = {}, {}
+    for capa, c in votos.items():
+        (q, n), = c.most_common(1)
+        total = sum(c.values())
+        segundo = max([m for qq, m in c.items() if qq != q] + [0])
+        if q is not None and n >= MAYORIA_HOJAS * total and n > segundo:
+            out[capa] = q
+        else:
+            ambiguas[capa] = dudas.get(capa, [])
+    return out, ambiguas
+
+
+def _asignaciones(ley: LeyendaMapa, en_mapa: Dict[str, int]) -> Tuple[Dict[str, Tuple[str, str]], Dict[str, List[str]]]:
     """({capa: (utilidad, rol)}, {capa ambigua: descripciones}) — ver el docstring del módulo.
     `en_mapa` = trazos de cada capa virtual en la hoja (solo se asigna lo que el mapa usa).
 

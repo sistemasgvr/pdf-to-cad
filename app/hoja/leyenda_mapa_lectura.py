@@ -15,6 +15,8 @@ import re
 from typing import Dict, List, Optional, Sequence, Tuple
 
 from hoja import pdf_styles, texto_pdf
+from nucleo import avance
+from traduccion.i18n_core import t as _tr
 from hoja.leyenda_mapa import (ABANDONADA, ACCESORIO, ANOTACION, COLUMNA_TOL, DIVISOR_MIN, ENCABEZADO,
                                ESCALA, ESTRUCTURA, FILAS_MIN, MUESTRA_ANCHO, NOTA_DIAM_ACOMETIDA,
                                NOTA_MATERIAL, SALTO_COLUMNA, SIMBOLO_BANDA, FilaMapa, LeyendaMapa,
@@ -132,6 +134,31 @@ def _grupos(heads) -> List[list]:
     return [[heads[j] for j in g] for g in grupos]
 
 
+def inicios_de_piezas(page) -> Optional[List[int]]:
+    """En una hoja COMPUESTA (cada pieza = un XObject que se dibuja seguido), el orden de
+    dibujo (`seqno`) donde empieza cada pieza; None en una hoja normal. Así una leyenda y sus
+    muestras se leen con lo de SU hoja: la de al lado puede dibujar el mapa justo encima (la
+    leyenda de cada pieza queda fuera de su recorte, debajo de la vecina)."""
+    cache = page.parent.__dict__.setdefault("_pdfcad_piezas", {})
+    if page.number in cache:
+        return cache[page.number]
+    out = None
+    try:
+        if page.read_contents().count(b"/fzFrm") >= 2:
+            starts, nuevo = [], False
+            for d in page.get_cdrawings(extended=True):
+                if d.get("type") == "clip" and d.get("level") == 0:
+                    nuevo = True
+                elif nuevo and d.get("type") not in ("clip", "group"):
+                    starts.append(int(d["seqno"]))
+                    nuevo = False
+            out = starts if len(starts) >= 2 else None
+    except Exception:
+        out = None
+    cache[page.number] = out
+    return out
+
+
 class _Pagina:
     """Lo que comparten las leyendas de la hoja, medido UNA vez en el marco de la leyenda
     (antes cada fila recorría todos los textos, símbolos y trazos de la hoja: en una hoja
@@ -142,6 +169,7 @@ class _Pagina:
         import numpy as np
         self.np = np
         self.page, self.simbs, self.marco = page, simbs, marco
+        self.inicios = None                  # hoja compuesta: `inicios_de_piezas` (ver `pieza_de`)
         self.etiquetas = []                  # (u, w, corrida) candidatas a descripción
         self.corr_uw = []
         for c in corr:
@@ -158,11 +186,42 @@ class _Pagina:
         self.sw = np.array([q[1] for q in s_uw], float)
         self._dib = None
 
+    def piezas_de(self, seqnos):
+        """Pieza de cada `seqno` (matriz); -1 sin piezas."""
+        np = self.np
+        s = np.asarray(seqnos, dtype=np.int64)
+        if not self.inicios:
+            return np.full(len(s), -1, dtype=np.int64)
+        return np.searchsorted(np.asarray(self.inicios, dtype=np.int64), s, side="right") - 1
+
+    def preparar_piezas(self, inicios):
+        """Pieza de cada texto, símbolo y trazo (solo en una hoja compuesta)."""
+        self.inicios = inicios
+        self.pz_corr = self.piezas_de([(o.glifos[0].seqno if o.glifos else -1) for _q, o in self.corr_uw])
+        self.pz_etq = self.piezas_de([(c.glifos[0].seqno if c.glifos else -1) for _u, _w, c in self.etiquetas])
+        self.pz_sim = self.piezas_de([(sm.glifos[0].seqno if sm.glifos else -1) for sm in self.simbs])
+        self._pz_dib = None
+
+    def piezas_dibujos(self):
+        if self._pz_dib is None:
+            dib, _B = self.dibujos()
+            self._pz_dib = self.piezas_de([int(d.get("seqno", -1)) for d in dib])
+        return self._pz_dib
+
     def dibujos(self):
         """(trazos de la hoja, sus cajas en el marco de la leyenda como matriz n×4)."""
         if self._dib is None:
+            np = self.np
             dib = _dibujos(self.page)
-            cajas = self.np.array([self.marco.caja(tuple(d["rect"])) for d in dib], float).reshape(-1, 4)
+            # `_Marco.caja` de cada trazo, en bloque (mismas cuentas, mismo orden: mismos números)
+            r = np.array([tuple(d["rect"]) for d in dib], float).reshape(-1, 4)
+            e, n = self.marco.e, self.marco.n
+            us = [r[:, 0] * e[0] + r[:, 1] * e[1], r[:, 2] * e[0] + r[:, 1] * e[1],
+                  r[:, 0] * e[0] + r[:, 3] * e[1], r[:, 2] * e[0] + r[:, 3] * e[1]]
+            ws = [r[:, 0] * n[0] + r[:, 1] * n[1], r[:, 2] * n[0] + r[:, 1] * n[1],
+                  r[:, 0] * n[0] + r[:, 3] * n[1], r[:, 2] * n[0] + r[:, 3] * n[1]]
+            cajas = np.stack([np.minimum.reduce(us), np.minimum.reduce(ws),
+                              np.maximum.reduce(us), np.maximum.reduce(ws)], axis=1) if len(r) else r
             self._dib = (dib, cajas)
         return self._dib
 
@@ -181,14 +240,26 @@ def _leer(page) -> Optional[LeyendaMapa]:
     heads = [h for h in heads if h.dir == dir_]
     pag = _Pagina(page, corr, simbs, _Marco(dir_), dir_)
     grupos = _grupos(heads)
+    inicios = inicios_de_piezas(page) if len(grupos) > 1 else None
+    if inicios:
+        pag.preparar_piezas(inicios)
     # una leyenda por hoja: en una compuesta cada hoja trae la suya, con los grosores de SU
     # escala (North y South de Phoenix van a escalas distintas): las filas de todas, sin
     # repetir, y todas sus cajas fuera del mapa
     filas: List[FilaMapa] = []
     zonas: List[Tuple[float, float, float, float]] = []
+    por_hoja: List[List[FilaMapa]] = []
     vistas = set()
-    for g in grupos:
-        f, z = _leer_grupo(pag, g, varias=len(grupos) > 1)
+    for k, g in enumerate(grupos):
+        avance.avisar(_tr("Leyendo la leyenda del plano…") if len(grupos) == 1
+                      else _tr("Leyendo la leyenda de cada hoja…"), k + 1, len(grupos))
+        pieza = None
+        if inicios:
+            pz = sorted(int(x) for x in pag.piezas_de([(h.glifos[0].seqno if h.glifos else -1) for h in g]))
+            pieza = pz[len(pz) // 2]
+        f, z = _leer_grupo(pag, g, varias=len(grupos) > 1, pieza=pieza)
+        if len(grupos) > 1 and f:
+            por_hoja.append(f)
         for fila in f:
             clave = (fila.texto, fila.seccion, tuple(sorted(fila.estilos)), fila.simbolo, fila.simbolo_fuente)
             if len(grupos) == 1 or clave not in vistas:
@@ -196,20 +267,26 @@ def _leer(page) -> Optional[LeyendaMapa]:
                 filas.append(fila)
         zonas += z
     _rotulos(page, filas, simbs)
-    return LeyendaMapa(filas, utilidad, escala, zonas, "", **notas)
+    for f in por_hoja:                      # los rótulos también en las filas de cada hoja
+        _rotulos(page, f, simbs)
+    return LeyendaMapa(filas, utilidad, escala, zonas, "", por_hoja=por_hoja, **notas)
 
 
-def _leer_grupo(pag: _Pagina, heads, varias: bool):
-    """(filas, zonas) de la leyenda de esos encabezados."""
+def _leer_grupo(pag: _Pagina, heads, varias: bool, pieza=None):
+    """(filas, zonas) de la leyenda de esos encabezados. `pieza` (hoja compuesta): solo con
+    los textos, símbolos y trazos de esa pieza."""
     np = pag.np
     marco = pag.marco
+    de_la_pieza = pieza is not None and pieza >= 0
     hs = sorted(h.tam for h in heads)[len(heads) // 2]
     hw = [marco.uw(h.origen)[1] for h in heads]
     hu = [(marco.uw(h.origen)[0], marco.uw(h.fin)[0], h) for h in heads]
     w_top, w_bot = min(hw) - 0.5 * hs, max(hw) + 40.0 * hs
     u_lo, u_hi = min(u for u, _f, _h in hu) - 30.0 * hs, max(f for _u, f, _h in hu) + 60.0 * hs
     labels = []
-    for u, w, c in pag.etiquetas:
+    for k_e, (u, w, c) in enumerate(pag.etiquetas):
+        if de_la_pieza and pag.pz_etq[k_e] != pieza:
+            continue
         if not (0.3 * hs <= c.tam <= 0.95 * hs):
             continue
         if w_top < w <= w_bot and u_lo <= u <= u_hi:
@@ -232,7 +309,10 @@ def _leer_grupo(pag: _Pagina, heads, varias: bool):
     lu1 = max(marco.uw(t[2].fin)[0] for col in columnas for t in col) + hs
     lw0 = min(t[1] for col in columnas for t in col) - 3 * hs
     lw1 = max(t[1] for col in columnas for t in col) + 3 * hs
-    dentro = np.nonzero((B[:, 2] >= lu0) & (B[:, 0] <= lu1) & (B[:, 3] >= lw0) & (B[:, 1] <= lw1))[0]
+    m_dentro = (B[:, 2] >= lu0) & (B[:, 0] <= lu1) & (B[:, 3] >= lw0) & (B[:, 1] <= lw1)
+    if de_la_pieza:
+        m_dentro &= pag.piezas_dibujos() == pieza
+    dentro = np.nonzero(m_dentro)[0]
     dib_uw = [(tuple(float(x) for x in B[i]), dibujos[i]) for i in dentro]
     # divisores: trazos cuya caja toca la franja de los encabezados (en una compuesta, solo
     # los de esta leyenda: las de las hojas vecinas pueden estar en la misma franja)
@@ -240,6 +320,8 @@ def _leer_grupo(pag: _Pagina, heads, varias: bool):
     franja = (B[:, 3] >= w_lo) & (B[:, 1] <= w_hi)
     if varias:
         franja &= (B[:, 2] >= u_lo) & (B[:, 0] <= u_hi)
+    if de_la_pieza:
+        franja &= pag.piezas_dibujos() == pieza
     divs = _divisores([dibujos[i] for i in np.nonzero(franja)[0]], marco, w_lo, w_hi, DIVISOR_MIN * hs)
     fin_col = [max(marco.uw(t[2].fin)[0] for t in col) for col in columnas]
     alto_col = [(col[0][1] - col[0][2].tam, col[-1][1] + col[-1][2].tam) for col in columnas]
@@ -260,10 +342,16 @@ def _leer_grupo(pag: _Pagina, heads, varias: bool):
             zonas_fila.append((k, u, w, c, zu0, zu1, wc - 0.5 * paso, wc + 0.5 * paso, wc, paso))
     U0, U1 = min(z[4] for z in zonas_fila), max(z[5] for z in zonas_fila)
     W0, W1 = min(z[6] for z in zonas_fila), max(z[7] for z in zonas_fila)
-    txt = np.nonzero((pag.cu >= U0) & (pag.cu <= U1) & (pag.cw >= W0) & (pag.cw <= W1))[0]
+    m_txt = (pag.cu >= U0) & (pag.cu <= U1) & (pag.cw >= W0) & (pag.cw <= W1)
+    if de_la_pieza:
+        m_txt &= pag.pz_corr == pieza
+    txt = np.nonzero(m_txt)[0]
     banda = max(SIMBOLO_BANDA * z[9] for z in zonas_fila)
-    sim_i = np.nonzero((pag.su >= U0) & (pag.su <= U1) & (pag.sw >= min(z[8] for z in zonas_fila) - banda)
-                       & (pag.sw <= max(z[8] for z in zonas_fila) + banda))[0]
+    m_sim = ((pag.su >= U0) & (pag.su <= U1) & (pag.sw >= min(z[8] for z in zonas_fila) - banda)
+             & (pag.sw <= max(z[8] for z in zonas_fila) + banda))
+    if de_la_pieza:
+        m_sim &= pag.pz_sim == pieza
+    sim_i = np.nonzero(m_sim)[0]
     filas: List[FilaMapa] = []
     cajas: List[Tuple[float, float, float, float]] = []
     secciones: Dict[int, str] = {}

@@ -29,6 +29,7 @@ from typing import Dict, List, Optional, Sequence, Tuple
 import fitz
 
 from traduccion.i18n_core import t as _tr   # etiquetas del esquema de hojas
+from nucleo import avance
 
 Pt = Tuple[float, float]
 
@@ -1140,7 +1141,8 @@ def build_document(comp: Composite, docs: Sequence[fitz.Document],
         _add_blend_state(dst, page)
     seen = _ocg_xrefs(dst)
     ocg_source: Dict[int, int] = {}
-    for piece in comp.pieces:
+    for k_av, piece in enumerate(comp.pieces):
+        avance.avisar(_tr("Copiando cada hoja con sus vectores, capas y textos…"), k_av + 1, len(comp.pieces))
         src = docs[piece.source]
         spage = src[piece.page]
         cx0, cy0, cx1, cy1 = clip_rect_pt((spage.rect.width, spage.rect.height), piece.clip)
@@ -1428,6 +1430,7 @@ def compute_bridges(comp: Composite, docs: Sequence[fitz.Document]) -> List[Brid
     target = comp.target_scale()
     by_piece: Dict[int, List[Anchor]] = {}
     for i, p in enumerate(comp.pieces):
+        avance.avisar(_tr("Buscando las líneas que cruzan cada costura…"), i + 1, len(comp.pieces))
         page = docs[p.source][p.page]
         size = (page.rect.width, page.rect.height)
         by_piece[i] = map_anchors(p, size, target, edge_anchors(page, p.clip, insets=p.covers))
