@@ -427,3 +427,35 @@ def test_tuberias_encimadas_no_hacen_brazos_gigantes_ni_desaparecen():
     assert all((esc.opacos[:, 10] == i + 1).any() for i in range(3))     # todas se dibujan
     x = esc.opacos[esc.opacos[:, 10] == 1, 0] + esc.origen[0]
     assert x.max() - x.min() > 40                                          # la #1 sigue entera (60 ft)
+
+
+# ───────────── conexiones verticales CON sus accesorios (2026-10-14) ─────────────
+
+def test_conexiones_verticales_con_codos_tee_y_wye_como_el_plugin():
+    """Cada conexión aprobada lleva las piezas del plugin: Tee si la utilidad pasa, codo 90°
+    si termina, y en un quiebre (la que pasa ya lleva codo) Wye + codos; con poco desnivel,
+    solo la Wye (ramal inclinado)."""
+    import math
+    from PySide6 import QtWidgets
+    QtWidgets.QApplication.instance() or QtWidgets.QApplication([])
+    from nucleo import modelo3d
+    from ui.dialogos import vista3d_dialog
+    from ui.ventana.app_window import Main
+    ruta = os.path.join(os.path.dirname(os.path.abspath(__file__)), "escenarios", "cruces", "escenarios_prueba.digproj")
+    w = Main(); w._info = lambda *a, **k: None
+    w._open_project_path(ruta); w._redraw()
+    dlg = vista3d_dialog.Vista3DDialog(w)
+    esc = modelo3d.construir(**dlg._datos())
+    ft = w.scale / w.zoom
+    piezas = {}
+    for c in w.cross_connections:
+        piezas[(c["pipe_a"] + 1, c["pipe_b"] + 1)] = sorted(
+            (o["acc_tipo"], bool(o.get("vertical"))) for o in esc.objetos.values()
+            if o["tipo"] == "accesorio" and math.dist((o["x"], o["y"]), (c["x"], c["y"])) * ft < 12)
+    T, C, W = ("tee", True), ("codo", True), ("wye", False)
+    assert piezas[(50, 51)] == [T, T]                   # las dos pasan
+    assert piezas[(52, 53)] == [C, T]                   # una pasa, la otra termina
+    assert piezas[(56, 57)] == [C, C]                   # las dos terminan
+    assert piezas[(54, 55)] == [C, C, W]                # quiebre: Wye + codo arriba + codo abajo
+    assert piezas[(58, 59)] == [W]                      # 2 ft de desnivel: no caben dos codos
+    dlg.close(); w._dirty = False

@@ -10,7 +10,7 @@ alcantarillado, drenaje, gas, eléctrico, telecom). Todo en **unidades imperiale
   - `main.py` — punto de entrada (arma `sys.path`: `app/` + raíz).
   - **Carpetas por capa (2026-10-08, en curso)**: `app/nucleo/` = lógica PURA del dominio (sin Qt ni fitz):
     `model`, `model_ops`, `xdata`, `duct_bank`, `unir_utilidades`, `unir_ramales`, `quiebres_curvas`,
-    `accesorios`, `normas_catalogo`, `normas_excel`, `normas_validar`, `normas_aprobacion`, `tabla_datos`, `tabla_excel`, `conflictos`, `modelo3d`, `mallas3d`, `accesorios3d`, `marcas3d`, `ficha3d`, `edicion_bloque`,
+    `accesorios`, `normas_catalogo`, `normas_excel`, `normas_excel_ayuda`, `normas_validar`, `normas_aprobacion`, `tabla_datos`, `tabla_excel`, `conflictos`, `modelo3d`, `mallas3d`, `accesorios3d`, `verticales3d`, `marcas3d`, `ficha3d`, `edicion_bloque`,
     `limpieza`, `limpieza_tramos`. Se importan
     como `from nucleo import model_ops` / `from nucleo.model import …` (nunca `import model_ops`: ese nombre
     ya no existe). Regla: la interfaz usa `nucleo`, `nucleo` NUNCA importa la interfaz (PySide6, `i18n`,
@@ -1244,7 +1244,19 @@ alcantarillado, drenaje, gas, eléctrico, telecom). Todo en **unidades imperiale
     «Quitar aprobación», «Mostrar aprobados»; `Main.aprobar_avisos`/`quitar_aprobacion`. Tests:
     `tests/test_normas_aprobacion.py` (también el Excel con estado/familia/tamaño/diámetro/material:
     `tabla_excel._cambios_seccion`, `catalogo=Main._catalogo_excel()`, aplica por `edicion_bloque.aplicar`). `.digproj`: ya no
-    escribe `normativas_activas` (la lee y la ignora). Tests: `tests/test_normas.py`.
+    escribe `normativas_activas` (la lee y la ignora). **Rangos MIN/MAX** (2026-10-14, Excel v2 del ingeniero con
+    «0.5-2», «>4», «>=400» en una celda que se perdían callados): PRESION-DIAMETROS `DIAMETRO MIN/MAX (in)` (fila con
+    lista O rango, `_permite`), ELECT-TELECOM `AMPERAJE MIN/MAX (A)`, `LONGITUD MIN/MAX (pies)`, `RADIO CURVA MAX`;
+    en memoria [mín, máx] con None = abierto (`nc.rango_min_max`, `en_rango`, `texto_rango` «≥ 400»); se sigue
+    leyendo «AMPERAJE (A)»/«LONGITUD RANGO» «0-320». `importar(ruta, problemas=[])` anota cada celda que no entiende
+    (hoja, fila, columna; el diálogo la muestra y no aplica en silencio). Radio de curva: `validar(structures=)` →
+    aviso «radio» en la curva (`radius_ft` o `radio_auto_ft`). Al exportar: comentario por encabezado, validación
+    numérica en MIN/MAX y hoja INSTRUCCIONES primera (`nucleo/normas_excel_ayuda.py`); solo se leen las 4 tablas
+    (INSTRUCCIONES y «auxiliar» = notas del ingeniero, nunca). Columna DESCONOCIDA (p. ej. «DIAMETRO PRINCIPAL (in)»
+    antes del `ALIAS`) → problema «HOJA: columna «X» desconocida» (antes se perdía callada). **v4** (2026-10-14):
+    `BASE` = «Normativas v4» del ingeniero (copia en `tests/escenarios/normativas_1_3_1.xlsx`) y columna
+    `RADIO CURVA FIJO (pies)` (lista, `radio_fijo`: la curva debe ser uno de esos radios ±0.005 ft; con MIN/MAX
+    además el rango). Tests: `tests/test_normas.py`.
   - **Tabla de datos** (2026-10-09, Herramientas, Ctrl+Shift+T, botón `_act_tabla` `mdi:table-large`):
     `nucleo/tabla_datos.py` (PURO: `armar(...)` → `Tabla` utilidades/buzones/curvas/bancoductos/avisos, con
     `lugares` para ir al plano; `exportar_excel` una hoja por tabla) + `ui/dialogos/tabla_datos_dialog.py` (no
@@ -1270,7 +1282,16 @@ alcantarillado, drenaje, gas, eléctrico, telecom). Todo en **unidades imperiale
     (Wye a 0.4°) daban brazos de cientos/miles de ft y con 0.01° el tubo se recortaba ENTERO (santos_proyecto_prueba,
     #8 de agua: solo se veían sus codos): `separar` y `SepararBrazos` (WyeSolido.cs) ya NO separan brazos a <
     `ANG_EJES_MIN_DEG` (superpuestos; el plugin lo avisa), y `RECORTE_MAX`=0.45: una campana nunca recorta más
-    del 45 % de una tubería (ninguna puede desaparecer). Largos y diámetros 3D = DXF (verificado: diferencia 0); «sin tipo» no se marca (como
+    del 45 % de una tubería (ninguna puede desaparecer). **Conexiones verticales** (2026-10-14, `nucleo/verticales3d.py`,
+    espejo de `CrearConexionesCruzadas`/`ColocarFittingSolido`/`CrearCruceConWye` con `FITTING_COMO_SOLIDO`; antes solo
+    un cilindro): `planear` (antes de los accesorios) + `dibujar` (después). Vertical Ø = el menor; en cada horizontal
+    (eje = solera + r) CODO 90° si TERMINA a ≤0.5 ft (`alejandose`, como `DireccionAlejandoseDelCruce`) o TEE si pasa
+    (tangente); recortes en las campanas. Caso Wye: la que pasa tiene un codo del plano ahí y la otra termina →
+    `_accesorios` convierte ESE codo en Wye (`_plan_wye`, tronco con `ENGROSE_TRONCO_Y_FT`, ramal `ramal_de`) y
+    `_wye` pone tubo aux `TUBO_AUX_CRUCE_FT` + codo + vertical + codo (en `d_e3`, la otra se recorta); desnivel < 2 bocas
+    de codo 90° + 0.05 → `inclinada`: ramal hacia el vértice siguiente de la que termina y su punta sube/baja a la Wye
+    (`_utilidad(ajustes=)`). Piezas registradas como «accesorio» (`vertical=True`) con ficha. Sin «Accesorios» a la
+    vista: solo la vertical. Test: `test_conexiones_verticales_con_codos_tee_y_wye_como_el_plugin`. Largos y diámetros 3D = DXF (verificado: diferencia 0); «sin tipo» no se marca (como
     en el plano). Ids: utilidad i+1, estructura `ID_ESTRUCTURA`+j+1, accesorio, aviso (`objeto_de`). Suelo
     automático = tapa más alta o 3 ft sobre el tope de la tubería más alta. `nucleo/mallas3d.py`: primitivas
     (`barrido_camino` VECTORIZADO —un tramo por llamada tardaba 1.4 s con 66 utilidades, ahora ~0.3 s—, `prisma`, `esfera`, `elegir` = rayo contra cápsulas con
@@ -1322,7 +1343,12 @@ alcantarillado, drenaje, gas, eléctrico, telecom). Todo en **unidades imperiale
     fila), `aplicar`; el diálogo confirma, `_push` (Ctrl+Z) y recalcula. 3D: `nucleo/marcas3d.py` (avisos y
     conflictos; `ID_CONFLICTO`, `Escena.etiquetas`, `ui/comun/etiquetas3d.dibujar` con QPainter), ficha
     `ficha3d.de_conflicto`; sin el tooltip de instrucciones en el visor (tapaba el de los conflictos). Tests:
-    `tests/test_conflictos_excel.py`.
+    `tests/test_conflictos_excel.py`. **Pendiente (%)** (2026-10-14): `model_ops.pendientes_tramos` (por tramo =
+    por tubería de Civil 3D, Slope: Δcota/largo en planta, con `cotas_tramo`) y `pendiente_total` (rasantes de punta a
+    punta / largo en planta): columna en la Tabla de datos (verde en el Excel) y ficha 3D («Pendiente por tramo» si
+    cambia). Al importar, `tabla_excel.incoherencias`: una pendiente CAMBIADA (≠ la del proyecto ±0.0015) que no
+    coincide con las rasantes de su fila → el diálogo NO importa nada y sugiere la rasante; `cambios` nunca la
+    aplica (se recalcula). Tests: `tests/test_pendiente.py`.
   - **Unir utilidades** (2026-10-02): `unir_utilidades.py` (PURO) `planificar(pipes, filas, base,
     ft_per_px)` → `Plan` (pipe unida, empalmes, absorbidas, avisos): encadena punta con punta desde la
     BASE (la 1.ª seleccionada, `Main._orden_sel`; sus datos mandan), `invertir` las que van al revés,

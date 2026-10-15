@@ -19,7 +19,7 @@ import textwrap
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 _AQUI = os.path.dirname(os.path.abspath(__file__))
-_RAIZ = os.path.dirname(os.path.dirname(_AQUI))
+_RAIZ = os.path.dirname(os.path.dirname(os.path.dirname(_AQUI)))   # tests/escenarios/cruces → raíz
 for _p in (os.path.join(_RAIZ, "app"), _RAIZ):
     if _p not in sys.path:
         sys.path.insert(0, _p)

@@ -11,7 +11,7 @@ from nucleo import normas_aprobacion as na  # noqa: E402
 from nucleo import tabla_excel  # noqa: E402
 from nucleo.normas_validar import Aviso  # noqa: E402
 
-ESC = os.path.join(os.path.dirname(os.path.abspath(__file__)), "escenarios", "escenarios_prueba.digproj")
+ESC = os.path.join(os.path.dirname(os.path.abspath(__file__)), "escenarios", "cruces", "escenarios_prueba.digproj")
 
 
 # ─────────────────────────── puro ───────────────────────────

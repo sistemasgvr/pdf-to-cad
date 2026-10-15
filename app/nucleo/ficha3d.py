@@ -46,18 +46,21 @@ def _avisos(avisos, pipes_idx, x=None, y=None, tol=None):
     return out
 
 
-def de_utilidad(tablas, pipes, avisos, i):
-    """(título, [(campo, valor)]) de la utilidad i."""
+def de_utilidad(tablas, pipes, avisos, i, ft_per_px=None):
+    """(título, [(campo, valor)]) de la utilidad i. Con `ft_per_px`, la pendiente de CADA tramo
+    (en Civil 3D cada tramo es una tubería con su pendiente) si no es la misma en todos."""
     d = _fila(tablas[0], "pipe", i)
     if d is None or not (0 <= i < len(pipes)):
         return "", []
     p = pipes[i]
     titulo = f"#{i + 1} {d.get(N_('Nombre')) or ''}".strip()
     filas = _limpias(d)
-    largo = d.get(N_("Largo (ft)"))
-    zs, ze = p.get("inv_start"), p.get("inv_end")
-    if largo and zs is not None and ze is not None:
-        filas.append((N_("Pendiente (%)"), _valor(round((float(ze) - float(zs)) / float(largo) * 100.0, 3))))
+    if ft_per_px:
+        tramos = [s for s in model_ops.pendientes_tramos(p, ft_per_px)]
+        validas = [s for s in tramos if s is not None]
+        if len(validas) > 1 and max(validas) - min(validas) > 0.0005:
+            texto = " · ".join(f"T{k + 1} {_valor(round(s, 3))}" for k, s in enumerate(tramos) if s is not None)
+            filas.append((N_("Pendiente por tramo (%)"), texto))
     filas = [(c, v) for c, v in filas if c != N_("Avisos")]
     for m in _avisos(avisos, {i}):
         filas.append((N_("Aviso"), m))

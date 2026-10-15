@@ -3202,8 +3202,6 @@ EN: dict[str, str] = {
         '4. In «Elevations per vertex», an empty cell = automatic elevation (interpolated).',
     '5 o más tuberías en un punto':
         '5 or more pipes at one point',
-    '5. Los conflictos (hoja «Conflictos», C-1, C-2…) se recalculan al importar.':
-        '5. Conflicts (sheet «Conflicts», C-1, C-2…) are recalculated when importing.',
     'Automática (ft)':
         'Automatic (ft)',
     'Choque entre redes distintas':
@@ -3379,4 +3377,36 @@ EN: dict[str, str] = {
         'Also paste the elevations (start invert {a} ft, end {b} ft)',
     'Las cotas por vértice (llegada y salida) se pegan solo en las utilidades con la misma cantidad de vértices; en las demás quedan interpoladas.':
         'Per-vertex elevations (incoming and outgoing) are pasted only in utilities with the same number of vertices; in the others they stay interpolated.',
+    'Radio de curva':
+        'Curve radius',
+    'mínimo {r} ft':
+        'minimum {r} ft',
+    'máximo {r} ft':
+        'maximum {r} ft',
+    'Curva de radio {r} ft: {req}':
+        'Curve radius {r} ft: {req}',
+    'No se usó (corrígelo en el Excel):':
+        'Not used (fix it in the Excel):',
+    'Capas por estilo asignadas por la leyenda del plano: revisa líneas y símbolos antes de importar.':
+        'Style layers assigned by the plan legend: check lines and symbols before importing.',
+    'Leyenda del plano: {n} trazo(s) de sus muestras no se reconocen como tuberías.':
+        'Plan legend: {n} stroke(s) of its samples are not recognized as pipes.',
+    'Leyenda del plano leída, pero ningún estilo es solo de una red: asígnalos abajo.':
+        'Plan legend read, but no style belongs to a single network: assign them below.',
+    'Leyenda del plano: {u} — {l} estilo(s) de líneas y {e} de estructuras ya asignados. Revísalos y cambia lo que haga falta.':
+        'Plan legend: {u} — {l} line style(s) and {e} structure style(s) already assigned. Review them and change what is needed.',
+    'Sin asignar (la leyenda también los usa para lotes, anotaciones u otra red):':
+        'Unassigned (the legend also uses them for lots, annotations or another network):',
+    'Pendiente por tramo (%)':
+        'Slope per segment (%)',
+    '5. Pendiente (%) = (rasante final − rasante inicial) / largo × 100. Si la cambias, cambia también la rasante inicial o la final para que coincidan: si no coinciden, el Excel NO se importa.':
+        '5. Slope (%) = (end invert − start invert) / length × 100. If you change it, also change the start or end invert so they match: if they do not match, the Excel is NOT imported.',
+    '6. Los conflictos (hoja «Conflictos», C-1, C-2…) se recalculan al importar.':
+        '6. Conflicts («Conflicts» sheet, C-1, C-2…) are recalculated when importing.',
+    'Utilidad #{n}: la pendiente «{v}» no es un número.':
+        'Utility #{n}: the slope «{v}» is not a number.',
+    'Utilidad #{n}: pendiente {p} %, pero sus rasantes ({zs} → {ze} ft en {L} ft) dan {dan} %. Para {p} % la rasante final sería {sug} ft (o la inicial {sug0} ft).':
+        'Utility #{n}: slope {p} %, but its inverts ({zs} → {ze} ft over {L} ft) give {dan} %. For {p} % the end invert would be {sug} ft (or the start one {sug0} ft).',
+    'No se importó nada: estas pendientes no coinciden con las cotas de su utilidad. La pendiente se calcula con la rasante inicial, la final y el largo: si la cambias, cambia también una rasante (o deja la pendiente como estaba). Corrige el Excel y vuelve a importarlo.':
+        'Nothing was imported: these slopes do not match the elevations of their utility. The slope is calculated from the start invert, the end invert and the length: if you change it, also change an invert (or leave the slope as it was). Fix the Excel and import it again.',
 }

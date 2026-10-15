@@ -351,7 +351,8 @@ class Vista3DDialog(QtWidgets.QDialog):
         titulo, filas = "", []
         try:
             if tipo == "pipe":
-                titulo, filas = ficha3d.de_utilidad(w._tablas_de_datos(), w.pipes, self._avisos_dicts(), k)
+                titulo, filas = ficha3d.de_utilidad(w._tablas_de_datos(), w.pipes, self._avisos_dicts(), k,
+                                                    w.scale / w.zoom if w.scale and w.zoom else None)
             elif tipo == "struct":
                 titulo, filas = ficha3d.de_estructura(w._tablas_de_datos(), k, (o or {}).get("z0"),
                                                       (o or {}).get("z1"))

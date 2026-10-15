@@ -7,15 +7,19 @@ de las celdas:
   TIPOS               UTILIDAD | TIPO — los tipos que cada utilidad puede elegir
                       (Distribución principal, Instalación domiciliaria…). El usuario
                       suma tipos con el «+» del panel y salen al exportar el Excel.
-  PRESION-DIAMETROS   UTILIDAD | TIPO | DIAMETRO (in) | SOLO SE PERMITE EN (nota)
-  PRESION-ACCESORIOS  UTILIDAD | ACCESORIO | SOLO SE PERMITE EN | DIAMETRO PRINCIPAL |
+  PRESION-DIAMETROS   UTILIDAD | TIPO | DIAMETRO (in) (lista) | DIAMETRO MIN / MAX (in) (rango) |
+                      SOLO SE PERMITE EN (nota)
+  PRESION-ACCESORIOS  UTILIDAD | ACCESORIO | SOLO SE PERMITE EN | DIAMETRO PRINCIPAL (in) |
                       PROHIBIDO USO | DIAMETRO RAMAL DISTRIBUCION (-1 = un tamaño menor
                       en la lista) | ANGULOS PERMITIDOS
-  ELECT-TELECOM       UTILIDAD | ESTRUCTURA | TIPO | AMPERAJE (A) | LONGITUD RANGO (pies) |
-                      DIAMETRO FIJO / MIN / MAX (in) | RADIO CURVA MIN (pies)
+  ELECT-TELECOM       UTILIDAD | ESTRUCTURA | TIPO | AMPERAJE MIN / MAX (A) | LONGITUD MIN / MAX
+                      (pies) | DIAMETRO FIJO / MIN / MAX (in) | RADIO CURVA MIN / MAX / FIJO (pies)
 
 Celda vacía = sin restricción o no aplica. Listas con «;» y decimales con coma
-(«1; 1,5; 2»), rangos «0-320». El catálogo es GLOBAL (vale para todos los proyectos):
+(«1; 1,5; 2»). Los RANGOS van en dos columnas MIN y MAX (2026-10-14, Excel revisado por el
+ingeniero: «0.5-2», «>4», «>=400» en una celda se perdían): «de 0.5 a 2» = MIN 0.5, MAX 2;
+«4 o más» = MIN 4 y MAX vacío; los dos extremos cuentan. En memoria un rango es [mín, máx]
+con None en el extremo abierto. Se sigue leyendo el formato viejo «0-320» en una celda. El catálogo es GLOBAL (vale para todos los proyectos):
 `ruta()` en %APPDATA%/pdf-to-cad (o `PDFCAD_NORMAS_TABLAS` en las pruebas).
 """
 from __future__ import annotations
@@ -31,20 +35,31 @@ UTILIDADES = ("AGUA", "ALCANTARILLADO", "DRENAJE", "GAS", "ELECTRICO", "TELECOM"
 ACCESORIOS = {"Y": "wye", "WYE": "wye", "T": "tee", "TEE": "tee", "CRUZ": "cruz", "CODO": "codo",
               "T - DOMICILIARIA": "tee_dom", "T DOMICILIARIA": "tee_dom", "T-DOMICILIARIA": "tee_dom"}
 
+# Normativas de fábrica = el Excel «Normativas v4» del ingeniero (2026-10-14).
+_ELEC = dict(utilidad="ELECTRICO", estructura="SIMPLE", diam_fijo=[], diam_max=None, radio_min=None,
+             radio_max=None, radio_fijo=[3, 4])
 BASE = {
     "version": 1,
     "tipos": [["AGUA", "DISTRIBUCION PRINCIPAL"], ["AGUA", "ALIMENTACION Y CONDUCCION"],
-              ["AGUA", "INSTALACION DOMICILIARIA"], ["ELECTRICO", "DISTRIBUCION PRINCIPAL"],
-              ["ELECTRICO", "INSTALACION DOMICILIARIA"]],
+              ["AGUA", "INSTALACION DOMICILIARIA"], ["GAS", "SERVICIO RESIDENCIAL"],
+              ["GAS", "SERVICIO COMERCIAL/MULTIFAMILIAR"], ["GAS", "DISTRIBUCION PRINCIPAL"],
+              ["ELECTRICO", "DISTRIBUCION PRINCIPAL"], ["ELECTRICO", "DIMENSIONAMIENTO RESIDENCIAL"],
+              ["TELECOM", "DISTRIBUCION PRINCIPAL"]],
     "diametros": [
         {"utilidad": "AGUA", "tipo": "DISTRIBUCION PRINCIPAL", "diametros": [6, 8, 12, 16],
-         "nota": "TUBERIA DE DISTRIBUCION PRINCIPAL"},
-        {"utilidad": "AGUA", "tipo": "DISTRIBUCION PRINCIPAL", "diametros": [4],
+         "diam_min": None, "diam_max": None, "nota": "TUBERIA DE DISTRIBUCION PRINCIPAL"},
+        {"utilidad": "AGUA", "tipo": "DISTRIBUCION PRINCIPAL", "diametros": [4], "diam_min": None, "diam_max": None,
          "nota": "CALLES SIN SALIDA (cul-de-sacs), donde no necesiten hidrantes mayores a 2 pulgadas"},
         {"utilidad": "AGUA", "tipo": "ALIMENTACION Y CONDUCCION", "diametros": [16, 20, 24],
-         "nota": "LINEAS DE ALIMENTACION Y CONDUCCION"},
+         "diam_min": None, "diam_max": None, "nota": "LINEAS DE ALIMENTACION Y CONDUCCION"},
         {"utilidad": "AGUA", "tipo": "INSTALACION DOMICILIARIA", "diametros": [1, 1.5, 2],
-         "nota": "INSTALACIONES DOMICILIARIAS"},
+         "diam_min": None, "diam_max": None, "nota": "INSTALACIONES DOMICILIARIAS"},
+        {"utilidad": "GAS", "tipo": "SERVICIO RESIDENCIAL", "diametros": [0.5, 1, 1.5, 2],
+         "diam_min": None, "diam_max": None, "nota": "USO RESIDENCIAL"},
+        {"utilidad": "GAS", "tipo": "SERVICIO COMERCIAL/MULTIFAMILIAR", "diametros": [2, 4],
+         "diam_min": None, "diam_max": None, "nota": "USO COMERCIAL O MULTIFAMILIAR"},
+        {"utilidad": "GAS", "tipo": "DISTRIBUCION PRINCIPAL", "diametros": [], "diam_min": 6, "diam_max": None,
+         "nota": "TUBERIAS PRINCIPALES"},
     ],
     "accesorios": [
         {"utilidad": "AGUA", "accesorio": "Y", "solo_en": "", "diam_principal": [],
@@ -61,22 +76,13 @@ BASE = {
          "prohibido_en": "", "ramal": None, "angulos": [45, 90]},
     ],
     "electricas": [
-        {"utilidad": "ELECTRICO", "estructura": "SIMPLE", "tipo": "DISTRIBUCION PRINCIPAL", "amperaje": None,
-         "longitud": None, "diam_fijo": [], "diam_min": 3, "diam_max": None, "radio_min": None},
-        {"utilidad": "TELECOM", "estructura": "SIMPLE", "tipo": "", "amperaje": None,
-         "longitud": None, "diam_fijo": [], "diam_min": 4, "diam_max": None, "radio_min": None},
-        {"utilidad": "ELECTRICO", "estructura": "SIMPLE", "tipo": "INSTALACION DOMICILIARIA",
-         "amperaje": [0, 320], "longitud": [0, 100], "diam_fijo": [3], "diam_min": None, "diam_max": None,
-         "radio_min": None},
-        {"utilidad": "ELECTRICO", "estructura": "SIMPLE", "tipo": "INSTALACION DOMICILIARIA",
-         "amperaje": [0, 320], "longitud": [101, 200], "diam_fijo": [3], "diam_min": None, "diam_max": None,
-         "radio_min": None},
-        {"utilidad": "ELECTRICO", "estructura": "SIMPLE", "tipo": "INSTALACION DOMICILIARIA",
-         "amperaje": [321, 400], "longitud": [0, 100], "diam_fijo": [3], "diam_min": None, "diam_max": None,
-         "radio_min": None},
-        {"utilidad": "ELECTRICO", "estructura": "SIMPLE", "tipo": "INSTALACION DOMICILIARIA",
-         "amperaje": [321, 400], "longitud": [101, 200], "diam_fijo": [4], "diam_min": None, "diam_max": None,
-         "radio_min": None},
+        dict(_ELEC, tipo="DISTRIBUCION PRINCIPAL", amperaje=None, longitud=None, diam_min=2),
+        dict(_ELEC, utilidad="TELECOM", tipo="DISTRIBUCION PRINCIPAL", amperaje=None, longitud=None, diam_min=2,
+             radio_fijo=[]),
+        dict(_ELEC, tipo="DIMENSIONAMIENTO RESIDENCIAL", amperaje=[0, 320], longitud=[0, 100], diam_min=3),
+        dict(_ELEC, tipo="DIMENSIONAMIENTO RESIDENCIAL", amperaje=[0, 320], longitud=[101, 200], diam_min=3),
+        dict(_ELEC, tipo="DIMENSIONAMIENTO RESIDENCIAL", amperaje=[400, None], longitud=[0, 100], diam_min=3),
+        dict(_ELEC, tipo="DIMENSIONAMIENTO RESIDENCIAL", amperaje=[400, None], longitud=[101, 200], diam_min=4),
     ],
 }
 
@@ -140,7 +146,35 @@ def texto_lista(nums):
 
 
 def texto_rango(r):
-    return "" if not r else f"{texto_numero(r[0])}-{texto_numero(r[1])}"
+    """[0, 320] → «0-320»; [400, None] → «≥ 400»; [None, 100] → «≤ 100»."""
+    if not r or (r[0] is None and r[1] is None):
+        return ""
+    if r[1] is None:
+        return f"≥ {texto_numero(r[0])}"
+    if r[0] is None:
+        return f"≤ {texto_numero(r[1])}"
+    return f"{texto_numero(r[0])}-{texto_numero(r[1])}"
+
+
+def rango_min_max(minimo, maximo):
+    """Rango de las columnas MIN y MAX: [mín, máx] (None = sin ese límite) o None si las dos
+    están vacías."""
+    lo, hi = numero(minimo), numero(maximo)
+    if lo is None and hi is None:
+        return None
+    if lo is not None and hi is not None and lo > hi:
+        lo, hi = hi, lo
+    return [lo, hi]
+
+
+def en_rango(v, r, tol=1e-9):
+    """¿v dentro del rango [mín, máx] (extremos incluidos, None = sin límite)?"""
+    if r is None:
+        return True
+    if v is None:
+        return False
+    lo, hi = r
+    return (lo is None or v >= lo - tol) and (hi is None or v <= hi + tol)
 
 
 def texto_pulgadas(n):
@@ -168,6 +202,12 @@ def normalizar(cat):
         if not isinstance(out.get(k), list):
             out[k] = []
     out["tipos"] = [[clave(u), clave(t)] for u, t in out["tipos"] if clave(u) and clave(t)]
+    for fila in out["diametros"]:
+        fila.setdefault("diam_min", None)
+        fila.setdefault("diam_max", None)
+    for fila in out["electricas"]:
+        fila.setdefault("radio_max", None)
+        fila.setdefault("radio_fijo", [])
     for fila in out["diametros"]:
         agregar_tipo(out, fila.get("utilidad"), fila.get("tipo"))
     for fila in out["electricas"]:

@@ -385,6 +385,37 @@ def z_en_tramo(p, seg_idx, x, y):
     return z0 + (z1 - z0) * t
 
 
+def pendientes_tramos(p, ft_per_px):
+    """[pendiente %] de cada tramo de `p`: (cota al fin − cota al inicio) / largo EN PLANTA × 100,
+    con las cotas por tramo de `cotas_tramo`. Es lo que Civil 3D muestra en cada tubería (Slope):
+    cada tramo entre vértices es una tubería. Negativa = baja en el sentido en que se dibujó.
+    None en un tramo de largo nulo."""
+    pts = p.get("pts") or []
+    out = []
+    for k in range(len(pts) - 1):
+        L = math.dist(pts[k], pts[k + 1]) * (ft_per_px or 0.0)
+        zz = cotas_tramo(p, k)
+        out.append(None if L < 1e-9 or zz is None else (zz[1] - zz[0]) / L * 100.0)
+    return out
+
+
+def largo_planta_ft(p, ft_per_px):
+    pts = p.get("pts") or []
+    return sum(math.dist(a, b) for a, b in zip(pts, pts[1:])) * (ft_per_px or 0.0)
+
+
+def pendiente_total(p, ft_per_px):
+    """Pendiente de punta a punta (%): (rasante final − rasante inicial) / largo en planta × 100.
+    Es la que va en la Tabla de datos y su Excel. None sin largo."""
+    L = largo_planta_ft(p, ft_per_px)
+    if L < 1e-9:
+        return None
+    zs, ze = p.get("inv_start"), p.get("inv_end")
+    zs = 0.0 if zs is None and ze is None else float(zs if zs is not None else ze)
+    ze = zs if ze is None else float(ze)
+    return (ze - zs) / L * 100.0
+
+
 def migrate_vertex_inv(p):
     """Migra el formato viejo (vertex_inv compartido) al nuevo
     (vertex_inv_out + vertex_inv_in independientes)."""

@@ -28,7 +28,8 @@ EDITABLES = {
                    N_("Material"): ("material", "texto", 0),
                    N_("Amperaje (A)"): ("amperaje", "num", 0.06),
                    N_("Rasante inicial (ft)"): ("inv_start", "num", 0.0006),
-                   N_("Rasante final (ft)"): ("inv_end", "num", 0.0006)},
+                   N_("Rasante final (ft)"): ("inv_end", "num", 0.0006),
+                   N_("Pendiente (%)"): ("pendiente", "pendiente", 0.0015)},
     "buzones": {N_("Tapa (ft)"): ("rim", "num", 0.0006), N_("Fondo (ft)"): ("sump", "num", 0.0006)},
     "curvas": {N_("Radio (ft)"): ("radius_ft", "radio", 0.006)},
     "vertices": {N_("Cota de llegada (ft)"): ("in", "num", 0.0006),
@@ -91,7 +92,9 @@ def exportar(tablas, ruta):
             [t("3. En la app: Herramientas → Tabla de datos → «Importar Excel…». Verás los cambios antes de "
                "aplicarlos y se pueden deshacer con Ctrl+Z.")],
             [t("4. En «Cotas por vértice», una celda vacía = cota automática (interpolada).")],
-            [t("5. Los conflictos (hoja «Conflictos», C-1, C-2…) se recalculan al importar.")]):
+            [t("5. Pendiente (%) = (rasante final − rasante inicial) / largo × 100. Si la cambias, cambia también "
+               "la rasante inicial o la final para que coincidan: si no coinciden, el Excel NO se importa.")],
+            [t("6. Los conflictos (hoja «Conflictos», C-1, C-2…) se recalculan al importar.")]):
         ley.append(fila)
     ley["A1"].font = Font(bold=True, size=13)
     ley.column_dimensions["A"].width = 110
@@ -295,8 +298,8 @@ def cambios(pipes, structures, leido, catalogo=None, con_bancoducto=()):
         p = pipes[i]
         _cambios_seccion(p, i, fila, catalogo, i in con_bancoducto, out, errores)
         for col, (campo, tipo, tol) in EDITABLES["utilidades"].items():
-            if col not in fila or tipo in _SECCION:
-                continue
+            if col not in fila or tipo in _SECCION or tipo == "pendiente":
+                continue                                 # la pendiente se revisa en `incoherencias`
             etq = t("Utilidad #{n} · {campo}").format(n=i + 1, campo=t(col))
             try:
                 nuevo = valor(tipo, fila[col], etq)
@@ -367,6 +370,52 @@ def cambios(pipes, structures, leido, catalogo=None, con_bancoducto=()):
             if _distinto(dic.get(v), nuevo, tol):
                 out.append(Cambio("vertice", i, "vertex_inv_" + lado, dic.get(v), nuevo, etq, v))
     return out, errores
+
+
+TOL_PENDIENTE = 0.0015       # % (el Excel la trae con 3 decimales)
+
+
+def incoherencias(pipes, leido, ft_per_px):
+    """Pendientes CAMBIADAS en el Excel que no coinciden con las rasantes de su fila (las
+    nuevas o, si no se tocaron, las del proyecto). La pendiente se calcula con las cotas: si
+    no coinciden, el Excel no se importa hasta que se corrija. Devuelve [mensaje]."""
+    out = []
+    for fila in leido.get("utilidades", []):
+        if N_("Pendiente (%)") not in fila:
+            continue
+        try:
+            i = int(fila.get(N_("N°"))) - 1
+        except (TypeError, ValueError):
+            continue
+        if not (0 <= i < len(pipes)):
+            continue
+        p = pipes[i]
+        try:
+            pct = _num(fila[N_("Pendiente (%)")])
+        except ValueError:
+            out.append(t("Utilidad #{n}: la pendiente «{v}» no es un número.").format(
+                n=i + 1, v=fila[N_("Pendiente (%)")]))
+            continue
+        actual = model_ops.pendiente_total(p, ft_per_px)
+        if pct is None or actual is None or abs(pct - actual) <= TOL_PENDIENTE:
+            continue                                     # no la cambiaron: se recalcula con las cotas
+        L = model_ops.largo_planta_ft(p, ft_per_px)
+
+        def rasante(col, campo):
+            try:
+                v = _num(fila.get(col))
+            except ValueError:
+                v = None
+            return float(v) if v is not None else float(p.get(campo) or 0.0)
+        zs, ze = rasante(N_("Rasante inicial (ft)"), "inv_start"), rasante(N_("Rasante final (ft)"), "inv_end")
+        dan = (ze - zs) / L * 100.0
+        if abs(pct - dan) <= TOL_PENDIENTE + 0.1 / L:     # + el redondeo de las rasantes a 3 decimales
+            continue
+        out.append(t("Utilidad #{n}: pendiente {p} %, pero sus rasantes ({zs} → {ze} ft en {L} ft) dan {dan} %. "
+                     "Para {p} % la rasante final sería {sug} ft (o la inicial {sug0} ft).").format(
+            n=i + 1, p=f"{pct:g}", zs=f"{zs:g}", ze=f"{ze:g}", L=f"{L:.2f}", dan=f"{dan:.3f}",
+            sug=f"{zs + pct * L / 100.0:.3f}", sug0=f"{ze - pct * L / 100.0:.3f}"))
+    return out
 
 
 def aplicar(pipes, structures, lista):

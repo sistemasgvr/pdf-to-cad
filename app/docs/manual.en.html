@@ -693,16 +693,22 @@ These alerts do not appear on storm drain and sewer: there the manhole handles d
 <tr><td bgcolor="{{card}}" width="28%"><b>TIPOS</b></td>
     <td bgcolor="{{card}}">The types each utility can choose: main distribution, service connection…</td></tr>
 <tr><td bgcolor="{{card}}"><b>PRESION-DIAMETROS</b></td>
-    <td bgcolor="{{card}}">Which diameters each water or gas type uses (with a note if it is only allowed in one
-        case, for example cul-de-sacs).</td></tr>
+    <td bgcolor="{{card}}">Which diameters each water or gas type uses: a list (6; 8; 12) or a range with
+        DIAMETRO MIN and MAX (gas from 0.5 to 2), with a note if it is only allowed in one case, for example
+        cul-de-sacs.</td></tr>
 <tr><td bgcolor="{{card}}"><b>PRESION-ACCESORIOS</b></td>
     <td bgcolor="{{card}}">Where each fitting (Y, T, Cross, Bend, service T) is allowed or forbidden, the main line
         diameter, the branch one (<b>-1</b> = one size smaller in the list) and the bend angles.</td></tr>
 <tr><td bgcolor="{{card}}"><b>ELECT-TELECOM</b></td>
-    <td bgcolor="{{card}}">Fixed, minimum or maximum diameter by type, <b>amperage</b> and line length.</td></tr>
+    <td bgcolor="{{card}}">Fixed, minimum or maximum diameter by type, <b>amperage</b> and line length, and the
+        <b>curve radius</b>: RADIO CURVA FIJO (the allowed radii, for example <i>3; 4</i>) or a range with RADIO
+        CURVA MIN and MAX.</td></tr>
 </table>
-<p>Empty cell = no restriction or not applicable. Lists with “;” and decimal comma (<i>1; 1,5; 2</i>), ranges
-like <i>0-320</i>.</p>
+<p>Empty cell = no restriction or not applicable. Lists with “;” and decimal comma (<i>1; 1,5; 2</i>).
+<b>Ranges go in two columns, MIN and MAX</b>: “from 0.5 to 2” = MIN 0.5 and MAX 2; “400 or more” = MIN 400 and MAX
+empty (both ends count). Never a range or a symbol in a single cell (<i>0.5-2</i>, <i>&gt;=400</i>). The Excel's
+<b>INSTRUCCIONES</b> sheet explains it with examples and each column has a comment (hover over its title). That
+sheet and any other that is not one of the four tables (for example “auxiliar”, for notes) are not imported.</p>
 
 <h2>Editing the standards</h2>
 <ol>
@@ -710,7 +716,8 @@ like <i>0-320</i>.</p>
 <li>Edit it in Excel. The drop-downs help: <b>UTILIDAD</b> lists the six utilities and <b>TIPO</b> only the
     types of that row's utility. A new type written as a new row in the TIPOS sheet appears in the drop-downs by
     itself.</li>
-<li><b>Import Excel…</b> brings it back. <b>Restore the initial values</b> undoes everything.</li>
+<li><b>Import Excel…</b> brings it back. If a cell cannot be understood, the app says which one (sheet, row
+    and column) and does not use it. <b>Restore the initial values</b> undoes everything.</li>
 </ol>
 
 <h2>Type and amperage of each utility</h2>
@@ -769,6 +776,9 @@ elevations, amperage, duct bank, coordinates and warnings), <b>manholes and boxe
     diameter</b>, material, amperage and start and end inverts of each utility; rim and sump of the
     manholes; radius of the curves; and, in «Elevations per vertex», the incoming and outgoing elevation of each
     vertex (empty = automatic). Grey ones are for reference.</li>
+<li><b>Slope (%)</b> = (end invert − start invert) / length × 100. If you change it, also change the start or
+    end invert so they match: if they do not match, the Excel <b>is not imported</b> and the app says which invert
+    would give that slope.</li>
 <li>Edit in Excel (decimals with a point or a comma). Family and size are written as in the Civil 3D catalog
     (as they show in the table); if you change only the <b>diameter</b>, the size of that measure in the utility's
     family is picked. “Default” = no family or no size. Utilities with a duct bank do not change section.</li>
@@ -793,7 +803,7 @@ you edit. When it opens, the project is saved just in case (if it has no file ye
     with their outline and top elevation.</li>
 <li><b>Duct banks</b> with their envelope (bottom at the utility elevation) and their conduits inside.</li>
 <li>Water and gas <b>fittings</b> with the shape the plugin gives them (tee, wye and cross with one arm and one
-    bell per pipe; curved bend), in a light tone, with each pipe entering its bell; approved vertical connections and the marks of the standards warnings (amber) and of the <b>conflicts</b> (red, with their C-n number; click = their sheet).</li>
+    bell per pipe; curved bend), in a light tone, with each pipe entering its bell; approved vertical connections with their fittings as in Civil 3D (90° elbow if the utility ends at the crossing, Tee if it passes through, and at a bend Wye + short pipe + elbows) and the marks of the standards warnings (amber) and of the <b>conflicts</b> (red, with their C-n number; click = their sheet).</li>
 <li>The <b>ground</b>, semi-transparent, to see what is underground.</li>
 </ul>
 

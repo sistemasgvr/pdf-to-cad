@@ -132,11 +132,22 @@ class TablaDatosDialog(QtWidgets.QDialog):
             return []
         try:
             con_db = {i for db in getattr(w, "duct_banks", []) or [] for i in db.assigned()}
-            cambios, errores = tabla_excel.cambios(w.pipes, w.structures, tabla_excel.importar(ruta),
+            leido = tabla_excel.importar(ruta)
+            ft = w.scale / w.zoom if w.scale and w.zoom else 0.0
+            malas = tabla_excel.incoherencias(w.pipes, leido, ft)
+            cambios, errores = tabla_excel.cambios(w.pipes, w.structures, leido,
                                                    catalogo=w._catalogo_excel(), con_bancoducto=con_db)
         except Exception as e:                      # no es un Excel de la app, está abierto…
             QtWidgets.QMessageBox.warning(self, _tr("Importar Excel"), _tr(
                 "No se pudo leer el Excel.\n\n{e}").format(e=e))
+            return []
+        if malas:                                    # pendiente que no coincide con las cotas: no se importa
+            lineas = malas[:10] + ([_tr("… y {n} más").format(n=len(malas) - 10)] if len(malas) > 10 else [])
+            QtWidgets.QMessageBox.warning(self, _tr("Importar Excel"), _tr(
+                "No se importó nada: estas pendientes no coinciden con las cotas de su utilidad. La pendiente se "
+                "calcula con la rasante inicial, la final y el largo: si la cambias, cambia también una rasante "
+                "(o deja la pendiente como estaba). Corrige el Excel y vuelve a importarlo.") + "\n\n• "
+                + "\n• ".join(lineas))
             return []
         avisos = ("\n\n" + _tr("No se aplicaron:") + "\n• " + "\n• ".join(errores[:8])) if errores else ""
         if not cambios:

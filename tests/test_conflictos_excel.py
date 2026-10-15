@@ -9,7 +9,7 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 from nucleo import conflictos  # noqa: E402
 from nucleo import tabla_excel  # noqa: E402
 
-ESC = os.path.join(os.path.dirname(os.path.abspath(__file__)), "escenarios", "escenarios_prueba.digproj")
+ESC = os.path.join(os.path.dirname(os.path.abspath(__file__)), "escenarios", "cruces", "escenarios_prueba.digproj")
 
 
 def test_numerar_en_orden_de_lectura():

@@ -73,7 +73,8 @@ def armar(pipes, structures, duct_banks, avisos, a_cad, ft_per_px,
     ut = Tabla("utilidades", N_("Utilidades"), [
         N_("N°"), N_("Nombre"), N_("Utilidad"), N_("Tipo"), N_("Estado"), N_("Familia"), N_("Tamaño"),
         N_("Diámetro (in)"), N_("Material"), N_("Largo (ft)"), N_("Vértices"), N_("Curvas"), N_("Rasante inicial (ft)"),
-        N_("Rasante final (ft)"), N_("Amperaje (A)"), N_("Bancoducto"), N_("Inicio X"), N_("Inicio Y"),
+        N_("Rasante final (ft)"), N_("Pendiente (%)"), N_("Amperaje (A)"), N_("Bancoducto"), N_("Inicio X"),
+        N_("Inicio Y"),
         N_("Fin X"), N_("Fin Y"), N_("Avisos")])
     curva_de = {}
     for i, p in enumerate(pipes):
@@ -92,7 +93,8 @@ def armar(pipes, structures, duct_banks, avisos, a_cad, ft_per_px,
             t("Abandonada") if p.get("ab") else t("Activa"),
             nombre_familia(p.get("pipe_family") or "") if p.get("pipe_family") else t("Por defecto"),
             p.get("pipe_size") or t("Por defecto"), _r(d, 3), p.get("material") or "", _r(_largo_px(pts) * (ft_per_px or 0)), len(pts),
-            len(cv), _r(p.get("inv_start"), 3), _r(p.get("inv_end"), 3), _r(p.get("amperaje"), 1),
+            len(cv), _r(p.get("inv_start"), 3), _r(p.get("inv_end"), 3),
+            _r(model_ops.pendiente_total(p, ft_per_px), 3) if ft_per_px else None, _r(p.get("amperaje"), 1),
             db_de.get(i, ""), ix, iy, fx, fy, avisos_de.get(i, 0)])
         ut.lugares.append((pts[len(pts) // 2][0], pts[len(pts) // 2][1], "pipe", i))
 

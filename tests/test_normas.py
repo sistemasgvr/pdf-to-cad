@@ -36,17 +36,17 @@ def test_tipos_y_agregar_tipo():
     cat = nc.nuevo()
     assert nc.tipos_de(cat, "AGUA") == ["DISTRIBUCION PRINCIPAL", "ALIMENTACION Y CONDUCCION",
                                          "INSTALACION DOMICILIARIA"]
-    assert nc.tipos_de(cat, "GAS") == []
-    assert nc.agregar_tipo(cat, "GAS", "Distribución  secundaria") == "DISTRIBUCION SECUNDARIA"
-    nc.agregar_tipo(cat, "GAS", "distribucion secundaria")              # repetido: no se duplica
-    assert nc.tipos_de(cat, "GAS") == ["DISTRIBUCION SECUNDARIA"]
+    assert nc.tipos_de(cat, "DRENAJE") == []
+    assert nc.agregar_tipo(cat, "DRENAJE", "Distribución  secundaria") == "DISTRIBUCION SECUNDARIA"
+    nc.agregar_tipo(cat, "DRENAJE", "distribucion secundaria")          # repetido: no se duplica
+    assert nc.tipos_de(cat, "DRENAJE") == ["DISTRIBUCION SECUNDARIA"]
 
 
 def test_guardar_y_cargar():
     cat = nc.nuevo()
     nc.agregar_tipo(cat, "TELECOM", "FIBRA")
     nc.guardar(cat)
-    assert nc.tipos_de(nc.cargar(), "TELECOM") == ["FIBRA"]
+    assert nc.tipos_de(nc.cargar(), "TELECOM") == ["DISTRIBUCION PRINCIPAL", "FIBRA"]
 
 
 def test_excel_ida_y_vuelta_con_desplegables(tmp_path):
@@ -56,9 +56,10 @@ def test_excel_ida_y_vuelta_con_desplegables(tmp_path):
     ruta = tmp_path / "normas.xlsx"
     normas_excel.exportar(cat, ruta)
     leido, faltan = normas_excel.importar(ruta)
-    assert not faltan and leido == nc.normalizar(cat)
+    esperado = nc.normalizar(cat)
+    assert not faltan and sorted(leido.pop("tipos")) == sorted(esperado.pop("tipos")) and leido == esperado
     wb = openpyxl.load_workbook(ruta)
-    assert wb.sheetnames == ["TIPOS", "PRESION-DIAMETROS", "PRESION-ACCESORIOS", "ELECT-TELECOM"]
+    assert wb.sheetnames == ["INSTRUCCIONES", "TIPOS", "PRESION-DIAMETROS", "PRESION-ACCESORIOS", "ELECT-TELECOM"]
     assert "TablaTipos" in wb["TIPOS"].tables
     dvs = {str(dv.sqref): dv.formula1 for dv in wb["PRESION-DIAMETROS"].data_validations.dataValidation}
     assert "TIPOS!$K$1:$P$1" in dvs["A2:A500"] and "OFFSET(TIPOS!$K$2" in dvs["B2:B500"]
@@ -106,21 +107,39 @@ def test_nota_que_repite_el_tipo_en_plural_no_avisa():
 
 
 def test_electrico_por_amperaje_y_largo():
-    dom = "INSTALACION DOMICILIARIA"
+    """Normativas de fábrica = Excel v4: dimensionamiento residencial por amperaje y largo."""
+    res, dp = "DIMENSIONAMIENTO RESIDENCIAL", "DISTRIBUCION PRINCIPAL"
     largo = [(0, 0), (1500, 0)]                                             # 150 ft
-    av = _avisos([_p("ELECTRICO", dom, 3, largo), _p("ELECTRICO", dom, 3, largo, amperaje=350),
-                  _p("ELECTRICO", dom, 4, largo, amperaje=350), _p("ELECTRICO", "DISTRIBUCION PRINCIPAL", 2),
-                  _p("TELECOM", "", 2), _p("TELECOM", "", 4)])
+    av = _avisos([_p("ELECTRICO", res, 3, largo), _p("ELECTRICO", res, 3, largo, amperaje=500),
+                  _p("ELECTRICO", res, 4, largo, amperaje=500), _p("ELECTRICO", dp, 1),
+                  _p("TELECOM", dp, 1), _p("TELECOM", dp, 2), _p("ELECTRICO", res, 2, largo, amperaje=350)])
     msgs = {a.pipe: a.mensaje for a in av}
     assert "amperaje" in msgs[0].lower()
-    assert "4" in msgs[1] and "321-400 A" in msgs[1]
+    assert "mínimo 4" in msgs[1] and "≥ 400 A" in msgs[1]
     assert 2 not in msgs and 5 not in msgs
-    assert "mínimo 3" in msgs[3] and "mínimo 4" in msgs[4]
+    assert "mínimo 2" in msgs[3] and "mínimo 2" in msgs[4]
+    assert 6 not in msgs                                                    # 321–399 A: ninguna fila
 
 
 def test_electrico_con_bancoducto_no_se_revisa():
-    av = nv.validar(nc.nuevo(), [_p("TELECOM", "", 2)], [], FT, con_bancoducto={0})
+    av = nv.validar(nc.nuevo(), [_p("TELECOM", "DISTRIBUCION PRINCIPAL", 1)], [], FT, con_bancoducto={0})
     assert not av
+
+
+def test_radio_de_curva_fijo_3_o_4_ft():
+    """Excel v4: RADIO CURVA FIJO «3;4» = la curva eléctrica es de 3 o de 4 ft, nada más."""
+    dp = "DISTRIBUCION PRINCIPAL"
+    pts = [(0, 0), (300, 0), (300, 300)]
+    for radio, aviso in ((3, False), (4, False), (3.5, True), (10, True), (0, True)):   # 0 = automático (2 ft)
+        curva = [dict(x=300.0, y=0.0, curve=True, radius_ft=radio)]
+        av = [a for a in nv.validar(nc.nuevo(), [_p("ELECTRICO", dp, 4, pts)], [], FT, structures=curva)
+              if a.clase == "radio"]
+        assert bool(av) == aviso, radio
+        if av:
+            assert "debe ser 3 ft, 4 ft" in av[0].mensaje
+    curva = [dict(x=300.0, y=0.0, curve=True, radius_ft=10)]                 # telecom: sin regla de radio
+    assert not [a for a in nv.validar(nc.nuevo(), [_p("TELECOM", dp, 4, pts)], [], FT, structures=curva)
+                if a.clase == "radio"]
 
 
 # ─────────────────────────── accesorios ───────────────────────────
@@ -187,7 +206,7 @@ def test_tabla_de_datos_y_excel(tmp_path):
     tablas = tabla_datos.armar(pipes, structs, [db], av, lambda x, y: (x * FT, -y * FT), FT)
     ut, bz, cu, bd, avs, co = tablas
     assert [f[0] for f in ut.filas] == [1, 2] and ut.filas[0][3] == "DISTRIBUCION PRINCIPAL"
-    assert ut.filas[0][9] == pytest.approx(10.0) and ut.filas[1][15] == "DB1"
+    assert ut.filas[0][9] == pytest.approx(10.0) and ut.filas[1][16] == "DB1"
     assert [f[0] for f in bz.filas] == ["BZ-1"] and len(cu.filas) == 1 and len(bd.filas) == 1
     assert len(avs.filas) == 1                                               # la eléctrica sin tipo
     ruta = tmp_path / "datos.xlsx"
@@ -249,3 +268,93 @@ def test_ver_avisos_y_ventanas(win):
     win.abrir_tabla_datos()
     assert win._tabla_dlg.pestanas.count() == 7          # + conflictos y cotas por vértice
     win._tabla_dlg.close(); win._normas_dlg.close()
+
+
+# ───────────── rangos en MIN / MAX, comentarios e instrucciones (2026-10-14) ─────────────
+
+def test_rangos_min_max_y_abiertos():
+    assert nc.rango_min_max("0,5", 2) == [0.5, 2] and nc.rango_min_max(400, None) == [400, None]
+    assert nc.rango_min_max(None, "") is None and nc.rango_min_max(9, 3) == [3, 9]
+    assert nc.en_rango(400, [400, None]) and nc.en_rango(10000, [400, None]) and not nc.en_rango(399, [400, None])
+    assert nc.en_rango(5, [None, 5]) and not nc.en_rango(None, [0, 1]) and nc.en_rango(None, None)
+    assert nc.texto_rango([400, None]) == "≥ 400" and nc.texto_rango([None, 100]) == "≤ 100"
+    assert nc.texto_rango([0, 320]) == "0-320"
+
+
+def _cat_rangos():
+    cat = nc.nuevo()
+    cat["diametros"] = [{"utilidad": "GAS", "tipo": "SERVICIO RESIDENCIAL", "diametros": [], "diam_min": 0.5,
+                         "diam_max": 2, "nota": ""},
+                        {"utilidad": "GAS", "tipo": "DISTRIBUCION PRINCIPAL", "diametros": [], "diam_min": 6,
+                         "diam_max": None, "nota": ""}]
+    cat["electricas"] = [{"utilidad": "ELECTRICO", "estructura": "SIMPLE", "tipo": "DIMENSIONAMIENTO RESIDENCIAL",
+                          "amperaje": [400, None], "longitud": [0, 100], "diam_fijo": [], "diam_min": 4,
+                          "diam_max": None, "radio_min": 3, "radio_max": 4, "radio_fijo": []}]
+    return nc.normalizar(cat)
+
+
+def test_excel_con_min_max_ida_y_vuelta_y_comentarios(tmp_path):
+    import openpyxl
+    cat = _cat_rangos()
+    ruta = tmp_path / "n.xlsx"
+    normas_excel.exportar(cat, ruta)
+    problemas = []
+    leido, _f = normas_excel.importar(ruta, problemas)
+    assert not problemas and sorted(leido.pop("tipos")) == sorted(cat.pop("tipos")) and leido == cat
+    wb = openpyxl.load_workbook(ruta)
+    assert wb.sheetnames[0] == "INSTRUCCIONES"
+    we = wb["ELECT-TELECOM"]
+    assert all(c.comment is not None for c in we[1])                       # cada columna explica qué va
+    assert "MIN 400" in we["D1"].comment.text
+    num = {str(dv.sqref) for dv in we.data_validations.dataValidation if dv.type == "decimal"}
+    assert "D2:D500" in num and "L2:L500" in num                            # MIN/MAX: solo números
+
+
+def test_excel_viejo_y_celdas_que_no_se_entienden(tmp_path):
+    import openpyxl
+    from nucleo import normas_excel_ayuda
+    wb = openpyxl.Workbook()
+    wb.active.title = "TIPOS"
+    wb.active.append(["UTILIDAD", "TIPO"])
+    wd = wb.create_sheet("PRESION-DIAMETROS")
+    wd.append(["UTILIDAD", "TIPO", "DIAMETRO (in)", "SOLO SE PERMITE EN"])
+    wd.append(["GAS", "SERVICIO RESIDENCIAL", "0.5-2", None])               # rango en una celda
+    we = wb.create_sheet("ELECT-TELECOM")
+    we.append(["UTILIDAD", "ESTRUCTURA", "TIPO", "AMPERAJE (A)", "LONGITUD RANGO (pies)", "DIAMETRO MIN (in)"])
+    we.append(["ELECTRICO", "SIMPLE", "X", "0-320", "0-100", 3])            # formato viejo: se sigue leyendo
+    we.append(["ELECTRICO", "SIMPLE", "X", ">=400", "0-100", 3])            # operador: no se entiende
+    aux = wb.create_sheet("auxiliar")                                       # nunca se lee
+    aux.append(["UTILIDAD", "TIPO"])
+    aux.append(["AGUA", "IDEA"])
+    normas_excel_ayuda.escribir_instrucciones(wb)
+    ruta = tmp_path / "viejo.xlsx"
+    wb.save(ruta)
+    problemas = []
+    cat, _f = normas_excel.importar(ruta, problemas)
+    assert cat["electricas"][0]["amperaje"] == [0, 320] and cat["electricas"][0]["longitud"] == [0, 100]
+    assert cat["electricas"][1]["amperaje"] is None
+    assert len(problemas) == 2
+    assert any("PRESION-DIAMETROS, fila 2" in p and "0.5-2" in p for p in problemas)
+    assert any("ELECT-TELECOM, fila 3" in p and ">=400" in p for p in problemas)
+    assert "IDEA" not in nc.tipos_de(cat, "AGUA")
+
+
+def test_validar_rangos_de_diametro_amperaje_y_radio():
+    cat = _cat_rangos()
+    gas = [_p("GAS", "SERVICIO RESIDENCIAL", 1.5), _p("GAS", "SERVICIO RESIDENCIAL", 3),
+           _p("GAS", "DISTRIBUCION PRINCIPAL", 8), _p("GAS", "DISTRIBUCION PRINCIPAL", 4)]
+    av = nv.validar(cat, gas, [], FT)
+    assert [a.pipe for a in av if a.clase == "diametro"] == [1, 3]
+    assert "0.5\"–2\"" in next(a.mensaje for a in av if a.pipe == 1)
+    assert "≥ 6\"" in next(a.mensaje for a in av if a.pipe == 3)
+    # eléctrico «400 o más»: 500 A entra en la fila (diámetro mínimo 4"); 350 A no
+    dom = "DIMENSIONAMIENTO RESIDENCIAL"
+    pts = ((0, 0), (300, 0), (300, 300))
+    elec = [_p("ELECTRICO", dom, 3, pts, amperaje=500), _p("ELECTRICO", dom, 3, pts, amperaje=350)]
+    curvas = [dict(x=300.0, y=0.0, curve=True, radius_ft=10.0)]
+    av = nv.validar(cat, elec, [], FT, structures=curvas)
+    assert sorted((a.pipe, a.clase) for a in av) == [(0, "electrico"), (0, "radio")]
+    radio = next(a for a in av if a.clase == "radio")
+    assert (radio.x, radio.y) == (300.0, 0.0) and "máximo 4" in radio.mensaje
+    curvas[0]["radius_ft"] = 3.5                                            # dentro de 3–4 ft: sin aviso
+    assert not [a for a in nv.validar(cat, elec, [], FT, structures=curvas) if a.clase == "radio"]

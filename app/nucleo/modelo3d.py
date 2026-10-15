@@ -14,7 +14,9 @@ las MISMAS reglas que el plugin, para verlo sin exportar:
   • Accesorios de presión (`accesorios.accesorios`) con la forma de WyeSolido.cs
     (`accesorios3d`): brazos con campana (Tee/Wye/cruz) o cuerpo curvo (codo), en un tono
     claro de la utilidad; cada tubo se RECORTA hasta entrar en su campana, como en Civil 3D.
-  • Conexiones verticales aprobadas, avisos de normativa y CONFLICTOS numerados C-n (`marcas3d`).
+  • Conexiones verticales aprobadas CON sus accesorios, como el plugin (`verticales3d`: codo 90° si
+    la utilidad termina en el cruce, Tee si pasa, Wye + tubo auxiliar + codos en un quiebre).
+  • Avisos de normativa y CONFLICTOS numerados C-n (`marcas3d`).
 
 `construir(...)` → `Escena` con mallas (numpy) listas para la GPU, los volúmenes para
 elegir con el ratón y los datos de cada objeto. Coordenadas en pies, centradas en el
@@ -34,6 +36,7 @@ from nucleo import limpieza_tramos as LT
 from nucleo import mallas3d as M
 from nucleo import marcas3d
 from nucleo import model_ops
+from nucleo import verticales3d as V
 from nucleo.model import network_kind
 
 PROFUNDIDAD_FT = 5.0          # recubrimiento por defecto del plugin (defaultDepth)
@@ -175,7 +178,7 @@ def trazos_abandonada(alto):
     return trazo, trazo * HUECO_AB
 
 
-def _utilidad(ar, pipes, structures, i, con_bancoducto, cortes=()):
+def _utilidad(ar, pipes, structures, i, con_bancoducto, cortes=(), ajustes=()):
     p = pipes[i]
     if p.get("world") or len(p.get("pts") or []) < 2 or i in con_bancoducto:
         return
@@ -183,6 +186,9 @@ def _utilidad(ar, pipes, structures, i, con_bancoducto, cortes=()):
     camino = [ar.mundo(x, y, z + alto / 2.0) for x, y, z in recorrido(pipes, structures, i, ar.ft)]
     if len(camino) < 2:
         return
+    for xy, z in ajustes:                              # punta que sube/baja a una Wye (conexión vertical)
+        k = min((0, len(camino) - 1), key=lambda k: math.dist(camino[k][:2], xy))
+        camino[k] = (camino[k][0], camino[k][1], z)
     ab = bool(p.get("ab"))
     # Ningún recorte se come la tubería: cada campana entra como mucho el 45 % de su largo.
     largo = float(np.sum(np.linalg.norm(np.diff(np.asarray(camino)[:, :2], axis=0), axis=1)))
@@ -309,9 +315,16 @@ def _direcciones(p, x, y, tol):
     return out
 
 
-def _accesorios(ar, pipes, z_at):
+def _plan_wye(planes, a, tol):
+    """La conexión vertical que convierte el codo `a` del plano (un quiebre) en Wye, o None."""
+    if a.get("tipo") != "codo":
+        return None
+    return next((p for p in planes if p.caso == "wye" and p.pasa in (a.get("pipes") or [])
+                 and math.dist((a["x"], a["y"]), (float(p.c["x"]), float(p.c["y"]))) <= tol), None)
+
+
+def _accesorios(ar, pipes, nodos, planes=()):
     """Accesorios con la forma de WyeSolido.cs. Devuelve (cantidad, {utilidad: cortes})."""
-    nodos = acc.accesorios(pipes, z_at, ar.ft)
     cortes = {}
     tol = acc.TOL_UNION_FT / ar.ft
     for n, a in enumerate(nodos):
@@ -330,28 +343,37 @@ def _accesorios(ar, pipes, z_at):
             continue
         mayor = max(brazos, key=lambda b: b.d)
         centro = np.array([*brazos[0].extra["xy"], mayor.eje_z])
-        malla, c = A3.pieza(a["tipo"], centro, brazos, ar.claro(pipes[mayor.pipe].get("layer")), ident)
+        tipo, plan = a["tipo"], _plan_wye(planes, a, V.TOL_EXTREMO_FT / ar.ft)
+        if plan is not None:                          # quiebre con conexión vertical: el codo pasa a Wye
+            for b in brazos:                          # su tronco = la utilidad que pasa (`CrearCruceConWye`)
+                b.engrose = A3.ENGROSE_TRONCO_Y_FT
+            plan.ramal = V.ramal_de(plan, ar, diametro_ft, pipes)
+            brazos.append(plan.ramal)
+            tipo = "wye"
+        malla, c = A3.pieza(tipo, centro, brazos, ar.claro(pipes[mayor.pipe].get("layer")), ident)
+        if plan is not None:
+            plan.centro = c
         ar.op.append(malla)
         for b in brazos:
             fin = c + b.dir * (b.largo + b.d * A3.LARGO_CAMPANA_D)
             ar.picks.capsula(tuple(c), tuple(fin), b.r_campana, ident)
-            cortes.setdefault(b.pipe, []).append((b.extra["xy"], b.extra["u"], max(b.alcance, 0.0)))
-        ar.registrar(ident, "accesorio", n, [c], acc_tipo=a["tipo"], angulo=a.get("angulo"), capa=a.get("capa"),
+            if b.pipe >= 0:
+                cortes.setdefault(b.pipe, []).append((b.extra["xy"], b.extra["u"], max(b.alcance, 0.0)))
+        ar.registrar(ident, "accesorio", n, [c], acc_tipo=tipo, angulo=a.get("angulo"), capa=a.get("capa"),
                      pipes=list(a.get("pipes") or []), eje_z=float(c[2]), x=a["x"], y=a["y"])
     return len(nodos), cortes
 
 
-def _verticales(ar, pipes, cruces):
-    for c in cruces or []:
-        ia, ib = c.get("pipe_a"), c.get("pipe_b")
-        if c.get("z_a") is None or c.get("z_b") is None or not all(0 <= k < len(pipes) for k in (ia, ib)):
-            continue
-        da, db_ = diametro_ft(pipes[ia]), diametro_ft(pipes[ib])
-        r = min(da, db_) / 2.0
-        q = ar.mundo(c["x"], c["y"], 0)
-        ar.op.append(M.cilindro_vertical(q[:2], r, float(c["z_a"]) + da / 2.0, float(c["z_b"]) + db_ / 2.0,
-                                         ar.color(pipes[ia].get("layer")), ia + 1, 14))
-
+def _z_eje(pipes, i, x, y):
+    """Cota del EJE de la utilidad i en (x, y) px (tramo más cercano)."""
+    p = pipes[i]
+    pts = p.get("pts") or []
+    if len(pts) < 2:
+        return None
+    k = min(range(len(pts) - 1), key=lambda k: V._dist(pts[k], (x, y)) + V._dist(pts[k + 1], (x, y))
+            - V._dist(pts[k], pts[k + 1]))
+    z = model_ops.z_en_tramo(p, k, x, y)
+    return None if z is None else z + seccion(p)[1] / 2.0
 
 
 # ─────────────────────────── escena completa ───────────────────────────
@@ -376,17 +398,26 @@ def construir(pipes, structures, ft, colores=None, duct_banks=(), cruces=(), avi
         idx = [i for i in db.get("pipes") or [] if i in visibles]
         con_db |= set(db.get("pipes") or [])
         _bancoducto(ar, vis_pipes, structures, dict(db, pipes=idx))
-    n_acc, cortes = (_accesorios(ar, vis_pipes, lambda i, k, x, y: model_ops.z_en_tramo(vis_pipes[i], k, x, y))
-                     if ver["accesorios"] else (0, {}))
+    nodos = acc.accesorios(vis_pipes, lambda i, k, x, y: model_ops.z_en_tramo(vis_pipes[i], k, x, y), ft)
+    tol = V.TOL_EXTREMO_FT / ft
+    planes = V.planear(vis_pipes, cruces, ft, diametro_ft, lambda i, x, y: _z_eje(vis_pipes, i, x, y),
+                       lambda i, x, y: ver["accesorios"] and any(
+                           a["tipo"] == "codo" and i in (a.get("pipes") or [])
+                           and math.dist((a["x"], a["y"]), (x, y)) <= tol for a in nodos))
+    n_acc, cortes = _accesorios(ar, vis_pipes, nodos, planes) if ver["accesorios"] else (0, {})
+    cortes_v, ajustes, n_v = V.dibujar(ar, vis_pipes, planes, ID_ACCESORIO + len(nodos), diametro_ft,
+                                       ver["accesorios"])
+    n_acc += n_v
+    for i, cs in cortes_v.items():
+        cortes.setdefault(i, []).extend(cs)
     for i in visibles:
-        _utilidad(ar, vis_pipes, structures, i, con_db, cortes.get(i, ()))
+        _utilidad(ar, vis_pipes, structures, i, con_db, cortes.get(i, ()), ajustes.get(i, ()))
     sueltos = []
     if ver["estructuras"]:
         for j, s in enumerate(structures or []):
             r = _estructura(ar, vis_pipes, j, s)
             if r:
                 sueltos.append(r[1])
-    _verticales(ar, vis_pipes, cruces)
     etiquetas = []
     if ver["avisos"]:
         etiquetas = marcas3d.marcas(ar, vis_pipes, [a for a in avisos or [] if a.get("pipe", -1) in visibles],

@@ -3,14 +3,18 @@
 `validar(cat, pipes, accesorios, ft_per_px)` → [Aviso]. Solo AVISA (nunca cambia nada):
 
   • Tipo: la utilidad tiene tipos en el catálogo y no eligió ninguno → «elige su tipo».
-  • Diámetros (PRESION-DIAMETROS): el diámetro tiene que estar en la lista de SU tipo;
+  • Diámetros (PRESION-DIAMETROS): el diámetro tiene que estar en la lista de SU tipo o
+    dentro de su rango MIN–MAX (2026-10-14: gas «de 0,5 a 2»);
     si está en la de otro tipo, se dice de cuál (un diámetro de domiciliaria en una
     principal). Si la fila trae una condición propia en «SOLO SE PERMITE EN» (cul-de-sacs),
     va como mensaje informativo.
   • Eléctrico y telecom (ELECT-TELECOM): filas de su tipo (o sin tipo = todas); las que
     piden amperaje necesitan el número (si falta, aviso) y la longitud se mide sola;
     la fila que encaja fija el diámetro (fijo, mínimo, máximo). Con bancoducto no se
-    revisa (los bancoductos quedaron para después).
+    revisa (los bancoductos quedaron para después). Amperaje y longitud son rangos MIN–MAX
+    (un extremo vacío = sin límite: «400 o más»). RADIO CURVA: cada curva de la línea (su
+    radio, o el automático) tiene que ser uno de los FIJOS (Excel v4: «3; 4») y caer en
+    MIN–MAX (aviso en la curva).
   • Accesorios de presión (PRESION-ACCESORIOS, sobre `accesorios.accesorios`): «solo se
     permite en» / «prohibido» según el tipo de la línea PRINCIPAL (en el CODO «solo se
     permite en» es dónde se exigen sus ángulos: en otro tipo vale cualquiera); diámetro principal de
@@ -38,6 +42,7 @@ CLASES = {
     "electrico": N_("Diámetro según amperaje y largo"),
     "accesorio": N_("Accesorio"),
     "nota": N_("Condición de uso"),
+    "radio": N_("Radio de curva"),
 }
 NOMBRE_ACC = {"codo": N_("Codo"), "tee": N_("Tee"), "wye": N_("Wye"), "cruz": N_("Cruz"),
               "tee_dom": N_("T domiciliaria")}
@@ -77,6 +82,36 @@ def _txt_lista(nums):
     return ", ".join(nc.texto_pulgadas(n) for n in nums)
 
 
+def _rango_diam(f):
+    return nc.rango_min_max(f.get("diam_min"), f.get("diam_max"))
+
+
+def _permite(f, d):
+    """¿La fila de PRESION-DIAMETROS admite el diámetro d (por su lista o por su rango)?"""
+    r = _rango_diam(f)
+    return _en(d, f.get("diametros") or []) or (r is not None and nc.en_rango(d, r, TOL_DIAM))
+
+
+def _tiene_diam(f):
+    return bool(f.get("diametros")) or _rango_diam(f) is not None
+
+
+def _txt_permitidos(filas):
+    """«6", 8", 12"» + rangos «0,5"–2"», «≥ 4"»."""
+    partes = [_txt_lista(sorted({v for f in filas for v in f.get("diametros") or []}))]
+    for f in filas:
+        r = _rango_diam(f)
+        if r is None:
+            continue
+        if r[1] is None:
+            partes.append("≥ " + nc.texto_pulgadas(r[0]))
+        elif r[0] is None:
+            partes.append("≤ " + nc.texto_pulgadas(r[1]))
+        else:
+            partes.append(f"{nc.texto_pulgadas(r[0])}–{nc.texto_pulgadas(r[1])}")
+    return ", ".join(p for p in partes if p)
+
+
 def _tipo(p):
     return nc.clave(p.get("tipo"))
 
@@ -110,7 +145,7 @@ def _revisar_tipo(cat, p, i, xy, out):
 
 def _revisar_diametro(cat, p, i, xy, out):
     u = nc.clave(p.get("layer"))
-    filas = [f for f in cat.get("diametros", []) if nc.clave(f["utilidad"]) == u and f["diametros"]]
+    filas = [f for f in cat.get("diametros", []) if nc.clave(f["utilidad"]) == u and _tiene_diam(f)]
     if not filas:
         return
     d, defecto = model_ops.diametro(p)
@@ -118,31 +153,56 @@ def _revisar_diametro(cat, p, i, xy, out):
     propias = [f for f in filas if nc.clave(f["tipo"]) == tipo]
     if not propias:
         return
-    permitidos = sorted({v for f in propias for v in f["diametros"]})
+    permitidos = _txt_permitidos(propias)
     d_txt = nc.texto_pulgadas(d) + (" " + t("(por defecto)") if defecto else "")
-    if not _en(d, permitidos):
-        otros = [f for f in filas if nc.clave(f["tipo"]) != tipo and _en(d, f["diametros"])]
+    if not any(_permite(f, d) for f in propias):
+        otros = [f for f in filas if nc.clave(f["tipo"]) != tipo and _permite(f, d)]
         if otros:
             msg = t("Diámetro {d}: es de «{otro}» y esta utilidad es «{tipo}». Para su tipo: {lista}.").format(
-                d=d_txt, otro=otros[0]["tipo"], tipo=tipo, lista=_txt_lista(permitidos))
+                d=d_txt, otro=otros[0]["tipo"], tipo=tipo, lista=permitidos)
         else:
             msg = t("Diámetro {d} no permitido para «{tipo}». Permitidos: {lista}.").format(
-                d=d_txt, tipo=tipo, lista=_txt_lista(permitidos))
+                d=d_txt, tipo=tipo, lista=permitidos)
         out.append(Aviso(*xy, "diametro", msg, i))
         return
     for f in propias:
         nota = (f.get("nota") or "").strip()
-        if _en(d, f["diametros"]) and nota and not _dice_lo_mismo(nota, tipo):
+        if _permite(f, d) and nota and not _dice_lo_mismo(nota, tipo):
             out.append(Aviso(*xy, "nota", t("Diámetro {d}: solo se permite en {nota}.").format(d=d_txt, nota=nota),
                              i, info=True))
             break
 
 
 def _cumple_rango(v, r):
-    return r is None or (v is not None and r[0] - 1e-9 <= v <= r[1] + 1e-9)
+    return nc.en_rango(v, r)
 
 
-def _revisar_electrico(cat, p, i, xy, largo_ft, con_bancoducto, out):
+def _revisar_radios(p, i, f, curvas, cond, out):
+    """Cada curva de la línea con su radio (o el automático) dentro de RADIO CURVA MIN/MAX."""
+    r = nc.rango_min_max(f.get("radio_min"), f.get("radio_max"))
+    fijos = f.get("radio_fijo") or []
+    if r is None and not fijos:
+        return
+    for s in curvas:
+        radio = float(s.get("radius_ft") or 0.0)
+        auto = radio <= 0.01
+        if auto:
+            radio = model_ops.radio_auto_ft(p)
+        if fijos and not any(abs(radio - v) <= 0.005 for v in fijos):
+            req = t("debe ser {lista}").format(lista=", ".join(f"{nc.texto_numero(v)} ft" for v in fijos))
+        elif r is not None and not nc.en_rango(radio, r, 0.005):
+            req = (t("mínimo {r} ft").format(r=nc.texto_numero(r[0])) if r[0] is not None and radio < r[0]
+                   else t("máximo {r} ft").format(r=nc.texto_numero(r[1])))
+        else:
+            continue
+        txt = nc.texto_numero(round(radio, 2)) + (" " + t("(automático)") if auto else "")
+        msg = t("Curva de radio {r} ft: {req}").format(r=txt, req=req)
+        if cond:
+            msg += " (" + ", ".join(cond) + ")"
+        out.append(Aviso(s["x"], s["y"], "radio", msg + ".", i))
+
+
+def _revisar_electrico(cat, p, i, xy, largo_ft, con_bancoducto, out, curvas=()):
     u = nc.clave(p.get("layer"))
     tipo = _tipo(p)
     filas = [f for f in cat.get("electricas", []) if nc.clave(f["utilidad"]) == u
@@ -161,6 +221,14 @@ def _revisar_electrico(cat, p, i, xy, largo_ft, con_bancoducto, out):
         if not (_cumple_rango(amp, f.get("amperaje")) and _cumple_rango(largo_ft, f.get("longitud"))):
             continue
         fijo, dmin, dmax = f.get("diam_fijo") or [], f.get("diam_min"), f.get("diam_max")
+        cond = []
+        if f.get("tipo"):
+            cond.append(f["tipo"])
+        if f.get("amperaje"):
+            cond.append(t("{r} A").format(r=nc.texto_rango(f["amperaje"])))
+        if f.get("longitud"):
+            cond.append(t("{r} ft de largo").format(r=nc.texto_rango(f["longitud"])))
+        _revisar_radios(p, i, f, curvas, cond, out)
         if fijo and not _en(d, fijo):
             req = t("debe ser {lista}").format(lista=_txt_lista(fijo))
         elif dmin is not None and d < dmin - TOL_DIAM:
@@ -169,13 +237,6 @@ def _revisar_electrico(cat, p, i, xy, largo_ft, con_bancoducto, out):
             req = t("máximo {d}").format(d=nc.texto_pulgadas(dmax))
         else:
             continue
-        cond = []
-        if f.get("tipo"):
-            cond.append(f["tipo"])
-        if f.get("amperaje"):
-            cond.append(t("{r} A").format(r=nc.texto_rango(f["amperaje"])))
-        if f.get("longitud"):
-            cond.append(t("{r} ft de largo").format(r=nc.texto_rango(f["longitud"])))
         msg = t("Diámetro {d}: {req}").format(d=d_txt, req=req)
         if cond:
             msg += " (" + ", ".join(cond) + ")"
@@ -251,9 +312,10 @@ def _revisar_accesorio(cat, pipes, a, out):
 
 # ─────────────────────────── todo ───────────────────────────
 
-def validar(cat, pipes, accesorios_, ft_per_px, con_bancoducto=()):
+def validar(cat, pipes, accesorios_, ft_per_px, con_bancoducto=(), structures=()):
     """Avisos de todas las utilidades y accesorios. `con_bancoducto` = índices de las
-    utilidades que llevan bancoducto (sus filas «SIMPLE» no aplican)."""
+    utilidades que llevan bancoducto (sus filas «SIMPLE» no aplican); `structures` = para
+    revisar el radio de sus curvas (RADIO CURVA MIN/MAX)."""
     out = []
     if not cat:
         return out
@@ -267,7 +329,10 @@ def validar(cat, pipes, accesorios_, ft_per_px, con_bancoducto=()):
         if tiene_tipo:
             _revisar_diametro(cat, p, i, xy, out)
         if tiene_tipo or not nc.tipos_de(cat, p.get("layer")):
-            _revisar_electrico(cat, p, i, xy, _largo_px(pts) * (ft_per_px or 0.0), i in con_bancoducto, out)
+            curvas = (list(model_ops.curve_vertex_indices(p, structures, pipes).values())
+                      if structures and len(pts) >= 3 else [])
+            _revisar_electrico(cat, p, i, xy, _largo_px(pts) * (ft_per_px or 0.0), i in con_bancoducto, out,
+                               curvas)
     for a in accesorios_ or []:
         _revisar_accesorio(cat, pipes, a, out)
     return out

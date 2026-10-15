@@ -693,16 +693,23 @@ Valen para todos tus proyectos en esta computadora.</p>
     <td bgcolor="{{card}}">Los tipos que cada utilidad puede elegir: Distribución principal, Instalación
         domiciliaria…</td></tr>
 <tr><td bgcolor="{{card}}"><b>PRESION-DIAMETROS</b></td>
-    <td bgcolor="{{card}}">Qué diámetros lleva cada tipo de agua o gas (con una nota si solo se permite en
-        un caso, por ejemplo calles sin salida).</td></tr>
+    <td bgcolor="{{card}}">Qué diámetros lleva cada tipo de agua o gas: una lista (6; 8; 12) o un rango con
+        DIAMETRO MIN y MAX (gas de 0,5 a 2), con una nota si solo se permite en un caso, por ejemplo calles sin
+        salida.</td></tr>
 <tr><td bgcolor="{{card}}"><b>PRESION-ACCESORIOS</b></td>
     <td bgcolor="{{card}}">Dónde se permite o se prohíbe cada accesorio (Y, T, Cruz, Codo, T domiciliaria), el
         diámetro de la principal, el del ramal (<b>-1</b> = un tamaño menor en la lista) y los ángulos del codo.</td></tr>
 <tr><td bgcolor="{{card}}"><b>ELECT-TELECOM</b></td>
-    <td bgcolor="{{card}}">Diámetro fijo, mínimo o máximo según el tipo, el <b>amperaje</b> y el largo de la línea.</td></tr>
+    <td bgcolor="{{card}}">Diámetro fijo, mínimo o máximo según el tipo, el <b>amperaje</b> y el largo de la línea,
+        y el <b>radio de las curvas</b>: RADIO CURVA FIJO (los radios permitidos, por ejemplo <i>3; 4</i>) o un
+        rango con RADIO CURVA MIN y MAX.</td></tr>
 </table>
-<p>Celda vacía = sin restricción o no aplica. Listas con «;» y decimales con coma (<i>1; 1,5; 2</i>), rangos
-como <i>0-320</i>.</p>
+<p>Celda vacía = sin restricción o no aplica. Listas con «;» y decimales con coma (<i>1; 1,5; 2</i>). Los
+<b>rangos van en dos columnas, MIN y MAX</b>: «de 0,5 a 2» = MIN 0,5 y MAX 2; «400 o más» = MIN 400 y MAX vacía
+(los extremos cuentan). Nunca un rango ni un símbolo en una sola celda (<i>0.5-2</i>, <i>&gt;=400</i>). La hoja
+<b>INSTRUCCIONES</b> del Excel lo explica con ejemplos y cada columna tiene un comentario (pasa el mouse por su
+título). Esa hoja y cualquier otra que no sea una de las cuatro tablas (por ejemplo «auxiliar», para notas) no se
+importan.</p>
 
 <h2>Editar las normativas</h2>
 <ol>
@@ -710,7 +717,8 @@ como <i>0-320</i>.</p>
 <li>Edítalo en Excel. Los desplegables ayudan: en <b>UTILIDAD</b> salen las seis utilidades y en <b>TIPO</b>
     solo los tipos de la utilidad de esa fila. Un tipo nuevo escrito como fila nueva en la hoja TIPOS aparece
     solo en los desplegables.</li>
-<li><b>Importar Excel…</b> lo trae de vuelta. <b>Volver a los valores iniciales</b> deshace todo.</li>
+<li><b>Importar Excel…</b> lo trae de vuelta. Si una celda no se entiende, la app dice cuál (hoja, fila y
+    columna) y no la usa. <b>Volver a los valores iniciales</b> deshace todo.</li>
 </ol>
 
 <h2>Tipo y amperaje de cada utilidad</h2>
@@ -769,6 +777,9 @@ cajas</b>, <b>curvas</b>, <b>bancoductos</b>, <b>avisos de normativa</b>, <b>con
     <b>tamaño o diámetro</b>, material, amperaje y rasantes inicial y final de cada utilidad; tapa y
     fondo de los buzones; radio de las curvas; y, en «Cotas por vértice», la cota de llegada y de salida de
     cada vértice (vacía = automática). Las grises son de consulta.</li>
+<li><b>Pendiente (%)</b> = (rasante final − rasante inicial) / largo × 100. Si la cambias, cambia también la
+    rasante inicial o la final para que coincidan: si no coinciden, el Excel <b>no se importa</b> y la app dice
+    qué rasante daría esa pendiente.</li>
 <li>Edita en Excel (los decimales con punto o coma). La familia y el tamaño se escriben como en el catálogo de
     Civil 3D (como salen en la tabla); si cambias solo el <b>diámetro</b>, se elige el tamaño de esa medida en la
     familia de la utilidad. «Por defecto» = sin familia o sin tamaño. Las utilidades con bancoducto no cambian
@@ -795,7 +806,7 @@ copia de recuperación).</p>
     <b>sólidos</b> con su contorno y su cota superior.</li>
 <li><b>Bancoductos</b> con su envolvente (fondo en la cota de la utilidad) y sus conductos adentro.</li>
 <li><b>Accesorios</b> de agua y gas con la forma que les da el plugin (Tee, Wye y cruz con un brazo y una
-    campana por tubo; codo curvo), en un tono claro, con cada tubo entrando en su campana; conexiones verticales aprobadas y las marcas de los avisos de normativa (ámbar) y de los <b>conflictos</b> (rojo, con su número C-n; clic = su ficha).</li>
+    campana por tubo; codo curvo), en un tono claro, con cada tubo entrando en su campana; conexiones verticales aprobadas con sus accesorios como en Civil 3D (codo de 90° si la utilidad termina en el cruce, Tee si pasa de largo, y en un quiebre Wye + tubo corto + codos) y las marcas de los avisos de normativa (ámbar) y de los <b>conflictos</b> (rojo, con su número C-n; clic = su ficha).</li>
 <li>El <b>suelo</b>, semitransparente, para ver lo que queda bajo tierra.</li>
 </ul>
 

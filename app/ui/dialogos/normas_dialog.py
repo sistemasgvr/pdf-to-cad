@@ -21,22 +21,29 @@ from ui.comun.ui_common import DOWNLOADS
 _ROL = QtCore.Qt.UserRole
 _FILTRO_XLSX = "Excel (*.xlsx)"              # filtro de archivo (igual en ambos idiomas)
 
+def _n(v):
+    return "" if v is None else nc.texto_numero(v)
+
+
+def _extremos(r):
+    return ["", ""] if not r else [_n(r[0]), _n(r[1])]
+
+
 # (título de la pestaña, encabezados, función que da las filas como texto)
 _PESTANAS = [
     (N_("Tipos"), normas_excel.COL_TIPOS, lambda cat: [list(x) for x in cat["tipos"]]),
     (N_("Diámetros (presión)"), normas_excel.COL_DIAM,
-     lambda cat: [[f["utilidad"], f["tipo"], nc.texto_lista(f["diametros"]), f.get("nota") or ""]
-                  for f in cat["diametros"]]),
+     lambda cat: [[f["utilidad"], f["tipo"], nc.texto_lista(f["diametros"]), _n(f.get("diam_min")),
+                   _n(f.get("diam_max")), f.get("nota") or ""] for f in cat["diametros"]]),
     (N_("Accesorios (presión)"), normas_excel.COL_ACC,
      lambda cat: [[f["utilidad"], f["accesorio"], f.get("solo_en") or "", nc.texto_lista(f.get("diam_principal")),
                    f.get("prohibido_en") or "", "" if f.get("ramal") is None else f"{int(f['ramal'])}",
                    nc.texto_lista(f.get("angulos"))] for f in cat["accesorios"]]),
     (N_("Eléctrico y telecom"), normas_excel.COL_ELEC,
-     lambda cat: [[f["utilidad"], f.get("estructura") or "", f.get("tipo") or "", nc.texto_rango(f.get("amperaje")),
-                   nc.texto_rango(f.get("longitud")), nc.texto_lista(f.get("diam_fijo")),
-                   "" if f.get("diam_min") is None else nc.texto_numero(f["diam_min"]),
-                   "" if f.get("diam_max") is None else nc.texto_numero(f["diam_max"]),
-                   "" if f.get("radio_min") is None else nc.texto_numero(f["radio_min"])]
+     lambda cat: [[f["utilidad"], f.get("estructura") or "", f.get("tipo") or "", *_extremos(f.get("amperaje")),
+                   *_extremos(f.get("longitud")), nc.texto_lista(f.get("diam_fijo")), _n(f.get("diam_min")),
+                   _n(f.get("diam_max")), _n(f.get("radio_min")), _n(f.get("radio_max")),
+                   nc.texto_lista(f.get("radio_fijo"))]
                   for f in cat["electricas"]]),
 ]
 
@@ -200,7 +207,8 @@ class NormasDialog(QtWidgets.QDialog):
         if not ruta:
             return
         try:
-            cat, faltan = normas_excel.importar(ruta)
+            problemas = []
+            cat, faltan = normas_excel.importar(ruta, problemas)
         except Exception as e:
             QtWidgets.QMessageBox.warning(self, _tr("Importar Excel de normativas"), _tr(
                 "No se pudo leer el Excel.\n\n{e}").format(e=e))
@@ -211,6 +219,12 @@ class NormasDialog(QtWidgets.QDialog):
                                                  a=len(cat["accesorios"]), e=len(cat["electricas"]))
         if faltan:
             msg += "\n\n" + _tr("No se encontraron estas hojas (quedan vacías): {h}.").format(h=", ".join(faltan))
+        if problemas:
+            msg += "\n\n" + _tr("No se usó (corrígelo en el Excel):") + "\n• " + "\n• ".join(problemas[:12])
+            if len(problemas) > 12:
+                msg += "\n• " + _tr("… y {n} más").format(n=len(problemas) - 12)
+            QtWidgets.QMessageBox.warning(self, _tr("Importar Excel de normativas"), msg)
+            return
         QtWidgets.QMessageBox.information(self, _tr("Importar Excel de normativas"), msg)
 
     def exportar(self):

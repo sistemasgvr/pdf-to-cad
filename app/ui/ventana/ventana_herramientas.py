@@ -120,7 +120,8 @@ class HerramientasMixin:
             from nucleo import accesorios as _acc
             accs = _acc.accesorios(self.pipes, self._pipe_z_at, ft_px)
             con_db = {i for db in getattr(self, "duct_banks", []) or [] for i in db.assigned()}
-            self._normas_avisos = normas_validar.validar(self.normas_cat, self.pipes, accs, ft_px, con_db)
+            self._normas_avisos = normas_validar.validar(self.normas_cat, self.pipes, accs, ft_px, con_db,
+                                                         self.structures)
             normas_aprobacion.marcar(self._normas_avisos, self.pipes, getattr(self, "normas_aprobados", []))
             tol = 0.5 / ft_px
             ver_acc = getattr(self, "act_show_acc", None) is None or self.act_show_acc.isChecked()
