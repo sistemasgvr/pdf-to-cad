@@ -121,7 +121,9 @@ alcantarillado, drenaje, gas, eléctrico, telecom). Todo en **unidades imperiale
   - `widgets.py` — widgets reutilizables (`InlineEdit`, `_SegInvSpinBox`, `_NoWheelFilter`,
     `ZoomPanView`, `MiniMap`: minimapa con recuadro de lo visible sobre una ZoomPanView;
     `set_layout(items, scene_rect)` = esquema de hojas (cajas con etiqueta, lo que
-    pidió el usuario: organización, no dibujo) o `set_thumbnail(pixmap, rect)`.
+    pidió el usuario: organización, no dibujo; a la medida del número de hojas —la hoja típica a
+    `HOJA_PX`=64, mínimo `LAYOUT_MIN_PX`, máximo el `LAYOUT_*` de siempre—: con 1–2 hojas se hacía
+    gigante, pedido 2026-10-15) o `set_thumbnail(pixmap, rect)`.
     «Capas de la hoja» recibe `layout` de `composite.piece_layout` vía
     `Main._composite_layout` (se calcula en `_apply_composite`); `maximize_on_show(dlg)`:
     la ÚNICA forma fiable de abrir un QDialog maximizado en Windows (setWindowState
@@ -1028,7 +1030,12 @@ alcantarillado, drenaje, gas, eléctrico, telecom). Todo en **unidades imperiale
     captura offscreen usar paleta+stylesheet a mano, nunca `apply_theme`. `build_document` materializa la hoja
     como PDF real de UNA página: `show_pdf_page` por pieza (vectores, textos y
     capas intactos; OJO: ignora el `/Rotate` de la hoja origen → clip des-rotado y
-    `rotate=piece.rotation - page.rotation`) y reconstruye `/OCProperties` con los
+    `rotate=piece.rotation - page.rotation`; y PyMuPDF 1.28 recorta ese clip SIN rotar con el
+    rect de la hoja GIRADA —en /Rotate 90/270, ancho y alto cambiados: la pieza salía cortada y
+    centrada en su lugar, franja blanca en la unión (reporte 2026-10-15, drenaje de Phoenix; las 36
+    piezas de alcantarillado perdían 3–6 % y se corrían ~50 pt)—, por eso va por `_show_pdf_page`, que
+    quita el /Rotate de la hoja de origen durante la llamada; test
+    `test_hoja_girada_cada_trazo_donde_lo_pone_el_compositor`) y reconstruye `/OCProperties` con los
     OCG que graftmap copió (hay que guardar y REABRIR el doc para que fitz vea el
     catálogo; por eso `Main._apply_composite` escribe un PDF temporal). El BBox de
     cada XObject actúa como clip en `gather_paths`, así el reconocimiento de la

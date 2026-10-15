@@ -122,6 +122,37 @@ def test_hoja_origen_rotada():
     assert math.isclose(a[0], b[0], abs_tol=0.05)
 
 
+@pytest.mark.parametrize("src_rot", [90, 270])
+@pytest.mark.parametrize("clip", [[0, 0, 1, 1], [0.05, 0.1, 0.9, 0.95], [0.3, 0.0, 1.0, 0.6]])
+@pytest.mark.parametrize("rotation", [0, 90])
+def test_hoja_girada_cada_trazo_donde_lo_pone_el_compositor(src_rot, clip, rotation):
+    """Hoja con /Rotate 90 o 270 y recorte parcial: la hoja compuesta pone cada trazo donde lo
+    pone `piece_map` (el compositor). Reporte del usuario 2026-10-15 (mapas de drenaje de
+    Phoenix): PyMuPDF recortaba el clip con el rect de la hoja GIRADA y la pieza salía cortada
+    y centrada en su lugar, con una franja blanca en la unión."""
+    src = _src_doc(rotation=src_rot)
+    page = src[0]
+    size = (page.rect.width, page.rect.height)                  # visible: 100 × 200
+    piece = C.Piece(0, 0, clip, x=7, y=11, rotation=rotation)
+    comp = C.Composite([piece])
+    dst = _reopen(C.build_document(comp, [src]))
+    fn = C.piece_map(piece, size, comp.target_scale())
+    _w, _h, dx, dy = C.sheet_geometry(comp, lambda p: size)
+    x0, y0, x1, y1 = C.clip_rect_pt(size, clip)
+    got = _lines(dst[0])
+    rot = page.rotation_matrix
+    for a, b, key in (((10, 10), (190, 10), "rojo"), ((10, 10), (10, 90), "azul")):
+        pa, pb = fitz.Point(a) * rot, fitz.Point(b) * rot           # en la hoja visible
+        if not all(x0 - 1e-6 <= p.x <= x1 + 1e-6 and y0 - 1e-6 <= p.y <= y1 + 1e-6 for p in (pa, pb)):
+            continue                                            # el recorte corta ese trazo
+        assert key in got, (src_rot, clip, rotation, key)
+        want = sorted((round(fn(p.x, p.y)[0] + dx, 2), round(fn(p.x, p.y)[1] + dy, 2)) for p in (pa, pb))
+        have = sorted((round(q[0], 2), round(q[1], 2)) for q in got[key])
+        for (ex, ey), (hx, hy) in zip(want, have):
+            assert math.isclose(ex, hx, abs_tol=0.05) and math.isclose(ey, hy, abs_tol=0.05), (key, want, have)
+    assert src[0].rotation == src_rot                           # la hoja de origen queda como estaba
+
+
 def test_edge_points_en_el_borde_del_clip():
     src = _src_doc()
     pts = C.edge_points(src[0], [0, 0, 0.5, 1])      # x=100 corta la roja (y=10) y la verde (y=50)

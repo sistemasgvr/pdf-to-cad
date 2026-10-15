@@ -318,6 +318,30 @@ def test_minimapa_en_capas_de_la_hoja(app):
         dlg.close()
 
 
+def test_minimapa_a_la_medida_del_numero_de_hojas(app):
+    """Pedido del usuario 2026-10-15: con una o dos hojas el esquema se hacía gigante (crecía
+    hasta el 42 % de la vista igual que con 36). Ahora cada hoja mide ~`HOJA_PX`: con pocas
+    hojas el esquema es chico y con muchas crece hasta el tope de siempre."""
+    from ui.comun.widgets import MiniMap, ZoomPanView
+    v = ZoomPanView()
+    v.resize(1600, 900); v.show()
+    try:
+        mm = MiniMap(v)
+        dos = [(QtCore.QRectF(600 * i, 0, 600, 700), f"16-1{5 + i}") for i in range(2)]
+        mm.set_layout(dos, QtCore.QRectF(-36, -36, 1272, 772))
+        w2, h2 = mm.width(), mm.height()
+        assert max(w2, h2) <= 2 * MiniMap.HOJA_PX + 20               # antes ~520 × 300
+        assert max(w2, h2) >= MiniMap.LAYOUT_MIN_PX                  # se puede hacer clic
+        una = dos[:1]
+        mm.set_layout(una, QtCore.QRectF(-36, -36, 672, 772))
+        assert max(mm.width(), mm.height()) <= MiniMap.LAYOUT_MIN_PX + 2
+        muchas = [(QtCore.QRectF(600 * i, 700 * j, 600, 700), f"{j}-{i}") for j in range(2) for i in range(18)]
+        mm.set_layout(muchas, QtCore.QRectF(-36, -36, 10872, 1472))
+        assert mm.width() > 3 * w2 and mm.width() <= mm.LAYOUT_MAX_W + 2   # 36 hojas: como antes
+    finally:
+        v.close()
+
+
 @pytest.mark.parametrize("manual", [False, True])
 def test_compositor_minimapa_en_tiempo_real(app, manual):
     from PySide6 import QtTest

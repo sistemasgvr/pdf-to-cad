@@ -199,6 +199,11 @@ class MiniMap(QtWidgets.QWidget):
     # pedido del usuario 2026-10-14) hasta esta parte del ancho / alto de la vista
     LAYOUT_W_FRAC, LAYOUT_H_FRAC = 0.42, 0.32
     LAYOUT_MAX_W, LAYOUT_MAX_H = 520, 300
+    # … pero a la medida del número de hojas (pedido del usuario 2026-10-15: con una o dos hojas
+    # el esquema se hacía gigante): cada hoja mide lo justo para leer su código y el esquema no
+    # baja de `LAYOUT_MIN_PX` de lado mayor (que se pueda hacer clic)
+    HOJA_PX = 64
+    LAYOUT_MIN_PX = 110
 
     def __init__(self, view, sync_zoom=False):
         super().__init__(view.viewport())
@@ -256,6 +261,11 @@ class MiniMap(QtWidgets.QWidget):
         mw, mh = self._layout_box()
         full = self._full_scene_rect
         scale = min(mw / full.width(), mh / full.height())
+        lados = sorted(max(r.width(), r.height()) for r, _t in self._layout if not r.isEmpty())
+        if lados:
+            justa = self.HOJA_PX / lados[len(lados) // 2]           # la hoja típica a HOJA_PX
+            minima = self.LAYOUT_MIN_PX / max(full.width(), full.height())
+            scale = min(scale, max(justa, minima))
         self._fit_and_show(max(1, int(full.width() * scale)), max(1, int(full.height() * scale)))
 
     def _set_extent(self, scene_rect):
