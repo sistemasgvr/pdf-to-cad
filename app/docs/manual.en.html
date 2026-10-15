@@ -130,6 +130,13 @@ clears a highlight): to leave, use <span class="btn">Cancel</span>.</p>
 the panel being updated is dimmed and a <b>«Loading…»</b> card appears with a spinning indicator
 and what the app is doing (for example «Recognizing… · Storm Drain (3 of 6)»). There is no need to
 click anything: the card goes away by itself when it finishes.</p>
+<p>The heaviest work (recognizing, building a composed sheet and the suggested composition) runs
+in a <b>separate process</b> at low priority: the computer and the window keep responding, and
+when it finishes the memory goes back to the system. While recognizing, the card shows the
+utility and the layer being read («Water (1 of 2) · layer 3 of 8»), what is already recognized is
+drawn on the sheet as it goes, and <span class="btn">Cancel</span> stops it at once. If a sheet
+needs more memory than is free, the app tells you: compose fewer sheets or recognize fewer
+utilities at a time.</p>
 
 <h2>1. Compose work sheet</h2>
 <p>This step has three <b>tabs</b>, each one full screen: <b>Source</b>, <b>Area to take</b> and
@@ -137,6 +144,24 @@ click anything: the card goes away by itself when it finishes.</p>
 <span class="btn">‹ Back</span> / <span class="btn">Next ›</span> at the bottom, or with
 <b>Ctrl+PgUp / Ctrl+PgDn</b>. The <b>Composite sheet</b> tab shows how many pieces you have and
 <b>Area to take</b> shows a <b>!</b> if you left something half done.</p>
+<p><b>Suggested composition.</b> While you work, the app checks all the sheets of the PDF
+<b>separately</b> (the top shows «Finding how the sheets join… (sheet 12 of 38)») and suggests how
+they join:</p>
+<ul>
+<li>Plans with <b>match lines</b> («MATCH LINE STA 551+75 SEE DWG UD-202»): the sheets are chained
+    by the station of each label, each one cut at its match line.</li>
+<li><b>Grid</b> maps (Phoenix Quarter Sections): by each sheet's number and the key map in the title
+    block; neighboring sheets overlap and are cut through that overlap, even when printed at
+    different scales.</li>
+</ul>
+<p>Each join is checked against the <b>drawing</b> (the lines both sheets share); if the drawing does
+not confirm it, it is not joined. <span class="btn">Use suggestion</span> leaves the composed sheet
+assembled in the <b>Composite sheet</b> tab for you to review; <span class="btn">Undo</span> puts it
+back as it was, and if it does not suit you, compose by hand as always. The sheet you opened or the
+one you pick in <b>Source</b> decides: if the plan has two sets of sheets for the same stretch
+(UR-602 and UR-602A), that sheet's set is used; if it is in none, the app asks which one. If the key
+map names sheets that are in <b>another PDF in the same folder</b> (Phoenix «…_North» and
+«…_South»), it asks before adding it. Scanned PDFs have no suggestion: they are composed by hand.</p>
 <ol>
 <li><b>Source</b>: choose the PDF (<span class="btn">Add PDF…</span> adds others) and the sheet in
     the thumbnail gallery. <b>The sheet you choose is the one used</b>: on opening, the sheet in view
@@ -232,6 +257,18 @@ editor</span> leaves it as the background to draw by hand.</p>
     drain, a <b>manhole</b> is placed where two map pipes end. If the network is in an <b>image</b> (Phoenix's
     blue storm drain), there are no vectors to assign: draw it by hand. The style checkboxes only exclude
     them from recognition; the PDF still looks the same.</li>
+<li><b>Sheet without layers with a legend:</b> if the plan has its legend box (sample + description, such as
+    «Standard Main» or «Access Manhole»), the app reads it and leaves the network style assigned as
+    <b>lines</b> and the manhole symbol as <b>structures</b>; above the list it sums it up and each style shows
+    what the legend says about it. Whatever the legend also uses for lots or annotations stays unassigned:
+    you decide. The thin lines that leave the pipe towards the lots («As-Built Tap») go to the layer
+    <b>Acometidas</b> (service lines): in water and gas they are recognized as service lines joined to the
+    pipe with a tee, with the diameter of the legend note (for example .75") or the one written next to
+    them. The same in sewer and the other utilities: in gravity and conduit networks the service
+    line stays joined to its pipe with a NULL node (no visible manhole); the manholes are those of the
+    network. When recognizing, each pipe takes
+    the diameter written next to it («6"», «8" DIP») and the legend manhole stays on its line. Always review
+    before continuing: everything can be changed like any assignment.</li>
 <li><b>Scale:</b> the <b>Scale 1"=X'</b> button at the bottom shows the sheet's scale, read from its text.
     If the text cannot be read or the PDF is printed reduced (the title block says 1"=100' and it is not),
     correct it <b>before continuing</b>: <b>Calibrate with a known distance…</b> (two clicks on the sheet and the

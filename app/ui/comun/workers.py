@@ -26,9 +26,17 @@ class PipelineWorker(QtCore.QThread):
 
 class RecognitionWorker(QtCore.QThread):
     """Reconocimiento OCG en segundo plano. `done(result_or_None, error_str)`;
-    `progress(i, n, utilidad)` antes de reconocer cada utilidad."""
+    `progress(i, n, utilidad)` antes de reconocer cada utilidad; `layer(i, n, utilidad, k, m)`
+    al empezar cada capa y `partial(utilidad, trazos)` con lo ya reconocido de cada utilidad.
+
+    `start()` lo corre en el PROCESO trabajador (`proceso`, pedido del usuario 2026-10-14: la
+    ventana no se traba y la memoria vuelve al sistema); `cancel()` lo corta al instante. Con
+    `PDFCAD_PROCESO=0`, o llamando `run()`, corre aquí mismo como siempre
+    (`reconocimiento.recognition_trabajo.reconocer_hoja`)."""
     done = QtCore.Signal(object, str)
     progress = QtCore.Signal(int, int, str)
+    layer = QtCore.Signal(int, int, str, int, int)
+    partial = QtCore.Signal(str, object)
 
     def __init__(self, pdf_path, page_index, zoom=1.0, utility="ELECTRICO",
                  hidden_ocgs=None, layer_roles=None, join_routes=True,
@@ -47,35 +55,54 @@ class RecognitionWorker(QtCore.QThread):
         self.join_routes = join_routes
         # capas que el usuario decidió NO tomar por las letras de su línea («Capas de la hoja»)
         self.letters_off = set(letters_off or ())
+        self._tarea = None
+
+    def _kwargs(self):
+        return dict(pdf_path=self.pdf_path, page_index=self.page_index, zoom=self.zoom,
+                    utilities=tuple(self.utilities), hidden_ocgs=tuple(self.hidden_ocgs),
+                    layer_roles=self.layer_roles, roles_by_utility=self.roles_by_utility,
+                    join_routes=self.join_routes, scale_ft_per_pt=self.scale_ft_per_pt,
+                    letters_off=tuple(sorted(self.letters_off)))
+
+    def _avance(self, a):
+        if a[0] == "utilidad":
+            self.progress.emit(a[1], a[2], a[3])
+        elif a[0] == "capa":
+            self.layer.emit(a[1], a[2], a[3], a[4], a[5])
+        elif a[0] == "hecha":
+            self.partial.emit(a[3], a[4])
+
+    def start(self, *args):
+        from ui.comun import proceso
+        if not proceso.activo():
+            return super().start(*args)
+        t = self._tarea = proceso.Tarea("reconocimiento.recognition_trabajo:reconocer_hoja",
+                                        kwargs=self._kwargs())
+        t.avance.connect(self._avance)
+        t.terminado.connect(self._fin_proceso)
+        proceso.trabajador("principal").enviar(t)
+
+    def _fin_proceso(self, res, err):
+        self._tarea = None
+        if err == "cancelado":
+            self.done.emit(None, "")
+        elif err == "memoria":
+            from traduccion.i18n import t as _tr
+            self.done.emit(None, _tr("La hoja necesita más memoria de la que hay libre en el equipo. "
+                                     "Prueba con menos hojas en la composición, menos utilidades a la vez "
+                                     "o cerrando otros programas."))
+        else:
+            self.done.emit(res, err)
+
+    def cancel(self):
+        if self._tarea is not None:
+            self._tarea.cancelar()
 
     def run(self):
         try:
-            import fitz
-            from reconocimiento import recognition as rec
-            results = []
-            # un solo documento y UNA lectura de las letras del linetype para todas las
-            # utilidades (`recognition.page_letters`, ~0.5–1 s por hoja)
-            with fitz.open(self.pdf_path) as doc:
-                letters = None
-                if any(not (self.roles_by_utility.get(u) or self.layer_roles) for u in self.utilities):
-                    letters = rec.page_letters(doc[self.page_index])
-                for i, utility in enumerate(self.utilities):
-                    self.progress.emit(i, len(self.utilities), utility)
-                    roles = self.roles_by_utility.get(utility) or self.layer_roles or None
-                    mine = letters
-                    if letters is not None:
-                        # una capa que el usuario asignó a mano («Ajustar capas…») a OTRA
-                        # utilidad no se toma aquí por sus letras: manda su elección
-                        claimed = {name for u, r in self.roles_by_utility.items() if u != utility
-                                   for name in [*(r.get(rec.ROLE_LINEAS) or ()), *(r.get(rec.ROLE_BUZONES) or ())]}
-                        mine = {k: v for k, v in letters.items()
-                                if k not in claimed and k not in self.letters_off}
-                    results.append(rec.recognize_page(
-                        self.pdf_path, page_index=self.page_index,
-                        utility=utility, zoom=self.zoom, doc=doc,
-                        hidden_ocgs=self.hidden_ocgs, layer_roles=roles,
-                        join_routes=self.join_routes,
-                        scale_ft_per_pt=self.scale_ft_per_pt, letters=mine))
+            from reconocimiento import recognition_trabajo
+            results = recognition_trabajo.reconocer_hoja(
+                progreso=lambda *a: self._avance(a), **self._kwargs())
             self.done.emit(results, "")
         except Exception as e:
             import traceback

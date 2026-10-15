@@ -133,6 +133,12 @@ cierra estas ventanas (solo quita un resaltado): para salir usa <span class="btn
 ventana o el panel que se está actualizando se atenúa y aparece una tarjeta <b>«Cargando…»</b>
 con un indicador que gira y lo que la app está haciendo (por ejemplo «Reconociendo… · Drenaje
 (3 de 6)»). No hace falta hacer clic: la tarjeta se va sola al terminar.</p>
+<p>Lo más pesado (reconocer, armar una hoja compuesta y la composición sugerida) corre en un
+<b>proceso aparte</b>, con prioridad baja: el equipo y la ventana siguen respondiendo, y al
+terminar la memoria vuelve al sistema. Al reconocer, la tarjeta dice la utilidad y la capa que
+va leyendo («Agua (1 de 2) · capa 3 de 8»), lo ya reconocido se va dibujando sobre la hoja y
+<span class="btn">Cancelar</span> lo corta al instante. Si una hoja necesita más memoria de la
+que hay libre, la app lo avisa: compón menos hojas o reconoce menos utilidades a la vez.</p>
 
 <h2>1. Componer hoja de trabajo</h2>
 <p>Este paso tiene tres <b>pestañas</b>, cada una a pantalla completa: <b>Origen</b>, <b>Área a
@@ -140,6 +146,23 @@ tomar</b> y <b>Hoja compuesta</b>. Puedes pasar de una a otra cuando quieras hac
 con <span class="btn">‹ Atrás</span> / <span class="btn">Siguiente ›</span> abajo, o con
 <b>Ctrl+RePág / Ctrl+AvPág</b>. La pestaña <b>Hoja compuesta</b> muestra cuántas piezas llevas y
 <b>Área a tomar</b> se marca con <b>!</b> si dejaste algo a medias.</p>
+<p><b>Composición sugerida.</b> Mientras trabajas, la app revisa <b>aparte</b> todas las hojas del
+PDF (arriba ves «Buscando cómo se unen las hojas… (hoja 12 de 38)») y te sugiere cómo se unen:</p>
+<ul>
+<li>Planos con <b>match lines</b> («MATCH LINE STA 551+75 SEE DWG UD-202»): las hojas se encadenan
+    por la estación de cada rótulo, cada una recortada en su match line.</li>
+<li>Mapas por <b>cuadrícula</b> (Quarter Section de Phoenix): por el número de cada hoja y el mapa
+    índice del cajetín; las hojas vecinas se solapan y se cortan por ese solape, aunque vengan
+    impresas a escalas distintas.</li>
+</ul>
+<p>Cada unión se comprueba con el <b>dibujo</b> (las líneas que comparten las dos hojas); si el
+dibujo no la confirma, no se une. Con <span class="btn">Usar sugerencia</span> la hoja compuesta
+queda armada en la pestaña <b>Hoja compuesta</b> para que la revises; <span class="btn">Deshacer</span>
+la devuelve como estaba, y si no te sirve compones a mano como siempre. Manda la hoja que abriste
+o la que elijas en <b>Origen</b>: si el plano trae dos juegos de hojas del mismo tramo (UR-602 y
+UR-602A), se usa el de esa hoja; si no está en ninguno, la app te pregunta cuál. Si el mapa índice
+nombra hojas que están en <b>otro PDF de la misma carpeta</b> (Phoenix «…_North» y «…_South»), te
+pregunta antes de agregarlo. Los PDF escaneados no tienen sugerencia: se componen a mano.</p>
 <ol>
 <li><b>Origen</b>: eliges el PDF (con <span class="btn">Agregar PDF…</span> puedes sumar otros) y la
     hoja en la galería de miniaturas. <b>La hoja que eliges es la que se usa</b>: al abrir, la hoja a
@@ -235,6 +258,17 @@ imagen/escaneo…</b>), pero sin capas ni reconocimiento: al final,
     nada) y, en alcantarillado y drenaje, donde terminan dos tuberías del mapa se pone su <b>buzón</b>. Si
     la red está en una <b>imagen</b> (el drenaje azul de Phoenix), no hay vectores que asignar: dibújala a
     mano. Las casillas de los estilos solo los excluyen del reconocimiento; el PDF se sigue viendo igual.</li>
+<li><b>Hoja sin capas con leyenda:</b> si el plano trae su cuadro de leyenda (muestra + descripción, como
+    «Standard Main» o «Access Manhole»), la app lo lee y deja ya asignado el estilo de la red como
+    <b>líneas</b> y el símbolo del buzón como <b>estructuras</b>; arriba de la lista lo resume y cada estilo
+    muestra lo que dice de él la leyenda. Lo que la leyenda usa también para lotes o anotaciones queda sin
+    asignar: decídelo tú. Las líneas finas que salen de la tubería hacia los lotes («As-Built Tap») van a
+    la capa <b>Acometidas</b>: en agua y gas se reconocen como acometidas unidas a la tubería con una T, con
+    el diámetro de la nota de la leyenda (por ejemplo .75") o el escrito junto a ellas. Lo mismo en
+    alcantarillado y las demás utilidades: en las redes por gravedad y de conductos la acometida queda
+    unida a su tubería con un nodo NULO (sin buzón visible); los buzones son los de la red. Al reconocer, cada tubería toma el diámetro escrito a su
+    lado («6"», «8" DIP») y el buzón de la leyenda queda en su línea. Revisa siempre antes de continuar:
+    todo se puede cambiar como cualquier asignación.</li>
 <li><b>Escala:</b> el botón <b>Escala 1"=X'</b> del pie muestra la escala de la hoja, leída de su texto.
     Si el texto no se puede leer o el PDF está impreso reducido (el rótulo dice 1"=100' y es otra), corrígela
     <b>antes de continuar</b>: <b>Calibrar con una distancia conocida…</b> (dos clics en la hoja y la distancia

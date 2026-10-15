@@ -181,8 +181,11 @@ def _decodificar(doc, f):
     partes = []
     for i, code in enumerate(codes):
         r, col = divmod(i, COLS)
-        partes.append(b"q %f %f %f %f %d %d cm 0 g 0 G " % (EM * a, EM * b, EM * c, EM * d,
-                                                          col * CELDA + OX, H - (r * CELDA + OY))
+        # cada glifo recortado a SU celda: un símbolo grande (la flecha del «Valve #») se
+        # metía en la celda de arriba y el «4» y el «6» de Phoenix no se leían (0.79/0.87)
+        partes.append(b"q %d %d %d %d re W n %f %f %f %f %d %d cm 0 g 0 G " % (
+                          col * CELDA, H - (r + 1) * CELDA, CELDA, CELDA,
+                          EM * a, EM * b, EM * c, EM * d, col * CELDA + OX, H - (r * CELDA + OY))
                       + procs[code] + b"\nQ\n")
     x = tmp.get_new_xref()
     tmp.update_object(x, "<<>>")

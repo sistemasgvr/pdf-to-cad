@@ -62,3 +62,19 @@ def _normativas_en_carpeta_temporal(monkeypatch, tmp_path):
     """El catálogo de normativas (normas_catalogo.ruta) nunca va a %APPDATA% en las pruebas."""
     monkeypatch.setenv("PDFCAD_NORMAS_TABLAS", str(tmp_path / "normativas_tablas.json"))
     yield
+
+
+@pytest.fixture(autouse=True)
+def _sin_composicion_sugerida_en_segundo_plano(monkeypatch):
+    """El compositor no lanza el análisis de «Composición sugerida» en otro hilo en las
+    pruebas (cada diálogo revisaría todas las hojas); sus pruebas lo encienden."""
+    monkeypatch.setenv("PDFCAD_SUGERENCIA", "0")
+    yield
+
+
+@pytest.fixture(autouse=True)
+def _trabajo_en_el_mismo_proceso(monkeypatch):
+    """Reconocer y armar la hoja compuesta corren aquí mismo (como antes), no en el proceso
+    trabajador (`ui.comun.proceso`); `tests/test_proceso.py` lo enciende."""
+    monkeypatch.setenv("PDFCAD_PROCESO", "0")
+    yield

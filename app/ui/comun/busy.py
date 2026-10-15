@@ -30,6 +30,7 @@ import math
 from PySide6 import QtCore, QtGui, QtWidgets
 
 from ui.comun import theme as _theme
+from traduccion.i18n import t as _tr
 
 _TICK_MS = 33              # ~30 fps del indicador
 _CARD_MAX_W = 440
@@ -62,6 +63,8 @@ class BusyOverlay(QtWidgets.QWidget):
         self._host = host
         self._stack: list[dict] = []
         self._angle = 0.0
+        self._veil = 165
+        self._cancel_rect = None
         self._prev_focus = None
         self.setFocusPolicy(QtCore.Qt.StrongFocus)
         self.setMouseTracking(True)
@@ -82,9 +85,11 @@ class BusyOverlay(QtWidgets.QWidget):
     def detail(self) -> str:
         return self._stack[-1]["detail"] if self._stack else ""
 
-    def begin(self, text: str, detail: str = ""):
-        """Muestra (o apila) un mensaje y pinta la capa en el acto."""
-        self._stack.append({"text": text, "detail": detail, "done": None, "total": None})
+    def begin(self, text: str, detail: str = "", cancel=None):
+        """Muestra (o apila) un mensaje y pinta la capa en el acto. `cancel` = función:
+        la tarjeta lleva «Cancelar» (trabajo en otro proceso, que se puede cortar)."""
+        self._stack.append({"text": text, "detail": detail, "done": None, "total": None,
+                            "cancel": cancel})
         if len(self._stack) == 1:
             self.setGeometry(self._host.rect())
             self.show()
@@ -126,6 +131,7 @@ class BusyOverlay(QtWidgets.QWidget):
             self.pump()
             return
         self._timer.stop()
+        self._veil = 165
         self.hide()
         QtWidgets.QApplication.restoreOverrideCursor()
         prev, self._prev_focus = self._prev_focus, None
@@ -164,7 +170,22 @@ class BusyOverlay(QtWidgets.QWidget):
         if self._stack:
             self.raise_()
 
+    def set_veil(self, alpha: int):
+        """Opacidad del velo (0–255): más bajo deja ver lo que se va dibujando debajo."""
+        self._veil = int(alpha)
+        self.update()
+
     def event(self, ev):
+        if (self._stack and ev.type() == QtCore.QEvent.MouseButtonRelease
+                and self._stack[-1].get("cancel") is not None and self._cancel_rect is not None
+                and self._cancel_rect.contains(QtCore.QPointF(ev.position()))):
+            fn = self._stack[-1]["cancel"]
+            self._stack[-1]["cancel"] = None          # un clic basta
+            self._stack[-1]["detail"] = _tr("Cancelando…")
+            self.update()
+            QtCore.QTimer.singleShot(0, fn)
+            ev.accept()
+            return True
         if self._stack and ev.type() in _INPUT_EVENTS:
             ev.accept()               # también ShortcutOverride: así no salta ningún atajo
             return True
@@ -178,11 +199,12 @@ class BusyOverlay(QtWidgets.QWidget):
         p = QtGui.QPainter(self)
         p.setRenderHint(QtGui.QPainter.Antialiasing)
         veil = QtGui.QColor(t.window)
-        veil.setAlpha(165)
+        veil.setAlpha(self._veil)
         p.fillRect(self.rect(), veil)
 
         top = self._stack[-1]
         has_bar = bool(top["total"])
+        has_cancel = top.get("cancel") is not None
         w = min(_CARD_MAX_W, max(160, self.width() - 32))
         pad = 16
         text_w = w - pad * 3 - _SPINNER
@@ -194,7 +216,7 @@ class BusyOverlay(QtWidgets.QWidget):
             QtCore.QRect(0, 0, text_w, 1000), QtCore.Qt.TextWordWrap, top["detail"])
             if top["detail"] else QtCore.QRect())
         text_h = fl.height() + (dl.height() + 4 if top["detail"] else 0)
-        h = max(_SPINNER, text_h) + pad * 2 + (14 if has_bar else 0)
+        h = max(_SPINNER, text_h) + pad * 2 + (14 if has_bar else 0) + (34 if has_cancel else 0)
         card = QtCore.QRectF((self.width() - w) / 2.0, (self.height() - h) / 2.0, w, h)
 
         for i, alpha in enumerate((28, 18, 10)):          # sombra suave
@@ -226,9 +248,22 @@ class BusyOverlay(QtWidgets.QWidget):
             p.drawText(QtCore.QRectF(x, y + fl.height() + 4, text_w, dl.height()),
                        QtCore.Qt.TextWordWrap, top["detail"])
 
+        self._cancel_rect = None
+        if has_cancel:                                     # «Cancelar» abajo a la derecha
+            f_btn = _resized(self.font(), 0)
+            bw = QtGui.QFontMetrics(f_btn).horizontalAdvance(_tr("Cancelar")) + 28
+            r = QtCore.QRectF(card.right() - pad - bw, card.bottom() - pad - 28, bw, 28)
+            p.setPen(QtGui.QPen(QtGui.QColor(t.border), 1))
+            p.setBrush(QtGui.QColor(t.window))
+            p.drawRoundedRect(r, 6, 6)
+            p.setPen(QtGui.QColor(t.text)); p.setFont(f_btn)
+            p.drawText(r, QtCore.Qt.AlignCenter, _tr("Cancelar"))
+            self._cancel_rect = r
+
         if has_bar:                                        # avance conocido: barra fina
             frac = max(0.0, min(1.0, float(top["done"]) / float(top["total"])))
-            bar = QtCore.QRectF(card.left() + pad, card.bottom() - pad - 4, w - 2 * pad, 5)
+            bar = QtCore.QRectF(card.left() + pad, card.top() + pad + max(_SPINNER, text_h) + 8,
+                                w - 2 * pad, 5)
             p.setPen(QtCore.Qt.NoPen)
             p.setBrush(QtGui.QColor(t.border_soft)); p.drawRoundedRect(bar, 2.5, 2.5)
             if frac > 0:

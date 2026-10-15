@@ -50,6 +50,7 @@ from ui.asistente.sheet_crop_dialog import _CropView
 from ui.asistente.scan_crop_view import ScanCropView
 from ui.asistente.composite_scan_ui import ScanToolsMixin
 from ui.asistente.composite_choice import ChosenSheetMixin
+from ui.asistente.composite_suggest import SuggestionMixin
 from ui.asistente.tool_strip import ToolStrip
 from ui.comun.busy import busy
 from ui.comun.widgets import maximize_on_show
@@ -154,7 +155,8 @@ def _banner(color: str) -> tuple[QtWidgets.QFrame, QtWidgets.QLabel]:
     return box, lbl
 
 
-class CompositeDialog(NoEscapeClose, ChosenSheetMixin, SourcePageMixin, ScanToolsMixin, QtWidgets.QDialog):
+class CompositeDialog(NoEscapeClose, ChosenSheetMixin, SourcePageMixin, ScanToolsMixin, SuggestionMixin,
+                      QtWidgets.QDialog):
     def __init__(self, parent, sources: List[dict], comp: Optional[C.Composite],
                  hidden_by_source: Optional[Dict[str, List[str]]], current_page: int = 0, manual: bool = False):
         super().__init__(parent)
@@ -210,6 +212,7 @@ class CompositeDialog(NoEscapeClose, ChosenSheetMixin, SourcePageMixin, ScanTool
         if self._simple():
             self._choose_page()            # la hoja a la vista ya es la hoja compuesta
         self._go_tab(start)
+        self._sug_iniciar()                # composición sugerida: aparte, en otro hilo
 
     def _start_position(self, current_page: int) -> tuple[int, int]:
         """PDF y hoja con que se abre: donde el usuario estaba trabajando, no el
@@ -257,6 +260,7 @@ class CompositeDialog(NoEscapeClose, ChosenSheetMixin, SourcePageMixin, ScanTool
         self.tabs.tabs[TAB_SHEET].setToolTip(_tr("Acomodar las piezas tomadas"))
         self.tabs.currentChanged.connect(self._go_tab)
         root.addWidget(self.tabs)
+        root.addWidget(self._sug_card())   # «Composición sugerida» (composite_suggest)
 
         t = _theme.tokens()
         self.stack = QtWidgets.QStackedWidget()
@@ -1167,6 +1171,7 @@ class CompositeDialog(NoEscapeClose, ChosenSheetMixin, SourcePageMixin, ScanTool
         return self.comp, self.sources, self.hidden_by_source
 
     def close_docs(self):
+        self._sug_desconectar()
         self._thumb_timer.stop()
         self._thumb_queue = []
         for d in self.docs:

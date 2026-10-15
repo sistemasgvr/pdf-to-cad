@@ -3375,4 +3375,76 @@ EN: dict[str, str] = {
         '{n} standards warning(s) approved.',
     'Aprobación quitada: {n} aviso(s).':
         'Approval removed: {n} warning(s).',
+    # ── mapas sin capas: leyenda del plano, acometidas, buzones y diámetros (2026-10-13/14) ──
+    'Capas por estilo asignadas por la leyenda del plano: revisa líneas y símbolos antes de importar.':
+        "Style layers assigned from the plan's legend: review lines and symbols before importing.",
+    'Leyenda del plano: {n} trazo(s) de sus muestras no se reconocen como tuberías.':
+        "Plan legend: {n} stroke(s) of its samples are not recognized as pipes.",
+    'Leyenda del plano leída, pero ningún estilo es solo de una red: asígnalos abajo.':
+        "Plan legend read, but no style belongs to a single network only: assign them below.",
+    'Leyenda del plano: {u} — {l} estilo(s) de líneas y {e} de estructuras ya asignados. Revísalos y cambia lo que haga falta.':
+        "Plan legend: {u} — {l} line style(s) and {e} structure style(s) already assigned. Review them and change what is needed.",
+    'Leyenda del plano: {u} — {l} estilo(s) de líneas, {a} de acometidas y {e} de estructuras ya asignados. Revísalos y cambia lo que haga falta.':
+        "Plan legend: {u} — {l} line style(s), {a} service-line style(s) and {e} structure style(s) already assigned. Review them and change what is needed.",
+    'Sin asignar (la leyenda también los usa para lotes, anotaciones u otra red):':
+        "Not assigned (the legend also uses them for lots, annotations or another network):",
+    'Buzones de la leyenda unidos a su línea (su punta o un vértice cae en el símbolo, o lo atraviesa): {n}.':
+        "Legend manholes joined to their line (its end or a vertex falls on the symbol, or it crosses it): {n}.",
+    'Acometidas (servicios a los predios, leyenda «Tap»): {n}, {t} unidas a su tubería con una T — diámetro {d}" (nota de la leyenda).':
+        'Service lines (taps to the lots, legend «Tap»): {n}, {t} joined to their pipe with a tee — diameter {d}" (legend note).',
+    'Acometidas (servicios a los predios, leyenda «Tap»): {n}, {t} unidas a su tubería con una T.':
+        "Service lines (taps to the lots, legend «Tap»): {n}, {t} joined to their pipe with a tee.",
+    'Diámetros escritos en el plano («8"», «12" DIP», «278\' 2"»): {n} tubería(s) los toman; {m} con rótulos distintos quedan con el diámetro por defecto.':
+        'Diameters written on the plan («8"», «12" DIP», «278\' 2"»): {n} pipe(s) take them; {m} with different labels keep the default diameter.',
+    'Junto a estas tuberías el plano escribe diámetros distintos (por ejemplo 6" y 8" a cada lado de una reducción): quedan con el diámetro por defecto. Revisa su diámetro en el editor.':
+        'The plan writes different diameters next to these pipes (for example 6" and 8" on each side of a reducer): they keep the default diameter. Check their diameter in the editor.',
+    # Composición sugerida (composite_suggest.py, 2026-10-14)
+    '{n} hojas ({desde} → {hasta})':
+        '{n} sheets ({desde} → {hasta})',
+    'STA {a} → {b}':
+        'STA {a} → {b}',
+    '{n} PDF':
+        '{n} PDFs',
+    'Usar sugerencia':
+        'Use suggestion',
+    'Reemplaza la hoja compuesta por la sugerida (se puede deshacer)':
+        'Replaces the composed sheet with the suggested one (can be undone)',
+    'Volver a la hoja compuesta de antes de usar la sugerencia':
+        'Go back to the composed sheet you had before using the suggestion',
+    'Ocultar la sugerencia':
+        'Hide the suggestion',
+    'Buscando cómo se unen las hojas…':
+        'Finding how the sheets join…',
+    'Buscando cómo se unen las hojas… (hoja {i} de {n})':
+        'Finding how the sheets join… (sheet {i} of {n})',
+    'Confirmando las uniones con el dibujo…':
+        'Confirming the joins against the drawing…',
+    'Armando la composición sugerida…':
+        'Building the suggested composition…',
+    'Buscando en la carpeta el PDF con las hojas vecinas…':
+        'Looking in the folder for the PDF with the neighboring sheets…',
+    'Elegir el juego de hojas…':
+        'Choose the set of sheets…',
+    '✔ Composición sugerida en la hoja compuesta: {txt}.':
+        '✔ Suggested composition in the composed sheet: {txt}.',
+    'Encontré {n} juegos de hojas que se unen. ¿Cuál quieres usar?':
+        'I found {n} sets of sheets that join. Which one do you want to use?',
+    'No encontré hojas que se unan solas: compón la hoja a mano.':
+        'No sheets join automatically: compose the sheet by hand.',
+    'Composición sugerida:':
+        'Suggested composition:',
+    'Las hojas vecinas {celdas} ({n}) están en «{pdf}». ¿Agregarlo a la composición?':
+        'The neighboring sheets {celdas} ({n}) are in «{pdf}». Add it to the composition?',
+    '{n} hojas · vectores, capas y textos intactos':
+        '{n} sheets · vectors, layers and text intact',
+    'Volviendo a la hoja compuesta anterior…':
+        'Going back to the previous composed sheet…',
+    'Cancelando…': 'Cancelling…',
+    'Hoja {p} · {u} ({i} de {n}) · capa {k} de {m}': 'Sheet {p} · {u} ({i} of {n}) · layer {k} of {m}',
+    'La hoja necesita más memoria de la que hay libre en el equipo. Prueba con menos hojas en la composición, menos utilidades a la vez o cerrando otros programas.':
+        'The sheet needs more memory than this computer has free. Try fewer sheets in the composition, '
+        'fewer utilities at a time, or closing other programs.',
+    'La hoja compuesta necesita más memoria de la que hay libre en el equipo.':
+        'The composed sheet needs more memory than this computer has free.',
+    'No se pudo armar la hoja compuesta.': 'The composed sheet could not be built.',
 }

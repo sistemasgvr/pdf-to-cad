@@ -21,7 +21,8 @@ alcantarillado, drenaje, gas, eléctrico, telecom). Todo en **unidades imperiale
     (`recognition_dialog`, `_summary_view`, `_review_view`, `_layers_view`, `_preview_draw`) siguen en `app/`.
     `app/hoja/` (mismo día) = hoja de trabajo PURA: `composite`, `composite_checks`, `composite_scan`,
     `composite_seam`, `pdf_layers`, `pdf_legend`, `sheet_crops`, `sheet_layout`, `organized_layers`,
-    `leyenda_cruce`, `leyenda_estandar`, `leyenda_trazos` (`from hoja import composite`). Los diálogos y vistas
+    `leyenda_cruce`, `leyenda_estandar`, `leyenda_trazos`, y los de mapas sin capas `pdf_styles`, `texto_pdf`,
+    `leyenda_mapa`, `leyenda_mapa_lectura`, `acometidas_mapa` (`from hoja import composite`). Los diálogos y vistas
     del compositor/capas (y `composite_choice`, que usa `i18n`) siguen en `app/`.
     `app/catalogo/` = `civil_catalog`, `catalogo_tamanos`, `catalogo_tamanos_presion` (PUROS) y `app/exportar/` =
     `dxf_export` (NO puro: recibe la ventana `win` y usa `geometry.point_in_poly`; `geometry` importa QtGui).
@@ -451,6 +452,33 @@ alcantarillado, drenaje, gas, eléctrico, telecom). Todo en **unidades imperiale
     `tests/test_pdf_styles.py`, `tests/test_mapas_sin_capas.py` (Phoenix 17-10 ventana → DXF: 69 líneas, 102
     buzones). OJO al dibujar revisiones sobre estas hojas: tienen `/Rotate 90` → `pts_pdf` (px de la vista) por
     `page.derotation_matrix` antes de dibujar en la página.
+    **Leyenda del plano y todo lo que dice el mapa (2026-10-13/14, SOLO hojas sin OCG con texto Type3 sin
+    ToUnicode: `leyenda_mapa.aplica`)**: `hoja/texto_pdf.py` lee el texto por la FORMA de cada glifo (charprocs
+    dibujados y comparados con Arial, coseno ≥0.9; cada glifo RECORTADO a su celda: una flecha grande se metía en
+    la celda del «4»/«6»); los glifos sin letra son SÍMBOLOS (`simbolos`). La fuente fina de trazos de Phoenix
+    alcantarillado (calles, subdivisiones) no se lee: es mapa base. `hoja/leyenda_mapa_lectura.py` arma el cuadro
+    (columnas a paso regular partidas donde salta el paso, muestra entre el texto de la columna de la izquierda
+    QUE ESTÁ A SU ALTURA y la descripción, símbolo centrado en su fila ±0.35 paso, notas «taps are .75"» /
+    «main material is ACP») y `hoja/leyenda_mapa.py` da el significado (sección/utilidad, rol LINEA/ESTRUCTURA/
+    ACCESORIO/ANOTACION/BASE/ACOMETIDA) y `asignaciones` (voto por estilo/símbolo; lo que la leyenda usa también
+    para lotes queda ambiguo). `hoja/acometidas_mapa.py`: acometidas = trazos del estilo de una fila «Tap» que
+    NACEN sobre la tinta de la red (≤0.35 pt) en un BLOQUE del orden de dibujo (`seqno`, huecos ≤20 trazos) donde
+    ≥50 % nace sobre ella (el SIG dibuja cada capa seguida: los linderos del mismo estilo quedan en otros bloques);
+    `pdf_styles.drawings` las pone en la capa virtual `["tap", utilidad, estilo]` («Acometidas · Negro 0.19 pt»),
+    asignada como líneas en TODAS las utilidades (2026-10-14; antes solo presión): en gravedad/conductos el import
+    (`nucleo/acometidas.unir_a_principal`) pone la punta «tee» como vértice `acometida` de su tubería (no si cae a
+    ≤ `_TOL` de otro vértice: movería el buzón) y `hide_soft_vertex_structures` deja NULOS los nodos de la
+    acometida (`pipe["acometida"]`); `recognition_style_nodes` no mira las capas de acometidas. QS Sewer South h.4:
+    40 tuberías + 390 acometidas, buzones visibles iguales. Tests: `tests/test_acometidas_gravedad.py`. Reconocimiento:
+    `recognition_ink_lines.simplify_tol` = medio grosor del trazo (0.15–0.5; el grosor sale del NOMBRE de la capa
+    —`pdf_styles.style_width`—: `geom.clip_path` no conserva `width`), así el eje no sale de la línea;
+    `recognition_map_vaults` (buzón-símbolo con punta/vértice dentro o atravesado → vértice «vault», deja de ser
+    huérfano), `recognition_taps` (punta de la acometida al pie sobre la tubería, «tee»; las acometidas no se unen
+    en rutas), `recognition_diametros` («8"», «12" DIP», «278' 2"» paralelos y pegados → `diam_in` por mayoría
+    ≥60 %; mezcla → `review="diam_mix"`). `RecognizedPolyline.diam_in` → `pipe["diam"]`. Foto 16 hojas Phoenix
+    (HEAD → nuevo): agua mismas tuberías + acometidas (South h.4: 151 + 404, 0 a >1 pt de la tinta al importar);
+    Water North h.1/4/10 de 0 líneas a 145/143/106 (la leyenda ya se lee); alcantarillado mismas líneas, buzones
+    sin línea 33→4, 37→4. Tests: `tests/test_mapas_leyenda.py`.
   - **Reporte DU06 h.4 (2026-09-29, cuatro casos, TODAS las utilidades)**:
     `recognition_dupink.py` (PURO) — la MISMA línea dibujada dos veces en la misma capa
     con el linetype desfasado (banco de ductos `N-COMM-DUCT-BANK-PL`: dos entidades
@@ -983,6 +1011,61 @@ alcantarillado, drenaje, gas, eléctrico, telecom). Todo en **unidades imperiale
     y `scale_override`; `work_pdf_path` es el PDF que ven los workers.
     Tests: `tests/test_composite.py` (puro) y `tests/test_composite_dialog.py`
     (Qt offscreen, punta a punta: dos hojas → una ruta).
+  - **Composición sugerida** (pedido del usuario 2026-10-14: «revisar TODAS las hojas y sugerir cómo se unen»;
+    escaneos excluidos, `comp.manual` no la lanza). Núcleo PURO en `app/hoja/`: `composicion_ficha.py` (por hoja:
+    rótulos «MATCH LINE STA … SEE DWG …» con su lado de la VISTA = clip del viewport, número de hoja + serie
+    «UR-#A», celda de cuadrícula «17-10»/«Q17-10» + mapa índice 3×3 — una celda solo vale con mapa índice o
+    prefijo Q: un «380-4» de portada no—, trazos de las franjas de los bordes; el dibujo solo se lee si el texto
+    dice algo; Type3 por `texto_pdf`), `composicion_encaje.py` (B = escala·A + t, hoja VISIBLE: `costura_cad` =
+    match lines que coinciden + vectores idénticos o continuidad, la MISMA costura exacta de `composite_seam`,
+    con ventanas 30→600 pt alrededor de la pista de los rótulos y el hallazgo tiene que ser además el pico
+    GLOBAL de votos crudos — con ventana amplia cada voto se reparte y LABOE sin capas perdía uniones—;
+    `encaje_mapa` = trazos idénticos en la franja de solape, escala si los PDF difieren, pico dominante, ≥2
+    rumbos, vecina del lado del mapa índice; plantilla = trazos en la misma posición en ≥50 % de las hojas),
+    `composicion_sugerida.py` (parejas por el texto ±60 ft de estación —erratas reales de 50 ft— o celdas
+    vecinas en la dirección del mapa índice / convención aprendida; primero dentro de la serie; mapas sin pico
+    claro → GUIADAS por la traslación mediana de las ya confirmadas, con dominio 1.5 y RMS ≤0.3; grupos con
+    control de CICLOS (≤1 pt, si no se parten); `armar` → `Composite` normal: CAD recortada EN su match line +
+    `trim_border` (franjas) y puentes; mapa sin puentes, costuras (`composicion_costuras.py`) por el solape de TINTA (`tinta`: la vista de
+    alcantarillado es ~25 pt más ancha que el mapa) en la posición que menos tinta de una sola hoja pierde y
+    menos tramos rasantes toca (`_costo_corte`: cada hoja dibuja su red entera y solo parte de la vecina),
+    recta común por fila/columna si cabe) y `composicion_hermanos.py` (PDF de la carpeta con la misma utilidad
+    en el nombre y las celdas que faltan). UI `ui/asistente/composite_suggest.py` (`SuggestionMixin` + `Servicio`
+    en un QThread de baja prioridad, caché por sha1 de cada PDF): tarjeta bajo las pestañas (progreso → «Composición
+    sugerida: 14 hojas (UD-201 → UD-214) · STA …» → «Usar sugerencia» / «Deshacer»; la hoja abierta o elegida en
+    Origen decide el grupo y la serie, si no está en ninguno y hay varios, combo; PDF hermano → «Agregar PDF» y
+    se vuelve a analizar). `PDFCAD_SUGERENCIA=0` la apaga (conftest). Reconocimiento: en `recognition_ink_lines`
+    la punta «cut» donde llega la de OTRA pieza (otro `clip_polys`) es «junction» (una tubería de un mapa
+    compuesto sigue en la costura; hojas sueltas: 0 diferencias en 8 hojas de Phoenix). Auditoría
+    `scripts/audit_composicion.py [--fotos] [--reconocer] [du06 du10 du08 laboe agua cloaca sd]`: CAD contra la
+    verdad independiente de `audit_costuras` (DU06 13/13, DU10 24/24, DU08, LABOE: todas ≤0.19 pt), mapas RMS +
+    ciclos (agua 0.26 pt, alcantarillado 0.65 pt, 36 hojas en 2 PDF cada uno; SD queda en tramos: líneas a
+    guiones repetidas). Tests: `tests/test_composicion_sugerida.py`.
+  - **Trabajo pesado CONTROLADO** (pedido del usuario 2026-10-14: «no detener todo el sistema», RAM, avance «como
+    un lápiz»). `ui/comun/proceso.py` + `proceso_hijo.py` (sin Qt): `Trabajador` = proceso hijo «spawn» reusado
+    («principal»: reconocer/armar; «fondo»: composición sugerida), prioridad BELOW_NORMAL, tope de memoria por Job
+    Object (`TOPE_FRACCION` 0.7 de la RAM; si no cabe → error «memoria» con aviso), reciclado si tras un trabajo
+    queda > `RECICLAR_MB`; `Tarea(objetivo «mod:fn», args, kwargs)` con `avance`/`terminado`, `cancelar()` = matar.
+    `ejecutar(...)` espera con un QEventLoop local (la capa «Cargando…» come la entrada). Trabajos PUROS:
+    `reconocimiento/recognition_trabajo.reconocer_hoja` (lo de `RecognitionWorker.run`, que sigue igual para las
+    pruebas; `start()` va al proceso; señales nuevas `layer` «capa k de m» —`recognize_page(avance=)`— y `partial`
+    con los trazos de cada utilidad terminada, que `Main._recognition_partial` dibuja bajo un velo más claro),
+    `hoja/composite_trabajo.materializar` (`_build_composite_doc`) y `hoja/composicion_trabajo.analizar` (caché de
+    fichas EN el trabajador; vuelve sin `Ficha.lineas`). `BusyOverlay.begin(cancel=)` pinta «Cancelar»;
+    `set_veil`. `main.py`: `freeze_support()` y la interfaz se importa solo bajo `__main__` (el hijo importa main
+    como `__mp_main__`); `OPENBLAS_NUM_THREADS=1` antes de numpy (+361 → +8 MB por proceso; letras igual de
+    rápidas). `PDFCAD_PROCESO=0` = todo aquí mismo (conftest; `tests/test_proceso.py` lo enciende).
+    Velocidad sin cambiar resultados (`reconocimiento/recognition_indice.py`: `IndiceTramos` por corredor y
+    `IndicePuntos`, candidatos en el ORDEN original → mismo desempate): `strokes_by_polyline`, `_through_dirs`,
+    `ink_reconstruct` (puntas), `recognition_diametros.asignar`, `snap_taps`, `acometidas_mapa` (celdas) y
+    `leyenda_mapa_lectura` (una leyenda POR HOJA en una compuesta: `_grupos` de encabezados a ≤ `GRUPO_HS`=100×
+    su tamaño, `_Pagina` con filtros exactos, filas de todas sin repetir y una zona por leyenda; `_rotulos` por
+    celdas). Antes las leyendas de una compuesta se juntaban en UNA caja que tapaba parte del mapa (4 hojas de agua:
+    282 → 389 tuberías + acometidas). Phoenix agua 36 hojas con estilos asignados: 668 s → 79 s. Foto antes/después
+    (7 casos: agua S/N, alcantarillado, DU06 eléctrico/drenaje/telecom): idénticos salvo las acometidas nuevas.
+    Pendiente: leer la leyenda de una compuesta de mapas sigue siendo frágil (las muestras de una hoja quedan bajo
+    el mapa de la vecina; a partir de ~12 hojas no asigna sola los estilos): llevar a la compuesta la leyenda leída
+    en cada hoja de ORIGEN (metadatos de piezas en el PDF materializado).
   - **Compositor de escaneos** (`Composite.manual`, PDF imagen/escaneo → editor sin capas ni
     reconocimiento): `scan_crop_view.py` (área con 4 esquinas → `Piece.polygon`),
     `alignment_tools.py` (regla con asa de giro, transportador de tamaño FIJO en pantalla con
