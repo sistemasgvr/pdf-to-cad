@@ -26,6 +26,10 @@ class ConflictosMixin:
         # Saneamos antes de dibujar por si el usuario borró/movió una pipe
         # y quedaron cruces fantasma en cross_connections.
         self._prune_stale_cross_connections()
+        # Las aprobadas siguen las cotas ACTUALES de sus utilidades (antes quedaban con las del
+        # momento de aprobar: cambiar una rasante no llegaba al DXF ni a la Vista 3D).
+        from nucleo import conexiones_verticales
+        conexiones_verticales.actualizar_cotas(self.pipes, getattr(self, "cross_connections", None) or [])
         # Toggle del usuario en la barra inferior: si está apagado, no dibujar
         # nada, limpiar hits (para que un click no active nada) y quitar el
         # contador de la barra de estado. El resto de la app sigue igual —

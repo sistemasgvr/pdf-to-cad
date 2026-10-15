@@ -99,14 +99,19 @@ class SeleccionMixin:
             # Familia + tamaño del catálogo Civil 3D. El diámetro se deriva del tamaño.
             if self.prop_family.isVisibleTo(self.gprop):     # no depende de que el panel esté desplegado
                 p["pipe_family"] = self.prop_family.currentData() or ""
-                p["pipe_size"] = self.prop_size.currentData() or "" if self.prop_size.isEnabled() else ""
-            # p["diam"] se calcula del pipe_size (p.ej. "24 in" → 24.0). Sin tamaño de
-            # catálogo se CONSERVA el diámetro que ya tenía: antes quedaba en 0 al
-            # editar cualquier campo (p. ej. el nombre) y cambiaban las alertas.
-            # Sin tamaño de catálogo = diámetro PRECARGADO (model_ops.DIAM_DEFECTO_IN).
-            d_size = _extract_diam_from_size(p.get("pipe_size", "")) or model_ops.DIAM_DEFECTO_IN
-            if d_size or not p.get("diam"):
-                p["diam"] = d_size
+            # Tamaño de catálogo («24 in» → 24.0) o, sin familia, el diámetro elegido («diam:8»).
+            # Solo si el combo se puede usar: editar el nombre ya no pisa el diámetro (antes, sin
+            # tamaño de catálogo, quedaba en 12" y se perdía el que leyó el reconocimiento).
+            if self.prop_size.isVisibleTo(self.gprop) and self.prop_size.isEnabled():
+                dato = str(self.prop_size.currentData() or "")
+                if dato.startswith("diam:"):
+                    p["pipe_size"] = ""; p["diam"] = float(dato[5:]); p["diam_elegido"] = True
+                else:
+                    p["pipe_size"] = dato
+                    p["diam"] = _extract_diam_from_size(dato) or model_ops.DIAM_DEFECTO_IN
+                    p.pop("diam_elegido", None)
+            elif not p.get("diam"):
+                p["diam"] = model_ops.DIAM_DEFECTO_IN
             self._refresh_lists()
             self._rebuild_seg_inv_table(p)
             # Repintamos el lienzo para que los marcadores de cruces se
@@ -288,6 +293,7 @@ class SeleccionMixin:
         if len(self._selected_pipe_rows()) > 1:
             self._pipe_bulk_menu(menu)
         else:
+            self._menu_vertice(menu, x, y)          # eléctrico/telecom: «Convertir este vértice en curva»
             self._pipe_single_menu(menu)
             menu.addSeparator()
             self._menu_act(menu, "Eliminar", self.delete_selected)

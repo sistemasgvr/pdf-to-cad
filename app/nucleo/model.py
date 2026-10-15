@@ -58,6 +58,11 @@ DEFAULT_WORK_UNIT = "ft"
 # trabajo (que rige coordenadas/cotas): el diámetro nunca va en pies.
 PIPE_DIAMETERS_IN = [12, 15, 18, 21, 24, 30, 36, 42, 48, 54, 60, 66, 72, 78,
                      84, 90, 96, 102, 108, 114, 120, 126, 132, 138, 144]
+# Diámetros que se ofrecen SIN familia elegida (2026-10-15: el diámetro por defecto o el que
+# leyó el reconocimiento no se veían ni se podían cambiar sin familia): los chicos de agua,
+# gas, eléctrico y telecom + la lista de siempre. Van al DXF en DIAMETER y el plugin toma el
+# tamaño más cercano de la familia por defecto.
+DIAMETROS_SIN_FAMILIA_IN = [0.5, 0.75, 1, 1.25, 1.5, 2, 2.5, 3, 4, 5, 6, 8, 10] + PIPE_DIAMETERS_IN
 
 # MATERIALES de tubería permitidos en la UI. Son exactamente los valores del
 # desplegable "Material" de Civil 3D, para que el plugin los setee 1:1 en la
@@ -154,6 +159,10 @@ def default_network_type(layer):
 
 CHANGELOG = [
     ("1.3.1", [
+        ('added', 'Eléctrico y telecom: un VÉRTICE se puede convertir en curva. Como estas redes no llevan caja en cada vértice, antes no se veían ni había cómo hacer una curva en uno. Ahora, con la utilidad seleccionada, sus vértices se ven como puntos y con clic derecho sobre uno → «Convertir este vértice en curva» (radio automático, se cambia en el panel; va a Civil 3D como cualquier curva). «Quitar la curva» la deja otra vez como vértice: antes «Volver a tratar como buzón/caja» dejaba ahí una caja que no existía.'),
+        ('fixed', 'Al acercarse mucho, los puntos de vértices, buzones y curvas ya no crecen sin fin y no tapan los tramos cortos; alejado se ven igual que antes.'),
+        ('fixed', 'Diámetro SIN familia: se ve y se elige en el panel (12" por defecto, o el que leyó el reconocimiento del plano). Antes, sin familia, el tamaño quedaba en «(sin familia)», editar cualquier campo volvía el diámetro a 12" y el diámetro leído del mapa no contaba en las normativas, la Tabla de datos ni la Vista 3D (sí iba al DXF). Copiar/pegar, Editar en bloque y el Excel también lo respetan.'),
+        ('fixed', 'Conexión vertical aprobada: si después cambias la cota de una de las dos utilidades, la vertical toma la cota nueva (en el DXF y en la Vista 3D). Antes seguía con la del momento de aprobarla.'),
         ('changed', 'Normativas de fábrica = el Excel «Normativas v4» del ingeniero: gas residencial 0,5; 1; 1,5; 2 in, comercial 2; 4 in y distribución principal desde 6 in; tipos de gas y telecom; y la columna nueva RADIO CURVA FIJO (pies): las curvas eléctricas de distribución principal y de dimensionamiento residencial solo pueden ser de 3 o 4 ft (aviso en la curva si no). Los avisos al importar un Excel de normativas son más cortos («ELECT-TELECOM: columna «X» desconocida»).'),
         ('added', 'Pendiente (%) de cada utilidad: en la ficha de la Vista 3D (y, si cambia de un tramo a otro, la de cada tramo, como Civil 3D muestra la de cada tubería) y en la Tabla de datos y su Excel. Ahí se puede editar, pero se calcula con las cotas: si en el Excel cambias la pendiente y no las rasantes (o no coinciden), NO se importa nada y la app dice qué rasante daría esa pendiente. Antes la ficha la calculaba con el largo redondeado y no mostraba los tramos.'),
         ('fixed', 'Vista 3D: las conexiones verticales aprobadas se dibujan con sus accesorios, como las arma el plugin en Civil 3D: codo de 90° en la utilidad que TERMINA en el cruce, Tee en la que PASA de largo (el ramal es del diámetro de la vertical) y, si la que pasa tiene un quiebre ahí y la otra termina, el codo del quiebre se vuelve Wye con un tubo corto, un codo, la vertical y otro codo que entra en la otra utilidad (con poco desnivel, la Wye va directo a ella, inclinada). Las tuberías se recortan en las campanas. Antes solo se veía el tubo vertical, sin codos ni Tee.'),

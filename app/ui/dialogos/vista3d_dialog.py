@@ -16,6 +16,7 @@ import json
 from PySide6 import QtCore, QtGui, QtWidgets
 
 from nucleo import accesorios as acc
+from nucleo import conexiones_verticales
 from nucleo import ficha3d, model_ops, modelo3d, normas_validar
 from traduccion.i18n import t as _tr
 from ui.comun import theme
@@ -254,8 +255,10 @@ class Vista3DDialog(QtWidgets.QDialog):
         conflictos = [dict(id=c.id, titulo=c.titulo, x=c.x, y=c.y, mensaje=c.mensaje, pipes=list(c.pipes),
                            cotas=list(c.cotas)) for c in getattr(w, "_conflictos", []) or []]
         suelo = None if self.spn_suelo.value() <= _SIN_SUELO else self.spn_suelo.value()
+        cruces = copy.deepcopy(getattr(w, "cross_connections", []) or [])
+        conexiones_verticales.actualizar_cotas(w.pipes, cruces)      # con las cotas actuales
         return dict(pipes=copy.deepcopy(w.pipes), structures=copy.deepcopy(w.structures), ft=ft,
-                    colores=colores, duct_banks=dbs, cruces=copy.deepcopy(getattr(w, "cross_connections", [])),
+                    colores=colores, duct_banks=dbs, cruces=cruces,
                     avisos=avisos, conflictos=conflictos,
                     ocultas=[c for c, chk in self._capas.items() if not chk.isChecked()],
                     ver={k: c.isChecked() for k, c in self.chk.items()}, suelo_z=suelo)

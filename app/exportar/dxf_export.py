@@ -497,6 +497,8 @@ def _export_cross_connects(win, doc, msp):
         pass
     conns = getattr(win, "cross_connections", None) or []
     if not conns: return
+    from nucleo import conexiones_verticales          # cotas actuales, no las del momento de aprobar
+    conexiones_verticales.actualizar_cotas(win.pipes, conns)
     if "PDFCAD" not in doc.appids: doc.appids.add("PDFCAD")
     VP.ensure_layer(doc, "PDFCAD_CROSS_CONNECT")
     for c in conns:

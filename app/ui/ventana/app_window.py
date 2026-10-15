@@ -93,10 +93,11 @@ from ui.ventana.ventana_bloque import EdicionBloqueMixin
 from ui.ventana.ventana_vista3d import Vista3DMixin
 from ui.ventana.ventana_conflictos_lista import ConflictosListaMixin
 from ui.ventana.ventana_hojas import HojasEditorMixin
+from ui.ventana.ventana_vertices import VerticesMixin
 
 
 class Main(MenuMixin, PanelIzquierdoMixin, PanelDerechoMixin, ModosMixin, ClicsMixin, UtilidadesMixin, CatalogoMixin, SeleccionMixin, ListasMixin, MarcasMixin, DibujoMixin, ConflictosMixin, CoordsMixin, BuzonesMixin, MoverPrecisoMixin, CurvasMixin, HerramientasMixin, BancoductosMixin, EdicionBloqueMixin, Vista3DMixin, ConflictosListaMixin, HojasEditorMixin,
-           QtWidgets.QMainWindow):
+           VerticesMixin, QtWidgets.QMainWindow):
     def __init__(self):
         super().__init__()
         self._base_title = f"Asistente C3D  (v{VERSION})"

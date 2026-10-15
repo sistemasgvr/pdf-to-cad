@@ -11,7 +11,7 @@ alcantarillado, drenaje, gas, eléctrico, telecom). Todo en **unidades imperiale
   - **Carpetas por capa (2026-10-08, en curso)**: `app/nucleo/` = lógica PURA del dominio (sin Qt ni fitz):
     `model`, `model_ops`, `xdata`, `duct_bank`, `unir_utilidades`, `unir_ramales`, `quiebres_curvas`,
     `accesorios`, `normas_catalogo`, `normas_excel`, `normas_excel_ayuda`, `normas_validar`, `normas_aprobacion`, `tabla_datos`, `tabla_excel`, `conflictos`, `modelo3d`, `mallas3d`, `accesorios3d`, `verticales3d`, `marcas3d`, `ficha3d`, `edicion_bloque`,
-    `limpieza`, `limpieza_tramos`. Se importan
+    `limpieza`, `limpieza_tramos`, `vertice_curva`, `conexiones_verticales`. Se importan
     como `from nucleo import model_ops` / `from nucleo.model import …` (nunca `import model_ops`: ese nombre
     ya no existe). Regla: la interfaz usa `nucleo`, `nucleo` NUNCA importa la interfaz (PySide6, `i18n`,
     ventana…; sí `i18n_core`). Más abajo los módulos se nombran sin la carpeta: `model_ops.py` = `app/nucleo/
@@ -1336,6 +1336,20 @@ alcantarillado, drenaje, gas, eléctrico, telecom). Todo en **unidades imperiale
     Base + cada `XD_*` (sin prefijo) y `XDU_*` («Usuario_…») de la estructura; la
     definición se amplía sola con los campos que falten.
     `Main` delega y solo asigna/dibuja.
+  - **Reporte 2026-10-15 (cuatro puntos)**: (1) `nucleo/vertice_curva.py` + `ui/ventana/ventana_vertices.py`
+    (`VerticesMixin`): en CONDUCTOS (sin caja por vértice) la utilidad seleccionada muestra sus vértices interiores
+    libres y el clic derecho del lienzo (`_menu_vertice` en `_canvas_context_menu`) ofrece «Convertir este vértice en
+    curva» → marca CV `vertice=True`, radio automático (la misma de `attach_fillets`, que ahora también lleva
+    `vertice`); `se_quita` (conductos con `vertice` o `quiebre`) → «Quitar la curva» la BORRA (antes «Volver a
+    buzón/caja» dejaba una CAJA inventada). (2) `ui/comun/marcas_lienzo.Marca`: buzones, curvas, tangencias, asas y
+    vértices miden R en px del plano pero no pasan de `TOPE_PX` de pantalla (de cerca tapaban los tramos cortos).
+    (3) `model_ops.diametro` = el `diam` de la utilidad (el del DXF) con o sin familia; «por defecto» solo si no hay
+    tamaño ni `diam_elegido` (lo ponen el panel y el reconocimiento que leyó el diámetro) y vale el precargado. Sin
+    familia el panel lista `model.DIAMETROS_SIN_FAMILIA_IN` (dato `edicion_bloque.dato_diam` «diam:N»), también sin
+    Civil 3D; `_prop_changed` ya no pisa el diámetro al editar otro campo; copiar/pegar, bloque y Excel llevan
+    «diam:N». (4) `nucleo/conexiones_verticales.actualizar_cotas`: `z_a/z_b` de cada conexión aprobada se releen de
+    las tuberías (tramo más cercano, menor índice en un vértice) en `_draw_pipe_conflicts`, el DXF y la Vista 3D.
+    Tests: `tests/test_vertices_diametros.py`.
   - `quiebres_curvas.py` (PURO) — **los quiebres del plano son curvas** (regla de los ingenieros,
     pedido del usuario 2026-10-06 con una línea eléctrica de dos quiebres): en gravedad y conduit (agua y
     gas NO: en presión el quiebre es un codo) `Main._import_recognized_pipes` llama

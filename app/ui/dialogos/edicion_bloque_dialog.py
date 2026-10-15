@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from PySide6 import QtWidgets
 
-from nucleo import model_ops
+from nucleo import edicion_bloque, model_ops
 from traduccion.i18n import t as _tr
 
 SIN = "__sin_cambios__"      # dato del ítem «(sin cambios)»
@@ -163,6 +163,14 @@ class EdicionBloqueDialog(QtWidgets.QDialog):
         if inicial and self.cmb_tamano.isEnabled():
             _elegir(self.cmb_tamano, inicial.get("tamano", ""))
 
+    @staticmethod
+    def _diametros_sin_familia(cb, defecto):
+        """Sin familia: diámetro por defecto + los de `DIAMETROS_SIN_FAMILIA_IN` («diam:N»)."""
+        from nucleo.model import DIAMETROS_SIN_FAMILIA_IN
+        cb.addItem(defecto, "")
+        for x in DIAMETROS_SIN_FAMILIA_IN:
+            cb.addItem(f'{float(x):g}"', edicion_bloque.dato_diam(x))
+
     def _llenar_tamanos(self, *_):
         """Los tamaños dependen de la familia: con la familia «(sin cambios)» solo si
         todas comparten una; al cambiar de familia el tamaño arranca por defecto."""
@@ -178,6 +186,9 @@ class EdicionBloqueDialog(QtWidgets.QDialog):
                 cb.addItem(defecto, "")
                 for sz in self.tamanos_de(fid):
                     cb.addItem(sz, sz)
+            elif fid == "":                             # todas sin familia: se elige el diámetro
+                cb.addItem(_tr("(sin cambios)"), SIN)
+                self._diametros_sin_familia(cb, defecto)
             else:
                 cb.addItem(_tr("(sin cambios)"), SIN)
                 if fid is None:
@@ -186,8 +197,8 @@ class EdicionBloqueDialog(QtWidgets.QDialog):
             cb.addItem(defecto, "")
             for sz in self.tamanos_de(fam):
                 cb.addItem(sz, sz)
-        else:
-            cb.addItem(defecto, "")
+        else:                                           # familia «(por defecto)»: se elige el diámetro
+            self._diametros_sin_familia(cb, defecto)
         cb.setEnabled(cb.count() > 1)
         self.lbl_nota.setText("\n".join([n for n in [nota] + self._notas if n]))
         self.lbl_nota.setVisible(bool(self.lbl_nota.text()))

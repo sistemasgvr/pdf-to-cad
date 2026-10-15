@@ -252,7 +252,7 @@ def _cambios_seccion(p, i, fila, catalogo, con_bancoducto, out, errores):
         if tamanos:
             tam = next((x for x in tamanos if abs(diam_de_tamano(x) - meta) <= 0.01), None)
         else:
-            tam = f"{meta:g} in" if (d_cambia and not fam and meta > 0) else ("" if not d_cambia else None)
+            tam = f"diam:{meta:g}" if (d_cambia and not fam and meta > 0) else ("" if not d_cambia else None)
         if tam is None:
             if d_cambia:
                 errores.append(t("{donde}: no hay un tamaño de {d} in en su familia.").format(
@@ -270,7 +270,8 @@ def _cambios_seccion(p, i, fila, catalogo, con_bancoducto, out, errores):
                           textos=(nombre(fam_actual), nombre(fam))))
     if tam != tam_actual or fam != fam_actual:
         out.append(Cambio("pipe", i, "pipe_size", tam_actual, tam, etq(N_("Tamaño")),
-                          textos=(tam_actual or t("Por defecto"), tam or t("Por defecto"))))
+                          textos=(tam_actual or t("Por defecto"),
+                                  (f'{tam[5:]}"' if tam.startswith("diam:") else tam) or t("Por defecto"))))
 
 
 def cambios(pipes, structures, leido, catalogo=None, con_bancoducto=()):

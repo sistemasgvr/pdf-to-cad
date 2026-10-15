@@ -5,6 +5,7 @@ clase mezcla para que app_window.py no pase de unas 2 000 líneas. `Main` la her
 los menús, atajos y pruebas siguen usando `win.<método>` como antes.
 """
 from ui.ventana.ventana_comun import *  # noqa: F401,F403  (mismos nombres que app_window)
+from ui.comun import marcas_lienzo as ML
 
 
 class DibujoMixin:
@@ -49,6 +50,8 @@ class DibujoMixin:
             self._poly(self._pipe_display_pts(p), layer_qcolor(p["layer"]),
                        4.0 if sel else 2.0, z=Z_MARK)
             if sel and self.mode == "move": self._handles(p["pts"])
+            elif i == self.sel_pipe:
+                self._vertices_libres(p)                # eléctrico/telecom: vértices que pueden ser curva
             if sel and 0 <= self.sel_seg_idx < len(p["pts"]) - 1:
                 a, b = p["pts"][self.sel_seg_idx], p["pts"][self.sel_seg_idx + 1]
                 pen_hi = QtGui.QPen(QtGui.QColor(255, 50, 220), 6.0); pen_hi.setCosmetic(True)
@@ -56,8 +59,7 @@ class DibujoMixin:
                 it.setZValue(Z_HANDLE + 1); self._overlay.append(it)
                 dot_pen = QtGui.QPen(QtGui.QColor(20, 20, 20), 1.4); dot_pen.setCosmetic(True)
                 for (vx, vy) in (a, b):
-                    it2 = sc.addEllipse(vx - 7, vy - 7, 14, 14, dot_pen, QtGui.QBrush(QtGui.QColor(255, 50, 220)))
-                    it2.setZValue(Z_HANDLE + 1); self._overlay.append(it2)
+                    self._overlay.append(ML.agregar(sc, vx, vy, 7, dot_pen, QtGui.QColor(255, 50, 220), Z_HANDLE + 1))
             # Etiquetas T1, T2… encima de cada tramo cuando el pipe tiene
             # activada la edición por tramo. Se dibujan aunque el pipe no
             # esté seleccionado, así el usuario ve la numeración en todo
@@ -307,10 +309,11 @@ class DibujoMixin:
                     # Puntos de tangencia — muestran dónde arranca/termina el arco
                     # sobre cada recta vecina (útil para saber si el radio "cabe").
                     for q in (info["p1"], info["p2"]):
-                        it = sc.addEllipse(q[0] - 3, q[1] - 3, 6, 6, use_pen, QtGui.QBrush(arc_col))
-                        it.setZValue(Z_MARK + 1); self._overlay.append(it)
-            it = sc.addEllipse(mx - r_use, my - r_use, 2 * r_use, 2 * r_use, use_pen, brush)
-            it.setZValue(Z_MARK + 1); self._overlay.append(it)
+                        self._overlay.append(ML.agregar(sc, q[0], q[1], 3, use_pen, arc_col, Z_MARK + 1,
+                                                        tope_px=ML.TOPE_PX / 2))
+            # Radio fijo en el plano, con tope en pantalla (de cerca no tapa los tramos cortos).
+            self._overlay.append(ML.agregar(sc, mx, my, r_use, use_pen, brush, Z_MARK + 1,
+                                            tope_px=ML.TOPE_PX * r_use / R))
             # Bóveda reconocida (feature de reconocimiento del PDF, dev_santos_v2):
             # su contorno real a escala, con el color de la línea y la medida al
             # seleccionarla.
@@ -338,8 +341,8 @@ class DibujoMixin:
     def _handles(self, pts):
         sc = self.canvas.scene(); pen = QtGui.QPen(QtGui.QColor(255, 255, 255)); pen.setCosmetic(True)
         for (vx, vy) in pts:
-            it = sc.addRect(vx - 5, vy - 5, 10, 10, pen, QtGui.QBrush(QtGui.QColor(255, 180, 40)))
-            it.setZValue(Z_HANDLE); self._overlay.append(it)
+            self._overlay.append(ML.agregar(sc, vx, vy, 5, pen, QtGui.QColor(255, 180, 40), Z_HANDLE,
+                                            tope_px=ML.TOPE_ASA_PX, cuadrada=True))
 
     def _seg_label(self, sc, text, cx, cy, color, px=24, halo=5.0):
         """Etiqueta de tramo ("T1", "T2"…) centrada sobre el punto (cx, cy):
@@ -376,7 +379,7 @@ class DibujoMixin:
             it = sc.addLine(a[0], a[1], b[0], b[1], pen); it.setZValue(z); self._overlay.append(it)
         if dots:
             for (x, y) in pts:
-                it = sc.addEllipse(x - 3, y - 3, 6, 6, pen, QtGui.QBrush(color)); it.setZValue(z); self._overlay.append(it)
+                self._overlay.append(ML.agregar(sc, x, y, 3, pen, color, z, tope_px=ML.TOPE_PX / 2))
 
     def _arrow(self, a, b, color):
         ang = math.atan2(a[1] - b[1], a[0] - b[0]); L = self.leader_hpx * 0.8

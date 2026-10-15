@@ -152,11 +152,16 @@ class CatalogoMixin:
             return
         self.lbl_ductbank_assigned.setVisible(False)
         kind = self._pipe_net_kind(p)
-        show = kind in ("gravity", "pressure", "conduit") and bool(self.civil_year)
+        show_size = kind in ("gravity", "pressure", "conduit")
+        show = show_size and bool(self.civil_year)
         self.lbl_prop_family.setVisible(show); self.prop_family.setVisible(show)
-        self.lbl_prop_size.setVisible(show); self._prop_size_box.setVisible(show)
+        # El diámetro se ve SIEMPRE (también sin Civil 3D o sin familia: 2026-10-15).
+        self.lbl_prop_size.setVisible(show_size); self._prop_size_box.setVisible(show_size)
         if not show:
-            self.prop_family.blockSignals(False); self.prop_size.blockSignals(False); return
+            self.prop_family.blockSignals(False); self.prop_size.blockSignals(False)
+            if show_size:
+                self._load_pipe_sizes(kind, p.get("pipe_family", "") or "", p.get("pipe_size", "") or "")
+            return
         fams = (_cc.pressure_pipes(self.civil_year) if kind == "pressure"
                 else _cc.imperial_pipes(self.civil_year))
         self.prop_family.addItem(_tr("(por defecto)"), "")
@@ -185,8 +190,13 @@ class CatalogoMixin:
         # Solo si la familia está en el catálogo de esta versión (la del desplegable).
         self.btn_add_size.setEnabled(bool(fid and self.civil_year and self.prop_family.currentData() == fid))
         self.prop_size.blockSignals(True); self.prop_size.clear()
-        if not fid or not self.civil_year:
-            self.prop_size.addItem(_tr("(sin familia)"), ""); self.prop_size.setEnabled(False)
+        _bind(self.lbl_prop_size, "setText", "Tamaño (catálogo):" if fid else "Diámetro:")
+        if not fid:
+            self._cargar_diametros_sin_familia()
+            self.prop_size.blockSignals(False); return
+        if not self.civil_year:                       # familia de otra instalación: se ve, no se cambia
+            self.prop_size.addItem(current or self._diam_txt(self.pipes[self.sel_pipe]), current)
+            self.prop_size.setEnabled(False)
             self.prop_size.blockSignals(False); return
         sizes = (_cc.pressure_pipe_sizes(self.civil_year, fid) if kind == "pressure"
                  else _cc.pipe_sizes(self.civil_year, fid))
@@ -202,6 +212,23 @@ class CatalogoMixin:
                     if self.prop_size.itemData(i) == current:
                         self.prop_size.setCurrentIndex(i); break
         self.prop_size.blockSignals(False)
+
+    def _cargar_diametros_sin_familia(self):
+        """Sin familia: el diámetro de la utilidad se elige de `DIAMETROS_SIN_FAMILIA_IN`
+        (dato «diam:N»); el 1.º = el precargado «12" (Por defecto)». El que ya tiene (elegido o
+        leído del plano) queda marcado aunque no esté en la lista."""
+        from nucleo import edicion_bloque
+        from nucleo.model import DIAMETROS_SIN_FAMILIA_IN
+        cb = self.prop_size
+        cb.setEnabled(True)
+        cb.addItem(_tr("{d} (Por defecto)").format(d=f'{model_ops.DIAM_DEFECTO_IN:g}"'), "")
+        p = self.pipes[self.sel_pipe] if 0 <= self.sel_pipe < len(self.pipes) else {}
+        d, defecto = model_ops.diametro(p)
+        lista = sorted(set(float(x) for x in DIAMETROS_SIN_FAMILIA_IN) | ({d} if not defecto else set()))
+        for x in lista:
+            cb.addItem(f'{x:g}"', edicion_bloque.dato_diam(x))
+        if not defecto:
+            cb.setCurrentIndex(max(0, cb.findData(edicion_bloque.dato_diam(d))))
 
     def _boton_mas(self, fn):
         """Botón verde «+» (agregar tamaño), grande y con nombre accesible."""
@@ -263,6 +290,8 @@ class CatalogoMixin:
         p = self.pipes[self.sel_pipe]
         fid = self.prop_family.currentData() or ""
         p["pipe_family"] = fid; p["pipe_size"] = ""
+        if fid:                                       # familia nueva sin tamaño = diámetro por defecto
+            p["diam"] = model_ops.DIAM_DEFECTO_IN; p.pop("diam_elegido", None)
         self._load_pipe_sizes(self._pipe_net_kind(p), fid, "")
         self._dirty = True; self._redraw()
 

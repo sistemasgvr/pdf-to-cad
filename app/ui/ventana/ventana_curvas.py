@@ -5,6 +5,7 @@ clase mezcla para que app_window.py no pase de unas 2 000 líneas. `Main` la her
 los menús, atajos y pruebas siguen usando `win.<método>` como antes.
 """
 from ui.ventana.ventana_comun import *  # noqa: F401,F403  (mismos nombres que app_window)
+from nucleo import vertice_curva
 
 
 class CurvasMixin:
@@ -124,6 +125,8 @@ class CurvasMixin:
             s = self.structures[self.sel_curve]
             net = s.get("net") or "gravity"
             _bind(self.gprop_curve, "setTitle", "Propiedades del elemento curvo")
+            _bind(self.curve_is_bz, "setText", "Quitar la curva (vuelve a ser un vértice)"
+                  if vertice_curva.se_quita(s) else "Volver a tratar como buzón/caja")
             self.cv_cod.setText(s.get("cod", ""))
             # Calcular y aplicar el radio máximo geométrico ANTES de setValue.
             # Si no lo aplicamos, el usuario puede escribir p.ej. 100ft y el
@@ -240,6 +243,9 @@ class CurvasMixin:
         if self._curve_prop_guard: return
         if not (0 <= self.sel_curve < len(self.structures)): return
         s = self.structures[self.sel_curve]
+        if vertice_curva.se_quita(s):               # eléctrico/telecom en un vértice simple: sin caja inventada
+            self._quitar_curva_de_vertice(self.sel_curve)
+            return
         s["curve"] = False; s["part"] = ""; s["part_size"] = ""
         s.pop("quiebre", None)                      # ya no es la curva de un quiebre del plano
         s["cod"] = ""                               # fuerza a asignar prefijo BZ-/CAJA-

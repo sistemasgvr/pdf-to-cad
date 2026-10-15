@@ -24,14 +24,20 @@ DIAM_DEFECTO_IN = float(PIPE_DIAMETERS_IN[0])
 
 
 def diametro(p):
-    """(diámetro en pulgadas, es_por_defecto) de una utilidad: por defecto si no tiene
-    tamaño de catálogo (`pipe_size`) elegido."""
-    if not (p.get("pipe_size") or "").strip():
-        return DIAM_DEFECTO_IN, True
+    """(diámetro en pulgadas, es_por_defecto) de una utilidad: el que lleva (`diam`, el mismo
+    que va al DXF en DIAMETER), con o sin familia. «Por defecto» = nadie lo eligió: sin tamaño
+    de catálogo, sin `diam_elegido` (lo pone el panel o el reconocimiento que leyó el
+    diámetro) y con el diámetro precargado. Antes, sin tamaño de catálogo, siempre devolvía
+    12" aunque la utilidad tuviera otro (el 8" leído de un mapa no contaba)."""
     try:
-        return float(p.get("diam") or DIAM_DEFECTO_IN), False
+        d = float(p.get("diam") or 0.0)
     except (TypeError, ValueError):
+        d = 0.0
+    if d <= 0:
         return DIAM_DEFECTO_IN, True
+    if (p.get("pipe_size") or "").strip() or p.get("diam_elegido"):
+        return d, False
+    return d, abs(d - DIAM_DEFECTO_IN) < 1e-6
 
 _TOL = 14.0   # tolerancia de coincidencia de coordenadas (px), compartida por ambas
 
@@ -642,7 +648,8 @@ def attach_fillets(pipes, structures, tol=1.0):
                     continue
                 s = {"cod": "", "x": float(x), "y": float(y), "rim": None, "sump": None,
                      "part": "", "part_size": "", "net": net, "covered": True,
-                     "world": False, "hidden": False}
+                     "world": False, "hidden": False,
+                     "vertice": True}                  # nació en un vértice simple (`vertice_curva`)
                 structures.append(s)
             if not s.get("curve") or abs(float(s.get("radius_ft") or 0.0) - float(r_ft)) > 1e-6:
                 s["curve"] = True

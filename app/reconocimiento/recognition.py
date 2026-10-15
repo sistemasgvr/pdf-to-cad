@@ -2815,6 +2815,7 @@ def pipes_from_recognition(result: RecognitionResult, layer: str = UTILITY_HINT,
             "pts": pts,
             "ab": bool(getattr(pl, "abandoned", False)),
             "diam": float(getattr(pl, "diam_in", None) or PIPE_DIAMETERS_IN[0]),
+            "diam_elegido": bool(getattr(pl, "diam_in", None)),   # leído del plano: no es «por defecto»
             "diam_unit": "in",
             "material": DEFAULT_PIPE_MATERIAL,
             "vertex_kinds": list(pl.kinds) if len(pl.kinds) == len(pts) else [],

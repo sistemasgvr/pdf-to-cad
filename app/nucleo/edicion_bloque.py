@@ -9,7 +9,8 @@ presión o conducto) y una familia de agua no sirve para una línea eléctrica.
 
 `cambios` = {campo: valor} SOLO con lo que cambia (lo que no está queda igual):
   familia  → `pipe_family` (id del catálogo; "" = por defecto)
-  tamano   → `pipe_size`   ("" = el diámetro por defecto); el diámetro sale de aquí
+  tamano   → `pipe_size`   ("" = el diámetro por defecto); el diámetro sale de aquí.
+             Sin familia, «diam:N» = el diámetro N elegido sin tamaño de catálogo
   net_type → tipo de tubería ("" automático, "pipe", "pressure")
   material → material
   ab       → abandonada (True/False)
@@ -75,6 +76,18 @@ def mismo_tipo(pipes, filas):
     return len(tipos(pipes, filas)) == 1
 
 
+def dato_diam(d):
+    """Dato interno «diam:N» = diámetro N elegido SIN familia (combos y `cambios`)."""
+    return "diam:" + f"{float(d):g}"
+
+
+def _diam_sin_familia(p):
+    try:
+        return dato_diam(p.get("diam"))
+    except (TypeError, ValueError):
+        return ""
+
+
 def diam_de_tamano(tamano):
     """Primer número del tamaño del catálogo («24 in» → 24.0, «12 in x 8 in» → 12.0);
     sin tamaño, el diámetro por defecto. Mismo criterio que el panel de propiedades."""
@@ -86,7 +99,7 @@ def valores_de(p):
     """Propiedades copiables de una utilidad, con las mismas claves que `cambios`."""
     return {
         "familia": p.get("pipe_family") or "",
-        "tamano": p.get("pipe_size") or "",
+        "tamano": p.get("pipe_size") or (_diam_sin_familia(p) if p.get("diam_elegido") else ""),
         "net_type": p.get("net_type") or "",
         "material": p.get("material") or "",
         "ab": bool(p.get("ab")),
@@ -122,7 +135,11 @@ def aplicar(pipes, filas, cambios, sin_familia=()):
                 p["pipe_size"] = ""
             if "tamano" in cambios:
                 p["pipe_size"] = cambios["tamano"] or ""
-            p["diam"] = diam_de_tamano(p.get("pipe_size"))
+            if str(p.get("pipe_size")).startswith("diam:"):        # diámetro elegido sin familia
+                p["diam"] = float(p["pipe_size"][5:]); p["pipe_size"] = ""; p["diam_elegido"] = True
+            else:
+                p["diam"] = diam_de_tamano(p.get("pipe_size"))
+                p.pop("diam_elegido", None)
             p["diam_unit"] = "in"
         if "net_type" in cambios:
             p["net_type"] = cambios["net_type"] or ""
