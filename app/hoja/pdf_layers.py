@@ -22,6 +22,8 @@ from typing import Iterable, List, Set
 
 from nucleo.model import TIPOS
 from hoja import pdf_styles
+from nucleo import avance
+from traduccion.i18n_core import t as _tr
 
 # Códigos de `Document.set_layer_ui_config(number, action)`.
 _ACTION_ON, _ACTION_TOGGLE, _ACTION_OFF = 0, 1, 2
@@ -116,6 +118,7 @@ def page_layers(doc, page_index: int, letters: bool = True) -> List[dict]:
         uses, read = {}, {}
         if letters:
             from reconocimiento import recognition                      # pesado: solo aquí (pdf_layers lo usa el compositor)
+            avance.avisar(_tr("Leyendo las letras de las líneas («—E—», «TE», «W»…)…"))
             read = recognition.page_letters(page, drawings)
             uses = recognition.letter_uses(read)
     finally:

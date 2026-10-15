@@ -29,6 +29,7 @@ from typing import Dict, List, Optional, Sequence, Tuple
 import fitz
 
 from traduccion.i18n_core import t as _tr   # etiquetas del esquema de hojas
+from nucleo import avance
 
 Pt = Tuple[float, float]
 
@@ -1114,6 +1115,24 @@ def find_bridges(anchors_by_piece: Dict[int, Sequence[Anchor]], max_gap: float =
 
 
 # ─────────────────────────── materializar ───────────────────────────
+def _show_pdf_page(page, rect, src, pno: int, clip, rotate: float):
+    """`page.show_pdf_page(rect, src, pno, clip=clip, rotate=rotate)` con `clip` en la hoja
+    SIN rotar. PyMuPDF (1.28) recorta ese clip con `src_page.rect`, que en una hoja con /Rotate
+    90 o 270 tiene el ancho y el alto CAMBIADOS (reporte del usuario 2026-10-15, mapas de
+    drenaje de Phoenix: en «Capas de la hoja» cada pieza salía cortada y centrada en su lugar,
+    con una franja blanca en la unión, aunque en el compositor encajaba). Durante la llamada
+    la hoja de origen va sin /Rotate —solo cambia su rect: el contenido y el XObject son los
+    mismos— y después se repone."""
+    rot = src[pno].rotation
+    if rot % 180 == 0:
+        return page.show_pdf_page(rect, src, pno, clip=clip, rotate=rotate)
+    src[pno].set_rotation(0)
+    try:
+        return page.show_pdf_page(rect, src, pno, clip=clip, rotate=rotate)
+    finally:
+        src[pno].set_rotation(rot)
+
+
 def build_document(comp: Composite, docs: Sequence[fitz.Document],
                    hidden_by_source: Optional[Dict[str, Sequence[str]]] = None,
                    bridges: Optional[Sequence[Bridge]] = None) -> fitz.Document:
@@ -1140,7 +1159,8 @@ def build_document(comp: Composite, docs: Sequence[fitz.Document],
         _add_blend_state(dst, page)
     seen = _ocg_xrefs(dst)
     ocg_source: Dict[int, int] = {}
-    for piece in comp.pieces:
+    for k_av, piece in enumerate(comp.pieces):
+        avance.avisar(_tr("Copiando cada hoja con sus vectores, capas y textos…"), k_av + 1, len(comp.pieces))
         src = docs[piece.source]
         spage = src[piece.page]
         cx0, cy0, cx1, cy1 = clip_rect_pt((spage.rect.width, spage.rect.height), piece.clip)
@@ -1152,8 +1172,7 @@ def build_document(comp: Composite, docs: Sequence[fitz.Document],
         clip = (visible * spage.derotation_matrix).normalize()
         px0, py0, px1, py1 = piece_rect(piece, page_sizes(piece), target)
         rect = fitz.Rect(px0 + dx, py0 + dy, px1 + dx, py1 + dy)
-        page.show_pdf_page(rect, src, piece.page, clip=clip,
-                           rotate=piece.rotation - spage.rotation)
+        _show_pdf_page(page, rect, src, piece.page, clip, piece.rotation - spage.rotation)
         # Envoltorio de la pieza: modo oscurecer («Fundir bordes») y/o el recorte
         # por su cuadrilátero (escaneos con el área ajustada esquina a esquina).
         prefix = f"/{_BLEND_GS} gs " if comp.blends() else ""
@@ -1428,6 +1447,7 @@ def compute_bridges(comp: Composite, docs: Sequence[fitz.Document]) -> List[Brid
     target = comp.target_scale()
     by_piece: Dict[int, List[Anchor]] = {}
     for i, p in enumerate(comp.pieces):
+        avance.avisar(_tr("Buscando las líneas que cruzan cada costura…"), i + 1, len(comp.pieces))
         page = docs[p.source][p.page]
         size = (page.rect.width, page.rect.height)
         by_piece[i] = map_anchors(p, size, target, edge_anchors(page, p.clip, insets=p.covers))

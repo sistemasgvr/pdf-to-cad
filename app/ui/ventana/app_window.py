@@ -43,6 +43,7 @@ from ui.asistente import composite_dialog
 import project_io
 from nucleo import model_ops
 from nucleo import quiebres_curvas
+from nucleo import acometidas
 from ui.comun.responsive import WrapButton, WrapCheckBox, ResponsiveGroupBox, GridAdaptable  # noqa: E402
 from ui.comun import side_panels  # noqa: E402
 from ui.ventana import autoguardado  # noqa: E402
@@ -91,9 +92,10 @@ from ui.ventana.ventana_bancoductos import BancoductosMixin
 from ui.ventana.ventana_bloque import EdicionBloqueMixin
 from ui.ventana.ventana_vista3d import Vista3DMixin
 from ui.ventana.ventana_conflictos_lista import ConflictosListaMixin
+from ui.ventana.ventana_hojas import HojasEditorMixin
 
 
-class Main(MenuMixin, PanelIzquierdoMixin, PanelDerechoMixin, ModosMixin, ClicsMixin, UtilidadesMixin, CatalogoMixin, SeleccionMixin, ListasMixin, MarcasMixin, DibujoMixin, ConflictosMixin, CoordsMixin, BuzonesMixin, MoverPrecisoMixin, CurvasMixin, HerramientasMixin, BancoductosMixin, EdicionBloqueMixin, Vista3DMixin, ConflictosListaMixin,
+class Main(MenuMixin, PanelIzquierdoMixin, PanelDerechoMixin, ModosMixin, ClicsMixin, UtilidadesMixin, CatalogoMixin, SeleccionMixin, ListasMixin, MarcasMixin, DibujoMixin, ConflictosMixin, CoordsMixin, BuzonesMixin, MoverPrecisoMixin, CurvasMixin, HerramientasMixin, BancoductosMixin, EdicionBloqueMixin, Vista3DMixin, ConflictosListaMixin, HojasEditorMixin,
            QtWidgets.QMainWindow):
     def __init__(self):
         super().__init__()
@@ -448,7 +450,8 @@ class Main(MenuMixin, PanelIzquierdoMixin, PanelDerechoMixin, ModosMixin, ClicsM
         self._busy(_tr("Cargando hoja…"))
         try:
             self.page_idx = idx
-            self._load_page(idx)
+            with _busy_mod.escuchar_en(_busy_mod.overlay_for(self)):   # «Dibujando la hoja (… px)…»
+                self._load_page(idx)
         finally:
             self._unbusy()
 
@@ -499,7 +502,7 @@ class Main(MenuMixin, PanelIzquierdoMixin, PanelDerechoMixin, ModosMixin, ClicsM
             # de dibujar. Deja la visibilidad aplicada en self.doc, así _load_page
             # ya renderiza sin las ocultas.
             chosen = layer_dialog.choose_sheet_layers(self, self.doc, page_idx,
-                                                      layout=getattr(self, "_composite_layout", None),
+                                                      layout=self._layout_minimapa(),
                                                       recognition_utilities=self._recognition_utilities,
                                                       can_go_back=bool(self.src_pdfs),
                                                       letters_off=self._letters_off,
@@ -613,19 +616,25 @@ class Main(MenuMixin, PanelIzquierdoMixin, PanelDerechoMixin, ModosMixin, ClicsM
         self._load_sheet_busy(self.page_idx)
 
     def _build_composite_doc(self, comp, _pdf_layers):
-        """Materializa la hoja compuesta como PDF temporal y la deja en `self.doc`."""
-        docs = [fitz.open(stream=e["data"], filetype="pdf") for e in self.src_pdfs]
-        try:
-            for i, d in enumerate(docs):      # capas apagadas: sin trazos ni anclajes
-                _pdf_layers.set_hidden(d, self.hidden_ocgs_by_source.get(str(i), ()))
-            bridges = composite_mod.compute_bridges(comp, docs)
-            built = composite_mod.build_document(comp, docs, self.hidden_ocgs_by_source, bridges)
-            data = built.tobytes(deflate=True); built.close()
-            sizes = lambda p: (docs[p.source][p.page].rect.width, docs[p.source][p.page].rect.height)
-            self._composite_layout = composite_mod.piece_layout(
-                comp, sizes, [e.get("name", "") for e in self.src_pdfs])
-        finally:
-            for d in docs: d.close()
+        """Materializa la hoja compuesta como PDF temporal y la deja en `self.doc`. El
+        trabajo va al proceso trabajador (`proceso.ejecutar`): la ventana sigue pintándose
+        y la memoria que usa vuelve al sistema (`hoja.composite_trabajo.materializar`)."""
+        from ui.comun import proceso
+        ov = _busy_mod.overlay_for(self)
+
+        def etapa(a):                       # lo que va haciendo el trabajador
+            if a and a[0] == "detalle" and ov.active:
+                ov.step(detail=_busy_mod.detalle_de(a[1], a[2], a[3]),
+                        done=a[2] if a[3] else None, total=a[3] if a[3] else None, pump=False)
+        res, err = proceso.ejecutar(
+            "hoja.composite_trabajo:materializar", comp.to_dict(),
+            [e["data"] for e in self.src_pdfs],
+            {k: list(v) for k, v in self.hidden_ocgs_by_source.items()},
+            [e.get("name", "") for e in self.src_pdfs], al_avanzar=etapa)
+        if err or res is None:
+            raise RuntimeError(_tr("La hoja compuesta necesita más memoria de la que hay libre en el equipo.")
+                               if err == "memoria" else (err or _tr("No se pudo armar la hoja compuesta.")))
+        data, self._composite_layout = res
         path = self._write_tmp_composite(data, suffix="_compuesta")
         self.doc = fitz.open(path)     # reabrir: así fitz lee el catálogo de capas nuevo
         self.work_pdf_path = path
@@ -920,7 +929,7 @@ class Main(MenuMixin, PanelIzquierdoMixin, PanelDerechoMixin, ModosMixin, ClicsM
         self._recog_busy = _busy_mod.overlay_for(self)
         self._recog_busy.begin(_tr("Reconociendo {u}…").format(u=utility_text),
                                _tr("Hoja {n} · leyendo las líneas y estructuras de cada capa").format(
-                                   n=page_idx + 1))
+                                   n=page_idx + 1), cancel=self._cancel_recognition)
         self._recog_worker = RecognitionWorker(
             self.work_pdf_path or self.pdf_path, page_idx, zoom=self.zoom,
             utilities=self._recognition_utilities,
@@ -930,6 +939,11 @@ class Main(MenuMixin, PanelIzquierdoMixin, PanelDerechoMixin, ModosMixin, ClicsM
             join_routes=self._join_routes, scale_ft_per_pt=self._scale_override)
         self._recog_worker.done.connect(self._recognition_done)
         self._recog_worker.progress.connect(self._recognition_progress)
+        if hasattr(self._recog_worker, "layer"):         # (los dobles de las pruebas no lo traen)
+            self._recog_worker.layer.connect(self._recognition_layer)
+            self._recog_worker.partial.connect(self._recognition_partial)
+            self._recog_worker.stage.connect(self._recognition_stage)
+        self._recog_linea = ""
         self._recog_worker.start()
 
     def _recognition_key(self, page_idx):
@@ -949,11 +963,62 @@ class Main(MenuMixin, PanelIzquierdoMixin, PanelDerechoMixin, ModosMixin, ClicsM
                 i=i + 1, n=n),
                 done=i, total=n, pump=False)
 
+    def _recognition_layer(self, i, n, utility, k, m):
+        """Avance dentro de una utilidad: «capa k de m» (el reconocimiento va capa por capa)."""
+        ov = getattr(self, "_recog_busy", None)
+        if ov is not None and m:
+            self._recog_linea = _tr("Hoja {p} · {u} ({i} de {n}) · capa {k} de {m}").format(
+                p=self._recog_worker.page_index + 1, u=_tr(_recognition.utility_label(utility)),
+                i=i + 1, n=n, k=k + 1, m=m)
+            ov.step(detail=self._recog_linea, done=i * m + k, total=n * m, pump=False)
+
+    def _recognition_stage(self, texto, i, n):
+        """Qué está haciendo ahora («Reconstruyendo las líneas de la capa Negro 0.71 pt…»),
+        debajo de la utilidad y la capa."""
+        ov = getattr(self, "_recog_busy", None)
+        if ov is not None:
+            linea = getattr(self, "_recog_linea", "")
+            ov.step(detail=(linea + "\n" if linea else "") + _busy_mod.detalle_de(texto, i, n), pump=False)
+
+    def _recognition_partial(self, utility, trazos):
+        """Lo ya reconocido de una utilidad se dibuja sobre la hoja mientras sigue el resto
+        (pedido del usuario 2026-10-14: ver el avance «como un lápiz»). Son trazos de paso:
+        `_end_recognition_busy` los quita; la vista previa dibuja el resultado de verdad."""
+        sc = self.canvas.scene() if self.canvas is not None else None
+        if sc is None or not trazos:
+            return
+        pen = QtGui.QPen(layer_qcolor(utility), 2.0)
+        pen.setCosmetic(True)
+        path = QtGui.QPainterPath()
+        for pts in trazos:
+            if len(pts) >= 2:
+                path.moveTo(*pts[0])
+                for q in pts[1:]:
+                    path.lineTo(*q)
+        item = sc.addPath(path, pen)
+        item.setZValue(1e6)
+        self._recog_trazos = getattr(self, "_recog_trazos", []) + [item]
+        ov = getattr(self, "_recog_busy", None)
+        if ov is not None:
+            ov.set_veil(70)                    # que se vea lo que se va trazando
+
+    def _cancel_recognition(self):
+        w = getattr(self, "_recog_worker", None)
+        if w is not None and hasattr(w, "cancel"):
+            w.cancel()
+
     def _end_recognition_busy(self):
         ov = getattr(self, "_recog_busy", None)
         self._recog_busy = None
         if ov is not None:
             ov.end()
+        for item in getattr(self, "_recog_trazos", []):
+            try:
+                if item.scene() is not None:
+                    item.scene().removeItem(item)
+            except RuntimeError:
+                pass
+        self._recog_trazos = []
 
     def _recognition_done(self, results, error):
         self._end_recognition_busy()
@@ -992,7 +1057,7 @@ class Main(MenuMixin, PanelIzquierdoMixin, PanelDerechoMixin, ModosMixin, ClicsM
                            "zoom": self.zoom, "pagina": self._pagina_fondo}}
         action = recognition_dialog.show_recognition_preview(
             self, qimg, results,
-            page_count=self.doc.page_count if self.doc else None, **extra)
+            page_count=self.doc.page_count if self.doc else None, hojas=self._hojas_px(), **extra)
         del qimg                                 # copia de la hoja: no retenerla mientras se sigue
         self._join_routes = all(bool(getattr(result, "join_routes", True)) for result in results)
         page_index = results[0].page_index
@@ -1096,6 +1161,8 @@ class Main(MenuMixin, PanelIzquierdoMixin, PanelDerechoMixin, ModosMixin, ClicsM
         n_prev = len(self.pipes)
         for _result, _utility, pipes, _snapped, _skipped in batches:
             self.pipes.extend(pipes)
+        # acometidas de gravedad/conductos: su punta en la tubería es un vértice de ésta
+        acometidas.unir_a_principal(self.pipes, range(n_prev, len(self.pipes)), 0.8 * self.zoom)
         self._dirty = True
         self._refresh_lists()                 # crea BZ en los vértices de gravedad (conduit: ninguna)…
         # …y oculta las de quiebres/esquinas sin bóveda (siguen en el DXF como

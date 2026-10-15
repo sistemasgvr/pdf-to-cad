@@ -33,9 +33,11 @@ como estilos.
 
 - **Trazo continuo** (mapa SIG: cada tubería un trazo, las curvas en cuerdas cortas;
   `recognition_ink_lines.continuous_layer`): la tinta es el eje tal cual
-  (`ink_reconstruct`), simplificada a 0.5 pt (la misma tolerancia de los quiebres del
-  núcleo) para quitar el zigzag de ±0.3 pt del trazo. El núcleo de guiones partía las
-  curvas en rectas y ponía esquinas hasta 5 pt fuera de la tinta.
+  (`ink_reconstruct`), simplificada a la MITAD del grosor del trazo (`simplify_tol`,
+  entre 0.15 y 0.5 pt; el grosor sale del nombre de la capa por estilo) para quitar el
+  zigzag del trazo sin que el eje salga de la línea dibujada (con 0.5 fijo la tubería de
+  agua de 0.38 pt cortaba las curvas por cuerdas a 0.45 pt de su tinta). El núcleo de
+  guiones partía las curvas en rectas y ponía esquinas hasta 5 pt fuera de la tinta.
 - **Tipo de línea a guiones** (plano CAD aplanado, por ejemplo DU08 h.4–19): sigue por el
   núcleo de siempre (`recognition_geom.reconstruct`).
 - **Buzones en los cortes** (`recognition_style_nodes`, solo redes por gravedad:
@@ -46,6 +48,31 @@ como estilos.
 - El estilo no dice si una red está abandonada: en estas capas no se aplica la regla «//».
 - El dato extendido de la línea guarda el estilo legible («Estilo Negro 0.73 pt ·
   continuo»), no el nombre interno.
+
+## Lo que dice la leyenda y el mapa (2026-10-13/14)
+
+Solo en hojas sin capas cuyo texto viene en una fuente Type3 sin mapa de caracteres
+(`leyenda_mapa.aplica`):
+
+- **Texto** (`hoja/texto_pdf.py`): cada glifo se dibuja y se compara con Arial (coseno
+  ≥ 0.9); en Phoenix las letras son exactamente las de Arial. Los glifos sin letra son
+  símbolos (válvulas, hidrantes, buzones). La fuente fina de trazos del alcantarillado
+  (nombres de calles y subdivisiones, anchos de vía) no se lee: es mapa base, no red.
+- **Leyenda** (`leyenda_mapa_lectura` + `leyenda_mapa`): filas = muestra + descripción,
+  por sección; utilidad del plano, escala del rótulo, notas («taps are .75" in diameter»,
+  «main material is ACP»). `asignaciones` deja la red como líneas y el buzón como
+  estructura en «Capas de la hoja»; lo que la leyenda usa también para lotes o
+  anotaciones queda para el usuario.
+- **Acometidas** (`acometidas_mapa`, `recognition_taps`): mismo estilo que los linderos,
+  pero NACEN sobre la red y el SIG las dibuja en un bloque seguido del orden de dibujo.
+  Van a la capa «Acometidas · …»; en agua y gas se reconocen unidas a la tubería con una
+  T y el diámetro de la nota (o el escrito, «278' 2"»); en gravedad quedan sin asignar.
+- **Buzones** (`recognition_map_vaults`): el buzón-símbolo con la punta o un vértice de su
+  línea dentro, o atravesado por ella, queda en la línea (antes: «sin línea» e importado
+  dos veces).
+- **Diámetros** (`recognition_diametros`): «6"», «8" DIP», «12"» paralelos y pegados a una
+  tubería → su diámetro (mayoría ≥ 60 %; con rótulos distintos queda el de siempre y se
+  avisa).
 
 ## Corpus Phoenix
 
@@ -61,10 +88,10 @@ Resultados (hoja 1, escala calibrada a 1"=160'): alcantarillado Norte 69 líneas
 buzones; agua Norte 151 líneas (red a presión: sin buzones); alcantarillado Sur 48 líneas
 y 113 buzones. Tiempo de reconocimiento 1–4 s por hoja.
 
-Pendiente: proponer automáticamente el estilo de la red (por leyenda o por el nombre
-del archivo, con confirmación), leer las letras del tipo de línea en las capas por
+Pendiente: leer las letras del tipo de línea en las capas por
 estilo de los planos CAD aplanados (un estilo mezcla varias utilidades: «—W—», «—G—»…),
-vectorizar las imágenes de drenaje por color, decodificar la fuente Type3 (las tablas de
-buzones con cotas de tapa y fondo) y permitir elegir el sistema de coordenadas del
+vectorizar las imágenes de drenaje por color, asignar a cada buzón su fila de las tablas
+«Quadrant … Manholes» (Rim/Inv, ya legibles), importar válvulas e hidrantes como accesorios,
+partir una ruta donde cambia el diámetro escrito (reducción) y permitir elegir el sistema de coordenadas del
 proyecto (Phoenix: Arizona Central, no EPSG:2229). Este cambio no habilita una
 exportación georreferenciada específica para Phoenix.

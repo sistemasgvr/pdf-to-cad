@@ -48,7 +48,7 @@ from hoja import pdf_layers
 from reconocimiento import recognition
 from ui.comun import theme as _theme
 from ui.comun.ui_common import swatch_icon
-from ui.comun.widgets import ZoomPanView, MiniMap, maximize_on_show, side_panel_width, GripSplitter
+from ui.comun.widgets import ZoomPanView, MiniMap, etiquetas_cortas, maximize_on_show, side_panel_width, GripSplitter
 from ui.asistente.layer_dialog_info import LayerInfoMixin, layer_tooltip as _layer_tooltip
 from ui.asistente.layer_dialog_recog import (RecogCardMixin, card as _card, utility_qcolor,  # noqa: F401
                                              _UTILITY_RECOG_LABEL)
@@ -518,9 +518,13 @@ class SheetLayersDialog(ScaleCalibrationMixin, LayerAssignmentsMixin, LayerInfoM
         self.opacity.sync()
         if self._layout:
             # esquema de la organización (número y posición de cada hoja), sin dibujo
+            # cada hoja con su código corto («17-10», «North 3»; el nombre completo al pasar el
+            # ratón) y el esquema se acerca con la vista: en una tira de 36 hojas se lee la de enfrente
+            labels = [label for _r, label in self._layout]
             self.minimap.set_layout(
-                [(QtCore.QRectF(x0 * z, y0 * z, (x1 - x0) * z, (y1 - y0) * z), label)
-                 for (x0, y0, x1, y1), label in self._layout], rect)
+                [(QtCore.QRectF(x0 * z, y0 * z, (x1 - x0) * z, (y1 - y0) * z), corta, label)
+                 for ((x0, y0, x1, y1), label), corta in zip(self._layout, etiquetas_cortas(labels))],
+                rect, sync_zoom=True)
         else:
             self.minimap.set_thumbnail(pm, rect)   # refleja las capas visibles
         if first:

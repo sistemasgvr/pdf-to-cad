@@ -11,7 +11,7 @@ import math
 import fitz
 from PySide6 import QtCore, QtGui
 from hoja.sheet_crops import page_rect
-from ui.comun.recorte_nitido import REFINO_MS, TOPE_LETRAS_MPX, TOPE_REFINO_MPX, Hojas, escala_para
+from ui.comun.teselas_vista import TeselasItem
 
 
 MAX_RENDER_PIXELS = 24_000_000
@@ -118,101 +118,55 @@ class FocusedPageQuality(QtCore.QObject):
 
 
 class ViewportSharpener(QtCore.QObject):
-    """Re-renderiza nítida SOLO la parte visible de una hoja mostrada a
-    `base_scale` px/pt en una vista (escena = hoja × base_scale). Con el zoom
-    la imagen base se ve borrosa; esto pone encima un pixmap del recorte
-    visible a la escala de pantalla y lo quita al alejarse. `get_page()`
-    devuelve la fitz.Page actual. Desde 2026-10-13 sin el tope de 4 px/pt
-    (`recorte_nitido`: a cualquier zoom) y el recorte cae EXACTO: su píxel
-    (u, v) es el punto ((x + u)/escala, (y + v)/escala) de la hoja, con (x, y)
-    el origen que da MuPDF (antes se estiraba al rectángulo pedido)."""
+    """La hoja mostrada a `base_scale` px/pt en una vista (escena = hoja × base_scale), nítida
+    al acercarse: encima de su imagen (z = `z`) van las teselas de la parte visible a la
+    resolución de la pantalla (`teselas_vista.TeselasItem`; se dibujan en otro proceso: la
+    ventana no espera, reporte del usuario 2026-10-15). `get_page()` devuelve la fitz.Page
+    actual. Caen EXACTAS sobre la hoja: el píxel (u, v) de una tesela es el punto
+    ((x + u)/escala, (y + v)/escala) de la hoja, con (x, y) el origen que da MuPDF."""
 
-    def __init__(self, view, get_page, base_scale=1.0, z=1, delay_ms=150):
+    def __init__(self, view, get_page, base_scale=1.0, z=1, delay_ms=80):
         super().__init__(view)
         self.view = view
         self.get_page = get_page
         self.base_scale = base_scale
         self.z = z
         self._item = None
-        self._key = None
-        self._hojas = Hojas(max_hojas=2)       # lista de dibujo de las últimas hojas vistas
         self._timer = QtCore.QTimer(self)
         self._timer.setSingleShot(True)
         self._timer.setInterval(delay_ms)
         self._timer.timeout.connect(self.update_quality)
-        # hoja con letras Type3 caras: con la vista quieta, otra vez con más resolución
-        self._refine = QtCore.QTimer(self)
-        self._refine.setSingleShot(True)
-        self._refine.setInterval(REFINO_MS)
-        self._refine.timeout.connect(lambda: self.update_quality(refine=True))
         view.viewChanged.connect(self._schedule)
 
     def _schedule(self):
-        self._refine.stop()
         self._timer.start()
 
     def invalidate(self):
-        """La hoja cambió: quitar el recorte nítido y recalcular."""
-        self._remove()
-        self._key = None
+        """La hoja cambió (otra hoja, otras capas): sus teselas ya no sirven."""
+        if self._item is not None:
+            self._item.superficie.invalidar()
         self._schedule()
 
     def _remove(self):
         if self._item is not None:
-            self.view.scene().removeItem(self._item)
+            self._item.superficie.soltar()
+            if self._item.scene() is not None:
+                self._item.scene().removeItem(self._item)
             self._item = None
 
     def update_quality(self, refine=False):
-        self._refine.stop()                               # se decide otra vez abajo
         try:
             page = self.get_page()
         except Exception:
             page = None
         if page is None:
             self._remove(); return
-        screen = abs(self.view.transform().m11()) * self.view.devicePixelRatioF()
-        wanted = screen * self.base_scale * 1.15          # px de pantalla por pt de la hoja
-        if wanted < self.base_scale * 1.4:
-            self._remove(); self._key = None
-            return
-        vis = self.view.mapToScene(self.view.viewport().rect()).boundingRect()
-        pw, ph = page.rect.width * self.base_scale, page.rect.height * self.base_scale
-        region = vis.intersected(QtCore.QRectF(0, 0, pw, ph))
-        if region.isEmpty():
-            self._remove(); return
-        # margen para no re-renderizar a cada pequeño desplazamiento
-        pad = 0.25 * max(region.width(), region.height())
-        region = region.adjusted(-pad, -pad, pad, pad).intersected(QtCore.QRectF(0, 0, pw, ph))
-        rect_pt = (region.left() / self.base_scale, region.top() / self.base_scale,
-                   region.right() / self.base_scale, region.bottom() / self.base_scale)
-        # antes el tope era MAX_RENDER_SCALE: nunca menos que eso
-        scale = self._hojas.escala(page, rect_pt, wanted, minimo=MAX_RENDER_SCALE,
-                                   tope_mpx=TOPE_REFINO_MPX if refine else TOPE_LETRAS_MPX)
-        if scale < self.base_scale * 1.4:
-            self._remove(); self._key = None
-            return
-        zone = (id(page.parent), page.number, tuple(round(v, 1) for v in rect_pt))
-        if self._item is not None and self._key is not None and self._key[0] == zone \
-                and self._key[1] >= round(scale, 2):
-            return                                        # el recorte que hay ya basta
-        pix = self._hojas.render(page, rect_pt, scale)
-        if pix is None:
-            return
-        pm = QtGui.QPixmap.fromImage(QtGui.QImage(bytes(pix.samples), pix.width, pix.height,
-                                                  pix.stride, QtGui.QImage.Format_RGB888).copy())
-        if pm.isNull():
-            return
-        self._remove()
-        item = self.view.scene().addPixmap(pm)
-        item.setTransformationMode(QtCore.Qt.SmoothTransformation)
-        item.setZValue(self.z)
-        item.setAcceptedMouseButtons(QtCore.Qt.NoButton)
-        # px del recorte → escena: MuPDF empieza el recorte en (pix.x, pix.y) px de la
-        # hoja a `scale` (redondeo hacia afuera); exacto, sin estirar.
-        k = self.base_scale / scale
-        item.setPos(pix.x * k, pix.y * k)
-        item.setTransform(QtGui.QTransform.fromScale(k, k))
-        self._item = item
-        self._key = (zone, round(scale, 2))
-        if not refine and scale < 0.98 * escala_para(wanted, rect_pt):
-            self._refine.start()                          # letras Type3: quedó corto
+        if self._item is None or self._item.scene() is not self.view.scene():
+            self._remove()
+            self._item = TeselasItem()
+            self._item.setZValue(self.z)
+            self.view.scene().addItem(self._item)
+        b = self.base_scale
+        self._item.set_rect(QtCore.QRectF(0, 0, page.rect.width * b, page.rect.height * b))
+        self._item.superficie.fijar(page, k=b, base=b)
+        self._item.superficie.actualizar(self.view)

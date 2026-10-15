@@ -21,7 +21,8 @@ alcantarillado, drenaje, gas, eléctrico, telecom). Todo en **unidades imperiale
     (`recognition_dialog`, `_summary_view`, `_review_view`, `_layers_view`, `_preview_draw`) siguen en `app/`.
     `app/hoja/` (mismo día) = hoja de trabajo PURA: `composite`, `composite_checks`, `composite_scan`,
     `composite_seam`, `pdf_layers`, `pdf_legend`, `sheet_crops`, `sheet_layout`, `organized_layers`,
-    `leyenda_cruce`, `leyenda_estandar`, `leyenda_trazos` (`from hoja import composite`). Los diálogos y vistas
+    `leyenda_cruce`, `leyenda_estandar`, `leyenda_trazos`, y los de mapas sin capas `pdf_styles`, `texto_pdf`,
+    `leyenda_mapa`, `leyenda_mapa_lectura`, `acometidas_mapa` (`from hoja import composite`). Los diálogos y vistas
     del compositor/capas (y `composite_choice`, que usa `i18n`) siguen en `app/`.
     `app/catalogo/` = `civil_catalog`, `catalogo_tamanos`, `catalogo_tamanos_presion` (PUROS) y `app/exportar/` =
     `dxf_export` (NO puro: recibe la ventana `win` y usa `geometry.point_in_poly`; `geometry` importa QtGui).
@@ -32,7 +33,8 @@ alcantarillado, drenaje, gas, eléctrico, telecom). Todo en **unidades imperiale
     `wizard_widgets`, `pdf_view_quality`, `alignment_tools`, `tool_strip`…), `ui/dialogos/` (`dialogs`,
     `normas_dialog`, `tabla_datos_dialog`, `vista3d_dialog`, `edicion_bloque_dialog`, `limpieza_dialog`, `duct_bank_dialog`, `xdata_dialog`, `catalogo_tamanos_dialog`, `manual_dialog`,
     `shortcuts_dialog`, `blank_canvas_dialog`) y `ui/comun/` (`canvas`, `widgets`, `ui_common`, `theme`, `icons`,
-    `busy`, `responsive`, `side_panels`, `thumbnails`, `workers`, `accesorios_view`, `avisos_view`, `visor3d`, `cubo_vistas`, `fondo_pdf`, `recorte_nitido`). Se importan como
+    `busy`, `responsive`, `side_panels`, `thumbnails`, `workers`, `accesorios_view`, `avisos_view`, `visor3d`, `cubo_vistas`, `fondo_pdf`, `recorte_nitido`, `teselas`, `teselas_hijo`, `teselas_servidor`,
+    `teselas_vista`). Se importan como
     `from ui.ventana import app_window`, `from ui.comun import widgets`… OJO rutas de recursos: `icons.py` sube
     TRES carpetas para llegar a `app/icons` (en el .exe usan
     `sys._MEIPASS`, donde PDF-a-CAD.spec deja `icons/` y `docs/`). `app/traduccion/` (mismo día) = `i18n`,
@@ -62,20 +64,20 @@ alcantarillado, drenaje, gas, eléctrico, telecom). Todo en **unidades imperiale
     ≈`PRESUPUESTO_PX`=100 Mpx con `escala` < 1 = px de la imagen por px de la vista. Las coordenadas NO
     cambian (pt × zoom): `Canvas.set_image(qimg, escala, tam)` agranda la imagen 1/escala (`FondoItem`) y la
     escena mide `tam`; usar `canvas.tam_hoja()` (no `pixmap().width()`) para el tamaño de la hoja en px.
-    `Nitidez` (en el lienzo, «Capas de la hoja» y la vista previa): al acercarse re-dibuja nítida la parte
-    visible como hijo del `FondoItem` (lista de dibujo de MuPDF en caché: 0.7 s una vez, luego 20–100 ms;
-    el padre no se pinta debajo, si no la opacidad del PDF la oscurecía); el imán a la tinta mira la ventana
+    `Nitidez` (en el lienzo, «Capas de la hoja» y la vista previa): al acercarse pide las TESELAS nítidas
+    de lo visible (`FondoItem.superficie`, ver «Teselas» abajo; la imagen no se pinta debajo de una tesela
+    si la opacidad del PDF < 100 %, si no la tinta se oscurecía); el imán a la tinta mira la ventana
     del clic a resolución completa (`snap_nitido`: mismo punto que con la hoja normal). El .digproj guarda
     `fondo_escala`/`fondo_tam` SOLO si la hoja va reducida; `leer_png` quita el tope de 256 MB de
     `QImageReader` (antes un proyecto con hoja compuesta de ~2 hojas no se reabría). `gris`: grises por
     bloques (idéntico byte a byte). Si `_apply_composite` falla, `_volver_a_la_hoja` recarga la hoja anterior
     (sin respaldo el editor quedaba sin PDF). Tests: `tests/test_hoja_enorme.py` (bajan el límite con
     `chica`). **Nítida a CUALQUIER zoom** (pedido del usuario 2026-10-13, compositor sobre el «QS Water» de
-    Phoenix borroso): `recorte_nitido.py` (sin Qt) lo usan `Nitidez` (editor, Capas, vista previa: ahora
-    también con la hoja NORMAL —`nuevo_item` da siempre `FondoItem`; con escala 1 se pinta igual que un
-    QGraphicsPixmapItem: misma imagen, sin `setScale` ni modo suave— y sin el tope «la resolución de la
-    imagen»), `ViewportSharpener` («Área a tomar», sin el tope de 4 px/pt y con el recorte EXACTO en
-    `pix.x/pix.y`, antes se estiraba al rectángulo) y `PieceItem.update_sharp`. `Hojas` = caché de listas
+    Phoenix borroso): `recorte_nitido.py` (sin Qt) lo usan las teselas de `Nitidez` (editor, Capas, vista
+    previa: también con la hoja NORMAL —`nuevo_item` da siempre `FondoItem`; con escala 1 se pinta igual que
+    un QGraphicsPixmapItem: misma imagen, sin `setScale` ni modo suave— y sin el tope «la resolución de la
+    imagen»), `ViewportSharpener` («Área a tomar», `TeselasItem` a z=1) y `PieceItem` (`superficie`; el
+    `update_sharp` de antes queda como atajo). `Hojas` = caché de listas
     de dibujo por (documento, hoja) —`soltar()` al cambiar capas— y `escala` (pantalla × 1.15, `MAX_PX`
     24 Mpx, `MAX_ESCALA` 64 px/pt; nunca menos que el tope de antes: `minimo`). **Fuentes Type3** (mapas SIG
     de Phoenix): MuPDF rasteriza cada letra en su caja DECLARADA (FontBBox ~20× la letra) aunque caiga
@@ -83,16 +85,45 @@ alcantarillado, drenaje, gas, eléctrico, telecom). Todo en **unidades imperiale
     pasa por `fz_new_culling_device_with_rects2` (descarta una letra si >50 % de su caja cae en los
     rectángulos) con rectángulos fuera de la zona que contiene TODA caja de letra que toca el recorte (cajas
     medidas igual que MuPDF con un `FzDevice2` Python, `Medidor`): mismos píxeles byte a byte (verificado en
-    recortes al azar, también hoja girada). Si las letras a dibujar pasan de `TOPE_LETRAS_MPX` (≈0.3 s) la
-    escala baja y, con la vista quieta `REFINO_MS`, se repite con `TOPE_REFINO_MPX` (≈0.9 s): Phoenix vista
-    a 16 px/pt → 9.3 y luego 16 px/pt (antes 4). Sin Type3 (DU06/DU08/LABOE, Type0) el camino de siempre
-    (`dl.get_pixmap`), a la resolución de la pantalla en 6–35 ms. El imán, las coordenadas y la imagen base
-    no cambian. Tests: `tests/test_nitidez_zoom.py`. Pendiente: con 18 hojas, armar tarda ~28 s (`compute_bridges` relee los vectores de cada hoja)
-    y «Capas de la hoja» ~49 s (`page_layers`, letras, `trazos_visibles` sobre toda la hoja compuesta).
+    recortes al azar, también hoja girada; OJO: MuPDF suaviza los bordes distinto según el RECORTE pedido
+    —hasta 20/255 en ~1 % de los píxeles de una línea—, así que «mismos píxeles» es siempre contra el mismo
+    recorte). `Hojas.escala`/`TOPE_LETRAS_MPX`/`REFINO_MS` (recorte con tope de letras y refino con la vista
+    quieta) ya no los usa ninguna vista: las teselas acotan solas el costo. Sin Type3 (DU06/DU08/LABOE,
+    Type0) el camino de siempre (`dl.get_pixmap`). El imán, las coordenadas y la imagen base no cambian.
+    Tests: `tests/test_nitidez_zoom.py`. Pendiente: con 18 hojas, armar tarda ~28 s (`compute_bridges` relee
+    los vectores de cada hoja) y «Capas de la hoja» ~49 s (`page_layers`, letras, `trazos_visibles` sobre toda
+    la hoja compuesta); el compositor tarda ~20 s en dibujar las vistas generales de 36 piezas (`rebuild`).
+  - **Teselas** (reporte del usuario 2026-10-15: con la hoja compuesta de 36 mapas o su reconocimiento,
+    cada parada del zoom trababa la ventana 0.3–1.3 s —la primera ~7 s: lista de dibujo + 494 mil cajas de
+    letras Type3— porque el recorte nítido se dibujaba en el hilo de la interfaz; PyMuPDF NO suelta el GIL
+    al dibujar, un hilo no sirve). Como los visores de mapas/planos: `ui/comun/teselas.py` (puro) — nivel L
+    = 2^(L/2) px/pt (pasos de √2: la tesela queda entre 1 y 1.41× la pantalla; con pasos de 2 dibujaba hasta
+    4× los píxeles a la vista), `TAM`=1024 px, rejilla de píxeles de la hoja a esa escala (vecinas exactas,
+    origen real en `pix.x/pix.y`), `teselas_en` = centro primero + anillo de 1 para el desplazamiento,
+    `hace_falta` = la pantalla pide ≥ 1.1× la imagen base (antes 1.4: el primer paso de rueda se veía borroso), `dibujar` = `Hojas.render` (culling Type3).
+    `teselas_hijo.py` (sin Qt) = el proceso dibujante (lee el PDF a MEMORIA: no deja abierto el temporal
+    que la ventana borra; capas por `layer_ui_configs` → `firma` en la clave; «pedir» REEMPLAZA la lista;
+    «calentar» prepara lista de dibujo + cajas antes del primer zoom; `PDFCAD_TESELAS_LOG=1` = tiempos
+    por tesela en stderr). `teselas_servidor.py` (`servidor()`): `cuantos()` procesos (≤`MAX_PROCESOS`=3
+    según núcleos y RAM, `proceso_hijo.paralelos`), dos `Pipe` de un sentido por proceso + hilo de envío
+    (un PDF de 30 MB no traba), lectura con QTimer `SONDEO_MS`=15, reparto con la tesela pegada a su
+    proceso, caché LRU `MAX_MB`=384 que nunca suelta lo que se mira, 3 muertes → dibuja aquí mismo;
+    `PDFCAD_PROCESO=0` (pruebas) = aquí mismo y al instante. `teselas_vista.py`: `Superficie(item)` (coords
+    del item = pt × k + d: `FondoItem` k = zoom·escala; `PieceItem` k = ov, d = −origen, `limite` = clip
+    de la pieza; `TeselasItem` para el «Área a tomar») — `actualizar(vista)` pide; `pintar` dibuja la base
+    y encima las teselas listas o, mientras faltan, las del nivel anterior (o siguiente) recortadas a su
+    cuadro, sin suavizado de bordes (sin rayas entre vecinas); `exclusivo` (opacidad < 1 o «Fundir bordes»)
+    = la base no se pinta bajo una tesela. Nunca usar el nombre `tx` para la tubería en el hijo (fue un
+    error: la columna de la tesela la pisaba). Medido con 36 mapas de agua (editor, 1600×900): la ventana
+    nunca se detiene > ~45 ms; vista entera nítida en 0.6–1.1 s por zoom (1 proceso y niveles ×2: 2.6–4 s);
+    compositor de 36 piezas 0.2–1 s. Tests: `tests/test_teselas.py` (mismos píxeles, colocación exacta a
+    1:1, otro nivel mientras falta, opacidad, capas, proceso real por ruta y por bytes).
   - `widgets.py` — widgets reutilizables (`InlineEdit`, `_SegInvSpinBox`, `_NoWheelFilter`,
     `ZoomPanView`, `MiniMap`: minimapa con recuadro de lo visible sobre una ZoomPanView;
     `set_layout(items, scene_rect)` = esquema de hojas (cajas con etiqueta, lo que
-    pidió el usuario: organización, no dibujo) o `set_thumbnail(pixmap, rect)`.
+    pidió el usuario: organización, no dibujo; a la medida del número de hojas —la hoja típica a
+    `HOJA_PX`=64, mínimo `LAYOUT_MIN_PX`, máximo el `LAYOUT_*` de siempre—: con 1–2 hojas se hacía
+    gigante, pedido 2026-10-15) o `set_thumbnail(pixmap, rect)`.
     «Capas de la hoja» recibe `layout` de `composite.piece_layout` vía
     `Main._composite_layout` (se calcula en `_apply_composite`); `maximize_on_show(dlg)`:
     la ÚNICA forma fiable de abrir un QDialog maximizado en Windows (setWindowState
@@ -451,6 +482,33 @@ alcantarillado, drenaje, gas, eléctrico, telecom). Todo en **unidades imperiale
     `tests/test_pdf_styles.py`, `tests/test_mapas_sin_capas.py` (Phoenix 17-10 ventana → DXF: 69 líneas, 102
     buzones). OJO al dibujar revisiones sobre estas hojas: tienen `/Rotate 90` → `pts_pdf` (px de la vista) por
     `page.derotation_matrix` antes de dibujar en la página.
+    **Leyenda del plano y todo lo que dice el mapa (2026-10-13/14, SOLO hojas sin OCG con texto Type3 sin
+    ToUnicode: `leyenda_mapa.aplica`)**: `hoja/texto_pdf.py` lee el texto por la FORMA de cada glifo (charprocs
+    dibujados y comparados con Arial, coseno ≥0.9; cada glifo RECORTADO a su celda: una flecha grande se metía en
+    la celda del «4»/«6»); los glifos sin letra son SÍMBOLOS (`simbolos`). La fuente fina de trazos de Phoenix
+    alcantarillado (calles, subdivisiones) no se lee: es mapa base. `hoja/leyenda_mapa_lectura.py` arma el cuadro
+    (columnas a paso regular partidas donde salta el paso, muestra entre el texto de la columna de la izquierda
+    QUE ESTÁ A SU ALTURA y la descripción, símbolo centrado en su fila ±0.35 paso, notas «taps are .75"» /
+    «main material is ACP») y `hoja/leyenda_mapa.py` da el significado (sección/utilidad, rol LINEA/ESTRUCTURA/
+    ACCESORIO/ANOTACION/BASE/ACOMETIDA) y `asignaciones` (voto por estilo/símbolo; lo que la leyenda usa también
+    para lotes queda ambiguo). `hoja/acometidas_mapa.py`: acometidas = trazos del estilo de una fila «Tap» que
+    NACEN sobre la tinta de la red (≤0.35 pt) en un BLOQUE del orden de dibujo (`seqno`, huecos ≤20 trazos) donde
+    ≥50 % nace sobre ella (el SIG dibuja cada capa seguida: los linderos del mismo estilo quedan en otros bloques);
+    `pdf_styles.drawings` las pone en la capa virtual `["tap", utilidad, estilo]` («Acometidas · Negro 0.19 pt»),
+    asignada como líneas en TODAS las utilidades (2026-10-14; antes solo presión): en gravedad/conductos el import
+    (`nucleo/acometidas.unir_a_principal`) pone la punta «tee» como vértice `acometida` de su tubería (no si cae a
+    ≤ `_TOL` de otro vértice: movería el buzón) y `hide_soft_vertex_structures` deja NULOS los nodos de la
+    acometida (`pipe["acometida"]`); `recognition_style_nodes` no mira las capas de acometidas. QS Sewer South h.4:
+    40 tuberías + 390 acometidas, buzones visibles iguales. Tests: `tests/test_acometidas_gravedad.py`. Reconocimiento:
+    `recognition_ink_lines.simplify_tol` = medio grosor del trazo (0.15–0.5; el grosor sale del NOMBRE de la capa
+    —`pdf_styles.style_width`—: `geom.clip_path` no conserva `width`), así el eje no sale de la línea;
+    `recognition_map_vaults` (buzón-símbolo con punta/vértice dentro o atravesado → vértice «vault», deja de ser
+    huérfano), `recognition_taps` (punta de la acometida al pie sobre la tubería, «tee»; las acometidas no se unen
+    en rutas), `recognition_diametros` («8"», «12" DIP», «278' 2"» paralelos y pegados → `diam_in` por mayoría
+    ≥60 %; mezcla → `review="diam_mix"`). `RecognizedPolyline.diam_in` → `pipe["diam"]`. Foto 16 hojas Phoenix
+    (HEAD → nuevo): agua mismas tuberías + acometidas (South h.4: 151 + 404, 0 a >1 pt de la tinta al importar);
+    Water North h.1/4/10 de 0 líneas a 145/143/106 (la leyenda ya se lee); alcantarillado mismas líneas, buzones
+    sin línea 33→4, 37→4. Tests: `tests/test_mapas_leyenda.py`.
   - **Reporte DU06 h.4 (2026-09-29, cuatro casos, TODAS las utilidades)**:
     `recognition_dupink.py` (PURO) — la MISMA línea dibujada dos veces en la misma capa
     con el linetype desfasado (banco de ductos `N-COMM-DUCT-BANK-PL`: dos entidades
@@ -955,8 +1013,8 @@ alcantarillado, drenaje, gas, eléctrico, telecom). Todo en **unidades imperiale
     `guide_lines` lista las líneas generales de la hoja (h/v, ≥40 pt de cobertura,
     con guiones) y `snap_edge` elige a cuál salta un lado del área (≤ tol y
     solape; gana la de más cobertura); `_CropView` (sheet_crop_dialog) las usa al
-    arrastrar y las resalta. Nitidez: `pdf_view_quality.ViewportSharpener` (panel 2)
-    y `PieceItem.update_sharp` (todas las piezas a la vista, presupuesto de píxeles
+    arrastrar y las resalta. Nitidez (teselas, ver arriba): `pdf_view_quality.ViewportSharpener` (panel 2)
+    y `PieceItem.superficie` (todas las piezas a la vista; antes presupuesto de píxeles
     repartido) re-renderizan solo la región visible como overlay, a la resolución de la
     pantalla (`recorte_nitido`, ver `fondo_pdf`). **Colocación EXACTA** (reporte
     2026-10-09, escaneos: «al hacer zoom como que se mueve»): MuPDF redondea el recorte hacia afuera
@@ -972,7 +1030,12 @@ alcantarillado, drenaje, gas, eléctrico, telecom). Todo en **unidades imperiale
     captura offscreen usar paleta+stylesheet a mano, nunca `apply_theme`. `build_document` materializa la hoja
     como PDF real de UNA página: `show_pdf_page` por pieza (vectores, textos y
     capas intactos; OJO: ignora el `/Rotate` de la hoja origen → clip des-rotado y
-    `rotate=piece.rotation - page.rotation`) y reconstruye `/OCProperties` con los
+    `rotate=piece.rotation - page.rotation`; y PyMuPDF 1.28 recorta ese clip SIN rotar con el
+    rect de la hoja GIRADA —en /Rotate 90/270, ancho y alto cambiados: la pieza salía cortada y
+    centrada en su lugar, franja blanca en la unión (reporte 2026-10-15, drenaje de Phoenix; las 36
+    piezas de alcantarillado perdían 3–6 % y se corrían ~50 pt)—, por eso va por `_show_pdf_page`, que
+    quita el /Rotate de la hoja de origen durante la llamada; test
+    `test_hoja_girada_cada_trazo_donde_lo_pone_el_compositor`) y reconstruye `/OCProperties` con los
     OCG que graftmap copió (hay que guardar y REABRIR el doc para que fitz vea el
     catálogo; por eso `Main._apply_composite` escribe un PDF temporal). El BBox de
     cada XObject actúa como clip en `gather_paths`, así el reconocimiento de la
@@ -983,6 +1046,94 @@ alcantarillado, drenaje, gas, eléctrico, telecom). Todo en **unidades imperiale
     y `scale_override`; `work_pdf_path` es el PDF que ven los workers.
     Tests: `tests/test_composite.py` (puro) y `tests/test_composite_dialog.py`
     (Qt offscreen, punta a punta: dos hojas → una ruta).
+  - **Composición sugerida** (pedido del usuario 2026-10-14: «revisar TODAS las hojas y sugerir cómo se unen»;
+    escaneos excluidos, `comp.manual` no la lanza). Núcleo PURO en `app/hoja/`: `composicion_ficha.py` (por hoja:
+    rótulos «MATCH LINE STA … SEE DWG …» con su lado de la VISTA = clip del viewport, número de hoja + serie
+    «UR-#A», celda de cuadrícula «17-10»/«Q17-10» + mapa índice 3×3 — una celda solo vale con mapa índice o
+    prefijo Q: un «380-4» de portada no—, trazos de las franjas de los bordes; el dibujo solo se lee si el texto
+    dice algo; Type3 por `texto_pdf`), `composicion_encaje.py` (B = escala·A + t, hoja VISIBLE: `costura_cad` =
+    match lines que coinciden + vectores idénticos o continuidad, la MISMA costura exacta de `composite_seam`,
+    con ventanas 30→600 pt alrededor de la pista de los rótulos y el hallazgo tiene que ser además el pico
+    GLOBAL de votos crudos — con ventana amplia cada voto se reparte y LABOE sin capas perdía uniones—;
+    `encaje_mapa` = trazos idénticos en la franja de solape, escala si los PDF difieren, pico dominante, ≥2
+    rumbos, vecina del lado del mapa índice; plantilla = trazos en la misma posición en ≥50 % de las hojas),
+    `composicion_sugerida.py` (parejas por el texto ±60 ft de estación —erratas reales de 50 ft— o celdas
+    vecinas en la dirección del mapa índice / convención aprendida; primero dentro de la serie; mapas sin pico
+    claro → GUIADAS por la traslación mediana de las ya confirmadas, con dominio 1.5 y RMS ≤0.3; grupos con
+    control de CICLOS (≤1 pt, si no se parten); `armar` → `Composite` normal: CAD recortada EN su match line +
+    `trim_border` (franjas) y puentes; mapa sin puentes, costuras (`composicion_costuras.py`) por el solape de TINTA (`tinta`: la vista de
+    alcantarillado es ~25 pt más ancha que el mapa) en la posición que menos tinta de una sola hoja pierde y
+    menos tramos rasantes toca (`_costo_corte`: cada hoja dibuja su red entera y solo parte de la vecina),
+    recta común por fila/columna si cabe) y `composicion_hermanos.py` (PDF de la carpeta con la misma utilidad
+    en el nombre y las celdas que faltan). UI `ui/asistente/composite_suggest.py` (`SuggestionMixin` + `Servicio`
+    en un QThread de baja prioridad, caché por sha1 de cada PDF): tarjeta bajo las pestañas (progreso → «Composición
+    sugerida: 14 hojas (UD-201 → UD-214) · STA …» → «Usar sugerencia» / «Deshacer»; la hoja abierta o elegida en
+    Origen decide el grupo y la serie, si no está en ninguno y hay varios, combo; PDF hermano → «Agregar PDF» y
+    se vuelve a analizar). `PDFCAD_SUGERENCIA=0` la apaga (conftest). Reconocimiento: en `recognition_ink_lines`
+    la punta «cut» donde llega la de OTRA pieza (otro `clip_polys`) es «junction» (una tubería de un mapa
+    compuesto sigue en la costura; hojas sueltas: 0 diferencias en 8 hojas de Phoenix). Auditoría
+    `scripts/audit_composicion.py [--fotos] [--reconocer] [du06 du10 du08 laboe agua cloaca sd]`: CAD contra la
+    verdad independiente de `audit_costuras` (DU06 13/13, DU10 24/24, DU08, LABOE: todas ≤0.19 pt), mapas RMS +
+    ciclos (agua 0.26 pt, alcantarillado 0.65 pt, 36 hojas en 2 PDF cada uno; SD queda en tramos: líneas a
+    guiones repetidas). Tests: `tests/test_composicion_sugerida.py`.
+  - **Trabajo pesado CONTROLADO** (pedido del usuario 2026-10-14: «no detener todo el sistema», RAM, avance «como
+    un lápiz»). `ui/comun/proceso.py` + `proceso_hijo.py` (sin Qt): `Trabajador` = proceso hijo «spawn» reusado
+    («principal»: reconocer/armar; «fondo»: composición sugerida), prioridad BELOW_NORMAL, tope de memoria por Job
+    Object (`TOPE_FRACCION` 0.7 de la RAM; si no cabe → error «memoria» con aviso), reciclado si tras un trabajo
+    queda > `RECICLAR_MB`; `Tarea(objetivo «mod:fn», args, kwargs)` con `avance`/`terminado`, `cancelar()` = matar.
+    `ejecutar(...)` espera con un QEventLoop local (la capa «Cargando…» come la entrada). Trabajos PUROS:
+    `reconocimiento/recognition_trabajo.reconocer_hoja` (lo de `RecognitionWorker.run`, que sigue igual para las
+    pruebas; `start()` va al proceso; señales nuevas `layer` «capa k de m» —`recognize_page(avance=)`— y `partial`
+    con los trazos de cada utilidad terminada, que `Main._recognition_partial` dibuja bajo un velo más claro),
+    `hoja/composite_trabajo.materializar` (`_build_composite_doc`) y `hoja/composicion_trabajo.analizar` (caché de
+    fichas EN el trabajador; vuelve sin `Ficha.lineas`). `BusyOverlay.begin(cancel=)` pinta «Cancelar»;
+    `set_veil`. `main.py`: `freeze_support()` y la interfaz se importa solo bajo `__main__` (el hijo importa main
+    como `__mp_main__`); `OPENBLAS_NUM_THREADS=1` antes de numpy (+361 → +8 MB por proceso; letras igual de
+    rápidas). `PDFCAD_PROCESO=0` = todo aquí mismo (conftest; `tests/test_proceso.py` lo enciende).
+    Velocidad sin cambiar resultados (`reconocimiento/recognition_indice.py`: `IndiceTramos` por corredor y
+    `IndicePuntos`, candidatos en el ORDEN original → mismo desempate): `strokes_by_polyline`, `_through_dirs`,
+    `ink_reconstruct` (puntas), `recognition_diametros.asignar`, `snap_taps`, `acometidas_mapa` (celdas) y
+    `leyenda_mapa_lectura` (una leyenda POR HOJA en una compuesta: `_grupos` de encabezados a ≤ `GRUPO_HS`=100×
+    su tamaño, `_Pagina` con filtros exactos, filas de todas sin repetir y una zona por leyenda; `_rotulos` por
+    celdas). Antes las leyendas de una compuesta se juntaban en UNA caja que tapaba parte del mapa (4 hojas de agua:
+    282 → 389 tuberías + acometidas). Phoenix agua 36 hojas con estilos asignados: 668 s → 79 s. Foto antes/después
+    (7 casos: agua S/N, alcantarillado, DU06 eléctrico/drenaje/telecom): idénticos salvo las acometidas nuevas.
+    **2.ª vuelta (mismo día)**: `nucleo/avance.py` = avisos de ETAPA desde el código puro (`avisar(texto, i, n)`,
+    por hilo, espaciados `CADA_S`); los escuchan `busy()` (todo `with busy(...)` muestra la etapa en el detalle,
+    `busy.escuchar_en(ov)`, `detalle_de`), el trabajador (`proceso_hijo.bucle` → («detalle», t, i, n) por la cola) y
+    `RecognitionWorker.stage` (2.ª línea del detalle). Avisan: `pdf_styles.drawings`, `texto_pdf.glifos`,
+    `leyenda_mapa_lectura._leer` (leyenda k de n), `pdf_layers.page_layers`, `leyenda_trazos.trazos_visibles`,
+    `composite.build_document`/`compute_bridges`, `composite_trabajo`, `fondo_pdf.render_pix`, `recognize_page`
+    (trazos, capa con su nombre, bóvedas) y `CompositeView.rebuild`. PARALELO (mismo resultado, verificado):
+    `proceso_hijo.paralelos(n, mb)` (mitad de los núcleos, RAM libre, ≤ `MAX_PARALELOS`=4) → `RecognitionWorker.start`
+    reparte una utilidad por trabajador («principal», «principal-1»…; DU06 h.4 6 utilidades 17 → 10 s) y
+    `composicion_trabajo._fichas_en_paralelo` (ProcessPoolExecutor dentro del trabajador «fondo», encargos de 3
+    hojas; 36 mapas 33 → 12 s). Exactos: `pdf_styles.style_name`/`style_label` memorizados (1.5 M `json.dumps`),
+    `_Pagina.dibujos` con numpy, `IndiceTramos` por caja en tramos cortos, `trazos_visibles` con el `_rect_poly` de
+    cada recorte una vez, y `pdf_styles.drawings` deja a `_dibujos` los trazos ya leídos (`_pdfcad_dibujos`). Una
+    lectura `get_drawings` de 36 mapas = 1 GB que no vuelve al soltarla. «Capas de la hoja» 36 mapas: 62+55 s →
+    31+37 s. UI: `StepBar` paso hecho = botón `soft` con ✓ (subrayado no se leía en oscuro); `MiniMap` esquema
+    crece con la vista (`LAYOUT_*_FRAC`), `set_layout(items (rect, etiqueta[, detalle]), sync_zoom=)`, etiquetas en
+    2.ª pasada en lo VISIBLE de cada caja con letra que cabe, hoja del centro resaltada, tooltip;
+    `widgets.etiquetas_cortas` («17-10», «North 3»); «Capas de la hoja» con `sync_zoom` y `Main._layout_minimapa`
+    (la etiqueta de la pieza, solo para mostrar: `_composite_layout` sigue siendo el dato de xdata).
+    **3.ª vuelta (mismo día, reporte: 36 mapas de alcantarillado → 0 tuberías, 2042 «bóvedas sin línea»)**: la
+    leyenda de una compuesta se lee POR PIEZA — `leyenda_mapa_lectura.inicios_de_piezas` (contenido `/fzFrm…` ≥2:
+    `get_cdrawings(extended=True)`, el `seqno` del primer trazo tras cada recorte de nivel 0) y `Glifo.seqno`
+    (`texto_pdf`, del `get_texttrace`): cada grupo de encabezados usa solo textos/símbolos/trazos de SU pieza (la
+    vecina dibuja el mapa encima de la leyenda tapada) — y `LeyendaMapa.por_hoja` → `leyenda_mapa.asignaciones`
+    decide cada hoja como suelta (`_asignaciones`) y gana la MAYORÍA de las hojas que nombran el estilo
+    (`MAYORIA_HOJAS`; juntando filas sin repetir, «Standard Main» votaba una vez y dos muestras sueltas lo dejaban
+    ambiguo). Alcantarillado 12/36 hojas: «Negro 0.73» asignado (North 0.73, South 0.39 × 1.89); agua igual.
+    Hojas sueltas: mismas filas/zonas/acometidas. Bóvedas × líneas con índices (`IndiceCajas`, `IndicePuntos.
+    en_caja`, `lineas_cerca`): `recognition_map_vaults.mark_symbol_vaults`, `recognition_vault_through.
+    mark_through_vaults`, `recognition_vault_snap.snap_ends_to_vaults` (insertar un vértice no cambia el dibujo:
+    el índice inicial vale; candidatos en orden) — alcantarillado 12 hojas 335 → 47 s, idéntico. UI:
+    `ui/ventana/ventana_hojas.py` (`HojasEditorMixin`): minimapa del editor (más chico) y marcas de agua
+    (`marcas_de_agua`, Z = `Z_PDF`+0.5, sin ratón, en `_overlay` desde `_redraw` → `_dibujar_hojas`; Ver →
+    `act_minimapa_hojas`/`act_marcas_hojas`, QSettings), `_layout_minimapa` (se movió aquí; reabierto: lo calcula
+    de los PDF de origen) y `_hojas_px`; la vista previa recibe `hojas=` y pone su `MiniMap`. Avance con cifras en
+    `trazos_visibles` y en el nombrado de estilos.
   - **Compositor de escaneos** (`Composite.manual`, PDF imagen/escaneo → editor sin capas ni
     reconocimiento): `scan_crop_view.py` (área con 4 esquinas → `Piece.polygon`),
     `alignment_tools.py` (regla con asa de giro, transportador de tamaño FIJO en pantalla con

@@ -91,6 +91,8 @@ class MenuMixin:
         self.menu_avisos = _menu(mview, "Avisos")
         # Vista 3D (2026-10-10): lo que Civil 3D va a construir, sin exportar.
         _act(mview, "Vista 3D", self.abrir_vista3d, "F3")
+        # hoja compuesta: minimapa y marcas de cada hoja en el editor (2026-10-14)
+        self._acciones_hojas(mview)
         mtools = _menu(mb, "&Herramientas")
         _act(mtools, "Componer hoja de trabajo…", self.compose_sheet)
         _act(mtools, "Componer PDF imagen/escaneo…", self.compose_scan_sheet)

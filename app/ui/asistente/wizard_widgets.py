@@ -75,20 +75,25 @@ class StepBar(QtWidgets.QWidget):
                 sep.setStyleSheet(f"color:{t.text_muted}; font-size:15px;")
                 row.addWidget(sep)
             btn = QtWidgets.QToolButton()
-            btn.setText(f"{i + 1}  {_tr(name)}")
-            btn.setAutoRaise(True)
-            btn.setToolButtonStyle(QtCore.Qt.ToolButtonTextOnly)
             done = i < current
             clickable = done and back_enabled
+            # paso hecho = BOTÓN con el tinte del acento y ✓ (pedido del usuario 2026-10-14: subrayado
+            # parecía un enlace y en el tema oscuro no se leía); el actual, relleno de acento
+            btn.setText(("✓ " if done else "") + f"{i + 1}  {_tr(name)}")
+            btn.setAutoRaise(False)
+            btn.setToolButtonStyle(QtCore.Qt.ToolButtonTextOnly)
             if i == current:
-                style = (f"background:{t.accent}; color:{t.text_on_accent}; font-weight:bold;"
-                         " border-radius:12px; padding:3px 12px;")
+                css = (f"QToolButton {{ background:{t.accent}; color:{t.text_on_accent}; font-weight:bold;"
+                       f" border:1px solid {t.accent}; border-radius:12px; padding:3px 12px; }}")
             elif done:
-                style = (f"color:{t.accent}; padding:3px 8px; border-radius:12px;"
-                         + (" text-decoration: underline;" if clickable else ""))
+                css = (f"QToolButton {{ background:{t.soft}; color:{t.soft_text}; border:1px solid {t.border};"
+                       f" border-radius:12px; padding:3px 12px; }}"
+                       f" QToolButton:hover {{ background:{t.soft_hover}; border-color:{t.accent}; }}"
+                       f" QToolButton:disabled {{ background:{t.soft}; color:{t.soft_text}; }}")
             else:
-                style = f"color:{t.text_muted}; padding:3px 8px;"
-            btn.setStyleSheet(f"QToolButton {{ {style} }}")
+                css = (f"QToolButton {{ background:transparent; color:{t.text_muted}; border:1px solid transparent;"
+                       f" padding:3px 8px; }}")
+            btn.setStyleSheet(css)
             btn.setEnabled(clickable or i == current)
             if clickable:
                 btn.setCursor(QtCore.Qt.PointingHandCursor)

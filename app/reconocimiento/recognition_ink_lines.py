@@ -24,6 +24,7 @@ import math
 from typing import List, Sequence, Tuple
 
 from reconocimiento import recognition_geom as geom
+from reconocimiento import recognition_indice as indice_mod
 
 Pt = Tuple[float, float]
 
@@ -36,7 +37,8 @@ MAX_GAP_SHARE = 0.25         # continua: ≤ esto de las puntas con hueco de gui
 MIN_LONG_SHARE = 0.6         # …y ≥ esto de la tinta en trazos largos
 SYMBOL_MAX_PT = 20.0         # trazo CERRADO más chico que esto: símbolo, no tubería
 BEZIER_STEP_PT = 2.0         # muestreo de una curva Bézier
-SIMPLIFY_PT = 0.5            # tolerancia del trazo simplificado (= núcleo, SOFT_SIMPLIFY_PT)
+SIMPLIFY_PT = 0.5            # tolerancia MÁXIMA del trazo simplificado (= núcleo, SOFT_SIMPLIFY_PT)
+SIMPLIFY_MIN_PT = 0.15       # …y mínima (la tinta viene cuantizada a 0.1875 pt: menos es ruido)
 
 
 def _p(q) -> Pt:
@@ -166,12 +168,23 @@ def _douglas_peucker(pts: List[Pt], tol: float) -> List[Pt]:
     return [p for p, k in zip(pts, keep) if k]
 
 
-def _thin(pts: List[Pt]) -> List[Pt]:
+def simplify_tol(paths: Sequence[dict]) -> float:
+    """Tolerancia de la simplificación: la MITAD del grosor del trazo (el eje nunca sale de
+    la línea dibujada), entre `SIMPLIFY_MIN_PT` y `SIMPLIFY_PT`. Con 0.5 fijo la tubería de
+    agua de Phoenix (0.38 pt) cortaba las curvas por cuerdas a 0.45 pt de su tinta: fuera
+    del trazo (reporte del usuario 2026-10-14, «los quiebres no son precisos»)."""
+    from hoja import pdf_styles
+    ws = sorted(w for w in (p.get("width") or pdf_styles.style_width(p.get("layer") or "") for p in paths) if w)
+    if not ws:
+        return SIMPLIFY_PT
+    return min(SIMPLIFY_PT, max(SIMPLIFY_MIN_PT, 0.5 * ws[len(ws) // 2]))
+
+
+def _thin(pts: List[Pt], tol: float = SIMPLIFY_PT) -> List[Pt]:
     """Sin puntos repetidos y sin el ZIGZAG del trazo: un mapa SIG mete cuerdas de
     0.4–1.5 pt que van y vuelven ±0.3 pt alrededor de la línea (Phoenix 17-10: una
-    tubería recta con 11 cuerdas y giros de ±17°). Douglas–Peucker a `SIMPLIFY_PT`, la
-    misma tolerancia de los quiebres del núcleo (`SOFT_SIMPLIFY_PT`): la línea queda a
-    ≤ esto de su tinta."""
+    tubería recta con 11 cuerdas y giros de ±17°). Douglas–Peucker a `tol`
+    (`simplify_tol`): la línea queda a ≤ esto de su tinta."""
     out = [pts[0]]
     for p in pts[1:]:
         if math.dist(p, out[-1]) > 1e-6:
@@ -180,8 +193,8 @@ def _thin(pts: List[Pt]) -> List[Pt]:
         return out
     if math.dist(out[0], out[-1]) <= NODE_TOL_PT:          # cerrada: partir en el punto más lejano
         far = max(range(len(out)), key=lambda m: math.dist(out[0], out[m]))
-        return _douglas_peucker(out[:far + 1], SIMPLIFY_PT)[:-1] + _douglas_peucker(out[far:], SIMPLIFY_PT)
-    return _douglas_peucker(out, SIMPLIFY_PT)
+        return _douglas_peucker(out[:far + 1], tol)[:-1] + _douglas_peucker(out[far:], tol)
+    return _douglas_peucker(out, tol)
 
 
 def _seg_dist(p: Pt, a: Pt, b: Pt) -> Tuple[float, float]:
@@ -199,20 +212,44 @@ def ink_reconstruct(paths: Sequence[dict], vault_paths: Sequence[dict] = (),
     """`GeomResult` con la TINTA como polilíneas (ver el docstring del módulo)."""
     base = geom.reconstruct([], vault_paths, opts or geom.GeomOptions())
     cut_pts = [_p(q) for p in paths for q in (p.get("cut_pts") or ())]
-    chs = [_thin(ch) for ch in layer_chains(paths)]
-    chs = [ch for ch in chs if len(ch) >= 2 and _length(ch) > 0]
+    tol = simplify_tol(paths)
+    # cada ristra con los RECORTES de su trazo: en una hoja compuesta cada pieza trae el suyo
+    chs, recortes = [], []
+    for p in paths:
+        clave = tuple(p.get("clip_polys") or ())
+        for ch in chains(p):
+            if _closed_symbol(ch):
+                continue
+            t = _thin(ch, tol)
+            if len(t) >= 2 and _length(t) > 0:
+                chs.append(t)
+                recortes.append(clave)
     ends = [(i, 0, ch[0]) for i, ch in enumerate(chs)] + [(i, -1, ch[-1]) for i, ch in enumerate(chs)]
+    # índices espaciales (`recognition_indice`): cada punta mira solo lo que tiene cerca, no
+    # todas las de la hoja (una hoja compuesta de mapas trae decenas de miles); mismo resultado
+    i_cut = indice_mod.IndicePuntos(cut_pts, NODE_TOL_PT)
+    i_ends = indice_mod.IndicePuntos([q for _o, _s, q in ends], NODE_TOL_PT)
+    tramos = [list(zip(oc, oc[1:])) for oc in chs]
+    i_tramos = indice_mod.IndiceTramos(tramos, TEE_TOL_PT)
     polylines = []
     for i, ch in enumerate(chs):
         kinds = ["bend"] * len(ch)
         for j in (0, len(ch) - 1):
             p = ch[j]
-            if any(math.dist(p, q) <= NODE_TOL_PT for q in cut_pts):
-                kinds[j] = "cut"
-            elif any(o != i and math.dist(p, q) <= NODE_TOL_PT for o, _s, q in ends):
+            cerca = [ends[k] for k in i_ends.cerca(p)]
+            if any(math.dist(p, cut_pts[k]) <= NODE_TOL_PT for k in i_cut.cerca(p)):
+                # Costura de una hoja COMPUESTA (pedido del usuario 2026-10-14, mapas de Phoenix
+                # unidos solos): ahí llega la punta de la misma tubería desde OTRA pieza (otro
+                # recorte) → la línea sigue. En una hoja suelta todos los trazos comparten su
+                # recorte: el corte en el borde de la vista sigue siendo «cut».
+                if any(o != i and recortes[o] != recortes[i] and math.dist(p, q) <= NODE_TOL_PT
+                       for o, _s, q in cerca):
+                    kinds[j] = "junction"
+                else:
+                    kinds[j] = "cut"
+            elif any(o != i and math.dist(p, q) <= NODE_TOL_PT for o, _s, q in cerca):
                 kinds[j] = "junction"
-            elif any(o != i and _seg_dist(p, a, b)[1] <= TEE_TOL_PT
-                     for o, oc in enumerate(chs) for a, b in zip(oc, oc[1:])):
+            elif any(o != i and _seg_dist(p, *tramos[o][k])[1] <= TEE_TOL_PT for o, k in i_tramos.cerca(p)):
                 kinds[j] = "tee"
             else:
                 kinds[j] = "end"

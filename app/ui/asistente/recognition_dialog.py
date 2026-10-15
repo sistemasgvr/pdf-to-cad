@@ -16,7 +16,7 @@ from traduccion.i18n import t as _tr, N_
 from nucleo.model import TIPOS
 from ui.comun.ui_common import layer_qcolor, QA_UNCOVERED, QA_OFFPATTERN
 from ui.comun.icons import icon
-from ui.comun.widgets import (ZoomPanView, maximize_on_show, GripSplitter,
+from ui.comun.widgets import (ZoomPanView, MiniMap, maximize_on_show, GripSplitter,
                      CollapsiblePanel, NaturalHeightScroll)
 from ui.asistente.wizard_widgets import NoEscapeClose, StepBar, OpacityButton, wizard_header, wizard_footer
 from ui.comun.busy import busy
@@ -315,8 +315,9 @@ class RecognitionPreviewDialog(NoEscapeClose, QtWidgets.QDialog):
     """
 
     def __init__(self, parent, qimg: QtGui.QImage, result, utility_layer="ELECTRICO",
-                 page_count: int | None = None, fondo: dict | None = None):
+                 page_count: int | None = None, fondo: dict | None = None, hojas=None):
         super().__init__(parent)
+        self._hojas = list(hojas or [])
         self.setWindowTitle(_tr("Vista previa del reconocimiento"))
         self.setWindowFlags(
             self.windowFlags()
@@ -512,6 +513,10 @@ class RecognitionPreviewDialog(NoEscapeClose, QtWidgets.QDialog):
         self._redraw_overlay()
         self.view.setSceneRect(QtCore.QRectF(pm.rect()) if escala >= 1.0
                                else QtCore.QRectF(0, 0, *fondo["tam"]))
+        # hoja compuesta: el minimapa de sus hojas (pedido del usuario 2026-10-14: ubicarse)
+        if self._hojas and len(self._hojas) >= 2 and getattr(self, "minimap", None) is None:
+            self.minimap = MiniMap(self.view, sync_zoom=True)
+            self.minimap.set_layout(self._hojas, self.view.sceneRect(), sync_zoom=True)
         self._fit_pending = True
         self._fit_view()
 
@@ -759,12 +764,13 @@ class RecognitionPreviewDialog(NoEscapeClose, QtWidgets.QDialog):
 
 
 def show_recognition_preview(parent, qimg, result, utility_layer="ELECTRICO",
-                             page_count: int | None = None, fondo: dict | None = None) -> str:
+                             page_count: int | None = None, fondo: dict | None = None, hojas=None) -> str:
     """Muestra el preview. Devuelve la acción elegida: PREVIEW_IMPORT,
     PREVIEW_CANCEL, PREVIEW_CHANGE_SHEET o PREVIEW_ADJUST_LAYERS."""
     with busy(parent, _tr("Preparando la vista previa…"),
               _tr("Dibujando lo reconocido sobre la hoja")):
-        dlg = RecognitionPreviewDialog(parent, qimg, result, utility_layer, page_count=page_count, fondo=fondo)
+        dlg = RecognitionPreviewDialog(parent, qimg, result, utility_layer, page_count=page_count, fondo=fondo,
+                                       hojas=hojas)
     if dlg.exec() != QtWidgets.QDialog.Accepted:
         return PREVIEW_CANCEL
     return dlg.action

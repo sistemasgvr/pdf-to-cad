@@ -267,23 +267,27 @@ def test_nitidez_al_hacer_zoom_en_ambos_paneles(app):
         dlg.resize(1400, 800); dlg.show()
         # panel 2: sin zoom no hay recorte nítido; con zoom 4× aparece encima (z=1)
         dlg.crop.resetTransform(); dlg._crop_sharp.update_quality()
-        assert dlg._crop_sharp._item is None
+        it = dlg._crop_sharp._item
+        assert it is None or it.superficie.nivel is None
         dlg.crop.scale(4.0, 4.0); dlg.crop.centerOn(150, 100); dlg._crop_sharp.update_quality()
-        assert dlg._crop_sharp._item is not None and dlg._crop_sharp._item.zValue() == 1
+        it = dlg._crop_sharp._item
+        assert it is not None and it.zValue() == 1 and it.superficie.listas()
         # hoja compuesta: TODAS las piezas a la vista reciben recorte nítido
         dlg._take(full=True); dlg.lst_pages.setCurrentRow(1); dlg._take(full=True)
         dlg.view.resetTransform(); dlg.view.scale(4.0, 4.0); dlg.view.centerOn(312, 100)
         dlg.view._update_quality()
-        assert all(it._sharp is not None for it in dlg.view.items)
-        dlg.view.resetTransform(); dlg.view._update_quality()      # escala 1: no hace falta recorte
-        assert all(it._sharp is None for it in dlg.view.items)
+        assert all(it.superficie.listas() for it in dlg.view.items)
+        dlg.view.resetTransform(); dlg.view._update_quality()      # escala 1: no hacen falta teselas
+        assert all(it.superficie.nivel is None for it in dlg.view.items)
     finally:
         dlg.close_docs()
 
 
 def test_minimapa_en_capas_de_la_hoja(app):
     """El diálogo «Capas de la hoja» muestra un minimapa con la hoja y el
-    recuadro de lo visible; clic en el mapa centra la vista ahí."""
+    recuadro de lo visible; clic en el mapa centra la vista ahí. Desde 2026-10-14 el
+    esquema crece con la vista y se ACERCA con ella (en una tira de 36 hojas no se leía
+    cuál era): clic a la derecha del mapa acercado lleva a la derecha de lo que se ve."""
     from ui.asistente import layer_dialog
     from PySide6 import QtGui
     doc = fitz.open(); ocg = doc.add_ocg("C-ELEC-UNGD-E", on=True)
@@ -292,7 +296,7 @@ def test_minimapa_en_capas_de_la_hoja(app):
     dlg = layer_dialog.SheetLayersDialog(None, doc, 0, layout=layout)
     dlg.resize(1200, 700); dlg.show()
     try:
-        assert dlg.minimap.isVisible() and dlg.minimap.width() <= dlg.minimap.MAX_W + 2
+        assert dlg.minimap.isVisible() and dlg.minimap.width() <= dlg.minimap.LAYOUT_MAX_W + 2
         assert dlg.minimap._layout and [l for _, l in dlg.minimap._layout] == ["Hoja 13", "Hoja 14"]
         assert dlg.minimap._thumb is None                                   # esquema, no dibujo
         dlg.view.resetTransform(); dlg.view.scale(3.0, 3.0); dlg.view.centerOn(100, 100)
@@ -303,9 +307,39 @@ def test_minimapa_en_capas_de_la_hoja(app):
                                QtCore.Qt.LeftButton, QtCore.Qt.NoModifier)
         dlg.minimap.mousePressEvent(ev)
         after = dlg.view.mapToScene(dlg.view.viewport().rect().center())
-        assert after.x() > before.x() + 1000
+        assert dlg.minimap._zoom > 1.0                       # el esquema se acercó con la vista
+        assert after.x() > before.x() + 20                    # hacia la derecha de lo que se ve
+        dlg.minimap.mouseDoubleClickEvent(QtGui.QMouseEvent(      # doble clic: todas las hojas
+            QtCore.QEvent.MouseButtonDblClick, pos, QtCore.Qt.LeftButton, QtCore.Qt.LeftButton,
+            QtCore.Qt.NoModifier))
+        vis = dlg.view.mapToScene(dlg.view.viewport().rect()).boundingRect()
+        assert vis.width() >= 1200 * dlg.view.transform().m11() / dlg.view.transform().m11() - 1
     finally:
         dlg.close()
+
+
+def test_minimapa_a_la_medida_del_numero_de_hojas(app):
+    """Pedido del usuario 2026-10-15: con una o dos hojas el esquema se hacía gigante (crecía
+    hasta el 42 % de la vista igual que con 36). Ahora cada hoja mide ~`HOJA_PX`: con pocas
+    hojas el esquema es chico y con muchas crece hasta el tope de siempre."""
+    from ui.comun.widgets import MiniMap, ZoomPanView
+    v = ZoomPanView()
+    v.resize(1600, 900); v.show()
+    try:
+        mm = MiniMap(v)
+        dos = [(QtCore.QRectF(600 * i, 0, 600, 700), f"16-1{5 + i}") for i in range(2)]
+        mm.set_layout(dos, QtCore.QRectF(-36, -36, 1272, 772))
+        w2, h2 = mm.width(), mm.height()
+        assert max(w2, h2) <= 2 * MiniMap.HOJA_PX + 20               # antes ~520 × 300
+        assert max(w2, h2) >= MiniMap.LAYOUT_MIN_PX                  # se puede hacer clic
+        una = dos[:1]
+        mm.set_layout(una, QtCore.QRectF(-36, -36, 672, 772))
+        assert max(mm.width(), mm.height()) <= MiniMap.LAYOUT_MIN_PX + 2
+        muchas = [(QtCore.QRectF(600 * i, 700 * j, 600, 700), f"{j}-{i}") for j in range(2) for i in range(18)]
+        mm.set_layout(muchas, QtCore.QRectF(-36, -36, 10872, 1472))
+        assert mm.width() > 3 * w2 and mm.width() <= mm.LAYOUT_MAX_W + 2   # 36 hojas: como antes
+    finally:
+        v.close()
 
 
 @pytest.mark.parametrize("manual", [False, True])

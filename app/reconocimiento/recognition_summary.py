@@ -122,10 +122,22 @@ _RULES = [
      lambda m: _pl(_n(m), "capa de trazo continuo: la tinta es el eje", "capas de trazo continuo: la tinta es el eje"), ""),
     (r"^Buzones donde terminan las tuberías del mapa[^:]*: (\d+)", INFO,
      lambda m: _pl(_n(m), "buzón donde terminan sus tuberías", "buzones donde terminan sus tuberías"), "vaults"),
+    (r"^Buzones de la leyenda unidos a su línea[^:]*: (\d+)", INFO,
+     lambda m: _pl(_n(m), "buzón de la leyenda en su línea", "buzones de la leyenda en su línea"), "vaults"),
+    (r"^Acometidas \(servicios[^)]*\): (\d+)", INFO,
+     lambda m: _pl(_n(m), "acometida unida a su tubería", "acometidas unidas a su tubería"), "taps"),
+    (r"^Diámetros escritos en el plano[^:]*: (\d+) tubería\(s\) los toman; (\d+)",
+     lambda m: REVIEW if _n(m, 2) else INFO,
+     lambda m: (_pl(_n(m, 2), "tubería con rótulos de diámetro distintos", "tuberías con rótulos de diámetro distintos")
+                if _n(m, 2) else _pl(_n(m), "tubería con el diámetro del plano", "tuberías con el diámetro del plano")),
+     "diam_mix"),
 ]
 # Explicación de cada aviso de «Para verificar»: qué se encontró y qué se hizo con
 # ello, sin tono de error (la vista los traduce con `t()`). Clave = patrón de `_RULES`.
 _HINTS = {
+    r"^Diámetros escritos en el plano[^:]*: (\d+) tubería\(s\) los toman; (\d+)": N_(
+        "Junto a estas tuberías el plano escribe diámetros distintos (por ejemplo 6\" y 8\" a cada lado "
+        "de una reducción): quedan con el diámetro por defecto. Revisa su diámetro en el editor."),
     r"^No se encontraron líneas": N_(
         "No hay líneas de esta utilidad en la hoja. Si el plano usa otros nombres de capa, "
         "indícalos con «Ajustar capas…»."),
@@ -283,7 +295,10 @@ def targets_for(key: str, result) -> List[Rect]:
         out = [b for pl in lines if getattr(pl, "abandoned", False) and (b := _bbox(pl.pts_pdf))]
     elif key == "letters":
         out = [b for pl in lines if getattr(pl, "letters", "") and (b := _bbox(pl.pts_pdf))]
-    elif key in ("a_no_pattern", "double_active", "to_abandon", "marker_active"):
+    elif key == "taps":
+        from hoja import acometidas_mapa
+        out = [b for pl in lines if acometidas_mapa.es_capa(pl.layer_ocg or "") and (b := _bbox(pl.pts_pdf))]
+    elif key in ("a_no_pattern", "double_active", "to_abandon", "marker_active", "diam_mix"):
         out = [b for pl in joined if getattr(pl, "review", "") == key and (b := _bbox(pl.pts_pdf))]
     # puntos/segmentos degenerados → recuadro mínimo visible
     out = [(x0 - POINT_PAD_PX, y0 - POINT_PAD_PX, x1 + POINT_PAD_PX, y1 + POINT_PAD_PX)

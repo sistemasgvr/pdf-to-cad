@@ -29,6 +29,8 @@ from typing import Dict, List, Optional, Sequence, Tuple
 
 import fitz
 import numpy as np
+from nucleo import avance
+from traduccion.i18n_core import t as _tr
 
 EM = 48                      # px por em al comparar glifos
 CELDA = 72                   # celda de cada glifo (px); el origen del glifo en (OX, OY)
@@ -53,6 +55,7 @@ class Glifo:
     color: Tuple[float, ...]
     fuente: str
     tinta: Optional[Tuple[float, float, float, float]] = None   # caja de tinta (pt de la hoja)
+    seqno: int = -1           # orden de dibujo (el de los trazos): en una hoja compuesta, de qué pieza es
 
 
 @dataclass
@@ -181,8 +184,11 @@ def _decodificar(doc, f):
     partes = []
     for i, code in enumerate(codes):
         r, col = divmod(i, COLS)
-        partes.append(b"q %f %f %f %f %d %d cm 0 g 0 G " % (EM * a, EM * b, EM * c, EM * d,
-                                                          col * CELDA + OX, H - (r * CELDA + OY))
+        # cada glifo recortado a SU celda: un símbolo grande (la flecha del «Valve #») se
+        # metía en la celda de arriba y el «4» y el «6» de Phoenix no se leían (0.79/0.87)
+        partes.append(b"q %d %d %d %d re W n %f %f %f %f %d %d cm 0 g 0 G " % (
+                          col * CELDA, H - (r + 1) * CELDA, CELDA, CELDA,
+                          EM * a, EM * b, EM * c, EM * d, col * CELDA + OX, H - (r * CELDA + OY))
                       + procs[code] + b"\nQ\n")
     x = tmp.get_new_xref()
     tmp.update_object(x, "<<>>")
@@ -256,6 +262,7 @@ def glifos(page) -> List[Glifo]:
     cache = page.parent.__dict__.setdefault("_pdfcad_glifos", {})
     if page.number in cache:
         return cache[page.number]
+    avance.avisar(_tr("Leyendo las letras del mapa (por la forma de cada letra)…"))
     tablas = tabla(page.parent, page)
     out: List[Glifo] = []
     try:
@@ -274,7 +281,8 @@ def glifos(page) -> List[Glifo]:
             else:
                 letra = None if ucs in (0xFFFD, 0) else chr(ucs)
                 caja = None
-            out.append(Glifo(letra, gid, (float(o[0]), float(o[1])), tam, d, color, s.get("font") or "", caja))
+            out.append(Glifo(letra, gid, (float(o[0]), float(o[1])), tam, d, color, s.get("font") or "", caja,
+                             int(s.get("seqno", -1))))
     cache[page.number] = out
     return out
 

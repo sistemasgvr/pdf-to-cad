@@ -20,6 +20,10 @@ de su DESCRIPCIÓN («Standard Main», «Fire Hydrant», «Access Manhole»). El
   · `simbolos_capas(page)` → trazos virtuales (círculo de su tinta) de los símbolos que la
     leyenda describe, cada clase en su capa `pdf_styles.symbol_name`: así entran al mismo
     flujo de capas por estilo (resaltar, asignar, reconocer como estructura).
+  · Filas de ACOMETIDA («As-Built Tap», «Service Line»): sus trazos que nacen sobre la red
+    van a la capa «Acometidas» (`acometidas_mapa`), asignada como líneas de su utilidad;
+    las NOTAS del cuadro dan su diámetro y el material de la red (`diam_acometida_in`,
+    `material`). La lectura del cuadro está en `leyenda_mapa_lectura`.
 Sección → utilidad: WATER→Agua, SEWER/WASTEWATER→Alcantarillado, STORM/DRAIN→Drenaje,
 GAS, ELECTRIC→Eléctrico, TELECOM/COMMUNICATION→Telecom; RECLAIMED (agua regenerada) y
 GENERAL (mapa base) no son utilidades de la app. Una descripción que nombra su utilidad
@@ -30,12 +34,14 @@ from __future__ import annotations
 import json
 import math
 import re
+from collections import Counter
 from dataclasses import dataclass, field
 from typing import Dict, List, Optional, Sequence, Tuple
 
 from hoja import pdf_styles, texto_pdf
 
 LINEA, ESTRUCTURA, ACCESORIO, ANOTACION, BASE = "linea", "estructura", "accesorio", "anotacion", "base"
+ACOMETIDA = "acometida"      # servicio de la red a un predio («As-Built Tap»): ver `acometidas_mapa`
 ROL_LINEAS, ROL_ESTRUCTURAS = "lineas", "buzones"      # = recognition.ROLE_LINEAS / ROLE_BUZONES
 
 ENCABEZADO = re.compile(r"INFRASTRUCTURE|LEGEND|LEYENDA|SIMBOLOG|\bGENERAL\b")
@@ -55,9 +61,14 @@ _BASE = re.compile(r"\bROW\b|\bLOT\b|TRACT|EASEMENT|CENTERLINE|LIMITS?\b|\bGRID\
 # la descripción TERMINA en el sustantivo de la red («Hydrant Main», «Water Chlorine Line»):
 # es una tubería aunque nombre un accesorio
 _FIN_LINEA = re.compile(r"\b(MAINS?|PIPES?|LINES?|LATERALS?|SEWERS?|TUBER[IÍ]AS?|L[IÍ]NEAS?)\s*$")
+# la conexión de un predio a la red: «As-Built Tap», «Application Tap», «Service Line»
+# (no «Tap Sleeve»: el manguito de la toma es un accesorio)
+_ACOMETIDA = re.compile(r"\bTAPS?\s*$|\bSERVICES?(\s+(LINES?|LATERALS?|CONNECTIONS?|PIPES?))?\s*$"
+                        r"|ACOMETIDA|DOMICILIARI|CONEXI[OÓ]N\s+DE\s+SERVICIO")
 _ROLES = (                     # orden: «Access Manhole # Symbol» es el rótulo del número
     (ANOTACION, _ANOTACION),
     (BASE, _BASE),
+    (ACOMETIDA, _ACOMETIDA),
     (LINEA, _FIN_LINEA),
     (ESTRUCTURA, re.compile(r"MANHOLE|\bMH\b|VAULTS?|CHAMBER|STRUCTURE|\bINLET|CATCH\s*BASIN|JUNCTION\s*BOX"
                             r"|BUZ[OÓ]N|C[AÁ]MARA|POZO|REGISTRO|B[OÓ]VEDA|ARQUETA")),
@@ -68,11 +79,17 @@ _ROLES = (                     # orden: «Access Manhole # Symbol» es el rótul
                        r"|TUBER[IÍ]A|L[IÍ]NEA|COLECTOR|EMISOR|MATRIZ")),
 )
 ABANDONADA = re.compile(r"ABANDON|\bABND|\bABAN\b|ABANDONAD")
+# notas del cuadro: «*All water taps are .75" in diameter unless otherwise noted.»,
+# «*All water main material is ACP (Asbestos Cement Pipe) unless otherwise noted.»
+NOTA_DIAM_ACOMETIDA = re.compile(r"""TAPS?\s+(?:ARE|IS)\s+(\d*\.?\d+)\s*(?:"|''|IN)""", re.I)
+NOTA_MATERIAL = re.compile(r"MAIN\s+MATERIAL\s+IS\s+([A-Z][A-Z0-9-]*)(?:\s*\(([^)]*)\))?", re.I)
 ESCALA = re.compile(r"""SCALE\s*:?\s*1\s*(?:"|''|IN(?:CH)?)\s*=\s*(\d+(?:\.\d+)?)\s*(?:'|FT|FEET)""", re.I)
 
 MUESTRA_ANCHO = 7.0          # la muestra va a ≤ esto × tamaño de letra a la izquierda del texto
 COLUMNA_TOL = 0.8            # descripciones de la misma columna: mismo inicio (± esto × tamaño)
 FILAS_MIN = 3                # una columna de leyenda tiene varias filas
+SALTO_COLUMNA = 4.0          # un salto mayor que esto × el paso de filas parte la columna
+SIMBOLO_BANDA = 0.35         # centro del símbolo de una fila a ≤ esto × el paso de su línea media
 DIVISOR_MIN = 4.0            # línea divisoria del cuadro: ≥ esto × tamaño del encabezado
 
 
@@ -97,6 +114,11 @@ class LeyendaMapa:
     escala_ft_pt: Optional[float]
     zonas: List[Tuple[float, float, float, float]]       # caja de la leyenda (sus muestras no son mapa)
     titulo: str = ""
+    diam_acometida_in: Optional[float] = None           # nota «taps are .75" in diameter»
+    material: str = ""                                   # nota «main material is ACP (…)»
+    # hoja COMPUESTA: las filas de la leyenda de CADA hoja (`leyenda_mapa_lectura`); cada una
+    # decide como en su hoja suelta y `asignaciones` junta por mayoría
+    por_hoja: List[List[FilaMapa]] = field(default_factory=list)
 
 
 # ── significado de una descripción ──────────────────────────────────────────
@@ -117,29 +139,6 @@ def rol_de(texto: str) -> str:
     return ANOTACION
 
 
-# ── geometría en el marco de la leyenda ─────────────────────────────────────
-class _Marco:
-    """Coordenadas de la leyenda: u a lo largo del texto, w hacia abajo (siguiente fila)."""
-
-    def __init__(self, d):
-        self.e = (float(d[0]), float(d[1]))
-        self.n = (-self.e[1], self.e[0])
-
-    def uw(self, p):
-        return (p[0] * self.e[0] + p[1] * self.e[1], p[0] * self.n[0] + p[1] * self.n[1])
-
-    def caja(self, r):
-        pts = [self.uw(q) for q in ((r[0], r[1]), (r[2], r[1]), (r[0], r[3]), (r[2], r[3]))]
-        return (min(p[0] for p in pts), min(p[1] for p in pts), max(p[0] for p in pts), max(p[1] for p in pts))
-
-    def a_hoja(self, u0, w0, u1, w1):
-        pts = []
-        for u in (u0, u1):
-            for w in (w0, w1):
-                pts.append((u * self.e[0] + w * self.n[0], u * self.e[1] + w * self.n[1]))
-        return (min(p[0] for p in pts), min(p[1] for p in pts), max(p[0] for p in pts), max(p[1] for p in pts))
-
-
 def _color_claro(nombre: str) -> bool:
     try:
         kind, color, width, _dash, fill, *_ = json.loads(nombre[len(pdf_styles.PREFIX):])
@@ -149,236 +148,13 @@ def _color_claro(nombre: str) -> bool:
     return rgb is None or min(rgb) > 0.9
 
 
-def _largo(d) -> float:
-    r = d["rect"]
-    return max(math.hypot(r.width, r.height), 0.05)
-
-
-def _dibujos(page) -> List[dict]:
-    """Trazos de la hoja con su capa virtual por estilo (sin los símbolos virtuales)."""
-    out = []
-    for d in page.get_drawings():
-        if d.get("type") in ("clip", "group") or d.get("layer"):
-            continue
-        nombre = pdf_styles.style_name(d)
-        if nombre:
-            out.append(dict(d, layer=nombre))
-    return out
-
-
-def _divisores(dibujos, marco, w_lo, w_hi, largo_min) -> List[float]:
-    """u de las líneas del cuadro que bajan de los encabezados (separan las secciones)."""
-    us = []
-    for d in dibujos:
-        for it in d.get("items") or ():
-            if it[0] == "l":
-                segs = [(it[1], it[2])]
-            elif it[0] == "re":
-                r = it[1]
-                segs = [((r.x0, r.y0), (r.x0, r.y1)), ((r.x1, r.y0), (r.x1, r.y1)),
-                        ((r.x0, r.y0), (r.x1, r.y0)), ((r.x0, r.y1), (r.x1, r.y1))]
-            else:
-                continue
-            for a, b in segs:
-                ua, wa = marco.uw(a)
-                ub, wb = marco.uw(b)
-                if abs(ua - ub) <= 0.3 and abs(wa - wb) >= largo_min and min(wa, wb) <= w_hi and max(wa, wb) >= w_lo:
-                    us.append((ua + ub) / 2.0)
-    return sorted(us)
-
-
-def _paso_regular(ws: Sequence[float]) -> bool:
-    if len(ws) < FILAS_MIN:
-        return False
-    gaps = [b - a for a, b in zip(ws, ws[1:]) if b - a > 1e-3]
-    if not gaps:
-        return False
-    paso = sorted(gaps)[len(gaps) // 2]
-    return sum(1 for g in gaps if g <= 3.2 * paso) >= 0.7 * len(gaps)
-
-
-def _leer(page) -> Optional[LeyendaMapa]:
-    corr = texto_pdf.corridas(page)
-    corr_uw = None
-    simbs = texto_pdf.simbolos(page)
-    utilidad = _utilidad_del_plano(corr)
-    escala = _escala(corr)
-    heads = [c for c in corr if c.texto.isupper() and ENCABEZADO.search(c.texto)
-             and "RECORD" not in c.texto and "PROTECTED" not in c.texto]
-    if not heads:
-        return LeyendaMapa([], utilidad, escala, [], "")
-    dir_ = max({h.dir for h in heads}, key=lambda d: sum(1 for h in heads if h.dir == d))
-    heads = [h for h in heads if h.dir == dir_]
-    marco = _Marco(dir_)
-    hs = sorted(h.tam for h in heads)[len(heads) // 2]
-    hw = [marco.uw(h.origen)[1] for h in heads]
-    hu = [(marco.uw(h.origen)[0], marco.uw(h.fin)[0], h) for h in heads]
-    w_top, w_bot = min(hw) - 0.5 * hs, max(hw) + 40.0 * hs
-    u_lo, u_hi = min(u for u, _f, _h in hu) - 30.0 * hs, max(f for _u, f, _h in hu) + 60.0 * hs
-    labels = []
-    for c in corr:
-        if c.dir != dir_ or not (0.3 * hs <= c.tam <= 0.95 * hs) or len(re.findall(r"[A-Za-z]", c.texto)) < 2:
-            continue
-        u, w = marco.uw(c.origen)
-        if w_top < w <= w_bot and u_lo <= u <= u_hi:
-            labels.append((u, w, c))
-    # columnas: mismo inicio de texto, varias filas a paso regular
-    labels.sort(key=lambda t: t[0])
-    columnas: List[List[tuple]] = []
-    for t in labels:
-        if columnas and abs(t[0] - columnas[-1][0][0]) <= COLUMNA_TOL * t[2].tam:
-            columnas[-1].append(t)
-        else:
-            columnas.append([t])
-    columnas = [sorted(col, key=lambda t: t[1]) for col in columnas]
-    columnas = [col for col in columnas if _paso_regular([t[1] for t in col])]
-    if not columnas:
-        return LeyendaMapa([], utilidad, escala, [], "")
-    dibujos = _dibujos(page)
-    # solo lo que cae en el cuadro de la leyenda (un mapa trae decenas de miles de trazos)
-    lu0 = min(col[0][0] for col in columnas) - (MUESTRA_ANCHO + 1) * hs
-    lu1 = max(marco.uw(t[2].fin)[0] for col in columnas for t in col) + hs
-    lw0 = min(t[1] for col in columnas for t in col) - 3 * hs
-    lw1 = max(t[1] for col in columnas for t in col) + 3 * hs
-    dib_uw = []
-    for d in dibujos:
-        b = marco.caja(tuple(d["rect"]))
-        if b[2] >= lu0 and b[0] <= lu1 and b[3] >= lw0 and b[1] <= lw1:
-            dib_uw.append((b, d))
-    corr_uw = [(marco.uw(o.origen), o) for o in corr if o.dir == dir_]
-    divs = _divisores(dibujos, marco, min(hw) - hs, max(hw) + hs, DIVISOR_MIN * hs)
-    fin_col = [max(marco.uw(t[2].fin)[0] for t in col) for col in columnas]
-    filas: List[FilaMapa] = []
-    cajas: List[Tuple[float, float, float, float]] = []
-    for k, col in enumerate(columnas):
-        u0 = col[0][0]
-        seccion = _seccion(u0, hu, divs)
-        paso = sorted(b[1] - a[1] for a, b in zip(col, col[1:]))[(len(col) - 1) // 2]
-        izq = max([fin_col[j] + 0.2 * col[0][2].tam for j in range(k) if fin_col[j] < u0] + [-1e9])
-        for u, w, c in col:
-            s = c.tam
-            zu0, zu1 = max(u - MUESTRA_ANCHO * s, izq), u - 0.1 * s
-            wc = w - 0.35 * s
-            zw0, zw1 = wc - 0.5 * paso, wc + 0.5 * paso
-            estilos: Dict[str, float] = {}
-            caja = None
-            for (bu0, bw0, bu1, bw1), d in dib_uw:
-                cu, cw = (bu0 + bu1) / 2.0, (bw0 + bw1) / 2.0
-                if zu0 <= cu <= zu1 and zw0 <= cw <= zw1 and bu1 - bu0 <= 1.5 * (zu1 - zu0) + 0.5:
-                    estilos[d["layer"]] = estilos.get(d["layer"], 0.0) + _largo(d)
-                    caja = _union(caja, (bu0, bw0, bu1, bw1))
-            sim = None
-            for sm in simbs:
-                cu, cw = marco.uw(sm.centro)
-                if zu0 <= cu <= zu1 and zw0 <= cw <= zw1 and (sim is None or sm.radio > sim.radio):
-                    sim = sm
-            if sim is not None:
-                caja = _union(caja, marco.caja(sim.caja))
-            letras = " ".join(o.texto for (ou, ow), o in corr_uw
-                              if zu0 <= ou <= zu1 and zw0 <= ow - 0.35 * o.tam <= zw1)
-            if caja is None:
-                continue                          # una nota del cuadro, no una fila de leyenda
-            nombra, u_texto = utilidad_de(c.texto)
-            nombra_s, u_seccion = utilidad_de(seccion)
-            filas.append(FilaMapa(c.texto.strip(), seccion, u_texto if nombra else u_seccion,
-                                  rol_de(c.texto), bool(ABANDONADA.search(c.texto.upper())),
-                                  marco.a_hoja(*caja), estilos,
-                                  sim.clave if sim is not None else None,
-                                  sim.fuente if sim is not None else "", letras))
-            cajas.append(_union(caja, (u, w - s, marco.uw(c.fin)[0], w + 0.3 * s)))
-    _rotulos(page, filas, simbs)
-    for _u, _f, h in hu:
-        hu0, hw0 = marco.uw(h.origen)
-        cajas.append((hu0, hw0 - h.tam, marco.uw(h.fin)[0], hw0 + 0.3 * h.tam))
-    zona = None
-    for cj in cajas:
-        zona = _union(zona, cj)
-    zonas = [marco.a_hoja(zona[0] - hs, zona[1] - hs, zona[2] + hs, zona[3] + hs)] if zona and filas else []
-    return LeyendaMapa(filas, utilidad, escala, zonas, "")
-
-
-ROTULO_CON_TEXTO = 0.5       # símbolo con texto DENTRO en ≥ esto de sus apariciones: es un rótulo
-
-
-def _rotulos(page, filas: List[FilaMapa], simbs) -> None:
-    """Un símbolo que en el mapa lleva texto DENTRO es el RÓTULO del número de una
-    estructura, no la estructura: en el alcantarillado de Phoenix «Manhole» es el hexágono
-    con el número del buzón (122 de 126 con número dentro), puesto al lado del buzón
-    («Standard Manhole», el círculo chico: 2 de 141). Esas filas pasan a anotación."""
-    import numpy as np
-    letras = np.array([g.origen for g in texto_pdf.glifos(page) if g.letra not in (None, " ")], float)
-    if not len(letras):
-        return
-    lx, ly = letras[:, 0], letras[:, 1]
-    por_clave: Dict[tuple, List] = {}
-    for s in simbs:
-        por_clave.setdefault((s.fuente, s.clave), []).append(s)
-    for f in filas:
-        if f.rol not in (ESTRUCTURA, ACCESORIO) or not f.simbolo:
-            continue
-        ss = por_clave.get((f.simbolo_fuente, f.simbolo), [])
-        con = 0
-        for s in ss:
-            x0, y0, x1, y1 = s.caja
-            mx, my = 0.15 * (x1 - x0), 0.15 * (y1 - y0)
-            con += bool(np.any((lx >= x0 + mx) & (lx <= x1 - mx) & (ly >= y0 + my) & (ly <= y1 - my)))
-        if ss and con >= ROTULO_CON_TEXTO * len(ss):
-            f.rol = ANOTACION
-
-
-def _union(a, b):
-    if a is None:
-        return b
-    return (min(a[0], b[0]), min(a[1], b[1]), max(a[2], b[2]), max(a[3], b[3]))
-
-
-def _seccion(u0, hu, divs) -> str:
-    """Encabezado de la sección de una columna: el de la celda del cuadro (entre líneas
-    divisorias) que la contiene; sin divisorias, el encabezado más cercano."""
-    def celda(u):
-        izq = max([d for d in divs if d < u] + [-1e9])
-        der = min([d for d in divs if d > u] + [1e9])
-        return izq, der
-    cu = celda(u0 + 0.01)
-    for a, f, h in hu:
-        if divs and celda((a + f) / 2.0) == cu:
-            return h.texto
-    return min(hu, key=lambda t: abs((t[0] + t[1]) / 2.0 - u0))[2].texto
-
-
-def _utilidad_del_plano(corr) -> Optional[str]:
-    """La utilidad del plano: la que nombran sus textos más GRANDES (el título «WATER»,
-    «SEWER») y los encabezados de la leyenda. «WATER SERVICES DEPARTMENT» es el nombre
-    de la oficina (sale también en los planos de alcantarillado): no cuenta."""
-    puntos: Dict[str, float] = {}
-    for c in corr:
-        up = c.texto.upper()
-        if "DEPARTMENT" in up or "SERVICES" in up or "RECORD" in up or len(up) > 40:
-            continue
-        nombra, u = utilidad_de(up)
-        if not nombra or u is None:
-            continue
-        peso = c.tam * c.tam * (3.0 if ENCABEZADO.search(up) else 1.0)
-        if not ENCABEZADO.search(up) and len(up.split()) > 3:
-            peso *= 0.1                           # una descripción («Water Vaults»), no un título
-        puntos[u] = puntos.get(u, 0.0) + peso
-    return max(puntos, key=puntos.get) if puntos else None
-
-
-def _escala(corr) -> Optional[float]:
-    for c in corr:
-        m = ESCALA.search(c.texto)
-        if m:
-            return float(m.group(1)) / 72.0
-    return None
-
-
 def leer(doc, page) -> LeyendaMapa:
     """La leyenda de la hoja (ver el docstring del módulo); caché por documento y hoja."""
     cache = doc.__dict__.setdefault("_pdfcad_leyenda_mapa", {})
     if page.number not in cache:
         try:
-            ley = _leer(page)
+            from hoja import leyenda_mapa_lectura as lectura
+            ley = lectura._leer(page)
         except Exception:
             ley = None
         cache[page.number] = ley or LeyendaMapa([], None, None, [], "")
@@ -399,7 +175,41 @@ def _trazo_principal(fila: FilaMapa) -> Optional[str]:
 _OTRA_RED = ("otra red",)       # voto de una fila de red que no es de la app («Reclaimed Main»)
 
 
+MAYORIA_HOJAS = 0.5         # hoja compuesta: un estilo es de una red si lo dice ≥ esto de las hojas que lo nombran
+
+
 def asignaciones(ley: LeyendaMapa, en_mapa: Dict[str, int]) -> Tuple[Dict[str, Tuple[str, str]], Dict[str, List[str]]]:
+    """Ver `_asignaciones`. En una hoja COMPUESTA (`ley.por_hoja`, pedido del usuario 2026-10-14:
+    36 mapas de alcantarillado no reconocían ninguna línea) cada hoja decide con SU leyenda, como si
+    estuviera sola, y gana lo que dice la mayoría de las hojas que nombran ese estilo: juntando las
+    filas, «Standard Main» contaba una vez y dos muestras sueltas de otras filas lo dejaban ambiguo."""
+    if len(ley.por_hoja) <= 1:
+        return _asignaciones(ley, en_mapa)
+    votos: Dict[str, Counter] = {}
+    dudas: Dict[str, List[str]] = {}
+    for filas in ley.por_hoja:
+        sola = LeyendaMapa(filas, ley.utilidad, ley.escala_ft_pt, ley.zonas, ley.titulo,
+                           ley.diam_acometida_in, ley.material)
+        a, amb = _asignaciones(sola, en_mapa)
+        for capa, q in a.items():
+            votos.setdefault(capa, Counter())[q] += 1
+        for capa, textos in amb.items():
+            votos.setdefault(capa, Counter())[None] += 1
+            dudas.setdefault(capa, [])
+            dudas[capa] += [t for t in textos if t not in dudas[capa]]
+    out, ambiguas = {}, {}
+    for capa, c in votos.items():
+        (q, n), = c.most_common(1)
+        total = sum(c.values())
+        segundo = max([m for qq, m in c.items() if qq != q] + [0])
+        if q is not None and n >= MAYORIA_HOJAS * total and n > segundo:
+            out[capa] = q
+        else:
+            ambiguas[capa] = dudas.get(capa, [])
+    return out, ambiguas
+
+
+def _asignaciones(ley: LeyendaMapa, en_mapa: Dict[str, int]) -> Tuple[Dict[str, Tuple[str, str]], Dict[str, List[str]]]:
     """({capa: (utilidad, rol)}, {capa ambigua: descripciones}) — ver el docstring del módulo.
     `en_mapa` = trazos de cada capa virtual en la hoja (solo se asigna lo que el mapa usa).
 
@@ -425,6 +235,8 @@ def asignaciones(ley: LeyendaMapa, en_mapa: Dict[str, int]) -> Tuple[Dict[str, T
             votar(sym, None, f.texto)
             if not sym:                       # «Tap Sleeve»: una barra con su estilo
                 votar(principal, None, f.texto)
+        elif f.rol == ACOMETIDA:              # su estilo es también el de linderos: sus
+            votar(principal, None, f.texto)   # trazos van a la capa «Acometidas» (abajo)
         else:                                 # mapa base y anotaciones: todos sus trazos
             total = sum(f.estilos.values()) or 1.0
             for capa, largo in f.estilos.items():
@@ -447,14 +259,26 @@ def asignaciones(ley: LeyendaMapa, en_mapa: Dict[str, int]) -> Tuple[Dict[str, T
             out[capa] = next(iter(si))
         else:
             ambiguas[capa] = sorted({t for _q, t in vs})
+    # acometidas que nacen sobre la red (`acometidas_mapa`): líneas de su utilidad en TODAS
+    # las redes (pedido del usuario 2026-10-14: en alcantarillado solo salía la principal).
+    # A presión el plugin parte la tubería en la T; en gravedad y conductos el import pone
+    # el vértice en la principal y estructuras NULAS, sin buzón visible (`nucleo.acometidas`)
+    from hoja import acometidas_mapa
+    for capa, n in en_mapa.items():
+        if n and acometidas_mapa.es_capa(capa):
+            out[capa] = (acometidas_mapa.utilidad_de(capa), ROL_LINEAS)
     return out, ambiguas
 
 
 def descripciones(ley: LeyendaMapa) -> Dict[str, List[str]]:
     """{capa virtual: descripciones de la leyenda que la usan} (para mostrarlas)."""
+    from hoja import acometidas_mapa
     out: Dict[str, List[str]] = {}
     for f in ley.filas:
-        for capa in [_trazo_principal(f), symbol_layer(f.simbolo, f.simbolo_fuente) if f.simbolo else None]:
+        capas = [_trazo_principal(f), symbol_layer(f.simbolo, f.simbolo_fuente) if f.simbolo else None]
+        if f.rol == ACOMETIDA and f.utilidad and capas[0]:
+            capas.append(acometidas_mapa.capa(capas[0], f.utilidad))
+        for capa in capas:
             if capa and f.texto not in out.setdefault(capa, []):
                 out[capa].append(f.texto)
     return out

@@ -279,5 +279,8 @@ def test_phoenix_alcantarillado_de_pdf_sin_capas_a_dxf(win, tmp_path):
             return {}
     pipes = [x for x in (xd(e) for e in ezdxf.readfile(out).modelspace()) if "NET_KIND" in x and "DIAMETER" in x]
     assert pipes and {x["NET_KIND"] for x in pipes} == {"gravity"}
-    assert {x.get("XD_CAPA") for x in pipes} == {"Estilo Negro 0.73 pt · continuo"}
+    # la red y sus acometidas (desde 2026-10-14 también en gravedad, con nodos nulos)
+    assert {x.get("XD_CAPA") for x in pipes} <= {"Estilo Negro 0.73 pt · continuo",
+                                                 "Estilo Acometidas · Negro 0.36 pt · continuo"}
+    assert "Estilo Negro 0.73 pt · continuo" in {x.get("XD_CAPA") for x in pipes}
     assert not any(x.get("ABANDONED") == "1" for x in pipes)

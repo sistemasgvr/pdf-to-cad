@@ -41,12 +41,18 @@ from reconocimiento import recognition_vault_snap as vault_snap_mod
 from reconocimiento import recognition_vault_through as vault_through_mod
 from reconocimiento import recognition_style_nodes as style_nodes_mod
 from reconocimiento import recognition_ink_lines as ink_lines_mod
+from reconocimiento import recognition_map_vaults as map_vaults_mod
+from reconocimiento import recognition_taps as taps_mod
+from reconocimiento import recognition_indice as indice_mod
+from reconocimiento import recognition_diametros as diam_mod
 from reconocimiento import recognition_walls as walls_mod
 from reconocimiento import recognition_letters as letters_mod
 from reconocimiento import routes as routes_mod
 from hoja.sheet_crops import page_rect as crop_page_rect, drawing_polygon
 from hoja import pdf_styles
 from hoja import leyenda_mapa as leyenda_mod
+from hoja import acometidas_mapa
+from nucleo import avance as avance_mod
 from traduccion.i18n_core import t as _tr, N_   # avisos de QA en el idioma activo
 
 # Tokens locales — NO modificar config.LAYER_TOKENS del export.
@@ -192,6 +198,10 @@ class RecognizedPolyline:
     # Letras del linetype que la hicieron de esta utilidad cuando el NOMBRE de su capa
     # no lo dice («TE» en `U-TRPW-DBNK-P`, ver `recognition_letters`); "" = por nombre.
     letters: str = ""
+    # Diámetro (pulgadas) que dice el plano para ESTA línea en un mapa sin capas: el rótulo
+    # junto a ella («8"», `recognition_diametros`) o, en una acometida, la nota de la leyenda
+    # («taps are .75" in diameter»); None = el de siempre.
+    diam_in: Optional[float] = None
 
 
 @dataclass
@@ -1119,6 +1129,7 @@ def recognize_page(
     crop: Optional[Sequence[float]] = None,
     scale_ft_per_pt: Optional[float] = None,
     letters: Optional[dict] = None,
+    avance=None,
 ) -> RecognitionResult:
     """Reconoce una utilidad vectorial en una hoja. Abre el PDF si `doc` es None.
 
@@ -1180,6 +1191,7 @@ def recognize_page(
             return _by_name_or_letters(ocg)
 
         gather_stats: dict = {}
+        avance_mod.avisar(_tr("Leyendo los trazos de las capas de {u}…").format(u=_tr(utility_label(utility))))
         line_paths, vault_paths, path_counts, kind_by_ocg = gather_paths(
             page, _kind_for, hidden, crop_polygon, stats=gather_stats,
             keep=_keep if letter_use else None,
@@ -1260,8 +1272,9 @@ def recognize_page(
         # Mapa SIG sin capas (capa por ESTILO) de una red por gravedad: cada tubería es un
         # trazo de buzón a buzón; sus extremos compartidos son buzones (`recognition_style_nodes`).
         from nucleo.model import NETWORK_KIND as _NET_KIND
+        # (las acometidas no: cada una es un trazo suelto de la red al predio, sin buzones)
         style_nodes = ({ocg: style_nodes_mod.feature_nodes(ps) for ocg, ps in by_ocg.items()
-                        if style_nodes_mod.is_style_layer(ocg)}
+                        if style_nodes_mod.is_style_layer(ocg) and not acometidas_mapa.es_capa(ocg)}
                        if _NET_KIND.get(utility) == "gravity" else {})
         # (el aviso va al final: solo cuentan las que quedan como línea reconocida —
         # el marco del cajetín de DU10, tres rayas en capas de utilidad, no lo es)
@@ -1277,14 +1290,21 @@ def recognize_page(
         results: List[Tuple[bool, str, object]] = []
         n_ink_layers = 0
         ink_ocgs: set = set()
-        for ocg, paths in sorted(by_ocg.items()):
+        for k_capa, (ocg, paths) in enumerate(sorted(by_ocg.items())):
+            if avance is not None:              # «capa k de n» (no cambia nada del resultado)
+                avance(k_capa, len(by_ocg))
+            avance_mod.avisar(_tr("Reconstruyendo las líneas de la capa {c}…").format(
+                c=pdf_styles.style_label(ocg) if style_nodes_mod.is_style_layer(ocg) else ocg.split("|")[-1]),
+                k_capa + 1, len(by_ocg))
             # una capa reconocida por sus letras no tiene perfil probado: sus letras son
             # trazos sueltos («TE» = asta + travesaño + «E» de tres trazos), como las de
             # Metro del perfil TELECOM (`stroke_letters`; DU08 h.26: cobertura 99.8 → 100 %)
             opts = replace(geom_opts, stroke_letters=True) if ocg in letter_layers else geom_opts
             # capa por ESTILO de trazos continuos (mapa SIG aplanado): la tinta es el eje;
             # el núcleo es para tipos de línea a guiones (`recognition_ink_lines`)
-            if style_nodes_mod.is_style_layer(ocg) and ink_lines_mod.continuous_layer(paths):
+            # (las acometidas son trazos cortos de UNA tubería cada uno: siempre tinta)
+            if style_nodes_mod.is_style_layer(ocg) and (acometidas_mapa.es_capa(ocg)
+                                                        or ink_lines_mod.continuous_layer(paths)):
                 n_ink_layers += 1
                 ink_ocgs.add(ocg)
                 results.append((False, ocg, ink_lines_mod.ink_reconstruct(paths, vault_paths, opts)))
@@ -1339,11 +1359,15 @@ def recognize_page(
             boxes = [(min(x for x, _ in op) - tol - 1.0, min(y for _, y in op) - tol - 1.0,
                       max(x for x, _ in op) + tol + 1.0, max(y for _, y in op) + tol + 1.0) if op else None
                      for op in all_opts]
+            # …y por celdas: solo las polilíneas con un tramo a ≤ tol de la punta (la que pasa
+            # está así de cerca: por el interior de un tramo o por un vértice); mismo orden
+            indice = indice_mod.IndiceTramos([list(zip(op, op[1:])) for op in all_opts], tol)
             for i, q in ends:
                 key = (round(q[0], 1), round(q[1], 1))
                 if key in out:
                     continue
-                for k, o in enumerate(polys):
+                for k in sorted({k for k, _j in indice.cerca(q)}):
+                    o = polys[k]
                     if k == i or len(o.pts) < 2:
                         continue
                     bx = boxes[k]
@@ -1435,7 +1459,9 @@ def recognize_page(
             return RecognizedPolyline(
                 ocg, utility, clean, line_kind, kinds, abandoned=ab,
                 route_id=route_id, n_segments=n_segments, fillets=fillets,
-                letters=use.code_for(utility) if use is not None else "")
+                letters=use.code_for(utility) if use is not None else "",
+                diam_in=(ley_mapa.diam_acometida_in if ley_mapa is not None and acometidas_mapa.es_capa(ocg)
+                         else None))
 
         for ab_layer, ocg, g in results:
             # una línea que llega a otra por un tramo SIN tinta propia más largo que el
@@ -1445,8 +1471,10 @@ def recognize_page(
             g_polys = ends_mod.trim_inkless_tails(g.polylines, ink_pdf, g.pattern, getattr(g, "glyphs", ()),
                                                   geom.Polyline)
             g_polys = contacts_mod.insert_contacts(g_polys, contacts.get(ocg, ()), geom.Polyline)
-            joined = routes_mod.build_routes(g_polys, g.pattern)
             raw = [routes_mod.Route(pl, 1, [i]) for i, pl in enumerate(g_polys)]
+            # cada acometida es SU tubería: dos que nacen en el mismo punto de la red, una a
+            # cada lado, no son una ruta que la cruza
+            joined = list(raw) if acometidas_mapa.es_capa(ocg) else routes_mod.build_routes(g_polys, g.pattern)
             joined = [routes_mod.Route(p, r.n_segments if k == 0 else 0, r.members)
                       for r in joined for k, p in enumerate(_split_sharp(r.pl))]
             raw = [routes_mod.Route(p, 1, r.members) for r in raw for p in _split_sharp(r.pl)]
@@ -1540,7 +1568,8 @@ def recognize_page(
                         g.pattern.glyph_bridge*zoom, zoom)
             # Rutas que (ya con sus codos) comparten un extremo y siguen de frente:
             # una sola ruta (la «U» de DU06 h.5 cortada en el hueco de sus letras).
-            gone = routes_mod.join_emitted([p for p in polylines_joined if p.layer_ocg == ocg], zoom)
+            gone = ([] if acometidas_mapa.es_capa(ocg) else
+                    routes_mod.join_emitted([p for p in polylines_joined if p.layer_ocg == ocg], zoom))
             if gone:
                 polylines_joined[:] = [p for p in polylines_joined if not any(p is x for x in gone)]
                 n_routes -= len(gone)
@@ -1571,6 +1600,7 @@ def recognize_page(
                 if k == "vault" and not any(math.hypot(p[0] - q[0], p[1] - q[1]) < 0.5 for q in vault_pts):
                     vault_pts.append(p)
         orphans_px = [px(key) for key, n in vault_seen.items() if vault_orph.get(key, 0) == n]
+        avance_mod.avisar(_tr("Midiendo las bóvedas y buzones y uniendo sus líneas…"))
         vaults_geo = _vaults_geometry(results, px, scale, zoom, vault_orph, vault_seen, ab_by_layer)
         for vault in vaults_geo:
             vault["utility"] = utility
@@ -1606,6 +1636,56 @@ def recognize_page(
             if marked["fillet"]:
                 warnings.append(_tr("Codos en el extremo de una tubería del mapa: {n} — revisa si ahí hay "
                                     "un buzón.").format(n=marked["fillet"]))
+        # Mapa sin capas: el buzón-SÍMBOLO de la leyenda va en la línea cuyo vértice o punta
+        # cae en él o que lo atraviesa (`recognition_map_vaults`); y cada acometida llega
+        # a su tubería en una T exacta (`recognition_taps`).
+        if any(o.startswith(pdf_styles.PREFIX) for o in by_ocg):
+            n_map_vaults = 0
+            for variant in ((polylines_joined, polylines_raw) if join_routes else (polylines_raw, polylines_joined)):
+                hits = map_vaults_mod.mark_symbol_vaults(variant, vaults_geo, zoom, scale)
+                for hit in hits:
+                    vg = vaults_geo[hit["vault"]]
+                    if vg.get("orphan"):
+                        vg["orphan"] = False
+                        vg["importable"] = True
+                        mine = [q for q in orphans_px if math.hypot(q[0] - vg["center"][0], q[1] - vg["center"][1]) <= 0.5 * zoom]
+                        if mine:
+                            orphans_px.remove(min(mine, key=lambda q: math.hypot(q[0] - vg["center"][0], q[1] - vg["center"][1])))
+                        n_map_vaults += 1
+                    for q in hit["at"]:
+                        if not any(math.hypot(q[0] - p[0], q[1] - p[1]) < 0.5 for p in vault_pts):
+                            vault_pts.append(q)
+            if n_map_vaults:
+                warnings.append(_tr("Buzones de la leyenda unidos a su línea (su punta o un vértice cae en el "
+                                    "símbolo, o lo atraviesa): {n}.").format(n=n_map_vaults))
+            tees = []
+            for variant in ((polylines_joined, polylines_raw) if join_routes else (polylines_raw, polylines_joined)):
+                got = taps_mod.snap_taps(variant, zoom)
+                tees = tees or got
+            n_taps = sum(1 for p in polylines if p.pts_pdf and acometidas_mapa.es_capa(p.layer_ocg))
+            if n_taps:
+                diam = ley_mapa.diam_acometida_in if ley_mapa is not None else None
+                warnings.append((_tr("Acometidas (servicios a los predios, leyenda «Tap»): {n}, {t} unidas a su "
+                                     "tubería con una T — diámetro {d}\" (nota de la leyenda).")
+                                 if diam else _tr("Acometidas (servicios a los predios, leyenda «Tap»): {n}, {t} "
+                                                  "unidas a su tubería con una T.")).format(
+                    n=n_taps, t=len(tees), d=f"{diam:g}" if diam else ""))
+            # el diámetro que el plano escribe junto a cada tubería («8"», «12" DIP», «278' 2"»)
+            if ley_mapa is not None:
+                rots = []
+                for c, d, tam, pulg, de_acometida in diam_mod.rotulos(page):
+                    q, e = px(c), px((c[0] + d[0], c[1] + d[1]))
+                    L = math.hypot(e[0] - q[0], e[1] - q[1]) or 1.0
+                    rots.append((q, ((e[0] - q[0]) / L, (e[1] - q[1]) / L), tam * zoom, pulg, de_acometida))
+                cuenta = None
+                for variant in ((polylines_joined, polylines_raw) if join_routes else (polylines_raw, polylines_joined)):
+                    got = diam_mod.asignar([p for p in variant if p.layer_ocg.startswith(pdf_styles.PREFIX)],
+                                           rots, taps_mod.is_tap)
+                    cuenta = cuenta or got
+                if cuenta and (cuenta["con"] or cuenta["mezcla"]):
+                    warnings.append(_tr("Diámetros escritos en el plano («8\"», «12\" DIP», «278' 2\"»): {n} "
+                                        "tubería(s) los toman; {m} con rótulos distintos quedan con el diámetro "
+                                        "por defecto.").format(n=cuenta["con"], m=cuenta["mezcla"]))
         # Imán (pedido del usuario 2026-10-01): la punta que llega a una bóveda —o que
         # quedó a un pelo de ella— se lleva a su contorno DIBUJADO por su propia recta.
         # Paso aparte (`recognition_vault_snap`): el núcleo no cambia.
@@ -1875,14 +1955,17 @@ def strokes_by_polyline(strokes, polys, tol):
     punto medio, y solo si está a ≤ `tol`)."""
     out = [[] for _ in polys]
     segs = [list(zip(pl, pl[1:])) for pl in polys]
+    # solo los tramos que pasan cerca (`recognition_indice`, en el orden de siempre: mismo
+    # resultado; antes cada trazo se medía contra todos, minutos en una hoja compuesta)
+    indice = indice_mod.IndiceTramos(segs, tol)
     for st in strokes:
         m = st[len(st) // 2]
         best = None
-        for i, sg in enumerate(segs):
-            for a, b in sg:
-                d = _pt_seg_dist(m, a, b)
-                if d <= tol and (best is None or d < best[0]):
-                    best = (d, i)
+        for i, j in indice.cerca(m):
+            a, b = segs[i][j]
+            d = _pt_seg_dist(m, a, b)
+            if d <= tol and (best is None or d < best[0]):
+                best = (d, i)
         if best is not None:
             out[best[1]].append(st)
     return out
@@ -2731,11 +2814,14 @@ def pipes_from_recognition(result: RecognitionResult, layer: str = UTILITY_HINT,
             "layer": layer,
             "pts": pts,
             "ab": bool(getattr(pl, "abandoned", False)),
-            "diam": float(PIPE_DIAMETERS_IN[0]),
+            "diam": float(getattr(pl, "diam_in", None) or PIPE_DIAMETERS_IN[0]),
             "diam_unit": "in",
             "material": DEFAULT_PIPE_MATERIAL,
             "vertex_kinds": list(pl.kinds) if len(pl.kinds) == len(pts) else [],
             "origen": "reconocido",
+            # acometida de un mapa sin capas: en gravedad/conductos sus nodos son nulos
+            # (`nucleo.acometidas`)
+            **({"acometida": True} if acometidas_mapa.es_capa(getattr(pl, "layer_ocg", "") or "") else {}),
             # codos: vértice → radio en pies (px / zoom × pies/pt)
             "fillets": {int(i): round(f["r_px"] / max(zoom, 1e-9) * result.scale_ft_per_pt, 3)
                         for i, f in (pl.fillets or {}).items()},

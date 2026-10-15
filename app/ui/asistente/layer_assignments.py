@@ -6,7 +6,7 @@ utilidad queda ya asignado (el usuario lo revisa y cambia como cualquier asignac
 cada capa virtual muestra lo que la leyenda dice de ella («Standard Main, Fire Main…»).
 """
 from PySide6 import QtWidgets
-from hoja import leyenda_mapa, pdf_layers
+from hoja import acometidas_mapa, leyenda_mapa, pdf_layers
 from reconocimiento import recognition as rec
 from traduccion.i18n import t as _tr
 
@@ -58,11 +58,17 @@ class LayerAssignmentsMixin:
         if not asig:
             return (_tr("Leyenda del plano leída, pero ningún estilo es solo de una red: asígnalos abajo."), "")
         utils = sorted({u for u, _r in asig.values()})
-        n_lin = sum(1 for _u, r in asig.values() if r == rec.ROLE_LINEAS)
-        n_est = len(asig) - n_lin
-        texto = _tr("Leyenda del plano: {u} — {l} estilo(s) de líneas y {e} de estructuras ya asignados. "
-                    "Revísalos y cambia lo que haga falta.").format(
-            u=", ".join(_tr(rec.utility_label(u)) for u in utils), l=n_lin, e=n_est)
+        n_aco = sum(1 for n in asig if acometidas_mapa.es_capa(n))
+        n_lin = sum(1 for _u, r in asig.values() if r == rec.ROLE_LINEAS) - n_aco
+        n_est = len(asig) - n_lin - n_aco
+        u_txt = ", ".join(_tr(rec.utility_label(u)) for u in utils)
+        if n_aco:
+            texto = _tr("Leyenda del plano: {u} — {l} estilo(s) de líneas, {a} de acometidas y {e} de "
+                        "estructuras ya asignados. Revísalos y cambia lo que haga falta.").format(
+                u=u_txt, l=n_lin, a=n_aco, e=n_est)
+        else:
+            texto = _tr("Leyenda del plano: {u} — {l} estilo(s) de líneas y {e} de estructuras ya asignados. "
+                        "Revísalos y cambia lo que haga falta.").format(u=u_txt, l=n_lin, e=n_est)
         rol = {rec.ROLE_LINEAS: _tr("Líneas"), rec.ROLE_BUZONES: _tr("Estructuras")}
         det = [f"{pdf_layers.short_name(n)} → {_tr(rec.utility_label(u))} · {rol[r]}: "
                + ", ".join(self._legend_desc.get(n, ())[:4]) for n, (u, r) in asig.items()]

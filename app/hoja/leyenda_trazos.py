@@ -13,6 +13,8 @@ from typing import Callable, Dict, List, Optional, Tuple
 
 from hoja import pdf_layers
 from hoja import pdf_styles
+from nucleo import avance
+from traduccion.i18n_core import t as _tr
 from reconocimiento import recognition
 from reconocimiento import recognition_geom as geom
 
@@ -26,14 +28,15 @@ def _rect_poly(pg) -> Optional[Tuple[float, float, float, float]]:
     return (xs[0], ys[0], xs[1], ys[1]) if len(xs) == 2 and len(ys) == 2 else None
 
 
-def _recortar(path: dict, polys: list) -> Optional[dict]:
+def _recortar(path: dict, polys: list, rects: Optional[list] = None) -> Optional[dict]:
     """`geom.clip_path`, con atajo: un trazo que cae entero dentro de clips
-    rectangulares (el caso común: el marco de la vista) queda tal cual."""
+    rectangulares (el caso común: el marco de la vista) queda tal cual. `rects` = el
+    `_rect_poly` de cada polígono, si ya se calculó (una vez por recorte, no por trazo)."""
     if not polys:
         return path
     r = path.get("rect")
     if r is not None:
-        rects = [_rect_poly(pg) for pg in polys]
+        rects = rects if rects is not None else [_rect_poly(pg) for pg in polys]
         if all(b is not None and b[0] <= r.x0 and b[1] <= r.y0 and r.x1 <= b[2] and r.y1 <= b[3]
                for b in rects):
             return path
@@ -49,15 +52,23 @@ def trazos_visibles(page, capas: Optional[Callable[[str], bool]] = None) -> List
     (`letter_paths` se leyó sobre él); el recortado, para dibujar. `capas(nombre)`: solo
     esas (recortar toda la hoja tarda 2–4 s; así, lo que tarda leer sus trazos, 0.5–1.3 s).
     Con todas las capas encendidas."""
+    avance.avisar(_tr("Recortando lo que se ve de cada capa…"))
     page_rect = page.rect
     clip_stack: Dict[int, list] = {}
+    rect_de: Dict[int, object] = {}       # nivel → `_rect_poly` de su recorte (una vez por recorte)
     cand: List[Tuple[dict, dict]] = []
     prof: list = []
-    for path in pdf_styles.drawings(page, extended=True):
+    todos = pdf_styles.drawings(page, extended=True)
+    n_todos = len(todos)
+    for k_av, path in enumerate(todos):
+        if k_av % 4000 == 0:
+            avance.avisar(_tr("Recortando lo que se ve de cada capa…"), k_av, n_todos)
         lvl = int(path.get("level", 0) or 0)
         if path.get("type") == "clip":
             clip_stack = {lv: pg for lv, pg in clip_stack.items() if lv < lvl}
             clip_stack[lvl] = recognition._clip_polygon(path, page_rect)
+            rect_de = {lv: rect_de[lv] for lv in clip_stack if lv in rect_de}
+            rect_de[lvl] = _rect_poly(clip_stack[lvl]) if clip_stack[lvl] else None
             continue
         if path.get("type") == "group" or not path.get("items"):
             continue
@@ -66,7 +77,8 @@ def trazos_visibles(page, capas: Optional[Callable[[str], bool]] = None) -> List
         mine = capas is None or capas(layer)
         if not (mine or is_prof):
             continue
-        shown = _recortar(path, [pg for lv, pg in clip_stack.items() if lv < lvl and pg])
+        niveles = [lv for lv, pg in clip_stack.items() if lv < lvl and pg]
+        shown = _recortar(path, [clip_stack[lv] for lv in niveles], [rect_de[lv] for lv in niveles])
         if shown is None:
             continue
         if is_prof:

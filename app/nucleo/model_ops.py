@@ -269,7 +269,8 @@ VAULT_VERTEX_KINDS = ("vault", "stop")
 # Tipos de vértice que NO son un acceso físico (vienen del reconocimiento de
 # PDF: quiebre suave, esquina sin bóveda, vértice de arco). El buzón que
 # rebuild_structures crea ahí se oculta: se exporta como "Estructura nula".
-SOFT_VERTEX_KINDS = ("bend", "corner", "curve", "edge")   # "stop" = caja visible donde la línea muere en el buzón
+SOFT_VERTEX_KINDS = ("bend", "corner", "curve", "edge",   # "stop" = caja visible donde la línea muere en el buzón
+                     "acometida")                         # donde llega una acometida (`nucleo.acometidas`)
 
 
 def hide_soft_vertex_structures(pipes, structures):
@@ -286,6 +287,9 @@ def hide_soft_vertex_structures(pipes, structures):
             continue
         kinds = p.get("vertex_kinds") or []
         pts = p.get("pts") or []
+        if p.get("acometida"):               # acometida reconocida: sus nodos son nulos
+            soft[net].extend(pts)
+            continue
         if len(kinds) != len(pts):
             hard[net].extend(pts)            # pipe manual: todos sus vértices son reales
             continue
