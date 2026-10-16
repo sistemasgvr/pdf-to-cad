@@ -1226,10 +1226,14 @@ EN: dict[str, str] = {
         "Drop what was taken and use only the sheet you are viewing",
     "La hoja {n} aún no está en la hoja compuesta (que usa: {donde}). Para sumarla, marca un área y pulsa «Tomar área», o pulsa «Hoja completa».":
         "Sheet {n} is not in the composite sheet yet (it uses: {donde}). To add it, mark an area and press «Take area», or press «Full sheet».",
-    "Haz clic en la hoja del plano: esa hoja pasa a la hoja compuesta. Si solo necesitas una parte, márcala en «Área a tomar» (doble clic). Ctrl+clic agrega otra hoja.":
-        "Click the plan's sheet: that sheet goes into the composite sheet. If you only need part of it, mark it in «Area to take» (double click). Ctrl+click adds another sheet.",
-    "La hoja compuesta ya está armada: un clic solo muestra la hoja. Para agregarla, toma su área en «Área a tomar» (doble clic) o usa Ctrl+clic para agregarla entera.":
-        "The composite sheet is already put together: a click only shows the sheet. To add it, take its area in «Area to take» (double click) or use Ctrl+click to add it whole.",
+    "Se empieza con la hoja {n}. Haz clic en la hoja que necesitas (la cambia); cada clic después agrega otra hoja. Si solo necesitas una parte, márcala en «Área a tomar» (doble clic).":
+        "It starts with sheet {n}. Click the sheet you need (it replaces it); each click after that adds another sheet. If you only need part of it, mark it in «Area to take» (double click).",
+    "Haz clic en una hoja para agregarla a la hoja compuesta. Si solo necesitas una parte, márcala en «Área a tomar» (doble clic).":
+        "Click a sheet to add it to the composite sheet. If you only need part of it, mark it in «Area to take» (double click).",
+    "Quitar de la hoja compuesta":
+        "Remove from the composite sheet",
+    "Sacar la hoja elegida de la hoja compuesta":
+        "Take the chosen sheet out of the composite sheet",
     "✔ {n} piezas":
         "✔ {n} pieces",
     "✔ Hoja completa":

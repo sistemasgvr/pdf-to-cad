@@ -887,18 +887,25 @@ alcantarillado, drenaje, gas, eléctrico, telecom). Todo en **unidades imperiale
     una pestaña oculta no está visible (`isVisibleTo` falso, `centerOn` sin efecto) →
     `dlg._go_tab(TAB_SHEET)` antes. **La hoja ELEGIDA es la hoja compuesta**
     (`composite_choice.ChosenSheetMixin`, pedido del usuario 2026-10-05: elegía la hoja, pulsaba
-    «Siguiente» y quedaba vacía): mientras la hoja compuesta sea vacía o UNA hoja entera
-    (`_simple`), elegir hoja la reemplaza (`_choose_page`: al abrir, clic/flechas en la galería
-    —`composite_source_page.PageGallery.picked`, solo gestos del USUARIO; `setCurrentRow` por
-    código no elige—, ‹ ›, «Tomar área de esta hoja») y la deja EN EDICIÓN: un área marcada (o
-    sus esquinas movidas) la recorta al momento con el `_apply_crop_edit` de siempre y «Hoja
-    completa» la devuelve (`_set_piece_area`; `_take`/`_take_area` sobre la pieza en edición de
-    la hoja a la vista = actualizarla, no agregar). La hoja entera se ve SIN tinte (borde +
-    asas: `_CropView.is_whole_page`/`_fill_for`). Con trabajo de verdad (un área, ≥2 piezas)
-    elegir otra hoja solo la muestra (aviso `pending_box` con «Usar solo esta hoja» si hay una
-    pieza: `_use_only_this_sheet`); Ctrl+clic en la galería (`PageGallery.added`) agrega la
-    hoja entera. Esc no cierra el diálogo (`wizard_widgets.NoEscapeClose`). Tests:
-    `tests/test_composite_dialog.py::test_la_hoja_elegida_es_la_hoja_compuesta` y siguientes.
+    «Siguiente» y quedaba vacía): al abrir sin piezas, la hoja a la vista entra sola
+    (`_choose_provisional`; `_provisional` = `to_dict()` de esa pieza: mientras nadie la elija,
+    recorte, gire o mueva, `_provisional_now()`) y la siguen las flechas de la galería y ‹ ›
+    (`_browse_page`). **Elegir otra hoja la AGREGA** (pedido 2026-10-16: «selecciono la 1, luego
+    la 2, y la 2 sustituye a la 1»): clic, Enter o «Tomar área de esta hoja» → `_pick_page` (solo
+    gestos del USUARIO: `PageGallery.picked`; `setCurrentRow` por código no elige) = si la hoja
+    ya está, elige su pieza; si la hoja compuesta es la provisional (o está vacía), la cambia
+    (`_choose_page`: el 1.er clic reemplaza la carátula); si no, `_take(full=True)` la suma
+    entera. Fuera de la provisional, flechas (`PageGallery.browsed`, `gesture`) y ‹ › solo
+    MUESTRAN (aviso `pending_box`, «Usar solo esta hoja» con una pieza: `_use_only_this_sheet`).
+    «Quitar de la hoja compuesta» (`btn_remove_page`, `_remove_page`) saca las piezas de la hoja a
+    la vista; Ctrl+clic (`PageGallery.added`) agrega siempre. La pieza de la hoja a la vista queda
+    EN EDICIÓN: un área marcada (o sus esquinas movidas) la recorta al momento con el
+    `_apply_crop_edit` de siempre y «Hoja completa» la devuelve (`_set_piece_area`;
+    `_take`/`_take_area` sobre la pieza en edición de la hoja a la vista = actualizarla, no
+    agregar). La hoja entera se ve SIN tinte (borde + asas: `_CropView.is_whole_page`/
+    `_fill_for`). Esc no cierra el diálogo (`wizard_widgets.NoEscapeClose`). Tests:
+    `tests/test_composite_dialog.py::test_la_hoja_elegida_es_la_hoja_compuesta`,
+    `test_elegir_otra_hoja_la_agrega` y siguientes.
     **Validaciones** (`composite_checks.py`, PURO): sin piezas
     ni área marcada → `btn_ok` apagado (enlace «Usar la hoja N» = `pick`); área marcada sin tomar (`_sel_dirty`: la marcó el
     usuario, no la de una pieza en edición) o hoja a la vista sin tomar → aviso ámbar en el pie

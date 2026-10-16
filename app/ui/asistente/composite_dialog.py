@@ -185,6 +185,7 @@ class CompositeDialog(NoEscapeClose, ChosenSheetMixin, SourcePageMixin, ScanTool
         self._page_item = None
         self._syncing_widgets = False
         self._editing = -1            # pieza cuya área se edita en «Área a tomar» (-1 = nueva pieza)
+        self._provisional = None      # la hoja que puso el compositor, tal cual (nadie la eligió)
         self._syncing_crop = False
         self._sel_dirty = False       # el usuario marcó un área que aún no tomó
         self._fitted: set = set()     # pestañas cuya vista ya se encuadró al mostrarse
@@ -209,8 +210,10 @@ class CompositeDialog(NoEscapeClose, ChosenSheetMixin, SourcePageMixin, ScanTool
         self.view.rebuild()
         self._refresh_scale_combo()
         self._refresh_summary()
-        if self._simple():
-            self._choose_page()            # la hoja a la vista ya es la hoja compuesta
+        if not self.comp.pieces:
+            self._choose_provisional()     # la hoja a la vista ya es la hoja compuesta
+        elif self._simple():
+            self._choose_page()            # la hoja entera del editor: la hoja del editor
         self._go_tab(start)
         self._sug_iniciar()                # composición sugerida: aparte, en otro hilo
 
@@ -354,7 +357,7 @@ class CompositeDialog(NoEscapeClose, ChosenSheetMixin, SourcePageMixin, ScanTool
 
     def _on_check_link(self, href: str):
         if href == "pick":
-            self._choose_page()
+            self._pick_page()
         elif href == "take":
             self._go_tab(TAB_AREA)
             self._take(full=not self._has_area())
@@ -552,12 +555,12 @@ class CompositeDialog(NoEscapeClose, ChosenSheetMixin, SourcePageMixin, ScanTool
     def _step_page(self, step: int):
         row = self.lst_pages.currentRow() + step
         if 0 <= row < self.lst_pages.count():
-            self.lst_pages.picking = True
+            self.lst_pages.gesture = "browse"
             try:
                 self.lst_pages.setCurrentRow(row)
             finally:
-                self.lst_pages.picking = False
-            self._choose_page()                # ‹ › = elegir la hoja, como un clic en «Origen»
+                self.lst_pages.gesture = None
+            self._browse_page()                # ‹ › = ver la hoja, como las flechas en «Origen»
 
     def _refresh_page_nav(self):
         """«Hoja 21 de 50» + PDF y si ya está tomada; ‹ › al borde se apagan."""
@@ -762,9 +765,12 @@ class CompositeDialog(NoEscapeClose, ChosenSheetMixin, SourcePageMixin, ScanTool
                                           "imagen, requiere dibujo manual.").format(n=row + 1))
             self.nolayers_box.show()
         # cambiar de hoja a mano = empezar una pieza nueva; salvo si el usuario ELIGE la hoja
-        # y la hoja compuesta es solo la elegida: `_choose_page` la cambia enseguida (si no,
-        # el aviso «no está en la hoja compuesta» asomaba bajo «Cargando hoja…»)
-        if self._editing >= 0 and not self._syncing_crop and not (self.lst_pages.picking and self._simple()):
+        # (clic: `_pick_page` elige o agrega su pieza enseguida) o mira otra mientras la hoja
+        # compuesta sea la que puso el compositor (`_browse_page` la cambia): si no, el aviso
+        # «no está en la hoja compuesta» asomaba bajo «Cargando hoja…»
+        gesture = self.lst_pages.gesture
+        follows = gesture == "pick" or (gesture == "browse" and self._provisional_now())
+        if self._editing >= 0 and not self._syncing_crop and not follows:
             self.view.select(-1)
         with busy(self.crop, _tr("Cargando hoja {n}…").format(n=row + 1),
                   _tr("Líneas generales y escala de la hoja")):
@@ -839,6 +845,7 @@ class CompositeDialog(NoEscapeClose, ChosenSheetMixin, SourcePageMixin, ScanTool
         polygon = self.crop.normalized_polygon() if self.comp.manual else []
         if [round(v, 9) for v in clip] == [round(v, 9) for v in piece.clip] and covers == piece.covers and polygon == piece.polygon:
             return
+        self._provisional = None              # el usuario trabajó la hoja: ya es su elección
         piece.clip = clip
         piece.covers = covers
         piece.polygon = polygon
@@ -900,6 +907,7 @@ class CompositeDialog(NoEscapeClose, ChosenSheetMixin, SourcePageMixin, ScanTool
         if res is None:
             return
         clip, covers = res
+        self._provisional = None
         src_scale = self.spn_src_scale.value() / 72.0
         piece = C.Piece(self._cur_source, self._cur_page, clip, src_scale=src_scale,
                         label=f"{self.sources[self._cur_source]['name']} · {self._cur_page + 1}",

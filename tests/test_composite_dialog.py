@@ -971,8 +971,9 @@ def _click_page(app, dlg, row, mods=QtCore.Qt.NoModifier):
 @pytest.mark.parametrize("manual", [False, True])
 def test_la_hoja_elegida_es_la_hoja_compuesta(app, manual):
     """Pedido del usuario 2026-10-05: elegía la hoja, pulsaba «Siguiente» y la hoja
-    compuesta quedaba vacía. Ahora la hoja a la vista ya está; un clic en otra (o ‹ ›)
-    la cambia; marcar un área la recorta al momento y «Hoja completa» la devuelve."""
+    compuesta quedaba vacía. Ahora la hoja a la vista ya está y, mientras nadie la elija,
+    el primer clic en otra (o ‹ ›) la cambia; marcar un área la recorta al momento y
+    «Hoja completa» la devuelve. Ya elegida, ‹ › solo MUESTRAN otra hoja."""
     T = composite_dialog
     dlg = T.CompositeDialog(None, [{"name": "a.pdf", "data": _two_sheet_pdf()}], None, {}, 0, manual=manual)
     try:
@@ -980,7 +981,8 @@ def test_la_hoja_elegida_es_la_hoja_compuesta(app, manual):
         assert dlg.tabs.current() == T.TAB_SOURCE                        # se abre para elegir
         assert [(p.page, p.clip) for p in dlg.comp.pieces] == [(0, [0.0, 0.0, 1.0, 1.0])]
         assert dlg.btn_ok.isEnabled() and "✔ Hoja completa" in dlg.lst_pages.item(0).text()
-        _click_page(app, dlg, 1)                                         # otra hoja: la reemplaza
+        assert "Se empieza con la hoja 1" in dlg.lbl_source_hint.text()
+        _click_page(app, dlg, 1)                     # la puso el compositor: el 1.er clic la cambia
         assert [(p.page, p.clip) for p in dlg.comp.pieces] == [(1, [0.0, 0.0, 1.0, 1.0])]
         assert dlg.comp.is_single_full_page() and dlg._editing == 0 and not dlg._page_pending()
         assert "✔" not in dlg.lst_pages.item(0).text() and "✔ Hoja completa" in dlg.lst_pages.item(1).text()
@@ -988,13 +990,11 @@ def test_la_hoja_elegida_es_la_hoja_compuesta(app, manual):
         dlg.btn_next.click(); _settle(app)                               # «Área a tomar»
         assert "entera" in dlg.lbl_mode.text() and dlg.btn_take.isHidden() and dlg.btn_take_full.isHidden()
         assert dlg.crop.is_whole_page(dlg.crop._selection)               # la hoja entera, sin tinte
-        dlg.btn_prev_page.click(); _settle(app)                          # ‹ también elige
-        assert [p.page for p in dlg.comp.pieces] == [0]
         # marcar un área sobre la hoja elegida la recorta (sin «Tomar»)
         dlg.crop.set_selection(QtCore.QRectF(0, 0, 150, 200)); _settle(app)
         QtCore.QThread.msleep(250); _settle(app)                         # el ajuste se aplica solo
         assert len(dlg.comp.pieces) == 1 and dlg.comp.pieces[0].clip == [0.0, 0.0, 0.5, 1.0]
-        assert "✔ Área tomada" in dlg.lst_pages.item(0).text() and "área de la hoja 1" in dlg.lbl_check.text()
+        assert "✔ Área tomada" in dlg.lst_pages.item(1).text() and "área de la hoja 2" in dlg.lbl_check.text()
         assert not dlg.btn_take_full.isHidden() and "usa el área" in dlg.lbl_mode.text()
         dlg.btn_take_full.click(); _settle(app)                          # «Hoja completa»: la devuelve
         assert dlg.comp.is_single_full_page() and dlg.crop.is_whole_page(dlg.crop._selection)
@@ -1002,13 +1002,82 @@ def test_la_hoja_elegida_es_la_hoja_compuesta(app, manual):
         dlg.crop.set_selection(QtCore.QRectF(0, 0, 150, 200)); dlg._crop_timer.stop(); dlg._apply_crop_edit()
         dlg.crop.set_selection(QtCore.QRectF(40, 40, 0, 0)); dlg.crop.dragFinished.emit(); _settle(app)
         assert dlg.crop._selection.width() == 150 and dlg.comp.pieces[0].clip == [0.0, 0.0, 0.5, 1.0]
+        # ya elegida, ‹ solo muestra la otra hoja: el aviso ofrece sumarla o usar solo esa
+        dlg.btn_prev_page.click(); _settle(app)
+        assert [p.page for p in dlg.comp.pieces] == [1] and dlg.lbl_page.text() == "Hoja 1 de 2"
+        assert dlg._page_pending() and not dlg.btn_pending_use.isHidden()
     finally:
         dlg.close_docs(); dlg.close()
 
 
-def test_con_un_area_tomada_otra_hoja_no_la_reemplaza(app):
-    """Con trabajo de verdad (un área) un clic en otra hoja solo la muestra: el aviso
-    ofrece «Usar solo esta hoja»; Ctrl+clic agrega una hoja entera."""
+def test_elegir_otra_hoja_la_agrega(app):
+    """Pedido del usuario 2026-10-16: elegía la hoja 1, luego la 2, y la 2 REEMPLAZABA a
+    la 1. Ahora cada clic SUMA la hoja (entera y en edición); un clic en una que ya está
+    elige su pieza; las flechas solo la muestran y Enter la agrega; «Quitar de la hoja
+    compuesta» la saca. Al volver a componer (la hoja del editor) también se suma."""
+    from PySide6 import QtTest
+    T = composite_dialog
+    data = _one_sheet_pdf(3)
+    dlg = T.CompositeDialog(None, [{"name": "a.pdf", "data": data}], None, {}, 0)
+    try:
+        dlg.resize(1100, 700); dlg.show(); _settle(app)
+        _click_page(app, dlg, 0)                                         # la del inicio: elegida
+        assert [p.page for p in dlg.comp.pieces] == [0]
+        assert "Haz clic en una hoja para agregarla" in dlg.lbl_source_hint.text()
+        _click_page(app, dlg, 1)                                         # otra hoja: se SUMA
+        assert [(p.page, p.clip) for p in dlg.comp.pieces] == [(0, [0.0, 0.0, 1.0, 1.0]),
+                                                                (1, [0.0, 0.0, 1.0, 1.0])]
+        assert "✔ Hoja completa" in dlg.lst_pages.item(0).text()
+        assert "✔ Hoja completa" in dlg.lst_pages.item(1).text()
+        assert dlg._editing == 1 and dlg.view.selected_index() == 1 and not dlg._page_pending()
+        assert dlg.comp.pieces[1].x == 300 + 24 and dlg.tabs.tabs[T.TAB_SHEET].badge == ("2", "count")
+        _click_page(app, dlg, 0)                                         # ya está: elige su pieza
+        assert [p.page for p in dlg.comp.pieces] == [0, 1] and dlg.view.selected_index() == 0
+        # flechas: solo muestran la hoja (el aviso lo dice); Enter la agrega
+        QtTest.QTest.keyClick(dlg.lst_pages, QtCore.Qt.Key_Right); _settle(app)
+        QtTest.QTest.keyClick(dlg.lst_pages, QtCore.Qt.Key_Right); _settle(app)
+        assert dlg.lst_pages.currentRow() == 2 and [p.page for p in dlg.comp.pieces] == [0, 1]
+        assert dlg._page_pending() and dlg.btn_remove_page.isHidden()
+        QtTest.QTest.keyClick(dlg.lst_pages, QtCore.Qt.Key_Return); _settle(app)
+        assert [p.page for p in dlg.comp.pieces] == [0, 1, 2] and not dlg._page_pending()
+        assert dlg.result() != QtWidgets.QDialog.Accepted                # Enter no cierra el diálogo
+        # «Quitar de la hoja compuesta»: saca la hoja a la vista
+        assert not dlg.btn_remove_page.isHidden()
+        dlg.btn_remove_page.click(); _settle(app)
+        assert [p.page for p in dlg.comp.pieces] == [0, 1] and dlg.btn_remove_page.isHidden()
+        assert "✔" not in dlg.lst_pages.item(2).text()
+    finally:
+        dlg.close_docs(); dlg.close()
+    # sin elegir la del inicio: el primer clic la cambia y los siguientes suman
+    dlg = T.CompositeDialog(None, [{"name": "a.pdf", "data": data}], None, {}, 0)
+    try:
+        dlg.resize(1100, 700); dlg.show(); _settle(app)
+        _click_page(app, dlg, 2)
+        assert [p.page for p in dlg.comp.pieces] == [2]
+        _click_page(app, dlg, 0)
+        assert [p.page for p in dlg.comp.pieces] == [2, 0]
+    finally:
+        dlg.close_docs(); dlg.close()
+    # al volver a componer, la hoja del editor no se cambia: la otra se suma
+    comp = C.Composite(pieces=[C.Piece(0, 0, [0.0, 0.0, 1.0, 1.0], src_scale=20 / 72.0)])
+    dlg = T.CompositeDialog(None, [{"name": "a.pdf", "data": data}], comp, {}, 0)
+    try:
+        dlg.resize(1100, 700); dlg.show(); dlg._go_tab(T.TAB_SOURCE); _settle(app)
+        assert "Haz clic en una hoja para agregarla" in dlg.lbl_source_hint.text()
+        _click_page(app, dlg, 2)
+        assert [p.page for p in dlg.comp.pieces] == [0, 2]
+        dlg.lst_pages.setCurrentRow(1); _settle(app)                     # «Tomar área de esta hoja»
+        dlg.btn_go_area.click(); _settle(app)
+        assert [p.page for p in dlg.comp.pieces] == [0, 2, 1] and dlg.stack.currentIndex() == T.TAB_AREA
+        assert dlg._editing == 2 and "La hoja 2 entera" in dlg.lbl_mode.text()  # un área la recorta
+    finally:
+        dlg.close_docs(); dlg.close()
+
+
+def test_con_un_area_tomada_otra_hoja_se_agrega(app):
+    """Con un área tomada, un clic en otra hoja la AGREGA entera y el área no se toca.
+    Mirar otra hoja sin elegirla avisa y, con una pieza, ofrece «Usar solo esta hoja»;
+    Ctrl+clic agrega una hoja entera."""
     T = composite_dialog
     dlg = T.CompositeDialog(None, [{"name": "a.pdf", "data": _two_sheet_pdf()}], None, {}, 0)
     try:
@@ -1016,8 +1085,12 @@ def test_con_un_area_tomada_otra_hoja_no_la_reemplaza(app):
         dlg._go_tab(T.TAB_AREA); _settle(app)
         dlg.crop.set_selection(QtCore.QRectF(0, 0, 150, 200)); dlg._crop_timer.stop(); dlg._apply_crop_edit()
         dlg._go_tab(T.TAB_SOURCE); _settle(app)
-        assert "ya está armada" in dlg.lbl_source_hint.text()
+        assert "Haz clic en una hoja para agregarla" in dlg.lbl_source_hint.text()
         _click_page(app, dlg, 1)
+        assert [(p.page, p.clip) for p in dlg.comp.pieces] == [(0, [0.0, 0.0, 0.5, 1.0]),
+                                                                (1, [0.0, 0.0, 1.0, 1.0])]
+        assert dlg._editing == 1 and not dlg._page_pending()
+        dlg.btn_remove_page.click(); _settle(app)                        # quitarla: queda a la vista
         assert [(p.page, p.clip) for p in dlg.comp.pieces] == [(0, [0.0, 0.0, 0.5, 1.0])]
         assert dlg._page_pending() and not dlg.btn_pending_use.isHidden()
         assert "que usa: Hoja 1" in dlg.lbl_pending.text()
@@ -1027,8 +1100,9 @@ def test_con_un_area_tomada_otra_hoja_no_la_reemplaza(app):
         # Ctrl+clic: la hoja 1 se AGREGA entera junto a la 2
         _click_page(app, dlg, 0, QtCore.Qt.ControlModifier)
         assert [p.page for p in dlg.comp.pieces] == [1, 0] and dlg.comp.pieces[1].x == 300 + 24
-        _click_page(app, dlg, 1)                                         # ya son dos: solo la muestra
-        assert [p.page for p in dlg.comp.pieces] == [1, 0] and dlg.btn_pending_use.isHidden()
+        _click_page(app, dlg, 1)                                         # ya está: elige su pieza
+        assert [p.page for p in dlg.comp.pieces] == [1, 0] and dlg.view.selected_index() == 0
+        assert dlg.btn_pending_use.isHidden()
     finally:
         dlg.close_docs(); dlg.close()
 

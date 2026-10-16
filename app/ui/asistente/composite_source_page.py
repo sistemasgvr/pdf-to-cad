@@ -5,17 +5,19 @@ Antes era la columna izquierda, angosta, con miniaturas de 150 px en una lista
 visualizar las hojas»). Ahora es una pestaña a ventana completa: el PDF (se pueden
 agregar más) y una GALERÍA de hojas con miniaturas grandes; cada hoja dice si está en
 la hoja compuesta («✔ Hoja completa» / «✔ Área tomada») o si es una hoja «sin capas».
-Clic (o flechas) = ELEGIRLA: mientras la hoja compuesta sea una sola hoja entera, la
-elegida pasa a serlo (pedido del usuario 2026-10-05: elegía la hoja, pulsaba
-«Siguiente» y la hoja compuesta quedaba vacía); Ctrl+clic = agregarla entera además
-de las que ya están; doble clic o «Tomar área de esta hoja» = ir a «Área a tomar».
+Clic (o Enter) = ELEGIRLA: se suma a la hoja compuesta, entera, además de las que ya
+están (pedido del usuario 2026-10-16: la 2 reemplazaba a la 1); solo la hoja que el
+compositor puso al abrir, sin que nadie la eligiera, se cambia con el primer clic
+(pedido 2026-10-05: elegía la hoja, pulsaba «Siguiente» y quedaba vacía). Flechas =
+mirar otra hoja; «Quitar de la hoja compuesta» la saca; doble clic o «Tomar área de
+esta hoja» = ir a «Área a tomar». Ver `composite_choice`.
 
 Las funciones de PDFs, hojas y miniaturas se movieron TAL CUAL desde
 composite_dialog (mismos nombres: `lst_pages` sigue siendo la hoja actual).
 Requiere de la clase: `self.docs`, `self.sources`, `self.comp`, `self._cur_source`,
 `self._cur_page`, `self._thumb_cache`, `self._layers_cache`, `self._thumb_queue`,
-`self._thumb_timer`, `_on_page_changed`, `_choose_page`, `_add_sheet`, `_simple`,
-`_is_full`, `_go_tab` y `_refresh_pending`.
+`self._thumb_timer`, `_on_page_changed`, `_pick_page`, `_browse_page`, `_add_sheet`,
+`_remove_page`, `_provisional_now`, `_is_full`, `_go_tab` y `_refresh_pending`.
 """
 from __future__ import annotations
 
@@ -38,10 +40,12 @@ THUMB_W = 220          # ancho de la miniatura en la galería (antes 150 en una 
 class PageGallery(QtWidgets.QListWidget):
     """Galería de hojas que distingue lo que hace el USUARIO de los cambios por
     código (sincronizar la hoja de una pieza, pruebas): `picked(fila)` al elegir
-    una hoja con el ratón o el teclado; `added(fila)` con Ctrl+clic."""
+    una hoja (clic, Enter o Espacio); `browsed(fila)` al pasar a otra con las
+    flechas; `added(fila)` con Ctrl+clic."""
     picked = QtCore.Signal(int)
+    browsed = QtCore.Signal(int)
     added = QtCore.Signal(int)
-    picking = False         # un gesto del usuario está cambiando la hoja (antes de `picked`)
+    gesture = None          # «pick» / «browse»: un gesto del usuario cambia la hoja (antes de la señal)
 
     def mousePressEvent(self, e):
         item = self.itemAt(e.position().toPoint()) if e.button() == QtCore.Qt.LeftButton else None
@@ -50,23 +54,28 @@ class PageGallery(QtWidgets.QListWidget):
             self.added.emit(self.row(item))
             e.accept()
             return
-        self.picking = item is not None
+        self.gesture = "pick" if item is not None else None
         try:
             super().mousePressEvent(e)
         finally:
-            self.picking = False
+            self.gesture = None
         if item is not None:
             self.picked.emit(self.row(item))
 
     def keyPressEvent(self, e):
+        if (e.key() in (QtCore.Qt.Key_Return, QtCore.Qt.Key_Enter, QtCore.Qt.Key_Space)
+                and self.currentRow() >= 0):
+            self.picked.emit(self.currentRow())     # Enter / Espacio = como un clic
+            e.accept()
+            return
         before = self.currentRow()
-        self.picking = True
+        self.gesture = "browse"
         try:
             super().keyPressEvent(e)
         finally:
-            self.picking = False
+            self.gesture = None
         if self.currentRow() >= 0 and self.currentRow() != before:
-            self.picked.emit(self.currentRow())
+            self.browsed.emit(self.currentRow())
 
 
 class SourcePageMixin:
@@ -103,7 +112,8 @@ class SourcePageMixin:
         self.lst_pages.setSpacing(8)
         self.lst_pages.setUniformItemSizes(True)
         self.lst_pages.currentRowChanged.connect(self._on_page_changed)
-        self.lst_pages.picked.connect(self._choose_page)
+        self.lst_pages.picked.connect(self._pick_page)
+        self.lst_pages.browsed.connect(self._browse_page)
         self.lst_pages.added.connect(self._add_sheet)
         self.lst_pages.itemDoubleClicked.connect(lambda _it: self._go_tab(1))
         lay.addWidget(self.lst_pages, 1)
@@ -112,32 +122,40 @@ class SourcePageMixin:
         self.lbl_source_sel = QtWidgets.QLabel()
         self.lbl_source_sel.setStyleSheet(f"color:{t.text};")
         bottom.addWidget(self.lbl_source_sel, 1)
+        self.btn_remove_page = QtWidgets.QPushButton(_icon("mdi:trash-can-outline", color=t.soft_text),
+                                                     _tr("Quitar de la hoja compuesta"))
+        self.btn_remove_page.setProperty("soft", True)
+        self.btn_remove_page.setMinimumHeight(btn_h)
+        self.btn_remove_page.setAutoDefault(False)
+        self.btn_remove_page.setToolTip(_tr("Sacar la hoja elegida de la hoja compuesta"))
+        self.btn_remove_page.clicked.connect(self._remove_page)
+        bottom.addWidget(self.btn_remove_page)
         self.btn_go_area = QtWidgets.QPushButton(_icon("mdi:vector-rectangle", color=t.text_on_accent),
                                                  _tr("Tomar área de esta hoja"))
         self.btn_go_area.setMinimumHeight(btn_h)
         self.btn_go_area.setAutoDefault(False)
         self.btn_go_area.setToolTip(_tr("Ir a «Área a tomar» con la hoja elegida"))
-        self.btn_go_area.clicked.connect(lambda: (self._choose_page(), self._go_tab(1)))
+        self.btn_go_area.clicked.connect(lambda: (self._pick_page(), self._go_tab(1)))
         bottom.addWidget(self.btn_go_area)
         lay.addLayout(bottom)
         return page
 
     def _refresh_source_selection(self):
-        """Pie de la galería: qué hoja está elegida y si ya está en la hoja compuesta;
-        arriba, qué hace un clic (depende de si la hoja compuesta es una sola hoja)."""
+        """Pie de la galería: qué hoja está elegida y si ya está en la hoja compuesta (con
+        «Quitar»); arriba, qué hace un clic (la hoja que puso el compositor se cambia)."""
         if not hasattr(self, "lbl_source_sel"):
             return
-        if self._simple():
-            hint = _tr("Haz clic en la hoja del plano: esa hoja pasa a la hoja compuesta. Si solo "
-                       "necesitas una parte, márcala en «Área a tomar» (doble clic). Ctrl+clic agrega "
-                       "otra hoja.")
+        if self._provisional_now():
+            hint = _tr("Se empieza con la hoja {n}. Haz clic en la hoja que necesitas (la cambia); "
+                       "cada clic después agrega otra hoja. Si solo necesitas una parte, márcala en "
+                       "«Área a tomar» (doble clic).").format(n=self.comp.pieces[0].page + 1)
         else:
-            hint = _tr("La hoja compuesta ya está armada: un clic solo muestra la hoja. Para "
-                       "agregarla, toma su área en «Área a tomar» (doble clic) o usa Ctrl+clic para "
-                       "agregarla entera.")
+            hint = _tr("Haz clic en una hoja para agregarla a la hoja compuesta. Si solo necesitas "
+                       "una parte, márcala en «Área a tomar» (doble clic).")
         self.lbl_source_hint.setText(hint)
         n = self._cur_page + 1
         taken = self._pieces_on_page(self._cur_source, self._cur_page)
+        self.btn_remove_page.setVisible(bool(taken))
         text = _tr("Elegida: hoja {n} de {total}").format(n=n, total=self.docs[self._cur_source].page_count)
         if taken:
             text += "  ·  " + _tr("✔ ya está en la hoja compuesta")
