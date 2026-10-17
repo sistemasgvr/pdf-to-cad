@@ -105,6 +105,10 @@ _RULES = [
     (r"^Bóvedas detectadas: (\d+)", INFO, lambda m: _pl(_n(m), "bóveda", "bóvedas") + " en las líneas", "vaults"),
     (r"^Puntas unidas a su bóveda[^:]*: (\d+)", INFO,
      lambda m: _pl(_n(m), "punta unida a su bóveda", "puntas unidas a su bóveda"), "vault_snaps"),
+    (r"^Ángulos de los quiebres a pasos de [\d.]+°: (\d+)", INFO,
+     lambda m: _pl(_n(m), "quiebre con ángulo a pasos de 0.25°", "quiebres con ángulo a pasos de 0.25°"), ""),
+    (r"^Líneas con el ángulo del plano en sus quiebres: (\d+)", REVIEW,
+     lambda m: _pl(_n(m), "línea con ángulos sin redondear", "líneas con ángulos sin redondear"), "angles_off"),
     (r"^Reconocidas por las letras de su línea[^:]*: (\d+)", REVIEW,
      lambda m: _pl(_n(m), "línea reconocida por sus letras", "líneas reconocidas por sus letras"),
      "letters"),
@@ -172,6 +176,9 @@ _HINTS = {
     r"^Cobertura de guiones: ([\d.]+)%(?: \((\d+) sin cubrir)?": N_(
         "Trozos de línea del plano que no quedaron dentro de ninguna línea reconocida (en "
         "magenta). Suelen ser restos sueltos del dibujo."),
+    r"^Líneas con el ángulo del plano en sus quiebres: (\d+)": N_(
+        "Sus quiebres quedan con el ángulo exacto del plano: llevarlos a pasos de 0.25° las apartaba "
+        "de la tinta o las separaba de una línea que tocan. Revisa el ángulo de sus codos en el editor."),
     r"^Reconocidas por las letras de su línea[^:]*: (\d+)": N_(
         "El nombre de su capa no dice esta utilidad, pero las letras de la línea sí (por ejemplo "
         "«—TE—»). Confirma que es así; si no, cámbialo con «Ajustar capas…»."),
@@ -287,6 +294,8 @@ def targets_for(key: str, result) -> List[Rect]:
         out = [_around(p) for p in (getattr(result, "vault_pts", None) or [])]
     elif key == "vault_snaps":
         out = [_around(p) for p in (getattr(result, "vault_snaps_px", None) or [])]
+    elif key == "angles_off":
+        out = [_around(p) for p in (getattr(result, "angles_off_px", None) or [])]
     elif key == "walls":
         out = [b for pts in (getattr(result, "walls_px", None) or []) if (b := _bbox(pts))]
     elif key == "offpattern":

@@ -427,6 +427,45 @@ alcantarillado, drenaje, gas, eléctrico, telecom). Todo en **unidades imperiale
     vértice interior ni codo distinto. Import (zoom 3.5): caja unida a la línea 366 → 581,
     suelta 235 → 18 (nodos de varias líneas fuera del contorno y bóvedas anidadas: no se
     tocan), estructuras 3993 → 3838. Tests: `tests/test_recognition_vault_snap.py`.
+  - `recognition_angulos.py` + `recognition_angulos_calc.py` (PUROS, numpy) — **quiebres a pasos
+    de 0.25°** (pedido del usuario 2026-10-17: «no hay codos de 45.648°; sí de 11.25°, 22.5°,
+    45°…»). ÚLTIMO paso de `recognize_page` (tras el imán a bóvedas), en las dos variantes (rutas
+    unidas y tramos), con capas y sin capas: cada deflexión (codo incluido) queda múltiplo EXACTO
+    de `PASO_DEG`; nada más cambia (vértices, tipos, codos, radios). Rejilla: todos los tramos de
+    una línea con rumbo φ + k·0.25° (φ por mínimos cuadrados, peso largo²; las líneas que se tocan
+    PUNTA CON PUNTA comparten φ: el ángulo entre ellas también es un codo; las T no). Vértices
+    nuevos = mínimos cuadrados con los rumbos como filas DURAS y los contactos (vértice compartido,
+    punta sobre otra línea, con el MISMO desfase de antes) como filas BLANDAS de peso 1e6; un
+    vértice compartido queda bit a bit el mismo punto (`_MISMO_PUNTO_PT`; pesa `_PESO_COMPARTIDO`
+    =1e3 veces más, así un desacuerdo lo absorben las puntas sobre una línea), una punta sobre otra
+    línea a ≤`CONTACTO_MAX_PT`=0.05 pt. Dos contactos casi paralelos (<10°) en un vértice se
+    promedian por lo que MUEVEN (no por su término b: dependía del origen de la hoja, se iba
+    72 px). Orden (`_orden`): la ANFITRIONA de una T (punta sobre su tramo) antes que sus ramas
+    (una recta no puede seguir a dos ramas ya movidas), luego la que toca a una ya ajustada, la más
+    larga. (T en un VÉRTICE de la anfitriona como rama: −20 líneas sin ajustar, pero curvas de DU08
+    h.22 a 0.18 pt de la tinta: descartado.) Punta «stop»/«cut» = sigue SOBRE el contorno de su bóveda / el corte (`bordes`: `vault_snap.boundary`
+    + `clip_polys`); fijarla del todo dejaba mal puesto un vértice casi recto entre dos puntas
+    fijas. Micro-tramo (<`MICRO_PT`=0.25 pt: dos vértices de buzón de Phoenix a 0.02–0.1 pt) = un
+    punto rígido; el ángulo es el de los tramos a cada lado (`deflexiones_deg(pts, minimo)`).
+    Codos (`_rehacer_codos`): mismo radio, A/B/centro de `fillet_geo` SIN topes y luego
+    `recognition_arcs.fit_to_editor` (como el reconocimiento: con los topes, un codo que el editor
+    recorta bajaba de r 211 a 163 y salía de la tinta, DU06 h.3); si la tangencia caía en el
+    vértice vecino (nodo, ancla en la tangencia, mitades del codo en «U») el tramo se fuerza a
+    r·tan(Δ/2) (`_piernas_de_codos`, fila dura) y sigue ahí exacto (las mitades comparten centro y
+    radio). Intentos: radio exacto + contactos 1e6; si algún vértice se corre >`MOVER_POCO_PT`=0.5
+    pt (casi tangente/paralelo: DU08 h.47, h.49 se deslizaban 1–10 pt) se prueban sin las
+    piernas y con contactos 1e3 y gana el que menos mueve. Línea que se apartaría >`DESVIO_MAX_PT`=2
+    pt (de lado, `lateral`: deslizar por su recta no cuenta), daría vuelta un tramo o separaría un
+    contacto → queda como estaba (solo sigue a sus contactos), aviso «Líneas con el ángulo del
+    plano…» (REVIEW, `angles_off_px`). `reubicar` lleva `vault_pts`/`vault_snaps_px` a su vértice.
+    Medido (DU06/DU10/DU08/LABOE × 6 utilidades + Phoenix agua/alcantarillado, 445 hoja×utilidad):
+    15 380 quiebres a 0.25°, 94 líneas de ~5 400 sin ajustar, desvío lateral p90 por hoja ~0.07 pt
+    (máx 1 pt), contactos ≤0.05 pt, ~30 ms por hoja×utilidad (≤1 s en mapas de Phoenix);
+    `audit_perfil`: mismos tramos, codos, cobertura, «sin tinta» y «V»; «imprecisos» 85 → ~100
+    (las nuevas a 0.76–0.84 pt, una a 1.1). Pruebas que buscaban coordenadas EXACTAS del PDF las
+    buscan ahora a 0.1–0.25 pt. Ojo: `limpieza_tramos` (al exportar) y `limpieza` pueden mover un
+    vértice en sus arreglos de tramos diminutos (no conocen la rejilla). Tests:
+    `tests/test_angulos_quiebres.py`.
   - **Fase B sin inventos** (reporte del usuario 2026-10-09, DU06 h.10/h.12, «—SC—» de telecom: «hay que
     interpretar lo que da el PDF, no dibujar cosas que no existen», en TODAS las utilidades). En
     `recognition_geom.resolve_nodes` (llegadas a bóvedas): (A) `_vault_entry(run=)`: una CURVA que ya

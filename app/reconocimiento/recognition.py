@@ -46,6 +46,7 @@ from reconocimiento import recognition_taps as taps_mod
 from reconocimiento import recognition_indice as indice_mod
 from reconocimiento import recognition_diametros as diam_mod
 from reconocimiento import recognition_walls as walls_mod
+from reconocimiento import recognition_angulos as angulos_mod
 from reconocimiento import recognition_letters as letters_mod
 from reconocimiento import routes as routes_mod
 from hoja.sheet_crops import page_rect as crop_page_rect, drawing_polygon
@@ -243,6 +244,9 @@ class RecognitionResult:
     # Tuberías dibujadas con sus DOS PAREDES (`recognition_walls`): la línea media
     # que las reemplazó (px), para que el aviso lleve a cada una.
     walls_px: List[List[Tuple[float, float]]] = field(default_factory=list)
+    # Líneas cuyos quiebres quedaron con el ángulo del plano (`recognition_angulos`: llevarlos
+    # a pasos de 0.25° las movía de más): un punto por línea, para el aviso.
+    angles_off_px: List[Tuple[float, float]] = field(default_factory=list)
 
     @property
     def drawable(self) -> List[RecognizedPolyline]:
@@ -1288,6 +1292,7 @@ def recognize_page(
             if points and by_ocg[ocg]:
                 by_ocg[ocg][0] = dict(by_ocg[ocg][0], contact_pts=[q for q, _u in points])
         results: List[Tuple[bool, str, object]] = []
+        cortes_px: List[list] = []                     # recortes (px) de todas las capas: bordes de las puntas «cut»
         n_ink_layers = 0
         ink_ocgs: set = set()
         for k_capa, (ocg, paths) in enumerate(sorted(by_ocg.items())):
@@ -1530,6 +1535,7 @@ def recognize_page(
             # recortes de esta capa (borde de la vista, pieza de la hoja compuesta)
             clip_polys = sorted({pg for pth in by_ocg.get(ocg, []) for pg in (pth.get("clip_polys") or ())})
             clip_px = [[px(q) for q in pg] for pg in clip_polys]
+            cortes_px.extend(clip_px)
             glyphs_px = [(*px((gl.cx, gl.cy)), gl.size * zoom) for gl in getattr(g, "glyphs", ())]
             ink_ix = ends_mod.ink_index([(a, b) for st in st_all for a, b in zip(st, st[1:])], zoom) if clip_polys else None
             cut_j = (clip_px, glyphs_px, g.pattern, [r.pl for r in joined], ink_ix) if clip_polys else None
@@ -1703,6 +1709,20 @@ def recognize_page(
                 if not any(math.hypot(snap["to"][0] - q[0], snap["to"][1] - q[1]) < 0.5 * zoom
                            for q in vault_snaps_px):
                     vault_snaps_px.append(snap["to"])
+        # Ángulo de cada quiebre a pasos de 0.25° (pedido del usuario 2026-10-17: no hay codos
+        # de 45.648°): paso aparte, al final; cada vértice se mueve lo mínimo y nada más cambia
+        # (`recognition_angulos`). Las bóvedas y puntas marcadas siguen a su vértice.
+        avance_mod.avisar(_tr("Llevando los ángulos de los quiebres a pasos de {p}°…").format(
+            p=f"{angulos_mod.PASO_DEG:g}"))
+        # (la punta en el borde de su bóveda o en el corte de la vista sigue sobre ese borde)
+        bordes = ([b for b in (vault_snap_mod.boundary(vg) for vg in vaults_geo) if b]
+                  + [("poly", pg) for pg in cortes_px if len(pg) >= 3])
+        ajustes = [angulos_mod.ajustar_quiebres(variant, zoom, bordes=bordes)
+                   for variant in ((polylines_joined, polylines_raw) if join_routes
+                                   else (polylines_raw, polylines_joined))]
+        ajuste = ajustes[0]                            # el de la variante que se importa
+        vault_pts = angulos_mod.reubicar(vault_pts, ajuste.movidos)
+        vault_snaps_px = angulos_mod.reubicar(vault_snaps_px, ajuste.movidos)
 
         stubs = []
         for ocg, kind in kind_by_ocg.items():          # stubs informativos (no dibujables)
@@ -1825,6 +1845,14 @@ def recognize_page(
             warnings.append(_tr("Puntas unidas a su bóveda (imán): {n} — quedaban a menos de {d} pt "
                                 "de su contorno y se llevaron hasta él por su propia recta.").format(
                 n=len(vault_snaps_px), d=f"{vault_snap_mod.SNAP_STOP_PT:g}"))
+        if ajuste.quiebres:
+            warnings.append(_tr("Ángulos de los quiebres a pasos de {p}°: {n} — cada vértice se movió lo mínimo "
+                                "(máx. {d:.2f} pt); los codos conservan su radio.").format(
+                p=f"{angulos_mod.PASO_DEG:g}", n=ajuste.quiebres, d=ajuste.max_desvio_px / max(zoom, 1e-9)))
+        if ajuste.sin_ajustar:
+            warnings.append(_tr("Líneas con el ángulo del plano en sus quiebres: {n} — llevarlas a pasos de {p}° "
+                                "las apartaba de la tinta o de una línea que tocan.").format(
+                n=len(ajuste.sin_ajustar), p=f"{angulos_mod.PASO_DEG:g}"))
 
         roles_out = roles if use_roles else roles_from_suggestions(list(kind_by_ocg.keys()), utility)
         return RecognitionResult(
@@ -1833,7 +1861,7 @@ def recognize_page(
             hidden_ocgs=sorted(hidden), vault_pts=vault_pts, layer_roles=dict(roles_out),
             coverage=coverage_total, uncovered_px=uncovered_px, offpattern_px=offpattern_px,
             vault_orphans_px=orphans_px, join_routes=join_routes, vaults_geo=vaults_geo,
-            vault_snaps_px=vault_snaps_px,
+            vault_snaps_px=vault_snaps_px, angles_off_px=list(ajuste.sin_ajustar),
             walls_px=[[px(q) for q in c["mid"]] for c in wall_changes],
             n_routes=n_routes, n_segments_total=n_segments_total,
             polylines_joined=polylines_joined, polylines_raw=polylines_raw,

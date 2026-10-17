@@ -76,17 +76,20 @@ def test_reported_text_gaps_are_connected_in_pdf(sheets, variant):
     lines = [p for p in getattr(sheets[5,'TELECOM'],variant)
              if p.layer_ocg.endswith('N-COMM-DUCT-BANK-PL')]
     lower = (663.0599975585938*3.5,1251.9599609375*3.5)
-    touching = [p for p in lines if lower in p.pts_pdf]
+    # (≤ 0.1 pt: los quiebres a pasos de 0.25° corren el vértice ≤ 0.06 pt de la coordenada del PDF)
+    near = lambda p: next((v for v in p.pts_pdf if math.dist(v, lower) < .1*3.5), None)  # noqa: E731
+    touching = [p for p in lines if near(p) is not None]
     if variant == 'polylines_raw':
         # The bottom arc has a real shared endpoint, not two visually close ends.
         assert len(touching) == 2
-        assert all(p.kinds[p.pts_pdf.index(lower)] == 'junction' for p in touching)
+        assert near(touching[0]) == near(touching[1])
+        assert all(p.kinds[p.pts_pdf.index(near(p))] == 'junction' for p in touching)
     else:
         # Joined routes follow the trajectory (user request 2026-09-30): vault →
         # vertical → whole «U» → top straight, one route; the gap is a pass-through.
         assert len(touching) == 1
         u = touching[0]
-        k = u.pts_pdf.index(lower)
+        k = u.pts_pdf.index(near(u))
         assert 0 < k < len(u.pts_pdf)-1 and u.kinds[k] == 'bend'
         assert {u.kinds[0], u.kinds[-1]} == {'vault', 'end'}
     # The side branch shares a node on the vertical leg; both text gaps use

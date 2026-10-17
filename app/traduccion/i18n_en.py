@@ -2032,6 +2032,14 @@ EN: dict[str, str] = {
         "Pipes drawn with walls and centerline: {n} — the centerline is used and the walls are skipped.",
     "Puntas unidas a su bóveda (imán): {n} — quedaban a menos de {d} pt de su contorno y se llevaron hasta él por su propia recta.":
         "Line ends joined to their vault (magnet): {n} — they were less than {d} pt from its outline and were moved onto it along their own line.",
+    "Llevando los ángulos de los quiebres a pasos de {p}°…":
+        "Snapping bend angles to {p}° steps…",
+    "Ángulos de los quiebres a pasos de {p}°: {n} — cada vértice se movió lo mínimo (máx. {d:.2f} pt); los codos conservan su radio.":
+        "Bend angles in steps of {p}°: {n} — each vertex moved as little as possible (max. {d:.2f} pt); elbows keep their radius.",
+    "Líneas con el ángulo del plano en sus quiebres: {n} — llevarlas a pasos de {p}° las apartaba de la tinta o de una línea que tocan.":
+        "Lines that keep the plan's angle at their bends: {n} — snapping them to {p}° steps pulled them off the ink or away from a line they touch.",
+    "Sus quiebres quedan con el ángulo exacto del plano: llevarlos a pasos de 0.25° las apartaba de la tinta o las separaba de una línea que tocan. Revisa el ángulo de sus codos en el editor.":
+        "Their bends keep the plan's exact angle: snapping them to 0.25° steps pulled them off the ink or away from a line they touch. Check their elbow angles in the editor.",
     "Reconocidas por las letras de su línea (no por el nombre de la capa): {n} — {capas}.":
         "Recognized by the letters on their line (not by the layer name): {n} — {capas}.",
     "(su nombre decía {u})":

@@ -385,6 +385,14 @@ imagen/escaneo…</b>), pero sin capas ni reconocimiento: al final,
     cambias el diámetro, la curva lo sigue), así no se agranda el error del dibujo. Donde la curva
     mínima no cabe (tramos muy cortos, o se recortaría otra curva) queda el quiebre. Agua y gas no
     cambian: en presión el quiebre es un codo.</li>
+<li>El <b>ángulo de cada quiebre</b> (lo que gira la línea, el de cada codo) sale a <b>pasos de
+    0.25°</b>: 45°, 45.25°, 11.25°… nunca 45.648°, porque esos codos no existen. Vale con capas y sin
+    capas, en todas las utilidades, y también para el ángulo entre dos líneas que se unen punta con
+    punta. Para lograrlo cada vértice se mueve lo mínimo (normalmente centésimas de punto; el aviso
+    de la vista previa dice el máximo), los codos conservan su radio y lo que tocaba otra línea la
+    sigue tocando. Los ángulos que ya eran exactos (90°, una recta) no se mueven. Si una línea no se
+    puede ajustar sin apartarla de la tinta o separarla de una línea que toca (pasa en algún lazo de
+    la red), queda con el ángulo del plano y aparece en «Para verificar».</li>
 <li>Cada línea <b>termina donde termina su tinta</b>: si en el plano muere en el aire no se une a
     la línea vecina. Si muere en su letra (o en un hueco) justo antes del borde de la vista, llega
     hasta el <b>corte</b> del plano; en la hoja compuesta, las que cruzan la unión siguen de una
