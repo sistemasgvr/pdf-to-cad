@@ -434,9 +434,23 @@ was</b>, with the same sheet, its lines, Undo and unsaved changes. Only
 <ol>
 <li>Open the <b>Draw utility</b> section of the left panel.</li>
 <li>Choose the <b>type</b>: water, sewer, storm drain, gas, electrical or telecom.</li>
-<li><b>Click</b> on the plan at each point the pipe passes through.</li>
-<li>Press <span class="key">&nbsp;Enter&nbsp;</span> to finish.</li>
+<li><b>Click</b> where the pipe starts and then at each point it passes through: the pipe stretches to
+the cursor.</li>
+<li>Press <span class="key">&nbsp;Enter&nbsp;</span> (or right-click) to finish it. Another
+<span class="key">&nbsp;Enter&nbsp;</span> leaves drawing mode.</li>
 </ol>
+
+<h2>Angles in 0.25° steps</h2>
+<p><b>Every angle goes in 0.25° steps</b> (45°, 45.25°, 45.5°…; never 45.684°): the bends of a pipe, the joints
+between pipes and the pressure fittings. When you draw by hand the app does it on its own and, if you pass close
+to going straight on, turning 45° or 90°, or the sheet's horizontal/vertical, the line snaps there: no more small
+hand-shake kinks.</p>
+<p>Next to the cursor you see the bearing, the <b>turn</b> from the previous segment (the angle of the bend or
+fitting) with <b>✓</b> when it follows the step, and the length. The green magnet still rules: at the <b>end or
+vertex</b> of another pipe the point snaps there exactly (the previous point slides a few tenths along its line so
+the angle stays on the step); on a <b>segment</b>, it lands exactly where the allowed direction crosses it.</p>
+<p>When you <b>edit/move</b> a vertex it also stays on the step, and next to it you see its turn with ✓ (or ⚠ if
+snapping to another utility leaves an angle off the step) and the length of its segments.</p>
 
 <h2>The green magnet (to join pipes precisely)</h2>
 <p>When you get close to another pipe of the same type, a green mark appears. Its shape tells you what the click will snap to:</p>
@@ -557,6 +571,7 @@ selected passes its data to the rest.</p>
 <tr><td bgcolor="{{card}}"><b>Name</b></td><td bgcolor="{{card}}">Network name in Civil 3D (for example «Linea Norte»). If empty, it is called <b>TYPE-NUMBER</b> with its number in the list (for example «TELECOM-13»); if you delete utilities, the number updates itself.</td></tr>
 <tr><td bgcolor="{{card}}"><b>Family and Size</b></td><td bgcolor="{{card}}">Civil 3D catalog part. Listed for the version and language chosen on the top bar. If the size you need is missing, use the green <b>+</b> button (see below).</td></tr>
 <tr><td bgcolor="{{card}}"><b>Start / end elevation</b></td><td bgcolor="{{card}}">Elevation of the pipe bottom (in feet) at the start and the end.</td></tr>
+<tr><td bgcolor="{{card}}"><b>Slope</b></td><td bgcolor="{{card}}">Shown by itself below the elevations: one if the pipe has a single segment (or all the same), and the slope of each segment (T1, T2…) if the per-segment elevations change it.</td></tr>
 <tr><td bgcolor="{{card}}"><b>Material</b></td><td bgcolor="{{card}}">From a fixed list that matches the catalog.</td></tr>
 <tr><td bgcolor="{{card}}"><b>Abandoned</b></td><td bgcolor="{{card}}">Marks a pipe that is out of service. In Civil 3D it shows dashed in 3D.</td></tr>
 <tr><td bgcolor="{{card}}"><b>Elevations per segment</b></td><td bgcolor="{{card}}">Press «Enable per-segment editing» to give each segment (T1, T2…) its own elevation.</td></tr>
@@ -610,10 +625,11 @@ feet). If the number turns red, the radius does not fit the neighboring segments
 shows the maximum allowed. Curves that came from a kink in the plan show
 <b>Source: kink in the plan</b>; «Treat as manhole/box again» removes them.</p>
 <p>On <b>electrical and telecom</b> lines the vertices have no box: select the utility and its vertices show
-as white dots; <b>right-click one → «Convert this vertex into a curve»</b> (automatic radius; change it in the
-panel). To undo it, <b>«Remove the curve (back to a vertex)»</b>: it leaves no box.</p>
+as white dots; <b>click one</b> and, in the utility panel, <b>«Change to curve»</b> (or <b>right-click it →
+«Convert this vertex into a curve»</b>). It comes with an automatic radius; change it in the Curves panel. To undo it, <b>«Remove the curve (back to a vertex)»</b>: it leaves no box.</p>
 <p>When zooming in a lot, the dots of vertices, manholes and curves stop growing: they do not cover short
-segments.</p>
+segments. The <b>T1, T2…</b> labels of per-segment editing get smaller on short segments and move to one side so
+they do not overlap.</p>
 </section>
 
 <section data-title="Manholes and boxes">
@@ -695,6 +711,9 @@ pipes cross at the same elevation without being connected («Clashing pipes»).<
 </table>
 <p class="small">Signs can be hidden from the View menu («Show crossings/conflicts»).
 The status bar at the bottom counts how many there are of each kind.</p>
+<p class="small">With hundreds of pipes the check stays fast: it only compares the nearby ones and is not
+repeated while the design does not change (selecting, switching tabs or modes does not redo it).
+The same goes for the mouse (highlight, snap, click) and Undo, which stores only what changed in each step.</p>
 </section>
 
 <section data-title="Red alerts: when they appear">
@@ -857,8 +876,20 @@ you edit. When it opens, the project is saved just in case (if it has no file ye
     with their outline and top elevation.</li>
 <li><b>Duct banks</b> with their envelope (bottom at the utility elevation) and their conduits inside.</li>
 <li>Water and gas <b>fittings</b> with the shape the plugin gives them (tee, wye and cross with one arm and one
-    bell per pipe; curved bend), in a light tone, with each pipe entering its bell; approved vertical connections with their fittings as in Civil 3D (90° elbow if the utility ends at the crossing, Tee if it passes through, and at a bend Wye + short pipe + elbows) and the marks of the standards warnings (amber) and of the <b>conflicts</b> (red, with their C-n number; click = their sheet).</li>
+    bell per pipe; curved bend; the cross also where two pipes cross in an X mid-segment at the same elevation,
+    even with different diameters; the <b>reducer</b> where two of different diameter join in a straight line,
+    and at a bend the elbow of the larger diameter followed by the reducer, as in Civil 3D), in a light tone,
+    with each pipe entering its bell (also the elbow where the
+    pipe changes slope even if it stays straight in plan, as Civil 3D places it); approved vertical connections
+    with their fittings as in Civil 3D (elbow if the utility ends at the crossing, Tee if it passes through, and
+    at a bend Wye + short pipe + elbows; the arm toward the utility follows its slope) and the marks of the standards warnings (amber) and of the <b>conflicts</b> (red, with their C-n number; click = their sheet).</li>
 <li>The <b>ground</b>, semi-transparent, to see what is underground.</li>
+<li>With <b>«Angles and slopes per segment»</b> (Show), a label with the slope of each segment and another with
+    the angle of each bend on every utility. When you pick a utility, its card shows its slope (or the slope of
+    each segment if it changes).</li>
+<li>Built for modest computers: pipes, fittings and marks are sent to the graphics card as copies of a few
+    pieces (with OpenGL 3.3, almost any PC since 2012), so the view uses about ten times less memory; on an
+    older computer it looks the same with the previous method.</li>
 </ul>
 
 <h2>Moving around</h2>

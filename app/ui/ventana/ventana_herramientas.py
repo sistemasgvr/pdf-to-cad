@@ -118,10 +118,16 @@ class HerramientasMixin:
         ft_px = self.scale / self.zoom if self.scale and self.zoom else 0.0
         if ft_px and self.pipes:
             from nucleo import accesorios as _acc
-            accs = _acc.accesorios(self.pipes, self._pipe_z_at, ft_px)
+            # Se reusan mientras el modelo no cambie (`_memo`, ventana_dibujo): copias, que
+            # `marcar` escribe la aprobación en cada aviso.
+            accs = self._memo(("accesorios", ft_px), lambda: _acc.accesorios(self.pipes, self._pipe_z_at, ft_px))
             con_db = {i for db in getattr(self, "duct_banks", []) or [] for i in db.assigned()}
-            self._normas_avisos = normas_validar.validar(self.normas_cat, self.pipes, accs, ft_px, con_db,
-                                                         self.structures)
+            self._normas_avisos = self._memo(("normas", ft_px), lambda: normas_validar.validar(
+                self.normas_cat, self.pipes, accs, ft_px, con_db, self.structures))
+            # Ángulos en pasos de 0.25°: se validan pero NO se muestran (pedido del usuario 2026-10-16:
+            # el dibujo a mano ya los deja en el paso; no van a los avisos ni al plano).
+            from nucleo import angulos
+            self._angulos_fuera = self._memo(("angulos", ft_px), lambda: angulos.avisos(self.pipes, ft_px))
             normas_aprobacion.marcar(self._normas_avisos, self.pipes, getattr(self, "normas_aprobados", []))
             tol = 0.5 / ft_px
             ver_acc = getattr(self, "act_show_acc", None) is None or self.act_show_acc.isChecked()
@@ -145,6 +151,7 @@ class HerramientasMixin:
             self._normas_dlg.refrescar()
         if getattr(self, "lbl_normas_pipe", None) is not None:
             self._mostrar_avisos_de_la_utilidad()
+        self._mostrar_pendiente()
         self._vista3d_al_dia()
 
     def aprobar_avisos(self, avisos, nota=""):
@@ -238,6 +245,27 @@ class HerramientasMixin:
         lbl.setText("\n".join(("✔ " + _tr("Aprobado:") + " " if a.aprobado else ("ⓘ " if a.info else "⚠ "))
                               + a.mensaje for a in suyos[:4]))
         lbl.setVisible(bool(suyos))
+        self._mostrar_pendiente()
+
+    def _mostrar_pendiente(self):
+        """Pendiente (%) de la utilidad elegida en el panel: una si tiene un tramo o todos tienen la
+        misma; si las cotas por tramo la cambian, la de cada tramo (T1, T2…), como Civil 3D."""
+        lbl = getattr(self, "lbl_pendiente", None)
+        if lbl is None:
+            return
+        ft_px = self.scale / self.zoom if self.scale and self.zoom else 0.0
+        p = self.pipes[self.sel_pipe] if 0 <= self.sel_pipe < len(self.pipes) else None
+        tramos = model_ops.pendientes_tramos(p, ft_px) if p is not None and ft_px else []
+        validas = [s for s in tramos if s is not None]
+        if not validas:
+            lbl.setText(""); lbl.setVisible(False)
+            return
+        if len(validas) == 1 or max(validas) - min(validas) <= 0.0005:
+            lbl.setText(_tr("Pendiente: {p} %").format(p=f"{validas[0]:.3f}"))
+        else:
+            lbl.setText(_tr("Pendiente por tramo: {tramos}").format(
+                tramos="  ·  ".join(f"T{k + 1} {s:.3f} %" for k, s in enumerate(tramos) if s is not None)))
+        lbl.setVisible(True)
 
     def _agregar_tipo(self):
         """«+» junto a «Tipo»: un tipo nuevo para esta utilidad (queda en las

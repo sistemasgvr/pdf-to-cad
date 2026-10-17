@@ -30,7 +30,7 @@ _FIXED = [
         ("Esc", N_("Soltar la herramienta activa sin cerrar la ventana")),
     ]),
     (N_("Lienzo y ratón"), [
-        ("Enter", N_("Aplicar: finaliza utilidad/zona, o agrega texto/edición")),
+        ("Enter", N_("Aplicar: finaliza utilidad/zona (otro Enter sale del modo), o agrega texto/edición")),
         ("Esc", N_("Quitar la selección; si no hay, salir del modo")),
         (N_("Doble clic"), N_("Sobre un texto: editarlo")),
         (N_("Clic derecho"), N_("Finaliza línea/zona; en editar, elimina el vértice")),

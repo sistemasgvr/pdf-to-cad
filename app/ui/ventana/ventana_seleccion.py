@@ -299,11 +299,20 @@ class SeleccionMixin:
             self._menu_act(menu, "Eliminar", self.delete_selected)
         menu.exec(QtGui.QCursor.pos())
 
+    def _utilidades_cerca(self, x, y, r):
+        """Las utilidades (índices, en orden) con algún tramo a ≤ r del punto: el ratón (hover,
+        imán, clic) revisa solo esas, con la misma cuenta de siempre (`indice_plano`)."""
+        from nucleo.indice_plano import utilidades_cerca
+        if getattr(self, "_cache_raton", None) is None:
+            self._cache_raton = {}
+        return utilidades_cerca(self._cache_raton, self.pipes, x, y, r)
+
     def _pipe_at(self, x, y):
         """Índice de la utilidad más cercana al punto (a ≤ 10 px de pantalla) o -1."""
         thr = 10.0 / max(1e-6, self.canvas.transform().m11())
         best, bd = -1, thr
-        for i, p in enumerate(self.pipes):
+        for i in self._utilidades_cerca(x, y, thr):
+            p = self.pipes[i]
             if not p.get("pts"): continue               # tramos importados (world) no están en el lienzo
             for a, b in zip(p["pts"], p["pts"][1:]):
                 d = G.pt_seg_dist(x, y, a[0], a[1], b[0], b[1])

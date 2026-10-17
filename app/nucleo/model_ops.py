@@ -14,6 +14,8 @@ probar en aislamiento:
 """
 import copy
 import math
+import threading
+from contextlib import contextmanager
 
 from nucleo.model import network_kind, LEADER_TEXT_FT, PIPE_DIAMETERS_IN
 
@@ -210,6 +212,20 @@ def rebuild_structures(pipes, structures):
                     and (s.get("net") or "") == "conduit"]
     world = [s for s in structures if s.get("world") or s.get("standalone")]
     detected = []
+    # Celdas de `tol` (pedido 2026-10-16, «sin comparar todo con todo»: con 400 utilidades
+    # cada deshacer tardaba ~12 s aquí). Solo proponen candidatos; la prueba `near` y el
+    # orden («el primero gana») son los de siempre: mismo resultado.
+    celda = tol if tol > 0 else 1.0
+    holgura = tol * (1 + 1e-9) + 1e-9
+    celdas_det = {}
+
+    def _cerca_det(pt):
+        for i in range(math.floor((pt[0] - holgura) / celda), math.floor((pt[0] + holgura) / celda) + 1):
+            for j in range(math.floor((pt[1] - holgura) / celda), math.floor((pt[1] + holgura) / celda) + 1):
+                for s in celdas_det.get((i, j), ()):
+                    if near(pt, (s["x"], s["y"])):
+                        return True
+        return False
     for p in pipes:
         if p.get("world"): continue
         kind = network_kind(p.get("layer") or "")
@@ -219,14 +235,19 @@ def rebuild_structures(pipes, structures):
         pts = p.get("pts")
         if not pts or len(pts) < 2: continue
         for pt in pts:                              # todos los vértices (extremos + intermedios)
-            if not any(s.get("net") == kind and near(pt, (s["x"], s["y"]))
-                       for s in detected):
-                detected.append({"cod": "", "x": pt[0], "y": pt[1], "rim": None,
-                                 "sump": None, "part": "", "part_size": "",
-                                 "net": kind, "covered": True, "world": False,
-                                 "hidden": False})
+            if not _cerca_det(pt):                  # (todo `detected` es de gravedad: net == kind)
+                nuevo = {"cod": "", "x": pt[0], "y": pt[1], "rim": None,
+                         "sump": None, "part": "", "part_size": "",
+                         "net": kind, "covered": True, "world": False,
+                         "hidden": False}
+                detected.append(nuevo)
+                celdas_det.setdefault((math.floor(pt[0] / celda), math.floor(pt[1] / celda)), []).append(nuevo)
+    from nucleo.indice_plano import IndicePuntos
+    validas = [k for k, o in enumerate(old_gravity)
+               if isinstance(o.get("x", -1e9), (int, float)) and isinstance(o.get("y", -1e9), (int, float))]
+    ind_old = IndicePuntos([(old_gravity[k].get("x", -1e9), old_gravity[k].get("y", -1e9)) for k in validas], celda)
     for s in detected:                                 # reasigna ediciones previas por coordenada
-        for o in old_gravity:
+        for o in (old_gravity[validas[k]] for k in ind_old.en_caja(s["x"], s["y"], holgura)):
             if near((s["x"], s["y"]), (o.get("x", -1e9), o.get("y", -1e9))):
                 s.update(cod=o.get("cod", ""), rim=o.get("rim"), sump=o.get("sump"),
                          part=o.get("part", ""), part_size=o.get("part_size", ""),
@@ -339,15 +360,30 @@ def interp_vertex_z(pts, z_start, z_end, overrides):
     return z
 
 
-def cotas_tramo(p, seg_idx):
-    """(z al inicio, z al fin) del tramo `seg_idx` de la utilidad `p` (soleras), o None.
-    Usa las cotas por vértice (VertexInv/VertexInvIn) con el mismo criterio que
-    `interp_vertex_z`. Sin `inv_start`/`inv_end` (tubería recién dibujada) asume Z=0
-    — mismo valor que muestra el spinbox de la UI por defecto. Lo usan el lienzo
-    (`Main._pipe_z_at`) y la vista 3D."""
+_memo = threading.local()
+
+
+@contextmanager
+def memo_cotas():
+    """Dentro del bloque (en ESTE hilo), las cotas por vértice de cada utilidad se calculan UNA
+    vez (`cotas_tramo` las rehacía enteras por cada tramo pedido: O(n²) por utilidad). Solo
+    para quien no cambia las utilidades mientras tanto (la vista 3D arma sobre copias)."""
+    antes = getattr(_memo, "d", None)
+    _memo.d = {}
+    try:
+        yield
+    finally:
+        _memo.d = antes
+
+
+def _cotas_vertices(p):
+    """(zs, ze, ov_out, ov_in, auto_out, auto_in) de la utilidad, como los usa `cotas_tramo`."""
+    d = getattr(_memo, "d", None)
+    if d is not None:
+        r = d.get(id(p))
+        if r is not None and r[0] is p:
+            return r[1]
     pts = p.get("pts") or []
-    if seg_idx < 0 or seg_idx >= len(pts) - 1: return None
-    n = len(pts)
     zs = p.get("inv_start"); ze = p.get("inv_end")
     # None → 0.0 (coincide con el valor por defecto que ve el usuario).
     if zs is None: zs = 0.0 if ze is None else ze
@@ -371,6 +407,22 @@ def cotas_tramo(p, seg_idx):
         ov_out = dict(viejo); ov_in = dict(viejo)
     auto_out = interp_vertex_z(pts, zs, ze, ov_out)
     auto_in  = interp_vertex_z(pts, zs, ze, ov_in)
+    val = (zs, ze, ov_out, ov_in, auto_out, auto_in)
+    if d is not None:
+        d[id(p)] = (p, val)
+    return val
+
+
+def cotas_tramo(p, seg_idx):
+    """(z al inicio, z al fin) del tramo `seg_idx` de la utilidad `p` (soleras), o None.
+    Usa las cotas por vértice (VertexInv/VertexInvIn) con el mismo criterio que
+    `interp_vertex_z`. Sin `inv_start`/`inv_end` (tubería recién dibujada) asume Z=0
+    — mismo valor que muestra el spinbox de la UI por defecto. Lo usan el lienzo
+    (`Main._pipe_z_at`) y la vista 3D."""
+    pts = p.get("pts") or []
+    if seg_idx < 0 or seg_idx >= len(pts) - 1: return None
+    n = len(pts)
+    zs, ze, ov_out, ov_in, auto_out, auto_in = _cotas_vertices(p)
     v0, v1 = seg_idx, seg_idx + 1
     # z al INICIO del segmento = cota de salida del vértice v0.
     z0 = zs if v0 == 0 else ov_out.get(v0, auto_out[v0])
@@ -1072,21 +1124,36 @@ def junturas_excedidas(pipes, z_at, tol_px, z_tol=0.10, maximo=MAX_TRAMOS_POR_AC
     tol2 = tol_px * tol_px
     usado = [False] * len(extremos)
     salida = []
+    # Candidatos por celdas (antes: cada extremo contra TODOS). Mismo recorrido: los b > a en
+    # orden, contra el centro del grupo en ese momento. Solo se miran los b a ≤ R del primero;
+    # si el centro del grupo llegó a alejarse más de R − tol, se repite con un R mayor (un b
+    # más lejos no podía estar a ≤ tol de ningún centro): el grupo es EXACTAMENTE el de antes.
+    from nucleo.indice_plano import IndicePuntos
+    indice = IndicePuntos([(e[0], e[1]) for e in extremos], tol_px if tol_px > 0 else 1.0)
     for a in range(len(extremos)):
         if usado[a]:
             continue
-        usado[a] = True
-        grupo = [a]
-        sx, sy = extremos[a][0], extremos[a][1]
-        for b in range(a + 1, len(extremos)):
-            if usado[b] or extremos[b][2] != extremos[a][2]:
-                continue
-            cx, cy = sx / len(grupo), sy / len(grupo)
-            if (extremos[b][0] - cx) ** 2 + (extremos[b][1] - cy) ** 2 > tol2:
-                continue
+        x0, y0 = extremos[a][0], extremos[a][1]
+        R = 2.5 * tol_px
+        while True:
+            grupo = [a]
+            sx, sy = x0, y0
+            lejos = 0.0
+            for b in indice.en_caja(x0, y0, R):
+                if b <= a or usado[b] or extremos[b][2] != extremos[a][2]:
+                    continue
+                cx, cy = sx / len(grupo), sy / len(grupo)
+                lejos = max(lejos, math.hypot(cx - x0, cy - y0))
+                if (extremos[b][0] - cx) ** 2 + (extremos[b][1] - cy) ** 2 > tol2:
+                    continue
+                grupo.append(b)
+                sx += extremos[b][0]; sy += extremos[b][1]
+            lejos = max(lejos, math.hypot(sx / len(grupo) - x0, sy / len(grupo) - y0))
+            if lejos + tol_px < R:
+                break
+            R = lejos + 2.0 * tol_px + 1.0
+        for b in grupo:
             usado[b] = True
-            grupo.append(b)
-            sx += extremos[b][0]; sy += extremos[b][1]
         if len(grupo) <= maximo:
             continue
         # Por utilidad: cada una su cota media; luego se encadenan por cota.
@@ -1154,31 +1221,36 @@ def choques_sin_conexion(pipes, z_at, tol_px, structures=(), z_tol=0.10):
     cajas = [(float(s.get("x", 1e12)), float(s.get("y", 1e12))) for s in structures or ()
              if (s.get("net") or "") == "conduit" and not s.get("curve") and not s.get("world")]
     salida = []
-    for a in range(len(datos)):
+    # Solo los pares de tramos cuyos recuadros se tocan (`indice_plano.pares_tramos`; antes:
+    # todos contra todos), en el MISMO orden de siempre (utilidad a, b, tramo ka, kb).
+    from nucleo.indice_plano import pares_tramos
+    planos = [(a, k) for a, (_i, _l, _n, pts) in enumerate(datos) for k in range(len(pts) - 1)]
+    candidatos = sorted(
+        (planos[s][0], planos[t][0], planos[s][1], planos[t][1])
+        for s, t in pares_tramos([(datos[a][3][k], datos[a][3][k + 1]) for a, k in planos])
+        if planos[s][0] != planos[t][0])
+    for a, b, ka, kb in candidatos:
         ia, la, na, pa = datos[a]
-        for b in range(a + 1, len(datos)):
-            ib, lb, nb, pb = datos[b]
-            if na == "pressure" and nb == "pressure":
-                continue
-            for ka in range(len(pa) - 1):
-                for kb in range(len(pb) - 1):
-                    cp = _inter(pa[ka], pa[ka + 1], pb[kb], pb[kb + 1])
-                    if cp is None:
-                        continue
-                    if any(_cerca(cp, q) for q in (pa[0], pa[-1], pb[0], pb[-1])):
-                        continue                         # una termina ahí: no atraviesa
-                    if any(_cerca(cp, (e["x"], e["y"])) for e in salida):
-                        continue
-                    za, zb = z_at(ia, ka, cp[0], cp[1]), z_at(ib, kb, cp[0], cp[1])
-                    if za is None or zb is None or abs(za - zb) > z_tol:
-                        continue
-                    if la == lb and any(_cerca(cp, q) for q in pa) and any(_cerca(cp, q) for q in pb):
-                        if na == "gravity":
-                            continue                     # el buzón del vértice las une
-                        if na == "conduit" and any(_cerca(cp, c) for c in cajas):
-                            continue                     # la caja las une
-                    salida.append({"x": cp[0], "y": cp[1], "ia": ia, "ib": ib,
-                                   "za": float(za), "zb": float(zb)})
+        ib, lb, nb, pb = datos[b]
+        if na == "pressure" and nb == "pressure":
+            continue
+        cp = _inter(pa[ka], pa[ka + 1], pb[kb], pb[kb + 1])
+        if cp is None:
+            continue
+        if any(_cerca(cp, q) for q in (pa[0], pa[-1], pb[0], pb[-1])):
+            continue                         # una termina ahí: no atraviesa
+        if any(_cerca(cp, (e["x"], e["y"])) for e in salida):
+            continue
+        za, zb = z_at(ia, ka, cp[0], cp[1]), z_at(ib, kb, cp[0], cp[1])
+        if za is None or zb is None or abs(za - zb) > z_tol:
+            continue
+        if la == lb and any(_cerca(cp, q) for q in pa) and any(_cerca(cp, q) for q in pb):
+            if na == "gravity":
+                continue                     # el buzón del vértice las une
+            if na == "conduit" and any(_cerca(cp, c) for c in cajas):
+                continue                     # la caja las une
+        salida.append({"x": cp[0], "y": cp[1], "ia": ia, "ib": ib,
+                       "za": float(za), "zb": float(zb)})
     return salida
 
 

@@ -14,11 +14,41 @@ el cursor (`elegir`: rayo contra cápsulas, vectorizado).
 from __future__ import annotations
 
 import math
+import threading
+from contextlib import contextmanager
 
 import numpy as np
 
 CAMPOS = 15
 VACIA = np.zeros((0, CAMPOS), np.float32)
+
+# Instancias para la GPU (`instancias3d`): con un colector activo en ESTE hilo, los círculos
+# barridos y las esferas se anotan ahí en vez de volverse triángulos.
+_hilo = threading.local()
+
+
+@contextmanager
+def instanciar(colector):
+    """Dentro del bloque, `barrido_camino` (perfil circular centrado) y `esfera` anotan su
+    forma en `colector` (`instancias3d.Instancias`) y devuelven una malla vacía."""
+    antes = getattr(_hilo, "colector", None)
+    _hilo.colector = colector
+    try:
+        yield colector
+    finally:
+        _hilo.colector = antes
+
+
+def _colector():
+    return getattr(_hilo, "colector", None)
+
+
+def _es_circulo(perfil):
+    """Lados del perfil si es el círculo CENTRADO de `perfil_circulo` (si no, None)."""
+    pts, nor, suave = perfil
+    if not suave or nor is None or len(pts) < 3 or nor.shape != pts.shape or nor[0, 0] != 1.0:
+        return None
+    return len(pts) if np.array_equal(pts, nor * pts[0, 0]) and np.array_equal(nor, perfil_circulo(1.0, len(pts))[1])         else None
 
 
 def _vertices(pos, nor, color, ident):
@@ -63,7 +93,8 @@ def barrido_camino(camino, perfil, color, ident, tapas=(True, True), minimo=Fals
     se COMPARTEN entre tramos: en cada vértice el anillo va sobre la bisectriz (inglete,
     estirado 1/cos(giro/2) en el sentido del giro), así una curva queda lisa, sin
     escalones entre tramos. `minimo` = tubería: lleva su eje y radio para el grosor
-    mínimo en pantalla."""
+    mínimo en pantalla. Con un colector activo (`instanciar`) y un perfil circular, la forma
+    va a la GPU como instancias (`instancias3d`) y devuelve una malla vacía."""
     P = np.asarray(camino, float)
     if len(P) < 2:
         return VACIA
@@ -83,14 +114,22 @@ def barrido_camino(camino, perfil, color, ident, tapas=(True, True), minimo=Fals
     lado /= np.linalg.norm(lado, axis=1, keepdims=True)
     arriba = np.cross(lado, t)
     pts, nor, suave = perfil
-    off = pts[None, :, 0:1] * lado[:, None, :] + pts[None, :, 1:2] * arriba[:, None, :]      # (m+1, n, 3)
+    bdir = fac = None
     if len(P) > 2:                                                      # inglete en los vértices
         giro = T[1:] - T[:-1]
         ng = np.linalg.norm(giro, axis=1, keepdims=True)
         bdir = np.where(ng > 1e-9, giro / np.maximum(ng, 1e-12), 0.0)
         cos_m = np.clip(np.sum(t[1:-1] * T[1:], axis=1, keepdims=True), 0.25, 1.0)
+        fac = 1.0 / cos_m - 1.0
+    col = _colector()
+    lados = _es_circulo(perfil) if col is not None else None
+    if lados:
+        col.tubo(P, T, lado, arriba, bdir, fac, pts, lados, color, ident, tapas, minimo)
+        return VACIA
+    off = pts[None, :, 0:1] * lado[:, None, :] + pts[None, :, 1:2] * arriba[:, None, :]      # (m+1, n, 3)
+    if len(P) > 2:
         comp = np.sum(off[1:-1] * bdir[:, None, :], axis=2, keepdims=True)
-        off[1:-1] += comp * (1.0 / cos_m[:, None, :] - 1.0) * bdir[:, None, :]
+        off[1:-1] += comp * fac[:, None, :] * bdir[:, None, :]
     R = P[:, None, :] + off
     n = len(pts)
     i = np.arange(n); j = (i + 1) % n
@@ -158,6 +197,10 @@ def _tapa(anillo, centro, normal, color, ident):
 
 def esfera(c, r, color, ident, anillos=6, lados=10):
     c = np.asarray(c, float)
+    col = _colector()
+    if col is not None:
+        col.esfera(c, r, color, ident, anillos, lados)
+        return VACIA
     th = np.linspace(0, math.pi, anillos + 1)
     ph = np.linspace(0, 2 * math.pi, lados + 1)
     T, P = np.meshgrid(th, ph, indexing="ij")
@@ -188,6 +231,27 @@ def prisma(contorno, z0, z1, color, ident):
               _tapa(arriba, np.append(centro, z1), np.array([0.0, 0.0, 1.0]), color, ident),
               _tapa(abajo, np.append(centro, z0), np.array([0.0, 0.0, -1.0]), color, ident)]
     return juntar(partes)
+
+
+def tronco(a, b, u, ra, rb, color, ident, lados=16):
+    """Cono truncado (reducción): anillo de radio `ra` en `a` y de `rb` en `b`, los dos
+    perpendiculares a `u` (como el loft de dos círculos del plugin: si `a`→`b` no va por `u`,
+    el cono queda excéntrico). Sin tapas."""
+    a, b, u = np.asarray(a, float), np.asarray(b, float), np.asarray(u, float)
+    u = u / np.linalg.norm(u)
+    ref = np.array([0.0, 0.0, 1.0]) if abs(u[2]) < 0.9 else np.array([1.0, 0.0, 0.0])
+    e1 = np.cross(u, ref); e1 /= np.linalg.norm(e1)
+    e2 = np.cross(u, e1)
+    t = np.linspace(0.0, 2.0 * math.pi, lados, endpoint=False)
+    rad = np.cos(t)[:, None] * e1 + np.sin(t)[:, None] * e2          # direcciones radiales
+    A, B = a + rad * ra, b + rad * rb
+    largo = max(float(np.dot(b - a, u)), 1e-9)
+    nor = rad + u * ((ra - rb) / largo)                                # inclinada por el cono
+    nor /= np.linalg.norm(nor, axis=1, keepdims=True)
+    i = np.arange(lados); j = (i + 1) % lados
+    pos = np.stack([A[i], B[i], B[j], A[i], B[j], A[j]], axis=1).reshape(-1, 3)
+    nn = np.stack([nor[i], nor[i], nor[j], nor[i], nor[j], nor[j]], axis=1).reshape(-1, 3)
+    return _vertices(pos, nn, color, ident)
 
 
 def cilindro_vertical(c, r, z0, z1, color, ident, lados=20):

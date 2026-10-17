@@ -20,7 +20,11 @@ las MISMAS reglas que el plugin, para verlo sin exportar:
 
 `construir(...)` → `Escena` con mallas (numpy) listas para la GPU, los volúmenes para
 elegir con el ratón y los datos de cada objeto. Coordenadas en pies, centradas en el
-dibujo y con el suelo en z = 0.
+dibujo y con el suelo en z = 0. Los círculos barridos (tubos, accesorios, buzones
+redondos) y las esferas van como INSTANCIAS (`instancias3d`, pedido 2026-10-16: «mismos
+resultados con menos recursos»): `Escena.base` = el resto de triángulos e `instancias` =
+{(tipo, lados): filas}; `Escena.opacos` rehace TODOS los triángulos de antes (respaldo sin
+instancing y pruebas), solo si alguien lo pide.
 """
 from __future__ import annotations
 
@@ -32,9 +36,12 @@ import numpy as np
 
 from nucleo import accesorios as acc
 from nucleo import accesorios3d as A3
+from nucleo import instancias3d as I3
 from nucleo import limpieza_tramos as LT
 from nucleo import mallas3d as M
 from nucleo import marcas3d
+from nucleo import reducciones3d as R3
+from nucleo import rotulos3d
 from nucleo import model_ops
 from nucleo import verticales3d as V
 from nucleo.model import network_kind
@@ -68,7 +75,8 @@ def objeto_de(ident):
 
 @dataclass
 class Escena:
-    opacos: np.ndarray = field(default_factory=lambda: M.VACIA.copy())
+    base: np.ndarray = field(default_factory=lambda: M.VACIA.copy())     # opacos que no son instancias
+    instancias: dict = field(default_factory=dict)  # (tipo, lados) → filas float32 (`instancias3d`)
     transparentes: np.ndarray = field(default_factory=lambda: M.VACIA.copy())
     suelo: np.ndarray = field(default_factory=lambda: M.VACIA.copy())
     picks: tuple = ()
@@ -78,10 +86,24 @@ class Escena:
     suelo_z: float = 0.0
     cuentas: dict = field(default_factory=dict)
     etiquetas: list = field(default_factory=list)   # [(id, punto 3D, «C-n»)] de los conflictos
+    rotulos: list = field(default_factory=list)     # [(id, punto 3D, texto)] pendientes y ángulos (`rotulos3d`)
 
     @property
     def vacia(self):
-        return not len(self.opacos) and not len(self.transparentes)
+        return not len(self.base) and not len(self.transparentes) and not any(len(F) for F in self.instancias.values())
+
+    @property
+    def opacos(self):
+        """TODOS los triángulos opacos (base + instancias rehechas en la CPU), como antes."""
+        if getattr(self, "_opacos", None) is None:
+            inst = I3.expandir_todo(self.instancias)
+            self._opacos = np.concatenate([self.base, inst]) if len(inst) else self.base
+        return self._opacos
+
+    @property
+    def bytes_gpu(self):
+        """Memoria de las mallas que van a la GPU (y viven en la escena)."""
+        return self.base.nbytes + self.transparentes.nbytes + self.suelo.nbytes + I3.bytes_de(self.instancias)
 
 
 # ─────────────────────────── geometría de cada utilidad ───────────────────────────
@@ -223,9 +245,41 @@ def _bancoducto(ar, pipes, structures, db):
                      z0=camino[0][2] - h / 2.0, z1=camino[-1][2] - h / 2.0, tope=max(q[2] for q in camino) + h / 2.0)
 
 
-def _soleras_en(pipes, x, y, tol_px):
+class _IndiceVertices:
+    """Vértices de las utilidades por celdas de `tol` px: `_soleras_en` sin recorrer todas las
+    utilidades por cada buzón (1 281 buzones y 300 utilidades: 9 s). Mismo resultado: de cada
+    utilidad su PRIMER vértice a ≤ tol, y las utilidades en su orden."""
+
+    def __init__(self, pipes, tol):
+        self.tol = float(tol)
+        self.celdas = {}
+        for i, p in enumerate(pipes):
+            pts = p.get("pts") or []
+            if len(pts) < 2:
+                continue
+            for k, (vx, vy) in enumerate(pts):
+                self.celdas.setdefault((math.floor(vx / self.tol), math.floor(vy / self.tol)), []).append((i, k))
+
+    def cerca(self, x, y):
+        cx, cy = math.floor(x / self.tol), math.floor(y / self.tol)
+        return [ik for dx in (-1, 0, 1) for dy in (-1, 0, 1) for ik in self.celdas.get((cx + dx, cy + dy), ())]
+
+
+def _soleras_en(pipes, x, y, tol_px, indice=None):
     """[(solera, utilidad)] de las utilidades con un vértice en (x, y)."""
     out = []
+    if indice is not None and indice.tol == tol_px:
+        primero = {}
+        for i, k in indice.cerca(x, y):
+            vx, vy = pipes[i]["pts"][k]
+            if abs(vx - x) <= tol_px and abs(vy - y) <= tol_px and k < primero.get(i, k + 1):
+                primero[i] = k
+        for i in sorted(primero):
+            p, k = pipes[i], primero[i]
+            pts = p["pts"]
+            seg = k if k < len(pts) - 1 else k - 1
+            out.append((model_ops.z_en_tramo(p, seg, *pts[k]), i))
+        return [(z, i) for z, i in out if z is not None]
     for i, p in enumerate(pipes):
         pts = p.get("pts") or []
         for k, (vx, vy) in enumerate(pts):
@@ -240,7 +294,7 @@ def _estructura(ar, pipes, j, s):
     if s.get("world") or s.get("curve") or s.get("hidden") or s.get("x") is None:
         return
     x, y = float(s["x"]), float(s["y"])
-    soleras = _soleras_en(pipes, x, y, max(1.0, 0.5 / ar.ft))
+    soleras = _soleras_en(pipes, x, y, max(1.0, 0.5 / ar.ft), getattr(ar, "indice_v", None))
     capa = pipes[soleras[0][1]].get("layer") if soleras else ("ELECTRICO" if s.get("net") == "conduit" else "DRENAJE")
     ident = ID_ESTRUCTURA + j + 1
     contorno = [ar.mundo(px, py, 0)[:2] for px, py in s.get("outline") or []]
@@ -338,7 +392,8 @@ def _accesorios(ar, pipes, nodos, planes=()):
                 z1 = model_ops.z_en_tramo(p, k, a["x"] + ux / ar.ft, a["y"] + uy / ar.ft) + alto / 2.0
                 u = np.array([ux, -uy, z1 - z])                     # 1 ft en planta y lo que sube/baja
                 brazos.append(A3.Brazo(dir=u / np.linalg.norm(u), d=diametro_ft(p), pipe=i, eje_z=z,
-                                       extra=dict(xy=ar.mundo(a["x"], a["y"], 0)[:2], u=(ux, -uy))))
+                                       extra=dict(xy=ar.mundo(a["x"], a["y"], 0)[:2], u=(ux, -uy), k=k,
+                                                  pxy=(ux, uy))))
         if len(brazos) < 2:
             continue
         mayor = max(brazos, key=lambda b: b.d)
@@ -350,15 +405,22 @@ def _accesorios(ar, pipes, nodos, planes=()):
             plan.ramal = V.ramal_de(plan, ar, diametro_ft, pipes)
             brazos.append(plan.ramal)
             tipo = "wye"
+        chico = None                                  # codo REDUCTOR: codo uniforme del mayor + reducción
+        if tipo == "codo" and plan is None and len(brazos) == 2 and abs(brazos[0].d - brazos[1].d) > 1e-6:
+            chico = min(brazos, key=lambda b: b.d)
+            d_chico, chico.d = chico.d, mayor.d       # (`ReduccionSolida.cs`, nucleo/reducciones3d)
         malla, c = A3.pieza(tipo, centro, brazos, ar.claro(pipes[mayor.pipe].get("layer")), ident)
         if plan is not None:
             plan.centro = c
         ar.op.append(malla)
+        recorte = R3.codo_reductor(ar, pipes, a, c, chico, mayor.d, d_chico, ident) if chico is not None else None
         for b in brazos:
             fin = c + b.dir * (b.largo + b.d * A3.LARGO_CAMPANA_D)
             ar.picks.capsula(tuple(c), tuple(fin), b.r_campana, ident)
-            if b.pipe >= 0:
-                cortes.setdefault(b.pipe, []).append((b.extra["xy"], b.extra["u"], max(b.alcance, 0.0)))
+            if b.pipe >= 0:                           # el recorte se mide EN PLANTA (brazo en pendiente)
+                alc = recorte if (b is chico and recorte is not None) else max(b.alcance, 0.0)
+                cortes.setdefault(b.pipe, []).append((b.extra["xy"], b.extra["u"],
+                                                      alc * math.hypot(b.dir[0], b.dir[1])))
         ar.registrar(ident, "accesorio", n, [c], acc_tipo=tipo, angulo=a.get("angulo"), capa=a.get("capa"),
                      pipes=list(a.get("pipes") or []), eje_z=float(c[2]), x=a["x"], y=a["y"])
     return len(nodos), cortes
@@ -386,56 +448,71 @@ def construir(pipes, structures, ft, colores=None, duct_banks=(), cruces=(), avi
     cotas}] (C-n de `nucleo/conflictos.py`); `ocultas` = capas que
     no se dibujan; `ver` = {estructuras, accesorios, avisos} (todo por defecto);
     `suelo_z` = cota del suelo (None = automática)."""
-    ver = dict(dict(estructuras=True, accesorios=True, avisos=True), **(ver or {}))
+    ver = dict(dict(estructuras=True, accesorios=True, avisos=True, rotulos=False), **(ver or {}))
     if not ft or ft <= 0:
         return Escena()
     ocultas = set(ocultas or ())
     visibles = [i for i, p in enumerate(pipes) if p.get("layer") not in ocultas]
     vis_pipes = [p if i in visibles else dict(p, pts=[]) for i, p in enumerate(pipes)]
     ar = _Armado(ft, colores)
-    con_db = set()
-    for db in duct_banks or []:
-        idx = [i for i in db.get("pipes") or [] if i in visibles]
-        con_db |= set(db.get("pipes") or [])
-        _bancoducto(ar, vis_pipes, structures, dict(db, pipes=idx))
-    nodos = acc.accesorios(vis_pipes, lambda i, k, x, y: model_ops.z_en_tramo(vis_pipes[i], k, x, y), ft)
-    tol = V.TOL_EXTREMO_FT / ft
-    planes = V.planear(vis_pipes, cruces, ft, diametro_ft, lambda i, x, y: _z_eje(vis_pipes, i, x, y),
-                       lambda i, x, y: ver["accesorios"] and any(
-                           a["tipo"] == "codo" and i in (a.get("pipes") or [])
-                           and math.dist((a["x"], a["y"]), (x, y)) <= tol for a in nodos))
-    n_acc, cortes = _accesorios(ar, vis_pipes, nodos, planes) if ver["accesorios"] else (0, {})
-    cortes_v, ajustes, n_v = V.dibujar(ar, vis_pipes, planes, ID_ACCESORIO + len(nodos), diametro_ft,
-                                       ver["accesorios"])
-    n_acc += n_v
-    for i, cs in cortes_v.items():
-        cortes.setdefault(i, []).extend(cs)
-    for i in visibles:
-        _utilidad(ar, vis_pipes, structures, i, con_db, cortes.get(i, ()), ajustes.get(i, ()))
-    sueltos = []
-    if ver["estructuras"]:
-        for j, s in enumerate(structures or []):
-            r = _estructura(ar, vis_pipes, j, s)
-            if r:
-                sueltos.append(r[1])
-    etiquetas = []
-    if ver["avisos"]:
-        etiquetas = marcas3d.marcas(ar, vis_pipes, [a for a in avisos or [] if a.get("pipe", -1) in visibles],
-                                    conflictos, ID_AVISO, ID_CONFLICTO)
+    col = I3.Instancias()                          # círculos barridos y esferas → GPU
+    with M.instanciar(col), model_ops.memo_cotas():
+        con_db = set()
+        for db in duct_banks or []:
+            idx = [i for i in db.get("pipes") or [] if i in visibles]
+            con_db |= set(db.get("pipes") or [])
+            _bancoducto(ar, vis_pipes, structures, dict(db, pipes=idx))
+        rectos = []                                    # uniones rectas: reducción si cambia el diámetro
+        nodos = acc.accesorios(vis_pipes, lambda i, k, x, y: model_ops.z_en_tramo(vis_pipes[i], k, x, y), ft,
+                               rectos=rectos)
+        tol = V.TOL_EXTREMO_FT / ft
+        planes = V.planear(vis_pipes, cruces, ft, diametro_ft, lambda i, x, y: _z_eje(vis_pipes, i, x, y),
+                           lambda i, x, y: ver["accesorios"] and any(
+                               a["tipo"] == "codo" and i in (a.get("pipes") or [])
+                               and math.dist((a["x"], a["y"]), (x, y)) <= tol for a in nodos))
+        n_acc, cortes = _accesorios(ar, vis_pipes, nodos, planes) if ver["accesorios"] else (0, {})
+        cortes_v, ajustes, n_v = V.dibujar(ar, vis_pipes, planes, ID_ACCESORIO + len(nodos), diametro_ft,
+                                           ver["accesorios"], z_eje=lambda i, x, y: _z_eje(vis_pipes, i, x, y))
+        n_acc += n_v
+        for i, cs in cortes_v.items():
+            cortes.setdefault(i, []).extend(cs)
+        if ver["accesorios"]:
+            n_r, cortes_r = R3.rectas(ar, vis_pipes, rectos, ID_ACCESORIO + len(nodos) + n_v, _direcciones, seccion,
+                                      diametro_ft, model_ops.z_en_tramo, acc.TOL_UNION_FT / ft, ID_ACCESORIO)
+            n_acc += n_r
+            for i, cs in cortes_r.items():
+                cortes.setdefault(i, []).extend(cs)
+        for i in visibles:
+            _utilidad(ar, vis_pipes, structures, i, con_db, cortes.get(i, ()), ajustes.get(i, ()))
+        sueltos = []
+        if ver["estructuras"]:
+            ar.indice_v = _IndiceVertices(vis_pipes, max(1.0, 0.5 / ar.ft))
+            for j, s in enumerate(structures or []):
+                r = _estructura(ar, vis_pipes, j, s)
+                if r:
+                    sueltos.append(r[1])
+        etiquetas = []
+        if ver["avisos"]:
+            etiquetas = marcas3d.marcas(ar, vis_pipes, [a for a in avisos or [] if a.get("pipe", -1) in visibles],
+                                        conflictos, ID_AVISO, ID_CONFLICTO)
+        rotulos = rotulos3d.rotulos(ar, vis_pipes, visibles, lambda p: seccion(p)[1]) if ver["rotulos"] else []
 
-    todo = [m for m in ar.op + ar.tr if len(m)]
-    if not todo and not sueltos:
-        return Escena(cuentas=dict(utilidades=0, estructuras=0, accesorios=0))
-    pos = np.concatenate([m[:, :3] for m in todo]) if todo else np.zeros((1, 3))
-    lo, hi = pos.min(axis=0), pos.max(axis=0)
-    rims = [o["z1"] for o in ar.objetos.values() if o["tipo"] == "struct" and not o.get("solido")]
-    topes = [o["tope"] for o in ar.objetos.values() if o["tipo"] == "pipe"]
-    if suelo_z is None:
-        suelo_z = max(rims) if rims else (max(topes) + RECUBRIMIENTO_SUELO_FT if topes else 0.0)
-    for x, y, s, ident, capa in sueltos:               # sólido suelto: apoyado en el suelo
-        h = float(s.get("solid_height_ft") or model_ops.SOLID_DEFAULT_H_FT)
-        _cuerpo(ar, x, y, s, ident, capa, suelo_z - h, suelo_z,
-                [ar.mundo(px, py, 0)[:2] for px, py in s.get("outline") or []])
+        todo = [m for m in ar.op + ar.tr if len(m)]
+        ext = I3.extremos(col.arreglos())              # instancias: los mismos vértices, sin armarlos
+        if not todo and not sueltos and ext is None:
+            return Escena(cuentas=dict(utilidades=0, estructuras=0, accesorios=0))
+        trozos = [m[:, :3] for m in todo] + ([np.vstack(ext)] if ext is not None else [])
+        pos = np.concatenate(trozos) if trozos else np.zeros((1, 3))
+        lo, hi = pos.min(axis=0), pos.max(axis=0)
+        rims = [o["z1"] for o in ar.objetos.values() if o["tipo"] == "struct" and not o.get("solido")]
+        topes = [o["tope"] for o in ar.objetos.values() if o["tipo"] == "pipe"]
+        if suelo_z is None:
+            suelo_z = max(rims) if rims else (max(topes) + RECUBRIMIENTO_SUELO_FT if topes else 0.0)
+        for x, y, s, ident, capa in sueltos:               # sólido suelto: apoyado en el suelo
+            h = float(s.get("solid_height_ft") or model_ops.SOLID_DEFAULT_H_FT)
+            _cuerpo(ar, x, y, s, ident, capa, suelo_z - h, suelo_z,
+                    [ar.mundo(px, py, 0)[:2] for px, py in s.get("outline") or []])
+    inst = col.arreglos()
     origen = np.array([(lo[0] + hi[0]) / 2.0, (lo[1] + hi[1]) / 2.0, suelo_z])
 
     def centrar(m):
@@ -444,16 +521,19 @@ def construir(pipes, structures, ft, colores=None, duct_banks=(), cruces=(), avi
             m[:, 11:14] -= origen
         return m
     opacos, transp = centrar(M.juntar(ar.op)), centrar(M.juntar(ar.tr))
+    inst = I3.centrar(inst, origen)
     margen = max(hi[0] - lo[0], hi[1] - lo[1]) * 0.08 + 10.0
     suelo = M.plano(lo[0] - margen - origen[0], lo[1] - margen - origen[1],
                     hi[0] + margen - origen[0], hi[1] + margen - origen[1], 0.0, (0.55, 0.47, 0.36, 1.0))
     A, B, R, I = ar.picks.arreglos()
     for o in ar.objetos.values():
         o["caja"] = (o["caja"][0] - origen, o["caja"][1] - origen)
-    return Escena(opacos=opacos, transparentes=transp, suelo=suelo, picks=(A - origen, B - origen, R, I),
+    return Escena(base=opacos, instancias=inst, transparentes=transp, suelo=suelo,
+                  picks=(A - origen, B - origen, R, I),
                   objetos=ar.objetos, origen=tuple(origen), caja=(lo - origen, hi - origen), suelo_z=suelo_z,
                   cuentas=dict(utilidades=sum(1 for o in ar.objetos.values() if o["tipo"] == "pipe"),
                                estructuras=sum(1 for o in ar.objetos.values() if o["tipo"] == "struct"),
                                accesorios=n_acc,
                                conflictos=sum(1 for o in ar.objetos.values() if o["tipo"] == "conflicto")),
-                  etiquetas=[(i, tuple(np.asarray(p) - origen), txt) for i, p, txt in etiquetas])
+                  etiquetas=[(i, tuple(np.asarray(p) - origen), txt) for i, p, txt in etiquetas],
+                  rotulos=[(i, tuple(np.asarray(p) - origen), txt) for i, p, txt in rotulos])

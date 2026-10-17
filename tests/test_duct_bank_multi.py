@@ -141,3 +141,23 @@ def test_borrar_utilidad_con_bancoducto_lo_avisa(win, monkeypatch):
     win.delete_selected()
     assert "⚠" not in vistos[-1]
     assert len(win.pipes) == 5               # respondió «No»: nada borrado
+
+
+def test_miniatura_sin_marcas_de_alertas(win, monkeypatch):
+    """Pedido 2026-10-16: la miniatura del bancoducto va sin alertas, cruces, accesorios ni avisos
+    (todo lo que está en Z ≥ Z_HANDLE + 4); en el lienzo siguen a la vista."""
+    from nucleo.model import Z_HANDLE, Z_MARK
+    from ui.comun import thumbnails
+    sc = win.canvas.scene()
+    marca = sc.addEllipse(-5, -5, 10, 10); marca.setPos(100, 200); marca.setZValue(Z_HANDLE + 7)
+    linea = sc.addLine(0, 200, 200, 200); linea.setZValue(Z_MARK)
+    visto = {}
+    real = thumbnails.pipe_pixmap
+
+    def espia(*a, **k):
+        visto.update(marca=marca.isVisible(), linea=linea.isVisible())
+        return real(*a, **k)
+    monkeypatch.setattr(thumbnails, "pipe_pixmap", espia)
+    assert win._pipe_thumbnail(2) is not None
+    assert visto == {"marca": False, "linea": True}
+    assert marca.isVisible() and linea.isVisible()

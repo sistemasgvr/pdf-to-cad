@@ -43,9 +43,10 @@ CLASES = {
     "accesorio": N_("Accesorio"),
     "nota": N_("Condición de uso"),
     "radio": N_("Radio de curva"),
+    "angulo": N_("Ángulo fuera del paso de 0.25°"),
 }
 NOMBRE_ACC = {"codo": N_("Codo"), "tee": N_("Tee"), "wye": N_("Wye"), "cruz": N_("Cruz"),
-              "tee_dom": N_("T domiciliaria")}
+              "tee_dom": N_("T domiciliaria"), "reduccion": N_("Reducción")}
 
 
 @dataclass

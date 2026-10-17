@@ -11,7 +11,7 @@ alcantarillado, drenaje, gas, eléctrico, telecom). Todo en **unidades imperiale
   - **Carpetas por capa (2026-10-08, en curso)**: `app/nucleo/` = lógica PURA del dominio (sin Qt ni fitz):
     `model`, `model_ops`, `xdata`, `duct_bank`, `unir_utilidades`, `unir_ramales`, `quiebres_curvas`,
     `accesorios`, `normas_catalogo`, `normas_excel`, `normas_excel_ayuda`, `normas_validar`, `normas_aprobacion`, `tabla_datos`, `tabla_excel`, `conflictos`, `modelo3d`, `mallas3d`, `accesorios3d`, `verticales3d`, `marcas3d`, `ficha3d`, `edicion_bloque`,
-    `limpieza`, `limpieza_tramos`, `vertice_curva`, `conexiones_verticales`. Se importan
+    `limpieza`, `limpieza_tramos`, `vertice_curva`, `conexiones_verticales`, `trazo_asistido`, `angulos`, `indice_plano`, `memo_modelo`, `deshacer`, `reducciones3d`, `rotulos3d`. Se importan
     como `from nucleo import model_ops` / `from nucleo.model import …` (nunca `import model_ops`: ese nombre
     ya no existe). Regla: la interfaz usa `nucleo`, `nucleo` NUNCA importa la interfaz (PySide6, `i18n`,
     ventana…; sí `i18n_core`). Más abajo los módulos se nombran sin la carpeta: `model_ops.py` = `app/nucleo/
@@ -1350,6 +1350,35 @@ alcantarillado, drenaje, gas, eléctrico, telecom). Todo en **unidades imperiale
     «diam:N». (4) `nucleo/conexiones_verticales.actualizar_cotas`: `z_a/z_b` de cada conexión aprobada se releen de
     las tuberías (tramo más cercano, menor índice en un vértice) en `_draw_pipe_conflicts`, el DXF y la Vista 3D.
     Tests: `tests/test_vertices_diametros.py`.
+  - **Ángulos en pasos de 0.25°** (pedidos del usuario 2026-10-15/16: a mano los quiebres chicos del pulso se
+    volvían vértices con accesorios; «no puedo encontrar ángulos de 45.684°» en NINGUNA utilidad, uniones ni
+    accesorios): `ui/ventana/ventana_trazo.py` (`TrazoMixin`; el anillo «Asistir/Libre/Finalizar/Cancelar» del
+    2026-10-15 se QUITÓ el 16: siempre en el paso; Enter / doble clic / clic derecho terminan y otro Enter sale
+    del modo, `_on_enter`). Rumbos (`nucleo/trazo_asistido.py`): cada tramo `cuantizar(rumbo, base)` a 0.25°
+    desde `base` = rumbo del tramo anterior (el quiebre queda múltiplo) o, en el primero, el del tramo donde
+    empieza (`_base_de_hit`: la unión) o 0°; múltiplos de 45° con vectores EXACTOS (`unitario`); `imanes`
+    (seguir recto, ±45°/90° del anterior y, si la base está en la red de 0°, los ejes de la hoja) a ≤ `IMAN_PX`
+    de pantalla; sin imán, hacia el imán a la tinta (`_snap`). Llegada EXACTA a un extremo/vértice de otra
+    utilidad: `deslizar_inicio` corre el punto anterior por su recta (si no está unido a nada: `_trazo_fijos`; ≤
+    `DESLIZ_PX`); sobre un tramo, `cruce_rayo`. Editar/mover: `arrastre_en_paso` (cruce de los rayos en el paso
+    desde los dos vecinos; `_drag_snap` manda) + `_etiqueta_arrastre` (giro ✓/⚠ y largos). Línea elástica a
+    trazos + «rumbo · giro ✓/⚠ · largo» (`_trazo_actualizar`, desde `_update_pipe_snap_hint`); `_redraw` →
+    `_trazo_al_redibujar` la borra. VALIDACIÓN `nucleo/angulos.py` (ángulos RELATIVOS, no dependen del giro de la
+    hoja ni de la georref): `quiebres` (deflexión en cada vértice interior) + `uniones` (punta sobre otra
+    utilidad de la misma capa a ≤ `UNION_FT`, ángulo entre las dos; rejilla) fuera de múltiplo de 0.25° ±
+    `TOL_DEG`=0.01 → `avisos` clase «angulo» que `_draw_accesorios` guarda en `_angulos_fuera` SIN mostrarlos
+    (pedido del usuario 2026-10-16: «validarse pero no mostrarse»; no van a `_normas_avisos`: ni insignia, ni
+    contador, ni Tabla de datos, ni 3D). `avisos_view.dibujar` agrupa con rejilla (mismo
+    resultado; 5000 avisos ≈ 0.1 s). El reconocimiento del PDF NO se toca (lo hace un compañero). Presentación
+    1.3.1: X03 con el tramo del medio a 45°, X14 (quiebre 45.684°) y X15 (unión 80.3°). **Mismo día**: clic en
+    un vértice libre de eléctrico/telecom (`_pick` → `_vertice_bajo_clic`/`_elegir_vertice`, `_vertice_sel`) →
+    `box_vertice` «Cambiar a curva» en el panel de la utilidad (`_sync_vertice_panel` desde `_update_ui`);
+    etiquetas T1/T2 (`ui/comun/etiquetas_tramo.py`: alto = 0.45 × largo del tramo, al costado —arriba; en
+    verticales, a la izquierda—, sin solaparse ni tapar vértices, `ubicar`; `EtiquetaTramo` no pasa de
+    `TOPE_PX` en pantalla); `canvas._ZOOM_MAX` 80 → 400; Vista 3D SIN padre Qt (`Vista3DDialog(None)` +
+    `_duenio`: transient parent = la principal): un QOpenGLWidget en una HIJA hacía que Qt recreara la ventana
+    nativa de la principal (Hide → otra → Show; medido con `winId`), la principal la cierra en `closeEvent`.
+    Tests: `tests/test_trazo_asistido.py`.
   - `quiebres_curvas.py` (PURO) — **los quiebres del plano son curvas** (regla de los ingenieros,
     pedido del usuario 2026-10-06 con una línea eléctrica de dos quiebres): en gravedad y conduit (agua y
     gas NO: en presión el quiebre es un codo) `Main._import_recognized_pipes` llama
@@ -1433,6 +1462,23 @@ alcantarillado, drenaje, gas, eléctrico, telecom). Todo en **unidades imperiale
     TUBERÍAS —`barrido_camino(minimo=True)`: el shader las engrosa desde su eje hasta `RADIO_MIN_PX`=1 px de radio
     si de lejos quedarían más finas (pedido 2026-10-10: en la vista encuadrada desaparecían); accesorios,
     buzones y sólidos a tamaño real (radio 0)—; `picks` = cápsulas para elegir;
+    **INSTANCING** (2026-10-16, «mismos resultados con menos recursos»): dentro de `construir`
+    (`M.instanciar(I3.Instancias())`, por hilo) `mallas3d.barrido_camino` con perfil circular CENTRADO
+    (`_es_circulo`: tubos, brazos/campanas/codos de `accesorios3d`, verticales, buzones redondos) y `esfera`
+    (avisos/conflictos) NO hacen triángulos: anotan filas en `nucleo/instancias3d.py` (34 floats por tramo:
+    los dos anillos P/lado/arriba/inglete b·f, color, id, r, radio mínimo; TAPA y ESFERA con la misma fila)
+    y devuelven `VACIA`. `Escena.base` = el resto (prismas, bancoducto, suelo aparte), `Escena.instancias` =
+    {(tipo, lados): filas float32 centradas}; `Escena.opacos` (propiedad, cacheada) = base + `expandir_todo`
+    = los triángulos de antes (respaldo y pruebas). `expandir` repite las operaciones de `barrido_camino`
+    → BIT A BIT iguales (prueba con 200 recorridos al azar); `extremos` da la caja exacta sin armarlas. GPU:
+    `ui/comun/visor3d_instancias.py` (`Instanciador`, malla unidad por (tipo, lados) + filas con divisor 1,
+    `glDrawArraysInstanced` de `extraFunctions`, shader `visor3d_shaders.VERT_INST` = la misma cuenta;
+    `soportado`: GL ≥ 3.3 o `GL_ARB_instanced_arrays`; si falla o `PDFCAD_SIN_INSTANCING=1`, `Visor3D` sube
+    `escena.opacos` como antes). Además, mismos resultados: `model_ops.memo_cotas()` (las cotas por vértice de
+    cada utilidad una vez por `construir`; `cotas_tramo` las rehacía por tramo) y `_IndiceVertices` para
+    `_soleras_en`. Medido (300 utilidades, 1.3 M triángulos): RAM de la vista +520 → +60 MB, escena 234 → 5 MB,
+    armado 59 → 18 s; imágenes con y sin instancing iguales (≤ 0.003 % de píxeles de borde); geometría igual
+    a ≤ 6e-5 ft (redondeo float32). Tests: `tests/test_instancias3d.py`.
     `objetos` id → datos; centrada y con el suelo en z = 0). Reglas = las del plugin: eje = solera + medio alto
     interior; cotas por tramo con `model_ops.cotas_tramo`/`z_en_tramo` (sacadas VERBATIM de `Main._pipe_z_at`,
     que ahora delega); curvas con `limpieza_tramos.curvas` (= `fillet_geo`); bancoducto reemplaza a su utilidad,
@@ -1447,7 +1493,12 @@ alcantarillado, drenaje, gas, eléctrico, telecom). Todo en **unidades imperiale
     (Wye a 0.4°) daban brazos de cientos/miles de ft y con 0.01° el tubo se recortaba ENTERO (santos_proyecto_prueba,
     #8 de agua: solo se veían sus codos): `separar` y `SepararBrazos` (WyeSolido.cs) ya NO separan brazos a <
     `ANG_EJES_MIN_DEG` (superpuestos; el plugin lo avisa), y `RECORTE_MAX`=0.45: una campana nunca recorta más
-    del 45 % de una tubería (ninguna puede desaparecer). **Conexiones verticales** (2026-10-14, `nucleo/verticales3d.py`,
+    del 45 % de una tubería (ninguna puede desaparecer). **Codo por cambio de PENDIENTE** (2026-10-16, «00.proyecto»
+    utilidades 2-3-4: casi rectas en planta, la del medio sube 6 ft en 3.4 ft): `accesorios.clasificar(salidas,
+    pendientes)` mide el giro de DOS tramos en 3D (extremo `ext[8]` = subida por pie en planta hacia el otro
+    extremo), como `ProcesarJunturasPresion` (vectores 3D al extremo lejano); Tee/Wye/cruz siguen en planta; a
+    nivel da lo mismo que antes. `_accesorios` recorta cada tubo `alcance × componente en planta` del brazo
+    (`A3.cortar` mide en planta; con brazos empinados dejaba hueco). **Conexiones verticales** (2026-10-14, `nucleo/verticales3d.py`,
     espejo de `CrearConexionesCruzadas`/`ColocarFittingSolido`/`CrearCruceConWye` con `FITTING_COMO_SOLIDO`; antes solo
     un cilindro): `planear` (antes de los accesorios) + `dibujar` (después). Vertical Ø = el menor; en cada horizontal
     (eje = solera + r) CODO 90° si TERMINA a ≤0.5 ft (`alejandose`, como `DireccionAlejandoseDelCruce`) o TEE si pasa
@@ -1455,7 +1506,10 @@ alcantarillado, drenaje, gas, eléctrico, telecom). Todo en **unidades imperiale
     `_accesorios` convierte ESE codo en Wye (`_plan_wye`, tronco con `ENGROSE_TRONCO_Y_FT`, ramal `ramal_de`) y
     `_wye` pone tubo aux `TUBO_AUX_CRUCE_FT` + codo + vertical + codo (en `d_e3`, la otra se recorta); desnivel < 2 bocas
     de codo 90° + 0.05 → `inclinada`: ramal hacia el vértice siguiente de la que termina y su punta sube/baja a la Wye
-    (`_utilidad(ajustes=)`). Piezas registradas como «accesorio» (`vertical=True`) con ficha. Sin «Accesorios» a la
+    (`_utilidad(ajustes=)`). Piezas registradas como «accesorio» (`vertical=True`) con ficha. Desde 2026-10-16 el
+    brazo hacia la utilidad sigue su PENDIENTE (`_Dibujo.brazo_3d` con `z_eje`; recorte `corte_brazo` en planta):
+    una utilidad que sube 17° desde el cruce entraba torcida a un codo armado a nivel. OJO: el plugin
+    (`ColocarFittingYOrientar` con `DireccionAlejandoseDelCruce`, z = 0) aún lo arma a nivel. Sin «Accesorios» a la
     vista: solo la vertical. Test: `test_conexiones_verticales_con_codos_tee_y_wye_como_el_plugin`. Largos y diámetros 3D = DXF (verificado: diferencia 0); «sin tipo» no se marca (como
     en el plano). Ids: utilidad i+1, estructura `ID_ESTRUCTURA`+j+1, accesorio, aviso (`objeto_de`). Suelo
     automático = tapa más alta o 3 ft sobre el tope de la tubería más alta. `nucleo/mallas3d.py`: primitivas
@@ -1494,6 +1548,19 @@ alcantarillado, drenaje, gas, eléctrico, telecom). Todo en **unidades imperiale
     `_write_project`; sin archivo → `autoguardado.guardar_ahora()` (copia de recuperación), NUNCA «Guardar como».
     Ajustes en QSettings «pdf-to-cad»/«vista3d». Sin OpenGL 2.1 la ventana lo dice (no se cae; offscreen arma la
     escena sin dibujar). Tests: `tests/test_vista3d.py`.
+  - **Cruz en X, reducciones y pendientes** (pedidos del usuario 2026-10-16): `accesorios.accesorios` parte los
+    DOS tramos de un cruce en X a mitad de tramo (ninguno con vértice a ≤ tol) de la misma red y cota → cruz (con
+    diámetros distintos también); `_union_civil` (plano) ya no lo llama choque. OJO: el plugin aún no la arma.
+    `accesorios(rectos=[])` devuelve además las uniones RECTAS de dos tramos; `nucleo/reducciones3d.py` (PURO,
+    espejo de `ReduccionSolida.cs`): en 3D `rectas` = reducción (campana del grande + cono `mallas3d.tronco`
+    1.25·D mayor + campana del chico, tubo chico recortado) donde cambia el diámetro; codo REDUCTOR
+    (`modelo3d._accesorios`): codo uniforme del diámetro MAYOR (`chico.d` = mayor) + `codo_reductor` (cono desde
+    donde moriría un tubo mayor en la campana del codo hasta el eje del chico); si el tubo chico no alcanza, codo
+    solo. Ficha «Reducción» (`NOMBRE_ACC`). Pendiente: `lbl_pendiente` en el panel de la utilidad
+    (`_mostrar_pendiente`: una si un tramo o todas iguales, si no «T1 … · T2 …»); la ficha 3D igual (la de cada
+    tramo REEMPLAZA a la de punta a punta). Vista 3D «Ángulos y pendientes por tramo» (`ver["rotulos"]`, apagada):
+    `nucleo/rotulos3d.py` → `Escena.rotulos` (pendiente en el medio de cada tramo, giro en cada vértice interior,
+    id de su utilidad), pintados por `etiquetas3d.dibujar(rotulo=True)`. Tests: `tests/test_reduccion_cruz_pendiente.py`.
   - **Conflictos NUMERADOS + Excel de ida y vuelta** (2026-10-10, pedido del usuario): `nucleo/conflictos.py` (PURO)
     `numerar(items)` → `Conflicto` C-1, C-2… en orden de LECTURA (filas de `FILA_PX`, luego x) y sin repetidos (el
     mismo cruce visto por varios pares de tramos en un vértice = uno; antes C-10…C-13 en el mismo punto);
@@ -1514,6 +1581,43 @@ alcantarillado, drenaje, gas, eléctrico, telecom). Todo en **unidades imperiale
     cambia). Al importar, `tabla_excel.incoherencias`: una pendiente CAMBIADA (≠ la del proyecto ±0.0015) que no
     coincide con las rasantes de su fila → el diálogo NO importa nada y sugiere la rasante; `cambios` nunca la
     aplica (se recalcula). Tests: `tests/test_pendiente.py`.
+  - **Redibujo rápido, mismo resultado** (2026-10-16, «sobre todo cuando se hace de forma masiva»; 400
+    utilidades: ~20 s por redibujo). `nucleo/indice_plano.py` (PURO): `pares_tramos(segs)` = pares (a < b,
+    ORDENADOS) cuyos recuadros —agrandados por la tolerancia t, u ∈ [−1e-6, 1+1e-6] y `MARGEN_PX`— se tocan
+    (ningún cruce queda fuera); `IndicePuntos(puntos, celda).en_caja/en_radio` = índices ORDENADOS. Quien llama
+    hace la MISMA prueba en el MISMO orden («el primero gana» igual): `model_ops.choques_sin_conexion`,
+    `junturas_excedidas` (grupo por centro móvil: candidatos a ≤ R del primero y, si el centro se alejó más de
+    R − tol, otra vez con R mayor), el bucle de pares de `_draw_pipe_conflicts`, `_color_for` de los buzones y
+    las insignias de `accesorios_view`. `nucleo/memo_modelo.py` (PURO): `Main._redraw` calcula
+    `_firma_modelo()` (pickle + blake2b de pipes, structures, cross_connections, normas_aprobados, normas_cat,
+    duct_banks, scale, zoom, idioma) y `self._memo(clave, fn, copiar)` reusa lo que depende SOLO de eso (cruces
+    de presión, juntas, escalones, codos, retornos, choques, accesorios, normativas, ángulos y la polilínea de
+    cada utilidad `("dibujo", i)`); devuelve COPIAS (`memo_modelo.copia`: `marcar` escribe en los avisos).
+    OJO: un cálculo NUEVO memorizado que lea otro estado de la ventana suma ese estado a `_firma_modelo`, o el
+    redibujo mostraría un resultado viejo; fuera de `_redraw`, `_memo` siempre calcula. Todo el redibujo va
+    dentro de `model_ops.memo_cotas()`. Foto de lo que calcula el redibujo (hits, C-n, avisos, accesorios e ítems
+    del lienzo con posición y tooltip; 8 casos: sintéticos densos, uniones en estrella, escenarios, presentación,
+    proyecto del usuario) = idéntica al código viejo; 400 utilidades: 19.9 s → ~1.3 s con el modelo cambiado,
+    ~0.75 s sin cambios (lo que queda es crear los ítems Qt). Tests: `tests/test_rendimiento_plano.py`
+    (índices = todo con todo, en el núcleo y en la ventana; memo reusa y se invalida).
+    **Ratón y deshacer** (mismo día, puntos 3 y 4): `indice_plano.IndiceUtilidades` + `utilidades_cerca(cache,
+    pipes, x, y, r)` = utilidades con un tramo a ≤ r, en orden; lo usan `_update_hover_tooltip`, `_pipe_soft_snap`,
+    `_pipe_at` y `_vertice_bajo_clic` (vía `Main._utilidades_cerca`, caché `_cache_raton`). El índice se valida
+    comparando la geometría (`_firma`, ~0.3 ms con 400 utilidades) y solo se arma si la misma geometría se ve dos
+    veces seguidas (arrastrando un vértice cambia en cada evento: se recorren todas, como antes). Clic en vértice
+    802 → 14 ms, `_pipe_at` 4.4 → 0.7 ms. OJO al medir el ratón sin bucle de eventos: `scene.sceneRect()` (cruz del
+    cursor) recalcula el recuadro de TODOS los ítems si no corrió `processEvents` (30 ms falsos). `nucleo/
+    deshacer.py` (PURO): `_snap_state` → `deshacer.paso(estado, anterior)` = cada elemento de cada lista en bytes de
+    pickle y lo igual al paso anterior REUSA los mismos bytes; `_restore` → `deshacer.abrir`. Si dos partes del
+    estado comparten un objeto mutable (`_comparte`), el estado entero va en un bloque (= deepcopy). 100 pasos con
+    400 utilidades: +111 → +3 MB. `model_ops.rebuild_structures` (lo llama `_refresh_lists`: cada deshacer) con
+    celdas de `_TOL` (dedupe de vértices e `IndicePuntos` para reasignar ediciones, mismo orden): 0.7 → 0.04 s en 11
+    casos idénticos al código viejo (deshacer con 400 utilidades tardaba ~18 s, 12 s ahí).
+    **Proyecto que no abría** (2026-10-16, «PRUEBA AGUA 2 PDF SIN CAPAS»: 16 761 utilidades de agua = mapa con
+    acometidas): `_union_civil` llamaba `accesorio_en_punto` con TODAS las polilíneas de la capa en cada cruce
+    (~33 mil) → nunca terminaba. Ahora solo las de `_indice_union()` (un `IndiceUtilidades` por redibujo,
+    `_indice_redibujo`, soltado en `_redraw`; fuera de un redibujo, todas), mismo orden: abre en ~46 s (lo demás
+    es dibujar ~33 mil marcas de cruce y ~38 mil etiquetas de accesorios).
   - **Unir utilidades** (2026-10-02): `unir_utilidades.py` (PURO) `planificar(pipes, filas, base,
     ft_per_px)` → `Plan` (pipe unida, empalmes, absorbidas, avisos): encadena punta con punta desde la
     BASE (la 1.ª seleccionada, `Main._orden_sel`; sus datos mandan), `invertir` las que van al revés,

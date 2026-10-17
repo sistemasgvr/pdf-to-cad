@@ -94,10 +94,11 @@ from ui.ventana.ventana_vista3d import Vista3DMixin
 from ui.ventana.ventana_conflictos_lista import ConflictosListaMixin
 from ui.ventana.ventana_hojas import HojasEditorMixin
 from ui.ventana.ventana_vertices import VerticesMixin
+from ui.ventana.ventana_trazo import TrazoMixin
 
 
 class Main(MenuMixin, PanelIzquierdoMixin, PanelDerechoMixin, ModosMixin, ClicsMixin, UtilidadesMixin, CatalogoMixin, SeleccionMixin, ListasMixin, MarcasMixin, DibujoMixin, ConflictosMixin, CoordsMixin, BuzonesMixin, MoverPrecisoMixin, CurvasMixin, HerramientasMixin, BancoductosMixin, EdicionBloqueMixin, Vista3DMixin, ConflictosListaMixin, HojasEditorMixin,
-           VerticesMixin, QtWidgets.QMainWindow):
+           VerticesMixin, TrazoMixin, QtWidgets.QMainWindow):
     def __init__(self):
         super().__init__()
         self._base_title = f"Asistente C3D  (v{VERSION})"
@@ -227,19 +228,29 @@ class Main(MenuMixin, PanelIzquierdoMixin, PanelDerechoMixin, ModosMixin, ClicsM
 
     # ─────────────────────────── undo/redo ───────────────────────────
     def _snap_state(self):
-        return copy.deepcopy(dict(cur_pts=self.cur_pts, pipes=self.pipes, leaders=self.leaders,
-                                  text_marks=self.text_marks, erase_regions=self.erase_regions,
-                                  structures=self.structures,
-                                  duct_banks=getattr(self, "duct_banks", []) or [],
-                                  # apuntan a utilidades por índice: borrar/unir los corre
-                                  cross_connections=getattr(self, "cross_connections", []) or [],
-                                  normas_aprobados=getattr(self, "normas_aprobados", []) or []))
+        # Paso LIVIANO (`nucleo/deshacer`): cada utilidad/estructura… en bytes de pickle (copia
+        # exacta como el deepcopy de antes) y lo que no cambió desde el paso anterior reusa
+        # los mismos bytes. Antes cada paso copiaba el modelo entero (hasta 400 pasos).
+        from nucleo import deshacer
+        p = deshacer.paso(dict(cur_pts=self.cur_pts, pipes=self.pipes, leaders=self.leaders,
+                               text_marks=self.text_marks, erase_regions=self.erase_regions,
+                               structures=self.structures,
+                               duct_banks=getattr(self, "duct_banks", []) or [],
+                               # apuntan a utilidades por índice: borrar/unir los corre
+                               cross_connections=getattr(self, "cross_connections", []) or [],
+                               normas_aprobados=getattr(self, "normas_aprobados", []) or []),
+                          getattr(self, "_ultimo_paso", None))
+        self._ultimo_paso = p
+        return p
 
     def _push(self):
         self._undo.append(self._snap_state()); self._redo.clear(); self._dirty = True
         if len(self._undo) > 400: self._undo.pop(0)
 
     def _restore(self, s):
+        from nucleo import deshacer
+        if isinstance(s, deshacer.Paso):
+            s = deshacer.abrir(s)
         self.cur_pts, self.pipes = s["cur_pts"], s["pipes"]
         self.leaders, self.text_marks = s["leaders"], s["text_marks"]
         self.erase_regions = s.get("erase_regions", [])
@@ -1599,6 +1610,9 @@ class Main(MenuMixin, PanelIzquierdoMixin, PanelDerechoMixin, ModosMixin, ClicsM
 
     def closeEvent(self, e):
         if self._confirm_discard():
+            dlg = self.__dict__.get("_vista3d_dlg")       # sin padre Qt: se cierra con la principal
+            if dlg is not None:
+                dlg.close()
             ag = self.__dict__.get("autoguardado")
             if ag is not None:
                 ag.cerrar()                         # cierre normal: no queda nada por recuperar

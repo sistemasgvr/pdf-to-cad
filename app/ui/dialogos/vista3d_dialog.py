@@ -71,8 +71,13 @@ class _Trabajo(QtCore.QRunnable):
 
 class Vista3DDialog(QtWidgets.QDialog):
     def __init__(self, win):
-        super().__init__(win)
+        # SIN padre Qt (reporte del usuario 2026-10-16: al abrir la vista 3D la ventana principal
+        # se cerraba y volvía a abrir): un QOpenGLWidget dentro de una ventana HIJA hace que Qt
+        # recree la ventana nativa de la principal (Hide → otra ventana → Show). La principal es
+        # su DUEÑA (`_duenio`: queda encima de ella y se minimiza con ella) y la cierra al cerrarse.
+        super().__init__(None)
         self.win = win
+        self._geo_guardada = False
         self.setWindowTitle(_tr("Vista 3D"))
         self.setWindowFlags(self.windowFlags() | QtCore.Qt.WindowMinMaxButtonsHint)
         self.resize(1100, 720)
@@ -145,6 +150,10 @@ class Vista3DDialog(QtWidgets.QDialog):
             c = QtWidgets.QCheckBox(_tr(texto)); c.setChecked(True)
             c.toggled.connect(lambda _on: self.actualizar(forzar=True))
             f.addWidget(c); self.chk[clave] = c
+        c = QtWidgets.QCheckBox(_tr("Ángulos y pendientes por tramo"))       # pedido del usuario 2026-10-16
+        c.setToolTip(_tr("Rótulos sobre cada utilidad: la pendiente de cada tramo y el ángulo de cada quiebre"))
+        c.toggled.connect(lambda _on: self.actualizar(forzar=True))
+        f.addWidget(c); self.chk["rotulos"] = c
         v.addWidget(g)
         g = QtWidgets.QGroupBox(_tr("Suelo"))
         f = QtWidgets.QFormLayout(g)
@@ -223,7 +232,7 @@ class Vista3DDialog(QtWidgets.QDialog):
             self.act_seguir.setChecked(str(s.value("seguir", "true")) == "true")
             geo = s.value("geometria")
             if geo is not None:
-                self.restoreGeometry(geo)
+                self._geo_guardada = bool(self.restoreGeometry(geo))
         except (TypeError, ValueError):
             pass
 
@@ -237,6 +246,19 @@ class Vista3DDialog(QtWidgets.QDialog):
     def closeEvent(self, e):
         self._guardar_ajustes()
         super().closeEvent(e)
+
+    def _duenio(self):
+        """La ventana principal como DUEÑA de esta (transient parent): queda encima de ella sin
+        ser su hija Qt. Sin la principal en pantalla (pruebas), nada."""
+        try:
+            h = self.win.windowHandle()
+            if h is None:
+                return
+            self.winId()                              # crea la ventana nativa de esta
+            if self.windowHandle() is not None and self.windowHandle().transientParent() is not h:
+                self.windowHandle().setTransientParent(h)
+        except RuntimeError:
+            pass
 
     # ── modelo ──
     def _datos(self):
@@ -485,11 +507,14 @@ def abrir(win, ver=None):
     if dlg is None:
         dlg = Vista3DDialog(win)
         win._vista3d_dlg = dlg
+        if not dlg._geo_guardada:                     # sin padre Qt: centrada sobre la principal
+            dlg.move(win.frameGeometry().center() - dlg.rect().center())
     elif not dlg.isVisible():
         # Cada vez que se abre arranca de cero: isométrica y todo encuadrado (no la
         # cámara de la vez anterior).
         dlg._primera = True
         dlg.visor.reiniciar()
+    dlg._duenio()
     dlg.show(); dlg.raise_(); dlg.activateWindow()
     dlg.actualizar()
     if ver:

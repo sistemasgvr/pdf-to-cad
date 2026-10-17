@@ -106,6 +106,18 @@ class PanelDerechoMixin:
         # Es independiente de la unidad de trabajo (que rige coordenadas/cotas).
         # El diámetro ya no es un campo del UI: se deriva automáticamente del
         # "Tamaño (catálogo)" elegido. p["diam"] se calcula al guardar propiedades.
+        # Vértice de eléctrico/telecom elegido con un clic → «Cambiar a curva» (ventana_vertices).
+        self.box_vertice = QtWidgets.QWidget()
+        bv = QtWidgets.QVBoxLayout(self.box_vertice); bv.setContentsMargins(0, 0, 0, 6); bv.setSpacing(4)
+        self.lbl_vertice = QtWidgets.QLabel(); self.lbl_vertice.setWordWrap(True)
+        self.btn_vertice_curva = _bind(WrapButton(), "setText", "Cambiar a curva", pre="  ")
+        self.btn_vertice_curva.setIcon(_icon("mdi:vector-curve"))
+        _bind(self.btn_vertice_curva, "setToolTip", "Convierte el vértice elegido en una curva (radio automático: "
+              "se cambia en el panel de Curvas).")
+        self.btn_vertice_curva.clicked.connect(self._cambiar_vertice_a_curva)
+        bv.addWidget(self.lbl_vertice); bv.addWidget(self.btn_vertice_curva)
+        self.box_vertice.setVisible(False)
+        fpr.addRow(self.box_vertice)
         fpr.addRow(_bind(QtWidgets.QLabel(), "setText", "Nombre:"), self.prop_name)
         # Tipo de la utilidad para las normativas en tablas (Distribución principal,
         # Instalación domiciliaria…; normas_catalogo) + «+» para agregar uno nuevo, y el
@@ -163,6 +175,11 @@ class PanelDerechoMixin:
         # Nombre igual a Civil 3D: "Elevación de rasante" (no "Invert").
         self.lbl_prop_inv0 = _bind(QtWidgets.QLabel(), "setText", "Elev. de rasante inicial (ft):"); fpr.addRow(self.lbl_prop_inv0, self.prop_inv0)
         self.lbl_prop_inv1 = _bind(QtWidgets.QLabel(), "setText", "Elev. de rasante final (ft):");   fpr.addRow(self.lbl_prop_inv1, self.prop_inv1)
+        # Pendiente de la utilidad elegida (pedido del usuario 2026-10-16): una sola si tiene un
+        # tramo o todos iguales; si no, la de cada tramo (`_mostrar_pendiente`).
+        self.lbl_pendiente = QtWidgets.QLabel("")
+        self.lbl_pendiente.setWordWrap(True)
+        fpr.addRow(self.lbl_pendiente)
         # Familia + tamaño del catálogo Civil 3D para esta pipe (solo gravedad).
         # Para presión y conduit no aplica: presión usa el sub-catálogo por material
         # y conduit se deja como polyline simple.

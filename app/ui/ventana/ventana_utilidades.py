@@ -37,6 +37,8 @@ class UtilidadesMixin:
         `setValue`/`setText` dispararía `_prop_changed()` y guardaría los
         datos ANTES de terminar de cargarlos (círculo vicioso)."""
         self.sel_pipe = r
+        if getattr(self, "_vertice_sel", None) and self._vertice_sel[0] != r:
+            self._vertice_sel = None                    # el vértice elegido era de otra utilidad
         if 0 <= r < len(self.pipes):
             p = self.pipes[r]; pts = p.get("pts")
             if not self._no_center and pts:                # los tramos importados (world) no tienen pts

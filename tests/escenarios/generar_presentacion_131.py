@@ -4,10 +4,10 @@
                        ingeniero: rangos en columnas MIN/MAX, listas y RADIO CURVA FIJO),
                        el caso que cumple, el del borde y el que no. Casos en
                        `presentacion_131_casos.py`.
-  Filas 6–7 (X01–X13)  las otras novedades que se ven sin PDF: editar en bloque, copiar y
+  Filas 6–7 (X01–X15)  las otras novedades que se ven sin PDF: editar en bloque, copiar y
                        pegar propiedades (con COTAS, 1.3.1), unir utilidades, la revisión antes
-                       de exportar, choques, bancoducto en dos utilidades, sólido y diámetro
-                       por defecto.
+                       de exportar, choques, bancoducto en dos utilidades, sólido, diámetro
+                       por defecto y ángulos fuera del paso de 0.25° (1.3.1).
 
 Cada celda dice qué hoja del Excel prueba, la regla en palabras simples y qué aviso debe
 salir. Las normativas SE LEEN DEL EXCEL `normativas_1_3_1.xlsx` (una copia del v3 del
@@ -21,6 +21,7 @@ Uso:
 Se construye con el código REAL de la app (Main sin ventana), como los demás escenarios.
 """
 import copy
+import math
 import os
 import sys
 import textwrap
@@ -53,7 +54,7 @@ TITULO = (
     "ANTES DE MIRAR: importa tests/escenarios/normativas_1_3_1.xlsx (Normativas → Normativas de diseño → "
     "«Importar Excel…»). Los avisos dependen de las normativas cargadas.\n"
     "Filas 1-5 (N01-N54): una regla del Excel por celda: el caso que cumple, el del borde del rango y el que no. "
-    "Filas 6-7 (X01-X13): otras novedades.\n"
+    "Filas 6-7 (X01-X15): otras novedades.\n"
     "Avisos: circulito ámbar «!» en el lugar (celeste «i» = solo información), etiqueta del accesorio en ámbar y "
     "«N avisos de normativa» en la barra de estado (clic = lista; ahí también se APRUEBAN). «Sin tipo» no se "
     "dibuja: se ve en el panel y en la lista.")
@@ -138,7 +139,8 @@ def x_copiar(dz, P):
 
 
 def x_unir(dz, P):
-    a, b, c, d = (P[0] - 90, P[1]), (P[0] - 30, P[1]), (P[0] + 30, P[1] + 12), (P[0] + 90, P[1] + 12)
+    # el tramo del medio a 45°: todo ángulo del lienzo va en pasos de 0.25° (1.3.1)
+    a, b, c, d = (P[0] - 90, P[1]), (P[0] - 6, P[1]), (P[0] + 6, P[1] + 12), (P[0] + 90, P[1] + 12)
     for u, v in ((a, b), (b, c), (c, d)):
         dz.util("DRENAJE", [u, v], 18, inv=(-6.0, -6.2))
 
@@ -211,6 +213,20 @@ def x_defecto(dz, P):
     recta(dz, "AGUA", P, None, DP, largo=120)
 
 
+def x_quiebre_raro(dz, P):
+    a = math.radians(45.684)
+    b = (P[0] - 20, P[1] - 30)
+    dz.util("DRENAJE", [(P[0] - 90, P[1] - 30), b, (b[0] + 90 * math.cos(a), b[1] + 90 * math.sin(a))], 18,
+            inv=(-6.0, -6.4))
+
+
+def x_union_rara(dz, P):
+    dz.util("DRENAJE", [(P[0] - 90, P[1] - 20), (P[0] + 90, P[1] - 20)], 18, inv=(-6.0, -6.4))
+    a = math.radians(80.3)
+    dz.util("DRENAJE", [(P[0] - 75 * math.cos(a), P[1] - 20 + 75 * math.sin(a)), (P[0], P[1] - 20)], 12,
+            inv=(-5.8, -6.2))
+
+
 CASOS_X = [
     ("X01", "Editar en bloque (4 eléctricas sin tipo)",
      "Ctrl+clic en las 4 → Ctrl+E → Tipo = DISTRIBUCION PRINCIPAL: se van los 4 avisos «Sin tipo». "
@@ -246,6 +262,12 @@ CASOS_X = [
      x_solido, [], []),
     ("X13", "Agua DP sin tamaño elegido", "Panel: Diámetro 12\" (Por defecto); 12\" está en DP: sin aviso.",
      x_defecto, [], []),
+    ("X14", "Quiebre de 45.684° (ángulos en pasos de 0.25°)",
+     "«!» ámbar en el vértice: «Quiebre de 45.684°… el más cercano: 45.75°». Editar/mover ese vértice "
+     "lo deja en el paso y el aviso se va.", x_quiebre_raro, ["angulo"], []),
+    ("X15", "Unión a 80.3° (ángulos en pasos de 0.25°)",
+     "La punta llega a la otra línea a 80.3°: «Unión con la utilidad #… no sigue el paso de 0.25°». Al "
+     "dibujar a mano (Asistir/Libre) no puede pasar.", x_union_rara, ["angulo"], []),
 ]
 
 

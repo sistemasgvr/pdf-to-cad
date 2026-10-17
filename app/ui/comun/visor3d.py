@@ -7,7 +7,9 @@ arrastrar con el izquierdo = girar y con el derecho (o Ctrl + izquierdo) = despl
 Clic = elegir, doble clic = encuadrar lo que hay bajo el cursor (o todo).
 
 El resaltado (selección y lo que está bajo el cursor) va por uniformes: cada vértice
-lleva el id de su objeto, así elegir no reconstruye nada.
+lleva el id de su objeto, así elegir no reconstruye nada. Tubos, accesorios, buzones
+redondos y esferas van como INSTANCIAS (`visor3d_instancias`, OpenGL 3.3): misma imagen
+con ~40 veces menos memoria; sin instancing, los triángulos de siempre (`Escena.opacos`).
 """
 from __future__ import annotations
 
@@ -20,6 +22,8 @@ from PySide6.QtOpenGLWidgets import QOpenGLWidget
 
 from nucleo import mallas3d as M
 from ui.comun import etiquetas3d
+from ui.comun import visor3d_instancias as VI
+from ui.comun import visor3d_shaders as SH
 from ui.comun.cubo_vistas import CuboVistas
 
 GL_TRIANGLES = 0x0004
@@ -35,40 +39,7 @@ GL_FLOAT = 0x1406
 GL_MULTISAMPLE = 0x809D
 PASO = M.CAMPOS * 4
 
-_VERT = """
-#version 120
-attribute vec3 aPos; attribute vec3 aNor; attribute vec4 aCol; attribute float aId;
-attribute vec3 aEje; attribute float aRadio;
-uniform mat4 uMvp; uniform float uSel; uniform float uHov;
-uniform vec3 uOjo; uniform float uPxMundo; uniform float uMinPx;
-varying vec4 vCol; varying vec3 vNor; varying float vEstado;
-void main() {
-    vec3 p = aPos;
-    if (aRadio > 0.0) {    // tubería: nunca más fina que uMinPx de radio en pantalla
-        float minimo = uMinPx * uPxMundo * distance(uOjo, aEje);
-        p = aEje + (aPos - aEje) * max(1.0, minimo / aRadio);
-    }
-    gl_Position = uMvp * vec4(p, 1.0);
-    vNor = aNor;
-    vCol = aCol;
-    vEstado = 0.0;
-    if (aId > 0.5 && abs(aId - uHov) < 0.5) vEstado = 1.0;
-    if (aId > 0.5 && abs(aId - uSel) < 0.5) vEstado = 2.0;
-}
-"""
-_FRAG = """
-#version 120
-uniform vec3 uLuz; uniform vec4 uResalte; uniform float uAlfa;
-varying vec4 vCol; varying vec3 vNor; varying float vEstado;
-void main() {
-    vec3 n = normalize(vNor);
-    float l = 0.38 + 0.62 * abs(dot(n, normalize(uLuz)));
-    vec3 c = vCol.rgb * l;
-    if (vEstado > 1.5) c = mix(c, uResalte.rgb, 0.6);
-    else if (vEstado > 0.5) c = mix(c, vec3(1.0), 0.35);
-    gl_FragColor = vec4(c, vCol.a * uAlfa);
-}
-"""
+_VERT, _FRAG = SH.VERT, SH.FRAG
 
 RADIO_MIN_PX = 1.0      # tuberías: radio mínimo en pantalla (~2 px de ancho; no desaparecen al alejar)
 DIST_MIN_FT = 1.0       # el zoom se detiene a esta distancia de la superficie bajo el cursor (no la atraviesa)
@@ -145,6 +116,7 @@ class Visor3D(QOpenGLWidget):
         self.resalte = QtGui.QColor(255, 214, 51)
         self.error = ""
         self._prog = None
+        self._inst = None                   # VI.Instanciador (None = triángulos de siempre)
         self._vbos = {}
         self._sucio = False
         self._press = None
@@ -206,6 +178,12 @@ class Visor3D(QOpenGLWidget):
             if not p.link():
                 raise RuntimeError(p.log())
             self._prog = p
+            self._inst = None
+            if VI.soportado(self.context()):
+                try:
+                    self._inst = VI.Instanciador(self, self.context(), _FRAG)
+                except Exception:                     # sin instancing: los triángulos de siempre
+                    self._inst = None
             self._vao = QOpenGLVertexArrayObject(self)
             self._vao.create()                   # se enlaza solo mientras se dibuja el modelo
             self.f.glEnable(GL_DEPTH_TEST)
@@ -224,7 +202,9 @@ class Visor3D(QOpenGLWidget):
         if self.escena is None:
             return
         for clave in ("opacos", "transparentes", "suelo"):
-            datos = np.ascontiguousarray(getattr(self.escena, clave), np.float32)
+            # con instancing, los opacos que NO son instancias; sin él, TODOS los triángulos
+            fuente = self.escena.base if (clave == "opacos" and self._inst is not None) else getattr(self.escena, clave)
+            datos = np.ascontiguousarray(fuente, np.float32)
             if not len(datos):
                 continue
             b = QOpenGLBuffer(QOpenGLBuffer.VertexBuffer)
@@ -232,6 +212,8 @@ class Visor3D(QOpenGLWidget):
             b.allocate(datos.tobytes(), datos.nbytes)
             b.release()
             self._vbos[clave] = (b, len(datos))
+        if self._inst is not None:
+            self._inst.subir(self.escena.instancias)
         self._sucio = False
 
     def _dibujar(self, clave, alfa):
@@ -267,18 +249,17 @@ class Visor3D(QOpenGLWidget):
         p.bind()
         dpr = self.devicePixelRatioF()
         f.glViewport(0, 0, int(self.width() * dpr), int(self.height() * dpr))
-        p.setUniformValue("uMvp", self.cam.matriz(self.width() / max(self.height(), 1), self.radio()))
-        p.setUniformValue1f("uSel", float(self.sel_id))
-        p.setUniformValue1f("uHov", float(self.hov_id))
-        p.setUniformValue("uOjo", QtGui.QVector3D(*self.cam.ojo()))
-        p.setUniformValue1f("uPxMundo", 2.0 * math.tan(math.radians(self.cam.fov) / 2.0) / max(self.height(), 1))
-        p.setUniformValue1f("uMinPx", RADIO_MIN_PX)
-        luz = self.cam.ojo() - self.cam.objetivo + np.array([0.0, 0.0, self.cam.dist * 0.6])
-        p.setUniformValue("uLuz", QtGui.QVector3D(*luz))
-        r = self.resalte
-        p.setUniformValue("uResalte", QtGui.QVector4D(r.redF(), r.greenF(), r.blueF(), 1.0))
+        self._uniformes(p)
         f.glDisable(GL_BLEND)
         self._dibujar("opacos", 1.0)
+        if self._inst is not None:
+            try:
+                self._inst.dibujar(self._uniformes)
+            except Exception:                         # respaldo: los triángulos de siempre
+                self._inst = None
+                self._sucio = True
+                self.update()
+            p.bind()
         f.glEnable(GL_BLEND)
         f.glDepthMask(False)
         self._dibujar("transparentes", 1.0)
@@ -296,10 +277,25 @@ class Visor3D(QOpenGLWidget):
         self.cubo.dibujar(pintor, self.width(), self.cam, self.oscuro)
         pintor.end()
 
+    def _uniformes(self, p):
+        """Cámara, resaltado, luz y grosor mínimo: iguales en los dos programas."""
+        p.setUniformValue("uMvp", self.cam.matriz(self.width() / max(self.height(), 1), self.radio()))
+        p.setUniformValue1f("uSel", float(self.sel_id))
+        p.setUniformValue1f("uHov", float(self.hov_id))
+        p.setUniformValue("uOjo", QtGui.QVector3D(*self.cam.ojo()))
+        p.setUniformValue1f("uPxMundo", 2.0 * math.tan(math.radians(self.cam.fov) / 2.0) / max(self.height(), 1))
+        p.setUniformValue1f("uMinPx", RADIO_MIN_PX)
+        luz = self.cam.ojo() - self.cam.objetivo + np.array([0.0, 0.0, self.cam.dist * 0.6])
+        p.setUniformValue("uLuz", QtGui.QVector3D(*luz))
+        r = self.resalte
+        p.setUniformValue("uResalte", QtGui.QVector4D(r.redF(), r.greenF(), r.blueF(), 1.0))
+
     def _dibujar_etiquetas(self, pintor):
         """Número de cada conflicto («C-n») junto a su esfera, encima del modelo."""
-        etiquetas3d.dibujar(pintor, getattr(self.escena, "etiquetas", None) or [],
-                            _np(self.cam.matriz(self.width() / max(self.height(), 1), self.radio())),
+        m = _np(self.cam.matriz(self.width() / max(self.height(), 1), self.radio()))
+        etiquetas3d.dibujar(pintor, getattr(self.escena, "rotulos", None) or [], m, self.width(), self.height(),
+                            self.sel_id, self.hov_id, rotulo=True)       # pendientes y ángulos (si están)
+        etiquetas3d.dibujar(pintor, getattr(self.escena, "etiquetas", None) or [], m,
                             self.width(), self.height(), self.sel_id, self.hov_id)
 
     # ── elegir ──

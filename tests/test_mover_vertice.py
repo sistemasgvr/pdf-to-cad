@@ -55,19 +55,23 @@ def test_buzon_sigue_al_vertice_y_conserva_cotas(win):
     bz["rim"] = 101.5; bz["sump"] = 95.25
     cod = bz["cod"]
     _drag(win, 0, 200, 0, 230, 40)
-    assert win.pipes[0]["pts"][1] == (230, 40)
+    # el vértice queda donde sus ángulos siguen el paso de 0.25° (a menos de 2 px de donde se suelta)
+    v = win.pipes[0]["pts"][1]
+    assert math.hypot(v[0] - 230, v[1] - 40) < 2.0
     assert not _at(win, 200, 0)
-    s = _at(win, 230, 40)
+    s = _at(win, *v)
     assert len(s) == 1 and s[0]["cod"] == cod and s[0]["rim"] == 101.5 and s[0]["sump"] == 95.25
     win.undo()
-    assert _at(win, 200, 0) and not _at(win, 230, 40)
+    assert _at(win, 200, 0) and not _at(win, *v)
 
 
 def test_caja_con_contorno_sigue_al_vertice(win):
     _drag(win, 2, 300, 500, 320, 530)
-    s = _at(win, 320, 530)
+    v = win.pipes[2]["pts"][1]                      # en el paso de 0.25° desde el otro extremo
+    assert math.hypot(v[0] - 320, v[1] - 530) < 2.0
+    s = _at(win, *v)
     assert len(s) == 1 and s[0]["cod"] == "CAJA-1"
-    assert list(s[0]["outline"][0]) == [310, 520]
+    assert list(s[0]["outline"][0]) == pytest.approx([v[0] - 10, v[1] - 10])
 
 
 def test_mover_utilidad_entera_deja_el_nudo_compartido(win):
@@ -107,8 +111,9 @@ def test_extremo_arrastrado_se_pega_a_otro_vertice(win_solido):
 
 def test_vertice_interior_no_se_engancha(win):
     win.canvas.resetTransform()
-    _drag(win, 0, 200, 0, 395, 5)                  # vértice interior: queda donde se suelta
-    assert win.pipes[0]["pts"][1] == (395, 5)
+    _drag(win, 0, 200, 0, 395, 5)                  # vértice interior: no se pega al extremo vecino
+    v = win.pipes[0]["pts"][1]
+    assert v != (400, 0) and math.hypot(v[0] - 395, v[1] - 5) < 2.0
 
 
 def test_dibujar_se_pega_al_solido(win_solido):

@@ -8,8 +8,12 @@ cruz) devuelve su TIPO y su ÁNGULO, con las mismas reglas que el plugin:
     la capa) a ≤ 0.5 ft (`ProcesarJunturasPresion`); cada utilidad promedia su
     cota ahí y solo se unen las que quedan a ≤ 0.10 ft (misma regla que
     `model_ops.junturas_excedidas`). Un extremo que muere a MITAD de un tramo
-    de la misma red y cota parte ese tramo (`PartirTramosEnTes`): es una T.
-  - 2 tramos → codo si giran más de 1° (si no, unión recta: sin accesorio),
+    de la misma red y cota parte ese tramo (`PartirTramosEnTes`): es una T. Dos tramos que
+    se CRUZAN en X a mitad de ambos, a la misma cota, se parten los dos: cruz.
+  - 2 tramos → codo si giran más de 1° EN 3D, con la pendiente de cada tramo (como
+    `ProcesarJunturasPresion`: vectores 3D hacia el extremo lejano de cada tubo; reporte
+    del usuario 2026-10-16: dos tramos casi rectos en planta pero uno subiendo 6 ft en 3 ft
+    no llevaban codo en la app y sí en Civil 3D). Si no, unión recta: sin accesorio,
     3 → Tee si hay tronco recto (≥160°) y el ramal va a 90° ±20°, si no Wye;
     4 → cruz; 5+ → nada (lo avisa la alerta roja de `junturas_excedidas`).
   - ANTES de juntar nada, dos codos de la misma utilidad con un tramo más corto
@@ -68,12 +72,25 @@ def _agudo(a, b):
     return min(e, 180.0 - e)
 
 
-def clasificar(salidas):
+def _entre_3d(a, pa, b, pb):
+    """Ángulo (0–180°) entre dos salidas con rumbo (radianes) y pendiente (pie por pie en planta)."""
+    u = (math.cos(a), math.sin(a), pa)
+    v = (math.cos(b), math.sin(b), pb)
+    nu, nv = math.sqrt(1.0 + pa * pa), math.sqrt(1.0 + pb * pb)
+    c = (u[0] * v[0] + u[1] * v[1] + u[2] * v[2]) / (nu * nv)
+    return math.degrees(math.acos(max(-1.0, min(1.0, c))))
+
+
+def clasificar(salidas, pendientes=None):
     """(tipo, ángulo°) para las direcciones (radianes) que salen del nodo, o
-    None si no hay accesorio (unión recta, 1 salida o 5+)."""
+    None si no hay accesorio (unión recta, 1 salida o 5+). Con `pendientes` (pie de
+    subida por pie en planta de cada salida) el codo se mide en 3D, como el plugin."""
     n = len(salidas)
     if n == 2:
-        giro = 180.0 - _entre(salidas[0], salidas[1])   # deflexión sobre el eje prolongado
+        if pendientes:
+            giro = 180.0 - _entre_3d(salidas[0], pendientes[0], salidas[1], pendientes[1])
+        else:
+            giro = 180.0 - _entre(salidas[0], salidas[1])   # deflexión sobre el eje prolongado
         return ("codo", giro) if giro > GIRO_CODO_MIN_DEG else None
     if n == 3:
         pares = sorted(((i, j) for i in range(3) for j in range(i + 1, 3)),
@@ -125,10 +142,13 @@ def _interseccion(a1, a2, b1, b2):
     return (a1[0] + rx * t, a1[1] + ry * t)
 
 
-def accesorios(pipes, z_at, ft_per_px):
+def accesorios(pipes, z_at, ft_per_px, rectos=None):
     """Accesorios de las redes a presión. `z_at(i_pipe, i_tramo, x, y)` = solera
     del tramo en ese punto (None = 0). Devuelve una lista de dicts:
-    {"x", "y", "tipo", "angulo", "capa", "red", "pipes": [índices], "n"}."""
+    {"x", "y", "tipo", "angulo", "capa", "red", "pipes": [índices], "n"}.
+    Con `rectos` (lista), le suma las uniones RECTAS de dos tramos (sin accesorio aquí;
+    la Vista 3D pone ahí la reducción si los diámetros difieren): {"x", "y", "capa",
+    "red", "pipes"}."""
     if not ft_per_px or ft_per_px <= 0:
         return []
     tol = TOL_UNION_FT / ft_per_px
@@ -150,7 +170,13 @@ def accesorios(pipes, z_at, ft_per_px):
             pipes[i] = dict(pipes[i], pts=pts)
             fundidos += nuevos
 
-    # Extremos de tramo: (x, y, red, i_pipe, z, dirección hacia el otro extremo, i_tramo, i_vértice)
+    def _pend(za, zb, a, b):
+        """Subida de a hacia b, en pies por pie en planta."""
+        L = math.hypot(b[0] - a[0], b[1] - a[1]) * ft_per_px
+        return (zb - za) / L if L > 1e-9 else 0.0
+
+    # Extremos de tramo: (x, y, red, i_pipe, z, dirección hacia el otro extremo, i_tramo, i_vértice,
+    # pendiente hacia el otro extremo)
     ext = []
     for i in presion:
         p = pipes[i]; red = red_de(p); pts = p["pts"]
@@ -158,8 +184,9 @@ def accesorios(pipes, z_at, ft_per_px):
             a, b = pts[k], pts[k + 1]
             if (a[0] - b[0]) ** 2 + (a[1] - b[1]) ** 2 <= 1e-12:
                 continue
-            ext.append((a[0], a[1], red, i, _z(i, k, *a), _ang(b[0] - a[0], b[1] - a[1]), k, k))
-            ext.append((b[0], b[1], red, i, _z(i, k, *b), _ang(a[0] - b[0], a[1] - b[1]), k, k + 1))
+            za, zb = _z(i, k, *a), _z(i, k, *b)
+            ext.append((a[0], a[1], red, i, za, _ang(b[0] - a[0], b[1] - a[1]), k, k, _pend(za, zb, a, b)))
+            ext.append((b[0], b[1], red, i, zb, _ang(a[0] - b[0], a[1] - b[1]), k, k + 1, _pend(zb, za, b, a)))
 
     # T: la punta de una utilidad sobre el INTERIOR de un tramo de otra de la
     # misma red y cota → ese tramo se parte ahí (aporta dos extremos).
@@ -190,8 +217,48 @@ def accesorios(pipes, z_at, ft_per_px):
                 if abs(_z(j, k, *q) - zi) > TOL_COTA_FT:
                     continue                      # cruce a otra cota: no se une
                 zj = _z(j, k, *q)
-                ext.append((q[0], q[1], red_de(pipes[j]), j, zj, _ang(a[0] - q[0], a[1] - q[1]), k, None))
-                ext.append((q[0], q[1], red_de(pipes[j]), j, zj, _ang(b[0] - q[0], b[1] - q[1]), k, None))
+                ext.append((q[0], q[1], red_de(pipes[j]), j, zj, _ang(a[0] - q[0], a[1] - q[1]), k, None,
+                            _pend(zj, _z(j, k, *a), q, a)))
+                ext.append((q[0], q[1], red_de(pipes[j]), j, zj, _ang(b[0] - q[0], b[1] - q[1]), k, None,
+                            _pend(zj, _z(j, k, *b), q, b)))
+
+    # X: dos tramos de la misma red que se CRUZAN a mitad de ambos (ninguno tiene vértice ahí)
+    # a la misma cota → los dos se parten ahí: 4 salidas = cruz, con o sin diámetros iguales
+    # (pedido del usuario 2026-10-16; antes era un choque).
+    vistos = set()
+    for i in presion:
+        pts_i = pipes[i]["pts"]
+        for k in range(len(pts_i) - 1):
+            a, b = pts_i[k], pts_i[k + 1]
+            La = math.hypot(b[0] - a[0], b[1] - a[1])
+            if La <= 2 * tol:
+                continue
+            celdas_k = {(cx, cy)
+                        for cx in range(int(math.floor((min(a[0], b[0]) - tol) / celda)),
+                                        int(math.floor((max(a[0], b[0]) + tol) / celda)) + 1)
+                        for cy in range(int(math.floor((min(a[1], b[1]) - tol) / celda)),
+                                        int(math.floor((max(a[1], b[1]) + tol) / celda)) + 1)}
+            for j, m in sorted({jm for c in celdas_k for jm in rejilla.get(c, ())}):
+                if j <= i or (i, k, j, m) in vistos or red_de(pipes[j]) != red_de(pipes[i]):
+                    continue
+                vistos.add((i, k, j, m))
+                c_, d_ = pipes[j]["pts"][m], pipes[j]["pts"][m + 1]
+                q = _interseccion(a, b, c_, d_)
+                if q is None:
+                    continue
+                ta, da = _proyeccion(q, a, b)
+                tb, db = _proyeccion(q, c_, d_)
+                Lb = math.hypot(d_[0] - c_[0], d_[1] - c_[1])
+                if da > tol or db > tol or not (tol < ta * La < La - tol and tol < tb * Lb < Lb - tol):
+                    continue
+                zi, zj = _z(i, k, *q), _z(j, m, *q)
+                if abs(zi - zj) > TOL_COTA_FT:
+                    continue                      # se cruzan a otra cota: no se unen
+                for n_, kk, z0, (p0, p1) in ((i, k, zi, (a, b)), (j, m, zj, (c_, d_))):
+                    for extremo in (p0, p1):
+                        ext.append((q[0], q[1], red_de(pipes[n_]), n_, z0,
+                                    _ang(extremo[0] - q[0], extremo[1] - q[1]), kk, None,
+                                    _pend(z0, _z(n_, kk, *extremo), q, extremo)))
 
     # Agrupar extremos cercanos de la misma red (como junturas_excedidas).
     # Mismo orden que el recorrido completo, pero solo mira las celdas vecinas
@@ -235,8 +302,13 @@ def accesorios(pipes, z_at, ft_per_px):
             miembros = [e for _z0, v in c for e in v]
             if len(miembros) < 2:
                 continue
-            r = clasificar([ext[e][5] for e in miembros])
+            r = clasificar([ext[e][5] for e in miembros], [ext[e][8] for e in miembros])
             if r is None:
+                if rectos is not None and len(miembros) == 2:
+                    ids = sorted({ext[e][3] for e in miembros})
+                    rectos.append({"x": sum(ext[e][0] for e in miembros) / 2.0,
+                                   "y": sum(ext[e][1] for e in miembros) / 2.0, "red": ext[miembros[0]][2],
+                                   "capa": pipes[ids[0]].get("layer") or "", "pipes": ids})
                 continue
             tipo, ang = r
             ids = sorted({ext[e][3] for e in miembros})

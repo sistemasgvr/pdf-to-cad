@@ -5,11 +5,12 @@ accesorios. Espejo de `ImportarRed.CrearConexionesCruzadas` + `ColocarFittingSol
 `CrearCruceConWye` (con `FITTING_COMO_SOLIDO` = true):
 
   • Vertical del diámetro MENOR de las dos utilidades, de boca a boca de sus accesorios.
-  • En cada utilidad horizontal (eje = solera + radio): CODO 90° si la utilidad TERMINA
-    en el cruce (brazo horizontal hacia el resto de la tubería + brazo vertical) o TEE si
-    PASA de largo (dos brazos sobre su tangente + ramal vertical). El tronco lleva el
-    diámetro de su utilidad; el ramal, el de la vertical. La horizontal se recorta en su
-    campana.
+  • En cada utilidad horizontal (eje = solera + radio): CODO si la utilidad TERMINA en el
+    cruce (brazo hacia el resto de la tubería + brazo vertical) o TEE si PASA de largo (dos
+    brazos sobre su tangente + ramal vertical). El tronco lleva el diámetro de su utilidad;
+    el ramal, el de la vertical. La horizontal se recorta en su campana. El brazo de la
+    utilidad sigue su PENDIENTE (reporte del usuario 2026-10-16: una utilidad que sube 17°
+    desde el cruce entraba torcida a un codo armado a nivel; el plugin aún lo arma a nivel).
   • Caso Wye: una utilidad PASA con un QUIEBRE (ya lleva su codo) y la otra TERMINA. El
     codo del quiebre pasa a ser una WYE con un ramal hacia la otra, tubo auxiliar de
     `TUBO_AUX_CRUCE_FT`, codo 90°, vertical y codo 90° que entra en la otra utilidad. Si el
@@ -153,9 +154,22 @@ def ramal_de(plan, ar, diametro_ft, pipes):
 # ─────────────────────────── dibujo ───────────────────────────
 
 class _Dibujo:
-    def __init__(self, ar, pipes, id_base, diametro_ft):
+    def __init__(self, ar, pipes, id_base, diametro_ft, z_eje=None):
         self.ar, self.pipes, self.id, self.diam = ar, pipes, id_base, diametro_ft
+        self.z_eje = z_eje
         self.cortes, self.ajustes, self.n = {}, {}, 0
+
+    def brazo_3d(self, i, x, y, d):
+        """Dirección (mundo, unitaria) de la utilidad i saliendo de (x, y) px hacia `d` (planta,
+        px): 1 ft en planta y lo que sube o baja su eje ahí (sin cotas, a nivel)."""
+        h = np.array([d[0], -d[1], 0.0])
+        if self.z_eje is not None and self.ar.ft:
+            z0 = self.z_eje(i, x, y)
+            z1 = self.z_eje(i, x + d[0] / self.ar.ft, y + d[1] / self.ar.ft)
+            if z0 is not None and z1 is not None:
+                h[2] = z1 - z0
+        n = float(np.linalg.norm(h))
+        return h / n if n > 1e-9 else np.array([d[0], -d[1], 0.0])
 
     def color(self, i):
         return self.ar.color(self.pipes[i].get("layer"))
@@ -183,6 +197,12 @@ class _Dibujo:
     def corte(self, i, xy, u, alcance):
         self.cortes.setdefault(i, []).append((tuple(xy), tuple(u), max(alcance, 0.0)))
 
+    def corte_brazo(self, i, xy, b):
+        """Recorte de la utilidad i en la campana del brazo `b` (medido en planta)."""
+        hz = math.hypot(b.dir[0], b.dir[1])
+        if hz > 1e-9:
+            self.corte(i, xy, (b.dir[0] / hz, b.dir[1] / hz), b.alcance * hz)
+
 
 _ID_ACC = 200000              # = modelo3d.ID_ACCESORIO (sin importar modelo3d: evita el ciclo)
 
@@ -200,13 +220,15 @@ def _normal(dib, plan, accesorios_ok):
         p = pipes[i]
         termina = termina_en(p, x, y, tol)
         dh = alejandose(p, x, y, tol)[0] if termina else tangente(p, x, y)
-        h = np.array([dh[0], -dh[1], 0.0])
         dv = np.array([0.0, 0.0, 1.0 if arriba else -1.0])
         d = dib.diam(p)
-        brazos = [A3.Brazo(dir=h, d=d)] + ([] if termina else [A3.Brazo(dir=-h, d=d)]) + [A3.Brazo(dir=dv, d=plan.d_v)]
+        brazos = [A3.Brazo(dir=dib.brazo_3d(i, x, y, dh), d=d)]
+        if not termina:
+            brazos.append(A3.Brazo(dir=dib.brazo_3d(i, x, y, (-dh[0], -dh[1])), d=d))
+        brazos.append(A3.Brazo(dir=dv, d=plan.d_v))
         c = dib.pieza("codo" if termina else "tee", centro, brazos, i, x, y, [plan.lo, plan.hi])
         for b in brazos[:-1]:
-            dib.corte(i, c[:2], (b.dir[0], b.dir[1]), b.alcance)
+            dib.corte_brazo(i, c[:2], b)
         bocas[i] = (c, brazos[-1].alcance)
     (c_lo, a_lo), (c_hi, a_hi) = bocas[plan.lo], bocas[plan.hi]
     dib.tubo(c_lo + [0, 0, a_lo], c_hi - [0, 0, a_hi], plan.d_v, plan.lo, plan.lo + 1)
@@ -247,10 +269,11 @@ def _wye(dib, plan):
     dib.corte(term, cerca[:2], (d_e[0], d_e[1]), s_v + inf[1].alcance * horiz)                # la otra muere en su codo
 
 
-def dibujar(ar, pipes, planes, id_base, diametro_ft, accesorios_ok=True):
+def dibujar(ar, pipes, planes, id_base, diametro_ft, accesorios_ok=True, z_eje=None):
     """Dibuja las conexiones en `ar`. Devuelve (cortes {utilidad: [(xy, u, alcance)]},
-    ajustes {utilidad: [(xy mundo, z del eje)]}, cantidad de accesorios)."""
-    dib = _Dibujo(ar, pipes, id_base, diametro_ft)
+    ajustes {utilidad: [(xy mundo, z del eje)]}, cantidad de accesorios). `z_eje(i, x, y)` =
+    cota del eje de la utilidad i (para que el brazo siga su pendiente; None = a nivel)."""
+    dib = _Dibujo(ar, pipes, id_base, diametro_ft, z_eje)
     for plan in planes:
         if plan.caso == "wye" and accesorios_ok and plan.ramal is not None:
             _wye(dib, plan)

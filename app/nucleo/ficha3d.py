@@ -60,6 +60,9 @@ def de_utilidad(tablas, pipes, avisos, i, ft_per_px=None):
         validas = [s for s in tramos if s is not None]
         if len(validas) > 1 and max(validas) - min(validas) > 0.0005:
             texto = " · ".join(f"T{k + 1} {_valor(round(s, 3))}" for k, s in enumerate(tramos) if s is not None)
+            # Como el panel del plano (pedido 2026-10-16): con cotas que cambian por tramo, la de
+            # cada tramo EN LUGAR de la de punta a punta.
+            filas = [(c, v) for c, v in filas if c != N_("Pendiente (%)")]
             filas.append((N_("Pendiente por tramo (%)"), texto))
     filas = [(c, v) for c, v in filas if c != N_("Avisos")]
     for m in _avisos(avisos, {i}):

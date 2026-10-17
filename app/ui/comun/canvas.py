@@ -15,7 +15,7 @@ from ui.comun import fondo_pdf
 
 
 _ZOOM_MIN = 0.3
-_ZOOM_MAX = 80.0
+_ZOOM_MAX = 400.0          # pedido del usuario 2026-10-16: acercarse más (antes 80)
 
 _MODE_CURSORS = {
     "pipe": QtCore.Qt.CrossCursor,

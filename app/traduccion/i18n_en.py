@@ -688,15 +688,11 @@ EN: dict[str, str] = {
     "corregida": "fixed",
     "cambiada": "changed",
     "Manual de usuario": "User manual",
-    "Aplicar: finaliza utilidad/zona, o agrega texto/edición":
-        "Apply: finish utility/zone, or add text/edit",
     "Quitar la selección; si no hay, salir del modo":
         "Clear selection; if none, exit mode",
     "Doble clic": "Double click",
     "Sobre un texto: editarlo": "On a text: edit it",
     "Clic derecho": "Right click",
-    "Finaliza línea/zona; en editar, elimina el vértice":
-        "Finish line/zone; in edit mode, delete the vertex",
     "Rueda": "Wheel",
     "Zoom · Botón central + arrastrar: desplazar":
         "Zoom · Middle button + drag: pan",
@@ -720,8 +716,6 @@ EN: dict[str, str] = {
         "Mode: idle  ·  click on the drawing to select",
     "Modo: EXTENDIENDO desde el vértice — clic agrega puntos, Enter finaliza":
         "Mode: EXTENDING from vertex — click to add points, Enter finishes",
-    "Modo: dibujar utilidad  ·  Enter finaliza":
-        "Mode: draw utility  ·  Enter finishes",
     "Modo: Leader — clic en la cabeza de flecha (dónde señala)":
         "Mode: Leader — click on the arrowhead (target)",
     "Modo: Leader — clic en el inicio del landing (bisagra)":
@@ -3501,4 +3495,44 @@ EN: dict[str, str] = {
         'Vertex converted into curve {cod} (automatic radius: change it in the panel).',
     'Curva quitada: vuelve a ser un vértice simple.':
         'Curve removed: it is a plain vertex again.',
+    '{a}° · {l} ft':
+        '{a}° · {l} ft',
+    'Unión con la utilidad #{n} a {a}: no sigue el paso de 0.25° (el más cercano: {c}).':
+        'Joint with utility #{n} at {a}: does not follow the 0.25° step (nearest: {c}).',
+    'Quiebre de {a}: no sigue el paso de 0.25° (el más cercano: {c}).':
+        'Bend of {a}: does not follow the 0.25° step (nearest: {c}).',
+    'Ángulo fuera del paso de 0.25°':
+        'Angle off the 0.25° step',
+    'Salió del modo (Enter)':
+        'Left the mode (Enter)',
+    'Modo: dibujar utilidad (ángulos en pasos de 0.25°)  ·  Enter finaliza; otro Enter sale':
+        'Mode: draw utility (angles in 0.25° steps)  ·  Enter finishes; another Enter exits',
+    'Aplicar: finaliza utilidad/zona (otro Enter sale del modo), o agrega texto/edición':
+        'Apply: finish utility/zone (another Enter exits the mode), or add text/edit',
+    'Finaliza línea/zona; en editar, elimina el vértice':
+        'Finish line/zone; in edit mode, delete the vertex',
+    '{a}° · giro {g}° {v} · {l} ft':
+        '{a}° · turn {g}° {v} · {l} ft',
+    'giro {g}° {v} · {l1} / {l2} ft':
+        'turn {g}° {v} · {l1} / {l2} ft',
+    'giro {g}° {v} · {l} ft':
+        'turn {g}° {v} · {l} ft',
+    'Vértice {k} elegido: «Cambiar a curva» en el panel (o clic derecho sobre él).':
+        'Vertex {k} selected: «Change to curve» in the panel (or right-click it).',
+    'Vértice {k} de esta utilidad':
+        'Vertex {k} of this utility',
+    'Cambiar a curva':
+        'Change to curve',
+    'Convierte el vértice elegido en una curva (radio automático: se cambia en el panel de Curvas).':
+        'Turns the selected vertex into a curve (automatic radius: change it in the Curves panel).',
+    'Reducción':
+        'Reducer',
+    'Ángulos y pendientes por tramo':
+        'Angles and slopes per segment',
+    'Rótulos sobre cada utilidad: la pendiente de cada tramo y el ángulo de cada quiebre':
+        'Labels on each utility: the slope of each segment and the angle of each bend',
+    'Pendiente: {p} %':
+        'Slope: {p} %',
+    'Pendiente por tramo: {tramos}':
+        'Slope per segment: {tramos}',
 }

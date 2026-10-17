@@ -48,16 +48,23 @@ class InsigniaAviso(QtWidgets.QGraphicsItem):
 def dibujar(scene, avisos, tol_px, con_accesorios_visibles):
     """Agrega las insignias a `scene` y devuelve los items (van al overlay)."""
     grupos = []                                       # [[x, y, [avisos]]]
+    # Rejilla de celdas de `tol_px`: con cientos de avisos (ángulos de un plano reconocido)
+    # comparar cada uno con todos los grupos trababa el redibujo. Mismo resultado: el grupo
+    # MÁS ANTIGUO a ≤ tol (el primero de la lista de antes).
+    celda = max(float(tol_px), 1e-6)
+    rejilla = {}
     for a in avisos:
         if a.clase == "accesorio" and con_accesorios_visibles:
             continue
         if a.clase == "tipo" or a.aprobado:
             continue          # «sin tipo»: en el panel, la lista y la barra de estado (no llena el plano)
-        for g in grupos:
-            if (g[0] - a.x) ** 2 + (g[1] - a.y) ** 2 <= tol_px * tol_px:
-                g[2].append(a)
-                break
+        cx, cy = int(a.x // celda), int(a.y // celda)
+        cerca = [n for dx in (-1, 0, 1) for dy in (-1, 0, 1) for n in rejilla.get((cx + dx, cy + dy), ())
+                 if (grupos[n][0] - a.x) ** 2 + (grupos[n][1] - a.y) ** 2 <= tol_px * tol_px]
+        if cerca:
+            grupos[min(cerca)][2].append(a)
         else:
+            rejilla.setdefault((cx, cy), []).append(len(grupos))
             grupos.append([a.x, a.y, [a]])
     items = []
     for x, y, lista in grupos:

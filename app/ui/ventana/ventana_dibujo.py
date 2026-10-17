@@ -6,16 +6,51 @@ los menús, atajos y pruebas siguen usando `win.<método>` como antes.
 """
 from ui.ventana.ventana_comun import *  # noqa: F401,F403  (mismos nombres que app_window)
 from ui.comun import marcas_lienzo as ML
+from ui.comun import etiquetas_tramo as ET
 
 
 class DibujoMixin:
     # ─────────────────────────── dibujo ───────────────────────────
     def _redraw(self):
+        # Lo que depende SOLO del modelo (cruces, choques, accesorios, normativas, curvas) se
+        # reusa mientras su firma no cambie (`nucleo/memo_modelo`): elegir, cambiar de pestaña
+        # o de modo ya no lo recalcula. Y las cotas por vértice de cada utilidad, UNA vez por
+        # redibujo (`model_ops.memo_cotas`). Durante el redibujo nada cambia una utilidad.
+        from nucleo import memo_modelo
+        if getattr(self, "_memo_redibujo", None) is None:
+            self._memo_redibujo = memo_modelo.Memo()
+        self._memo_redibujo.usar(self._firma_modelo())
+        self._indice_redibujo = None                   # índice de tramos de ESTE redibujo
+        self._en_redibujo = True
+        try:
+            with model_ops.memo_cotas():
+                self._redraw_todo()
+        finally:
+            self._en_redibujo = False
+
+    def _firma_modelo(self):
+        """Todo lo que leen los cálculos que se reusan entre redibujos (`_memo`)."""
+        from nucleo import memo_modelo
+        from traduccion import i18n_core
+        return memo_modelo.firma(self.pipes, self.structures, getattr(self, "cross_connections", None),
+                                 getattr(self, "normas_aprobados", None), getattr(self, "normas_cat", None),
+                                 getattr(self, "duct_banks", None), self.scale, self.zoom,
+                                 getattr(i18n_core, "_current_lang", None))
+
+    def _memo(self, clave, fn, copiar=True):
+        """`fn()` reusado entre redibujos con el mismo modelo (fuera de un redibujo: siempre `fn()`)."""
+        m = getattr(self, "_memo_redibujo", None)
+        if m is None or not getattr(self, "_en_redibujo", False):
+            return fn()
+        return m.obtener(clave, fn, copiar)
+
+    def _redraw_todo(self):
         sc = self.canvas.scene()
         for it in self._overlay:
             try: sc.removeItem(it)
             except (RuntimeError, ValueError): pass
         self._overlay = []
+        self._trazo_al_redibujar()                      # anillo y línea elástica del dibujo (ventana_trazo)
         if self.canvas.pixmap_item is None: return
         # zonas de borrado — DETRÁS de todo (solo tapan el PDF)
         if self._erase_pts:
@@ -41,14 +76,15 @@ class DibujoMixin:
             if sel and self.mode == "move": self._handles(rg["pts"])
         # utilidades (con selección múltiple se resaltan todas las seleccionadas)
         multi = set(self._selected_pipe_rows()) if hasattr(self, "pipe_list") else set()
+        ocupados = []                                   # etiquetas T1, T2… ya puestas (no se solapan)
         for i, p in enumerate(self.pipes):
             if not p.get("pts"): continue               # tramos importados (world): no se dibujan
             sel = (i == self.sel_pipe) or (len(multi) > 1 and i in multi)
             # Dibujo la polilínea del pipe con arcos REALES sustituyendo cada
             # esquina que tenga un elemento curvo — mismo radio y tangencia
             # que el plugin usará en Civil 3D.
-            self._poly(self._pipe_display_pts(p), layer_qcolor(p["layer"]),
-                       4.0 if sel else 2.0, z=Z_MARK)
+            self._poly(self._memo(("dibujo", i), lambda p=p: self._pipe_display_pts(p), copiar=False),
+                       layer_qcolor(p["layer"]), 4.0 if sel else 2.0, z=Z_MARK)
             if sel and self.mode == "move": self._handles(p["pts"])
             elif i == self.sel_pipe:
                 self._vertices_libres(p)                # eléctrico/telecom: vértices que pueden ser curva
@@ -66,11 +102,10 @@ class DibujoMixin:
             # momento. Solo visual — NO se exportan al DXF (dxf_export lee
             # self.pipes, no la escena Qt).
             if p.get("seg_edit_enabled") and len(p["pts"]) >= 3:
-                for si in range(len(p["pts"]) - 1):
-                    (x1, y1), (x2, y2) = p["pts"][si], p["pts"][si + 1]
-                    mx, my = (x1 + x2) / 2.0, (y1 + y2) / 2.0
-                    self._seg_label(sc, f"T{si + 1}", mx, my,
-                                    layer_qcolor(p["layer"]))
+                tramos = [(f"T{si + 1}", p["pts"][si], p["pts"][si + 1]) for si in range(len(p["pts"]) - 1)]
+                for texto, mx, my, dx, dy, px in ET.ubicar(tramos, ocupados, evitar=p["pts"]):
+                    it = ET.EtiquetaTramo(texto, layer_qcolor(p["layer"]), px, dx, dy)
+                    it.setPos(mx, my); it.setZValue(Z_MARK + 2); sc.addItem(it); self._overlay.append(it)
         self._poly(self.cur_pts, layer_qcolor(self._ext_layer or self.active_layer()), 2.0, dots=True, z=Z_MARK)
         # centerlines de referencia (para georreferenciar) — magenta punteado,
         # bien distinto de las utilidades para no confundirlos a simple vista.
@@ -234,9 +269,15 @@ class DibujoMixin:
         pertenece (mismo vértice). Si show_bz_labels está activo, escribe el código
         del buzón al lado del círculo."""
         if not self.structures: return
-        sc = self.canvas.scene(); tol2 = 14.0 ** 2
+        sc = self.canvas.scene()
         # Precomputa color por buzón: mira los pipes NO importados y toma el layer
-        # del primero cuyo vértice coincida (dist² ≤ tol²).
+        # del primero cuyo vértice coincida (dist² ≤ tol²). Vértices por celdas
+        # (`indice_plano`): antes cada buzón recorría todas las utilidades.
+        from nucleo.indice_plano import IndicePuntos
+        vert = [(vx, vy, pi) for pi, p in enumerate(self.pipes)
+                if not p.get("world") and p.get("pts") for (vx, vy) in p["pts"]]
+        indice = IndicePuntos([(v[0], v[1]) for v in vert], 14.0)
+
         def _color_for(s):
             sx, sy = s.get("x"), s.get("y")
             if sx is None or sy is None: return QtGui.QColor(200, 200, 200)
@@ -244,11 +285,9 @@ class DibujoMixin:
                 # Para presión (sin vértice de pipe dibujado) o buzones importados,
                 # gris claro (no hay línea de referencia visible).
                 pass
-            for p in self.pipes:
-                if p.get("world") or not p.get("pts"): continue
-                for (vx, vy) in p["pts"]:
-                    if (vx - sx) ** 2 + (vy - sy) ** 2 <= tol2:
-                        return layer_qcolor(p["layer"])
+            cerca = indice.en_radio(sx, sy, 14.0)
+            if cerca:                                # el primero en orden: la primera utilidad
+                return layer_qcolor(self.pipes[vert[cerca[0]][2]]["layer"])
             if s.get("standalone"):
                 return layer_qcolor(s.get("utility") or "ELECTRICO")
             return QtGui.QColor(180, 180, 180)     # buzón sin pipe cercano (raro)
@@ -343,34 +382,6 @@ class DibujoMixin:
         for (vx, vy) in pts:
             self._overlay.append(ML.agregar(sc, vx, vy, 5, pen, QtGui.QColor(255, 180, 40), Z_HANDLE,
                                             tope_px=ML.TOPE_ASA_PX, cuadrada=True))
-
-    def _seg_label(self, sc, text, cx, cy, color, px=24, halo=5.0):
-        """Etiqueta de tramo ("T1", "T2"…) centrada sobre el punto (cx, cy):
-        relleno del COLOR DE LA LÍNEA con CONTORNO NEGRO GRUESO, al doble del
-        tamaño que tenía antes (24px vs 12px).
-
-        Se dibuja en DOS CAPAS porque un QGraphicsTextItem no admite contorno,
-        y un solo QGraphicsPathItem con pen+brush tampoco sirve: Qt traza el
-        pen DESPUÉS de rellenar y centrado sobre el borde del glifo, así que un
-        pen grueso se come el relleno y la etiqueta sale casi negra (verificado
-        renderizando las variantes). Con dos capas —silueta negra engordada
-        detrás, relleno de color encima— el contorno es grueso de verdad y el
-        color queda limpio.
-
-        Escala con el zoom, igual que las etiquetas de buzón de
-        _draw_structures — misma convención en todo el lienzo.
-        """
-        font = QtGui.QFont(); font.setPixelSize(px); font.setBold(True)
-        path = QtGui.QPainterPath()
-        path.addText(0.0, 0.0, font, text)            # baseline en (0,0)
-        w = QtGui.QFontMetricsF(font).horizontalAdvance(text)
-        x, y = cx - w / 2.0, cy - 8.0                 # centrado y por encima
-        halo_pen = QtGui.QPen(QtGui.QColor(0, 0, 0), halo)
-        halo_pen.setJoinStyle(QtCore.Qt.RoundJoin); halo_pen.setCapStyle(QtCore.Qt.RoundCap)
-        for pen, brush in ((halo_pen, QtGui.QBrush(QtGui.QColor(0, 0, 0))),
-                           (QtGui.QPen(QtCore.Qt.NoPen), QtGui.QBrush(color))):
-            it = sc.addPath(path, pen, brush)
-            it.setPos(x, y); it.setZValue(Z_MARK + 2); self._overlay.append(it)
 
     def _poly(self, pts, color, width, dots=False, z=Z_MARK, dash=False):
         sc = self.canvas.scene(); pen = QtGui.QPen(color, width); pen.setCosmetic(True)

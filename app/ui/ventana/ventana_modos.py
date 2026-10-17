@@ -10,6 +10,10 @@ from ui.ventana.ventana_comun import *  # noqa: F401,F403  (mismos nombres que a
 class ModosMixin:
     # ─────────────────────────── Estado / modos ───────────────────────────
     def _on_enter(self):
+        # Enter termina lo que se está dibujando; sin nada en curso (otro Enter), sale del modo.
+        en_curso = {"pipe": self.cur_pts, "erase": self._erase_pts, "centerline": self._cl_pts}
+        if self.mode in en_curso and not en_curso[self.mode]:
+            self.set_mode("idle"); self._info(_tr("Salió del modo (Enter)")); return
         if self.mode == "pipe": self.finish_pipe()
         elif self.mode == "erase": self.finish_erase()
         elif self.mode == "centerline": self.finish_centerline()
@@ -191,6 +195,9 @@ class ModosMixin:
         except Exception:
             self._set_snap_status(None)
             return
+        if arrastre is None:            # dibujando: línea elástica y enganche del modo asistido (ventana_trazo)
+            self._trazo_actualizar(x, y, hit)
+            hit = self._resolver_trazo(x, y, hit)[1]
         if hit is None:
             self._set_snap_status(None)
             return
@@ -246,7 +253,8 @@ class ModosMixin:
 
     def _update_hover_tooltip(self, x, y):
         thr = self.snap_r * 1.5
-        for i, p in enumerate(self.pipes):
+        for i in self._utilidades_cerca(x, y, thr):      # solo las que tienen un tramo cerca
+            p = self.pipes[i]
             pts = p.get("pts", [])
             for j in range(len(pts) - 1):
                 ax, ay = pts[j]; bx, by = pts[j + 1]
@@ -335,7 +343,8 @@ class ModosMixin:
         clave_modo = {
             "idle": N_("Modo: inactivo  ·  clic en el dibujo para seleccionar"),
             "pipe": (N_("Modo: EXTENDIENDO desde el vértice — clic agrega puntos, Enter finaliza")
-                     if self._extending else N_("Modo: dibujar utilidad  ·  Enter finaliza")),
+                     if self._extending else
+                     N_("Modo: dibujar utilidad (ángulos en pasos de 0.25°)  ·  Enter finaliza; otro Enter sale")),
             "leader1": N_("Modo: Leader — clic en la cabeza de flecha (dónde señala)"),
             "leader2": (N_("Modo: Leader — clic en el inicio del landing (bisagra)") if diag
                         else lead_cuerpo),
@@ -352,6 +361,7 @@ class ModosMixin:
         # Actualiza el panel "Mover con precisión" (habilita/deshabilita según la selección).
         if hasattr(self, "_update_move_panel"):
             self._update_move_panel()
+        self._sync_vertice_panel()                      # vértice elegido → «Cambiar a curva»
 
     def set_mode(self, m):
         """Cambia el "modo" del programa (qué está haciendo ahora el usuario):

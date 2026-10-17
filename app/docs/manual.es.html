@@ -429,9 +429,23 @@ con la misma hoja, sus líneas, Deshacer y los cambios sin guardar. Solo
 <ol>
 <li>Abre la sección <b>Dibujar utilidad</b> del panel izquierdo.</li>
 <li>Elige el <b>tipo</b>: agua, alcantarillado, drenaje, gas, eléctrico o telecomunicaciones.</li>
-<li>Haz <b>clic</b> en el plano en cada punto por donde pasa la tubería.</li>
-<li>Pulsa <span class="key">&nbsp;Enter&nbsp;</span> para terminar.</li>
+<li>Haz <b>clic</b> donde empieza la tubería y luego en cada punto por donde pasa: la tubería se va
+estirando hasta el cursor.</li>
+<li>Pulsa <span class="key">&nbsp;Enter&nbsp;</span> (o clic derecho) para terminarla. Otro
+<span class="key">&nbsp;Enter&nbsp;</span> sale del modo dibujar.</li>
 </ol>
+
+<h2>Ángulos en pasos de 0.25°</h2>
+<p><b>Todo ángulo va en pasos de 0.25°</b> (45°, 45.25°, 45.5°…; nunca 45.684°): los quiebres de una
+tubería, las uniones entre tuberías y los accesorios de presión. Al dibujar a mano la app lo hace sola y,
+si pasas cerca de seguir recto, de girar 45° o 90°, o de la horizontal/vertical de la hoja, la línea se pega
+ahí: se acabaron los quiebres chicos del pulso.</p>
+<p>Junto al cursor se ve el rumbo, el <b>giro</b> respecto al tramo anterior (el ángulo del quiebre o del
+codo) con <b>✓</b> si sigue el paso, y el largo. El imán verde sigue mandando: en el <b>extremo o vértice</b>
+de otra tubería el punto se pega ahí exacto (el punto anterior se corre unas décimas por su recta para que el
+ángulo siga en el paso); sobre un <b>tramo</b>, cae justo donde la dirección permitida lo cruza.</p>
+<p>Al <b>editar/mover</b> un vértice también queda en el paso, y a su lado se ve su giro con ✓ (o ⚠ si al
+pegarse a otra utilidad algún ángulo queda fuera) y el largo de sus tramos.</p>
 
 <h2>El imán verde (para empalmar bien)</h2>
 <p>Al acercarte a otra tubería del mismo tipo aparece una marca verde. Su forma dice a qué se va a pegar el clic:</p>
@@ -551,6 +565,7 @@ seleccionaste pasa sus datos al resto.</p>
 <tr><td bgcolor="{{card}}"><b>Nombre</b></td><td bgcolor="{{card}}">Nombre de la red en Civil 3D (por ejemplo «Linea Norte»). Si lo dejas vacío, se llama <b>TIPO-NÚMERO</b> con su número en la lista (por ejemplo «TELECOM-13»); si borras utilidades, el número se actualiza solo.</td></tr>
 <tr><td bgcolor="{{card}}"><b>Familia y Tamaño</b></td><td bgcolor="{{card}}">Pieza del catálogo de Civil 3D. Se listan según la versión e idioma elegidos en la barra superior. Si falta la medida que necesitas, usa el botón verde <b>+</b> (ver abajo).</td></tr>
 <tr><td bgcolor="{{card}}"><b>Elevación inicial / final</b></td><td bgcolor="{{card}}">Cota del fondo de la tubería (en pies) al empezar y al terminar.</td></tr>
+<tr><td bgcolor="{{card}}"><b>Pendiente</b></td><td bgcolor="{{card}}">Se muestra sola debajo de las cotas: una si la tubería tiene un tramo (o todos con la misma), y la de cada tramo (T1, T2…) si las cotas por tramo la cambian.</td></tr>
 <tr><td bgcolor="{{card}}"><b>Material</b></td><td bgcolor="{{card}}">De una lista fija que coincide con el catálogo.</td></tr>
 <tr><td bgcolor="{{card}}"><b>Abandonado</b></td><td bgcolor="{{card}}">Marca una tubería fuera de servicio. En Civil 3D se ve a trazos en 3D.</td></tr>
 <tr><td bgcolor="{{card}}"><b>Cotas por tramo</b></td><td bgcolor="{{card}}">Pulsa «Activar edición por tramo» para poner una cota distinta a cada tramo (T1, T2…).</td></tr>
@@ -604,11 +619,13 @@ se tocan quedan en redes separadas.
 el máximo permitido. Las curvas que salieron de un quiebre del plano dicen
 <b>Origen: quiebre del plano</b>; «Volver a tratar como buzón/caja» las quita.</p>
 <p>En las líneas <b>eléctricas y de telecomunicaciones</b> los vértices no llevan caja: selecciona la
-utilidad y sus vértices se ven como puntos blancos; <b>clic derecho sobre uno → «Convertir este vértice en
-curva»</b> (radio automático; cámbialo en el panel). Para deshacerla, <b>«Quitar la curva (vuelve a ser un
+utilidad y sus vértices se ven como puntos blancos; <b>clic sobre uno</b> y, en el panel de la utilidad,
+<b>«Cambiar a curva»</b> (o <b>clic derecho sobre él → «Convertir este vértice en curva»</b>). Sale con radio
+automático; cámbialo en el panel de Curvas. Para deshacerla, <b>«Quitar la curva (vuelve a ser un
 vértice)»</b>: no deja ninguna caja.</p>
 <p>Al acercarse mucho, los puntos de vértices, buzones y curvas dejan de crecer: no tapan los tramos
-cortos.</p>
+cortos. Las etiquetas <b>T1, T2…</b> de la edición por tramo se achican en los tramos cortos y se acomodan a un
+costado para no montarse una sobre otra.</p>
 </section>
 
 <section data-title="Buzones y cajas">
@@ -691,6 +708,9 @@ dos tuberías se cruzan a la misma cota sin conectarse («Tuberías que chocan»
 </table>
 <p class="small">Las señales se pueden ocultar desde el menú Ver («Mostrar cruces/conflictos»).
 La barra de estado, abajo, cuenta cuántas hay de cada tipo.</p>
+<p class="small">Con cientos de tuberías la revisión sigue siendo rápida: solo compara las que están
+cerca y no se repite mientras el diseño no cambie (elegir, cambiar de pestaña o de modo no la rehace).
+Lo mismo el ratón (resaltado, imán, clic) y Deshacer, que guarda solo lo que cambió en cada paso.</p>
 </section>
 
 <section data-title="Alertas rojas: cuándo salen">
@@ -857,8 +877,20 @@ copia de recuperación).</p>
     <b>sólidos</b> con su contorno y su cota superior.</li>
 <li><b>Bancoductos</b> con su envolvente (fondo en la cota de la utilidad) y sus conductos adentro.</li>
 <li><b>Accesorios</b> de agua y gas con la forma que les da el plugin (Tee, Wye y cruz con un brazo y una
-    campana por tubo; codo curvo), en un tono claro, con cada tubo entrando en su campana; conexiones verticales aprobadas con sus accesorios como en Civil 3D (codo de 90° si la utilidad termina en el cruce, Tee si pasa de largo, y en un quiebre Wye + tubo corto + codos) y las marcas de los avisos de normativa (ámbar) y de los <b>conflictos</b> (rojo, con su número C-n; clic = su ficha).</li>
+    campana por tubo; codo curvo; la cruz también donde dos tuberías se cruzan en X a mitad de tramo a la misma
+    cota, aunque tengan diámetros distintos; la <b>reducción</b> donde dos de distinto diámetro se unen en recta,
+    y en un quiebre el codo del diámetro mayor seguido de la reducción, como en Civil 3D), en un tono claro, con
+    cada tubo entrando en su campana (también el codo
+    donde la tubería cambia de pendiente aunque en planta siga recta, como lo pone Civil 3D); conexiones
+    verticales aprobadas con sus accesorios como en Civil 3D (codo si la utilidad termina en el cruce, Tee si
+    pasa de largo, y en un quiebre Wye + tubo corto + codos; el brazo hacia la utilidad sigue su pendiente) y las marcas de los avisos de normativa (ámbar) y de los <b>conflictos</b> (rojo, con su número C-n; clic = su ficha).</li>
 <li>El <b>suelo</b>, semitransparente, para ver lo que queda bajo tierra.</li>
+<li>Con <b>«Ángulos y pendientes por tramo»</b> (Mostrar), un rótulo con la pendiente de cada tramo y otro con
+    el ángulo de cada quiebre sobre cada utilidad. Al elegir una utilidad, su ficha muestra su pendiente (o la
+    de cada tramo si cambia).</li>
+<li>Pensada para equipos modestos: tuberías, accesorios y marcas se mandan a la tarjeta de video como
+    copias de unas pocas piezas (con OpenGL 3.3, casi cualquier PC desde 2012), así la vista usa unas diez
+    veces menos memoria; en un equipo más viejo se ve igual con el método de antes.</li>
 </ul>
 
 <h2>Moverse</h2>

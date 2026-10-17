@@ -9,7 +9,7 @@ from __future__ import annotations
 from PySide6 import QtCore, QtGui, QtWidgets
 
 from nucleo import accesorios as acc
-from nucleo.normas_validar import NOMBRE_ACC, en_punto
+from nucleo.normas_validar import NOMBRE_ACC
 from traduccion.i18n import t as _tr
 from nucleo.model import Z_HANDLE
 from ui.comun.ui_common import layer_qcolor, tooltip_bloque
@@ -90,8 +90,13 @@ def tooltip_accesorio(a, avisos):
 def dibujar(scene, accesorios, avisos, tol_px):
     """Agrega las etiquetas a `scene` y devuelve los items (van al overlay)."""
     items = []
+    # Avisos por celdas (`indice_plano`): antes cada accesorio recorría TODOS los avisos.
+    # Mismo resultado que `en_punto` (no informativos ni aprobados, a ≤ tol, en su orden).
+    from nucleo.indice_plano import IndicePuntos
+    vivos = [v for v in avisos if not v.info and not v.aprobado]
+    indice = IndicePuntos([(v.x, v.y) for v in vivos], tol_px if tol_px > 0 else 1.0)
     for a in accesorios:
-        suyos = en_punto(avisos, a["x"], a["y"], tol_px)
+        suyos = [vivos[k] for k in indice.en_radio(a["x"], a["y"], tol_px)]
         nivel = "recomendada" if suyos else None
         texto = texto_accesorio(a) + (" ⚠" if nivel else "")
         it = EtiquetaAccesorio(texto, layer_qcolor(a["capa"]), nivel)

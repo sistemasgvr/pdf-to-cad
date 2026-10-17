@@ -26,8 +26,19 @@ class CatalogoMixin:
             pts = self._pipe_display_pts(p)
         except Exception:
             pts = p.get("pts")
-        return pipe_pixmap(self.canvas.scene(), pts,
-                           color=layer_qcolor(p.get("layer", "")).name())
+        # Sin las marcas del lienzo (alertas, cruces, accesorios, avisos, conflictos C-n: todas van
+        # en Z ≥ Z_HANDLE + 4): solo en esta miniatura (pedido del usuario 2026-10-16). Se ocultan
+        # mientras se pinta y se vuelven a mostrar.
+        sc = self.canvas.scene()
+        ocultas = [it for it in (sc.items() if sc is not None else [])
+                   if it.isVisible() and it.zValue() >= Z_HANDLE + 4]
+        for it in ocultas:
+            it.setVisible(False)
+        try:
+            return pipe_pixmap(sc, pts, color=layer_qcolor(p.get("layer", "")).name())
+        finally:
+            for it in ocultas:
+                it.setVisible(True)
 
     def _db_pipes_label(self, db):
         """«#3 Eléctrico» (una) o «#3, #5, #7 +2» (varias)."""

@@ -26,7 +26,7 @@ class ClicsMixin:
             if self._try_click_conflict(x, y):
                 return
         if self.mode == "pipe":
-            self._push(); self.cur_pts.append(self._pipe_snap_and_ask(x, y)); self._update_ui(); self._redraw()
+            self._clic_dibujo(x, y)                     # ángulos en pasos de 0.25° (ventana_trazo)
         elif self.mode == "erase":
             self._erase_pts.append((x, y)); self._update_ui(); self._redraw()
         elif self.mode == "centerline":
@@ -143,12 +143,21 @@ class ClicsMixin:
         if best_cl >= 0:
             self._no_center = True; self._show_tab(TAB_CL); self.cl_list.setCurrentRow(best_cl)
             self._no_center = False; return
+        ctrl = QtWidgets.QApplication.keyboardModifiers() & QtCore.Qt.ControlModifier
+        if not ctrl:                                    # vértice de eléctrico/telecom → «Cambiar a curva»
+            hv = self._vertice_bajo_clic(x, y)
+            if hv is not None:
+                self._elegir_vertice(*hv); return
+        habia = getattr(self, "_vertice_sel", None) is not None
+        self._vertice_sel = None
         best = self._pipe_at(x, y)
-        if best >= 0 and QtWidgets.QApplication.keyboardModifiers() & QtCore.Qt.ControlModifier:
+        if best >= 0 and ctrl:
             self._toggle_pipe_selection(best); return
         if best >= 0:
             self._no_center = True; self._show_tab(TAB_PIPE); self.pipe_list.clearSelection(); self.pipe_list.setCurrentRow(best)
             self._no_center = False
+            if habia:                                   # misma utilidad: quitar el vértice elegido
+                self._update_ui(); self._redraw()
             self._scroll_pipe_list_to(best)
 
     def _scroll_pipe_list_to(self, row):
@@ -198,7 +207,8 @@ class ClicsMixin:
         tol = 12.0 / m11
         best = None; best_d2 = tol * tol
         ex_pi, ex_vi = exclude if exclude else (None, None)
-        for pi, p in enumerate(self.pipes):
+        for pi in self._utilidades_cerca(x, y, tol):    # solo las que tienen un tramo cerca
+            p = self.pipes[pi]
             if p.get("layer") != lay: continue
             pts = p.get("pts") or []
             n = len(pts)
@@ -424,12 +434,17 @@ class ClicsMixin:
         if pts is None: return
         if self._drag_vertex is not None:
             if self._move_kind == "pipe":                # extremo: mismo snap suave que al dibujar
-                x, y, _ = self._drag_snap(x, y)
+                x, y, enganche = self._drag_snap(x, y)
+                if enganche is None:                      # ángulos en pasos de 0.25° (ventana_trazo)
+                    x, y = self._arrastre_en_paso(pts, self._drag_vertex, x, y)
             ox, oy = pts[self._drag_vertex]
             pts[self._drag_vertex] = (x, y)
             for st in getattr(self, "_move_structs", None) or []:
                 model_ops.translate_structure(st, x - ox, y - oy)
-            self._redraw(); return
+            self._redraw()
+            if self._move_kind == "pipe":                # el ángulo junto al vértice, con ✓/⚠
+                self._etiqueta_arrastre(pts, self._drag_vertex)
+            return
         if self._move0 is not None:
             dx, dy = x - self._move0[0], y - self._move0[1]; self._move0 = (x, y)
             for i in range(len(pts)): pts[i] = (pts[i][0] + dx, pts[i][1] + dy)
@@ -446,6 +461,7 @@ class ClicsMixin:
             self._move0 = None; self._move_kind = None
             self._start_extension(self.sel_pipe, self._drag_vertex); self._drag_vertex = None; return
         movidos = bool(getattr(self, "_move_structs", None)) and self._moved
+        self._trazo_borrar()                             # la etiqueta del ángulo del arrastre
         self._move0 = None; self._drag_vertex = None; self._move_kind = None; self._edit_leader = None
         self._move_structs = []
         if movidos:
@@ -458,22 +474,6 @@ class ClicsMixin:
         ld["arrow"] = pts[0]
         if ld.get("landing"): ld["landing"] = pts[1]; ld["tp"] = pts[2]
         else: ld["tp"] = pts[-1]
-
-    def _start_extension(self, pi, vi):
-        # Sin ventana emergente: la casilla 'continuar la misma utilidad' decide.
-        pts = self.pipes[pi]["pts"]; vpos = tuple(pts[vi]); is_end = (vi == 0 or vi == len(pts) - 1)
-        same = self.chk_ext_same.isChecked() and is_end
-        self._extending = True; self._ext_layer = self.pipes[pi]["layer"]; self.cur_pts = [vpos]
-        if same:
-            self._ext_pipe = pi; self._ext_at = "start" if vi == 0 else "end"
-            self._info(_tr("Continuando la MISMA utilidad: clic para agregar puntos, Enter finaliza."))
-        else:
-            self._ext_pipe = None; self._ext_at = None
-            if self.chk_ext_same.isChecked() and not is_end:
-                self._info(_tr("Solo desde un extremo se continúa; se creará una utilidad NUEVA. Clic para agregar, Enter finaliza."))
-            else:
-                self._info(_tr("Utilidad NUEVA (rama en F): clic para agregar puntos, Enter finaliza."))
-        self.set_mode("pipe")
 
     def _delete_vertex(self, x, y):
         kind = self._current_kind()
