@@ -32,6 +32,7 @@ from reconocimiento import recognition_geom as geom
 from reconocimiento import recognition_arcs as arcs_mod
 from reconocimiento import recognition_arc_plan as arc_plan
 from reconocimiento import recognition_arc_chain as chain_mod
+from reconocimiento import recognition_arc_letters as arc_letters_mod
 from reconocimiento import recognition_ends as ends_mod
 from reconocimiento import recognition_dupink as dupink_mod
 from reconocimiento import recognition_trace as trace_mod
@@ -1487,7 +1488,7 @@ def recognize_page(
             return pieces
 
         def _emit(pl, ocg, ab, route_id, n_segments, through=None, ink=None, strokes=None,
-                  arcs=None, ink_lines=None, through_ink=None, cut_ctx=None):
+                  arcs=None, ink_lines=None, through_ink=None, cut_ctx=None, glyph_boxes=None):
             pts = [px(p) for p in pl.pts]
             clean, kinds = [], []
             for p, k in zip(pts, pl.kinds):
@@ -1505,6 +1506,11 @@ def recognize_page(
                 clean, kinds, fillets = fit_fillets(clean, kinds, tol_px=FILLET_FIT_TOL_PT * zoom,
                                                     through_dirs=through, ink=ink, strokes=strokes,
                                                     arcs=arcs, ink_lines=ink_lines, through_ink=through_ink)
+                if glyph_boxes:
+                    # curva con el rótulo del linetype ENCIMA (DU06 h.3, «SC» dentro del arco):
+                    # las letras sobre el arco son su tinta
+                    clean, kinds, fillets = arc_letters_mod.letter_arcs(clean, kinds, fillets, strokes,
+                                                                        glyph_boxes, zoom)
             if cut_ctx is not None:
                 # extremo que muere en una letra/hueco del linetype justo antes del borde
                 # de la vista: la línea termina en el CORTE (por la recta del codo)
@@ -1597,7 +1603,7 @@ def recognize_page(
                 v = mp_joined.verdict[rid]
                 ab = _ab(v, _dbl(mp_joined, rid))
                 rec_pl = _emit(r.pl, ocg, ab, rid, r.n_segments, through_j, ink_j[rid], st_j[rid],
-                               arcs_j[rid], lines_j[rid], thr_ink_j, cut_j)
+                               arcs_j[rid], lines_j[rid], thr_ink_j, cut_j, gboxes)
                 if rec_pl is not None:
                     polylines_joined.append(rec_pl)
                     n_routes += 1
@@ -1617,7 +1623,8 @@ def recognize_page(
                             rec_pl.review = "marker_active"
             for rid, r in enumerate(raw):
                 rec_pl = _emit(r.pl, ocg, _ab(mp_raw.verdict[rid], _dbl(mp_raw, rid)), rid, 1,
-                               through_r, ink_r[rid], st_r[rid], arcs_r[rid], lines_r[rid], thr_ink_r, cut_r)
+                               through_r, ink_r[rid], st_r[rid], arcs_r[rid], lines_r[rid], thr_ink_r, cut_r,
+                               gboxes)
                 if rec_pl is not None:
                     polylines_raw.append(rec_pl)
             if g.pattern is not None:

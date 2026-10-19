@@ -500,6 +500,31 @@ alcantarillado, drenaje, gas, eléctrico, telecom). Todo en **unidades imperiale
     Pendiente conocido: curva que se funde TANGENTE con otra línea junto a una bóveda y vuelve ~6 pt sobre ella
     (DU08 h.37 (1116, 991), h.38 (765, 1179) telecom; ya estaba).
     Tests: `tests/test_bovedas_no_inventar.py`.
+  - **Curva con el RÓTULO dentro** (reporte del usuario 2026-10-19, hoja compuesta DU06 UD-201, «—SC—»):
+    la línea gira con un arco y las letras del linetype van DENTRO de él; AutoCAD dibuja el guión recto hasta
+    el inicio del arco + 2–3 cuerdas del aplanado (~2 pt) y el resto es el rótulo. `recognition_arc_letters.py`
+    (PURO): `arc_tips` (punta curva = guión ≥8 pt + cuerdas cortas que giran al mismo lado), `arc_between`
+    (dos puntas que curvan hacia el mismo arco, rectas que llegan a la esquina con el mismo largo ±20 %+1 pt,
+    círculo TANGENTE a las dos rectas por las cuerdas curvas —RMS ≤0.15 pt—, tangencias donde termina cada
+    recta ≤1 pt y letras centradas sobre el arco que, con la tinta curva, tapan ≥85 % de él). Lo usan (1)
+    `recognition_letter_lines._link_arc_letters` (reparto por letras: une los dos guiones y las letras del arco;
+    sin esto el guión de después quedaba sin utilidad en `G-XREF`) y (2) `letter_arcs`, en `_emit` después de
+    `fit_fillets` (cajas = `GeomResult.glyphs`): pone el codo (`fillets[i]["letters"]=True`) donde no hay ya
+    uno, quitando solo vértices blandos dentro del triángulo A–C–B. En la misma caja: una punta que SALE de la
+    caja (la otra punta de su recta está DENTRO, bóveda detrás) y sigue por su letra no es la llegada (Fase B,
+    `recognition_geom`): llega la punta de dentro (antes la línea quedaba cortada en su «SC» junto a la caja); y
+    la 2.ª pasada de codos, sin ninguna opción de un lado, usa la recta de la polilínea hasta su «stop»
+    (`arc_plan._vault_leg`: su tinta es el trazo hasta el centro de la caja, que no se le reparte). Foto 4 PDFs ×
+    6 utilidades (846 hoja×utilidad): cambian 9, todas telecom y revisadas a la vista — DU06 h.3 (el reporte),
+    la «—SC—» que quedaba en dos trozos junto a una caja (DU08 h.23/24/47, DU10 h.13/14/23/24) y DU08 h.40 (curva
+    muy abierta junto a una caja: quiebre de 2° → arco r = 1130 pt, tinta→dibujo máx 0.30 → 0.24 pt). LABOE 0.
+    Tests: `tests/test_arco_con_letras.py`.
+  - **Vista previa = importación en los quiebres** (mismo reporte, DU06 UD-202): `recognition_quiebres.
+    curvas_de_quiebres(results, zoom)` repite sobre COPIAS los pasos de datos de `Main._import_recognized_pipes`
+    (tuberías, vértices de bóveda, acometidas, estructuras, cajas, codos, `quiebres_curvas.curvas_en_quiebres`) y
+    la vista previa (`_curvas_quiebres`, zoom = `fondo["zoom"]`; se recalcula al unir/separar tramos) dibuja esos
+    quiebres como la curva de radio mínimo que entrará (no presión). OJO: un paso NUEVO de la importación que
+    cambie qué quiebres son curva va también ahí. Tests: `tests/test_recognition_quiebres.py`.
   - **Hojas SIN capas (PDF aplanado / mapa SIG; 2026-10-10, Quarter Section de Phoenix, una utilidad
     por PDF, `docs/flattened-pdf-recognition.md`)**: `hoja/pdf_styles.py` da a cada trazo sin OCG de una hoja
     sin geometría OCG una capa VIRTUAL `PDF_STYLE:[json]` (color, grosor, guiones, relleno, opacidad;

@@ -41,10 +41,11 @@ def _draw_poly(scene, pts, color, width=2.0, dots=False, z=5, dashed=False, dott
     return items
 
 
-def _display_runs(pl):
+def _display_runs(pl, fillets=None):
     """Tramos rectos para DIBUJAR: en un codo la recta llega hasta A (tangencia)
-    y se reanuda en B; el arco entre A y B se pinta aparte (`_draw_fillet`)."""
-    fillets = getattr(pl, "fillets", None) or {}
+    y se reanuda en B; el arco entre A y B se pinta aparte (`_draw_fillet`).
+    `fillets` = los codos a dibujar (None = los de la polilínea)."""
+    fillets = (getattr(pl, "fillets", None) or {}) if fillets is None else fillets
     if not fillets:
         return [pl.pts_pdf]
     runs, cur = [], []
@@ -157,16 +158,17 @@ def _halo_pen(color) -> QtGui.QPen:
     return pen
 
 
-def draw_line_halo(scene, pl, color, z=4.5):
+def draw_line_halo(scene, pl, color, z=4.5, fillets=None):
     """Halo ancho del color de la utilidad DEBAJO de una línea (tramos + arcos)."""
     pen = _halo_pen(color)
     items = []
-    for run in _display_runs(pl):
+    fillets = (getattr(pl, "fillets", None) or {}) if fillets is None else fillets
+    for run in _display_runs(pl, fillets):
         path = QtGui.QPainterPath(QtCore.QPointF(*run[0]))
         for p in run[1:]:
             path.lineTo(QtCore.QPointF(*p))
         items.append(scene.addPath(path, pen))
-    for f in (getattr(pl, "fillets", None) or {}).values():
+    for f in fillets.values():
         items.append(scene.addPath(_fillet_path(f), pen))
     for it in items:
         it.setZValue(z)
