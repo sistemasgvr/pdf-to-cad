@@ -402,13 +402,17 @@ editor</span> leaves it as the background to draw by hand.</p>
     curves, small rounded corners, a curve that leaves another line or ends loose and two curves
     <b>joined</b> with no straight segment between them (an «S» curve: one bend per curve, touching
     at the inflection point). Each bend covers its whole curve on the plan, end to end.
+    Several small curves in a row that turn the same way and fit in <b>one</b> curve (one that follows
+    the ink of the plan just as well) come in as that single curve.
     A <b>dashed</b> bend is approximate (on the plan it is not an exact arc): check it.</li>
 <li>In <b>electrical, telecommunications, storm drain and sewer</b> every <b>kink</b> of the line
     (where it changes direction with no vault or branch) is imported as a <b>curve</b>: there are
     no kinks in the field (also the kinks of a line that the plan draws as a single stroke of
     several straight pieces). It gets the <b>minimum</b> radius of the rule (automatic: 6 times the
     pipe's inside width; if you change the diameter, the curve follows it), so the drawing error
-    does not grow. Where the minimum curve does not fit (very short segments, or another curve
+    does not grow. If what leaves no room is a practically straight vertex next to the kink (it
+    turns 2° or less), it is removed —Civil 3D would remove it anyway on import— and the curve
+    goes in. Where the minimum curve still does not fit (very short segments, or another curve
     would be trimmed) the kink stays. Water and gas do not change: in a pressure network a kink is
     a fitting bend.</li>
 <li>The <b>angle of every kink</b> (how much the line turns, the angle of each bend) comes out in

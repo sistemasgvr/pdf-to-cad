@@ -36,6 +36,7 @@ from reconocimiento import recognition_arc_letters as arc_letters_mod
 from reconocimiento import recognition_ends as ends_mod
 from reconocimiento import recognition_dupink as dupink_mod
 from reconocimiento import recognition_trace as trace_mod
+from reconocimiento import recognition_unir_codos as unir_codos_mod
 from reconocimiento import recognition_contacts as contacts_mod
 from reconocimiento import recognition_text_gaps as text_gaps_mod
 from reconocimiento import recognition_vault_snap as vault_snap_mod
@@ -2390,6 +2391,10 @@ def fit_fillets(pts, kinds, tol_px: float = 1.0, tan_tol: float = None, debug=No
         pts, kinds, _fit_fillets, tol_px=tol_px, tan_tol=tan_tol, debug=debug,
         through_dirs=through_dirs, ink=ink, strokes=strokes, arcs=arcs,
         ink_lines=ink_lines, through_ink=through_ink)
+    # varias curvitas seguidas que caben en UN arco → ese codo (pedido del usuario 2026-10-19)
+    # (solo si ese arco sigue la tinta igual de bien: las curvas de radio variable no cambian)
+    pts, kinds, fillets = unir_codos_mod.unir_codos(pts, kinds, fillets, f=tol_px / FILLET_FIT_TOL_PT,
+                                                    strokes=strokes)
     # codo casi en «U»: su esquina cae lejísimos → dos codos sobre el mismo arco
     return trace_mod.split_wide_fillets(pts, kinds, fillets, f=tol_px / FILLET_FIT_TOL_PT)
 

@@ -1224,9 +1224,11 @@ class Main(MenuMixin, PanelIzquierdoMixin, PanelDerechoMixin, ModosMixin, ClicsM
         # (regla de los ingenieros): CV con el radio mínimo de la regla (automático),
         # solo donde entra sin tocar otra curva. Agua y gas no.
         fpp = self.scale / self.zoom if self.scale and self.zoom else 0.0
+        ocultas = sum(1 for s in self.structures if s.get("hidden") and not s.get("curve"))
         curvas_q, sin_lugar = quiebres_curvas.curvas_en_quiebres(
             self.pipes, self.structures, fpp, indices=range(n_prev, len(self.pipes)))
-        n_hidden -= sum(1 for s in curvas_q if s.get("net") == "gravity")   # el buzón oculto ahora es la curva
+        # el buzón oculto del quiebre ahora es la curva (y el de un vértice casi recto quitado, ya no está)
+        n_hidden -= ocultas - sum(1 for s in self.structures if s.get("hidden") and not s.get("curve"))
         if n_hidden or n_geo or n_cv or curvas_q:
             self._refresh_lists()
         self._update_ui()

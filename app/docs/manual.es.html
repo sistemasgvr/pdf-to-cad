@@ -398,13 +398,17 @@ imagen/escaneo…</b>), pero sin capas ni reconocimiento: al final,
     abiertas, las esquinas redondeadas chicas, la curva que sale de otra línea o termina suelta y
     dos curvas <b>unidas</b> sin recta entre medio (curva en «S»: un codo por curva, que se tocan en
     el punto de inflexión). Cada codo cubre toda su curva del plano, de punta a punta.
+    Varias curvitas seguidas que giran al mismo lado y caben en <b>una</b> sola curva (que sigue la
+    tinta del plano igual de bien) entran como esa curva.
     Un codo <b>a trazos</b> es aproximado (en el plano no es un arco exacto): conviene revisarlo.</li>
 <li>En <b>eléctrico, telecomunicaciones, drenaje y alcantarillado</b> cada <b>quiebre</b> de la línea
     (donde cambia de rumbo sin bóveda ni ramal) entra como <b>curva</b>: en obra no hay quiebres.
     También los quiebres de una línea que el plano dibuja como un solo trazo de varias rectas.
     Lleva el radio <b>mínimo</b> de la regla (automático: 6 veces el ancho interior de la tubería; si
-    cambias el diámetro, la curva lo sigue), así no se agranda el error del dibujo. Donde la curva
-    mínima no cabe (tramos muy cortos, o se recortaría otra curva) queda el quiebre. Agua y gas no
+    cambias el diámetro, la curva lo sigue), así no se agranda el error del dibujo. Si lo que no
+    deja lugar es un vértice prácticamente recto junto al quiebre (gira 2° o menos), se quita
+    —Civil 3D lo quitaría igual al importar— y la curva entra. Donde la curva mínima sigue sin
+    caber (tramos muy cortos, o se recortaría otra curva) queda el quiebre. Agua y gas no
     cambian: en presión el quiebre es un codo.</li>
 <li>El <b>ángulo de cada quiebre</b> (lo que gira la línea, el de cada codo) sale a <b>pasos de
     0.25°</b>: 45°, 45.25°, 11.25°… nunca 45.648°, porque esos codos no existen. Vale con capas y sin

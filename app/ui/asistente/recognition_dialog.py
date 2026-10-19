@@ -595,11 +595,13 @@ class RecognitionPreviewDialog(NoEscapeClose, QtWidgets.QDialog):
             for pl in result.drawable:
                 hit = self._hit(u, "line", getattr(pl, "layer_ocg", None))
                 items = []
-                fil = recognition_quiebres.codos_de(pl, curvas)
-                for run in _display_runs(pl, fil):
+                # como quedará al importar: curvas de los quiebres (y sin los vértices
+                # prácticamente rectos que se quitan para que entren)
+                pl_d, fil = recognition_quiebres.dibujo_de(pl, curvas)
+                for run in _display_runs(pl_d, fil):
                     items += _draw_poly(sc, run, color, width=2.0, dots=True, z=5)
                 for idx, f in fil.items():
-                    items += _draw_fillet(sc, pl.pts_pdf[idx], f, color)
+                    items += _draw_fillet(sc, pl_d.pts_pdf[idx], f, color)
                 x, y = pl.pts_pdf[0]
                 start = sc.addEllipse(
                     x - 5, y - 5, 10, 10, QtGui.QPen(QtGui.QColor("#ffffff"), 1.5),
@@ -608,7 +610,7 @@ class RecognitionPreviewDialog(NoEscapeClose, QtWidgets.QDialog):
                 items.append(start)
                 put(items, hit)
                 if hit:
-                    draw_line_halo(sc, pl, color, fillets=fil)
+                    draw_line_halo(sc, pl_d, color, fillets=fil)
             for a, b in (getattr(result, "uncovered_px", None) or []):
                 put(_draw_poly(sc, [a, b], QtGui.QColor(QA_UNCOVERED), width=4.0, dots=False, z=7),
                     self._hit(u, "qa"))

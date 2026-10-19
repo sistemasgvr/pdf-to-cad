@@ -371,6 +371,25 @@ alcantarillado, drenaje, gas, eléctrico, telecom). Todo en **unidades imperiale
     las dos mitades EXACTAS (A, M, B, centro, sin recorte) y ningún vecino es otro codo. Foto
     1799 codos (4 PDFs × 6 utilidades): 0 entre 120° y 170°, 1 ≥170° (ese). Tests:
     `tests/test_codos_abiertos.py`.
+    **Varias curvitas → UNA curva** (reporte del usuario 2026-10-19, DU06 UD-205 «—SC—» junto a
+    «CB-216 LAT», h.7 (índice 6) ~(785, 1059)): el codo de la 1.ª/2.ª pasada era el arco del PDF
+    (r 14.4 pt), pero la punta de la diagonal se apartaba 0.17 pt de su recta y `fit_continuous`
+    (umbral `FIT_PT`=0.12) lo cambió por `circular_trace`, que ajusta recta + arco + recta como
+    círculos → tres codos (r 67.6/18/13.5). `recognition_unir_codos.unir_codos` (PURO, al final de
+    `fit_fillets`, antes de `split_wide_fillets`, TODAS las utilidades): ristra de codos seguidos del
+    mismo giro, con solo vértices blandos entre ellos → UN codo tangente a la recta que llega y a la
+    que sale (primero las rectas de los tramos vecinos ≥`RECTA_MIN_PT`, luego las tangentes de los
+    codos de punta; el vértice blando sobre la recta se quita). LA TINTA MANDA (con 0.5 pt contra el
+    dibujo se juntaban curvas de radio VARIABLE que `fit_continuous` sigue a ≤0.13 pt: DU06 h.5 telecom/
+    eléctrico y DU08 h.22, `test_curve_precision`/`test_curve_structure_contacts`): radio por mínimos
+    cuadrados sobre la tinta (`strokes` de `fit_fillets`) que el dibujo de ahora sigue (≤`SIGUE_PT`=0.25),
+    aceptado si en CADA uno de esos puntos queda a ≤ max(lo de ahora, `PRECISION_PT`=0.12)+0.01, en los
+    huecos sin tinta a ≤`UNIR_TOL_PT`=0.5 del dibujo de antes, `fillet_geo` sin recorte y los codos
+    vecinos idénticos; sin tinta (<6 puntos), solo si ya era el mismo círculo (≤0.12). Arco que muere en
+    un nodo sigue muriendo en él (`node_a/b`). Si la ristra entera no cabe, sus tramos más largos.
+    Curva compuesta de verdad (60/120), radio variable y «S» no cambian. UD-205: r = 14.7 pt.
+    Marca `unidos` = nº de codos. Tests: `tests/test_curvitas_una_curva.py` (sintéticos + recorte de la
+    zona de DU06, ~2 s).
     **DU10 h.3 (2026-09-30, «curvas que quedan como polilínea»)**: (1) `fit_continuous.gap`
     solo fija los extremos que son EMPALME con un trazo validado; el extremo propio de la
     polilínea puede moverse como sin parche (un tee a la tangencia de su línea): antes se
@@ -1487,6 +1506,17 @@ alcantarillado, drenaje, gas, eléctrico, telecom). Todo en **unidades imperiale
     reconocimiento no la cubrió entera: es otro problema), tramos < 3 pt y esquinas de 90° con tramos más
     cortos que T. Tests: `tests/test_quiebres_curvas.py`,
     `tests/test_curvas_editor.py::test_quiebre_del_plano_entra_como_curva_minima` (ventana real → DXF).
+    **Vértices prácticamente rectos que estorban** (mismo reporte 2026-10-19, UD-205: el quiebre junto a
+    la «SC» de abajo tenía dos `bend` de 0.75° a 1.3 ft): `_enderezar` quita los MENOS posibles
+    (`RECTOS_MAX`=4 por lado) vértices blandos con giro ≤ `GIRO_MIN_DEG`, a ≤0.25 ft de la recta nueva,
+    sin otra utilidad (`limpieza_tramos.compartido`), sin estructura visible ni curva, si con eso la curva
+    entra y ninguna otra curva cambia de radio, se recorta o corre su arco >0.25 ft (`_curvas_quietas`)
+    —es lo que hace `EnderezarQuiebres` del plugin—; usa `limpieza_tramos.quitar_vertice` y borra el
+    buzón oculto del vértice quitado (gravedad). En gravedad un vértice propio a ≤ tol px del quiebre
+    (antes: se saltaba sin aviso) ahora se intenta quitar igual. Los candidatos se siguen por coordenada
+    (los índices se corren). Vista previa: `recognition_quiebres.curvas_de_quiebres` marca esos vértices
+    `{QUITADO: True}` y `dibujo_de(pl, curvas)` da la polilínea sin ellos + sus codos (la usa
+    `recognition_dialog`).
   - **Normativas de diseño EN TABLAS** (2026-10-09; reemplazan al motor de reglas `normativas*.py` y su ventana
     QtWebEngine, borrados: el .exe ya no lleva QtWebEngine). Formato = el Excel que hizo el ingeniero a mano:
     `normas_catalogo.py` (PURO) — `BASE` = su contenido (tipos por utilidad, `diametros` de agua/gas por tipo con

@@ -41,6 +41,7 @@ GRUPOS = {
                        "test_recognition_vault_snap", "test_recognition_walls", "test_routes", "test_angulos_quiebres",
                        "test_bovedas_no_inventar", "test_codos_abiertos", "test_cruces_con_tinta",
                        "test_curvas_encadenadas", "test_curve_precision", "test_curve_structure_contacts",
+                       "test_curvitas_una_curva",
                        "test_letra_en_el_hueco", "test_detect"],
     # perfiles por utilidad (ventana real → DXF)
     "utilidades": ["test_water_profile", "test_sewer_profile", "test_sewer_integration", "test_gas_profile",

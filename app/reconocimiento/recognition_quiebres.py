@@ -13,16 +13,22 @@ que se importa. Nada del resultado del reconocimiento cambia.
 from __future__ import annotations
 
 import copy
+import dataclasses
 from typing import Dict, Sequence, Tuple
 
 from nucleo import acometidas, model_ops, quiebres_curvas
 from nucleo.model import NETWORK_KIND
 
+# marca de un vértice que la importación quita (prácticamente recto junto a un quiebre)
+QUITADO = "quitado"
+
 
 def curvas_de_quiebres(results: Sequence, zoom: float) -> Dict[int, Dict[Tuple[float, float], dict]]:
     """{id(resultado): {(x, y) del vértice: codo}} de los quiebres que serán curva de radio
     mínimo al importar. Codo = el formato de `RecognizedPolyline.fillets` (a, b, center,
-    r_px; px del lienzo) + `quiebre`. `zoom` = el del editor (px por pt de los resultados)."""
+    r_px; px del lienzo) + `quiebre`; {QUITADO: True} = vértice prácticamente recto que la
+    importación quita para que entre la curva (`dibujo_de`). `zoom` = el del editor (px por
+    pt de los resultados)."""
     from reconocimiento import recognition as rec      # perezoso: recognition es pesado
     if not results or not zoom:
         return {}
@@ -45,9 +51,17 @@ def curvas_de_quiebres(results: Sequence, zoom: float) -> Dict[int, Dict[Tuple[f
     model_ops.attach_fillets(pipes, structures)
     escala = getattr(results[0], "scale_ft_per_pt", None) or 0.0
     fpp = escala / zoom if escala else 0.0
+    antes = [list(p.get("pts") or ()) for p in pipes]
     nuevas_cv, _sin_lugar = quiebres_curvas.curvas_en_quiebres(pipes, structures, fpp)
     if not nuevas_cv:
         return {}
+    out: Dict[int, Dict[Tuple[float, float], dict]] = {}
+    # vértices prácticamente rectos que se quitaron para que entre la curva de un quiebre
+    for ip, p in enumerate(pipes):
+        quedan = {(float(x), float(y)) for x, y in p.get("pts") or ()}
+        for x, y in antes[ip]:
+            if (float(x), float(y)) not in quedan:
+                out.setdefault(dueño[ip], {})[(float(x), float(y))] = {QUITADO: True}
     # solo las tuberías que recibieron una curva (su CV está en uno de sus vértices)
     # (en gravedad la CV es el buzón oculto del quiebre: a ≤1 px del vértice, `_marcar_cv`)
     nuevas_ids = {id(s) for s in nuevas_cv}
@@ -55,7 +69,6 @@ def curvas_de_quiebres(results: Sequence, zoom: float) -> Dict[int, Dict[Tuple[f
     con_curva = [ip for ip, p in enumerate(pipes)
                  if any((int(x // 2) + dx, int(y // 2) + dy) in celdas
                         for x, y in p.get("pts") or () for dx in (-1, 0, 1) for dy in (-1, 0, 1))]
-    out: Dict[int, Dict[Tuple[float, float], dict]] = {}
     for ip in con_curva:
         p = pipes[ip]
         curvas = model_ops.curve_vertex_indices(p, structures, pipes, model_ops._TOL)
@@ -79,6 +92,22 @@ def codos_de(pl, curvas: Dict[Tuple[float, float], dict]) -> dict:
     if curvas:
         for i, q in enumerate(pl.pts_pdf):
             g = curvas.get((float(q[0]), float(q[1])))
-            if g is not None and i not in fil:
+            if g is not None and not g.get(QUITADO) and i not in fil:
                 fil[i] = g
     return fil
+
+
+def dibujo_de(pl, curvas: Dict[Tuple[float, float], dict]):
+    """(polilínea, codos) para DIBUJAR `pl` como quedará al importar: sin los vértices
+    prácticamente rectos que la importación quita para que entre la curva de un quiebre
+    (`quiebres_curvas._enderezar`) y con esas curvas. Si nada se quita, la misma `pl`."""
+    quitar = {i for i, q in enumerate(pl.pts_pdf)
+              if (curvas or {}).get((float(q[0]), float(q[1])), {}).get(QUITADO)}
+    if not quitar:
+        return pl, codos_de(pl, curvas)
+    nuevo = {i: k for k, i in enumerate(i for i in range(len(pl.pts_pdf)) if i not in quitar)}
+    pl2 = dataclasses.replace(
+        pl, pts_pdf=[q for i, q in enumerate(pl.pts_pdf) if i not in quitar],
+        kinds=[k for i, k in enumerate(pl.kinds) if i not in quitar] if len(pl.kinds) == len(pl.pts_pdf) else pl.kinds,
+        fillets={nuevo[i]: g for i, g in (getattr(pl, "fillets", None) or {}).items() if i in nuevo})
+    return pl2, codos_de(pl2, curvas)
