@@ -620,6 +620,8 @@ class CompositeDialog(NoEscapeClose, ChosenSheetMixin, SourcePageMixin, ScanTool
         self.tool_bar = bar
         if self.comp.manual:
             self.build_scan_tools(bar, _tool, _spin, _field_action, _check_action)
+        else:
+            self.build_blend_tool(bar, _tool)   # «Fundir bordes» también en el vectorial (2026-10-19)
         bar.add_stretch()
         self.piece_tools = QtWidgets.QWidget()
         pt = QtWidgets.QHBoxLayout(self.piece_tools); pt.setContentsMargins(0, 0, 0, 0); pt.setSpacing(6)
@@ -1084,7 +1086,7 @@ class CompositeDialog(NoEscapeClose, ChosenSheetMixin, SourcePageMixin, ScanTool
         """Línea de estado bajo la hoja: qué hacer con la herramienta activa."""
         if not hasattr(self, "lbl_status"):
             return
-        text = self.scan_status_text() if self.comp.manual else ""
+        text = self.scan_status_text() if self.comp.manual else getattr(self, "_flash", "")
         if not text and self.comp.pieces and self.view.selected_index() < 0:
             text = _tr("Haz clic en una pieza para girarla, ajustarla o quitarla.")
         elif not text and not self.comp.pieces:

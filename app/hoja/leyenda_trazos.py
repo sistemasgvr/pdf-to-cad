@@ -70,7 +70,11 @@ def trazos_visibles(page, capas: Optional[Callable[[str], bool]] = None) -> List
             rect_de = {lv: rect_de[lv] for lv in clip_stack if lv in rect_de}
             rect_de[lvl] = _rect_poly(clip_stack[lvl]) if clip_stack[lvl] else None
             continue
-        if path.get("type") == "group" or not path.get("items"):
+        if path.get("type") == "group":
+            clip_stack = recognition._cerrar_recortes(clip_stack, lvl)   # pieza fundida, etc.
+            rect_de = {lv: rect_de[lv] for lv in clip_stack if lv in rect_de}
+            continue
+        if not path.get("items"):
             continue
         layer = path.get("layer") or ""
         is_prof = recognition.PROFILE_LAYER_TOKEN in pdf_layers.short_name(layer).upper()

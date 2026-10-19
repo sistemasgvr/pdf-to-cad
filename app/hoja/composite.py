@@ -30,6 +30,7 @@ import fitz
 
 from traduccion.i18n_core import t as _tr   # etiquetas del esquema de hojas
 from nucleo import avance
+from hoja import composite_fundir           # «Fundir bordes» en el PDF vectorial (no importa composite)
 
 Pt = Tuple[float, float]
 
@@ -119,9 +120,10 @@ class Composite:
     last_view: Optional[List[int]] = None
     manual: bool = False
     alignment_ruler: dict = field(default_factory=dict)
-    # Escaneos: «Fundir bordes» — las piezas se combinan en modo OSCURECER (en la
-    # vista y en el PDF), así el papel de una pieza nunca tapa la tinta de la otra
-    # y una costura superpuesta no deja corte ni franja blanca.
+    # «Fundir bordes» — las piezas se combinan en modo OSCURECER (en la vista y en
+    # el PDF), así el papel de una pieza nunca tapa la tinta de la otra y una
+    # costura superpuesta no deja corte ni franja blanca. Escaneos y, desde
+    # 2026-10-19, también PDF vectoriales con o sin capas (`composite_fundir`).
     seam_blend: bool = True
 
     def target_scale(self) -> float:
@@ -172,8 +174,10 @@ class Composite:
                    seam_blend=bool(d.get("seam_blend", True)))
 
     def blends(self) -> bool:
-        """¿Las piezas se funden (modo oscurecer)? Solo en la composición manual."""
-        return bool(self.manual and self.seam_blend)
+        """¿Las piezas se funden (modo oscurecer)? En escaneos y en PDF vectoriales (con o
+        sin capas; pedido del usuario 2026-10-19). En el PDF vectorial solo se funden las
+        piezas que se superponen a otra (`blended_pieces`)."""
+        return bool(self.seam_blend)
 
 
 def normalize_polygon(values):
@@ -1213,7 +1217,8 @@ def build_document(comp: Composite, docs: Sequence[fitz.Document],
     target = comp.target_scale()
     dst = fitz.open()
     page = dst.new_page(width=width, height=height)
-    if comp.blends():                  # antes de las piezas: show_pdf_page relee el contenido
+    fundidas = blended_pieces(comp, page_sizes)
+    if fundidas:                       # antes de las piezas: show_pdf_page relee el contenido
         _add_blend_state(dst, page)
     seen = _ocg_xrefs(dst)
     ocg_source: Dict[int, int] = {}
@@ -1231,9 +1236,14 @@ def build_document(comp: Composite, docs: Sequence[fitz.Document],
         px0, py0, px1, py1 = piece_rect(piece, page_sizes(piece), target)
         rect = fitz.Rect(px0 + dx, py0 + dy, px1 + dx, py1 + dy)
         _show_pdf_page(page, rect, src, piece.page, clip, piece.rotation - spage.rotation)
+        fundir = k_av in fundidas
+        if fundir and not comp.manual:
+            # vectorial: la pieza entera como grupo aislado, así solo se oscurece contra
+            # las piezas anteriores y no cada trazo dentro de su propia hoja
+            composite_fundir.aislar_ultima_pieza(dst, page)
         # Envoltorio de la pieza: modo oscurecer («Fundir bordes») y/o el recorte
         # por su cuadrilátero (escaneos con el área ajustada esquina a esquina).
-        prefix = f"/{_BLEND_GS} gs " if comp.blends() else ""
+        prefix = f"/{_BLEND_GS} gs " if fundir else ""
         if piece.polygon:
             fn = piece_map(piece, page_sizes(piece), target)
             points = [fn(x * spage.rect.width, y * spage.rect.height) for x, y in piece.polygon]
@@ -1272,6 +1282,18 @@ def build_document(comp: Composite, docs: Sequence[fitz.Document],
 
 
 _BLEND_GS = "PdfcadDarken"
+
+
+def blended_pieces(comp: Composite, page_sizes) -> set:
+    """Índices de las piezas que entran fundidas (modo oscurecer) al PDF. Escaneo: todas,
+    como siempre. Vectorial (con o sin capas, 2026-10-19): solo las que se SUPERPONEN a una
+    anterior (`composite_fundir.solapadas`); borde con borde el PDF no cambia."""
+    if not comp.blends() or not comp.pieces:
+        return set()
+    if comp.manual:
+        return set(range(len(comp.pieces)))
+    target = comp.target_scale()
+    return composite_fundir.solapadas([piece_outline(p, page_sizes(p), target) for p in comp.pieces])
 
 
 def _add_blend_state(doc: fitz.Document, page: fitz.Page):

@@ -173,7 +173,9 @@ def inicios_de_piezas(page) -> Optional[List[int]]:
         if page.read_contents().count(b"/fzFrm") >= 2:
             starts, nuevo = [], False
             for d in page.get_cdrawings(extended=True):
-                if d.get("type") == "clip" and d.get("level") == 0:
+                # cada pieza abre con su recorte en el nivel 0; la FUNDIDA («Fundir bordes»,
+                # `composite_fundir`), con su grupo de transparencia
+                if d.get("type") in ("clip", "group") and d.get("level") == 0:
                     nuevo = True
                 elif nuevo and d.get("type") not in ("clip", "group"):
                     starts.append(int(d["seqno"]))

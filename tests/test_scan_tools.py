@@ -96,7 +96,8 @@ def test_seam_blend_is_saved():
     assert comp.blends() and C.Composite.from_dict(comp.to_dict()).seam_blend
     comp.seam_blend = False
     assert not C.Composite.from_dict(comp.to_dict()).blends()
-    assert not C.Composite(manual=False).blends()       # el PDF vectorial no se toca
+    # desde 2026-10-19 también el vectorial (solo sus piezas superpuestas: test_fundir_vectorial)
+    assert C.Composite(manual=False).blends()
 
 
 # ── PDF ─────────────────────────────────────────────────────────────────

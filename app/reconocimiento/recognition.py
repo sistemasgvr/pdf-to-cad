@@ -860,6 +860,15 @@ def _page_is_flat(doc, page_index: int) -> bool:
         return False
 
 
+def _cerrar_recortes(clip_stack: dict, lvl: int) -> dict:
+    """Un GRUPO de transparencia en el nivel `lvl` (get_drawings(extended=True)) abre ese
+    nivel: los recortes de ese nivel o más adentro ya se cerraron, igual que cuando llega un
+    recorte nuevo. Sin esto, en una hoja compuesta con una pieza FUNDIDA (`composite_fundir`:
+    grupo en el nivel 0) tras otra sin fundir, el recorte de la anterior seguía recortando a
+    la siguiente. En los PDF de prueba que ya traen grupos (DU06, DU10, LABOE) no cambia nada."""
+    return {l: pg for l, pg in clip_stack.items() if l < lvl}
+
+
 def _clip_polygon(clip: dict, page_rect) -> Optional[list]:
     """Polígono (lista de (x, y)) de un item 'clip' de get_drawings(extended=True),
     o None si es el marco de la página entera (no recorta nada)."""
@@ -934,6 +943,9 @@ def profile_view_regions(page, crop_polygon=None) -> List[Tuple[float, float, fl
             clip_stack = {l: pg for l, pg in clip_stack.items() if l < lvl}
             clip_stack[lvl] = _clip_polygon(path, page_rect)
             continue
+        if path.get("type") == "group":
+            clip_stack = _cerrar_recortes(clip_stack, lvl)
+            continue
         ocg = path.get("layer") or ""
         short = (ocg.split("|")[-1] if "|" in ocg else ocg).upper()
         if PROFILE_LAYER_TOKEN not in short:
@@ -990,6 +1002,9 @@ def gather_paths(page, kind_for, hidden=(), crop_polygon=None, stats: Optional[d
         if path.get("type") == "clip":
             clip_stack = {l: pg for l, pg in clip_stack.items() if l < lvl}
             clip_stack[lvl] = _clip_polygon(path, page_rect)
+            continue
+        if path.get("type") == "group":
+            clip_stack = _cerrar_recortes(clip_stack, lvl)
             continue
         ocg = path.get("layer") or ""
         if ocg in hidden:

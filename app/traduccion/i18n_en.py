@@ -60,6 +60,8 @@ EN: dict[str, str] = {
     "✔ Escala de la hoja corregida: {s}": "✔ Sheet scale corrected: {s}",
     "Fundir bordes activado: superpón un poco las piezas en la unión.": "Blend edges on: overlap the pieces slightly at the join.",
     "Fundir bordes desactivado: cada pieza tapa a la de abajo.": "Blend edges off: each piece covers the one below.",
+    "Fundir bordes activado: donde dos piezas se superponen se ve la tinta de las dos.": "Blend edges on: where two pieces overlap, the ink of both shows.",
+    "Donde dos piezas se superponen se ve la tinta de ambas: lo blanco de una no tapa las líneas de la otra. Dentro de cada hoja no cambia nada y, borde con borde, el PDF queda igual. También se aplica al PDF que pasa al editor.": "Where two pieces overlap, the ink of both shows: the white of one does not hide the other's lines. Nothing changes inside each sheet and, edge to edge, the PDF stays the same. Also applied to the PDF sent to the editor.",
     # ── Menús principales ──────────────────────────────────────────────
     "Editar": "Edit",
     "Herramientas": "Tools",

@@ -1237,9 +1237,23 @@ alcantarillado, drenaje, gas, eléctrico, telecom). Todo en **unidades imperiale
     `blends()`): modo OSCURECER en la vista (`PieceItem.paint` + papel blanco en
     `CompositeView.drawBackground`; bajo el recorte nítido no se pinta la base) y en el PDF
     (`build_document`: `/PdfcadDarken gs` por pieza, ExtGState `/BM /Darken`): el papel de una
-    pieza no tapa la tinta de otra y la superposición no oscurece el papel. Solo escaneos: en el
-    vectorial las franjas `covers` DEBEN tapar. Tests: `tests/test_scan_composition.py`,
-    `tests/test_scan_tools.py`.
+    pieza no tapa la tinta de otra y la superposición no oscurece el papel. Tests:
+    `tests/test_scan_composition.py`, `tests/test_scan_tools.py`. **También en el VECTORIAL** (con
+    y sin capas, pedido del usuario 2026-10-19; `hoja/composite_fundir.py`, PURO): mismo botón
+    (`ScanToolsMixin.build_blend_tool`, solo a la izquierda de la barra) y `Composite.blends()` =
+    `seam_blend` en todos los flujos. En el PDF, `blended_pieces`: escaneo = todas (como siempre);
+    vectorial = solo las que se SUPERPONEN a una anterior > `SOLAPE_MIN_PT`=1 pt (borde con borde
+    el PDF sale idéntico: mismos bytes de contenido) y van como GRUPO de transparencia AISLADO
+    (`/Group <</S/Transparency/I true>>` en su «fzFrm», `aislar_ultima_pieza`): con el oscurecer
+    directo cada trazo se oscurecía dentro de SU hoja (el fondo blanco de un rótulo dejaba ver la
+    línea) y MuPDF abría un grupo por objeto. Las franjas `covers` van fuera del modo y siguen
+    tapando. OJO lectores: el grupo queda en el NIVEL 0 de `get_drawings(extended=True)` y el
+    recorte de la pieza en el 1; `recognition._cerrar_recortes` (gather_paths, profile_view_regions,
+    `leyenda_trazos.trazos_visibles`: un grupo cierra los recortes de su nivel, si no el de la pieza
+    anterior recortaba a la fundida: −3 200 trazos en DU06 h.13) y `inicios_de_piezas` (grupo o
+    recorte de nivel 0 = pieza nueva). Los PDF de prueba que ya traen grupos (DU06 h.5/10, DU10,
+    LABOE) no cambian. Píxeles: dentro del grupo MuPDF suaviza bordes hasta 18/255 distinto (no se
+    ve); dibujo ~2× en la pieza fundida. Tests: `tests/test_fundir_vectorial.py`.
   - `wizard_widgets.py` — UI compartida por los pasos del asistente: `StepBar` («1 Componer
     hoja › 2 Capas de la hoja › 3 Vista previa»; pasos anteriores clicables = volver),
     `show_opacity_popup` (el desplegable de opacidad del editor, movido aquí: lo usan

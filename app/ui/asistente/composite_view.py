@@ -384,7 +384,7 @@ class CompositeView(ZoomPanView):
             self.protractor.configure(QtCore.QPointF(p.x+w/2, p.y+h/2), angle=CS.signed_angle(p.rotation))
 
     def set_blend(self, on: bool):
-        """«Fundir bordes» (solo escaneos): ver `PieceItem.paint`."""
+        """«Fundir bordes» (escaneos y PDF vectoriales): ver `PieceItem.paint`."""
         self.comp.seam_blend = bool(on)
         for it in self.items:
             it._refresh_outline()
