@@ -191,6 +191,15 @@ map names sheets that are in <b>another PDF in the same folder</b> (Phoenix «�
     button to press; <span class="btn">Full sheet</span> uses the whole sheet again. The sheet scale
     is at the bottom right; snapping to lines and trimming the border line are under
     <b>Options</b>.</li>
+<li><b>Free corners</b> (checkbox next to <b>Options</b>): if the edge you want to follow is slanted
+    —a skewed match line, the frame of a rotated view— or the area is not rectangular, turn it on and
+    move <b>each corner separately</b>. The side squares move their two corners together (the side
+    stays parallel) and the center one moves the whole area; the keyboard arrows move the chosen
+    corner or side (Ctrl = fine, Shift = steps of 10) and, with snapping to lines, the corner jumps to
+    the long lines of the sheet. The composite sheet and recognition crop along that edge. Turn it
+    off to go back to a rectangle (the rectangle that contains the area). It works for PDFs with
+    layers, without layers and scans; trimming the border line only applies to rectangular
+    areas.</li>
 <li><b>Several sheets</b>: in Source, tick the checkbox of each sheet you need (they are added whole;
     to use only part of one, mark its area in Area to take: the piece is cropped by itself). If you move to
     another sheet with the arrows, a notice says it is not in yet; mark its area and press
@@ -221,7 +230,8 @@ PDF…</b>), but without layers or recognition: at the end, <span class="btn">Im
 editor</span> leaves it as the background to draw by hand.</p>
 <ul>
 <li>In <b>Area to take</b> you drag a rectangle and then move <b>each corner separately</b> to follow a
-    skewed edge of the scan.</li>
+    skewed edge of the scan (here <b>Free corners</b> starts on; turn it off if you prefer a
+    rectangle).</li>
 <li>In <b>Composite sheet</b> all tools are in <b>a single bar</b>: guides on the left (always in the
     same place) and the selected piece's actions on the right (rotate 90°, <b>Adjust</b>, remove).
     If the panel is narrow, buttons show only their icon; the name appears on hover. Below, a line

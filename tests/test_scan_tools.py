@@ -127,7 +127,9 @@ def test_single_toolbar_row(app):
         for b in (dlg.btn_rule, dlg.btn_protractor, dlg.btn_measure, dlg.btn_straighten,
                   dlg.btn_blend, dlg.piece_tools):
             assert b.parent() is bar
-        assert not dlg.findChildren(QtWidgets.QCheckBox)       # sin casilla «Vertical»
+        # sin casilla «Vertical»; la única casilla es «Esquinas libres» del área (2026-10-19)
+        assert [c for c in dlg.findChildren(QtWidgets.QCheckBox) if c is not dlg.chk_corners] == []
+        assert not bar.isAncestorOf(dlg.chk_corners)
         assert dlg.btn_rule.popupMode() == QtWidgets.QToolButton.MenuButtonPopup
         assert dlg.ruler_lock in dlg.btn_rule.menu().actions()
         assert dlg.btn_blend.isChecked()

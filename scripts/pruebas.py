@@ -28,6 +28,7 @@ GRUPOS = {
     # componer hoja: piezas, costuras CAD, sugerencia, escaneos, hoja enorme y nitidez
     "compositor": ["test_composite", "test_composite_checks", "test_composite_seam", "test_composite_dialog",
                    "test_composicion_sugerida", "test_piezas_exactas", "test_scan_composition", "test_scan_tools",
+                   "test_esquinas_libres",
                    "test_hoja_enorme", "test_nitidez_zoom", "test_teselas", "test_sheet_crops", "test_sheet_layout"],
     # «Capas de la hoja», leyendas BOE y del PDF, vista previa
     "capas": ["test_layer_dialog", "test_layer_legend", "test_layer_standard", "test_leyenda_cruce",

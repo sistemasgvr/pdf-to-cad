@@ -238,10 +238,10 @@ class ChosenSheetMixin:
         """Texto y botones de «Área a tomar» según lo que hace el rectángulo: recortar
         la pieza de esta hoja (entera o con un área) o marcar una pieza nueva."""
         idx = self._editing
-        manual = self.comp.manual
+        free = getattr(self.crop, "free", self.comp.manual)      # «Esquinas libres»
         if not 0 <= idx < len(self.comp.pieces):
             self.lbl_mode.setText(_tr("Arrastra un área y mueve cada esquina para seguir el borde inclinado del plano.")
-                                  if manual else
+                                  if free else
                                   _tr("Arrastra un rectángulo sobre el plano; esquinas y lados se ajustan."))
             self.btn_take_full.setToolTip(_tr("Agregar la hoja entera como una pieza"))
             self.btn_new.hide(); self.btn_take.show(); self.btn_take_full.show()
@@ -255,7 +255,7 @@ class ChosenSheetMixin:
         elif len(self.comp.pieces) == 1:
             text = _tr("La hoja compuesta usa el área marcada de la hoja {n}. Ajústala, o pulsa «Hoja "
                        "completa» para volver a usar toda la hoja.").format(n=p.page + 1)
-        elif manual:
+        elif free:
             text = _tr("Ajusta las cuatro esquinas; la pieza seleccionada se actualiza sola.")
         else:
             text = _tr("Editando el área de la pieza {n} ({name}). Ajusta el rectángulo; "

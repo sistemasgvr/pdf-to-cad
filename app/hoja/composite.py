@@ -301,6 +301,24 @@ def piece_dir_map(piece: Piece):
     return fn
 
 
+def piece_outline(piece: Piece, page_size: Tuple[float, float], target_scale: float) -> List[Pt]:
+    """Lo visible de la pieza en la hoja compuesta: su cuadrilátero (esquinas libres)
+    o las cuatro esquinas de su clip, ya giradas y escaladas (`piece_map`)."""
+    fn = piece_map(piece, page_size, target_scale)
+    if piece.polygon:
+        return [fn(x * page_size[0], y * page_size[1]) for x, y in piece.polygon]
+    x0, y0, x1, y1 = clip_rect_pt(page_size, piece.clip)
+    return [fn(x0, y0), fn(x1, y0), fn(x1, y1), fn(x0, y1)]
+
+
+def piece_bounds_shape(piece: Piece, page_size: Tuple[float, float], target_scale: float):
+    """Hasta dónde llega un puente desde un extremo de la pieza: su rectángulo
+    (`piece_rect`, como siempre) o, con esquinas libres, su cuadrilátero."""
+    if piece.polygon:
+        return piece_outline(piece, page_size, target_scale)
+    return piece_rect(piece, page_size, target_scale)
+
+
 def cover_rects(piece: Piece, page_size: Tuple[float, float],
                 out_pt: float = COVER_OUT_PT) -> List[Tuple[float, float, float, float]]:
     """Franjas blancas de la pieza en coords de la hoja origen visible (pt):
@@ -431,7 +449,8 @@ def _rgb(path: dict) -> Optional[Tuple[float, float, float]]:
 
 
 def edge_anchors(page: fitz.Page, clip: Sequence[float], max_paths: int = 200000,
-                 tol: float = EDGE_TOL_PT, insets: Optional[Dict[str, float]] = None) -> List[Anchor]:
+                 tol: float = EDGE_TOL_PT, insets: Optional[Dict[str, float]] = None,
+                 polygon: Optional[Sequence[Pt]] = None) -> List[Anchor]:
     """Anclajes del imán y de los puentes: cada trazo VISIBLE que cruza el
     borde del clip (punto de corte) o que termina sobre él (±`tol`; en una hoja
     ploteada la línea suele morir exactamente en la match line). Cada anclaje
@@ -439,9 +458,15 @@ def edge_anchors(page: fitz.Page, clip: Sequence[float], max_paths: int = 200000
 
     `insets` (= `Piece.covers`): en los lados con franja blanca el borde que
     cuenta es el INTERIOR de la franja, así los puentes cruzan la franja y
-    completan encima de ella cada línea que la atraviesa."""
+    completan encima de ella cada línea que la atraviesa.
+
+    `polygon` (= `Piece.polygon`, esquinas libres): el borde es el de ese
+    cuadrilátero, no el de su caja (sin franjas)."""
     from hoja.sheet_crops import drawing_polygon
 
+    if polygon:
+        from hoja.composite_esquinas import edge_anchors_poly
+        return edge_anchors_poly(page, polygon, max_paths, tol)
     x0, y0, x1, y1 = clip_rect_pt((page.rect.width, page.rect.height), clip)
     inset_edges: Dict[str, float] = {}
     for side, w in (insets or {}).items():
@@ -1029,7 +1054,8 @@ class Bridge:
 
     def polyline(self, rect_a=None, rect_b=None) -> List[Pt]:
         """Trazado del puente: cada extremo sigue RECTO por su propia dirección
-        hasta el borde de su pieza (`rect_*`, coords hoja compuesta) y solo ahí
+        hasta el borde de su pieza (`rect_*`, coords hoja compuesta: rectángulo o,
+        con esquinas libres, su cuadrilátero —`piece_bounds_shape`—) y solo ahí
         se cierra con el otro. Así una línea que cruza la costura no cambia de
         rumbo aunque los dos lados difieran una centésima; sin rects es a→b."""
         pts = [self.a]
@@ -1051,13 +1077,16 @@ def _dist(p: Pt, q: Pt) -> float:
     return math.hypot(p[0] - q[0], p[1] - q[1])
 
 
-def _ray_exit(rect: Tuple[float, float, float, float], p: Pt, u: Pt) -> Optional[Pt]:
-    """Punto donde el rayo p + t·u (t ≥ 0) sale del rectángulo; None si u es nulo
-    o el rayo no avanza hacia ningún lado (queda p)."""
-    x0, y0, x1, y1 = rect
+def _ray_exit(rect, p: Pt, u: Pt) -> Optional[Pt]:
+    """Punto donde el rayo p + t·u (t ≥ 0) sale del rectángulo (x0, y0, x1, y1) —o
+    del cuadrilátero convexo [(x, y)…] de una pieza con esquinas libres—; None si u
+    es nulo o el rayo no avanza hacia ningún lado (queda p)."""
     ux, uy = u
     if abs(ux) < 1e-12 and abs(uy) < 1e-12:
         return None
+    if rect and not isinstance(rect[0], (int, float)):
+        return _ray_exit_poly(rect, p, u)
+    x0, y0, x1, y1 = rect
     t = float("inf")
     if ux > 1e-12:
         t = min(t, (x1 - p[0]) / ux)
@@ -1070,6 +1099,35 @@ def _ray_exit(rect: Tuple[float, float, float, float], p: Pt, u: Pt) -> Optional
     if not math.isfinite(t) or t < 0:
         return None
     return p[0] + ux * t, p[1] + uy * t
+
+
+def _convex_edges(poly: Sequence[Pt]) -> List[Tuple[Pt, Pt]]:
+    """Cada lado del polígono convexo como (punto, normal unitaria hacia AFUERA):
+    la distancia con signo de q al lado es (q − punto)·normal (> 0 = fuera)."""
+    n = len(poly)
+    area = sum(poly[i][0] * poly[(i + 1) % n][1] - poly[(i + 1) % n][0] * poly[i][1] for i in range(n))
+    sign = 1.0 if area > 0 else -1.0
+    out = []
+    for i in range(n):
+        a, b = poly[i], poly[(i + 1) % n]
+        ex, ey = b[0] - a[0], b[1] - a[1]
+        L = math.hypot(ex, ey)
+        if L < 1e-9:
+            continue
+        # con área positiva (horario en pantalla, y hacia abajo) afuera queda a la izquierda del lado
+        out.append((a, (sign * ey / L, -sign * ex / L)))
+    return out
+
+
+def _ray_exit_poly(poly: Sequence[Pt], p: Pt, u: Pt) -> Optional[Pt]:
+    t = float("inf")
+    for a, (nx, ny) in _convex_edges(poly):
+        un = u[0] * nx + u[1] * ny
+        if un > 1e-12:
+            t = min(t, ((a[0] - p[0]) * nx + (a[1] - p[1]) * ny) / un)
+    if not math.isfinite(t) or t < 0:
+        return None
+    return p[0] + u[0] * t, p[1] + u[1] * t
 
 
 def find_bridges(anchors_by_piece: Dict[int, Sequence[Anchor]], max_gap: float = BRIDGE_MAX_PT,
@@ -1205,8 +1263,8 @@ def build_document(comp: Composite, docs: Sequence[fitz.Document],
             kw = dict(color=br.color or (0, 0, 0), width=br.width or 0.0)
             if xref:
                 kw["oc"] = xref
-            ra = piece_rect(comp.pieces[br.piece_a], page_sizes(comp.pieces[br.piece_a]), target)
-            rb = piece_rect(comp.pieces[br.piece_b], page_sizes(comp.pieces[br.piece_b]), target)
+            ra = piece_bounds_shape(comp.pieces[br.piece_a], page_sizes(comp.pieces[br.piece_a]), target)
+            rb = piece_bounds_shape(comp.pieces[br.piece_b], page_sizes(comp.pieces[br.piece_b]), target)
             pts = [(x + dx, y + dy) for x, y in br.polyline(ra, rb)]
             for p, q in bridge_segments_poly(pts, br.dash):
                 page.draw_line(p, q, **kw)
@@ -1450,7 +1508,8 @@ def compute_bridges(comp: Composite, docs: Sequence[fitz.Document]) -> List[Brid
         avance.avisar(_tr("Buscando las líneas que cruzan cada costura…"), i + 1, len(comp.pieces))
         page = docs[p.source][p.page]
         size = (page.rect.width, page.rect.height)
-        by_piece[i] = map_anchors(p, size, target, edge_anchors(page, p.clip, insets=p.covers))
+        by_piece[i] = map_anchors(p, size, target, edge_anchors(page, p.clip, insets=p.covers,
+                                                                polygon=p.polygon))
     return find_bridges(by_piece, comp.bridge_max_pt)
 
 

@@ -30,6 +30,9 @@ EN: dict[str, str] = {
     "Regla": "Ruler",
     "Enderezar": "Straighten",
     "Ajusta las cuatro esquinas; la pieza seleccionada se actualiza sola.": "Adjust the four corners; the selected piece updates automatically.",
+    "Esquinas libres": "Free corners",
+    "Mover cada esquina del área por separado para seguir un borde inclinado o un área que no es rectangular (los lados se mueven paralelos). Apagada: rectángulo; «Sin línea de borde» solo recorta áreas rectangulares.":
+        "Move each corner of the area separately to follow a slanted border or a non-rectangular area (sides move parallel). Off: rectangle; “No border line” only trims rectangular areas.",
     "Hoja compuesta importada al editor. Dibuja las utilidades a mano.": "Composed sheet imported into the editor. Draw utilities manually.",
     "Girar a 0°": "Rotate to 0°",
     "{d:.2f} ft · {a:.2f}°": "{d:.2f} ft · {a:.2f}°",

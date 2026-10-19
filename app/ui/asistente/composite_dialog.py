@@ -46,8 +46,7 @@ from ui.asistente.composite_tabs import WorkTabs, BADGE_COUNT, BADGE_WARN
 from ui.asistente.pdf_view_quality import ViewportSharpener
 from traduccion.i18n import t as _tr
 from ui.comun.icons import icon as _icon
-from ui.asistente.sheet_crop_dialog import _CropView
-from ui.asistente.scan_crop_view import ScanCropView
+from ui.asistente.scan_crop_view import CornerCropView
 from ui.asistente.composite_scan_ui import ScanToolsMixin
 from ui.asistente.composite_choice import ChosenSheetMixin
 from ui.asistente.composite_suggest import SuggestionMixin
@@ -461,7 +460,8 @@ class CompositeDialog(NoEscapeClose, ChosenSheetMixin, SourcePageMixin, ScanTool
         self.btn_pending_use.clicked.connect(self._use_only_this_sheet)
         self.pending_box.layout().addWidget(self.btn_pending_use, 0, QtCore.Qt.AlignVCenter)
         lay.addWidget(self.pending_box)
-        self.crop = ScanCropView() if self.comp.manual else _CropView()
+        # una sola vista para los tres flujos: rectángulo o esquinas libres (casilla)
+        self.crop = CornerCropView(free=self.comp.manual)
         self.crop.selectionChanged.connect(self._on_selection_changed)
         self.crop.dragFinished.connect(self._on_crop_drag_done)
         # La hoja se muestra a 72 dpi; al hacer zoom, la parte visible se
@@ -513,6 +513,16 @@ class CompositeDialog(NoEscapeClose, ChosenSheetMixin, SourcePageMixin, ScanTool
             self.btn_area_snap.setEnabled(False)
             self.lbl_mode.setText(_tr("Arrastra un área y mueve cada esquina para seguir el borde inclinado del plano."))
         row.addWidget(self.btn_area_opts)
+        # Esquinas libres (pedido del usuario 2026-10-19): en los tres flujos el área se
+        # ajusta esquina por esquina; apagada, el rectángulo de siempre. Escaneo: encendida.
+        self.chk_corners = QtWidgets.QCheckBox(_tr("Esquinas libres"))
+        self.chk_corners.setChecked(self.crop.free)
+        self.chk_corners.setToolTip(_tr(
+            "Mover cada esquina del área por separado para seguir un borde inclinado o un área "
+            "que no es rectangular (los lados se mueven paralelos). Apagada: rectángulo; «Sin "
+            "línea de borde» solo recorta áreas rectangulares."))
+        self.chk_corners.toggled.connect(self._on_free_corners)
+        row.addWidget(self.chk_corners)
         row.addStretch(1)
         self.lbl_area = QtWidgets.QLabel()
         self.lbl_area.setStyleSheet(f"color:{t.text_muted}; font-size:12px;")
@@ -815,7 +825,9 @@ class CompositeDialog(NoEscapeClose, ChosenSheetMixin, SourcePageMixin, ScanTool
     def _current_clip(self, full: bool = False):
         """(clip normalizado, covers) del rectángulo de «Área a tomar». Con «Sin
         línea de borde» activo el clip pasa por el centro de la línea de borde y
-        `covers` trae la franja blanca que la tapa por lado."""
+        `covers` trae la franja blanca que la tapa por lado. Con esquinas libres
+        (un cuadrilátero que no es rectángulo) el clip es su caja y no hay franjas:
+        recorta el cuadrilátero (`_area_polygon`)."""
         if full:
             clip = [0.0, 0.0, 1.0, 1.0]
         else:
@@ -826,9 +838,21 @@ class CompositeDialog(NoEscapeClose, ChosenSheetMixin, SourcePageMixin, ScanTool
             clip = C.normalize_clip([sel.left() / full_r.width(), sel.top() / full_r.height(),
                                      sel.right() / full_r.width(), sel.bottom() / full_r.height()])
         covers = {}
-        if self.btn_trim.isChecked() and not self.comp.manual:
+        if self.btn_trim.isChecked() and not self.comp.manual and not self._area_polygon(full):
             clip, covers = C.trim_border(self.docs[self._cur_source][self._cur_page], clip)
         return clip, covers
+
+    def _area_polygon(self, full: bool = False):
+        """Cuadrilátero del área (normalizado) o [] si es un rectángulo / la hoja entera."""
+        return [] if full else self.crop.normalized_polygon()
+
+    def _on_free_corners(self, on: bool):
+        """Casilla «Esquinas libres»: la vista pasa a cuadrilátero o a rectángulo sin
+        perder el área (al apagarla queda la caja del cuadrilátero)."""
+        self.crop.set_free(on)
+        if self._editing >= 0 and not self._syncing_crop:
+            self._crop_timer.start()
+        self._refresh_area_mode()
 
     def _apply_crop_edit(self):
         """Modo edición: el rectángulo de «Área a tomar» ES el área de la pieza seleccionada."""
@@ -842,7 +866,7 @@ class CompositeDialog(NoEscapeClose, ChosenSheetMixin, SourcePageMixin, ScanTool
         piece = self.comp.pieces[idx]
         if piece.source != self._cur_source or piece.page != self._cur_page:
             return
-        polygon = self.crop.normalized_polygon() if self.comp.manual else []
+        polygon = self._area_polygon()
         if [round(v, 9) for v in clip] == [round(v, 9) for v in piece.clip] and covers == piece.covers and polygon == piece.polygon:
             return
         self._provisional = None              # el usuario trabajó la hoja: ya es su elección
@@ -876,7 +900,8 @@ class CompositeDialog(NoEscapeClose, ChosenSheetMixin, SourcePageMixin, ScanTool
             # la hoja entera se ve sin tinte (solo borde y asas: `_CropView._fill_for`)
             self.crop.set_selection(QtCore.QRectF(x0 * full.width(), y0 * full.height(),
                                                   (x1 - x0) * full.width(), (y1 - y0) * full.height()))
-            if self.comp.manual and p.polygon:
+            if p.polygon:
+                self.chk_corners.setChecked(True)          # su área va esquina por esquina
                 self.crop.set_polygon([QtCore.QPointF(x * full.width(), y * full.height()) for x, y in p.polygon])
             self.spn_src_scale.blockSignals(True)          # la escala es la de ESTA pieza
             self.spn_src_scale.setValue(p.src_scale * 72.0)
@@ -912,8 +937,7 @@ class CompositeDialog(NoEscapeClose, ChosenSheetMixin, SourcePageMixin, ScanTool
         piece = C.Piece(self._cur_source, self._cur_page, clip, src_scale=src_scale,
                         label=f"{self.sources[self._cur_source]['name']} · {self._cur_page + 1}",
                         covers=covers)
-        if self.comp.manual and not full:
-            piece.polygon = self.crop.normalized_polygon()
+        piece.polygon = self._area_polygon(full)
         bb = C.bounds(self.comp, self.view.page_size)
         if bb is not None:
             piece.x, piece.y = bb[2] + 24.0, bb[1]

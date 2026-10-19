@@ -149,11 +149,13 @@ class PieceItem(QtWidgets.QGraphicsPixmapItem):
         self._refresh_covers()
         self._poly_raw = None
         if p.polygon:
+            quad = QtGui.QPolygonF([QtCore.QPointF(x * size[0] * self.ov - ox, y * size[1] * self.ov - oy)
+                                    for x, y in p.polygon])
             poly = QtGui.QPainterPath()
-            poly.addPolygon(QtGui.QPolygonF([QtCore.QPointF(x * size[0] * self.ov - ox, y * size[1] * self.ov - oy)
-                                             for x, y in p.polygon]))
+            poly.addPolygon(quad)
             poly.closeSubpath()
             self._poly_raw = poly
+            self._outline.setPolygon(quad)     # esquinas libres: el contorno es el cuadrilátero
         # las teselas son píxeles de la hoja origen: mover o girar la pieza no las cambia
         self.superficie.fijar(self.view.page(p), k=self.ov, dx=-ox, dy=-oy, base=self.ov,
                               limite=(x0, y0, x1, y1))
@@ -649,14 +651,16 @@ class CompositeView(ZoomPanView):
     @staticmethod
     def _anchor_key(p: C.Piece) -> tuple:
         return (p.source, p.page, tuple(round(v, 9) for v in p.clip),
-                tuple(sorted((k, round(v, 3)) for k, v in p.covers.items())))
+                tuple(sorted((k, round(v, 3)) for k, v in p.covers.items())),
+                tuple((round(x, 9), round(y, 9)) for x, y in (p.polygon or ())))
 
     def _anchors(self, index: int) -> List[C.Anchor]:
         p = self.comp.pieces[index]
         key = self._anchor_key(p)
         if key not in self._edge_cache:
             try:
-                self._edge_cache[key] = C.edge_anchors(self.page(p), p.clip, insets=p.covers)
+                self._edge_cache[key] = C.edge_anchors(self.page(p), p.clip, insets=p.covers,
+                                                       polygon=p.polygon)
             except Exception:
                 self._edge_cache[key] = []
         return self._edge_cache[key]
@@ -666,6 +670,11 @@ class CompositeView(ZoomPanView):
         if at is not None:
             p = C.Piece(**{**p.to_dict(), "x": at[0], "y": at[1]})
         return C.piece_rect(p, self.page_size(p), self.comp.target_scale())
+
+    def _bridge_shape(self, index: int):
+        """Rectángulo de la pieza o, con esquinas libres, su cuadrilátero (`Bridge.polyline`)."""
+        p = self.comp.pieces[index]
+        return C.piece_bounds_shape(p, self.page_size(p), self.comp.target_scale())
 
     def _edge_points(self, index: int) -> List[C.Pt]:
         return [a.xy for a in self._anchors(index)]
@@ -703,8 +712,11 @@ class CompositeView(ZoomPanView):
             return self._seam_align(index, (pos[0] + d[0], pos[1] + d[1]))
         # 2) borde con borde (los rectángulos de las piezas se tocan) + alineación
         #    lateral por los extremos enfrentados (que con franjas quedan por dentro).
-        statics = [self._piece_rect(j) for j in range(len(self.comp.pieces)) if j != index]
-        e = C.edge_snap_delta(self._piece_rect(index, pos), statics, tol)
+        #    Una pieza con esquinas libres no tiene «borde» recto: solo sus extremos.
+        statics = [self._piece_rect(j) for j in range(len(self.comp.pieces))
+                   if j != index and not self.comp.pieces[j].polygon]
+        e = (C.edge_snap_delta(self._piece_rect(index, pos), statics, tol)
+             if not self.comp.pieces[index].polygon else None)
         if e is not None:
             pos = (pos[0] + e[0], pos[1] + e[1])
             moving = self._mapped_anchors(index, pos)
@@ -746,9 +758,11 @@ class CompositeView(ZoomPanView):
         decenas de pt que hay que cerrar con la evidencia del dibujo: los
         extremos de línea que se miran de frente a un lado y otro de la costura.
         """
+        if self.comp.pieces[index].polygon:
+            return pos                      # esquinas libres: su costura no es un lado de la caja
         rect = self._piece_rect(index, pos)
         for j in range(len(self.comp.pieces)):
-            if j == index:
+            if j == index or self.comp.pieces[j].polygon:
                 continue
             other = self._piece_rect(j)
             right = abs(rect[0] - other[2]) <= 1.5       # la que se mueve va a la derecha
@@ -925,7 +939,7 @@ class CompositeView(ZoomPanView):
                     self._overlay.append(dot)
         pen_b = QtGui.QPen(QtGui.QColor("#0b7a3b"), 2); pen_b.setCosmetic(True)
         for b in self._bridges:
-            pts = b.polyline(self._piece_rect(b.piece_a), self._piece_rect(b.piece_b))
+            pts = b.polyline(self._bridge_shape(b.piece_a), self._bridge_shape(b.piece_b))
             path = QtGui.QPainterPath(QtCore.QPointF(*pts[0]))
             for q in pts[1:]:
                 path.lineTo(QtCore.QPointF(*q))

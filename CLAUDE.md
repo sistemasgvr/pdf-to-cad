@@ -1212,6 +1212,17 @@ alcantarillado, drenaje, gas, eléctrico, telecom). Todo en **unidades imperiale
     dibuja esa tubería), muestras a >1 pt de la tinta 0.65 % → 0.02 %. Tests: `tests/test_mapas_compuestos.py`.
     Pruebas por grupos en paralelo: `python scripts/pruebas.py <grupo…>` (mapas, compositor, capas,
     reconocimiento, utilidades, editor, interfaz, otros, todo; sin pytest-xdist).
+  - **Esquinas libres en TODOS los flujos** (pedido del usuario 2026-10-19): casilla
+    `chk_corners` «Esquinas libres» en «Área a tomar» (encendida en escaneos, apagada en vectorial;
+    se enciende sola al editar una pieza con `polygon`). `scan_crop_view.CornerCropView(free=)` —
+    apagada es el `_CropView` de siempre; encendida: esquinas, lados paralelos, centro, flechas e imán
+    de esquina a las guías—. `normalized_polygon()` = [] si el cuadrilátero es un rectángulo (todo como
+    antes: `clip`, «Sin línea de borde»); si no, `Piece.polygon` con `clip` = su caja y sin `covers`.
+    Hoja compuesta: `build_document` ya recortaba por el polígono (`W n`, el reconocimiento lo ve como
+    un clip más); anclajes por el lado inclinado (`hoja/composite_esquinas.edge_anchors_poly`, vía
+    `edge_anchors(polygon=)`), puentes hasta el cuadrilátero (`piece_bounds_shape`, `_ray_exit` con
+    polígono) y el imán borde con borde / costura por match line se saltan las piezas con polígono.
+    Tests: `tests/test_esquinas_libres.py`.
   - **Compositor de escaneos** (`Composite.manual`, PDF imagen/escaneo → editor sin capas ni
     reconocimiento): `scan_crop_view.py` (área con 4 esquinas → `Piece.polygon`),
     `alignment_tools.py` (regla con asa de giro, transportador de tamaño FIJO en pantalla con
