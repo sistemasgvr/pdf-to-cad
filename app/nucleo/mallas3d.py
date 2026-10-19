@@ -43,12 +43,43 @@ def _colector():
     return getattr(_hilo, "colector", None)
 
 
+# Rendimiento (2026-10-18, vista 3D de 16 761 utilidades: ~1.5 min armando): `np.cross` y
+# `np.linalg.norm` sobre arreglos chicos cuestan más en preparar la llamada que en calcular. Estas
+# hacen LAS MISMAS operaciones en el mismo orden (mismos bits, verificado) sin ese costo fijo.
+def _cruz(a, b):
+    a0, a1, a2 = a[..., 0], a[..., 1], a[..., 2]
+    b0, b1, b2 = b[..., 0], b[..., 1], b[..., 2]
+    out = np.empty(np.broadcast_shapes(a.shape, b.shape))
+    out[..., 0] = a1 * b2 - a2 * b1
+    out[..., 1] = a2 * b0 - a0 * b2
+    out[..., 2] = a0 * b1 - a1 * b0
+    return out
+
+
+def _norma(x, axis, keepdims=False):
+    return np.sqrt(np.add.reduce(x * x, axis=axis, keepdims=keepdims))
+
+
+_CIRCULOS = {}
+
+
+def _circulo_unidad(lados):
+    """Puntos del círculo de radio 1 con `lados` (calculados una vez; no modificar)."""
+    c = _CIRCULOS.get(lados)
+    if c is None:
+        a = np.linspace(0.0, 2.0 * math.pi, lados, endpoint=False)
+        c = np.stack([np.cos(a), np.sin(a)], axis=1)
+        c.setflags(write=False)
+        _CIRCULOS[lados] = c
+    return c
+
+
 def _es_circulo(perfil):
     """Lados del perfil si es el círculo CENTRADO de `perfil_circulo` (si no, None)."""
     pts, nor, suave = perfil
     if not suave or nor is None or len(pts) < 3 or nor.shape != pts.shape or nor[0, 0] != 1.0:
         return None
-    return len(pts) if np.array_equal(pts, nor * pts[0, 0]) and np.array_equal(nor, perfil_circulo(1.0, len(pts))[1])         else None
+    return len(pts) if np.array_equal(pts, nor * pts[0, 0]) and np.array_equal(nor, _circulo_unidad(len(pts)))         else None
 
 
 def _vertices(pos, nor, color, ident):
@@ -71,9 +102,8 @@ def juntar(partes):
 
 def perfil_circulo(radio, lados=16):
     """Perfil circular: (puntos (n, 2), normales (n, 2), suave=True)."""
-    a = np.linspace(0.0, 2.0 * math.pi, lados, endpoint=False)
-    c = np.stack([np.cos(a), np.sin(a)], axis=1)
-    return c * radio, c, True
+    c = _circulo_unidad(lados)
+    return c * radio, c.copy(), True
 
 
 def perfil_rect(ancho, alto, dx=0.0, dy=0.0):
@@ -98,26 +128,26 @@ def barrido_camino(camino, perfil, color, ident, tapas=(True, True), minimo=Fals
     P = np.asarray(camino, float)
     if len(P) < 2:
         return VACIA
-    P = P[np.concatenate([[True], np.linalg.norm(np.diff(P, axis=0), axis=1) > 1e-6])]
+    P = P[np.concatenate([[True], _norma(np.diff(P, axis=0), 1) > 1e-6])]
     if len(P) < 2:
         return VACIA
     T = np.diff(P, axis=0)
-    T /= np.linalg.norm(T, axis=1, keepdims=True)
+    T /= _norma(T, 1, True)
     t = np.empty_like(P)
     t[0], t[-1] = T[0], T[-1]
     if len(P) > 2:
         sm = T[:-1] + T[1:]
-        ns = np.linalg.norm(sm, axis=1, keepdims=True)
+        ns = _norma(sm, 1, True)
         t[1:-1] = np.where(ns > 1e-6, sm / np.maximum(ns, 1e-12), T[1:])
     ref = np.where(np.abs(t[:, 2:3]) < 0.95, [0.0, 0.0, 1.0], [1.0, 0.0, 0.0])
-    lado = np.cross(t, ref)
-    lado /= np.linalg.norm(lado, axis=1, keepdims=True)
-    arriba = np.cross(lado, t)
+    lado = _cruz(t, ref)
+    lado /= _norma(lado, 1, True)
+    arriba = _cruz(lado, t)
     pts, nor, suave = perfil
     bdir = fac = None
     if len(P) > 2:                                                      # inglete en los vértices
         giro = T[1:] - T[:-1]
-        ng = np.linalg.norm(giro, axis=1, keepdims=True)
+        ng = _norma(giro, 1, True)
         bdir = np.where(ng > 1e-9, giro / np.maximum(ng, 1e-12), 0.0)
         cos_m = np.clip(np.sum(t[1:-1] * T[1:], axis=1, keepdims=True), 0.25, 1.0)
         fac = 1.0 / cos_m - 1.0
@@ -140,8 +170,8 @@ def barrido_camino(camino, perfil, color, ident, tapas=(True, True), minimo=Fals
         na, nb = nn[:-1], nn[1:]
         nrm = np.stack([na[:, i], nb[:, i], nb[:, j], na[:, i], nb[:, j], na[:, j]], axis=2)
     else:
-        nf = np.cross(bi - ai, aj - ai)
-        nf /= np.maximum(np.linalg.norm(nf, axis=2, keepdims=True), 1e-12)
+        nf = _cruz(bi - ai, aj - ai)
+        nf /= np.maximum(_norma(nf, 2, True), 1e-12)
         fuera = np.sign(np.sum(nf * ((ai + aj) / 2 - P[:-1, None, :]), axis=2, keepdims=True))
         nf *= np.where(fuera == 0, 1, fuera)
         nrm = np.repeat(nf[:, :, None, :], 6, axis=2)
@@ -156,7 +186,7 @@ def barrido_camino(camino, perfil, color, ident, tapas=(True, True), minimo=Fals
     if minimo:
         for parte in partes[1:]:
             parte[:, 11:14] = parte[0, :3]       # el primer vértice de la tapa es su centro (el eje)
-        radio = float(np.max(np.linalg.norm(pts, axis=1)))
+        radio = float(np.max(_norma(pts, 1)))
         for parte in partes:
             parte[:, 14] = radio
     return juntar(partes)

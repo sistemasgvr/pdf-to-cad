@@ -29,6 +29,7 @@ cruz) devuelve su TIPO y su ÁNGULO, con las mismas reglas que el plugin:
 """
 from __future__ import annotations
 
+import bisect
 import math
 
 from nucleo.model import network_kind
@@ -170,6 +171,8 @@ def accesorios(pipes, z_at, ft_per_px, rectos=None):
             pipes[i] = dict(pipes[i], pts=pts)
             fundidos += nuevos
 
+    redes = {i: red_de(pipes[i]) for i in presion}      # (antes: `red_de` cientos de miles de veces)
+
     def _pend(za, zb, a, b):
         """Subida de a hacia b, en pies por pie en planta."""
         L = math.hypot(b[0] - a[0], b[1] - a[1]) * ft_per_px
@@ -179,7 +182,7 @@ def accesorios(pipes, z_at, ft_per_px, rectos=None):
     # pendiente hacia el otro extremo)
     ext = []
     for i in presion:
-        p = pipes[i]; red = red_de(p); pts = p["pts"]
+        p = pipes[i]; red = redes[i]; pts = p["pts"]
         for k in range(len(pts) - 1):
             a, b = pts[k], pts[k + 1]
             if (a[0] - b[0]) ** 2 + (a[1] - b[1]) ** 2 <= 1e-12:
@@ -205,21 +208,32 @@ def accesorios(pipes, z_at, ft_per_px, rectos=None):
         for vi in (0, len(pts_i) - 1):
             q = pts_i[vi]
             zi = _z(i, 0 if vi == 0 else len(pts_i) - 2, *q)
-            for j, k in rejilla.get((int(math.floor(q[0] / celda)), int(math.floor(q[1] / celda))), ()):
-                if j == i or red_de(pipes[j]) != red_de(pipes[i]):
+            red_i, qx, qy = redes[i], q[0], q[1]
+            for j, k in rejilla.get((int(math.floor(qx / celda)), int(math.floor(qy / celda))), ()):
+                if j == i or redes[j] != red_i:
                     continue
                 pts_j = pipes[j]["pts"]
                 a, b = pts_j[k], pts_j[k + 1]
-                t, d = _proyeccion(q, a, b)
-                L = math.hypot(b[0] - a[0], b[1] - a[1])
-                if d > tol or t * L <= tol or (1 - t) * L <= tol:
+                # = _proyeccion(q, a, b) y el largo del tramo, en línea (mismas operaciones)
+                dx, dy = b[0] - a[0], b[1] - a[1]
+                L2 = dx * dx + dy * dy
+                if L2 <= 1e-12:
+                    t, d = 0.0, math.hypot(qx - a[0], qy - a[1])
+                else:
+                    t = ((qx - a[0]) * dx + (qy - a[1]) * dy) / L2
+                    tc = max(0.0, min(1.0, t))
+                    d = math.hypot(a[0] + dx * tc - qx, a[1] + dy * tc - qy)
+                if d > tol:
                     continue
-                if abs(_z(j, k, *q) - zi) > TOL_COTA_FT:
-                    continue                      # cruce a otra cota: no se une
+                L = math.hypot(dx, dy)
+                if t * L <= tol or (1 - t) * L <= tol:
+                    continue
                 zj = _z(j, k, *q)
-                ext.append((q[0], q[1], red_de(pipes[j]), j, zj, _ang(a[0] - q[0], a[1] - q[1]), k, None,
+                if abs(zj - zi) > TOL_COTA_FT:
+                    continue                      # cruce a otra cota: no se une
+                ext.append((q[0], q[1], redes[j], j, zj, _ang(a[0] - q[0], a[1] - q[1]), k, None,
                             _pend(zj, _z(j, k, *a), q, a)))
-                ext.append((q[0], q[1], red_de(pipes[j]), j, zj, _ang(b[0] - q[0], b[1] - q[1]), k, None,
+                ext.append((q[0], q[1], redes[j], j, zj, _ang(b[0] - q[0], b[1] - q[1]), k, None,
                             _pend(zj, _z(j, k, *b), q, b)))
 
     # X: dos tramos de la misma red que se CRUZAN a mitad de ambos (ninguno tiene vértice ahí)
@@ -239,7 +253,7 @@ def accesorios(pipes, z_at, ft_per_px, rectos=None):
                         for cy in range(int(math.floor((min(a[1], b[1]) - tol) / celda)),
                                         int(math.floor((max(a[1], b[1]) + tol) / celda)) + 1)}
             for j, m in sorted({jm for c in celdas_k for jm in rejilla.get(c, ())}):
-                if j <= i or (i, k, j, m) in vistos or red_de(pipes[j]) != red_de(pipes[i]):
+                if j <= i or (i, k, j, m) in vistos or redes[j] != redes[i]:
                     continue
                 vistos.add((i, k, j, m))
                 c_, d_ = pipes[j]["pts"][m], pipes[j]["pts"][m + 1]
@@ -256,7 +270,7 @@ def accesorios(pipes, z_at, ft_per_px, rectos=None):
                     continue                      # se cruzan a otra cota: no se unen
                 for n_, kk, z0, (p0, p1) in ((i, k, zi, (a, b)), (j, m, zj, (c_, d_))):
                     for extremo in (p0, p1):
-                        ext.append((q[0], q[1], red_de(pipes[n_]), n_, z0,
+                        ext.append((q[0], q[1], redes[n_], n_, z0,
                                     _ang(extremo[0] - q[0], extremo[1] - q[1]), kk, None,
                                     _pend(z0, _z(n_, kk, *extremo), q, extremo)))
 
@@ -267,15 +281,25 @@ def accesorios(pipes, z_at, ft_per_px, rectos=None):
     for n, e in enumerate(ext):
         celdas.setdefault((int(math.floor(e[0] / tol)), int(math.floor(e[1] / tol))), []).append(n)
     usado = [False] * len(ext)
+    vecindad = {}
     nodos = []
+    # Codos fundidos por celdas (antes: cada codo contra TODOS); candidatos con una holgura mínima y
+    # la MISMA comparación de siempre (mismo resultado).
+    from nucleo.indice_plano import IndicePuntos
+    ind_fundidos = IndicePuntos(fundidos, tol) if fundidos else None
     for a in range(len(ext)):
         if usado[a]:
             continue
         usado[a] = True
         grupo = [a]; sx, sy = ext[a][0], ext[a][1]
-        c0x, c0y = int(math.floor(ext[a][0] / tol)), int(math.floor(ext[a][1] / tol))
-        vecinos = sorted(b for dx in (-2, -1, 0, 1, 2) for dy in (-2, -1, 0, 1, 2)
-                         for b in celdas.get((c0x + dx, c0y + dy), ()) if b > a)
+        c0 = (int(math.floor(ext[a][0] / tol)), int(math.floor(ext[a][1] / tol)))
+        # Los 5×5 vecinos de cada celda, ordenados, una vez por celda (los extremos de un vértice
+        # comparten celda); los mayores que `a` con bisect = la misma lista de antes.
+        todos = vecindad.get(c0)
+        if todos is None:
+            todos = vecindad[c0] = sorted(b for dx in (-2, -1, 0, 1, 2) for dy in (-2, -1, 0, 1, 2)
+                                          for b in celdas.get((c0[0] + dx, c0[1] + dy), ()))
+        vecinos = todos[bisect.bisect_right(todos, a):]
         for b in vecinos:
             if usado[b] or ext[b][2] != ext[a][2]:
                 continue
@@ -290,14 +314,17 @@ def accesorios(pipes, z_at, ft_per_px, rectos=None):
         por_pipe = {}
         for e in grupo:
             por_pipe.setdefault(ext[e][3], []).append(e)
-        sub = sorted(((sum(ext[e][4] for e in v) / len(v), v) for v in por_pipe.values()),
-                     key=lambda s: s[0])
-        cadenas = [[sub[0]]]
-        for s in sub[1:]:
-            if abs(s[0] - cadenas[-1][-1][0]) <= TOL_COTA_FT:
-                cadenas[-1].append(s)
-            else:
-                cadenas.append([s])
+        if len(por_pipe) == 1:
+            cadenas = [[(None, grupo)]]           # una sola utilidad (su quiebre): una cadena, todo el grupo
+        else:
+            sub = sorted(((sum(ext[e][4] for e in v) / len(v), v) for v in por_pipe.values()),
+                         key=lambda s: s[0])
+            cadenas = [[sub[0]]]
+            for s in sub[1:]:
+                if abs(s[0] - cadenas[-1][-1][0]) <= TOL_COTA_FT:
+                    cadenas[-1].append(s)
+                else:
+                    cadenas.append([s])
         for c in cadenas:
             miembros = [e for _z0, v in c for e in v]
             if len(miembros) < 2:
@@ -322,7 +349,9 @@ def accesorios(pipes, z_at, ft_per_px, rectos=None):
                 (ti, tj), ri = tr
                 nodo["tronco"] = sorted({ext[miembros[ti]][3], ext[miembros[tj]][3]})
                 nodo["ramal"] = ext[miembros[ri]][3]
-            if tipo == "codo" and any((fx - x) ** 2 + (fy - y) ** 2 <= tol2 for fx, fy in fundidos):
+            if tipo == "codo" and ind_fundidos is not None and any(
+                    (fundidos[m][0] - x) ** 2 + (fundidos[m][1] - y) ** 2 <= tol2
+                    for m in ind_fundidos.en_caja(x, y, tol * (1 + 1e-9) + 1e-9)):
                 nodo["fundido"] = True
             nodos.append(nodo)
     return nodos

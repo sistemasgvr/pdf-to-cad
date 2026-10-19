@@ -24,6 +24,7 @@ from nucleo import model_ops
 from ui.comun.canvas import Canvas
 from ui.comun.widgets import InlineEdit, _SegInvSpinBox, _NoWheelFilter
 from ui.comun import busy as _busy_mod
+from ui.comun import en_hilo
 from ui.comun import fondo_pdf
 from ui.comun.workers import PipelineWorker, RecognitionWorker, OrganizedRecognitionWorker
 from ui.dialogos import dialogs
@@ -95,10 +96,12 @@ from ui.ventana.ventana_conflictos_lista import ConflictosListaMixin
 from ui.ventana.ventana_hojas import HojasEditorMixin
 from ui.ventana.ventana_vertices import VerticesMixin
 from ui.ventana.ventana_trazo import TrazoMixin
+from ui.ventana.ventana_calculo import CalculoPlanoMixin
+from ui.ventana.calculo_fondo import CalculoFondoMixin
 
 
 class Main(MenuMixin, PanelIzquierdoMixin, PanelDerechoMixin, ModosMixin, ClicsMixin, UtilidadesMixin, CatalogoMixin, SeleccionMixin, ListasMixin, MarcasMixin, DibujoMixin, ConflictosMixin, CoordsMixin, BuzonesMixin, MoverPrecisoMixin, CurvasMixin, HerramientasMixin, BancoductosMixin, EdicionBloqueMixin, Vista3DMixin, ConflictosListaMixin, HojasEditorMixin,
-           VerticesMixin, TrazoMixin, QtWidgets.QMainWindow):
+           VerticesMixin, TrazoMixin, CalculoPlanoMixin, CalculoFondoMixin, QtWidgets.QMainWindow):
     def __init__(self):
         super().__init__()
         self._base_title = f"Asistente C3D  (v{VERSION})"
@@ -1450,7 +1453,9 @@ class Main(MenuMixin, PanelIzquierdoMixin, PanelDerechoMixin, ModosMixin, ClicsM
             self.work_unit = data["work_unit"]
             self.cur_pts = []; self._erase_pts = []; self.sel_pipe = self.sel_leader = self.sel_region = self.sel_text = -1
             self._undo.clear(); self._redo.clear(); self._dirty = False
-            self.set_mode("idle"); self._refresh_lists(); self._update_page_label(); self._redraw()
+            with self._redibujo_diferido():           # un solo redibujo al abrir (antes dos)
+                self.set_mode("idle"); self._refresh_lists(); self._update_page_label()
+            self._redraw()
             self._refresh_scale_label(); self._update_geo_status()
             self._refresh_unit_labels()
             self.canvas.nitidez.programar()          # ya está el PDF: recorte nítido si hace falta
@@ -1695,11 +1700,12 @@ class Main(MenuMixin, PanelIzquierdoMixin, PanelDerechoMixin, ModosMixin, ClicsM
         if not need_pdf:                                   # solo anotaciones: sin pipeline
             try:
                 doc = ezdxf.new("R2010", setup=True); C.apply_imperial_header(doc)
-                self._merge_into(doc, marks=True)
+                with _busy_mod.busy(self, _tr("Preparando el DXF…")):
+                    self._merge_into(doc, marks=True)
                 self._maybe_add_la_reference(doc)        # capas reales de LA (si se activó)
                 self._set_geodata(doc)                   # geolocaliza el DXF en EPSG:2229
                 self._set_plan_view(doc)                 # abrir en vista 2D/planta, encuadrado
-                doc.saveas(out)
+                self._guardar_dxf_en_hilo(doc, out)      # sin «No responde» (en_hilo)
                 self._maybe_export_dwg(doc, out)         # además .dwg si se activó (ODA)
                 geo_active = self.georef.active()
                 geo_msg = " [georef]" if geo_active else ""
@@ -1720,12 +1726,56 @@ class Main(MenuMixin, PanelIzquierdoMixin, PanelDerechoMixin, ModosMixin, ClicsM
                 QtWidgets.QMessageBox.critical(self, "Error", str(e))
             return
         self._tmp = out + ".base.tmp.dxf"
-        self._prog = QtWidgets.QProgressDialog(_tr("Digitalizando el plano…"), None, 0, 0, self)
-        self._prog.setWindowTitle(_tr("Procesando")); self._prog.setWindowModality(QtCore.Qt.WindowModal)
-        self._prog.setCancelButton(None); self._prog.show()
         # Solo la hoja que se ve en el editor (la de las anotaciones).
         pages = [self.page_idx] if self.doc and 0 <= self.page_idx < self.doc.page_count else None
-        self._worker = PipelineWorker(src_pdf, self._tmp, pages=pages); self._worker.done.connect(self._pipeline_done); self._worker.start()
+        # El mismo PDF ya digitalizado con el mismo código se REUSA (`cache_digitalizado`, pedido
+        # 2026-10-17): el DXF base sería idéntico y digitalizar un mapa grande tarda minutos.
+        from exportar import cache_digitalizado as CD
+        try:
+            self._clave_digitalizado = CD.clave(src_pdf, pages)
+        except Exception:
+            self._clave_digitalizado = None
+        guardado = CD.buscar(self._clave_digitalizado)
+        if guardado:
+            import shutil
+            _r, err, cancelado = en_hilo.ejecutar(self, lambda: shutil.copyfile(guardado, self._tmp),
+                                                  _tr("Reusando el plano ya digitalizado…"))
+            if not err and not cancelado:
+                self._clave_digitalizado = None          # ya está en la caché
+                self._export_tok = None
+                self._pipeline_done(self._tmp, "")
+                return
+        self._prog = QtWidgets.QProgressDialog(_tr("Digitalizando el plano…"), _tr("Cancelar"), 0, 0, self)
+        self._prog.setWindowTitle(_tr("Procesando")); self._prog.setWindowModality(QtCore.Qt.WindowModal)
+        self._prog.canceled.connect(self._cancelar_digitalizacion)
+        self._prog.show()
+        tok = self._export_tok = object()                # una exportación cancelada no sigue al terminar
+        self._worker = PipelineWorker(src_pdf, self._tmp, pages=pages)
+        self._worker.done.connect(lambda tmp, err, tok=tok: self._pipeline_done(tmp, err, tok))
+        self._worker.start()
+
+    def _cancelar_digitalizacion(self):
+        """«Cancelar» mientras se digitaliza: el hilo termina solo (no se puede cortar) y su
+        resultado se descarta."""
+        self._export_tok = None
+        self._info(_tr("Exportación cancelada."))
+
+    @staticmethod
+    def _borrar_temporal(ruta, intentos=4):
+        """Borra el DXF base temporal; si sigue abierto (lectura cancelada en otro hilo), reintenta."""
+        try:
+            if ruta and os.path.exists(ruta): os.remove(ruta)
+        except OSError:
+            if intentos > 0:
+                QtCore.QTimer.singleShot(30_000, lambda: Main._borrar_temporal(ruta, intentos - 1))
+
+    def _guardar_dxf_en_hilo(self, doc, ruta):
+        """`doc.saveas(ruta)` en otro hilo con la capa «Cargando…» (un DXF grande tarda decenas de
+        segundos y la ventana quedaba «No responde»)."""
+        from exportar import dxf_rapido                  # mismo archivo, ~45 % menos tiempo (2026-10-19)
+        _r, err, _c = en_hilo.ejecutar(self, lambda: dxf_rapido.guardar(doc, ruta), _tr("Guardando el DXF…"))
+        if err:
+            raise RuntimeError(err)
 
     def _export_pdf_path(self):
         """PDF que digitaliza «Exportar DXF»: el de trabajo (hoja del editor, también
@@ -1735,20 +1785,39 @@ class Main(MenuMixin, PanelIzquierdoMixin, PanelDerechoMixin, ModosMixin, ClicsM
                 return path
         return None
 
-    def _pipeline_done(self, tmp, err):
+    def _pipeline_done(self, tmp, err, tok=None):
+        if tok is not None and tok is not getattr(self, "_export_tok", None):
+            try:                                         # exportación cancelada (o reemplazada)
+                if tmp and os.path.exists(tmp): os.remove(tmp)
+            except OSError: pass
+            return
         if getattr(self, "_prog", None): self._prog.close()
         if err: QtWidgets.QMessageBox.critical(self, _tr("Error al digitalizar"), err); return
+        clave, self._clave_digitalizado = getattr(self, "_clave_digitalizado", None), None
+        from exportar import cache_digitalizado as CD
+
+        def leer():                                      # en otro hilo: guardar en la caché y leer
+            if clave:
+                try: CD.guardar(clave, tmp)
+                except OSError: pass                     # sin caché igual se exporta
+            d = ezdxf.readfile(tmp); C.apply_imperial_header(d)   # reafirma imperial ($MEASUREMENT=0)
+            return d
+        doc, err, cancelado = en_hilo.ejecutar(self, leer, _tr("Leyendo el plano digitalizado…"), cancelable=True)
+        if cancelado or err:
+            self._borrar_temporal(tmp)                   # cancelado: el hilo aún puede tenerlo abierto
+            if err: QtWidgets.QMessageBox.critical(self, _tr("Error al guardar"), err)
+            else: self._info(_tr("Exportación cancelada."))
+            return
         self._busy(_tr("Guardando el DXF…"))
         try:
             marks = (self._mode == "todo")               # 'pdf' = solo el plano, sin anotaciones
-            doc = ezdxf.readfile(tmp); C.apply_imperial_header(doc)   # reafirma imperial ($MEASUREMENT=0) tras leer el plano base
             if self.georef.active():                     # lleva el plano base al mismo sistema REAL que las anotaciones
                 self._georef_base_doc(doc)
             self._merge_into(doc, marks=marks)
             self._maybe_add_la_reference(doc)            # capas reales de LA (si se activó)
             self._set_geodata(doc)                       # geolocaliza el DXF en EPSG:2229
             self._set_plan_view(doc)                     # abrir en vista 2D/planta, encuadrado
-            doc.saveas(self._out)
+            self._guardar_dxf_en_hilo(doc, self._out)    # sin «No responde» (en_hilo)
             self._maybe_export_dwg(doc, self._out)       # además .dwg si se activó (ODA)
             if os.path.exists(tmp): os.remove(tmp)
             self._unbusy()

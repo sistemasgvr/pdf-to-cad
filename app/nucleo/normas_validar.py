@@ -130,18 +130,24 @@ def _dice_lo_mismo(nota, tipo):
 
 # ─────────────────────────── por utilidad ───────────────────────────
 
-def _revisar_tipo(cat, p, i, xy, out):
-    tipos = nc.tipos_de(cat, p.get("layer"))
+def _revisar_tipo(cat, p, i, xy, out, de_capa=None):
+    """`de_capa` = (tipos, sus claves) de la capa, si ya se calcularon."""
+    tipos, claves = de_capa if de_capa is not None else _tipos_de_capa(cat, p.get("layer"))
     if not tipos:
         return False
     if not _tipo(p):
         out.append(Aviso(*xy, "tipo", t("Sin tipo: elige su tipo para revisar sus normativas."), i))
         return False
-    if _tipo(p) not in {nc.clave(x) for x in tipos}:
+    if _tipo(p) not in claves:
         out.append(Aviso(*xy, "tipo", t("El tipo «{tipo}» ya no está en la lista de tipos.").format(
             tipo=p.get("tipo")), i))
         return False
     return True
+
+
+def _tipos_de_capa(cat, capa):
+    tipos = nc.tipos_de(cat, capa)
+    return tipos, {nc.clave(x) for x in tipos}
 
 
 def _revisar_diametro(cat, p, i, xy, out):
@@ -321,15 +327,20 @@ def validar(cat, pipes, accesorios_, ft_per_px, con_bancoducto=(), structures=()
     if not cat:
         return out
     con_bancoducto = set(con_bancoducto)
+    por_capa = {}                       # los tipos de cada capa una vez (el catálogo no cambia aquí)
     for i, p in enumerate(pipes):
         pts = p.get("pts") or []
         if p.get("world") or len(pts) < 2:
             continue
         xy = _medio(pts)
-        tiene_tipo = _revisar_tipo(cat, p, i, xy, out)
+        capa = p.get("layer")
+        de_capa = por_capa.get(capa)
+        if de_capa is None:
+            de_capa = por_capa[capa] = _tipos_de_capa(cat, capa)
+        tiene_tipo = _revisar_tipo(cat, p, i, xy, out, de_capa)
         if tiene_tipo:
             _revisar_diametro(cat, p, i, xy, out)
-        if tiene_tipo or not nc.tipos_de(cat, p.get("layer")):
+        if tiene_tipo or not de_capa[0]:
             curvas = (list(model_ops.curve_vertex_indices(p, structures, pipes).values())
                       if structures and len(pts) >= 3 else [])
             _revisar_electrico(cat, p, i, xy, _largo_px(pts) * (ft_per_px or 0.0), i in con_bancoducto, out,

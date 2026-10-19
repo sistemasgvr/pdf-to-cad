@@ -3535,4 +3535,22 @@ EN: dict[str, str] = {
         'Slope: {p} %',
     'Pendiente por tramo: {tramos}':
         'Slope per segment: {tramos}',
+    'Preparando el DXF…':
+        'Preparing the DXF…',
+    'Actualizando conflictos y avisos…':
+        'Updating conflicts and warnings…',
+    'Reusando el plano ya digitalizado…':
+        'Reusing the already digitized plan…',
+    'Leyendo el plano digitalizado…':
+        'Reading the digitized plan…',
+    'Exportación cancelada.':
+        'Export cancelled.',
+    'Agregar un diámetro personalizado (pulgadas) para esta utilidad':
+        'Add a custom diameter (inches) for this utility',
+    'Diámetro personalizado':
+        'Custom diameter',
+    'Diámetro (pulgadas):':
+        'Diameter (inches):',
+    'Diámetro {d} elegido para esta utilidad.':
+        'Diameter {d} chosen for this utility.',
 }

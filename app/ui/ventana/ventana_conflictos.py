@@ -5,6 +5,12 @@ clase mezcla para que app_window.py no pase de unas 2 000 líneas. `Main` la her
 los menús, atajos y pruebas siguen usando `win.<método>` como antes.
 """
 from ui.ventana.ventana_comun import *  # noqa: F401,F403  (mismos nombres que app_window)
+from ui.comun import capa_marcas
+
+
+# Lo que deja `_draw_pipe_conflicts` en la ventana (se retoma tal cual con el mismo modelo).
+_RESULTADOS_CONFLICTOS = ("_conflict_hits", "_pendiente_hits", "_redes_hits", "_exceso_hits", "_escalon_hits",
+                          "_codos_hits", "_retorno_hits", "_inclinada_hits", "_choque_hits", "_conflictos")
 
 
 class ConflictosMixin:
@@ -49,41 +55,26 @@ class ConflictosMixin:
                 # Deja el texto de info normal (sin el contador de cruces)
                 pass
             return
+        if getattr(self, "_provisional", False):        # el hilo los calcula (calculo_fondo): sin acciones
+            for k in _RESULTADOS_CONFLICTOS:
+                setattr(self, k, [])
+            return
+        # Con el MISMO modelo y las mismas conexiones aprobadas, y las marcas de antes vigentes en su capa,
+        # los resultados del redibujo anterior siguen valiendo tal cual (2026-10-19: Esc o un clic con
+        # 16 761 utilidades los copiaba y renumeraba, ~0.45 s). Solo los cambia aprobar/quitar, que cambia
+        # las conexiones (y la clave).
+        from nucleo import memo_modelo as _mm
+        clave_conf = (getattr(getattr(self, "_memo_redibujo", None), "firma", None),
+                      _mm.firma(getattr(self, "cross_connections", None)))
+        previo = getattr(self, "_resultado_conflictos", None)
+        if (clave_conf[0] is not None and clave_conf[1] is not None and getattr(self, "_en_redibujo", False)
+                and getattr(self, "_marcas_vigentes", False) and previo is not None and previo[0] == clave_conf):
+            for k, v in previo[1].items():
+                setattr(self, k, v)
+            self._info_conflictos(*previo[2])
+            return
         sc = self.canvas.scene()
-
-        def _seg_inter(p1, p2, p3, p4):
-            # Acepta intersecciones en los extremos también: si dos utilidades
-            # se TOCAN (un extremo cae sobre el otro segmento o los extremos
-            # coinciden) también cuenta como cruce físico.
-            x1, y1 = p1; x2, y2 = p2; x3, y3 = p3; x4, y4 = p4
-            denom = (x1 - x2) * (y3 - y4) - (y1 - y2) * (x3 - x4)
-            if abs(denom) < 1e-9: return None
-            t = ((x1 - x3) * (y3 - y4) - (y1 - y3) * (x3 - x4)) / denom
-            u = -((x1 - x2) * (y1 - y3) - (y1 - y2) * (x1 - x3)) / denom
-            eps = 1e-6
-            if not (-eps <= t <= 1 + eps and -eps <= u <= 1 + eps): return None
-            return (x1 + t * (x2 - x1), y1 + t * (y2 - y1))
-
-        # Solo redes a PRESIÓN (agua, gas): conflictos, sugerencias/aprobaciones
-        # de vertical y «redes distintas» no aplican a gravedad (drenaje,
-        # alcantarillado: lo resuelve el buzón) ni a conduit (eléctrico, telecom).
-        # Regla del usuario 2026-09-28. Las alertas rojas ya eran solo de presión.
-        from nucleo.model import network_kind as _nk
-        segs = []
-        for i, p in enumerate(self.pipes):
-            lay = p.get("layer", "")
-            if _nk(lay) != "pressure":
-                continue
-            pts = p.get("pts") or []
-            for k in range(len(pts) - 1):
-                segs.append((i, k, pts[k], pts[k + 1], lay))
-
-        # Cada hit lleva su "estado" ya clasificado.
-        self._conflict_hits = []
-        self._pendiente_hits = []   # extremo con extremo sin altura para vertical (▲ rojo)
-        approvals = {(int(c["pipe_a"]), int(c["pipe_b"]), round(float(c["x"]), 3), round(float(c["y"]), 3))
-                      for c in (getattr(self, "cross_connections", None) or [])}
-        Z_TOL = 0.10        # ft — misma cota si |za - zb| <= Z_TOL
+        filas, n_conf, n_sug, n_ap = self._calcular_cruces()
         R_PX = 7.0
         red_col   = QtGui.QColor(180, 20, 20)
         blue_col  = QtGui.QColor(30, 90, 220)
@@ -91,132 +82,54 @@ class ConflictosMixin:
         yellow_br = QtGui.QBrush(QtGui.QColor(255, 235, 60))
         cyan_br   = QtGui.QBrush(QtGui.QColor(180, 220, 255))
         greenbr   = QtGui.QBrush(QtGui.QColor(180, 240, 200))
+        # Plumas, fuente y medida del texto de la marca: iguales para todos los cruces de un
+        # estado; se arman una vez (con miles de cruces, armarlas en cada uno pesaba).
+        _plumas = {}
+
+        def _pluma(col):
+            if col.rgb() not in _plumas:
+                p = QtGui.QPen(col, 2.0); p.setCosmetic(True)
+                _plumas[col.rgb()] = p
+            return _plumas[col.rgb()]
+        _fuente = QtWidgets.QGraphicsTextItem().font(); _fuente.setPixelSize(11); _fuente.setBold(True)
+        _medidas = {}
         ign = QtWidgets.QGraphicsItem.ItemIgnoresTransformations
-        n_conf = n_sug = n_ap = 0
 
-        # Puntos donde se juntan más tramos de los que el plugin une con un
-        # accesorio (5+): ahí Civil 3D no dibujará ninguna pieza. Se marcan con
-        # un triángulo rojo propio y se omiten los círculos de cruce de ese
-        # punto, que solo se apilaban sin decir lo importante.
-        tol_junta = 0.5 / self.scale * self.zoom if self.scale else 3.0   # 0.5 ft, como el plugin
-        self._exceso_hits = self._memo(("juntas", tol_junta), lambda: model_ops.junturas_excedidas(
-            self.pipes, self._pipe_z_at, tol_junta))
-        tol_omitir2 = (tol_junta * 2.0) ** 2
-
-        def _en_exceso(x, y):
-            return any((e["x"] - x) ** 2 + (e["y"] - y) ** 2 <= tol_omitir2 for e in self._exceso_hits)
-
-        # Redes distintas que chocan (misma cota): el plugin nunca las une, así
-        # que en vez del círculo de conflicto van con la alerta roja. Un mismo
-        # punto puede salir de varios pares de tramos: se reporta una sola vez.
-        self._redes_hits = []
-
-        def _registrar_redes(x, y, red_a, red_b):
-            if any((e["x"] - x) ** 2 + (e["y"] - y) ** 2 <= tol_omitir2 for e in self._redes_hits):
-                return
-            self._redes_hits.append({"x": x, "y": y, "a": red_a, "b": red_b})
-
-        # Solo los pares de tramos cuyos recuadros se tocan (`indice_plano.pares_tramos`, pedido
-        # 2026-10-16: con cientos de utilidades comparar todos contra todos trababa cada redibujo),
-        # en el MISMO orden de siempre: mismos cruces, misma numeración.
-        from nucleo.indice_plano import pares_tramos
-
-        def _cruces():                             # solo geometría: se reusa mientras el modelo no cambie
-            out = []
-            for a, b in pares_tramos([(sg[2], sg[3]) for sg in segs]):
-                if segs[a][0] == segs[b][0]:
-                    continue
-                cp = _seg_inter(segs[a][2], segs[a][3], segs[b][2], segs[b][3])
-                if cp is not None:
-                    out.append((a, b, cp))
-            return out
-        for a, b, cp in self._memo(("cruces_presion",), _cruces, copiar=False):
-            ia, ka, a1, a2, la = segs[a]
-            ib, kb, b1, b2, lb = segs[b]
-            cx, cy = cp
-            if _en_exceso(cx, cy): continue
-            za = self._pipe_z_at(ia, ka, cx, cy)
-            zb = self._pipe_z_at(ib, kb, cx, cy)
-            aprobado = ((min(ia, ib), max(ia, ib), round(cx, 3), round(cy, 3)) in approvals)
-            # Clasificación del cruce.
-            same_layer = (la == lb)
-            if za is None or zb is None:
-                estado = "conflicto"       # sin cotas → tratar como conflicto
-            elif abs(za - zb) <= Z_TOL:
-                estado = "conflicto"       # misma cota → chocan
-            elif not same_layer:
-                continue                   # distinta utilidad + distinta cota → normal, no marcar
-            else:
-                estado = "aprobado" if aprobado else "sugerencia"
-                # Extremo con extremo sin altura para la vertical: no hay nada
-                # que aprobar, el plugin los une con pendiente (ver mensaje).
-                tol_u = 0.5 / self.scale * self.zoom if self.scale else 3.0
-                sin_esp = model_ops.union_con_pendiente(
-                    self.pipes[ia], self.pipes[ib], (cx, cy), za, zb, tol_u,
-                    self.scale / self.zoom if self.scale and self.zoom else 0.0)
-                if sin_esp:
-                    tol2_u = tol_u * tol_u
-                    if not any((e["x"] - cx) ** 2 + (e["y"] - cy) ** 2 <= tol2_u
-                               for e in self._pendiente_hits):
-                        self._pendiente_hits.append({"x": cx, "y": cy, "ia": ia, "ib": ib, "r": sin_esp})
-                    continue
-            if estado == "conflicto" and za is not None and zb is not None and not same_layer:
-                # Utilidades distintas (agua × drenaje…) nunca se unen. La MISMA
-                # utilidad con nombres de red distintos sí: el plugin las junta
-                # en una sola red (ver model_ops.red_civil_de_union).
-                red_a, red_b = model_ops.red_de(self.pipes[ia]), model_ops.red_de(self.pipes[ib])
-                _registrar_redes(cx, cy, self._etq(self.pipes[ia]), self._etq(self.pipes[ib]))
-                continue
-            self._conflict_hits.append((cx, cy, ia, ib, ka, kb, za, zb, estado))
-            if estado == "conflicto":  n_conf += 1
-            elif estado == "aprobado": n_ap += 1
-            else:                       n_sug += 1
+        for cx, cy, estado, globo in ([] if getattr(self, "_marcas_vigentes", False) else filas):
             # Dibujo según estado.
             if estado == "conflicto":
-                pen = QtGui.QPen(red_col, 2.0); pen.setCosmetic(True)
+                pen = _pluma(red_col)
                 brush = yellow_br; text = "!"; text_col = red_col
             elif estado == "aprobado":
-                pen = QtGui.QPen(green_col, 2.0); pen.setCosmetic(True)
+                pen = _pluma(green_col)
                 brush = greenbr; text = "✓"; text_col = green_col
             else:  # sugerencia
-                pen = QtGui.QPen(blue_col, 2.0); pen.setCosmetic(True)
+                pen = _pluma(blue_col)
                 brush = cyan_br; text = "↕"; text_col = blue_col
-            circ = sc.addEllipse(-R_PX, -R_PX, R_PX * 2, R_PX * 2, pen, brush)
-            circ.setPos(cx, cy); circ.setFlag(ign)
-            circ.setZValue(Z_HANDLE + 5); self._overlay.append(circ)
-            t = sc.addText(text); t.setDefaultTextColor(text_col)
-            f = t.font(); f.setPixelSize(11); f.setBold(True); t.setFont(f)
-            t.document().setDocumentMargin(0)
-            br = t.boundingRect()
-            t.setPos(cx, cy); t.setFlag(ign)
-            t.setTransform(QtGui.QTransform().translate(-br.width() / 2, -br.height() / 2))
-            t.setZValue(Z_HANDLE + 6); self._overlay.append(t)
-            # Tooltip por estado.
-            z_desc = ""
-            if za is not None and zb is not None:
-                z_desc = (f"\nZ «{self._etq(self.pipes[ia])}» = {za:.2f} ft   |   "
-                          f"Z «{self._etq(self.pipes[ib])}» = {zb:.2f} ft (Δ = {abs(za - zb):.2f} ft)")
-            elif za is not None or zb is not None:
-                z_desc = "\n" + _tr("(a una de las dos le falta la cota — no se puede confirmar Δ)")
-            else:
-                z_desc = "\n" + _tr("(sin cotas en ninguna — no se puede confirmar Δ)")
-            union = self._union_civil(ia, ib, cx, cy, za, zb)
-            if union:
-                circ.setToolTip(tooltip_bloque(union))
-                continue
-            if estado == "conflicto":
-                tip = "⚠ " + _tr("CONFLICTO — cruce con la misma cota (las tuberías chocan). "
-                                 "Revisa la geometría o las cotas.")
-            elif estado == "aprobado":
-                tip = "✓ " + _tr("Conexión vertical aprobada — al importar se dibuja una tubería "
-                                 "vertical uniendo las dos cotas.")
-            else:
-                tip = "↕ " + _tr("Sugerencia — cotas distintas, pasan una por encima de la otra. "
-                                 "Click para conectarlas con una tubería vertical.")
-            ea, eb = self._etq(self.pipes[ia]), self._etq(self.pipes[ib])
-            pair = (_tr("Dos tramos de «{capa}»").format(capa=ea) if ea == eb
-                    else f"«{ea}» × «{eb}»")
-            circ.setToolTip(tooltip_bloque(f"{tip}\n{pair}{z_desc}"))
+            clave = ("cruce", cx, cy, estado)            # la misma del redibujo anterior, si la hay
+            par = self._reusar_marca(clave)
+            if par is None:
+                # clave de ASPECTO: la capa lo dibuja una vez y lo copia (`capa_marcas.sello`)
+                circ = capa_marcas.sello(QtWidgets.QGraphicsEllipseItem(-R_PX, -R_PX, R_PX * 2, R_PX * 2),
+                                         ("cruce", estado))
+                circ.setPen(pen); circ.setBrush(brush)
+                circ.setPos(cx, cy); circ.setFlag(ign)
+                circ.setZValue(Z_HANDLE + 5)
+                t = QtWidgets.QGraphicsTextItem(text); t.setDefaultTextColor(text_col)
+                t.setFont(_fuente)
+                capa_marcas.sello(t, ("cruce-texto", estado, _fuente.key()))
+                t.document().setDocumentMargin(0)
+                br = _medidas.get(text)
+                if br is None:
+                    br = _medidas[text] = t.boundingRect()
+                t.setPos(cx, cy); t.setFlag(ign)
+                t.setTransform(QtGui.QTransform().translate(-br.width() / 2, -br.height() / 2))
+                t.setZValue(Z_HANDLE + 6)
+                par = self._guardar_marca(clave, (circ, t))
+            circ, t = par
+            self._overlay.append(self._marca(circ))
+            self._overlay.append(self._marca(t))
+            circ.setToolTip(globo)
 
         # Triángulo rojo con «!» blanco: algo que Civil 3D NO dibujará como está
         # en la app. El mensaje (tooltip y clic) dice qué pasa y cómo quedará.
@@ -226,32 +139,35 @@ class ConflictosMixin:
                                QtCore.QPointF(-R_TRI * 0.95, R_TRI * 0.75)])
 
         def _alerta_roja(x, y, mensaje):
-            pen = QtGui.QPen(QtGui.QColor(120, 0, 0), 1.5); pen.setCosmetic(True)
-            it = sc.addPolygon(tri, pen, QtGui.QBrush(QtGui.QColor(215, 25, 25)))
-            it.setPos(x, y); it.setFlag(ign)
-            it.setZValue(Z_HANDLE + 7); self._overlay.append(it)
-            t = sc.addText("!"); t.setDefaultTextColor(QtGui.QColor(255, 255, 255))
-            f = t.font(); f.setPixelSize(12); f.setBold(True); t.setFont(f)
-            t.document().setDocumentMargin(0)
-            br = t.boundingRect()
-            t.setPos(x, y); t.setFlag(ign)
-            t.setTransform(QtGui.QTransform().translate(-br.width() / 2, -br.height() / 2 + 2))
-            t.setZValue(Z_HANDLE + 8); self._overlay.append(t)
+            if getattr(self, "_marcas_vigentes", False):   # las mismas de antes siguen en su capa
+                return
+            par = self._reusar_marca(("alerta", x, y))
+            if par is None:
+                pen = QtGui.QPen(QtGui.QColor(120, 0, 0), 1.5); pen.setCosmetic(True)
+                it = capa_marcas.sello(QtWidgets.QGraphicsPolygonItem(tri), ("alerta",))
+                it.setPen(pen); it.setBrush(QtGui.QBrush(QtGui.QColor(215, 25, 25)))
+                it.setPos(x, y); it.setFlag(ign)
+                it.setZValue(Z_HANDLE + 7)
+                t = QtWidgets.QGraphicsTextItem("!"); t.setDefaultTextColor(QtGui.QColor(255, 255, 255))
+                f = t.font(); f.setPixelSize(12); f.setBold(True); t.setFont(f)
+                capa_marcas.sello(t, ("alerta-texto", f.key()))
+                t.document().setDocumentMargin(0)
+                br = t.boundingRect()
+                t.setPos(x, y); t.setFlag(ign)
+                t.setTransform(QtGui.QTransform().translate(-br.width() / 2, -br.height() / 2 + 2))
+                t.setZValue(Z_HANDLE + 8)
+                par = self._guardar_marca(("alerta", x, y), (it, t))
+            it, t = par
+            self._overlay.append(self._marca(it))
+            self._overlay.append(self._marca(t))
             it.setToolTip(tooltip_bloque(mensaje))
 
         for e in self._exceso_hits:
             _alerta_roja(e["x"], e["y"], self._msg_exceso(e))
-        self._escalon_hits = self._memo(("escalones",), lambda: model_ops.escalones_en_vertices(
-            self.pipes, self._pipe_z_at))
         for e in self._escalon_hits:
             _alerta_roja(e["x"], e["y"], self._msg_escalon(e))
-        ft_px = self.scale / self.zoom if self.scale and self.zoom else 0.0
-        self._codos_hits = self._memo(("codos", ft_px), lambda: model_ops.tramos_cortos_entre_codos(
-            self.pipes, ft_px)) if ft_px else []
         for e in self._codos_hits:
             _alerta_roja(e["x"], e["y"], self._msg_codos(e))
-        self._retorno_hits = self._memo(("retorno", ft_px), lambda: model_ops.codos_de_retorno(
-            self.pipes, ft_px)) if ft_px else []
         for e in self._retorno_hits:
             _alerta_roja(e["x"], e["y"], self._msg_retorno(e))
         for e in self._pendiente_hits:
@@ -275,12 +191,14 @@ class ConflictosMixin:
         # Cruce completo a la misma cota sin conexión con al menos una tubería
         # que NO es a presión (drenaje, alcantarillado, eléctrico, telecom): el
         # resto de señales es solo de presión, pero un choque se avisa siempre.
-        self._choque_hits = self._memo(("choques", tol_junta), lambda: model_ops.choques_sin_conexion(
-            self.pipes, self._pipe_z_at, tol_junta, self.structures))
         for e in self._choque_hits:
             _alerta_roja(e["x"], e["y"], self._msg_choque(e))
         self._numerar_conflictos()          # C-1, C-2… (ventana_conflictos_lista)
+        self._resultado_conflictos = (clave_conf, {k: getattr(self, k) for k in _RESULTADOS_CONFLICTOS},
+                                      (n_conf, n_sug, n_ap))
+        self._info_conflictos(n_conf, n_sug, n_ap)
 
+    def _info_conflictos(self, n_conf, n_sug, n_ap):
         if hasattr(self, "lbl_info"):
             partes = []
             if self._exceso_hits:
@@ -332,6 +250,12 @@ class ConflictosMixin:
         return self._indice_redibujo
 
     def _union_civil(self, ia, ib, cx, cy, za, zb):
+        """Texto de la unión que hará Civil 3D en ese cruce, o None. Se reusa mientras el modelo no
+        cambie (`_memo`): el redibujo y la lista de conflictos lo piden por cada cruce."""
+        return self._memo(("union", ia, ib, cx, cy, za, zb),
+                          lambda: self._union_civil_calc(ia, ib, cx, cy, za, zb), copiar=False)
+
+    def _union_civil_calc(self, ia, ib, cx, cy, za, zb):
         """Mensaje corto de lo que hará Civil 3D cuando dos tuberías de la MISMA
         utilidad a presión se tocan a la misma cota: no es un choque, el plugin
         las une con un accesorio sólido. None si no es ese caso."""

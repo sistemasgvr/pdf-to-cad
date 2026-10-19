@@ -368,12 +368,13 @@ def memo_cotas():
     """Dentro del bloque (en ESTE hilo), las cotas por vértice de cada utilidad se calculan UNA
     vez (`cotas_tramo` las rehacía enteras por cada tramo pedido: O(n²) por utilidad). Solo
     para quien no cambia las utilidades mientras tanto (la vista 3D arma sobre copias)."""
-    antes = getattr(_memo, "d", None)
+    antes = getattr(_memo, "d", None), getattr(_memo, "t", None)
     _memo.d = {}
+    _memo.t = {}
     try:
         yield
     finally:
-        _memo.d = antes
+        _memo.d, _memo.t = antes
 
 
 def _cotas_vertices(p):
@@ -421,7 +422,18 @@ def cotas_tramo(p, seg_idx):
     (`Main._pipe_z_at`) y la vista 3D."""
     pts = p.get("pts") or []
     if seg_idx < 0 or seg_idx >= len(pts) - 1: return None
-    n = len(pts)
+    t = getattr(_memo, "t", None)
+    if t is not None:
+        # Con `memo_cotas`: las de TODOS los tramos de la utilidad una vez (la vista 3D y el
+        # redibujo piden cientos de miles de tramos); mismos valores que tramo por tramo.
+        r = t.get(id(p))
+        if r is None or r[0] is not p:
+            r = t[id(p)] = (p, [_cota_de_tramo(p, k, len(pts)) for k in range(len(pts) - 1)])
+        return r[1][seg_idx]
+    return _cota_de_tramo(p, seg_idx, len(pts))
+
+
+def _cota_de_tramo(p, seg_idx, n):
     zs, ze, ov_out, ov_in, auto_out, auto_in = _cotas_vertices(p)
     v0, v1 = seg_idx, seg_idx + 1
     # z al INICIO del segmento = cota de salida del vértice v0.
@@ -833,8 +845,14 @@ def accesorio_en_punto(polilineas, pt, tol):
         if all(abs((ang - a + math.pi) % (2 * math.pi) - math.pi) > math.radians(1) for a in salidas):
             salidas.append(ang)
 
+    # Un tramo cuya caja queda a más de tol del punto (con holgura para el redondeo) no puede
+    # pasar la prueba de distancia: se salta sin calcularla (mismo resultado).
+    m = tol * (1 + 1e-9) + 1e-9
     for pts in polilineas:
         for (ax, ay), (bx, by) in zip(pts, pts[1:]):
+            if (px < (ax if ax < bx else bx) - m or px > (ax if ax > bx else bx) + m
+                    or py < (ay if ay < by else by) - m or py > (ay if ay > by else by) + m):
+                continue
             dx, dy = bx - ax, by - ay
             L2 = dx * dx + dy * dy
             if L2 <= 1e-12:
@@ -1109,7 +1127,7 @@ def junturas_excedidas(pipes, z_at, tol_px, z_tol=0.10, maximo=MAX_TRAMOS_POR_AC
 
     `z_at(i_pipe, i_tramo, x, y)` da la solera del tramo en ese punto.
     Devuelve [{"x", "y", "n", "red"}] con n > maximo."""
-    extremos = []                                   # (x, y, red, i_pipe, z)
+    extremos = []                                   # (x, y, red, i_pipe, i_tramo)
     for i, p in enumerate(pipes):
         capa = p.get("layer") or ""
         if network_kind(capa) != "pressure":
@@ -1118,8 +1136,13 @@ def junturas_excedidas(pipes, z_at, tol_px, z_tol=0.10, maximo=MAX_TRAMOS_POR_AC
         pts = p.get("pts") or []
         for k in range(len(pts) - 1):
             for (x, y) in (pts[k], pts[k + 1]):
-                z = z_at(i, k, x, y)
-                extremos.append((x, y, red, i, 0.0 if z is None else float(z)))
+                extremos.append((x, y, red, i, k))
+
+    def _z(e):
+        """Cota del extremo: solo hace falta en los grupos de más de `maximo` (antes se pedía
+        la de TODOS los extremos; `z_at` solo lee, el resultado es el mismo)."""
+        z = z_at(e[3], e[4], e[0], e[1])
+        return 0.0 if z is None else float(z)
 
     tol2 = tol_px * tol_px
     usado = [False] * len(extremos)
@@ -1129,7 +1152,9 @@ def junturas_excedidas(pipes, z_at, tol_px, z_tol=0.10, maximo=MAX_TRAMOS_POR_AC
     # si el centro del grupo llegó a alejarse más de R − tol, se repite con un R mayor (un b
     # más lejos no podía estar a ≤ tol de ningún centro): el grupo es EXACTAMENTE el de antes.
     from nucleo.indice_plano import IndicePuntos
-    indice = IndicePuntos([(e[0], e[1]) for e in extremos], tol_px if tol_px > 0 else 1.0)
+    # Celdas de 2.5·tol (= el radio de la primera consulta): los mismos candidatos que con celdas
+    # de tol, mirando 4–9 celdas en vez de 36.
+    indice = IndicePuntos([(e[0], e[1]) for e in extremos], 2.5 * tol_px if tol_px > 0 else 1.0)
     for a in range(len(extremos)):
         if usado[a]:
             continue
@@ -1160,7 +1185,7 @@ def junturas_excedidas(pipes, z_at, tol_px, z_tol=0.10, maximo=MAX_TRAMOS_POR_AC
         por_pipe = {}
         for e in grupo:
             por_pipe.setdefault(extremos[e][3], []).append(e)
-        sub = sorted(((len(v), sum(extremos[e][4] for e in v) / len(v)) for v in por_pipe.values()),
+        sub = sorted(((len(v), sum(_z(extremos[e]) for e in v) / len(v)) for v in por_pipe.values()),
                      key=lambda s: s[1])
         cadenas = [[sub[0]]]
         for s in sub[1:]:

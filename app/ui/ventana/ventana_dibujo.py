@@ -4,6 +4,7 @@ Métodos de la ventana principal `Main` (app_window.py), movidos TAL CUAL a esta
 clase mezcla para que app_window.py no pase de unas 2 000 líneas. `Main` la hereda:
 los menús, atajos y pruebas siguen usando `win.<método>` como antes.
 """
+import contextlib
 from ui.ventana.ventana_comun import *  # noqa: F401,F403  (mismos nombres que app_window)
 from ui.comun import marcas_lienzo as ML
 from ui.comun import etiquetas_tramo as ET
@@ -11,7 +12,20 @@ from ui.comun import etiquetas_tramo as ET
 
 class DibujoMixin:
     # ─────────────────────────── dibujo ───────────────────────────
+    @contextlib.contextmanager
+    def _redibujo_diferido(self):
+        """Dentro, `_redraw` no hace nada (al abrir un proyecto, `set_mode` redibujaba y enseguida
+        se redibujaba otra vez); quien lo usa redibuja UNA vez al salir."""
+        previo = getattr(self, "_diferir_redibujo", False)
+        self._diferir_redibujo = True
+        try:
+            yield
+        finally:
+            self._diferir_redibujo = previo
+
     def _redraw(self):
+        if getattr(self, "_diferir_redibujo", False):
+            return
         # Lo que depende SOLO del modelo (cruces, choques, accesorios, normativas, curvas) se
         # reusa mientras su firma no cambie (`nucleo/memo_modelo`): elegir, cambiar de pestaña
         # o de modo ya no lo recalcula. Y las cotas por vértice de cada utilidad, UNA vez por
@@ -20,6 +34,9 @@ class DibujoMixin:
         if getattr(self, "_memo_redibujo", None) is None:
             self._memo_redibujo = memo_modelo.Memo()
         self._memo_redibujo.usar(self._firma_modelo())
+        # Modelo grande recién cambiado: los cálculos van a un hilo y este redibujo es PROVISIONAL
+        # (`calculo_fondo`, 2026-10-19); al terminar el hilo se redibuja con sus resultados.
+        self._provisional = self._calculo_en_fondo()
         self._indice_redibujo = None                   # índice de tramos de ESTE redibujo
         self._en_redibujo = True
         try:
@@ -27,6 +44,9 @@ class DibujoMixin:
                 self._redraw_todo()
         finally:
             self._en_redibujo = False
+            self._marcas_vigentes = False
+        if self._provisional:
+            self._lanzar_calculo()
 
     def _firma_modelo(self):
         """Todo lo que leen los cálculos que se reusan entre redibujos (`_memo`)."""
@@ -37,6 +57,34 @@ class DibujoMixin:
                                  getattr(self, "duct_banks", None), self.scale, self.zoom,
                                  getattr(i18n_core, "_current_lang", None))
 
+    def _firma_marcas(self):
+        """Lo que decide las marcas de tamaño fijo: el modelo (la firma del redibujo), la escala, el idioma
+        (ya en la firma) y qué avisos se muestran."""
+        m = getattr(self, "_memo_redibujo", None)
+        ver = tuple(bool(a.isChecked()) for a in (getattr(self, "chk_show_conflicts", None),
+                                                  getattr(self, "act_show_acc", None),
+                                                  getattr(self, "act_show_normas", None)) if a is not None)
+        return (getattr(m, "firma", None), ver)
+
+    def _reusar_marca(self, clave):
+        """La marca `clave` del redibujo anterior (`capa_marcas.GrupoMarcas.reusar`) o None."""
+        grupo = getattr(self, "_marcas", None)
+        return grupo.reusar(clave) if grupo is not None and grupo.scene is self.canvas.scene() else None
+
+    def _guardar_marca(self, clave, it):
+        grupo = getattr(self, "_marcas", None)
+        if grupo is not None and grupo.scene is self.canvas.scene():
+            grupo.guardar(clave, it)
+        return it
+
+    def _marca(self, it):
+        """Pone una marca de tamaño fijo en pantalla en su capa (o en la escena, fuera de un redibujo)."""
+        grupo = getattr(self, "_marcas", None)
+        if grupo is not None and grupo.scene is self.canvas.scene():
+            return grupo.agregar(it)
+        self.canvas.scene().addItem(it)
+        return it
+
     def _memo(self, clave, fn, copiar=True):
         """`fn()` reusado entre redibujos con el mismo modelo (fuera de un redibujo: siempre `fn()`)."""
         m = getattr(self, "_memo_redibujo", None)
@@ -44,12 +92,79 @@ class DibujoMixin:
             return fn()
         return m.obtener(clave, fn, copiar)
 
+    def _lineas_de_utilidad(self, i, pts):
+        """Segmentos y caja de la utilidad i para `CapaLineas`; se reusan mientras su polilínea tenga los
+        mismos puntos (2026-10-19: antes solo si era el MISMO objeto; al editar una utilidad se rehacían
+        las 16 761)."""
+        from ui.comun.capa_lineas import lineas_de
+        cache = getattr(self, "_lineas_cache", None)
+        if cache is None:
+            cache = self._lineas_cache = {}
+        hecho = cache.get(i)
+        if hecho is None or (hecho[0] is not pts and hecho[0] != pts):
+            hecho = cache[i] = (pts, *lineas_de(pts))   # (mismos puntos por VALOR = mismos segmentos)
+        return hecho[1], hecho[2]
+
+    def _colores_utilidades(self):
+        """El color de cada capa que se usa (si cambia, la capa de líneas se rehace)."""
+        return tuple(sorted((c, layer_qcolor(c).rgba()) for c in {p.get("layer") for p in self.pipes
+                                                                     if p.get("pts")} if c is not None))
+
+    def _pluma_utilidad(self, color, ancho):
+        plumas = getattr(self, "_plumas_utilidad", None)
+        if plumas is None:
+            plumas = self._plumas_utilidad = {}
+        k = (color.rgba(), ancho)
+        if k not in plumas:
+            pen = QtGui.QPen(color, ancho); pen.setCosmetic(True)
+            plumas[k] = pen
+        return plumas[k]
+
     def _redraw_todo(self):
         sc = self.canvas.scene()
+        guardadas = set()
+        # Marcas: dependen SOLO del modelo (firma), la escala, el idioma y qué avisos se muestran. Si nada
+        # de eso cambió (elegir una utilidad, cambiar de modo…), las MISMAS capas siguen en la escena con
+        # su imagen y su despeje; quien dibuja marcas mira `_marcas_vigentes` (2026-10-17).
+        previo = getattr(self, "_marcas", None)
+        firma_m = self._firma_marcas()
+        self._marcas_vigentes = bool(previo is not None and firma_m[0] is not None
+                                     and getattr(previo, "firma", None) == firma_m and previo.vivo(sc))
+        if (getattr(self, "_provisional", False) and not self._marcas_vigentes and previo is not None
+                and previo.vivo(sc)):
+            self._marcas_vigentes = True                # mientras calcula el hilo, las marcas de antes a la vista
+        if self._marcas_vigentes:
+            guardadas |= {id(c) for c in previo.capas.values()}
+        # Capa de las utilidades: con el MISMO modelo y los mismos colores sigue en la escena (2026-10-19,
+        # 16 761 utilidades: Esc, elegir o cambiar de modo la rehacían entera); solo cambia la pluma de las
+        # que se eligen o se sueltan.
+        capa_prev = getattr(self, "_capa_lineas", None)
+        clave_capa = (getattr(getattr(self, "_memo_redibujo", None), "firma", None), self._colores_utilidades())
+        try:                                            # (vaciar la escena borra la capa en C++)
+            viva = capa_prev is not None and capa_prev[1].scene() is sc
+        except RuntimeError:
+            viva = False
+        reuso_capa = bool(viva and clave_capa[0] is not None and capa_prev[0] == clave_capa
+                          and self.canvas.pixmap_item is not None)
+        if reuso_capa:
+            guardadas.add(id(capa_prev[1]))
         for it in self._overlay:
-            try: sc.removeItem(it)
+            if id(it) in guardadas:
+                continue
+            try:
+                if it.scene() is sc: sc.removeItem(it)   # las marcas de las capas no están en la escena
             except (RuntimeError, ValueError): pass
         self._overlay = []
+        # Marcas de tamaño fijo en pantalla (cruces, alertas, accesorios, avisos, C-n): las pintan
+        # capas, una por Z (`ui/comun/capa_marcas`); con decenas de miles el lienzo se trababa.
+        from ui.comun.capa_marcas import GrupoMarcas
+        if self._marcas_vigentes:
+            self._overlay += list(previo.capas.values()) + previo.todas()
+        else:
+            self._marcas = GrupoMarcas(sc, self.canvas.transform().m11(), self._overlay, previo=previo)
+            # provisional (calculo_fondo): este grupo queda SIN marcas; sin firma, el redibujo con los
+            # resultados del hilo no lo toma por vigente
+            self._marcas.firma = None if getattr(self, "_provisional", False) else firma_m
         self._trazo_al_redibujar()                      # anillo y línea elástica del dibujo (ventana_trazo)
         if self.canvas.pixmap_item is None: return
         # zonas de borrado — DETRÁS de todo (solo tapan el PDF)
@@ -77,14 +192,36 @@ class DibujoMixin:
         # utilidades (con selección múltiple se resaltan todas las seleccionadas)
         multi = set(self._selected_pipe_rows()) if hasattr(self, "pipe_list") else set()
         ocupados = []                                   # etiquetas T1, T2… ya puestas (no se solapan)
-        for i, p in enumerate(self.pipes):
+        # Todas las utilidades en UNA capa de la escena (`ui/comun/capa_lineas`, 2026-10-18): antes un
+        # ítem por segmento (~27 mil con 16 761 utilidades). Mismo orden, plumas y segmentos.
+        from ui.comun.capa_lineas import CapaLineas
+        elegidas = {i for i in ({self.sel_pipe} | (multi if len(multi) > 1 else set()))
+                    if 0 <= i < len(self.pipes) and self.pipes[i].get("pts")}
+        if reuso_capa:
+            capa, con_tramos = capa_prev[1], capa_prev[3]
+            for i in capa_prev[2] ^ elegidas:            # las que cambian de grosor, en su mismo lugar
+                capa.cambiar_pluma(i, self._pluma_utilidad(layer_qcolor(self.pipes[i]["layer"]),
+                                                           4.0 if i in elegidas else 2.0))
+            indices = sorted(elegidas | con_tramos)       # lo demás del bucle solo toca a éstas
+        else:
+            capa, con_tramos = CapaLineas(Z_MARK), set()
+            sc.addItem(capa)
+            indices = range(len(self.pipes))
+        self._overlay.append(capa)
+        for i in indices:
+            p = self.pipes[i]
             if not p.get("pts"): continue               # tramos importados (world): no se dibujan
             sel = (i == self.sel_pipe) or (len(multi) > 1 and i in multi)
             # Dibujo la polilínea del pipe con arcos REALES sustituyendo cada
             # esquina que tenga un elemento curvo — mismo radio y tangencia
             # que el plugin usará en Civil 3D.
-            self._poly(self._memo(("dibujo", i), lambda p=p: self._pipe_display_pts(p), copiar=False),
-                       layer_qcolor(p["layer"]), 4.0 if sel else 2.0, z=Z_MARK)
+            if not reuso_capa:
+                pts = self._memo(("dibujo", i), lambda p=p: self._pipe_display_pts(p), copiar=False)
+                if pts:
+                    capa.agregar(*self._lineas_de_utilidad(i, pts),
+                                 self._pluma_utilidad(layer_qcolor(p["layer"]), 4.0 if sel else 2.0), clave=i)
+                if p.get("seg_edit_enabled") and len(p["pts"]) >= 3:
+                    con_tramos.add(i)
             if sel and self.mode == "move": self._handles(p["pts"])
             elif i == self.sel_pipe:
                 self._vertices_libres(p)                # eléctrico/telecom: vértices que pueden ser curva
@@ -106,6 +243,9 @@ class DibujoMixin:
                 for texto, mx, my, dx, dy, px in ET.ubicar(tramos, ocupados, evitar=p["pts"]):
                     it = ET.EtiquetaTramo(texto, layer_qcolor(p["layer"]), px, dx, dy)
                     it.setPos(mx, my); it.setZValue(Z_MARK + 2); sc.addItem(it); self._overlay.append(it)
+        if not reuso_capa:
+            capa.cerrar()                               # su caja, ya con todas las utilidades
+        self._capa_lineas = (clave_capa, capa, elegidas, con_tramos)
         self._poly(self.cur_pts, layer_qcolor(self._ext_layer or self.active_layer()), 2.0, dots=True, z=Z_MARK)
         # centerlines de referencia (para georreferenciar) — magenta punteado,
         # bien distinto de las utilidades para no confundirlos a simple vista.
@@ -273,10 +413,7 @@ class DibujoMixin:
         # Precomputa color por buzón: mira los pipes NO importados y toma el layer
         # del primero cuyo vértice coincida (dist² ≤ tol²). Vértices por celdas
         # (`indice_plano`): antes cada buzón recorría todas las utilidades.
-        from nucleo.indice_plano import IndicePuntos
-        vert = [(vx, vy, pi) for pi, p in enumerate(self.pipes)
-                if not p.get("world") and p.get("pts") for (vx, vy) in p["pts"]]
-        indice = IndicePuntos([(v[0], v[1]) for v in vert], 14.0)
+        vert, indice = self._calcular_vertices_buzones()    # ventana_calculo
 
         def _color_for(s):
             sx, sy = s.get("x"), s.get("y")

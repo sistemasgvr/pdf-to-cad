@@ -279,14 +279,17 @@ class ListasMixin:
     def _refresh_lists(self):
         self._refresh_counts()
         self.pipe_list.blockSignals(True); self.pipe_list.clear()
+        iconos = {}                     # el muestrario de cada capa UNA vez (era un pixmap por utilidad)
         for i, p in enumerate(self.pipes, 1):
             tag = " (AB)" if p.get("ab") else ""
             nm = " · " + ((p.get("name") or "").strip() or model_ops.nombre_por_defecto(p, i - 1))
             n = len(p.get("pts") or [])
             info = (_tr("red: {red}").format(red=p.get("net", "")) if p.get("world")
                     else _tr("{n} vért.").format(n=n))
-            it = QtWidgets.QListWidgetItem(swatch_icon(layer_qcolor(p["layer"])),
-                                           f"{i}. {self._tipo(p['layer'])}{tag}{nm} ({info})")
+            icono = iconos.get(p["layer"])
+            if icono is None:
+                icono = iconos[p["layer"]] = swatch_icon(layer_qcolor(p["layer"]))
+            it = QtWidgets.QListWidgetItem(icono, f"{i}. {self._tipo(p['layer'])}{tag}{nm} ({info})")
             self.pipe_list.addItem(it)
         self.pipe_list.blockSignals(False)
         self.sleader_list.blockSignals(True); self.sleader_list.clear()

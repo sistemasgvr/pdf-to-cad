@@ -198,8 +198,12 @@ class CatalogoMixin:
 
     def _load_pipe_sizes(self, kind, fid, current):
         from catalogo import civil_catalog as _cc
-        # Solo si la familia está en el catálogo de esta versión (la del desplegable).
-        self.btn_add_size.setEnabled(bool(fid and self.civil_year and self.prop_family.currentData() == fid))
+        # Con familia: solo si está en el catálogo de esta versión (la del desplegable). Sin familia:
+        # un diámetro personalizado para esta utilidad (pedido del usuario 2026-10-17).
+        self.btn_add_size.setEnabled(bool(not fid or (self.civil_year and self.prop_family.currentData() == fid)))
+        _bind(self.btn_add_size, "setToolTip",
+              "Agregar un tamaño nuevo a esta familia (en Civil 3D 2025 en adelante, en español e inglés)" if fid
+              else "Agregar un diámetro personalizado (pulgadas) para esta utilidad")
         self.prop_size.blockSignals(True); self.prop_size.clear()
         _bind(self.lbl_prop_size, "setText", "Tamaño (catálogo):" if fid else "Diámetro:")
         if not fid:
@@ -267,6 +271,9 @@ class CatalogoMixin:
         de Civil 3D (catalogo_tamanos_dialog) y lo deja seleccionado."""
         from catalogo import civil_catalog as _cc
         from ui.dialogos import catalogo_tamanos_dialog
+        if cual == "pipe" and 0 <= self.sel_pipe < len(self.pipes) and not (self.prop_family.currentData() or ""):
+            self._agregar_diametro_sin_familia()
+            return
         if not self.civil_year:
             return
         if cual == "pipe":
@@ -294,6 +301,34 @@ class CatalogoMixin:
             self._load_bz_sizes(fid, texto)
             self._bz_prop_changed()
         self._info(_tr("Tamaño {s} agregado a «{f}».").format(s=texto, f=familia.split("  [")[0]))
+
+    def _agregar_diametro_sin_familia(self):
+        """«+» sin familia: un diámetro personalizado (pulgadas) para la utilidad elegida; queda
+        elegido como uno de la lista («diam:N»). Civil 3D lo agrega a la familia que use por material."""
+        from nucleo import edicion_bloque
+        p = self.pipes[self.sel_pipe]
+        d, _defecto = model_ops.diametro(p)
+        valor, ok = QtWidgets.QInputDialog.getDouble(
+            self, _tr("Diámetro personalizado"), _tr("Diámetro (pulgadas):"), float(d), 0.125, 240.0, 3)
+        if not ok or valor <= 0:
+            return
+        dato = edicion_bloque.dato_diam(valor)
+        cb = self.prop_size
+        cb.blockSignals(True)                            # un solo `_prop_changed`, al final
+        i = cb.findData(dato)
+        if i < 0:                                        # en su lugar de la lista (de menor a mayor)
+            pos = cb.count()
+            for k in range(1, cb.count()):
+                otro = str(cb.itemData(k) or "")
+                if otro.startswith("diam:") and float(otro[5:]) > valor:
+                    pos = k
+                    break
+            cb.insertItem(pos, f'{float(valor):g}"', dato)
+            i = pos
+        cb.setCurrentIndex(i)
+        cb.blockSignals(False)
+        self._prop_changed()
+        self._info(_tr("Diámetro {d} elegido para esta utilidad.").format(d=f'{float(valor):g}"'))
 
     def _pipe_family_changed(self, _idx):
         if self._prop_guard: return

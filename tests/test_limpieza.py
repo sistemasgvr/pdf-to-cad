@@ -287,3 +287,54 @@ def test_el_dxf_sale_sin_tramos_diminutos_aunque_no_se_limpie(win):
     radios = sorted(float(v.split("=")[1]) for e in doc.modelspace() if e.dxftype() == "POINT"
                     for _c, v in e.get_xdata("PDFCAD") if v.startswith("RADIUS_FT="))
     assert radios[0] > 1.419 and radios[1] > 6.291                    # las curvas llegan a la T y entre sí
+
+
+# ─────────────────────────── índices = todo con todo ───────────────────────────
+
+def _sintetico(sem, n):
+    """Plano al azar con repetidas, puntas casi unidas y cortas sueltas."""
+    import random
+    rng = random.Random(sem)
+    pipes, capas = [], ["AGUA", "DRENAJE", "ELECTRICO"]
+    for i in range(n):
+        x, y = rng.uniform(0, 3000), rng.uniform(0, 2000)
+        pts = [(x, y)]
+        for _ in range(rng.randint(1, 4)):
+            x += rng.choice([-1, 1]) * rng.uniform(0.5, 200); y += rng.choice([-1, 1]) * rng.uniform(0, 200)
+            pts.append((x, y))
+        pipes.append(_p(pts, capas[i % 3], ab=(i % 7 == 0)))
+        if i % 9 == 0:
+            pipes.append(_p(list(reversed(pts)) if i % 2 else list(pts), capas[i % 3], ab=(i % 7 == 0)))
+        if i % 5 == 0:
+            a = pts[-1]
+            pipes.append(_p([(a[0] + rng.uniform(-3, 3), a[1] + rng.uniform(-3, 3)), (a[0] + 60, a[1] + 40)],
+                            capas[i % 3], ab=(i % 7 == 0)))
+        if i % 11 == 0:
+            pipes.append(_p([(x + 500, y), (x + 500 + rng.uniform(0.5, 20), y)], capas[i % 3]))
+    return pipes
+
+
+@pytest.mark.parametrize("sem", range(4))
+def test_limpieza_con_indices_igual_que_todo_con_todo(sem, monkeypatch):
+    """Reporte 2026-10-17: con 16 761 utilidades «Exportar DXF» no terminaba (la limpieza comparaba
+    cada utilidad con todas). Con celdas que solo proponen candidatas, el resultado es EL MISMO."""
+    def foto():
+        pipes = _sintetico(sem, 150)
+        r = limpieza.limpiar(pipes, [], 0.25, protegidas={0, 3})
+        return (sorted(r.borrar), [(c.tipo, c.x, c.y, c.arreglado) for c in r.cambios], [q["pts"] for q in pipes])
+    rapido = foto()
+
+    class Todas:                                     # «índice» que propone TODAS (lo de antes)
+        def __init__(self, cosas, *a, **k):
+            self.n = len(cosas)
+
+        def cerca(self, *a):
+            return list(range(self.n))
+
+        en_caja = cerca
+    monkeypatch.setattr(limpieza, "IndiceUtilidades", Todas)
+    monkeypatch.setattr(limpieza, "IndicePuntos", Todas)
+    import contextlib                                # y `compartido` contra todas (sin cajas)
+    monkeypatch.setattr(LT, "cajas_de", lambda pipes: contextlib.nullcontext())
+    assert foto() == rapido
+    assert rapido[0] and rapido[1]                   # el escenario sí tiene qué limpiar

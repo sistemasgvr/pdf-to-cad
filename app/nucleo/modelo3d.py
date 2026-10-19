@@ -453,13 +453,14 @@ def construir(pipes, structures, ft, colores=None, duct_banks=(), cruces=(), avi
         return Escena()
     ocultas = set(ocultas or ())
     visibles = [i for i, p in enumerate(pipes) if p.get("layer") not in ocultas]
-    vis_pipes = [p if i in visibles else dict(p, pts=[]) for i, p in enumerate(pipes)]
+    es_visible = set(visibles)                     # «i in visibles» sobre la lista era O(n²) (2026-10-18)
+    vis_pipes = [p if i in es_visible else dict(p, pts=[]) for i, p in enumerate(pipes)]
     ar = _Armado(ft, colores)
     col = I3.Instancias()                          # círculos barridos y esferas → GPU
     with M.instanciar(col), model_ops.memo_cotas():
         con_db = set()
         for db in duct_banks or []:
-            idx = [i for i in db.get("pipes") or [] if i in visibles]
+            idx = [i for i in db.get("pipes") or [] if i in es_visible]
             con_db |= set(db.get("pipes") or [])
             _bancoducto(ar, vis_pipes, structures, dict(db, pipes=idx))
         rectos = []                                    # uniones rectas: reducción si cambia el diámetro
@@ -493,7 +494,7 @@ def construir(pipes, structures, ft, colores=None, duct_banks=(), cruces=(), avi
                     sueltos.append(r[1])
         etiquetas = []
         if ver["avisos"]:
-            etiquetas = marcas3d.marcas(ar, vis_pipes, [a for a in avisos or [] if a.get("pipe", -1) in visibles],
+            etiquetas = marcas3d.marcas(ar, vis_pipes, [a for a in avisos or [] if a.get("pipe", -1) in es_visible],
                                         conflictos, ID_AVISO, ID_CONFLICTO)
         rotulos = rotulos3d.rotulos(ar, vis_pipes, visibles, lambda p: seccion(p)[1]) if ver["rotulos"] else []
 

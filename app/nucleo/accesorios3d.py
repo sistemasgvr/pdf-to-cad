@@ -252,17 +252,23 @@ def cortar(camino, cortes):
     seg = np.linalg.norm(np.diff(P[:, :2], axis=0), axis=1)
     s = np.concatenate([[0.0], np.cumsum(seg)])
     quitar = []
+    # Las MISMAS cuentas que con arreglos de numpy por tramo, en números de Python (2026-10-18: con
+    # 16 761 utilidades el costo fijo de numpy por escalar era ~10 s de la vista 3D). Mismos bits.
+    xs, ys = P[:, 0].tolist(), P[:, 1].tolist()
+    segs, largos = seg.tolist(), s.tolist()
     for (cx, cy), (ux, uy), alc in cortes:
+        cx, cy = float(cx), float(cy)
         mejor = None
         for k in range(len(P) - 1):
-            a, b = P[k, :2], P[k + 1, :2]
-            L = seg[k]
-            t = 0.0 if L < 1e-9 else max(0.0, min(1.0, float(np.dot((cx, cy) - a, b - a)) / (L * L)))
-            q = a + (b - a) * t
-            dist = math.hypot(q[0] - cx, q[1] - cy)
+            ax, ay = xs[k], ys[k]
+            dx, dy = xs[k + 1] - ax, ys[k + 1] - ay
+            L = segs[k]
+            t = 0.0 if L < 1e-9 else max(0.0, min(1.0, ((cx - ax) * dx + (cy - ay) * dy) / (L * L)))
+            dist = math.hypot(ax + dx * t - cx, ay + dy * t - cy)
             if mejor is None or dist < mejor[0]:
-                mejor = (dist, s[k] + L * t, (b - a) / L if L > 1e-9 else np.zeros(2))
-        _d, s0, tan = mejor
+                mejor = (dist, largos[k] + L * t, k, L)
+        _d, s0, k, L = mejor
+        tan = (P[k + 1, :2] - P[k, :2]) / L if L > 1e-9 else np.zeros(2)
         if float(np.dot(tan, (ux, uy))) >= 0:
             quitar.append((s0, s0 + alc))
         else:

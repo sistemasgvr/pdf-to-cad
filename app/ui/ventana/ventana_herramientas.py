@@ -77,6 +77,7 @@ class HerramientasMixin:
     # ─────────────────────────── normativas ───────────────────────────
     def open_normativas(self, en_avisos=False):
         """Ventana de normativas en tablas (normas_dialog.py)."""
+        self._resultados_al_dia()                       # calculo_fondo: nada a medio calcular
         from ui.dialogos import normas_dialog
         normas_dialog.abrir(self, en_avisos=en_avisos)
 
@@ -115,29 +116,40 @@ class HerramientasMixin:
         presión con su tipo y ángulo (accesorios_view) y los avisos (avisos_view).
         Deja `_accesorios` y `_normas_avisos` para la ventana y la barra de estado."""
         self._accesorios = []; self._normas_avisos = []
+        if getattr(self, "_provisional", False):        # el hilo los calcula (calculo_fondo)
+            self._angulos_fuera = []
+            self._mostrar_pendiente()
+            return
         ft_px = self.scale / self.zoom if self.scale and self.zoom else 0.0
         if ft_px and self.pipes:
-            from nucleo import accesorios as _acc
-            # Se reusan mientras el modelo no cambie (`_memo`, ventana_dibujo): copias, que
-            # `marcar` escribe la aprobación en cada aviso.
-            accs = self._memo(("accesorios", ft_px), lambda: _acc.accesorios(self.pipes, self._pipe_z_at, ft_px))
-            con_db = {i for db in getattr(self, "duct_banks", []) or [] for i in db.assigned()}
-            self._normas_avisos = self._memo(("normas", ft_px), lambda: normas_validar.validar(
-                self.normas_cat, self.pipes, accs, ft_px, con_db, self.structures))
-            # Ángulos en pasos de 0.25°: se validan pero NO se muestran (pedido del usuario 2026-10-16:
-            # el dibujo a mano ya los deja en el paso; no van a los avisos ni al plano).
-            from nucleo import angulos
-            self._angulos_fuera = self._memo(("angulos", ft_px), lambda: angulos.avisos(self.pipes, ft_px))
-            normas_aprobacion.marcar(self._normas_avisos, self.pipes, getattr(self, "normas_aprobados", []))
+            # Con el MISMO modelo (firma del redibujo: utilidades, aprobaciones, normativas…) se quedan los
+            # MISMOS resultados del redibujo anterior, ya marcados (2026-10-19: copiarlos y volver a marcar
+            # tomaba ~0.9 s con 16 761 utilidades en cada Esc o clic). Solo `marcar`, `aprobar` y `quitar`
+            # los cambian, y las dos últimas cambian la firma.
+            clave_res = (getattr(getattr(self, "_memo_redibujo", None), "firma", None), ft_px)
+            previo = getattr(self, "_resultados_acc", None)
+            if (clave_res[0] is not None and getattr(self, "_en_redibujo", False) and previo is not None
+                    and previo[0] == clave_res):
+                accs, self._normas_avisos, self._angulos_fuera = previo[1]
+            else:
+                accs, self._normas_avisos, self._angulos_fuera = self._calcular_accesorios(ft_px)   # ventana_calculo
+                self._resultados_acc = (clave_res, (accs, self._normas_avisos, self._angulos_fuera))
             tol = 0.5 / ft_px
             ver_acc = getattr(self, "act_show_acc", None) is None or self.act_show_acc.isChecked()
+            vigentes = getattr(self, "_marcas_vigentes", False)  # las marcas de antes siguen en su capa
             if ver_acc:
                 self._accesorios = accs
+            if ver_acc and not vigentes:
                 from ui.comun import accesorios_view
-                self._overlay += accesorios_view.dibujar(self.canvas.scene(), accs, self._normas_avisos, tol)
-            if getattr(self, "act_show_normas", None) is None or self.act_show_normas.isChecked():
+                prep = self._preparar_etiquetas(accs, self._normas_avisos, ft_px)   # ventana_calculo
+                self._overlay += accesorios_view.dibujar(self.canvas.scene(), accs, self._normas_avisos, tol,
+                                                         poner=self._marca, reusar=self._reusar_marca,
+                                                         guardar=self._guardar_marca, preparadas=prep)
+            if not vigentes and (getattr(self, "act_show_normas", None) is None or self.act_show_normas.isChecked()):
                 from ui.comun import avisos_view
-                self._overlay += avisos_view.dibujar(self.canvas.scene(), self._normas_avisos, tol * 2, ver_acc)
+                self._overlay += avisos_view.dibujar(self.canvas.scene(), self._normas_avisos, tol * 2, ver_acc,
+                                                     poner=self._marca, reusar=self._reusar_marca,
+                                                     guardar=self._guardar_marca)
         n = len(normas_aprobacion.pendientes(self._normas_avisos))
         n_ap = sum(1 for a in self._normas_avisos if a.aprobado)
         if hasattr(self, "btn_normas"):
@@ -159,6 +171,7 @@ class HerramientasMixin:
         queda el registro (quién, cuándo, nota) en el proyecto."""
         if not avisos:
             return 0
+        self._resultados_al_dia()                       # calculo_fondo: nada a medio calcular
         self._push()
         n = normas_aprobacion.aprobar(self.normas_aprobados, avisos, self.pipes, nota)
         self._redraw()
@@ -323,6 +336,7 @@ class HerramientasMixin:
         return catalogo
 
     def _tablas_de_datos(self):
+        self._resultados_al_dia()                       # calculo_fondo: nada a medio calcular
         from nucleo import tabla_datos
         ft_px = self.scale / self.zoom if self.scale and self.zoom else 0.0
 

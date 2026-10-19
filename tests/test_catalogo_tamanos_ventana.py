@@ -58,9 +58,10 @@ def test_mas_de_utilidad_agrega_y_elige_el_tamano(win, monkeypatch):
     win._agregar_tamano("pipe")
     assert win.prop_size.currentText() == "15 in"
     assert win.pipes[0]["pipe_size"] == "15 in"
-    # Con «(por defecto)» no hay familia que ampliar.
+    # Sin familia («(por defecto)») el «+» agrega un diámetro personalizado a la utilidad
+    # (pedido 2026-10-17; antes quedaba apagado).
     win.prop_family.setCurrentIndex(0)
-    assert not win.btn_add_size.isEnabled()
+    assert win.btn_add_size.isEnabled() and "personalizado" in win.btn_add_size.toolTip()
 
 
 def test_mas_de_buzon(win, monkeypatch):

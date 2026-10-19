@@ -58,6 +58,13 @@ def _recuperacion_en_carpeta_temporal(monkeypatch, tmp_path):
 
 
 @pytest.fixture(autouse=True)
+def _digitalizado_en_carpeta_temporal(monkeypatch, tmp_path):
+    """La caché del PDF digitalizado («Exportar DXF», cache_digitalizado) nunca va a %LOCALAPPDATA%."""
+    monkeypatch.setenv("PDFCAD_CACHE_DIGITALIZADO", str(tmp_path / "digitalizado"))
+    yield
+
+
+@pytest.fixture(autouse=True)
 def _normativas_en_carpeta_temporal(monkeypatch, tmp_path):
     """El catálogo de normativas (normas_catalogo.ruta) nunca va a %APPDATA% en las pruebas."""
     monkeypatch.setenv("PDFCAD_NORMAS_TABLAS", str(tmp_path / "normativas_tablas.json"))

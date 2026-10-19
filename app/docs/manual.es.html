@@ -572,6 +572,9 @@ seleccionaste pasa sus datos al resto.</p>
 </table>
 
 <h2>Agregar un tamaño que no está en el catálogo</h2>
+<p>Si la utilidad <b>no tiene familia</b>, el botón verde <span class="btn">+</span> junto al
+<b>Diámetro</b> pide un diámetro personalizado (en pulgadas) y lo deja elegido para esa utilidad; la
+familia no cambia. Con familia, agrega un tamaño a esa familia:</p>
 <p>El botón verde <span class="btn">+</span> a la derecha de <b>Tamaño</b> (en <b>Utilidades</b> y
 en <b>Buzones</b>) agrega una medida nueva a la familia elegida:</p>
 <ol>
@@ -710,7 +713,8 @@ dos tuberías se cruzan a la misma cota sin conectarse («Tuberías que chocan»
 La barra de estado, abajo, cuenta cuántas hay de cada tipo.</p>
 <p class="small">Con cientos de tuberías la revisión sigue siendo rápida: solo compara las que están
 cerca y no se repite mientras el diseño no cambie (elegir, cambiar de pestaña o de modo no la rehace).
-Lo mismo el ratón (resaltado, imán, clic) y Deshacer, que guarda solo lo que cambió en cada paso.</p>
+Lo mismo el ratón (resaltado, imán, clic) y Deshacer, que guarda solo lo que cambió en cada paso.
+Con decenas de miles de señales el lienzo solo repinta las que están a la vista.</p>
 </section>
 
 <section data-title="Alertas rojas: cuándo salen">
@@ -809,6 +813,14 @@ utilidad: queda en las normativas y sale en su Excel al exportarlo. En las eléc
 <p>«Sin tipo» no se marca en el plano (en un proyecto recién importado serían decenas): se ve en el panel,
 en la lista y en el contador. Los tipos de aviso se muestran u ocultan en <b>Ver → Avisos</b>
 (cruces y conflictos, accesorios, avisos de normativa, mostrar u ocultar todos).</p>
+<p><b>Nivel de detalle</b>, como en un mapa: de lejos, de las etiquetas que se tapan (accesorios y
+conflictos C-n) se ve solo una —primero los conflictos—; los puntos (rombo, círculo de cruce, triángulo,
+circulito) se ven siempre. Acércate y aparecen todas. Una etiqueta oculta no muestra su globo; pasa el
+mouse sobre su punto.</p>
+<p><b>Proyectos muy grandes</b> (miles de utilidades): al dibujar, editar o borrar, la línea se ve al
+instante y los cruces, conflictos y avisos se actualizan unos segundos después, sin trabar la ventana
+(abajo dice «Actualizando conflictos y avisos…»; mientras tanto se ven las marcas anteriores). La Tabla de
+datos, las normativas y la Vista 3D esperan a que terminen, así nunca muestran datos a medias.</p>
 
 <h2>Revisar y aprobar avisos</h2>
 <p>Un aviso puede estar bien así (lo acepta el ingeniero o el cliente). En la pestaña <b>Avisos</b>:</p>
@@ -955,6 +967,9 @@ sistema de coordenadas de Civil 3D (por ejemplo <b>CA83VF</b>), escríbelo y el 
 <li>Arriba, elige tu versión de <b>Civil 3D</b> (2025, 2026 o 2027) y su <b>idioma</b>.</li>
 <li>Pulsa <span class="btn">Exportar DXF</span> y elige dónde guardarlo.</li>
 </ol>
+<p>Digitalizar el PDF puede tardar minutos en un plano grande: si vuelves a exportar sin cambiar el PDF
+ni la hoja, la app <b>reusa</b> el plano ya digitalizado (mismo resultado). Mientras digitaliza o lee el
+plano puedes pulsar <b>Cancelar</b>; la ventana no se traba.</p>
 <h2>Revisar y limpiar el dibujo</h2>
 <p>Al exportar, si hay algo que en Civil 3D saldría mal, la app lo muestra antes y lo arregla con
 <b>Arreglar y exportar</b> (o sigue igual con <b>Exportar sin cambios</b>). También está en

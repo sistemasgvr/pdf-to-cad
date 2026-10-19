@@ -17,6 +17,11 @@ a mano:
 `ft_per_px` = escala/zoom de la ventana (pies por px del lienzo). Las utilidades a
 borrar NO se borran aquí: las borra la ventana (`_delete_pipes`) para correr los
 índices de bancoductos y conexiones.
+
+Rendimiento (reporte del usuario 2026-10-17: con 16 761 utilidades «Exportar DXF» no
+terminaba nunca): cada paso comparaba cada utilidad con TODAS. Ahora las celdas de
+`indice_plano` proponen solo las candidatas cercanas y se hace la MISMA prueba en el MISMO
+orden (mismo resultado, ver `tests/test_limpieza.py`).
 """
 from __future__ import annotations
 
@@ -25,6 +30,7 @@ from dataclasses import dataclass, field
 
 from nucleo import limpieza_tramos as LT
 from nucleo import model_ops, xdata
+from nucleo.indice_plano import IndicePuntos, IndiceUtilidades
 from nucleo.limpieza_tramos import Cambio, TRAMO_MIN_FT  # noqa: F401  (API pública)
 
 PUNTA_MAX_FT = 1.0          # extremo a esta distancia de otra del mismo tipo: se une
@@ -78,8 +84,9 @@ def limpiar(pipes, structures, ft_per_px, tipos=TIPOS, protegidas=()):
     if "punta" in tipos:
         _unir_puntas(pipes, structures, ft_per_px, res)
     if "tramo" in tipos:
-        for i in _vivas(pipes, res.borrar):
-            res.cambios.extend(LT.arreglar(pipes, structures, i, ft_per_px))
+        with LT.cajas_de(pipes):                     # `compartido` solo mira las cercanas (mismo resultado)
+            for i in _vivas(pipes, res.borrar):
+                res.cambios.extend(LT.arreglar(pipes, structures, i, ft_per_px))
     if "suelta" in tipos:
         _sueltas(pipes, ft_per_px, res)
     res.borrar.sort()
@@ -116,15 +123,32 @@ def _peso(p, i, protegidas):
             bool((p.get("name") or "").strip()), bool(xdata.get(p)[xdata.USER]), -i)
 
 
+def _holgura(r):
+    """Radio de búsqueda un pelo mayor que `r` (la prueba exacta la hace quien llama)."""
+    return r * (1 + 1e-9) + 1e-9
+
+
 def _duplicadas(pipes, ft, protegidas, res):
     tol = DUPLICADA_FT / ft
     vivas = _vivas(pipes)
+    pos = {k: n for n, k in enumerate(vivas)}
+    borrar = set(res.borrar)
+    # Una repetida tiene su primer vértice (o, al revés, el último) a ≤ tol del primero de `a`:
+    # solo esas son candidatas, en el orden de siempre.
+    puntas, dueno = [], []
+    for k in vivas:
+        pts = pipes[k]["pts"]
+        puntas += [pts[0], pts[-1]]
+        dueno += [k, k]
+    indice = IndicePuntos(puntas, max(tol, 1e-6))
     for a_pos, a in enumerate(vivas):
-        if a in res.borrar:
+        if a in borrar:
             continue
         pa = pipes[a]["pts"]
-        for b in vivas[a_pos + 1:]:
-            if b in res.borrar or pipes[b].get("layer") != pipes[a].get("layer"):
+        candidatas = sorted({dueno[m] for m in indice.en_caja(pa[0][0], pa[0][1], _holgura(tol))
+                             if pos[dueno[m]] > a_pos}, key=pos.get)
+        for b in candidatas:
+            if b in borrar or pipes[b].get("layer") != pipes[a].get("layer"):
                 continue
             pb = pipes[b]["pts"]
             if len(pa) != len(pb):
@@ -137,6 +161,7 @@ def _duplicadas(pipes, ft, protegidas, res):
                 continue
             x, y = _medio(pipes[sale]["pts"])
             res.borrar.append(sale)
+            borrar.add(sale)
             res.cambios.append(Cambio("duplicada", sale, x, y, _largo(pipes[sale]["pts"]) * ft, True, "borrar"))
             if sale == a:
                 break
@@ -176,12 +201,19 @@ def _destino_valido(q, vecino, dest, rumbos_dest, ft):
 def _unir_puntas(pipes, structures, ft, res):
     tol_max, tol_unida = PUNTA_MAX_FT / ft, UNIDA_FT / ft
     vivas = _vivas(pipes, res.borrar)
+    vivas_set = set(vivas)
+    # Candidatas por celdas (antes: cada punta contra TODAS las utilidades). El índice es de la
+    # geometría del principio; una punta movida en este paso se corre ≤ tol_max, así que se
+    # busca a tol_max más de lo que se prueba: nada que pudiera cumplir queda afuera.
+    indice = IndiceUtilidades(pipes)
+    radio = _holgura(2.0 * tol_max + tol_unida)
     for i in vivas:
         p = pipes[i]
         for e in (0, -1):
             pts = p["pts"]
             q = pts[e]
-            mismas = [j for j in vivas if j != i and pipes[j].get("layer") == p.get("layer")]
+            mismas = [j for j in indice.cerca(q[0], q[1], radio)
+                      if j != i and j in vivas_set and pipes[j].get("layer") == p.get("layer")]
             if any(LT.toca(q, pipes[j]["pts"], tol_unida) for j in mismas):
                 continue                                     # ya está unida
             otras = [j for j in mismas if bool(pipes[j].get("ab")) == bool(p.get("ab"))]
@@ -223,15 +255,30 @@ def _unir_puntas(pipes, structures, ft, res):
 def _sueltas(pipes, ft, res):
     tol = CONTACTO_FT / ft
     vivas = _vivas(pipes, res.borrar)
+    vivas_set = set(vivas)
+    indice = IndiceUtilidades(pipes)                  # candidatas cercanas (antes: todas)
+    puntas, dueno = [], []
+    for k in vivas:
+        puntas += [pipes[k]["pts"][0], pipes[k]["pts"][-1]]
+        dueno += [k, k]
+    ind_puntas = IndicePuntos(puntas, max(tol, 1.0))
     for i in vivas:
         pts = pipes[i]["pts"]
         largo = _largo(pts) * ft
         if not UTILIDAD_MIN_FT <= largo < SUELTA_MAX_FT:
             continue
-        mismas = [j for j in vivas if j != i and pipes[j].get("layer") == pipes[i].get("layer")]
-        toca = any(LT.toca(q, pipes[j]["pts"], tol) for j in mismas for q in (pts[0], pts[-1]))
-        toca = toca or any(LT.toca(q, pts, tol) for j in mismas
-                           for q in (pipes[j]["pts"][0], pipes[j]["pts"][-1]))
+
+        def misma(j):
+            return j != i and j in vivas_set and pipes[j].get("layer") == pipes[i].get("layer")
+        cerca = {j for q in (pts[0], pts[-1]) for j in indice.cerca(q[0], q[1], _holgura(tol)) if misma(j)}
+        toca = any(LT.toca(q, pipes[j]["pts"], tol) for j in cerca for q in (pts[0], pts[-1]))
+        if not toca:                                   # alguna punta de otra sobre ésta
+            xs, ys = [a[0] for a in pts], [a[1] for a in pts]
+            cx, cy = (min(xs) + max(xs)) / 2.0, (min(ys) + max(ys)) / 2.0
+            r = _holgura(max(max(xs) - min(xs), max(ys) - min(ys)) / 2.0 + tol)
+            otras = {dueno[m] for m in ind_puntas.en_caja(cx, cy, r) if misma(dueno[m])}
+            toca = any(LT.toca(q, pts, tol) for j in otras
+                       for q in (pipes[j]["pts"][0], pipes[j]["pts"][-1]))
         if not toca:
             x, y = _medio(pts)
             res.cambios.append(Cambio("suelta", i, x, y, largo, False))

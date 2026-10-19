@@ -51,7 +51,7 @@ class Instancias:
         if n > 2:
             B[1:-1], F[1:-1] = bdir, fac[:, 0]
         r = float(pts[0, 0])
-        rmin = float(np.max(np.linalg.norm(pts, axis=1))) if minimo else 0.0
+        rmin = float(np.max(np.sqrt(np.add.reduce(pts * pts, axis=1)))) if minimo else 0.0   # = norm, sin su costo fijo
         seg = np.zeros((n - 1, CAMPOS_INST))
         seg[:, 0:3], seg[:, 3:6], seg[:, 6:9], seg[:, 9:12], seg[:, 12] = P[:-1], lado[:-1], arriba[:-1], B[:-1], F[:-1]
         seg[:, 13:16], seg[:, 16:19], seg[:, 19:22], seg[:, 22:25], seg[:, 25] = P[1:], lado[1:], arriba[1:], B[1:], F[1:]

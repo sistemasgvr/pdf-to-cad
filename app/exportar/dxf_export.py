@@ -98,19 +98,22 @@ def _sin_tramos_diminutos(win):
     — ya no depende de pulsar «Arreglar» en «Revisar y limpiar el dibujo»: el DXF sale
     siempre así y el proyecto no se toca. El dibujo se aparta < 0.05 ft."""
     import copy
-    from nucleo import limpieza_tramos
-    pipes = copy.deepcopy(list(getattr(win, "pipes", None) or []))
-    structs = copy.deepcopy(list(getattr(win, "structures", None) or []))
+    from nucleo import limpieza_tramos, memo_modelo
+    # copias con pickle (= deepcopy para estos datos, ~4× más rápido con miles de utilidades)
+    pipes = memo_modelo.copia(list(getattr(win, "pipes", None) or []))
+    structs = memo_modelo.copia(list(getattr(win, "structures", None) or []))
     scale, zoom = getattr(win, "scale", None), getattr(win, "zoom", None)
     if not scale or not zoom:
         return pipes, structs
     ft = scale / zoom
-    for i, p in enumerate(pipes):
-        if not p.get("world") and len(p.get("pts") or []) >= 3:
-            try:
-                limpieza_tramos.arreglar(pipes, structs, i, ft)
-            except Exception:                      # nunca impedir la exportación
-                pipes[i] = copy.deepcopy(win.pipes[i])
+    with limpieza_tramos.cajas_de(pipes):          # `compartido` solo mira las cercanas (mismo resultado)
+        for i, p in enumerate(pipes):
+            if not p.get("world") and len(p.get("pts") or []) >= 3:
+                try:
+                    limpieza_tramos.arreglar(pipes, structs, i, ft)
+                except Exception:                  # nunca impedir la exportación
+                    pipes[i] = copy.deepcopy(win.pipes[i])
+                    limpieza_tramos.al_dia(pipes, i)
     return pipes, structs
 
 

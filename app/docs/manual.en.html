@@ -578,6 +578,9 @@ selected passes its data to the rest.</p>
 </table>
 
 <h2>Adding a size that is not in the catalog</h2>
+<p>If the utility <b>has no family</b>, the green <span class="btn">+</span> button next to
+<b>Diameter</b> asks for a custom diameter (in inches) and leaves it chosen for that utility; the family
+does not change. With a family, it adds a size to that family:</p>
 <p>The green <span class="btn">+</span> button to the right of <b>Size</b> (in <b>Utilities</b>
 and in <b>Manholes</b>) adds a new size to the chosen family:</p>
 <ol>
@@ -713,7 +716,8 @@ pipes cross at the same elevation without being connected («Clashing pipes»).<
 The status bar at the bottom counts how many there are of each kind.</p>
 <p class="small">With hundreds of pipes the check stays fast: it only compares the nearby ones and is not
 repeated while the design does not change (selecting, switching tabs or modes does not redo it).
-The same goes for the mouse (highlight, snap, click) and Undo, which stores only what changed in each step.</p>
+The same goes for the mouse (highlight, snap, click) and Undo, which stores only what changed in each step.
+With tens of thousands of signs the canvas only repaints the ones in view.</p>
 </section>
 
 <section data-title="Red alerts: when they appear">
@@ -810,6 +814,13 @@ it stays in the standards and goes into their Excel when exporting it. On electr
 <p>“No type” is not marked on the plan (a freshly imported project would have dozens): it shows in the panel,
 the list and the counter. Warning types are shown or hidden in <b>View → Warnings</b> (crossings and
 conflicts, fittings, standards warnings, show or hide all).</p>
+<p><b>Level of detail</b>, as on a map: from far away, of the labels that overlap (fittings and conflicts
+C-n) only one is shown —conflicts first—; the points (diamond, crossing circle, triangle, badge) are
+always shown. Zoom in and they all appear. A hidden label shows no tooltip; hover over its point.</p>
+<p><b>Very large projects</b> (thousands of utilities): when you draw, edit or delete, the line shows
+instantly and crossings, conflicts and warnings update a few seconds later, without freezing the window
+(the status bar says “Updating conflicts and warnings…”; meanwhile the previous marks stay on screen). The
+Data table, the standards and the 3D View wait for it to finish, so they never show half-computed data.</p>
 
 <h2>Review and approve warnings</h2>
 <p>A warning may be fine as it is (the engineer or the client accepts it). In the <b>Warnings</b> tab:</p>
@@ -954,6 +965,9 @@ coordinate system code (for example <b>CA83VF</b>), type it and the drawing will
 <li>On the top bar, choose your <b>Civil 3D</b> version (2025, 2026 or 2027) and its <b>language</b>.</li>
 <li>Press <span class="btn">Export DXF</span> and choose where to save it.</li>
 </ol>
+<p>Digitizing the PDF can take minutes on a large plan: if you export again without changing the PDF or
+the sheet, the app <b>reuses</b> the already digitized plan (same result). While it digitizes or reads the
+plan you can press <b>Cancel</b>; the window does not freeze.</p>
 <h2>Review and clean up the drawing</h2>
 <p>When exporting, if something would come out wrong in Civil 3D, the app shows it first and fixes it
 with <b>Fix and export</b> (or goes on as it is with <b>Export without changes</b>). It is also in

@@ -44,5 +44,6 @@ class ConflictosListaMixin:
                               pipes=[e["ia"], e["ib"]], cotas=[e.get("za"), e.get("zb")]))
         self._conflictos = _conf.numerar(items)
         from ui.comun import conflictos_view
-        self._overlay += conflictos_view.dibujar(self.canvas.scene(), self._conflictos)
+        if not getattr(self, "_marcas_vigentes", False):  # si no, las mismas de antes siguen en su capa
+            self._overlay += conflictos_view.dibujar(self.canvas.scene(), self._conflictos, poner=self._marca)
         return self._conflictos

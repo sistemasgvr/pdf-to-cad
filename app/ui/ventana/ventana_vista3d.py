@@ -14,6 +14,7 @@ from traduccion.i18n import t as _tr
 class Vista3DMixin:
     def abrir_vista3d(self):
         from ui.dialogos import vista3d_dialog
+        self._resultados_al_dia()                       # calculo_fondo: nada a medio calcular
         self._guardar_antes_de_3d()
         return vista3d_dialog.abrir(self)
 

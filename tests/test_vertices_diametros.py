@@ -157,3 +157,25 @@ def test_conexion_vertical_sigue_las_cotas_actuales(win):
     zs = [v for e in doc.modelspace() if e.has_xdata("PDFCAD")
           for _c, v in e.get_xdata("PDFCAD") if str(v).startswith("Z_A=")]
     assert f"Z_A={c['z_a']}" in zs
+
+
+def test_mas_sin_familia_agrega_un_diametro_personalizado(win, monkeypatch):
+    """Pedido 2026-10-17: sin familia, el «+» junto al diámetro pide uno personalizado (pulgadas); la
+    familia no se toca y no hace falta Civil 3D."""
+    from PySide6 import QtWidgets
+    win.civil_year = None
+    win.pipes.append(dict(layer="AGUA", pts=[(0, 0), (300, 0)], ab=False))
+    win._refresh_lists(); win._show_tab(0); win.pipe_list.setCurrentRow(0)
+    assert win.btn_add_size.isEnabled()
+    monkeypatch.setattr(QtWidgets.QInputDialog, "getDouble", lambda *a, **k: (7.5, True))
+    win.btn_add_size.click()
+    p = win.pipes[0]
+    assert p["diam"] == 7.5 and p.get("diam_elegido") and not p.get("pipe_family")
+    assert win.prop_size.currentText() == '7.5"'
+    datos = [str(win.prop_size.itemData(i)) for i in range(1, win.prop_size.count())]
+    assert datos == sorted(datos, key=lambda d: float(d[5:]))          # en su lugar de la lista
+    win.pipe_list.setCurrentRow(-1); win.pipe_list.setCurrentRow(0)    # al volver a elegirla, sigue
+    assert win.prop_size.currentText() == '7.5"'
+    monkeypatch.setattr(QtWidgets.QInputDialog, "getDouble", lambda *a, **k: (0.0, False))
+    win.btn_add_size.click()                                           # cancelar: no cambia nada
+    assert p["diam"] == 7.5

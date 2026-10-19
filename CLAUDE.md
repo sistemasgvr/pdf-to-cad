@@ -33,7 +33,7 @@ alcantarillado, drenaje, gas, eléctrico, telecom). Todo en **unidades imperiale
     `wizard_widgets`, `pdf_view_quality`, `alignment_tools`, `tool_strip`…), `ui/dialogos/` (`dialogs`,
     `normas_dialog`, `tabla_datos_dialog`, `vista3d_dialog`, `edicion_bloque_dialog`, `limpieza_dialog`, `duct_bank_dialog`, `xdata_dialog`, `catalogo_tamanos_dialog`, `manual_dialog`,
     `shortcuts_dialog`, `blank_canvas_dialog`) y `ui/comun/` (`canvas`, `widgets`, `ui_common`, `theme`, `icons`,
-    `busy`, `responsive`, `side_panels`, `thumbnails`, `workers`, `accesorios_view`, `avisos_view`, `visor3d`, `cubo_vistas`, `fondo_pdf`, `recorte_nitido`, `teselas`, `teselas_hijo`, `teselas_servidor`,
+    `busy`, `responsive`, `side_panels`, `thumbnails`, `workers`, `accesorios_view`, `avisos_view`, `capa_marcas`, `visor3d`, `cubo_vistas`, `fondo_pdf`, `recorte_nitido`, `teselas`, `teselas_hijo`, `teselas_servidor`,
     `teselas_vista`). Se importan como
     `from ui.ventana import app_window`, `from ui.comun import widgets`… OJO rutas de recursos: `icons.py` sube
     TRES carpetas para llegar a `app/icons` (en el .exe usan
@@ -1347,7 +1347,9 @@ alcantarillado, drenaje, gas, eléctrico, telecom). Todo en **unidades imperiale
     tamaño ni `diam_elegido` (lo ponen el panel y el reconocimiento que leyó el diámetro) y vale el precargado. Sin
     familia el panel lista `model.DIAMETROS_SIN_FAMILIA_IN` (dato `edicion_bloque.dato_diam` «diam:N»), también sin
     Civil 3D; `_prop_changed` ya no pisa el diámetro al editar otro campo; copiar/pegar, bloque y Excel llevan
-    «diam:N». (4) `nucleo/conexiones_verticales.actualizar_cotas`: `z_a/z_b` de cada conexión aprobada se releen de
+    «diam:N»; sin familia el «+» (`btn_add_size`, también sin Civil 3D) pide un diámetro personalizado
+    (`_agregar_diametro_sin_familia`: «diam:N» en su lugar de la lista, pedido 2026-10-17). (4)
+    `nucleo/conexiones_verticales.actualizar_cotas`: `z_a/z_b` de cada conexión aprobada se releen de
     las tuberías (tramo más cercano, menor índice en un vértice) en `_draw_pipe_conflicts`, el DXF y la Vista 3D.
     Tests: `tests/test_vertices_diametros.py`.
   - **Ángulos en pasos de 0.25°** (pedidos del usuario 2026-10-15/16: a mano los quiebres chicos del pulso se
@@ -1618,6 +1620,127 @@ alcantarillado, drenaje, gas, eléctrico, telecom). Todo en **unidades imperiale
     (~33 mil) → nunca terminaba. Ahora solo las de `_indice_union()` (un `IndiceUtilidades` por redibujo,
     `_indice_redibujo`, soltado en `_redraw`; fuera de un redibujo, todas), mismo orden: abre en ~46 s (lo demás
     es dibujar ~33 mil marcas de cruce y ~38 mil etiquetas de accesorios).
+    **Capas de marcas** (mismo proyecto, «se lagea mucho»): `ui/comun/capa_marcas.py` — las marcas de tamaño
+    fijo en pantalla (círculo + texto de cruce y alerta roja de `ventana_conflictos`, `EtiquetaAccesorio`,
+    `InsigniaAviso`, C-n de `conflictos_view`) son los MISMOS ítems de siempre pero NO entran a la escena:
+    `Main._marca(it)` → `GrupoMarcas.agregar` (uno por redibujo, `self._marcas`) las pone en la `_Capa` de su Z
+    (un ítem de la escena por Z), que las pinta con su propio `paint` como Qt pinta un ítem que ignora el zoom
+    (punto → pantalla + su transformación, mismo orden), solo las de los rectángulos a repintar
+    (`paintEngine().systemClip()`: la cruz del cursor = dos franjas; Qt no lo deja como recorte del pintor) y
+    por celdas. Tooltip: `hoverMoveEvent` → `tooltip_en` (la marca de más arriba cuya forma contiene el
+    cursor, como `QGraphicsScene.helpEvent`). Siguen en `_overlay` (las pruebas y listas los leen); el borrado
+    del redibujo solo saca de la escena lo que está en ella. Reuso: `_reusar_marca(clave)`/`_guardar_marca` —
+    clave = todo lo que define el aspecto (tipo, punto, estado, texto) → el MISMO objeto del redibujo anterior
+    con su tooltip renovado. Además: `_union_civil` memorizado (`_memo`), plumas/fuente/medida del texto de
+    cruce una vez, `memo_modelo.copia` con pickle, y al abrir un solo redibujo (`_redibujo_diferido`). Igualdad
+    verificada: píxeles y tooltips de 15 vistas con y sin capas / con y sin reuso = 0 diferencias. «PRUEBA
+    AGUA 2»: abrir 30 → 20 s, redibujo 22 → 10 s, mover el ratón 1.3 → 0.6 s; zoom ~igual (pinta todo lo
+    visible). Probado y descartado: `DeviceCoordinateCache` en las capas (ratón 0.12 s pero cada zoom 4 s).
+    Tests: `tests/test_capa_marcas.py`.
+    **2.º reporte (2026-10-17)**: (1) la cruz «borraba» etiquetas: el recorte del sistema va en px FÍSICOS de
+    la VENTANA (desplazamiento de la vista + escala de pantalla 125 %) → se lleva con `deviceTransform`, no con
+    `worldTransform` (en las pruebas offscreen la escala es 1 y el desplazamiento 0: no se veía; la prueba
+    `test_repintado_parcial_no_borra_marcas` repinta solo la franja con `vp.render(img, desplazamiento,
+    región)` a 1.25). Descarte exacto por la CAJA de cada marca (numpy), no solo por el margen de la mayor.
+    (2) SELLOS: `capa_marcas.sello(item, clave)` o `sello(item, partes=[(clave, fases, rect, pintar)])` = el
+    aspecto se dibuja UNA vez por (clave, escala de pantalla, fase de subpíxel en pasos de 1/`FASES`=2) y se
+    copia con `drawPixmap` alineado al píxel físico; la escala es la REAL del pintor (`deviceTransform` con el
+    mundo identidad: al renderizar a una imagen `device()` puede ser la vista con otra escala). La etiqueta del
+    accesorio va por PARTES (`EtiquetaAccesorio.partes_sello`: fondo con 2 fases, texto con 1): en AGUA 2 hay
+    ~3 600 textos distintos («Codo 12.34°»). Memoria tope `MAX_MB`=192 (se vacía). Las marcas sin clave se
+    pintan como antes. Diferencia con lo que dibuja Qt: bordes de ≤¼ px y letras que el ajuste de fuente
+    corre 1 px. OJO: `QTransform.type()` es un enum NO ordenable (`.value`); una excepción dentro de un
+    `paint` con `painter.save()` sin `restore()` tumba el proceso: `_pintar_marcas` va en try/finally.
+    (3) Redibujo: `_poly(reuso=("pipe", i))` reusa los segmentos de la utilidad si el objeto de puntos
+    memorizado es el MISMO y el aspecto igual (`_lineas`/`_lineas_previas`; lo no reusado se quita en
+    `_soltar_lineas_previas`; un segmento rehecho —el seleccionado— queda encima de los demás de su Z); la
+    clasificación de los cruces (`_clasificar`), los textos/globos de las etiquetas (`accesorios_view.preparar`)
+    y el índice de vértices de los buzones van por `_memo`; `_Capa.agregar` avisa a la escena solo si la caja
+    crece y guarda punto/caja/ids en la marca. AGUA 2: zoom ~8 s → 0.2–0.5 s, redibujo ~4 s → ~1 s, ratón de
+    cerca ~30 ms (vista entera ~180 ms: la cruz cruza ~16 mil marcas), desplazar ~8 ms. `nucleo/limpieza.py`
+    (`_duplicadas`, `_unir_puntas`, `_sueltas`) con `IndicePuntos`/`IndiceUtilidades`, mismo orden: «Exportar»
+    con 16 761 utilidades no terminaba (> 5 min) → 1.6–5 s (`test_limpieza_con_indices_igual_que_todo_con_todo`).
+    Queda en «PDF + anotaciones»: digitalizar el PDF (`PipelineWorker`, 198 s, DXF base de 132 MB) + releerlo
+    (30 s) + guardar (~32 s).
+    **Nivel de detalle y redibujo (3.er pedido, mismo día)**: `capa_marcas` partido en `capa_marcas_sellos.py`
+    (`sello`, cajas, `_hacer_sello`) y `capa_marcas_vista.py` (`CacheVistaMixin`, `DespejeMixin`). RÓTULOS:
+    `sello(it, clave, rotulo=True)` o el 5.º valor de cada parte (`EtiquetaAccesorio.partes_sello`: rombo = punto;
+    guía+pastilla y texto = rótulo; C-n = rótulo entero); `despeje_rotulos.despejar` (PURO, voraz por prioridad:
+    Z más alta y orden de llegada, rejilla de 64 px) una vez por escala y región de la vista ±50 %
+    (`GrupoMarcas.rotulos_visibles`; desplazar dentro de la región no lo rehace); los rótulos se pintan DESPUÉS
+    de los puntos de su capa; un rótulo oculto no da tooltip (sí su punto). `DESPEJAR` (en `capa_marcas_vista`)
+    lo apaga (pruebas de «se ve igual»). IMAGEN DE LA VISTA (`_con_cache`, capas ≥ `CACHE_MIN`=300 marcas): con
+    la vista quieta la capa se pinta UNA vez en una imagen alineada al píxel físico y repintar (la cruz) es
+    copiarla; se arma al pintar la vista entera o al repetirse la vista; la fase de subpíxel sale SIEMPRE de la
+    transformación del pintor tal cual (`inv_w·D` traía 382.5000000000018 y cambiaba empates de redondeo).
+    REUSO DE CAPAS: `_firma_marcas()` (firma del modelo + `chk_show_conflicts`/`act_show_acc`/`act_show_normas`);
+    si no cambió, las MISMAS capas siguen en la escena (`_marcas_vigentes`: cruces, alertas, C-n, etiquetas e
+    insignias no se rehacen; los hits sí se calculan). OJO: una marca nueva que dependa de otro estado suma ese
+    estado a `_firma_marcas`. AGUA 2: ratón a vista entera ~85 ms, zoom 0.17–0.38 s, elegir ~0.7 s.
+    EXPORTAR: `exportar/cache_digitalizado.py` (PURO; clave = sha1 del PDF + hojas + código del pipeline —los
+    .py de la raíz, o versión + ejecutable en el .exe—; `MAX_ARCHIVOS`=4, `MAX_MB`; `PDFCAD_CACHE_DIGITALIZADO`,
+    las pruebas a tmp) → `run_pipeline` reusa el DXF base; `ui/comun/en_hilo.ejecutar` (hilo + bucle local +
+    capa «Cargando…», `cancelable`) para leer (con «Cancelar») y guardar el DXF (`_guardar_dxf_en_hilo`);
+    digitalizar con «Cancelar» (`_export_tok`: el resultado de una cancelada se descarta). `limpieza_tramos.
+    cajas_de(pipes)` + `al_dia`: `compartido` solo prueba las utilidades cuya caja contiene el punto (mismo
+    resultado; `_sin_tramos_diminutos` y `limpieza` lo usan) y copias con `memo_modelo.copia`: fusión 14 → 3.2 s.
+    Tests: `tests/test_capa_marcas.py`, `tests/test_exportar_rapido.py`, `tests/test_limpieza.py`.
+    **Utilidades en UNA capa (2026-10-18)**: `ui/comun/capa_lineas.CapaLineas` (un ítem a `Z_MARK`, en el lugar
+    del orden donde iban los segmentos) pinta cada utilidad con `drawLines` y su pluma cosmética
+    (`Main._pluma_utilidad`), en orden; solo las que tocan lo que hay que repintar (cajas en numpy, recorte del
+    sistema en px físicos como `capa_marcas`); `cerrar()` fija la caja tras agregar todo. Segmentos por
+    utilidad en `Main._lineas_cache` mientras la polilínea memorizada sea el MISMO objeto. Reemplaza al reuso
+    por segmento (`_poly(reuso=)`, quitado). Igual píxel a píxel que un `QGraphicsLineItem` por segmento
+    (`tests/test_capa_lineas.py`, 100 % y 125 %, cruz incluida). AGUA 2: ratón a vista entera 85 → 23 ms, zoom
+    0.14–0.30 s, abrir ~16 s. Medido (sin tocar): editar un vértice ~8 s (redibujo con el modelo cambiado
+    6.7 s), deshacer/rehacer ~9 s, guardar .digproj 7.6 s, autoguardado 0.13 s en la ventana, Vista 3D: armar
+    la escena ~94 s en otro hilo (19 908 accesorios; el ~390 s de antes era con `tracemalloc`).
+    **Editar, deshacer y 3D (2026-10-18, «sin romper nada»)**, todo EXACTO: `memo_modelo.Memo` recuerda los
+    `PREVIOS`=2 modelos anteriores (firma → resultados): deshacer/rehacer VUELVE a una firma ya vista y retoma lo
+    suyo; la firma es por VALOR (`pickle` en modo `fast`, sin memoria de referencias: tras deshacer los objetos se
+    comparten de otra manera y con el pickle normal la firma cambiaba). `model_ops.memo_cotas` guarda además las
+    cotas de TODOS los tramos de cada utilidad (`_cota_de_tramo`); `junturas_excedidas` con celdas de 2.5·tol y la
+    cota de un extremo solo en los grupos de más de `maximo`; `accesorio_en_punto` salta los tramos cuya caja queda
+    a más de tol (con holgura de redondeo); `normas_validar.validar` calcula los tipos de cada capa una vez;
+    `_refresh_lists` un muestrario por capa; `normas_catalogo.clave` memorizada. 3D: `mallas3d._cruz`/`_norma`
+    (mismos bits que `np.cross`/`np.linalg.norm` sin su costo fijo) y `_circulo_unidad`, `accesorios3d.cortar` en
+    floats de Python, `accesorios` con `redes` precalculadas, índice de los codos fundidos y vecinos 5×5 por celda.
+    Verificado: foto del redibujo (9 casos con AGUA 2) y foto 3D bit a bit (7 casos) = idénticas; prueba
+    `test_deshacer_reusa_el_redibujo_anterior_y_da_lo_mismo`. AGUA 2: deshacer ~9 → ~3 s, editar ~9 → ~8 s (queda
+    recalcular accesorios y cruces de todas las utilidades: haría falta un cálculo por zonas), 3D ~94 → ~28 s.
+    OJO pruebas: cada prueba de ventana deja su `Main` viva (ya pasaba antes) y `test_theme.py` aplica el tema a
+    TODAS (80 ventanas ≈ 160 s, crece más que lineal): en la batería completa se queda «colgado» ahí; correrlo
+    aparte. `test_paneles.py` (3) y `escenarios/test_presentacion_131.py` (avisos de ángulo ya ocultos) fallan
+    también en `d0cd77f`.
+    **Sin trabas con proyectos enormes (2026-10-19, «dibujar, leader, deshacer, Esc… demora bastante»)**. (1) Con
+    el MISMO modelo (firma) el redibujo reusa: la capa de líneas (`CapaLineas.cambiar_pluma` solo para las que
+    se eligen/sueltan, `Main._capa_lineas` = (firma + colores, capa, elegidas, con T1/T2); el bucle solo recorre
+    elegidas + las de etiquetas de tramo), los resultados de accesorios/avisos (`_resultados_acc`) y de cruces/
+    conflictos (`_resultado_conflictos`, clave = firma + firma de `cross_connections` tras podar, solo con
+    `_marcas_vigentes`): Esc/elegir/modo 1.1–1.6 → ~0.2 s. Ojo: el orden de apilado con las capas de marcas de
+    igual Z es el del redibujo COMPLETO (líneas debajo). `_lineas_de_utilidad` reusa por VALOR de los puntos.
+    (2) CÁLCULO vs DIBUJO: `ui/ventana/ventana_calculo.CalculoPlanoMixin` (`_calcular_cruces`,
+    `_calcular_accesorios`, `_preparar_etiquetas`, `_calcular_vertices_buzones`) = lo de antes, movido tal
+    cual, mismas claves de `_memo`. (3) `ui/ventana/calculo_fondo.py`: modelo ≥ `UMBRAL`=3000 utilidades
+    (`PDFCAD_CALCULO_FONDO_MIN`) y firma nueva sin resultados → redibujo PROVISIONAL (`_provisional`: líneas,
+    buzones… al instante; marcas de antes a la vista, sus listas vacías = sin acciones; el grupo provisional
+    va SIN firma, si no el redibujo final lo tomaba por vigente y no dibujaba nada) y `Calculo` (copia del
+    modelo + los mismos métodos prestados de las mezclas) corre en el trabajador `proceso` «plano» (+ «plano-2»
+    si `proceso_hijo.paralelos` deja: «cruces» y «accesorios» a la vez; un HILO no sirve: el GIL hacía que
+    pintar 16 761 utilidades tardara 7 s); al volver, sus claves entran al memo de esa firma y se redibuja.
+    `_resultados_al_dia()` espera (Tabla de datos, normativas, Vista 3D, aprobar). Mensaje «Actualizando
+    conflictos y avisos…». AGUA 2: editar → ventana libre ~1.7–2.4 s (antes ~8 s), avisos ~8 s; deshacer/
+    rehacer ~3 s (memo previo). Recálculo por ZONAS: no hecho (el orden global de cada resultado lo hace
+    delicado). Tests: `tests/test_calculo_fondo.py`, `tests/test_capa_lineas.py`.
+    **Guardar el DXF** (mismo día): `exportar/dxf_rapido.guardar` (lo usa `Main._guardar_dxf_en_hilo`) cambia,
+    solo mientras guarda, `DXFNamespace.export_dxf_attribs` / `_export_dxf_attribute_optional` de ezdxf por la
+    MISMA lógica sin objetos intermedios (definiciones por lista de nombres una vez, texto `"%3d
+%s
+"`,
+    vértices `float` ≤3 componentes como `DXFVertex`; solo con `TagWriter`, otro escritor = el de ezdxf). AGUA 2
+    (597 mil entidades): 32 → 17 s, archivo idéntico salvo hora/GUID/marca de ezdxf (cambian en todo guardado).
+    OJO al actualizar ezdxf (hoy 1.4.4): correr `tests/test_dxf_rapido.py`. Medido: leer el DXF base 30 s y
+    fusionar 42 s (zonas borradas/georref sobre las 600 mil entidades).
   - **Unir utilidades** (2026-10-02): `unir_utilidades.py` (PURO) `planificar(pipes, filas, base,
     ft_per_px)` → `Plan` (pipe unida, empalmes, absorbidas, avisos): encadena punta con punta desde la
     BASE (la 1.ª seleccionada, `Main._orden_sel`; sus datos mandan), `invertir` las que van al revés,

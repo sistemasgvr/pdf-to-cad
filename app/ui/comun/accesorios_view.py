@@ -12,6 +12,7 @@ from nucleo import accesorios as acc
 from nucleo.normas_validar import NOMBRE_ACC
 from traduccion.i18n import t as _tr
 from nucleo.model import Z_HANDLE
+from ui.comun.capa_marcas import sello
 from ui.comun.ui_common import layer_qcolor, tooltip_bloque
 
 _COLORES = {                    # (fondo, texto, borde)
@@ -49,17 +50,43 @@ class EtiquetaAccesorio(QtWidgets.QGraphicsItem):
         p = QtGui.QPainterPath(); p.addRect(self.boundingRect()); return p
 
     def paint(self, painter, _opt, _w=None):
+        self._pintar_rombo(painter)
+        self._pintar_fondo(painter)
+        self._pintar_texto(painter)
+
+    def partes_sello(self):
+        """Para `capa_marcas.sello`: el rombo es el PUNTO (siempre se ve); la guía con la pastilla
+        (se repite en miles de etiquetas) y el texto (uno por texto) son el RÓTULO (nivel de detalle)."""
+        p = self._pastilla
+        tam = (round(p.width(), 4), round(p.height(), 4))
+        r = self.R + 2
+        rombo = ("acc-rombo", self._red.rgba())
+        fondo = ("acc-fondo",) + tam + (self._borde.rgba(), self._fondo.rgba())
+        texto = ("acc-texto", self._texto, self._font.key(), self._letra.rgba()) + tam
+        guia = QtCore.QRectF(QtCore.QPointF(self.R * 0.7, -self.R * 0.7), p.bottomLeft() + QtCore.QPointF(2, 0))
+        return ((rombo, 2, QtCore.QRectF(-r, -r, 2 * r, 2 * r), self._pintar_rombo, False),
+                (fondo, 2, p.united(guia.normalized()).adjusted(-2, -2, 2, 2), self._pintar_fondo, True),
+                (texto, 1, p.adjusted(-2, -2, 2, 2), self._pintar_texto, True))
+
+    def _pintar_rombo(self, painter):
         painter.setRenderHint(QtGui.QPainter.Antialiasing)
         r = self.R
         rombo = QtGui.QPolygonF([QtCore.QPointF(0, -r), QtCore.QPointF(r, 0),
                                  QtCore.QPointF(0, r), QtCore.QPointF(-r, 0)])
         painter.setPen(QtGui.QPen(QtGui.QColor(20, 20, 20), 1.2))
         painter.setBrush(self._red); painter.drawPolygon(rombo)
+
+    def _pintar_fondo(self, painter):
+        painter.setRenderHint(QtGui.QPainter.Antialiasing)
+        r = self.R
         # guía fina rombo → pastilla
         painter.setPen(QtGui.QPen(self._borde, 1.0))
         painter.drawLine(QtCore.QPointF(r * 0.7, -r * 0.7), self._pastilla.bottomLeft() + QtCore.QPointF(2, 0))
         painter.setPen(QtGui.QPen(self._borde, 1.5)); painter.setBrush(self._fondo)
         painter.drawRoundedRect(self._pastilla, 6, 6)
+
+    def _pintar_texto(self, painter):
+        painter.setRenderHint(QtGui.QPainter.Antialiasing)
         painter.setPen(self._letra); painter.setFont(self._font)
         painter.drawText(self._pastilla, QtCore.Qt.AlignCenter, self._texto)
 
@@ -87,21 +114,42 @@ def tooltip_accesorio(a, avisos):
     return "\n".join(lineas)
 
 
-def dibujar(scene, accesorios, avisos, tol_px):
-    """Agrega las etiquetas a `scene` y devuelve los items (van al overlay)."""
-    items = []
+def preparar(accesorios, avisos, tol_px):
+    """Lo que dice cada etiqueta: [(texto, capa, nivel, x, y, globo)]. Solo depende del modelo (la
+    ventana lo reusa entre redibujos)."""
     # Avisos por celdas (`indice_plano`): antes cada accesorio recorría TODOS los avisos.
     # Mismo resultado que `en_punto` (no informativos ni aprobados, a ≤ tol, en su orden).
     from nucleo.indice_plano import IndicePuntos
     vivos = [v for v in avisos if not v.info and not v.aprobado]
     indice = IndicePuntos([(v.x, v.y) for v in vivos], tol_px if tol_px > 0 else 1.0)
+    out = []
     for a in accesorios:
         suyos = [vivos[k] for k in indice.en_radio(a["x"], a["y"], tol_px)]
         nivel = "recomendada" if suyos else None
         texto = texto_accesorio(a) + (" ⚠" if nivel else "")
-        it = EtiquetaAccesorio(texto, layer_qcolor(a["capa"]), nivel)
-        it.setPos(a["x"], a["y"])
-        it.setToolTip(tooltip_bloque(tooltip_accesorio(a, suyos)))
-        scene.addItem(it)
+        out.append((texto, a["capa"], nivel, a["x"], a["y"], tooltip_bloque(tooltip_accesorio(a, suyos))))
+    return out
+
+
+def dibujar(scene, accesorios, avisos, tol_px, poner=None, reusar=None, guardar=None, preparadas=None):
+    """Agrega las etiquetas a `scene` (o con `poner(item)`: la capa de marcas del lienzo,
+    `capa_marcas`) y devuelve los items (van al overlay). `reusar(clave)`/`guardar(clave, item)`: la
+    misma etiqueta del redibujo anterior si sale igual (`capa_marcas.GrupoMarcas`). `preparadas` =
+    `preparar(...)` ya hecho."""
+    items = []
+    if preparadas is None:
+        preparadas = preparar(accesorios, avisos, tol_px)
+    for texto, capa, nivel, x, y, globo in preparadas:
+        clave = ("accesorio", texto, capa, nivel, x, y)
+        it = reusar(clave) if reusar else None
+        if it is None:
+            color = layer_qcolor(capa)
+            it = EtiquetaAccesorio(texto, color, nivel)
+            sello(it, partes=it.partes_sello())
+            it.setPos(x, y)
+            if guardar:
+                guardar(clave, it)
+        it.setToolTip(globo)
+        (poner or scene.addItem)(it)
         items.append(it)
     return items

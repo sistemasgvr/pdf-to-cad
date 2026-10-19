@@ -142,6 +142,24 @@ def test_memo_reusa_con_la_misma_firma_y_olvida_al_cambiar():
     assert len(llamadas) == 4
 
 
+def test_memo_retoma_un_modelo_anterior():
+    """Deshacer / rehacer: el modelo VUELVE a una firma anterior → se retoma lo suyo (hasta PREVIOS)."""
+    m, llamadas = memo_modelo.Memo(), []
+
+    def calc(v):
+        return lambda: llamadas.append(v) or [v]
+    fa, fb, fc, fd = (memo_modelo.firma([{"a": v}]) for v in (1, 2, 3, 4))
+    m.usar(fa); assert m.obtener("k", calc(1)) == [1]
+    m.usar(fb); assert m.obtener("k", calc(2)) == [2]
+    m.usar(fa); assert m.obtener("k", calc(1)) == [1]          # deshacer: lo de A, sin recalcular
+    m.usar(fb); assert m.obtener("k", calc(2)) == [2]          # rehacer
+    assert llamadas == [1, 2]
+    m.usar(fc); m.obtener("k", calc(3))
+    m.usar(fd); m.obtener("k", calc(4))                        # A quedó fuera de los PREVIOS (2)
+    m.usar(fa); m.obtener("k", calc(1))
+    assert llamadas == [1, 2, 3, 4, 1]
+
+
 def test_copia_igual_a_deepcopy():
     from nucleo.normas_validar import Aviso
     v = [Aviso(1.0, 2.0, "angulo", "m", 3, "i"), {"a": [1, (2, [3])], "b": (4, 5)}, (1, {"c": [2]}), "x", None]
@@ -228,6 +246,26 @@ def test_lienzo_no_recalcula_si_nada_cambio(win, monkeypatch):
     assert len(llamadas) == 2
     win._memo_redibujo = None                          # = calcular de cero
     assert _foto(win) == cambiado
+
+
+def test_deshacer_reusa_el_redibujo_anterior_y_da_lo_mismo(win, monkeypatch):
+    _cargar(win, _azar(8, 60))
+    llamadas = []
+    original = model_ops.choques_sin_conexion
+    monkeypatch.setattr(model_ops, "choques_sin_conexion", lambda *a, **k: llamadas.append(1) or original(*a, **k))
+    antes = _foto(win)
+    win._push()
+    p = next(p for p in win.pipes if len(p["pts"]) >= 3)
+    x, y = p["pts"][1]
+    p["pts"][1] = (x + 11.0, y - 5.0)
+    despues = _foto(win)
+    win.undo()
+    deshecho = _foto(win)
+    assert len(llamadas) == 2 and deshecho == antes       # deshacer no recalculó
+    win._memo_redibujo = None                              # = calcular de cero
+    assert _foto(win) == antes
+    win.redo()
+    assert _foto(win) == despues
 
 
 # ───────────────── ratón (hover, imán, clic) y deshacer liviano ─────────────────

@@ -12,6 +12,7 @@ from __future__ import annotations
 from PySide6 import QtCore, QtGui, QtWidgets
 
 from nucleo.model import Z_HANDLE
+from ui.comun.capa_marcas import sello
 from ui.comun.ui_common import tooltip_bloque
 from traduccion.i18n import t as _tr
 
@@ -45,8 +46,10 @@ class InsigniaAviso(QtWidgets.QGraphicsItem):
         painter.drawText(self.boundingRect(), QtCore.Qt.AlignCenter, self._letra)
 
 
-def dibujar(scene, avisos, tol_px, con_accesorios_visibles):
-    """Agrega las insignias a `scene` y devuelve los items (van al overlay)."""
+def dibujar(scene, avisos, tol_px, con_accesorios_visibles, poner=None, reusar=None, guardar=None):
+    """Agrega las insignias a `scene` (o con `poner(item)`: la capa de marcas del lienzo,
+    `capa_marcas`) y devuelve los items (van al overlay). `reusar`/`guardar`: como en
+    `accesorios_view.dibujar`."""
     grupos = []                                       # [[x, y, [avisos]]]
     # Rejilla de celdas de `tol_px`: con cientos de avisos (ángulos de un plano reconocido)
     # comparar cada uno con todos los grupos trababa el redibujo. Mismo resultado: el grupo
@@ -68,12 +71,17 @@ def dibujar(scene, avisos, tol_px, con_accesorios_visibles):
             grupos.append([a.x, a.y, [a]])
     items = []
     for x, y, lista in grupos:
-        it = InsigniaAviso(all(a.info for a in lista))
-        it.setPos(x, y)
+        info = all(a.info for a in lista)
+        it = reusar(("aviso", info, x, y)) if reusar else None
+        if it is None:
+            it = sello(InsigniaAviso(info), ("aviso", info))
+            it.setPos(x, y)
+            if guardar:
+                guardar(("aviso", info, x, y), it)
         quien = sorted({a.pipe + 1 for a in lista if a.pipe is not None and a.pipe >= 0})
         cab = _tr("Utilidad {n}").format(n=", ".join(f"#{k}" for k in quien)) if quien else ""
         texto = "\n".join(([cab] if cab else []) + [("ⓘ " if a.info else "⚠ ") + a.mensaje for a in lista])
         it.setToolTip(tooltip_bloque(texto))
-        scene.addItem(it)
+        (poner or scene.addItem)(it)
         items.append(it)
     return items

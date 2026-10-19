@@ -27,6 +27,7 @@ from __future__ import annotations
 import copy
 import json
 import os
+import functools
 import re
 import unicodedata
 
@@ -91,7 +92,13 @@ BASE = {
 
 def clave(texto):
     """Para comparar nombres: sin tildes, en mayúsculas y con espacios simples."""
-    s = unicodedata.normalize("NFKD", str(texto or "")).encode("ascii", "ignore").decode()
+    return _clave(str(texto or ""))
+
+
+@functools.lru_cache(maxsize=4096)
+def _clave(texto):
+    # memorizada: con miles de utilidades se pedía ~800 mil veces por redibujo (los mismos pocos textos)
+    s = unicodedata.normalize("NFKD", texto).encode("ascii", "ignore").decode()
     return re.sub(r"\s+", " ", s).strip().upper()
 
 

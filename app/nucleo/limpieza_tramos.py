@@ -22,12 +22,21 @@ de tramos diminutos de la utilidad sin cambiar ni recortar ninguna otra curva:
 
 Las curvas se calculan como el editor y el plugin (`model_ops.fillet_geo`, mismos
 topes). `ft` = pies por px del lienzo.
+
+Rendimiento (2026-10-17, 16 761 utilidades: exportar tardaba ~11 s solo aquí): dentro de
+`with cajas_de(pipes):` `compartido` prueba solo las utilidades cuya caja (agrandada por la
+tolerancia) contiene el punto —las demás no pueden tocarlo— y `arreglar` pone al día la caja
+de la utilidad que cambió. Mismo resultado.
 """
 from __future__ import annotations
 
+import contextlib
 import copy
 import math
+import threading
 from dataclasses import dataclass
+
+import numpy as np
 
 from nucleo import model_ops
 
@@ -80,8 +89,57 @@ def toca(q, pts, tol):
 
 def compartido(pipes, i, q, tol):
     """¿Otra utilidad pasa por q (vértice o tramo)? Entonces es una unión."""
+    c = getattr(_cajas, "v", None)
+    if c is not None and c.pipes is pipes:            # solo las que pueden tocarlo (mismo resultado)
+        return any(j != i and not pipes[j].get("world") and toca(q, pipes[j].get("pts") or [], tol)
+                   for j in c.candidatas(q, tol))
     return any(j != i and not o.get("world") and toca(q, o.get("pts") or [], tol)
                for j, o in enumerate(pipes))
+
+
+class _Cajas:
+    """Caja (x0, y0, x1, y1) de los puntos de cada utilidad de `pipes`."""
+
+    def __init__(self, pipes):
+        self.pipes = pipes
+        self.c = np.full((len(pipes), 4), np.nan)
+        for i in range(len(pipes)):
+            self.actualizar(i)
+
+    def actualizar(self, i):
+        pts = self.pipes[i].get("pts") or []
+        if pts:
+            xs, ys = [p[0] for p in pts], [p[1] for p in pts]
+            self.c[i] = (min(xs), min(ys), max(xs), max(ys))
+        else:
+            self.c[i] = np.nan
+
+    def candidatas(self, q, tol):
+        c, t = self.c, tol + 1e-9
+        return np.flatnonzero((c[:, 0] - t <= q[0]) & (q[0] <= c[:, 2] + t)
+                              & (c[:, 1] - t <= q[1]) & (q[1] <= c[:, 3] + t)).tolist()
+
+
+_cajas = threading.local()
+
+
+@contextlib.contextmanager
+def cajas_de(pipes):
+    """Mientras dura, `compartido(pipes, …)` usa las cajas de `pipes` (ver arriba). Quien cambie
+    una utilidad fuera de `arreglar` llama `al_dia(pipes, i)`."""
+    previo = getattr(_cajas, "v", None)
+    _cajas.v = _Cajas(pipes)
+    try:
+        yield
+    finally:
+        _cajas.v = previo
+
+
+def al_dia(pipes, i):
+    """Pone al día la caja de la utilidad i (si hay `cajas_de(pipes)` activo)."""
+    c = getattr(_cajas, "v", None)
+    if c is not None and c.pipes is pipes:
+        c.actualizar(i)
 
 
 def _angulo(c, a, b):
@@ -394,4 +452,5 @@ def arreglar(pipes, structures, i, ft):
             break
     for _k, ini, fin, L in diminutos(pipes, structures, i, ft):
         cambios.append(Cambio("tramo", i, (ini[0] + fin[0]) / 2.0, (ini[1] + fin[1]) / 2.0, L, False))
+    al_dia(pipes, i)
     return cambios

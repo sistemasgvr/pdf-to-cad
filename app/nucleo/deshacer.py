@@ -40,10 +40,17 @@ class Paso:
         return sum(len(b) for b in self.blobs())
 
 
+# Valores que nunca contienen nada (ni son mutables): no hace falta apilarlos (2026-10-19: con 16 761
+# utilidades `_comparte` recorría cada número de cada coordenada, ~1 s por paso). Solo los tipos EXACTOS;
+# una subclase sigue el camino de siempre.
+_ATOMOS = frozenset((str, int, float, bool, type(None), bytes, complex))
+
+
 def _comparte(estado):
     """True si dos partes del estado (dos elementos de una lista, o una lista y otra clave)
     comparten un objeto mutable: `deepcopy` del estado entero lo conserva compartido."""
     vistos = {}
+    atomos = _ATOMOS
     for clave, valor in estado.items():
         dueños = enumerate(valor) if isinstance(valor, list) else [(None, valor)]
         for k, el in dueños:
@@ -51,8 +58,10 @@ def _comparte(estado):
             pila = [el]
             while pila:
                 o = pila.pop()
+                if type(o) in atomos:
+                    continue
                 if isinstance(o, tuple):
-                    pila.extend(o)
+                    pila.extend([x for x in o if type(x) not in atomos])
                     continue
                 if isinstance(o, dict):
                     hijos = list(o.keys()) + list(o.values())
@@ -64,7 +73,7 @@ def _comparte(estado):
                     continue
                 if vistos.setdefault(id(o), dueño) != dueño:
                     return True
-                pila.extend(hijos)
+                pila.extend([x for x in hijos if type(x) not in atomos])
     return False
 
 

@@ -28,8 +28,10 @@ def test_pendiente_por_tramo_y_total():
     assert tb[0].filas[0][tb[0].columnas.index("Pendiente (%)")] == pytest.approx(-1.0)
     titulo, filas = ficha3d.de_utilidad(tb, [q], [], 0, FT)
     d = dict(filas)
-    assert d["Pendiente (%)"] == "-1" and d["Pendiente por tramo (%)"] == "T1 -0.4 · T2 -1.6"
-    assert "Pendiente por tramo (%)" not in dict(ficha3d.de_utilidad(tb, [_p()], [], 0, FT)[1])   # todos iguales
+    # con cotas que cambian por tramo, la de cada tramo EN LUGAR de la de punta a punta (pedido 2026-10-16)
+    assert d["Pendiente por tramo (%)"] == "T1 -0.4 · T2 -1.6" and "Pendiente (%)" not in d
+    igual = dict(ficha3d.de_utilidad(tb, [_p()], [], 0, FT)[1])                    # todos iguales: una sola
+    assert "Pendiente por tramo (%)" not in igual and "Pendiente (%)" in igual
 
 
 def _leido(**fila):
