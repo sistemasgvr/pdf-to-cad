@@ -106,7 +106,10 @@ def trim_inkless_tails(polylines, ink_segs, pattern, glyphs, make_polyline):
     for i, pl in enumerate(polylines):
         pts, kinds = list(pl.pts), list(pl.kinds)
         changed = False
-        for end, step in ((0, 1), (len(pts) - 1, -1)):
+        for step in (1, -1):
+            # (el índice de la punta final se toma DESPUÉS de recortar la inicial: si ésta
+            # quitó un vértice, el de antes quedaba fuera de la lista)
+            end = 0 if step > 0 else len(pts) - 1
             if len(pts) < 2 or kinds[end] not in ("tee", "junction"):
                 continue
             a, b = pts[end], pts[end + step]

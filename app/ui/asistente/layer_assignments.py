@@ -13,7 +13,8 @@ from traduccion.i18n import t as _tr
 
 class LayerAssignmentsMixin:
     def _init_assignments(self, roles):
-        self._base_roles = {u: {k: list(v) for k, v in r.items()} for u, r in (roles or {}).items()}
+        self._base_roles = {u: {k: list(v) if isinstance(v, (list, tuple, set)) else v for k, v in r.items()}
+                            for u, r in (roles or {}).items()}
         self._assignments = {}
         self._assignment_name = None
         self._assignments_changed = False
@@ -25,11 +26,22 @@ class LayerAssignmentsMixin:
                     self._assignments[name] = (utility, role)
         self._map_legend = None            # (leyenda, asignadas, ambiguas) de un mapa sin capas
         self._legend_desc = {}             # capa virtual → descripciones de la leyenda
+        # utilidad → capas que asignó la leyenda de ESTA hoja (None: la hoja no tiene leyenda
+        # de mapa); viaja en los roles (`leyenda_mapa.CLAVE_LEYENDA`) para no llevarlas a otra hoja
+        self._ley_por_utilidad = None
         self._apply_map_legend()
 
+    def _roles_de_esta_hoja(self) -> bool:
+        """¿Los roles previos se eligieron en ESTA hoja (volver de la vista previa)? Los de otra
+        llegan sin lo que puso su leyenda (`leyenda_mapa.roles_de_otra_hoja`)."""
+        base = self._base_roles
+        return (any(leyenda_mapa.CLAVE_LEYENDA in r for r in base.values())
+                and not any(r.get(leyenda_mapa.SUMAR_LEYENDA) for r in base.values()))
+
     def _apply_map_legend(self):
-        """Mapa sin capas con leyenda legible: lo que ella dice, asignado (si el usuario aún
-        no eligió roles: con roles previos, mandan los suyos)."""
+        """Mapa sin capas con leyenda legible: lo que ella dice, asignado. Con roles elegidos en
+        esta misma hoja, mandan los suyos tal cual; los traídos de otra hoja (lo puesto a mano)
+        van encima de lo que dice la leyenda de ésta."""
         if not any(L.get("source") == "style" for L in self._layers_raw):
             return
         page = self._doc[self._page_index]
@@ -39,16 +51,39 @@ class LayerAssignmentsMixin:
         if not ley.filas:
             return
         self._legend_desc = leyenda_mapa.descripciones(ley)
-        if self._base_roles:
+        if self._roles_de_esta_hoja():
+            self._ley_por_utilidad = {u: list(r.get(leyenda_mapa.CLAVE_LEYENDA) or ())
+                                      for u, r in self._base_roles.items() if leyenda_mapa.CLAVE_LEYENDA in r}
             return
         en_mapa = {L['name']: int(L.get('path_count') or 0) for L in self._layers_raw}
         asig, amb = leyenda_mapa.asignaciones(ley, en_mapa)
         self._map_legend = (ley, asig, amb)
+        self._ley_por_utilidad = {}
+        a_mano = {n for r in self._base_roles.values()
+                  for role in (rec.ROLE_LINEAS, rec.ROLE_BUZONES) for n in r.get(role) or ()}
         for name, (utility, role) in asig.items():
+            self._ley_por_utilidad.setdefault(utility, []).append(name)
+            if name in a_mano:
+                continue
             self._assignments[name] = (utility, role)
             self._touched_utilities.add(utility)
         if asig:
             self._assignments_changed = True
+
+    def _legend_for_new_sheet(self):
+        """◀ ▶ a otra hoja de un mapa con leyenda: su leyenda decide sus estilos (lo elegido a
+        mano en la anterior sigue). Sin leyenda de mapa en la nueva, todo queda como estaba."""
+        page = self._doc[self._page_index]
+        if not (any(L.get("source") == "style" for L in self._layers_raw) and leyenda_mapa.aplica(page)
+                and leyenda_mapa.leer(self._doc, page).filas):
+            return
+        self._init_assignments(leyenda_mapa.roles_de_otra_hoja(self.roles_by_utility()))
+        lbl = getattr(self, "lbl_map_legend", None)
+        if lbl is not None:
+            texto, detalle = self._map_legend_summary()
+            lbl.setText(texto)
+            lbl.setToolTip(detalle)
+            lbl.setVisible(bool(texto))
 
     def _map_legend_summary(self):
         """(texto corto, detalle para el tooltip) de lo que asignó la leyenda; ("", "") sin ella."""
@@ -195,5 +230,7 @@ class LayerAssignmentsMixin:
             for name, (assigned, role) in self._assignments.items():
                 if assigned == utility and role in roles and name not in roles[role]:
                     roles[role].append(name)
+            if self._ley_por_utilidad is not None:
+                roles[leyenda_mapa.CLAVE_LEYENDA] = list(self._ley_por_utilidad.get(utility, ()))
             out[utility] = roles
         return out

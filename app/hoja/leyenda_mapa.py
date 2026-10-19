@@ -119,6 +119,8 @@ class LeyendaMapa:
     # hoja COMPUESTA: las filas de la leyenda de CADA hoja (`leyenda_mapa_lectura`); cada una
     # decide como en su hoja suelta y `asignaciones` junta por mayoría
     por_hoja: List[List[FilaMapa]] = field(default_factory=list)
+    # …y la pieza (orden de dibujo, `inicios_de_piezas`) de cada una de esas leyendas (None si no se sabe)
+    piezas: List[Optional[int]] = field(default_factory=list)
 
 
 # ── significado de una descripción ──────────────────────────────────────────
@@ -268,6 +270,46 @@ def _asignaciones(ley: LeyendaMapa, en_mapa: Dict[str, int]) -> Tuple[Dict[str, 
         if n and acometidas_mapa.es_capa(capa):
             out[capa] = (acometidas_mapa.utilidad_de(capa), ROL_LINEAS)
     return out, ambiguas
+
+
+# ── roles de una hoja usados en OTRA ────────────────────────────────────────
+# Reporte del usuario (2026-10-19, Water North + South compuesta de 10 mapas): tras reconocer
+# una hoja suelta, la hoja compuesta abría «Capas de la hoja» con los roles de AQUELLA hoja y
+# su leyenda ya no se aplicaba: solo las piezas con los mismos grosores quedaban como agua. Los
+# estilos que asigna la leyenda son de SU hoja (cada pieza trae sus grosores y cambian con la
+# escala de la pieza); lo que el usuario eligió a mano sí sigue.
+CLAVE_LEYENDA = "leyenda"         # en los roles de una utilidad: capas que asignó la leyenda de su hoja
+SUMAR_LEYENDA = "sumar_leyenda"   # roles traídos de otra hoja: + lo que diga la leyenda de ésta
+
+
+def roles_de_otra_hoja(roles_por_utilidad: Optional[dict]) -> dict:
+    """Roles elegidos en otra hoja, para usarlos en ésta: sin lo que puso la leyenda de aquella
+    (`CLAVE_LEYENDA`); lo elegido a mano queda, marcado `SUMAR_LEYENDA` (la leyenda de esta hoja
+    se suma). Una utilidad sin nada a mano sale: decide la leyenda, como en una hoja nueva. Sin
+    `CLAVE_LEYENDA` (capas con nombre, PDF aplanado sin leyenda) no cambia nada."""
+    out = {}
+    for u, roles in (roles_por_utilidad or {}).items():
+        roles = dict(roles or {})
+        if CLAVE_LEYENDA not in roles:
+            out[u] = roles
+            continue
+        de_leyenda = set(roles.get(CLAVE_LEYENDA) or ())
+        manual = {r: [n for n in roles.get(r) or () if n not in de_leyenda] for r in (ROL_LINEAS, ROL_ESTRUCTURAS)}
+        if any(manual.values()):
+            out[u] = dict(manual, **{SUMAR_LEYENDA: True})
+    return out
+
+
+def roles_con_leyenda(asig: Dict[str, Tuple[str, str]], utilidad: str, roles: Optional[dict] = None) -> dict:
+    """Roles de `utilidad` en esta hoja: lo que dice su leyenda (`asignaciones`) y, encima, lo
+    elegido a mano (`roles`, de `roles_de_otra_hoja`), que manda. Sin `roles`, la leyenda tal cual."""
+    lin = [n for n, (u, r) in asig.items() if u == utilidad and r == ROL_LINEAS]
+    est = [n for n, (u, r) in asig.items() if u == utilidad and r == ROL_ESTRUCTURAS]
+    man_l = list((roles or {}).get(ROL_LINEAS) or ())
+    man_e = list((roles or {}).get(ROL_ESTRUCTURAS) or ())
+    lin = [n for n in lin if n not in man_e] + [n for n in man_l if n not in lin]
+    est = [n for n in est if n not in man_l] + [n for n in man_e if n not in est]
+    return {ROL_LINEAS: lin, ROL_ESTRUCTURAS: est}
 
 
 def descripciones(ley: LeyendaMapa) -> Dict[str, List[str]]:

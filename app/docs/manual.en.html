@@ -284,7 +284,12 @@ editor</span> leaves it as the background to draw by hand.</p>
     line stays joined to its pipe with a NULL node (no visible manhole); the manholes are those of the
     network. When recognizing, each pipe takes
     the diameter written next to it («6"», «8" DIP») and the legend manhole stays on its line. Always review
-    before continuing: everything can be changed like any assignment.</li>
+    before continuing: everything can be changed like any assignment. Each sheet uses <b>its own</b> legend:
+    what the legend assigned on one sheet does not carry over to another (what you assigned by hand does).
+    On a <b>composed sheet</b> of maps each piece is read with its own legend, and if two maps draw the same
+    line («Standard Main») with a different weight they are recognized as a single layer; at the joins
+    between sheets the pipe continues from one to the other (the preview counts them in «Seams of the
+    composed sheet»).</li>
 <li><b>Scale:</b> the <b>Scale 1"=X'</b> button at the bottom shows the sheet's scale, read from its text.
     If the text cannot be read or the PDF is printed reduced (the title block says 1"=100' and it is not),
     correct it <b>before continuing</b>: <b>Calibrate with a known distance…</b> (two clicks on the sheet and the

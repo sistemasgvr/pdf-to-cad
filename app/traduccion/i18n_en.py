@@ -3489,4 +3489,6 @@ EN: dict[str, str] = {
     'En una hoja compuesta, el esquema de sus hojas abajo a la izquierda: clic = ir a esa hoja.': 'On a composed sheet, the layout of its sheets at the bottom left: click = go to that sheet.',
     'Marcas de las hojas': 'Sheet marks',
     'En una hoja compuesta, el borde y el código de cada hoja, tenues, sobre el plano. No se exportan ni tapan nada.': 'On a composed sheet, the outline and code of each sheet, faint, over the plan. They are not exported and cover nothing.',
+    'Hoja compuesta: {n} estilo(s) de las piezas se reconocen junto con el mismo tipo de tubería de las demás (la leyenda de cada hoja dice que es la misma línea).': 'Composed sheet: {n} style(s) of the pieces are recognized together with the same pipe type of the others (the legend of each sheet says it is the same line).',
+    'Costuras de la hoja compuesta: {n} — la tubería sigue de una hoja a la otra (sus puntas quedaban a menos de {d} pt).': 'Seams of the composed sheet: {n} — the pipe continues from one sheet to the next (its ends were less than {d} pt apart).',
 }

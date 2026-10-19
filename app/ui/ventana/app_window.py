@@ -39,6 +39,7 @@ from reconocimiento import recognition as _recognition
 from reconocimiento import recognition_cache
 from ui.ventana import respaldo_editor
 from hoja import composite as composite_mod
+from hoja import leyenda_mapa
 from ui.asistente import composite_dialog
 import project_io
 from nucleo import model_ops
@@ -111,6 +112,7 @@ class Main(MenuMixin, PanelIzquierdoMixin, PanelDerechoMixin, ModosMixin, ClicsM
         self.hidden_ocgs = []   # capas OCG ocultas en el paso «Capas de la hoja» (por PDF abierto)
         self.hidden_ocgs_by_source = {}  # selección de capas por PDF de la organización
         self._layer_roles_by_utility = {}  # roles OCG manuales separados por utilidad
+        self._layer_roles_hoja = None      # hoja (`_clave_hoja`) en la que se eligieron esos roles
         self._letters_off = set()  # capas que NO se reconocen por las letras de su línea (paso «Capas»)
         self._legend_cache = {}    # leyenda del PDF ya leída (paso «Capas»), por PDF de origen
         self._recognition_utilities = _recognition.DEFAULT_UTILITIES
@@ -300,6 +302,7 @@ class Main(MenuMixin, PanelIzquierdoMixin, PanelDerechoMixin, ModosMixin, ClicsM
             self.hidden_ocgs = []   # capas OCG ocultas por el usuario (paso «Capas de la hoja»)
             self.hidden_ocgs_by_source = {}
             self._layer_roles_by_utility = {}
+            self._layer_roles_hoja = None
             self._letters_off = set()
             self._recognition_utilities = _recognition.DEFAULT_UTILITIES
             self._recog_ready = False
@@ -506,7 +509,7 @@ class Main(MenuMixin, PanelIzquierdoMixin, PanelDerechoMixin, ModosMixin, ClicsM
                                                       recognition_utilities=self._recognition_utilities,
                                                       can_go_back=bool(self.src_pdfs),
                                                       letters_off=self._letters_off,
-                                                      roles_by_utility=self._layer_roles_by_utility,
+                                                      roles_by_utility=self._roles_de_la_hoja(page_idx),
                                                       include_roles=True,
                                                       scale_ft_per_pt=self._scale_editable(),
                                                       legend_sources=self._legend_sources(),
@@ -531,6 +534,7 @@ class Main(MenuMixin, PanelIzquierdoMixin, PanelDerechoMixin, ModosMixin, ClicsM
         # Los roles (qué capas son líneas / bóvedas) se asignan solos por
         # nombre y se muestran en el preview; «Ajustar capas…» los cambia.
         self._layer_roles_by_utility = chosen[4] if len(chosen) > 4 else {}
+        self._layer_roles_hoja = self._clave_hoja(page_idx)
         if len(chosen) > 5 and chosen[5]:
             self._calibrated_scale(chosen[5])          # «Escala» de «Capas de la hoja»
         self._load_sheet_busy(page_idx)
@@ -898,10 +902,25 @@ class Main(MenuMixin, PanelIzquierdoMixin, PanelDerechoMixin, ModosMixin, ClicsM
             utility = utilities[0]
         all_layers = _pdf_layers.without_letters(_pdf_layers.page_layers(self.doc, page_idx), self._letters_off)
         visible = [L for L in all_layers if L["name"] not in set(self.hidden_ocgs)]
+        base = dict(self._roles_de_la_hoja(page_idx))
+        actual = dict(base.get(utility) or {})
+        if actual.get(leyenda_mapa.SUMAR_LEYENDA):
+            # roles traídos de otra hoja: lo que se reconoció = lo puesto a mano + la leyenda de ésta
+            page = self.doc[page_idx]
+            ley = leyenda_mapa.leer(self.doc, page) if leyenda_mapa.aplica(page) else None
+            if ley is not None and ley.filas:
+                asig, _amb = leyenda_mapa.asignaciones(
+                    ley, {L["name"]: int(L.get("path_count") or 0) for L in all_layers})
+                actual = dict(leyenda_mapa.roles_con_leyenda(asig, utility, actual), **{
+                    leyenda_mapa.CLAVE_LEYENDA: [n for n, (u, _r) in asig.items() if u == utility]})
         roles = recognition_dialog.choose_layer_roles(
-            self, visible, utility=utility, current_roles=self._layer_roles_by_utility.get(utility))
+            self, visible, utility=utility, current_roles=actual or None)
         if roles is not None:
-            self._layer_roles_by_utility[utility] = roles
+            if leyenda_mapa.CLAVE_LEYENDA in actual:     # sigue sabiendo qué puso la leyenda
+                roles = dict(roles, **{leyenda_mapa.CLAVE_LEYENDA: actual[leyenda_mapa.CLAVE_LEYENDA]})
+            base[utility] = roles
+            self._layer_roles_by_utility = base
+            self._layer_roles_hoja = self._clave_hoja(page_idx)
         self._start_recognition(page_idx)
 
     def _start_recognition(self, page_idx):
@@ -934,7 +953,7 @@ class Main(MenuMixin, PanelIzquierdoMixin, PanelDerechoMixin, ModosMixin, ClicsM
             self.work_pdf_path or self.pdf_path, page_idx, zoom=self.zoom,
             utilities=self._recognition_utilities,
             hidden_ocgs=self.hidden_ocgs,
-            roles_by_utility=self._layer_roles_by_utility,
+            roles_by_utility=self._roles_de_la_hoja(page_idx),
             letters_off=self._letters_off,
             join_routes=self._join_routes, scale_ft_per_pt=self._scale_override)
         self._recog_worker.done.connect(self._recognition_done)
@@ -952,8 +971,26 @@ class Main(MenuMixin, PanelIzquierdoMixin, PanelDerechoMixin, ModosMixin, ClicsM
                     else ("path", self.work_pdf_path or self.pdf_path))
         return recognition_cache.recognition_key(
             document, self.composite, page_idx, hidden_ocgs=self.hidden_ocgs,
-            utilities=self._recognition_utilities, roles_by_utility=self._layer_roles_by_utility,
+            utilities=self._recognition_utilities, roles_by_utility=self._roles_de_la_hoja(page_idx),
             letters_off=self._letters_off, scale_ft_per_pt=self._scale_override, zoom=self.zoom)
+
+    def _clave_hoja(self, page_idx):
+        """La hoja que se reconoce (PDF de origen, composición y nº de hoja): los roles que
+        puso la leyenda de un mapa son de SU hoja (`_roles_de_la_hoja`)."""
+        document = (self._src_fingerprints(self.src_pdfs) if self.src_pdfs
+                    else ("path", self.work_pdf_path or self.pdf_path))
+        return (recognition_cache.freeze(document), recognition_cache.composition_signature(self.composite),
+                int(page_idx))
+
+    def _roles_de_la_hoja(self, page_idx):
+        """Roles para la hoja `page_idx`: los elegidos, si se eligieron en ella; si no, sin lo
+        que puso la leyenda de aquella hoja (`leyenda_mapa.roles_de_otra_hoja`; reporte del
+        usuario 2026-10-19: tras una hoja suelta, la compuesta solo tomaba el agua de las piezas
+        con sus mismos grosores). Las capas con nombre (CAD) siguen igual en cualquier hoja."""
+        roles = self._layer_roles_by_utility or {}
+        if not roles or self._layer_roles_hoja == self._clave_hoja(page_idx):
+            return roles
+        return leyenda_mapa.roles_de_otra_hoja(roles)
 
     def _recognition_progress(self, i, n, utility):
         ov = getattr(self, "_recog_busy", None)

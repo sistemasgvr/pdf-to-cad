@@ -52,6 +52,8 @@ from reconocimiento import routes as routes_mod
 from hoja.sheet_crops import page_rect as crop_page_rect, drawing_polygon
 from hoja import pdf_styles
 from hoja import leyenda_mapa as leyenda_mod
+from hoja import leyenda_piezas as piezas_mod
+from hoja import leyenda_mapa_lectura as lectura_mod
 from hoja import acometidas_mapa
 from nucleo import avance as avance_mod
 from traduccion.i18n_core import t as _tr, N_   # avisos de QA en el idioma activo
@@ -1001,6 +1003,7 @@ def gather_paths(page, kind_for, hidden=(), crop_polygon=None, stats: Optional[d
             n_legend_excluded += 1
             continue        # muestra de la leyenda del mapa, no una tubería
         polys = [pg for l, pg in clip_stack.items() if l < lvl and pg]
+        seqno = path.get("seqno")
         if polys:
             path = geom.clip_path(path, polys)
             if path is None:
@@ -1009,6 +1012,8 @@ def gather_paths(page, kind_for, hidden=(), crop_polygon=None, stats: Optional[d
             path = geom.clip_path(path, [crop_polygon])
             if path is None:
                 continue
+        if seqno is not None and "seqno" not in path:
+            path["seqno"] = seqno       # el recorte es otro dict: su pieza (hoja compuesta) sale de aquí
         if path.get("clipped"):
             # recortes que valen para este trazo: una línea que termina en una letra
             # justo antes del borde de la vista se lleva hasta él (`recognition_ends`)
@@ -1170,11 +1175,13 @@ def recognize_page(
         # muestras (dentro del cuadro de la leyenda) nunca son tuberías del mapa.
         ley_mapa = leyenda_mod.leer(doc, page) if leyenda_mod.aplica(page) else None
         roles_leyenda = False
-        if roles is None and ley_mapa is not None and ley_mapa.filas:
+        # (roles elegidos en OTRA hoja, `leyenda_mapa.roles_de_otra_hoja`: lo puesto a mano + la
+        # leyenda de ESTA hoja; sus estilos no tienen por qué ser los de aquella)
+        if (ley_mapa is not None and ley_mapa.filas
+                and (roles is None or roles.get(leyenda_mod.SUMAR_LEYENDA))):
             en_mapa = Counter(d.get("layer") or "" for d in pdf_styles.drawings(page))
             asig, _amb = leyenda_mod.asignaciones(ley_mapa, en_mapa)
-            roles = {ROLE_LINEAS: [n for n, (u, r) in asig.items() if u == utility and r == ROLE_LINEAS],
-                     ROLE_BUZONES: [n for n, (u, r) in asig.items() if u == utility and r == ROLE_BUZONES]}
+            roles = leyenda_mod.roles_con_leyenda(asig, utility, roles)
             lineas_set, buzones_set, use_roles = set(roles[ROLE_LINEAS]), set(roles[ROLE_BUZONES]), True
             roles_leyenda = bool(lineas_set or buzones_set)
 
@@ -1226,8 +1233,25 @@ def recognize_page(
                 got = px_cache[key] = (p.x * zoom - visual_crop.x0 * zoom, p.y * zoom - visual_crop.y0 * zoom)
             return got
         by_ocg: dict[str, List[dict]] = defaultdict(list)
+        # Hoja COMPUESTA de mapas: la misma línea de la leyenda con otro estilo en cada pieza
+        # (grosores del SIG y escala de la pieza) es UNA capa; si no, se cortaba en cada
+        # costura (`leyenda_piezas`). Solo entre capas que son líneas de esta utilidad.
+        alias = (piezas_mod.equivalencias(ley_mapa)
+                 if ley_mapa is not None and len(ley_mapa.por_hoja) > 1 and lineas_set else {})
+        inicios = lectura_mod.inicios_de_piezas(page) if alias else None
+        n_alias: set = set()
         for pth in line_paths:
-            by_ocg[pth.get("layer") or ""].append(pth)
+            ocg = pth.get("layer") or ""
+            if alias and ocg in lineas_set:
+                comun = alias.get((piezas_mod.pieza_de(inicios, pth.get("seqno")), ocg))
+                if comun is not None and comun in lineas_set:
+                    n_alias.add(ocg)
+                    ocg = comun
+            by_ocg[ocg].append(pth)
+        if n_alias:
+            warnings.append(_tr("Hoja compuesta: {n} estilo(s) de las piezas se reconocen junto con el mismo tipo "
+                                "de tubería de las demás (la leyenda de cada hoja dice que es la misma línea).").format(
+                                    n=len(n_alias)))
         n_dup_paths = 0
         for ocg in list(by_ocg):                       # el mismo trazo repetido en la capa: uno solo
             kept = dedup_paths(by_ocg[ocg])
@@ -1270,6 +1294,11 @@ def recognize_page(
         # del medio. Todas las utilidades; ver `recognition_walls` (qué NO es pared).
         wall_changes: List[dict] = []
         for ocg in list(by_ocg):
+            # (mapa SIG: capa por estilo de trazo CONTINUO, cada tubería es UN trazo de su eje;
+            # dos paralelas son dos tuberías —Water North h.15: dos laterales a 2.7 pt quedaban en
+            # una línea al medio, sin tinta debajo—. El CAD aplanado, a guiones, sigue igual.)
+            if style_nodes_mod.is_style_layer(ocg) and ink_lines_mod.continuous_layer(by_ocg[ocg]):
+                continue
             others = [q for o, ps in by_ocg.items() if o != ocg for q in ps]
             by_ocg[ocg], ch = walls_mod.merge_walls(by_ocg[ocg], others, geom._Rect)
             wall_changes += ch
@@ -1295,6 +1324,10 @@ def recognize_page(
         cortes_px: List[list] = []                     # recortes (px) de todas las capas: bordes de las puntas «cut»
         n_ink_layers = 0
         ink_ocgs: set = set()
+        ink_stats: dict = {}
+        # hoja COMPUESTA: dónde empieza cada pieza (costuras de `recognition_ink_lines`; None en una suelta)
+        piezas_inicio = lectura_mod.inicios_de_piezas(page) if any(
+            style_nodes_mod.is_style_layer(o) for o in by_ocg) else None
         for k_capa, (ocg, paths) in enumerate(sorted(by_ocg.items())):
             if avance is not None:              # «capa k de n» (no cambia nada del resultado)
                 avance(k_capa, len(by_ocg))
@@ -1312,12 +1345,17 @@ def recognize_page(
                                                         or ink_lines_mod.continuous_layer(paths)):
                 n_ink_layers += 1
                 ink_ocgs.add(ocg)
-                results.append((False, ocg, ink_lines_mod.ink_reconstruct(paths, vault_paths, opts)))
+                results.append((False, ocg, ink_lines_mod.ink_reconstruct(paths, vault_paths, opts, stats=ink_stats,
+                                                                       inicios=piezas_inicio)))
                 continue
             results.append((is_abandoned_ocg(ocg), ocg, geom.reconstruct(paths, vault_paths, opts)))
         if n_ink_layers:
             warnings.append(_tr("Capas por estilo de trazo continuo: {n} — cada trazo del plano es el eje de "
                                 "la tubería, sin unir ni mover nada.").format(n=n_ink_layers))
+        if ink_stats.get("costuras"):
+            warnings.append(_tr("Costuras de la hoja compuesta: {n} — la tubería sigue de una hoja a la otra "
+                                "(sus puntas quedaban a menos de {d} pt).").format(
+                                    n=ink_stats["costuras"], d=ink_lines_mod.COSTURA_HUECO_PT))
         if not results:
             results = [(False, "", geom.reconstruct([], vault_paths, geom_opts))]
 

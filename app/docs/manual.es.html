@@ -283,7 +283,11 @@ imagen/escaneo…</b>), pero sin capas ni reconocimiento: al final,
     alcantarillado y las demás utilidades: en las redes por gravedad y de conductos la acometida queda
     unida a su tubería con un nodo NULO (sin buzón visible); los buzones son los de la red. Al reconocer, cada tubería toma el diámetro escrito a su
     lado («6"», «8" DIP») y el buzón de la leyenda queda en su línea. Revisa siempre antes de continuar:
-    todo se puede cambiar como cualquier asignación.</li>
+    todo se puede cambiar como cualquier asignación. Cada hoja usa <b>su</b> leyenda: lo que la leyenda
+    asignó en una hoja no pasa a otra (lo que asignaste tú a mano, sí). En una <b>hoja compuesta</b> de
+    mapas cada pieza se lee con su leyenda, y si dos mapas dibujan la misma línea («Standard Main») con
+    distinto grosor se reconocen como una sola capa; en las uniones entre hojas la tubería sigue de una
+    a la otra (la vista previa lo cuenta en «Costuras de la hoja compuesta»).</li>
 <li><b>Escala:</b> el botón <b>Escala 1"=X'</b> del pie muestra la escala de la hoja, leída de su texto.
     Si el texto no se puede leer o el PDF está impreso reducido (el rótulo dice 1"=100' y es otra), corrígela
     <b>antes de continuar</b>: <b>Calibrar con una distancia conocida…</b> (dos clics en la hoja y la distancia

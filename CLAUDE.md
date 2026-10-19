@@ -1182,6 +1182,36 @@ alcantarillado, drenaje, gas, eléctrico, telecom). Todo en **unidades imperiale
     `act_minimapa_hojas`/`act_marcas_hojas`, QSettings), `_layout_minimapa` (se movió aquí; reabierto: lo calcula
     de los PDF de origen) y `_hojas_px`; la vista previa recibe `hojas=` y pone su `MiniMap`. Avance con cifras en
     `trazos_visibles` y en el nombrado de estilos.
+    **4.ª vuelta (2026-10-19, Water North + South, 10 mapas: «hoja por hoja funciona, compuesta no»; continuidad
+    y precisión)**: (1) ROLES POR HOJA: `Main._layer_roles_by_utility` sobrevivía de una hoja suelta a la compuesta
+    y `_apply_map_legend` NO aplicaba la leyenda si había roles → solo las piezas con los mismos grosores quedaban
+    como agua. Ahora `roles_by_utility()` lleva `leyenda_mapa.CLAVE_LEYENDA` (lo que asignó la leyenda de ESA
+    hoja); `Main._layer_roles_hoja` = `_clave_hoja` (PDF de origen + composición + nº de hoja) donde se eligieron;
+    en otra hoja `_roles_de_la_hoja` → `roles_de_otra_hoja` (quita lo de la leyenda, deja lo puesto a mano con
+    `SUMAR_LEYENDA`) y el diálogo / `recognize_page` suman la leyenda de esta hoja (`roles_con_leyenda`). Misma
+    hoja (volver de la vista previa) = roles tal cual. ◀ ▶ en «Capas» → `_legend_for_new_sheet`. CAD (capas con
+    nombre, sin `CLAVE_LEYENDA`): igual que siempre. (2) `leyenda_mapa_lectura._divisores`: una línea del MAPA
+    dibujada antes del fondo opaco del cuadro y tapada por él no es divisoria (`_tapado`): Water South h.15/North
+    h.13/15/18/South h.11 tenían «Standard Main» en «GENERAL» sin utilidad → 0 tuberías en la hoja suelta (foto
+    108 hojas: solo esas 5 cambian). (3) `hoja/leyenda_piezas.py` (PURO): `equivalencias(ley)` (unión de
+    conjuntos sobre (pieza, estilo) de filas de LÍNEA con utilidad, `LeyendaMapa.piezas` = pieza de cada
+    `por_hoja`) → `recognize_page` agrupa en `by_ocg` el estilo de una pieza con el común si los dos son líneas de
+    la utilidad (17-24/25 dibujan a 0.57 pt lo que las demás a 0.71; con la escala de cada pieza: 0.30/0.37/0.38
+    en tres capas que se cortaban en cada costura). `gather_paths` conserva `seqno` en el recorte (pieza por
+    `inicios_de_piezas`). (4) `recognition_ink_lines` en hoja compuesta (más de un recorte; hoja suelta igual):
+    `_sin_dobles` (trocito todo a ≤0.3 pt de la línea de otra pieza), `_soldar_costuras` (punta «cut» y la de
+    la misma tubería en la pieza vecina a ≤`COSTURA_HUECO_PT`=2.5 que se miran: adelante → la cortada se
+    alarga hasta ella; las dos cortadas una al lado de la otra → punto medio; si no, el rayo de la cortada
+    hasta la LÍNEA de la otra pieza cruzándola ≥30° → T), una punta «cut» donde termina otra línea de la misma
+    capa = «junction» (tubería pegada a la costura: cada vértice sale como corte) y una «cut» sobre la línea de la
+    otra pieza = «tee». Aviso «Costuras de la hoja compuesta: N». (5) `merge_walls` no corre en capas por estilo
+    de trazo CONTINUO (mapa SIG: dos paralelas son dos tuberías; en North h.15 dos laterales a 2.7 pt quedaban en
+    una línea al medio sin tinta; en la compuesta, 125 pt inventados). (6) `recognition_ends.trim_inkless_tails`:
+    el índice de la punta final se toma después de recortar la inicial (IndexError latente). Medido en la
+    compuesta de 10 mapas: capas de la red 3 → 1, puntas «cut» 203 → 99 (las 95 restantes: la otra hoja no
+    dibuja esa tubería), muestras a >1 pt de la tinta 0.65 % → 0.02 %. Tests: `tests/test_mapas_compuestos.py`.
+    Pruebas por grupos en paralelo: `python scripts/pruebas.py <grupo…>` (mapas, compositor, capas,
+    reconocimiento, utilidades, editor, interfaz, otros, todo; sin pytest-xdist).
   - **Compositor de escaneos** (`Composite.manual`, PDF imagen/escaneo → editor sin capas ni
     reconocimiento): `scan_crop_view.py` (área con 4 esquinas → `Piece.polygon`),
     `alignment_tools.py` (regla con asa de giro, transportador de tamaño FIJO en pantalla con
@@ -1910,7 +1940,8 @@ alcantarillado, drenaje, gas, eléctrico, telecom). Todo en **unidades imperiale
 ## Cómo correr
 
 - App: `python app/main.py`
-- Pruebas: `pytest`  (desde la raíz)
+- Pruebas: `pytest`  (desde la raíz). Por grupos y en paralelo (cada archivo en su proceso):
+  `python scripts/pruebas.py mapas capas` (sin argumentos lista los grupos; `todo` = todas)
 - Compilar plugin + exe + instalador: `build_all.bat` (pregunta la versión)
 - Quitar el plugin del autoload de C3D (testing): `uninstall_plugin.bat`
 - Compilar solo el plugin C#: `dotnet build -c Release` en
