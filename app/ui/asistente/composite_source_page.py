@@ -3,21 +3,19 @@
 Antes era la columna izquierda, angosta, con miniaturas de 150 px en una lista
 (pedido del usuario 2026-10-03: «me queda poco espacio para seleccionar y
 visualizar las hojas»). Ahora es una pestaña a ventana completa: el PDF (se pueden
-agregar más) y una GALERÍA de hojas con miniaturas grandes; cada hoja dice si está en
-la hoja compuesta («✔ Hoja completa» / «✔ Área tomada») o si es una hoja «sin capas».
-Clic (o Enter) = ELEGIRLA: se suma a la hoja compuesta, entera, además de las que ya
-están (pedido del usuario 2026-10-16: la 2 reemplazaba a la 1); solo la hoja que el
-compositor puso al abrir, sin que nadie la eligiera, se cambia con el primer clic
-(pedido 2026-10-05: elegía la hoja, pulsaba «Siguiente» y quedaba vacía). Flechas =
-mirar otra hoja; «Quitar de la hoja compuesta» la saca; doble clic o «Tomar área de
-esta hoja» = ir a «Área a tomar». Ver `composite_choice`.
+agregar más) y una GALERÍA de hojas con miniaturas grandes (`page_gallery`); cada hoja
+lleva una CASILLA (pedido del usuario 2026-10-19): marcada = la hoja está en la hoja
+compuesta (debajo dice si entera o un área), o si es una hoja «sin capas». Clic en la
+miniatura (o flechas) = VERLA; la casilla (o Espacio / Enter / Ctrl+clic) la agrega o
+la quita (`_toggle_page`). Doble clic o «Tomar área de esta hoja» = ir a «Área a
+tomar». Ver `composite_choice`.
 
 Las funciones de PDFs, hojas y miniaturas se movieron TAL CUAL desde
 composite_dialog (mismos nombres: `lst_pages` sigue siendo la hoja actual).
 Requiere de la clase: `self.docs`, `self.sources`, `self.comp`, `self._cur_source`,
 `self._cur_page`, `self._thumb_cache`, `self._layers_cache`, `self._thumb_queue`,
-`self._thumb_timer`, `_on_page_changed`, `_pick_page`, `_browse_page`, `_add_sheet`,
-`_remove_page`, `_provisional_now`, `_is_full`, `_go_tab` y `_refresh_pending`.
+`self._thumb_timer`, `_on_page_changed`, `_pick_page`, `_view_page`, `_toggle_page`,
+`_provisional_now`, `_is_full`, `_go_tab` y `_refresh_pending`.
 """
 from __future__ import annotations
 
@@ -28,6 +26,7 @@ from PySide6 import QtCore, QtGui, QtWidgets
 
 from hoja import pdf_layers as PL
 from ui.asistente.composite_view import _qpixmap
+from ui.asistente.page_gallery import PageGallery, USED_ROLE
 from traduccion.i18n import t as _tr
 from ui.comun.icons import icon as _icon
 from ui.comun.ui_common import DOWNLOADS
@@ -35,47 +34,6 @@ from ui.comun.busy import busy
 from ui.comun import theme as _theme
 
 THUMB_W = 220          # ancho de la miniatura en la galería (antes 150 en una lista angosta)
-
-
-class PageGallery(QtWidgets.QListWidget):
-    """Galería de hojas que distingue lo que hace el USUARIO de los cambios por
-    código (sincronizar la hoja de una pieza, pruebas): `picked(fila)` al elegir
-    una hoja (clic, Enter o Espacio); `browsed(fila)` al pasar a otra con las
-    flechas; `added(fila)` con Ctrl+clic."""
-    picked = QtCore.Signal(int)
-    browsed = QtCore.Signal(int)
-    added = QtCore.Signal(int)
-    gesture = None          # «pick» / «browse»: un gesto del usuario cambia la hoja (antes de la señal)
-
-    def mousePressEvent(self, e):
-        item = self.itemAt(e.position().toPoint()) if e.button() == QtCore.Qt.LeftButton else None
-        if item is not None and e.modifiers() & QtCore.Qt.ControlModifier:
-            self.setCurrentItem(item)           # se muestra (Área a tomar) y se agrega
-            self.added.emit(self.row(item))
-            e.accept()
-            return
-        self.gesture = "pick" if item is not None else None
-        try:
-            super().mousePressEvent(e)
-        finally:
-            self.gesture = None
-        if item is not None:
-            self.picked.emit(self.row(item))
-
-    def keyPressEvent(self, e):
-        if (e.key() in (QtCore.Qt.Key_Return, QtCore.Qt.Key_Enter, QtCore.Qt.Key_Space)
-                and self.currentRow() >= 0):
-            self.picked.emit(self.currentRow())     # Enter / Espacio = como un clic
-            e.accept()
-            return
-        before = self.currentRow()
-        self.gesture = "browse"
-        try:
-            super().keyPressEvent(e)
-        finally:
-            self.gesture = None
-        if self.currentRow() >= 0 and self.currentRow() != before:
-            self.browsed.emit(self.currentRow())
 
 
 class SourcePageMixin:
@@ -112,24 +70,16 @@ class SourcePageMixin:
         self.lst_pages.setSpacing(8)
         self.lst_pages.setUniformItemSizes(True)
         self.lst_pages.currentRowChanged.connect(self._on_page_changed)
-        self.lst_pages.picked.connect(self._pick_page)
-        self.lst_pages.browsed.connect(self._browse_page)
-        self.lst_pages.added.connect(self._add_sheet)
+        self.lst_pages.picked.connect(self._view_page)
+        self.lst_pages.toggled.connect(self._toggle_page)
         self.lst_pages.itemDoubleClicked.connect(lambda _it: self._go_tab(1))
         lay.addWidget(self.lst_pages, 1)
 
+        # (sin «Quitar de la hoja compuesta»: desmarcar la casilla hace lo mismo)
         bottom = QtWidgets.QHBoxLayout(); bottom.setSpacing(10)
         self.lbl_source_sel = QtWidgets.QLabel()
         self.lbl_source_sel.setStyleSheet(f"color:{t.text};")
         bottom.addWidget(self.lbl_source_sel, 1)
-        self.btn_remove_page = QtWidgets.QPushButton(_icon("mdi:trash-can-outline", color=t.soft_text),
-                                                     _tr("Quitar de la hoja compuesta"))
-        self.btn_remove_page.setProperty("soft", True)
-        self.btn_remove_page.setMinimumHeight(btn_h)
-        self.btn_remove_page.setAutoDefault(False)
-        self.btn_remove_page.setToolTip(_tr("Sacar la hoja elegida de la hoja compuesta"))
-        self.btn_remove_page.clicked.connect(self._remove_page)
-        bottom.addWidget(self.btn_remove_page)
         self.btn_go_area = QtWidgets.QPushButton(_icon("mdi:vector-rectangle", color=t.text_on_accent),
                                                  _tr("Tomar área de esta hoja"))
         self.btn_go_area.setMinimumHeight(btn_h)
@@ -141,24 +91,27 @@ class SourcePageMixin:
         return page
 
     def _refresh_source_selection(self):
-        """Pie de la galería: qué hoja está elegida y si ya está en la hoja compuesta (con
-        «Quitar»); arriba, qué hace un clic (la hoja que puso el compositor se cambia)."""
+        """Pie de la galería: qué hoja está a la vista, si ya está en la hoja compuesta y
+        cuántas hay marcadas; arriba, para qué es la casilla (y si una hoja vino marcada
+        sola: la que estaba abierta)."""
         if not hasattr(self, "lbl_source_sel"):
             return
         if self._provisional_now():
-            hint = _tr("Se empieza con la hoja {n}. Haz clic en la hoja que necesitas (la cambia); "
-                       "cada clic después agrega otra hoja. Si solo necesitas una parte, márcala en "
-                       "«Área a tomar» (doble clic).").format(n=self.comp.pieces[0].page + 1)
+            hint = _tr("Marca la casilla de cada hoja que vas a usar: las marcadas forman la hoja "
+                       "compuesta. La hoja {n} ya viene marcada (es la que estaba abierta); "
+                       "desmárcala si no la necesitas.").format(n=self.comp.pieces[0].page + 1)
         else:
-            hint = _tr("Haz clic en una hoja para agregarla a la hoja compuesta. Si solo necesitas "
-                       "una parte, márcala en «Área a tomar» (doble clic).")
+            hint = _tr("Marca la casilla de cada hoja que vas a usar: las marcadas forman la hoja "
+                       "compuesta. Clic en una hoja = verla; doble clic = tomar solo una parte en "
+                       "«Área a tomar».")
         self.lbl_source_hint.setText(hint)
         n = self._cur_page + 1
         taken = self._pieces_on_page(self._cur_source, self._cur_page)
-        self.btn_remove_page.setVisible(bool(taken))
-        text = _tr("Elegida: hoja {n} de {total}").format(n=n, total=self.docs[self._cur_source].page_count)
+        text = _tr("A la vista: hoja {n} de {total}").format(n=n, total=self.docs[self._cur_source].page_count)
         if taken:
             text += "  ·  " + _tr("✔ ya está en la hoja compuesta")
+        used = len({(p.source, p.page) for p in self.comp.pieces})
+        text += "  ·  " + _tr("Hojas marcadas: {n}").format(n=used)
         self.lbl_source_sel.setText(text)
 
     # ── PDFs y hojas (movido tal cual de composite_dialog) ─────────────
@@ -200,16 +153,19 @@ class SourcePageMixin:
         return sum(1 for p in self.comp.pieces if p.source == source and p.page == page)
 
     def _label_page_item(self, item: QtWidgets.QListWidgetItem, page: int):
-        """Texto de una hoja de la lista: «sin capas» (hoja aplanada) y, en negrita,
-        cómo está en la hoja compuesta («✔ Hoja completa», «✔ Área tomada»)."""
+        """Casilla y texto de una hoja de la lista: marcada = está en la hoja compuesta
+        (debajo, en negrita, cómo: «Hoja completa», «Área tomada», «N piezas»); «sin
+        capas» = hoja aplanada."""
         mine = [p for p in self.comp.pieces if p.source == self._cur_source and p.page == page]
         taken = len(mine)
+        if bool(item.data(USED_ROLE)) != bool(taken):
+            item.setData(USED_ROLE, bool(taken))
         flat = not self._uses_layers(self._cur_source, page)
         text = (_tr("Hoja {n} · sin capas") if flat else _tr("Hoja {n}")).format(n=page + 1)
         tips = []
         if taken:
-            text += "\n" + (_tr("✔ {n} piezas").format(n=taken) if taken > 1 else
-                            _tr("✔ Hoja completa") if self._is_full(mine[0]) else _tr("✔ Área tomada"))
+            text += "\n" + (_tr("{n} piezas").format(n=taken) if taken > 1 else
+                            _tr("Hoja completa") if self._is_full(mine[0]) else _tr("Área tomada"))
             tips.append(_tr("Esta hoja ya está en la hoja compuesta."))
         if flat:
             tips.append(_tr("Hoja sin capas originales: sus líneas se agrupan por estilo (color y "

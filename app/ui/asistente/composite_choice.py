@@ -2,18 +2,22 @@
 
 Pedido del usuario 2026-10-05: elegía la hoja en «Origen», pulsaba «Siguiente» y la
 hoja compuesta quedaba vacía («le doy continuar y no seleccioné nada»). Pedido
-2026-10-16: elegía la hoja 1, luego la 2, y la 2 REEMPLAZABA a la 1. Ahora:
+2026-10-16: elegía la hoja 1, luego la 2, y la 2 REEMPLAZABA a la 1. Pedido
+2026-10-19 («para evitar problemas y confusiones»): una CASILLA por hoja en «Origen»;
+las marcadas son la hoja compuesta. Ahora:
 
-  · Al abrir, la hoja a la vista ya es la hoja compuesta (`_choose_page`). Si la puso
-    el compositor (no había nada) y nadie la tocó (`_provisional` = cómo quedó), sigue
-    a la vista —flechas en «Origen», ‹ › en «Área a tomar» (`_browse_page`)— y el
-    PRIMER clic en otra hoja la cambia: suele ser la carátula.
-  · Clic en una hoja de «Origen» (o Enter, o «Tomar área de esta hoja») = SUMARLA a
-    la hoja compuesta, entera (`_pick_page`); si ya está, se elige su pieza. Ctrl+clic
-    agrega siempre (`_add_sheet`) y «Quitar de la hoja compuesta» la saca
-    (`_remove_page`). Fuera del caso de arriba, flechas y ‹ › solo MUESTRAN la hoja:
-    el aviso ofrece «Hoja completa» o, con una pieza, «Usar solo esta hoja»
-    (`_use_only_this_sheet`).
+  · Al abrir sin nada, la hoja a la vista ya está marcada (`_choose_provisional`): así
+    «Continuar» nunca lleva a «vacío». Nada la cambia sola: el texto de arriba dice que
+    vino marcada (`_provisional` = cómo quedó, solo para ese texto) y se desmarca a mano.
+  · La casilla de una hoja (`_toggle_page`; también Espacio / Enter / Ctrl+clic) la
+    SUMA entera a la hoja compuesta, además de las que ya están, y la deja a la vista en
+    edición (`_use_page`), o la QUITA (`_remove_page`; si tenía un área tomada, pregunta).
+    Una casilla solo cambia SU hoja.
+  · Clic en la miniatura, flechas o ‹ › en «Área a tomar» solo MUESTRAN la hoja; si ya
+    está en la hoja compuesta queda en edición (`_select_page_piece`); si no, el aviso
+    ofrece «Hoja completa» o, con una pieza, «Usar solo esta hoja»
+    (`_use_only_this_sheet`). «Tomar área de esta hoja» y el enlace del pie la suman
+    (`_pick_page`).
   · La pieza de la hoja a la vista queda EN EDICIÓN: un área marcada sobre su hoja (o
     sus esquinas movidas) la recorta al momento (la maquinaria de siempre:
     `_apply_crop_edit`) y «Hoja completa» la vuelve a la hoja entera
@@ -27,10 +31,12 @@ Mezcla de `CompositeDialog`, como `composite_source_page`. Requiere de la clase:
 `self._syncing_crop`, `self._syncing_widgets`, botones `btn_take`/`btn_take_full`/
 `btn_new`, `lbl_mode`, `spn_src_scale` y los métodos `_detected_scale`,
 `_refresh_scale_combo`, `_refresh_summary`, `_on_pieces_changed`, `_on_piece_selected`,
-`_pieces_on_page`, `_take`, `_apply_crop_edit`, `_area_untaken`, `_has_area` y
-`_show_piece_in_area_panel`.
+`_pieces_on_page`, `_take`, `_apply_crop_edit`, `_area_untaken`, `_has_area`,
+`_show_piece_in_area_panel` y `lst_pages`.
 """
 from __future__ import annotations
+
+from PySide6 import QtWidgets
 
 from hoja import composite as C
 from traduccion.i18n import t as _tr
@@ -47,13 +53,13 @@ class ChosenSheetMixin:
 
     def _provisional_now(self) -> bool:
         """¿La hoja compuesta es la hoja que puso el compositor, tal cual (nadie la eligió,
-        recortó, giró ni movió)? Entonces el primer clic en otra hoja la cambia."""
+        recortó, giró ni movió)? Entonces «Origen» dice que vino marcada sola."""
         return (self._provisional is not None and self.comp.is_single_full_page()
                 and self.comp.pieces[0].to_dict() == self._provisional)
 
     def _choose_provisional(self):
         """La hoja a la vista pasa a ser la hoja compuesta sin que el usuario la eligiera
-        (al abrir sin nada, o mirando hojas con flechas / ‹ › mientras siga así)."""
+        (al abrir sin nada): su casilla viene marcada."""
         self._choose_page()
         self._provisional = self.comp.pieces[0].to_dict() if self.comp.is_single_full_page() else None
         self._refresh_source_selection()         # el texto de arriba dice que se puede cambiar
@@ -67,8 +73,8 @@ class ChosenSheetMixin:
     def _choose_page(self, _row: int = -1):
         """La hoja a la vista pasa a ser LA hoja compuesta, entera y EN EDICIÓN (un área
         marcada la recorta). Solo mientras la hoja compuesta sea vacía o una hoja entera:
-        al abrir, la hoja que pone el compositor mientras nadie elige, o «Usar solo esta
-        hoja». Con trabajo de verdad (un área, varias piezas) no se toca nada."""
+        al abrir, la primera hoja marcada, o «Usar solo esta hoja». Con trabajo de verdad
+        (un área, varias piezas) no se toca nada."""
         if not self._simple() or not self.docs:
             return
         src, page = self._cur_source, self._cur_page
@@ -94,56 +100,86 @@ class ChosenSheetMixin:
         self._on_pieces_changed()
 
     def _pick_page(self, _row: int = -1):
-        """Clic en una hoja de «Origen» (o Enter, o «Tomar área de esta hoja»): la hoja
-        se SUMA a la hoja compuesta, entera y en edición, además de las que ya están
-        (pedido del usuario 2026-10-16: la 2 reemplazaba a la 1). Si ya está, se elige
-        su pieza. Solo la hoja que el compositor puso al abrir, sin que nadie la eligiera,
-        se cambia por la del primer clic."""
+        """«Tomar área de esta hoja» o el enlace «Usar la hoja N» del pie: la hoja a la
+        vista se SUMA a la hoja compuesta, entera y en edición, además de las que ya
+        están (pedido del usuario 2026-10-16: la 2 reemplazaba a la 1); su casilla queda
+        marcada. Si ya está, se elige su pieza."""
         if not self.docs:
             return
-        provisional = self._provisional_now()
         self._provisional = None
-        src, page = self._cur_source, self._cur_page
-        mine = [i for i, p in enumerate(self.comp.pieces) if (p.source, p.page) == (src, page)]
-        if mine:
-            if self.view.selected_index() not in mine:
-                self.view.select(mine[0])
-        elif provisional or not self.comp.pieces:
+        if self._pieces_on_page(self._cur_source, self._cur_page):
+            self._select_page_piece()
+        elif not self.comp.pieces:
             self._choose_page()
         else:
             self._take(full=True)
         self._refresh_source_selection()
 
-    def _browse_page(self, _row: int = -1):
-        """Flechas en «Origen» o ‹ › en «Área a tomar»: solo MUESTRAN la hoja. Mientras
-        la hoja compuesta sea la que puso el compositor (o esté vacía), la sigue: la hoja
-        a la vista es la hoja compuesta (pedido 2026-10-05)."""
-        if self._provisional_now() or not self.comp.pieces:
-            self._choose_provisional()
+    def _select_page_piece(self):
+        """La hoja a la vista ya está en la hoja compuesta: su pieza queda en edición
+        («Área a tomar» la recorta). Si no está, nada."""
+        mine = [i for i, p in enumerate(self.comp.pieces)
+                if (p.source, p.page) == (self._cur_source, self._cur_page)]
+        if mine and self.view.selected_index() not in mine:
+            self.view.select(mine[0])
 
-    def _add_sheet(self, _row: int = -1):
-        """Ctrl+clic en «Origen»: la hoja se AGREGA entera, además de lo ya tomado (también
-        junto a la hoja que puso el compositor al abrir)."""
-        self._provisional = None
-        if not self.comp.pieces:
-            self._choose_page()
-        elif not self._pieces_on_page(self._cur_source, self._cur_page):
-            self._take(full=True)
+    def _view_page(self, _row: int = -1):
+        """Clic en la miniatura de una hoja: solo VERLA (pedido 2026-10-19: mirar y
+        elegir eran lo mismo); si está en la hoja compuesta, su pieza queda en edición."""
+        self._select_page_piece()
         self._refresh_source_selection()
 
-    def _remove_page(self):
-        """«Quitar de la hoja compuesta» (Origen): saca las piezas de la hoja a la vista."""
-        src, page = self._cur_source, self._cur_page
-        keep = [p for p in self.comp.pieces if (p.source, p.page) != (src, page)]
-        if len(keep) == len(self.comp.pieces):
+    def _toggle_page(self, row: int):
+        """Casilla de la hoja `row` del PDF a la vista (clic en ella, Espacio, Enter o
+        Ctrl+clic): marcada = está en la hoja compuesta. Solo cambia ESA hoja."""
+        if not self.docs or not 0 <= row < self.docs[self._cur_source].page_count:
             return
+        if self._pieces_on_page(self._cur_source, row):
+            self._remove_page(row)
+        else:
+            self._use_page(row)
+
+    def _use_page(self, row: int):
+        """Marcar la casilla: la hoja se SUMA entera y queda a la vista, en edición (un
+        área marcada en «Área a tomar» la recorta)."""
+        if row != self._cur_page:
+            self.lst_pages.setCurrentRow(row)        # verla (dispara _on_page_changed)
+        self._pick_page()
+
+    def _remove_page(self, row: int = -1):
+        """Desmarcar la casilla de la hoja `row` (por defecto la que está a la vista):
+        salen sus piezas. Si tenía un área tomada (pieza recortada), se pregunta antes:
+        es trabajo que se pierde con un clic."""
+        src, page = self._cur_source, (self._cur_page if row < 0 else row)
+        mine = [p for p in self.comp.pieces if (p.source, p.page) == (src, page)]
+        if not mine:
+            return
+        if any(not self._is_full(p) for p in mine) and not self._confirm_remove_page(page):
+            return                                   # la casilla sigue marcada
         self._provisional = None
-        self.comp.pieces[:] = keep
+        self.comp.pieces[:] = [p for p in self.comp.pieces if (p.source, p.page) != (src, page)]
         self._refresh_scale_combo()
         self.view.rebuild()
         self._refresh_summary()
         self._on_piece_selected(-1)
+        self._select_page_piece()                    # la hoja a la vista, si sigue, en edición
         self._on_pieces_changed()
+
+    def _confirm_remove_page(self, page: int) -> bool:
+        box = QtWidgets.QMessageBox(self)
+        box.setIcon(QtWidgets.QMessageBox.Question)
+        box.setWindowTitle(_tr("Desmarcar la hoja"))
+        box.setText(_tr("La hoja {n} tiene un área tomada.").format(n=page + 1))
+        box.setInformativeText(_tr("Si la desmarcas, sale de la hoja compuesta y se pierde esa área."))
+        b_yes = box.addButton(_tr("Desmarcarla"), QtWidgets.QMessageBox.DestructiveRole)
+        b_back = box.addButton(_tr("Volver"), QtWidgets.QMessageBox.RejectRole)
+        b_back.setProperty("secondary", True)
+        for b in box.buttons():
+            b.style().unpolish(b); b.style().polish(b)
+        box.setDefaultButton(b_back)
+        box.setEscapeButton(b_back)
+        box.exec()
+        return box.clickedButton() is b_yes
 
     def _use_only_this_sheet(self):
         """La hoja compuesta pasa a ser SOLO la hoja a la vista (con el área marcada,

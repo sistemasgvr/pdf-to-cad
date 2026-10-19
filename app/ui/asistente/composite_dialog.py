@@ -13,14 +13,14 @@ quedaba poco sitio), en el orden en que se usan:
                   escala; los extremos de línea se marcan y los PUENTES que los
                   unirán se dibujan en verde.
 
-La hoja ELEGIDA es la hoja compuesta (pedido del usuario 2026-10-05: elegía la hoja,
-pulsaba «Siguiente» y la hoja compuesta quedaba vacía): mientras ésta sea una sola hoja
-entera (o esté vacía), elegir otra hoja (clic o flechas en «Origen», ‹ › en «Área a
-tomar») la reemplaza, y la pieza queda EN EDICIÓN: un área marcada sobre su hoja la
-recorta al momento y «Hoja completa» la vuelve a la hoja entera. Con trabajo de verdad
-(un área, varias piezas) elegir otra hoja solo la muestra: se agrega con «Tomar área»,
-«Hoja completa» o Ctrl+clic en «Origen», y con una sola pieza el aviso ofrece «Usar
-solo esta hoja».
+Las hojas MARCADAS en «Origen» (una casilla por hoja, pedido del usuario 2026-10-19)
+son la hoja compuesta; al abrir sin nada, la hoja a la vista viene marcada (pedido
+2026-10-05: elegía la hoja, pulsaba «Siguiente» y la hoja compuesta quedaba vacía). La
+pieza de la hoja a la vista queda EN EDICIÓN: un área marcada sobre su hoja la recorta
+al momento y «Hoja completa» la vuelve a la hoja entera. Mirar otra hoja (clic en la
+miniatura, flechas, ‹ ›) solo la muestra: se agrega con su casilla, «Tomar área» o
+«Hoja completa», y con una sola pieza el aviso ofrece «Usar solo esta hoja». Ver
+`composite_choice`.
 
 Navegación: las pestañas siempre son clicables (se puede volver a cualquiera) y el
 pie lleva «‹ Atrás» / «Siguiente ›» además de «Continuar». Antes de continuar se
@@ -555,12 +555,11 @@ class CompositeDialog(NoEscapeClose, ChosenSheetMixin, SourcePageMixin, ScanTool
     def _step_page(self, step: int):
         row = self.lst_pages.currentRow() + step
         if 0 <= row < self.lst_pages.count():
-            self.lst_pages.gesture = "browse"
+            self.lst_pages.gesture = "browse"   # ‹ › = ver la hoja, como las flechas en «Origen»
             try:
                 self.lst_pages.setCurrentRow(row)
             finally:
                 self.lst_pages.gesture = None
-            self._browse_page()                # ‹ › = ver la hoja, como las flechas en «Origen»
 
     def _refresh_page_nav(self):
         """«Hoja 21 de 50» + PDF y si ya está tomada; ‹ › al borde se apagan."""
@@ -764,13 +763,12 @@ class CompositeDialog(NoEscapeClose, ChosenSheetMixin, SourcePageMixin, ScanTool
                                           "estilo de la red a su utilidad. Si la red está en una "
                                           "imagen, requiere dibujo manual.").format(n=row + 1))
             self.nolayers_box.show()
-        # cambiar de hoja a mano = empezar una pieza nueva; salvo si el usuario ELIGE la hoja
-        # (clic: `_pick_page` elige o agrega su pieza enseguida) o mira otra mientras la hoja
-        # compuesta sea la que puso el compositor (`_browse_page` la cambia): si no, el aviso
-        # «no está en la hoja compuesta» asomaba bajo «Cargando hoja…»
-        gesture = self.lst_pages.gesture
-        follows = gesture == "pick" or (gesture == "browse" and self._provisional_now())
-        if self._editing >= 0 and not self._syncing_crop and not follows:
+        # cambiar de hoja a mano = empezar una pieza nueva; salvo si el USUARIO mira (clic,
+        # flechas, ‹ ›) una hoja que ya está en la hoja compuesta: su pieza queda en edición
+        # (`_select_page_piece`, tras cargarla). Si se soltara antes, el aviso «no está en
+        # la hoja compuesta» asomaba bajo «Cargando hoja…».
+        keeps = self.lst_pages.gesture is not None and bool(self._pieces_on_page(self._cur_source, row))
+        if self._editing >= 0 and not self._syncing_crop and not keeps:
             self.view.select(-1)
         with busy(self.crop, _tr("Cargando hoja {n}…").format(n=row + 1),
                   _tr("Líneas generales y escala de la hoja")):
@@ -780,6 +778,8 @@ class CompositeDialog(NoEscapeClose, ChosenSheetMixin, SourcePageMixin, ScanTool
         self.spn_src_scale.setValue(scale * 72.0)
         self.spn_src_scale.blockSignals(False)
         self.taken_box.hide()
+        if keeps and not self._syncing_crop:
+            self._select_page_piece()
         self._refresh_pending()
 
     def _render_current_page(self, first: bool = False):

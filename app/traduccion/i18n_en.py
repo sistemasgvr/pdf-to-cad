@@ -1226,20 +1226,28 @@ EN: dict[str, str] = {
         "Drop what was taken and use only the sheet you are viewing",
     "La hoja {n} aún no está en la hoja compuesta (que usa: {donde}). Para sumarla, marca un área y pulsa «Tomar área», o pulsa «Hoja completa».":
         "Sheet {n} is not in the composite sheet yet (it uses: {donde}). To add it, mark an area and press «Take area», or press «Full sheet».",
-    "Se empieza con la hoja {n}. Haz clic en la hoja que necesitas (la cambia); cada clic después agrega otra hoja. Si solo necesitas una parte, márcala en «Área a tomar» (doble clic).":
-        "It starts with sheet {n}. Click the sheet you need (it replaces it); each click after that adds another sheet. If you only need part of it, mark it in «Area to take» (double click).",
-    "Haz clic en una hoja para agregarla a la hoja compuesta. Si solo necesitas una parte, márcala en «Área a tomar» (doble clic).":
-        "Click a sheet to add it to the composite sheet. If you only need part of it, mark it in «Area to take» (double click).",
-    "Quitar de la hoja compuesta":
-        "Remove from the composite sheet",
-    "Sacar la hoja elegida de la hoja compuesta":
-        "Take the chosen sheet out of the composite sheet",
-    "✔ {n} piezas":
-        "✔ {n} pieces",
-    "✔ Hoja completa":
-        "✔ Full sheet",
-    "✔ Área tomada":
-        "✔ Area taken",
+    "Marca la casilla de cada hoja que vas a usar: las marcadas forman la hoja compuesta. La hoja {n} ya viene marcada (es la que estaba abierta); desmárcala si no la necesitas.":
+        "Tick the box of each sheet you will use: the ticked sheets make up the composite sheet. Sheet {n} comes ticked (it was the open one); untick it if you do not need it.",
+    "Marca la casilla de cada hoja que vas a usar: las marcadas forman la hoja compuesta. Clic en una hoja = verla; doble clic = tomar solo una parte en «Área a tomar».":
+        "Tick the box of each sheet you will use: the ticked sheets make up the composite sheet. Click a sheet = view it; double click = take only part of it in «Area to take».",
+    "Hojas marcadas: {n}":
+        "Ticked sheets: {n}",
+    "Desmarcar: quitarla de la hoja compuesta":
+        "Untick: remove it from the composite sheet",
+    "Marcar: usar esta hoja en la hoja compuesta":
+        "Tick: use this sheet in the composite sheet",
+    "Desmarcar la hoja":
+        "Untick the sheet",
+    "La hoja {n} tiene un área tomada.":
+        "Sheet {n} has a taken area.",
+    "Si la desmarcas, sale de la hoja compuesta y se pierde esa área.":
+        "If you untick it, it leaves the composite sheet and that area is lost.",
+    "Desmarcarla":
+        "Untick it",
+    "{n} piezas":
+        "{n} pieces",
+    "Área tomada":
+        "Area taken",
     "(sin tamaños detectados)":
         "(no sizes detected)",
     "Código repetido":
@@ -1606,8 +1614,8 @@ EN: dict[str, str] = {
         "Take area of this sheet",
     "Ir a «Área a tomar» con la hoja elegida":
         "Go to «Area to take» with the chosen sheet",
-    "Elegida: hoja {n} de {total}":
-        "Chosen: sheet {n} of {total}",
+    "A la vista: hoja {n} de {total}":
+        "Viewing: sheet {n} of {total}",
     "PDF":
         "PDF",
     "Agregar PDF…":
