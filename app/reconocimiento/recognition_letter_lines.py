@@ -342,6 +342,29 @@ def _link_continuity(chains, skip, uf, cont=None):
         uf.join(ci, cj)
 
 
+def _link_arc_letters(chains, skip, uf):
+    """Une dos guiones cuya curva sigue POR DEBAJO del rótulo (`recognition_arc_letters`):
+    la línea gira con un arco y el texto del linetype va dentro de él (DU06 h.3, «—SC—» en
+    `G-XREF`: arco de 90° con la «SC» en medio). Ni esquina ni continuación lo veían —las
+    puntas son cuerdas de <1 pt y giran 90°— y el guión de después, sin letras propias,
+    quedaba sin utilidad. Une también las letras del arco."""
+    from reconocimiento import recognition_arc_letters as arc_letters
+    letters = []
+    for ci, ch in enumerate(chains):
+        if ci in skip:
+            continue
+        xs = [q[0] for q in ch]; ys = [q[1] for q in ch]
+        if max(max(xs) - min(xs), max(ys) - min(ys)) <= geom.GLYPH_MAX_DIM_PT:
+            letters.append((ci, (min(xs), min(ys), max(xs), max(ys))))
+    if not letters:
+        return
+    no_tip = set(skip) | {ci for ci, _b in letters}          # una letra no es punta de guión
+    for (ca, cb), used in arc_letters.letter_gaps(chains, no_tip, [b for _ci, b in letters]):
+        uf.join(ca, cb)
+        for k in used:
+            uf.join(ca, letters[k][0])
+
+
 def _link_markers(chains, skip, uf):
     """Barras «/» que cruzan un guión (no están en un hueco): son de esa línea."""
     segs = [(a, b, ci) for ci, ch in enumerate(chains) for a, b in zip(ch, ch[1:])
@@ -421,6 +444,7 @@ def split_by_line(paths, chains, owner, ends, found_gaps, touching, members_by_g
     _link_corners(ends, uf, chains, cont)
     _link_continuity(chains, members, uf, cont)
     _link_gap_letters(chains, cont, uf)
+    _link_arc_letters(chains, members, uf)
     _link_markers(chains, members, uf)
     for ci, cj in letter_pairs:
         uf.join(ci, cj)

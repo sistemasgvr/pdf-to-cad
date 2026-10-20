@@ -359,19 +359,23 @@ def test_du06_h5_telecom_la_u_sigue_su_trayectoria():
     duct = [p for p in r.polylines_joined if p.layer_ocg.endswith("N-COMM-DUCT-BANK-PL")]
     raw = [p for p in r.polylines_raw if p.layer_ocg.endswith("N-COMM-DUCT-BANK-PL")]
     low = (663.06, 1251.96)
-    u = [p for p in duct if any(math.dist(q, low) < 0.05 for q in p.pts_pdf)]
+    # (0.1 pt: los quiebres a pasos de 0.25°, `recognition_angulos`, corren estos vértices ≤ 0.06 pt)
+    u = [p for p in duct if any(math.dist(q, low) < 0.1 for q in p.pts_pdf)]
     assert len(u) == 1
     u = u[0]
     ends = sorted([u.pts_pdf[0], u.pts_pdf[-1]])
-    assert math.dist(ends[0], (691.92, 1132.08)) < 0.05 and math.dist(ends[1], (755.82, 1195.86)) < 0.05
+    assert math.dist(ends[0], (691.92, 1132.08)) < 0.1 and math.dist(ends[1], (755.82, 1195.86)) < 0.1
     assert {u.kinds[0], u.kinds[-1]} == {"vault", "end"}
     assert len(u.fillets) == 5 and u.n_segments == 2
 
     def arcs(pls):
         return sorted((round(f["center"][0], 3), round(f["center"][1], 3), round(f["r_px"], 3))
                       for p in pls for f in p.fillets.values())
-    halves = [p for p in raw if any(math.dist(q, low) < 0.05 for q in p.pts_pdf)]
-    assert len(halves) == 2 and arcs([u]) == arcs(halves)             # los mismos codos: la curva no cambia
+    halves = [p for p in raw if any(math.dist(q, low) < 0.1 for q in p.pts_pdf)]
+    # los mismos codos: la curva no cambia (cada variante lleva sus quiebres a 0.25° por su lado:
+    # pueden diferir en milésimas de pt)
+    assert len(halves) == 2 and len(arcs([u])) == len(arcs(halves))
+    assert all(max(abs(a - b) for a, b in zip(x, y)) < 0.01 for x, y in zip(arcs([u]), arcs(halves)))
     for i, fl in u.fillets.items():
         g = model_ops.fillet_geo(u.pts_pdf[i - 1], u.pts_pdf[i], u.pts_pdf[i + 1], fl["r_px"])
         assert g and not g["clamped"]

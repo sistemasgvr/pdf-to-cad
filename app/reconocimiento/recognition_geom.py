@@ -2696,6 +2696,17 @@ def resolve_nodes(runs: List[Run], pat: Pattern, vaults: Sequence[Vault],
                                        or (not in_bb(pe_i) and lc[0] <= move + NODE_OFF_LINE_PT
                                            and in_bb(runs[lc[2]].a) and in_bb(runs[lc[2]].b))):
                     continue
+            # Una punta que SALE de la caja —la otra punta de su recta está DENTRO y la
+            # bóveda le queda detrás— y sigue por su LETRA no es la llegada: es la línea
+            # que sale de la bóveda; llega la punta de dentro (DU06 h.3 (1407, 1037), la
+            # «—SC—» del banco de ductos nace en el centro de la caja de empalme y asoma
+            # 1.9 pt antes de su «SC»: se recortaba al borde y la línea quedaba cortada en
+            # sus letras, lo reportó el usuario).
+            elif (not runs[i].split and not r.is_curve
+                  and v.x0 < other[0] < v.x1 and v.y0 < other[1] < v.y1
+                  and not (v.x0 <= pe_i[0] <= v.x1 and v.y0 <= pe_i[1] <= v.y1)
+                  and letter_continuation(i, s) is not None):
+                continue
             if corner_before_vault and not runs[i].split:
                 cd = corner_dist(i, s, bb)
                 if cd is not None and cd < move - 1.0:

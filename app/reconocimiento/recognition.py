@@ -32,9 +32,11 @@ from reconocimiento import recognition_geom as geom
 from reconocimiento import recognition_arcs as arcs_mod
 from reconocimiento import recognition_arc_plan as arc_plan
 from reconocimiento import recognition_arc_chain as chain_mod
+from reconocimiento import recognition_arc_letters as arc_letters_mod
 from reconocimiento import recognition_ends as ends_mod
 from reconocimiento import recognition_dupink as dupink_mod
 from reconocimiento import recognition_trace as trace_mod
+from reconocimiento import recognition_unir_codos as unir_codos_mod
 from reconocimiento import recognition_contacts as contacts_mod
 from reconocimiento import recognition_text_gaps as text_gaps_mod
 from reconocimiento import recognition_vault_snap as vault_snap_mod
@@ -46,11 +48,14 @@ from reconocimiento import recognition_taps as taps_mod
 from reconocimiento import recognition_indice as indice_mod
 from reconocimiento import recognition_diametros as diam_mod
 from reconocimiento import recognition_walls as walls_mod
+from reconocimiento import recognition_angulos as angulos_mod
 from reconocimiento import recognition_letters as letters_mod
 from reconocimiento import routes as routes_mod
 from hoja.sheet_crops import page_rect as crop_page_rect, drawing_polygon
 from hoja import pdf_styles
 from hoja import leyenda_mapa as leyenda_mod
+from hoja import leyenda_piezas as piezas_mod
+from hoja import leyenda_mapa_lectura as lectura_mod
 from hoja import acometidas_mapa
 from nucleo import avance as avance_mod
 from traduccion.i18n_core import t as _tr, N_   # avisos de QA en el idioma activo
@@ -243,6 +248,9 @@ class RecognitionResult:
     # Tuberías dibujadas con sus DOS PAREDES (`recognition_walls`): la línea media
     # que las reemplazó (px), para que el aviso lleve a cada una.
     walls_px: List[List[Tuple[float, float]]] = field(default_factory=list)
+    # Líneas cuyos quiebres quedaron con el ángulo del plano (`recognition_angulos`: llevarlos
+    # a pasos de 0.25° las movía de más): un punto por línea, para el aviso.
+    angles_off_px: List[Tuple[float, float]] = field(default_factory=list)
 
     @property
     def drawable(self) -> List[RecognizedPolyline]:
@@ -854,6 +862,15 @@ def _page_is_flat(doc, page_index: int) -> bool:
         return False
 
 
+def _cerrar_recortes(clip_stack: dict, lvl: int) -> dict:
+    """Un GRUPO de transparencia en el nivel `lvl` (get_drawings(extended=True)) abre ese
+    nivel: los recortes de ese nivel o más adentro ya se cerraron, igual que cuando llega un
+    recorte nuevo. Sin esto, en una hoja compuesta con una pieza FUNDIDA (`composite_fundir`:
+    grupo en el nivel 0) tras otra sin fundir, el recorte de la anterior seguía recortando a
+    la siguiente. En los PDF de prueba que ya traen grupos (DU06, DU10, LABOE) no cambia nada."""
+    return {l: pg for l, pg in clip_stack.items() if l < lvl}
+
+
 def _clip_polygon(clip: dict, page_rect) -> Optional[list]:
     """Polígono (lista de (x, y)) de un item 'clip' de get_drawings(extended=True),
     o None si es el marco de la página entera (no recorta nada)."""
@@ -928,6 +945,9 @@ def profile_view_regions(page, crop_polygon=None) -> List[Tuple[float, float, fl
             clip_stack = {l: pg for l, pg in clip_stack.items() if l < lvl}
             clip_stack[lvl] = _clip_polygon(path, page_rect)
             continue
+        if path.get("type") == "group":
+            clip_stack = _cerrar_recortes(clip_stack, lvl)
+            continue
         ocg = path.get("layer") or ""
         short = (ocg.split("|")[-1] if "|" in ocg else ocg).upper()
         if PROFILE_LAYER_TOKEN not in short:
@@ -985,6 +1005,9 @@ def gather_paths(page, kind_for, hidden=(), crop_polygon=None, stats: Optional[d
             clip_stack = {l: pg for l, pg in clip_stack.items() if l < lvl}
             clip_stack[lvl] = _clip_polygon(path, page_rect)
             continue
+        if path.get("type") == "group":
+            clip_stack = _cerrar_recortes(clip_stack, lvl)
+            continue
         ocg = path.get("layer") or ""
         if ocg in hidden:
             continue
@@ -997,6 +1020,7 @@ def gather_paths(page, kind_for, hidden=(), crop_polygon=None, stats: Optional[d
             n_legend_excluded += 1
             continue        # muestra de la leyenda del mapa, no una tubería
         polys = [pg for l, pg in clip_stack.items() if l < lvl and pg]
+        seqno = path.get("seqno")
         if polys:
             path = geom.clip_path(path, polys)
             if path is None:
@@ -1005,6 +1029,8 @@ def gather_paths(page, kind_for, hidden=(), crop_polygon=None, stats: Optional[d
             path = geom.clip_path(path, [crop_polygon])
             if path is None:
                 continue
+        if seqno is not None and "seqno" not in path:
+            path["seqno"] = seqno       # el recorte es otro dict: su pieza (hoja compuesta) sale de aquí
         if path.get("clipped"):
             # recortes que valen para este trazo: una línea que termina en una letra
             # justo antes del borde de la vista se lleva hasta él (`recognition_ends`)
@@ -1166,11 +1192,13 @@ def recognize_page(
         # muestras (dentro del cuadro de la leyenda) nunca son tuberías del mapa.
         ley_mapa = leyenda_mod.leer(doc, page) if leyenda_mod.aplica(page) else None
         roles_leyenda = False
-        if roles is None and ley_mapa is not None and ley_mapa.filas:
+        # (roles elegidos en OTRA hoja, `leyenda_mapa.roles_de_otra_hoja`: lo puesto a mano + la
+        # leyenda de ESTA hoja; sus estilos no tienen por qué ser los de aquella)
+        if (ley_mapa is not None and ley_mapa.filas
+                and (roles is None or roles.get(leyenda_mod.SUMAR_LEYENDA))):
             en_mapa = Counter(d.get("layer") or "" for d in pdf_styles.drawings(page))
             asig, _amb = leyenda_mod.asignaciones(ley_mapa, en_mapa)
-            roles = {ROLE_LINEAS: [n for n, (u, r) in asig.items() if u == utility and r == ROLE_LINEAS],
-                     ROLE_BUZONES: [n for n, (u, r) in asig.items() if u == utility and r == ROLE_BUZONES]}
+            roles = leyenda_mod.roles_con_leyenda(asig, utility, roles)
             lineas_set, buzones_set, use_roles = set(roles[ROLE_LINEAS]), set(roles[ROLE_BUZONES]), True
             roles_leyenda = bool(lineas_set or buzones_set)
 
@@ -1222,8 +1250,25 @@ def recognize_page(
                 got = px_cache[key] = (p.x * zoom - visual_crop.x0 * zoom, p.y * zoom - visual_crop.y0 * zoom)
             return got
         by_ocg: dict[str, List[dict]] = defaultdict(list)
+        # Hoja COMPUESTA de mapas: la misma línea de la leyenda con otro estilo en cada pieza
+        # (grosores del SIG y escala de la pieza) es UNA capa; si no, se cortaba en cada
+        # costura (`leyenda_piezas`). Solo entre capas que son líneas de esta utilidad.
+        alias = (piezas_mod.equivalencias(ley_mapa)
+                 if ley_mapa is not None and len(ley_mapa.por_hoja) > 1 and lineas_set else {})
+        inicios = lectura_mod.inicios_de_piezas(page) if alias else None
+        n_alias: set = set()
         for pth in line_paths:
-            by_ocg[pth.get("layer") or ""].append(pth)
+            ocg = pth.get("layer") or ""
+            if alias and ocg in lineas_set:
+                comun = alias.get((piezas_mod.pieza_de(inicios, pth.get("seqno")), ocg))
+                if comun is not None and comun in lineas_set:
+                    n_alias.add(ocg)
+                    ocg = comun
+            by_ocg[ocg].append(pth)
+        if n_alias:
+            warnings.append(_tr("Hoja compuesta: {n} estilo(s) de las piezas se reconocen junto con el mismo tipo "
+                                "de tubería de las demás (la leyenda de cada hoja dice que es la misma línea).").format(
+                                    n=len(n_alias)))
         n_dup_paths = 0
         for ocg in list(by_ocg):                       # el mismo trazo repetido en la capa: uno solo
             kept = dedup_paths(by_ocg[ocg])
@@ -1266,6 +1311,11 @@ def recognize_page(
         # del medio. Todas las utilidades; ver `recognition_walls` (qué NO es pared).
         wall_changes: List[dict] = []
         for ocg in list(by_ocg):
+            # (mapa SIG: capa por estilo de trazo CONTINUO, cada tubería es UN trazo de su eje;
+            # dos paralelas son dos tuberías —Water North h.15: dos laterales a 2.7 pt quedaban en
+            # una línea al medio, sin tinta debajo—. El CAD aplanado, a guiones, sigue igual.)
+            if style_nodes_mod.is_style_layer(ocg) and ink_lines_mod.continuous_layer(by_ocg[ocg]):
+                continue
             others = [q for o, ps in by_ocg.items() if o != ocg for q in ps]
             by_ocg[ocg], ch = walls_mod.merge_walls(by_ocg[ocg], others, geom._Rect)
             wall_changes += ch
@@ -1288,8 +1338,13 @@ def recognize_page(
             if points and by_ocg[ocg]:
                 by_ocg[ocg][0] = dict(by_ocg[ocg][0], contact_pts=[q for q, _u in points])
         results: List[Tuple[bool, str, object]] = []
+        cortes_px: List[list] = []                     # recortes (px) de todas las capas: bordes de las puntas «cut»
         n_ink_layers = 0
         ink_ocgs: set = set()
+        ink_stats: dict = {}
+        # hoja COMPUESTA: dónde empieza cada pieza (costuras de `recognition_ink_lines`; None en una suelta)
+        piezas_inicio = lectura_mod.inicios_de_piezas(page) if any(
+            style_nodes_mod.is_style_layer(o) for o in by_ocg) else None
         for k_capa, (ocg, paths) in enumerate(sorted(by_ocg.items())):
             if avance is not None:              # «capa k de n» (no cambia nada del resultado)
                 avance(k_capa, len(by_ocg))
@@ -1307,12 +1362,17 @@ def recognize_page(
                                                         or ink_lines_mod.continuous_layer(paths)):
                 n_ink_layers += 1
                 ink_ocgs.add(ocg)
-                results.append((False, ocg, ink_lines_mod.ink_reconstruct(paths, vault_paths, opts)))
+                results.append((False, ocg, ink_lines_mod.ink_reconstruct(paths, vault_paths, opts, stats=ink_stats,
+                                                                       inicios=piezas_inicio)))
                 continue
             results.append((is_abandoned_ocg(ocg), ocg, geom.reconstruct(paths, vault_paths, opts)))
         if n_ink_layers:
             warnings.append(_tr("Capas por estilo de trazo continuo: {n} — cada trazo del plano es el eje de "
                                 "la tubería, sin unir ni mover nada.").format(n=n_ink_layers))
+        if ink_stats.get("costuras"):
+            warnings.append(_tr("Costuras de la hoja compuesta: {n} — la tubería sigue de una hoja a la otra "
+                                "(sus puntas quedaban a menos de {d} pt).").format(
+                                    n=ink_stats["costuras"], d=ink_lines_mod.COSTURA_HUECO_PT))
         if not results:
             results = [(False, "", geom.reconstruct([], vault_paths, geom_opts))]
 
@@ -1429,7 +1489,7 @@ def recognize_page(
             return pieces
 
         def _emit(pl, ocg, ab, route_id, n_segments, through=None, ink=None, strokes=None,
-                  arcs=None, ink_lines=None, through_ink=None, cut_ctx=None):
+                  arcs=None, ink_lines=None, through_ink=None, cut_ctx=None, glyph_boxes=None):
             pts = [px(p) for p in pl.pts]
             clean, kinds = [], []
             for p, k in zip(pts, pl.kinds):
@@ -1447,6 +1507,11 @@ def recognize_page(
                 clean, kinds, fillets = fit_fillets(clean, kinds, tol_px=FILLET_FIT_TOL_PT * zoom,
                                                     through_dirs=through, ink=ink, strokes=strokes,
                                                     arcs=arcs, ink_lines=ink_lines, through_ink=through_ink)
+                if glyph_boxes:
+                    # curva con el rótulo del linetype ENCIMA (DU06 h.3, «SC» dentro del arco):
+                    # las letras sobre el arco son su tinta
+                    clean, kinds, fillets = arc_letters_mod.letter_arcs(clean, kinds, fillets, strokes,
+                                                                        glyph_boxes, zoom)
             if cut_ctx is not None:
                 # extremo que muere en una letra/hueco del linetype justo antes del borde
                 # de la vista: la línea termina en el CORTE (por la recta del codo)
@@ -1530,6 +1595,7 @@ def recognize_page(
             # recortes de esta capa (borde de la vista, pieza de la hoja compuesta)
             clip_polys = sorted({pg for pth in by_ocg.get(ocg, []) for pg in (pth.get("clip_polys") or ())})
             clip_px = [[px(q) for q in pg] for pg in clip_polys]
+            cortes_px.extend(clip_px)
             glyphs_px = [(*px((gl.cx, gl.cy)), gl.size * zoom) for gl in getattr(g, "glyphs", ())]
             ink_ix = ends_mod.ink_index([(a, b) for st in st_all for a, b in zip(st, st[1:])], zoom) if clip_polys else None
             cut_j = (clip_px, glyphs_px, g.pattern, [r.pl for r in joined], ink_ix) if clip_polys else None
@@ -1538,7 +1604,7 @@ def recognize_page(
                 v = mp_joined.verdict[rid]
                 ab = _ab(v, _dbl(mp_joined, rid))
                 rec_pl = _emit(r.pl, ocg, ab, rid, r.n_segments, through_j, ink_j[rid], st_j[rid],
-                               arcs_j[rid], lines_j[rid], thr_ink_j, cut_j)
+                               arcs_j[rid], lines_j[rid], thr_ink_j, cut_j, gboxes)
                 if rec_pl is not None:
                     polylines_joined.append(rec_pl)
                     n_routes += 1
@@ -1558,7 +1624,8 @@ def recognize_page(
                             rec_pl.review = "marker_active"
             for rid, r in enumerate(raw):
                 rec_pl = _emit(r.pl, ocg, _ab(mp_raw.verdict[rid], _dbl(mp_raw, rid)), rid, 1,
-                               through_r, ink_r[rid], st_r[rid], arcs_r[rid], lines_r[rid], thr_ink_r, cut_r)
+                               through_r, ink_r[rid], st_r[rid], arcs_r[rid], lines_r[rid], thr_ink_r, cut_r,
+                               gboxes)
                 if rec_pl is not None:
                     polylines_raw.append(rec_pl)
             if g.pattern is not None:
@@ -1703,6 +1770,20 @@ def recognize_page(
                 if not any(math.hypot(snap["to"][0] - q[0], snap["to"][1] - q[1]) < 0.5 * zoom
                            for q in vault_snaps_px):
                     vault_snaps_px.append(snap["to"])
+        # Ángulo de cada quiebre a pasos de 0.25° (pedido del usuario 2026-10-17: no hay codos
+        # de 45.648°): paso aparte, al final; cada vértice se mueve lo mínimo y nada más cambia
+        # (`recognition_angulos`). Las bóvedas y puntas marcadas siguen a su vértice.
+        avance_mod.avisar(_tr("Llevando los ángulos de los quiebres a pasos de {p}°…").format(
+            p=f"{angulos_mod.PASO_DEG:g}"))
+        # (la punta en el borde de su bóveda o en el corte de la vista sigue sobre ese borde)
+        bordes = ([b for b in (vault_snap_mod.boundary(vg) for vg in vaults_geo) if b]
+                  + [("poly", pg) for pg in cortes_px if len(pg) >= 3])
+        ajustes = [angulos_mod.ajustar_quiebres(variant, zoom, bordes=bordes)
+                   for variant in ((polylines_joined, polylines_raw) if join_routes
+                                   else (polylines_raw, polylines_joined))]
+        ajuste = ajustes[0]                            # el de la variante que se importa
+        vault_pts = angulos_mod.reubicar(vault_pts, ajuste.movidos)
+        vault_snaps_px = angulos_mod.reubicar(vault_snaps_px, ajuste.movidos)
 
         stubs = []
         for ocg, kind in kind_by_ocg.items():          # stubs informativos (no dibujables)
@@ -1825,6 +1906,14 @@ def recognize_page(
             warnings.append(_tr("Puntas unidas a su bóveda (imán): {n} — quedaban a menos de {d} pt "
                                 "de su contorno y se llevaron hasta él por su propia recta.").format(
                 n=len(vault_snaps_px), d=f"{vault_snap_mod.SNAP_STOP_PT:g}"))
+        if ajuste.quiebres:
+            warnings.append(_tr("Ángulos de los quiebres a pasos de {p}°: {n} — cada vértice se movió lo mínimo "
+                                "(máx. {d:.2f} pt); los codos conservan su radio.").format(
+                p=f"{angulos_mod.PASO_DEG:g}", n=ajuste.quiebres, d=ajuste.max_desvio_px / max(zoom, 1e-9)))
+        if ajuste.sin_ajustar:
+            warnings.append(_tr("Líneas con el ángulo del plano en sus quiebres: {n} — llevarlas a pasos de {p}° "
+                                "las apartaba de la tinta o de una línea que tocan.").format(
+                n=len(ajuste.sin_ajustar), p=f"{angulos_mod.PASO_DEG:g}"))
 
         roles_out = roles if use_roles else roles_from_suggestions(list(kind_by_ocg.keys()), utility)
         return RecognitionResult(
@@ -1833,7 +1922,7 @@ def recognize_page(
             hidden_ocgs=sorted(hidden), vault_pts=vault_pts, layer_roles=dict(roles_out),
             coverage=coverage_total, uncovered_px=uncovered_px, offpattern_px=offpattern_px,
             vault_orphans_px=orphans_px, join_routes=join_routes, vaults_geo=vaults_geo,
-            vault_snaps_px=vault_snaps_px,
+            vault_snaps_px=vault_snaps_px, angles_off_px=list(ajuste.sin_ajustar),
             walls_px=[[px(q) for q in c["mid"]] for c in wall_changes],
             n_routes=n_routes, n_segments_total=n_segments_total,
             polylines_joined=polylines_joined, polylines_raw=polylines_raw,
@@ -2302,6 +2391,10 @@ def fit_fillets(pts, kinds, tol_px: float = 1.0, tan_tol: float = None, debug=No
         pts, kinds, _fit_fillets, tol_px=tol_px, tan_tol=tan_tol, debug=debug,
         through_dirs=through_dirs, ink=ink, strokes=strokes, arcs=arcs,
         ink_lines=ink_lines, through_ink=through_ink)
+    # varias curvitas seguidas que caben en UN arco → ese codo (pedido del usuario 2026-10-19)
+    # (solo si ese arco sigue la tinta igual de bien: las curvas de radio variable no cambian)
+    pts, kinds, fillets = unir_codos_mod.unir_codos(pts, kinds, fillets, f=tol_px / FILLET_FIT_TOL_PT,
+                                                    strokes=strokes)
     # codo casi en «U»: su esquina cae lejísimos → dos codos sobre el mismo arco
     return trace_mod.split_wide_fillets(pts, kinds, fillets, f=tol_px / FILLET_FIT_TOL_PT)
 

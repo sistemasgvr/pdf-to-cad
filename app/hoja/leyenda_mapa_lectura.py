@@ -69,8 +69,32 @@ def _dibujos(page) -> List[dict]:
     return out
 
 
+def _fondos(dibujos) -> List[tuple]:
+    """(seqno, caja) de los rellenos OPACOS (el fondo blanco del cuadro de la leyenda)."""
+    return [(int(d.get("seqno", -1)), d["rect"]) for d in dibujos
+            if d.get("type") in ("f", "fs") and d.get("fill") is not None
+            and (d.get("fill_opacity") is None or float(d["fill_opacity"]) >= 0.99)]
+
+
+def _tapado(d, a, b, marco, w_lo, w_hi, fondos) -> bool:
+    """¿El tramo a–b de `d`, en la franja de los encabezados, queda DEBAJO de un relleno
+    opaco dibujado después? (líneas del mapa que pasan bajo el cuadro: no se ven)."""
+    if not fondos:
+        return False
+    wa, wb = marco.uw(a)[1], marco.uw(b)[1]
+    w = min(max((w_lo + w_hi) / 2.0, min(wa, wb)), max(wa, wb))
+    t = 0.0 if abs(wb - wa) < 1e-9 else (w - wa) / (wb - wa)
+    x, y = a[0] + t * (b[0] - a[0]), a[1] + t * (b[1] - a[1])
+    s = int(d.get("seqno", -1))
+    return any(sf > s and r.x0 <= x <= r.x1 and r.y0 <= y <= r.y1 for sf, r in fondos)
+
+
 def _divisores(dibujos, marco, w_lo, w_hi, largo_min) -> List[float]:
-    """u de las líneas del cuadro que bajan de los encabezados (separan las secciones)."""
+    """u de las líneas del cuadro que bajan de los encabezados (separan las secciones).
+    Una línea del MAPA que pasa debajo del cuadro (dibujada antes que su fondo opaco) no
+    cuenta: Water South h.15 (16-24) traía las de los lotes cada ~11 pt y partían la
+    sección WATER (sus filas quedaban sin utilidad y la hoja sin tuberías)."""
+    fondos = _fondos(dibujos)
     us = []
     for d in dibujos:
         for it in d.get("items") or ():
@@ -86,6 +110,8 @@ def _divisores(dibujos, marco, w_lo, w_hi, largo_min) -> List[float]:
                 ua, wa = marco.uw(a)
                 ub, wb = marco.uw(b)
                 if abs(ua - ub) <= 0.3 and abs(wa - wb) >= largo_min and min(wa, wb) <= w_hi and max(wa, wb) >= w_lo:
+                    if _tapado(d, a, b, marco, w_lo, w_hi, fondos):
+                        continue
                     us.append((ua + ub) / 2.0)
     return sorted(us)
 
@@ -147,7 +173,9 @@ def inicios_de_piezas(page) -> Optional[List[int]]:
         if page.read_contents().count(b"/fzFrm") >= 2:
             starts, nuevo = [], False
             for d in page.get_cdrawings(extended=True):
-                if d.get("type") == "clip" and d.get("level") == 0:
+                # cada pieza abre con su recorte en el nivel 0; la FUNDIDA («Fundir bordes»,
+                # `composite_fundir`), con su grupo de transparencia
+                if d.get("type") in ("clip", "group") and d.get("level") == 0:
                     nuevo = True
                 elif nuevo and d.get("type") not in ("clip", "group"):
                     starts.append(int(d["seqno"]))
@@ -249,6 +277,7 @@ def _leer(page) -> Optional[LeyendaMapa]:
     filas: List[FilaMapa] = []
     zonas: List[Tuple[float, float, float, float]] = []
     por_hoja: List[List[FilaMapa]] = []
+    piezas: List[Optional[int]] = []
     vistas = set()
     for k, g in enumerate(grupos):
         avance.avisar(_tr("Leyendo la leyenda del plano…") if len(grupos) == 1
@@ -260,6 +289,7 @@ def _leer(page) -> Optional[LeyendaMapa]:
         f, z = _leer_grupo(pag, g, varias=len(grupos) > 1, pieza=pieza)
         if len(grupos) > 1 and f:
             por_hoja.append(f)
+            piezas.append(pieza if pieza is not None and pieza >= 0 else None)
         for fila in f:
             clave = (fila.texto, fila.seccion, tuple(sorted(fila.estilos)), fila.simbolo, fila.simbolo_fuente)
             if len(grupos) == 1 or clave not in vistas:
@@ -269,7 +299,7 @@ def _leer(page) -> Optional[LeyendaMapa]:
     _rotulos(page, filas, simbs)
     for f in por_hoja:                      # los rótulos también en las filas de cada hoja
         _rotulos(page, f, simbs)
-    return LeyendaMapa(filas, utilidad, escala, zonas, "", por_hoja=por_hoja, **notas)
+    return LeyendaMapa(filas, utilidad, escala, zonas, "", por_hoja=por_hoja, piezas=piezas, **notas)
 
 
 def _leer_grupo(pag: _Pagina, heads, varias: bool, pieza=None):

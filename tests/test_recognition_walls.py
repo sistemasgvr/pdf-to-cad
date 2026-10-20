@@ -158,7 +158,8 @@ def test_pdf_del_reporte_tres_tuberias_sin_duplicar():
     for pl in pls:                                # cada eje va al medio de sus paredes
         assert pl.kinds[0] == "cut" and pl.kinds[-1] == "cut" or "tee" in pl.kinds
     horiz = next(pl for pl in pls if any(abs(y - 333.2) < 0.2 for _x, y in pl.pts_pdf))
-    assert any(p == pytest.approx((2464.6, 334.4), abs=0.1) for p in horiz.pts_pdf)
+    # (0.25 pt: los quiebres a pasos de 0.25°, `recognition_angulos`, corren esta esquina 0.19 pt)
+    assert any(p == pytest.approx((2464.6, 334.4), abs=0.25) for p in horiz.pts_pdf)
 
 
 def dashed_poly(ocg, pts, dash=9.0, gap=4.5):

@@ -260,7 +260,8 @@ def test_phoenix_alcantarillado_de_pdf_sin_capas_a_dxf(win, tmp_path):
     for pl in r.drawable[:20]:
         for p in pl.pts_pdf:
             d = min(ink._seg_dist(p, (a.x, a.y), (b.x, b.y))[1] for a, b in ink_segs)
-            assert d <= (ink.SIMPLIFY_PT + 0.05) * win.zoom, p
+            # (+0.1 y no +0.05: los quiebres a pasos de 0.25° mueven el eje unas centésimas)
+            assert d <= (ink.SIMPLIFY_PT + 0.1) * win.zoom, p
     n0 = len(win.pipes)
     win._import_recognized_pipes(res)
     new = win.pipes[n0:]

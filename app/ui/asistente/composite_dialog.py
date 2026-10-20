@@ -13,14 +13,14 @@ quedaba poco sitio), en el orden en que se usan:
                   escala; los extremos de línea se marcan y los PUENTES que los
                   unirán se dibujan en verde.
 
-La hoja ELEGIDA es la hoja compuesta (pedido del usuario 2026-10-05: elegía la hoja,
-pulsaba «Siguiente» y la hoja compuesta quedaba vacía): mientras ésta sea una sola hoja
-entera (o esté vacía), elegir otra hoja (clic o flechas en «Origen», ‹ › en «Área a
-tomar») la reemplaza, y la pieza queda EN EDICIÓN: un área marcada sobre su hoja la
-recorta al momento y «Hoja completa» la vuelve a la hoja entera. Con trabajo de verdad
-(un área, varias piezas) elegir otra hoja solo la muestra: se agrega con «Tomar área»,
-«Hoja completa» o Ctrl+clic en «Origen», y con una sola pieza el aviso ofrece «Usar
-solo esta hoja».
+Las hojas MARCADAS en «Origen» (una casilla por hoja, pedido del usuario 2026-10-19)
+son la hoja compuesta; al abrir sin nada, la hoja a la vista viene marcada (pedido
+2026-10-05: elegía la hoja, pulsaba «Siguiente» y la hoja compuesta quedaba vacía). La
+pieza de la hoja a la vista queda EN EDICIÓN: un área marcada sobre su hoja la recorta
+al momento y «Hoja completa» la vuelve a la hoja entera. Mirar otra hoja (clic en la
+miniatura, flechas, ‹ ›) solo la muestra: se agrega con su casilla, «Tomar área» o
+«Hoja completa», y con una sola pieza el aviso ofrece «Usar solo esta hoja». Ver
+`composite_choice`.
 
 Navegación: las pestañas siempre son clicables (se puede volver a cualquiera) y el
 pie lleva «‹ Atrás» / «Siguiente ›» además de «Continuar». Antes de continuar se
@@ -46,8 +46,7 @@ from ui.asistente.composite_tabs import WorkTabs, BADGE_COUNT, BADGE_WARN
 from ui.asistente.pdf_view_quality import ViewportSharpener
 from traduccion.i18n import t as _tr
 from ui.comun.icons import icon as _icon
-from ui.asistente.sheet_crop_dialog import _CropView
-from ui.asistente.scan_crop_view import ScanCropView
+from ui.asistente.scan_crop_view import CornerCropView
 from ui.asistente.composite_scan_ui import ScanToolsMixin
 from ui.asistente.composite_choice import ChosenSheetMixin
 from ui.asistente.composite_suggest import SuggestionMixin
@@ -185,6 +184,7 @@ class CompositeDialog(NoEscapeClose, ChosenSheetMixin, SourcePageMixin, ScanTool
         self._page_item = None
         self._syncing_widgets = False
         self._editing = -1            # pieza cuya área se edita en «Área a tomar» (-1 = nueva pieza)
+        self._provisional = None      # la hoja que puso el compositor, tal cual (nadie la eligió)
         self._syncing_crop = False
         self._sel_dirty = False       # el usuario marcó un área que aún no tomó
         self._fitted: set = set()     # pestañas cuya vista ya se encuadró al mostrarse
@@ -209,8 +209,10 @@ class CompositeDialog(NoEscapeClose, ChosenSheetMixin, SourcePageMixin, ScanTool
         self.view.rebuild()
         self._refresh_scale_combo()
         self._refresh_summary()
-        if self._simple():
-            self._choose_page()            # la hoja a la vista ya es la hoja compuesta
+        if not self.comp.pieces:
+            self._choose_provisional()     # la hoja a la vista ya es la hoja compuesta
+        elif self._simple():
+            self._choose_page()            # la hoja entera del editor: la hoja del editor
         self._go_tab(start)
         self._sug_iniciar()                # composición sugerida: aparte, en otro hilo
 
@@ -354,7 +356,7 @@ class CompositeDialog(NoEscapeClose, ChosenSheetMixin, SourcePageMixin, ScanTool
 
     def _on_check_link(self, href: str):
         if href == "pick":
-            self._choose_page()
+            self._pick_page()
         elif href == "take":
             self._go_tab(TAB_AREA)
             self._take(full=not self._has_area())
@@ -458,7 +460,8 @@ class CompositeDialog(NoEscapeClose, ChosenSheetMixin, SourcePageMixin, ScanTool
         self.btn_pending_use.clicked.connect(self._use_only_this_sheet)
         self.pending_box.layout().addWidget(self.btn_pending_use, 0, QtCore.Qt.AlignVCenter)
         lay.addWidget(self.pending_box)
-        self.crop = ScanCropView() if self.comp.manual else _CropView()
+        # una sola vista para los tres flujos: rectángulo o esquinas libres (casilla)
+        self.crop = CornerCropView(free=self.comp.manual)
         self.crop.selectionChanged.connect(self._on_selection_changed)
         self.crop.dragFinished.connect(self._on_crop_drag_done)
         # La hoja se muestra a 72 dpi; al hacer zoom, la parte visible se
@@ -510,6 +513,16 @@ class CompositeDialog(NoEscapeClose, ChosenSheetMixin, SourcePageMixin, ScanTool
             self.btn_area_snap.setEnabled(False)
             self.lbl_mode.setText(_tr("Arrastra un área y mueve cada esquina para seguir el borde inclinado del plano."))
         row.addWidget(self.btn_area_opts)
+        # Esquinas libres (pedido del usuario 2026-10-19): en los tres flujos el área se
+        # ajusta esquina por esquina; apagada, el rectángulo de siempre. Escaneo: encendida.
+        self.chk_corners = QtWidgets.QCheckBox(_tr("Esquinas libres"))
+        self.chk_corners.setChecked(self.crop.free)
+        self.chk_corners.setToolTip(_tr(
+            "Mover cada esquina del área por separado para seguir un borde inclinado o un área "
+            "que no es rectangular (los lados se mueven paralelos). Apagada: rectángulo; «Sin "
+            "línea de borde» solo recorta áreas rectangulares."))
+        self.chk_corners.toggled.connect(self._on_free_corners)
+        row.addWidget(self.chk_corners)
         row.addStretch(1)
         self.lbl_area = QtWidgets.QLabel()
         self.lbl_area.setStyleSheet(f"color:{t.text_muted}; font-size:12px;")
@@ -552,12 +565,11 @@ class CompositeDialog(NoEscapeClose, ChosenSheetMixin, SourcePageMixin, ScanTool
     def _step_page(self, step: int):
         row = self.lst_pages.currentRow() + step
         if 0 <= row < self.lst_pages.count():
-            self.lst_pages.picking = True
+            self.lst_pages.gesture = "browse"   # ‹ › = ver la hoja, como las flechas en «Origen»
             try:
                 self.lst_pages.setCurrentRow(row)
             finally:
-                self.lst_pages.picking = False
-            self._choose_page()                # ‹ › = elegir la hoja, como un clic en «Origen»
+                self.lst_pages.gesture = None
 
     def _refresh_page_nav(self):
         """«Hoja 21 de 50» + PDF y si ya está tomada; ‹ › al borde se apagan."""
@@ -608,6 +620,8 @@ class CompositeDialog(NoEscapeClose, ChosenSheetMixin, SourcePageMixin, ScanTool
         self.tool_bar = bar
         if self.comp.manual:
             self.build_scan_tools(bar, _tool, _spin, _field_action, _check_action)
+        else:
+            self.build_blend_tool(bar, _tool)   # «Fundir bordes» también en el vectorial (2026-10-19)
         bar.add_stretch()
         self.piece_tools = QtWidgets.QWidget()
         pt = QtWidgets.QHBoxLayout(self.piece_tools); pt.setContentsMargins(0, 0, 0, 0); pt.setSpacing(6)
@@ -761,10 +775,12 @@ class CompositeDialog(NoEscapeClose, ChosenSheetMixin, SourcePageMixin, ScanTool
                                           "estilo de la red a su utilidad. Si la red está en una "
                                           "imagen, requiere dibujo manual.").format(n=row + 1))
             self.nolayers_box.show()
-        # cambiar de hoja a mano = empezar una pieza nueva; salvo si el usuario ELIGE la hoja
-        # y la hoja compuesta es solo la elegida: `_choose_page` la cambia enseguida (si no,
-        # el aviso «no está en la hoja compuesta» asomaba bajo «Cargando hoja…»)
-        if self._editing >= 0 and not self._syncing_crop and not (self.lst_pages.picking and self._simple()):
+        # cambiar de hoja a mano = empezar una pieza nueva; salvo si el USUARIO mira (clic,
+        # flechas, ‹ ›) una hoja que ya está en la hoja compuesta: su pieza queda en edición
+        # (`_select_page_piece`, tras cargarla). Si se soltara antes, el aviso «no está en
+        # la hoja compuesta» asomaba bajo «Cargando hoja…».
+        keeps = self.lst_pages.gesture is not None and bool(self._pieces_on_page(self._cur_source, row))
+        if self._editing >= 0 and not self._syncing_crop and not keeps:
             self.view.select(-1)
         with busy(self.crop, _tr("Cargando hoja {n}…").format(n=row + 1),
                   _tr("Líneas generales y escala de la hoja")):
@@ -774,6 +790,8 @@ class CompositeDialog(NoEscapeClose, ChosenSheetMixin, SourcePageMixin, ScanTool
         self.spn_src_scale.setValue(scale * 72.0)
         self.spn_src_scale.blockSignals(False)
         self.taken_box.hide()
+        if keeps and not self._syncing_crop:
+            self._select_page_piece()
         self._refresh_pending()
 
     def _render_current_page(self, first: bool = False):
@@ -809,7 +827,9 @@ class CompositeDialog(NoEscapeClose, ChosenSheetMixin, SourcePageMixin, ScanTool
     def _current_clip(self, full: bool = False):
         """(clip normalizado, covers) del rectángulo de «Área a tomar». Con «Sin
         línea de borde» activo el clip pasa por el centro de la línea de borde y
-        `covers` trae la franja blanca que la tapa por lado."""
+        `covers` trae la franja blanca que la tapa por lado. Con esquinas libres
+        (un cuadrilátero que no es rectángulo) el clip es su caja y no hay franjas:
+        recorta el cuadrilátero (`_area_polygon`)."""
         if full:
             clip = [0.0, 0.0, 1.0, 1.0]
         else:
@@ -820,9 +840,21 @@ class CompositeDialog(NoEscapeClose, ChosenSheetMixin, SourcePageMixin, ScanTool
             clip = C.normalize_clip([sel.left() / full_r.width(), sel.top() / full_r.height(),
                                      sel.right() / full_r.width(), sel.bottom() / full_r.height()])
         covers = {}
-        if self.btn_trim.isChecked() and not self.comp.manual:
+        if self.btn_trim.isChecked() and not self.comp.manual and not self._area_polygon(full):
             clip, covers = C.trim_border(self.docs[self._cur_source][self._cur_page], clip)
         return clip, covers
+
+    def _area_polygon(self, full: bool = False):
+        """Cuadrilátero del área (normalizado) o [] si es un rectángulo / la hoja entera."""
+        return [] if full else self.crop.normalized_polygon()
+
+    def _on_free_corners(self, on: bool):
+        """Casilla «Esquinas libres»: la vista pasa a cuadrilátero o a rectángulo sin
+        perder el área (al apagarla queda la caja del cuadrilátero)."""
+        self.crop.set_free(on)
+        if self._editing >= 0 and not self._syncing_crop:
+            self._crop_timer.start()
+        self._refresh_area_mode()
 
     def _apply_crop_edit(self):
         """Modo edición: el rectángulo de «Área a tomar» ES el área de la pieza seleccionada."""
@@ -836,9 +868,10 @@ class CompositeDialog(NoEscapeClose, ChosenSheetMixin, SourcePageMixin, ScanTool
         piece = self.comp.pieces[idx]
         if piece.source != self._cur_source or piece.page != self._cur_page:
             return
-        polygon = self.crop.normalized_polygon() if self.comp.manual else []
+        polygon = self._area_polygon()
         if [round(v, 9) for v in clip] == [round(v, 9) for v in piece.clip] and covers == piece.covers and polygon == piece.polygon:
             return
+        self._provisional = None              # el usuario trabajó la hoja: ya es su elección
         piece.clip = clip
         piece.covers = covers
         piece.polygon = polygon
@@ -869,7 +902,8 @@ class CompositeDialog(NoEscapeClose, ChosenSheetMixin, SourcePageMixin, ScanTool
             # la hoja entera se ve sin tinte (solo borde y asas: `_CropView._fill_for`)
             self.crop.set_selection(QtCore.QRectF(x0 * full.width(), y0 * full.height(),
                                                   (x1 - x0) * full.width(), (y1 - y0) * full.height()))
-            if self.comp.manual and p.polygon:
+            if p.polygon:
+                self.chk_corners.setChecked(True)          # su área va esquina por esquina
                 self.crop.set_polygon([QtCore.QPointF(x * full.width(), y * full.height()) for x, y in p.polygon])
             self.spn_src_scale.blockSignals(True)          # la escala es la de ESTA pieza
             self.spn_src_scale.setValue(p.src_scale * 72.0)
@@ -900,12 +934,12 @@ class CompositeDialog(NoEscapeClose, ChosenSheetMixin, SourcePageMixin, ScanTool
         if res is None:
             return
         clip, covers = res
+        self._provisional = None
         src_scale = self.spn_src_scale.value() / 72.0
         piece = C.Piece(self._cur_source, self._cur_page, clip, src_scale=src_scale,
                         label=f"{self.sources[self._cur_source]['name']} · {self._cur_page + 1}",
                         covers=covers)
-        if self.comp.manual and not full:
-            piece.polygon = self.crop.normalized_polygon()
+        piece.polygon = self._area_polygon(full)
         bb = C.bounds(self.comp, self.view.page_size)
         if bb is not None:
             piece.x, piece.y = bb[2] + 24.0, bb[1]
@@ -1052,7 +1086,7 @@ class CompositeDialog(NoEscapeClose, ChosenSheetMixin, SourcePageMixin, ScanTool
         """Línea de estado bajo la hoja: qué hacer con la herramienta activa."""
         if not hasattr(self, "lbl_status"):
             return
-        text = self.scan_status_text() if self.comp.manual else ""
+        text = self.scan_status_text() if self.comp.manual else getattr(self, "_flash", "")
         if not text and self.comp.pieces and self.view.selected_index() < 0:
             text = _tr("Haz clic en una pieza para girarla, ajustarla o quitarla.")
         elif not text and not self.comp.pieces:

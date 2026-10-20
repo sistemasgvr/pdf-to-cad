@@ -30,6 +30,9 @@ EN: dict[str, str] = {
     "Regla": "Ruler",
     "Enderezar": "Straighten",
     "Ajusta las cuatro esquinas; la pieza seleccionada se actualiza sola.": "Adjust the four corners; the selected piece updates automatically.",
+    "Esquinas libres": "Free corners",
+    "Mover cada esquina del área por separado para seguir un borde inclinado o un área que no es rectangular (los lados se mueven paralelos). Apagada: rectángulo; «Sin línea de borde» solo recorta áreas rectangulares.":
+        "Move each corner of the area separately to follow a slanted border or a non-rectangular area (sides move parallel). Off: rectangle; “No border line” only trims rectangular areas.",
     "Hoja compuesta importada al editor. Dibuja las utilidades a mano.": "Composed sheet imported into the editor. Draw utilities manually.",
     "Girar a 0°": "Rotate to 0°",
     "{d:.2f} ft · {a:.2f}°": "{d:.2f} ft · {a:.2f}°",
@@ -57,6 +60,8 @@ EN: dict[str, str] = {
     "✔ Escala de la hoja corregida: {s}": "✔ Sheet scale corrected: {s}",
     "Fundir bordes activado: superpón un poco las piezas en la unión.": "Blend edges on: overlap the pieces slightly at the join.",
     "Fundir bordes desactivado: cada pieza tapa a la de abajo.": "Blend edges off: each piece covers the one below.",
+    "Fundir bordes activado: donde dos piezas se superponen se ve la tinta de las dos.": "Blend edges on: where two pieces overlap, the ink of both shows.",
+    "Donde dos piezas se superponen se ve la tinta de ambas: lo blanco de una no tapa las líneas de la otra. Dentro de cada hoja no cambia nada y, borde con borde, el PDF queda igual. También se aplica al PDF que pasa al editor.": "Where two pieces overlap, the ink of both shows: the white of one does not hide the other's lines. Nothing changes inside each sheet and, edge to edge, the PDF stays the same. Also applied to the PDF sent to the editor.",
     # ── Menús principales ──────────────────────────────────────────────
     "Editar": "Edit",
     "Herramientas": "Tools",
@@ -1220,16 +1225,28 @@ EN: dict[str, str] = {
         "Drop what was taken and use only the sheet you are viewing",
     "La hoja {n} aún no está en la hoja compuesta (que usa: {donde}). Para sumarla, marca un área y pulsa «Tomar área», o pulsa «Hoja completa».":
         "Sheet {n} is not in the composite sheet yet (it uses: {donde}). To add it, mark an area and press «Take area», or press «Full sheet».",
-    "Haz clic en la hoja del plano: esa hoja pasa a la hoja compuesta. Si solo necesitas una parte, márcala en «Área a tomar» (doble clic). Ctrl+clic agrega otra hoja.":
-        "Click the plan's sheet: that sheet goes into the composite sheet. If you only need part of it, mark it in «Area to take» (double click). Ctrl+click adds another sheet.",
-    "La hoja compuesta ya está armada: un clic solo muestra la hoja. Para agregarla, toma su área en «Área a tomar» (doble clic) o usa Ctrl+clic para agregarla entera.":
-        "The composite sheet is already put together: a click only shows the sheet. To add it, take its area in «Area to take» (double click) or use Ctrl+click to add it whole.",
-    "✔ {n} piezas":
-        "✔ {n} pieces",
-    "✔ Hoja completa":
-        "✔ Full sheet",
-    "✔ Área tomada":
-        "✔ Area taken",
+    "Marca la casilla de cada hoja que vas a usar: las marcadas forman la hoja compuesta. La hoja {n} ya viene marcada (es la que estaba abierta); desmárcala si no la necesitas.":
+        "Tick the box of each sheet you will use: the ticked sheets make up the composite sheet. Sheet {n} comes ticked (it was the open one); untick it if you do not need it.",
+    "Marca la casilla de cada hoja que vas a usar: las marcadas forman la hoja compuesta. Clic en una hoja = verla; doble clic = tomar solo una parte en «Área a tomar».":
+        "Tick the box of each sheet you will use: the ticked sheets make up the composite sheet. Click a sheet = view it; double click = take only part of it in «Area to take».",
+    "Hojas marcadas: {n}":
+        "Ticked sheets: {n}",
+    "Desmarcar: quitarla de la hoja compuesta":
+        "Untick: remove it from the composite sheet",
+    "Marcar: usar esta hoja en la hoja compuesta":
+        "Tick: use this sheet in the composite sheet",
+    "Desmarcar la hoja":
+        "Untick the sheet",
+    "La hoja {n} tiene un área tomada.":
+        "Sheet {n} has a taken area.",
+    "Si la desmarcas, sale de la hoja compuesta y se pierde esa área.":
+        "If you untick it, it leaves the composite sheet and that area is lost.",
+    "Desmarcarla":
+        "Untick it",
+    "{n} piezas":
+        "{n} pieces",
+    "Área tomada":
+        "Area taken",
     "(sin tamaños detectados)":
         "(no sizes detected)",
     "Código repetido":
@@ -1596,8 +1613,8 @@ EN: dict[str, str] = {
         "Take area of this sheet",
     "Ir a «Área a tomar» con la hoja elegida":
         "Go to «Area to take» with the chosen sheet",
-    "Elegida: hoja {n} de {total}":
-        "Chosen: sheet {n} of {total}",
+    "A la vista: hoja {n} de {total}":
+        "Viewing: sheet {n} of {total}",
     "PDF":
         "PDF",
     "Agregar PDF…":
@@ -2022,6 +2039,14 @@ EN: dict[str, str] = {
         "Pipes drawn with walls and centerline: {n} — the centerline is used and the walls are skipped.",
     "Puntas unidas a su bóveda (imán): {n} — quedaban a menos de {d} pt de su contorno y se llevaron hasta él por su propia recta.":
         "Line ends joined to their vault (magnet): {n} — they were less than {d} pt from its outline and were moved onto it along their own line.",
+    "Llevando los ángulos de los quiebres a pasos de {p}°…":
+        "Snapping bend angles to {p}° steps…",
+    "Ángulos de los quiebres a pasos de {p}°: {n} — cada vértice se movió lo mínimo (máx. {d:.2f} pt); los codos conservan su radio.":
+        "Bend angles in steps of {p}°: {n} — each vertex moved as little as possible (max. {d:.2f} pt); elbows keep their radius.",
+    "Líneas con el ángulo del plano en sus quiebres: {n} — llevarlas a pasos de {p}° las apartaba de la tinta o de una línea que tocan.":
+        "Lines that keep the plan's angle at their bends: {n} — snapping them to {p}° steps pulled them off the ink or away from a line they touch.",
+    "Sus quiebres quedan con el ángulo exacto del plano: llevarlos a pasos de 0.25° las apartaba de la tinta o las separaba de una línea que tocan. Revisa el ángulo de sus codos en el editor.":
+        "Their bends keep the plan's exact angle: snapping them to 0.25° steps pulled them off the ink or away from a line they touch. Check their elbow angles in the editor.",
     "Reconocidas por las letras de su línea (no por el nombre de la capa): {n} — {capas}.":
         "Recognized by the letters on their line (not by the layer name): {n} — {capas}.",
     "(su nombre decía {u})":
@@ -3553,4 +3578,6 @@ EN: dict[str, str] = {
         'Diameter (inches):',
     'Diámetro {d} elegido para esta utilidad.':
         'Diameter {d} chosen for this utility.',
+    'Hoja compuesta: {n} estilo(s) de las piezas se reconocen junto con el mismo tipo de tubería de las demás (la leyenda de cada hoja dice que es la misma línea).': 'Composed sheet: {n} style(s) of the pieces are recognized together with the same pipe type of the others (the legend of each sheet says it is the same line).',
+    'Costuras de la hoja compuesta: {n} — la tubería sigue de una hoja a la otra (sus puntas quedaban a menos de {d} pt).': 'Seams of the composed sheet: {n} — the pipe continues from one sheet to the next (its ends were less than {d} pt apart).',
 }

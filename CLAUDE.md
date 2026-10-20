@@ -371,6 +371,25 @@ alcantarillado, drenaje, gas, eléctrico, telecom). Todo en **unidades imperiale
     las dos mitades EXACTAS (A, M, B, centro, sin recorte) y ningún vecino es otro codo. Foto
     1799 codos (4 PDFs × 6 utilidades): 0 entre 120° y 170°, 1 ≥170° (ese). Tests:
     `tests/test_codos_abiertos.py`.
+    **Varias curvitas → UNA curva** (reporte del usuario 2026-10-19, DU06 UD-205 «—SC—» junto a
+    «CB-216 LAT», h.7 (índice 6) ~(785, 1059)): el codo de la 1.ª/2.ª pasada era el arco del PDF
+    (r 14.4 pt), pero la punta de la diagonal se apartaba 0.17 pt de su recta y `fit_continuous`
+    (umbral `FIT_PT`=0.12) lo cambió por `circular_trace`, que ajusta recta + arco + recta como
+    círculos → tres codos (r 67.6/18/13.5). `recognition_unir_codos.unir_codos` (PURO, al final de
+    `fit_fillets`, antes de `split_wide_fillets`, TODAS las utilidades): ristra de codos seguidos del
+    mismo giro, con solo vértices blandos entre ellos → UN codo tangente a la recta que llega y a la
+    que sale (primero las rectas de los tramos vecinos ≥`RECTA_MIN_PT`, luego las tangentes de los
+    codos de punta; el vértice blando sobre la recta se quita). LA TINTA MANDA (con 0.5 pt contra el
+    dibujo se juntaban curvas de radio VARIABLE que `fit_continuous` sigue a ≤0.13 pt: DU06 h.5 telecom/
+    eléctrico y DU08 h.22, `test_curve_precision`/`test_curve_structure_contacts`): radio por mínimos
+    cuadrados sobre la tinta (`strokes` de `fit_fillets`) que el dibujo de ahora sigue (≤`SIGUE_PT`=0.25),
+    aceptado si en CADA uno de esos puntos queda a ≤ max(lo de ahora, `PRECISION_PT`=0.12)+0.01, en los
+    huecos sin tinta a ≤`UNIR_TOL_PT`=0.5 del dibujo de antes, `fillet_geo` sin recorte y los codos
+    vecinos idénticos; sin tinta (<6 puntos), solo si ya era el mismo círculo (≤0.12). Arco que muere en
+    un nodo sigue muriendo en él (`node_a/b`). Si la ristra entera no cabe, sus tramos más largos.
+    Curva compuesta de verdad (60/120), radio variable y «S» no cambian. UD-205: r = 14.7 pt.
+    Marca `unidos` = nº de codos. Tests: `tests/test_curvitas_una_curva.py` (sintéticos + recorte de la
+    zona de DU06, ~2 s).
     **DU10 h.3 (2026-09-30, «curvas que quedan como polilínea»)**: (1) `fit_continuous.gap`
     solo fija los extremos que son EMPALME con un trazo validado; el extremo propio de la
     polilínea puede moverse como sin parche (un tee a la tangencia de su línea): antes se
@@ -427,6 +446,45 @@ alcantarillado, drenaje, gas, eléctrico, telecom). Todo en **unidades imperiale
     vértice interior ni codo distinto. Import (zoom 3.5): caja unida a la línea 366 → 581,
     suelta 235 → 18 (nodos de varias líneas fuera del contorno y bóvedas anidadas: no se
     tocan), estructuras 3993 → 3838. Tests: `tests/test_recognition_vault_snap.py`.
+  - `recognition_angulos.py` + `recognition_angulos_calc.py` (PUROS, numpy) — **quiebres a pasos
+    de 0.25°** (pedido del usuario 2026-10-17: «no hay codos de 45.648°; sí de 11.25°, 22.5°,
+    45°…»). ÚLTIMO paso de `recognize_page` (tras el imán a bóvedas), en las dos variantes (rutas
+    unidas y tramos), con capas y sin capas: cada deflexión (codo incluido) queda múltiplo EXACTO
+    de `PASO_DEG`; nada más cambia (vértices, tipos, codos, radios). Rejilla: todos los tramos de
+    una línea con rumbo φ + k·0.25° (φ por mínimos cuadrados, peso largo²; las líneas que se tocan
+    PUNTA CON PUNTA comparten φ: el ángulo entre ellas también es un codo; las T no). Vértices
+    nuevos = mínimos cuadrados con los rumbos como filas DURAS y los contactos (vértice compartido,
+    punta sobre otra línea, con el MISMO desfase de antes) como filas BLANDAS de peso 1e6; un
+    vértice compartido queda bit a bit el mismo punto (`_MISMO_PUNTO_PT`; pesa `_PESO_COMPARTIDO`
+    =1e3 veces más, así un desacuerdo lo absorben las puntas sobre una línea), una punta sobre otra
+    línea a ≤`CONTACTO_MAX_PT`=0.05 pt. Dos contactos casi paralelos (<10°) en un vértice se
+    promedian por lo que MUEVEN (no por su término b: dependía del origen de la hoja, se iba
+    72 px). Orden (`_orden`): la ANFITRIONA de una T (punta sobre su tramo) antes que sus ramas
+    (una recta no puede seguir a dos ramas ya movidas), luego la que toca a una ya ajustada, la más
+    larga. (T en un VÉRTICE de la anfitriona como rama: −20 líneas sin ajustar, pero curvas de DU08
+    h.22 a 0.18 pt de la tinta: descartado.) Punta «stop»/«cut» = sigue SOBRE el contorno de su bóveda / el corte (`bordes`: `vault_snap.boundary`
+    + `clip_polys`); fijarla del todo dejaba mal puesto un vértice casi recto entre dos puntas
+    fijas. Micro-tramo (<`MICRO_PT`=0.25 pt: dos vértices de buzón de Phoenix a 0.02–0.1 pt) = un
+    punto rígido; el ángulo es el de los tramos a cada lado (`deflexiones_deg(pts, minimo)`).
+    Codos (`_rehacer_codos`): mismo radio, A/B/centro de `fillet_geo` SIN topes y luego
+    `recognition_arcs.fit_to_editor` (como el reconocimiento: con los topes, un codo que el editor
+    recorta bajaba de r 211 a 163 y salía de la tinta, DU06 h.3); si la tangencia caía en el
+    vértice vecino (nodo, ancla en la tangencia, mitades del codo en «U») el tramo se fuerza a
+    r·tan(Δ/2) (`_piernas_de_codos`, fila dura) y sigue ahí exacto (las mitades comparten centro y
+    radio). Intentos: radio exacto + contactos 1e6; si algún vértice se corre >`MOVER_POCO_PT`=0.5
+    pt (casi tangente/paralelo: DU08 h.47, h.49 se deslizaban 1–10 pt) se prueban sin las
+    piernas y con contactos 1e3 y gana el que menos mueve. Línea que se apartaría >`DESVIO_MAX_PT`=2
+    pt (de lado, `lateral`: deslizar por su recta no cuenta), daría vuelta un tramo o separaría un
+    contacto → queda como estaba (solo sigue a sus contactos), aviso «Líneas con el ángulo del
+    plano…» (REVIEW, `angles_off_px`). `reubicar` lleva `vault_pts`/`vault_snaps_px` a su vértice.
+    Medido (DU06/DU10/DU08/LABOE × 6 utilidades + Phoenix agua/alcantarillado, 445 hoja×utilidad):
+    15 380 quiebres a 0.25°, 94 líneas de ~5 400 sin ajustar, desvío lateral p90 por hoja ~0.07 pt
+    (máx 1 pt), contactos ≤0.05 pt, ~30 ms por hoja×utilidad (≤1 s en mapas de Phoenix);
+    `audit_perfil`: mismos tramos, codos, cobertura, «sin tinta» y «V»; «imprecisos» 85 → ~100
+    (las nuevas a 0.76–0.84 pt, una a 1.1). Pruebas que buscaban coordenadas EXACTAS del PDF las
+    buscan ahora a 0.1–0.25 pt. Ojo: `limpieza_tramos` (al exportar) y `limpieza` pueden mover un
+    vértice en sus arreglos de tramos diminutos (no conocen la rejilla). Tests:
+    `tests/test_angulos_quiebres.py`.
   - **Fase B sin inventos** (reporte del usuario 2026-10-09, DU06 h.10/h.12, «—SC—» de telecom: «hay que
     interpretar lo que da el PDF, no dibujar cosas que no existen», en TODAS las utilidades). En
     `recognition_geom.resolve_nodes` (llegadas a bóvedas): (A) `_vault_entry(run=)`: una CURVA que ya
@@ -461,6 +519,31 @@ alcantarillado, drenaje, gas, eléctrico, telecom). Todo en **unidades imperiale
     Pendiente conocido: curva que se funde TANGENTE con otra línea junto a una bóveda y vuelve ~6 pt sobre ella
     (DU08 h.37 (1116, 991), h.38 (765, 1179) telecom; ya estaba).
     Tests: `tests/test_bovedas_no_inventar.py`.
+  - **Curva con el RÓTULO dentro** (reporte del usuario 2026-10-19, hoja compuesta DU06 UD-201, «—SC—»):
+    la línea gira con un arco y las letras del linetype van DENTRO de él; AutoCAD dibuja el guión recto hasta
+    el inicio del arco + 2–3 cuerdas del aplanado (~2 pt) y el resto es el rótulo. `recognition_arc_letters.py`
+    (PURO): `arc_tips` (punta curva = guión ≥8 pt + cuerdas cortas que giran al mismo lado), `arc_between`
+    (dos puntas que curvan hacia el mismo arco, rectas que llegan a la esquina con el mismo largo ±20 %+1 pt,
+    círculo TANGENTE a las dos rectas por las cuerdas curvas —RMS ≤0.15 pt—, tangencias donde termina cada
+    recta ≤1 pt y letras centradas sobre el arco que, con la tinta curva, tapan ≥85 % de él). Lo usan (1)
+    `recognition_letter_lines._link_arc_letters` (reparto por letras: une los dos guiones y las letras del arco;
+    sin esto el guión de después quedaba sin utilidad en `G-XREF`) y (2) `letter_arcs`, en `_emit` después de
+    `fit_fillets` (cajas = `GeomResult.glyphs`): pone el codo (`fillets[i]["letters"]=True`) donde no hay ya
+    uno, quitando solo vértices blandos dentro del triángulo A–C–B. En la misma caja: una punta que SALE de la
+    caja (la otra punta de su recta está DENTRO, bóveda detrás) y sigue por su letra no es la llegada (Fase B,
+    `recognition_geom`): llega la punta de dentro (antes la línea quedaba cortada en su «SC» junto a la caja); y
+    la 2.ª pasada de codos, sin ninguna opción de un lado, usa la recta de la polilínea hasta su «stop»
+    (`arc_plan._vault_leg`: su tinta es el trazo hasta el centro de la caja, que no se le reparte). Foto 4 PDFs ×
+    6 utilidades (846 hoja×utilidad): cambian 9, todas telecom y revisadas a la vista — DU06 h.3 (el reporte),
+    la «—SC—» que quedaba en dos trozos junto a una caja (DU08 h.23/24/47, DU10 h.13/14/23/24) y DU08 h.40 (curva
+    muy abierta junto a una caja: quiebre de 2° → arco r = 1130 pt, tinta→dibujo máx 0.30 → 0.24 pt). LABOE 0.
+    Tests: `tests/test_arco_con_letras.py`.
+  - **Vista previa = importación en los quiebres** (mismo reporte, DU06 UD-202): `recognition_quiebres.
+    curvas_de_quiebres(results, zoom)` repite sobre COPIAS los pasos de datos de `Main._import_recognized_pipes`
+    (tuberías, vértices de bóveda, acometidas, estructuras, cajas, codos, `quiebres_curvas.curvas_en_quiebres`) y
+    la vista previa (`_curvas_quiebres`, zoom = `fondo["zoom"]`; se recalcula al unir/separar tramos) dibuja esos
+    quiebres como la curva de radio mínimo que entrará (no presión). OJO: un paso NUEVO de la importación que
+    cambie qué quiebres son curva va también ahí. Tests: `tests/test_recognition_quiebres.py`.
   - **Hojas SIN capas (PDF aplanado / mapa SIG; 2026-10-10, Quarter Section de Phoenix, una utilidad
     por PDF, `docs/flattened-pdf-recognition.md`)**: `hoja/pdf_styles.py` da a cada trazo sin OCG de una hoja
     sin geometría OCG una capa VIRTUAL `PDF_STYLE:[json]` (color, grosor, guiones, relleno, opacidad;
@@ -887,18 +970,27 @@ alcantarillado, drenaje, gas, eléctrico, telecom). Todo en **unidades imperiale
     una pestaña oculta no está visible (`isVisibleTo` falso, `centerOn` sin efecto) →
     `dlg._go_tab(TAB_SHEET)` antes. **La hoja ELEGIDA es la hoja compuesta**
     (`composite_choice.ChosenSheetMixin`, pedido del usuario 2026-10-05: elegía la hoja, pulsaba
-    «Siguiente» y quedaba vacía): mientras la hoja compuesta sea vacía o UNA hoja entera
-    (`_simple`), elegir hoja la reemplaza (`_choose_page`: al abrir, clic/flechas en la galería
-    —`composite_source_page.PageGallery.picked`, solo gestos del USUARIO; `setCurrentRow` por
-    código no elige—, ‹ ›, «Tomar área de esta hoja») y la deja EN EDICIÓN: un área marcada (o
-    sus esquinas movidas) la recorta al momento con el `_apply_crop_edit` de siempre y «Hoja
-    completa» la devuelve (`_set_piece_area`; `_take`/`_take_area` sobre la pieza en edición de
-    la hoja a la vista = actualizarla, no agregar). La hoja entera se ve SIN tinte (borde +
-    asas: `_CropView.is_whole_page`/`_fill_for`). Con trabajo de verdad (un área, ≥2 piezas)
-    elegir otra hoja solo la muestra (aviso `pending_box` con «Usar solo esta hoja» si hay una
-    pieza: `_use_only_this_sheet`); Ctrl+clic en la galería (`PageGallery.added`) agrega la
-    hoja entera. Esc no cierra el diálogo (`wizard_widgets.NoEscapeClose`). Tests:
-    `tests/test_composite_dialog.py::test_la_hoja_elegida_es_la_hoja_compuesta` y siguientes.
+    «Siguiente» y quedaba vacía): al abrir sin piezas, la hoja a la vista entra sola, MARCADA
+    (`_choose_provisional`; `_provisional` = `to_dict()` de esa pieza, solo para el texto «ya
+    viene marcada»: `_provisional_now()`; nada la reemplaza sola). **Una CASILLA por hoja**
+    (`page_gallery.PageGallery`, pedido 2026-10-19: «así nos evitamos problemas y confusiones»):
+    marcadas = la hoja compuesta (`USED_ROLE`, la pone `_label_page_item`; `_CheckDelegate` la
+    dibuja abajo a la derecha, 22 px, colores del tema). Casilla / Espacio / Enter / Ctrl+clic →
+    `toggled` → `_toggle_page`: marcar = `_use_page` (la deja a la vista y `_pick_page`: entera,
+    en edición, SUMADA —nunca reemplaza, pedido 2026-10-16: «selecciono la 1, luego la 2, y la 2
+    sustituye a la 1»—; vacía → `_choose_page`); desmarcar = `_remove_page(fila)` (pregunta si
+    tenía un área tomada: `_confirm_remove_page`). El doble clic en la casilla cuenta una vez.
+    Clic en la miniatura (`picked` → `_view_page`), flechas y ‹ › (`gesture`) solo MUESTRAN; si
+    la hoja ya está, su pieza queda en edición (`_select_page_piece`, desde `_on_page_changed`);
+    si no, aviso `pending_box` («Usar solo esta hoja» con una pieza: `_use_only_this_sheet`).
+    «Tomar área de esta hoja» y el enlace «Usar la hoja N» = `_pick_page`. La pieza de la hoja a la vista queda
+    EN EDICIÓN: un área marcada (o sus esquinas movidas) la recorta al momento con el
+    `_apply_crop_edit` de siempre y «Hoja completa» la devuelve (`_set_piece_area`;
+    `_take`/`_take_area` sobre la pieza en edición de la hoja a la vista = actualizarla, no
+    agregar). La hoja entera se ve SIN tinte (borde + asas: `_CropView.is_whole_page`/
+    `_fill_for`). Esc no cierra el diálogo (`wizard_widgets.NoEscapeClose`). Tests:
+    `tests/test_composite_dialog.py::test_la_hoja_elegida_es_la_hoja_compuesta`,
+    `test_casillas_de_las_hojas` y siguientes.
     **Validaciones** (`composite_checks.py`, PURO): sin piezas
     ni área marcada → `btn_ok` apagado (enlace «Usar la hoja N» = `pick`); área marcada sin tomar (`_sel_dirty`: la marcó el
     usuario, no la de una pieza en edición) o hoja a la vista sin tomar → aviso ámbar en el pie
@@ -1134,6 +1226,47 @@ alcantarillado, drenaje, gas, eléctrico, telecom). Todo en **unidades imperiale
     `act_minimapa_hojas`/`act_marcas_hojas`, QSettings), `_layout_minimapa` (se movió aquí; reabierto: lo calcula
     de los PDF de origen) y `_hojas_px`; la vista previa recibe `hojas=` y pone su `MiniMap`. Avance con cifras en
     `trazos_visibles` y en el nombrado de estilos.
+    **4.ª vuelta (2026-10-19, Water North + South, 10 mapas: «hoja por hoja funciona, compuesta no»; continuidad
+    y precisión)**: (1) ROLES POR HOJA: `Main._layer_roles_by_utility` sobrevivía de una hoja suelta a la compuesta
+    y `_apply_map_legend` NO aplicaba la leyenda si había roles → solo las piezas con los mismos grosores quedaban
+    como agua. Ahora `roles_by_utility()` lleva `leyenda_mapa.CLAVE_LEYENDA` (lo que asignó la leyenda de ESA
+    hoja); `Main._layer_roles_hoja` = `_clave_hoja` (PDF de origen + composición + nº de hoja) donde se eligieron;
+    en otra hoja `_roles_de_la_hoja` → `roles_de_otra_hoja` (quita lo de la leyenda, deja lo puesto a mano con
+    `SUMAR_LEYENDA`) y el diálogo / `recognize_page` suman la leyenda de esta hoja (`roles_con_leyenda`). Misma
+    hoja (volver de la vista previa) = roles tal cual. ◀ ▶ en «Capas» → `_legend_for_new_sheet`. CAD (capas con
+    nombre, sin `CLAVE_LEYENDA`): igual que siempre. (2) `leyenda_mapa_lectura._divisores`: una línea del MAPA
+    dibujada antes del fondo opaco del cuadro y tapada por él no es divisoria (`_tapado`): Water South h.15/North
+    h.13/15/18/South h.11 tenían «Standard Main» en «GENERAL» sin utilidad → 0 tuberías en la hoja suelta (foto
+    108 hojas: solo esas 5 cambian). (3) `hoja/leyenda_piezas.py` (PURO): `equivalencias(ley)` (unión de
+    conjuntos sobre (pieza, estilo) de filas de LÍNEA con utilidad, `LeyendaMapa.piezas` = pieza de cada
+    `por_hoja`) → `recognize_page` agrupa en `by_ocg` el estilo de una pieza con el común si los dos son líneas de
+    la utilidad (17-24/25 dibujan a 0.57 pt lo que las demás a 0.71; con la escala de cada pieza: 0.30/0.37/0.38
+    en tres capas que se cortaban en cada costura). `gather_paths` conserva `seqno` en el recorte (pieza por
+    `inicios_de_piezas`). (4) `recognition_ink_lines` en hoja compuesta (más de un recorte; hoja suelta igual):
+    `_sin_dobles` (trocito todo a ≤0.3 pt de la línea de otra pieza), `_soldar_costuras` (punta «cut» y la de
+    la misma tubería en la pieza vecina a ≤`COSTURA_HUECO_PT`=2.5 que se miran: adelante → la cortada se
+    alarga hasta ella; las dos cortadas una al lado de la otra → punto medio; si no, el rayo de la cortada
+    hasta la LÍNEA de la otra pieza cruzándola ≥30° → T), una punta «cut» donde termina otra línea de la misma
+    capa = «junction» (tubería pegada a la costura: cada vértice sale como corte) y una «cut» sobre la línea de la
+    otra pieza = «tee». Aviso «Costuras de la hoja compuesta: N». (5) `merge_walls` no corre en capas por estilo
+    de trazo CONTINUO (mapa SIG: dos paralelas son dos tuberías; en North h.15 dos laterales a 2.7 pt quedaban en
+    una línea al medio sin tinta; en la compuesta, 125 pt inventados). (6) `recognition_ends.trim_inkless_tails`:
+    el índice de la punta final se toma después de recortar la inicial (IndexError latente). Medido en la
+    compuesta de 10 mapas: capas de la red 3 → 1, puntas «cut» 203 → 99 (las 95 restantes: la otra hoja no
+    dibuja esa tubería), muestras a >1 pt de la tinta 0.65 % → 0.02 %. Tests: `tests/test_mapas_compuestos.py`.
+    Pruebas por grupos en paralelo: `python scripts/pruebas.py <grupo…>` (mapas, compositor, capas,
+    reconocimiento, utilidades, editor, interfaz, otros, todo; sin pytest-xdist).
+  - **Esquinas libres en TODOS los flujos** (pedido del usuario 2026-10-19): casilla
+    `chk_corners` «Esquinas libres» en «Área a tomar» (encendida en escaneos, apagada en vectorial;
+    se enciende sola al editar una pieza con `polygon`). `scan_crop_view.CornerCropView(free=)` —
+    apagada es el `_CropView` de siempre; encendida: esquinas, lados paralelos, centro, flechas e imán
+    de esquina a las guías—. `normalized_polygon()` = [] si el cuadrilátero es un rectángulo (todo como
+    antes: `clip`, «Sin línea de borde»); si no, `Piece.polygon` con `clip` = su caja y sin `covers`.
+    Hoja compuesta: `build_document` ya recortaba por el polígono (`W n`, el reconocimiento lo ve como
+    un clip más); anclajes por el lado inclinado (`hoja/composite_esquinas.edge_anchors_poly`, vía
+    `edge_anchors(polygon=)`), puentes hasta el cuadrilátero (`piece_bounds_shape`, `_ray_exit` con
+    polígono) y el imán borde con borde / costura por match line se saltan las piezas con polígono.
+    Tests: `tests/test_esquinas_libres.py`.
   - **Compositor de escaneos** (`Composite.manual`, PDF imagen/escaneo → editor sin capas ni
     reconocimiento): `scan_crop_view.py` (área con 4 esquinas → `Piece.polygon`),
     `alignment_tools.py` (regla con asa de giro, transportador de tamaño FIJO en pantalla con
@@ -1148,9 +1281,23 @@ alcantarillado, drenaje, gas, eléctrico, telecom). Todo en **unidades imperiale
     `blends()`): modo OSCURECER en la vista (`PieceItem.paint` + papel blanco en
     `CompositeView.drawBackground`; bajo el recorte nítido no se pinta la base) y en el PDF
     (`build_document`: `/PdfcadDarken gs` por pieza, ExtGState `/BM /Darken`): el papel de una
-    pieza no tapa la tinta de otra y la superposición no oscurece el papel. Solo escaneos: en el
-    vectorial las franjas `covers` DEBEN tapar. Tests: `tests/test_scan_composition.py`,
-    `tests/test_scan_tools.py`.
+    pieza no tapa la tinta de otra y la superposición no oscurece el papel. Tests:
+    `tests/test_scan_composition.py`, `tests/test_scan_tools.py`. **También en el VECTORIAL** (con
+    y sin capas, pedido del usuario 2026-10-19; `hoja/composite_fundir.py`, PURO): mismo botón
+    (`ScanToolsMixin.build_blend_tool`, solo a la izquierda de la barra) y `Composite.blends()` =
+    `seam_blend` en todos los flujos. En el PDF, `blended_pieces`: escaneo = todas (como siempre);
+    vectorial = solo las que se SUPERPONEN a una anterior > `SOLAPE_MIN_PT`=1 pt (borde con borde
+    el PDF sale idéntico: mismos bytes de contenido) y van como GRUPO de transparencia AISLADO
+    (`/Group <</S/Transparency/I true>>` en su «fzFrm», `aislar_ultima_pieza`): con el oscurecer
+    directo cada trazo se oscurecía dentro de SU hoja (el fondo blanco de un rótulo dejaba ver la
+    línea) y MuPDF abría un grupo por objeto. Las franjas `covers` van fuera del modo y siguen
+    tapando. OJO lectores: el grupo queda en el NIVEL 0 de `get_drawings(extended=True)` y el
+    recorte de la pieza en el 1; `recognition._cerrar_recortes` (gather_paths, profile_view_regions,
+    `leyenda_trazos.trazos_visibles`: un grupo cierra los recortes de su nivel, si no el de la pieza
+    anterior recortaba a la fundida: −3 200 trazos en DU06 h.13) y `inicios_de_piezas` (grupo o
+    recorte de nivel 0 = pieza nueva). Los PDF de prueba que ya traen grupos (DU06 h.5/10, DU10,
+    LABOE) no cambian. Píxeles: dentro del grupo MuPDF suaviza bordes hasta 18/255 distinto (no se
+    ve); dibujo ~2× en la pieza fundida. Tests: `tests/test_fundir_vectorial.py`.
   - `wizard_widgets.py` — UI compartida por los pasos del asistente: `StepBar` («1 Componer
     hoja › 2 Capas de la hoja › 3 Vista previa»; pasos anteriores clicables = volver),
     `show_opacity_popup` (el desplegable de opacidad del editor, movido aquí: lo usan
@@ -1404,6 +1551,17 @@ alcantarillado, drenaje, gas, eléctrico, telecom). Todo en **unidades imperiale
     reconocimiento no la cubrió entera: es otro problema), tramos < 3 pt y esquinas de 90° con tramos más
     cortos que T. Tests: `tests/test_quiebres_curvas.py`,
     `tests/test_curvas_editor.py::test_quiebre_del_plano_entra_como_curva_minima` (ventana real → DXF).
+    **Vértices prácticamente rectos que estorban** (mismo reporte 2026-10-19, UD-205: el quiebre junto a
+    la «SC» de abajo tenía dos `bend` de 0.75° a 1.3 ft): `_enderezar` quita los MENOS posibles
+    (`RECTOS_MAX`=4 por lado) vértices blandos con giro ≤ `GIRO_MIN_DEG`, a ≤0.25 ft de la recta nueva,
+    sin otra utilidad (`limpieza_tramos.compartido`), sin estructura visible ni curva, si con eso la curva
+    entra y ninguna otra curva cambia de radio, se recorta o corre su arco >0.25 ft (`_curvas_quietas`)
+    —es lo que hace `EnderezarQuiebres` del plugin—; usa `limpieza_tramos.quitar_vertice` y borra el
+    buzón oculto del vértice quitado (gravedad). En gravedad un vértice propio a ≤ tol px del quiebre
+    (antes: se saltaba sin aviso) ahora se intenta quitar igual. Los candidatos se siguen por coordenada
+    (los índices se corren). Vista previa: `recognition_quiebres.curvas_de_quiebres` marca esos vértices
+    `{QUITADO: True}` y `dibujo_de(pl, curvas)` da la polilínea sin ellos + sus codos (la usa
+    `recognition_dialog`).
   - **Normativas de diseño EN TABLAS** (2026-10-09; reemplazan al motor de reglas `normativas*.py` y su ventana
     QtWebEngine, borrados: el .exe ya no lleva QtWebEngine). Formato = el Excel que hizo el ingeniero a mano:
     `normas_catalogo.py` (PURO) — `BASE` = su contenido (tipos por utilidad, `diametros` de agua/gas por tipo con
@@ -2129,7 +2287,8 @@ alcantarillado, drenaje, gas, eléctrico, telecom). Todo en **unidades imperiale
 ## Cómo correr
 
 - App: `python app/main.py`
-- Pruebas: `pytest`  (desde la raíz)
+- Pruebas: `pytest`  (desde la raíz). Por grupos y en paralelo (cada archivo en su proceso):
+  `python scripts/pruebas.py mapas capas` (sin argumentos lista los grupos; `todo` = todas)
 - Compilar plugin + exe + instalador: `build_all.bat` (pregunta la versión)
 - Quitar el plugin del autoload de C3D (testing): `uninstall_plugin.bat`
 - Compilar solo el plugin C#: `dotnet build -c Release` en

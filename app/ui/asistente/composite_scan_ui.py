@@ -16,7 +16,8 @@ barra única del panel 3 y atiende sus acciones. Rediseño pedido por el usuario
     línea, que no se mueve.
   - Fundir bordes: las piezas se combinan en modo oscurecer (vista y PDF): el
     papel de una pieza no tapa la tinta de la otra, así que se superponen un
-    poco y la costura no deja corte ni franja blanca.
+    poco y la costura no deja corte ni franja blanca. Desde 2026-10-19 el mismo
+    botón está en el compositor de PDF vectoriales (`build_blend_tool`).
 
 Las indicaciones de cada herramienta y el resultado de la medida van en la
 línea de estado bajo la hoja (`lbl_status`), no en filas de texto encima.
@@ -98,13 +99,7 @@ class ScanToolsMixin:
         bar.add(self.btn_straighten, compact=True)
         bar.add_separator()
 
-        self.btn_blend = tool("mdi:vector-combine", _tr("Fundir bordes"), _tr(
-            "Donde dos piezas se superponen se ve la tinta de ambas: el papel de una no tapa "
-            "las líneas de la otra. Superpón un poco las piezas y la unión no deja corte ni "
-            "franja blanca. También se aplica al PDF que pasa al editor."), checkable=True)
-        self.btn_blend.setChecked(bool(self.comp.seam_blend))
-        self.btn_blend.toggled.connect(self._on_blend_toggled)
-        bar.add(self.btn_blend, compact=True)
+        self.build_blend_tool(bar, tool)
 
         view.measure.measured.connect(self._on_measured)
         view.measure.cleared.connect(self._on_measure_cleared)
@@ -113,6 +108,23 @@ class ScanToolsMixin:
         view.protractorAngleChanged.connect(self._on_protractor_angle)
         view.rotateRequested.connect(self._nudge_rotation)
         view.alignment_ruler.changed.connect(self._sync_rule_button)
+
+    def build_blend_tool(self, bar, tool):
+        """«Fundir bordes» en la barra: en escaneos (tras las guías) y, desde 2026-10-19,
+        también en los PDF vectoriales con o sin capas (solo, a la izquierda). Mismo botón,
+        mismo `Composite.seam_blend`; el aviso en la línea de estado (`_flash_status`)."""
+        if self.comp.manual:
+            tip = _tr("Donde dos piezas se superponen se ve la tinta de ambas: el papel de una no tapa "
+                      "las líneas de la otra. Superpón un poco las piezas y la unión no deja corte ni "
+                      "franja blanca. También se aplica al PDF que pasa al editor.")
+        else:
+            tip = _tr("Donde dos piezas se superponen se ve la tinta de ambas: lo blanco de una no tapa "
+                      "las líneas de la otra. Dentro de cada hoja no cambia nada y, borde con borde, "
+                      "el PDF queda igual. También se aplica al PDF que pasa al editor.")
+        self.btn_blend = tool("mdi:vector-combine", _tr("Fundir bordes"), tip, checkable=True)
+        self.btn_blend.setChecked(bool(self.comp.seam_blend))
+        self.btn_blend.toggled.connect(self._on_blend_toggled)
+        bar.add(self.btn_blend, compact=True)
         self._flash_timer = QtCore.QTimer(self)
         self._flash_timer.setSingleShot(True)
         self._flash_timer.timeout.connect(self._clear_flash)
@@ -322,5 +334,10 @@ class ScanToolsMixin:
     # ── fundir bordes ───────────────────────────────────────────────────
     def _on_blend_toggled(self, on: bool):
         self.view.set_blend(on)
-        self._flash_status(_tr("Fundir bordes activado: superpón un poco las piezas en la unión.")
-                           if on else _tr("Fundir bordes desactivado: cada pieza tapa a la de abajo."))
+        if not on:
+            text = _tr("Fundir bordes desactivado: cada pieza tapa a la de abajo.")
+        elif self.comp.manual:
+            text = _tr("Fundir bordes activado: superpón un poco las piezas en la unión.")
+        else:
+            text = _tr("Fundir bordes activado: donde dos piezas se superponen se ve la tinta de las dos.")
+        self._flash_status(text)

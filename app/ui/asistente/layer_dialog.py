@@ -467,6 +467,7 @@ class SheetLayersDialog(ScaleCalibrationMixin, LayerAssignmentsMixin, LayerInfoM
         self._page_index = idx
         self._page = self._doc[idx]
         self._layers_raw = pdf_layers.page_layers(self._doc, idx)
+        self._legend_for_new_sheet()          # mapa con leyenda: la de ESTA hoja decide sus estilos
         self._layers = self._effective_layers()
         # El buscador es solo de VISTA: no debe seguir puesto al cambiar de hoja,
         # o la nueva podía verse vacía aunque sí tuviera capas (usuario: «página

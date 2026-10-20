@@ -30,10 +30,21 @@ No se toca un vértice compartido (otro vértice de otra tubería a ≤ tol px �
 UN vértice, `curve_vertex_indices`—; en gravedad tampoco de la misma, porque su buzón
 se reconcilia por coordenada), con una estructura visible cerca o dentro del contorno
 de una bóveda (es la llegada a la bóveda, no un quiebre).
+
+Vértices PRÁCTICAMENTE RECTOS que estorban (reporte del usuario 2026-10-19, DU06 UD-205:
+la diagonal «—SC—» llega a su quiebre con dos vértices de 0.75° a 1.3 ft de él y la curva
+no entraba): un vértice blando que gira ≤ `GIRO_MIN_DEG`, a ≤ 0.25 ft de la recta, sin
+otra utilidad, sin buzón/caja visible y sin curva, se QUITA si es lo único que deja sin
+lugar la curva del quiebre vecino (y, en gravedad, si está a ≤ tol px del quiebre). Es lo
+mismo que hace el plugin al importar (`EnderezarQuiebres`: esos vértices no llegan a Civil
+3D) y lo que hace la limpieza de tramos (`limpieza_tramos.quitar_vertice`). Solo si con
+eso la curva entra y ninguna otra curva cambia de radio, se recorta o se corre más de
+0.25 ft; si no, nada se quita.
 """
+import copy
 import math
 
-from nucleo import model_ops
+from nucleo import limpieza_tramos, model_ops
 from nucleo.model import network_kind
 
 GIRO_MIN_DEG = 2.0            # menos = «prácticamente recto»: el plugin no hace arco y lo endereza
@@ -42,6 +53,10 @@ REDES_CON_CURVAS = ("gravity", "conduit")
 # El ancho interior del catálogo puede ser algo mayor que el nominal: margen en el
 # tramo recto mínimo entre dos curvas (si no alcanza, el plugin achicaría las dos).
 HOLGURA_RECTO = 1.1
+# Vértices prácticamente rectos que se pueden quitar a cada lado de un quiebre para que
+# entre su curva (el plugin los endereza igual: giro ≤ GIRO_MIN_DEG y ≤ 0.25 ft).
+RECTOS_MAX = 4
+DESVIO_RECTO_FT = limpieza_tramos.DESVIO_MAX_FT
 
 
 def _giro_deg(a, b, c):
@@ -79,6 +94,102 @@ def _vertice_libre(pipes, ip, vi, tol, gravedad):
             if math.hypot(qx - x, qy - y) <= tol:
                 return False
     return True
+
+
+def _propios_cerca(pipes, ip, vi, tol):
+    """Vértices de la MISMA tubería a ≤ tol px del vértice vi."""
+    pts = pipes[ip]["pts"]
+    return [vj for vj, q in enumerate(pts) if vj != vi and math.dist(q, pts[vi]) <= tol]
+
+
+def _recto_quitable(pipes, structures, ip, j, curvas, ft_per_px, tol):
+    """¿El vértice j es prácticamente recto y no lleva nada (se puede quitar)?"""
+    p = pipes[ip]
+    pts, kinds = p["pts"], p.get("vertex_kinds") or []
+    if not (0 < j < len(pts) - 1) or len(kinds) != len(pts) or kinds[j] not in KINDS_QUIEBRE or j in curvas:
+        return False
+    if _giro_deg(pts[j - 1], pts[j], pts[j + 1]) > GIRO_MIN_DEG:
+        return False
+    if limpieza_tramos.compartido(pipes, ip, pts[j], limpieza_tramos.COMPARTIDO_FT / ft_per_px):
+        return False                           # otra utilidad pasa por ahí: es una unión
+    if any(not s.get("hidden") and not s.get("curve")
+           for s in model_ops.structures_at_vertex(pipes, structures, ip, j)):
+        return False
+    return not _estructura_cerca(structures, pts[j][0], pts[j][1], tol, ft_per_px)
+
+
+def _curvas_quietas(antes, despues, desvio_px):
+    """Ninguna curva de la tubería desaparece, cambia de radio, se recorta ni su arco se
+    corre más de `desvio_px` (tangencias y punto medio; geos de `limpieza_tramos.curvas`,
+    por estructura)."""
+    for clave, g in antes.items():
+        h = despues.get(clave)
+        if h is None or (h["clamped"] and not g["clamped"]) or abs(h["r"] - g["r"]) > 1e-6 * max(1.0, g["r"]):
+            return False
+        medio_g, medio_h = g["arc"][len(g["arc"]) // 2], h["arc"][len(h["arc"]) // 2]
+        if max(math.dist(g["t1"], h["t1"]), math.dist(g["t2"], h["t2"]), math.dist(medio_g, medio_h)) > desvio_px:
+            return False
+    return True
+
+
+def _por_estructura(pipes, structures, ip, ft_per_px):
+    cv, geos = limpieza_tramos.curvas(pipes, structures, ip, ft_per_px)
+    return {id(cv[k]): g for k, g in geos.items()}
+
+
+def _enderezar(pipes, structures, ip, i, ft_per_px, tol, obligados=()):
+    """Quita los vértices prácticamente rectos junto al quiebre i (los menos posibles; los
+    `obligados` siempre) para que entre su curva. Devuelve el índice nuevo del quiebre, o
+    None si así tampoco entra (entonces no se quita nada). Muta la tubería y, en gravedad,
+    quita el buzón oculto de cada vértice quitado."""
+    p = pipes[ip]
+    pts = p["pts"]
+    curvas = model_ops.curve_vertex_indices(p, structures, pipes, tol)
+    lados = []
+    for paso in (-1, 1):
+        lado, j = [], i + paso
+        while len(lado) < RECTOS_MAX and _recto_quitable(pipes, structures, ip, j, curvas, ft_per_px, tol):
+            lado.append(j)
+            j += paso
+        lados.append(lado)
+    antes_, despues_ = lados
+    min_a = max((i - j for j in obligados if j < i), default=0)
+    min_b = max((j - i for j in obligados if j > i), default=0)
+    if min_a > len(antes_) or min_b > len(despues_):
+        return None
+    desvio_px = DESVIO_RECTO_FT / ft_per_px
+    firma = _por_estructura(pipes, structures, ip, ft_per_px)
+    for total in range(max(1, min_a + min_b), len(antes_) + len(despues_) + 1):
+        for a in range(min_a, len(antes_) + 1):
+            b = total - a
+            if not (min_b <= b <= len(despues_)):
+                continue
+            quitar = sorted(antes_[:a] + despues_[:b], reverse=True)
+            # el dibujo no se aparta: cada vértice quitado queda sobre la recta nueva
+            ini, fin = pts[i - a - 1], pts[i]
+            ini2, fin2 = pts[i], pts[i + b + 1]
+            if any(math.dist(pts[v], limpieza_tramos.proyeccion(pts[v], *((ini, fin) if v < i else (ini2, fin2)))[0])
+                   > desvio_px for v in quitar):
+                continue
+            copia = copy.deepcopy(p)
+            for v in quitar:
+                limpieza_tramos.quitar_vertice(copia, v)
+            prueba = [copia if k == ip else o for k, o in enumerate(pipes)]
+            i2 = i - a
+            cv2 = model_ops.curve_vertex_indices(copia, structures, prueba, tol)
+            if (i2 in cv2 or not _curvas_quietas(firma, _por_estructura(prueba, structures, ip, ft_per_px), desvio_px)
+                    or not _entra(copia, i2, cv2, ft_per_px)):
+                continue
+            ocultas = [s for v in quitar for s in model_ops.structures_at_vertex(pipes, structures, ip, v)
+                       if s.get("hidden") and not s.get("curve")]
+            for v in quitar:
+                limpieza_tramos.quitar_vertice(p, v)
+            for s in ocultas:                  # el buzón oculto de un vértice que ya no existe
+                k = next((k for k, o in enumerate(structures) if o is s), None)
+                if k is not None:
+                    del structures[k]
+            return i2
+    return None
 
 
 def _estructura_cerca(structures, x, y, tol, ft_per_px):
@@ -197,15 +308,27 @@ def curvas_en_quiebres(pipes, structures, ft_per_px, indices=None, tol=None):
             if kinds[i] in KINDS_QUIEBRE and i not in curvas:
                 g = _giro_deg(pts[i - 1], pts[i], pts[i + 1])
                 if g > GIRO_MIN_DEG:
-                    cand.append((-g, i))
-        for _g, i in sorted(cand):
+                    cand.append((-g, i, tuple(pts[i])))
+        for _g, _i, q in sorted(cand):
+            # (si se quitó un vértice recto, los índices se corren: el quiebre, por su lugar)
+            pts = p["pts"]
+            i = next((k for k, w in enumerate(pts) if w[0] == q[0] and w[1] == q[1]), None)
+            if i is None or not (0 < i < len(pts) - 1) or i in curvas:
+                continue
             x, y = pts[i]
-            if (not _vertice_libre(pipes, ip, i, tol, net == "gravity")
+            if (not _vertice_libre(pipes, ip, i, tol, False)
                     or _estructura_cerca(structures, x, y, tol, ft_per_px)):
                 continue
-            if not _entra(p, i, curvas, ft_per_px):
-                sin_lugar.append((float(x), float(y)))
-                continue
+            # en gravedad, un vértice propio pegado al quiebre se lleva su buzón: solo si se quita
+            propios = _propios_cerca(pipes, ip, i, tol) if net == "gravity" else []
+            if propios or not _entra(p, i, curvas, ft_per_px):
+                i2 = _enderezar(pipes, structures, ip, i, ft_per_px, tol, propios)
+                if i2 is None:
+                    if not propios:
+                        sin_lugar.append((float(x), float(y)))
+                    continue
+                i = i2
+                curvas = model_ops.curve_vertex_indices(p, structures, pipes, tol)
             curvas[i] = _marcar_cv(structures, x, y, net)
             nuevas.append(curvas[i])
     return nuevas, sin_lugar

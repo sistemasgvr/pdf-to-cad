@@ -155,7 +155,9 @@ def test_du08_recta_escondida_solo_la_que_llega_al_fin_de_la_linea():
     (pl, i, f), = [(pl, i, f) for pl in r.drawable for i, f in pl.fillets.items()
                    if math.dist(pl.pts_pdf[i], (534.1, 1141.5)) < 1.0]
     assert f["r_px"] == pytest.approx(124.9, abs=0.5) and not f["loose"]
-    assert abs(f["b"][1] - 1141.44) < 0.05 and pl.pts_pdf[-1] == pytest.approx((572.04, 1141.38), abs=0.05)
+    # (0.25 pt y no 0.05: con los quiebres a pasos de 0.25°, `recognition_angulos`, la línea donde
+    # muere esta punta gira 0.1° y la lleva consigo ~0.2 pt)
+    assert abs(f["b"][1] - 1141.44) < 0.25 and pl.pts_pdf[-1] == pytest.approx((572.04, 1141.38), abs=0.25)
 
 
 @pytest.mark.skipif(not DU08.is_file(), reason="PDF DU08 no disponible")

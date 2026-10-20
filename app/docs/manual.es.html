@@ -176,27 +176,46 @@ nombra hojas que están en <b>otro PDF de la misma carpeta</b> (Phoenix «…_No
 pregunta antes de agregarlo. Los PDF escaneados no tienen sugerencia: se componen a mano.</p>
 <ol>
 <li><b>Origen</b>: eliges el PDF (con <span class="btn">Agregar PDF…</span> puedes sumar otros) y la
-    hoja en la galería de miniaturas. <b>La hoja que eliges es la que se usa</b>: al abrir, la hoja a
-    la vista ya está en la hoja compuesta y un clic en otra la cambia; abajo dice
-    «Lista para continuar: hoja N completa». Su miniatura dice <b>«✔ Hoja completa»</b> o
-    <b>«✔ Área tomada»</b>. Una hoja marcada «sin capas» es un plano aplanado: se puede usar, pero
+    hojas en la galería de miniaturas. Cada hoja lleva una <b>casilla</b> abajo a la derecha: <b>las
+    hojas marcadas forman la hoja compuesta</b>. Marcar una la agrega entera (además de las que ya
+    están) y desmarcarla la quita; si tenía un área tomada, la app pregunta antes. Un clic en la
+    miniatura solo te muestra la hoja. Al abrir un PDF nuevo viene marcada la hoja que estaba abierta
+    (suele ser la carátula; desmárcala si no la necesitas). Debajo de cada hoja marcada dice
+    <b>«Hoja completa»</b> o <b>«Área tomada»</b>, y abajo cuántas hojas hay marcadas. Con el teclado,
+    las flechas pasan de hoja y Espacio o Enter marcan o desmarcan. Una hoja que dice «sin capas» es un plano aplanado: se puede usar, pero
     el reconocimiento no encontrará utilidades en ella. Doble clic en una hoja, o
     <span class="btn">Tomar área de esta hoja</span>, te lleva a la pestaña siguiente.</li>
 <li><b>Área a tomar</b>: arriba dice qué hoja estás viendo (<b>‹ Hoja 21 de 50 ›</b>); con las
-    flechas pasas a la hoja anterior o siguiente sin volver a Origen (también la eligen). La hoja
+    flechas pasas a la hoja anterior o siguiente sin volver a Origen (solo la muestran). La hoja
     entera se ve con su borde y sus asas. Si solo necesitas una parte, arrastra un rectángulo sobre
     el plano o mueve las esquinas: la hoja compuesta se actualiza sola, sin pulsar nada;
     <span class="btn">Hoja completa</span> vuelve a usar toda la hoja. La escala de la hoja va
     abajo a la derecha; el imán a líneas y el recorte de la línea de borde están en
     <b>Opciones</b>.</li>
-<li><b>Varias hojas</b>: con el área de la primera ya marcada, pasa a otra hoja: un aviso dice que
-    aún no está; marca su área y pulsa <span class="btn">Tomar área</span> (o
-    <span class="btn">Hoja completa</span>). En Origen, <b>Ctrl+clic</b> en una miniatura la agrega
-    entera. Si en realidad querías otra hoja en vez de la primera, el aviso ofrece
+<li><b>Esquinas libres</b> (casilla junto a <b>Opciones</b>): si el borde que quieres seguir está
+    inclinado —una match line torcida, el marco de una vista girada— o el área no es rectangular,
+    enciéndela y mueve <b>cada esquina por separado</b>. Los cuadritos de los lados mueven sus dos
+    esquinas a la vez (el lado sigue paralelo) y el del centro mueve toda el área; con las flechas
+    del teclado mueves la esquina o el lado elegido (Ctrl = fino, Shift = pasos de 10) y, con el imán
+    a líneas, la esquina salta a las líneas largas de la hoja. La hoja compuesta y el reconocimiento
+    recortan por ese borde. Apágala para volver al rectángulo (queda el rectángulo que contiene el
+    área). Vale para PDF con capas, sin capas y escaneos; el recorte de la línea de borde solo se
+    aplica a áreas rectangulares.</li>
+<li><b>Varias hojas</b>: en Origen, marca la casilla de cada hoja que necesitas (se agregan enteras;
+    para usar solo una parte, marca su área en Área a tomar: la pieza se recorta sola). Si pasas a otra
+    hoja con las flechas, un aviso dice que aún no está; marca su área y pulsa
+    <span class="btn">Tomar área</span> (o <span class="btn">Hoja completa</span>). Si en realidad
+    querías otra hoja en vez de la primera, el aviso ofrece
     <span class="btn">Usar solo esta hoja</span>.</li>
 <li><b>Hoja compuesta</b>: colocas cada pieza en su sitio arrastrándola. Con el <b>Imán</b> activo,
     las líneas de dos piezas vecinas se pegan solas; con <b>Puentes</b>, se completan los huecos
     entre hojas (los dos están en <b>Uniones</b>).</li>
+<li><b>Fundir bordes</b> (botón de la barra, activo en verde): donde dos piezas se superponen se ve la
+    tinta de las dos; lo blanco de una —su papel, el fondo de un rótulo o de la leyenda— no tapa las
+    líneas de la otra, en el compositor y en la hoja que pasa a Capas y al editor. Sirve para alinear
+    dos mapas sin match line encimando lo que tienen en común. Dentro de cada hoja no cambia nada, y
+    si las piezas van borde con borde la hoja queda igual que sin fundir. Apágalo si prefieres que
+    cada pieza tape a la de abajo.</li>
 <li>Haz clic en una pieza para <b>girarla</b>, quitarla, corregir en <b>Ajustes</b> su ángulo fino o
     su <b>escala</b>, o ajustar su recorte con <span class="btn">Editar área</span>.</li>
 <li>Abajo a la izquierda ves qué falta para seguir. Si quitaste todas las piezas,
@@ -217,7 +236,8 @@ imagen/escaneo…</b>), pero sin capas ni reconocimiento: al final,
 <span class="btn">Importar hoja al editor</span> la deja de fondo para dibujar a mano.</p>
 <ul>
 <li>En <b>Área a tomar</b> arrastras un rectángulo y luego mueves <b>cada esquina por separado</b> para
-    seguir un borde torcido del escaneo.</li>
+    seguir un borde torcido del escaneo (aquí <b>Esquinas libres</b> viene encendida; apágala si
+    prefieres un rectángulo).</li>
 <li>En <b>Hoja compuesta</b> todas las herramientas están en <b>una sola barra</b>: a la izquierda las
     guías (siempre en el mismo sitio) y a la derecha las acciones de la pieza elegida (girar 90°,
     <b>Ajustes</b>, quitar). Si el panel es angosto, los botones quedan solo con su icono; el nombre
@@ -279,7 +299,11 @@ imagen/escaneo…</b>), pero sin capas ni reconocimiento: al final,
     alcantarillado y las demás utilidades: en las redes por gravedad y de conductos la acometida queda
     unida a su tubería con un nodo NULO (sin buzón visible); los buzones son los de la red. Al reconocer, cada tubería toma el diámetro escrito a su
     lado («6"», «8" DIP») y el buzón de la leyenda queda en su línea. Revisa siempre antes de continuar:
-    todo se puede cambiar como cualquier asignación.</li>
+    todo se puede cambiar como cualquier asignación. Cada hoja usa <b>su</b> leyenda: lo que la leyenda
+    asignó en una hoja no pasa a otra (lo que asignaste tú a mano, sí). En una <b>hoja compuesta</b> de
+    mapas cada pieza se lee con su leyenda, y si dos mapas dibujan la misma línea («Standard Main») con
+    distinto grosor se reconocen como una sola capa; en las uniones entre hojas la tubería sigue de una
+    a la otra (la vista previa lo cuenta en «Costuras de la hoja compuesta»).</li>
 <li><b>Escala:</b> el botón <b>Escala 1"=X'</b> del pie muestra la escala de la hoja, leída de su texto.
     Si el texto no se puede leer o el PDF está impreso reducido (el rótulo dice 1"=100' y es otra), corrígela
     <b>antes de continuar</b>: <b>Calibrar con una distancia conocida…</b> (dos clics en la hoja y la distancia
@@ -374,14 +398,26 @@ imagen/escaneo…</b>), pero sin capas ni reconocimiento: al final,
     abiertas, las esquinas redondeadas chicas, la curva que sale de otra línea o termina suelta y
     dos curvas <b>unidas</b> sin recta entre medio (curva en «S»: un codo por curva, que se tocan en
     el punto de inflexión). Cada codo cubre toda su curva del plano, de punta a punta.
+    Varias curvitas seguidas que giran al mismo lado y caben en <b>una</b> sola curva (que sigue la
+    tinta del plano igual de bien) entran como esa curva.
     Un codo <b>a trazos</b> es aproximado (en el plano no es un arco exacto): conviene revisarlo.</li>
 <li>En <b>eléctrico, telecomunicaciones, drenaje y alcantarillado</b> cada <b>quiebre</b> de la línea
     (donde cambia de rumbo sin bóveda ni ramal) entra como <b>curva</b>: en obra no hay quiebres.
     También los quiebres de una línea que el plano dibuja como un solo trazo de varias rectas.
     Lleva el radio <b>mínimo</b> de la regla (automático: 6 veces el ancho interior de la tubería; si
-    cambias el diámetro, la curva lo sigue), así no se agranda el error del dibujo. Donde la curva
-    mínima no cabe (tramos muy cortos, o se recortaría otra curva) queda el quiebre. Agua y gas no
+    cambias el diámetro, la curva lo sigue), así no se agranda el error del dibujo. Si lo que no
+    deja lugar es un vértice prácticamente recto junto al quiebre (gira 2° o menos), se quita
+    —Civil 3D lo quitaría igual al importar— y la curva entra. Donde la curva mínima sigue sin
+    caber (tramos muy cortos, o se recortaría otra curva) queda el quiebre. Agua y gas no
     cambian: en presión el quiebre es un codo.</li>
+<li>El <b>ángulo de cada quiebre</b> (lo que gira la línea, el de cada codo) sale a <b>pasos de
+    0.25°</b>: 45°, 45.25°, 11.25°… nunca 45.648°, porque esos codos no existen. Vale con capas y sin
+    capas, en todas las utilidades, y también para el ángulo entre dos líneas que se unen punta con
+    punta. Para lograrlo cada vértice se mueve lo mínimo (normalmente centésimas de punto; el aviso
+    de la vista previa dice el máximo), los codos conservan su radio y lo que tocaba otra línea la
+    sigue tocando. Los ángulos que ya eran exactos (90°, una recta) no se mueven. Si una línea no se
+    puede ajustar sin apartarla de la tinta o separarla de una línea que toca (pasa en algún lazo de
+    la red), queda con el ángulo del plano y aparece en «Para verificar».</li>
 <li>Cada línea <b>termina donde termina su tinta</b>: si en el plano muere en el aire no se une a
     la línea vecina. Si muere en su letra (o en un hueco) justo antes del borde de la vista, llega
     hasta el <b>corte</b> del plano; en la hoja compuesta, las que cruzan la unión siguen de una

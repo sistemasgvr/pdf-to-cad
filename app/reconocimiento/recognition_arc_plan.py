@@ -225,7 +225,39 @@ def ink_fillet_plan(pts, kinds, groups: Sequence[ArcGroup], straights, taken, th
                     s_lo, s_hi = sorted((S[k], g.s0 if side < 0 else g.s1))
                     if _straight_between(s_lo, s_hi) < STRAIGHT_MIN_PT * f:
                         res.append(("node", pts[k], None, False, k, None))
+        if not res:
+            leg = _vault_leg(g, side)
+            if leg is not None:
+                res.append(leg)
         return res
+
+    def _vault_leg(g, side):
+        """Sin ninguna otra opción de ese lado: la recta de la polilínea que va del arco a
+        su punta en el borde de una bóveda («stop»). Su tinta es el trazo que sigue hasta
+        el centro de la caja —la línea nace ahí—, que queda DENTRO de la caja y no se le
+        reparte a la línea; entre medio solo hay letras del linetype (DU06 h.3 (1427,
+        1037): la «—SC—» sale de la caja, «SC» y la curva; sin esta recta la curva se
+        partía en dos codos con un quiebre de 0.4 pt junto a las letras)."""
+        end = 0 if side < 0 else n - 1
+        if kinds[end] != "stop":
+            return None
+        sE = g.s0 if side < 0 else g.s1
+        between = [k for k in range(n) if (S[k] < sE if side < 0 else S[k] > sE)]
+        if not between:
+            return None
+        k0 = between[-1] if side < 0 else between[0]          # vértice del lado del arco
+        Q, P = pts[k0], pts[end]
+        L = math.dist(Q, P)
+        if L < LEG_INK_SEG_MIN_PT * f:
+            return None
+        u = _unit(Q[0] - P[0], Q[1] - P[1]) if side < 0 else _unit(P[0] - Q[0], P[1] - Q[1])
+        for k in between:
+            if k != end and (kinds[k] not in SOFT_DROP_KINDS or _dist_line(pts[k], P, u) > ANCHOR_NODE_TOL_PT * f):
+                return None                                    # la polilínea no es UNA recta hasta la caja
+        tan = _arc_dir(g, side)
+        if u[0] * tan[0] + u[1] * tan[1] < math.cos(math.radians(LEG_ALIGN_DEG)):
+            return None
+        return ("line", P, u, False, None, Q)
 
     def _straight_off_arc(g, ctr, r):
         """¿Tinta RECTA de esta línea (sobre la polilínea y con su rumbo) entre el

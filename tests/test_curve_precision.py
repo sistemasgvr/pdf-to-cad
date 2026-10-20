@@ -11,6 +11,9 @@ from nucleo import model_ops
 from reconocimiento.recognition_bezier import flatten_cubic
 
 PDF = Path(__file__).resolve().parents[1] / 'DU06_09_UD_Drainage_20251216(SUBMITTAL SET).pdf'
+# los quiebres a pasos de 0.25° (`recognition_angulos`) corren estos vértices ≤ 0.06 pt de la
+# coordenada del PDF: se buscan a 0.1 pt; lo que comparten dos líneas sigue siendo el MISMO punto
+TOL = .1*3.5
 
 
 def _circle(r, sweep, scale=1.):
@@ -96,19 +99,23 @@ def test_short_dash_does_not_create_second_vault_connection(sheets):
 def test_fork_shares_source_contact_without_extending_branch_to_vault(sheets):
     q = (850.6199951171875*3.5, 1022.4600219726562*3.5)
     branches = [p for p in sheets[4, 'TELECOM'].drawable
-                if any(math.dist(v, q) < .01 for v in p.pts_pdf)]
+                if any(math.dist(v, q) < TOL for v in p.pts_pdf)]
     assert len(branches) == 2
     assert {p.layer_ocg[-2:] for p in branches} == {'-D', '-E'}
+    nodos = set()
     for pl in branches:
-        i = next(i for i, v in enumerate(pl.pts_pdf) if math.dist(v, q) < .01)
+        i = next(i for i, v in enumerate(pl.pts_pdf) if math.dist(v, q) < TOL)
+        v = pl.pts_pdf[i]
+        nodos.add(v)
         assert pl.kinds[i] == 'junction'
         _editor((pl.pts_pdf, pl.kinds, pl.fillets))
         assert pl.fillets
         if pl.layer_ocg.endswith('-D'):
             assert i in (0, len(pl.pts_pdf)-1)
-            assert all(v[0] >= q[0]-.01 for v in pl.pts_pdf)
-            assert any(min(math.dist(g['a'], q), math.dist(g['b'], q)) < .01
+            assert all(w[0] >= v[0]-.01 for w in pl.pts_pdf)
+            assert any(min(math.dist(g['a'], v), math.dist(g['b'], v)) < .01
                        for g in pl.fillets.values())
+    assert len(nodos) == 1                                  # las dos ramas: el MISMO nodo
 
 
 @pytest.mark.parametrize('offset,expected', [(0., True), (.3, False)])
@@ -143,7 +150,7 @@ def test_reported_loop_has_real_arcs_with_bounded_ink_error(sheets):
 def test_upper_loop_diagonal_keeps_its_original_endpoint(sheets):
     q = (760.739990234375*3.5, 1133.699951171875*3.5)
     pl = next(p for p in sheets[5, 'TELECOM'].drawable
-              if min(math.dist(p.pts_pdf[0], q), math.dist(p.pts_pdf[-1], q)) < .01)
+              if min(math.dist(p.pts_pdf[0], q), math.dist(p.pts_pdf[-1], q)) < TOL)
     drawing = trace._drawing((pl.pts_pdf, pl.kinds, pl.fillets))
     top = (799.3800048828125*3.5, 1088.93994140625*3.5)
     for i in range(21):

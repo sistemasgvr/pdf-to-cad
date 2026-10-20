@@ -116,11 +116,20 @@ def curve_vertex_indices(pipe, structures, pipes=(), tol=14.0):
     vértice sin buzón (curva de radio automático donde el plano no tiene ninguna)."""
     pts = pipe.get("pts") or []
     out = {}
+    if not pts:
+        return out
+    # caja de la tubería ± tol: una CV fuera no tiene ningún vértice suyo a ≤ tol (mismo
+    # resultado; se llama por tubería y en una hoja compuesta grande eran segundos)
+    m = tol * (1.0 + 1e-6) + 1e-9
+    bx0, bx1 = min(q[0] for q in pts) - m, max(q[0] for q in pts) + m
+    by0, by1 = min(q[1] for q in pts) - m, max(q[1] for q in pts) + m
     for s in structures or ():
         if not s.get("curve") or s.get("world"):
             continue
         sx, sy = s.get("x"), s.get("y")
         if sx is None or sy is None:
+            continue
+        if not (bx0 <= sx <= bx1 and by0 <= sy <= by1):
             continue
         i = nearest_vertex(pts, sx, sy, tol)
         if i is None:

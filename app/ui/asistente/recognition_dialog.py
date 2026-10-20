@@ -23,6 +23,7 @@ from ui.comun.busy import busy
 from ui.comun import fondo_pdf
 from reconocimiento import recognition as rec
 from reconocimiento import recognition_cache
+from reconocimiento import recognition_quiebres
 from ui.asistente.recognition_summary_view import SummaryPanel, separator, utility_swatch
 from ui.asistente.recognition_review_view import ReviewPanel
 from ui.asistente.recognition_layers_view import UsedLayersPanel
@@ -505,6 +506,10 @@ class RecognitionPreviewDialog(NoEscapeClose, QtWidgets.QDialog):
         self._pixmap_item = fondo_pdf.nuevo_item(pm, escala)
         sc.addItem(self._pixmap_item)
         self._nitidez = None
+        # px por pt de los resultados (= zoom del editor): para ver los quiebres como la
+        # curva que entrará al importar (`_curvas_quiebres`)
+        self._zoom = float(fondo["zoom"]) if fondo else None
+        self._quiebres = None
         if fondo:
             zoom = float(fondo["zoom"])
             self._nitidez = fondo_pdf.Nitidez(self.view, lambda: zoom, fondo["pagina"])
@@ -539,6 +544,7 @@ class RecognitionPreviewDialog(NoEscapeClose, QtWidgets.QDialog):
 
     def _toggle_routes(self, checked):
         recognition_cache.set_join_routes(self._results, checked)
+        self._quiebres = None                    # otras polilíneas: otros quiebres
         self._update_summary()
         self._redraw_overlay()
 
@@ -555,6 +561,16 @@ class RecognitionPreviewDialog(NoEscapeClose, QtWidgets.QDialog):
             return True
         return kind == f["kind"] and (f["ocg"] is None or ocg == f["ocg"])
 
+    def _curvas_quiebres(self):
+        """{id(resultado): {vértice: codo}} de los quiebres que la importación hará curva de
+        radio mínimo (regla de los ingenieros, no en presión): se dibujan ya como esa
+        curva, no como un punto de quiebre (pedido del usuario 2026-10-19). Se calcula una
+        vez (y otra al unir/separar tramos)."""
+        if getattr(self, "_quiebres", None) is None:
+            self._quiebres = (recognition_quiebres.curvas_de_quiebres(self._results, self._zoom)
+                              if getattr(self, "_zoom", None) else {})
+        return self._quiebres
+
     def _redraw_overlay(self):
         sc = self.view.scene()
         keep = (self._pixmap_item, self.opacity.backdrop)     # el PDF y su fondo (Opacidad)
@@ -568,19 +584,24 @@ class RecognitionPreviewDialog(NoEscapeClose, QtWidgets.QDialog):
             if hit is False:
                 dim.extend(items if isinstance(items, list) else [items])
 
+        quiebres = self._curvas_quiebres()
         for result in self._results:
             color = self._colors[result.utility]
             u = result.utility
+            curvas = quiebres.get(id(result), {})
             for pts in (getattr(result, "offpattern_px", None) or []):
                 put(_draw_poly(sc, pts, QtGui.QColor(QA_OFFPATTERN), width=2.0, dots=False, z=4, dotted=True),
                     self._hit(u, "qa"))
             for pl in result.drawable:
                 hit = self._hit(u, "line", getattr(pl, "layer_ocg", None))
                 items = []
-                for run in _display_runs(pl):
+                # como quedará al importar: curvas de los quiebres (y sin los vértices
+                # prácticamente rectos que se quitan para que entren)
+                pl_d, fil = recognition_quiebres.dibujo_de(pl, curvas)
+                for run in _display_runs(pl_d, fil):
                     items += _draw_poly(sc, run, color, width=2.0, dots=True, z=5)
-                for idx, f in (getattr(pl, "fillets", None) or {}).items():
-                    items += _draw_fillet(sc, pl.pts_pdf[idx], f, color)
+                for idx, f in fil.items():
+                    items += _draw_fillet(sc, pl_d.pts_pdf[idx], f, color)
                 x, y = pl.pts_pdf[0]
                 start = sc.addEllipse(
                     x - 5, y - 5, 10, 10, QtGui.QPen(QtGui.QColor("#ffffff"), 1.5),
@@ -589,7 +610,7 @@ class RecognitionPreviewDialog(NoEscapeClose, QtWidgets.QDialog):
                 items.append(start)
                 put(items, hit)
                 if hit:
-                    draw_line_halo(sc, pl, color)
+                    draw_line_halo(sc, pl_d, color, fillets=fil)
             for a, b in (getattr(result, "uncovered_px", None) or []):
                 put(_draw_poly(sc, [a, b], QtGui.QColor(QA_UNCOVERED), width=4.0, dots=False, z=7),
                     self._hit(u, "qa"))

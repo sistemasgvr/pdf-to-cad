@@ -96,7 +96,8 @@ def test_seam_blend_is_saved():
     assert comp.blends() and C.Composite.from_dict(comp.to_dict()).seam_blend
     comp.seam_blend = False
     assert not C.Composite.from_dict(comp.to_dict()).blends()
-    assert not C.Composite(manual=False).blends()       # el PDF vectorial no se toca
+    # desde 2026-10-19 también el vectorial (solo sus piezas superpuestas: test_fundir_vectorial)
+    assert C.Composite(manual=False).blends()
 
 
 # ── PDF ─────────────────────────────────────────────────────────────────
@@ -127,7 +128,9 @@ def test_single_toolbar_row(app):
         for b in (dlg.btn_rule, dlg.btn_protractor, dlg.btn_measure, dlg.btn_straighten,
                   dlg.btn_blend, dlg.piece_tools):
             assert b.parent() is bar
-        assert not dlg.findChildren(QtWidgets.QCheckBox)       # sin casilla «Vertical»
+        # sin casilla «Vertical»; la única casilla es «Esquinas libres» del área (2026-10-19)
+        assert [c for c in dlg.findChildren(QtWidgets.QCheckBox) if c is not dlg.chk_corners] == []
+        assert not bar.isAncestorOf(dlg.chk_corners)
         assert dlg.btn_rule.popupMode() == QtWidgets.QToolButton.MenuButtonPopup
         assert dlg.ruler_lock in dlg.btn_rule.menu().actions()
         assert dlg.btn_blend.isChecked()
