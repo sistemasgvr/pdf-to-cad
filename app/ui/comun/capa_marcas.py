@@ -55,7 +55,7 @@ class _Capa(CacheVistaMixin, QtWidgets.QGraphicsItem):
         self._cajas = []                                 # caja de cada marca en px de pantalla
         self._rots = []                                  # caja de su RÓTULO (o NaN): nivel de detalle
         self.con_rotulos = False
-        self._cache = None                               # (clave de la vista, imagen) — `_con_cache`
+        self._cache = None                               # piezas de imagen de la vista — `_con_cache`
         self._ultima = None                              # clave de la vista del último repintado
         self._np = None                                  # (xs, ys) en numpy, al primer uso
         self.ext = 0.0                                   # mayor extensión en px de pantalla

@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import glob
 import hashlib
+import json
 import os
 import shutil
 import sys
@@ -98,3 +99,46 @@ def _recortar() -> None:
                 os.remove(r)
             except OSError:
                 pass
+    for r in glob.glob(os.path.join(carpeta(), "*.ext.json")):     # recuadros sin su DXF
+        if not os.path.isfile(r[:-len(".ext.json")] + ".dxf"):
+            try:
+                os.remove(r)
+            except OSError:
+                pass
+
+
+# ── Recuadro del plano base (2026-10-19): encuadrar la vista del DXF medía las ~600 mil entidades del
+# plano en CADA exportación (~38 s con el mapa de 16 761 utilidades, sobre todo por los textos). Con el
+# mismo DXF base el recuadro es el mismo: se guarda junto a él (números exactos: JSON escribe `repr`).
+
+def _ruta_recuadro(c: str) -> str:
+    return os.path.join(carpeta(), c + ".ext.json")
+
+
+def guardar_recuadro(c: str | None, minimo, maximo) -> None:
+    """Recuadro (mínimo, máximo; tuplas x, y, z) del DXF base guardado con la clave `c`; (None, None) =
+    plano sin nada que medir."""
+    if not c or not os.path.isfile(_ruta(c)):
+        return
+    datos = {"min": None if minimo is None else [float(v) for v in minimo],
+             "max": None if maximo is None else [float(v) for v in maximo]}
+    destino = _ruta_recuadro(c)
+    tmp = destino + ".part"
+    with open(tmp, "w", encoding="utf-8") as f:
+        json.dump(datos, f)
+    os.replace(tmp, destino)
+
+
+def leer_recuadro(c: str | None):
+    """(mínimo, máximo) guardado para la clave `c` (cada uno tupla o None), o None si no hay o no vale."""
+    if not c or not os.path.isfile(_ruta(c)):
+        return None
+    try:
+        with open(_ruta_recuadro(c), encoding="utf-8") as f:
+            datos = json.load(f)
+        mn, mx = datos["min"], datos["max"]
+        if (mn is None) != (mx is None) or (mn is not None and (len(mn) != 3 or len(mx) != 3)):
+            return None
+        return (None, None) if mn is None else (tuple(float(v) for v in mn), tuple(float(v) for v in mx))
+    except (OSError, ValueError, KeyError, TypeError):
+        return None

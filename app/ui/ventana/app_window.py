@@ -99,10 +99,12 @@ from ui.ventana.ventana_vertices import VerticesMixin
 from ui.ventana.ventana_trazo import TrazoMixin
 from ui.ventana.ventana_calculo import CalculoPlanoMixin
 from ui.ventana.calculo_fondo import CalculoFondoMixin
+from ui.ventana.ventana_estados import EstadosPreviosMixin
 
 
 class Main(MenuMixin, PanelIzquierdoMixin, PanelDerechoMixin, ModosMixin, ClicsMixin, UtilidadesMixin, CatalogoMixin, SeleccionMixin, ListasMixin, MarcasMixin, DibujoMixin, ConflictosMixin, CoordsMixin, BuzonesMixin, MoverPrecisoMixin, CurvasMixin, HerramientasMixin, BancoductosMixin, EdicionBloqueMixin, Vista3DMixin, ConflictosListaMixin, HojasEditorMixin,
-           VerticesMixin, TrazoMixin, CalculoPlanoMixin, CalculoFondoMixin, QtWidgets.QMainWindow):
+           VerticesMixin, TrazoMixin, CalculoPlanoMixin, CalculoFondoMixin, EstadosPreviosMixin,
+           QtWidgets.QMainWindow):
     def __init__(self):
         super().__init__()
         self._base_title = f"Asistente C3D  (v{VERSION})"
@@ -1339,10 +1341,9 @@ class Main(MenuMixin, PanelIzquierdoMixin, PanelDerechoMixin, ModosMixin, ClicsM
             # La construcción del dict de datos vive en project_io (pura, testeable);
             # aquí queda solo lo de Qt/PDF (PNG del lienzo, zip, PDF fuente).
             model = project_io.build_model_dict(self)
-            ba = QtCore.QByteArray(); buf = QtCore.QBuffer(ba); buf.open(QtCore.QIODevice.WriteOnly)
-            self.canvas.pixmap_item.pixmap().save(buf, "PNG")
+            png = self._png_de_la_hoja()
             with zipfile.ZipFile(path, "w", zipfile.ZIP_DEFLATED) as z:
-                z.writestr("model.json", json.dumps(model)); z.writestr("page.png", bytes(ba))
+                z.writestr("model.json", json.dumps(model)); z.writestr("page.png", png)
                 pdf_bytes = self._get_pdf_bytes()
                 if pdf_bytes:
                     z.writestr("source.pdf", pdf_bytes)
@@ -1361,6 +1362,20 @@ class Main(MenuMixin, PanelIzquierdoMixin, PanelDerechoMixin, ModosMixin, ClicsM
         # Confirmación visible 2 s, DESPUÉS de quitar el «Guardando…».
         if not self._dirty and self.project_path == path:
             _busy_mod.toast(self, "✔ " + _tr("Proyecto guardado"))
+
+    def _png_de_la_hoja(self):
+        """PNG de la imagen del lienzo para el .digproj. Si la imagen es la MISMA que se leyó del proyecto
+        o se guardó la última vez (misma `cacheKey`: QPixmap la cambia si cambia un píxel), se reusan esos
+        bytes: codificarla otra vez daba la misma imagen y tardaba ~5 s con una hoja de 34 MB (2026-10-19)."""
+        pm = self.canvas.pixmap_item.pixmap()
+        previo = getattr(self, "_png_hoja", None)
+        if previo is not None and previo[0] == pm.cacheKey():
+            return previo[1]
+        ba = QtCore.QByteArray(); buf = QtCore.QBuffer(ba); buf.open(QtCore.QIODevice.WriteOnly)
+        pm.save(buf, "PNG")
+        png = bytes(ba)
+        self._png_hoja = (pm.cacheKey(), png)
+        return png
 
     def _flash_save(self):
         t = _theme.tokens()
@@ -1412,6 +1427,7 @@ class Main(MenuMixin, PanelIzquierdoMixin, PanelDerechoMixin, ModosMixin, ClicsM
             self._cleanup_tmp_pdf()
             with zipfile.ZipFile(path) as z:
                 model = json.loads(z.read("model.json")); png = z.read("page.png")
+                self._calentar_calculo(len(model.get("pipes") or []))   # (calculo_fondo)
                 external_pdfs = [
                     {"name": entry.get("name", f"PDF {i + 2}"),
                      "data": z.read(f"external/{i:03d}.pdf")}
@@ -1439,6 +1455,7 @@ class Main(MenuMixin, PanelIzquierdoMixin, PanelDerechoMixin, ModosMixin, ClicsM
             escala, tam = data["fondo_escala"], data["fondo_tam"]
             self._overlay = []; self._close_editor()
             self.canvas.set_image(qimg, escala, tam); self.gray = qimage_to_gray(qimg)
+            self._png_hoja = (self.canvas.pixmap_item.pixmap().cacheKey(), png)   # (_png_de_la_hoja)
             self.scale = data["scale"]; self.zoom = data["zoom"]; self.rot = data["rot"]
             self.W, self.H = data["W"], data["H"]; self.derot = fitz.Matrix(*data["derot"])
             self.pageH_px = self.canvas.tam_hoja()[1] if escala < 1.0 else qimg.height()
@@ -1774,6 +1791,7 @@ class Main(MenuMixin, PanelIzquierdoMixin, PanelDerechoMixin, ModosMixin, ClicsM
             self._clave_digitalizado = CD.clave(src_pdf, pages)
         except Exception:
             self._clave_digitalizado = None
+        self._clave_base = self._clave_digitalizado      # (para el recuadro del plano base, `_set_plan_view`)
         guardado = CD.buscar(self._clave_digitalizado)
         if guardado:
             import shutil
@@ -1790,7 +1808,9 @@ class Main(MenuMixin, PanelIzquierdoMixin, PanelDerechoMixin, ModosMixin, ClicsM
         self._prog.show()
         tok = self._export_tok = object()                # una exportación cancelada no sigue al terminar
         self._worker = PipelineWorker(src_pdf, self._tmp, pages=pages)
-        self._worker.done.connect(lambda tmp, err, tok=tok: self._pipeline_done(tmp, err, tok))
+        wk = self._worker
+        self._worker.done.connect(lambda tmp, err, tok=tok, wk=wk: self._pipeline_done(
+            tmp, err, tok, doc=getattr(wk, "tomar_doc", lambda: None)()))
         self._worker.start()
 
     def _cancelar_digitalizacion(self):
@@ -1824,7 +1844,8 @@ class Main(MenuMixin, PanelIzquierdoMixin, PanelDerechoMixin, ModosMixin, ClicsM
                 return path
         return None
 
-    def _pipeline_done(self, tmp, err, tok=None):
+    def _pipeline_done(self, tmp, err, tok=None, doc=None):
+        """`doc`: el documento ezdxf que el digitalizador guardó en `tmp` (se usa en vez de releerlo)."""
         if tok is not None and tok is not getattr(self, "_export_tok", None):
             try:                                         # exportación cancelada (o reemplazada)
                 if tmp and os.path.exists(tmp): os.remove(tmp)
@@ -1835,13 +1856,19 @@ class Main(MenuMixin, PanelIzquierdoMixin, PanelDerechoMixin, ModosMixin, ClicsM
         clave, self._clave_digitalizado = getattr(self, "_clave_digitalizado", None), None
         from exportar import cache_digitalizado as CD
 
+        clave_base = getattr(self, "_clave_base", None)
+        georef = self.georef.active()
+        en_memoria = doc
+
         def leer():                                      # en otro hilo: guardar en la caché y leer
             if clave:
                 try: CD.guardar(clave, tmp)
                 except OSError: pass                     # sin caché igual se exporta
-            d = ezdxf.readfile(tmp); C.apply_imperial_header(d)   # reafirma imperial ($MEASUREMENT=0)
-            return d
-        doc, err, cancelado = en_hilo.ejecutar(self, leer, _tr("Leyendo el plano digitalizado…"), cancelable=True)
+            d = en_memoria if en_memoria is not None else ezdxf.readfile(tmp)   # (en memoria: no se relee)
+            C.apply_imperial_header(d)                   # reafirma imperial ($MEASUREMENT=0)
+            return d, self._recuadro_base(d, clave_base, georef)
+        leido, err, cancelado = en_hilo.ejecutar(self, leer, _tr("Leyendo el plano digitalizado…"), cancelable=True)
+        doc, base = leido if leido else (None, None)
         if cancelado or err:
             self._borrar_temporal(tmp)                   # cancelado: el hilo aún puede tenerlo abierto
             if err: QtWidgets.QMessageBox.critical(self, _tr("Error al guardar"), err)
@@ -1855,7 +1882,7 @@ class Main(MenuMixin, PanelIzquierdoMixin, PanelDerechoMixin, ModosMixin, ClicsM
             self._merge_into(doc, marks=marks)
             self._maybe_add_la_reference(doc)            # capas reales de LA (si se activó)
             self._set_geodata(doc)                       # geolocaliza el DXF en EPSG:2229
-            self._set_plan_view(doc)                     # abrir en vista 2D/planta, encuadrado
+            self._set_plan_view(doc, base)               # abrir en vista 2D/planta, encuadrado
             self._guardar_dxf_en_hilo(doc, self._out)    # sin «No responde» (en_hilo)
             self._maybe_export_dwg(doc, self._out)       # además .dwg si se activó (ODA)
             if os.path.exists(tmp): os.remove(tmp)

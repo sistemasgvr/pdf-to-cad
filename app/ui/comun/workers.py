@@ -15,11 +15,23 @@ class PipelineWorker(QtCore.QThread):
 
     def __init__(self, pdf, tmp, pages=None):
         super().__init__(); self.pdf, self.tmp, self.pages = pdf, tmp, pages
+        self._doc = None
+
+    def tomar_doc(self):
+        """El documento ezdxf que se guardó en `tmp` (una sola vez; None si no hay). Usarlo en vez de
+        releer el archivo da el mismo DXF final y ahorra ~30 s con un plano de 132 MB (2026-10-19)."""
+        doc, self._doc = self._doc, None
+        return doc
 
     def run(self):
         try:
             import digitize
-            digitize.main(self.pdf, self.tmp, verbose=False, pages=self.pages); self.done.emit(self.tmp, "")
+            docs = []
+            from exportar import dxf_rapido              # mismo archivo, ~45 % menos tiempo
+            digitize.main(self.pdf, self.tmp, verbose=False, pages=self.pages, doc_out=docs,
+                          guardar=dxf_rapido.guardar)
+            self._doc = docs[0] if docs else None
+            self.done.emit(self.tmp, "")
         except Exception as e:
             import traceback; self.done.emit("", f"{e}\n\n{traceback.format_exc()}")
 

@@ -317,3 +317,36 @@ def test_vista_previa_con_hoja_enorme(win, chica, tmp_path):
         assert [c for c, _t in it.superficie.listas()] == antes
     finally:
         dlg.reject()
+
+
+@pytest.mark.parametrize("enorme", [False, True])
+def test_guardar_reusa_el_png_de_la_hoja_si_no_cambio(win, monkeypatch, tmp_path, enorme):
+    """Guardar el .digproj reusa los bytes del PNG de la hoja si la imagen es la misma que se leyó o se
+    guardó (2026-10-19: codificarla otra vez tardaba ~5 s con 34 MB); si cambia, se codifica la nueva."""
+    if enorme:
+        monkeypatch.setattr(fondo_pdf, "LIMITE_BYTES", 2_000_000)
+        monkeypatch.setattr(fondo_pdf, "PRESUPUESTO_PX", 400_000)
+    _compuesta(win, tmp_path)
+    codificadas = []
+    original = QtGui.QPixmap.save
+    monkeypatch.setattr(QtGui.QPixmap, "save", lambda pm, *a, **k: codificadas.append(1) or original(pm, *a, **k))
+    a, b, c = (str(tmp_path / f"{n}.digproj") for n in "abc")
+    win._write_project(a)
+    assert len(codificadas) == 1                       # imagen nueva (del PDF): se codifica
+    win._write_project(b)
+    assert len(codificadas) == 1                       # la misma imagen: se reusa
+    leer = lambda ruta, n="page.png": zipfile.ZipFile(ruta).read(n)   # noqa: E731
+    assert leer(a) == leer(b)
+    imagen = win.canvas.pixmap_item.pixmap().toImage()
+    win._open_project_path(a)
+    assert win.canvas.pixmap_item.pixmap().toImage() == imagen
+    win._write_project(c)
+    assert len(codificadas) == 1 and leer(c) == leer(a)   # recién abierto: los bytes del archivo
+    win._open_project_path(c)
+    assert win.canvas.pixmap_item.pixmap().toImage() == imagen
+    otra = QtGui.QImage(imagen); otra.setPixelColor(3, 3, QtGui.QColor(255, 0, 0))
+    win.canvas.set_image(otra, win.canvas.fondo_escala, win.canvas.tam_hoja())
+    win._write_project(b)
+    assert len(codificadas) == 2 and leer(b) != leer(a)   # la imagen cambió: se codifica
+    win._open_project_path(b)
+    assert win.canvas.pixmap_item.pixmap().toImage().pixelColor(3, 3) == QtGui.QColor(255, 0, 0)

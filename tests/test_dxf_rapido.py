@@ -2,6 +2,7 @@
 entre dos guardados cualesquiera, la hora de guardado, el GUID de versión y la marca de ezdxf."""
 import io
 import os
+import re
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
@@ -21,12 +22,20 @@ def _escribir(doc, rapido):
     return s.getvalue().split("\n")
 
 
+_PROPIAS_DEL_GUARDADO = {"$TDUPDATE", "$TDUUPDATE", "$VERSIONGUID", "$TDINDWG", "$TDUSRTIMER"}
+
+
+def _de_cada_guardado(lineas, k):
+    """Líneas que ezdxf cambia en CADA guardado: hora y GUID de la cabecera y su marca «1.4.4 @ fecha»."""
+    return (k >= 2 and lineas[k - 2].strip() in _PROPIAS_DEL_GUARDADO) or bool(
+        re.match(r"^\d+\.\d+\.\d+(\S*)? @ \d{4}-", lineas[k]))
+
+
 def _iguales(doc):
-    a, b, a2 = _escribir(doc, False), _escribir(doc, True), _escribir(doc, False)
+    a, b = _escribir(doc, False), _escribir(doc, True)
     assert len(a) == len(b)
     distintas = [k for k, (x, y) in enumerate(zip(a, b)) if x != y]
-    propias_de_ezdxf = [k for k, (x, y) in enumerate(zip(a, a2)) if x != y]
-    assert distintas == propias_de_ezdxf and len(distintas) <= 3
+    assert all(_de_cada_guardado(a, k) for k in distintas), [(k, a[k - 2], a[k], b[k]) for k in distintas][:5]
     return a
 
 
@@ -42,7 +51,7 @@ def _doc_variado():
     pl.set_xdata("PDFCAD", [(1000, "PDFCAD_PIPE"), (1000, "DIAMETER=8"), (1040, 3.25), (1070, 7)])
     msp.add_circle((2, 2), 1.5)
     msp.add_arc((0, 0), 3, 10, 200)
-    msp.add_mtext("línea 1\Plínea 2", dxfattribs={"char_height": 1.2})
+    msp.add_mtext("línea 1\\Plínea 2", dxfattribs={"char_height": 1.2})
     msp.add_point((1, 1, 0))
     h = msp.add_hatch(color=2)
     h.paths.add_polyline_path([(0, 0), (4, 0), (4, 4)], is_closed=True)

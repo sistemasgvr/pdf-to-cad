@@ -5,7 +5,7 @@ clase mezcla para que app_window.py no pase de unas 2 000 líneas. `Main` la her
 los menús, atajos y pruebas siguen usando `win.<método>` como antes.
 """
 from ui.ventana.ventana_comun import *  # noqa: F401,F403  (mismos nombres que app_window)
-from ui.comun import capa_marcas
+from ui.comun import capa_marcas, texto_marca
 
 
 # Lo que deja `_draw_pipe_conflicts` en la ventana (se retoma tal cual con el mismo modelo).
@@ -66,7 +66,7 @@ class ConflictosMixin:
         from nucleo import memo_modelo as _mm
         clave_conf = (getattr(getattr(self, "_memo_redibujo", None), "firma", None),
                       _mm.firma(getattr(self, "cross_connections", None)))
-        previo = getattr(self, "_resultado_conflictos", None)
+        previo = self._resultados_previos("_resultados_conf", clave_conf)   # (también de un estado anterior)
         if (clave_conf[0] is not None and clave_conf[1] is not None and getattr(self, "_en_redibujo", False)
                 and getattr(self, "_marcas_vigentes", False) and previo is not None and previo[0] == clave_conf):
             for k, v in previo[1].items():
@@ -92,7 +92,9 @@ class ConflictosMixin:
                 _plumas[col.rgb()] = p
             return _plumas[col.rgb()]
         _fuente = QtWidgets.QGraphicsTextItem().font(); _fuente.setPixelSize(11); _fuente.setBold(True)
+        _clave_fuente = _fuente.key()
         _medidas = {}
+        _cajas = {}                                 # estado → cajas (capa_marcas) del círculo y del texto
         ign = QtWidgets.QGraphicsItem.ItemIgnoresTransformations
 
         for cx, cy, estado, globo in ([] if getattr(self, "_marcas_vigentes", False) else filas):
@@ -115,21 +117,29 @@ class ConflictosMixin:
                 circ.setPen(pen); circ.setBrush(brush)
                 circ.setPos(cx, cy); circ.setFlag(ign)
                 circ.setZValue(Z_HANDLE + 5)
-                t = QtWidgets.QGraphicsTextItem(text); t.setDefaultTextColor(text_col)
-                t.setFont(_fuente)
-                capa_marcas.sello(t, ("cruce-texto", estado, _fuente.key()))
-                t.document().setDocumentMargin(0)
+                # el texto se mide y pinta con un QGraphicsTextItem MOLDE por aspecto (`texto_marca`):
+                # uno por cruce trababa la ventana con miles de cruces; mismos píxeles
+                t = texto_marca.nuevo(text, text_col, _fuente, _clave_fuente)
+                capa_marcas.sello(t, ("cruce-texto", estado, _clave_fuente))
                 br = _medidas.get(text)
                 if br is None:
                     br = _medidas[text] = t.boundingRect()
                 t.setPos(cx, cy); t.setFlag(ign)
                 t.setTransform(QtGui.QTransform().translate(-br.width() / 2, -br.height() / 2))
                 t.setZValue(Z_HANDLE + 6)
+                cajas = _cajas.get(estado)          # (todas las de un estado son iguales: no se re-miden)
+                if cajas is not None:
+                    circ._pdfcad_caja, circ._pdfcad_rot, t._pdfcad_caja, t._pdfcad_rot = cajas
                 par = self._guardar_marca(clave, (circ, t))
             circ, t = par
             self._overlay.append(self._marca(circ))
             self._overlay.append(self._marca(t))
             circ.setToolTip(globo)
+            if estado not in _cajas:
+                cajas = (getattr(circ, "_pdfcad_caja", None), getattr(circ, "_pdfcad_rot", False),
+                         getattr(t, "_pdfcad_caja", None), getattr(t, "_pdfcad_rot", False))
+                if cajas[0] is not None and cajas[1] is not False and cajas[2] is not None and cajas[3] is not False:
+                    _cajas[estado] = cajas
 
         # Triángulo rojo con «!» blanco: algo que Civil 3D NO dibujará como está
         # en la app. El mensaje (tooltip y clic) dice qué pasa y cómo quedará.
@@ -194,8 +204,9 @@ class ConflictosMixin:
         for e in self._choque_hits:
             _alerta_roja(e["x"], e["y"], self._msg_choque(e))
         self._numerar_conflictos()          # C-1, C-2… (ventana_conflictos_lista)
-        self._resultado_conflictos = (clave_conf, {k: getattr(self, k) for k in _RESULTADOS_CONFLICTOS},
-                                      (n_conf, n_sug, n_ap))
+        self._guardar_resultados("_resultados_conf", clave_conf,
+                                 (clave_conf, {k: getattr(self, k) for k in _RESULTADOS_CONFLICTOS},
+                                  (n_conf, n_sug, n_ap)))
         self._info_conflictos(n_conf, n_sug, n_ap)
 
     def _info_conflictos(self, n_conf, n_sug, n_ap):

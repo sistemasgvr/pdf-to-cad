@@ -133,6 +133,13 @@ class DibujoMixin:
         if (getattr(self, "_provisional", False) and not self._marcas_vigentes and previo is not None
                 and previo.vivo(sc)):
             self._marcas_vigentes = True                # mientras calcula el hilo, las marcas de antes a la vista
+        if not self._marcas_vigentes and not getattr(self, "_provisional", False):
+            # deshacer/rehacer: un estado ya dibujado vuelve con SU grupo de marcas (ventana_estados)
+            self._guardar_grupo_marcas(previo, sc)
+            revivido = self._revivir_grupo_marcas(firma_m, sc)
+            if revivido is not None:
+                previo = self._marcas = revivido
+                self._marcas_vigentes = True
         if self._marcas_vigentes:
             guardadas |= {id(c) for c in previo.capas.values()}
         # Capa de las utilidades: con el MISMO modelo y los mismos colores sigue en la escena (2026-10-19,
@@ -146,8 +153,13 @@ class DibujoMixin:
             viva = False
         reuso_capa = bool(viva and clave_capa[0] is not None and capa_prev[0] == clave_capa
                           and self.canvas.pixmap_item is not None)
+        revivida = None
         if reuso_capa:
             guardadas.add(id(capa_prev[1]))
+        elif self.canvas.pixmap_item is not None:       # deshacer/rehacer: la capa de ese estado (ventana_estados)
+            if viva:
+                self._guardar_capa_lineas(capa_prev, sc)
+            revivida = self._revivir_capa_lineas(clave_capa, sc)
         for it in self._overlay:
             if id(it) in guardadas:
                 continue
@@ -197,9 +209,12 @@ class DibujoMixin:
         from ui.comun.capa_lineas import CapaLineas
         elegidas = {i for i in ({self.sel_pipe} | (multi if len(multi) > 1 else set()))
                     if 0 <= i < len(self.pipes) and self.pipes[i].get("pts")}
-        if reuso_capa:
-            capa, con_tramos = capa_prev[1], capa_prev[3]
-            for i in capa_prev[2] ^ elegidas:            # las que cambian de grosor, en su mismo lugar
+        previa = capa_prev if reuso_capa else revivida
+        if previa is not None:
+            capa, con_tramos = previa[1], previa[3]
+            if revivida is not None and capa.scene() is None:
+                sc.addItem(capa)                         # en el mismo lugar del orden que una capa nueva
+            for i in previa[2] ^ elegidas:               # las que cambian de grosor, en su mismo lugar
                 capa.cambiar_pluma(i, self._pluma_utilidad(layer_qcolor(self.pipes[i]["layer"]),
                                                            4.0 if i in elegidas else 2.0))
             indices = sorted(elegidas | con_tramos)       # lo demás del bucle solo toca a éstas
@@ -215,7 +230,7 @@ class DibujoMixin:
             # Dibujo la polilínea del pipe con arcos REALES sustituyendo cada
             # esquina que tenga un elemento curvo — mismo radio y tangencia
             # que el plugin usará en Civil 3D.
-            if not reuso_capa:
+            if previa is None:
                 pts = self._memo(("dibujo", i), lambda p=p: self._pipe_display_pts(p), copiar=False)
                 if pts:
                     capa.agregar(*self._lineas_de_utilidad(i, pts),
@@ -243,7 +258,7 @@ class DibujoMixin:
                 for texto, mx, my, dx, dy, px in ET.ubicar(tramos, ocupados, evitar=p["pts"]):
                     it = ET.EtiquetaTramo(texto, layer_qcolor(p["layer"]), px, dx, dy)
                     it.setPos(mx, my); it.setZValue(Z_MARK + 2); sc.addItem(it); self._overlay.append(it)
-        if not reuso_capa:
+        if previa is None:
             capa.cerrar()                               # su caja, ya con todas las utilidades
         self._capa_lineas = (clave_capa, capa, elegidas, con_tramos)
         self._poly(self.cur_pts, layer_qcolor(self._ext_layer or self.active_layer()), 2.0, dots=True, z=Z_MARK)

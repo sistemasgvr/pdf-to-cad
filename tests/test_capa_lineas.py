@@ -119,3 +119,45 @@ def test_con_el_mismo_modelo_la_capa_se_reusa_y_se_ve_igual(win):
     assert sum(1 for it in win._overlay if type(it).__name__ == "CapaLineas") == 1
     assert sum(1 for it in win.canvas.scene().items() if type(it).__name__ == "CapaLineas") == 1
     QtWidgets.QApplication.instance().processEvents()
+
+
+def test_deshacer_revive_el_dibujo_anterior_y_se_ve_igual(win):
+    """Deshacer / rehacer vuelve a un modelo ya dibujado: la MISMA capa de líneas y las MISMAS capas de
+    marcas (con sus globos), y se ve igual, píxel a píxel, que dibujado de cero (2026-10-19)."""
+    def globos():
+        return sorted((type(it).__name__, round(it.pos().x(), 6), round(it.pos().y(), 6), it.toolTip())
+                      for it in win._marcas.todas())
+
+    def de_cero():
+        win._capa_lineas = None; win._marcas = None; win._memo_redibujo = None
+        win._grupos_previos = None; win._capas_lineas_previas = None
+        win._redraw()
+
+    win._redraw()
+    capa, grupo = win._capa_lineas[1], win._marcas
+    antes = globos()
+    win._push()
+    p = next(p for p in win.pipes if len(p["pts"]) >= 3)
+    x, y = p["pts"][1]
+    p["pts"][1] = (x + 23.0, y - 17.0)
+    win._refresh_lists(); win._redraw()
+    capa2, grupo2 = win._capa_lineas[1], win._marcas
+    assert capa2 is not capa and grupo2 is not grupo
+    despues = globos()
+    win.undo()
+    assert win._capa_lineas[1] is capa and win._marcas is grupo      # revividos, no rehechos
+    assert globos() == antes
+    _fotos(win); revivido = _fotos(win)
+    de_cero()
+    assert globos() == antes
+    _fotos(win)
+    for a, b in zip(revivido, _fotos(win)):
+        assert np.array_equal(a, b)
+    win.redo()
+    assert globos() == despues
+    _fotos(win); revivido = _fotos(win)
+    de_cero()
+    _fotos(win)
+    for a, b in zip(revivido, _fotos(win)):
+        assert np.array_equal(a, b)
+    assert sum(1 for it in win.canvas.scene().items() if type(it).__name__ == "CapaLineas") == 1

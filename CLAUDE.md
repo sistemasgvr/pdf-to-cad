@@ -1890,15 +1890,63 @@ alcantarillado, drenaje, gas, eléctrico, telecom). Todo en **unidades imperiale
     conflictos y avisos…». AGUA 2: editar → ventana libre ~1.7–2.4 s (antes ~8 s), avisos ~8 s; deshacer/
     rehacer ~3 s (memo previo). Recálculo por ZONAS: no hecho (el orden global de cada resultado lo hace
     delicado). Tests: `tests/test_calculo_fondo.py`, `tests/test_capa_lineas.py`.
+    **Deshacer/rehacer revive el dibujo** (mismo día): `ui/ventana/ventana_estados.py` (`EstadosPreviosMixin`,
+    `MAX_ESTADOS`=2): el grupo de capas de marcas que se reemplaza se guarda con su firma y los GLOBOS de sus marcas
+    (las marcas iguales se comparten entre redibujos y el siguiente les pone el suyo; lista de textos, no de
+    tuplas: 54 mil tuplas disparaban el recolector), igual la capa de líneas (clave = firma + colores) y los
+    resultados de `_draw_pipe_conflicts`/`_draw_accesorios` (LRU de 3; uno más viejo vuelve a pasar por
+    `normas_aprobacion.marcar`: aprobar cambia esos objetos). Volver a esa clave = el mismo dibujo. AGUA 2:
+    deshacer ~2 → ~0.9 s (queda `_restore`: `_snap_state` ~0.25, `_refresh_lists` ~0.22, abrir el paso ~0.1).
+    Test `tests/test_capa_lineas.py::test_deshacer_revive_el_dibujo_anterior_y_se_ve_igual` (píxeles y globos).
+    **Abrir y guardar** (mismo día): al abrir, `_calentar_calculo` (calculo_fondo) manda una tarea vacía
+    (`calentar`) a «plano»/«plano-2» si el modelo pasa `UMBRAL`: el arranque e importaciones del proceso van
+    mientras se lee la hoja (avisos ~3 s antes). Marcas más baratas, mismos píxeles: el texto de los cruces es
+    `ui/comun/texto_marca.TextoMarca` (mide y pinta con un `QGraphicsTextItem` MOLDE por texto/color/fuente: crear
+    uno por cruce —con su QTextDocument— costaba ~2 s con 16 812 cruces; `QGraphicsTextItem.paint` solo usa su
+    documento y la opción), las cajas de la capa (`_pdfcad_caja`/`_pdfcad_rot`) se copian entre marcas iguales
+    (cruces por estado; etiquetas de accesorio por tamaño de pastilla) y `EtiquetaAccesorio(medidas=)` comparte
+    fuente, su clave y el ancho de cada texto en un redibujo. AGUA 2: pausa final al abrir ~8 → ~3 s, avisos
+    ~21 → ~12 s. Guardar: `Main._png_de_la_hoja` reusa los bytes del PNG leído/guardado si la imagen es la misma
+    (`cacheKey`): ~9 → ~3 s. Tests: `test_capa_marcas.py::test_texto_de_cruce_con_molde_…` (píxeles a 100/125 %,
+    con sellos y en la escena), `test_hoja_enorme.py::test_guardar_reusa_el_png_…`.
+    **1.ª exportación sin releer** (mismo día): `digitize.main(doc_out=[])` entrega el documento ezdxf que guardó;
+    `PipelineWorker.tomar_doc()` → `_pipeline_done(doc=)` lo usa en vez de `ezdxf.readfile` (−30 s con 132 MB).
+    Verificado con AGUA 2 y un escaneo: el DXF final es idéntico al de releerlo (salvo la hora de ezdxf). Un
+    lector rápido de DXF propio (mismos tags) resultó MÁS lento con 132 MB (memoria): descartado.
+    Test `tests/test_exportar_rapido.py::test_primera_exportacion_usa_el_documento_en_memoria`.
+    **Digitalizar más rápido** (mismo día): `digitize.main(guardar=)` — `PipelineWorker` pasa
+    `dxf_rapido.guardar` (era ~45 % del tiempo: `saveas` de ~600 mil entidades) — y `_dibujos_una_vez(page)`:
+    `page.get_drawings()` sin argumentos se lee UNA vez por hoja (la pedían `classify_page`, `vector_pipeline.run`,
+    `build_exclusion_zones` y `plan_drawing_bbox`; ninguna modifica la lista). DXF base y avisos idénticos en DU06
+    h.3/4, DU08 h.2, escaneo, 00.proyecto y AGUA 2 (116 → 82 s; CAD −40–60 %). OJO: un paso nuevo del pipeline
+    que MODIFIQUE lo que devuelve `get_drawings` rompería la lectura compartida. Test
+    `test_exportar_rapido.py::test_digitalizar_lee_la_hoja_una_vez_y_guarda_el_mismo_dxf`.
     **Guardar el DXF** (mismo día): `exportar/dxf_rapido.guardar` (lo usa `Main._guardar_dxf_en_hilo`) cambia,
     solo mientras guarda, `DXFNamespace.export_dxf_attribs` / `_export_dxf_attribute_optional` de ezdxf por la
-    MISMA lógica sin objetos intermedios (definiciones por lista de nombres una vez, texto `"%3d
-%s
-"`,
+    MISMA lógica sin objetos intermedios (definiciones por lista de nombres una vez, texto `"%3d\n%s\n"`,
     vértices `float` ≤3 componentes como `DXFVertex`; solo con `TagWriter`, otro escritor = el de ezdxf). AGUA 2
     (597 mil entidades): 32 → 17 s, archivo idéntico salvo hora/GUID/marca de ezdxf (cambian en todo guardado).
     OJO al actualizar ezdxf (hoy 1.4.4): correr `tests/test_dxf_rapido.py`. Medido: leer el DXF base 30 s y
     fusionar 42 s (zonas borradas/georref sobre las 600 mil entidades).
+    **Encuadre del DXF** (mismo día): esos «42 s» eran ~4 s de fusionar y ~38 s de `_set_plan_view`
+    (`ezdxf.bbox.extents` de las 600 mil entidades, desarmando los 104 mil textos). Ahora el recuadro del
+    plano base se guarda junto a la caché (`cache_digitalizado.guardar_recuadro`/`leer_recuadro`,
+    `<clave>.ext.json`, números exactos); `_recuadro_base` (en el hilo de lectura de `_pipeline_done`, con
+    `Main._clave_base`) lo lee o lo mide la primera vez y anota los handles del plano base;
+    `_recuadro_rapido` = extents de lo AGREGADO + el guardado (mínimo/máximo: idéntico). Se mide todo como
+    antes si hay georreferencia (el plano base se transforma), si falta alguna entidad del plano base (zonas
+    de borrado, `replace_text`) o ante cualquier error. AGUA 2: 38 → ~1.8 s desde la 2.ª exportación,
+    recuadro idéntico. Tests: `tests/test_exportar_rapido.py`.
+    **Desplazar de lejos** (mismo día): el lienzo repinta la vista ENTERA en cada paso de desplazamiento y la
+    imagen de la capa de marcas (`_con_cache`) estaba atada a la posición exacta → se rehacía entera (~125 ms
+    la capa de 36 mil marcas). Ahora `_Capa._cache` = PIEZAS (clase = giro/escala de la vista + escala física +
+    `id` del despeje; cada pieza con su traslación escena→píxel físico `T` y su origen): una pieza sirve si la
+    vista se corrió un número ENTERO de píxeles físicos (misma fase de subpíxel para cada marca = el mismo
+    dibujo corrido); lo que falta (`QRegion`) se arma en rectángulos que no se tocan y se dibuja por partes
+    (`drawImage` con rectángulo de origen). `CACHE_MAX_PIEZAS`=24, `CACHE_MAX_MB`=96 por capa; otra escala o
+    despeje las descarta. AGUA 2 de lejos: desplazar 90–150 → 30–40 ms; zoom igual (~100–150 ms, escala nueva).
+    Test: `test_desplazar_reusa_piezas_y_se_ve_igual_que_armarla_de_cero` (100 % y 125 %, pasos enteros y
+    fraccionarios: idéntico byte a byte a armarla de cero).
   - **Unir utilidades** (2026-10-02): `unir_utilidades.py` (PURO) `planificar(pipes, filas, base,
     ft_per_px)` → `Plan` (pipe unida, empalmes, absorbidas, avisos): encadena punta con punta desde la
     BASE (la 1.ª seleccionada, `Main._orden_sel`; sus datos mandan), `invertir` las que van al revés,

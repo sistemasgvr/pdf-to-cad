@@ -127,13 +127,18 @@ class HerramientasMixin:
             # tomaba ~0.9 s con 16 761 utilidades en cada Esc o clic). Solo `marcar`, `aprobar` y `quitar`
             # los cambian, y las dos últimas cambian la firma.
             clave_res = (getattr(getattr(self, "_memo_redibujo", None), "firma", None), ft_px)
-            previo = getattr(self, "_resultados_acc", None)
+            previo = self._resultados_previos("_resultados_acc", clave_res)   # (también de un estado anterior)
             if (clave_res[0] is not None and getattr(self, "_en_redibujo", False) and previo is not None
                     and previo[0] == clave_res):
                 accs, self._normas_avisos, self._angulos_fuera = previo[1]
+                if next(reversed(self._recuerdos("_resultados_acc"))) != clave_res:
+                    # de un estado anterior: aprobar/quitar pudo cambiar esos avisos desde entonces
+                    normas_aprobacion.marcar(self._normas_avisos, self.pipes, getattr(self, "normas_aprobados", []))
+                    self._guardar_resultados("_resultados_acc", clave_res, previo)   # ahora es el más reciente
             else:
                 accs, self._normas_avisos, self._angulos_fuera = self._calcular_accesorios(ft_px)   # ventana_calculo
-                self._resultados_acc = (clave_res, (accs, self._normas_avisos, self._angulos_fuera))
+                self._guardar_resultados("_resultados_acc", clave_res,
+                                         (clave_res, (accs, self._normas_avisos, self._angulos_fuera)))
             tol = 0.5 / ft_px
             ver_acc = getattr(self, "act_show_acc", None) is None or self.act_show_acc.isChecked()
             vigentes = getattr(self, "_marcas_vigentes", False)  # las marcas de antes siguen en su capa

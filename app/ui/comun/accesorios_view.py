@@ -28,15 +28,25 @@ class EtiquetaAccesorio(QtWidgets.QGraphicsItem):
     R = 5.0
     DX, DY = 9.0, -22.0
 
-    def __init__(self, texto, color_red, nivel):
+    def __init__(self, texto, color_red, nivel, medidas=None):
+        """`medidas`: dict que comparten las etiquetas de UN redibujo (`dibujar`): la fuente, su clave y el
+        ancho de cada texto se calculan una vez (con ~20 mil etiquetas pesaba ~1 s); mismos valores."""
         super().__init__()
         self._texto = texto
         self._red = color_red
         self._fondo, self._letra, borde = _COLORES.get(nivel, _COLORES[None])
         self._borde = borde or color_red
-        self._font = QtGui.QFont(); self._font.setPixelSize(13); self._font.setBold(True)
-        fm = QtGui.QFontMetricsF(self._font)
-        w = fm.horizontalAdvance(texto) + 12; h = fm.height() + 4
+        if medidas is None:
+            medidas = {}
+        fuente = medidas.get(None)
+        if fuente is None:
+            f = QtGui.QFont(); f.setPixelSize(13); f.setBold(True)
+            fm = QtGui.QFontMetricsF(f)
+            fuente = medidas[None] = (f, f.key(), fm, fm.height() + 4)
+        self._font, self._clave_fuente, fm, h = fuente
+        w = medidas.get(texto)
+        if w is None:
+            w = medidas[texto] = fm.horizontalAdvance(texto) + 12
         self._pastilla = QtCore.QRectF(self.DX, self.DY, w, h)
         self.setFlag(QtWidgets.QGraphicsItem.ItemIgnoresTransformations)
         self.setZValue(Z_HANDLE + 6)
@@ -62,7 +72,7 @@ class EtiquetaAccesorio(QtWidgets.QGraphicsItem):
         r = self.R + 2
         rombo = ("acc-rombo", self._red.rgba())
         fondo = ("acc-fondo",) + tam + (self._borde.rgba(), self._fondo.rgba())
-        texto = ("acc-texto", self._texto, self._font.key(), self._letra.rgba()) + tam
+        texto = ("acc-texto", self._texto, self._clave_fuente, self._letra.rgba()) + tam
         guia = QtCore.QRectF(QtCore.QPointF(self.R * 0.7, -self.R * 0.7), p.bottomLeft() + QtCore.QPointF(2, 0))
         return ((rombo, 2, QtCore.QRectF(-r, -r, 2 * r, 2 * r), self._pintar_rombo, False),
                 (fondo, 2, p.united(guia.normalized()).adjusted(-2, -2, 2, 2), self._pintar_fondo, True),
@@ -139,17 +149,26 @@ def dibujar(scene, accesorios, avisos, tol_px, poner=None, reusar=None, guardar=
     items = []
     if preparadas is None:
         preparadas = preparar(accesorios, avisos, tol_px)
+    medidas = {}
     for texto, capa, nivel, x, y, globo in preparadas:
         clave = ("accesorio", texto, capa, nivel, x, y)
         it = reusar(clave) if reusar else None
         if it is None:
             color = layer_qcolor(capa)
-            it = EtiquetaAccesorio(texto, color, nivel)
+            it = EtiquetaAccesorio(texto, color, nivel, medidas)
             sello(it, partes=it.partes_sello())
             it.setPos(x, y)
+            cajas = medidas.get(("cajas", it._pastilla.width(), it._pastilla.height()))
+            if cajas is not None:                    # (misma pastilla = mismas cajas en la capa de marcas)
+                it._pdfcad_caja, it._pdfcad_rot = cajas
             if guardar:
                 guardar(clave, it)
         it.setToolTip(globo)
         (poner or scene.addItem)(it)
         items.append(it)
+        k = ("cajas", it._pastilla.width(), it._pastilla.height())
+        if k not in medidas:
+            caja, rot = getattr(it, "_pdfcad_caja", None), getattr(it, "_pdfcad_rot", False)
+            if caja is not None and rot is not False:
+                medidas[k] = (caja, rot)
     return items

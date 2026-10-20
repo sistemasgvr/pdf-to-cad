@@ -321,3 +321,111 @@ def test_elegir_reusa_las_capas_y_cambiar_el_modelo_las_rehace(win):
     p["pts"] = [(x, y + 40.0) for x, y in p["pts"]]
     win._redraw()
     assert {id(c) for c in win._marcas.capas.values()}.isdisjoint(capas)
+
+
+@pytest.mark.parametrize("dpr, off", [(1.0, (0, 0)), (1.25, (306, 71))])
+def test_desplazar_reusa_piezas_y_se_ve_igual_que_armarla_de_cero(win, monkeypatch, dpr, off):
+    """Al DESPLAZAR (2026-10-19, AGUA 2 de lejos: cada paso rehacía la imagen entera de la capa) se reusan
+    las piezas ya armadas si la vista se corrió píxeles físicos ENTEROS, y solo se arma la franja que
+    entra: los mismos píxeles que armar la imagen de cero en esa vista (pasos enteros y fraccionarios)."""
+    import numpy as np
+    from PySide6 import QtCore, QtGui, QtWidgets
+    from ui.comun import capa_marcas_vista
+    app = QtWidgets.QApplication.instance()
+    monkeypatch.setattr(capa_marcas_vista, "CACHE_MIN", 1)
+    vp = win.canvas.viewport()
+    o = QtCore.QPoint(*off)
+    win.canvas.resetTransform(); win.canvas.scale(1.3, 1.3)
+    a = win._accesorios[0]
+    win.canvas.centerOn(a["x"], a["y"])
+    for _ in range(4):
+        app.processEvents()
+    armado = []
+    original = capa_marcas_vista.CacheVistaMixin._armar_cache
+
+    def contar(self, painter, W, S, vista, X0, Y0, X1, Y1, *r):
+        armado.append((X1 - X0) * (Y1 - Y0))
+        return original(self, painter, W, S, vista, X0, Y0, X1, Y1, *r)
+    monkeypatch.setattr(capa_marcas_vista.CacheVistaMixin, "_armar_cache", contar)
+
+    def foto():
+        img = QtGui.QImage(int((vp.width() + o.x()) * dpr) + 2, int((vp.height() + o.y()) * dpr) + 2,
+                           QtGui.QImage.Format_ARGB32_Premultiplied)
+        img.setDevicePixelRatio(dpr)
+        img.fill(QtGui.QColor("magenta"))
+        vp.render(img, o)
+        return np.frombuffer(img.constBits(), np.uint8, img.sizeInBytes()).copy()
+    foto()
+    completa = (vp.width() * dpr) * (vp.height() * dpr)   # armar la vista entera
+    hs, vs = win.canvas.horizontalScrollBar(), win.canvas.verticalScrollBar()
+    reusos = 0
+    for dx, dy in ((4, 0), (8, 4), (3, 0), (-5, 2), (4, -8), (12, 0)):
+        hs.setValue(hs.value() + dx); vs.setValue(vs.value() + dy)
+        app.processEvents()
+        armado.clear()
+        con_piezas = foto()
+        if sum(armado) < 0.9 * completa:               # solo la franja que entró (o nada)
+            reusos += 1
+        assert any(c._cache for c in win._marcas.capas.values())   # sí pintó desde las piezas
+        for c in win._marcas.capas.values():             # = armar de cero en esta misma vista
+            c._cache = None
+            c._ultima = None
+        de_cero = foto()
+        assert np.array_equal(con_piezas, de_cero), (dx, dy)
+    assert reusos >= 2
+
+
+@pytest.mark.parametrize("en_escena", [False, True])
+def test_texto_de_cruce_con_molde_igual_que_un_item_de_texto_por_cruce(win, monkeypatch, en_escena):
+    """El texto «!», «↕», «✓» de cada cruce se mide y pinta con un QGraphicsTextItem MOLDE por aspecto
+    (`texto_marca`, 2026-10-19): los mismos píxeles —con sellos y pintado por Qt en la escena, al 100 % y
+    al 125 %— y los mismos globos que con un QGraphicsTextItem por cruce."""
+    from PySide6 import QtCore, QtGui, QtWidgets
+    from ui.comun import capa_marcas_vista, texto_marca
+    from ui.ventana import ventana_dibujo
+    monkeypatch.setattr(capa_marcas_vista, "DESPEJAR", False)
+    if en_escena:
+        monkeypatch.setattr(ventana_dibujo.DibujoMixin, "_marca",
+                            lambda self, it: (self.canvas.scene().addItem(it), it)[1])
+    app = QtWidgets.QApplication.instance()
+    vp = win.canvas.viewport()
+
+    def rehacer():
+        win._marcas = None; win._grupos_previos = None
+        win._redraw()
+
+    def fotos():
+        out = []
+        for h in win._conflict_hits[:3]:
+            for z in (1.3713, 5.1377):
+                win.canvas.resetTransform(); win.canvas.scale(z, z)
+                win.canvas.centerOn(h[0] + 0.37, h[1] + 0.81)
+                for _ in range(4):
+                    app.processEvents()
+                for dpr, off in ((1.0, QtCore.QPoint(0, 0)), (1.25, QtCore.QPoint(306, 71))):
+                    img = QtGui.QImage(int((vp.width() + off.x()) * dpr) + 2, int((vp.height() + off.y()) * dpr) + 2,
+                                       QtGui.QImage.Format_ARGB32_Premultiplied)
+                    img.setDevicePixelRatio(dpr); img.fill(QtGui.QColor("black"))
+                    vp.render(img, off)
+                    out.append(np.frombuffer(img.constBits(), np.uint8, img.sizeInBytes()).copy())
+        return out
+
+    rehacer()
+    assert any(isinstance(it, texto_marca.TextoMarca) for it in win._overlay)
+    fotos()
+    nuevo, tips_nuevo = fotos(), _vistas(win)
+
+    def viejo(texto, color, fuente, clave_fuente=None):
+        t = QtWidgets.QGraphicsTextItem(texto); t.setDefaultTextColor(color); t.setFont(fuente)
+        t.document().setDocumentMargin(0)
+        return t
+    monkeypatch.setattr(texto_marca, "nuevo", viejo)
+    for it in list(win.canvas.scene().items()):
+        if isinstance(it, texto_marca.TextoMarca):
+            win.canvas.scene().removeItem(it)
+    rehacer()
+    assert not any(isinstance(it, texto_marca.TextoMarca) for it in win._overlay)
+    fotos()
+    for pa, pb in zip(nuevo, fotos()):
+        assert np.array_equal(pa, pb)
+    assert [t for _p, t in tips_nuevo] == [t for _p, t in _vistas(win)]

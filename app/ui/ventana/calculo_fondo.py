@@ -78,7 +78,25 @@ def calcular(datos_modelo, conflictos, idioma, partes=PARTES, progreso=None):
     return Calculo(pickle.loads(datos_modelo), conflictos).correr(partes)
 
 
+def calentar(progreso=None):
+    """Trabajo vacío: el proceso importa este módulo (y con él los cálculos) antes de que llegue el primer
+    cálculo de verdad. Devuelve None."""
+    return None
+
+
 class CalculoFondoMixin:
+    def _calentar_calculo(self, n_utilidades):
+        """Al abrir un proyecto grande, los procesos del cálculo arrancan e importan sus módulos MIENTRAS la
+        ventana lee la hoja y dibuja (2026-10-19, 16 761 utilidades: los avisos llegaban ~3 s más tarde por
+        el arranque). No calcula nada: los mismos procesos y el mismo resultado, solo antes."""
+        from ui.comun import proceso, proceso_hijo
+        if n_utilidades < UMBRAL or not proceso.activo():
+            return
+        n = len(PARTES) if proceso_hijo.paralelos(len(PARTES), MB_POR_PARTE) >= len(PARTES) else 1
+        for k in range(n):
+            proceso.trabajador("plano" if k == 0 else f"plano-{k + 1}").enviar(
+                proceso.Tarea("ui.ventana.calculo_fondo:calentar"))
+
     def _calculo_en_fondo(self):
         """¿Este redibujo es provisional (los cálculos van al proceso)? Lo decide al empezar el redibujo."""
         m = getattr(self, "_memo_redibujo", None)

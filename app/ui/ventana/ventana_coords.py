@@ -49,12 +49,21 @@ class CoordsMixin:
         except Exception:
             pass
 
-    def _set_plan_view(self, doc):
+    def _set_plan_view(self, doc, base=None):
         """Hace que el DXF se abra en vista de PLANTA (top) y encuadrado al dibujo,
-        para que no aparezca como una hoja inclinada ni diminuta al abrirlo."""
+        para que no aparezca como una hoja inclinada ni diminuta al abrirlo.
+        `base` = (recuadro, handles) del plano base (`_recuadro_base`): si el plano base sigue
+        entero, el recuadro de todo = el suyo (guardado) + el de lo agregado (mismo resultado)."""
         try:
             from ezdxf import bbox
-            ext = bbox.extents(doc.modelspace())
+            ext = None
+            if base is not None:
+                try:
+                    ext = self._recuadro_rapido(doc, base)
+                except Exception:
+                    ext = None                           # cualquier duda: se mide todo, como antes
+            if ext is None:
+                ext = bbox.extents(doc.modelspace())
             if not ext.has_data:
                 return
             cx = (ext.extmin.x + ext.extmax.x) / 2.0
@@ -63,6 +72,48 @@ class CoordsMixin:
             doc.set_modelspace_vport(h * 1.15, center=(cx, cy))   # vista top, centrada
         except Exception:
             pass
+
+    @staticmethod
+    def _recuadro_base(doc, clave, georef):
+        """(recuadro, handles) del plano base recién leído (en el hilo de lectura), o None. El recuadro
+        sale de la caché (`cache_digitalizado.leer_recuadro`); la primera vez se mide y se guarda.
+        Medir las ~600 mil entidades del mapa de 16 761 utilidades tardaba ~38 s en cada exportación."""
+        if not clave:
+            return None
+        from exportar import cache_digitalizado as CD
+        rec = CD.leer_recuadro(clave)
+        if rec is None:
+            if georef:
+                return None                              # el plano base se transformará: ahora no sirve
+            from ezdxf import bbox
+            ext = bbox.extents(doc.modelspace())
+            rec = (tuple(ext.extmin), tuple(ext.extmax)) if ext.has_data else (None, None)
+            try:
+                CD.guardar_recuadro(clave, *rec)
+            except OSError:
+                pass
+        return rec, {e.dxf.handle for e in doc.modelspace()}
+
+    def _recuadro_rapido(self, doc, base):
+        """Recuadro de todo el modelspace con el del plano base ya medido, o None si no vale: con
+        georreferencia (el plano base se transforma) o si la fusión quitó alguna entidad del plano base
+        (zonas de borrado, textos reemplazados). Unir recuadros = mínimo y máximo: el mismo resultado."""
+        from ezdxf import bbox
+        if self.georef.active():
+            return None
+        (minimo, maximo), handles = base
+        quedan, nuevas = 0, []
+        for e in doc.modelspace():
+            if e.dxf.handle in handles:
+                quedan += 1
+            else:
+                nuevas.append(e)
+        if quedan != len(handles):
+            return None
+        ext = bbox.extents(nuevas)
+        if minimo is not None:
+            ext.extend([minimo, maximo])
+        return ext
 
     def _maybe_export_dwg(self, doc, out):
         """Si el usuario lo activó, genera también un .dwg junto al .dxf usando el

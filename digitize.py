@@ -161,12 +161,32 @@ def validate(msp, zones=None):
 # ─────────────────────────────────────────────────────────────────────────────
 # Main
 # ─────────────────────────────────────────────────────────────────────────────
-def main(pdf_path, dxf_out, force=None, verbose=True, pages=None):
+def _dibujos_una_vez(page):
+    """`page.get_drawings()` (sin argumentos) se lee UNA vez por hoja: la clasificación, la ruta vectorial,
+    las zonas de exclusión y la caja del dibujo la pedían cada una (~4 s cada vez en un mapa de ~500 mil
+    trazos). Mismo resultado: ninguna modifica la lista ni sus trazos."""
+    original = page.get_drawings
+    guardado = []
+
+    def get_drawings(*a, **k):
+        if a or k:
+            return original(*a, **k)
+        if not guardado:
+            guardado.append(original())
+        return guardado[0]
+    page.get_drawings = get_drawings
+
+
+def main(pdf_path, dxf_out, force=None, verbose=True, pages=None, doc_out=None, guardar=None):
     """
     force: None (auto) | 'vector' | 'raster'
     pages: índices de hoja a digitalizar (None = todas). La app pasa SOLO la
       hoja del editor: cada hoja usa su propio origen, así que con todas el DXF
       salía con las N hojas superpuestas (y un PDF de 50 hojas tardaba minutos).
+    doc_out: lista opcional; recibe el documento ezdxf que se guardó en `dxf_out` (la app lo usa
+      tal cual en vez de volver a leer el archivo: da el mismo DXF final).
+    guardar: función opcional (doc, ruta) que guarda el DXF en vez de `doc.saveas` (la app pasa
+      `exportar.dxf_rapido.guardar`: el mismo archivo, ~45 % más rápido).
     Devuelve lista de warnings de QA.
     """
     import vector_pipeline
@@ -187,6 +207,7 @@ def main(pdf_path, dxf_out, force=None, verbose=True, pages=None):
     for i, page in enumerate(doc):
         if pages is not None and i not in pages:
             continue
+        _dibujos_una_vez(page)
         kind, info = classify_page(page)
         if force in ("vector", "raster"):
             kind = force
@@ -205,7 +226,12 @@ def main(pdf_path, dxf_out, force=None, verbose=True, pages=None):
         last_scale = stats.get("scale_ft_per_pt", last_scale)
         log("   ", stats)
 
-    dxf_doc.saveas(dxf_out)
+    if guardar is not None:
+        guardar(dxf_doc, dxf_out)
+    else:
+        dxf_doc.saveas(dxf_out)
+    if doc_out is not None:
+        doc_out.append(dxf_doc)
     log(f"\n✓ Guardado: {dxf_out}")
 
     warnings, counts = validate(msp, all_zones)
