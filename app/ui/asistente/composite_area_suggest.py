@@ -97,7 +97,7 @@ class AreaSugeridaMixin:
         pen = QtGui.QPen(QtGui.QColor(COLOR), 2, QtCore.Qt.DashLine)
         pen.setCosmetic(True)
         fill = QtGui.QColor(COLOR); fill.setAlpha(22)
-        self._area_item = self.crop.scene().addRect(QtCore.QRectF(), pen, QtGui.QBrush(fill))
+        self._area_item = self.crop.scene().addPolygon(QtGui.QPolygonF(), pen, QtGui.QBrush(fill))
         self._area_item.setZValue(2.5)                      # bajo el área marcada (3) y sus asas
         self._area_item.setAcceptedMouseButtons(QtCore.Qt.NoButton)
         self._area_item.hide()
@@ -175,6 +175,15 @@ class AreaSugeridaMixin:
         x0, y0, x1, y1 = self._area_lista[self._area_idx].rect
         return QtCore.QRectF(x0, y0, x1 - x0, y1 - y0)
 
+    def _area_esquinas(self) -> List[QtCore.QPointF]:
+        """Esquinas del área sugerida (sup-izq, sup-der, inf-der, inf-izq): las de su marco si no es
+        recto con la hoja, si no las del rectángulo."""
+        a = self._area_lista[self._area_idx]
+        if a.poligono:
+            return [QtCore.QPointF(x, y) for x, y in a.poligono]
+        r = self._area_rect()
+        return [r.topLeft(), r.topRight(), r.bottomRight(), r.bottomLeft()]
+
     def _area_mostrar(self, areas: List[AS.Area]):
         self._area_lista = list(areas or [])
         self._area_idx = 0
@@ -209,18 +218,27 @@ class AreaSugeridaMixin:
         if not self._area_activa() or not self._area_lista:
             return
         a = self._area_lista[self._area_idx]
-        rect = self._area_rect()
+        esquinas = self._area_esquinas()
         sel = self.crop._selection
-        marcada = sel is not None and all(
-            abs(u - v) <= COINCIDE_PT for u, v in ((sel.left(), rect.left()), (sel.top(), rect.top()),
-                                                   (sel.right(), rect.right()), (sel.bottom(), rect.bottom())))
+        if sel is None:
+            marcadas = []
+        elif getattr(self.crop, "free", False) and len(getattr(self.crop, "polygon", []) or []) == 4:
+            marcadas = list(self.crop.polygon)
+        else:
+            marcadas = [sel.topLeft(), sel.topRight(), sel.bottomRight(), sel.bottomLeft()]
+        marcada = len(marcadas) == 4 and all(
+            abs(p.x() - q.x()) <= COINCIDE_PT and abs(p.y() - q.y()) <= COINCIDE_PT
+            for p, q in zip(marcadas, esquinas))
         if marcada:
             self.lbl_area_sug.setText("✔ " + _tr("Área sugerida marcada: {txt}. Ajusta sus lados si hace "
                                                  "falta y pulsa «Tomar área».").format(txt=self._area_texto(a)))
             self._area_item.hide()
         else:
-            self.lbl_area_sug.setText("<b>" + _tr("Área sugerida:") + "</b> " + self._area_texto(a) + ".")
-            self._area_item.setRect(rect)
+            txt = "<b>" + _tr("Área sugerida:") + "</b> " + self._area_texto(a) + "."
+            if a.poligono:
+                txt += " " + _tr("Sigue su borde inclinado (esquinas libres).")
+            self.lbl_area_sug.setText(txt)
+            self._area_item.setPolygon(QtGui.QPolygonF(esquinas))
             self._area_item.show()
         self.btn_area_usar.setVisible(not marcada)
         self.btn_area_otra.setVisible(len(self._area_lista) > 1)
@@ -234,7 +252,12 @@ class AreaSugeridaMixin:
         rect = self._area_rect()
         if rect is None:
             return
-        self.crop.set_selection(rect)
+        a = self._area_lista[self._area_idx]
+        if a.poligono:                     # marco inclinado: esquina por esquina
+            self.chk_corners.setChecked(True)
+            self.crop.set_polygon(self._area_esquinas())
+        else:
+            self.crop.set_selection(rect)
         self.crop.setFocus()
         self._area_estado()
 

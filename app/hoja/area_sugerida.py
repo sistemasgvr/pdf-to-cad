@@ -53,6 +53,9 @@ class Area:
     etiqueta: str = ""                                   # número de hoja / celda del mapa
     estaciones: List[str] = field(default_factory=list)  # «551+75» de las match lines del corte
     parte: Optional[float] = None                        # parte de la tinta de utilidades que junta
+    # marco que no es recto con la hoja (`borde_inclinado`): sus 4 esquinas (sup-izq, sup-der,
+    # inf-der, inf-izq) y `rect` = su caja; [] = el rectángulo
+    poligono: List[Tuple[float, float]] = field(default_factory=list)
 
     def clip(self, tam: Tuple[float, float]) -> List[float]:
         """Clip normalizado (0..1) sobre la hoja visible de tamaño `tam`."""
@@ -305,7 +308,28 @@ def _por_contenido(page: fitz.Page, f: F.Ficha) -> List[Area]:
 
 # ─────────────────────────── API ───────────────────────────
 def sugerir(page: fitz.Page, ficha: Optional[F.Ficha] = None) -> List[Area]:
-    """Áreas sugeridas para la hoja, la mejor primero ([] = nada que sugerir)."""
+    """Áreas sugeridas para la hoja, la mejor primero ([] = nada que sugerir). Si el marco del
+    área no es recto con la hoja, el área va con sus esquinas (`Area.poligono`)."""
+    areas = _sugerir(page, ficha)
+    if areas:
+        paths = page.get_drawings(extended=True)
+        for a in areas:
+            con_borde(page, a, paths)
+    return areas
+
+
+def con_borde(page: fitz.Page, a: Area, paths=None) -> Area:
+    """`a` con el cuadrilátero de su marco si tiene un borde inclinado (`borde_inclinado`)."""
+    from hoja import borde_inclinado as B
+    q = B.cuadrilatero(page, a.rect, paths)
+    if q:
+        a.poligono = [(float(x), float(y)) for x, y in q]
+        xs, ys = [p[0] for p in q], [p[1] for p in q]
+        a.rect = (min(xs), min(ys), max(xs), max(ys))
+    return a
+
+
+def _sugerir(page: fitz.Page, ficha: Optional[F.Ficha] = None) -> List[Area]:
     f = ficha if ficha is not None else F.ficha(page)
     if f.tipo == "estaciones" and f.vista is not None:
         f = _sin_perfil(page, f)

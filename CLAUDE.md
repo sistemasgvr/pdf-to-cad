@@ -1288,6 +1288,18 @@ alcantarillado, drenaje, gas, eléctrico, telecom). Todo en **unidades imperiale
     `crop.set_selection(rect)` (igual que marcarla a mano: nada se aplica solo), «Otra vista (i/n)», ✔ si el área
     marcada coincide (±`COINCIDE_PT`). `PDFCAD_AREA_SUGERIDA=0` la apaga (conftest). Tests: `tests/test_area_sugerida.py`
     (incluye: usarla da la MISMA pieza que marcar ese rectángulo a mano).
+    **Marco inclinado** (pedido 2026-10-21, «Southwest Gas Combined 811 Records (1) 37»: el mapa termina en líneas
+    gruesas 0.4–0.6° inclinadas dentro de un recorte rectangular): `hoja/borde_inclinado.py` (PURO) `cuadrilatero(page,
+    rect, paths=, segs=)` → 4 esquinas o None. Por lado: recta larga (cubre ≥`CUBRE_MIN`, une tramos colineales y lee
+    los marcos «qu»/«re» de UN elemento) inclinada `GIRO_MIN_DEG`–`GIRO_MAX_DEG`, a ≤`BANDA_FRAC` del lado, y SIN
+    tinta por fuera: la franja del lado se DIBUJA una vez (`franja`, 2 px/pt) y se cuentan píxeles oscuros más allá de
+    la línea (las cajas de `get_drawings` engañaban: marco de la hoja, trazos de varias partes). Con un lado inclinado,
+    los demás lados del marco también (aunque paralelos). El lado va POR FUERA de la línea (medio grosor +
+    `MARGEN_PT`) y las esquinas NO se recortan al rectángulo (≤`SALE_MAX_PT`): recortarlas cortaba la línea del marco.
+    `area_sugerida.sugerir` → `Area.poligono` (rect = su caja); la UI enciende «Esquinas libres» y `set_polygon`.
+    `composicion_sugerida.armar`: pieza con `polygon` (sin `covers`); CAD con `composite.page_drawings` (caché de
+    `trim_border`), mapas con `Ficha.lineas`. Verificado: Southwest Gas, `gather_paths` de la hoja compuesta con
+    rectángulo vs cuadrilátero = mismos 8 659 trazos. Tests: `tests/test_borde_inclinado.py`.
   - **Esquinas libres en TODOS los flujos** (pedido del usuario 2026-10-19): casilla
     `chk_corners` «Esquinas libres» en «Área a tomar» (encendida en escaneos, apagada en vectorial;
     se enciende sola al editar una pieza con `polygon`). `scan_crop_view.CornerCropView(free=)` —

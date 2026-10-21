@@ -159,6 +159,7 @@ def default_network_type(layer):
 
 CHANGELOG = [
     ("1.3.1", [
+        ('added', 'Componer hoja: si el marco del plano no es recto con la hoja (un lado inclinado, como en algunos mapas de Southwest Gas), el área sugerida y la composición sugerida lo siguen esquina por esquina («Esquinas libres») en vez de dejar una cuña de papel en blanco. Solo queda fuera papel en blanco: el reconocimiento ve la misma tinta.'),
         ('added', 'Componer hoja: en «Área a tomar» la app sugiere el área de la hoja que conviene tomar (la vista de planta entre sus match lines, el marco del mapa o la vista con las líneas de utilidades; nunca el perfil, las notas ni el cajetín) y la dibuja a trazos; «Usar área sugerida» la marca para ajustarla y tomarla como siempre. Se calcula aparte, sin trabar la ventana; lo que se toma es igual que un área marcada a mano.'),
         ('fixed', 'Hoja compuesta de mapas sin capas (p. ej. Water North + South): ya no quedan tuberías sin reconocer debajo de donde estaría la leyenda de la hoja vecina. La caja de la leyenda de cada mapa queda tapada al componer, pero se seguía usando y sus tuberías se descartaban como «muestras de la leyenda»; ahora solo cuenta lo que se ve de cada leyenda. Hojas sueltas: sin cambios.'),
         ('changed', 'Reconocer una hoja es entre 2 y 4 veces más rápido, con el mismo resultado: los vectores de la hoja se leen una sola vez para todas las utilidades (antes, varias veces por utilidad). Planos CAD con 6 utilidades de ~7–18 s a ~2–5 s; mapas sin capas compuestos ~25 % menos.'),

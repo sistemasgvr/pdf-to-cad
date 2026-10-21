@@ -3596,4 +3596,5 @@ EN: dict[str, str] = {
     'Área sugerida marcada: {txt}. Ajusta sus lados si hace falta y pulsa «Tomar área».': 'Suggested area marked: {txt}. Adjust its sides if needed and press «Take area».',
     'Área sugerida:': 'Suggested area:',
     'Otra vista ({i}/{n})': 'Another view ({i}/{n})',
+    'Sigue su borde inclinado (esquinas libres).': 'It follows its slanted border (free corners).',
 }
