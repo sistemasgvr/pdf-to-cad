@@ -28,8 +28,10 @@ def reconocer_hoja(pdf_path, page_index, zoom=1.0, utilities=("ELECTRICO",), hid
     avisar = progreso or (lambda *a: None)
     results = []
     # un solo documento y UNA lectura de las letras del linetype para todas las
-    # utilidades (`recognition.page_letters`, ~0.5–1 s por hoja)
-    with fitz.open(pdf_path) as doc:
+    # utilidades (`recognition.page_letters`, ~0.5–1 s por hoja); y los vectores de la hoja
+    # se leen UNA vez para las letras y todas las utilidades (`pdf_styles.lectura_unica`)
+    from hoja import pdf_styles
+    with fitz.open(pdf_path) as doc, pdf_styles.lectura_unica(doc):
         letters = None
         if any(not (roles_by_utility.get(u) or layer_roles) for u in utilities):
             letters = rec.page_letters(doc[page_index])

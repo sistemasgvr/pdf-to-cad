@@ -277,3 +277,42 @@ def test_phoenix_capas_con_roles_de_una_hoja_suelta(compuesta_4):
     d4 = layer_dialog.SheetLayersDialog(None, comp, 0, roles_by_utility=r3)
     assert not any("0.30 pt" in pdf_styles.style_label(n) for n, (u, r) in d4._assignments.items()
                    if u == "AGUA" and r == "lineas")
+
+
+# ── la leyenda TAPADA de una hoja no quita tuberías de la vecina ────────────
+def test_zona_de_leyenda_recortada_a_lo_que_se_ve_de_su_pieza():
+    assert lectura._zona_visible((10, 10, 50, 50), None) == (10, 10, 50, 50)      # hoja suelta
+    assert lectura._zona_visible((10, 10, 50, 50), (0, 0, 100, 100)) == (10, 10, 50, 50)
+    assert lectura._zona_visible((10, 80, 50, 120), (0, 0, 100, 100)) == (10, 80, 50, 100)
+    assert lectura._zona_visible((10, 110, 50, 150), (0, 0, 100, 100)) is None   # fuera del recorte
+
+
+@needs_phoenix
+def test_phoenix_leyenda_tapada_no_quita_tuberias_de_la_hoja_de_abajo(tmp_path):
+    """Reporte del usuario 2026-10-20 (Water North + South, 36 mapas): la caja de la leyenda de
+    cada hoja North queda fuera de su recorte y caía ENCIMA de la hoja South de abajo (16-15):
+    sus tuberías se descartaban como «muestras de la leyenda» y quedaban sin reconocer."""
+    from hoja import composite as C
+    docs = [fitz.open(str(WATER_S)), fitz.open(str(WATER_N))]
+    comp = C.Composite(pieces=[        # colocación de la composición sugerida (17-15 sobre 16-15)
+        C.Piece(source=1, page=5, clip=[0.13741, 0.14649, 0.86172, 0.74913], x=2368.0, y=0.0,
+                src_scale=0.7352124694374402),
+        C.Piece(source=0, page=5, clip=[0.14028, 0.19287, 0.86460, 0.75243], x=2368.0, y=505.305,
+                src_scale=1.3887246922953445)],
+        scale_ft_per_pt=1.3888888888888888, bridges=False)
+    out = tmp_path / "norte_sur.pdf"
+    C.build_document(comp, docs, {}, []).save(str(out))
+    doc = fitz.open(str(out))
+    page = doc[0]
+    ley = LM.leer(doc, page)
+    cajas = lectura.recortes_de_piezas(page)
+    assert cajas and len(cajas) == 2
+    for z in ley.zonas:                 # cada zona, dentro de lo que se ve de alguna pieza
+        assert any(c[0] - 1e-6 <= z[0] and z[2] <= c[2] + 1e-6 and c[1] - 1e-6 <= z[1] and z[3] <= c[3] + 1e-6
+                   for c in cajas)
+    # bajo la caja de la leyenda de 17-15 (tapada), en 16-15: antes ninguna tubería; ahora 14
+    res = rec.recognize_page(str(out), utility="AGUA", zoom=1.0)
+    ox, oy = cajas[1][0] - 36.0, cajas[1][1] - 541.306     # (la compuesta lleva 36 pt de margen)
+    bajo = [pl for pl in res.drawable
+            if any(400 + ox <= x <= 460 + ox and 555 + oy <= y <= 615 + oy for x, y in pl.pts_pdf)]
+    assert len(bajo) >= 10

@@ -1182,6 +1182,21 @@ alcantarillado, drenaje, gas, eléctrico, telecom). Todo en **unidades imperiale
     `set_veil`. `main.py`: `freeze_support()` y la interfaz se importa solo bajo `__main__` (el hijo importa main
     como `__mp_main__`); `OPENBLAS_NUM_THREADS=1` antes de numpy (+361 → +8 MB por proceso; letras igual de
     rápidas). `PDFCAD_PROCESO=0` = todo aquí mismo (conftest; `tests/test_proceso.py` lo enciende).
+    **Leyenda tapada en una compuesta** (reporte 2026-10-20, Water North + South, 36 mapas): la caja de la
+    leyenda de cada mapa queda FUERA de su recorte y caía encima de la pieza de abajo (North → 16-15): sus
+    tuberías se descartaban como «muestras de la leyenda» (`gather_paths(legend_regions=)`, centro del
+    trazo). `leyenda_mapa_lectura._leer` recorta cada zona a lo que se ve de SU pieza (`recortes_de_piezas`
+    = `scissor` del recorte de cada pieza, mismo recorrido que `inicios_de_piezas`; `_zona_visible`, None si
+    queda tapada). Compuesta de 36: 16 669 → 16 904 líneas; lejos de las zonas, lo de antes sigue (≤1.06 pt,
+    ajuste de ángulos de la red ahora unida). Foto de 18 casos (hojas sueltas y compuestas de una fila): igual.
+    Tests: `tests/test_mapas_compuestos.py::test_phoenix_leyenda_tapada_…`.
+    **Lectura única de la hoja** (2026-10-20): `pdf_styles.lectura_unica(doc)` (lo abren `reconocer_hoja` y
+    `recognize_page`) guarda por documento lo que da `pdf_styles.drawings` (clave = hoja, giro, estado de capas,
+    extended) y la lectura sin `extended` = la extendida sin clip/group ni `level`; se suelta al salir. Antes
+    `page_letters`, `profile_view_regions`, `gather_paths` y la leyenda releían la hoja: 1 + 2 por utilidad
+    (DU06 h.4: 13 lecturas, 10.6 de 18.6 s). Foto 18 casos (DU06/DU08/DU10/LABOE × 6 utilidades + Phoenix
+    sueltos y compuestos, + capas ocultas/roles a mano): resultado idéntico campo por campo, 181 → 74 s. OJO:
+    nadie debe modificar la lista que devuelve `drawings`. Tests: `tests/test_lectura_unica.py`.
     Velocidad sin cambiar resultados (`reconocimiento/recognition_indice.py`: `IndiceTramos` por corredor y
     `IndicePuntos`, candidatos en el ORDEN original → mismo desempate): `strokes_by_polyline`, `_through_dirs`,
     `ink_reconstruct` (puntas), `recognition_diametros.asignar`, `snap_taps`, `acometidas_mapa` (celdas) y
@@ -1256,6 +1271,23 @@ alcantarillado, drenaje, gas, eléctrico, telecom). Todo en **unidades imperiale
     dibuja esa tubería), muestras a >1 pt de la tinta 0.65 % → 0.02 %. Tests: `tests/test_mapas_compuestos.py`.
     Pruebas por grupos en paralelo: `python scripts/pruebas.py <grupo…>` (mapas, compositor, capas,
     reconocimiento, utilidades, editor, interfaz, otros, todo; sin pytest-xdist).
+  - **Área sugerida** (pedido del usuario 2026-10-20: «sugerirle un área y que el usuario la ajuste», sin tocar el
+    reconocimiento): `hoja/area_sugerida.py` (PURO) `sugerir(page, ficha=None)` → `[Area]` (la mejor primero; [] = nada):
+    hoja con match lines → `_planta` (vista de `composicion_ficha` cortada en cada match line con rótulo, como
+    `composicion_sugerida._cortes_cad`; `_sin_perfil`: con capas, si hay rótulos junto a VARIAS vistas gana la de más
+    tinta de utilidades —LABOE h.26/31/32: la ficha tomaba el PERFIL de arriba, OJO: la composición sugerida usa esa
+    misma vista—); mapa con marco → el marco; si no, `_por_contenido`: recortes del PDF + (con capas o mapa) marcos de
+    4 `guide_lines` (≤`MARCO_MAX_FRAC` fuera de mapas), puntuados por la tinta VISIBLE de utilidades (`_tinta`: pila de
+    recortes; con capas solo `pdf_layers.utility_of`, sin PROF/ANNO/TEXT; sin capas toda) sin perfiles, el interior
+    si conserva `INTERIOR_CONSERVA`; otras vistas (solo con capas) como alternativa. Notas/portadas/detalles: [].
+    Foto 7 PDFs (195 hojas): todas las de match lines → planta, 54 mapas → marco, 32 sin sugerencia (notas, leyendas,
+    detalles, perfiles sueltos), revisadas a la vista; ~1.6 s por hoja (máx ~8). UI `ui/asistente/composite_area_suggest.py`
+    (`AreaSugeridaMixin`): trabajador `proceso` «area» (`sugerir_en_pdf`, documentos abiertos en el proceso; una
+    tarea a la vez, la última hoja pedida espera), caché por (sha1 del PDF, hoja); tarjeta en «Área a tomar» con el
+    porqué, contorno a trazos MAGENTA (z 2.5; naranja = área marcada, turquesa = guías), «Usar área sugerida» =
+    `crop.set_selection(rect)` (igual que marcarla a mano: nada se aplica solo), «Otra vista (i/n)», ✔ si el área
+    marcada coincide (±`COINCIDE_PT`). `PDFCAD_AREA_SUGERIDA=0` la apaga (conftest). Tests: `tests/test_area_sugerida.py`
+    (incluye: usarla da la MISMA pieza que marcar ese rectángulo a mano).
   - **Esquinas libres en TODOS los flujos** (pedido del usuario 2026-10-19): casilla
     `chk_corners` «Esquinas libres» en «Área a tomar» (encendida en escaneos, apagada en vectorial;
     se enciende sola al editar una pieza con `polygon`). `scan_crop_view.CornerCropView(free=)` —

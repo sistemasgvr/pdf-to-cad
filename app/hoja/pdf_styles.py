@@ -5,6 +5,7 @@ navigation. Clips and native OCG paths keep their original identity.
 """
 from __future__ import annotations
 
+import contextlib
 import json
 from nucleo import avance
 from traduccion.i18n_core import t as _tr
@@ -107,6 +108,49 @@ def _style_label(name):
         " · relleno" if kind == "f" else " · trazo y relleno" if kind == "fs" else "")
 
 
+_LECTURA = "_pdfcad_lectura_unica"
+
+
+@contextlib.contextmanager
+def lectura_unica(doc):
+    """Mientras dura el bloque, `drawings` lee cada hoja de `doc` UNA vez (pedido del usuario
+    2026-10-20: reconocer DU06 h.4 con 6 utilidades leía la hoja 13 veces, 10.6 de 18.6 s; un
+    mapa compuesto, 4 lecturas de ~3.7 s). Mismo resultado: la lista guardada es la que daría
+    otra lectura (la clave lleva hoja, giro y estado de las capas; nadie modifica la lista) y la
+    lectura sin `extended` es la extendida sin recortes/grupos ni la clave `level` (verificado:
+    `get_drawings()` da exactamente eso). Al salir se suelta (en un mapa compuesto son cientos
+    de MB). Anidable: el bloque de afuera manda."""
+    if doc is None or _LECTURA in doc.__dict__:
+        yield
+        return
+    doc.__dict__[_LECTURA] = {}
+    try:
+        yield
+    finally:
+        doc.__dict__.pop(_LECTURA, None)
+
+
+def _clave_lectura(page, extended):
+    try:
+        capas = tuple(bool(c.get("on")) for c in page.parent.layer_ui_configs())
+    except Exception:
+        capas = ()
+    return (page.number, page.rotation, capas, bool(extended))
+
+
+def _nativos(page, extended, cache):
+    """`page.get_drawings(extended=)`, con `cache` (dict de `lectura_unica`) o sin él."""
+    if cache is None:
+        return page.get_drawings(extended=extended)
+    clave = ("nativos",) + _clave_lectura(page, True)
+    if clave not in cache:
+        cache[clave] = page.get_drawings(extended=True)
+    if extended:
+        return cache[clave]
+    return [{k: v for k, v in p.items() if k != "level"}
+            for p in cache[clave] if p.get("type") not in ("clip", "group")]
+
+
 def drawings(page, *, extended=False):
     """Native drawings plus deterministic identities for unlayered vectors.
 
@@ -114,9 +158,20 @@ def drawings(page, *, extended=False):
     Phoenix), también los SÍMBOLOS que describe su leyenda (válvulas, hidrantes,
     buzones: glifos de la fuente, no vectores) como círculos virtuales en su propia capa
     (`leyenda_mapa.simbolos_capas`), al final y sin recorte; y las ACOMETIDAS (servicios
-    que nacen sobre la red, `acometidas_mapa`) en su capa aparte, no en la de su estilo."""
+    que nacen sobre la red, `acometidas_mapa`) en su capa aparte, no en la de su estilo.
+    Dentro de `lectura_unica(doc)`, una sola lectura por hoja."""
+    cache = page.parent.__dict__.get(_LECTURA)
+    if cache is None:
+        return _drawings(page, extended, None)
+    clave = _clave_lectura(page, extended)
+    if clave not in cache:
+        cache[clave] = _drawings(page, extended, cache)
+    return cache[clave]
+
+
+def _drawings(page, extended, cache):
     avance.avisar(_tr("Leyendo los vectores de la hoja…"))
-    paths = page.get_drawings(extended=extended)
+    paths = _nativos(page, extended, cache)
     if any(p.get("layer") for p in paths if p.get("type") not in ("clip", "group")):
         return paths
     out = []

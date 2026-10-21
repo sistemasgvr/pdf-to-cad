@@ -50,6 +50,7 @@ from ui.asistente.scan_crop_view import CornerCropView
 from ui.asistente.composite_scan_ui import ScanToolsMixin
 from ui.asistente.composite_choice import ChosenSheetMixin
 from ui.asistente.composite_suggest import SuggestionMixin
+from ui.asistente.composite_area_suggest import AreaSugeridaMixin
 from ui.asistente.tool_strip import ToolStrip
 from ui.comun.busy import busy
 from ui.comun.widgets import maximize_on_show
@@ -155,7 +156,7 @@ def _banner(color: str) -> tuple[QtWidgets.QFrame, QtWidgets.QLabel]:
 
 
 class CompositeDialog(NoEscapeClose, ChosenSheetMixin, SourcePageMixin, ScanToolsMixin, SuggestionMixin,
-                      QtWidgets.QDialog):
+                      AreaSugeridaMixin, QtWidgets.QDialog):
     def __init__(self, parent, sources: List[dict], comp: Optional[C.Composite],
                  hidden_by_source: Optional[Dict[str, List[str]]], current_page: int = 0, manual: bool = False):
         super().__init__(parent)
@@ -467,6 +468,7 @@ class CompositeDialog(NoEscapeClose, ChosenSheetMixin, SourcePageMixin, ScanTool
         # La hoja se muestra a 72 dpi; al hacer zoom, la parte visible se
         # re-renderiza nítida encima (z=1: bajo las guías y el rectángulo).
         self._crop_sharp = ViewportSharpener(self.crop, lambda: self.docs[self._cur_source][self._cur_page], z=1)
+        lay.addWidget(self._area_card())       # «Área sugerida» (composite_area_suggest)
         lay.addWidget(self.crop, 1)
         row = QtWidgets.QHBoxLayout(); row.setSpacing(8)
         # Una acción principal («Tomar área»), una secundaria y las opciones del
@@ -793,6 +795,7 @@ class CompositeDialog(NoEscapeClose, ChosenSheetMixin, SourcePageMixin, ScanTool
         if keeps and not self._syncing_crop:
             self._select_page_piece()
         self._refresh_pending()
+        self._area_pedir()                 # el área que conviene tomar, aparte (otro proceso)
 
     def _render_current_page(self, first: bool = False):
         page = self.docs[self._cur_source][self._cur_page]
@@ -1206,6 +1209,7 @@ class CompositeDialog(NoEscapeClose, ChosenSheetMixin, SourcePageMixin, ScanTool
 
     def close_docs(self):
         self._sug_desconectar()
+        self._area_cerrar()
         self._thumb_timer.stop()
         self._thumb_queue = []
         for d in self.docs:

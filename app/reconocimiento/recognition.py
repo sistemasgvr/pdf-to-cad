@@ -1180,6 +1180,8 @@ def recognize_page(
     if own_doc:
         doc = fitz.open(str(pdf_path))
     warnings: List[str] = []
+    lectura = pdf_styles.lectura_unica(doc)       # la hoja se lee UNA vez en todo el reconocimiento
+    lectura.__enter__()
     try:
         if page_index < 0 or page_index >= doc.page_count:
             raise IndexError(f"Página {page_index} fuera de rango (0..{doc.page_count - 1})")
@@ -1928,6 +1930,7 @@ def recognize_page(
             polylines_joined=polylines_joined, polylines_raw=polylines_raw,
         )
     finally:
+        lectura.__exit__(None, None, None)
         if own_doc and doc is not None:
             doc.close()
 
