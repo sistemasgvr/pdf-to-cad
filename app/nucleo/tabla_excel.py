@@ -17,7 +17,7 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass
 
-from nucleo import model_ops
+from nucleo import avance, model_ops
 from nucleo.tabla_datos import Tabla, _r
 from traduccion.i18n_core import N_, TRANSLATIONS, t
 
@@ -59,6 +59,8 @@ def tabla_vertices(pipes, a_cad):
         N_("Utilidad N°"), N_("Nombre"), N_("Vértice"), N_("Cota de llegada (ft)"), N_("Cota de salida (ft)"),
         N_("Automática (ft)"), N_("X"), N_("Y")])
     for i, p in enumerate(pipes or []):
+        if not i & 255 or i == len(pipes) - 1:
+            avance.avisar("tabla_vertices", i + 1, len(pipes))        # barra de carga (Tabla de datos)
         pts = p.get("pts") or []
         if p.get("world") or len(pts) < 3:
             continue
@@ -98,12 +100,19 @@ def exportar(tablas, ruta):
         ley.append(fila)
     ley["A1"].font = Font(bold=True, size=13)
     ley.column_dimensions["A"].width = 110
+    # barra de carga (pedido 2026-10-20): filas escritas y celdas coloreadas, «i de n» de todo el libro
+    total = sum(len(tb.filas) for tb in tablas) or 1
+    celdas = sum(len(tb.filas) * len(EDITABLES.get(tb.clave, {})) for tb in tablas) or 1
+    hechas, pintadas = 0, 0
     for tb in tablas:
         ws = wb.create_sheet(t(tb.titulo)[:31])
         editables = EDITABLES.get(tb.clave, {})
         ws.append([t(c) for c in tb.columnas])
         for f in tb.filas:
             ws.append(list(f))
+            hechas += 1
+            if not hechas & 255 or hechas == total:
+                avance.avisar("excel_filas", hechas, total)
         for k, c in enumerate(tb.columnas, 1):
             cab = ws.cell(row=1, column=k)
             cab.font = Font(bold=True)
@@ -113,12 +122,47 @@ def exportar(tablas, ruta):
             if editable:
                 for r in range(2, len(tb.filas) + 2):
                     ws.cell(row=r, column=k).fill = PatternFill("solid", fgColor=VERDE_CLARO)
+                    pintadas += 1
+                    if not pintadas & 1023 or pintadas == celdas:
+                        avance.avisar("excel_formato", pintadas, celdas)
             largo = max([len(str(t(c)))] + [len(str(f[k - 1])) for f in tb.filas if f[k - 1] is not None])
             ws.column_dimensions[openpyxl.utils.get_column_letter(k)].width = min(60, max(9, largo + 2))
         ws.freeze_panes = "A2"
         if tb.filas:
             ws.auto_filter.ref = f"A1:{openpyxl.utils.get_column_letter(len(tb.columnas))}{len(tb.filas) + 1}"
-    wb.save(ruta)
+    with _contando_filas(total + len(tablas) + 8):
+        wb.save(ruta)
+
+
+def _contando_filas(total):
+    """Mientras se guarda, avisa «excel_guardar» con cuántas filas escribió openpyxl (barra de carga; solo
+    cuenta: el archivo es el mismo). Si esta versión de openpyxl no tiene `WorksheetWriter.write_row`, solo
+    avisa que empieza."""
+    import contextlib
+    try:
+        from openpyxl.worksheet._writer import WorksheetWriter
+        original = WorksheetWriter.write_row
+    except (ImportError, AttributeError):
+        avance.avisar("excel_guardar")
+        return contextlib.nullcontext()
+    cuenta = [0]
+
+    def write_row(self, xf, row, row_idx):
+        cuenta[0] += 1
+        if not cuenta[0] & 255:
+            avance.avisar("excel_guardar", min(cuenta[0], total), total)
+        return original(self, xf, row, row_idx)
+
+    @contextlib.contextmanager
+    def contando():
+        avance.avisar("excel_guardar", 0, total)
+        WorksheetWriter.write_row = write_row
+        try:
+            yield
+        finally:
+            WorksheetWriter.write_row = original
+        avance.avisar("excel_guardar", total, total)
+    return contando()
 
 
 # ─────────────────────────── importar ───────────────────────────

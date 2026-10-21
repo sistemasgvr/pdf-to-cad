@@ -7,6 +7,9 @@ Con `cancelable=True` la capa muestra «Cancelar»: se deja de esperar y el resu
 hilo termina solo; Python no puede cortarlo a la mitad). Devuelve (resultado, error, cancelado).
 
 Solo para trabajo que no toca la interfaz (ezdxf: leer/guardar un documento, copiar archivos).
+`avance=fn(etapa, i, n)`: lo que `fn` avisa por `nucleo.avance` en su hilo llega a `fn` en el de la ventana
+(la barra de la exportación). `relanzar=True`: un error de `fn` se LANZA aquí tal cual (la misma excepción
+que si `fn` hubiera corrido en la ventana: abrir y guardar el proyecto).
 """
 from __future__ import annotations
 
@@ -20,20 +23,30 @@ from ui.comun import busy
 
 class _Aviso(QtCore.QObject):
     listo = QtCore.Signal()
+    paso = QtCore.Signal(str, object, object)
 
 
-def ejecutar(host, fn, texto: str, detalle: str = "", cancelable: bool = False):
+def ejecutar(host, fn, texto: str, detalle: str = "", cancelable: bool = False, avance=None, relanzar=False):
     out = {}
     lazo = QtCore.QEventLoop()
     aviso = _Aviso()
     aviso.listo.connect(lazo.quit, QtCore.Qt.QueuedConnection)
     estado = {"cancelado": False, "listo": False}
 
+    if avance is not None:
+        aviso.paso.connect(avance, QtCore.Qt.QueuedConnection)
+
     def correr():
         try:
-            out["r"] = fn()
+            if avance is not None:
+                from nucleo import avance as _avance
+                with _avance.escuchar(lambda t, i, n: aviso.paso.emit(t, i, n)):
+                    out["r"] = fn()
+            else:
+                out["r"] = fn()
         except BaseException as e:                       # noqa: BLE001 (se informa a quien llama)
             out["e"] = f"{e}\n\n{traceback.format_exc()}"
+            out["exc"] = e
         finally:
             estado["listo"] = True
             aviso.listo.emit()
@@ -57,4 +70,6 @@ def ejecutar(host, fn, texto: str, detalle: str = "", cancelable: bool = False):
             ov.end()
     if estado["cancelado"]:
         return None, "", True
+    if relanzar and "exc" in out:
+        raise out["exc"]
     return out.get("r"), out.get("e", ""), False

@@ -7,7 +7,8 @@ de la ventana, o el proceso trabajador, que la manda por su cola). Sin nadie esc
 hace nada. Por hilo: el trabajo de fondo no pisa los avisos de la ventana.
 
 Los avisos se espacian (`CADA_S`): repintar la tarjeta en cada vuelta de un bucle costaría más
-que el trabajo. Un texto NUEVO pasa siempre; el mismo texto con otro i/n, cada `CADA_S`.
+que el trabajo. Un texto NUEVO pasa siempre; el mismo texto con otro i/n, cada `CADA_S` (y el
+último, i = n, siempre).
 """
 from __future__ import annotations
 
@@ -38,8 +39,8 @@ def avisar(texto: str, i: Optional[int] = None, n: Optional[int] = None) -> None
         return
     previo, cuando = _local.ultimo
     ahora = time.perf_counter()
-    if texto == previo and ahora - cuando < CADA_S:
-        return
+    if texto == previo and ahora - cuando < CADA_S and not (n and i == n):
+        return                            # (el último, «n de n», pasa siempre: la barra marca el final)
     _local.ultimo = (texto, ahora)
     try:
         fn(texto, i, n)
@@ -49,3 +50,9 @@ def avisar(texto: str, i: Optional[int] = None, n: Optional[int] = None) -> None
 
 def activo() -> bool:
     return getattr(_local, "fn", None) is not None
+
+
+def oyente():
+    """Quien escucha en este hilo (o None): para avisarle desde otro hilo que ayuda al trabajo (p. ej.
+    el que mira cuánto se leyó de un archivo). Ese aviso no se espacia: lo espacia quien lo manda."""
+    return getattr(_local, "fn", None)

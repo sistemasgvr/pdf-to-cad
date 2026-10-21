@@ -1,7 +1,8 @@
 """Ventana «Vista 3D» (Ver → Vista 3D, F3): lo que Civil 3D va a construir, sin exportar.
 
 No modal: se deja abierta al lado del plano y se actualiza sola al editar (con una
-pausa corta y el cálculo en otro hilo: `modelo3d.construir`). Elegir en el plano
+pausa corta y el armado en un proceso aparte, más el parche local al editar desde 3D:
+`vista3d_armado`). Elegir en el plano
 resalta en 3D (y encuadra si «Seguir la selección» está activo); clic en 3D elige en
 el plano. Un solo panel de opciones (utilidades = leyenda, qué mostrar, suelo)
 y una línea de estado (lo que hay bajo el cursor o el resumen).
@@ -10,19 +11,17 @@ que se abre arranca en isométrica con todo encuadrado.
 """
 from __future__ import annotations
 
-import copy
-import json
-
 from PySide6 import QtCore, QtGui, QtWidgets
 
 from nucleo import accesorios as acc
-from nucleo import conexiones_verticales
 from nucleo import ficha3d, model_ops, modelo3d, normas_validar
 from traduccion.i18n import t as _tr
 from ui.comun import theme
 from ui.comun.icons import icon as _icon
 from ui.comun.ui_common import layer_qcolor, swatch_icon
 from ui.comun.visor3d import Visor3D
+from ui.dialogos.vista3d_armado import ArmadoMixin
+from ui.dialogos.vista3d_editor import EditorUtilidad
 from ui.dialogos.vista3d_ficha import FichaPanel
 
 _SIN_SUELO = -100000.0
@@ -48,28 +47,7 @@ def _ajustes():
     return QtCore.QSettings("pdf-to-cad", "vista3d")
 
 
-class _Senales(QtCore.QObject):
-    listo = QtCore.Signal(object, str)
-
-
-class _Trabajo(QtCore.QRunnable):
-    """Arma la escena en otro hilo (solo datos puros: copias del proyecto)."""
-
-    def __init__(self, datos, firma):
-        super().__init__()
-        self.setAutoDelete(False)
-        self.senales = _Senales()
-        self.datos, self.firma = datos, firma
-
-    def run(self):
-        try:
-            escena = modelo3d.construir(**self.datos)
-        except Exception:                                   # nunca tumbar la app por la vista previa
-            escena = modelo3d.Escena()
-        self.senales.listo.emit(escena, self.firma)
-
-
-class Vista3DDialog(QtWidgets.QDialog):
+class Vista3DDialog(ArmadoMixin, QtWidgets.QDialog):
     def __init__(self, win):
         # SIN padre Qt (reporte del usuario 2026-10-16: al abrir la vista 3D la ventana principal
         # se cerraba y volvía a abrir): un QOpenGLWidget dentro de una ventana HIJA hace que Qt
@@ -82,9 +60,11 @@ class Vista3DDialog(QtWidgets.QDialog):
         self.setWindowFlags(self.windowFlags() | QtCore.Qt.WindowMinMaxButtonsHint)
         self.resize(1100, 720)
         self._firma = None
-        self._trabajo = None
-        self._pendiente = False
+        self._trabajo = None          # armado completo en curso (proceso.Tarea; `vista3d_armado`)
+        self._trabajo_firma = None
+        self._cajas_parche = None
         self._primera = True
+        self._cargando = False        # capa «Cargando…» con la barra sobre el visor (`_capa_carga`)
         self._capas = {}
         self.escena = modelo3d.Escena()
         self._sel_local = 0          # accesorio elegido en 3D (no existe en el plano)
@@ -116,6 +96,10 @@ class Vista3DDialog(QtWidgets.QDialog):
         theme.THEME_BUS.changed.connect(self._tema)
         self._tema()
         self._leer_ajustes()
+        # Ctrl+Z / Ctrl+Y aquí también (lo editado en «Editar» se deshace como en el plano).
+        QtGui.QShortcut(QtGui.QKeySequence.Undo, self, lambda: (self.editor.aplicar(), self.win.undo()))
+        for tecla in (QtGui.QKeySequence.Redo, QtGui.QKeySequence("Ctrl+Y")):
+            QtGui.QShortcut(tecla, self, lambda: (self.editor.aplicar(), self.win.redo()))
 
     # ── interfaz ──
     def _barra(self):
@@ -139,6 +123,8 @@ class Vista3DDialog(QtWidgets.QDialog):
         self.ficha = FichaPanel()
         self.ficha.ir_al_plano.connect(self._ficha_al_plano)
         v.addWidget(self.ficha)
+        self.editor = EditorUtilidad(self.win, vista=self)   # diámetro y cotas por tramo (vista3d_editor)
+        v.addWidget(self.editor)
         self.g_capas = QtWidgets.QGroupBox(_tr("Utilidades"))
         self.lay_capas = QtWidgets.QVBoxLayout(self.g_capas)
         v.addWidget(self.g_capas)
@@ -152,7 +138,7 @@ class Vista3DDialog(QtWidgets.QDialog):
             f.addWidget(c); self.chk[clave] = c
         c = QtWidgets.QCheckBox(_tr("Ángulos y pendientes por tramo"))       # pedido del usuario 2026-10-16
         c.setToolTip(_tr("Rótulos sobre cada utilidad: la pendiente de cada tramo y el ángulo de cada quiebre"))
-        c.toggled.connect(lambda _on: self.actualizar(forzar=True))
+        c.toggled.connect(self._rotulos)                 # la escena ya los trae: solo mostrarlos u ocultarlos
         f.addWidget(c); self.chk["rotulos"] = c
         v.addWidget(g)
         g = QtWidgets.QGroupBox(_tr("Suelo"))
@@ -193,6 +179,12 @@ class Vista3DDialog(QtWidgets.QDialog):
         self.visor.update()
 
     # ── opciones ──
+    def _rotulos(self, on):
+        """Ángulos y pendientes: la escena los calcula SIEMPRE (~0.6 s con 16 761 utilidades) y esta casilla
+        solo los muestra (antes rehacía toda la escena, ~30–45 s en AGUA 2; pedido del usuario 2026-10-20)."""
+        self.visor.ver_rotulos = bool(on)
+        self.visor.update()
+
     def _suelo(self, *_a):
         self.visor.ver_suelo = self.chk_suelo.isChecked()
         self.visor.opacidad_suelo = self.sld_suelo.value() / 100.0
@@ -260,73 +252,6 @@ class Vista3DDialog(QtWidgets.QDialog):
         except RuntimeError:
             pass
 
-    # ── modelo ──
-    def _datos(self):
-        w = self.win
-        ft = w.scale / w.zoom if w.scale and w.zoom else 0.0
-        colores = {}
-        for p in w.pipes:
-            c = layer_qcolor(p.get("layer"))
-            colores[p.get("layer")] = (c.redF(), c.greenF(), c.blueF())
-        dbs = [dict(name=d.name, width_in=d.width_in, height_in=d.height_in,
-                    conduits=[c.to_dict() for c in d.conduits], pipes=list(d.assigned()))
-               for d in getattr(w, "duct_banks", []) or []]
-        avisos = [dict(x=a.x, y=a.y, clase=a.clase, mensaje=a.mensaje, pipe=a.pipe, info=a.info,
-                    aprobado=bool(a.aprobado))
-                  for a in getattr(w, "_normas_avisos", []) or []]
-        conflictos = [dict(id=c.id, titulo=c.titulo, x=c.x, y=c.y, mensaje=c.mensaje, pipes=list(c.pipes),
-                           cotas=list(c.cotas)) for c in getattr(w, "_conflictos", []) or []]
-        suelo = None if self.spn_suelo.value() <= _SIN_SUELO else self.spn_suelo.value()
-        cruces = copy.deepcopy(getattr(w, "cross_connections", []) or [])
-        conexiones_verticales.actualizar_cotas(w.pipes, cruces)      # con las cotas actuales
-        return dict(pipes=copy.deepcopy(w.pipes), structures=copy.deepcopy(w.structures), ft=ft,
-                    colores=colores, duct_banks=dbs, cruces=cruces,
-                    avisos=avisos, conflictos=conflictos,
-                    ocultas=[c for c, chk in self._capas.items() if not chk.isChecked()],
-                    ver={k: c.isChecked() for k, c in self.chk.items()}, suelo_z=suelo)
-
-    def programar(self):
-        """El plano cambió: actualizar en un momento (agrupa cambios seguidos)."""
-        if self.isVisible():
-            self._t.start()
-
-    def actualizar(self, forzar=False):
-        datos = self._datos()
-        capas = {}
-        for p in datos["pipes"]:
-            capas[p.get("layer")] = capas.get(p.get("layer"), 0) + 1
-        self._capas_visibles(capas)
-        datos["ocultas"] = [c for c, chk in self._capas.items() if not chk.isChecked()]
-        firma = json.dumps(datos, sort_keys=True, default=str)
-        if firma == self._firma and not forzar:
-            return
-        if self._trabajo is not None:
-            self._pendiente = True
-            return
-        self.lbl_estado.setText(_tr("Actualizando la vista 3D…"))
-        self._trabajo = _Trabajo(datos, firma)
-        self._trabajo.senales.listo.connect(self._listo, QtCore.Qt.QueuedConnection)
-        QtCore.QThreadPool.globalInstance().start(self._trabajo)
-
-    def _listo(self, escena, firma):
-        self._trabajo = None
-        self._firma = firma
-        self.escena = escena
-        self.spn_suelo.auto = float(escena.suelo_z or 0.0)
-        self.pila.setCurrentIndex(1 if escena.vacia else 0)
-        self.visor.set_escena(escena, encuadrar=self._primera and not escena.vacia)
-        if not escena.vacia:
-            self._primera = False
-        self._ficha_id = None                                 # los datos pudieron cambiar
-        self.seleccion_del_plano(encuadrar=False)
-        self._resumen()
-        if self.visor.error:
-            self.lbl_vacio.setText(_tr("No se pudo iniciar la vista 3D (OpenGL 2.1): {e}").format(e=self.visor.error))
-            self.pila.setCurrentIndex(1)
-        if self._pendiente:
-            self._pendiente = False
-            self.actualizar()
-
     def _resumen(self):
         c = self.escena.cuentas or {}
         if self.escena.vacia:
@@ -376,10 +301,12 @@ class Vista3DDialog(QtWidgets.QDialog):
         titulo, filas = "", []
         try:
             if tipo == "pipe":
-                titulo, filas = ficha3d.de_utilidad(w._tablas_de_datos(), w.pipes, self._avisos_dicts(), k,
+                tablas = w._tablas_de_datos(solo_pipes={k})          # solo su fila (no las 16 mil)
+                titulo, filas = ficha3d.de_utilidad(tablas, w.pipes, self._avisos_dicts(), k,
                                                     w.scale / w.zoom if w.scale and w.zoom else None)
             elif tipo == "struct":
-                titulo, filas = ficha3d.de_estructura(w._tablas_de_datos(), k, (o or {}).get("z0"),
+                tablas = w._tablas_de_datos(solo_estructuras={k})
+                titulo, filas = ficha3d.de_estructura(tablas, k, (o or {}).get("z0"),
                                                       (o or {}).get("z1"))
             elif tipo == "conflicto" and o:
                 titulo, filas = ficha3d.de_conflicto(o)
@@ -392,12 +319,13 @@ class Vista3DDialog(QtWidgets.QDialog):
             self.ficha.mostrar(titulo, filas)
         else:
             self.ficha.limpiar()
+        self.editor.cargar(k if tipo == "pipe" and filas else -1)
 
     def _ficha_al_plano(self):
         tipo, k = modelo3d.objeto_de(self.visor.sel_id)
         o = self.escena.objetos.get(self.visor.sel_id) or {}
         if tipo in ("pipe", "struct"):
-            self._elegido(self.visor.sel_id)
+            self._elegido(self.visor.sel_id, activar=True)
         elif tipo in ("accesorio", "conflicto") and o.get("x") is not None:
             self.win._ir_a_elemento(o["x"], o["y"])
 
@@ -431,7 +359,9 @@ class Vista3DDialog(QtWidgets.QDialog):
         if ident in self.escena.objetos:
             self.visor.encuadrar(self._caja(ident))
 
-    def _elegido(self, ident):
+    def _elegido(self, ident, activar=False):
+        # Elegir en 3D también elige en el plano, pero SIN traer la ventana principal al frente: el foco
+        # se queda aquí y Esc quita la selección (pedido del usuario 2026-10-20). «Ver en el plano» sí la trae.
         tipo, k = modelo3d.objeto_de(ident)
         w = self.win
         if not ident:                                         # clic en el vacío: quita la selección
@@ -447,10 +377,10 @@ class Vista3DDialog(QtWidgets.QDialog):
         self.visor.set_seleccion(ident if tipo in ("pipe", "struct") else self.visor.sel_id)
         if tipo == "pipe" and 0 <= k < len(w.pipes):
             pts = w.pipes[k]["pts"]
-            w._ir_a_elemento(pts[len(pts) // 2][0], pts[len(pts) // 2][1], "pipe", k)
+            w._ir_a_elemento(pts[len(pts) // 2][0], pts[len(pts) // 2][1], "pipe", k, activar=activar)
         elif tipo == "struct" and 0 <= k < len(w.structures):
             s = w.structures[k]
-            w._ir_a_elemento(s["x"], s["y"], "struct", k)
+            w._ir_a_elemento(s["x"], s["y"], "struct", k, activar=activar)
         elif tipo == "aviso" and 0 <= k < len(getattr(w, "_normas_avisos", [])):
             w._normas_ir_a(k)
 

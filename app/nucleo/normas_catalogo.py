@@ -31,10 +31,17 @@ import functools
 import re
 import unicodedata
 
-UTILIDADES = ("AGUA", "ALCANTARILLADO", "DRENAJE", "GAS", "ELECTRICO", "TELECOM")
+from nucleo import model
+
+# Las utilidades las define la APLICACIÓN (`model.TIPOS`), no el Excel (pedido del usuario 2026-10-20:
+# «la aplicación manda en todo»): una fila con otra utilidad no se usa y se avisa.
+UTILIDADES = tuple(codigo for _nombre, codigo in model.TIPOS)
 # Accesorio del Excel → tipo que reconoce `accesorios.py` (o el especial «T domiciliaria»).
 ACCESORIOS = {"Y": "wye", "WYE": "wye", "T": "tee", "TEE": "tee", "CRUZ": "cruz", "CODO": "codo",
               "T - DOMICILIARIA": "tee_dom", "T DOMICILIARIA": "tee_dom", "T-DOMICILIARIA": "tee_dom"}
+# Los nombres que se ofrecen al elegir (uno por accesorio que la app reconoce, como en el Excel).
+NOMBRES_ACCESORIOS = ("Y", "T", "Cruz", "Codo", "T - Domiciliaria")
+ESTRUCTURAS = ("SIMPLE", "BANCODUCTO")
 
 # Normativas de fábrica = el Excel «Normativas v4» del ingeniero (2026-10-14).
 _ELEC = dict(utilidad="ELECTRICO", estructura="SIMPLE", diam_fijo=[], diam_max=None, radio_min=None,

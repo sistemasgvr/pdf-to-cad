@@ -17,8 +17,8 @@ import pickle
 
 from PySide6 import QtCore
 
-from nucleo import memo_modelo, model_ops
-from traduccion.i18n import t as _tr
+from nucleo import avance, memo_modelo, model_ops
+from ui.ventana.calculo_avance import AvanceCalculo
 from ui.ventana.ventana_calculo import CalculoPlanoMixin
 from ui.ventana.ventana_conflictos import ConflictosMixin
 from ui.ventana.ventana_dibujo import DibujoMixin
@@ -28,6 +28,11 @@ PARTES = ("cruces", "accesorios")
 MB_POR_PARTE = 700              # memoria que pide cada proceso para decidir si van dos a la vez
 _PARTES = ("pipes", "structures", "cross_connections", "normas_cat", "normas_aprobados", "duct_banks",
            "scale", "zoom")
+# Cuánto pesa cada cálculo de su parte (s con AGUA 2): el proceso avisa cuánto lleva (barra de la barra de
+# estado, `calculo_avance`). «union» va dentro de «clasificar_cruces» (ya contado ahí).
+PESOS = {"cruces": {"vertices_buzones": 0.05, "cruces_presion": 0.64, "juntas": 0.41, "clasificar_cruces": 2.87,
+                    "escalones": 0.05, "codos": 0.02, "retorno": 0.04, "choques": 0.54},
+         "accesorios": {"accesorios": 2.54, "normas": 0.22, "angulos": 0.63, "etiquetas_accesorios": 0.40}}
 
 
 class Calculo(CalculoPlanoMixin):
@@ -44,12 +49,19 @@ class Calculo(CalculoPlanoMixin):
             setattr(self, k, v)
         self.conflictos = conflictos
         self.datos = {}
+        self._hecho = {}
         self._en_redibujo = True
         self._indice_redibujo = None
 
     def _memo(self, clave, fn, copiar=True):           # = Memo.obtener de la ventana
         if clave not in self.datos:
             self.datos[clave] = fn()
+            nombre = clave[0] if isinstance(clave, tuple) and clave else clave
+            for parte, pesos in PESOS.items():         # avance (solo avisa: el resultado es el mismo)
+                if nombre in pesos:
+                    hecho = self._hecho.get(parte, 0.0) + pesos[nombre]
+                    self._hecho[parte] = hecho
+                    avance.avisar(parte, int(hecho * 1000), int(sum(pesos.values()) * 1000))
         valor = self.datos[clave]
         return memo_modelo.copia(valor) if copiar else valor
 
@@ -123,11 +135,17 @@ class CalculoFondoMixin:
         grupos = ([(p,) for p in PARTES] if proceso_hijo.paralelos(len(PARTES), MB_POR_PARTE) >= len(PARTES)
                   else [PARTES])
         calc = self._calculo = {"firma": m.firma, "faltan": len(grupos), "res": {}, "error": "", "tareas": []}
-        if hasattr(self, "statusBar"):
-            self.statusBar().showMessage(_tr("Actualizando conflictos y avisos…"))
+        viejo = getattr(self, "_avance_calculo", None)
+        if viejo is not None:
+            viejo.cerrar()
+        # barra de carga en la barra de estado (2026-10-20, `calculo_avance`; antes solo un texto)
+        av = calc["avance"] = self._avance_calculo = AvanceCalculo(self, len(self.pipes), grupos)
         for k, partes in enumerate(grupos):
             tarea = proceso.Tarea("ui.ventana.calculo_fondo:calcular",
                                   (datos, conflictos, i18n_core.get_lang(), partes))
+            tarea.avance.connect(lambda msg, a=av: a.aviso(msg[1], msg) if isinstance(msg, tuple) and len(msg) > 1
+                                 else None)
+            tarea.terminado.connect(lambda *_a, a=av, ps=partes: [a.lista(p) for p in ps])
             tarea.terminado.connect(lambda r, e, c=calc: self._parte_terminada(c, r, e))
             calc["tareas"].append(tarea)
             proceso.trabajador("plano" if k == 0 else f"plano-{k + 1}").enviar(tarea)
@@ -145,8 +163,16 @@ class CalculoFondoMixin:
 
     def _calculo_terminado(self, calc):
         m = getattr(self, "_memo_redibujo", None)
-        if hasattr(self, "statusBar"):
-            self.statusBar().clearMessage()
+        av = calc.get("avance")
+        try:
+            self._calculo_terminado_con(calc, m, av)
+        finally:
+            if av is not None:
+                av.cerrar()
+            elif hasattr(self, "statusBar"):
+                self.statusBar().clearMessage()
+
+    def _calculo_terminado_con(self, calc, m, av):
         if calc["error"]:
             if calc["error"] != "cancelado":
                 print("[calculo_fondo] el cálculo aparte falló; se calcula aquí:" + chr(10) + calc["error"])
@@ -161,6 +187,8 @@ class CalculoFondoMixin:
             for k, v in calc["res"].items():
                 m.datos.setdefault(k, v)
         if getattr(self, "_provisional", False):
+            if av is not None:
+                av.dibujando()                          # el redibujo final traba la ventana: avisar antes
             self._redraw()                              # con el memo lleno (o, si cambió, otro cálculo)
 
     def _resultados_al_dia(self):

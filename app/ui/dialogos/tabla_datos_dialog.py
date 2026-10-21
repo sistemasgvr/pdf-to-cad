@@ -66,28 +66,52 @@ class TablaDatosDialog(QtWidgets.QDialog):
         self.refrescar()
 
     def refrescar(self):
+        """Arma las tablas. Con miles de filas tarda (AGUA 2: ~44 mil filas): barra de carga precisa
+        (2026-10-20, `barras_carga`): los datos y la ventana avisan por bloques; mismo resultado."""
+        from ui.ventana import barras_carga as BC
+        w0 = self.win
         actual = self.pestanas.currentIndex()
-        self.tablas = self.win._tablas_de_datos() + [tabla_excel.tabla_vertices(self.win.pipes, self.win._to_cad)]
-        self.pestanas.clear()
-        for tb in self.tablas:
-            w = QtWidgets.QTableWidget(len(tb.filas), len(tb.columnas))
-            w.setHorizontalHeaderLabels([_tr(c) for c in tb.columnas])
-            w.setEditTriggers(QtWidgets.QAbstractItemView.NoEditTriggers)
-            w.setSelectionBehavior(QtWidgets.QAbstractItemView.SelectRows)
-            w.verticalHeader().setVisible(False)
-            for r, fila in enumerate(tb.filas):
-                for c, v in enumerate(fila):
-                    it = _Item("" if v is None else (f"{v:g}" if isinstance(v, float) else str(v)))
-                    it.setData(_ROL, r)
-                    it.setData(_ROL + 1, v)
-                    if isinstance(v, (int, float)):
-                        it.setTextAlignment(QtCore.Qt.AlignRight | QtCore.Qt.AlignVCenter)
-                    w.setItem(r, c, it)
-            w.setSortingEnabled(True)
-            w.sortByColumn(0, QtCore.Qt.AscendingOrder)
-            w.resizeColumnsToContents()
-            w.cellDoubleClicked.connect(lambda row, _c, w=w, tb=tb: self._ir(w, tb, row))
-            self.pestanas.addTab(w, f"{_tr(tb.titulo)} ({len(tb.filas)})")
+        host = self if self.isVisible() else w0
+        titulo = _tr("Armando la Tabla de datos…")
+        w0._resultados_al_dia()                     # (calculo_fondo)
+        with BC.tabla(host, len(w0.pipes)).abrir(titulo) as av:
+            with av.escuchar():
+                self.tablas = w0._tablas_de_datos() + [tabla_excel.tabla_vertices(w0.pipes, w0._to_cad)]
+            av.costos_nuevos(BC.celdas_tabla(self.tablas))
+            self.pestanas.clear()
+            total = sum(len(tb.filas) for tb in self.tablas)
+            hechas, vistas = 0, []
+            av.recibir("celdas", 0, total, pump=True)
+            for tb in self.tablas:
+                w = QtWidgets.QTableWidget(len(tb.filas), len(tb.columnas))
+                w.setHorizontalHeaderLabels([_tr(c) for c in tb.columnas])
+                w.setEditTriggers(QtWidgets.QAbstractItemView.NoEditTriggers)
+                w.setSelectionBehavior(QtWidgets.QAbstractItemView.SelectRows)
+                w.verticalHeader().setVisible(False)
+                for r, fila in enumerate(tb.filas):
+                    for c, v in enumerate(fila):
+                        it = _Item("" if v is None else (f"{v:g}" if isinstance(v, float) else str(v)))
+                        it.setData(_ROL, r)
+                        it.setData(_ROL + 1, v)
+                        if isinstance(v, (int, float)):
+                            it.setTextAlignment(QtCore.Qt.AlignRight | QtCore.Qt.AlignVCenter)
+                        w.setItem(r, c, it)
+                    hechas += 1
+                    if not hechas & 255:
+                        av.recibir("celdas", hechas, total, pump=True)
+                vistas.append((w, tb))
+            pasos = (("ordenar", lambda w: (w.setSortingEnabled(True), w.sortByColumn(0, QtCore.Qt.AscendingOrder))),
+                     ("columnas", lambda w: w.resizeColumnsToContents()))
+            for paso, accion in pasos:
+                hechas = 0
+                for w, tb in vistas:
+                    av.recibir(paso, hechas, total, pump=True)
+                    accion(w)
+                    hechas += len(tb.filas)
+                av.recibir(paso, total, total, pump=True)
+            for w, tb in vistas:
+                w.cellDoubleClicked.connect(lambda row, _c, w=w, tb=tb: self._ir(w, tb, row))
+                self.pestanas.addTab(w, f"{_tr(tb.titulo)} ({len(tb.filas)})")
         if 0 <= actual < self.pestanas.count():
             self.pestanas.setCurrentIndex(actual)
         self._filtrar(self.buscar.text())
@@ -115,8 +139,13 @@ class TablaDatosDialog(QtWidgets.QDialog):
             self, _tr("Exportar a Excel"), os.path.join(DOWNLOADS, base + "_datos.xlsx"), _FILTRO_XLSX)
         if not ruta:
             return
+        from ui.ventana import barras_carga as BC
         try:
-            tabla_excel.exportar(self.tablas, ruta)
+            titulo = _tr("Exportando a Excel…")
+            # aquí mismo, avisando por bloques (en un hilo, openpyxl —Python puro— competía con los
+            # repintados: 44 s en vez de 20 con AGUA 2)
+            with BC.excel(self, self.tablas, tabla_excel.EDITABLES).abrir(titulo) as av, av.escuchar():
+                tabla_excel.exportar(self.tablas, ruta)
         except Exception as e:                      # archivo abierto en Excel, sin permiso…
             QtWidgets.QMessageBox.warning(self, _tr("Exportar a Excel"), _tr(
                 "No se pudo guardar el Excel (¿está abierto?).\n\n{e}").format(e=e))

@@ -77,6 +77,10 @@ the last change and <span class="key">&nbsp;Ctrl+Shift+Z&nbsp;</span> redoes it.
 <li><b>Save with another name:</b> <span class="key">&nbsp;Ctrl+Shift+S&nbsp;</span>.</li>
 <li><b>Open a project:</b> <b>File → Open project…</b></li>
 </ul>
+<p>With large projects, opening, saving, <b>Review and clean up the drawing</b>, the <b>Data table</b>
+and its Excel export show a <b>progress bar</b> with the stage, «i of n» and the percentage, which
+follows the real time. After editing, recomputing conflicts and warnings shows a small bar in the
+status bar at the bottom; meanwhile you can keep working.</p>
 <table width="100%" cellspacing="0" cellpadding="12"><tr>
 <td width="6" bgcolor="{{warn_border}}"></td><td bgcolor="{{warn}}">
 <b>Attention:</b> a dot <b style="color:{{danger_border}};">●</b> next to the title means there are
@@ -798,9 +802,10 @@ These alerts do not appear on storm drain and sewer: there the manhole handles d
 </section>
 
 <section data-title="Design standards">
-<p>The standards are a <b>simple Excel file</b> with four tables. <b>Standards → Design standards…</b>
-(<span class="key">&nbsp;Ctrl+Shift+N&nbsp;</span>) shows them as they are, together with the project
-<b>warnings</b>. They apply to all your projects on this computer.</p>
+<p>The standards are four tables. <b>Standards → Design standards…</b>
+(<span class="key">&nbsp;Ctrl+Shift+N&nbsp;</span>) lets you <b>edit them right there</b>, together with the
+project <b>warnings</b>. They apply to all your projects on this computer. The Excel file is optional: it serves
+to share them or edit them in bulk.</p>
 
 <h2>The tables</h2>
 <table width="100%" cellspacing="4" cellpadding="10">
@@ -825,13 +830,22 @@ empty (both ends count). Never a range or a symbol in a single cell (<i>0.5-2</i
 sheet and any other that is not one of the four tables (for example “auxiliar”, for notes) are not imported.</p>
 
 <h2>Editing the standards</h2>
+<p>In the window each table is a tab: <b>double-click</b> a cell to change it, <b>Add row</b> and <b>Remove
+rows</b>. The application rules: the <b>utility</b> is picked from the app's utilities, the <b>type</b> from that
+utility's types (types are created in the <b>Types</b> tab) and the <b>fitting</b> from the ones the app
+recognizes. Nothing is applied until <b>Save changes</b>: then everything is checked with the same rules as the
+Excel file and, if a cell cannot be read, it turns <b>red</b> with the reason and nothing is saved. <b>Discard
+changes</b> goes back to what was saved. If you rename a type in the Types tab, it is renamed in the other tables
+and in the project utilities that used it (Ctrl+Z undoes it in the project).</p>
+<p>With Excel:</p>
 <ol>
 <li><b>Export Excel…</b> saves the Excel file with everything there is now (also the types you added).</li>
 <li>Edit it in Excel. The drop-downs help: <b>UTILIDAD</b> lists the six utilities and <b>TIPO</b> only the
     types of that row's utility. A new type written as a new row in the TIPOS sheet appears in the drop-downs by
     itself.</li>
 <li><b>Import Excel…</b> brings it back. If a cell cannot be understood, the app says which one (sheet, row
-    and column) and does not use it. <b>Restore the initial values</b> undoes everything.</li>
+    and column) and does not use it; neither a row with a utility or fitting the app does not have.
+    <b>Restore the initial values</b> undoes everything.</li>
 </ol>
 
 <h2>Type and amperage of each utility</h2>
@@ -933,8 +947,9 @@ you edit. When it opens, the project is saved just in case (if it has no file ye
     at a bend Wye + short pipe + elbows; the arm toward the utility follows its slope) and the marks of the standards warnings (amber) and of the <b>conflicts</b> (red, with their C-n number; click = their sheet).</li>
 <li>The <b>ground</b>, semi-transparent, to see what is underground.</li>
 <li>With <b>«Angles and slopes per segment»</b> (Show), a label with the slope of each segment and another with
-    the angle of each bend on every utility. When you pick a utility, its card shows its slope (or the slope of
-    each segment if it changes).</li>
+    the angle of each bend on every utility. As on the plan, from afar only the labels of the segments you can
+    read appear and, of the ones that overlap, one (the selected item's first); zooming in brings out the rest.
+    When you pick a utility, its card shows its slope (or the slope of each segment if it changes).</li>
 <li>Built for modest computers: pipes, fittings and marks are sent to the graphics card as copies of a few
     pieces (with OpenGL 3.3, almost any PC since 2012), so the view uses about ten times less memory; on an
     older computer it looks the same with the previous method.</li>
@@ -942,7 +957,7 @@ you edit. When it opens, the project is saved just in case (if it has no file ye
 
 <h2>Moving around</h2>
 <table width="100%" cellspacing="4" cellpadding="8">
-<tr><td bgcolor="{{card}}" width="40%">Wheel</td><td bgcolor="{{card}}">Zoom in / out toward the cursor</td></tr>
+<tr><td bgcolor="{{card}}" width="40%">Wheel</td><td bgcolor="{{card}}">Zoom in / out toward the cursor (it stops 1 ft from the pipe; with nothing underneath, it keeps moving forward)</td></tr>
 <tr><td bgcolor="{{card}}">Double-click the wheel</td><td bgcolor="{{card}}">Zoom to all</td></tr>
 <tr><td bgcolor="{{card}}">Middle button (or right, or Ctrl + left) and drag</td><td bgcolor="{{card}}">Pan</td></tr>
 <tr><td bgcolor="{{card}}">Shift + middle button (or left) and drag</td><td bgcolor="{{card}}">Orbit</td></tr>
@@ -957,6 +972,18 @@ ring to orbit.</p>
 to in 3D. Every time you open the window it starts in <b>plan</b> (top view) with everything in view. <b>Esc</b> clears the
 selection (it does not close the window). When hovering, the bottom line says what it is (number, diameter, inverts, type; or manhole sump and
 rim; or the warning).</p>
+
+<h2>Editing a utility from 3D</h2>
+<p>With a pipe selected, <b>Edit</b> appears below its sheet: the <b>diameter</b> (the same options as the plan's
+panel) and one row per segment (<b>T1</b>, <b>T2</b>… as on the plan) with the <b>start</b> invert, the <b>end</b>
+invert and the <b>slope</b>. The start of T1 is the start invert and the end of the last segment, the end invert.
+Type the invert (or <span class="key">&nbsp;↑&nbsp;</span> <span class="key">&nbsp;↓&nbsp;</span> change it 0.10 ft) and the
+slope updates right away; the 3D view shows the change at once (even with thousands of utilities: only that
+utility, its neighbors and its fittings are rebuilt) and the real change is applied when you stop or press Enter, on
+the plan (inverts and «Inverts per segment» table). Warnings and conflicts in 3D catch up a few seconds later. Changing an intermediate invert turns on per-segment editing for that utility, like the
+plan's button. Clicking a row highlights that segment on the plan. <span class="key">&nbsp;Ctrl+Z&nbsp;</span> undoes
+it (from the 3D view too). Selecting something in 3D selects it on the plan without bringing the main window to the
+front, so <b>Esc</b> keeps working here.</p>
 
 <h2>Attribute sheet</h2>
 <p>Click a pipe, a fitting (bend, tee, wye…) or a manhole: its <b>sheet</b> appears at the top of the right

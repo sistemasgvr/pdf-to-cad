@@ -13,7 +13,7 @@ from __future__ import annotations
 import math
 from dataclasses import dataclass, field
 
-from nucleo import model_ops
+from nucleo import avance, model_ops
 from nucleo.model import network_kind
 from traduccion.i18n_core import N_, t
 
@@ -58,7 +58,10 @@ def _registro(a):
 
 
 def armar(pipes, structures, duct_banks, avisos, a_cad, ft_per_px,
-          nombre_utilidad=lambda c: c, nombre_familia=lambda f: f, conflictos=()):
+          nombre_utilidad=lambda c: c, nombre_familia=lambda f: f, conflictos=(), solo_pipes=None,
+          solo_estructuras=None):
+    """Las tablas. Con `solo_pipes` / `solo_estructuras` (índices), solo las filas de esas utilidades y buzones
+    (las MISMAS filas; la ficha de la Vista 3D no arma 16 761 filas para mostrar una; sin curvas)."""
     pipes = pipes or []
     structures = structures or []
     db_de = {}
@@ -77,9 +80,12 @@ def armar(pipes, structures, duct_banks, avisos, a_cad, ft_per_px,
         N_("Inicio Y"),
         N_("Fin X"), N_("Fin Y"), N_("Avisos")])
     curva_de = {}
+    parcial = solo_pipes is not None or solo_estructuras is not None
     for i, p in enumerate(pipes):
+        if not i & 255 or i == len(pipes) - 1:
+            avance.avisar("tabla_utilidades", i + 1, len(pipes))      # barra de carga (Tabla de datos)
         pts = p.get("pts") or []
-        if p.get("world") or len(pts) < 2:
+        if p.get("world") or len(pts) < 2 or (parcial and i not in (solo_pipes or ())):
             continue
         cv = model_ops.curve_vertex_indices(p, structures, pipes) if len(pts) >= 3 else {}
         for k, s in cv.items():
@@ -105,7 +111,7 @@ def armar(pipes, structures, duct_banks, avisos, a_cad, ft_per_px,
     cu = Tabla("curvas", N_("Curvas"), [
         N_("Código"), N_("Utilidad"), N_("Vértice"), N_("Radio (ft)"), N_("Origen"), N_("X"), N_("Y")])
     for n, s in enumerate(structures):
-        if s.get("world") or s.get("x") is None:
+        if s.get("world") or s.get("x") is None or (parcial and (s.get("curve") or n not in (solo_estructuras or ()))):
             continue
         x, y = _xy(a_cad, (s["x"], s["y"]))
         if s.get("curve"):

@@ -10,7 +10,7 @@ import math
 import config as C
 import vector_pipeline as VP
 from catalogo import civil_catalog as _cc
-from nucleo import xdata
+from nucleo import avance, xdata
 from ezdxf.enums import TextEntityAlignment
 from geometry import point_in_poly
 from nucleo.model import (LEADER_TEXT_FT, network_kind, default_network_type,
@@ -141,6 +141,7 @@ def _merge_into(win, doc, marks=True):
     _db_pipe_idxs = {i for db in getattr(win, "duct_banks", []) or []
                      for i in _db_assigned(db)}
     for pipe_idx, p in enumerate(win.pipes):
+        avance.avisar("fusionar", pipe_idx + 1, len(win.pipes))   # (barra de la exportación; sin efecto)
         layer = p["layer"]; VP.ensure_layer(doc, layer)
         att = {"layer": layer}
         if p.get("world") and p.get("wstart") and p.get("wend"):

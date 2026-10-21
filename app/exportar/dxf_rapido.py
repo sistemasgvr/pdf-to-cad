@@ -131,7 +131,34 @@ def escritura_rapida():
                 _dxfns.DXFNamespace.export_dxf_attribs = _original_lista
 
 
+@contextlib.contextmanager
+def _contando(doc):
+    """Si alguien escucha el avance (`nucleo.avance`, la barra de la exportación), avisa «guardar» con
+    cuántas entidades van de las del documento. Solo cuenta: el archivo es el mismo."""
+    from ezdxf.entities.dxfentity import DXFEntity
+    from nucleo import avance
+    if not avance.activo():
+        yield
+        return
+    original = DXFEntity.export_dxf
+    total = max(1, len(doc.entitydb))
+    cuenta = [0]
+
+    def export_dxf(self, tagwriter):
+        cuenta[0] += 1
+        if not cuenta[0] & 511:                           # cada 512: avisar en cada una costaba tiempo
+            avance.avisar("guardar", min(cuenta[0], total), total)
+        return original(self, tagwriter)
+    DXFEntity.export_dxf = export_dxf
+    avance.avisar("guardar", 0, total)                    # empieza (aunque sean pocas)
+    try:
+        yield
+        avance.avisar("guardar", total, total)            # el final (también con menos de 512)
+    finally:
+        DXFEntity.export_dxf = original
+
+
 def guardar(doc, ruta):
     """`doc.saveas(ruta)` con la escritura rápida (mismo archivo)."""
-    with escritura_rapida():
+    with escritura_rapida(), _contando(doc):
         doc.saveas(ruta)

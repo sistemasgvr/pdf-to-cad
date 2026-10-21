@@ -36,6 +36,7 @@ import numpy as np
 
 from nucleo import accesorios as acc
 from nucleo import accesorios3d as A3
+from nucleo import avance3d
 from nucleo import instancias3d as I3
 from nucleo import limpieza_tramos as LT
 from nucleo import mallas3d as M
@@ -87,6 +88,7 @@ class Escena:
     cuentas: dict = field(default_factory=dict)
     etiquetas: list = field(default_factory=list)   # [(id, punto 3D, «C-n»)] de los conflictos
     rotulos: list = field(default_factory=list)     # [(id, punto 3D, texto)] pendientes y ángulos (`rotulos3d`)
+    rotulos_largos: list = field(default_factory=list)   # largo en planta (ft) de lo que rotula cada uno (LOD)
 
     @property
     def vacia(self):
@@ -377,11 +379,14 @@ def _plan_wye(planes, a, tol):
                  and math.dist((a["x"], a["y"]), (float(p.c["x"]), float(p.c["y"]))) <= tol), None)
 
 
-def _accesorios(ar, pipes, nodos, planes=()):
-    """Accesorios con la forma de WyeSolido.cs. Devuelve (cantidad, {utilidad: cortes})."""
+def _accesorios(ar, pipes, nodos, planes=(), avance=None):
+    """Accesorios con la forma de WyeSolido.cs. Devuelve (cantidad, {utilidad: cortes}). `avance(i, n)`:
+    van i de n (barra de la Vista 3D)."""
     cortes = {}
     tol = acc.TOL_UNION_FT / ar.ft
     for n, a in enumerate(nodos):
+        if avance is not None:
+            avance(n + 1, len(nodos))
         ident = ID_ACCESORIO + n + 1
         brazos = []
         for i in a.get("pipes") or []:
@@ -441,21 +446,34 @@ def _z_eje(pipes, i, x, y):
 # ─────────────────────────── escena completa ───────────────────────────
 
 def construir(pipes, structures, ft, colores=None, duct_banks=(), cruces=(), avisos=(), conflictos=(),
-              ocultas=(), ver=None, suelo_z=None):
+              ocultas=(), ver=None, suelo_z=None, origen=None, solo=None, foco=None):
     """Escena 3D. `ft` = pies por px del lienzo; `colores` = {capa: (r, g, b)} 0–1;
     `duct_banks` = [{name, width_in, height_in, conduits, pipes}]; `avisos` =
     [{x, y, clase, mensaje, pipe, info}]; `conflictos` = [{id, titulo, x, y, mensaje, pipes,
     cotas}] (C-n de `nucleo/conflictos.py`); `ocultas` = capas que
     no se dibujan; `ver` = {estructuras, accesorios, avisos} (todo por defecto);
-    `suelo_z` = cota del suelo (None = automática)."""
+    `suelo_z` = cota del suelo (None = automática); `origen` = el de otra escena (rearmar una parte de
+    ella, `modelo3d_parche`; None = el centro de lo dibujado y el suelo); `solo` = índices de las únicas
+    utilidades que se arman (las demás ni se miran: como si no tuvieran puntos); `foco` = de ésas, las
+    únicas cuyos tubos, accesorios y rótulos se dibujan (las demás solo cuentan para hallar los nodos)."""
     ver = dict(dict(estructuras=True, accesorios=True, avisos=True, rotulos=False), **(ver or {}))
     if not ft or ft <= 0:
         return Escena()
     ocultas = set(ocultas or ())
-    visibles = [i for i, p in enumerate(pipes) if p.get("layer") not in ocultas]
+    if solo is None:
+        visibles = [i for i, p in enumerate(pipes) if p.get("layer") not in ocultas]
+    else:
+        visibles = sorted(i for i in solo if 0 <= i < len(pipes) and pipes[i].get("layer") not in ocultas)
     es_visible = set(visibles)                     # «i in visibles» sobre la lista era O(n²) (2026-10-18)
-    vis_pipes = [p if i in es_visible else dict(p, pts=[]) for i, p in enumerate(pipes)]
+    if solo is None:
+        vis_pipes = [p if i in es_visible else dict(p, pts=[]) for i, p in enumerate(pipes)]
+    else:                                          # una parte (`modelo3d_parche`): las demás, vacías
+        vacia = {"pts": []}
+        vis_pipes = [vacia] * len(pipes)
+        for i in visibles:
+            vis_pipes[i] = pipes[i]
     ar = _Armado(ft, colores)
+    av = avance3d.Avance3D(len(visibles), len(structures or []), ver["accesorios"], ver["estructuras"])
     col = I3.Instancias()                          # círculos barridos y esferas → GPU
     with M.instanciar(col), model_ops.memo_cotas():
         con_db = set()
@@ -465,30 +483,40 @@ def construir(pipes, structures, ft, colores=None, duct_banks=(), cruces=(), avi
             _bancoducto(ar, vis_pipes, structures, dict(db, pipes=idx))
         rectos = []                                    # uniones rectas: reducción si cambia el diámetro
         nodos = acc.accesorios(vis_pipes, lambda i, k, x, y: model_ops.z_en_tramo(vis_pipes[i], k, x, y), ft,
-                               rectos=rectos)
+                               rectos=rectos,
+                               avance=lambda f: av.paso("buscar", round(f * len(visibles)), len(visibles)))
+        av.accesorios_hallados(len(nodos))
         tol = V.TOL_EXTREMO_FT / ft
         planes = V.planear(vis_pipes, cruces, ft, diametro_ft, lambda i, x, y: _z_eje(vis_pipes, i, x, y),
                            lambda i, x, y: ver["accesorios"] and any(
                                a["tipo"] == "codo" and i in (a.get("pipes") or [])
                                and math.dist((a["x"], a["y"]), (x, y)) <= tol for a in nodos))
-        n_acc, cortes = _accesorios(ar, vis_pipes, nodos, planes) if ver["accesorios"] else (0, {})
+        nodos_arm = nodos if foco is None else [
+            a for a in nodos if set(a.get("pipes") or ()) & foco or _plan_wye(planes, a, tol) is not None]
+        n_acc, cortes = (_accesorios(ar, vis_pipes, nodos_arm, planes, lambda i, n: av.paso("accesorios", i, n))
+                         if ver["accesorios"] else (0, {}))
         cortes_v, ajustes, n_v = V.dibujar(ar, vis_pipes, planes, ID_ACCESORIO + len(nodos), diametro_ft,
                                            ver["accesorios"], z_eje=lambda i, x, y: _z_eje(vis_pipes, i, x, y))
         n_acc += n_v
         for i, cs in cortes_v.items():
             cortes.setdefault(i, []).extend(cs)
         if ver["accesorios"]:
+            if foco is not None:
+                rectos = [r for r in rectos if set(r.get("pipes") or ()) & foco]
             n_r, cortes_r = R3.rectas(ar, vis_pipes, rectos, ID_ACCESORIO + len(nodos) + n_v, _direcciones, seccion,
                                       diametro_ft, model_ops.z_en_tramo, acc.TOL_UNION_FT / ft, ID_ACCESORIO)
             n_acc += n_r
             for i, cs in cortes_r.items():
                 cortes.setdefault(i, []).extend(cs)
-        for i in visibles:
-            _utilidad(ar, vis_pipes, structures, i, con_db, cortes.get(i, ()), ajustes.get(i, ()))
+        for k, i in enumerate(visibles):
+            av.paso("utilidades", k + 1, len(visibles))
+            if foco is None or i in foco:
+                _utilidad(ar, vis_pipes, structures, i, con_db, cortes.get(i, ()), ajustes.get(i, ()))
         sueltos = []
         if ver["estructuras"]:
             ar.indice_v = _IndiceVertices(vis_pipes, max(1.0, 0.5 / ar.ft))
             for j, s in enumerate(structures or []):
+                av.paso("estructuras", j + 1, len(structures))
                 r = _estructura(ar, vis_pipes, j, s)
                 if r:
                     sueltos.append(r[1])
@@ -496,7 +524,9 @@ def construir(pipes, structures, ft, colores=None, duct_banks=(), cruces=(), avi
         if ver["avisos"]:
             etiquetas = marcas3d.marcas(ar, vis_pipes, [a for a in avisos or [] if a.get("pipe", -1) in es_visible],
                                         conflictos, ID_AVISO, ID_CONFLICTO)
-        rotulos = rotulos3d.rotulos(ar, vis_pipes, visibles, lambda p: seccion(p)[1]) if ver["rotulos"] else []
+        rotulos = (rotulos3d.rotulos(ar, vis_pipes, [i for i in visibles if foco is None or i in foco],
+                                     lambda p: seccion(p)[1]) if ver["rotulos"] else [])
+        av.terminando()
 
         todo = [m for m in ar.op + ar.tr if len(m)]
         ext = I3.extremos(col.arreglos())              # instancias: los mismos vértices, sin armarlos
@@ -514,7 +544,8 @@ def construir(pipes, structures, ft, colores=None, duct_banks=(), cruces=(), avi
             _cuerpo(ar, x, y, s, ident, capa, suelo_z - h, suelo_z,
                     [ar.mundo(px, py, 0)[:2] for px, py in s.get("outline") or []])
     inst = col.arreglos()
-    origen = np.array([(lo[0] + hi[0]) / 2.0, (lo[1] + hi[1]) / 2.0, suelo_z])
+    origen = (np.array([(lo[0] + hi[0]) / 2.0, (lo[1] + hi[1]) / 2.0, suelo_z]) if origen is None
+              else np.asarray(origen, float))
 
     def centrar(m):
         if len(m):
@@ -537,4 +568,12 @@ def construir(pipes, structures, ft, colores=None, duct_banks=(), cruces=(), avi
                                accesorios=n_acc,
                                conflictos=sum(1 for o in ar.objetos.values() if o["tipo"] == "conflicto")),
                   etiquetas=[(i, tuple(np.asarray(p) - origen), txt) for i, p, txt in etiquetas],
-                  rotulos=[(i, tuple(np.asarray(p) - origen), txt) for i, p, txt in rotulos])
+                  rotulos=[(i, tuple(np.asarray(p) - origen), txt) for i, p, txt, _l in rotulos],
+                  rotulos_largos=[largo for *_r, largo in rotulos])
+
+
+def construir_datos(datos, progreso=None):
+    """`construir` desde los datos en bytes (pickle): lo corre el trabajador «vista3d» en su proceso
+    (`ui/dialogos/vista3d_armado`). `progreso` no se usa: el avance va por `nucleo.avance`."""
+    import pickle
+    return construir(**pickle.loads(datos))

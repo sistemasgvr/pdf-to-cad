@@ -1186,8 +1186,6 @@ EN: dict[str, str] = {
         "Annotations DXF exported.",
     "Digitalizando el plano…":
         "Digitizing the plan…",
-    "Procesando":
-        "Processing",
     "Error al digitalizar":
         "Digitizing error",
     "DXF exportado (georef).":
@@ -3033,8 +3031,56 @@ EN: dict[str, str] = {
         'Fittings (pressure)',
     'Eléctrico y telecom':
         'Electrical and telecom',
-    'Las normativas vienen de un Excel simple: expórtalo, edítalo en Excel e impórtalo. Valen para todos tus proyectos.':
-        'The standards come from a simple Excel file: export it, edit it in Excel and import it. They apply to all your projects.',
+    'Edita las tablas aquí mismo (doble clic en una celda) y pulsa «Guardar cambios». Valen para todos tus proyectos. El Excel es opcional: para compartirlas o editarlas en lote.':
+        'Edit the tables right here (double-click a cell) and press «Save changes». They apply to all your projects. The Excel file is optional: to share them or edit them in bulk.',
+    'Guardar cambios': 'Save changes',
+    'Armando la Tabla de datos…': 'Building the Data table…',
+    'Exportando a Excel…': 'Exporting to Excel…',
+    'Leyendo el archivo: {i} de {n} bytes': 'Reading the file: {i} of {n} bytes',
+    'Preparando la imagen de la hoja…': 'Preparing the sheet image…',
+    'Preparando la hoja para el imán…': 'Preparing the sheet for snapping…',
+    'Leyendo las utilidades…': 'Reading the utilities…',
+    'Armando las listas…': 'Building the lists…',
+    'Dibujando el plano…': 'Drawing the plan…',
+    'Juntando los datos del proyecto…': 'Gathering the project data…',
+    'Guardando la imagen de la hoja…': 'Saving the sheet image…',
+    'Guardando el PDF…': 'Saving the PDF…',
+    'Comprimiendo el proyecto: {i} de {n} bytes': 'Compressing the project: {i} of {n} bytes',
+    'Preparando la revisión…': 'Preparing the review…',
+    'Buscando utilidades repetidas: {i} de {n}': 'Looking for repeated utilities: {i} of {n}',
+    'Buscando utilidades muy cortas…': 'Looking for very short utilities…',
+    'Revisando las puntas: {i} de {n}': 'Checking the ends: {i} of {n}',
+    'Revisando tramos diminutos: {i} de {n}': 'Checking tiny segments: {i} of {n}',
+    'Buscando utilidades sueltas: {i} de {n}': 'Looking for loose utilities: {i} of {n}',
+    'Juntando los datos: {i} de {n} utilidades': 'Gathering the data: {i} of {n} utilities',
+    'Juntando las cotas por vértice: {i} de {n} utilidades': 'Gathering the inverts per vertex: {i} of {n} utilities',
+    'Armando la tabla: {i} de {n} filas': 'Building the table: {i} of {n} rows',
+    'Ordenando la tabla: {i} de {n} filas': 'Sorting the table: {i} of {n} rows',
+    'Ajustando las columnas: {i} de {n} filas': 'Fitting the columns: {i} of {n} rows',
+    'Escribiendo el Excel: {i} de {n} filas': 'Writing the Excel file: {i} of {n} rows',
+    'Marcando las columnas editables: {i} de {n} celdas': 'Marking the editable columns: {i} of {n} cells',
+    'Guardando el Excel: {i} de {n} filas': 'Saving the Excel file: {i} of {n} rows',
+    'cruces y conflictos': 'crossings and conflicts',
+    'accesorios y avisos': 'fittings and warnings',
+    'dibujando las marcas': 'drawing the marks',
+    'Actualizando conflictos y avisos… {p} %': 'Updating conflicts and warnings… {p} %',
+    'Escribe la cota o usa ↑ ↓ del teclado (±0.10 ft). Se aplica al instante en el plano y en 3D (Ctrl+Z lo deshace).':
+        'Type the invert or use the ↑ ↓ keys (±0.10 ft). Applied right away on the plan and in 3D (Ctrl+Z undoes it).',
+    'Tramo {t}: {largo} ft en planta': 'Segment {t}: {largo} ft in plan',
+    'Rasante inicial': 'Start invert',
+    'Rasante final': 'End invert',
+    'El diámetro de esta utilidad no se cambia aquí (lo define su bancoducto o su familia de catálogo).':
+        "This utility's diameter is not changed here (its duct bank or its catalog family sets it).",
+    'Descartar cambios': 'Discard changes',
+    '{tabla}, fila {n}, {col}: {motivo}': '{tabla}, row {n}, {col}: {motivo}',
+    'No se guardó: corrige las celdas marcadas en rojo.': 'Not saved: fix the cells marked in red.',
+    'Normativas guardadas.': 'Standards saved.',
+    'Hay cambios sin guardar en las tablas de normativas. ¿Guardarlos?':
+        'There are unsaved changes in the standards tables. Save them?',
+    'Agregar fila': 'Add row',
+    'Quitar filas': 'Remove rows',
+    'Doble clic en una celda para cambiarla. Pasa el mouse por el título de cada columna para ver qué va ahí.':
+        'Double-click a cell to change it. Hover over each column title to see what goes there.',
     'Importar Excel…':
         'Import Excel…',
     'Exportar Excel…':
@@ -3152,6 +3198,56 @@ EN: dict[str, str] = {
         'Wheel: zoom · Middle button: pan · Shift + middle button or drag: orbit · Click: pick · Double-click: zoom to it',
     'Actualizando la vista 3D…':
         'Updating the 3D view…',
+    'Buscando los accesorios: {i} de {n} utilidades':
+        'Finding the fittings: {i} of {n} utilities',
+    'Armando los accesorios: {i} de {n}':
+        'Building the fittings: {i} of {n}',
+    'Armando las utilidades: {i} de {n}':
+        'Building the utilities: {i} of {n}',
+    'Armando los buzones y cajas: {i} de {n}':
+        'Building the manholes and boxes: {i} of {n}',
+    'Terminando la escena…':
+        'Finishing the scene…',
+    'Armando la vista 3D…':
+        'Building the 3D view…',
+    'Preparando los datos…':
+        'Preparing the data…',
+    '{etapa} · {p} %':
+        '{etapa} · {p} %',
+    'Actualizando la vista 3D… {p} %':
+        'Updating the 3D view… {p} %',
+    'Mostrando la escena…':
+        'Showing the scene…',
+    'Leyendo los trazos del PDF…':
+        'Reading the PDF strokes…',
+    'Digitalizando la imagen del plano…':
+        'Digitizing the plan image…',
+    'Leyendo la escala del plano…':
+        'Reading the plan scale…',
+    'Buscando el cajetín y las leyendas…':
+        'Finding the title block and legends…',
+    'Clasificando los trazos: {i} de {n}':
+        'Classifying the strokes: {i} of {n}',
+    'Uniendo las líneas…':
+        'Joining the lines…',
+    'Pasando los textos…':
+        'Copying the texts…',
+    'Terminando el plano…':
+        'Finishing the plan…',
+    'Guardando el plano digitalizado: {i} de {n} entidades':
+        'Saving the digitized plan: {i} of {n} entities',
+    'Revisando el plano digitalizado…':
+        'Checking the digitized plan…',
+    'Armando el plano: {i} de {n} entidades':
+        'Building the plan: {i} of {n} entities',
+    'Midiendo el plano para encuadrarlo: {i} de {n} entidades':
+        'Measuring the plan to frame it: {i} of {n} entities',
+    'Agregando las utilidades: {i} de {n}':
+        'Adding the utilities: {i} of {n}',
+    'Guardando el DXF: {i} de {n} entidades':
+        'Saving the DXF: {i} of {n} entities',
+    'Exportando a DXF…':
+        'Exporting to DXF…',
     'No se pudo iniciar la vista 3D (OpenGL 2.1): {e}':
         'The 3D view could not start (OpenGL 2.1): {e}',
     'solera {a} → {b} ft':

@@ -28,6 +28,7 @@ from __future__ import annotations
 import math
 from dataclasses import dataclass, field
 
+from nucleo import avance
 from nucleo import limpieza_tramos as LT
 from nucleo import model_ops, xdata
 from nucleo.indice_plano import IndicePuntos, IndiceUtilidades
@@ -75,6 +76,7 @@ def limpiar(pipes, structures, ft_per_px, tipos=TIPOS, protegidas=()):
     if "duplicada" in tipos:
         _duplicadas(pipes, ft_per_px, protegidas, res)
     if "corta" in tipos:
+        avance.avisar("cortas")
         for i in _vivas(pipes, res.borrar):
             largo = _largo(pipes[i]["pts"]) * ft_per_px
             if largo < UTILIDAD_MIN_FT and i not in protegidas:
@@ -85,12 +87,20 @@ def limpiar(pipes, structures, ft_per_px, tipos=TIPOS, protegidas=()):
         _unir_puntas(pipes, structures, ft_per_px, res)
     if "tramo" in tipos:
         with LT.cajas_de(pipes):                     # `compartido` solo mira las cercanas (mismo resultado)
-            for i in _vivas(pipes, res.borrar):
+            vivas = _vivas(pipes, res.borrar)
+            for k, i in enumerate(vivas):
+                _avisar("tramos", k, len(vivas))
                 res.cambios.extend(LT.arreglar(pipes, structures, i, ft_per_px))
     if "suelta" in tipos:
         _sueltas(pipes, ft_per_px, res)
     res.borrar.sort()
     return res
+
+
+def _avisar(etapa, k, n):
+    """Avance de la etapa (barra de carga, `nucleo.avance`): cada 256 y al final."""
+    if not k & 255 or k == n - 1:
+        avance.avisar(etapa, k + 1, n)
 
 
 def _vivas(pipes, borrar=()):
@@ -142,6 +152,7 @@ def _duplicadas(pipes, ft, protegidas, res):
         dueno += [k, k]
     indice = IndicePuntos(puntas, max(tol, 1e-6))
     for a_pos, a in enumerate(vivas):
+        _avisar("duplicadas", a_pos, len(vivas))
         if a in borrar:
             continue
         pa = pipes[a]["pts"]
@@ -207,7 +218,8 @@ def _unir_puntas(pipes, structures, ft, res):
     # busca a tol_max más de lo que se prueba: nada que pudiera cumplir queda afuera.
     indice = IndiceUtilidades(pipes)
     radio = _holgura(2.0 * tol_max + tol_unida)
-    for i in vivas:
+    for k, i in enumerate(vivas):
+        _avisar("puntas", k, len(vivas))
         p = pipes[i]
         for e in (0, -1):
             pts = p["pts"]
@@ -262,7 +274,8 @@ def _sueltas(pipes, ft, res):
         puntas += [pipes[k]["pts"][0], pipes[k]["pts"][-1]]
         dueno += [k, k]
     ind_puntas = IndicePuntos(puntas, max(tol, 1.0))
-    for i in vivas:
+    for k, i in enumerate(vivas):
+        _avisar("sueltas", k, len(vivas))
         pts = pipes[i]["pts"]
         largo = _largo(pts) * ft
         if not UTILIDAD_MIN_FT <= largo < SUELTA_MAX_FT:

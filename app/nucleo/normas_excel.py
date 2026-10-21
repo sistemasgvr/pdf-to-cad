@@ -43,7 +43,7 @@ LISTAS = {"DIAMETRO (in)", "DIAMETRO PRINCIPAL (in)", "DIAMETRO FIJO (in)", "ANG
 ALIAS = {"DIAMETRO PRINCIPAL (in)": ("DIAMETRO PRINCIPAL",)}
 # Columnas del formato viejo que se siguen leyendo (rango «0-320» en una celda).
 VIEJAS = {HOJA_ELEC: ("AMPERAJE (A)", "LONGITUD RANGO (pies)")}
-AUX = "KLMNOP"                      # columnas del bloque auxiliar de TIPOS (una por utilidad)
+AUX = [chr(ord("K") + k) for k in range(len(nc.UTILIDADES))]   # bloque auxiliar de TIPOS (una por utilidad)
 FILAS_DV = 500                      # filas con desplegable (las tablas crecen dentro)
 ESTILO_TABLA = "TableStyleMedium10"
 
@@ -143,39 +143,77 @@ def importar(ruta, problemas=None):
     import openpyxl
     wb = openpyxl.load_workbook(ruta, data_only=True)
     lee = _Lector(problemas)
-    avisos = []
-    cat = {"tipos": [], "diametros": [], "accesorios": [], "electricas": []}
     hojas = {n: _hoja(wb, n) for n in (HOJA_TIPOS, HOJA_DIAM, HOJA_ACC, HOJA_ELEC)}
-    for n, ws in hojas.items():
-        if ws is None:
-            avisos.append(n)
+    avisos = [n for n, ws in hojas.items() if ws is None]
     for n, cols in ((HOJA_TIPOS, COL_TIPOS), (HOJA_DIAM, COL_DIAM), (HOJA_ACC, COL_ACC), (HOJA_ELEC, COL_ELEC)):
         _columnas_desconocidas(hojas[n], cols, lee)
-    for d in _filas(hojas[HOJA_TIPOS]):
-        u, t = nc.clave(_txt(d, "UTILIDAD")), nc.clave(_txt(d, "TIPO"))
+    return armar({n: _filas(ws) for n, ws in hojas.items()}, lee.problemas), avisos
+
+
+def armar(hojas, problemas=None, tipos_estrictos=False):
+    """Catálogo de las filas de cada tabla: `hojas` = {HOJA: [{columna (clave): valor, "_fila": n}]}.
+    Lo usan el Excel y el editor de la ventana (`normas_tablas`): las MISMAS reglas para leer cada celda.
+    La aplicación manda: una fila cuya UTILIDAD no es de la app, o cuyo ACCESORIO no reconoce, no se usa
+    (se anota en `problemas`); con `tipos_estrictos` (el editor), tampoco un TIPO que no está en TIPOS."""
+    lee = _Lector(problemas)
+    cat = {"tipos": [], "diametros": [], "accesorios": [], "electricas": []}
+
+    def utilidad(hoja, d):
+        u = nc.clave(_txt(d, "UTILIDAD"))
+        if u in nc.UTILIDADES:
+            return u
+        lee._mal(hoja, d, "UTILIDAD", _txt(d, "UTILIDAD"), "no es una utilidad de la aplicación")
+        return None
+
+    for d in hojas.get(HOJA_TIPOS) or []:
+        u, t = utilidad(HOJA_TIPOS, d), nc.clave(_txt(d, "TIPO"))
         if u and t:
             cat["tipos"].append([u, t])
+        elif u:
+            lee._mal(HOJA_TIPOS, d, "TIPO", "", "está vacío")
+    tipos = {tuple(x) for x in cat["tipos"]}
+
+    def tipo(hoja, d, u, col):
+        t = nc.clave(_txt(d, col))
+        if t and tipos_estrictos and (u, t) not in tipos:
+            lee._mal(hoja, d, col, _txt(d, col), "no es un tipo de {u} (hoja TIPOS)".format(u=u))
+            return None
+        return t
+
     H = HOJA_DIAM
-    for d in _filas(hojas[H]):
-        cat["diametros"].append({"utilidad": nc.clave(_txt(d, "UTILIDAD")), "tipo": nc.clave(_txt(d, "TIPO")),
-                                 "diametros": lee.lista(H, d, "DIAMETRO (in)"),
-                                 "diam_min": lee.numero(H, d, "DIAMETRO MIN (in)"),
-                                 "diam_max": lee.numero(H, d, "DIAMETRO MAX (in)"),
-                                 "nota": _txt(d, "SOLO SE PERMITE EN")})
+    for d in hojas.get(H) or []:
+        u = utilidad(H, d)
+        t = tipo(H, d, u, "TIPO") if u else None
+        if u and t is not None:
+            cat["diametros"].append({"utilidad": u, "tipo": t,
+                                     "diametros": lee.lista(H, d, "DIAMETRO (in)"),
+                                     "diam_min": lee.numero(H, d, "DIAMETRO MIN (in)"),
+                                     "diam_max": lee.numero(H, d, "DIAMETRO MAX (in)"),
+                                     "nota": _txt(d, "SOLO SE PERMITE EN")})
     H = HOJA_ACC
-    for d in _filas(hojas[H]):
+    for d in hojas.get(H) or []:
+        u = utilidad(H, d)
+        if not u:
+            continue
+        if nc.ACCESORIOS.get(nc.clave(_txt(d, "ACCESORIO"))) is None:
+            lee._mal(H, d, "ACCESORIO", _txt(d, "ACCESORIO"), "no es un accesorio que la aplicación reconoce")
+            continue
+        solo, prohibido = tipo(H, d, u, "SOLO SE PERMITE EN"), tipo(H, d, u, "PROHIBIDO USO")
+        if solo is None or prohibido is None:
+            continue
         cat["accesorios"].append({
-            "utilidad": nc.clave(_txt(d, "UTILIDAD")), "accesorio": _txt(d, "ACCESORIO"),
-            "solo_en": nc.clave(_txt(d, "SOLO SE PERMITE EN")),
-            "diam_principal": lee.lista(H, d, "DIAMETRO PRINCIPAL (in)"),
-            "prohibido_en": nc.clave(_txt(d, "PROHIBIDO USO")),
+            "utilidad": u, "accesorio": _txt(d, "ACCESORIO"), "solo_en": solo,
+            "diam_principal": lee.lista(H, d, "DIAMETRO PRINCIPAL (in)"), "prohibido_en": prohibido,
             "ramal": lee.numero(H, d, "DIAMETRO RAMAL DISTRIBUCION"),
             "angulos": lee.lista(H, d, "ANGULOS PERMITIDOS")})
     H = HOJA_ELEC
-    for d in _filas(hojas[H]):
+    for d in hojas.get(H) or []:
+        u = utilidad(H, d)
+        t = tipo(H, d, u, "TIPO") if u else None
+        if not u or t is None:
+            continue
         cat["electricas"].append({
-            "utilidad": nc.clave(_txt(d, "UTILIDAD")), "estructura": nc.clave(_txt(d, "ESTRUCTURA")),
-            "tipo": nc.clave(_txt(d, "TIPO")),
+            "utilidad": u, "estructura": nc.clave(_txt(d, "ESTRUCTURA")), "tipo": t,
             "amperaje": lee.rango(H, d, "AMPERAJE MIN (A)", "AMPERAJE MAX (A)", "AMPERAJE (A)"),
             "longitud": lee.rango(H, d, "LONGITUD MIN (pies)", "LONGITUD MAX (pies)", "LONGITUD RANGO (pies)"),
             "diam_fijo": lee.lista(H, d, "DIAMETRO FIJO (in)"),
@@ -184,7 +222,7 @@ def importar(ruta, problemas=None):
             "radio_min": lee.numero(H, d, "RADIO CURVA MIN (pies)"),
             "radio_max": lee.numero(H, d, "RADIO CURVA MAX (pies)"),
             "radio_fijo": lee.lista(H, d, "RADIO CURVA FIJO (pies)")})
-    return nc.normalizar(cat), avisos
+    return nc.normalizar(cat)
 
 
 # ─────────────────────────── exportar ───────────────────────────

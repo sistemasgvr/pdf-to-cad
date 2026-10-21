@@ -177,7 +177,8 @@ def _dibujos_una_vez(page):
     page.get_drawings = get_drawings
 
 
-def main(pdf_path, dxf_out, force=None, verbose=True, pages=None, doc_out=None, guardar=None):
+def main(pdf_path, dxf_out, force=None, verbose=True, pages=None, doc_out=None, guardar=None,
+         avance=None):
     """
     force: None (auto) | 'vector' | 'raster'
     pages: índices de hoja a digitalizar (None = todas). La app pasa SOLO la
@@ -187,6 +188,8 @@ def main(pdf_path, dxf_out, force=None, verbose=True, pages=None, doc_out=None, 
       tal cual en vez de volver a leer el archivo: da el mismo DXF final).
     guardar: función opcional (doc, ruta) que guarda el DXF en vez de `doc.saveas` (la app pasa
       `exportar.dxf_rapido.guardar`: el mismo archivo, ~45 % más rápido).
+    avance: función opcional (etapa, i=None, n=None) que recibe por dónde va (la barra de la app:
+      «trazos», «raster», las etapas de `vector_pipeline.run`, «guardar», «validar»). No cambia nada.
     Devuelve lista de warnings de QA.
     """
     import vector_pipeline
@@ -208,7 +211,11 @@ def main(pdf_path, dxf_out, force=None, verbose=True, pages=None, doc_out=None, 
         if pages is not None and i not in pages:
             continue
         _dibujos_una_vez(page)
+        if avance is not None:
+            avance("trazos")
         kind, info = classify_page(page)
+        if avance is not None:
+            avance("trazos", info["n_paths"], info["n_paths"])
         if force in ("vector", "raster"):
             kind = force
         log(f"\n── Página {i}: {kind.upper()} ──")
@@ -217,15 +224,19 @@ def main(pdf_path, dxf_out, force=None, verbose=True, pages=None, doc_out=None, 
             f"img_cover={info['max_image_cover']}")
 
         if kind == "vector":
-            stats = vector_pipeline.run(page, dxf_doc)
+            stats = vector_pipeline.run(page, dxf_doc, avance=avance)
         else:
             import raster_pipeline
+            if avance is not None:
+                avance("raster")
             stats = raster_pipeline.run(page, dxf_doc)
         stats.pop("callouts", None)                   # legacy: se ignora si aparece
         all_zones.extend(stats.pop("exclusion_zones_cad", None) or [])
         last_scale = stats.get("scale_ft_per_pt", last_scale)
         log("   ", stats)
 
+    if avance is not None:
+        avance("guardar")
     if guardar is not None:
         guardar(dxf_doc, dxf_out)
     else:
@@ -234,6 +245,8 @@ def main(pdf_path, dxf_out, force=None, verbose=True, pages=None, doc_out=None, 
         doc_out.append(dxf_doc)
     log(f"\n✓ Guardado: {dxf_out}")
 
+    if avance is not None:
+        avance("validar")
     warnings, counts = validate(msp, all_zones)
     log("\n── Entidades por capa ──")
     for layer in sorted(counts):

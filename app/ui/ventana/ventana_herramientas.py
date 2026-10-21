@@ -204,8 +204,9 @@ class HerramientasMixin:
         a = self._normas_avisos[n]
         self._ir_a_elemento(a.x, a.y, "pipe", a.pipe)
 
-    def _ir_a_elemento(self, x, y, objeto=None, indice=-1):
-        """Lleva el lienzo a (x, y), selecciona el elemento y lo marca un momento."""
+    def _ir_a_elemento(self, x, y, objeto=None, indice=-1, activar=True):
+        """Lleva el lienzo a (x, y), selecciona el elemento y lo marca un momento. Con `activar`, además trae
+        la ventana al frente (desde la Vista 3D no: el foco —y su Esc— se quedan allá)."""
         self._no_center = True
         try:
             if objeto == "pipe" and indice is not None and 0 <= indice < len(self.pipes):
@@ -228,7 +229,8 @@ class HerramientasMixin:
             try: sc.removeItem(it)
             except (RuntimeError, ValueError): pass
         QtCore.QTimer.singleShot(1800, _quitar)
-        self.raise_(); self.activateWindow()
+        if activar:
+            self.raise_(); self.activateWindow()
 
     # ─────────────────────── tipo y amperaje de la utilidad ───────────────────────
     def _cargar_tipos_panel(self, p):
@@ -340,7 +342,7 @@ class HerramientasMixin:
             return lista, tamanos
         return catalogo
 
-    def _tablas_de_datos(self):
+    def _tablas_de_datos(self, solo_pipes=None, solo_estructuras=None):
         self._resultados_al_dia()                       # calculo_fondo: nada a medio calcular
         from nucleo import tabla_datos
         ft_px = self.scale / self.zoom if self.scale and self.zoom else 0.0
@@ -349,7 +351,8 @@ class HerramientasMixin:
         return tabla_datos.armar(self.pipes, self.structures, getattr(self, "duct_banks", []),
                                  getattr(self, "_normas_avisos", []), self._to_cad, ft_px,
                                  nombre_utilidad=self._tipo, nombre_familia=familia,
-                                 conflictos=getattr(self, "_conflictos", []))
+                                 conflictos=getattr(self, "_conflictos", []), solo_pipes=solo_pipes,
+                                 solo_estructuras=solo_estructuras)
 
     def _toggle_theme(self):
         # Alterna claro↔oscuro globalmente. El módulo `theme` se encarga de

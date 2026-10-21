@@ -1,11 +1,12 @@
 """Ventana «Normativas de diseño» (formato de tablas del usuario, 2026-10-09).
 
-Las normativas son un Excel simple (`normas_excel`): aquí se ven sus tablas tal cual,
-la lista de avisos del proyecto (clic = ir al lugar; se APRUEBAN con una nota y queda
-el registro de quién y cuándo, `nucleo/normas_aprobacion`) y los botones para importar el
-Excel, exportarlo (para editarlo en Excel) o volver a los valores iniciales. Los tipos
-nuevos que el usuario agrega con el «+» del panel ya están en el catálogo y salen al
-exportar. No modal: se refresca sola al redibujar el plano."""
+Las normativas son cuatro tablas (las del Excel, `normas_excel`) que se EDITAN aquí mismo
+(2026-10-20, `normas_tablas_view`: «la aplicación manda en todo»; «Guardar cambios» las revisa y
+aplica), la lista de avisos del proyecto (clic = ir al lugar; se APRUEBAN con una nota y queda
+el registro de quién y cuándo, `nucleo/normas_aprobacion`) y los botones para importar o
+exportar el Excel (opcional: para compartirlas o editarlas en lote) y volver a los valores
+iniciales. Los tipos nuevos que el usuario agrega con el «+» del panel ya están en el catálogo.
+No modal: se refresca sola al redibujar el plano (las tablas, solo si no hay cambios sin guardar)."""
 from __future__ import annotations
 
 import os
@@ -14,38 +15,14 @@ from PySide6 import QtCore, QtGui, QtWidgets
 
 from nucleo import normas_catalogo as nc
 from nucleo import normas_excel
+from nucleo import normas_tablas as NT
 from nucleo.normas_validar import CLASES
-from traduccion.i18n import N_, t as _tr
+from traduccion.i18n import t as _tr
 from ui.comun.ui_common import DOWNLOADS
+from ui.dialogos.normas_tablas_view import EditorTablas
 
 _ROL = QtCore.Qt.UserRole
 _FILTRO_XLSX = "Excel (*.xlsx)"              # filtro de archivo (igual en ambos idiomas)
-
-def _n(v):
-    return "" if v is None else nc.texto_numero(v)
-
-
-def _extremos(r):
-    return ["", ""] if not r else [_n(r[0]), _n(r[1])]
-
-
-# (título de la pestaña, encabezados, función que da las filas como texto)
-_PESTANAS = [
-    (N_("Tipos"), normas_excel.COL_TIPOS, lambda cat: [list(x) for x in cat["tipos"]]),
-    (N_("Diámetros (presión)"), normas_excel.COL_DIAM,
-     lambda cat: [[f["utilidad"], f["tipo"], nc.texto_lista(f["diametros"]), _n(f.get("diam_min")),
-                   _n(f.get("diam_max")), f.get("nota") or ""] for f in cat["diametros"]]),
-    (N_("Accesorios (presión)"), normas_excel.COL_ACC,
-     lambda cat: [[f["utilidad"], f["accesorio"], f.get("solo_en") or "", nc.texto_lista(f.get("diam_principal")),
-                   f.get("prohibido_en") or "", "" if f.get("ramal") is None else f"{int(f['ramal'])}",
-                   nc.texto_lista(f.get("angulos"))] for f in cat["accesorios"]]),
-    (N_("Eléctrico y telecom"), normas_excel.COL_ELEC,
-     lambda cat: [[f["utilidad"], f.get("estructura") or "", f.get("tipo") or "", *_extremos(f.get("amperaje")),
-                   *_extremos(f.get("longitud")), nc.texto_lista(f.get("diam_fijo")), _n(f.get("diam_min")),
-                   _n(f.get("diam_max")), _n(f.get("radio_min")), _n(f.get("radio_max")),
-                   nc.texto_lista(f.get("radio_fijo"))]
-                  for f in cat["electricas"]]),
-]
 
 
 class NormasDialog(QtWidgets.QDialog):
@@ -56,11 +33,17 @@ class NormasDialog(QtWidgets.QDialog):
         self.resize(980, 600)
         self.setWindowFlag(QtCore.Qt.WindowMaximizeButtonHint, True)
         lay = QtWidgets.QVBoxLayout(self)
-        cab = QtWidgets.QLabel(_tr("Las normativas vienen de un Excel simple: expórtalo, edítalo en Excel e "
-                                   "impórtalo. Valen para todos tus proyectos."))
+        cab = QtWidgets.QLabel(_tr("Edita las tablas aquí mismo (doble clic en una celda) y pulsa «Guardar "
+                                   "cambios». Valen para todos tus proyectos. El Excel es opcional: para "
+                                   "compartirlas o editarlas en lote."))
         cab.setWordWrap(True)
         lay.addWidget(cab)
         fila = QtWidgets.QHBoxLayout()
+        self.btn_guardar = QtWidgets.QPushButton(_tr("Guardar cambios"))
+        self.btn_descartar = QtWidgets.QPushButton(_tr("Descartar cambios"))
+        self.btn_descartar.setProperty("secondary", True)
+        self.btn_guardar.clicked.connect(lambda: self.guardar())
+        self.btn_descartar.clicked.connect(self.descartar)
         b_imp = QtWidgets.QPushButton(_tr("Importar Excel…"))
         b_exp = QtWidgets.QPushButton(_tr("Exportar Excel…"))
         b_base = QtWidgets.QPushButton(_tr("Volver a los valores iniciales"))
@@ -68,8 +51,9 @@ class NormasDialog(QtWidgets.QDialog):
         b_imp.clicked.connect(self.importar)
         b_exp.clicked.connect(self.exportar)
         b_base.clicked.connect(self.restaurar)
-        for b in (b_imp, b_exp, b_base):
+        for b in (self.btn_guardar, self.btn_descartar, b_imp, b_exp, b_base):
             b.setMinimumHeight(34)
+            b.setAutoDefault(False)
             fila.addWidget(b)
         fila.addStretch(1)
         lay.addLayout(fila)
@@ -102,14 +86,11 @@ class NormasDialog(QtWidgets.QDialog):
         self.lst_avisos.itemSelectionChanged.connect(self._botones)
         pl.addWidget(self.lst_avisos, 1)
         self.pestanas.addTab(pag, _tr("Avisos"))
-        self.vistas = []
-        for titulo, columnas, _f in _PESTANAS:
-            w = QtWidgets.QTableWidget(0, len(columnas))
-            w.setHorizontalHeaderLabels(list(columnas))      # como en el Excel (es el formato de datos)
-            w.setEditTriggers(QtWidgets.QAbstractItemView.NoEditTriggers)
-            w.verticalHeader().setVisible(False)
-            self.vistas.append(w)
-            self.pestanas.addTab(w, _tr(titulo))
+        self.tablas = EditorTablas(self)
+        for pag, tabla in self.tablas.paginas:
+            self.pestanas.addTab(pag, _tr(tabla.titulo))
+        self.tablas.cambio.connect(self._botones_tablas)
+        self.tablas.cargar(self.win.normas_cat)
         self.refrescar()
 
     def refrescar(self):
@@ -155,13 +136,88 @@ class NormasDialog(QtWidgets.QDialog):
         n = sum(1 for a in avisos if not a.info and not a.aprobado)
         self.pestanas.setTabText(0, _tr("Avisos ({n})").format(n=n) if n else _tr("Avisos"))
         cat = self.win.normas_cat
-        for w, (_t, _c, filas_de) in zip(self.vistas, _PESTANAS):
-            filas = filas_de(cat)
-            w.setRowCount(len(filas))
-            for r, fila in enumerate(filas):
-                for c, v in enumerate(fila):
-                    w.setItem(r, c, QtWidgets.QTableWidgetItem(str(v)))
-            w.resizeColumnsToContents()
+        if not self.tablas.sucio and any(NT.filas(cat, t.clave) != self.tablas.base().get(t.clave)
+                                         for t in NT.TABLAS):
+            self.tablas.cargar(cat)                      # cambió fuera (el «+» del panel): sin cambios propios
+        self._botones_tablas()
+
+    # ── edición de las tablas ──
+    def _botones_tablas(self):
+        sucio = self.tablas.sucio
+        self.btn_guardar.setEnabled(sucio)
+        self.btn_descartar.setEnabled(sucio)
+
+    def guardar(self, avisar=True):
+        """Revisa las tablas (las mismas reglas que el Excel) y, si todo se entiende, las aplica: se guardan
+        para todos los proyectos y el plano se vuelve a revisar. Con problemas no aplica nada: los marca en
+        rojo y los lista. Un tipo renombrado en «Tipos» se renombra también en las utilidades del proyecto."""
+        cat, problemas = NT.catalogo(self.tablas.textos())
+        if problemas:
+            clave = self.tablas.marcar_problemas(problemas)
+            for k, (_pag, tabla) in enumerate(self.tablas.paginas, 1):
+                if tabla.clave == clave:
+                    self.pestanas.setCurrentIndex(k)
+            if avisar:
+                nombres = {t.clave: _tr(t.titulo) for t in NT.TABLAS}
+                lineas = [_tr("{tabla}, fila {n}, {col}: {motivo}").format(
+                    tabla=nombres.get(c, c), n=f + 1, col=col, motivo=m) for c, f, col, m in problemas]
+                msg = _tr("No se guardó: corrige las celdas marcadas en rojo.") + "\n\n• " + "\n• ".join(lineas[:12])
+                if len(lineas) > 12:
+                    msg += "\n• " + _tr("… y {n} más").format(n=len(lineas) - 12)
+                QtWidgets.QMessageBox.warning(self, _tr("Normativas de diseño"), msg)
+            return False
+        # tipos agregados con el «+» del panel mientras se editaba: se conservan
+        viejos = {tuple(x) for x in self.tablas.base().get("tipos", [])}
+        for u, tp in self.win.normas_cat.get("tipos", []):
+            if (u, tp) not in viejos and (u, tp) not in {tuple(x) for x in cat["tipos"]}:
+                cat["tipos"].append([u, tp])
+        self._renombrar_en_proyecto(self.tablas.renombres)
+        self.win._usar_normas(cat)
+        self.tablas.cargar(self.win.normas_cat)
+        if avisar:
+            self.win._info(_tr("Normativas guardadas."))
+        return True
+
+    def _renombrar_en_proyecto(self, renombres):
+        """Las utilidades del proyecto con un tipo renombrado pasan al nombre nuevo (se puede deshacer)."""
+        pipes = getattr(self.win, "pipes", None) or []
+        cambios = []
+        for i, p in enumerate(pipes):
+            tipo = nc.clave(p.get("tipo"))
+            for u, viejo, nuevo in renombres:
+                if tipo and nc.clave(p.get("layer")) == u and tipo == viejo:
+                    tipo = nuevo
+            if tipo != nc.clave(p.get("tipo")):
+                cambios.append((i, tipo))
+        if cambios:
+            self.win._push()
+            for i, tipo in cambios:
+                pipes[i]["tipo"] = tipo
+        return len(cambios)
+
+    def descartar(self):
+        self.tablas.cargar(self.win.normas_cat)
+
+    def _sin_cambios_pendientes(self, titulo):
+        """True si se puede seguir: sin cambios en las tablas, o el usuario los guardó o descartó."""
+        if not self.tablas.sucio:
+            return True
+        r = QtWidgets.QMessageBox.question(
+            self, titulo, _tr("Hay cambios sin guardar en las tablas de normativas. ¿Guardarlos?"),
+            QtWidgets.QMessageBox.Save | QtWidgets.QMessageBox.Discard | QtWidgets.QMessageBox.Cancel,
+            QtWidgets.QMessageBox.Save)
+        if r == QtWidgets.QMessageBox.Save:
+            return self.guardar()
+        if r == QtWidgets.QMessageBox.Discard:
+            self.descartar()
+            return True
+        return False
+
+    def closeEvent(self, e):
+        if not self._sin_cambios_pendientes(_tr("Normativas de diseño")):
+            e.ignore()
+            return
+        super().closeEvent(e)
 
     def _registros_viejos(self):
         usadas = {a.aprobado.get("clave") for a in getattr(self.win, "_normas_avisos", None) or [] if a.aprobado}
@@ -202,6 +258,8 @@ class NormasDialog(QtWidgets.QDialog):
             self.win._normas_ir_a(int(n))
 
     def importar(self):
+        if not self._sin_cambios_pendientes(_tr("Importar Excel de normativas")):
+            return
         ruta, _ = QtWidgets.QFileDialog.getOpenFileName(self, _tr("Importar Excel de normativas"), DOWNLOADS,
                                                         _FILTRO_XLSX)
         if not ruta:
@@ -228,6 +286,8 @@ class NormasDialog(QtWidgets.QDialog):
         QtWidgets.QMessageBox.information(self, _tr("Importar Excel de normativas"), msg)
 
     def exportar(self):
+        if not self._sin_cambios_pendientes(_tr("Exportar Excel de normativas")):
+            return
         ruta, _ = QtWidgets.QFileDialog.getSaveFileName(self, _tr("Exportar Excel de normativas"),
                                                         os.path.join(DOWNLOADS, "Normativas.xlsx"), _FILTRO_XLSX)
         if not ruta:
@@ -246,6 +306,7 @@ class NormasDialog(QtWidgets.QDialog):
             "¿Seguir?"), QtWidgets.QMessageBox.Yes | QtWidgets.QMessageBox.No, QtWidgets.QMessageBox.No)
         if r == QtWidgets.QMessageBox.Yes:
             self.win._usar_normas(nc.nuevo())
+            self.tablas.cargar(self.win.normas_cat)
 
 
 def abrir(win, en_avisos=False):

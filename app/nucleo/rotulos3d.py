@@ -5,6 +5,10 @@ cada utilidad visible, en el medio de cada tramo su pendiente (%, la de Civil 3D
 una tubería, `model_ops.pendientes_tramos`) y en cada vértice interior su giro (deflexión sobre
 el eje prolongado, como los accesorios). Se dibujan con QPainter encima del modelo
 (`ui/comun/etiquetas3d`), con el id de su utilidad (se resaltan con ella).
+
+Cada rótulo lleva además el LARGO en planta (ft) de lo que rotula —el tramo, o el más corto de los dos
+que forman el quiebre—: de lejos un tramo que en pantalla es más corto que su rótulo no lo muestra
+(nivel de detalle, `rotulos3d_lod`; pedido del usuario 2026-10-20).
 """
 from __future__ import annotations
 
@@ -17,7 +21,8 @@ GIRO_MIN_DEG = 0.01               # menos es un vértice en recta: sin rótulo
 
 
 def rotulos(ar, pipes, visibles, alto_de):
-    """[(id, punto 3D en pies del mundo, texto)]. `alto_de(p)` = alto interior (ft) para el eje."""
+    """[(id, punto 3D en pies del mundo, texto, largo en planta en ft)]. `alto_de(p)` = alto interior (ft)
+    para el eje."""
     out = []
     for i in visibles:
         p = pipes[i]
@@ -33,7 +38,8 @@ def rotulos(ar, pipes, visibles, alto_de):
             z = model_ops.z_en_tramo(p, k, mx, my)
             if z is None:
                 continue
-            out.append((i + 1, (*ar.mundo(mx, my, 0)[:2], z + alto), f"{s:.2f} %"))
+            out.append((i + 1, (*ar.mundo(mx, my, 0)[:2], z + alto), f"{s:.2f} %",
+                        math.dist(pts[k], pts[k + 1]) * ar.ft))
         for k in range(1, len(pts) - 1):
             a, v, b = pts[k - 1], pts[k], pts[k + 1]
             r1 = math.atan2(v[1] - a[1], v[0] - a[0])
@@ -42,5 +48,6 @@ def rotulos(ar, pipes, visibles, alto_de):
             z = model_ops.z_en_tramo(p, k, v[0], v[1])
             if giro < GIRO_MIN_DEG or z is None:
                 continue
-            out.append((i + 1, (*ar.mundo(v[0], v[1], 0)[:2], z + alto * 1.5), acc.texto_angulo(giro)))
+            out.append((i + 1, (*ar.mundo(v[0], v[1], 0)[:2], z + alto * 1.5), acc.texto_angulo(giro),
+                        min(math.dist(a, v), math.dist(v, b)) * ar.ft))
     return out

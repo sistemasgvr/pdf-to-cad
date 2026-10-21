@@ -143,13 +143,14 @@ def _interseccion(a1, a2, b1, b2):
     return (a1[0] + rx * t, a1[1] + ry * t)
 
 
-def accesorios(pipes, z_at, ft_per_px, rectos=None):
+def accesorios(pipes, z_at, ft_per_px, rectos=None, avance=None):
     """Accesorios de las redes a presión. `z_at(i_pipe, i_tramo, x, y)` = solera
     del tramo en ese punto (None = 0). Devuelve una lista de dicts:
     {"x", "y", "tipo", "angulo", "capa", "red", "pipes": [índices], "n"}.
     Con `rectos` (lista), le suma las uniones RECTAS de dos tramos (sin accesorio aquí;
     la Vista 3D pone ahí la reducción si los diámetros difieren): {"x", "y", "capa",
-    "red", "pipes"}."""
+    "red", "pipes"}. `avance(fracción)` (opcional, 0–1): cuánto va (barra de la Vista 3D); no cambia
+    el resultado."""
     if not ft_per_px or ft_per_px <= 0:
         return []
     tol = TOL_UNION_FT / ft_per_px
@@ -181,7 +182,9 @@ def accesorios(pipes, z_at, ft_per_px, rectos=None):
     # Extremos de tramo: (x, y, red, i_pipe, z, dirección hacia el otro extremo, i_tramo, i_vértice,
     # pendiente hacia el otro extremo)
     ext = []
-    for i in presion:
+    for n_hecho, i in enumerate(presion):
+        if avance is not None:
+            avance(0.5 * n_hecho / len(presion))
         p = pipes[i]; red = redes[i]; pts = p["pts"]
         for k in range(len(pts) - 1):
             a, b = pts[k], pts[k + 1]
@@ -288,6 +291,8 @@ def accesorios(pipes, z_at, ft_per_px, rectos=None):
     from nucleo.indice_plano import IndicePuntos
     ind_fundidos = IndicePuntos(fundidos, tol) if fundidos else None
     for a in range(len(ext)):
+        if avance is not None:
+            avance(0.5 + 0.5 * a / len(ext))
         if usado[a]:
             continue
         usado[a] = True

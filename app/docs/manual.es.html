@@ -78,6 +78,10 @@ el último cambio y <span class="key">&nbsp;Ctrl+Shift+Z&nbsp;</span> lo vuelve 
 <li><b>Guardar con otro nombre:</b> <span class="key">&nbsp;Ctrl+Shift+S&nbsp;</span>.</li>
 <li><b>Abrir un proyecto:</b> <b>Archivo → Abrir proyecto…</b></li>
 </ul>
+<p>Con proyectos grandes, abrir, guardar, <b>Revisar y limpiar el dibujo</b>, la <b>Tabla de datos</b>
+y su Excel muestran una <b>barra de avance</b> con la etapa, «i de n» y el porcentaje, que sigue al
+tiempo real. Tras editar, el recálculo de conflictos y avisos muestra una barrita en la barra de
+estado, abajo; mientras tanto puedes seguir trabajando.</p>
 <table width="100%" cellspacing="0" cellpadding="12"><tr>
 <td width="6" bgcolor="{{warn_border}}"></td><td bgcolor="{{warn}}">
 <b>Atención:</b> si ves un punto <b style="color:{{danger_border}};">●</b> junto al título,
@@ -794,9 +798,10 @@ En drenaje y alcantarillado estas alertas no salen: ahí el buzón resuelve los 
 </section>
 
 <section data-title="Normativas de diseño">
-<p>Las normativas son un <b>Excel simple</b> con cuatro tablas. En <b>Normativas → Normativas de diseño…</b>
-(<span class="key">&nbsp;Ctrl+Shift+N&nbsp;</span>) se ven tal cual, junto con los <b>avisos</b> del proyecto.
-Valen para todos tus proyectos en esta computadora.</p>
+<p>Las normativas son cuatro tablas. En <b>Normativas → Normativas de diseño…</b>
+(<span class="key">&nbsp;Ctrl+Shift+N&nbsp;</span>) se <b>editan ahí mismo</b>, junto con los <b>avisos</b> del
+proyecto. Valen para todos tus proyectos en esta computadora. El Excel es opcional: sirve para compartirlas o
+editarlas en lote.</p>
 
 <h2>Las tablas</h2>
 <table width="100%" cellspacing="4" cellpadding="10">
@@ -823,13 +828,22 @@ título). Esa hoja y cualquier otra que no sea una de las cuatro tablas (por eje
 importan.</p>
 
 <h2>Editar las normativas</h2>
+<p>En la ventana, cada tabla es una pestaña: <b>doble clic</b> en una celda para cambiarla, <b>Agregar fila</b> y
+<b>Quitar filas</b>. La aplicación manda: la <b>utilidad</b> se elige de las de la app, el <b>tipo</b> de los de esa
+utilidad (los tipos se crean en la pestaña <b>Tipos</b>) y el <b>accesorio</b> de los que la app reconoce. Nada se
+aplica hasta <b>Guardar cambios</b>: ahí se revisa todo con las mismas reglas que el Excel y, si una celda no se
+entiende, queda en <b>rojo</b> con el motivo y no se guarda nada. <b>Descartar cambios</b> vuelve a lo guardado.
+Si cambias el nombre de un tipo en la pestaña Tipos, cambia también en las demás tablas y en las utilidades del
+proyecto que lo usaban (Ctrl+Z lo deshace en el proyecto).</p>
+<p>Con Excel:</p>
 <ol>
 <li><b>Exportar Excel…</b> guarda el Excel con todo lo que hay ahora (también los tipos que agregaste).</li>
 <li>Edítalo en Excel. Los desplegables ayudan: en <b>UTILIDAD</b> salen las seis utilidades y en <b>TIPO</b>
     solo los tipos de la utilidad de esa fila. Un tipo nuevo escrito como fila nueva en la hoja TIPOS aparece
     solo en los desplegables.</li>
 <li><b>Importar Excel…</b> lo trae de vuelta. Si una celda no se entiende, la app dice cuál (hoja, fila y
-    columna) y no la usa. <b>Volver a los valores iniciales</b> deshace todo.</li>
+    columna) y no la usa; tampoco una fila con una utilidad o un accesorio que la app no tiene. <b>Volver a los
+    valores iniciales</b> deshace todo.</li>
 </ol>
 
 <h2>Tipo y amperaje de cada utilidad</h2>
@@ -934,8 +948,9 @@ copia de recuperación).</p>
     pasa de largo, y en un quiebre Wye + tubo corto + codos; el brazo hacia la utilidad sigue su pendiente) y las marcas de los avisos de normativa (ámbar) y de los <b>conflictos</b> (rojo, con su número C-n; clic = su ficha).</li>
 <li>El <b>suelo</b>, semitransparente, para ver lo que queda bajo tierra.</li>
 <li>Con <b>«Ángulos y pendientes por tramo»</b> (Mostrar), un rótulo con la pendiente de cada tramo y otro con
-    el ángulo de cada quiebre sobre cada utilidad. Al elegir una utilidad, su ficha muestra su pendiente (o la
-    de cada tramo si cambia).</li>
+    el ángulo de cada quiebre sobre cada utilidad. Como en el plano, de lejos solo salen los de los tramos que se
+    alcanzan a leer y, de los que se tapan, uno (primero los de lo elegido); al acercarte aparecen los demás. Al
+    elegir una utilidad, su ficha muestra su pendiente (o la de cada tramo si cambia).</li>
 <li>Pensada para equipos modestos: tuberías, accesorios y marcas se mandan a la tarjeta de video como
     copias de unas pocas piezas (con OpenGL 3.3, casi cualquier PC desde 2012), así la vista usa unas diez
     veces menos memoria; en un equipo más viejo se ve igual con el método de antes.</li>
@@ -943,7 +958,7 @@ copia de recuperación).</p>
 
 <h2>Moverse</h2>
 <table width="100%" cellspacing="4" cellpadding="8">
-<tr><td bgcolor="{{card}}" width="40%">Rueda</td><td bgcolor="{{card}}">Acercar / alejar hacia donde apunta el cursor</td></tr>
+<tr><td bgcolor="{{card}}" width="40%">Rueda</td><td bgcolor="{{card}}">Acercar / alejar hacia donde apunta el cursor (se detiene a 1 ft de la tubería; sin nada debajo, sigue avanzando)</td></tr>
 <tr><td bgcolor="{{card}}">Doble clic con la rueda</td><td bgcolor="{{card}}">Encuadrar todo</td></tr>
 <tr><td bgcolor="{{card}}">Botón central (o derecho, o Ctrl + izquierdo) y arrastrar</td><td bgcolor="{{card}}">Desplazar</td></tr>
 <tr><td bgcolor="{{card}}">Shift + botón central (o izquierdo) y arrastrar</td><td bgcolor="{{card}}">Girar</td></tr>
@@ -958,6 +973,18 @@ arrastrar el cubo o su anillo para girar.</p>
 se encuadra en 3D. Cada vez que abres la ventana arranca en <b>planta</b> (vista superior) con todo encuadrado. <b>Esc</b> quita la
 selección (no cierra la ventana). Al pasar el ratón, la línea de abajo dice qué es (número, diámetro, soleras, tipo; o
 fondo y tapa del buzón; o el aviso).</p>
+
+<h2>Editar una utilidad desde 3D</h2>
+<p>Con una tubería elegida, debajo de su ficha aparece <b>Editar</b>: el <b>diámetro</b> (las mismas opciones del
+panel del plano) y una fila por tramo (<b>T1</b>, <b>T2</b>… como en el plano) con la cota de <b>inicio</b>, la de
+<b>fin</b> y la <b>pendiente</b>. El inicio de T1 es la rasante inicial y el fin del último tramo, la final. Se
+escribe la cota (o <span class="key">&nbsp;↑&nbsp;</span> <span class="key">&nbsp;↓&nbsp;</span> la cambian 0.10 ft) y la
+pendiente se ve al instante; la 3D muestra el cambio en el momento (aun con miles de utilidades: se rehace solo
+esa utilidad, sus vecinas y sus accesorios) y el cambio real se aplica al dejar de tocar o con Enter, en el plano
+(rasantes y tabla «Cotas por tramo»). Los avisos y conflictos en 3D se ponen al día unos segundos después. Cambiar una cota intermedia activa la edición por tramo de esa utilidad, como el botón
+del plano. Clic en una fila resalta ese tramo en el plano. <span class="key">&nbsp;Ctrl+Z&nbsp;</span> lo deshace
+(también desde la Vista 3D). Elegir algo en 3D lo elige en el plano sin traer la ventana principal al frente, así
+<b>Esc</b> sigue funcionando aquí.</p>
 
 <h2>Ficha de atributos</h2>
 <p>Clic en una tubería, un accesorio (codo, Tee, Wye…) o un buzón: arriba del panel derecho aparece su
