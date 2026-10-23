@@ -10,8 +10,8 @@ alcantarillado, drenaje, gas, eléctrico, telecom). Todo en **unidades imperiale
   - `main.py` — punto de entrada (arma `sys.path`: `app/` + raíz).
   - **Carpetas por capa (2026-10-08, en curso)**: `app/nucleo/` = lógica PURA del dominio (sin Qt ni fitz):
     `model`, `model_ops`, `xdata`, `duct_bank`, `unir_utilidades`, `unir_ramales`, `quiebres_curvas`,
-    `accesorios`, `normas_catalogo`, `normas_excel`, `normas_excel_ayuda`, `normas_validar`, `normas_aprobacion`, `normas_tablas`, `tabla_datos`, `tabla_excel`, `conflictos`, `modelo3d`, `mallas3d`, `accesorios3d`, `verticales3d`, `marcas3d`, `ficha3d`, `edicion_bloque`,
-    `limpieza`, `limpieza_tramos`, `vertice_curva`, `conexiones_verticales`, `trazo_asistido`, `angulos`, `indice_plano`, `memo_modelo`, `deshacer`, `reducciones3d`, `rotulos3d`, `modelo3d_parche`, `edicion3d`, `archivo_zip`, `avance`, `avance_pesado`. Se importan
+    `accesorios`, `normas_catalogo`, `normas_excel`, `normas_excel_ayuda`, `normas_validar`, `normas_validar_acc`, `normas_validar_red`, `normas_reglas`, `normas_base`, `normas_migrar`, `normas_excel_v1`, `normas_aprobacion`, `normas_tablas`, `tabla_datos`, `tabla_excel`, `conflictos`, `modelo3d`, `mallas3d`, `accesorios3d`, `verticales3d`, `marcas3d`, `ficha3d`, `edicion_bloque`,
+    `limpieza`, `limpieza_tramos`, `vertice_curva`, `conexiones_verticales`, `trazo_asistido`, `angulos`, `indice_plano`, `memo_modelo`, `deshacer`, `reducciones3d`, `rotulos3d`, `modelo3d_parche`, `edicion3d`, `archivo_zip`, `avance`, `avance_pesado`, `informe_datos`, `informe_redaccion`, `soluciones`. Se importan
     como `from nucleo import model_ops` / `from nucleo.model import …` (nunca `import model_ops`: ese nombre
     ya no existe). Regla: la interfaz usa `nucleo`, `nucleo` NUNCA importa la interfaz (PySide6, `i18n`,
     ventana…; sí `i18n_core`). Más abajo los módulos se nombran sin la carpeta: `model_ops.py` = `app/nucleo/
@@ -24,14 +24,15 @@ alcantarillado, drenaje, gas, eléctrico, telecom). Todo en **unidades imperiale
     `leyenda_cruce`, `leyenda_estandar`, `leyenda_trazos`, y los de mapas sin capas `pdf_styles`, `texto_pdf`,
     `leyenda_mapa`, `leyenda_mapa_lectura`, `acometidas_mapa` (`from hoja import composite`). Los diálogos y vistas
     del compositor/capas (y `composite_choice`, que usa `i18n`) siguen en `app/`.
+    `app/ia/` (2026-10-23) = la IA, PURA (ver «IA» más abajo).
     `app/catalogo/` = `civil_catalog`, `catalogo_tamanos`, `catalogo_tamanos_presion` (PUROS) y `app/exportar/` =
-    `dxf_export` (NO puro: recibe la ventana `win` y usa `geometry.point_in_poly`; `geometry` importa QtGui).
+    `dxf_export` (NO puro: recibe la ventana `win` y usa `geometry.point_in_poly`; `geometry` importa QtGui) e `informe_word` (Word del informe, sin Qt, python-docx).
     `app/ui/` (mismo día) = TODA la interfaz Qt, en cuatro subpaquetes: `ui/ventana/` (`app_window`, `ventana_*`,
     `ventana_comun`, `respaldo_editor`, `autoguardado`), `ui/asistente/` (compositor, capas de la hoja, leyenda,
     vista previa del reconocimiento y sus vistas: `composite_dialog`/`_view`/`_choice`…, `layer_dialog*` (incl. `layer_dialog_recog`, de dev_santos_v2),
     `layer_info_panel`, `layer_std_legend`, `recognition_dialog` y `recognition_*_view`/`_preview_draw`,
     `wizard_widgets`, `pdf_view_quality`, `alignment_tools`, `tool_strip`…), `ui/dialogos/` (`dialogs`,
-    `normas_dialog`, `normas_tablas_view`, `tabla_datos_dialog`, `vista3d_dialog` (+ `vista3d_armado`, `vista3d_editor`), `edicion_bloque_dialog`, `limpieza_dialog`, `duct_bank_dialog`, `xdata_dialog`, `catalogo_tamanos_dialog`, `manual_dialog`,
+    `normas_dialog`, `normas_tablas_view`, `tabla_datos_dialog`, `informe_dialog`, `ia_chat`, `ia_config_dialog`, `ia_soluciones`, `normas_ia_panel`, `vista3d_dialog` (+ `vista3d_armado`, `vista3d_editor`), `edicion_bloque_dialog`, `limpieza_dialog`, `duct_bank_dialog`, `xdata_dialog`, `catalogo_tamanos_dialog`, `manual_dialog`,
     `shortcuts_dialog`, `blank_canvas_dialog`) y `ui/comun/` (`canvas`, `widgets`, `ui_common`, `theme`, `icons`,
     `busy`, `responsive`, `side_panels`, `thumbnails`, `workers`, `accesorios_view`, `avisos_view`, `capa_marcas`, `visor3d`, `rotulos3d_lod`, `barra_pesada`, `cubo_vistas`, `fondo_pdf`, `recorte_nitido`, `teselas`, `teselas_hijo`, `teselas_servidor`,
     `teselas_vista`). Se importan como
@@ -1623,10 +1624,99 @@ alcantarillado, drenaje, gas, eléctrico, telecom). Todo en **unidades imperiale
     panel mientras se editaba se conserva. `armar` (Excel y editor): fila con UTILIDAD que no es de la app o
     ACCESORIO que no reconoce → problema y no se usa; con `tipos_estrictos` (editor) también un TIPO que no está en
     TIPOS. `AUX` del Excel = una columna por utilidad de la app. Tests: `tests/test_normas_editor.py`.
+    **UNA tabla de reglas** (2026-10-21, pedido del usuario: «unificar todo… integrada con lo que la app puede
+    validar»; decisiones suyas: condiciones en columnas FIJAS, columna ELEMENTO, «manda el Excel, borrar lo viejo»):
+    catálogo `{"version": 2, "tipos", "reglas"}`. `nucleo/normas_reglas.py` (PURO): `COLUMNAS` = ACTIVA | UTILIDAD |
+    TIPO | ELEMENTO | SI DIAMETRO/AMPERAJE/LARGO MIN-MAX | SI MATERIAL | REVISAR | MIN | MAX | VALORES | CON UTILIDAD
+    | CON TIPO | NIVEL | FUENTE | NOTA; `ELEMENTOS` (TUBERIA, CURVA, BUZON —gravedad—, Y, T, CRUZ, CODO,
+    T - DOMICILIARIA —presión: `accesorios` solo los detecta ahí—, `elementos_de`), `REVISAR` = lista CERRADA
+    (`Revisar`: texto con unidad, elementos, MIN/MAX/VALORES, qué va en VALORES —números, tipos, materiales de
+    `model.PIPE_MATERIALS`, SI/NO—, `con`, redes, utilidades, clase del aviso; `revisar_de(u, e)`), `leer_fila`
+    (MISMA lectura para Excel y editor: lo que la app no contempla = problema por columna y la fila no se usa),
+    `alcance` (reglas con el mismo alcance se SUMAN: basta cumplir una). `nucleo/normas_base.py` = las de fábrica:
+    Excel del ingeniero «Normativas (1).xlsx» (filas 8–11 = ALIMENTACION Y CONDUCCION), gas de antes y lo MEDIBLE de
+    los Word (separaciones agua–alcantarillado/drenaje 10 ft y 1 ft por encima, eléctrico 6"/12", buzones
+    400/500/900 ft, caídas, pendientes de alcantarillado y drenaje MRDC, radios de PVC y conduits, materiales…; lo no
+    medible como «Solo referencia» con FUENTE). `nucleo/normas_migrar.py`: cuatro tablas → reglas (fijo + MIN/MAX
+    eléctricos en UNA regla = las dos cosas; «solo en» repetidos se juntan); el Excel viejo se lee con
+    `normas_excel_v1` (movido tal cual) y un JSON viejo (`cargar`) pasa a las de fábrica + tipos del usuario
+    (respaldo `.v1.json`). Validación: `normas_validar` (tipo, tubería, curvas, buzones; `Datos` con el largo
+    perezoso; reglas por (utilidad, tipo) una vez), `normas_validar_acc` (orden de siempre: se permite → solo en →
+    principal → ramal → ángulo; grupos memorizados por combinación) y `normas_validar_red` (paralelo ≤20°, solape
+    ≥1 ft, entre bordes/ejes; cruce con cotas `z_en_tramo` + `alto_interior_ft`; CUALQUIERA = otra capa; misma
+    utilidad unida —punta a ≤0.1 ft— no cuenta; conexiones verticales aprobadas tampoco —`validar(conexiones=)`—;
+    «llega a» por la punta). Sin cotas no hay pendiente/caída/cruce. `Aviso.nivel`/`fuente`; ERROR = insignia
+    roja (`avisos_view`). NOTA de un diámetro = información si solo la cumplen reglas con nota (como «SOLO SE
+    PERMITE EN»). Aprobación: `huella(p, clase)` suma material o cotas solo en sus clases nuevas. Excel
+    (`normas_excel`): INSTRUCCIONES, TIPOS (+ AUX), REGLAS y LISTAS oculta con nombres definidos `E_<UTIL>` y
+    `R_<UTIL>_<ELEMENTO>` (desplegables dependientes por INDIRECT; error «stop»; verificado en Excel real con
+    `Validation.Value`). Editor (`normas_tablas` + `normas_tablas_view`): pestañas Tipos y Reglas, `opciones(col,
+    fila, tipos)`, filtro por utilidad, globo = `frase`. Verificado: con las reglas viejas pasadas, avisos IGUALES al
+    validador viejo en 400 casos al azar (de fábrica y Excel v4) y en AGUA 2 (0.13 → 0.2 s); con el Excel nuevo
+    solo cambian los de ALIMENTACION (el viejo miraba la primera fila de cada accesorio). Tests:
+    `tests/test_normas.py`, `tests/test_normas_editor.py`, `tests/test_normas_reglas.py`.
   - **Tabla de datos** (2026-10-09, Herramientas, Ctrl+Shift+T, botón `_act_tabla` `mdi:table-large`):
     `nucleo/tabla_datos.py` (PURO: `armar(...)` → `Tabla` utilidades/buzones/curvas/bancoductos/avisos, con
     `lugares` para ir al plano; `exportar_excel` una hoja por tabla) + `ui/dialogos/tabla_datos_dialog.py` (no
     modal, buscar, ordenar —`_Item` compara números como números—, doble clic → `Main._ir_a_elemento`).
+  - **Informe automático** (2026-10-23, Herramientas → «Informe automático…», `Main.generar_informe(ruta=,
+    opciones=)` de `ui/ventana/ventana_informe.InformeMixin`): Word (.docx, python-docx: en `requirements.txt` y en
+    el `collect_all` de `PDF-a-CAD.spec`) con conflictos y/o avisos de normativa (`ui/dialogos/informe_dialog`:
+    qué incluir + capturas 2D / 3D / ambas, QSettings `informe/*`). Cadena: `nucleo/informe_datos.armar` (PURO:
+    FICHAS = dicts con lo que la app ya midió —id C-n / N-n, clase, título, nivel, utilidades con código, tipo,
+    diámetro, material y cota, valores, mensaje, fuente, aprobación—; «sin tipo» solo se cuenta; ZONAS por celdas
+    de `ZONA_FT`=150 que se doblan hasta ≤`MAX_ZONAS`=40, caja con margen y proporción `ASPECTO`) → capturas
+    (`ui/ventana/informe_capturas`: `Captura2D` = otra QGraphicsView sobre la MISMA escena, mostrada con
+    `WA_DontShowOnScreen` —sin mostrarse no toma su tamaño y el encuadre sale corrido—, `fitInView` + `render` a
+    1.5×, JPG 75; `mapa` = todo con las zonas numeradas; `Captura3D` = abre la Vista 3D, espera la escena, cámara
+    isométrica encuadrada en la zona, `grabFramebuffer`, repone la cámara; sin pantalla no hay 3D y el Word lo
+    dice) → `nucleo/informe_redaccion` (PURO: interfaz `Redactor` resumen/zona/ficha; `RedactorPlantilla` o, con IA, `ia/redactor_ia.RedactorIA` (ver «IA»)
+    con `CONSEJOS` «Qué hacer»; `crear(config)` por `ia/proveedor` de QSettings —lo demás cae a la plantilla con
+    motivo—; `datos_para_ia(ficha)` = el JSON que recibirá la IA, ver `docs/pendientes_ia.md`) →
+    `exportar/informe_word.escribir` (anexo hasta `ANEXO_MAX`=1000 filas). Barra precisa `barras_carga.informe`
+    (`MS_INFORME` medidos con AGUA 2; etapas informe_datos/mapa/2d/3d_armar/3d/zonas/anexo/guardar). AGUA 2
+    (16 762 utilidades, 171 conflictos, 18 zonas) con capturas 2D: ~3 s, ~7 MB. Nada cambia en el proyecto.
+    Tests: `tests/test_informe.py`.
+  - **IA** (2026-10-23, menú IA: «Pregúntale al proyecto…» Ctrl+Shift+I + botón `mdi:chat-question-outline`,
+    «Configurar IA…», «Abrir carpeta de aprendizaje»; `docs/pendientes_ia.md`). Regla: los NÚMEROS los pone la app,
+    la IA solo redacta; lo que escribe se revisa (`ia/texto.no_respaldados`: cifras que no están en los datos) y, si
+    falla o no responde, sale la plantilla. `app/ia/` (PURO, solo biblioteca estándar): `proveedor` (`Config` de
+    QSettings `ia/proveedor|url|modelo|paralelo` vía `Main._config_ia`; interfaz `Proveedor.chat(mensajes, sistema,
+    json, al_texto, maximo, cancelado)`/`modelos`/`probar`; `Ollama` = /api/chat en trozos NDJSON, `think: false`,
+    `num_ctx` 16384; Claude = escribir `Anthropic(Proveedor)` y sumarlo a `PROVEEDORES`, nada más cambia),
+    `memoria` (lo APRENDIDO, texto plano JSONL en «<proyecto> - IA/» junto al .digproj: `ensenanzas`
+    (nota/corrección/valoración), `conversaciones`, `redaccion` (caché de textos del informe) + LEEME; sin
+    proyecto guardado queda en RAM y se escribe al guardar; `buscar` = palabras en común pesadas por rareza, notas y
+    correcciones ×1.5, las «no útil» no vuelven), `contexto` (`DatosProyecto.armar(pipes, fichas, ft)`: resumen por
+    utilidad + una línea por utilidad y por ficha + `refs` código → lugar; `seleccionar(pregunta)` por códigos,
+    zona, utilidad nombrada —`SINONIMOS`— y palabras; AGUA 2: 0.8 s una vez, pedido ~3–4 mil tokens), `consulta`
+    (`armar_pedido`, `preguntar` → `Resultado` con referencias y `sin_respaldo`, `valorar`/`corregir`/
+    `ensenar_nota`), `redactor_ia` (`RedactorIA(Redactor)`: `verificar` (servidor y modelo) + `preparar(informe,
+    sin_red=)` ANTES del Word, lotes de `LOTE`=8 fichas por zona en `ThreadPoolExecutor(paralelo)`, JSON
+    `{"zona", "fichas"}`, revisión de cifras por ficha, fuente/aprobación las agrega la app, hasta `MAX_FICHAS_IA`
+    (las más graves), clave de caché = modelo + versión del prompt + idioma + ficha + notas del equipo; `crear` no
+    toca la red). Ventana: `ui/ventana/ventana_ia.IAMixin` (`_ia_memoria`, `_ia_al_guardar` en `_write_project`,
+    `_ia_soltar` al abrir/nuevo/cerrar, `_ia_datos` cacheado por `_firma_modelo`, `_ia_ir_a` → `_ir_a_elemento`),
+    `ui/dialogos/ia_chat.PreguntaDialog` (no modal, hilo + señales, respuesta en vivo, enlaces `ref:`/`util:`/
+    `noutil:`/`corr:`, sugerencias, «Enseñarle algo…») y `ia_config_dialog` (Buscar modelos, Probar; Claude
+    deshabilitado). Informe: `ventana_informe._redactar_con_ia` en `en_hilo` cancelable; servidor caído → lo ya
+    redactado + plantilla. Barra: etapa `informe_ia` (`barras_carga.MS_LOTE_IA`). Pruebas con un Ollama SIMULADO
+    (`tests/ollama_falso.py`): `tests/test_ia.py`.
+    **Resolver conflictos** (punto 3, mismo día; IA → «Resolver conflictos…», clic derecho junto a una C-n →
+    `SolucionesMixin._menu_conflicto`): la APP propone (`nucleo/soluciones.py`, PURO: cruce/choque —y «redes», cuyas
+    dos utilidades busca `_con_utilidades`— = bajar/subir UNA utilidad ENTERA, `desplazar_cotas` = mismo perfil, lo
+    justo para no tocarse + las separaciones `sep_v/encima/debajo` de las normativas entre esas utilidades;
+    escalón = igualar salida/llegada con `edicion3d.aplicar_cota`; lo demás sin propuesta) y PRUEBA cada una
+    (`ui/ventana/ventana_soluciones.py`: zona = la utilidad que cambia + las que tocan su recuadro +`MARGEN_FT`,
+    `calculo_fondo.Calculo` antes/después con índices remapeados, firmas de conflictos y avisos de normativa, más
+    `soluciones.uniones_rotas`; válida = el conflicto desaparece y nada nuevo; AGUA 2 0.1–0.2 s por conflicto);
+    `ia/soluciones_ia.recomendar` («RECOMENDADA: Pn», solo una válida, cifras revisadas, caché en `redaccion`
+    por ficha sin id/zona + propuestas; `aprender` = enseñanza `SOLUCION`); `ui/dialogos/ia_soluciones.py`
+    (lista, propuestas ✔/✖, recomendación en vivo, «Aplicar» = `aplicar_propuesta`: `_push` + `_tras_editar_3d`).
+    **«¿Qué significa esta regla?»**: `ia/explicar_norma.py` (caché GLOBAL junto al catálogo,
+    `dirname(nc.ruta())/ia/redaccion.jsonl`, clave = celdas + idioma + versión, sin el modelo) +
+    `ui/dialogos/normas_ia_panel.PanelExplicacion` bajo la tabla de Reglas (guardada = al instante, botón
+    apagado). Tests: `tests/test_ia_soluciones.py`.
   - **Vista 3D** (2026-10-10, Ver → «Vista 3D», F3, botón `_act_3d` `mdi:cube-outline`, clic derecho → «Ver en
     3D»): lo que Civil 3D va a construir, sin exportar. `nucleo/modelo3d.py` (PURO) `construir(pipes, structures,
     ft, colores, duct_banks, cruces, avisos, choques, ocultas, ver, suelo_z)` → `Escena` (mallas numpy de

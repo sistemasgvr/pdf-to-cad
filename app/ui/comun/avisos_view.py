@@ -1,6 +1,7 @@
 """Avisos de normativa en el lienzo, NO invasivos (pedido del usuario 2026-10-09).
 
-Un circulito pequeño ámbar con «!» (o celeste con «i» si es solo informativo) donde
+Un circulito pequeño ámbar con «!» (rojo si la regla es de nivel ERROR, celeste con «i» si es solo
+informativo) donde
 está el aviso: tamaño fijo en pantalla, algo transparente y sin texto encima del plano.
 Al pasar el ratón, el globo dice qué pasa. Los avisos de un mismo punto van juntos en
 UNA insignia. Los de los accesorios ya se ven en su etiqueta («Codo 45° ⚠»), así que
@@ -18,14 +19,15 @@ from traduccion.i18n import t as _tr
 
 _AMBAR = QtGui.QColor(240, 170, 20, 215)
 _CELESTE = QtGui.QColor(70, 150, 230, 200)
+_ROJO = QtGui.QColor(225, 60, 50, 220)
 
 
 class InsigniaAviso(QtWidgets.QGraphicsItem):
     R = 7.0
 
-    def __init__(self, info):
+    def __init__(self, info, error=False):
         super().__init__()
-        self._color = _CELESTE if info else _AMBAR
+        self._color = _CELESTE if info else _ROJO if error else _AMBAR
         self._letra = "i" if info else "!"
         self.setFlag(QtWidgets.QGraphicsItem.ItemIgnoresTransformations)
         self.setZValue(Z_HANDLE + 4)
@@ -72,12 +74,13 @@ def dibujar(scene, avisos, tol_px, con_accesorios_visibles, poner=None, reusar=N
     items = []
     for x, y, lista in grupos:
         info = all(a.info for a in lista)
-        it = reusar(("aviso", info, x, y)) if reusar else None
+        error = not info and any(getattr(a, "nivel", "") == "ERROR" for a in lista if not a.info)
+        it = reusar(("aviso", info, error, x, y)) if reusar else None
         if it is None:
-            it = sello(InsigniaAviso(info), ("aviso", info))
+            it = sello(InsigniaAviso(info, error), ("aviso", info, error))
             it.setPos(x, y)
             if guardar:
-                guardar(("aviso", info, x, y), it)
+                guardar(("aviso", info, error, x, y), it)
         quien = sorted({a.pipe + 1 for a in lista if a.pipe is not None and a.pipe >= 0})
         cab = _tr("Utilidad {n}").format(n=", ".join(f"#{k}" for k in quien)) if quien else ""
         texto = "\n".join(([cab] if cab else []) + [("ⓘ " if a.info else "⚠ ") + a.mensaje for a in lista])

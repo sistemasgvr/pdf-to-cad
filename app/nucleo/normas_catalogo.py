@@ -1,26 +1,19 @@
-"""Normativas de diseño en TABLAS (PURO: sin Qt).
+"""Normativas de diseño: catálogo y lectura de celdas (PURO: sin Qt).
 
-Formato del Excel que armó el usuario (2026-10-09; reemplaza a la plantilla «All (Flat)»
-y al motor de reglas anterior). Cuatro tablas, una fila por regla y sin símbolos dentro
-de las celdas:
+Desde 2026-10-21 el catálogo es UNA tabla de reglas (`normas_reglas`, pedido del usuario: «unificar todo en una
+sola tabla… integrada con lo que la app puede validar») + la tabla TIPOS:
 
-  TIPOS               UTILIDAD | TIPO — los tipos que cada utilidad puede elegir
-                      (Distribución principal, Instalación domiciliaria…). El usuario
-                      suma tipos con el «+» del panel y salen al exportar el Excel.
-  PRESION-DIAMETROS   UTILIDAD | TIPO | DIAMETRO (in) (lista) | DIAMETRO MIN / MAX (in) (rango) |
-                      SOLO SE PERMITE EN (nota)
-  PRESION-ACCESORIOS  UTILIDAD | ACCESORIO | SOLO SE PERMITE EN | DIAMETRO PRINCIPAL (in) |
-                      PROHIBIDO USO | DIAMETRO RAMAL DISTRIBUCION (-1 = un tamaño menor
-                      en la lista) | ANGULOS PERMITIDOS
-  ELECT-TELECOM       UTILIDAD | ESTRUCTURA | TIPO | AMPERAJE MIN / MAX (A) | LONGITUD MIN / MAX
-                      (pies) | DIAMETRO FIJO / MIN / MAX (in) | RADIO CURVA MIN / MAX / FIJO (pies)
+  {"version": 2, "tipos": [[UTILIDAD, TIPO], …], "reglas": [regla, …]}
 
-Celda vacía = sin restricción o no aplica. Listas con «;» y decimales con coma
-(«1; 1,5; 2»). Los RANGOS van en dos columnas MIN y MAX (2026-10-14, Excel revisado por el
-ingeniero: «0.5-2», «>4», «>=400» en una celda se perdían): «de 0.5 a 2» = MIN 0.5, MAX 2;
-«4 o más» = MIN 4 y MAX vacío; los dos extremos cuentan. En memoria un rango es [mín, máx]
-con None en el extremo abierto. Se sigue leyendo el formato viejo «0-320» en una celda. El catálogo es GLOBAL (vale para todos los proyectos):
-`ruta()` en %APPDATA%/pdf-to-cad (o `PDFCAD_NORMAS_TABLAS` en las pruebas).
+Las de fábrica están en `normas_base` (lo que había + el Excel del ingeniero + lo medible de los Word). Antes eran
+cuatro tablas (TIPOS, PRESION-DIAMETROS, PRESION-ACCESORIOS, ELECT-TELECOM): `normas_migrar` las pasa a reglas
+(Excel viejo al importarlo). Un catálogo guardado viejo se reemplaza por el de fábrica (decisión del usuario: «manda
+el Excel, borrar lo viejo»), conservando los tipos que el usuario agregó; el archivo viejo queda como respaldo
+(`normativas_tablas.v1.json`).
+
+Celdas: vacía = sin restricción o no aplica; listas con «;» y decimales con coma («1; 1,5; 2»); los rangos en dos
+columnas MIN y MAX (en memoria [mín, máx] con None en el extremo abierto). El catálogo es GLOBAL (vale para todos
+los proyectos): `ruta()` en %APPDATA%/pdf-to-cad (o `PDFCAD_NORMAS_TABLAS` en las pruebas).
 """
 from __future__ import annotations
 
@@ -29,6 +22,7 @@ import json
 import os
 import functools
 import re
+import shutil
 import unicodedata
 
 from nucleo import model
@@ -36,63 +30,15 @@ from nucleo import model
 # Las utilidades las define la APLICACIÓN (`model.TIPOS`), no el Excel (pedido del usuario 2026-10-20:
 # «la aplicación manda en todo»): una fila con otra utilidad no se usa y se avisa.
 UTILIDADES = tuple(codigo for _nombre, codigo in model.TIPOS)
-# Accesorio del Excel → tipo que reconoce `accesorios.py` (o el especial «T domiciliaria»).
+# Accesorio del Excel VIEJO → tipo que reconoce `accesorios.py` (o el especial «T domiciliaria»).
 ACCESORIOS = {"Y": "wye", "WYE": "wye", "T": "tee", "TEE": "tee", "CRUZ": "cruz", "CODO": "codo",
               "T - DOMICILIARIA": "tee_dom", "T DOMICILIARIA": "tee_dom", "T-DOMICILIARIA": "tee_dom"}
-# Los nombres que se ofrecen al elegir (uno por accesorio que la app reconoce, como en el Excel).
-NOMBRES_ACCESORIOS = ("Y", "T", "Cruz", "Codo", "T - Domiciliaria")
-ESTRUCTURAS = ("SIMPLE", "BANCODUCTO")
-
-# Normativas de fábrica = el Excel «Normativas v4» del ingeniero (2026-10-14).
-_ELEC = dict(utilidad="ELECTRICO", estructura="SIMPLE", diam_fijo=[], diam_max=None, radio_min=None,
-             radio_max=None, radio_fijo=[3, 4])
-BASE = {
-    "version": 1,
-    "tipos": [["AGUA", "DISTRIBUCION PRINCIPAL"], ["AGUA", "ALIMENTACION Y CONDUCCION"],
-              ["AGUA", "INSTALACION DOMICILIARIA"], ["GAS", "SERVICIO RESIDENCIAL"],
-              ["GAS", "SERVICIO COMERCIAL/MULTIFAMILIAR"], ["GAS", "DISTRIBUCION PRINCIPAL"],
-              ["ELECTRICO", "DISTRIBUCION PRINCIPAL"], ["ELECTRICO", "DIMENSIONAMIENTO RESIDENCIAL"],
-              ["TELECOM", "DISTRIBUCION PRINCIPAL"]],
-    "diametros": [
-        {"utilidad": "AGUA", "tipo": "DISTRIBUCION PRINCIPAL", "diametros": [6, 8, 12, 16],
-         "diam_min": None, "diam_max": None, "nota": "TUBERIA DE DISTRIBUCION PRINCIPAL"},
-        {"utilidad": "AGUA", "tipo": "DISTRIBUCION PRINCIPAL", "diametros": [4], "diam_min": None, "diam_max": None,
-         "nota": "CALLES SIN SALIDA (cul-de-sacs), donde no necesiten hidrantes mayores a 2 pulgadas"},
-        {"utilidad": "AGUA", "tipo": "ALIMENTACION Y CONDUCCION", "diametros": [16, 20, 24],
-         "diam_min": None, "diam_max": None, "nota": "LINEAS DE ALIMENTACION Y CONDUCCION"},
-        {"utilidad": "AGUA", "tipo": "INSTALACION DOMICILIARIA", "diametros": [1, 1.5, 2],
-         "diam_min": None, "diam_max": None, "nota": "INSTALACIONES DOMICILIARIAS"},
-        {"utilidad": "GAS", "tipo": "SERVICIO RESIDENCIAL", "diametros": [0.5, 1, 1.5, 2],
-         "diam_min": None, "diam_max": None, "nota": "USO RESIDENCIAL"},
-        {"utilidad": "GAS", "tipo": "SERVICIO COMERCIAL/MULTIFAMILIAR", "diametros": [2, 4],
-         "diam_min": None, "diam_max": None, "nota": "USO COMERCIAL O MULTIFAMILIAR"},
-        {"utilidad": "GAS", "tipo": "DISTRIBUCION PRINCIPAL", "diametros": [], "diam_min": 6, "diam_max": None,
-         "nota": "TUBERIAS PRINCIPALES"},
-    ],
-    "accesorios": [
-        {"utilidad": "AGUA", "accesorio": "Y", "solo_en": "", "diam_principal": [],
-         "prohibido_en": "DISTRIBUCION PRINCIPAL", "ramal": None, "angulos": []},
-        {"utilidad": "AGUA", "accesorio": "T", "solo_en": "DISTRIBUCION PRINCIPAL",
-         "diam_principal": [6, 8, 12, 16], "prohibido_en": "", "ramal": -1, "angulos": []},
-        {"utilidad": "AGUA", "accesorio": "Cruz", "solo_en": "DISTRIBUCION PRINCIPAL",
-         "diam_principal": [6, 8], "prohibido_en": "", "ramal": None, "angulos": []},
-        {"utilidad": "AGUA", "accesorio": "Codo", "solo_en": "DISTRIBUCION PRINCIPAL",
-         "diam_principal": [], "prohibido_en": "", "ramal": None, "angulos": [11.25, 22.5, 45, 90]},
-        {"utilidad": "AGUA", "accesorio": "T - Domiciliaria", "solo_en": "INSTALACION DOMICILIARIA",
-         "diam_principal": [1, 1.5, 2], "prohibido_en": "", "ramal": None, "angulos": []},
-        {"utilidad": "GAS", "accesorio": "Codo", "solo_en": "", "diam_principal": [],
-         "prohibido_en": "", "ramal": None, "angulos": [45, 90]},
-    ],
-    "electricas": [
-        dict(_ELEC, tipo="DISTRIBUCION PRINCIPAL", amperaje=None, longitud=None, diam_min=2),
-        dict(_ELEC, utilidad="TELECOM", tipo="DISTRIBUCION PRINCIPAL", amperaje=None, longitud=None, diam_min=2,
-             radio_fijo=[]),
-        dict(_ELEC, tipo="DIMENSIONAMIENTO RESIDENCIAL", amperaje=[0, 320], longitud=[0, 100], diam_min=3),
-        dict(_ELEC, tipo="DIMENSIONAMIENTO RESIDENCIAL", amperaje=[0, 320], longitud=[101, 200], diam_min=3),
-        dict(_ELEC, tipo="DIMENSIONAMIENTO RESIDENCIAL", amperaje=[400, None], longitud=[0, 100], diam_min=3),
-        dict(_ELEC, tipo="DIMENSIONAMIENTO RESIDENCIAL", amperaje=[400, None], longitud=[101, 200], diam_min=4),
-    ],
-}
+# Tipos de fábrica del formato viejo: al pasar un catálogo viejo solo se conservan los que agregó el usuario.
+TIPOS_FABRICA_V1 = {("AGUA", "DISTRIBUCION PRINCIPAL"), ("AGUA", "ALIMENTACION Y CONDUCCION"),
+                    ("AGUA", "INSTALACION DOMICILIARIA"), ("GAS", "SERVICIO RESIDENCIAL"),
+                    ("GAS", "SERVICIO COMERCIAL/MULTIFAMILIAR"), ("GAS", "DISTRIBUCION PRINCIPAL"),
+                    ("ELECTRICO", "DISTRIBUCION PRINCIPAL"), ("ELECTRICO", "DIMENSIONAMIENTO RESIDENCIAL"),
+                    ("TELECOM", "DISTRIBUCION PRINCIPAL")}
 
 
 # ─────────────────────────── textos y números ───────────────────────────
@@ -198,7 +144,8 @@ def texto_pulgadas(n):
 # ─────────────────────────── catálogo ───────────────────────────
 
 def nuevo():
-    return copy.deepcopy(BASE)
+    from nucleo import normas_base
+    return copy.deepcopy(normas_base.base())
 
 
 def ruta():
@@ -209,35 +156,62 @@ def ruta():
     return os.path.join(base, "pdf-to-cad", "normativas_tablas.json")
 
 
+def es_v1(cat):
+    return isinstance(cat, dict) and "reglas" not in cat and any(
+        k in cat for k in ("diametros", "accesorios", "electricas"))
+
+
 def normalizar(cat):
-    """Catálogo completo y con los tipos de las otras tablas sumados a TIPOS."""
+    """Catálogo completo: cada regla con todas sus claves y los tipos que nombran las reglas sumados a TIPOS.
+    Un catálogo de cuatro tablas (viejo) se pasa a reglas (`normas_migrar`)."""
+    from nucleo import normas_migrar, normas_reglas as NR
+    if es_v1(cat):
+        cat = normas_migrar.de_v1(cat)
     out = nuevo() if not isinstance(cat, dict) else copy.deepcopy(cat)
-    for k in ("tipos", "diametros", "accesorios", "electricas"):
-        if not isinstance(out.get(k), list):
-            out[k] = []
+    if not isinstance(out.get("tipos"), list):
+        out["tipos"] = []
+    if not isinstance(out.get("reglas"), list):
+        out["reglas"] = []
     out["tipos"] = [[clave(u), clave(t)] for u, t in out["tipos"] if clave(u) and clave(t)]
-    for fila in out["diametros"]:
-        fila.setdefault("diam_min", None)
-        fila.setdefault("diam_max", None)
-    for fila in out["electricas"]:
-        fila.setdefault("radio_max", None)
-        fila.setdefault("radio_fijo", [])
-    for fila in out["diametros"]:
-        agregar_tipo(out, fila.get("utilidad"), fila.get("tipo"))
-    for fila in out["electricas"]:
-        agregar_tipo(out, fila.get("utilidad"), fila.get("tipo"))
-    for fila in out["accesorios"]:
-        for k in ("solo_en", "prohibido_en"):
-            agregar_tipo(out, fila.get("utilidad"), fila.get(k))
-    out["version"] = 1
+    out["reglas"] = [NR.regla_vacia(**{k: v for k, v in r.items()}) for r in out["reglas"] if isinstance(r, dict)]
+    for r in out["reglas"]:
+        for u, t in NR.tipos_usados(r):
+            agregar_tipo(out, u, t)
+    for k in [k for k in out if k not in ("version", "tipos", "reglas")]:
+        del out[k]
+    out["version"] = 2
     return out
 
 
+def desde_v1_guardado(viejo):
+    """Catálogo viejo guardado → el de fábrica + los tipos que agregó el usuario."""
+    cat = nuevo()
+    for u, t in viejo.get("tipos") or []:
+        if (clave(u), clave(t)) not in TIPOS_FABRICA_V1:
+            agregar_tipo(cat, u, t)
+    return normalizar(cat)
+
+
 def cargar(ruta_json=None):
+    r = ruta_json or ruta()
     try:
-        with open(ruta_json or ruta(), encoding="utf-8") as f:
-            return normalizar(json.load(f))
+        with open(r, encoding="utf-8") as f:
+            cat = json.load(f)
     except (OSError, ValueError, TypeError, AttributeError):
+        return nuevo()
+    try:
+        if es_v1(cat):
+            nuevo_cat = desde_v1_guardado(cat)
+            try:
+                respaldo = os.path.splitext(r)[0] + ".v1.json"
+                if not os.path.exists(respaldo):
+                    shutil.copyfile(r, respaldo)
+                guardar(nuevo_cat, r)
+            except OSError:
+                pass
+            return nuevo_cat
+        return normalizar(cat)
+    except (TypeError, AttributeError, KeyError, ValueError):
         return nuevo()
 
 

@@ -798,52 +798,66 @@ En drenaje y alcantarillado estas alertas no salen: ahí el buzón resuelve los 
 </section>
 
 <section data-title="Normativas de diseño">
-<p>Las normativas son cuatro tablas. En <b>Normativas → Normativas de diseño…</b>
-(<span class="key">&nbsp;Ctrl+Shift+N&nbsp;</span>) se <b>editan ahí mismo</b>, junto con los <b>avisos</b> del
-proyecto. Valen para todos tus proyectos en esta computadora. El Excel es opcional: sirve para compartirlas o
-editarlas en lote.</p>
+<p>Las normativas son <b>una tabla de reglas</b> y la tabla de <b>tipos</b>. En <b>Normativas → Normativas de
+diseño…</b> (<span class="key">&nbsp;Ctrl+Shift+N&nbsp;</span>) se <b>editan ahí mismo</b>, junto con los <b>avisos</b>
+del proyecto. Valen para todos tus proyectos en esta computadora. El Excel es opcional: sirve para compartirlas o
+para que el ingeniero cargue datos en lote.</p>
 
-<h2>Las tablas</h2>
+<h2>La tabla de reglas</h2>
+<p>Una fila = una regla. Se lee así: en esta <b>UTILIDAD</b> (y <b>TIPO</b>), para este <b>ELEMENTO</b>, si se
+cumplen las condiciones <b>SI…</b>, lo que dice <b>REVISAR</b> debe estar entre <b>MIN</b> y <b>MAX</b> o ser uno de
+<b>VALORES</b>. Pasa el mouse por una fila para leerla como frase.</p>
 <table width="100%" cellspacing="4" cellpadding="10">
-<tr><td bgcolor="{{card}}" width="28%"><b>TIPOS</b></td>
-    <td bgcolor="{{card}}">Los tipos que cada utilidad puede elegir: Distribución principal, Instalación
-        domiciliaria…</td></tr>
-<tr><td bgcolor="{{card}}"><b>PRESION-DIAMETROS</b></td>
-    <td bgcolor="{{card}}">Qué diámetros lleva cada tipo de agua o gas: una lista (6; 8; 12) o un rango con
-        DIAMETRO MIN y MAX (gas de 0,5 a 2), con una nota si solo se permite en un caso, por ejemplo calles sin
-        salida.</td></tr>
-<tr><td bgcolor="{{card}}"><b>PRESION-ACCESORIOS</b></td>
-    <td bgcolor="{{card}}">Dónde se permite o se prohíbe cada accesorio (Y, T, Cruz, Codo, T domiciliaria), el
-        diámetro de la principal, el del ramal (<b>-1</b> = un tamaño menor en la lista) y los ángulos del codo.</td></tr>
-<tr><td bgcolor="{{card}}"><b>ELECT-TELECOM</b></td>
-    <td bgcolor="{{card}}">Diámetro fijo, mínimo o máximo según el tipo, el <b>amperaje</b> y el largo de la línea,
-        y el <b>radio de las curvas</b>: RADIO CURVA FIJO (los radios permitidos, por ejemplo <i>3; 4</i>) o un
-        rango con RADIO CURVA MIN y MAX.</td></tr>
+<tr><td bgcolor="{{card}}" width="28%"><b>ACTIVA</b></td>
+    <td bgcolor="{{card}}">SI = se revisa; NO = queda escrita sin revisarse.</td></tr>
+<tr><td bgcolor="{{card}}"><b>UTILIDAD, TIPO</b></td>
+    <td bgcolor="{{card}}">A qué tuberías aplica. TIPO vacío = todas las de la utilidad. En un accesorio, el tipo de
+        su línea principal.</td></tr>
+<tr><td bgcolor="{{card}}"><b>ELEMENTO</b></td>
+    <td bgcolor="{{card}}">Qué se mira: la TUBERIA, sus CURVAS, sus BUZONES (redes por gravedad) o un accesorio
+        (redes a presión): Y, T, CRUZ, CODO, T - DOMICILIARIA.</td></tr>
+<tr><td bgcolor="{{card}}"><b>SI DIAMETRO / AMPERAJE / LARGO MIN–MAX, SI MATERIAL</b></td>
+    <td bgcolor="{{card}}">Condiciones sobre la tubería, todas a la vez (por ejemplo amperaje 321–400 <i>y</i>
+        largo 101–200). Vacías = siempre.</td></tr>
+<tr><td bgcolor="{{card}}"><b>REVISAR</b></td>
+    <td bgcolor="{{card}}">Lo que se mide, de una lista cerrada que cambia según la utilidad y el elemento:
+        diámetro, pendiente por tramo, largo, amperaje, material, quiebre sin buzón, separación horizontal en
+        paralelo (entre bordes o ejes), separación vertical y por encima/por debajo en el cruce, radio de curva,
+        distancia entre buzones, caída en el buzón, y en los accesorios si se permite, en qué tipos, diámetros de la
+        principal y del ramal y el ángulo. «Solo referencia» = queda escrita con su fuente, sin revisarse.</td></tr>
+<tr><td bgcolor="{{card}}"><b>MIN, MAX, VALORES</b></td>
+    <td bgcolor="{{card}}">El valor permitido, en la unidad de REVISAR. VALORES = una lista con «;» (6; 8; 12),
+        o SI/NO, tipos o materiales según REVISAR.</td></tr>
+<tr><td bgcolor="{{card}}"><b>CON UTILIDAD, CON TIPO</b></td>
+    <td bgcolor="{{card}}">Solo en separaciones: respecto a qué otra utilidad (CUALQUIERA = cualquier otra).</td></tr>
+<tr><td bgcolor="{{card}}"><b>NIVEL, FUENTE, NOTA</b></td>
+    <td bgcolor="{{card}}">ERROR (insignia roja), AVISO (ámbar) o INFO (solo informa); de dónde sale la regla; y
+        una aclaración. En un diámetro, la nota dice dónde se usa (4 in en cul-de-sacs) y sale como información.</td></tr>
 </table>
-<p>Celda vacía = sin restricción o no aplica. Listas con «;» y decimales con coma (<i>1; 1,5; 2</i>). Los
-<b>rangos van en dos columnas, MIN y MAX</b>: «de 0,5 a 2» = MIN 0,5 y MAX 2; «400 o más» = MIN 400 y MAX vacía
-(los extremos cuentan). Nunca un rango ni un símbolo en una sola celda (<i>0.5-2</i>, <i>&gt;=400</i>). La hoja
-<b>INSTRUCCIONES</b> del Excel lo explica con ejemplos y cada columna tiene un comentario (pasa el mouse por su
-título). Esa hoja y cualquier otra que no sea una de las cuatro tablas (por ejemplo «auxiliar», para notas) no se
-importan.</p>
+<p>Varias filas con el mismo alcance (utilidad, tipo, elemento, condiciones, REVISAR y CON) se suman: basta con
+cumplir una. Pendientes, caídas y cruces se miden con las cotas de cada tubería: sin cotas no se revisan. Lo que la
+app no puede medir (velocidades, caudales, presiones, profundidades sin terreno) va como «Solo referencia». Las de
+fábrica juntan el Excel del ingeniero, las de gas que ya había y lo medible de los manuales de agua, alcantarillado,
+drenaje, eléctrico y telecom.</p>
 
 <h2>Editar las normativas</h2>
-<p>En la ventana, cada tabla es una pestaña: <b>doble clic</b> en una celda para cambiarla, <b>Agregar fila</b> y
-<b>Quitar filas</b>. La aplicación manda: la <b>utilidad</b> se elige de las de la app, el <b>tipo</b> de los de esa
-utilidad (los tipos se crean en la pestaña <b>Tipos</b>) y el <b>accesorio</b> de los que la app reconoce. Nada se
-aplica hasta <b>Guardar cambios</b>: ahí se revisa todo con las mismas reglas que el Excel y, si una celda no se
-entiende, queda en <b>rojo</b> con el motivo y no se guarda nada. <b>Descartar cambios</b> vuelve a lo guardado.
-Si cambias el nombre de un tipo en la pestaña Tipos, cambia también en las demás tablas y en las utilidades del
-proyecto que lo usaban (Ctrl+Z lo deshace en el proyecto).</p>
+<p>En la ventana hay dos pestañas, <b>Tipos</b> y <b>Reglas</b> (con un filtro por utilidad): <b>doble clic</b> en
+una celda para cambiarla, <b>Agregar fila</b> y <b>Quitar filas</b>. La aplicación manda: lo que se elige sale de
+un desplegable que depende de la fila (los tipos de esa utilidad, los elementos que existen en ella, lo que se
+mide de ese elemento…). Nada se aplica hasta <b>Guardar cambios</b>: ahí se revisa todo con las mismas reglas que
+el Excel y, si una celda no se entiende o no es algo que la app contempla, queda en <b>rojo</b> con el motivo y no
+se guarda nada. <b>Descartar cambios</b> vuelve a lo guardado. Si cambias el nombre de un tipo en la pestaña
+Tipos, cambia también en las reglas y en las utilidades del proyecto que lo usaban (Ctrl+Z lo deshace en el
+proyecto).</p>
 <p>Con Excel:</p>
 <ol>
-<li><b>Exportar Excel…</b> guarda el Excel con todo lo que hay ahora (también los tipos que agregaste).</li>
-<li>Edítalo en Excel. Los desplegables ayudan: en <b>UTILIDAD</b> salen las seis utilidades y en <b>TIPO</b>
-    solo los tipos de la utilidad de esa fila. Un tipo nuevo escrito como fila nueva en la hoja TIPOS aparece
-    solo en los desplegables.</li>
+<li><b>Exportar Excel…</b> guarda el Excel (hojas INSTRUCCIONES, TIPOS y REGLAS) con todo lo que hay ahora.</li>
+<li>Edítalo en Excel. Los desplegables no dejan escribir lo que la app no contempla: UTILIDAD, TIPO (los de esa
+    utilidad, de la hoja TIPOS), ELEMENTO (los que existen en esa utilidad), REVISAR (lo que se mide de ese
+    elemento), NIVEL…; las columnas de números solo aceptan números. Cada columna tiene un comentario.</li>
 <li><b>Importar Excel…</b> lo trae de vuelta. Si una celda no se entiende, la app dice cuál (hoja, fila y
-    columna) y no la usa; tampoco una fila con una utilidad o un accesorio que la app no tiene. <b>Volver a los
-    valores iniciales</b> deshace todo.</li>
+    columna) y esa fila no se usa. Un Excel viejo de cuatro hojas también se importa: se pasa solo a reglas.
+    <b>Volver a los valores iniciales</b> deshace todo.</li>
 </ol>
 
 <h2>Tipo y amperaje de cada utilidad</h2>
@@ -854,7 +868,7 @@ utilidad: queda en las normativas y sale en su Excel al exportarlo. En las eléc
 <h2>Avisos</h2>
 <p>La app solo avisa: nunca cambia el dibujo. Los avisos son discretos:</p>
 <ul>
-<li>un <b>circulito ámbar «!»</b> donde algo no cumple (celeste «i» si es solo una condición de uso); pasa el
+<li>un <b>circulito ámbar «!»</b> donde algo no cumple (rojo si la regla es de nivel ERROR; celeste «i» si es solo información); pasa el
     mouse para leerlo;</li>
 <li>la etiqueta del accesorio en <b>ámbar</b> («Codo 30° ⚠»);</li>
 <li>el texto bajo <b>Amperaje</b> en el panel de la utilidad;</li>
@@ -922,6 +936,78 @@ cajas</b>, <b>curvas</b>, <b>bancoductos</b>, <b>avisos de normativa</b>, <b>con
     <span class="key">&nbsp;Ctrl+Z&nbsp;</span>.</li>
 </ol>
 <p>Al importar, los <b>conflictos</b> se recalculan: así se ve enseguida si un cambio de cota resolvió el choque.</p>
+</section>
+<section data-title="Informe automático">
+<p><b>Herramientas → Informe automático…</b> arma un documento de <b>Word</b> con lo que hay que revisar en el
+proyecto, listo para entregar.</p>
+<ol>
+<li>Elige <b>qué incluir</b>: conflictos, avisos de normativa o ambos.</li>
+<li>Elige las <b>capturas de cada zona</b>: del plano (2D), de la Vista 3D o de ambas. Si la Vista 3D no está
+    abierta, se arma primero: con proyectos grandes tarda más.</li>
+<li>Elige dónde guardarlo. Una barra muestra cada etapa (capturas, fichas, anexo, guardar) y, al terminar, puedes
+    abrir el informe.</li>
+</ol>
+<p>El informe trae:</p>
+<ul>
+<li><b>Resumen</b>: utilidades revisadas, conflictos, avisos pendientes, aprobados e informativos, utilidades sin
+    tipo, y cuántos hay de cada clase y en cada utilidad.</li>
+<li><b>Mapa general</b>: todo el dibujo con las zonas numeradas.</li>
+<li><b>Fichas por zona</b>: los conflictos y avisos cercanos se juntan en una zona, con sus capturas y cada uno
+    explicado (qué pasa, qué hacer, la fuente de la norma y, si se aprobó, quién y cuándo).</li>
+<li><b>Anexo</b>: todo en una tabla. Con muchísimos, la tabla muestra los primeros 1000; el detalle completo está
+    en la Tabla de datos y su Excel.</li>
+</ul>
+<p>El proyecto no cambia. Las utilidades sin tipo no tienen ficha: se cuentan en el resumen. Sin IA, los textos salen de
+plantillas; con la IA configurada (ver «IA»), la IA los redacta, siempre con los números que calcula la app.</p>
+</section>
+
+<section data-title="IA">
+<p>El menú <b>IA</b> trae una IA que conoce el proyecto abierto. Responde solo con los datos del proyecto: los
+números siempre los pone la app y, si la IA escribe una cifra que no está en los datos, la app lo avisa.</p>
+<h2>Configurar</h2>
+<p><b>IA → Configurar IA…</b>: elige <b>Servidor propio (Ollama)</b>, escribe la dirección del servidor y pulsa
+<b>Buscar modelos</b> y <b>Probar</b>. Con <b>Sin IA (plantillas)</b> todo funciona como antes.</p>
+<h2>Pregúntale al proyecto</h2>
+<p><b>IA → Pregúntale al proyecto…</b> (<span class="key">&nbsp;Ctrl+Shift+I&nbsp;</span>, o el botón de chat de
+la barra superior) abre un chat. Pregunta, por ejemplo, «¿cuántos conflictos hay y dónde están?», «¿qué pasa en
+C-12?» o «resume la zona 3».</p>
+<ul>
+<li>La respuesta aparece mientras se escribe. Cada código (C-12, N-3, AGUA-5) es un enlace: un clic lleva a ese
+    lugar del plano.</li>
+<li>Debajo de cada respuesta: <b>Útil</b>, <b>No útil</b> y <b>Corregir…</b> (escribe la respuesta correcta).</li>
+<li><b>Enseñarle algo…</b> deja una regla o un dato del proyecto, por ejemplo «los cruces con drenaje se resuelven
+    bajando el agua».</li>
+</ul>
+<h2>Lo que aprende</h2>
+<p>Las correcciones, las respuestas útiles y lo que le enseñas se guardan en una carpeta junto al proyecto,
+«<i>nombre del proyecto</i> - IA», en archivos de texto que se pueden abrir con el Bloc de notas. La IA los vuelve
+a leer en cada pregunta de ese proyecto. Si el proyecto aún no se guardó, se escriben al guardarlo; con «Guardar
+proyecto como…» la carpeta se copia. <b>IA → Abrir carpeta de aprendizaje</b> la abre.</p>
+<h2>Resolver conflictos</h2>
+<p><b>IA → Resolver conflictos…</b> (o clic derecho junto a una marca C-n del plano → «Resolver C-n: ver
+soluciones…») lista los conflictos. Al elegir uno:</p>
+<ul>
+<li>La app calcula las soluciones posibles: en un cruce o choque a la misma cota, bajar o subir una de las dos
+    utilidades lo justo para que no se toquen (y con la separación que pidan las normativas); en un escalón,
+    igualar la cota de llegada y la de salida.</li>
+<li>Cada solución se <b>prueba</b> en una copia del proyecto: ✔ si el conflicto desaparece sin crear otros
+    problemas, ✖ y cuáles si no.</li>
+<li>La IA recomienda una (★) y explica por qué. Solo puede elegir entre las que pasaron la prueba.</li>
+<li><b>Aplicar la propuesta elegida</b> cambia las cotas en un solo paso: <span class="key">&nbsp;Ctrl+Z&nbsp;</span>
+    lo deshace. Lo aplicado queda en lo que la IA aprende del proyecto.</li>
+</ul>
+<p>Los conflictos que se arreglan cambiando el dibujo (5 o más tuberías en un punto, tramos cortos entre codos…)
+no tienen solución automática: la ventana explica qué hacer.</p>
+<h2>¿Qué significa esta regla?</h2>
+<p>En <b>Normativas → Normativas de diseño</b>, pestaña Reglas, elige una fila y pulsa <b>Explicar con IA</b>: la
+IA la explica en palabras sencillas debajo de la tabla. La respuesta se guarda: al volver a elegir esa regla
+aparece al instante, sin preguntar otra vez. Si cambias la regla, puedes volver a pedirla.</p>
+<h2>Informe redactado por la IA</h2>
+<p>Con la IA configurada, el <b>Informe automático</b> sale con el resumen, cada zona y cada ficha redactados por
+la IA. Cada texto se revisa: si trae una cifra que no está en su ficha, esa ficha sale con la plantilla. Lo ya
+redactado se guarda en la misma carpeta, así repetir el informe es inmediato. Si el servidor no responde, el
+informe sale igual: con lo ya redactado y plantillas para lo demás. La barra muestra «La IA redacta el informe» y
+se puede cancelar.</p>
 </section>
 
 <section data-title="Vista 3D">

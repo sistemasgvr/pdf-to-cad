@@ -177,7 +177,8 @@ class CalculoPlanoMixin:
         accs = self._memo(("accesorios", ft_px), lambda: _acc.accesorios(self.pipes, self._pipe_z_at, ft_px))
         con_db = {i for db in getattr(self, "duct_banks", []) or [] for i in db.assigned()}
         normas = self._memo(("normas", ft_px), lambda: normas_validar.validar(
-            self.normas_cat, self.pipes, accs, ft_px, con_db, self.structures))
+            self.normas_cat, self.pipes, accs, ft_px, con_db, self.structures,
+            getattr(self, "cross_connections", None) or ()))
         # Ángulos en pasos de 0.25°: se validan pero NO se muestran (pedido del usuario 2026-10-16:
         # el dibujo a mano ya los deja en el paso; no van a los avisos ni al plano).
         from nucleo import angulos

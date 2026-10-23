@@ -146,3 +146,56 @@ def tam_mb(ruta):
         return os.path.getsize(ruta) / MB if ruta and os.path.isfile(ruta) else 0.0
     except OSError:
         return 0.0
+
+
+# ── informe automático (2026-10-23) ──
+# ms medidos con AGUA 2 (171 conflictos, 18 zonas, capturas de 2100 × 1310 px): 2D + Word = 2.7 s
+MS_INFORME = {"datos": 0.05, "mapa": 140.0, "zona_2d": 85.0, "armar3d_util": 1.8, "zona_3d": 250.0,
+              "ficha_word": 0.6, "imagen_word": 18.0, "fila_anexo": 0.3, "guardar_base": 100.0,
+              "guardar_imagen": 22.0}
+TEXTOS_INFORME = {
+    "informe_datos": N_("Juntando conflictos y avisos…"),
+    "informe_mapa": N_("Dibujando el mapa general…"),
+    "informe_2d": N_("Capturando el plano: zona {i} de {n}"),
+    "informe_3d_armar": N_("Armando la vista 3D…"),
+    "informe_3d": N_("Capturando la vista 3D: zona {i} de {n}"),
+    "informe_ia": N_("La IA redacta el informe: parte {i} de {n}"),
+    "informe_zonas": N_("Redactando las fichas: zona {i} de {n}"),
+    "informe_anexo": N_("Armando el anexo: {i} de {n} filas"),
+    "informe_guardar": N_("Guardando el Word…"),
+}
+
+
+# IA (estimado con qwen3-vl:8b a ~47 tokens/s): un lote de `redactor_ia.LOTE` fichas ≈ 9 s; con `paralelo`
+# pedidos a la vez, el servidor los reparte. Lo ya redactado (memoria del proyecto) no cuesta: la etapa avanza por
+# «parte i de n» y la barra sigue lo real.
+MS_LOTE_IA = 9000.0
+
+
+def informe(host, inf, opciones, n_utilidades, escena_lista, con_ia=False, paralelo=2):
+    """Barra del informe: `inf` = `informe_datos.Informe` (ya armado: se sabe cuántas zonas y fichas hay);
+    `escena_lista` = la Vista 3D ya tiene la escena al día (no hay que armarla); `con_ia` = la IA redacta."""
+    from exportar.informe_word import ANEXO_MAX
+    m, nz, nf = MS_INFORME, len(inf.zonas), len(inf.fichas)
+    imgs = nz * (int(opciones.capturas_2d) + int(opciones.capturas_3d)) + (1 if nz else 0)
+    partes = {"informe_datos": nf * m["datos"] + 20.0,
+              "informe_mapa": m["mapa"] if nz else 0.0,
+              "informe_2d": nz * m["zona_2d"] if opciones.capturas_2d else 0.0,
+              "informe_3d_armar": (0.0 if escena_lista else n_utilidades * m["armar3d_util"] + 1500.0)
+              if opciones.capturas_3d else 0.0,
+              "informe_3d": nz * m["zona_3d"] if opciones.capturas_3d else 0.0,
+              "informe_ia": (_lotes_ia(inf) * MS_LOTE_IA / max(1, paralelo)) if con_ia else 0.0,
+              "informe_zonas": nf * m["ficha_word"] + imgs * m["imagen_word"],
+              "informe_anexo": min(nf, ANEXO_MAX) * m["fila_anexo"],
+              "informe_guardar": m["guardar_base"] + imgs * m["guardar_imagen"]}
+    return AvancePesado(host, partes, TEXTOS_INFORME)
+
+
+def _lotes_ia(inf):
+    from ia.redactor_ia import LOTE, MAX_FICHAS_IA
+    lotes, quedan = 1, MAX_FICHAS_IA                    # 1 = el resumen
+    for z in inf.zonas:
+        n = min(len(z.fichas), quedan)
+        quedan -= n
+        lotes += max(1, -(-n // LOTE))
+    return lotes

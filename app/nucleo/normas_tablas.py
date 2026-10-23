@@ -1,121 +1,59 @@
-"""Las tablas de normativas como TEXTO para editarlas en la aplicación (PURO: sin Qt).
+"""Las normativas como TEXTO para editarlas en la aplicación (PURO: sin Qt).
 
-Pedido del usuario 2026-10-20: «que todo sea editable desde la aplicación… la aplicación manda en
-todo». La ventana de normativas muestra las cuatro tablas del Excel (`normas_excel`) y deja editarlas,
-agregar y quitar filas; aquí está lo que no es interfaz:
+Pedido del usuario 2026-10-20: «que todo sea editable desde la aplicación… la aplicación manda en todo», y
+2026-10-21: una sola tabla de reglas (`normas_reglas`). La ventana muestra dos tablas —Tipos y Reglas, las
+mismas hojas del Excel— y aquí está lo que no es interfaz:
 
-  • `TABLAS`: cada tabla con su hoja del Excel, sus columnas y QUÉ va en cada una (`tipo_columna`):
-    utilidad (de la app, `model.TIPOS`), tipo (de esa utilidad, de la tabla TIPOS), accesorio (los que la
-    app reconoce), estructura, número, lista de números o texto libre. La interfaz ofrece un desplegable
-    donde la app decide los valores.
-  • `filas(cat, clave)`: el catálogo en texto, como se ve en el Excel («6; 8; 12», «1,5»).
-  • `catalogo(textos)`: de vuelta al catálogo con `normas_excel.armar` —las MISMAS reglas que al importar
-    el Excel— y la lista de problemas por celda; un TIPO que no está en la tabla TIPOS es un problema.
-  • `renombrar_tipo`: cambiar el nombre de un tipo en TIPOS lo cambia en las demás tablas.
+  • `TABLAS` y `tipo_columna`: qué va en cada columna. `opciones(col, fila, tipos)` = la lista que ofrece la
+    app para esa celda según el resto de la fila (TIPO = los de su utilidad; ELEMENTO = los que existen en
+    esa utilidad; REVISAR = lo que se mide de ese elemento; VALORES = SI/NO, tipos o materiales según
+    REVISAR…), o None = texto/número libre.
+  • `filas(cat, clave)` / `catalogo(textos)`: ida y vuelta con `normas_reglas.leer_fila` —las MISMAS reglas que
+    al importar el Excel— y la lista de problemas por celda (un TIPO que no está en la tabla Tipos también).
+  • `renombrar_tipo`: cambiar el nombre de un tipo en Tipos lo cambia en las reglas.
+  • `frase(fila)`: la regla leída como frase («En AGUA · DISTRIBUCION PRINCIPAL, Tubería: Diámetro…»).
 """
 from __future__ import annotations
 
 from dataclasses import dataclass
 
 from nucleo import normas_catalogo as nc
-from nucleo import normas_excel as NE
-from traduccion.i18n_core import N_
+from nucleo import normas_reglas as NR
+from traduccion.i18n_core import N_, t
 
-UTILIDAD, TIPO, ACCESORIO, ESTRUCTURA, NUMERO, LISTA, TEXTO = (
-    "utilidad", "tipo", "accesorio", "estructura", "numero", "lista", "texto")
+UTILIDAD, TIPO, ELEMENTO, REVISAR, NUMERO, VALORES, MATERIAL, CON_UTILIDAD, CON_TIPO, NIVEL, SINO, TEXTO = (
+    "utilidad", "tipo", "elemento", "revisar", "numero", "valores", "material", "con_utilidad", "con_tipo",
+    "nivel", "sino", "texto")
 
 
 @dataclass(frozen=True)
 class Tabla:
-    clave: str                       # la del catálogo («tipos», «diametros», …)
+    clave: str                       # «tipos» / «reglas»
     hoja: str                        # la del Excel
     titulo: str                      # pestaña (español; la interfaz lo traduce)
     columnas: tuple
 
 
 TABLAS = (
-    Tabla("tipos", NE.HOJA_TIPOS, N_("Tipos"), NE.COL_TIPOS),
-    Tabla("diametros", NE.HOJA_DIAM, N_("Diámetros (presión)"), NE.COL_DIAM),
-    Tabla("accesorios", NE.HOJA_ACC, N_("Accesorios (presión)"), NE.COL_ACC),
-    Tabla("electricas", NE.HOJA_ELEC, N_("Eléctrico y telecom"), NE.COL_ELEC),
+    Tabla("tipos", "TIPOS", N_("Tipos"), ("UTILIDAD", "TIPO")),
+    Tabla("reglas", "REGLAS", N_("Reglas"), NR.COLUMNAS),
 )
-_TIPO_COLS = {(NE.HOJA_TIPOS, "TIPO"), (NE.HOJA_DIAM, "TIPO"), (NE.HOJA_ACC, "SOLO SE PERMITE EN"),
-              (NE.HOJA_ACC, "PROHIBIDO USO"), (NE.HOJA_ELEC, "TIPO")}
+_POR_COL = {"ACTIVA": SINO, "UTILIDAD": UTILIDAD, "TIPO": TIPO, "ELEMENTO": ELEMENTO, "SI MATERIAL": MATERIAL,
+            "REVISAR": REVISAR, "VALORES": VALORES, "CON UTILIDAD": CON_UTILIDAD, "CON TIPO": CON_TIPO,
+            "NIVEL": NIVEL}
 
 
 def tipo_columna(tabla, col):
-    """Qué va en la columna `col` de la tabla (ver arriba). En TIPOS, la columna TIPO es texto libre: ahí
-    se CREAN los tipos (en las demás se eligen)."""
-    if col == "UTILIDAD":
-        return UTILIDAD
-    if col == "ACCESORIO":
-        return ACCESORIO
-    if col == "ESTRUCTURA":
-        return ESTRUCTURA
-    if (tabla.hoja, col) in _TIPO_COLS:
-        return TEXTO if tabla.hoja == NE.HOJA_TIPOS else TIPO
-    if col in NE.NUMERICAS:
+    """Qué va en la columna `col`. En Tipos, la columna TIPO es texto libre: ahí se CREAN los tipos."""
+    if tabla.clave == "tipos":
+        return UTILIDAD if col == "UTILIDAD" else TEXTO
+    if col in NR.NUMERICAS:
         return NUMERO
-    if col in NE.LISTAS:
-        return LISTA
-    return TEXTO
-
-
-def _n(v):
-    return "" if v is None else nc.texto_numero(v)
-
-
-def _extremos(r):
-    return ["", ""] if not r else [_n(r[0]), _n(r[1])]
-
-
-def filas(cat, clave):
-    """Filas de texto de la tabla `clave`, en el orden de sus columnas."""
-    if clave == "tipos":
-        return [list(x) for x in cat.get("tipos", [])]
-    if clave == "diametros":
-        return [[f["utilidad"], f["tipo"], nc.texto_lista(f["diametros"]), _n(f.get("diam_min")),
-                 _n(f.get("diam_max")), f.get("nota") or ""] for f in cat.get("diametros", [])]
-    if clave == "accesorios":
-        return [[f["utilidad"], f["accesorio"], f.get("solo_en") or "", nc.texto_lista(f.get("diam_principal")),
-                 f.get("prohibido_en") or "", "" if f.get("ramal") is None else f"{int(f['ramal'])}",
-                 nc.texto_lista(f.get("angulos"))] for f in cat.get("accesorios", [])]
-    return [[f["utilidad"], f.get("estructura") or "", f.get("tipo") or "", *_extremos(f.get("amperaje")),
-             *_extremos(f.get("longitud")), nc.texto_lista(f.get("diam_fijo")), _n(f.get("diam_min")),
-             _n(f.get("diam_max")), _n(f.get("radio_min")), _n(f.get("radio_max")),
-             nc.texto_lista(f.get("radio_fijo"))] for f in cat.get("electricas", [])]
-
-
-def catalogo(textos):
-    """(catálogo, problemas): `textos` = {clave de tabla: [[celda, …] en el orden de sus columnas]}.
-    Cada problema es (clave de tabla, fila desde 0, columna, mensaje); las filas vacías no cuentan."""
-    hojas, problemas = {}, []
-    por_hoja = {t.hoja: t for t in TABLAS}
-    for t in TABLAS:
-        dicts = []
-        for n, fila in enumerate(textos.get(t.clave) or []):
-            d = {nc.clave(c): (v.strip() if isinstance(v, str) else v) for c, v in zip(t.columnas, fila)}
-            if any(v not in (None, "") for v in d.values()):
-                d["_fila"] = n
-                dicts.append(d)
-        hojas[t.hoja] = dicts
-    crudos = []
-    cat = NE.armar(hojas, crudos, tipos_estrictos=True)
-    for texto in crudos:                       # «HOJA, fila N, COLUMNA: «v» motivo»
-        hoja, _, resto = texto.partition(", fila ")
-        num, _, resto = resto.partition(", ")
-        col, _, motivo = resto.partition(": ")
-        t = por_hoja.get(hoja)
-        try:
-            fila = int(num)
-        except ValueError:
-            fila = -1
-        problemas.append((t.clave if t else hoja, fila, col, motivo or texto))
-    return cat, problemas
+    return _POR_COL.get(col, TEXTO)
 
 
 def tipos_de(textos_tipos, utilidad):
-    """Tipos de la utilidad en las filas (de texto) de la tabla TIPOS, sin repetir."""
+    """Tipos de la utilidad en las filas (de texto) de la tabla Tipos, sin repetir."""
     u, out = nc.clave(utilidad), []
     for fila in textos_tipos or []:
         if len(fila) >= 2 and nc.clave(fila[0]) == u and nc.clave(fila[1]) and nc.clave(fila[1]) not in out:
@@ -123,20 +61,128 @@ def tipos_de(textos_tipos, utilidad):
     return out
 
 
+def _col(fila, col):
+    k = NR.COLUMNAS.index(col)
+    return (fila[k] if k < len(fila) else "") or ""
+
+
+def opciones(col, fila, textos_tipos):
+    """[(valor, ayuda)] que ofrece la app para la celda `col` de la regla `fila` (textos), o None = libre.
+    Las de VALORES y SI MATERIAL admiten varias separadas con «;»."""
+    u = nc.clave(_col(fila, "UTILIDAD"))
+    if col == "ACTIVA":
+        return [(NR.SI, ""), (NR.NO, "")]
+    if col == "UTILIDAD":
+        return [(x, "") for x in nc.UTILIDADES]
+    if col == "TIPO":
+        return [("", "")] + [(x, "") for x in tipos_de(textos_tipos, u)]
+    if col == "ELEMENTO":
+        return [(e, "") for e in NR.elementos_de(u)] if u in nc.UTILIDADES else [(e, "") for e in NR.ELEMENTOS]
+    if col == "REVISAR":
+        e = nc.clave(_col(fila, "ELEMENTO")) or NR.TUBERIA
+        return [(r.texto, "") for r in NR.revisar_de(u, e)]
+    if col == "SI MATERIAL":
+        return [("", "")] + [(m, "") for m in NR.MATERIALES]
+    if col == "VALORES":
+        rv = NR.POR_TEXTO.get(nc.clave(_col(fila, "REVISAR")))
+        if rv is None or rv.valores == NR.NUM:
+            return None
+        if rv.valores == NR.SINO:
+            return [(NR.SI, ""), (NR.NO, "")]
+        if rv.valores == NR.MATERIAL:
+            return [(m, "") for m in NR.MATERIALES]
+        return [(x, "") for x in tipos_de(textos_tipos, u)]
+    if col == "CON UTILIDAD":
+        return [("", "")] + [(x, "") for x in nc.UTILIDADES + (NR.CUALQUIERA,)]
+    if col == "CON TIPO":
+        return [("", "")] + [(x, "") for x in tipos_de(textos_tipos, _col(fila, "CON UTILIDAD"))]
+    if col == "NIVEL":
+        return [(n, "") for n in NR.NIVELES]
+    return None
+
+
+def filas(cat, clave):
+    """Filas de texto de la tabla `clave`, en el orden de sus columnas."""
+    if clave == "tipos":
+        return [list(x) for x in cat.get("tipos", [])]
+    return [NR.fila_de(r) for r in cat.get("reglas", [])]
+
+
+def catalogo(textos):
+    """(catálogo, problemas): `textos` = {clave de tabla: [[celda, …]]}. Cada problema es (clave de tabla, fila
+    desde 0, columna, motivo); las filas vacías no cuentan."""
+    problemas, tipos = [], []
+    for n, fila in enumerate(textos.get("tipos") or []):
+        u, tp = (fila + ["", ""])[:2]
+        if not (str(u).strip() or str(tp).strip()):
+            continue
+        if nc.clave(u) not in nc.UTILIDADES:
+            problemas.append(("tipos", n, "UTILIDAD", "«{v}» no es una utilidad de la aplicación".format(v=u)))
+        elif not nc.clave(tp):
+            problemas.append(("tipos", n, "TIPO", "está vacío"))
+        elif [nc.clave(u), nc.clave(tp)] not in tipos:
+            tipos.append([nc.clave(u), nc.clave(tp)])
+    estrictos = {tuple(x) for x in tipos}
+    reglas = []
+    for n, fila in enumerate(textos.get("reglas") or []):
+        if not any(str(v).strip() for k, v in enumerate(fila) if NR.COLUMNAS[k] not in ("ACTIVA", "NIVEL")):
+            continue
+        r, mal = NR.leer_fila(fila, estrictos)
+        problemas += [("reglas", n, col, motivo) for col, motivo in mal]
+        if r is not None:
+            reglas.append(r)
+    return nc.normalizar({"tipos": tipos, "reglas": reglas}), problemas
+
+
 def renombrar_tipo(textos, utilidad, viejo, nuevo):
-    """El tipo `viejo` de la utilidad pasa a llamarse `nuevo` en las demás tablas (en sitio). Devuelve
-    cuántas celdas cambió."""
+    """El tipo `viejo` de la utilidad pasa a llamarse `nuevo` en las reglas (TIPO, CON TIPO y los VALORES de
+    «Solo en tipos»), en sitio. Devuelve cuántas celdas cambió."""
     u, v, n = nc.clave(utilidad), nc.clave(viejo), nc.clave(nuevo)
     if not (u and v and n) or v == n:
         return 0
+    k_u, k_t = NR.COLUMNAS.index("UTILIDAD"), NR.COLUMNAS.index("TIPO")
+    k_cu, k_ct = NR.COLUMNAS.index("CON UTILIDAD"), NR.COLUMNAS.index("CON TIPO")
+    k_r, k_v = NR.COLUMNAS.index("REVISAR"), NR.COLUMNAS.index("VALORES")
     cambios = 0
-    for t in TABLAS[1:]:
-        cols = [k for k, c in enumerate(t.columnas) if tipo_columna(t, c) == TIPO]
-        for fila in textos.get(t.clave) or []:
-            if nc.clave(fila[0]) != u:
-                continue
-            for k in cols:
-                if nc.clave(fila[k]) == v:
-                    fila[k] = n
-                    cambios += 1
+    for fila in textos.get("reglas") or []:
+        if nc.clave(fila[k_u]) == u and nc.clave(fila[k_t]) == v:
+            fila[k_t] = n
+            cambios += 1
+        if nc.clave(fila[k_cu]) == u and nc.clave(fila[k_ct]) == v:
+            fila[k_ct] = n
+            cambios += 1
+        rv = NR.POR_TEXTO.get(nc.clave(fila[k_r]))
+        if nc.clave(fila[k_u]) == u and rv is not None and rv.valores == NR.TIPOS_:
+            partes = [x.strip() for x in str(fila[k_v]).split(";") if x.strip()]
+            if any(nc.clave(x) == v for x in partes):
+                fila[k_v] = "; ".join(n if nc.clave(x) == v else x for x in partes)
+                cambios += 1
     return cambios
+
+
+def frase(fila):
+    """La regla como frase, para el globo de la fila («En AGUA · DISTRIBUCION PRINCIPAL, Tubería: …»)."""
+    from nucleo import normas_validar as V
+    r, _mal = NR.leer_fila(fila)
+    if r is None:
+        return ""
+    rv = NR.POR_CLAVE[r["revisar"]]
+    donde = " · ".join(x for x in (r["utilidad"], r["tipo"]) if x)
+    cond = V.condiciones(dict(r, tipo=""))
+    txt = t("En {donde}, {elemento}").format(donde=donde, elemento=r["elemento"])
+    if cond:
+        txt += " (" + t("si") + " " + ", ".join(cond) + ")"
+    if rv.clave == "referencia":
+        txt += ": " + t("solo referencia (no se revisa).")
+    else:
+        txt += ": " + rv.texto + " " + V.requisito(r)
+        if r.get("con_utilidad"):
+            txt += " " + t("con {u}").format(u=" · ".join(x for x in (r["con_utilidad"], r["con_tipo"]) if x))
+        txt += "."
+    if not r.get("activa", True):
+        txt += " " + t("(desactivada)")
+    if r.get("nota"):
+        txt += "\n" + r["nota"]
+    if r.get("fuente"):
+        txt += "\n" + t("Fuente: {f}").format(f=r["fuente"])
+    return txt

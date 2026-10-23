@@ -1,8 +1,8 @@
 """Ventana «Normativas de diseño» (formato de tablas del usuario, 2026-10-09).
 
-Las normativas son cuatro tablas (las del Excel, `normas_excel`) que se EDITAN aquí mismo
-(2026-10-20, `normas_tablas_view`: «la aplicación manda en todo»; «Guardar cambios» las revisa y
-aplica), la lista de avisos del proyecto (clic = ir al lugar; se APRUEBAN con una nota y queda
+Las normativas son UNA tabla de reglas + la de tipos (2026-10-21, `normas_reglas`; las mismas hojas del
+Excel, `normas_excel`) que se EDITAN aquí mismo (`normas_tablas_view`: «la aplicación manda en todo»;
+«Guardar cambios» las revisa y aplica), la lista de avisos del proyecto (clic = ir al lugar; se APRUEBAN con una nota y queda
 el registro de quién y cuándo, `nucleo/normas_aprobacion`) y los botones para importar o
 exportar el Excel (opcional: para compartirlas o editarlas en lote) y volver a los valores
 iniciales. Los tipos nuevos que el usuario agrega con el «+» del panel ya están en el catálogo.
@@ -91,6 +91,12 @@ class NormasDialog(QtWidgets.QDialog):
             self.pestanas.addTab(pag, _tr(tabla.titulo))
         self.tablas.cambio.connect(self._botones_tablas)
         self.tablas.cargar(self.win.normas_cat)
+        # «¿Qué significa esta regla?» con la IA, bajo la tabla de reglas (2026-10-23, `normas_ia_panel`)
+        from ui.dialogos.normas_ia_panel import PanelExplicacion
+        for pag, tabla in self.tablas.paginas:
+            if tabla.clave == "reglas":
+                self.panel_ia = PanelExplicacion(self.win, self.tablas, pag)
+                pag.layout().addWidget(self.panel_ia)
         self.refrescar()
 
     def refrescar(self):
@@ -109,9 +115,12 @@ class NormasDialog(QtWidgets.QDialog):
                                                  r.get("nota")) if x)
                 marca = "✔ "
             else:
-                estado, marca = (_tr("Información"), "ⓘ ") if a.info else (_tr("Pendiente"), "⚠ ")
+                estado, marca = ((_tr("Información"), "ⓘ ") if a.info else
+                                 (_tr("Error"), "⛔ ") if getattr(a, "nivel", "") == "ERROR" else (_tr("Pendiente"), "⚠ "))
             it = QtWidgets.QTreeWidgetItem([quien, marca + a.mensaje, estado])
             tip = _tr(CLASES.get(a.clase, a.clase)) + "\n" + a.mensaje
+            if getattr(a, "fuente", ""):
+                tip += "\n" + _tr("Fuente: {f}").format(f=a.fuente)
             if r.get("nota"):
                 tip += "\n\n" + _tr("Nota: {nota}").format(nota=r["nota"])
             for c in range(3):
@@ -272,9 +281,7 @@ class NormasDialog(QtWidgets.QDialog):
                 "No se pudo leer el Excel.\n\n{e}").format(e=e))
             return
         self.win._usar_normas(cat)
-        msg = _tr("Normativas importadas: {t} tipos, {d} filas de diámetros, {a} de accesorios y {e} de "
-                  "eléctrico y telecom.").format(t=len(cat["tipos"]), d=len(cat["diametros"]),
-                                                 a=len(cat["accesorios"]), e=len(cat["electricas"]))
+        msg = _tr("Normativas importadas: {t} tipos y {r} reglas.").format(t=len(cat["tipos"]), r=len(cat["reglas"]))
         if faltan:
             msg += "\n\n" + _tr("No se encontraron estas hojas (quedan vacías): {h}.").format(h=", ".join(faltan))
         if problemas:

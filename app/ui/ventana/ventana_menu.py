@@ -98,6 +98,7 @@ class MenuMixin:
         _act(mtools, "Componer PDF imagen/escaneo…", self.compose_scan_sheet)
         mtools.addSeparator()
         _act(mtools, "Tabla de datos…", self.abrir_tabla_datos, "Ctrl+Shift+T")
+        _act(mtools, "Informe automático…", lambda: self.generar_informe())   # Word de conflictos/normativas
         mtools.addSeparator()
         _act(mtools, "Insertar buzón en línea…", self.insert_manhole)
         _act(mtools, "Revisar y limpiar el dibujo…", self.revisar_dibujo)
@@ -139,6 +140,12 @@ class MenuMixin:
         self.menu_avisos.addSeparator()
         _act(self.menu_avisos, "Mostrar todos", lambda: self._mostrar_avisos(True))
         _act(self.menu_avisos, "Ocultar todos", lambda: self._mostrar_avisos(False))
+        # IA (2026-10-23): preguntas sobre el proyecto y quién responde (ventana_ia.py, paquete app/ia).
+        mia = _menu(mb, "&IA")
+        _act(mia, "Pregúntale al proyecto…", self.abrir_pregunta, "Ctrl+Shift+I")
+        _act(mia, "Resolver conflictos…", lambda: self.abrir_soluciones())
+        _act(mia, "Configurar IA…", self.configurar_ia)
+        _act(mia, "Abrir carpeta de aprendizaje", self.abrir_carpeta_ia)
         mhelp = _menu(mb, "A&yuda")
         _act(mhelp, "Acerca de…", self.show_about)
         _act(mhelp, "Manual de usuario", self.show_manual)
@@ -189,6 +196,8 @@ class MenuMixin:
         self._act_tabla = tact("mdi:table-large", "Tabla de datos: utilidades, buzones, curvas… (Ctrl+Shift+T)",
                                self.abrir_tabla_datos)
         self._act_3d = tact("mdi:cube-outline", "Vista 3D: lo que Civil 3D va a construir (F3)", self.abrir_vista3d)
+        self._act_ia = tact("mdi:chat-question-outline", "Pregúntale al proyecto: la IA responde con los datos del "
+                            "proyecto (Ctrl+Shift+I)", self.abrir_pregunta)
         tb.addSeparator()
         spacer = QtWidgets.QWidget(); spacer.setSizePolicy(QtWidgets.QSizePolicy.Expanding, QtWidgets.QSizePolicy.Preferred); tb.addWidget(spacer)
         # Sin selector de unidad: TODO va en pies por campo (cotas/coordenadas),

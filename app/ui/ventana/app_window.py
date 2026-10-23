@@ -93,6 +93,9 @@ from ui.ventana.ventana_curvas import CurvasMixin
 from ui.ventana.ventana_herramientas import HerramientasMixin
 from ui.ventana.ventana_bancoductos import BancoductosMixin
 from ui.ventana.ventana_bloque import EdicionBloqueMixin
+from ui.ventana.ventana_informe import InformeMixin
+from ui.ventana.ventana_ia import IAMixin
+from ui.ventana.ventana_soluciones import SolucionesMixin
 from ui.ventana.ventana_vista3d import Vista3DMixin
 from ui.ventana.ventana_edicion3d import Edicion3DMixin
 from ui.ventana.ventana_conflictos_lista import ConflictosListaMixin
@@ -104,7 +107,7 @@ from ui.ventana.calculo_fondo import CalculoFondoMixin
 from ui.ventana.ventana_estados import EstadosPreviosMixin
 
 
-class Main(MenuMixin, PanelIzquierdoMixin, PanelDerechoMixin, ModosMixin, ClicsMixin, UtilidadesMixin, CatalogoMixin, SeleccionMixin, ListasMixin, MarcasMixin, DibujoMixin, ConflictosMixin, CoordsMixin, BuzonesMixin, MoverPrecisoMixin, CurvasMixin, HerramientasMixin, BancoductosMixin, EdicionBloqueMixin, Vista3DMixin, Edicion3DMixin, ConflictosListaMixin, HojasEditorMixin,
+class Main(MenuMixin, PanelIzquierdoMixin, PanelDerechoMixin, ModosMixin, ClicsMixin, UtilidadesMixin, CatalogoMixin, SeleccionMixin, ListasMixin, MarcasMixin, DibujoMixin, ConflictosMixin, CoordsMixin, BuzonesMixin, MoverPrecisoMixin, CurvasMixin, HerramientasMixin, BancoductosMixin, EdicionBloqueMixin, InformeMixin, IAMixin, SolucionesMixin, Vista3DMixin, Edicion3DMixin, ConflictosListaMixin, HojasEditorMixin,
            VerticesMixin, TrazoMixin, CalculoPlanoMixin, CalculoFondoMixin, EstadosPreviosMixin,
            QtWidgets.QMainWindow):
     def __init__(self):
@@ -313,6 +316,7 @@ class Main(MenuMixin, PanelIzquierdoMixin, PanelDerechoMixin, ModosMixin, ClicsM
                 self.doc.close()
             self._cleanup_tmp_pdf()
             self.pdf_path = path; self.project_path = None; self.doc = new_doc; self._update_title()
+            self._ia_soltar()
             self.work_pdf_path = path
             with open(path, "rb") as fp:
                 self.src_pdfs = [{"name": os.path.basename(path), "data": fp.read(), "path": path}]
@@ -361,6 +365,7 @@ class Main(MenuMixin, PanelIzquierdoMixin, PanelDerechoMixin, ModosMixin, ClicsM
             self.doc = None
             self.pdf_path = None
             self.project_path = None
+            self._ia_soltar()
             self.work_pdf_path = None
             self.src_pdfs = []
             self.composite = None
@@ -1372,6 +1377,7 @@ class Main(MenuMixin, PanelIzquierdoMixin, PanelDerechoMixin, ModosMixin, ClicsM
             en_hilo.ejecutar(self, lambda: archivo_zip.escribir(path, entradas), _tr("Guardando proyecto…"),
                              avance=av.recibir, relanzar=True)
             self.project_path = path; self._dirty = False; self._update_title()
+            self._ia_al_guardar(path)                # la memoria de la IA sigue al proyecto (ventana_ia)
             self._info(_tr("Proyecto guardado: {archivo}").format(archivo=os.path.basename(path)))
             self._flash_save()
         finally:
@@ -1507,6 +1513,7 @@ class Main(MenuMixin, PanelIzquierdoMixin, PanelDerechoMixin, ModosMixin, ClicsM
             else:
                 self.src_pdfs = []
             self.project_path = path
+            self._ia_soltar()
             self.sheet_external_pdfs = external_pdfs
             self.sheet_sources = data.get("sheet_sources") or (
                 [{"name": model.get("pdf_name") or "PDF principal",
@@ -1687,6 +1694,7 @@ class Main(MenuMixin, PanelIzquierdoMixin, PanelDerechoMixin, ModosMixin, ClicsM
         self._cleanup_tmp_pdf()
         self.canvas.scene().clear(); self.canvas.pixmap_item = None; self.canvas.pdf_bg_item = None
         self.pdf_path = None; self.doc = None; self.project_path = None; self.gray = None; self._update_title()
+        self._ia_soltar()
         self.blank_canvas = False; self.paper = None
         self.sheet_layout = None
         self.sheet_rotations = {}
