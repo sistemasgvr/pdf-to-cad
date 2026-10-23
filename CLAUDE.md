@@ -1698,7 +1698,11 @@ alcantarillado, drenaje, gas, eléctrico, telecom). Todo en **unidades imperiale
     toca la red). Ventana: `ui/ventana/ventana_ia.IAMixin` (`_ia_memoria`, `_ia_al_guardar` en `_write_project`,
     `_ia_soltar` al abrir/nuevo/cerrar, `_ia_datos` cacheado por `_firma_modelo`, `_ia_ir_a` → `_ir_a_elemento`),
     `ui/dialogos/ia_chat.PreguntaDialog` (no modal, hilo + señales, respuesta en vivo, enlaces `ref:`/`util:`/
-    `noutil:`/`corr:`, sugerencias, «Enseñarle algo…») y `ia_config_dialog` (Buscar modelos, Probar; Claude
+    `noutil:`/`corr:`/`copiar:`/`repetir:`/`preg:`, sugerencias, «Enseñarle algo…»; pautas UX/UI 2026-10-23: HTML en
+    `ia_chat_html` —burbujas Tú/IA con hora y modelo, códigos como fichas, cifras en tarjeta ámbar, acciones = iconos
+    `ico:` con globo (`VistaChat.loadResource`/`event`, `TIPS`), «Pensando… N s» (`RELOJ_MS`), preguntas para seguir;
+    contraste ≥4.5:1 en los dos temas (`contraste`, test)—, Esc = Detener, letra A↓/A↑ en QSettings `ia/chat_letra`,
+    aviso arriba sin IA configurada) y `ia_config_dialog` (Buscar modelos, Probar; Claude
     deshabilitado). Informe: `ventana_informe._redactar_con_ia` en `en_hilo` cancelable; servidor caído → lo ya
     redactado + plantilla. Barra: etapa `informe_ia` (`barras_carga.MS_LOTE_IA`). Pruebas con un Ollama SIMULADO
     (`tests/ollama_falso.py`): `tests/test_ia.py`.

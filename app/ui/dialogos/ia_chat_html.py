@@ -24,6 +24,17 @@ TIPS = {"util": N_("Útil: la IA lo tendrá en cuenta"), "noutil": N_("No útil:
         "repetir": N_("Volver a preguntar"), "ref": N_("Ver en el plano"), "preg": N_("Preguntar esto"),
         "config": N_("Configurar IA…")}
 PUNTOS = ("●○○", "○●○", "○○●")
+ERROR_OSCURO = "#ff9b94"
+
+
+def contraste(a, b):
+    """Relación de contraste WCAG entre dos colores «#rrggbb»."""
+    def lum(h):
+        c = [int(h.lstrip("#")[i:i + 2], 16) / 255 for i in (0, 2, 4)]
+        c = [x / 12.92 if x <= 0.03928 else ((x + 0.055) / 1.055) ** 2.4 for x in c]
+        return 0.2126 * c[0] + 0.7152 * c[1] + 0.0722 * c[2]
+    x, y = sorted((lum(a), lum(b)), reverse=True)
+    return (x + 0.05) / (y + 0.05)
 
 
 def colores_aviso(oscuro):
@@ -71,7 +82,7 @@ def _acciones(i, tu, tk):
     iconos = "&nbsp;&nbsp;".join(f"<a href='{k}:{i}'><img src='ico:{k}' width='18' height='18'></a>"
                                  for k in claves)
     if hecho:
-        iconos = f"<span style='color:{tk.success}'>✔ {html.escape(hecho)}</span>&nbsp;&nbsp;" + iconos
+        iconos = f"<span style='color:{tk.text}'>✔ {html.escape(hecho)}</span>&nbsp;&nbsp;" + iconos
     return iconos
 
 
@@ -79,7 +90,8 @@ def _burbuja_ia(i, tu, tk, existe, ahora, ultimo):
     oscuro = tk.name == "dark"
     partes = []
     if tu["estado"] == "error":
-        cuerpo = f"<span style='color:{tk.danger if not oscuro else tk.invalid}'>{tu['error']}</span>"
+        rojo = ERROR_OSCURO if oscuro else tk.danger      # el «danger» del tema oscuro no llega a 4.5:1
+        cuerpo = f"<span style='color:{rojo}'>{tu['error']}</span>"
     elif tu["texto"]:
         cuerpo = formato(tu["texto"], existe, tk)
     else:

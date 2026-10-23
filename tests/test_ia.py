@@ -224,3 +224,53 @@ def test_informe_con_ia_y_su_barra(tmp_path, monkeypatch):
     # servidor apagado: el informe sale igual, con plantillas y el motivo
     w.generar_informe(ruta, Opciones(True, True, True, False))
     assert url and "redactada por la IA" in "\n".join(p.text for p in docx.Document(ruta).paragraphs)
+
+
+def test_chat_contraste_aa_en_los_dos_temas():
+    from ui.comun import theme
+    from ui.dialogos import ia_chat_html as H
+    for tk in (theme.LIGHT, theme.DARK):
+        oscuro = tk.name == "dark"
+        fondo, letra = H.colores_aviso(oscuro)
+        pares = [(letra, fondo), (tk.soft_text, tk.soft), (tk.text, tk.surface_alt), (tk.text_muted, tk.surface_alt),
+                 (tk.text_info, tk.surface_alt), (H.ERROR_OSCURO if oscuro else tk.danger, tk.surface_alt)]
+        for a, b in pares:
+            assert H.contraste(a, b) >= 4.5, (tk.name, a, b)
+
+
+def test_chat_detener_repetir_copiar_letra_y_sin_ia(tmp_path):
+    from PySide6 import QtCore, QtGui, QtWidgets
+    from ui.dialogos import ia_chat
+    with OllamaFalso(lambda c: "Revisa [C-1].") as srv:
+        w, proy = _ventana(srv, tmp_path)
+        dlg = w.abrir_pregunta()
+        assert dlg.aviso.isHidden()
+
+        def esperar():
+            fin = time.time() + 20
+            while dlg._activo is not None and time.time() < fin:
+                QtWidgets.QApplication.processEvents()
+                time.sleep(0.01)
+        dlg.enviar("¿Qué hay?")
+        assert dlg.btn_enviar.property("danger") and "Pensando" in dlg.vista.toPlainText() or dlg.turnos[-1]["texto"]
+        esperar()
+        assert not dlg.btn_enviar.property("danger")
+        assert dlg.turnos[-1]["siguientes"] and "C-1" in dlg.turnos[-1]["siguientes"][0]
+        dlg._enlace(QtCore.QUrl("copiar:0"))
+        assert QtWidgets.QApplication.clipboard().text() == "Revisa [C-1]."
+        dlg._enlace(QtCore.QUrl("repetir:0"))
+        dlg.keyPressEvent(QtGui.QKeyEvent(QtCore.QEvent.KeyPress, QtCore.Qt.Key_Escape, QtCore.Qt.NoModifier))
+        esperar()
+        assert len(dlg.turnos) == 2 and dlg.isVisible()
+        antes = dlg.vista.font().pointSize()
+        dlg.cambiar_tamano(1)
+        assert dlg.vista.font().pointSize() > antes
+        dlg.cambiar_tamano(-1)
+        assert dlg.vista.font().pointSize() == antes
+        for _ in range(20):
+            dlg.cambiar_tamano(-1)
+        assert dlg.vista.font().pointSize() == ia_chat.TAMANOS[0] and not dlg.btn_menos.isEnabled()
+        w._config_ia = lambda: {"proveedor": "plantilla"}
+        dlg.actualizar_estado()
+        assert not dlg.aviso.isHidden() and "config:" in dlg.aviso.text()
+        w._dirty = False
