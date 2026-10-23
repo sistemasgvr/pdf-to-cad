@@ -141,6 +141,17 @@ _RULES = [
      lambda m: (_pl(_n(m, 2), "tubería con rótulos de diámetro distintos", "tuberías con rótulos de diámetro distintos")
                 if _n(m, 2) else _pl(_n(m), "tubería con el diámetro del plano", "tuberías con el diámetro del plano")),
      "diam_mix"),
+    (r"^Diámetros del plano \(rótulos con flecha[^:]*: (\d+) tubería\(s\) los toman; (\d+)",
+     lambda m: REVIEW if _n(m, 2) else INFO,
+     lambda m: (_pl(_n(m, 2), "tubería con el diámetro dudoso", "tuberías con el diámetro dudoso")
+                if _n(m, 2) else _pl(_n(m), "tubería con el diámetro del plano", "tuberías con el diámetro del plano")),
+     "grosor"),
+    (r"^Tuberías sin diámetro en el plano: (\d+)", REVIEW,
+     lambda m: _pl(_n(m), "tubería sin diámetro en el plano", "tuberías sin diámetro en el plano"),
+     "grosor_sin"),
+    (r"^Tuberías partidas donde el plano cambia de diámetro: (\d+)", INFO,
+     lambda m: _pl(_n(m), "tubería partida donde cambia su diámetro", "tuberías partidas donde cambia su diámetro"),
+     "grosor_partida"),
 ]
 # Explicación de cada aviso de «Para verificar»: qué se encontró y qué se hizo con
 # ello, sin tono de error (la vista los traduce con `t()`). Clave = patrón de `_RULES`.
@@ -148,6 +159,16 @@ _HINTS = {
     r"^Diámetros escritos en el plano[^:]*: (\d+) tubería\(s\) los toman; (\d+)": N_(
         "Junto a estas tuberías el plano escribe diámetros distintos (por ejemplo 6\" y 8\" a cada lado "
         "de una reducción): quedan con el diámetro por defecto. Revisa su diámetro en el editor."),
+    r"^Diámetros del plano \(rótulos con flecha[^:]*: (\d+) tubería\(s\) los toman; (\d+)": N_(
+        "El plano dice algo del diámetro de estas tuberías, pero no con certeza: rótulos distintos que "
+        "no se pudieron separar en un pozo, unión o esquina, un rótulo que no coincide con el ancho de "
+        "sus paredes, o paredes dibujadas sin un rótulo en la hoja que diga si son las de adentro o las "
+        "de afuera del tubo. No se pone: quedan con el diámetro por defecto y el editor les pone un "
+        "aviso con lo que dice el plano para que elijas el suyo."),
+    r"^Tuberías sin diámetro en el plano: (\d+)": N_(
+        "El plano no dice el diámetro de estas tuberías: ningún rótulo con flecha llega a ellas y no "
+        "tienen paredes dibujadas. Quedan con el diámetro por defecto y el editor les pone un aviso "
+        "para que elijas el suyo."),
     r"^No se encontraron líneas": N_(
         "No hay líneas de esta utilidad en la hoja. Si el plano usa otros nombres de capa, "
         "indícalos con «Ajustar capas…»."),
@@ -313,6 +334,13 @@ def targets_for(key: str, result) -> List[Rect]:
     elif key == "taps":
         from hoja import acometidas_mapa
         out = [b for pl in lines if acometidas_mapa.es_capa(pl.layer_ocg or "") and (b := _bbox(pl.pts_pdf))]
+    elif key in ("grosor", "grosor_sin"):
+        estado = "dudoso" if key == "grosor" else "sin_dato"
+        out = [b for pl in joined if (getattr(pl, "grosor", None) or {}).get("estado") == estado
+               and (b := _bbox(pl.pts_pdf))]
+    elif key == "grosor_partida":
+        out = [b for pl in joined if (getattr(pl, "grosor", None) or {}).get("partida")
+               and (b := _bbox(pl.pts_pdf))]
     elif key in ("a_no_pattern", "double_active", "to_abandon", "marker_active", "diam_mix"):
         out = [b for pl in joined if getattr(pl, "review", "") == key and (b := _bbox(pl.pts_pdf))]
     # puntos/segmentos degenerados → recuadro mínimo visible

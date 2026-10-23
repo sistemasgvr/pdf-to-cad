@@ -94,4 +94,6 @@ def test_du06_mismo_reconocimiento_con_menos_lecturas(monkeypatch):
     monkeypatch.setattr(pdf_styles, "lectura_unica", lambda doc: contextlib.nullcontext())
     viejo = RT.reconocer_hoja(str(DU06), 12, zoom=3.5, utilities=us)
     assert _firma(nuevo) == _firma(viejo)
-    assert lecturas == 1 and n["k"] == 1 + 2 * len(us)    # antes: las letras + 2 por utilidad
+    # sin el bloque: las letras + 2 por utilidad + 2 del grosor del plano (vistas de perfil y
+    # guías/paredes, `recognition_grosor`)
+    assert lecturas == 1 and n["k"] == 1 + 4 * len(us)

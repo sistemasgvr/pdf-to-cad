@@ -18,7 +18,7 @@ from typing import Callable, Optional
 
 def reconocer_hoja(pdf_path, page_index, zoom=1.0, utilities=("ELECTRICO",), hidden_ocgs=(),
                    layer_roles=None, roles_by_utility=None, join_routes=True, scale_ft_per_pt=None,
-                   letters_off=(), progreso: Optional[Callable] = None):
+                   letters_off=(), progreso: Optional[Callable] = None, perfiles_de=()):
     import fitz
     from reconocimiento import recognition as rec
     utilities = rec.normalize_utilities(utilities)
@@ -56,4 +56,21 @@ def reconocer_hoja(pdf_path, page_index, zoom=1.0, utilities=("ELECTRICO",), hid
             results.append(res)
             avisar("hecha", i, len(utilities), utility,
                    [[(float(x), float(y)) for x, y in pl.pts_pdf] for pl in res.drawable])
+    # los perfiles de los laterales dicen el diámetro de las tuberías que los cruzan: con TODAS las
+    # utilidades (si van en procesos aparte, lo hace `RecognitionWorker` al juntarlas). En una hoja
+    # compuesta, los perfiles de sus hojas de origen (`perfiles_de`: [(pdf, hoja)])
+    from reconocimiento import recognition_grosor_cruces
+    if perfiles_de and results:
+        from dataclasses import replace
+        from reconocimiento import recognition_grosor_perfiles
+        from traduccion.i18n_core import t as _tr
+        avisar("detalle", _tr("Perfiles de las hojas de origen"), None, None)
+        propios = {pv.nombre for r in results for pv in (r.perfiles or [])}
+        escala = results[0].scale_ft_per_pt or 0.0
+        extra = [replace(pv, planta_px_por_pie=zoom / escala)
+                 for pv in recognition_grosor_perfiles.de_hojas(perfiles_de) if pv.nombre not in propios] if escala else []
+        if extra:
+            for r in results:
+                r.perfiles = list(r.perfiles or []) + extra
+    recognition_grosor_cruces.aplicar(results)
     return results

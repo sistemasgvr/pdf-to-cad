@@ -3095,6 +3095,14 @@ EN: dict[str, str] = {
         'Show standards warnings',
     'Un circulito pequeño donde una utilidad o un accesorio no cumple las normativas (tipo, diámetro, amperaje…). Pasa el ratón para leerlo.':
         'A small circle where a utility or a fitting does not meet the standards (type, diameter, amperage…). Hover over it to read it.',
+    'Mostrar avisos de reconocimiento':
+        'Show recognition warnings',
+    'Un circulito donde el reconocimiento del PDF no encontró el diámetro de una utilidad o no está seguro de él (queda el de por defecto). Pasa el ratón para leerlo.':
+        'A small circle where the PDF recognition did not find a utility\'s diameter or is not sure of it (the default one stays). Hover over it to read it.',
+    '{n} avisos de reconocimiento':
+        '{n} recognition warnings',
+    '{n} de reconocimiento':
+        '{n} recognition',
     'Mostrar todos':
         'Show all',
     'Ocultar todos':
@@ -3441,6 +3449,17 @@ EN: dict[str, str] = {
         'Diameters written on the plan («8"», «12" DIP», «278\' 2"»): {n} pipe(s) take them; {m} with different labels keep the default diameter.',
     'Junto a estas tuberías el plano escribe diámetros distintos (por ejemplo 6" y 8" a cada lado de una reducción): quedan con el diámetro por defecto. Revisa su diámetro en el editor.':
         'The plan writes different diameters next to these pipes (for example 6" and 8" on each side of a reducer): they keep the default diameter. Check their diameter in the editor.',
+    # Grosor del plano CAD (recognition_grosor.py, 2026-10-21)
+    'Diámetros del plano (rótulos con flecha y paredes dibujadas): {n} tubería(s) los toman; {m} dudosa(s) quedan con el diámetro por defecto y un aviso en el editor.':
+        'Diameters from the plan (labels with leaders and drawn walls): {n} pipe(s) take them; {m} doubtful one(s) keep the default diameter and get a notice in the editor.',
+    'Tuberías sin diámetro en el plano: {n} — ningún rótulo con flecha llega a ellas ni tienen paredes dibujadas; quedan con el diámetro por defecto y un aviso en el editor.':
+        'Pipes without a diameter on the plan: {n} — no label with a leader reaches them and they have no drawn walls; they keep the default diameter and get a notice in the editor.',
+    'El plano dice algo del diámetro de estas tuberías, pero no con certeza: rótulos distintos que no se pudieron separar en un pozo, unión o esquina, un rótulo que no coincide con el ancho de sus paredes, o paredes dibujadas sin un rótulo en la hoja que diga si son las de adentro o las de afuera del tubo. No se pone: quedan con el diámetro por defecto y el editor les pone un aviso con lo que dice el plano para que elijas el suyo.':
+        'The plan says something about the diameter of these pipes, but not with certainty: different labels that could not be separated at a manhole, junction or corner, a label that does not match the width of their walls, or drawn walls with no label on the sheet telling whether they are the inside or the outside of the pipe. It is not set: they keep the default diameter and the editor gives them a notice with what the plan says so you can pick theirs.',
+    'El plano no dice el diámetro de estas tuberías: ningún rótulo con flecha llega a ellas y no tienen paredes dibujadas. Quedan con el diámetro por defecto y el editor les pone un aviso para que elijas el suyo.':
+        'The plan does not give the diameter of these pipes: no label with a leader reaches them and they have no drawn walls. They keep the default diameter and the editor gives them a notice so you can pick theirs.',
+    'Tuberías partidas donde el plano cambia de diámetro: {n} — sus rótulos dicen un diámetro hasta un nodo (pozo, unión o esquina) y otro después.':
+        'Pipes split where the plan changes diameter: {n} — their labels give one diameter up to a node (manhole, junction or corner) and another after it.',
     # Composición sugerida (composite_suggest.py, 2026-10-14)
     '{n} hojas ({desde} → {hasta})':
         '{n} sheets ({desde} → {hasta})',
@@ -3528,6 +3547,27 @@ EN: dict[str, str] = {
         'Bend of {a}: does not follow the 0.25° step (nearest: {c}).',
     'Ángulo fuera del paso de 0.25°':
         'Angle off the 0.25° step',
+    # Diámetro del plano en el editor (nucleo/diametro_plano.py, 2026-10-22)
+    'Diámetro del plano':
+        'Diameter from the plan',
+    'Diámetro no encontrado en el plano: queda {d} por defecto. Elige el suyo, o aprueba el aviso para dejarlo.':
+        'Diameter not found on the plan: it keeps the default {d}. Pick its own, or approve the notice to keep it.',
+    'sus rótulos dicen {lista}':
+        'its labels say {lista}',
+    'los perfiles de los laterales que cruza dicen {lista}':
+        'the profiles of the laterals it crosses say {lista}',
+    'la planta dice {a} y el perfil de un lateral que cruza dice {b}':
+        'the plan says {a} and the profile of a lateral it crosses says {b}',
+    'el rótulo dice {r} y sus paredes miden {w}':
+        'the label says {r} and its walls measure {w}',
+    'sus paredes miden {w}, pero ningún rótulo de la hoja dice si son las de adentro o las de afuera del tubo':
+        'its walls measure {w}, but no label on the sheet tells whether they are the inside or the outside of the pipe',
+    'Diámetro dudoso en el plano: {motivo}. Queda {d} por defecto hasta que elijas el suyo.':
+        'Doubtful diameter on the plan: {motivo}. It keeps the default {d} until you pick its own.',
+    'Rótulos: {textos}.':
+        'Labels: {textos}.',
+    'Perfiles de las hojas de origen':
+        'Profiles of the source sheets',
     'Salió del modo (Enter)':
         'Left the mode (Enter)',
     'Modo: dibujar utilidad (ángulos en pasos de 0.25°)  ·  Enter finaliza; otro Enter sale':

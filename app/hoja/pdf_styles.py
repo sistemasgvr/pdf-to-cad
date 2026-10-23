@@ -130,6 +130,18 @@ def lectura_unica(doc):
         doc.__dict__.pop(_LECTURA, None)
 
 
+def memo(page, nombre, fn):
+    """`fn()` una vez por hoja dentro de `lectura_unica` (otra lectura de la misma hoja: texto,
+    capas con texto…); fuera del bloque, siempre `fn()`. Nadie debe modificar lo que devuelve."""
+    cache = page.parent.__dict__.get(_LECTURA)
+    if cache is None:
+        return fn()
+    clave = (nombre,) + _clave_lectura(page, False)
+    if clave not in cache:
+        cache[clave] = fn()
+    return cache[clave]
+
+
 def _clave_lectura(page, extended):
     try:
         capas = tuple(bool(c.get("on")) for c in page.parent.layer_ui_configs())

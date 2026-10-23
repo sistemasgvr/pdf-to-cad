@@ -5,6 +5,7 @@ clase mezcla para que app_window.py no pase de unas 2 000 líneas. `Main` la her
 los menús, atajos y pruebas siguen usando `win.<método>` como antes.
 """
 from ui.ventana.ventana_comun import *  # noqa: F401,F403  (mismos nombres que app_window)
+from nucleo import diametro_plano
 
 
 class HerramientasMixin:
@@ -106,9 +107,16 @@ class HerramientasMixin:
             pass
         self._redraw()
 
+    def _on_toggle_show_reconocimiento(self, on):
+        try:
+            QtCore.QSettings("pdf-to-cad", "app").setValue("show_reconocimiento", bool(on))
+        except Exception:
+            pass
+        self._redraw()
+
     def _mostrar_avisos(self, on):
         """Ver → Avisos → Mostrar todos / Ocultar todos."""
-        for a in (self.chk_show_conflicts, self.act_show_acc, self.act_show_normas):
+        for a in (self.chk_show_conflicts, self.act_show_acc, self.act_show_normas, self.act_show_reconocimiento):
             a.setChecked(bool(on))
 
     def _draw_accesorios(self):
@@ -150,15 +158,29 @@ class HerramientasMixin:
                 self._overlay += accesorios_view.dibujar(self.canvas.scene(), accs, self._normas_avisos, tol,
                                                          poner=self._marca, reusar=self._reusar_marca,
                                                          guardar=self._guardar_marca, preparadas=prep)
-            if not vigentes and (getattr(self, "act_show_normas", None) is None or self.act_show_normas.isChecked()):
+            # Normativa y reconocimiento (diámetro del plano) se muestran cada uno con su opción de Ver → Avisos.
+            ver_nor = getattr(self, "act_show_normas", None) is None or self.act_show_normas.isChecked()
+            ver_rec = (getattr(self, "act_show_reconocimiento", None) is None
+                       or self.act_show_reconocimiento.isChecked())
+            if not vigentes and (ver_nor or ver_rec):
                 from ui.comun import avisos_view
-                self._overlay += avisos_view.dibujar(self.canvas.scene(), self._normas_avisos, tol * 2, ver_acc,
+                a_ver = [a for a in self._normas_avisos
+                         if (ver_rec if a.clase == diametro_plano.CLASE else ver_nor)]
+                self._overlay += avisos_view.dibujar(self.canvas.scene(), a_ver, tol * 2, ver_acc,
                                                      poner=self._marca, reusar=self._reusar_marca,
                                                      guardar=self._guardar_marca)
-        n = len(normas_aprobacion.pendientes(self._normas_avisos))
+        pendientes = normas_aprobacion.pendientes(self._normas_avisos)
+        n = len(pendientes)
+        n_rec = sum(1 for a in pendientes if a.clase == diametro_plano.CLASE)
+        n_nor = n - n_rec
         n_ap = sum(1 for a in self._normas_avisos if a.aprobado)
         if hasattr(self, "btn_normas"):
-            if n:
+            if n_nor and n_rec:
+                texto = ("⚠ " + _tr("{n} avisos de normativa").format(n=n_nor) + " · "
+                         + _tr("{n} de reconocimiento").format(n=n_rec))
+            elif n_rec:
+                texto = "⚠ " + _tr("{n} avisos de reconocimiento").format(n=n_rec)
+            elif n:
                 texto = "⚠ " + _tr("{n} avisos de normativa").format(n=n)
             else:
                 texto = "✔ " + _tr("{n} avisos aprobados").format(n=n_ap) if n_ap else ""

@@ -315,6 +315,26 @@ editor</span> leaves it as the background to draw by hand.</p>
     correct it <b>before continuing</b>: <b>Calibrate with a known distance…</b> (two clicks on the sheet and the
     real distance in feet; Esc exits) or <b>Type the scale…</b>. Curve radii and lengths are computed with
     it when recognizing.</li>
+<li><b>Diameter from the plan (PDF with layers):</b> when recognizing, each pipe takes the diameter the plan
+    gives it, if any: the <b>label with a leader</b> pointing at it («EX. 84" RCP SD», «18" RCP, LACFCD»,
+    «PROP 8" WATER») and, where the pipe is drawn with its <b>walls</b> («-WALL» layers), the width between
+    them (also when the plan draws the walls on the outside of the pipe: an 18" with its walls at 24").
+    It works for every utility: «12" C.I.» for water, «PROP 2" SCG» for gas, «1-1/2" WS» (1.5"), «2-4"
+    COMM» (a bank of 4" conduits); the label's utility comes from its text or its owner (SCG, DWPWS,
+    AT&amp;T, POWER…). It is an add-on: no vertex moves. Labels in profile views do not count. If a pipe changes diameter
+    at a manhole, a junction or a corner (84" up to the manhole and 81" after it), it is split there and
+    each part takes its own. <b>Vertical</b> labels are read too («8" C.I., 20'W CL, W139C»; the code at the
+    end tells the utility: W water, SS sewer, G gas, E electric, C telecom, SD storm drain), and so are the
+    <b>lateral profiles</b>: each pipe crossing a lateral takes the diameter its profile writes at that
+    crossing (on the composite sheet, from the profiles of its source sheets).
+    <br><b>Only what is certain:</b> the diameter is only set when the plan states it with certainty. If the
+    plan does not give it, or gives it with doubts (different labels that cannot be separated, a label that
+    does not match its walls, walls with no label telling whether they are the inside or the outside of the
+    pipe), the pipe keeps the default diameter and the editor gives it a <b>notice</b> with what the plan
+    says, like the code notices: it shows on the plan, in the notice list and in the utility panel. Picking
+    its diameter removes the notice; to keep the default, approve it. In the preview, <b>To check</b> takes
+    you to each one. On the plan they are shown or hidden apart from the standards warnings:
+    View → Warnings → <b>Show recognition warnings</b>.</li>
 <li><b>By the letters on the line:</b> the app does not only look at the layer name; it also reads
     the letters each line carries (—TE—, —SC—, —W—, —G—, —ss—…). A layer whose name is not a
     utility's, but whose lines say so, appears under its utility with the letters next to it, for

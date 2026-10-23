@@ -972,7 +972,8 @@ class Main(MenuMixin, PanelIzquierdoMixin, PanelDerechoMixin, ModosMixin, ClicsM
             hidden_ocgs=self.hidden_ocgs,
             roles_by_utility=self._roles_de_la_hoja(page_idx),
             letters_off=self._letters_off,
-            join_routes=self._join_routes, scale_ft_per_pt=self._scale_override)
+            join_routes=self._join_routes, scale_ft_per_pt=self._scale_override,
+            perfiles_de=self._perfiles_de())
         self._recog_worker.done.connect(self._recognition_done)
         self._recog_worker.progress.connect(self._recognition_progress)
         if hasattr(self._recog_worker, "layer"):         # (los dobles de las pruebas no lo traen)
@@ -981,6 +982,17 @@ class Main(MenuMixin, PanelIzquierdoMixin, PanelDerechoMixin, ModosMixin, ClicsM
             self._recog_worker.stage.connect(self._recognition_stage)
         self._recog_linea = ""
         self._recog_worker.start()
+
+    def _perfiles_de(self):
+        """(pdf, hoja) de origen de cada pieza de la hoja compuesta: el reconocimiento lee ahí los
+        perfiles de los laterales (la compuesta toma solo la planta; `recognition_grosor_perfiles`)."""
+        out = []
+        for pz in getattr(self.composite, "pieces", None) or []:
+            src = self.src_pdfs[pz.source] if 0 <= pz.source < len(self.src_pdfs or []) else {}
+            path = src.get("path") if isinstance(src, dict) else None
+            if path and os.path.isfile(path) and (path, pz.page) not in out:
+                out.append((path, pz.page))
+        return out
 
     def _recognition_key(self, page_idx):
         """Clave de `recognition_cache` con el estado actual del asistente."""

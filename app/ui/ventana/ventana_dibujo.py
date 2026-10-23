@@ -63,7 +63,8 @@ class DibujoMixin:
         m = getattr(self, "_memo_redibujo", None)
         ver = tuple(bool(a.isChecked()) for a in (getattr(self, "chk_show_conflicts", None),
                                                   getattr(self, "act_show_acc", None),
-                                                  getattr(self, "act_show_normas", None)) if a is not None)
+                                                  getattr(self, "act_show_normas", None),
+                                                  getattr(self, "act_show_reconocimiento", None)) if a is not None)
         return (getattr(m, "firma", None), ver)
 
     def _reusar_marca(self, clave):

@@ -134,7 +134,19 @@ class MenuMixin:
         self.act_show_normas.toggled.connect(self._on_toggle_show_normas)
         mnorm.addAction(self.act_show_normas)
         mnorm.addAction(self.act_show_acc)
-        for a in (self.chk_show_conflicts, self.act_show_acc, self.act_show_normas):
+        # Avisos del reconocimiento (diámetro que el plano no dijo con certeza, `diametro_plano`): aparte
+        # de los de normativa (pedido del usuario 2026-10-23: «tenerlo organizado»).
+        self.act_show_reconocimiento = _bind(QtGui.QAction(self), "setText", "Mostrar avisos de reconocimiento")
+        self.act_show_reconocimiento.setCheckable(True)
+        try:
+            _rec_pref = QtCore.QSettings("pdf-to-cad", "app").value("show_reconocimiento", True, type=bool)
+        except Exception:
+            _rec_pref = True
+        self.act_show_reconocimiento.setChecked(bool(_rec_pref))
+        _bind(self.act_show_reconocimiento, "setToolTip", "Un circulito donde el reconocimiento del PDF no encontró "
+              "el diámetro de una utilidad o no está seguro de él (queda el de por defecto). Pasa el ratón para leerlo.")
+        self.act_show_reconocimiento.toggled.connect(self._on_toggle_show_reconocimiento)
+        for a in (self.chk_show_conflicts, self.act_show_acc, self.act_show_normas, self.act_show_reconocimiento):
             self.menu_avisos.addAction(a)
         self.menu_avisos.addSeparator()
         _act(self.menu_avisos, "Mostrar todos", lambda: self._mostrar_avisos(True))

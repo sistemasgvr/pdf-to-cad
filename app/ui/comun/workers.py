@@ -53,7 +53,8 @@ class RecognitionWorker(QtCore.QThread):
 
     def __init__(self, pdf_path, page_index, zoom=1.0, utility="ELECTRICO",
                  hidden_ocgs=None, layer_roles=None, join_routes=True,
-                 scale_ft_per_pt=None, utilities=None, roles_by_utility=None, letters_off=None):
+                 scale_ft_per_pt=None, utilities=None, roles_by_utility=None, letters_off=None,
+                 perfiles_de=None):
         super().__init__()
         self.pdf_path = pdf_path
         self.scale_ft_per_pt = scale_ft_per_pt   # hoja compuesta: escala fija
@@ -68,6 +69,8 @@ class RecognitionWorker(QtCore.QThread):
         self.join_routes = join_routes
         # capas que el usuario decidió NO tomar por las letras de su línea («Capas de la hoja»)
         self.letters_off = set(letters_off or ())
+        # hoja compuesta: (pdf, hoja) de origen de cada pieza, por los perfiles de sus laterales
+        self.perfiles_de = [tuple(x) for x in (perfiles_de or ())]
         self._tarea = None
         self._tareas = []
         self._partes = None
@@ -78,7 +81,7 @@ class RecognitionWorker(QtCore.QThread):
                     utilities=tuple(self.utilities), hidden_ocgs=tuple(self.hidden_ocgs),
                     layer_roles=self.layer_roles, roles_by_utility=self.roles_by_utility,
                     join_routes=self.join_routes, scale_ft_per_pt=self.scale_ft_per_pt,
-                    letters_off=tuple(sorted(self.letters_off)))
+                    letters_off=tuple(sorted(self.letters_off)), perfiles_de=tuple(self.perfiles_de))
 
     def _avance(self, a):
         if a[0] == "utilidad":
@@ -107,6 +110,8 @@ class RecognitionWorker(QtCore.QThread):
         for k, us in enumerate(grupos):
             kw = self._kwargs()
             kw["utilities"] = us
+            if len(grupos) > 1 and "DRENAJE" not in us:
+                kw["perfiles_de"] = ()                  # los lee solo el proceso del drenaje
             t = proceso.Tarea("reconocimiento.recognition_trabajo:reconocer_hoja", kwargs=kw)
             t.avance.connect(lambda a, k=k, n=len(grupos): self._avance(a) if n == 1 else self._avance_parte(k, a))
             t.terminado.connect(lambda r, e, k=k: self._fin_parte(k, r, e))
@@ -142,7 +147,12 @@ class RecognitionWorker(QtCore.QThread):
             self.progress.emit(self._hechas, len(self.utilities), self.utilities[min(self._hechas, len(self.utilities) - 1)])
             return
         partes, self._partes = self._partes, None
-        self._fin_proceso([r for parte in partes for r in (parte or [])], "")
+        todos = [r for parte in partes for r in (parte or [])]
+        if len(partes) > 1:
+            # cada utilidad vino de su proceso: los cruces de los perfiles, con todas juntas
+            from reconocimiento import recognition_grosor_cruces
+            recognition_grosor_cruces.aplicar(todos)
+        self._fin_proceso(todos, "")
 
     def _fin_proceso(self, res, err):
         self._tarea = None

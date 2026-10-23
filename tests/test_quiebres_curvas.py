@@ -188,3 +188,32 @@ def test_dos_veces_no_duplica():
     assert len(qc.curvas_en_quiebres(pipes, st, FPP)[0]) == 1
     assert qc.curvas_en_quiebres(pipes, st, FPP) == ([], [])
     assert len(st) == 1
+
+
+def test_chaflan_de_dos_quiebres_pasa_a_una_curva():
+    """Reporte 2026-10-23 (DU06 UD-202 telecom): el plano gira 90° con un chaflán corto; las dos
+    curvas mínimas no entran (entraba una y la otra quedaba de esquina) → UNA en el cruce de las
+    rectas de fuera, sobre la tinta del chaflán."""
+    for layer, net in (("TELECOM", "conduit"), ("DRENAJE", "gravity")):
+        pipes = [_pipe([(500, 0), (33, 0), (0, 33), (0, 500)], ["end", "corner", "corner", "end"], layer=layer)]
+        st = _importar(pipes)
+        nuevas, sin_lugar = qc.curvas_en_quiebres(pipes, st, FPP)
+        assert sin_lugar == [] and len(nuevas) == 1, layer
+        assert len(pipes[0]["pts"]) == 3 and math.dist(pipes[0]["pts"][1], (0, 0)) < 1e-9
+        assert pipes[0]["vertex_kinds"] == ["end", "corner", "end"]
+        s = nuevas[0]
+        assert math.dist((s["x"], s["y"]), (0, 0)) < 1e-9 and s["curve"] and s["quiebre"] and not s["hidden"]
+        assert not [x for x in st if x.get("hidden")], layer          # los buzones ocultos del chaflán se van
+        st = model_ops.rebuild_structures(pipes, st)
+        g = _geo_editor(pipes, st, 0, 1)
+        assert not g["clamped"] and math.isclose(g["r"], 60.0)
+        for q in ((33, 0), (0, 33)):                                  # el arco pasa junto a la tinta del chaflán
+            assert abs(math.dist(q, g["center"]) - g["r"]) * FPP < 0.6
+
+
+def test_quiebres_en_s_no_son_un_chaflan():
+    pipes = [_pipe([(500, 0), (40, 0), (0, 30), (-500, 30)], ["end", "corner", "corner", "end"])]
+    st = _importar(pipes)
+    nuevas, sin_lugar = qc.curvas_en_quiebres(pipes, st, FPP)
+    assert len(pipes[0]["pts"]) == 4                                  # nada se une
+    assert len(nuevas) + len(sin_lugar) == 2

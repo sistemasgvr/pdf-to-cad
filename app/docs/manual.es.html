@@ -313,6 +313,27 @@ imagen/escaneo…</b>), pero sin capas ni reconocimiento: al final,
     <b>antes de continuar</b>: <b>Calibrar con una distancia conocida…</b> (dos clics en la hoja y la distancia
     real en pies; Esc sale) o <b>Escribir la escala…</b>. Los radios de las curvas y los largos se calculan
     con ella al reconocer.</li>
+<li><b>Diámetro del plano (PDF con capas):</b> al reconocer, cada tubería toma el diámetro que dice el
+    plano, si lo dice: el <b>rótulo con flecha</b> que apunta a ella («EX. 84" RCP SD», «18" RCP, LACFCD»,
+    «PROP 8" WATER») y, donde la tubería está dibujada con sus <b>paredes</b> (capas «-WALL»), el ancho
+    entre ellas (también cuando el plano dibuja las paredes por fuera del tubo: un 18" con las paredes a
+    24"). Vale para todas las utilidades: «12" C.I.» de agua, «PROP 2" SCG» de gas, «1-1/2" WS» (1.5"),
+    «2-4" COMM» (un banco de conductos de 4"); la utilidad del rótulo la dice su texto o su dueño (SCG,
+    DWPWS, AT&amp;T, POWER…). Es un complemento: ningún vértice se mueve. Los rótulos de las vistas de perfil no cuentan.
+    Si una tubería cambia de diámetro en un pozo, una unión o una esquina (84" hasta el pozo y 81"
+    después), se parte en ese punto y cada parte lleva el suyo. También se leen los rótulos
+    <b>verticales</b> («8" C.I., 20'W CL, W139C»; el código del final dice la utilidad: W agua, SS
+    alcantarillado, G gas, E eléctrico, C telecomunicaciones, SD drenaje) y los <b>perfiles de los
+    laterales</b>: cada tubería que cruza un lateral toma el diámetro que su perfil escribe en ese cruce
+    (en la hoja compuesta, de los perfiles de sus hojas de origen).
+    <br><b>Solo lo seguro:</b> el diámetro se pone solo si el plano lo dice con certeza. Si no lo dice, o
+    lo dice con dudas (rótulos distintos que no se pueden separar, un rótulo que no coincide con sus
+    paredes, paredes sin un rótulo que diga si son las de adentro o las de afuera del tubo), la tubería
+    queda con el diámetro por defecto y el editor le pone un <b>aviso</b> con lo que dice el plano, como
+    los de normativa: se ve en el plano, en la lista de avisos y en el panel de la utilidad. Al elegir su
+    diámetro el aviso desaparece; para dejar el de por defecto, apruébalo. En la vista previa, <b>Para
+    verificar</b> lleva a cada una. En el plano se muestran u ocultan aparte de los de normativa:
+    Ver → Avisos → <b>Mostrar avisos de reconocimiento</b>.</li>
 <li><b>Por las letras de la línea:</b> la app no solo mira el nombre de la capa; también lee las
     letras que lleva cada línea (—TE—, —SC—, —W—, —G—, —ss—…). Una capa cuyo nombre no es de
     ninguna utilidad, pero cuyas líneas sí lo dicen, aparece en su utilidad con las letras al lado,

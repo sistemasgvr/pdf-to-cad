@@ -42,7 +42,8 @@ GRUPOS = {
                        "test_bovedas_no_inventar", "test_codos_abiertos", "test_cruces_con_tinta",
                        "test_curvas_encadenadas", "test_curve_precision", "test_curve_structure_contacts",
                        "test_curvitas_una_curva",
-                       "test_letra_en_el_hueco", "test_detect", "test_lectura_unica"],
+                       "test_letra_en_el_hueco", "test_detect", "test_lectura_unica",
+                       "test_grosor_plano", "test_grosor_avisos"],
     # perfiles por utilidad (ventana real → DXF)
     "utilidades": ["test_water_profile", "test_sewer_profile", "test_sewer_integration", "test_gas_profile",
                    "test_gas_integration", "test_telecom_profile", "test_telecom_integration"],
