@@ -70,7 +70,8 @@ class HojasEditorMixin:
             lay = self._calcular_layout(comp)
         if not lay or comp is None or len(comp.pieces) != len(lay):
             return lay
-        return [(rect, p.label or label) for (rect, label), p in zip(lay, comp.pieces)]
+        # las hojas de una utilidad agregada (`grupo`) caen ENCIMA de las del editor: no se repiten
+        return [(rect, p.label or label) for (rect, label), p in zip(lay, comp.pieces) if not p.grupo]
 
     def _calcular_layout(self, comp):
         """Proyecto reabierto: el esquema con los tamaños de las hojas de origen."""

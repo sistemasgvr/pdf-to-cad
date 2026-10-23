@@ -11,7 +11,7 @@ alcantarillado, drenaje, gas, eléctrico, telecom). Todo en **unidades imperiale
   - **Carpetas por capa (2026-10-08, en curso)**: `app/nucleo/` = lógica PURA del dominio (sin Qt ni fitz):
     `model`, `model_ops`, `xdata`, `duct_bank`, `unir_utilidades`, `unir_ramales`, `quiebres_curvas`,
     `accesorios`, `normas_catalogo`, `normas_excel`, `normas_excel_ayuda`, `normas_validar`, `normas_aprobacion`, `tabla_datos`, `tabla_excel`, `conflictos`, `modelo3d`, `mallas3d`, `accesorios3d`, `verticales3d`, `marcas3d`, `ficha3d`, `edicion_bloque`,
-    `limpieza`, `limpieza_tramos`, `vertice_curva`, `conexiones_verticales`, `trazo_asistido`, `angulos`, `indice_plano`, `memo_modelo`, `deshacer`, `reducciones3d`, `rotulos3d`. Se importan
+    `limpieza`, `limpieza_tramos`, `vertice_curva`, `conexiones_verticales`, `trazo_asistido`, `angulos`, `indice_plano`, `memo_modelo`, `deshacer`, `reducciones3d`, `rotulos3d`, `diametro_plano`. Se importan
     como `from nucleo import model_ops` / `from nucleo.model import …` (nunca `import model_ops`: ese nombre
     ya no existe). Regla: la interfaz usa `nucleo`, `nucleo` NUNCA importa la interfaz (PySide6, `i18n`,
     ventana…; sí `i18n_core`). Más abajo los módulos se nombran sin la carpeta: `model_ops.py` = `app/nucleo/
@@ -21,7 +21,7 @@ alcantarillado, drenaje, gas, eléctrico, telecom). Todo en **unidades imperiale
     (`recognition_dialog`, `_summary_view`, `_review_view`, `_layers_view`, `_preview_draw`) siguen en `app/`.
     `app/hoja/` (mismo día) = hoja de trabajo PURA: `composite`, `composite_checks`, `composite_scan`,
     `composite_seam`, `pdf_layers`, `pdf_legend`, `sheet_crops`, `sheet_layout`, `organized_layers`,
-    `leyenda_cruce`, `leyenda_estandar`, `leyenda_trazos`, y los de mapas sin capas `pdf_styles`, `texto_pdf`,
+    `leyenda_cruce`, `leyenda_estandar`, `leyenda_trazos`, `encaje_mapa_base`, `hoja_calcada`, y los de mapas sin capas `pdf_styles`, `texto_pdf`,
     `leyenda_mapa`, `leyenda_mapa_lectura`, `acometidas_mapa` (`from hoja import composite`). Los diálogos y vistas
     del compositor/capas (y `composite_choice`, que usa `i18n`) siguen en `app/`.
     `app/catalogo/` = `civil_catalog`, `catalogo_tamanos`, `catalogo_tamanos_presion` (PUROS) y `app/exportar/` =
@@ -587,8 +587,9 @@ alcantarillado, drenaje, gas, eléctrico, telecom). Todo en **unidades imperiale
     —`pdf_styles.style_width`—: `geom.clip_path` no conserva `width`), así el eje no sale de la línea;
     `recognition_map_vaults` (buzón-símbolo con punta/vértice dentro o atravesado → vértice «vault», deja de ser
     huérfano), `recognition_taps` (punta de la acometida al pie sobre la tubería, «tee»; las acometidas no se unen
-    en rutas), `recognition_diametros` («8"», «12" DIP», «278' 2"» paralelos y pegados → `diam_in` por mayoría
-    ≥60 %; mezcla → `review="diam_mix"`). `RecognizedPolyline.diam_in` → `pipe["diam"]`. Foto 16 hojas Phoenix
+    en rutas), el diámetro escrito junto a cada tramo («8"», «12" DIP», «278' 2"»: desde 2026-10-23
+    `recognition_grosor_mapa`, ver «Grosor de los mapas sin capas» abajo). `RecognizedPolyline.diam_in` →
+    `pipe["diam"]`. Foto 16 hojas Phoenix
     (HEAD → nuevo): agua mismas tuberías + acometidas (South h.4: 151 + 404, 0 a >1 pt de la tinta al importar);
     Water North h.1/4/10 de 0 líneas a 145/143/106 (la leyenda ya se lee); alcantarillado mismas líneas, buzones
     sin línea 33→4, 37→4. Tests: `tests/test_mapas_leyenda.py`.
@@ -1199,7 +1200,7 @@ alcantarillado, drenaje, gas, eléctrico, telecom). Todo en **unidades imperiale
     nadie debe modificar la lista que devuelve `drawings`. Tests: `tests/test_lectura_unica.py`.
     Velocidad sin cambiar resultados (`reconocimiento/recognition_indice.py`: `IndiceTramos` por corredor y
     `IndicePuntos`, candidatos en el ORDEN original → mismo desempate): `strokes_by_polyline`, `_through_dirs`,
-    `ink_reconstruct` (puntas), `recognition_diametros.asignar`, `snap_taps`, `acometidas_mapa` (celdas) y
+    `ink_reconstruct` (puntas), la asignación de rótulos de diámetro, `snap_taps`, `acometidas_mapa` (celdas) y
     `leyenda_mapa_lectura` (una leyenda POR HOJA en una compuesta: `_grupos` de encabezados a ≤ `GRUPO_HS`=100×
     su tamaño, `_Pagina` con filtros exactos, filas de todas sin repetir y una zona por leyenda; `_rotulos` por
     celdas). Antes las leyendas de una compuesta se juntaban en UNA caja que tapaba parte del mapa (4 hojas de agua:
@@ -1271,6 +1272,49 @@ alcantarillado, drenaje, gas, eléctrico, telecom). Todo en **unidades imperiale
     dibuja esa tubería), muestras a >1 pt de la tinta 0.65 % → 0.02 %. Tests: `tests/test_mapas_compuestos.py`.
     Pruebas por grupos en paralelo: `python scripts/pruebas.py <grupo…>` (mapas, compositor, capas,
     reconocimiento, utilidades, editor, interfaz, otros, todo; sin pytest-xdist).
+  - **Agregar utilidad desde otro PDF** (pedido del usuario 2026-10-23: cada utilidad en sus propios PDF —Phoenix:
+    agua, alcantarillado y drenaje, dos PDF cada una— y todas juntas en UNA hoja del editor). `hoja/encaje_mapa_base.py`
+    (PURO): similaridad hoja → hoja por trazos IDÉNTICOS del mapa base, sin color ni grosor (`escalas` = cociente de
+    largos con el mismo rumbo, `_votar` = traslación por pares con los dos extremos de acuerdo, `_ajuste` = mínimos
+    cuadrados; pico dominante, ≥2 rumbos, RMS ≤0.25 pt o None; `_pico` codifica la celda en UN entero: `np.unique` por
+    filas era 5× más lento); `verificar` = probar un encaje ya conocido (dos PDF con la misma plantilla repiten el MISMO
+    en todas sus hojas: agua ↔ alcantarillado ×1.02856; hoja correcta 25–77 % de trazos, las otras 0 %).
+    `hoja/hoja_calcada.py` (PURO): `calcar` = por cada pieza del editor la hoja nueva de su mismo lugar (la del mismo
+    número primero; ≥`MIN_FRACCION` de sus trazos; un par de PDF que falla `INTENTOS_POR_PAR` veces no se recorre
+    entero; sin ninguna tras `INTENTOS_SIN_NINGUNA` piezas = otro mapa base) → pieza con la MISMA huella llevada a su
+    hoja y el mismo lugar (`colocar`: su `piece_map` ES la similaridad) y `Composite.marco` = la hoja del editor
+    (`marco_de`): la hoja nueva tiene sus mismas coordenadas y lo reconocido entra SIN transformar. `combinar` = piezas
+    del editor tal cual + las nuevas (fuentes corridas, `Piece.grupo`, fundidas). `recolocar` = tras «Componer hoja» en
+    ese modo el usuario elige hojas/áreas y el lugar lo pone el encaje (hojas sin encaje se quitan). `Composite.marco`
+    (sheet_geometry = el marco; con marco nunca es «hoja entera»; sin marco todo igual, mismo dict) y `Piece.grupo`
+    (puentes solo dentro de su grupo; minimapa y marcas de agua solo el grupo 0). Ventana `ui/ventana/ventana_agregar.py`
+    (`AgregarUtilidadMixin`, Herramientas + botón `mdi:file-plus-outline`): `calcar_trabajo` en el proceso «principal»
+    con Cancelar; respaldo SIEMPRE (aunque el editor no tenga líneas); `Main._agregando` = el modo (lo apagan
+    `_reponer_respaldo`/`_soltar_respaldo`); asistente desde «Capas» (las utilidades ya en el editor sin marcar);
+    importar (`_importar_agregando`) = reponer el respaldo → `_poner_hoja_combinada` (materializa y
+    `canvas.cambiar_imagen`: la escena, el deshacer y la vista no se tocan; exige el mismo tamaño) →
+    `_import_recognized_pipes` con `_origen_desde_fuente` (datos extendidos de la pieza NUEVA). Medido: Phoenix agua 36
+    → alcantarillado 36 en ~14 s, RMS 0.001–0.15 pt; ventana real con 3 mapas: 1 784 tuberías de agua idénticas + 1 707
+    de alcantarillado con los vértices sobre su tinta (p99 0.18 pt). QS SD (drenaje) de Phoenix: otra cartografía (y su
+    red es imagen) → no encaja; se avisa (~15 s). OJO: «Componer hoja…» normal sobre la hoja combinada vuelve a
+    reconocer todo sobre ella (las utilidades superpuestas); si se le suman hojas fuera del marco, el marco se quita
+    (`cabe_en_marco`). Tests: `tests/test_agregar_utilidad.py`.
+    **Sin trabas con hojas grandes** (reporte del usuario 2026-10-23: con 36 + 36 mapas la ventana quedó «No
+    responde» en «Preparando la vista previa…»). Los pasos de datos que comparten la vista previa
+    (`recognition_quiebres.curvas_de_quiebres`) y la importación (`Main._importar_datos`, separado de
+    `_import_recognized_pipes` tal cual) eran todo contra todo: `recognition.inject_vault_vertices` (74 s con 36 mapas
+    de alcantarillado), `acometidas.unir_a_principal` (117 s), `model_ops.attach_vault_geometry` (29 s),
+    `hide_soft_vertex_structures` (minutos) y `quiebres_curvas.curvas_en_quiebres` (17 s). Ahora: `IndiceUtilidades`
+    (tuberías con un tramo cerca), `indice_plano.IndiceEstructuras` (estructuras por celdas; las que se agregan al
+    final entran solas; sin coordenadas = siempre candidatas), `model_ops._VerticesDeBoveda`, celdas de puntos en
+    `hide_soft` y `acometidas._junto`, y `nucleo/vecindario.Vecindario` (cada tubería de `curvas_en_quiebres` con las
+    tuberías/estructuras a ≤ `MARGEN_VECINOS_PX` + radio de su caja, en el orden original; `_quiebres_de` = el cuerpo de
+    siempre; `aplicar` lleva a la lista completa las estructuras quitadas/agregadas/movidas). Siempre la MISMA prueba
+    en el MISMO orden: mismo resultado (`tests/test_importar_sin_trabas.py` compara con los índices «apagados» = el
+    recorrido de antes). 36 mapas: vista previa ~3 s, pasos de la importación ~3.5 s. Los pasos avisan su avance
+    (`nucleo.avance`: la capa «Cargando…» repinta y Windows no marca «No responde»); por eso `_importar_datos` corre con
+    `_redibujo_diferido()` y `Main._importando` (el cálculo de fondo del editor no redibuja a mitad, la copia
+    automática espera).
   - **Área sugerida** (pedido del usuario 2026-10-20: «sugerirle un área y que el usuario la ajuste», sin tocar el
     reconocimiento): `hoja/area_sugerida.py` (PURO) `sugerir(page, ficha=None)` → `[Area]` (la mejor primero; [] = nada):
     hoja con match lines → `_planta` (vista de `composicion_ficha` cortada en cada match line con rótulo, como
@@ -1425,6 +1469,39 @@ alcantarillado, drenaje, gas, eléctrico, telecom). Todo en **unidades imperiale
     del lateral sale SOLO de su propio rótulo (no de uno de estación/unión: «JOIN EX. 84" … CB LAT 201» nombraba a
     la principal y le daba el 24" del perfil del CB-201.5) y una línea >3× el lateral del perfil no es él. Lo que
     queda sin dato no lo dice el plano (o solo en otros planos). Tests: `tests/test_grosor_avisos.py`.
+  - **Grosor de los mapas sin capas** (pedido del usuario 2026-10-23, «QS Water_Indian School_South»: lo mismo
+    que el grosor CAD en los PDF vectoriales SIN capas; reemplaza a `recognition_diametros`, que tomaba la MAYORÍA
+    ≥60 % de los rótulos para toda la ruta unida —una de 965 pt con 48" PCCP, 54" PCCP, 8" y 6" quedaba toda de
+    48"—). `reconocimiento/recognition_grosor_mapa.py` (PURO; solo con `ley_mapa`, como antes): `leer(texto)` →
+    (pulgadas, material, acometida): «8"», «12" DIP (CP)», «6" DIP FL», «8" Unk», «30" MOD PSD», «DIP PER 15-…»;
+    acometida «278' 2"», «2" 62'», «6" TAP», «TAP IN MH 6"» (≤ `ACOMETIDA_MAX_IN`); NO: «72" STEEL CASING», «2" ARV»,
+    «2" BLOW OFF», «MH 48"», palabras desconocidas (`NO_TUBO`, `MATERIALES`, `CALIFICATIVOS`). Centro y largo del
+    rótulo por la TINTA de sus letras (`_caja`); `sin_miniaturas`: letra < `LETRA_MIN`=0.5 × la típica de SU pieza
+    (`pieza` por `inicios_de_piezas`) = la referencia a un detalle («W-16-19-1», 0.37 pt). `asignar`: la línea
+    paralela (±25°) más cercana DE COSTADO (pasada la punta: distancia a la recta del último tramo; si el texto
+    empieza a más de una letra de la punta, solo si va alineado ≤ `COLINEAL`=0.75 letra: «FIRELINE / 8" DIP» bajo
+    cada una de dos líneas a 1.8 pt); ambiguo (→ `dudas` de todas, no cuenta) si otra paralela está a < `AMBIGUO`=1.5×
+    (o +0.25 letra) AL OTRO LADO del texto (si las dos quedan del mismo lado, es de la más cercana: dos de 8" a 1.3 pt
+    con su rótulo por fuera), o una de la red en otro rumbo MÁS cerca («12" CIP» en horizontal junto a una vertical
+    corta). Un rótulo simple va a una acometida solo hasta max(2", nota de la leyenda) («12" DIP» junto a un trocito
+    de acometida). `recognition_grosor_tramos.py` (PURO): UN tramo del SIG (entre vértices junction/tee/vault de la
+    ruta, nunca uno con codo) = UN diámetro: `valor` (todos iguales, o mayoría clara ≥2 y ≥2× el resto; si no
+    `CONFLICTO`), `estados` (sin rótulo: el de sus vecinos si dicen lo mismo, o el único al final de la ruta; entre
+    dos distintos «cambio» dudoso; un rótulo ambiguo que dice otra cosa → «cerca»), `piezas` (tramos seguidos con el
+    mismo estado; sin dato + dudoso juntos). `_explicados`: en un tramo en conflicto se quita el rótulo que el tramo
+    de OTRA línea junto a él ya dice (estado con vecinos: el «30" RCP» impreso sobre la de 24" a 1.3 pt de la de 30",
+    QS Sewer South h.2). `grosor` = {estado leido|dudoso|sin_dato, diam_in, fuente rotulo|leyenda|mezcla|cerca|
+    cambio, textos, material, candidatos, partida} (mismo esquema que el CAD → `nucleo/diametro_plano`, que tiene los
+    mensajes de «cerca» y «cambio»). `recognition_grosor_mapa_hoja.py`: `aplicar_variantes` (las dos variantes; los
+    tramos sin unir HEREDAN el grosor de su ruta unida en su punto medio, `grosor_en`) y `partir_al_final`: la ruta
+    con varias piezas se parte DESPUÉS de los ángulos a 0.25° (partirla antes cambiaba la solución de los ángulos
+    hasta 1.8 pt); `recognize_page` lo hace tras `angulos_mod.reubicar`. Avisos: «Diámetros del plano (rótulos junto
+    a la tubería)…» (clave `grosor`), «Tuberías sin diámetro en el plano» (`grosor_sin`), «Tuberías partidas…».
+    Foto (código anterior vs nuevo, 18 hojas de Water South + 6 de Water North + 11 de Sewer): vértices idénticos
+    (0.000), solo más polilíneas donde la ruta se parte; Water South 84 % → 88 % del largo con diámetro (y sin los de
+    la mayoría equivocada), WN h.1 78 → 83 %, h.3 80 → 90 %, SN h.2 85 → 96 %; acometidas: 158 toman su rótulo
+    (1", 1.5", 2"), 38 dudosas de 7 179. Las SD de Phoenix no pasan por aquí (sin `ley_mapa`). Compuesta de 3 mapas:
+    90 % en 11 s. Tests: `tests/test_grosor_mapa.py` (sintéticos + Water South h.4/h.10).
   - **Esquinas libres en TODOS los flujos** (pedido del usuario 2026-10-19): casilla
     `chk_corners` «Esquinas libres» en «Área a tomar» (encendida en escaneos, apagada en vectorial;
     se enciende sola al editar una pieza con `polygon`). `scan_crop_view.CornerCropView(free=)` —

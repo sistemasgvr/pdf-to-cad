@@ -97,6 +97,7 @@ from ui.ventana.ventana_conflictos_lista import ConflictosListaMixin
 from ui.ventana.ventana_hojas import HojasEditorMixin
 from ui.ventana.ventana_vertices import VerticesMixin
 from ui.ventana.ventana_trazo import TrazoMixin
+from ui.ventana.ventana_agregar import AgregarUtilidadMixin
 from ui.ventana.ventana_calculo import CalculoPlanoMixin
 from ui.ventana.calculo_fondo import CalculoFondoMixin
 from ui.ventana.ventana_estados import EstadosPreviosMixin
@@ -104,7 +105,7 @@ from ui.ventana.ventana_estados import EstadosPreviosMixin
 
 class Main(MenuMixin, PanelIzquierdoMixin, PanelDerechoMixin, ModosMixin, ClicsMixin, UtilidadesMixin, CatalogoMixin, SeleccionMixin, ListasMixin, MarcasMixin, DibujoMixin, ConflictosMixin, CoordsMixin, BuzonesMixin, MoverPrecisoMixin, CurvasMixin, HerramientasMixin, BancoductosMixin, EdicionBloqueMixin, Vista3DMixin, ConflictosListaMixin, HojasEditorMixin,
            VerticesMixin, TrazoMixin, CalculoPlanoMixin, CalculoFondoMixin, EstadosPreviosMixin,
-           QtWidgets.QMainWindow):
+           AgregarUtilidadMixin, QtWidgets.QMainWindow):
     def __init__(self):
         super().__init__()
         self._base_title = f"Asistente C3D  (v{VERSION})"
@@ -146,6 +147,9 @@ class Main(MenuMixin, PanelIzquierdoMixin, PanelDerechoMixin, ModosMixin, ClicsM
         # Editor tal como estaba al abrir el asistente desde Herramientas (respaldo_editor):
         # «Cancelar» en cualquier paso lo repone; importar lo suelta.
         self._respaldo = None
+        # «Agregar utilidad desde otro PDF…» en curso (ventana_agregar); None = asistente normal
+        self._agregando = None
+        self._origen_desde_fuente = None   # al importar en ese modo: datos de origen solo de las piezas nuevas
         self.pdf_path = None; self.doc = None; self.project_path = None; self.leader_hpx = 40
         # Proyecto sobre hoja en blanco (sin PDF de fondo). `paper` guarda el
         # formato elegido para reponerlo al abrir el .digproj.
@@ -488,12 +492,31 @@ class Main(MenuMixin, PanelIzquierdoMixin, PanelDerechoMixin, ModosMixin, ClicsM
         page_idx = start_idx
         while True:
             if step == 0:
+                agregando = getattr(self, "_agregando", None) is not None
                 res = composite_dialog.compose_sheet(
                     self, self.src_pdfs, self.composite, self.hidden_ocgs_by_source, current_page=page_idx,
-                    manual=manual)
+                    manual=manual, **({"sugerencia": False} if agregando else {}))
                 if res is None:
                     return False
                 comp, sources, hidden_by_source = res
+                if agregando:
+                    # utilidad agregada: el lugar de cada hoja lo pone su mapa base (ventana_agregar)
+                    comp = self._agregando_recolocar(comp, sources)
+                    if comp is None:
+                        QtWidgets.QMessageBox.information(self, _tr("Agregar utilidad"), _tr(
+                            "Ninguna de las hojas elegidas coincide con la hoja del editor."))
+                        continue
+                elif comp.marco is not None:
+                    # hoja con una utilidad agregada (marco fijo) a la que se le sumaron hojas por
+                    # fuera: vuelve a crecer con sus piezas, como cualquier hoja compuesta
+                    docs = [fitz.open(stream=e["data"], filetype="pdf") for e in sources]
+                    try:
+                        if not composite_mod.cabe_en_marco(comp, lambda p: (
+                                docs[p.source][p.page].rect.width, docs[p.source][p.page].rect.height)):
+                            comp.marco = None
+                    finally:
+                        for d in docs:
+                            d.close()
                 if (comp.manual and getattr(self, "_respaldo", None) is not None
                         and self._misma_composicion(comp, sources, hidden_by_source)):
                     # Escaneo: «Continuar» sin cambiar la hoja no borra lo dibujado.
@@ -730,11 +753,13 @@ class Main(MenuMixin, PanelIzquierdoMixin, PanelDerechoMixin, ModosMixin, ClicsM
 
     def _soltar_respaldo(self):
         """Hoja nueva en el editor (importar): el respaldo ya no vuelve."""
+        self._agregando = None
         r, self._respaldo = self._respaldo, None
         respaldo_editor.soltar(self, r)
 
     def _reponer_respaldo(self, msg):
         """Editor a como estaba al abrir el asistente. False si no había respaldo."""
+        self._agregando = None
         r, self._respaldo = self._respaldo, None
         if r is None:
             return False
@@ -1127,7 +1152,9 @@ class Main(MenuMixin, PanelIzquierdoMixin, PanelDerechoMixin, ModosMixin, ClicsM
         del qimg                                 # copia de la hoja: no retenerla mientras se sigue
         self._join_routes = all(bool(getattr(result, "join_routes", True)) for result in results)
         page_index = results[0].page_index
-        if action == recognition_dialog.PREVIEW_IMPORT:
+        if action == recognition_dialog.PREVIEW_IMPORT and getattr(self, "_agregando", None) is not None:
+            self._importar_agregando(results)          # sobre la hoja del editor (ventana_agregar)
+        elif action == recognition_dialog.PREVIEW_IMPORT:
             with _busy_mod.busy(self, _tr("Importando al editor…")):
                 imported = self._import_recognized_pipes(results)
             if imported:
@@ -1164,6 +1191,10 @@ class Main(MenuMixin, PanelIzquierdoMixin, PanelDerechoMixin, ModosMixin, ClicsM
             name0 = names[comp.pieces[0].source] if comp.pieces[0].source < len(names) else ""
             pieces = [(rect, f"{name0} · {label}" if single and name0 else label)
                       for rect, label in self._composite_layout]
+            desde = getattr(self, "_origen_desde_fuente", None)
+            if desde is not None and len(pieces) == len(comp.pieces):
+                # utilidad agregada: sus piezas están ENCIMA de las del editor; el origen es la suya
+                pieces = [pz for pz, p in zip(pieces, comp.pieces) if p.source >= desde] or pieces
             z = self.zoom or 1.0
             return lambda pts: xdata.origin_label([(x / z, y / z) for x, y in pts], pieces,
                                                   "Hoja compuesta")
@@ -1223,43 +1254,15 @@ class Main(MenuMixin, PanelIzquierdoMixin, PanelDerechoMixin, ModosMixin, ClicsM
         if not batches:
             self._info(_tr("No hay tramos reconocidos para importar."))
             return False
-        self._push()
-        n_prev = len(self.pipes)
-        for _result, _utility, pipes, _snapped, _skipped in batches:
-            self.pipes.extend(pipes)
-        # acometidas de gravedad/conductos: su punta en la tubería es un vértice de ésta
-        acometidas.unir_a_principal(self.pipes, range(n_prev, len(self.pipes)), 0.8 * self.zoom)
-        self._dirty = True
-        self._refresh_lists()                 # crea BZ en los vértices de gravedad (conduit: ninguna)…
-        # …y oculta las de quiebres/esquinas sin bóveda (siguen en el DXF como
-        # "Estructura nula" para no romper la topología de la red).
-        n_hidden = model_ops.hide_soft_vertex_structures(self.pipes, self.structures)
-        # …y crea/asocia la CAJA de cada bóveda reconocida con su forma, medidas (pies) y contorno.
-        n_geo = n_alone = 0
-        for result, utility, _pipes, _snapped, _skipped in batches:
-            where = self._xdata_origin(result.page_index)
-            # En eléctrico/telecom la caja nace de la bóveda reconocida y va en el
-            # vértice por donde llega SU línea (los vértices solos nunca son caja).
-            # Presión: sin estructuras en la red, cada bóveda es una caja suelta.
-            added_geo, added_alone = model_ops.attach_vault_geometry(
-                self.structures, getattr(result, "vaults_geo", None) or [],
-                net=NETWORK_KIND.get(utility, "conduit"), utility=utility,
-                origin=lambda c, where=where: where([c]),
-                pipes=[p for p in self.pipes if p.get("layer") == utility])
-            n_geo += added_geo; n_alone += added_alone
-        # …y los codos reconocidos quedan como esquina «CV» con su radio (flujo manual).
-        n_cv = model_ops.attach_fillets(self.pipes, self.structures)
-        # …y cada QUIEBRE del plano de gravedad/conduit es una curva mal dibujada
-        # (regla de los ingenieros): CV con el radio mínimo de la regla (automático),
-        # solo donde entra sin tocar otra curva. Agua y gas no.
-        fpp = self.scale / self.zoom if self.scale and self.zoom else 0.0
-        ocultas = sum(1 for s in self.structures if s.get("hidden") and not s.get("curve"))
-        curvas_q, sin_lugar = quiebres_curvas.curvas_en_quiebres(
-            self.pipes, self.structures, fpp, indices=range(n_prev, len(self.pipes)))
-        # el buzón oculto del quiebre ahora es la curva (y el de un vértice casi recto quitado, ya no está)
-        n_hidden -= ocultas - sum(1 for s in self.structures if s.get("hidden") and not s.get("curve"))
-        if n_hidden or n_geo or n_cv or curvas_q:
-            self._refresh_lists()
+        # Mientras se agrega al modelo, nada lo redibuja ni lo copia a medias: los avisos de avance
+        # repintan la ventana (sin eso, con 36 mapas Windows la marcaba «No responde»), y en ese repintado
+        # podía llegar el cálculo en segundo plano del editor (`calculo_fondo`) y redibujar.
+        self._importando = True
+        try:
+            with self._redibujo_diferido():
+                n_hidden, n_geo, n_alone, n_cv, curvas_q, sin_lugar = self._importar_datos(batches)
+        finally:
+            self._importando = False
         self._update_ui()
         self._redraw()
         parts = []
@@ -1294,6 +1297,51 @@ class Main(MenuMixin, PanelIzquierdoMixin, PanelDerechoMixin, ModosMixin, ClicsM
             msg += " " + _tr("Quiebres sin bóveda: {h} (cajas ocultas).").format(h=n_hidden)
         self._info(msg)
         return True
+
+    def _importar_datos(self, batches):
+        """Los pasos de datos de `_import_recognized_pipes` (tal cual): agrega las tuberías y sus
+        estructuras, bóvedas, codos y quiebres → (ocultas, con medidas, sueltas, codos, curvas, sin lugar)."""
+        from nucleo import avance
+        avance.avisar(_tr("Agregando las tuberías al editor…"))
+        self._push()
+        n_prev = len(self.pipes)
+        for _result, _utility, pipes, _snapped, _skipped in batches:
+            self.pipes.extend(pipes)
+        # acometidas de gravedad/conductos: su punta en la tubería es un vértice de ésta
+        acometidas.unir_a_principal(self.pipes, range(n_prev, len(self.pipes)), 0.8 * self.zoom)
+        self._dirty = True
+        avance.avisar(_tr("Creando los buzones de sus vértices…"))
+        self._refresh_lists()                 # crea BZ en los vértices de gravedad (conduit: ninguna)…
+        # …y oculta las de quiebres/esquinas sin bóveda (siguen en el DXF como
+        # "Estructura nula" para no romper la topología de la red).
+        n_hidden = model_ops.hide_soft_vertex_structures(self.pipes, self.structures)
+        # …y crea/asocia la CAJA de cada bóveda reconocida con su forma, medidas (pies) y contorno.
+        n_geo = n_alone = 0
+        for result, utility, _pipes, _snapped, _skipped in batches:
+            where = self._xdata_origin(result.page_index)
+            # En eléctrico/telecom la caja nace de la bóveda reconocida y va en el
+            # vértice por donde llega SU línea (los vértices solos nunca son caja).
+            # Presión: sin estructuras en la red, cada bóveda es una caja suelta.
+            added_geo, added_alone = model_ops.attach_vault_geometry(
+                self.structures, getattr(result, "vaults_geo", None) or [],
+                net=NETWORK_KIND.get(utility, "conduit"), utility=utility,
+                origin=lambda c, where=where: where([c]),
+                pipes=[p for p in self.pipes if p.get("layer") == utility])
+            n_geo += added_geo; n_alone += added_alone
+        # …y los codos reconocidos quedan como esquina «CV» con su radio (flujo manual).
+        n_cv = model_ops.attach_fillets(self.pipes, self.structures)
+        # …y cada QUIEBRE del plano de gravedad/conduit es una curva mal dibujada
+        # (regla de los ingenieros): CV con el radio mínimo de la regla (automático),
+        # solo donde entra sin tocar otra curva. Agua y gas no.
+        fpp = self.scale / self.zoom if self.scale and self.zoom else 0.0
+        ocultas = sum(1 for s in self.structures if s.get("hidden") and not s.get("curve"))
+        curvas_q, sin_lugar = quiebres_curvas.curvas_en_quiebres(
+            self.pipes, self.structures, fpp, indices=range(n_prev, len(self.pipes)))
+        # el buzón oculto del quiebre ahora es la curva (y el de un vértice casi recto quitado, ya no está)
+        n_hidden -= ocultas - sum(1 for s in self.structures if s.get("hidden") and not s.get("curve"))
+        if n_hidden or n_geo or n_cv or curvas_q:
+            self._refresh_lists()
+        return n_hidden, n_geo, n_alone, n_cv, curvas_q, sin_lugar
 
     def _pagina_fondo(self):
         """La hoja del PDF que muestra el lienzo, para el recorte nítido al acercarse

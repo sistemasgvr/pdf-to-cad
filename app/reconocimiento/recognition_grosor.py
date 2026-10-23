@@ -4,7 +4,7 @@ Pedido del usuario 2026-10-21 (DU06 drenaje): «reconocer su grosor si el PDF di
 información… un complemento, que no afecte lo que ya hacemos». Ningún vértice se mueve: se
 escribe `pl.grosor` (el porqué) y `pl.diam_in` si estaba vacío, en las líneas donde el plano lo
 dice; y una ruta con DOS diámetros se parte en el nodo donde cambia (abajo). Solo en hojas con
-capas (CAD); los mapas sin capas tienen `recognition_diametros`.
+capas (CAD); los mapas sin capas tienen `recognition_grosor_mapa`.
 
 Cómo lo dice un plano CAD (DU06): el grosor de la PLUMA no — va por ESTADO de la capa (existente
 0.72 pt, propuesta 1.44, a demoler 1.02). Lo dicen:

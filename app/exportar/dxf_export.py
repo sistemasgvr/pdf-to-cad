@@ -132,6 +132,12 @@ def merge_into(win, doc, marks=True):
 
 def _merge_into(win, doc, marks=True):
     from nucleo import model_ops
+    with model_ops.indice_vertices():          # solo lee el modelo (curvas por celdas)
+        return _merge_into_modelo(win, doc, marks)
+
+
+def _merge_into_modelo(win, doc, marks=True):
+    from nucleo import model_ops
     VP.setup_linetypes(doc); msp = doc.modelspace()
     apply_erase(win, msp)                             # las zonas de borrado recortan el plano base
     if not marks:                                     # 'solo PDF': no agregar utilidades/leaders/textos

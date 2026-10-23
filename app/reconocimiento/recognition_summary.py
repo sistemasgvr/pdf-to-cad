@@ -136,11 +136,11 @@ _RULES = [
      lambda m: _pl(_n(m), "buzón de la leyenda en su línea", "buzones de la leyenda en su línea"), "vaults"),
     (r"^Acometidas \(servicios[^)]*\): (\d+)", INFO,
      lambda m: _pl(_n(m), "acometida unida a su tubería", "acometidas unidas a su tubería"), "taps"),
-    (r"^Diámetros escritos en el plano[^:]*: (\d+) tubería\(s\) los toman; (\d+)",
+    (r"^Diámetros del plano \(rótulos junto a la tubería\): (\d+) tubería\(s\) los toman; (\d+)",
      lambda m: REVIEW if _n(m, 2) else INFO,
-     lambda m: (_pl(_n(m, 2), "tubería con rótulos de diámetro distintos", "tuberías con rótulos de diámetro distintos")
+     lambda m: (_pl(_n(m, 2), "tubería con el diámetro dudoso", "tuberías con el diámetro dudoso")
                 if _n(m, 2) else _pl(_n(m), "tubería con el diámetro del plano", "tuberías con el diámetro del plano")),
-     "diam_mix"),
+     "grosor"),
     (r"^Diámetros del plano \(rótulos con flecha[^:]*: (\d+) tubería\(s\) los toman; (\d+)",
      lambda m: REVIEW if _n(m, 2) else INFO,
      lambda m: (_pl(_n(m, 2), "tubería con el diámetro dudoso", "tuberías con el diámetro dudoso")
@@ -156,9 +156,12 @@ _RULES = [
 # Explicación de cada aviso de «Para verificar»: qué se encontró y qué se hizo con
 # ello, sin tono de error (la vista los traduce con `t()`). Clave = patrón de `_RULES`.
 _HINTS = {
-    r"^Diámetros escritos en el plano[^:]*: (\d+) tubería\(s\) los toman; (\d+)": N_(
-        "Junto a estas tuberías el plano escribe diámetros distintos (por ejemplo 6\" y 8\" a cada lado "
-        "de una reducción): quedan con el diámetro por defecto. Revisa su diámetro en el editor."),
+    r"^Diámetros del plano \(rótulos junto a la tubería\): (\d+) tubería\(s\) los toman; (\d+)": N_(
+        "El mapa escribe el diámetro junto a cada tramo, pero el de estas tuberías no es seguro: "
+        "rótulos distintos en el mismo tramo, un rótulo que está entre dos tuberías, o un tramo sin "
+        "rótulo con otro diámetro a cada lado (no se sabe dónde cambia). No se pone: quedan con el "
+        "diámetro por defecto y el editor les pone un aviso con lo que dice el plano para que elijas "
+        "el suyo."),
     r"^Diámetros del plano \(rótulos con flecha[^:]*: (\d+) tubería\(s\) los toman; (\d+)": N_(
         "El plano dice algo del diámetro de estas tuberías, pero no con certeza: rótulos distintos que "
         "no se pudieron separar en un pozo, unión o esquina, un rótulo que no coincide con el ancho de "
@@ -166,9 +169,9 @@ _HINTS = {
         "de afuera del tubo. No se pone: quedan con el diámetro por defecto y el editor les pone un "
         "aviso con lo que dice el plano para que elijas el suyo."),
     r"^Tuberías sin diámetro en el plano: (\d+)": N_(
-        "El plano no dice el diámetro de estas tuberías: ningún rótulo con flecha llega a ellas y no "
-        "tienen paredes dibujadas. Quedan con el diámetro por defecto y el editor les pone un aviso "
-        "para que elijas el suyo."),
+        "El plano no dice el diámetro de estas tuberías: ningún rótulo de diámetro es suyo (en un "
+        "plano CAD, ninguno con flecha llega a ellas y no tienen paredes dibujadas). Quedan con el "
+        "diámetro por defecto y el editor les pone un aviso para que elijas el suyo."),
     r"^No se encontraron líneas": N_(
         "No hay líneas de esta utilidad en la hoja. Si el plano usa otros nombres de capa, "
         "indícalos con «Ajustar capas…»."),
@@ -341,7 +344,7 @@ def targets_for(key: str, result) -> List[Rect]:
     elif key == "grosor_partida":
         out = [b for pl in joined if (getattr(pl, "grosor", None) or {}).get("partida")
                and (b := _bbox(pl.pts_pdf))]
-    elif key in ("a_no_pattern", "double_active", "to_abandon", "marker_active", "diam_mix"):
+    elif key in ("a_no_pattern", "double_active", "to_abandon", "marker_active"):
         out = [b for pl in joined if getattr(pl, "review", "") == key and (b := _bbox(pl.pts_pdf))]
     # puntos/segmentos degenerados → recuadro mínimo visible
     out = [(x0 - POINT_PAD_PX, y0 - POINT_PAD_PX, x1 + POINT_PAD_PX, y1 + POINT_PAD_PX)

@@ -303,7 +303,7 @@ editor</span> leaves it as the background to draw by hand.</p>
     them. The same in sewer and the other utilities: in gravity and conduit networks the service
     line stays joined to its pipe with a NULL node (no visible manhole); the manholes are those of the
     network. When recognizing, each pipe takes
-    the diameter written next to it («6"», «8" DIP») and the legend manhole stays on its line. Always review
+    the diameter written next to it («6"», «8" DIP»; see <b>Diameter from the plan (map without layers)</b>) and the legend manhole stays on its line. Always review
     before continuing: everything can be changed like any assignment. Each sheet uses <b>its own</b> legend:
     what the legend assigned on one sheet does not carry over to another (what you assigned by hand does).
     On a <b>composed sheet</b> of maps each piece is read with its own legend, and if two maps draw the same
@@ -335,6 +335,17 @@ editor</span> leaves it as the background to draw by hand.</p>
     its diameter removes the notice; to keep the default, approve it. In the preview, <b>To check</b> takes
     you to each one. On the plan they are shown or hidden apart from the standards warnings:
     View → Warnings → <b>Show recognition warnings</b>.</li>
+<li><b>Diameter from the plan (map without layers):</b> on a flattened GIS map (such as the Phoenix
+    Quarter Sections) each run carries its label next to the line, parallel and close to it: «8"», «12" DIP»,
+    «12" DIP (CP)», «6" DIP FL», «8" Unk». When recognizing, each pipe takes its own; the casing («72" STEEL
+    CASING») and fittings («2" ARV», «2" BLOW OFF») do not count, nor do the miniature labels of a reference
+    to a detail. On the map each run has a single diameter: if a route crosses pipes of different diameters,
+    it is split between them (no vertex moves), and a run without a label takes its neighbours' diameter
+    when both say the same. Service taps take their label («278' 2"», «1.5"») or the legend note («taps are
+    .75"»). The same <b>only what is certain</b> rules apply: a label lying between two pipes drawn close
+    together (it is unknown whose it is), different labels on the same run, or an unlabeled run between two
+    different diameters (it is unknown where it changes) keep the default diameter and get their
+    <b>notice</b>, like pipes without a label (the short runs to hydrants usually have none).</li>
 <li><b>By the letters on the line:</b> the app does not only look at the layer name; it also reads
     the letters each line carries (—TE—, —SC—, —W—, —G—, —ss—…). A layer whose name is not a
     utility's, but whose lines say so, appears under its utility with the letters next to it, for
@@ -472,6 +483,28 @@ editor</span> leaves it as the background to draw by hand.</p>
     all (magenta ring): they come in as a <b>standalone box</b> with their shape and size
     (rectangular ones as <b>SÓLIDO</b>), without touching the lines. This also applies to pull boxes,
     poles and proposed structures.</li>
+</ul>
+
+<h2>Adding another utility from its own PDF</h2>
+<p>Sometimes each utility comes in its own PDFs (for example the Phoenix maps: two PDFs for water,
+two for sewer and two for storm drain). With one utility already imported, use
+<b>Tools → Add utility from another PDF…</b> (or the sheet button with a <b>+</b> on the top
+toolbar) and choose the PDF of the next one. If the editor sheet comes from two PDFs, the app
+offers to add the other one of the same utility too.</p>
+<ul>
+<li>For each sheet of the editor, the app finds the sheet of the new PDF that draws <b>the same
+    place</b>, by the base map they share (lots, right of way, streets), even at another scale, in
+    another order or rotated. The new sheet is built <b>traced</b> on the editor sheet: same area,
+    same place, same size.</li>
+<li>You go on with the usual steps (<b>Sheet layers</b> and <b>Preview</b>) on the sheet of the new
+    utility. The utilities already in the editor are not checked.</li>
+<li>When you import, the editor sheet shows <b>both PDFs together</b> and what was recognized is
+    added to what you already had. What was there <b>does not move or change</b> (lines, manholes,
+    Undo, georeferencing). <span class="btn">Cancel</span> in any step leaves the editor as it was.</li>
+<li>If you go back to <b>Compose sheet</b> in this mode, you choose which sheets and areas to use;
+    where each sheet goes is set by its base map (moving it by hand does not change where it falls).</li>
+<li>If the PDF does not draw the same base map as the editor sheet (other cartography, another
+    area), the app says so and adds nothing.</li>
 </ul>
 
 <h2>Composing again later</h2>

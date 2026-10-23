@@ -3,7 +3,8 @@
 Pedido del usuario 2026-10-22: «si alguna línea no tiene información, o no estamos 100 % seguros de
 que esa información le pertenece, no hay que ponerla automáticamente: hay que dejar una alerta para
 que el usuario sepa que se dejó por defecto ese tramo». El reconocimiento de un PDF con capas
-(`recognition_grosor`) deja en cada línea `grosor["estado"]`: «leido» (el diámetro se puso),
+(`recognition_grosor`) o de un mapa sin capas (`recognition_grosor_mapa`, 2026-10-23) deja en cada
+línea `grosor["estado"]`: «leido» (el diámetro se puso),
 «dudoso» (el plano dice algo pero no es seguro) o «sin_dato». Al importar, `de_grosor` lo guarda en
 la utilidad (`diam_plano`) y `avisos` pone un aviso —como los de normativa: se marca en el plano,
 se lista, se aprueba— a cada utilidad dudosa o sin dato que siga con el diámetro por defecto. En
@@ -54,6 +55,12 @@ def mensaje(dp: dict, d: float) -> str:
     perfil = dp.get("perfil_in") or []
     if fuente == "mezcla":
         motivo = t("sus rótulos dicen {lista}").format(lista=_lista(cands))
+    elif fuente == "cerca":                     # mapa sin capas (`recognition_grosor_mapa`)
+        motivo = t("un rótulo junto a ella que no se sabe si es suyo (está entre dos tuberías o pasada su "
+                   "punta) dice {lista}").format(lista=_lista(cands))
+    elif fuente == "cambio":
+        motivo = t("no tiene rótulo y a cada lado el plano dice otro diámetro ({lista}): no se sabe dónde "
+                   "cambia").format(lista=_lista(cands))
     elif fuente == "perfil":
         motivo = t("los perfiles de los laterales que cruza dicen {lista}").format(lista=_lista(cands))
     elif fuente == "plano≠perfil":

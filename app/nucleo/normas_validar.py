@@ -321,6 +321,12 @@ def _revisar_accesorio(cat, pipes, a, out):
 # ─────────────────────────── todo ───────────────────────────
 
 def validar(cat, pipes, accesorios_, ft_per_px, con_bancoducto=(), structures=()):
+    """Ver `_validar` (las curvas de cada tubería, por celdas: `model_ops.indice_vertices`)."""
+    with model_ops.indice_vertices():
+        return _validar(cat, pipes, accesorios_, ft_per_px, con_bancoducto, structures)
+
+
+def _validar(cat, pipes, accesorios_, ft_per_px, con_bancoducto=(), structures=()):
     """Avisos de todas las utilidades y accesorios. `con_bancoducto` = índices de las
     utilidades que llevan bancoducto (sus filas «SIMPLE» no aplican); `structures` = para
     revisar el radio de sus curvas (RADIO CURVA MIN/MAX)."""

@@ -23,7 +23,7 @@ RAIZ = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 GRUPOS = {
     # mapas SIG sin capas (Phoenix): capas por estilo, leyenda, acometidas, hoja compuesta de mapas
-    "mapas": ["test_pdf_styles", "test_mapas_leyenda", "test_mapas_sin_capas", "test_acometidas_gravedad",
+    "mapas": ["test_pdf_styles", "test_mapas_leyenda", "test_mapas_sin_capas", "test_acometidas_gravedad", "test_grosor_mapa",
               "test_mapas_compuestos"],
     # componer hoja: piezas, costuras CAD, sugerencia, escaneos, hoja enorme y nitidez
     "compositor": ["test_composite", "test_composite_checks", "test_composite_seam", "test_composite_dialog",

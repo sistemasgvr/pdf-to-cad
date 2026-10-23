@@ -316,31 +316,40 @@ class ListasMixin:
         self.bz_list.blockSignals(True); self.bz_list.clear()
         self.curve_list.blockSignals(True); self.curve_list.clear()
         self._bz_rows = []; self._curve_rows = []
-        for i, s in enumerate(self.structures):
-            is_curve = bool(s.get("curve"))
-            if is_curve:
-                p = self._pipe_at_vertex(s.get("x"), s.get("y")) if s.get("x") is not None else None
-                fam = (p.get("pipe_family") if p else "") or _tr("(sin familia)")
-                sz = f"  {p['pipe_size']}" if p and p.get("pipe_size") else ""
-                item_icon = _icon("mdi:vector-curve", color="#a855f7")   # curva = violeta
-            else:
-                fam = s.get("part") or _tr("(sin familia)")
-                sz = f"  {s['part_size']}" if s.get("part_size") else ""
-                if s.get("hidden"):
-                    item_icon = _icon("mdi:eye-off-outline", color=_theme.tokens().text_muted)
-                elif s.get("solid"):
-                    item_icon = _icon("mdi:cube-outline", color="#f97316")    # sólido 3D = cubo
-                elif s.get("net") == "conduit":
-                    item_icon = _icon("mdi:circle-medium", color="#f97316")   # conducto = naranja
+        # (solo se leen las estructuras: la tubería de cada curva, por celdas — `model_ops.indice_vertices`)
+        iconos_s = {}                   # cada icono UNA vez (el mismo para miles de buzones)
+
+        def ico(nombre, color):
+            k = (nombre, color)
+            if k not in iconos_s:
+                iconos_s[k] = _icon(nombre, color=color)
+            return iconos_s[k]
+        with model_ops.indice_vertices():
+            for i, s in enumerate(self.structures):
+                is_curve = bool(s.get("curve"))
+                if is_curve:
+                    p = self._pipe_at_vertex(s.get("x"), s.get("y")) if s.get("x") is not None else None
+                    fam = (p.get("pipe_family") if p else "") or _tr("(sin familia)")
+                    sz = f"  {p['pipe_size']}" if p and p.get("pipe_size") else ""
+                    item_icon = ico("mdi:vector-curve", "#a855f7")   # curva = violeta
                 else:
-                    item_icon = _icon("mdi:circle-medium", color="#3b82f6")   # buzón = azul
-            it = QtWidgets.QListWidgetItem(item_icon, self._solid_label(s) if s.get("solid") and not is_curve
-                                           else f"{s.get('cod', '?')}  ·  {fam}{sz}")
-            if not is_curve and s.get("hidden"):
-                it.setForeground(QtGui.QColor(_theme.tokens().text_muted))
-                it.setToolTip(_tr("Oculto — no se dibuja ni se crea en Civil3D como buzón real."))
-            if is_curve: self.curve_list.addItem(it); self._curve_rows.append(i)
-            else: self.bz_list.addItem(it); self._bz_rows.append(i)
+                    fam = s.get("part") or _tr("(sin familia)")
+                    sz = f"  {s['part_size']}" if s.get("part_size") else ""
+                    if s.get("hidden"):
+                        item_icon = ico("mdi:eye-off-outline", _theme.tokens().text_muted)
+                    elif s.get("solid"):
+                        item_icon = ico("mdi:cube-outline", "#f97316")    # sólido 3D = cubo
+                    elif s.get("net") == "conduit":
+                        item_icon = ico("mdi:circle-medium", "#f97316")   # conducto = naranja
+                    else:
+                        item_icon = ico("mdi:circle-medium", "#3b82f6")   # buzón = azul
+                it = QtWidgets.QListWidgetItem(item_icon, self._solid_label(s) if s.get("solid") and not is_curve
+                                               else f"{s.get('cod', '?')}  ·  {fam}{sz}")
+                if not is_curve and s.get("hidden"):
+                    it.setForeground(QtGui.QColor(_theme.tokens().text_muted))
+                    it.setToolTip(_tr("Oculto — no se dibuja ni se crea en Civil3D como buzón real."))
+                if is_curve: self.curve_list.addItem(it); self._curve_rows.append(i)
+                else: self.bz_list.addItem(it); self._bz_rows.append(i)
         self.bz_list.blockSignals(False); self.curve_list.blockSignals(False)
         self._sync_bz_panel(); self._sync_curve_panel()
         self.cl_list.blockSignals(True); self.cl_list.clear()

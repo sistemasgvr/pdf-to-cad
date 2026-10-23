@@ -158,9 +158,13 @@ def _banner(color: str) -> tuple[QtWidgets.QFrame, QtWidgets.QLabel]:
 class CompositeDialog(NoEscapeClose, ChosenSheetMixin, SourcePageMixin, ScanToolsMixin, SuggestionMixin,
                       AreaSugeridaMixin, QtWidgets.QDialog):
     def __init__(self, parent, sources: List[dict], comp: Optional[C.Composite],
-                 hidden_by_source: Optional[Dict[str, List[str]]], current_page: int = 0, manual: bool = False):
+                 hidden_by_source: Optional[Dict[str, List[str]]], current_page: int = 0, manual: bool = False,
+                 sugerencia: bool = True):
         super().__init__(parent)
         self.sources = [dict(s) for s in sources]
+        # «Agregar utilidad» (ventana_agregar): la hoja ya viene calcada sobre la del editor;
+        # la composición sugerida del PDF solo la desarmaría
+        self._sugerir = bool(sugerencia)
         # `hidden_by_source` es la selección de capas de la hoja YA COMPUESTA
         # (paso «Capas de la hoja», después de este diálogo): aquí solo se
         # conserva para devolverla sin tocar. El compositor sirve para MIRAR y
@@ -1221,12 +1225,14 @@ class CompositeDialog(NoEscapeClose, ChosenSheetMixin, SourcePageMixin, ScanTool
 
 
 def compose_sheet(parent, sources: List[dict], comp: Optional[C.Composite],
-                  hidden_by_source: Optional[Dict[str, List[str]]], current_page: int = 0, manual: bool = False):
+                  hidden_by_source: Optional[Dict[str, List[str]]], current_page: int = 0, manual: bool = False,
+                  sugerencia: bool = True):
     """Abre el compositor. Devuelve ``(composite, sources, hidden_by_source)`` o
     None si se cancela. `sources` son dicts ``{name, data(bytes), path?}``."""
     with busy(parent, _tr("Abriendo «Componer hoja»…"),
               _tr("Preparando las hojas del PDF")):
-        dlg = CompositeDialog(parent, sources, comp, hidden_by_source, current_page, manual=manual)
+        dlg = CompositeDialog(parent, sources, comp, hidden_by_source, current_page, manual=manual,
+                              sugerencia=sugerencia)
     try:
         if dlg.exec() != QtWidgets.QDialog.Accepted:   # showEvent lo maximiza al aparecer
             return None

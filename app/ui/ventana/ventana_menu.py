@@ -96,6 +96,7 @@ class MenuMixin:
         mtools = _menu(mb, "&Herramientas")
         _act(mtools, "Componer hoja de trabajo…", self.compose_sheet)
         _act(mtools, "Componer PDF imagen/escaneo…", self.compose_scan_sheet)
+        _act(mtools, "Agregar utilidad desde otro PDF…", self.agregar_utilidad)
         mtools.addSeparator()
         _act(mtools, "Tabla de datos…", self.abrir_tabla_datos, "Ctrl+Shift+T")
         mtools.addSeparator()
@@ -201,6 +202,10 @@ class MenuMixin:
         self._act_tabla = tact("mdi:table-large", "Tabla de datos: utilidades, buzones, curvas… (Ctrl+Shift+T)",
                                self.abrir_tabla_datos)
         self._act_3d = tact("mdi:cube-outline", "Vista 3D: lo que Civil 3D va a construir (F3)", self.abrir_vista3d)
+        tb.addSeparator()
+        # otra utilidad de su propio PDF, sobre la MISMA hoja (ventana_agregar, 2026-10-23)
+        self._act_agregar = tact("mdi:file-plus-outline", "Agregar utilidad desde otro PDF: se ubica sola sobre "
+                                 "esta hoja por el mapa base y se reconoce como siempre", self.agregar_utilidad)
         tb.addSeparator()
         spacer = QtWidgets.QWidget(); spacer.setSizePolicy(QtWidgets.QSizePolicy.Expanding, QtWidgets.QSizePolicy.Preferred); tb.addWidget(spacer)
         # Sin selector de unidad: TODO va en pies por campo (cotas/coordenadas),

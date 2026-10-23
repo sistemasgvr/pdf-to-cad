@@ -40,7 +40,7 @@ class DibujoMixin:
         self._indice_redibujo = None                   # índice de tramos de ESTE redibujo
         self._en_redibujo = True
         try:
-            with model_ops.memo_cotas():
+            with model_ops.memo_cotas(), model_ops.indice_vertices():   # (nada cambia mientras se dibuja)
                 self._redraw_todo()
         finally:
             self._en_redibujo = False

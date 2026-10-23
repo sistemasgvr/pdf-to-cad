@@ -3445,10 +3445,17 @@ EN: dict[str, str] = {
         'Service lines (taps to the lots, legend «Tap»): {n}, {t} joined to their pipe with a tee — diameter {d}" (legend note).',
     'Acometidas (servicios a los predios, leyenda «Tap»): {n}, {t} unidas a su tubería con una T.':
         "Service lines (taps to the lots, legend «Tap»): {n}, {t} joined to their pipe with a tee.",
-    'Diámetros escritos en el plano («8"», «12" DIP», «278\' 2"»): {n} tubería(s) los toman; {m} con rótulos distintos quedan con el diámetro por defecto.':
-        'Diameters written on the plan («8"», «12" DIP», «278\' 2"»): {n} pipe(s) take them; {m} with different labels keep the default diameter.',
-    'Junto a estas tuberías el plano escribe diámetros distintos (por ejemplo 6" y 8" a cada lado de una reducción): quedan con el diámetro por defecto. Revisa su diámetro en el editor.':
-        'The plan writes different diameters next to these pipes (for example 6" and 8" on each side of a reducer): they keep the default diameter. Check their diameter in the editor.',
+    # Grosor de los mapas sin capas (recognition_grosor_mapa.py, 2026-10-23)
+    'Diámetros del plano (rótulos junto a la tubería): {n} tubería(s) los toman; {m} dudosa(s) quedan con el diámetro por defecto y un aviso en el editor.':
+        'Diameters from the plan (labels next to the pipe): {n} pipe(s) take them; {m} doubtful one(s) keep the default diameter and get a notice in the editor.',
+    'Tuberías sin diámetro en el plano: {n} — ningún rótulo de diámetro va junto a ellas; quedan con el diámetro por defecto y un aviso en el editor.':
+        'Pipes without a diameter on the plan: {n} — no diameter label goes next to them; they keep the default diameter and get a notice in the editor.',
+    'El mapa escribe el diámetro junto a cada tramo, pero el de estas tuberías no es seguro: rótulos distintos en el mismo tramo, un rótulo que está entre dos tuberías, o un tramo sin rótulo con otro diámetro a cada lado (no se sabe dónde cambia). No se pone: quedan con el diámetro por defecto y el editor les pone un aviso con lo que dice el plano para que elijas el suyo.':
+        'The map writes the diameter next to each run, but for these pipes it is not certain: different labels on the same run, a label lying between two pipes, or an unlabeled run with a different diameter on each side (where it changes is unknown). It is not set: they keep the default diameter and the editor gives them a notice with what the plan says so you can pick theirs.',
+    'un rótulo junto a ella que no se sabe si es suyo (está entre dos tuberías o pasada su punta) dice {lista}':
+        'a label next to it that may not be its own (it lies between two pipes or past its end) says {lista}',
+    'no tiene rótulo y a cada lado el plano dice otro diámetro ({lista}): no se sabe dónde cambia':
+        'it has no label and the plan gives a different diameter on each side ({lista}): where it changes is unknown',
     # Grosor del plano CAD (recognition_grosor.py, 2026-10-21)
     'Diámetros del plano (rótulos con flecha y paredes dibujadas): {n} tubería(s) los toman; {m} dudosa(s) quedan con el diámetro por defecto y un aviso en el editor.':
         'Diameters from the plan (labels with leaders and drawn walls): {n} pipe(s) take them; {m} doubtful one(s) keep the default diameter and get a notice in the editor.',
@@ -3456,8 +3463,8 @@ EN: dict[str, str] = {
         'Pipes without a diameter on the plan: {n} — no label with a leader reaches them and they have no drawn walls; they keep the default diameter and get a notice in the editor.',
     'El plano dice algo del diámetro de estas tuberías, pero no con certeza: rótulos distintos que no se pudieron separar en un pozo, unión o esquina, un rótulo que no coincide con el ancho de sus paredes, o paredes dibujadas sin un rótulo en la hoja que diga si son las de adentro o las de afuera del tubo. No se pone: quedan con el diámetro por defecto y el editor les pone un aviso con lo que dice el plano para que elijas el suyo.':
         'The plan says something about the diameter of these pipes, but not with certainty: different labels that could not be separated at a manhole, junction or corner, a label that does not match the width of their walls, or drawn walls with no label on the sheet telling whether they are the inside or the outside of the pipe. It is not set: they keep the default diameter and the editor gives them a notice with what the plan says so you can pick theirs.',
-    'El plano no dice el diámetro de estas tuberías: ningún rótulo con flecha llega a ellas y no tienen paredes dibujadas. Quedan con el diámetro por defecto y el editor les pone un aviso para que elijas el suyo.':
-        'The plan does not give the diameter of these pipes: no label with a leader reaches them and they have no drawn walls. They keep the default diameter and the editor gives them a notice so you can pick theirs.',
+    'El plano no dice el diámetro de estas tuberías: ningún rótulo de diámetro es suyo (en un plano CAD, ninguno con flecha llega a ellas y no tienen paredes dibujadas). Quedan con el diámetro por defecto y el editor les pone un aviso para que elijas el suyo.':
+        'The plan does not give the diameter of these pipes: no diameter label is theirs (on a CAD plan, no label with a leader reaches them and they have no drawn walls). They keep the default diameter and the editor gives them a notice so you can pick theirs.',
     'Tuberías partidas donde el plano cambia de diámetro: {n} — sus rótulos dicen un diámetro hasta un nodo (pozo, unión o esquina) y otro después.':
         'Pipes split where the plan changes diameter: {n} — their labels give one diameter up to a node (manhole, junction or corner) and another after it.',
     # Composición sugerida (composite_suggest.py, 2026-10-14)
@@ -3637,4 +3644,44 @@ EN: dict[str, str] = {
     'Área sugerida:': 'Suggested area:',
     'Otra vista ({i}/{n})': 'Another view ({i}/{n})',
     'Sigue su borde inclinado (esquinas libres).': 'It follows its slanted border (free corners).',
+    # «Agregar utilidad desde otro PDF…» (ventana_agregar, hoja_calcada)
+    'Leyendo el mapa base de las hojas nuevas…': 'Reading the base map of the new sheets…',
+    'Buscando dónde cae cada hoja sobre la hoja del editor…': 'Finding where each sheet falls on the editor sheet…',
+    'Agregar utilidad': 'Add utility',
+    'Agregar utilidad desde otro PDF…': 'Add utility from another PDF…',
+    'Agregar utilidad desde otro PDF: se ubica sola sobre esta hoja por el mapa base y se reconoce como siempre':
+        'Add a utility from another PDF: it places itself on this sheet by the base map and is recognized as usual',
+    'Abre primero el PDF de una utilidad e impórtala: la nueva se agrega sobre esa hoja.':
+        'First open the PDF of one utility and import it: the new one is added on top of that sheet.',
+    'La hoja del editor es un PDF imagen/escaneo: no tiene un mapa base vectorial con el que ubicar otra utilidad.':
+        'The editor sheet is an image/scanned PDF: it has no vector base map to place another utility with.',
+    'No se pudo leer el PDF:\n\n{e}': 'The PDF could not be read:\n\n{e}',
+    'Ninguna hoja de «{pdf}» dibuja el mismo lugar que la hoja del editor (su mapa base de lotes y calles no '
+    'coincide con el de la hoja), así que no se puede ubicar sobre ella.':
+        'No sheet of «{pdf}» draws the same place as the editor sheet (its base map of lots and streets does not '
+        'match the sheet\'s), so it cannot be placed on it.',
+    'Agregar utilidad: elige su PDF': 'Add utility: choose its PDF',
+    'La hoja del editor viene de {n} PDF. ¿Agregar también estos de la misma utilidad?\n\n{lista}':
+        'The editor sheet comes from {n} PDFs. Also add these of the same utility?\n\n{lista}',
+    'Ubicando «{pdf}» sobre la hoja del editor…': 'Placing «{pdf}» on the editor sheet…',
+    'Buscando en cada hoja el mismo mapa base (lotes, calles)': 'Looking for the same base map in each sheet (lots, streets)',
+    'Agregar utilidad cancelado — el editor queda como estaba.': 'Add utility cancelled — the editor stays as it was.',
+    'No se pudo ubicar el PDF sobre la hoja del editor:\n\n{e}': 'The PDF could not be placed on the editor sheet:\n\n{e}',
+    'La hoja necesita más memoria de la que hay libre en el equipo.': 'The sheet needs more memory than is free on this computer.',
+    '{n} de {t} hojas de la hoja del editor ubicadas en «{pdf}» por su mapa base.':
+        '{n} of {t} sheets of the editor sheet found in «{pdf}» by their base map.',
+    '{n} hoja(s) no coinciden con ninguna hoja del editor (su mapa base no está en la hoja) y no se usan: {lista}.':
+        '{n} sheet(s) do not match any sheet of the editor (their base map is not on the sheet) and are not used: {lista}.',
+    'Ninguna de las hojas elegidas coincide con la hoja del editor.': 'None of the chosen sheets matches the editor sheet.',
+    'No se pudo armar la hoja con las dos utilidades:\n\n{e}': 'The sheet with both utilities could not be built:\n\n{e}',
+    'Utilidad agregada a la hoja del editor': 'Utility added to the editor sheet',
+    'Armando la hoja con las dos utilidades…': 'Building the sheet with both utilities…',
+    'La hoja combinada no mide lo mismo que la del editor.': 'The combined sheet does not have the same size as the editor sheet.',
+    # avance de la importación y de la vista previa (sin trabar la ventana con hojas grandes)
+    'Poniendo cada bóveda en su línea…': 'Placing each vault on its line…',
+    'Uniendo cada acometida a su tubería…': 'Joining each service tap to its pipe…',
+    'Asociando cada bóveda a su estructura…': 'Matching each vault to its structure…',
+    'Buscando los quiebres que entran como curva…': 'Finding the bends that become curves…',
+    'Agregando las tuberías al editor…': 'Adding the pipes to the editor…',
+    'Creando los buzones de sus vértices…': 'Creating the manholes at their vertices…',
 }

@@ -240,7 +240,7 @@ class SuggestionMixin:
 
     # ── análisis ────────────────────────────────────────────────────────
     def _sug_iniciar(self):
-        if self.comp.manual or not activa() or not self.sources:
+        if self.comp.manual or not activa() or not self.sources or not getattr(self, "_sugerir", True):
             return
         srv = servicio()
         srv.progreso.connect(self._sug_progreso)

@@ -302,7 +302,7 @@ imagen/escaneo…</b>), pero sin capas ni reconocimiento: al final,
     el diámetro de la nota de la leyenda (por ejemplo .75") o el escrito junto a ellas. Lo mismo en
     alcantarillado y las demás utilidades: en las redes por gravedad y de conductos la acometida queda
     unida a su tubería con un nodo NULO (sin buzón visible); los buzones son los de la red. Al reconocer, cada tubería toma el diámetro escrito a su
-    lado («6"», «8" DIP») y el buzón de la leyenda queda en su línea. Revisa siempre antes de continuar:
+    lado («6"», «8" DIP»; ver <b>Diámetro del plano (mapa sin capas)</b>) y el buzón de la leyenda queda en su línea. Revisa siempre antes de continuar:
     todo se puede cambiar como cualquier asignación. Cada hoja usa <b>su</b> leyenda: lo que la leyenda
     asignó en una hoja no pasa a otra (lo que asignaste tú a mano, sí). En una <b>hoja compuesta</b> de
     mapas cada pieza se lee con su leyenda, y si dos mapas dibujan la misma línea («Standard Main») con
@@ -334,6 +334,17 @@ imagen/escaneo…</b>), pero sin capas ni reconocimiento: al final,
     diámetro el aviso desaparece; para dejar el de por defecto, apruébalo. En la vista previa, <b>Para
     verificar</b> lleva a cada una. En el plano se muestran u ocultan aparte de los de normativa:
     Ver → Avisos → <b>Mostrar avisos de reconocimiento</b>.</li>
+<li><b>Diámetro del plano (mapa sin capas):</b> en un mapa SIG aplanado (como los Quarter Section de
+    Phoenix) cada tramo lleva su rótulo junto a la línea, paralelo y pegado a ella: «8"», «12" DIP»,
+    «12" DIP (CP)», «6" DIP FL», «8" Unk». Al reconocer, cada tubería toma el suyo; la camisa («72" STEEL
+    CASING») y los accesorios («2" ARV», «2" BLOW OFF») no cuentan, ni los rótulos en miniatura de la
+    referencia a un detalle. En el mapa cada tramo tiene un solo diámetro: si una ruta cruza tuberías de
+    distinto diámetro, se parte entre ellas (sin mover ningún vértice), y un tramo sin rótulo toma el de
+    sus vecinos cuando los dos dicen lo mismo. Las acometidas toman su rótulo («278' 2"», «1.5"») o la nota
+    de la leyenda («taps are .75"»). Las mismas reglas de <b>solo lo seguro</b>: un rótulo que está entre
+    dos tuberías pegadas (no se sabe de cuál es), rótulos distintos en el mismo tramo o un tramo sin rótulo
+    entre dos diámetros distintos (no se sabe dónde cambia) quedan con el diámetro por defecto y su
+    <b>aviso</b>, igual que las tuberías sin rótulo (los tramitos a los hidrantes suelen no tenerlo).</li>
 <li><b>Por las letras de la línea:</b> la app no solo mira el nombre de la capa; también lee las
     letras que lleva cada línea (—TE—, —SC—, —W—, —G—, —ss—…). Una capa cuyo nombre no es de
     ninguna utilidad, pero cuyas líneas sí lo dicen, aparece en su utilidad con las letras al lado,
@@ -467,6 +478,28 @@ imagen/escaneo…</b>), pero sin capas ni reconocimiento: al final,
     ninguna línea (anillo magenta): entran como <b>caja suelta</b> con su forma y medidas (las
     rectangulares, como <b>SÓLIDO</b>), sin tocar las líneas. Pasa también con cajas de paso,
     postes y estructuras propuestas.</li>
+</ul>
+
+<h2>Agregar otra utilidad desde su propio PDF</h2>
+<p>A veces cada utilidad llega en sus propios PDF (por ejemplo los mapas de Phoenix: dos PDF de
+agua, dos de alcantarillado y dos de drenaje). Con una utilidad ya importada, usa
+<b>Herramientas → Agregar utilidad desde otro PDF…</b> (o el botón de la hoja con un <b>+</b> en la
+barra superior) y elige el PDF de la siguiente. Si la hoja del editor viene de dos PDF, la app
+ofrece agregar también el otro de la misma utilidad.</p>
+<ul>
+<li>La app busca, para cada hoja del editor, la hoja del PDF nuevo que dibuja <b>el mismo lugar</b>,
+    por el mapa base que comparten (lotes, derecho de vía, calles), aunque esté a otra escala, en
+    otro orden o girada. La hoja nueva se arma <b>calcada</b> sobre la del editor: misma área, mismo
+    lugar, mismo tamaño.</li>
+<li>Sigues con los pasos de siempre (<b>Capas de la hoja</b> y <b>Vista previa</b>), sobre la hoja de
+    la utilidad nueva. Las utilidades que ya están en el editor no vienen marcadas.</li>
+<li>Al importar, la hoja del editor pasa a mostrar <b>los dos PDF juntos</b> y lo reconocido entra
+    junto a lo que ya tenías. Lo de antes <b>no se mueve ni cambia</b> (líneas, buzones, Deshacer,
+    georreferencia). <span class="btn">Cancelar</span> en cualquier paso deja el editor como estaba.</li>
+<li>Si vuelves a <b>Componer hoja</b> en este modo, eliges qué hojas y qué áreas usar; el lugar
+    de cada hoja lo pone su mapa base (moverla a mano no cambia dónde cae).</li>
+<li>Si el PDF no dibuja el mismo mapa base que la hoja del editor (otra cartografía, otra zona),
+    la app lo dice y no agrega nada.</li>
 </ul>
 
 <h2>Volver a componer más tarde</h2>

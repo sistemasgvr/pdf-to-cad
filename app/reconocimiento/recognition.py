@@ -46,7 +46,8 @@ from reconocimiento import recognition_ink_lines as ink_lines_mod
 from reconocimiento import recognition_map_vaults as map_vaults_mod
 from reconocimiento import recognition_taps as taps_mod
 from reconocimiento import recognition_indice as indice_mod
-from reconocimiento import recognition_diametros as diam_mod
+from reconocimiento import recognition_grosor_mapa as grosor_mapa_mod
+from reconocimiento import recognition_grosor_mapa_hoja as grosor_hoja_mod
 from reconocimiento import recognition_grosor as grosor_mod
 from reconocimiento import recognition_walls as walls_mod
 from reconocimiento import recognition_angulos as angulos_mod
@@ -204,12 +205,12 @@ class RecognizedPolyline:
     # Letras del linetype que la hicieron de esta utilidad cuando el NOMBRE de su capa
     # no lo dice («TE» en `U-TRPW-DBNK-P`, ver `recognition_letters`); "" = por nombre.
     letters: str = ""
-    # Diámetro (pulgadas) que dice el plano para ESTA línea en un mapa sin capas: el rótulo
-    # junto a ella («8"», `recognition_diametros`) o, en una acometida, la nota de la leyenda
-    # («taps are .75" in diameter»); None = el de siempre.
+    # Diámetro (pulgadas) que dice el plano para ESTA línea SIN dudas (`grosor`); None = el de siempre.
     diam_in: Optional[float] = None
-    # Grosor leído de un plano CAD (`recognition_grosor`: rótulo con guía y/o paredes dibujadas):
-    # {"diam_in", "fuente", "textos", "material", "paredes_in"}; {} = el plano no lo dice.
+    # Grosor leído del plano: CAD (`recognition_grosor`: rótulo con guía y/o paredes dibujadas) o mapa
+    # sin capas (`recognition_grosor_mapa`: el rótulo junto al tramo, «8" DIP»; en una acometida, la
+    # nota de la leyenda «taps are .75" in diameter»): {"estado", "diam_in", "fuente", "textos",
+    # "material", …}; {} = no se buscó.
     grosor: dict = field(default_factory=dict)
 
 
@@ -1095,12 +1096,20 @@ def inject_vault_vertices(
     Devuelve (snapped, skipped). Mutates ``pipes`` in place.
     """
     from geometry import project_pt_seg
+    from nucleo import avance
+    from nucleo.indice_plano import IndiceUtilidades
 
     snapped = 0
     skipped = 0
-    for vx, vy in vault_pts:
+    # solo las tuberías con un tramo que PUEDE quedar a ≤ max_dist, en el mismo orden (mismo
+    # resultado: con 36 mapas eran 3 000 buzones × 40 000 tramos). Un vértice insertado parte
+    # un tramo en dos sobre la misma recta: el índice sigue valiendo.
+    indice = IndiceUtilidades(pipes) if len(vault_pts) > 1 else None
+    for k_av, (vx, vy) in enumerate(vault_pts):
+        avance.avisar(_tr("Poniendo cada bóveda en su línea…"), k_av + 1, len(vault_pts))
         best = None  # (dist, pipe_idx, seg_idx, qx, qy)
-        for pi, p in enumerate(pipes):
+        for pi in (indice.cerca(vx, vy, max_dist) if indice is not None else range(len(pipes))):
+            p = pipes[pi]
             pts = p.get("pts") or []
             if len(pts) < 2 or p.get("world"):
                 continue
@@ -1719,6 +1728,7 @@ def recognize_page(
             if marked["fillet"]:
                 warnings.append(_tr("Codos en el extremo de una tubería del mapa: {n} — revisa si ahí hay "
                                     "un buzón.").format(n=marked["fillet"]))
+        grosor_mapa_cuenta = None                      # el grosor de un mapa sin capas (abajo)
         # Mapa sin capas: el buzón-SÍMBOLO de la leyenda va en la línea cuyo vértice o punta
         # cae en él o que lo atraviesa (`recognition_map_vaults`); y cada acometida llega
         # a su tubería en una T exacta (`recognition_taps`).
@@ -1753,22 +1763,18 @@ def recognize_page(
                                  if diam else _tr("Acometidas (servicios a los predios, leyenda «Tap»): {n}, {t} "
                                                   "unidas a su tubería con una T.")).format(
                     n=n_taps, t=len(tees), d=f"{diam:g}" if diam else ""))
-            # el diámetro que el plano escribe junto a cada tubería («8"», «12" DIP», «278' 2"»)
+            # el diámetro que el plano escribe junto a cada tubería («8"», «12" DIP», «278' 2"»):
+            # solo lo SEGURO se pone; lo dudoso o sin dato queda por defecto con un aviso en el
+            # editor, como el grosor del plano CAD (`recognition_grosor_mapa`, pedido 2026-10-23)
             if ley_mapa is not None:
-                rots = []
-                for c, d, tam, pulg, de_acometida in diam_mod.rotulos(page):
-                    q, e = px(c), px((c[0] + d[0], c[1] + d[1]))
-                    L = math.hypot(e[0] - q[0], e[1] - q[1]) or 1.0
-                    rots.append((q, ((e[0] - q[0]) / L, (e[1] - q[1]) / L), tam * zoom, pulg, de_acometida))
-                cuenta = None
-                for variant in ((polylines_joined, polylines_raw) if join_routes else (polylines_raw, polylines_joined)):
-                    got = diam_mod.asignar([p for p in variant if p.layer_ocg.startswith(pdf_styles.PREFIX)],
-                                           rots, taps_mod.is_tap)
-                    cuenta = cuenta or got
-                if cuenta and (cuenta["con"] or cuenta["mezcla"]):
-                    warnings.append(_tr("Diámetros escritos en el plano («8\"», «12\" DIP», «278' 2\"»): {n} "
-                                        "tubería(s) los toman; {m} con rótulos distintos quedan con el diámetro "
-                                        "por defecto.").format(n=cuenta["con"], m=cuenta["mezcla"]))
+                # una ruta que cruza tuberías de distinto diámetro va en piezas partidas entre ellas
+                # AL FINAL (después de los ángulos: la geometría no cambia); los tramos sin unir toman
+                # el de su ruta
+                grosor_mapa_cuenta = grosor_hoja_mod.aplicar_variantes(
+                    polylines_joined, polylines_raw, grosor_mapa_mod.a_px(grosor_mapa_mod.rotulos(page), px, zoom),
+                    lambda p: p.layer_ocg.startswith(pdf_styles.PREFIX), taps_mod.is_tap, zoom,
+                    ley_mapa.diam_acometida_in, join_routes)
+                warnings += grosor_hoja_mod.avisos(grosor_mapa_cuenta)
         # Grosor del plano CAD (pedido del usuario 2026-10-21, DU06): el diámetro de cada tubería
         # por su rótulo con guía («EX. 84" RCP SD») y por sus paredes dibujadas (`-WALL`), como
         # complemento (`recognition_grosor`): solo `grosor` y `diam_in`; nada se mueve.
@@ -1828,6 +1834,9 @@ def recognize_page(
         ajuste = ajustes[0]                            # el de la variante que se importa
         vault_pts = angulos_mod.reubicar(vault_pts, ajuste.movidos)
         vault_snaps_px = angulos_mod.reubicar(vault_snaps_px, ajuste.movidos)
+        if grosor_mapa_cuenta and grosor_mapa_cuenta.get("partir"):
+            grosor_hoja_mod.partir_al_final((polylines_joined, polylines_raw), grosor_mapa_cuenta)
+            polylines[:] = list(polylines_joined if join_routes else polylines_raw)
 
         stubs = []
         for ocg, kind in kind_by_ocg.items():          # stubs informativos (no dibujables)

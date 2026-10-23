@@ -16,7 +16,7 @@ import copy
 import dataclasses
 from typing import Dict, Sequence, Tuple
 
-from nucleo import acometidas, model_ops, quiebres_curvas
+from nucleo import acometidas, model_ops, quiebres_curvas, vecindario
 from nucleo.model import NETWORK_KIND
 
 # marca de un vértice que la importación quita (prácticamente recto junto a un quiebre)
@@ -71,9 +71,12 @@ def curvas_de_quiebres(results: Sequence, zoom: float) -> Dict[int, Dict[Tuple[f
     con_curva = [ip for ip, p in enumerate(pipes)
                  if any((int(x // 2) + dx, int(y // 2) + dy) in celdas
                         for x, y in p.get("pts") or () for dx in (-1, 0, 1) for dy in (-1, 0, 1))]
+    # cada una con lo que tiene alrededor (`vecindario`: mismo resultado sin recorrer la hoja entera)
+    vec = vecindario.Vecindario(pipes, structures, fpp)
     for ip in con_curva:
         p = pipes[ip]
-        curvas = model_ops.curve_vertex_indices(p, structures, pipes, model_ops._TOL)
+        sub_p, k, sub_s = vec.de(ip, quiebres_curvas.MARGEN_VECINOS_PX + 4 * model_ops._TOL)
+        curvas = model_ops.curve_vertex_indices(p, sub_s, sub_p, model_ops._TOL)
         for vi, s in curvas.items():
             if id(s) not in nuevas_ids or not (0 < vi < len(p["pts"]) - 1):
                 continue
