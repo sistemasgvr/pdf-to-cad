@@ -20,7 +20,7 @@ import fitz
 from PySide6 import QtCore, QtGui, QtWidgets
 
 from nucleo.model import Z_PDF
-from traduccion.i18n import bind as _bind
+from traduccion.i18n import bind as _bind, t as _tr
 from ui.comun.widgets import MiniMap, etiquetas_cortas
 
 Z_MARCA_HOJA = Z_PDF + 0.5        # encima del plano (y de su recorte nítido), debajo de lo dibujado
@@ -35,6 +35,22 @@ def _pref(clave: str, defecto: bool = True) -> bool:
 
 
 class HojasEditorMixin:
+    # ── imagen de la hoja ─────────────────────────────────────────────────
+    def _fondo_de(self, page):
+        """(QImage, grises, escala, ancho, alto) de la hoja a `self.zoom`. Hoja compuesta de varias
+        piezas: dibujada en el proceso trabajador (`fondo_trabajo`, mismos píxeles: la ventana no se
+        traba ~10 s con 36 + 36 mapas); si no, o si eso falla, aquí como siempre."""
+        from ui.comun import busy, fondo_trabajo
+        if fondo_trabajo.conviene(getattr(self, "composite", None)):
+            ov = busy.overlay_for(self)
+            with busy.busy(self, ov.text() or _tr("Cargando hoja…"), _tr("Dibujando la hoja en pantalla…")):
+                r = fondo_trabajo.en_proceso(page.parent, page.number, self.zoom, al_avanzar=lambda a: (
+                    ov.step(detail=busy.detalle_de(a[1], a[2], a[3]), pump=False)
+                    if a and a[0] == "detalle" and ov.active else None))
+            if r is not None:
+                return r
+        return fondo_trabajo.aqui(page, self.zoom)
+
     # ── menú Ver ──────────────────────────────────────────────────────────
     def _acciones_hojas(self, menu):
         self.act_minimapa_hojas = _bind(QtGui.QAction(self), "setText", "Minimapa de las hojas")
@@ -70,7 +86,8 @@ class HojasEditorMixin:
             lay = self._calcular_layout(comp)
         if not lay or comp is None or len(comp.pieces) != len(lay):
             return lay
-        return [(rect, p.label or label) for (rect, label), p in zip(lay, comp.pieces)]
+        # las hojas de una utilidad agregada (`grupo`) caen ENCIMA de las del editor: no se repiten
+        return [(rect, p.label or label) for (rect, label), p in zip(lay, comp.pieces) if not p.grupo]
 
     def _calcular_layout(self, comp):
         """Proyecto reabierto: el esquema con los tamaños de las hojas de origen."""

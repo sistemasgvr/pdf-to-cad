@@ -165,26 +165,51 @@ def inicios_de_piezas(page) -> Optional[List[int]]:
     dibujo (`seqno`) donde empieza cada pieza; None en una hoja normal. Así una leyenda y sus
     muestras se leen con lo de SU hoja: la de al lado puede dibujar el mapa justo encima (la
     leyenda de cada pieza queda fuera de su recorte, debajo de la vecina)."""
+    return _piezas(page)[0]
+
+
+def recortes_de_piezas(page) -> Optional[List[Tuple[float, float, float, float]]]:
+    """Lo que se VE de cada pieza de una hoja compuesta (el `scissor` de su recorte, mismo
+    orden que `inicios_de_piezas`); None en una hoja normal."""
+    return _piezas(page)[1]
+
+
+def _piezas(page):
     cache = page.parent.__dict__.setdefault("_pdfcad_piezas", {})
     if page.number in cache:
         return cache[page.number]
-    out = None
+    out = (None, None)
     try:
         if page.read_contents().count(b"/fzFrm") >= 2:
-            starts, nuevo = [], False
+            starts, cajas, nuevo, caja = [], [], False, None
             for d in page.get_cdrawings(extended=True):
                 # cada pieza abre con su recorte en el nivel 0; la FUNDIDA («Fundir bordes»,
                 # `composite_fundir`), con su grupo de transparencia
                 if d.get("type") in ("clip", "group") and d.get("level") == 0:
-                    nuevo = True
+                    nuevo, caja = True, None
+                if nuevo and d.get("type") == "clip" and d.get("scissor"):
+                    caja = tuple(float(v) for v in d["scissor"])     # el último: el más interior
                 elif nuevo and d.get("type") not in ("clip", "group"):
                     starts.append(int(d["seqno"]))
+                    cajas.append(caja)
                     nuevo = False
-            out = starts if len(starts) >= 2 else None
+            out = (starts, cajas) if len(starts) >= 2 else (None, None)
     except Exception:
-        out = None
+        out = (None, None)
     cache[page.number] = out
     return out
+
+
+def _zona_visible(zona, caja):
+    """La caja de una leyenda recortada a lo que se ve de SU pieza (None si queda tapada: en
+    una hoja compuesta la leyenda de cada mapa queda fuera de su recorte y su caja caía ENCIMA
+    de la pieza vecina, donde quitaba tuberías como «muestras de la leyenda» — reporte del
+    usuario 2026-10-20, Water North + South)."""
+    if caja is None:
+        return zona
+    x0, y0 = max(zona[0], caja[0]), max(zona[1], caja[1])
+    x1, y1 = min(zona[2], caja[2]), min(zona[3], caja[3])
+    return (x0, y0, x1, y1) if x1 > x0 and y1 > y0 else None
 
 
 class _Pagina:
@@ -287,6 +312,9 @@ def _leer(page) -> Optional[LeyendaMapa]:
             pz = sorted(int(x) for x in pag.piezas_de([(h.glifos[0].seqno if h.glifos else -1) for h in g]))
             pieza = pz[len(pz) // 2]
         f, z = _leer_grupo(pag, g, varias=len(grupos) > 1, pieza=pieza)
+        if inicios and pieza is not None and 0 <= pieza < len(inicios):
+            caja = recortes_de_piezas(page)[pieza]
+            z = [v for v in (_zona_visible(zona, caja) for zona in z) if v is not None]
         if len(grupos) > 1 and f:
             por_hoja.append(f)
             piezas.append(pieza if pieza is not None and pieza >= 0 else None)

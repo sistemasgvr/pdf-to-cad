@@ -47,7 +47,10 @@ class InformeMixin:
         conflictos = list(getattr(self, "_conflictos", None) or [])
         avisos = list(getattr(self, "_normas_avisos", None) or [])
         if opciones is None:
-            opciones = informe_dialog.pedir(self, len(conflictos), sum(1 for a in avisos if a.clase != "tipo"))
+            rec = informe_datos.CLASE_RECONOCIMIENTO
+            opciones = informe_dialog.pedir(self, len(conflictos),
+                                            sum(1 for a in avisos if a.clase not in ("tipo", rec)),
+                                            sum(1 for a in avisos if a.clase == rec))
             if opciones is None:
                 return None
         if ruta is None:

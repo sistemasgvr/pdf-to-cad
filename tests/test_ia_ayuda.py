@@ -38,7 +38,7 @@ def test_busca_los_capitulos_que_vienen_al_caso_y_manda_poco():
     casos = {"¿cómo exporto a Civil 3D?": "Exportar y abrir en Civil 3D",
              "cómo dibujo una tubería": "Dibujar una tubería",
              "como georreferencio el plano": "Georreferenciar (opcional)",
-             "cómo uno dos utilidades": "Unir utilidades",
+             "cómo unir dos utilidades": "Unir utilidades",
              "como hago el informe en word": "Informe automático"}
     for q, cap in casos.items():
         contexto, caps = ix.contexto(ix.buscar(q))

@@ -96,6 +96,7 @@ class MenuMixin:
         mtools = _menu(mb, "&Herramientas")
         _act(mtools, "Componer hoja de trabajo…", self.compose_sheet)
         _act(mtools, "Componer PDF imagen/escaneo…", self.compose_scan_sheet)
+        _act(mtools, "Agregar utilidad desde otro PDF…", self.agregar_utilidad)
         mtools.addSeparator()
         _act(mtools, "Tabla de datos…", self.abrir_tabla_datos, "Ctrl+Shift+T")
         _act(mtools, "Informe automático…", lambda: self.generar_informe())   # Word de conflictos/normativas
@@ -135,7 +136,19 @@ class MenuMixin:
         self.act_show_normas.toggled.connect(self._on_toggle_show_normas)
         mnorm.addAction(self.act_show_normas)
         mnorm.addAction(self.act_show_acc)
-        for a in (self.chk_show_conflicts, self.act_show_acc, self.act_show_normas):
+        # Avisos del reconocimiento (diámetro que el plano no dijo con certeza, `diametro_plano`): aparte
+        # de los de normativa (pedido del usuario 2026-10-23: «tenerlo organizado»).
+        self.act_show_reconocimiento = _bind(QtGui.QAction(self), "setText", "Mostrar avisos de reconocimiento")
+        self.act_show_reconocimiento.setCheckable(True)
+        try:
+            _rec_pref = QtCore.QSettings("pdf-to-cad", "app").value("show_reconocimiento", True, type=bool)
+        except Exception:
+            _rec_pref = True
+        self.act_show_reconocimiento.setChecked(bool(_rec_pref))
+        _bind(self.act_show_reconocimiento, "setToolTip", "Un circulito donde el reconocimiento del PDF no encontró "
+              "el diámetro de una utilidad o no está seguro de él (queda el de por defecto). Pasa el ratón para leerlo.")
+        self.act_show_reconocimiento.toggled.connect(self._on_toggle_show_reconocimiento)
+        for a in (self.chk_show_conflicts, self.act_show_acc, self.act_show_normas, self.act_show_reconocimiento):
             self.menu_avisos.addAction(a)
         self.menu_avisos.addSeparator()
         _act(self.menu_avisos, "Mostrar todos", lambda: self._mostrar_avisos(True))
@@ -201,6 +214,10 @@ class MenuMixin:
         self._act_3d = tact("mdi:cube-outline", "Vista 3D: lo que Civil 3D va a construir (F3)", self.abrir_vista3d)
         self._act_ia = tact("mdi:chat-question-outline", "Pregúntale al proyecto: la IA responde con los datos del "
                             "proyecto (Ctrl+Shift+I)", self.abrir_pregunta)
+        tb.addSeparator()
+        # otra utilidad de su propio PDF, sobre la MISMA hoja (ventana_agregar, 2026-10-23)
+        self._act_agregar = tact("mdi:file-plus-outline", "Agregar utilidad desde otro PDF: se ubica sola sobre "
+                                 "esta hoja por el mapa base y se reconoce como siempre", self.agregar_utilidad)
         tb.addSeparator()
         spacer = QtWidgets.QWidget(); spacer.setSizePolicy(QtWidgets.QSizePolicy.Expanding, QtWidgets.QSizePolicy.Preferred); tb.addWidget(spacer)
         # Sin selector de unidad: TODO va en pies por campo (cotas/coordenadas),

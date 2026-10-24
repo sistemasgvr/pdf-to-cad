@@ -7,19 +7,27 @@ Al pasar el ratón, el globo dice qué pasa. Los avisos de un mismo punto van ju
 UNA insignia. Los de los accesorios ya se ven en su etiqueta («Codo 45° ⚠»), así que
 aquí solo se dibujan si esas etiquetas están ocultas. «Sin tipo» no va en el plano (en un
 proyecto recién importado serían decenas): se ve en el panel de la utilidad, en la lista
-de avisos y en el contador de la barra de estado."""
+de avisos y en el contador de la barra de estado.
+
+Los avisos del RECONOCIMIENTO (diámetro que el plano no dijo con certeza, `diametro_plano`) van en
+turquesa con «?» (pedido del usuario 2026-10-23: se confundían con los de normativa; el turquesa no es
+de ninguna utilidad ni el morado de las curvas)."""
 from __future__ import annotations
 
 from PySide6 import QtCore, QtGui, QtWidgets
 
+from nucleo import diametro_plano
 from nucleo.model import Z_HANDLE
 from ui.comun.capa_marcas import sello
-from ui.comun.ui_common import tooltip_bloque
+from ui.comun.ui_common import QA_OFFPATTERN, tooltip_bloque
 from traduccion.i18n import t as _tr
 
 _AMBAR = QtGui.QColor(240, 170, 20, 215)
 _CELESTE = QtGui.QColor(70, 150, 230, 200)
 _ROJO = QtGui.QColor(225, 60, 50, 220)
+_TURQUESA = QtGui.QColor(QA_OFFPATTERN)
+_TURQUESA.setAlpha(225)
+RECONOCIMIENTO = "rec"            # `info` de la insignia de un grupo de solo avisos de reconocimiento
 
 
 class InsigniaAviso(QtWidgets.QGraphicsItem):
@@ -27,8 +35,11 @@ class InsigniaAviso(QtWidgets.QGraphicsItem):
 
     def __init__(self, info, error=False):
         super().__init__()
-        self._color = _CELESTE if info else _ROJO if error else _AMBAR
-        self._letra = "i" if info else "!"
+        if info == RECONOCIMIENTO:
+            self._color, self._letra = _TURQUESA, "?"
+        else:
+            self._color = _CELESTE if info else _ROJO if error else _AMBAR
+            self._letra = "i" if info else "!"
         self.setFlag(QtWidgets.QGraphicsItem.ItemIgnoresTransformations)
         self.setZValue(Z_HANDLE + 4)
         self.setAcceptHoverEvents(True)
@@ -73,7 +84,8 @@ def dibujar(scene, avisos, tol_px, con_accesorios_visibles, poner=None, reusar=N
             grupos.append([a.x, a.y, [a]])
     items = []
     for x, y, lista in grupos:
-        info = all(a.info for a in lista)
+        info = (RECONOCIMIENTO if all(a.clase == diametro_plano.CLASE for a in lista)
+                else all(a.info for a in lista))
         error = not info and any(getattr(a, "nivel", "") == "ERROR" for a in lista if not a.info)
         it = reusar(("aviso", info, error, x, y)) if reusar else None
         if it is None:

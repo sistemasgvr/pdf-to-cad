@@ -66,6 +66,25 @@ def test_solo_conflictos_o_solo_normativas():
     assert {f["tipo"] for f in solo_n.fichas} == {"aviso"}
 
 
+def test_avisos_de_reconocimiento_van_aparte(tmp_path):
+    from exportar import informe_word
+    conflictos, avisos = _datos()
+    avisos.append(Aviso(200.0, 0.0, informe_datos.CLASE_RECONOCIMIENTO, "Diámetro no encontrado en el plano", pipe=0))
+    inf = informe_datos.armar(conflictos, avisos, _pipes(), FT, Opciones())
+    rec = [f for f in inf.fichas if f["tipo"] == "reconocimiento"]
+    assert [f["id"] for f in rec] == ["R-1"] and inf.fichas[-1] is rec[0]
+    assert all(f["tipo"] != "reconocimiento" for z in inf.zonas for f in z.fichas)      # fuera de las zonas
+    assert inf.resumen["reconocimiento"] == 1 and inf.resumen["avisos"] == 3              # no cuenta como normativa
+    ruta = str(tmp_path / "inf.docx")
+    informe_word.escribir(inf, informe_redaccion.crear()[0], ruta, {})
+    texto, _d = _textos(ruta)
+    assert "Avisos de reconocimiento" in texto
+    sin = informe_datos.armar(conflictos, avisos, _pipes(), FT, Opciones(reconocimiento=False))
+    assert not any(f["tipo"] == "reconocimiento" for f in sin.fichas)
+    solo = informe_datos.armar(conflictos, avisos, _pipes(), FT, Opciones(conflictos=False, normativas=False))
+    assert [f["id"] for f in solo.fichas] == ["R-1"]
+
+
 def test_la_celda_crece_si_hay_demasiadas_zonas():
     lista = [{"x": i * 2000.0, "y": 0.0} for i in range(100)]                  # 100 lugares a 200 ft
     zs = informe_datos.zonas(lista, FT, maximo=10)

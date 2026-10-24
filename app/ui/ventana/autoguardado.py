@@ -143,7 +143,9 @@ class Autoguardado(QtCore.QObject):
         """Hace una copia si hay cambios reales nuevos. True si empezó a escribir."""
         w = self.win
         self._avisar_error()
-        if not self.activo or w.canvas.pixmap_item is None or not w._has_real_changes():
+        if not self.activo or w.canvas.pixmap_item is None or getattr(w, "_importando", False):
+            return False                            # (a mitad de una importación: la próxima vez)
+        if not w._has_real_changes():
             return False
         if self._hilo is not None and self._hilo.is_alive():
             return False                            # la anterior aún escribe

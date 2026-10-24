@@ -228,7 +228,13 @@ class LayerInfoMixin:
         return self._drawings
 
     def _visible_layers(self) -> set:
-        """Capas con algo visible en la hoja (lo recortado por la vista no cuenta)."""
+        """Capas con algo visible en la hoja (lo recortado por la vista no cuenta). Con la lectura
+        previa del proceso (`capas_previas`: TODAS las capas que se ven) no se lee la hoja aquí:
+        las de utilidad de entre ellas son las mismas que daría `_all_drawings`."""
+        previa = getattr(self, "_previa", None)
+        if self._drawings is None and previa is not None and previa.hoja == self._page_index:
+            quiere = le.capas_de_utilidad(self._layers)
+            return {n for n in previa.visibles if quiere(n)}
         return {d.get("layer") or "" for d, _shown in self._all_drawings()}
 
     def _layer_of(self, eff: dict, name: str):

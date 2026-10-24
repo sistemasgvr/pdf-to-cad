@@ -148,3 +148,51 @@ class IndicePuntos:
         r2 = r * r
         return [i for i in self.en_caja(x, y, r)
                 if (self.puntos[i][0] - x) ** 2 + (self.puntos[i][1] - y) ** 2 <= r2]
+
+
+class IndiceEstructuras:
+    """Las estructuras de una lista por celdas, para «la más cercana a ≤ r» sin recorrerlas todas
+    (2026-10-23: con 36 mapas de alcantarillado eran ~2 000 bóvedas × 30 000 estructuras al importar).
+    `en_caja(x0, y0, x1, y1)` = posiciones (ordenadas) de las que PUEDEN estar en ese recuadro: quien
+    llama hace la MISMA prueba de siempre sobre ellas, en el mismo orden. Las que se agregan AL FINAL
+    de la lista entran solas (`_al_dia`); una sin coordenadas numéricas va siempre de candidata (la
+    prueba de siempre decide, también si fallaba). No admite quitar ni mover estructuras."""
+
+    CELDA = 64.0
+
+    def __init__(self, structures, celda=CELDA):
+        self.structures = structures
+        self.celda = float(celda)
+        self.celdas = {}
+        self.siempre = []
+        self.n = 0
+
+    def _al_dia(self):
+        c = self.celda
+        s = self.structures
+        while self.n < len(s):
+            k = self.n
+            self.n += 1
+            try:
+                x, y = float(s[k]["x"]), float(s[k]["y"])
+                if not (math.isfinite(x) and math.isfinite(y)):
+                    raise ValueError
+            except (KeyError, TypeError, ValueError):
+                self.siempre.append(k)
+                continue
+            self.celdas.setdefault((math.floor(x / c), math.floor(y / c)), []).append(k)
+
+    def en_caja(self, x0, y0, x1, y1):
+        self._al_dia()
+        c = self.celda
+        out = list(self.siempre)
+        for cx in range(math.floor(x0 / c), math.floor(x1 / c) + 1):
+            for cy in range(math.floor(y0 / c), math.floor(y1 / c) + 1):
+                out.extend(self.celdas.get((cx, cy), ()))
+        out.sort()
+        return out
+
+    def cerca(self, x, y, r):
+        """Las que pueden estar a ≤ r de (x, y) (recuadro ± r, con margen de redondeo)."""
+        r = r + MARGEN_PX
+        return self.en_caja(x - r, y - r, x + r, y + r)

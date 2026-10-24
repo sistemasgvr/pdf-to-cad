@@ -63,12 +63,14 @@ class Superficie:
             self._poner_nivel(None)
             if calentar:
                 servidor().calentar(page)
+            servidor().mostrando(self)
         else:
             self.page = page
 
     def soltar(self) -> None:
         """El item deja de mostrar la hoja (o se va de la escena)."""
         servidor().olvidar(self)
+        servidor().mostrando(self, False)
         self.page = None
         self._hoja = None
         self.tok = self.firma = None
@@ -89,6 +91,13 @@ class Superficie:
     def viva(self) -> bool:
         return (self.page is not None and not getattr(self.page.parent, "is_closed", False)
                 and _vivo(self.item))
+
+    def a_la_vista(self) -> bool:
+        """¿Alguna vista de su escena está a la vista? (un diálogo ya cerrado sigue vivo, oculto)"""
+        try:
+            return any(v.isVisible() for v in self.item.scene().views())
+        except (RuntimeError, AttributeError):
+            return False
 
     # ── pedidos ──────────────────────────────────────────────────────
     def actualizar(self, vista) -> None:

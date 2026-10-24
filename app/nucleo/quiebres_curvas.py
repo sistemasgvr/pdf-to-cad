@@ -40,12 +40,20 @@ mismo que hace el plugin al importar (`EnderezarQuiebres`: esos vértices no lle
 3D) y lo que hace la limpieza de tramos (`limpieza_tramos.quitar_vertice`). Solo si con
 eso la curva entra y ninguna otra curva cambia de radio, se recorta o se corre más de
 0.25 ft; si no, nada se quita.
+
+CHAFLÁN = dos quiebres SEGUIDOS del mismo giro donde no entran dos curvas mínimas (reporte del
+usuario 2026-10-23, DU06 UD-202 telecom `C-TELE-UNGD-D`: la línea gira 90° con un chaflán de
+5 ft —quiebres de 48° y 42°—; entraba la curva del primero y el segundo quedaba de esquina):
+UNA curva mínima en el cruce de las dos rectas de fuera (`_unir_chaflan`), si entra como
+cualquier otra y su dibujo no se aparta del plano más de lo que se aparta la curva mínima de
+cada quiebre (+ 0.25 ft). Los dos vértices pasan a uno, en ese cruce.
 """
 import copy
 import math
 
-from nucleo import limpieza_tramos, model_ops
+from nucleo import avance, limpieza_tramos, model_ops, vecindario
 from nucleo.model import network_kind
+from traduccion.i18n_core import t as _tr
 
 GIRO_MIN_DEG = 2.0            # menos = «prácticamente recto»: el plugin no hace arco y lo endereza
 KINDS_QUIEBRE = ("bend", "corner", "curve")   # «curve» sin codo = esquina en el editor
@@ -57,6 +65,8 @@ HOLGURA_RECTO = 1.1
 # entre su curva (el plugin los endereza igual: giro ≤ GIRO_MIN_DEG y ≤ 0.25 ft).
 RECTOS_MAX = 4
 DESVIO_RECTO_FT = limpieza_tramos.DESVIO_MAX_FT
+# lo que mira un quiebre está junto a su tubería: tuberías y estructuras a ≤ esto (+ el radio) de su caja
+MARGEN_VECINOS_PX = 400.0
 
 
 def _giro_deg(a, b, c):
@@ -265,6 +275,91 @@ def _entra(p, vi, curvas, ft_per_px):
     return True
 
 
+def _lado(pts, k):
+    """Hacia qué lado gira la línea en el vértice k (+1 / −1; 0 = recta)."""
+    (ax, ay), (bx, by), (cx, cy) = pts[k - 1], pts[k], pts[k + 1]
+    z = (bx - ax) * (cy - by) - (by - ay) * (cx - bx)
+    return (z > 0) - (z < 0)
+
+
+def _cruce(a, b, c, d):
+    """Cruce de la recta a→b con la recta c→d (None si son paralelas)."""
+    rx, ry, sx, sy = b[0] - a[0], b[1] - a[1], d[0] - c[0], d[1] - c[1]
+    den = rx * sy - ry * sx
+    if abs(den) < 1e-12 * max(1.0, math.hypot(rx, ry) * math.hypot(sx, sy)):
+        return None
+    t = ((c[0] - a[0]) * sy - (c[1] - a[1]) * sx) / den
+    return (a[0] + rx * t, a[1] + ry * t)
+
+
+def _a_polilinea(q, pts):
+    return min(math.dist(q, limpieza_tramos.proyeccion(q, a, b)[0]) for a, b in zip(pts, pts[1:]))
+
+
+def _unir_chaflan(pipes, structures, ip, i, nuevas, ft_per_px, tol):
+    """El quiebre i no tuvo lugar: con el quiebre vecino del mismo giro (sin curva, o con la
+    que este paso le acaba de poner) pasa a UNA curva mínima en el cruce de las rectas de
+    fuera (ver CHAFLÁN arriba). Devuelve la CV o None (entonces nada cambia)."""
+    p = pipes[ip]
+    pts, kinds = p["pts"], p["vertex_kinds"]
+    net = network_kind(p.get("layer") or "")
+    r_ft = model_ops.radio_auto_ft(p)
+    nuevas_ids = {id(s) for s in nuevas}
+    curvas = model_ops.curve_vertex_indices(p, structures, pipes, tol)
+    for j in (i - 1, i + 1):
+        a, b = min(i, j), max(i, j)
+        if a < 1 or b > len(pts) - 2 or kinds[j] not in KINDS_QUIEBRE or i in curvas:
+            continue
+        cv_j = curvas.get(j)
+        if cv_j is not None and (id(cv_j) not in nuevas_ids or not cv_j.get("quiebre")):
+            continue                           # un codo de la tinta (u otra curva) no se toca
+        giros = [_giro_deg(pts[k - 1], pts[k], pts[k + 1]) for k in (a, b)]
+        if min(giros) <= GIRO_MIN_DEG or _lado(pts, a) != _lado(pts, b):
+            continue
+        if not _vertice_libre(pipes, ip, j, tol, False) or _estructura_cerca(structures, *pts[j], tol, ft_per_px):
+            continue
+        P = _cruce(pts[a - 1], pts[a], pts[b], pts[b + 1])
+        if P is None:
+            continue
+        d1, d2 = limpieza_tramos.unit(pts[a - 1], pts[a]), limpieza_tramos.unit(pts[b], pts[b + 1])
+        if (d1 is None or d2 is None
+                or (P[0] - pts[a][0]) * d1[0] + (P[1] - pts[a][1]) * d1[1] <= 0
+                or (pts[b][0] - P[0]) * d2[0] + (pts[b][1] - P[1]) * d2[1] <= 0):
+            continue                           # el cruce no queda entre los dos quiebres
+        if _estructura_cerca(structures, P[0], P[1], tol, ft_per_px) or any(
+                math.hypot(qx - P[0], qy - P[1]) <= tol for jp, o in enumerate(pipes)
+                if jp != ip and not o.get("world") for qx, qy in o.get("pts") or ()):
+            continue
+        copia = copy.deepcopy(p)
+        limpieza_tramos.quitar_vertice(copia, b)
+        copia["pts"][a] = type(pts[a])((P[0], P[1]))
+        resto = [s for s in structures if s is not cv_j]
+        prueba = [copia if k == ip else o for k, o in enumerate(pipes)]
+        cv2 = model_ops.curve_vertex_indices(copia, resto, prueba, tol)
+        if a in cv2 or not _entra(copia, a, cv2, ft_per_px):
+            continue
+        g = _geo(copia["pts"], a, r_ft / ft_per_px, set(cv2) | {a}, ft_per_px)
+        # el dibujo no se aparta del plano más que la curva mínima de cada quiebre
+        tol_d = (max(r_ft * (1.0 / math.cos(math.radians(gk) / 2.0) - 1.0) for gk in giros)
+                 + DESVIO_RECTO_FT) / ft_per_px
+        viejo = [pts[a - 1], pts[a], pts[b], pts[b + 1]]
+        nuevo = [pts[a - 1]] + list(g["arc"]) + [pts[b + 1]]
+        if (any(_a_polilinea(q, nuevo) > tol_d for q in (pts[a], pts[b]))
+                or any(_a_polilinea(q, viejo) > tol_d for q in g["arc"])):
+            continue
+        # aplicar: los buzones ocultos de los dos vértices se van (gravedad); la CV va al cruce
+        ocultas = [s for k in (a, b) for s in model_ops.structures_at_vertex(pipes, structures, ip, k)
+                   if s is not cv_j and s.get("hidden") and not s.get("curve")]
+        structures[:] = [s for s in structures if not any(s is o for o in ocultas)]
+        limpieza_tramos.quitar_vertice(p, b)
+        p["pts"][a] = type(pts[a])((P[0], P[1]))
+        if cv_j is not None:
+            model_ops.translate_structure(cv_j, P[0] - float(cv_j["x"]), P[1] - float(cv_j["y"]))
+            return cv_j
+        return _marcar_cv(structures, P[0], P[1], net)
+    return None
+
+
 def _marcar_cv(structures, x, y, net):
     """La estructura del vértice (en gravedad, el buzón oculto del quiebre) pasa a CV con
     radio automático; en conduit no hay ninguna y se crea la marca, como en
@@ -295,40 +390,72 @@ def curvas_en_quiebres(pipes, structures, ft_per_px, indices=None, tol=None):
     if not ft_per_px or ft_per_px <= 0:
         return [], []
     nuevas, sin_lugar = [], []
-    for ip in (range(len(pipes)) if indices is None else indices):
+    # cada tubería con lo que tiene ALREDEDOR (`vecindario`): todo lo que se mira está junto a sus
+    # vértices. Mismo resultado y mismo orden; con 36 mapas de alcantarillado, cada quiebre se
+    # comparaba con las 12 000 tuberías y 20 000 estructuras de la hoja (2026-10-23).
+    vec = vecindario.Vecindario(pipes, structures, ft_per_px)
+    lista = list(range(len(pipes)) if indices is None else indices)
+    for k_av, ip in enumerate(lista):
+        avance.avisar(_tr("Buscando los quiebres que entran como curva…"), k_av + 1, len(lista))
         p = pipes[ip]
         net = network_kind(p.get("layer") or "")
         pts = p.get("pts") or []
         kinds = p.get("vertex_kinds") or []
         if p.get("world") or net not in REDES_CON_CURVAS or len(pts) < 3 or len(kinds) != len(pts):
             continue
-        curvas = model_ops.curve_vertex_indices(p, structures, pipes, tol)
-        cand = []
-        for i in range(1, len(pts) - 1):
-            if kinds[i] in KINDS_QUIEBRE and i not in curvas:
-                g = _giro_deg(pts[i - 1], pts[i], pts[i + 1])
-                if g > GIRO_MIN_DEG:
-                    cand.append((-g, i, tuple(pts[i])))
-        for _g, _i, q in sorted(cand):
-            # (si se quitó un vértice recto, los índices se corren: el quiebre, por su lugar)
-            pts = p["pts"]
-            i = next((k for k, w in enumerate(pts) if w[0] == q[0] and w[1] == q[1]), None)
-            if i is None or not (0 < i < len(pts) - 1) or i in curvas:
-                continue
-            x, y = pts[i]
-            if (not _vertice_libre(pipes, ip, i, tol, False)
-                    or _estructura_cerca(structures, x, y, tol, ft_per_px)):
-                continue
-            # en gravedad, un vértice propio pegado al quiebre se lleva su buzón: solo si se quita
-            propios = _propios_cerca(pipes, ip, i, tol) if net == "gravity" else []
-            if propios or not _entra(p, i, curvas, ft_per_px):
-                i2 = _enderezar(pipes, structures, ip, i, ft_per_px, tol, propios)
-                if i2 is None:
-                    if not propios:
-                        sin_lugar.append((float(x), float(y)))
-                    continue
-                i = i2
-                curvas = model_ops.curve_vertex_indices(p, structures, pipes, tol)
-            curvas[i] = _marcar_cv(structures, x, y, net)
-            nuevas.append(curvas[i])
+        if not any(kinds[i] in KINDS_QUIEBRE and _giro_deg(pts[i - 1], pts[i], pts[i + 1]) > GIRO_MIN_DEG
+                   for i in range(1, len(pts) - 1)):
+            continue                           # sin quiebres: nada que hacer (lo mismo que abajo)
+        margen = MARGEN_VECINOS_PX + 4 * tol + 4 * (model_ops.radio_auto_ft(p) + DESVIO_RECTO_FT) / ft_per_px
+        sub_p, k, sub_s = vec.de(ip, margen)
+        antes = list(sub_s)
+        _quiebres_de(sub_p, sub_s, k, ft_per_px, tol, nuevas, sin_lugar)
+        vec.aplicar(ip, antes, sub_s)
     return nuevas, sin_lugar
+
+
+def _quiebres_de(pipes, structures, ip, ft_per_px, tol, nuevas, sin_lugar):
+    """Los quiebres de la tubería `ip` (el cuerpo de siempre de `curvas_en_quiebres`)."""
+    p = pipes[ip]
+    net = network_kind(p.get("layer") or "")
+    pts = p.get("pts") or []
+    kinds = p.get("vertex_kinds") or []
+    curvas = model_ops.curve_vertex_indices(p, structures, pipes, tol)
+    cand, fallidos = [], []
+    for i in range(1, len(pts) - 1):
+        if kinds[i] in KINDS_QUIEBRE and i not in curvas:
+            g = _giro_deg(pts[i - 1], pts[i], pts[i + 1])
+            if g > GIRO_MIN_DEG:
+                cand.append((-g, i, tuple(pts[i])))
+    for _g, _i, q in sorted(cand):
+        # (si se quitó un vértice recto, los índices se corren: el quiebre, por su lugar)
+        pts = p["pts"]
+        i = next((k for k, w in enumerate(pts) if w[0] == q[0] and w[1] == q[1]), None)
+        if i is None or not (0 < i < len(pts) - 1) or i in curvas:
+            continue
+        x, y = pts[i]
+        if (not _vertice_libre(pipes, ip, i, tol, False)
+                or _estructura_cerca(structures, x, y, tol, ft_per_px)):
+            continue
+        # en gravedad, un vértice propio pegado al quiebre se lleva su buzón: solo si se quita
+        propios = _propios_cerca(pipes, ip, i, tol) if net == "gravity" else []
+        if propios or not _entra(p, i, curvas, ft_per_px):
+            i2 = _enderezar(pipes, structures, ip, i, ft_per_px, tol, propios)
+            if i2 is None:
+                if not propios:
+                    fallidos.append((float(x), float(y)))
+                continue
+            i = i2
+            curvas = model_ops.curve_vertex_indices(p, structures, pipes, tol)
+        curvas[i] = _marcar_cv(structures, x, y, net)
+        nuevas.append(curvas[i])
+    # sin lugar: con el quiebre de al lado puede ser UN chaflán → una curva (CHAFLÁN arriba)
+    for q in fallidos:
+        i = next((k for k, w in enumerate(p["pts"]) if w[0] == q[0] and w[1] == q[1]), None)
+        if i is None:
+            continue                       # ya entró en el chaflán de su vecino
+        s = _unir_chaflan(pipes, structures, ip, i, nuevas, ft_per_px, tol)
+        if s is None:
+            sin_lugar.append(q)
+        elif not any(s is o for o in nuevas):
+            nuevas.append(s)

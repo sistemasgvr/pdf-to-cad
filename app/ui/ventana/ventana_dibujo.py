@@ -40,7 +40,7 @@ class DibujoMixin:
         self._indice_redibujo = None                   # índice de tramos de ESTE redibujo
         self._en_redibujo = True
         try:
-            with model_ops.memo_cotas():
+            with model_ops.memo_cotas(), model_ops.indice_vertices():   # (nada cambia mientras se dibuja)
                 self._redraw_todo()
         finally:
             self._en_redibujo = False
@@ -63,7 +63,8 @@ class DibujoMixin:
         m = getattr(self, "_memo_redibujo", None)
         ver = tuple(bool(a.isChecked()) for a in (getattr(self, "chk_show_conflicts", None),
                                                   getattr(self, "act_show_acc", None),
-                                                  getattr(self, "act_show_normas", None)) if a is not None)
+                                                  getattr(self, "act_show_normas", None),
+                                                  getattr(self, "act_show_reconocimiento", None)) if a is not None)
         return (getattr(m, "firma", None), ver)
 
     def _reusar_marca(self, clave):

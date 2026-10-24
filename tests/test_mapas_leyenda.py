@@ -8,7 +8,7 @@ la leyenda y sacar del plano toda la información posible. Cubre:
     (`leyenda_mapa_lectura`);
   · acometidas por su bloque de dibujo (`acometidas_mapa`) y su T (`recognition_taps`);
   · buzones-símbolo unidos a su línea (`recognition_map_vaults`);
-  · diámetros escritos en el plano (`recognition_diametros`);
+  · (los diámetros escritos en el plano: `tests/test_grosor_mapa.py`);
   · con los PDF de Phoenix (si están): leyenda, «6"» legible, acometidas y buzones.
 """
 import math
@@ -24,7 +24,6 @@ fitz = pytest.importorskip("fitz")
 
 from hoja import acometidas_mapa, leyenda_mapa as LM, pdf_styles  # noqa: E402
 from hoja import leyenda_mapa_lectura as lectura  # noqa: E402
-from reconocimiento import recognition_diametros as diam_mod  # noqa: E402
 from reconocimiento import recognition_ink_lines as ink  # noqa: E402
 from reconocimiento import recognition_map_vaults as map_vaults  # noqa: E402
 from reconocimiento import recognition_taps as taps_mod  # noqa: E402
@@ -129,20 +128,6 @@ def test_buzon_de_otra_capa_no_se_toca():
     pl = _pl([(0, 0), (50, 0)])
     vg = {"center": (50, 0), "circle": (50, 0, 1.5), "layer": "C-SSWR-MANH", "orphan": True}
     assert map_vaults.mark_symbol_vaults([pl], [vg], 1.0, 1.0) == [] and pl.kinds == ["end", "end"]
-
-
-# ── diámetros escritos en el plano ──────────────────────────────────────────
-def test_diametro_del_rotulo_paralelo_y_pegado_a_su_tuberia():
-    a = _pl([(0, 0), (100, 0)])
-    b = _pl([(0, 20), (100, 20)])
-    tap = _pl([(30, 20), (30, 40)], layer=acometidas_mapa.capa(ESTILO_FINO, "AGUA"))
-    rot = [((20, -2), (1, 0), 1.7, 8.0, False), ((70, -2), (1, 0), 1.7, 8.0, False),   # a: 8" y 8"
-           ((50, 22), (1, 0), 1.7, 6.0, False), ((80, 22), (1, 0), 1.7, 12.0, False),  # b: mezcla
-           ((50, -2), (0, 1), 1.7, 4.0, False),                                         # perpendicular: no
-           ((32, 30), (0, 1), 1.7, 2.0, True)]                                          # «278' 2"»: acometida
-    got = diam_mod.asignar([a, b, tap], rot, taps_mod.is_tap)
-    assert (a.diam_in, b.diam_in, tap.diam_in) == (8.0, None, 2.0)
-    assert b.review == "diam_mix" and got == {"con": 2, "mezcla": 1, "rotulos": 5}
 
 
 # ── con los PDF de Phoenix ──────────────────────────────────────────────────

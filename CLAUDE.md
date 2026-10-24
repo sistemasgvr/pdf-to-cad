@@ -11,7 +11,7 @@ alcantarillado, drenaje, gas, eléctrico, telecom). Todo en **unidades imperiale
   - **Carpetas por capa (2026-10-08, en curso)**: `app/nucleo/` = lógica PURA del dominio (sin Qt ni fitz):
     `model`, `model_ops`, `xdata`, `duct_bank`, `unir_utilidades`, `unir_ramales`, `quiebres_curvas`,
     `accesorios`, `normas_catalogo`, `normas_excel`, `normas_excel_ayuda`, `normas_validar`, `normas_validar_acc`, `normas_validar_red`, `normas_reglas`, `normas_base`, `normas_migrar`, `normas_excel_v1`, `normas_aprobacion`, `normas_tablas`, `tabla_datos`, `tabla_excel`, `conflictos`, `modelo3d`, `mallas3d`, `accesorios3d`, `verticales3d`, `marcas3d`, `ficha3d`, `edicion_bloque`,
-    `limpieza`, `limpieza_tramos`, `vertice_curva`, `conexiones_verticales`, `trazo_asistido`, `angulos`, `indice_plano`, `memo_modelo`, `deshacer`, `reducciones3d`, `rotulos3d`, `modelo3d_parche`, `edicion3d`, `archivo_zip`, `avance`, `avance_pesado`, `informe_datos`, `informe_redaccion`, `soluciones`. Se importan
+    `limpieza`, `limpieza_tramos`, `vertice_curva`, `conexiones_verticales`, `trazo_asistido`, `angulos`, `indice_plano`, `memo_modelo`, `deshacer`, `reducciones3d`, `rotulos3d`, `modelo3d_parche`, `edicion3d`, `archivo_zip`, `avance`, `avance_pesado`, `informe_datos`, `informe_redaccion`, `soluciones`, `diametro_plano`. Se importan
     como `from nucleo import model_ops` / `from nucleo.model import …` (nunca `import model_ops`: ese nombre
     ya no existe). Regla: la interfaz usa `nucleo`, `nucleo` NUNCA importa la interfaz (PySide6, `i18n`,
     ventana…; sí `i18n_core`). Más abajo los módulos se nombran sin la carpeta: `model_ops.py` = `app/nucleo/
@@ -21,7 +21,7 @@ alcantarillado, drenaje, gas, eléctrico, telecom). Todo en **unidades imperiale
     (`recognition_dialog`, `_summary_view`, `_review_view`, `_layers_view`, `_preview_draw`) siguen en `app/`.
     `app/hoja/` (mismo día) = hoja de trabajo PURA: `composite`, `composite_checks`, `composite_scan`,
     `composite_seam`, `pdf_layers`, `pdf_legend`, `sheet_crops`, `sheet_layout`, `organized_layers`,
-    `leyenda_cruce`, `leyenda_estandar`, `leyenda_trazos`, y los de mapas sin capas `pdf_styles`, `texto_pdf`,
+    `leyenda_cruce`, `leyenda_estandar`, `leyenda_trazos`, `encaje_mapa_base`, `hoja_calcada`, y los de mapas sin capas `pdf_styles`, `texto_pdf`,
     `leyenda_mapa`, `leyenda_mapa_lectura`, `acometidas_mapa` (`from hoja import composite`). Los diálogos y vistas
     del compositor/capas (y `composite_choice`, que usa `i18n`) siguen en `app/`.
     `app/ia/` (2026-10-23) = la IA, PURA (ver «IA» más abajo).
@@ -588,8 +588,9 @@ alcantarillado, drenaje, gas, eléctrico, telecom). Todo en **unidades imperiale
     —`pdf_styles.style_width`—: `geom.clip_path` no conserva `width`), así el eje no sale de la línea;
     `recognition_map_vaults` (buzón-símbolo con punta/vértice dentro o atravesado → vértice «vault», deja de ser
     huérfano), `recognition_taps` (punta de la acometida al pie sobre la tubería, «tee»; las acometidas no se unen
-    en rutas), `recognition_diametros` («8"», «12" DIP», «278' 2"» paralelos y pegados → `diam_in` por mayoría
-    ≥60 %; mezcla → `review="diam_mix"`). `RecognizedPolyline.diam_in` → `pipe["diam"]`. Foto 16 hojas Phoenix
+    en rutas), el diámetro escrito junto a cada tramo («8"», «12" DIP», «278' 2"»: desde 2026-10-23
+    `recognition_grosor_mapa`, ver «Grosor de los mapas sin capas» abajo). `RecognizedPolyline.diam_in` →
+    `pipe["diam"]`. Foto 16 hojas Phoenix
     (HEAD → nuevo): agua mismas tuberías + acometidas (South h.4: 151 + 404, 0 a >1 pt de la tinta al importar);
     Water North h.1/4/10 de 0 líneas a 145/143/106 (la leyenda ya se lee); alcantarillado mismas líneas, buzones
     sin línea 33→4, 37→4. Tests: `tests/test_mapas_leyenda.py`.
@@ -1183,9 +1184,24 @@ alcantarillado, drenaje, gas, eléctrico, telecom). Todo en **unidades imperiale
     `set_veil`. `main.py`: `freeze_support()` y la interfaz se importa solo bajo `__main__` (el hijo importa main
     como `__mp_main__`); `OPENBLAS_NUM_THREADS=1` antes de numpy (+361 → +8 MB por proceso; letras igual de
     rápidas). `PDFCAD_PROCESO=0` = todo aquí mismo (conftest; `tests/test_proceso.py` lo enciende).
+    **Leyenda tapada en una compuesta** (reporte 2026-10-20, Water North + South, 36 mapas): la caja de la
+    leyenda de cada mapa queda FUERA de su recorte y caía encima de la pieza de abajo (North → 16-15): sus
+    tuberías se descartaban como «muestras de la leyenda» (`gather_paths(legend_regions=)`, centro del
+    trazo). `leyenda_mapa_lectura._leer` recorta cada zona a lo que se ve de SU pieza (`recortes_de_piezas`
+    = `scissor` del recorte de cada pieza, mismo recorrido que `inicios_de_piezas`; `_zona_visible`, None si
+    queda tapada). Compuesta de 36: 16 669 → 16 904 líneas; lejos de las zonas, lo de antes sigue (≤1.06 pt,
+    ajuste de ángulos de la red ahora unida). Foto de 18 casos (hojas sueltas y compuestas de una fila): igual.
+    Tests: `tests/test_mapas_compuestos.py::test_phoenix_leyenda_tapada_…`.
+    **Lectura única de la hoja** (2026-10-20): `pdf_styles.lectura_unica(doc)` (lo abren `reconocer_hoja` y
+    `recognize_page`) guarda por documento lo que da `pdf_styles.drawings` (clave = hoja, giro, estado de capas,
+    extended) y la lectura sin `extended` = la extendida sin clip/group ni `level`; se suelta al salir. Antes
+    `page_letters`, `profile_view_regions`, `gather_paths` y la leyenda releían la hoja: 1 + 2 por utilidad
+    (DU06 h.4: 13 lecturas, 10.6 de 18.6 s). Foto 18 casos (DU06/DU08/DU10/LABOE × 6 utilidades + Phoenix
+    sueltos y compuestos, + capas ocultas/roles a mano): resultado idéntico campo por campo, 181 → 74 s. OJO:
+    nadie debe modificar la lista que devuelve `drawings`. Tests: `tests/test_lectura_unica.py`.
     Velocidad sin cambiar resultados (`reconocimiento/recognition_indice.py`: `IndiceTramos` por corredor y
     `IndicePuntos`, candidatos en el ORDEN original → mismo desempate): `strokes_by_polyline`, `_through_dirs`,
-    `ink_reconstruct` (puntas), `recognition_diametros.asignar`, `snap_taps`, `acometidas_mapa` (celdas) y
+    `ink_reconstruct` (puntas), la asignación de rótulos de diámetro, `snap_taps`, `acometidas_mapa` (celdas) y
     `leyenda_mapa_lectura` (una leyenda POR HOJA en una compuesta: `_grupos` de encabezados a ≤ `GRUPO_HS`=100×
     su tamaño, `_Pagina` con filtros exactos, filas de todas sin repetir y una zona por leyenda; `_rotulos` por
     celdas). Antes las leyendas de una compuesta se juntaban en UNA caja que tapaba parte del mapa (4 hojas de agua:
@@ -1257,6 +1273,266 @@ alcantarillado, drenaje, gas, eléctrico, telecom). Todo en **unidades imperiale
     dibuja esa tubería), muestras a >1 pt de la tinta 0.65 % → 0.02 %. Tests: `tests/test_mapas_compuestos.py`.
     Pruebas por grupos en paralelo: `python scripts/pruebas.py <grupo…>` (mapas, compositor, capas,
     reconocimiento, utilidades, editor, interfaz, otros, todo; sin pytest-xdist).
+  - **Agregar utilidad desde otro PDF** (pedido del usuario 2026-10-23: cada utilidad en sus propios PDF —Phoenix:
+    agua, alcantarillado y drenaje, dos PDF cada una— y todas juntas en UNA hoja del editor). `hoja/encaje_mapa_base.py`
+    (PURO): similaridad hoja → hoja por trazos IDÉNTICOS del mapa base, sin color ni grosor (`escalas` = cociente de
+    largos con el mismo rumbo, `_votar` = traslación por pares con los dos extremos de acuerdo, `_ajuste` = mínimos
+    cuadrados; pico dominante, ≥2 rumbos, RMS ≤0.25 pt o None; `_pico` codifica la celda en UN entero: `np.unique` por
+    filas era 5× más lento); `verificar` = probar un encaje ya conocido (dos PDF con la misma plantilla repiten el MISMO
+    en todas sus hojas: agua ↔ alcantarillado ×1.02856; hoja correcta 25–77 % de trazos, las otras 0 %).
+    `hoja/hoja_calcada.py` (PURO): `calcar` = por cada pieza del editor la hoja nueva de su mismo lugar (la del mismo
+    número primero; ≥`MIN_FRACCION` de sus trazos; un par de PDF que falla `INTENTOS_POR_PAR` veces no se recorre
+    entero; sin ninguna tras `INTENTOS_SIN_NINGUNA` piezas = otro mapa base) → pieza con la MISMA huella llevada a su
+    hoja y el mismo lugar (`colocar`: su `piece_map` ES la similaridad) y `Composite.marco` = la hoja del editor
+    (`marco_de`): la hoja nueva tiene sus mismas coordenadas y lo reconocido entra SIN transformar. `combinar` = piezas
+    del editor tal cual + las nuevas (fuentes corridas, `Piece.grupo`, fundidas). `recolocar` = tras «Componer hoja» en
+    ese modo el usuario elige hojas/áreas y el lugar lo pone el encaje (hojas sin encaje se quitan). `Composite.marco`
+    (sheet_geometry = el marco; con marco nunca es «hoja entera»; sin marco todo igual, mismo dict) y `Piece.grupo`
+    (puentes solo dentro de su grupo; minimapa y marcas de agua solo el grupo 0). Ventana `ui/ventana/ventana_agregar.py`
+    (`AgregarUtilidadMixin`, Herramientas + botón `mdi:file-plus-outline`): `calcar_trabajo` en el proceso «principal»
+    con Cancelar; respaldo SIEMPRE (aunque el editor no tenga líneas); `Main._agregando` = el modo (lo apagan
+    `_reponer_respaldo`/`_soltar_respaldo`); asistente desde «Capas» (las utilidades ya en el editor sin marcar);
+    importar (`_importar_agregando`) = reponer el respaldo → `_poner_hoja_combinada` (materializa y
+    `canvas.cambiar_imagen`: la escena, el deshacer y la vista no se tocan; exige el mismo tamaño) →
+    `_import_recognized_pipes` con `_origen_desde_fuente` (datos extendidos de la pieza NUEVA). Medido: Phoenix agua 36
+    → alcantarillado 36 en ~14 s, RMS 0.001–0.15 pt; ventana real con 3 mapas: 1 784 tuberías de agua idénticas + 1 707
+    de alcantarillado con los vértices sobre su tinta (p99 0.18 pt). QS SD (drenaje) de Phoenix: otra cartografía (y su
+    red es imagen) → no encaja; se avisa (~15 s). OJO: «Componer hoja…» normal sobre la hoja combinada vuelve a
+    reconocer todo sobre ella (las utilidades superpuestas); si se le suman hojas fuera del marco, el marco se quita
+    (`cabe_en_marco`). Tests: `tests/test_agregar_utilidad.py`.
+    **Sin trabas con hojas grandes** (reporte del usuario 2026-10-23: con 36 + 36 mapas la ventana quedó «No
+    responde» en «Preparando la vista previa…»). Los pasos de datos que comparten la vista previa
+    (`recognition_quiebres.curvas_de_quiebres`) y la importación (`Main._importar_datos`, separado de
+    `_import_recognized_pipes` tal cual) eran todo contra todo: `recognition.inject_vault_vertices` (74 s con 36 mapas
+    de alcantarillado), `acometidas.unir_a_principal` (117 s), `model_ops.attach_vault_geometry` (29 s),
+    `hide_soft_vertex_structures` (minutos) y `quiebres_curvas.curvas_en_quiebres` (17 s). Ahora: `IndiceUtilidades`
+    (tuberías con un tramo cerca), `indice_plano.IndiceEstructuras` (estructuras por celdas; las que se agregan al
+    final entran solas; sin coordenadas = siempre candidatas), `model_ops._VerticesDeBoveda`, celdas de puntos en
+    `hide_soft` y `acometidas._junto`, y `nucleo/vecindario.Vecindario` (cada tubería de `curvas_en_quiebres` con las
+    tuberías/estructuras a ≤ `MARGEN_VECINOS_PX` + radio de su caja, en el orden original; `_quiebres_de` = el cuerpo de
+    siempre; `aplicar` lleva a la lista completa las estructuras quitadas/agregadas/movidas). Siempre la MISMA prueba
+    en el MISMO orden: mismo resultado (`tests/test_importar_sin_trabas.py` compara con los índices «apagados» = el
+    recorrido de antes). 36 mapas: vista previa ~3 s, pasos de la importación ~3.5 s. Los pasos avisan su avance
+    (`nucleo.avance`: la capa «Cargando…» repinta y Windows no marca «No responde»); por eso `_importar_datos` corre con
+    `_redibujo_diferido()` y `Main._importando` (el cálculo de fondo del editor no redibuja a mitad, la copia
+    automática espera).
+    **2.ª vuelta (reporte 2026-10-24, «al procesar la otra utilidad se lajea»)**: medido por partes con un latido de
+    15 ms y muestreo de la pila de la interfaz (agua 12 mapas importada + alcantarillado 12): «Capas de la hoja» 18 s
+    congelada en tramos de hasta 4 s, cargar la hoja calcada 4.6 s (3 s en `detect_scale` leyendo el texto Type3,
+    que se descartaba), armar la combinada 6 s; ~33 s congelada en total. Ahora (mismos resultados): (1)
+    `_load_page` no lee la escala del texto si hay `_scale_override` y dibuja la imagen ANTES de tocar el estado de
+    la ventana; (2) `ui/comun/fondo_trabajo.py` (escrito el 23 y nunca llamado) conectado: `Main._fondo_de`
+    (`ventana_hojas`) = imagen + grises en el proceso trabajador si la hoja es compuesta de varias piezas
+    (`conviene`), por archivos temporales; las capas viajan por número (`pdf_layers.encendidas`/
+    `poner_encendidas`, como las teselas); `aqui` = el camino de siempre; (3) `hoja/capas_trabajo.leer` (proceso,
+    con `lectura_unica`) + `ui/asistente/capas_previas.py`: `choose_sheet_layers(en_proceso=)` recibe la lista de
+    capas, la leyenda del mapa (a la caché `_pdfcad_leyenda_mapa` del doc), las capas con algo VISIBLE
+    (`trazos_visibles(page, None)`: el diálogo filtra con `capas_de_utilidad` → mismo conjunto) y la imagen;
+    `SheetLayersDialog._render` no vuelve a dibujar si `(hoja, encendidas)` no cambió (mapa sin capas: las casillas
+    nunca cambian el dibujo) y en una compuesta dibuja en el proceso tapando todo el diálogo (`_dibujando`);
+    resaltar al hacer clic sigue leyendo en la ventana (`_all_drawings`, solo a pedido); (4)
+    `_importar_agregando` → `_combinar_hojas` bajo `_redibujo_diferido` (se redibuja al importar, no al reponer
+    ni al cambiar la hoja: ~1.5 s menos) y con `_importando` (la copia automática no copia el editor a medias
+    mientras la hoja combinada se arma en el proceso); (5) teselas: `Servidor.mostrando`/`_olvidar_docs` — `OLVIDAR_MS` después de que una superficie
+    cambia de hoja, cada proceso cierra los PDF que ninguna superficie viva y A LA VISTA muestra ni espera (antes
+    guardaba hasta 6 con su lista de dibujo; si vuelve a verse, «sin documento» lo manda otra vez); (6)
+    `proceso_hijo.bucle` espera trabajos con `VIGILAR_PADRE_S` y termina si la ventana murió (`_padre_vivo`:
+    cerrada de golpe no hay `aboutToQuit` y los trabajadores quedaban vivos con su memoria). Con 12 + 12:
+    «Capas» 18.7 s con pausas de hasta 4.2 s → pausas ≤1 s (el diálogo abre en 0.3 s), cargar la hoja calcada
+    5.95 → 1.9 s (sin trabar), armar la combinada 3.7 s quieta → 0.7 s; ventana quieta en todo el agregado
+    ~38 → ~7 s (lo que queda: ~3 s del redibujo del editor con los avisos de ~10 mil utilidades al terminar el
+    cálculo de fondo, igual que antes, y la vista previa). OJO al medir memoria con scripts propios:
+    `OPENBLAS_NUM_THREADS=1` (lo pone `main.py`), si no cada proceso suma ~350 MB. Tests:
+    `tests/test_agregar_sin_trabas.py` (con `PDFCAD_PROCESO=1`: mismos píxeles y grises, mismas capas/leyenda/
+    visibles en CAD y en Phoenix, el diálogo no lee la hoja en la ventana, teselas sueltan el PDF, flujo entero
+    igual con y sin proceso). Pendiente: el resaltado de «Capas» con 36 mapas sigue en la ventana (a pedido).
+  - **Área sugerida** (pedido del usuario 2026-10-20: «sugerirle un área y que el usuario la ajuste», sin tocar el
+    reconocimiento): `hoja/area_sugerida.py` (PURO) `sugerir(page, ficha=None)` → `[Area]` (la mejor primero; [] = nada):
+    hoja con match lines → `_planta` (vista de `composicion_ficha` cortada en cada match line con rótulo, como
+    `composicion_sugerida._cortes_cad`; `_sin_perfil`: con capas, si hay rótulos junto a VARIAS vistas gana la de más
+    tinta de utilidades —LABOE h.26/31/32: la ficha tomaba el PERFIL de arriba, OJO: la composición sugerida usa esa
+    misma vista—); mapa con marco → el marco; si no, `_por_contenido`: recortes del PDF + (con capas o mapa) marcos de
+    4 `guide_lines` (≤`MARCO_MAX_FRAC` fuera de mapas), puntuados por la tinta VISIBLE de utilidades (`_tinta`: pila de
+    recortes; con capas solo `pdf_layers.utility_of`, sin PROF/ANNO/TEXT; sin capas toda) sin perfiles, el interior
+    si conserva `INTERIOR_CONSERVA`; otras vistas (solo con capas) como alternativa. Notas/portadas/detalles: [].
+    Foto 7 PDFs (195 hojas): todas las de match lines → planta, 54 mapas → marco, 32 sin sugerencia (notas, leyendas,
+    detalles, perfiles sueltos), revisadas a la vista; ~1.6 s por hoja (máx ~8). UI `ui/asistente/composite_area_suggest.py`
+    (`AreaSugeridaMixin`): trabajador `proceso` «area» (`sugerir_en_pdf`, documentos abiertos en el proceso; una
+    tarea a la vez, la última hoja pedida espera), caché por (sha1 del PDF, hoja); tarjeta en «Área a tomar» con el
+    porqué, contorno a trazos MAGENTA (z 2.5; naranja = área marcada, turquesa = guías), «Usar área sugerida» =
+    `crop.set_selection(rect)` (igual que marcarla a mano: nada se aplica solo), «Otra vista (i/n)», ✔ si el área
+    marcada coincide (±`COINCIDE_PT`). `PDFCAD_AREA_SUGERIDA=0` la apaga (conftest). Tests: `tests/test_area_sugerida.py`
+    (incluye: usarla da la MISMA pieza que marcar ese rectángulo a mano).
+    **Marco inclinado** (pedido 2026-10-21, «Southwest Gas Combined 811 Records (1) 37»: el mapa termina en líneas
+    gruesas 0.4–0.6° inclinadas dentro de un recorte rectangular): `hoja/borde_inclinado.py` (PURO) `cuadrilatero(page,
+    rect, paths=, segs=)` → 4 esquinas o None. Por lado: recta larga (cubre ≥`CUBRE_MIN`, une tramos colineales y lee
+    los marcos «qu»/«re» de UN elemento) inclinada `GIRO_MIN_DEG`–`GIRO_MAX_DEG`, a ≤`BANDA_FRAC` del lado, y SIN
+    tinta por fuera: la franja del lado se DIBUJA una vez (`franja`, 2 px/pt) y se cuentan píxeles oscuros más allá de
+    la línea (las cajas de `get_drawings` engañaban: marco de la hoja, trazos de varias partes). Con un lado inclinado,
+    los demás lados del marco también (aunque paralelos). El lado va POR FUERA de la línea (medio grosor +
+    `MARGEN_PT`) y las esquinas NO se recortan al rectángulo (≤`SALE_MAX_PT`): recortarlas cortaba la línea del marco.
+    `area_sugerida.sugerir` → `Area.poligono` (rect = su caja); la UI enciende «Esquinas libres» y `set_polygon`.
+    `composicion_sugerida.armar`: pieza con `polygon` (sin `covers`); CAD con `composite.page_drawings` (caché de
+    `trim_border`), mapas con `Ficha.lineas`. Verificado: Southwest Gas, `gather_paths` de la hoja compuesta con
+    rectángulo vs cuadrilátero = mismos 8 659 trazos. Tests: `tests/test_borde_inclinado.py`.
+  - **Grosor del plano CAD** (pedido 2026-10-21, DU06: «reconocer su grosor si el PDF dispone de esa información…
+    un complemento»): `reconocimiento/recognition_grosor.py` (+ `_texto`: rótulos, `_guias`: flechas), PURO, al
+    final de los pasos de mapas en `recognize_page` y SOLO en hojas con capas (no `PDF_STYLE:`). Solo escribe
+    `RecognizedPolyline.grosor` ({diam_in, fuente, textos, material, paredes_in}) y `diam_in` si estaba vacío
+    (→ `pipe["diam"]`, `diam_elegido`). El grosor de la PLUMA no sirve (va por estado: E 0.72, N 1.44, D 1.02).
+    Fuentes: (1) RÓTULO con GUÍA (MLeader ploteado = rectas sueltas en la capa del texto): línea de texto con UN
+    diámetro (`diametros_de`: sin «1"=20'», rumbos, «#4 @ 6"», «12" MIN») + utilidad por palabras (SD, LACFCD,
+    WATER, SSWR…) o por MATERIAL (`MATERIAL_UTIL`: RCP → drenaje/alcantarillado); bloques = MText (líneas una
+    bajo otra ALINEADAS izq/der/centro); la raya va al bloque más cercano (hueco ≤ 1 letra), también guía sin
+    raya desde el borde del bloque; `Guias` = grafo de tramos (ida y vuelta = uno), varias flechas por raya
+    (≤4), punta = vértice de la flecha rellena, «>» abierta o la punta libre; cada raya toma el rótulo más
+    cercano por ENCIMA (rótulos apilados). Rótulos dentro de `profile_view_regions` no cuentan. (2) PAREDES
+    (`-WALL` de la utilidad): desde el eje, la pared más cercana de cada lado (interior; el 84" trae también la
+    exterior a 8"), simétricas, ≥3 muestras y 70 % de acuerdo → nominal (±1.5"). Asignación en dos pasadas: sin
+    duda (una candidata a ≤4 pt + ½ diámetro, o una claramente más cerca); en una UNIÓN (la punta toca lateral
+    y principal) a la que ya dice ese diámetro (otros rótulos o paredes JUNTO a la punta, ±`JUNTO_PT`=30 pt:
+    en una compuesta la principal cambia 84"→81"→78" y sus paredes no dan uno solo), nunca a la que dice otro; rótulo con
+    ESTACIÓN («JOIN EX. 84" RCP SD / STA 549+55.37 / CB LAT 208») = un PUNTO, el diámetro de la tubería a la que
+    algo se une: SOLO CONFIRMA (va a la línea que ya dice ese diámetro por paredes junto a la punta u otros
+    rótulos; su flecha suele caer en el lateral: «JOIN TO EX.78"» daba 78" a laterales de 18", DU06 h.11/h.14).
+    `combinar`: manda el rótulo; rótulo ≠ paredes → el rótulo + «Para verificar» (clave `grosor`).
+    **2.ª vuelta (reporte del usuario 2026-10-22, «no se reconoce al 100 %… que no quede por defecto»)**, todo
+    medido hoja por hoja en DU06 (foto por hoja × 6 utilidades, código viejo vs nuevo) y en la compuesta
+    sugerida de 14 hojas: (1) `RX_DIAM` aceptaba «EX. 84"» pero no «EX.18"» (el punto pegado: 46 rótulos perdidos);
+    las estaciones «552+56.35 "VN"» se quitan antes de buscar diámetros. (2) Bloques: un MText lleva paso
+    CONSTANTE entre líneas (`BLOQUE_PASO_TOL`, `BLOQUE_HUECO_SOLO`): «LAT CB-226 / 18" RCP» y debajo «CB-226 /
+    … / STA 69+17.24» eran un bloque y el 18" quedaba como rótulo de estación. (3) Una guía termina en SU flecha
+    (`Guias._flecha_en`): dos flechas en la misma unión se encadenaban hasta la raya del otro rótulo. (4) Flecha
+    PASADA de largo: sin línea en la punta, la ÚNICA que cruza la guía en los últimos `FLECHA_MAX_PT` + la flecha
+    (`_cabeza`). (5) Misma tubería dibujada dos veces (existente + propuesta a ≤`SOLAPE_PT`=2 pt, paralelas):
+    el rótulo va a las dos si ninguna dice otro (`_encimadas`). (6) Paredes EXTERIORES: DU06 dibuja laterales de
+    18" con las paredes a 24" (y uno a 21"); `exterior` (pared C76 A–C con margen) las acepta junto al rótulo
+    («rotulo+paredes», `paredes`="exterior") y `calibrar` aplica a las líneas SOLO con paredes de la hoja lo que
+    dicen las rotuladas (24 → 18 si ninguna rotulada tiene paredes de 24 «interiores»). (7) Rótulos distintos en
+    una línea → `recognition_grosor_partir`: si forman ZONAS a lo largo de ella, se PARTE en el nodo entre zonas
+    (bóveda > unión/T > esquina > quiebre; uno solo de la mejor clase, piezas ≥12 pt), cada pieza con los
+    rótulos de su zona (`grosor["partida"]`, aviso «Tuberías partidas donde el plano cambia de diámetro», clave
+    `grosor_partida`); el núcleo da la principal de borde a borde aunque cambie 84"→81" en un pozo (h.5) o
+    81"→78" (h.11), y h.4 une dos laterales de 18" y 33" en una «V». Ningún vértice se mueve (las piezas
+    comparten el vértice; los ángulos a pasos de 0.25° se ajustan por pieza: ≤0.15 px). Si no se entiende
+    (un diámetro que vuelve, sin nodo): `mezcla` como antes. (8) Dueños: SCG → gas, DWPWS → agua, DWPPS/SCE →
+    eléctrico, FRONTIER/GTE → telecom, SWR → alcantarillado. (9) DU08 (columnas de rótulos de 2–3 líneas
+    alineados a la derecha, cada uno con su raya): el paso exacto separa cada rótulo (`BLOQUE_PASO_TOL`=0.03 ×
+    letra; en los 4 PDF el 90 % de los MText varía ≤1 %); antes eran UN bloque y cada raya tomaba el rótulo
+    con diámetro de más arriba («PROP WATER, SEE WATER PLANS» y el rótulo de un pozo recibían el 18" del
+    alcantarillado; un rótulo de agua el 2" del gas). La utilidad puede estar en la línea de ARRIBA del mismo
+    rótulo («DWPWS W200-150, / 12" C.I.», «SCG AM-17, / 2" STL»: `util_arriba`, nunca de abajo ni cruzando otra
+    línea con diámetro). Materiales con puntos («C.I.», «D.I.»), fracciones («1-1/2" WS», «3/4" GS» = 1.5" y
+    0.75"; antes 2" y 4") y bancos de conductos: «2-4" COMM», «2-6"P CONDUIT» = conductos de 4" / 6" (el
+    diámetro de cada uno; `Rotulo.varios`), pero un MText con tamaños mezclados («12-4", 2-5", 1-3"», «6-6" &
+    / 1-4"P CONDUIT») no da diámetro. (10) Guía que llega a MEDIA ALTURA de una línea del bloque (20–80 % de su
+    alto, `MEDIA_ALTURA`) = de ESA línea (`_de_su_linea`, `Cajas.lineas`): su rótulo, el de la de abajo si ésta
+    nombra el dueño, o ninguno (LABOE h.28: la de «EX. COMM OVERHEAD» tomaba el 30" del drenaje de arriba);
+    si no, el rótulo más cercano por ENCIMA de la raya. Raya entre dos bloques casi igual de cerca
+    (±`RAYA_EMPATE_PT`=1 pt) → el de centro a su altura (LABOE h.26). (11) MuPDF junta en UNA línea dos
+    rótulos vecinos a distinta altura («EX. 8" SEWER EX. 10" GAS», LABOE h.26): `_tramos` la parte por línea
+    base (solo horizontales). Un bloque solo junta líneas del mismo tamaño de letra (±2 %) con el hueco de un
+    MText de la hoja (`_huecos_mtext`: cadenas de 3 líneas a paso constante, ≥2 veces) o pegadas
+    (`BLOQUE_PEGADAS`). (12) Estación ≠ unión: solo confirma el rótulo de UNIÓN (`RX_UNION`: JOIN, LAT, «=»);
+    «EXIST 18" VCP SEWER / STA 0+44.33 / ENCASEMENT END» (DU08 h.38) es de la tubería a la que apunta. En una
+    unión «la línea ya dice ese diámetro» = ENTRE lo que dice: antes de partirla la principal de la compuesta
+    dice 84" y 81", y con «solo ese» el «EX. 84"» de su unión se iba al lateral sin datos (18" de paredes).
+    (13) Dueños AT&T/ATT y FRONTIER → telecom, POWER → eléctrico, HC → alcantarillado. Foto viejo → nuevo
+    (líneas ≥20 pt con diámetro, 4 PDF × 6 utilidades): DU06 drenaje 64 → 78 de 92 (81 % → 94 % del largo);
+    DU08 alcantarillado 41 → 56, agua 43 → 57, gas 34 → 41, eléctrico 2 → 24, telecom 7 → 10; DU10
+    alcantarillado 10 → 23, agua 4 → 28, gas 10 → 17, eléctrico 0 → 23, telecom 4 → 8; LABOE drenaje 45 → 48,
+    alcantarillado 42 → 49, agua 37 → 44, gas 44 → 43, eléctrico 0 → 44 (30 % del largo), telecom 9 → 10. Cada
+    línea que pierde o cambia su diámetro se revisó a la vista: rayas de rótulos SIN diámetro que antes tomaban
+    el de otro rótulo, o casos dudosos de verdad (DU08 h.37: 8"/18" en un encofrado → «Para verificar»; LABOE
+    h.29: guía que pasa por otro rótulo). Lo que queda sin diámetro en eléctrico/telecom/agua/gas no lo dice
+    la planta (está en perfiles y cuadros). Resultado DU06 (líneas ≥20 pt): drenaje 64/89 → 78/92 líneas, 81 % → 94 %
+    del largo; compuesta 31 % → 94 % (la principal ya no queda en 12"); lo que falta en drenaje no tiene rótulo en
+    la planta (8 líneas «GLINE» `UE-REF-GLINE_UG` sin dato y 6 laterales cuyo diámetro solo está en su PERFIL).
+    Agua 7 → 8, gas 0 → 1: en planta casi no hay rótulos de otras utilidades; están en los perfiles (cruces:
+    39 de gas, 59 de agua, 20 de alcantarillado en DU06) — no se usan (pendiente). Velocidad: rótulos y guías
+    no dependen de la utilidad → una vez por hoja (`pdf_styles.memo` con la huella de `px`), flechas y cajas
+    de texto por celdas, `profile_view_regions` memorizada (la pedían `gather_paths` y el grosor de cada
+    utilidad, ~8 s cada vez en la compuesta): guías de la compuesta 12 s → 0.8 s, mismo resultado. Texto y
+    capas con texto se leen una vez por hoja (`pdf_styles.memo`). Tests: `tests/test_grosor_plano.py`.
+    **3.ª vuelta (pedido del usuario 2026-10-22, «toda la información posible del PDF… si no estamos 100 %
+    seguros, no ponerla: dejar una alerta»)**. (1) SOLO LO SEGURO: `grosor["estado"]` = «leido» (se pone),
+    «dudoso» (`candidatos`; no se pone) o «sin_dato» (`recognition_grosor.seguro`/`aplicar`). Seguro = rótulo
+    con su guía (paredes, si hay, que coinciden por dentro o por fuera); paredes SOLAS solo si `calibrar` las
+    confirma en la hoja (un rótulo junto a paredes de ese ancho por dentro → `paredes`="interior", o por fuera
+    de un mismo diámetro → «exterior»): el drenaje de vía de DU08/DU10 (`F-PROP-TRKDRN_SD`) tiene paredes de 24"
+    y su rótulo dice «PROP METRO 8" HDPE» — antes salía 24". Rótulo ≠ paredes y mezcla: dudosas (antes el
+    rótulo). Al importar, `pipes_from_recognition` guarda `pipe["diam_plano"]` (`nucleo/diametro_plano.
+    de_grosor`) y `diametro_plano.avisos` (en `ventana_calculo._calcular_accesorios`, junto a `normas_validar`,
+    clase «grosor» = «Diámetro del plano») pone un aviso de normativa a cada utilidad dudosa o sin dato que siga
+    con el diámetro por defecto (`model_ops.diametro`): marcado, lista, aprobación (= dejar el de por defecto); se
+    va al elegir un diámetro o tamaño. Vista previa: aviso «Tuberías sin diámetro en el plano» (clave
+    `grosor_sin`) y «… {m} dudosa(s)…» (clave `grosor`, por `estado`). (2) Rótulos GIRADOS 90°
+    (`recognition_grosor_marcos`): en DU08/DU10/LABOE la mayoría van en vertical junto a la tubería (782/938/289
+    con diámetro); por cada dirección de los ejes, cajas de texto, tramos y flechas pasan a un marco donde el
+    texto es horizontal (`al_marco`/`de_marco`) y se usa la misma lógica; el horizontal sigue igual (sin
+    transformar). (3) La utilidad por el CÓDIGO del final del rótulo (`RX_CODIGO`/`CODIGO_UTIL`: W/WS agua,
+    SS/SSL/S alcantarillado, G/GS gas, E eléctrico, C telecom, SD drenaje; verificado contra los rótulos que la
+    nombran en los 4 PDF), y FTR/GS/WS como palabras. (4) La TINTA donde cae la guía (`recognition_grosor_tinta`):
+    un rótulo sin utilidad propia (solo material, p. ej. HDPE vale para 5) no va a una línea de esta utilidad si
+    la tinta más cercana a la punta es de otra (capas por `pdf_layers.utility_of`, sin las de texto/anotación;
+    cruce de dos = no se sabe); descarte por la caja de cada trazo (0.77 → 0.17 s por hoja, mismo resultado). (5)
+    PERFILES de laterales (`recognition_grosor_perfiles`: vistas por sus cotas «STA n+nn.nn» verticales —la línea
+    base es el lado derecho de la caja—, escala «HORIZ: 1"=20'», título «CB-208 LATERAL», «L=…, 18" RCP SD» = el
+    lateral, cruces = rótulos de la vista con guía, a pies de la principal, estado EX/PROP/ABND) y
+    `recognition_grosor_cruces.aplicar(results)` cuando están TODAS las utilidades (fin de `reconocer_hoja`; en
+    procesos aparte, `RecognitionWorker._fin_parte`): el lateral = la línea de drenaje cuyo rótulo nombra «CB-208»
+    (`Rotulo.nombres` → `grosor["nombres"]`), orientada desde la principal; si es un trozo corto, su recta
+    prolongada hasta la principal (`_prolongado`); cada cruce = la línea de esa utilidad (estado compatible: D vale
+    por E y por A) que corta al lateral a esa distancia, con un CORRIMIENTO común calibrado por los cruces
+    (`_desfase`: el lateral llega al borde de un pozo o nace en otro sumidero; ≤1.5 ft directo, hasta 6 ft si ≥2
+    cruces coinciden ±1 ft) y sin otra de esa utilidad a <3 ft. Sin dato → «leido» fuente «perfil»; igual a la
+    planta → confirma; distinto → dudosa «plano≠perfil». Avisos recontados (`recontar`). Hoja compuesta: los
+    perfiles se leen de las hojas de ORIGEN (`perfiles_de` = `Main._perfiles_de`, solo en el proceso del
+    drenaje; `recognition_grosor_perfiles.de_hojas`, caché por proceso): un perfil no tiene coordenadas, solo
+    nombres y pies. Foto (líneas ≥20 pt con diámetro, código de la 2.ª vuelta → éste): DU10 alcantarillado 8.5 % →
+    52 % del largo, agua 5 % → 36 %, gas 5 % → 43 %, eléctrico 4.5 % → 20 %, telecom 2.4 % → 13 %; DU08 alcantarillado
+    39 % → 60 %, agua 21 % → 38 %, gas 23 % → 45 %, eléctrico 9 % → 16 %; LABOE gas 59 % → 83 %; DU06 agua 6.5 % →
+    18 %, gas 0 % → 12 %, alcantarillado 0 % → 6 % (perfiles, revisados a la vista: cada línea es la de su tinta y
+    cruza el lateral donde dice el perfil); drenaje DU08 81 % → 26 % y DU10 87 % → 15 % = las paredes que no se
+    confirman (dudosas, con aviso). Compuesta sugerida de DU06 (14 hojas, perfiles de sus hojas de origen): gas
+    0.1 % → 57 %, agua 6.5 % → 30 %, alcantarillado 0 % → 20 %, drenaje igual (94 %); la principal de alcantarillado
+    queda dudosa (sus laterales dicen 10" en un tramo y 15" en otro: partirla por zonas, pendiente). OJO: el nombre
+    del lateral sale SOLO de su propio rótulo (no de uno de estación/unión: «JOIN EX. 84" … CB LAT 201» nombraba a
+    la principal y le daba el 24" del perfil del CB-201.5) y una línea >3× el lateral del perfil no es él. Lo que
+    queda sin dato no lo dice el plano (o solo en otros planos). Tests: `tests/test_grosor_avisos.py`.
+  - **Grosor de los mapas sin capas** (pedido del usuario 2026-10-23, «QS Water_Indian School_South»: lo mismo
+    que el grosor CAD en los PDF vectoriales SIN capas; reemplaza a `recognition_diametros`, que tomaba la MAYORÍA
+    ≥60 % de los rótulos para toda la ruta unida —una de 965 pt con 48" PCCP, 54" PCCP, 8" y 6" quedaba toda de
+    48"—). `reconocimiento/recognition_grosor_mapa.py` (PURO; solo con `ley_mapa`, como antes): `leer(texto)` →
+    (pulgadas, material, acometida): «8"», «12" DIP (CP)», «6" DIP FL», «8" Unk», «30" MOD PSD», «DIP PER 15-…»;
+    acometida «278' 2"», «2" 62'», «6" TAP», «TAP IN MH 6"» (≤ `ACOMETIDA_MAX_IN`); NO: «72" STEEL CASING», «2" ARV»,
+    «2" BLOW OFF», «MH 48"», palabras desconocidas (`NO_TUBO`, `MATERIALES`, `CALIFICATIVOS`). Centro y largo del
+    rótulo por la TINTA de sus letras (`_caja`); `sin_miniaturas`: letra < `LETRA_MIN`=0.5 × la típica de SU pieza
+    (`pieza` por `inicios_de_piezas`) = la referencia a un detalle («W-16-19-1», 0.37 pt). `asignar`: la línea
+    paralela (±25°) más cercana DE COSTADO (pasada la punta: distancia a la recta del último tramo; si el texto
+    empieza a más de una letra de la punta, solo si va alineado ≤ `COLINEAL`=0.75 letra: «FIRELINE / 8" DIP» bajo
+    cada una de dos líneas a 1.8 pt); ambiguo (→ `dudas` de todas, no cuenta) si otra paralela está a < `AMBIGUO`=1.5×
+    (o +0.25 letra) AL OTRO LADO del texto (si las dos quedan del mismo lado, es de la más cercana: dos de 8" a 1.3 pt
+    con su rótulo por fuera), o una de la red en otro rumbo MÁS cerca («12" CIP» en horizontal junto a una vertical
+    corta). Un rótulo simple va a una acometida solo hasta max(2", nota de la leyenda) («12" DIP» junto a un trocito
+    de acometida). `recognition_grosor_tramos.py` (PURO): UN tramo del SIG (entre vértices junction/tee/vault de la
+    ruta, nunca uno con codo) = UN diámetro: `valor` (todos iguales, o mayoría clara ≥2 y ≥2× el resto; si no
+    `CONFLICTO`), `estados` (sin rótulo: el de sus vecinos si dicen lo mismo, o el único al final de la ruta; entre
+    dos distintos «cambio» dudoso; un rótulo ambiguo que dice otra cosa → «cerca»), `piezas` (tramos seguidos con el
+    mismo estado; sin dato + dudoso juntos). `_explicados`: en un tramo en conflicto se quita el rótulo que el tramo
+    de OTRA línea junto a él ya dice (estado con vecinos: el «30" RCP» impreso sobre la de 24" a 1.3 pt de la de 30",
+    QS Sewer South h.2). `grosor` = {estado leido|dudoso|sin_dato, diam_in, fuente rotulo|leyenda|mezcla|cerca|
+    cambio, textos, material, candidatos, partida} (mismo esquema que el CAD → `nucleo/diametro_plano`, que tiene los
+    mensajes de «cerca» y «cambio»). `recognition_grosor_mapa_hoja.py`: `aplicar_variantes` (las dos variantes; los
+    tramos sin unir HEREDAN el grosor de su ruta unida en su punto medio, `grosor_en`) y `partir_al_final`: la ruta
+    con varias piezas se parte DESPUÉS de los ángulos a 0.25° (partirla antes cambiaba la solución de los ángulos
+    hasta 1.8 pt); `recognize_page` lo hace tras `angulos_mod.reubicar`. Avisos: «Diámetros del plano (rótulos junto
+    a la tubería)…» (clave `grosor`), «Tuberías sin diámetro en el plano» (`grosor_sin`), «Tuberías partidas…».
+    Foto (código anterior vs nuevo, 18 hojas de Water South + 6 de Water North + 11 de Sewer): vértices idénticos
+    (0.000), solo más polilíneas donde la ruta se parte; Water South 84 % → 88 % del largo con diámetro (y sin los de
+    la mayoría equivocada), WN h.1 78 → 83 %, h.3 80 → 90 %, SN h.2 85 → 96 %; acometidas: 158 toman su rótulo
+    (1", 1.5", 2"), 38 dudosas de 7 179. Las SD de Phoenix no pasan por aquí (sin `ley_mapa`). Compuesta de 3 mapas:
+    90 % en 11 s. Tests: `tests/test_grosor_mapa.py` (sintéticos + Water South h.4/h.10).
   - **Esquinas libres en TODOS los flujos** (pedido del usuario 2026-10-19): casilla
     `chk_corners` «Esquinas libres» en «Área a tomar» (encendida en escaneos, apagada en vectorial;
     se enciende sola al editar una pieza con `polygon`). `scan_crop_view.CornerCropView(free=)` —
@@ -1563,6 +1839,15 @@ alcantarillado, drenaje, gas, eléctrico, telecom). Todo en **unidades imperiale
     (los índices se corren). Vista previa: `recognition_quiebres.curvas_de_quiebres` marca esos vértices
     `{QUITADO: True}` y `dibujo_de(pl, curvas)` da la polilínea sin ellos + sus codos (la usa
     `recognition_dialog`).
+    **Chaflán → UNA curva** (reporte 2026-10-23, DU06 UD-202 = hoja índice 3, telecom `C-TELE-UNGD-D`
+    (514, 1020): gira 90° con un chaflán de 5 ft, quiebres de 48° y 42°; entraba la curva del primero y el
+    segundo quedaba de esquina): `_unir_chaflan`, para cada quiebre sin lugar, con el vecino del mismo giro
+    (sin curva o con la que este paso le acaba de poner; nunca un codo de la tinta) pone UNA curva mínima en
+    el cruce de las rectas de fuera (los dos vértices pasan a uno; los buzones ocultos se van) si entra
+    (`_entra`) y el dibujo se aparta del plano ≤ lo que se aparta la curva mínima de cada quiebre + 0.25 ft.
+    Vista previa: el codo del vértice nuevo lleva `TRAS` = (anterior, siguiente) y `dibujo_de` lo inserta
+    ahí. En UD-202 cambian solo ese y un chaflán eléctrico (931, 1242), revisados a la vista. Tests:
+    `test_quiebres_curvas.py::test_chaflan_…`.
   - **Normativas de diseño EN TABLAS** (2026-10-09; reemplazan al motor de reglas `normativas*.py` y su ventana
     QtWebEngine, borrados: el .exe ya no lleva QtWebEngine). Formato = el Excel que hizo el ingeniero a mano:
     `normas_catalogo.py` (PURO) — `BASE` = su contenido (tipos por utilidad, `diametros` de agua/gas por tipo con
@@ -1676,6 +1961,9 @@ alcantarillado, drenaje, gas, eléctrico, telecom). Todo en **unidades imperiale
     `exportar/informe_word.escribir` (anexo hasta `ANEXO_MAX`=1000 filas). Barra precisa `barras_carga.informe`
     (`MS_INFORME` medidos con AGUA 2; etapas informe_datos/mapa/2d/3d_armar/3d/zonas/anexo/guardar). AGUA 2
     (16 762 utilidades, 171 conflictos, 18 zonas) con capturas 2D: ~3 s, ~7 MB. Nada cambia en el proyecto.
+    Avisos del RECONOCIMIENTO (`diametro_plano`, clase «grosor», de dev_santos_v2) APARTE (decisión del usuario
+    2026-10-24): fichas `tipo` «reconocimiento» R-n, fuera de zonas y conteos de normativa, sección propia en el
+    Word, casilla `Opciones.reconocimiento`.
     **En segundo plano** (pedido del usuario 2026-10-23: «no debería bloquear el trabajo»): `generar_informe` arma
     un GENERADOR de pasos (`_pasos_informe`) que corre `ui/comun/trabajo_pasos.TrabajoPasos` (`yield` = ceder a la
     ventana; `("hilo", fn)` = IA y Word en un hilo con `nucleo.avance` reenviado; `("esperar", cond, s)` = la escena

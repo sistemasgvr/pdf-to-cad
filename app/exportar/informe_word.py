@@ -86,7 +86,8 @@ def escribir(informe, redactor, ruta, imagenes=None, notas=()):
         doc.add_paragraph(t("Proyecto: {p}").format(p=informe.titulo))
     doc.add_paragraph(t("Fecha: {f}").format(f=informe.fecha))
     contenido = [x for x, on in ((t("conflictos"), informe.opciones.conflictos),
-                                 (t("normativas"), informe.opciones.normativas)) if on]
+                                 (t("normativas"), informe.opciones.normativas),
+                                 (t("avisos de reconocimiento"), bool(informe.resumen.get("reconocimiento")))) if on]
     doc.add_paragraph(t("Contenido: {c}.").format(c=(" " + t("y") + " ").join(contenido)))
 
     doc.add_heading(t("Resumen"), 1)
@@ -100,6 +101,8 @@ def escribir(informe, redactor, ruta, imagenes=None, notas=()):
     if informe.opciones.normativas:
         filas += [(t("Avisos de normativa pendientes"), r["avisos_pendientes"]), (t("Avisos aprobados"), r["aprobados"]),
                   (t("Avisos informativos"), r["info"]), (t("Utilidades sin tipo"), r["sin_tipo"])]
+    if r.get("reconocimiento"):
+        filas.append((t("Avisos de reconocimiento (diámetro del plano)"), r["reconocimiento"]))
     _tabla(doc, [t("Concepto"), t("Cantidad")], filas)
     if r["por_titulo"]:
         doc.add_paragraph()
@@ -124,6 +127,15 @@ def escribir(informe, redactor, ruta, imagenes=None, notas=()):
         _imagen(doc, imagenes.get(("3d", z.numero)), t("Zona {z} en la vista 3D.").format(z=z.numero))
         for f in z.fichas:
             _ficha(doc, f, redactor)
+
+    rec = [f for f in informe.fichas if f["tipo"] == "reconocimiento"]
+    if rec:
+        doc.add_heading(t("Avisos de reconocimiento"), 1)
+        doc.add_paragraph(t("Lo que el reconocimiento del PDF no pudo leer con certeza (por ejemplo, el diámetro "
+                            "que dice el plano). No son incumplimientos de normativa: revísalos en el plano."))
+        _tabla(doc, [t("ID"), t("Utilidades"), t("Qué")],
+               [(f["id"], ", ".join(u["codigo"] for u in f["utilidades"]), f["mensaje_app"] or f["titulo"])
+                for f in rec[:ANEXO_MAX]])
 
     if informe.fichas:
         doc.add_heading(t("Anexo: todos los conflictos y avisos"), 1)

@@ -23,12 +23,12 @@ RAIZ = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 GRUPOS = {
     # mapas SIG sin capas (Phoenix): capas por estilo, leyenda, acometidas, hoja compuesta de mapas
-    "mapas": ["test_pdf_styles", "test_mapas_leyenda", "test_mapas_sin_capas", "test_acometidas_gravedad",
+    "mapas": ["test_pdf_styles", "test_mapas_leyenda", "test_mapas_sin_capas", "test_acometidas_gravedad", "test_grosor_mapa",
               "test_mapas_compuestos"],
     # componer hoja: piezas, costuras CAD, sugerencia, escaneos, hoja enorme y nitidez
     "compositor": ["test_composite", "test_composite_checks", "test_composite_seam", "test_composite_dialog",
                    "test_composicion_sugerida", "test_piezas_exactas", "test_scan_composition", "test_scan_tools",
-                   "test_esquinas_libres", "test_fundir_vectorial",
+                   "test_esquinas_libres", "test_fundir_vectorial", "test_area_sugerida", "test_borde_inclinado",
                    "test_hoja_enorme", "test_nitidez_zoom", "test_teselas", "test_sheet_crops", "test_sheet_layout"],
     # «Capas de la hoja», leyendas BOE y del PDF, vista previa
     "capas": ["test_layer_dialog", "test_layer_legend", "test_layer_standard", "test_leyenda_cruce",
@@ -42,7 +42,8 @@ GRUPOS = {
                        "test_bovedas_no_inventar", "test_codos_abiertos", "test_cruces_con_tinta",
                        "test_curvas_encadenadas", "test_curve_precision", "test_curve_structure_contacts",
                        "test_curvitas_una_curva",
-                       "test_letra_en_el_hueco", "test_detect"],
+                       "test_letra_en_el_hueco", "test_detect", "test_lectura_unica",
+                       "test_grosor_plano", "test_grosor_avisos"],
     # perfiles por utilidad (ventana real → DXF)
     "utilidades": ["test_water_profile", "test_sewer_profile", "test_sewer_integration", "test_gas_profile",
                    "test_gas_integration", "test_telecom_profile", "test_telecom_integration"],

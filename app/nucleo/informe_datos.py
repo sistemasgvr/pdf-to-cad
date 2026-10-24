@@ -9,6 +9,10 @@ la IA recibe estas mismas fichas en JSON y solo redacta (los números los pone l
 Las fichas se juntan en ZONAS (rejilla de `ZONA_FT`; si salen más de `MAX_ZONAS`, la celda se agranda
 al doble hasta que quepan): una captura por zona, no una por aviso. «Sin tipo» no va en zonas (con
 miles de utilidades recién importadas serían miles): solo se cuenta en el resumen.
+
+Los avisos del RECONOCIMIENTO («Diámetro del plano», `diametro_plano.CLASE`; merge con dev_santos_v2,
+2026-10-24) van APARTE (decisión del usuario): fichas `tipo` «reconocimiento», ids R-1, R-2…, fuera de las
+zonas y de los conteos de normativa; el Word les da su propia sección (`Opciones.reconocimiento`).
 """
 from __future__ import annotations
 
@@ -22,6 +26,8 @@ MARGEN_FT = 25.0              # aire alrededor de lo que muestra cada captura
 LADO_MIN_FT = 80.0            # una captura nunca muestra menos que esto
 ASPECTO = 1.6                 # ancho / alto de las capturas
 NIVEL_CONFLICTO = "ERROR"     # los conflictos C-n son alertas rojas
+CLASE_RECONOCIMIENTO = "grosor"   # = nucleo.diametro_plano.CLASE (sin importarlo: arrastra normas_validar)
+ORDEN_TIPO = {"conflicto": 0, "aviso": 1, "reconocimiento": 2}
 
 
 @dataclass
@@ -30,6 +36,7 @@ class Opciones:
     normativas: bool = True
     capturas_2d: bool = True
     capturas_3d: bool = False
+    reconocimiento: bool = True               # avisos del reconocimiento (diámetro del plano), aparte
 
 
 @dataclass
@@ -88,6 +95,13 @@ def ficha_aviso(a, pipes, n):
             "aprobado": ({k: aprob.get(k) for k in ("usuario", "fecha", "nota")} if aprob else None)}
 
 
+def ficha_reconocimiento(a, pipes, n):
+    """Aviso del reconocimiento (diámetro del plano) → ficha R-n, aparte de la normativa."""
+    f = ficha_aviso(a, pipes, n)
+    f.update(tipo="reconocimiento", id=f"R-{n}")
+    return f
+
+
 def _lectura(f):
     return (round(f["y"] / 8.0), f["x"])                  # como los C-n: de arriba abajo, de izquierda a derecha
 
@@ -96,13 +110,18 @@ def fichas(conflictos, avisos, pipes, opciones):
     """Las fichas del informe según `opciones` y cuántos «sin tipo» quedaron fuera."""
     out = [ficha_conflicto(c, pipes) for c in conflictos or []] if opciones.conflictos else []
     sin_tipo = 0
-    if opciones.normativas:
-        orden = sorted((a for a in avisos or []), key=lambda a: (round(a.y / 8.0), a.x))
-        n = 0
-        for a in orden:
-            if a.clase == "tipo":
-                sin_tipo += 1
-                continue
+    orden = sorted((a for a in avisos or []), key=lambda a: (round(a.y / 8.0), a.x))
+    n = r = 0
+    for a in orden:
+        if a.clase == CLASE_RECONOCIMIENTO:
+            if getattr(opciones, "reconocimiento", True):
+                r += 1
+                out.append(ficha_reconocimiento(a, pipes, r))
+        elif not opciones.normativas:
+            continue
+        elif a.clase == "tipo":
+            sin_tipo += 1
+        else:
             n += 1
             out.append(ficha_aviso(a, pipes, n))
     return out, sin_tipo
@@ -157,6 +176,7 @@ def resumen(lista, sin_tipo, pipes):
     return {"utilidades": sum(1 for p in pipes if not p.get("world") and len(p.get("pts") or []) >= 2),
             "conflictos": sum(1 for f in lista if f["tipo"] == "conflicto"),
             "avisos": sum(1 for f in lista if f["tipo"] == "aviso"), "pendientes": pendientes,
+            "reconocimiento": sum(1 for f in lista if f["tipo"] == "reconocimiento"),
             "avisos_pendientes": sum(1 for f in lista if f["tipo"] == "aviso" and not f["info"]
                                      and not f.get("aprobado")),
             "aprobados": aprobados, "info": info, "sin_tipo": sin_tipo, "por_nivel": por_nivel,
@@ -172,7 +192,9 @@ def caja_de(pipes):
 
 def armar(conflictos, avisos, pipes, ft_per_px, opciones, titulo="", ahora=None):
     lista, sin_tipo = fichas(conflictos, avisos, pipes, opciones)
-    lista.sort(key=lambda f: (0 if f["tipo"] == "conflicto" else 1, _lectura(f)))
+    lista.sort(key=lambda f: (ORDEN_TIPO.get(f["tipo"], 9), _lectura(f)))
     fecha = (ahora or _dt.datetime.now()).strftime("%Y-%m-%d %H:%M")
+    en_zonas = [f for f in lista if f["tipo"] != "reconocimiento"]           # los de reconocimiento, aparte
     return Informe(titulo=titulo, fecha=fecha, opciones=opciones, fichas=lista,
-                   zonas=zonas(lista, ft_per_px), resumen=resumen(lista, sin_tipo, pipes), caja_total=caja_de(pipes))
+                   zonas=zonas(en_zonas, ft_per_px), resumen=resumen(lista, sin_tipo, pipes),
+                   caja_total=caja_de(pipes))

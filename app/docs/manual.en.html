@@ -192,7 +192,11 @@ map names sheets that are in <b>another PDF in the same folder</b> (Phoenix «�
     arrows move to the previous or next sheet without going back to Source (they only show it).
     The whole sheet is shown with its border and handles. If you only need part of it, drag a
     rectangle over the plan or move the corners: the composite sheet updates by itself, with no
-    button to press; <span class="btn">Full sheet</span> uses the whole sheet again. The sheet scale
+    button to press; <span class="btn">Full sheet</span> uses the whole sheet again. <b>Suggested area</b>: the app
+    proposes the area worth taking (the plan view between its match lines, the map frame or the view
+    with the utility lines, never the profile or the title block) and draws it dashed in magenta;
+    <span class="btn">Use suggested area</span> marks it, you adjust it if needed and take it as usual. If the drawing frame is slanted with respect to the sheet, the
+    suggested area follows it corner by corner (<b>Free corners</b> turns on). The sheet scale
     is at the bottom right; snapping to lines and trimming the border line are under
     <b>Options</b>.</li>
 <li><b>Free corners</b> (checkbox next to <b>Options</b>): if the edge you want to follow is slanted
@@ -303,7 +307,7 @@ editor</span> leaves it as the background to draw by hand.</p>
     them. The same in sewer and the other utilities: in gravity and conduit networks the service
     line stays joined to its pipe with a NULL node (no visible manhole); the manholes are those of the
     network. When recognizing, each pipe takes
-    the diameter written next to it («6"», «8" DIP») and the legend manhole stays on its line. Always review
+    the diameter written next to it («6"», «8" DIP»; see <b>Diameter from the plan (map without layers)</b>) and the legend manhole stays on its line. Always review
     before continuing: everything can be changed like any assignment. Each sheet uses <b>its own</b> legend:
     what the legend assigned on one sheet does not carry over to another (what you assigned by hand does).
     On a <b>composed sheet</b> of maps each piece is read with its own legend, and if two maps draw the same
@@ -315,6 +319,37 @@ editor</span> leaves it as the background to draw by hand.</p>
     correct it <b>before continuing</b>: <b>Calibrate with a known distance…</b> (two clicks on the sheet and the
     real distance in feet; Esc exits) or <b>Type the scale…</b>. Curve radii and lengths are computed with
     it when recognizing.</li>
+<li><b>Diameter from the plan (PDF with layers):</b> when recognizing, each pipe takes the diameter the plan
+    gives it, if any: the <b>label with a leader</b> pointing at it («EX. 84" RCP SD», «18" RCP, LACFCD»,
+    «PROP 8" WATER») and, where the pipe is drawn with its <b>walls</b> («-WALL» layers), the width between
+    them (also when the plan draws the walls on the outside of the pipe: an 18" with its walls at 24").
+    It works for every utility: «12" C.I.» for water, «PROP 2" SCG» for gas, «1-1/2" WS» (1.5"), «2-4"
+    COMM» (a bank of 4" conduits); the label's utility comes from its text or its owner (SCG, DWPWS,
+    AT&amp;T, POWER…). It is an add-on: no vertex moves. Labels in profile views do not count. If a pipe changes diameter
+    at a manhole, a junction or a corner (84" up to the manhole and 81" after it), it is split there and
+    each part takes its own. <b>Vertical</b> labels are read too («8" C.I., 20'W CL, W139C»; the code at the
+    end tells the utility: W water, SS sewer, G gas, E electric, C telecom, SD storm drain), and so are the
+    <b>lateral profiles</b>: each pipe crossing a lateral takes the diameter its profile writes at that
+    crossing (on the composite sheet, from the profiles of its source sheets).
+    <br><b>Only what is certain:</b> the diameter is only set when the plan states it with certainty. If the
+    plan does not give it, or gives it with doubts (different labels that cannot be separated, a label that
+    does not match its walls, walls with no label telling whether they are the inside or the outside of the
+    pipe), the pipe keeps the default diameter and the editor gives it a <b>notice</b> with what the plan
+    says, like the code notices: it shows on the plan, in the notice list and in the utility panel. Picking
+    its diameter removes the notice; to keep the default, approve it. In the preview, <b>To check</b> takes
+    you to each one. On the plan they are shown or hidden apart from the standards warnings:
+    View → Warnings → <b>Show recognition warnings</b>.</li>
+<li><b>Diameter from the plan (map without layers):</b> on a flattened GIS map (such as the Phoenix
+    Quarter Sections) each run carries its label next to the line, parallel and close to it: «8"», «12" DIP»,
+    «12" DIP (CP)», «6" DIP FL», «8" Unk». When recognizing, each pipe takes its own; the casing («72" STEEL
+    CASING») and fittings («2" ARV», «2" BLOW OFF») do not count, nor do the miniature labels of a reference
+    to a detail. On the map each run has a single diameter: if a route crosses pipes of different diameters,
+    it is split between them (no vertex moves), and a run without a label takes its neighbours' diameter
+    when both say the same. Service taps take their label («278' 2"», «1.5"») or the legend note («taps are
+    .75"»). The same <b>only what is certain</b> rules apply: a label lying between two pipes drawn close
+    together (it is unknown whose it is), different labels on the same run, or an unlabeled run between two
+    different diameters (it is unknown where it changes) keep the default diameter and get their
+    <b>notice</b>, like pipes without a label (the short runs to hydrants usually have none).</li>
 <li><b>By the letters on the line:</b> the app does not only look at the layer name; it also reads
     the letters each line carries (—TE—, —SC—, —W—, —G—, —ss—…). A layer whose name is not a
     utility's, but whose lines say so, appears under its utility with the letters next to it, for
@@ -452,6 +487,28 @@ editor</span> leaves it as the background to draw by hand.</p>
     all (magenta ring): they come in as a <b>standalone box</b> with their shape and size
     (rectangular ones as <b>SÓLIDO</b>), without touching the lines. This also applies to pull boxes,
     poles and proposed structures.</li>
+</ul>
+
+<h2>Adding another utility from its own PDF</h2>
+<p>Sometimes each utility comes in its own PDFs (for example the Phoenix maps: two PDFs for water,
+two for sewer and two for storm drain). With one utility already imported, use
+<b>Tools → Add utility from another PDF…</b> (or the sheet button with a <b>+</b> on the top
+toolbar) and choose the PDF of the next one. If the editor sheet comes from two PDFs, the app
+offers to add the other one of the same utility too.</p>
+<ul>
+<li>For each sheet of the editor, the app finds the sheet of the new PDF that draws <b>the same
+    place</b>, by the base map they share (lots, right of way, streets), even at another scale, in
+    another order or rotated. The new sheet is built <b>traced</b> on the editor sheet: same area,
+    same place, same size.</li>
+<li>You go on with the usual steps (<b>Sheet layers</b> and <b>Preview</b>) on the sheet of the new
+    utility. The utilities already in the editor are not checked.</li>
+<li>When you import, the editor sheet shows <b>both PDFs together</b> and what was recognized is
+    added to what you already had. What was there <b>does not move or change</b> (lines, manholes,
+    Undo, georeferencing). <span class="btn">Cancel</span> in any step leaves the editor as it was.</li>
+<li>If you go back to <b>Compose sheet</b> in this mode, you choose which sheets and areas to use;
+    where each sheet goes is set by its base map (moving it by hand does not change where it falls).</li>
+<li>If the PDF does not draw the same base map as the editor sheet (other cartography, another
+    area), the app says so and adds nothing.</li>
 </ul>
 
 <h2>Composing again later</h2>

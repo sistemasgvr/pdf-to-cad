@@ -16,11 +16,13 @@ import copy
 import dataclasses
 from typing import Dict, Sequence, Tuple
 
-from nucleo import acometidas, model_ops, quiebres_curvas
+from nucleo import acometidas, model_ops, quiebres_curvas, vecindario
 from nucleo.model import NETWORK_KIND
 
 # marca de un vértice que la importación quita (prácticamente recto junto a un quiebre)
 QUITADO = "quitado"
+# en el codo de un vértice que la importación AGREGA (chaflán → una curva): (vértice anterior, siguiente)
+TRAS = "tras"
 
 
 def curvas_de_quiebres(results: Sequence, zoom: float) -> Dict[int, Dict[Tuple[float, float], dict]]:
@@ -69,9 +71,12 @@ def curvas_de_quiebres(results: Sequence, zoom: float) -> Dict[int, Dict[Tuple[f
     con_curva = [ip for ip, p in enumerate(pipes)
                  if any((int(x // 2) + dx, int(y // 2) + dy) in celdas
                         for x, y in p.get("pts") or () for dx in (-1, 0, 1) for dy in (-1, 0, 1))]
+    # cada una con lo que tiene alrededor (`vecindario`: mismo resultado sin recorrer la hoja entera)
+    vec = vecindario.Vecindario(pipes, structures, fpp)
     for ip in con_curva:
         p = pipes[ip]
-        curvas = model_ops.curve_vertex_indices(p, structures, pipes, model_ops._TOL)
+        sub_p, k, sub_s = vec.de(ip, quiebres_curvas.MARGEN_VECINOS_PX + 4 * model_ops._TOL)
+        curvas = model_ops.curve_vertex_indices(p, sub_s, sub_p, model_ops._TOL)
         for vi, s in curvas.items():
             if id(s) not in nuevas_ids or not (0 < vi < len(p["pts"]) - 1):
                 continue
@@ -79,9 +84,12 @@ def curvas_de_quiebres(results: Sequence, zoom: float) -> Dict[int, Dict[Tuple[f
             if g is None:
                 continue
             x, y = p["pts"][vi]
-            out.setdefault(dueño[ip], {})[(float(x), float(y))] = {
-                "a": g["t1"], "b": g["t2"], "center": g["center"], "r_px": g["r"], "loose": False,
-                "quiebre": True}
+            codo = {"a": g["t1"], "b": g["t2"], "center": g["center"], "r_px": g["r"], "loose": False,
+                    "quiebre": True}
+            if (float(x), float(y)) not in {(float(u), float(v)) for u, v in antes[ip]}:
+                # vértice NUEVO (los dos quiebres de un chaflán pasan a uno en el cruce de sus rectas)
+                codo[TRAS] = (tuple(float(c) for c in p["pts"][vi - 1]), tuple(float(c) for c in p["pts"][vi + 1]))
+            out.setdefault(dueño[ip], {})[(float(x), float(y))] = codo
     return out
 
 
@@ -100,14 +108,29 @@ def codos_de(pl, curvas: Dict[Tuple[float, float], dict]) -> dict:
 def dibujo_de(pl, curvas: Dict[Tuple[float, float], dict]):
     """(polilínea, codos) para DIBUJAR `pl` como quedará al importar: sin los vértices
     prácticamente rectos que la importación quita para que entre la curva de un quiebre
-    (`quiebres_curvas._enderezar`) y con esas curvas. Si nada se quita, la misma `pl`."""
+    (`quiebres_curvas._enderezar`), con el vértice que pone en un chaflán (`TRAS`) y con
+    esas curvas. Si nada cambia, la misma `pl`."""
+    curvas = curvas or {}
     quitar = {i for i, q in enumerate(pl.pts_pdf)
-              if (curvas or {}).get((float(q[0]), float(q[1])), {}).get(QUITADO)}
-    if not quitar:
+              if curvas.get((float(q[0]), float(q[1])), {}).get(QUITADO)}
+    poner = {g[TRAS]: q for q, g in curvas.items() if g.get(TRAS)}   # (anterior, siguiente) → vértice nuevo
+    if not quitar and not poner:
         return pl, codos_de(pl, curvas)
-    nuevo = {i: k for k, i in enumerate(i for i in range(len(pl.pts_pdf)) if i not in quitar)}
+    con_kinds = len(pl.kinds) == len(pl.pts_pdf)
+    pts, kinds, nuevo = [], [], {}
+    for i, q in enumerate(pl.pts_pdf):
+        if i in quitar:
+            continue
+        extra = poner.get((tuple(float(c) for c in pts[-1]), (float(q[0]), float(q[1])))) if pts else None
+        if extra is not None:                  # entre esos dos vértices (los del chaflán ya salieron)
+            pts.append(extra)
+            kinds.append("bend")
+        nuevo[i] = len(pts)
+        pts.append(q)
+        kinds.append(pl.kinds[i] if con_kinds else None)
+    if not quitar and len(pts) == len(pl.pts_pdf):
+        return pl, codos_de(pl, curvas)
     pl2 = dataclasses.replace(
-        pl, pts_pdf=[q for i, q in enumerate(pl.pts_pdf) if i not in quitar],
-        kinds=[k for i, k in enumerate(pl.kinds) if i not in quitar] if len(pl.kinds) == len(pl.pts_pdf) else pl.kinds,
+        pl, pts_pdf=pts, kinds=kinds if con_kinds else pl.kinds,
         fillets={nuevo[i]: g for i, g in (getattr(pl, "fillets", None) or {}).items() if i in nuevo})
     return pl2, codos_de(pl2, curvas)

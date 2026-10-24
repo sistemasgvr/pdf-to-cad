@@ -30,6 +30,7 @@ from typing import Callable, Dict, List, Optional, Sequence, Tuple
 import fitz
 
 from hoja import composite as C
+from hoja import borde_inclinado as BI
 from hoja import composicion_costuras as K
 from hoja import composicion_encaje as E
 from hoja.composicion_ficha import Ficha, Rect, estacion_texto
@@ -428,13 +429,27 @@ def armar(g: Grupo, analisis: Analisis, docs: Sequence[fitz.Document],
         covers: Dict[str, float] = {}
         if g.tipo == "estaciones":
             clip, covers = C.trim_border(page, clip)
+        # hoja cuyo marco no es recto con la hoja (2026-10-21): la pieza sigue su borde inclinado,
+        # como «Esquinas libres» (fuera queda solo papel en blanco: el reconocimiento no cambia)
+        poligono: List[List[float]] = []
+        if f.lineas:
+            # CAD: los vectores de la hoja que `trim_border` ya dejó en caché (también el marco
+            # cerrado en UN elemento «qu»/«re»); mapa: las rectas de los bordes de su ficha
+            segs = (BI._segmentos(C.page_drawings(page), page.rotation_matrix)
+                    if g.tipo == "estaciones" else f.lineas)
+            q = BI.cuadrilatero(page, tuple(C.clip_rect_pt(f.tam, clip)), segs=segs)
+            if q:
+                poligono = BI.normalizado(q, f.tam)
+                xs, ys = [p[0] for p in q], [p[1] for p in q]
+                clip = _norm((min(xs), min(ys), max(xs), max(ys)), f.tam)
+                covers = {}
         a, bx, by = g.transf[n]
         x0, y0, _x1, _y1 = C.clip_rect_pt(f.tam, clip)
         nombre = nombres[n[0]] if n[0] < len(nombres) else ""
         etiqueta = f.etiqueta()
         label = " · ".join(p for p in (nombre, str(n[1] + 1), etiqueta if etiqueta != str(n[1] + 1) else "") if p)
         comp.pieces.append(C.Piece(n[0], n[1], clip, x=a * x0 + bx, y=a * y0 + by, rotation=0.0,
-                                   src_scale=base * a, label=label, covers=covers))
+                                   src_scale=base * a, label=label, covers=covers, polygon=poligono))
     mx = min(p.x for p in comp.pieces)
     my = min(p.y for p in comp.pieces)
     for p in comp.pieces:

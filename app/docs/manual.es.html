@@ -193,7 +193,11 @@ pregunta antes de agregarlo. Los PDF escaneados no tienen sugerencia: se compone
     flechas pasas a la hoja anterior o siguiente sin volver a Origen (solo la muestran). La hoja
     entera se ve con su borde y sus asas. Si solo necesitas una parte, arrastra un rectángulo sobre
     el plano o mueve las esquinas: la hoja compuesta se actualiza sola, sin pulsar nada;
-    <span class="btn">Hoja completa</span> vuelve a usar toda la hoja. La escala de la hoja va
+    <span class="btn">Hoja completa</span> vuelve a usar toda la hoja. <b>Área sugerida</b>: la app
+    propone el área que conviene tomar (la vista de planta entre sus match lines, el marco del mapa o la
+    vista con las líneas de utilidades, nunca el perfil ni el cajetín) y la dibuja a trazos en magenta;
+    <span class="btn">Usar área sugerida</span> la marca, la ajustas si hace falta y la tomas como siempre. Si el marco del plano va inclinado respecto a la hoja, el área
+    sugerida lo sigue esquina por esquina (se enciende <b>Esquinas libres</b>). La escala de la hoja va
     abajo a la derecha; el imán a líneas y el recorte de la línea de borde están en
     <b>Opciones</b>.</li>
 <li><b>Esquinas libres</b> (casilla junto a <b>Opciones</b>): si el borde que quieres seguir está
@@ -302,7 +306,7 @@ imagen/escaneo…</b>), pero sin capas ni reconocimiento: al final,
     el diámetro de la nota de la leyenda (por ejemplo .75") o el escrito junto a ellas. Lo mismo en
     alcantarillado y las demás utilidades: en las redes por gravedad y de conductos la acometida queda
     unida a su tubería con un nodo NULO (sin buzón visible); los buzones son los de la red. Al reconocer, cada tubería toma el diámetro escrito a su
-    lado («6"», «8" DIP») y el buzón de la leyenda queda en su línea. Revisa siempre antes de continuar:
+    lado («6"», «8" DIP»; ver <b>Diámetro del plano (mapa sin capas)</b>) y el buzón de la leyenda queda en su línea. Revisa siempre antes de continuar:
     todo se puede cambiar como cualquier asignación. Cada hoja usa <b>su</b> leyenda: lo que la leyenda
     asignó en una hoja no pasa a otra (lo que asignaste tú a mano, sí). En una <b>hoja compuesta</b> de
     mapas cada pieza se lee con su leyenda, y si dos mapas dibujan la misma línea («Standard Main») con
@@ -313,6 +317,38 @@ imagen/escaneo…</b>), pero sin capas ni reconocimiento: al final,
     <b>antes de continuar</b>: <b>Calibrar con una distancia conocida…</b> (dos clics en la hoja y la distancia
     real en pies; Esc sale) o <b>Escribir la escala…</b>. Los radios de las curvas y los largos se calculan
     con ella al reconocer.</li>
+<li><b>Diámetro del plano (PDF con capas):</b> al reconocer, cada tubería toma el diámetro que dice el
+    plano, si lo dice: el <b>rótulo con flecha</b> que apunta a ella («EX. 84" RCP SD», «18" RCP, LACFCD»,
+    «PROP 8" WATER») y, donde la tubería está dibujada con sus <b>paredes</b> (capas «-WALL»), el ancho
+    entre ellas (también cuando el plano dibuja las paredes por fuera del tubo: un 18" con las paredes a
+    24"). Vale para todas las utilidades: «12" C.I.» de agua, «PROP 2" SCG» de gas, «1-1/2" WS» (1.5"),
+    «2-4" COMM» (un banco de conductos de 4"); la utilidad del rótulo la dice su texto o su dueño (SCG,
+    DWPWS, AT&amp;T, POWER…). Es un complemento: ningún vértice se mueve. Los rótulos de las vistas de perfil no cuentan.
+    Si una tubería cambia de diámetro en un pozo, una unión o una esquina (84" hasta el pozo y 81"
+    después), se parte en ese punto y cada parte lleva el suyo. También se leen los rótulos
+    <b>verticales</b> («8" C.I., 20'W CL, W139C»; el código del final dice la utilidad: W agua, SS
+    alcantarillado, G gas, E eléctrico, C telecomunicaciones, SD drenaje) y los <b>perfiles de los
+    laterales</b>: cada tubería que cruza un lateral toma el diámetro que su perfil escribe en ese cruce
+    (en la hoja compuesta, de los perfiles de sus hojas de origen).
+    <br><b>Solo lo seguro:</b> el diámetro se pone solo si el plano lo dice con certeza. Si no lo dice, o
+    lo dice con dudas (rótulos distintos que no se pueden separar, un rótulo que no coincide con sus
+    paredes, paredes sin un rótulo que diga si son las de adentro o las de afuera del tubo), la tubería
+    queda con el diámetro por defecto y el editor le pone un <b>aviso</b> con lo que dice el plano, como
+    los de normativa: se ve en el plano, en la lista de avisos y en el panel de la utilidad. Al elegir su
+    diámetro el aviso desaparece; para dejar el de por defecto, apruébalo. En la vista previa, <b>Para
+    verificar</b> lleva a cada una. En el plano se muestran u ocultan aparte de los de normativa:
+    Ver → Avisos → <b>Mostrar avisos de reconocimiento</b>.</li>
+<li><b>Diámetro del plano (mapa sin capas):</b> en un mapa SIG aplanado (como los Quarter Section de
+    Phoenix) cada tramo lleva su rótulo junto a la línea, paralelo y pegado a ella: «8"», «12" DIP»,
+    «12" DIP (CP)», «6" DIP FL», «8" Unk». Al reconocer, cada tubería toma el suyo; la camisa («72" STEEL
+    CASING») y los accesorios («2" ARV», «2" BLOW OFF») no cuentan, ni los rótulos en miniatura de la
+    referencia a un detalle. En el mapa cada tramo tiene un solo diámetro: si una ruta cruza tuberías de
+    distinto diámetro, se parte entre ellas (sin mover ningún vértice), y un tramo sin rótulo toma el de
+    sus vecinos cuando los dos dicen lo mismo. Las acometidas toman su rótulo («278' 2"», «1.5"») o la nota
+    de la leyenda («taps are .75"»). Las mismas reglas de <b>solo lo seguro</b>: un rótulo que está entre
+    dos tuberías pegadas (no se sabe de cuál es), rótulos distintos en el mismo tramo o un tramo sin rótulo
+    entre dos diámetros distintos (no se sabe dónde cambia) quedan con el diámetro por defecto y su
+    <b>aviso</b>, igual que las tuberías sin rótulo (los tramitos a los hidrantes suelen no tenerlo).</li>
 <li><b>Por las letras de la línea:</b> la app no solo mira el nombre de la capa; también lee las
     letras que lleva cada línea (—TE—, —SC—, —W—, —G—, —ss—…). Una capa cuyo nombre no es de
     ninguna utilidad, pero cuyas líneas sí lo dicen, aparece en su utilidad con las letras al lado,
@@ -446,6 +482,28 @@ imagen/escaneo…</b>), pero sin capas ni reconocimiento: al final,
     ninguna línea (anillo magenta): entran como <b>caja suelta</b> con su forma y medidas (las
     rectangulares, como <b>SÓLIDO</b>), sin tocar las líneas. Pasa también con cajas de paso,
     postes y estructuras propuestas.</li>
+</ul>
+
+<h2>Agregar otra utilidad desde su propio PDF</h2>
+<p>A veces cada utilidad llega en sus propios PDF (por ejemplo los mapas de Phoenix: dos PDF de
+agua, dos de alcantarillado y dos de drenaje). Con una utilidad ya importada, usa
+<b>Herramientas → Agregar utilidad desde otro PDF…</b> (o el botón de la hoja con un <b>+</b> en la
+barra superior) y elige el PDF de la siguiente. Si la hoja del editor viene de dos PDF, la app
+ofrece agregar también el otro de la misma utilidad.</p>
+<ul>
+<li>La app busca, para cada hoja del editor, la hoja del PDF nuevo que dibuja <b>el mismo lugar</b>,
+    por el mapa base que comparten (lotes, derecho de vía, calles), aunque esté a otra escala, en
+    otro orden o girada. La hoja nueva se arma <b>calcada</b> sobre la del editor: misma área, mismo
+    lugar, mismo tamaño.</li>
+<li>Sigues con los pasos de siempre (<b>Capas de la hoja</b> y <b>Vista previa</b>), sobre la hoja de
+    la utilidad nueva. Las utilidades que ya están en el editor no vienen marcadas.</li>
+<li>Al importar, la hoja del editor pasa a mostrar <b>los dos PDF juntos</b> y lo reconocido entra
+    junto a lo que ya tenías. Lo de antes <b>no se mueve ni cambia</b> (líneas, buzones, Deshacer,
+    georreferencia). <span class="btn">Cancelar</span> en cualquier paso deja el editor como estaba.</li>
+<li>Si vuelves a <b>Componer hoja</b> en este modo, eliges qué hojas y qué áreas usar; el lugar
+    de cada hoja lo pone su mapa base (moverla a mano no cambia dónde cae).</li>
+<li>Si el PDF no dibuja el mismo mapa base que la hoja del editor (otra cartografía, otra zona),
+    la app lo dice y no agrega nada.</li>
 </ul>
 
 <h2>Volver a componer más tarde</h2>

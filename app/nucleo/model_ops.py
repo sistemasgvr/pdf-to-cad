@@ -18,6 +18,7 @@ import threading
 from contextlib import contextmanager
 
 from nucleo.model import network_kind, LEADER_TEXT_FT, PIPE_DIAMETERS_IN
+from traduccion.i18n_core import t as _tr
 
 # Diámetro PRECARGADO (2026-10-06): toda utilidad sin tamaño de catálogo elegido lleva
 # este diámetro y se muestra «12" (Por defecto)». Las normativas de diámetros lo
@@ -52,6 +53,13 @@ def pipe_at_vertex(pipes, x, y, tol=14.0):
     tol (DU08 h.26: dos curvas eléctricas que salen de la misma recta, esquinas a
     3.8 pt = 13 px) y la curva de una se dibujaba con la tubería de la otra."""
     best, bd = None, tol * tol
+    ind = _indice_de(pipes)
+    if ind is not None:                       # (por celdas: los mismos vértices, en el mismo orden)
+        for ip, _iv, vx, vy in ind.en_caja(x - tol, y - tol, x + tol, y + tol):
+            d = (vx - x) ** 2 + (vy - y) ** 2
+            if d <= bd:
+                best, bd = ind.pipes[ip], d
+        return best
     for p in pipes:
         if p.get("world") or not p.get("pts"): continue
         for (vx, vy) in p["pts"]:
@@ -123,7 +131,9 @@ def curve_vertex_indices(pipe, structures, pipes=(), tol=14.0):
     m = tol * (1.0 + 1e-6) + 1e-9
     bx0, bx1 = min(q[0] for q in pts) - m, max(q[0] for q in pts) + m
     by0, by1 = min(q[1] for q in pts) - m, max(q[1] for q in pts) + m
-    for s in structures or ():
+    ind = _indice_de(pipes)
+    cvs = _curvas_de(structures)
+    for s in (cvs.en_caja(bx0, by0, bx1, by1) if cvs is not None else (structures or ())):
         if not s.get("curve") or s.get("world"):
             continue
         sx, sy = s.get("x"), s.get("y")
@@ -135,9 +145,15 @@ def curve_vertex_indices(pipe, structures, pipes=(), tol=14.0):
         if i is None:
             continue
         d = (pts[i][0] - sx) ** 2 + (pts[i][1] - sy) ** 2
-        if any(o is not pipe and not o.get("world")
-               and any((vx - sx) ** 2 + (vy - sy) ** 2 < d for vx, vy in (o.get("pts") or ()))
-               for o in pipes or ()):
+        if ind is not None:
+            r = math.sqrt(d) + 1e-6
+            otra = any(ind.pipes[ip] is not pipe and (vx - sx) ** 2 + (vy - sy) ** 2 < d
+                       for ip, _iv, vx, vy in ind.en_caja(sx - r, sy - r, sx + r, sy + r))
+        else:
+            otra = any(o is not pipe and not o.get("world")
+                       and any((vx - sx) ** 2 + (vy - sy) ** 2 < d for vx, vy in (o.get("pts") or ()))
+                       for o in pipes or ())
+        if otra:
             continue                                 # es el codo de OTRA tubería (más cerca)
         prev = out.get(i)
         if prev is None or (prev["x"] - pts[i][0]) ** 2 + (prev["y"] - pts[i][1]) ** 2 > d:
@@ -331,6 +347,10 @@ def hide_soft_vertex_structures(pipes, structures):
             continue
         for pt, k in zip(pts, kinds):
             (soft[net] if k in SOFT_VERTEX_KINDS else hard[net]).append(pt)
+    # los puntos por celdas (mismo resultado: solo los que pueden estar a ≤ tol; con una hoja
+    # compuesta de 36 mapas de alcantarillado, todas contra todas eran ~10⁹ distancias)
+    from nucleo.indice_plano import IndicePuntos
+    indices = {k: {net: IndicePuntos(pts, tol) for net, pts in d.items()} for k, d in (("soft", soft), ("hard", hard))}
     n = 0
     for s in structures:
         if s.get("world") or s.get("hidden") or s.get("curve"):
@@ -338,7 +358,14 @@ def hide_soft_vertex_structures(pipes, structures):
         net = s.get("net") or "gravity"
         xy = (s.get("x", 0.0), s.get("y", 0.0))
         near = lambda q: math.hypot(q[0] - xy[0], q[1] - xy[1]) <= tol
-        if any(near(q) for q in soft.get(net, ())) and not any(near(q) for q in hard.get(net, ())):
+
+        def cerca(clave):
+            lista = (soft if clave == "soft" else hard).get(net, ())
+            ind = indices[clave].get(net)
+            if ind is None:
+                return any(near(q) for q in lista)
+            return any(near(lista[i]) for i in ind.en_caja(float(xy[0]), float(xy[1]), tol))
+        if cerca("soft") and not cerca("hard"):
             s["hidden"] = True
             n += 1
     return n
@@ -367,6 +394,107 @@ def interp_vertex_z(pts, z_start, z_end, overrides):
         for i in range(len(sub)):
             z[a + i] = za + (zb - za) * (d[i] / total) if total > 1e-9 else za
     return z
+
+
+_vert = threading.local()
+_MIN_INDICE = 64            # con pocas tuberías el recorrido de siempre es igual de rápido
+
+
+@contextmanager
+def indice_vertices():
+    """Dentro del bloque (en ESTE hilo), `curve_vertex_indices` y `pipe_at_vertex` buscan los vértices
+    de las tuberías y las curvas por celdas cuando reciben la MISMA lista: los mismos candidatos, en
+    el mismo orden y con la misma cuenta (mismo resultado). Antes recorrían TODAS las tuberías por
+    cada curva: con 36 + 36 mapas (28 000 tuberías, 260 curvas) el redibujo tardaba 60 s y las
+    listas 19 s (2026-10-23). Solo para quien no cambia vértices ni estructuras mientras dura
+    (redibujo, listas, normativas, tabla de datos)."""
+    previo = getattr(_vert, "v", None)
+    _vert.v = {}
+    try:
+        yield
+    finally:
+        _vert.v = previo
+
+
+class _Celdas:
+    """Entradas con (x, y) por celdas; `en_caja` = las del recuadro, en el orden en que se dieron."""
+    CELDA = 32.0
+
+    def __init__(self, entradas):
+        self.celdas = {}
+        c = self.CELDA
+        for k, (x, y, dato) in enumerate(entradas):
+            self.celdas.setdefault((math.floor(x / c), math.floor(y / c)), []).append((k, dato))
+
+    def en_caja(self, x0, y0, x1, y1):
+        c = self.CELDA
+        out = []
+        for cx in range(math.floor(x0 / c), math.floor(x1 / c) + 1):
+            for cy in range(math.floor(y0 / c), math.floor(y1 / c) + 1):
+                out.extend(self.celdas.get((cx, cy), ()))
+        out.sort(key=lambda e: e[0])
+        return [dato for _k, dato in out]
+
+
+class _VerticesTuberias(_Celdas):
+    """Los vértices de las tuberías no importadas (`world`) como (tubería, vértice, x, y)."""
+
+    def __init__(self, pipes):
+        self.pipes = pipes
+        super().__init__([(float(q[0]), float(q[1]), (ip, iv, q[0], q[1]))
+                          for ip, p in enumerate(pipes) if not p.get("world")
+                          for iv, q in enumerate(p.get("pts") or ())])
+
+
+class _Curvas(_Celdas):
+    """Las estructuras CURVAS no importadas, en el orden de la lista (las demás no cuentan)."""
+
+    def __init__(self, structures):
+        self.structures = structures
+        self.n = len(structures)
+        self.siempre = []
+        entradas = []
+        for k, s in enumerate(structures):
+            if not s.get("curve") or s.get("world"):
+                continue
+            try:
+                entradas.append((float(s["x"]), float(s["y"]), (k, s)))
+            except (KeyError, TypeError, ValueError):
+                self.siempre.append((k, s))           # la prueba de siempre decide
+        super().__init__(entradas)
+
+    def en_caja(self, x0, y0, x1, y1):
+        out = super().en_caja(x0, y0, x1, y1) + self.siempre
+        out.sort(key=lambda e: e[0])
+        return [s for _k, s in out]
+
+
+def _indice_de(pipes):
+    """El índice de vértices de `pipes` dentro de `indice_vertices()` (None fuera, o si no conviene)."""
+    v = getattr(_vert, "v", None)
+    if v is None or not isinstance(pipes, list) or len(pipes) < _MIN_INDICE:
+        return None
+    r = v.get(("p", id(pipes)))
+    if r is not None and r.pipes is pipes:
+        return r
+    try:
+        r = _VerticesTuberias(pipes)
+    except (TypeError, ValueError, IndexError):
+        return None                                   # un vértice raro: el recorrido de siempre
+    v[("p", id(pipes))] = r
+    return r
+
+
+def _curvas_de(structures):
+    v = getattr(_vert, "v", None)
+    if v is None or not isinstance(structures, list) or len(structures) < _MIN_INDICE:
+        return None
+    r = v.get(("s", id(structures)))
+    if r is not None and r.structures is structures and r.n == len(structures):
+        return r
+    r = _Curvas(structures)
+    v[("s", id(structures))] = r
+    return r
 
 
 _memo = threading.local()
@@ -575,12 +703,19 @@ def attach_vault_geometry(structures, vaults_geo, tol=12.0, net="conduit",
     Civil 3D la línea quede conectada a ella (una sola caja por bóveda). Un
     vértice «vault»/«stop» sin bóveda reconocida no crea nada."""
     done = 0; created = 0
-    for vg in vaults_geo or []:
+    # por celdas, el MISMO recorrido en el mismo orden (2026-10-23: 36 mapas de alcantarillado =
+    # ~2 000 bóvedas × 30 000 estructuras); las que se crean aquí entran solas al índice
+    from nucleo import avance
+    from nucleo.indice_plano import IndiceEstructuras
+    ind = IndiceEstructuras(structures)
+    llegadas = _VerticesDeBoveda(pipes) if (net == "conduit" and pipes) else None
+    for k_av, vg in enumerate(vaults_geo or []):
+        avance.avisar(_tr("Asociando cada bóveda a su estructura…"), k_av + 1, len(vaults_geo))
         cx, cy = vg.get("center", (None, None))
         if cx is None:
             continue
         best = None
-        for s in structures:
+        for s in (structures[k] for k in ind.cerca(float(cx), float(cy), tol)):
             if s.get("world") or s.get("curve") or (s.get("net") or "gravity") != net:
                 continue
             d = math.hypot(float(s.get("x", 1e9)) - cx, float(s.get("y", 1e9)) - cy)
@@ -591,7 +726,7 @@ def attach_vault_geometry(structures, vaults_geo, tol=12.0, net="conduit",
             # típico de la bóveda abandonada): la más cercana DENTRO del contorno
             # (o del anillo de un buzón redondo: la BZ de la punta que llega a él;
             # si no, quedaban dos estructuras, la de la punta y otra suelta al centro).
-            for s in structures:
+            for s in (structures[k] for k in ind.en_caja(*_caja_de_boveda(vg))):
                 if s.get("world") or s.get("curve") or (s.get("net") or "gravity") != net:
                     continue
                 sx, sy = float(s.get("x", 1e9)), float(s.get("y", 1e9))
@@ -602,7 +737,7 @@ def attach_vault_geometry(structures, vaults_geo, tol=12.0, net="conduit",
         if best is None and net == "conduit" and pipes:
             # La línea llega a la bóveda: su caja va en el vértice de llegada
             # (conexión en Civil 3D), no suelta en el centro del símbolo.
-            pt = _vertice_de_boveda(pipes, vg, tol)
+            pt = (llegadas.de(vg, tol) if llegadas is not None else _vertice_de_boveda(pipes, vg, tol))
             if pt is not None:
                 st = {"cod": "", "x": float(pt[0]), "y": float(pt[1]), "rim": None,
                       "sump": None, "part": "", "part_size": "", "net": net,
@@ -613,7 +748,7 @@ def attach_vault_geometry(structures, vaults_geo, tol=12.0, net="conduit",
             if not vg.get("importable", False):
                 continue
             # ya importada en una pasada anterior (mismo centro): reutilizar
-            for s in structures:
+            for s in (structures[k] for k in ind.cerca(float(cx), float(cy), tol)):
                 if (s.get("standalone") and (s.get("net") or "gravity") == net
                         and math.hypot(float(s["x"]) - cx, float(s["y"]) - cy) <= tol):
                     best = (0.0, s); break
@@ -641,6 +776,63 @@ def attach_vault_geometry(structures, vaults_geo, tol=12.0, net="conduit",
     _assign_standalone_codes(structures)
     normalize_solids(structures)
     return done, created
+
+
+def _caja_de_boveda(vg, pad=2.0):
+    """Recuadro que contiene todo punto `_dentro_de_boveda(vg, ·)` (con margen de redondeo)."""
+    m = pad + 1e-3
+    if vg.get("corners"):
+        xs = [float(q[0]) for q in vg["corners"]]; ys = [float(q[1]) for q in vg["corners"]]
+        return min(xs) - m, min(ys) - m, max(xs) + m, max(ys) + m
+    circ = vg.get("circle")
+    if circ:
+        r = float(circ[2]) + m
+        return float(circ[0]) - r, float(circ[1]) - r, float(circ[0]) + r, float(circ[1]) + r
+    return 0.0, 0.0, -1.0, -1.0                   # nada cae dentro
+
+
+class _VerticesDeBoveda:
+    """`_vertice_de_boveda` por celdas: los vértices «vault»/«stop» de `pipes` (que no cambian
+    mientras se usa), en el orden (tubería, vértice) del recorrido de siempre."""
+
+    CELDA = 64.0
+
+    def __init__(self, pipes):
+        self.pipes = pipes
+        self.celdas = {}
+        c = self.CELDA
+        for ip, p in enumerate(pipes):
+            pts = p.get("pts") or []
+            kinds = p.get("vertex_kinds") or []
+            if len(kinds) != len(pts):
+                continue                              # dibujada a mano: sin bóvedas
+            for iv, ((x, y), k) in enumerate(zip(pts, kinds)):
+                if k in VAULT_VERTEX_KINDS:
+                    self.celdas.setdefault((math.floor(x / c), math.floor(y / c)), []).append((ip, iv, x, y, k))
+
+    def de(self, vg, tol):
+        cx, cy = vg["center"]
+        r = tol + 1e-3
+        x0, y0, x1, y1 = cx - r, cy - r, cx + r, cy + r
+        if vg.get("corners") or vg.get("circle"):
+            bx0, by0, bx1, by1 = _caja_de_boveda(vg)
+            x0, y0, x1, y1 = min(x0, bx0), min(y0, by0), max(x1, bx1), max(y1, by1)
+        c = self.CELDA
+        cand = []
+        for gx in range(math.floor(x0 / c), math.floor(x1 / c) + 1):
+            for gy in range(math.floor(y0 / c), math.floor(y1 / c) + 1):
+                cand.extend(self.celdas.get((gx, gy), ()))
+        cand.sort(key=lambda e: (e[0], e[1]))
+        best = None
+        for _ip, _iv, x, y, k in cand:                # la cuenta de `_vertice_de_boveda`
+            d = math.hypot(x - cx, y - cy)
+            dentro = _dentro_de_boveda(vg, x, y)
+            if d > tol and not dentro:
+                continue
+            clave = (k != "vault", d)
+            if best is None or clave < best[0]:
+                best = (clave, (x, y))
+        return None if best is None else best[1]
 
 
 def _dentro_de_boveda(vg, x, y, pad=2.0):
@@ -702,6 +894,8 @@ def attach_fillets(pipes, structures, tol=1.0):
     = {índice: radio_ft}). Mismo modelo que el codo manual; el plugin genera la
     tubería curva tangente con ese radio. Devuelve cuántas marcó."""
     n = 0
+    from nucleo.indice_plano import IndiceEstructuras
+    ind = IndiceEstructuras(structures)           # mismo recorrido, por celdas (las nuevas entran solas)
     for p in pipes:
         fil = p.get("fillets") or {}
         pts = p.get("pts") or []
@@ -711,7 +905,7 @@ def attach_fillets(pipes, structures, tol=1.0):
                 x, y = pts[int(idx)]
             except (IndexError, ValueError, TypeError):
                 continue
-            s = next((s for s in structures if not s.get("world")
+            s = next((s for s in (structures[k] for k in ind.cerca(float(x), float(y), tol)) if not s.get("world")
                       and math.hypot(float(s.get("x", 1e9)) - x, float(s.get("y", 1e9)) - y) <= tol),
                      None)
             if s is None:

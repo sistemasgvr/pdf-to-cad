@@ -43,6 +43,7 @@ CLASES = {
     "material": N_("Material"),
     "buzon": N_("Buzones"),
     "separacion": N_("Separación con otra utilidad"),
+    "grosor": N_("Diámetro del plano"),          # nucleo/diametro_plano: no se encontró o es dudoso
 }
 NOMBRE_ACC = {"codo": N_("Codo"), "tee": N_("Tee"), "wye": N_("Wye"), "cruz": N_("Cruz"),
               "tee_dom": N_("T domiciliaria"), "reduccion": N_("Reducción")}
@@ -391,6 +392,12 @@ def _dist_buzones(grupo, dt, ft_px, buzones, out):
 # ─────────────────────────── todo ───────────────────────────
 
 def validar(cat, pipes, accesorios_, ft_per_px, con_bancoducto=(), structures=(), conexiones=()):
+    """Ver `_validar` (las curvas de cada tubería, por celdas: `model_ops.indice_vertices`)."""
+    with model_ops.indice_vertices():
+        return _validar(cat, pipes, accesorios_, ft_per_px, con_bancoducto, structures, conexiones)
+
+
+def _validar(cat, pipes, accesorios_, ft_per_px, con_bancoducto=(), structures=(), conexiones=()):
     """Avisos de todas las utilidades y accesorios. `con_bancoducto` = índices de las utilidades que llevan
     bancoducto; `structures` = curvas y buzones; `conexiones` = conexiones verticales aprobadas (esos cruces no
     se revisan)."""

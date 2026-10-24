@@ -83,6 +83,7 @@ def _sin_composicion_sugerida_en_segundo_plano(monkeypatch):
     """El compositor no lanza el análisis de «Composición sugerida» en otro hilo en las
     pruebas (cada diálogo revisaría todas las hojas); sus pruebas lo encienden."""
     monkeypatch.setenv("PDFCAD_SUGERENCIA", "0")
+    monkeypatch.setenv("PDFCAD_AREA_SUGERIDA", "0")      # ni el «Área sugerida» (composite_area_suggest)
     yield
 
 

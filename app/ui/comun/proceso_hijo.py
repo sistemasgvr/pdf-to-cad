@@ -7,18 +7,22 @@ Ver `proceso.py`. El hijo:
     el hijo falla con «memoria» en vez de llevar todo el sistema a la memoria virtual,
   · atiende trabajos en orden (`bucle`): importa `objetivo` («paquete.modulo:funcion»), lo
     llama con `progreso=` (cada aviso va a la cola) y manda el resultado (o el error) y
-    cuánta memoria le quedó (`memoria_mb`: el padre lo recicla si creció de más).
+    cuánta memoria le quedó (`memoria_mb`: el padre lo recicla si creció de más),
+  · termina solo si la ventana ya no está (cerrada de golpe: sin `aboutToQuit` nadie lo para y
+    se quedaba esperando para siempre con su memoria; 2026-10-24).
 """
 from __future__ import annotations
 
 import importlib
 import os
+import queue
 import sys
 import traceback
 
 BELOW_NORMAL_PRIORITY_CLASS = 0x00004000
 JOB_OBJECT_LIMIT_PROCESS_MEMORY = 0x00000100
 JOB_OBJECT_EXTENDED_LIMIT_INFORMATION = 9
+VIGILAR_PADRE_S = 2.0        # sin trabajos, cada tanto mira si la ventana sigue viva
 
 
 def bajar_prioridad():
@@ -123,7 +127,12 @@ def bucle(entrada, salida, tope_mb: int):
     bajar_prioridad()
     poner_tope(tope_mb)
     while True:
-        msg = entrada.get()
+        try:
+            msg = entrada.get(timeout=VIGILAR_PADRE_S)
+        except queue.Empty:
+            if not _padre_vivo():
+                return
+            continue
         if msg is None:
             return
         tid, objetivo, args, kwargs = msg
@@ -142,6 +151,16 @@ def bucle(entrada, salida, tope_mb: int):
             salida.put(("error", tid, traceback.format_exc()))
         finally:
             sys.stdout.flush()
+
+
+def _padre_vivo() -> bool:
+    """¿Sigue viva la ventana que lanzó este proceso? (True si no se sabe)"""
+    try:
+        import multiprocessing as mp
+        padre = mp.parent_process()
+        return padre is None or padre.is_alive()
+    except Exception:
+        return True
 
 
 def eco(valor, pasos: int = 0, progreso=None):

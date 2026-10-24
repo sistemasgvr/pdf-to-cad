@@ -88,13 +88,19 @@ class Piece:
     # para el reconocimiento) y la franja esconde su tinta en la hoja compuesta.
     covers: Dict[str, float] = field(default_factory=dict)
     polygon: List[Pt] = field(default_factory=list)  # normalized visible-page corners
+    # Utilidad agregada desde otro PDF (`hoja_calcada`, 2026-10-23): las piezas de cada
+    # grupo van encima de las del editor; los puentes solo unen piezas del MISMO grupo.
+    grupo: int = 0
 
     def to_dict(self) -> dict:
-        return dict(source=int(self.source), page=int(self.page),
-                    clip=[float(v) for v in self.clip], x=float(self.x), y=float(self.y),
-                    rotation=float(self.rotation), src_scale=float(self.src_scale),
-                    label=self.label, covers={k: float(v) for k, v in self.covers.items()},
-                    polygon=[list(p) for p in self.polygon])
+        d = dict(source=int(self.source), page=int(self.page),
+                 clip=[float(v) for v in self.clip], x=float(self.x), y=float(self.y),
+                 rotation=float(self.rotation), src_scale=float(self.src_scale),
+                 label=self.label, covers={k: float(v) for k, v in self.covers.items()},
+                 polygon=[list(p) for p in self.polygon])
+        if self.grupo:                   # sin grupo, el mismo dict de siempre (cachés, .digproj)
+            d["grupo"] = int(self.grupo)
+        return d
 
     @classmethod
     def from_dict(cls, d: dict) -> "Piece":
@@ -105,7 +111,8 @@ class Piece:
                    src_scale=float(d.get("src_scale", 20 / 72.0)) or 20 / 72.0,
                    label=str(d.get("label", "")), polygon=normalize_polygon(d.get("polygon")),
                    covers={str(k): float(v) for k, v in (d.get("covers") or {}).items()
-                           if k in SIDES and float(v) > 0})
+                           if k in SIDES and float(v) > 0},
+                   grupo=int(d.get("grupo", 0) or 0))
 
 
 @dataclass
@@ -125,6 +132,10 @@ class Composite:
     # costura superpuesta no deja corte ni franja blanca. Escaneos y, desde
     # 2026-10-19, también PDF vectoriales con o sin capas (`composite_fundir`).
     seam_blend: bool = True
+    # Hoja de la utilidad agregada (`hoja_calcada`): la hoja materializada mide EXACTAMENTE
+    # este rectángulo (pt de la hoja compuesta) en vez de las piezas + margen, así queda con
+    # el tamaño y las coordenadas de la hoja del editor. None = como siempre.
+    marco: Optional[List[float]] = None
 
     def target_scale(self) -> float:
         if self.scale_ft_per_pt:
@@ -135,7 +146,7 @@ class Composite:
 
     def is_single_full_page(self) -> bool:
         """Una sola pieza = hoja entera sin girar: no hace falta materializar."""
-        if len(self.pieces) != 1:
+        if len(self.pieces) != 1 or self.marco is not None:
             return False
         p = self.pieces[0]
         return (not p.polygon and abs(p.rotation % 360.0) < 1e-9 and normalize_clip(p.clip) == [0.0, 0.0, 1.0, 1.0]
@@ -150,6 +161,8 @@ class Composite:
             d["last_view"] = [int(v) for v in self.last_view]
         if self.alignment_ruler:
             d["alignment_ruler"] = dict(self.alignment_ruler)
+        if self.marco is not None:
+            d["marco"] = [float(v) for v in self.marco]
         return d
 
     @classmethod
@@ -167,11 +180,17 @@ class Composite:
             last_view = [int(lv[0]), int(lv[1])] if lv is not None else None
         except (TypeError, ValueError, IndexError):
             last_view = None
+        try:
+            marco = [float(v) for v in d["marco"]][:4] if d.get("marco") else None
+            if marco is not None and (len(marco) != 4 or marco[2] - marco[0] <= 0 or marco[3] - marco[1] <= 0):
+                marco = None
+        except (TypeError, ValueError):
+            marco = None
         return cls(pieces=pieces, scale_ft_per_pt=float(s) if s else None,
                    bridges=bool(d.get("bridges", True)), bridge_max_pt=gap, last_view=last_view,
                    manual=bool(d.get("manual", False)),
                    alignment_ruler=dict(d.get("alignment_ruler") or {}),
-                   seam_blend=bool(d.get("seam_blend", True)))
+                   seam_blend=bool(d.get("seam_blend", True)), marco=marco)
 
     def blends(self) -> bool:
         """¿Las piezas se funden (modo oscurecer)? En escaneos y en PDF vectoriales (con o
@@ -377,9 +396,22 @@ def bounds(comp: Composite, page_sizes) -> Optional[Tuple[float, float, float, f
             max(r[2] for r in rects), max(r[3] for r in rects))
 
 
+def cabe_en_marco(comp: Composite, page_sizes, tol: float = 0.5) -> bool:
+    """¿Todas las piezas caben en `comp.marco`? (sin marco, sí)."""
+    bb = bounds(comp, page_sizes) if comp.marco is not None else None
+    if bb is None:
+        return True
+    x0, y0, x1, y1 = comp.marco
+    return bb[0] >= x0 - tol and bb[1] >= y0 - tol and bb[2] <= x1 + tol and bb[3] <= y1 + tol
+
+
 def sheet_geometry(comp: Composite, page_sizes) -> Tuple[float, float, float, float]:
     """(ancho, alto, dx, dy) de la hoja compuesta: las piezas se trasladan (dx, dy)
-    para que la caja envolvente quede a MARGIN_PT del borde."""
+    para que la caja envolvente quede a MARGIN_PT del borde. Con `comp.marco`, la hoja
+    es ese rectángulo (utilidad agregada sobre la hoja del editor)."""
+    if comp.marco is not None:
+        x0, y0, x1, y1 = comp.marco
+        return x1 - x0, y1 - y0, -x0, -y0
     bb = bounds(comp, page_sizes)
     if bb is None:
         return 2.0 * MARGIN_PT, 2.0 * MARGIN_PT, MARGIN_PT, MARGIN_PT
@@ -1532,7 +1564,16 @@ def compute_bridges(comp: Composite, docs: Sequence[fitz.Document]) -> List[Brid
         size = (page.rect.width, page.rect.height)
         by_piece[i] = map_anchors(p, size, target, edge_anchors(page, p.clip, insets=p.covers,
                                                                 polygon=p.polygon))
-    return find_bridges(by_piece, comp.bridge_max_pt)
+    grupos = sorted({p.grupo for p in comp.pieces})
+    if len(grupos) == 1:                                  # como siempre
+        return find_bridges(by_piece, comp.bridge_max_pt)
+    out: List[Bridge] = []                                # utilidades agregadas: cada una con las suyas
+    for g in grupos:
+        idx = [i for i, p in enumerate(comp.pieces) if p.grupo == g]
+        for br in find_bridges({k: by_piece[i] for k, i in enumerate(idx)}, comp.bridge_max_pt):
+            br.piece_a, br.piece_b = idx[br.piece_a], idx[br.piece_b]
+            out.append(br)
+    return out
 
 
 def _ocg_xrefs(doc: fitz.Document) -> set:
