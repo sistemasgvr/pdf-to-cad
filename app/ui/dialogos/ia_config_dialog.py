@@ -5,6 +5,7 @@ from __future__ import annotations
 
 from PySide6 import QtCore, QtWidgets
 
+from ia import memoria as M
 from ia import proveedor as P
 from traduccion.i18n import t as _tr
 
@@ -47,6 +48,17 @@ class IAConfigDialog(QtWidgets.QDialog):
         form.addRow(_tr("Servidor"), self.ed_url)
         form.addRow(_tr("Modelo"), fila)
         form.addRow(_tr("Pedidos a la vez"), self.spn_par)
+        self.cmb_entorno = QtWidgets.QComboBox()
+        self.cmb_entorno.addItem(_tr("Desarrollo (pruebas del equipo)"), M.DESARROLLO)
+        self.cmb_entorno.addItem(_tr("Producción (lo que va al cliente)"), M.PRODUCCION)
+        self.cmb_entorno.setCurrentIndex(max(0, self.cmb_entorno.findData(win._config_ia().get("entorno"))))
+        self.lbl_entorno = QtWidgets.QLabel()
+        self.lbl_entorno.setWordWrap(True)
+        self.lbl_entorno.setTextInteractionFlags(QtCore.Qt.TextSelectableByMouse)
+        self.cmb_entorno.currentIndexChanged.connect(self._mostrar_entorno)
+        form.addRow(_tr("Entorno de entrenamiento"), self.cmb_entorno)
+        form.addRow("", self.lbl_entorno)
+        self._mostrar_entorno()
         lay.addLayout(form)
         fila2 = QtWidgets.QHBoxLayout()
         btn_probar = QtWidgets.QPushButton(_tr("Probar"))
@@ -67,7 +79,15 @@ class IAConfigDialog(QtWidgets.QDialog):
 
     def config(self):
         return {"proveedor": self.cmb_prov.currentData(), "url": self.ed_url.text().strip().rstrip("/"),
-                "modelo": self.cmb_modelo.currentText().strip(), "paralelo": self.spn_par.value()}
+                "modelo": self.cmb_modelo.currentText().strip(), "paralelo": self.spn_par.value(),
+                "entorno": self.cmb_entorno.currentData()}
+
+    def _mostrar_entorno(self):
+        escribir, leer = M.rutas(self.cmb_entorno.currentData())
+        texto = _tr("Lo que aprende se guarda en: {r}").format(r=escribir)
+        if leer:
+            texto += "\n" + _tr("También usa (solo lectura): {r}").format(r=", ".join(leer))
+        self.lbl_entorno.setText(texto)
 
     def _sincronizar(self):
         con = self.cmb_prov.currentData() == P.OLLAMA

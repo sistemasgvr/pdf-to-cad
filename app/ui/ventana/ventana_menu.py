@@ -146,6 +146,9 @@ class MenuMixin:
         _act(mia, "Resolver conflictos…", lambda: self.abrir_soluciones())
         _act(mia, "Configurar IA…", self.configurar_ia)
         _act(mia, "Abrir carpeta de aprendizaje", self.abrir_carpeta_ia)
+        if not getattr(sys, "frozen", False):            # solo desde el repo: el instalado no tiene desarrollo
+            mia.addSeparator()
+            _act(mia, "Pasar a producción…", self.pasar_a_produccion)
         mhelp = _menu(mb, "A&yuda")
         _act(mhelp, "Acerca de…", self.show_about)
         _act(mhelp, "Manual de usuario", self.show_manual)

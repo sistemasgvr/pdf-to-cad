@@ -1676,6 +1676,13 @@ alcantarillado, drenaje, gas, eléctrico, telecom). Todo en **unidades imperiale
     `exportar/informe_word.escribir` (anexo hasta `ANEXO_MAX`=1000 filas). Barra precisa `barras_carga.informe`
     (`MS_INFORME` medidos con AGUA 2; etapas informe_datos/mapa/2d/3d_armar/3d/zonas/anexo/guardar). AGUA 2
     (16 762 utilidades, 171 conflictos, 18 zonas) con capturas 2D: ~3 s, ~7 MB. Nada cambia en el proyecto.
+    **En segundo plano** (pedido del usuario 2026-10-23: «no debería bloquear el trabajo»): `generar_informe` arma
+    un GENERADOR de pasos (`_pasos_informe`) que corre `ui/comun/trabajo_pasos.TrabajoPasos` (`yield` = ceder a la
+    ventana; `("hilo", fn)` = IA y Word en un hilo con `nucleo.avance` reenviado; `("esperar", cond, s)` = la escena
+    3D sin bloquear: `Captura3D.abrir/lista/comprobar`); la barra es `AvancePesado(capa=ui/comun/tarjeta_avance.
+    CapaTarjetas)`: tarjeta abajo a la derecha con «Cancelar» (`cancelar_informe`), que NO tapa la ventana, y
+    `capa.agregar(dlg3d)` la repite en la Vista 3D. Uno a la vez (`_informe_en_curso`); abrir otro proyecto lo
+    cancela (`_ia_soltar`). Con `ruta` (pruebas) espera el final y devuelve la ruta.
     Tests: `tests/test_informe.py`.
   - **IA** (2026-10-23, menú IA: «Pregúntale al proyecto…» Ctrl+Shift+I + botón `mdi:chat-question-outline`,
     «Configurar IA…», «Abrir carpeta de aprendizaje»; `docs/pendientes_ia.md`). Regla: los NÚMEROS los pone la app,
@@ -1684,10 +1691,24 @@ alcantarillado, drenaje, gas, eléctrico, telecom). Todo en **unidades imperiale
     QSettings `ia/proveedor|url|modelo|paralelo` vía `Main._config_ia`; interfaz `Proveedor.chat(mensajes, sistema,
     json, al_texto, maximo, cancelado)`/`modelos`/`probar`; `Ollama` = /api/chat en trozos NDJSON, `think: false`,
     `num_ctx` 16384; Claude = escribir `Anthropic(Proveedor)` y sumarlo a `PROVEEDORES`, nada más cambia),
-    `memoria` (lo APRENDIDO, texto plano JSONL en «<proyecto> - IA/» junto al .digproj: `ensenanzas`
-    (nota/corrección/valoración), `conversaciones`, `redaccion` (caché de textos del informe) + LEEME; sin
-    proyecto guardado queda en RAM y se escribe al guardar; `buscar` = palabras en común pesadas por rareza, notas y
-    correcciones ×1.5, las «no útil» no vuelven), `contexto` (`DatosProyecto.armar(pipes, fichas, ft)`: resumen por
+    `memoria` (lo APRENDIDO, desde 2026-10-23 en UN JSON; ENTORNOS (2026-10-24, «Configurar IA…» → «Entorno de
+    entrenamiento», QSettings `ia/entorno`, `M.configurar` desde `Main._config_ia`; por defecto .exe = producción,
+    repo = desarrollo; `rutas()` → (escribe, [solo lectura])): DESARROLLO escribe `entrenamiento_ia/desarrollo.json`
+    del repo (Git) y lee `produccion.json`; PRODUCCIÓN lee `entrenamiento_ia/produccion.json` (en el instalador:
+    `PDF-a-CAD.spec` → `_MEIPASS/entrenamiento_ia`; NUNCA se escribe) y escribe lo del cliente en
+    `%APPDATA%/pdf-to-cad/entrenamiento_ia/cliente.json` (no se borra al actualizar). `Memoria.bases` = los de solo
+    lectura (registros y redacción juntan por id). `PDFCAD_ENTRENAMIENTO_IA` (+ `_BASE`) para pruebas (conftest a
+    tmp). PASAR A PRODUCCIÓN (2026-10-24, IA → «Pasar a producción…», solo sin `sys.frozen`):
+    `ia/produccion.py` (PURO: `almacenes()` = desarrollo + producción del repo, `lista`, `redaccion_general` —ámbito
+    normas/ayuda—, `pasar(ids, con_redaccion)` copia enseñanzas con su id, `quitar` escribe sin juntar) +
+    `ui/dialogos/ia_produccion_dialog.py` (casillas, «Solo las que faltan», ✔ en producción); conversaciones nunca.
+    Tests: `tests/test_ia_produccion.py`; secciones
+    `ensenanzas` y `conversaciones` (listas ORDENADAS por `id` uuid, con autor y proyecto: Git junta sin conflicto)
+    y `redaccion` {clave: texto, ámbito proyecto/normas/ayuda}; `Almacen` relee si cambió el archivo (lo del disco
+    manda) y junta por id antes de escribir (atómico); roto = `error`, no se pisa. Enseñanzas para TODOS los
+    proyectos, las del mismo ×1.5 al buscar; `notas()` solo del proyecto; lo de antes de guardar pasa al proyecto en
+    `vincular`; `importar_carpeta` trae la carpeta vieja «<proyecto> - IA»; `buscar` = palabras en común pesadas
+    por rareza, notas y correcciones ×1.5, las «no útil» no vuelven), `contexto` (`DatosProyecto.armar(pipes, fichas, ft)`: resumen por
     utilidad + una línea por utilidad y por ficha + `refs` código → lugar; `seleccionar(pregunta)` por códigos,
     zona, utilidad nombrada —`SINONIMOS`— y palabras; AGUA 2: 0.8 s una vez, pedido ~3–4 mil tokens), `consulta`
     (`armar_pedido`, `preguntar` → `Resultado` con referencias y `sin_respaldo`, `valorar`/`corregir`/
@@ -1721,6 +1742,12 @@ alcantarillado, drenaje, gas, eléctrico, telecom). Todo en **unidades imperiale
     `dirname(nc.ruta())/ia/redaccion.jsonl`, clave = celdas + idioma + versión, sin el modelo) +
     `ui/dialogos/normas_ia_panel.PanelExplicacion` bajo la tabla de Reglas (guardada = al instante, botón
     apagado). Tests: `tests/test_ia_soluciones.py`.
+    **«¿Cómo hago…?» en el Manual** (Ayuda, 2026-10-23): `ia/ayuda_manual.py` (PURO) parte el manual en trozos por
+    capítulo/subtítulo (≤`MAX_TROZO`), BM25 sobre raíces cortadas a `PREFIJO`=5 letras («dibujo» ≈ «dibujar»), la IA
+    recibe ≤`MAX_CONTEXTO` caracteres y `MAXIMO_TOKENS`; caché por pregunta normalizada + idioma + huella del manual
+    en `dirname(nc.ruta())/ia/ayuda/`. `ui/dialogos/manual_ia_panel.PanelAyudaIA` arriba de `ManualDialog`
+    (capítulos al instante como enlaces `cap:N`, respuesta en vivo, «Detener»); al abrir, `Proveedor.calentar`
+    (Ollama: /api/generate sin texto, mismo `num_ctx`) deja el modelo cargado. Tests: `tests/test_ia_ayuda.py`.
   - **Vista 3D** (2026-10-10, Ver → «Vista 3D», F3, botón `_act_3d` `mdi:cube-outline`, clic derecho → «Ver en
     3D»): lo que Civil 3D va a construir, sin exportar. `nucleo/modelo3d.py` (PURO) `construir(pipes, structures,
     ft, colores, duct_banks, cruces, avisos, choques, ocultas, ver, suelo_z)` → `Escena` (mallas numpy de

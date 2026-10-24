@@ -80,6 +80,9 @@ class Proveedor:
     def modelos(self):
         return []
 
+    def calentar(self):
+        """Que el servidor deje el modelo cargado en memoria (la primera respuesta sale sin esperar la carga)."""
+
     def probar(self):
         try:
             r = self.chat([{"role": "user", "content": "Responde solo: OK"}], maximo=20)
@@ -108,6 +111,15 @@ class Ollama(Proveedor):
     def modelos(self):
         with self._pedir("/api/tags", espera=10) as r:
             return [m.get("name", "") for m in json.loads(r.read().decode("utf-8")).get("models", [])]
+
+    def calentar(self):
+        """/api/generate sin texto = solo cargar el modelo (con el mismo `num_ctx`: si cambia, Ollama lo recarga)."""
+        try:
+            cuerpo = {"model": self.config.modelo, "keep_alive": "30m", "options": {"num_ctx": CONTEXTO_TOKENS}}
+            with self._pedir("/api/generate", cuerpo, espera=ESPERA_S) as r:
+                r.read()
+        except ErrorIA:
+            pass
 
     def chat(self, mensajes, sistema="", json=False, al_texto=None, maximo=None, cancelado=None):
         msgs = ([{"role": "system", "content": sistema}] if sistema else []) + list(mensajes)

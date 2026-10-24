@@ -217,14 +217,13 @@ class PreguntaDialog(QtWidgets.QDialog):
                                html.escape(_tr("Configurar IA…")) + "</b></a>")
             self.aviso.show()
         mem = self.win._ia_memoria()
-        n = len(mem.registros("ensenanzas.jsonl"))
-        if mem.carpeta:
-            self.lbl_memoria.setText(_tr("Aprende en <a href='#'>{c}</a> · {n} enseñanzas").format(
-                c=html.escape(os.path.basename(mem.carpeta)), n=n).replace(
-                "<a href=", f"<a style='color:{tk.text_info}' href="))
-        else:
-            self.lbl_memoria.setText(_tr("Guarda el proyecto para que lo aprendido quede en una carpeta junto a "
-                                         "él ({n} enseñanzas por ahora).").format(n=n))
+        from ia import memoria as M
+        n = len(mem.registros(M.ENSENANZAS))
+        texto = _tr("Aprende en <a href='#'>{c}</a> · {n} enseñanzas").format(
+            c=html.escape(os.path.basename(mem.ruta)), n=n)
+        if mem.error:
+            texto += " · " + html.escape(_tr("No se pudo leer o escribir: {e}").format(e=mem.error))
+        self.lbl_memoria.setText(texto.replace("<a href=", f"<a style='color:{tk.text_info}' href="))
         hay_conflictos = bool(getattr(self.win, "_conflictos", None))
         for k, b in enumerate(self._botones_sug):
             b.setVisible(hay_conflictos or k >= DE_CONFLICTOS)

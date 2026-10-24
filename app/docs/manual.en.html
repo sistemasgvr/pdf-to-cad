@@ -948,8 +948,10 @@ ready to hand over.</p>
 <li>Choose <b>what to include</b>: conflicts, design-standard warnings or both.</li>
 <li>Choose the <b>captures of each zone</b>: of the plan (2D), of the 3D view or both. If the 3D view is not open,
     it is built first: with large projects it takes longer.</li>
-<li>Choose where to save it. A bar shows each stage (captures, sheets, appendix, saving) and, when it finishes,
-    you can open the report.</li>
+<li>Choose where to save it. The report is built in the background: a card at the bottom right shows each stage
+    (captures, sheets, appendix, saving) and meanwhile <b>you can keep working</b>. If it has 3D captures, the same
+    card appears in the 3D view. <b>Cancel</b> stops it without saving. When it finishes, you can open the
+    report.</li>
 </ol>
 <p>The report has:</p>
 <ul>
@@ -972,6 +974,11 @@ always come from the app and, if the AI writes a figure that is not in the data,
 <h2>Configure</h2>
 <p><b>AI → Configure AI…</b>: choose <b>Own server (Ollama)</b>, type the server address and press <b>Find
 models</b> and <b>Test</b>. With <b>No AI (templates)</b> everything works as before.</p>
+<h2>How do I…? (in this manual)</h2>
+<p>At the top of this manual there is a <b>How do I…?</b> field: type what you want to do (for example «how do I
+export to Civil 3D?») and press <span class="key">&nbsp;Enter&nbsp;</span> or <b>Ask the AI</b>. The chapters that
+cover it appear instantly (one click opens them) and the AI answers with the steps, taken only from this manual. The
+same question again comes back instantly, saved. Without an AI configured, the chapters are the answer.</p>
 <h2>Ask the project</h2>
 <p><b>AI → Ask the project…</b> (<span class="key">&nbsp;Ctrl+Shift+I&nbsp;</span>, or the chat button on the top
 bar) opens a chat. Ask, for example, «how many conflicts are there and where are they?», «what happens at C-12?»
@@ -992,10 +999,26 @@ or «summarize zone 3».</p>
     solved by lowering the water line».</li>
 </ul>
 <h2>What it learns</h2>
-<p>Corrections, useful answers and what you teach it are saved in a folder next to the project, «<i>project
-name</i> - IA», in text files that open with Notepad. The AI reads them again in every question of that project.
-If the project was not saved yet, they are written when you save it; with «Save project as…» the folder is copied.
-<b>AI → Open learning folder</b> opens it.</p>
+<p>Corrections, useful answers, what you teach it and the applied solutions are saved in <b>a single file</b>
+(also the conversations and the texts the AI already wrote, so they are not requested again). What is taught
+applies to all projects: each record says which project and who taught it, and the open project's weigh more. In
+<b>AI → Configure AI…</b>, <b>Training environment</b> chooses which one:</p>
+<ul>
+<li><b>Development (team testing)</b>: <code>entrenamiento_ia/desarrollo.json</code> in the program folder. It is
+    shared through Git within the team and merging does not overwrite it. It also uses production's.</li>
+<li><b>Production (what goes to the client)</b>: it uses <code>entrenamiento_ia/produccion.json</code>, which ships
+    in the installer and the app never changes, and saves what the client teaches on their PC
+    (<code>%APPDATA%/pdf-to-cad/entrenamiento_ia/cliente.json</code>). An update does not delete it; the client can
+    be asked to share it for review. It is the installed program's environment.</li>
+</ul>
+<p>The window shows where it saves. If the project was not saved yet, what was learned moves to it when you save
+it. An old «<i>project name</i> - IA» folder is imported automatically when the project opens. <b>AI → Open
+learning folder</b> opens the folder where it saves.</p>
+<p><b>AI → Move to production…</b> (only in the team version, not the installed one): lists what was taught in
+development, newest first, and marks with ✔ what is already in production. Check the good teachings and press
+<b>Move to production</b>; you can also move the already written texts of standards and the manual. Conversations
+are never moved. <b>Remove from production</b> takes out the checked ones. Then push
+<code>produccion.json</code> with Git so it goes in the next installer.</p>
 <h2>Solve conflicts</h2>
 <p><b>AI → Solve conflicts…</b> (or right-click next to a C-n mark on the plan → «Solve C-n: see solutions…»)
 lists the conflicts. When you choose one:</p>

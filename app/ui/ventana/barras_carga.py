@@ -172,7 +172,7 @@ TEXTOS_INFORME = {
 MS_LOTE_IA = 9000.0
 
 
-def informe(host, inf, opciones, n_utilidades, escena_lista, con_ia=False, paralelo=2):
+def informe(host, inf, opciones, n_utilidades, escena_lista, con_ia=False, paralelo=2, capa=None):
     """Barra del informe: `inf` = `informe_datos.Informe` (ya armado: se sabe cuántas zonas y fichas hay);
     `escena_lista` = la Vista 3D ya tiene la escena al día (no hay que armarla); `con_ia` = la IA redacta."""
     from exportar.informe_word import ANEXO_MAX
@@ -188,7 +188,7 @@ def informe(host, inf, opciones, n_utilidades, escena_lista, con_ia=False, paral
               "informe_zonas": nf * m["ficha_word"] + imgs * m["imagen_word"],
               "informe_anexo": min(nf, ANEXO_MAX) * m["fila_anexo"],
               "informe_guardar": m["guardar_base"] + imgs * m["guardar_imagen"]}
-    return AvancePesado(host, partes, TEXTOS_INFORME)
+    return AvancePesado(host, partes, TEXTOS_INFORME, capa=capa)
 
 
 def _lotes_ia(inf):

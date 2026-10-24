@@ -5,8 +5,9 @@ insignias y etiquetas tal cual se ven), encuadrada en la caja de cada zona y dib
 toca la vista del usuario y cada captura tarda milisegundos. `mapa` = todo el dibujo con las zonas
 numeradas encima.
 
-`Captura3D`: usa la Vista 3D (la abre si hace falta y espera a que termine de armarse), pone la cámara en
-isométrica sobre la zona, toma la imagen del framebuffer y deja la cámara como estaba. Sin OpenGL (o en
+`Captura3D`: usa la Vista 3D (la abre si hace falta: `abrir`; quien llama espera `lista()` sin bloquear y
+`comprobar`), pone la cámara en isométrica sobre la zona, toma la imagen del framebuffer y deja la cámara como
+estaba. Sin OpenGL (o en
 pruebas sin pantalla) no hay 3D: `preparar` devuelve el motivo y el informe sigue sin esas capturas.
 """
 from __future__ import annotations
@@ -101,19 +102,19 @@ class Captura3D:
         self.dlg = None
         self._cam = None
 
-    def preparar(self, al_avanzar=None):
-        """Abre la Vista 3D y espera la escena. Devuelve "" si se puede capturar, o el motivo."""
+    def abrir(self):
+        """Abre la Vista 3D (empieza a armarse en su proceso). Devuelve "" o el motivo por el que no hay 3D."""
         from PySide6.QtGui import QGuiApplication
         if QGuiApplication.platformName() in ("offscreen", "minimal"):
             return _tr("sin pantalla no hay vista 3D")
-        w = self.win
-        self.dlg = w.abrir_vista3d()
-        fin = time.perf_counter() + ESPERA_3D_S
-        while (self.dlg._trabajo is not None or self.dlg.escena is None) and time.perf_counter() < fin:
-            QtWidgets.QApplication.processEvents(QtCore.QEventLoop.AllEvents, 100)
-            if al_avanzar:
-                al_avanzar()
-            time.sleep(0.02)
+        self.dlg = self.win.abrir_vista3d()
+        return ""
+
+    def lista(self):
+        return self.dlg is not None and self.dlg._trabajo is None and self.dlg.escena is not None
+
+    def comprobar(self):
+        """Tras esperar la escena: "" si se puede capturar, o el motivo."""
         visor = self.dlg.visor
         if visor.error:
             return _tr("no se pudo iniciar OpenGL: {e}").format(e=visor.error)
@@ -124,6 +125,19 @@ class Captura3D:
         c = visor.cam
         self._cam = (c.objetivo.copy(), c.dist, c.yaw, c.pitch)
         return ""
+
+    def preparar(self, al_avanzar=None):
+        """Abre la Vista 3D y ESPERA la escena (bloqueando). Devuelve "" si se puede capturar, o el motivo."""
+        motivo = self.abrir()
+        if motivo:
+            return motivo
+        fin = time.perf_counter() + ESPERA_3D_S
+        while not self.lista() and time.perf_counter() < fin:
+            QtWidgets.QApplication.processEvents(QtCore.QEventLoop.AllEvents, 100)
+            if al_avanzar:
+                al_avanzar()
+            time.sleep(0.02)
+        return self.comprobar()
 
     def zona(self, caja, ft_per_px):
         from ui.comun.visor3d import VISTAS

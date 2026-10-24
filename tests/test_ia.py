@@ -51,27 +51,79 @@ def test_cifras_codigos_y_json():
     assert "tuberia" in T.raices("Tuberías") or "tuber" in "".join(T.raices("Tuberías"))
 
 
-# ── memoria (texto plano junto al proyecto) ──
-def test_memoria_sin_proyecto_se_escribe_al_guardar_y_sigue_al_guardar_como(tmp_path):
+# ── memoria: UN JSON compartido (entrenamiento_ia.json, se pasa por Git) ──
+def test_memoria_en_un_solo_json_que_se_junta_por_git(tmp_path):
+    ruta = os.environ["PDFCAD_ENTRENAMIENTO_IA"]
     mem = M.Memoria()
     mem.ensenar(M.NOTA, "Los cruces con alcantarillado se resuelven bajando el agua")
     mem.ensenar(M.NOTA, "El gas va siempre por la vereda norte")
-    assert mem.carpeta is None and not list(tmp_path.iterdir())
-    carpeta = M.carpeta_de(str(tmp_path / "Obra.digproj"))
-    assert carpeta.endswith("Obra - IA")
-    mem.vincular(carpeta)
-    lineas = open(os.path.join(carpeta, M.ENSENANZAS), encoding="utf-8").read().splitlines()
-    assert len(lineas) == 2 and json.loads(lineas[0])["tipo"] == "nota"
-    assert os.path.isfile(os.path.join(carpeta, "LEEME.txt"))
+    d = json.load(open(ruta, encoding="utf-8"))
+    assert set(d) == {"version", "ensenanzas", "conversaciones", "redaccion"} and len(d["ensenanzas"]) == 2
+    assert [r["id"] for r in d["ensenanzas"]] == sorted(r["id"] for r in d["ensenanzas"])    # ordenado por id
+    assert all(r["proyecto"] is None and "autor" in r for r in d["ensenanzas"])
+    mem.vincular(str(tmp_path / "Obra.digproj"))                     # al guardar el proyecto, pasan a ser de él
+    assert len(mem.notas()) == 2 and all(r["proyecto"] == "Obra" for r in mem.registros(M.ENSENANZAS))
     assert mem.buscar("¿cómo resuelvo el cruce con el alcantarillado?")[0]["texto"].startswith("Los cruces")
-    # una línea rota (editada a mano) no tumba la memoria
-    with open(os.path.join(carpeta, M.ENSENANZAS), "a", encoding="utf-8") as f:
-        f.write("{esto no es json\n")
-    assert len(M.Memoria(carpeta).registros(M.ENSENANZAS)) == 2
-    nueva = M.carpeta_de(str(tmp_path / "Obra v2.digproj"))
-    mem.copiar_a(nueva)
-    mem.ensenar(M.NOTA, "solo en la v2")
-    assert len(M.Memoria(nueva).notas()) == 3 and len(M.Memoria(carpeta).notas()) == 2
+    # otro proyecto ve las enseñanzas (se entrena para todos), pero las notas del informe son del suyo
+    otra = M.Memoria(str(tmp_path / "Otra.digproj"))
+    assert len(otra.registros(M.ENSENANZAS)) == 2 and otra.notas() == []
+    # lo que llegó por Git (otro autor, escrito en el archivo) se lee y no se pisa al escribir
+    d = json.load(open(ruta, encoding="utf-8"))
+    d["ensenanzas"].append({"id": "0" * 32, "tipo": "nota", "texto": "de Santos", "proyecto": "Obra", "autor": "santos"})
+    time.sleep(0.05)
+    json.dump(d, open(ruta, "w", encoding="utf-8"))
+    mem.ensenar(M.NOTA, "mía")
+    textos = [r["texto"] for r in json.load(open(ruta, encoding="utf-8"))["ensenanzas"]]
+    assert "de Santos" in textos and "mía" in textos and len(textos) == 4
+    # un archivo roto (conflicto de Git sin resolver) no tumba la app ni se pisa
+    open(ruta, "w", encoding="utf-8").write("<<<<<<< HEAD\n{")
+    time.sleep(0.05)
+    otra.ensenar(M.NOTA, "con el archivo roto")
+    assert otra.error and open(ruta, encoding="utf-8").read().startswith("<<<<<<<")
+
+
+def test_entornos_desarrollo_y_produccion(tmp_path, monkeypatch):
+    monkeypatch.delenv("PDFCAD_ENTRENAMIENTO_IA")
+    monkeypatch.setenv("APPDATA", str(tmp_path / "appdata"))
+    try:
+        M.configurar(M.DESARROLLO)
+        esc, leer = M.rutas()
+        assert esc.endswith(os.path.join("entrenamiento_ia", "desarrollo.json"))
+        assert leer[0].endswith(os.path.join("entrenamiento_ia", "produccion.json"))
+        M.configurar(M.PRODUCCION)
+        esc, leer = M.rutas()
+        assert esc == str(tmp_path / "appdata" / "pdf-to-cad" / "entrenamiento_ia" / "cliente.json")
+        assert leer[0].endswith("produccion.json") and os.path.isfile(leer[0])   # viaja en el repo / instalador
+    finally:
+        M.configurar(None)
+
+
+def test_produccion_se_lee_y_nunca_se_escribe(tmp_path, monkeypatch):
+    prod = tmp_path / "produccion.json"
+    prod.write_text(json.dumps({"version": 1, "ensenanzas": [{"id": "p1", "tipo": "nota", "texto": "aprobada",
+                                                               "proyecto": None}],
+                                "conversaciones": [], "redaccion": {"k": {"texto": "de fábrica"}}}), encoding="utf-8")
+    antes = prod.read_bytes()
+    monkeypatch.setenv("PDFCAD_ENTRENAMIENTO_IA_BASE", str(prod))
+    mem = M.Memoria()
+    assert [r["texto"] for r in mem.registros(M.ENSENANZAS)] == ["aprobada"] and mem.redaccion("k") == "de fábrica"
+    mem.ensenar(M.NOTA, "del cliente sobre lo aprobado")
+    mem.guardar_redaccion("k2", "nuevo")
+    assert prod.read_bytes() == antes                                          # producción no se toca
+    cliente = json.load(open(os.environ["PDFCAD_ENTRENAMIENTO_IA"], encoding="utf-8"))
+    assert [r["texto"] for r in cliente["ensenanzas"]] == ["del cliente sobre lo aprobado"]
+    assert len(mem.registros(M.ENSENANZAS)) == 2 and mem.buscar("aprobado cliente")
+
+
+def test_importa_la_carpeta_vieja_una_vez(tmp_path):
+    vieja = tmp_path / "Obra - IA"
+    vieja.mkdir()
+    (vieja / "ensenanzas.jsonl").write_text(json.dumps({"fecha": "x", "tipo": "nota", "texto": "vieja"}) + "\n{roto\n",
+                                            encoding="utf-8")
+    (vieja / "redaccion.jsonl").write_text(json.dumps({"clave": "k1", "texto": "hola"}) + "\n", encoding="utf-8")
+    mem = M.Memoria(str(tmp_path / "Obra.digproj"))
+    assert mem.importar_carpeta(str(vieja)) == 2 and mem.importar_carpeta(str(vieja)) == 0
+    assert mem.notas()[0]["texto"] == "vieja" and mem.redaccion("k1") == "hola"
 
 
 def test_valoradas_como_no_utiles_no_vuelven():
@@ -196,8 +248,8 @@ def test_preguntale_al_proyecto_en_la_ventana(tmp_path):
         assert "href='ref:C-1'" in dlg.vista.toHtml().replace('"', "'") or "ref:C-1" in dlg.vista.toHtml()
         assert w._ia_ir_a("C-1")
         dlg._enlace(QtCore.QUrl("util:0"))
-        carpeta = os.path.splitext(proy)[0] + " - IA"
-        assert {"conversaciones.jsonl", "ensenanzas.jsonl", "LEEME.txt"} <= set(os.listdir(carpeta))
+        d = json.load(open(os.environ["PDFCAD_ENTRENAMIENTO_IA"], encoding="utf-8"))
+        assert d["conversaciones"][0]["proyecto"] == "Escenarios" and d["ensenanzas"][0]["valor"] == 1
         w._dirty = False
 
 

@@ -30,14 +30,15 @@ PINTAR_S = 0.05                        # repintar como mucho cada esto (trabajo 
 
 class AvancePesado(QtCore.QObject):
     """La barra de UN trabajo: `abrir` (pone la capa), avisos (`recibir`/`escuchar`), `terminada` y `cerrar`
-    (siempre). `partes` = {clave: costo estimado}; `textos` = {clave: texto con N_()}."""
+    (siempre). `partes` = {clave: costo estimado}; `textos` = {clave: texto con N_()}. `capa` = otra capa con la
+    interfaz de `busy.BusyOverlay` (p. ej. `tarjeta_avance.CapaTarjetas`, que no bloquea la ventana)."""
 
-    def __init__(self, host, partes, textos, cursor=True):
+    def __init__(self, host, partes, textos, cursor=True, capa=None):
         super().__init__(host)
         self.host = host
         self.barra = Barra(partes)
         self.textos = dict(textos)
-        self.ov = busy.overlay_for(host)
+        self.ov = capa if capa is not None else busy.overlay_for(host)
         self.cursor = cursor
         self.abierta = False
         self._etapa, self._desde, self._sola = None, 0.0, False

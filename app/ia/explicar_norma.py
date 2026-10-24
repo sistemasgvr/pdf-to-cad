@@ -2,8 +2,8 @@
 la explique en palabras sencillas, GUARDANDO la respuesta: la misma regla no se vuelve a preguntar; si la regla
 cambia (cualquier celda), sí.
 
-La explicación se guarda en TEXTO PLANO junto al catálogo de normativas (las reglas valen para todos los
-proyectos): `%APPDATA%/pdf-to-cad/ia/redaccion.jsonl` (`carpeta()`), con la misma `ia.memoria.Memoria`. Clave =
+La explicación se guarda en el entrenamiento compartido de la IA (`ia.memoria`: `entrenamiento_ia/
+entrenamiento_ia.json`, sección «redaccion», ámbito «normas»; las reglas valen para todos los proyectos). Clave =
 las celdas de la regla + idioma + versión del pedido (el modelo NO: cambiar de modelo no vuelve a gastar).
 
 La IA recibe la fila, la regla leída como frase (`normas_tablas.frase`) y qué mide su REVISAR
@@ -35,23 +35,19 @@ Reglas:
 valor pide, cuándo sale un aviso y qué hacer en la app si sale (cambiar el diámetro, las cotas, el material…)."""
 
 _cache = {}
-LEEME = """Explicaciones de las reglas de Normativas de diseño redactadas por la IA de PDF-a-CAD.
-
-redaccion.jsonl   una línea por regla explicada (la clave cambia si cambia cualquier celda de la regla).
-Son de texto plano: se pueden revisar o borrar; si se borran, la IA las vuelve a redactar cuando se pidan.
-"""
 
 
 def carpeta():
-    """Junto al catálogo de normativas (en las pruebas, su carpeta temporal)."""
-    return os.path.join(os.path.dirname(nc.ruta()), "ia")
+    """La carpeta del entrenamiento compartido (`ia.memoria`)."""
+    return memoria().carpeta
 
 
 def memoria():
-    c = carpeta()
-    m = _cache.get(c)
+    from ia.memoria import ruta_archivo
+    r = ruta_archivo()
+    m = _cache.get(r)
     if m is None:
-        m = _cache[c] = Memoria(c, leeme=LEEME)
+        m = _cache[r] = Memoria(ambito="normas")
     return m
 
 

@@ -10,6 +10,9 @@ datas = [
     # Documentos por idioma (manual.es.html, manual.en.html): `traduccion.i18n.load_doc`
     # los busca en `_MEIPASS/docs` dentro del bundle (y en app/docs en desarrollo).
     ('app/docs', 'docs'),
+    # Lo que la IA aprendió y se APROBÓ para el cliente (entorno «producción», solo lectura):
+    # `ia.memoria.rutas` lo busca en `_MEIPASS/entrenamiento_ia/produccion.json`.
+    ('entrenamiento_ia/produccion.json', 'entrenamiento_ia'),
 ]
 binaries = []
 # (2026-10-09) La ventana de normativas ya no usa QtWebEngine (normas_dialog.py es Qt

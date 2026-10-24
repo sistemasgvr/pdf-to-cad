@@ -117,7 +117,8 @@ def test_la_ia_solo_puede_recomendar_una_valida_y_se_guarda(tmp_path):
         assert soluciones_ia.recomendar(P.crear(_cfg(srv)), ficha, props, mem)[2] == "memoria"
         assert len(srv.pedidos) == 1
     with OllamaFalso(lambda c: "RECOMENDADA: P3\nSubir 7.77 ft.") as srv:            # cifra inventada
-        rec, txt, origen = soluciones_ia.recomendar(P.crear(_cfg(srv)), ficha, props, M.Memoria())
+        otra = M.Memoria(archivo=str(tmp_path / "otro" / "entrenamiento_ia.json"))   # sin lo ya recomendado
+        rec, txt, origen = soluciones_ia.recomendar(P.crear(_cfg(srv)), ficha, props, otra)
         assert origen == "plantilla" and rec == "P2"
 
 
@@ -143,8 +144,8 @@ def test_explicar_regla_se_guarda_y_solo_se_repide_si_cambia():
         otra[NR.COLUMNAS.index("NOTA")] = "cambiada"
         EN.explicar(prov, otra)
         assert len(srv.pedidos) == 2                                         # la regla cambió: se pide otra vez
-    assert os.path.isfile(os.path.join(EN.carpeta(), "redaccion.jsonl"))
-    assert os.path.isfile(os.path.join(EN.carpeta(), "LEEME.txt"))
+    d = json.load(open(os.environ["PDFCAD_ENTRENAMIENTO_IA"], encoding="utf-8"))
+    assert {v["ambito"] for v in d["redaccion"].values()} == {"normas"}
 
 
 def test_panel_de_normativas(tmp_path):

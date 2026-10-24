@@ -35,7 +35,7 @@ app (Tabla de datos, Normativas, Vista 3D).
 3. Nombra cada elemento con su código entre corchetes, por ejemplo [C-12], [N-3] o [AGUA-5]: así el usuario va \
 a él en el plano.
 4. Responde en {idioma}, breve y directo (pocas líneas o una lista corta). Unidades: pies (ft) y pulgadas (in).
-5. Si una enseñanza del equipo contradice tu respuesta, manda la enseñanza."""
+5. Si una enseñanza del equipo contradice tu respuesta, manda la enseñanza. Si el mensaje NO trae la sección de enseñanzas del equipo, no menciones ninguna: no hay."""
 
 
 @dataclass

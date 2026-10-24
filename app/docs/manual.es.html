@@ -944,8 +944,10 @@ proyecto, listo para entregar.</p>
 <li>Elige <b>qué incluir</b>: conflictos, avisos de normativa o ambos.</li>
 <li>Elige las <b>capturas de cada zona</b>: del plano (2D), de la Vista 3D o de ambas. Si la Vista 3D no está
     abierta, se arma primero: con proyectos grandes tarda más.</li>
-<li>Elige dónde guardarlo. Una barra muestra cada etapa (capturas, fichas, anexo, guardar) y, al terminar, puedes
-    abrir el informe.</li>
+<li>Elige dónde guardarlo. El informe se arma en segundo plano: abajo a la derecha una tarjeta muestra cada etapa
+    (capturas, fichas, anexo, guardar) y mientras tanto <b>puedes seguir trabajando</b>. Si lleva capturas 3D, la
+    misma tarjeta aparece en la Vista 3D. <b>Cancelar</b> lo detiene sin guardar. Al terminar, puedes abrir el
+    informe.</li>
 </ol>
 <p>El informe trae:</p>
 <ul>
@@ -967,6 +969,11 @@ números siempre los pone la app y, si la IA escribe una cifra que no está en l
 <h2>Configurar</h2>
 <p><b>IA → Configurar IA…</b>: elige <b>Servidor propio (Ollama)</b>, escribe la dirección del servidor y pulsa
 <b>Buscar modelos</b> y <b>Probar</b>. Con <b>Sin IA (plantillas)</b> todo funciona como antes.</p>
+<h2>¿Cómo hago…? (en este manual)</h2>
+<p>Arriba de este manual hay un campo <b>¿Cómo hago…?</b>: escribe qué quieres hacer (por ejemplo «¿cómo exporto a
+Civil 3D?») y pulsa <span class="key">&nbsp;Enter&nbsp;</span> o <b>Preguntar a la IA</b>. Al instante salen los
+capítulos que hablan de eso (un clic los abre) y la IA responde con los pasos, sacados solo de este manual. La misma
+pregunta otra vez sale al momento, guardada. Sin IA configurada, los capítulos son la respuesta.</p>
 <h2>Pregúntale al proyecto</h2>
 <p><b>IA → Pregúntale al proyecto…</b> (<span class="key">&nbsp;Ctrl+Shift+I&nbsp;</span>, o el botón de chat de
 la barra superior) abre un chat. Pregunta, por ejemplo, «¿cuántos conflictos hay y dónde están?», «¿qué pasa en
@@ -987,10 +994,26 @@ C-12?» o «resume la zona 3».</p>
     bajando el agua».</li>
 </ul>
 <h2>Lo que aprende</h2>
-<p>Las correcciones, las respuestas útiles y lo que le enseñas se guardan en una carpeta junto al proyecto,
-«<i>nombre del proyecto</i> - IA», en archivos de texto que se pueden abrir con el Bloc de notas. La IA los vuelve
-a leer en cada pregunta de ese proyecto. Si el proyecto aún no se guardó, se escriben al guardarlo; con «Guardar
-proyecto como…» la carpeta se copia. <b>IA → Abrir carpeta de aprendizaje</b> la abre.</p>
+<p>Las correcciones, las respuestas útiles, lo que le enseñas y las soluciones aplicadas se guardan en <b>un solo
+archivo</b> (también las conversaciones y los textos que la IA ya redactó, para no pedirlos otra vez). Lo que se
+enseña vale para todos los proyectos: cada registro dice de qué proyecto y quién lo enseñó, y los del proyecto
+abierto pesan más. En <b>IA → Configurar IA…</b>, <b>Entorno de entrenamiento</b> elige cuál:</p>
+<ul>
+<li><b>Desarrollo (pruebas del equipo)</b>: <code>entrenamiento_ia/desarrollo.json</code> en la carpeta del programa.
+    Se comparte por Git entre el equipo y al juntarlo no se pisa. Usa también lo de producción.</li>
+<li><b>Producción (lo que va al cliente)</b>: usa <code>entrenamiento_ia/produccion.json</code>, que viaja en el
+    instalador y la app nunca cambia, y guarda lo que enseña el cliente en su PC
+    (<code>%APPDATA%/pdf-to-cad/entrenamiento_ia/cliente.json</code>). Una actualización no lo borra; se le puede
+    pedir que lo comparta para revisarlo. Es el entorno del programa instalado.</li>
+</ul>
+<p>La ventana muestra dónde guarda. Si el proyecto aún no se guardó, lo aprendido pasa a él al guardarlo. Una carpeta
+vieja «<i>nombre del proyecto</i> - IA» se importa sola al abrir el proyecto. <b>IA → Abrir carpeta de
+aprendizaje</b> abre la carpeta donde guarda.</p>
+<p><b>IA → Pasar a producción…</b> (solo en la versión del equipo, no en la instalada): lista lo que se enseñó en
+desarrollo, la más nueva arriba, y marca con ✔ lo que ya está en producción. Marca las enseñanzas buenas y pulsa
+<b>Pasar a producción</b>; puedes pasar también los textos ya redactados de normativas y del manual. Las
+conversaciones nunca pasan. <b>Quitar de producción</b> saca las marcadas. Luego sube
+<code>produccion.json</code> con Git para que vaya en el próximo instalador.</p>
 <h2>Resolver conflictos</h2>
 <p><b>IA → Resolver conflictos…</b> (o clic derecho junto a una marca C-n del plano → «Resolver C-n: ver
 soluciones…») lista los conflictos. Al elegir uno:</p>
