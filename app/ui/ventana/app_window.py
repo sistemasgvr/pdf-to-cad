@@ -27,6 +27,7 @@ from ui.comun import busy as _busy_mod
 from ui.comun import en_hilo
 from ui.comun import fondo_pdf, fondo_trabajo
 from ui.comun.workers import PipelineWorker, RecognitionWorker, OrganizedRecognitionWorker
+from ui.ventana import exportar_avance as EA
 from ui.dialogos import dialogs
 from ui.asistente import recognition_dialog
 from ui.asistente import sheet_layout_dialog
@@ -92,7 +93,11 @@ from ui.ventana.ventana_curvas import CurvasMixin
 from ui.ventana.ventana_herramientas import HerramientasMixin
 from ui.ventana.ventana_bancoductos import BancoductosMixin
 from ui.ventana.ventana_bloque import EdicionBloqueMixin
+from ui.ventana.ventana_informe import InformeMixin
+from ui.ventana.ventana_ia import IAMixin
+from ui.ventana.ventana_soluciones import SolucionesMixin
 from ui.ventana.ventana_vista3d import Vista3DMixin
+from ui.ventana.ventana_edicion3d import Edicion3DMixin
 from ui.ventana.ventana_conflictos_lista import ConflictosListaMixin
 from ui.ventana.ventana_hojas import HojasEditorMixin
 from ui.ventana.ventana_vertices import VerticesMixin
@@ -104,7 +109,7 @@ from ui.ventana.ventana_estados import EstadosPreviosMixin
 from ui.ventana.ventana_planos import PlanosFondoMixin
 
 
-class Main(MenuMixin, PanelIzquierdoMixin, PanelDerechoMixin, ModosMixin, ClicsMixin, UtilidadesMixin, CatalogoMixin, SeleccionMixin, ListasMixin, MarcasMixin, DibujoMixin, ConflictosMixin, CoordsMixin, BuzonesMixin, MoverPrecisoMixin, CurvasMixin, HerramientasMixin, BancoductosMixin, EdicionBloqueMixin, Vista3DMixin, ConflictosListaMixin, HojasEditorMixin,
+class Main(MenuMixin, PanelIzquierdoMixin, PanelDerechoMixin, ModosMixin, ClicsMixin, UtilidadesMixin, CatalogoMixin, SeleccionMixin, ListasMixin, MarcasMixin, DibujoMixin, ConflictosMixin, CoordsMixin, BuzonesMixin, MoverPrecisoMixin, CurvasMixin, HerramientasMixin, BancoductosMixin, EdicionBloqueMixin, InformeMixin, IAMixin, SolucionesMixin, Vista3DMixin, Edicion3DMixin, ConflictosListaMixin, HojasEditorMixin,
            VerticesMixin, TrazoMixin, CalculoPlanoMixin, CalculoFondoMixin, EstadosPreviosMixin,
            AgregarUtilidadMixin, PlanosFondoMixin, QtWidgets.QMainWindow):
     def __init__(self):
@@ -317,6 +322,7 @@ class Main(MenuMixin, PanelIzquierdoMixin, PanelDerechoMixin, ModosMixin, ClicsM
                 self.doc.close()
             self._cleanup_tmp_pdf()
             self.pdf_path = path; self.project_path = None; self.doc = new_doc; self._update_title()
+            self._ia_soltar()
             self.work_pdf_path = path
             with open(path, "rb") as fp:
                 self.src_pdfs = [{"name": os.path.basename(path), "data": fp.read(), "path": path}]
@@ -365,6 +371,7 @@ class Main(MenuMixin, PanelIzquierdoMixin, PanelDerechoMixin, ModosMixin, ClicsM
             self.doc = None
             self.pdf_path = None
             self.project_path = None
+            self._ia_soltar()
             self.work_pdf_path = None
             self.src_pdfs = []
             self.composite = None
@@ -1400,29 +1407,45 @@ class Main(MenuMixin, PanelIzquierdoMixin, PanelDerechoMixin, ModosMixin, ClicsM
 
     # ─────────────────────────── proyecto ───────────────────────────
     def _write_project(self, path):
-        self._busy(_tr("Guardando proyecto…"))
+        # Barra de carga precisa (2026-10-20, `barras_carga`): datos, imagen, PDF y la compresión POR BLOQUES
+        # en otro hilo (`nucleo/archivo_zip`, el mismo zip que `writestr`).
+        from nucleo import archivo_zip
+        from ui.comun import en_hilo
+        from ui.ventana import barras_carga as BC
+        pm = self.canvas.pixmap_item.pixmap()
+        previo = getattr(self, "_png_hoja", None)
+        externos = [s["data"] for s in self.sheet_external_pdfs]
+        # Hoja compuesta: los PDFs de origen completos, para poder
+        # volver al compositor (source.pdf ya es la hoja materializada).
+        fuentes = ([e["data"] for e in self.src_pdfs] if self.composite is not None and (
+            len(self.src_pdfs) > 1 or not self.composite.is_single_full_page()) else [])
+        av = BC.guardar_proyecto(self, len(self.pipes), pm.width() * pm.height() / 1e6,
+                                 previo is None or previo[0] != pm.cacheKey(),
+                                 BC.tam_mb(self.pdf_path), sum(len(d) for d in externos + fuentes) / BC.MB)
+        self._info(_tr("Guardando proyecto…"))
+        av.abrir(_tr("Guardando proyecto…"))
         try:
             # La construcción del dict de datos vive en project_io (pura, testeable);
             # aquí queda solo lo de Qt/PDF (PNG del lienzo, zip, PDF fuente).
+            av.recibir("datos", pump=True)
             model = project_io.build_model_dict(self)
+            av.recibir("imagen", pump=True)
             png = self._png_de_la_hoja()
-            with zipfile.ZipFile(path, "w", zipfile.ZIP_DEFLATED) as z:
-                z.writestr("model.json", json.dumps(model)); z.writestr("page.png", png)
-                pdf_bytes = self._get_pdf_bytes()
-                if pdf_bytes:
-                    z.writestr("source.pdf", pdf_bytes)
-                for i, source in enumerate(self.sheet_external_pdfs):
-                    z.writestr(f"external/{i:03d}.pdf", source["data"])
-                # Hoja compuesta: los PDFs de origen completos, para poder
-                # volver al compositor (source.pdf ya es la hoja materializada).
-                if self.composite is not None and (
-                        len(self.src_pdfs) > 1 or not self.composite.is_single_full_page()):
-                    for i, entry in enumerate(self.src_pdfs):
-                        z.writestr(f"sources/{i:03d}.pdf", entry["data"])
+            av.recibir("pdf", pump=True)
+            pdf_bytes = self._get_pdf_bytes()
+            entradas = [("model.json", json.dumps(model)), ("page.png", png)]
+            if pdf_bytes:
+                entradas.append(("source.pdf", pdf_bytes))
+            entradas += [(f"external/{i:03d}.pdf", d) for i, d in enumerate(externos)]
+            entradas += [(f"sources/{i:03d}.pdf", d) for i, d in enumerate(fuentes)]
+            en_hilo.ejecutar(self, lambda: archivo_zip.escribir(path, entradas), _tr("Guardando proyecto…"),
+                             avance=av.recibir, relanzar=True)
             self.project_path = path; self._dirty = False; self._update_title()
+            self._ia_al_guardar(path)                # la memoria de la IA sigue al proyecto (ventana_ia)
             self._info(_tr("Proyecto guardado: {archivo}").format(archivo=os.path.basename(path)))
             self._flash_save()
-        finally: self._unbusy()
+        finally:
+            av.cerrar()
         # Confirmación visible 2 s, DESPUÉS de quitar el «Guardando…».
         if not self._dirty and self.project_path == path:
             _busy_mod.toast(self, "✔ " + _tr("Proyecto guardado"))
@@ -1483,32 +1506,46 @@ class Main(MenuMixin, PanelIzquierdoMixin, PanelDerechoMixin, ModosMixin, ClicsM
 
     def _open_project_path(self, path):
         if not self._confirm_discard(): return
-        self._busy(_tr("Abriendo proyecto…"))
+        # Barra de carga precisa (2026-10-20, `barras_carga`): leer el zip POR BLOQUES en OTRO hilo; la imagen
+        # de la hoja y su copia en grises aquí (QImageReader no suelta el candado de Python: en un hilo la barra
+        # tampoco avanzaba), cada etapa a la vista antes de empezar. Nada de la ventana se toca hasta tener todo
+        # leído: si falla, queda como estaba.
+        from nucleo import archivo_zip
+        from ui.comun import en_hilo
+        from ui.ventana import barras_carga as BC
+        av = BC.abrir_proyecto(self, path)
+        self._info(_tr("Abriendo proyecto…"))
+        av.abrir(_tr("Abriendo proyecto…"))
         try:
+            arch = en_hilo.ejecutar(self, lambda: archivo_zip.leer(path), _tr("Abriendo proyecto…"),
+                                    avance=av.recibir, relanzar=True)[0]
+            av.recibir("hoja", pump=True)
+            # sin el tope de 256 MB de Qt: la hoja de una hoja compuesta lo pasa fácil
+            qimg = fondo_pdf.leer_png(arch["page.png"])
+            av.recibir("gris", pump=True)
+            gris = None if qimg.isNull() else qimage_to_gray(qimg)
+            av.recibir("modelo", pump=True)
             if self.doc:
                 self.doc.close()
                 self.doc = None
             self._cleanup_tmp_pdf()
-            with zipfile.ZipFile(path) as z:
-                model = json.loads(z.read("model.json")); png = z.read("page.png")
-                self._calentar_calculo(len(model.get("pipes") or []))   # (calculo_fondo)
-                external_pdfs = [
-                    {"name": entry.get("name", f"PDF {i + 2}"),
-                     "data": z.read(f"external/{i:03d}.pdf")}
-                    for i, entry in enumerate(model.get("sheet_sources", [])[1:])]
-                src_bytes = z.read("source.pdf") if "source.pdf" in z.namelist() else None
-                if src_bytes is not None:
-                    tmp_pdf = path + ".src.pdf"
-                    with open(tmp_pdf, "wb") as fp: fp.write(src_bytes)
-                    self._tmp_pdf = tmp_pdf
-                else:
-                    tmp_pdf = None
-                src_names = model.get("src_names") or []
-                src_pdfs = [{"name": src_names[i] if i < len(src_names) else f"PDF {i + 1}",
-                             "data": z.read(f"sources/{i:03d}.pdf")}
-                            for i in range(len(src_names)) if f"sources/{i:03d}.pdf" in z.namelist()]
-            # sin el tope de 256 MB de Qt: la hoja de una hoja compuesta lo pasa fácil
-            qimg = fondo_pdf.leer_png(png)
+            model = json.loads(arch["model.json"]); png = arch["page.png"]
+            self._calentar_calculo(len(model.get("pipes") or []))   # (calculo_fondo)
+            external_pdfs = [
+                {"name": entry.get("name", f"PDF {i + 2}"),
+                 "data": arch[f"external/{i:03d}.pdf"]}
+                for i, entry in enumerate(model.get("sheet_sources", [])[1:])]
+            src_bytes = arch.get("source.pdf")
+            if src_bytes is not None:
+                tmp_pdf = path + ".src.pdf"
+                with open(tmp_pdf, "wb") as fp: fp.write(src_bytes)
+                self._tmp_pdf = tmp_pdf
+            else:
+                tmp_pdf = None
+            src_names = model.get("src_names") or []
+            src_pdfs = [{"name": src_names[i] if i < len(src_names) else f"PDF {i + 1}",
+                         "data": arch[f"sources/{i:03d}.pdf"]}
+                        for i in range(len(src_names)) if f"sources/{i:03d}.pdf" in arch]
             if qimg.isNull():
                 raise ValueError(_tr("No se pudo leer la imagen de la hoja del proyecto."))
             # Normalización de los datos (casteo de cotas por vértice, zonas de
@@ -1518,7 +1555,7 @@ class Main(MenuMixin, PanelIzquierdoMixin, PanelDerechoMixin, ModosMixin, ClicsM
             # hoja enorme guardada a menos resolución (fondo_pdf): mismas coordenadas
             escala, tam = data["fondo_escala"], data["fondo_tam"]
             self._overlay = []; self._close_editor()
-            self.canvas.set_image(qimg, escala, tam); self.gray = qimage_to_gray(qimg)
+            self.canvas.set_image(qimg, escala, tam); self.gray = gris
             self._png_hoja = (self.canvas.pixmap_item.pixmap().cacheKey(), png)   # (_png_de_la_hoja)
             self.scale = data["scale"]; self.zoom = data["zoom"]; self.rot = data["rot"]
             self.W, self.H = data["W"], data["H"]; self.derot = fitz.Matrix(*data["derot"])
@@ -1544,6 +1581,7 @@ class Main(MenuMixin, PanelIzquierdoMixin, PanelDerechoMixin, ModosMixin, ClicsM
             else:
                 self.src_pdfs = []
             self.project_path = path
+            self._ia_soltar()
             self.sheet_external_pdfs = external_pdfs
             self.sheet_sources = data.get("sheet_sources") or (
                 [{"name": model.get("pdf_name") or "PDF principal",
@@ -1577,8 +1615,10 @@ class Main(MenuMixin, PanelIzquierdoMixin, PanelDerechoMixin, ModosMixin, ClicsM
             self.work_unit = data["work_unit"]
             self.cur_pts = []; self._erase_pts = []; self.sel_pipe = self.sel_leader = self.sel_region = self.sel_text = -1
             self._undo.clear(); self._redo.clear(); self._dirty = False
+            av.recibir("listas", pump=True)
             with self._redibujo_diferido():           # un solo redibujo al abrir (antes dos)
                 self.set_mode("idle"); self._refresh_lists(); self._update_page_label()
+            av.recibir("dibujo", pump=True)
             self._redraw()
             self._refresh_scale_label(); self._update_geo_status()
             self._refresh_unit_labels()
@@ -1592,10 +1632,13 @@ class Main(MenuMixin, PanelIzquierdoMixin, PanelDerechoMixin, ModosMixin, ClicsM
                            "archivo.").format(n=len(self.pipes), civil=_cv))
             # Aviso si el proyecto referencia familias del catálogo que no están
             # instaladas en el Civil 3D activo — ofrece abrir el instalador.
+            av.cerrar()                               # antes de un posible aviso de familias
             self._warn_missing_families()
         except Exception as e:
+            av.cerrar()
             QtWidgets.QMessageBox.critical(self, "Error", str(e))
-        finally: self._unbusy()
+        finally:
+            av.cerrar()
 
     def _warn_missing_families(self):
         """Recorre pipes y structures del proyecto actual, junta los `pipe_family`
@@ -1719,6 +1762,7 @@ class Main(MenuMixin, PanelIzquierdoMixin, PanelDerechoMixin, ModosMixin, ClicsM
         self._cleanup_tmp_pdf()
         self.canvas.scene().clear(); self.canvas.pixmap_item = None; self.canvas.pdf_bg_item = None
         self.pdf_path = None; self.doc = None; self.project_path = None; self.gray = None; self._update_title()
+        self._ia_soltar()
         self.blank_canvas = False; self.paper = None
         self.sheet_layout = None
         self.sheet_rotations = {}
@@ -1823,15 +1867,19 @@ class Main(MenuMixin, PanelIzquierdoMixin, PanelDerechoMixin, ModosMixin, ClicsM
         if not out: return
         self._out = out; self._mode = mode
         if not need_pdf:                                   # solo anotaciones: sin pipeline
+            av = self._abrir_avance_export(EA.costos(utilidades=len(self.pipes)))
             try:
                 doc = ezdxf.new("R2010", setup=True); C.apply_imperial_header(doc)
-                with _busy_mod.busy(self, _tr("Preparando el DXF…")):
+                with _busy_mod.busy(self, _tr("Preparando el DXF…")), av.escuchar():
                     self._merge_into(doc, marks=True)
+                av.entidades(len(doc.entitydb))
                 self._maybe_add_la_reference(doc)        # capas reales de LA (si se activó)
                 self._set_geodata(doc)                   # geolocaliza el DXF en EPSG:2229
-                self._set_plan_view(doc)                 # abrir en vista 2D/planta, encuadrado
-                self._guardar_dxf_en_hilo(doc, out)      # sin «No responde» (en_hilo)
+                with av.escuchar():
+                    self._set_plan_view(doc)             # abrir en vista 2D/planta, encuadrado
+                self._guardar_dxf_en_hilo(doc, out, av)  # sin «No responde» (en_hilo)
                 self._maybe_export_dwg(doc, out)         # además .dwg si se activó (ODA)
+                self._cerrar_avance_export()
                 geo_active = self.georef.active()
                 geo_msg = " [georef]" if geo_active else ""
                 if self.georef.matrix and not geo_active:
@@ -1848,7 +1896,10 @@ class Main(MenuMixin, PanelIzquierdoMixin, PanelDerechoMixin, ModosMixin, ClicsM
                     archivo=out, georef=geo_msg))
                 self._info(_tr("DXF de anotaciones exportado (georef).") if geo_active else _tr("DXF de anotaciones exportado."))
             except Exception as e:
+                self._cerrar_avance_export()
                 QtWidgets.QMessageBox.critical(self, "Error", str(e))
+            finally:
+                self._cerrar_avance_export()
             return
         self._tmp = out + ".base.tmp.dxf"
         # Solo la hoja que se ve en el editor (la de las anotaciones).
@@ -1862,8 +1913,12 @@ class Main(MenuMixin, PanelIzquierdoMixin, PanelDerechoMixin, ModosMixin, ClicsM
             self._clave_digitalizado = None
         self._clave_base = self._clave_digitalizado      # (para el recuadro del plano base, `_set_plan_view`)
         guardado = CD.buscar(self._clave_digitalizado)
+        medir = not (self._clave_base and CD.leer_recuadro(self._clave_base) is not None
+                     and not self.georef.active())          # el recuadro del plano base ya está guardado
         if guardado:
             import shutil
+            self._abrir_avance_export(EA.costos(leer_bytes=os.path.getsize(guardado), utilidades=len(self.pipes),
+                                                medir=medir))
             _r, err, cancelado = en_hilo.ejecutar(self, lambda: shutil.copyfile(guardado, self._tmp),
                                                   _tr("Reusando el plano ya digitalizado…"))
             if not err and not cancelado:
@@ -1871,13 +1926,18 @@ class Main(MenuMixin, PanelIzquierdoMixin, PanelDerechoMixin, ModosMixin, ClicsM
                 self._export_tok = None
                 self._pipeline_done(self._tmp, "")
                 return
-        self._prog = QtWidgets.QProgressDialog(_tr("Digitalizando el plano…"), _tr("Cancelar"), 0, 0, self)
-        self._prog.setWindowTitle(_tr("Procesando")); self._prog.setWindowModality(QtCore.Qt.WindowModal)
-        self._prog.canceled.connect(self._cancelar_digitalizacion)
-        self._prog.show()
+            self._cerrar_avance_export()
+        # Digitalizar: la barra de la exportación (`exportar_avance`) con «Cancelar» (antes un cuadro
+        # «Procesando» sin avance).
+        self._prog = None
+        av = self._abrir_avance_export(EA.costos(digitalizar=True, utilidades=len(self.pipes), medir=medir))
+        _busy_mod.overlay_for(self).begin(_tr("Digitalizando el plano…"), cancel=self._cancelar_digitalizacion)
+        self._export_digitalizando = True
         tok = self._export_tok = object()                # una exportación cancelada no sigue al terminar
         self._worker = PipelineWorker(src_pdf, self._tmp, pages=pages)
         wk = self._worker
+        if hasattr(wk, "progreso"):
+            wk.progreso.connect(av.recibir)
         self._worker.done.connect(lambda tmp, err, tok=tok, wk=wk: self._pipeline_done(
             tmp, err, tok, doc=getattr(wk, "tomar_doc", lambda: None)()))
         self._worker.start()
@@ -1886,7 +1946,25 @@ class Main(MenuMixin, PanelIzquierdoMixin, PanelDerechoMixin, ModosMixin, ClicsM
         """«Cancelar» mientras se digitaliza: el hilo termina solo (no se puede cortar) y su
         resultado se descarta."""
         self._export_tok = None
+        self._fin_digitalizar_capa()
+        self._cerrar_avance_export()
         self._info(_tr("Exportación cancelada."))
+
+    def _abrir_avance_export(self, partes):
+        """La barra de esta exportación (`exportar_avance`), sobre la ventana."""
+        self._cerrar_avance_export()
+        self._export_av = EA.AvanceExportacion(self, partes).abrir(_tr("Exportando a DXF…"))
+        return self._export_av
+
+    def _cerrar_avance_export(self):
+        av, self._export_av = getattr(self, "_export_av", None), None
+        if av is not None:
+            av.cerrar()
+
+    def _fin_digitalizar_capa(self):
+        if getattr(self, "_export_digitalizando", False):
+            self._export_digitalizando = False
+            _busy_mod.overlay_for(self).end()
 
     @staticmethod
     def _borrar_temporal(ruta, intentos=4):
@@ -1897,11 +1975,12 @@ class Main(MenuMixin, PanelIzquierdoMixin, PanelDerechoMixin, ModosMixin, ClicsM
             if intentos > 0:
                 QtCore.QTimer.singleShot(30_000, lambda: Main._borrar_temporal(ruta, intentos - 1))
 
-    def _guardar_dxf_en_hilo(self, doc, ruta):
+    def _guardar_dxf_en_hilo(self, doc, ruta, av=None):
         """`doc.saveas(ruta)` en otro hilo con la capa «Cargando…» (un DXF grande tarda decenas de
-        segundos y la ventana quedaba «No responde»)."""
+        segundos y la ventana quedaba «No responde»); `av` = la barra de la exportación."""
         from exportar import dxf_rapido                  # mismo archivo, ~45 % menos tiempo (2026-10-19)
-        _r, err, _c = en_hilo.ejecutar(self, lambda: dxf_rapido.guardar(doc, ruta), _tr("Guardando el DXF…"))
+        _r, err, _c = en_hilo.ejecutar(self, lambda: dxf_rapido.guardar(doc, ruta), _tr("Guardando el DXF…"),
+                                       avance=av.recibir if av is not None else None)
         if err:
             raise RuntimeError(err)
 
@@ -1921,7 +2000,14 @@ class Main(MenuMixin, PanelIzquierdoMixin, PanelDerechoMixin, ModosMixin, ClicsM
             except OSError: pass
             return
         if getattr(self, "_prog", None): self._prog.close()
-        if err: QtWidgets.QMessageBox.critical(self, _tr("Error al digitalizar"), err); return
+        self._fin_digitalizar_capa()
+        av = getattr(self, "_export_av", None) or self._abrir_avance_export(
+            EA.costos(leer_bytes=os.path.getsize(tmp) if tmp and os.path.exists(tmp) else 0,
+                      utilidades=len(self.pipes)))
+        av.fin_digitalizar()
+        if err:
+            self._cerrar_avance_export()
+            QtWidgets.QMessageBox.critical(self, _tr("Error al digitalizar"), err); return
         clave, self._clave_digitalizado = getattr(self, "_clave_digitalizado", None), None
         from exportar import cache_digitalizado as CD
 
@@ -1933,12 +2019,21 @@ class Main(MenuMixin, PanelIzquierdoMixin, PanelDerechoMixin, ModosMixin, ClicsM
             if clave:
                 try: CD.guardar(clave, tmp)
                 except OSError: pass                     # sin caché igual se exporta
-            d = en_memoria if en_memoria is not None else ezdxf.readfile(tmp)   # (en memoria: no se relee)
+            from exportar import dxf_lectura             # = ezdxf.readfile, con su avance
+            d = en_memoria if en_memoria is not None else dxf_lectura.leer(tmp)   # (en memoria: no se relee)
             C.apply_imperial_header(d)                   # reafirma imperial ($MEASUREMENT=0)
             return d, self._recuadro_base(d, clave_base, georef)
-        leido, err, cancelado = en_hilo.ejecutar(self, leer, _tr("Leyendo el plano digitalizado…"), cancelable=True)
+        if en_memoria is not None:
+            av.terminada("leer", "armar")
+            av.entidades(len(en_memoria.entitydb))
+        leido, err, cancelado = en_hilo.ejecutar(self, leer, _tr("Leyendo el plano digitalizado…"), cancelable=True,
+                                                 avance=av.recibir)
         doc, base = leido if leido else (None, None)
+        if doc is not None:
+            av.terminada("leer", "armar")
+            av.entidades(len(doc.entitydb))
         if cancelado or err:
+            self._cerrar_avance_export()
             self._borrar_temporal(tmp)                   # cancelado: el hilo aún puede tenerlo abierto
             if err: QtWidgets.QMessageBox.critical(self, _tr("Error al guardar"), err)
             else: self._info(_tr("Exportación cancelada."))
@@ -1948,14 +2043,17 @@ class Main(MenuMixin, PanelIzquierdoMixin, PanelDerechoMixin, ModosMixin, ClicsM
             marks = (self._mode == "todo")               # 'pdf' = solo el plano, sin anotaciones
             if self.georef.active():                     # lleva el plano base al mismo sistema REAL que las anotaciones
                 self._georef_base_doc(doc)
-            self._merge_into(doc, marks=marks)
+            with av.escuchar():
+                self._merge_into(doc, marks=marks)
             self._maybe_add_la_reference(doc)            # capas reales de LA (si se activó)
             self._set_geodata(doc)                       # geolocaliza el DXF en EPSG:2229
-            self._set_plan_view(doc, base)               # abrir en vista 2D/planta, encuadrado
-            self._guardar_dxf_en_hilo(doc, self._out)    # sin «No responde» (en_hilo)
+            with av.escuchar():
+                self._set_plan_view(doc, base)           # abrir en vista 2D/planta, encuadrado
+            self._guardar_dxf_en_hilo(doc, self._out, av)   # sin «No responde» (en_hilo)
             self._maybe_export_dwg(doc, self._out)       # además .dwg si se activó (ODA)
             if os.path.exists(tmp): os.remove(tmp)
             self._unbusy()
+            self._cerrar_avance_export()
             geo_active = self.georef.active()
             geo_warn = ""
             if self.georef.matrix and not geo_active:
@@ -1981,6 +2079,7 @@ class Main(MenuMixin, PanelIzquierdoMixin, PanelDerechoMixin, ModosMixin, ClicsM
                     georef=geo_tag, archivo=self._out) + geo_warn
             QtWidgets.QMessageBox.information(self, _tr("Listo"), msg); self._info(_tr("DXF exportado (georef).") if geo_active else _tr("DXF exportado."))
         except Exception as e:
+            self._cerrar_avance_export()
             _busy_mod.overlay_for(self).end() if _busy_mod.overlay_for(self).active else None
             import traceback; QtWidgets.QMessageBox.critical(self, _tr("Error al guardar"), f"{e}\n{traceback.format_exc()}")
 

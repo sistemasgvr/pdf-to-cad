@@ -72,6 +72,13 @@ def _normativas_en_carpeta_temporal(monkeypatch, tmp_path):
 
 
 @pytest.fixture(autouse=True)
+def _entrenamiento_ia_en_carpeta_temporal(monkeypatch, tmp_path):
+    """El entrenamiento de la IA (ia.memoria) nunca va al JSON del repo en las pruebas."""
+    monkeypatch.setenv("PDFCAD_ENTRENAMIENTO_IA", str(tmp_path / "entrenamiento_ia" / "entrenamiento_ia.json"))
+    yield
+
+
+@pytest.fixture(autouse=True)
 def _sin_composicion_sugerida_en_segundo_plano(monkeypatch):
     """El compositor no lanza el análisis de «Composición sugerida» en otro hilo en las
     pruebas (cada diálogo revisaría todas las hojas); sus pruebas lo encienden."""

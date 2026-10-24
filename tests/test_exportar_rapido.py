@@ -216,9 +216,10 @@ def test_primera_exportacion_usa_el_documento_en_memoria(win, tmp_path, monkeypa
             self.real.done.connect(lambda *a: self.done.emit(*a))
             self.real.run()
     monkeypatch.setattr(app_window, "PipelineWorker", Worker)
+    from exportar import dxf_lectura
     leidos = []
-    original = ezdxf.readfile
-    monkeypatch.setattr(ezdxf, "readfile", lambda *a, **k: leidos.append(a[0]) or original(*a, **k))
+    original = dxf_lectura.leer
+    monkeypatch.setattr(dxf_lectura, "leer", lambda *a, **k: leidos.append(a[0]) or original(*a, **k))
     salidas = iter([tmp_path / "uno.dxf", tmp_path / "dos.dxf"])
     monkeypatch.setattr(QtWidgets.QFileDialog, "getSaveFileName", lambda *a, **k: (str(next(salidas)), ""))
     llamadas = []
@@ -269,3 +270,54 @@ def test_digitalizar_lee_la_hoja_una_vez_y_guarda_el_mismo_dxf(tmp_path, monkeyp
         return re.sub(r"\n(\$VERSIONGUID|\$FINGERPRINTGUID|\$TDUPDATE|\$TDUUPDATE|\$TDCREATE|\$TDUCREATE|"
                       r"\$TDINDWG)\n *\d+\n[^\n]*\n", "\n", s)
     assert texto(a) == texto(b) and avisos_a == avisos_b
+
+
+def test_barra_pesada_nunca_retrocede_y_corrige_costos():
+    from nucleo.avance_pesado import Barra
+    b = Barra({"a": 100.0, "b": 300.0})
+    assert b.parte("a", 0.5) == 125
+    assert b.costo("b", 900.0) == 125                  # el total crece: la barra espera, no retrocede
+    assert b.parte("a", 1.0) == 125 and b.parte("b", 0.5) == 550
+    assert b.lista("b") == 1000
+
+
+def test_exportar_muestra_una_barra_que_avanza_por_cada_etapa(win, tmp_path, monkeypatch):
+    """La exportación lleva UNA barra (`exportar_avance`, pedido del usuario 2026-10-20): digitalizar
+    (trazos, clasificar, guardar el plano), agregar utilidades y guardar el DXF; nunca retrocede, llega al
+    final y al terminar la capa se quita (sin reloj de arena colgado)."""
+    from ui.comun import busy
+    from ui.ventana import app_window, exportar_avance as EA
+    Real = app_window.PipelineWorker
+    pdf = _pdf(tmp_path / "plano.pdf", "Plano")
+    win._open_pdf_path(pdf)
+    win._load_page(0)
+    win.pipes.append(dict(layer="AGUA", pts=[(10.0, 10.0), (200.0, 120.0)], ab=False, diam=8.0,
+                          inv_start=-6.0, inv_end=-6.5, name=""))
+    win._rebuild_structures(); win._refresh_lists()
+
+    class Worker:                                      # el de la app, sin hilo
+        def __init__(self, src, out, pages=None):
+            self.real = Real(src, out, pages=pages)
+            self.done, self.progreso = _Senal(), self.real.progreso
+
+        def tomar_doc(self):
+            return self.real.tomar_doc()
+
+        def start(self):
+            self.real.done.connect(lambda *a: self.done.emit(*a))
+            self.real.run()
+    monkeypatch.setattr(app_window, "PipelineWorker", Worker)
+    monkeypatch.setattr(QtWidgets.QFileDialog, "getSaveFileName", lambda *a, **k: (str(tmp_path / "x.dxf"), ""))
+    vistos = []
+    original = EA.AvanceExportacion._mostrar
+    monkeypatch.setattr(EA.AvanceExportacion, "_mostrar",
+                        lambda self, pump: vistos.append((self.barra.milesimas, self._detalle)) or original(self, pump))
+    win.run_pipeline("todo")
+    QtWidgets.QApplication.processEvents()
+    mil = [m for m, _d in vistos]
+    textos = " ".join(d for _m, d in vistos)
+    assert mil == sorted(mil) and mil[-1] >= 900
+    for etapa in ("Leyendo los trazos del PDF", "Guardando el DXF"):
+        assert etapa in textos
+    assert not busy.overlay_for(win).active and QtWidgets.QApplication.overrideCursor() is None
+    assert (tmp_path / "x.dxf").exists()

@@ -21,18 +21,26 @@ import getpass
 LUGAR_PX = 2.0           # redondeo del lugar del aviso (px del lienzo)
 
 
-def huella(p):
+# Lo que además miran las reglas de esas clases (tabla de reglas, 2026-10-21): material, y las cotas para
+# pendientes, caídas y cruces. Las demás clases conservan la huella de siempre (sus aprobaciones siguen).
+_COTAS = ("inv_start", "inv_end", "vertex_inv", "vertex_inv_in")
+_EXTRA = {"material": ("material",), "pendiente": _COTAS, "buzon": _COTAS, "separacion": _COTAS}
+
+
+def huella(p, clase=None):
     """Lo que la normativa revisa de una utilidad (si cambia, la aprobación ya no vale)."""
     if not p:
         return ""
-    return "|".join(str(p.get(k) or "") for k in ("layer", "tipo", "pipe_family", "pipe_size", "amperaje")) \
+    out = "|".join(str(p.get(k) or "") for k in ("layer", "tipo", "pipe_family", "pipe_size", "amperaje")) \
         + ("|ab" if p.get("ab") else "")
+    extra = _EXTRA.get(clase)
+    return out + ("|" + "|".join(str(p.get(k) if p.get(k) is not None else "") for k in extra) if extra else "")
 
 
 def clave(aviso, pipes):
     p = pipes[aviso.pipe] if aviso.pipe is not None and 0 <= aviso.pipe < len(pipes or []) else None
     x, y = (round(aviso.x / LUGAR_PX) * LUGAR_PX, round(aviso.y / LUGAR_PX) * LUGAR_PX)
-    return f"{aviso.clase}|{aviso.pipe}|{x:g}|{y:g}|{huella(p)}"
+    return f"{aviso.clase}|{aviso.pipe}|{x:g}|{y:g}|{huella(p, aviso.clase)}"
 
 
 def marcar(avisos, pipes, aprobados):

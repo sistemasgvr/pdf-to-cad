@@ -72,5 +72,8 @@ def test_exporta_la_hoja_compuesta_de_otro_pdf(win, tmp_path, monkeypatch):
     doc = fitz.open(got["pdf"])
     assert "B hoja 2" in doc[got["pages"][0]].get_text()
     doc.close()
-    if getattr(win, "_prog", None):
-        win._prog.close()
+    # el falso digitalizador nunca termina: «Cancelar» quita la barra de la exportación (y su reloj de arena)
+    from ui.comun import busy
+    assert busy.overlay_for(win).active
+    win._cancelar_digitalizacion()
+    assert not busy.overlay_for(win).active

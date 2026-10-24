@@ -459,3 +459,123 @@ def test_conexiones_verticales_con_codos_tee_y_wye_como_el_plugin():
     assert piezas[(54, 55)] == [C, C, W]                # quiebre: Wye + codo arriba + codo abajo
     assert piezas[(58, 59)] == [W]                      # 2 ft de desnivel: no caben dos codos
     dlg.close(); w._dirty = False
+
+
+def test_armar_avisa_un_avance_que_sigue_al_trabajo_y_no_cambia_la_escena():
+    """`construir` avisa su avance en milésimas (`nucleo/avance3d`, pedido del usuario 2026-10-20: con
+    miles de utilidades parecía colgada): nunca retrocede, pasa por cada parte y termina cerca del final;
+    la escena es la misma que sin nadie escuchando."""
+    from nucleo import avance
+    pipes = [_p(pts=((0, 100 * k), (300, 100 * k), (300, 100 * k + 60)), diam=8) for k in range(30)]
+    pipes += [_p(pts=((300, 100 * k + 60), (500, 100 * k + 60))) for k in range(30)]
+    avisos = []
+    with avance.escuchar(lambda texto, i, n: avisos.append((texto, i, n))):
+        esc = M3.construir(pipes, [], FT)
+    sin = M3.construir(pipes, [], FT)
+    mil = [i for _t, i, n in avisos]
+    assert all(n == 1000 for _t, _i, n in avisos) and mil == sorted(mil)
+    textos = " ".join(t for t, _i, _n in avisos)
+    assert "Buscando los accesorios" in textos and "Armando los accesorios" in textos
+    assert "Armando las utilidades" in textos and avisos[-1][0] == "Terminando la escena…"
+    assert 900 <= mil[-1] <= 1000
+    assert np.array_equal(esc.opacos, sin.opacos) and esc.cuentas == sin.cuentas
+
+
+def test_al_abrir_la_vista_3d_muestra_la_capa_de_carga_con_su_barra(win):
+    """Mientras se arma la primera escena, el visor queda tapado por «Armando la vista 3D…» con la barra
+    (sin reloj de arena en toda la app); al terminar se quita. Una actualización después de editar no lo
+    tapa: el avance va en la línea de estado."""
+    from PySide6 import QtWidgets
+    from ui.comun import busy
+    dlg = win.abrir_vista3d()
+    ov = busy.overlay_for(dlg.pila)
+    assert ov.active and ov.text() == "Armando la vista 3D…"
+    assert QtWidgets.QApplication.overrideCursor() is None
+    dlg._avance("Armando las utilidades: 1 de 2", 470)
+    assert ov._stack[-1]["done"] == 470 and ov._stack[-1]["total"] == 1000 and "47 %" in ov.detail()
+    _esperar(dlg)
+    assert not ov.active and dlg.escena.cuentas["utilidades"] == 2
+    win.pipes[0]["inv_end"] = -9.0; win._redraw(); dlg.actualizar()
+    assert not ov.active
+    _esperar(dlg)
+
+
+def test_rotulos_3d_nivel_de_detalle_sin_taparse_y_memorizados():
+    """Pendientes y ángulos (pedido del usuario 2026-10-20: AGUA 2 dibujaba 35 766 rótulos por cuadro):
+    de lejos un tramo más corto en pantalla que su rótulo no lo muestra; los que se tapan, uno solo (el de
+    lo elegido primero); la misma cámara no recalcula; y el sello pinta igual que dibujar directo."""
+    import math
+    from PySide6 import QtCore, QtGui, QtWidgets
+    QtWidgets.QApplication.instance() or QtWidgets.QApplication([])
+    from ui.comun import etiquetas3d as E, rotulos3d_lod as LOD
+    from ui.comun.visor3d import Camara, _np
+    # 40 rótulos en fila cada 30 ft (tramos de 30 ft) y dos encimados de utilidades distintas
+    rot = [(1, (30.0 * k, 0.0, 0.0), f"{k}.00 %") for k in range(40)]
+    rot += [(7, (600.0, 0.0, 0.0), "9.99 %"), (8, (600.0, 0.0, 0.0), "8.88 %")]
+    largos = [30.0] * len(rot)
+    capa = E.Capa(rot, largos, rotulo=True)
+    W, H = 800, 600
+    k_px = (H / 2) / math.tan(math.radians(40.0) / 2)
+
+    def ver(dist, sel=0):
+        cam = Camara(); cam.objetivo = np.array([600.0, 0, 0]); cam.dist = dist
+        return capa.visibles(_np(cam.matriz(W / H, 700)), W, H, k_px, sel)[0].tolist()
+    assert ver(20000) == []                                       # de lejos: 30 ft son pocos px
+    cerca = ver(200)
+    assert cerca and len(cerca) < len(rot)
+    assert not ({40, 41} <= set(cerca))                           # los dos encimados: uno solo
+    assert 41 in ver(200, sel=8) and 40 not in ver(200, sel=8)    # el de lo elegido gana
+    clave = capa._clave
+    ver(200, sel=8)
+    assert capa._clave is clave                                    # misma cámara: no recalcula
+    # cada caja visible no toca a otra
+    idx, xs, ys = capa._elegidos
+    cajas = [(x - capa.anchos[i] / 2, y - 8, x + capa.anchos[i] / 2, y + 8) for i, x, y in zip(idx, xs, ys)]
+    for a in range(len(cajas)):
+        for b in range(a + 1, len(cajas)):
+            A, B = cajas[a], cajas[b]
+            assert A[2] - 1 <= B[0] + 1 or B[2] - 1 <= A[0] + 1 or A[3] - 1 <= B[1] + 1 or B[3] - 1 <= A[1] + 1
+    # sello = dibujo directo (posición entera)
+    img1 = QtGui.QImage(120, 40, QtGui.QImage.Format_ARGB32_Premultiplied); img1.fill(0)
+    img2 = QtGui.QImage(img1); img2.fill(0)
+    p = QtGui.QPainter(img1); p.setRenderHint(QtGui.QPainter.Antialiasing, True); p.setFont(E._fuente(p))
+    E._pintar(p, QtCore.QRectF(10, 10, 60, 16), "1.23 %", 1, 0, 0, True); p.end()
+    p = QtGui.QPainter(img2)
+    p.drawImage(QtCore.QPointF(8, 8), capa._sello("1.23 %", 60.0, 1.0)); p.end()
+    assert img1 == img2
+    assert LOD.MAXIMO >= len(cerca)
+
+
+def test_casilla_de_rotulos_no_rehace_la_escena(win):
+    """La escena trae siempre los rótulos; la casilla solo los muestra (antes rehacía toda la escena)."""
+    dlg = win.abrir_vista3d(); _esperar(dlg)
+    win.pipes[0]["pts"] = [(100, 100), (350, 100), (600, 160)]; win._redraw(); dlg.actualizar(); _esperar(dlg)
+    esc = dlg.escena
+    assert esc.rotulos and len(esc.rotulos_largos) == len(esc.rotulos)
+    dlg.chk["rotulos"].setChecked(True)
+    assert dlg.visor.ver_rotulos and dlg._trabajo is None and dlg.escena is esc
+    dlg.chk["rotulos"].setChecked(False)
+    assert not dlg.visor.ver_rotulos and dlg.escena is esc
+
+
+def test_zoom_alcanza_una_tuberia_fina_y_en_el_vacio_avanza(win):
+    """Una tubería fina vista de lejos SÍ es el destino del zoom (se toca con el radio de señalar) y sin
+    nada bajo el cursor la cámara no se traba en el plano del objetivo: avanza (pedido 2026-10-20)."""
+    from ui.comun import visor3d as V
+    dlg = win.abrir_vista3d(); _esperar(dlg)
+    v = dlg.visor
+    v.resize(800, 600)
+    v.encuadrar()
+    lo, hi = dlg.escena.objetos[1]["caja"]
+    centro = (np.asarray(lo) + np.asarray(hi)) / 2
+    m = V._np(v.cam.matriz(800 / 600, v.radio()))
+    c = m @ np.r_[centro, 1.0]
+    x, y = (c[0] / c[3] + 1) / 2 * 800, (1 - c[1] / c[3]) / 2 * 600
+    _p, _d, toca = v._punto_bajo(x + 3, y + 3, v.cam.dist * V.R_ELEGIR, con_choque=True)
+    assert toca                                                   # a 3 px de una tubería de 8"
+    # vacío: muy lejos de todo, 300 clics de rueda siguen moviendo la cámara
+    v.cam.objetivo = np.array([0.0, 5000.0, 0.0]); v.cam.dist = 50.0
+    antes = v.cam.ojo().copy()
+    for _ in range(300):
+        v.zoom(1, 400, 300)
+    assert np.linalg.norm(v.cam.ojo() - antes) > 300 * V.AVANCE_MIN_FT * 0.9

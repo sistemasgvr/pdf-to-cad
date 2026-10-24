@@ -77,6 +77,10 @@ the last change and <span class="key">&nbsp;Ctrl+Shift+Z&nbsp;</span> redoes it.
 <li><b>Save with another name:</b> <span class="key">&nbsp;Ctrl+Shift+S&nbsp;</span>.</li>
 <li><b>Open a project:</b> <b>File → Open project…</b></li>
 </ul>
+<p>With large projects, opening, saving, <b>Review and clean up the drawing</b>, the <b>Data table</b>
+and its Excel export show a <b>progress bar</b> with the stage, «i of n» and the percentage, which
+follows the real time. After editing, recomputing conflicts and warnings shows a small bar in the
+status bar at the bottom; meanwhile you can keep working.</p>
 <table width="100%" cellspacing="0" cellpadding="12"><tr>
 <td width="6" bgcolor="{{warn_border}}"></td><td bgcolor="{{warn}}">
 <b>Attention:</b> a dot <b style="color:{{danger_border}};">●</b> next to the title means there are
@@ -865,40 +869,68 @@ These alerts do not appear on storm drain and sewer: there the manhole handles d
 </section>
 
 <section data-title="Design standards">
-<p>The standards are a <b>simple Excel file</b> with four tables. <b>Standards → Design standards…</b>
-(<span class="key">&nbsp;Ctrl+Shift+N&nbsp;</span>) shows them as they are, together with the project
-<b>warnings</b>. They apply to all your projects on this computer.</p>
+<p>The standards are <b>one table of rules</b> and the <b>types</b> table. <b>Standards → Design
+standards…</b> (<span class="key">&nbsp;Ctrl+Shift+N&nbsp;</span>) lets you <b>edit them right there</b>, together
+with the project <b>warnings</b>. They apply to all your projects on this computer. The Excel file is optional: it
+serves to share them or for the engineer to load data in bulk.</p>
 
-<h2>The tables</h2>
+<h2>The rules table</h2>
+<p>One row = one rule. It reads: for this <b>UTILIDAD</b> (and <b>TIPO</b>), for this <b>ELEMENTO</b>, if the
+<b>SI…</b> conditions hold, what <b>REVISAR</b> names must be between <b>MIN</b> and <b>MAX</b> or be one of
+<b>VALORES</b>. Hover over a row to read it as a sentence.</p>
 <table width="100%" cellspacing="4" cellpadding="10">
-<tr><td bgcolor="{{card}}" width="28%"><b>TIPOS</b></td>
-    <td bgcolor="{{card}}">The types each utility can choose: main distribution, service connection…</td></tr>
-<tr><td bgcolor="{{card}}"><b>PRESION-DIAMETROS</b></td>
-    <td bgcolor="{{card}}">Which diameters each water or gas type uses: a list (6; 8; 12) or a range with
-        DIAMETRO MIN and MAX (gas from 0.5 to 2), with a note if it is only allowed in one case, for example
-        cul-de-sacs.</td></tr>
-<tr><td bgcolor="{{card}}"><b>PRESION-ACCESORIOS</b></td>
-    <td bgcolor="{{card}}">Where each fitting (Y, T, Cross, Bend, service T) is allowed or forbidden, the main line
-        diameter, the branch one (<b>-1</b> = one size smaller in the list) and the bend angles.</td></tr>
-<tr><td bgcolor="{{card}}"><b>ELECT-TELECOM</b></td>
-    <td bgcolor="{{card}}">Fixed, minimum or maximum diameter by type, <b>amperage</b> and line length, and the
-        <b>curve radius</b>: RADIO CURVA FIJO (the allowed radii, for example <i>3; 4</i>) or a range with RADIO
-        CURVA MIN and MAX.</td></tr>
+<tr><td bgcolor="{{card}}" width="28%"><b>ACTIVA</b></td>
+    <td bgcolor="{{card}}">SI = it is checked; NO = it stays written but is not checked.</td></tr>
+<tr><td bgcolor="{{card}}"><b>UTILIDAD, TIPO</b></td>
+    <td bgcolor="{{card}}">Which pipes it applies to. Empty TIPO = all of that utility. On a fitting, the type of
+        its main line.</td></tr>
+<tr><td bgcolor="{{card}}"><b>ELEMENTO</b></td>
+    <td bgcolor="{{card}}">What is looked at: the pipe (TUBERIA), its curves (CURVA), its manholes (BUZON, gravity
+        networks) or a fitting (pressure networks): Y, T, CRUZ, CODO, T - DOMICILIARIA.</td></tr>
+<tr><td bgcolor="{{card}}"><b>SI DIAMETRO / AMPERAJE / LARGO MIN–MAX, SI MATERIAL</b></td>
+    <td bgcolor="{{card}}">Conditions on the pipe, all at once (for example amperage 321–400 <i>and</i> length
+        101–200). Empty = always.</td></tr>
+<tr><td bgcolor="{{card}}"><b>REVISAR</b></td>
+    <td bgcolor="{{card}}">What is measured, from a closed list that changes with the utility and the element:
+        diameter, slope per segment, length, amperage, material, bend without a manhole, horizontal clearance when
+        parallel (edge to edge or center to center), vertical clearance and above/below at a crossing, curve
+        radius, distance between manholes, drop in the manhole, and on fittings whether it is allowed, in which
+        types, main and branch diameters and the angle. “Solo referencia” = written down with its source, not
+        checked.</td></tr>
+<tr><td bgcolor="{{card}}"><b>MIN, MAX, VALORES</b></td>
+    <td bgcolor="{{card}}">The allowed value, in REVISAR's unit. VALORES = a list with “;” (6; 8; 12), or SI/NO,
+        types or materials depending on REVISAR.</td></tr>
+<tr><td bgcolor="{{card}}"><b>CON UTILIDAD, CON TIPO</b></td>
+    <td bgcolor="{{card}}">Only for clearances: from which other utility (CUALQUIERA = any other).</td></tr>
+<tr><td bgcolor="{{card}}"><b>NIVEL, FUENTE, NOTA</b></td>
+    <td bgcolor="{{card}}">ERROR (red badge), AVISO (amber) or INFO (informative only); where the rule comes from;
+        and a remark. On a diameter, the note says where it is used (4 in on cul-de-sacs) and shows as
+        information.</td></tr>
 </table>
-<p>Empty cell = no restriction or not applicable. Lists with “;” and decimal comma (<i>1; 1,5; 2</i>).
-<b>Ranges go in two columns, MIN and MAX</b>: “from 0.5 to 2” = MIN 0.5 and MAX 2; “400 or more” = MIN 400 and MAX
-empty (both ends count). Never a range or a symbol in a single cell (<i>0.5-2</i>, <i>&gt;=400</i>). The Excel's
-<b>INSTRUCCIONES</b> sheet explains it with examples and each column has a comment (hover over its title). That
-sheet and any other that is not one of the four tables (for example “auxiliar”, for notes) are not imported.</p>
+<p>Several rows with the same scope (utility, type, element, conditions, REVISAR and CON) add up: meeting one is
+enough. Slopes, drops and crossings are measured with each pipe's elevations: without elevations they are not
+checked. What the app cannot measure (velocities, flows, pressures, depths without terrain) goes as “Solo
+referencia”. The factory rules combine the engineer's Excel, the gas rules there were already and what can be
+measured from the water, sewer, storm drain, electrical and telecom manuals.</p>
 
 <h2>Editing the standards</h2>
+<p>The window has two tabs, <b>Types</b> and <b>Rules</b> (with a filter by utility): <b>double-click</b> a cell to
+change it, <b>Add row</b> and <b>Remove rows</b>. The application rules: what is chosen comes from a drop-down that
+depends on the row (that utility's types, the elements it has, what is measured on that element…). Nothing is
+applied until <b>Save changes</b>: then everything is checked with the same rules as the Excel file and, if a cell
+cannot be read or is not something the app supports, it turns <b>red</b> with the reason and nothing is saved.
+<b>Discard changes</b> goes back to what was saved. If you rename a type in the Types tab, it is renamed in the
+rules and in the project utilities that used it (Ctrl+Z undoes it in the project).</p>
+<p>With Excel:</p>
 <ol>
-<li><b>Export Excel…</b> saves the Excel file with everything there is now (also the types you added).</li>
-<li>Edit it in Excel. The drop-downs help: <b>UTILIDAD</b> lists the six utilities and <b>TIPO</b> only the
-    types of that row's utility. A new type written as a new row in the TIPOS sheet appears in the drop-downs by
-    itself.</li>
-<li><b>Import Excel…</b> brings it back. If a cell cannot be understood, the app says which one (sheet, row
-    and column) and does not use it. <b>Restore the initial values</b> undoes everything.</li>
+<li><b>Export Excel…</b> saves the Excel file (INSTRUCCIONES, TIPOS and REGLAS sheets) with everything there is
+    now.</li>
+<li>Edit it in Excel. The drop-downs do not accept what the app does not support: UTILIDAD, TIPO (that utility's,
+    from the TIPOS sheet), ELEMENTO (the ones that utility has), REVISAR (what is measured on that element),
+    NIVEL…; number columns only accept numbers. Each column has a comment.</li>
+<li><b>Import Excel…</b> brings it back. If a cell cannot be understood, the app says which one (sheet, row and
+    column) and that row is not used. An old four-sheet Excel file is imported too: it is turned into rules by
+    itself. <b>Restore the initial values</b> undoes everything.</li>
 </ol>
 
 <h2>Type and amperage of each utility</h2>
@@ -909,8 +941,8 @@ it stays in the standards and goes into their Excel when exporting it. On electr
 <h2>Warnings</h2>
 <p>The app only warns: it never changes the drawing. Warnings are discreet:</p>
 <ul>
-<li>a small <b>amber “!” circle</b> where something does not comply (light blue “i” if it is only a condition
-    of use); hover over it to read it;</li>
+<li>a small <b>amber “!” circle</b> where something does not comply (red if the rule's level is ERROR; light
+    blue “i” if it is only information); hover over it to read it;</li>
 <li>the fitting label in <b>amber</b> (“30° bend ⚠”);</li>
 <li>the text under <b>Amperage</b> in the utility panel;</li>
 <li>“⚠ N standards warnings” on the status bar: a click opens the list; clicking a warning goes to the place.</li>
@@ -976,6 +1008,110 @@ elevations, amperage, duct bank, coordinates and warnings), <b>manholes and boxe
 </ol>
 <p>When importing, <b>conflicts</b> are recalculated: you see right away whether an elevation change solved the clash.</p>
 </section>
+<section data-title="Automatic report">
+<p><b>Tools → Automatic report…</b> builds a <b>Word</b> document with what needs to be checked in the project,
+ready to hand over.</p>
+<ol>
+<li>Choose <b>what to include</b>: conflicts, design-standard warnings or both.</li>
+<li>Choose the <b>captures of each zone</b>: of the plan (2D), of the 3D view or both. If the 3D view is not open,
+    it is built first: with large projects it takes longer.</li>
+<li>Choose where to save it. The report is built in the background: a card at the bottom right shows each stage
+    (captures, sheets, appendix, saving) and meanwhile <b>you can keep working</b>. If it has 3D captures, the same
+    card appears in the 3D view. <b>Cancel</b> stops it without saving. When it finishes, you can open the
+    report.</li>
+</ol>
+<p>The report has:</p>
+<ul>
+<li><b>Summary</b>: utilities checked, conflicts, pending, approved and informational warnings, utilities without
+    type, and how many there are of each kind and in each utility.</li>
+<li><b>Overview map</b>: the whole drawing with the numbered zones.</li>
+<li><b>Sheets by zone</b>: nearby conflicts and warnings are grouped in a zone, with its captures and each one
+    explained (what happens, what to do, the source of the standard and, if it was approved, by whom and when).</li>
+<li><b>Appendix</b>: everything in a table. With very many, the table shows the first 1000; the full detail is in
+    the Data table and its Excel.</li>
+</ul>
+<p>The project does not change. Utilities without a type have no sheet: they are counted in the summary. Without AI, the
+texts come from templates; with the AI configured (see «AI»), the AI writes them, always with the numbers the app
+computes.</p>
+</section>
+
+<section data-title="AI">
+<p>The <b>AI</b> menu brings an AI that knows the open project. It answers only with the project data: the numbers
+always come from the app and, if the AI writes a figure that is not in the data, the app warns about it.</p>
+<h2>Configure</h2>
+<p><b>AI → Configure AI…</b>: choose <b>Own server (Ollama)</b>, type the server address and press <b>Find
+models</b> and <b>Test</b>. With <b>No AI (templates)</b> everything works as before.</p>
+<h2>How do I…? (in this manual)</h2>
+<p>At the top of this manual there is a <b>How do I…?</b> field: type what you want to do (for example «how do I
+export to Civil 3D?») and press <span class="key">&nbsp;Enter&nbsp;</span> or <b>Ask the AI</b>. The chapters that
+cover it appear instantly (one click opens them) and the AI answers with the steps, taken only from this manual. The
+same question again comes back instantly, saved. Without an AI configured, the chapters are the answer.</p>
+<h2>Ask the project</h2>
+<p><b>AI → Ask the project…</b> (<span class="key">&nbsp;Ctrl+Shift+I&nbsp;</span>, or the chat button on the top
+bar) opens a chat. Ask, for example, «how many conflicts are there and where are they?», «what happens at C-12?»
+or «summarize zone 3».</p>
+<ul>
+<li>The answer appears while it is being written. Each code (C-12, N-3, AGUA-5) is a link: one click takes you to
+    that place on the plan.</li>
+<li>While the AI thinks you see «Thinking… N s»; <b>Stop</b> (or <span class="key">&nbsp;Esc&nbsp;</span>) cuts
+    it.</li>
+<li>Under each answer, as icons (hover to see what each one does): <b>Useful</b>, <b>Not useful</b>,
+    <b>Correct…</b> (type the correct answer), <b>Copy</b> and <b>Ask again</b>. If the answer has figures that
+    are not in the project data, an amber card points them out. Below, questions to follow up on what it
+    named.</li>
+<li>The A↓ / A↑ buttons at the top (or <span class="key">&nbsp;Ctrl+-&nbsp;</span> /
+    <span class="key">&nbsp;Ctrl++&nbsp;</span>) change the text size; it is remembered. If the AI is not
+    configured, a notice at the top says so before you type.</li>
+<li><b>Teach it something…</b> leaves a rule or fact of the project, for example «crossings with storm drain are
+    solved by lowering the water line».</li>
+</ul>
+<h2>What it learns</h2>
+<p>Corrections, useful answers, what you teach it and the applied solutions are saved in <b>a single file</b>
+(also the conversations and the texts the AI already wrote, so they are not requested again). What is taught
+applies to all projects: each record says which project and who taught it, and the open project's weigh more. In
+<b>AI → Configure AI…</b>, <b>Training environment</b> chooses which one:</p>
+<ul>
+<li><b>Development (team testing)</b>: <code>entrenamiento_ia/desarrollo.json</code> in the program folder. It is
+    shared through Git within the team and merging does not overwrite it. It also uses production's.</li>
+<li><b>Production (what goes to the client)</b>: it uses <code>entrenamiento_ia/produccion.json</code>, which ships
+    in the installer and the app never changes, and saves what the client teaches on their PC
+    (<code>%APPDATA%/pdf-to-cad/entrenamiento_ia/cliente.json</code>). An update does not delete it; the client can
+    be asked to share it for review. It is the installed program's environment.</li>
+</ul>
+<p>The window shows where it saves. If the project was not saved yet, what was learned moves to it when you save
+it. An old «<i>project name</i> - IA» folder is imported automatically when the project opens. <b>AI → Open
+learning folder</b> opens the folder where it saves.</p>
+<p><b>AI → Move to production…</b> (only in the team version, not the installed one): lists what was taught in
+development, newest first, and marks with ✔ what is already in production. Check the good teachings and press
+<b>Move to production</b>; you can also move the already written texts of standards and the manual. Conversations
+are never moved. <b>Remove from production</b> takes out the checked ones. Then push
+<code>produccion.json</code> with Git so it goes in the next installer.</p>
+<h2>Solve conflicts</h2>
+<p><b>AI → Solve conflicts…</b> (or right-click next to a C-n mark on the plan → «Solve C-n: see solutions…»)
+lists the conflicts. When you choose one:</p>
+<ul>
+<li>The app computes the possible solutions: in a crossing or clash at the same elevation, lower or raise one of
+    the two utilities just enough so they do not touch (and with the clearance the design standards ask for); in a
+    step, match the incoming and outgoing elevations.</li>
+<li>Each solution is <b>tested</b> on a copy of the project: ✔ if the conflict disappears without creating other
+    problems, ✖ and which ones if not.</li>
+<li>The AI recommends one (★) and explains why. It can only choose among those that passed the test.</li>
+<li><b>Apply the chosen proposal</b> changes the elevations in one step: <span class="key">&nbsp;Ctrl+Z&nbsp;</span>
+    undoes it. What was applied is kept in what the AI learns from the project.</li>
+</ul>
+<p>Conflicts that are fixed by changing the drawing (5 or more pipes at one point, short segments between bends…)
+have no automatic solution: the window explains what to do.</p>
+<h2>What does this rule mean?</h2>
+<p>In <b>Design standards → Design standards</b>, Rules tab, choose a row and press <b>Explain with AI</b>: the AI
+explains it in plain words under the table. The answer is saved: when you choose that rule again it appears at
+once, without asking again. If you change the rule, you can ask again.</p>
+<h2>Report written by the AI</h2>
+<p>With the AI configured, the <b>Automatic report</b> comes with the summary, each zone and each sheet written by
+the AI. Each text is checked: if it has a figure that is not in its sheet, that sheet uses the template. What was
+already written is saved in the same folder, so repeating the report is immediate. If the server does not answer,
+the report comes out anyway: with what was already written and templates for the rest. The bar shows «The AI
+writes the report» and it can be canceled.</p>
+</section>
 
 <section data-title="3D view">
 <p>To see what <b>Civil 3D will build</b> without exporting: <b>View → 3D view</b>
@@ -1000,8 +1136,9 @@ you edit. When it opens, the project is saved just in case (if it has no file ye
     at a bend Wye + short pipe + elbows; the arm toward the utility follows its slope) and the marks of the standards warnings (amber) and of the <b>conflicts</b> (red, with their C-n number; click = their sheet).</li>
 <li>The <b>ground</b>, semi-transparent, to see what is underground.</li>
 <li>With <b>«Angles and slopes per segment»</b> (Show), a label with the slope of each segment and another with
-    the angle of each bend on every utility. When you pick a utility, its card shows its slope (or the slope of
-    each segment if it changes).</li>
+    the angle of each bend on every utility. As on the plan, from afar only the labels of the segments you can
+    read appear and, of the ones that overlap, one (the selected item's first); zooming in brings out the rest.
+    When you pick a utility, its card shows its slope (or the slope of each segment if it changes).</li>
 <li>Built for modest computers: pipes, fittings and marks are sent to the graphics card as copies of a few
     pieces (with OpenGL 3.3, almost any PC since 2012), so the view uses about ten times less memory; on an
     older computer it looks the same with the previous method.</li>
@@ -1009,7 +1146,7 @@ you edit. When it opens, the project is saved just in case (if it has no file ye
 
 <h2>Moving around</h2>
 <table width="100%" cellspacing="4" cellpadding="8">
-<tr><td bgcolor="{{card}}" width="40%">Wheel</td><td bgcolor="{{card}}">Zoom in / out toward the cursor</td></tr>
+<tr><td bgcolor="{{card}}" width="40%">Wheel</td><td bgcolor="{{card}}">Zoom in / out toward the cursor (it stops 1 ft from the pipe; with nothing underneath, it keeps moving forward)</td></tr>
 <tr><td bgcolor="{{card}}">Double-click the wheel</td><td bgcolor="{{card}}">Zoom to all</td></tr>
 <tr><td bgcolor="{{card}}">Middle button (or right, or Ctrl + left) and drag</td><td bgcolor="{{card}}">Pan</td></tr>
 <tr><td bgcolor="{{card}}">Shift + middle button (or left) and drag</td><td bgcolor="{{card}}">Orbit</td></tr>
@@ -1024,6 +1161,18 @@ ring to orbit.</p>
 to in 3D. Every time you open the window it starts in <b>plan</b> (top view) with everything in view. <b>Esc</b> clears the
 selection (it does not close the window). When hovering, the bottom line says what it is (number, diameter, inverts, type; or manhole sump and
 rim; or the warning).</p>
+
+<h2>Editing a utility from 3D</h2>
+<p>With a pipe selected, <b>Edit</b> appears below its sheet: the <b>diameter</b> (the same options as the plan's
+panel) and one row per segment (<b>T1</b>, <b>T2</b>… as on the plan) with the <b>start</b> invert, the <b>end</b>
+invert and the <b>slope</b>. The start of T1 is the start invert and the end of the last segment, the end invert.
+Type the invert (or <span class="key">&nbsp;↑&nbsp;</span> <span class="key">&nbsp;↓&nbsp;</span> change it 0.10 ft) and the
+slope updates right away; the 3D view shows the change at once (even with thousands of utilities: only that
+utility, its neighbors and its fittings are rebuilt) and the real change is applied when you stop or press Enter, on
+the plan (inverts and «Inverts per segment» table). Warnings and conflicts in 3D catch up a few seconds later. Changing an intermediate invert turns on per-segment editing for that utility, like the
+plan's button. Clicking a row highlights that segment on the plan. <span class="key">&nbsp;Ctrl+Z&nbsp;</span> undoes
+it (from the 3D view too). Selecting something in 3D selects it on the plan without bringing the main window to the
+front, so <b>Esc</b> keeps working here.</p>
 
 <h2>Attribute sheet</h2>
 <p>Click a pipe, a fitting (bend, tee, wye…) or a manhole: its <b>sheet</b> appears at the top of the right

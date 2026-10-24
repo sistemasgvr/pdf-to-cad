@@ -14,7 +14,12 @@ from traduccion.i18n import t as _tr
 class Vista3DMixin:
     def abrir_vista3d(self):
         from ui.dialogos import vista3d_dialog
-        self._resultados_al_dia()                       # calculo_fondo: nada a medio calcular
+        if getattr(self, "_provisional", False):        # calculo_fondo: nada a medio calcular (con aviso)
+            from ui.comun import busy
+            with busy.busy(self, _tr("Actualizando conflictos y avisos…")):
+                self._resultados_al_dia()
+        else:
+            self._resultados_al_dia()
         self._guardar_antes_de_3d()
         return vista3d_dialog.abrir(self)
 

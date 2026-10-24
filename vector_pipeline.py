@@ -1597,9 +1597,12 @@ def recolor_abandoned(msp, dxf, T):
 # ─────────────────────────────────────────────────────────────────────────────
 # Entrada principal de la ruta vectorizada
 # ─────────────────────────────────────────────────────────────────────────────
-def run(page, dxf_doc):
+def run(page, dxf_doc, avance=None):
     """Procesa una página vectorizada sobre un documento ezdxf abierto.
-    Devuelve dict con métricas."""
+    Devuelve dict con métricas. `avance(etapa, i=None, n=None)` (opcional): por dónde va (la barra de
+    la app); no cambia nada."""
+    av = avance if avance is not None else (lambda *a: None)
+    av("escala")
     scale = detect_scale(page)
     T = CoordTransform(page, scale)
     msp = dxf_doc.modelspace()
@@ -1611,6 +1614,7 @@ def run(page, dxf_doc):
 
     # Zonas de exclusión por contenido (leyenda de pothole + membrete de título):
     # su geometría y anotación NO se digitalizan. La metadata del membrete SÍ se lee.
+    av("zonas")
     zones = build_exclusion_zones(page)
     if zones:
         tags = ", ".join(sorted({t for t, _ in zones}))
@@ -1624,12 +1628,18 @@ def run(page, dxf_doc):
     if not has_ocg:
         print("   PDF vectorial APLANADO (sin capas OCG) -> clasificación por color")
 
-    for path in paths:
+    n_paths = len(paths)
+    for k, path in enumerate(paths):
+        if avance is not None:
+            avance("procesar", k, n_paths)
         process_path(collector, path, dxf_doc, T, has_ocg, text_boxes, zones)
+    av("unir")
     n_geom = collector.flush(msp, dxf_doc, T)
 
+    av("textos")
     is_annotation = build_text_filter(page, zones, [])
     n_text = add_text(msp, page, dxf_doc, T, is_annotation)
+    av("otros")
 
     # Metadata del membrete -> XDATA en capa METADATA (el cajetín no se dibuja).
     add_metadata_entity(msp, dxf_doc, T, page, metadata)

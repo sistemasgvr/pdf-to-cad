@@ -43,6 +43,9 @@ _VERT, _FRAG = SH.VERT, SH.FRAG
 
 RADIO_MIN_PX = 1.0      # tuberías: radio mínimo en pantalla (~2 px de ancho; no desaparecen al alejar)
 DIST_MIN_FT = 1.0       # el zoom se detiene a esta distancia de la superficie bajo el cursor (no la atraviesa)
+VACIO_FRAC = 0.02       # sin nada bajo el cursor: más cerca que esto × el modelo del objetivo, se AVANZA
+AVANCE_MIN_FT = 0.5     # al avanzar en el vacío, nunca menos que esto por clic (si no, parecía trabado)
+R_ELEGIR = 0.006        # radio para señalar (× distancia al objetivo, ~7 px): una tubería fina de lejos
 ZOOM_PASO = 0.95        # cada «clic» de la rueda acerca un 5 % (8 % y 15 % eran muy sensibles)
 GIRO_DEG_PX = (0.22, 0.16)   # grados de giro por píxel arrastrado (horizontal, vertical)
 DESPLAZAR = 0.6         # el modelo se mueve el 60 % de lo que se mueve el ratón (1:1 era muy sensible)
@@ -128,11 +131,16 @@ class Visor3D(QOpenGLWidget):
         self._anim = None
         self._t_anim = QtCore.QTimer(self, interval=ANIM_MS // ANIM_PASOS, timeout=self._animar_paso)
         self._pos_hover = None
+        self.ver_rotulos = False            # pendientes y ángulos por tramo (la escena los trae siempre)
+        self._capa_rot = self._capa_etq = None
 
     # ── datos ──
     def set_escena(self, escena, encuadrar=False):
         self.escena = escena
         self._sucio = True
+        self._capa_rot = etiquetas3d.Capa(getattr(escena, "rotulos", None) or [],
+                                          getattr(escena, "rotulos_largos", None), rotulo=True)
+        self._capa_etq = etiquetas3d.Capa(getattr(escena, "etiquetas", None) or [])
         if encuadrar and escena is not None and not escena.vacia:
             self.encuadrar()
         self.update()
@@ -291,12 +299,16 @@ class Visor3D(QOpenGLWidget):
         p.setUniformValue("uResalte", QtGui.QVector4D(r.redF(), r.greenF(), r.blueF(), 1.0))
 
     def _dibujar_etiquetas(self, pintor):
-        """Número de cada conflicto («C-n») junto a su esfera, encima del modelo."""
+        """Pendientes y ángulos (si están a la vista) y el número de cada conflicto («C-n») junto a su
+        esfera, encima del modelo: solo los que se leen (nivel de detalle y sin taparse, `etiquetas3d.Capa`)."""
+        if self._capa_etq is None:
+            return
         m = _np(self.cam.matriz(self.width() / max(self.height(), 1), self.radio()))
-        etiquetas3d.dibujar(pintor, getattr(self.escena, "rotulos", None) or [], m, self.width(), self.height(),
-                            self.sel_id, self.hov_id, rotulo=True)       # pendientes y ángulos (si están)
-        etiquetas3d.dibujar(pintor, getattr(self.escena, "etiquetas", None) or [], m,
-                            self.width(), self.height(), self.sel_id, self.hov_id)
+        w, h = self.width(), self.height()
+        k_px = (h / 2.0) / math.tan(math.radians(self.cam.fov) / 2.0)
+        if self.ver_rotulos:
+            self._capa_rot.dibujar(pintor, m, w, h, k_px, self.sel_id, self.hov_id)
+        self._capa_etq.dibujar(pintor, m, w, h, k_px, self.sel_id, self.hov_id)
 
     # ── elegir ──
     def rayo(self, x, y):
@@ -312,7 +324,7 @@ class Visor3D(QOpenGLWidget):
         if self.escena is None or not len(self.escena.picks) or not len(self.escena.picks[3]):
             return 0
         o, d = self.rayo(x, y)
-        return M.elegir(self.escena.picks, o, d, r_min=self.cam.dist * 0.006)
+        return M.elegir(self.escena.picks, o, d, r_min=self.cam.dist * R_ELEGIR)
 
     def _hover(self):
         if self._pos_hover is None:
@@ -423,37 +435,50 @@ class Visor3D(QOpenGLWidget):
         d = max(prof if prof is not None else self.cam.dist, PROF_MIN_FT)
         return DESPLAZAR * d * math.tan(math.radians(self.cam.fov) / 2.0) * 2.0 / max(self.height(), 1)
 
-    def _punto_bajo(self, x, y):
+    def _punto_bajo(self, x, y, r_min=0.0, con_choque=False):
         """(punto 3D bajo el cursor, dirección del rayo): la superficie del objeto que hay
-        ahí o, si no hay nada, el plano del objetivo (perpendicular a la vista)."""
+        ahí o, si no hay nada, el plano del objetivo (perpendicular a la vista). `r_min` = radio
+        mínimo para tocar un objeto (pies); con `con_choque`, además si tocó uno."""
         ojo = self.cam.ojo()
         o, d = self.rayo(x, y)
         d = d / np.linalg.norm(d)
         if self.escena is not None and len(self.escena.picks) and len(self.escena.picks[3]):
-            _i, t = M.choque(self.escena.picks, ojo, d)
+            _i, t = M.choque(self.escena.picks, ojo, d, r_min)
             if t is not None and t > 1e-6:
-                return ojo + d * t, d
+                return (ojo + d * t, d, True) if con_choque else (ojo + d * t, d)
         adelante = self.cam.objetivo - ojo
         adelante /= np.linalg.norm(adelante)
         den = float(np.dot(d, adelante))
         s = float(np.dot(self.cam.objetivo - ojo, adelante)) / den if abs(den) > 1e-6 else self.cam.dist
-        return ojo + d * max(s, DIST_MIN_FT), d
+        p = ojo + d * max(s, DIST_MIN_FT)
+        return (p, d, False) if con_choque else (p, d)
 
     def zoom(self, pasos, x=None, y=None):
         """Acercar (pasos > 0) / alejar hacia el punto EXACTO bajo el cursor (la superficie de
         la tubería, o el plano del objetivo si no hay nada), como Civil 3D: la cámara se mueve
         por el rayo del cursor sin girar, y el objetivo (centro de giro) queda a la
         profundidad de ese punto. Se detiene a `DIST_MIN_FT` de la superficie: nunca la
-        atraviesa (antes, en el zoom máximo, cada clic empujaba ~1 % del modelo y saltaba)."""
+        atraviesa (antes, en el zoom máximo, cada clic empujaba ~1 % del modelo y saltaba).
+
+        El objeto se toca con el mismo radio con que se señala (`R_ELEGIR`): una tubería fina vista de
+        lejos ahora SÍ es el destino. Sin nada bajo el cursor, al llegar cerca del plano del objetivo
+        (`VACIO_FRAC` del modelo) la cámara AVANZA con él en vez de quedarse trabada (pedido del usuario
+        2026-10-20: «llega un punto en que ya no puedo hacer zoom o se hace muy lentito»)."""
         cam = self.cam
         ojo = cam.ojo()
         adelante = cam.objetivo - ojo
         adelante /= np.linalg.norm(adelante)
         if x is None or y is None:
             x, y = self.width() / 2.0, self.height() / 2.0
-        p, d = self._punto_bajo(x, y)
+        p, d, toca = self._punto_bajo(x, y, cam.dist * R_ELEGIR, con_choque=True)
         actual = float(np.linalg.norm(p - ojo))
         nueva = actual * (ZOOM_PASO ** pasos)
+        vacio = max(DIST_MIN_FT, self.radio() * VACIO_FRAC)
+        if pasos > 0 and not toca and nueva < vacio:
+            paso = max(cam.dist * (1.0 - ZOOM_PASO ** pasos), AVANCE_MIN_FT * pasos)   # cámara y objetivo juntos
+            cam.objetivo = cam.objetivo + d * paso
+            self.update()
+            return
         if pasos > 0:
             nueva = max(nueva, min(actual, DIST_MIN_FT))
         else:

@@ -66,6 +66,7 @@ class BusyOverlay(QtWidgets.QWidget):
         self._veil = 165
         self._cancel_rect = None
         self._prev_focus = None
+        self._foto = None              # modo «foto» (`begin(foto=True)`): lo tapado, sin volver a dibujarlo
         self.setFocusPolicy(QtCore.Qt.StrongFocus)
         self.setMouseTracking(True)
         self.hide()
@@ -85,13 +86,21 @@ class BusyOverlay(QtWidgets.QWidget):
     def detail(self) -> str:
         return self._stack[-1]["detail"] if self._stack else ""
 
-    def begin(self, text: str, detail: str = "", cancel=None):
+    def begin(self, text: str, detail: str = "", cancel=None, cursor: bool = True, foto: bool = False):
         """Muestra (o apila) un mensaje y pinta la capa en el acto. `cancel` = función:
-        la tarjeta lleva «Cancelar» (trabajo en otro proceso, que se puede cortar)."""
+        la tarjeta lleva «Cancelar» (trabajo en otro proceso, que se puede cortar).
+        `cursor=False`: sin el reloj de arena en TODA la aplicación (la capa tapa solo su
+        widget y lo demás sigue usable, p. ej. la Vista 3D armándose en otro hilo).
+        `foto=True` (barras que avanzan seguido, 2026-10-20): al empezar se toma UNA imagen de lo tapado y se
+        pinta esa; si no, cada repintado de la capa (semitransparente) volvía a dibujar debajo el plano entero
+        (~0.09 s con 16 761 utilidades). Solo para trabajo que no cambia lo de abajo mientras dura."""
         self._stack.append({"text": text, "detail": detail, "done": None, "total": None,
                             "cancel": cancel})
         if len(self._stack) == 1:
             self.setGeometry(self._host.rect())
+            if foto and self._host.isVisible():
+                self._foto = self._host.grab()
+                self.setAttribute(QtCore.Qt.WA_OpaquePaintEvent, True)
             self.show()
             if self._host.isVisible():
                 # el foco a la capa: así el teclado y los atajos no llegan a lo de abajo
@@ -99,7 +108,9 @@ class BusyOverlay(QtWidgets.QWidget):
                 self._prev_focus = QtWidgets.QApplication.focusWidget()
                 self.setFocus(QtCore.Qt.OtherFocusReason)
             self._timer.start()
-            QtWidgets.QApplication.setOverrideCursor(QtCore.Qt.WaitCursor)
+            self._cursor_global = cursor
+            if cursor:
+                QtWidgets.QApplication.setOverrideCursor(QtCore.Qt.WaitCursor)
         self.raise_()                 # por si se agregaron hijos al host después
         self.pump()
 
@@ -133,7 +144,11 @@ class BusyOverlay(QtWidgets.QWidget):
         self._timer.stop()
         self._veil = 165
         self.hide()
-        QtWidgets.QApplication.restoreOverrideCursor()
+        if self._foto is not None:
+            self._foto = None
+            self.setAttribute(QtCore.Qt.WA_OpaquePaintEvent, False)
+        if getattr(self, "_cursor_global", True):
+            QtWidgets.QApplication.restoreOverrideCursor()
         prev, self._prev_focus = self._prev_focus, None
         try:
             if prev is not None and prev.isVisible():
@@ -198,6 +213,8 @@ class BusyOverlay(QtWidgets.QWidget):
         t = _theme.tokens()
         p = QtGui.QPainter(self)
         p.setRenderHint(QtGui.QPainter.Antialiasing)
+        if self._foto is not None:
+            p.drawPixmap(self.rect(), self._foto)
         veil = QtGui.QColor(t.window)
         veil.setAlpha(self._veil)
         p.fillRect(self.rect(), veil)

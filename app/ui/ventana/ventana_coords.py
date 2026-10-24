@@ -7,6 +7,24 @@ los menús, atajos y pruebas siguen usando `win.<método>` como antes.
 from ui.ventana.ventana_comun import *  # noqa: F401,F403  (mismos nombres que app_window)
 
 
+def _contadas(entidades):
+    """Las mismas entidades, en el mismo orden; si alguien escucha el avance (`nucleo.avance`, la barra de la
+    exportación) avisa «encuadre» con cuántas van (medir ~600 mil tarda ~40 s). Mismo recuadro."""
+    from nucleo import avance
+    if not avance.activo():
+        return entidades
+    lista = list(entidades)
+
+    def una_por_una():
+        avance.avisar("encuadre", 0, len(lista))
+        for k, e in enumerate(lista, 1):
+            if not k & 255:
+                avance.avisar("encuadre", k, len(lista))
+            yield e
+        avance.avisar("encuadre", len(lista), len(lista))      # el final (también con menos de 256)
+    return una_por_una()
+
+
 class CoordsMixin:
     # ─────────────────────────── coords ───────────────────────────
     def _to_cad(self, x, y):
@@ -63,7 +81,7 @@ class CoordsMixin:
                 except Exception:
                     ext = None                           # cualquier duda: se mide todo, como antes
             if ext is None:
-                ext = bbox.extents(doc.modelspace())
+                ext = bbox.extents(_contadas(doc.modelspace()))
             if not ext.has_data:
                 return
             cx = (ext.extmin.x + ext.extmax.x) / 2.0
@@ -86,7 +104,7 @@ class CoordsMixin:
             if georef:
                 return None                              # el plano base se transformará: ahora no sirve
             from ezdxf import bbox
-            ext = bbox.extents(doc.modelspace())
+            ext = bbox.extents(_contadas(doc.modelspace()))
             rec = (tuple(ext.extmin), tuple(ext.extmax)) if ext.has_data else (None, None)
             try:
                 CD.guardar_recuadro(clave, *rec)
@@ -110,7 +128,7 @@ class CoordsMixin:
                 nuevas.append(e)
         if quedan != len(handles):
             return None
-        ext = bbox.extents(nuevas)
+        ext = bbox.extents(_contadas(nuevas))
         if minimo is not None:
             ext.extend([minimo, maximo])
         return ext

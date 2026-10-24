@@ -10,6 +10,9 @@ datas = [
     # Documentos por idioma (manual.es.html, manual.en.html): `traduccion.i18n.load_doc`
     # los busca en `_MEIPASS/docs` dentro del bundle (y en app/docs en desarrollo).
     ('app/docs', 'docs'),
+    # Lo que la IA aprendió y se APROBÓ para el cliente (entorno «producción», solo lectura):
+    # `ia.memoria.rutas` lo busca en `_MEIPASS/entrenamiento_ia/produccion.json`.
+    ('entrenamiento_ia/produccion.json', 'entrenamiento_ia'),
 ]
 binaries = []
 # (2026-10-09) La ventana de normativas ya no usa QtWebEngine (normas_dialog.py es Qt
@@ -27,7 +30,8 @@ datas += [('app/icons', 'icons')]
 #     la georreferenciación. Sin empaquetarlos, `import contextily` falla en el .exe
 #     y el basemap no carga nunca (aunque calles y parcelas sí, porque usan pyproj).
 #   - certifi: CA bundle para el HTTPS de los tiles del mapa base.
-for _pkg in ("pyproj", "contextily", "xyzservices", "rasterio", "mercantile", "certifi"):
+#   - docx (python-docx): el Informe automático en Word; su plantilla default.docx va en sus datos.
+for _pkg in ("pyproj", "contextily", "xyzservices", "rasterio", "mercantile", "certifi", "docx"):
     try:
         _d, _b, _h = collect_all(_pkg)
         datas += _d; binaries += _b; hiddenimports += _h

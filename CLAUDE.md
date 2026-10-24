@@ -10,8 +10,8 @@ alcantarillado, drenaje, gas, eléctrico, telecom). Todo en **unidades imperiale
   - `main.py` — punto de entrada (arma `sys.path`: `app/` + raíz).
   - **Carpetas por capa (2026-10-08, en curso)**: `app/nucleo/` = lógica PURA del dominio (sin Qt ni fitz):
     `model`, `model_ops`, `xdata`, `duct_bank`, `unir_utilidades`, `unir_ramales`, `quiebres_curvas`,
-    `accesorios`, `normas_catalogo`, `normas_excel`, `normas_excel_ayuda`, `normas_validar`, `normas_aprobacion`, `tabla_datos`, `tabla_excel`, `conflictos`, `modelo3d`, `mallas3d`, `accesorios3d`, `verticales3d`, `marcas3d`, `ficha3d`, `edicion_bloque`,
-    `limpieza`, `limpieza_tramos`, `vertice_curva`, `conexiones_verticales`, `trazo_asistido`, `angulos`, `indice_plano`, `memo_modelo`, `deshacer`, `reducciones3d`, `rotulos3d`, `diametro_plano`. Se importan
+    `accesorios`, `normas_catalogo`, `normas_excel`, `normas_excel_ayuda`, `normas_validar`, `normas_validar_acc`, `normas_validar_red`, `normas_reglas`, `normas_base`, `normas_migrar`, `normas_excel_v1`, `normas_aprobacion`, `normas_tablas`, `tabla_datos`, `tabla_excel`, `conflictos`, `modelo3d`, `mallas3d`, `accesorios3d`, `verticales3d`, `marcas3d`, `ficha3d`, `edicion_bloque`,
+    `limpieza`, `limpieza_tramos`, `vertice_curva`, `conexiones_verticales`, `trazo_asistido`, `angulos`, `indice_plano`, `memo_modelo`, `deshacer`, `reducciones3d`, `rotulos3d`, `modelo3d_parche`, `edicion3d`, `archivo_zip`, `avance`, `avance_pesado`, `informe_datos`, `informe_redaccion`, `soluciones`, `diametro_plano`. Se importan
     como `from nucleo import model_ops` / `from nucleo.model import …` (nunca `import model_ops`: ese nombre
     ya no existe). Regla: la interfaz usa `nucleo`, `nucleo` NUNCA importa la interfaz (PySide6, `i18n`,
     ventana…; sí `i18n_core`). Más abajo los módulos se nombran sin la carpeta: `model_ops.py` = `app/nucleo/
@@ -24,16 +24,17 @@ alcantarillado, drenaje, gas, eléctrico, telecom). Todo en **unidades imperiale
     `leyenda_cruce`, `leyenda_estandar`, `leyenda_trazos`, `encaje_mapa_base`, `hoja_calcada`, y los de mapas sin capas `pdf_styles`, `texto_pdf`,
     `leyenda_mapa`, `leyenda_mapa_lectura`, `acometidas_mapa` (`from hoja import composite`). Los diálogos y vistas
     del compositor/capas (y `composite_choice`, que usa `i18n`) siguen en `app/`.
+    `app/ia/` (2026-10-23) = la IA, PURA (ver «IA» más abajo).
     `app/catalogo/` = `civil_catalog`, `catalogo_tamanos`, `catalogo_tamanos_presion` (PUROS) y `app/exportar/` =
-    `dxf_export` (NO puro: recibe la ventana `win` y usa `geometry.point_in_poly`; `geometry` importa QtGui).
+    `dxf_export` (NO puro: recibe la ventana `win` y usa `geometry.point_in_poly`; `geometry` importa QtGui) e `informe_word` (Word del informe, sin Qt, python-docx).
     `app/ui/` (mismo día) = TODA la interfaz Qt, en cuatro subpaquetes: `ui/ventana/` (`app_window`, `ventana_*`,
     `ventana_comun`, `respaldo_editor`, `autoguardado`), `ui/asistente/` (compositor, capas de la hoja, leyenda,
     vista previa del reconocimiento y sus vistas: `composite_dialog`/`_view`/`_choice`…, `layer_dialog*` (incl. `layer_dialog_recog`, de dev_santos_v2),
     `layer_info_panel`, `layer_std_legend`, `recognition_dialog` y `recognition_*_view`/`_preview_draw`,
     `wizard_widgets`, `pdf_view_quality`, `alignment_tools`, `tool_strip`…), `ui/dialogos/` (`dialogs`,
-    `normas_dialog`, `tabla_datos_dialog`, `vista3d_dialog`, `edicion_bloque_dialog`, `limpieza_dialog`, `duct_bank_dialog`, `xdata_dialog`, `catalogo_tamanos_dialog`, `manual_dialog`,
+    `normas_dialog`, `normas_tablas_view`, `tabla_datos_dialog`, `informe_dialog`, `ia_chat`, `ia_config_dialog`, `ia_soluciones`, `normas_ia_panel`, `vista3d_dialog` (+ `vista3d_armado`, `vista3d_editor`), `edicion_bloque_dialog`, `limpieza_dialog`, `duct_bank_dialog`, `xdata_dialog`, `catalogo_tamanos_dialog`, `manual_dialog`,
     `shortcuts_dialog`, `blank_canvas_dialog`) y `ui/comun/` (`canvas`, `widgets`, `ui_common`, `theme`, `icons`,
-    `busy`, `responsive`, `side_panels`, `thumbnails`, `workers`, `accesorios_view`, `avisos_view`, `capa_marcas`, `visor3d`, `cubo_vistas`, `fondo_pdf`, `recorte_nitido`, `teselas`, `teselas_hijo`, `teselas_servidor`,
+    `busy`, `responsive`, `side_panels`, `thumbnails`, `workers`, `accesorios_view`, `avisos_view`, `capa_marcas`, `visor3d`, `rotulos3d_lod`, `barra_pesada`, `cubo_vistas`, `fondo_pdf`, `recorte_nitido`, `teselas`, `teselas_hijo`, `teselas_servidor`,
     `teselas_vista`). Se importan como
     `from ui.ventana import app_window`, `from ui.comun import widgets`… OJO rutas de recursos: `icons.py` sube
     TRES carpetas para llegar a `app/icons` (en el .exe usan
@@ -1916,11 +1917,146 @@ alcantarillado, drenaje, gas, eléctrico, telecom). Todo en **unidades imperiale
     antes del `ALIAS`) → problema «HOJA: columna «X» desconocida» (antes se perdía callada). **v4** (2026-10-14):
     `BASE` = «Normativas v4» del ingeniero (copia en `tests/escenarios/normativas_1_3_1.xlsx`) y columna
     `RADIO CURVA FIJO (pies)` (lista, `radio_fijo`: la curva debe ser uno de esos radios ±0.005 ft; con MIN/MAX
-    además el rango). Tests: `tests/test_normas.py`.
+    además el rango). Tests: `tests/test_normas.py`. **Editables en la app** (pedido del usuario 2026-10-20: «que
+    todo sea editable desde la aplicación… la aplicación manda en todo»): `nucleo/normas_tablas.py` (PURO: `TABLAS`
+    con hoja/columnas, `tipo_columna` = utilidad|tipo|accesorio|estructura|numero|lista|texto, `filas(cat, clave)` en
+    texto, `catalogo(textos)` → (cat, problemas por celda) con `normas_excel.armar` —la MISMA lectura que el Excel;
+    `importar` ahora la usa—, `renombrar_tipo`) + `ui/dialogos/normas_tablas_view.EditorTablas` (pestañas editables,
+    `_Delegado` = desplegable donde decide la app: utilidades = `nc.UTILIDADES` = `model.TIPOS`, tipos de la fila
+    según la pestaña Tipos —donde se crean con texto libre—, `nc.NOMBRES_ACCESORIOS`, `nc.ESTRUCTURAS`).
+    `NormasDialog`: «Guardar cambios» (con problemas no aplica nada: celdas en rojo con el motivo), «Descartar
+    cambios», `refrescar` no pisa cambios sin guardar, importar/exportar/cerrar preguntan; renombrar un tipo lo
+    renombra en las demás tablas y en `pipes[i]["tipo"]` del proyecto (`_push`); un tipo agregado con el «+» del
+    panel mientras se editaba se conserva. `armar` (Excel y editor): fila con UTILIDAD que no es de la app o
+    ACCESORIO que no reconoce → problema y no se usa; con `tipos_estrictos` (editor) también un TIPO que no está en
+    TIPOS. `AUX` del Excel = una columna por utilidad de la app. Tests: `tests/test_normas_editor.py`.
+    **UNA tabla de reglas** (2026-10-21, pedido del usuario: «unificar todo… integrada con lo que la app puede
+    validar»; decisiones suyas: condiciones en columnas FIJAS, columna ELEMENTO, «manda el Excel, borrar lo viejo»):
+    catálogo `{"version": 2, "tipos", "reglas"}`. `nucleo/normas_reglas.py` (PURO): `COLUMNAS` = ACTIVA | UTILIDAD |
+    TIPO | ELEMENTO | SI DIAMETRO/AMPERAJE/LARGO MIN-MAX | SI MATERIAL | REVISAR | MIN | MAX | VALORES | CON UTILIDAD
+    | CON TIPO | NIVEL | FUENTE | NOTA; `ELEMENTOS` (TUBERIA, CURVA, BUZON —gravedad—, Y, T, CRUZ, CODO,
+    T - DOMICILIARIA —presión: `accesorios` solo los detecta ahí—, `elementos_de`), `REVISAR` = lista CERRADA
+    (`Revisar`: texto con unidad, elementos, MIN/MAX/VALORES, qué va en VALORES —números, tipos, materiales de
+    `model.PIPE_MATERIALS`, SI/NO—, `con`, redes, utilidades, clase del aviso; `revisar_de(u, e)`), `leer_fila`
+    (MISMA lectura para Excel y editor: lo que la app no contempla = problema por columna y la fila no se usa),
+    `alcance` (reglas con el mismo alcance se SUMAN: basta cumplir una). `nucleo/normas_base.py` = las de fábrica:
+    Excel del ingeniero «Normativas (1).xlsx» (filas 8–11 = ALIMENTACION Y CONDUCCION), gas de antes y lo MEDIBLE de
+    los Word (separaciones agua–alcantarillado/drenaje 10 ft y 1 ft por encima, eléctrico 6"/12", buzones
+    400/500/900 ft, caídas, pendientes de alcantarillado y drenaje MRDC, radios de PVC y conduits, materiales…; lo no
+    medible como «Solo referencia» con FUENTE). `nucleo/normas_migrar.py`: cuatro tablas → reglas (fijo + MIN/MAX
+    eléctricos en UNA regla = las dos cosas; «solo en» repetidos se juntan); el Excel viejo se lee con
+    `normas_excel_v1` (movido tal cual) y un JSON viejo (`cargar`) pasa a las de fábrica + tipos del usuario
+    (respaldo `.v1.json`). Validación: `normas_validar` (tipo, tubería, curvas, buzones; `Datos` con el largo
+    perezoso; reglas por (utilidad, tipo) una vez), `normas_validar_acc` (orden de siempre: se permite → solo en →
+    principal → ramal → ángulo; grupos memorizados por combinación) y `normas_validar_red` (paralelo ≤20°, solape
+    ≥1 ft, entre bordes/ejes; cruce con cotas `z_en_tramo` + `alto_interior_ft`; CUALQUIERA = otra capa; misma
+    utilidad unida —punta a ≤0.1 ft— no cuenta; conexiones verticales aprobadas tampoco —`validar(conexiones=)`—;
+    «llega a» por la punta). Sin cotas no hay pendiente/caída/cruce. `Aviso.nivel`/`fuente`; ERROR = insignia
+    roja (`avisos_view`). NOTA de un diámetro = información si solo la cumplen reglas con nota (como «SOLO SE
+    PERMITE EN»). Aprobación: `huella(p, clase)` suma material o cotas solo en sus clases nuevas. Excel
+    (`normas_excel`): INSTRUCCIONES, TIPOS (+ AUX), REGLAS y LISTAS oculta con nombres definidos `E_<UTIL>` y
+    `R_<UTIL>_<ELEMENTO>` (desplegables dependientes por INDIRECT; error «stop»; verificado en Excel real con
+    `Validation.Value`). Editor (`normas_tablas` + `normas_tablas_view`): pestañas Tipos y Reglas, `opciones(col,
+    fila, tipos)`, filtro por utilidad, globo = `frase`. Verificado: con las reglas viejas pasadas, avisos IGUALES al
+    validador viejo en 400 casos al azar (de fábrica y Excel v4) y en AGUA 2 (0.13 → 0.2 s); con el Excel nuevo
+    solo cambian los de ALIMENTACION (el viejo miraba la primera fila de cada accesorio). Tests:
+    `tests/test_normas.py`, `tests/test_normas_editor.py`, `tests/test_normas_reglas.py`.
   - **Tabla de datos** (2026-10-09, Herramientas, Ctrl+Shift+T, botón `_act_tabla` `mdi:table-large`):
     `nucleo/tabla_datos.py` (PURO: `armar(...)` → `Tabla` utilidades/buzones/curvas/bancoductos/avisos, con
     `lugares` para ir al plano; `exportar_excel` una hoja por tabla) + `ui/dialogos/tabla_datos_dialog.py` (no
     modal, buscar, ordenar —`_Item` compara números como números—, doble clic → `Main._ir_a_elemento`).
+  - **Informe automático** (2026-10-23, Herramientas → «Informe automático…», `Main.generar_informe(ruta=,
+    opciones=)` de `ui/ventana/ventana_informe.InformeMixin`): Word (.docx, python-docx: en `requirements.txt` y en
+    el `collect_all` de `PDF-a-CAD.spec`) con conflictos y/o avisos de normativa (`ui/dialogos/informe_dialog`:
+    qué incluir + capturas 2D / 3D / ambas, QSettings `informe/*`). Cadena: `nucleo/informe_datos.armar` (PURO:
+    FICHAS = dicts con lo que la app ya midió —id C-n / N-n, clase, título, nivel, utilidades con código, tipo,
+    diámetro, material y cota, valores, mensaje, fuente, aprobación—; «sin tipo» solo se cuenta; ZONAS por celdas
+    de `ZONA_FT`=150 que se doblan hasta ≤`MAX_ZONAS`=40, caja con margen y proporción `ASPECTO`) → capturas
+    (`ui/ventana/informe_capturas`: `Captura2D` = otra QGraphicsView sobre la MISMA escena, mostrada con
+    `WA_DontShowOnScreen` —sin mostrarse no toma su tamaño y el encuadre sale corrido—, `fitInView` + `render` a
+    1.5×, JPG 75; `mapa` = todo con las zonas numeradas; `Captura3D` = abre la Vista 3D, espera la escena, cámara
+    isométrica encuadrada en la zona, `grabFramebuffer`, repone la cámara; sin pantalla no hay 3D y el Word lo
+    dice) → `nucleo/informe_redaccion` (PURO: interfaz `Redactor` resumen/zona/ficha; `RedactorPlantilla` o, con IA, `ia/redactor_ia.RedactorIA` (ver «IA»)
+    con `CONSEJOS` «Qué hacer»; `crear(config)` por `ia/proveedor` de QSettings —lo demás cae a la plantilla con
+    motivo—; `datos_para_ia(ficha)` = el JSON que recibirá la IA, ver `docs/pendientes_ia.md`) →
+    `exportar/informe_word.escribir` (anexo hasta `ANEXO_MAX`=1000 filas). Barra precisa `barras_carga.informe`
+    (`MS_INFORME` medidos con AGUA 2; etapas informe_datos/mapa/2d/3d_armar/3d/zonas/anexo/guardar). AGUA 2
+    (16 762 utilidades, 171 conflictos, 18 zonas) con capturas 2D: ~3 s, ~7 MB. Nada cambia en el proyecto.
+    Avisos del RECONOCIMIENTO (`diametro_plano`, clase «grosor», de dev_santos_v2) APARTE (decisión del usuario
+    2026-10-24): fichas `tipo` «reconocimiento» R-n, fuera de zonas y conteos de normativa, sección propia en el
+    Word, casilla `Opciones.reconocimiento`.
+    **En segundo plano** (pedido del usuario 2026-10-23: «no debería bloquear el trabajo»): `generar_informe` arma
+    un GENERADOR de pasos (`_pasos_informe`) que corre `ui/comun/trabajo_pasos.TrabajoPasos` (`yield` = ceder a la
+    ventana; `("hilo", fn)` = IA y Word en un hilo con `nucleo.avance` reenviado; `("esperar", cond, s)` = la escena
+    3D sin bloquear: `Captura3D.abrir/lista/comprobar`); la barra es `AvancePesado(capa=ui/comun/tarjeta_avance.
+    CapaTarjetas)`: tarjeta abajo a la derecha con «Cancelar» (`cancelar_informe`), que NO tapa la ventana, y
+    `capa.agregar(dlg3d)` la repite en la Vista 3D. Uno a la vez (`_informe_en_curso`); abrir otro proyecto lo
+    cancela (`_ia_soltar`). Con `ruta` (pruebas) espera el final y devuelve la ruta.
+    Tests: `tests/test_informe.py`.
+  - **IA** (2026-10-23, menú IA: «Pregúntale al proyecto…» Ctrl+Shift+I + botón `mdi:chat-question-outline`,
+    «Configurar IA…», «Abrir carpeta de aprendizaje»; `docs/pendientes_ia.md`). Regla: los NÚMEROS los pone la app,
+    la IA solo redacta; lo que escribe se revisa (`ia/texto.no_respaldados`: cifras que no están en los datos) y, si
+    falla o no responde, sale la plantilla. `app/ia/` (PURO, solo biblioteca estándar): `proveedor` (`Config` de
+    QSettings `ia/proveedor|url|modelo|paralelo` vía `Main._config_ia`; interfaz `Proveedor.chat(mensajes, sistema,
+    json, al_texto, maximo, cancelado)`/`modelos`/`probar`; `Ollama` = /api/chat en trozos NDJSON, `think: false`,
+    `num_ctx` 16384; Claude = escribir `Anthropic(Proveedor)` y sumarlo a `PROVEEDORES`, nada más cambia),
+    `memoria` (lo APRENDIDO, desde 2026-10-23 en UN JSON; ENTORNOS (2026-10-24, «Configurar IA…» → «Entorno de
+    entrenamiento», QSettings `ia/entorno`, `M.configurar` desde `Main._config_ia`; por defecto .exe = producción,
+    repo = desarrollo; `rutas()` → (escribe, [solo lectura])): DESARROLLO escribe `entrenamiento_ia/desarrollo.json`
+    del repo (Git) y lee `produccion.json`; PRODUCCIÓN lee `entrenamiento_ia/produccion.json` (en el instalador:
+    `PDF-a-CAD.spec` → `_MEIPASS/entrenamiento_ia`; NUNCA se escribe) y escribe lo del cliente en
+    `%APPDATA%/pdf-to-cad/entrenamiento_ia/cliente.json` (no se borra al actualizar). `Memoria.bases` = los de solo
+    lectura (registros y redacción juntan por id). `PDFCAD_ENTRENAMIENTO_IA` (+ `_BASE`) para pruebas (conftest a
+    tmp). PASAR A PRODUCCIÓN (2026-10-24, IA → «Pasar a producción…», solo sin `sys.frozen`):
+    `ia/produccion.py` (PURO: `almacenes()` = desarrollo + producción del repo, `lista`, `redaccion_general` —ámbito
+    normas/ayuda—, `pasar(ids, con_redaccion)` copia enseñanzas con su id, `quitar` escribe sin juntar) +
+    `ui/dialogos/ia_produccion_dialog.py` (casillas, «Solo las que faltan», ✔ en producción); conversaciones nunca.
+    Tests: `tests/test_ia_produccion.py`; secciones
+    `ensenanzas` y `conversaciones` (listas ORDENADAS por `id` uuid, con autor y proyecto: Git junta sin conflicto)
+    y `redaccion` {clave: texto, ámbito proyecto/normas/ayuda}; `Almacen` relee si cambió el archivo (lo del disco
+    manda) y junta por id antes de escribir (atómico); roto = `error`, no se pisa. Enseñanzas para TODOS los
+    proyectos, las del mismo ×1.5 al buscar; `notas()` solo del proyecto; lo de antes de guardar pasa al proyecto en
+    `vincular`; `importar_carpeta` trae la carpeta vieja «<proyecto> - IA»; `buscar` = palabras en común pesadas
+    por rareza, notas y correcciones ×1.5, las «no útil» no vuelven), `contexto` (`DatosProyecto.armar(pipes, fichas, ft)`: resumen por
+    utilidad + una línea por utilidad y por ficha + `refs` código → lugar; `seleccionar(pregunta)` por códigos,
+    zona, utilidad nombrada —`SINONIMOS`— y palabras; AGUA 2: 0.8 s una vez, pedido ~3–4 mil tokens), `consulta`
+    (`armar_pedido`, `preguntar` → `Resultado` con referencias y `sin_respaldo`, `valorar`/`corregir`/
+    `ensenar_nota`), `redactor_ia` (`RedactorIA(Redactor)`: `verificar` (servidor y modelo) + `preparar(informe,
+    sin_red=)` ANTES del Word, lotes de `LOTE`=8 fichas por zona en `ThreadPoolExecutor(paralelo)`, JSON
+    `{"zona", "fichas"}`, revisión de cifras por ficha, fuente/aprobación las agrega la app, hasta `MAX_FICHAS_IA`
+    (las más graves), clave de caché = modelo + versión del prompt + idioma + ficha + notas del equipo; `crear` no
+    toca la red). Ventana: `ui/ventana/ventana_ia.IAMixin` (`_ia_memoria`, `_ia_al_guardar` en `_write_project`,
+    `_ia_soltar` al abrir/nuevo/cerrar, `_ia_datos` cacheado por `_firma_modelo`, `_ia_ir_a` → `_ir_a_elemento`),
+    `ui/dialogos/ia_chat.PreguntaDialog` (no modal, hilo + señales, respuesta en vivo, enlaces `ref:`/`util:`/
+    `noutil:`/`corr:`/`copiar:`/`repetir:`/`preg:`, sugerencias, «Enseñarle algo…»; pautas UX/UI 2026-10-23: HTML en
+    `ia_chat_html` —burbujas Tú/IA con hora y modelo, códigos como fichas, cifras en tarjeta ámbar, acciones = iconos
+    `ico:` con globo (`VistaChat.loadResource`/`event`, `TIPS`), «Pensando… N s» (`RELOJ_MS`), preguntas para seguir;
+    contraste ≥4.5:1 en los dos temas (`contraste`, test)—, Esc = Detener, letra A↓/A↑ en QSettings `ia/chat_letra`,
+    aviso arriba sin IA configurada) y `ia_config_dialog` (Buscar modelos, Probar; Claude
+    deshabilitado). Informe: `ventana_informe._redactar_con_ia` en `en_hilo` cancelable; servidor caído → lo ya
+    redactado + plantilla. Barra: etapa `informe_ia` (`barras_carga.MS_LOTE_IA`). Pruebas con un Ollama SIMULADO
+    (`tests/ollama_falso.py`): `tests/test_ia.py`.
+    **Resolver conflictos** (punto 3, mismo día; IA → «Resolver conflictos…», clic derecho junto a una C-n →
+    `SolucionesMixin._menu_conflicto`): la APP propone (`nucleo/soluciones.py`, PURO: cruce/choque —y «redes», cuyas
+    dos utilidades busca `_con_utilidades`— = bajar/subir UNA utilidad ENTERA, `desplazar_cotas` = mismo perfil, lo
+    justo para no tocarse + las separaciones `sep_v/encima/debajo` de las normativas entre esas utilidades;
+    escalón = igualar salida/llegada con `edicion3d.aplicar_cota`; lo demás sin propuesta) y PRUEBA cada una
+    (`ui/ventana/ventana_soluciones.py`: zona = la utilidad que cambia + las que tocan su recuadro +`MARGEN_FT`,
+    `calculo_fondo.Calculo` antes/después con índices remapeados, firmas de conflictos y avisos de normativa, más
+    `soluciones.uniones_rotas`; válida = el conflicto desaparece y nada nuevo; AGUA 2 0.1–0.2 s por conflicto);
+    `ia/soluciones_ia.recomendar` («RECOMENDADA: Pn», solo una válida, cifras revisadas, caché en `redaccion`
+    por ficha sin id/zona + propuestas; `aprender` = enseñanza `SOLUCION`); `ui/dialogos/ia_soluciones.py`
+    (lista, propuestas ✔/✖, recomendación en vivo, «Aplicar» = `aplicar_propuesta`: `_push` + `_tras_editar_3d`).
+    **«¿Qué significa esta regla?»**: `ia/explicar_norma.py` (caché GLOBAL junto al catálogo,
+    `dirname(nc.ruta())/ia/redaccion.jsonl`, clave = celdas + idioma + versión, sin el modelo) +
+    `ui/dialogos/normas_ia_panel.PanelExplicacion` bajo la tabla de Reglas (guardada = al instante, botón
+    apagado). Tests: `tests/test_ia_soluciones.py`.
+    **«¿Cómo hago…?» en el Manual** (Ayuda, 2026-10-23): `ia/ayuda_manual.py` (PURO) parte el manual en trozos por
+    capítulo/subtítulo (≤`MAX_TROZO`), BM25 sobre raíces cortadas a `PREFIJO`=5 letras («dibujo» ≈ «dibujar»), la IA
+    recibe ≤`MAX_CONTEXTO` caracteres y `MAXIMO_TOKENS`; caché por pregunta normalizada + idioma + huella del manual
+    en `dirname(nc.ruta())/ia/ayuda/`. `ui/dialogos/manual_ia_panel.PanelAyudaIA` arriba de `ManualDialog`
+    (capítulos al instante como enlaces `cap:N`, respuesta en vivo, «Detener»); al abrir, `Proveedor.calentar`
+    (Ollama: /api/generate sin texto, mismo `num_ctx`) deja el modelo cargado. Tests: `tests/test_ia_ayuda.py`.
   - **Vista 3D** (2026-10-10, Ver → «Vista 3D», F3, botón `_act_3d` `mdi:cube-outline`, clic derecho → «Ver en
     3D»): lo que Civil 3D va a construir, sin exportar. `nucleo/modelo3d.py` (PURO) `construir(pipes, structures,
     ft, colores, duct_banks, cruces, avisos, choques, ocultas, ver, suelo_z)` → `Escena` (mallas numpy de
@@ -1987,7 +2123,10 @@ alcantarillado, drenaje, gas, eléctrico, telecom). Todo en **unidades imperiale
     Civil 3D (rueda = zoom hacia el punto EXACTO bajo el cursor —superficie de la tubería, `mallas3d.choque`, o el
     plano del objetivo—: la cámara se mueve por el rayo sin girar, el objetivo queda a la profundidad de ese punto
     y se detiene a `DIST_MIN_FT`=1 ft de la superficie, nunca la atraviesa (antes, en el zoom máximo, cada clic
-    empujaba ~1 % del modelo y saltaba); desplazar = 60 % del ratón (`DESPLAZAR`) a la PROFUNDIDAD de lo agarrado
+    empujaba ~1 % del modelo y saltaba); desde 2026-10-20 («ya no puedo hacer zoom o se hace muy lentito») el objeto
+    se toca con el radio de señalar (`R_ELEGIR`×dist, ~7 px: una tubería fina de lejos no se tocaba y el zoom iba al
+    plano del objetivo, donde se trababa) y, sin nada bajo el cursor, al llegar a `VACIO_FRAC`×radio del plano la
+    cámara AVANZA con el objetivo (5 % de la distancia, mínimo `AVANCE_MIN_FT`); desplazar = 60 % del ratón (`DESPLAZAR`) a la PROFUNDIDAD de lo agarrado
     al apretar (`_prof_agarre`; antes un piso del 0.5 % del modelo lo disparaba de cerca); doble clic central = encuadrar todo; central =
     desplazar, Shift + central = girar; izquierdo = girar, derecho/Ctrl = desplazar). La cámara NO se recuerda:
     `abrir` → `visor.reiniciar()` si la ventana estaba cerrada. Zoom 5 % por clic (`ZOOM_PASO`=0.95; 15 % y 8 % eran muy
@@ -2014,6 +2153,54 @@ alcantarillado, drenaje, gas, eléctrico, telecom). Todo en **unidades imperiale
     `_write_project`; sin archivo → `autoguardado.guardar_ahora()` (copia de recuperación), NUNCA «Guardar como».
     Ajustes en QSettings «pdf-to-cad»/«vista3d». Sin OpenGL 2.1 la ventana lo dice (no se cae; offscreen arma la
     escena sin dibujar). Tests: `tests/test_vista3d.py`.
+    **Barra de carga** (pedido del usuario 2026-10-20: con 16 762 utilidades ~30 s sin decir nada):
+    `nucleo/avance3d.Avance3D` (PURO) = UNA barra en milésimas pesada por lo que tarda cada parte (unidades ×
+    ms medidos: buscar accesorios 0.17/utilidad, cada accesorio 0.85, cada utilidad 0.52, buzones 0.3, final
+    8 %; los accesorios se estiman hasta saber cuántos hay; nunca retrocede; avisa cada `CADA_S`) por
+    `nucleo.avance`; `construir` la alimenta (`acc.accesorios(avance=)`, `_accesorios(avance=)`, bucles de
+    utilidades y buzones). `_Trabajo.run` escucha en su hilo y emite `senales.avance`; la PRIMERA escena tapa
+    el visor con `busy` (`_capa_carga`, `begin(cursor=False)`: sin reloj de arena en toda la app; el panel y el
+    plano siguen usables) y `_avance` pone barra y «… · N %»; las actualizaciones al editar solo el % en la
+    línea de estado. `abrir_vista3d`: si el cálculo de fondo está a medias, su espera con «Actualizando
+    conflictos y avisos…». Medido AGUA 2: a la mitad del tiempo la barra marca ~46 %. Escena bit a bit igual
+    (foto 7 casos). Tests: `test_armar_avisa_un_avance_…`, `test_al_abrir_la_vista_3d_muestra_la_capa_…`.
+    `Avance3D` es una `nucleo/avance_pesado.Barra` (PURA, reutilizable: partes con costo estimado, `parte(nombre,
+    fracción)`, `costo` corrige, nunca retrocede). **Barra de la EXPORTACIÓN a DXF** (mismo pedido):
+    `ui/ventana/exportar_avance.AvanceExportacion` (capa `busy` «Exportando a DXF…» sobre la ventana; costos en
+    ms por unidad medidos con AGUA 2 en `costos()`; recibe CLAVES de etapa con «i de n» por `nucleo.avance`:
+    `digitize.main(avance=)`/`vector_pipeline.run(avance=)` —trazos, escala, zonas, procesar i/n, unir, textos,
+    otros, guardar, validar; solo avisos, nada cambia— vía `PipelineWorker.progreso`; `exportar/dxf_lectura.leer`
+    (= `ezdxf.readfile` con el mismo documento: bytes leídos mirados desde otro hilo + `factory.bind` contado);
+    `dxf_rapido.guardar` (entidades, si alguien escucha); `ventana_coords._contadas` (encuadre); `dxf_export`
+    (utilidades). `en_hilo.ejecutar(avance=)` pasa los avisos de su hilo a la ventana. Etapa sin «i de n» =
+    avanza sola por lo estimado hasta 90 % (`TOPE_SOLA`). Los avisos van cada 512 entidades (cada una costaba ~5 %
+    al leer). Digitalizar ya no usa el QProgressDialog «Procesando»: tarjeta «Digitalizando el plano…» con
+    Cancelar (`_cancelar_digitalizacion` cierra la barra; `_abrir_avance_export`/`_cerrar_avance_export` en
+    TODA salida). Verificado: leer/guardar con avance = mismo archivo (3 DXF, incl. el base de 132 MB). Tests:
+    `test_exportar_rapido.py::test_barra_pesada_…`, `test_exportar_muestra_una_barra_…`.
+    **Barra común** (2026-10-20, 2.º pedido): `ui/comun/barra_pesada.AvancePesado(host, partes, textos)` —
+    `abrir`/`cerrar` (o `with`), `recibir(clave, i, n, pump)`, `escuchar()`, `terminada`, `costos_nuevos`; las
+    etapas van EN ORDEN (empezar una completa las anteriores), una sin «i de n» avanza sola hasta `TOPE_SOLA`,
+    repinta como mucho cada `PINTAR_S`. `AvanceExportacion` es una subclase. La capa va en modo FOTO
+    (`busy.begin(foto=True)`: una imagen de lo tapado + `WA_OpaquePaintEvent`; cada repintado 0.09 → 0.003 s
+    con AGUA 2 porque ya no redibuja el plano debajo). `nucleo.avance.avisar`: el último aviso (i = n) pasa
+    siempre. Costos y textos en `ui/ventana/barras_carga.py` (medidos con AGUA 2): ABRIR (`nucleo/archivo_zip.
+    leer` por bloques en `en_hilo`; la imagen y su copia en grises EN la ventana —QImageReader no suelta el GIL:
+    en un hilo la barra tampoco avanzaba—; nada de la ventana se toca hasta tener todo leído: un archivo roto no
+    cierra lo abierto), GUARDAR (`archivo_zip.escribir` = el mismo zip que `writestr`, deflate por bloques en
+    `en_hilo(relanzar=True)`), REVISAR Y LIMPIAR (`limpieza.limpiar` avisa duplicadas/cortas/puntas/tramos/
+    sueltas), TABLA DE DATOS (`tabla_datos.armar`/`tabla_vertices` avisan; celdas por bloques, ordenar y columnas
+    por tabla; `armar(solo_pipes=)` para la ficha 3D) y su EXCEL (`tabla_excel.exportar` avisa filas, celdas
+    verdes y las filas que escribe openpyxl al guardar —`_contando_filas`, `WorksheetWriter.write_row`—). Trabajo
+    en Python puro va EN la ventana con `escuchar()` (en un hilo competía con los repintados: Excel 20 → 44 s).
+    RECÁLCULO DE FONDO: `ui/ventana/calculo_avance.AvanceCalculo` = barra chica en la barra de estado + texto;
+    partes cruces/accesorios (a la vez: cada una pesa la mitad del más largo) avanzan solas por tiempo y con lo
+    que avisa su proceso (`calculo_fondo.PESOS` por clave de `_memo`), y «dibujo» antes del redibujo final.
+    `en_hilo.ejecutar(relanzar=True)` lanza la excepción original. Medido AGUA 2: abrir 6.1 s (antes 9.9), guardar
+    4.9 s (8.2), revisar 3.2 s, Tabla 12.9 s, Excel 21 s; la barra sigue al tiempo real (±10 %), salvo pasos que
+    traban la ventana (decodificar la imagen, el redibujo final de los avisos: ~2–4 s quieta con su texto).
+    Tests: `tests/test_barras_de_carga.py` (zip idéntico byte a byte, Excel idéntico, abrir/guardar = mismo
+    proyecto, archivo roto, barras que llegan al final).
   - **Cruz en X, reducciones y pendientes** (pedidos del usuario 2026-10-16): `accesorios.accesorios` parte los
     DOS tramos de un cruce en X a mitad de tramo (ninguno con vértice a ≤ tol) de la misma red y cota → cruz (con
     diámetros distintos también); `_union_civil` (plano) ya no lo llama choque. OJO: el plugin aún no la arma.
@@ -2027,6 +2214,39 @@ alcantarillado, drenaje, gas, eléctrico, telecom). Todo en **unidades imperiale
     tramo REEMPLAZA a la de punta a punta). Vista 3D «Ángulos y pendientes por tramo» (`ver["rotulos"]`, apagada):
     `nucleo/rotulos3d.py` → `Escena.rotulos` (pendiente en el medio de cada tramo, giro en cada vértice interior,
     id de su utilidad), pintados por `etiquetas3d.dibujar(rotulo=True)`. Tests: `tests/test_reduccion_cruz_pendiente.py`.
+    **Nivel de detalle** (2026-10-20, AGUA 2: 35 766 rótulos = 3.2 s por cuadro, la navegación y el zoom se trababan):
+    `rotulos3d` da también el LARGO en planta de lo que rotula (`Escena.rotulos_largos`); `ui/comun/rotulos3d_lod.
+    elegir` (PURO, numpy) proyecta todos juntos, deja los que caen en pantalla y cuyo tramo mide en pantalla ≥ su
+    rótulo + `HOLGURA_PX`, ordena (elegido/señalado, luego tramo más largo), descarta por celdas y `despejar` (como el
+    plano), máx. `MAXIMO`=300. `etiquetas3d.Capa` (una por escena en el visor: rótulos y C-n) mide cada texto una
+    vez, memoriza la elección por cámara y pinta desde SELLOS (imagen por texto; elegido/señalado directo, idéntico
+    píxel a píxel). La escena trae SIEMPRE los rótulos (+0.6 s con 16 761 utilidades) y la casilla solo cambia
+    `visor.ver_rotulos` (antes rehacía la escena, ~30–45 s). Medido: 0.03 s por cuadro con cámara nueva, ~1 ms con la
+    misma. Los C-n ahora también se despejan (de los que se tapan, uno). Tests: `tests/test_vista3d.py`.
+    **Editar desde 3D** (pedido del usuario 2026-10-20): `ui/dialogos/vista3d_editor.EditorUtilidad` («Editar»
+    bajo la ficha, solo tuberías): diámetro + tabla T1…Tn (inicio, fin, pendiente al instante); sin botones +/−, ↑ ↓ del teclado ±0.10 ft,
+    se aplica tras `ESPERA_MS` o con Enter. Lado de `Main`: `ui/ventana/ventana_edicion3d.Edicion3DMixin` —
+    `editar_cota_3d(i, tramo, lado, valor)` = el MISMO dato que la tabla «Cotas por tramo» (rasantes = `inv_start`/
+    `inv_end`; intermedias = `vertex_inv_out`/`_in` con `snapshot_seg_values` + `seg_edit_enabled`, UN `_push`) y
+    `editar_diametro_3d` por el `prop_size` del panel (`_prop_changed`; `_mostrar_en_panel` elige la utilidad sin
+    activar la ventana). Ctrl+Z/Ctrl+Y también en la 3D. Esc: `_ir_a_elemento(activar=)` —elegir en 3D ya no trae la
+    principal al frente (el foco y el Esc se quedaban allá); «Ver en el plano» sí. Tests: `tests/test_vista3d_editar.py`.
+    **Tiempo real con proyectos enormes** (2026-10-20, AGUA 2: cada cambio = deshacer 1 s + plano 1 s + `_datos`
+    deepcopy/json 1.5 s + rearmar la 3D ~100 s en un hilo que peleaba el GIL). (1) VISTA PREVIA: el editor aplica
+    lo pendiente a una COPIA (`nucleo/edicion3d.aplicar_cota`/`aplicar_diametro`, lo mismo que el panel) y la ventana
+    hace `parche_local` → `nucleo/modelo3d_parche.parche` (PURO): S1 = editadas + vecinas (`vecinas`: tramo a ≤
+    `tolerancia_px` —nodos, curvas a 14 px, buzones—, conexiones verticales y mismo bancoducto), S2 = S1 + sus vecinas;
+    `construir(..., origen=, suelo_z=, solo=S2, foco=S1)` (`solo`: las demás ni se miran; `foco`: tubos, accesorios y
+    rótulos solo de S1, los demás solo para hallar nodos) y se REEMPLAZAN tubos de S1, accesorios con alguna de S1
+    (índice `_acc_de` en la escena, ids nuevos libres) y buzones en sus vértices (filas de `base`/`instancias`/
+    `picks` por id). EXACTO: `tests/test_vista3d_parche.py` compara con rearmar todo (mismo origen) por objeto y
+    detecta un parche roto. ~0.18 s por cambio con AGUA 2 (+0.2 s el primero: índices). (2) CAMBIO REAL al soltar
+    (`ESPERA_MS`=800 o Enter): `editar_cotas_3d` = UN `_push` (~0.6 s con el plano). (3) ARMADO COMPLETO: mezcla
+    `ui/dialogos/vista3d_armado.ArmadoMixin` → trabajador `proceso` «vista3d» (`modelo3d.construir_datos(bytes)`):
+    datos = un pickle (huella blake2b), espera si `win._provisional`, un cambio nuevo cancela el anterior; ~29 s y la
+    ventana nunca > ~0.4 s. La ficha arma solo su fila (`tabla_datos.armar(solo_pipes=/solo_estructuras=)`, mismas
+    filas). Anchos de rótulos 3D memorizados entre escenas (`etiquetas3d._ANCHOS`). Queda ~1 s una vez: el redibujo
+    final del plano con sus avisos.
   - **Conflictos NUMERADOS + Excel de ida y vuelta** (2026-10-10, pedido del usuario): `nucleo/conflictos.py` (PURO)
     `numerar(items)` → `Conflicto` C-1, C-2… en orden de LECTURA (filas de `FILA_PX`, luego x) y sin repetidos (el
     mismo cruce visto por varios pares de tramos en un vértice = uno; antes C-10…C-13 en el mismo punto);

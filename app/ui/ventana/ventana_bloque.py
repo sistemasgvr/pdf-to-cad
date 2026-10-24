@@ -166,8 +166,14 @@ class EdicionBloqueMixin:
         # Al exportar, los tramos diminutos no se preguntan: el DXF los corrige solo
         # (dxf_export._sin_tramos_diminutos). Solo lo que cambia el dibujo de verdad.
         tipos = ("punta", "corta", "duplicada") if exportando else limpieza.TIPOS
-        previa = limpieza.limpiar(copy.deepcopy(self.pipes), copy.deepcopy(self.structures), ft,
-                                  tipos=tipos, protegidas=protegidas)
+        # Barra de carga precisa (2026-10-20, `barras_carga`): la revisión va sobre COPIAS y avisa cada etapa
+        # (aquí mismo: en un hilo, el Python puro competía con los repintados y tardaba más).
+        from ui.ventana import barras_carga as BC
+        with BC.limpieza(self, len(self.pipes), tipos, copiar=True).abrir(titulo) as av:
+            av.recibir("copiar", pump=True)
+            pipes, estructuras = copy.deepcopy(self.pipes), copy.deepcopy(self.structures)
+            with av.escuchar():
+                previa = limpieza.limpiar(pipes, estructuras, ft, tipos=tipos, protegidas=protegidas)
         if exportando and not previa.arreglos:
             return True
         if not previa.cambios:
@@ -180,10 +186,13 @@ class EdicionBloqueMixin:
             return not exportando
         if dlg.accion == "arreglar":
             self._push()
-            hecho = limpieza.limpiar(self.pipes, self.structures, ft, tipos=dlg.tipos(), protegidas=protegidas)
-            if hecho.borrar:
-                self._delete_pipes(hecho.borrar)
-            self._refresh_lists()
-            self._redraw()
+            with BC.limpieza(self, len(self.pipes), dlg.tipos(), copiar=False).abrir(titulo) as av:
+                with av.escuchar():
+                    hecho = limpieza.limpiar(self.pipes, self.structures, ft, tipos=dlg.tipos(),
+                                             protegidas=protegidas)
+                if hecho.borrar:
+                    self._delete_pipes(hecho.borrar)
+                self._refresh_lists()
+                self._redraw()
             self._info(_tr("Dibujo limpio: {n} arreglo(s).").format(n=len(hecho.arreglos)))
         return True

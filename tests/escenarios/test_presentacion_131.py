@@ -60,12 +60,13 @@ def test_exporta_tipo_y_amperaje_al_dxf(proyecto):
 
 
 def test_el_excel_trae_cada_regla_nueva():
-    cat = G.normativas()
-    gas = {f["tipo"]: (f["diametros"], f["diam_min"], f["diam_max"]) for f in cat["diametros"] if f["utilidad"] == "GAS"}
+    cat = G.normativas()                     # el Excel de cuatro hojas, pasado a la tabla de reglas
+    gas = {r["tipo"]: (r["valores"], r["min"], r["max"]) for r in cat["reglas"]
+           if r["utilidad"] == "GAS" and r["revisar"] == "diametro"}
     assert gas == {C.RES: ([0.5, 1, 1.5, 2], None, None), C.COM: ([2, 4], None, None), C.DP: ([], 6, None)}
-    amp = sorted(tuple(f["amperaje"]) for f in cat["electricas"] if f.get("amperaje"))
+    amp = sorted(tuple(r["si_amp"]) for r in cat["reglas"] if r.get("si_amp"))
     assert (400, None) in amp and (0, 320) in amp
-    assert any(f.get("radio_fijo") == [3, 4] for f in cat["electricas"])
+    assert any(r["revisar"] == "radio" and r["valores"] == [3, 4] for r in cat["reglas"])
 
 
 def test_cada_hoja_del_excel_tiene_casos_que_cumplen_y_que_no():

@@ -10,6 +10,9 @@ es un ``<section data-title="…">``. El HTML usa marcadores ``{{token}}`` que s
 reemplazan por los colores del tema (``theme.tokens()``), y ``<img src="mark:…">``
 para los símbolos del lienzo, que se DIBUJAN aquí con los mismos colores y formas
 que usa ``app_window`` (así la leyenda es idéntica a lo que el usuario ve).
+
+Arriba, «¿Cómo hago…?» (``manual_ia_panel``): se le pregunta a la IA cómo hacer algo y responde
+con los pasos del propio manual, con enlaces a sus capítulos.
 """
 from __future__ import annotations
 
@@ -115,6 +118,11 @@ class ManualDialog(QtWidgets.QDialog):
 
         t = _theme.tokens()
         lay = QtWidgets.QVBoxLayout(self)
+        # «¿Cómo hago…?»: la IA responde con los pasos del propio manual (manual_ia_panel)
+        from ui.dialogos.manual_ia_panel import PanelAyudaIA
+        config = getattr(parent, "_config_ia", None)
+        self.ayuda_ia = PanelAyudaIA(doc, config, lambda n: self.indice.setCurrentRow(n), self)
+        lay.addWidget(self.ayuda_ia)
         split = QtWidgets.QSplitter(QtCore.Qt.Horizontal)
 
         # Índice: letra grande, un clic abre el capítulo.

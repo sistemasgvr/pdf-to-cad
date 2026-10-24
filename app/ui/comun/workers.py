@@ -12,6 +12,7 @@ from PySide6 import QtCore
 
 class PipelineWorker(QtCore.QThread):
     done = QtCore.Signal(str, str)
+    progreso = QtCore.Signal(str, object, object)        # etapa, i, n (barra de la exportación)
 
     def __init__(self, pdf, tmp, pages=None):
         super().__init__(); self.pdf, self.tmp, self.pages = pdf, tmp, pages
@@ -28,8 +29,10 @@ class PipelineWorker(QtCore.QThread):
             import digitize
             docs = []
             from exportar import dxf_rapido              # mismo archivo, ~45 % menos tiempo
-            digitize.main(self.pdf, self.tmp, verbose=False, pages=self.pages, doc_out=docs,
-                          guardar=dxf_rapido.guardar)
+            from nucleo import avance
+            with avance.escuchar(lambda t, i, n: self.progreso.emit(t, i, n)):
+                digitize.main(self.pdf, self.tmp, verbose=False, pages=self.pages, doc_out=docs,
+                              guardar=dxf_rapido.guardar, avance=avance.avisar)
             self._doc = docs[0] if docs else None
             self.done.emit(self.tmp, "")
         except Exception as e:
