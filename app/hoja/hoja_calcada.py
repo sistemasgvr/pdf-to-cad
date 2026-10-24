@@ -309,6 +309,24 @@ def combinar(editor: C.Composite, nueva: C.Composite, n_fuentes_editor: int, mar
 
 
 # ─────────────────────────── trabajo de fondo ───────────────────────────
+def grupos(comp: Optional[C.Composite]) -> List[int]:
+    """Los grupos de piezas de la hoja (0 = la del editor, 1… = cada utilidad agregada), si son
+    varios y la hoja tiene `marco` (hoja con utilidades agregadas); si no, []."""
+    if comp is None or comp.marco is None:
+        return []
+    gs = sorted({int(p.grupo) for p in comp.pieces})
+    return gs if len(gs) > 1 else []
+
+
+def solo_grupo(comp: C.Composite, grupo: int) -> C.Composite:
+    """El plano ORIGINAL de un grupo: la misma hoja (mismo `marco`: mismo tamaño y coordenadas)
+    con solo sus piezas. Materializada, se ve como era antes de agregar las demás."""
+    out = C.Composite.from_dict(comp.to_dict())
+    out.pieces = [p for p in out.pieces if int(p.grupo) == int(grupo)]
+    out.utilidades_grupo = {}
+    return out
+
+
 def calcar_trabajo(editor_dict: dict, fuentes_editor: Sequence[bytes], fuentes_nuevas: Sequence[bytes],
                    nombres_nuevos: Sequence[str], escala: Optional[float] = None,
                    nombres_editor: Sequence[str] = (), progreso=None) -> dict:

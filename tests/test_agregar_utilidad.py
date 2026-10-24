@@ -334,6 +334,7 @@ def _stubs(monkeypatch, win, cloaca, vista_previa):
 
     monkeypatch.setattr(app_window.layer_dialog, "choose_sheet_layers", capas)
     monkeypatch.setattr(app_window.recognition_dialog, "show_recognition_preview", preview)
+    monkeypatch.setattr(app_window.Main, "_como_agregar", lambda self, *a: vio.setdefault("como", "todas"))
     return vio
 
 

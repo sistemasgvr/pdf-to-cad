@@ -3530,6 +3530,25 @@ EN: dict[str, str] = {
     'Guardando la hoja compuesta…': 'Saving the composed sheet…',
     'Dibujando la hoja en pantalla ({w} × {h} px)…': 'Drawing the sheet on screen ({w} × {h} px)…',
     'Dibujando la hoja en pantalla…': 'Drawing the sheet on screen…',
+    # agregar utilidad: todas o elegir hojas; planos de fondo del editor (ventana_planos)
+    '{n} de {t} hojas de la hoja del editor tienen su hoja en «{pdf}».':
+        '{n} of {t} sheets of the editor sheet have their sheet in «{pdf}».',
+    '«Agregar todas» sigue con «Capas de la hoja». «Elegir hojas…» abre «Componer hoja» para quitar hojas o tomar solo un área; cada una vuelve sola a su lugar.':
+        '«Add all» goes on to «Sheet layers». «Choose sheets…» opens «Compose sheet» to remove sheets or take only an area; each one goes back to its place on its own.',
+    'Agregar todas': 'Add all',
+    'Elegir hojas…': 'Choose sheets…',
+    'Plano {n}': 'Plan {n}',
+    'Todos': 'All',
+    'Plano:': 'Plan:',
+    'Los planos de todas las utilidades juntos, fundidos.': 'The plans of all utilities together, blended.',
+    'Ctrl+RePág / Ctrl+AvPág: plano anterior / siguiente.': 'Ctrl+PgUp / Ctrl+PgDn: previous / next plan.',
+    'Solo el plano original de {p}, sin los demás. Lo dibujado no cambia.':
+        'Only the original plan of {p}, without the others. What is drawn does not change.',
+    'Mostrando el plano: {p}…': 'Showing the plan: {p}…',
+    'Plano': 'Plan',
+    'No se pudo armar el plano de {p}.': 'The plan of {p} could not be built.',
+    'El plano de {p} no mide lo mismo que la hoja.': 'The plan of {p} is not the same size as the sheet.',
+    'Plano a la vista: {p}.': 'Plan on screen: {p}.',
     'Leyendo los trazos de las capas de {u}…': 'Reading the strokes of the {u} layers…',
     'Reconstruyendo las líneas de la capa {c}…': 'Rebuilding the lines of layer {c}…',
     'Midiendo las bóvedas y buzones y uniendo sus líneas…': 'Measuring vaults and manholes and joining their lines…',

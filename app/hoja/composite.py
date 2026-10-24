@@ -136,6 +136,10 @@ class Composite:
     # este rectángulo (pt de la hoja compuesta) en vez de las piezas + margen, así queda con
     # el tamaño y las coordenadas de la hoja del editor. None = como siempre.
     marco: Optional[List[float]] = None
+    # Hoja con utilidades agregadas: las utilidades que trae cada grupo de piezas (`Piece.grupo`;
+    # 0 = la hoja del editor), por su clave («AGUA»…). Solo nombran los planos de fondo del editor
+    # (`ventana_planos`); vacío = el dict de siempre.
+    utilidades_grupo: Dict[int, List[str]] = field(default_factory=dict)
 
     def target_scale(self) -> float:
         if self.scale_ft_per_pt:
@@ -163,6 +167,8 @@ class Composite:
             d["alignment_ruler"] = dict(self.alignment_ruler)
         if self.marco is not None:
             d["marco"] = [float(v) for v in self.marco]
+        if self.utilidades_grupo:
+            d["utilidades_grupo"] = {str(int(k)): [str(u) for u in v] for k, v in self.utilidades_grupo.items()}
         return d
 
     @classmethod
@@ -186,11 +192,15 @@ class Composite:
                 marco = None
         except (TypeError, ValueError):
             marco = None
+        try:
+            utilidades = {int(k): [str(u) for u in v] for k, v in (d.get("utilidades_grupo") or {}).items()}
+        except (TypeError, ValueError, AttributeError):
+            utilidades = {}
         return cls(pieces=pieces, scale_ft_per_pt=float(s) if s else None,
                    bridges=bool(d.get("bridges", True)), bridge_max_pt=gap, last_view=last_view,
                    manual=bool(d.get("manual", False)),
                    alignment_ruler=dict(d.get("alignment_ruler") or {}),
-                   seam_blend=bool(d.get("seam_blend", True)), marco=marco)
+                   seam_blend=bool(d.get("seam_blend", True)), marco=marco, utilidades_grupo=utilidades)
 
     def blends(self) -> bool:
         """¿Las piezas se funden (modo oscurecer)? En escaneos y en PDF vectoriales (con o

@@ -53,7 +53,30 @@ class AgregarUtilidadMixin:
                 "calles no coincide con el de la hoja), así que no se puede ubicar sobre ella.").format(
                     pdf=", ".join(e["name"] for e in nuevas)))
             return
-        self._empezar_agregado(editor, nuevas, res)
+        como = self._como_agregar(len(res["comp"].get("pieces") or ()), len(editor.pieces), nuevas)
+        if como is None:
+            self._info(_tr("Agregar utilidad cancelado — el editor queda como estaba."))
+            return
+        self._empezar_agregado(editor, nuevas, res, elegir=(como == "elegir"))
+
+    def _como_agregar(self, n: int, total: int, nuevas) -> "str | None":
+        """Pedido del usuario 2026-10-24: agregar todas las hojas ubicadas (sigue en «Capas de la
+        hoja») o pasar por el flujo de siempre desde «Componer hoja» (quitar hojas, tomar solo un
+        área). → "todas", "elegir" o None (cancelar)."""
+        box = QtWidgets.QMessageBox(self)
+        box.setIcon(QtWidgets.QMessageBox.Question)
+        box.setWindowTitle(_tr("Agregar utilidad"))
+        box.setText(_tr("{n} de {t} hojas de la hoja del editor tienen su hoja en «{pdf}».").format(
+            n=n, t=total, pdf=", ".join(e["name"] for e in nuevas)))
+        box.setInformativeText(_tr("«Agregar todas» sigue con «Capas de la hoja». «Elegir hojas…» abre «Componer "
+                                   "hoja» para quitar hojas o tomar solo un área; cada una vuelve sola a su lugar."))
+        todas = box.addButton(_tr("Agregar todas"), QtWidgets.QMessageBox.AcceptRole)
+        elegir = box.addButton(_tr("Elegir hojas…"), QtWidgets.QMessageBox.ActionRole)
+        box.addButton(_tr("Cancelar"), QtWidgets.QMessageBox.RejectRole)
+        box.setDefaultButton(todas)
+        box.exec()
+        boton = box.clickedButton()
+        return "todas" if boton is todas else "elegir" if boton is elegir else None
 
     def _elegir_pdfs_utilidad(self):
         """Los PDF de la utilidad nueva (uno o varios). Si la hoja del editor viene de varios PDF
@@ -120,8 +143,9 @@ class AgregarUtilidadMixin:
             return None
         return out.get("r")
 
-    def _empezar_agregado(self, editor, nuevas, res):
-        """Respaldo del editor, la hoja calcada como hoja de trabajo y el asistente desde «Capas»."""
+    def _empezar_agregado(self, editor, nuevas, res, elegir=False):
+        """Respaldo del editor, la hoja calcada como hoja de trabajo y el asistente desde «Capas»
+        (`elegir`: desde «Componer hoja», con las hojas ubicadas ya marcadas)."""
         from hoja import hoja_calcada
         calco = composite_mod.Composite.from_dict(res["comp"])
         docs = [fitz.open(stream=e["data"], filetype="pdf") for e in self.src_pdfs]
@@ -134,11 +158,11 @@ class AgregarUtilidadMixin:
         # SIEMPRE con respaldo (aunque el editor no tenga líneas): cancelar vuelve a SU hoja
         self._soltar_respaldo()
         self._respaldo = respaldo_editor.tomar(self)
-        en_editor = {p.get("layer") for p in self.pipes}
+        en_editor = list(dict.fromkeys(p.get("layer") for p in self.pipes if p.get("layer")))
         self._agregando = dict(
             editor=editor.to_dict(), marco=list(marco), n_editor=len(self.src_pdfs), escala=float(self.scale),
             ubicaciones=list(res.get("ubicaciones") or []), sin_pareja=list(res.get("sin_pareja") or []),
-            nombres=[e["name"] for e in nuevas])
+            nombres=[e["name"] for e in nuevas], utilidades_editor=en_editor)
         self.src_pdfs = nuevas
         self.composite = calco
         self.hidden_ocgs_by_source = {}
@@ -149,6 +173,12 @@ class AgregarUtilidadMixin:
         # «agregar OTRA utilidad»: las que ya están en el editor no se marcan (se pueden marcar)
         self._recognition_utilities = tuple(u for u in _recognition.SUPPORTED_UTILITIES if u not in en_editor) \
             or _recognition.DEFAULT_UTILITIES
+        if elegir:
+            # el flujo de siempre desde «Componer hoja»: al aceptar, cada hoja va a su lugar
+            # (`_agregando_recolocar`) y la hoja se arma entonces
+            if not self._wizard_sheet_flow(self.page_idx, start_step=0):
+                self._cancelar_asistente(_tr("Agregar utilidad cancelado — el editor queda como estaba."))
+            return
         try:
             self._apply_composite()
         except Exception as exc:
@@ -198,7 +228,8 @@ class AgregarUtilidadMixin:
         previo, self._importando = getattr(self, "_importando", False), True
         try:
             with self._redibujo_diferido():
-                fallo = self._combinar_hojas(r, ag, nuevas, calco, ocultas)
+                utils = [u for u in dict.fromkeys(getattr(x, "utility", None) for x in results) if u]
+                fallo = self._combinar_hojas(r, ag, nuevas, calco, ocultas, utils)
         finally:
             self._importando = previo
         if fallo is not None:
@@ -220,7 +251,7 @@ class AgregarUtilidadMixin:
         _busy_mod.toast(self, "✔ " + _tr("Utilidad agregada a la hoja del editor"))
         return True
 
-    def _combinar_hojas(self, r, ag, nuevas, calco, ocultas):
+    def _combinar_hojas(self, r, ag, nuevas, calco, ocultas, utilidades=()):
         """El editor como estaba (respaldo `r`) y su hoja pasa a ser la combinada: sus piezas + las
         nuevas. → None, o la excepción si la hoja combinada no se pudo armar."""
         from hoja import hoja_calcada
@@ -229,6 +260,11 @@ class AgregarUtilidadMixin:
         editor = composite_mod.Composite.from_dict(ag["editor"])
         n_editor = len(self.src_pdfs)
         comb = hoja_calcada.combinar(editor, calco, n_editor, ag["marco"], ag["escala"])
+        # el nombre de cada plano de fondo (`ventana_planos`): las utilidades que trae cada grupo
+        nombres = dict(editor.utilidades_grupo or {})
+        nombres.setdefault(0, list(ag.get("utilidades_editor") or ()))
+        nombres[max(p.grupo for p in comb.pieces)] = list(utilidades)
+        comb.utilidades_grupo = {g: v for g, v in nombres.items() if v}
         self.src_pdfs = list(self.src_pdfs) + list(nuevas)
         self.composite = comb
         hidden = {k: list(v) for k, v in (self.hidden_ocgs_by_source or {}).items()}
@@ -261,6 +297,7 @@ class AgregarUtilidadMixin:
         self.leader_hpx = max(14.0, min(LEADER_TEXT_FT / self.scale * self.zoom, self.pageH_px * 0.05))
         self.gray = gray
         self._close_editor()
+        self._soltar_planos()                             # la hoja nueva se ve con todos sus planos
         self.canvas.cambiar_imagen(qimg, escala)
         if self.canvas.nitidez is not None:
             self.canvas.nitidez.fijar(self.canvas.pixmap_item)   # teselas de la hoja NUEVA

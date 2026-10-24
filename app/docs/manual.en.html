@@ -496,8 +496,11 @@ offers to add the other one of the same utility too.</p>
     place</b>, by the base map they share (lots, right of way, streets), even at another scale, in
     another order or rotated. The new sheet is built <b>traced</b> on the editor sheet: same area,
     same place, same size.</li>
-<li>You go on with the usual steps (<b>Sheet layers</b> and <b>Preview</b>) on the sheet of the new
-    utility. The utilities already in the editor are not checked.</li>
+<li>The app says how many sheets it placed and asks how to go on:
+    <span class="btn">Add all</span> goes on with <b>Sheet layers</b> and <b>Preview</b>, on the sheet of
+    the new utility; <span class="btn">Choose sheets…</span> runs the whole flow from <b>Compose
+    sheet</b>, with the placed sheets already checked: uncheck the ones you do not want or take only an
+    area. The utilities already in the editor are not checked.</li>
 <li>When you import, the editor sheet shows <b>both PDFs together</b> and what was recognized is
     added to what you already had. What was there <b>does not move or change</b> (lines, manholes,
     Undo, georeferencing). <span class="btn">Cancel</span> in any step leaves the editor as it was.</li>
@@ -506,6 +509,13 @@ offers to add the other one of the same utility too.</p>
 <li>If the PDF does not draw the same base map as the editor sheet (other cartography, another
     area), the app says so and adds nothing.</li>
 </ul>
+<p><b>Background plans.</b> With two or more utilities on the sheet, a row of tabs appears below the
+canvas, like AutoCAD layouts: <span class="btn">All</span> (the plans blended) and one per utility
+(<span class="btn">Water</span>, <span class="btn">Sewer</span>…), with its color. Each one shows only the
+original plan of that utility, without the labels of the others on top. <b>Ctrl+PgUp</b> /
+<b>Ctrl+PgDn</b> go to the previous / next plan. Only the background image changes (and with it the
+snap to ink): what is drawn, Undo, recognition and the DXF do not change. The project keeps the plan
+you were viewing.</p>
 
 <h2>Composing again later</h2>
 <p>Menu <b>Tools → Compose work sheet…</b> opens step 1 again, on the PDF and sheet you were

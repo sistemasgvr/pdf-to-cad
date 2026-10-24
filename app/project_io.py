@@ -63,6 +63,9 @@ def build_model_dict(win):
         pdf_name=os.path.basename(win.pdf_path or ""), version=VERSION)
     # Hoja enorme (hoja compuesta de muchas piezas): page.png va a menos resolución
     # (`fondo_pdf`); al reabrir se agranda a su tamaño en px. Solo entonces.
+    # Hoja con utilidades agregadas: el plano de fondo a la vista (ventana_planos; page.png es ese).
+    if getattr(win, "_vista_fondo", None) is not None:
+        model["vista_fondo"] = int(win._vista_fondo)
     canvas = getattr(win, "canvas", None)
     escala = float(getattr(canvas, "fondo_escala", 1.0) or 1.0)
     if escala < 1.0:
@@ -134,4 +137,5 @@ def parse_model(model):
         # Retrocompat: sin estas claves la imagen es la de siempre (px = px de la vista).
         fondo_escala=float(model.get("fondo_escala") or 1.0),
         fondo_tam=(tuple(model["fondo_tam"]) if model.get("fondo_tam") else None),
+        vista_fondo=(int(model["vista_fondo"]) if isinstance(model.get("vista_fondo"), int) else None),
     )
