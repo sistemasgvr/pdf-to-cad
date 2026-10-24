@@ -189,28 +189,24 @@ class AgregarUtilidadMixin:
     def _importar_agregando(self, results):
         """«Importar» en este modo: el editor como estaba, su hoja pasa a ser la combinada (solo
         cambia la imagen de fondo) y lo reconocido entra ENCIMA de lo que hay."""
-        from hoja import hoja_calcada
         ag, self._agregando = self._agregando, None
         nuevas, calco, ocultas = self.src_pdfs, self.composite, self.hidden_ocgs_by_source
         r, self._respaldo = self._respaldo, None
-        respaldo_editor.reponer(self, r)                  # hoja, modelo, deshacer… de antes
-        self._respaldo = respaldo_editor.tomar(self)      # por si la hoja combinada falla
-        editor = composite_mod.Composite.from_dict(ag["editor"])
-        n_editor = len(self.src_pdfs)
-        comb = hoja_calcada.combinar(editor, calco, n_editor, ag["marco"], ag["escala"])
-        self.src_pdfs = list(self.src_pdfs) + list(nuevas)
-        self.composite = comb
-        hidden = {k: list(v) for k, v in (self.hidden_ocgs_by_source or {}).items()}
-        hidden.update({str(int(k) + n_editor): list(v) for k, v in (ocultas or {}).items()})
-        self.hidden_ocgs_by_source = hidden
+        # El editor se redibuja con lo importado, no antes al reponerlo ni al cambiar su hoja (12 + 12
+        # mapas: ~1.5 s menos de ventana quieta). Mientras la hoja combinada se arma en el proceso la
+        # ventana atiende eventos: la copia automática espera (`_importando`) a que tenga su hoja nueva.
+        previo, self._importando = getattr(self, "_importando", False), True
         try:
-            self._poner_hoja_combinada(comb)
-        except Exception as exc:
+            with self._redibujo_diferido():
+                fallo = self._combinar_hojas(r, ag, nuevas, calco, ocultas)
+        finally:
+            self._importando = previo
+        if fallo is not None:
             QtWidgets.QMessageBox.warning(self, _tr("Agregar utilidad"),
-                _tr("No se pudo armar la hoja con las dos utilidades:\n\n{e}").format(e=exc))
+                _tr("No se pudo armar la hoja con las dos utilidades:\n\n{e}").format(e=fallo))
             self._reponer_respaldo(_tr("Agregar utilidad cancelado — el editor queda como estaba."))
             return False
-        self._origen_desde_fuente = n_editor              # datos extendidos: la pieza NUEVA bajo el punto
+        self._origen_desde_fuente = len(self.src_pdfs) - len(nuevas)   # datos extendidos: la pieza NUEVA
         try:
             with _busy_mod.busy(self, _tr("Importando al editor…")):
                 imported = self._import_recognized_pipes(results)
@@ -224,6 +220,26 @@ class AgregarUtilidadMixin:
         _busy_mod.toast(self, "✔ " + _tr("Utilidad agregada a la hoja del editor"))
         return True
 
+    def _combinar_hojas(self, r, ag, nuevas, calco, ocultas):
+        """El editor como estaba (respaldo `r`) y su hoja pasa a ser la combinada: sus piezas + las
+        nuevas. → None, o la excepción si la hoja combinada no se pudo armar."""
+        from hoja import hoja_calcada
+        respaldo_editor.reponer(self, r)                  # hoja, modelo, deshacer… de antes
+        self._respaldo = respaldo_editor.tomar(self)      # por si la hoja combinada falla
+        editor = composite_mod.Composite.from_dict(ag["editor"])
+        n_editor = len(self.src_pdfs)
+        comb = hoja_calcada.combinar(editor, calco, n_editor, ag["marco"], ag["escala"])
+        self.src_pdfs = list(self.src_pdfs) + list(nuevas)
+        self.composite = comb
+        hidden = {k: list(v) for k, v in (self.hidden_ocgs_by_source or {}).items()}
+        hidden.update({str(int(k) + n_editor): list(v) for k, v in (ocultas or {}).items()})
+        self.hidden_ocgs_by_source = hidden
+        try:
+            self._poner_hoja_combinada(comb)
+        except Exception as exc:
+            return exc
+        return None
+
     def _poner_hoja_combinada(self, comp):
         """Materializa `comp` (mismo marco = mismo tamaño y coordenadas que la hoja del editor) y
         cambia SOLO la imagen de fondo: lo dibujado encima, el deshacer y la vista quedan."""
@@ -235,20 +251,15 @@ class AgregarUtilidadMixin:
                             _tr("{n} piezas · vectores, capas y textos intactos").format(n=len(comp.pieces))):
             self._build_composite_doc(comp, _pdf_layers)
             page = self.doc[self.page_idx]
-            fondo = fondo_pdf.render_pix(page, self.zoom)
-        if tam is not None and (abs(fondo.ancho - tam[0]) > 1.0 or abs(fondo.alto - tam[1]) > 1.0):
+            qimg, gray, escala, ancho, alto = self._fondo_de(page)     # en el proceso trabajador
+        if tam is not None and (abs(ancho - tam[0]) > 1.0 or abs(alto - tam[1]) > 1.0):
             raise RuntimeError(_tr("La hoja combinada no mide lo mismo que la del editor."))
         self.scale = float(self._scale_override)
         self.rot = page.rotation; mbx = page.mediabox; self.W, self.H = mbx.width, mbx.height
         self.derot = page.derotation_matrix
-        self.pageH_px = fondo.alto
+        self.pageH_px = alto
         self.leader_hpx = max(14.0, min(LEADER_TEXT_FT / self.scale * self.zoom, self.pageH_px * 0.05))
-        pix = fondo.pix
-        buf = bytes(pix.samples)
-        qimg = QtGui.QImage(buf, pix.width, pix.height, pix.stride, QtGui.QImage.Format_RGB888).copy()
-        self.gray = fondo_pdf.gris(buf, pix.width, pix.height, pix.stride)
-        escala = fondo.escala
-        del buf, pix, fondo
+        self.gray = gray
         self._close_editor()
         self.canvas.cambiar_imagen(qimg, escala)
         if self.canvas.nitidez is not None:

@@ -54,3 +54,50 @@ def test_error_y_cancelar(con_proceso):
     con_proceso.enviar(t2)
     t2.cancelar()
     assert out["e2"] == "cancelado" and out["r2"] is None
+
+
+def _vivo(pid: int) -> bool:
+    if os.name != "nt":
+        try:
+            os.kill(pid, 0)
+            return True
+        except OSError:
+            return False
+    import ctypes
+    k = ctypes.windll.kernel32
+    h = k.OpenProcess(0x1000, False, pid)            # PROCESS_QUERY_LIMITED_INFORMATION
+    if not h:
+        return False
+    code = ctypes.c_ulong()
+    try:
+        return bool(k.GetExitCodeProcess(h, ctypes.byref(code))) and code.value == 259   # STILL_ACTIVE
+    finally:
+        k.CloseHandle(h)
+
+
+def test_el_trabajador_no_queda_huerfano_si_la_ventana_muere(tmp_path):
+    """Ventana cerrada de golpe (sin `aboutToQuit`): el trabajador esperaba trabajos para siempre con
+    su memoria (2026-10-24). Ahora vigila a su padre y termina solo."""
+    import subprocess
+    import textwrap
+    import time
+    raiz = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    script = tmp_path / "ventana.py"
+    script.write_text(textwrap.dedent(f"""
+        import os, sys
+        sys.path[:0] = [{os.path.join(raiz, "app")!r}, {raiz!r}]
+        os.environ["PDFCAD_PROCESO"] = "1"
+        if __name__ == "__main__":
+            from PySide6 import QtCore
+            app = QtCore.QCoreApplication([])
+            from ui.comun import proceso
+            r, e = proceso.ejecutar("ui.comun.proceso_hijo:eco", 1)
+            print(r[1], flush=True)
+            os._exit(0)
+    """), encoding="utf-8")
+    out = subprocess.run([sys.executable, str(script)], capture_output=True, text=True, timeout=180)
+    pid = int(out.stdout.split()[-1])
+    fin = time.time() + 30
+    while _vivo(pid) and time.time() < fin:
+        time.sleep(0.2)
+    assert not _vivo(pid)

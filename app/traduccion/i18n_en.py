@@ -3529,6 +3529,7 @@ EN: dict[str, str] = {
     'Buscando las líneas que cruzan cada costura…': 'Looking for the lines that cross each seam…',
     'Guardando la hoja compuesta…': 'Saving the composed sheet…',
     'Dibujando la hoja en pantalla ({w} × {h} px)…': 'Drawing the sheet on screen ({w} × {h} px)…',
+    'Dibujando la hoja en pantalla…': 'Drawing the sheet on screen…',
     'Leyendo los trazos de las capas de {u}…': 'Reading the strokes of the {u} layers…',
     'Reconstruyendo las líneas de la capa {c}…': 'Rebuilding the lines of layer {c}…',
     'Midiendo las bóvedas y buzones y uniendo sus líneas…': 'Measuring vaults and manholes and joining their lines…',

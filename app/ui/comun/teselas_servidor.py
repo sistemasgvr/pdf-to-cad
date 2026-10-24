@@ -26,6 +26,7 @@ import os
 import queue
 import threading
 import time
+import weakref
 import zlib
 from collections import OrderedDict
 from typing import Dict, List, Optional
@@ -40,6 +41,7 @@ MB_POR_PROCESO = 700
 SONDEO_MS = 15
 LEER_MAX_S = 0.03            # por vuelta del temporizador: la ventana sigue respondiendo
 REINTENTOS = 3               # procesos que mueren → se dibuja aquí mismo
+OLVIDAR_MS = 4000            # un PDF que ninguna vista muestra se cierra en los procesos tras este rato
 
 
 class Tesela:
@@ -153,6 +155,11 @@ class Servidor(QtCore.QObject):
         self._timer = QtCore.QTimer(self)
         self._timer.setInterval(SONDEO_MS)
         self._timer.timeout.connect(self._leer)
+        self._superficies = weakref.WeakSet()           # las que muestran una hoja (`mostrando`)
+        self._t_olvidar = QtCore.QTimer(self)
+        self._t_olvidar.setSingleShot(True)
+        self._t_olvidar.setInterval(OLVIDAR_MS)
+        self._t_olvidar.timeout.connect(self._olvidar_docs)
 
     # ── documentos ────────────────────────────────────────────────────
     def preparar(self, page):
@@ -219,6 +226,44 @@ class Servidor(QtCore.QObject):
     def olvidar(self, dueno) -> None:
         if self._duenos.pop(id(dueno), None) is not None and not self.local:
             self._despachar()
+
+    # ── PDF que ya no se ven ──────────────────────────────────────────
+    def mostrando(self, sup, si: bool = True) -> None:
+        """La superficie `sup` muestra (o dejó de mostrar) una hoja. Un rato después, los PDF que
+        ninguna muestra se cierran en los procesos (`_olvidar_docs`)."""
+        if si:
+            self._superficies.add(sup)
+        else:
+            self._superficies.discard(sup)
+        if not self.local and self._procs:
+            self._t_olvidar.start()
+
+    def _olvidar_docs(self) -> None:
+        """Cada proceso guardaba hasta 6 PDF con la lista de dibujo y las cajas de letras de su hoja
+        (reporte 2026-10-24, agregar una utilidad: el agua de antes, la hoja calcada y la combinada,
+        ~1 GB por proceso con 36 mapas cada una). Ahora cierra los que ninguna vista a la vista
+        muestra; si uno vuelve a verse (Cancelar repone el editor) se le manda otra vez."""
+        if self.local:
+            return
+        vivos = set()
+        for sup in list(self._superficies):
+            try:
+                if sup.viva() and sup.a_la_vista():
+                    tok = getattr(sup.page.parent, "_pdfcad_tesela", None)
+                    if tok:
+                        vivos.add(tok)
+            except RuntimeError:
+                continue
+        for d, p, lst in list(self._duenos.values()):      # y los que aún esperan teselas
+            if lst and d.viva():
+                vivos.add(getattr(p.parent, "_pdfcad_tesela", None))
+        for pr in self._procs:
+            if pr is None:
+                continue
+            for tok in [t for t in pr.docs if t not in vivos]:
+                pr.enviar(("olvidar", tok))
+                pr.docs.discard(tok)
+                pr.capas.pop(tok, None)
 
     def _queridas(self):
         """Claves que alguien está mirando (no se sueltan de la caché)."""

@@ -78,6 +78,25 @@ def hidden_layers(doc) -> Set[str]:
         getattr(doc, "_pdf_style_hidden", ()))
 
 
+def encendidas(doc) -> tuple:
+    """((número, encendida), …) de cada capa tal como está en `doc`: para repetir EXACTAMENTE
+    ese estado en otro proceso (`poner_encendidas`; por nombre no: puede haber capas repetidas)."""
+    try:
+        return tuple((int(c["number"]), bool(c["on"])) for c in doc.layer_ui_configs())
+    except Exception:
+        return ()
+
+
+def poner_encendidas(doc, ons) -> None:
+    """Deja cada capa de `doc` como en `ons` (lo mismo que hace el proceso de las teselas)."""
+    if not ons:
+        return
+    actual = {c["number"]: c["on"] for c in _ui_configs(doc)}
+    for num, on in ons:
+        if num in actual and bool(actual[num]) != bool(on):
+            doc.set_layer_ui_config(num, action=_ACTION_ON if on else _ACTION_OFF)
+
+
 def set_hidden(doc, hidden: Iterable[str]) -> None:
     """Apaga exactamente las capas de `hidden` y enciende todas las demás."""
     hidden = set(hidden or ())

@@ -1315,6 +1315,36 @@ alcantarillado, drenaje, gas, eléctrico, telecom). Todo en **unidades imperiale
     (`nucleo.avance`: la capa «Cargando…» repinta y Windows no marca «No responde»); por eso `_importar_datos` corre con
     `_redibujo_diferido()` y `Main._importando` (el cálculo de fondo del editor no redibuja a mitad, la copia
     automática espera).
+    **2.ª vuelta (reporte 2026-10-24, «al procesar la otra utilidad se lajea»)**: medido por partes con un latido de
+    15 ms y muestreo de la pila de la interfaz (agua 12 mapas importada + alcantarillado 12): «Capas de la hoja» 18 s
+    congelada en tramos de hasta 4 s, cargar la hoja calcada 4.6 s (3 s en `detect_scale` leyendo el texto Type3,
+    que se descartaba), armar la combinada 6 s; ~33 s congelada en total. Ahora (mismos resultados): (1)
+    `_load_page` no lee la escala del texto si hay `_scale_override` y dibuja la imagen ANTES de tocar el estado de
+    la ventana; (2) `ui/comun/fondo_trabajo.py` (escrito el 23 y nunca llamado) conectado: `Main._fondo_de`
+    (`ventana_hojas`) = imagen + grises en el proceso trabajador si la hoja es compuesta de varias piezas
+    (`conviene`), por archivos temporales; las capas viajan por número (`pdf_layers.encendidas`/
+    `poner_encendidas`, como las teselas); `aqui` = el camino de siempre; (3) `hoja/capas_trabajo.leer` (proceso,
+    con `lectura_unica`) + `ui/asistente/capas_previas.py`: `choose_sheet_layers(en_proceso=)` recibe la lista de
+    capas, la leyenda del mapa (a la caché `_pdfcad_leyenda_mapa` del doc), las capas con algo VISIBLE
+    (`trazos_visibles(page, None)`: el diálogo filtra con `capas_de_utilidad` → mismo conjunto) y la imagen;
+    `SheetLayersDialog._render` no vuelve a dibujar si `(hoja, encendidas)` no cambió (mapa sin capas: las casillas
+    nunca cambian el dibujo) y en una compuesta dibuja en el proceso tapando todo el diálogo (`_dibujando`);
+    resaltar al hacer clic sigue leyendo en la ventana (`_all_drawings`, solo a pedido); (4)
+    `_importar_agregando` → `_combinar_hojas` bajo `_redibujo_diferido` (se redibuja al importar, no al reponer
+    ni al cambiar la hoja: ~1.5 s menos) y con `_importando` (la copia automática no copia el editor a medias
+    mientras la hoja combinada se arma en el proceso); (5) teselas: `Servidor.mostrando`/`_olvidar_docs` — `OLVIDAR_MS` después de que una superficie
+    cambia de hoja, cada proceso cierra los PDF que ninguna superficie viva y A LA VISTA muestra ni espera (antes
+    guardaba hasta 6 con su lista de dibujo; si vuelve a verse, «sin documento» lo manda otra vez); (6)
+    `proceso_hijo.bucle` espera trabajos con `VIGILAR_PADRE_S` y termina si la ventana murió (`_padre_vivo`:
+    cerrada de golpe no hay `aboutToQuit` y los trabajadores quedaban vivos con su memoria). Con 12 + 12:
+    «Capas» 18.7 s con pausas de hasta 4.2 s → pausas ≤1 s (el diálogo abre en 0.3 s), cargar la hoja calcada
+    5.95 → 1.9 s (sin trabar), armar la combinada 3.7 s quieta → 0.7 s; ventana quieta en todo el agregado
+    ~38 → ~7 s (lo que queda: ~3 s del redibujo del editor con los avisos de ~10 mil utilidades al terminar el
+    cálculo de fondo, igual que antes, y la vista previa). OJO al medir memoria con scripts propios:
+    `OPENBLAS_NUM_THREADS=1` (lo pone `main.py`), si no cada proceso suma ~350 MB. Tests:
+    `tests/test_agregar_sin_trabas.py` (con `PDFCAD_PROCESO=1`: mismos píxeles y grises, mismas capas/leyenda/
+    visibles en CAD y en Phoenix, el diálogo no lee la hoja en la ventana, teselas sueltan el PDF, flujo entero
+    igual con y sin proceso). Pendiente: el resaltado de «Capas» con 36 mapas sigue en la ventana (a pedido).
   - **Área sugerida** (pedido del usuario 2026-10-20: «sugerirle un área y que el usuario la ajuste», sin tocar el
     reconocimiento): `hoja/area_sugerida.py` (PURO) `sugerir(page, ficha=None)` → `[Area]` (la mejor primero; [] = nada):
     hoja con match lines → `_planta` (vista de `composicion_ficha` cortada en cada match line con rótulo, como

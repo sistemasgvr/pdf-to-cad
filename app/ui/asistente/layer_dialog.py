@@ -39,8 +39,9 @@ from PySide6 import QtCore, QtGui, QtWidgets
 
 import fitz
 
-from ui.comun.busy import busy
-from ui.comun import fondo_pdf
+from ui.comun.busy import busy, detalle_de
+from ui.comun import fondo_pdf, fondo_trabajo
+from ui.asistente import capas_previas
 
 from traduccion.i18n import t as _tr
 from ui.comun.icons import icon as _icon
@@ -85,10 +86,17 @@ class SheetLayersDialog(ScaleCalibrationMixin, LayerAssignmentsMixin, LayerInfoM
     def __init__(self, parent, doc: fitz.Document, page_index: int, layers=None, layout=None,
                  recognition_utilities=None, can_go_back: bool = False, letters_off=None,
                  legend_sources=None, legend_cache=None, roles_by_utility=None,
-                 scale_ft_per_pt=None):
+                 scale_ft_per_pt=None, previa=None, en_proceso=False):
         super().__init__(parent)
         self._doc = doc
         self._page_index = page_index
+        # hoja compuesta grande: lo pesado ya se leyó en el proceso trabajador (`capas_previas`)
+        # y las imágenes de la hoja se dibujan allí (`fondo_trabajo`); la ventana no se traba
+        self._previa = previa
+        self._previa_img = (((previa.hoja, previa.encendidas), previa.imagen)
+                            if previa is not None and previa.imagen is not None else None)
+        self._en_proceso = bool(en_proceso)
+        self._render_estado = None         # (hoja, capas encendidas) de la imagen a la vista
         # Disposición de las hojas que forman esta página (hoja compuesta):
         # [((x0, y0, x1, y1) en pt, etiqueta), …]. Alimenta el minimapa esquemático.
         self._layout = layout
@@ -491,24 +499,47 @@ class SheetLayersDialog(ScaleCalibrationMixin, LayerAssignmentsMixin, LayerInfoM
         else:
             self._render()
 
+    def _imagen(self, z: float, estado):
+        """(QImage, escala, ancho, alto) de la hoja a `z` con las capas de `estado`: la que trajo
+        la lectura previa, dibujada en el proceso (hoja compuesta) o aquí, como siempre."""
+        previa, self._previa_img = getattr(self, "_previa_img", None), None
+        if previa is not None and previa[0] == estado:
+            return previa[1]
+        if self._en_proceso:
+            # todo el diálogo tapado mientras espera: sin otro clic a medias (la ventana sigue viva)
+            self._dibujando = True
+            try:
+                with busy(self, _tr("Actualizando la vista…")):
+                    r = fondo_trabajo.en_proceso(self._doc, self._page_index, z, grises=False)
+            finally:
+                self._dibujando = False
+            if r is not None:
+                return r[0], r[2], r[3], r[4]
+        qimg, _g, escala, ancho, alto = fondo_trabajo.aqui(self._page, z, grises=False)
+        return qimg, escala, ancho, alto
+
     def _render(self, first: bool = False):
+        if getattr(self, "_dibujando", False):    # otro dibujo espera al proceso: después de él
+            self._timer.start()
+            return
         t0 = time.perf_counter()
         pdf_layers.set_hidden(self._doc, self.hidden_names())
+        estado = (self._page_index, pdf_layers.encendidas(self._doc))
+        if not first and self._pix_item is not None and estado == self._render_estado:
+            return              # las mismas capas encendidas: la misma imagen (mapa sin capas: siempre)
         z = _PREVIEW_ZOOM
         # la hoja entera a zoom 3; si es enorme, reducida con las MISMAS coordenadas
-        fondo = fondo_pdf.render_pix(self._page, z)
-        pix = fondo.pix
-        qimg = QtGui.QImage(bytes(pix.samples), pix.width, pix.height,
-                            pix.stride, QtGui.QImage.Format_RGB888).copy()
+        qimg, escala, ancho, alto = self._imagen(z, estado)
+        self._render_estado = estado
         pm = QtGui.QPixmap.fromImage(qimg)
         sc = self.view.scene()
-        rect = (QtCore.QRectF(pm.rect()) if fondo.escala >= 1.0
-                else QtCore.QRectF(0, 0, fondo.ancho, fondo.alto))
-        if self._pix_item is None or fondo_pdf.escala_de(self._pix_item) != fondo.escala:
+        rect = (QtCore.QRectF(pm.rect()) if escala >= 1.0
+                else QtCore.QRectF(0, 0, ancho, alto))
+        if self._pix_item is None or fondo_pdf.escala_de(self._pix_item) != escala:
             self._nitidez.soltar()
             if self._pix_item is not None:
                 sc.removeItem(self._pix_item)
-            self._pix_item = fondo_pdf.nuevo_item(pm, fondo.escala)
+            self._pix_item = fondo_pdf.nuevo_item(pm, escala)
             sc.addItem(self._pix_item)
             self.view.setSceneRect(rect)
             self._nitidez.fijar(self._pix_item)
@@ -557,7 +588,7 @@ class SheetLayersDialog(ScaleCalibrationMixin, LayerAssignmentsMixin, LayerInfoM
 def choose_sheet_layers(parent, doc, page_index: int, layout=None, recognition_utilities=None,
                         can_go_back: bool = False, letters_off=None, legend_sources=None,
                         legend_cache=None, roles_by_utility=None, include_roles=False,
-                        scale_ft_per_pt=None):
+                        scale_ft_per_pt=None, en_proceso=False):
     """Devuelve ``(capas_ocultas, indice_de_hoja, utilidades, letras_no)`` si el usuario
     continúa; con ``include_roles`` añade los roles por utilidad (quinto valor) y la escala
     calibrada en pies/pt (sexto; None si no se tocó: el botón «Escala» solo sale si se
@@ -570,10 +601,16 @@ def choose_sheet_layers(parent, doc, page_index: int, layout=None, recognition_u
     `letters_off`: capas que NO se toman por las letras de su línea (las devuelve
     actualizadas como `letras_no`); `legend_sources`: PDFs de origen
     ([{name, data|path}]) cuya leyenda se muestra; `legend_cache`: dict de la ventana
-    principal donde queda la leyenda ya leída."""
+    principal donde queda la leyenda ya leída. `en_proceso` (hoja compuesta de varias piezas): lo
+    pesado se lee y la hoja se dibuja en el proceso trabajador (`capas_previas`), mismos resultados."""
     with busy(parent, _tr("Leyendo las capas de la hoja…"),
-              _tr("Contando los trazos de cada capa")):
-        layers = pdf_layers.page_layers(doc, page_index)
+              _tr("Contando los trazos de cada capa")) as ov:
+        previa = None
+        if en_proceso:
+            previa = capas_previas.leer(doc, page_index, _PREVIEW_ZOOM, al_avanzar=lambda a: (
+                ov.step(detail=detalle_de(a[1], a[2], a[3]), pump=False)
+                if a and a[0] == "detalle" and ov.active else None))
+        layers = previa.layers if previa is not None else pdf_layers.page_layers(doc, page_index)
         if not layers:
             # Hoja sin vectores (solo imagen: escaneo): no hay nada que elegir. Una hoja
             # vectorial sin capas OCG trae capas por estilo (`pdf_styles`).
@@ -583,7 +620,7 @@ def choose_sheet_layers(parent, doc, page_index: int, layout=None, recognition_u
                                 recognition_utilities=recognition_utilities, can_go_back=can_go_back,
                                 letters_off=letters_off, legend_sources=legend_sources,
                                 legend_cache=legend_cache, roles_by_utility=roles_by_utility,
-                                scale_ft_per_pt=scale_ft_per_pt)
+                                scale_ft_per_pt=scale_ft_per_pt, previa=previa, en_proceso=en_proceso)
     if dlg.exec() != QtWidgets.QDialog.Accepted:
         return LAYERS_BACK if dlg.went_back else None
     result = (dlg.hidden_names(), dlg.page_index(), dlg.recognition_utilities(), dlg.letters_off())

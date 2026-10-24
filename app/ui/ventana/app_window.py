@@ -25,7 +25,7 @@ from ui.comun.canvas import Canvas
 from ui.comun.widgets import InlineEdit, _SegInvSpinBox, _NoWheelFilter
 from ui.comun import busy as _busy_mod
 from ui.comun import en_hilo
-from ui.comun import fondo_pdf
+from ui.comun import fondo_pdf, fondo_trabajo
 from ui.comun.workers import PipelineWorker, RecognitionWorker, OrganizedRecognitionWorker
 from ui.dialogos import dialogs
 from ui.asistente import recognition_dialog
@@ -553,7 +553,8 @@ class Main(MenuMixin, PanelIzquierdoMixin, PanelDerechoMixin, ModosMixin, ClicsM
                                                       include_roles=True,
                                                       scale_ft_per_pt=self._scale_editable(),
                                                       legend_sources=self._legend_sources(),
-                                                      legend_cache=self._legend_cache)
+                                                      legend_cache=self._legend_cache,
+                                                      en_proceso=fondo_trabajo.conviene(self.composite))
             if chosen == layer_dialog.LAYERS_BACK:
                 step = 0
                 continue
@@ -1257,12 +1258,12 @@ class Main(MenuMixin, PanelIzquierdoMixin, PanelDerechoMixin, ModosMixin, ClicsM
         # Mientras se agrega al modelo, nada lo redibuja ni lo copia a medias: los avisos de avance
         # repintan la ventana (sin eso, con 36 mapas Windows la marcaba «No responde»), y en ese repintado
         # podía llegar el cálculo en segundo plano del editor (`calculo_fondo`) y redibujar.
-        self._importando = True
+        previo, self._importando = getattr(self, "_importando", False), True
         try:
             with self._redibujo_diferido():
                 n_hidden, n_geo, n_alone, n_cv, curvas_q, sin_lugar = self._importar_datos(batches)
         finally:
-            self._importando = False
+            self._importando = previo
         self._update_ui()
         self._redraw()
         parts = []
@@ -1357,23 +1358,22 @@ class Main(MenuMixin, PanelIzquierdoMixin, PanelDerechoMixin, ModosMixin, ClicsM
 
     def _load_page(self, idx):
         self._close_editor()
-        page = self.doc[idx]; self.page_idx = idx; self.scale = VP.detect_scale(page)
-        if self._scale_override:        # hoja compuesta: escala única elegida en el compositor
-            self.scale = float(self._scale_override)
+        page = self.doc[idx]
+        # La hoja entera a zoom 3.5; si es enorme (hoja compuesta de muchas piezas),
+        # a menos resolución con las MISMAS coordenadas (fondo_pdf). PRIMERO: si se dibuja en el
+        # proceso, mientras tanto la ventana sigue con la hoja de antes, sin nada a medio cambiar.
+        qimg, gray, escala, ancho, alto = self._fondo_de(page)
+        tam = (ancho, alto)
+        self.page_idx = idx
+        # hoja compuesta: escala única elegida en el compositor. La del texto no se lee (se
+        # descartaba: en un mapa de 36 piezas era leer todo su texto Type3 en la ventana, ~6 s)
+        self.scale = float(self._scale_override) if self._scale_override else VP.detect_scale(page)
         self.rot = page.rotation; mbx = page.mediabox; self.W, self.H = mbx.width, mbx.height
         self.derot = page.derotation_matrix
-        # La hoja entera a zoom 3.5; si es enorme (hoja compuesta de muchas piezas),
-        # a menos resolución con las MISMAS coordenadas (fondo_pdf).
-        fondo = fondo_pdf.render_pix(page, self.zoom)
-        pix = fondo.pix
-        self.pageH_px = fondo.alto
+        self.gray = gray
+        self.pageH_px = alto
         # tamaño de marca acotado: evita textos/Multileaders gigantes por escala mal detectada
         self.leader_hpx = max(14.0, min(LEADER_TEXT_FT / self.scale * self.zoom, self.pageH_px * 0.05))
-        buf = bytes(pix.samples)
-        qimg = QtGui.QImage(buf, pix.width, pix.height, pix.stride, QtGui.QImage.Format_RGB888).copy()
-        self.gray = fondo_pdf.gris(buf, pix.width, pix.height, pix.stride)
-        escala, tam = fondo.escala, (fondo.ancho, fondo.alto)
-        del buf, pix, fondo                   # la hoja ya está en `qimg`: no duplicarla en memoria
         self._overlay = []
         self.canvas.set_image(qimg, escala, tam)
         self._reset_model(); self._update_page_label()
