@@ -52,7 +52,7 @@ alcantarillado, drenaje, gas, eléctrico, telecom). Todo en **unidades imperiale
     a `ventana_*.py` (`MenuMixin`, `PanelIzquierdoMixin`, `PanelDerechoMixin`, `ModosMixin`, `ClicsMixin`,
     `UtilidadesMixin`, `CatalogoMixin`, `SeleccionMixin`, `ListasMixin`, `MarcasMixin`, `DibujoMixin`,
     `ConflictosMixin`, `CoordsMixin`, `BuzonesMixin`, `MoverPrecisoMixin`, `CurvasMixin`, `HerramientasMixin`,
-    `BancoductosMixin`, y desde 2026-10-08 `EdicionBloqueMixin` de `ventana_bloque`, desde 2026-10-10 `Vista3DMixin` de `ventana_vista3d`, desde 2026-10-24 `PlanosFondoMixin` de `ventana_planos`: el `centralWidget` es un contenedor con el lienzo + la fila de planos) y `Main` las hereda: `win.<método>` sigue igual (313 métodos, mismo código).
+    `BancoductosMixin`, y desde 2026-10-08 `EdicionBloqueMixin` de `ventana_bloque`, desde 2026-10-10 `Vista3DMixin` de `ventana_vista3d`, desde 2026-10-24 `PlanosFondoMixin` de `ventana_planos` y desde 2026-10-26 `CapasMixin` de `ventana_capas`: «Capas» de utilidades y planos de fondo) y `Main` las hereda: `win.<método>` sigue igual (313 métodos, mismo código).
     `ventana_comun.py` = las MISMAS importaciones de app_window (`from ventana_comun import *`).
     En app_window quedan `__init__`, páginas, deshacer, abrir/asistente, proyecto (con `_dirty`: usa
     `self.__…`, que no puede ir a una mezcla), exportar y arrastrar-soltar. OJO: los métodos que crean
@@ -1346,27 +1346,35 @@ alcantarillado, drenaje, gas, eléctrico, telecom). Todo en **unidades imperiale
     `tests/test_agregar_sin_trabas.py` (con `PDFCAD_PROCESO=1`: mismos píxeles y grises, mismas capas/leyenda/
     visibles en CAD y en Phoenix, el diálogo no lee la hoja en la ventana, teselas sueltan el PDF, flujo entero
     igual con y sin proceso). Pendiente: el resaltado de «Capas» con 36 mapas sigue en la ventana (a pedido).
-    **Agregar todas / Elegir hojas y PLANOS de fondo (pedido 2026-10-24)**: tras calcar,
-    `AgregarUtilidadMixin._como_agregar` pregunta «Agregar todas» (sigue en «Capas», como antes) o «Elegir
-    hojas…» → `_empezar_agregado(elegir=True)` arranca `_wizard_sheet_flow(start_step=0)` SIN armar la hoja
-    (el compositor recibe el calco con las hojas ubicadas marcadas; al aceptar, `_agregando_recolocar` las pone en
-    su lugar y entonces `_apply_composite`). Las pruebas lo cambian con `monkeypatch` (si no, el QMessageBox
-    bloquea: `test_agregar_utilidad._stubs` devuelve «todas»). Al importar, `Composite.utilidades_grupo` = {grupo:
-    [claves de utilidad]} (0 = lo que tenía el editor, el nuevo = lo reconocido; solo en hojas con grupos: si no,
-    el dict de siempre). `ui/ventana/ventana_planos.py` (`PlanosFondoMixin`): `_construir_barra_planos` pone el
-    lienzo en un contenedor con una fila «Plano: [Todos] [Agua] [Alcantarillado]» DEBAJO (QTabBar `RoundedSouth`,
-    como las presentaciones de AutoCAD; `hoja_calcada.grupos` decide si se ve; swatch del color de la utilidad;
-    Ctrl+RePág/AvPág con contexto del contenedor). `_mostrar_plano(g)` cambia SOLO la imagen (`cambiar_imagen`),
-    los grises (imán) y la página de las teselas: `hoja_calcada.solo_grupo` (mismas piezas del grupo, mismo
-    `marco`) materializado en el proceso (`composite_trabajo.materializar`) a un temporal (`_planos_docs`, por
-    `_firma_plano`) y dibujado con `_fondo_de`; el plano anterior queda en `_planos_img` (uno: volver es al
-    instante). `Main._pagina_fondo` → `_doc_del_fondo()` (hoja de trabajo o el plano; si su PDF falta —proyecto
-    reabierto, Cancelar del asistente— `_preparar_plano` lo arma sin esperar). `_vista_fondo` va al .digproj
-    (`vista_fondo`, page.png = la imagen a la vista) y a `respaldo_editor.CLAVES`; `_load_page`,
-    `_poner_hoja_combinada` y abrir proyecto → `_soltar_planos` («Todos», cierra y borra los temporales).
-    `_layout_minimapa` (minimapa y marcas de agua) usa las hojas del grupo a la vista. Lo dibujado, el deshacer, el
-    reconocimiento y el DXF (la hoja de trabajo) no cambian. Verificado: el plano del grupo 0 es IDÉNTICO píxel a
-    píxel a la hoja del editor antes de agregar. Tests: `tests/test_planos_fondo.py`.
+    **Agregar por «Componer hoja» y CAPAS como en AutoCAD (pedidos 2026-10-24 y 2026-10-26)**: tras calcar,
+    `agregar_utilidad` va SIEMPRE a `_empezar_agregado(elegir=True)` → `_wizard_sheet_flow(start_step=0)` SIN
+    armar la hoja (como al abrir un PDF: el compositor recibe el calco con las hojas ubicadas marcadas; al aceptar,
+    `_agregando_recolocar` las pone en su lugar y entonces `_apply_composite`); ya no hay pregunta «Agregar todas /
+    Elegir hojas…» (`test_agregar_utilidad._stubs` cambia `composite_dialog.compose_sheet`). Al importar,
+    `Composite.utilidades_grupo` = {grupo: [claves de utilidad]} (0 = lo que tenía el editor, el nuevo = lo
+    reconocido; solo en hojas con grupos: si no, el dict de siempre) y las utilidades nuevas se encienden.
+    «Capas ▾» en la barra (`ui/comun/capas_popup.py`: `BotonCapas` + `PanelCapas` emergente que se queda abierto,
+    filas con bombilla; clic = encender/apagar, clic derecho «Ver solo esta» / «Encender todas»; sin estado propio:
+    `estado()` → `Estado(utilidades, planos)`) reemplaza a las pestañas de planos al pie del lienzo (quitadas, con
+    Ctrl+RePág/AvPág). `ui/ventana/ventana_capas.py` (`CapasMixin`): UTILIDADES = `Main.capas_apagadas` (capas de
+    utilidad apagadas; .digproj `capas_apagadas`, `respaldo_editor.CLAVES`, `_reset_model` las vacía; NO marca
+    cambios): `CapaLineas.fijar_ocultas(claves)` filtra al pintar (la elegida desde el Inventario se ve), los buzones/
+    curvas cuyas utilidades cercanas (14 px) están todas apagadas no se dibujan (`_estructuras_ocultas`, `_pick` los
+    salta), `GrupoMarcas.fijar_ocultas(apagadas, capas_en)` oculta las marcas cuyas utilidades a ≤`MARCA_FT` están
+    todas apagadas (sin utilidad cerca: se ve; `_Capa.cerca` y el despeje las saltan, la imagen de la vista se
+    rehace), `_utilidades_cerca` (ratón: elegir, imán, globo, vértices) no las devuelve salvo `todas=True`
+    (soluciones, dueñas de marcas) y en el Inventario quedan en gris (`_atenuar_lista_utilidades`). Apagar = un
+    `_redraw` con el mismo modelo (nada se recalcula). PLANOS = `ventana_planos.py` (`PlanosFondoMixin`), uno por
+    grupo, CUALQUIER combinación: `_poner_planos(visibles)` → `clave_planos`: todos = None (la hoja de trabajo),
+    algunos = frozenset (`hoja_calcada.solo_grupos`, mismo `marco`, materializado en el proceso a un temporal,
+    `_planos_docs` por clave y `_firma_plano`), ninguno = `_fondo_apagado` (`canvas.ocultar_fondo`: la imagen no se
+    pinta, `_snap` no engancha, `_doc_del_fondo` → None: sin teselas). `_mostrar_plano(clave)` cambia SOLO la imagen
+    (`cambiar_imagen`), los grises y la página de las teselas; la anterior queda en `_planos_img` (volver es al
+    instante). `_vista_fondo` (lista de grupos; un int de antes se lee como [int]) y `fondo_apagado` van al .digproj
+    (page.png = la imagen cargada) y a `respaldo_editor.CLAVES`; `_load_page`, `_poner_hoja_combinada` y abrir
+    proyecto → `_soltar_planos` (todos, cierra y borra los temporales). `_layout_minimapa` usa las hojas del menor
+    grupo a la vista. Lo dibujado, el deshacer, el reconocimiento y el DXF no cambian. Verificado: el plano del grupo
+    0 es IDÉNTICO píxel a píxel a la hoja del editor antes de agregar. Tests: `tests/test_planos_fondo.py`.
   - **Área sugerida** (pedido del usuario 2026-10-20: «sugerirle un área y que el usuario la ajuste», sin tocar el
     reconocimiento): `hoja/area_sugerida.py` (PURO) `sugerir(page, ficha=None)` → `[Area]` (la mejor primero; [] = nada):
     hoja con match lines → `_planta` (vista de `composicion_ficha` cortada en cada match line con rótulo, como

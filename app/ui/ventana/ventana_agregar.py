@@ -2,8 +2,9 @@
 
 Pedido del usuario 2026-10-23: los mapas llegan en un PDF por utilidad (Phoenix: dos de agua,
 dos de alcantarillado, dos de drenaje). Con una utilidad ya importada, desde el editor se
-elige el PDF de la siguiente, se pasa por el mismo flujo (Capas de la hoja → vista previa) y
-al importar queda junto a la anterior, en su lugar.
+elige el PDF de la siguiente, se pasa por el mismo flujo que al abrir un PDF (2026-10-26: «Componer
+hoja» con las hojas ubicadas ya marcadas → Capas de la hoja → vista previa) y al importar queda junto
+a la anterior, en su lugar; su plano y sus utilidades se encienden y apagan en «Capas».
 
 Cómo: la hoja de la utilidad nueva se arma CALCADA sobre la del editor (`hoja.hoja_calcada`,
 en el proceso trabajador): cada hoja del PDF nuevo se ubica sobre su pieza del editor por el
@@ -53,30 +54,11 @@ class AgregarUtilidadMixin:
                 "calles no coincide con el de la hoja), así que no se puede ubicar sobre ella.").format(
                     pdf=", ".join(e["name"] for e in nuevas)))
             return
-        como = self._como_agregar(len(res["comp"].get("pieces") or ()), len(editor.pieces), nuevas)
-        if como is None:
-            self._info(_tr("Agregar utilidad cancelado — el editor queda como estaba."))
-            return
-        self._empezar_agregado(editor, nuevas, res, elegir=(como == "elegir"))
-
-    def _como_agregar(self, n: int, total: int, nuevas) -> "str | None":
-        """Pedido del usuario 2026-10-24: agregar todas las hojas ubicadas (sigue en «Capas de la
-        hoja») o pasar por el flujo de siempre desde «Componer hoja» (quitar hojas, tomar solo un
-        área). → "todas", "elegir" o None (cancelar)."""
-        box = QtWidgets.QMessageBox(self)
-        box.setIcon(QtWidgets.QMessageBox.Question)
-        box.setWindowTitle(_tr("Agregar utilidad"))
-        box.setText(_tr("{n} de {t} hojas de la hoja del editor tienen su hoja en «{pdf}».").format(
-            n=n, t=total, pdf=", ".join(e["name"] for e in nuevas)))
-        box.setInformativeText(_tr("«Agregar todas» sigue con «Capas de la hoja». «Elegir hojas…» abre «Componer "
-                                   "hoja» para quitar hojas o tomar solo un área; cada una vuelve sola a su lugar."))
-        todas = box.addButton(_tr("Agregar todas"), QtWidgets.QMessageBox.AcceptRole)
-        elegir = box.addButton(_tr("Elegir hojas…"), QtWidgets.QMessageBox.ActionRole)
-        box.addButton(_tr("Cancelar"), QtWidgets.QMessageBox.RejectRole)
-        box.setDefaultButton(todas)
-        box.exec()
-        boton = box.clickedButton()
-        return "todas" if boton is todas else "elegir" if boton is elegir else None
+        # Pedido del usuario 2026-10-26: como al abrir un PDF, se pasa por la selección de hojas
+        # («Componer hoja») con las hojas ubicadas ya marcadas; cada una vuelve sola a su lugar.
+        self._info(_tr("{n} de {t} hojas de la hoja del editor tienen su hoja en «{pdf}»: elige cuáles agregar.").format(
+            n=len(res["comp"].get("pieces") or ()), t=len(editor.pieces), pdf=", ".join(e["name"] for e in nuevas)))
+        self._empezar_agregado(editor, nuevas, res, elegir=True)
 
     def _elegir_pdfs_utilidad(self):
         """Los PDF de la utilidad nueva (uno o varios). Si la hoja del editor viene de varios PDF
@@ -247,6 +229,9 @@ class AgregarUtilidadMixin:
             self._reponer_respaldo(_tr("No hay tramos reconocidos para importar — el editor queda como estaba."))
             return False
         self._soltar_respaldo()
+        if self.capas_apagadas & set(utils):               # lo agregado se ve («Capas», ventana_capas)
+            self.capas_apagadas -= set(utils)
+            self._aplicar_capas()
         self._dirty = True
         _busy_mod.toast(self, "✔ " + _tr("Utilidad agregada a la hoja del editor"))
         return True

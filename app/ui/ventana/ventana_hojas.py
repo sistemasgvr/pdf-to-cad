@@ -87,8 +87,9 @@ class HojasEditorMixin:
         if not lay or comp is None or len(comp.pieces) != len(lay):
             return lay
         # las hojas de una utilidad agregada (`grupo`) caen ENCIMA de las del editor: no se repiten.
-        # Con el plano de un grupo a la vista (ventana_planos), las de ese grupo.
-        g = getattr(self, "_vista_fondo", None) or 0
+        # Con solo algunos planos a la vista (ventana_planos), las del primero de ellos.
+        vista = getattr(self, "_vista_fondo", None)
+        g = min(vista) if vista else 0
         return [(rect, p.label or label) for (rect, label), p in zip(lay, comp.pieces) if int(p.grupo) == g]
 
     def _calcular_layout(self, comp):
@@ -119,8 +120,8 @@ class HojasEditorMixin:
 
     # ── al redibujar ──────────────────────────────────────────────────────
     def _dibujar_hojas(self):
-        """Minimapa, marcas de agua y pestañas de los planos (lo llama `_redraw` al final)."""
-        self._sync_barra_planos()
+        """Minimapa, marcas de agua y el botón «Capas» (lo llama `_redraw` al final)."""
+        self._sync_boton_capas()
         hojas = self._hojas_px()
         self._minimapa_editor(hojas)
         if hojas and getattr(self, "act_marcas_hojas", None) is not None and self.act_marcas_hojas.isChecked():

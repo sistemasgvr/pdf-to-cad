@@ -88,8 +88,9 @@ class ClicsMixin:
         bz_thr = 18.0 / max(1e-6, self.canvas.transform().m11())
         curve_thr = 22.0 / max(1e-6, self.canvas.transform().m11())
         best_bz, bd_bz = -1, bz_thr
+        ocultas = getattr(self, "_estructuras_ocultas", ())   # de capas apagadas en «Capas»
         for i, s in enumerate(self.structures):
-            if s.get("world") or s.get("hidden"): continue
+            if s.get("world") or s.get("hidden") or i in ocultas: continue
             sx, sy = s.get("x"), s.get("y")
             if sx is None or sy is None: continue
             d = math.hypot(x - sx, y - sy)
@@ -100,7 +101,7 @@ class ClicsMixin:
         # con esto puede hacer clic en cualquier parte del arco visible.
         arc_thr = thr * 1.5
         for i, s in enumerate(self.structures):
-            if not s.get("curve") or s.get("world") or s.get("hidden"): continue
+            if not s.get("curve") or s.get("world") or s.get("hidden") or i in ocultas: continue
             sx, sy = s.get("x"), s.get("y")
             if sx is None or sy is None: continue
             pipe = self._pipe_at_vertex(sx, sy)
@@ -174,6 +175,7 @@ class ClicsMixin:
 
     def _snap(self, x, y):
         if not self.snap: return (x, y)
+        if getattr(self, "_fondo_apagado", False): return (x, y)   # sin plano a la vista no hay tinta
         if self.canvas.fondo_escala < 1.0:          # hoja enorme (fondo_pdf): tinta a resolución completa
             page = self._pagina_fondo()
             if page is not None:

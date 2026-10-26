@@ -106,12 +106,13 @@ from ui.ventana.ventana_agregar import AgregarUtilidadMixin
 from ui.ventana.ventana_calculo import CalculoPlanoMixin
 from ui.ventana.calculo_fondo import CalculoFondoMixin
 from ui.ventana.ventana_estados import EstadosPreviosMixin
-from ui.ventana.ventana_planos import PlanosFondoMixin
+from ui.ventana.ventana_planos import PlanosFondoMixin, clave_planos
+from ui.ventana.ventana_capas import CapasMixin
 
 
 class Main(MenuMixin, PanelIzquierdoMixin, PanelDerechoMixin, ModosMixin, ClicsMixin, UtilidadesMixin, CatalogoMixin, SeleccionMixin, ListasMixin, MarcasMixin, DibujoMixin, ConflictosMixin, CoordsMixin, BuzonesMixin, MoverPrecisoMixin, CurvasMixin, HerramientasMixin, BancoductosMixin, EdicionBloqueMixin, InformeMixin, IAMixin, SolucionesMixin, Vista3DMixin, Edicion3DMixin, ConflictosListaMixin, HojasEditorMixin,
            VerticesMixin, TrazoMixin, CalculoPlanoMixin, CalculoFondoMixin, EstadosPreviosMixin,
-           AgregarUtilidadMixin, PlanosFondoMixin, QtWidgets.QMainWindow):
+           AgregarUtilidadMixin, PlanosFondoMixin, CapasMixin, QtWidgets.QMainWindow):
     def __init__(self):
         super().__init__()
         self._base_title = f"Asistente C3D  (v{VERSION})"
@@ -119,7 +120,7 @@ class Main(MenuMixin, PanelIzquierdoMixin, PanelDerechoMixin, ModosMixin, ClicsM
         self.setAcceptDrops(True)
         self.canvas = Canvas(self); self.canvas.clicked.connect(self.on_click)
         self.canvas.dbl.connect(self.on_dblclick)
-        self._construir_barra_planos()      # lienzo + pestañas de los planos de fondo (ventana_planos)
+        self._construir_planos()            # lienzo + estado de los planos de fondo (ventana_planos)
         # Hoja enorme (fondo_pdf): recorte nítido de la parte visible al acercarse.
         self.canvas.nitidez = fondo_pdf.Nitidez(self.canvas, lambda: self.zoom, self._pagina_fondo)
         self.zoom = 3.5; self.scale = 20 / 72.0; self.rot = 0; self.W = 0; self.H = 0
@@ -1398,6 +1399,7 @@ class Main(MenuMixin, PanelIzquierdoMixin, PanelDerechoMixin, ModosMixin, ClicsM
         self.duct_banks = []
         self.cross_connections = []
         self.normas_aprobados = []
+        self.capas_apagadas = set()             # «Capas»: todas las utilidades encendidas
         self.sel_pipe = self.sel_leader = self.sel_region = self.sel_text = -1
         self.sel_cl = -1
         self._overlay = []; self._close_editor(); self._dirty = False; self._extending = False
@@ -1568,9 +1570,12 @@ class Main(MenuMixin, PanelIzquierdoMixin, PanelDerechoMixin, ModosMixin, ClicsM
             self.work_pdf_path = tmp_pdf
             self.composite = data.get("composite")
             self._soltar_planos()
-            from hoja import hoja_calcada as _hc       # el plano que se veía al guardar (page.png es ese)
-            if data.get("vista_fondo") in _hc.grupos(self.composite):
-                self._vista_fondo = data.get("vista_fondo")
+            from hoja import hoja_calcada as _hc       # los planos que se veían al guardar (page.png es esa imagen)
+            gs = _hc.grupos(self.composite)
+            if gs and data.get("vista_fondo") and set(data["vista_fondo"]) <= set(gs):
+                self._vista_fondo = clave_planos(data["vista_fondo"], gs)
+            if gs and data.get("fondo_apagado"):
+                self._apagar_fondo(True)
             self._scale_override = data.get("scale_override")
             self.blank_canvas = bool(data.get("blank_canvas"))
             self.paper = data.get("paper")
@@ -1611,6 +1616,7 @@ class Main(MenuMixin, PanelIzquierdoMixin, PanelDerechoMixin, ModosMixin, ClicsM
             self.duct_banks = data.get("duct_banks", [])
             self.cross_connections = data.get("cross_connections", []) or []
             self.normas_aprobados = data.get("normas_aprobados", []) or []
+            self.capas_apagadas = set(data.get("capas_apagadas") or ())   # «Capas» (ventana_capas)
             self.georef = data["georef"]
             self.work_unit = data["work_unit"]
             self.cur_pts = []; self._erase_pts = []; self.sel_pipe = self.sel_leader = self.sel_region = self.sel_text = -1

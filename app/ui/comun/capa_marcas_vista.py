@@ -154,8 +154,11 @@ class DespejeMixin:
                 continue
             xs, ys = capa._puntos()
             rots = capa._np_rots
-            idx = np.flatnonzero(~np.isnan(rots[:, 0]) & (xs >= region.left()) & (xs <= region.right())
-                                 & (ys >= region.top()) & (ys <= region.bottom()))
+            dentro = (~np.isnan(rots[:, 0]) & (xs >= region.left()) & (xs <= region.right())
+                      & (ys >= region.top()) & (ys <= region.bottom()))
+            if capa._ocultas is not None and len(capa._ocultas) == len(dentro):
+                dentro &= ~capa._ocultas                 # apagadas en «Capas»
+            idx = np.flatnonzero(dentro)
             if not len(idx):
                 continue
             px = W.m11() * xs[idx] + W.m21() * ys[idx]

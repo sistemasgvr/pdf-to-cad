@@ -495,11 +495,9 @@ ofrece agregar también el otro de la misma utilidad.</p>
     por el mapa base que comparten (lotes, derecho de vía, calles), aunque esté a otra escala, en
     otro orden o girada. La hoja nueva se arma <b>calcada</b> sobre la del editor: misma área, mismo
     lugar, mismo tamaño.</li>
-<li>La app dice cuántas hojas ubicó y pregunta cómo seguir:
-    <span class="btn">Agregar todas</span> sigue con <b>Capas de la hoja</b> y <b>Vista previa</b>, sobre
-    la hoja de la utilidad nueva; <span class="btn">Elegir hojas…</span> hace el flujo completo desde
-    <b>Componer hoja</b>, con las hojas ubicadas ya marcadas: desmarca las que no quieras o toma solo un
-    área. Las utilidades que ya están en el editor no vienen marcadas.</li>
+<li>Como al abrir un PDF, se abre <b>Componer hoja</b> con las hojas ubicadas ya marcadas: desmarca
+    las que no quieras o toma solo un área, y sigue con <b>Capas de la hoja</b> y <b>Vista previa</b>.
+    Cada hoja vuelve sola a su lugar. Las utilidades que ya están en el editor no vienen marcadas.</li>
 <li>Al importar, la hoja del editor pasa a mostrar <b>los dos PDF juntos</b> y lo reconocido entra
     junto a lo que ya tenías. Lo de antes <b>no se mueve ni cambia</b> (líneas, buzones, Deshacer,
     georreferencia). <span class="btn">Cancelar</span> en cualquier paso deja el editor como estaba.</li>
@@ -508,13 +506,20 @@ ofrece agregar también el otro de la misma utilidad.</p>
 <li>Si el PDF no dibuja el mismo mapa base que la hoja del editor (otra cartografía, otra zona),
     la app lo dice y no agrega nada.</li>
 </ul>
-<p><b>Planos de fondo.</b> Con dos o más utilidades en la hoja, debajo del lienzo aparece una fila de
-pestañas, como las presentaciones de AutoCAD: <span class="btn">Todos</span> (los planos fundidos) y una
-por utilidad (<span class="btn">Agua</span>, <span class="btn">Alcantarillado</span>…), con su color. Cada
-una muestra solo el plano original de esa utilidad, sin los rótulos de las demás encima.
-<b>Ctrl+RePág</b> / <b>Ctrl+AvPág</b> pasan al plano anterior / siguiente. Cambia solo la imagen de fondo
-(y con ella el imán a la tinta): lo dibujado, Deshacer, el reconocimiento y el DXF no cambian. El
-proyecto guarda el plano que estabas viendo.</p>
+<p><b>Capas.</b> El botón <span class="btn">Capas ▾</span> de la barra superior funciona como el
+administrador de capas de AutoCAD: una fila por capa con su bombilla. Clic en la fila la enciende o la
+apaga; clic derecho → <b>Ver solo esta</b> o <b>Encender todas</b>.</p>
+<ul>
+<li><b>Utilidades (lo dibujado):</b> apagar una utilidad oculta sus líneas, sus buzones y curvas y sus
+    marcas (cruces, accesorios, avisos y conflictos que solo tocan utilidades apagadas). En el lienzo no
+    se elige ni engancha; en el Inventario sigue en la lista, en gris, y si la eliges ahí se ve.</li>
+<li><b>Planos del PDF (fondo):</b> con dos o más utilidades agregadas, un plano por PDF. Se ve cualquier
+    combinación: todos (fundidos), solo algunos (sin los rótulos de los demás) o ninguno (papel vacío y
+    sin imán a la tinta).</li>
+</ul>
+<p>Solo cambia lo que se ve: el modelo, Deshacer, los cálculos, la Tabla de datos y el DXF no cambian
+(el DXF sale completo). El proyecto guarda las capas como las dejaste. El botón dice cuántas hay
+apagadas.</p>
 
 <h2>Volver a componer más tarde</h2>
 <p>Menú <b>Herramientas → Componer hoja de trabajo…</b> abre otra vez el paso 1, en el PDF y la hoja donde

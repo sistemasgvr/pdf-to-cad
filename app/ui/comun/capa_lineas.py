@@ -34,6 +34,8 @@ class CapaLineas(QtWidgets.QGraphicsItem):
         self._np = None
         self._ancho = 0.0                                # mayor grosor de pluma (px de pantalla)
         self._caja = QtCore.QRectF()
+        self._ocultas = frozenset()                      # claves apagadas en «Capas» (no se pintan)
+        self._mascara = None                             # entradas que sí se pintan (numpy), o None = todas
         self.setZValue(z)
         self.setFlag(QtWidgets.QGraphicsItem.ItemUsesExtendedStyleOption)
 
@@ -69,6 +71,24 @@ class CapaLineas(QtWidgets.QGraphicsItem):
             self._ancho = pluma.widthF()
         self.update()
 
+    def fijar_ocultas(self, claves):
+        """Las entradas de estas claves (utilidades apagadas en «Capas») no se pintan; las demás quedan
+        exactamente como estaban. Instantáneo: no rehace nada, solo filtra al pintar."""
+        claves = frozenset(claves)
+        if claves == self._ocultas:
+            return
+        self._ocultas = claves
+        if claves:
+            m = np.ones(len(self.entradas), dtype=bool)
+            for c in claves:
+                k = self.de.get(c)
+                if k is not None:
+                    m[k] = False
+            self._mascara = m
+        else:
+            self._mascara = None
+        self.update()
+
     def boundingRect(self):
         # la pluma es cosmética (px de pantalla): el margen en la escena depende del zoom; uno holgado
         m = self._ancho + 2.0
@@ -96,6 +116,8 @@ class CapaLineas(QtWidgets.QGraphicsItem):
                 continue
             toca |= ((c[:, 2] >= z.left() - m) & (c[:, 0] <= z.right() + m)
                      & (c[:, 3] >= z.top() - m) & (c[:, 1] <= z.bottom() + m))
+        if self._mascara is not None and len(self._mascara) == len(toca):
+            toca &= self._mascara
         actual = None
         for k in np.flatnonzero(toca).tolist():
             lineas, pluma = self.entradas[k]

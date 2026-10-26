@@ -44,7 +44,7 @@ class SolucionesMixin:
         ft = self.scale / self.zoom if self.scale and self.zoom else 0.0
         tol = max(1.0, 0.5 / ft) if ft else 3.0           # 0.5 ft: los tramos que pasan por el punto
         cerca = []
-        for i in self._utilidades_cerca(c.x, c.y, tol):
+        for i in self._utilidades_cerca(c.x, c.y, tol, todas=True):
             pts = self.pipes[i].get("pts") or []
             d, k = min(((_dist_seg((c.x, c.y), pts[k], pts[k + 1]), k) for k in range(len(pts) - 1)),
                        default=(None, -1))
