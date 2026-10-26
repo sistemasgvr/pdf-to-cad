@@ -474,8 +474,11 @@ alcantarillado, drenaje, gas, eléctrico, telecom). Todo en **unidades imperiale
     r·tan(Δ/2) (`_piernas_de_codos`, fila dura) y sigue ahí exacto (las mitades comparten centro y
     radio). Intentos: radio exacto + contactos 1e6; si algún vértice se corre >`MOVER_POCO_PT`=0.5
     pt (casi tangente/paralelo: DU08 h.47, h.49 se deslizaban 1–10 pt) se prueban sin las
-    piernas y con contactos 1e3 y gana el que menos mueve. Línea que se apartaría >`DESVIO_MAX_PT`=2
-    pt (de lado, `lateral`: deslizar por su recta no cuenta), daría vuelta un tramo o separaría un
+    piernas y con contactos 1e3 y gana el que menos mueve. Línea que se apartaría >`DESVIO_MAX_PT`=0.5
+    pt (de lado, `lateral`: deslizar por su recta no cuenta, hasta `_DESLIZ_MAX_PT`=2; era 2 pt: en la
+    compuesta de DU06 cada hoja dibuja la misma recta a 0.24°/0.11° y el «quiebre» de 0.13° en pasos de
+    0.25° corría 32 líneas eléctricas hasta 1.8 pt de su tinta, reporte 2026-10-26; hojas sueltas de DU06
+    × 6 utilidades: cambia 1 línea, h.4 eléctrico), daría vuelta un tramo o separaría un
     contacto → queda como estaba (solo sigue a sus contactos), aviso «Líneas con el ángulo del
     plano…» (REVIEW, `angles_off_px`). `reubicar` lleva `vault_pts`/`vault_snaps_px` a su vértice.
     Medido (DU06/DU10/DU08/LABOE × 6 utilidades + Phoenix agua/alcantarillado, 445 hoja×utilidad):

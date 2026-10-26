@@ -192,6 +192,19 @@ def test_bovedas_siguen_a_su_vertice():
     assert RA.reubicar([viejo, (999.0, 999.0)], aj.movidos) == [pl.pts_pdf[1], (999.0, 999.0)]
 
 
+def test_recta_larga_no_se_aparta_de_su_tinta():
+    """Reporte 2026-10-26 (hoja compuesta DU06 UD-213 + UD-214, eléctrico «—e—»): cada hoja
+    dibuja la misma línea con un rumbo algo distinto (0.24° y 0.11°); un «quiebre» de 0.13°
+    entre tramos de 850 y 1600 pt no cabe en pasos de 0.25° sin correr la línea de lado ~1.3 pt
+    (se veía separada de su tinta al final). Queda como estaba, sobre su tinta."""
+    pts = _camino((36.45, 291.84), [(0.240, 854.6), (0.111, 1625.0)])
+    pl = _pl(pts, ["cut", "vault", "cut"])
+    aj = RA.ajustar_quiebres([pl], 1.0)
+    assert all(_dist_linea(q, pts) <= 0.5 for q in pl.pts_pdf)
+    assert max(math.hypot(q[0] - p[0], q[1] - p[1]) for p, q in zip(pts, pl.pts_pdf)) <= 0.5
+    assert aj.sin_ajustar                                    # y se avisa
+
+
 # ─────────────────────────── reconocimiento real ───────────────────────────
 fitz = pytest.importorskip("fitz")
 
