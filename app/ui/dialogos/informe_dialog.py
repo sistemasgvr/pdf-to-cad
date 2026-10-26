@@ -18,11 +18,14 @@ class InformeDialog(QtWidgets.QDialog):
     def __init__(self, parent=None, n_conflictos=0, n_avisos=0, n_reconocimiento=0):
         super().__init__(parent)
         self.setWindowTitle(_tr("Informe automático"))
+        self.setMinimumWidth(460)
+        from ui.comun import ia_estilo as E
         lay = QtWidgets.QVBoxLayout(self)
-        intro = QtWidgets.QLabel(_tr("Arma un informe en Word con las fichas de cada zona del plano, sus capturas "
-                                     "y la explicación de cada conflicto y aviso."))
-        intro.setWordWrap(True)
-        lay.addWidget(intro)
+        lay.setContentsMargins(18, 16, 18, 14)
+        lay.setSpacing(12)
+        lay.addWidget(E.Encabezado("mdi:file-document-outline", _tr("Informe automático"), _tr(
+            "Arma un informe en Word con las fichas de cada zona del plano, sus capturas y la explicación de cada "
+            "conflicto y aviso.")))
         g1 = QtWidgets.QGroupBox(_tr("Qué incluir"))
         l1 = QtWidgets.QVBoxLayout(g1)
         self.chk_conf = QtWidgets.QCheckBox(_tr("Conflictos ({n})").format(n=n_conflictos))
@@ -48,6 +51,11 @@ class InformeDialog(QtWidgets.QDialog):
         self.botones = QtWidgets.QDialogButtonBox(QtWidgets.QDialogButtonBox.Ok | QtWidgets.QDialogButtonBox.Cancel)
         self.botones.button(QtWidgets.QDialogButtonBox.Ok).setText(_tr("Generar informe…"))
         self.botones.button(QtWidgets.QDialogButtonBox.Cancel).setText(_tr("Cancelar"))
+        self.botones.button(QtWidgets.QDialogButtonBox.Cancel).setProperty("secondary", True)   # la principal destaca
+        self.botones.button(QtWidgets.QDialogButtonBox.Ok).setDefault(True)
+        from ui.comun import icons, theme
+        E.al_cambiar_tema(self, lambda: self.botones.button(QtWidgets.QDialogButtonBox.Ok).setIcon(
+            icons.icon("mdi:file-document-outline", color=theme.tokens().text_on_accent)))
         self.botones.accepted.connect(self.accept)
         self.botones.rejected.connect(self.reject)
         lay.addWidget(self.botones)

@@ -4140,4 +4140,8 @@ EN: dict[str, str] = {
     'Lo que el reconocimiento del PDF no pudo leer con certeza (por ejemplo, el diámetro que dice el plano). No son incumplimientos de normativa: revísalos en el plano.': 'What the PDF recognition could not read with certainty (for example, the diameter the plan gives). They are not design-standard violations: check them on the plan.',
     'Avisos de reconocimiento, aparte ({n})': 'Recognition warnings, separately ({n})',
     'Lo que el reconocimiento del PDF no leyó con certeza (diámetro del plano). Va en su propia sección, no como normativa.': 'What the PDF recognition did not read with certainty (plan diameter). It goes in its own section, not as a standard.',
+    # IA: UX/UI (2026-10-26)
+    '¿En qué te ayudo?': 'How can I help?',
+    'No hay una solución automática para este tipo de conflicto: hay que cambiar el dibujo.': 'There is no automatic solution for this type of conflict: the drawing must be changed.',
+    'Propuestas': 'Proposals',
 }

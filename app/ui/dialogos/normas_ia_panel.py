@@ -7,7 +7,7 @@ from __future__ import annotations
 import html
 import threading
 
-from PySide6 import QtCore, QtWidgets
+from PySide6 import QtCore, QtGui, QtWidgets
 
 from ia import explicar_norma as EN
 from ia import proveedor as P
@@ -29,24 +29,47 @@ class PanelExplicacion(QtWidgets.QWidget):
         self._senales = _Senales(self)
         self._senales.trozo.connect(self._al_trozo)
         self._senales.listo.connect(self._al_listo)
-        lay = QtWidgets.QVBoxLayout(self)
-        lay.setContentsMargins(0, 4, 0, 0)
+        from ui.comun import ia_estilo as E
+        externo = QtWidgets.QVBoxLayout(self)
+        externo.setContentsMargins(0, 8, 0, 0)
+        self.caja = QtWidgets.QFrame()                   # todo en una tarjeta con el icono de la IA
+        self.caja.setObjectName("explicacionIA")
+        externo.addWidget(self.caja)
+        lay = QtWidgets.QVBoxLayout(self.caja)
+        lay.setContentsMargins(12, 10, 12, 10)
+        lay.setSpacing(6)
         fila = QtWidgets.QHBoxLayout()
+        fila.setSpacing(8)
+        self.ico = QtWidgets.QLabel()
+        self.ico.setStyleSheet("background: transparent;")
         self.lbl = QtWidgets.QLabel(_tr("¿Qué significa esta regla?"))
-        self.lbl.setStyleSheet("font-weight: 600;")
         self.btn = QtWidgets.QPushButton(_tr("Explicar con IA"))
+        self.btn.setProperty("soft", True)
         self.btn.setAutoDefault(False)
+        self.btn.setCursor(QtGui.QCursor(QtCore.Qt.PointingHandCursor))
         self.btn.setToolTip(_tr("La IA explica la regla elegida en palabras sencillas. La respuesta se guarda: la "
                                 "misma regla no se vuelve a pedir."))
         self.btn.clicked.connect(self.explicar)
+        fila.addWidget(self.ico)
         fila.addWidget(self.lbl, 1)
         fila.addWidget(self.btn)
         lay.addLayout(fila)
         self.texto = QtWidgets.QTextBrowser()
-        self.texto.setMaximumHeight(150)
+        self.texto.setMaximumHeight(130)
+        self.texto.setFrameShape(QtWidgets.QFrame.NoFrame)
         lay.addWidget(self.texto)
+        E.al_cambiar_tema(self, self._estilo)
         self.vista.currentCellChanged.connect(lambda *_a: self.mostrar())
         self.mostrar()
+
+    def _estilo(self):
+        from ui.comun import ia_estilo as E, icons, theme
+        tk = theme.tokens()
+        self.caja.setStyleSheet(E.tarjeta("explicacionIA", tk))
+        E.texto_en_tarjeta(self.texto)
+        self.ico.setPixmap(E.pix("mdi:robot-outline", tk.accent if not theme.is_dark() else tk.focus, 20))
+        self.lbl.setStyleSheet(f"font-weight: 600; color: {tk.text}; background: transparent;")
+        self.btn.setIcon(icons.icon("mdi:lightbulb-outline", color=tk.soft_text))
 
     def _fila(self):
         r = self.vista.currentRow()
@@ -112,14 +135,22 @@ class PanelExplicacion(QtWidgets.QWidget):
                     else _tr("Guardada: no se volvió a preguntar a la IA."))
 
     def _poner(self, fila, texto, nota):
+        from ui.comun import theme
+        from ui.dialogos.ia_chat_html import colores_aviso
+        tk = theme.tokens()
         cuerpo = html.escape(texto).replace("\n", "<br>")
         cifras = EN.cifras_sin_respaldo(fila, texto)
-        if cifras:
-            cuerpo += "<br><span style='color:#c08400'>⚠ " + html.escape(_tr(
-                "Revisa estas cifras: no están en la regla: {c}").format(c=", ".join(f"{v:g}" for v in cifras))) + \
-                "</span>"
-        self.texto.setHtml(cuerpo + "<br><i style='font-size:small'>" + html.escape(nota) + "</i>")
+        if cifras:                                       # misma tarjeta ámbar que el chat (contraste AA)
+            fondo, letra = colores_aviso(theme.is_dark())
+            cuerpo += (f"<table width='100%' cellspacing='0' cellpadding='6' style='margin-top:6px'><tr>"
+                       f"<td bgcolor='{fondo}' style='color:{letra}'>" + html.escape(_tr(
+                           "Revisa estas cifras: no están en la regla: {c}").format(
+                           c=", ".join(f"{v:g}" for v in cifras))) + "</td></tr></table>")
+        pie = f"<p style='margin-top:6px; font-size:small; color:{tk.text_muted}'><i>{html.escape(nota)}</i></p>"
+        contenido = f"<div style='color:{tk.text}'>{cuerpo}</div>{pie}"
+        self.texto.setHtml(contenido)
 
     @staticmethod
     def _gris(txt):
-        return "<i>" + html.escape(txt) + "</i>"
+        from ui.comun import theme
+        return f"<i style='color:{theme.tokens().text_muted}'>" + html.escape(txt) + "</i>"

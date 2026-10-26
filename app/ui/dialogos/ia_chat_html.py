@@ -65,8 +65,8 @@ def siguientes(res):
 
 
 def _burbuja_tu(tu, tk):
-    return (f"<table width='100%' cellspacing='0' cellpadding='0' style='margin-top:12px'><tr>"
-            f"<td width='18%'></td><td bgcolor='{tk.soft}' style='padding:8px; color:{tk.soft_text}'>"
+    return (f"<table width='100%' cellspacing='0' cellpadding='0' style='margin-top:14px'><tr>"
+            f"<td width='18%'></td><td bgcolor='{tk.soft}' style='padding:10px 12px; color:{tk.soft_text}'>"
             f"<span style='font-size:small'>{html.escape(_tr('Tú'))} · {html.escape(tu.get('hora', ''))}"
             f"</span><br>{html.escape(tu['pregunta']).replace(chr(10), '<br>')}</td></tr></table>")
 
@@ -122,19 +122,25 @@ def _burbuja_ia(i, tu, tk, existe, ahora, ultimo):
             fichas = " ".join(f"<a href='preg:{k}' style='color:{tk.text_info}'>{html.escape(q)}</a>"
                               for k, q in enumerate(tu["siguientes"]))
             partes.append(f"<p style='font-size:small'>{fichas}</p>")
-    return (f"<table width='100%' cellspacing='0' cellpadding='0' style='margin-top:8px'><tr>"
-            f"<td width='26' valign='top'><img src='ico:ia' width='20' height='20'></td>"
-            f"<td bgcolor='{tk.surface_alt}' style='padding:8px; color:{tk.text}'>{''.join(partes)}</td>"
+    return (f"<table width='100%' cellspacing='0' cellpadding='0' style='margin-top:10px'><tr>"
+            f"<td width='30' valign='top' style='padding-top:4px'><img src='ico:ia' width='20' height='20'></td>"
+            f"<td bgcolor='{tk.surface_alt}' style='padding:10px 12px; color:{tk.text}'>{''.join(partes)}</td>"
             f"<td width='8%'></td></tr></table>")
 
 
 def conversacion(turnos, tk, existe, ahora):
     """HTML completo de la conversación."""
     partes = [f"<div style='color:{tk.text}'>"]
-    if not turnos:
-        partes.append(f"<p style='color:{tk.text_muted}'>" + html.escape(_tr(
-            "Pregunta lo que quieras sobre este proyecto: conflictos, normativas, utilidades, zonas. La IA "
-            "responde solo con los datos del proyecto y cada código (C-12, AGUA-5) lleva al plano.")) + "</p>")
+    if not turnos:                                       # estado vacío: centrado, con el icono de la IA
+        partes.append(
+            "<table width='100%' height='100%' cellspacing='0' cellpadding='0'><tr><td align='center' "
+            "valign='middle' style='padding:40px 24px'><img src='ico:ia' width='44' height='44'><br><br>"
+            f"<span style='font-size:large; font-weight:600; color:{tk.text}'>"
+            + html.escape(_tr("¿En qué te ayudo?")) + "</span><br><br>"
+            f"<span style='color:{tk.text_muted}'>" + html.escape(_tr(
+                "Pregunta lo que quieras sobre este proyecto: conflictos, normativas, utilidades, zonas. La IA "
+                "responde solo con los datos del proyecto y cada código (C-12, AGUA-5) lleva al plano.")) +
+            "</span></td></tr></table>")
     ultimo = max((i for i, x in enumerate(turnos) if "nota" not in x), default=-1)
     for i, tu in enumerate(turnos):
         if "nota" in tu:

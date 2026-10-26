@@ -12,7 +12,7 @@ import html
 import re
 import threading
 
-from PySide6 import QtCore, QtWidgets
+from PySide6 import QtCore, QtGui, QtWidgets
 
 from ia import ayuda_manual as AM
 from ia import proveedor as P
@@ -47,34 +47,60 @@ class PanelAyudaIA(QtWidgets.QWidget):
         self._senales = _Senales(self)
         self._senales.trozo.connect(self._al_trozo)
         self._senales.listo.connect(self._al_listo)
+        from ui.comun import ia_estilo as E
         lay = QtWidgets.QVBoxLayout(self)
-        lay.setContentsMargins(0, 0, 0, 6)
+        lay.setContentsMargins(0, 0, 0, 8)
+        lay.setSpacing(8)
         fila = QtWidgets.QHBoxLayout()
-        lbl = QtWidgets.QLabel(_tr("¿Cómo hago…?"))
-        lbl.setStyleSheet("font-size:15px; font-weight:600;")
+        fila.setSpacing(8)
+        self.ico = QtWidgets.QLabel()
+        self.ico.setStyleSheet("background: transparent;")
+        self.lbl = QtWidgets.QLabel(_tr("¿Cómo hago…?"))
         self.campo = QtWidgets.QLineEdit()
         self.campo.setPlaceholderText(_tr("Escribe qué quieres hacer, por ejemplo: ¿cómo exporto a Civil 3D?"))
         self.campo.setClearButtonEnabled(True)
-        self.campo.setStyleSheet("font-size:15px; padding:6px;")
+        self.campo.setAccessibleName(_tr("¿Cómo hago…?"))
         self.campo.returnPressed.connect(self.preguntar)
         self.btn = QtWidgets.QPushButton(_tr("Preguntar a la IA"))
         self.btn.setAutoDefault(False)
-        self.btn.setStyleSheet("QPushButton{font-size:15px;padding:7px 16px;}")
+        self.btn.setCursor(QtGui.QCursor(QtCore.Qt.PointingHandCursor))
         self.btn.clicked.connect(self._boton)
-        fila.addWidget(lbl)
+        fila.addWidget(self.ico)
+        fila.addWidget(self.lbl)
         fila.addWidget(self.campo, 1)
         fila.addWidget(self.btn)
         lay.addLayout(fila)
-        self.respuesta = QtWidgets.QTextBrowser()
+        self.respuesta = QtWidgets.QTextBrowser()        # la respuesta, en una tarjeta
+        self.respuesta.setObjectName("respuestaIA")
         self.respuesta.setOpenLinks(False)
         self.respuesta.anchorClicked.connect(self._enlace)
         self.respuesta.setMaximumHeight(280)
-        self.respuesta.setStyleSheet("QTextBrowser{font-size:15px; padding:8px;}")
         self.respuesta.hide()
         lay.addWidget(self.respuesta)
+        E.al_cambiar_tema(self, self._estilo)
         prov = self._proveedor()
         if prov is not None:                        # que el modelo ya esté cargado al preguntar
             threading.Thread(target=prov.calentar, name="pdfcad-ia-calentar", daemon=True).start()
+
+    def _estilo(self):
+        from ui.comun import ia_estilo as E, theme
+        tk = theme.tokens()
+        self.ico.setPixmap(E.pix("mdi:robot-outline", tk.accent if not theme.is_dark() else tk.focus, 22))
+        self.lbl.setStyleSheet(f"font-size: 15px; font-weight: 600; color: {tk.text}; background: transparent;")
+        self.campo.setStyleSheet(f"QLineEdit {{ font-size: 15px; padding: 7px 10px; border-radius: 8px; }}")
+        self.respuesta.setStyleSheet(
+            f"QTextBrowser#respuestaIA {{ font-size: 15px; padding: 10px 14px; background: {tk.surface_alt};"
+            f" border: 1px solid {tk.border_soft}; border-left: 3px solid {tk.accent}; border-radius: 8px; }}")
+        self._icono_boton()
+        if getattr(self, "_ultimo", None) is not None:   # rehacer la respuesta con los colores del tema nuevo
+            self._mostrar(*self._ultimo)
+
+    def _icono_boton(self):
+        from ui.comun import icons, theme
+        tk = theme.tokens()
+        self.btn.setStyleSheet("QPushButton { font-size: 15px; padding: 7px 16px; }")
+        self.btn.setIcon(icons.icon("mdi:stop-circle-outline" if self.ocupado else "mdi:send",
+                                    color=tk.text_on_accent))
 
     def _proveedor(self):
         cfg = self.config() if self.config else None
@@ -98,6 +124,10 @@ class PanelAyudaIA(QtWidgets.QWidget):
 
     def _ocupado(self, si):
         self.btn.setText(_tr("Detener") if si else _tr("Preguntar a la IA"))
+        self.btn.setProperty("danger", bool(si))
+        self.btn.style().unpolish(self.btn)
+        self.btn.style().polish(self.btn)
+        self._icono_boton()
 
     def preguntar(self, pregunta=None):
         pregunta = (pregunta if pregunta is not None else self.campo.text()).strip()
@@ -149,19 +179,22 @@ class PanelAyudaIA(QtWidgets.QWidget):
         self._mostrar(texto, nota)
 
     def _mostrar(self, texto, nota):
+        self._ultimo = (texto, nota)
         tk = theme.tokens()
         partes = []
         if texto:
-            partes.append(f"<div>{_formato(texto)}</div>")
+            partes.append(f"<div style='color:{tk.text}'>{_formato(texto)}</div>")
         if nota:
             partes.append(f"<p style='color:{tk.text_muted}; font-size:small'><i>{html.escape(nota)}</i></p>")
-        if self._caps:
-            enlaces = " · ".join(f"<a href='cap:{n}' style='color:{tk.text_info}'>{html.escape(cap)}</a>"
-                                 for n, cap in self._caps)
-            partes.append(f"<p>{html.escape(_tr('En el manual:'))} {enlaces}</p>")
+        if self._caps:                                   # capítulos como «fichas» (como los códigos del chat)
+            enlaces = "&nbsp; ".join(
+                f"<a href='cap:{n}' style='color:{tk.soft_text}; background-color:{tk.soft}; "
+                f"text-decoration:none'>&nbsp;{html.escape(cap)}&nbsp;</a>" for n, cap in self._caps)
+            partes.append(f"<p style='margin-top:8px'><span style='color:{tk.text_muted}; font-size:small'>"
+                          f"{html.escape(_tr('En el manual:'))}</span><br>{enlaces}</p>")
         elif not texto:
-            partes.append("<p>" + html.escape(_tr("El manual no habla de eso. Prueba con otras palabras o mira el "
-                                                 "índice.")) + "</p>")
+            partes.append(f"<p style='color:{tk.text_muted}'>" + html.escape(_tr(
+                "El manual no habla de eso. Prueba con otras palabras o mira el índice.")) + "</p>")
         barra = self.respuesta.verticalScrollBar()
         abajo = barra.value() >= barra.maximum() - 4
         self.respuesta.setHtml("".join(partes))

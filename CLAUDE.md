@@ -2068,6 +2068,11 @@ alcantarillado, drenaje, gas, eléctrico, telecom). Todo en **unidades imperiale
     en `dirname(nc.ruta())/ia/ayuda/`. `ui/dialogos/manual_ia_panel.PanelAyudaIA` arriba de `ManualDialog`
     (capítulos al instante como enlaces `cap:N`, respuesta en vivo, «Detener»); al abrir, `Proveedor.calentar`
     (Ollama: /api/generate sin texto, mismo `num_ctx`) deja el modelo cargado. Tests: `tests/test_ia_ayuda.py`.
+    **Aspecto común de las ventanas de la IA** (2026-10-26, solo UX/UI): `ui/comun/ia_estilo.py` (`Encabezado` icono +
+    título + subtítulo, `tarjeta`, `texto_en_tarjeta`, `chip_qss`, `etiqueta_seccion`, `boton_icono`,
+    `al_cambiar_tema` = aplica y re-aplica con `THEME_BUS`, guardado con `shiboken6.isValid`); lo usan el chat,
+    Resolver conflictos, el diálogo del informe, `normas_ia_panel` y `manual_ia_panel`. Iconos MDI en vez de
+    «⚙ ✔ ✖ ★ ⚠» (no todas las fuentes los tienen). Capturas en los dos temas con `QT_QPA_FONTDIR=C:/Windows/Fonts`.
   - **Vista 3D** (2026-10-10, Ver → «Vista 3D», F3, botón `_act_3d` `mdi:cube-outline`, clic derecho → «Ver en
     3D»): lo que Civil 3D va a construir, sin exportar. `nucleo/modelo3d.py` (PURO) `construir(pipes, structures,
     ft, colores, duct_banks, cruces, avisos, choques, ocultas, ver, suelo_z)` → `Escena` (mallas numpy de

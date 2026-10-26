@@ -76,25 +76,22 @@ class PreguntaDialog(QtWidgets.QDialog):
         self._pintar_t = QtCore.QTimer(self, singleShot=True, interval=PINTAR_MS, timeout=self._pintar)
         self._reloj = QtCore.QTimer(self, interval=RELOJ_MS, timeout=self._pintar)
 
+        from ui.comun import ia_estilo as E
         lay = QtWidgets.QVBoxLayout(self)
-        lay.setContentsMargins(12, 12, 12, 12)
-        lay.setSpacing(8)
-        arriba = QtWidgets.QHBoxLayout()
-        arriba.setSpacing(8)
+        lay.setContentsMargins(16, 14, 16, 14)
+        lay.setSpacing(10)
+        # cabecera: icono + título + estado de la IA (modelo y servidor); a la derecha letra y configuración
         self.lbl_estado = QtWidgets.QLabel()
         self.lbl_estado.setObjectName("hint")
+        cab = E.Encabezado("mdi:robot-outline", _tr("Pregúntale al proyecto"), self.lbl_estado)
         self.btn_menos = self._boton_icono("mdi:format-font-size-decrease", _tr("Letra más chica (Ctrl+-)"),
                                            lambda: self.cambiar_tamano(-1))
         self.btn_mas = self._boton_icono("mdi:format-font-size-increase", _tr("Letra más grande (Ctrl++)"),
                                          lambda: self.cambiar_tamano(1))
-        self.btn_cfg = QtWidgets.QPushButton(_tr("Configurar IA…"))
-        self.btn_cfg.setProperty("soft", True)
-        self.btn_cfg.clicked.connect(self.win.configurar_ia)
-        arriba.addWidget(self.lbl_estado, 1)
-        arriba.addWidget(self.btn_menos)
-        arriba.addWidget(self.btn_mas)
-        arriba.addWidget(self.btn_cfg)
-        lay.addLayout(arriba)
+        self.btn_cfg = E.boton_icono("mdi:cog-outline", _tr("Configurar IA…"), self.win.configurar_ia)
+        for b in (self.btn_menos, self.btn_mas, self.btn_cfg):
+            cab.derecha.addWidget(b, 0, QtCore.Qt.AlignTop)
+        lay.addWidget(cab)
 
         self.aviso = QtWidgets.QLabel()                  # «IA sin configurar», ANTES de escribir
         self.aviso.setWordWrap(True)
@@ -108,21 +105,21 @@ class PreguntaDialog(QtWidgets.QDialog):
         self.vista.setAccessibleName(_tr("Conversación"))
         lay.addWidget(self.vista, 1)
 
-        self.caja_sug = QtWidgets.QWidget()
+        self.caja_sug = QtWidgets.QWidget()              # preguntas de ejemplo como «chips» (solo sin conversación)
         sl = QtWidgets.QVBoxLayout(self.caja_sug)
         sl.setContentsMargins(0, 0, 0, 0)
-        sl.setSpacing(4)
+        sl.setSpacing(6)
         self._botones_sug = []
         for s in SUGERENCIAS:
             b = QtWidgets.QPushButton(_tr(s))
-            b.setProperty("secondary", True)
+            b.setCursor(QtGui.QCursor(QtCore.Qt.PointingHandCursor))
             b.clicked.connect(lambda _c=False, s=s: self.enviar(_tr(s)))
             sl.addWidget(b)
             self._botones_sug.append(b)
         lay.addWidget(self.caja_sug)
 
         self.entrada = QtWidgets.QPlainTextEdit()
-        self.entrada.setFixedHeight(76)
+        self.entrada.setFixedHeight(72)
         self.entrada.setAccessibleName(_tr("Tu pregunta"))
         self.entrada.installEventFilter(self)
         lay.addWidget(self.entrada)
@@ -134,7 +131,7 @@ class PreguntaDialog(QtWidgets.QDialog):
         self.lbl_memoria.setWordWrap(True)
         self.lbl_memoria.linkActivated.connect(lambda _l: self.win.abrir_carpeta_ia())
         self.btn_ensenar = QtWidgets.QPushButton(_tr("Enseñarle algo…"))
-        self.btn_ensenar.setProperty("soft", True)
+        self.btn_ensenar.setProperty("secondary", True)
         self.btn_ensenar.setToolTip(_tr("Una regla o un dato de este proyecto que la IA debe tener en cuenta."))
         self.btn_ensenar.clicked.connect(self._ensenar)
         self.btn_enviar = QtWidgets.QPushButton(_tr("Enviar"))
@@ -152,8 +149,23 @@ class PreguntaDialog(QtWidgets.QDialog):
         self.actualizar_estado()
         self._pintar()
         from ui.comun import theme
+        E.al_cambiar_tema(self, self._estilo)
         theme.THEME_BUS.changed.connect(lambda *_a: (self._ocupado(self._activo is not None),
                                                      self.actualizar_estado(), self._pintar()))
+
+    def _estilo(self):
+        """Aspecto que depende del tema: conversación y caja de texto redondeadas, chips, icono de «Enseñar»."""
+        from ui.comun import ia_estilo as E, icons, theme
+        tk = theme.tokens()
+        self.vista.setStyleSheet(f"QTextBrowser {{ background: {tk.input_bg}; border: 1px solid {tk.border_soft};"
+                                 f" border-radius: 10px; padding: 8px; }}")
+        self.entrada.setStyleSheet(f"QPlainTextEdit {{ background: {tk.input_bg}; border: 1px solid {tk.border};"
+                                   f" border-radius: 10px; padding: 6px 8px; }}"
+                                   f" QPlainTextEdit:focus {{ border: 1px solid {tk.focus}; }}")
+        for b in self._botones_sug:
+            b.setStyleSheet(E.chip_qss(tk))
+            b.setIcon(icons.icon("mdi:chat-question-outline", color=tk.text_muted))
+        self.btn_ensenar.setIcon(icons.icon("mdi:lightbulb-outline", color=tk.text))
 
     def _boton_icono(self, nombre, tip, fn):
         from ui.comun import icons
@@ -162,6 +174,7 @@ class PreguntaDialog(QtWidgets.QDialog):
         b.setToolTip(tip)
         b.setAccessibleName(tip)
         b.setAutoRaise(True)
+        b.setIconSize(QtCore.QSize(20, 20))
         b.clicked.connect(fn)
         b._icono = nombre
         return b
