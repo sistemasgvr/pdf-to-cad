@@ -45,5 +45,6 @@ class ConflictosListaMixin:
         self._conflictos = _conf.numerar(items)
         from ui.comun import conflictos_view
         if not getattr(self, "_marcas_vigentes", False):  # si no, las mismas de antes siguen en su capa
-            self._overlay += conflictos_view.dibujar(self.canvas.scene(), self._conflictos, poner=self._marca)
+            self._poner_marcas(conflictos_view.dibujar_iter(self.canvas.scene(), self._conflictos, poner=self._marca),
+                               len(self._conflictos))
         return self._conflictos

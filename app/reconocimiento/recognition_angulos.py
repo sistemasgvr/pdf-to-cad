@@ -58,7 +58,10 @@ Pt = Tuple[float, float]
 
 PASO_DEG = 0.25        # paso de los ángulos en los quiebres (codos reales: 11.25°, 22.5°, 45°…)
 TOCA_PT = 0.1          # dos puntos (o punta y línea) a ≤ esto se tocan (pt)
-DESVIO_MAX_PT = 2.0    # apartarse más que esto de su línea → la línea queda como estaba (pt)
+DESVIO_MAX_PT = 0.5    # apartarse más que esto de su línea → la línea queda como estaba (pt). Era 2:
+                       # en una hoja compuesta cada hoja dibuja la misma recta con un rumbo algo
+                       # distinto (DU06 UD-213/214: 0.24° y 0.11°) y el «quiebre» de 0.13° en pasos
+                       # de 0.25° la corría ~1.3 pt de su tinta (reporte 2026-10-26: «se ve separada»)
 CONTACTO_MAX_PT = 0.05 # …o separar su punta más que esto de la línea donde termina (un lazo de la red
                        # cuyas líneas ya se ajustaron cada una a su manera): manda la unión
 _MISMO_PUNTO_PT = 0.001  # un vértice compartido con otra línea: el mismo punto (se iguala bit a bit)
@@ -72,8 +75,8 @@ _PESO_CONTACTO = 1e6   # un contacto con otra línea pesa esto frente a mover un
 _PESO_CONTACTO_BLANDO = 1e3   # …o esto si así hay que deslizar un vértice (líneas casi tangentes):
                               # se acepta una centésima de px en el contacto antes que correr la unión
 _COS_PARALELOS = math.cos(math.radians(10.0))   # dos contactos de un vértice a < 10°: uno solo
-_DESLIZ_MAX = 1.0      # un vértice puede deslizarse por su recta hasta 1 × DESVIO_MAX_PT (más arrastraría
-                       # a las líneas que nacen en él)
+_DESLIZ_MAX_PT = 2.0   # un vértice puede deslizarse por su recta hasta esto (pt; más arrastraría a las
+                       # líneas que nacen en él). Deslizar no aparta el dibujo de la tinta.
 _SIN_TOPE = 1e9        # `fillet_geo` sin topes: el arco del plano tal cual
 _PUNTAS_FIJAS = ("stop", "cut")   # punta en el borde de su bóveda / en el corte: sigue en él
 _EN_BORDE_PT = 0.01    # una punta a ≤ esto de un borde está sobre él (pt)
@@ -355,7 +358,7 @@ def _valida(P, Q, t, L, f):
         if dv[k, 0] * c + dv[k, 1] * sn <= 0.0 or abs(dv[k, 1] * c - dv[k, 0] * sn) > 1e-6 * max(1.0, L[k]):
             return None
     lat = float(C.lateral(P, Q).max())
-    if lat > DESVIO_MAX_PT * f or float(np.hypot(*(Q - P).T).max()) > _DESLIZ_MAX * DESVIO_MAX_PT * f:
+    if lat > DESVIO_MAX_PT * f or float(np.hypot(*(Q - P).T).max()) > _DESLIZ_MAX_PT * f:
         return None
     return lat
 

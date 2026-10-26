@@ -86,6 +86,32 @@ class DibujoMixin:
         self.canvas.scene().addItem(it)
         return it
 
+    def _poner_marcas(self, gen, n):
+        """Recorre un dibujante de marcas (generador: cada marca ya puesta en su capa). Con pocas, todo ya
+        (como siempre); con `UMBRAL` o más —o si en este redibujo ya se empezó a cargar por tandas: el orden
+        en cada capa no cambia—, por tandas sin trabar la ventana (`marcas_por_tandas`, 2026-10-26)."""
+        from ui.comun import marcas_por_tandas as MT
+        t = getattr(self, "_tandas_redibujo", None)
+        if t is None and n >= MT.UMBRAL and getattr(self, "_en_redibujo", False)                 and getattr(self, "_marcas", None) is not None:
+            self._cancelar_tandas()
+            t = self._tandas = self._tandas_redibujo = MT.Tandas(self, self._marcas)
+        if t is not None:
+            t.agregar(gen, n)
+        else:
+            self._overlay += list(gen)
+
+    def _cancelar_tandas(self):
+        t = getattr(self, "_tandas", None)
+        if t is not None:
+            t.cancelar()
+        self._tandas = None
+
+    def _marcas_al_dia(self):
+        """Para quien necesita TODAS las marcas en la escena ya (capturas del informe): termina la carga."""
+        t = getattr(self, "_tandas", None)
+        if t is not None:
+            t.correr_todo()
+
     def _memo(self, clave, fn, copiar=True):
         """`fn()` reusado entre redibujos con el mismo modelo (fuera de un redibujo: siempre `fn()`)."""
         m = getattr(self, "_memo_redibujo", None)
@@ -134,6 +160,9 @@ class DibujoMixin:
         if (getattr(self, "_provisional", False) and not self._marcas_vigentes and previo is not None
                 and previo.vivo(sc)):
             self._marcas_vigentes = True                # mientras calcula el hilo, las marcas de antes a la vista
+        self._tandas_redibujo = None                   # (`_poner_marcas`: tandas de ESTE redibujo)
+        if not self._marcas_vigentes:
+            self._cancelar_tandas()                     # otro modelo: la carga a medias ya no sirve
         if not self._marcas_vigentes and not getattr(self, "_provisional", False):
             # deshacer/rehacer: un estado ya dibujado vuelve con SU grupo de marcas (ventana_estados)
             self._guardar_grupo_marcas(previo, sc)
@@ -224,6 +253,10 @@ class DibujoMixin:
             sc.addItem(capa)
             indices = range(len(self.pipes))
         self._overlay.append(capa)
+        # «Capas» (ventana_capas): las utilidades apagadas no se pintan (salvo la elegida desde la lista)
+        apagadas = getattr(self, "capas_apagadas", None)
+        capa.fijar_ocultas({i for i, p in enumerate(self.pipes) if p.get("layer") in apagadas} - elegidas
+                           if apagadas else ())
         for i in indices:
             p = self.pipes[i]
             if not p.get("pts"): continue               # tramos importados (world): no se dibujan
@@ -254,7 +287,7 @@ class DibujoMixin:
             # esté seleccionado, así el usuario ve la numeración en todo
             # momento. Solo visual — NO se exportan al DXF (dxf_export lee
             # self.pipes, no la escena Qt).
-            if p.get("seg_edit_enabled") and len(p["pts"]) >= 3:
+            if p.get("seg_edit_enabled") and len(p["pts"]) >= 3 and (sel or not self._capa_apagada(i)):
                 tramos = [(f"T{si + 1}", p["pts"][si], p["pts"][si + 1]) for si in range(len(p["pts"]) - 1)]
                 for texto, mx, my, dx, dy, px in ET.ubicar(tramos, ocupados, evitar=p["pts"]):
                     it = ET.EtiquetaTramo(texto, layer_qcolor(p["layer"]), px, dx, dy)
@@ -294,6 +327,8 @@ class DibujoMixin:
         self._draw_pipe_conflicts()
         # Accesorios de presión (codo/Tee/Wye/cruz) con su ángulo + normativas.
         self._draw_accesorios()
+        # «Capas»: las marcas de utilidades apagadas no se pintan (ventana_capas)
+        self._ocultar_marcas_apagadas()
         # Hoja compuesta: minimapa y marcas de agua de cada hoja (`ventana_hojas`).
         self._dibujar_hojas()
         # textos
@@ -424,6 +459,7 @@ class DibujoMixin:
         """Dibuja cada buzón como un círculo relleno con el color del pipe al que
         pertenece (mismo vértice). Si show_bz_labels está activo, escribe el código
         del buzón al lado del círculo."""
+        self._estructuras_ocultas = set()
         if not self.structures: return
         sc = self.canvas.scene()
         # Precomputa color por buzón: mira los pipes NO importados y toma el layer
@@ -444,6 +480,15 @@ class DibujoMixin:
             if s.get("standalone"):
                 return layer_qcolor(s.get("utility") or "ELECTRICO")
             return QtGui.QColor(180, 180, 180)     # buzón sin pipe cercano (raro)
+        # «Capas» (ventana_capas): un buzón/curva cuyas utilidades están TODAS apagadas no se pinta
+        apagadas = getattr(self, "capas_apagadas", None)
+        self._estructuras_ocultas = ocultas = set()
+
+        def _apagada(s):
+            cerca = indice.en_radio(s["x"], s["y"], 14.0)
+            if cerca:
+                return all(self.pipes[vert[k][2]].get("layer") in apagadas for k in cerca)
+            return s.get("standalone") and (s.get("utility") or "ELECTRICO") in apagadas
         pen = QtGui.QPen(QtGui.QColor(255, 255, 255), 1.2); pen.setCosmetic(True)
         pen_sel = QtGui.QPen(QtGui.QColor(255, 220, 40), 2.5); pen_sel.setCosmetic(True)
         R = 6.0                                     # radio en px (independiente del zoom por _cosmetic pen)
@@ -453,6 +498,8 @@ class DibujoMixin:
             if s.get("world"): continue             # los importados (Excel) están en coord mundo, no lienzo
             if s.get("hidden"): continue             # ocultado por el usuario — sigue en la lista, no en el lienzo
             is_curve = bool(s.get("curve"))
+            if apagadas and i != getattr(self, "sel_curve" if is_curve else "sel_bz", -1) and _apagada(s):
+                ocultas.add(i); continue
             col = QtGui.QColor(190, 90, 220) if is_curve else _color_for(s); brush = QtGui.QBrush(col)
             selected = i == getattr(self, "sel_curve" if is_curve else "sel_bz", -1)
             use_pen = pen_sel if selected else pen

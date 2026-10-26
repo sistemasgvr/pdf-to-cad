@@ -106,18 +106,21 @@ from ui.ventana.ventana_agregar import AgregarUtilidadMixin
 from ui.ventana.ventana_calculo import CalculoPlanoMixin
 from ui.ventana.calculo_fondo import CalculoFondoMixin
 from ui.ventana.ventana_estados import EstadosPreviosMixin
+from ui.ventana.ventana_planos import PlanosFondoMixin, clave_planos
+from ui.ventana.ventana_capas import CapasMixin
 
 
 class Main(MenuMixin, PanelIzquierdoMixin, PanelDerechoMixin, ModosMixin, ClicsMixin, UtilidadesMixin, CatalogoMixin, SeleccionMixin, ListasMixin, MarcasMixin, DibujoMixin, ConflictosMixin, CoordsMixin, BuzonesMixin, MoverPrecisoMixin, CurvasMixin, HerramientasMixin, BancoductosMixin, EdicionBloqueMixin, InformeMixin, IAMixin, SolucionesMixin, Vista3DMixin, Edicion3DMixin, ConflictosListaMixin, HojasEditorMixin,
            VerticesMixin, TrazoMixin, CalculoPlanoMixin, CalculoFondoMixin, EstadosPreviosMixin,
-           AgregarUtilidadMixin, QtWidgets.QMainWindow):
+           AgregarUtilidadMixin, PlanosFondoMixin, CapasMixin, QtWidgets.QMainWindow):
     def __init__(self):
         super().__init__()
         self._base_title = f"Asistente C3D  (v{VERSION})"
         self.setWindowTitle(self._base_title); self.resize(1480, 940)
         self.setAcceptDrops(True)
         self.canvas = Canvas(self); self.canvas.clicked.connect(self.on_click)
-        self.canvas.dbl.connect(self.on_dblclick); self.setCentralWidget(self.canvas)
+        self.canvas.dbl.connect(self.on_dblclick)
+        self._construir_planos()            # lienzo + estado de los planos de fondo (ventana_planos)
         # Hoja enorme (fondo_pdf): recorte nítido de la parte visible al acercarse.
         self.canvas.nitidez = fondo_pdf.Nitidez(self.canvas, lambda: self.zoom, self._pagina_fondo)
         self.zoom = 3.5; self.scale = 20 / 72.0; self.rot = 0; self.W = 0; self.H = 0
@@ -1355,9 +1358,10 @@ class Main(MenuMixin, PanelIzquierdoMixin, PanelDerechoMixin, ModosMixin, ClicsM
         """La hoja del PDF que muestra el lienzo, para el recorte nítido al acercarse
         (fondo_pdf), o None si el fondo no es esa hoja (proyecto sin el PDF)."""
         tam = self.canvas.tam_hoja()
-        if not self.doc or tam is None or not 0 <= self.page_idx < self.doc.page_count:
+        doc, idx = self._doc_del_fondo()          # la hoja de trabajo o el plano a la vista (ventana_planos)
+        if not doc or tam is None or not 0 <= idx < doc.page_count:
             return None
-        page = self.doc[self.page_idx]
+        page = doc[idx]
         if (abs(page.rect.width * self.zoom - tam[0]) > 2
                 or abs(page.rect.height * self.zoom - tam[1]) > 2):
             return None
@@ -1382,6 +1386,7 @@ class Main(MenuMixin, PanelIzquierdoMixin, PanelDerechoMixin, ModosMixin, ClicsM
         # tamaño de marca acotado: evita textos/Multileaders gigantes por escala mal detectada
         self.leader_hpx = max(14.0, min(LEADER_TEXT_FT / self.scale * self.zoom, self.pageH_px * 0.05))
         self._overlay = []
+        self._soltar_planos()                     # hoja nueva: «Todos», sin planos guardados
         self.canvas.set_image(qimg, escala, tam)
         self._reset_model(); self._update_page_label()
         self._refresh_scale_label()
@@ -1394,6 +1399,7 @@ class Main(MenuMixin, PanelIzquierdoMixin, PanelDerechoMixin, ModosMixin, ClicsM
         self.duct_banks = []
         self.cross_connections = []
         self.normas_aprobados = []
+        self.capas_apagadas = set()             # «Capas»: todas las utilidades encendidas
         self.sel_pipe = self.sel_leader = self.sel_region = self.sel_text = -1
         self.sel_cl = -1
         self._overlay = []; self._close_editor(); self._dirty = False; self._extending = False
@@ -1563,6 +1569,13 @@ class Main(MenuMixin, PanelIzquierdoMixin, PanelDerechoMixin, ModosMixin, ClicsM
                 self.pdf_path = None; self.doc = None
             self.work_pdf_path = tmp_pdf
             self.composite = data.get("composite")
+            self._soltar_planos()
+            from hoja import hoja_calcada as _hc       # los planos que se veían al guardar (page.png es esa imagen)
+            gs = _hc.grupos(self.composite)
+            if gs and data.get("vista_fondo") and set(data["vista_fondo"]) <= set(gs):
+                self._vista_fondo = clave_planos(data["vista_fondo"], gs)
+            if gs and data.get("fondo_apagado"):
+                self._apagar_fondo(True)
             self._scale_override = data.get("scale_override")
             self.blank_canvas = bool(data.get("blank_canvas"))
             self.paper = data.get("paper")
@@ -1603,6 +1616,7 @@ class Main(MenuMixin, PanelIzquierdoMixin, PanelDerechoMixin, ModosMixin, ClicsM
             self.duct_banks = data.get("duct_banks", [])
             self.cross_connections = data.get("cross_connections", []) or []
             self.normas_aprobados = data.get("normas_aprobados", []) or []
+            self.capas_apagadas = set(data.get("capas_apagadas") or ())   # «Capas» (ventana_capas)
             self.georef = data["georef"]
             self.work_unit = data["work_unit"]
             self.cur_pts = []; self._erase_pts = []; self.sel_pipe = self.sel_leader = self.sel_region = self.sel_text = -1
@@ -1783,6 +1797,7 @@ class Main(MenuMixin, PanelIzquierdoMixin, PanelDerechoMixin, ModosMixin, ClicsM
                 ag.cerrar()                         # cierre normal: no queda nada por recuperar
             if self.doc:
                 self.doc.close()
+            self._soltar_planos()
             self._cleanup_tmp_pdf(); e.accept()
         else: e.ignore()
 

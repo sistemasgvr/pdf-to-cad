@@ -500,8 +500,9 @@ offers to add the other one of the same utility too.</p>
     place</b>, by the base map they share (lots, right of way, streets), even at another scale, in
     another order or rotated. The new sheet is built <b>traced</b> on the editor sheet: same area,
     same place, same size.</li>
-<li>You go on with the usual steps (<b>Sheet layers</b> and <b>Preview</b>) on the sheet of the new
-    utility. The utilities already in the editor are not checked.</li>
+<li>As when opening a PDF, <b>Compose sheet</b> opens with the placed sheets already checked: uncheck
+    the ones you do not want or take only an area, and go on with <b>Sheet layers</b> and <b>Preview</b>.
+    Each sheet goes back to its place on its own. The utilities already in the editor are not checked.</li>
 <li>When you import, the editor sheet shows <b>both PDFs together</b> and what was recognized is
     added to what you already had. What was there <b>does not move or change</b> (lines, manholes,
     Undo, georeferencing). <span class="btn">Cancel</span> in any step leaves the editor as it was.</li>
@@ -510,6 +511,21 @@ offers to add the other one of the same utility too.</p>
 <li>If the PDF does not draw the same base map as the editor sheet (other cartography, another
     area), the app says so and adds nothing.</li>
 </ul>
+<p><b>Layers.</b> The <span class="btn">Layers ▾</span> button in the top bar works like the AutoCAD layer
+manager: one row per layer with its light bulb. Clicking the row turns it on or off; right click →
+<b>Show only this one</b> or <b>Turn all on</b>.</p>
+<ul>
+<li><b>Utilities (what is drawn):</b> turning a utility off hides its lines, its manholes and curves and
+    its marks (crossings, fittings, warnings and conflicts that only touch utilities that are off). On the
+    canvas it cannot be picked or snapped to; in the Inventory it stays in the list, in gray, and if you
+    select it there it shows.</li>
+<li><b>PDF plans (background):</b> with two or more added utilities, one plan per PDF. Any combination
+    can be shown: all (blended), only some (without the labels of the others) or none (blank paper, no
+    snap to ink).</li>
+</ul>
+<p>Only what is shown changes: the model, Undo, calculations, the Data table and the DXF do not change
+(the DXF is exported complete). The project keeps the layers as you left them. The button says how many
+are off.</p>
 
 <h2>Composing again later</h2>
 <p>Menu <b>Tools → Compose work sheet…</b> opens step 1 again, on the PDF and sheet you were

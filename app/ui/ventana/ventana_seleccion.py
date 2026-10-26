@@ -300,13 +300,18 @@ class SeleccionMixin:
             self._menu_act(menu, "Eliminar", self.delete_selected)
         menu.exec(QtGui.QCursor.pos())
 
-    def _utilidades_cerca(self, x, y, r):
+    def _utilidades_cerca(self, x, y, r, todas=False):
         """Las utilidades (índices, en orden) con algún tramo a ≤ r del punto: el ratón (hover,
-        imán, clic) revisa solo esas, con la misma cuenta de siempre (`indice_plano`)."""
+        imán, clic) revisa solo esas, con la misma cuenta de siempre (`indice_plano`). Sin `todas`,
+        no las de capas apagadas en «Capas» (salvo la elegida): ni se eligen ni enganchan."""
         from nucleo.indice_plano import utilidades_cerca
         if getattr(self, "_cache_raton", None) is None:
             self._cache_raton = {}
-        return utilidades_cerca(self._cache_raton, self.pipes, x, y, r)
+        out = utilidades_cerca(self._cache_raton, self.pipes, x, y, r)
+        apagadas = getattr(self, "capas_apagadas", None)
+        if apagadas and not todas:
+            out = [i for i in out if i == self.sel_pipe or self.pipes[i].get("layer") not in apagadas]
+        return out
 
     def _pipe_at(self, x, y):
         """Índice de la utilidad más cercana al punto (a ≤ 10 px de pantalla) o -1."""

@@ -61,6 +61,8 @@ class _Capa(CacheVistaMixin, QtWidgets.QGraphicsItem):
         self.ext = 0.0                                   # mayor extensión en px de pantalla
         self.escala = max(min(escala, ESCALA_MIN), 1e-6)
         self._caja = QtCore.QRectF()
+        self._capas_de = None                            # utilidades junto a cada marca («Capas»), al pedirlas
+        self._ocultas = None                             # marcas apagadas en «Capas» (numpy), o None
         self.setZValue(z)
         self.setAcceptHoverEvents(True)
         self.setFlag(QtWidgets.QGraphicsItem.ItemUsesExtendedStyleOption)
@@ -128,7 +130,30 @@ class _Capa(CacheVistaMixin, QtWidgets.QGraphicsItem):
             r = r.normalized()
             m = (xs >= r.left()) & (xs <= r.right()) & (ys >= r.top()) & (ys <= r.bottom())
             dentro = m if dentro is None else (dentro | m)
+        if dentro is not None and self._ocultas is not None and len(self._ocultas) == len(dentro):
+            dentro &= ~self._ocultas                     # apagadas en «Capas»: ni se pintan ni dan globo
         return np.flatnonzero(dentro) if dentro is not None else np.zeros(0, dtype=int)
+
+    def fijar_ocultas(self, apagadas, capas_en) -> bool:
+        """Oculta las marcas cuyas utilidades cercanas (`capas_en(x, y)` → capas) están TODAS apagadas
+        (una marca sin utilidad cerca se sigue viendo). True si cambió algo."""
+        if apagadas:
+            if self._capas_de is None or len(self._capas_de) != len(self.marcas):
+                self._capas_de = [capas_en(x, y) for x, y in zip(self._xs, self._ys)]
+            m = np.fromiter((bool(c) and c <= apagadas for c in self._capas_de), dtype=bool,
+                            count=len(self._capas_de))
+            nuevo = m if m.any() else None
+        else:
+            nuevo = None
+        viejo = self._ocultas
+        if (nuevo is None and viejo is None) or (nuevo is not None and viejo is not None
+                                                 and len(nuevo) == len(viejo) and (nuevo == viejo).all()):
+            return False
+        self._ocultas = nuevo
+        self._cache = None                               # la imagen de la vista ya no sirve
+        self._ultima = None
+        self.update()
+        return True
 
     def paint(self, painter, opcion, widget=None):
         W = QtGui.QTransform(painter.worldTransform())
@@ -269,6 +294,7 @@ class GrupoMarcas(DespejeMixin):
         self._bytes = previo._bytes if viejo else 0
         self._despeje = None                              # (clave de escala, región, {capa: visibles})
         self.firma = None                                 # la pone la ventana: si no cambia, se reusa todo
+        self.cargando = False                             # carga por tandas: sus capas no se pintan hasta el final
 
     def vivo(self, scene):
         """Sus capas siguen en `scene` (vaciar la escena —otra hoja, abrir— las borra)."""
@@ -276,6 +302,30 @@ class GrupoMarcas(DespejeMixin):
             return self.scene is scene and all(c.scene() is scene for c in self.capas.values())
         except RuntimeError:
             return False
+
+    def fijar_ocultas(self, apagadas, capas_en):
+        """«Capas»: oculta en cada capa las marcas de utilidades apagadas (ver `_Capa.fijar_ocultas`)."""
+        apagadas = frozenset(apagadas or ())
+        if any([c.fijar_ocultas(apagadas, capas_en) for c in self.capas.values()]):
+            self._despeje = None                          # los rótulos de lo apagado no tapan a los demás
+
+    def cargar(self, cargando):
+        """Carga por tandas (`marcas_por_tandas`): mientras dura, las capas no se pintan (repintar a medias
+        con decenas de miles de marcas costaba ~0.3 s cada vez); al terminar aparecen todas juntas."""
+        self.cargando = bool(cargando)
+        for c in self.capas.values():
+            c.setVisible(not self.cargando)
+        if not self.cargando:
+            self.refrescar()
+
+    def refrescar(self):
+        """Llegaron marcas nuevas (carga por tandas): la imagen de la vista y el despeje de rótulos se
+        rehacen y las capas se repintan."""
+        self._despeje = None
+        for c in self.capas.values():
+            c._cache = None
+            c._ultima = None
+            c.update()
 
     def todas(self):
         """Las marcas de todas las capas (lo que la ventana guarda en `_overlay`)."""
@@ -300,6 +350,7 @@ class GrupoMarcas(DespejeMixin):
         capa = self.capas.get(z)
         if capa is None:
             capa = self.capas[z] = _Capa(self, z, self.escala)
+            capa.setVisible(not self.cargando)
             self.scene.addItem(capa)
             if self.nuevas is not None:
                 self.nuevas.append(capa)

@@ -218,6 +218,8 @@ class MenuMixin:
         # otra utilidad de su propio PDF, sobre la MISMA hoja (ventana_agregar, 2026-10-23)
         self._act_agregar = tact("mdi:file-plus-outline", "Agregar utilidad desde otro PDF: se ubica sola sobre "
                                  "esta hoja por el mapa base y se reconoce como siempre", self.agregar_utilidad)
+        # encender/apagar utilidades y planos de fondo, como en AutoCAD (ventana_capas, 2026-10-26)
+        self._construir_boton_capas(tb)
         tb.addSeparator()
         spacer = QtWidgets.QWidget(); spacer.setSizePolicy(QtWidgets.QSizePolicy.Expanding, QtWidgets.QSizePolicy.Preferred); tb.addWidget(spacer)
         # Sin selector de unidad: TODO va en pies por campo (cotas/coordenadas),

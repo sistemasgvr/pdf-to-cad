@@ -15,8 +15,12 @@ def dibujar(scene, conflictos, tol_px=4.0, poner=None):
     """Agrega a `scene` una etiqueta por lugar (los conflictos del mismo punto juntos:
     «C-10 · C-13»). Devuelve los ítems (para borrarlos). `poner(item)` = dónde va cada uno (la capa
     de marcas del lienzo, `capa_marcas`); sin él, a la escena."""
+    return list(dibujar_iter(scene, conflictos, tol_px, poner))
+
+
+def dibujar_iter(scene, conflictos, tol_px=4.0, poner=None):
+    """Como `dibujar`, entregando cada etiqueta ya puesta (carga por tandas: `marcas_por_tandas`)."""
     from nucleo.conflictos import agrupar
-    items = []
     ign = QtWidgets.QGraphicsItem.ItemIgnoresTransformations
     fondo = QtGui.QBrush(QtGui.QColor(150, 15, 15, 235))
     borde = QtGui.QPen(QtGui.QColor(255, 255, 255, 220), 1.0)
@@ -39,5 +43,4 @@ def dibujar(scene, conflictos, tol_px=4.0, poner=None):
         caja.setToolTip(tooltip_bloque("\n\n".join(f"{k.id} · {_tr(k.titulo)}\n{k.mensaje}" for k in grupo)))
         caja.setData(0, " ".join(k.id for k in grupo))
         (poner or scene.addItem)(caja)
-        items.append(caja)
-    return items
+        yield caja

@@ -97,49 +97,56 @@ class ConflictosMixin:
         _cajas = {}                                 # estado → cajas (capa_marcas) del círculo y del texto
         ign = QtWidgets.QGraphicsItem.ItemIgnoresTransformations
 
-        for cx, cy, estado, globo in ([] if getattr(self, "_marcas_vigentes", False) else filas):
-            # Dibujo según estado.
-            if estado == "conflicto":
-                pen = _pluma(red_col)
-                brush = yellow_br; text = "!"; text_col = red_col
-            elif estado == "aprobado":
-                pen = _pluma(green_col)
-                brush = greenbr; text = "✓"; text_col = green_col
-            else:  # sugerencia
-                pen = _pluma(blue_col)
-                brush = cyan_br; text = "↕"; text_col = blue_col
-            clave = ("cruce", cx, cy, estado)            # la misma del redibujo anterior, si la hay
-            par = self._reusar_marca(clave)
-            if par is None:
-                # clave de ASPECTO: la capa lo dibuja una vez y lo copia (`capa_marcas.sello`)
-                circ = capa_marcas.sello(QtWidgets.QGraphicsEllipseItem(-R_PX, -R_PX, R_PX * 2, R_PX * 2),
-                                         ("cruce", estado))
-                circ.setPen(pen); circ.setBrush(brush)
-                circ.setPos(cx, cy); circ.setFlag(ign)
-                circ.setZValue(Z_HANDLE + 5)
-                # el texto se mide y pinta con un QGraphicsTextItem MOLDE por aspecto (`texto_marca`):
-                # uno por cruce trababa la ventana con miles de cruces; mismos píxeles
-                t = texto_marca.nuevo(text, text_col, _fuente, _clave_fuente)
-                capa_marcas.sello(t, ("cruce-texto", estado, _clave_fuente))
-                br = _medidas.get(text)
-                if br is None:
-                    br = _medidas[text] = t.boundingRect()
-                t.setPos(cx, cy); t.setFlag(ign)
-                t.setTransform(QtGui.QTransform().translate(-br.width() / 2, -br.height() / 2))
-                t.setZValue(Z_HANDLE + 6)
-                cajas = _cajas.get(estado)          # (todas las de un estado son iguales: no se re-miden)
-                if cajas is not None:
-                    circ._pdfcad_caja, circ._pdfcad_rot, t._pdfcad_caja, t._pdfcad_rot = cajas
-                par = self._guardar_marca(clave, (circ, t))
-            circ, t = par
-            self._overlay.append(self._marca(circ))
-            self._overlay.append(self._marca(t))
-            circ.setToolTip(globo)
-            if estado not in _cajas:
-                cajas = (getattr(circ, "_pdfcad_caja", None), getattr(circ, "_pdfcad_rot", False),
-                         getattr(t, "_pdfcad_caja", None), getattr(t, "_pdfcad_rot", False))
-                if cajas[0] is not None and cajas[1] is not False and cajas[2] is not None and cajas[3] is not False:
-                    _cajas[estado] = cajas
+        # Las marcas se crean en un GENERADOR (mismo cuerpo): con decenas de miles la ventana las carga por
+        # tandas sin trabarse (`_poner_marcas`, `marcas_por_tandas`). Lo que decide QUÉ se dibuja va antes.
+        vigentes = getattr(self, "_marcas_vigentes", False)   # las de antes siguen en su capa
+
+        def _cruces(lista):
+            for cx, cy, estado, globo in lista:
+                # Dibujo según estado.
+                if estado == "conflicto":
+                    pen = _pluma(red_col)
+                    brush = yellow_br; text = "!"; text_col = red_col
+                elif estado == "aprobado":
+                    pen = _pluma(green_col)
+                    brush = greenbr; text = "✓"; text_col = green_col
+                else:  # sugerencia
+                    pen = _pluma(blue_col)
+                    brush = cyan_br; text = "↕"; text_col = blue_col
+                clave = ("cruce", cx, cy, estado)            # la misma del redibujo anterior, si la hay
+                par = self._reusar_marca(clave)
+                if par is None:
+                    # clave de ASPECTO: la capa lo dibuja una vez y lo copia (`capa_marcas.sello`)
+                    circ = capa_marcas.sello(QtWidgets.QGraphicsEllipseItem(-R_PX, -R_PX, R_PX * 2, R_PX * 2),
+                                             ("cruce", estado))
+                    circ.setPen(pen); circ.setBrush(brush)
+                    circ.setPos(cx, cy); circ.setFlag(ign)
+                    circ.setZValue(Z_HANDLE + 5)
+                    # el texto se mide y pinta con un QGraphicsTextItem MOLDE por aspecto (`texto_marca`):
+                    # uno por cruce trababa la ventana con miles de cruces; mismos píxeles
+                    t = texto_marca.nuevo(text, text_col, _fuente, _clave_fuente)
+                    capa_marcas.sello(t, ("cruce-texto", estado, _clave_fuente))
+                    br = _medidas.get(text)
+                    if br is None:
+                        br = _medidas[text] = t.boundingRect()
+                    t.setPos(cx, cy); t.setFlag(ign)
+                    t.setTransform(QtGui.QTransform().translate(-br.width() / 2, -br.height() / 2))
+                    t.setZValue(Z_HANDLE + 6)
+                    cajas = _cajas.get(estado)          # (todas las de un estado son iguales: no se re-miden)
+                    if cajas is not None:
+                        circ._pdfcad_caja, circ._pdfcad_rot, t._pdfcad_caja, t._pdfcad_rot = cajas
+                    par = self._guardar_marca(clave, (circ, t))
+                circ, t = par
+                puestas = (self._marca(circ), self._marca(t))
+                circ.setToolTip(globo)
+                if estado not in _cajas:
+                    cajas = (getattr(circ, "_pdfcad_caja", None), getattr(circ, "_pdfcad_rot", False),
+                             getattr(t, "_pdfcad_caja", None), getattr(t, "_pdfcad_rot", False))
+                    if cajas[0] is not None and cajas[1] is not False and cajas[2] is not None and cajas[3] is not False:
+                        _cajas[estado] = cajas
+                yield from puestas
+        lista = [] if vigentes else filas
+        self._poner_marcas(_cruces(lista), len(lista))
 
         # Triángulo rojo con «!» blanco: algo que Civil 3D NO dibujará como está
         # en la app. El mensaje (tooltip y clic) dice qué pasa y cómo quedará.
@@ -148,29 +155,34 @@ class ConflictosMixin:
                                QtCore.QPointF(R_TRI * 0.95, R_TRI * 0.75),
                                QtCore.QPointF(-R_TRI * 0.95, R_TRI * 0.75)])
 
+        alertas = []
+
         def _alerta_roja(x, y, mensaje):
-            if getattr(self, "_marcas_vigentes", False):   # las mismas de antes siguen en su capa
-                return
-            par = self._reusar_marca(("alerta", x, y))
-            if par is None:
-                pen = QtGui.QPen(QtGui.QColor(120, 0, 0), 1.5); pen.setCosmetic(True)
-                it = capa_marcas.sello(QtWidgets.QGraphicsPolygonItem(tri), ("alerta",))
-                it.setPen(pen); it.setBrush(QtGui.QBrush(QtGui.QColor(215, 25, 25)))
-                it.setPos(x, y); it.setFlag(ign)
-                it.setZValue(Z_HANDLE + 7)
-                t = QtWidgets.QGraphicsTextItem("!"); t.setDefaultTextColor(QtGui.QColor(255, 255, 255))
-                f = t.font(); f.setPixelSize(12); f.setBold(True); t.setFont(f)
-                capa_marcas.sello(t, ("alerta-texto", f.key()))
-                t.document().setDocumentMargin(0)
-                br = t.boundingRect()
-                t.setPos(x, y); t.setFlag(ign)
-                t.setTransform(QtGui.QTransform().translate(-br.width() / 2, -br.height() / 2 + 2))
-                t.setZValue(Z_HANDLE + 8)
-                par = self._guardar_marca(("alerta", x, y), (it, t))
-            it, t = par
-            self._overlay.append(self._marca(it))
-            self._overlay.append(self._marca(t))
-            it.setToolTip(tooltip_bloque(mensaje))
+            if not vigentes:                             # (si no, las mismas de antes siguen en su capa)
+                alertas.append((x, y, mensaje))
+
+        def _alertas(lista):
+            for x, y, mensaje in lista:
+                par = self._reusar_marca(("alerta", x, y))
+                if par is None:
+                    pen = QtGui.QPen(QtGui.QColor(120, 0, 0), 1.5); pen.setCosmetic(True)
+                    it = capa_marcas.sello(QtWidgets.QGraphicsPolygonItem(tri), ("alerta",))
+                    it.setPen(pen); it.setBrush(QtGui.QBrush(QtGui.QColor(215, 25, 25)))
+                    it.setPos(x, y); it.setFlag(ign)
+                    it.setZValue(Z_HANDLE + 7)
+                    t = QtWidgets.QGraphicsTextItem("!"); t.setDefaultTextColor(QtGui.QColor(255, 255, 255))
+                    f = t.font(); f.setPixelSize(12); f.setBold(True); t.setFont(f)
+                    capa_marcas.sello(t, ("alerta-texto", f.key()))
+                    t.document().setDocumentMargin(0)
+                    br = t.boundingRect()
+                    t.setPos(x, y); t.setFlag(ign)
+                    t.setTransform(QtGui.QTransform().translate(-br.width() / 2, -br.height() / 2 + 2))
+                    t.setZValue(Z_HANDLE + 8)
+                    par = self._guardar_marca(("alerta", x, y), (it, t))
+                it, t = par
+                puestas = (self._marca(it), self._marca(t))
+                it.setToolTip(tooltip_bloque(mensaje))
+                yield from puestas
 
         for e in self._exceso_hits:
             _alerta_roja(e["x"], e["y"], self._msg_exceso(e))
@@ -203,6 +215,7 @@ class ConflictosMixin:
         # resto de señales es solo de presión, pero un choque se avisa siempre.
         for e in self._choque_hits:
             _alerta_roja(e["x"], e["y"], self._msg_choque(e))
+        self._poner_marcas(_alertas(alertas), len(alertas))
         self._numerar_conflictos()          # C-1, C-2… (ventana_conflictos_lista)
         self._guardar_resultados("_resultados_conf", clave_conf,
                                  (clave_conf, {k: getattr(self, k) for k in _RESULTADOS_CONFLICTOS},

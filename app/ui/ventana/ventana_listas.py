@@ -291,6 +291,7 @@ class ListasMixin:
                 icono = iconos[p["layer"]] = swatch_icon(layer_qcolor(p["layer"]))
             it = QtWidgets.QListWidgetItem(icono, f"{i}. {self._tipo(p['layer'])}{tag}{nm} ({info})")
             self.pipe_list.addItem(it)
+        self._atenuar_lista_utilidades()            # apagadas en «Capas»: en gris (ventana_capas)
         self.pipe_list.blockSignals(False)
         self.sleader_list.blockSignals(True); self.sleader_list.clear()
         ns = 0

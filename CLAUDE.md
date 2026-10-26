@@ -52,7 +52,7 @@ alcantarillado, drenaje, gas, eléctrico, telecom). Todo en **unidades imperiale
     a `ventana_*.py` (`MenuMixin`, `PanelIzquierdoMixin`, `PanelDerechoMixin`, `ModosMixin`, `ClicsMixin`,
     `UtilidadesMixin`, `CatalogoMixin`, `SeleccionMixin`, `ListasMixin`, `MarcasMixin`, `DibujoMixin`,
     `ConflictosMixin`, `CoordsMixin`, `BuzonesMixin`, `MoverPrecisoMixin`, `CurvasMixin`, `HerramientasMixin`,
-    `BancoductosMixin`, y desde 2026-10-08 `EdicionBloqueMixin` de `ventana_bloque`, desde 2026-10-10 `Vista3DMixin` de `ventana_vista3d`) y `Main` las hereda: `win.<método>` sigue igual (313 métodos, mismo código).
+    `BancoductosMixin`, y desde 2026-10-08 `EdicionBloqueMixin` de `ventana_bloque`, desde 2026-10-10 `Vista3DMixin` de `ventana_vista3d`, desde 2026-10-24 `PlanosFondoMixin` de `ventana_planos` y desde 2026-10-26 `CapasMixin` de `ventana_capas`: «Capas» de utilidades y planos de fondo) y `Main` las hereda: `win.<método>` sigue igual (313 métodos, mismo código).
     `ventana_comun.py` = las MISMAS importaciones de app_window (`from ventana_comun import *`).
     En app_window quedan `__init__`, páginas, deshacer, abrir/asistente, proyecto (con `_dirty`: usa
     `self.__…`, que no puede ir a una mezcla), exportar y arrastrar-soltar. OJO: los métodos que crean
@@ -474,8 +474,11 @@ alcantarillado, drenaje, gas, eléctrico, telecom). Todo en **unidades imperiale
     r·tan(Δ/2) (`_piernas_de_codos`, fila dura) y sigue ahí exacto (las mitades comparten centro y
     radio). Intentos: radio exacto + contactos 1e6; si algún vértice se corre >`MOVER_POCO_PT`=0.5
     pt (casi tangente/paralelo: DU08 h.47, h.49 se deslizaban 1–10 pt) se prueban sin las
-    piernas y con contactos 1e3 y gana el que menos mueve. Línea que se apartaría >`DESVIO_MAX_PT`=2
-    pt (de lado, `lateral`: deslizar por su recta no cuenta), daría vuelta un tramo o separaría un
+    piernas y con contactos 1e3 y gana el que menos mueve. Línea que se apartaría >`DESVIO_MAX_PT`=0.5
+    pt (de lado, `lateral`: deslizar por su recta no cuenta, hasta `_DESLIZ_MAX_PT`=2; era 2 pt: en la
+    compuesta de DU06 cada hoja dibuja la misma recta a 0.24°/0.11° y el «quiebre» de 0.13° en pasos de
+    0.25° corría 32 líneas eléctricas hasta 1.8 pt de su tinta, reporte 2026-10-26; hojas sueltas de DU06
+    × 6 utilidades: cambia 1 línea, h.4 eléctrico), daría vuelta un tramo o separaría un
     contacto → queda como estaba (solo sigue a sus contactos), aviso «Líneas con el ángulo del
     plano…» (REVIEW, `angles_off_px`). `reubicar` lleva `vault_pts`/`vault_snaps_px` a su vértice.
     Medido (DU06/DU10/DU08/LABOE × 6 utilidades + Phoenix agua/alcantarillado, 445 hoja×utilidad):
@@ -1346,6 +1349,35 @@ alcantarillado, drenaje, gas, eléctrico, telecom). Todo en **unidades imperiale
     `tests/test_agregar_sin_trabas.py` (con `PDFCAD_PROCESO=1`: mismos píxeles y grises, mismas capas/leyenda/
     visibles en CAD y en Phoenix, el diálogo no lee la hoja en la ventana, teselas sueltan el PDF, flujo entero
     igual con y sin proceso). Pendiente: el resaltado de «Capas» con 36 mapas sigue en la ventana (a pedido).
+    **Agregar por «Componer hoja» y CAPAS como en AutoCAD (pedidos 2026-10-24 y 2026-10-26)**: tras calcar,
+    `agregar_utilidad` va SIEMPRE a `_empezar_agregado(elegir=True)` → `_wizard_sheet_flow(start_step=0)` SIN
+    armar la hoja (como al abrir un PDF: el compositor recibe el calco con las hojas ubicadas marcadas; al aceptar,
+    `_agregando_recolocar` las pone en su lugar y entonces `_apply_composite`); ya no hay pregunta «Agregar todas /
+    Elegir hojas…» (`test_agregar_utilidad._stubs` cambia `composite_dialog.compose_sheet`). Al importar,
+    `Composite.utilidades_grupo` = {grupo: [claves de utilidad]} (0 = lo que tenía el editor, el nuevo = lo
+    reconocido; solo en hojas con grupos: si no, el dict de siempre) y las utilidades nuevas se encienden.
+    «Capas ▾» en la barra (`ui/comun/capas_popup.py`: `BotonCapas` + `PanelCapas` emergente que se queda abierto,
+    filas con bombilla; clic = encender/apagar, clic derecho «Ver solo esta» / «Encender todas»; sin estado propio:
+    `estado()` → `Estado(utilidades, planos)`) reemplaza a las pestañas de planos al pie del lienzo (quitadas, con
+    Ctrl+RePág/AvPág). `ui/ventana/ventana_capas.py` (`CapasMixin`): UTILIDADES = `Main.capas_apagadas` (capas de
+    utilidad apagadas; .digproj `capas_apagadas`, `respaldo_editor.CLAVES`, `_reset_model` las vacía; NO marca
+    cambios): `CapaLineas.fijar_ocultas(claves)` filtra al pintar (la elegida desde el Inventario se ve), los buzones/
+    curvas cuyas utilidades cercanas (14 px) están todas apagadas no se dibujan (`_estructuras_ocultas`, `_pick` los
+    salta), `GrupoMarcas.fijar_ocultas(apagadas, capas_en)` oculta las marcas cuyas utilidades a ≤`MARCA_FT` están
+    todas apagadas (sin utilidad cerca: se ve; `_Capa.cerca` y el despeje las saltan, la imagen de la vista se
+    rehace), `_utilidades_cerca` (ratón: elegir, imán, globo, vértices) no las devuelve salvo `todas=True`
+    (soluciones, dueñas de marcas) y en el Inventario quedan en gris (`_atenuar_lista_utilidades`). Apagar = un
+    `_redraw` con el mismo modelo (nada se recalcula). PLANOS = `ventana_planos.py` (`PlanosFondoMixin`), uno por
+    grupo, CUALQUIER combinación: `_poner_planos(visibles)` → `clave_planos`: todos = None (la hoja de trabajo),
+    algunos = frozenset (`hoja_calcada.solo_grupos`, mismo `marco`, materializado en el proceso a un temporal,
+    `_planos_docs` por clave y `_firma_plano`), ninguno = `_fondo_apagado` (`canvas.ocultar_fondo`: la imagen no se
+    pinta, `_snap` no engancha, `_doc_del_fondo` → None: sin teselas). `_mostrar_plano(clave)` cambia SOLO la imagen
+    (`cambiar_imagen`), los grises y la página de las teselas; la anterior queda en `_planos_img` (volver es al
+    instante). `_vista_fondo` (lista de grupos; un int de antes se lee como [int]) y `fondo_apagado` van al .digproj
+    (page.png = la imagen cargada) y a `respaldo_editor.CLAVES`; `_load_page`, `_poner_hoja_combinada` y abrir
+    proyecto → `_soltar_planos` (todos, cierra y borra los temporales). `_layout_minimapa` usa las hojas del menor
+    grupo a la vista. Lo dibujado, el deshacer, el reconocimiento y el DXF no cambian. Verificado: el plano del grupo
+    0 es IDÉNTICO píxel a píxel a la hoja del editor antes de agregar. Tests: `tests/test_planos_fondo.py`.
   - **Área sugerida** (pedido del usuario 2026-10-20: «sugerirle un área y que el usuario la ajuste», sin tocar el
     reconocimiento): `hoja/area_sugerida.py` (PURO) `sugerir(page, ficha=None)` → `[Area]` (la mejor primero; [] = nada):
     hoja con match lines → `_planta` (vista de `composicion_ficha` cortada en cada match line con rótulo, como
@@ -2348,6 +2380,21 @@ alcantarillado, drenaje, gas, eléctrico, telecom). Todo en **unidades imperiale
     cajas_de(pipes)` + `al_dia`: `compartido` solo prueba las utilidades cuya caja contiene el punto (mismo
     resultado; `_sin_tramos_diminutos` y `limpieza` lo usan) y copias con `memo_modelo.copia`: fusión 14 → 3.2 s.
     Tests: `tests/test_capa_marcas.py`, `tests/test_exportar_rapido.py`, `tests/test_limpieza.py`.
+    **Marcas por TANDAS** (pedido del usuario 2026-10-26: «cargar todos los avisos de golpe se lajea»; AGUA 2: el
+    redibujo final con los resultados del cálculo de fondo creaba ~54 mil marcas de golpe, 3.7 s congelada):
+    los dibujantes de marcas son GENERADORES con el cuerpo de siempre (`accesorios_view.dibujar_iter`,
+    `avisos_view.dibujar_iter`, `conflictos_view.dibujar_iter`, `_cruces`/`_alertas` en `_draw_pipe_conflicts`;
+    `dibujar` = `list(dibujar_iter(...))`) y la ventana los pasa a `Main._poner_marcas(gen, n)`: con menos de
+    `marcas_por_tandas.UMBRAL` (5000, `PDFCAD_MARCAS_TANDAS_MIN`) todo ya; si no —o si en ese redibujo ya empezó
+    una carga: el orden de cada capa no cambia— una `Tandas` (`ui/comun/marcas_por_tandas.py`) avanza `TANDA_MS`
+    por vuelta del bucle de eventos con el % en la barra de estado. Las capas del grupo quedan OCULTAS mientras
+    se cargan (`GrupoMarcas.cargar`; repintar a medias costaba ~0.3 s cada vez) y aparecen juntas al final
+    (`refrescar`: imagen de la vista y despeje de nuevo; `_ocultar_marcas_apagadas`). Lo que decide QUÉ se dibuja
+    (vigentes, alertas, mensajes) se calcula antes, fuera del generador. Redibujo con otro modelo → `_cancelar_tandas`
+    (el grupo a medias queda con `firma` None: ni se reusa ni se guarda para deshacer); mismo modelo → sigue.
+    `_marcas_al_dia()` la termina ya (capturas del informe). Medido AGUA 2: pausa máx 3.7 → ~0.8 s (el redibujo
+    sin marcas ~0.6 s y el primer repintado de todas ~0.6 s), carga ~3 s atendiendo al usuario; mismas marcas en el
+    mismo orden y misma imagen (`tests/test_marcas_por_tandas.py`, con el umbral bajado).
     **Utilidades en UNA capa (2026-10-18)**: `ui/comun/capa_lineas.CapaLineas` (un ítem a `Z_MARK`, en el lugar
     del orden donde iban los segmentos) pinta cada utilidad con `drawLines` y su pluma cosmética
     (`Main._pluma_utilidad`), en orden; solo las que tocan lo que hay que repintar (cajas en numpy, recorte del

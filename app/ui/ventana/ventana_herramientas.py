@@ -155,9 +155,10 @@ class HerramientasMixin:
             if ver_acc and not vigentes:
                 from ui.comun import accesorios_view
                 prep = self._preparar_etiquetas(accs, self._normas_avisos, ft_px)   # ventana_calculo
-                self._overlay += accesorios_view.dibujar(self.canvas.scene(), accs, self._normas_avisos, tol,
-                                                         poner=self._marca, reusar=self._reusar_marca,
-                                                         guardar=self._guardar_marca, preparadas=prep)
+                self._poner_marcas(accesorios_view.dibujar_iter(self.canvas.scene(), accs, self._normas_avisos, tol,
+                                                                poner=self._marca, reusar=self._reusar_marca,
+                                                                guardar=self._guardar_marca, preparadas=prep),
+                                   len(prep))
             # Normativa y reconocimiento (diámetro del plano) se muestran cada uno con su opción de Ver → Avisos.
             ver_nor = getattr(self, "act_show_normas", None) is None or self.act_show_normas.isChecked()
             ver_rec = (getattr(self, "act_show_reconocimiento", None) is None
@@ -166,9 +167,9 @@ class HerramientasMixin:
                 from ui.comun import avisos_view
                 a_ver = [a for a in self._normas_avisos
                          if (ver_rec if a.clase == diametro_plano.CLASE else ver_nor)]
-                self._overlay += avisos_view.dibujar(self.canvas.scene(), a_ver, tol * 2, ver_acc,
-                                                     poner=self._marca, reusar=self._reusar_marca,
-                                                     guardar=self._guardar_marca)
+                self._poner_marcas(avisos_view.dibujar_iter(self.canvas.scene(), a_ver, tol * 2, ver_acc,
+                                                            poner=self._marca, reusar=self._reusar_marca,
+                                                            guardar=self._guardar_marca), len(a_ver))
         pendientes = normas_aprobacion.pendientes(self._normas_avisos)
         n = len(pendientes)
         n_rec = sum(1 for a in pendientes if a.clase == diametro_plano.CLASE)

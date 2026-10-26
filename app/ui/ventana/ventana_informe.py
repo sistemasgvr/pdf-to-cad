@@ -139,6 +139,7 @@ class InformeMixin:
         if not inf.zonas:
             return imagenes
         n = len(inf.zonas)
+        self._marcas_al_dia()                            # capturas con TODAS las marcas (carga por tandas)
         c2 = IC.Captura2D(self)
         try:
             av.recibir("informe_mapa")

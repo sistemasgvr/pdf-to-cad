@@ -25,7 +25,7 @@ from __future__ import annotations
 
 import math
 from dataclasses import dataclass, field
-from typing import Dict, List, Optional, Sequence, Tuple
+from typing import Dict, Iterable, List, Optional, Sequence, Tuple
 
 from hoja import composite as C
 from hoja import encaje_mapa_base as E
@@ -309,6 +309,31 @@ def combinar(editor: C.Composite, nueva: C.Composite, n_fuentes_editor: int, mar
 
 
 # ─────────────────────────── trabajo de fondo ───────────────────────────
+def grupos(comp: Optional[C.Composite]) -> List[int]:
+    """Los grupos de piezas de la hoja (0 = la del editor, 1… = cada utilidad agregada), si son
+    varios y la hoja tiene `marco` (hoja con utilidades agregadas); si no, []."""
+    if comp is None or comp.marco is None:
+        return []
+    gs = sorted({int(p.grupo) for p in comp.pieces})
+    return gs if len(gs) > 1 else []
+
+
+def solo_grupo(comp: C.Composite, grupo: int) -> C.Composite:
+    """El plano ORIGINAL de un grupo: la misma hoja (mismo `marco`: mismo tamaño y coordenadas)
+    con solo sus piezas. Materializada, se ve como era antes de agregar las demás."""
+    return solo_grupos(comp, (grupo,))
+
+
+def solo_grupos(comp: C.Composite, grupos_: Iterable[int]) -> C.Composite:
+    """Como `solo_grupo` con VARIOS grupos (planos encendidos en «Capas»): sus piezas en el orden de
+    la hoja, el mismo `marco`."""
+    quedan = {int(g) for g in grupos_}
+    out = C.Composite.from_dict(comp.to_dict())
+    out.pieces = [p for p in out.pieces if int(p.grupo) in quedan]
+    out.utilidades_grupo = {}
+    return out
+
+
 def calcar_trabajo(editor_dict: dict, fuentes_editor: Sequence[bytes], fuentes_nuevas: Sequence[bytes],
                    nombres_nuevos: Sequence[str], escala: Optional[float] = None,
                    nombres_editor: Sequence[str] = (), progreso=None) -> dict:

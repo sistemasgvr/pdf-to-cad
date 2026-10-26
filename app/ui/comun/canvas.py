@@ -88,6 +88,7 @@ class Canvas(QtWidgets.QGraphicsView):
         self.scene().addItem(self.pixmap_item)
         self.pixmap_item.setZValue(Z_PDF)
         self.pixmap_item.setOpacity(self.pdf_opacity)
+        self.pixmap_item.setVisible(not getattr(self, "fondo_oculto", False))
         self.setSceneRect(self.pixmap_item.boundingRect() if self.fondo_escala >= 1.0 else rect)
         self.resetTransform(); self.fitInView(self.pixmap_item, QtCore.Qt.KeepAspectRatio)
         self._zoom_level = 1.0
@@ -117,8 +118,16 @@ class Canvas(QtWidgets.QGraphicsView):
         self.scene().addItem(self.pixmap_item)
         self.pixmap_item.setZValue(Z_PDF)
         self.pixmap_item.setOpacity(self.pdf_opacity)
+        self.pixmap_item.setVisible(not getattr(self, "fondo_oculto", False))
         if self.nitidez is not None:
             self.nitidez.fijar(self.pixmap_item)
+
+    def ocultar_fondo(self, oculto):
+        """Sin planos de fondo encendidos («Capas», ventana_planos): la imagen del PDF no se pinta
+        (queda el papel de `pdf_bg_item`); lo dibujado encima no cambia."""
+        self.fondo_oculto = bool(oculto)
+        if self.pixmap_item is not None:
+            self.pixmap_item.setVisible(not self.fondo_oculto)
 
     def tam_hoja(self):
         """(ancho, alto) de la hoja en px de la escena (pt × zoom), sea cual sea la

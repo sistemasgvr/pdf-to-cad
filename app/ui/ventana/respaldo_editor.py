@@ -29,11 +29,11 @@ _HOJA = ("doc", "work_pdf_path", "_tmp_composite", "src_pdfs", "composite",
          "hidden_ocgs_by_source", "hidden_ocgs", "_scale_override", "_composite_layout",
          "page_idx", "_recog_ready", "_recognition_utilities", "_letters_off",
          "_layer_roles_by_utility", "_layer_roles_hoja", "_join_routes",
-         "scale", "rot", "W", "H", "derot", "pageH_px", "leader_hpx", "gray")
+         "scale", "rot", "W", "H", "derot", "pageH_px", "leader_hpx", "gray", "_vista_fondo", "_fondo_apagado")
 # …lo que vacía `_reset_model`…
 _MODELO = ("cur_pts", "pipes", "leaders", "text_marks", "erase_regions", "_erase_pts",
            "structures", "ref_centerlines", "_cl_pts", "duct_banks", "cross_connections",
-           "normas_aprobados", "georef")
+           "normas_aprobados", "georef", "capas_apagadas")
 # …y la marca de cambios sin guardar (se repone SIN el setter de `_dirty`: borraría
 # la copia automática y tomaría como «guardado» lo que no lo está).
 _CAMBIOS = ("_dirty_flag", "_clean_sig", "_forzar_cambios")
@@ -142,6 +142,7 @@ def reponer(win, r: Respaldo) -> None:
     win._undo[:] = r.deshacer
     win._redo[:] = r.rehacer
     if r.imagen is not None:
+        win.canvas.ocultar_fondo(bool(d.get("_fondo_apagado")))   # planos apagados en «Capas»
         win.canvas.set_image(r.imagen, r.escala, r.tam)
         transform, nivel, centro = r.vista
         win.canvas.setTransform(transform)
