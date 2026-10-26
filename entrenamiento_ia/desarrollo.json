@@ -29,6 +29,41 @@
   },
   {
    "autor": "User",
+   "fecha": "2026-10-26T10:59:07",
+   "id": "cf3d18b4f6a1",
+   "modelo": "qwen3-vl:8b-instruct",
+   "pregunta": "¿Cuántos conflictos hay y dónde están?",
+   "proyecto": "santos_proyecto_prueba",
+   "referencias": [
+    "C-1",
+    "C-6",
+    "C-7",
+    "C-40",
+    "C-29",
+    "C-38"
+   ],
+   "respuesta": "51 conflictos en total.  \n**Ubicación por zona:**  \n- Zona 1: 6 conflictos (C-1 a C-6)  \n- Zona 2: 1 conflicto (C-6)  \n- Zona 3: 38 conflictos (C-7 a C-40)  \n- Zona 4: 6 conflictos (C-29, C-38)  \n\n**Clases de conflictos:**  \n- Cruce sin conexión: 48  \n- Cruce a la misma cota: 2  \n- Tramo muy corto entre codos: 1  \n\nTodos los conflictos están listados en la sección “Conflictos y avisos que vienen al caso”.  \nVer en la app: **Tabla de datos → Conflictos (C-n)**.",
+   "segundos": 19.74,
+   "version": 1
+  },
+  {
+   "autor": "User",
+   "fecha": "2026-10-26T10:59:42",
+   "id": "dec2f52da27d",
+   "modelo": "qwen3-vl:8b-instruct",
+   "pregunta": "De que trata el conflicto 13",
+   "proyecto": "santos_proyecto_prueba",
+   "referencias": [
+    "C-13",
+    "TELECOM-26",
+    "TELECOM-30"
+   ],
+   "respuesta": "El conflicto [C-13] es un **Cruce sin conexión** entre:  \n**TELECOM-26 (Telecomunicaciones, Ø 12 in, cota 0 ft)**  \ny  \n**TELECOM-30 (Telecomunicaciones, Ø 12 in, cota 0 ft)**  \nen la **zona 3**, con diferencia de cota 0 ft.  \n\n**Error:** Ambas tuberías se cruzan a la misma cota y no se conectan → chocarán en Civil 3D.  \n**Acción:** Corrige el dibujo o cambia la cota de una de las dos.",
+   "segundos": 18.03,
+   "version": 1
+  },
+  {
+   "autor": "User",
    "fecha": "2026-10-23T18:25:11",
    "id": "e0234881d6747ba1244453585002fd02",
    "modelo": "qwen3-vl:8b-instruct",
@@ -42,8 +77,244 @@
    "version": 1
   }
  ],
- "ensenanzas": [],
+ "ensenanzas": [
+  {
+   "accion": "bajar",
+   "autor": "User",
+   "fecha": "2026-10-26T11:06:08",
+   "id": "e00807aac41443968b386cc3e29418ac",
+   "proyecto": "santos_proyecto_prueba",
+   "texto": "En «Cruce sin conexión» (AGUA × ELECTRICO) se aplicó: Bajar ELECTRICO-2 1.50 ft (todas sus cotas: la pendiente no cambia) para pasar por debajo de AGUA-12 dejando 0.50 ft libres (normativa).",
+   "tipo": "solucion"
+  },
+  {
+   "accion": "subir",
+   "autor": "User",
+   "fecha": "2026-10-26T11:07:05",
+   "id": "f717878c07434af7a93895f4e387fe7c",
+   "proyecto": "santos_proyecto_prueba",
+   "texto": "En «Cruce sin conexión» (TELECOM) se aplicó: Subir TELECOM-30 1.00 ft (todas sus cotas: la pendiente no cambia) para pasar por encima de TELECOM-31.",
+   "tipo": "solucion"
+  }
+ ],
  "redaccion": {
+  "037538de19841e16072884e75c9a1058ec71ff3d": {
+   "ambito": "proyecto",
+   "autor": "User",
+   "fecha": "2026-10-26T11:09:21",
+   "modelo": "qwen3-vl:8b-instruct",
+   "texto": "Las tuberías AGUA-10 y TELECOM-23 se cruzan sin conexión a la misma cota: sepáralas en altura o en planta."
+  },
+  "04127099242d49129c6d59f924db499cd14c5940": {
+   "ambito": "proyecto",
+   "autor": "User",
+   "fecha": "2026-10-26T10:50:45",
+   "modelo": "qwen3-vl:8b-instruct",
+   "texto": "Eléctrico y Telecomunicaciones se cruzan a la misma cota sin conexión; sepáralos en altura o en planta."
+  },
+  "07034aff5d714c2722092bf41dfb289349f717c5": {
+   "ambito": "proyecto",
+   "autor": "User",
+   "fecha": "2026-10-26T11:08:55",
+   "modelo": "qwen3-vl:8b-instruct",
+   "texto": "Cruce sin conexión entre Agua (AGUA-9) y Telecomunicaciones (TELECOM-33) a la misma cota: separarlas en altura o en planta."
+  },
+  "0880b6a76da8fff879597210d47d7414cb1f7cc9": {
+   "ambito": "proyecto",
+   "autor": "User",
+   "fecha": "2026-10-26T10:49:00",
+   "modelo": "qwen3-vl:8b-instruct",
+   "texto": "Cruce sin conexión entre Telecomunicaciones (TELECOM-24) y Telecomunicaciones (TELECOM-29) a la misma cota; sepáralas en altura o en planta."
+  },
+  "0bc3f34ac7ac4f18bc2496f60209ff13fcdf0473": {
+   "ambito": "proyecto",
+   "autor": "User",
+   "fecha": "2026-10-26T11:09:52",
+   "modelo": "qwen3-vl:8b-instruct",
+   "texto": "Agua y Telecomunicaciones se cruzan a la misma cota sin conexión: sepáralas en altura o en planta."
+  },
+  "0fa601d86df29e679962345d1bed26c2775a2e5a": {
+   "ambito": "proyecto",
+   "autor": "User",
+   "fecha": "2026-10-26T10:49:28",
+   "modelo": "qwen3-vl:8b-instruct",
+   "texto": "Cruce sin conexión entre Telecomunicaciones y Telecomunicaciones a la misma cota: separar en altura o planta."
+  },
+  "107e13a5413822b8d0fb6885bb488a32ba0ead59": {
+   "ambito": "proyecto",
+   "autor": "User",
+   "fecha": "2026-10-26T10:51:50",
+   "modelo": "qwen3-vl:8b-instruct",
+   "texto": "Las tuberías de Agua (AGUA-11) y Telecomunicaciones (TELECOM-23) se cruzan sin conexión a la misma cota: sepáralas en altura o en planta."
+  },
+  "10d75cdf6bb9bae15d0cc9028957b499af203086": {
+   "ambito": "proyecto",
+   "autor": "User",
+   "fecha": "2026-10-26T11:08:55",
+   "modelo": "qwen3-vl:8b-instruct",
+   "texto": "Cruce sin conexión entre Agua (AGUA-12) y Telecomunicaciones (TELECOM-33) a la misma cota: separarlas en altura o en planta."
+  },
+  "11445fdbe17d07ebecaa4f524de6d92add7081c6": {
+   "ambito": "proyecto",
+   "autor": "User",
+   "fecha": "2026-10-26T10:49:28",
+   "modelo": "qwen3-vl:8b-instruct",
+   "texto": "Cruce sin conexión entre Agua y Telecomunicaciones a la misma cota: separar en altura o planta."
+  },
+  "1204a89a3b39f020665931fb6629ef6631f85760": {
+   "ambito": "proyecto",
+   "autor": "User",
+   "fecha": "2026-10-26T10:50:45",
+   "modelo": "qwen3-vl:8b-instruct",
+   "texto": "Eléctrico y Telecomunicaciones se cruzan a la misma cota sin conexión; sepáralos en altura o en planta."
+  },
+  "153949e60dd7128279d76f84958a443f95e10afe": {
+   "ambito": "proyecto",
+   "autor": "User",
+   "fecha": "2026-10-26T10:50:45",
+   "modelo": "qwen3-vl:8b-instruct",
+   "texto": "Wye no permitida en DISTRIBUCION PRINCIPAL; revisa el accesorio, tipo de línea y diámetros."
+  },
+  "15b0a17bd2c348d5fe7af02a29fe570d0c7da8dd": {
+   "ambito": "proyecto",
+   "autor": "User",
+   "fecha": "2026-10-26T10:52:02",
+   "modelo": "qwen3-vl:8b-instruct",
+   "texto": "En la zona 4 hay un conflicto de cruce a la misma cota entre dos tuberías de agua (AGUA-8 y AGUA-10), que chocan y no se unen."
+  },
+  "165ebf4b82d0034def974b6a10494270f2b37acc": {
+   "ambito": "proyecto",
+   "autor": "User",
+   "fecha": "2026-10-26T10:49:28",
+   "modelo": "qwen3-vl:8b-instruct",
+   "texto": "Cruce sin conexión entre Eléctrico y Telecomunicaciones a la misma cota: separar en altura o planta."
+  },
+  "186710e394f2db8cc6a60985c30d2ac061851d16": {
+   "ambito": "proyecto",
+   "autor": "User",
+   "fecha": "2026-10-26T11:10:07",
+   "modelo": "qwen3-vl:8b-instruct",
+   "texto": "Las tuberías de Telecomunicaciones se cruzan a la misma cota (0.00 ft) sin conexión; sepáralas en altura o en planta."
+  },
+  "1b31535f9b0f2a5685bd9eb1d0db6e7c1cbf54ef": {
+   "ambito": "proyecto",
+   "autor": "User",
+   "fecha": "2026-10-26T10:49:00",
+   "modelo": "qwen3-vl:8b-instruct",
+   "texto": "Cruce sin conexión entre Eléctrico (ELECTRICO-2) y Agua (AGUA-15) a la misma cota; sepáralas en altura o en planta."
+  },
+  "1b527bc8c34e64ad0c5c0c38f6f5e42ccd83478b": {
+   "ambito": "proyecto",
+   "autor": "User",
+   "fecha": "2026-10-26T10:49:58",
+   "modelo": "qwen3-vl:8b-instruct",
+   "texto": "Las tuberías Agua (AGUA-9) y Telecomunicaciones (TELECOM-33) se cruzan sin conexión a la misma cota: sepáralas en altura o en planta."
+  },
+  "1d5018ab6baa63a7057b1be97db8123f94c931b3": {
+   "ambito": "proyecto",
+   "autor": "User",
+   "fecha": "2026-10-26T10:51:50",
+   "modelo": "qwen3-vl:8b-instruct",
+   "texto": "Las tuberías de Agua (AGUA-8) y Telecomunicaciones (TELECOM-24) se cruzan sin conexión a la misma cota: sepáralas en altura o en planta."
+  },
+  "1e92328abed909ba329494764434574873f92fe1": {
+   "ambito": "proyecto",
+   "autor": "User",
+   "fecha": "2026-10-26T11:09:52",
+   "modelo": "qwen3-vl:8b-instruct",
+   "texto": "Agua y Agua se cruzan a la misma cota sin unirse: cambia la cota de una de las dos o únelas si debían conectarse."
+  },
+  "24d251c1c42b3f82573ee453bbe6d196fe0e604e": {
+   "ambito": "proyecto",
+   "autor": "User",
+   "fecha": "2026-10-26T10:50:45",
+   "modelo": "qwen3-vl:8b-instruct",
+   "texto": "Eléctrico y Agua se cruzan a la misma cota sin conexión; sepáralos en altura o en planta."
+  },
+  "24f526e4c2b2eddcb728ace0f2b56ce26d8e0167": {
+   "ambito": "proyecto",
+   "autor": "User",
+   "fecha": "2026-10-26T11:08:55",
+   "modelo": "qwen3-vl:8b-instruct",
+   "texto": "Cruce sin conexión entre Telecomunicaciones y Telecomunicaciones (TELECOM-32 y TELECOM-33) a la misma cota: separarlas en altura o en planta."
+  },
+  "27c04955b302a2ff220196152fd693d998352e3d": {
+   "ambito": "proyecto",
+   "autor": "User",
+   "fecha": "2026-10-26T11:09:52",
+   "modelo": "qwen3-vl:8b-instruct",
+   "texto": "Agua y Telecomunicaciones se cruzan a la misma cota sin conexión: sepáralas en altura o en planta."
+  },
+  "2a30f7229558d5f97e77c60976af866062945492": {
+   "ambito": "proyecto",
+   "autor": "User",
+   "fecha": "2026-10-26T11:08:55",
+   "modelo": "qwen3-vl:8b-instruct",
+   "texto": "La zona 3 presenta 34 conflictos de cruce sin conexión entre tuberías de telecomunicaciones y agua, todos a la misma cota y sin conexión, lo que genera riesgo de choque en el modelo 3D. Se requiere separar las utilidades en altura o en planta."
+  },
+  "33e3b4b769b46a99f76bec6884f01275d133a875": {
+   "ambito": "proyecto",
+   "autor": "User",
+   "fecha": "2026-10-26T11:09:21",
+   "modelo": "qwen3-vl:8b-instruct",
+   "texto": "Las tuberías ELECTRICO-1 y TELECOM-24 se cruzan sin conexión a la misma cota: sepáralas en altura o en planta."
+  },
+  "344c6c5f83f898f83f9605061fc91855508c945b": {
+   "ambito": "proyecto",
+   "autor": "User",
+   "fecha": "2026-10-26T11:10:14",
+   "modelo": "qwen3-vl:8b-instruct",
+   "texto": "Las utilidades AGUA-8 y AGUA-10 se cruzan a la misma cota (0.00 ft) y no se unen: las tuberías chocan. Cambia la cota de una de las dos o corrige el dibujo."
+  },
+  "373d344c41a06cef38fdcbeae5728a83797aa6fa": {
+   "ambito": "proyecto",
+   "autor": "User",
+   "fecha": "2026-10-26T10:50:23",
+   "modelo": "qwen3-vl:8b-instruct",
+   "texto": "Se detecta un cruce sin conexión entre Agua y Telecomunicaciones a la misma cota; se recomienda separarlas en altura o en planta."
+  },
+  "3973495b7b37388ca87ca9827406d50b6f0c66e9": {
+   "ambito": "proyecto",
+   "autor": "User",
+   "fecha": "2026-10-26T11:08:55",
+   "modelo": "qwen3-vl:8b-instruct",
+   "texto": "Cruce sin conexión entre Telecomunicaciones (TELECOM-23) y Telecomunicaciones (TELECOM-33) a la misma cota: separarlas en altura o en planta."
+  },
+  "3c00ed6dbda8a20b7bf1e61b21f1c09ba9d4f690": {
+   "ambito": "proyecto",
+   "autor": "User",
+   "fecha": "2026-10-26T10:51:16",
+   "modelo": "qwen3-vl:8b-instruct",
+   "texto": "La tubería AGUA-8 está a 2,42 ft de ELECTRICO #3 en paralelo, lo que no cumple el mínimo de 4 ft; se debe alejar o cambiar sus cotas."
+  },
+  "3c54fd0eb20fd87e8594406756092da7889858e1": {
+   "ambito": "proyecto",
+   "autor": "User",
+   "fecha": "2026-10-26T11:08:55",
+   "modelo": "qwen3-vl:8b-instruct",
+   "texto": "Cruce sin conexión entre Telecomunicaciones (TELECOM-24) y Telecomunicaciones (TELECOM-33) a la misma cota: separarlas en altura o en planta."
+  },
+  "3cae5199b14b262f2aecc11dda6b85341bc896f8": {
+   "ambito": "ayuda",
+   "autor": "User",
+   "fecha": "2026-10-26T10:08:34",
+   "modelo": "qwen3-vl:8b-instruct",
+   "texto": "La IA está implementada en el menú **IA**, que se activa desde la barra de menú principal. Allí puedes configurarla con **IA → Configurar IA…** y elegir un servidor propio (como Ollama). También se usa para generar informes automáticos con explicaciones redactadas por la IA, en lugar de plantillas.\n\n1. Abre el menú **IA**.\n2. Haz clic en **Configurar IA…**.\n3. Elige **Servidor propio (Ollama)**.\n4. Escribe la dirección del servidor.\n5. Pulsa **Buscar modelos** y luego **Probar**.\n6. Para usar la IA en informes, activa la opción en el informe automático (con IA configurada, los textos se redactan por la IA).\n7. Si no configuras IA, se usan plantillas (sin IA).\n8. La IA solo trabaja con datos del proyecto; si pone un número que no coincide, la app lo avisa.\n\nMás en: Capítulo 3.2.1 (Configuración de IA)"
+  },
+  "3cb74353d94fe238aedcdcdd57e0b2adeac35810": {
+   "ambito": "proyecto",
+   "autor": "User",
+   "fecha": "2026-10-26T11:09:52",
+   "modelo": "qwen3-vl:8b-instruct",
+   "texto": "Eléctrico y Telecomunicaciones se cruzan a la misma cota sin conexión: sepáralas en altura o en planta."
+  },
+  "4000df906ae243be01e02cde6860c6eef99ef6b8": {
+   "ambito": "proyecto",
+   "autor": "User",
+   "fecha": "2026-10-26T10:50:23",
+   "modelo": "qwen3-vl:8b-instruct",
+   "texto": "Se detecta un cruce sin conexión entre Agua y Telecomunicaciones a la misma cota; se recomienda separarlas en altura o en planta."
+  },
   "443e62879222a4374b56ca7762b70e7efe166bae": {
    "ambito": "proyecto",
    "autor": "User",
@@ -51,12 +322,537 @@
    "modelo": "qwen3-vl:8b-instruct",
    "texto": "RECOMENDADA: ninguna\nLa propuesta P1 es la mejor porque bajar la tubería TELECOM-24 (más chica) es la opción que minimiza el impacto en el resto del proyecto, ya que no genera nuevos problemas en uniones, mientras que las otras opciones afectan uniones críticas. Además, según el criterio de mover primero la tubería más chica, bajar TELECOM-24 es la acción más adecuada. El cambio de cota es mínimo y no altera la pendiente, lo que mantiene la integridad del diseño."
   },
+  "452b3c54890ac793a71749b656475a16100ede11": {
+   "ambito": "ayuda",
+   "autor": "User",
+   "fecha": "2026-10-26T11:09:29",
+   "modelo": "qwen3-vl:8b-instruct",
+   "texto": "Haz clic en la tubería en el plano 2D, luego usa el botón **Editar: diámetro** (en la ficha debajo de la tubería) o haz clic en una fila de tramo (T1, T2…) para editar la cota de inicio o fin. Escribe la cota o usa ↑ ↓ para ajustarla en 0.10 ft. Al terminar, pulsa Enter o deja de tocar para aplicar el cambio.  \nMás en: [Vista 3D › Editar una utilidad desde 3D]"
+  },
+  "4aa8dd4cf126f0a1820d278e5a613e8710cccacb": {
+   "ambito": "proyecto",
+   "autor": "User",
+   "fecha": "2026-10-26T10:51:16",
+   "modelo": "qwen3-vl:8b-instruct",
+   "texto": "Las tuberías AGUA-8 y TELECOM-23 se cruzan a la misma cota (0.00 ft) sin conexión; se deben separar en altura o en planta."
+  },
+  "4d62694ce4edf0be8d8ee3c97523c859699a1c68": {
+   "ambito": "proyecto",
+   "autor": "User",
+   "fecha": "2026-10-26T11:10:07",
+   "modelo": "qwen3-vl:8b-instruct",
+   "texto": "Las tuberías de Telecomunicaciones se cruzan a la misma cota (0.00 ft) sin conexión; sepáralas en altura o en planta."
+  },
+  "4e01dc86703cdfc7b068fa3eef523c30454ca5b2": {
+   "ambito": "proyecto",
+   "autor": "User",
+   "fecha": "2026-10-26T11:09:21",
+   "modelo": "qwen3-vl:8b-instruct",
+   "texto": "Las tuberías ELECTRICO-1 y AGUA-12 se cruzan sin conexión a la misma cota: sepáralas en altura o en planta."
+  },
+  "525aface77a067b54cc2a3d26c2c55dd8a590658": {
+   "ambito": "proyecto",
+   "autor": "User",
+   "fecha": "2026-10-26T10:49:58",
+   "modelo": "qwen3-vl:8b-instruct",
+   "texto": "Las tuberías Eléctrico (ELECTRICO-2) y Telecomunicaciones (TELECOM-33) se cruzan sin conexión a la misma cota: sepáralas en altura o en planta."
+  },
+  "56b6855df0e3f3b8d67bc7c3bf1493a231a1e0ab": {
+   "ambito": "proyecto",
+   "autor": "User",
+   "fecha": "2026-10-26T11:10:07",
+   "modelo": "qwen3-vl:8b-instruct",
+   "texto": "Las tuberías de Agua y Telecomunicaciones se cruzan a la misma cota (0.00 ft) sin conexión; sepáralas en altura o en planta."
+  },
+  "578f77369be0f2a2a199527a63af01e3f72331b7": {
+   "ambito": "proyecto",
+   "autor": "User",
+   "fecha": "2026-10-26T10:51:54",
+   "modelo": "qwen3-vl:8b-instruct",
+   "texto": "Las utilidades Telecom-24 y Telecom-28 se cruzan a la misma cota (0.00 ft) sin conexión, lo que genera un choque en Civil 3D. Deben separarse en altura o en planta para evitar el conflicto."
+  },
+  "5ae6bcc054487eea0f159e7af005798c45ac2ff3": {
+   "ambito": "proyecto",
+   "autor": "User",
+   "fecha": "2026-10-26T10:50:45",
+   "modelo": "qwen3-vl:8b-instruct",
+   "texto": "Eléctrico y Telecomunicaciones se cruzan a la misma cota sin conexión; sepáralos en altura o en planta."
+  },
+  "5c2f2ffc51cb9234c33a4432d1ca78f02eacaa1f": {
+   "ambito": "proyecto",
+   "autor": "User",
+   "fecha": "2026-10-26T10:50:23",
+   "modelo": "qwen3-vl:8b-instruct",
+   "texto": "Se detecta un cruce sin conexión entre Eléctrico y Agua a la misma cota; se recomienda separarlas en altura o en planta."
+  },
+  "605793c7847b002afac8f56cf40e82b34944724b": {
+   "ambito": "proyecto",
+   "autor": "User",
+   "fecha": "2026-10-26T10:49:58",
+   "modelo": "qwen3-vl:8b-instruct",
+   "texto": "Las tuberías Telecomunicaciones (TELECOM-24 y TELECOM-33) se cruzan sin conexión a la misma cota: sepáralas en altura o en planta."
+  },
+  "61443f6d9cb59961476fe26cc5c1171f63457d87": {
+   "ambito": "ayuda",
+   "autor": "User",
+   "fecha": "2026-10-26T10:09:00",
+   "modelo": "qwen3-vl:8b-instruct",
+   "texto": "La IA está implementada en los siguientes módulos:\n\n1. **IA → Pregúntale al proyecto** (chat sobre el proyecto abierto).  \n2. **IA → Resolver conflictos** (con clic derecho junto a una marca C-n).  \n3. **Herramientas → Informe automático** (redacción en Word).  \n4. **Normativas → Reglas** («Explicar con IA»).  \n5. **Ayuda → Manual de usuario** (campo «¿Cómo hago…?»).\n\nMás en: IA → Pregúntale al proyecto"
+  },
+  "69b8431dd62212b78c70299afea703745c2d58b7": {
+   "ambito": "proyecto",
+   "autor": "User",
+   "fecha": "2026-10-26T11:01:48",
+   "modelo": "qwen3-vl:8b-instruct",
+   "texto": "RECOMENDADA: P3\nBajar la tubería eléctrica ELECTRICO-2 1.50 ft es la mejor opción porque se trata de una tubería más chica (en comparación con AGUA-15), y según las reglas de prioridad, se debe mover primero la tubería de menor importancia. Además, bajarla evita modificar la cota de la tubería de agua, que es más crítica en el sistema. El cambio es mínimo y resuelve el conflicto con la separación mínima requerida por norma."
+  },
+  "6aafa003e17a977bc631dce4764059735ae1e19f": {
+   "ambito": "proyecto",
+   "autor": "User",
+   "fecha": "2026-10-26T11:09:21",
+   "modelo": "qwen3-vl:8b-instruct",
+   "texto": "Las tuberías AGUA-10 y TELECOM-25 se cruzan sin conexión a la misma cota: sepáralas en altura o en planta."
+  },
+  "6b56aad8ad3cc52bcf1590e744567bcc35e217a7": {
+   "ambito": "proyecto",
+   "autor": "User",
+   "fecha": "2026-10-26T10:50:45",
+   "modelo": "qwen3-vl:8b-instruct",
+   "texto": "Eléctrico y Agua se cruzan a la misma cota sin conexión; sepáralos en altura o en planta."
+  },
+  "6e8e9f79acce8becc7f96859e3ca5fbb0940f311": {
+   "ambito": "proyecto",
+   "autor": "User",
+   "fecha": "2026-10-26T11:08:55",
+   "modelo": "qwen3-vl:8b-instruct",
+   "texto": "Cruce sin conexión entre Telecomunicaciones (TELECOM-26) y Telecomunicaciones (TELECOM-33) a la misma cota: separarlas en altura o en planta."
+  },
+  "72ba22a3a6f5d0471188a8ce5a978938e1341fe9": {
+   "ambito": "proyecto",
+   "autor": "User",
+   "fecha": "2026-10-26T10:50:23",
+   "modelo": "qwen3-vl:8b-instruct",
+   "texto": "Se detecta un cruce sin conexión entre Agua y Telecomunicaciones a la misma cota; se recomienda separarlas en altura o en planta."
+  },
+  "73e59c8c54de659d7af2626a815ead8044f7f5a2": {
+   "ambito": "proyecto",
+   "autor": "User",
+   "fecha": "2026-10-26T11:09:52",
+   "modelo": "qwen3-vl:8b-instruct",
+   "texto": "Agua y Telecomunicaciones se cruzan a la misma cota sin conexión: sepáralas en altura o en planta."
+  },
+  "745fcad03195c764bd3edcc90916a1c992b69cc8": {
+   "ambito": "proyecto",
+   "autor": "User",
+   "fecha": "2026-10-26T10:49:28",
+   "modelo": "qwen3-vl:8b-instruct",
+   "texto": "Cruce sin conexión entre Telecomunicaciones y Telecomunicaciones a la misma cota: separar en altura o planta."
+  },
+  "76a91f7216928ad5d5efc54d0ddb2fb15df0e2cd": {
+   "ambito": "proyecto",
+   "autor": "User",
+   "fecha": "2026-10-26T10:51:50",
+   "modelo": "qwen3-vl:8b-instruct",
+   "texto": "Las tuberías de Telecomunicaciones (TELECOM-27) y Telecomunicaciones (TELECOM-28) se cruzan sin conexión a la misma cota: sepáralas en altura o en planta."
+  },
+  "77a8072cdc1717072655b2d4088e75c1d079a639": {
+   "ambito": "proyecto",
+   "autor": "User",
+   "fecha": "2026-10-26T10:49:00",
+   "modelo": "qwen3-vl:8b-instruct",
+   "texto": "Separación insuficiente entre Agua (AGUA-9) y Telecomunicaciones (TELECOM-24); aleja las utilidades o cambia sus cotas."
+  },
+  "7943eeb4dbc37b142f288b9215b887385aa193bb": {
+   "ambito": "proyecto",
+   "autor": "User",
+   "fecha": "2026-10-26T11:06:58",
+   "modelo": "qwen3-vl:8b-instruct",
+   "texto": "RECOMENDADA: ninguna\nNo hay propuestas válidas generadas por la aplicación para resolver el conflicto de tramo corto entre codos. Dado que el conflicto se refiere a una geometría específica (AGUA-21, tramo T2 de 1.80 ft), y que la app no ofrece soluciones, la única opción es corregirlo manualmente en el modelo: unir los dos codos en un solo elemento o alargar el tramo a 3.00 ft como mínimo, respetando las restricciones de la normativa y sin afectar otros elementos."
+  },
+  "7bf07c02b4ccd71b541fad7b63c9010a71a4ecd6": {
+   "ambito": "proyecto",
+   "autor": "User",
+   "fecha": "2026-10-26T11:06:52",
+   "modelo": "qwen3-vl:8b-instruct",
+   "texto": "RECOMENDADA: P2\nLa propuesta P2 es la mejor porque sube TELECOM-30, lo que evita conflictos con ELECTRICO-2 (que ya fue bajado previamente para pasar por debajo de AGUA-12), y no genera nuevos problemas. Además, al subir la tubería más chica (TELECOM-30, que tiene el mismo diámetro que TELECOM-31), se mantiene el criterio de mover primero las tuberías secundarias. El cambio de cota es mínimo y no afecta la pendiente, lo que mantiene la integridad del diseño."
+  },
+  "7d04f55cdf535534656463cf956c400f5d6677d6": {
+   "ambito": "proyecto",
+   "autor": "User",
+   "fecha": "2026-10-26T10:49:58",
+   "modelo": "qwen3-vl:8b-instruct",
+   "texto": "Las tuberías Telecomunicaciones (TELECOM-32 y TELECOM-33) se cruzan sin conexión a la misma cota: sepáralas en altura o en planta."
+  },
+  "7f700d30282dd6080ccd3e6bcb7d4b147174bee7": {
+   "ambito": "proyecto",
+   "autor": "User",
+   "fecha": "2026-10-26T10:51:50",
+   "modelo": "qwen3-vl:8b-instruct",
+   "texto": "Las tuberías de Eléctrico (ELECTRICO-2) y Agua (AGUA-9) se cruzan sin conexión a la misma cota: sepáralas en altura o en planta."
+  },
+  "85931c1d9de459f0ae2adea67700627305e101c9": {
+   "ambito": "proyecto",
+   "autor": "User",
+   "fecha": "2026-10-26T10:49:28",
+   "modelo": "qwen3-vl:8b-instruct",
+   "texto": "Cruce sin conexión entre Telecomunicaciones y Telecomunicaciones a la misma cota: separar en altura o planta."
+  },
+  "8a38462c788950fe5a7695686fe094d2bd56233d": {
+   "ambito": "proyecto",
+   "autor": "User",
+   "fecha": "2026-10-26T10:51:16",
+   "modelo": "qwen3-vl:8b-instruct",
+   "texto": "La tubería AGUA-13 está a 3,8 ft de ELECTRICO #1 en paralelo, lo que no cumple el mínimo de 4 ft; se debe alejar o cambiar sus cotas."
+  },
+  "8c975286f873ce42066302c162babfdcf199a4ed": {
+   "ambito": "proyecto",
+   "autor": "User",
+   "fecha": "2026-10-26T10:49:28",
+   "modelo": "qwen3-vl:8b-instruct",
+   "texto": "Zona 3 presenta 49 conflictos de cruce sin conexión entre utilidades, principalmente telecomunicaciones, agua y eléctrico, que requieren separación en altura o planta para evitar colisiones en el modelo."
+  },
+  "8eda255c5696ee5794e28e8826f880d6204348bc": {
+   "ambito": "proyecto",
+   "autor": "User",
+   "fecha": "2026-10-26T11:08:55",
+   "modelo": "qwen3-vl:8b-instruct",
+   "texto": "Cruce sin conexión entre Agua (AGUA-10) y Telecomunicaciones (TELECOM-24) a la misma cota: separarlas en altura o en planta."
+  },
+  "8fe9c17c69f688a671ff490be5c5593ed605260d": {
+   "ambito": "proyecto",
+   "autor": "User",
+   "fecha": "2026-10-26T10:51:16",
+   "modelo": "qwen3-vl:8b-instruct",
+   "texto": "Las tuberías AGUA-8 y TELECOM-25 se cruzan a la misma cota (0.00 ft) sin conexión; se deben separar en altura o en planta."
+  },
+  "90d0fabe9c222eb13242decbd5841ac2927fb7ba": {
+   "ambito": "proyecto",
+   "autor": "User",
+   "fecha": "2026-10-26T10:51:50",
+   "modelo": "qwen3-vl:8b-instruct",
+   "texto": "Las tuberías de Eléctrico (ELECTRICO-2) y Agua (AGUA-11) se cruzan sin conexión a la misma cota: sepáralas en altura o en planta."
+  },
+  "9402ebf8165d961e1d5d99130ae961e65615cee2": {
+   "ambito": "proyecto",
+   "autor": "User",
+   "fecha": "2026-10-26T10:49:58",
+   "modelo": "qwen3-vl:8b-instruct",
+   "texto": "Las tuberías Telecomunicaciones (TELECOM-25 y TELECOM-30) se cruzan sin conexión a la misma cota: sepáralas en altura o en planta."
+  },
+  "953db577cfc526387ab642324efe9d601db87068": {
+   "ambito": "proyecto",
+   "autor": "User",
+   "fecha": "2026-10-26T10:49:58",
+   "modelo": "qwen3-vl:8b-instruct",
+   "texto": "Las tuberías Telecomunicaciones (TELECOM-26 y TELECOM-33) se cruzan sin conexión a la misma cota: sepáralas en altura o en planta."
+  },
+  "98acbb226b260234ee711a504f2550c9b16b2991": {
+   "ambito": "proyecto",
+   "autor": "User",
+   "fecha": "2026-10-26T11:09:21",
+   "modelo": "qwen3-vl:8b-instruct",
+   "texto": "Las tuberías ELECTRICO-1 y AGUA-9 se cruzan sin conexión a la misma cota: sepáralas en altura o en planta."
+  },
+  "9c03d62fb5ace7fd855f2eafc2e2e7db6250d21b": {
+   "ambito": "proyecto",
+   "autor": "User",
+   "fecha": "2026-10-26T10:51:50",
+   "modelo": "qwen3-vl:8b-instruct",
+   "texto": "Las tuberías de Agua (AGUA-11) y Telecomunicaciones (TELECOM-24) se cruzan sin conexión a la misma cota: sepáralas en altura o en planta."
+  },
+  "9e5ec7ffe671d8f283736fb67af75086b27b802d": {
+   "ambito": "proyecto",
+   "autor": "User",
+   "fecha": "2026-10-26T10:49:05",
+   "modelo": "qwen3-vl:8b-instruct",
+   "texto": "El tramo T2 entre codos es muy corto (1.80 ft) para AGUA-21; se sugiere alargarlo o unir los codos en uno."
+  },
+  "a460f690575b05a315134e273b3341204fc43c7c": {
+   "ambito": "proyecto",
+   "autor": "User",
+   "fecha": "2026-10-26T11:10:07",
+   "modelo": "qwen3-vl:8b-instruct",
+   "texto": "Las tuberías de Agua y Telecomunicaciones se cruzan a la misma cota (0.00 ft) sin conexión; sepáralas en altura o en planta."
+  },
+  "a512d96d78b4b1b154aef8b58a52e1e9135d2e40": {
+   "ambito": "proyecto",
+   "autor": "User",
+   "fecha": "2026-10-26T10:50:23",
+   "modelo": "qwen3-vl:8b-instruct",
+   "texto": "Se detecta un cruce sin conexión entre Eléctrico y Agua a la misma cota; se recomienda separarlas en altura o en planta."
+  },
+  "a6b267abc26827a0fa6d673e07fdfd2652cd94a0": {
+   "ambito": "proyecto",
+   "autor": "User",
+   "fecha": "2026-10-26T10:51:16",
+   "modelo": "qwen3-vl:8b-instruct",
+   "texto": "Las tuberías AGUA-8 y TELECOM-26 se cruzan a la misma cota (0.00 ft) sin conexión; se deben separar en altura o en planta."
+  },
+  "a92228895b55da505da21b25c566fe244ed6a18e": {
+   "ambito": "proyecto",
+   "autor": "User",
+   "fecha": "2026-10-26T10:49:28",
+   "modelo": "qwen3-vl:8b-instruct",
+   "texto": "Cruce sin conexión entre Agua y Telecomunicaciones a la misma cota: separar en altura o planta."
+  },
+  "ab78f1bea60fe376418f9c3d85d276fb7edc7a35": {
+   "ambito": "proyecto",
+   "autor": "User",
+   "fecha": "2026-10-26T11:08:17",
+   "modelo": "qwen3-vl:8b-instruct",
+   "texto": "La zona 1 presenta 3 conflictos: 2 cruces sin conexión y 1 separación con otra utilidad, afectando a las utilidades TELECOM-24, TELECOM-29, TELECOM-23, TELECOM-26 y AGUA-9."
+  },
+  "ae6bf4174e33b969bfcf0406e5b76271db6a9dc2": {
+   "ambito": "proyecto",
+   "autor": "User",
+   "fecha": "2026-10-26T10:51:16",
+   "modelo": "qwen3-vl:8b-instruct",
+   "texto": "Las tuberías AGUA-8 y AGUA-13 se cruzan a la misma cota (0.00 ft) sin conexión; se debe cambiar la cota de una de ellas o corregir el dibujo."
+  },
+  "aec58d29e42de74d75edd613c0150cea08ec6370": {
+   "ambito": "proyecto",
+   "autor": "User",
+   "fecha": "2026-10-26T10:50:45",
+   "modelo": "qwen3-vl:8b-instruct",
+   "texto": "Eléctrico y Telecomunicaciones se cruzan a la misma cota sin conexión; sepáralos en altura o en planta."
+  },
+  "b4269f958d3f53b26bc60c4f3534973d44245b75": {
+   "ambito": "proyecto",
+   "autor": "User",
+   "fecha": "2026-10-26T10:51:16",
+   "modelo": "qwen3-vl:8b-instruct",
+   "texto": "La tubería AGUA-13 está a 2,257 ft de ELECTRICO #3 en paralelo, lo que no cumple el mínimo de 4 ft; se debe alejar o cambiar sus cotas."
+  },
+  "b6dcb6cbd231bc6331d1a3c0aebcd6c903cb9f3e": {
+   "ambito": "proyecto",
+   "autor": "User",
+   "fecha": "2026-10-26T10:51:50",
+   "modelo": "qwen3-vl:8b-instruct",
+   "texto": "Las tuberías de Telecomunicaciones (TELECOM-25) y Telecomunicaciones (TELECOM-27) se cruzan sin conexión a la misma cota: sepáralas en altura o en planta."
+  },
+  "b7a7f2205eef441b3d82f7dff966b41ee0105753": {
+   "ambito": "proyecto",
+   "autor": "User",
+   "fecha": "2026-10-26T10:50:23",
+   "modelo": "qwen3-vl:8b-instruct",
+   "texto": "Se detecta un cruce sin conexión entre Agua y Telecomunicaciones a la misma cota; se recomienda separarlas en altura o en planta."
+  },
+  "ba8e63d5eb060239d9c0be558add21c3019f1106": {
+   "ambito": "proyecto",
+   "autor": "User",
+   "fecha": "2026-10-26T11:08:21",
+   "modelo": "qwen3-vl:8b-instruct",
+   "texto": "El tramo T2 entre codos es muy corto (1.80 ft) y debe reemplazarse por un solo codo, según sugerencia de la app."
+  },
+  "be509fb77f92f1abfa9390d4f614fea7e0363295": {
+   "ambito": "proyecto",
+   "autor": "User",
+   "fecha": "2026-10-26T11:10:07",
+   "modelo": "qwen3-vl:8b-instruct",
+   "texto": "Las tuberías de Telecomunicaciones se cruzan a la misma cota (0.00 ft) sin conexión; sepáralas en altura o en planta."
+  },
+  "be8d762793ea3c7d56d0482b146b30aebb113654": {
+   "ambito": "proyecto",
+   "autor": "User",
+   "fecha": "2026-10-26T11:09:52",
+   "modelo": "qwen3-vl:8b-instruct",
+   "texto": "Agua y Telecomunicaciones se cruzan a la misma cota sin conexión: sepáralas en altura o en planta."
+  },
+  "c0884cde0ff8b394724911cd31343a7526f1898f": {
+   "ambito": "proyecto",
+   "autor": "User",
+   "fecha": "2026-10-26T10:49:00",
+   "modelo": "qwen3-vl:8b-instruct",
+   "texto": "Cruce sin conexión entre Eléctrico (ELECTRICO-2) y Agua (AGUA-12) a la misma cota; sepáralas en altura o en planta."
+  },
+  "c2924a42db1be99d9c6c1f867214eb240ea292e3": {
+   "ambito": "proyecto",
+   "autor": "User",
+   "fecha": "2026-10-26T11:09:21",
+   "modelo": "qwen3-vl:8b-instruct",
+   "texto": "Las tuberías ELECTRICO-1 y TELECOM-23 se cruzan sin conexión a la misma cota: sepáralas en altura o en planta."
+  },
+  "c56c68f7e01a325539b94463bcb8e6baa978e12e": {
+   "ambito": "proyecto",
+   "autor": "User",
+   "fecha": "2026-10-26T11:10:14",
+   "modelo": "qwen3-vl:8b-instruct",
+   "texto": "En la zona 4 hay un conflicto de cruce a la misma cota entre las utilidades AGUA-8 y AGUA-10, que no se unen y chocan."
+  },
+  "c59f456bb5628b221d28fee5e1938d6cac63f9d6": {
+   "ambito": "proyecto",
+   "autor": "User",
+   "fecha": "2026-10-26T10:50:23",
+   "modelo": "qwen3-vl:8b-instruct",
+   "texto": "Se detecta un cruce sin conexión entre Agua y Telecomunicaciones a la misma cota; se recomienda separarlas en altura o en planta."
+  },
+  "cb22a5c051c59de0303f4610729e87b9708191e5": {
+   "ambito": "proyecto",
+   "autor": "User",
+   "fecha": "2026-10-26T11:09:21",
+   "modelo": "qwen3-vl:8b-instruct",
+   "texto": "Las tuberías AGUA-10 y TELECOM-26 se cruzan sin conexión a la misma cota: sepáralas en altura o en planta."
+  },
+  "cbe411682b1c09d0ed19bc352e5d8e5d359dc7a4": {
+   "ambito": "proyecto",
+   "autor": "User",
+   "fecha": "2026-10-26T11:08:21",
+   "modelo": "qwen3-vl:8b-instruct",
+   "texto": "En la zona 2 hay un conflicto por un tramo muy corto entre codos, que afecta a la utilidad AGUA-21."
+  },
+  "ccd5b44b6175e865d5087f638773459fad7e1155": {
+   "ambito": "normas",
+   "autor": "User",
+   "fecha": "2026-10-26T11:04:21",
+   "modelo": "qwen3-vl:8b-instruct",
+   "texto": "Esta regla revisa que en redes de agua, los ramales secundarios deben tener un diámetro exactamente un tamaño menor que la tubería principal, usando el valor -1. Solo aplica a tuberías de distribución principal en agua. El valor que pide es -1, y si no lo cumple, sale un aviso. En la app, debes ajustar el diámetro del ramal a uno menor que el de la tubería principal, según la lista de diámetros disponibles."
+  },
+  "cd2103916fb2ab8372db0d9990c8ce9d78d09ae6": {
+   "ambito": "proyecto",
+   "autor": "User",
+   "fecha": "2026-10-26T10:49:58",
+   "modelo": "qwen3-vl:8b-instruct",
+   "texto": "Las tuberías Telecomunicaciones (TELECOM-23 y TELECOM-33) se cruzan sin conexión a la misma cota: sepáralas en altura o en planta."
+  },
   "ce20443b5e9d92f1243bb87990f14bb7b5a84ca0": {
    "ambito": "proyecto",
    "autor": "User",
    "fecha": "2026-10-23T18:35:25",
    "modelo": "qwen3-vl:8b-instruct",
    "texto": "RECOMENDADA: ninguna\nNinguna de las propuestas es válida según el criterio de la app, ya que todas marcan \"valida\": false, lo que indica que, aunque resuelven el choque directo, generan otros conflictos de unión que no se pueden ignorar. Además, no hay una propuesta que cumpla con el criterio de mover la tubería más chica o de servicio antes que la principal, ni que minimice el cambio de cota o priorice bajar antes que subir. Por lo tanto, se debe resolver manualmente, ajustando la cota de una de las tuberías (preferiblemente la más chica o la de menor importancia) con un cambio mínimo, y verificando que no se generen nuevos conflictos de conexión."
+  },
+  "d030baca29d8c4afb7ce5cf78e922f6a1fd9f3c5": {
+   "ambito": "proyecto",
+   "autor": "User",
+   "fecha": "2026-10-26T10:49:58",
+   "modelo": "qwen3-vl:8b-instruct",
+   "texto": "Las tuberías Telecomunicaciones (TELECOM-25 y TELECOM-33) se cruzan sin conexión a la misma cota: sepáralas en altura o en planta."
+  },
+  "d35095c0236d7a9bce5db716d576dafa053209df": {
+   "ambito": "proyecto",
+   "autor": "User",
+   "fecha": "2026-10-26T10:49:00",
+   "modelo": "qwen3-vl:8b-instruct",
+   "texto": "En la zona 1 hay 5 cruces sin conexión entre utilidades de telecomunicaciones y 2 cruces entre eléctrico y agua, además de 1 separación insuficiente entre agua y telecomunicaciones."
+  },
+  "d3e3bea8468a3ec3ece65fc29c58b3a7bdbf3b95": {
+   "ambito": "proyecto",
+   "autor": "User",
+   "fecha": "2026-10-26T11:09:52",
+   "modelo": "qwen3-vl:8b-instruct",
+   "texto": "Agua y Telecomunicaciones se cruzan a la misma cota sin conexión: sepáralas en altura o en planta."
+  },
+  "d7617b41fc0665fadea1b260a69d010581b0c0ce": {
+   "ambito": "proyecto",
+   "autor": "User",
+   "fecha": "2026-10-26T10:52:02",
+   "modelo": "qwen3-vl:8b-instruct",
+   "texto": "Las tuberías AGUA-8 y AGUA-10 se cruzan a la misma cota (0.00 ft) y no se unen: las tuberías chocan. Cambia la cota de una de las dos o corrige el dibujo."
+  },
+  "d99062cd91d9460cc7422ae9f73e35d2d1dd7ca7": {
+   "ambito": "proyecto",
+   "autor": "User",
+   "fecha": "2026-10-26T11:09:21",
+   "modelo": "qwen3-vl:8b-instruct",
+   "texto": "Las tuberías ELECTRICO-1 y TELECOM-26 se cruzan sin conexión a la misma cota: sepáralas en altura o en planta."
+  },
+  "ddfa029be596cb90e1ebe59200eca7cbfef75dce": {
+   "ambito": "proyecto",
+   "autor": "User",
+   "fecha": "2026-10-26T10:49:00",
+   "modelo": "qwen3-vl:8b-instruct",
+   "texto": "Cruce sin conexión entre Telecomunicaciones (TELECOM-23) y Telecomunicaciones (TELECOM-26) a la misma cota; sepáralas en altura o en planta."
+  },
+  "dea3c6d1ef719873937a470332b6882d8941aa97": {
+   "ambito": "proyecto",
+   "autor": "User",
+   "fecha": "2026-10-26T10:49:28",
+   "modelo": "qwen3-vl:8b-instruct",
+   "texto": "Cruce sin conexión entre Telecomunicaciones y Telecomunicaciones a la misma cota: separar en altura o planta."
+  },
+  "e1be847b1f199b064a2725f45f9221ef773f6bbd": {
+   "ambito": "proyecto",
+   "autor": "User",
+   "fecha": "2026-10-26T11:02:03",
+   "modelo": "qwen3-vl:8b-instruct",
+   "texto": "RECOMENDADA: P3\nLa propuesta P3 es la más adecuada porque baja la tubería eléctrica (ELECTRICO-2) 1.50 ft, lo que permite pasar por debajo de la tubería de agua (AGUA-12) con una separación mínima de 0.50 ft, cumpliendo con la normativa. Además, es el cambio de cota más pequeño posible que resuelve el conflicto sin generar nuevos problemas, y prioriza mover la tubería de menor importancia (eléctrica) antes que la de servicio (agua)."
+  },
+  "e1d0f7b3ef19e31934799fcc42375c4576c7d2f9": {
+   "ambito": "proyecto",
+   "autor": "User",
+   "fecha": "2026-10-26T10:51:16",
+   "modelo": "qwen3-vl:8b-instruct",
+   "texto": "Las tuberías ELECTRICO-2 y AGUA-8 se cruzan a la misma cota (0.00 ft) sin conexión; se deben separar en altura o en planta."
+  },
+  "e7db441038185d4b5b02537c644aeb72ea3116f3": {
+   "ambito": "proyecto",
+   "autor": "User",
+   "fecha": "2026-10-26T11:09:52",
+   "modelo": "qwen3-vl:8b-instruct",
+   "texto": "Eléctrico y Agua se cruzan a la misma cota sin conexión: sepáralas en altura o en planta."
+  },
+  "ed9573fd7ca86159d27e31e6b5b0913f354e1167": {
+   "ambito": "proyecto",
+   "autor": "User",
+   "fecha": "2026-10-26T11:08:11",
+   "modelo": "qwen3-vl:8b-instruct",
+   "texto": "El proyecto presenta 33 conflictos y 33 cruces sin conexión, principalmente entre telecomunicaciones y agua, con 6 avisos y 39 pendientes que requieren atención. La mayoría de los conflictos (30) corresponden a cruces sin conexión, y se identifican 21 elementos sin tipo definido. Aunque no hay reconocimientos ni aprobaciones, el informe incluye análisis normativo y se requiere revisión urgente de los tramos afectados."
+  },
+  "ee24541f4125c8e83bc69c3b6f63f0805294809a": {
+   "ambito": "proyecto",
+   "autor": "User",
+   "fecha": "2026-10-26T10:50:45",
+   "modelo": "qwen3-vl:8b-instruct",
+   "texto": "Agua está a 2,44 ft de ELECTRICO #3 en paralelo, menor que el mínimo de 4 ft; aleja las utilidades o cambia sus cotas."
+  },
+  "f0e6ad09cd8d0ab79e4f761137d5df2dc33e55ee": {
+   "ambito": "proyecto",
+   "autor": "User",
+   "fecha": "2026-10-26T10:50:23",
+   "modelo": "qwen3-vl:8b-instruct",
+   "texto": "Se detecta un cruce sin conexión entre Eléctrico y Eléctrico a la misma cota; se recomienda separarlas en altura o en planta."
+  },
+  "f1e60c61117a15086a3c403b846d7b4292c5f660": {
+   "ambito": "proyecto",
+   "autor": "User",
+   "fecha": "2026-10-26T10:49:28",
+   "modelo": "qwen3-vl:8b-instruct",
+   "texto": "Cruce sin conexión entre Telecomunicaciones y Telecomunicaciones a la misma cota: separar en altura o planta."
+  },
+  "f2c7fc6467194c8b5b2fcf59126c88f1afcd69fe": {
+   "ambito": "proyecto",
+   "autor": "User",
+   "fecha": "2026-10-26T10:48:38",
+   "modelo": "qwen3-vl:8b-instruct",
+   "texto": "El proyecto presenta 51 conflictos, principalmente de cruce sin conexión (48), con predominio de utilidades de Telecomunicaciones (53) y Agua (36). Se detectaron 6 avisos y 57 pendientes, incluyendo 21 sin tipo definido. Aunque no hay reconocimientos ni aprobaciones, los conflictos requieren atención inmediata para evitar interrupciones en la operación."
+  },
+  "f2d1a42818400e19124477927a7bc9247576464f": {
+   "ambito": "proyecto",
+   "autor": "User",
+   "fecha": "2026-10-26T10:49:00",
+   "modelo": "qwen3-vl:8b-instruct",
+   "texto": "Cruce sin conexión entre Eléctrico (ELECTRICO-2) y Agua (AGUA-7) a la misma cota; sepáralas en altura o en planta."
+  },
+  "f5818a12298e220fbf5534126e0e617d5789bae5": {
+   "ambito": "proyecto",
+   "autor": "User",
+   "fecha": "2026-10-26T11:08:55",
+   "modelo": "qwen3-vl:8b-instruct",
+   "texto": "Cruce sin conexión entre Telecomunicaciones (TELECOM-25) y Telecomunicaciones (TELECOM-33) a la misma cota: separarlas en altura o en planta."
+  },
+  "f8bd41b4dd4123366ec00efd00f26b1f0290a7d3": {
+   "ambito": "proyecto",
+   "autor": "User",
+   "fecha": "2026-10-26T10:49:05",
+   "modelo": "qwen3-vl:8b-instruct",
+   "texto": "En la zona 2 hay un conflicto por tramo muy corto entre codos, que afecta a la utilidad AGUA-21."
+  },
+  "fd47a50a248fab2840dcb9ff571fe165715927ee": {
+   "ambito": "proyecto",
+   "autor": "User",
+   "fecha": "2026-10-26T10:51:50",
+   "modelo": "qwen3-vl:8b-instruct",
+   "texto": "Las tuberías de Agua (AGUA-11) y Telecomunicaciones (TELECOM-26) se cruzan sin conexión a la misma cota: sepáralas en altura o en planta."
   }
  },
  "version": 1
