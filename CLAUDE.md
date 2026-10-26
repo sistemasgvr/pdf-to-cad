@@ -2377,6 +2377,21 @@ alcantarillado, drenaje, gas, eléctrico, telecom). Todo en **unidades imperiale
     cajas_de(pipes)` + `al_dia`: `compartido` solo prueba las utilidades cuya caja contiene el punto (mismo
     resultado; `_sin_tramos_diminutos` y `limpieza` lo usan) y copias con `memo_modelo.copia`: fusión 14 → 3.2 s.
     Tests: `tests/test_capa_marcas.py`, `tests/test_exportar_rapido.py`, `tests/test_limpieza.py`.
+    **Marcas por TANDAS** (pedido del usuario 2026-10-26: «cargar todos los avisos de golpe se lajea»; AGUA 2: el
+    redibujo final con los resultados del cálculo de fondo creaba ~54 mil marcas de golpe, 3.7 s congelada):
+    los dibujantes de marcas son GENERADORES con el cuerpo de siempre (`accesorios_view.dibujar_iter`,
+    `avisos_view.dibujar_iter`, `conflictos_view.dibujar_iter`, `_cruces`/`_alertas` en `_draw_pipe_conflicts`;
+    `dibujar` = `list(dibujar_iter(...))`) y la ventana los pasa a `Main._poner_marcas(gen, n)`: con menos de
+    `marcas_por_tandas.UMBRAL` (5000, `PDFCAD_MARCAS_TANDAS_MIN`) todo ya; si no —o si en ese redibujo ya empezó
+    una carga: el orden de cada capa no cambia— una `Tandas` (`ui/comun/marcas_por_tandas.py`) avanza `TANDA_MS`
+    por vuelta del bucle de eventos con el % en la barra de estado. Las capas del grupo quedan OCULTAS mientras
+    se cargan (`GrupoMarcas.cargar`; repintar a medias costaba ~0.3 s cada vez) y aparecen juntas al final
+    (`refrescar`: imagen de la vista y despeje de nuevo; `_ocultar_marcas_apagadas`). Lo que decide QUÉ se dibuja
+    (vigentes, alertas, mensajes) se calcula antes, fuera del generador. Redibujo con otro modelo → `_cancelar_tandas`
+    (el grupo a medias queda con `firma` None: ni se reusa ni se guarda para deshacer); mismo modelo → sigue.
+    `_marcas_al_dia()` la termina ya (capturas del informe). Medido AGUA 2: pausa máx 3.7 → ~0.8 s (el redibujo
+    sin marcas ~0.6 s y el primer repintado de todas ~0.6 s), carga ~3 s atendiendo al usuario; mismas marcas en el
+    mismo orden y misma imagen (`tests/test_marcas_por_tandas.py`, con el umbral bajado).
     **Utilidades en UNA capa (2026-10-18)**: `ui/comun/capa_lineas.CapaLineas` (un ítem a `Z_MARK`, en el lugar
     del orden donde iban los segmentos) pinta cada utilidad con `drawLines` y su pluma cosmética
     (`Main._pluma_utilidad`), en orden; solo las que tocan lo que hay que repintar (cajas en numpy, recorte del

@@ -63,6 +63,11 @@ def dibujar(scene, avisos, tol_px, con_accesorios_visibles, poner=None, reusar=N
     """Agrega las insignias a `scene` (o con `poner(item)`: la capa de marcas del lienzo,
     `capa_marcas`) y devuelve los items (van al overlay). `reusar`/`guardar`: como en
     `accesorios_view.dibujar`."""
+    return list(dibujar_iter(scene, avisos, tol_px, con_accesorios_visibles, poner, reusar, guardar))
+
+
+def dibujar_iter(scene, avisos, tol_px, con_accesorios_visibles, poner=None, reusar=None, guardar=None):
+    """Como `dibujar`, entregando cada insignia ya puesta (carga por tandas: `marcas_por_tandas`)."""
     grupos = []                                       # [[x, y, [avisos]]]
     # Rejilla de celdas de `tol_px`: con cientos de avisos (ángulos de un plano reconocido)
     # comparar cada uno con todos los grupos trababa el redibujo. Mismo resultado: el grupo
@@ -82,7 +87,6 @@ def dibujar(scene, avisos, tol_px, con_accesorios_visibles, poner=None, reusar=N
         else:
             rejilla.setdefault((cx, cy), []).append(len(grupos))
             grupos.append([a.x, a.y, [a]])
-    items = []
     for x, y, lista in grupos:
         info = (RECONOCIMIENTO if all(a.clase == diametro_plano.CLASE for a in lista)
                 else all(a.info for a in lista))
@@ -98,5 +102,4 @@ def dibujar(scene, avisos, tol_px, con_accesorios_visibles, poner=None, reusar=N
         texto = "\n".join(([cab] if cab else []) + [("ⓘ " if a.info else "⚠ ") + a.mensaje for a in lista])
         it.setToolTip(tooltip_bloque(texto))
         (poner or scene.addItem)(it)
-        items.append(it)
-    return items
+        yield it

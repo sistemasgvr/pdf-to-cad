@@ -3671,6 +3671,7 @@ EN: dict[str, str] = {
     'Capa apagada: {c}.': 'Layer off: {c}.',
     'Solo a la vista: {c}.': 'Only on screen: {c}.',
     'Todas las capas encendidas.': 'All layers on.',
+    'Cargando las marcas del plano… {p} %': 'Loading the plan marks… {p} %',
     'Leyendo los trazos de las capas de {u}…': 'Reading the strokes of the {u} layers…',
     'Reconstruyendo las líneas de la capa {c}…': 'Rebuilding the lines of layer {c}…',
     'Midiendo las bóvedas y buzones y uniendo sus líneas…': 'Measuring vaults and manholes and joining their lines…',

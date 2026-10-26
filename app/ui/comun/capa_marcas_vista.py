@@ -138,6 +138,12 @@ class DespejeMixin:
         clave = (W.m11(), W.m12(), W.m21(), W.m22())
         vis = vista.mapToScene(vista.viewport().rect()).boundingRect()
         d = self._despeje
+        if d is not None:
+            v = d[2].get(id(capa))
+            if v is not None and len(v) < len(capa.marcas):
+                # llegaron marcas (carga por tandas, `marcas_por_tandas`): sus rótulos esperan al próximo
+                # refresco (`GrupoMarcas.refrescar` rehace el despeje); rehacerlo en cada repintado trababa
+                d[2][id(capa)] = v = np.concatenate([v, np.zeros(len(capa.marcas) - len(v), dtype=bool)])
         if d is None or d[0] != clave or not d[1].contains(vis):
             mx, my = vis.width() * MARGEN_REGION, vis.height() * MARGEN_REGION
             region = vis.adjusted(-mx, -my, mx, my)

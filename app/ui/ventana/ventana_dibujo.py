@@ -86,6 +86,32 @@ class DibujoMixin:
         self.canvas.scene().addItem(it)
         return it
 
+    def _poner_marcas(self, gen, n):
+        """Recorre un dibujante de marcas (generador: cada marca ya puesta en su capa). Con pocas, todo ya
+        (como siempre); con `UMBRAL` o más —o si en este redibujo ya se empezó a cargar por tandas: el orden
+        en cada capa no cambia—, por tandas sin trabar la ventana (`marcas_por_tandas`, 2026-10-26)."""
+        from ui.comun import marcas_por_tandas as MT
+        t = getattr(self, "_tandas_redibujo", None)
+        if t is None and n >= MT.UMBRAL and getattr(self, "_en_redibujo", False)                 and getattr(self, "_marcas", None) is not None:
+            self._cancelar_tandas()
+            t = self._tandas = self._tandas_redibujo = MT.Tandas(self, self._marcas)
+        if t is not None:
+            t.agregar(gen, n)
+        else:
+            self._overlay += list(gen)
+
+    def _cancelar_tandas(self):
+        t = getattr(self, "_tandas", None)
+        if t is not None:
+            t.cancelar()
+        self._tandas = None
+
+    def _marcas_al_dia(self):
+        """Para quien necesita TODAS las marcas en la escena ya (capturas del informe): termina la carga."""
+        t = getattr(self, "_tandas", None)
+        if t is not None:
+            t.correr_todo()
+
     def _memo(self, clave, fn, copiar=True):
         """`fn()` reusado entre redibujos con el mismo modelo (fuera de un redibujo: siempre `fn()`)."""
         m = getattr(self, "_memo_redibujo", None)
@@ -134,6 +160,9 @@ class DibujoMixin:
         if (getattr(self, "_provisional", False) and not self._marcas_vigentes and previo is not None
                 and previo.vivo(sc)):
             self._marcas_vigentes = True                # mientras calcula el hilo, las marcas de antes a la vista
+        self._tandas_redibujo = None                   # (`_poner_marcas`: tandas de ESTE redibujo)
+        if not self._marcas_vigentes:
+            self._cancelar_tandas()                     # otro modelo: la carga a medias ya no sirve
         if not self._marcas_vigentes and not getattr(self, "_provisional", False):
             # deshacer/rehacer: un estado ya dibujado vuelve con SU grupo de marcas (ventana_estados)
             self._guardar_grupo_marcas(previo, sc)

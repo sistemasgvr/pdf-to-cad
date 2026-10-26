@@ -294,6 +294,7 @@ class GrupoMarcas(DespejeMixin):
         self._bytes = previo._bytes if viejo else 0
         self._despeje = None                              # (clave de escala, región, {capa: visibles})
         self.firma = None                                 # la pone la ventana: si no cambia, se reusa todo
+        self.cargando = False                             # carga por tandas: sus capas no se pintan hasta el final
 
     def vivo(self, scene):
         """Sus capas siguen en `scene` (vaciar la escena —otra hoja, abrir— las borra)."""
@@ -307,6 +308,24 @@ class GrupoMarcas(DespejeMixin):
         apagadas = frozenset(apagadas or ())
         if any([c.fijar_ocultas(apagadas, capas_en) for c in self.capas.values()]):
             self._despeje = None                          # los rótulos de lo apagado no tapan a los demás
+
+    def cargar(self, cargando):
+        """Carga por tandas (`marcas_por_tandas`): mientras dura, las capas no se pintan (repintar a medias
+        con decenas de miles de marcas costaba ~0.3 s cada vez); al terminar aparecen todas juntas."""
+        self.cargando = bool(cargando)
+        for c in self.capas.values():
+            c.setVisible(not self.cargando)
+        if not self.cargando:
+            self.refrescar()
+
+    def refrescar(self):
+        """Llegaron marcas nuevas (carga por tandas): la imagen de la vista y el despeje de rótulos se
+        rehacen y las capas se repintan."""
+        self._despeje = None
+        for c in self.capas.values():
+            c._cache = None
+            c._ultima = None
+            c.update()
 
     def todas(self):
         """Las marcas de todas las capas (lo que la ventana guarda en `_overlay`)."""
@@ -331,6 +350,7 @@ class GrupoMarcas(DespejeMixin):
         capa = self.capas.get(z)
         if capa is None:
             capa = self.capas[z] = _Capa(self, z, self.escala)
+            capa.setVisible(not self.cargando)
             self.scene.addItem(capa)
             if self.nuevas is not None:
                 self.nuevas.append(capa)

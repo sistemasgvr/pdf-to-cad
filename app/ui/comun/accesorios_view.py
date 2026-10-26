@@ -146,7 +146,12 @@ def dibujar(scene, accesorios, avisos, tol_px, poner=None, reusar=None, guardar=
     `capa_marcas`) y devuelve los items (van al overlay). `reusar(clave)`/`guardar(clave, item)`: la
     misma etiqueta del redibujo anterior si sale igual (`capa_marcas.GrupoMarcas`). `preparadas` =
     `preparar(...)` ya hecho."""
-    items = []
+    return list(dibujar_iter(scene, accesorios, avisos, tol_px, poner, reusar, guardar, preparadas))
+
+
+def dibujar_iter(scene, accesorios, avisos, tol_px, poner=None, reusar=None, guardar=None, preparadas=None):
+    """Como `dibujar`, entregando cada etiqueta ya puesta (la ventana las carga por tandas en planos
+    gigantes: `marcas_por_tandas`)."""
     if preparadas is None:
         preparadas = preparar(accesorios, avisos, tol_px)
     medidas = {}
@@ -165,10 +170,9 @@ def dibujar(scene, accesorios, avisos, tol_px, poner=None, reusar=None, guardar=
                 guardar(clave, it)
         it.setToolTip(globo)
         (poner or scene.addItem)(it)
-        items.append(it)
         k = ("cajas", it._pastilla.width(), it._pastilla.height())
         if k not in medidas:
             caja, rot = getattr(it, "_pdfcad_caja", None), getattr(it, "_pdfcad_rot", False)
             if caja is not None and rot is not False:
                 medidas[k] = (caja, rot)
-    return items
+        yield it
