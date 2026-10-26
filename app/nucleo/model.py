@@ -39,7 +39,7 @@ Coordenadas DIBUJADAS en PÍXELES (se convierten con geometry.to_cad al exportar
 coordenadas IMPORTADAS de Excel ya son reales de mundo (world=True → se usan tal cual).
 """
 
-VERSION = "1.3.1"
+VERSION = "1.4.0"
 
 # Capas de red por GRAVEDAD (tramos entre buzones, con invert inicio/fin).
 GRAVITY_LAYERS = {"ALCANTARILLADO", "DRENAJE"}
@@ -158,7 +158,7 @@ def default_network_type(layer):
 
 
 CHANGELOG = [
-    ("1.3.1", [
+    ("1.4.0", [
         ('changed', 'Ventanas de la IA más limpias y modernas, en tema claro y oscuro: cabecera con icono, título y explicación en «Pregúntale al proyecto», «Resolver conflictos» e «Informe automático»; el chat vacío muestra un saludo centrado y las preguntas de ejemplo como fichas; en «Resolver conflictos» las soluciones llevan iconos (✔/✖ y la recomendada destacada), la recomendación va en una tarjeta y, si no hay solución automática, un mensaje en vez de una tabla vacía; «Explicar con IA» (Normativas) y «¿Cómo hago…?» (Manual) van en tarjetas, con los capítulos como fichas. Nada cambia en lo que hacen.'),
         ('changed', 'Reconocimiento en hojas compuestas: las líneas largas ya no quedan corridas de su tinta. Cada hoja del plano dibuja la misma recta con un rumbo algo distinto (p. ej. 0.24° y 0.11°) y el ajuste de quiebres a pasos de 0.25° la apartaba hasta ~2 pt (al final se veía separada de la utilidad original). Ahora una línea que ese ajuste correría más de 0.5 pt de su tinta queda como la dibuja el plano (aviso «Líneas con el ángulo del plano»). En DU06 (14 hojas compuestas, eléctrico) 32 líneas corridas → 0; en hojas sueltas cambia una sola línea, que ahora queda sobre su tinta.'),
         ('changed', 'Planos gigantes sin trabas al cargar los avisos: cuando llegan los conflictos y avisos de un plano enorme, sus marcas (cruces, etiquetas de accesorios, insignias de avisos y C-n) se cargan por tandas sin congelar la ventana, con el % en la barra de estado, y aparecen todas juntas al terminar. Con 16 761 utilidades (~54 mil marcas) la ventana quedaba ~3.7 s congelada de golpe; ahora la pausa más larga es de ~0.8 s y entre tandas se puede seguir trabajando. Las marcas son las mismas que antes; en planos normales todo sigue igual.'),
