@@ -1,6 +1,6 @@
 """
-geometry.py — Transformaciones de coordenadas y utilidades geométricas puras.
-
+geometry.py — Transformaciones de coordenadas y utilidades geométricas puras
+ 
 Sin dependencia de la ventana: las funciones reciben los parámetros que necesitan.
 `to_cad` reproduce exactamente la conversión píxel-de-vista → coordenada de mundo CAD
 (pies) que usa la app, para que DXF y JSON queden en las mismas coordenadas.
