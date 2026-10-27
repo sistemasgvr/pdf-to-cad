@@ -119,11 +119,15 @@ class CapasMixin:
         ap = getattr(self, "capas_apagadas", None)
         return bool(ap) and self.pipes[i].get("layer") in ap
 
-    def _capas_en(self, x, y):
-        """Las capas de las utilidades que pasan a ≤ `MARCA_FT` del punto (dueñas de una marca)."""
+    def _capas_en(self, x, y, cerca=None):
+        """Las capas de las utilidades que pasan a ≤ `MARCA_FT` del punto (dueñas de una marca).
+        `cerca(x, y, r)` = candidatas (por defecto `_utilidades_cerca`, que revalida la geometría de
+        TODAS las utilidades en cada llamada: con decenas de miles de marcas, ver `_capas_de_marcas`)."""
         r = max(3.0, MARCA_FT / self.scale * self.zoom) if self.scale else 3.0
+        if cerca is None:
+            cerca = lambda x, y, r: self._utilidades_cerca(x, y, r, todas=True)
         out = set()
-        for i in self._utilidades_cerca(x, y, r, todas=True):
+        for i in cerca(x, y, r):
             p = self.pipes[i]
             capa = p.get("layer")
             if capa in out or not p.get("pts"):
@@ -132,11 +136,43 @@ class CapasMixin:
                 out.add(capa)
         return frozenset(out)
 
+    def _capas_de_marcas(self):
+        """`capas_en(x, y)` para TODAS las marcas de un apagado (reporte 2026-10-26: apagar una capa
+        congelaba la ventana; AGUA 2 = 53 851 marcas × 14 ms ≈ 13 min). El índice de utilidades se
+        valida UNA vez (no en cada marca) y un mismo punto (cruce + accesorio) se mide una vez. Mismas
+        candidatas y misma cuenta exacta que `_capas_en`: mismo resultado."""
+        from nucleo.indice_plano import IndiceUtilidades, _firma
+        cache = getattr(self, "_cache_raton", None)
+        if cache is None:
+            cache = self._cache_raton = {}
+        ix = cache.get("indice")
+        if ix is None or not ix.vigente(self.pipes):
+            firma = _firma(self.pipes)
+            ix = IndiceUtilidades(self.pipes, firma)
+            cache["indice"], cache["firma"] = ix, firma
+        hechos = {}
+
+        def capas_en(x, y):
+            k = (x, y)
+            v = hechos.get(k)
+            if v is None:
+                v = hechos[k] = self._capas_en(x, y, ix.cerca)
+            return v
+        return capas_en
+
     def _ocultar_marcas_apagadas(self):
         """Al final de cada redibujo: las capas de marcas filtran lo de utilidades apagadas."""
         grupo = getattr(self, "_marcas", None)
-        if grupo is not None:
-            grupo.fijar_ocultas(getattr(self, "capas_apagadas", ()), self._capas_en)
+        if grupo is None:
+            return
+        apagadas = getattr(self, "capas_apagadas", ())
+        perezosa = []                                       # el índice solo si alguna capa lo necesita
+
+        def capas_en(x, y):
+            if not perezosa:
+                perezosa.append(self._capas_de_marcas())
+            return perezosa[0](x, y)
+        grupo.fijar_ocultas(apagadas, capas_en)
 
     def _atenuar_lista_utilidades(self):
         """En el Inventario las utilidades apagadas siguen en la lista, en gris."""
