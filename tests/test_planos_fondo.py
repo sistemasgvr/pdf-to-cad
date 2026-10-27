@@ -114,6 +114,27 @@ def test_marcas_de_utilidades_apagadas_no_se_pintan(app):
     assert capa.cerca(todo).tolist() == [0, 1, 2]
 
 
+def test_duenas_de_las_marcas_sin_revalidar_por_marca(win, monkeypatch):
+    """Reporte 2026-10-26: apagar una capa congelaba la ventana (cada marca revalidaba la geometría de
+    TODAS las utilidades: 53 851 marcas × 14 ms). Ahora el índice se valida una vez y da lo mismo."""
+    import random
+    from nucleo import indice_plano as IP
+    rnd = random.Random(3)
+    win.scale, win.zoom = 1.0, 1.0
+    win.pipes = [{"layer": ("AGUA", "GAS", "ELECTRICO")[k % 3],
+                  "pts": [(rnd.uniform(0, 500), rnd.uniform(0, 500)) for _ in range(3)]} for k in range(60)]
+    puntos = [(rnd.uniform(0, 500), rnd.uniform(0, 500)) for _ in range(200)]
+    puntos += [win.pipes[k]["pts"][1] for k in range(0, 60, 7)]      # sobre un vértice
+    antes = [win._capas_en(x, y) for x, y in puntos]                 # el cálculo de siempre
+    llamadas = []
+    firma = IP._firma
+    monkeypatch.setattr(IP, "_firma", lambda p: llamadas.append(1) or firma(p))
+    capas_en = win._capas_de_marcas()
+    assert [capas_en(x, y) for x, y in puntos] == antes
+    assert len(llamadas) <= 2                                        # una vez, no una por marca
+    assert any(antes)
+
+
 # ── la ventana ──────────────────────────────────────────────────────────────
 def test_planos_como_capas_cualquier_combinacion(win, pdfs, monkeypatch, app):
     from ui.comun import capas_popup as CP
