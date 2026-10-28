@@ -58,6 +58,100 @@ alcantarillado, drenaje, gas, eléctrico, telecom). Todo en **unidades imperiale
     `self.__…`, que no puede ir a una mezcla), exportar y arrastrar-soltar. OJO: los métodos que crean
     `RecognitionWorker`/`PipelineWorker` se quedan en app_window (las pruebas los cambian con
     `monkeypatch.setattr(app_window, …)`); en una mezcla no se usa `Main.` (usar `self.` o la clase mezcla).
+  - **Rediseño 2.0.0** (pedido del usuario 2026-10-27, prototipo aprobado en `Downloads/prototipo_ui_pdfacad`): SOLO
+    interfaz, ningún widget ni método de antes cambia de nombre ni de lógica. `theme.py`: tokens nuevos (un acento
+    índigo, superficies neutras, `text3`, `warning`, `*_soft`, `shadow`; `accent_soft`/`accent_text` = `soft`/
+    `soft_text`) y hoja de estilo con botones NEUTROS (la acción principal = `QPushButton:default` o
+    `kind="primary"`; `kind` ghost/chip/seg, `QFrame#segmentado/#tarjeta/#flotante`, `QLabel[rol=h1|h2|h3|sec|t2|t3]`),
+    esquinas 8–12 px, pestañas subrayadas; se conservan `iconOnly`, `toggleTool`, `secondary`, `soft`, `options`,
+    `success`, `danger`. `ui/comun/rediseno.py` (Interruptor que puede reflejar un QAction, FilaAccion, CampoBuscar,
+    Tecla, seccion, `AreaVertical`, `acciones_de(menu)` — OJO: nunca `QAction.menu()`, en PySide6 su envoltorio
+    BORRA el submenú). `ui/ventana/ventana_shell.py` (`ShellMixin`, `_build_shell` entre `_build_right_dock` y
+    `_build_side_panels`): barra superior (`_build_toolbar` reescrito: marca «P» = `_menu_archivo`, `lbl_proyecto`,
+    hoja ◀ ▶, `campo_buscar` → `abrir_paleta`, deshacer, `btn_capas`, `btn_asistente`, `btn_tema`, `btn_export`
+    kind primary + ▾ con `cmb_civil`/`cmb_lang`; las `_act_*` de antes siguen, fuera de la barra; en una QToolBar se
+    oculta la ACCIÓN de `addWidget`, no el widget), riel (`QToolBar` izquierda: Dibujar · Hoja y PDF · Inventario ·
+    Revisión | Normativas · Tabla · Vista 3D · Duct Bank | Ayuda = menú Ayuda · Ajustes = Opciones, tema, IA, familias,
+    paneles), `paneles_riel` (dentro del `_ldock` de siempre: página 0 = el acordeón, 1–3 de
+    `ventana_shell_paneles.py`; su `sizeHint` es el de la página 0), Inventario = `tab_combo` + `tabs` MOVIDOS del
+    panel derecho, `pila_derecha` (propiedades de siempre | `ventana_asistente.PanelAsistente`: Chat =
+    `PreguntaDialog`, Conflictos = `SolucionesDialog`, Ayuda = `PanelAyudaIA`, incrustados) y `centro`
+    (QStackedWidget: el lienzo + Normativas/Tabla incrustadas por `incrustar_vista`/`mostrar_vista` desde sus
+    `abrir()`, y el Duct Bank modal por `ejecutar_incrustado` = bucle local con el mismo resultado que `exec()`;
+    `takeCentralWidget()` antes de `setCentralWidget`, si no Qt BORRA el lienzo). Solo se incrusta si la ventana
+    está a la vista (`_incrustar_ok`); si no (pruebas sin pantalla) todo se abre como antes. La Vista 3D sigue en su
+    ventana (OpenGL dentro de la principal recrea la ventana nativa). La barra de menús se oculta: sus acciones
+    (`self._acc` por texto en español, `self._menus`) van a la ventana (`addAction`, atajos vivos), al riel, los
+    paneles y la paleta `ui/dialogos/paleta_comandos.py` (Ctrl+K: todas las acciones + ir a utilidad/conflicto).
+    Acercar/alejar en la barra de estado (un widget FLOTANDO sobre el lienzo obliga a repintarlo entero al
+    desplazar y se pierde la caché de marcas). Asistente al abrir un PDF: mismas 3 ventanas, barra de pasos
+    centrada y el último botón del pie `kind="primary"` (`wizard_widgets`). `test_capa_marcas` usa una ventana de
+    1244 × 778 para que el plano mida lo mismo que antes (su prueba de tooltips depende del tamaño del plano: con
+    otro tamaño falla también en 1.4.0). **2.ª vuelta (mismo día, «no todo está igual al prototipo»)**:
+    `ui/dialogos/ajustes_dialog.py` (Ajustes con barra lateral: General = idioma/tema/paneles, Civil 3D = combos
+    REFLEJADOS de `cmb_civil`/`cmb_lang`, Asistente IA = `IAConfigDialog` incrustado + `Main._ia_config_guardada`,
+    Familias, Atajos con `shortcuts_dialog._menu_groups/_render`, Acerca de; `Main.abrir_ajustes(i)`, riel y engranaje
+    del Asistente), `ui/dialogos/exportar_dialog.py` (`btn_export` → `abrir_exportar`: qué incluir = los modos de
+    siempre de `run_pipeline` 'todo'/'anot'/'pdf' + versión/idioma; las pruebas llaman `run_pipeline` directo),
+    `ventana_dibujar.py` (cuadrícula de herramientas sobre el acordeón; las cabeceras del QToolBox
+    `qt_toolbox_toolboxbutton` se ocultan y cada herramienta abre su sección con `_open_section` y la arranca con su
+    método de siempre), `ventana_panel_hoja.py` (`PanelHoja.refrescar`, desde la barra superior, la escala y la
+    georreferencia), `ventana_inventario.py` (`DelegadoUtilidad` dibuja cada fila en dos líneas SIN cambiar sus
+    ítems; buscador y filtros solo `setHidden`; `_avisos_por_utilidad`), `ventana_inspector.py` (cabecera encima
+    de los campos de siempre, que NO se mueven: las pestañas desplazan el scroll; ⋯ pulsa los botones de siempre) y
+    la lista de conflictos de Revisión (`_ir_a_conflicto`). Lo flotante sobre el plano (aviso de conflictos,
+    minimapa, pastilla) NO se puso: un widget encima del lienzo rompe la caché de desplazamiento.
+    **3.ª vuelta (mismo día, seis pantallas)**: Normativas = `ui/dialogos/normas_reglas_vista.VistaReglas` (lista
+    con delegado que ESPEJA las filas de la tabla «reglas»; el editor lateral escribe `table.item(r, c).setText`, así
+    validar/guardar/renombrar son los de siempre; «Vista de tabla» = la página de antes) y el `QTabWidget` de
+    `NormasDialog` sin barra, manejado por un segmentado. Tabla de datos: segmentado rehecho en cada `refrescar`,
+    fichas por la columna «Utilidad» (solo `setRowHidden`, junto al buscador), densidad, punto verde en
+    `tabla_excel.EDITABLES`. Duct Bank: `DuctBankDialog(designs=, describe=)` pone la columna de diseños; elegir otro,
+    «+», Duplicar o borrar CIERRAN el diseñador (pregunta si guardar) dejando `dlg.despues` = (acción, índice) →
+    `open_designer` lo copia a `win._db_despues` y `BancoductosMixin._open_duct_bank_designer` (bucle) lo hace con los
+    métodos de siempre (`_abrir_disenador_una_vez` = el cuerpo de antes; los índices valen: guardar reemplaza en el
+    mismo lugar o agrega al final). Vista 3D (sigue aparte): tarjetas `QFrame#flotante` hijas de `_lienzo` sobre el
+    visor (`_colocar` en su Resize), interruptores `rediseno.Interruptor` en lugar de casillas (mismos `chk`,
+    `_capas`, `chk_suelo`), ficha + editor apilados (las pruebas esperan el editor visible al elegir: SIN selector
+    Ficha/Editar). Chat: `PreguntaDialog.incrustado()` (lo llama `PanelAsistente.chat`; suelto, igual que antes).
+    Avisos breves: `ui/comun/aviso_breve.py` + `Main.aviso_breve(titulo, detalle, accion)` (sin la ventana en
+    pantalla → `QMessageBox.information` de siempre, así las pruebas que lo interceptan siguen igual); se usa en DXF
+    exportado (salvo con aviso ⚠ de georreferencia), «Todo en orden» y bancoducto guardado («Deshacer»). OJO:
+    quitar widgets de un layout con `deleteLater` SOLO no basta en scripts sin bucle de eventos (quedan visibles a
+    640×480): `hide()` antes.
+    **4.ª vuelta (2026-10-27, «lo que falta del prototipo»)**: `ventana_inspector_campos.py` (`reorganizar`: las
+    MISMAS filas de `gprop`/`gprop_bz`/`gprop_curve` reordenadas con `QFormLayout.takeRow` y títulos de sección;
+    interruptor «Abandonada» = `pipes[i]["ab"]` con `_push`; «Aprobar…» = `aprobar_avisos`; tarjeta de sugerencia con
+    `abrir_soluciones`; Material y Rim/Sump siguen OCULTOS por decisión del usuario). Con cabecera, los botones de
+    acción se ocultan y van al ⋯ (`CabeceraInspector._disponibles`; `_update_ui` llama `refrescar(desde_ui=True)` al
+    final). `ventana_flotantes.py`: aviso de conflictos y barra del plano en VENTANITAS propias (Tool, sin marco, sin
+    foco): un hijo encima del lienzo rompe la caché de desplazamiento (`test_desplazar_reusa_piezas…`); se recolocan
+    con un QTimer y se ocultan sin plano, minimizada o con BusyOverlay. Minimapa de hojas arriba a la derecha
+    (`_place` del editor). Vista 3D: «Ficha | Editar» (`mostrar_editor`). `Main.informar(titulo, texto)` = aviso breve
+    (sin pantalla: `QMessageBox.information` con los mismos argumentos). Compositor: `composite_rediseno.rearmar`
+    (página «Origen» a una columna izquierda, galería en lista con casilla a la derecha —`check_rect(lista=)`—;
+    `_go_tab(TAB_SOURCE)` → Área; `close_docs` oculta el diálogo). Capas: divisor [capas | hoja | leyenda]
+    (`_en_orden`). `ui/dialogos/conexion_vertical_dialog.py` (patrón hecho con el plugin design) en
+    `_open_conflict_dialog` solo con la ventana a la vista. **5.ª vuelta (mismo día)**: `wizard_widgets.flotar(vista,
+    w, donde)` + `pastilla(widgets)` (hijos de la vista del asistente, `_Flotador` los recoloca; ahí no hay caché de
+    marcas): «Área a tomar» se llama «Esta hoja», sus acciones (MISMOS botones, movidos con `addWidget`: vaciar la
+    fila con `takeAt` BORRABA los QAction del menú «Opciones») en una pastilla abajo y «Área sugerida» arriba a la
+    derecha; Capas: «◀ Hoja N / M ▶» arriba de la hoja. «Reconocer» = una fila por utilidad con «N capas» e
+    `Interruptor` que refleja la casilla de siempre (sin indicador; `_sync_switches` al final de `_sync_recog_all`).
+    Revisar y limpiar = tarjetas con interruptor (= casilla del grupo en el árbol) y ⌖; Nuevo lienzo, Recuperar
+    (`preguntar_recuperacion`, mismos valores) y Escala (`_pedir_escala`, chips, solo con la ventana a la vista)
+    con el estilo nuevo.
+    **6.ª vuelta (mismo día, prototipo `Downloads/prototipo_ui_pdfacad/faltante`)**: Georreferenciar =
+    `geo/georef_vista.py` (`Pasos` con estado —`GeorefDialog._actualizar_pasos` desde `_refresh_list`, la descarga,
+    `_compute` y al quitar pares—, `titulo_vista`, `flotar_en` = herramientas de cada vista en una pastilla,
+    columna de pares + `tarjeta_ajuste` —`detalle_ajuste`: giro, escala y par con más error— + `tarjeta_huso` con
+    `QCompleter` de códigos CS-MAP); mismos widgets (`lst`, `ed_cs_code`, `b_fit`…) y mismo flujo. Capas: 2.ª
+    columna del árbol = `Interruptor` «reconocer» por utilidad (`_poner_interruptor`, refleja `_recog_checks`; esas
+    filas de la tarjeta «Reconocer» se ocultan salvo en hojas SIN capas). Vista previa: `_NoticeRow.hint` = la
+    primera frase (el texto entero, en el globo), `recognition_pie.segmentado_tramos` refleja `chk_routes` (oculto),
+    `btn_atras` = `PREVIEW_SHEET_LAYERS` (no se llama `btn_back`: las pruebas lo prohíben). `ventana_recientes.py`
+    (`RecientesMixin`, aprobado): «Recientes» en el menú Archivo/«P», lista en `%APPDATA%/pdf-to-cad/recientes.json`
+    (`PDFCAD_RECIENTES` en conftest), se anota al abrir/guardar un .digproj (nunca las copias de recuperación).
   - `canvas.py` — el lienzo (`Canvas`, QGraphicsView).
   - `fondo_pdf.py` — **hoja enorme** (reporte del usuario 2026-10-09: 18 piezas → «code=5: Overly large
     image»: MuPDF no crea pixmaps de más de 1 GiB, ancho × alto × 3 ≤ 2³⁰; 18 hojas del DU06 a zoom 3.5 =

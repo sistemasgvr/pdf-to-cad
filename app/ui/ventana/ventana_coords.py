@@ -142,7 +142,7 @@ class CoordsMixin:
         try:
             from ezdxf.addons import odafc
             if not odafc.is_installed():
-                QtWidgets.QMessageBox.information(self, "DWG",
+                self.informar("DWG",
                     _tr("Para generar DWG necesitas instalar el ODA File Converter (gratuito).\n"
                     "Se guardó solo el DXF; ábrelo en tu CAD y «Guardar como DWG» si lo necesitas ahora."))
                 return
@@ -168,7 +168,7 @@ class CoordsMixin:
         if not (want_streets or want_parcels):
             return
         if not self.georef.active() or int(self.georef.epsg) != 2229:
-            QtWidgets.QMessageBox.information(self, _tr("Capas de LA"),
+            self.informar(_tr("Capas de LA"),
                 _tr("Las capas reales de LA solo se pueden agregar si el plano está "
                 "georreferenciado a EPSG:2229 (State Plane de LA).")); return
         try:

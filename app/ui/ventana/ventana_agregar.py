@@ -25,11 +25,11 @@ class AgregarUtilidadMixin:
         """Herramientas → «Agregar utilidad desde otro PDF…»."""
         titulo = _tr("Agregar utilidad")
         if not self.doc or not self.src_pdfs or self.canvas.pixmap_item is None or getattr(self, "blank_canvas", False):
-            QtWidgets.QMessageBox.information(self, titulo, _tr(
+            self.informar(titulo, _tr(
                 "Abre primero el PDF de una utilidad e impórtala: la nueva se agrega sobre esa hoja."))
             return
         if self.composite is not None and self.composite.manual:
-            QtWidgets.QMessageBox.information(self, titulo, _tr(
+            self.informar(titulo, _tr(
                 "La hoja del editor es un PDF imagen/escaneo: no tiene un mapa base vectorial con el que "
                 "ubicar otra utilidad."))
             return
@@ -49,7 +49,7 @@ class AgregarUtilidadMixin:
         if res is None:
             return                                           # cancelado o error ya avisado
         if not res.get("comp"):
-            QtWidgets.QMessageBox.information(self, titulo, _tr(
+            self.informar(titulo, _tr(
                 "Ninguna hoja de «{pdf}» dibuja el mismo lugar que la hoja del editor (su mapa base de lotes y "
                 "calles no coincide con el de la hoja), así que no se puede ubicar sobre ella.").format(
                     pdf=", ".join(e["name"] for e in nuevas)))
@@ -190,7 +190,7 @@ class AgregarUtilidadMixin:
             for d in docs:
                 d.close()
         if quitadas:
-            QtWidgets.QMessageBox.information(self, _tr("Agregar utilidad"), _tr(
+            self.informar(_tr("Agregar utilidad"), _tr(
                 "{n} hoja(s) no coinciden con ninguna hoja del editor (su mapa base no está en la hoja) y "
                 "no se usan: {lista}.").format(n=len(quitadas), lista=", ".join(
                     sorted({f"{sources[p.source]['name']} · {p.page + 1}" for p in quitadas}))))

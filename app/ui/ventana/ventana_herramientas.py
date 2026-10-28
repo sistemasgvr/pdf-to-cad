@@ -24,7 +24,7 @@ class HerramientasMixin:
 
     def open_georef(self):
         if self.canvas.pixmap_item is None:
-            QtWidgets.QMessageBox.information(self, _tr("Sin plano"), _tr("Abre un PDF o proyecto primero.")); return
+            self.informar(_tr("Sin plano"), _tr("Abre un PDF o proyecto primero.")); return
         try:
             from geo.georef_dialog import GeorefDialog
         except Exception as e:
@@ -187,6 +187,10 @@ class HerramientasMixin:
                 texto = "✔ " + _tr("{n} avisos aprobados").format(n=n_ap) if n_ap else ""
             self.btn_normas.setText(texto)
             self.btn_normas.setVisible(bool(n or n_ap))
+        if hasattr(self, "_actualizar_revision"):          # panel «Revisión» del riel (2.0.0)
+            self._actualizar_revision(n_nor, n_rec)
+        if hasattr(self, "_filtrar_inventario"):            # avisos por utilidad en el Inventario
+            self._filtrar_inventario()
         if self._normas_dlg is not None:
             self._normas_dlg.refrescar()
         if getattr(self, "lbl_normas_pipe", None) is not None:
@@ -401,19 +405,13 @@ class HerramientasMixin:
         se creen bajo condiciones."""
         t = _theme.tokens()
         # Duct Bank + Exportar DXF (toolbar principal)
-        if hasattr(self, "btn_ductbank"):
-            self.btn_ductbank.setStyleSheet(
-                f"QPushButton{{background:{t.accent};color:{t.text_on_accent};"
-                f"font-weight:bold;padding:5px 14px;border-radius:4px;}}"
-                f"QPushButton:hover{{background:{t.accent_hover};}}")
-        if hasattr(self, "btn_export"):
-            self.btn_export.setStyleSheet(
-                f"QPushButton{{background:{t.accent};color:{t.text_on_accent};"
-                f"font-weight:bold;padding:5px 14px;border-radius:4px;}}"
-                f"QPushButton:hover{{background:{t.accent_hover};}}")
+        # 2.0.0: «Exportar» es la acción principal (kind="primary" en la hoja de estilo global);
+        # el diseñador de Duct Bank, neutro.
+        for name in ("btn_ductbank", "btn_export"):
+            if hasattr(self, name):
+                getattr(self, name).setStyleSheet("")
         # Hints amarillos de "modo activo" — mantener contraste al invertir el fondo
-        hint_style = (f"color:{t.text_on_accent if _theme.is_dark() else '#7a5b00'};"
-                      f"padding:8px;background:{t.accent_pressed if _theme.is_dark() else '#fff3cc'};border-radius:4px;")
+        hint_style = f"color:{t.text_muted};padding:10px;background:{t.surface_alt};border-radius:8px;"
         for name in ("lbl_bz_hint", "lbl_curve_hint", "lbl_cl_hint"):
             w = getattr(self, name, None)
             if w is not None: w.setStyleSheet(hint_style)
@@ -422,24 +420,24 @@ class HerramientasMixin:
         # suave sobre gris). Los "muted" quedan solo para leyendas secundarias.
         for name in ("lbl_mode",):
             w = getattr(self, name, None)
-            if w is not None: w.setStyleSheet(f"color:{t.accent};font-weight:600;")
+            if w is not None: w.setStyleSheet(f"color:{t.text_info};font-weight:600;")
         for name in ("lbl_info", "lbl_geo"):
             w = getattr(self, name, None)
-            if w is not None: w.setStyleSheet(f"color:{t.text_info};")
+            if w is not None: w.setStyleSheet(f"color:{t.text_muted};")
         # Coordenadas / contador / dirty: mismo criterio de contraste
         for name in ("lbl_coords", "lbl_counts"):
             w = getattr(self, name, None)
-            if w is not None: w.setStyleSheet(f"color:{t.text_info};font-weight:600;")
+            if w is not None: w.setStyleSheet(f"color:{t.text_muted};")
         # Botones planos "Escala…" y "Opacidad" del status bar: transparentes con
         # texto de contraste (text_info) y hover neutral.
         for name in ("btn_scale", "btn_opacity"):
             b = getattr(self, name, None)
             if b is None: continue
             b.setStyleSheet(
-                f"QPushButton{{background:transparent;color:{t.text_info};"
-                f"border:1px solid transparent;padding:2px 8px;border-radius:3px;font-weight:600;}}"
-                f"QPushButton:hover{{background:{t.hover};border:1px solid {t.border};color:{t.text};}}"
-                f"QPushButton:pressed{{background:{t.accent};color:{t.text_on_accent};}}")
+                f"QPushButton{{background:transparent;color:{t.text_muted};font-size:12px;"
+                f"border:1px solid transparent;padding:2px 8px;border-radius:6px;font-weight:500;min-height:0;}}"
+                f"QPushButton:hover{{background:{t.hover};color:{t.text};}}"
+                f"QPushButton:pressed{{background:{t.soft};color:{t.soft_text};}}")
         # ── Iconos SVG: retintar según el tema activo ─────────────────────
         # QIcon guarda pixmaps ya rasterizados, así que hay que reasignarlos.
         # Acciones del toolbar principal.
@@ -459,7 +457,7 @@ class HerramientasMixin:
         ]
         for b, name in _dock_icons:
             if b is not None:
-                b.setIcon(_icon(name, color=t.text_on_accent))
+                b.setIcon(_icon(name, color=t.text))
         # Chevrons de navegación de páginas del PDF (botones planos: color texto).
         if hasattr(self, "btn_prev"):
             self.btn_prev.setIcon(_icon("mdi:chevron-left", color=t.text))
@@ -467,12 +465,12 @@ class HerramientasMixin:
             self.btn_next.setIcon(_icon("mdi:chevron-right", color=t.text))
         # Botones planos del status bar (Escala / Opacidad): color text_info.
         if hasattr(self, "btn_scale"):
-            self.btn_scale.setIcon(_icon("mdi:pencil-outline", color=t.text_info))
+            self.btn_scale.setIcon(_icon("mdi:pencil-outline", color=t.text_muted))
         if hasattr(self, "btn_opacity"):
-            self.btn_opacity.setIcon(_icon("mdi:circle-half-full", color=t.text_info))
+            self.btn_opacity.setIcon(_icon("mdi:circle-half-full", color=t.text_muted))
         # Botón "Activar edición por tramo" (fondo azul → icono blanco).
         if hasattr(self, "btn_seg_edit"):
-            self.btn_seg_edit.setIcon(_icon("mdi:pencil-outline", color=t.text_on_accent))
+            self.btn_seg_edit.setIcon(_icon("mdi:pencil-outline", color=t.text))
         # Tabs del acordeón: los iconos van sobre la cabecera con fondo surface_alt.
         for key, name in getattr(self, "_toolbox_icons", {}).items():
             idx = self._sec_idx.get(key)

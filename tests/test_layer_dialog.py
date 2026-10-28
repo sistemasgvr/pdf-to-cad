@@ -206,7 +206,8 @@ def test_anchos_siguen_a_la_ventana_al_maximizar(dlg):
     dlg._maximized_once = True                                # offscreen: sin maximizar solo
     _resize(dlg, 1240, 780); dlg.show(); _resize(dlg, 1240, 780)
     _resize(dlg, 1900, 1000)                                  # «maximizada»
-    left, _mid, right = dlg.split.sizes()
+    _t = dlg.split.sizes()                                    # 2.0.0: capas a la izquierda, leyenda a la derecha
+    left, right = _t[dlg.split.indexOf(dlg.info_box)], _t[dlg.split.indexOf(dlg._side)]
     assert not dlg.info_box.collapsed
     assert left >= 400 and right <= 350
     assert _sheet_fits(dlg)
@@ -223,12 +224,12 @@ def test_anchos_siguen_a_la_ventana_al_maximizar(dlg):
     assert not dlg._view_auto
     zoom = dlg.view.transform().m11()
     _resize(dlg, 1700, 1000)
-    assert dlg.split.sizes()[0] < left and abs(dlg.view.transform().m11() - zoom) < 1e-9
+    assert dlg.split.sizes()[dlg.split.indexOf(dlg.info_box)] < left and abs(dlg.view.transform().m11() - zoom) < 1e-9
     # mueve un divisor: desde ahí los anchos son suyos
-    dlg.split.moveSplitter(330, 1)
-    mine = dlg.split.sizes()[0]
+    dlg.split.moveSplitter(dlg.split.width() - 330, 2)
+    mine = dlg.split.sizes()[dlg.split.indexOf(dlg.info_box)]
     _resize(dlg, 1500, 1000)
-    assert dlg.split.sizes()[0] == mine
+    assert dlg.split.sizes()[dlg.split.indexOf(dlg.info_box)] == mine
     dlg.hide()
 
 

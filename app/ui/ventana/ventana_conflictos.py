@@ -447,6 +447,12 @@ class ConflictosMixin:
                 return True
         return False
 
+    def _dialogo_conexion(self, estado, ia, ib, la, lb, za, zb):
+        from ui.dialogos import conexion_vertical_dialog
+        return conexion_vertical_dialog.preguntar(
+            self, estado, la, lb, layer_qcolor(self.pipes[ia].get("layer")),
+            layer_qcolor(self.pipes[ib].get("layer")), za, zb)
+
     def _open_conflict_dialog(self, hit):
         """Según el estado del cruce:
           - "conflicto"  → sólo muestra info, no ofrece conectar.
@@ -468,7 +474,7 @@ class ConflictosMixin:
 
         union = self._union_civil(ia, ib, cx, cy, za, zb) if estado == "conflicto" else None
         if union:
-            QtWidgets.QMessageBox.information(self, _tr("Unión en Civil 3D"), union)
+            self.informar(_tr("Unión en Civil 3D"), union)
             return
         if estado == "conflicto":
             QtWidgets.QMessageBox.warning(
@@ -486,6 +492,12 @@ class ConflictosMixin:
                         and max(int(c["pipe_a"]), int(c["pipe_b"])) == max(ia, ib)
                         and round(float(c["x"]), 3) == round(cx, 3)
                         and round(float(c["y"]), 3) == round(cy, 3)), None)
+            if self._incrustar_ok():                    # 2.0.0: diálogo «Conexión vertical»
+                quitar = self._dialogo_conexion("aprobado", ia, ib, la, lb, za, zb)
+                if quitar and idx is not None:
+                    self.cross_connections.pop(idx)
+                    self._push(); self._redraw()
+                return
             resp = QtWidgets.QMessageBox.question(
                 self, _tr("Conexión vertical ya aprobada"),
                 _tr("Este cruce entre «{la}» y «{lb}» ya está marcado para conectarse con una tubería "
@@ -498,14 +510,18 @@ class ConflictosMixin:
             return
 
         # sugerencia → ofrecer conectar.
-        resp = QtWidgets.QMessageBox.question(
-            self, _tr("Sugerencia de conexión vertical"),
-            _tr("Las utilidades «{la}» y «{lb}» se cruzan pero están a cotas distintas — no chocan, "
-                "una pasa por encima de la otra.{cotas}\n\n¿Quieres conectarlas con una tubería "
-                "vertical al importar en Civil 3D?\n\nSí = se dibuja un tramo vertical uniendo "
-                "ambas cotas.\nNo = se dejan como están (no se conectan).").format(
-                la=la, lb=lb, cotas=z_info),
-            QtWidgets.QMessageBox.Yes | QtWidgets.QMessageBox.No, QtWidgets.QMessageBox.No)
+        if self._incrustar_ok():                        # 2.0.0: diálogo «Conexión vertical»
+            resp = (QtWidgets.QMessageBox.Yes if self._dialogo_conexion("sugerencia", ia, ib, la, lb, za, zb)
+                    else QtWidgets.QMessageBox.No)
+        else:
+            resp = QtWidgets.QMessageBox.question(
+                self, _tr("Sugerencia de conexión vertical"),
+                _tr("Las utilidades «{la}» y «{lb}» se cruzan pero están a cotas distintas — no chocan, "
+                    "una pasa por encima de la otra.{cotas}\n\n¿Quieres conectarlas con una tubería "
+                    "vertical al importar en Civil 3D?\n\nSí = se dibuja un tramo vertical uniendo "
+                    "ambas cotas.\nNo = se dejan como están (no se conectan).").format(
+                    la=la, lb=lb, cotas=z_info),
+                QtWidgets.QMessageBox.Yes | QtWidgets.QMessageBox.No, QtWidgets.QMessageBox.No)
         if resp == QtWidgets.QMessageBox.Yes:
             self.cross_connections.append({
                 "x": float(cx), "y": float(cy),

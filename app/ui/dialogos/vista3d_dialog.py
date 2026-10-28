@@ -16,6 +16,7 @@ from PySide6 import QtCore, QtGui, QtWidgets
 from nucleo import accesorios as acc
 from nucleo import ficha3d, model_ops, modelo3d, normas_validar
 from traduccion.i18n import t as _tr
+from ui.comun import rediseno as R
 from ui.comun import theme
 from ui.comun.icons import icon as _icon
 from ui.comun.ui_common import layer_qcolor, swatch_icon
@@ -47,6 +48,18 @@ def _ajustes():
     return QtCore.QSettings("pdf-to-cad", "vista3d")
 
 
+class _Estado(QtWidgets.QLabel):
+    """Línea de estado flotante abajo a la izquierda: se recoloca al cambiar el texto."""
+
+    def __init__(self, dlg):
+        super().__init__()
+        self._dlg = dlg
+
+    def setText(self, texto):                          # noqa: N802
+        super().setText(texto)
+        self._dlg._colocar_estado()
+
+
 class Vista3DDialog(ArmadoMixin, QtWidgets.QDialog):
     def __init__(self, win):
         # SIN padre Qt (reporte del usuario 2026-10-16: al abrir la vista 3D la ventana principal
@@ -71,9 +84,13 @@ class Vista3DDialog(ArmadoMixin, QtWidgets.QDialog):
         self._ficha_id = None
         self._t = QtCore.QTimer(self, singleShot=True, interval=350, timeout=self.actualizar)
 
+        # 2.0.0 (como el prototipo): el visor ocupa toda la ventana; vistas, opciones, ficha y estado
+        # van en tarjetas FLOTANTES encima (los mismos controles de siempre).
         lay = QtWidgets.QVBoxLayout(self)
-        lay.addWidget(self._barra())
-        split = QtWidgets.QSplitter()
+        lay.setContentsMargins(0, 0, 0, 0)
+        self._lienzo = QtWidgets.QWidget()
+        ll = QtWidgets.QVBoxLayout(self._lienzo)
+        ll.setContentsMargins(0, 0, 0, 0)
         self.visor = Visor3D()
         self.pila = QtWidgets.QStackedWidget()
         self.pila.addWidget(self.visor)
@@ -81,14 +98,17 @@ class Vista3DDialog(ArmadoMixin, QtWidgets.QDialog):
         self.lbl_vacio.setAlignment(QtCore.Qt.AlignCenter)
         self.lbl_vacio.setWordWrap(True)
         self.pila.addWidget(self.lbl_vacio)
-        split.addWidget(self.pila)
-        split.addWidget(self._panel())
-        split.setStretchFactor(0, 1)
-        split.setSizes([800, 280])
-        lay.addWidget(split, 1)
-        self.lbl_estado = QtWidgets.QLabel()
+        ll.addWidget(self.pila)
+        lay.addWidget(self._lienzo, 1)
+        self._flot_barra = self._flotante(self._barra())
+        self._flot_izq = self._flotante(self._panel())
+        self._flot_der = self._flotante(self._panel_ficha())
+        self.lbl_estado = _Estado(self)
         self.lbl_estado.setTextInteractionFlags(QtCore.Qt.TextSelectableByMouse)
-        lay.addWidget(self.lbl_estado)
+        self.lbl_estado.setProperty("rol", "t3")
+        self._flot_estado = self._flotante(self.lbl_estado, margen=(10, 4, 10, 4))
+        self._lienzo.installEventFilter(self)
+        self._ficha_visible()
 
         self.visor.elegido.connect(self._elegido)
         self.visor.doble.connect(self._doble)
@@ -102,50 +122,190 @@ class Vista3DDialog(ArmadoMixin, QtWidgets.QDialog):
             QtGui.QShortcut(tecla, self, lambda: (self.editor.aplicar(), self.win.redo()))
 
     # ── interfaz ──
+    def _flotante(self, contenido, margen=(10, 10, 10, 10)):
+        """Tarjeta flotante sobre el visor (QFrame#flotante del tema)."""
+        f = QtWidgets.QFrame(self._lienzo)
+        f.setObjectName("flotante")
+        v = QtWidgets.QVBoxLayout(f)
+        v.setContentsMargins(*margen)
+        v.addWidget(contenido)
+        f.raise_()
+        return f
+
     def _barra(self):
         tb = QtWidgets.QToolBar()
-        tb.setToolButtonStyle(QtCore.Qt.ToolButtonTextBesideIcon)
+        tb.setToolButtonStyle(QtCore.Qt.ToolButtonIconOnly)
+        tb.setIconSize(QtCore.QSize(18, 18))
+        tb.setStyleSheet("QToolBar{background:transparent;border:none;spacing:2px;}")
         a = tb.addAction(_icon("mdi:fit-to-screen-outline"), _tr("Encuadrar todo"), lambda: self.visor.encuadrar())
         a.setShortcut(QtGui.QKeySequence("Home")); a.setToolTip(_tr("Ver todo el modelo (Inicio)"))
         tb.addSeparator()
-        for clave, texto in (("arriba", "Arriba"), ("frente", "Frente"), ("lateral", "Lateral"),
-                             ("iso", "Isométrica")):
-            tb.addAction(_tr(texto), lambda c=clave: self.visor.vista(c))
+        for clave, texto, ic in (("arriba", "Arriba", "mdi:arrow-down"), ("frente", "Frente", "mdi:arrow-up"),
+                                 ("lateral", "Lateral", "mdi:arrow-right"), ("iso", "Isométrica", "mdi:cube-outline")):
+            b = tb.addAction(_icon(ic), _tr(texto), lambda c=clave: self.visor.vista(c))
+            b.setToolTip(_tr(texto))
         tb.addSeparator()
         self.act_seguir = tb.addAction(_tr("Seguir la selección"))
         self.act_seguir.setCheckable(True); self.act_seguir.setChecked(True)
         self.act_seguir.setToolTip(_tr("Al elegir una utilidad o un buzón en el plano, la vista 3D lo encuadra"))
+        boton = tb.widgetForAction(self.act_seguir)
+        if boton is not None:                              # el único con texto: es un modo, no una vista
+            boton.setToolButtonStyle(QtCore.Qt.ToolButtonTextOnly)
+            boton.setProperty("toggleTool", True)
+        self._tb = tb
         return tb
 
-    def _panel(self):
-        caja = QtWidgets.QWidget()
+    def _panel_ficha(self):
+        """Ficha del objeto elegido (y «Editar» si es una utilidad), flotando a la derecha."""
+        caja = R.transparente(QtWidgets.QWidget())
         v = QtWidgets.QVBoxLayout(caja)
+        v.setContentsMargins(4, 2, 4, 4)
+        v.setSpacing(8)
         self.ficha = FichaPanel()
         self.ficha.ir_al_plano.connect(self._ficha_al_plano)
-        v.addWidget(self.ficha)
         self.editor = EditorUtilidad(self.win, vista=self)   # diámetro y cotas por tramo (vista3d_editor)
-        v.addWidget(self.editor)
-        self.g_capas = QtWidgets.QGroupBox(_tr("Utilidades"))
+        for g in (self.ficha, self.editor):
+            g.setTitle("")
+            g.setStyleSheet("QGroupBox{border:none;margin:0;padding:0;background:transparent;}")
+            g.layout().setContentsMargins(0, 0, 0, 0)
+        cab = QtWidgets.QHBoxLayout()
+        self.ficha.layout().removeWidget(self.ficha.lbl_titulo)
+        cab.addWidget(self.ficha.lbl_titulo, 1)
+        self.btn_cerrar_ficha = R.boton_icono("close", "Quitar la selección (Esc)", self.deseleccionar)
+        cab.addWidget(self.btn_cerrar_ficha, 0, QtCore.Qt.AlignTop)
+        v.addLayout(cab)
+        # «Ficha | Editar» (como el prototipo; «Editar» solo con una utilidad)
+        self._seg_ficha = QtWidgets.QFrame()
+        self._seg_ficha.setObjectName("segmentado")
+        sl = QtWidgets.QHBoxLayout(self._seg_ficha)
+        sl.setContentsMargins(3, 3, 3, 3)
+        self._grupo_ficha = QtWidgets.QButtonGroup(self._seg_ficha)
+        for i, clave in enumerate(("Ficha", "Editar")):
+            b = QtWidgets.QPushButton(_tr(clave))
+            b.setProperty("kind", "seg")
+            b.setCheckable(True)
+            b.setChecked(i == 0)
+            b.setAutoDefault(False)
+            self._grupo_ficha.addButton(b, i)
+            sl.addWidget(b, 1)
+        self._grupo_ficha.idClicked.connect(lambda _i: self._ficha_visible())
+        v.addWidget(self._seg_ficha)
+        self._caja_ficha = R.transparente(QtWidgets.QWidget())
+        QtWidgets.QVBoxLayout(self._caja_ficha).setContentsMargins(0, 0, 0, 0)
+        self._caja_ficha.layout().addWidget(self.ficha)
+        self._caja_editor = R.transparente(QtWidgets.QWidget())
+        QtWidgets.QVBoxLayout(self._caja_editor).setContentsMargins(0, 0, 0, 0)
+        self._caja_editor.layout().addWidget(self.editor)
+        v.addWidget(self._caja_ficha)
+        v.addWidget(self._caja_editor)
+        v.addStretch(1)
+        sc = R.AreaVertical(caja) if hasattr(R, "AreaVertical") else QtWidgets.QScrollArea()
+        if not isinstance(sc, R.AreaVertical):
+            sc.setWidget(caja); sc.setWidgetResizable(True)
+        sc.setFrameShape(QtWidgets.QFrame.NoFrame)
+        sc.setHorizontalScrollBarPolicy(QtCore.Qt.ScrollBarAlwaysOff)
+        self._scroll_ficha = sc
+        return sc
+
+    def _ficha_visible(self):
+        """La tarjeta de la derecha solo con algo elegido (ficha y, si es una utilidad, «Editar» debajo)."""
+        if not hasattr(self, "_flot_der"):
+            return
+        editable = getattr(self.editor, "i", -1) >= 0
+        if not editable:
+            self._grupo_ficha.button(0).setChecked(True)
+        self._seg_ficha.setVisible(editable)
+        editar = editable and self._grupo_ficha.checkedId() == 1
+        self._caja_ficha.setVisible(not editar)
+        self._caja_editor.setVisible(editar)
+        self._flot_der.setVisible(self.ficha.tabla.rowCount() > 0)
+        self._colocar()
+
+    def mostrar_editor(self):
+        """Pasa a «Editar» (si hay una utilidad elegida)."""
+        if getattr(self.editor, "i", -1) >= 0:
+            self._grupo_ficha.button(1).setChecked(True)
+            self._ficha_visible()
+
+    def _colocar(self):
+        """Pone las tarjetas flotantes en su lugar (al cambiar el tamaño o el contenido)."""
+        if not hasattr(self, "_flot_estado"):
+            return
+        W, H, m = self._lienzo.width(), self._lienzo.height(), 16
+        b = self._flot_barra
+        b.adjustSize()
+        b.move(m, m)
+        izq = self._flot_izq
+        y = m + b.height() + 12
+        alto = min(self._alto(izq), max(120, H - y - 56))
+        izq.setGeometry(m, y, 270, alto)
+        der = self._flot_der
+        ancho = min(340, max(260, W // 3))
+        y = 150                                            # debajo del cubo de vistas
+        alto = min(self._alto(der), max(160, H - y - m))
+        der.setGeometry(W - ancho - m, y, ancho, alto)
+        self._colocar_estado()
+        for f in (b, izq, der, self._flot_estado):
+            f.raise_()
+
+    def _colocar_estado(self):
+        e = getattr(self, "_flot_estado", None)
+        if e is None:
+            return
+        W, H = self._lienzo.width(), self._lienzo.height()
+        e.setMaximumWidth(max(200, min(W - 32, 900)))
+        e.adjustSize()
+        e.move(16, H - e.height() - 12)
+        e.setVisible(bool(self.lbl_estado.text()))
+
+    @staticmethod
+    def _alto(tarjeta):
+        """Alto natural de una tarjeta con su contenido en un scroll."""
+        sc = tarjeta.layout().itemAt(0).widget()
+        dentro = sc.widget() if isinstance(sc, QtWidgets.QScrollArea) else sc
+        m = tarjeta.layout().contentsMargins()
+        return dentro.sizeHint().height() + m.top() + m.bottom() + 4
+
+    def eventFilter(self, obj, ev):
+        if obj is getattr(self, "_lienzo", None) and ev.type() == QtCore.QEvent.Resize:
+            self._colocar()
+        return super().eventFilter(obj, ev)
+
+    def _panel(self):
+        caja = R.transparente(QtWidgets.QWidget())
+        v = QtWidgets.QVBoxLayout(caja)
+        v.setContentsMargins(4, 2, 4, 2)
+        v.setSpacing(2)
+        # 2.0.0: secciones con título pequeño e interruptores (antes, grupos con casillas)
+        v.addWidget(R.texto("Utilidades", "sec"))
+        self.g_capas = R.transparente(QtWidgets.QWidget())
         self.lay_capas = QtWidgets.QVBoxLayout(self.g_capas)
+        self.lay_capas.setContentsMargins(0, 0, 0, 0)
+        self.lay_capas.setSpacing(0)
         v.addWidget(self.g_capas)
-        g = QtWidgets.QGroupBox(_tr("Mostrar"))
-        f = QtWidgets.QVBoxLayout(g)
+        v.addSpacing(8)
+        v.addWidget(R.texto("Mostrar", "sec"))
         self.chk = {}
         for clave, texto in (("estructuras", "Buzones, cajas y sólidos"), ("accesorios", "Accesorios (codos, Tee, Wye…)"),
                              ("avisos", "Avisos y conflictos")):
-            c = QtWidgets.QCheckBox(_tr(texto)); c.setChecked(True)
+            fila = R.fila_interruptor(texto, encendido=True)
+            c = fila.interruptor
             c.toggled.connect(lambda _on: self.actualizar(forzar=True))
-            f.addWidget(c); self.chk[clave] = c
-        c = QtWidgets.QCheckBox(_tr("Ángulos y pendientes por tramo"))       # pedido del usuario 2026-10-16
+            v.addWidget(fila); self.chk[clave] = c
+        fila = R.fila_interruptor("Ángulos y pendientes por tramo")       # pedido del usuario 2026-10-16
+        c = fila.interruptor
         c.setToolTip(_tr("Rótulos sobre cada utilidad: la pendiente de cada tramo y el ángulo de cada quiebre"))
         c.toggled.connect(self._rotulos)                 # la escena ya los trae: solo mostrarlos u ocultarlos
-        f.addWidget(c); self.chk["rotulos"] = c
-        v.addWidget(g)
-        g = QtWidgets.QGroupBox(_tr("Suelo"))
+        v.addWidget(fila); self.chk["rotulos"] = c
+        v.addSpacing(8)
+        v.addWidget(R.texto("Suelo", "sec"))
+        g = R.transparente(QtWidgets.QWidget())
         f = QtWidgets.QFormLayout(g)
-        self.chk_suelo = QtWidgets.QCheckBox(_tr("Mostrar el suelo")); self.chk_suelo.setChecked(True)
+        f.setContentsMargins(0, 0, 0, 0)
+        fila = R.fila_interruptor("Mostrar el suelo", encendido=True)
+        self.chk_suelo = fila.interruptor
         self.chk_suelo.toggled.connect(self._suelo)
-        f.addRow(self.chk_suelo)
+        f.addRow(fila)
         self.sld_suelo = QtWidgets.QSlider(QtCore.Qt.Horizontal); self.sld_suelo.setRange(5, 90)
         self.sld_suelo.setValue(OPACIDAD_SUELO); self.sld_suelo.valueChanged.connect(self._suelo)
         f.addRow(_tr("Opacidad"), self.sld_suelo)
@@ -158,17 +318,20 @@ class Vista3DDialog(ArmadoMixin, QtWidgets.QDialog):
         f.addRow(_tr("Cota"), self.spn_suelo)
         b = QtWidgets.QPushButton(_icon("mdi:restore"), _tr("Restablecer"))
         b.setToolTip(_tr("Volver a los valores por defecto del suelo: visible, opacidad 18 % y cota automática"))
-        b.setProperty("secondary", True); b.setAutoDefault(False)
+        b.setProperty("kind", "ghost"); b.setAutoDefault(False)
         b.clicked.connect(self.restablecer_suelo)
         f.addRow(b)
         v.addWidget(g)
         ayuda = QtWidgets.QLabel(_tr(_CONTROLES))
-        ayuda.setWordWrap(True); ayuda.setObjectName("hint")
+        ayuda.setWordWrap(True); ayuda.setProperty("rol", "t3")
+        v.addSpacing(6)
         v.addWidget(ayuda)
         v.addStretch(1)
-        sc = QtWidgets.QScrollArea(); sc.setWidget(caja); sc.setWidgetResizable(True)
+        sc = R.AreaVertical(caja) if hasattr(R, "AreaVertical") else QtWidgets.QScrollArea()
+        if not isinstance(sc, R.AreaVertical):
+            sc.setWidget(caja); sc.setWidgetResizable(True)
+        sc.setFrameShape(QtWidgets.QFrame.NoFrame)
         sc.setHorizontalScrollBarPolicy(QtCore.Qt.ScrollBarAlwaysOff)
-        sc.setMinimumWidth(240)
         return sc
 
     def _tema(self, *_a):
@@ -205,16 +368,28 @@ class Vista3DDialog(ArmadoMixin, QtWidgets.QDialog):
         if set(capas) == set(self._capas):
             return
         ocultas = {c for c, chk in self._capas.items() if not chk.isChecked()}
-        for chk in self._capas.values():
-            chk.deleteLater()
+        while self.lay_capas.count():                      # filas de antes (interruptor + nombre)
+            it = self.lay_capas.takeAt(0)
+            if it.widget() is not None:
+                it.widget().hide()
+                it.widget().deleteLater()
         self._capas = {}
         for capa in sorted(capas):
-            chk = QtWidgets.QCheckBox(f"{self.win._tipo(capa)} ({capas[capa]})")
-            chk.setIcon(swatch_icon(layer_qcolor(capa)))
-            chk.setChecked(capa not in ocultas)
+            fila = R.transparente(QtWidgets.QWidget())
+            h = QtWidgets.QHBoxLayout(fila)
+            h.setContentsMargins(0, 3, 0, 3)
+            h.setSpacing(8)
+            punto = QtWidgets.QLabel()
+            punto.setPixmap(swatch_icon(layer_qcolor(capa)).pixmap(10, 10))
+            h.addWidget(punto)
+            nombre = QtWidgets.QLabel(f"{self.win._tipo(capa)} ({capas[capa]})")
+            h.addWidget(nombre, 1)
+            chk = R.Interruptor(capa not in ocultas, nombre.text())
             chk.toggled.connect(lambda _on: self.actualizar(forzar=True))
-            self.lay_capas.addWidget(chk)
+            h.addWidget(chk)
+            self.lay_capas.addWidget(fila)
             self._capas[capa] = chk
+        self._colocar()
 
     def _leer_ajustes(self):
         s = _ajustes()
@@ -320,6 +495,7 @@ class Vista3DDialog(ArmadoMixin, QtWidgets.QDialog):
         else:
             self.ficha.limpiar()
         self.editor.cargar(k if tipo == "pipe" and filas else -1)
+        self._ficha_visible()
 
     def _ficha_al_plano(self):
         tipo, k = modelo3d.objeto_de(self.visor.sel_id)

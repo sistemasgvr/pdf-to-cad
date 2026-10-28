@@ -146,7 +146,7 @@ class SheetLayersDialog(ScaleCalibrationMixin, LayerAssignmentsMixin, LayerInfoM
         side = QtWidgets.QWidget()
         side.setMinimumWidth(320)
         panel = QtWidgets.QVBoxLayout(side)
-        panel.setContentsMargins(10, 0, 0, 0)   # aire entre el divisor y los controles
+        panel.setContentsMargins(0, 0, 10, 0)   # aire entre los controles y el divisor (2.0.0: a la izquierda)
         panel.setSpacing(10)
         self.split.addWidget(side)
         self.split.setStretchFactor(0, 1); self.split.setStretchFactor(1, 0)
@@ -170,8 +170,14 @@ class SheetLayersDialog(ScaleCalibrationMixin, LayerAssignmentsMixin, LayerInfoM
         for b in (self.btn_prev, self.btn_next):
             b.setFixedSize(44, 32)
             bf = b.font(); bf.setPointSize(bf.pointSize() + 3); b.setFont(bf)
-        nav.addWidget(self.btn_prev); nav.addWidget(self.lbl_sheet, 1); nav.addWidget(self.btn_next)
-        panel.addLayout(nav)
+        # 2.0.0 (como el prototipo): «◀ Hoja N / M ▶» flota sobre la hoja (arriba: abajo va el minimapa)
+        from ui.asistente.wizard_widgets import flotar, pastilla
+        for b in (self.btn_prev, self.btn_next):
+            b.setFixedSize(32, 28)
+        f = self.lbl_sheet.font(); f.setPointSize(f.pointSize() - 2); self.lbl_sheet.setFont(f)
+        self.lbl_sheet.setMinimumWidth(110)
+        self.pastilla_hoja = pastilla([self.btn_prev, self.lbl_sheet, self.btn_next])
+        flotar(self.view, self.pastilla_hoja, "arriba")
 
         # ── tarjeta «Reconocer»: qué utilidades se leen del plano (`layer_dialog_recog`) ──
         self._build_recog_card(panel, recognition_utilities)
@@ -185,7 +191,7 @@ class SheetLayersDialog(ScaleCalibrationMixin, LayerAssignmentsMixin, LayerInfoM
         self.btn_all.clicked.connect(lambda: self._set_all(True))
         self.btn_none.clicked.connect(lambda: self._set_all(False))
         head.addWidget(self.btn_all); head.addWidget(self.btn_none)
-        hint = QtWidgets.QLabel(_tr("Casilla = toda la utilidad · ▸ = capa por capa"))
+        hint = QtWidgets.QLabel(_tr("Casilla = mostrar en la hoja · interruptor = reconocer · ▸ = capa por capa"))
         if any(L.get("source") == "style" for L in self._layers):
             hint.setText(_tr("Clic en una capa para resaltarla y asignar su utilidad y rol abajo. "
                              "Las casillas excluyen estilos del reconocimiento; el PDF conserva "
@@ -200,7 +206,13 @@ class SheetLayersDialog(ScaleCalibrationMixin, LayerAssignmentsMixin, LayerInfoM
         lay.addWidget(self.search)
         self.tree = QtWidgets.QTreeWidget()
         self.tree.setHeaderHidden(True)
-        self.tree.setColumnCount(1)
+        # 2.0.0 (prototipo «faltante»): 2.ª columna = el interruptor «Reconocer» de cada utilidad, en su
+        # misma fila (refleja la casilla de siempre de la tarjeta «Reconocer»)
+        self.tree.setColumnCount(2)
+        self.tree.header().setStretchLastSection(False)
+        self.tree.header().setSectionResizeMode(0, QtWidgets.QHeaderView.Stretch)
+        self.tree.header().setSectionResizeMode(1, QtWidgets.QHeaderView.Fixed)
+        self.tree.header().resizeSection(1, 48)
         self.tree.setRootIsDecorated(True)
         self.tree.setUniformRowHeights(True)
         f = self.tree.font(); f.setPointSize(f.pointSize() + 1); self.tree.setFont(f)
@@ -266,6 +278,7 @@ class SheetLayersDialog(ScaleCalibrationMixin, LayerAssignmentsMixin, LayerInfoM
         self._syncing = True
         self.tree.clear()
         self._groups.clear()
+        self._interruptores_arbol = {}
         self._items_by_name = {}
         by_util: dict[str, list[dict]] = {}
         for L in self._layers:
@@ -284,6 +297,7 @@ class SheetLayersDialog(ScaleCalibrationMixin, LayerAssignmentsMixin, LayerInfoM
             hdr.setData(0, _ROLE_UTILITY, key)
             self.tree.addTopLevelItem(hdr)
             self._groups[key] = hdr
+            self._poner_interruptor(hdr, key)
             for L in group:
                 shared = [u for u in pdf_layers.layer_groups(L) if u != key]
                 code = (L.get("letter_codes") or {}).get(key) if shared else L.get("letters")
@@ -315,6 +329,23 @@ class SheetLayersDialog(ScaleCalibrationMixin, LayerAssignmentsMixin, LayerInfoM
         self._update_count()
         if hasattr(self, "_recog_checks"):
             self._sync_recog_all()
+
+    def _poner_interruptor(self, hdr, key):
+        """Interruptor «Reconocer» de la utilidad en su fila del árbol (= su casilla de «Reconocer»)."""
+        cb = getattr(self, "_recog_checks", {}).get(key)
+        if cb is None:
+            return
+        from ui.comun.rediseno import Interruptor
+        sw = Interruptor(cb.isChecked(), _tr("Reconocer {u}").format(u=_tr(dict(pdf_layers.UTILITIES).get(key, key))))
+        sw.setEnabled(cb.isEnabled())
+        sw.toggled.connect(lambda on, c=cb: c.isChecked() != on and c.setChecked(on))
+        caja = QtWidgets.QWidget()
+        cl = QtWidgets.QHBoxLayout(caja)
+        cl.setContentsMargins(0, 0, 6, 0)
+        cl.addStretch(1)
+        cl.addWidget(sw)
+        self.tree.setItemWidget(hdr, 1, caja)
+        self._interruptores_arbol[key] = sw
 
     def _focus_style(self, item, _column=0):
         name = item.data(0, _ROLE_NAME)

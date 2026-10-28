@@ -120,6 +120,51 @@ class BancoductosMixin:
     _DB_DEFAULT = object()
 
     def _open_duct_bank_designer(self, initial=_DB_DEFAULT):
+        """2.0.0: el diseñador trae la lista de diseños del proyecto; elegir otro, «+», Duplicar o
+        borrar cierra el actual (guardado o descartado, como dijo el usuario) y aquí se hace con los
+        métodos de siempre, volviendo a abrir el diseñador donde corresponda."""
+        while True:
+            self._db_despues = None
+            self._abrir_disenador_una_vez(initial)
+            accion = self._db_despues
+            self._db_despues = None
+            if not accion:
+                return
+            # Los índices son los de la lista al abrir: guardar reemplaza en el MISMO lugar o agrega
+            # al final, así que siguen valiendo.
+            tipo, i = accion
+            dbs = getattr(self, "duct_banks", None) or []
+            if tipo == "nuevo":
+                initial = None
+            elif tipo == "abrir":
+                if not (0 <= i < len(dbs)):
+                    return
+                initial = dbs[i]
+            elif tipo == "duplicar":
+                if not (0 <= i < len(dbs)):
+                    return
+                self.sel_db = i
+                self._db_duplicate()
+                initial = self.duct_banks[-1]
+            elif tipo == "borrar":
+                if not (0 <= i < len(dbs)):
+                    return
+                self._push()
+                self.duct_banks.pop(i)
+                self.sel_db = -1
+                self._dirty = True
+                if hasattr(self, "lbl_ductbank_count"):
+                    _bind(self.lbl_ductbank_count, "setText", "Duct banks guardados: {n}",
+                          fmt={"n": len(self.duct_banks)})
+                self._refresh_lists()
+                self._redraw()
+                if not self.duct_banks:
+                    return
+                initial = self.duct_banks[min(i, len(self.duct_banks) - 1)]
+            else:
+                return
+
+    def _abrir_disenador_una_vez(self, initial=_DB_DEFAULT):
         # Delegador delgado: la UI del diseñador vive en duct_bank_dialog.py.
         # Al aceptar, guarda el diseño en self.duct_banks (colección del proyecto)
         # sobreescribiendo por identidad de objeto O por pipe_idx (para evitar
@@ -188,7 +233,10 @@ class BancoductosMixin:
             self.sel_db = -1
         self._refresh_lists()
         if len(asign) > 1:
-            self._info(_tr("Duct bank «{nombre}» guardado → asignado a {k} utilidades.").format(**datos))
+            texto = _tr("Duct bank «{nombre}» guardado → asignado a {k} utilidades.").format(**datos)
         else:
-            self._info(_tr("Duct bank «{nombre}» guardado → asignado a #{num} {capa}." if asignada
-                           else "Duct bank «{nombre}» guardado.").format(**datos))
+            texto = _tr("Duct bank «{nombre}» guardado → asignado a #{num} {capa}." if asignada
+                        else "Duct bank «{nombre}» guardado.").format(**datos)
+        self._info(texto)
+        if self._incrustar_ok():                       # 2.0.0: aviso breve con «Deshacer»
+            self.aviso_breve(texto, accion=(_tr("Deshacer"), self.undo))

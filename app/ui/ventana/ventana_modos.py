@@ -58,6 +58,8 @@ class ModosMixin:
             self.setWindowTitle(f"{dirty}{self._base_title} — {name}")
         else:
             self.setWindowTitle(f"{dirty}{self._base_title}")
+        if hasattr(self, "_actualizar_barra_superior"):     # proyecto y «sin guardar» de la barra superior
+            self._actualizar_barra_superior()
 
     def _refresh_scale_label(self):
         """Actualiza el botón de escala con el valor actual (1"=X ft).
@@ -76,6 +78,8 @@ class ModosMixin:
             _bind(self.btn_scale, "setText", "Escala 1\"={v}'", fmt={"v": f"{v:.0f}"})
         else:
             _bind(self.btn_scale, "setText", "Escala —")
+        if getattr(self, "panel_hoja", None) is not None:      # panel «Hoja y PDF» (2.0.0)
+            self.panel_hoja.refrescar()
 
     def _prompt_scale(self):
         """Diálogo compacto para cambiar la escala del plano (1\"=X ft).
@@ -85,12 +89,15 @@ class ModosMixin:
         usan los planos del titleblock. Se acepta un decimal por si acaso.
         """
         if self.canvas.pixmap_item is None:
-            QtWidgets.QMessageBox.information(self, _tr("Escala"), _tr("Primero abre un PDF o proyecto.")); return
+            self.informar(_tr("Escala"), _tr("Primero abre un PDF o proyecto.")); return
         cur = float(self.scale) * 72.0 if self.scale else 20.0
-        val, ok = QtWidgets.QInputDialog.getDouble(
-            self, _tr("Escala del plano"),
-            _tr("1 pulgada del PDF equivale a X pies reales:"),
-            cur, 0.01, 100000.0, 2)
+        if self._incrustar_ok():                      # 2.0.0: ventana con el estilo nuevo
+            val, ok = self._pedir_escala(cur)
+        else:
+            val, ok = QtWidgets.QInputDialog.getDouble(
+                self, _tr("Escala del plano"),
+                _tr("1 pulgada del PDF equivale a X pies reales:"),
+                cur, 0.01, 100000.0, 2)
         if not ok or val <= 0:
             return
         self._push()
@@ -102,13 +109,60 @@ class ModosMixin:
         self._redraw()
         self._info(_tr("Escala cambiada a 1\"={v}'.").format(v=f"{val:g}"))
 
+    def _pedir_escala(self, cur):
+        """«Escala del plano» con título + una línea, el valor como «1" = N'» y los preajustes en fichas."""
+        dlg = QtWidgets.QDialog(self)
+        dlg.setWindowTitle(_tr("Escala del plano"))
+        dlg.setMinimumWidth(400)
+        lay = QtWidgets.QVBoxLayout(dlg)
+        lay.setContentsMargins(22, 18, 22, 16)
+        lay.setSpacing(12)
+        tit = QtWidgets.QLabel(_tr("Escala del plano"))
+        tit.setProperty("rol", "h1")
+        sub = QtWidgets.QLabel(_tr("1 pulgada del PDF equivale a X pies reales:"))
+        sub.setProperty("rol", "t2")
+        sub.setWordWrap(True)
+        lay.addWidget(tit)
+        lay.addWidget(sub)
+        spn = QtWidgets.QDoubleSpinBox()
+        spn.setRange(0.01, 100000.0)
+        spn.setDecimals(2)
+        spn.setPrefix('1" = ')
+        spn.setSuffix("'")
+        spn.setValue(cur)
+        spn.setMinimumHeight(34)
+        lay.addWidget(spn)
+        fichas = QtWidgets.QHBoxLayout()
+        fichas.setSpacing(6)
+        for v in (10, 20, 30, 40, 50, 100):
+            b = QtWidgets.QPushButton(f"{v}'")
+            b.setProperty("kind", "chip")
+            b.clicked.connect(lambda _=False, v=v: spn.setValue(v))
+            fichas.addWidget(b)
+        fichas.addStretch(1)
+        lay.addLayout(fichas)
+        fila = QtWidgets.QHBoxLayout()
+        fila.addStretch(1)
+        no = QtWidgets.QPushButton(_tr("Cancelar"))
+        no.setProperty("kind", "ghost")
+        no.clicked.connect(dlg.reject)
+        si = QtWidgets.QPushButton(_tr("Aplicar"))
+        si.setProperty("kind", "primary")
+        si.setDefault(True)
+        si.clicked.connect(dlg.accept)
+        fila.addWidget(no)
+        fila.addWidget(si)
+        lay.addLayout(fila)
+        ok = dlg.exec() == QtWidgets.QDialog.Accepted
+        return spn.value(), ok
+
     def _open_opacity_popup(self):
         """Desplegable junto al botón de escala: deslizable de opacidad del PDF y
         botón para alternar el fondo detrás del PDF entre blanco y negro. El
         mismo desplegable lo usan «Capas de la hoja» y la vista previa
         (`wizard_widgets.show_opacity_popup`)."""
         if self.canvas.pixmap_item is None:
-            QtWidgets.QMessageBox.information(self, _tr("Opacidad"), _tr("Primero abre un PDF o proyecto.")); return
+            self.informar(_tr("Opacidad"), _tr("Primero abre un PDF o proyecto.")); return
         from ui.asistente.wizard_widgets import show_opacity_popup
 
         def _is_black():
@@ -284,8 +338,12 @@ class ModosMixin:
         else:
             _bind(self.lbl_geo, "setText", "Georref: no (escala titleblock)")
             self.lbl_geo.setStyleSheet(f"color:{_theme.tokens().danger};")
+        if getattr(self, "panel_hoja", None) is not None:      # panel «Hoja y PDF» (2.0.0)
+            self.panel_hoja.refrescar()
 
     def _update_ui(self):
+        if getattr(self, "herramientas", None) is not None:          # herramienta activa en «Dibujar»
+            self.herramientas.sincronizar()
         m = self.mode
         def st(btn, on): btn.setStyleSheet(btn_on_style() if on else btn_off_style())
         in_leader = m in ("leader1", "leader2", "leader3")
@@ -299,7 +357,8 @@ class ModosMixin:
         _white = _theme.tokens().text_on_accent
         def _toggle(btn, active, act_txt, idle_txt, idle_icon):
             btn.setText(act_txt if active else idle_txt)
-            btn.setIcon(_icon("mdi:stop-circle-outline" if active else idle_icon, color=_white))
+            btn.setIcon(_icon("mdi:stop-circle-outline" if active else idle_icon,
+                              color=_white if active else _theme.tokens().text))
         _toggle(self.btn_pipe, m == "pipe",
                 "  " + _tr("Salir de dibujar utilidad"), "  " + _tr("Dibujar utilidad"), "mdi:pencil-outline")
         _toggle(self.btn_leader_simple, in_leader,
@@ -338,6 +397,11 @@ class ModosMixin:
         # efecto porque _rebuild_structures los repone. Se oculta el boton.
         self.btn_del.setVisible(ti != TAB_BZ)
         self.btn_xd.setVisible(ti in (TAB_PIPE, TAB_BZ))
+        if getattr(self, "cabecera_inspector", None) is not None:   # cabecera del inspector (2.0.0)
+            self.cabecera_inspector.refrescar(desde_ui=True)
+        if getattr(self, "barra_plano", None) is not None:          # barra flotante del plano (2.0.0)
+            from ui.ventana import ventana_flotantes
+            ventana_flotantes.refrescar(self)
         diag = self.orient_combo.currentData() == "d"
         lead_cuerpo = N_("Modo: Leader — clic en el final del cuerpo")
         clave_modo = {

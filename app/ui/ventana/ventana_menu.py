@@ -17,6 +17,7 @@ class MenuMixin:
         self._build_toolbar()
         self._build_left_dock()
         self._build_right_dock()
+        self._build_shell()                        # 2.0.0: riel, paneles, vistas y Asistente (ventana_shell)
         self._build_side_panels()
         self._build_statusbar()
         # Todo listo: coloca los widgets compartidos del acordeón en la sección
@@ -27,19 +28,29 @@ class MenuMixin:
     def _build_menu(self):
         mb = self.menuBar()
         # Menús y acciones con _bind: se re-traducen solos al cambiar el idioma.
+        # 2.0.0: cada acción queda registrada por su texto en español (`self._acc`) para que
+        # el riel, los paneles y la paleta Ctrl+K usen LA MISMA acción (mismo método y atajo).
+        self._acc, self._menus = {}, {}
+
         def _menu(parent_bar, label_es):
-            return _bind(parent_bar.addMenu(""), "setTitle", label_es)
+            m = _bind(parent_bar.addMenu(""), "setTitle", label_es)
+            self._menus[label_es.replace("&", "")] = m
+            return m
 
         def _act(menu, label_es, fn, shortcut=None):
-            return _bind(self._menu_act(menu, "", fn, shortcut), "setText", label_es)
+            a = _bind(self._menu_act(menu, "", fn, shortcut), "setText", label_es)
+            self._acc[label_es] = a
+            return a
 
-        mfile = _menu(mb, "&Archivo")
+        mfile = self._menu_archivo = _menu(mb, "&Archivo")
         _act(mfile, "Nuevo lienzo…", self.new_blank_canvas, "Ctrl+N")
         _act(mfile, "Abrir PDF…", self.open_pdf)
         mfile.addSeparator()
         _act(mfile, "Abrir proyecto…", self.open_project)
         _act(mfile, "Guardar proyecto", self.save_project, "Ctrl+S")
         _act(mfile, "Guardar proyecto como…", self.save_project_as, "Ctrl+Shift+S")
+        mfile.addSeparator()
+        self._armar_recientes(mfile)               # 2.0.0: últimos proyectos (ventana_recientes)
         mfile.addSeparator()
         _act(mfile, "Opciones…", self.show_options)
         mfile.addSeparator()
@@ -183,7 +194,7 @@ class MenuMixin:
                    self._update_geo_status, self._refresh_unit_labels,
                    self._refresh_lists, self._refresh_counts, self._refresh_db_list,
                    self._refresh_catalog_panels, self._update_move_panel,
-                   self._update_ui, self._redraw):
+                   self._update_ui, self._redraw, self._titulo_panel_izq, self._titulo_panel_der, self._actualizar_barra_superior):
             try:
                 fn()
             except Exception:   # un panel sin datos no debe cortar el resto
@@ -195,37 +206,46 @@ class MenuMixin:
         _dlg.show_options(self)
 
     def _build_toolbar(self):
-        # ── Barra de acción superior: zoom · deshacer/rehacer · imán · exportar ──
+        # ── 2.0.0: BARRA SUPERIOR del rediseño ──
+        # marca (menú Archivo) · proyecto · hoja ◀ ▶ · buscar o ejecutar (Ctrl+K) · deshacer/rehacer ·
+        # Capas · Asistente · tema · Exportar. Las acciones de antes (zoom, tabla, 3D, IA, agregar)
+        # siguen existiendo con el mismo nombre: van al riel, a los paneles y a la pastilla del plano.
         tb = _bind(self.addToolBar(""), "setWindowTitle", "Acciones"); tb.setMovable(False)
+        tb.setObjectName("barraSuperior")
+        tb.setFloatable(False)
+        tb.setContextMenuPolicy(QtCore.Qt.PreventContextMenu)
+        tb.setIconSize(QtCore.QSize(18, 18))
+        self._tb = tb
         # Los QAction llevan QIcon SVG; guardamos el mapa acción→nombre para
         # que _apply_theme_custom_styles pueda retintarlos al cambiar tema.
         self._action_icon_map = {}
-        def tact(icon_name, tip, fn):
+
+        def tact(icon_name, tip, fn, en_barra=False):
             a = QtGui.QAction("", self); _bind(a, "setToolTip", tip); a.triggered.connect(fn)
-            tb.addAction(a); self._action_icon_map[a] = icon_name; return a
+            if en_barra:
+                tb.addAction(a)
+            else:
+                self.addAction(a)
+            self._action_icon_map[a] = icon_name; return a
         self._act_zoom_in = tact("mdi:magnify-plus-outline", "Acercar", self._zoom_in)
         self._act_zoom_out = tact("mdi:magnify-minus-outline", "Alejar", self._zoom_out)
-        tb.addSeparator()
-        self._act_undo = tact("mdi:undo-variant", "Deshacer (Ctrl+Z)", self.undo)
-        self._act_redo = tact("mdi:redo-variant", "Rehacer (Ctrl+Shift+Z)", self.redo)
-        tb.addSeparator()
         self._act_tabla = tact("mdi:table-large", "Tabla de datos: utilidades, buzones, curvas… (Ctrl+Shift+T)",
                                self.abrir_tabla_datos)
         self._act_3d = tact("mdi:cube-outline", "Vista 3D: lo que Civil 3D va a construir (F3)", self.abrir_vista3d)
         self._act_ia = tact("mdi:chat-question-outline", "Pregúntale al proyecto: la IA responde con los datos del "
                             "proyecto (Ctrl+Shift+I)", self.abrir_pregunta)
-        tb.addSeparator()
         # otra utilidad de su propio PDF, sobre la MISMA hoja (ventana_agregar, 2026-10-23)
         self._act_agregar = tact("mdi:file-plus-outline", "Agregar utilidad desde otro PDF: se ubica sola sobre "
                                  "esta hoja por el mapa base y se reconoce como siempre", self.agregar_utilidad)
+        from ui.ventana import ventana_shell as _shell
+        _shell.barra_superior_izquierda(self, tb)
+        self._act_undo = tact("mdi:undo-variant", "Deshacer (Ctrl+Z)", self.undo, en_barra=True)
+        self._act_redo = tact("mdi:redo-variant", "Rehacer (Ctrl+Shift+Z)", self.redo, en_barra=True)
+        tb.addSeparator()
         # encender/apagar utilidades y planos de fondo, como en AutoCAD (ventana_capas, 2026-10-26)
         self._construir_boton_capas(tb)
-        tb.addSeparator()
-        spacer = QtWidgets.QWidget(); spacer.setSizePolicy(QtWidgets.QSizePolicy.Expanding, QtWidgets.QSizePolicy.Preferred); tb.addWidget(spacer)
         # Sin selector de unidad: TODO va en pies por campo (cotas/coordenadas),
         # salvo los diámetros que van siempre en pulgadas (lista fija del catálogo).
-        tb.addSeparator()
-        tb.addWidget(_bind(QtWidgets.QLabel(), "setText", "Civil 3D:"))
         self.cmb_civil = QtWidgets.QComboBox()
         from catalogo import civil_catalog as _cc
         _all_years = list(_cc.SUPPORTED_YEARS); _inst = set(_cc.installed_versions())
@@ -236,22 +256,20 @@ class MenuMixin:
         self.cmb_civil.currentIndexChanged.connect(self._on_civil_year_changed)
         _bind(self.cmb_civil, "setToolTip", "Versión de Civil 3D. El catálogo imperial se busca en\n"
                                   "C:\\ProgramData\\Autodesk\\C3D <año>\\<idioma>\\Pipes Catalog\\US Imperial Structures")
-        tb.addWidget(self.cmb_civil)
         # Selector de idioma del catálogo — se puebla dinámicamente al elegir año.
         # Si el cliente tiene tanto 'esp' como 'enu' instalados, puede elegir
         # cuál usar para la instalación de familias custom y el listado.
-        tb.addWidget(_bind(QtWidgets.QLabel(), "setText", "Idioma:"))
         self.cmb_lang = QtWidgets.QComboBox()
         _bind(self.cmb_lang, "setToolTip", "Idioma del catálogo Civil 3D a usar (subcarpeta esp/enu/etc.)")
         self.cmb_lang.currentIndexChanged.connect(self._on_civil_lang_changed)
-        tb.addWidget(self.cmb_lang)
         # Poblamos el combo de idiomas por primera vez con la versión activa.
         self._refill_lang_combo()
-        tb.addSeparator()
-        self.btn_export = _bind(QtWidgets.QPushButton(), "setText", "Exportar DXF", pre='  ')
+        self.btn_export = _bind(QtWidgets.QPushButton(), "setText", "Exportar a Civil 3D", pre='  ')
+        self.btn_export.setProperty("kind", "primary")
         self.btn_export.setIconSize(QtCore.QSize(18, 18))
-        self.btn_export.clicked.connect(lambda: self.run_pipeline("todo"))
-        tb.addWidget(self.btn_export)
+        # 2.0.0: abre «Exportar a Civil 3D» (qué incluir, versión e idioma) y luego el `run_pipeline` de siempre
+        self.btn_export.clicked.connect(self.abrir_exportar)
+        _shell.barra_superior_derecha(self, tb)
 
     def _build_side_panels(self):
         # Los dos paneles se pueden ocultar solos como una pestaña en su borde, como
@@ -259,8 +277,8 @@ class MenuMixin:
         # opción por panel en el menú Ver. Estado y ancho se recuerdan.
         self.panel_izq = side_panels.AutoHidePanel(self, self._ldock, "Herramientas",
                                                    "mdi:toolbox-outline", "left", "izq")
-        self.panel_der = side_panels.AutoHidePanel(self, self._rdock, "Inventario",
-                                                   "mdi:format-list-bulleted", "right", "der")
+        self.panel_der = side_panels.AutoHidePanel(self, self._rdock, "Propiedades",
+                                                   "mdi:tune-vertical", "right", "der")
         self._mview.addSeparator()
         acciones = []
         for panel, texto in ((self.panel_izq, "Ocultar automáticamente el panel izquierdo"),
@@ -276,6 +294,7 @@ class MenuMixin:
             acciones.append(act)
             panel.restore()
         self.act_panel_izq, self.act_panel_der = acciones
+        self._titulo_panel_izq()
 
     def _build_statusbar(self):
         # ── Barra de estado: modo · info · contadores en vivo · escala · georref ──

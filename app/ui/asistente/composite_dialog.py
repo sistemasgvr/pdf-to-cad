@@ -267,7 +267,8 @@ class CompositeDialog(NoEscapeClose, ChosenSheetMixin, SourcePageMixin, ScanTool
         self.tabs.tabs[TAB_SHEET].setToolTip(_tr("Acomodar las piezas tomadas"))
         self.tabs.currentChanged.connect(self._go_tab)
         root.addWidget(self.tabs)
-        root.addWidget(self._sug_card())   # «Composición sugerida» (composite_suggest)
+        self._sug_tarjeta = self._sug_card()   # «Composición sugerida» (composite_suggest)
+        root.addWidget(self._sug_tarjeta)
 
         t = _theme.tokens()
         self.stack = QtWidgets.QStackedWidget()
@@ -313,13 +314,17 @@ class CompositeDialog(NoEscapeClose, ChosenSheetMixin, SourcePageMixin, ScanTool
         self._on_piece_selected(-1)
         sc = QtGui.QShortcut(QtGui.QKeySequence(QtCore.Qt.Key_Delete), self.view, self._delete)
         sc.setContext(QtCore.Qt.WidgetWithChildrenShortcut)   # no borrar piezas al editar un número
+        from ui.asistente import composite_rediseno       # 2.0.0: lista de hojas a la izquierda
+        composite_rediseno.rearmar(self, TAB_SOURCE)
 
     # ── navegación entre pestañas ───────────────────────────────────────
     def _go_tab(self, index: int):
         index = max(0, min(TAB_SHEET, int(index)))
+        if index == TAB_SOURCE:                    # 2.0.0: «Origen» es la lista de la izquierda
+            index = TAB_AREA
         self.tabs.set_current(index, emit=False)
         self.stack.setCurrentIndex(index)
-        self.btn_back.setVisible(index > TAB_SOURCE)
+        self.btn_back.setVisible(index > TAB_AREA)
         self.btn_next.setVisible(index < TAB_SHEET)
         if index == TAB_SOURCE:
             self.btn_next.setText(_tr("Siguiente: Área a tomar"))
@@ -1216,6 +1221,8 @@ class CompositeDialog(NoEscapeClose, ChosenSheetMixin, SourcePageMixin, ScanTool
         self._area_cerrar()
         self._thumb_timer.stop()
         self._thumb_queue = []
+        if self.isVisible():                       # sin documentos no se puede repintar ninguna hoja
+            self.hide()
         for d in self.docs:
             try:
                 d.close()

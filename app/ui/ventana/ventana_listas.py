@@ -14,7 +14,7 @@ class ListasMixin:
         from nucleo import unir_utilidades as U
         filas = self._selected_pipe_rows()
         if len(filas) < 2:
-            QtWidgets.QMessageBox.information(self, _tr("Unir utilidades"), _tr(
+            self.informar(_tr("Unir utilidades"), _tr(
                 "Selecciona dos o más utilidades: Ctrl+clic en la lista «Utilidades» o sobre ellas en el lienzo."))
             return
         # Base = la primera que se seleccionó (sus datos mandan).
@@ -292,6 +292,8 @@ class ListasMixin:
             it = QtWidgets.QListWidgetItem(icono, f"{i}. {self._tipo(p['layer'])}{tag}{nm} ({info})")
             self.pipe_list.addItem(it)
         self._atenuar_lista_utilidades()            # apagadas en «Capas»: en gris (ventana_capas)
+        if hasattr(self, "_filtrar_inventario"):    # buscador y filtros del Inventario (2.0.0)
+            self._filtrar_inventario()
         self.pipe_list.blockSignals(False)
         self.sleader_list.blockSignals(True); self.sleader_list.clear()
         ns = 0

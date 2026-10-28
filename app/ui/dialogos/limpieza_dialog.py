@@ -35,6 +35,8 @@ _RESUMEN = {
     "tramo": N_("{n} tramo(s) rectos diminutos: se corrigen"),
 }
 _ROL = QtCore.Qt.UserRole
+_ICONOS = {"punta": "mdi:link-variant", "tramo": "mdi:vector-polyline", "corta": "mdi:ruler",
+           "duplicada": "mdi:content-copy"}
 
 
 class LimpiezaDialog(QtWidgets.QDialog):
@@ -50,11 +52,15 @@ class LimpiezaDialog(QtWidgets.QDialog):
         self.setWindowTitle(_tr("Antes de exportar") if exportando else _tr("Revisar y limpiar el dibujo"))
         self.setMinimumWidth(520)
         lay = QtWidgets.QVBoxLayout(self)
+        lay.setContentsMargins(22, 18, 22, 16)
         lay.setSpacing(10)
+        # 2.0.0: título + una línea (como el prototipo)
+        tit = QtWidgets.QLabel(self.windowTitle()); tit.setProperty("rol", "h1")
+        lay.addWidget(tit)
         txt = (_tr("Encontramos algunas cosas que conviene arreglar antes de exportar:")
                if exportando else _tr("Esto saldría mal en Civil 3D o habría que corregirlo a mano:"))
         cab = QtWidgets.QLabel(txt)
-        f = cab.font(); f.setBold(True); f.setPointSizeF(f.pointSizeF() * 1.1); cab.setFont(f)
+        cab.setProperty("rol", "t2")
         cab.setWordWrap(True)
         lay.addWidget(cab)
         fmt0 = {"corta": f"{limpieza.UTILIDAD_MIN_FT:g}"}
@@ -62,11 +68,11 @@ class LimpiezaDialog(QtWidgets.QDialog):
                   for tp in limpieza.ARREGLABLES if res.de(tp, True)]
         if not exportando and res.avisos:
             lineas.append(_tr("{n} caso(s) para revisar a mano").format(n=len(res.avisos)))
-        resumen = QtWidgets.QLabel("<br>".join("•&nbsp;" + ln for ln in lineas))
-        resumen.setTextFormat(QtCore.Qt.RichText)
-        resumen.setWordWrap(True)
-        resumen.setStyleSheet("font-size: 11pt;")
-        lay.addWidget(resumen)
+        # 2.0.0: una tarjeta por tipo de arreglo (interruptor = su casilla del detalle, ⌖ = ir al 1.er caso)
+        self._tarjetas = QtWidgets.QVBoxLayout()
+        self._tarjetas.setSpacing(8)
+        lay.addLayout(self._tarjetas)
+        self._interruptores = {}
         ayuda = QtWidgets.QLabel(_tr("Se puede deshacer con Ctrl+Z."))
         ayuda.setWordWrap(True); ayuda.setProperty("muted", True)
         lay.addWidget(ayuda)
@@ -106,6 +112,15 @@ class LimpiezaDialog(QtWidgets.QDialog):
         for k in range(self.arbol.topLevelItemCount()):
             it = self.arbol.topLevelItem(k)
             it.setExpanded(it.childCount() <= 12)
+        for tipo in limpieza.ARREGLABLES:
+            casos = res.de(tipo, True)
+            if casos:
+                self._tarjeta(_ICONOS.get(tipo, "mdi:broom"),
+                              _tr(_RESUMEN[tipo]).format(n=len(casos), **fmt0),
+                              _tr(_GRUPOS[tipo]).format(**fmt).split(":")[0], casos[0], tipo)
+        if not exportando and avisos:
+            self._tarjeta("mdi:alert-outline", _tr("{n} caso(s) para revisar a mano").format(n=len(avisos)),
+                          _tr("Solo aviso: no se cambian"), avisos[0], None)
 
         bb = QtWidgets.QDialogButtonBox()
         if exportando:
@@ -122,17 +137,60 @@ class LimpiezaDialog(QtWidgets.QDialog):
         bb.accepted.connect(lambda: self._cerrar("arreglar"))
         bb.rejected.connect(self.reject)
         lay.addWidget(bb)
-        self.arbol.itemChanged.connect(lambda *_: self._actualizar_boton())
+        self.arbol.itemChanged.connect(lambda *_: (self._actualizar_boton(), self._sincronizar()))
         self.btn_detalles.toggled.connect(self._ver_detalles)
-        self.btn_detalles.setChecked(not exportando)
-        self._ver_detalles(not exportando)
+        self.btn_detalles.setChecked(False)              # 2.0.0: las tarjetas bastan; el detalle, a pedido
+        self._ver_detalles(False)
         self._actualizar_boton()
+
+    def _tarjeta(self, icono, titulo, detalle, caso, tipo):
+        from ui.comun import rediseno as R
+        from ui.comun import theme as _theme
+        from ui.comun.icons import icon as _icon
+        t = _theme.tokens()
+        f = QtWidgets.QFrame()
+        f.setObjectName("tarjeta")
+        h = QtWidgets.QHBoxLayout(f)
+        h.setContentsMargins(12, 10, 12, 10)
+        h.setSpacing(10)
+        ic = QtWidgets.QLabel()
+        ic.setPixmap(_icon(icono, color=t.warning if tipo is None else t.text_muted).pixmap(18, 18))
+        h.addWidget(ic, 0, QtCore.Qt.AlignTop)
+        tx = QtWidgets.QVBoxLayout()
+        tx.setSpacing(1)
+        a = QtWidgets.QLabel(titulo)
+        a.setProperty("rol", "h3")
+        a.setWordWrap(True)
+        b = QtWidgets.QLabel(detalle)
+        b.setProperty("rol", "t3")
+        b.setWordWrap(True)
+        tx.addWidget(a)
+        tx.addWidget(b)
+        h.addLayout(tx, 1)
+        h.addWidget(R.boton_icono("crosshairs-gps", "Ver en el plano",
+                                  lambda: self.ir_a(caso.x, caso.y, caso.pipe)))
+        if tipo is not None:
+            sw = R.Interruptor(True, titulo)
+            g = self.grupos[tipo]
+            sw.toggled.connect(lambda on, g=g: g.setCheckState(0, QtCore.Qt.Checked if on else QtCore.Qt.Unchecked))
+            self._interruptores[tipo] = sw
+            h.addWidget(sw)
+        self._tarjetas.addWidget(f)
+
+    def _sincronizar(self):
+        for tipo, sw in self._interruptores.items():
+            on = self.grupos[tipo].checkState(0) == QtCore.Qt.Checked
+            if sw.isChecked() != on:
+                sw.blockSignals(True)
+                sw.setChecked(on)
+                sw.blockSignals(False)
+                sw.update()
 
     def _ver_detalles(self, ver):
         self.arbol.setVisible(ver)
         self.btn_detalles.setArrowType(QtCore.Qt.DownArrow if ver else QtCore.Qt.RightArrow)
         if ver:
-            self.resize(max(self.width(), 680), max(self.height(), 480))
+            self.resize(max(self.width(), 680), max(self.height(), 560))
         else:
             self.adjustSize()
 

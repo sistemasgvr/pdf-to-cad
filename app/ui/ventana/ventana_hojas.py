@@ -141,6 +141,11 @@ class HojasEditorMixin:
             # en el editor se trabaja sobre el lienzo: el minimapa, más chico que en el asistente
             mm.LAYOUT_W_FRAC, mm.LAYOUT_H_FRAC = 0.24, 0.2
             mm.LAYOUT_MAX_W, mm.LAYOUT_MAX_H = 340, 190
+            # 2.0.0 (como el prototipo): arriba a la derecha del plano
+            def _arriba_derecha(mm=mm):
+                vp = self.canvas.viewport()
+                mm.move(vp.geometry().right() - mm.width() - 14, vp.geometry().top() + 14)
+            mm._place = _arriba_derecha
         firma = tuple((r.x(), r.y(), r.width(), r.height(), c) for r, c, _l in hojas)
         if firma != getattr(self, "_mm_firma", None) or not mm.isVisible():
             sr = self.canvas.sceneRect()

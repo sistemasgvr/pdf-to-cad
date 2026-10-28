@@ -84,6 +84,8 @@ class PreguntaDialog(QtWidgets.QDialog):
         self.lbl_estado = QtWidgets.QLabel()
         self.lbl_estado.setObjectName("hint")
         cab = E.Encabezado("mdi:robot-outline", _tr("Pregúntale al proyecto"), self.lbl_estado)
+        self._cab = cab
+        self._compacto = False
         self.btn_menos = self._boton_icono("mdi:format-font-size-decrease", _tr("Letra más chica (Ctrl+-)"),
                                            lambda: self.cambiar_tamano(-1))
         self.btn_mas = self._boton_icono("mdi:format-font-size-increase", _tr("Letra más grande (Ctrl++)"),
@@ -123,6 +125,7 @@ class PreguntaDialog(QtWidgets.QDialog):
         self.entrada.setAccessibleName(_tr("Tu pregunta"))
         self.entrada.installEventFilter(self)
         lay.addWidget(self.entrada)
+        self._lay = lay
 
         abajo = QtWidgets.QHBoxLayout()
         abajo.setSpacing(8)
@@ -153,10 +156,71 @@ class PreguntaDialog(QtWidgets.QDialog):
         theme.THEME_BUS.changed.connect(lambda *_a: (self._ocupado(self._activo is not None),
                                                      self.actualizar_estado(), self._pintar()))
 
+    def incrustado(self):
+        """2.0.0: dentro del panel «Asistente» (que ya tiene título, configuración y cerrar): sin la cabecera
+        repetida; el estado de la IA y la letra A−/A+ en una línea, la conversación sin marco y la caja de
+        escribir con «Enseñarle algo…» y «Enviar» como iconos (como el prototipo). Mismos controles."""
+        if self._compacto:
+            return
+        self._compacto = True
+        from ui.comun import rediseno as R
+        lay = self._lay
+        lay.setContentsMargins(14, 4, 14, 12)
+        self._cab.hide()
+        self.btn_cfg.hide()                              # el panel ya tiene «Configurar IA…»
+        fila = QtWidgets.QHBoxLayout()
+        fila.setSpacing(2)
+        self.lbl_estado.setProperty("rol", "t3")
+        self.lbl_estado.setObjectName("")
+        self.lbl_estado.setSizePolicy(QtWidgets.QSizePolicy.Ignored, QtWidgets.QSizePolicy.Preferred)
+        fila.addWidget(self.lbl_estado, 1)
+        for b in (self.btn_menos, self.btn_mas):
+            b.setIconSize(QtCore.QSize(16, 16))
+            fila.addWidget(b)
+        lay.insertLayout(0, fila)
+        # caja de escribir: el texto arriba; debajo «Enseñarle algo…», la ayuda de teclas y «Enviar»
+        caja = QtWidgets.QFrame()
+        caja.setObjectName("composer")
+        cv = QtWidgets.QVBoxLayout(caja)
+        cv.setContentsMargins(4, 4, 6, 6)
+        cv.setSpacing(2)
+        lay.removeWidget(self.entrada)
+        cv.addWidget(self.entrada)
+        abajo = QtWidgets.QHBoxLayout()
+        abajo.setSpacing(6)
+        self.btn_ensenar.setText("")
+        self.btn_ensenar.setProperty("kind", "ghost")
+        self.btn_ensenar.setFixedSize(30, 30)
+        abajo.addWidget(self.btn_ensenar)
+        teclas = R.texto("Enter envía · Mayús+Enter nueva línea", "t3")
+        abajo.addWidget(teclas, 1)
+        self.btn_enviar.setProperty("kind", "primary")
+        self.btn_enviar.setFixedSize(34, 34)
+        abajo.addWidget(self.btn_enviar)
+        cv.addLayout(abajo)
+        i = lay.indexOf(self.caja_sug)
+        lay.insertWidget(i + 1, caja)
+        self._caja = caja
+        self.lbl_memoria.setProperty("rol", "t3")
+        self.lbl_memoria.setObjectName("")
+        self._ocupado(self._activo is not None)
+        self._estilo()
+
     def _estilo(self):
         """Aspecto que depende del tema: conversación y caja de texto redondeadas, chips, icono de «Enseñar»."""
         from ui.comun import ia_estilo as E, icons, theme
         tk = theme.tokens()
+        if self._compacto:                               # 2.0.0: dentro del panel «Asistente»
+            self.vista.setStyleSheet("QTextBrowser { background: transparent; border: none; padding: 0; }")
+            self._caja.setStyleSheet(f"QFrame#composer {{ background: {tk.input_bg}; border: 1px solid {tk.border};"
+                                     f" border-radius: 12px; }}")
+            self.entrada.setStyleSheet("QPlainTextEdit { background: transparent; border: none; padding: 4px 6px; }")
+            self.btn_enviar.setStyleSheet("QPushButton { border-radius: 17px; padding: 0; }")
+            for b in self._botones_sug:
+                b.setStyleSheet(E.chip_qss(tk))
+                b.setIcon(icons.icon("mdi:chat-question-outline", color=tk.text_muted))
+            self.btn_ensenar.setIcon(icons.icon("mdi:lightbulb-outline", color=tk.text_muted))
+            return
         self.vista.setStyleSheet(f"QTextBrowser {{ background: {tk.input_bg}; border: 1px solid {tk.border_soft};"
                                  f" border-radius: 10px; padding: 8px; }}")
         self.entrada.setStyleSheet(f"QPlainTextEdit {{ background: {tk.input_bg}; border: 1px solid {tk.border};"
@@ -269,7 +333,7 @@ class PreguntaDialog(QtWidgets.QDialog):
 
     def _ocupado(self, si):
         from ui.comun import icons, theme
-        self.btn_enviar.setText(_tr("Detener") if si else _tr("Enviar"))
+        self.btn_enviar.setText("" if self._compacto else (_tr("Detener") if si else _tr("Enviar")))
         self.btn_enviar.setToolTip(_tr("Detener la respuesta (Esc)") if si else _tr("Enviar la pregunta (Enter)"))
         self.btn_enviar.setProperty("danger", bool(si))
         self.btn_enviar.setIcon(icons.icon("mdi:stop-circle-outline" if si else "mdi:send",

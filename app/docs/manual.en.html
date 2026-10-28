@@ -51,10 +51,66 @@ the last change and <span class="key">&nbsp;Ctrl+Shift+Z&nbsp;</span> redoes it.
 </td></tr></table>
 </section>
 
+<section data-title="The window">
+<p>Since version 2.0 the window is organized in five areas. <b>No option was lost</b>: they only moved
+(below, where each one is now).</p>
+<table width="100%" cellspacing="4" cellpadding="10">
+<tr><td bgcolor="{{card}}" width="38%"><b>Top bar</b></td><td bgcolor="{{card}}">The <b>P</b> (File menu: new, open, save, close), the project name (an orange dot = unsaved changes), the sheet ◀ ▶, <b>Search or run a command…</b>, undo and redo, <b>Layers</b>, <b>Assistant</b>, the theme (moon / sun) and <b>Export to Civil 3D</b> (a window: what to include, Civil 3D version and language).</td></tr>
+<tr><td bgcolor="{{card}}" width="38%"><b>Rail (left)</b></td><td bgcolor="{{card}}"><b>Draw</b>, <b>Sheet and PDF</b>, <b>Inventory</b> and <b>Review</b> change the panel next to it; <b>Standards</b>, <b>Data table</b> and <b>Duct Bank</b> open inside the window (closing them takes you back to the drawing); <b>3D view</b> opens its own window. At the bottom: <b>Help</b> and <b>Settings</b>.</td></tr>
+<tr><td bgcolor="{{card}}" width="38%"><b>Rail panel</b></td><td bgcolor="{{card}}">Draw = the tools in a grid (Utility, Leader, Text, Erase, Centerline, Move, Manhole, Duct Bank) and below the options of the chosen one; pressing it again stops it. Sheet and PDF = compose, scans, add utility, opacity, sheets minimap and marks, scale and georeference. Inventory = the lists (utilities, manholes, curves, duct banks…) and the buttons for several at once. Review = how many conflicts and warnings there are, solve, review and clean up, report, standards and what is shown on the drawing.</td></tr>
+<tr><td bgcolor="{{card}}" width="38%"><b>Right</b></td><td bgcolor="{{card}}">The <b>properties</b> of the selection (at the top, its color, name, actions and the Properties · Elevations · Data tabs) or, with <b>Assistant</b>, the AI: Chat, Conflicts and «How do I…?».</td></tr>
+<tr><td bgcolor="{{card}}" width="38%"><b>Status bar (bottom)</b></td><td bgcolor="{{card}}">Mode, messages, warnings, coordinates, scale, opacity, georeference and the magnifiers to zoom in and out.</td></tr>
+</table>
+
+<h2>Search or run (Ctrl+K)</h2>
+<p>Type part of the name of any action («export», «manhole», «table»…), the name or number of a utility or a
+conflict (C-3) and press <span class="key">&nbsp;Enter&nbsp;</span>. It is the fastest way to find any option.</p>
+
+<h2>Standards, Data table, Duct Bank and 3D view</h2>
+<ul>
+<li><b>Standards</b>: the rules in a readable list; pick one to edit it on the side (When it applies, What it
+checks, If not met). “Table view” shows the usual table. “Save” and “Discard” are at the bottom.</li>
+<li><b>Data table</b>: tabs at the top, a search box, chips to show a single utility and Compact / Comfortable
+density. The green dot marks the columns that can be edited in Excel.</li>
+<li><b>Duct Bank</b>: on the left the project's duct banks (pick another, “+”, Duplicate, delete), in the middle the
+canvas with the tools in a floating bar and on the right the properties with “Save design”.</li>
+<li><b>3D view</b> (in its own window): views at the top, utilities and what to show on the left, the sheet of the
+picked object on the right.</li>
+</ul>
+<p>Some results (“DXF exported”, “All in order”, a saved duct bank) appear as a <b>brief notice</b> at the bottom
+right that goes away on its own; some have a button (“Open folder”, “Undo”).</p>
+
+<h2>On the drawing and in Properties</h2>
+<p>At the top left of the drawing, the <b>“N conflicts · M warnings”</b> notice goes to Review; at the bottom, a bar
+to select, edit vertices, zoom in, zoom out and fit. Properties is laid out in sections (General, Civil 3D catalog,
+Elevations, Status, Standards); the actions for the selection are in the header's <b>⋯</b> button. Clicking a
+crossing of two utilities at different elevations opens <b>Vertical connection</b>: both elevations, the difference
+and a diagram, with “Connect in Civil 3D” or “Remove the connection”.</p>
+<p>When opening a PDF, in <b>Compose sheet</b> the “This sheet” tab has “Take area”, “Whole sheet” and “Options”
+in a floating pill under the sheet; in <b>Sheet layers</b>, each utility under “Recognize” has its switch and layer
+count, and “Sheet N of M” floats over the sheet.</p>
+<p><b>Georeference</b> shows its three steps at the top (find the area, mark pairs, fit and save) with their status; each view has its tools floating and the pairs, the fit and the zone are on the right. In <b>Sheet layers</b> each utility's switch (recognize it or not) is on its row, next to its layers. The last projects are under <b>P</b> → <b>Recent</b>.</p>
+
+<h2>Where each menu went</h2>
+<table width="100%" cellspacing="4" cellpadding="10">
+<tr><td bgcolor="{{card}}" width="38%"><b>File</b></td><td bgcolor="{{card}}">The <b>P</b> at the top left. «Options…» (language) is also in <b>Settings</b>, a window with General (language, theme, panels), Civil 3D, AI assistant, Families, Shortcuts and About.</td></tr>
+<tr><td bgcolor="{{card}}" width="38%"><b>Edit</b></td><td bgcolor="{{card}}">Undo / redo: top bar. Join, bulk edit, copy and paste properties: <b>Inventory</b> (bottom) and right click on the list.</td></tr>
+<tr><td bgcolor="{{card}}" width="38%"><b>View</b></td><td bgcolor="{{card}}">Theme: moon / sun. Warnings: <b>Review → Show on the drawing</b>. 3D view: rail. Sheets minimap and marks: <b>Sheet and PDF</b>. Auto-hide the panels: <b>Settings</b> or their pin.</td></tr>
+<tr><td bgcolor="{{card}}" width="38%"><b>Tools</b></td><td bgcolor="{{card}}">Compose sheet, scans, add utility and georeference: <b>Sheet and PDF</b>. Data table: rail. Report and Review and clean up: <b>Review</b>. Insert manhole in-line: <b>Draw</b> (at the bottom). Install / uninstall family: <b>Settings</b>.</td></tr>
+<tr><td bgcolor="{{card}}" width="38%"><b>Standards</b></td><td bgcolor="{{card}}">Rail → <b>Standards</b>; show their warnings: <b>Review</b>.</td></tr>
+<tr><td bgcolor="{{card}}" width="38%"><b>AI</b></td><td bgcolor="{{card}}">Ask the project: <b>Assistant</b> (Ctrl+Shift+I). Solve conflicts: <b>Review</b> or Assistant → Conflicts. Configure AI, learning folder and move to production: <b>Settings</b>.</td></tr>
+<tr><td bgcolor="{{card}}" width="38%"><b>Help</b></td><td bgcolor="{{card}}">Rail → <b>Help</b> (the question mark): manual, shortcuts and about.</td></tr>
+</table>
+<table width="100%" cellspacing="0" cellpadding="12"><tr>
+<td width="6" bgcolor="{{tip_border}}"></td><td bgcolor="{{tip}}">
+<b>Tip:</b> the keyboard shortcuts are the same as always (Ctrl+S, Ctrl+Z, Ctrl+J, F3…).
+</td></tr></table>
+</section>
+
 <section data-title="Starting a project">
 <h2>Option A — Open a PDF plan</h2>
 <ol>
-<li>Menu <b>File → Open PDF…</b> (or drag the PDF onto the window).</li>
+<li><b>P (File) → Open PDF…</b> (or drag the PDF onto the window).</li>
 <li>If the PDF was plotted from CAD, an <b>assistant</b> helps you prepare the sheet
     (see the chapter «CAD PDF plans»).</li>
 <li>If it is a scan, you first compose the sheet (crop, straighten and join its sheets) and then
@@ -63,7 +119,7 @@ the last change and <span class="key">&nbsp;Ctrl+Shift+Z&nbsp;</span> redoes it.
 
 <h2>Option B — Blank canvas (no PDF)</h2>
 <ol>
-<li>Menu <b>File → New canvas…</b> or <span class="key">&nbsp;Ctrl+N&nbsp;</span>.</li>
+<li><b>P (File) → New canvas…</b> or <span class="key">&nbsp;Ctrl+N&nbsp;</span>.</li>
 <li>Choose the <b>sheet size</b> (A4, Letter, Tabloid, ANSI, ARCH… or custom sizes in
     millimeters or inches) and the <b>orientation</b>.</li>
 <li>Choose the plan <b>scale</b>, for example 1" = 20'. The window shows how much real
@@ -75,7 +131,7 @@ the last change and <span class="key">&nbsp;Ctrl+Shift+Z&nbsp;</span> redoes it.
 <ul>
 <li><b>Save:</b> <span class="key">&nbsp;Ctrl+S&nbsp;</span>. A <b>.digproj</b> file with the whole project is created.</li>
 <li><b>Save with another name:</b> <span class="key">&nbsp;Ctrl+Shift+S&nbsp;</span>.</li>
-<li><b>Open a project:</b> <b>File → Open project…</b></li>
+<li><b>Open a project:</b> <b>P (File) → Open project…</b></li>
 </ul>
 <p>With large projects, opening, saving, <b>Review and clean up the drawing</b>, the <b>Data table</b>
 and its Excel export show a <b>progress bar</b> with the stage, «i of n» and the percentage, which
@@ -91,20 +147,20 @@ unsaved changes. Save often.
 <section data-title="Moving around the plan">
 <table width="100%" cellspacing="4" cellpadding="10">
 <tr><th align="left">I want to…</th><th align="left">How</th></tr>
-<tr><td bgcolor="{{card}}">Zoom in or out</td><td bgcolor="{{card}}">Turn the <b>mouse wheel</b>, or use the magnifier buttons on the top bar. When you zoom in, what you see is redrawn sharp from the PDF, at the original quality (also in Compose sheet, Sheet layers and the preview). It is drawn in tiles, separately: the window never stops; the sharp image arrives in a moment, the center first, and a place or zoom already seen appears instantly.</td></tr>
+<tr><td bgcolor="{{card}}">Zoom in or out</td><td bgcolor="{{card}}">Turn the <b>mouse wheel</b>, or the magnifiers at the bottom right, next to the scale. When you zoom in, what you see is redrawn sharp from the PDF, at the original quality (also in Compose sheet, Sheet layers and the preview). It is drawn in tiles, separately: the window never stops; the sharp image arrives in a moment, the center first, and a place or zoom already seen appears instantly.</td></tr>
 <tr><td bgcolor="{{card}}">Move the plan</td><td bgcolor="{{card}}">Hold the <b>wheel</b> (middle button) down and drag.</td></tr>
-<tr><td bgcolor="{{card}}">Change the PDF page</td><td bgcolor="{{card}}"><b>View and pages</b> section, ◀ ▶ arrows.</td></tr>
+<tr><td bgcolor="{{card}}">Change the PDF page</td><td bgcolor="{{card}}">◀ ▶ arrows next to the project name, at the top (or the <b>View and pages</b> section of Draw).</td></tr>
 <tr><td bgcolor="{{card}}">See my lines better</td><td bgcolor="{{card}}"><b>Opacity</b> button: fades only the PDF. You can also set a white or black background.</td></tr>
-<tr><td bgcolor="{{card}}">Switch dark / light mode</td><td bgcolor="{{card}}"><b>View</b> menu → light / dark theme.</td></tr>
-<tr><td bgcolor="{{card}}">Change the language</td><td bgcolor="{{card}}"><b>File → Options…</b> → Language. It changes instantly.</td></tr>
+<tr><td bgcolor="{{card}}">Switch dark / light mode</td><td bgcolor="{{card}}">Moon / sun button on the top bar (or <b>Settings</b>).</td></tr>
+<tr><td bgcolor="{{card}}">Change the language</td><td bgcolor="{{card}}"><b>Settings → Options…</b> → Language. It changes instantly.</td></tr>
 <tr><td bgcolor="{{card}}">Get more room for the plan</td><td bgcolor="{{card}}">Hide the side panels (see below).</td></tr>
 </table>
 
 <h2>Hiding the side panels</h2>
-<p>Both panels (<b>Tools</b> on the left and <b>Inventory</b> on the right) can hide themselves, just
+<p>Both panels (the <b>rail</b> panel on the left and <b>Properties</b> on the right) can hide themselves, just
 like Civil 3D palettes:</p>
 <ol>
-<li>Press the <b>pin</b> 📌 on the panel header (or <b>View → Auto-hide the left / right panel</b>).</li>
+<li>Press the <b>pin</b> 📌 on the panel header (or <b>Settings → Auto-hide the left / right panel</b>).</li>
 <li>The panel becomes a <b>vertical tab</b> on its edge and the plan gets that space.</li>
 <li>Hover over the tab (or click it): the panel opens <b>over the plan</b>. When you move the mouse
     away or click on the plan, it folds back.</li>
@@ -239,7 +295,7 @@ map names sheets that are in <b>another PDF in the same folder</b> (Phoenix «�
 </ol>
 
 <h2>Image or scanned PDF: composing by hand</h2>
-<p>A scan also goes through <b>Compose work sheet</b> (or menu <b>Tools → Compose image/scanned
+<p>A scan also goes through <b>Compose work sheet</b> (or <b>Sheet and PDF → Compose image/scanned
 PDF…</b>), but without layers or recognition: at the end, <span class="btn">Import sheet into
 editor</span> leaves it as the background to draw by hand.</p>
 <ul>
@@ -338,7 +394,7 @@ editor</span> leaves it as the background to draw by hand.</p>
     says, like the code notices: it shows on the plan, in the notice list and in the utility panel. Picking
     its diameter removes the notice; to keep the default, approve it. In the preview, <b>To check</b> takes
     you to each one. On the plan they are shown or hidden apart from the standards warnings:
-    View → Warnings → <b>Show recognition warnings</b>.</li>
+    Review → Show on the drawing → <b>Show recognition warnings</b>.</li>
 <li><b>Diameter from the plan (map without layers):</b> on a flattened GIS map (such as the Phoenix
     Quarter Sections) each run carries its label next to the line, parallel and close to it: «8"», «12" DIP»,
     «12" DIP (CP)», «6" DIP FL», «8" Unk». When recognizing, each pipe takes its own; the casing («72" STEEL
@@ -492,7 +548,7 @@ editor</span> leaves it as the background to draw by hand.</p>
 <h2>Adding another utility from its own PDF</h2>
 <p>Sometimes each utility comes in its own PDFs (for example the Phoenix maps: two PDFs for water,
 two for sewer and two for storm drain). With one utility already imported, use
-<b>Tools → Add utility from another PDF…</b> (or the sheet button with a <b>+</b> on the top
+<b>Sheet and PDF → Add utility from another PDF…</b> (or the sheet button with a <b>+</b> on the top
 toolbar) and choose the PDF of the next one. If the editor sheet comes from two PDFs, the app
 offers to add the other one of the same utility too.</p>
 <ul>
@@ -528,7 +584,7 @@ manager: one row per layer with its light bulb. Clicking the row turns it on or 
 are off.</p>
 
 <h2>Composing again later</h2>
-<p>Menu <b>Tools → Compose work sheet…</b> opens step 1 again, on the PDF and sheet you were
+<p><b>Sheet and PDF → Compose work sheet…</b> opens step 1 again, on the PDF and sheet you were
 working on, and repeats steps 2 and 3 with the new sheet. Everything is saved in the project
 (.digproj), including the source PDFs.</p>
 <p>If you continue without changing anything (not the composition, the layers or the utilities),
@@ -756,7 +812,7 @@ they do not overlap.</p>
     (CAJA-) where the PDF plan has a real vault, with its measurements. You add the rest.</li>
 <li>In the <b>Manholes</b> list you change their family, size and elevations. If a size is missing, the green <b>+</b> button adds it (see «Pipe data»).</li>
 <li>Square boxes coming from the PDF show as <b>SÓLIDO</b> (solid): no family; you adjust their <b>Length</b> and <b>Width</b> (the drawing resizes) and their <b>Height</b> (2 m by default). The <b>Top elevation</b> drives the top: by default it is calculated so the attached utility reaches the <b>middle</b> of the solid (its centerline at mid-height; ↺ returns to it). In Civil 3D they are created as 3D solids with their extended data as a Property Set.</li>
-<li>To add one in the middle of a line: <b>Tools → Insert manhole in-line…</b></li>
+<li>To add one in the middle of a line: <b>Draw → Insert manhole in-line…</b></li>
 <li><b>Hide manhole</b> removes a manhole that does not really exist; the network stays connected.</li>
 </ul>
 <table width="100%" cellspacing="0" cellpadding="12"><tr>
@@ -826,7 +882,7 @@ pipes cross at the same elevation without being connected («Clashing pipes»).<
         The message says what it will do instead (see the next page).</td>
     <td bgcolor="{{card}}">Read the message and decide whether to fix the drawing.</td></tr>
 </table>
-<p class="small">Signs can be hidden from the View menu («Show crossings/conflicts»).
+<p class="small">Signs can be hidden from <b>Review → Show on the drawing</b> («Show crossings/conflicts»).
 The status bar at the bottom counts how many there are of each kind.</p>
 <p class="small">With hundreds of pipes the check stays fast: it only compares the nearby ones and is not
 repeated while the design does not change (selecting, switching tabs or modes does not redo it).
@@ -954,7 +1010,7 @@ it stays in the standards and goes into their Excel when exporting it. On electr
 <li>“⚠ N standards warnings” on the status bar: a click opens the list; clicking a warning goes to the place.</li>
 </ul>
 <p>“No type” is not marked on the plan (a freshly imported project would have dozens): it shows in the panel,
-the list and the counter. Warning types are shown or hidden in <b>View → Warnings</b> (crossings and
+the list and the counter. Warning types are shown or hidden in <b>Review → Show on the drawing</b> (crossings and
 conflicts, fittings, standards warnings, show or hide all).</p>
 <p><b>Level of detail</b>, as on a map: from far away, of the labels that overlap (fittings and conflicts
 C-n) only one is shown —conflicts first—; the points (diamond, crossing circle, triangle, badge) are
@@ -986,7 +1042,7 @@ the branch one size smaller (12 → 8). A 6 in main has no smaller size: warning
 </section>
 
 <section data-title="Data table">
-<p><b>Tools → Data table…</b> (<span class="key">&nbsp;Ctrl+Shift+T&nbsp;</span>, or the table button on the top bar)
+<p><b>rail → Data table…</b> (<span class="key">&nbsp;Ctrl+Shift+T&nbsp;</span>, or the table button on the top bar)
 shows all the project information in tabs: <b>utilities</b> (name, type, status, family, size, diameter, length,
 elevations, amperage, duct bank, coordinates and warnings), <b>manholes and boxes</b>, <b>curves</b>,
 <b>duct banks</b>, <b>standards warnings</b>, <b>conflicts</b> (C-1, C-2…) and <b>elevations per vertex</b>.</p>
@@ -1015,7 +1071,7 @@ elevations, amperage, duct bank, coordinates and warnings), <b>manholes and boxe
 <p>When importing, <b>conflicts</b> are recalculated: you see right away whether an elevation change solved the clash.</p>
 </section>
 <section data-title="Automatic report">
-<p><b>Tools → Automatic report…</b> builds a <b>Word</b> document with what needs to be checked in the project,
+<p><b>Review → Automatic report…</b> builds a <b>Word</b> document with what needs to be checked in the project,
 ready to hand over.</p>
 <ol>
 <li>Choose <b>what to include</b>: conflicts, design-standard warnings or both.</li>
@@ -1042,10 +1098,10 @@ computes.</p>
 </section>
 
 <section data-title="AI">
-<p>The <b>AI</b> menu brings an AI that knows the open project. It answers only with the project data: the numbers
+<p>The <b>Assistant</b> brings an AI that knows the open project. It answers only with the project data: the numbers
 always come from the app and, if the AI writes a figure that is not in the data, the app warns about it.</p>
 <h2>Configure</h2>
-<p><b>AI → Configure AI…</b>: choose <b>Own server (Ollama)</b>, type the server address and press <b>Find
+<p><b>Settings → Configure AI…</b>: choose <b>Own server (Ollama)</b>, type the server address and press <b>Find
 models</b> and <b>Test</b>. With <b>No AI (templates)</b> everything works as before.</p>
 <h2>How do I…? (in this manual)</h2>
 <p>At the top of this manual there is a <b>How do I…?</b> field: type what you want to do (for example «how do I
@@ -1053,7 +1109,7 @@ export to Civil 3D?») and press <span class="key">&nbsp;Enter&nbsp;</span> or <
 cover it appear instantly (one click opens them) and the AI answers with the steps, taken only from this manual. The
 same question again comes back instantly, saved. Without an AI configured, the chapters are the answer.</p>
 <h2>Ask the project</h2>
-<p><b>AI → Ask the project…</b> (<span class="key">&nbsp;Ctrl+Shift+I&nbsp;</span>, or the chat button on the top
+<p><b>Assistant → Ask the project…</b> (<span class="key">&nbsp;Ctrl+Shift+I&nbsp;</span>, or the chat button on the top
 bar) opens a chat. Ask, for example, «how many conflicts are there and where are they?», «what happens at C-12?»
 or «summarize zone 3».</p>
 <ul>
@@ -1075,7 +1131,7 @@ or «summarize zone 3».</p>
 <p>Corrections, useful answers, what you teach it and the applied solutions are saved in <b>a single file</b>
 (also the conversations and the texts the AI already wrote, so they are not requested again). What is taught
 applies to all projects: each record says which project and who taught it, and the open project's weigh more. In
-<b>AI → Configure AI…</b>, <b>Training environment</b> chooses which one:</p>
+<b>Settings → Configure AI…</b>, <b>Training environment</b> chooses which one:</p>
 <ul>
 <li><b>Development (team testing)</b>: <code>entrenamiento_ia/desarrollo.json</code> in the program folder. It is
     shared through Git within the team and merging does not overwrite it. It also uses production's.</li>
@@ -1087,13 +1143,13 @@ applies to all projects: each record says which project and who taught it, and t
 <p>The window shows where it saves. If the project was not saved yet, what was learned moves to it when you save
 it. An old «<i>project name</i> - IA» folder is imported automatically when the project opens. <b>AI → Open
 learning folder</b> opens the folder where it saves.</p>
-<p><b>AI → Move to production…</b> (only in the team version, not the installed one): lists what was taught in
+<p><b>Settings → Move to production…</b> (only in the team version, not the installed one): lists what was taught in
 development, newest first, and marks with ✔ what is already in production. Check the good teachings and press
 <b>Move to production</b>; you can also move the already written texts of standards and the manual. Conversations
 are never moved. <b>Remove from production</b> takes out the checked ones. Then push
 <code>produccion.json</code> with Git so it goes in the next installer.</p>
 <h2>Solve conflicts</h2>
-<p><b>AI → Solve conflicts…</b> (or right-click next to a C-n mark on the plan → «Solve C-n: see solutions…»)
+<p><b>Review → Solve conflicts…</b> (or right-click next to a C-n mark on the plan → «Solve C-n: see solutions…»)
 lists the conflicts. When you choose one:</p>
 <ul>
 <li>The app computes the possible solutions: in a crossing or clash at the same elevation, lower or raise one of
@@ -1108,7 +1164,7 @@ lists the conflicts. When you choose one:</p>
 <p>Conflicts that are fixed by changing the drawing (5 or more pipes at one point, short segments between bends…)
 have no automatic solution: the window explains what to do.</p>
 <h2>What does this rule mean?</h2>
-<p>In <b>Design standards → Design standards</b>, Rules tab, choose a row and press <b>Explain with AI</b>: the AI
+<p>In <b>rail → Design standards</b>, Rules tab, choose a row and press <b>Explain with AI</b>: the AI
 explains it in plain words under the table. The answer is saved: when you choose that rule again it appears at
 once, without asking again. If you change the rule, you can ask again.</p>
 <h2>Report written by the AI</h2>
@@ -1120,11 +1176,11 @@ writes the report» and it can be canceled.</p>
 <h2>In summary</h2>
 <p>The AI is working in these modules:</p>
 <ul>
-<li><b>AI → Ask the project</b> (chat about the open project).</li>
-<li><b>AI → Solve conflicts</b> (also with right-click next to a C-n mark).</li>
-<li><b>Tools → Automatic report</b> (the Word file).</li>
-<li><b>Standards → Design standards</b>, Rules tab («Explain with AI»).</li>
-<li><b>Help → User manual</b> (the «How do I…?» field).</li>
+<li><b>Assistant → Ask the project</b> (chat about the open project).</li>
+<li><b>Review → Solve conflicts</b> (also with right-click next to a C-n mark).</li>
+<li><b>Review → Automatic report</b> (the Word file).</li>
+<li><b>rail → Design standards</b>, Rules tab («Explain with AI»).</li>
+<li><b>Help (rail) → User manual</b> (the «How do I…?» field).</li>
 </ul>
 <p>And it can do these actions:</p>
 <ul>
@@ -1139,7 +1195,7 @@ writes the report» and it can be canceled.</p>
 </section>
 
 <section data-title="3D view">
-<p>To see what <b>Civil 3D will build</b> without exporting: <b>View → 3D view</b>
+<p>To see what <b>Civil 3D will build</b> without exporting: <b>rail → 3D view</b>
 (<span class="key">&nbsp;F3&nbsp;</span>), the cube button on the top bar, or right-click a utility →
 <b>Show in 3D</b>. It opens in its own window that you can keep next to the plan: it updates by itself while
 you edit. When it opens, the project is saved just in case (if it has no file yet, a recovery copy is made).</p>
@@ -1223,7 +1279,7 @@ ground is flat (Civil 3D uses your surface).
 <p>Places the plan at its <b>real location</b> (Los Angeles coordinates, EPSG:2229). It is
 for preliminary design: exact data comes from the survey.</p>
 <ol>
-<li><b>Tools → Georeference…</b></li>
+<li><b>Sheet and PDF → Georeference…</b></li>
 <li>On the map on the <b>right</b>, type an address or a street intersection and press
     <span class="btn">Search and download</span>.</li>
 <li>Click a point on the <b>plan</b> (left) and then the <b>same point</b> on the map.
@@ -1249,7 +1305,7 @@ plan you can press <b>Cancel</b>; the window does not freeze.</p>
 <h2>Review and clean up the drawing</h2>
 <p>When exporting, if something would come out wrong in Civil 3D, the app shows it first and fixes it
 with <b>Fix and export</b> (or goes on as it is with <b>Export without changes</b>). It is also in
-<b>Tools → Review and clean up the drawing…</b> Click each case to see it on the plan; uncheck what
+<b>Review → Review and clean up the drawing…</b> Click each case to see it on the plan; uncheck what
 you don't want fixed.</p>
 <ul>
 <li><b>Tiny straight runs</b> (under 1 ft): they came out as a tiny pipe in Civil 3D. The extra
@@ -1282,7 +1338,7 @@ you don't want fixed.</p>
 <table width="100%" cellspacing="0" cellpadding="12"><tr>
 <td width="6" bgcolor="{{warn_border}}"></td><td bgcolor="{{warn}}">
 <b>Attention:</b> if you use your own families, install them first with
-<b>Tools → Install custom family…</b> and then run <b>PREPARAR_FAMILIAS</b> in Civil 3D.
+<b>Settings → Install custom family…</b> and then run <b>PREPARAR_FAMILIAS</b> in Civil 3D.
 </td></tr></table>
 </section>
 
@@ -1400,5 +1456,5 @@ normally. It lives in <code>%LOCALAPPDATA%\pdf-to-cad
 ecuperacion</code>; it does not replace saving the
 project.</p>
 <h2>More help</h2>
-<p><b>Help → Keyboard shortcuts</b> lists all shortcut keys. <b>Help → About…</b> shows what's new in each version.</p>
+<p><b>Help (rail) → Keyboard shortcuts</b> lists all shortcut keys. <b>Help (rail) → About…</b> shows what's new in each version.</p>
 </section>

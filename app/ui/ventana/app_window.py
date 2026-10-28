@@ -108,11 +108,15 @@ from ui.ventana.calculo_fondo import CalculoFondoMixin
 from ui.ventana.ventana_estados import EstadosPreviosMixin
 from ui.ventana.ventana_planos import PlanosFondoMixin, clave_planos
 from ui.ventana.ventana_capas import CapasMixin
+from ui.ventana.ventana_shell import ShellMixin
+from ui.ventana.ventana_recientes import RecientesMixin
+from ui.ventana.ventana_shell_paneles import RevisionMixin
+from ui.ventana.ventana_inventario import InventarioMixin
 
 
 class Main(MenuMixin, PanelIzquierdoMixin, PanelDerechoMixin, ModosMixin, ClicsMixin, UtilidadesMixin, CatalogoMixin, SeleccionMixin, ListasMixin, MarcasMixin, DibujoMixin, ConflictosMixin, CoordsMixin, BuzonesMixin, MoverPrecisoMixin, CurvasMixin, HerramientasMixin, BancoductosMixin, EdicionBloqueMixin, InformeMixin, IAMixin, SolucionesMixin, Vista3DMixin, Edicion3DMixin, ConflictosListaMixin, HojasEditorMixin,
            VerticesMixin, TrazoMixin, CalculoPlanoMixin, CalculoFondoMixin, EstadosPreviosMixin,
-           AgregarUtilidadMixin, PlanosFondoMixin, CapasMixin, QtWidgets.QMainWindow):
+           AgregarUtilidadMixin, PlanosFondoMixin, CapasMixin, ShellMixin, RevisionMixin, RecientesMixin, InventarioMixin, QtWidgets.QMainWindow):
     def __init__(self):
         super().__init__()
         self._base_title = f"Asistente C3D  (v{VERSION})"
@@ -204,6 +208,11 @@ class Main(MenuMixin, PanelIzquierdoMixin, PanelDerechoMixin, ModosMixin, ClicsM
 
     # ─────────────────────────── páginas ───────────────────────────
     def _update_page_label(self):
+        self._update_page_label_viejo()
+        if hasattr(self, "_actualizar_barra_superior"):     # hoja ◀ ▶ de la barra superior (2.0.0)
+            self._actualizar_barra_superior()
+
+    def _update_page_label_viejo(self):
         if self.doc:
             self.page_edit.setText(str(self.page_idx + 1)); self.lbl_page.setText(f" / {self.doc.page_count} ")
             self.page_edit.setEnabled(True)
@@ -513,7 +522,7 @@ class Main(MenuMixin, PanelIzquierdoMixin, PanelDerechoMixin, ModosMixin, ClicsM
                     # utilidad agregada: el lugar de cada hoja lo pone su mapa base (ventana_agregar)
                     comp = self._agregando_recolocar(comp, sources)
                     if comp is None:
-                        QtWidgets.QMessageBox.information(self, _tr("Agregar utilidad"), _tr(
+                        self.informar(_tr("Agregar utilidad"), _tr(
                             "Ninguna de las hojas elegidas coincide con la hoja del editor."))
                         continue
                 elif comp.marco is not None:
@@ -730,7 +739,7 @@ class Main(MenuMixin, PanelIzquierdoMixin, PanelDerechoMixin, ModosMixin, ClicsM
         """Menú Ver → volver al compositor (piezas de varias hojas/PDF) y
         repetir capas + reconocimiento sobre la hoja compuesta nueva."""
         if not self.doc or not self.src_pdfs:
-            QtWidgets.QMessageBox.information(self, _tr("Componer hoja de trabajo"),
+            self.informar(_tr("Componer hoja de trabajo"),
                 _tr("Abre un PDF para componer su hoja de trabajo."))
             return
         if not self._confirm_discard():
@@ -744,7 +753,7 @@ class Main(MenuMixin, PanelIzquierdoMixin, PanelDerechoMixin, ModosMixin, ClicsM
     def compose_scan_sheet(self):
         """Explicit manual composition for mixed PDFs or ambiguous detection."""
         if not self.doc or not self.src_pdfs:
-            QtWidgets.QMessageBox.information(self, _tr("Componer hoja de trabajo"),
+            self.informar(_tr("Componer hoja de trabajo"),
                 _tr("Abre un PDF para componer su hoja de trabajo."))
             return
         if not self._confirm_discard():
@@ -795,7 +804,7 @@ class Main(MenuMixin, PanelIzquierdoMixin, PanelDerechoMixin, ModosMixin, ClicsM
     def organize_sheets(self):
         """Reopen the arrangement without changing the current drawing or layers."""
         if not self.doc:
-            QtWidgets.QMessageBox.information(self, _tr("Organizar hojas"),
+            self.informar(_tr("Organizar hojas"),
                 _tr("Abre un PDF para organizar sus hojas."))
             return
         selection = sheet_layout_dialog.choose_sheet_layout(
@@ -824,7 +833,7 @@ class Main(MenuMixin, PanelIzquierdoMixin, PanelDerechoMixin, ModosMixin, ClicsM
         layout = self.sheet_layout
         if not self.doc or not layout or not any(
                 layout[key] is not None for key in ("top", "left", "right", "bottom")):
-            QtWidgets.QMessageBox.information(self, _tr("Capas de hojas organizadas"),
+            self.informar(_tr("Capas de hojas organizadas"),
                 _tr("Organiza al menos dos hojas para abrir esta vista."))
             return
         chosen = organized_layer_dialog.choose_organized_sheet_layers(
@@ -1148,8 +1157,7 @@ class Main(MenuMixin, PanelIzquierdoMixin, PanelDerechoMixin, ModosMixin, ClicsM
         if self.canvas.pixmap_item is not None:
             qimg = self.canvas.pixmap_item.pixmap().toImage()
         if qimg is None or qimg.isNull():
-            QtWidgets.QMessageBox.information(
-                self, _tr("Reconocimiento"),
+            self.informar(_tr("Reconocimiento"),
                 _tr("Reconocimiento listo, pero no hay imagen de la hoja para la vista previa."))
             self._cancelar_asistente(cancelled)
             return
@@ -1443,6 +1451,7 @@ class Main(MenuMixin, PanelIzquierdoMixin, PanelDerechoMixin, ModosMixin, ClicsM
             en_hilo.ejecutar(self, lambda: archivo_zip.escribir(path, entradas), _tr("Guardando proyecto…"),
                              avance=av.recibir, relanzar=True)
             self.project_path = path; self._dirty = False; self._update_title()
+            self._anotar_reciente(path)              # 2.0.0: «Recientes» del menú de la «P»
             self._ia_al_guardar(path)                # la memoria de la IA sigue al proyecto (ventana_ia)
             self._info(_tr("Proyecto guardado: {archivo}").format(archivo=os.path.basename(path)))
             self._flash_save()
@@ -1491,13 +1500,13 @@ class Main(MenuMixin, PanelIzquierdoMixin, PanelDerechoMixin, ModosMixin, ClicsM
 
     def save_project(self):
         if self.canvas.pixmap_item is None:
-            QtWidgets.QMessageBox.information(self, _tr("Nada que guardar"), _tr("Abre un PDF o proyecto primero.")); return
+            self.informar(_tr("Nada que guardar"), _tr("Abre un PDF o proyecto primero.")); return
         if self.project_path: self._write_project(self.project_path)
         else: self.save_project_as()
 
     def save_project_as(self):
         if self.canvas.pixmap_item is None:
-            QtWidgets.QMessageBox.information(self, _tr("Nada que guardar"), _tr("Abre un PDF o proyecto primero.")); return
+            self.informar(_tr("Nada que guardar"), _tr("Abre un PDF o proyecto primero.")); return
         base = self.project_path or os.path.join(DOWNLOADS, "proyecto.digproj")
         path, _ = QtWidgets.QFileDialog.getSaveFileName(self, _tr("Guardar proyecto como"), base, _tr("Proyecto (*.digproj)"))
         if path: self._write_project(path)
@@ -1586,6 +1595,7 @@ class Main(MenuMixin, PanelIzquierdoMixin, PanelDerechoMixin, ModosMixin, ClicsM
             else:
                 self.src_pdfs = []
             self.project_path = path
+            self._anotar_reciente(path)              # 2.0.0: «Recientes» (no las copias de recuperación)
             self._ia_soltar()
             self.sheet_external_pdfs = external_pdfs
             self.sheet_sources = data.get("sheet_sources") or (
@@ -1850,7 +1860,7 @@ class Main(MenuMixin, PanelIzquierdoMixin, PanelDerechoMixin, ModosMixin, ClicsM
         """mode: 'todo' = PDF digitalizado + anotaciones · 'pdf' = solo el PDF ·
         'anot' = solo las anotaciones dibujadas en el programa."""
         if self.canvas.pixmap_item is None:
-            QtWidgets.QMessageBox.information(self, _tr("Nada"), _tr("Abre un PDF o proyecto.")); return
+            self.informar(_tr("Nada"), _tr("Abre un PDF o proyecto.")); return
         need_pdf = mode in ("todo", "pdf")
         if need_pdf and getattr(self, "blank_canvas", False):
             # Lienzo en blanco: no hay PDF que fusionar y nunca lo hubo, así
@@ -1862,7 +1872,7 @@ class Main(MenuMixin, PanelIzquierdoMixin, PanelDerechoMixin, ModosMixin, ClicsM
         # salía con esa hoja, desfasada de las utilidades (reporte 2026-09-30).
         src_pdf = self._export_pdf_path()
         if need_pdf and not src_pdf:
-            QtWidgets.QMessageBox.information(self, _tr("Sin PDF"), _tr("No se encontró el PDF original. Se exportarán solo las anotaciones (utilidades, leaders, textos)."))
+            self.informar(_tr("Sin PDF"), _tr("No se encontró el PDF original. Se exportarán solo las anotaciones (utilidades, leaders, textos)."))
             mode = "anot"; need_pdf = False
         # Limpieza antes de exportar (2026-10-08): solo pregunta si hay algo que arreglar.
         if mode in ("todo", "anot") and not self.revisar_dibujo(exportando=True):
@@ -1898,8 +1908,12 @@ class Main(MenuMixin, PanelIzquierdoMixin, PanelDerechoMixin, ModosMixin, ClicsM
                         m0=m[0], m1=m[1], det=f"{det:.6f}", epsg=self.georef.epsg)
                 elif not self.georef.matrix:
                     geo_msg += "\n\n" + _tr("(Sin georreferenciación configurada.)")
-                QtWidgets.QMessageBox.information(self, _tr("Listo"), _tr("Exportado (solo anotaciones):\n{archivo}{georef}").format(
-                    archivo=out, georef=geo_msg))
+                if "⚠" in geo_msg:                     # un aviso de georreferencia se lee en un cuadro
+                    QtWidgets.QMessageBox.information(self, _tr("Listo"), _tr("Exportado (solo anotaciones):\n{archivo}{georef}").format(
+                        archivo=out, georef=geo_msg))
+                else:                                  # 2.0.0: aviso breve con «Abrir carpeta»
+                    self.aviso_breve(_tr("DXF exportado"), (os.path.basename(out) + geo_msg).strip(),
+                                     (_tr("Abrir carpeta"), lambda o=out: self._abrir_carpeta_de(o)))
                 self._info(_tr("DXF de anotaciones exportado (georef).") if geo_active else _tr("DXF de anotaciones exportado."))
             except Exception as e:
                 self._cerrar_avance_export()
@@ -2083,7 +2097,12 @@ class Main(MenuMixin, PanelIzquierdoMixin, PanelDerechoMixin, ModosMixin, ClicsM
             else:
                 msg = _tr("Exportado (solo el PDF digitalizado){georef}:\n{archivo}").format(
                     georef=geo_tag, archivo=self._out) + geo_warn
-            QtWidgets.QMessageBox.information(self, _tr("Listo"), msg); self._info(_tr("DXF exportado (georef).") if geo_active else _tr("DXF exportado."))
+            if "⚠" in geo_warn:                         # un aviso de georreferencia se lee en un cuadro
+                QtWidgets.QMessageBox.information(self, _tr("Listo"), msg)
+            else:                                      # 2.0.0: aviso breve con «Abrir carpeta»
+                self.aviso_breve(_tr("DXF exportado"), msg.replace(self._out, os.path.basename(self._out)).split("\n", 1)[-1].strip(),
+                                 (_tr("Abrir carpeta"), lambda o=self._out: self._abrir_carpeta_de(o)))
+            self._info(_tr("DXF exportado (georef).") if geo_active else _tr("DXF exportado."))
         except Exception as e:
             self._cerrar_avance_export()
             _busy_mod.overlay_for(self).end() if _busy_mod.overlay_for(self).active else None

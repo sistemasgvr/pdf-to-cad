@@ -67,12 +67,9 @@ EN: dict[str, str] = {
     "Herramientas": "Tools",
     "Ayuda": "Help",
     "Nuevo": "New",
-    "Exportar DXF": "Export DXF",
     "Cerrar proyecto": "Close project",
     "Opciones…": "Options…",
     "Opciones": "Options",
-    "Casilla = toda la utilidad · ▸ = capa por capa":
-        "Checkbox = whole utility · ▸ = layer by layer",
     "Reconocer":
         "Recognize",
     "Marcar o desmarcar todas las utilidades que tiene la hoja":
@@ -651,10 +648,8 @@ EN: dict[str, str] = {
     "Sin plano": "No plan",
     "Escala": "Scale",
     "Eliminar conducto": "Delete conduit",
-    "Guardar y cerrar": "Save and close",
 
     # ── Diálogo Opciones extra ─────────────────────────────────────────
-    "Idioma:": "Language:",
 
     # ── Toggle "Mostrar medidas" del diseñador de bancoductos ─────────
     "Mostrar\nmedidas": "Show\ndimensions",
@@ -770,7 +765,7 @@ EN: dict[str, str] = {
     "6) La rueda del ratón acerca/aleja; el botón central mueve la vista.<br>"
     "7) Si hay un problema con el diseño (conducto fuera, solape…) aparece "
     "un banner rojo en el tope del canvas con el mensaje.<br>"
-    "8) Presiona <b>Guardar y cerrar</b> — el diseño se guarda en el proyecto.":
+    "8) Presiona <b>Guardar diseño</b> — el diseño se guarda en el proyecto.":
         "1) In the right panel, set the <b>Name</b> and <b>Assign the utility</b> "
         "this duct bank will replace when imported into Civil 3D.<br>"
         "2) Adjust the <b>Width</b> and <b>Height</b> of the envelope (inches).<br>"
@@ -783,7 +778,7 @@ EN: dict[str, str] = {
         "6) Mouse wheel zooms in/out; middle button pans the view.<br>"
         "7) If there is a design problem (conduit outside, overlap…) a "
         "red banner appears at the top of the canvas with the message.<br>"
-        "8) Press <b>Save and close</b> — the design is saved in the project.",
+        "8) Press <b>Save design</b> — the design is saved in the project.",
     "Al exportar, esta utilidad será un duct bank (no una tubería normal).":
         "On export, this utility will be a duct bank (not a normal pipe).",
     "Sin asignar — el duct bank no se exportará.":
@@ -888,8 +883,6 @@ EN: dict[str, str] = {
         "Undo (Ctrl+Z)",
     "Rehacer (Ctrl+Shift+Z)":
         "Redo (Ctrl+Shift+Z)",
-    "Civil 3D:":
-        "Civil 3D:",
     "Negrita":
         "Bold",
     "<i>Guarda pulsando enter </i>":
@@ -1459,16 +1452,10 @@ EN: dict[str, str] = {
         "Georeference plan",
     "✓ Este plano YA está georreferenciado (EPSG:{epsg}{rms}). Puedes recalcular con nuevos puntos o cerrar sin cambios.":
         "✓ This plan is ALREADY georeferenced (EPSG:{epsg}{rms}). You can recompute with new points or close without changes.",
-    "Opacidad PDF:":
-        "PDF opacity:",
     "Dirección o intersección… ej: Colfax Ave & Chandler Blvd":
         "Address or intersection… e.g.: Colfax Ave & Chandler Blvd",
-    "Radio (ft):":
-        "Radius (ft):",
     "Buscar y descargar":
         "Search and download",
-    "Calles de LA (NavigateLA)  —  clic: punto de control (imán a la intersección)  |  rueda: zoom":
-        "LA streets (NavigateLA)  —  click: control point (snaps to the intersection)  |  wheel: zoom",
     "1) Busca y descarga las calles de la zona · 2) clic en el plano (izquierda) · 3) clic en la calle correspondiente (derecha). Mínimo 3 pares — puedes marcar puntos A LO LARGO de toda la calle, no solo en las esquinas: más puntos bien repartidos mejoran el ajuste (RMSE).":
         "1) Search and download the area's streets · 2) click on the plan (left) · 3) click on the matching street (right). At least 3 pairs — you can mark points ALONG the whole street, not only at corners: more well-distributed points improve the fit (RMSE).",
     "RMSE (Root Mean Square Error / error cuadrático medio): el error PROMEDIO, en pies, entre cada punto de control y donde el ajuste calculado lo ubica.\n\nNo es el error de un punto — es el error de TODOS a la vez: si un punto quedó mal clickeado, el RMSE sube aunque los demás estén perfectos. Mientras más bajo, mejor (verde <3 ft, amarillo <8 ft, rojo ≥8 ft).":
@@ -1483,8 +1470,6 @@ EN: dict[str, str] = {
         "Delete sel.",
     "Limpiar todos":
         "Clear all",
-    "Sistema de coordenadas (Huso) — código:":
-        "Coordinate system (Zone) — code:",
     "ej: CA83VF  (código CS-MAP; vacío = no setear Huso)":
         "e.g.: CA83VF  (CS-MAP code; empty = do not set the Zone)",
     "Código nativo CS-MAP del sistema de coordenadas que quedará seteado en el\ndibujo de Civil 3D al importar la red. Debe corresponder al EPSG con que\ngeorreferenciaste (para EPSG:2229 → 'CA83VF'). Cópialo del diálogo nativo\nde Civil 3D (Configuración de dibujo → Unidades y huso) si no lo sabes.\nVacío = el dibujo no se setea (lo puedes poner luego a mano).":
@@ -2714,8 +2699,6 @@ EN: dict[str, str] = {
         'The application closed without saving the latest changes, but there is an automatic backup:',
     '«{nombre}» · {n} utilidades · copia del {fecha}':
         '“{nombre}” · {n} utilities · backup from {fecha}',
-    '¿Quieres recuperarla?':
-        'Do you want to recover it?',
     'Hay {k} copia(s) más antiguas: se ofrecerán la próxima vez.':
         'There are {k} older backup(s): they will be offered next time.',
     'Recuperar':
@@ -4144,4 +4127,166 @@ EN: dict[str, str] = {
     '¿En qué te ayudo?': 'How can I help?',
     'No hay una solución automática para este tipo de conflicto: hay que cambiar el dibujo.': 'There is no automatic solution for this type of conflict: the drawing must be changed.',
     'Propuestas': 'Proposals',
+    # Rediseño 2.0.0: barra superior, riel, paneles, Asistente, paleta Ctrl+K
+    'Vista': 'View',
+    'Ir a': 'Go to',
+    'Archivo: nuevo, abrir, guardar, cerrar…': 'File: new, open, save, close…',
+    'Cambios sin guardar (Ctrl+S)': 'Unsaved changes (Ctrl+S)',
+    'Asistente': 'Assistant',
+    'Asistente IA: preguntas sobre el proyecto, resolver conflictos y «¿Cómo hago…?» (Ctrl+Shift+I)': 'AI assistant: questions about the project, solve conflicts and «How do I…?» (Ctrl+Shift+I)',
+    'Riel': 'Rail',
+    'Hoja {n} de {m}': 'Sheet {n} of {m}',
+    'Dibujar': 'Draw',
+    'Hoja y PDF': 'Sheet and PDF',
+    'Revisión': 'Review',
+    'Ayuda: manual, atajos de teclado, acerca de': 'Help: manual, keyboard shortcuts, about',
+    'Ajustes: idioma, tema, paneles, asistente IA, familias de Civil 3D': 'Settings: language, theme, panels, AI assistant, Civil 3D families',
+    'Regla, transportador y enderezar': 'Ruler, protractor and straighten',
+    'Se ubica sola por el mapa base': 'Placed automatically by the base map',
+    'Georreferencia': 'Georeference',
+    'Varias utilidades': 'Several utilities',
+    'Normativa': 'Standards',
+    'El asistente propone y prueba soluciones': 'The assistant proposes and tests solutions',
+    'Puntas sueltas, repetidas y tramos diminutos': 'Loose ends, duplicates and tiny segments',
+    'Word con zonas, capturas y explicación': 'Word with zones, screenshots and explanation',
+    'Reglas y aprobación de avisos': 'Rules and warning approval',
+    'Mostrar en el plano': 'Show on the drawing',
+    'Chat': 'Chat',
+    'Cerrar el asistente': 'Close the assistant',
+    'Buscar o ejecutar un comando…': 'Search or run a command…',
+    'Buscar una acción, una utilidad o un conflicto…': 'Search an action, a utility or a conflict…',
+    'Modo claro / oscuro': 'Light / dark mode',
+    # Rediseño 2.0.0 (2.ª vuelta): Ajustes, Exportar, Dibujar, Hoja, Inventario, inspector, Revisión
+    'Historial completo': 'Full history',
+    'Exportar a Civil 3D': 'Export to Civil 3D',
+    'Exportar': 'Export',
+    '{n} avisos': '{n} warnings',
+    '1 aviso': '1 warning',
+    'Cambiar…': 'Change…',
+    'Quitar': 'Remove',
+    'Sin PDF abierto': 'No PDF open',
+    'Hoja compuesta · {n} hojas': 'Composite sheet · {n} sheets',
+    'Clic: ir al lugar · doble clic: resolver con el asistente': 'Click: go to the place · double click: solve with the assistant',
+    'Leader': 'Leader',
+    'Texto': 'Text',
+    'Borrar': 'Erase',
+    'Centerline': 'Centerline',
+    'Cotas': 'Elevations',
+    'Datos': 'Data',
+    'Centrar en el plano': 'Center on the drawing',
+    'Más acciones': 'More actions',
+    'Con avisos': 'With warnings',
+    'Filtrar por nombre, tipo, diámetro…': 'Filter by name, type, diameter…',
+    'Asistente IA': 'AI assistant',
+    'Familias personalizadas': 'Custom families',
+    'Idioma, tema y comportamiento de los paneles.': 'Language, theme and panel behavior.',
+    'Tema': 'Theme',
+    'Claro': 'Light',
+    'Oscuro': 'Dark',
+    'Paneles': 'Panels',
+    'Queda una pestaña en el borde; se abre al pasar el ratón': 'A tab stays on the edge; it opens when you hover over it',
+    'Versión e idioma del catálogo imperial que usa la exportación.': 'Version and language of the imperial catalog used by the export.',
+    'Idioma del catálogo': 'Catalog language',
+    'También se elige al exportar («Exportar a Civil 3D»).': 'Also chosen when exporting («Export to Civil 3D»).',
+    'Quién responde y dónde se guarda lo que aprende.': 'Who answers and where what it learns is saved.',
+    'Aprendizaje': 'Learning',
+    'Piezas propias en el catálogo de Civil 3D (todas las versiones e idiomas instalados).': 'Your own parts in the Civil 3D catalog (all installed versions and languages).',
+    'Asistente C3D': 'Asistente C3D',
+    'Novedades': "What's new",
+    'Incluir': 'Include',
+    'Plano + utilidades': 'Drawing + utilities',
+    'Solo utilidades': 'Utilities only',
+    'Solo el plano': 'Drawing only',
+    'Catálogo': 'Catalog',
+    'Civil 3D': 'Civil 3D',
+    'Un DXF con las utilidades, buzones y datos para IMPORTAR_RED.': 'A DXF with the utilities, manholes and data for IMPORTAR_RED.',
+    'Antes de exportar se revisa el dibujo (puntas sueltas, tramos diminutos…): si hay algo que arreglar, te lo pregunta. Después eliges dónde guardar el DXF.': 'Before exporting, the drawing is reviewed (loose ends, tiny segments…): if there is something to fix, it asks you. Then you choose where to save the DXF.',
+    'Opacidad del PDF': 'PDF opacity',
+    'Fondo': 'Background',
+    'Blanco': 'White',
+    'Negro': 'Black',
+    'Planos de fondo': 'Background drawings',
+    # ── Rediseño 2.0.0: 3.ª vuelta (Normativas, Tabla de datos, Duct Bank, Vista 3D, chat, avisos breves) ──
+    'Guardar diseño': 'Save design',
+    'Nuevo bancoducto': 'New duct bank',
+    'Duplica este bancoducto (sin utilidad asignada).': 'Duplicates this duct bank (with no utility assigned).',
+    'Eliminar este bancoducto del proyecto': 'Delete this duct bank from the project',
+    '{w} × {h}" · {n} conductos': '{w} × {h}" · {n} conduits',
+    '¿Guardar los cambios de este bancoducto?': 'Save the changes to this duct bank?',
+    '¿Eliminar el bancoducto «{nombre}» del proyecto?': 'Delete the duct bank “{nombre}” from the project?',
+    'Hay cambios sin guardar': 'There are unsaved changes',
+    '(regla vacía)': '(empty rule)',
+    'Desactivada': 'Disabled',
+    'Vista de tabla': 'Table view',
+    'Nueva regla': 'New rule',
+    'Densidad': 'Density',
+    '{n} filas · doble clic en una fila: ir al plano · clic en un encabezado: ordenar':
+        '{n} rows · double-click a row: go to the drawing · click a header: sort',
+    'DXF exportado': 'DXF exported',
+    'Abrir carpeta': 'Open folder',
+    'Cumple las normativas': 'Meets the standards',
+    'Aprobar…': 'Approve…',
+    'Ver opciones': 'See options',
+    '{id}: {titulo}. El asistente propone soluciones y prueba cada una en una copia del proyecto.':
+        '{id}: {titulo}. The assistant proposes solutions and tests each one on a copy of the project.',
+    'Nota (opcional): por qué se aprueba': 'Note (optional): why it is approved',
+    'Marca puntos del plano y sus puntos en las calles reales: se ajusta girando y escalando, sin deformar.':
+        'Mark points on the drawing and their points on the real streets: it fits by rotating and scaling, '
+        'without distorting.',
+    'Hojas': 'Sheets',
+    '{z} ft': '{z} ft',
+    'Esquema de las dos utilidades y la tubería vertical': 'Diagram of the two utilities and the vertical pipe',
+    'Conexión vertical': 'Vertical connection',
+    'Ya se conectan con una tubería vertical al importar.': 'They are already joined by a vertical pipe on import.',
+    'Se cruzan a distinta cota: una pasa por encima de la otra.':
+        'They cross at different elevations: one passes over the other.',
+    'Diferencia: {dz} ft': 'Difference: {dz} ft',
+    'Falta la cota de al menos una de las dos: ponla para decidir si se conectan.':
+        'At least one of them has no elevation: set it to decide whether to connect them.',
+    'En Civil 3D se dibuja un tramo vertical con su válvula entre las dos cotas.':
+        'In Civil 3D a vertical segment with its valve is drawn between the two elevations.',
+    'Quitarla deja las dos utilidades sin conectar.': 'Removing it leaves the two utilities unconnected.',
+    'Mantener': 'Keep',
+    'No conectar': 'Do not connect',
+    'Quitar la conexión': 'Remove the connection',
+    'Conectar en Civil 3D': 'Connect in Civil 3D',
+    'Ver los conflictos y avisos en Revisión': 'See the conflicts and warnings in Review',
+    '{n} conflictos': '{n} conflicts',
+    '1 conflicto': '1 conflict',
+    'Esta hoja': 'This sheet',
+    '{n} capas': '{n} layers',
+    '1 capa': '1 layer',
+    'Una hoja en blanco para dibujar sin PDF: elige su tamaño y la escala.': 'A blank sheet to draw without a PDF: choose its size and scale.',
+    'Solo aviso: no se cambian': 'Notice only: not changed',
+    'clic: punto del plano': 'click: point on the plan',
+    'Calles · NavigateLA': 'Streets · NavigateLA',
+    'clic: imán a la intersección · rueda: zoom': 'click: snaps to the intersection · wheel: zoom',
+    'Buscar': 'Search',
+    'Radio': 'Radius',
+    'Zona cargada': 'Area loaded',
+    'ft': 'ft',
+    'Buscar la zona': 'Find the area',
+    'Marcar pares': 'Mark pairs',
+    'Ajustar y guardar': 'Fit and save',
+    'Escribe una dirección y descarga las calles': 'Type an address and download the streets',
+    '{n} pares · mínimo 3': '{n} pairs · minimum 3',
+    '{n} de 3 pares como mínimo': '{n} of at least 3 pairs',
+    'Error medio {e} ft': 'Mean error {e} ft',
+    'Pulsa «Ajustar» con 3 pares o más': 'Press “Fit” with 3 pairs or more',
+    'Giro {g}° · Escala {e}': 'Rotation {g}° · Scale {e}',
+    'Par con más error: {n} · {e} ft': 'Pair with the largest error: {n} · {e} ft',
+    'Sistema de coordenadas (Huso)': 'Coordinate system (zone)',
+    'Código CS-MAP (EPSG:2229 = CA83VF). Se aplica al dibujo de Civil 3D al importar.': 'CS-MAP code (EPSG:2229 = CA83VF). Applied to the Civil 3D drawing on import.',
+    'Pares de puntos': 'Point pairs',
+    'Casilla = mostrar en la hoja · interruptor = reconocer · ▸ = capa por capa': 'Checkbox = show on the sheet · switch = recognize · ▸ = layer by layer',
+    'Reconocer {u}': 'Recognize {u}',
+    'Tramos unidos': 'Joined runs',
+    'Tramos sueltos': 'Separate runs',
+    'Hace {n} min': '{n} min ago',
+    'Hace {n} h': '{n} h ago',
+    'Ayer': 'Yesterday',
+    'Hace {n} días': '{n} days ago',
+    'Recientes': 'Recent',
+    'Sin proyectos recientes': 'No recent projects',
+    'Ese proyecto ya no está en su carpeta:\n{p}': 'That project is no longer in its folder:\n{p}',
 }

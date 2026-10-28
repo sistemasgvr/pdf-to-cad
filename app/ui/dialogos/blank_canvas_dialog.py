@@ -15,7 +15,8 @@ unidad en la que trabaja la transformación a coordenadas CAD.
 """
 from PySide6 import QtWidgets, QtCore
 
-from traduccion.i18n import t as _tr, N_
+from traduccion.i18n import t as _tr
+from ui.comun import theme as _theme, N_
 
 # Tamaños de hoja en MILÍMETROS (nombre, ancho, alto) en vertical.
 HOJAS_ISO = [
@@ -63,6 +64,13 @@ def choose_canvas(parent, escala_actual=20.0):
     dlg.setWindowTitle(_tr("Nuevo lienzo"))
     dlg.setModal(True)
     lay = QtWidgets.QVBoxLayout(dlg)
+    lay.setContentsMargins(22, 18, 22, 16)
+    lay.setSpacing(12)
+    # 2.0.0: título + una línea; secciones sin marco (como el prototipo)
+    _tit = QtWidgets.QLabel(_tr("Nuevo lienzo")); _tit.setProperty("rol", "h1")
+    _sub = QtWidgets.QLabel(_tr("Una hoja en blanco para dibujar sin PDF: elige su tamaño y la escala."))
+    _sub.setProperty("rol", "t2"); _sub.setWordWrap(True)
+    lay.addWidget(_tit); lay.addWidget(_sub)
 
     # ── Tamaño de hoja ──────────────────────────────────────────────────
     gb_hoja = QtWidgets.QGroupBox(_tr("Tamaño de hoja"))
@@ -94,8 +102,18 @@ def choose_canvas(parent, escala_actual=20.0):
     rb_horiz = QtWidgets.QRadioButton(_tr("Horizontal"))
     rb_horiz.setChecked(True)                    # los planos suelen ir apaisados
     hb_or = QtWidgets.QHBoxLayout()
-    hb_or.addWidget(rb_vert); hb_or.addWidget(rb_horiz); hb_or.addStretch(1)
+    _seg = QtWidgets.QFrame(); _seg.setObjectName("segmentado")       # 2.0.0: segmentado (los mismos radios)
+    _sl = QtWidgets.QHBoxLayout(_seg); _sl.setContentsMargins(3, 3, 3, 3)
+    for _rb in (rb_vert, rb_horiz):
+        _t = _theme.tokens()
+        _rb.setStyleSheet("QRadioButton::indicator { width: 0; height: 0; }"
+                          " QRadioButton { padding: 4px 12px; border-radius: 6px; }"
+                          f" QRadioButton:checked {{ background: {_t.surface}; color: {_t.text}; font-weight: 600; }}")
+        _sl.addWidget(_rb)
+    hb_or.addWidget(_seg); hb_or.addStretch(1)
     fl.addRow(_tr("Orientación:"), hb_or)
+    gb_hoja.setFlat(True)
+    gb_hoja.setStyleSheet("QGroupBox { border: none; font-weight: 600; padding-top: 18px; }")
     lay.addWidget(gb_hoja)
 
     # ── Escala del plano ────────────────────────────────────────────────
@@ -120,6 +138,8 @@ def choose_canvas(parent, escala_actual=20.0):
     lbl_cobertura = QtWidgets.QLabel()
     lbl_cobertura.setWordWrap(True)
     fe.addRow(_tr("Cubre:"), lbl_cobertura)
+    gb_esc.setFlat(True)
+    gb_esc.setStyleSheet("QGroupBox { border: none; font-weight: 600; padding-top: 18px; }")
     lay.addWidget(gb_esc)
 
     # ── Lógica de habilitado y previsualización ─────────────────────────

@@ -141,7 +141,10 @@ class LayerInfoMixin:
         self.info_box.body_layout.addWidget(NaturalHeightScroll(self.info), 1)
         self.info_box.setMinimumWidth(INFO_MIN_W)
         self.info_box.toggled.connect(self._on_info_toggled)
-        self.split.insertWidget(0, self.info_box)
+        # 2.0.0 (como el prototipo): «Qué reconocer» y las capas a la IZQUIERDA, la hoja al centro, la
+        # leyenda a la derecha (plegable)
+        self.split.insertWidget(0, self._side)
+        self.split.addWidget(self.info_box)
         self.split.setStretchFactor(0, 0); self.split.setStretchFactor(1, 1); self.split.setStretchFactor(2, 0)
         self._hl_items: list = []
         self._drawings = None                 # (trazo, lo visible) de las capas de utilidad (para resaltar)
@@ -451,18 +454,27 @@ class LayerInfoMixin:
     def _apply_three_columns(self, side_w: int):
         w = self.split.width() or self.width()
         left = CollapsiblePanel.STRIP_W if self.info_box.collapsed else self._info_width(w)
-        self.split.setSizes([left, max(200, w - left - side_w), side_w])
+        self.split.setSizes(self._en_orden(left, max(200, w - left - side_w), side_w))
 
     def _on_info_toggled(self, collapsed: bool):
         """Plegar «Leyenda» le da su ancho a la hoja; desplegar lo recupera."""
         sizes = self.split.sizes()
+        ii, iv = self.split.indexOf(self.info_box), self.split.indexOf(self.view)
         if collapsed:
-            self._info_w = sizes[0]
-            sizes[1] += max(0, sizes[0] - CollapsiblePanel.STRIP_W)
-            sizes[0] = CollapsiblePanel.STRIP_W
+            self._info_w = sizes[ii]
+            sizes[iv] += max(0, sizes[ii] - CollapsiblePanel.STRIP_W)
+            sizes[ii] = CollapsiblePanel.STRIP_W
         else:
             self.info_box.setMinimumWidth(INFO_MIN_W)
             want = getattr(self, "_info_w", 0) or self._info_width(sum(sizes))
-            sizes[1] = max(200, sizes[1] - (want - sizes[0]))
-            sizes[0] = want
+            sizes[iv] = max(200, sizes[iv] - (want - sizes[ii]))
+            sizes[ii] = want
         self.split.setSizes(sizes)
+
+    def _en_orden(self, info, vista, lado):
+        """Anchos (leyenda, hoja, panel de capas) en el orden en que están en el divisor."""
+        orden = [0, 0, 0]
+        orden[self.split.indexOf(self.info_box)] = info
+        orden[self.split.indexOf(self.view)] = vista
+        orden[self.split.indexOf(self._side)] = lado
+        return orden

@@ -69,6 +69,8 @@ def test_editar_cotas_y_diametro_desde_3d_llega_al_plano_y_se_deshace(win):
     dlg = _abrir(win)
     dlg._elegido(1)
     ed = dlg.editor
+    assert not ed.isVisible()                      # 2.0.0: «Ficha | Editar», arranca en la ficha
+    dlg.mostrar_editor()
     assert ed.isVisible() and ed.tabla.rowCount() == 2 and ed.cmb_diam.isEnabled()
     p = win.pipes[0]
     # fin de T1 (vértice intermedio): queda la edición por tramo activada, como el botón del plano

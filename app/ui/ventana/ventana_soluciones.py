@@ -138,6 +138,11 @@ class SolucionesMixin:
     # ── abrir ──
     def abrir_soluciones(self, cid=None):
         """IA → «Resolver conflictos…» (no modal; una sola ventana)."""
+        if getattr(self, "_incrustar_ok", lambda: False)():    # 2.0.0: en el panel del Asistente
+            self.mostrar_asistente(True, "conflictos")
+            dlg = self._dlg_soluciones
+            dlg.elegir(cid)
+            return dlg
         from ui.dialogos.ia_soluciones import SolucionesDialog
         dlg = getattr(self, "_dlg_soluciones", None)
         if dlg is None:

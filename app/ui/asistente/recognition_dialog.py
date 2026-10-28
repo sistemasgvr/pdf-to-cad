@@ -349,8 +349,8 @@ class RecognitionPreviewDialog(NoEscapeClose, QtWidgets.QDialog):
         self.btn_sheet = self.steps.buttons[0]       # «1 Componer hoja»
         root.addWidget(wizard_header(self.steps))
         t = _theme.tokens()
-        panel_qss = (f"QFrame#previewPanel {{ background:{t.surface}; border:1px solid {t.border};"
-                     f" border-radius:8px; }}")
+        # 2.0.0 (prototipo «faltante»): paneles sin borde, separados por su fondo
+        panel_qss = (f"QFrame#previewPanel {{ background:{t.surface}; border:none; border-radius:10px; }}")
         self.split = GripSplitter(QtCore.Qt.Horizontal)   # tiradores visibles y arrastrables
 
         # ── izquierda: «Para verificar» + «Detalles» (plegable: en pantallas chicas deja
@@ -491,9 +491,19 @@ class RecognitionPreviewDialog(NoEscapeClose, QtWidgets.QDialog):
             _tr("Al continuar, estas líneas se importan al editor como {u} "
                 "(igual que el dibujo manual, con sus puntos de quiebre). "
                 "Las estructuras se insertan como nodos de la red.").format(u=utility_title))
-        root.addWidget(wizard_footer([self.opacity, self.chk_routes],
+        # 2.0.0 (prototipo «faltante»): «Tramos unidos | Tramos sueltos» refleja `chk_routes` (sigue
+        # siendo el dato) y «Atrás» = el paso 2 de la barra de pasos (mismo `_finish`).
+        from ui.asistente.recognition_pie import segmentado_tramos
+        self.seg_tramos = segmentado_tramos(self.chk_routes)
+        self.chk_routes.hide()
+        self.btn_atras = QtWidgets.QPushButton(icon("mdi:arrow-left", color=t.text), _tr("Atrás"))
+        self.btn_atras.setProperty("secondary", True)
+        self.btn_atras.setAutoDefault(False)
+        self.btn_atras.clicked.connect(lambda: self._finish(PREVIEW_SHEET_LAYERS))
+        self.btn_cancel.setProperty("kind", "ghost")
+        root.addWidget(wizard_footer([self.opacity, self.seg_tramos, self.chk_routes],
                                      _tr("Rueda = zoom · botón central = desplazar"),
-                                     [self.btn_cancel, self.btn_ok]))
+                                     [self.btn_cancel, self.btn_atras, self.btn_ok]))
         self.btn_ok.setDefault(True)
         self.btn_ok.setEnabled(n_draw > 0)
 

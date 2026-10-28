@@ -68,11 +68,12 @@ class StepBar(QtWidgets.QWidget):
         t = _theme.tokens()
         row = QtWidgets.QHBoxLayout(self)
         row.setContentsMargins(0, 0, 0, 0); row.setSpacing(4)
+        row.addStretch(1)                              # 2.0.0: pasos centrados, como el prototipo
         self.buttons: list[QtWidgets.QToolButton] = []
         for i, name in enumerate(WIZARD_STEPS):
             if i:
                 sep = QtWidgets.QLabel("›")
-                sep.setStyleSheet(f"color:{t.text_muted}; font-size:15px;")
+                sep.setStyleSheet(f"color:{t.text3}; font-size:15px; background: transparent;")
                 row.addWidget(sep)
             btn = QtWidgets.QToolButton()
             done = i < current
@@ -83,16 +84,16 @@ class StepBar(QtWidgets.QWidget):
             btn.setAutoRaise(False)
             btn.setToolButtonStyle(QtCore.Qt.ToolButtonTextOnly)
             if i == current:
-                css = (f"QToolButton {{ background:{t.accent}; color:{t.text_on_accent}; font-weight:bold;"
-                       f" border:1px solid {t.accent}; border-radius:12px; padding:3px 12px; }}")
+                css = (f"QToolButton {{ background:{t.soft}; color:{t.soft_text}; font-weight:600;"
+                       f" border:none; border-radius:15px; padding:5px 14px; }}")
             elif done:
-                css = (f"QToolButton {{ background:{t.soft}; color:{t.soft_text}; border:1px solid {t.border};"
-                       f" border-radius:12px; padding:3px 12px; }}"
-                       f" QToolButton:hover {{ background:{t.soft_hover}; border-color:{t.accent}; }}"
-                       f" QToolButton:disabled {{ background:{t.soft}; color:{t.soft_text}; }}")
+                css = (f"QToolButton {{ background:transparent; color:{t.text}; border:none;"
+                       f" border-radius:15px; padding:5px 14px; }}"
+                       f" QToolButton:hover {{ background:{t.hover}; }}"
+                       f" QToolButton:disabled {{ color:{t.text_muted}; }}")
             else:
-                css = (f"QToolButton {{ background:transparent; color:{t.text_muted}; border:1px solid transparent;"
-                       f" padding:3px 8px; }}")
+                css = (f"QToolButton {{ background:transparent; color:{t.text3}; border:none;"
+                       f" padding:5px 10px; }}")
             btn.setStyleSheet(css)
             btn.setEnabled(clickable or i == current)
             if clickable:
@@ -114,7 +115,7 @@ def wizard_header(steps: StepBar) -> QtWidgets.QWidget:
     lay.addWidget(steps)
     line = QtWidgets.QFrame()
     line.setFrameShape(QtWidgets.QFrame.HLine)
-    line.setStyleSheet(f"color:{_theme.tokens().border};")
+    line.setStyleSheet(f"color:{_theme.tokens().border_soft};")
     lay.addWidget(line)
     return w
 
@@ -128,7 +129,7 @@ def wizard_footer(left: list, hint: str, buttons: list) -> QtWidgets.QWidget:
     col.setContentsMargins(0, 0, 0, 0); col.setSpacing(8)
     line = QtWidgets.QFrame()
     line.setFrameShape(QtWidgets.QFrame.HLine)
-    line.setStyleSheet(f"color:{_theme.tokens().border};")
+    line.setStyleSheet(f"color:{_theme.tokens().border_soft};")
     col.addWidget(line)
     row = QtWidgets.QHBoxLayout(); row.setSpacing(10)
     for x in left:
@@ -137,8 +138,10 @@ def wizard_footer(left: list, hint: str, buttons: list) -> QtWidgets.QWidget:
     lbl.setStyleSheet(f"color:{_theme.tokens().text_muted}; font-size:12px;")
     lbl.setWordWrap(True)
     row.addWidget(lbl, 1)
-    for b in buttons:
+    for k, b in enumerate(buttons):
         b.setMinimumSize(130, 34)
+        if k == len(buttons) - 1 and not b.property("danger") and not b.property("secondary"):
+            b.setProperty("kind", "primary")           # 2.0.0: avanzar = la acción principal, en color
         row.addWidget(b)
     col.addLayout(row)
     return w
@@ -241,3 +244,60 @@ class OpacityButton(QtWidgets.QPushButton):
 
     def _open(self):
         show_opacity_popup(self, self.opacity, self.set_opacity, self.is_black, self.toggle_bg, above=False)
+
+
+# ── 2.0.0: herramientas FLOTANTES sobre la hoja (como el prototipo) ──────────
+class _Flotador(QtCore.QObject):
+    def __init__(self, vista, widget, donde, margen):
+        super().__init__(vista)
+        self.vista, self.widget, self.donde, self.margen = vista, widget, donde, margen
+        vista.installEventFilter(self)
+        widget.installEventFilter(self)
+
+    def eventFilter(self, obj, ev):
+        if ev.type() in (QtCore.QEvent.Resize, QtCore.QEvent.Show, QtCore.QEvent.LayoutRequest):
+            QtCore.QTimer.singleShot(0, self.colocar)
+        return False
+
+    def colocar(self):
+        v, w, m = self.vista, self.widget, self.margen
+        try:
+            w.adjustSize()
+        except RuntimeError:
+            return
+        W, H = v.width(), v.height()
+        if w.width() > W - 2 * m:                  # nunca más ancha que la vista (lo que no quepa se recorta)
+            w.resize(max(w.minimumSizeHint().width(), W - 2 * m), w.height())
+        if self.donde == "arriba":
+            w.move(max(m, (W - w.width()) // 2), m)
+        elif self.donde == "abajo":
+            w.move(max(m, (W - w.width()) // 2), H - w.height() - m)
+        elif self.donde == "arriba_derecha":
+            w.move(max(m, W - w.width() - m - 14), m)
+        w.raise_()
+
+
+def flotar(vista: QtWidgets.QWidget, widget: QtWidgets.QWidget, donde: str = "abajo", margen: int = 12):
+    """Pone `widget` (sus botones de siempre) flotando sobre `vista`: «abajo»/«arriba» (al centro) o «arriba_derecha»."""
+    oculto = widget.testAttribute(QtCore.Qt.WA_WState_ExplicitShowHide) and widget.isHidden()                    # se respeta: p. ej. una tarjeta que aparece sola
+    widget.setParent(vista)
+    f = _Flotador(vista, widget, donde, margen)
+    widget.setVisible(not oculto)
+    f.colocar()
+    return f
+
+
+def pastilla(widgets) -> QtWidgets.QFrame:
+    """Una pastilla flotante (QFrame#flotante) con esos widgets en fila."""
+    t = _theme.tokens()
+    f = QtWidgets.QFrame()
+    f.setObjectName("flotante")
+    f.setStyleSheet(f"QFrame#flotante {{ background:{t.surface}; border:1px solid {t.border}; border-radius:12px; }}")
+    lay = QtWidgets.QHBoxLayout(f)
+    lay.setContentsMargins(8, 5, 8, 5)
+    lay.setSpacing(6)
+    for w in widgets:
+        if isinstance(w, QtWidgets.QLayoutItem):
+            continue
+        lay.addWidget(w)
+    return f

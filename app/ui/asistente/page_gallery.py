@@ -27,8 +27,12 @@ CHECK_PX = 22                          # lado de la casilla
 CHECK_MARGIN = 8                       # separación del borde derecho e inferior de la tarjeta
 
 
-def check_rect(item_rect: QtCore.QRect) -> QtCore.QRect:
-    """Casilla de una tarjeta: abajo a la derecha, a la altura del nombre de la hoja."""
+def check_rect(item_rect: QtCore.QRect, lista: bool = False) -> QtCore.QRect:
+    """Casilla de una tarjeta: abajo a la derecha, a la altura del nombre de la hoja; en lista (2.0.0),
+    a la derecha y al medio de la fila."""
+    if lista:
+        return QtCore.QRect(item_rect.right() - CHECK_PX - CHECK_MARGIN,
+                            item_rect.center().y() - CHECK_PX // 2, CHECK_PX, CHECK_PX)
     return QtCore.QRect(item_rect.right() - CHECK_PX - CHECK_MARGIN,
                         item_rect.bottom() - CHECK_PX - CHECK_MARGIN, CHECK_PX, CHECK_PX)
 
@@ -67,7 +71,7 @@ class _CheckDelegate(QtWidgets.QStyledItemDelegate):
     def paint(self, painter, option, index):
         super().paint(painter, option, index)
         gallery = self.parent()
-        paint_check(painter, check_rect(option.rect), bool(index.data(USED_ROLE)),
+        paint_check(painter, check_rect(option.rect, self.parent().viewMode() == QtWidgets.QListView.ListMode), bool(index.data(USED_ROLE)),
                     hover=getattr(gallery, "_hover_check", -1) == index.row(),
                     selected=bool(option.state & QtWidgets.QStyle.State_Selected))
 
@@ -93,7 +97,7 @@ class PageGallery(QtWidgets.QListWidget):
         item = self.itemAt(pos)
         if item is None:
             return -1
-        hit = check_rect(self.visualItemRect(item)).adjusted(-6, -6, 6, 6)
+        hit = check_rect(self.visualItemRect(item), self.viewMode() == QtWidgets.QListView.ListMode).adjusted(-6, -6, 6, 6)
         return self.row(item) if hit.contains(pos) else -1
 
     def set_used(self, row: int, used: bool):

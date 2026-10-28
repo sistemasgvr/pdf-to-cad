@@ -13,7 +13,9 @@ Diálogo grande (QDialog), diseñado para usuarios de +60 años:
 Uso desde la ventana principal:
     from ui.dialogos.duct_bank_dialog import DuctBankDialog
     dlg = DuctBankDialog(win, initial=win.duct_bank_current)
-    if dlg.exec() == QtWidgets.QDialog.Accepted:
+    ejecutar = getattr(win, "ejecutar_incrustado", None)     # 2.0.0: dentro de la ventana principal
+    codigo = ejecutar(dlg) if ejecutar is not None else dlg.exec()
+    if codigo == QtWidgets.QDialog.Accepted:
         win.duct_bank_current = dlg.result()
 """
 from __future__ import annotations
@@ -104,9 +106,10 @@ def _add_form_row(form: QtWidgets.QFormLayout, label_text: str,
 
 
 def _build_btn_style() -> str:
+    # 2.0.0: botones de solo icono en la barra flotante sobre el lienzo (como el prototipo)
     t = _theme.tokens()
-    return (f"QToolButton{{background:{t.surface};border:1px solid {t.border};border-radius:6px;"
-            f"padding:8px 4px;min-width:66px;min-height:66px;font-size:12px;color:{t.text};}}"
+    return (f"QToolButton{{background:transparent;border:1px solid transparent;border-radius:7px;"
+            f"padding:5px;min-width:30px;min-height:30px;color:{t.text};}}"
             f"QToolButton:hover{{background:{t.hover};}}"
             f"QToolButton:checked{{background:{t.accent};color:{t.text_on_accent};border-color:{t.accent_pressed};}}"
             f"QToolButton[danger='true']{{color:{t.danger};}}"
@@ -114,11 +117,12 @@ def _build_btn_style() -> str:
 
 
 def _build_header_style() -> str:
+    # 2.0.0: Deshacer/Rehacer/Ayuda como botones discretos de la cabecera
     t = _theme.tokens()
-    return (f"QPushButton{{background:{t.accent};color:{t.text_on_accent};border:none;border-radius:6px;"
-            f"padding:10px 14px;font-size:13px;min-width:88px;font-weight:600;}}"
-            f"QPushButton:hover{{background:{t.accent_hover};}}"
-            f"QPushButton:disabled{{background:{t.border};color:{t.text_disabled};}}")
+    return (f"QPushButton{{background:transparent;color:{t.text};border:1px solid transparent;"
+            f"border-radius:7px;padding:6px 10px;}}"
+            f"QPushButton:hover{{background:{t.hover};}}"
+            f"QPushButton:disabled{{color:{t.text_disabled};}}")
 
 
 # ── Widget: editor de 4 valores estilo Photoshop ────────────────────────────
@@ -1126,8 +1130,16 @@ class DuctBankDialog(QtWidgets.QDialog):
     """Diseñador de sección del Duct Bank. Ver docstring del módulo."""
 
     def __init__(self, parent=None, initial: Optional[DuctBank] = None,
-                 pipes: Optional[list] = None, pipe_thumb=None, taken=None):
+                 pipes: Optional[list] = None, pipe_thumb=None, taken=None,
+                 designs: Optional[list] = None, describe=None):
         super().__init__(parent)
+        # 2.0.0: columna izquierda con los diseños del proyecto (como el prototipo). Elegir otro, «+»,
+        # Duplicar o borrar CIERRA este (preguntando si hay cambios) y deja en `despues` qué hacer;
+        # la ventana lo hace con sus métodos de siempre (`_open_duct_bank_designer`).
+        self._designs = designs
+        self._describe = describe
+        self._actual = next((i for i, d in enumerate(designs or []) if d is initial), -1)
+        self.despues = None
         self.setWindowTitle(_tr("Diseñador de Duct Bank"))
         # Ventana top-level normal — como la ventana principal y georreferenciar.
         # Sin `setModal(True)`: `exec()` la sigue haciendo modal (bloquea la
@@ -1178,6 +1190,7 @@ class DuctBankDialog(QtWidgets.QDialog):
         self._build_ui()
         self._wire()
         self._refresh_panel()
+        self._inicial = self._huella()
         # Herramienta activa al abrir
         self._set_tool("select")
         # Estilos custom: aplicar ahora + reaccionar a cambios de tema mientras el
@@ -1273,12 +1286,15 @@ class DuctBankDialog(QtWidgets.QDialog):
 
         # Header
         header = QtWidgets.QFrame(); self._header = header   # estilo por _restyle
-        h = QtWidgets.QHBoxLayout(header); h.setContentsMargins(14, 10, 14, 10); h.setSpacing(10)
-        lbl_title = QtWidgets.QLabel("<span style='color:white;font-size:18px;font-weight:700;'>"
-                                     f"{_tr('Diseñador de Duct Bank')}</span><br>"
-                                     "<span style='color:#d7e5ff;font-size:12px;'>"
-                                     f"{_tr('Cara Interior (Corte Longitudinal)')}</span>")
-        h.addWidget(lbl_title); h.addStretch(1)
+        h = QtWidgets.QHBoxLayout(header); h.setContentsMargins(20, 14, 16, 10); h.setSpacing(6)
+        # 2.0.0: título + subtítulo sobre el fondo de la ventana (antes, barra azul)
+        _tx = QtWidgets.QVBoxLayout(); _tx.setSpacing(0)
+        self._lbl_titulo = QtWidgets.QLabel(_tr("Diseñador de Duct Bank"))
+        self._lbl_titulo.setProperty("rol", "h1")
+        self._lbl_sub = QtWidgets.QLabel(_tr("Cara Interior (Corte Longitudinal)"))
+        self._lbl_sub.setProperty("rol", "t2")
+        _tx.addWidget(self._lbl_titulo); _tx.addWidget(self._lbl_sub)
+        h.addLayout(_tx); h.addStretch(1)
         # Header simplificado: SOLO acciones que se usan durante el diseño
         # (Deshacer/Rehacer/Ayuda). Nuevo/Abrir/Guardar del proyecto se manejan
         # desde la ventana principal (pestaña "Bancoductos"); no tiene sentido
@@ -1303,21 +1319,22 @@ class DuctBankDialog(QtWidgets.QDialog):
 
         # Cuerpo: [ toolbar | canvas | props ]
         body = QtWidgets.QWidget(); body_l = QtWidgets.QHBoxLayout(body)
-        body_l.setContentsMargins(8, 8, 8, 8); body_l.setSpacing(8)
+        body_l.setContentsMargins(0, 0, 0, 0); body_l.setSpacing(0)
 
         # Toolbar izquierda
         tools_wrap = QtWidgets.QFrame()
         self._tools_wrap = tools_wrap
-        tv = QtWidgets.QVBoxLayout(tools_wrap); tv.setContentsMargins(8, 8, 8, 8); tv.setSpacing(6)
+        tools_wrap.setObjectName("flotante")
+        tv = QtWidgets.QHBoxLayout(tools_wrap); tv.setContentsMargins(6, 5, 6, 5); tv.setSpacing(2)
         self._tool_group = QtWidgets.QButtonGroup(self); self._tool_group.setExclusive(True)
         self._tool_buttons = []
         # Mapa botón → nombre de icono, para retintar en _restyle.
         self._tool_icon_map = {}
         def _tool_btn(icon_name, label, tool_key, tip, danger=False):
             b = QtWidgets.QToolButton()
-            b.setToolButtonStyle(QtCore.Qt.ToolButtonTextUnderIcon)
+            b.setToolButtonStyle(QtCore.Qt.ToolButtonIconOnly)
             b.setText(label)
-            b.setIconSize(QtCore.QSize(28, 28))
+            b.setIconSize(QtCore.QSize(20, 20))
             b.setCheckable(True)
             b.setToolTip(tip)
             b.setProperty("danger", "true" if danger else "false")
@@ -1344,9 +1361,9 @@ class DuctBankDialog(QtWidgets.QDialog):
         # resguardo de cada conducto a la envolvente/margen. Al desactivarlo,
         # las cotas desaparecen. Cambia texto e icono según el estado.
         self.tb_dimensions = QtWidgets.QToolButton()
-        self.tb_dimensions.setToolButtonStyle(QtCore.Qt.ToolButtonTextUnderIcon)
+        self.tb_dimensions.setToolButtonStyle(QtCore.Qt.ToolButtonIconOnly)
         self.tb_dimensions.setCheckable(True)
-        self.tb_dimensions.setIconSize(QtCore.QSize(28, 28))
+        self.tb_dimensions.setIconSize(QtCore.QSize(20, 20))
         self.tb_dimensions.setProperty("danger", "false")
         self.tb_dimensions.clicked.connect(self._toggle_dimensions)
         self._tool_buttons.append(self.tb_dimensions)
@@ -1356,24 +1373,25 @@ class DuctBankDialog(QtWidgets.QDialog):
         self._refresh_dimensions_button()   # etiqueta y tooltip iniciales
         self.tb_delete = _tool_btn("mdi:trash-can-outline", _tr("Eliminar"), "delete",
                                    _tr("Click en un conducto para eliminarlo."), danger=True)
-        tv.addSpacing(10)
+        _sep = QtWidgets.QFrame(); _sep.setFrameShape(QtWidgets.QFrame.VLine); _sep.setFixedHeight(22)
+        tv.addSpacing(4); tv.addWidget(_sep); tv.addSpacing(4)
         # Zoom + ajustar
         def _plain_btn(icon_name, label, tip, fn):
             b = QtWidgets.QToolButton()
-            b.setToolButtonStyle(QtCore.Qt.ToolButtonTextUnderIcon)
+            b.setToolButtonStyle(QtCore.Qt.ToolButtonIconOnly)
             b.setText(label); b.setToolTip(tip)
-            b.setIconSize(QtCore.QSize(28, 28))
+            b.setIconSize(QtCore.QSize(20, 20))
             b.clicked.connect(fn); self._tool_buttons.append(b); self._tool_icon_map[b] = icon_name
             tv.addWidget(b); return b
         self.btn_zin = _plain_btn("mdi:magnify-plus-outline", _tr("Zoom +"), _tr("Acercar"), lambda: self._zoom(1.15))
         self.btn_zout = _plain_btn("mdi:magnify-minus-outline", _tr("Zoom −"), _tr("Alejar"), lambda: self._zoom(1 / 1.15))
         self.btn_fit = _plain_btn("mdi:image-filter-center-focus", _tr("Ajustar"),
                                     _tr("Centrar la vista sobre la envolvente"), self._fit)
-        tv.addStretch(1)
-        body_l.addWidget(tools_wrap, 0)
+        # (la barra va FLOTANDO sobre el lienzo: se coloca en `_position_error_banner`)
+        body_l.addWidget(self._columna_disenos(), 0)
 
         # Zona central: canvas + banner de errores (overlay) + footer + acciones
-        center = QtWidgets.QVBoxLayout(); center.setSpacing(4)
+        center = QtWidgets.QVBoxLayout(); center.setSpacing(4); center.setContentsMargins(10, 0, 10, 8)
 
         # Contenedor del canvas para permitir un banner de error overlay
         # posicionado ABSOLUTAMENTE encima del canvas (mejora #3).
@@ -1391,6 +1409,8 @@ class DuctBankDialog(QtWidgets.QDialog):
         self.lbl_error_banner.setAttribute(QtCore.Qt.WA_TransparentForMouseEvents)
         canvas_wrap.installEventFilter(self)
         self._canvas_wrap = canvas_wrap
+        tools_wrap.setParent(canvas_wrap)
+        tools_wrap.raise_()
         center.addWidget(canvas_wrap, 1)
 
         # Barra inferior — snap + estado. El slider de zoom se quitó (mejora #6):
@@ -1426,20 +1446,21 @@ class DuctBankDialog(QtWidgets.QDialog):
         # Cancelar (secundario) + Guardar y cerrar (primario). Alineadas a la
         # derecha del canvas para ser lo último que ve el usuario tras diseñar.
         actions = QtWidgets.QHBoxLayout()
-        actions.setContentsMargins(0, 4, 0, 0); actions.setSpacing(8)
+        actions.setContentsMargins(10, 8, 10, 10); actions.setSpacing(8)
         actions.addStretch(1)
-        self.btn_cancel = QtWidgets.QPushButton(_tr("Cancelar"))
-        self.btn_cancel.setMinimumHeight(38); self.btn_cancel.setMinimumWidth(120)
+        self.btn_cancel = QtWidgets.QPushButton(_tr("Descartar"))
+        self.btn_cancel.setProperty("kind", "ghost")
+        self.btn_cancel.setMinimumHeight(36)
         self.btn_cancel.setToolTip(_tr("Cerrar sin guardar cambios."))
-        self.btn_close = QtWidgets.QPushButton("  " + _tr("Guardar y cerrar"))
+        self.btn_close = QtWidgets.QPushButton("  " + _tr("Guardar diseño"))
+        self.btn_close.setProperty("kind", "primary")
         self.btn_close.setIcon(_icon("mdi:check", color="#ffffff"))
-        self.btn_close.setIconSize(QtCore.QSize(20, 20))
-        self.btn_close.setMinimumHeight(38); self.btn_close.setMinimumWidth(180)
+        self.btn_close.setIconSize(QtCore.QSize(18, 18))
+        self.btn_close.setMinimumHeight(36); self.btn_close.setMinimumWidth(150)
         self.btn_close.setToolTip(_tr("Guardar el bancoducto en el proyecto y cerrar el diseñador."))
         self.btn_close.setDefault(True)
         actions.addWidget(self.btn_cancel)
         actions.addWidget(self.btn_close)
-        center.addLayout(actions, 0)
 
         body_l.addLayout(center, 1)
 
@@ -1639,7 +1660,13 @@ class DuctBankDialog(QtWidgets.QDialog):
         side_scroll.setWidget(side)
         # Ancho preferente que da aire a los editores 3×3 sin lucir enorme.
         side_scroll.setMinimumWidth(340); side_scroll.setMaximumWidth(420)
-        body_l.addWidget(side_scroll, 0)
+        # 2.0.0: columna derecha = propiedades + Descartar / Guardar diseño (como el prototipo)
+        derecha = QtWidgets.QFrame(); self._derecha = derecha
+        dv = QtWidgets.QVBoxLayout(derecha); dv.setContentsMargins(0, 0, 0, 0); dv.setSpacing(0)
+        dv.addWidget(side_scroll, 1)
+        dv.addLayout(actions)
+        derecha.setMaximumWidth(420)
+        body_l.addWidget(derecha, 0)
 
         root.addWidget(body, 1)
 
@@ -1649,17 +1676,22 @@ class DuctBankDialog(QtWidgets.QDialog):
         t = _theme.tokens()
         # Header (barra azul superior)
         if hasattr(self, "_header"):
-            self._header.setStyleSheet(f"QFrame{{background:{t.header};}}")
-        # Panel derecho + toolbar izquierda (tarjetas)
-        card_qss = (f"QFrame{{background:{t.surface};border:1px solid {t.border};"
-                    f"border-radius:8px;}}")
-        for f in ("_tools_wrap", "_side"):
+            self._header.setStyleSheet("QFrame{background:transparent;}")
+        # 2.0.0: columnas laterales con el color de panel y una línea de separación; la barra de
+        # herramientas flota sobre el lienzo (QFrame#flotante del tema)
+        if getattr(self, "_side", None) is not None:
+            self._side.setStyleSheet("QFrame{background:transparent;border:none;}")
+        for f, lado in (("_derecha", "left"), ("_disenos", "right")):
             w = getattr(self, f, None)
-            if w is not None: w.setStyleSheet(card_qss)
+            if w is not None:
+                w.setStyleSheet(f"QFrame#{w.objectName() or 'x'}{{background:{t.surface};"
+                                f"border:none;border-{lado}:1px solid {t.border};}}")
+        if getattr(self, "_tools_wrap", None) is not None:
+            self._tools_wrap.setStyleSheet(
+                f"QFrame#flotante{{background:{t.surface};border:1px solid {t.border};border-radius:12px;}}")
         # Footer (barra de estado)
         if hasattr(self, "_footer"):
-            self._footer.setStyleSheet(
-                f"QFrame{{background:{t.surface_alt};border:1px solid {t.border};border-radius:6px;}}")
+            self._footer.setStyleSheet("QFrame{background:transparent;border:none;}")
         # Vista del canvas
         if hasattr(self, "view"):
             self.view.setStyleSheet(f"QGraphicsView{{border:1px solid {t.border};background:{t.grid_bg};}}")
@@ -1671,7 +1703,7 @@ class DuctBankDialog(QtWidgets.QDialog):
         # Iconos (SVG re-tintados con el tema): retintar con text_on_accent en el
         # header (fondo azul acento) y text en la barra de herramientas.
         for b, name in getattr(self, "_header_icon_map", {}).items():
-            b.setIcon(_icon(name, color=t.text_on_accent))
+            b.setIcon(_icon(name, color=t.text))
         for b, name in getattr(self, "_tool_icon_map", {}).items():
             # Los checked/danger sobreescriben color vía QSS; con este tint base
             # se leen bien en estado normal.
@@ -1691,6 +1723,7 @@ class DuctBankDialog(QtWidgets.QDialog):
         # Fuerza repintado de la escena (colores de envolvente/conductos)
         if hasattr(self, "scene"):
             self.scene.update()
+        self._llenar_disenos()
 
     def _retranslate(self, *_):
         """Re-aplica todos los textos traducibles al cambiar el idioma en vivo.
@@ -1703,14 +1736,9 @@ class DuctBankDialog(QtWidgets.QDialog):
             if hasattr(self, "btn_redo"): self.btn_redo.setText("  " + _tr("Rehacer"))
             if hasattr(self, "btn_help"): self.btn_help.setText("  " + _tr("Ayuda"))
             # Título del header (HTML rico)
-            try:
-                for lbl in self._header.findChildren(QtWidgets.QLabel):
-                    lbl.setText("<span style='color:white;font-size:18px;font-weight:700;'>"
-                                f"{_tr('Diseñador de Duct Bank')}</span><br>"
-                                "<span style='color:#d7e5ff;font-size:12px;'>"
-                                f"{_tr('Cara Interior (Corte Longitudinal)')}</span>")
-                    break
-            except Exception: pass
+            if hasattr(self, "_lbl_titulo"):
+                self._lbl_titulo.setText(_tr("Diseñador de Duct Bank"))
+                self._lbl_sub.setText(_tr("Cara Interior (Corte Longitudinal)"))
             # Toolbar izquierda (herramientas)
             if hasattr(self, "tb_sel"):
                 self.tb_sel.setText(_tr("Puntero"))
@@ -1736,8 +1764,9 @@ class DuctBankDialog(QtWidgets.QDialog):
                 self.lbl_status.setText(_tr("Rejilla activada · 1 punto = 1 pulgada"))
             if hasattr(self, "chk_snap"):
                 self.chk_snap.setText(_tr("Ajuste a rejilla (0.25\")"))
-            if hasattr(self, "btn_cancel"): self.btn_cancel.setText(_tr("Cancelar"))
-            if hasattr(self, "btn_close"): self.btn_close.setText("  " + _tr("Guardar y cerrar"))
+            if hasattr(self, "btn_cancel"): self.btn_cancel.setText(_tr("Descartar"))
+            if hasattr(self, "btn_close"): self.btn_close.setText("  " + _tr("Guardar diseño"))
+            self._llenar_disenos()
             # Panel derecho — títulos de groupbox y labels de forms
             for w, key in [
                 (getattr(self, "grp_conduit", None),
@@ -2011,6 +2040,11 @@ class DuctBankDialog(QtWidgets.QDialog):
         banner.adjustSize()
         x = (wrap.width() - banner.width()) // 2
         banner.move(max(0, x), 10)
+        barra = getattr(self, "_tools_wrap", None)        # 2.0.0: herramientas abajo al centro
+        if barra is not None:
+            barra.adjustSize()
+            barra.move(max(0, (wrap.width() - barra.width()) // 2), max(0, wrap.height() - barra.height() - 14))
+            barra.raise_()
 
     def eventFilter(self, obj, ev):
         """Reposiciona el banner de errores cuando el canvas cambia de tamaño."""
@@ -2333,7 +2367,7 @@ class DuctBankDialog(QtWidgets.QDialog):
                 "6) La rueda del ratón acerca/aleja; el botón central mueve la vista.<br>"
                 "7) Si hay un problema con el diseño (conducto fuera, solape…) aparece "
                 "un banner rojo en el tope del canvas con el mensaje.<br>"
-                "8) Presiona <b>Guardar y cerrar</b> — el diseño se guarda en el proyecto."))
+                "8) Presiona <b>Guardar diseño</b> — el diseño se guarda en el proyecto."))
 
     def _update_pipe_status(self):
         # Usa tokens del tema activo para legibilidad en dark y light.
@@ -2359,6 +2393,124 @@ class DuctBankDialog(QtWidgets.QDialog):
     def _on_close(self):
         self.accept()
 
+    # ── 2.0.0: columna de diseños del proyecto (como el prototipo) ──
+    def _columna_disenos(self):
+        col = QtWidgets.QFrame(); col.setObjectName("disenos"); self._disenos = col
+        col.setFixedWidth(250)
+        v = QtWidgets.QVBoxLayout(col); v.setContentsMargins(14, 12, 14, 12); v.setSpacing(8)
+        cab = QtWidgets.QHBoxLayout()
+        self._lbl_disenos = QtWidgets.QLabel(_tr("Duct Bank"))
+        self._lbl_disenos.setProperty("rol", "h3")
+        cab.addWidget(self._lbl_disenos, 1)
+        self.btn_db_nuevo = QtWidgets.QToolButton()
+        self.btn_db_nuevo.setIcon(_icon("mdi:plus"))
+        self.btn_db_nuevo.setToolTip(_tr("Nuevo bancoducto"))
+        self.btn_db_nuevo.setAutoRaise(True)
+        self.btn_db_nuevo.clicked.connect(lambda: self._salir_y(("nuevo", -1)))
+        cab.addWidget(self.btn_db_nuevo)
+        v.addLayout(cab)
+        self.lst_disenos = QtWidgets.QListWidget()
+        self.lst_disenos.setFrameShape(QtWidgets.QFrame.NoFrame)
+        self.lst_disenos.setStyleSheet("QListWidget{background:transparent;border:none;}"
+                                       "QListWidget::item{padding:6px 4px;border-radius:8px;}")
+        self.lst_disenos.setWordWrap(True)
+        self.lst_disenos.setHorizontalScrollBarPolicy(QtCore.Qt.ScrollBarAlwaysOff)
+        self.lst_disenos.itemClicked.connect(self._elegir_diseno)
+        v.addWidget(self.lst_disenos, 1)
+        pie = QtWidgets.QHBoxLayout()
+        self.btn_db_duplicar = QtWidgets.QPushButton(_tr("Duplicar"))
+        self.btn_db_duplicar.setIcon(_icon("mdi:content-copy"))
+        self.btn_db_duplicar.setToolTip(_tr("Duplica este bancoducto (sin utilidad asignada)."))
+        self.btn_db_duplicar.clicked.connect(lambda: self._salir_y(("duplicar", self._actual)))
+        self.btn_db_borrar = QtWidgets.QToolButton()
+        self.btn_db_borrar.setIcon(_icon("mdi:trash-can-outline", color=_theme.tokens().danger))
+        self.btn_db_borrar.setToolTip(_tr("Eliminar este bancoducto del proyecto"))
+        self.btn_db_borrar.setAutoRaise(True)
+        self.btn_db_borrar.clicked.connect(self._borrar_diseno)
+        for b in (self.btn_db_duplicar, self.btn_db_borrar):
+            b.setEnabled(self._actual >= 0)          # un diseño nuevo aún no está en el proyecto
+        pie.addWidget(self.btn_db_duplicar); pie.addStretch(1); pie.addWidget(self.btn_db_borrar)
+        v.addLayout(pie)
+        col.setVisible(self._designs is not None)
+        return col
+
+    def _llenar_disenos(self):
+        lst = getattr(self, "lst_disenos", None)
+        if lst is None or self._designs is None:
+            return
+        t = _theme.tokens()
+        lst.clear()
+        filas = [(i, d) for i, d in enumerate(self._designs)]
+        if self._actual < 0:
+            filas.append((-1, self.scene.model))
+        for i, d in filas:
+            nombre = d.name or _tr("(sin nombre)")
+            if i == self._actual and self.ed_name.text().strip():
+                nombre = self.ed_name.text().strip()
+            asign = ""
+            if self._describe is not None and i >= 0:
+                try:
+                    asign = self._describe(d)
+                except Exception:
+                    asign = ""
+            det = _tr("{w} × {h}\" · {n} conductos").format(w=f"{d.width_in:g}", h=f"{d.height_in:g}",
+                                                           n=len(d.conduits))
+            if asign:
+                det += " · " + asign
+            it = QtWidgets.QListWidgetItem(_icon("mdi:circle-medium", color=t.danger), f"{nombre}\n{det}")
+            it.setData(QtCore.Qt.UserRole, i)
+            if i == self._actual:
+                bg = QtGui.QColor(t.accent); bg.setAlpha(36)
+                it.setBackground(bg)
+            lst.addItem(it)
+
+    def _huella(self):
+        try:
+            return json.dumps(self.result_model().to_dict(), sort_keys=True)
+        except Exception:
+            return None
+
+    def _hay_cambios(self):
+        return self._huella() != getattr(self, "_inicial", None)
+
+    def _salir_y(self, accion):
+        """Cerrar este diseño para hacer `accion` en la ventana; con cambios, pregunta antes."""
+        if self._hay_cambios():
+            r = QtWidgets.QMessageBox.question(
+                self, _tr("Diseñador de Duct Bank"),
+                _tr("¿Guardar los cambios de este bancoducto?"),
+                QtWidgets.QMessageBox.Save | QtWidgets.QMessageBox.Discard | QtWidgets.QMessageBox.Cancel,
+                QtWidgets.QMessageBox.Save)
+            if r == QtWidgets.QMessageBox.Cancel:
+                return False
+            self.despues = accion
+            if r == QtWidgets.QMessageBox.Save:
+                self.accept()
+            else:
+                self.reject()
+            return True
+        self.despues = accion
+        self.reject()
+        return True
+
+    def _elegir_diseno(self, it):
+        i = int(it.data(QtCore.Qt.UserRole))
+        if i == self._actual:
+            return
+        if not self._salir_y(("abrir", i)):
+            self._llenar_disenos()
+
+    def _borrar_diseno(self):
+        if self._actual < 0:
+            return
+        nombre = self.ed_name.text().strip() or _tr("sin nombre")
+        if QtWidgets.QMessageBox.question(
+                self, _tr("Eliminar"), _tr("¿Eliminar el bancoducto «{nombre}» del proyecto?").format(nombre=nombre)
+        ) != QtWidgets.QMessageBox.Yes:
+            return
+        self.despues = ("borrar", self._actual)
+        self.reject()
+
     def showEvent(self, e):
         # Maximizar en el primer show: hay que llamarlo cuando el WM ya tiene la
         # ventana registrada — hacerlo en __init__ no siempre pega. La bandera
@@ -2369,6 +2521,7 @@ class DuctBankDialog(QtWidgets.QDialog):
         if getattr(self, "_start_maximized", False):
             self._start_maximized = False
             self.showMaximized()
+            QtCore.QTimer.singleShot(60, self._fit)      # 2.0.0: la envolvente entera a la vista
 
 
 def open_designer(win, initial: Optional[DuctBank] = None) -> Optional[DuctBank]:
@@ -2382,7 +2535,16 @@ def open_designer(win, initial: Optional[DuctBank] = None) -> Optional[DuctBank]
         for i in d.assigned():
             taken[i] = d.name
     thumb = getattr(win, "_pipe_thumbnail", None)
-    dlg = DuctBankDialog(win, initial=initial, pipes=pipes, pipe_thumb=thumb, taken=taken)
-    if dlg.exec() == QtWidgets.QDialog.Accepted:
+    designs = getattr(win, "duct_banks", None)
+    dlg = DuctBankDialog(win, initial=initial, pipes=pipes, pipe_thumb=thumb, taken=taken,
+                         designs=list(designs) if isinstance(designs, list) else None,
+                         describe=getattr(win, "_db_pipes_label", None))
+    ejecutar = getattr(win, "ejecutar_incrustado", None)     # 2.0.0: dentro de la ventana principal
+    codigo = ejecutar(dlg) if ejecutar is not None else dlg.exec()
+    try:
+        win._db_despues = dlg.despues                         # 2.0.0: columna de diseños
+    except Exception:
+        pass
+    if codigo == QtWidgets.QDialog.Accepted:
         return dlg.result_model()
     return None

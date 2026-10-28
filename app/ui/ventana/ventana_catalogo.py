@@ -288,7 +288,7 @@ class CatalogoMixin:
             kind, red = "structure", None
             fid, familia = self.bz_family.currentData() or "", self.bz_family.currentText()
         if not fid:
-            QtWidgets.QMessageBox.information(self, _tr("Agregar tamaño"), _tr("Elige primero una familia."))
+            self.informar(_tr("Agregar tamaño"), _tr("Elige primero una familia."))
             return
         texto = catalogo_tamanos_dialog.abrir(self, kind, fid, familia.split("  [")[0],
                                               self.civil_year, _cc._current_lang)

@@ -76,6 +76,10 @@ class _NoticeRow(QtWidgets.QFrame):
         self.hint.setWordWrap(True)
         self.hint.setStyleSheet(f"color:{t.text_muted}; font-size:12px; background:transparent;")
         self.hint.setVisible(bool(self.hint.text()))
+        # 2.0.0 (prototipo «faltante»): a la vista solo la primera frase; el texto completo, en el globo
+        if self.hint.text():
+            frase = self.hint.text().split(". ")[0].rstrip(".") + "."
+            self.hint.setText(frase)
         col.addWidget(self.hint)
         lay.addLayout(col, 1)
         self.clickable = bool(targets and on_locate and targets())

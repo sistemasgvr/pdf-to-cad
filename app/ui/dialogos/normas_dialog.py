@@ -33,30 +33,50 @@ class NormasDialog(QtWidgets.QDialog):
         self.resize(980, 600)
         self.setWindowFlag(QtCore.Qt.WindowMaximizeButtonHint, True)
         lay = QtWidgets.QVBoxLayout(self)
+        lay.setContentsMargins(24, 18, 24, 14)
+        lay.setSpacing(12)
+        # 2.0.0: cabecera (título + una línea) y las acciones del Excel arriba a la derecha (como el prototipo)
+        fila = QtWidgets.QHBoxLayout()
+        tx = QtWidgets.QVBoxLayout()
+        tx.setSpacing(2)
+        titulo = QtWidgets.QLabel(_tr("Normativas de diseño"))
+        titulo.setProperty("rol", "h1")
+        tx.addWidget(titulo)
         cab = QtWidgets.QLabel(_tr("Edita las tablas aquí mismo (doble clic en una celda) y pulsa «Guardar "
                                    "cambios». Valen para todos tus proyectos. El Excel es opcional: para "
                                    "compartirlas o editarlas en lote."))
         cab.setWordWrap(True)
-        lay.addWidget(cab)
-        fila = QtWidgets.QHBoxLayout()
+        cab.setProperty("rol", "t2")
+        tx.addWidget(cab)
+        fila.addLayout(tx, 1)
         self.btn_guardar = QtWidgets.QPushButton(_tr("Guardar cambios"))
+        self.btn_guardar.setProperty("kind", "primary")
         self.btn_descartar = QtWidgets.QPushButton(_tr("Descartar cambios"))
-        self.btn_descartar.setProperty("secondary", True)
+        self.btn_descartar.setProperty("kind", "ghost")
         self.btn_guardar.clicked.connect(lambda: self.guardar())
         self.btn_descartar.clicked.connect(self.descartar)
         b_imp = QtWidgets.QPushButton(_tr("Importar Excel…"))
         b_exp = QtWidgets.QPushButton(_tr("Exportar Excel…"))
         b_base = QtWidgets.QPushButton(_tr("Volver a los valores iniciales"))
-        b_base.setProperty("secondary", True)
+        b_base.setProperty("kind", "ghost")
         b_imp.clicked.connect(self.importar)
         b_exp.clicked.connect(self.exportar)
         b_base.clicked.connect(self.restaurar)
-        for b in (self.btn_guardar, self.btn_descartar, b_imp, b_exp, b_base):
+        for b in (b_imp, b_exp, b_base):
             b.setMinimumHeight(34)
             b.setAutoDefault(False)
-            fila.addWidget(b)
-        fila.addStretch(1)
+            fila.addWidget(b, 0, QtCore.Qt.AlignTop)
+        for b in (self.btn_guardar, self.btn_descartar):
+            b.setMinimumHeight(34)
+            b.setAutoDefault(False)
         lay.addLayout(fila)
+        self._seg = QtWidgets.QFrame()
+        self._seg.setObjectName("segmentado")
+        self._seg.setMaximumWidth(520)
+        sl = QtWidgets.QHBoxLayout(self._seg)
+        sl.setContentsMargins(3, 3, 3, 3)
+        self._grupo_seg = QtWidgets.QButtonGroup(self._seg)
+        lay.addWidget(self._seg)
         self.pestanas = QtWidgets.QTabWidget()
         lay.addWidget(self.pestanas, 1)
         pag = QtWidgets.QWidget()
@@ -91,12 +111,34 @@ class NormasDialog(QtWidgets.QDialog):
             self.pestanas.addTab(pag, _tr(tabla.titulo))
         self.tablas.cambio.connect(self._botones_tablas)
         self.tablas.cargar(self.win.normas_cat)
-        # «¿Qué significa esta regla?» con la IA, bajo la tabla de reglas (2026-10-23, `normas_ia_panel`)
+        # «¿Qué significa esta regla?» con la IA (2026-10-23, `normas_ia_panel`): en el editor de la regla
         from ui.dialogos.normas_ia_panel import PanelExplicacion
-        for pag, tabla in self.tablas.paginas:
+        from ui.dialogos.normas_reglas_vista import VistaReglas
+        for i, (pag, tabla) in enumerate(self.tablas.paginas, 1):
             if tabla.clave == "reglas":
                 self.panel_ia = PanelExplicacion(self.win, self.tablas, pag)
-                pag.layout().addWidget(self.panel_ia)
+                # 2.0.0: lista legible + editor lateral; la tabla de siempre es «Vista de tabla»
+                self.pestanas.removeTab(i)
+                self.vista_reglas = VistaReglas(self.tablas, pag, self.panel_ia)
+                self.pestanas.insertTab(i, self.vista_reglas, _tr(tabla.titulo))
+        # pestañas como control segmentado (Reglas · Tipos · Avisos); el QTabWidget sigue siendo el de siempre
+        self.pestanas.tabBar().hide()
+        for i in reversed(range(self.pestanas.count())):
+            b = QtWidgets.QPushButton(self.pestanas.tabText(i))
+            b.setProperty("kind", "seg")
+            b.setCheckable(True)
+            self._grupo_seg.addButton(b, i)
+            self._seg.layout().addWidget(b, 1)
+        self._grupo_seg.idClicked.connect(self.pestanas.setCurrentIndex)
+        self.pestanas.currentChanged.connect(lambda i: self._grupo_seg.button(i).setChecked(True))
+        self._grupo_seg.button(self.pestanas.currentIndex()).setChecked(True)
+        pie = QtWidgets.QHBoxLayout()
+        self.lbl_pendientes = QtWidgets.QLabel()
+        self.lbl_pendientes.setProperty("rol", "t3")
+        pie.addWidget(self.lbl_pendientes, 1)
+        pie.addWidget(self.btn_descartar)
+        pie.addWidget(self.btn_guardar)
+        lay.addLayout(pie)
         self.refrescar()
 
     def refrescar(self):
@@ -144,6 +186,8 @@ class NormasDialog(QtWidgets.QDialog):
         self._botones()
         n = sum(1 for a in avisos if not a.info and not a.aprobado)
         self.pestanas.setTabText(0, _tr("Avisos ({n})").format(n=n) if n else _tr("Avisos"))
+        if hasattr(self, "_grupo_seg") and self._grupo_seg.button(0) is not None:
+            self._grupo_seg.button(0).setText(self.pestanas.tabText(0))
         cat = self.win.normas_cat
         if not self.tablas.sucio and any(NT.filas(cat, t.clave) != self.tablas.base().get(t.clave)
                                          for t in NT.TABLAS):
@@ -155,6 +199,8 @@ class NormasDialog(QtWidgets.QDialog):
         sucio = self.tablas.sucio
         self.btn_guardar.setEnabled(sucio)
         self.btn_descartar.setEnabled(sucio)
+        if hasattr(self, "lbl_pendientes"):
+            self.lbl_pendientes.setText(_tr("Hay cambios sin guardar") if sucio else "")
 
     def guardar(self, avisar=True):
         """Revisa las tablas (las mismas reglas que el Excel) y, si todo se entiende, las aplica: se guardan
@@ -166,6 +212,8 @@ class NormasDialog(QtWidgets.QDialog):
             for k, (_pag, tabla) in enumerate(self.tablas.paginas, 1):
                 if tabla.clave == clave:
                     self.pestanas.setCurrentIndex(k)
+            if clave == "reglas" and hasattr(self, "vista_reglas"):     # las celdas en rojo: en la tabla
+                self.vista_reglas.btn_tabla.setChecked(True)
             if avisar:
                 nombres = {t.clave: _tr(t.titulo) for t in NT.TABLAS}
                 lineas = [_tr("{tabla}, fila {n}, {col}: {motivo}").format(
@@ -321,8 +369,11 @@ def abrir(win, en_avisos=False):
     if dlg is None:
         dlg = NormasDialog(win)
         win._normas_dlg = dlg
+        if hasattr(win, "incrustar_vista"):                  # 2.0.0: una vista dentro de la ventana
+            win.incrustar_vista(dlg)
     dlg.refrescar()
     if en_avisos:
         dlg.pestanas.setCurrentIndex(0)
-    dlg.show(); dlg.raise_(); dlg.activateWindow()
+    if not (hasattr(win, "mostrar_vista") and win.mostrar_vista(dlg)):
+        dlg.show(); dlg.raise_(); dlg.activateWindow()
     return dlg

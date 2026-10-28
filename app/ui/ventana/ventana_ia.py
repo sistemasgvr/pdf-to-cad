@@ -33,11 +33,15 @@ class IAMixin:
     def configurar_ia(self):
         from ui.dialogos import ia_config_dialog
         if ia_config_dialog.pedir(self):
-            self._config_ia()
-            self._ia_mem = None                          # el entorno pudo cambiar: otro archivo de aprendizaje
-            dlg = getattr(self, "_ia_chat", None)
-            if dlg is not None:
-                dlg.actualizar_estado()
+            self._ia_config_guardada()
+
+    def _ia_config_guardada(self):
+        """Tras guardar la configuración (aquí o en Ajustes → Asistente IA)."""
+        self._config_ia()
+        self._ia_mem = None                              # el entorno pudo cambiar: otro archivo de aprendizaje
+        dlg = getattr(self, "_ia_chat", None)
+        if dlg is not None:
+            dlg.actualizar_estado()
 
     # ── lo aprendido (UN JSON compartido en el repo: `ia.memoria`) ──
     def _ia_memoria(self):
@@ -108,6 +112,11 @@ class IAMixin:
 
     # ── «Pregúntale al proyecto» ──
     def abrir_pregunta(self):
+        if getattr(self, "_incrustar_ok", lambda: False)():    # 2.0.0: en el panel del Asistente
+            self.mostrar_asistente(True, "chat")
+            dlg = self._ia_chat
+            dlg.enfocar()
+            return dlg
         from ui.dialogos.ia_chat import PreguntaDialog
         dlg = getattr(self, "_ia_chat", None)
         if dlg is None:

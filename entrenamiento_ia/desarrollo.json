@@ -14,6 +14,60 @@
   },
   {
    "autor": "User",
+   "fecha": "2026-10-27T16:11:19",
+   "id": "0a979a7b3df1",
+   "modelo": "qwen3-vl:8b-instruct",
+   "pregunta": "no entiendo",
+   "proyecto": "santos_proyecto_prueba",
+   "referencias": [
+    "C-3",
+    "AGUA-21"
+   ],
+   "respuesta": "Entiendo que tienes dudas sobre **C-3** y por qué no se puede resolver bajando el diámetro.\n\n✅ **Respuesta clara**:\n\n> **C-3** es un error de **distancia entre codos**, no de diámetro.  \n> El tramo **[AGUA-21]** (23.8 ft) tiene **dos codos muy cercanos (1.80 ft)**, lo cual **viola la norma de mínimo 3.00 ft**.  \n> **No se puede resolver bajando el diámetro** — la regla es sobre distancia entre accesorios, no sobre tamaño del tubo.\n\n📌 **Solución única**:  \n→ En **Civil 3D**, reemplaza el tramo [AGUA-21] por **un solo codo** (no dos codos separados).  \n→ Ver en **Vista 3D** o **Tabla de datos** → ajusta la geometría del tramo.\n\n*No hay enseñanza del equipo que contradiga esto.*",
+   "segundos": 24.75,
+   "version": 1
+  },
+  {
+   "autor": "User",
+   "fecha": "2026-10-27T16:22:41",
+   "id": "2a2da2f56c05",
+   "modelo": "qwen3-vl:8b-instruct",
+   "pregunta": "cuál es la capital de Perú?",
+   "proyecto": "santos_proyecto_prueba",
+   "referencias": [],
+   "respuesta": "La capital de Perú es **Lima**.",
+   "segundos": 6.65,
+   "version": 1
+  },
+  {
+   "autor": "User",
+   "fecha": "2026-10-27T16:09:47",
+   "id": "6af2d2e4dfae",
+   "modelo": "qwen3-vl:8b-instruct",
+   "pregunta": "y no se soluciona bajando el diametro de esas tuberias?",
+   "proyecto": "santos_proyecto_prueba",
+   "referencias": [
+    "C-3",
+    "AGUA-21"
+   ],
+   "respuesta": "No, no se soluciona bajando el diámetro.  \nEl conflicto C-3 es **“Tramo muy corto entre codos”**, y la norma exige **mínimo 3.00 ft entre codos**, no depende del diámetro.  \nBajar el diámetro no cambia la distancia mínima permitida entre accesorios.\n\n✅ **Solución**: Reemplazar el tramo [AGUA-21] (23.8 ft) por un solo codo en Civil 3D.  \n*Ver en la Tabla de datos o Vista 3D → ajustar geometría.*\n\n*No hay enseñanza del equipo que contradiga esto.*",
+   "segundos": 17.53,
+   "version": 1
+  },
+  {
+   "autor": "User",
+   "fecha": "2026-10-27T16:24:38",
+   "id": "7e20b0a44706",
+   "modelo": "qwen3-vl:8b-instruct",
+   "pregunta": "Dame un hola mundo en codigo python",
+   "proyecto": "santos_proyecto_prueba",
+   "referencias": [],
+   "respuesta": "```python\nprint(\"Hola, mundo!\")\n```",
+   "segundos": 6.6,
+   "version": 1
+  },
+  {
+   "autor": "User",
    "fecha": "2026-10-23T18:24:11",
    "id": "a88ce3a437c05e49e2fc7d6f98cad5ec",
    "modelo": "qwen3-vl:8b-instruct",
@@ -25,6 +79,26 @@
    ],
    "respuesta": "**C-6** — Tramo muy corto entre codos en [AGUA-21] (1.80 ft, zona 2).\n\n**Por qué**: Es el único conflicto de *tramo muy corto* (mínimo 3.00 ft), y afecta directamente la geometría del tramo. Los demás son cruces sin conexión, que pueden corregirse con cambios de cota o conexión, pero el tramo corto requiere modificación física del diseño (reemplazar dos codos por uno). Además, está en zona 2, donde hay menos conflictos que en zona 3.\n\n**Enseñanza del equipo**: “Los tramos muy cortos entre codos deben corregirse antes que cruces sin conexión, porque afectan la viabilidad constructiva del proyecto.”\n\n✅ Prioridad: C-6 primero.",
    "segundos": 41.63,
+   "version": 1
+  },
+  {
+   "autor": "User",
+   "fecha": "2026-10-27T15:48:59",
+   "id": "c8384249804b",
+   "modelo": "qwen3-vl:8b-instruct",
+   "pregunta": "Hola",
+   "proyecto": "santos_proyecto_prueba",
+   "referencias": [
+    "C-3",
+    "AGUA-21",
+    "N-3",
+    "AGUA-8",
+    "N-1",
+    "AGUA-9",
+    "TELECOM-24"
+   ],
+   "respuesta": "¿Qué necesitas? ¿Corrección de conflictos, revisión de separaciones, o algo más?  \nEjemplo:  \n- [C-3] → Tramo AGUA-21 muy corto (1.8 ft), debe reemplazarse por un solo codo.  \n- [N-3] → Wye en AGUA-8 (DISTRIBUCION PRINCIPAL) no permitido.  \n- [N-1] → AGUA-9 y TELECOM-24 están a 3.027 ft, deben estar a ≥4 ft.  \n\n¿Qué quieres revisar?",
+   "segundos": 16.5,
    "version": 1
   },
   {
@@ -44,6 +118,18 @@
    ],
    "respuesta": "51 conflictos en total.  \n**Ubicación por zona:**  \n- Zona 1: 6 conflictos (C-1 a C-6)  \n- Zona 2: 1 conflicto (C-6)  \n- Zona 3: 38 conflictos (C-7 a C-40)  \n- Zona 4: 6 conflictos (C-29, C-38)  \n\n**Clases de conflictos:**  \n- Cruce sin conexión: 48  \n- Cruce a la misma cota: 2  \n- Tramo muy corto entre codos: 1  \n\nTodos los conflictos están listados en la sección “Conflictos y avisos que vienen al caso”.  \nVer en la app: **Tabla de datos → Conflictos (C-n)**.",
    "segundos": 19.74,
+   "version": 1
+  },
+  {
+   "autor": "User",
+   "fecha": "2026-10-27T16:23:41",
+   "id": "d6a50d99e108",
+   "modelo": "qwen3-vl:8b-instruct",
+   "pregunta": "Quién es Messi?",
+   "proyecto": "santos_proyecto_prueba",
+   "referencias": [],
+   "respuesta": "Lionel Messi es un futbolista argentino, considerado uno de los mejores jugadores de todos los tiempos. Juega de delantero y actualmente está en el club **Inter Miami** (Estados Unidos), tras pasar por equipos como **Barcelona** (España) y la **Selección Argentina**.\n\n*No hay datos del proyecto que lo mencionen, así que no está en la app.*",
+   "segundos": 13.12,
    "version": 1
   },
   {
@@ -74,6 +160,21 @@
    ],
    "respuesta": "**“Enseñanza del equipo”** es una regla interna de la app PDF-a-CAD que indica **qué acción debe tomarse primero según la prioridad técnica o constructiva**. No es una norma externa, sino una guía del equipo de ingeniería para resolver conflictos de forma ordenada.\n\nEjemplo:  \n> “Los tramos muy cortos entre codos deben corregirse antes que cruces sin conexión, porque afectan la viabilidad constructiva del proyecto.”\n\nEsto significa que, aunque hay muchos cruces sin conexión, **si un tramo es físicamente inviable (como C-6, 1.80 ft < 3.00 ft mínimo)**, debe resolverse primero para evitar que los demás conflictos se vuelvan más complejos o imposibles de corregir.\n\n✅ En tu caso, **C-6 es el único tramo muy corto**, y por eso debe resolverse primero según la enseñanza del equipo.",
    "segundos": 47.48,
+   "version": 1
+  },
+  {
+   "autor": "User",
+   "fecha": "2026-10-27T16:09:07",
+   "id": "e804fcfcb0e2",
+   "modelo": "qwen3-vl:8b-instruct",
+   "pregunta": "¿Por qué ocurre C-3 y cómo se resuelve?",
+   "proyecto": "santos_proyecto_prueba",
+   "referencias": [
+    "C-3",
+    "AGUA-21"
+   ],
+   "respuesta": "C-3 ocurre porque el tramo AGUA-21 (23.8 ft) tiene dos codos consecutivos con solo 1.80 ft de distancia entre ellos, por debajo del mínimo permitido de 3.00 ft.\n\n✅ **Solución**: En Civil 3D, reemplazar el tramo por un solo codo (no dos codos separados).\n\n*En la app: revisa el tramo [AGUA-21] en la Vista 3D o Tabla de datos → ajusta la geometría.*",
+   "segundos": 7.36,
    "version": 1
   }
  ],
@@ -490,6 +591,13 @@
    "modelo": "qwen3-vl:8b-instruct",
    "texto": "Las tuberías de Eléctrico (ELECTRICO-2) y Agua (AGUA-9) se cruzan sin conexión a la misma cota: sepáralas en altura o en planta."
   },
+  "829c77f60c6d619707f4dad08b809f79390e11f2": {
+   "ambito": "proyecto",
+   "autor": "User",
+   "fecha": "2026-10-27T15:50:12",
+   "modelo": "qwen3-vl:8b-instruct",
+   "texto": "RECOMENDADA: ninguna\nNinguna de las propuestas es válida según el criterio de la aplicación, ya que todas generan nuevos problemas de separación de uniones, lo cual no es aceptable en un proyecto donde se busca mantener la integridad de las conexiones. Además, no hay una solución que resuelva el conflicto sin afectar otras partes del sistema. La mejor opción sería resolverlo manualmente, priorizando mover la tubería más chica o la de servicio (en este caso, ambas tienen el mismo diámetro, por lo que se debe considerar el orden de prioridad del equipo: mover la que esté más abajo o que tenga menor impacto en el recubrimiento). En este caso, se recomienda subir TELECOM-24 1.00 ft, ya que es la tubería que aparece primero en el listado y su movimiento no afecta a otras tuberías principales, aunque genere un nuevo conflicto con TELECOM-30. Sin embargo, como la app marca todas las propuestas como inválidas, la solución debe ser manual y revisada por el ingeniero."
+  },
   "85931c1d9de459f0ae2adea67700627305e101c9": {
    "ambito": "proyecto",
    "autor": "User",
@@ -636,6 +744,13 @@
    "fecha": "2026-10-26T10:50:23",
    "modelo": "qwen3-vl:8b-instruct",
    "texto": "Se detecta un cruce sin conexión entre Agua y Telecomunicaciones a la misma cota; se recomienda separarlas en altura o en planta."
+  },
+  "b9c5455a62314af512ce6a0f17b4b7f524fc1845": {
+   "ambito": "ayuda",
+   "autor": "User",
+   "fecha": "2026-10-27T15:49:22",
+   "modelo": "qwen3-vl:8b-instruct",
+   "texto": "Puedes ocultar las etiquetas de conflictos desde el menú de revisión.  \n1. Ve a **Revisión → Mostrar en el plano**.  \n2. Desmarca la casilla de **«Conflictos»**.  \n3. Haz clic en **Aplicar** (si aparece).  \n\nMás en: Normativas de diseño › Avisos"
   },
   "ba8e63d5eb060239d9c0be558add21c3019f1106": {
    "ambito": "proyecto",

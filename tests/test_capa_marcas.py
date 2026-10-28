@@ -26,7 +26,9 @@ def win(monkeypatch):
     w = Main()
     w._info = lambda *a, **k: None
     w.setAttribute(QtCore.Qt.WA_DontShowOnScreen)
-    w.show(); w.resize(1200, 800)
+    # 1244 × 778 (antes 1200 × 800): el riel (2.0.0) ocupa 44 px de ancho y ya no hay barra de menús;
+    # así el plano mide lo mismo que antes y se muestrean los mismos puntos
+    w.show(); w.resize(1244, 778)
     w._open_project_path(PRESENTACION)
     app.processEvents()
     yield w

@@ -51,10 +51,67 @@ el último cambio y <span class="key">&nbsp;Ctrl+Shift+Z&nbsp;</span> lo vuelve 
 </td></tr></table>
 </section>
 
+<section data-title="La ventana">
+<p>Desde la versión 2.0 la ventana está organizada en cinco zonas. <b>No se perdió ninguna opción</b>:
+solo cambiaron de lugar (abajo, dónde quedó cada una).</p>
+<table width="100%" cellspacing="4" cellpadding="10">
+<tr><td bgcolor="{{card}}" width="38%"><b>Barra de arriba</b></td><td bgcolor="{{card}}">La <b>P</b> (menú Archivo: nuevo, abrir, guardar, cerrar), el nombre del proyecto (un punto naranja = cambios sin guardar), la hoja ◀ ▶, <b>Buscar o ejecutar un comando…</b>, deshacer y rehacer, <b>Capas</b>, <b>Asistente</b>, el tema (luna / sol) y <b>Exportar a Civil 3D</b> (una ventana: qué incluir, versión e idioma de Civil 3D).</td></tr>
+<tr><td bgcolor="{{card}}" width="38%"><b>Riel (izquierda)</b></td><td bgcolor="{{card}}"><b>Dibujar</b>, <b>Hoja y PDF</b>, <b>Inventario</b> y <b>Revisión</b> cambian el panel de su lado; <b>Normativas</b>, <b>Tabla de datos</b> y <b>Duct Bank</b> se abren dentro de la ventana (al cerrarlos vuelves al plano); <b>Vista 3D</b> abre su ventana. Abajo: <b>Ayuda</b> y <b>Ajustes</b>.</td></tr>
+<tr><td bgcolor="{{card}}" width="38%"><b>Panel del riel</b></td><td bgcolor="{{card}}">Dibujar = las herramientas en una cuadrícula (Utilidad, Leader, Texto, Borrar, Centerline, Mover, Buzón, Duct Bank) y debajo las opciones de la elegida; pulsarla otra vez la detiene. Hoja y PDF = componer, escaneos, agregar utilidad, opacidad, minimapa y marcas de las hojas, escala y georreferencia. Inventario = las listas (utilidades, buzones, curvas, bancoductos…) y los botones para varias a la vez. Revisión = cuántos conflictos y avisos hay, resolver, revisar y limpiar, informe, normativas y qué se muestra en el plano.</td></tr>
+<tr><td bgcolor="{{card}}" width="38%"><b>Derecha</b></td><td bgcolor="{{card}}">Las <b>propiedades</b> de lo elegido (arriba, su color, nombre, acciones y las pestañas Propiedades · Cotas · Datos) o, con <b>Asistente</b>, la IA: Chat, Conflictos y «¿Cómo hago…?».</td></tr>
+<tr><td bgcolor="{{card}}" width="38%"><b>Barra de estado (abajo)</b></td><td bgcolor="{{card}}">Modo, mensajes, avisos, coordenadas, escala, opacidad, georreferencia y las lupas para acercar y alejar.</td></tr>
+</table>
+
+<h2>Buscar o ejecutar (Ctrl+K)</h2>
+<p>Escribe parte del nombre de cualquier acción («exportar», «buzón», «tabla»…), el nombre o número de una
+utilidad o un conflicto (C-3) y pulsa <span class="key">&nbsp;Enter&nbsp;</span>. Es la forma más rápida de
+encontrar cualquier opción.</p>
+
+<h2>Normativas, Tabla de datos, Duct Bank y Vista 3D</h2>
+<ul>
+<li><b>Normativas</b>: las reglas en una lista que se lee; al elegir una, se edita al lado (Cuándo aplica, Qué
+revisa, Si no se cumple). «Vista de tabla» muestra la tabla de siempre. «Guardar» y «Descartar» van abajo.</li>
+<li><b>Tabla de datos</b>: pestañas arriba, buscador, fichas para ver una sola utilidad y densidad Compacta /
+Cómoda. El punto verde marca las columnas que se pueden editar en Excel.</li>
+<li><b>Duct Bank</b>: a la izquierda los bancoductos del proyecto (elegir otro, «+», Duplicar, eliminar), al
+centro el lienzo con las herramientas en una barra flotante y a la derecha las propiedades con «Guardar diseño».</li>
+<li><b>Vista 3D</b> (en su propia ventana): vistas arriba, utilidades y qué mostrar a la izquierda, la ficha de lo
+elegido a la derecha.</li>
+</ul>
+<p>Algunos resultados («DXF exportado», «Todo en orden», un bancoducto guardado) salen como un <b>aviso breve</b>
+abajo a la derecha que se va solo; algunos traen un botón («Abrir carpeta», «Deshacer»).</p>
+
+<h2>Sobre el plano y en Propiedades</h2>
+<p>Arriba a la izquierda del plano, el aviso <b>«N conflictos · M avisos»</b> lleva a Revisión; abajo, una barra
+para seleccionar, editar vértices, acercar, alejar y encuadrar. Propiedades va por secciones (General, Catálogo de
+Civil 3D, Cotas, Estado, Normativa); las acciones de lo elegido están en el botón <b>⋯</b> de la cabecera. Al hacer
+clic en un cruce de dos utilidades a distinta cota se abre <b>Conexión vertical</b>: las dos cotas, la diferencia
+y un esquema, con «Conectar en Civil 3D» o «Quitar la conexión».</p>
+<p>Al abrir un PDF, en <b>Componer hoja</b> la pestaña «Esta hoja» lleva «Tomar área», «Hoja completa» y
+«Opciones» en una pastilla flotante bajo la hoja; en <b>Capas de la hoja</b>, cada utilidad de «Reconocer» tiene su
+interruptor y su número de capas, y «Hoja N de M» flota sobre la hoja.</p>
+<p><b>Georreferenciar</b> muestra arriba sus tres pasos (buscar la zona, marcar pares, ajustar y guardar) con su estado; cada vista tiene sus herramientas flotando y a la derecha están los pares, el ajuste y el Huso. En <b>Capas de la hoja</b> el interruptor de cada utilidad (reconocerla o no) está en su fila, junto a sus capas. Los últimos proyectos están en la <b>P</b> → <b>Recientes</b>.</p>
+
+<h2>Dónde quedó cada menú</h2>
+<table width="100%" cellspacing="4" cellpadding="10">
+<tr><td bgcolor="{{card}}" width="38%"><b>Archivo</b></td><td bgcolor="{{card}}">La <b>P</b> de arriba a la izquierda. «Opciones…» (idioma) también está en <b>Ajustes</b>, una ventana con General (idioma, tema, paneles), Civil 3D, Asistente IA, Familias, Atajos y Acerca de.</td></tr>
+<tr><td bgcolor="{{card}}" width="38%"><b>Edición</b></td><td bgcolor="{{card}}">Deshacer / rehacer: barra de arriba. Unir, editar en bloque, copiar y pegar propiedades: <b>Inventario</b> (abajo) y clic derecho en la lista.</td></tr>
+<tr><td bgcolor="{{card}}" width="38%"><b>Ver</b></td><td bgcolor="{{card}}">Tema: luna / sol. Avisos: <b>Revisión → Mostrar en el plano</b>. Vista 3D: riel. Minimapa y marcas de las hojas: <b>Hoja y PDF</b>. Ocultar los paneles: <b>Ajustes</b> o su chincheta.</td></tr>
+<tr><td bgcolor="{{card}}" width="38%"><b>Herramientas</b></td><td bgcolor="{{card}}">Componer hoja, escaneos, agregar utilidad y georreferenciar: <b>Hoja y PDF</b>. Tabla de datos: riel. Informe y Revisar y limpiar: <b>Revisión</b>. Insertar buzón en línea: <b>Dibujar</b> (al pie). Instalar / desinstalar familia: <b>Ajustes</b>.</td></tr>
+<tr><td bgcolor="{{card}}" width="38%"><b>Normativas</b></td><td bgcolor="{{card}}">Riel → <b>Normativas</b>; mostrar sus avisos: <b>Revisión</b>.</td></tr>
+<tr><td bgcolor="{{card}}" width="38%"><b>IA</b></td><td bgcolor="{{card}}">Pregúntale al proyecto: <b>Asistente</b> (Ctrl+Shift+I). Resolver conflictos: <b>Revisión</b> o Asistente → Conflictos. Configurar IA, carpeta de aprendizaje y pasar a producción: <b>Ajustes</b>.</td></tr>
+<tr><td bgcolor="{{card}}" width="38%"><b>Ayuda</b></td><td bgcolor="{{card}}">Riel → <b>Ayuda</b> (el signo de pregunta): manual, atajos y acerca de.</td></tr>
+</table>
+<table width="100%" cellspacing="0" cellpadding="12"><tr>
+<td width="6" bgcolor="{{tip_border}}"></td><td bgcolor="{{tip}}">
+<b>Consejo:</b> los atajos de teclado son los mismos de siempre (Ctrl+S, Ctrl+Z, Ctrl+J, F3…).
+</td></tr></table>
+</section>
+
 <section data-title="Empezar un proyecto">
 <h2>Opción A — Abrir un plano PDF</h2>
 <ol>
-<li>Menú <b>Archivo → Abrir PDF…</b> (o arrastra el PDF sobre la ventana).</li>
+<li>La <b>P</b> de arriba (Archivo) → <b>Abrir PDF…</b> (o arrastra el PDF sobre la ventana).</li>
 <li>Si el PDF viene bien ploteado desde CAD, se abre un <b>asistente</b> que te ayuda a
     preparar la hoja (lo explica el capítulo «Planos PDF de CAD»).</li>
 <li>Si es un escaneo, primero compones la hoja (recortar, enderezar y unir sus hojas) y luego
@@ -63,7 +120,7 @@ el último cambio y <span class="key">&nbsp;Ctrl+Shift+Z&nbsp;</span> lo vuelve 
 
 <h2>Opción B — Lienzo en blanco (sin PDF)</h2>
 <ol>
-<li>Menú <b>Archivo → Nuevo lienzo…</b> o <span class="key">&nbsp;Ctrl+N&nbsp;</span>.</li>
+<li>La <b>P</b> de arriba (Archivo) → <b>Nuevo lienzo…</b> o <span class="key">&nbsp;Ctrl+N&nbsp;</span>.</li>
 <li>Elige el <b>tamaño de hoja</b> (A4, Carta, Tabloide, ANSI, ARCH… o medidas a mano en
     milímetros o pulgadas) y la <b>orientación</b>.</li>
 <li>Elige la <b>escala</b> del plano, por ejemplo 1" = 20'. La ventana te dice cuánto terreno
@@ -76,7 +133,7 @@ el último cambio y <span class="key">&nbsp;Ctrl+Shift+Z&nbsp;</span> lo vuelve 
 <li><b>Guardar:</b> <span class="key">&nbsp;Ctrl+S&nbsp;</span>. Se crea un archivo
     <b>.digproj</b> con todo el proyecto.</li>
 <li><b>Guardar con otro nombre:</b> <span class="key">&nbsp;Ctrl+Shift+S&nbsp;</span>.</li>
-<li><b>Abrir un proyecto:</b> <b>Archivo → Abrir proyecto…</b></li>
+<li><b>Abrir un proyecto:</b> <b>P (Archivo) → Abrir proyecto…</b></li>
 </ul>
 <p>Con proyectos grandes, abrir, guardar, <b>Revisar y limpiar el dibujo</b>, la <b>Tabla de datos</b>
 y su Excel muestran una <b>barra de avance</b> con la etapa, «i de n» y el porcentaje, que sigue al
@@ -92,20 +149,20 @@ hay cambios sin guardar. Guarda a menudo.
 <section data-title="Moverse por el plano">
 <table width="100%" cellspacing="4" cellpadding="10">
 <tr><th align="left">Quiero…</th><th align="left">Cómo se hace</th></tr>
-<tr><td bgcolor="{{card}}">Acercar o alejar</td><td bgcolor="{{card}}">Girar la <b>rueda del mouse</b>, o los botones de lupa de la barra superior. Al acercarte, lo que ves se vuelve a dibujar nítido desde el PDF, con la calidad original (igual en Componer hoja, Capas de la hoja y la vista previa). Se dibuja por cuadros, aparte: la ventana nunca se detiene; lo nítido llega en un momento, primero el centro, y un lugar o un zoom ya visto aparece al instante.</td></tr>
+<tr><td bgcolor="{{card}}">Acercar o alejar</td><td bgcolor="{{card}}">Girar la <b>rueda del mouse</b>, o las lupas de abajo a la derecha, junto a la escala. Al acercarte, lo que ves se vuelve a dibujar nítido desde el PDF, con la calidad original (igual en Componer hoja, Capas de la hoja y la vista previa). Se dibuja por cuadros, aparte: la ventana nunca se detiene; lo nítido llega en un momento, primero el centro, y un lugar o un zoom ya visto aparece al instante.</td></tr>
 <tr><td bgcolor="{{card}}">Mover el plano</td><td bgcolor="{{card}}">Mantener apretada la <b>rueda</b> (botón central) y arrastrar.</td></tr>
-<tr><td bgcolor="{{card}}">Cambiar de página del PDF</td><td bgcolor="{{card}}">Sección <b>Vista y páginas</b>, flechas ◀ ▶.</td></tr>
+<tr><td bgcolor="{{card}}">Cambiar de página del PDF</td><td bgcolor="{{card}}">Flechas ◀ ▶ junto al nombre del proyecto, arriba (o la sección <b>Vista y páginas</b> de Dibujar).</td></tr>
 <tr><td bgcolor="{{card}}">Ver mejor mis líneas</td><td bgcolor="{{card}}">Botón <b>Opacidad</b>: aclara solo el PDF. También puedes poner el fondo blanco o negro.</td></tr>
-<tr><td bgcolor="{{card}}">Cambiar a modo oscuro o claro</td><td bgcolor="{{card}}">Menú <b>Ver</b> → tema claro / oscuro.</td></tr>
-<tr><td bgcolor="{{card}}">Cambiar el idioma</td><td bgcolor="{{card}}"><b>Archivo → Opciones…</b> → Idioma. Cambia al instante.</td></tr>
+<tr><td bgcolor="{{card}}">Cambiar a modo oscuro o claro</td><td bgcolor="{{card}}">Botón de luna / sol de la barra de arriba (o <b>Ajustes</b>).</td></tr>
+<tr><td bgcolor="{{card}}">Cambiar el idioma</td><td bgcolor="{{card}}"><b>Ajustes → Opciones…</b> → Idioma. Cambia al instante.</td></tr>
 <tr><td bgcolor="{{card}}">Tener más espacio para el plano</td><td bgcolor="{{card}}">Ocultar los paneles laterales (ver abajo).</td></tr>
 </table>
 
 <h2>Ocultar los paneles laterales</h2>
-<p>Los dos paneles (<b>Herramientas</b> a la izquierda e <b>Inventario</b> a la derecha) se pueden
+<p>Los dos paneles (el del <b>riel</b> a la izquierda y <b>Propiedades</b> a la derecha) se pueden
 ocultar solos, igual que las paletas de Civil 3D:</p>
 <ol>
-<li>Pulsa la <b>chincheta</b> 📌 de la cabecera del panel (o menú <b>Ver → Ocultar automáticamente el
+<li>Pulsa la <b>chincheta</b> 📌 de la cabecera del panel (o <b>Ver → Ocultar automáticamente el
     panel izquierdo / derecho</b>).</li>
 <li>El panel queda como una <b>pestaña vertical</b> en su borde y el plano gana ese espacio.</li>
 <li>Pasa el ratón por la pestaña (o haz clic en ella): el panel se abre <b>encima del plano</b>.
@@ -239,7 +296,7 @@ pregunta antes de agregarlo. Los PDF escaneados no tienen sugerencia: se compone
 </ol>
 
 <h2>PDF imagen o escaneo: componer a mano</h2>
-<p>Un escaneo también pasa por <b>Componer hoja de trabajo</b> (o menú <b>Herramientas → Componer PDF
+<p>Un escaneo también pasa por <b>Componer hoja de trabajo</b> (o <b>Hoja y PDF → Componer PDF
 imagen/escaneo…</b>), pero sin capas ni reconocimiento: al final,
 <span class="btn">Importar hoja al editor</span> la deja de fondo para dibujar a mano.</p>
 <ul>
@@ -337,7 +394,7 @@ imagen/escaneo…</b>), pero sin capas ni reconocimiento: al final,
     los de normativa: se ve en el plano, en la lista de avisos y en el panel de la utilidad. Al elegir su
     diámetro el aviso desaparece; para dejar el de por defecto, apruébalo. En la vista previa, <b>Para
     verificar</b> lleva a cada una. En el plano se muestran u ocultan aparte de los de normativa:
-    Ver → Avisos → <b>Mostrar avisos de reconocimiento</b>.</li>
+    Revisión → Mostrar en el plano → <b>Mostrar avisos de reconocimiento</b>.</li>
 <li><b>Diámetro del plano (mapa sin capas):</b> en un mapa SIG aplanado (como los Quarter Section de
     Phoenix) cada tramo lleva su rótulo junto a la línea, paralelo y pegado a ella: «8"», «12" DIP»,
     «12" DIP (CP)», «6" DIP FL», «8" Unk». Al reconocer, cada tubería toma el suyo; la camisa («72" STEEL
@@ -487,7 +544,7 @@ imagen/escaneo…</b>), pero sin capas ni reconocimiento: al final,
 <h2>Agregar otra utilidad desde su propio PDF</h2>
 <p>A veces cada utilidad llega en sus propios PDF (por ejemplo los mapas de Phoenix: dos PDF de
 agua, dos de alcantarillado y dos de drenaje). Con una utilidad ya importada, usa
-<b>Herramientas → Agregar utilidad desde otro PDF…</b> (o el botón de la hoja con un <b>+</b> en la
+<b>Hoja y PDF → Agregar utilidad desde otro PDF…</b> (o el botón de la hoja con un <b>+</b> en la
 barra superior) y elige el PDF de la siguiente. Si la hoja del editor viene de dos PDF, la app
 ofrece agregar también el otro de la misma utilidad.</p>
 <ul>
@@ -522,7 +579,7 @@ apaga; clic derecho → <b>Ver solo esta</b> o <b>Encender todas</b>.</p>
 apagadas.</p>
 
 <h2>Volver a componer más tarde</h2>
-<p>Menú <b>Herramientas → Componer hoja de trabajo…</b> abre otra vez el paso 1, en el PDF y la hoja donde
+<p><b>Hoja y PDF → Componer hoja de trabajo…</b> abre otra vez el paso 1, en el PDF y la hoja donde
 estabas trabajando, y repite los pasos 2 y 3 con la hoja nueva. Todo se guarda en el proyecto
 (.digproj), también los PDF de origen.</p>
 <p>Si sigues sin cambiar nada (ni la composición, ni las capas, ni las utilidades), la vista previa
@@ -752,7 +809,7 @@ costado para no montarse una sobre otra.</p>
     Las demás las agregas tú.</li>
 <li>En la lista <b>Buzones</b> cambias su familia, tamaño y cotas. Si falta una medida, el botón verde <b>+</b> la agrega (ver «Datos de la tubería»).</li>
 <li>Las cajas cuadradas que vienen del PDF salen como <b>SÓLIDO</b>: no llevan familia; ajustas su <b>Largo</b> y <b>Ancho</b> (el dibujo cambia de tamaño) y su <b>Altura</b> (2 m por defecto). La <b>Cota superior</b> manda la tapa: por defecto se calcula para que la utilidad unida llegue justo al <b>centro</b> del sólido (su eje a media altura; ↺ vuelve a ella). En Civil 3D se crean como sólido 3D con sus datos extendidos como Property Set.</li>
-<li>Para agregar uno en medio de una línea: <b>Herramientas → Insertar buzón en línea…</b></li>
+<li>Para agregar uno en medio de una línea: <b>Dibujar → Insertar buzón en línea…</b></li>
 <li><b>Ocultar buzón</b> quita un buzón que en realidad no existe; la red sigue unida.</li>
 </ul>
 <table width="100%" cellspacing="0" cellpadding="12"><tr>
@@ -822,7 +879,7 @@ dos tuberías se cruzan a la misma cota sin conectarse («Tuberías que chocan»
         El mensaje dice qué hará en su lugar (ver la página siguiente).</td>
     <td bgcolor="{{card}}">Lee el mensaje y decide si corriges el dibujo.</td></tr>
 </table>
-<p class="small">Las señales se pueden ocultar desde el menú Ver («Mostrar cruces/conflictos»).
+<p class="small">Las señales se pueden ocultar desde <b>Revisión → Mostrar en el plano</b> («Mostrar cruces/conflictos»).
 La barra de estado, abajo, cuenta cuántas hay de cada tipo.</p>
 <p class="small">Con cientos de tuberías la revisión sigue siendo rápida: solo compara las que están
 cerca y no se repite mientras el diseño no cambie (elegir, cambiar de pestaña o de modo no la rehace).
@@ -948,7 +1005,7 @@ utilidad: queda en las normativas y sale en su Excel al exportarlo. En las eléc
 <li>«⚠ N avisos de normativa» en la barra de estado: un clic abre la lista; clic en un aviso lleva al lugar.</li>
 </ul>
 <p>«Sin tipo» no se marca en el plano (en un proyecto recién importado serían decenas): se ve en el panel,
-en la lista y en el contador. Los tipos de aviso se muestran u ocultan en <b>Ver → Avisos</b>
+en la lista y en el contador. Los tipos de aviso se muestran u ocultan en <b>Revisión → Mostrar en el plano</b>
 (cruces y conflictos, accesorios, avisos de normativa, mostrar u ocultar todos).</p>
 <p><b>Nivel de detalle</b>, como en un mapa: de lejos, de las etiquetas que se tapan (accesorios y
 conflictos C-n) se ve solo una —primero los conflictos—; los puntos (rombo, círculo de cruce, triángulo,
@@ -980,7 +1037,7 @@ el ramal un tamaño menor (12 → 8). Una principal de 6 in no tiene tamaño men
 </section>
 
 <section data-title="Tabla de datos">
-<p><b>Herramientas → Tabla de datos…</b> (<span class="key">&nbsp;Ctrl+Shift+T&nbsp;</span>, o el botón de tabla en
+<p><b>riel → Tabla de datos…</b> (<span class="key">&nbsp;Ctrl+Shift+T&nbsp;</span>, o el botón de tabla en
 la barra superior) muestra toda la información del proyecto en pestañas: <b>utilidades</b> (nombre, tipo,
 estado, familia, tamaño, diámetro, largo, cotas, amperaje, bancoducto, coordenadas y avisos), <b>buzones y
 cajas</b>, <b>curvas</b>, <b>bancoductos</b>, <b>avisos de normativa</b>, <b>conflictos</b> (C-1, C-2…) y
@@ -1011,7 +1068,7 @@ cajas</b>, <b>curvas</b>, <b>bancoductos</b>, <b>avisos de normativa</b>, <b>con
 <p>Al importar, los <b>conflictos</b> se recalculan: así se ve enseguida si un cambio de cota resolvió el choque.</p>
 </section>
 <section data-title="Informe automático">
-<p><b>Herramientas → Informe automático…</b> arma un documento de <b>Word</b> con lo que hay que revisar en el
+<p><b>Revisión → Informe automático…</b> arma un documento de <b>Word</b> con lo que hay que revisar en el
 proyecto, listo para entregar.</p>
 <ol>
 <li>Elige <b>qué incluir</b>: conflictos, avisos de normativa o ambos.</li>
@@ -1037,10 +1094,10 @@ plantillas; con la IA configurada (ver «IA»), la IA los redacta, siempre con l
 </section>
 
 <section data-title="IA">
-<p>El menú <b>IA</b> trae una IA que conoce el proyecto abierto. Responde solo con los datos del proyecto: los
+<p>El <b>Asistente</b> trae una IA que conoce el proyecto abierto. Responde solo con los datos del proyecto: los
 números siempre los pone la app y, si la IA escribe una cifra que no está en los datos, la app lo avisa.</p>
 <h2>Configurar</h2>
-<p><b>IA → Configurar IA…</b>: elige <b>Servidor propio (Ollama)</b>, escribe la dirección del servidor y pulsa
+<p><b>Ajustes → Configurar IA…</b>: elige <b>Servidor propio (Ollama)</b>, escribe la dirección del servidor y pulsa
 <b>Buscar modelos</b> y <b>Probar</b>. Con <b>Sin IA (plantillas)</b> todo funciona como antes.</p>
 <h2>¿Cómo hago…? (en este manual)</h2>
 <p>Arriba de este manual hay un campo <b>¿Cómo hago…?</b>: escribe qué quieres hacer (por ejemplo «¿cómo exporto a
@@ -1048,7 +1105,7 @@ Civil 3D?») y pulsa <span class="key">&nbsp;Enter&nbsp;</span> o <b>Preguntar a
 capítulos que hablan de eso (un clic los abre) y la IA responde con los pasos, sacados solo de este manual. La misma
 pregunta otra vez sale al momento, guardada. Sin IA configurada, los capítulos son la respuesta.</p>
 <h2>Pregúntale al proyecto</h2>
-<p><b>IA → Pregúntale al proyecto…</b> (<span class="key">&nbsp;Ctrl+Shift+I&nbsp;</span>, o el botón de chat de
+<p><b>Asistente → Pregúntale al proyecto…</b> (<span class="key">&nbsp;Ctrl+Shift+I&nbsp;</span>, o el botón de chat de
 la barra superior) abre un chat. Pregunta, por ejemplo, «¿cuántos conflictos hay y dónde están?», «¿qué pasa en
 C-12?» o «resume la zona 3».</p>
 <ul>
@@ -1070,7 +1127,7 @@ C-12?» o «resume la zona 3».</p>
 <p>Las correcciones, las respuestas útiles, lo que le enseñas y las soluciones aplicadas se guardan en <b>un solo
 archivo</b> (también las conversaciones y los textos que la IA ya redactó, para no pedirlos otra vez). Lo que se
 enseña vale para todos los proyectos: cada registro dice de qué proyecto y quién lo enseñó, y los del proyecto
-abierto pesan más. En <b>IA → Configurar IA…</b>, <b>Entorno de entrenamiento</b> elige cuál:</p>
+abierto pesan más. En <b>Ajustes → Configurar IA…</b>, <b>Entorno de entrenamiento</b> elige cuál:</p>
 <ul>
 <li><b>Desarrollo (pruebas del equipo)</b>: <code>entrenamiento_ia/desarrollo.json</code> en la carpeta del programa.
     Se comparte por Git entre el equipo y al juntarlo no se pisa. Usa también lo de producción.</li>
@@ -1082,13 +1139,13 @@ abierto pesan más. En <b>IA → Configurar IA…</b>, <b>Entorno de entrenamien
 <p>La ventana muestra dónde guarda. Si el proyecto aún no se guardó, lo aprendido pasa a él al guardarlo. Una carpeta
 vieja «<i>nombre del proyecto</i> - IA» se importa sola al abrir el proyecto. <b>IA → Abrir carpeta de
 aprendizaje</b> abre la carpeta donde guarda.</p>
-<p><b>IA → Pasar a producción…</b> (solo en la versión del equipo, no en la instalada): lista lo que se enseñó en
+<p><b>Ajustes → Pasar a producción…</b> (solo en la versión del equipo, no en la instalada): lista lo que se enseñó en
 desarrollo, la más nueva arriba, y marca con ✔ lo que ya está en producción. Marca las enseñanzas buenas y pulsa
 <b>Pasar a producción</b>; puedes pasar también los textos ya redactados de normativas y del manual. Las
 conversaciones nunca pasan. <b>Quitar de producción</b> saca las marcadas. Luego sube
 <code>produccion.json</code> con Git para que vaya en el próximo instalador.</p>
 <h2>Resolver conflictos</h2>
-<p><b>IA → Resolver conflictos…</b> (o clic derecho junto a una marca C-n del plano → «Resolver C-n: ver
+<p><b>Revisión → Resolver conflictos…</b> (o clic derecho junto a una marca C-n del plano → «Resolver C-n: ver
 soluciones…») lista los conflictos. Al elegir uno:</p>
 <ul>
 <li>La app calcula las soluciones posibles: en un cruce o choque a la misma cota, bajar o subir una de las dos
@@ -1103,7 +1160,7 @@ soluciones…») lista los conflictos. Al elegir uno:</p>
 <p>Los conflictos que se arreglan cambiando el dibujo (5 o más tuberías en un punto, tramos cortos entre codos…)
 no tienen solución automática: la ventana explica qué hacer.</p>
 <h2>¿Qué significa esta regla?</h2>
-<p>En <b>Normativas → Normativas de diseño</b>, pestaña Reglas, elige una fila y pulsa <b>Explicar con IA</b>: la
+<p>En <b>riel → Normativas de diseño</b>, pestaña Reglas, elige una fila y pulsa <b>Explicar con IA</b>: la
 IA la explica en palabras sencillas debajo de la tabla. La respuesta se guarda: al volver a elegir esa regla
 aparece al instante, sin preguntar otra vez. Si cambias la regla, puedes volver a pedirla.</p>
 <h2>Informe redactado por la IA</h2>
@@ -1115,11 +1172,11 @@ se puede cancelar.</p>
 <h2>En resumen</h2>
 <p>La IA está funcionando en estos módulos:</p>
 <ul>
-<li><b>IA → Pregúntale al proyecto</b> (chat sobre el proyecto abierto).</li>
-<li><b>IA → Resolver conflictos</b> (también con clic derecho junto a una marca C-n).</li>
-<li><b>Herramientas → Informe automático</b> (el Word).</li>
-<li><b>Normativas → Normativas de diseño</b>, pestaña Reglas («Explicar con IA»).</li>
-<li><b>Ayuda → Manual de usuario</b> (el campo «¿Cómo hago…?»).</li>
+<li><b>Asistente → Pregúntale al proyecto</b> (chat sobre el proyecto abierto).</li>
+<li><b>Revisión → Resolver conflictos</b> (también con clic derecho junto a una marca C-n).</li>
+<li><b>Revisión → Informe automático</b> (el Word).</li>
+<li><b>riel → Normativas de diseño</b>, pestaña Reglas («Explicar con IA»).</li>
+<li><b>Ayuda (riel) → Manual de usuario</b> (el campo «¿Cómo hago…?»).</li>
 </ul>
 <p>Y puede realizar estas acciones:</p>
 <ul>
@@ -1134,7 +1191,7 @@ se puede cancelar.</p>
 </section>
 
 <section data-title="Vista 3D">
-<p>Para ver lo que <b>Civil 3D va a construir</b> sin exportar: <b>Ver → Vista 3D</b>
+<p>Para ver lo que <b>Civil 3D va a construir</b> sin exportar: <b>riel → Vista 3D</b>
 (<span class="key">&nbsp;F3&nbsp;</span>), el botón del cubo en la barra superior, o clic derecho sobre una
 utilidad → <b>Ver en 3D</b>. Se abre en una ventana aparte que puedes dejar al lado del plano: se actualiza
 sola mientras editas. Al abrirla, el proyecto se guarda por si acaso (si aún no tiene archivo, se hace una
@@ -1219,7 +1276,7 @@ con su forma de fábrica (sin detalles como bridas) y el suelo es plano (Civil 3
 <p>Sirve para que el plano quede en su <b>ubicación real</b> (coordenadas de Los Ángeles,
 EPSG:2229). Es para anteproyecto: el dato exacto viene de la topografía.</p>
 <ol>
-<li><b>Herramientas → Georreferenciar…</b></li>
+<li><b>Hoja y PDF → Georreferenciar…</b></li>
 <li>En el mapa de la <b>derecha</b>, escribe una dirección o un cruce de calles y pulsa
     <span class="btn">Buscar y descargar</span>.</li>
 <li>Haz clic en un punto del <b>plano</b> (izquierda) y luego en el <b>mismo punto</b> del mapa.
@@ -1245,7 +1302,7 @@ plano puedes pulsar <b>Cancelar</b>; la ventana no se traba.</p>
 <h2>Revisar y limpiar el dibujo</h2>
 <p>Al exportar, si hay algo que en Civil 3D saldría mal, la app lo muestra antes y lo arregla con
 <b>Arreglar y exportar</b> (o sigue igual con <b>Exportar sin cambios</b>). También está en
-<b>Herramientas → Revisar y limpiar el dibujo…</b> Clic en cada caso para verlo en el plano; desmarca
+<b>Revisión → Revisar y limpiar el dibujo…</b> Clic en cada caso para verlo en el plano; desmarca
 lo que no quieras arreglar.</p>
 <ul>
 <li><b>Tramos rectos diminutos</b> (menos de 1 ft): en Civil 3D salían como una tubería diminuta.
@@ -1279,7 +1336,7 @@ lo que no quieras arreglar.</p>
 <table width="100%" cellspacing="0" cellpadding="12"><tr>
 <td width="6" bgcolor="{{warn_border}}"></td><td bgcolor="{{warn}}">
 <b>Atención:</b> si usas familias propias, instálalas antes con
-<b>Herramientas → Instalar familia personalizada…</b> y luego ejecuta <b>PREPARAR_FAMILIAS</b> en Civil 3D.
+<b>Ajustes → Instalar familia personalizada…</b> y luego ejecuta <b>PREPARAR_FAMILIAS</b> en Civil 3D.
 </td></tr></table>
 </section>
 
@@ -1396,5 +1453,5 @@ cambios sin guardar). Si se cierra sin que la cierres tú, la próxima vez que l
 Está en <code>%LOCALAPPDATA%\pdf-to-cad
 ecuperacion</code>; no reemplaza a guardar el proyecto.</p>
 <h2>Más ayuda</h2>
-<p><b>Ayuda → Atajos de teclado</b> muestra todas las teclas rápidas. <b>Ayuda → Acerca de…</b> muestra las novedades de cada versión.</p>
+<p><b>Ayuda (riel) → Atajos de teclado</b> muestra todas las teclas rápidas. <b>Ayuda (riel) → Acerca de…</b> muestra las novedades de cada versión.</p>
 </section>

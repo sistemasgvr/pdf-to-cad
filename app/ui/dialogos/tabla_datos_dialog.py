@@ -36,16 +36,26 @@ class TablaDatosDialog(QtWidgets.QDialog):
         self.resize(1200, 640)
         self.setWindowFlag(QtCore.Qt.WindowMaximizeButtonHint, True)
         lay = QtWidgets.QVBoxLayout(self)
-        fila = QtWidgets.QHBoxLayout()
-        self.buscar = QtWidgets.QLineEdit()
-        self.buscar.setPlaceholderText(_tr("Buscar en la tabla…"))
-        self.buscar.setClearButtonEnabled(True)
-        self.buscar.textChanged.connect(self._filtrar)
-        fila.addWidget(self.buscar, 1)
+        lay.setContentsMargins(24, 18, 24, 12)
+        lay.setSpacing(12)
+        # 2.0.0 (como el prototipo): cabecera con las acciones a la derecha, pestañas segmentadas, buscador,
+        # filtro por utilidad en fichas y densidad. Mismos datos, mismos botones, misma lógica.
+        cab = QtWidgets.QHBoxLayout()
+        tx = QtWidgets.QVBoxLayout()
+        tx.setSpacing(2)
+        titulo = QtWidgets.QLabel(_tr("Tabla de datos"))
+        titulo.setProperty("rol", "h1")
+        tx.addWidget(titulo)
+        ayuda = QtWidgets.QLabel(_tr("Doble clic en una fila para verla en el plano. Clic en un encabezado para ordenar."))
+        ayuda.setProperty("rol", "t2")
+        ayuda.setWordWrap(True)
+        tx.addWidget(ayuda)
+        cab.addLayout(tx, 1)
         self.btn_act = QtWidgets.QPushButton(_tr("Actualizar"))
-        self.btn_act.setProperty("secondary", True)
+        self.btn_act.setProperty("kind", "ghost")
         self.btn_act.clicked.connect(self.refrescar)
         self.btn_xls = QtWidgets.QPushButton(_tr("Exportar a Excel…"))
+        self.btn_xls.setProperty("kind", "primary")
         self.btn_xls.setToolTip(_tr("Las columnas verdes se pueden editar en Excel y volver a cargar"))
         self.btn_xls.clicked.connect(self.exportar)
         self.btn_imp = QtWidgets.QPushButton(_tr("Importar Excel…"))
@@ -53,15 +63,53 @@ class TablaDatosDialog(QtWidgets.QDialog):
                                     "tipo, estado, familia, tamaño o diámetro, material y amperaje. Verás los cambios "
                                     "antes de aplicarlos."))
         self.btn_imp.clicked.connect(self.importar)
-        fila.addWidget(self.btn_act)
-        fila.addWidget(self.btn_xls)
-        fila.addWidget(self.btn_imp)
+        for b in (self.btn_act, self.btn_imp, self.btn_xls):
+            b.setAutoDefault(False)
+            cab.addWidget(b, 0, QtCore.Qt.AlignTop)
+        lay.addLayout(cab)
+        self._seg = QtWidgets.QFrame()
+        self._seg.setObjectName("segmentado")
+        QtWidgets.QHBoxLayout(self._seg).setContentsMargins(3, 3, 3, 3)
+        self._grupo_seg = QtWidgets.QButtonGroup(self._seg)
+        self._grupo_seg.idClicked.connect(lambda i: self.pestanas.setCurrentIndex(i))
+        lay.addWidget(self._seg)
+        fila = QtWidgets.QHBoxLayout()
+        from ui.comun import rediseno as R
+        self.buscar = R.CampoBuscar("Buscar en la tabla…")
+        self.buscar.setClearButtonEnabled(True)
+        self.buscar.textChanged.connect(self._filtrar)
+        fila.addWidget(self.buscar, 2)
+        self._chips = QtWidgets.QHBoxLayout()
+        self._chips.setSpacing(6)
+        fila.addLayout(self._chips)
+        self._grupo_chips = QtWidgets.QButtonGroup(self)
+        self._grupo_chips.idClicked.connect(lambda _i: self._filtrar(self.buscar.text()))
+        fila.addStretch(1)
+        densidad = QtWidgets.QLabel(_tr("Densidad"))
+        densidad.setProperty("rol", "t3")
+        fila.addWidget(densidad)
+        dens = QtWidgets.QFrame()
+        dens.setObjectName("segmentado")
+        dl = QtWidgets.QHBoxLayout(dens)
+        dl.setContentsMargins(3, 3, 3, 3)
+        self._grupo_dens = QtWidgets.QButtonGroup(dens)
+        for i, clave in enumerate(("Compacta", "Cómoda")):
+            b = QtWidgets.QPushButton(_tr(clave))
+            b.setProperty("kind", "seg")
+            b.setCheckable(True)
+            b.setChecked(i == 1)
+            self._grupo_dens.addButton(b, i)
+            dl.addWidget(b)
+        self._grupo_dens.idClicked.connect(lambda _i: self._densidad())
+        fila.addWidget(dens)
         lay.addLayout(fila)
-        ayuda = QtWidgets.QLabel(_tr("Doble clic en una fila para verla en el plano. Clic en un encabezado para ordenar."))
-        ayuda.setProperty("muted", True)
-        lay.addWidget(ayuda)
         self.pestanas = QtWidgets.QTabWidget()
+        self.pestanas.tabBar().hide()
+        self.pestanas.currentChanged.connect(self._pestana_cambiada)
         lay.addWidget(self.pestanas, 1)
+        self.lbl_filas = QtWidgets.QLabel()
+        self.lbl_filas.setProperty("rol", "t3")
+        lay.addWidget(self.lbl_filas)
         self.tablas = []
         self.refrescar()
 
@@ -114,16 +162,104 @@ class TablaDatosDialog(QtWidgets.QDialog):
                 self.pestanas.addTab(w, f"{_tr(tb.titulo)} ({len(tb.filas)})")
         if 0 <= actual < self.pestanas.count():
             self.pestanas.setCurrentIndex(actual)
-        self._filtrar(self.buscar.text())
+        self._armar_segmentado()
+        self._marcar_editables()
+        self._densidad()
+        self._pestana_cambiada(self.pestanas.currentIndex())
 
     def _filtrar(self, texto):
         texto = (texto or "").strip().lower()
+        chip = self._grupo_chips.checkedButton() if hasattr(self, "_grupo_chips") else None
+        util = chip.property("valor") if chip is not None else ""
         for k in range(self.pestanas.count()):
             w = self.pestanas.widget(k)
+            col_u = self._col_utilidad(k) if (util and k == self.pestanas.currentIndex()) else -1
             for r in range(w.rowCount()):
                 ver = not texto or any(texto in (w.item(r, c).text().lower() if w.item(r, c) else "")
                                        for c in range(w.columnCount()))
+                if ver and col_u >= 0:
+                    it = w.item(r, col_u)
+                    ver = (it.text() if it else "") == util
                 w.setRowHidden(r, not ver)
+        self._contar()
+
+    # ── 2.0.0: pestañas segmentadas, filtro por utilidad, densidad y columnas editables ──
+    def _armar_segmentado(self):
+        lay = self._seg.layout()
+        for b in list(self._grupo_seg.buttons()):
+            self._grupo_seg.removeButton(b)
+            b.hide()
+            b.deleteLater()
+        for i in range(self.pestanas.count()):
+            b = QtWidgets.QPushButton(self.pestanas.tabText(i))
+            b.setProperty("kind", "seg")
+            b.setCheckable(True)
+            b.setChecked(i == self.pestanas.currentIndex())
+            self._grupo_seg.addButton(b, i)
+            lay.addWidget(b, 1)
+
+    def _col_utilidad(self, k):
+        if not (0 <= k < len(self.tablas)):
+            return -1
+        cols = list(self.tablas[k].columnas)
+        return cols.index("Utilidad") if "Utilidad" in cols else -1
+
+    def _pestana_cambiada(self, k):
+        if hasattr(self, "_grupo_seg") and self._grupo_seg.button(k) is not None:
+            self._grupo_seg.button(k).setChecked(True)
+        if not hasattr(self, "_grupo_chips"):
+            return
+        while self._chips.count():                          # fichas: las utilidades de ESTA tabla
+            it = self._chips.takeAt(0)
+            if it.widget() is not None:
+                self._grupo_chips.removeButton(it.widget())
+                it.widget().hide()
+                it.widget().deleteLater()
+        col = self._col_utilidad(k)
+        if col >= 0:
+            w = self.pestanas.widget(k)
+            valores = sorted({w.item(r, col).text() for r in range(w.rowCount()) if w.item(r, col)} - {""})
+            if 1 < len(valores) <= 8:
+                for i, v in enumerate([""] + valores):
+                    b = QtWidgets.QPushButton(v or _tr("Todas"))
+                    b.setProperty("kind", "chip")
+                    b.setProperty("valor", v)
+                    b.setCheckable(True)
+                    b.setChecked(i == 0)
+                    self._grupo_chips.addButton(b, i)
+                    self._chips.addWidget(b)
+        self._filtrar(self.buscar.text())
+
+    def _densidad(self):
+        alto = 26 if self._grupo_dens.checkedId() == 0 else 34
+        for k in range(self.pestanas.count()):
+            self.pestanas.widget(k).verticalHeader().setDefaultSectionSize(alto)
+
+    def _marcar_editables(self):
+        """Columnas que se editan en el Excel: un punto verde en su encabezado (como el prototipo)."""
+        from ui.comun import theme as _theme
+        from ui.comun.icons import icon as _icon
+        punto = _icon("mdi:circle-medium", color=_theme.tokens().success)
+        for k, tb in enumerate(self.tablas[:self.pestanas.count()]):
+            editables = tabla_excel.EDITABLES.get(tb.clave, {})
+            w = self.pestanas.widget(k)
+            w.horizontalHeader().setDefaultAlignment(QtCore.Qt.AlignLeft | QtCore.Qt.AlignVCenter)
+            for c, col in enumerate(tb.columnas):
+                h = w.horizontalHeaderItem(c)
+                if h is not None and col in editables:
+                    h.setIcon(punto)
+                    h.setToolTip(_tr("Las columnas verdes se pueden editar en Excel y volver a cargar"))
+
+    def _contar(self):
+        if not hasattr(self, "lbl_filas"):
+            return
+        w = self.pestanas.currentWidget()
+        if w is None:
+            self.lbl_filas.setText("")
+            return
+        n = sum(1 for r in range(w.rowCount()) if not w.isRowHidden(r))
+        self.lbl_filas.setText(_tr("{n} filas · doble clic en una fila: ir al plano · clic en un encabezado: "
+                                   "ordenar").format(n=n))
 
     def _ir(self, w, tb, row):
         it = w.item(row, 0)
@@ -207,7 +343,10 @@ def abrir(win):
     if dlg is None:
         dlg = TablaDatosDialog(win)
         win._tabla_dlg = dlg
+        if hasattr(win, "incrustar_vista"):                  # 2.0.0: una vista dentro de la ventana
+            win.incrustar_vista(dlg)
     else:
         dlg.refrescar()
-    dlg.show(); dlg.raise_(); dlg.activateWindow()
+    if not (hasattr(win, "mostrar_vista") and win.mostrar_vista(dlg)):
+        dlg.show(); dlg.raise_(); dlg.activateWindow()
     return dlg

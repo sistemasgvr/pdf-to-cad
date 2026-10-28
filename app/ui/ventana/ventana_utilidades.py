@@ -311,8 +311,7 @@ class UtilidadesMixin:
             # La versión guardada no está instalada/detectada en ESTA PC → no se
             # puede seleccionar. Se avisa (visible, no un mensaje de barra que se
             # pisa) para que el usuario entienda por qué quedó en otra versión.
-            QtWidgets.QMessageBox.information(
-                self, _tr("Civil 3D del proyecto no disponible"),
+            self.informar(_tr("Civil 3D del proyecto no disponible"),
                 _tr("El proyecto se guardó con Civil 3D {version}, pero esa versión no "
                     "está instalada/detectada en esta PC.\n\nSe mantiene la versión activa "
                     "({activa}). El catálogo de familias saldrá de esa versión.").format(

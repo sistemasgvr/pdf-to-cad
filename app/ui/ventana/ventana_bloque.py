@@ -36,7 +36,7 @@ class EdicionBloqueMixin:
         tipos = edicion_bloque.tipos(self.pipes, filas)
         if len(tipos) <= 1:
             return True
-        QtWidgets.QMessageBox.information(self, titulo, _tr(
+        self.informar(titulo, _tr(
             "Las utilidades seleccionadas son de tipos distintos ({tipos}). Esto se hace solo con "
             "utilidades del mismo tipo: clic derecho → «Seleccionar todas las de tipo …».").format(
                 tipos=", ".join(self._tipo(c) for c in tipos)))
@@ -48,7 +48,7 @@ class EdicionBloqueMixin:
         titulo = _tr("Editar en bloque")
         filas = self._selected_pipe_rows()
         if len(filas) < 2:
-            QtWidgets.QMessageBox.information(self, titulo, _tr(
+            self.informar(titulo, _tr(
                 "Selecciona dos o más utilidades del mismo tipo: Ctrl+clic en la lista «Utilidades» o sobre "
                 "ellas en el lienzo, o clic derecho → «Seleccionar todas las de tipo …»."))
             return
@@ -70,14 +70,14 @@ class EdicionBloqueMixin:
         titulo = _tr("Pegar propiedades")
         copia = getattr(self, "_props_copiadas", None)
         if not copia:
-            QtWidgets.QMessageBox.information(self, titulo, _tr(
+            self.informar(titulo, _tr(
                 "Primero copia las propiedades de una utilidad: clic derecho sobre ella → «Copiar propiedades»."))
             return
         capa, valores, num = copia
         filas = self._selected_pipe_rows()
         destino = [r for r in filas if self.pipes[r].get("layer") == capa]
         if not destino:
-            QtWidgets.QMessageBox.information(self, titulo, _tr(
+            self.informar(titulo, _tr(
                 "Las propiedades copiadas son de una utilidad de tipo «{tipo}»: solo se pegan en utilidades "
                 "de ese tipo.").format(tipo=self._tipo(capa)))
             return
@@ -159,7 +159,7 @@ class EdicionBloqueMixin:
         ft = (self.scale / self.zoom) if self.scale and self.zoom else 0.0
         if not self.pipes or ft <= 0:
             if not exportando:
-                QtWidgets.QMessageBox.information(self, titulo, _tr(
+                self.informar(titulo, _tr(
                     "No hay utilidades dibujadas (o falta la escala de la hoja)."))
             return True
         protegidas = self._protegidas_limpieza()
@@ -177,7 +177,7 @@ class EdicionBloqueMixin:
         if exportando and not previa.arreglos:
             return True
         if not previa.cambios:
-            QtWidgets.QMessageBox.information(self, titulo, _tr("Todo en orden: no hay nada que limpiar."))
+            self.aviso_breve(_tr("Todo en orden: no hay nada que limpiar."))      # 2.0.0: aviso breve
             return True
         dlg = LimpiezaDialog(self, previa, lambda i: f"#{i + 1} {self._etq(self.pipes[i])}",
                              self._ir_a_lugar, exportando=exportando)

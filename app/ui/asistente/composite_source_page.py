@@ -139,7 +139,10 @@ class SourcePageMixin:
             item = QtWidgets.QListWidgetItem(icon, "")
             # alto para DOS líneas («Hoja 26» + «✔ Área tomada»): con tamaños uniformes
             # todas toman el de la primera hoja (una línea) y la marca quedaba «Hoja 26…»
-            item.setSizeHint(QtCore.QSize(THUMB_W + 20, int(THUMB_W * 0.72) + 46))
+            if self.lst_pages.viewMode() == QtWidgets.QListView.ListMode:     # 2.0.0: lista de la izquierda
+                item.setSizeHint(QtCore.QSize(0, 62))
+            else:
+                item.setSizeHint(QtCore.QSize(THUMB_W + 20, int(THUMB_W * 0.72) + 46))
             self._label_page_item(item, i)
             self.lst_pages.addItem(item)
         row = self._cur_page if 0 <= self._cur_page < doc.page_count else 0

@@ -70,8 +70,13 @@ class RecogCardMixin:
         self.chk_recog_all.setToolTip(_tr("Marcar o desmarcar todas las utilidades que tiene la hoja"))
         self.chk_recog_all.clicked.connect(self._on_recog_all_clicked)
         head.addWidget(self.chk_recog_all)
-        grid = QtWidgets.QGridLayout()
-        grid.setHorizontalSpacing(10); grid.setVerticalSpacing(6)
+        # 2.0.0 (prototipo «Qué reconocer»): una fila por utilidad con su color, nombre, «N capas» y un
+        # INTERRUPTOR; la casilla de siempre sigue siendo el dato (el interruptor la refleja)
+        from ui.comun.rediseno import Interruptor
+        filas = QtWidgets.QVBoxLayout()
+        filas.setSpacing(2)
+        self._recog_switches: dict[str, Interruptor] = {}
+        self._recog_counts: dict[str, QtWidgets.QLabel] = {}
         self._recog_checks: dict[str, QtWidgets.QCheckBox] = {}
         self._recog_hidden: list[str] = []          # marcadas con todas sus capas ocultas
         selected = recognition.normalize_utilities(recognition_utilities)
@@ -81,11 +86,22 @@ class RecogCardMixin:
             cb.setChecked(key in selected)
             cb.toggled.connect(self._on_recog_utility_toggled)
             self._recog_checks[key] = cb
-            # 2 columnas: con 3 los nombres se cortaban en un panel estrecho
-            grid.addWidget(cb, n // 2, n % 2)
-        for c in range(2):
-            grid.setColumnStretch(c, 1)
-        lay.addLayout(grid)
+            cb.setStyleSheet("QCheckBox { spacing: 0px; } QCheckBox::indicator { width: 0px; height: 0px; margin: 0px; border: none; background: transparent; image: none; }")   # la marca la da el interruptor
+            sw = Interruptor(cb.isChecked(), _label(key))
+            sw.toggled.connect(lambda on, c=cb: c.isChecked() != on and c.setChecked(on))
+            cb.toggled.connect(lambda on, w=sw: w.isChecked() != on and w.setChecked(on))
+            cuenta = QtWidgets.QLabel()
+            cuenta.setProperty("rol", "t3")
+            fila = QtWidgets.QHBoxLayout()
+            fila.setContentsMargins(0, 2, 0, 2)
+            fila.addWidget(cb, 1)
+            fila.addWidget(cuenta)
+            fila.addSpacing(6)
+            fila.addWidget(sw)
+            filas.addLayout(fila)
+            self._recog_switches[key] = sw
+            self._recog_counts[key] = cuenta
+        lay.addLayout(filas)
         self.lbl_recog_warn = QtWidgets.QLabel(_tr("Marca al menos una utilidad para reconocer."))
         self.lbl_recog_warn.setStyleSheet(f"color:{t.danger}; font-weight:bold;")
         self.lbl_recog_warn.hide()
@@ -155,6 +171,37 @@ class RecogCardMixin:
         self.lbl_recog_warn.setVisible(not ok)
         hidden = self._check_recog_hidden()
         self.btn_ok.setEnabled(ok and not hidden)
+        self._sync_switches()
+
+    def _sync_switches(self):
+        """Interruptores y «N capas» de «Reconocer» = las casillas de siempre (también cuando éstas
+        cambian con las señales bloqueadas)."""
+        cuentas: dict[str, int] = {}
+        for layer in self._layers:                     # como el número de su grupo en «Capas del plano»
+            for u in {layer.get("utility")} | set(layer.get("letter_utilities") or ()):
+                cuentas[u] = cuentas.get(u, 0) + 1
+        import shiboken6
+        for key, sw in list(getattr(self, "_interruptores_arbol", {}).items()):   # los de cada fila del árbol
+            if not shiboken6.isValid(sw):
+                continue
+            cb = self._recog_checks[key]
+            sw.blockSignals(True); sw.setChecked(cb.isChecked()); sw.blockSignals(False)
+            sw.setEnabled(cb.isEnabled())
+            sw.setToolTip(cb.toolTip() or sw.accessibleName())
+            sw.update()
+        for key, sw in getattr(self, "_recog_switches", {}).items():
+            cb = self._recog_checks[key]
+            sw.blockSignals(True); sw.setChecked(cb.isChecked()); sw.blockSignals(False)
+            sw.setEnabled(cb.isEnabled())
+            sw.setToolTip(cb.toolTip() or _label(key))
+            sw.update()
+            n = cuentas.get(key, 0)
+            self._recog_counts[key].setText(_tr("{n} capas").format(n=n) if n != 1 else _tr("1 capa"))
+            # 2.0.0: si la utilidad ya tiene su interruptor en su fila del árbol, aquí no se repite
+            # (en una hoja SIN capas los grupos son por estilo: la fila se queda aquí)
+            en_arbol = key in getattr(self, "_interruptores_arbol", {}) and not self._flat_sheet()
+            for w in (cb, sw, self._recog_counts[key]):
+                w.setHidden(en_arbol)
 
     def _on_recog_all_clicked(self, _checked=False):
         enabled = self._enabled_recog()

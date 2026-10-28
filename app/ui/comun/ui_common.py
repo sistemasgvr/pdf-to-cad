@@ -26,15 +26,17 @@ ICON_LG = 28
 def btn_on_style() -> str:
     from ui.comun.theme import tokens
     t = tokens()
-    return (f"background:{t.success};color:{t.text_on_accent};"
-            f"font-weight:bold;padding:8px;border-radius:4px;")
+    # 2.0.0: la herramienta activa va con el acento lleno (inequívoco)
+    return (f"background:{t.accent};color:{t.text_on_accent};border:1px solid {t.accent};"
+            f"font-weight:600;padding:8px;border-radius:8px;")
 
 
 def btn_off_style() -> str:
     from ui.comun.theme import tokens
     t = tokens()
-    return (f"background:{t.accent};color:{t.text_on_accent};"
-            f"padding:8px;border-radius:4px;")
+    # 2.0.0: inactiva = botón neutro
+    return (f"background:{t.surface};color:{t.text};border:1px solid {t.border};"
+            f"padding:8px;border-radius:8px;")
 
 
 def aci_qcolor(a): return QtGui.QColor(*ACI_RGB.get(a, (235, 235, 235)))

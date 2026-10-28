@@ -462,22 +462,18 @@ def test_pestanas_a_ventana_completa_y_navegacion(app):
     dlg = T.CompositeDialog(None, [{"name": "a.pdf", "data": _two_sheet_pdf()}], None, {}, 0)
     try:
         dlg.resize(1100, 640); dlg.show(); _settle(app)
-        assert dlg.tabs.current() == T.TAB_SOURCE and dlg.stack.currentIndex() == T.TAB_SOURCE
+        # 2.0.0: la lista de hojas está siempre a la izquierda y se abre en «Área a tomar»
+        assert dlg.tabs.current() == T.TAB_AREA and dlg.stack.currentIndex() == T.TAB_AREA
         assert dlg.btn_back.isHidden() and not dlg.btn_next.isHidden()
+        assert dlg.lst_pages.isVisible() and dlg.tabs.tabs[T.TAB_SOURCE].isHidden()
         # la hoja a la vista ya está en la hoja compuesta: se puede continuar de una vez
         assert dlg.btn_ok.isEnabled() and "hoja 1 completa" in dlg.lbl_check.text()
-        # la galería ocupa la ventana: cada vista usa casi todo el ancho del diálogo
-        assert dlg.lst_pages.width() > 0.85 * dlg.stack.width()
-        dlg.btn_next.click(); _settle(app)                          # → «Área a tomar»
-        assert dlg.stack.currentIndex() == T.TAB_AREA and not dlg.btn_back.isHidden()
         assert dlg.crop.width() > 0.85 * dlg.stack.width()
         assert dlg.lbl_page.text() == "Hoja 1 de 2" and not dlg.btn_prev_page.isEnabled()
         dlg.btn_next_page.click(); _settle(app)                     # ‹ › cambian de hoja aquí mismo
         assert dlg.lst_pages.currentRow() == 1 and dlg.lbl_page.text() == "Hoja 2 de 2"
         assert [p.page for p in dlg.comp.pieces] == [0] and dlg._page_pending()   # …solo la MUESTRAN
         assert not dlg.btn_next_page.isEnabled()
-        dlg.btn_all_pages.click(); _settle(app)                     # «Ver todas las hojas» → Origen
-        assert dlg.stack.currentIndex() == T.TAB_SOURCE
         _click_page(app, dlg, 0)                                    # el 1.er clic del doble clic: verla
         dlg.lst_pages.itemDoubleClicked.emit(dlg.lst_pages.item(0)); _settle(app)
         assert dlg.stack.currentIndex() == T.TAB_AREA                # doble clic en una hoja → Área
@@ -487,9 +483,9 @@ def test_pestanas_a_ventana_completa_y_navegacion(app):
         assert dlg.btn_ok.isEnabled() and "Lista para continuar" in dlg.lbl_check.text()
         dlg.btn_edit_area.click(); _settle(app)                     # pieza elegida → «Editar área»
         assert dlg.stack.currentIndex() == T.TAB_AREA and "entera" in dlg.lbl_mode.text()
-        dlg.tabs.tabs[T.TAB_SOURCE].click(); _settle(app)           # las pestañas, siempre clicables
-        assert dlg.stack.currentIndex() == T.TAB_SOURCE
-        dlg._go_tab(T.TAB_SHEET); dlg.btn_back.click(); _settle(app)
+        dlg.tabs.tabs[T.TAB_SHEET].click(); _settle(app)            # las pestañas, siempre clicables
+        assert dlg.stack.currentIndex() == T.TAB_SHEET
+        dlg.btn_back.click(); _settle(app)
         assert dlg.stack.currentIndex() == T.TAB_AREA
     finally:
         dlg.close_docs(); dlg.close()
@@ -519,7 +515,7 @@ def test_capas_y_preview_con_divisor(app):
     try:
         dlg._apply_side_width()
         from ui.comun.widgets import CollapsiblePanel
-        assert dlg.info_box.collapsed and dlg.split.sizes()[0] == CollapsiblePanel.STRIP_W
+        assert dlg.info_box.collapsed and dlg.split.sizes()[dlg.split.indexOf(dlg.info_box)] == CollapsiblePanel.STRIP_W
     finally:
         dlg.close()
 
@@ -892,7 +888,7 @@ def test_abre_en_la_pestana_que_toca(app):
     tomar» (sobre esa hoja); con piezas acomodadas → «Hoja compuesta»."""
     T = composite_dialog
     data = _two_sheet_pdf()
-    cases = ((None, T.TAB_SOURCE),
+    cases = ((None, T.TAB_AREA),                     # 2.0.0: sin «Origen» (la lista va a la izquierda)
              (C.Composite(pieces=[C.Piece(0, 0, [0.0, 0.0, 1.0, 1.0], src_scale=20 / 72.0)]), T.TAB_AREA),
              (C.Composite(pieces=[C.Piece(0, 0, [0.0, 0.0, 0.5, 1.0], src_scale=20 / 72.0),
                                   C.Piece(0, 1, [0.5, 0.0, 1.0, 1.0], src_scale=20 / 72.0)]), T.TAB_SHEET))
@@ -972,7 +968,8 @@ def _click_check(app, dlg, row, double=False):
     """Clic de VERDAD en la casilla de una hoja de «Origen» (doble: un doble clic)."""
     from PySide6 import QtTest
     from ui.asistente.page_gallery import check_rect
-    pos = check_rect(dlg.lst_pages.visualItemRect(dlg.lst_pages.item(row))).center()
+    lista = dlg.lst_pages.viewMode() == QtWidgets.QListView.ListMode   # 2.0.0: lista de la izquierda
+    pos = check_rect(dlg.lst_pages.visualItemRect(dlg.lst_pages.item(row)), lista).center()
     QtTest.QTest.mouseClick(dlg.lst_pages.viewport(), QtCore.Qt.LeftButton, QtCore.Qt.NoModifier, pos)
     if double:
         QtTest.QTest.mouseDClick(dlg.lst_pages.viewport(), QtCore.Qt.LeftButton, QtCore.Qt.NoModifier, pos)
@@ -993,7 +990,7 @@ def test_la_hoja_elegida_es_la_hoja_compuesta(app, manual):
     dlg = T.CompositeDialog(None, [{"name": "a.pdf", "data": _two_sheet_pdf()}], None, {}, 0, manual=manual)
     try:
         dlg.resize(1100, 700); dlg.show(); _settle(app)
-        assert dlg.tabs.current() == T.TAB_SOURCE                        # se abre para elegir
+        assert dlg.tabs.current() == T.TAB_AREA                          # 2.0.0: la lista va a la izquierda
         assert [(p.page, p.clip) for p in dlg.comp.pieces] == [(0, [0.0, 0.0, 1.0, 1.0])]
         assert dlg.btn_ok.isEnabled() and _used(dlg) == [0] and "Hoja completa" in dlg.lst_pages.item(0).text()
         assert "ya viene marcada" in dlg.lbl_source_hint.text()
@@ -1007,7 +1004,7 @@ def test_la_hoja_elegida_es_la_hoja_compuesta(app, manual):
         assert dlg.comp.is_single_full_page() and dlg._editing == 0 and not dlg._page_pending()
         assert _used(dlg) == [1] and "Hoja completa" in dlg.lst_pages.item(1).text()
         assert "hoja 2 completa" in dlg.lbl_check.text()
-        dlg.btn_next.click(); _settle(app)                               # «Área a tomar»
+        dlg._go_tab(T.TAB_AREA); _settle(app)                            # «Área a tomar»
         assert "entera" in dlg.lbl_mode.text() and dlg.btn_take.isHidden() and dlg.btn_take_full.isHidden()
         assert dlg.crop.is_whole_page(dlg.crop._selection)               # la hoja entera, sin tinte
         # marcar un área sobre la hoja elegida la recorta (sin «Tomar»)
@@ -1058,8 +1055,8 @@ def test_casillas_de_las_hojas(app, monkeypatch):
         _click_page(app, dlg, 0)                                         # verla: ya está, su pieza
         assert [p.page for p in dlg.comp.pieces] == [0, 1] and dlg.view.selected_index() == 0
         # flechas: solo muestran la hoja; Espacio / Enter = su casilla (Enter no cierra)
-        QtTest.QTest.keyClick(dlg.lst_pages, QtCore.Qt.Key_Right); _settle(app)
-        QtTest.QTest.keyClick(dlg.lst_pages, QtCore.Qt.Key_Right); _settle(app)
+        QtTest.QTest.keyClick(dlg.lst_pages, QtCore.Qt.Key_Down); _settle(app)
+        QtTest.QTest.keyClick(dlg.lst_pages, QtCore.Qt.Key_Down); _settle(app)
         assert dlg.lst_pages.currentRow() == 2 and [p.page for p in dlg.comp.pieces] == [0, 1]
         assert dlg._page_pending()
         QtTest.QTest.keyClick(dlg.lst_pages, QtCore.Qt.Key_Return); _settle(app)
@@ -1068,7 +1065,7 @@ def test_casillas_de_las_hojas(app, monkeypatch):
         QtTest.QTest.keyClick(dlg.lst_pages, QtCore.Qt.Key_Space); _settle(app)
         assert [p.page for p in dlg.comp.pieces] == [0, 1] and _used(dlg) == [0, 1]
         # desmarcar otra hoja (no la de la vista) la quita sin tocar la que se ve
-        QtTest.QTest.keyClick(dlg.lst_pages, QtCore.Qt.Key_Left); _settle(app)   # la 2 en edición
+        QtTest.QTest.keyClick(dlg.lst_pages, QtCore.Qt.Key_Up); _settle(app)   # la 2 en edición
         assert dlg.view.selected_index() == 1
         _click_check(app, dlg, 0)
         assert [p.page for p in dlg.comp.pieces] == [1] and dlg.lst_pages.currentRow() == 1
@@ -1077,7 +1074,7 @@ def test_casillas_de_las_hojas(app, monkeypatch):
         _click_page(app, dlg, 2, QtCore.Qt.ControlModifier)
         assert _used(dlg) == [1, 2]
         _click_check(app, dlg, 0, double=True)
-        assert _used(dlg) == [0, 1, 2] and dlg.stack.currentIndex() == T.TAB_SOURCE
+        assert _used(dlg) == [0, 1, 2] and dlg.stack.currentIndex() == T.TAB_AREA
         # desmarcar una hoja con un área tomada pregunta antes
         dlg.comp.pieces[0].clip = [0.0, 0.0, 0.5, 1.0]
         monkeypatch.setattr(dlg, "_confirm_remove_page", lambda page: False)
