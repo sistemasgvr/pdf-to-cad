@@ -302,3 +302,62 @@ def test_reconocer_una_utilidad_con_sus_capas_ocultas_no_continua(dlg5):
     # volver a marcarla con sus capas ocultas: otra vez el aviso
     dlg5._recog_checks["TELECOM"].setChecked(True)
     assert not dlg5.btn_ok.isEnabled() and dlg5._recog_hidden == ["TELECOM"]
+
+
+def _pdf_con_capas():
+    doc = fitz.open()
+    for i in range(2):
+        p = doc.new_page(width=400, height=300)
+        for k, nombre in enumerate(("C-ELEC-UNGD-E", "C-STRM-UNGD-N")):
+            ocg = doc.add_ocg(nombre, on=True) if i == 0 else [x for x, v in doc.get_ocgs().items()
+                                                              if v["name"] == nombre][0]
+            p.draw_line((20, 50 + 60 * k), (380, 50 + 60 * k), oc=ocg)
+    return fitz.open(stream=doc.tobytes(), filetype="pdf")
+
+
+def test_capas_vivo_se_muestra_igual_al_volver(monkeypatch):
+    """Pedido del usuario 2026-10-28: volver a «Capas» (desde la vista previa o tras ir al
+    compositor) con lo mismo muestra el MISMO diálogo, sin leer capas ni dibujar la hoja; lo
+    marcado antes de volver al compositor se conserva; otra hoja = diálogo nuevo."""
+    _app()
+    hechos = []
+    orig = layer_dialog.SheetLayersDialog.__init__
+
+    def init(self, *a, **k):
+        hechos.append(1)
+        orig(self, *a, **k)
+    monkeypatch.setattr(layer_dialog.SheetLayersDialog, "__init__", init)
+    doc = _pdf_con_capas()
+    vivo = {}
+    acciones = []
+
+    def ejecutar(self):
+        a = acciones.pop(0)
+        if a == "volver":
+            _layer(self, "C-STRM-UNGD-N").setCheckState(0, QtCore.Qt.Unchecked)
+            self._go_back()
+            return QtWidgets.QDialog.Rejected
+        if a == "cancelar":
+            self.reject()
+            return QtWidgets.QDialog.Rejected
+        self.accept()
+        return QtWidgets.QDialog.Accepted
+    monkeypatch.setattr(layer_dialog.SheetLayersDialog, "exec", ejecutar)
+    llamar = lambda pagina=0: layer_dialog.choose_sheet_layers(  # noqa: E731
+        None, doc, pagina, can_go_back=True, include_roles=True, vivo=vivo)
+    try:
+        acciones[:] = ["volver", "ok", "ok", "ok", "cancelar"]
+        assert llamar() == layer_dialog.LAYERS_BACK
+        assert pdf_layers.hidden_layers(doc) == set()                 # volver deshace en el documento
+        r = llamar()                                                   # mismo diálogo, lo marcado sigue
+        assert len(hechos) == 1 and "C-STRM-UNGD-N" in r[0]
+        assert pdf_layers.hidden_layers(doc) == {"C-STRM-UNGD-N"}
+        llamar()                                                       # (desde la vista previa)
+        assert len(hechos) == 1
+        llamar(1)                                                      # otra hoja: diálogo nuevo
+        assert len(hechos) == 2
+        assert llamar(1) is None and "capas" not in vivo               # cancelar lo suelta
+    finally:
+        for d in vivo.values():
+            d.soltar_vivo()
+        doc.close()

@@ -262,12 +262,18 @@ class _Flotador(QtCore.QObject):
     def colocar(self):
         v, w, m = self.vista, self.widget, self.margen
         try:
-            w.adjustSize()
+            hint = w.sizeHint()
         except RuntimeError:
             return
         W, H = v.width(), v.height()
-        if w.width() > W - 2 * m:                  # nunca más ancha que la vista (lo que no quepa se recorta)
-            w.resize(max(w.minimumSizeHint().width(), W - 2 * m), w.height())
+        ancho = w.minimumWidth() if w.minimumWidth() == w.maximumWidth() else hint.width()
+        if ancho > W - 2 * m:                      # nunca más ancha que la vista (lo que no quepa se recorta)
+            ancho = max(w.minimumSizeHint().width(), W - 2 * m)
+        # texto que se parte en líneas: el alto que de verdad necesita a ese ancho
+        alto = (max(w.heightForWidth(ancho), w.minimumSizeHint().height()) if w.hasHeightForWidth()
+                else hint.height())
+        if (w.width(), w.height()) != (ancho, alto):   # solo si cambia (cada resize vuelve a llamar aquí)
+            w.resize(ancho, alto)
         if self.donde == "arriba":
             w.move(max(m, (W - w.width()) // 2), m)
         elif self.donde == "abajo":

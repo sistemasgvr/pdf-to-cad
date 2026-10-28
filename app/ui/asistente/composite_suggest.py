@@ -172,6 +172,7 @@ class SuggestionMixin:
         self._sug_clave = None
         self._sug_antes: Optional[dict] = None      # hoja compuesta antes de usar la sugerencia
         self._sug_usada: Optional[G.Grupo] = None
+        self._sug_usada_huella = None               # sus hojas por contenido (sobrevive a quitar otro PDF)
         self._sug_oculta = False
         self._sug_no_hermano = False
         box = QtWidgets.QFrame()
@@ -179,59 +180,72 @@ class SuggestionMixin:
         box.setStyleSheet(
             f"QFrame#sugCard {{ background:{t.surface_alt}; border:1px solid {t.accent}; "
             f"border-left:4px solid {t.accent}; border-radius:4px; }}"
-            f"QFrame#sugCard QLabel {{ background:transparent; border:none; }}")
+            f"QFrame#sugCard QLabel {{ background:transparent; border:none; }}"
+            f"QWidget#sugAcciones, QWidget#sugHermano {{ background:transparent; }}")
+        # texto a TODO el ancho y los botones DEBAJO (en la columna de 300 px el texto quedaba
+        # en una tira angosta entre el icono y los botones, y los botones se cortaban)
         lay = QtWidgets.QVBoxLayout(box)
-        lay.setContentsMargins(10, 6, 8, 6); lay.setSpacing(4)
+        lay.setContentsMargins(12, 10, 8, 12); lay.setSpacing(8)
         row = QtWidgets.QHBoxLayout(); row.setSpacing(8)
         ic = QtWidgets.QLabel()
         ic.setPixmap(_icon("mdi:vector-combine", color=t.accent).pixmap(QtCore.QSize(20, 20)))
-        row.addWidget(ic, 0, QtCore.Qt.AlignVCenter)
+        row.addWidget(ic, 0, QtCore.Qt.AlignTop)
         self.lbl_sug = QtWidgets.QLabel()
         self.lbl_sug.setWordWrap(True)
         self.lbl_sug.setTextFormat(QtCore.Qt.RichText)
         row.addWidget(self.lbl_sug, 1)
-        self.bar_sug = QtWidgets.QProgressBar()
-        self.bar_sug.setTextVisible(False)
-        self.bar_sug.setFixedSize(160, 6)
-        row.addWidget(self.bar_sug, 0, QtCore.Qt.AlignVCenter)
-        self.cmb_sug = QtWidgets.QComboBox()
-        self.cmb_sug.setMinimumHeight(30)
-        self.cmb_sug.setSizeAdjustPolicy(QtWidgets.QComboBox.AdjustToContents)
-        self.cmb_sug.currentIndexChanged.connect(lambda _i: self._sug_refrescar())
-        row.addWidget(self.cmb_sug)
-        self.btn_sug_usar = QtWidgets.QPushButton(_icon("mdi:check", color=t.text_on_accent), _tr("Usar sugerencia"))
-        self.btn_sug_usar.setAutoDefault(False)
-        self.btn_sug_usar.setToolTip(_tr("Reemplaza la hoja compuesta por la sugerida (se puede deshacer)"))
-        self.btn_sug_usar.clicked.connect(self._sug_usar)
-        row.addWidget(self.btn_sug_usar)
-        self.btn_sug_deshacer = QtWidgets.QPushButton(_icon("mdi:undo-variant"), _tr("Deshacer"))
-        self.btn_sug_deshacer.setProperty("secondary", True)
-        self.btn_sug_deshacer.setAutoDefault(False)
-        self.btn_sug_deshacer.setToolTip(_tr("Volver a la hoja compuesta de antes de usar la sugerencia"))
-        self.btn_sug_deshacer.clicked.connect(self._sug_deshacer)
-        row.addWidget(self.btn_sug_deshacer)
         btn_x = QtWidgets.QToolButton()
         btn_x.setIcon(_icon("mdi:close")); btn_x.setAutoRaise(True)
         btn_x.setToolTip(_tr("Ocultar la sugerencia"))
         btn_x.clicked.connect(self._sug_ocultar)
         row.addWidget(btn_x, 0, QtCore.Qt.AlignTop)
         lay.addLayout(row)
-        # el PDF hermano (Norte/Sur): se pregunta antes de agregarlo
+        self.bar_sug = QtWidgets.QProgressBar()
+        self.bar_sug.setTextVisible(False)
+        self.bar_sug.setFixedHeight(6)
+        lay.addWidget(self.bar_sug)
+        acciones = QtWidgets.QWidget()
+        acciones.setObjectName("sugAcciones")
+        arow = QtWidgets.QHBoxLayout(acciones); arow.setContentsMargins(0, 0, 0, 0); arow.setSpacing(8)
+        self.cmb_sug = QtWidgets.QComboBox()
+        self.cmb_sug.setMinimumHeight(30)
+        self.cmb_sug.setSizeAdjustPolicy(QtWidgets.QComboBox.AdjustToMinimumContentsLengthWithIcon)
+        self.cmb_sug.setSizePolicy(QtWidgets.QSizePolicy.Expanding, QtWidgets.QSizePolicy.Fixed)
+        self.cmb_sug.currentIndexChanged.connect(lambda _i: self._sug_refrescar())
+        lay.addWidget(self.cmb_sug)
+        self.btn_sug_usar = QtWidgets.QPushButton(_icon("mdi:check", color=t.text_on_accent), _tr("Usar sugerencia"))
+        self.btn_sug_usar.setProperty("kind", "primary")
+        self.btn_sug_usar.setAutoDefault(False)
+        self.btn_sug_usar.setToolTip(_tr("Reemplaza la hoja compuesta por la sugerida (se puede deshacer)"))
+        self.btn_sug_usar.clicked.connect(self._sug_usar)
+        arow.addWidget(self.btn_sug_usar, 1)
+        self.btn_sug_deshacer = QtWidgets.QPushButton(_icon("mdi:undo-variant"), _tr("Deshacer"))
+        self.btn_sug_deshacer.setProperty("secondary", True)
+        self.btn_sug_deshacer.setAutoDefault(False)
+        self.btn_sug_deshacer.setToolTip(_tr("Volver a la hoja compuesta de antes de usar la sugerencia"))
+        self.btn_sug_deshacer.clicked.connect(self._sug_deshacer)
+        arow.addWidget(self.btn_sug_deshacer, 1)
+        lay.addWidget(acciones)
+        self.sug_acciones = acciones
+        # el PDF hermano (Norte/Sur): se pregunta antes de agregarlo (pregunta arriba, botones debajo)
         self.sug_hermano = QtWidgets.QWidget()
-        hrow = QtWidgets.QHBoxLayout(self.sug_hermano); hrow.setContentsMargins(28, 0, 0, 0); hrow.setSpacing(8)
+        self.sug_hermano.setObjectName("sugHermano")
+        hlay = QtWidgets.QVBoxLayout(self.sug_hermano); hlay.setContentsMargins(0, 4, 0, 0); hlay.setSpacing(8)
         self.lbl_sug_hermano = QtWidgets.QLabel()
         self.lbl_sug_hermano.setWordWrap(True)
-        hrow.addWidget(self.lbl_sug_hermano, 1)
+        hlay.addWidget(self.lbl_sug_hermano)
+        hrow = QtWidgets.QHBoxLayout(); hrow.setSpacing(8)
         self.btn_sug_hermano = QtWidgets.QPushButton(_icon("mdi:file-plus-outline", color=t.soft_text), _tr("Agregar PDF"))
         self.btn_sug_hermano.setProperty("soft", True)
         self.btn_sug_hermano.setAutoDefault(False)
         self.btn_sug_hermano.clicked.connect(self._sug_agregar_hermano)
-        hrow.addWidget(self.btn_sug_hermano)
+        hrow.addWidget(self.btn_sug_hermano, 1)
         btn_no = QtWidgets.QPushButton(_tr("No"))
         btn_no.setProperty("secondary", True)
         btn_no.setAutoDefault(False)
         btn_no.clicked.connect(self._sug_rechazar_hermano)
         hrow.addWidget(btn_no)
+        hlay.addLayout(hrow)
         self.sug_hermano.hide()
         lay.addWidget(self.sug_hermano)
         box.hide()
@@ -246,15 +260,31 @@ class SuggestionMixin:
         srv.progreso.connect(self._sug_progreso)
         srv.listo.connect(self._sug_listo)
         self._sug_conectada = True
-        self.lst_pages.currentRowChanged.connect(lambda _r: self._sug_refrescar())
-        self.cmb_source.currentIndexChanged.connect(lambda _i: self._sug_refrescar())
+        self.lst_pages.currentRowChanged.connect(lambda _r: self._sug_seguir_hoja())
+        self.cmb_source.currentIndexChanged.connect(lambda _i: self._sug_seguir_hoja())
         self._sug_pedir()
 
-    def _sug_pedir(self):
+    def _sug_pedir(self, esperar_ms: int = 0):
+        """Pide el análisis de los PDF de ahora. `esperar_ms`: lo que ya estaba en la tarjeta sigue
+        (sin botones) ese rato antes de decir «Buscando…» — al agregar o quitar un PDF lo ya visto
+        vuelve de la memoria al instante y la tarjeta no parpadea."""
         self._sug_res = None
-        self._sug_clave = servicio().pedir(self.sources)
-        if self._sug_res is None and not self._sug_oculta:
-            self._sug_mostrar_busqueda(_tr("Buscando cómo se unen las hojas…"), 0, 0)
+        clave = self._sug_clave = servicio().pedir(self.sources)
+        if self._sug_res is not None or self._sug_oculta:
+            return
+        texto = _tr("Buscando cómo se unen las hojas…")
+        if esperar_ms and self.sug_card.isVisible():
+            self._sug_espera = clave
+            self.sug_acciones.setEnabled(False); self.cmb_sug.setEnabled(False)
+
+            def _ya():
+                if getattr(self, "_sug_espera", None) == clave:
+                    self._sug_espera = None
+                    if self._sug_res is None and self._sug_clave == clave and not self._sug_oculta:
+                        self._sug_mostrar_busqueda(texto, 0, 0)
+            QtCore.QTimer.singleShot(esperar_ms, _ya)
+        else:
+            self._sug_mostrar_busqueda(texto, 0, 0)
 
     def _sug_desconectar(self):
         srv = _SERVICIO
@@ -268,7 +298,7 @@ class SuggestionMixin:
                 pass
 
     def _sug_progreso(self, clave, etapa, i, n):
-        if clave != self._sug_clave or self._sug_oculta:
+        if clave != self._sug_clave or self._sug_oculta or getattr(self, "_sug_espera", None) == clave:
             return
         textos = {"hojas": _tr("Buscando cómo se unen las hojas… (hoja {i} de {n})").format(i=i, n=n),
                   "uniones": _tr("Confirmando las uniones con el dibujo…"),
@@ -277,6 +307,7 @@ class SuggestionMixin:
         self._sug_mostrar_busqueda(textos.get(etapa, ""), i, n)
 
     def _sug_mostrar_busqueda(self, texto: str, i: int, n: int):
+        self.sug_acciones.setEnabled(True); self.cmb_sug.setEnabled(True)
         self.lbl_sug.setText(texto)
         self.bar_sug.setRange(0, n if n else 0)
         if n:
@@ -284,18 +315,29 @@ class SuggestionMixin:
         self.bar_sug.show()
         for w in (self.cmb_sug, self.btn_sug_usar, self.btn_sug_deshacer):
             w.hide()
+        self.sug_acciones.hide()
         self.sug_hermano.hide()
         self.sug_card.show()
 
     def _sug_listo(self, clave, res):
         if clave != self._sug_clave:
             return
+        self._sug_espera = None
         self._sug_res = res
+        # la sugerencia que ya está en la hoja compuesta sigue «usada» si el juego no cambió
+        # (p. ej. se quitó OTRO PDF): se reconoce por el contenido de sus hojas, no por su número
+        huella = getattr(self, "_sug_usada_huella", None)
+        if self._sug_usada is None and huella and res is not None and res.analisis is not None:
+            self._sug_usada = next((g for g in res.analisis.grupos
+                                    if frozenset((clave[s], h) for s, h in g.nodos) == huella), None)
         self._sug_llenar_combo()
-        self._sug_refrescar()
+        self._sug_seguir_hoja()
 
     # ── qué sugerir ─────────────────────────────────────────────────────
     def _sug_llenar_combo(self):
+        """Con varios juegos de hojas, TODOS en la lista (pedido del usuario 2026-10-28: un PDF con su
+        sugerencia y otros dos PDF con otra; antes solo se veía la de la hoja a la vista). Cada uno
+        dice de qué PDF son sus hojas."""
         self.cmb_sug.blockSignals(True)
         self.cmb_sug.clear()
         an = self._sug_res.analisis if self._sug_res else None
@@ -304,18 +346,39 @@ class SuggestionMixin:
             for k, g in enumerate(an.grupos):
                 serie = " / ".join(s.replace("#", "…") for s in g.series) if g.tipo == "estaciones" else ""
                 txt = describir(g, an)
-                self.cmb_sug.addItem((serie + " · " + txt) if serie else txt, k)
+                pdfs = " + ".join(os.path.splitext(self.sources[s]["name"])[0]
+                                  for s in G.resumen_datos(g, an.fichas)["pdfs"] if 0 <= s < len(self.sources))
+                item = (serie + " · " + txt) if serie else txt
+                self.cmb_sug.addItem((pdfs + " · " + item) if pdfs else item, k)
+                self.cmb_sug.setItemData(self.cmb_sug.count() - 1, self.cmb_sug.itemText(self.cmb_sug.count() - 1),
+                                         QtCore.Qt.ToolTipRole)
+            # la lista desplegada, tan ancha como su texto más largo (la columna mide 300 px)
+            fm = self.cmb_sug.view().fontMetrics()
+            ancho = max(fm.horizontalAdvance(self.cmb_sug.itemText(i)) for i in range(self.cmb_sug.count()))
+            self.cmb_sug.view().setMinimumWidth(min(ancho + 40, 900))
         self.cmb_sug.blockSignals(False)
 
+    def _sug_seguir_hoja(self):
+        """La hoja a la vista cambió: si es de un juego, ése queda elegido en la lista (se puede
+        elegir otro); una hoja que no es de ninguno deja la elección como estaba."""
+        an = self._sug_res.analisis if self._sug_res else None
+        if an is not None and len(an.grupos) > 1:
+            g = an.grupo_de((self._cur_source, self._cur_page))
+            k = next((i for i, x in enumerate(an.grupos) if x is g), None) if g is not None else None
+            if k is not None:
+                i = self.cmb_sug.findData(k)
+                if i >= 0 and i != self.cmb_sug.currentIndex():
+                    self.cmb_sug.blockSignals(True)
+                    self.cmb_sug.setCurrentIndex(i)
+                    self.cmb_sug.blockSignals(False)
+        self._sug_refrescar()
+
     def _sug_grupo(self):
-        """(grupo, hay que preguntar). La hoja abierta / elegida manda; si no está en
-        ningún grupo y hay varios juegos, el usuario elige en la lista."""
+        """(grupo, hay varios para elegir). Un solo juego: ése. Varios: el elegido en la lista
+        (al cambiar de hoja se elige solo el de esa hoja, `_sug_seguir_hoja`); ninguno = preguntar."""
         an = self._sug_res.analisis if self._sug_res else None
         if an is None or not an.grupos:
             return None, False
-        g = an.grupo_de((self._cur_source, self._cur_page))
-        if g is not None:
-            return g, False
         if len(an.grupos) == 1:
             return an.grupos[0], False
         k = self.cmb_sug.currentData()
@@ -328,6 +391,7 @@ class SuggestionMixin:
             return
         t = _theme.tokens()
         self.bar_sug.hide()
+        self.sug_acciones.setEnabled(True); self.cmb_sug.setEnabled(True)
         res = self._sug_res
         an = res.analisis
         if an is None:
@@ -336,7 +400,8 @@ class SuggestionMixin:
         if self._sug_usada is not None:
             self.lbl_sug.setText(_tr("✔ Composición sugerida en la hoja compuesta: {txt}.").format(
                 txt=describir(self._sug_usada, an)))
-            self.cmb_sug.hide(); self.btn_sug_usar.hide(); self.btn_sug_deshacer.show()
+            self.cmb_sug.hide(); self.btn_sug_usar.hide()
+            self.btn_sug_deshacer.setVisible(self._sug_antes is not None)
         else:
             g, preguntar = self._sug_grupo()
             self.btn_sug_deshacer.hide()
@@ -350,6 +415,11 @@ class SuggestionMixin:
                                      + _tr("No encontré hojas que se unan solas: compón la hoja a mano.")
                                      + "</span>")
                 self.btn_sug_usar.hide()
+            elif preguntar:                       # varios juegos: cuál de cuántos (la lista dice de qué PDF)
+                k = next(i for i, x in enumerate(an.grupos) if x is g)
+                self.lbl_sug.setText("<b>" + _tr("Composición sugerida {k} de {n}:").format(
+                    k=k + 1, n=len(an.grupos)) + "</b> " + describir(g, an))
+                self.btn_sug_usar.show(); self.btn_sug_usar.setEnabled(g.composite is not None)
             else:
                 self.lbl_sug.setText("<b>" + _tr("Composición sugerida:") + "</b> " + describir(g, an))
                 self.btn_sug_usar.show(); self.btn_sug_usar.setEnabled(g.composite is not None)
@@ -360,6 +430,7 @@ class SuggestionMixin:
             self.sug_hermano.show()
         else:
             self.sug_hermano.hide()
+        self.sug_acciones.setVisible(not (self.btn_sug_usar.isHidden() and self.btn_sug_deshacer.isHidden()))
         self.sug_card.show()
 
     # ── acciones ────────────────────────────────────────────────────────
@@ -378,6 +449,8 @@ class SuggestionMixin:
             p0 = self.comp.pieces[0]
             self._sug_ver_hoja(p0.source, p0.page)
         self._sug_usada = g
+        clave = self._sug_clave or ()
+        self._sug_usada_huella = frozenset((clave[s], h) for s, h in g.nodos if s < len(clave))
         self._sug_refrescar()
         self._fitted.discard(TAB_SHEET)
         self._go_tab(TAB_SHEET)
@@ -414,6 +487,7 @@ class SuggestionMixin:
                 self._sug_ver_hoja(*vista)
         self._sug_antes = None
         self._sug_usada = None
+        self._sug_usada_huella = None
         self._sug_refrescar()
         self._fitted.discard(TAB_SHEET)
         self._go_tab(TAB_SHEET if len(self.comp.pieces) > 1 else 0)
@@ -443,4 +517,16 @@ class SuggestionMixin:
         self._fill_sources()                      # se sigue viendo la misma hoja
         self._sug_no_hermano = True
         self.sug_hermano.hide()
-        self._sug_pedir()                          # de nuevo, ahora con los dos PDF
+        self._sug_pedir(esperar_ms=400)            # de nuevo, ahora con los dos PDF
+
+    def _sug_pdfs_cambiaron(self):
+        """«Agregar PDF…» o «Quitar PDF» de la lista de hojas (pedido del usuario 2026-10-28: una utilidad
+        partida en dos PDF; al agregar el segundo la sugerencia no se volvía a calcular): de nuevo, con
+        todos los PDF. La tarjeta vuelve a mostrarse aunque se hubiera ocultado: es otro juego de hojas."""
+        if not getattr(self, "_sug_conectada", False):
+            self._sug_iniciar()                    # p. ej. el compositor se abrió sin PDF que analizar
+            return
+        self._sug_oculta = False
+        # la hoja compuesta sigue igual: si su juego sigue ahí, `_sug_listo` lo vuelve a dar por usado
+        self._sug_usada = None
+        self._sug_pedir(esperar_ms=400)            # lo ya visto vuelve de la memoria (sin parpadeo)

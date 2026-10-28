@@ -138,6 +138,7 @@ class AgregarUtilidadMixin:
             for d in docs:
                 d.close()
         # SIEMPRE con respaldo (aunque el editor no tenga líneas): cancelar vuelve a SU hoja
+        self._empezar_asistente()
         self._soltar_respaldo()
         self._respaldo = respaldo_editor.tomar(self)
         en_editor = list(dict.fromkeys(p.get("layer") for p in self.pipes if p.get("layer")))

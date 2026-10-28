@@ -615,11 +615,43 @@ class SheetLayersDialog(ScaleCalibrationMixin, LayerAssignmentsMixin, LayerInfoM
         pdf_layers.set_hidden(self._doc, self._initial_hidden)   # deshacer cambios
         super().reject()
 
+    # ── seguir vivo entre pasos del asistente (pedido del usuario 2026-10-28) ──
+    def sirve_para(self, doc, page_index, recognition_utilities, letters_off, roles_by_utility,
+                   scale_ft_per_pt, layout, en_proceso) -> bool:
+        """¿Recibe lo mismo que dejó al continuar? (mismo documento abierto y hoja, las capas que
+        dejó apagadas, mismas utilidades, letras, roles y escala)."""
+        if doc is not self._doc or doc.is_closed or page_index != self._page_index:
+            return False
+        escala = self.scale_ft_per_pt() or getattr(self, "_escala_entrada", None)
+        mismo_num = lambda a, b: (a is None and b is None) or (  # noqa: E731
+            a is not None and b is not None and abs(float(a) - float(b)) <= 1e-12 * max(1.0, abs(float(a))))
+        # al volver al compositor las capas del documento se repusieron; las del diálogo (lo que el
+        # usuario dejó marcado) se vuelven a aplicar en `reabrir`
+        return ((self.went_back or set(pdf_layers.hidden_layers(doc)) == set(self.hidden_names()))
+                and tuple(recognition.normalize_utilities(recognition_utilities)) == tuple(self.recognition_utilities())
+                and set(letters_off or ()) == set(self.letters_off())
+                and (roles_by_utility or {}) == (self.roles_by_utility() or {})
+                and mismo_num(scale_ft_per_pt, escala)
+                and layout == self._layout and bool(en_proceso) == self._en_proceso)
+
+    def reabrir(self):
+        """Se vuelve a mostrar tal cual: Cancelar / volver deshacen desde AHORA, y la leyenda que
+        quedó leyéndose al continuar se termina de poner."""
+        volvio, self.went_back = self.went_back, False
+        self._initial_hidden = pdf_layers.hidden_layers(self._doc)
+        if volvio:
+            pdf_layers.set_hidden(self._doc, self.hidden_names())   # lo marcado antes de volver
+        self._reanudar_leyenda()
+
+    def soltar_vivo(self):
+        self._timer.stop()
+        self._stop_legend()
+
 
 def choose_sheet_layers(parent, doc, page_index: int, layout=None, recognition_utilities=None,
                         can_go_back: bool = False, letters_off=None, legend_sources=None,
                         legend_cache=None, roles_by_utility=None, include_roles=False,
-                        scale_ft_per_pt=None, en_proceso=False):
+                        scale_ft_per_pt=None, en_proceso=False, vivo=None):
     """Devuelve ``(capas_ocultas, indice_de_hoja, utilidades, letras_no)`` si el usuario
     continúa; con ``include_roles`` añade los roles por utilidad (quinto valor) y la escala
     calibrada en pies/pt (sexto; None si no se tocó: el botón «Escala» solo sale si se
@@ -633,7 +665,19 @@ def choose_sheet_layers(parent, doc, page_index: int, layout=None, recognition_u
     actualizadas como `letras_no`); `legend_sources`: PDFs de origen
     ([{name, data|path}]) cuya leyenda se muestra; `legend_cache`: dict de la ventana
     principal donde queda la leyenda ya leída. `en_proceso` (hoja compuesta de varias piezas): lo
-    pesado se lee y la hoja se dibuja en el proceso trabajador (`capas_previas`), mismos resultados."""
+    pesado se lee y la hoja se dibuja en el proceso trabajador (`capas_previas`), mismos resultados.
+    `vivo` (dict de la ventana, `ventana_pasos`): al continuar o volver al compositor el diálogo
+    queda ahí, oculto; si se vuelve a pedir con lo mismo que dejó, se muestra TAL CUAL (sin leer
+    las capas ni dibujar la hoja otra vez). Cancelar lo suelta."""
+    dlg = vivo.pop("capas", None) if vivo is not None else None
+    if dlg is not None and not dlg.sirve_para(doc, page_index, recognition_utilities, letters_off,
+                                              roles_by_utility, scale_ft_per_pt, layout, en_proceso):
+        dlg.soltar_vivo()
+        dlg.deleteLater()
+        dlg = None
+    if dlg is not None:
+        dlg.reabrir()
+        return _resultado_capas(dlg, dlg.exec(), vivo, include_roles)
     with busy(parent, _tr("Leyendo las capas de la hoja…"),
               _tr("Contando los trazos de cada capa")) as ov:
         previa = None
@@ -652,7 +696,19 @@ def choose_sheet_layers(parent, doc, page_index: int, layout=None, recognition_u
                                 letters_off=letters_off, legend_sources=legend_sources,
                                 legend_cache=legend_cache, roles_by_utility=roles_by_utility,
                                 scale_ft_per_pt=scale_ft_per_pt, previa=previa, en_proceso=en_proceso)
-    if dlg.exec() != QtWidgets.QDialog.Accepted:
+        dlg._escala_entrada = scale_ft_per_pt
+    return _resultado_capas(dlg, dlg.exec(), vivo, include_roles)
+
+
+def _resultado_capas(dlg, codigo, vivo, include_roles):
+    if codigo != QtWidgets.QDialog.Accepted:
+        if dlg.went_back and vivo is not None:
+            vivo["capas"] = dlg            # vuelve al compositor: al regresar se muestra igual
+        elif vivo is not None:
+            dlg.soltar_vivo()
+            dlg.deleteLater()
         return LAYERS_BACK if dlg.went_back else None
+    if vivo is not None:
+        vivo["capas"] = dlg
     result = (dlg.hidden_names(), dlg.page_index(), dlg.recognition_utilities(), dlg.letters_off())
     return result + (dlg.roles_by_utility(), dlg.scale_ft_per_pt()) if include_roles else result

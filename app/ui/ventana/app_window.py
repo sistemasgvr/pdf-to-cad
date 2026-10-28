@@ -72,6 +72,10 @@ from ui.comun.icons import icon as _icon
 # sobre el tramo y las utilidades no empalmaban en el vértice.
 PRIORIDAD_VERTICE = 0.55
 
+# Lo que `_open_pdf_path` cambia fuera de `respaldo_editor.CLAVES` (cancelar lo repone).
+_ABRIR_EXTRA = ("pdf_path", "project_path", "_tmp_pdf", "sheet_layout", "sheet_rotations",
+                "sheet_crops", "sheet_sources", "sheet_external_pdfs")
+
 
 # Métodos de Main repartidos por tema en clases mezcla (movidos tal cual).
 from ui.ventana.ventana_menu import MenuMixin
@@ -112,11 +116,12 @@ from ui.ventana.ventana_shell import ShellMixin
 from ui.ventana.ventana_recientes import RecientesMixin
 from ui.ventana.ventana_shell_paneles import RevisionMixin
 from ui.ventana.ventana_inventario import InventarioMixin
+from ui.ventana.ventana_pasos import PasosVivosMixin
 
 
 class Main(MenuMixin, PanelIzquierdoMixin, PanelDerechoMixin, ModosMixin, ClicsMixin, UtilidadesMixin, CatalogoMixin, SeleccionMixin, ListasMixin, MarcasMixin, DibujoMixin, ConflictosMixin, CoordsMixin, BuzonesMixin, MoverPrecisoMixin, CurvasMixin, HerramientasMixin, BancoductosMixin, EdicionBloqueMixin, InformeMixin, IAMixin, SolucionesMixin, Vista3DMixin, Edicion3DMixin, ConflictosListaMixin, HojasEditorMixin,
            VerticesMixin, TrazoMixin, CalculoPlanoMixin, CalculoFondoMixin, EstadosPreviosMixin,
-           AgregarUtilidadMixin, PlanosFondoMixin, CapasMixin, ShellMixin, RevisionMixin, RecientesMixin, InventarioMixin, QtWidgets.QMainWindow):
+           AgregarUtilidadMixin, PlanosFondoMixin, CapasMixin, ShellMixin, RevisionMixin, RecientesMixin, InventarioMixin, PasosVivosMixin, QtWidgets.QMainWindow):
     def __init__(self):
         super().__init__()
         self._base_title = f"Asistente C3D  (v{VERSION})"
@@ -328,11 +333,15 @@ class Main(MenuMixin, PanelIzquierdoMixin, PanelDerechoMixin, ModosMixin, ClicsM
         self._busy(_tr("Abriendo PDF…"))
         try:
             new_doc = fitz.open(path)
-            if self.doc:
-                self.doc.close()
-            self._cleanup_tmp_pdf()
+            self._soltar_pasos()                 # otro PDF: lo del asistente anterior ya no sirve
+            # Cancelar el asistente (compositor) no carga NADA en el editor (pedido del usuario
+            # 2026-10-28: «no se importó nada aún»): lo de antes queda a mano hasta que siga.
+            antes = respaldo_editor.tomar(self)
+            antes_extra = {k: self.__dict__.get(k) for k in _ABRIR_EXTRA}
+            antes_item = self.canvas.pixmap_item
+            self._respaldo_abrir = antes
             self.pdf_path = path; self.project_path = None; self.doc = new_doc; self._update_title()
-            self._ia_soltar()
+            self._tmp_pdf = None
             self.work_pdf_path = path
             with open(path, "rb") as fp:
                 self.src_pdfs = [{"name": os.path.basename(path), "data": fp.read(), "path": path}]
@@ -354,7 +363,45 @@ class Main(MenuMixin, PanelIzquierdoMixin, PanelDerechoMixin, ModosMixin, ClicsM
         finally:
             self._unbusy()
         # Asistente: tipo → hoja → capas/utilidad → reconocimiento → preview.
-        self._run_recognition_wizard()
+        try:
+            seguido = self._run_recognition_wizard() is not False
+        finally:
+            self._respaldo_abrir = None
+        if seguido:
+            # el PDF nuevo queda: lo del proyecto anterior se cierra/borra
+            respaldo_editor.soltar(self, antes)
+            tmp = antes_extra.get("_tmp_pdf")
+            if tmp and tmp != self.__dict__.get("_tmp_pdf") and os.path.isfile(tmp):
+                try: os.remove(tmp)
+                except Exception: pass
+            self._ia_soltar()
+            return
+        # cancelado antes de importar: el editor como estaba (sin la hoja del PDF nuevo)
+        self._soltar_pasos()
+        if self.canvas.pixmap_item is not antes_item and antes.imagen is not None:
+            respaldo_editor.reponer(self, antes)
+        else:
+            d = self.__dict__
+            if d.get("doc") is not None and d.get("doc") is not antes.valores.get("doc"):
+                try: d["doc"].close()
+                except Exception: pass
+            tmp = d.get("_tmp_composite")
+            if tmp and not respaldo_editor.lo_guarda(antes, tmp=tmp) and os.path.isfile(tmp):
+                try: os.remove(tmp)
+                except Exception: pass
+            d.update(antes.valores)
+            for k in antes.faltan:
+                d.pop(k, None)
+            if self.canvas.pixmap_item is not antes_item:
+                # el editor estaba vacío y el asistente llegó a cargar la hoja («Capas» → volver
+                # al compositor → Cancelar): vacío otra vez
+                self.canvas.scene().clear(); self.canvas.pixmap_item = None; self.canvas.pdf_bg_item = None
+                self._overlay = []; self._close_editor()
+                self._undo[:] = antes.deshacer; self._redo[:] = antes.rehacer
+                self.set_mode("idle"); self._refresh_lists(); self._update_page_label()
+        self.__dict__.update(antes_extra)
+        self._update_title()
+        self._info(_tr("Apertura cancelada — no se cargó nada en el editor."))
 
     def new_blank_canvas(self):
         """Crea un proyecto nuevo sobre una hoja EN BLANCO, sin PDF de fondo.
@@ -366,6 +413,7 @@ class Main(MenuMixin, PanelIzquierdoMixin, PanelDerechoMixin, ModosMixin, ClicsM
         usuario, en vez de leerlas de una página de fitz.
         """
         if not self._confirm_discard(): return
+        self._soltar_pasos()
         from ui.dialogos import blank_canvas_dialog
         cfg = blank_canvas_dialog.choose_canvas(
             self, escala_actual=float(self.scale) * 72.0 if self.scale else 20.0)
@@ -445,20 +493,18 @@ class Main(MenuMixin, PanelIzquierdoMixin, PanelDerechoMixin, ModosMixin, ClicsM
 
         Si detect.py clasifica claro (vector o raster con imagen dominante), se omite
         el diálogo de tipo; solo se pregunta en casos ambiguos.
+        Devuelve False si se cancela antes de importar nada (tipo o compositor): el editor
+        no carga la hoja (pedido del usuario 2026-10-28; `_open_pdf_path` lo deja como estaba).
         """
         if not self.doc or not self.pdf_path:
             return
 
-        _load = self._load_sheet_busy
-
         def _go_manual(msg):
             self._info(msg)
-            if not self._wizard_sheet_flow(0, manual=True):
-                _load(0)
+            return bool(self._wizard_sheet_flow(0, manual=True))
 
         def _go_plotted():
-            if not self._wizard_sheet_flow(0):
-                _load(0)
+            return bool(self._wizard_sheet_flow(0))
 
         # Clasificación automática (página 0) — misma heurística que digitize.
         import detect as _detect
@@ -469,25 +515,20 @@ class Main(MenuMixin, PanelIzquierdoMixin, PanelDerechoMixin, ModosMixin, ClicsM
 
         if kind == "vector":
             self._info(_tr("Detectado PDF vectorial ({n} trazos)…").format(n=n_paths))
-            _go_plotted()
-            return
+            return _go_plotted()
         if kind == "raster" and info.get("traced"):
-            _go_manual(_tr("Detectado plano escaneado y vectorizado ({n} trazos calcados, sin texto ni capas) "
-                           "— continúa con el dibujo manual.").format(n=n_paths))
-            return
+            return _go_manual(_tr("Detectado plano escaneado y vectorizado ({n} trazos calcados, sin texto ni capas) "
+                                  "— continúa con el dibujo manual.").format(n=n_paths))
         if kind == "raster" and img_cover >= 0.6:
-            _go_manual(_tr("Detectado PDF imagen/escaneo — continúa con el dibujo manual."))
-            return
+            return _go_manual(_tr("Detectado PDF imagen/escaneo — continúa con el dibujo manual."))
 
         # Ambiguo: pedir confirmación al usuario.
         pdf_type = recognition_dialog.choose_pdf_type(self)
         if pdf_type is None:
-            _load(0)
-            return
+            return False
         if pdf_type != "plotted":
-            _go_manual(_tr("PDF imagen: continúa con el dibujo manual."))
-            return
-        _go_plotted()
+            return _go_manual(_tr("PDF imagen: continúa con el dibujo manual."))
+        return _go_plotted()
 
     def _load_sheet_busy(self, idx):
         self._busy(_tr("Cargando hoja…"))
@@ -514,10 +555,19 @@ class Main(MenuMixin, PanelIzquierdoMixin, PanelDerechoMixin, ModosMixin, ClicsM
                 agregando = getattr(self, "_agregando", None) is not None
                 res = composite_dialog.compose_sheet(
                     self, self.src_pdfs, self.composite, self.hidden_ocgs_by_source, current_page=page_idx,
-                    manual=manual, **({"sugerencia": False} if agregando else {}))
+                    manual=manual, vivo=self._pasos() if hasattr(self, "_pasos") else None,
+                    **({"sugerencia": False} if agregando else {}))
                 if res is None:
                     return False
                 comp, sources, hidden_by_source = res
+                firma = None if (agregando or comp.manual) else self._firma_compuesta(comp, sources, hidden_by_source)
+                if firma is not None and firma == getattr(self, "_paso_compuesta", None) and self.doc is not None:
+                    # la MISMA hoja compuesta que este asistente ya armó y cargó (se volvió desde
+                    # «Capas» sin cambiarla): no se arma ni se dibuja otra vez (pedido 2026-10-28)
+                    self.src_pdfs = sources
+                    self.composite = comp
+                    step = 1
+                    continue
                 if agregando:
                     # utilidad agregada: el lugar de cada hoja lo pone su mapa base (ventana_agregar)
                     comp = self._agregando_recolocar(comp, sources)
@@ -560,6 +610,8 @@ class Main(MenuMixin, PanelIzquierdoMixin, PanelDerechoMixin, ModosMixin, ClicsM
                     self._dirty = True
                     self._info(_tr("Hoja compuesta importada al editor. Dibuja las utilidades a mano."))
                     return True
+                self._paso_compuesta = firma
+                self._paso_hoja = self._firma_hoja(page_idx)
             # Paso «Capas de la hoja»: el usuario decide qué capas OCG ver ANTES
             # de dibujar. Deja la visibilidad aplicada en self.doc, así _load_page
             # ya renderiza sin las ocultas.
@@ -573,15 +625,18 @@ class Main(MenuMixin, PanelIzquierdoMixin, PanelDerechoMixin, ModosMixin, ClicsM
                                                       scale_ft_per_pt=self._scale_editable(),
                                                       legend_sources=self._legend_sources(),
                                                       legend_cache=self._legend_cache,
-                                                      en_proceso=fondo_trabajo.conviene(self.composite))
+                                                      en_proceso=fondo_trabajo.conviene(self.composite),
+                                                      vivo=self._pasos())
             if chosen == layer_dialog.LAYERS_BACK:
                 step = 0
                 continue
             break
         if chosen is None:
             if self._reponer_respaldo(_tr("Reconocimiento cancelado — el editor queda como estaba.")):
+                self._soltar_pasos()
                 return True
-            self._load_sheet_busy(page_idx)
+            self._cargar_hoja_si_cambio(page_idx)
+            self._soltar_pasos()
             self._dirty = True
             self._info(_tr("Reconocimiento cancelado — hoja cargada con las capas elegidas."))
             return True
@@ -590,14 +645,20 @@ class Main(MenuMixin, PanelIzquierdoMixin, PanelDerechoMixin, ModosMixin, ClicsM
         if self.composite is not None and self.composite.is_single_full_page():
             self.composite.pieces[0].page = page_idx
         self.hidden_ocgs = list(hidden)
+        compuesta_al_dia = (getattr(self, "_paso_compuesta", None) is not None and self._paso_compuesta
+                            == self._firma_compuesta(self.composite, self.src_pdfs, self.hidden_ocgs_by_source))
         self._sync_hidden_to_sources(hidden)
+        if compuesta_al_dia:
+            # la hoja ya armada tiene ahora estas capas apagadas: volver al compositor sin
+            # cambiarla sigue sin rearmarla
+            self._paso_compuesta = self._firma_compuesta(self.composite, self.src_pdfs, self.hidden_ocgs_by_source)
         # Los roles (qué capas son líneas / bóvedas) se asignan solos por
         # nombre y se muestran en el preview; «Ajustar capas…» los cambia.
         self._layer_roles_by_utility = chosen[4] if len(chosen) > 4 else {}
         self._layer_roles_hoja = self._clave_hoja(page_idx)
         if len(chosen) > 5 and chosen[5]:
             self._calibrated_scale(chosen[5])          # «Escala» de «Capas de la hoja»
-        self._load_sheet_busy(page_idx)
+        self._cargar_hoja_si_cambio(page_idx)
         self._dirty = True
         self._recog_ready = True
         self._start_recognition(page_idx)
@@ -643,7 +704,8 @@ class Main(MenuMixin, PanelIzquierdoMixin, PanelDerechoMixin, ModosMixin, ClicsM
         comp = self.composite
         from hoja import pdf_layers as _pdf_layers
         if self.doc:
-            if not respaldo_editor.lo_guarda(self._respaldo, doc=self.doc):   # «Cancelar» lo repone
+            if not (respaldo_editor.lo_guarda(self._respaldo, doc=self.doc)   # «Cancelar» lo repone
+                    or respaldo_editor.lo_guarda(getattr(self, "_respaldo_abrir", None), doc=self.doc)):
                 self.doc.close()
             self.doc = None
         self._cleanup_tmp_composite()
@@ -716,8 +778,8 @@ class Main(MenuMixin, PanelIzquierdoMixin, PanelDerechoMixin, ModosMixin, ClicsM
 
     def _cleanup_tmp_composite(self):
         tmp = getattr(self, "_tmp_composite", None)
-        if tmp and os.path.isfile(tmp) and not respaldo_editor.lo_guarda(
-                getattr(self, "_respaldo", None), tmp=tmp):
+        if tmp and os.path.isfile(tmp) and not any(respaldo_editor.lo_guarda(
+                getattr(self, r, None), tmp=tmp) for r in ("_respaldo", "_respaldo_abrir")):
             try: os.remove(tmp)
             except Exception: pass
         self._tmp_composite = None
@@ -744,6 +806,7 @@ class Main(MenuMixin, PanelIzquierdoMixin, PanelDerechoMixin, ModosMixin, ClicsM
             return
         if not self._confirm_discard():
             return
+        self._empezar_asistente()
         self._tomar_respaldo()
         if not self._wizard_sheet_flow(self.page_idx,
                 manual=bool(self.composite and self.composite.manual)):
@@ -758,6 +821,7 @@ class Main(MenuMixin, PanelIzquierdoMixin, PanelDerechoMixin, ModosMixin, ClicsM
             return
         if not self._confirm_discard():
             return
+        self._empezar_asistente()
         self._tomar_respaldo()
         if not self._wizard_sheet_flow(self.page_idx, manual=True):
             self._cancelar_asistente(_tr("Composición cancelada — el editor queda como estaba."),
@@ -790,6 +854,7 @@ class Main(MenuMixin, PanelIzquierdoMixin, PanelDerechoMixin, ModosMixin, ClicsM
     def _cancelar_asistente(self, msg, msg_sin_respaldo=None):
         """Fin del asistente SIN importar: con respaldo el editor vuelve a como estaba
         (`msg`); sin él (asistente al abrir el PDF) queda lo que hay (`msg_sin_respaldo`)."""
+        self._soltar_pasos()
         if not self._reponer_respaldo(msg) and msg_sin_respaldo:
             self._info(msg_sin_respaldo)
 
@@ -1153,10 +1218,8 @@ class Main(MenuMixin, PanelIzquierdoMixin, PanelDerechoMixin, ModosMixin, ClicsM
             self._cancelar_asistente(cancelled)
             return
         self._recog_cache.put(key, results)      # None (resultado reutilizado) no guarda nada
-        qimg = None
-        if self.canvas.pixmap_item is not None:
-            qimg = self.canvas.pixmap_item.pixmap().toImage()
-        if qimg is None or qimg.isNull():
+        item = self.canvas.pixmap_item
+        if item is None or item.pixmap().isNull():
             self.informar(_tr("Reconocimiento"),
                 _tr("Reconocimiento listo, pero no hay imagen de la hoja para la vista previa."))
             self._cancelar_asistente(cancelled)
@@ -1165,12 +1228,18 @@ class Main(MenuMixin, PanelIzquierdoMixin, PanelDerechoMixin, ModosMixin, ClicsM
         # que la vista previa la re-dibuje nítida al acercarse
         extra = {"fondo": {"escala": self.canvas.fondo_escala, "tam": self.canvas.tam_hoja(),
                            "zoom": self.zoom, "pagina": self._pagina_fondo}}
+        # la misma hoja y el MISMO resultado (volver desde «Capas» sin cambios: caché del reconocimiento)
+        # → la vista previa que ya estaba armada, sin redibujarla (pedido 2026-10-28)
+        clave = (tuple(id(r) for r in results), item.pixmap().cacheKey(), id(self.doc), self.zoom,
+                 self.canvas.fondo_escala, repr(self.canvas.tam_hoja()))
         action = recognition_dialog.show_recognition_preview(
-            self, qimg, results,
-            page_count=self.doc.page_count if self.doc else None, hojas=self._hojas_px(), **extra)
-        del qimg                                 # copia de la hoja: no retenerla mientras se sigue
+            self, lambda: item.pixmap().toImage(), results,
+            page_count=self.doc.page_count if self.doc else None, hojas=self._hojas_px(),
+            vivo=self._pasos(), clave=clave, **extra)
         self._join_routes = all(bool(getattr(result, "join_routes", True)) for result in results)
         page_index = results[0].page_index
+        if action in (recognition_dialog.PREVIEW_IMPORT, recognition_dialog.PREVIEW_CANCEL):
+            self._soltar_pasos()                       # el asistente termina: nada que volver a mostrar
         if action == recognition_dialog.PREVIEW_IMPORT and getattr(self, "_agregando", None) is not None:
             self._importar_agregando(results)          # sobre la hoja del editor (ventana_agregar)
         elif action == recognition_dialog.PREVIEW_IMPORT:
@@ -1517,6 +1586,7 @@ class Main(MenuMixin, PanelIzquierdoMixin, PanelDerechoMixin, ModosMixin, ClicsM
 
     def _open_project_path(self, path):
         if not self._confirm_discard(): return
+        self._soltar_pasos()
         # Barra de carga precisa (2026-10-20, `barras_carga`): leer el zip POR BLOQUES en OTRO hilo; la imagen
         # de la hoja y su copia en grises aquí (QImageReader no suelta el candado de Python: en un hilo la barra
         # tampoco avanzaba), cada etapa a la vista antes de empezar. Nada de la ventana se toca hasta tener todo
@@ -1772,6 +1842,7 @@ class Main(MenuMixin, PanelIzquierdoMixin, PanelDerechoMixin, ModosMixin, ClicsM
     def close_project(self):
         if self.canvas.pixmap_item is None: return
         if not self._confirm_discard(): return
+        self._soltar_pasos()
         self._soltar_respaldo()
         if self.doc:
             self.doc.close()
@@ -1799,6 +1870,7 @@ class Main(MenuMixin, PanelIzquierdoMixin, PanelDerechoMixin, ModosMixin, ClicsM
 
     def closeEvent(self, e):
         if self._confirm_discard():
+            self._soltar_pasos()
             dlg = self.__dict__.get("_vista3d_dlg")       # sin padre Qt: se cierra con la principal
             if dlg is not None:
                 dlg.close()

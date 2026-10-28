@@ -795,13 +795,27 @@ class RecognitionPreviewDialog(NoEscapeClose, QtWidgets.QDialog):
 
 
 def show_recognition_preview(parent, qimg, result, utility_layer="ELECTRICO",
-                             page_count: int | None = None, fondo: dict | None = None, hojas=None) -> str:
+                             page_count: int | None = None, fondo: dict | None = None, hojas=None,
+                             vivo: dict | None = None, clave=None) -> str:
     """Muestra el preview. Devuelve la acción elegida: PREVIEW_IMPORT,
-    PREVIEW_CANCEL, PREVIEW_CHANGE_SHEET o PREVIEW_ADJUST_LAYERS."""
-    with busy(parent, _tr("Preparando la vista previa…"),
-              _tr("Dibujando lo reconocido sobre la hoja")):
-        dlg = RecognitionPreviewDialog(parent, qimg, result, utility_layer, page_count=page_count, fondo=fondo,
-                                       hojas=hojas)
-    if dlg.exec() != QtWidgets.QDialog.Accepted:
-        return PREVIEW_CANCEL
-    return dlg.action
+    PREVIEW_CANCEL, PREVIEW_CHANGE_SHEET o PREVIEW_ADJUST_LAYERS. `qimg` puede ser una función
+    que la da (solo se llama si hay que armar el diálogo). `vivo` + `clave` (`ventana_pasos`):
+    al volver a «Capas» o al compositor el diálogo queda ahí, oculto; si se vuelve a pedir con la
+    misma `clave` (misma hoja y el MISMO resultado), se muestra tal cual, sin redibujar."""
+    dlg = vivo.pop("vista", None) if vivo is not None else None
+    if dlg is not None and (clave is None or getattr(dlg, "_clave_vivo", None) != clave):
+        dlg.deleteLater()
+        dlg = None
+    if dlg is None:
+        with busy(parent, _tr("Preparando la vista previa…"),
+                  _tr("Dibujando lo reconocido sobre la hoja")):
+            dlg = RecognitionPreviewDialog(parent, qimg() if callable(qimg) else qimg, result, utility_layer,
+                                           page_count=page_count, fondo=fondo, hojas=hojas)
+        dlg._clave_vivo = clave
+    dlg.action = PREVIEW_CANCEL
+    accion = dlg.action if dlg.exec() == QtWidgets.QDialog.Accepted else PREVIEW_CANCEL
+    if vivo is not None and clave is not None and accion in (PREVIEW_SHEET_LAYERS, PREVIEW_CHANGE_SHEET):
+        vivo["vista"] = dlg
+    else:
+        dlg.deleteLater()
+    return accion

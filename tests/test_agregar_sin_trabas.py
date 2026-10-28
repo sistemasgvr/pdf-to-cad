@@ -293,8 +293,9 @@ def test_agregar_utilidad_con_proceso_da_lo_mismo_que_sin_el(app, tmp_path, monk
         for t in list(proceso._TRABAJADORES.values()):
             t.parar()
         proceso._TRABAJADORES.clear()
-    # el editor de agua, la hoja calcada (al armarla y tras «Capas») y la hoja combinada
-    assert len(en_proc) == 4 and all(r is not None for r in en_proc)
+    # el editor de agua, la hoja calcada y la hoja combinada (2026-10-28: «Capas» sin cambios ya no
+    # vuelve a cargar la hoja calcada, `ventana_pasos`)
+    assert len(en_proc) == 3 and all(r is not None for r in en_proc)
     a, b = fotos["0"], fotos["1"]
     assert a[0] == b[0] and a[1] == b[1] and a[4] == b[4]
     assert np.array_equal(a[2], b[2]) and np.array_equal(a[3], b[3])

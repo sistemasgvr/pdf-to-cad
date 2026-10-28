@@ -17,6 +17,7 @@ from typing import Dict, List, Optional, Sequence
 import fitz
 
 import vector_pipeline as VP
+from hoja import composite as C
 from hoja import composicion_ficha as F
 from hoja import composicion_hermanos as H
 from hoja import composicion_sugerida as G
@@ -39,6 +40,76 @@ def _hash(data: bytes) -> str:
 
 def clave_de(fuentes: Sequence[dict]) -> tuple:
     return tuple(_hash(f["data"]) for f in fuentes)
+
+
+# ── memoria por CONTENIDO (pedido del usuario 2026-10-28: agregar o quitar un PDF no debe repetir lo
+# ya hecho). Las uniones de dos hojas y cada composición armada dependen solo de esas hojas (no de
+# los demás PDF ni de su número en la lista): se guardan por la huella de su PDF y se reusan con los
+# números de ahora. Mismo resultado que calcularlas de nuevo.
+MAX_MEMO = 20000                 # uniones de dos hojas guardadas
+MAX_ARMADAS = 64                 # composiciones armadas guardadas
+_UNIONES: Dict[tuple, object] = OrderedDict()
+_ARMADAS: Dict[tuple, dict] = OrderedDict()
+_HERMANOS: Dict[tuple, object] = OrderedDict()
+
+
+def _guardar(memo: Dict, clave, valor, tope: int):
+    memo[clave] = valor
+    while len(memo) > tope:
+        memo.pop(next(iter(memo)))
+
+
+class _Encajes(G.Encajes):
+    def __init__(self, huellas: Sequence[str]):
+        self.h = huellas
+
+    def _clave(self, tipo, fa, fb, lado, *resto):
+        return (tipo, self.h[fa.doc], fa.hoja, self.h[fb.doc], fb.hoja, fa.doc == fb.doc, lado) + resto
+
+    def _usar(self, clave, fa, fb, calc):
+        if clave in _UNIONES:
+            c = _UNIONES[clave]
+        else:
+            c = calc()
+            _guardar(_UNIONES, clave, None if c is None else dataclasses.replace(c, a=(-1, -1), b=(-1, -1)), MAX_MEMO)
+        return None if c is None else dataclasses.replace(c, a=fa.clave, b=fb.clave)
+
+    def cad(self, fa, fb, lado, ra, rb):
+        ia = fa.rotulos.index(ra) if ra is not None and ra in fa.rotulos else None
+        ib = fb.rotulos.index(rb) if rb is not None and rb in fb.rotulos else None
+        return self._usar(self._clave("cad", fa, fb, lado, ia, ib), fa, fb,
+                          lambda: super(_Encajes, self).cad(fa, fb, lado, ra, rb))
+
+    def mapa(self, fa, fb, lado, escala=None, guia=None):
+        return self._usar(self._clave("mapa", fa, fb, lado, escala, guia), fa, fb,
+                          lambda: super(_Encajes, self).mapa(fa, fb, lado, escala, guia))
+
+
+def _clave_armada(g, huellas, nombres) -> tuple:
+    h = lambda n: (huellas[n[0]], n[1])  # noqa: E731
+    docs = sorted({n[0] for n in g.nodos})
+    return (g.tipo, tuple(h(n) for n in g.nodos), tuple(g.transf.get(n) for n in g.nodos),
+            tuple(sorted((h(c.a), h(c.b), c.lado, c.escala, c.t, c.corte_a, c.corte_b) for c in g.costuras)),
+            tuple(nombres[d] if d < len(nombres) else "" for d in docs))
+
+
+def _armar(g, an, docs, nombres, huellas):
+    """`G.armar` con memoria: la misma composición (mismas hojas, uniones y nombres) no se arma dos veces."""
+    clave = _clave_armada(g, huellas, nombres)
+    if clave in _ARMADAS:
+        d = _ARMADAS[clave]
+        comp = C.Composite.from_dict(d["comp"])
+        for p in comp.pieces:
+            p.source = huellas.index(d["huellas"][p.source])
+        g.composite = comp
+        return comp
+    comp = G.armar(g, an, docs, lambda d_, h_: VP.detect_scale(docs[d_][h_]), nombres)
+    usadas = sorted({p.source for p in comp.pieces})
+    guardada = C.Composite.from_dict(comp.to_dict())
+    for p in guardada.pieces:
+        p.source = usadas.index(p.source)
+    _guardar(_ARMADAS, clave, {"comp": guardada.to_dict(), "huellas": [huellas[i] for i in usadas]}, MAX_ARMADAS)
+    return comp
 
 
 def calcular(fuentes: Sequence[dict], progreso=None, cancelado=None,
@@ -79,17 +150,27 @@ def calcular(fuentes: Sequence[dict], progreso=None, cancelado=None,
             hechas += d.page_count
             fpd.append(fs)
         avisar("uniones")
-        an = G.analizar(fpd, cancelado)
+        con_memoria = len(set(clave)) == len(clave)     # el mismo PDF dos veces: sin memoria
+        an = G.analizar(fpd, cancelado, enc=_Encajes(clave) if con_memoria else G.Encajes())
         for k, g in enumerate(an.grupos):
             if cancelado is not None and cancelado():
                 return None
             avisar("armar", k + 1, len(an.grupos))
-            G.armar(g, an, docs, lambda d_, h_: VP.detect_scale(docs[d_][h_]), nombres)
+            if con_memoria:
+                _armar(g, an, docs, nombres, clave)
+            else:
+                G.armar(g, an, docs, lambda d_, h_: VP.detect_scale(docs[d_][h_]), nombres)
         hermano = None
         rutas = [f.get("path") for f in fuentes if f.get("path")]
         if an.faltan() and rutas:
-            avisar("hermano")
-            hermano = H.buscar(rutas, an.faltan(), cancelado)
+            ck = (tuple(rutas), tuple(an.faltan()))
+            if ck in _HERMANOS:
+                hermano = _HERMANOS[ck]
+            else:
+                avisar("hermano")
+                hermano = H.buscar(rutas, an.faltan(), cancelado)
+                if cancelado is None or not cancelado():
+                    _guardar(_HERMANOS, ck, hermano, 32)
         return Resultado(clave, an, hermano, nombres)
     finally:
         for d in docs:

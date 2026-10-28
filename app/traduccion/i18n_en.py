@@ -1013,6 +1013,8 @@ EN: dict[str, str] = {
         "Open a PDF to compose its work sheet.",
     "Composición cancelada — se mantiene la hoja actual.":
         "Composition cancelled — the current sheet is kept.",
+    "Apertura cancelada — no se cargó nada en el editor.":
+        "Opening cancelled — nothing was loaded into the editor.",
     "Composición cancelada — el editor queda como estaba.":
         "Composition cancelled — the editor is left as it was.",
     "Reconocimiento cancelado — el editor queda como estaba.":
@@ -1602,6 +1604,16 @@ EN: dict[str, str] = {
         "PDF",
     "Agregar PDF…":
         "Add PDF…",
+    "Quitar PDF":
+        "Remove PDF",
+    "Composición sugerida {k} de {n}:":
+        "Suggested composition {k} of {n}:",
+    "Quitar este PDF del compositor (sus hojas salen de la hoja compuesta)":
+        "Remove this PDF from the composer (its sheets leave the composite sheet)",
+    "¿Quitar «{pdf}» del compositor?":
+        "Remove “{pdf}” from the composer?",
+    "Sus {n} pieza(s) salen de la hoja compuesta.":
+        "Its {n} piece(s) leave the composite sheet.",
     "Agregar otro PDF":
         "Add another PDF",
     "Escala leída del texto de la hoja; corrígela si no es la del plano.":
