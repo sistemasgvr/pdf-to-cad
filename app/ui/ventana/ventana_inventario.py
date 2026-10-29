@@ -113,7 +113,7 @@ def panel_inventario(win):
         if a is None:
             continue
         b = R.boton_icono(icono, clave, a.trigger, px=16)
-        sc = a.shortcut().toString(QtGui.QKeySequence.NativeText)
+        sc = R.atajo_legible(a.shortcut())
         if sc:
             b.setToolTip(f"{_tr(clave)} ({sc})")
         barra.addWidget(b)

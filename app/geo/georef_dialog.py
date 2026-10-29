@@ -895,6 +895,13 @@ class GeorefDialog(QtWidgets.QDialog):
                 # 2.0.0: botones neutros; solo «Guardar» (acción principal) lleva el acento
                 b.setIcon(_icon(icon_name, color=c_on_accent if name == "b_save" else
                                 (t.soft_text if name == "b_fetch" else t.text_muted)))
+        b = getattr(self, "b_save", None)
+        if b is not None:
+            # deshabilitado (hasta que hay ajuste) el botón es gris claro y el icono blanco no se veía en tema
+            # claro: deshabilitado, del color del texto deshabilitado
+            ic = QtGui.QIcon(_icon("mdi:content-save-outline", color=c_on_accent).pixmap(24, 24))
+            ic.addPixmap(_icon("mdi:content-save-outline", color=t.text_disabled).pixmap(24, 24), QtGui.QIcon.Disabled)
+            b.setIcon(ic)
 
     def _on_map_click(self, x, y):
         if self._pending_px is None:

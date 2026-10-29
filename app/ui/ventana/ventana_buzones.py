@@ -7,6 +7,14 @@ los menús, atajos y pruebas siguen usando `win.<método>` como antes.
 from ui.ventana.ventana_comun import *  # noqa: F401,F403  (mismos nombres que app_window)
 
 
+def _pie(x, y, a, b):
+    """Pie de la perpendicular de (x, y) sobre el tramo a–b (dentro del tramo)."""
+    dx, dy = b[0] - a[0], b[1] - a[1]
+    L2 = dx * dx + dy * dy
+    u = 0.0 if L2 <= 0 else max(0.0, min(1.0, ((x - a[0]) * dx + (y - a[1]) * dy) / L2))
+    return (a[0] + u * dx, a[1] + u * dy)
+
+
 class BuzonesMixin:
     # ─────────────────────────── Red 3D: buzones / cotas ───────────────────────────
     def insert_manhole(self):
@@ -19,27 +27,69 @@ class BuzonesMixin:
         self.set_mode("insert_bz")
         self._info(_tr("Clic sobre una línea para insertar un buzón (Esc para salir)."))
 
-    def _do_insert_manhole(self, x, y):
+    def _buzon_en(self, x, y):
+        """Dónde caería el buzón con el cursor en (x, y): (utilidad, tramo, punto SOBRE la línea, motivo).
+        Sin lugar → utilidad None y `motivo` dice por qué (2026-10-28: antes el clic no decía nada)."""
         from nucleo.model import network_kind
         thr = 14.0 / max(1e-6, self.canvas.transform().m11())
-        best = (None, -1, thr)                      # (pipe_index, seg_index, dist)
+        best = (None, -1, thr, None)                # (pipe_index, seg_index, dist, punto)
+        presion = (thr, None)                       # la de presión más cercana (solo para el motivo)
         for pi, p in enumerate(self.pipes):
             pts = p.get("pts")
             if not pts or len(pts) < 2: continue    # tramos importados de Excel (world) no editables
-            if network_kind(p.get("layer") or "") == "pressure": continue   # presión no lleva buzones
+            es_presion = network_kind(p.get("layer") or "") == "pressure"   # presión no lleva buzones
             for idx, a, b in self._segments(pts, False):
                 d = G.pt_seg_dist(x, y, a[0], a[1], b[0], b[1])
-                if d < best[2]: best = (pi, idx, d)
-        if best[0] is None:
-            self._info(_tr("Los buzones/cajas solo se insertan en redes de gravedad o conduit (no en presión)."))
-            self.set_mode("idle"); return
+                if es_presion:
+                    if d < presion[0]: presion = (d, pi)
+                elif d < best[2]:
+                    best = (pi, idx, d, _pie(x, y, a, b))
+        if best[0] is not None:
+            return best[0], best[1], best[3], ""
+        if presion[1] is not None:
+            p = self.pipes[presion[1]]
+            return None, -1, None, _tr("{u} es una red a presión (agua o gas): no lleva buzones ni cajas.").format(
+                u=model_ops.nombre_por_defecto(p, presion[1]))
+        return None, -1, None, _tr("Acércate a una línea de gravedad o conduit: el buzón se pone sobre ella.")
+
+    def _pista_buzon(self, x, y):
+        """Al mover el ratón en «Buzón»: un círculo verde donde quedará (pegado a la línea) o el motivo."""
+        sc = self.canvas.scene()
+        prev = getattr(self, "_pista_bz", None)
+        if prev is not None:
+            try: sc.removeItem(prev)
+            except (RuntimeError, ValueError): pass
+            self._pista_bz = None
+        if self.mode != "insert_bz":
+            return
+        pi, _si, pt, motivo = self._buzon_en(x, y)
+        if pi is None:
+            self._info(motivo)
+            return
+        R = 7.0
+        pen = QtGui.QPen(QtGui.QColor(30, 200, 60), 2.0); pen.setCosmetic(True)
+        it = sc.addEllipse(-R, -R, 2 * R, 2 * R, pen, QtGui.QBrush(QtGui.QColor(30, 200, 60, 60)))
+        it.setPos(pt[0], pt[1])
+        it.setFlag(QtWidgets.QGraphicsItem.ItemIgnoresTransformations)
+        it.setZValue(Z_MARK + 20)
+        self._pista_bz = it
+        self._info(_tr("Clic para poner el buzón aquí, sobre {u} (Esc para salir).").format(
+            u=model_ops.nombre_por_defecto(self.pipes[pi], pi)))
+
+    def _do_insert_manhole(self, x, y):
+        pi, si, pt, motivo = self._buzon_en(x, y)
+        if pi is None:
+            # sin lugar: se dice por qué y se sigue en el modo para probar en otra línea
+            self._info(motivo)
+            QtWidgets.QToolTip.showText(QtGui.QCursor.pos(), motivo, self.canvas)
+            return
         self._push()
-        pi, si, _ = best
-        self.pipes[pi]["pts"].insert(si + 1, (x, y))
+        self.pipes[pi]["pts"].insert(si + 1, (pt[0], pt[1]))   # el punto SOBRE la línea (lo que se veía)
         self._rebuild_structures()
         self._refresh_lists(); self._redraw()
         self._info(_tr("Buzón insertado. Edítalo en la tab Buzones."))
         self.set_mode("idle")
+        self._pista_buzon(x, y)                     # quita el círculo verde
 
     def _rebuild_structures(self):
         # Detección/reconciliación de buzones (pura) en model_ops; aquí solo se

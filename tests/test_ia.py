@@ -303,7 +303,7 @@ def test_chat_detener_repetir_copiar_letra_y_sin_ia(tmp_path):
             while dlg._activo is not None and time.time() < fin:
                 QtWidgets.QApplication.processEvents()
                 time.sleep(0.01)
-        dlg.enviar("¿Qué hay?")
+        dlg.enviar("¿Qué conflictos hay?")   # una pregunta del proyecto: lo ajeno no llega al modelo (ia/alcance)
         assert dlg.btn_enviar.property("danger") and "Pensando" in dlg.vista.toPlainText() or dlg.turnos[-1]["texto"]
         esperar()
         assert not dlg.btn_enviar.property("danger")

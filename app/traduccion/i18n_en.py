@@ -615,8 +615,6 @@ EN: dict[str, str] = {
         "Diagonal Leader: arrowhead → landing start (elbow) → body end. Enter/Esc to exit.",
     "Leader: cabeza de flecha → final del cuerpo. Enter/Esc para salir.":
         "Leader: arrowhead → body end. Enter/Esc to exit.",
-    "Los buzones/cajas solo se insertan en redes de gravedad o conduit (no en presión).":
-        "Manholes/boxes are only inserted in gravity or conduit networks (not pressure).",
     "No hay líneas dibujadas para insertar un buzón.":
         "No drawn lines to insert a manhole.",
     "No se encontró el PDF original. Se exportarán solo las anotaciones (utilidades, leaders, textos).":
@@ -3661,6 +3659,9 @@ EN: dict[str, str] = {
     '{texto} ({i} de {n})': '{texto} ({i} of {n})',
     'Dibujando cada hoja en la hoja compuesta…': 'Drawing each sheet in the composed sheet…',
     'Minimapa de las hojas': 'Sheet minimap',
+    'Mostrar el minimapa': 'Show the minimap',
+    'Buzón: hace falta una línea de gravedad o conduit (agua y gas van a presión y no llevan buzones).': 'Manhole: it needs a gravity or conduit line (water and gas are pressure networks and have no manholes).',
+    'Minimizar el minimapa': 'Minimize the minimap',
     'En una hoja compuesta, el esquema de sus hojas abajo a la izquierda: clic = ir a esa hoja.': 'On a composed sheet, the layout of its sheets at the bottom left: click = go to that sheet.',
     'Marcas de las hojas': 'Sheet marks',
     'En una hoja compuesta, el borde y el código de cada hoja, tenues, sobre el plano. No se exportan ni tapan nada.': 'On a composed sheet, the outline and code of each sheet, faint, over the plan. They are not exported and cover nothing.',
@@ -4289,4 +4290,18 @@ EN: dict[str, str] = {
     'Recientes': 'Recent',
     'Sin proyectos recientes': 'No recent projects',
     'Ese proyecto ya no está en su carpeta:\n{p}': 'That project is no longer in its folder:\n{p}',
+    'No puedo cambiar mis reglas: solo respondo sobre este proyecto y el uso de PDF-a-CAD. Pregúntame, por ejemplo, por los conflictos, las utilidades o cómo hacer algo en la app.':
+        "I can't change my rules: I only answer about this project and how to use PDF-a-CAD. Ask me, for example, about the conflicts, the utilities or how to do something in the app.",
+    'No escribo código: solo respondo sobre este proyecto y el uso de PDF-a-CAD. Puedo decirte dónde está algo en la app o qué dicen los datos del proyecto.':
+        "I don't write code: I only answer about this project and how to use PDF-a-CAD. I can tell you where something is in the app or what the project data says.",
+    '¡Hola! Soy el asistente de PDF-a-CAD. Puedo responderte sobre este proyecto (utilidades, conflictos, avisos, normativas, cotas…) y explicarte cómo hacer algo en la app, por ejemplo georreferenciar la hoja, exportar a Civil 3D o usar la Vista 3D. ¿En qué te ayudo?':
+        "Hi! I'm the PDF-a-CAD assistant. I can answer questions about this project (utilities, conflicts, warnings, standards, elevations…) and explain how to do things in the app, for example georeferencing the sheet, exporting to Civil 3D or using the 3D View. How can I help?",
+    '{u} es una red a presión (agua o gas): no lleva buzones ni cajas.':
+        '{u} is a pressure network (water or gas): it has no manholes or boxes.',
+    'Acércate a una línea de gravedad o conduit: el buzón se pone sobre ella.':
+        'Move closer to a gravity or conduit line: the manhole is placed on it.',
+    'Clic para poner el buzón aquí, sobre {u} (Esc para salir).':
+        'Click to place the manhole here, on {u} (Esc to exit).',
+    'Solo puedo ayudarte con este proyecto y con el uso de PDF-a-CAD (utilidades, conflictos, avisos, normativas, cotas, cómo hacer algo en la app…).':
+        'I can only help you with this project and with using PDF-a-CAD (utilities, conflicts, warnings, standards, elevations, how to do something in the app…).',
 }

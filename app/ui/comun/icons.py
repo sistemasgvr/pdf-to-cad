@@ -12,15 +12,22 @@ Uso:
     act.setIcon(icon("mdi:magnify-plus-outline",
                      color=theme.tokens().accent))    # tinta explícita
 
-Al alternar tema, los iconos que quieran actualizarse se reasignan en el
-`_restyle` / `_apply_theme_custom_styles` correspondiente (los widgets no se
-enteran solos de que el tema cambió — su QIcon guarda pixmaps ya rasterizados).
+Iconos que siguen al tema (pedido del usuario 2026-10-28: «si el icono es oscuro, al cambiar a modo
+oscuro debe hacerse blanco y viceversa»): si el color es el de por defecto o un TOKEN de color de tinta del
+tema activo (`tokens().text_muted`, `.danger`, `.text_on_accent`…), el QIcon devuelto lleva un motor
+(`_IconoDelTema`) que se dibuja con el valor de ESE token en el tema activo AL PINTAR: al cambiar de tema
+todo widget que lo muestra se repinta y el icono cambia solo, aunque nadie vuelva a llamar a `icon()`. Sin
+cambiar de tema se ve EXACTAMENTE igual que antes (el motor delega en el mismo QIcon(pixmap) de siempre,
+uno por color). Un color fijo que no es token del tema (los de cada utilidad, la bombilla…) da el QIcon de
+siempre. Lo que se convierte a imagen fija (`icon(...).pixmap(...)` en un QLabel) no se entera: esos
+sitios se vuelven a pintar con `al_cambiar_tema` (o en su `_restyle` / `_apply_theme_custom_styles`).
 
 `preload()` opcional: rasteriza al inicio los iconos más usados para evitar el
 primer parpadeo al abrir un diálogo.
 """
 from __future__ import annotations
 
+import ctypes
 import os
 import sys
 from functools import lru_cache
@@ -88,24 +95,30 @@ def icon(name: str, color=None, size: int = _DEFAULT_SIZE) -> QtGui.QIcon:
     `color` puede ser un `QColor`, un string hex (`"#1e2531"`) o None → usa
     `theme.tokens().text` (color del texto principal del tema activo).
 
-    Nota: el QIcon devuelto guarda un pixmap ya rasterizado. Si cambia el tema,
-    hay que llamar de nuevo a `icon(...)` con el nuevo color para retintarlo.
+    Si el color es el de por defecto o un token de tinta del tema activo, el icono SIGUE al tema (ver el
+    docstring del módulo); un color fijo da un QIcon con el pixmap ya rasterizado, como siempre.
     """
+    # Import diferido: evita ciclos y permite usar icons.py antes de que
+    # el módulo theme se haya inicializado.
+    from ui.comun import theme as _theme
+    token = "text" if color is None else None
     if color is None:
-        # Import diferido: evita ciclos y permite usar icons.py antes de que
-        # el módulo theme se haya inicializado.
-        from ui.comun import theme as _theme
         color = _theme.tokens().text
     color = _color_str(color)
+    if token is None:
+        token = _token_de(color, _theme.tokens())
 
     path = _resolve_path(name)
-    svg = _read_svg(path)
-    if svg is None:
-        if name not in _MISSING_LOGGED:
-            _MISSING_LOGGED.add(name)
-            print(f"[icons] SVG no encontrado: {name} → {path}")
-        return _fallback_icon(size)
+    if token is not None:
+        base = _icono_fijo(path, getattr(_theme.tokens(), token), size)     # (el mismo color: es su token)
+        if base is None:
+            return _icono_sin_svg(name, path, size)
+        return QtGui.QIcon(_IconoDelTema(path, token, size))
+    return _icono_sin_svg(name, path, size) if _read_svg(path) is None else _render(path, color, size)
 
+
+def _render(path: str, color: str, size: int) -> QtGui.QIcon:
+    svg = _read_svg(path)
     # Iconify entrega los SVG con `fill="currentColor"`; algunos usan stroke.
     tinted = svg.replace("currentColor", color)
 
@@ -120,6 +133,114 @@ def icon(name: str, color=None, size: int = _DEFAULT_SIZE) -> QtGui.QIcon:
     renderer.render(painter)
     painter.end()
     return QtGui.QIcon(pm)
+
+
+def _icono_sin_svg(name: str, path: str, size: int) -> QtGui.QIcon:
+    if name not in _MISSING_LOGGED:
+        _MISSING_LOGGED.add(name)
+        print(f"[icons] SVG no encontrado: {name} → {path}")
+    return _fallback_icon(size)
+
+
+# ── Iconos que siguen al tema ───────────────────────────────────────────────
+# Tokens que se usan como TINTA de iconos, en orden: si dos tienen el mismo valor en el tema activo
+# (claro: accent = focus, soft_text = text_info…), gana el primero. Los de fondo no (en claro el blanco
+# de `surface` es también `text_on_accent`: un icono blanco sobre un botón de color sigue blanco).
+_TOKENS_TINTA = ("text", "text_muted", "text3", "text_on_accent", "soft_text", "accent", "success",
+                 "warning", "danger", "options_text", "focus", "text_info", "text_disabled",
+                 "accent_hover", "accent_pressed", "success_hover", "danger_hover", "invalid")
+_TOKENS_POR_TEMA: dict = {}
+
+
+def _token_de(color: str, tema) -> Optional[str]:
+    """El token de tinta del tema activo que vale `color` (None = color fijo)."""
+    tabla = _TOKENS_POR_TEMA.get(tema.name)
+    if tabla is None:
+        tabla = {}
+        for tk in _TOKENS_TINTA:
+            qc = QtGui.QColor(getattr(tema, tk))
+            if qc.isValid():
+                tabla.setdefault(qc.name(), tk)
+        _TOKENS_POR_TEMA[tema.name] = tabla
+    qc = QtGui.QColor(color)
+    if not qc.isValid() or qc.alpha() != 255:
+        return None
+    return tabla.get(qc.name())
+
+
+@lru_cache(maxsize=2048)
+def _icono_fijo(path: str, color: str, size: int) -> Optional[QtGui.QIcon]:
+    """El QIcon(pixmap) de siempre para ese color (uno por color: lo usa el motor al pintar)."""
+    if _read_svg(path) is None:
+        return None
+    return _render(path, color, size)
+
+
+_THEME_MOD = None
+
+
+def _tema_activo():
+    global _THEME_MOD
+    if _THEME_MOD is None:
+        from ui.comun import theme as _t
+        _THEME_MOD = _t
+    return _THEME_MOD.tokens()
+
+
+class _IconoDelTema(QtGui.QIconEngine):
+    """Motor del icono que sigue al tema: cada llamada de Qt va al QIcon(pixmap) del color que tiene el
+    token en el tema activo, con las MISMAS llamadas que Qt le haría (mismos píxeles, mismo tamaño)."""
+
+    def __init__(self, path: str, token: str, size: int):
+        super().__init__()
+        self._datos = (path, token, size)
+        self._lado = size
+        self._base = QtCore.QSize(size, size)
+        self._tema = None                              # el tema (objeto) del QIcon guardado en `_ic`
+        self._ic = None
+
+    def _actual(self) -> QtGui.QIcon:
+        tema = _tema_activo()
+        if tema is not self._tema:                     # solo al cambiar de tema se busca otro QIcon
+            path, token, size = self._datos
+            self._ic = _icono_fijo(path, getattr(tema, token), size) or _fallback_icon(size)
+            self._tema = tema
+        return self._ic
+
+    def clone(self):
+        # Qt se queda con el clon y lo borra él al soltar su QIcon, pero PySide no le pasa la propiedad a C++:
+        # Python lo liberaría en cuanto vuelve de aquí y Qt usaría memoria ya liberada (se caía). Una referencia
+        # de más que nunca se suelta: Python no lo libera nunca (es diminuto y Qt casi nunca pide un clon: solo
+        # al cambiar un QIcon compartido, p. ej. `addPixmap` sobre una copia).
+        nuevo = _IconoDelTema(*self._datos)
+        ctypes.pythonapi.Py_IncRef(ctypes.py_object(nuevo))
+        return nuevo
+
+    def isNull(self):
+        return False
+
+    def availableSizes(self, mode=QtGui.QIcon.Normal, state=QtGui.QIcon.Off):
+        return self._actual().availableSizes(mode, state)
+
+    def actualSize(self, size, mode, state):
+        # = QPixmapIconEngine con UN pixmap cuadrado de `_lado` (verificado tamaño por tamaño): si no
+        # cabe, el cuadrado más grande que cabe
+        w, h = size.width(), size.height()
+        n = self._lado
+        if n > w or n > h:
+            m = w if w < h else h
+            return QtCore.QSize(m, m)
+        return self._base
+
+    def pixmap(self, size, mode, state):
+        return self._actual().pixmap(size, 1.0, mode, state)
+
+    def scaledPixmap(self, size, mode, state, scale):
+        return self._actual().pixmap(size, scale, mode, state)
+
+    def paint(self, painter, rect, mode, state):
+        # QIcon::paint ya alineó `rect` al actualSize: el del QIcon(pixmap) da el mismo rect
+        self._actual().paint(painter, rect, QtCore.Qt.AlignCenter, mode, state)
 
 
 def preload(names: list[str]) -> None:

@@ -205,6 +205,17 @@ class BotonCapas(QtWidgets.QToolButton):
         self.setToolButtonStyle(QtCore.Qt.ToolButtonTextBesideIcon)
         self.clicked.connect(self.abrir)
         self.resumen()
+        # el icono se tiñe con el color del tema al crearse: al cambiar de tema se vuelve a teñir
+        theme.THEME_BUS.changed.connect(self._al_cambiar_tema)
+
+    def _al_cambiar_tema(self, _nombre=None):
+        try:
+            import shiboken6
+            if not shiboken6.isValid(self):
+                return
+        except ImportError:
+            pass
+        self.setIcon(_icon("mdi:layers-outline", color=theme.tokens().text))
 
     def abrir(self):
         if self.panel is not None:
@@ -222,7 +233,7 @@ class BotonCapas(QtWidgets.QToolButton):
 
     def resumen(self, apagadas: int = 0):
         """Texto e icono según cuántas capas hay apagadas (la barra se ve de un vistazo)."""
-        self.setIcon(_icon("mdi:layers-outline"))
+        self.setIcon(_icon("mdi:layers-outline", color=theme.tokens().text))
         self.setText((_tr("Capas") if not apagadas else _tr("Capas · {n} apagada(s)").format(n=apagadas)) + "  ▾")
         self.setToolTip(_tr("Capas: encender y apagar las utilidades dibujadas y los planos de fondo de cada "
                             "PDF, como en AutoCAD. Solo cambia lo que se ve: el DXF sale completo."))

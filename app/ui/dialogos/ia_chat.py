@@ -336,8 +336,9 @@ class PreguntaDialog(QtWidgets.QDialog):
         self.btn_enviar.setText("" if self._compacto else (_tr("Detener") if si else _tr("Enviar")))
         self.btn_enviar.setToolTip(_tr("Detener la respuesta (Esc)") if si else _tr("Enviar la pregunta (Enter)"))
         self.btn_enviar.setProperty("danger", bool(si))
+        # «Detener» (danger, 2.0.0) va en rojo sobre rosa suave: blanco no se veía en tema claro
         self.btn_enviar.setIcon(icons.icon("mdi:stop-circle-outline" if si else "mdi:send",
-                                           color=theme.tokens().text_on_accent))
+                                           color=theme.tokens().danger if si else theme.tokens().text_on_accent))
         self.btn_enviar.style().unpolish(self.btn_enviar)
         self.btn_enviar.style().polish(self.btn_enviar)
         if si:

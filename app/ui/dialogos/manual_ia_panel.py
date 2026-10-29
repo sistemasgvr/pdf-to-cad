@@ -99,8 +99,10 @@ class PanelAyudaIA(QtWidgets.QWidget):
         from ui.comun import icons, theme
         tk = theme.tokens()
         self.btn.setStyleSheet("QPushButton { font-size: 15px; padding: 7px 16px; }")
+        # el icono, del color del texto del botón: «Detener» (danger, 2.0.0) en rojo sobre rosa suave;
+        # «Preguntar a la IA», botón neutro (blanco no se veía en tema claro)
         self.btn.setIcon(icons.icon("mdi:stop-circle-outline" if self.ocupado else "mdi:send",
-                                    color=tk.text_on_accent))
+                                    color=tk.danger if self.ocupado else tk.text))
 
     def _proveedor(self):
         cfg = self.config() if self.config else None

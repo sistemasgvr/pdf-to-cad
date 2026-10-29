@@ -482,7 +482,8 @@ class CompositeDialog(NoEscapeClose, ChosenSheetMixin, SourcePageMixin, ScanTool
         row = QtWidgets.QHBoxLayout(); row.setSpacing(8)
         # Una acción principal («Tomar área»), una secundaria y las opciones del
         # rectángulo plegadas en un menú (antes eran cinco botones en fila).
-        self.btn_take = QtWidgets.QPushButton(_icon("mdi:plus", color=t.text_on_accent), _tr("Tomar área"))
+        # (botón neutro desde 2.0.0: icono del color del texto; blanco no se veía en tema claro)
+        self.btn_take = QtWidgets.QPushButton(_icon("mdi:plus", color=t.text), _tr("Tomar área"))
         self.btn_take.setIconSize(_ICON)
         self.btn_take.setMinimumHeight(_BTN_H)
         self.btn_take.setAutoDefault(False)
@@ -496,7 +497,7 @@ class CompositeDialog(NoEscapeClose, ChosenSheetMixin, SourcePageMixin, ScanTool
         self.btn_take_full.setAutoDefault(False)
         self.btn_take_full.setToolTip(_tr("Agregar la hoja entera como una pieza"))
         self.btn_take_full.clicked.connect(lambda: self._take(full=True))
-        self.btn_new = QtWidgets.QPushButton(_icon("mdi:plus", color=t.text_on_accent), _tr("Nueva pieza"))
+        self.btn_new = QtWidgets.QPushButton(_icon("mdi:plus", color=t.text), _tr("Nueva pieza"))
         self.btn_new.setIconSize(_ICON)
         self.btn_new.setMinimumHeight(_BTN_H)
         self.btn_new.setAutoDefault(False)

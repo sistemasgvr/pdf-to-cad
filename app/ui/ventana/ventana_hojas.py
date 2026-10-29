@@ -34,6 +34,13 @@ def _pref(clave: str, defecto: bool = True) -> bool:
         return defecto
 
 
+def _guardar_pref(clave: str, valor: bool):
+    try:
+        QtCore.QSettings(*_AJUSTES).setValue(clave, bool(valor))
+    except Exception:
+        pass
+
+
 class HojasEditorMixin:
     # ── imagen de la hoja ─────────────────────────────────────────────────
     def _fondo_de(self, page):
@@ -128,9 +135,14 @@ class HojasEditorMixin:
             self._overlay += marcas_de_agua(self.canvas.scene(), hojas)
 
     def _minimapa_editor(self, hojas):
+        """Hoja compuesta: el esquema de sus hojas. UNA sola hoja (pedido 2026-10-28): sin zonas, la
+        miniatura del PDF con el recuadro de lo que se ve. Minimizable (se recuerda en QSettings)."""
         mm = getattr(self, "_mm_editor", None)
-        ver = (hojas and getattr(self, "act_minimapa_hojas", None) is not None
+        pm_item = self.canvas.pixmap_item
+        una = (not hojas and pm_item is not None and not getattr(self.canvas, "fondo_oculto", False))
+        ver = ((hojas or una) and getattr(self, "act_minimapa_hojas", None) is not None
                and self.act_minimapa_hojas.isChecked())
+        self._mm_quiere = bool(ver)
         if not ver:
             if mm is not None:
                 mm.hide()
@@ -141,16 +153,66 @@ class HojasEditorMixin:
             # en el editor se trabaja sobre el lienzo: el minimapa, más chico que en el asistente
             mm.LAYOUT_W_FRAC, mm.LAYOUT_H_FRAC = 0.24, 0.2
             mm.LAYOUT_MAX_W, mm.LAYOUT_MAX_H = 340, 190
-            # 2.0.0 (como el prototipo): arriba a la derecha del plano
+            # 2.0.0 (como el prototipo): arriba a la derecha del plano. En una VENTANITA propia (como el
+            # aviso y la barra de `ventana_flotantes`): un hijo encima del lienzo obliga a repintarlo
+            # entero al desplazar y se pierde la caché de las marcas (test_desplazar_reusa_piezas…)
+            mm.setParent(self, QtCore.Qt.Tool | QtCore.Qt.FramelessWindowHint | QtCore.Qt.NoDropShadowWindowHint
+                         | QtCore.Qt.WindowDoesNotAcceptFocus)
+            mm.setAttribute(QtCore.Qt.WA_ShowWithoutActivating, True)
+            from ui.ventana import ventana_flotantes as _flot
+            mm.puede_verse = lambda: _flot._a_la_vista(self)
+
             def _arriba_derecha(mm=mm):
                 vp = self.canvas.viewport()
-                mm.move(vp.geometry().right() - mm.width() - 14, vp.geometry().top() + 14)
+                o = vp.mapToGlobal(QtCore.QPoint(0, 0))
+                mm.move(o.x() + vp.width() - mm.width() - 14, o.y() + 14)
             mm._place = _arriba_derecha
+            mm.minimizable = True
+            mm.minimizado = _pref("minimapa_minimizado", False)
+            mm.al_minimizar = lambda on: _guardar_pref("minimapa_minimizado", on)
+        if una:
+            pm = pm_item.pixmap()
+            tam = self.canvas.tam_hoja() or (pm.width(), pm.height())
+            firma = ("pdf", pm.cacheKey(), tuple(tam))
+            if firma != getattr(self, "_mm_firma", None):
+                # la miniatura se reduce UNA vez (la hoja puede medir decenas de Mpx)
+                chica = pm.scaled(720, 720, QtCore.Qt.KeepAspectRatio, QtCore.Qt.SmoothTransformation)
+                mm._sync_zoom = False              # la hoja entera: se ve dónde está uno en ella
+                mm.set_thumbnail(chica, QtCore.QRectF(0, 0, tam[0], tam[1]), caja=(240, 170))
+                self._mm_firma = firma
+            return
         firma = tuple((r.x(), r.y(), r.width(), r.height(), c) for r, c, _l in hojas)
-        if firma != getattr(self, "_mm_firma", None) or not mm.isVisible():
+        if firma != getattr(self, "_mm_firma", None):
             sr = self.canvas.sceneRect()
             mm.set_layout(hojas, sr, sync_zoom=True)
             self._mm_firma = firma
+
+
+def _panel_der_encima(win) -> bool:
+    """Panel derecho sin anclar y desplegado ENCIMA del plano: el minimapa (ventanita propia, siempre
+    arriba) lo taparía; mientras esté abierto no se muestra."""
+    panel = getattr(win, "panel_der", None)
+    ov = getattr(panel, "overlay", None) if panel is not None else None
+    return isinstance(ov, QtWidgets.QWidget) and ov.isVisible()
+
+
+def colocar_minimapa(win):
+    """Lo llama `ventana_flotantes.colocar` (ventana movida, paneles, minimizada, capa «Cargando…»)."""
+    mm = getattr(win, "_mm_editor", None)
+    if mm is None:
+        return
+    if not getattr(win, "_mm_quiere", False) or (mm._thumb is None and not mm._layout):
+        if mm.isVisible():
+            mm.hide()
+        return
+    if not mm.puede_verse() or _panel_der_encima(win):
+        if mm.isVisible():
+            mm.hide()
+        return
+    mm._place()
+    if not mm.isVisible():
+        mm.show()
+        mm.raise_()
 
 
 def marcas_de_agua(scene, hojas) -> list:

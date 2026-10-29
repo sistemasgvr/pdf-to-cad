@@ -54,7 +54,7 @@ def barra_superior_izquierda(win, tb):
     win.btn_hoja_sig = R.boton_icono("chevron-right", "Hoja siguiente", lambda: win._next_page(), px=16)
     win._acc_hoja = [tb.addWidget(w) for w in (win.btn_hoja_ant, win.lbl_hoja_barra, win.btn_hoja_sig)]
     tb.addWidget(_estirable())
-    buscar = R.CampoBuscar("Buscar o ejecutar un comando…", "Ctrl K")
+    buscar = R.CampoBuscar("Buscar o ejecutar un comando…", "Ctrl + K")
     buscar.setFixedWidth(360)
     buscar.setReadOnly(True)
     buscar.mousePressEvent = lambda _e: win.abrir_paleta()
@@ -379,7 +379,7 @@ class ShellMixin:
         doc = getattr(self, "doc", None)
         hay = doc is not None and doc.page_count > 1
         for a in self._acc_hoja:
-            a.setVisible(hay)
+            a.setVisible(False)          # 2026-10-28: sin cambio de hoja en la barra (pedido del usuario)
         if hay:
             self.lbl_hoja_barra.setText(_tr("Hoja {n} de {m}").format(n=self.page_idx + 1, m=doc.page_count))
             self.btn_hoja_ant.setEnabled(self.page_idx > 0)

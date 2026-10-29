@@ -301,6 +301,12 @@ def build_stylesheet(t: Theme) -> str:
                          'stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>', t.text3)
     check = _svg(t, "check", '<polyline points="2.5,6.2 5,8.6 9.6,3.6" fill="none" stroke="{c}" '
                  'stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>', t.text_on_accent)
+    # «»» de una barra que no cabe (2026-10-28): la flecha de Qt es gris oscuro fijo y no se veía en tema oscuro
+    _doble = ('<polyline points="{p1}" fill="none" stroke="{{c}}" stroke-width="1.6" stroke-linecap="round" '
+              'stroke-linejoin="round"/><polyline points="{p2}" fill="none" stroke="{{c}}" stroke-width="1.6" '
+              'stroke-linecap="round" stroke-linejoin="round"/>')
+    ext_h = _svg(t, "toolbar_ext_h", _doble.format(p1="2.5,3 5.5,6 2.5,9", p2="6.5,3 9.5,6 6.5,9"), t.text_muted)
+    ext_v = _svg(t, "toolbar_ext_v", _doble.format(p1="3,2.5 6,5.5 9,2.5", p2="3,6.5 6,9.5 9,6.5"), t.text_muted)
     return f"""
         /* ═══════════════════════════════════════════════════════════════════
            Tema {t.name} — generado desde ui/comun/theme.py (2.0.0, rediseño).
@@ -426,6 +432,8 @@ def build_stylesheet(t: Theme) -> str:
         QToolButton:checked {{ background: {t.soft}; color: {t.soft_text}; }}
         QToolButton[kind="rail"] {{ padding: 9px; border-radius: 10px; }}
         QToolButton[kind="rail"]:checked {{ background: {t.soft}; }}
+        QToolBarExtension {{ qproperty-icon: url({ext_h}); }}
+        QToolBar#riel QToolBarExtension {{ qproperty-icon: url({ext_v}); }}
         QToolButton[toggleTool="true"] {{ background: {t.surface}; color: {t.text};
                                           border: 1px solid {t.border}; border-radius: 8px; padding: 4px 9px; }}
         QToolButton[toggleTool="true"]:hover {{ background: {t.hover}; }}
@@ -606,11 +614,22 @@ def apply_theme(app: QtWidgets.QApplication, name: ThemeName) -> Theme:
     global _current
     t = LIGHT if name == "light" else DARK
     _current = t
-    app.setStyle("Fusion")
-    app.setPalette(_palette_light() if name == "light" else _palette_dark())
-    app.setStyleSheet(build_stylesheet(t))
-    save_preference(name)
-    THEME_BUS.changed.emit(name)
+    # Cambio al instante (pedido 2026-10-28): «Fusion» solo la primera vez (volver a ponerlo re-pule TODOS los
+    # widgets) y las ventanas sin repintar hasta tener paleta + hoja + estilos propios: se pintan UNA vez.
+    if getattr(app, "_pdfcad_fusion", None) is not app.style():
+        app.setStyle("Fusion")
+        app._pdfcad_fusion = app.style()
+    ventanas = [w for w in app.topLevelWidgets() if w.isVisible() and w.updatesEnabled()]
+    for w in ventanas:
+        w.setUpdatesEnabled(False)
+    try:
+        app.setPalette(_palette_light() if name == "light" else _palette_dark())
+        app.setStyleSheet(build_stylesheet(t))
+        save_preference(name)
+        THEME_BUS.changed.emit(name)
+    finally:
+        for w in ventanas:
+            w.setUpdatesEnabled(True)
     return t
 
 

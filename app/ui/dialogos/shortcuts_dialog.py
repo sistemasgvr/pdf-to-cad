@@ -12,6 +12,7 @@ from PySide6 import QtCore, QtGui, QtWidgets
 
 from ui.comun import theme as _theme
 from traduccion.i18n import t as _tr, N_
+from ui.comun.rediseno import atajo_legible
 
 # (clave, descripción) — textos fijos que no salen de una QAction.
 _FIXED = [
@@ -44,7 +45,7 @@ def _menu_groups(win):
     """{título de menú: [(atajo, texto)]} desde las QAction con atajo."""
     groups, seen = {}, set()
     for a in win.findChildren(QtGui.QAction):
-        sc = a.shortcut().toString(QtGui.QKeySequence.NativeText)
+        sc = atajo_legible(a.shortcut())
         txt = a.text().replace("&", "").strip()
         if not sc or not txt or sc in seen:
             continue

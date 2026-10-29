@@ -213,6 +213,7 @@ class ModosMixin:
         self._crosshair = [h, v]
         self._update_hover_tooltip(x, y)
         self._update_pipe_snap_hint(x, y)
+        self._pista_buzon(x, y)
 
     def _update_pipe_snap_hint(self, x, y):
         """Feedback visual del snap suave a utilidades: al mover el mouse en

@@ -1710,8 +1710,9 @@ class DuctBankDialog(QtWidgets.QDialog):
             c = t.danger if b.property("danger") == "true" else t.text
             b.setIcon(_icon(name, color=c))
         if hasattr(self, "btn_del_sel"):
+            # danger (2.0.0): texto rojo sobre rosa suave → icono rojo (blanco no se veía en tema claro)
             self.btn_del_sel.setIcon(_icon("mdi:trash-can-outline",
-                                            color=t.text_on_accent))
+                                            color=t.danger))
         # Labels de status/count/validez
         for name, style in (
             ("lbl_status", f"QLabel{{color:{t.text_muted};font-size:12px;}}"),

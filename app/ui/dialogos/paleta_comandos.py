@@ -11,6 +11,7 @@ from PySide6 import QtCore, QtGui, QtWidgets
 from ui.comun import theme as _theme
 from ui.comun import rediseno as R
 from traduccion.i18n import t as _tr
+from ui.comun.rediseno import atajo_legible
 
 
 def _norm(s):
@@ -60,14 +61,14 @@ class PaletaComandos(QtWidgets.QDialog):
         entradas = []
         for titulo, menu in getattr(w, "_menus", {}).items():
             for a in self._hojas(menu):
-                entradas.append((_tr(titulo), a.text().replace("&", ""), a.shortcut().toString(), a))
+                entradas.append((_tr(titulo), a.text().replace("&", ""), atajo_legible(a.shortcut()), a))
         for a, clave in ((getattr(w, "_act_tabla", None), "Tabla de datos"),
                          (getattr(w, "_act_3d", None), "Vista 3D"),
                          (getattr(w, "_act_ia", None), "Pregúntale al proyecto…"),
                          (getattr(w, "_act_agregar", None), "Agregar utilidad desde otro PDF…"),
                          (getattr(w, "_act_zoom_in", None), "Acercar"), (getattr(w, "_act_zoom_out", None), "Alejar")):
             if a is not None and not any(e[3] is a for e in entradas):
-                entradas.append((_tr("Vista"), _tr(clave), a.shortcut().toString(), a))
+                entradas.append((_tr("Vista"), _tr(clave), atajo_legible(a.shortcut()), a))
         vistos, unicas = set(), []
         for e in entradas:                              # una acción en dos menús, una sola vez
             if id(e[3]) not in vistos:

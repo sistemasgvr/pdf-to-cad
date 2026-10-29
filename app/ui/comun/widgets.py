@@ -216,6 +216,13 @@ class MiniMap(QtWidgets.QWidget):
         self._full_scene_rect = QtCore.QRectF()
         self._zoom = 1.0
         self._dragging = False
+        # minimizable (2026-10-28, solo el del editor): botón «–» arriba a la derecha; minimizado = un
+        # botoncito con el icono del mapa que lo vuelve a abrir. `al_minimizar(bool)` lo recuerda fuera.
+        self.minimizable = False
+        self.minimizado = False
+        self.al_minimizar = None
+        self._map_w = self._map_h = 0
+        self.puede_verse = None       # None = siempre; si no, función: ¿se puede mostrar ahora?
         self.setCursor(QtCore.Qt.PointingHandCursor)
         if sync_zoom:
             self.setToolTip(_tr("Zoom sincronizado con la vista · clic o arrastre: navegar · doble clic: ver todas las hojas"))
@@ -224,14 +231,16 @@ class MiniMap(QtWidgets.QWidget):
         view.viewport().installEventFilter(self)
         self.hide()
 
-    def set_thumbnail(self, pixmap, scene_rect):
-        """Modo imagen: `pixmap` es toda la hoja; `scene_rect` su rect en la escena."""
+    def set_thumbnail(self, pixmap, scene_rect, caja=None):
+        """Modo imagen: `pixmap` es toda la hoja; `scene_rect` su rect en la escena; `caja` = (ancho,
+        alto) máximo de la miniatura (por defecto `MAX_W` × `MAX_H`)."""
         self._layout = None
         self._src = pixmap
         self._set_extent(scene_rect)
         if pixmap is None or pixmap.isNull() or self._scene_rect.isEmpty():
             self.hide(); return
-        scale = min(self.MAX_W / pixmap.width(), self.MAX_H / pixmap.height())
+        mw, mh = caja or (self.MAX_W, self.MAX_H)
+        scale = min(mw / pixmap.width(), mh / pixmap.height())
         w, h = max(1, int(pixmap.width() * scale)), max(1, int(pixmap.height() * scale))
         self._thumb = pixmap.scaled(w, h, QtCore.Qt.KeepAspectRatio, QtCore.Qt.SmoothTransformation)
         self._fit_and_show(self._thumb.width(), self._thumb.height())
@@ -308,6 +317,9 @@ class MiniMap(QtWidgets.QWidget):
         event.accept()
 
     def mouseDoubleClickEvent(self, event):
+        if self.minimizable and (self.minimizado or self._boton_rect().contains(event.position())):
+            event.accept()
+            return
         if event.button() == QtCore.Qt.LeftButton:
             self._dragging = False
             if hasattr(self.view, "fit_all"):
@@ -321,8 +333,14 @@ class MiniMap(QtWidgets.QWidget):
 
     def _fit_and_show(self, w, h):
         self._map_w, self._map_h = w, h
-        self.setFixedSize(w + 2, h + 2)
+        if self.minimizable and self.minimizado:
+            self.setFixedSize(self.CHIP_PX, self.CHIP_PX)
+        else:
+            self.setFixedSize(w + 2, h + 2)
         self._place()
+        if self.puede_verse is not None and not self.puede_verse():
+            self.hide()
+            return
         self.show()
         self.raise_()
         self.update()
@@ -362,9 +380,50 @@ class MiniMap(QtWidgets.QWidget):
         return QtCore.QPointF(r.left() + (p.x() - 1) / self._map_w * r.width(),
                               r.top() + (p.y() - 1) / self._map_h * r.height())
 
+    # ── minimizar ──
+    CHIP_PX = 32
+
+    def _boton_rect(self):
+        return QtCore.QRectF(self.width() - 21, 3, 18, 18)
+
+    def set_minimizado(self, on: bool):
+        on = bool(on) and self.minimizable
+        if on == self.minimizado:
+            return
+        self.minimizado = on
+        self.setToolTip(_tr("Mostrar el minimapa") if on else "")
+        if self._map_w:
+            self._fit_and_show(self._map_w, self._map_h)
+        if self.al_minimizar is not None:
+            self.al_minimizar(on)
+
+    def _pintar_chip(self, painter):
+        t = _theme.tokens()
+        painter.setPen(QtGui.QPen(QtGui.QColor(t.border), 1))
+        painter.setBrush(QtGui.QColor(t.surface))
+        painter.drawRoundedRect(QtCore.QRectF(self.rect()).adjusted(0.5, 0.5, -0.5, -0.5), 8, 8)
+        from ui.comun.icons import icon as _icono
+        _icono("mdi:map-outline").paint(painter, self.rect().adjusted(6, 6, -6, -6))
+
+    def _pintar_boton(self, painter):
+        t = _theme.tokens()
+        b = self._boton_rect()
+        painter.setPen(QtGui.QPen(QtGui.QColor(t.border), 1))
+        painter.setBrush(QtGui.QColor(t.surface))
+        painter.drawRoundedRect(b, 4, 4)
+        painter.setPen(QtGui.QPen(QtGui.QColor(t.text), 1.6))
+        y = b.center().y()
+        painter.drawLine(QtCore.QPointF(b.left() + 5, y), QtCore.QPointF(b.right() - 5, y))
+
     # ── pintar ──
     def paintEvent(self, _event):
         if self._thumb is None and not self._layout:
+            return
+        if self.minimizable and self.minimizado:
+            painter = QtGui.QPainter(self)
+            painter.setRenderHint(QtGui.QPainter.Antialiasing)
+            self._pintar_chip(painter)
+            painter.end()
             return
         painter = QtGui.QPainter(self)
         painter.setRenderHint(QtGui.QPainter.Antialiasing)
@@ -431,6 +490,8 @@ class MiniMap(QtWidgets.QWidget):
             painter.setBrush(QtGui.QColor(43, 111, 209, 45))
             painter.setPen(QtGui.QPen(QtGui.QColor("#2b6fd1"), 2))
             painter.drawRect(box)
+        if self.minimizable:
+            self._pintar_boton(painter)
         painter.end()
 
     def _item_at_scene(self, p) -> int:
@@ -445,6 +506,11 @@ class MiniMap(QtWidgets.QWidget):
         return best
 
     def event(self, ev):
+        if ev.type() == QtCore.QEvent.ToolTip and self.minimizable and (
+                self.minimizado or self._boton_rect().contains(QtCore.QPointF(ev.pos()))):
+            QtWidgets.QToolTip.showText(ev.globalPos(), _tr("Mostrar el minimapa") if self.minimizado
+                                        else _tr("Minimizar el minimapa"), self)
+            return True
         if ev.type() == QtCore.QEvent.ToolTip and self._layout:
             k = self._item_at_scene(self._map_to_scene(QtCore.QPointF(ev.pos())))
             if k >= 0:
@@ -456,6 +522,11 @@ class MiniMap(QtWidgets.QWidget):
 
     # ── navegar ──
     def mousePressEvent(self, event):
+        if event.button() == QtCore.Qt.LeftButton and self.minimizable and (
+                self.minimizado or self._boton_rect().contains(event.position())):
+            self.set_minimizado(not self.minimizado)
+            event.accept()
+            return
         if event.button() == QtCore.Qt.LeftButton and (self._thumb is not None or self._layout):
             self._dragging = True
             self.view.centerOn(self._map_to_scene(event.position()))

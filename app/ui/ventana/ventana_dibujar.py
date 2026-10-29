@@ -43,7 +43,7 @@ class Herramientas(QtWidgets.QWidget):
             b.setSizePolicy(QtWidgets.QSizePolicy.Expanding, QtWidgets.QSizePolicy.Fixed)
             b.setCursor(QtCore.Qt.PointingHandCursor)
             b.clicked.connect(lambda _=False, k=i: self._elegir(k))
-            b._icono, b._seccion = ic, seccion
+            b._icono, b._seccion, b._metodo, b._ayuda = ic, seccion, metodo, ayuda
             self.botones.append(b)
             g.addWidget(b, i // 4, i % 4)
         _theme.THEME_BUS.changed.connect(lambda _n: self.sincronizar())
@@ -51,6 +51,12 @@ class Herramientas(QtWidgets.QWidget):
     def _elegir(self, k):
         _ic, _txt, seccion, metodo, _ayuda = HERRAMIENTAS[k]
         w = self.win
+        if getattr(self.botones[k], "_bloqueado", False):
+            # se ve bloqueado, pero el clic dice POR QUÉ (un botón deshabilitado de Qt no muestra nada)
+            motivo = _MOTIVO_BUZON()
+            w._info(motivo)
+            QtWidgets.QToolTip.showText(QtGui.QCursor.pos(), motivo, self.botones[k])
+            return
         if seccion is not None:
             w._open_section(seccion)                   # sus opciones de siempre (y vuelve a «inactivo»)
         if metodo == "start_leader":
@@ -67,11 +73,21 @@ class Herramientas(QtWidgets.QWidget):
         abierta = next((k for k, i in w._sec_idx.items() if i == idx), None)
         for b in self.botones:
             activa = b._seccion is not None and b._seccion == abierta
-            dibujando = b._seccion in MODOS and w.mode in MODOS[b._seccion]
+            dibujando = (b._seccion in MODOS and w.mode in MODOS[b._seccion]) or (
+                b._metodo == "insert_manhole" and w.mode == "insert_bz")
+            if b._metodo == "insert_manhole":
+                # 2026-10-28: sin líneas de gravedad o conduit no hay dónde poner un buzón → bloqueado y con
+                # el motivo en el globo (antes el clic no hacía nada visible)
+                ok = _hay_lineas_para_buzon(w)
+                b._bloqueado = not ok
+                b.setToolTip(_tr(b._ayuda) if ok else _MOTIVO_BUZON())
             b.setChecked(activa)
             color = t.text_on_accent if dibujando else (t.soft_text if activa else t.text_muted)
             b.setIcon(_icon("mdi:" + b._icono, color=color))
-            if dibujando:
+            if getattr(b, "_bloqueado", False):
+                b.setIcon(_icon("mdi:" + b._icono, color=t.text3))
+                css = f"background:{t.surface}; color:{t.text3}; border:1px dashed {t.border_soft};"
+            elif dibujando:
                 css = f"background:{t.accent}; color:{t.text_on_accent}; border:1px solid {t.accent};"
             elif activa:
                 css = f"background:{t.soft}; color:{t.soft_text}; border:1px solid {t.accent};"
@@ -79,6 +95,17 @@ class Herramientas(QtWidgets.QWidget):
                 css = f"background:{t.surface}; color:{t.text_muted}; border:1px solid {t.border_soft};"
             b.setStyleSheet(f"QToolButton {{ {css} border-radius:10px; font-size:11px; padding:6px 2px; }}"
                             f" QToolButton:hover {{ border-color:{t.accent}; }}")
+
+
+def _MOTIVO_BUZON() -> str:
+    return _tr("Buzón: hace falta una línea de gravedad o conduit (agua y gas van a presión y no llevan buzones).")
+
+
+def _hay_lineas_para_buzon(w) -> bool:
+    """Lo mismo que acepta `_do_insert_manhole`: una utilidad con tramos que no sea de presión."""
+    from nucleo.model import network_kind
+    return any(len(p.get("pts") or ()) >= 2 and network_kind(p.get("layer") or "") != "pressure"
+               for p in getattr(w, "pipes", ()) or ())
 
 
 def poner_herramientas(win, contenido_izq):

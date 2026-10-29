@@ -9,6 +9,8 @@
     titulo_panel     · cabecera de un panel: título + botones
 Nada de esto tiene lógica propia: cada pieza llama a una acción o método que ya existía.
 """
+import re
+
 from PySide6 import QtCore, QtGui, QtWidgets
 
 from ui.comun import theme as _theme
@@ -51,6 +53,26 @@ class Interruptor(QtWidgets.QAbstractButton):
         p.setBrush(QtGui.QColor("#ffffff"))
         x = self.width() - 18 if self.isChecked() else 2
         p.drawEllipse(QtCore.QRectF(x, 2, 16, 16))
+
+
+_TECLAS_ES = {"Shift": "Mayúsc", "Del": "Supr", "Ins": "Insert", "PgUp": "RePág", "PgDown": "AvPág",
+              "Return": "Intro", "Enter": "Intro", "Backspace": "Retroceso", "Space": "Espacio",
+              "Left": "←", "Right": "→", "Up": "↑", "Down": "↓"}
+_TECLAS_EN = {"Left": "←", "Right": "→", "Up": "↑", "Down": "↓"}
+
+
+def atajo_legible(atajo) -> str:
+    """«Ctrl + Mayúsc + N» (en inglés «Ctrl + Shift + N»): un QKeySequence o su texto. El texto nativo de
+    Windows en español daba «Control+Mayúsculas+N» (pedido del usuario 2026-10-28)."""
+    from traduccion.i18n_core import get_lang
+    if isinstance(atajo, QtGui.QKeySequence):
+        atajo = atajo.toString(QtGui.QKeySequence.PortableText)
+    tabla = _TECLAS_ES if get_lang() == "es" else _TECLAS_EN
+    combos = []
+    for combo in str(atajo or "").split(", "):
+        partes = re.findall(r"\+$|[^+]+", combo)       # «Ctrl++» = Ctrl y la tecla «+»
+        combos.append(" + ".join(tabla.get(p.strip(), p.strip()) for p in partes if p.strip()))
+    return ", ".join(c for c in combos if c)
 
 
 class Tecla(QtWidgets.QLabel):
@@ -126,10 +148,14 @@ class FilaAccion(QtWidgets.QPushButton):
             tx.addWidget(texto(detalle_es, "t3", True))
         lay.addLayout(tx, 1)
         if atajo is None and accion is not None and not accion.shortcut().isEmpty():
-            atajo = accion.shortcut().toString(QtGui.QKeySequence.NativeText)
+            atajo = accion.shortcut()
         if atajo:
-            lay.addWidget(Tecla(atajo.replace("+", " ")), 0, QtCore.Qt.AlignVCenter)
-        self.setMinimumHeight(52 if detalle_es else 36)
+            lay.addWidget(Tecla(atajo_legible(atajo)), 0, QtCore.Qt.AlignVCenter)
+        self._alto_min = 52 if detalle_es else 36
+        self.setMinimumHeight(self._alto_min)
+        sp = self.sizePolicy()
+        sp.setHeightForWidth(True)
+        self.setSizePolicy(sp)
         if accion is not None:
             self.clicked.connect(accion.trigger)
             if accion.toolTip() and accion.toolTip() != accion.text().replace("&", ""):
@@ -145,12 +171,30 @@ class FilaAccion(QtWidgets.QPushButton):
         self.ic.setPixmap(_icon("mdi:" + self._icono, color=color).pixmap(18, 18))
         self.lbl.setStyleSheet(f"color:{t.danger};" if self._peligro else "")
 
+    # El alto sigue al ANCHO (2026-10-28, captura del usuario: con el panel angosto el título partido en dos
+    # líneas tapaba el detalle y éste quedaba cortado): QPushButton no pregunta a su layout por el alto.
+    def hasHeightForWidth(self):                       # noqa: N802
+        return True
+
+    def heightForWidth(self, w):                       # noqa: N802
+        return max(self._alto_min, self.layout().totalHeightForWidth(w))
+
     def sizeHint(self):                                # noqa: N802
-        return self.layout().sizeHint()
+        h = self.layout().sizeHint()
+        return QtCore.QSize(h.width(), self.heightForWidth(self.width() or h.width()))
 
     def minimumSizeHint(self):                         # noqa: N802
         h = self.layout().minimumSize()
         return QtCore.QSize(min(h.width(), 120), h.height())
+
+    def resizeEvent(self, e):                          # noqa: N802
+        super().resizeEvent(e)
+        if e.oldSize().width() != e.size().width():
+            # los contenedores (QVBoxLayout dentro de un scroll) no siempre preguntan heightForWidth:
+            # el mínimo = el alto que pide este ancho, así nunca queda cortada
+            alto = self.heightForWidth(e.size().width())
+            if alto != self.minimumHeight():
+                self.setMinimumHeight(alto)
 
 
 def fila_interruptor(clave_es, detalle_es="", accion=None, encendido=False, traducir=True):

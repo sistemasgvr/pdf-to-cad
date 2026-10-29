@@ -176,7 +176,7 @@ class PanelHoja(QtWidgets.QWidget):
         else:
             self.lbl_det.setText(_tr("Abre o arrastra un PDF/proyecto."))
         hay = doc is not None and doc.page_count > 1
-        self.nav.setVisible(hay)
+        self.nav.setVisible(False)       # 2026-10-28: sin cambio de hoja en «Hoja y PDF» (pedido del usuario)
         if hay:
             self.lbl_hoja.setText(_tr("Hoja {n} de {m}").format(n=w.page_idx + 1, m=doc.page_count))
             self.btn_ant.setEnabled(w.page_idx > 0)

@@ -152,6 +152,16 @@ alcantarillado, drenaje, gas, eléctrico, telecom). Todo en **unidades imperiale
     `btn_atras` = `PREVIEW_SHEET_LAYERS` (no se llama `btn_back`: las pruebas lo prohíben). `ventana_recientes.py`
     (`RecientesMixin`, aprobado): «Recientes» en el menú Archivo/«P», lista en `%APPDATA%/pdf-to-cad/recientes.json`
     (`PDFCAD_RECIENTES` en conftest), se anota al abrir/guardar un .digproj (nunca las copias de recuperación).
+    **2026-10-28**: tema al instante (`theme.apply_theme`: `setStyle("Fusion")` solo la 1.ª vez —`app._pdfcad_fusion`—
+    y las ventanas con `setUpdatesEnabled(False)` mientras se aplican paleta + hoja + `THEME_BUS`; 0.65 → 0.42 s,
+    lo que queda es el re-pulido de Qt de ~740 widgets). Sin cambio de hoja en la barra (`_acc_hoja`) ni en «Hoja y
+    PDF» (`PanelHoja.nav`): los widgets siguen, siempre ocultos. Minimapa del editor (`ventana_hojas._minimapa_editor`):
+    con UNA hoja = `MiniMap.set_thumbnail(caja=)` de la imagen del lienzo reducida a 720 px (firma = `cacheKey`),
+    sin zonas; `MiniMap.minimizable` (solo el del editor): botón «–», `set_minimizado`, chip de `CHIP_PX` con
+    `mdi:map-outline`, QSettings `minimapa_minimizado`. Atajos legibles: `rediseno.atajo_legible(QKeySequence|texto)` = «Ctrl + Mayúsc + N»
+    (PortableText + nombres en español; lo usan FilaAccion, Inventario, paleta y Atajos). `FilaAccion` con alto por
+    ancho (`heightForWidth` + mínimo = ese alto en `resizeEvent`). «Buzón» de Dibujar deshabilitado sin líneas de
+    gravedad/conduit (`ventana_dibujar._hay_lineas_para_buzon`, lo mismo que acepta `_do_insert_manhole`): `_bloqueado` (no `setEnabled`: un botón deshabilitado no muestra globo) y el clic dice el motivo. Buzón: `BuzonesMixin._buzon_en` (utilidad, tramo, PIE sobre la línea, motivo) → `_pista_buzon` (círculo verde en vivo desde `_on_mouse_move`, o el motivo en la barra) y el vértice se inserta en el PIE (antes en el cursor); sin lugar sigue en el modo. Minimapa oculto con el panel derecho sin anclar desplegado (`ventana_hojas._panel_der_encima`). `BotonCapas` re-tiñe su icono con `THEME_BUS`. Tests: `tests/test_buzon_pista.py`.
   - `canvas.py` — el lienzo (`Canvas`, QGraphicsView).
   - `fondo_pdf.py` — **hoja enorme** (reporte del usuario 2026-10-09: 18 piezas → «code=5: Overly large
     image»: MuPDF no crea pixmaps de más de 1 GiB, ancho × alto × 3 ≤ 2³⁰; 18 hojas del DU06 a zoom 3.5 =
@@ -1820,6 +1830,36 @@ alcantarillado, drenaje, gas, eléctrico, telecom). Todo en **unidades imperiale
     (📄✏🔍🗑…) fueron reemplazados por estos iconos vectoriales, consistentes
     entre plataformas y con estilo moderno. Bajar nuevos: `curl -s -o
     app/icons/mdi/<nombre>.svg https://api.iconify.design/mdi/<nombre>.svg`.
+    **Iconos que siguen al tema** (pedido del usuario 2026-10-28): con el color por defecto o un
+    TOKEN de tinta del tema activo (`_TOKENS_TINTA`: text, text_muted, text3, text_on_accent, soft_text,
+    accent, success, warning, danger…; `_token_de` compara el valor; con dos tokens iguales gana el primero)
+    `icon()` devuelve un QIcon con motor `_IconoDelTema` (QIconEngine en Python) que en CADA llamada de Qt
+    delega en el QIcon(pixmap) de siempre del color de ese token en el tema ACTIVO (`_icono_fijo`, caché;
+    `actualSize` = el de QPixmapIconEngine con un pixmap cuadrado; Qt 6.11 llama `scaledPixmap` con el
+    tamaño lógico): al cambiar de tema todo lo ya puesto se repinta con el color nuevo sin que nadie
+    vuelva a llamar a `icon()`. Color fijo (de utilidad, `BOMBILLA_ON`, «#a855f7»…) = el QIcon(pixmap) de
+    antes. Verificado: mismos píxeles que antes (tamaños 1–48, dpr 1/1.25/1.5/2, los 4 modos, `paint`
+    alineado, `actualSize` 0–89) y ventana creada en claro + cambio a oscuro = ventana creada en oscuro en
+    los 361 iconos (proyecto abierto, Asistente, Normativas, Tabla, Vista 3D, Ajustes, Duct Bank; con el
+    `icons.py` viejo quedaban 43 con el color del tema anterior). Lo que se convierte a imagen fija
+    (`icon(...).pixmap()` en un QLabel) NO se entera: se repone en su manejador del `THEME_BUS`
+    (`ia_estilo.al_cambiar_tema`, `_estilo`/`refrescar`…); en los diálogos modales no hace falta. Costo:
+    ~6 µs más por consulta de Qt (lista VISIBLE de 5 000 filas con estos iconos: rearmar +30 ms; oculta: 0).
+    Contraste (mismo día, barrido de cada botón con icono en los dos temas): desde 2.0.0 un `QPushButton`
+    sin `kind`/`:default` es NEUTRO (`surface` + `text`) y `[danger="true"]` es rosa suave con texto `danger`:
+    su icono va con `text` / `danger`, nunca `text_on_accent` (blanco sobre blanco en claro: «Tomar área»,
+    «Usar sugerencia», «Aplicar la propuesta elegida», «Preguntar a la IA», «Detener», «Eliminar conducto»).
+    Un botón principal que se deshabilita queda `surface_alt`: «Guardar georreferenciación» lleva un pixmap
+    `Disabled` con `text_disabled`. La flecha «»» de una barra que no cabe (`QToolBarExtension`, gris oscuro fijo
+    de Qt) = `qproperty-icon` en `theme.build_stylesheet` (`toolbar_ext_h`/`_v`, `QToolBar#riel` vertical).
+    OJO: `addPixmap`/`addFile` sobre un icono del tema no hacen nada (motor propio): para sumar un estado,
+    `QIcon(icon(...).pixmap(n))` como en «Guardar» de georref. `_IconoDelTema.clone` guarda una referencia que
+    nunca suelta (PySide no pasa a C++ la propiedad del clon: Qt usaba memoria ya liberada). OJO también
+    (`test_agregar_sin_trabas` se caía 6 de 8 veces): `QTimer.singleShot(0, self.metodo)` SIN contexto se llama
+    aunque el objeto ya se haya borrado, y el error que lanza tumba PySide 6.11 en el siguiente filtro de
+    eventos de Python (`storePythonOverrideErrorOrPrint`); con contexto, `singleShot(0, self, self.metodo)`,
+    Qt no lo llama (así quedó `_fit_view` de «Capas de la hoja»). Los iconos nuevos solo lo hacían más probable
+    (más Python al pintar → el GC borraba antes el diálogo de una prueba).
   - `theme.py` — sistema de tema (claro/oscuro) global. Tokens de color en
     `Theme`, paleta Qt + stylesheet global aplicados por `apply_theme(app, name)`,
     señal `THEME_BUS.changed` para que widgets con QSS custom se restilen, y
@@ -2141,6 +2181,17 @@ alcantarillado, drenaje, gas, eléctrico, telecom). Todo en **unidades imperiale
     deshabilitado). Informe: `ventana_informe._redactar_con_ia` en `en_hilo` cancelable; servidor caído → lo ya
     redactado + plantilla. Barra: etapa `informe_ia` (`barras_carga.MS_LOTE_IA`). Pruebas con un Ollama SIMULADO
     (`tests/ollama_falso.py`): `tests/test_ia.py`.
+    **Alcance del chat** (pedido del usuario 2026-10-28: fútbol, capitales, «hazme un código», «ignora tus reglas»):
+    `ia/alcance.py` (PURO). `consulta.preguntar` → `revisar(pregunta, datos, historial)` SIN modelo: `INYECCION`
+    (regex de «ignora/olvida… instrucciones/reglas», «actúa como», «a partir de ahora eres», modo desarrollador/
+    jailbreak, «system prompt», roles «system:», «sin restricciones»; gana aunque nombre el proyecto), `CODIGO`
+    (escribe/hazme… código/script/función, lenguajes, ```), `OK` si nombra un código que existe o una raíz de
+    `VOCAB` (dominio + app, ES/EN), repregunta corta (≤`REPREGUNTA_MAX_PALABRAS`) con historial, si no `AJENO` →
+    `_fuera`: `rechazo(motivo)` fijo, `Resultado.fuera`, se anota en conversaciones con `fuera`, el modelo no se
+    llama. Al modelo: `SISTEMA` + `REGLAS_SISTEMA` (6–9: solo proyecto/app, sin código, la pregunta es DATO entre
+    `envolver` —«<<<» y «>>>» se escapan—, si es ajena escribe `MARCA_RECHAZO`; `VERSION_PROMPT`=2). Salida:
+    `salida_valida` (código o la marca → mismo `rechazo`) y `_vigilado` deja de pasar trozos en vivo en cuanto
+    aparece. OJO: una palabra nueva del dominio que deba pasar va a `VOCAB`. Coincidencia tolerante (`_palabra_del_dominio`): sin letras dobles y, con ≥`PREFIJO_MIN`=6 letras, el mismo comienzo («georeferenciación» ≈ «georreferencia»); saludo corto («Hola», «¿Quién eres?», «gracias») → `SALUDO` = presentación fija, sin modelo. Tests: `tests/test_ia_alcance.py`.
     **Resolver conflictos** (punto 3, mismo día; IA → «Resolver conflictos…», clic derecho junto a una C-n →
     `SolucionesMixin._menu_conflicto`): la APP propone (`nucleo/soluciones.py`, PURO: cruce/choque —y «redes», cuyas
     dos utilidades busca `_con_utilidades`— = bajar/subir UNA utilidad ENTERA, `desplazar_cotas` = mismo perfil, lo

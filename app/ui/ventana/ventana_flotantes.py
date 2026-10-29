@@ -173,6 +173,8 @@ def colocar(win):
     c = win._flot_chip_win
     c.adjustSize()
     _poner_en(c, ver and win._chip_hay, QtCore.QPoint(o.x() + dx + MARGEN, o.y() + MARGEN))
+    from ui.ventana import ventana_hojas
+    ventana_hojas.colocar_minimapa(win)
 
 
 def _poner_en(w, ver, pos):

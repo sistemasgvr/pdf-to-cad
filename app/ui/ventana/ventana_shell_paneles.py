@@ -45,12 +45,16 @@ class _Cifra(QtWidgets.QFrame):
         self.setObjectName("tarjeta")
         self.tono = tono
         lay = QtWidgets.QVBoxLayout(self)
-        lay.setContentsMargins(10, 8, 10, 8)
+        lay.setContentsMargins(8, 8, 8, 8)
         lay.setSpacing(0)
         self.num = QtWidgets.QLabel("0")
         self.num.setProperty("rol", "h1")
         lay.addWidget(self.num)
-        lay.addWidget(R.texto(clave_es, "t3"))
+        # 2026-10-28: la palabra entera, nunca cortada («Reconocimier»): las tarjetas se reparten el ancho
+        # según su texto y la de «Reconocimiento» no baja de lo que mide la palabra
+        self.lbl = R.texto(clave_es, "t3")
+        self.lbl.setMinimumWidth(self.lbl.sizeHint().width())
+        lay.addWidget(self.lbl)
 
     def poner(self, n):
         t = _theme.tokens()
@@ -66,9 +70,9 @@ def panel_revision(win):
     cifras = R.transparente(QtWidgets.QWidget())
     cl = QtWidgets.QHBoxLayout(cifras)
     cl.setContentsMargins(0, 4, 0, 4)
-    cl.setSpacing(6)
+    cl.setSpacing(4)
     for c in (win._cifra_conf, win._cifra_norm, win._cifra_rec):
-        cl.addWidget(c)
+        cl.addWidget(c, max(1, c.lbl.sizeHint().width()))
     mostrar = R.transparente(QtWidgets.QWidget())
     ml = QtWidgets.QHBoxLayout(mostrar)
     ml.setContentsMargins(0, 0, 0, 0)

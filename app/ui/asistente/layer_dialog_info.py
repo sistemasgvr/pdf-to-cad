@@ -444,7 +444,7 @@ class LayerInfoMixin:
             return
         self._apply_side_width()
         if self._view_auto:
-            QtCore.QTimer.singleShot(0, self._fit_view)
+            QtCore.QTimer.singleShot(0, self, self._fit_view)    # con contexto: no si el diálogo ya se borró
 
     @staticmethod
     def _info_width(total: int) -> int:

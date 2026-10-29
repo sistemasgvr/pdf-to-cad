@@ -55,7 +55,7 @@ the last change and <span class="key">&nbsp;Ctrl+Shift+Z&nbsp;</span> redoes it.
 <p>Since version 2.0 the window is organized in five areas. <b>No option was lost</b>: they only moved
 (below, where each one is now).</p>
 <table width="100%" cellspacing="4" cellpadding="10">
-<tr><td bgcolor="{{card}}" width="38%"><b>Top bar</b></td><td bgcolor="{{card}}">The <b>P</b> (File menu: new, open, save, close), the project name (an orange dot = unsaved changes), the sheet ◀ ▶, <b>Search or run a command…</b>, undo and redo, <b>Layers</b>, <b>Assistant</b>, the theme (moon / sun) and <b>Export to Civil 3D</b> (a window: what to include, Civil 3D version and language).</td></tr>
+<tr><td bgcolor="{{card}}" width="38%"><b>Top bar</b></td><td bgcolor="{{card}}">The <b>P</b> (File menu: new, open, save, close), the project name (an orange dot = unsaved changes), <b>Search or run a command…</b>, undo and redo, <b>Layers</b>, <b>Assistant</b>, the theme (moon / sun) and <b>Export to Civil 3D</b> (a window: what to include, Civil 3D version and language).</td></tr>
 <tr><td bgcolor="{{card}}" width="38%"><b>Rail (left)</b></td><td bgcolor="{{card}}"><b>Draw</b>, <b>Sheet and PDF</b>, <b>Inventory</b> and <b>Review</b> change the panel next to it; <b>Standards</b>, <b>Data table</b> and <b>Duct Bank</b> open inside the window (closing them takes you back to the drawing); <b>3D view</b> opens its own window. At the bottom: <b>Help</b> and <b>Settings</b>.</td></tr>
 <tr><td bgcolor="{{card}}" width="38%"><b>Rail panel</b></td><td bgcolor="{{card}}">Draw = the tools in a grid (Utility, Leader, Text, Erase, Centerline, Move, Manhole, Duct Bank) and below the options of the chosen one; pressing it again stops it. Sheet and PDF = compose, scans, add utility, opacity, sheets minimap and marks, scale and georeference. Inventory = the lists (utilities, manholes, curves, duct banks…) and the buttons for several at once. Review = how many conflicts and warnings there are, solve, review and clean up, report, standards and what is shown on the drawing.</td></tr>
 <tr><td bgcolor="{{card}}" width="38%"><b>Right</b></td><td bgcolor="{{card}}">The <b>properties</b> of the selection (at the top, its color, name, actions and the Properties · Elevations · Data tabs) or, with <b>Assistant</b>, the AI: Chat, Conflicts and «How do I…?».</td></tr>
@@ -96,7 +96,7 @@ count, and “Sheet N of M” floats over the sheet.</p>
 <tr><td bgcolor="{{card}}" width="38%"><b>File</b></td><td bgcolor="{{card}}">The <b>P</b> at the top left. «Options…» (language) is also in <b>Settings</b>, a window with General (language, theme, panels), Civil 3D, AI assistant, Families, Shortcuts and About.</td></tr>
 <tr><td bgcolor="{{card}}" width="38%"><b>Edit</b></td><td bgcolor="{{card}}">Undo / redo: top bar. Join, bulk edit, copy and paste properties: <b>Inventory</b> (bottom) and right click on the list.</td></tr>
 <tr><td bgcolor="{{card}}" width="38%"><b>View</b></td><td bgcolor="{{card}}">Theme: moon / sun. Warnings: <b>Review → Show on the drawing</b>. 3D view: rail. Sheets minimap and marks: <b>Sheet and PDF</b>. Auto-hide the panels: <b>Settings</b> or their pin.</td></tr>
-<tr><td bgcolor="{{card}}" width="38%"><b>Tools</b></td><td bgcolor="{{card}}">Compose sheet, scans, add utility and georeference: <b>Sheet and PDF</b>. Data table: rail. Report and Review and clean up: <b>Review</b>. Insert manhole in-line: <b>Draw</b> (at the bottom). Install / uninstall family: <b>Settings</b>.</td></tr>
+<tr><td bgcolor="{{card}}" width="38%"><b>Tools</b></td><td bgcolor="{{card}}">Compose sheet, scans, add utility and georeference: <b>Sheet and PDF</b>. Data table: rail. Report and Review and clean up: <b>Review</b>. Insert manhole in-line: <b>Draw</b> (at the bottom). As you move the mouse, a green circle marks the point on the line where it will go; if it cannot be placed (pressure network or too far from a line), the status bar says why. Install / uninstall family: <b>Settings</b>.</td></tr>
 <tr><td bgcolor="{{card}}" width="38%"><b>Standards</b></td><td bgcolor="{{card}}">Rail → <b>Standards</b>; show their warnings: <b>Review</b>.</td></tr>
 <tr><td bgcolor="{{card}}" width="38%"><b>AI</b></td><td bgcolor="{{card}}">Ask the project: <b>Assistant</b> (Ctrl+Shift+I). Solve conflicts: <b>Review</b> or Assistant → Conflicts. Configure AI, learning folder and move to production: <b>Settings</b>.</td></tr>
 <tr><td bgcolor="{{card}}" width="38%"><b>Help</b></td><td bgcolor="{{card}}">Rail → <b>Help</b> (the question mark): manual, shortcuts and about.</td></tr>
@@ -149,7 +149,7 @@ unsaved changes. Save often.
 <tr><th align="left">I want to…</th><th align="left">How</th></tr>
 <tr><td bgcolor="{{card}}">Zoom in or out</td><td bgcolor="{{card}}">Turn the <b>mouse wheel</b>, or the magnifiers at the bottom right, next to the scale. When you zoom in, what you see is redrawn sharp from the PDF, at the original quality (also in Compose sheet, Sheet layers and the preview). It is drawn in tiles, separately: the window never stops; the sharp image arrives in a moment, the center first, and a place or zoom already seen appears instantly.</td></tr>
 <tr><td bgcolor="{{card}}">Move the plan</td><td bgcolor="{{card}}">Hold the <b>wheel</b> (middle button) down and drag.</td></tr>
-<tr><td bgcolor="{{card}}">Change the PDF page</td><td bgcolor="{{card}}">◀ ▶ arrows next to the project name, at the top (or the <b>View and pages</b> section of Draw).</td></tr>
+<tr><td bgcolor="{{card}}">Change the PDF page</td><td bgcolor="{{card}}">The <b>View and pages</b> section of Draw.</td></tr>
 <tr><td bgcolor="{{card}}">See my lines better</td><td bgcolor="{{card}}"><b>Opacity</b> button: fades only the PDF. You can also set a white or black background.</td></tr>
 <tr><td bgcolor="{{card}}">Switch dark / light mode</td><td bgcolor="{{card}}">Moon / sun button on the top bar (or <b>Settings</b>).</td></tr>
 <tr><td bgcolor="{{card}}">Change the language</td><td bgcolor="{{card}}"><b>Settings → Options…</b> → Language. It changes instantly.</td></tr>
@@ -207,7 +207,9 @@ zooms with the view; double click = see all sheets. Its size follows the number 
 small with two or three, larger with many. The same minimap appears in the recognition
 preview and in the editor; in the editor each sheet also has a <b>watermark</b> (its dashed
 outline and code, faint): it covers and cuts nothing and is not exported. Turn them off in
-View → «Sheet minimap» / «Sheet marks».</p>
+View → «Sheet minimap» / «Sheet marks». With a SINGLE sheet the editor minimap shows the PDF thumbnail with a
+box for what you see (no zones): a click or drag takes you there. Its «–» button minimizes it to a small
+button with the map icon (one click opens it again; it is remembered).</p>
 
 <h2>1. Compose work sheet</h2>
 <p>This step has three <b>tabs</b>, each one full screen: <b>Source</b>, <b>Area to take</b> and
@@ -1112,6 +1114,7 @@ same question again comes back instantly, saved. Without an AI configured, the c
 <p><b>Assistant → Ask the project…</b> (<span class="key">&nbsp;Ctrl+Shift+I&nbsp;</span>, or the chat button on the top
 bar) opens a chat. Ask, for example, «how many conflicts are there and where are they?», «what happens at C-12?»
 or «summarize zone 3».</p>
+<p>The chat only answers about this project and how to use the app. Anything else (other topics, asking for code or asking it to change its rules) gets a fixed answer.</p>
 <ul>
 <li>The answer appears while it is being written. Each code (C-12, N-3, AGUA-5) is a link: one click takes you to
     that place on the plan.</li>

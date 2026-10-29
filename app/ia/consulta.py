@@ -16,11 +16,12 @@ import time
 import uuid
 from dataclasses import dataclass, field
 
+from ia import alcance as A
 from ia import memoria as M
 from ia.texto import no_respaldados, numeros
 from traduccion.i18n_core import get_lang, t
 
-VERSION_PROMPT = 1
+VERSION_PROMPT = 2                 # 2: reglas de alcance + pregunta delimitada (ia/alcance)
 HISTORIAL = 4                      # pares pregunta/respuesta anteriores que van en el pedido
 ENSENANZAS_MAX = 6
 _REF = re.compile(r"\[?\b([A-Za-z]+-\d+)\b\]?")
@@ -35,7 +36,7 @@ app (Tabla de datos, Normativas, Vista 3D).
 3. Nombra cada elemento con su código entre corchetes, por ejemplo [C-12], [N-3] o [AGUA-5]: así el usuario va \
 a él en el plano.
 4. Responde en {idioma}, breve y directo (pocas líneas o una lista corta). Unidades: pies (ft) y pulgadas (in).
-5. Si una enseñanza del equipo contradice tu respuesta, manda la enseñanza. Si el mensaje NO trae la sección de enseñanzas del equipo, no menciones ninguna: no hay."""
+5. Si una enseñanza del equipo contradice tu respuesta, manda la enseñanza. Si el mensaje NO trae la sección de enseñanzas del equipo, no menciones ninguna: no hay.""" + A.REGLAS_SISTEMA
 
 
 @dataclass
@@ -48,6 +49,7 @@ class Resultado:
     segundos: float = 0.0
     modelo: str = ""
     usadas: int = 0                                       # enseñanzas que fueron en el pedido
+    fuera: str = ""                                       # «ajeno» / «codigo» / «inyeccion»: no se respondió
 
 
 def idioma():
@@ -81,20 +83,30 @@ def armar_pedido(pregunta, datos, memoria=None):
     if utils:
         partes += ["### " + t("Utilidades que vienen al caso ({n} de {total})").format(
             n=len(utils), total=len(datos.utilidades)), *(ln.texto for ln in utils), ""]
-    partes += ["## " + t("Pregunta"), pregunta.strip()]
+    partes += ["## " + t("Pregunta"), A.envolver(pregunta)]
     return "\n".join(partes), len(ens)
 
 
 def preguntar(proveedor, pregunta, datos, memoria=None, historial=(), al_texto=None, cancelado=None):
-    """Responde `pregunta`. `historial` = [(pregunta, respuesta), …] de esta conversación."""
+    """Responde `pregunta`. `historial` = [(pregunta, respuesta), …] de esta conversación.
+
+    Lo que no es del proyecto ni de la app (o quiere saltarse las reglas) no llega al modelo: respuesta fija
+    (`ia/alcance`). Lo que el modelo responda con código o con su marca de rechazo también se cambia por ella."""
+    motivo = A.revisar(pregunta, datos, historial)
+    if motivo != A.OK:
+        return _fuera(pregunta, motivo, memoria, al_texto)
     pedido, usadas = armar_pedido(pregunta, datos, memoria)
     msgs = []
     for p, r in list(historial)[-HISTORIAL:]:
         msgs += [{"role": "user", "content": p}, {"role": "assistant", "content": r}]
     msgs.append({"role": "user", "content": pedido})
     t0 = time.perf_counter()
-    resp = proveedor.chat(msgs, sistema=SISTEMA.format(idioma=idioma()), al_texto=al_texto, cancelado=cancelado)
+    resp = proveedor.chat(msgs, sistema=SISTEMA.format(idioma=idioma()), al_texto=_vigilado(al_texto),
+                          cancelado=cancelado)
     texto = resp.texto.strip()
+    motivo = A.salida_valida(texto)
+    if motivo != A.OK:
+        return _fuera(pregunta, motivo, memoria, al_texto, modelo=resp.modelo, segundos=time.perf_counter() - t0)
     refs = []
     for m in _REF.finditer(texto):
         c = m.group(1).upper()
@@ -107,6 +119,31 @@ def preguntar(proveedor, pregunta, datos, memoria=None, historial=(), al_texto=N
         memoria.agregar(M.CONVERSACIONES, id=res.id, pregunta=res.pregunta, respuesta=res.texto,
                         referencias=res.referencias, modelo=res.modelo, segundos=round(res.segundos, 2),
                         version=VERSION_PROMPT)
+    return res
+
+
+def _vigilado(al_texto):
+    """Pasa los trozos en vivo hasta que lo escrito trae código o la marca de rechazo: desde ahí no muestra más
+    (al terminar, la respuesta entera se cambia por el texto fijo)."""
+    if al_texto is None:
+        return None
+    hecho = []
+
+    def f(trozo):
+        hecho.append(trozo)
+        if A.salida_valida("".join(hecho)) == A.OK:
+            al_texto(trozo)
+    return f
+
+
+def _fuera(pregunta, motivo, memoria, al_texto, modelo="", segundos=0.0):
+    texto = A.rechazo(motivo)
+    if al_texto is not None:
+        al_texto(texto)
+    res = Resultado(uuid.uuid4().hex[:12], pregunta.strip(), texto, [], [], segundos, modelo, 0, motivo)
+    if memoria is not None:
+        memoria.agregar(M.CONVERSACIONES, id=res.id, pregunta=res.pregunta, respuesta=res.texto, referencias=[],
+                        modelo=modelo, segundos=round(segundos, 2), version=VERSION_PROMPT, fuera=motivo)
     return res
 
 

@@ -259,8 +259,10 @@ class SheetLayersDialog(ScaleCalibrationMixin, LayerAssignmentsMixin, LayerInfoM
         # se repite al mostrar para que la hoja entre completa.
         if self._fit_pending and self._pix_item is not None:
             self._fit_pending = False
-            QtCore.QTimer.singleShot(0, self._apply_side_width)   # primero los anchos: la hoja entra en SU columna
-            QtCore.QTimer.singleShot(0, self._fit_view)
+            # con el diálogo como contexto: si se borra antes, no se llama (llamado sobre un diálogo ya
+            # borrado, el error tumbaba PySide 6.11 en el siguiente filtro de eventos)
+            QtCore.QTimer.singleShot(0, self, self._apply_side_width)   # primero los anchos: la hoja entra en SU columna
+            QtCore.QTimer.singleShot(0, self, self._fit_view)
 
     def _apply_side_width(self):
         w = self.width()

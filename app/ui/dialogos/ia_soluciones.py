@@ -133,7 +133,7 @@ class SolucionesDialog(QtWidgets.QDialog):
         E.texto_en_tarjeta(self.texto)
         self.ico_rec.setPixmap(E.pix("mdi:lightbulb-on", tk.accent if not theme.is_dark() else tk.focus, 18))
         self.btn_ver.setIcon(icons.icon("mdi:crosshairs-gps", color=tk.text))
-        self.btn_aplicar.setIcon(icons.icon("mdi:check", color=tk.text_on_accent))
+        self.btn_aplicar.setIcon(icons.icon("mdi:check", color=tk.text))     # botón neutro: blanco no se veía en claro
         self._ico_auto = icons.icon("mdi:auto-fix", color=tk.accent if not theme.is_dark() else tk.focus)
         vacio = QtGui.QPixmap(18, 18)
         vacio.fill(QtCore.Qt.transparent)

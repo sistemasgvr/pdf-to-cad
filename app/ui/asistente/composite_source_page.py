@@ -80,7 +80,8 @@ class SourcePageMixin:
         self.lbl_source_sel = QtWidgets.QLabel()
         self.lbl_source_sel.setStyleSheet(f"color:{t.text};")
         bottom.addWidget(self.lbl_source_sel, 1)
-        self.btn_go_area = QtWidgets.QPushButton(_icon("mdi:vector-rectangle", color=t.text_on_accent),
+        # (botón neutro desde 2.0.0: icono del color del texto; blanco no se veía en tema claro)
+        self.btn_go_area = QtWidgets.QPushButton(_icon("mdi:vector-rectangle", color=t.text),
                                                  _tr("Tomar área de esta hoja"))
         self.btn_go_area.setMinimumHeight(btn_h)
         self.btn_go_area.setAutoDefault(False)
