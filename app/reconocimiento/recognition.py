@@ -96,7 +96,7 @@ UTILITY_GEOM_OPTIONS = {
     "DRENAJE": geom.GeomOptions(separate_vaults=True, nearest_vault=True, absorb_inside_runs=True),
     # Agua: el núcleo de siempre + unir primero las puntas que el PDF dibuja unidas.
     "AGUA": geom.GeomOptions(join_touching_ends=True, gap_turn_blocks=True,
-                             markers_on_curves=True),
+                             markers_on_curves=True, perpendicular_gap_taps=True),
     # Alcantarillado (gravedad, buzones como el drenaje; acometidas con quiebre y
     # barras sobre curvas como el agua). Elegidas con la auditoría de los 4 PDFs
     # (71 hojas): sin reglas quedaban 22 tramos sin tinta; con las de drenaje, 19;

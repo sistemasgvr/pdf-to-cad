@@ -96,7 +96,20 @@ def _parejas_cad(fichas: Dict[Nodo, Ficha]):
     return out
 
 
-def _confirmar_cad(fichas: Dict[Nodo, Ficha], cancelado=None) -> Tuple[List[E.Costura], int]:
+class Encajes:
+    """Cómo se confirma cada pareja (por defecto, directo). `composicion_trabajo` pone uno con
+    memoria por contenido: agregar o quitar un PDF no repite las parejas ya vistas."""
+    def cad(self, fa, fb, lado, ra, rb):
+        return E.costura_cad(fa, fb, lado, ra, rb)
+
+    def mapa(self, fa, fb, lado, escala=None, guia=None):
+        return E.encaje_mapa(fa, fb, lado, escala=escala, guia=guia)
+
+
+_DIRECTO = Encajes()
+
+
+def _confirmar_cad(fichas: Dict[Nodo, Ficha], cancelado=None, enc: Encajes = _DIRECTO) -> Tuple[List[E.Costura], int]:
     """Confirma con el dibujo las parejas CAD. Por cada lado de una hoja: primero las
     de su misma serie (UR-602 → UR-603, no UR-603A); si ninguna confirma, las demás.
     Si dos vecinas confirman por el mismo lado, gana la de más votos solo si destaca."""
@@ -114,7 +127,7 @@ def _confirmar_cad(fichas: Dict[Nodo, Ficha], cancelado=None) -> Tuple[List[E.Co
         conf: List[E.Costura] = []
         for grupo in (misma, otras):
             for _fa, fb, ra, rb, d in sorted(grupo, key=lambda c: c[4]):
-                c = E.costura_cad(fa, fb, lado, ra, rb)
+                c = enc.cad(fa, fb, lado, ra, rb)
                 if c is None:
                     descartadas += 1
                 elif not any(x.b == c.b for x in conf):
@@ -196,7 +209,7 @@ def _mediana(vals: Sequence[float]) -> float:
     return v[len(v) // 2]
 
 
-def _confirmar_mapa(fichas: Dict[Nodo, Ficha], cancelado=None) -> Tuple[List[E.Costura], int]:
+def _confirmar_mapa(fichas: Dict[Nodo, Ficha], cancelado=None, enc: Encajes = _DIRECTO) -> Tuple[List[E.Costura], int]:
     """Solape de cada pareja de celdas vecinas; las que no dan un pico claro se
     reintentan GUIADAS por la traslación y escala de las parejas ya confirmadas
     entre los mismos PDF y por el mismo lado (casi constante en una fila de hojas)."""
@@ -206,7 +219,7 @@ def _confirmar_mapa(fichas: Dict[Nodo, Ficha], cancelado=None) -> Tuple[List[E.C
     for fa, lado, fb in parejas:
         if cancelado is not None and cancelado():
             return hechas, 0
-        c = E.encaje_mapa(fa, fb, lado)
+        c = enc.mapa(fa, fb, lado)
         if c is None:
             pend.append((fa, lado, fb))
         else:
@@ -219,7 +232,7 @@ def _confirmar_mapa(fichas: Dict[Nodo, Ficha], cancelado=None) -> Tuple[List[E.C
         c = None
         if len(ref) >= 2:
             guia = (_mediana([r.t[0] for r in ref]), _mediana([r.t[1] for r in ref]))
-            c = E.encaje_mapa(fa, fb, lado, escala=_mediana([r.escala for r in ref]), guia=guia)
+            c = enc.mapa(fa, fb, lado, escala=_mediana([r.escala for r in ref]), guia=guia)
         if c is None:
             descartadas += 1
         else:
@@ -333,7 +346,8 @@ def _ordenar(g: Grupo) -> None:
     g.nodos.sort(key=lambda n: (g.rejilla.get(n, (0, 0))[1], g.rejilla.get(n, (0, 0))[0], n))
 
 
-def analizar(fichas_por_doc: Sequence[Sequence[Ficha]], cancelado=None, progreso=None) -> Analisis:
+def analizar(fichas_por_doc: Sequence[Sequence[Ficha]], cancelado=None, progreso=None,
+             enc: Encajes = _DIRECTO) -> Analisis:
     """Todas las parejas confirmadas y sus grupos (sin armar: ver `armar`)."""
     fichas: Dict[Nodo, Ficha] = {}
     for fs in fichas_por_doc:
@@ -346,10 +360,10 @@ def analizar(fichas_por_doc: Sequence[Sequence[Ficha]], cancelado=None, progreso
             fichas[f.clave] = f
     if progreso is not None:
         progreso("cad")
-    cad, d1 = _confirmar_cad(fichas, cancelado)
+    cad, d1 = _confirmar_cad(fichas, cancelado, enc)
     if progreso is not None:
         progreso("mapa")
-    mapa, d2 = _confirmar_mapa(fichas, cancelado)
+    mapa, d2 = _confirmar_mapa(fichas, cancelado, enc)
     grupos = _grupos("estaciones", cad, fichas) + _grupos("cuadricula", mapa, fichas)
     presentes = {f.celda for f in fichas.values() if f.celda is not None}
     for g in grupos:

@@ -1270,3 +1270,82 @@ def test_vuelve_a_abrir_en_el_ultimo_pdf_trabajado(app):
         assert (dlg._cur_source, dlg._cur_page) == (0, 1)
     finally:
         dlg.close_docs()
+
+
+def test_quitar_pdf_saca_sus_piezas_y_corre_los_indices(app, monkeypatch):
+    """«Quitar PDF» (2026-10-28): fuera el PDF elegido y sus piezas; las del siguiente pasan a su
+    índice nuevo (piezas, capas apagadas, vista), y el último PDF no se puede quitar."""
+    T = composite_dialog
+    a, b = _two_sheet_pdf(), _two_sheet_pdf()
+    comp = C.Composite(pieces=[C.Piece(0, 0, [0.0, 0.0, 1.0, 1.0], src_scale=20 / 72.0),
+                               C.Piece(1, 1, [0.0, 0.0, 1.0, 1.0], x=300.0, src_scale=20 / 72.0)])
+    dlg = T.CompositeDialog(None, [{"name": "a.pdf", "data": a}, {"name": "b.pdf", "data": b}], comp,
+                            {"0": ["X"], "1": ["Y"]}, 0)
+    try:
+        assert dlg.btn_quitar_pdf.isEnabled()
+        dlg.cmb_source.setCurrentIndex(0)
+        monkeypatch.setattr(QtWidgets.QMessageBox, "question", lambda *a, **k: QtWidgets.QMessageBox.No)
+        dlg._quitar_pdf()                                       # «No»: nada cambia
+        assert len(dlg.sources) == 2 and len(dlg.comp.pieces) == 2
+        monkeypatch.setattr(QtWidgets.QMessageBox, "question", lambda *a, **k: QtWidgets.QMessageBox.Yes)
+        dlg._quitar_pdf()
+        assert [s["name"] for s in dlg.sources] == ["b.pdf"] and len(dlg.docs) == 1
+        assert [(p.source, p.page) for p in dlg.comp.pieces] == [(0, 1)]
+        assert dlg.hidden_by_source == {"0": ["Y"]}
+        assert len(dlg.view.items) == 1 and dlg.cmb_source.count() == 1 and dlg._cur_source == 0
+        assert not dlg.btn_quitar_pdf.isEnabled()
+        comp2, fuentes, ocultas = dlg.result_tuple()
+        assert [(p.source, p.page) for p in comp2.pieces] == [(0, 1)] and len(fuentes) == 1
+    finally:
+        dlg.close_docs(); dlg.close()
+
+
+def test_compositor_vivo_se_muestra_igual_al_volver(app, monkeypatch):
+    """Pedido del usuario 2026-10-28: volver al compositor sin cambios muestra el MISMO diálogo
+    (sin volver a armar hojas ni piezas); con otra hoja compuesta, uno nuevo; cancelar lo suelta.
+    Quien llama recibe copias: lo que se haga después en el diálogo no le cambia nada."""
+    from PySide6 import QtWidgets
+    hechos = []
+    orig = composite_dialog.CompositeDialog.__init__
+
+    def init(self, *a, **k):
+        hechos.append(1)
+        orig(self, *a, **k)
+    monkeypatch.setattr(composite_dialog.CompositeDialog, "__init__", init)
+    respuesta = [QtWidgets.QDialog.Accepted]
+    monkeypatch.setattr(composite_dialog.CompositeDialog, "exec", lambda self: respuesta[0])
+    vivo = {}
+    fuentes = [{"name": "a.pdf", "data": _two_sheet_pdf()}]
+    comp, srcs, hidden = composite_dialog.compose_sheet(None, fuentes, None, {}, vivo=vivo)
+    dlg = vivo["comp"]
+    assert comp is not dlg.comp and srcs is not dlg.sources and len(hechos) == 1
+    comp2, srcs2, _h = composite_dialog.compose_sheet(None, srcs, comp, {"0": ["X"]}, vivo=vivo)
+    assert len(hechos) == 1 and vivo["comp"] is dlg and dlg.hidden_by_source == {"0": ["X"]}
+    assert comp2.to_dict()["pieces"] == comp.to_dict()["pieces"]
+    otra = C.Composite([C.Piece(0, 1, [0.0, 0.0, 0.5, 1.0])])
+    composite_dialog.compose_sheet(None, srcs, otra, {}, vivo=vivo)
+    assert len(hechos) == 2 and vivo["comp"] is not dlg and not dlg.docs
+    respuesta[0] = QtWidgets.QDialog.Rejected
+    assert composite_dialog.compose_sheet(None, srcs, otra, {}, vivo=vivo) is None
+    assert "comp" not in vivo
+
+
+def test_desmarcar_la_hoja_quita_tambien_su_area(app, monkeypatch):
+    """Reporte del usuario 2026-10-29: marcar una hoja, ajustar su área y desmarcarla dejaba el
+    rectángulo en «Área a tomar»; al continuar, esa área volvía a la hoja compuesta."""
+    dlg = composite_dialog.CompositeDialog(None, [{"name": "a.pdf", "data": _two_sheet_pdf()}], None, {}, 0)
+    try:
+        dlg._toggle_page(1)
+        r = dlg.crop._page_rect
+        dlg.crop.set_selection(QtCore.QRectF(0, 0, r.width() / 2, r.height()))
+        dlg._crop_timer.stop()
+        dlg._apply_crop_edit()
+        assert [(p.page, p.clip[2]) for p in dlg.comp.pieces] == [(0, 1.0), (1, 0.5)]
+        monkeypatch.setattr(dlg, "_confirm_remove_page", lambda page: True)
+        dlg._toggle_page(1)
+        assert [p.page for p in dlg.comp.pieces] == [0]
+        assert not dlg._has_area() and not dlg._area_untaken()
+        comp, _s, _h = dlg.result_tuple()
+        assert [(p.page, p.clip) for p in comp.pieces] == [(0, [0.0, 0.0, 1.0, 1.0])]
+    finally:
+        dlg.close_docs()

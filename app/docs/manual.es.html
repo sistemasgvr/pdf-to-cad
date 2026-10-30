@@ -454,6 +454,9 @@ imagen/escaneo…</b>), pero sin capas ni reconocimiento: al final,
 </ul>
 
 <h2>3. Vista previa del reconocimiento</h2>
+<p>En redes de agua, las tomas perpendiculares de medidores se conectan en T aunque
+coincidan con el borde de un hueco del trazado: la tubería principal sigue continua.
+Para aplicar esta corrección a una hoja reconocida anteriormente, vuelve a reconocerla.</p>
 <ul>
 <li>Muestra las líneas que encontró de cada utilidad, cada una con su color, y sus bóvedas o
     buzones. La pantalla tiene tres columnas: a la izquierda <b>Para verificar</b>, en el centro la
@@ -1127,6 +1130,35 @@ números siempre los pone la app y, si la IA escribe una cifra que no está en l
 Civil 3D?») y pulsa <span class="key">&nbsp;Enter&nbsp;</span> o <b>Preguntar a la IA</b>. Al instante salen los
 capítulos que hablan de eso (un clic los abre) y la IA responde con los pasos, sacados solo de este manual. La misma
 pregunta otra vez sale al momento, guardada. Sin IA configurada, los capítulos son la respuesta.</p>
+<h2>Diámetro según la IA</h2>
+<p>En un PDF vectorial con capas, cuando el plano no dice con certeza el diámetro de una tubería (aviso
+<b>Diámetro del plano</b>), al elegirla aparece la tarjeta <b>Diámetro según la IA</b> y comienza su revisión.
+Primero revisa los rótulos junto a la línea; si no hay una lectura segura, propone un diámetro según las reglas
+activas de tu normativa, la utilidad, su tipo y las condiciones disponibles. También analiza un recorte del
+recorrido marcado en magenta, longitud, giros, contactos con líneas de la misma utilidad, tamaños confirmados,
+textos cercanos y referencias de perfiles. Un contacto geométrico no confirma una conexión hidráulica.</p>
+<ul>
+<li>La tarjeta presenta bloques compactos: <b>Propuesta</b>, <b>Por qué</b>, <b>Criterio</b>, <b>Fuente</b> y
+    <b>Referencia</b>. El tipo supuesto queda <b>Por confirmar</b>. Las interpretaciones de la IA se identifican como
+    tales; una propuesta no es una lectura del diámetro real ni sustituye el cálculo hidráulico.</li>
+<li><b>Ver análisis</b> abre la imagen utilizada, los datos enviados y el detalle de la decisión. Si no se usó
+    imagen, se indica expresamente. Las fuentes y los textos completos quedan disponibles en ese detalle.</li>
+<li>Los PDF originales completos se conservan aunque recortes la planta para reconocerla o armar una composición.
+    La IA consulta las hojas de origen relacionadas con la línea, incluidos perfiles superiores, notas laterales,
+    leyendas y membretes. Recibe una selección del texto y capturas de apoyo con documento, página y zona;
+    <b>Texto completo de origen</b> permite revisar todos los bloques de las hojas consultadas. La selección enviada
+    se limita para que quepa en el modelo; el resto permanece disponible. Un diámetro en otra zona no se asigna
+    automáticamente a la línea. Los originales incluidos en el proyecto siguen disponibles al reabrirlo.</li>
+<li>Las etapas de revisión se muestran mientras trabaja: contexto preparado, análisis de la captura y recorrido,
+    y comprobación de la propuesta. El programa coordina estas operaciones; no hace falta un agente general.</li>
+<li><b>Aprobar 18"</b> aplica el diámetro propuesto. <b>Otro diámetro…</b> permite introducir el que indiques.
+    Ambas acciones se deshacen con <span class="key">&nbsp;Ctrl+Z&nbsp;</span>; cancelar no cambia nada.</li>
+<li>Solo se revisa el aviso seleccionado; reconocer e importar no esperan a la IA. La respuesta queda guardada.
+    <b>Preguntar a la IA</b> permite reintentar y <b>Detener</b> cancela la revisión.</li>
+<li>Si faltan datos para aplicar una regla o no hay una regla de diámetro, completa el tipo y los datos o introduce
+    un diámetro manualmente.</li>
+<li>Si la hoja se reconoció con una versión anterior, la tarjeta pide volver a reconocerla.</li>
+</ul>
 <h2>Pregúntale al proyecto</h2>
 <p><b>Asistente → Pregúntale al proyecto…</b> (<span class="key">&nbsp;Ctrl+Shift+I&nbsp;</span>, o el botón de chat de
 la barra superior) abre un chat. Pregunta, por ejemplo, «¿cuántos conflictos hay y dónde están?», «¿qué pasa en

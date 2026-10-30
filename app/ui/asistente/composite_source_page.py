@@ -57,6 +57,12 @@ class SourcePageMixin:
         btn_add = tool("mdi:file-plus-outline", _tr("Agregar PDF…"), _tr("Agregar otro PDF"))
         btn_add.clicked.connect(self._add_pdf)
         row.addWidget(btn_add)
+        # quitar el PDF elegido (pedido del usuario 2026-10-28); solo con más de uno
+        self.btn_quitar_pdf = tool("mdi:trash-can-outline", _tr("Quitar PDF"),
+                                   _tr("Quitar este PDF del compositor (sus hojas salen de la hoja compuesta)"),
+                                   icon_only=True)
+        self.btn_quitar_pdf.clicked.connect(self._quitar_pdf)
+        row.addWidget(self.btn_quitar_pdf)
         lay.addLayout(row)
 
         self.lst_pages = PageGallery()
@@ -76,8 +82,10 @@ class SourcePageMixin:
         lay.addWidget(self.lst_pages, 1)
 
         # (sin «Quitar de la hoja compuesta»: desmarcar la casilla hace lo mismo)
-        bottom = QtWidgets.QHBoxLayout(); bottom.setSpacing(10)
+        # texto a todo el ancho y el botón DEBAJO (en la columna angosta de 2.0.0 se apretaban en una fila)
+        bottom = QtWidgets.QVBoxLayout(); bottom.setSpacing(8)
         self.lbl_source_sel = QtWidgets.QLabel()
+        self.lbl_source_sel.setWordWrap(True)
         self.lbl_source_sel.setStyleSheet(f"color:{t.text};")
         bottom.addWidget(self.lbl_source_sel, 1)
         # (botón neutro desde 2.0.0: icono del color del texto; blanco no se veía en tema claro)
@@ -87,6 +95,7 @@ class SourcePageMixin:
         self.btn_go_area.setAutoDefault(False)
         self.btn_go_area.setToolTip(_tr("Ir a «Área a tomar» con la hoja elegida"))
         self.btn_go_area.clicked.connect(lambda: (self._pick_page(), self._go_tab(1)))
+        self.btn_go_area.setSizePolicy(QtWidgets.QSizePolicy.Expanding, QtWidgets.QSizePolicy.Fixed)
         bottom.addWidget(self.btn_go_area)
         lay.addLayout(bottom)
         return page
@@ -123,6 +132,10 @@ class SourcePageMixin:
             self.cmb_source.addItem(_tr("{name}  ({n} hojas)").format(name=s["name"], n=self.docs[i].page_count))
         self.cmb_source.setCurrentIndex(self._cur_source)
         self.cmb_source.blockSignals(False)
+        if hasattr(self, "btn_quitar_pdf"):
+            # el último PDF no se quita; tampoco al agregar una utilidad (las hojas van calcadas sobre ellos)
+            self.btn_quitar_pdf.setVisible(getattr(self, "_sugerir", True))
+            self.btn_quitar_pdf.setEnabled(len(self.sources) > 1)
         self._fill_pages()
 
     def _fill_pages(self):
@@ -262,3 +275,73 @@ class SourcePageMixin:
         self._cur_source = len(self.sources) - 1
         self._cur_page = 0
         self._fill_sources()
+        if hasattr(self, "_sug_pdfs_cambiaron"):
+            self._sug_pdfs_cambiaron()        # la composición sugerida, otra vez con todos los PDF
+
+    def _quitar_pdf(self):
+        """Quita el PDF elegido en la lista: sus piezas salen de la hoja compuesta (se pregunta si
+        tenía alguna) y los PDF siguientes corren un lugar (piezas, capas, cachés, vista)."""
+        idx = self.cmb_source.currentIndex()
+        if len(self.sources) <= 1 or not 0 <= idx < len(self.sources):
+            return
+        nombre = self.sources[idx]["name"]
+        n = sum(1 for p in self.comp.pieces if p.source == idx)
+        texto = _tr("¿Quitar «{pdf}» del compositor?").format(pdf=nombre)
+        if n:
+            texto += "\n\n" + _tr("Sus {n} pieza(s) salen de la hoja compuesta.").format(n=n)
+        if QtWidgets.QMessageBox.question(self, _tr("Quitar PDF"), texto) != QtWidgets.QMessageBox.Yes:
+            return
+        self._crop_timer.stop()
+        doc = self.docs.pop(idx)               # la vista usa la MISMA lista
+        try:
+            doc.close()
+        except Exception:
+            pass
+        self.sources.pop(idx)
+
+        def nuevo(s):                          # índice nuevo de un PDF (None = el quitado)
+            return None if s == idx else (s - 1 if s > idx else s)
+        self.hidden_by_source = {str(nuevo(int(k))): v for k, v in self.hidden_by_source.items()
+                                 if k.isdigit() and nuevo(int(k)) is not None}
+        for cache in (self._scale_cache, self._thumb_cache, self._guide_cache, self._layers_cache):
+            viejas = list(cache.items())
+            cache.clear()
+            for k, v in viejas:
+                if isinstance(k, tuple) and k and isinstance(k[0], int):
+                    if nuevo(k[0]) is not None:
+                        cache[(nuevo(k[0]),) + k[1:]] = v
+                else:
+                    cache[k] = v               # p. ej. el recuadro de la miniatura en espera
+        if hasattr(self, "_area_hash"):
+            self._area_hash = {nuevo(s): h for s, h in self._area_hash.items() if nuevo(s) is not None}
+            self._area_pendiente = None
+        for c in (self.view._edge_cache, self.view._seam_cache, self.view._segs_cache):
+            c.clear()
+        lv = self.comp.last_view
+        if lv is not None:
+            self.comp.last_view = None if nuevo(lv[0]) is None else [nuevo(lv[0]), lv[1]]
+        # piezas: fuera las del PDF quitado, las demás con su índice nuevo
+        self.view.select(-1)
+        piezas = []
+        for p in self.comp.pieces:
+            if nuevo(p.source) is not None:
+                p.source = nuevo(p.source)
+                piezas.append(p)
+        self.comp.pieces[:] = piezas
+        self._editing = -1
+        self._provisional = None
+        if hasattr(self, "_sug_antes"):
+            self._sug_antes = None             # «Deshacer» de la sugerencia apuntaba a los índices de antes
+        if self._cur_source == idx:            # se veía el quitado: el PDF anterior, desde su 1.ª hoja
+            self._cur_source, self._cur_page = max(0, idx - 1), 0
+        else:                                  # se sigue viendo la misma hoja
+            self._cur_source = nuevo(self._cur_source)
+        self._refresh_scale_combo()
+        self.view.rebuild()
+        self._refresh_summary()
+        self._on_pieces_changed()
+        self._fill_sources()
+        if not self.comp.pieces:
+            self._choose_provisional()         # como al abrir: la hoja a la vista ya es la hoja compuesta
+        if hasattr(self, "_sug_pdfs_cambiaron"):
+            self._sug_pdfs_cambiaron()

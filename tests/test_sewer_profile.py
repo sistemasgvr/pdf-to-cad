@@ -73,7 +73,8 @@ def test_reglas_de_otros_perfiles_no_cambian():
     assert rec.UTILITY_GEOM_OPTIONS["DRENAJE"] == geom.GeomOptions(
         separate_vaults=True, nearest_vault=True, absorb_inside_runs=True)
     assert rec.UTILITY_GEOM_OPTIONS["AGUA"] == geom.GeomOptions(
-        join_touching_ends=True, gap_turn_blocks=True, markers_on_curves=True)
+        join_touching_ends=True, gap_turn_blocks=True, markers_on_curves=True,
+        perpendicular_gap_taps=True)
 
 
 # ───────────── precisión: reglas propias del perfil (2026-09-25) ─────────────

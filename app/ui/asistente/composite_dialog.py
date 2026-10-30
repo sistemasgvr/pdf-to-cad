@@ -1215,7 +1215,32 @@ class CompositeDialog(NoEscapeClose, ChosenSheetMixin, SourcePageMixin, ScanTool
 
     def result_tuple(self):
         self.comp.last_view = [int(self._cur_source), int(self._cur_page)]
+        if getattr(self, "_vivo", False):
+            # el diálogo sigue vivo (volver atrás lo muestra igual): quien llama recibe COPIAS, así
+            # lo que se haga después aquí y se cancele no le cambia la hoja de trabajo
+            return (C.Composite.from_dict(self.comp.to_dict()), [dict(s) for s in self.sources],
+                    {k: list(v) for k, v in self.hidden_by_source.items()})
         return self.comp, self.sources, self.hidden_by_source
+
+    # ── seguir vivo entre pasos del asistente (pedido del usuario 2026-10-28) ──
+    def sirve_para(self, sources, comp, hidden_by_source, manual: bool, sugerencia: bool) -> bool:
+        """¿Recibe lo mismo que dejó? (mismos PDF, misma hoja compuesta, mismo modo). Las capas
+        apagadas no cuentan: aquí solo pasan de largo (se toman las nuevas en `reabrir`)."""
+        from reconocimiento import recognition_cache as RC
+        if not self.docs or bool(self._sugerir) != bool(sugerencia) or bool(self.comp.manual) != bool(manual or (comp and comp.manual)):
+            return False
+        if len(sources) != len(self.sources) or any(
+                a.get("data") is not b.get("data") and a.get("data") != b.get("data")
+                for a, b in zip(sources, self.sources)):
+            return False
+        return RC.composition_signature(comp) == RC.composition_signature(self.comp)
+
+    def reabrir(self, hidden_by_source):
+        self.hidden_by_source = {k: list(v) for k, v in (hidden_by_source or {}).items()}
+
+    def soltar_vivo(self):
+        self._vivo = False
+        self.close_docs()
 
     def close_docs(self):
         self._sug_desconectar()
@@ -1234,16 +1259,36 @@ class CompositeDialog(NoEscapeClose, ChosenSheetMixin, SourcePageMixin, ScanTool
 
 def compose_sheet(parent, sources: List[dict], comp: Optional[C.Composite],
                   hidden_by_source: Optional[Dict[str, List[str]]], current_page: int = 0, manual: bool = False,
-                  sugerencia: bool = True):
+                  sugerencia: bool = True, vivo: Optional[dict] = None):
     """Abre el compositor. Devuelve ``(composite, sources, hidden_by_source)`` o
-    None si se cancela. `sources` son dicts ``{name, data(bytes), path?}``."""
-    with busy(parent, _tr("Abriendo «Componer hoja»…"),
-              _tr("Preparando las hojas del PDF")):
-        dlg = CompositeDialog(parent, sources, comp, hidden_by_source, current_page, manual=manual,
-                              sugerencia=sugerencia)
+    None si se cancela. `sources` son dicts ``{name, data(bytes), path?}``.
+    `vivo` (dict de la ventana, `ventana_pasos`): al aceptar el diálogo queda ahí, oculto; si se
+    vuelve a pedir con lo mismo que devolvió, se muestra TAL CUAL (sin volver a dibujar hojas ni
+    piezas). Cancelar lo suelta."""
+    dlg = vivo.pop("comp", None) if vivo is not None else None
+    if dlg is not None and not dlg.sirve_para(sources, comp, hidden_by_source, manual, sugerencia):
+        dlg.soltar_vivo()
+        dlg.deleteLater()
+        dlg = None
+    if dlg is not None:
+        dlg.reabrir(hidden_by_source)
+    else:
+        with busy(parent, _tr("Abriendo «Componer hoja»…"),
+                  _tr("Preparando las hojas del PDF")):
+            dlg = CompositeDialog(parent, sources, comp, hidden_by_source, current_page, manual=manual,
+                                  sugerencia=sugerencia)
+        dlg._vivo = vivo is not None
+    aceptado = False
     try:
         if dlg.exec() != QtWidgets.QDialog.Accepted:   # showEvent lo maximiza al aparecer
             return None
+        aceptado = True
         return dlg.result_tuple()
     finally:
-        dlg.close_docs()
+        if aceptado and vivo is not None:
+            vivo["comp"] = dlg
+        elif vivo is not None:
+            dlg.soltar_vivo()
+            dlg.deleteLater()
+        else:
+            dlg.close_docs()

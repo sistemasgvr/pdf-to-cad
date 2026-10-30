@@ -6,8 +6,9 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 
 class OllamaFalso:
-    def __init__(self, responder, modelos=("qwen3-vl:8b",), demora=0.0):
+    def __init__(self, responder, modelos=("qwen3-vl:8b",), demora=0.0, capacidades=("completion",)):
         self.responder = responder
+        self.capacidades = list(capacidades)
         self.modelos = list(modelos)
         self.pedidos = []
         falso = self
@@ -33,6 +34,9 @@ class OllamaFalso:
             def do_POST(self):
                 n = int(self.headers.get("Content-Length") or 0)
                 cuerpo = json.loads(self.rfile.read(n) or b"{}")
+                if self.path == "/api/show":                    # capacidades del modelo (visión)
+                    self._json({"capabilities": falso.capacidades})
+                    return
                 falso.pedidos.append(cuerpo)
                 if cuerpo.get("model") not in falso.modelos:
                     self._json({"error": f"model '{cuerpo.get('model')}' not found"}, 404)

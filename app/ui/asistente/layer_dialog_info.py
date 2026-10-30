@@ -152,8 +152,16 @@ class LayerInfoMixin:
         self.info.visible_layers = self._visible_layers      # la leyenda del estándar: solo lo que se ve
         self.info.set_layers(self._layers, self._letters_off)
         self._legend_cache = legend_cache if legend_cache is not None else {}
-        sources = [s for s in (legend_sources or []) if s.get("data") or s.get("path")]
+        self._legend_sources = [s for s in (legend_sources or []) if s.get("data") or s.get("path")]
+        self._legend_pending = False
+        self._cargar_leyenda()
+        self._auto_collapse_info()
+        self._init_auto_sizes()
+
+    def _cargar_leyenda(self):
+        sources = self._legend_sources
         key = _sources_key(sources)
+        self._legend_pending = False
         if not sources:
             self.info.set_legend([])
         elif key in self._legend_cache:
@@ -166,9 +174,16 @@ class LayerInfoMixin:
             worker.done.connect(self._on_legend)
             worker.finished.connect(worker.deleteLater)
             self._legend_worker = worker
+            self._legend_pending = True
             worker.start()
-        self._auto_collapse_info()
-        self._init_auto_sizes()
+
+    def _reanudar_leyenda(self):
+        """El diálogo se vuelve a mostrar (`ventana_pasos`): si la leyenda no llegó antes de
+        continuar, se toma de la caché (el hilo la siguió leyendo) o se vuelve a pedir."""
+        if self._legend_pending and self._legend_worker is None:
+            self._cargar_leyenda()
+            if not self._legend_pending:
+                self._auto_collapse_info()
 
     # ── decisiones y datos ──
     def letters_off(self) -> list:
@@ -189,6 +204,7 @@ class LayerInfoMixin:
 
     def _on_legend(self, results):
         self._legend_worker = None
+        self._legend_pending = False
         self.info.set_legend(results)
         self._auto_collapse_info()
 

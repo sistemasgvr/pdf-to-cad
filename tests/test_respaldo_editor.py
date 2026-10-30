@@ -18,6 +18,9 @@ from PySide6 import QtCore, QtWidgets  # noqa: E402
 
 from hoja import composite as C  # noqa: E402
 from reconocimiento import recognition as rec  # noqa: E402
+from ui.ventana import app_window as _aw  # noqa: E402
+
+_ASISTENTE = _aw.Main._run_recognition_wizard         # el de verdad (el fixture lo cambia)
 
 LINEA = {"layer": "DRENAJE", "pts": [(10, 10), (200, 10), (200, 120)], "name": "", "diam": 12.0}
 HOJA = [0.0, 0.0, 1.0, 1.0]
@@ -239,3 +242,57 @@ def test_escaneo_con_otra_hoja_la_carga(win, app, tmp_path, monkeypatch):
     app.processEvents()
     assert win.pipes == [] and win.composite.pieces[0].clip == AREA
     assert doc_antes.is_closed and win._respaldo is None
+
+
+def test_abrir_pdf_y_cancelar_el_compositor_no_carga_nada(win, app, tmp_path, monkeypatch):
+    """Pedido del usuario 2026-10-28: al abrir un PDF, cancelar (o cerrar) «Componer hoja» no carga
+    nada en el editor: no se importó nada. Con un editor vacío queda vacío; con otro PDF abierto,
+    ése sigue (mismo documento abierto, misma hoja, mismas líneas)."""
+    from ui.ventana import app_window
+    import detect
+    monkeypatch.setattr(app_window.Main, "_run_recognition_wizard", _ASISTENTE)
+    monkeypatch.setattr(detect, "classify_page", lambda page: ("vector", {"n_paths": 500}))
+    monkeypatch.setattr(app_window.composite_dialog, "compose_sheet", lambda *a, **k: None)
+    win._open_pdf_path(_pdf(tmp_path / "nuevo.pdf"))
+    app.processEvents()
+    assert win.canvas.pixmap_item is None and win.doc is None and win.pdf_path is None
+    assert not getattr(win, "src_pdfs", None) and "nuevo" not in win.windowTitle()
+    # con un PDF ya en el editor (y una línea): sigue tal cual
+    monkeypatch.setattr(app_window.Main, "_run_recognition_wizard", lambda self: None)
+    _editor_con_lineas(win, tmp_path, HOJA)
+    antes = _foto(win)
+    ruta = win.pdf_path
+    monkeypatch.setattr(app_window.Main, "_run_recognition_wizard", lambda self: False)
+    win._open_pdf_path(_pdf(tmp_path / "otro.pdf"))
+    app.processEvents()
+    assert _foto(win) == antes and win.pdf_path == ruta and not win.doc.is_closed
+
+
+def test_volver_atras_sin_cambios_no_rearma_ni_recarga(win, app, tmp_path, monkeypatch):
+    """Pedido del usuario 2026-10-28: Componer → Capas → volver al compositor → seguir, sin cambiar
+    nada, no vuelve a armar la hoja compuesta ni a cargarla; lo mismo vista previa → Capas → seguir.
+    Si la hoja compuesta cambia, sí se rearma."""
+    from ui.ventana import app_window
+    from ui.asistente.layer_dialog import LAYERS_BACK
+    rd = app_window.recognition_dialog
+    win._open_pdf_path(_pdf(tmp_path / "plano.pdf"))
+    comp = lambda: C.Composite([C.Piece(0, 0, AREA), C.Piece(0, 1, AREA, x=400.0)])  # noqa: E731
+    _stubs(monkeypatch, win, [comp(), comp(), comp()], [LAYERS_BACK, "ok", "ok"],
+           [rd.PREVIEW_SHEET_LAYERS, rd.PREVIEW_CANCEL])
+    armadas, cargadas = [], []
+    aplicar, cargar = win._apply_composite, win._load_sheet_busy
+    monkeypatch.setattr(win, "_apply_composite", lambda: armadas.append(1) or aplicar())
+    monkeypatch.setattr(win, "_load_sheet_busy", lambda i: cargadas.append(i) or cargar(i))
+    win._empezar_asistente()
+    assert win._wizard_sheet_flow(0)          # compositor → Capas (volver) → compositor → Capas → reconocer
+    app.processEvents()                        # vista previa → «Capas» → seguir → vista previa (cancelar)
+    for _ in range(5):
+        app.processEvents()
+    assert len(armadas) == 1 and len(cargadas) == 1
+    # otra hoja compuesta: se arma de nuevo
+    _stubs(monkeypatch, win, [_otra()], ["ok"], [rd.PREVIEW_CANCEL])
+    win._empezar_asistente()
+    win._paso_compuesta = None
+    assert win._wizard_sheet_flow(0)
+    app.processEvents()
+    assert len(armadas) == 2

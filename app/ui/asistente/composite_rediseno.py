@@ -85,6 +85,6 @@ def _flotantes(dlg, tab_source):
     tarjeta = lay.itemAt(i - 1).widget() if i > 0 else None
     if tarjeta is not None and tarjeta.metaObject().className() == "QFrame":
         lay.removeWidget(tarjeta)
-        tarjeta.setFixedWidth(340)
+        tarjeta.setFixedWidth(360)
         dlg.tarjeta_area = tarjeta
         flotar(dlg.crop, tarjeta, "arriba_derecha")

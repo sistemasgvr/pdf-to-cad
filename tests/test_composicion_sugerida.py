@@ -291,6 +291,55 @@ def test_pdf_hermano_por_nombre_y_celdas(tmp_path):
     assert h.celdas == [(16, 10), (16, 11)]
 
 
+def _sin_memoria(T):
+    for m in (T._UNIONES, T._ARMADAS, T._HERMANOS):
+        m.clear()
+
+
+def test_memoria_al_agregar_y_quitar_pdf_da_lo_mismo_sin_repetir(monkeypatch):
+    """Pedido del usuario 2026-10-28: lo ya analizado de cada PDF queda en memoria. Agregar los mapas
+    norte y sur a un plano CAD no vuelve a armar el juego del CAD, y quitar el CAD no repite ninguna
+    unión ni rearma el juego de los mapas; el resultado es el MISMO que calcularlo de cero."""
+    from hoja import composicion_trabajo as T
+    mundo = _mundo_mapa()
+    f = lambda n, d: {"name": n, "data": d.tobytes()}  # noqa: E731
+    cad = f("cad.pdf", _plano_cad())
+    norte = f("norte.pdf", _mapas([17], [10, 11], 1.0, mundo))
+    sur = f("sur.pdf", _mapas([16], [10, 11], 0.5, mundo))
+
+    def comps(res):
+        return sorted(json_dumps(g.composite.to_dict()) for g in res.analisis.grupos)
+
+    def json_dumps(d):
+        import json
+        return json.dumps(d, sort_keys=True)
+    # de cero (sin memoria) para comparar
+    refs = {}
+    for nombre, fuentes in (("cad", [cad]), ("todo", [cad, norte, sur]), ("mapas", [norte, sur])):
+        _sin_memoria(T)
+        refs[nombre] = comps(T.calcular(fuentes, fichas_cache={}))
+    _sin_memoria(T)
+    cuenta = {"armar": 0, "union": 0}
+    armar, cad_f, mapa_f = G.armar, E.costura_cad, E.encaje_mapa
+
+    def contar(clave, fn):
+        def envuelta(*a, **k):
+            cuenta[clave] += 1
+            return fn(*a, **k)
+        return envuelta
+    monkeypatch.setattr(G, "armar", contar("armar", armar))
+    monkeypatch.setattr(E, "costura_cad", contar("union", cad_f))
+    monkeypatch.setattr(E, "encaje_mapa", contar("union", mapa_f))
+    fichas = {}
+    assert comps(T.calcular([cad], fichas_cache=fichas)) == refs["cad"]
+    cuenta.update(armar=0, union=0)
+    assert comps(T.calcular([cad, norte, sur], fichas_cache=fichas)) == refs["todo"]
+    assert cuenta["armar"] == 1                     # solo el juego de los mapas; el del CAD, de memoria
+    cuenta.update(armar=0, union=0)
+    assert comps(T.calcular([norte, sur], fichas_cache=fichas)) == refs["mapas"]
+    assert cuenta == {"armar": 0, "union": 0}       # quitar el CAD no rehace nada
+
+
 # ─────────────────────────── en el compositor ───────────────────────────
 @pytest.fixture(scope="module")
 def app():
@@ -346,10 +395,76 @@ def test_tarjeta_pregunta_la_serie_si_la_hoja_abierta_no_esta_en_ninguna(app, mo
         assert not dlg.cmb_sug.isHidden() and not dlg.btn_sug_usar.isEnabled()
         dlg.cmb_sug.setCurrentIndex(2)
         assert dlg.btn_sug_usar.isEnabled()
-        # elegir en «Origen» una hoja de la serie A → esa serie, sin preguntar
+        # elegir en «Origen» una hoja de la serie A → esa serie queda elegida; la lista sigue a la
+        # vista para elegir el otro juego (2026-10-28: los dos juegos se pueden elegir siempre)
         dlg.lst_pages.setCurrentRow(5)
         g, preguntar = dlg._sug_grupo()
-        assert not preguntar and g.series == ["UR-#A"] and dlg.cmb_sug.isHidden()
+        assert g.series == ["UR-#A"] and not dlg.cmb_sug.isHidden() and dlg.btn_sug_usar.isEnabled()
+        assert "1 de 2" in dlg.lbl_sug.text() or "2 de 2" in dlg.lbl_sug.text()
+        otro = next(i for i in range(1, dlg.cmb_sug.count()) if i != dlg.cmb_sug.currentIndex())
+        dlg.cmb_sug.setCurrentIndex(otro)                  # el otro juego, con la hoja A a la vista
+        g2, _ = dlg._sug_grupo()
+        assert g2.series == ["UR-#"] and dlg.btn_sug_usar.isEnabled()
+        dlg.lst_pages.setCurrentRow(0)                     # la portada (de ninguno): la elección sigue
+        assert dlg._sug_grupo()[0] is g2
+    finally:
+        dlg.close_docs()
+
+
+def test_agregar_pdf_a_mano_vuelve_a_sugerir_con_los_dos(app, monkeypatch, tmp_path):
+    """Una utilidad partida en dos PDF: «Agregar PDF…» de la lista de hojas vuelve a analizar con
+    los dos (antes solo lo hacía el «Agregar PDF» de la tarjeta), aunque la tarjeta estuviera oculta."""
+    monkeypatch.setenv("PDFCAD_SUGERENCIA", "1")
+    from ui.asistente import composite_dialog
+    mundo = _mundo_mapa()
+    norte, sur = tmp_path / "QS Water_Barrio_North.pdf", tmp_path / "QS Water_Barrio_South.pdf"
+    _mapas([17], [10, 11], 1.0, mundo).save(str(norte))
+    _mapas([16], [10, 11], 0.5, mundo).save(str(sur))
+    dlg = composite_dialog.CompositeDialog(
+        None, [{"name": norte.name, "data": norte.read_bytes(), "path": str(norte)}], None, {}, 0)
+    try:
+        res = _esperar(dlg)
+        assert res is not None and res.analisis is not None
+        clave_antes = dlg._sug_clave
+        dlg._sug_ocultar()
+        dlg._open_extra_pdf(str(sur))
+        assert dlg._sug_clave != clave_antes and not dlg.sug_card.isHidden()
+        res = _esperar(dlg)
+        assert res is not None and res.analisis is not None
+        assert any({p.source for p in g.composite.pieces} == {0, 1}
+                   for g in res.analisis.grupos if g.composite is not None)
+        assert not dlg.btn_sug_usar.isHidden()
+    finally:
+        dlg.close_docs()
+
+
+def test_quitar_otro_pdf_deja_la_sugerencia_usada(app, monkeypatch):
+    """Un plano CAD + los mapas norte y sur: con el juego de los mapas en la hoja compuesta, quitar
+    el CAD no la toca ni la vuelve a ofrecer («Usar»): sigue usada, con sus PDF ya renumerados."""
+    monkeypatch.setenv("PDFCAD_SUGERENCIA", "1")
+    from PySide6 import QtWidgets
+    from ui.asistente import composite_dialog
+    mundo = _mundo_mapa()
+    fuentes = [{"name": "cad.pdf", "data": _plano_cad().tobytes()},
+               {"name": "norte.pdf", "data": _mapas([17], [10, 11], 1.0, mundo).tobytes()},
+               {"name": "sur.pdf", "data": _mapas([16], [10, 11], 0.5, mundo).tobytes()}]
+    dlg = composite_dialog.CompositeDialog(None, fuentes, None, {}, 0)
+    try:
+        res = _esperar(dlg)
+        assert res is not None and len(res.analisis.grupos) == 2
+        k = next(i for i in range(1, dlg.cmb_sug.count())
+                 if res.analisis.grupos[dlg.cmb_sug.itemData(i)].tipo == "cuadricula")
+        dlg.cmb_sug.setCurrentIndex(k)
+        dlg._sug_usar()
+        assert {p.source for p in dlg.comp.pieces} == {1, 2}
+        monkeypatch.setattr(QtWidgets.QMessageBox, "question", lambda *a, **kw: QtWidgets.QMessageBox.Yes)
+        dlg.cmb_source.setCurrentIndex(0)
+        dlg._quitar_pdf()
+        assert [s["name"] for s in dlg.sources] == ["norte.pdf", "sur.pdf"]
+        assert {p.source for p in dlg.comp.pieces} == {0, 1}
+        res = _esperar(dlg)
+        assert res is not None and dlg._sug_usada is not None
+        assert dlg.btn_sug_usar.isHidden() and "✔" in dlg.lbl_sug.text()
     finally:
         dlg.close_docs()
 

@@ -35,6 +35,8 @@ def de_grosor(g) -> dict:
         out["textos"] = list(g["textos"])[:MAX_TEXTOS]
     if g.get("candidatos"):
         out["candidatos"] = [float(v) for v in g["candidatos"]]
+    if "cerca" in g:                             # rótulos junto a la línea: lo que mira la IA (`ia/diametro_ia`)
+        out["cerca"] = [dict(e) for e in g["cerca"]]
     if g.get("perfil_in"):                       # lo que dicen los perfiles de los laterales que cruza
         out["perfil_in"] = [float(v) for v in g["perfil_in"]]
         out["perfil_textos"] = list(g.get("perfil_textos") or [])[:MAX_TEXTOS]
@@ -79,6 +81,25 @@ def mensaje(dp: dict, d: float) -> str:
     if textos:
         msg += " " + t("Rótulos: {textos}.").format(textos=", ".join(f"«{x}»" for x in textos[:MAX_TEXTOS]))
     return msg
+
+
+_CONDICIONES = ("si_diam", "si_amp", "si_largo", "si_material")
+
+
+def permitido(cat, p, d) -> bool:
+    """¿La normativa permite el diámetro `d` en la utilidad `p`? (filtro de la sugerencia de la IA,
+    `ia/diametro_ia`). La MISMA revisión que el plano (`normas_validar`) sobre una copia con ese diámetro, pero
+    SOLO con las reglas de diámetro SIN condiciones (qué tamaños existen para ese tipo): una regla de diseño
+    («mínimo 24" si mide ≥ 100 ft») no puede descartar lo que el plano dice que está construido (2026-10-29)."""
+    reglas = [r for r in (cat or {}).get("reglas") or []
+              if r.get("revisar") == "diametro" and not any(r.get(k) for k in _CONDICIONES)]
+    if not reglas:
+        return True
+    from nucleo import normas_validar
+    copia = dict(p, diam=float(d), diam_elegido=True, pipe_size="")
+    copia.pop("diam_plano", None)
+    sub = dict(cat, reglas=reglas)
+    return not any(a.clase == "diametro" for a in normas_validar.validar(sub, [copia], [], 1.0))
 
 
 def avisos(pipes) -> list:

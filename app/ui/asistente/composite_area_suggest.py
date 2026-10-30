@@ -58,21 +58,35 @@ class AreaSugeridaMixin:
         box.setStyleSheet(
             f"QFrame#areaSug {{ background:{t.surface_alt}; border:1px solid {COLOR}; "
             f"border-left:4px solid {COLOR}; border-radius:4px; }}"
-            f"QFrame#areaSug QLabel {{ background:transparent; border:none; }}")
-        row = QtWidgets.QHBoxLayout(box)
-        row.setContentsMargins(10, 4, 6, 4); row.setSpacing(8)
+            f"QFrame#areaSug QLabel {{ background:transparent; border:none; }}"
+            f"QWidget#areaAcciones {{ background:transparent; }}")
+        # texto a TODO el ancho y los botones DEBAJO (en la tarjeta flotante de 340 px el texto
+        # quedaba en una tira angosta y el botón se montaba encima)
+        lay = QtWidgets.QVBoxLayout(box)
+        lay.setContentsMargins(12, 10, 8, 12); lay.setSpacing(8)
+        row = QtWidgets.QHBoxLayout(); row.setSpacing(8)
         ic = QtWidgets.QLabel()
         ic.setPixmap(_icon("mdi:auto-fix", color=COLOR).pixmap(QtCore.QSize(20, 20)))
-        row.addWidget(ic, 0, QtCore.Qt.AlignVCenter)
+        row.addWidget(ic, 0, QtCore.Qt.AlignTop)
         self.lbl_area_sug = QtWidgets.QLabel()
         self.lbl_area_sug.setWordWrap(True)
         self.lbl_area_sug.setTextFormat(QtCore.Qt.RichText)
         row.addWidget(self.lbl_area_sug, 1)
+        btn_x = QtWidgets.QToolButton()
+        btn_x.setIcon(_icon("mdi:close")); btn_x.setAutoRaise(True)
+        btn_x.setToolTip(_tr("No sugerir áreas"))
+        btn_x.clicked.connect(self._area_ocultar)
+        row.addWidget(btn_x, 0, QtCore.Qt.AlignTop)
+        lay.addLayout(row)
         self.bar_area_sug = QtWidgets.QProgressBar()
         self.bar_area_sug.setTextVisible(False)
         self.bar_area_sug.setRange(0, 0)
-        self.bar_area_sug.setFixedSize(120, 6)
-        row.addWidget(self.bar_area_sug, 0, QtCore.Qt.AlignVCenter)
+        self.bar_area_sug.setFixedHeight(6)
+        lay.addWidget(self.bar_area_sug)
+        self.area_acciones = QtWidgets.QWidget()
+        self.area_acciones.setObjectName("areaAcciones")
+        row = QtWidgets.QHBoxLayout(self.area_acciones)
+        row.setContentsMargins(0, 0, 0, 0); row.setSpacing(8)
         self.btn_area_usar = QtWidgets.QPushButton(_icon("mdi:selection-search", color=t.soft_text),
                                                    _tr("Usar área sugerida"))
         self.btn_area_usar.setProperty("soft", True)
@@ -80,18 +94,14 @@ class AreaSugeridaMixin:
         self.btn_area_usar.setToolTip(_tr("Marca el área sugerida en la hoja; ajusta sus lados si hace "
                                           "falta y pulsa «Tomar área»"))
         self.btn_area_usar.clicked.connect(self._area_usar)
-        row.addWidget(self.btn_area_usar)
+        row.addWidget(self.btn_area_usar, 1)
         self.btn_area_otra = QtWidgets.QPushButton(_icon("mdi:swap-horizontal"), _tr("Otra vista"))
         self.btn_area_otra.setProperty("secondary", True)
         self.btn_area_otra.setAutoDefault(False)
         self.btn_area_otra.setToolTip(_tr("La hoja tiene otra vista con líneas de utilidades: sugerir esa"))
         self.btn_area_otra.clicked.connect(self._area_otra)
-        row.addWidget(self.btn_area_otra)
-        btn_x = QtWidgets.QToolButton()
-        btn_x.setIcon(_icon("mdi:close")); btn_x.setAutoRaise(True)
-        btn_x.setToolTip(_tr("No sugerir áreas"))
-        btn_x.clicked.connect(self._area_ocultar)
-        row.addWidget(btn_x, 0, QtCore.Qt.AlignTop)
+        row.addWidget(self.btn_area_otra, 1)
+        lay.addWidget(self.area_acciones)
         box.hide()
         self.area_box = box
         pen = QtGui.QPen(QtGui.QColor(COLOR), 2, QtCore.Qt.DashLine)
@@ -128,6 +138,7 @@ class AreaSugeridaMixin:
         self.bar_area_sug.show()
         for w in (self.btn_area_usar, self.btn_area_otra):
             w.hide()
+        self.area_acciones.hide()
         self.area_box.show()
         if self._area_tarea is not None:          # una a la vez: la última que se pidió va después
             self._area_pendiente = (self._cur_source, self._cur_page)
@@ -242,6 +253,7 @@ class AreaSugeridaMixin:
             self._area_item.show()
         self.btn_area_usar.setVisible(not marcada)
         self.btn_area_otra.setVisible(len(self._area_lista) > 1)
+        self.area_acciones.setVisible(not marcada or len(self._area_lista) > 1)
         if len(self._area_lista) > 1:
             self.btn_area_otra.setText(_tr("Otra vista ({i}/{n})").format(
                 i=self._area_idx + 1, n=len(self._area_lista)))

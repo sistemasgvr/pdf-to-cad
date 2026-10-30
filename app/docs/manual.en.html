@@ -456,6 +456,9 @@ editor</span> leaves it as the background to draw by hand.</p>
 </ul>
 
 <h2>3. Recognition preview</h2>
+<p>In water networks, perpendicular meter branches connect with tees even when they
+meet the edge of a gap in the line pattern: the main stays continuous.
+Recognize a previously processed sheet again to apply this correction.</p>
 <ul>
 <li>Shows the lines found for each utility, each with its color, and their vaults or manholes.
     The screen has three columns: <b>To check</b> on the left, the sheet in the middle and the
@@ -1132,6 +1135,35 @@ models</b> and <b>Test</b>. With <b>No AI (templates)</b> everything works as be
 export to Civil 3D?») and press <span class="key">&nbsp;Enter&nbsp;</span> or <b>Ask the AI</b>. The chapters that
 cover it appear instantly (one click opens them) and the AI answers with the steps, taken only from this manual. The
 same question again comes back instantly, saved. Without an AI configured, the chapters are the answer.</p>
+<h2>Diameter according to the AI</h2>
+<p>In a vector PDF with layers, when the plan does not state a pipe's diameter with certainty (<b>Diameter from the
+plan</b> warning), selecting it opens the <b>Diameter according to the AI</b> card and starts its review.
+It checks nearby labels first; when there is no reliable reading, it proposes a diameter from your active
+standards, the utility, its type and the available conditions. It also analyzes a crop of the route highlighted
+in magenta, length, turns, contacts with lines of the same utility, confirmed sizes, nearby text and profile
+references. Geometric contact does not confirm a hydraulic connection.</p>
+<ul>
+<li>The card uses compact blocks: <b>Proposal</b>, <b>Why</b>, <b>Criterion</b>, <b>Source</b> and <b>Reference</b>.
+    Assumed types are marked <b>To confirm</b>. AI interpretations are identified as such; a proposal is not a
+    reading of the actual diameter and does not replace hydraulic sizing.</li>
+<li><b>View analysis</b> opens the image used, the data sent and the decision details. It explicitly indicates
+    when no image was used. Full sources and text remain available in these details.</li>
+<li>Complete source PDFs are retained when you crop the plan for recognition or composition. The AI consults the
+    original sheets related to the selected line, including upper profiles, side notes, legends and title blocks.
+    It receives selected text and supporting images identified by document, page and region. <b>Complete source
+    text</b> shows every text block from the consulted sheets. The transmitted selection is bounded to fit the
+    model; the rest remains available. A diameter elsewhere on a sheet is not automatically assigned to this line.
+    Original PDFs embedded in the project remain available after reopening it.</li>
+<li>Progress stages show prepared context, crop and route analysis, and proposal checks. The application
+    coordinates these operations; a general-purpose agent is not required.</li>
+<li><b>Approve 18"</b> applies the proposal. <b>Other diameter…</b> lets you enter your preferred diameter.
+    Both actions support <span class="key">&nbsp;Ctrl+Z&nbsp;</span>; canceling changes nothing.</li>
+<li>Only the selected warning is reviewed; recognition and import do not wait for the AI. Answers are saved.
+    <b>Ask the AI</b> retries and <b>Stop</b> cancels the review.</li>
+<li>If a rule requires missing data or no diameter rule applies, complete the type and data or enter a diameter
+    manually.</li>
+<li>If the sheet was recognized with an earlier version, the card asks you to recognize it again.</li>
+</ul>
 <h2>Ask the project</h2>
 <p><b>Assistant → Ask the project…</b> (<span class="key">&nbsp;Ctrl+Shift+I&nbsp;</span>, or the chat button on the top
 bar) opens a chat. Ask, for example, «how many conflicts are there and where are they?», «what happens at C-12?»
