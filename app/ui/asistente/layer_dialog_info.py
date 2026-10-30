@@ -259,7 +259,9 @@ class LayerInfoMixin:
         if self._drawings is None:
             pdf_layers.set_hidden(self._doc, ())
             try:
-                self._drawings = leyenda_trazos.trazos_visibles(self._page, le.capas_de_utilidad(self._layers))
+                names = {L["name"] for L in self._layers}
+                quiere = le.capas_de_utilidad(self._layers)
+                self._drawings = leyenda_trazos.trazos_visibles(self._page, lambda n: n in names or quiere(n))
             finally:
                 pdf_layers.set_hidden(self._doc, self.hidden_names())
         return self._drawings
@@ -272,7 +274,48 @@ class LayerInfoMixin:
         if self._drawings is None and previa is not None and previa.hoja == self._page_index:
             quiere = le.capas_de_utilidad(self._layers)
             return {n for n in previa.visibles if quiere(n)}
-        return {d.get("layer") or "" for d, _shown in self._all_drawings()}
+        quiere = le.capas_de_utilidad(self._layers)
+        return {d.get("layer") or "" for d, _shown in self._all_drawings() if quiere(d.get("layer") or "")}
+
+    def _pick_drawings(self):
+        """Todo vector visible, incluidos perfiles y trazos sin capa en PDF mixtos.
+
+        Esta lectura es para inspección: no aplica los descartes del reconocimiento.
+        Los trazos sin capa se identifican por estilo, sin inventar una capa de origen.
+        """
+        from hoja import pdf_styles
+        key = (id(self._doc), self._page_index)
+        cached = getattr(self, "_pick_cache", None)
+        if cached is None or cached[0] != key:
+            pdf_layers.set_hidden(self._doc, ())
+            try:
+                paths = leyenda_trazos.trazos_visibles(self._page, para_reconocimiento=False)
+                out = []
+                for original, shown in paths:
+                    name = original.get("layer") or pdf_styles.style_name(original)
+                    if not original.get("layer"):
+                        original = dict(original, layer=name)
+                        shown = dict(shown, layer=name)
+                    out.append((original, shown))
+                self._pick_cache = (key, out)
+            finally:
+                pdf_layers.set_hidden(self._doc, self.hidden_names())
+        return self._pick_cache[1]
+
+    def _mostrar_capa_identificada(self, name, paths):
+        """Hacer localizable una capa/estilo que el PDF no incluyó en su lista OCG."""
+        if name in self._items_by_name:
+            return
+        from hoja import pdf_styles
+        if name.startswith(pdf_styles.PREFIX):
+            row = next(r for r in pdf_styles.layer_rows([d for d, _s in paths]) if r["name"] == name)
+        else:
+            row = dict(le.capa_sin_lista(name), utility=pdf_layers.utility_of(name), number=None)
+        self._layers_raw.append(row)
+        self._layers = self._effective_layers()
+        self._fill_list()
+        self._refresh_recog_checks()
+        self.info.set_layers(self._layers, self._letters_off)
 
     def _layer_of(self, eff: dict, name: str):
         """La capa (con la decisión «Usar») o, si no está en la lista del PDF, una por nombre."""
@@ -311,7 +354,7 @@ class LayerInfoMixin:
         if not spec or self._pix_item is None:
             self.info.set_focus_status("")
             return
-        if self._drawings is None:
+        if self._drawings is None and not spec.get("identificar"):
             with busy(self.view, _tr("Leyendo las líneas de la hoja…")):
                 self._all_drawings()
         strong, soft, what = self._union_sets(spec)
@@ -391,15 +434,20 @@ class LayerInfoMixin:
             exact = [n for n in names if any((by_name[n].get("letter_raw") or {}).get(c) == raw for c in codes)]
             names = exact or names
         want = {letters_mod.code_utility(c) for c in codes} - {None}
+        if spec.get("path_utility"):
+            want = {spec["path_utility"]}
         mine = set()
-        for d, shown in self._all_drawings():
+        dibujos = self._pick_drawings() if spec.get("identificar") else self._all_drawings()
+        for d, shown in dibujos:
             L = by_name.get(d.get("layer") or "")
             if L is None or L["name"] not in names:
                 continue
             paths = L.get("letter_paths") or {}
             if paths:
                 util = paths.get(letters_mod.path_key(d))
-                if util is None or (want and util not in want):
+                if util is None and spec.get("identificar") and not want:
+                    util = L.get("utility") or "OTRAS"
+                elif util is None or (want and util not in want):
                     continue
             else:
                 util = (next(iter(want)) if want else
@@ -411,7 +459,7 @@ class LayerInfoMixin:
         # tarjeta: el resto de las líneas de su(s) utilidad(es), las que se reconocerán
         eff = {L["name"]: L for L in self._layers}
         hidden = set(self.hidden_names())
-        for d, shown in self._all_drawings():
+        for d, shown in dibujos:
             L = self._layer_of(eff, d.get("layer") or "")
             if id(d) in mine or L["name"] in hidden:
                 continue
@@ -423,6 +471,8 @@ class LayerInfoMixin:
         shorts = ", ".join(pdf_layers.short_name(n) for n in names)
         what = (_tr("{capa} con halo; en línea fina, el resto de {u}").format(capa=shorts, u=utils)
                 if soft else shorts)
+        if spec.get("path_utility"):
+            what = shorts + " · " + _tr(_utility_label(spec["path_utility"]))
         return strong, soft, what
 
     def _utility_sets(self, spec):

@@ -43,7 +43,7 @@ def _recortar(path: dict, polys: list, rects: Optional[list] = None) -> Optional
     return geom.clip_path(path, polys)
 
 
-def trazos_visibles(page, capas: Optional[Callable[[str], bool]] = None) -> List[Tuple[dict, dict]]:
+def trazos_visibles(page, capas: Optional[Callable[[str], bool]] = None, *, para_reconocimiento=True) -> List[Tuple[dict, dict]]:
     """(trazo de `get_drawings`, lo que se VE de él) de cada trazo de la hoja, como los
     toma `recognition.gather_paths`: recortado por los clips del PDF (marco de la vista,
     XCLIP de un xref, el BBox de cada pieza de la hoja compuesta), sin las astillas del
@@ -51,7 +51,8 @@ def trazos_visibles(page, capas: Optional[Callable[[str], bool]] = None) -> List
     aquí en la MISMA pasada). El original sirve para decidir de qué utilidad es
     (`letter_paths` se leyó sobre él); el recortado, para dibujar. `capas(nombre)`: solo
     esas (recortar toda la hoja tarda 2–4 s; así, lo que tarda leer sus trazos, 0.5–1.3 s).
-    Con todas las capas encendidas."""
+    Con todas las capas encendidas. `para_reconocimiento=False` conserva también
+    perfiles y fragmentos cortos visibles para poder inspeccionar cualquier vector."""
     avance.avisar(_tr("Recortando lo que se ve de cada capa…"))
     page_rect = page.rect
     clip_stack: Dict[int, list] = {}
@@ -89,8 +90,8 @@ def trazos_visibles(page, capas: Optional[Callable[[str], bool]] = None) -> List
             bb = geom._path_bbox(shown)
             if bb is not None:
                 prof.append(bb)
-        if not mine or (shown.get("clipped") and recognition._path_length(shown) < recognition.CLIP_SLIVER_PT):
+        if not mine or (para_reconocimiento and shown.get("clipped") and recognition._path_length(shown) < recognition.CLIP_SLIVER_PT):
             continue
         cand.append((path, shown))
-    regions = recognition._merge_close_boxes(prof, recognition.PROFILE_REGION_PAD_PT) if prof else []
+    regions = recognition._merge_close_boxes(prof, recognition.PROFILE_REGION_PAD_PT) if prof and para_reconocimiento else []
     return [(p, s) for p, s in cand if not (regions and recognition._region_hit(geom._path_bbox(s), regions))]

@@ -36,12 +36,22 @@ class StylePicker(QtCore.QObject):
         dlg = self.owner
         if dlg._pix_item is None or getattr(dlg, "_dibujando", False):
             return
-        names = {L['name'] for L in dlg._layers if L.get('source') == 'style'}
-        if not names:
-            return
+        layers = {L['name']: L for L in dlg._layers}
+        hidden = set(dlg.hidden_names())
+        # Los estilos excluidos del reconocimiento siguen dibujados en el PDF;
+        # las capas OCG apagadas sí desaparecen y no deben interceptar clics.
         dlg._view_auto = False
         view = dlg.view
         scene_pos = view.mapToScene(pos)
+        camera = view.transform()
+        center = view.mapToScene(view.viewport().rect().center())
+        if getattr(dlg, '_pick_cache', None) is None:
+            with busy(view, _tr("Leyendo las líneas de la hoja…")):
+                dlg._pick_drawings()
+            # El indicador procesa eventos: un encuadre diferido de Qt no debe
+            # cambiar la cámara con la que se pulsó la línea.
+            view.setTransform(camera)
+            view.centerOn(center)
         if not dlg._pix_item.sceneBoundingRect().contains(scene_pos):
             return
         # Misma lectura recortada que el resaltado: respeta clips, giros y
@@ -51,17 +61,15 @@ class StylePicker(QtCore.QObject):
         pdf_pos = fitz.Point(scene_pos.x() / z, scene_pos.y() / z) * ~matrix
         scale = max(1e-9, abs(view.transform().m11()))
         radius = self.TOLERANCE / (z * scale)
-        screen_pos = QtCore.QPointF(pos)
-        best, name = self.TOLERANCE + 1, None
+        screen_pos = QtCore.QPointF(view.mapFromScene(scene_pos))
+        best, name, picked = self.TOLERANCE + 1, None, None
         stroker = QtGui.QPainterPathStroker()
         stroker.setCapStyle(QtCore.Qt.RoundCap)
         stroker.setJoinStyle(QtCore.Qt.RoundJoin)
-        if dlg._drawings is None:
-            with busy(view, _tr("Leyendo las líneas de la hoja…")):
-                dlg._all_drawings()
-        for original, shown in dlg._all_drawings():
+        drawings = dlg._pick_drawings()
+        for original, shown in drawings:
             candidate = original.get('layer')
-            if candidate not in names:
+            if candidate in hidden and layers.get(candidate, {}).get('source') != 'style':
                 continue
             rect = original.get('rect')
             if rect is not None and not (rect.x0 - radius <= pdf_pos.x <= rect.x1 + radius
@@ -82,16 +90,23 @@ class StylePicker(QtCore.QObject):
                 else:
                     low = mid
             if high < best:
-                best, name = high, candidate
+                best, name, picked = high, candidate, original
         if name is None:
             return
+        dlg._mostrar_capa_identificada(name, drawings)
+        layers = {L['name']: L for L in dlg._layers}
         items = dlg._items_by_name.get(name, ())
         if not items:
             return
+        # Una capa compartida por varias redes se identifica por la línea
+        # pulsada, igual que en la leyenda por letras (G-XREF, por ejemplo).
+        from reconocimiento import recognition_letters
+        from ui.asistente.layer_dialog import _ROLE_UTILITY
+        utility = (layers[name].get('letter_paths') or {}).get(recognition_letters.path_key(picked))
+        item = next((it for it in items if it.data(0, _ROLE_UTILITY) == utility), items[0])
         # Un filtro previo no debe impedir encontrar la familia pulsada.
-        if items[0].isHidden():
+        if item.isHidden():
             dlg.search.clear()
-        item = items[0]
         item.parent().setExpanded(True)
         # Evitar el encuadre automático del clic en el árbol: al buscar desde
         # el plano se conserva exactamente la cámara del usuario.
@@ -100,4 +115,7 @@ class StylePicker(QtCore.QObject):
         del blocker
         dlg._assignment_selection_changed(item)
         dlg.tree.scrollToItem(item, QtWidgets.QAbstractItemView.EnsureVisible)
-        dlg._focus_lines({'layers': [name]}, fit=False)
+        spec = {'layers': [name], 'identificar': True}
+        if utility:
+            spec['path_utility'] = utility
+        dlg._focus_lines(spec, fit=False)

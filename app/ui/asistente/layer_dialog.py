@@ -193,7 +193,8 @@ class SheetLayersDialog(ScaleCalibrationMixin, LayerAssignmentsMixin, LayerInfoM
         self.btn_all.clicked.connect(lambda: self._set_all(True))
         self.btn_none.clicked.connect(lambda: self._set_all(False))
         head.addWidget(self.btn_all); head.addWidget(self.btn_none)
-        hint = QtWidgets.QLabel(_tr("Casilla = mostrar en la hoja · interruptor = reconocer · ▸ = capa por capa"))
+        hint = QtWidgets.QLabel(_tr("Pulsa una línea del PDF para identificar y resaltar su capa. "
+                                   "Casilla = mostrar · interruptor = reconocer · ▸ = capa por capa"))
         if any(L.get("source") == "style" for L in self._layers):
             hint.setText(_tr("Clic en una capa para resaltarla y asignar su utilidad y rol abajo. "
                              "También puedes pulsar una línea del PDF para seleccionar su estilo. "
@@ -366,8 +367,12 @@ class SheetLayersDialog(ScaleCalibrationMixin, LayerAssignmentsMixin, LayerInfoM
         if item is None or self._syncing:
             return
         name = item.data(0, _ROLE_NAME)
-        if name and any(L["name"] == name and L.get("source") == "style" for L in self._layers):
-            self._focus_lines({"layers": [name]})
+        if name:
+            spec = {"layers": [name], "identificar": True}
+            layer = next((L for L in self._layers if L["name"] == name), {})
+            if layer.get("letter_paths"):
+                spec["path_utility"] = item.data(0, _ROLE_UTILITY)
+            self._focus_lines(spec)
 
     def _layer_items(self):
         """Filas de capa (sin grupos), en el orden del árbol."""
