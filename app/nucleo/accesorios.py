@@ -121,6 +121,17 @@ def tronco_y_ramal(salidas):
     return (i, j), 3 - i - j
 
 
+def vertice_cruza(pts, vi, a, b):
+    """¿El vértice interior `vi` de `pts` CRUZA la recta a→b? (sus vecinos quedan a lados opuestos)."""
+    if not 0 < vi < len(pts) - 1:
+        return False
+    dx, dy = b[0] - a[0], b[1] - a[1]
+
+    def lado(p):
+        return dx * (p[1] - a[1]) - dy * (p[0] - a[0])
+    return lado(pts[vi - 1]) * lado(pts[vi + 1]) < 0
+
+
 def _proyeccion(p, a, b):
     """(t, distancia) de p sobre el segmento a→b."""
     dx, dy = b[0] - a[0], b[1] - a[1]
@@ -195,7 +206,10 @@ def accesorios(pipes, z_at, ft_per_px, rectos=None, avance=None):
             ext.append((b[0], b[1], red, i, zb, _ang(a[0] - b[0], a[1] - b[1]), k, k + 1, _pend(zb, za, b, a)))
 
     # T: la punta de una utilidad sobre el INTERIOR de un tramo de otra de la
-    # misma red y cota → ese tramo se parte ahí (aporta dos extremos).
+    # misma red y cota → ese tramo se parte ahí (aporta dos extremos). Un vértice INTERIOR que
+    # cae ahí y CRUZA la línea (sus dos tramos a lados opuestos) también la parte: con sus dos
+    # extremos de tramo son 4 salidas = cruz (pedido del usuario 2026-10-29, «gas lines-casing
+    # issue» C-41: tuberías 4 y 282 en X, el vértice de la 282 justo sobre la 4).
     # Rejilla de tramos (sin ella, 300 utilidades tardaban segundos por redibujo).
     celda = max(tol * 40.0, 1.0)
     rejilla = {}
@@ -208,9 +222,10 @@ def accesorios(pipes, z_at, ft_per_px, rectos=None, avance=None):
                     rejilla.setdefault((cx, cy), []).append((j, k))
     for i in presion:
         pts_i = pipes[i]["pts"]
-        for vi in (0, len(pts_i) - 1):
+        for vi in range(len(pts_i)):
+            interior = 0 < vi < len(pts_i) - 1
             q = pts_i[vi]
-            zi = _z(i, 0 if vi == 0 else len(pts_i) - 2, *q)
+            zi = _z(i, vi if vi < len(pts_i) - 1 else len(pts_i) - 2, *q)
             red_i, qx, qy = redes[i], q[0], q[1]
             for j, k in rejilla.get((int(math.floor(qx / celda)), int(math.floor(qy / celda))), ()):
                 if j == i or redes[j] != red_i:
@@ -231,6 +246,8 @@ def accesorios(pipes, z_at, ft_per_px, rectos=None, avance=None):
                 L = math.hypot(dx, dy)
                 if t * L <= tol or (1 - t) * L <= tol:
                     continue
+                if interior and not vertice_cruza(pts_i, vi, a, b):
+                    continue                      # vértice que solo toca la línea (no la cruza): sigue choque
                 zj = _z(j, k, *q)
                 if abs(zj - zi) > TOL_COTA_FT:
                     continue                      # cruce a otra cota: no se une

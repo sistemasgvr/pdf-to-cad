@@ -33,6 +33,7 @@ def build_model_dict(win):
         duct_banks=[d.to_dict() for d in getattr(win, "duct_banks", []) or []],
         cross_connections=list(getattr(win, "cross_connections", None) or []),
         normas_aprobados=list(getattr(win, "normas_aprobados", None) or []),
+        conflictos_registro=(win._conf_registro.a_dict() if getattr(win, "_conf_registro", None) else None),
         georef=win.georef.to_dict(),
         sheet_layout=getattr(win, "sheet_layout", None),
         sheet_rotations=getattr(win, "sheet_rotations", {}),
@@ -118,6 +119,7 @@ def parse_model(model):
         duct_banks=[DuctBank.from_dict(d) for d in model.get("duct_banks", [])],  # retrocompat: sin duct banks
         cross_connections=list(model.get("cross_connections", []) or []),  # retrocompat: sin conexiones aprobadas
         normas_aprobados=list(model.get("normas_aprobados", []) or []),    # retrocompat: sin avisos aprobados
+        conflictos_registro=model.get("conflictos_registro"),             # números fijos de los conflictos
         normativas_activas={str(k): bool(v) for k, v in (model.get("normativas_activas") or {}).items()},
         georef=georef_mod.Georef.from_dict(model.get("georef")),  # retrocompat: sin georref → escala
         work_unit="ft",

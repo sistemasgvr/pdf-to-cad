@@ -42,9 +42,22 @@ class ConflictosListaMixin:
         for e in getattr(self, "_choque_hits", []) or []:
             items.append(dict(clave="choque", x=e["x"], y=e["y"], mensaje=self._msg_choque(e),
                               pipes=[e["ia"], e["ib"]], cotas=[e.get("za"), e.get("zb")]))
-        self._conflictos = _conf.numerar(items)
+        # Números FIJOS (2026-10-29): cada conflicto conserva el suyo; uno resuelto queda «resuelto» en el registro
+        # y los demás no se renumeran.
+        if getattr(self, "_conf_registro", None) is None:
+            self._conf_registro = _conf.Registro()
+        self._conflictos = _conf.numerar_fijo(items, self._conf_registro)
         from ui.comun import conflictos_view
         if not getattr(self, "_marcas_vigentes", False):  # si no, las mismas de antes siguen en su capa
             self._poner_marcas(conflictos_view.dibujar_iter(self.canvas.scene(), self._conflictos, poner=self._marca),
                                len(self._conflictos))
         return self._conflictos
+
+    def conflictos_resueltos(self):
+        """Conflictos que ya no están en el dibujo, con su número: [(«C-n», título)]."""
+        reg = getattr(self, "_conf_registro", None)
+        if reg is None:
+            return []
+        vigentes = {c.id for c in getattr(self, "_conflictos", None) or []}
+        return [(f"C-{e['n']}", _conf.TITULOS.get(e["clave"], e["clave"])) for e in reg.resueltos()
+                if f"C-{e['n']}" not in vigentes]

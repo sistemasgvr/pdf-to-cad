@@ -3726,6 +3726,13 @@ namespace Civil3DBasico
         // Las cotas no se mueven: el tubo partido recibe TODAS sus cotas por
         // vértice explícitas (las que ya tenía) y el vértice nuevo la cota
         // exacta de su tramo en ese punto.
+        //
+        // CRUZ (2026-10-29, observación del cliente «gas lines-casing issue» C-41):
+        // un vértice INTERIOR de un tubo que cae a mitad de un tramo de otro y lo
+        // ATRAVIESA (sus dos vecinos a lados opuestos de ese tramo) también lo
+        // parte: el punto queda con 4 extremos y ProcesarJunturasPresion pone la
+        // cruz. Si el vértice solo toca el tramo (no lo cruza) no se parte. Misma
+        // regla que la app (accesorios.vertice_cruza).
         private static void PartirTramosEnTes(List<ImportPipe> pipes, Editor ed,
             double tolXY = 0.5, double tolZ = 0.10)
         {
@@ -3739,9 +3746,13 @@ namespace Civil3DBasico
                     if (nb < 2) continue;
                     double[] zbOut = InterpolateZ(b, nb, b.VertexInv);
                     double[] zbIn = InterpolateZ(b, nb, b.VertexInvIn);
-                    var extremos = new[] { (p: b.Vertices[0], z: zbOut[0]), (p: b.Vertices[nb - 1], z: zbIn[nb - 1]) };
+                    var extremos = new List<(Point2d p, double z, int i)>
+                        { (b.Vertices[0], zbOut[0], 0), (b.Vertices[nb - 1], zbIn[nb - 1], nb - 1) };
+                    for (int i = 1; i < nb - 1; i++)           // vértices interiores: posible cruz
+                        extremos.Add((b.Vertices[i], zbOut[i], i));
                     foreach (var ext in extremos)
                     {
+                        bool interior = ext.i > 0 && ext.i < nb - 1;
                         foreach (var a in pipes)               // el que PASA
                         {
                             int na = a.Vertices?.Count ?? 0;
@@ -3760,11 +3771,19 @@ namespace Civil3DBasico
                                 if (t * largo <= tolXY || (1 - t) * largo <= tolXY) continue;
                                 Point2d q = p0 + seg * t;
                                 if (q.GetDistanceTo(ext.p) > tolXY) continue;
+                                // Vértice interior: solo si ATRAVIESA el tramo (sus vecinos a lados opuestos).
+                                if (interior && LadoDeRecta(b.Vertices[ext.i - 1], p0, seg) *
+                                                LadoDeRecta(b.Vertices[ext.i + 1], p0, seg) >= 0) continue;
                                 double zA = zaOut[k] + (zaIn[k + 1] - zaOut[k]) * t;
                                 if (Math.Abs(zA - ext.z) > tolZ) continue;   // cruce, no T
 
                                 int tramoApp = a.TramoPython != null ? a.TramoPython[k] : k;
                                 InsertarVerticeConCotas(a, k, q, zA, zaOut, zaIn);
+                                if (interior)
+                                    ed?.WriteMessage($"\n  · [JUNTURA-CRUZ] {Nombre(b)} cruza a mitad de {Nombre(a)} " +
+                                        $"T{tramoApp + 1} en ({q.X:F2},{q.Y:F2}) con un vértice, misma cota ({zA:F2} ft): " +
+                                        "se parte ese tramo para unirlos con una cruz.");
+                                else
                                 ed?.WriteMessage($"\n  · [JUNTURA-T] {Nombre(b)} termina a mitad de {Nombre(a)} " +
                                     $"T{tramoApp + 1} en ({q.X:F2},{q.Y:F2}), misma cota ({zA:F2} ft): " +
                                     "se parte ese tramo para unirlos con una Tee.");
@@ -3780,6 +3799,10 @@ namespace Civil3DBasico
                 if (!partido) return;                          // nada más que partir
             }
         }
+
+        // Lado de la recta p0 + seg·t en que queda p (signo del producto cruz; 0 = sobre ella).
+        private static double LadoDeRecta(Point2d p, Point2d p0, Vector2d seg)
+            => seg.X * (p.Y - p0.Y) - seg.Y * (p.X - p0.X);
 
         // Largo mínimo de un tramo ENTRE dos codos de una red a presión: por
         // debajo no entran los dos codos sólidos (cada uno recorta el tubo) y

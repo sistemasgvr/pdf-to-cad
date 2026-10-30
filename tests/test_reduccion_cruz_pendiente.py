@@ -30,7 +30,10 @@ def test_cruz_en_x_a_mitad_de_tramo_con_diametros_distintos():
     pipes[1]["inv_start"] = pipes[1]["inv_end"] = -6.0            # a otra cota: se cruzan sin unirse
     assert acc.accesorios(pipes, _z(pipes), FT) == []
     pipes = [_p([(0, 100), (400, 100)], 12.0), _p([(200, 0), (200, 100), (300, 400)], 8.0)]
-    assert all(n["tipo"] != "cruz" for n in acc.accesorios(pipes, _z(pipes), FT))   # vértice de una sola
+    # vértice de una sola que ATRAVIESA la otra (2026-10-29, C-41 de «gas lines-casing issue»): cruz
+    assert [n["tipo"] for n in acc.accesorios(pipes, _z(pipes), FT)] == ["cruz"]
+    pipes = [_p([(0, 100), (400, 100)], 12.0), _p([(200, 0), (200, 100), (300, 0)], 8.0)]
+    assert all(n["tipo"] != "cruz" for n in acc.accesorios(pipes, _z(pipes), FT))   # solo la toca: sin cruz
 
 
 def test_uniones_rectas_para_la_reduccion():

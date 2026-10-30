@@ -1407,6 +1407,7 @@ class Main(MenuMixin, PanelIzquierdoMixin, PanelDerechoMixin, ModosMixin, ClicsM
         self.duct_banks = []
         self.cross_connections = []
         self.normas_aprobados = []
+        self._conf_registro = None              # números de los conflictos (ventana_conflictos_lista)
         self.capas_apagadas = set()             # «Capas»: todas las utilidades encendidas
         self.sel_pipe = self.sel_leader = self.sel_region = self.sel_text = -1
         self.sel_cl = -1
@@ -1626,6 +1627,9 @@ class Main(MenuMixin, PanelIzquierdoMixin, PanelDerechoMixin, ModosMixin, ClicsM
             self.duct_banks = data.get("duct_banks", [])
             self.cross_connections = data.get("cross_connections", []) or []
             self.normas_aprobados = data.get("normas_aprobados", []) or []
+            from nucleo import conflictos as _conf_mod     # números fijos de los conflictos (None = primera vez)
+            _reg = data.get("conflictos_registro")
+            self._conf_registro = _conf_mod.Registro.de_dict(_reg) if _reg else None
             self.capas_apagadas = set(data.get("capas_apagadas") or ())   # «Capas» (ventana_capas)
             self.georef = data["georef"]
             self.work_unit = data["work_unit"]
@@ -1789,6 +1793,7 @@ class Main(MenuMixin, PanelIzquierdoMixin, PanelDerechoMixin, ModosMixin, ClicsM
         self.hidden_ocgs = []
         self.pipes = []; self.leaders = []; self.text_marks = []; self.erase_regions = []; self.structures = []
         self.duct_banks = []; self.cross_connections = []; self.normas_aprobados = []
+        self._conf_registro = None
         self.ref_centerlines = []; self._cl_pts = []
         self._recog_cache.clear()
         self.cur_pts = []; self._erase_pts = []; self._overlay = []; self._close_editor()

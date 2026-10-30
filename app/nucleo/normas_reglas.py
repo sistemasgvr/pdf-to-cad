@@ -86,6 +86,7 @@ REVISAR = (
     Revisar("radio", "Radio (ft)", (CURVA,), "nxv", clase="radio"),
     Revisar("dist_buzones", "Distancia entre buzones (ft)", (BUZON,), "nx", clase="buzon"),
     Revisar("caida", "Caída en el buzón, flujo directo (ft)", (BUZON,), "nx", clase="buzon"),
+    Revisar("diam_buzon", "Diámetro del buzón (in)", (BUZON,), "nxv", redes=("gravity",), clase="buzon"),
     Revisar("permitido", "Se permite", ACCESORIOS, "v", SINO, clase="accesorio"),
     Revisar("solo_en", "Solo en tipos (de la principal)", ACCESORIOS, "v", TIPOS_, clase="accesorio"),
     Revisar("diam_principal", "Diámetro de la principal (in)", ACCESORIOS, "nxv", clase="accesorio"),

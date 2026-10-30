@@ -26,11 +26,12 @@ ESR = "LADWP Electric Service Requirements 2025"
 DP, AC, ID, LT = "DISTRIBUCION PRINCIPAL", "ALIMENTACION Y CONDUCCION", "INSTALACION DOMICILIARIA", "LINEA TRONCAL"
 COLECTOR, HC = "COLECTOR", "CONEXION DOMICILIARIA"
 SD_COL, SD_LAT, SD_SUB, SD_SUM = "COLECTOR PRINCIPAL", "LATERAL", "SUBDRENAJE", "CONEXION DE SUMIDERO"
+SD_CSU = "COLECTOR DE SUMIDERO"
 
 TIPOS = [
     ["AGUA", DP], ["AGUA", AC], ["AGUA", ID], ["AGUA", LT],
     ["ALCANTARILLADO", COLECTOR], ["ALCANTARILLADO", HC],
-    ["DRENAJE", SD_COL], ["DRENAJE", SD_LAT], ["DRENAJE", SD_SUB], ["DRENAJE", SD_SUM],
+    ["DRENAJE", SD_COL], ["DRENAJE", SD_LAT], ["DRENAJE", SD_SUB], ["DRENAJE", SD_SUM], ["DRENAJE", SD_CSU],
     ["GAS", "SERVICIO RESIDENCIAL"], ["GAS", "SERVICIO COMERCIAL/MULTIFAMILIAR"], ["GAS", DP],
     ["ELECTRICO", DP], ["ELECTRICO", ID],
 ]
@@ -124,6 +125,13 @@ REGLAS = [
       nota="Plástico: velocidad máxima 12 fps."),
     R("ALCANTARILLADO", HC, TUBERIA, "referencia", fuente=BOE_F500,
       nota="Profundidad mínima 4 ft bajo el borde de la acera en la línea de propiedad (3,5 ft en colinas)."),
+    *[R("ALCANTARILLADO", "", BUZON, "diam_buzon", minimo=m, si_diam=r, fuente=LA_ALC,
+        nota="Diámetro interior mínimo según la tubería más grande que llega.")
+      for r, m in (([8, 15], 48), ([18, 30], 60), ([33, 42], 72), ([45, 60], 84), ([61, None], 96))],
+    R("ALCANTARILLADO", "", TUBERIA, "material", valores=["Hormigón armado"], si_diam=[43, None], fuente=BOE_F400,
+      nota="RCP (ASTM C 76) para alcantarillas mayores a 42 in."),
+    R("ALCANTARILLADO", COLECTOR, TUBERIA, "diametro", minimo=8, maximo=15, si_material=["PVC"], fuente=BOE_F400,
+      nota="Línea principal de PVC: de 8 a 15 in."),
     # ── DRENAJE (Word) ──
     R("DRENAJE", SD_SUB, TUBERIA, "pendiente", minimo=0.5, fuente=MRDC),
     R("DRENAJE", SD_LAT, TUBERIA, "pendiente", minimo=0.3, fuente=MRDC),
@@ -134,6 +142,9 @@ REGLAS = [
       nota="Buzón en cambios de dirección mayores a 10°."),
     R("DRENAJE", SD_COL, TUBERIA, "diametro", minimo=24, fuente=MRDC),
     R("DRENAJE", SD_SUM, TUBERIA, "diametro", minimo=18, fuente=MRDC),
+    R("DRENAJE", SD_COL, TUBERIA, "diametro", valores=list(range(24, 85, 3)), fuente="Drenaje pluvial"),
+    R("DRENAJE", SD_CSU, TUBERIA, "diametro", valores=list(range(18, 145, 3)), fuente="Drenaje pluvial"),
+    R("DRENAJE", "", BUZON, "diam_buzon", valores=[48, 60, 72, 84], fuente="ASTM C478"),
     R("DRENAJE", "", TUBERIA, "diametro", minimo=24, si_largo=[100, None], fuente=MRDC),
     R("DRENAJE", "", TUBERIA, "material", valores=["Hormigón armado"], fuente=MRDC,
       nota="RCP. HDPE y PVC solo con autorización de la agencia."),
@@ -163,6 +174,10 @@ REGLAS = [
       nota="Un conduit por cada 400 A de capacidad de servicio."),
     # ── TELECOM ──
     R("TELECOM", "", TUBERIA, "diametro", minimo=4, fuente=EXCEL),
+    R("TELECOM", "", TUBERIA, "sep_h", minimo=1, con=CUALQUIERA, fuente=GO128,
+      nota="Paralelo con otro servicio: 12 in."),
+    R("TELECOM", "", TUBERIA, "sep_v", minimo=0.5, con=CUALQUIERA, fuente=GO128,
+      nota="Cruce con otro servicio: 6 in."),
     R("TELECOM", "", TUBERIA, "referencia", fuente=GO128,
       nota="Profundidad: 18 in en vía pública, 12 in en acera o propiedad privada. Fibra: mismo tamaño que el "
            "conduit primario, mínimo 4 in."),

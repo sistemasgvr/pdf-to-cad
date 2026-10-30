@@ -148,7 +148,9 @@ class SolucionesDialog(QtWidgets.QDialog):
             self._llenar(self._actual[1], getattr(self, "_rec", None))
 
     # ── lista de conflictos ──
-    def refrescar(self, elegir=None):
+    def refrescar(self, elegir=None, mover=True):
+        """`mover`=False: no lleva el lienzo al conflicto elegido (tras aplicar, el usuario se perdía)."""
+        self._mover = mover
         self.win._resultados_al_dia()
         solo = self.chk_auto.isChecked()
         self.lista.blockSignals(True)
@@ -161,6 +163,14 @@ class SolucionesDialog(QtWidgets.QDialog):
             it.setData(_ROL, c.id)
             it.setData(_ROL + 1, auto)
             self.lista.addItem(it)
+        # Los resueltos siguen en la lista con su MISMO número (2026-10-29), al final y en gris.
+        for cid, titulo in (self.win.conflictos_resueltos() if hasattr(self.win, "conflictos_resueltos") else []):
+            it = QtWidgets.QListWidgetItem(self._ico_ok, _tr("{c} · {t} (resuelto)").format(c=cid, t=_tr(titulo)))
+            it.setData(_ROL, cid)
+            it.setData(_ROL + 1, False)
+            it.setData(_ROL + 2, True)
+            it.setForeground(self.palette().brush(QtGui.QPalette.Disabled, QtGui.QPalette.Text))
+            self.lista.addItem(it)
         self.lista.blockSignals(False)
         n = self.lista.count()
         fila = next((k for k in range(n) if self.lista.item(k).data(_ROL) == elegir), 0 if n else -1)
@@ -168,6 +178,7 @@ class SolucionesDialog(QtWidgets.QDialog):
             self.lista.setCurrentRow(fila)
         else:
             self._limpiar(_tr("No hay conflictos en el dibujo."))
+        self._mover = True
 
     def elegir(self, cid):
         self.refrescar(elegir=cid)
@@ -185,6 +196,10 @@ class SolucionesDialog(QtWidgets.QDialog):
     def _elegir(self, it):
         if it is None:
             return self._limpiar()
+        if it.data(_ROL + 2):                                # resuelto: solo su número y que está resuelto
+            self._limpiar(_tr("{c} · resuelto").format(c=it.data(_ROL)))
+            self.lbl_msg.setText(_tr("Este conflicto ya no está en el dibujo. Conserva su número; Ctrl+Z lo deshace."))
+            return
         QtWidgets.QApplication.setOverrideCursor(QtCore.Qt.WaitCursor)
         try:
             c, props = self.win.soluciones_de(it.data(_ROL))
@@ -196,7 +211,8 @@ class SolucionesDialog(QtWidgets.QDialog):
         self._actual = (c, props, ficha)
         self.lbl_titulo.setText(f"{c.id} · {_tr(c.titulo)}")
         self.lbl_msg.setText(" ".join((c.mensaje or "").split()))
-        self.win._ir_a_elemento(c.x, c.y, activar=False)
+        if getattr(self, "_mover", True):
+            self.win._ir_a_elemento(c.x, c.y, activar=False)
         self._llenar(props, None)
         self._recomendar(c, props, ficha)
 
@@ -305,4 +321,4 @@ class SolucionesDialog(QtWidgets.QDialog):
         if self.win.aplicar_propuesta(p):
             soluciones_ia.aprender(self.win._ia_memoria(), ficha, p)
             self.lbl_estado.setText(_tr("Aplicado en {c}: {p} (Ctrl+Z para deshacer).").format(c=c.id, p=p.texto))
-            self.refrescar()
+            self.refrescar(elegir=c.id, mover=False)        # el mismo conflicto, ahora «resuelto»; el lienzo no se mueve

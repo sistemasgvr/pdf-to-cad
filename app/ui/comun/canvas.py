@@ -39,6 +39,9 @@ class Canvas(QtWidgets.QGraphicsView):
 
     def __init__(self, win):
         super().__init__(); self.win = win
+        self.setObjectName("lienzoPlano")   # barras de desplazamiento gruesas y del acento (theme.py)
+        for _sb in (self.verticalScrollBar(), self.horizontalScrollBar()):   # nacieron antes del nombre
+            _sb.style().unpolish(_sb); _sb.style().polish(_sb)
         self.setScene(QtWidgets.QGraphicsScene(self))
         self.setRenderHints(QtGui.QPainter.Antialiasing | QtGui.QPainter.SmoothPixmapTransform)
         self.setTransformationAnchor(QtWidgets.QGraphicsView.AnchorUnderMouse)

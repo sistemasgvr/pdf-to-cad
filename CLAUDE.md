@@ -162,7 +162,9 @@ alcantarillado, drenaje, gas, eléctrico, telecom). Todo en **unidades imperiale
     (PortableText + nombres en español; lo usan FilaAccion, Inventario, paleta y Atajos). `FilaAccion` con alto por
     ancho (`heightForWidth` + mínimo = ese alto en `resizeEvent`). «Buzón» de Dibujar deshabilitado sin líneas de
     gravedad/conduit (`ventana_dibujar._hay_lineas_para_buzon`, lo mismo que acepta `_do_insert_manhole`): `_bloqueado` (no `setEnabled`: un botón deshabilitado no muestra globo) y el clic dice el motivo. Buzón: `BuzonesMixin._buzon_en` (utilidad, tramo, PIE sobre la línea, motivo) → `_pista_buzon` (círculo verde en vivo desde `_on_mouse_move`, o el motivo en la barra) y el vértice se inserta en el PIE (antes en el cursor); sin lugar sigue en el modo. Minimapa oculto con el panel derecho sin anclar desplegado (`ventana_hojas._panel_der_encima`). `BotonCapas` re-tiñe su icono con `THEME_BUS`. Tests: `tests/test_buzon_pista.py`.
-  - `canvas.py` — el lienzo (`Canvas`, QGraphicsView).
+  - `canvas.py` — el lienzo (`Canvas`, QGraphicsView, objectName `lienzoPlano`: en `theme.py` sus barras de
+    desplazamiento van a 30 px con la barrita en `accent` —pedido 2026-10-29—; sus QScrollBar nacen antes del nombre y
+    se re-pulen en `__init__`, si no la regla no se aplica).
   - `fondo_pdf.py` — **hoja enorme** (reporte del usuario 2026-10-09: 18 piezas → «code=5: Overly large
     image»: MuPDF no crea pixmaps de más de 1 GiB, ancho × alto × 3 ≤ 2³⁰; 18 hojas del DU06 a zoom 3.5 =
     1006 Mpx). `render_pix(page, zoom)`: si cabe, EL MISMO `get_pixmap` de siempre (`escala`=1); si no, a
@@ -2206,7 +2208,7 @@ alcantarillado, drenaje, gas, eléctrico, telecom). Todo en **unidades imperiale
     **«¿Qué significa esta regla?»**: `ia/explicar_norma.py` (caché GLOBAL junto al catálogo,
     `dirname(nc.ruta())/ia/redaccion.jsonl`, clave = celdas + idioma + versión, sin el modelo) +
     `ui/dialogos/normas_ia_panel.PanelExplicacion` bajo la tabla de Reglas (guardada = al instante, botón
-    apagado). Tests: `tests/test_ia_soluciones.py`.
+    apagado); réplica: `EN.replicar` —regla + explicación + historial, `ia.alcance` como el chat, sin guardar— y caja «¿No quedó claro?…» `ed_preg`/`btn_preg`, conversación nueva al cambiar de regla). Tests: `tests/test_ia_soluciones.py`.
     **«¿Cómo hago…?» en el Manual** (Ayuda, 2026-10-23): `ia/ayuda_manual.py` (PURO) parte el manual en trozos por
     capítulo/subtítulo (≤`MAX_TROZO`), BM25 sobre raíces cortadas a `PREFIJO`=5 letras («dibujo» ≈ «dibujar»), la IA
     recibe ≤`MAX_CONTEXTO` caracteres y `MAXIMO_TOKENS`; caché por pregunta normalizada + idioma + huella del manual
@@ -2422,7 +2424,7 @@ alcantarillado, drenaje, gas, eléctrico, telecom). Todo en **unidades imperiale
     fila), `aplicar`; el diálogo confirma, `_push` (Ctrl+Z) y recalcula. 3D: `nucleo/marcas3d.py` (avisos y
     conflictos; `ID_CONFLICTO`, `Escena.etiquetas`, `ui/comun/etiquetas3d.dibujar` con QPainter), ficha
     `ficha3d.de_conflicto`; sin el tooltip de instrucciones en el visor (tapaba el de los conflictos). Tests:
-    `tests/test_conflictos_excel.py`. **Pendiente (%)** (2026-10-14): `model_ops.pendientes_tramos` (por tramo =
+    `tests/test_conflictos_excel.py`. **Números FIJOS** (2026-10-29): `conflictos.Registro` + `numerar_fijo` (mismo tipo, mismas utilidades, ≤`SIGUE_PX`=40 → mismo número; el que falta queda `resuelto`, uno nuevo = `siguiente`); `Main._conf_registro` (.digproj `conflictos_registro`, None al cerrar/abrir), `conflictos_resueltos()` en «Resolver conflictos» («(resuelto)») y tras aplicar `refrescar(elegir=, mover=False)` (el lienzo no salta). **Cruz con vértice**: `accesorios.vertice_cruza` — un vértice INTERIOR sobre el tramo de otra que la ATRAVIESA parte ese tramo (4 salidas = cruz) en `accesorios` y en `_union_civil_calc` (`_vertice_atraviesa`); si solo la toca, sigue choque; el plugin igual en `PartirTramosEnTes` (`ImportarRed.cs`: vértices interiores que cruzan → `[JUNTURA-CRUZ]`, 4 extremos = Cross). Tests: `tests/test_conflictos_numeros.py`, `test_reduccion_cruz_pendiente.py`. **Pendiente (%)** (2026-10-14): `model_ops.pendientes_tramos` (por tramo =
     por tubería de Civil 3D, Slope: Δcota/largo en planta, con `cotas_tramo`) y `pendiente_total` (rasantes de punta a
     punta / largo en planta): columna en la Tabla de datos (verde en el Excel) y ficha 3D («Pendiente por tramo» si
     cambia). Al importar, `tabla_excel.incoherencias`: una pendiente CAMBIADA (≠ la del proyecto ±0.0015) que no

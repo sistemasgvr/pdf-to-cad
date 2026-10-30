@@ -293,7 +293,8 @@ class ConflictosMixin:
         # Se unen donde una tubería TERMINA sobre la otra, donde las dos comparten un
         # vértice o, desde 2026-10-16 (pedido del usuario), donde se cruzan en X a mitad de
         # tramo de las dos (cruz, `accesorios.accesorios`). Un vértice de una sola sobre el
-        # tramo de la otra sigue siendo choque.
+        # tramo de la otra es cruz si la ATRAVIESA (2026-10-29, C-41 de «gas lines-casing issue»);
+        # si solo la toca, sigue siendo choque.
         def _cerca(q):
             return (q[0] - cx) ** 2 + (q[1] - cy) ** 2 <= tol * tol
         pts_a, pts_b = pa.get("pts") or [], pb.get("pts") or []
@@ -301,6 +302,8 @@ class ConflictosMixin:
         en_a, en_b = any(map(_cerca, pts_a)), any(map(_cerca, pts_b))
         vertice_comun = en_a and en_b
         cruce_x = not en_a and not en_b
+        if not (termina or vertice_comun or cruce_x):
+            cruce_x = _vertice_atraviesa(pts_a if en_a else pts_b, pts_b if en_a else pts_a, _cerca, tol)
         if not (termina or vertice_comun or cruce_x):
             return None
         # Solo las utilidades con un tramo a ≤ tol del punto (las demás no aportan salidas), en
@@ -531,3 +534,22 @@ class ConflictosMixin:
                 "valve": True,
             })
             self._push(); self._redraw()
+
+
+def _vertice_atraviesa(pts_v, pts_l, cerca, tol):
+    """¿El vértice interior de `pts_v` junto al cruce atraviesa un tramo de `pts_l`?"""
+    from nucleo.accesorios import vertice_cruza
+    for vi in range(1, len(pts_v) - 1):
+        if not cerca(pts_v[vi]):
+            continue
+        q = pts_v[vi]
+        for a, b in zip(pts_l, pts_l[1:]):
+            dx, dy = b[0] - a[0], b[1] - a[1]
+            L2 = dx * dx + dy * dy
+            if L2 <= 1e-12:
+                continue
+            t = ((q[0] - a[0]) * dx + (q[1] - a[1]) * dy) / L2
+            if (0 < t < 1 and math.hypot(a[0] + dx * t - q[0], a[1] + dy * t - q[1]) <= tol \
+                    and vertice_cruza(pts_v, vi, a, b)):
+                return True
+    return False

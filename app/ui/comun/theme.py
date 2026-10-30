@@ -541,6 +541,17 @@ def build_stylesheet(t: Theme) -> str:
         QScrollBar::handle:horizontal:hover {{ background: {t.scrollbar_thumb_hover}; }}
         QScrollBar::add-line, QScrollBar::sub-line {{ height: 0; width: 0; border: none; background: none; }}
         QScrollBar::add-page, QScrollBar::sub-page {{ background: none; }}
+        /* Lienzo del plano: barras el TRIPLE de gruesas y del color del acento (pedido 2026-10-29: las
+           finas no se distinguían sobre el plano). */
+        QGraphicsView#lienzoPlano QScrollBar:vertical {{ width: 10px; margin: 2px; }}
+        QGraphicsView#lienzoPlano QScrollBar:horizontal {{ height: 10px; margin: 2px; }}
+        QGraphicsView#lienzoPlano QScrollBar::handle:vertical {{ background: {t.accent}; min-height: 48px;
+                                        border-radius: 9px; margin: 0 4px; }}
+        QGraphicsView#lienzoPlano QScrollBar::handle:horizontal {{ background: {t.accent}; min-width: 48px;
+                                          border-radius: 9px; margin: 4px 0; }}
+        QGraphicsView#lienzoPlano QScrollBar::handle:hover {{ background: {t.accent_hover}; }}
+        QGraphicsView#lienzoPlano QAbstractScrollArea::corner, QGraphicsView#lienzoPlano::corner {{
+            background: {t.scrollbar_track}; border: none; }}
 
         /* ── Spinbox: botones +/− visibles ── */
         QSpinBox::up-button, QDoubleSpinBox::up-button,

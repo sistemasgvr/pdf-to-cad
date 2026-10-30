@@ -18,6 +18,7 @@
 from __future__ import annotations
 
 import math
+import re
 from dataclasses import dataclass
 
 from nucleo import model_ops
@@ -84,7 +85,7 @@ def cumple_grupo(reglas, v):
 
 
 def unidad(revisar, n):
-    if revisar in ("diametro", "diam_principal", "diam_ramal", "llega_menos", "ramal_menos"):
+    if revisar in ("diametro", "diam_buzon", "diam_principal", "diam_ramal", "llega_menos", "ramal_menos"):
         return nc.texto_pulgadas(n)
     u = {"pendiente": " %", "amperaje": " A", "angulo": "°", "quiebre": "°"}.get(revisar, " ft")
     return nc.texto_numero(round(n, 3)) + u
@@ -314,6 +315,28 @@ def _buzones_en(p, structures, ind):
     return out
 
 
+def _buzones_obj(p, structures, ind):
+    """{vértice: buzón VISIBLE} de `p` (como `_buzones_en`)."""
+    out = {}
+    if ind is None:
+        return out
+    for k, (x, y) in enumerate(p.get("pts") or []):
+        for j in ind[1].en_radio(x, y, model_ops._TOL):
+            s = ind[0][j]
+            if not (s.get("hidden") or s.get("curve") or s.get("world")):
+                out[k] = s
+                break
+    return out
+
+
+def diam_buzon_in(s):
+    """Diámetro del buzón en pulgadas: su medida reconocida o el primer número de su tamaño (None = sin dato)."""
+    if s.get("width_ft"):
+        return float(s["width_ft"]) * 12.0
+    nums = re.findall(r"\d+(?:\.\d+)?", str(s.get("part_size") or ""))
+    return float(nums[0]) if nums else None
+
+
 def _deflexion(a, b, c):
     u = (b[0] - a[0], b[1] - a[1]); w = (c[0] - b[0], c[1] - b[1])
     if math.hypot(*u) < 1e-9 or math.hypot(*w) < 1e-9:
@@ -322,7 +345,7 @@ def _deflexion(a, b, c):
     return ang
 
 
-def _revisar_tuberia(reglas, todas, dt, xy, ft_px, sin_bd, curvas, buzones, out):
+def _revisar_tuberia(reglas, todas, dt, xy, ft_px, sin_bd, curvas, buzones, out, bz_obj=None):
     pts = dt.p["pts"]
     for grupo in agrupar(reglas):
         rv = grupo[0]["revisar"]
@@ -361,6 +384,13 @@ def _revisar_tuberia(reglas, todas, dt, xy, ft_px, sin_bd, curvas, buzones, out)
                 out.append(aviso(s["x"], s["y"], "radio", con_condiciones(msg, grupo[0]), dt.i, grupo))
         elif rv == "dist_buzones":
             _dist_buzones(grupo, dt, ft_px, buzones, out)
+        elif rv == "diam_buzon":
+            for s in (bz_obj or {}).values():
+                d = diam_buzon_in(s)
+                if d is None or cumple_grupo(grupo, d):
+                    continue
+                msg = t("Buzón de {v}: {req}").format(v=unidad("diam_buzon", d), req=requisito_grupo(grupo))
+                out.append(aviso(s["x"], s["y"], "buzon", con_condiciones(msg, grupo[0]), dt.i, grupo))
         elif rv == "caida":
             if tiene_cotas(dt.p):
                 for k in range(1, len(pts) - 1):
@@ -454,7 +484,10 @@ def _validar(cat, pipes, accesorios_, ft_per_px, con_bancoducto=(), structures=(
         buzones = (_buzones_en(p, estructuras, ind)
                    if any(r["elemento"] == NR.BUZON or r["revisar"] == "quiebre" for r in propias) else set())
         sin_bd = i in con_bancoducto and NR.red_de(capa) == "conduit"      # el bancoducto reemplaza su sección
-        _revisar_tuberia(propias, por_util.get(capa) or [], dt, xy, ft_per_px or 0.0, sin_bd, curvas, buzones, out)
+        bz_obj = (_buzones_obj(p, estructuras, ind)
+                  if any(r["revisar"] == "diam_buzon" for r in propias) else None)
+        _revisar_tuberia(propias, por_util.get(capa) or [], dt, xy, ft_per_px or 0.0, sin_bd, curvas, buzones, out,
+                         bz_obj)
     normas_validar_red.revisar(por_util, pipes, todos, ft_per_px or 0.0, conexiones, out)
     memo_acc = {}
     for a in accesorios_ or []:

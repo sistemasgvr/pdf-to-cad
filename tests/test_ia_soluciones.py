@@ -168,3 +168,52 @@ def test_panel_de_normativas(tmp_path):
         assert "Explicación de la regla." in d.panel_ia.texto.toPlainText() and len(srv.pedidos) == 1
         assert not d.panel_ia.btn.isEnabled()                               # guardada: no hace falta pedirla
         w._dirty = False
+
+
+def test_preguntas_de_replica_sobre_la_regla(tmp_path):
+    """2026-10-29: tras la explicación se puede preguntar de nuevo («no entendí»); la IA recibe la regla, la
+    explicación y lo ya preguntado; lo ajeno (código, cambiar reglas) no llega a la IA."""
+    from PySide6 import QtWidgets
+    from ui.dialogos.normas_dialog import NormasDialog
+    def responder(c):
+        ultimo = c["messages"][-1]["content"]
+        if "PREGUNTA_DEL_USUARIO" not in ultimo:
+            return "Explicación de la regla."
+        return ("Sí, cambia el diámetro en el panel." if "app" in ultimo
+                else "Quiere decir que la tubería debe ser más grande.")
+    with OllamaFalso(responder) as srv:
+        w = _ventana(tmp_path, srv)
+        d = NormasDialog(w)
+        v = d.tablas.vistas["reglas"]
+        p = d.panel_ia
+        fila = next(r for r in range(v.rowCount()) if EN.datos(d.tablas.fila_de("reglas", r))
+                    and not EN.guardada(d.tablas.fila_de("reglas", r)))
+        v.setCurrentCell(fila, 0)
+        assert p.fila_preg.isHidden()                                        # sin explicación, no se pregunta
+
+        def esperar(txt):
+            fin = time.time() + 10
+            while txt not in p.texto.toPlainText() or p._pensando is not None or p._explic is None:
+                QtWidgets.QApplication.processEvents()
+                time.sleep(0.01)
+                assert time.time() < fin
+        p.explicar()
+        esperar("Explicación de la regla.")
+        assert not p.fila_preg.isHidden()
+        p.ed_preg.setText("¿qué significa eso?")
+        p.preguntar()
+        esperar("más grande")
+        p.ed_preg.setText("¿y qué hago en la app?")
+        p.preguntar()
+        esperar("cambia el diámetro")
+        msgs = srv.pedidos[-1]["messages"]
+        textos = " ".join(m["content"] for m in msgs)
+        assert "Explicación de la regla." in textos and "¿qué significa eso?" in textos and "más grande" in textos
+        n = len(srv.pedidos)
+        p.ed_preg.setText("hazme un script en python que lea la tabla")
+        p.preguntar()
+        esperar("No escribo código")
+        assert len(srv.pedidos) == n                                         # no llegó a la IA
+        v.setCurrentCell(fila + 1, 0)                                         # otra regla: conversación nueva
+        assert p._conv == [] and "Tú:" not in p.texto.toPlainText()
+        w._dirty = False

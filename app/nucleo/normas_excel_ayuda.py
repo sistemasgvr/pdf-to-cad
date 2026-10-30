@@ -73,6 +73,7 @@ EXPLICA = {
     "radio": "El radio de la curva. Si la curva no tiene radio escrito, se mira el automático.",
     "dist_buzones": "El largo de tubería entre dos buzones seguidos.",
     "caida": "En el buzón, la diferencia entre la cota con que llega la tubería y la cota con que sale.",
+    "diam_buzon": "Diámetro nominal del buzón: su medida reconocida del plano o el tamaño elegido (sin dato, no se revisa).",
     "permitido": "Si el accesorio se puede usar: SI o NO (en VALORES).",
     "solo_en": "El accesorio solo se puede usar en esos tipos de tubería principal (en VALORES).",
     "diam_principal": "El diámetro de la tubería principal del accesorio.",
