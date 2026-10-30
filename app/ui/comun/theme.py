@@ -591,7 +591,8 @@ def build_stylesheet(t: Theme) -> str:
         /* ── Deslizadores ── */
         QSlider::groove:horizontal {{ height: 4px; background: {t.border_soft}; border-radius: 2px; }}
         QSlider::sub-page:horizontal {{ background: {t.accent}; border-radius: 2px; }}
-        QSlider::handle:horizontal {{ background: {t.surface}; border: 1px solid {t.border};
+        QSlider::handle:horizontal {{ background: {"#ffffff" if t.name == "dark" else t.surface};
+                                       border: 1px solid {t.border};
                                        width: 14px; height: 14px; margin: -6px 0; border-radius: 8px; }}
         QProgressBar {{ background: {t.surface_alt}; border: none; border-radius: 4px; text-align: center;
                         color: {t.text_muted}; min-height: 8px; }}

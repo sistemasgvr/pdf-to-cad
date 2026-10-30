@@ -115,7 +115,7 @@ alcantarillado, drenaje, gas, eléctrico, telecom). Todo en **unidades imperiale
     mismo lugar o agrega al final). Vista 3D (sigue aparte): tarjetas `QFrame#flotante` hijas de `_lienzo` sobre el
     visor (`_colocar` en su Resize), interruptores `rediseno.Interruptor` en lugar de casillas (mismos `chk`,
     `_capas`, `chk_suelo`), ficha + editor apilados (las pruebas esperan el editor visible al elegir: SIN selector
-    Ficha/Editar). Chat: `PreguntaDialog.incrustado()` (lo llama `PanelAsistente.chat`; suelto, igual que antes).
+    Ficha/Editar). Tarjetas con cabecera FUERA del contenido y botón «–» (`_flotante(cabecera=)`, `_minimizar`; 2026-10-30), la de la ficha a todo el alto (`_colocar`; la tabla de `FichaPanel` sin tope de 360 px). Chat: `PreguntaDialog.incrustado()` (lo llama `PanelAsistente.chat`; suelto, igual que antes).
     Avisos breves: `ui/comun/aviso_breve.py` (2026-10-30: barra `_Cuenta` de `BARRA_PX`=15 abajo, `DURACION_MS`=5000 /
     `DURACION_ACCION_MS`=9000, se descuenta con `QElapsedTimer` y se PAUSA con el ratón encima; al mostrarse/cerrarse
     `ventana_flotantes.colocar` corre la barra del plano a su izquierda si se tocan) + `Main.aviso_breve(titulo, detalle, accion)` (sin la ventana en

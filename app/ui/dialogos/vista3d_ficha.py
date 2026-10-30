@@ -78,7 +78,7 @@ class FichaPanel(QtWidgets.QGroupBox):
     def _ajustar_alto(self):
         self.tabla.resizeRowsToContents()
         alto = sum(self.tabla.rowHeight(r) for r in range(self.tabla.rowCount())) + 6
-        self.tabla.setFixedHeight(min(max(alto, 40), 360))
+        self.tabla.setFixedHeight(max(alto, 40))       # todas las filas: la tarjeta (con scroll) da el alto
 
     def resizeEvent(self, e):
         super().resizeEvent(e)

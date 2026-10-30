@@ -101,8 +101,8 @@ class Vista3DDialog(ArmadoMixin, QtWidgets.QDialog):
         ll.addWidget(self.pila)
         lay.addWidget(self._lienzo, 1)
         self._flot_barra = self._flotante(self._barra())
-        self._flot_izq = self._flotante(self._panel())
-        self._flot_der = self._flotante(self._panel_ficha())
+        self._flot_izq = self._flotante(self._panel(), cabecera=self._cabecera_izq())
+        self._flot_der = self._flotante(self._panel_ficha(), cabecera=self._cab_ficha)
         self.lbl_estado = _Estado(self)
         self.lbl_estado.setTextInteractionFlags(QtCore.Qt.TextSelectableByMouse)
         self.lbl_estado.setProperty("rol", "t3")
@@ -122,15 +122,45 @@ class Vista3DDialog(ArmadoMixin, QtWidgets.QDialog):
             QtGui.QShortcut(tecla, self, lambda: (self.editor.aplicar(), self.win.redo()))
 
     # ── interfaz ──
-    def _flotante(self, contenido, margen=(10, 10, 10, 10)):
-        """Tarjeta flotante sobre el visor (QFrame#flotante del tema)."""
+    def _flotante(self, contenido, margen=(10, 10, 10, 10), cabecera=None):
+        """Tarjeta flotante sobre el visor (QFrame#flotante del tema). Con `cabecera`, ésta queda arriba
+        fuera del contenido y su botón «–» minimiza la tarjeta (solo se ve la cabecera)."""
         f = QtWidgets.QFrame(self._lienzo)
         f.setObjectName("flotante")
         v = QtWidgets.QVBoxLayout(f)
         v.setContentsMargins(*margen)
+        f._contenido = contenido
+        f._cabecera = None
+        f._minimizada = False
+        if cabecera is not None:
+            fila, boton = cabecera
+            v.addWidget(fila)
+            f._cabecera = fila
+            boton.clicked.connect(lambda: self._minimizar(f, boton))
         v.addWidget(contenido)
         f.raise_()
         return f
+
+    def _boton_minimizar(self):
+        return R.boton_icono("chevron-up", "Minimizar el panel")
+
+    def _minimizar(self, f, boton):
+        """Minimiza / vuelve a mostrar una tarjeta (pedido 2026-10-30)."""
+        f._minimizada = not f._minimizada
+        f._contenido.setVisible(not f._minimizada)
+        icono = "chevron-down" if f._minimizada else "chevron-up"
+        boton.setIcon(_icon("mdi:" + icono))
+        boton.setToolTip(_tr("Mostrar el panel") if f._minimizada else _tr("Minimizar el panel"))
+        self._colocar()
+
+    def _cabecera_izq(self):
+        fila = R.transparente(QtWidgets.QWidget())
+        h = QtWidgets.QHBoxLayout(fila)
+        h.setContentsMargins(4, 0, 0, 0)
+        h.addWidget(R.texto("Opciones de la vista", "sec"), 1)
+        boton = self._boton_minimizar()
+        h.addWidget(boton, 0, QtCore.Qt.AlignTop)
+        return fila, boton
 
     def _barra(self):
         tb = QtWidgets.QToolBar()
@@ -168,12 +198,17 @@ class Vista3DDialog(ArmadoMixin, QtWidgets.QDialog):
             g.setTitle("")
             g.setStyleSheet("QGroupBox{border:none;margin:0;padding:0;background:transparent;}")
             g.layout().setContentsMargins(0, 0, 0, 0)
-        cab = QtWidgets.QHBoxLayout()
+        # cabecera FUERA del scroll (título, «–» minimizar y ✕): queda a la vista con la tarjeta minimizada
+        fila = R.transparente(QtWidgets.QWidget())
+        cab = QtWidgets.QHBoxLayout(fila)
+        cab.setContentsMargins(4, 0, 0, 0)
         self.ficha.layout().removeWidget(self.ficha.lbl_titulo)
         cab.addWidget(self.ficha.lbl_titulo, 1)
+        btn_min = self._boton_minimizar()
+        cab.addWidget(btn_min, 0, QtCore.Qt.AlignTop)
         self.btn_cerrar_ficha = R.boton_icono("close", "Quitar la selección (Esc)", self.deseleccionar)
         cab.addWidget(self.btn_cerrar_ficha, 0, QtCore.Qt.AlignTop)
-        v.addLayout(cab)
+        self._cab_ficha = (fila, btn_min)
         # «Ficha | Editar» (como el prototipo; «Editar» solo con una utilidad)
         self._seg_ficha = QtWidgets.QFrame()
         self._seg_ficha.setObjectName("segmentado")
@@ -196,9 +231,8 @@ class Vista3DDialog(ArmadoMixin, QtWidgets.QDialog):
         self._caja_editor = R.transparente(QtWidgets.QWidget())
         QtWidgets.QVBoxLayout(self._caja_editor).setContentsMargins(0, 0, 0, 0)
         self._caja_editor.layout().addWidget(self.editor)
-        v.addWidget(self._caja_ficha)
-        v.addWidget(self._caja_editor)
-        v.addStretch(1)
+        v.addWidget(self._caja_ficha, 1)                    # la ficha / el editor ocupan todo el alto
+        v.addWidget(self._caja_editor, 1)
         sc = R.AreaVertical(caja) if hasattr(R, "AreaVertical") else QtWidgets.QScrollArea()
         if not isinstance(sc, R.AreaVertical):
             sc.setWidget(caja); sc.setWidgetResizable(True)
@@ -238,12 +272,13 @@ class Vista3DDialog(ArmadoMixin, QtWidgets.QDialog):
         izq = self._flot_izq
         y = m + b.height() + 12
         alto = min(self._alto(izq), max(120, H - y - 56))
-        izq.setGeometry(m, y, 270, alto)
+        izq.setGeometry(m, y, 270, self._alto_cabecera(izq) if izq._minimizada else alto)
         der = self._flot_der
         ancho = min(340, max(260, W // 3))
         y = 150                                            # debajo del cubo de vistas
-        alto = min(self._alto(der), max(160, H - y - m))
-        der.setGeometry(W - ancho - m, y, ancho, alto)
+        # a TODO el alto disponible (con el alto natural la tabla quedaba en una fila, 2026-10-30)
+        alto = max(160, H - y - m)
+        der.setGeometry(W - ancho - m, y, ancho, self._alto_cabecera(der) if der._minimizada else alto)
         self._colocar_estado()
         for f in (b, izq, der, self._flot_estado):
             f.raise_()
@@ -259,9 +294,14 @@ class Vista3DDialog(ArmadoMixin, QtWidgets.QDialog):
         e.setVisible(bool(self.lbl_estado.text()))
 
     @staticmethod
+    def _alto_cabecera(tarjeta):
+        m = tarjeta.layout().contentsMargins()
+        return tarjeta._cabecera.sizeHint().height() + m.top() + m.bottom()
+
+    @staticmethod
     def _alto(tarjeta):
         """Alto natural de una tarjeta con su contenido en un scroll."""
-        sc = tarjeta.layout().itemAt(0).widget()
+        sc = tarjeta._contenido
         dentro = sc.widget() if isinstance(sc, QtWidgets.QScrollArea) else sc
         m = tarjeta.layout().contentsMargins()
         return dentro.sizeHint().height() + m.top() + m.bottom() + 4
