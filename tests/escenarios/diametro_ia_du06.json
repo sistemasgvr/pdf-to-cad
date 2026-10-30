@@ -1,0 +1,23 @@
+[
+ {
+  "hoja": 4,
+  "utilidad": "AGUA",
+  "p0": [
+   907.3,
+   903.8
+  ],
+  "diam_in": 6.0,
+  "nota": "DU06 hoja índice 4: ramal del hidrante a abandonar (C-WATR-UNGD-D); «EX. FH, 6\" WATER ABND» con su guía al hidrante. Revisado a la vista 2026-10-29."
+ },
+ {
+  "hoja": 0,
+  "pdf": "compuesta",
+  "utilidad": "AGUA",
+  "p0": [
+   3613.6,
+   211.7
+  ],
+  "diam_in": 6.0,
+  "nota": "Compuesta sugerida de DU06 (14 hojas, índices 2–15): el mismo ramal del hidrante «EX. FH, 6\" WATER ABND». Revisado a la vista 2026-10-29."
+ }
+]

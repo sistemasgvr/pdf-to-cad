@@ -1626,6 +1626,51 @@ alcantarillado, drenaje, gas, eléctrico, telecom). Todo en **unidades imperiale
     del lateral sale SOLO de su propio rótulo (no de uno de estación/unión: «JOIN EX. 84" … CB LAT 201» nombraba a
     la principal y le daba el 24" del perfil del CB-201.5) y una línea >3× el lateral del perfil no es él. Lo que
     queda sin dato no lo dice el plano (o solo en otros planos). Tests: `tests/test_grosor_avisos.py`.
+  - **Diámetro según la IA** (pedido del usuario 2026-10-29, solo PDF vectorial CON capas; spec
+    `docs/superpowers/specs/2026-10-29-ia-diametro-plano-design.md`, plan en `docs/superpowers/plans/`). La app LEE y la
+    IA solo ELIGE: `recognition_grosor_cerca.cerca` deja en `grosor["cerca"]` de cada línea dudosa/sin dato (SIEMPRE,
+    vacía = sin rótulos; sin la clave = reconocida antes) los ≤`MAX_CERCA`=8 rótulos con diámetro a ≤`CERCA_PT`=120 pt
+    (id R1… por distancia, texto del bloque, util, `es_de`, `guia` esta|ambigua|otra|nada|sin, caja px); no cambia
+    estados ni diámetros (foto DU06 h.índice 3 en `test_du06_cerca_no_cambia_estados`); `diametro_plano.de_grosor` la
+    copia. `ia/diametro_ia` (PURO): `ficha` → `pedido` (sistema con cómo se rotula + pasos + «null es correcto», 3
+    ejemplos de `diametro_ia_ejemplos` como conversación previa, correcciones «No es correcto» de la memoria) →
+    respuesta `{"rotulo": "R2"|null, "confianza", "motivo", "pista"}` → `comprobar` (id existe, no `varios`, no otra
+    utilidad, guía no a otra línea, `normativa`, confianza ≠ baja) → `Sugerencia`; DOS pasadas (2.ª con los rótulos al
+    revés y sin imagen) que deben coincidir; caché en `memoria.redaccion` (`clave_de`). `diametro_plano.permitido`
+    usa SOLO reglas de diámetro sin condiciones (una regla de diseño «≥100 ft → ≥24"» no descarta lo construido).
+    `hoja/recorte_diametro.recorte`: PNG 1024 px de la zona (≤`ZONA_MAX_PT`=260 pt, centrada en el 1.er rótulo: quien
+    llama pone primero los `elegible`), línea en magenta y rótulos en turquesa con su id (siempre dentro del recorte); OJO
+    `page.get_pixmap(clip=)` va en coords de la VISTA (hoja girada: no des-girar). `Proveedor.vision()` (Ollama:
+    `/api/show` capabilities). UI `ui/ventana/ventana_diametro_ia.DiametroIAMixin`: tarjeta en el inspector (sección
+    Normativa) solo con IA configurada y aviso «grosor» pendiente; revisa al seleccionar el aviso (importar no
+    pregunta) en un hilo, uno a la vez (elegir otra lo cancela); el resultado NO va a `pipes` (cambiaría la firma) sino
+    a `self._diam_ia` + caché. Medir: `scripts/audit_diametro_ia.py <hojas> [--compuesta tmp.pdf] [--contar] [--verdad …]
+    [--imagenes …]` (objetivo 0 sugerencias equivocadas mostradas). Medido con qwen3.5 (2026-10-29): DU06 hojas 3/4/10
+    150 líneas → 143 resueltas sin IA, 1 sugerencia (6", correcta); compuesta sugerida (14 hojas) 403 → 391 sin IA,
+    11 «no hay certeza», 1 sugerencia (el mismo 6"), 0 equivocadas: lo que falta no está escrito en la planta. Tests: `tests/test_diametro_ia.py`, `tests/test_diametro_ia_ventana.py`.
+    **Ampliación posterior del mismo día**: sin lectura segura, `nucleo/diametro_normativa.opciones` genera
+    propuestas desde reglas activas (tipo, longitud, amperaje, material; alternativas explícitas y tamaños de
+    referencia que cumplen todos los alcances). `ia/diametro_ia.sugerir_normativa` elige un id validado; una opción
+    se resuelve localmente solo si no hay imagen ni contactos que contrastar.
+    Se muestran fuente, criterio y tipo supuesto; `origen=normativa`, nunca como lectura del PDF. «Aprobar» aplica,
+    «Otro diámetro…» permite introducirlo; ambos con deshacer. La caché incluye las opciones normativas. Pruebas:
+    `tests/test_diametro_normativa.py`, incluido DU06 real; la prueba de red usa un servidor Ollama simulado.
+    **Contexto visual y formato**: `nucleo/diametro_contexto` reúne recorrido, quiebres, contactos de la misma red
+    y tamaños confirmados (nunca por defecto); `hoja/contexto_diametro` extrae texto cercano respetando rotación.
+    `recorte_diametro(..., trayecto_completo=True)` genera imagen incluso sin rótulos. La IA recibe contexto,
+    captura y alternativas; la ficha compacta separa Propuesta/Por qué/Criterio/Fuente/Referencia y tipo por confirmar.
+    `Ver análisis` muestra imagen, datos y decisión; `Sugerencia.analisis` guarda entrada, interpretación y hash,
+    con imágenes fuera de `pipes`. Las etapas llegan por señales Qt; es un flujo acotado, sin agente general.
+    `_TextoAnalisis` impide comprimir una línea al cambiar el ancho. Pruebas: `test_diametro_contexto`,
+    `test_diametro_ia_layout` y `test_diametro_ia_ventana`; validación real con qwen3-vl:8b-instruct del usuario.
+    **Hojas originales fuera del área**: `hoja/contexto_original` recupera desde `src_pdfs` las páginas
+    relacionadas con el tramo mediante `sheet_geometry`/`piece_unmap` (incluye giro de la hoja de trabajo,
+    escala y polígonos). Conserva índice completo de notas/perfiles/membretes; envía selección de hasta 48
+    bloques/7000 caracteres y hasta 3 capturas originales además del recorte local. Documento, página (1-based),
+    zona y hashes acompañan cada captura. `Ver análisis` muestra las imágenes enviadas y el texto completo;
+    los bytes fuente ya viajan en `sources/NNN.pdf` del .digproj. Los diámetros de otras zonas son referencias
+    sin asignación confirmada. Caché de imágenes de sesión limitada a 8 consultas. Pruebas:
+    `test_contexto_original`, integración en `test_diametro_ia_ventana`; DU06 hoja 12 con el modelo real.
   - **Grosor de los mapas sin capas** (pedido del usuario 2026-10-23, «QS Water_Indian School_South»: lo mismo
     que el grosor CAD en los PDF vectoriales SIN capas; reemplaza a `recognition_diametros`, que tomaba la MAYORÍA
     ≥60 % de los rótulos para toda la ruta unida —una de 965 pt con 48" PCCP, 54" PCCP, 8" y 6" quedaba toda de
@@ -2830,6 +2875,12 @@ alcantarillado, drenaje, gas, eléctrico, telecom). Todo en **unidades imperiale
     punta JUSTO sobre una línea = T aunque esté cerca de su extremo — el join_gap del agua
     llega a 70 pt), `gap_turn_blocks` (`build_runs` no cruza un hueco si en su borde nace
     otro trazo no colineal), `markers_on_curves` (`strip_crossing_markers(curve_chains=)`).
+    **UD-213 (2026-10-29, continuación de la sesión interrumpida)**: la principal se cortaba en los
+    huecos junto a los medidores y sus tomas quedaban como esquinas. `perpendicular_gap_taps` (SOLO agua)
+    exige que el trazo vecino avance hacia el hueco para que `gap_turn_blocks` lo bloquee; las tomas
+    perpendiculares (margen ±11.5°) dejan seguir la principal y entran en T. Los otros perfiles conservan
+    el bloqueo original. `tests/test_water_gap_taps.py`: guiones/curvas girados, escalón real, hoja UD-213
+    a zoom 1/3.5 y hoja compuesta UD-213 + UD-214. Volver a reconocer las hojas ya importadas para aplicar.
     Auditoría: `tests/test_water_profile.py`; 68 hojas sin tramos sin tinta ni «V»; foto
     eléctrico/drenaje de los 4 PDFs = 0 diferencias.
   - **Perfil ALCANTARILLADO (2026-09-25)**: `SUPPORTED_UTILITIES` suma ALCANTARILLADO

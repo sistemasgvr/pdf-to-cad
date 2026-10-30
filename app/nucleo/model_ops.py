@@ -121,7 +121,21 @@ def curve_vertex_indices(pipe, structures, pipes=(), tol=14.0):
     con codos reconocidos juntos (DU08 h.26: el ancla de un codo a 13.6 px de su propia
     esquina, dos esquinas de curvas distintas a 13 px) el editor tomaba por curvo un
     vértice recto (tope 0.48 → radio recortado) y el DXF lo mandaba al plugin como
-    vértice sin buzón (curva de radio automático donde el plano no tiene ninguna)."""
+    vértice sin buzón (curva de radio automático donde el plano no tiene ninguna).
+    Dentro de `indice_vertices()` (el redibujo: nada cambia) se calcula UNA vez por tubería: el redibujo lo pide
+    por cada curva (2026-10-29, compuesta de DU06: 540 curvas, ~0.3 s por selección). Devuelve una copia."""
+    v = getattr(_vert, "v", None)
+    if v is None:
+        return _curve_vertex_indices(pipe, structures, pipes, tol)
+    clave = ("cvi", id(pipe), id(structures), id(pipes), tol)
+    r = v.get(clave)
+    if r is None or r[0] is not pipe or r[1] is not structures or r[2] is not pipes:
+        r = v[clave] = (pipe, structures, pipes, _curve_vertex_indices(pipe, structures, pipes, tol))
+    return dict(r[3])
+
+
+def _curve_vertex_indices(pipe, structures, pipes=(), tol=14.0):
+    """El cálculo de `curve_vertex_indices` (sin memoria)."""
     pts = pipe.get("pts") or []
     out = {}
     if not pts:
@@ -428,10 +442,20 @@ class _Celdas:
 
     def en_caja(self, x0, y0, x1, y1):
         c = self.CELDA
+        i0, i1 = math.floor(x0 / c), math.floor(x1 / c)
+        j0, j1 = math.floor(y0 / c), math.floor(y1 / c)
         out = []
-        for cx in range(math.floor(x0 / c), math.floor(x1 / c) + 1):
-            for cy in range(math.floor(y0 / c), math.floor(y1 / c) + 1):
-                out.extend(self.celdas.get((cx, cy), ()))
+        if (i1 - i0 + 1) * (j1 - j0 + 1) > len(self.celdas):
+            # recuadro con más celdas que celdas OCUPADAS (la caja de una tubería larga en una hoja compuesta:
+            # decenas de miles de celdas vacías por cada curva del redibujo, 2026-10-29): las ocupadas que caen
+            # dentro. Mismas entradas y mismo orden (se ordenan igual abajo)
+            for (cx, cy), v in self.celdas.items():
+                if i0 <= cx <= i1 and j0 <= cy <= j1:
+                    out.extend(v)
+        else:
+            for cx in range(i0, i1 + 1):
+                for cy in range(j0, j1 + 1):
+                    out.extend(self.celdas.get((cx, cy), ()))
         out.sort(key=lambda e: e[0])
         return [dato for _k, dato in out]
 

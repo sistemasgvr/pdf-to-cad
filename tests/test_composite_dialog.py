@@ -1328,3 +1328,24 @@ def test_compositor_vivo_se_muestra_igual_al_volver(app, monkeypatch):
     respuesta[0] = QtWidgets.QDialog.Rejected
     assert composite_dialog.compose_sheet(None, srcs, otra, {}, vivo=vivo) is None
     assert "comp" not in vivo
+
+
+def test_desmarcar_la_hoja_quita_tambien_su_area(app, monkeypatch):
+    """Reporte del usuario 2026-10-29: marcar una hoja, ajustar su área y desmarcarla dejaba el
+    rectángulo en «Área a tomar»; al continuar, esa área volvía a la hoja compuesta."""
+    dlg = composite_dialog.CompositeDialog(None, [{"name": "a.pdf", "data": _two_sheet_pdf()}], None, {}, 0)
+    try:
+        dlg._toggle_page(1)
+        r = dlg.crop._page_rect
+        dlg.crop.set_selection(QtCore.QRectF(0, 0, r.width() / 2, r.height()))
+        dlg._crop_timer.stop()
+        dlg._apply_crop_edit()
+        assert [(p.page, p.clip[2]) for p in dlg.comp.pieces] == [(0, 1.0), (1, 0.5)]
+        monkeypatch.setattr(dlg, "_confirm_remove_page", lambda page: True)
+        dlg._toggle_page(1)
+        assert [p.page for p in dlg.comp.pieces] == [0]
+        assert not dlg._has_area() and not dlg._area_untaken()
+        comp, _s, _h = dlg.result_tuple()
+        assert [(p.page, p.clip) for p in comp.pieces] == [(0, [0.0, 0.0, 1.0, 1.0])]
+    finally:
+        dlg.close_docs()

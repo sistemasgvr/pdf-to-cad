@@ -60,7 +60,8 @@ def test_aplicar_deja_el_estado_de_cada_linea():
     cuenta = G.aplicar([con, sola, nada], hoja, "DRENAJE", 1.0, FT)
     assert (con.grosor["estado"], con.diam_in) == ("leido", 18.0)
     assert (sola.grosor["estado"], sola.diam_in, sola.grosor["candidatos"]) == ("dudoso", None, [24.0])
-    assert (nada.grosor, nada.diam_in) == ({"estado": "sin_dato"}, None)
+    # + la evidencia para la IA (`grosor["cerca"]`, 2026-10-29): aquí ningún rótulo junto a ella
+    assert (nada.grosor, nada.diam_in) == ({"estado": "sin_dato", "cerca": []}, None)
     assert (cuenta["con"], cuenta["revisar"], cuenta["sin"]) == (1, 1, 1)
     # sin rótulos ni paredes en la hoja: todas sin dato
     otra = linea(700)

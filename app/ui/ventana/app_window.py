@@ -79,6 +79,7 @@ _ABRIR_EXTRA = ("pdf_path", "project_path", "_tmp_pdf", "sheet_layout", "sheet_r
 
 # Métodos de Main repartidos por tema en clases mezcla (movidos tal cual).
 from ui.ventana.ventana_menu import MenuMixin
+from ui.ventana.ventana_diametro_ia import DiametroIAMixin
 from ui.ventana.ventana_panel_izq import PanelIzquierdoMixin
 from ui.ventana.ventana_panel_der import PanelDerechoMixin
 from ui.ventana.ventana_modos import ModosMixin
@@ -121,7 +122,7 @@ from ui.ventana.ventana_pasos import PasosVivosMixin
 
 class Main(MenuMixin, PanelIzquierdoMixin, PanelDerechoMixin, ModosMixin, ClicsMixin, UtilidadesMixin, CatalogoMixin, SeleccionMixin, ListasMixin, MarcasMixin, DibujoMixin, ConflictosMixin, CoordsMixin, BuzonesMixin, MoverPrecisoMixin, CurvasMixin, HerramientasMixin, BancoductosMixin, EdicionBloqueMixin, InformeMixin, IAMixin, SolucionesMixin, Vista3DMixin, Edicion3DMixin, ConflictosListaMixin, HojasEditorMixin,
            VerticesMixin, TrazoMixin, CalculoPlanoMixin, CalculoFondoMixin, EstadosPreviosMixin,
-           AgregarUtilidadMixin, PlanosFondoMixin, CapasMixin, ShellMixin, RevisionMixin, RecientesMixin, InventarioMixin, PasosVivosMixin, QtWidgets.QMainWindow):
+           AgregarUtilidadMixin, PlanosFondoMixin, CapasMixin, ShellMixin, RevisionMixin, RecientesMixin, InventarioMixin, PasosVivosMixin, DiametroIAMixin, QtWidgets.QMainWindow):
     def __init__(self):
         super().__init__()
         self._base_title = f"Asistente C3D  (v{VERSION})"

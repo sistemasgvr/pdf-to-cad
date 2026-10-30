@@ -151,6 +151,9 @@ class GeomOptions:
     # tinta dobla (otro trazo, no colineal, nace ahí): la línea da la vuelta por
     # ese trazo (escalón vertical + horizontal, DU06 h.10) y no sigue derecho.
     gap_turn_blocks: bool = False
+    # Agua: una toma perpendicular junto al hueco es T, no prueba de un desvío.
+    # El giro solo bloquea si el trazo vecino avanza hacia el hueco (UD-213).
+    perpendicular_gap_taps: bool = False
     # Una barra «/» también se reconoce cuando cruza un TRAZO CURVO (polilínea con
     # quiebre), no solo un guión recto (DU06 h.3: barra en el quiebre de la línea
     # abandonada; quedaba como tramo y se estiraba 17 pt hasta la línea vecina).
@@ -1439,25 +1442,37 @@ def _compact_vaults(vaults: Sequence[Vault]) -> List[Vault]:
 
 def build_runs(groups: List[_Group], pat: Pattern, glyphs: Sequence[Glyph],
                vaults: Sequence[Vault], curves: Sequence[List[Pt]] = (),
-               gap_turn_blocks: bool = False) -> List[Run]:
+               gap_turn_blocks: bool = False, perpendicular_gap_taps: bool = False) -> List[Run]:
     glyph_pts = [(gl.cx, gl.cy) for gl in glyphs]
     # (perfil `gap_turn_blocks`) puntas de todos los trazos, con su grupo: una
-    # punta de OTRO grupo pegada al borde del hueco = la tinta dobla ahí.
-    tips: Dict[Tuple[int, int], List[Tuple[Pt, int]]] = defaultdict(list)
+    # punta de OTRO grupo pegada al borde del hueco y dirigida HACIA él = giro.
+    # Una toma perpendicular (UD-213, dos medidores contiguos) no corta la principal.
+    tips: Dict[Tuple[int, int], List[Tuple[Pt, Pt, int]]] = defaultdict(list)
     if gap_turn_blocks:
         for gi, gg in enumerate(groups):
             for d in gg.dashes:
-                for q in (d.a, d.b):
-                    tips[(int(q[0] // 4), int(q[1] // 4))].append((q, gi))
+                for q, vecino in ((d.a, d.b), (d.b, d.a)):
+                    tips[(int(q[0] // 4), int(q[1] // 4))].append((q, vecino, gi))
         for pts in curves:
-            for q in (pts[0], pts[-1]):
-                tips[(int(q[0] // 4), int(q[1] // 4))].append((q, -1))
+            for q, vecino in ((pts[0], pts[1]), (pts[-1], pts[-2])):
+                tips[(int(q[0] // 4), int(q[1] // 4))].append((q, vecino, -1))
 
-    def turns_at(q: Pt, gi: int) -> bool:
+    def turns_at(q: Pt, hacia: Pt, gi: int) -> bool:
         cx, cy = int(q[0] // 4), int(q[1] // 4)
-        return any(g2 != gi and _dist(q, q2) <= ENDS_TOUCH_PT
-                   for dx in (-1, 0, 1) for dy in (-1, 0, 1)
-                   for q2, g2 in tips.get((cx + dx, cy + dy), ()))
+        ux, uy = _unit(hacia[0] - q[0], hacia[1] - q[1])
+        for dx in (-1, 0, 1):
+            for dy in (-1, 0, 1):
+                for q2, vecino, g2 in tips.get((cx + dx, cy + dy), ()):
+                    if g2 == gi or _dist(q, q2) > ENDS_TOUCH_PT:
+                        continue
+                    if not perpendicular_gap_taps:
+                        return True
+                    vx, vy = _unit(vecino[0] - q2[0], vecino[1] - q2[1])
+                    # Margen angular para la cuantización del PDF: una toma casi
+                    # perpendicular (±11.5°) tampoco demuestra un desvío al hueco.
+                    if ux * vx + uy * vy > 0.2:
+                        return True
+        return False
     compact = _compact_vaults(vaults)
     vault_pts = [v.center for v in compact]
     vault_perp = max((v.radius for v in compact), default=0.0) + pat.join_gap
@@ -1487,7 +1502,7 @@ def build_runs(groups: List[_Group], pat: Pattern, glyphs: Sequence[Glyph],
                     last = max(cur, key=lambda c: c[1])[2]
                     p0 = last.a if g.t(last.a) >= g.t(last.b) else last.b
                     p1 = iv[2].a if g.t(iv[2].a) <= g.t(iv[2].b) else iv[2].b
-                    if turns_at(p0, gi) or turns_at(p1, gi):
+                    if turns_at(p0, p1, gi) or turns_at(p1, p0, gi):
                         ok = False
                 if not ok:
                     make_run(cur); cur = []; cur_end = -1e18
@@ -3538,7 +3553,7 @@ def reconstruct(line_paths: Sequence[dict], vault_paths: Sequence[dict] = (),
     groups = group_collinear(dashes)
     pat = learn_pattern(dashes, glyphs, vaults, groups)
     runs = merge_overlapping_runs(build_runs(groups, pat, glyphs, vaults, curves,
-                                             opts.gap_turn_blocks), pat,
+                                             opts.gap_turn_blocks, opts.perpendicular_gap_taps), pat,
                                   opts.absorb_inside_runs)
     for k, r in enumerate(runs):          # identidad de la corrida ANTES de partirla por ajuste
         r.origin = k

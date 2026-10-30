@@ -109,7 +109,7 @@ def reorganizar(win):
               "Cotas", fila(win.prop_inv0), fila(win.prop_inv1), fila(win.lbl_pendiente),
               "Estado", (None, win.sw_abandonada),
               "Normativa", fila(win.lbl_normas_pipe), (None, win.box_normativa),
-              (None, win.tarjeta_sugerencia)]
+              (None, win.tarjeta_sugerencia), (None, win._diam_ia_construir())]
     orden += list(por_campo.values())                # lo que quede, al final (nada se pierde)
     _poner(f, orden)
 
@@ -163,6 +163,8 @@ def refrescar(win):
                                        "copia del proyecto.").format(id=c.id, titulo=_tr(c.titulo)))
         win._conflicto_sugerencia = c.id
         win._ic_sugerencia.setPixmap(_icon("mdi:creation", color=t.accent).pixmap(16, 16))
+    if hasattr(win, "_diam_ia_refrescar"):          # diámetro según la IA (`ventana_diametro_ia`)
+        win._diam_ia_refrescar()
 
 
 def _avisos(win, i):

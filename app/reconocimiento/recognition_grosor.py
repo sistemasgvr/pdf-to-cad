@@ -503,4 +503,18 @@ def aplicar(lineas: Sequence, hoja: Hoja, utilidad: str, zoom: float, scale_ft_p
         if ok and g.diam_in and pl.diam_in is None:
             pl.diam_in = g.diam_in
             cuenta["con"] += 1
+    _poner_cerca([pl for pl, _r, _w in trabajo], hoja, utilidad, zoom, px_por_in)
     return cuenta
+
+
+def _poner_cerca(lineas: Sequence, hoja: Hoja, utilidad: str, zoom: float, px_por_in: float) -> None:
+    """`grosor["cerca"]` (los rótulos junto a la línea, `recognition_grosor_cerca`) en las líneas dudosas o sin
+    dato: la evidencia que mira la IA en el editor. Solo agrega esa clave."""
+    from reconocimiento.recognition_grosor_cerca import cerca, con_cajas
+    todas = con_cajas([(pl.pts_pdf, getattr(pl, "layer_ocg", "") or "") for pl in lineas])
+    for k, pl in enumerate(lineas):
+        if (pl.grosor or {}).get("estado") not in ("dudoso", "sin_dato"):
+            continue
+        # siempre (vacía = ningún rótulo cerca; sin la clave = reconocido antes de esto: la tarjeta pide
+        # volver a reconocer)
+        pl.grosor["cerca"] = cerca(pl.pts_pdf, hoja, utilidad, zoom, px_por_in, otras=todas[:k] + todas[k + 1:])

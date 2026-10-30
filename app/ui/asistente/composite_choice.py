@@ -157,7 +157,17 @@ class ChosenSheetMixin:
         if any(not self._is_full(p) for p in mine) and not self._confirm_remove_page(page):
             return                                   # la casilla sigue marcada
         self._provisional = None
+        self._crop_timer.stop()                      # un ajuste del área a medias ya no aplica
         self.comp.pieces[:] = [p for p in self.comp.pieces if (p.source, p.page) != (src, page)]
+        if page == self._cur_page:
+            # su área sale con ella (reporte del usuario 2026-10-29: el rectángulo seguía marcado en
+            # «Área a tomar» y al continuar volvía a la hoja compuesta)
+            self._syncing_crop = True
+            try:
+                self.crop.set_selection(None)
+            finally:
+                self._syncing_crop = False
+            self._sel_dirty = False
         self._refresh_scale_combo()
         self.view.rebuild()
         self._refresh_summary()
