@@ -543,8 +543,8 @@ def build_stylesheet(t: Theme) -> str:
         QScrollBar::add-page, QScrollBar::sub-page {{ background: none; }}
         /* Lienzo del plano: barras el TRIPLE de gruesas y del color del acento (pedido 2026-10-29: las
            finas no se distinguían sobre el plano). */
-        QGraphicsView#lienzoPlano QScrollBar:vertical {{ width: 10px; margin: 2px; }}
-        QGraphicsView#lienzoPlano QScrollBar:horizontal {{ height: 10px; margin: 2px; }}
+        QGraphicsView#lienzoPlano QScrollBar:vertical {{ width: 16px; margin: 2px; }}
+        QGraphicsView#lienzoPlano QScrollBar:horizontal {{ height: 16px; margin: 2px; }}
         QGraphicsView#lienzoPlano QScrollBar::handle:vertical {{ background: {t.accent}; min-height: 48px;
                                         border-radius: 9px; margin: 0 4px; }}
         QGraphicsView#lienzoPlano QScrollBar::handle:horizontal {{ background: {t.accent}; min-width: 48px;

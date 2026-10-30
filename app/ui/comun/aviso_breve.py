@@ -4,16 +4,53 @@ Para RESULTADOS que no piden decidir nada («DXF exportado», «Todo en orden»,
 con una acción opcional («Abrir carpeta», «Deshacer»). Las preguntas y los errores siguen siendo
 cuadros de diálogo. Uno a la vez: uno nuevo reemplaza al anterior. Lo usa `Main.aviso_breve`, que sin
 la ventana en pantalla (pruebas) muestra el mensaje de siempre.
+
+Abajo lleva una barra de CUENTA REGRESIVA (pedido del usuario 2026-10-30) de `BARRA_PX` de alto y el ancho del
+aviso: se vacía hasta que el aviso se va; con el ratón encima se PAUSA (el aviso no se va) y al salir sigue desde
+donde quedó. Mientras se ve, la barra de herramientas del plano se corre a la izquierda para no taparse
+(`ventana_flotantes.colocar`).
 """
-from PySide6 import QtCore, QtWidgets
+from PySide6 import QtCore, QtGui, QtWidgets
 
 from traduccion.i18n import t as _tr
 from ui.comun import theme as _theme
 from ui.comun.icons import icon as _icon
 
-DURACION_MS = 6000            # sin acción
-DURACION_ACCION_MS = 9000     # con «Deshacer» / «Abrir carpeta»: más tiempo para usarla
+DURACION_MS = 5000            # sin acción
+DURACION_ACCION_MS = 15000     # con «Deshacer» / «Abrir carpeta»: más tiempo para usarla
 ANCHO = 380
+BARRA_PX = 5                 # alto de la barra de cuenta regresiva
+PASO_MS = 30                  # cada cuánto se repinta la barra
+
+
+class _Cuenta(QtWidgets.QWidget):
+    """La barra de abajo: lo que queda del tiempo, del color del acento sobre una pista tenue."""
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setFixedHeight(BARRA_PX)
+        self.fraccion = 1.0
+        self.setAttribute(QtCore.Qt.WA_TransparentForMouseEvents, False)
+
+    def paintEvent(self, _e):
+        t = _theme.tokens()
+        p = QtGui.QPainter(self)
+        p.setRenderHint(QtGui.QPainter.Antialiasing)
+        r = QtCore.QRectF(self.rect()).adjusted(1, 0, -1, -1)          # dentro del borde del aviso
+        forma = QtGui.QPainterPath()                                     # esquinas de abajo como las del aviso
+        rad = 11.0
+        forma.moveTo(r.left(), r.top())
+        forma.lineTo(r.right(), r.top())
+        forma.lineTo(r.right(), r.bottom() - rad)
+        forma.quadTo(r.right(), r.bottom(), r.right() - rad, r.bottom())
+        forma.lineTo(r.left() + rad, r.bottom())
+        forma.quadTo(r.left(), r.bottom(), r.left(), r.bottom() - rad)
+        forma.closeSubpath()
+        p.setClipPath(forma)
+        p.fillRect(r, QtGui.QColor(t.surface_alt))
+        lleno = QtCore.QRectF(r.left(), r.top(), r.width() * max(0.0, min(1.0, self.fraccion)), r.height())
+        p.fillRect(lleno, QtGui.QColor(t.accent))
+        p.end()
 
 
 class AvisoBreve(QtWidgets.QFrame):
@@ -22,7 +59,15 @@ class AvisoBreve(QtWidgets.QFrame):
         self.setObjectName("flotante")
         self.setFixedWidth(ANCHO)
         t = _theme.tokens()
-        lay = QtWidgets.QHBoxLayout(self)
+        externo = QtWidgets.QVBoxLayout(self)
+        externo.setContentsMargins(0, 0, 0, 0)
+        externo.setSpacing(0)
+        cuerpo = QtWidgets.QWidget()
+        cuerpo.setAttribute(QtCore.Qt.WA_TranslucentBackground, True)
+        externo.addWidget(cuerpo)
+        self.cuenta = _Cuenta()
+        externo.addWidget(self.cuenta)
+        lay = QtWidgets.QHBoxLayout(cuerpo)
         lay.setContentsMargins(14, 10, 8, 10)
         lay.setSpacing(10)
         ic = QtWidgets.QLabel()
@@ -60,8 +105,12 @@ class AvisoBreve(QtWidgets.QFrame):
         lay.addWidget(cerrar, 0, QtCore.Qt.AlignTop)
         self.setStyleSheet(f"QFrame#flotante{{background:{t.surface};border:1px solid {t.border};"
                            f"border-radius:12px;}}")
-        self._t = QtCore.QTimer(self, singleShot=True, timeout=self.cerrar)
-        self._t.start(DURACION_ACCION_MS if accion is not None else DURACION_MS)
+        self._total = DURACION_ACCION_MS if accion is not None else DURACION_MS
+        self._queda = float(self._total)                 # ms que faltan (se descuenta solo sin el ratón encima)
+        self._reloj = QtCore.QElapsedTimer()
+        self._reloj.start()
+        self._t = QtCore.QTimer(self, interval=PASO_MS, timeout=self._avanzar)
+        self._t.start()
         win.installEventFilter(self)
         self._win = win
 
@@ -79,12 +128,21 @@ class AvisoBreve(QtWidgets.QFrame):
             self.colocar()
         return False
 
-    def enterEvent(self, e):                             # con el ratón encima no se va
+    def _avanzar(self):
+        self._queda -= self._reloj.restart()
+        self.cuenta.fraccion = self._queda / self._total if self._total else 0.0
+        self.cuenta.update()
+        if self._queda <= 0:
+            self.cerrar()
+
+    def enterEvent(self, e):                             # con el ratón encima: pausa (no se va)
+        self._avanzar()
         self._t.stop()
         super().enterEvent(e)
 
-    def leaveEvent(self, e):
-        self._t.start(DURACION_MS // 2)
+    def leaveEvent(self, e):                             # al salir sigue desde donde quedó
+        self._reloj.restart()
+        self._t.start()
         super().leaveEvent(e)
 
     def cerrar(self):
@@ -94,8 +152,17 @@ class AvisoBreve(QtWidgets.QFrame):
             pass
         if getattr(self._win, "_aviso_breve", None) is self:
             self._win._aviso_breve = None
+        self._t.stop()
         self.hide()
         self.deleteLater()
+        _recolocar_barra(self._win)
+
+
+def _recolocar_barra(win):
+    """La barra de herramientas del plano se corre (o vuelve) según el aviso."""
+    if getattr(win, "barra_plano", None) is not None:
+        from ui.ventana import ventana_flotantes
+        ventana_flotantes.colocar(win)
 
 
 def mostrar(win, titulo, detalle="", accion=None, tono="ok"):
@@ -109,4 +176,5 @@ def mostrar(win, titulo, detalle="", accion=None, tono="ok"):
     win._aviso_breve = a
     a.show()
     a.colocar()
+    _recolocar_barra(win)
     return a

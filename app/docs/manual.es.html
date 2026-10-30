@@ -830,6 +830,27 @@ un accesorio (codo, Tee, Wye o cruz). Sus bóvedas reconocidas del PDF entran co
 </table>
 </section>
 
+<section data-title="Trazar un centerline">
+<p>Un <b>centerline</b> es una línea de referencia sobre el <b>eje de una calle</b>. <b>No es una tubería</b>: no
+lleva diámetro, cotas ni normativas, y en Civil 3D no crea ninguna red. Sirve para <b>georreferenciar</b> el plano.</p>
+<ol>
+<li>Abre <b>Dibujar → Centerline</b> (o la sección <b>Trazar centerline</b> del panel).</li>
+<li>Haz <b>clic</b> en el plano para poner cada vértice siguiendo el eje de la calle. Los clics se pegan a la tinta
+    del PDF, igual que al dibujar una tubería.</li>
+<li>Para terminar pulsa <span class="key">&nbsp;Enter&nbsp;</span>, haz <b>clic derecho</b> o pulsa
+    <span class="btn">Terminar centerline (Enter)</span>. Hacen falta al menos <b>2 puntos</b>.</li>
+</ol>
+<p>Cada centerline recibe un código: <b>CL-1</b>, <b>CL-2</b>… <span class="key">&nbsp;Ctrl+Z&nbsp;</span> deshace el
+último punto. Los encuentras en el <b>Inventario</b>, pestaña <b>Centerlines</b>; un clic te lleva a él en el plano.</p>
+<table width="100%" cellspacing="4" cellpadding="10">
+<tr><td bgcolor="{{card}}" width="30%"><b>Al georreferenciar</b></td><td bgcolor="{{card}}">Se ven sobre el plano
+y el imán de los puntos de control se pega a ellos, como a las utilidades: así es más fácil calzar la calle del
+plano con la calle real del mapa.</td></tr>
+<tr><td bgcolor="{{card}}"><b>Al exportar</b></td><td bgcolor="{{card}}">Van al DXF como polilíneas en su propia
+capa <b>REF_CENTERLINES</b> (magenta), con su código al lado. No llevan datos de utilidad.</td></tr>
+</table>
+</section>
+
 <section data-title="Bancoductos (Duct Bank)">
 <p>Un bancoducto es un bloque de concreto con varios conductos adentro.</p>
 <ol>
@@ -1191,6 +1212,18 @@ se puede cancelar.</p>
 <li>Aprender de las correcciones y de lo que le enseña el equipo.</li>
 </ul>
 <p>Los números siempre los pone la app; la IA solo redacta, explica y recomienda.</p>
+<h3>Pedirle cambios al chat</h3>
+<p>El chat también <b>hace</b> cambios. Escríbele, por ejemplo: «mueve AGUA-5 3 ft al norte», «baja las cotas de GAS-12
+1 pie», «cambia el diámetro de AGUA-3 a 8 pulgadas», «marca ELECTRICO-4 como abandonada», «borra TELECOM-9», «resuelve
+C-4», «llévame a C-12» o «abre la Tabla de datos».</p>
+<ol>
+<li>Antes de tocar nada te responde <b>qué entendió</b> y sus <b>consecuencias</b>: la app lo prueba en una copia del
+    proyecto y te dice qué conflictos y avisos se van o aparecen, qué uniones se separarían, etc.</li>
+<li>Pulsa <span class="btn">Sí, hazlo</span> para aplicarlo. Se deshace con <span class="key">&nbsp;Ctrl+Z&nbsp;</span>.</li>
+<li>Si pulsas <span class="btn">No</span>, te pregunta qué entendió mal: tu siguiente mensaje corrige el pedido
+    («mejor 2 pies», «la otra, GAS-13») y te lo vuelve a proponer.</li>
+</ol>
+<p>Si falta un dato (cuántos pies, qué utilidad) te lo pregunta. La IA nunca cambia el proyecto por su cuenta.</p>
 </section>
 
 <section data-title="Vista 3D">

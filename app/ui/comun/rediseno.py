@@ -14,7 +14,7 @@ import re
 from PySide6 import QtCore, QtGui, QtWidgets
 
 from ui.comun import theme as _theme
-from ui.comun.icons import icon as _icon
+from ui.comun.icons import icon as _icon, icono_conmutable as _icono_conmutable
 from traduccion.i18n import bind as _bind, t as _tr
 
 
@@ -250,14 +250,20 @@ def titulo_panel(clave_es, botones=()):
 
 def boton_icono(icono, tip_es, fn=None, checkable=False, px=18):
     b = QtWidgets.QToolButton()
-    b.setIcon(_icon("mdi:" + icono))
+    if checkable:                                     # conmutable: blanco al estar seleccionado
+        def poner():
+            b.setIcon(_icono_conmutable("mdi:" + icono))
+    else:
+        def poner():
+            b.setIcon(_icon("mdi:" + icono))
+    poner()
     b.setIconSize(QtCore.QSize(px, px))
     _bind(b, "setToolTip", tip_es)
     _bind(b, "setAccessibleName", tip_es)
     b.setCheckable(checkable)
     b.setCursor(QtCore.Qt.PointingHandCursor)
     b._icono = icono
-    _theme.THEME_BUS.changed.connect(lambda _n: b.setIcon(_icon("mdi:" + icono)))
+    _theme.THEME_BUS.changed.connect(lambda _n: poner())
     if fn is not None:
         b.clicked.connect(lambda: fn())
     return b

@@ -86,12 +86,41 @@ def _acciones(i, tu, tk):
     return iconos
 
 
+def _orden(i, tu, tk):
+    """Tarjeta de una ORDEN (ia_chat_ordenes): qué entendí, consecuencias y «Sí, hazlo» / «No»."""
+    od = tu["orden"]
+    partes = [f"<span style='color:{tk.text_muted}; font-size:small'>" + html.escape(_tr("Entendí que quieres:"))
+              + f"</span><br><b>{html.escape(od['que'])}</b>"]
+    if od["cons"]:
+        items = "".join(f"<li>{html.escape(c)}</li>" for c in od["cons"])
+        partes.append(f"<p style='margin-top:8px; margin-bottom:0'><span style='color:{tk.text_muted}; "
+                      "font-size:small'>" + html.escape(_tr("Consecuencias:")) + f"</span></p><ul style='margin-top:2px'>"
+                      f"{items}</ul>")
+    if od["estado"] == "confirmar":
+        partes.append(
+            "<p style='margin-top:6px'>" + html.escape(_tr("¿Lo hago?")) + "</p>"
+            f"<table cellspacing='0' cellpadding='7'><tr><td bgcolor='{tk.accent}'><a href='ordensi:{i}' "
+            f"style='color:{tk.text_on_accent}; text-decoration:none; font-weight:600'>&nbsp;"
+            + html.escape(_tr("Sí, hazlo")) + "&nbsp;</a></td><td width='8'></td>"
+            f"<td bgcolor='{tk.surface}' style='border:1px solid {tk.border}'><a href='ordenno:{i}' "
+            f"style='color:{tk.text}; text-decoration:none'>&nbsp;" + html.escape(_tr("No")) + "&nbsp;</a></td>"
+            "</tr></table>")
+    else:
+        color = {"hecho": tk.success, "error": ERROR_OSCURO if tk.name == "dark" else tk.danger}.get(
+            od["estado"], tk.text_muted)
+        marca = "✔ " if od["estado"] == "hecho" else ""
+        partes.append(f"<p style='margin-top:8px; color:{color}'>{marca}{html.escape(od['resultado'])}</p>")
+    return "".join(partes)
+
+
 def _burbuja_ia(i, tu, tk, existe, ahora, ultimo):
     oscuro = tk.name == "dark"
     partes = []
     if tu["estado"] == "error":
         rojo = ERROR_OSCURO if oscuro else tk.danger      # el «danger» del tema oscuro no llega a 4.5:1
         cuerpo = f"<span style='color:{rojo}'>{tu['error']}</span>"
+    elif tu.get("orden"):
+        cuerpo = _orden(i, tu, tk)
     elif tu["texto"]:
         cuerpo = formato(tu["texto"], existe, tk)
     else:
@@ -112,8 +141,20 @@ def _burbuja_ia(i, tu, tk, existe, ahora, ultimo):
                       f"<td bgcolor='{fondo}' style='color:{letra}'><img src='ico:aviso' width='16' height='16'>"
                       "&nbsp;" + html.escape(_tr("Revisa estas cifras: no salen de los datos del proyecto: {c}")
                                              .format(c=cifras)) + "</td></tr></table>")
+    caps = getattr(res, "capitulos", None) if res is not None else None
+    if caps:                                             # pregunta de AYUDA: ir al manual (2026-10-30)
+        fichas = "&nbsp; ".join(
+            f"<a href='manual:{n}' style='color:{tk.soft_text}; background-color:{tk.soft}; "
+            f"text-decoration:none'>&nbsp;{html.escape(cap)}&nbsp;</a>" for n, cap in caps)
+        partes.append(
+            f"<table cellspacing='0' cellpadding='7' style='margin-top:10px'><tr><td bgcolor='{tk.accent}'>"
+            f"<a href='manual:{caps[0][0]}' style='color:{tk.text_on_accent}; text-decoration:none; "
+            f"font-weight:600'>&nbsp;" + html.escape(_tr("Abrir el manual de usuario")) + "&nbsp;</a></td></tr>"
+            f"</table><p style='margin-top:6px'><span style='color:{tk.text_muted}; font-size:small'>"
+            + html.escape(_tr("En el manual:")) + f"</span><br>{fichas}</p>")
     if res is not None:
-        fuente = _tr("Según los datos del proyecto")
+        fuente = (_tr("Según el manual de usuario") if getattr(res, "origen", "") == "manual"
+                  else _tr("Según los datos del proyecto"))
         if res.usadas:
             fuente += " · " + _tr("usó {n} enseñanzas").format(n=res.usadas)
         partes.append(f"<p style='margin-top:8px; font-size:small; color:{tk.text_muted}'>"
@@ -139,7 +180,8 @@ def conversacion(turnos, tk, existe, ahora):
             + html.escape(_tr("¿En qué te ayudo?")) + "</span><br><br>"
             f"<span style='color:{tk.text_muted}'>" + html.escape(_tr(
                 "Pregunta lo que quieras sobre este proyecto: conflictos, normativas, utilidades, zonas. La IA "
-                "responde solo con los datos del proyecto y cada código (C-12, AGUA-5) lleva al plano.")) +
+                "responde solo con los datos del proyecto y cada código (C-12, AGUA-5) lleva al plano. También "
+                "responde cómo usar la app («¿Cómo exporto a Civil 3D?») con el manual de usuario.")) +
             "</span></td></tr></table>")
     ultimo = max((i for i, x in enumerate(turnos) if "nota" not in x), default=-1)
     for i, tu in enumerate(turnos):

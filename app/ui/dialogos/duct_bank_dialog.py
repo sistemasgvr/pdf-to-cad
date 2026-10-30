@@ -30,7 +30,7 @@ from PySide6 import QtCore, QtGui, QtWidgets
 from nucleo.duct_bank import (DuctBank, Conduit, DEFAULT_SNAP_IN,
                        snap, validate, conduit_fits_envelope, conduits_overlap)
 from ui.comun import theme as _theme
-from ui.comun.icons import icon as _icon
+from ui.comun.icons import icon as _icon, icono_conmutable as _icono_conmutable
 from traduccion.i18n import t as _tr, N_
 
 
@@ -1708,7 +1708,8 @@ class DuctBankDialog(QtWidgets.QDialog):
             # Los checked/danger sobreescriben color vía QSS; con este tint base
             # se leen bien en estado normal.
             c = t.danger if b.property("danger") == "true" else t.text
-            b.setIcon(_icon(name, color=c))
+            # conmutables: blanco al estar seleccionados (fondo oscuro del indicador)
+            b.setIcon(_icono_conmutable(name, color=c) if b.isCheckable() else _icon(name, color=c))
         if hasattr(self, "btn_del_sel"):
             # danger (2.0.0): texto rojo sobre rosa suave → icono rojo (blanco no se veía en tema claro)
             self.btn_del_sel.setIcon(_icon("mdi:trash-can-outline",

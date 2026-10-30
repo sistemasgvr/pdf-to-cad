@@ -2,7 +2,9 @@
 
     Chat        · «Pregúntale al proyecto» (ia_chat.PreguntaDialog, el MISMO de siempre, incrustado)
     Conflictos  · «Resolver conflictos» (ia_soluciones.SolucionesDialog, incrustado)
-    Ayuda       · «¿Cómo hago…?» (manual_ia_panel.PanelAyudaIA, el del manual)
+
+La pestaña «Ayuda» se quitó (pedido del usuario 2026-10-30): el Chat responde también las preguntas de cómo usar
+la app con el manual de usuario (`ia/ayuda_chat`) y da el botón para abrirlo.
 
 Cada pestaña se crea la primera vez que se abre. Las funciones de siempre (`abrir_pregunta`,
 `abrir_soluciones`) siguen devolviendo el mismo diálogo: solo cambia DÓNDE se ve.
@@ -10,7 +12,7 @@ Cada pestaña se crea la primera vez que se abre. Las funciones de siempre (`abr
 from ui.ventana.ventana_comun import *  # noqa: F401,F403
 from ui.comun import rediseno as R
 
-PESTANAS = ["chat", "conflictos", "ayuda"]
+PESTANAS = ["chat", "conflictos"]
 
 
 class PanelAsistente(QtWidgets.QWidget):
@@ -33,7 +35,7 @@ class PanelAsistente(QtWidgets.QWidget):
         sl.setContentsMargins(3, 3, 3, 3)
         sl.setSpacing(2)
         self.grupo = QtWidgets.QButtonGroup(self)
-        for i, clave in enumerate(("Chat", "Conflictos", "Ayuda")):
+        for i, clave in enumerate(("Chat", "Conflictos")):
             b = QtWidgets.QPushButton()
             _bind(b, "setText", clave)
             b.setProperty("kind", "seg")
@@ -87,32 +89,6 @@ class PanelAsistente(QtWidgets.QWidget):
             dlg = self.win._dlg_soluciones = SolucionesDialog(self.win)
         self._poner("conflictos", dlg)
         return dlg
-
-    def ayuda(self):
-        panel = getattr(self, "_ayuda", None)
-        if panel is None:
-            from traduccion import i18n as _i18n
-            from ui.dialogos.manual_ia_panel import PanelAyudaIA
-            doc = _i18n.load_doc("manual")
-            panel = self._ayuda = PanelAyudaIA(doc, getattr(self.win, "_config_ia", None), self._abrir_capitulo)
-            cont = QtWidgets.QWidget()
-            cl = QtWidgets.QVBoxLayout(cont)
-            cl.setContentsMargins(14, 0, 14, 12)
-            cl.addWidget(panel)
-            manual = QtWidgets.QPushButton()
-            _bind(manual, "setText", "Manual de usuario")
-            manual.setIcon(_icon("mdi:book-open-variant"))
-            manual.clicked.connect(lambda: self.win.show_manual())
-            cl.addWidget(manual, 0, QtCore.Qt.AlignLeft)
-            cl.addStretch(1)
-            self._paginas["ayuda"].layout().addWidget(cont)
-        return panel
-
-    def _abrir_capitulo(self, n):
-        from ui.dialogos.manual_dialog import ManualDialog
-        dlg = ManualDialog(self.win)
-        dlg.indice.setCurrentRow(n)
-        dlg.exec()
 
     def preparar(self, pestana=None):
         """Muestra la pestaña pedida (o la que estaba) creando su contenido si hace falta."""

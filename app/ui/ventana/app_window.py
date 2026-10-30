@@ -96,6 +96,7 @@ from ui.ventana.ventana_bloque import EdicionBloqueMixin
 from ui.ventana.ventana_informe import InformeMixin
 from ui.ventana.ventana_ia import IAMixin
 from ui.ventana.ventana_soluciones import SolucionesMixin
+from ui.ventana.ventana_ia_acciones import AccionesIAMixin
 from ui.ventana.ventana_vista3d import Vista3DMixin
 from ui.ventana.ventana_edicion3d import Edicion3DMixin
 from ui.ventana.ventana_conflictos_lista import ConflictosListaMixin
@@ -114,7 +115,7 @@ from ui.ventana.ventana_shell_paneles import RevisionMixin
 from ui.ventana.ventana_inventario import InventarioMixin
 
 
-class Main(MenuMixin, PanelIzquierdoMixin, PanelDerechoMixin, ModosMixin, ClicsMixin, UtilidadesMixin, CatalogoMixin, SeleccionMixin, ListasMixin, MarcasMixin, DibujoMixin, ConflictosMixin, CoordsMixin, BuzonesMixin, MoverPrecisoMixin, CurvasMixin, HerramientasMixin, BancoductosMixin, EdicionBloqueMixin, InformeMixin, IAMixin, SolucionesMixin, Vista3DMixin, Edicion3DMixin, ConflictosListaMixin, HojasEditorMixin,
+class Main(MenuMixin, PanelIzquierdoMixin, PanelDerechoMixin, ModosMixin, ClicsMixin, UtilidadesMixin, CatalogoMixin, SeleccionMixin, ListasMixin, MarcasMixin, DibujoMixin, ConflictosMixin, CoordsMixin, BuzonesMixin, MoverPrecisoMixin, CurvasMixin, HerramientasMixin, BancoductosMixin, EdicionBloqueMixin, InformeMixin, IAMixin, SolucionesMixin, AccionesIAMixin, Vista3DMixin, Edicion3DMixin, ConflictosListaMixin, HojasEditorMixin,
            VerticesMixin, TrazoMixin, CalculoPlanoMixin, CalculoFondoMixin, EstadosPreviosMixin,
            AgregarUtilidadMixin, PlanosFondoMixin, CapasMixin, ShellMixin, RevisionMixin, RecientesMixin, InventarioMixin, QtWidgets.QMainWindow):
     def __init__(self):
@@ -2138,7 +2139,7 @@ def main():
     # y se puede alternar desde el menú "Ver" en tiempo real. Todo el CSS antes
     # hardcodeado ahora vive en app/theme.py, parametrizado por tokens de color.
     _theme.apply_theme(app, _theme.load_preference("dark"))
-    win = Main(); win.show()
+    win = Main(); win.showMaximized()          # siempre maximizada (pedido del usuario 2026-10-30)
     recuperado = win.iniciar_autoguardado()      # copias automáticas + ofrecer recuperar
     if len(sys.argv) > 1 and not recuperado:
         win.open_path(sys.argv[1])

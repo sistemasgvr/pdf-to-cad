@@ -75,7 +75,9 @@ alcantarillado, drenaje, gas, eléctrico, telecom). Todo en **unidades imperiale
     paneles), `paneles_riel` (dentro del `_ldock` de siempre: página 0 = el acordeón, 1–3 de
     `ventana_shell_paneles.py`; su `sizeHint` es el de la página 0), Inventario = `tab_combo` + `tabs` MOVIDOS del
     panel derecho, `pila_derecha` (propiedades de siempre | `ventana_asistente.PanelAsistente`: Chat =
-    `PreguntaDialog`, Conflictos = `SolucionesDialog`, Ayuda = `PanelAyudaIA`, incrustados) y `centro`
+    `PreguntaDialog`, Conflictos = `SolucionesDialog`, incrustados; la pestaña Ayuda se quitó el 2026-10-30: el chat
+    responde la ayuda con el manual —`ia/ayuda_chat.es_de_ayuda` + `consulta.preguntar(manual=)` → `_del_manual`
+    (`ayuda_manual.responder`), `Resultado.capitulos/origen`, botón «Abrir el manual de usuario» y fichas `manual:N`) y `centro`
     (QStackedWidget: el lienzo + Normativas/Tabla incrustadas por `incrustar_vista`/`mostrar_vista` desde sus
     `abrir()`, y el Duct Bank modal por `ejecutar_incrustado` = bucle local con el mismo resultado que `exec()`;
     `takeCentralWidget()` antes de `setCentralWidget`, si no Qt BORRA el lienzo). Solo se incrusta si la ventana
@@ -96,7 +98,7 @@ alcantarillado, drenaje, gas, eléctrico, telecom). Todo en **unidades imperiale
     `ventana_dibujar.py` (cuadrícula de herramientas sobre el acordeón; las cabeceras del QToolBox
     `qt_toolbox_toolboxbutton` se ocultan y cada herramienta abre su sección con `_open_section` y la arranca con su
     método de siempre), `ventana_panel_hoja.py` (`PanelHoja.refrescar`, desde la barra superior, la escala y la
-    georreferencia), `ventana_inventario.py` (`DelegadoUtilidad` dibuja cada fila en dos líneas SIN cambiar sus
+    georreferencia), `ventana_inventario.py` (`sincronizar_varias`: botones de «Varias utilidades» con icono `text_disabled` si no aplican —unir/editar ≥2, copiar ≥1, pegar ≥1 + algo copiado—, sin `setEnabled` para que el clic y el globo expliquen; desde `_update_ui` y la selección de la lista; `DelegadoUtilidad` dibuja cada fila en dos líneas SIN cambiar sus
     ítems; buscador y filtros solo `setHidden`; `_avisos_por_utilidad`), `ventana_inspector.py` (cabecera encima
     de los campos de siempre, que NO se mueven: las pestañas desplazan el scroll; ⋯ pulsa los botones de siempre) y
     la lista de conflictos de Revisión (`_ir_a_conflicto`). Lo flotante sobre el plano (aviso de conflictos,
@@ -114,7 +116,9 @@ alcantarillado, drenaje, gas, eléctrico, telecom). Todo en **unidades imperiale
     visor (`_colocar` en su Resize), interruptores `rediseno.Interruptor` en lugar de casillas (mismos `chk`,
     `_capas`, `chk_suelo`), ficha + editor apilados (las pruebas esperan el editor visible al elegir: SIN selector
     Ficha/Editar). Chat: `PreguntaDialog.incrustado()` (lo llama `PanelAsistente.chat`; suelto, igual que antes).
-    Avisos breves: `ui/comun/aviso_breve.py` + `Main.aviso_breve(titulo, detalle, accion)` (sin la ventana en
+    Avisos breves: `ui/comun/aviso_breve.py` (2026-10-30: barra `_Cuenta` de `BARRA_PX`=15 abajo, `DURACION_MS`=5000 /
+    `DURACION_ACCION_MS`=9000, se descuenta con `QElapsedTimer` y se PAUSA con el ratón encima; al mostrarse/cerrarse
+    `ventana_flotantes.colocar` corre la barra del plano a su izquierda si se tocan) + `Main.aviso_breve(titulo, detalle, accion)` (sin la ventana en
     pantalla → `QMessageBox.information` de siempre, así las pruebas que lo interceptan siguen igual); se usa en DXF
     exportado (salvo con aviso ⚠ de georreferencia), «Todo en orden» y bancoducto guardado («Deshacer»). OJO:
     quitar widgets de un layout con `deleteLater` SOLO no basta en scripts sin bucle de eventos (quedan visibles a
@@ -1854,6 +1858,9 @@ alcantarillado, drenaje, gas, eléctrico, telecom). Todo en **unidades imperiale
     Un botón principal que se deshabilita queda `surface_alt`: «Guardar georreferenciación» lleva un pixmap
     `Disabled` con `text_disabled`. La flecha «»» de una barra que no cabe (`QToolBarExtension`, gris oscuro fijo
     de Qt) = `qproperty-icon` en `theme.build_stylesheet` (`toolbar_ext_h`/`_v`, `QToolBar#riel` vertical).
+    `icono_conmutable(name, color)` (2026-10-30): botón conmutable = `color` apagado y `text_on_accent` en el estado
+    On (motor `_IconoConmutable`); lo usan `rediseno.boton_icono(checkable=True)` (barra flotante del plano) y las
+    herramientas del Duct Bank.
     OJO: `addPixmap`/`addFile` sobre un icono del tema no hacen nada (motor propio): para sumar un estado,
     `QIcon(icon(...).pixmap(n))` como en «Guardar» de georref. `_IconoDelTema.clone` guarda una referencia que
     nunca suelta (PySide no pasa a C++ la propiedad del clon: Qt usaba memoria ya liberada). OJO también
@@ -2204,7 +2211,22 @@ alcantarillado, drenaje, gas, eléctrico, telecom). Todo en **unidades imperiale
     `soluciones.uniones_rotas`; válida = el conflicto desaparece y nada nuevo; AGUA 2 0.1–0.2 s por conflicto);
     `ia/soluciones_ia.recomendar` («RECOMENDADA: Pn», solo una válida, cifras revisadas, caché en `redaccion`
     por ficha sin id/zona + propuestas; `aprender` = enseñanza `SOLUCION`); `ui/dialogos/ia_soluciones.py`
-    (lista, propuestas ✔/✖, recomendación en vivo, «Aplicar» = `aplicar_propuesta`: `_push` + `_tras_editar_3d`).
+    (lista, propuestas ✔/✖, recomendación en vivo, «Aplicar» = `aplicar_propuesta`: `_push` + `_tras_editar_3d`); rediseño 2026-10-30 con la maqueta del usuario: lista «CONFLICTOS DETECTADOS» con QSS propio, fichas
+    del conflicto, `ia_soluciones_vista.TarjetaPropuesta` por propuesta —opción, cifras, resultado; la recomendada arriba y
+    elegida salvo que el usuario marque otra (`_a_mano`), con `self.texto` (QLabel) DENTRO de su tarjeta (`_rescatar_texto`
+    antes de rehacerlas)—, `boton_aplicar` azul con Ctrl+Enter; sin «Ignorar conflicto» ni opciones inventadas).
+    **El chat HACE cambios con confirmación** (pedido del usuario 2026-10-30): `ia/acciones.py` (PURO: `CATALOGO`
+    cerrado —mover_utilidad, cambiar_cotas, poner_rasantes, cambiar_diametro/material/tipo, marcar_abandonada,
+    borrar_utilidades, resolver_conflicto, ir_a, abrir—, `es_orden` = imperativos, `interpretar` = la IA SOLO elige
+    acción + parámetros en JSON o pregunta, `validar` → `Orden` con índices y `error` en palabras del usuario,
+    `describir` lo escribe la app, `aplicar_a_utilidades` = la MISMA función para la copia y para el cambio real) +
+    `ui/ventana/ventana_ia_acciones.AccionesIAMixin` (`orden_preparar` → consecuencias probadas en una copia de la zona
+    con `_zona_de`/`_problemas` de Resolver conflictos, comparadas por (clase, utilidades) sin posición; puntas que se
+    separan, bancoductos, conexiones verticales; `orden_ejecutar` = un `_push`) + `ui/dialogos/ia_chat_ordenes.
+    OrdenesMixin` (`_es_turno_de_orden`, hilo, tarjeta «Entendí… · Consecuencias · ¿Lo hago?» con enlaces
+    `ordensi:`/`ordenno:` en `ia_chat_html._orden`; «No» o una repregunta deja `_orden_pendiente` y el mensaje siguiente
+    va con «Corrección del usuario»; «ninguna» = pregunta normal, `_preguntar_normal`). Inyección/código siguen
+    bloqueados. Tests: `tests/test_ia_ordenes.py`.
     **«¿Qué significa esta regla?»**: `ia/explicar_norma.py` (caché GLOBAL junto al catálogo,
     `dirname(nc.ruta())/ia/redaccion.jsonl`, clave = celdas + idioma + versión, sin el modelo) +
     `ui/dialogos/normas_ia_panel.PanelExplicacion` bajo la tabla de Reglas (guardada = al instante, botón
@@ -3039,6 +3061,10 @@ alcantarillado, drenaje, gas, eléctrico, telecom). Todo en **unidades imperiale
 ## Cómo correr
 
 - App: `python app/main.py`
+  - **F5 = recargar** (solo desarrollo, `app/dev_recarga.py`: lo carga `main.py` por nombre si no es el .exe y
+    está en `excludes` de `PDF-a-CAD.spec`): recarga los .py cambiados (conserva sus objetos Qt, p. ej.
+    `THEME_BUS`), reaplica el tema y redibuja. Lo ya construido (ventana principal, métodos de `Main`) sigue
+    con lo viejo hasta reiniciar; los diálogos que se abren después usan lo nuevo.
 - Pruebas: `pytest`  (desde la raíz). Por grupos y en paralelo (cada archivo en su proceso):
   `python scripts/pruebas.py mapas capas` (sin argumentos lista los grupos; `todo` = todas)
 - Compilar plugin + exe + instalador: `build_all.bat` (pregunta la versión)

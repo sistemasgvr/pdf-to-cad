@@ -41,6 +41,19 @@
   },
   {
    "autor": "User",
+   "fecha": "2026-10-30T11:39:14",
+   "fuera": "ajeno",
+   "id": "51f536e94740",
+   "modelo": "qwen3-vl:8b-instruct",
+   "pregunta": "Quién es Messi?",
+   "proyecto": "OF_proyecto_prueba",
+   "referencias": [],
+   "respuesta": "Solo puedo ayudarte con este proyecto y con el uso de PDF-a-CAD (utilidades, conflictos, avisos, normativas, cotas, cómo hacer algo en la app…).",
+   "segundos": 6.16,
+   "version": 2
+  },
+  {
+   "autor": "User",
    "fecha": "2026-10-27T16:09:47",
    "id": "6af2d2e4dfae",
    "modelo": "qwen3-vl:8b-instruct",
@@ -53,6 +66,19 @@
    "respuesta": "No, no se soluciona bajando el diámetro.  \nEl conflicto C-3 es **“Tramo muy corto entre codos”**, y la norma exige **mínimo 3.00 ft entre codos**, no depende del diámetro.  \nBajar el diámetro no cambia la distancia mínima permitida entre accesorios.\n\n✅ **Solución**: Reemplazar el tramo [AGUA-21] (23.8 ft) por un solo codo en Civil 3D.  \n*Ver en la Tabla de datos o Vista 3D → ajustar geometría.*\n\n*No hay enseñanza del equipo que contradiga esto.*",
    "segundos": 17.53,
    "version": 1
+  },
+  {
+   "autor": "User",
+   "fecha": "2026-10-30T12:29:54",
+   "fuera": "ajeno",
+   "id": "7329634ca673",
+   "modelo": "",
+   "pregunta": "como dibujo un centerline?",
+   "proyecto": "OF_proyecto_prueba",
+   "referencias": [],
+   "respuesta": "Solo puedo ayudarte con este proyecto y con el uso de PDF-a-CAD (utilidades, conflictos, avisos, normativas, cotas, cómo hacer algo en la app…).",
+   "segundos": 0.0,
+   "version": 2
   },
   {
    "autor": "User",
@@ -179,6 +205,24 @@
   }
  ],
  "ensenanzas": [
+  {
+   "accion": "subir",
+   "autor": "User",
+   "fecha": "2026-10-30T12:34:55",
+   "id": "21a20611a2ad4e2db191eadea955504e",
+   "proyecto": "OF_proyecto_prueba",
+   "texto": "En «Cruce sin conexión» (TELECOM) se aplicó: Subir TELECOM-33 1.50 ft (todas sus cotas: la pendiente no cambia) para pasar por encima de TELECOM-32 dejando 0.50 ft libres (normativa).",
+   "tipo": "solucion"
+  },
+  {
+   "accion": "bajar",
+   "autor": "User",
+   "fecha": "2026-10-30T12:14:40",
+   "id": "c8ac218211bb4ef38ec6afe05749042f",
+   "proyecto": "proyecto gas lines-casing issue",
+   "texto": "En «Cruce a la misma cota» (GAS) se aplicó: Bajar GAS-657 1.00 ft (todas sus cotas: la pendiente no cambia) para pasar por debajo de GAS-658.",
+   "tipo": "solucion"
+  },
   {
    "accion": "bajar",
    "autor": "User",
@@ -521,6 +565,13 @@
    "modelo": "qwen3-vl:8b-instruct",
    "texto": "Eléctrico y Agua se cruzan a la misma cota sin conexión; sepáralos en altura o en planta."
   },
+  "6ca627d47075e72d6696930f713acec12f118896": {
+   "ambito": "proyecto",
+   "autor": "User",
+   "fecha": "2026-10-30T12:30:32",
+   "modelo": "qwen3-vl:8b-instruct",
+   "texto": "RECOMENDADA: ninguna\nNinguna de las propuestas de la app es válida porque todas generan nuevos conflictos de unión o separación con otras tuberías, y no hay una que cumpla con el criterio de mover la tubería más chica o de servicio antes que la principal, ni el menor cambio de cota, ni bajar antes que subir (salvo que las indicaciones del equipo digan otra cosa). Además, el conflicto original es entre dos tuberías del mismo tipo (TELECOM), por lo que no hay prioridad inherente entre ellas. La solución manual debe considerar reubicar una de ellas con un cambio mínimo de cota y sin afectar uniones críticas, o bien, ajustar la pendiente o la ruta si es posible."
+  },
   "6e8e9f79acce8becc7f96859e3ca5fbb0940f311": {
    "ambito": "proyecto",
    "autor": "User",
@@ -604,6 +655,13 @@
    "fecha": "2026-10-26T10:49:28",
    "modelo": "qwen3-vl:8b-instruct",
    "texto": "Cruce sin conexión entre Telecomunicaciones y Telecomunicaciones a la misma cota: separar en altura o planta."
+  },
+  "86a5ac00b9b06fa0a9fcf46ec3df927fb3a6129b": {
+   "ambito": "proyecto",
+   "autor": "User",
+   "fecha": "2026-10-30T12:30:21",
+   "modelo": "qwen3-vl:8b-instruct",
+   "texto": "RECOMENDADA: ninguna\nNinguna de las propuestas de la app es válida porque todas generan nuevos conflictos o separaciones que afectan uniones críticas en el proyecto. Además, no hay una solución que cumpla con el criterio de mover la tubería más chica o de servicio antes que la principal, ni el menor cambio de cota, ni bajar antes que subir (salvo que las indicaciones del equipo digan otra cosa). Dado que el equipo ya estableció precedentes de mover tuberías de telecomunicaciones (como TELECOM-30 y ELECTRICO-2) para evitar choques, se recomienda resolver este conflicto manualmente, priorizando mover la tubería más pequeña o la de menor impacto (TELECOM-24 o TELECOM-29) con el menor cambio de cota posible, y verificando que no se afecten uniones críticas."
   },
   "8a38462c788950fe5a7695686fe094d2bd56233d": {
    "ambito": "proyecto",
@@ -836,6 +894,13 @@
    "modelo": "qwen3-vl:8b-instruct",
    "texto": "RECOMENDADA: ninguna\nNinguna de las propuestas es válida según el criterio de la app, ya que todas marcan \"valida\": false, lo que indica que, aunque resuelven el choque directo, generan otros conflictos de unión que no se pueden ignorar. Además, no hay una propuesta que cumpla con el criterio de mover la tubería más chica o de servicio antes que la principal, ni que minimice el cambio de cota o priorice bajar antes que subir. Por lo tanto, se debe resolver manualmente, ajustando la cota de una de las tuberías (preferiblemente la más chica o la de menor importancia) con un cambio mínimo, y verificando que no se generen nuevos conflictos de conexión."
   },
+  "cefb8a147fdf18682f6140882a8ce4b36d117073": {
+   "ambito": "proyecto",
+   "autor": "User",
+   "fecha": "2026-10-30T12:36:24",
+   "modelo": "qwen3-vl:8b-instruct",
+   "texto": "RECOMENDADA: P4\nLa propuesta P4 es la más adecuada porque sube AGUA-11 1.50 ft, lo que cumple con la normativa de separación mínima de 0.50 ft, y además resuelve el conflicto sin generar nuevos problemas. Además, como AGUA-11 es una tubería de mayor importancia funcional que TELECOM-24 (agua vs. telecomunicaciones), moverla es más lógico que alterar la posición de la tubería de telecomunicaciones. También es el cambio más pequeño en altura que resuelve el conflicto, y no afecta otras conexiones como lo haría bajar TELECOM-24."
+  },
   "d030baca29d8c4afb7ce5cf78e922f6a1fd9f3c5": {
    "ambito": "proyecto",
    "autor": "User",
@@ -849,6 +914,13 @@
    "fecha": "2026-10-26T10:49:00",
    "modelo": "qwen3-vl:8b-instruct",
    "texto": "En la zona 1 hay 5 cruces sin conexión entre utilidades de telecomunicaciones y 2 cruces entre eléctrico y agua, además de 1 separación insuficiente entre agua y telecomunicaciones."
+  },
+  "d37f2e6ed9c52b6eb904bb754a49ba0c855ddd96": {
+   "ambito": "proyecto",
+   "autor": "User",
+   "fecha": "2026-10-30T12:30:49",
+   "modelo": "qwen3-vl:8b-instruct",
+   "texto": "RECOMENDADA: P8\nLa propuesta P8 es la más adecuada porque sube la tubería TELECOM-33, que es la más cercana al punto de conflicto, y lo hace con un cambio mínimo de cota (1.50 ft), dejando 0.50 ft de separación como requiere la normativa. Además, no genera nuevos conflictos, lo que garantiza estabilidad en el dibujo. Al mover la tubería más chica (TELECOM-33) y no alterar la pendiente, se mantiene la integridad del diseño. Las otras opciones, aunque válidas, implican cambios mayores o generan conflictos con otras tuberías, lo que complica la solución."
   },
   "d3e3bea8468a3ec3ece65fc29c58b3a7bdbf3b95": {
    "ambito": "proyecto",
@@ -884,6 +956,13 @@
    "fecha": "2026-10-26T10:49:28",
    "modelo": "qwen3-vl:8b-instruct",
    "texto": "Cruce sin conexión entre Telecomunicaciones y Telecomunicaciones a la misma cota: separar en altura o planta."
+  },
+  "df334f13790b031836a5aa4cb2ee8538ed9a2d10": {
+   "ambito": "proyecto",
+   "autor": "User",
+   "fecha": "2026-10-30T12:35:32",
+   "modelo": "qwen3-vl:8b-instruct",
+   "texto": "RECOMENDADA: ninguna\nNinguna de las propuestas es válida porque todas generan nuevos conflictos de unión con pendiente y separan uniones críticas, lo cual afecta la continuidad del sistema. Además, como ambas tuberías son de distribución principal (diametro 12”), mover cualquiera implica un cambio significativo que no se ajusta a la regla de priorizar movimientos mínimos y evitar alterar uniones clave. La solución manual debe considerar: 1) mantener la cota original si no hay otras tuberías críticas en el cruce, o 2) reubicar el cruce con una nueva línea de tubería auxiliar (servicio) si es posible, sin afectar las uniones principales."
   },
   "e1be847b1f199b064a2725f45f9221ef773f6bbd": {
    "ambito": "proyecto",

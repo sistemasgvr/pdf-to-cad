@@ -400,6 +400,9 @@ class ModosMixin:
         self.btn_xd.setVisible(ti in (TAB_PIPE, TAB_BZ))
         if getattr(self, "cabecera_inspector", None) is not None:   # cabecera del inspector (2.0.0)
             self.cabecera_inspector.refrescar(desde_ui=True)
+        if getattr(self, "_botones_varias", None):                  # «Varias utilidades» en gris si no aplican
+            from ui.ventana import ventana_inventario
+            ventana_inventario.sincronizar_varias(self)
         if getattr(self, "barra_plano", None) is not None:          # barra flotante del plano (2.0.0)
             from ui.ventana import ventana_flotantes
             ventana_flotantes.refrescar(self)

@@ -105,10 +105,11 @@ def panel_inventario(win):
     rotulo = R.texto("Varias utilidades", "t3", True)
     rotulo.setSizePolicy(QtWidgets.QSizePolicy.Ignored, QtWidgets.QSizePolicy.Preferred)
     barra.addWidget(rotulo, 1)
-    for icono, clave in (("merge", "Unir utilidades seleccionadas"),
-                         ("pencil-box-multiple-outline", "Editar utilidades seleccionadas en bloque…"),
-                         ("content-copy", "Copiar propiedades de la utilidad"),
-                         ("content-paste", "Pegar propiedades en las seleccionadas")):
+    win._botones_varias = []
+    for icono, clave, minimo in (("merge", "Unir utilidades seleccionadas", 2),
+                                 ("pencil-box-multiple-outline", "Editar utilidades seleccionadas en bloque…", 2),
+                                 ("content-copy", "Copiar propiedades de la utilidad", 1),
+                                 ("content-paste", "Pegar propiedades en las seleccionadas", 1)):
         a = win._acc.get(clave)
         if a is None:
             continue
@@ -117,9 +118,33 @@ def panel_inventario(win):
         if sc:
             b.setToolTip(f"{_tr(clave)} ({sc})")
         barra.addWidget(b)
+        win._botones_varias.append((b, icono, minimo, clave == "Pegar propiedades en las seleccionadas"))
     lay.addLayout(barra)
+    win.pipe_list.itemSelectionChanged.connect(lambda: sincronizar_varias(win))
+    _theme.THEME_BUS.changed.connect(lambda _n: sincronizar_varias(win, de_nuevo=True))   # tras el icono normal
+    sincronizar_varias(win)
     win.tabs.currentChanged.connect(lambda _i: win._filtrar_inventario())
     return cont
+
+
+def sincronizar_varias(win, de_nuevo=False):
+    """«Varias utilidades» (unir, editar en bloque, copiar, pegar) en gris mientras no se pueden usar: sin
+    utilidad elegida (unir y editar piden dos; pegar, algo copiado). Pedido del usuario 2026-10-30. Siguen
+    respondiendo al clic (no `setEnabled`): la acción dice qué falta y el globo se sigue viendo."""
+    botones = getattr(win, "_botones_varias", None)
+    if not botones:
+        return
+    try:
+        n = len(win._selected_pipe_rows())
+    except Exception:
+        n = 0
+    t = _theme.tokens()
+    for b, icono, minimo, pega in botones:
+        listo = n >= minimo and (not pega or bool(getattr(win, "_props_copiadas", None)))
+        if not de_nuevo and getattr(b, "_listo", None) is listo:
+            continue
+        b._listo = listo
+        b.setIcon(_icon("mdi:" + icono) if listo else _icon("mdi:" + icono, color=t.text_disabled))
 
 
 class InventarioMixin:

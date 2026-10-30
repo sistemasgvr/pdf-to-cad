@@ -243,6 +243,54 @@ class _IconoDelTema(QtGui.QIconEngine):
         self._actual().paint(painter, rect, QtCore.Qt.AlignCenter, mode, state)
 
 
+def icono_conmutable(name: str, color=None, size: int = _DEFAULT_SIZE) -> QtGui.QIcon:
+    """Icono de un botón CONMUTABLE: normal con `color` (como `icon`) y, seleccionado (estado On), en
+    `text_on_accent` del tema activo, para que contraste con el fondo oscuro del indicador (pedido
+    2026-10-30). Los dos siguen al tema."""
+    return QtGui.QIcon(_IconoConmutable(icon(name, color, size), _icono_on(name, size)))
+
+
+def _icono_on(name: str, size: int) -> QtGui.QIcon:
+    path = _resolve_path(name)
+    if _read_svg(path) is None:
+        return _icono_sin_svg(name, path, size)
+    return QtGui.QIcon(_IconoDelTema(path, "text_on_accent", size))
+
+
+class _IconoConmutable(QtGui.QIconEngine):
+    """Delega en el icono normal (Off) o en el blanco (On); mismas llamadas que Qt le haría a cada uno."""
+
+    def __init__(self, normal: QtGui.QIcon, encendido: QtGui.QIcon):
+        super().__init__()
+        self._n, self._e = normal, encendido
+
+    def _de(self, state):
+        return self._e if state == QtGui.QIcon.On else self._n
+
+    def clone(self):
+        nuevo = _IconoConmutable(self._n, self._e)
+        ctypes.pythonapi.Py_IncRef(ctypes.py_object(nuevo))     # ver _IconoDelTema.clone
+        return nuevo
+
+    def isNull(self):
+        return False
+
+    def availableSizes(self, mode=QtGui.QIcon.Normal, state=QtGui.QIcon.Off):
+        return self._de(state).availableSizes(mode, QtGui.QIcon.Off)
+
+    def actualSize(self, size, mode, state):
+        return self._de(state).actualSize(size, mode, QtGui.QIcon.Off)
+
+    def pixmap(self, size, mode, state):
+        return self._de(state).pixmap(size, 1.0, mode, QtGui.QIcon.Off)
+
+    def scaledPixmap(self, size, mode, state, scale):
+        return self._de(state).pixmap(size, scale, mode, QtGui.QIcon.Off)
+
+    def paint(self, painter, rect, mode, state):
+        self._de(state).paint(painter, rect, QtCore.Qt.AlignCenter, mode, QtGui.QIcon.Off)
+
+
 def preload(names: list[str]) -> None:
     """Rasteriza y descarta los iconos indicados para calentar el `_read_svg`
     cache y evitar parpadeo al abrir la UI. Silencioso ante nombres inválidos."""

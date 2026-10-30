@@ -104,7 +104,10 @@ def estilo(win):
         f"QPushButton#chipConflictos:hover {{ background:{t.hover}; }}")
     win.chip_conflictos.setIcon(_icon("mdi:alert-outline", color=t.warning))
     win.barra_plano.setStyleSheet(
-        f"QFrame#flotante {{ background:{t.surface}; border:1px solid {t.border}; border-radius:12px; }}")
+        f"QFrame#flotante {{ background:{t.surface}; border:1px solid {t.border}; border-radius:12px; }}"
+        # herramienta seleccionada: fondo del acento (el icono va en blanco: icono_conmutable)
+        f"QFrame#flotante QToolButton:checked {{ background:{t.accent}; border-radius:8px; }}"
+        f"QFrame#flotante QToolButton:checked:hover {{ background:{t.accent_hover}; }}")
 
 
 def encuadrar(win):
@@ -169,7 +172,16 @@ def colocar(win):
         dx = max(0, ov.mapToGlobal(QtCore.QPoint(ov.width(), 0)).x() - o.x())
     b = win._flot_barra_win
     b.adjustSize()
-    _poner_en(b, ver, QtCore.QPoint(o.x() + (W - b.width()) // 2, o.y() + H - b.height() - MARGEN))
+    bx, by = o.x() + (W - b.width()) // 2, o.y() + H - b.height() - MARGEN
+    aviso = getattr(win, "_aviso_breve", None)            # el aviso breve abajo a la derecha: la barra se corre
+    try:                                                   # a su izquierda si la taparía (2026-10-30)
+        if aviso is not None and aviso.isVisible():
+            ra = QtCore.QRect(aviso.mapToGlobal(QtCore.QPoint(0, 0)), aviso.size())
+            if QtCore.QRect(bx, by, b.width(), b.height()).intersects(ra.adjusted(-MARGEN, 0, 0, 0)):
+                bx = max(o.x() + dx + MARGEN, ra.left() - MARGEN - b.width())
+    except RuntimeError:                                   # el aviso ya se borró
+        pass
+    _poner_en(b, ver, QtCore.QPoint(bx, by))
     c = win._flot_chip_win
     c.adjustSize()
     _poner_en(c, ver and win._chip_hay, QtCore.QPoint(o.x() + dx + MARGEN, o.y() + MARGEN))

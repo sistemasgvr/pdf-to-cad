@@ -19,6 +19,7 @@ from ia import consulta, proveedor as P
 from traduccion.i18n import t as _tr
 from traduccion.i18n_core import N_
 from ui.dialogos import ia_chat_html as H
+from ui.dialogos.ia_chat_ordenes import OrdenesMixin
 
 SUGERENCIAS = (N_("¿Cuántos conflictos hay y dónde están?"),
                N_("¿Qué conflicto conviene resolver primero y por qué?"),
@@ -61,10 +62,11 @@ class VistaChat(QtWidgets.QTextBrowser):
         return super().event(ev)
 
 
-class PreguntaDialog(QtWidgets.QDialog):
+class PreguntaDialog(OrdenesMixin, QtWidgets.QDialog):
     def __init__(self, win):
         super().__init__(win, QtCore.Qt.Window)
         self.win = win
+        self._iniciar_ordenes()                          # el chat también HACE cambios, con confirmación
         self.setWindowTitle(_tr("Pregúntale al proyecto"))
         self.resize(620, 780)
         self.turnos = []
@@ -369,19 +371,34 @@ class PreguntaDialog(QtWidgets.QDialog):
             datos = self.win._ia_datos()
         finally:
             QtWidgets.QApplication.restoreOverrideCursor()
-        mem = self.win._ia_memoria()
-        historial = [(x["pregunta"], x["texto"]) for x in self.turnos[:-1]
-                     if "nota" not in x and x["estado"] == "listo"]
         estado = {"cancelado": False}
         self._activo = estado
         self._ocupado(True)
         self._pintar(abajo=True)
+        if self._es_turno_de_orden(q):                   # un pedido para HACER algo (ia_chat_ordenes)
+            return self._empezar_orden(turno, prov, datos, estado)
+        self._preguntar_normal(turno, prov, datos, estado)
+
+    def _preguntar_normal(self, turno, prov=None, datos=None, estado=None):
+        """La pregunta de siempre (`consulta.preguntar`) en un hilo."""
+        q = turno["pregunta"]
+        prov = prov or P.crear(self.win._config_ia())
+        datos = datos or self.win._ia_datos()
+        if estado is None:
+            estado = {"cancelado": False}
+            self._activo = estado
+            self._ocupado(True)
+        turno["texto"], turno["estado"] = "", "escribiendo"
+        mem = self.win._ia_memoria()
+        historial = [(x["pregunta"], x["texto"]) for x in self.turnos
+                     if x is not turno and "nota" not in x and "orden" not in x and x["estado"] == "listo"]
+        manual = self._indice_manual()                 # preguntas de ayuda → el manual (2026-10-30)
 
         def correr():
             try:
                 res = consulta.preguntar(prov, q, datos, mem, historial,
                                          al_texto=lambda s: self._senales.trozo.emit(turno, s),
-                                         cancelado=lambda: estado["cancelado"])
+                                         cancelado=lambda: estado["cancelado"], manual=manual)
                 self._senales.listo.emit(turno, res)
             except P.ErrorIA as e:
                 self._senales.fallo.emit(turno, str(e))
@@ -410,6 +427,26 @@ class PreguntaDialog(QtWidgets.QDialog):
         self.actualizar_estado()
         self._pintar()
 
+    def _indice_manual(self):
+        ix = getattr(self, "_manual_ix", None)
+        try:
+            from traduccion import i18n as _i18n
+            from ia import ayuda_manual
+            doc = _i18n.load_doc("manual")
+            ix = ayuda_manual.indice(doc)                # memorizado por huella (cambia con el idioma)
+        except Exception:                                # noqa: BLE001 (sin manual: todo va al proyecto)
+            ix = None
+        self._manual_ix = ix
+        return ix
+
+    def abrir_manual(self, capitulo=None):
+        """El manual de usuario, en ese capítulo si viene."""
+        from ui.dialogos.manual_dialog import ManualDialog
+        dlg = ManualDialog(self.win)
+        if capitulo is not None:
+            dlg.indice.setCurrentRow(int(capitulo))
+        dlg.exec()
+
     # ── enlaces ──
     def _turno(self, valor):
         tu = self.turnos[int(valor)] if valor.isdigit() and int(valor) < len(self.turnos) else None
@@ -419,6 +456,11 @@ class PreguntaDialog(QtWidgets.QDialog):
         tipo, valor = url.scheme(), url.path()
         if tipo == "ref":
             self.win._ia_ir_a(valor)
+        elif tipo in ("ordensi", "ordenno"):             # «Sí, hazlo» / «No» de una orden (ia_chat_ordenes)
+            if valor.isdigit():
+                self._confirmar_orden(int(valor), tipo == "ordensi")
+        elif tipo == "manual":
+            self.abrir_manual(int(valor) if valor.isdigit() else None)
         elif tipo == "config":
             self.win.configurar_ia()
         elif tipo == "preg":

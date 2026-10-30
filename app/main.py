@@ -33,4 +33,7 @@ if __name__ == "__main__":
     import multiprocessing
     multiprocessing.freeze_support()
     from ui.ventana.app_window import main
+    if not getattr(sys, "frozen", False):        # SOLO desarrollo: F5 recarga módulos (por nombre: no va al .exe)
+        import importlib
+        importlib.import_module("dev_recarga").activar()
     main()

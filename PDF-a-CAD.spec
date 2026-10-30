@@ -51,7 +51,7 @@ a = Analysis(
     # La app usa PySide6. Si el entorno tiene tambien PyQt5/PyQt6/PySide2
     # instalados (matplotlib, mplcursors, etc. suelen arrastrarlos), PyInstaller
     # aborta al encontrar dos bindings de Qt a la vez. Se excluyen aca.
-    excludes=['PyQt5', 'PyQt6', 'PySide2'],
+    excludes=['PyQt5', 'PyQt6', 'PySide2', 'dev_recarga'],
     noarchive=False,
     optimize=0,
 )

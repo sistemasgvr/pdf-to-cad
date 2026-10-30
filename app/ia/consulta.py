@@ -50,6 +50,8 @@ class Resultado:
     modelo: str = ""
     usadas: int = 0                                       # enseñanzas que fueron en el pedido
     fuera: str = ""                                       # «ajeno» / «codigo» / «inyeccion»: no se respondió
+    capitulos: list = field(default_factory=list)         # pregunta de AYUDA: [(n.º, título)] del manual
+    origen: str = "proyecto"                              # «proyecto» o «manual» (ia/ayuda_chat)
 
 
 def idioma():
@@ -87,12 +89,21 @@ def armar_pedido(pregunta, datos, memoria=None):
     return "\n".join(partes), len(ens)
 
 
-def preguntar(proveedor, pregunta, datos, memoria=None, historial=(), al_texto=None, cancelado=None):
-    """Responde `pregunta`. `historial` = [(pregunta, respuesta), …] de esta conversación.
+def preguntar(proveedor, pregunta, datos, memoria=None, historial=(), al_texto=None, cancelado=None,
+              manual=None):
+    """Responde `pregunta`. `historial` = [(pregunta, respuesta), …] de esta conversación. Con `manual` (el
+    `ayuda_manual.Indice` del manual de usuario), una pregunta de cómo usar la app se responde con el MANUAL
+    (`ia/ayuda_chat`, 2026-10-30) y el resultado trae sus capítulos.
 
     Lo que no es del proyecto ni de la app (o quiere saltarse las reglas) no llega al modelo: respuesta fija
     (`ia/alcance`). Lo que el modelo responda con código o con su marca de rechazo también se cambia por ella."""
     motivo = A.revisar(pregunta, datos, historial)
+    from ia import ayuda_chat
+    # Una pregunta de cómo usar la app que el manual responde va al manual aunque sus palabras no estén en el
+    # vocabulario del alcance («¿cómo dibujo un centerline?» salía como ajena, 2026-10-30). Inyección y código no.
+    if (motivo in (A.OK, A.AJENO) and manual is not None
+            and ayuda_chat.es_de_ayuda(pregunta, manual, datos)):
+        return _del_manual(proveedor, pregunta, manual, memoria, al_texto, cancelado)
     if motivo != A.OK:
         return _fuera(pregunta, motivo, memoria, al_texto)
     pedido, usadas = armar_pedido(pregunta, datos, memoria)
@@ -119,6 +130,27 @@ def preguntar(proveedor, pregunta, datos, memoria=None, historial=(), al_texto=N
         memoria.agregar(M.CONVERSACIONES, id=res.id, pregunta=res.pregunta, respuesta=res.texto,
                         referencias=res.referencias, modelo=res.modelo, segundos=round(res.segundos, 2),
                         version=VERSION_PROMPT)
+    return res
+
+
+def _del_manual(proveedor, pregunta, manual, memoria, al_texto, cancelado):
+    """Pregunta de ayuda: la responde el manual (ia/ayuda_manual, con su caché y sus reglas)."""
+    from ia import ayuda_manual as AM
+    t0 = time.perf_counter()
+    texto, origen, caps = AM.responder(proveedor, manual, pregunta, al_texto=_vigilado(al_texto),
+                                       cancelado=cancelado)
+    if origen == "memoria" and al_texto is not None:      # guardada: no hubo trozos en vivo
+        al_texto(texto)
+    texto = (texto or "").strip()
+    if A.salida_valida(texto) != A.OK:
+        return _fuera(pregunta, A.salida_valida(texto), memoria, al_texto, segundos=time.perf_counter() - t0)
+    modelo = "" if origen != "ia" else getattr(getattr(proveedor, "config", None), "modelo", "") or ""
+    res = Resultado(uuid.uuid4().hex[:12], pregunta.strip(), texto, [], [], time.perf_counter() - t0, modelo, 0,
+                    capitulos=list(caps or []), origen="manual")
+    if memoria is not None:
+        memoria.agregar(M.CONVERSACIONES, id=res.id, pregunta=res.pregunta, respuesta=res.texto, referencias=[],
+                        modelo=res.modelo, segundos=round(res.segundos, 2), version=VERSION_PROMPT,
+                        manual=[c for _n, c in res.capitulos])
     return res
 
 
