@@ -544,6 +544,12 @@ class Vista3DDialog(ArmadoMixin, QtWidgets.QDialog):
             self._elegido(self.visor.sel_id, activar=True)
         elif tipo in ("accesorio", "conflicto") and o.get("x") is not None:
             self.win._ir_a_elemento(o["x"], o["y"])
+        # minimiza la Vista 3D y trae la ventana del plano al frente (pedido 2026-10-30)
+        self.showMinimized()
+        if self.win.isMinimized():
+            self.win.showMaximized()                     # la principal siempre va maximizada
+        self.win.raise_()
+        self.win.activateWindow()
 
     def deseleccionar(self):
         """Quita la selección (Esc): en 3D, en la ficha y en el plano."""
