@@ -143,13 +143,22 @@ class Trabajador(QtCore.QObject):
                 self._timer.stop()
             return
         t = self._actual = self._cola.pop(0)
-        if not activo():
-            self._en_hilo(t)
-        else:
-            if self._proc is None or not self._proc.is_alive():
-                self._matar()
-                self._arrancar()
-            self._entrada.put((t.id, t.objetivo, t.args, t.kwargs))
+        try:
+            if not activo():
+                self._en_hilo(t)
+            else:
+                if self._proc is None or not self._proc.is_alive():
+                    self._matar()
+                    self._arrancar()
+                self._entrada.put((t.id, t.objetivo, t.args, t.kwargs))
+        except Exception:
+            import traceback
+            detalle = traceback.format_exc()
+            self._actual = None
+            self._matar()
+            t._fin(None, detalle)
+            self._siguiente()
+            return
         self._timer.start()
 
     def _en_hilo(self, t: Tarea):
@@ -204,9 +213,19 @@ class Trabajador(QtCore.QObject):
             return
         if (self._actual is not None and activo() and self._hilo is None
                 and (self._proc is None or not self._proc.is_alive())):
-            t, self._actual = self._actual, None  # el proceso murió (sin memoria, casi siempre)
+            t, self._actual = self._actual, None
+            # Un fallo nativo no es necesariamente falta de RAM. Conservar el
+            # código de salida para distinguir una violación de acceso de memoria.
+            code = self._proc.exitcode if self._proc is not None else None
+            pid = self._proc.pid if self._proc is not None else None
+            codigo = f"0x{code & 0xffffffff:08X}" if code is not None else "desconocido"
+            detalle = (f"El proceso de trabajo se detuvo inesperadamente.\n"
+                       f"Tarea: {t.objetivo}\nPID: {pid}\nCódigo de salida: {codigo}")
+            if pid is not None:
+                from nucleo import diagnostico
+                detalle += f"\nDiagnóstico del proceso: {diagnostico.ruta(pid)}"
             self._matar()
-            t._fin(None, "memoria")
+            t._fin(None, detalle)
             self._siguiente()
 
 

@@ -149,6 +149,14 @@ def refrescar(win, n_conf=None, n_avisos=None):
 
 def _a_la_vista(win):
     cv = win.canvas
+    # Las ventanas Tool siguen encima de los diálogos del asistente aunque el
+    # lienzo de su dueño siga «visible» para Qt detrás de ellos.
+    modal = QtWidgets.QApplication.activeModalWidget()
+    if modal is not None and modal is not win:
+        return False
+    active = QtWidgets.QApplication.activeWindow()
+    if isinstance(active, QtWidgets.QDialog) and active is not win:
+        return False
     if cv.pixmap_item is None or not win.isVisible() or win.isMinimized() or not cv.isVisible():
         return False
     for ov in win.findChildren(QtWidgets.QWidget, options=QtCore.Qt.FindDirectChildrenOnly):

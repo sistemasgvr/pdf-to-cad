@@ -124,6 +124,8 @@ def memoria_mb() -> int:
 def bucle(entrada, salida, tope_mb: int):
     """Punto de entrada del trabajador (`multiprocessing`, «spawn»): atiende trabajos
     (id, «paquete.modulo:funcion», args, kwargs) hasta recibir None."""
+    from nucleo import diagnostico
+    diagnostico.activar()
     bajar_prioridad()
     poner_tope(tope_mb)
     while True:

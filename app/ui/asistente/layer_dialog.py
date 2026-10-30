@@ -133,6 +133,8 @@ class SheetLayersDialog(ScaleCalibrationMixin, LayerAssignmentsMixin, LayerInfoM
         self.steps.stepClicked.connect(lambda _i: self._go_back())
         root.addWidget(wizard_header(self.steps))
         self.view = ZoomPanView()
+        from ui.asistente.layer_style_pick import StylePicker
+        self._style_picker = StylePicker(self)
         # Minimapa (esquina inferior izquierda): esquema de la hoja mostrada con
         # el recuadro de lo visible; clic/arrastre centra la vista.
         self.minimap = MiniMap(self.view)
@@ -194,6 +196,7 @@ class SheetLayersDialog(ScaleCalibrationMixin, LayerAssignmentsMixin, LayerInfoM
         hint = QtWidgets.QLabel(_tr("Casilla = mostrar en la hoja · interruptor = reconocer · ▸ = capa por capa"))
         if any(L.get("source") == "style" for L in self._layers):
             hint.setText(_tr("Clic en una capa para resaltarla y asignar su utilidad y rol abajo. "
+                             "También puedes pulsar una línea del PDF para seleccionar su estilo. "
                              "Las casillas excluyen estilos del reconocimiento; el PDF conserva "
                              "su imagen. Calibra la escala antes de importar."))
         hint.setWordWrap(True)
@@ -217,7 +220,10 @@ class SheetLayersDialog(ScaleCalibrationMixin, LayerAssignmentsMixin, LayerInfoM
         self.tree.setUniformRowHeights(True)
         f = self.tree.font(); f.setPointSize(f.pointSize() + 1); self.tree.setFont(f)
         self.tree.itemChanged.connect(self._on_item_changed)
-        self.tree.itemClicked.connect(self._focus_style)
+        self.tree.currentItemChanged.connect(self._focus_style)
+        # Tras Esc se puede volver a resaltar pulsando la misma fila actual.
+        self.tree.itemClicked.connect(
+            lambda item, column: self._focus_style(item, column) if not self._hl_items else None)
         lay.addWidget(self.tree, 1)
         self._build_assignment_controls(lay)
         self.lbl_count = QtWidgets.QLabel()
@@ -278,6 +284,9 @@ class SheetLayersDialog(ScaleCalibrationMixin, LayerAssignmentsMixin, LayerInfoM
     def _fill_list(self):
         """Rellena el árbol: un grupo por utilidad (con su color) y sus capas."""
         self._syncing = True
+        # clear() emite currentItemChanged(None, anterior). No ejecutar slots
+        # que consulten filas mientras Qt las está destruyendo.
+        blocker = QtCore.QSignalBlocker(self.tree)
         self.tree.clear()
         self._groups.clear()
         self._interruptores_arbol = {}
@@ -317,7 +326,8 @@ class SheetLayersDialog(ScaleCalibrationMixin, LayerAssignmentsMixin, LayerInfoM
                                       "márcala en la «Leyenda».").format(
                         u=", ".join(_tr(dict(pdf_layers.UTILITIES).get(u, u)) for u in shared))
                 it.setToolTip(0, tip)
-                it.setFlags(QtCore.Qt.ItemIsEnabled | QtCore.Qt.ItemIsUserCheckable)
+                it.setFlags(QtCore.Qt.ItemIsEnabled | QtCore.Qt.ItemIsUserCheckable
+                            | QtCore.Qt.ItemIsSelectable)
                 it.setCheckState(0, QtCore.Qt.Checked if L["on"] else QtCore.Qt.Unchecked)
                 it.setData(0, _ROLE_NAME, L["name"])
                 it.setData(0, _ROLE_UTILITY, key)
@@ -325,6 +335,9 @@ class SheetLayersDialog(ScaleCalibrationMixin, LayerAssignmentsMixin, LayerInfoM
                 self._items_by_name.setdefault(L["name"], []).append(it)
             hdr.setExpanded(False)          # plegados: se ve la hoja por utilidades de un vistazo
         self._syncing = False
+        del blocker
+        if hasattr(self, "assignment_utility"):
+            self._assignment_selection_changed(None)
         for key in self._groups:
             self._refresh_group(key)
         self._apply_filter()
@@ -350,6 +363,8 @@ class SheetLayersDialog(ScaleCalibrationMixin, LayerAssignmentsMixin, LayerInfoM
         self._interruptores_arbol[key] = sw
 
     def _focus_style(self, item, _column=0):
+        if item is None or self._syncing:
+            return
         name = item.data(0, _ROLE_NAME)
         if name and any(L["name"] == name and L.get("source") == "style" for L in self._layers):
             self._focus_lines({"layers": [name]})

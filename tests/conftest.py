@@ -55,6 +55,7 @@ def _recuperacion_en_carpeta_temporal(monkeypatch, tmp_path):
     """Las copias automáticas (autoguardado.py) nunca van a %LOCALAPPDATA% en las pruebas."""
     monkeypatch.setenv("PDFCAD_RECUPERACION", str(tmp_path / "recuperacion"))
     monkeypatch.setenv("PDFCAD_RECIENTES", str(tmp_path / "recientes.json"))
+    monkeypatch.setenv("PDFCAD_DIAGNOSTICOS", str(tmp_path / "diagnosticos"))
     yield
 
 

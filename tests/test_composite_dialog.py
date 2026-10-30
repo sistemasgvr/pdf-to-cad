@@ -52,6 +52,36 @@ def _two_sheet_pdf():
     return doc.tobytes()
 
 
+def test_reabrir_composicion_manual_en_flujo_completo(app, tmp_path):
+    """La acción normal recupera hojas/áreas y continúa a Capas, aunque antes se usara escaneo."""
+    sources = [{"name": "a.pdf", "data": _two_sheet_pdf()}]
+    comp = C.Composite([C.Piece(0, 0, [0, 0, 1, 1])], manual=True, bridges=False)
+    dlg = composite_dialog.CompositeDialog(None, sources, comp, {}, manual=False)
+    try:
+        dlg.show()
+        app.processEvents()
+        assert not dlg.comp.manual and comp.manual  # editar no modifica la hoja del editor
+        assert dlg.steps.isVisible()
+        assert dlg.columna_hojas.isVisible()
+        assert dlg.lst_pages.count() == 2
+        assert dlg.btn_ok.text() == "Continuar"
+        dlg.lst_pages.setCurrentRow(1)
+        dlg.crop.set_selection(QtCore.QRectF(0, 0, 150, 200))
+        dlg._take(full=False)
+        extra = tmp_path / "extra.pdf"
+        extra.write_bytes(_two_sheet_pdf())
+        dlg._open_extra_pdf(str(extra))
+        dlg._take(full=True)
+        assert len(dlg.sources) == 2
+        assert len(dlg.comp.pieces) == 3
+        assert dlg.comp.pieces[1].clip == pytest.approx([0, 0, 0.5, 1])
+        assert dlg.comp.pieces[2].source == 1
+        assert not dlg.sirve_para(dlg.sources, dlg.comp, {}, True, True)
+    finally:
+        dlg.close_docs()
+        dlg.close()
+
+
 def test_compositor_toma_piezas_iman_y_reconoce(app):
     data = _two_sheet_pdf()
     dlg = composite_dialog.CompositeDialog(None, [{"name": "a.pdf", "data": data}], None, {}, 0)

@@ -32,6 +32,8 @@ if __name__ == "__main__":
     # importa solo aquí, así el hijo (que importa este módulo como `__mp_main__`) no la carga.
     import multiprocessing
     multiprocessing.freeze_support()
+    from nucleo import diagnostico
+    diagnostico.activar()
     from ui.ventana.app_window import main
     if not getattr(sys, "frozen", False):        # SOLO desarrollo: F5 recarga módulos (por nombre: no va al .exe)
         import importlib

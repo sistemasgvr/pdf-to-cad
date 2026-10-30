@@ -174,7 +174,10 @@ class CompositeDialog(NoEscapeClose, ChosenSheetMixin, SourcePageMixin, ScanTool
         # tener nada que tomar (usuario: «la página 3 no me muestra capas»).
         self.hidden_by_source = {k: list(v) for k, v in (hidden_by_source or {}).items()}
         self.comp = C.Composite.from_dict(comp.to_dict()) if comp else C.Composite()
-        self.comp.manual = manual or self.comp.manual
+        # El modo lo decide la entrada al asistente. Una composición guardada en
+        # modo escaneo no debe saltarse Capas y Reconocimiento al abrir la acción
+        # normal «Componer hoja de trabajo» (también permite añadir PDF vectoriales).
+        self.comp.manual = bool(manual)
         if self.comp.manual:
             self.comp.bridges = False
         self.docs: List[fitz.Document] = []
@@ -1227,7 +1230,7 @@ class CompositeDialog(NoEscapeClose, ChosenSheetMixin, SourcePageMixin, ScanTool
         """¿Recibe lo mismo que dejó? (mismos PDF, misma hoja compuesta, mismo modo). Las capas
         apagadas no cuentan: aquí solo pasan de largo (se toman las nuevas en `reabrir`)."""
         from reconocimiento import recognition_cache as RC
-        if not self.docs or bool(self._sugerir) != bool(sugerencia) or bool(self.comp.manual) != bool(manual or (comp and comp.manual)):
+        if not self.docs or bool(self._sugerir) != bool(sugerencia) or bool(self.comp.manual) != bool(manual):
             return False
         if len(sources) != len(self.sources) or any(
                 a.get("data") is not b.get("data") and a.get("data") != b.get("data")

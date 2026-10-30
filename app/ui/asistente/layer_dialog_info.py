@@ -11,7 +11,7 @@
     muestra además, en línea fina, el RESTO de las líneas de su utilidad (2.º pedido
     2026-10-07: junto a las «T» de G-XREF iban las «t» de C-TELE-UNGD-E, también telecom
     al importar, y no se veían). Qué trazo es de qué utilidad: `leyenda_estandar`.
-  · La leyenda del PDF se lee en otro hilo (`LegendWorker`) y queda en `legend_cache`
+  · La leyenda del PDF se lee en otro proceso (`LegendWorker`) y queda en `legend_cache`
     (de la ventana principal): al volver a este paso ya está.
   · Anchos (pedido del usuario 2026-10-09: la leyenda quedaba amontonada en 260 px y el
     panel derecho ancho): la leyenda ~22 % y el panel derecho más angosto, y SIGUEN a la
@@ -172,6 +172,7 @@ class LayerInfoMixin:
             worker = LegendWorker(sources, parent or self)
             worker.done.connect(lambda res, c=cache, k=key: c.__setitem__(k, res))
             worker.done.connect(self._on_legend)
+            worker.failed.connect(self._on_legend_error)
             worker.finished.connect(worker.deleteLater)
             self._legend_worker = worker
             self._legend_pending = True
@@ -208,6 +209,22 @@ class LayerInfoMixin:
         self.info.set_legend(results)
         self._auto_collapse_info()
 
+    def _on_legend_error(self, error):
+        from nucleo import diagnostico
+        self._legend_worker = None
+        self._legend_pending = False
+        path = diagnostico.registrar(error, "Lectura de leyenda de capas")
+        box = QtWidgets.QMessageBox(self)
+        box.setIcon(QtWidgets.QMessageBox.Warning)
+        box.setWindowTitle(_tr("Lectura de capas interrumpida"))
+        box.setText(_tr("No se pudo leer la leyenda del PDF. Puedes reintentar o continuar revisando las capas."))
+        box.setInformativeText(diagnostico.resumen(error))
+        box.setDetailedText(str(error) + (f"\n\nRegistro: {path}" if path else ""))
+        box.setStandardButtons(QtWidgets.QMessageBox.Retry | QtWidgets.QMessageBox.Cancel)
+        box.setDefaultButton(QtWidgets.QMessageBox.Cancel)
+        if box.exec() == QtWidgets.QMessageBox.Retry:
+            QtCore.QTimer.singleShot(0, self, self._cargar_leyenda)
+
     def _auto_collapse_info(self):
         """Sin capas por letras ni leyenda en el PDF, el panel se pliega: la hoja gana sitio."""
         empty = (not any(L.get("letter_utilities") for L in self._layers_raw) and self.info._legend == []
@@ -226,6 +243,7 @@ class LayerInfoMixin:
         if worker is not None:
             try:
                 worker.done.disconnect(self._on_legend)   # sigue llenando la caché si no terminó
+                worker.failed.disconnect(self._on_legend_error)
             except (RuntimeError, TypeError):
                 pass
             if worker.parent() is self:                   # sin ventana principal: esperarlo
@@ -280,7 +298,7 @@ class LayerInfoMixin:
         self._clear_focus()
         return True
 
-    def _focus_lines(self, spec):
+    def _focus_lines(self, spec, *, fit=True):
         """Resalta lo ACTIVO en el panel izquierdo; None = quitar el resaltado. `spec` =
         {"specs": [...], "label": [...]} (todo lo marcado, junto: 3.er pedido 2026-10-07,
         «activar más de una utilidad») o uno solo:
@@ -327,7 +345,8 @@ class LayerInfoMixin:
                 if groups is strong:
                     box = box.united(whole.boundingRect())
         pad = max(box.width(), box.height()) * 0.08 + 30
-        self.view.fitInView(box.adjusted(-pad, -pad, pad, pad), QtCore.Qt.KeepAspectRatio)
+        if fit:
+            self.view.fitInView(box.adjusted(-pad, -pad, pad, pad), QtCore.Qt.KeepAspectRatio)
         self._view_auto = False                     # encuadrada en lo resaltado: no volver a la hoja entera
 
     def _union_sets(self, spec):

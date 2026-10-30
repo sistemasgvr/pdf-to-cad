@@ -120,6 +120,8 @@ class RecognitionWorker(QtCore.QThread):
             t.terminado.connect(lambda r, e, k=k: self._fin_parte(k, r, e))
             self._tareas.append(t)
             proceso.trabajador("principal" if k % n_par == 0 else f"principal-{k % n_par}").enviar(t)
+            if self._partes is None:
+                return  # un fallo de arranque puede haber terminado antes de enviar el resto
         self._tarea = self._tareas[0]
 
     def _avance_parte(self, k, a):
@@ -138,10 +140,10 @@ class RecognitionWorker(QtCore.QThread):
         if self._partes is None:
             return                                    # ya terminó (error o cancelado)
         if err:
+            self._partes = None  # cancelar emite terminado de forma síncrona
             for t in self._tareas:
                 if not t.hecha:
                     t.cancelar()
-            self._partes = None
             self._fin_proceso(None, err)
             return
         self._partes[k] = res
@@ -154,7 +156,12 @@ class RecognitionWorker(QtCore.QThread):
         if len(partes) > 1:
             # cada utilidad vino de su proceso: los cruces de los perfiles, con todas juntas
             from reconocimiento import recognition_grosor_cruces
-            recognition_grosor_cruces.aplicar(todos)
+            try:
+                recognition_grosor_cruces.aplicar(todos)
+            except Exception:
+                import traceback
+                self._fin_proceso(None, traceback.format_exc())
+                return
         self._fin_proceso(todos, "")
 
     def _fin_proceso(self, res, err):

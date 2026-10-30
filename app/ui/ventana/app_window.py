@@ -810,8 +810,7 @@ class Main(MenuMixin, PanelIzquierdoMixin, PanelDerechoMixin, ModosMixin, ClicsM
             return
         self._empezar_asistente()
         self._tomar_respaldo()
-        if not self._wizard_sheet_flow(self.page_idx,
-                manual=bool(self.composite and self.composite.manual)):
+        if not self._wizard_sheet_flow(self.page_idx):
             self._cancelar_asistente(_tr("Composición cancelada — el editor queda como estaba."),
                                      _tr("Composición cancelada — se mantiene la hoja actual."))
 
@@ -1093,7 +1092,15 @@ class Main(MenuMixin, PanelIzquierdoMixin, PanelDerechoMixin, ModosMixin, ClicsM
             self._recog_worker.partial.connect(self._recognition_partial)
             self._recog_worker.stage.connect(self._recognition_stage)
         self._recog_linea = ""
-        self._recog_worker.start()
+        try:
+            self._recog_worker.start()
+        except Exception:
+            import traceback
+            error = traceback.format_exc()
+            # Una excepción al preparar el trabajador también debe volver por
+            # el mismo aviso recuperable; no dejar el velo de carga abierto.
+            self._recog_worker.cancel()
+            self._recognition_failed(error)
 
     def _perfiles_de(self):
         """(pdf, hoja) de origen de cada pieza de la hoja compuesta: el reconocimiento lee ahí los
@@ -1199,16 +1206,40 @@ class Main(MenuMixin, PanelIzquierdoMixin, PanelDerechoMixin, ModosMixin, ClicsM
         self._recog_trazos = []
 
     def _recognition_done(self, results, error):
+        try:
+            self._recognition_result(results, error)
+        except Exception:
+            import traceback
+            self._recognition_failed(traceback.format_exc())
+
+    def _recognition_failed(self, error):
+        """El fallo detiene solo el reconocimiento; el usuario decide si reintentarlo."""
+        from nucleo import diagnostico
+        self._end_recognition_busy()
+        self._recog_pending_key = None
+        path = diagnostico.registrar(error, "Reconocimiento")
+        box = QtWidgets.QMessageBox(self)
+        box.setIcon(QtWidgets.QMessageBox.Warning)
+        box.setWindowTitle(_tr("Reconocimiento interrumpido"))
+        box.setText(_tr("No se pudo completar el reconocimiento de las capas."))
+        box.setInformativeText(_tr("Puedes volver a intentar esta acción o cancelar para regresar al editor.")
+                               + "\n\n" + diagnostico.resumen(error))
+        box.setDetailedText(str(error) + (f"\n\nRegistro: {path}" if path else ""))
+        box.setStandardButtons(QtWidgets.QMessageBox.Retry | QtWidgets.QMessageBox.Cancel)
+        box.setDefaultButton(QtWidgets.QMessageBox.Cancel)
+        if box.exec() == QtWidgets.QMessageBox.Retry:
+            QtCore.QTimer.singleShot(0, self, lambda: self._start_recognition(self.page_idx))
+        else:
+            self._cancelar_asistente(_tr("Reconocimiento cancelado — el editor queda como estaba."))
+
+    def _recognition_result(self, results, error):
         self._end_recognition_busy()
         key, self._recog_pending_key = self._recog_pending_key, None
         # Cualquier salida sin importar devuelve el editor a como estaba si el
         # asistente se abrió desde él (Herramientas → Componer hoja; respaldo_editor).
         cancelled = _tr("Reconocimiento cancelado — el editor queda como estaba.")
         if error:
-            QtWidgets.QMessageBox.warning(
-                self, _tr("Reconocimiento"),
-                _tr("No se pudo reconocer la hoja:\n\n{e}").format(e=error))
-            self._cancelar_asistente(cancelled)
+            self._recognition_failed(error)
             return
         if results is None:
             self._cancelar_asistente(cancelled)
@@ -2202,6 +2233,8 @@ def main():
     # La Vista 3D usa QOpenGLWidget: Qt pide esto ANTES de crear la app.
     QtCore.QCoreApplication.setAttribute(QtCore.Qt.AA_ShareOpenGLContexts)
     app = QtWidgets.QApplication(sys.argv)
+    from ui.comun import errores
+    errores.instalar(app)
     app._no_wheel_filter = _NoWheelFilter(app)
     app.installEventFilter(app._no_wheel_filter)
     # Idioma preferido del usuario. Debe cargarse ANTES de construir Main() para

@@ -76,6 +76,7 @@ def win(app, monkeypatch):
     # «Hay cambios sin guardar. ¿Deseas guardarlos?» → Descartar (lo peor para el caso)
     monkeypatch.setattr(QtWidgets.QMessageBox, "question",
                         lambda *a, **k: QtWidgets.QMessageBox.Discard)
+    monkeypatch.setattr(QtWidgets.QMessageBox, "exec", lambda self: QtWidgets.QMessageBox.Cancel)
     w = app_window.Main()
     yield w
     w._dirty = False
@@ -296,3 +297,94 @@ def test_volver_atras_sin_cambios_no_rearma_ni_recarga(win, app, tmp_path, monke
     assert win._wizard_sheet_flow(0)
     app.processEvents()
     assert len(armadas) == 2
+
+
+def test_recomponer_repite_flujo_con_cambios_y_reusa_reconocimiento_sin_cambios(
+        win, app, tmp_path, monkeypatch):
+    from ui.ventana import app_window
+    _editor_con_lineas(win, tmp_path, HOJA, manual=True)
+    llamadas, capas, vistas = [], [], []
+    cambiar = [None]
+
+    def componer(parent, sources, comp, hidden, **kw):
+        llamadas.append(kw.get("manual", False))
+        nuevo = C.Composite.from_dict(comp.to_dict())
+        nuevo.manual = kw.get("manual", False)
+        sources = list(sources)
+        if cambiar[0] == "hoja":
+            nuevo.pieces.append(C.Piece(0, 2, HOJA, x=650))
+        elif cambiar[0] == "area":
+            nuevo.pieces[-1].clip = list(AREA)
+        elif cambiar[0] == "pdf":
+            path = _pdf(tmp_path / "otro.pdf")
+            sources.append({"name": "otro.pdf", "path": path, "data": Path(path).read_bytes()})
+            nuevo.pieces.append(C.Piece(1, 0, HOJA, x=1300))
+        return nuevo, sources, dict(hidden)
+
+    def elegir_capas(parent, doc, page, **kw):
+        capas.append(len(win.composite.pieces))
+        return [], page, ("ELECTRICO",), set()
+
+    def vista(*args, **kw):
+        vistas.append(1)
+        return app_window.recognition_dialog.PREVIEW_IMPORT
+
+    monkeypatch.setattr(app_window.composite_dialog, "compose_sheet", componer)
+    monkeypatch.setattr(app_window.layer_dialog, "choose_sheet_layers", elegir_capas)
+    monkeypatch.setattr(app_window.recognition_dialog, "show_recognition_preview", vista)
+    monkeypatch.setattr(win, "_import_recognized_pipes",
+                        lambda results: win.pipes.append(dict(LINEA)) or True)
+    for cambio, esperados in [(None, 1), ("hoja", 2), ("area", 3), ("pdf", 4), (None, 4)]:
+        cambiar[0] = cambio
+        win.compose_sheet()
+        for _ in range(3):
+            app.processEvents()
+        assert len(_FakeWorker.started) == esperados
+        assert win._respaldo is None
+        assert not win.composite.manual
+        assert len(win.pipes) == 1
+    assert llamadas == [False] * 5
+    assert capas == [1, 2, 2, 3, 3]
+    assert len(vistas) == 5 and len(win.src_pdfs) == 2
+
+
+def test_reintentar_reconocimiento_conserva_hoja_y_termina_importacion(win, app, tmp_path, monkeypatch):
+    from ui.ventana import app_window
+    _editor_con_lineas(win, tmp_path, HOJA)
+    _stubs(monkeypatch, win, [_otra()], ["ok"], [app_window.recognition_dialog.PREVIEW_IMPORT])
+    _FakeWorker.error = "ValueError: fallo de capa"
+    avisos = []
+    def reintentar(box):
+        avisos.append(box.detailedText())
+        assert box.standardButtons() & QtWidgets.QMessageBox.Retry
+        assert win._respaldo is not None
+        _FakeWorker.error = ""
+        return QtWidgets.QMessageBox.Retry
+    monkeypatch.setattr(QtWidgets.QMessageBox, "exec", reintentar)
+    monkeypatch.setattr(win, "_import_recognized_pipes",
+                        lambda results: win.pipes.append(dict(LINEA)) or True)
+    win.compose_sheet()
+    for _ in range(3):
+        app.processEvents()
+    assert len(avisos) == 1 and "ValueError: fallo de capa" in avisos[0]
+    assert "Registro:" in avisos[0]
+    assert len(_FakeWorker.started) == 2
+    assert win._respaldo is None and len(win.pipes) == 1
+    assert not win.doc.is_closed
+
+
+def test_error_en_vista_previa_muestra_aviso_y_restaura_editor(win, app, tmp_path, monkeypatch):
+    from ui.ventana import app_window
+    _editor_con_lineas(win, tmp_path, HOJA)
+    antes = _foto(win)
+    _stubs(monkeypatch, win, [_otra()], ["ok"], [])
+    def fallar(*a, **kw):
+        raise ValueError("fallo preparando vista previa")
+    monkeypatch.setattr(app_window.recognition_dialog, "show_recognition_preview", fallar)
+    avisos = []
+    monkeypatch.setattr(QtWidgets.QMessageBox, "exec",
+                        lambda box: avisos.append(box.detailedText()) or QtWidgets.QMessageBox.Cancel)
+    win.compose_sheet()
+    app.processEvents()
+    assert len(avisos) == 1 and "fallo preparando vista previa" in avisos[0]
+    assert _foto(win) == antes
