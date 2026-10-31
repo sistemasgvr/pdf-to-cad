@@ -23,6 +23,7 @@ RIEL = [("vector-polyline", "Dibujar", 0, None), ("file-pdf-box", "Hoja y PDF", 
         ("playlist-check", "Normativas de diseño", None, "open_normativas"),
         ("table-large", "Tabla de datos", None, "abrir_tabla_datos"),
         ("cube-outline", "Vista 3D", None, "abrir_vista3d"),
+        ("chart-bell-curve-cumulative", "Perfil longitudinal", None, "abrir_perfil"),
         ("vector-square", "Diseñador de Duct Bank", None, "_open_duct_bank_designer")]
 PAGINAS = ["Dibujar", "Hoja y PDF", "Inventario", "Revisión"]
 

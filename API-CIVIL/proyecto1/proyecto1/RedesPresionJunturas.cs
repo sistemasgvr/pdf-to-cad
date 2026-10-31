@@ -523,6 +523,19 @@ namespace Civil3DBasico
         // mismo diámetro sin ángulo, o si no hay pieza disponible). Reemplaza
         // al bucle pareado O(n²) de CrearRedPresionCompleta. Todo punto que
         // antes tragaba errores en silencio ahora imprime un mensaje [JUNTURA].
+        // Puntos donde el usuario dijo en la app «no hay codo/T/Y/cruz» (PDFCAD_SIN_ACCESORIO, 2026-10-30):
+        // en la juntura de ese punto (±0.5 ft) no se pone pieza ni se conectan las tuberías (llegan sueltas).
+        // Lo llena IMPORTAR_RED al leer el DXF (y lo vacía al empezar).
+        internal static readonly List<Point2d> SinAccesorio = new List<Point2d>();
+
+        internal static bool EsSinAccesorio(Point3d p, double tol = 0.5)
+        {
+            foreach (var q in SinAccesorio)
+                if ((q.X - p.X) * (q.X - p.X) + (q.Y - p.Y) * (q.Y - p.Y) <= tol * tol)
+                    return true;
+            return false;
+        }
+
         internal static (int fittings, int directas, int fallidas) ProcesarJunturasPresion(
             CivilDB.PressurePipeNetwork net, Transaction tr, Editor ed,
             List<PresStyles.PressurePartSize> fittingsDisponibles,
@@ -601,6 +614,13 @@ namespace Civil3DBasico
             foreach (var j in junturas)
             {
                 if (j.Miembros.Count < 2) continue;   // extremo suelto, no es juntura
+
+                if (EsSinAccesorio(j.Ubicacion, tol))
+                {
+                    ed?.WriteMessage($"\n  · [SIN-ACCESORIO] ({j.Ubicacion.X:F2},{j.Ubicacion.Y:F2}): marcado en la app " +
+                        "como «sin accesorio» — no se pone pieza y las tuberías quedan sin conectar.");
+                    continue;
+                }
 
                 if (j.Miembros.Count > 4)
                 {

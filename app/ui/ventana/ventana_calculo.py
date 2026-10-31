@@ -167,6 +167,20 @@ class CalculoPlanoMixin:
             self.pipes, ft_px)) if ft_px else []
         self._choque_hits = self._memo(("choques", tol_junta), lambda: model_ops.choques_sin_conexion(
             self.pipes, self._pipe_z_at, tol_junta, self.structures))
+        marcas = getattr(self, "sin_accesorio", None)
+        if marcas:                     # «no hay codo/T/Y/cruz» (nucleo/sin_accesorio): esos puntos ya no se marcan
+            from nucleo import sin_accesorio as _sa
+            tol = _sa.tol_px(ft_px)
+            for clave, nombre in (("exceso", "_exceso_hits"), ("escalon", "_escalon_hits"), ("codos", "_codos_hits"),
+                                  ("retorno", "_retorno_hits"), ("choque", "_choque_hits"), ("redes", "_redes_hits"),
+                                  ("pendiente", "_pendiente_hits")):
+                setattr(self, nombre, [e for e in getattr(self, nombre) or []
+                                       if not _sa.suprime(marcas, clave, e["x"], e["y"], tol)])
+            self._conflict_hits = [h for h in self._conflict_hits if not _sa.suprime(marcas, "cruce", h[0], h[1], tol)]
+            filas = [f for f in filas if _sa.en(marcas, f[0], f[1], tol) is None]
+            n_conf = sum(1 for h in self._conflict_hits if h[8] == "conflicto")
+            n_ap = sum(1 for h in self._conflict_hits if h[8] == "aprobado")
+            n_sug = sum(1 for h in self._conflict_hits if h[8] not in ("conflicto", "aprobado"))
         return filas, n_conf, n_sug, n_ap
 
     def _calcular_accesorios(self, ft_px):
@@ -175,6 +189,10 @@ class CalculoPlanoMixin:
         # Se reusan mientras el modelo no cambie (`_memo`, ventana_dibujo): copias, que
         # `marcar` escribe la aprobación en cada aviso.
         accs = self._memo(("accesorios", ft_px), lambda: _acc.accesorios(self.pipes, self._pipe_z_at, ft_px))
+        self._accs_todos = accs                    # también los marcados «sin accesorio» (para encontrarlos)
+        if getattr(self, "sin_accesorio", None):   # «no hay codo/T/Y/cruz»: ni etiqueta, ni normativa, ni 3D
+            from nucleo import sin_accesorio as _sa
+            accs = _sa.filtrar(accs, self.sin_accesorio, _sa.tol_px(ft_px))
         con_db = {i for db in getattr(self, "duct_banks", []) or [] for i in db.assigned()}
         # + el diámetro que el plano no dijo con certeza (`diametro_plano`, 2026-10-22): mismos avisos
         from nucleo import diametro_plano

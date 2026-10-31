@@ -230,6 +230,37 @@ namespace Civil3DBasico
         /// sentido de estaciones (gravedad: menor invert; resto: oeste/sur), Pasos, Ramales, Traza con EXT_EJE = max(25, PAD_MAX·s + 10),
         /// DistN0, estaciones PRELIMINARES (EstNodo, EstP*, Z*) y EstMin/MaxPermitida. null + mensaje si queda sin tubos.
         /// </summary>
+        /// <summary>Inicio/fin del perfil que mandó la app (`PDFCAD_PERFIL` INI/FIN). null = recorrido completo
+        /// (CREAR_PERFIL_RED interactivo). Lo pone y lo quita `ComandosPerfil.CrearAutomatico`.</summary>
+        internal static Point2d? LimiteIni, LimiteFin;
+        private const double LIMITE_TOL_FT = 2.0;
+
+        /// <summary>Solo los pasos entre el tramo más cercano a LimiteIni y el más cercano a LimiteFin (los dos
+        /// incluidos). Sin límites, o si alguno no cae sobre el recorrido (≤ LIMITE_TOL_FT), sin cambios.</summary>
+        private static List<PasoG> RecortarALimites(RedPerfil red, List<PasoG> pasos)
+        {
+            if (LimiteIni == null || LimiteFin == null || pasos.Count < 2) return pasos;
+            int Cercano(Point2d p)
+            {
+                int mejor = -1; double dmin = LIMITE_TOL_FT;
+                for (int i = 0; i < pasos.Count; i++)
+                {
+                    var t = red.Tramos[pasos[i].Arista];
+                    double ax = t.PIni.X, ay = t.PIni.Y, dx = t.PFin.X - ax, dy = t.PFin.Y - ay;
+                    double l2 = dx * dx + dy * dy;
+                    double u = l2 <= 1e-12 ? 0 : Math.Max(0, Math.Min(1, ((p.X - ax) * dx + (p.Y - ay) * dy) / l2));
+                    double d = Math.Sqrt(Math.Pow(ax + dx * u - p.X, 2) + Math.Pow(ay + dy * u - p.Y, 2));
+                    if (d <= dmin) { dmin = d; mejor = i; }
+                }
+                return mejor;
+            }
+            int a = Cercano(LimiteIni.Value), b = Cercano(LimiteFin.Value);
+            if (a < 0 || b < 0) { PerfilLog.Aviso("GRAFO", "Límites de la app fuera del recorrido: se usa completo"); return pasos; }
+            int i0 = Math.Min(a, b), i1 = Math.Max(a, b);
+            PerfilLog.Log("GRAFO", $"límites de la app: pasos {i0}..{i1} de {pasos.Count}");
+            return pasos.GetRange(i0, i1 - i0 + 1);
+        }
+
         internal static Recorrido ArmarRecorrido(RedPerfil red, ObjectId entidadId, double s, out string mensaje)
         {
             mensaje = "";
@@ -244,6 +275,7 @@ namespace Civil3DBasico
                 pasos = PerfilRecorrido.RecorrerDesdeNodo(red.GNodos, red.GAristas, nd);
             }
             if (pasos == null || pasos.Count == 0) { mensaje = "✗ No se pudo formar un recorrido desde esa entidad."; return null; }
+            pasos = RecortarALimites(red, pasos);
             var rec = new Recorrido { Red = red };
             Func<PasoG, int> desde = p => p.Invertida ? red.GAristas[p.Arista].B : red.GAristas[p.Arista].A;
             Func<PasoG, int> hasta = p => p.Invertida ? red.GAristas[p.Arista].A : red.GAristas[p.Arista].B;

@@ -156,6 +156,15 @@ class SolucionesDialog(QtWidgets.QDialog):
         for tecla in ("Ctrl+Return", "Ctrl+Enter"):
             QtGui.QShortcut(QtGui.QKeySequence(tecla), self, activated=self._aplicar)
         botones.addWidget(self.btn_ver)
+        # «No hay codo/T/Y/cruz» (2026-10-30): el conflicto lo causa un accesorio que en realidad no va
+        self.btn_sin_acc = QtWidgets.QPushButton()
+        self.btn_sin_acc.setMinimumHeight(38)
+        self.btn_sin_acc.setAutoDefault(False)
+        self.btn_sin_acc.setToolTip(_tr("En ese punto no va accesorio: deja de marcarse y Civil 3D no lo dibuja"))
+        self.btn_sin_acc.clicked.connect(self._sin_accesorio)
+        self.btn_sin_acc.hide()
+        self._acc_conflicto = None
+        botones.addWidget(self.btn_sin_acc)
         botones.addStretch(1)
         botones.addWidget(self.btn_aplicar)
         dl.addLayout(botones)
@@ -254,8 +263,28 @@ class SolucionesDialog(QtWidgets.QDialog):
     def elegir(self, cid):
         self.refrescar(elegir=cid)
 
+    def _poner_sin_accesorio(self, c):
+        """«No hay …» solo si el conflicto lo causa un accesorio."""
+        from ui.ventana.ventana_sin_accesorio import texto_no_hay
+        acc = self.win.accesorio_de_conflicto(c.id) if hasattr(self.win, "accesorio_de_conflicto") else None
+        self._acc_conflicto = acc
+        if acc is not None:
+            self.btn_sin_acc.setText(texto_no_hay(acc.get("tipo")))
+        self.btn_sin_acc.setVisible(acc is not None)
+
+    def _sin_accesorio(self):
+        if self._actual is None or self._acc_conflicto is None:
+            return
+        c = self._actual[0]
+        if self.win.marcar_sin_accesorio(self._acc_conflicto, c):
+            self.lbl_estado.setText(_tr("{c}: sin accesorio en ese punto (Ctrl+Z para deshacer).").format(c=c.id))
+            self.refrescar(elegir=c.id, mover=False)
+
     def _limpiar(self, msg=""):
         self._actual = None
+        if hasattr(self, "btn_sin_acc"):
+            self.btn_sin_acc.hide()
+            self._acc_conflicto = None
         self._elegida = None
         self.lbl_id.hide()
         self.lbl_critico.hide()
@@ -291,6 +320,7 @@ class SolucionesDialog(QtWidgets.QDialog):
         self._elegida = None
         self._a_mano = False
         self._datos_conflicto(c, props)
+        self._poner_sin_accesorio(c)
         if getattr(self, "_mover", True):
             self.win._ir_a_elemento(c.x, c.y, activar=False)
         self._llenar(props, None)

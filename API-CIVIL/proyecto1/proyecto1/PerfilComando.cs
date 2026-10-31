@@ -35,17 +35,23 @@ namespace Civil3DBasico
             ContextoPerfil ctx = null;
             try { ctx = Preparar(); } catch (Exception ex) { PerfilLog.Error("CMD", "preparación", ex); }
             if (ctx == null) return;
-            var ed = ctx.Ed;
             if (!PedirEntidad(ctx)) return;
+            Ejecutar(ctx, () => PedirInsercion(ctx));
+        }
+
+        /// <summary>T0…T6 + resumen con la entidad ya elegida (interactivo o automático).</summary>
+        private static bool Ejecutar(ContextoPerfil ctx, Func<bool> insercion)
+        {
+            var ed = ctx.Ed;
             bool okT0;
             try { okT0 = T0(ctx); }
-            catch (Exception ex) { PerfilLog.Error("CMD", "T0", ex); ed.WriteMessage("\n✗ No se pudo leer la red: " + ex.Message); return; }
-            if (!okT0) return;
-            if (!PedirInsercion(ctx)) return;
+            catch (Exception ex) { PerfilLog.Error("CMD", "T0", ex); ed.WriteMessage("\n✗ No se pudo leer la red: " + ex.Message); return false; }
+            if (!okT0) return false;
+            if (!insercion()) return false;
             bool okT1;
             try { okT1 = T1a(ctx); }
-            catch (Exception ex) { PerfilLog.Error("CMD", "T1a", ex); ed.WriteMessage("\n✗ No se pudo crear el perfil: " + ex.Message); return; }
-            if (!okT1) return;
+            catch (Exception ex) { PerfilLog.Error("CMD", "T1a", ex); ed.WriteMessage("\n✗ No se pudo crear el perfil: " + ex.Message); return false; }
+            if (!okT1) return false;
             Fase("T1b", () => T1b(ctx));
             Fase("T2", () => T2(ctx));
             Fase("T3", () => T3(ctx));
@@ -53,6 +59,68 @@ namespace Civil3DBasico
             Fase("T5", () => T5(ctx));
             Fase("T6", () => T6(ctx));
             Resumen(ctx);
+            return true;
+        }
+
+        /// <summary>
+        /// Perfil AUTOMÁTICO (sin preguntar) desde la app (`PDFCAD_PERFIL` del DXF; lo llama IMPORTAR_RED al
+        /// terminar). La semilla es un punto sobre un tramo del perfil guardado en la app: el recorrido es el
+        /// mismo que haría CREAR_PERFIL_RED eligiendo esa tubería. Devuelve true si se creó.
+        /// </summary>
+        internal static bool CrearAutomatico(Point2d semilla, Point2d? fin, Point3d insercion, string nombreApp)
+        {
+            ContextoPerfil ctx = null;
+            try { ctx = Preparar(); } catch (Exception ex) { PerfilLog.Error("CMD", "preparación", ex); }
+            if (ctx == null) return false;
+            ctx.EntidadId = TuberiaMasCercana(ctx, semilla, out double dist);
+            if (ctx.EntidadId.IsNull || dist > 2.0)
+            {
+                ctx.Ed.WriteMessage($"\n  ✗ Perfil «{nombreApp}»: no hay tubería junto a su tramo ({semilla.X:0.##}, {semilla.Y:0.##}).");
+                return false;
+            }
+            ctx.Ed.WriteMessage($"\n· Perfil «{nombreApp}» (de la app):");
+            // inicio y fin del perfil de la app: el recorrido se corta ahí (sin fin = completo, como siempre)
+            PerfilGrafoCivil.LimiteIni = fin.HasValue ? semilla : (Point2d?)null;
+            PerfilGrafoCivil.LimiteFin = fin;
+            try { return Ejecutar(ctx, () => { ctx.PuntoInsercion = insercion; return true; }); }
+            finally { PerfilGrafoCivil.LimiteIni = PerfilGrafoCivil.LimiteFin = null; }
+        }
+
+        private static ObjectId TuberiaMasCercana(ContextoPerfil ctx, Point2d p, out double mejor)
+        {
+            mejor = double.MaxValue;
+            ObjectId id = ObjectId.Null;
+            using (Transaction tr = ctx.Db.TransactionManager.StartTransaction())
+            {
+                var redes = new List<ObjectId>();
+                try { foreach (ObjectId n in ctx.CivDoc.GetPipeNetworkIds()) redes.Add(n); } catch { }
+                try { foreach (ObjectId n in CivilDocumentPressurePipesExtension.GetPressurePipeNetworkIds(ctx.CivDoc)) redes.Add(n); } catch { }
+                foreach (ObjectId nid in redes)
+                {
+                    ObjectIdCollection pids = null;
+                    try
+                    {
+                        var o = tr.GetObject(nid, OpenMode.ForRead);
+                        if (o is CivilDB.Network net) pids = net.GetPipeIds();
+                        else if (o is CivilDB.PressurePipeNetwork pnet) pids = pnet.GetPipeIds();
+                    }
+                    catch { continue; }
+                    if (pids == null) continue;
+                    foreach (ObjectId pid in pids)
+                    {
+                        try
+                        {
+                            var cv = (Curve)tr.GetObject(pid, OpenMode.ForRead);
+                            var c = cv.GetClosestPointTo(new Point3d(p.X, p.Y, cv.StartPoint.Z), false);
+                            double d = new Point2d(c.X, c.Y).GetDistanceTo(p);
+                            if (d < mejor) { mejor = d; id = pid; }
+                        }
+                        catch { }
+                    }
+                }
+                tr.Commit();
+            }
+            return id;
         }
 
         /// <summary>Alias de CREAR_PERFIL_RED (redes a presión). G.</summary>

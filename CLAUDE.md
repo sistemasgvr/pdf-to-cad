@@ -2272,6 +2272,25 @@ alcantarillado, drenaje, gas, eléctrico, telecom). Todo en **unidades imperiale
     `ordensi:`/`ordenno:` en `ia_chat_html._orden`; «No» o una repregunta deja `_orden_pendiente` y el mensaje siguiente
     va con «Corrección del usuario»; «ninguna» = pregunta normal, `_preguntar_normal`). Inyección/código siguen
     bloqueados. Tests: `tests/test_ia_ordenes.py`.
+    **Resolver desde la Vista 3D** (2026-10-30): `ui/dialogos/vista3d_resolver.PanelResolver` = 3.ª pestaña
+    «Resolver» de la tarjeta derecha (`_grupo_ficha` id 2, solo con un conflicto elegido: `_conflicto_elegido`
+    = `codigo` del objeto 3D; elegir una marca C-n abre en ella). Reusa `soluciones_de`, `TarjetaPropuesta`,
+    `aplicar_propuesta` y `soluciones_ia.recomendar` (con IA: «Sugerida por la IA» + porqué; sin IA: `plantilla`).
+    Vista previa = `parche_local({pipe: copia con la propuesta})`, se repone con `parche_local({pipe: None})` al
+    cambiar de propuesta/selección (`soltar`); al aplicar no se repone. `ir_a_conflicto`, `editar_utilidad`,
+    ◀ ▶ / N / Mayús+N (`mover`, por el orden de `_conflictos`), fila «Conflictos (N pendientes) · Revisar uno por
+    uno» en el panel izquierdo. Tests: `tests/test_vista3d_resolver.py`.
+    **«No hay codo/T/Y/cruz»** (2026-10-30): `nucleo/sin_accesorio.py` (PURO; marca = {x, y, tipo, conf: [clave,
+    x, y] del C-n o None}, sin índices) + `ui/ventana/ventana_sin_accesorio.SinAccesorioMixin` (`accesorio_de_conflicto`
+    = el de `_accs_todos` más cercano a ≤10 ft que toca sus utilidades, `marcar_sin_accesorio`/`quitar_…` = un
+    `_push`, clic derecho `_menu_sin_accesorio`). `Main.sin_accesorio` va como `normas_aprobados`: .digproj, deshacer,
+    `respaldo_editor.CLAVES`, `calculo_fondo._PARTES`, `_firma_modelo` (solo si hay marcas: la firma de siempre no
+    cambia). Efecto: `_calcular_accesorios` filtra (guarda `_accs_todos` sin filtrar), `_calcular_cruces` quita los
+    hits/filas suprimidos (`suprime`: el punto o el conflicto de origen), `modelo3d.construir(sin_accesorio=)` y
+    `modelo3d_parche.parche(sin_accesorio=)`. Botones en `ia_soluciones` (`btn_sin_acc`), `vista3d_resolver` y la
+    ficha 3D de un accesorio. DXF: punto `PDFCAD_SIN_ACCESORIO` (TIPO) en su capa; plugin: `ComandosPresion.
+    SinAccesorio` (lo llena IMPORTAR_RED) y `ProcesarJunturasPresion` salta la juntura a ≤0.5 ft (tubos sin
+    conectar). Tests: `tests/test_sin_accesorio.py`.
     **«¿Qué significa esta regla?»**: `ia/explicar_norma.py` (caché GLOBAL junto al catálogo,
     `dirname(nc.ruta())/ia/redaccion.jsonl`, clave = celdas + idioma + versión, sin el modelo) +
     `ui/dialogos/normas_ia_panel.PanelExplicacion` bajo la tabla de Reglas (guardada = al instante, botón
@@ -2360,7 +2379,7 @@ alcantarillado, drenaje, gas, eléctrico, telecom). Todo en **unidades imperiale
     al apretar (`_prof_agarre`; antes un piso del 0.5 % del modelo lo disparaba de cerca); doble clic central = encuadrar todo; central =
     desplazar, Shift + central = girar; izquierdo = girar, derecho/Ctrl = desplazar). La cámara NO se recuerda:
     `abrir` → `visor.reiniciar()` si la ventana estaba cerrada. Zoom 5 % por clic (`ZOOM_PASO`=0.95; 15 % y 8 % eran muy
-    sensibles); giro 0.22°/0.16° por píxel (`GIRO_DEG_PX`). **Cubo de vistas** (`ui/comun/cubo_vistas.py`, pedido 2026-10-10, como el ViewCube de Civil 3D):
+    sensibles); giro 0.22°/0.16° por píxel (`GIRO_DEG_PX`). **Clic en la rueda = navegar** (2026-10-30, `ui/comun/visor3d_autopan.AutoPanMixin`: clic sin arrastrar → la vista avanza hacia el cursor, otro clic/Esc/salir lo termina; con la rueda apretada o de lado los giros desplazan: hay ratones que convierten «rueda apretada + mover» en giros). **Cubo de vistas** (`ui/comun/cubo_vistas.py`, pedido 2026-10-10, como el ViewCube de Civil 3D):
     QPainter ENCIMA del GL (proyección ortográfica con la orientación de la cámara), caras con su nombre deformado
     con `QTransform.quadToQuad`, anillo N/E/S/O (+X este, +Y norte); clic en cara/letra → `Visor3D.animar` (giro
     suave por el camino corto), arrastrar → orbitar; letras detrás del cubo tapadas y sin clic. OJO OpenGL: el VAO
@@ -2431,6 +2450,54 @@ alcantarillado, drenaje, gas, eléctrico, telecom). Todo en **unidades imperiale
     traban la ventana (decodificar la imagen, el redibujo final de los avisos: ~2–4 s quieta con su texto).
     Tests: `tests/test_barras_de_carga.py` (zip idéntico byte a byte, Excel idéntico, abrir/guardar = mismo
     proyecto, archivo roto, barras que llegan al final).
+  - **Perfil longitudinal** (2026-10-31, pedido del usuario: «el perfil no siempre es de una utilidad, sino de un
+    tramo… lo más fácil y automático»; referencia «PROFILE 8 - 12 INCH MAIN»). Espejo en la app de `CREAR_PERFIL_RED`
+    (`API-CIVIL/proyecto1/docs/PERFIL_DISENO.md`). PUROS: `nucleo/perfil_recorrido.py` (grafo de la RED = `red_de` +
+    tipo; nodos = vértices juntados a ≤`TOL_FT`=0.5 ft y la punta de otra utilidad sobre un tramo lo PARTE (T);
+    continuación C.4: menor deflexión ≤45° y sin empate <10°; `recorrer` ida y vuelta, `entre` = Dijkstra,
+    `extender`/`acortar`, `desde(pipes, i, x, y, ft)`; estaciones desde 1+00: gravedad desde la solera más baja
+    —`marcar_soleras` antes—, si no al OESTE o al SUR si |ΔX|<0.3|ΔY|; la Y del lienzo va hacia ABAJO),
+    `nucleo/perfil_textos.py` (= `PerfilTextos.cs`: estación, cota, ángulo estándar ±1°, material DI/RCP/…, callouts
+    H.3, fila H.4, cruces H.5, título H.7; grado «°») y `nucleo/perfil_datos.py` (`armar` → `Perfil`: pasos con
+    soleras/diámetro/alto, nodos con su callout —estructura de gravedad, tee/wye/cruz de `_accs_todos`, codo,
+    reducción, deflexión ≥1° presión, quiebre ≥2° conduit, extremo— y `editable` = (pipe, tramo, lado) que mueve ese
+    nodo, celdas de la fila, cruces C.7 ≥15° con claro entre paredes, terreno = RIM de las estructuras, escalas F.3
+    `escala_auto`/`elegir_v`/`intervalos`). UI: `ui/comun/perfil_vista.VistaPerfil` (QPainter; llena el ANCHO y, si no
+    cabe de alto, arranca con la corona a ~60 % —`_auto` hasta que el usuario mueve la vista—; arrastrar un nodo →
+    `cotaCambiada` al soltar; ↑↓ ±0.10/1 ft; rueda, botón derecho, doble clic) y `ui/ventana/ventana_perfil.PerfilMixin`
+    (QDockWidget ABAJO, `abrir_perfil` F4 / Ver / riel; `_pick` anota `_perfil_clic` y `_perfil_al_dia` —al final de
+    `_draw_accesorios`— rearma el recorrido cuando la utilidad ELEGIDA es la del clic (un redibujo intermedio llega
+    antes de elegirla) y rehace los datos si cambia `_firma_modelo` (desde sus dos tramos de punta, `_perfil_anclas`);
+    resalte en el plano con ítems propios (no `_overlay`); `_perfil_cota` = un `_push` + `edicion3d.aplicar_cota` en
+    cada utilidad del nodo). `Main.perfiles` = [{nombre, ini: [pipe, x, y], fin}] (.digproj, `respaldo_editor.CLAVES`;
+    no va en deshacer). DXF: `PDFCAD_PERFIL` (punto en `ini`, NAME); plugin: `ImportarRedPerfiles.cs` (paso 7 de
+    IMPORTAR_RED) → `ComandosPerfil.CrearAutomatico(semilla, inserción, nombre)` (tubería más cercana ≤2 ft, mismas
+    fases T0–T6 por `Ejecutar`), perfiles bajo el dibujo, uno debajo de otro. Con FIN_X/FIN_Y el plugin corta su recorrido automático entre inicio y fin (ver «Funciones» abajo).
+    **UX (mismo día)**: cabecera = título · segmentado [− Inicio + | − Fin + | Limitar] · [Auto | Básico | Completo]
+    · VE · ⋯ (`menu_perfil`: guardados, Guardar, Quitar, Encuadrar) · cerrar; `lbl_perfil_corte` (por qué se detuvo:
+    `ambiguo_ini/fin`); `lbl_perfil_datos` = barra FIJA del nodo bajo el ratón o elegido. Sincronía: `canvas.moved` →
+    `_perfil_raton` → `VistaPerfil.set_cursor(e)`; `estacionHover` → `_perfil_marcar_estacion` (punto en el plano).
+    Detalle «auto»: si las bandas pasan del 60 % del alto, etiquetas HORIZONTALES de una línea (`_etiquetas`,
+    `_filas_etiquetas` ≤2 filas) y fila de tramos en una línea (`_fila_corta`); con VE «Automática» la exageración
+    baja hasta ×1 para caber (`_ve_efectiva`) y, si aún no cabe, se angosta y centra. Estado vacío con flecha; foco
+    visible; ← → Inicio Fin.
+    **Funciones (mismo día)**: `nucleo/perfil_validar.validar(perfil, avisos, cover_min, tol_px)` → `Alerta` (avisos
+    de normativa de las utilidades del recorrido —salvo «tipo»— llevados a su estación; «separacion» → su cruce;
+    recubrimiento tapa − corona < `model.COVER_MIN_FT`; gravedad: contrapendiente / pendiente nula); `_perfil_alertas`
+    (también en cada `_perfil_al_dia`: los avisos llegan tras el cálculo de fondo) + `btn_perfil_alertas` →
+    `perfil_siguiente_alerta`. Vista: `set_alertas` (borde rojo/ámbar, anillo, «!»), `editar_cota_nodo(k, z=None)`
+    (doble clic / Enter), `fijar_pendiente(i, pct=None)` (clic derecho SIN arrastrar = menú; arrastrar = desplazar)
+    → `cotaCambiada`. Civil 3D con inicio y fin: `PDFCAD_PERFIL` lleva `FIN_X/FIN_Y`;
+    `PerfilGrafoCivil.LimiteIni/LimiteFin` (los pone `CrearAutomatico`) → `RecortarALimites` deja solo los pasos
+    entre los tramos más cercanos (≤2 ft); si alguno no cae en el recorrido automático del plugin, sale completo
+    (log).
+    **Ramales (mismo día)**: `perfil_recorrido.ramales(rec, k)` (aristas del nodo fuera del recorrido) y
+    `ramal(g, n, e)` (desde la T, alejándose de la principal). Vista: `con_ramal` (nodos cuyo rótulo es ENLACE, color
+    `accent`), `_zonas` (rect del rótulo por nodo, en `_callouts`/`_etiquetas`), `ramal_en(pos)` → `ramalPedido`.
+    Panel: `perfil_ramal(k, indice=None)` (varios = menú) apila (anclas, nombre, título, punto de la T) en
+    `_perfil_pila`; `btn_perfil_volver` «Volver a …» → `perfil_volver` (rehace desde las anclas); en el ramal, su T
+    de origen (`_es_origen`) = volver. Un perfil nuevo desde el plano o uno guardado vacían la pila. La T del ramal
+    rotula el diámetro del TRONCO (`acc["tronco"]`). Tests: `tests/test_perfil.py`.
   - **Cruz en X, reducciones y pendientes** (pedidos del usuario 2026-10-16): `accesorios.accesorios` parte los
     DOS tramos de un cruce en X a mitad de tramo (ninguno con vértice a ≤ tol) de la misma red y cota → cruz (con
     diámetros distintos también); `_union_civil` (plano) ya no lo llama choque. OJO: el plugin aún no la arma.
@@ -3093,6 +3160,8 @@ alcantarillado, drenaje, gas, eléctrico, telecom). Todo en **unidades imperiale
     energía, NO telecom): desde 2026-10-05 entran a ELECTRICO por sus letras
     (`recognition_letters`), igual que `N-COMM-DUCT-BANK-PL-SE` («SE»).
   - `PDFCAD_CURVE` (punto): esquina de elemento curvo, con `RADIUS_FT`.
+  - `PDFCAD_SIN_ACCESORIO` (punto, capa `PDFCAD_SIN_ACCESORIO`, 2026-10-30): `TIPO`; el plugin no pone accesorio en
+    la juntura a presión de ese punto (±0.5 ft) y no conecta las tuberías ahí.
   - `PDFCAD_META` (punto): metadatos del proyecto, hoy `CS_CODE` (Huso).
   - `PDFCAD_DUCTBANK` (punto, capa `PDFCAD_DUCT_BANK`): sección transversal del
     duct bank asignado a una pipe. `PIPE_IDX, NAME, WIDTH_IN, HEIGHT_IN,

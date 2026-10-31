@@ -60,7 +60,8 @@ class ArmadoMixin:
                     colores=self._colores(), duct_banks=dbs, cruces=cruces,
                     avisos=avisos, conflictos=conflictos,
                     ocultas=[c for c, chk in self._capas.items() if not chk.isChecked()],
-                    ver=dict({k: c.isChecked() for k, c in self.chk.items()}, rotulos=True), suelo_z=suelo)
+                    ver=dict({k: c.isChecked() for k, c in self.chk.items()}, rotulos=True), suelo_z=suelo,
+                    sin_accesorio=list(getattr(w, "sin_accesorio", None) or []))
 
     def programar(self):
         """El plano cambió: actualizar en un momento (agrupa cambios seguidos)."""
@@ -169,7 +170,8 @@ class ArmadoMixin:
             self._cajas_parche = MP._cajas(pipes)
         try:
             nueva = MP.parche(self.escena, pipes, d["structures"], d["ft"], set(cambios), d["colores"],
-                              d["duct_banks"], d["cruces"], d["ocultas"], d["ver"], cajas=self._cajas_parche)
+                              d["duct_banks"], d["cruces"], d["ocultas"], d["ver"], cajas=self._cajas_parche,
+                              sin_accesorio=d["sin_accesorio"])
         except Exception as e:                               # el armado completo lo pondrá al día
             print("[vista3d] parche:", e)
             return False

@@ -101,6 +101,8 @@ from ui.ventana.ventana_bloque import EdicionBloqueMixin
 from ui.ventana.ventana_informe import InformeMixin
 from ui.ventana.ventana_ia import IAMixin
 from ui.ventana.ventana_soluciones import SolucionesMixin
+from ui.ventana.ventana_sin_accesorio import SinAccesorioMixin
+from ui.ventana.ventana_perfil import PerfilMixin
 from ui.ventana.ventana_ia_acciones import AccionesIAMixin
 from ui.ventana.ventana_vista3d import Vista3DMixin
 from ui.ventana.ventana_edicion3d import Edicion3DMixin
@@ -121,7 +123,7 @@ from ui.ventana.ventana_inventario import InventarioMixin
 from ui.ventana.ventana_pasos import PasosVivosMixin
 
 
-class Main(MenuMixin, PanelIzquierdoMixin, PanelDerechoMixin, ModosMixin, ClicsMixin, UtilidadesMixin, CatalogoMixin, SeleccionMixin, ListasMixin, MarcasMixin, DibujoMixin, ConflictosMixin, CoordsMixin, BuzonesMixin, MoverPrecisoMixin, CurvasMixin, HerramientasMixin, BancoductosMixin, EdicionBloqueMixin, InformeMixin, IAMixin, SolucionesMixin, AccionesIAMixin, Vista3DMixin, Edicion3DMixin, ConflictosListaMixin, HojasEditorMixin,
+class Main(MenuMixin, PanelIzquierdoMixin, PanelDerechoMixin, ModosMixin, ClicsMixin, UtilidadesMixin, CatalogoMixin, SeleccionMixin, ListasMixin, MarcasMixin, DibujoMixin, ConflictosMixin, CoordsMixin, BuzonesMixin, MoverPrecisoMixin, CurvasMixin, HerramientasMixin, BancoductosMixin, EdicionBloqueMixin, InformeMixin, IAMixin, SolucionesMixin, SinAccesorioMixin, PerfilMixin, AccionesIAMixin, Vista3DMixin, Edicion3DMixin, ConflictosListaMixin, HojasEditorMixin,
            VerticesMixin, TrazoMixin, CalculoPlanoMixin, CalculoFondoMixin, EstadosPreviosMixin,
            AgregarUtilidadMixin, PlanosFondoMixin, CapasMixin, ShellMixin, RevisionMixin, RecientesMixin, InventarioMixin, PasosVivosMixin, DiametroIAMixin, QtWidgets.QMainWindow):
     def __init__(self):
@@ -180,6 +182,8 @@ class Main(MenuMixin, PanelIzquierdoMixin, PanelDerechoMixin, ModosMixin, ClicsM
         self.ref_centerlines = []; self._cl_pts = []
         self.duct_banks = []   # colección del proyecto — ver duct_bank.py
         self.cross_connections = []   # conexiones aprobadas en cruces físicos
+        self.perfiles = []            # perfiles longitudinales guardados (ventana_perfil)
+        self.sin_accesorio = []       # puntos donde el usuario dijo «no hay codo/T/Y/cruz» (nucleo/sin_accesorio)
         self.normas_aprobados = []    # avisos de normativa aprobados (normas_aprobacion)
         # Normativas de diseño en tablas: catálogo GLOBAL (el Excel del usuario, ver
         # normas_catalogo.py) y los avisos del proyecto (normas_validar, en cada redibujo).
@@ -273,7 +277,8 @@ class Main(MenuMixin, PanelIzquierdoMixin, PanelDerechoMixin, ModosMixin, ClicsM
                                duct_banks=getattr(self, "duct_banks", []) or [],
                                # apuntan a utilidades por índice: borrar/unir los corre
                                cross_connections=getattr(self, "cross_connections", []) or [],
-                               normas_aprobados=getattr(self, "normas_aprobados", []) or []),
+                               normas_aprobados=getattr(self, "normas_aprobados", []) or [],
+                               sin_accesorio=getattr(self, "sin_accesorio", []) or []),
                           getattr(self, "_ultimo_paso", None))
         self._ultimo_paso = p
         return p
@@ -294,6 +299,8 @@ class Main(MenuMixin, PanelIzquierdoMixin, PanelDerechoMixin, ModosMixin, ClicsM
             self.cross_connections = s["cross_connections"]
         if "normas_aprobados" in s:
             self.normas_aprobados = s["normas_aprobados"]
+        if "sin_accesorio" in s:
+            self.sin_accesorio = s["sin_accesorio"]
         if "duct_banks" in s:
             self.duct_banks = s["duct_banks"]
             if not (0 <= getattr(self, "sel_db", -1) < len(self.duct_banks)):
@@ -1478,6 +1485,9 @@ class Main(MenuMixin, PanelIzquierdoMixin, PanelDerechoMixin, ModosMixin, ClicsM
         self.duct_banks = []
         self.cross_connections = []
         self.normas_aprobados = []
+        self.sin_accesorio = []                 # puntos sin accesorio (nucleo/sin_accesorio)
+        self.perfiles = []                      # perfiles guardados (ventana_perfil)
+        self._perfil_rec = self._perfil_anclas = None
         self._conf_registro = None              # números de los conflictos (ventana_conflictos_lista)
         self.capas_apagadas = set()             # «Capas»: todas las utilidades encendidas
         self.sel_pipe = self.sel_leader = self.sel_region = self.sel_text = -1
@@ -1699,6 +1709,9 @@ class Main(MenuMixin, PanelIzquierdoMixin, PanelDerechoMixin, ModosMixin, ClicsM
             self.duct_banks = data.get("duct_banks", [])
             self.cross_connections = data.get("cross_connections", []) or []
             self.normas_aprobados = data.get("normas_aprobados", []) or []
+            self.sin_accesorio = data.get("sin_accesorio", []) or []
+            self.perfiles = data.get("perfiles", []) or []
+            self._perfil_rec = self._perfil_anclas = None
             from nucleo import conflictos as _conf_mod     # números fijos de los conflictos (None = primera vez)
             _reg = data.get("conflictos_registro")
             self._conf_registro = _conf_mod.Registro.de_dict(_reg) if _reg else None
@@ -1866,6 +1879,9 @@ class Main(MenuMixin, PanelIzquierdoMixin, PanelDerechoMixin, ModosMixin, ClicsM
         self.hidden_ocgs = []
         self.pipes = []; self.leaders = []; self.text_marks = []; self.erase_regions = []; self.structures = []
         self.duct_banks = []; self.cross_connections = []; self.normas_aprobados = []
+        self.sin_accesorio = []
+        self.perfiles = []
+        self._perfil_rec = self._perfil_anclas = None
         self._conf_registro = None
         self.ref_centerlines = []; self._cl_pts = []
         self._recog_cache.clear()

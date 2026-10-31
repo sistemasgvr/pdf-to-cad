@@ -1338,6 +1338,71 @@ del plano. Clic en una fila resalta ese tramo en el plano. <span class="key">&nb
 Es una <b>vista previa</b>: sigue las mismas reglas que el plugin, pero los accesorios se dibujan
 con su forma de fábrica (sin detalles como bridas) y el suelo es plano (Civil 3D usa tu superficie).
 </td></tr></table>
+<h3>Resolver conflictos desde la Vista 3D</h3>
+<ol>
+<li>Haz clic en una marca roja <b>C-n</b> (o en <b>Conflictos → Revisar uno por uno</b> del panel izquierdo). La
+    tarjeta de la derecha abre la pestaña <b>Resolver</b> y la vista encuadra el conflicto.</li>
+<li>Verás las soluciones que la app probó en una copia del proyecto (✔ resuelve sin crear otros problemas, ✖ no).
+    La <b>sugerida</b> va arriba y elegida: si la IA está configurada la elige ella («Sugerida por la IA», con su
+    porqué); si no, la app.</li>
+<li>Al elegir una solución la ves ya en 3D; el proyecto no cambia hasta que pulses <span class="btn">Aplicar</span>
+    (Ctrl+Enter). Se deshace con <span class="key">&nbsp;Ctrl+Z&nbsp;</span>.</li>
+<li>◀ ▶ (o <b>N</b> / <b>Mayús+N</b>) pasan al conflicto siguiente o anterior. Si no hay solución automática,
+    «Ajusta las cotas en Editar» abre el editor de la utilidad.</li>
+</ol>
+<h3>Cuando ahí no va accesorio («No hay codo / T / Y / cruz»)</h3>
+<p>Si un conflicto lo causa un codo, una T, una Y o una cruz que en la realidad no existe, en <b>Resolver</b>
+(plano o Vista 3D) aparece el botón <span class="btn">No hay codo</span> (o T, Y, cruz). También en la ficha de un
+accesorio en 3D y con clic derecho junto a un accesorio del plano, por ejemplo en un cruce a la misma cota con cruz.
+Al pulsarlo, la app deja de poner ese accesorio y de marcar el conflicto, y Civil 3D no dibuja pieza ahí: las
+tuberías llegan a ese punto sin conectarse. Se deshace con <span class="key">&nbsp;Ctrl+Z&nbsp;</span>, o con clic
+derecho en el mismo punto → «Volver a poner…».</p>
+<p><b>Navegar con la rueda:</b> haz un clic en la rueda del ratón y mueve el ratón: la vista avanza hacia ese lado
+(izquierda, derecha, arriba o abajo), más rápido cuanto más lo alejas. Otro clic o Esc lo termina. Con la rueda
+apretada y arrastrando se desplaza como siempre; doble clic en la rueda encuadra todo.</p>
+</section>
+
+<section data-title="Perfil longitudinal">
+<p>Muestra el <b>perfil de un tramo</b> de la red, como la vista de perfil que crea Civil 3D. Ábrelo con
+<b>Ver → Perfil longitudinal</b>, <span class="key">&nbsp;F4&nbsp;</span> o el botón del riel; aparece debajo del plano.</p>
+<ol>
+<li>Haz clic en una utilidad del plano. La app arma sola el recorrido que pasa por ese tramo: en cada unión sigue
+    de frente (hasta 45°), aunque pase por varias utilidades de la misma red, y se detiene donde la continuación
+    no es clara. Es el mismo recorrido que hará Civil 3D.</li>
+<li><span class="btn">Inicio − +</span> y <span class="btn">Fin − +</span> lo acortan o lo extienden un tramo.
+    Con <span class="btn">Limitar hasta…</span> activo, el siguiente clic en el plano fija el final.</li>
+<li>Para cambiar una cota, <b>arrastra el punto</b> del nodo hacia arriba o abajo (o elígelo y usa
+    <span class="key">&nbsp;↑&nbsp;</span> <span class="key">&nbsp;↓&nbsp;</span>: 0.10 ft, con Mayús 1 ft). Cambia en
+    todas las utilidades que llegan a ese punto, en un solo paso de deshacer.</li>
+</ol>
+<p>El dibujo trae la rejilla con cotas y estaciones, la fila «INSTALL … LF OF NEW … PIPE», los buzones con RIM e
+INV, el terreno (EX. GRADE) unido por las tapas, las utilidades que cruzan con su claro, los rótulos de accesorios
+y el título. Rueda = acercar; botón derecho = desplazar; doble clic = encuadrar. La exageración vertical se elige
+arriba.</p>
+<p>Con <span class="btn">Guardar</span> el perfil queda en el proyecto con su nombre. Al exportar, IMPORTAR_RED
+crea en Civil 3D cada perfil guardado como perfil nativo (el de CREAR_PERFIL_RED), uno debajo de otro bajo el
+dibujo, con el mismo inicio y fin que en la app.</p>
+<p><b>Alertas:</b> el botón <span class="btn">N alertas</span> aparece cuando hay algo que revisar en el perfil
+y, con cada clic, lleva a la siguiente y la explica en la barra de abajo. Revisa los avisos de normativa del plano
+de esas utilidades (pendiente, separación, diámetro…), que el <b>recubrimiento</b> bajo cada tapa no sea menor que el
+mínimo de la utilidad y, en alcantarillado y drenaje, que ningún tramo tenga <b>contrapendiente</b> (que baje en el
+sentido del perfil) o pendiente nula. En el dibujo el tramo o el punto se marca en rojo (error) o ámbar (aviso), con
+un círculo «!» debajo; el globo dice qué pasa. Solo avisa: no cambia nada.</p>
+<p><b>Ramales:</b> un ramal es una tubería que sale hacia un lado desde la principal (en una T, una Y, una cruz o
+un buzón). En el perfil, el rótulo de ese punto se ve en <b>azul, como un enlace</b>. Haz clic en él y el perfil
+cambia al recorrido de ese ramal (si hay varios, eliges cuál en un menú). Arriba aparece
+<span class="btn">← Volver a …</span> para regresar a la principal; también puedes hacer clic en la T desde la que
+saliste. Puedes entrar a un ramal dentro de otro ramal: «Volver» regresa paso a paso.</p>
+<p><b>Edición precisa:</b> doble clic en un punto (o elegirlo y <span class="key">&nbsp;Enter&nbsp;</span>) para
+escribir su cota exacta. Clic derecho en un tramo → «Fijar la pendiente de este tramo…»: escribes la pendiente en %
+y se mueve la cota del final del tramo. Todo se deshace con <span class="key">&nbsp;Ctrl+Z&nbsp;</span>.</p>
+<p><b>Ayudas:</b> al pasar el ratón por el perfil aparece un punto en el plano (y al pasar por la tubería en el
+plano, una línea en el perfil). La barra de abajo muestra los datos del punto señalado o elegido: estación, solera,
+corona, tapa y pendientes. Los rótulos tienen tres niveles: <span class="btn">Auto</span> (completos si caben; si no,
+etiquetas cortas), <span class="btn">Básico</span> y <span class="btn">Completo</span>. Si el recorrido se detuvo en una
+unión con dos caminos casi igual de rectos, un aviso lo dice. El menú <span class="btn">⋯</span> tiene los perfiles
+guardados, Guardar y Encuadrar. Con el teclado: <span class="key">&nbsp;←&nbsp;</span> <span class="key">&nbsp;→&nbsp;</span>
+recorren los puntos e <span class="key">&nbsp;Inicio&nbsp;</span> / <span class="key">&nbsp;Fin&nbsp;</span> van al primero y al último.</p>
 </section>
 
 <section data-title="Georreferenciar (opcional)">

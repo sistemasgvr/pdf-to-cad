@@ -1344,6 +1344,71 @@ utilities it joins, their diameters and the axis elevation). <b>Show on the plan
 It is a <b>preview</b>: it follows the same rules as the plugin, but fittings keep their basic shape (no details such as flanges) and the
 ground is flat (Civil 3D uses your surface).
 </td></tr></table>
+<h3>Resolving conflicts from the 3D view</h3>
+<ol>
+<li>Click a red <b>C-n</b> mark (or <b>Conflicts → Review one by one</b> in the left panel). The right card opens
+    the <b>Resolve</b> tab and the view frames the conflict.</li>
+<li>You see the solutions the app tested on a copy of the project (✔ resolves it without new problems, ✖ does
+    not). The <b>suggested</b> one is on top and chosen: if the AI is configured it picks it («Suggested by the
+    AI», with its reason); otherwise the app does.</li>
+<li>Choosing a solution shows it in 3D right away; the project does not change until you press
+    <span class="btn">Apply</span> (Ctrl+Enter). Undo it with <span class="key">&nbsp;Ctrl+Z&nbsp;</span>.</li>
+<li>◀ ▶ (or <b>N</b> / <b>Shift+N</b>) go to the next or previous conflict. With no automatic solution,
+    «Adjust the inverts in Edit» opens the utility editor.</li>
+</ol>
+<h3>When no fitting goes there («No bend / tee / wye / cross»)</h3>
+<p>If a conflict is caused by a bend, tee, wye or cross that does not exist in reality, <b>Resolve</b> (plan or 3D
+view) shows the <span class="btn">No bend</span> button (or tee, wye, cross). Also in the sheet of a fitting in 3D
+and with right-click next to a fitting on the plan, for example at a same-elevation crossing with a cross. Pressing
+it, the app stops placing that fitting and flagging the conflict, and Civil 3D draws no piece there: the pipes
+reach that point without connecting. Undo it with <span class="key">&nbsp;Ctrl+Z&nbsp;</span>, or right-click the
+same point → «Put … back».</p>
+<p><b>Navigating with the wheel:</b> click the mouse wheel and move the mouse: the view moves that way (left,
+right, up or down), faster the farther you move it. Another click or Esc ends it. Holding the wheel and dragging
+pans as always; double-clicking the wheel frames everything.</p>
+</section>
+
+<section data-title="Longitudinal profile">
+<p>Shows the <b>profile of a run</b> of the network, like the profile view Civil 3D creates. Open it with
+<b>View → Longitudinal profile</b>, <span class="key">&nbsp;F4&nbsp;</span> or the rail button; it appears below the plan.</p>
+<ol>
+<li>Click a utility on the plan. The app builds the run through that segment by itself: at each junction it goes
+    straight ahead (up to 45°), even across several utilities of the same network, and stops where the way on is
+    not clear. It is the same run Civil 3D will build.</li>
+<li><span class="btn">Start − +</span> and <span class="btn">End − +</span> shorten or extend it by one segment.
+    With <span class="btn">Limit to…</span> on, the next click on the plan sets the end.</li>
+<li>To change an elevation, <b>drag the node point</b> up or down (or select it and use
+    <span class="key">&nbsp;↑&nbsp;</span> <span class="key">&nbsp;↓&nbsp;</span>: 0.10 ft, with Shift 1 ft). It changes in
+    every utility that reaches that point, in a single undo step.</li>
+</ol>
+<p>The drawing has the grid with elevations and stations, the «INSTALL … LF OF NEW … PIPE» row, manholes with RIM
+and INV, the ground (EX. GRADE) joined through the rims, the crossing utilities with their clearance, the fitting
+callouts and the title. Wheel = zoom; right button = pan; double click = fit. Pick the vertical exaggeration at the
+top.</p>
+<p>With <span class="btn">Save</span> the profile is kept in the project by name. On export, IMPORTAR_RED creates
+each saved profile in Civil 3D as a native profile (the CREAR_PERFIL_RED one), one below the other under the
+drawing, with the same start and end as in the app.</p>
+<p><b>Alerts:</b> the <span class="btn">N alerts</span> button appears when there is something to check on the
+profile and, with each click, goes to the next one and explains it in the bottom bar. It checks the plan standards
+warnings of those utilities (slope, separation, diameter…), that the <b>cover</b> under each rim is not below the
+utility minimum and, for sewer and storm drain, that no segment has an <b>adverse slope</b> (going down along the
+profile) or zero slope. On the drawing the segment or point is marked red (error) or amber (warning), with a «!»
+circle below; the tooltip says what is wrong. It only warns: nothing changes.</p>
+<p><b>Branches:</b> a branch is a pipe that leaves the main one sideways (at a tee, a wye, a cross or a manhole).
+On the profile, the label of that point shows in <b>blue, like a link</b>. Click it and the profile switches to that
+branch's run (if there are several, pick one from a menu). At the top, <span class="btn">← Back to …</span> appears to
+return to the main pipe; you can also click the tee you came from. You can open a branch inside another branch:
+«Back» returns step by step.</p>
+<p><b>Precise editing:</b> double click a point (or select it and press <span class="key">&nbsp;Enter&nbsp;</span>)
+to type its exact elevation. Right click a segment → «Set the slope of this segment…»: type the slope in % and the end
+elevation of the segment moves. Everything is undone with <span class="key">&nbsp;Ctrl+Z&nbsp;</span>.</p>
+<p><b>Aids:</b> hovering over the profile shows a point on the plan (and hovering over the pipe on the plan, a
+line on the profile). The bar below shows the data of the pointed or selected point: station, invert, crown, rim and
+slopes. Labels have three levels: <span class="btn">Auto</span> (full if they fit; otherwise short tags),
+<span class="btn">Basic</span> and <span class="btn">Full</span>. If the run stopped at a junction with two almost
+equally straight ways, a notice says so. The <span class="btn">⋯</span> menu has the saved profiles, Save and Fit. With
+the keyboard: <span class="key">&nbsp;←&nbsp;</span> <span class="key">&nbsp;→&nbsp;</span> browse the points and
+<span class="key">&nbsp;Home&nbsp;</span> / <span class="key">&nbsp;End&nbsp;</span> go to the first and last.</p>
 </section>
 
 <section data-title="Georeferencing (optional)">

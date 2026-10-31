@@ -108,7 +108,9 @@ namespace Civil3DBasico
             var curveCorners = new List<ImportCurveInfo>();
             var ductBanks = new List<ImportDuctBank>();
             var crossConns = new List<ImportCrossConnect>();
+            var perfilesApp = new List<(Point2d Semilla, Point2d? Fin, string Nombre)>();   // PDFCAD_PERFIL (perfiles guardados en la app)
             string csCode = "";        // sistema de coordenadas (Huso) pedido desde Python (PDFCAD_META)
+            ComandosPresion.SinAccesorio.Clear();   // «no hay accesorio» de la app (PDFCAD_SIN_ACCESORIO)
 
             using (Transaction trScan = db.TransactionManager.StartTransaction())
             {
@@ -262,6 +264,21 @@ namespace Civil3DBasico
                         Dbg("XDATA_CURVE", ("id", newCv.Id), ("x", ptc.Position.X.ToString("F3")),
                             ("y", ptc.Position.Y.ToString("F3")),
                             ("radius_ft", newCv.RadiusFt?.ToString("F3") ?? "(auto)"));
+                    }
+                    else if (marker == "PDFCAD_PERFIL" && ent is DBPoint ptPf)
+                    {
+                        double? finX = XdNullDouble(xd, "FIN_X"), finY = XdNullDouble(xd, "FIN_Y");
+                        perfilesApp.Add((new Point2d(ptPf.Position.X, ptPf.Position.Y),
+                                         finX == null || finY == null ? (Point2d?)null : new Point2d(finX.Value, finY.Value),
+                                         XdStr(xd, "NAME", "")));
+                        Dbg("XDATA_PERFIL", ("nombre", XdStr(xd, "NAME", "")),
+                            ("x", ptPf.Position.X.ToString("F3")), ("y", ptPf.Position.Y.ToString("F3")));
+                    }
+                    else if (marker == "PDFCAD_SIN_ACCESORIO" && ent is DBPoint ptSa)
+                    {
+                        ComandosPresion.SinAccesorio.Add(new Point2d(ptSa.Position.X, ptSa.Position.Y));
+                        Dbg("XDATA_SIN_ACCESORIO", ("tipo", XdStr(xd, "TIPO", "")),
+                            ("x", ptSa.Position.X.ToString("F3")), ("y", ptSa.Position.Y.ToString("F3")));
                     }
                     else if (marker == "PDFCAD_META")
                     {
@@ -1137,6 +1154,10 @@ namespace Civil3DBasico
                     catch { trDiag.Abort(); }
                 }
             }
+
+            // ── 7. Perfiles longitudinales guardados en la app (PDFCAD_PERFIL): los mismos de
+            //        CREAR_PERFIL_RED, sin preguntar, uno debajo de otro bajo el dibujo.
+            CrearPerfilesDeLaApp(ed, db, perfilesApp);
 
             ed.WriteMessage("\n\n╔══════════════════════════════════════════════════════════════════╗");
             ed.WriteMessage("\n║                     ▶▶▶  IMPORTAR RED — FIN  ◀◀◀                ║");
@@ -4319,7 +4340,7 @@ namespace Civil3DBasico
             {
                 if (tv.TypeCode != 1000) continue;
                 string s = tv.Value?.ToString() ?? "";
-                if (s == "PDFCAD_PIPE" || s == "PDFCAD_STRUCT" || s == "PDFCAD_CURVE" || s == "PDFCAD_META" || s == "PDFCAD_DUCTBANK" || s == "PDFCAD_CROSS_CONNECT")
+                if (s == "PDFCAD_PIPE" || s == "PDFCAD_STRUCT" || s == "PDFCAD_CURVE" || s == "PDFCAD_META" || s == "PDFCAD_DUCTBANK" || s == "PDFCAD_CROSS_CONNECT" || s == "PDFCAD_SIN_ACCESORIO" || s == "PDFCAD_PERFIL")
                 { dict["_MARKER"] = s; continue; }
                 int eq = s.IndexOf('=');
                 if (eq > 0) dict[s.Substring(0, eq)] = s.Substring(eq + 1);

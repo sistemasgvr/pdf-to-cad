@@ -291,6 +291,7 @@ class SeleccionMixin:
             self._reselect_pipes(filas)
         menu = QtWidgets.QMenu(self)
         self._menu_conflicto(menu, x, y)            # junto a una marca C-n: «Resolver C-n…» (ventana_soluciones)
+        self._menu_sin_accesorio(menu, x, y)        # junto a un accesorio: «No hay codo/T/Y/cruz» (y al revés)
         if len(self._selected_pipe_rows()) > 1:
             self._pipe_bulk_menu(menu)
         else:

@@ -84,6 +84,7 @@ class ClicsMixin:
         px, py = tm["pos"]; return px - 6 <= x <= px + w + 6 and py - 6 <= y <= py + th + 6
 
     def _pick(self, x, y):
+        self._perfil_clic = (x, y)                     # el perfil arranca en el tramo donde se hizo clic
         thr = 10.0 / max(1e-6, self.canvas.transform().m11())
         bz_thr = 18.0 / max(1e-6, self.canvas.transform().m11())
         curve_thr = 22.0 / max(1e-6, self.canvas.transform().m11())

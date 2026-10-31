@@ -24,6 +24,8 @@ from ui.comun.visor3d import Visor3D
 from ui.dialogos.vista3d_armado import ArmadoMixin
 from ui.dialogos.vista3d_editor import EditorUtilidad
 from ui.dialogos.vista3d_ficha import FichaPanel
+from ui.dialogos.vista3d_resolver import PanelResolver
+from ui.ventana.ventana_sin_accesorio import TEXTO_NO_HAY, texto_no_hay
 
 _SIN_SUELO = -100000.0
 OPACIDAD_SUELO = 18                          # % por defecto
@@ -118,6 +120,10 @@ class Vista3DDialog(ArmadoMixin, QtWidgets.QDialog):
         self._leer_ajustes()
         # Ctrl+Z / Ctrl+Y aquí también (lo editado en «Editar» se deshace como en el plano).
         QtGui.QShortcut(QtGui.QKeySequence.Undo, self, lambda: (self.editor.aplicar(), self.win.undo()))
+        for tecla, paso in (("N", 1), ("Shift+N", -1)):          # siguiente / anterior conflicto
+            QtGui.QShortcut(QtGui.QKeySequence(tecla), self,
+                            lambda p=paso: self.resolver.mover(p) if self._caja_resolver.isVisible()
+                            else (self._revisar_conflictos() if p > 0 else None))
         for tecla in (QtGui.QKeySequence.Redo, QtGui.QKeySequence("Ctrl+Y")):
             QtGui.QShortcut(tecla, self, lambda: (self.editor.aplicar(), self.win.redo()))
 
@@ -215,7 +221,7 @@ class Vista3DDialog(ArmadoMixin, QtWidgets.QDialog):
         sl = QtWidgets.QHBoxLayout(self._seg_ficha)
         sl.setContentsMargins(3, 3, 3, 3)
         self._grupo_ficha = QtWidgets.QButtonGroup(self._seg_ficha)
-        for i, clave in enumerate(("Ficha", "Editar")):
+        for i, clave in enumerate(("Ficha", "Editar", "Resolver")):
             b = QtWidgets.QPushButton(_tr(clave))
             b.setProperty("kind", "seg")
             b.setCheckable(True)
@@ -228,11 +234,23 @@ class Vista3DDialog(ArmadoMixin, QtWidgets.QDialog):
         self._caja_ficha = R.transparente(QtWidgets.QWidget())
         QtWidgets.QVBoxLayout(self._caja_ficha).setContentsMargins(0, 0, 0, 0)
         self._caja_ficha.layout().addWidget(self.ficha)
+        # ficha de un codo/T/Y/cruz: «No hay …» (2026-10-30; nucleo/sin_accesorio)
+        self.btn_sin_acc = QtWidgets.QPushButton()
+        self.btn_sin_acc.setAutoDefault(False)
+        self.btn_sin_acc.setToolTip(_tr("En ese punto no va accesorio: deja de marcarse y Civil 3D no lo dibuja"))
+        self.btn_sin_acc.clicked.connect(self._sin_accesorio)
+        self.btn_sin_acc.hide()
+        self._caja_ficha.layout().addWidget(self.btn_sin_acc)
         self._caja_editor = R.transparente(QtWidgets.QWidget())
         QtWidgets.QVBoxLayout(self._caja_editor).setContentsMargins(0, 0, 0, 0)
         self._caja_editor.layout().addWidget(self.editor)
+        self.resolver = PanelResolver(self)              # conflicto C-n: propuestas probadas + «Aplicar»
+        self._caja_resolver = R.transparente(QtWidgets.QWidget())
+        QtWidgets.QVBoxLayout(self._caja_resolver).setContentsMargins(0, 0, 0, 0)
+        self._caja_resolver.layout().addWidget(self.resolver)
         v.addWidget(self._caja_ficha, 1)                    # la ficha / el editor ocupan todo el alto
         v.addWidget(self._caja_editor, 1)
+        v.addWidget(self._caja_resolver, 1)
         sc = R.AreaVertical(caja) if hasattr(R, "AreaVertical") else QtWidgets.QScrollArea()
         if not isinstance(sc, R.AreaVertical):
             sc.setWidget(caja); sc.setWidgetResizable(True)
@@ -246,14 +264,62 @@ class Vista3DDialog(ArmadoMixin, QtWidgets.QDialog):
         if not hasattr(self, "_flot_der"):
             return
         editable = getattr(self.editor, "i", -1) >= 0
-        if not editable:
+        cid = self._conflicto_elegido()
+        if (not editable and self._grupo_ficha.checkedId() == 1) or (not cid and self._grupo_ficha.checkedId() == 2):
             self._grupo_ficha.button(0).setChecked(True)
-        self._seg_ficha.setVisible(editable)
-        editar = editable and self._grupo_ficha.checkedId() == 1
-        self._caja_ficha.setVisible(not editar)
-        self._caja_editor.setVisible(editar)
+        self._grupo_ficha.button(1).setVisible(editable)
+        self._grupo_ficha.button(2).setVisible(bool(cid))
+        self._seg_ficha.setVisible(editable or bool(cid))
+        modo = self._grupo_ficha.checkedId()
+        self._caja_ficha.setVisible(modo == 0)
+        self._caja_editor.setVisible(modo == 1)
+        self._caja_resolver.setVisible(modo == 2)
+        if modo == 2:
+            if self.resolver.cid != cid:
+                self.resolver.cargar(cid)
+        else:
+            self.resolver.soltar()
+            self.resolver.cid = None
         self._flot_der.setVisible(self.ficha.tabla.rowCount() > 0)
         self._colocar()
+
+    # ── resolver conflictos desde la 3D (pedido 2026-10-30) ──
+    def _conflicto_elegido(self):
+        """«C-n» del conflicto elegido en la 3D (o None)."""
+        ident = getattr(self, "_sel_local", 0)
+        if not ident or getattr(self, "escena", None) is None:
+            return None
+        tipo, _k = modelo3d.objeto_de(ident)
+        o = self.escena.objetos.get(ident) or {}
+        return (o.get("codigo") or None) if tipo == "conflicto" else None
+
+    def ir_a_conflicto(self, cid):
+        """Elige el conflicto `cid` en la 3D, lo encuadra y abre «Resolver»."""
+        ident = next((k for k, o in self.escena.objetos.items()
+                      if o.get("tipo") == "conflicto" and o.get("codigo") == cid), None)
+        if ident is None:
+            return False
+        self._grupo_ficha.button(2).setChecked(True)
+        self._elegido(ident)
+        self.visor.encuadrar(self._caja(ident, minimo=30.0))
+        return True
+
+    def editar_utilidad(self, i):
+        """Elige la utilidad `i` y abre «Editar» (desde un conflicto sin solución automática)."""
+        ident = i + 1
+        if ident in self.escena.objetos:
+            self._elegido(ident)
+            self.mostrar_editor()
+
+    def _revisar_conflictos(self):
+        ids = [c.id for c in getattr(self.win, "_conflictos", None) or []]
+        if ids:
+            self.ir_a_conflicto(ids[0])
+
+    def _cuenta_conflictos(self):
+        n = len(getattr(self.win, "_conflictos", None) or [])
+        self.lbl_conflictos.setText(_tr("{n} pendientes").format(n=n))
+        self.btn_revisar.setEnabled(n > 0)
 
     def mostrar_editor(self):
         """Pasa a «Editar» (si hay una utilidad elegida)."""
@@ -337,6 +403,17 @@ class Vista3DDialog(ArmadoMixin, QtWidgets.QDialog):
         c.setToolTip(_tr("Rótulos sobre cada utilidad: la pendiente de cada tramo y el ángulo de cada quiebre"))
         c.toggled.connect(self._rotulos)                 # la escena ya los trae: solo mostrarlos u ocultarlos
         v.addWidget(fila); self.chk["rotulos"] = c
+        v.addSpacing(8)
+        v.addWidget(R.texto("Conflictos", "sec"))
+        fila_c = QtWidgets.QHBoxLayout()
+        self.lbl_conflictos = QtWidgets.QLabel()
+        fila_c.addWidget(self.lbl_conflictos, 1)
+        self.btn_revisar = QtWidgets.QPushButton(_tr("Revisar uno por uno"))
+        self.btn_revisar.setAutoDefault(False)
+        self.btn_revisar.setToolTip(_tr("Recorre los conflictos con sus soluciones (N: siguiente)"))
+        self.btn_revisar.clicked.connect(self._revisar_conflictos)
+        fila_c.addWidget(self.btn_revisar)
+        v.addLayout(fila_c)
         v.addSpacing(8)
         v.addWidget(R.texto("Suelo", "sec"))
         g = R.transparente(QtWidgets.QWidget())
@@ -468,6 +545,7 @@ class Vista3DDialog(ArmadoMixin, QtWidgets.QDialog):
             pass
 
     def _resumen(self):
+        self._cuenta_conflictos()
         c = self.escena.cuentas or {}
         if self.escena.vacia:
             self.lbl_estado.setText("")
@@ -534,8 +612,22 @@ class Vista3DDialog(ArmadoMixin, QtWidgets.QDialog):
             self.ficha.mostrar(titulo, filas)
         else:
             self.ficha.limpiar()
+        acc_tipo = (o or {}).get("acc_tipo") if tipo == "accesorio" and filas else None
+        if acc_tipo in TEXTO_NO_HAY and not (o or {}).get("vertical") and (o or {}).get("x") is not None:
+            self.btn_sin_acc.setText(texto_no_hay(acc_tipo))
+            self.btn_sin_acc.show()
+        else:
+            self.btn_sin_acc.hide()
         self.editor.cargar(k if tipo == "pipe" and filas else -1)
         self._ficha_visible()
+
+    def _sin_accesorio(self):
+        """Ficha de un accesorio → «No hay …»: ahí no va pieza (ni en Civil 3D)."""
+        o = self.escena.objetos.get(self._sel_local) or {}
+        if o.get("tipo") != "accesorio" or o.get("x") is None:
+            return
+        if self.win.marcar_sin_accesorio({"x": o["x"], "y": o["y"], "tipo": o.get("acc_tipo")}):
+            self.deseleccionar()
 
     def _ficha_al_plano(self):
         tipo, k = modelo3d.objeto_de(self.visor.sel_id)
@@ -594,6 +686,8 @@ class Vista3DDialog(ArmadoMixin, QtWidgets.QDialog):
                 w._deselect_all()
             self._sel_local = ident
             self.visor.set_seleccion(ident)
+            if tipo == "conflicto":                           # un conflicto abre directo en «Resolver»
+                self._grupo_ficha.button(2).setChecked(True)
             self._mostrar_ficha(ident)
             return
         self.visor.set_seleccion(ident if tipo in ("pipe", "struct") else self.visor.sel_id)

@@ -446,7 +446,7 @@ def _z_eje(pipes, i, x, y):
 # ─────────────────────────── escena completa ───────────────────────────
 
 def construir(pipes, structures, ft, colores=None, duct_banks=(), cruces=(), avisos=(), conflictos=(),
-              ocultas=(), ver=None, suelo_z=None, origen=None, solo=None, foco=None):
+              ocultas=(), ver=None, suelo_z=None, origen=None, solo=None, foco=None, sin_accesorio=()):
     """Escena 3D. `ft` = pies por px del lienzo; `colores` = {capa: (r, g, b)} 0–1;
     `duct_banks` = [{name, width_in, height_in, conduits, pipes}]; `avisos` =
     [{x, y, clase, mensaje, pipe, info}]; `conflictos` = [{id, titulo, x, y, mensaje, pipes,
@@ -455,7 +455,8 @@ def construir(pipes, structures, ft, colores=None, duct_banks=(), cruces=(), avi
     `suelo_z` = cota del suelo (None = automática); `origen` = el de otra escena (rearmar una parte de
     ella, `modelo3d_parche`; None = el centro de lo dibujado y el suelo); `solo` = índices de las únicas
     utilidades que se arman (las demás ni se miran: como si no tuvieran puntos); `foco` = de ésas, las
-    únicas cuyos tubos, accesorios y rótulos se dibujan (las demás solo cuentan para hallar los nodos)."""
+    únicas cuyos tubos, accesorios y rótulos se dibujan (las demás solo cuentan para hallar los nodos);
+    `sin_accesorio` = puntos donde el usuario dijo «no hay codo/T/Y/cruz» (`nucleo/sin_accesorio`)."""
     ver = dict(dict(estructuras=True, accesorios=True, avisos=True, rotulos=False), **(ver or {}))
     if not ft or ft <= 0:
         return Escena()
@@ -485,6 +486,9 @@ def construir(pipes, structures, ft, colores=None, duct_banks=(), cruces=(), avi
         nodos = acc.accesorios(vis_pipes, lambda i, k, x, y: model_ops.z_en_tramo(vis_pipes[i], k, x, y), ft,
                                rectos=rectos,
                                avance=lambda f: av.paso("buscar", round(f * len(visibles)), len(visibles)))
+        if sin_accesorio:                              # «no hay accesorio» ahí: las tuberías llegan sin pieza
+            from nucleo import sin_accesorio as _sa
+            nodos = _sa.filtrar(nodos, sin_accesorio, _sa.tol_px(ft))
         av.accesorios_hallados(len(nodos))
         tol = V.TOL_EXTREMO_FT / ft
         planes = V.planear(vis_pipes, cruces, ft, diametro_ft, lambda i, x, y: _z_eje(vis_pipes, i, x, y),

@@ -25,6 +25,7 @@ from ui.comun import etiquetas3d
 from ui.comun import visor3d_instancias as VI
 from ui.comun import visor3d_shaders as SH
 from ui.comun.cubo_vistas import CuboVistas
+from ui.comun.visor3d_autopan import AutoPanMixin
 
 GL_TRIANGLES = 0x0004
 GL_DEPTH_TEST = 0x0B71
@@ -98,7 +99,7 @@ class Camara:
         self.dist = radio / math.sin(math.radians(self.fov) / 2.0) * 1.05
 
 
-class Visor3D(QOpenGLWidget):
+class Visor3D(AutoPanMixin, QOpenGLWidget):
     elegido = QtCore.Signal(int)        # id del objeto (0 = nada)
     doble = QtCore.Signal(int)
     sobre = QtCore.Signal(int)
@@ -130,6 +131,7 @@ class Visor3D(QOpenGLWidget):
         self._cubo_press = None
         self._anim = None
         self._t_anim = QtCore.QTimer(self, interval=ANIM_MS // ANIM_PASOS, timeout=self._animar_paso)
+        self._iniciar_autopan()                           # clic en la rueda = navegar (visor3d_autopan)
         self._pos_hover = None
         self.ver_rotulos = False            # pendientes y ángulos por tramo (la escena los trae siempre)
         self._capa_rot = self._capa_etq = None
@@ -337,6 +339,10 @@ class Visor3D(QOpenGLWidget):
 
     # ── ratón y teclado ──
     def mousePressEvent(self, e):
+        if self.autopan_activo():                          # cualquier clic termina «navegar»
+            self.autopan_salir()
+            self._press = None
+            return
         # Profundidad de lo agarrado: al desplazar, eso sigue al ratón (también muy de cerca).
         self._prof_agarre = None
         if self.escena is not None:
@@ -358,6 +364,8 @@ class Visor3D(QOpenGLWidget):
 
     def mouseMoveEvent(self, e):
         pos = e.position()
+        if self._autopan_mover(pos):
+            return
         if self._press is None or e.buttons() == QtCore.Qt.NoButton:
             obj = self.cubo.que_hay(pos)
             if obj != self.cubo.sobre:
@@ -390,6 +398,11 @@ class Visor3D(QOpenGLWidget):
         self.update()
 
     def mouseReleaseEvent(self, e):
+        if (self._press is not None and self._press[1] == QtCore.Qt.MiddleButton and not self._arrastre
+                and self._cubo_press is None):
+            self._press = None                             # clic en la rueda (sin arrastrar): «navegar»
+            self.autopan_entrar(e.position())
+            return
         if self._cubo_press is not None:
             if not self._arrastre:
                 destino = self.cubo.vista_de(self._cubo_press, self.cam.pitch)
@@ -425,6 +438,7 @@ class Visor3D(QOpenGLWidget):
             self.doble.emit(self.id_en(e.position().x(), e.position().y()))
         elif e.button() == QtCore.Qt.MiddleButton:            # como AutoCAD: doble clic en la rueda
             self._press = None
+            self.autopan_salir()
             self.encuadrar()
 
     def _pies_por_px(self, prof=None):
@@ -490,9 +504,12 @@ class Visor3D(QOpenGLWidget):
         self.update()
 
     def wheelEvent(self, e):
+        if self._rueda_desplaza(e):                        # rueda apretada o de lado: desplaza
+            return
         self.zoom(e.angleDelta().y() / 120.0, e.position().x(), e.position().y())
 
     def leaveEvent(self, e):
+        self.autopan_salir()
         self._pos_hover = None
         if self.hov_id:
             self.hov_id = 0
@@ -502,6 +519,10 @@ class Visor3D(QOpenGLWidget):
 
     def keyPressEvent(self, e):
         k = e.key()
+        if k == QtCore.Qt.Key_Escape and self.autopan_activo():
+            self.autopan_salir()
+            e.accept()
+            return
         if k in (QtCore.Qt.Key_Home, QtCore.Qt.Key_F):
             self.encuadrar()
         elif k in (QtCore.Qt.Key_Plus, QtCore.Qt.Key_Equal):

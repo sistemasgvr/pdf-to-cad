@@ -27,7 +27,7 @@ UMBRAL = int(os.environ.get("PDFCAD_CALCULO_FONDO_MIN", "3000"))   # utilidades
 PARTES = ("cruces", "accesorios")
 MB_POR_PARTE = 700              # memoria que pide cada proceso para decidir si van dos a la vez
 _PARTES = ("pipes", "structures", "cross_connections", "normas_cat", "normas_aprobados", "duct_banks",
-           "scale", "zoom")
+           "scale", "zoom", "sin_accesorio")
 # Cuánto pesa cada cálculo de su parte (s con AGUA 2): el proceso avisa cuánto lleva (barra de la barra de
 # estado, `calculo_avance`). «union» va dentro de «clasificar_cruces» (ya contado ahí).
 PESOS = {"cruces": {"vertices_buzones": 0.05, "cruces_presion": 0.64, "juntas": 0.41, "clasificar_cruces": 2.87,

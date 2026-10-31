@@ -113,6 +113,7 @@ class SolucionesMixin:
                        and caja[1] <= s["y"] <= caja[3]]
         calc = Calculo({"pipes": pipes_zona, "structures": estructuras, "cross_connections": cruzadas,
                         "normas_cat": getattr(self, "normas_cat", None), "normas_aprobados": [], "duct_banks": [],
+                        "sin_accesorio": getattr(self, "sin_accesorio", None) or [],
                         "scale": self.scale, "zoom": self.zoom}, True)
         calc.correr()
         g = sub.__getitem__

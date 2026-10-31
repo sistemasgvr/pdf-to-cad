@@ -197,6 +197,7 @@ class HerramientasMixin:
             self._mostrar_avisos_de_la_utilidad()
         self._mostrar_pendiente()
         self._vista3d_al_dia()
+        self._perfil_al_dia()
 
     def aprobar_avisos(self, avisos, nota=""):
         """Aprueba esos avisos de normativa (con deshacer): dejan de marcarse en el plano y

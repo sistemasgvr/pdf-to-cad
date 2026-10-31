@@ -202,6 +202,8 @@ def _merge_into_modelo(win, doc, marks=True):
     _export_cross_connects(win, doc, msp)
     _export_ref_centerlines(win, doc, msp)
     _export_cs_code(win, doc, msp)
+    _export_sin_accesorio(win, doc, msp)
+    _export_perfiles(win, doc, msp)
     VP.ensure_layer(doc, "ANOTACION")
     if "CAD_TEXT" not in doc.styles: doc.styles.add("CAD_TEXT", font=C.TEXT_FONT)
     for ld in win.leaders:
@@ -300,6 +302,44 @@ def replace_text(win, doc, msp, tm):
             if x0 <= ins.x <= x1 and y0 <= ins.y <= y1: msp.delete_entity(e)
     t = msp.add_text(tm["text"], height=LEADER_TEXT_FT, dxfattribs={"layer": "ANOTACION", "style": "CAD_TEXT"})
     t.set_placement(win._to_cad(tm["pos"][0], tm["pos"][1]), align=TextEntityAlignment.MIDDLE_CENTER)
+
+
+def _export_sin_accesorio(win, doc, msp):
+    """Puntos donde el usuario dijo «no hay codo/T/Y/cruz» (`nucleo/sin_accesorio`, 2026-10-30): un punto con
+    XDATA PDFCAD_SIN_ACCESORIO (TIPO) en la capa PDFCAD_SIN_ACCESORIO. El plugin no pone pieza en la juntura de
+    ese punto (±0.5 ft): las tuberías llegan ahí sin conectarse."""
+    marcas = getattr(win, "sin_accesorio", None) or []
+    if not marcas:
+        return
+    if "PDFCAD" not in doc.appids: doc.appids.add("PDFCAD")
+    VP.ensure_layer(doc, "PDFCAD_SIN_ACCESORIO")
+    for m in marcas:
+        x, y = win._to_cad(m["x"], m["y"])
+        pt = msp.add_point((x, y, 0), dxfattribs={"layer": "PDFCAD_SIN_ACCESORIO"})
+        pt.set_xdata("PDFCAD", [(1000, "PDFCAD_SIN_ACCESORIO"), (1000, f"TIPO={m.get('tipo') or ''}")])
+
+
+def _export_perfiles(win, doc, msp):
+    """Perfiles longitudinales guardados en la app (`Main.perfiles`, 2026-10-31): un punto con XDATA
+    PDFCAD_PERFIL (NAME) en la capa PDFCAD_PERFIL, sobre el tramo donde empieza, y FIN_X/FIN_Y = el tramo donde
+    termina. IMPORTAR_RED crea con él el perfil de CREAR_PERFIL_RED sin preguntar, cortado entre esos dos tramos."""
+    perfiles = getattr(win, "perfiles", None) or []
+    if not perfiles:
+        return
+    if "PDFCAD" not in doc.appids: doc.appids.add("PDFCAD")
+    VP.ensure_layer(doc, "PDFCAD_PERFIL")
+    for p in perfiles:
+        ini = p.get("ini") or []
+        if len(ini) < 3:
+            continue
+        x, y = win._to_cad(float(ini[1]), float(ini[2]))
+        pt = msp.add_point((x, y, 0), dxfattribs={"layer": "PDFCAD_PERFIL"})
+        xd = [(1000, "PDFCAD_PERFIL"), (1000, f"NAME={(p.get('nombre') or '')[:200]}")]
+        fin = p.get("fin") or []
+        if len(fin) >= 3:                              # el plugin corta el recorrido entre INI (el punto) y FIN
+            fx, fy = win._to_cad(float(fin[1]), float(fin[2]))
+            xd += [(1000, f"FIN_X={fx:.6f}"), (1000, f"FIN_Y={fy:.6f}")]
+        pt.set_xdata("PDFCAD", xd)
 
 
 def _export_cs_code(win, doc, msp):

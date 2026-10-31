@@ -168,7 +168,7 @@ def _indice_accesorios(escena):
 
 
 def parche(escena, pipes, structures, ft, cambiadas, colores=None, duct_banks=(), cruces=(), ocultas=(), ver=None,
-           cajas=None):
+           cajas=None, sin_accesorio=()):
     """Escena NUEVA = `escena` con las utilidades `cambiadas` (y lo que depende de ellas) rearmadas desde
     `pipes`/`structures` (el modelo YA cambiado). La escena de entrada no se modifica."""
     if escena is None or escena.vacia or not ft:
@@ -183,7 +183,7 @@ def parche(escena, pipes, structures, ft, cambiadas, colores=None, duct_banks=()
     sub_cruces = [c for c in cruces or () if _par(c) and _par(c) <= s2]
     ver = dict(ver or {}, avisos=False)
     sub = modelo3d.construir(pipes, sub_est, ft, colores, duct_banks, sub_cruces, (), (), ocultas, ver,
-                             escena.suelo_z, origen=escena.origen, solo=s2, foco=s1)
+                             escena.suelo_z, origen=escena.origen, solo=s2, foco=s1, sin_accesorio=sin_accesorio)
     # qué se reemplaza: tubos de S1, accesorios con alguna utilidad de S1, buzones en los vértices de S1
     est1 = {modelo3d.ID_ESTRUCTURA + j + 1 for j in est}
     tubos = {k + 1 for k in s1}
