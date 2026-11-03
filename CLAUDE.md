@@ -10,8 +10,8 @@ alcantarillado, drenaje, gas, eléctrico, telecom). Todo en **unidades imperiale
   - `main.py` — punto de entrada (arma `sys.path`: `app/` + raíz).
   - **Carpetas por capa (2026-10-08, en curso)**: `app/nucleo/` = lógica PURA del dominio (sin Qt ni fitz):
     `model`, `model_ops`, `xdata`, `duct_bank`, `unir_utilidades`, `unir_ramales`, `quiebres_curvas`,
-    `accesorios`, `normas_catalogo`, `normas_excel`, `normas_excel_ayuda`, `normas_validar`, `normas_validar_acc`, `normas_validar_red`, `normas_reglas`, `normas_base`, `normas_migrar`, `normas_excel_v1`, `normas_aprobacion`, `normas_tablas`, `tabla_datos`, `tabla_excel`, `conflictos`, `modelo3d`, `mallas3d`, `accesorios3d`, `verticales3d`, `marcas3d`, `ficha3d`, `edicion_bloque`,
-    `limpieza`, `limpieza_tramos`, `vertice_curva`, `conexiones_verticales`, `trazo_asistido`, `angulos`, `indice_plano`, `memo_modelo`, `deshacer`, `reducciones3d`, `rotulos3d`, `modelo3d_parche`, `edicion3d`, `archivo_zip`, `avance`, `avance_pesado`, `informe_datos`, `informe_redaccion`, `soluciones`, `diametro_plano`. Se importan
+    `accesorios`, `normas_catalogo`, `normas_excel`, `normas_excel_ayuda`, `normas_validar`, `normas_validar_acc`, `normas_validar_red`, `normas_reglas`, `normas_base`, `normas_migrar`, `normas_excel_v1`, `normas_aprobacion`, `diametro_vecinas`, `normas_tablas`, `tabla_datos`, `tabla_excel`, `conflictos`, `modelo3d`, `mallas3d`, `accesorios3d`, `verticales3d`, `marcas3d`, `ficha3d`, `edicion_bloque`,
+    `limpieza`, `limpieza_tramos`, `avisos_lugar`, `vertice_curva`, `conexiones_verticales`, `trazo_asistido`, `angulos`, `indice_plano`, `memo_modelo`, `deshacer`, `reducciones3d`, `rotulos3d`, `modelo3d_parche`, `edicion3d`, `archivo_zip`, `avance`, `avance_pesado`, `informe_datos`, `informe_redaccion`, `soluciones`, `diametro_plano`. Se importan
     como `from nucleo import model_ops` / `from nucleo.model import …` (nunca `import model_ops`: ese nombre
     ya no existe). Regla: la interfaz usa `nucleo`, `nucleo` NUNCA importa la interfaz (PySide6, `i18n`,
     ventana…; sí `i18n_core`). Más abajo los módulos se nombran sin la carpeta: `model_ops.py` = `app/nucleo/
@@ -1696,6 +1696,8 @@ alcantarillado, drenaje, gas, eléctrico, telecom). Todo en **unidades imperiale
     propuestas desde reglas activas (tipo, longitud, amperaje, material; alternativas explícitas y tamaños de
     referencia que cumplen todos los alcances). `ia/diametro_ia.sugerir_normativa` elige un id validado; una opción
     se resuelve localmente solo si no hay imagen ni contactos que contrastar.
+    Sin material, una regla `si_material` solo descarta el tamaño que NO la cumpliría (2026-11-03: «8–15" si es PVC» quitaba
+    el 8" del colector y a toda línea de alcantarillado sin datos se le proponían los 6" de una conexión).
     Se muestran fuente, criterio y tipo supuesto; `origen=normativa`, nunca como lectura del PDF. «Aprobar» aplica,
     «Otro diámetro…» permite introducirlo; ambos con deshacer. La caché incluye las opciones normativas. Pruebas:
     `tests/test_diametro_normativa.py`, incluido DU06 real; la prueba de red usa un servidor Ollama simulado.
@@ -1747,6 +1749,29 @@ alcantarillado, drenaje, gas, eléctrico, telecom). Todo en **unidades imperiale
     (`max_in`, también filtra las N…), principal ≥ ramal (`min_in`). `ficha(continuidad=)`; `sugerir_normativa` pone las
     C… antes que las N… (una sola C alta = sin modelo, origen «continuidad»). Avisos de normativa del panel en
     `ui/comun/texto_ajustado.TextoAjustado` (QFormLayout los cortaba). Tests: `tests/test_diametro_continuidad.py`.
+    **La IA señala** (pedido 2026-11-03, «me dice la línea magenta y en el plano no está»): agente ACOTADO, la app mide y
+    la IA elige ids. `nucleo/diametro_vecinas` (PURO): `vecinas` = papel MEDIDO de cada línea conectada, L1… (principal /
+    ramal / sigue / toca, también sin diámetro confirmado; `diam_in` None nunca es el por defecto) y `tramo_sin_diametro`.
+    `ia/diametro_agente` (PURO): `sin_colores` (el recorte es del modelo, el usuario no lo ve), `marcas`, `enlazar` (`ia:L1`),
+    `respuesta_directa` («¿cuál es el ramal?» sin modelo; la propuesta sigue). `Sugerencia.senaladas`; en la réplica, JSON
+    «senala». `diametro_ia_replica.afirmados`: U… solo si el usuario AFIRMA el diámetro de ESTA línea. UI:
+    `ui/comun/marcas_ia.MarcasIA` (halos y etiquetas en la escena, Z_HANDLE+4) + `ventana_diametro_ia_senales` (`_diam_ia_ir`
+    NO cambia la selección: cerraría el chat; `usar_diametro_en_vecinas` = un `_push`). Tests: `tests/test_diametro_agente.py`.
+    **La IA elige dónde mirar** (pedido 2026-11-03): sin propuesta, o con una solo de la normativa (`diametro_zonas.necesita`),
+    `ia/diametro_zonas.revisar` recibe el menú de `hoja/zonas_diametro.menu` (lados de la línea, membrete, leyenda, notas, con
+    adelanto del texto; leyenda y notas también en otra hoja del PDF), la IA elige UNA zona, ve captura + texto y elige un Z…
+    (diámetros que LEYÓ la app ahí; nunca de otra utilidad), hasta `MAX_VISTAS`=2. Sobre las hojas de ORIGEN (`contexto_original`):
+    mismo camino con capas, mapas y sin capas. En el chat: «revisa el membrete» (`zona_pedida`) o la IA pide «ver». El hilo de la IA
+    lee la hoja en la ventana por `_Explorador` (señal `puente`: fitz no se usa desde dos hilos). `Sugerencia.zonas`, origen «zona»,
+    capturas en «Ver análisis». Tests: `tests/test_diametro_zonas.py`.
+  - **Grosor sin capas NI leyenda** (pedido 2026-11-03, «Southwest Gas Combined 811 Records»: ArcGIS con texto de verdad,
+    `leyenda_mapa.aplica` False, utilidad puesta a mano a cada estilo): `reconocimiento/recognition_grosor_registros.py` (PURO)
+    junta las piezas de cada rótulo (`81'` `3/4"` `STL` ` `56`, también `95' 1/2" PE '88`; fracciones) en `RotuloMapa`,
+    siempre `acometida=False`, y `recognize_page` sigue por el camino del mapa (`por_estilos`: asignar, tramos, `cerca` para
+    la IA, `de_mapa` al DXF como MTEXT). `por_largo`: línea sin dato + rótulo libre a ≤15 letras cuyo largo coincide (±8 %),
+    con la relación pies/largo sacada de las líneas ya leídas, no de la escala de la hoja. `leer_hoja` de anotaciones NO
+    sirve aquí (577 «multileaders» falsos: toda raya cerca de un texto). Los mapas con leyenda no cambian. Southwest 37
+    (red `#008585` + servicios `#FF6921`): 487 de 545 leídas, 636 rótulos. Tests: `tests/test_grosor_registros.py`.
   - **Rótulos del plano / multileaders** (pedido 2026-11-03): `reconocimiento/recognition_anotaciones.py` (PURO) lee TODO
     bloque MText del que sale una guía (mismas `Guias`, bloques y marcos girados del grosor; no solo los de diámetro) →
     dicts {tipo multileader|mtext, texto, caja, tam, angulo, guias, puntas, estado leido|ilegible, utilidad, diam_in,
@@ -2253,6 +2278,18 @@ alcantarillado, drenaje, gas, eléctrico, telecom). Todo en **unidades imperiale
     `exportar/informe_word.escribir` (anexo hasta `ANEXO_MAX`=1000 filas). Barra precisa `barras_carga.informe`
     (`MS_INFORME` medidos con AGUA 2; etapas informe_datos/mapa/2d/3d_armar/3d/zonas/anexo/guardar). AGUA 2
     (16 762 utilidades, 171 conflictos, 18 zonas) con capturas 2D: ~3 s, ~7 MB. Nada cambia en el proyecto.
+    **Avisos en su línea** (reporte del usuario 2026-11-03, DU10: «fuera de la línea, sin ningún sentido»; las tres causas
+    medidas en su proyecto, 933 utilidades, 5 capas apagadas, `tests/test_avisos_en_su_linea.py`): (1) `nucleo/avisos_lugar.
+    sobre_lo_dibujado` (dentro del memo «normas» de `_calcular_accesorios`): las reglas ponen el punto sobre los VÉRTICES
+    y el de una curva es una esquina virtual (86 de 774 a > 0.05 ft de su línea, hasta 24.8 ft); cada aviso de una utilidad
+    va al punto más cercano de lo dibujado (`dibujo` = `Main._pipe_display_pts`), salvo clase «accesorio» (la etiqueta lo
+    busca en SU punto). `Aviso.lugar` = el punto de la regla: `normas_aprobacion.clave` lo usa, lo aprobado sigue aprobado.
+    (2) «Capas» decidía por cercanía (`MARCA_FT`): aviso del eléctrico apagado junto a una línea de agua = a la vista sin
+    línea debajo (91 casos). `capa_marcas.duenas(item, capas)`: avisos, accesorios, cruces, C-n y alertas que saben de
+    quién son se ocultan si sus capas están todas apagadas; solo las demás (`exceso`, `redes`…) van por cercanía. La insignia
+    es de UNA capa (`avisos_view`: `capa_de`, no agrupa entre capas). OJO: una marca nueva con dueña conocida usa `duenas`.
+    (3) `CapaLineas.fijar_ocultas` armaba la máscara antes de `agregar` (redibujo completo): vacía → se ignoraba → las
+    líneas de capas apagadas volvían al abrir, editar o deshacer; ahora también la pone `cerrar`.
     Avisos del RECONOCIMIENTO (`diametro_plano`, clase «grosor», de dev_santos_v2) APARTE (decisión del usuario
     2026-10-24): fichas `tipo` «reconocimiento» R-n, fuera de zonas y conteos de normativa, sección propia en el
     Word, casilla `Opciones.reconocimiento`.

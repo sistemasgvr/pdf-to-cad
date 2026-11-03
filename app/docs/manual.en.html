@@ -1182,6 +1182,20 @@ references. Geometric contact does not confirm a hydraulic connection.</p>
     Original PDFs embedded in the project remain available after reopening it.</li>
 <li>Progress stages show prepared context, crop and route analysis, and proposal checks. The application
     coordinates these operations; a general-purpose agent is not required.</li>
+<li>It also works on PDFs with no layers or legend where you assign the utility to each style in <b>Sheet layers</b>:
+    their diameter labels are read (<b>3/4" STL `57</b>, <b>95' 1/2" PE '88</b>) and, if one sits away from its line,
+    it is matched by the length it states. Recognize the sheet again to apply it.</li>
+<li><b>It looks for what is missing:</b> when unsure, it decides where to look (to one side of the line, above, below,
+    the title block, the legend or the notes), also outside the cropped area and on other sheets of the PDF. It only
+    proposes a diameter written there that applies to the line. You can also ask: «check the title block», «look above».
+    <b>See analysis</b> shows the captures it used.</li>
+<li>The AI <b>marks on the plan</b> what it names: each line with a halo and its name, each label with a box. Codes in
+    the chat are links: one click takes you there without changing the selection. The app measures which line is the
+    main and which the branch; ask «which is the branch?» and it answers instantly. A diameter you mention in a question
+    or about another line does not count as data for this one.</li>
+<li>If the proposal also fits lines with no data that continue straight, with no manhole or box in between, they stay
+    marked and <b>Approve here and on N more</b> changes them at once (a single
+    <span class="key">&nbsp;Ctrl+Z&nbsp;</span>).</li>
 <li><b>Approve 18"</b> applies the proposal. <b>Other diameter…</b> lets you enter your preferred diameter.
     Both actions support <span class="key">&nbsp;Ctrl+Z&nbsp;</span>; canceling changes nothing.</li>
 <li>Only the selected warning is reviewed; recognition and import do not wait for the AI. Answers are saved.

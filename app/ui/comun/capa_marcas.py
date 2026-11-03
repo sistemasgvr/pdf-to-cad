@@ -41,6 +41,15 @@ from ui.comun.capa_marcas_sellos import (FASES, _caja_local, _caja_rotulo, _hace
                                         sello)
 from ui.comun.capa_marcas_vista import CacheVistaMixin, DespejeMixin
 
+def duenas(item, capas):
+    """Anota de qué capas de utilidad es la marca: «Capas» la oculta cuando están TODAS apagadas, aunque otra
+    línea encendida pase cerca (reporte 2026-11-03: el aviso del eléctrico apagado seguía a la vista junto a una
+    línea de agua, sin ninguna línea debajo). Sin dueñas conocidas se decide por las utilidades cercanas."""
+    if capas:
+        item._pdfcad_duenas = frozenset(capas)
+    return item
+
+
 ESCALA_MIN = 0.3                  # la del lienzo (`canvas._ZOOM_MIN`): para el margen de la caja
 MAX_MB = 192                      # memoria de los sellos (se vacían todos al pasarse)
 
@@ -61,7 +70,7 @@ class _Capa(CacheVistaMixin, QtWidgets.QGraphicsItem):
         self.ext = 0.0                                   # mayor extensión en px de pantalla
         self.escala = max(min(escala, ESCALA_MIN), 1e-6)
         self._caja = QtCore.QRectF()
-        self._capas_de = None                            # utilidades junto a cada marca («Capas»), al pedirlas
+        self._capas_de = None                            # capas de cada marca («Capas»), al pedirlas
         self._ocultas = None                             # marcas apagadas en «Capas» (numpy), o None
         self.setZValue(z)
         self.setAcceptHoverEvents(True)
@@ -135,11 +144,12 @@ class _Capa(CacheVistaMixin, QtWidgets.QGraphicsItem):
         return np.flatnonzero(dentro) if dentro is not None else np.zeros(0, dtype=int)
 
     def fijar_ocultas(self, apagadas, capas_en) -> bool:
-        """Oculta las marcas cuyas utilidades cercanas (`capas_en(x, y)` → capas) están TODAS apagadas
-        (una marca sin utilidad cerca se sigue viendo). True si cambió algo."""
+        """Oculta las marcas cuyas capas están TODAS apagadas: sus dueñas (`duenas`) o, si no se saben, las
+        de las utilidades cercanas (`capas_en(x, y)`; sin ninguna cerca se sigue viendo). True si cambió algo."""
         if apagadas:
             if self._capas_de is None or len(self._capas_de) != len(self.marcas):
-                self._capas_de = [capas_en(x, y) for x, y in zip(self._xs, self._ys)]
+                self._capas_de = [getattr(m, "_pdfcad_duenas", None) or capas_en(x, y)
+                                  for m, x, y in zip(self.marcas, self._xs, self._ys)]
             m = np.fromiter((bool(c) and c <= apagadas for c in self._capas_de), dtype=bool,
                             count=len(self._capas_de))
             nuevo = m if m.any() else None

@@ -33,7 +33,10 @@ def opciones(cat, p, largo_ft=None, preferidos=()):
                     desconocida = True
                     continue
                 if r.get("si_material") and not dt.material:
-                    desconocida = True
+                    # Sin material no se sabe si aplica: el tamaño solo cae si NO la cumpliría. Si la cumple, da igual
+                    # (reporte 2026-11-03: «8–15" si es PVC» quitaba el 8" del colector y a toda línea de alcantarillado
+                    # sin tipo ni material se le proponían los 6" de una conexión domiciliaria).
+                    desconocida = desconocida or not nv.cumple(r, d)
                     continue
                 a = nv.aplica(r, dt)
                 if a is None:

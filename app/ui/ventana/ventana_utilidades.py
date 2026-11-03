@@ -110,7 +110,7 @@ class UtilidadesMixin:
         self.btn_seg_edit.setChecked(seg_edit)
         _bind(self.btn_seg_edit, "setText",
               "Desactivar edición por tramo" if seg_edit else "Activar edición por tramo",
-              pre="✕  " if seg_edit else "✎  ")
+              pre="✕  " if seg_edit else "  ")          # (el lápiz ya es el icono del botón)
         self._prop_guard = False
         ov_out = p.get("vertex_inv_out") or {}
         ov_in  = p.get("vertex_inv_in") or {}

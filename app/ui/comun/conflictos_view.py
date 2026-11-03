@@ -5,20 +5,21 @@ from __future__ import annotations
 from PySide6 import QtCore, QtGui, QtWidgets
 
 from traduccion.i18n import t as _tr
-from ui.comun.capa_marcas import sello
+from ui.comun.capa_marcas import duenas, sello
 from ui.comun.ui_common import tooltip_bloque
 
 Z_ETIQUETA = 10_000
 
 
-def dibujar(scene, conflictos, tol_px=4.0, poner=None):
+def dibujar(scene, conflictos, tol_px=4.0, poner=None, capa_de=None):
     """Agrega a `scene` una etiqueta por lugar (los conflictos del mismo punto juntos:
     «C-10 · C-13»). Devuelve los ítems (para borrarlos). `poner(item)` = dónde va cada uno (la capa
-    de marcas del lienzo, `capa_marcas`); sin él, a la escena."""
-    return list(dibujar_iter(scene, conflictos, tol_px, poner))
+    de marcas del lienzo, `capa_marcas`); sin él, a la escena. `capa_de(utilidad)` = su capa (dueñas de la
+    etiqueta: si alguna no se sabe, «Capas» decide por las utilidades cercanas)."""
+    return list(dibujar_iter(scene, conflictos, tol_px, poner, capa_de))
 
 
-def dibujar_iter(scene, conflictos, tol_px=4.0, poner=None):
+def dibujar_iter(scene, conflictos, tol_px=4.0, poner=None, capa_de=None):
     """Como `dibujar`, entregando cada etiqueta ya puesta (carga por tandas: `marcas_por_tandas`)."""
     from nucleo.conflictos import agrupar
     ign = QtWidgets.QGraphicsItem.ItemIgnoresTransformations
@@ -42,5 +43,9 @@ def dibujar_iter(scene, conflictos, tol_px=4.0, poner=None):
         caja.setZValue(Z_ETIQUETA)
         caja.setToolTip(tooltip_bloque("\n\n".join(f"{k.id} · {_tr(k.titulo)}\n{k.mensaje}" for k in grupo)))
         caja.setData(0, " ".join(k.id for k in grupo))
+        if capa_de is not None:
+            capas = [capa_de(i) for k in grupo for i in (k.pipes or [None])]
+            if all(capas):
+                duenas(caja, capas)
         (poner or scene.addItem)(caja)
         yield caja

@@ -60,7 +60,8 @@ class ReplicaDiametroMixin:
         lbl = TextoAjustado()
         lbl.setWordWrap(True)
         lbl.setTextFormat(QtCore.Qt.RichText)
-        lbl.setTextInteractionFlags(QtCore.Qt.TextSelectableByMouse)
+        lbl.setTextInteractionFlags(QtCore.Qt.TextSelectableByMouse | QtCore.Qt.LinksAccessibleByMouse)
+        lbl.linkActivated.connect(self._diam_ia_ir)
         lbl.setSizePolicy(QtWidgets.QSizePolicy.Expanding, QtWidgets.QSizePolicy.Minimum)
         lbl.setText(texto_html)
         return lbl
@@ -94,7 +95,8 @@ class ReplicaDiametroMixin:
         self.ed_diam_ia_resp.setPlaceholderText(_tr("Escríbeme o pregúntame…"))
         self.ed_diam_ia_resp.setToolTip(_tr(
             "Dime qué rótulo es el suyo, su función (principal, lateral, acometida), dónde está el dato o el "
-            "diámetro, o pregúntame por qué propuse algo. Nada se aplica sin «Aprobar»."))
+            "diámetro, pídeme que mire una zona («revisa el membrete», «mira arriba») o pregúntame por qué propuse "
+            "algo. Nada se aplica sin «Aprobar»."))
         self.ed_diam_ia_resp.returnPressed.connect(self.responder_diametro_ia)
         fila.addWidget(self.ed_diam_ia_resp, 1)
         self.btn_diam_ia_enviar = QtWidgets.QPushButton()
@@ -194,7 +196,8 @@ class ReplicaDiametroMixin:
             try:
                 r = DR.replicar(prov, f, anterior, historial, mensaje, imagen=imagen, capturas=capturas, memoria=mem,
                                 cancelado=lambda: self._diam_ia_tok != tok,
-                                al_estado=lambda etapa: self._diam_ia_senales.etapa.emit(tok, etapa))
+                                al_estado=lambda etapa: self._diam_ia_senales.etapa.emit(tok, etapa),
+                                explorador=self._diam_ia_explorador(i, f, tok, prov))
             except Exception as e:                    # noqa: BLE001 (ErrorIA, red)
                 r = str(e)
             self._diam_ia_senales.listo.emit(tok, r)

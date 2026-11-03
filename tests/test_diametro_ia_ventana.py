@@ -156,7 +156,8 @@ def test_normativa_automatica_pendiente_aprobar_y_deshacer():
     p = _pipe()
     p["diam_plano"]["cerca"] = []
     p["tipo"] = "COLECTOR PRINCIPAL"
-    with OllamaFalso(lambda c: _resp(None)) as srv:
+    # la regla admite varios tamaños (24", 27", 30"…): la IA elige entre ellos, nunca escribe el número
+    with OllamaFalso(lambda c: '{"opcion": "N1", "motivo": "Te propongo el menor que cumple."}') as srv:
         w = _ventana(srv, [p])
         w._diam_ia_auto = True
         _elegir(w, 0)
@@ -168,7 +169,7 @@ def test_normativa_automatica_pendiente_aprobar_y_deshacer():
         assert "Fuente:" in w.lbl_diam_ia.text() and "Referencia:" in w.lbl_diam_ia.text()
         assert w.btn_diam_ia_detalles.isVisibleTo(w.gprop)
         assert w.pipes[0]["diam"] == 12 and not w.pipes[0].get("diam_elegido")
-        assert srv.pedidos == []  # una regla inequívoca se resuelve localmente
+        assert len(srv.pedidos) >= 1
         w.usar_diametro_ia()
         assert w.pipes[0]["diam"] == 24 and w.pipes[0]["diam_elegido"]
         w.undo()

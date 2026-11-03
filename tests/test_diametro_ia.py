@@ -92,7 +92,8 @@ def test_du06_cerca_no_cambia_estados():
     foto = {r.utility: [dict(Counter((p.grosor or {}).get("estado", "-") for p in r.polylines)),
                         sorted(p.diam_in for p in r.polylines if p.diam_in)] for r in res}
     assert foto == {
-        "AGUA": [{"-": 1, "leido": 2, "sin_dato": 23}, [8.0, 8.0]],
+        # (24: dos tomas paralelas en «T» con la principal; antes salían unidas en una «U» sin tinta, UD-213)
+        "AGUA": [{"-": 1, "leido": 2, "sin_dato": 24}, [8.0, 8.0]],
         "ALCANTARILLADO": [{"leido": 1, "sin_dato": 12}, [18.0]],
         "DRENAJE": [{"dudoso": 1, "leido": 9, "sin_dato": 12}, [18.0] * 5 + [24.0, 24.0, 33.0, 84.0]],
         "ELECTRICO": [{"-": 1, "sin_dato": 13}, []],

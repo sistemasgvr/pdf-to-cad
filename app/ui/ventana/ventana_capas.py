@@ -6,8 +6,8 @@ la barra (`ui/comun/capas_popup`) lista:
 
 - UTILIDADES (lo dibujado): una fila por capa de utilidad del proyecto (Agua, Alcantarillado…).
   Apagada (`Main.capas_apagadas`): sus líneas, sus buzones y curvas y sus marcas (cruces, accesorios,
-  avisos, C-n de las que solo tienen utilidades apagadas cerca) no se pintan y en el lienzo no se
-  eligen ni enganchan. En el Inventario sigue en la lista, atenuada; elegida desde ahí se ve.
+  avisos, C-n cuyas utilidades dueñas están todas apagadas; las que no saben de quién son, por las
+  utilidades cercanas) no se pintan y en el lienzo no se eligen ni enganchan. En el Inventario sigue en la lista, atenuada; elegida desde ahí se ve.
 - PLANOS DEL PDF (fondo): un plano por grupo de hojas (`ventana_planos._poner_planos`).
 
 Solo cambia lo que se VE: el modelo, los cálculos, la Tabla de datos y el DXF no cambian. Apagar o
@@ -26,7 +26,7 @@ from ui.comun import capas_popup as CP
 from ui.comun.ui_common import layer_qcolor
 import geometry as G
 
-# Una marca (cruce, accesorio, aviso…) es de las utilidades que pasan a ≤ esto de su punto
+# Una marca sin dueñas conocidas (`capa_marcas.duenas`) es de las utilidades que pasan a ≤ esto de su punto
 MARCA_FT = 2.0
 
 
@@ -137,6 +137,15 @@ class CapasMixin:
         """La utilidad i está en una capa apagada (no se pinta ni se elige en el lienzo)."""
         ap = getattr(self, "capas_apagadas", None)
         return bool(ap) and self.pipes[i].get("layer") in ap
+
+    def _capa_de_utilidad(self, i):
+        """La capa de la utilidad i (dueña de una marca), o None si no se sabe."""
+        return (self.pipes[i].get("layer") or None) if i is not None and 0 <= i < len(self.pipes) else None
+
+    def _capas_de_utilidades(self, indices):
+        """Las capas dueñas de una marca de esas utilidades, o None si alguna no se sabe (`capa_marcas.duenas`)."""
+        capas = [self._capa_de_utilidad(i) for i in indices]
+        return frozenset(capas) if capas and all(capas) else None
 
     def _capas_en(self, x, y, cerca=None):
         """Las capas de las utilidades que pasan a ≤ `MARCA_FT` del punto (dueñas de una marca).

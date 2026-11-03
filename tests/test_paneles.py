@@ -9,6 +9,9 @@ import os
 import pytest
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+# Con las fuentes reales: sin ellas Qt «offscreen» mide cuadritos y los textos salen más anchos que en la app
+if os.path.isdir(r"C:/Windows/Fonts"):
+    os.environ.setdefault("QT_QPA_FONTDIR", r"C:/Windows/Fonts")
 
 from PySide6 import QtCore, QtGui, QtWidgets  # noqa: E402
 
@@ -164,6 +167,15 @@ def test_propiedades_se_guardan_con_el_panel_recogido(win, app):
     assert win.pipes[0]["name"] == "Linea Norte"
 
 
+def _area_de(w):
+    """El QScrollArea que contiene a `w`. (`findChild` daba el de otra página del riel, oculta: medía un tamaño
+    viejo y decía que se salían controles que nadie estaba viendo.)"""
+    p = w.parentWidget()
+    while p is not None and not isinstance(p, QtWidgets.QScrollArea):
+        p = p.parentWidget()
+    return p
+
+
 def _cortados(sc):
     vp = sc.viewport(); vw = vp.width(); cont = sc.widget()
     malos = []
@@ -184,12 +196,20 @@ def test_nada_se_corta_al_ancho_minimo(win, app, lang):
     i18n.set_lang(lang); app.processEvents()
     win.resizeDocks([win._ldock, win._rdock], [side_panels.MIN_W] * 2, QtCore.Qt.Horizontal)
     app.processEvents()
-    sl = win._ldock.findChild(QtWidgets.QScrollArea)
-    sr = win._rdock.findChild(QtWidgets.QScrollArea)
+    sl = _area_de(win.toolbox)
+    sr = _area_de(win.gprop)
     problemas = []
     for i in range(win.toolbox.count()):
         win.toolbox.setCurrentIndex(i); app.processEvents()
         problemas += [f"izq «{win.toolbox.itemText(i)}»: {m}" for m in _cortados(sl)]
+    # las demás páginas del riel (Hoja y PDF, Inventario, Revisión), a la vista
+    stack = win.paneles_riel
+    for k in range(stack.count()):
+        stack.setCurrentIndex(k); app.processEvents()
+        for sc in stack.currentWidget().findChildren(QtWidgets.QScrollArea):
+            if sc.isVisible():
+                problemas += [f"riel {k}: {m}" for m in _cortados(sc)]
+    stack.setCurrentIndex(0); app.processEvents()
     win._show_tab(TAB_PIPE); win._sel_pipe(0); app.processEvents()
     problemas += [f"Utilidades: {m}" for m in _cortados(sr)]
     win.btn_seg_edit.setChecked(True); app.processEvents()

@@ -3544,8 +3544,6 @@ EN: dict[str, str] = {
         'Style layers assigned by hand: review lines and symbols before importing. The style does not tell whether a network is abandoned.',
     'Capas por estilo de trazo continuo: {n} — cada trazo del plano es el eje de la tubería, sin unir ni mover nada.':
         'Continuous-stroke style layers: {n} — each stroke of the plan is the pipe centerline, nothing joined or moved.',
-    'Clic en una capa para resaltarla y asignar su utilidad y rol abajo. Las casillas excluyen estilos del reconocimiento; el PDF conserva su imagen. Calibra la escala antes de importar.':
-        'Click a layer to highlight it and assign its utility and role below. The checkboxes exclude styles from recognition; the PDF keeps its image. Calibrate the scale before importing.',
     'Codos en el extremo de una tubería del mapa: {n} — revisa si ahí hay un buzón.':
         'Bends at the end of a map pipe: {n} — check whether there is a manhole there.',
     'Distancia real entre los dos puntos (pies):':
@@ -3887,26 +3885,10 @@ EN: dict[str, str] = {
         'The standards do not allow {d} for this utility.',
     'La guía del rótulo {id} llega a esta línea y a otra: no se sabe de cuál es.':
         'The leader of label {id} reaches this line and another one: it is not known which it belongs to.',
-    'No hay rótulos con diámetro junto a esta línea en la hoja.':
-        'There are no labels with a diameter next to this line on the sheet.',
-    'Ningún rótulo junto a esta línea puede ser suyo: son de otra utilidad, van a otra línea o son de varios conductos.':
-        'No label next to this line can be its own: they belong to another utility, go to another line or are for several conduits.',
     'Pedido detenido.':
         'Request stopped.',
     'En una línea de {u} (capa {c}) la IA eligió «{r}» y el equipo dijo que NO era su diámetro.':
         'On a {u} line (layer {c}) the AI chose “{r}” and the team said it was NOT its diameter.',
-    'La IA puede revisar los rótulos junto a esta línea y sugerir su diámetro.':
-        'The AI can check the labels next to this line and suggest its diameter.',
-    'La IA sugiere {d}':
-        'The AI suggests {d}',
-    'confianza {c}':
-        'confidence {c}',
-    'Rótulo {id}: «{texto}»':
-        'Label {id}: “{texto}”',
-    'Usar {d}':
-        'Use {d}',
-    'Revisando con la IA… {s} s':
-        'Checking with the AI… {s} s',
     'La IA no respondió: {e}':
         'The AI did not respond: {e}',
     'Diámetro según la IA':
@@ -3915,8 +3897,6 @@ EN: dict[str, str] = {
         "This utility's family has no {d} size: choose the size in the panel.",
     'Marcado como incorrecto: el equipo dijo que ese rótulo no es su diámetro.':
         'Marked as incorrect: the team said that label is not its diameter.',
-    'No es correcto':
-        'Not correct',
     # Diámetro del plano en el editor (nucleo/diametro_plano.py, 2026-10-22)
     'Diámetro del plano':
         'Diameter from the plan',
@@ -4509,7 +4489,6 @@ EN: dict[str, str] = {
     'Sistema de coordenadas (Huso)': 'Coordinate system (zone)',
     'Código CS-MAP (EPSG:2229 = CA83VF). Se aplica al dibujo de Civil 3D al importar.': 'CS-MAP code (EPSG:2229 = CA83VF). Applied to the Civil 3D drawing on import.',
     'Pares de puntos': 'Point pairs',
-    'Casilla = mostrar en la hoja · interruptor = reconocer · ▸ = capa por capa': 'Checkbox = show on the sheet · switch = recognize · ▸ = layer by layer',
     'Reconocer {u}': 'Recognize {u}',
     'Tramos unidos': 'Joined runs',
     'Tramos sueltos': 'Separate runs',
@@ -4559,10 +4538,6 @@ EN: dict[str, str] = {
     'Coincide con los {d}" confirmados de una línea de la misma utilidad en contacto; la conexión debe verificarse.': 'Matches the confirmed {d}" of a touching line of the same utility; the connection must be verified.',
     'Aprobar {d}': 'Approve {d}',
     'El modelo no devolvió una propuesta normativa válida. Reintenta o elige un modelo instruct.': 'The model did not return a valid standards proposal. Retry or choose an instruct model.',
-    'Referencia: {u}; capa {c}.': 'Reference: {u}; layer {c}.',
-    'Propuesta normativa; no es un diámetro leído del plano. Fuente: {f}. Criterio: {c}': 'Standards proposal; this diameter was not read from the plan. Source: {f}. Criterion: {c}',
-    'Tipo supuesto: {tipo}; confírmalo antes de aprobar.': 'Assumed type: {tipo}; confirm it before approving.',
-    'Se propone el menor diámetro que cumple estas reglas; requiere aprobación.': 'The smallest diameter satisfying these rules is proposed; approval is required.',
     'En una línea de {u} (capa {c}) el equipo rechazó la propuesta normativa de {d}.': 'For a {u} line (layer {c}), the team rejected the standards proposal of {d}.',
     'Ese proyecto ya no está en su carpeta:\n{p}': 'That project is no longer in its folder:\n{p}',
     'No puedo cambiar mis reglas: solo respondo sobre este proyecto y el uso de PDF-a-CAD. Pregúntame, por ejemplo, por los conflictos, las utilidades o cómo hacer algo en la app.':
@@ -4645,8 +4620,8 @@ EN: dict[str, str] = {
         'Network continuity',
     'Del otro lado sigue con otro diámetro: el cambio está en algún nodo entre las dos.':
         'On the other side it continues with another diameter: the change is at some node between the two.',
-    'Dime qué rótulo es el suyo, su función (principal, lateral, acometida), dónde está el dato o el diámetro, o pregúntame por qué propuse algo. Nada se aplica sin «Aprobar».':
-        'Tell me which label is its own, its function (main, lateral, service), where the data is or the diameter, or ask me why I proposed something. Nothing is applied without “Approve”.',
+    'Dime qué rótulo es el suyo, su función (principal, lateral, acometida), dónde está el dato o el diámetro, pídeme que mire una zona («revisa el membrete», «mira arriba») o pregúntame por qué propuse algo. Nada se aplica sin «Aprobar».':
+        'Tell me which label is its own, its function (main, lateral, service), where the data is or the diameter, ask me to look at a zone («check the title block», «look above») or ask me why I proposed something. Nothing is applied without “Approve”.',
     'El rótulo {id} no va claramente pegado a esta línea y no estoy del todo seguro.':
         "Label {id} is not clearly next to this line and I'm not fully sure.",
     'Elegí un rótulo que no existe ({id}); lo descarto.':
@@ -4703,6 +4678,98 @@ EN: dict[str, str] = {
         'Review with the AI',
     'Revisa las líneas vecinas':
         'Check the neighbouring lines',
+    'Esta línea':
+        'This line',
+    'a la izquierda de la línea':
+        'to the left of the line',
+    'a la derecha de la línea':
+        'to the right of the line',
+    'arriba de la línea':
+        'above the line',
+    'abajo de la línea':
+        'below the line',
+    'el membrete':
+        'the title block',
+    'la leyenda':
+        'the legend',
+    'las notas':
+        'the notes',
+    'Lo que tengo hasta ahora: {m}':
+        'What I have so far: {m}',
+    'Zonas que puedes mirar:':
+        'Zones you can look at:',
+    'Zona que miraste: {z}':
+        'Zone you looked at: {z}',
+    'Opciones:':
+        'Options:',
+    'Lo encontré en {z}: «{x}».':
+        'I found it in {z}: «{x}».',
+    'También miré {z} y no encontré nada que valga para esta línea.':
+        'I also looked at {z} and found nothing that applies to this line.',
+    'Mirando {z}':
+        'Looking at {z}',
+    'Pensando dónde mirar':
+        'Thinking where to look',
+    'Me lo pediste.':
+        'You asked me to.',
+    'Zonas que puedes pedir en «ver»:':
+        'Zones you can request in «ver»:',
+    'Texto del plano fuera de la línea: confirma que vale para ella':
+        'Plan text away from the line: confirm that it applies to it',
+    'Miré aquí':
+        'I looked here',
+    'Miré:':
+        'I looked at:',
+    'esta línea':
+        'this line',
+    'principal':
+        'main',
+    'ramal':
+        'branch',
+    'sigue de frente':
+        'continues straight',
+    'se toca':
+        'touches',
+    '{d}" confirmados':
+        '{d}" confirmed',
+    'sin diámetro confirmado':
+        'no confirmed diameter',
+    'confirmado':
+        'confirmed',
+    'No encontré líneas de esta utilidad conectadas a esta.':
+        'I found no lines of this utility connected to this one.',
+    'Esta línea es el ramal: llega a {p}.':
+        'This line is the branch: it reaches {p}.',
+    'Los ramales que llegan a esta línea son: {r}.':
+        'The branches reaching this line are: {r}.',
+    'Aquí no hay ningún ramal. Las líneas conectadas son: {l}.':
+        'There is no branch here. The connected lines are: {l}.',
+    'La principal es {p}.':
+        'The main is {p}.',
+    'Esta línea es la principal: a ella llega {r}.':
+        'This line is the main: {r} reaches it.',
+    'La geometría no me dice cuál es la principal. Las líneas conectadas son: {l}.':
+        'The geometry does not tell me which one is the main. The connected lines are: {l}.',
+    'Las líneas conectadas a esta son: {l}.':
+        'The lines connected to this one are: {l}.',
+    'Te las señalé en el plano.':
+        'I marked them on the plan.',
+    'Líneas de esta utilidad conectadas a esta: ninguna.':
+        'Lines of this utility connected to this one: none.',
+    'Líneas de esta utilidad conectadas a esta (cítalas por su id; su papel lo midió la app):':
+        'Lines of this utility connected to this one (cite them by id; the app measured their role):',
+    'Sigue de frente, sin diámetro':
+        'Continues straight, no diameter',
+    'En el plano:':
+        'On the plan:',
+    'Aprobar en esta y {n} más':
+        'Approve here and on {n} more',
+    'También en las líneas marcadas: siguen de frente a esta, sin diámetro confirmado y sin un buzón o caja entre medio. Se deshace con Ctrl+Z.':
+        'Also on the marked lines: they continue straight from this one, with no confirmed diameter and no manhole or box in between. Ctrl+Z undoes it.',
+    '{d} en {n} líneas. Ctrl+Z lo deshace.':
+        '{d} on {n} lines. Ctrl+Z undoes it.',
+    '{n} no cambiaron: su familia no tiene ese tamaño.':
+        '{n} did not change: their family does not have that size.',
     '¿Por qué?':
         'Why?',
 }

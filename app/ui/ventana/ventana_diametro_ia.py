@@ -20,6 +20,7 @@ import time
 from ui.ventana.ventana_comun import *  # noqa: F401,F403
 from ui.comun import rediseno as R
 from ui.ventana.ventana_diametro_ia_replica import ReplicaDiametroMixin
+from ui.ventana.ventana_diametro_ia_senales import SenalesDiametroMixin
 
 
 _ESPERA_FICHA_MS = 150                               # si se sigue eligiendo líneas, no se arma la de cada una
@@ -30,6 +31,7 @@ _ESPERA_REVELAR_MS = 40
 class _Senales(QtCore.QObject):
     listo = QtCore.Signal(object, object)            # (token, Sugerencia | str con el error)
     etapa = QtCore.Signal(object, str)
+    puente = QtCore.Signal(object, object)           # (función, caja): hace algo de la hoja en la ventana
 
 
 class _TextoAnalisis(QtWidgets.QLabel):
@@ -80,7 +82,7 @@ class _TarjetaIA(QtWidgets.QFrame):
         self._ajustar_minimo()
 
 
-class DiametroIAMixin(ReplicaDiametroMixin):
+class DiametroIAMixin(ReplicaDiametroMixin, SenalesDiametroMixin):
     # ── la tarjeta ──
     def _diam_ia_construir(self):
         """La tarjeta (la pone `ventana_inspector_campos.reorganizar` en la sección Normativa)."""
@@ -96,6 +98,7 @@ class DiametroIAMixin(ReplicaDiametroMixin):
         self._diam_ia_senales = _Senales()
         self._diam_ia_senales.listo.connect(self._diam_ia_listo)
         self._diam_ia_senales.etapa.connect(self._diam_ia_progreso)
+        self._diam_ia_senales.puente.connect(self._diam_ia_puente)
         self._diam_ia_reloj = QtCore.QTimer(self)
         self._diam_ia_reloj.setInterval(500)
         self._diam_ia_reloj.timeout.connect(self._diam_ia_tic)
@@ -130,16 +133,20 @@ class DiametroIAMixin(ReplicaDiametroMixin):
         self.lbl_diam_ia.setWordWrap(True)
         self.lbl_diam_ia.setTextFormat(QtCore.Qt.RichText)
         self.lbl_diam_ia.setSizePolicy(QtWidgets.QSizePolicy.Expanding, QtWidgets.QSizePolicy.Minimum)
-        self.lbl_diam_ia.setTextInteractionFlags(QtCore.Qt.TextSelectableByMouse)
+        self.lbl_diam_ia.setTextInteractionFlags(QtCore.Qt.TextSelectableByMouse | QtCore.Qt.LinksAccessibleByMouse)
+        self.lbl_diam_ia.linkActivated.connect(self._diam_ia_ir)
         sl.addWidget(self._diam_ia_burbuja(self.lbl_diam_ia, ia=True))   # el mensaje actual de la IA
         self._diam_ia_acciones = R.transparente(QtWidgets.QWidget())
         bt = GridAdaptable(self._diam_ia_acciones, max_cols=2, spacing=6)
         self.btn_diam_ia_preguntar = self._diam_ia_boton("Revisar con la IA", "primary", self.preguntar_diametro_ia)
         self.btn_diam_ia_preguntar.setIcon(_icon("mdi:refresh", color=_theme.tokens().text_on_accent))
         self.btn_diam_ia_usar = self._diam_ia_boton("", "primary", self.usar_diametro_ia)
+        self.btn_diam_ia_vecinas = self._diam_ia_boton("", "", self.usar_diametro_en_vecinas)
+        self.btn_diam_ia_vecinas.setProperty("soft", True)
         self.btn_diam_ia_no = self._diam_ia_boton("Otro diámetro…", "ghost", self.cambiar_diametro_ia)
         self.btn_diam_ia_detener = self._diam_ia_boton("Detener", "ghost", self._diam_ia_detener)
-        for b in (self.btn_diam_ia_preguntar, self.btn_diam_ia_usar, self.btn_diam_ia_no, self.btn_diam_ia_detener):
+        for b in (self.btn_diam_ia_preguntar, self.btn_diam_ia_usar, self.btn_diam_ia_vecinas, self.btn_diam_ia_no,
+                  self.btn_diam_ia_detener):
             bt.addWidget(b)
         sl.addWidget(self._diam_ia_acciones)
         self._diam_ia_replica_construir(sl)          # «Responder a la IA» (ventana_diametro_ia_replica)
@@ -241,8 +248,12 @@ class DiametroIAMixin(ReplicaDiametroMixin):
                 o["normativa"] = diametro_plano.permitido(cat, p, o["diam_in"])
         except Exception:                             # noqa: BLE001 (complemento: sin ella se revisa igual)
             cont = None
+        from nucleo import diametro_vecinas, model_ops
         f = DI.ficha(p, utility_label(p.get("layer") or ""), permit, largo, catalogo=cat, contexto=contexto,
-                     continuidad=cont)
+                     continuidad=cont, nombre=(p.get("name") or "").strip() or model_ops.nombre_por_defecto(p, i),
+                     vecinas=diametro_vecinas.vecinas(i, self.pipes, ft_px or None, (cont or {}).get("lados")),
+                     tramo=diametro_vecinas.tramo_sin_diametro(i, self.pipes, ft_px or None,
+                                                               getattr(self, "structures", ())))
         f["documento"] = documento
         self._diam_ia_origenes[self._diam_ia_clave(f)] = dict(planes=planes,originales=originales)
         if len(self._diam_ia_origenes)>64:
@@ -279,13 +290,16 @@ class DiametroIAMixin(ReplicaDiametroMixin):
             self._diam_ia_detener()                      # otra utilidad: el pedido anterior no sigue
         self._diam_ia_pipe = i
         self.tarjeta_diam_ia.setVisible(i is not None)
+        if i is None or cambia_seleccion:
+            self._diam_ia_quitar_senales()
         if i is None:
             return
         if cambia_seleccion:
             self._diam_ia_revelar(i)
         self._ic_diam_ia.setPixmap(_icon("mdi:creation", color=_theme.tokens().accent).pixmap(16, 16))
         self.btn_diam_ia_detalles.setVisible(False)
-        for b in (self.btn_diam_ia_preguntar, self.btn_diam_ia_usar, self.btn_diam_ia_no, self.btn_diam_ia_detener):
+        for b in (self.btn_diam_ia_preguntar, self.btn_diam_ia_usar, self.btn_diam_ia_vecinas, self.btn_diam_ia_no,
+                  self.btn_diam_ia_detener):
             b.setVisible(False)
         self._diam_ia_replica_mostrar(i, False)
         if getattr(self, "_diam_ia_pedido", None) is not None:
@@ -318,6 +332,7 @@ class DiametroIAMixin(ReplicaDiametroMixin):
                 QtCore.QTimer.singleShot(0, revisar)
             return
         self._diam_ia_mostrar(i, s)
+        self._diam_ia_senalar(i, s)
 
     def _diam_ia_cargar(self):
         i = self._diam_ia_actual() if self._diam_ia_proveedor() is not None else None
@@ -328,7 +343,10 @@ class DiametroIAMixin(ReplicaDiametroMixin):
         self._diam_ia_revelar(i)                     # creció: que su botón siga a la vista
 
     def _diam_ia_mostrar(self, i, s):
+        from ia import diametro_agente as DA
         from nucleo import normas_catalogo as nc
+        f = self._diam_ia_ficha(i)
+        acento = _theme.tokens().accent
         self.btn_diam_ia_detalles.setVisible(bool(s.analisis))
         motivo = " ".join(s.motivo.split())
         if len(motivo) > 240:
@@ -344,7 +362,7 @@ class DiametroIAMixin(ReplicaDiametroMixin):
             txt = (f"<span style='color:{t.accent}; font-size:15px'><b>"
                    + html.escape(_tr("Propuesta: {d}").format(d=nc.texto_pulgadas(s.diam_in))) + "</b></span>")
             if motivo:
-                txt += "<br>" + breve(motivo, 320)
+                txt += "<br>" + DA.enlazar(breve(motivo, 320), f, acento)
             txt += f"<div style='margin-top:6px; color:{t.text_muted}; font-size:11px'>"
             norma = s.analisis.get("opcion") or {}
             if norma:
@@ -356,6 +374,8 @@ class DiametroIAMixin(ReplicaDiametroMixin):
                 txt += fila("Fuente:", _tr("Plano PDF"))
             elif s.origen == "usuario":
                 txt += fila("Criterio:", _tr("Diámetro que indicaste en la conversación"))
+            elif s.origen == "zona":
+                txt += fila("Criterio:", _tr("Texto del plano fuera de la línea: confirma que vale para ella"))
             entrada = s.analisis.get("entrada") or {}
             contexto = entrada.get("contexto") or {}
             ruta = contexto.get("trayecto") or {}
@@ -376,22 +396,27 @@ class DiametroIAMixin(ReplicaDiametroMixin):
                 txt += fila("Referencia:", " · ".join(referencias))
             if norma.get("tipo_supuesto"):
                 txt += fila("Por confirmar:", norma.get("tipo"))
+            txt += self._diam_ia_en_plano(s, f)
             txt += "</div>"
             cambia_texto = self.lbl_diam_ia.text() != txt
             self.lbl_diam_ia.setText(txt)
             self.btn_diam_ia_usar.setText(_tr("Aprobar {d}").format(d=nc.texto_pulgadas(s.diam_in)))
             self.btn_diam_ia_usar.setVisible(True)
             self.btn_diam_ia_no.setVisible(True)
+            self._diam_ia_oferta_vecinas(i, s, f)
             self._diam_ia_replica_mostrar(i, True)
             if cambia_texto:
                 self._diam_ia_revelar(i)
             return
         conv = self._diam_ia_conv_de(i)
         txt = "" if conv else "<b>" + html.escape(_tr("No encontré el diámetro de esta línea con certeza.")) + "</b><br>"
-        txt += html.escape(motivo)
+        txt += DA.enlazar(html.escape(motivo), f, acento)
         if s.pista:
             # en la conversación, la pista es la pregunta que la IA te hace a ti (sin intermediarios)
             txt += "<br><br>" + (html.escape(s.pista) if conv else html.escape(_tr("Una pista: {p}").format(p=s.pista)))
+        en_plano = self._diam_ia_en_plano(s, f)
+        if en_plano:
+            txt += f"<div style='margin-top:6px; color:{_theme.tokens().text_muted}; font-size:11px'>{en_plano}</div>"
         cambia_texto = self.lbl_diam_ia.text() != txt
         self.lbl_diam_ia.setText(txt)
         self.btn_diam_ia_no.setVisible(True)
@@ -440,7 +465,7 @@ class DiametroIAMixin(ReplicaDiametroMixin):
         prov = self._diam_ia_proveedor()
         if i is None or prov is None or "cerca" not in (self.pipes[i].get("diam_plano") or {}):
             return
-        from ia import diametro_ia as DI
+        from ia import diametro_ia as DI, diametro_zonas as DZ
         f = self._diam_ia_ficha(i)
         self._diam_ia_intentadas.add(self._diam_ia_clave(f))
         imagen = self._diam_ia_imagen(i, f)
@@ -469,8 +494,11 @@ class DiametroIAMixin(ReplicaDiametroMixin):
 
         def correr():
             try:
-                r = DI.sugerir(prov, f, imagen, mem, cancelado=lambda: self._diam_ia_tok != tok,
-                               al_estado=lambda etapa:self._diam_ia_senales.etapa.emit(tok,etapa),capturas=capturas)
+                parar = lambda: self._diam_ia_tok != tok  # noqa: E731
+                estado = lambda etapa: self._diam_ia_senales.etapa.emit(tok, etapa)  # noqa: E731
+                r = DI.sugerir(prov, f, imagen, mem, cancelado=parar, al_estado=estado, capturas=capturas)
+                if DZ.necesita(r):                    # sin certeza: ella decide dónde más mirar
+                    r = DZ.revisar(prov, f, r, self._diam_ia_explorador(i, f, tok, prov), parar, estado)
             except Exception as e:                    # noqa: BLE001 (ErrorIA, red: el aviso queda como está)
                 r = str(e)
             self._diam_ia_senales.listo.emit(tok, r)
@@ -591,6 +619,7 @@ class DiametroIAMixin(ReplicaDiametroMixin):
             self._diam_ia_revelar(pedido[1])
             return
         self._diam_ia[pedido[2]] = r
+        self._diam_ia_guardar_zonas(pedido[2], r)
         self._diam_ia_refrescar()
 
     def _diam_ia_detener(self):

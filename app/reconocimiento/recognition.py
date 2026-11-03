@@ -49,6 +49,7 @@ from reconocimiento import recognition_taps as taps_mod
 from reconocimiento import recognition_indice as indice_mod
 from reconocimiento import recognition_grosor_mapa as grosor_mapa_mod
 from reconocimiento import recognition_grosor_mapa_hoja as grosor_hoja_mod
+from reconocimiento import recognition_grosor_registros as grosor_registros_mod
 from reconocimiento import recognition_grosor as grosor_mod
 from reconocimiento import recognition_walls as walls_mod
 from reconocimiento import recognition_angulos as angulos_mod
@@ -1832,17 +1833,24 @@ def recognize_page(
             # el diámetro que el plano escribe junto a cada tubería («8"», «12" DIP», «278' 2"»):
             # solo lo SEGURO se pone; lo dudoso o sin dato queda por defecto con un aviso en el
             # editor, como el grosor del plano CAD (`recognition_grosor_mapa`, pedido 2026-10-23)
-            if ley_mapa is not None:
+            # (PDF sin capas ni leyenda, con la utilidad puesta a mano a cada estilo: `recognition_grosor_registros`)
+            por_estilos = ley_mapa is None and any(o.startswith(pdf_styles.PREFIX) for o in by_ocg)
+            if ley_mapa is not None or por_estilos:
                 # una ruta que cruza tuberías de distinto diámetro va en piezas partidas entre ellas
                 # AL FINAL (después de los ángulos: la geometría no cambia); los tramos sin unir toman
                 # el de su ruta
-                rotulos_mapa_px = grosor_mapa_mod.a_px(grosor_mapa_mod.rotulos(page), px, zoom)
+                leidos = grosor_registros_mod.rotulos(page) if por_estilos else grosor_mapa_mod.rotulos(page)
+                rotulos_mapa_px = grosor_mapa_mod.a_px(leidos, px, zoom)
                 from reconocimiento import recognition_anotaciones as anot_mod
                 anotaciones = anot_mod.de_mapa(rotulos_mapa_px)
                 grosor_mapa_cuenta = grosor_hoja_mod.aplicar_variantes(
                     polylines_joined, polylines_raw, rotulos_mapa_px,
                     lambda p: p.layer_ocg.startswith(pdf_styles.PREFIX), taps_mod.is_tap, zoom,
-                    ley_mapa.diam_acometida_in, join_routes)
+                    ley_mapa.diam_acometida_in if ley_mapa is not None else None, join_routes)
+                if por_estilos:
+                    grosor_hoja_mod.completar_por_largo(polylines_joined, polylines_raw, rotulos_mapa_px,
+                                                        lambda p: p.layer_ocg.startswith(pdf_styles.PREFIX),
+                                                        taps_mod.is_tap, zoom, grosor_mapa_cuenta)
                 warnings += grosor_hoja_mod.avisos(grosor_mapa_cuenta)
         # Grosor del plano CAD (pedido del usuario 2026-10-21, DU06): el diámetro de cada tubería
         # por su rótulo con guía («EX. 84" RCP SD») y por sus paredes dibujadas (`-WALL`), como

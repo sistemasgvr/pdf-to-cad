@@ -62,4 +62,5 @@ def test_rmse_similaridad_es_honesto_con_ruido_y_afin_es_cero():
     _, rms_sim, _ = georef.fit(SRC, dst_noisy, kind="similarity")
     _, rms_aff, _ = georef.fit(SRC, dst_noisy, kind="affine")
     assert rms_sim > 0.1        # similaridad: revela el error real de los clics
-    assert rms_aff < 1e-6       # afín con 3 puntos: exacto siempre → cero engañoso
+    # afín con 3 puntos: exacto siempre → cero engañoso (≈ 2e-5 ft: redondeo con coordenadas de millones de pies)
+    assert rms_aff < 1e-3

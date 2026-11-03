@@ -64,9 +64,10 @@ def test_telecom_de_pdf_a_dxf(win, tmp_path):
     new = [p for p in win.pipes if p["layer"] == "TELECOM"]
     assert len(new) == len(res.drawable)
     assert all(("TELE" in str(p.get("xdata")) or "COMM" in str(p.get("xdata"))) for p in new)
-    # red de CONDUCTOS (como el eléctrico): caja solo en la bóveda real, con sus medidas
+    # red de CONDUCTOS (como el eléctrico): caja solo en la bóveda real, con sus medidas; la rectangular
+    # es un SÓLIDO (`model_ops.normalize_solids`, 2026-09-30)
     cajas = [s for s in win.structures if s.get("net") == "conduit" and not s.get("curve")]
-    assert cajas and all(str(s.get("cod", "")).startswith("CAJA-") for s in cajas)
+    assert cajas and all(str(s.get("cod", "")).startswith(("CAJA-", "SÓLIDO-")) for s in cajas)
     assert any(s.get("width_ft") and s.get("length_ft") for s in cajas)
     # las esquinas redondeadas del banco de ductos «—SC—» (r≈15 pt) entran como codo CV
     # con su radio (2.ª pasada de codos, desde la tinta)

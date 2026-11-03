@@ -169,7 +169,8 @@ class HerramientasMixin:
                          if (ver_rec if a.clase == diametro_plano.CLASE else ver_nor)]
                 self._poner_marcas(avisos_view.dibujar_iter(self.canvas.scene(), a_ver, tol * 2, ver_acc,
                                                             poner=self._marca, reusar=self._reusar_marca,
-                                                            guardar=self._guardar_marca), len(a_ver))
+                                                            guardar=self._guardar_marca,
+                                                            capa_de=self._capa_de_utilidad), len(a_ver))
         pendientes = normas_aprobacion.pendientes(self._normas_avisos)
         n = len(pendientes)
         n_rec = sum(1 for a in pendientes if a.clase == diametro_plano.CLASE)
