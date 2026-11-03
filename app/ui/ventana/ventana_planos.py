@@ -16,7 +16,8 @@ Cambiar los planos cambia SOLO la imagen de fondo (y con ella las teselas nítid
 tinta): lo dibujado, el deshacer, la vista, el reconocimiento y el DXF siguen sobre la hoja de todos.
 `_vista_fondo` = la imagen cargada (None = todos; si no, frozenset de grupos) y `_fondo_apagado` =
 ninguno a la vista. Su PDF queda abierto en un temporal mientras sirva (`_planos_docs`, por firma); la
-imagen anterior queda en memoria (una sola) para volver al instante. Van al .digproj (`vista_fondo`,
+imagen anterior y otros estados recientes quedan en una caché acotada. Una combinación nueva se prepara
+sin espera modal; una petición posterior sustituye la presentación pendiente. Van al .digproj (`vista_fondo`,
 `fondo_apagado`; page.png es la imagen cargada) y al respaldo del asistente.
 """
 from __future__ import annotations
@@ -46,8 +47,11 @@ class PlanosFondoMixin:
         self._vista_fondo = None          # None = todos; si no, frozenset de los grupos cuya imagen se ve
         self._fondo_apagado = False       # ningún plano encendido: papel vacío
         self._planos_docs = {}            # clave → (firma, fitz.Document, ruta temporal)
-        self._planos_img = {}             # clave → (QPixmap, grises, escala): la imagen anterior
+        self._planos_img = {}             # clave → (QPixmap, grises, escala): estados recientes (`_limitar_imagenes_planos`)
         self._planos_tarea = None
+        self._planos_cambio_tarea = None
+        self._planos_objetivo = None
+        self._planos_generacion = 0
         self.capas_apagadas = set()       # utilidades apagadas en «Capas» (ventana_capas)
         self.setCentralWidget(self.canvas)
 
@@ -90,6 +94,9 @@ class PlanosFondoMixin:
     def _planos_encendidos(self):
         """Los grupos cuyo plano se ve ahora."""
         gs = self._grupos_planos()
+        pedido = getattr(self, "_planos_objetivo", None)
+        if pedido is not None:
+            return list(gs) if pedido[0] is None else sorted(set(pedido[0]) & set(gs))
         if not gs or self._fondo_apagado:
             return []
         if self._vista_fondo is None:
@@ -98,25 +105,129 @@ class PlanosFondoMixin:
 
     # ── encender / apagar ─────────────────────────────────────────────────
     def _poner_planos(self, visibles) -> bool:
-        """Deja a la vista los planos `visibles` (grupos). False si no se pudo (queda lo de antes)."""
+        """Pide los planos `visibles`. True = ya a la vista o preparándose fuera de la ventana; False = no
+        se pudo (queda lo de antes)."""
         gs = self._grupos_planos()
         if not gs or not self.doc:
             return False
         clave = clave_planos(visibles, gs)
         if clave is not None and not clave:
+            self._planos_objetivo = None
             if not self._fondo_apagado:
                 self._apagar_fondo(True)
-                self._redraw()
+                self._refrescar_hojas()
+            self._sync_panel_planos()
             self._info(_tr("Planos de fondo apagados: solo lo dibujado."))
             return True
         cambia = clave != self._vista_fondo
+        if cambia and clave not in self._planos_img:
+            from ui.comun import proceso
+            if proceso.activo():
+                self._planos_objetivo = (clave, self._estado_plano(clave))
+                self._lanzar_cambio_plano()
+                self._info(_tr("Mostrando el plano: {p}…").format(p=self._nombre_vista(clave)))
+                self._sync_boton_capas()
+                self._sync_panel_planos()
+                return True
+        self._planos_objetivo = None
         if cambia and not self._mostrar_plano(clave):
             return False
         if self._fondo_apagado:
             self._apagar_fondo(False)
-        self._redraw()                                    # minimapa y marcas de las hojas de ese plano
+        self._refrescar_hojas()                          # minimapa y marcas de las hojas de ese plano
+        self._sync_panel_planos()
         self._info(_tr("Planos a la vista: {p}.").format(p=self._nombre_vista(clave)))
         return True
+
+    def _sync_panel_planos(self):
+        panel = getattr(self, "panel_hoja", None)
+        if panel is not None:
+            panel._planos()
+
+    def _planos_sin_objetivo(self, aviso=None):
+        """La petición pendiente termina sin presentarse: «Capas» vuelve a mostrar lo que se ve."""
+        self._planos_objetivo = None
+        self._sync_boton_capas()
+        self._sync_panel_planos()
+        if aviso:
+            self._info(aviso)
+
+    def _estado_plano(self, clave):
+        if clave is not None:
+            return self._firma_plano(clave)
+        from hoja import pdf_layers
+        return (id(self.doc), self.page_idx, self.zoom, pdf_layers.encendidas(self.doc))
+
+    def _lanzar_cambio_plano(self):
+        """Una preparación a la vez + el último estado pedido; sin espera modal."""
+        from hoja import pdf_layers
+        from ui.comun import fondo_pdf, fondo_trabajo, proceso
+        if self._planos_cambio_tarea is not None or self._planos_objetivo is None:
+            return
+        clave, firma = self._planos_objetivo
+        generacion = self._planos_generacion
+        ruta, datos, composicion, hoja, ons = "", None, None, 0, ()
+        if clave is None:
+            ruta = fondo_trabajo.ruta_de(self.doc)
+            if not ruta:
+                datos = getattr(self.doc, "stream", None) or self.doc.tobytes()
+            hoja, ons = self.page_idx, pdf_layers.encendidas(self.doc)
+        else:
+            entry = self._planos_docs.get(clave)
+            if entry is not None and entry[0] == firma and not entry[1].is_closed:
+                ruta = entry[2]
+                ons = pdf_layers.encendidas(entry[1])
+            else:
+                composicion = self._args_plano(clave)
+        tarea = proceso.Tarea("hoja.planos_trabajo:preparar", (ruta, datos, hoja, self.zoom, composicion,
+                              (fondo_pdf.LIMITE_BYTES, fondo_pdf.PRESUPUESTO_PX), ons))
+        self._planos_cambio_tarea = tarea
+
+        def fin(res, err):
+            if self._planos_cambio_tarea is tarea:
+                self._planos_cambio_tarea = None
+            adoptado = False
+            try:
+                vigente = (generacion == self._planos_generacion and self.doc is not None
+                           and (clave is None or self.composite is not None)
+                           and firma == self._estado_plano(clave))
+                if not vigente:
+                    if generacion == self._planos_generacion and self._planos_objetivo == (clave, firma):
+                        self._planos_sin_objetivo()
+                    return
+                if not err and res and clave is not None and res.get("nuevo_pdf"):
+                    doc = fitz.open(res["pdf"])
+                    self._cerrar_plano(clave)
+                    self._planos_docs[clave] = (firma, doc, res["pdf"])
+                    adoptado = True
+                if self._planos_objetivo != (clave, firma):
+                    return
+                imagen = fondo_trabajo.cargar(res) if res and not err else None
+                if imagen is None:
+                    self._planos_sin_objetivo(_tr("No se pudo armar el plano de {p}.").format(p=self._nombre_vista(clave)))
+                    return
+                qimg, gris, escala, ancho, alto = imagen
+                tam = self.canvas.tam_hoja()
+                if tam is not None and (abs(ancho - tam[0]) > 1.0 or abs(alto - tam[1]) > 1.0):
+                    self._planos_sin_objetivo(_tr("El plano de {p} no mide lo mismo que la hoja.").format(p=self._nombre_vista(clave)))
+                    return
+                self._planos_img[clave] = (QtGui.QPixmap.fromImage(qimg), gris, escala)
+                self._poner_planos(self._grupos_planos() if clave is None else clave)
+            except (OSError, RuntimeError, ValueError, MemoryError) as exc:
+                if self._planos_objetivo == (clave, firma):
+                    self._planos_sin_objetivo(str(exc) or _tr("No se pudo armar el plano de {p}.").format(p=self._nombre_vista(clave)))
+            finally:
+                if res:
+                    fondo_trabajo.descartar(res)
+                    if res.get("nuevo_pdf") and not adoptado:
+                        try:
+                            os.remove(res["pdf"])
+                        except OSError:
+                            pass
+                self._lanzar_cambio_plano()
+
+        tarea.terminado.connect(fin)
+        proceso.trabajador("planos").enviar(tarea)
 
     def _nombre_vista(self, clave) -> str:
         if clave is None:
@@ -137,7 +248,7 @@ class PlanosFondoMixin:
         if clave == self._vista_fondo or self.canvas.pixmap_item is None or not self.doc:
             return clave == self._vista_fondo
         nombre = self._nombre_vista(clave)
-        guardada = self._planos_img.get(clave)
+        guardada = self._planos_img.pop(clave, None)
         if guardada is None:
             with _busy_mod.busy(self, _tr("Mostrando el plano: {p}…").format(p=nombre),
                                 _tr("Dibujando la hoja en pantalla…")) as ov:
@@ -153,13 +264,30 @@ class PlanosFondoMixin:
             guardada = (QtGui.QPixmap.fromImage(qimg), gris, escala)
             del qimg
         antes = (self.canvas.pixmap_item.pixmap(), self.gray, self.canvas.fondo_escala)
-        self._planos_img = {self._vista_fondo: antes}     # solo el anterior: volver es al instante
+        self._planos_img[self._vista_fondo] = antes
+        self._limitar_imagenes_planos()
         self._vista_fondo = clave
         pm, self.gray, escala = guardada
         self.canvas.cambiar_imagen(pm, escala)
         if self.canvas.nitidez is not None:
             self.canvas.nitidez.fijar(self.canvas.pixmap_item)   # teselas del plano a la vista
         return True
+
+    def _limitar_imagenes_planos(self):
+        """Conserva los estados recientes, sin bajar su resolución, según la RAM libre; el anterior, siempre."""
+        from nucleo.hardware import recursos
+        libre = recursos()["ram_disponible"]
+        limite = max(64, min(256, libre // (8 * 2**20))) * 2**20 if libre else 64 * 2**20
+        total = 0
+        conservar = set()
+        for key in reversed(self._planos_img):
+            pm, gris, _escala = self._planos_img[key]
+            n = pm.width() * pm.height() * max(1, pm.depth() // 8) + getattr(gris, "nbytes", 0)
+            if conservar and (len(conservar) >= 4 or total + n > limite):
+                continue
+            conservar.add(key)
+            total += n
+        self._planos_img = {k: v for k, v in self._planos_img.items() if k in conservar}
 
     def _firma_plano(self, clave) -> str:
         sub = hoja_calcada.solo_grupos(self.composite, clave)
@@ -253,6 +381,8 @@ class PlanosFondoMixin:
         """Hoja nueva en el editor (o se cierra): todos los planos a la vista, sin imágenes guardadas ni
         PDF de planos."""
         self._vista_fondo = None
+        self._planos_generacion = getattr(self, "_planos_generacion", 0) + 1
+        self._planos_objetivo = None
         self._planos_img = {}
         if getattr(self, "_fondo_apagado", False):
             self._apagar_fondo(False)

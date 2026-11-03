@@ -168,6 +168,7 @@ class MenuMixin:
         mia = _menu(mb, "&IA")
         _act(mia, "Pregúntale al proyecto…", self.abrir_pregunta, "Ctrl+Shift+I")
         _act(mia, "Resolver conflictos…", lambda: self.abrir_soluciones())
+        _act(mia, "Leer rótulos ilegibles con la IA…", self.leer_anotaciones_con_ia)
         _act(mia, "Configurar IA…", self.configurar_ia)
         _act(mia, "Abrir carpeta de aprendizaje", self.abrir_carpeta_ia)
         if not getattr(sys, "frozen", False):            # solo desde el repo: el instalado no tiene desarrollo

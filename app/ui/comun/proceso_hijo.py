@@ -152,7 +152,8 @@ def bucle(entrada, salida, tope_mb: int):
         except BaseException:
             salida.put(("error", tid, traceback.format_exc()))
         finally:
-            sys.stdout.flush()
+            if sys.stdout is not None:          # sin consola (.exe, pythonw) es None: flush() mataba al trabajador
+                sys.stdout.flush()
 
 
 def _padre_vivo() -> bool:
@@ -179,21 +180,8 @@ MAX_PARALELOS = 4            # procesos a la vez: más no acelera (lectura del P
 
 def memoria_libre_mb() -> int:
     """RAM física libre del equipo (MB); 0 si no se sabe."""
-    try:
-        if os.name == "nt":
-            import ctypes
-
-            class MS(ctypes.Structure):
-                _fields_ = [("dwLength", ctypes.c_ulong), ("dwMemoryLoad", ctypes.c_ulong)] + [
-                    (n, ctypes.c_ulonglong) for n in ("ullTotalPhys", "ullAvailPhys", "ullTotalPageFile",
-                                                      "ullAvailPageFile", "ullTotalVirtual", "ullAvailVirtual",
-                                                      "ullAvailExtendedVirtual")]
-            m = MS(); m.dwLength = ctypes.sizeof(MS)
-            ctypes.windll.kernel32.GlobalMemoryStatusEx(ctypes.byref(m))
-            return int(m.ullAvailPhys // 2**20)
-        return int(os.sysconf("SC_PAGE_SIZE") * os.sysconf("SC_AVPHYS_PAGES") // 2**20)
-    except Exception:
-        return 0
+    from nucleo.hardware import recursos
+    return int(recursos()["ram_disponible"] // 2**20)
 
 
 def paralelos(n_trabajos: int, mb_por_trabajo: int = 1200) -> int:

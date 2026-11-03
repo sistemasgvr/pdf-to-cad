@@ -66,7 +66,8 @@ def test_propuesta_no_se_recorta_y_acciones_visibles(ui, ancho, repeticiones):
         assert area.widget().width() <= area.viewport().width()
         lbl = w.lbl_diam_ia
         assert lbl.height() >= lbl.heightForWidth(lbl.width())
-        assert all(c in lbl.text() for c in ("Propuesta:","Por qué:","Criterio:","Fuente:","Referencia:"))
+        # chat (2026-11-03): «Te propongo 8".» + su porqué; los datos debajo
+        assert all(c in lbl.text() for c in ("Propuesta:","Propuesta normativa","Criterio:","Fuente:","Referencia:"))
         for b in (w.btn_diam_ia_usar, w.btn_diam_ia_no):
             assert b.width() >= b.minimumSizeHint().width()
         assert w.pipes[0]["diam"] == 12  # mostrar la tarjeta no equivale a aprobar
@@ -96,3 +97,45 @@ def test_el_texto_se_encoge_al_ampliar_o_cambiar_respuesta(ui):
     ui.processEvents()
     assert lbl.minimumHeight() < 60
     lbl.hide()
+
+
+@pytest.mark.parametrize("ancho", [300, 340, 360, 420])
+def test_el_boton_nunca_pisa_el_texto_al_cambiar_de_linea(ui, ancho):
+    """El formulario le daba a la tarjeta 12–20 px de menos y el botón quedaba encima del texto
+    (reporte del usuario 2026-11-02, a 125 %)."""
+    import time
+    from PySide6 import QtCore, QtWidgets
+    w = _ventana(SimpleNamespace(url="http://127.0.0.1:9"))
+    w.setAttribute(QtCore.Qt.WA_DontShowOnScreen)
+    w.resize(1900, 1000)
+    w._rdock.setFixedWidth(ancho)
+    w.show()
+    app = QtWidgets.QApplication.instance()
+
+    def asentar(s=0.25):
+        fin = time.time() + s
+        while time.time() < fin:
+            app.processEvents()
+            time.sleep(0.005)
+
+    def revisar():
+        t, lbl = w.tarjeta_diam_ia, w.lbl_diam_ia
+        assert t.height() >= t.layout().totalHeightForWidth(t.width())
+        assert lbl.height() >= lbl.heightForWidth(lbl.width())
+        for b in (w.btn_diam_ia_preguntar, w.btn_diam_ia_usar, w.btn_diam_ia_no, w.btn_diam_ia_detener):
+            if b.isVisible():
+                assert b.mapTo(t, QtCore.QPoint()).y() >= lbl.mapTo(t, QtCore.QPoint(0, lbl.height())).y()
+                assert b.mapTo(t, QtCore.QPoint(0, b.height())).y() <= t.height()
+
+    try:
+        asentar()
+        for paso in (lambda: w._mostrar_en_panel(0),
+                     lambda: (setattr(w, "_diam_ia_pedido", (9, 0, "x")), w._diam_ia_refrescar()),
+                     lambda: (setattr(w, "_diam_ia_pedido", None), w._diam_ia_refrescar()),
+                     lambda: w._mostrar_en_panel(1),
+                     lambda: w._mostrar_en_panel(0)):
+            paso()
+            asentar()
+            revisar()
+    finally:
+        w.close()

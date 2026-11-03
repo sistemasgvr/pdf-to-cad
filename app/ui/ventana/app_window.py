@@ -80,6 +80,7 @@ _ABRIR_EXTRA = ("pdf_path", "project_path", "_tmp_pdf", "sheet_layout", "sheet_r
 # Métodos de Main repartidos por tema en clases mezcla (movidos tal cual).
 from ui.ventana.ventana_menu import MenuMixin
 from ui.ventana.ventana_diametro_ia import DiametroIAMixin
+from ui.ventana.ventana_anotaciones import AnotacionesMixin
 from ui.ventana.ventana_panel_izq import PanelIzquierdoMixin
 from ui.ventana.ventana_panel_der import PanelDerechoMixin
 from ui.ventana.ventana_modos import ModosMixin
@@ -123,7 +124,7 @@ from ui.ventana.ventana_pasos import PasosVivosMixin
 
 class Main(MenuMixin, PanelIzquierdoMixin, PanelDerechoMixin, ModosMixin, ClicsMixin, UtilidadesMixin, CatalogoMixin, SeleccionMixin, ListasMixin, MarcasMixin, DibujoMixin, ConflictosMixin, CoordsMixin, BuzonesMixin, MoverPrecisoMixin, CurvasMixin, HerramientasMixin, BancoductosMixin, EdicionBloqueMixin, InformeMixin, IAMixin, SolucionesMixin, AccionesIAMixin, Vista3DMixin, Edicion3DMixin, ConflictosListaMixin, HojasEditorMixin,
            VerticesMixin, TrazoMixin, CalculoPlanoMixin, CalculoFondoMixin, EstadosPreviosMixin,
-           AgregarUtilidadMixin, PlanosFondoMixin, CapasMixin, ShellMixin, RevisionMixin, RecientesMixin, InventarioMixin, PasosVivosMixin, DiametroIAMixin, QtWidgets.QMainWindow):
+           AgregarUtilidadMixin, PlanosFondoMixin, CapasMixin, ShellMixin, RevisionMixin, RecientesMixin, InventarioMixin, PasosVivosMixin, DiametroIAMixin, AnotacionesMixin, QtWidgets.QMainWindow):
     def __init__(self):
         super().__init__()
         self._base_title = f"Asistente C3D  (v{VERSION})"
@@ -273,7 +274,8 @@ class Main(MenuMixin, PanelIzquierdoMixin, PanelDerechoMixin, ModosMixin, ClicsM
                                duct_banks=getattr(self, "duct_banks", []) or [],
                                # apuntan a utilidades por índice: borrar/unir los corre
                                cross_connections=getattr(self, "cross_connections", []) or [],
-                               normas_aprobados=getattr(self, "normas_aprobados", []) or []),
+                               normas_aprobados=getattr(self, "normas_aprobados", []) or [],
+                               anotaciones=getattr(self, "anotaciones", []) or []),
                           getattr(self, "_ultimo_paso", None))
         self._ultimo_paso = p
         return p
@@ -294,6 +296,8 @@ class Main(MenuMixin, PanelIzquierdoMixin, PanelDerechoMixin, ModosMixin, ClicsM
             self.cross_connections = s["cross_connections"]
         if "normas_aprobados" in s:
             self.normas_aprobados = s["normas_aprobados"]
+        if "anotaciones" in s:
+            self.anotaciones = s["anotaciones"]
         if "duct_banks" in s:
             self.duct_banks = s["duct_banks"]
             if not (0 <= getattr(self, "sel_db", -1) < len(self.duct_banks)):
@@ -922,13 +926,8 @@ class Main(MenuMixin, PanelIzquierdoMixin, PanelDerechoMixin, ModosMixin, ClicsM
             return
         sheets = selected_sheets(self.sheet_layout, self.sheet_sources)
         utility_text = _recognition.utilities_label(self._recognition_utilities)
-        progress = QtWidgets.QProgressDialog(
-            _tr("Reconociendo {u} en las hojas organizadas…").format(u=utility_text),
-            None, 0, 0, self)
-        progress.setWindowTitle(_tr("Reconocimiento"))
-        progress.setWindowModality(QtCore.Qt.WindowModal)
-        progress.setMinimumDuration(0)
-        progress.show()
+        progress = _busy_mod.overlay_for(self)
+        progress.begin(_tr("Reconociendo {u} en las hojas organizadas…").format(u=utility_text))
         self._organized_recog_progress = progress
         self._organized_recog_worker = OrganizedRecognitionWorker(
             self.pdf_path, self.sheet_external_pdfs, sheets,
@@ -941,7 +940,7 @@ class Main(MenuMixin, PanelIzquierdoMixin, PanelDerechoMixin, ModosMixin, ClicsM
     def _organized_recognition_done(self, rows, error):
         progress = getattr(self, "_organized_recog_progress", None)
         if progress is not None:
-            progress.close()
+            progress.end()
             self._organized_recog_progress = None
         if error:
             QtWidgets.QMessageBox.warning(self, _tr("Reconocimiento"),
@@ -1070,13 +1069,19 @@ class Main(MenuMixin, PanelIzquierdoMixin, PanelDerechoMixin, ModosMixin, ClicsM
             return
         self._recog_pending_key = key
         utility_text = _recognition.utilities_label(self._recognition_utilities)
-        # Capa «Cargando…» sobre la ventana (la misma de todo el asistente): el
-        # trabajo va en otro hilo, así que el indicador gira mientras tanto.
+        # Avance en una tarjeta junto al lienzo, sin velo: lo que se va trazando queda a la vista y se
+        # puede acercar y desplazar el plano (`progreso_reconocimiento`, `trazado_progresivo`).
         self._end_recognition_busy()
-        self._recog_busy = _busy_mod.overlay_for(self)
+        from ui.comun.progreso_reconocimiento import ProgresoReconocimiento
+        from ui.comun.trazado_progresivo import TrazadoProgresivo
+        panel = getattr(self, "_recog_panel", None)
+        if panel is None:
+            panel = self._recog_panel = ProgresoReconocimiento(self)
+        self._recog_busy = panel
         self._recog_busy.begin(_tr("Reconociendo {u}…").format(u=utility_text),
                                _tr("Hoja {n} · leyendo las líneas y estructuras de cada capa").format(
                                    n=page_idx + 1), cancel=self._cancel_recognition)
+        self._recog_dibujo = TrazadoProgresivo(self.canvas)
         self._recog_worker = RecognitionWorker(
             self.work_pdf_path or self.pdf_path, page_idx, zoom=self.zoom,
             utilities=self._recognition_utilities,
@@ -1085,12 +1090,21 @@ class Main(MenuMixin, PanelIzquierdoMixin, PanelDerechoMixin, ModosMixin, ClicsM
             letters_off=self._letters_off,
             join_routes=self._join_routes, scale_ft_per_pt=self._scale_override,
             perfiles_de=self._perfiles_de())
-        self._recog_worker.done.connect(self._recognition_done)
-        self._recog_worker.progress.connect(self._recognition_progress)
+        worker = self._recog_worker
+        generation = getattr(self, "_recog_generation", 0)
+
+        def connect(signal, handler):                # lo que llega tarde de otra sesión se descarta
+            signal.connect(lambda *args, wk=worker, gen=generation: handler(*args)
+                           if self._recog_worker is wk and getattr(self, "_recog_generation", 0) == gen else None)
+
+        connect(worker.done, self._recognition_done)
+        connect(worker.progress, self._recognition_progress)
         if hasattr(self._recog_worker, "layer"):         # (los dobles de las pruebas no lo traen)
-            self._recog_worker.layer.connect(self._recognition_layer)
-            self._recog_worker.partial.connect(self._recognition_partial)
-            self._recog_worker.stage.connect(self._recognition_stage)
+            connect(worker.layer, self._recognition_layer)
+            connect(worker.partial, self._recognition_partial)
+            connect(worker.stage, self._recognition_stage)
+        if hasattr(worker, "strokes"):
+            connect(worker.strokes, self._recognition_strokes)
         self._recog_linea = ""
         try:
             self._recog_worker.start()
@@ -1166,44 +1180,35 @@ class Main(MenuMixin, PanelIzquierdoMixin, PanelDerechoMixin, ModosMixin, ClicsM
             ov.step(detail=(linea + "\n" if linea else "") + _busy_mod.detalle_de(texto, i, n), pump=False)
 
     def _recognition_partial(self, utility, trazos):
-        """Lo ya reconocido de una utilidad se dibuja sobre la hoja mientras sigue el resto
-        (pedido del usuario 2026-10-14: ver el avance «como un lápiz»). Son trazos de paso:
-        `_end_recognition_busy` los quita; la vista previa dibuja el resultado de verdad."""
-        sc = self.canvas.scene() if self.canvas is not None else None
-        if sc is None or not trazos:
-            return
-        pen = QtGui.QPen(layer_qcolor(utility), 2.0)
-        pen.setCosmetic(True)
-        path = QtGui.QPainterPath()
-        for pts in trazos:
-            if len(pts) >= 2:
-                path.moveTo(*pts[0])
-                for q in pts[1:]:
-                    path.lineTo(*q)
-        item = sc.addPath(path, pen)
-        item.setZValue(1e6)
-        self._recog_trazos = getattr(self, "_recog_trazos", []) + [item]
-        ov = getattr(self, "_recog_busy", None)
-        if ov is not None:
-            ov.set_veil(70)                    # que se vea lo que se va trazando
+        """Lo ya ajustado de una utilidad reemplaza sus líneas provisionales, sin duplicarlas."""
+        drawing = getattr(self, "_recog_dibujo", None)
+        if drawing is not None:
+            drawing.reemplazar(utility, trazos)
+
+    def _recognition_strokes(self, utility, trazos):
+        drawing = getattr(self, "_recog_dibujo", None)
+        if drawing is not None:
+            drawing.agregar(utility, trazos)
 
     def _cancel_recognition(self):
+        ov = getattr(self, "_recog_busy", None)
+        if ov is not None:
+            ov.mostrar_cancelando()                  # también con Esc, no solo con su botón
         w = getattr(self, "_recog_worker", None)
         if w is not None and hasattr(w, "cancel"):
             w.cancel()
 
     def _end_recognition_busy(self):
+        self._recog_generation = getattr(self, "_recog_generation", 0) + 1
         ov = getattr(self, "_recog_busy", None)
         self._recog_busy = None
         if ov is not None:
             ov.end()
-        for item in getattr(self, "_recog_trazos", []):
-            try:
-                if item.scene() is not None:
-                    item.scene().removeItem(item)
-            except RuntimeError:
-                pass
-        self._recog_trazos = []
+        drawing = getattr(self, "_recog_dibujo", None)
+        self._recog_dibujo = None
+        if drawing is not None:
+            drawing.cerrar()
+            drawing.deleteLater()
 
     def _recognition_done(self, results, error):
         try:
@@ -1224,7 +1229,7 @@ class Main(MenuMixin, PanelIzquierdoMixin, PanelDerechoMixin, ModosMixin, ClicsM
         box.setText(_tr("No se pudo completar el reconocimiento de las capas."))
         box.setInformativeText(_tr("Puedes volver a intentar esta acción o cancelar para regresar al editor.")
                                + "\n\n" + diagnostico.resumen(error))
-        box.setDetailedText(str(error) + (f"\n\nRegistro: {path}" if path else ""))
+        box.setDetailedText(str(error) + ("\n\n" + _tr("Registro: {p}").format(p=path) if path else ""))
         box.setStandardButtons(QtWidgets.QMessageBox.Retry | QtWidgets.QMessageBox.Cancel)
         box.setDefaultButton(QtWidgets.QMessageBox.Cancel)
         if box.exec() == QtWidgets.QMessageBox.Retry:
@@ -1407,6 +1412,9 @@ class Main(MenuMixin, PanelIzquierdoMixin, PanelDerechoMixin, ModosMixin, ClicsM
         if sin_lugar:
             msg += " " + _tr("Quiebres sin lugar para la curva mínima (tramos cortos), quedan como quiebre: {s}.").format(
                 s=len(sin_lugar))
+        n_anot = self._guardar_anotaciones(results)      # rótulos con guía (ventana_anotaciones)
+        if n_anot:
+            msg += " " + _tr("Rótulos del plano: {n}.").format(n=n_anot)
         n_ab = sum(1 for _r, _u, pipes, _s, _k in batches for p in pipes if p.get("ab"))
         if n_ab:
             msg += " " + _tr("Abandonadas (AB): {a}.").format(a=n_ab)
@@ -1511,6 +1519,7 @@ class Main(MenuMixin, PanelIzquierdoMixin, PanelDerechoMixin, ModosMixin, ClicsM
         self.normas_aprobados = []
         self._conf_registro = None              # números de los conflictos (ventana_conflictos_lista)
         self.capas_apagadas = set()             # «Capas»: todas las utilidades encendidas
+        self.anotaciones = []                   # rótulos del plano reconocidos (ventana_anotaciones)
         self.sel_pipe = self.sel_leader = self.sel_region = self.sel_text = -1
         self.sel_cl = -1
         self._overlay = []; self._close_editor(); self._dirty = False; self._extending = False
@@ -1734,6 +1743,7 @@ class Main(MenuMixin, PanelIzquierdoMixin, PanelDerechoMixin, ModosMixin, ClicsM
             _reg = data.get("conflictos_registro")
             self._conf_registro = _conf_mod.Registro.de_dict(_reg) if _reg else None
             self.capas_apagadas = set(data.get("capas_apagadas") or ())   # «Capas» (ventana_capas)
+            self.anotaciones = data.get("anotaciones", []) or []            # rótulos del plano (ventana_anotaciones)
             self.georef = data["georef"]
             self.work_unit = data["work_unit"]
             self.cur_pts = []; self._erase_pts = []; self.sel_pipe = self.sel_leader = self.sel_region = self.sel_text = -1
@@ -2223,9 +2233,15 @@ class Main(MenuMixin, PanelIzquierdoMixin, PanelDerechoMixin, ModosMixin, ClicsM
 
     # ─────────────────────────── drag & drop ───────────────────────────
     def dragEnterEvent(self, e):
+        if self.canvas._recognition_readonly:       # reconociendo: la edición está en pausa
+            e.ignore()
+            return
         if e.mimeData().hasUrls(): e.acceptProposedAction()
 
     def dropEvent(self, e):
+        if self.canvas._recognition_readonly:
+            e.ignore()
+            return
         for u in e.mimeData().urls(): self.open_path(u.toLocalFile()); break
 
 

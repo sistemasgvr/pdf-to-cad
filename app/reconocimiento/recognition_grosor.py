@@ -46,6 +46,8 @@ from collections import Counter, defaultdict
 from dataclasses import dataclass, field
 from typing import Callable, Dict, List, Optional, Sequence, Tuple
 
+import numpy as np
+
 from reconocimiento.recognition_grosor_texto import (  # noqa: F401  (re-exportados)
     Rotulo, diametros_de, es_de, lecturas, lineas_texto, material_de, rotulos, utilidad_de)
 from reconocimiento.recognition_grosor_guias import FLECHA_MAX_PT, Guias, guias, puntas_de_rotulos  # noqa: F401
@@ -210,16 +212,35 @@ def nominal(medida_in: float) -> Optional[float]:
     return float(v) if abs(v - medida_in) <= NOMINAL_TOL_IN else None
 
 
+_cajas_muros = (None, None)                     # los muros de la última hoja y sus cajas (numpy)
+
+
+def _muros_cerca(muros, a: Pt, b: Pt, margen: float) -> list:
+    """Los muros cuya caja queda a ≤ `margen` del tramo a–b, en su orden. Antes cada muestra de cada línea
+    recorría TODOS los muros de la hoja (lo más caro del grosor en una hoja compuesta)."""
+    global _cajas_muros
+    if _cajas_muros[0] is not muros:
+        c = np.asarray(muros, dtype=float).reshape(-1, 4)  # (x0, y0, x1, y1) de cada muro
+        _cajas_muros = (muros, (np.minimum(c[:, 0], c[:, 2]), np.minimum(c[:, 1], c[:, 3]),
+                                np.maximum(c[:, 0], c[:, 2]), np.maximum(c[:, 1], c[:, 3])))
+    x0, y0, x1, y1 = _cajas_muros[1]
+    k = np.nonzero((x1 >= min(a[0], b[0]) - margen) & (x0 <= max(a[0], b[0]) + margen)
+                   & (y1 >= min(a[1], b[1]) - margen) & (y0 <= max(a[1], b[1]) + margen))[0]
+    return [muros[i] for i in k.tolist()]
+
+
 def paredes(pts: Sequence[Pt], muros: Sequence[Tuple[Pt, Pt]], px_por_in: float,
             zoom: float, minimo: int = 3) -> Optional[float]:
     """Diámetro interior por las paredes a cada lado de la línea de centro (nominal), o None."""
     votos: Counter = Counter()
     n = 0
+    todos = muros
     for a, b in zip(pts, pts[1:]):
         vx, vy = b[0] - a[0], b[1] - a[1]
         L = math.hypot(vx, vy)
         if L < 4.0 * zoom:
             continue
+        muros = _muros_cerca(todos, a, b, PARED_MAX_PT * zoom + 1.0)  # el cruce queda a ≤ PARED_MAX de la muestra
         ux, uy = vx / L, vy / L
         nx, ny = -uy, ux
         pasos = max(1, int(L // (PARED_PASO_PT * zoom)))

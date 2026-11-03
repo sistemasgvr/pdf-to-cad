@@ -5,13 +5,16 @@ PySide6>=6.5
 pymupdf>=1.24
 ezdxf>=1.1
 shapely>=2.0
+numpy>=1.24             # filtros geométricos por lotes (CPU)
 openpyxl>=3.1        # lectura de columna TEXTO/TEXTOS desde Excel
 python-docx>=1.1     # Herramientas → «Informe automático…» (Word)
 
 # Ruta rasterizada (solo si procesas escaneos / PDFs imagen)
 opencv-python>=4.8
-numpy>=1.24
 pillow>=10.0
+
+# Filtro de recorte en GPU, opcional y solo con PDFCAD_ACELERACION (docs/aceleracion-hardware.md)
+# pyopencl>=2026.1,<2027
 
 # Vista previa opcional
 matplotlib>=3.7

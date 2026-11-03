@@ -36,13 +36,82 @@ Mezcla de `CompositeDialog`, como `composite_source_page`. Requiere de la clase:
 """
 from __future__ import annotations
 
-from PySide6 import QtWidgets
+from PySide6 import QtCore, QtWidgets
 
 from hoja import composite as C
 from traduccion.i18n import t as _tr
+from ui.comun import theme as _theme
+
+
+class AvisoSinHoja(QtWidgets.QLabel):
+    """«Selecciona una hoja»: tapa la vista de una hoja (hijo de su viewport, sigue su
+    tamaño) mientras el usuario no elige ninguna (pedido 2026-11-03: al abrir el PDF no
+    debe quedar una hoja elegida sola)."""
+
+    def __init__(self, vista: QtWidgets.QAbstractScrollArea, texto: str):
+        super().__init__(texto, vista.viewport())
+        t = _theme.tokens()
+        self.setAlignment(QtCore.Qt.AlignCenter)
+        self.setWordWrap(True)
+        self.setStyleSheet(f"QLabel {{ background:{t.surface}; color:{t.text_muted}; "
+                           f"font-size:15px; padding:24px; }}")
+        self._vp = vista.viewport()
+        self._vp.installEventFilter(self)
+        self.setGeometry(self._vp.rect())
+        self.hide()
+
+    def eventFilter(self, obj, ev):
+        if obj is self._vp and ev.type() == QtCore.QEvent.Resize:
+            self.setGeometry(self._vp.rect())
+        return False
 
 
 class ChosenSheetMixin:
+    # ── sin hoja elegida (al abrir sin piezas) ──────────────────────────
+    def _sin_hoja_init(self):
+        """Al abrir sin piezas ninguna hoja queda elegida: la galería sin hoja a la vista y
+        las vistas con el aviso «Selecciona una hoja» hasta que el usuario elija una."""
+        self._sin_hoja = not self.comp.pieces
+        self._aviso_area = AvisoSinHoja(self.crop, _tr(
+            "Selecciona una hoja en la lista de la izquierda para verla aquí.\n\n"
+            "Marca la casilla de cada hoja que vas a usar: las marcadas forman la hoja compuesta."))
+        self._aviso_hoja = AvisoSinHoja(self.view, _tr(
+            "Selecciona una hoja: la hoja compuesta está vacía.\n\n"
+            "Marca la casilla de una hoja en la lista o toma un área en «Área a tomar»."))
+        self._refrescar_sin_hoja()
+
+    def _refrescar_sin_hoja(self):
+        sin = getattr(self, "_sin_hoja", False)
+        if hasattr(self, "_aviso_area"):
+            self._aviso_area.setVisible(sin)
+            self._aviso_hoja.setVisible(not self.comp.pieces)
+        if sin and self.lst_pages.currentRow() >= 0:
+            self.lst_pages.blockSignals(True)
+            self.lst_pages.setCurrentRow(-1)     # ninguna tarjeta resaltada
+            self.lst_pages.blockSignals(False)
+        if sin:
+            for w in ("btn_take", "btn_take_full", "btn_go_area", "btn_prev_page", "btn_next_page"):
+                if hasattr(self, w):
+                    getattr(self, w).setEnabled(False)
+
+    def _hoja_elegida(self):
+        """El usuario miró o marcó una hoja: se quita el aviso y vuelven los botones."""
+        if not getattr(self, "_sin_hoja", False):
+            return
+        self._sin_hoja = False
+        self._aviso_area.hide()
+        for w in ("btn_take_full", "btn_go_area"):
+            if hasattr(self, w):
+                getattr(self, w).setEnabled(True)
+        if self.lst_pages.currentRow() != self._cur_page:
+            self.lst_pages.blockSignals(True)        # la hoja a la vista vuelve a verse resaltada
+            self.lst_pages.setCurrentRow(self._cur_page)
+            self.lst_pages.blockSignals(False)
+        if hasattr(self, "_area_pedir"):
+            self._area_pedir()
+        self._refresh_pending()
+
+
     def _simple(self) -> bool:
         """¿La hoja compuesta es solo «la hoja elegida»? (vacía o UNA hoja entera)"""
         return not self.comp.pieces or self.comp.is_single_full_page()
@@ -106,6 +175,7 @@ class ChosenSheetMixin:
         marcada. Si ya está, se elige su pieza."""
         if not self.docs:
             return
+        self._hoja_elegida()
         self._provisional = None
         if self._pieces_on_page(self._cur_source, self._cur_page):
             self._select_page_piece()
@@ -126,6 +196,7 @@ class ChosenSheetMixin:
     def _view_page(self, _row: int = -1):
         """Clic en la miniatura de una hoja: solo VERLA (pedido 2026-10-19: mirar y
         elegir eran lo mismo); si está en la hoja compuesta, su pieza queda en edición."""
+        self._hoja_elegida()
         self._select_page_piece()
         self._refresh_source_selection()
 
@@ -134,6 +205,8 @@ class ChosenSheetMixin:
         Ctrl+clic): marcada = está en la hoja compuesta. Solo cambia ESA hoja."""
         if not self.docs or not 0 <= row < self.docs[self._cur_source].page_count:
             return
+        if row == self._cur_page:
+            self._hoja_elegida()                     # sin cambio de hoja no pasa por _on_page_changed
         if self._pieces_on_page(self._cur_source, row):
             self._remove_page(row)
         else:

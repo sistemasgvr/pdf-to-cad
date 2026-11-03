@@ -104,13 +104,32 @@ class CapasMixin:
         self.capas_apagadas = set()
         gs = self._grupos_planos()
         if gs and len(self._planos_encendidos()) != len(gs):
-            self._poner_planos(gs)                         # (redibuja)
+            self._poner_planos(gs)
         self._aplicar_capas()
         self._info(_tr("Todas las capas encendidas."))
 
     def _aplicar_capas(self):
-        """Mismo modelo: el redibujo reusa líneas y marcas y solo cambia qué se pinta."""
-        self._redraw()
+        """Encender o apagar no rehace la geometría: solo cambia qué se pinta de lo que ya está en la escena."""
+        previa = getattr(self, "_capa_lineas", None)
+        try:
+            lista = (previa is not None and previa[1].scene() is self.canvas.scene()
+                     and hasattr(self, "_estructuras_vista")
+                     and not getattr(self, "_provisional", False))
+        except RuntimeError:
+            lista = False
+        if lista:
+            elegidas = previa[2]
+            apagadas = self.capas_apagadas
+            previa[1].fijar_ocultas({i for i, p in enumerate(self.pipes)
+                                   if p.get("layer") in apagadas} - elegidas if apagadas else ())
+            self._visibilidad_estructuras()
+            if previa[3]:
+                self._actualizar_rotulos_tramos(elegidas, previa[3])
+            self._ocultar_marcas_apagadas()
+            self._sync_boton_capas()
+        else:
+            # Escena inicial o provisional: aún hace falta su primer dibujo completo.
+            self._redraw()
         self._atenuar_lista_utilidades()
 
     # ── qué está apagado ──────────────────────────────────────────────────
@@ -185,5 +204,6 @@ class CapasMixin:
         for row in range(min(lst.count(), len(self.pipes))):
             it = lst.item(row)
             apagada = bool(ap) and self.pipes[row].get("layer") in ap
-            if apagada or it.foreground() != normal:
-                it.setForeground(tenue if apagada else normal)
+            deseada = tenue if apagada else normal
+            if it.foreground() != deseada:
+                it.setForeground(deseada)

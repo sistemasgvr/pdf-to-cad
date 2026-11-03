@@ -130,10 +130,9 @@ class RevisionMixin:
         t = _theme.tokens()
         icono = _icon("mdi:alert-octagon-outline", color=t.danger)
         for c in conflictos[:300]:                     # los primeros 300; el resto, en la Tabla de datos
-            it = QtWidgets.QListWidgetItem(icono, f"{c.id} · {_tr(c.titulo)}")
+            it = fila_lista(lista, f"{c.id} · {_tr(c.titulo)}", icono)
             it.setData(QtCore.Qt.UserRole, c.id)
             it.setToolTip(c.mensaje or _tr(c.titulo))
-            lista.addItem(it)
         lista.setVisible(bool(conflictos))
 
     def _ir_a_conflicto(self, it, resolver=False):

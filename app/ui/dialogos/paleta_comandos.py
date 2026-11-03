@@ -12,6 +12,7 @@ from ui.comun import theme as _theme
 from ui.comun import rediseno as R
 from traduccion.i18n import t as _tr
 from ui.comun.rediseno import atajo_legible
+from ui.comun.ui_common import fila_lista
 
 
 def _norm(s):
@@ -108,21 +109,19 @@ class PaletaComandos(QtWidgets.QDialog):
                 continue                                # las utilidades solo al buscar
             if g != grupo:
                 grupo = g
-                cab = QtWidgets.QListWidgetItem(g.upper())
+                cab = fila_lista(self.lista, g.upper())
                 cab.setFlags(QtCore.Qt.NoItemFlags)
                 f = cab.font()
                 f.setPixelSize(11)
                 f.setBold(True)
                 cab.setFont(f)
                 cab.setForeground(QtGui.QColor(t.text3))
-                self.lista.addItem(cab)
-            it = QtWidgets.QListWidgetItem(f"{txt}" + (f"      {atajo}" if atajo else ""))
+            it = fila_lista(self.lista, f"{txt}" + (f"      {atajo}" if atajo else ""))
             it.setData(QtCore.Qt.UserRole, obj)
             if isinstance(obj, QtGui.QAction) and not obj.icon().isNull():
                 it.setIcon(obj.icon())
             if isinstance(obj, QtGui.QAction) and not obj.isEnabled():
                 it.setFlags(QtCore.Qt.NoItemFlags)
-            self.lista.addItem(it)
         for i in range(self.lista.count()):
             if self.lista.item(i).flags() & QtCore.Qt.ItemIsSelectable:
                 self.lista.setCurrentRow(i)

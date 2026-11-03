@@ -186,18 +186,22 @@ steps can be clicked to <b>go back</b> without losing your work. At the bottom, 
 width, are the view options (such as <b>Opacity</b>) and the <span class="btn">Cancel</span> and
 <span class="btn">Continue</span> buttons. The <b>Esc</b> key does not close these windows (it only
 clears a highlight): to leave, use <span class="btn">Cancel</span>.</p>
-<p>When a step takes a few seconds (large sheets, several pieces, many utilities), the window or
-the panel being updated is dimmed and a <b>«Loading…»</b> card appears with a spinning indicator
-and what the app is doing (for example «Recognizing… · Storm Drain (3 of 6)»). There is no need to
-click anything: the card goes away by itself when it finishes.</p>
+<p>When a step takes a few seconds (large sheets, several pieces, many utilities), a <b>card in the
+lower right corner</b> shows what the app is doing, the stage and a progress bar (for example «Building
+the composed sheet… · Piece 3 of 12»). The plan stays visible underneath and, while it lasts, that
+window does not respond to clicks. There is no need to click anything: the card goes away by itself
+when it finishes.</p>
 <p>The heaviest work (recognizing, building a composed sheet and the suggested composition) runs
 in a <b>separate process</b> at low priority: the computer and the window keep responding, and
-when it finishes the memory goes back to the system. While recognizing, the card shows the
-utility and the layer being read («Water (1 of 2) · layer 3 of 8»), what is already recognized is
-drawn on the sheet as it goes, and <span class="btn">Cancel</span> stops it at once. If a sheet
+when it finishes the memory goes back to the system. While recognizing, progress is shown in a
+card in the corner of the plan, without dimming the window: it shows the utility and the layer being
+read («Water (1 of 2) · layer 3 of 8»), lines are drawn on the sheet as they are found (they are
+provisional: what gets imported is what the preview shows) and you can zoom and pan the plan;
+everything else is paused until it finishes. <span class="btn">Cancel</span> or <b>Esc</b> stops it
+at once. If a sheet
 needs more memory than is free, the app tells you: compose fewer sheets or recognize fewer
-utilities at a time. With several utilities, each one is recognized in its own process at the
-same time (depending on the cores and free RAM). In every step the card shows the exact stage:
+utilities at a time. All utilities are recognized in the same process, which reads the sheet only
+once. In every step the card shows the exact stage:
 reading the vectors, the legend of each sheet («12 of 36»), copying each sheet, drawing the sheet
 on screen…</p>
 <p>The step bar at the top marks finished steps with ✓: they are buttons, one click goes back to
@@ -240,8 +244,8 @@ map names sheets that are in <b>another PDF in the same folder</b> (Phoenix «�
     the thumbnail gallery. Each sheet has a <b>checkbox</b> at the bottom right: <b>the ticked
     sheets make up the composite sheet</b>. Ticking one adds it whole (on top of the ones already
     in) and unticking it removes it; if it had a taken area, the app asks first. A click on the
-    thumbnail only shows you the sheet. When a new PDF is opened, the sheet that was open comes
-    ticked (usually the cover sheet; untick it if you do not need it). Under each ticked sheet it
+    thumbnail only shows you the sheet. When a new PDF is opened <b>no sheet is chosen</b>: the sheet
+    area says «Select a sheet» until you choose one in the list. Under each ticked sheet it
     says <b>«Full sheet»</b> or <b>«Area taken»</b>, and the bottom shows how many sheets are
     ticked. With the keyboard, the arrows move between sheets and Space or Enter tick or untick. A sheet that says «no layers» is a flattened plan: you can use it, but
     recognition will not find utilities on it. Double-click a sheet, or
@@ -408,6 +412,28 @@ editor</span> leaves it as the background to draw by hand.</p>
     together (it is unknown whose it is), different labels on the same run, or an unlabeled run between two
     different diameters (it is unknown where it changes) keep the default diameter and get their
     <b>notice</b>, like pipes without a label (the short runs to hydrants usually have none).</li>
+<li><b>Chatting with the diameter AI:</b> with the AI configured, the <b>Diameter according to the AI</b>
+    card in the utility panel is a <b>chat</b>: the AI speaks to you in first person and each message is a
+    bubble. If it could not find the diameter with certainty, or proposes a wrong one, write what you know
+    («R2 is this line's», «it's an 8" lateral», «look at the profile on sheet 4») or ask it («why?»), with
+    <b>Enter</b> or the send button; there are also quick replies such as <b>Why?</b> and <b>Check the
+    neighbouring lines</b>. It reviews the line again with that, explains its previous proposal or asks for
+    the data it is missing. It works the same in PDFs with layers and in maps without layers. Nothing is
+    applied without <b>Approve</b> (with Ctrl+Z); when you approve, your clarification is learned for
+    similar lines.</li>
+<li><b>Network continuity:</b> when there is no reliable label, the AI looks at the lines of the same
+    utility that continue straight from yours. If one has a confirmed diameter and there is no manhole, box
+    or reducer between them, it proposes that same diameter and tells you which line it comes from and how
+    far (a pipe does not change diameter in the middle of a run). If both sides agree the proposal is firm;
+    if they differ, it gives you both options. A branch is never proposed larger than its main.</li>
+<li><b>Plan labels (multileaders):</b> when recognizing, the app reads <b>every</b> label that reaches a
+    line with its leader (arrow), whatever it says («EX 8" VCP SEWER», «JOIN EX. 84" RCP SD / STA
+    549+55.37», «CB-208»…), rotated ones too; in maps without layers, the label of each pipe. They are
+    saved in the project and, when you <b>export</b>, go to the DXF as MULTILEADER (or MTEXT in maps) on
+    layer <b>PDFCAD_ANOTACIONES</b>, with their text, utility, diameter and the utility they point to. A
+    label whose leader is there but whose text cannot be read from the PDF (letters drawn as strokes) is
+    <i>unreadable</i>: <b>AI → Read unreadable labels with the AI…</b> reads them from the image (a model
+    with vision is needed); what it cannot read with certainty stays unreadable.</li>
 <li><b>By the letters on the line:</b> the app does not only look at the layer name; it also reads
     the letters each line carries (—TE—, —SC—, —W—, —G—, —ss—…). A layer whose name is not a
     utility's, but whose lines say so, appears under its utility with the letters next to it, for

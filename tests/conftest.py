@@ -36,6 +36,34 @@ class _AjustesEnMemoria:
         self._d[clave] = valor
 
 
+def _ajustes_de_pruebas_aparte():
+    """Ningún `QSettings` de las pruebas toca los ajustes reales de Windows: los interruptores «Mostrar…», el tema y
+    demás van a un archivo temporal de este proceso. Con el registro compartido, una prueba que apagaba un aviso
+    hacía fallar a las que corrían a la vez (y le dejaba cambiada la preferencia a quien usa la app).
+    OJO: `setDefaultFormat` no basta, `QSettings(org, app)` usa siempre el formato nativo; por eso una subclase, puesta
+    al cargar este archivo: antes de que las pruebas hagan `from PySide6.QtCore import QSettings`."""
+    import tempfile
+    try:
+        from PySide6 import QtCore
+    except Exception:          # pruebas sin Qt disponible
+        return None
+    original = QtCore.QSettings
+
+    class AjustesAparte(original):
+        def __init__(self, *args, **kw):
+            if len(args) == 2 and all(isinstance(a, str) for a in args):
+                args = (original.IniFormat, original.UserScope) + args
+            super().__init__(*args, **kw)
+
+    carpeta = tempfile.TemporaryDirectory(prefix="pdfcad_ajustes")
+    original.setPath(original.IniFormat, original.UserScope, carpeta.name)
+    QtCore.QSettings = AjustesAparte
+    return carpeta             # vive lo que viva el proceso
+
+
+_CARPETA_AJUSTES = _ajustes_de_pruebas_aparte()
+
+
 @pytest.fixture(autouse=True)
 def _paneles_con_ajustes_en_memoria(monkeypatch):
     """Los paneles laterales (side_panels.py) arrancan siempre fijados en las

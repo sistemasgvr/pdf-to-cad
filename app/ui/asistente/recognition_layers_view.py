@@ -18,7 +18,7 @@ from PySide6 import QtCore, QtGui, QtWidgets
 from traduccion.i18n import t as _tr, N_
 from ui.comun.icons import icon
 from nucleo.model import TIPOS
-from ui.comun.ui_common import swatch_icon
+from ui.comun.ui_common import fila_lista, swatch_icon
 from reconocimiento import recognition as rec
 from hoja import pdf_styles
 from ui.comun import theme as _theme
@@ -102,32 +102,29 @@ class UsedLayersPanel(QtWidgets.QWidget):
         for r in results:
             u_label = _tr(_UTILITY_LABEL.get(r.utility, r.utility))
             if multi:
-                hdr = QtWidgets.QListWidgetItem(swatch_icon(colors[r.utility], 12), u_label)
+                hdr = fila_lista(lst, u_label, swatch_icon(colors[r.utility], 12))
                 bf = hdr.font(); bf.setBold(True); hdr.setFont(bf)
                 hdr.setData(FOCUS_ROLE, {"utility": r.utility, "kind": None, "ocg": None, "label": u_label})
                 hdr.setToolTip(click_tip)
-                lst.addItem(hdr)
             for kind_key, kind in ((rec.utility_line_kind(r.utility), "line"), ("structure", "structure")):
                 rows = [x for x in r.ocg_summary if x.get("kind") == kind_key]
                 if not rows:
                     continue
                 k_label = _tr(_STRUCT_LABEL.get(r.utility, N_("Estructuras")) if kind == "structure"
                               else N_("Líneas"))
-                kh = QtWidgets.QListWidgetItem(k_label)
+                kh = fila_lista(lst, k_label)
                 kh.setForeground(QtGui.QColor(t.text_muted))
                 kh.setData(FOCUS_ROLE, {"utility": r.utility, "kind": kind, "ocg": None,
                                         "label": f"{k_label} · {u_label}" if multi else k_label})
                 kh.setToolTip(click_tip)
-                lst.addItem(kh)
                 for x in rows:
                     short = x["ocg"].split("|")[-1] if "|" in x["ocg"] else x["ocg"]
                     if short.startswith(pdf_styles.PREFIX):
                         short = pdf_styles.style_label(short)
                     tag = "  (AB)" if x.get("abandoned") else ""
-                    it = QtWidgets.QListWidgetItem(f"    {short}  ({x.get('path_count', 0)}){tag}")
+                    it = fila_lista(lst, f"    {short}  ({x.get('path_count', 0)}){tag}")
                     it.setData(FOCUS_ROLE, {"utility": r.utility, "kind": kind, "ocg": x["ocg"], "label": short})
                     it.setToolTip("\n".join((x["ocg"], click_tip)))
-                    lst.addItem(it)
         lst.setMinimumHeight(110)
         lst.setSizePolicy(QtWidgets.QSizePolicy.Expanding, QtWidgets.QSizePolicy.Expanding)
         lst.itemClicked.connect(self._on_clicked)

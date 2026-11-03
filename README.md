@@ -35,6 +35,14 @@ titleblock como hasta ahora.
 pip install -r requirements.txt
 ```
 
+El filtro de recortes corre en CPU. La GPU es opcional y solo a petición
+(`PDFCAD_ACELERACION=auto`, `opencl` o `cuda`, con `pyopencl` o CuPy instalados aparte):
+ahorra muy poco en este paso. Requiere un controlador compatible y doble precisión.
+Consulta la [investigación, mediciones y diagnóstico de hardware](docs/aceleracion-hardware.md)
+para los requisitos, límites y pruebas en la RTX 3050.
+La [revisión de arquitectura](docs/arquitectura-rendimiento.md) cubre reconocimiento,
+capas y redibujado, con funcionalidad y precisión como condiciones de aceptación.
+
 Para procesar escaneos también necesitas el binario **Tesseract-OCR** instalado
 en el sistema (para el OCR de labels). La ruta vectorizada no lo requiere.
 

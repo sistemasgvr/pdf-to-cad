@@ -19,6 +19,7 @@ from typing import Callable, Optional
 from PySide6 import QtCore, QtGui, QtWidgets
 
 from traduccion.i18n import t as _tr, N_
+from ui.comun.busy import ANCLA_PIE
 from ui.comun.icons import icon as _icon
 from ui.comun import theme as _theme
 
@@ -125,6 +126,7 @@ def wizard_footer(left: list, hint: str, buttons: list) -> QtWidgets.QWidget:
     izquierda (p. ej. «Opacidad»), una ayuda breve y los botones de decisión a
     la derecha (Cancelar · Continuar)."""
     w = QtWidgets.QWidget()
+    w.setObjectName(ANCLA_PIE)
     col = QtWidgets.QVBoxLayout(w)
     col.setContentsMargins(0, 0, 0, 0); col.setSpacing(8)
     line = QtWidgets.QFrame()

@@ -39,7 +39,7 @@ Coordenadas DIBUJADAS en PÍXELES (se convierten con geometry.to_cad al exportar
 coordenadas IMPORTADAS de Excel ya son reales de mundo (world=True → se usan tal cual).
 """
 
-VERSION = "2.0.1"
+VERSION = "2.0.2"
 
 # Capas de red por GRAVEDAD (tramos entre buzones, con invert inicio/fin).
 GRAVITY_LAYERS = {"ALCANTARILLADO", "DRENAJE"}
@@ -158,6 +158,20 @@ def default_network_type(layer):
 
 
 CHANGELOG = [
+    ("2.0.2", [
+        ('changed', 'Diámetro según la IA como chat (2.0.2): la tarjeta es una conversación. La IA te habla en primera persona, tus mensajes y los suyos van como burbujas, puedes preguntarle «¿Por qué?» o «Revisa las líneas vecinas» con un clic, y la propuesta va arriba con su criterio y fuente. La IA ahora aplica la continuidad de la red: si la línea que sigue de frente tiene un diámetro confirmado y no hay un buzón o reducción entre medio, te propone ese mismo diámetro y te dice de qué línea viene; un ramal nunca sale mayor que su principal. Los avisos de normativa del panel ya no se cortan.'),
+        ('changed', 'Componer hoja (2.0.2): al abrir un PDF ninguna hoja queda elegida sola. Mientras no elijas una, el área de la hoja dice «Selecciona una hoja»; marca la casilla de cada hoja que vas a usar.'),
+        ('new', 'Responder a la IA del diámetro (2.0.2): si la IA no encuentra el diámetro con certeza o propone uno que no es, escríbele lo que sabes de la línea («R2 sí es de esta línea», «es un lateral de 8"») y vuelve a revisarla con ese dato. Vale en los PDF con capas y en los mapas sin capas; nada se aplica sin «Aprobar», y lo que aclaras se aprende para casos parecidos.'),
+        ('new', 'Rótulos del plano (2.0.2): el reconocimiento lee todos los rótulos con guía (multileaders) y, en los mapas, los rótulos de las tuberías; se guardan en el proyecto y se exportan al DXF como MULTILEADER / MTEXT en la capa PDFCAD_ANOTACIONES, con su texto, utilidad, diámetro y la utilidad a la que señalan. Los que no se pueden leer (texto dibujado con trazos) los lee la IA con visión: IA → «Leer rótulos ilegibles con la IA…». Hay que volver a reconocer la hoja.'),
+        ('changed', 'Reconocimiento en vivo (2.0.2): el avance va en una tarjeta en la esquina del plano, sin atenuar la ventana. Las líneas se van trazando mientras se reconocen, se puede acercar y desplazar el plano, y Esc o «Cancelar» lo detienen. Lo demás queda en pausa hasta que termina.'),
+        ('changed', 'Capas sin esperas (2.0.2): encender o apagar utilidades y planos de fondo ya no rehace el dibujo. Una combinación de planos que aún no se ha visto se prepara en segundo plano mientras la ventana sigue respondiendo, y un clic nuevo reemplaza al anterior. Las últimas combinaciones se guardan para volver a ellas al instante.'),
+        ('changed', 'Reconocimiento más rápido (2.0.2): con varias utilidades tarda entre un 30 % y un 40 % menos y abrir «Capas de la hoja» también es más rápido, con exactamente el mismo resultado. Todas las utilidades van en un solo proceso, que comparte la lectura de la hoja: repartirlas en varios era más lento.'),
+        ('changed', 'Avisos de carga (2.0.2): componer la hoja, leer las capas, preparar la vista previa e importar muestran el avance en una tarjeta en la esquina inferior derecha, igual que el reconocimiento, con capas o sin ellas en el PDF. Ya no se atenúa la ventana.'),
+        ('new', 'Diámetro según la IA en mapas sin capas (2.0.2): en los PDF vectoriales sin capas (mapas SIG), la IA también revisa las tuberías con diámetro dudoso o sin dato. Mira los rótulos paralelos junto a cada tubería, el texto del mapa y su imagen, y propone el diámetro solo si el rótulo va pegado a esa línea; si no, propone uno según tu normativa. Hay que volver a reconocer la hoja.'),
+        ('fixed', 'Tarjeta «Diámetro según la IA» (2.0.2): el botón ya no queda encima del texto. Elegir una utilidad con aviso de diámetro muestra sus propiedades al instante: la revisión de la IA se prepara después.'),
+        ('fixed', 'Cierre inesperado al importar (2.0.2): se corrigió la causa por la que el programa podía cerrarse solo al continuar desde la vista previa, al rehacer la lista de utilidades.'),
+        ('fixed', 'Programa instalado (2.0.2): ya no aparece la ventana «Unhandled exception in script» y el trabajo en segundo plano sigue disponible después de cada tarea.'),
+    ]),
     ("2.0.1", [
         ('fixed', 'Reconocimiento de agua: las tomas perpendiculares de medidores junto a un hueco del trazado conservan la principal continua y se conectan en T (UD-213); ya no se convierten en esquinas que cortan la principal. Los desvíos que avanzan hacia el hueco siguen respetando su tinta.'),
     ]),

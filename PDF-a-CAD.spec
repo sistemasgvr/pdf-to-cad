@@ -17,7 +17,14 @@ datas = [
 binaries = []
 # (2026-10-09) La ventana de normativas ya no usa QtWebEngine (normas_dialog.py es Qt
 # simple): sin esas librerías el .exe pesa bastante menos.
-hiddenimports = []
+# Los trabajos del proceso aparte (`proceso.Tarea("modulo:funcion")`) se nombran con un TEXTO que
+# PyInstaller no ve: sin esto, en el .exe fallan con ModuleNotFoundError. Lo revisa
+# tests/test_empaquetado_trabajos.py.
+hiddenimports = [
+    "hoja.area_sugerida", "hoja.capas_trabajo", "hoja.composicion_trabajo", "hoja.composite_trabajo",
+    "hoja.hoja_calcada", "hoja.leyenda_trabajo", "hoja.planos_trabajo", "nucleo.modelo3d",
+    "reconocimiento.recognition_trabajo", "ui.comun.fondo_trabajo", "ui.ventana.calculo_fondo",
+]
 
 # Iconos SVG MDI (app/icons/mdi/*.svg) — sin esto el exe muestra X rojas
 # (_fallback_icon). Destino 'icons' al lado de icons.py en _MEIPASS.

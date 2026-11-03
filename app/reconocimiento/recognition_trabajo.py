@@ -8,12 +8,46 @@ compuesta no trabe la ventana ni deje la RAM ocupada) o, sin proceso, en el hilo
 `progreso(...)` recibe, en orden:
   · ("utilidad", i, n, utilidad)  antes de cada utilidad,
   · ("capa", i, n, utilidad, k, m) al empezar cada capa de esa utilidad,
-  · ("hecha", i, n, utilidad, trazos) al terminarla, con los puntos (px) de cada línea
-    reconocida: la ventana los va dibujando («como un lápiz»).
+  · ("trazos", i, n, utilidad, lote) durante la reconstrucción, como vista provisional,
+  · ("hecha", i, n, utilidad, trazos) al terminarla: sustituye la vista provisional
+    con los puntos (px) de las líneas ya ajustadas de esa utilidad.
 """
 from __future__ import annotations
 
 from typing import Callable, Optional
+import time
+
+
+class FlujoTrazos:
+    """Lotes acotados de líneas para la vista en vivo: copias, sin referencias al resultado que se sigue
+    modificando. Una línea larga se parte compartiendo el extremo: no se pierde ningún tramo."""
+    MAX_LINEAS = 64
+    MAX_PUNTOS = 4096
+    CADA_S = .05
+
+    def __init__(self, publicar):
+        self.publicar = publicar
+        self.pendientes = []
+        self.puntos = 0
+        self.ultimo = 0.
+
+    def agregar(self, pts):
+        for inicio in range(0, len(pts) - 1, self.MAX_PUNTOS - 1):
+            piece = [(float(x), float(y)) for x, y in pts[inicio:inicio + self.MAX_PUNTOS]]
+            if self.puntos + len(piece) > self.MAX_PUNTOS:
+                self.vaciar()
+            self.pendientes.append(piece)
+            self.puntos += len(piece)
+            if (len(self.pendientes) >= self.MAX_LINEAS or self.puntos >= self.MAX_PUNTOS
+                    or time.perf_counter() - self.ultimo >= self.CADA_S):
+                self.vaciar()
+
+    def vaciar(self):
+        if self.pendientes:
+            batch, self.pendientes = self.pendientes, []
+            self.puntos = 0
+            self.ultimo = time.perf_counter()
+            self.publicar(batch)
 
 
 def reconocer_hoja(pdf_path, page_index, zoom=1.0, utilities=("ELECTRICO",), hidden_ocgs=(),
@@ -37,6 +71,7 @@ def reconocer_hoja(pdf_path, page_index, zoom=1.0, utilities=("ELECTRICO",), hid
             letters = rec.page_letters(doc[page_index])
         for i, utility in enumerate(utilities):
             avisar("utilidad", i, len(utilities), utility)
+            flujo = FlujoTrazos(lambda batch, i=i, u=utility: avisar("trazos", i, len(utilities), u, batch))
             roles = roles_by_utility.get(utility) or layer_roles or None
             mine = letters
             if letters is not None:
@@ -52,7 +87,9 @@ def reconocer_hoja(pdf_path, page_index, zoom=1.0, utilities=("ELECTRICO",), hid
                 hidden_ocgs=list(hidden_ocgs or ()), layer_roles=roles,
                 join_routes=join_routes,
                 scale_ft_per_pt=scale_ft_per_pt, letters=mine,
+                al_trazo=flujo.agregar if progreso is not None else None,
                 avance=lambda k, m, i=i, u=utility: avisar("capa", i, len(utilities), u, k, m))
+            flujo.vaciar()
             results.append(res)
             avisar("hecha", i, len(utilities), utility,
                    [[(float(x), float(y)) for x, y in pl.pts_pdf] for pl in res.drawable])

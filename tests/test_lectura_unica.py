@@ -6,6 +6,8 @@ from pathlib import Path
 import fitz
 import pytest
 
+from reconocimiento import recognition
+
 from hoja import pdf_styles
 from reconocimiento import recognition_trabajo as RT
 
@@ -92,6 +94,7 @@ def test_du06_mismo_reconocimiento_con_menos_lecturas(monkeypatch):
     lecturas = n["k"]
     n["k"] = 0
     monkeypatch.setattr(pdf_styles, "lectura_unica", lambda doc: contextlib.nullcontext())
+    recognition._LETRAS_MEMO.clear()                     # (las letras de esta hoja ya están en este proceso)
     viejo = RT.reconocer_hoja(str(DU06), 12, zoom=3.5, utilities=us)
     assert _firma(nuevo) == _firma(viejo)
     # sin el bloque: las letras + 2 por utilidad + 2 del grosor del plano (vistas de perfil y

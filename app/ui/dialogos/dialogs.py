@@ -15,7 +15,7 @@ import os
 from PySide6 import QtCore, QtGui, QtWidgets
 
 from nucleo.model import VERSION, CHANGELOG
-from ui.comun.ui_common import DOWNLOADS
+from ui.comun.ui_common import DOWNLOADS, fila_lista
 from ui.comun import theme as _theme
 from traduccion.i18n import t as _tr
 
@@ -202,9 +202,7 @@ def open_uninstall_family_dialog(win):
     for f in fams:
         tipo = "Estructura" if f["kind"] == "structure" else "Tubería"
         text = f"{f['display_name']}  ({tipo} — {f['subfolder']})"
-        item = QtWidgets.QListWidgetItem(text)
-        item.setData(256, f)
-        lw.addItem(item)
+        fila_lista(lw, text).setData(256, f)
     lay.addWidget(lw)
 
     bb = QtWidgets.QDialogButtonBox()

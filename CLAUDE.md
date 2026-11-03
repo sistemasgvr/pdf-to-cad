@@ -276,9 +276,10 @@ alcantarillado, drenaje, gas, eléctrico, telecom). Todo en **unidades imperiale
     `tests/test_paneles.py::test_nada_se_corta_al_ancho_minimo` recorre cada sección y pestaña a 300 px
     en español e inglés: un control nuevo que no quepa lo hace fallar.
   - `busy.py` — capa «Cargando…» (pedido del usuario 2026-09-29: que un paso lento no
-    parezca congelado). `BusyOverlay` = hijo que tapa una ventana o una vista (atenúa,
-    come ratón/teclado/atajos y el cierre, tarjeta con indicador giratorio + texto +
-    detalle + barra i/n); `with busy(widget, texto):` para trabajo en el hilo de la UI
+    parezca congelado). `BusyOverlay` = hijo que tapa una ventana o una vista (come
+    ratón/teclado/atajos y el cierre; desde 2026-11-02 sin velo y con tarjeta abajo a la
+    derecha, como la del reconocimiento: texto + detalle + barra i/n, solo se repinta su
+    rectángulo; en la ventana se apoya en el lienzo y en el asistente sobre su pie, `ANCLA_PIE`); `with busy(widget, texto):` para trabajo en el hilo de la UI
     (se pinta ANTES de empezar; `step()` repinta entre pasos: fitz no suelta el hilo) y
     `overlay_for(w).begin/end` para trabajo en otro hilo (reconocimiento, con
     `RecognitionWorker.progress` por utilidad; ahí `step(pump=False)`). Anidable (pila de
@@ -1085,8 +1086,12 @@ alcantarillado, drenaje, gas, eléctrico, telecom). Todo en **unidades imperiale
     una pestaña oculta no está visible (`isVisibleTo` falso, `centerOn` sin efecto) →
     `dlg._go_tab(TAB_SHEET)` antes. **La hoja ELEGIDA es la hoja compuesta**
     (`composite_choice.ChosenSheetMixin`, pedido del usuario 2026-10-05: elegía la hoja, pulsaba
-    «Siguiente» y quedaba vacía): al abrir sin piezas, la hoja a la vista entra sola, MARCADA
-    (`_choose_provisional`; `_provisional` = `to_dict()` de esa pieza, solo para el texto «ya
+    «Siguiente» y quedaba vacía). Desde 2026-11-03 (pedido del usuario) al abrir sin piezas NINGUNA hoja
+    queda elegida: `_sin_hoja` + `AvisoSinHoja` («Selecciona una hoja») sobre el área y la hoja compuesta,
+    galería sin fila actual, botones apagados; el primer clic/casilla/flechas del usuario lo quita
+    (`_hoja_elegida`, `_on_page_changed(_codigo=False)`; `_fill_pages` pasa `_codigo=True`). Antes la hoja a la
+    vista entraba sola, MARCADA
+    (`_choose_provisional`, ya no se llama al abrir; `_provisional` = `to_dict()` de esa pieza, solo para el texto «ya
     viene marcada»: `_provisional_now()`; nada la reemplaza sola). **Una CASILLA por hoja**
     (`page_gallery.PageGallery`, pedido 2026-10-19: «así nos evitamos problemas y confusiones»):
     marcadas = la hoja compuesta (`USED_ROLE`, la pone `_label_page_item`; `_CheckDelegate` la
@@ -1291,10 +1296,10 @@ alcantarillado, drenaje, gas, eléctrico, telecom). Todo en **unidades imperiale
     `ejecutar(...)` espera con un QEventLoop local (la capa «Cargando…» come la entrada). Trabajos PUROS:
     `reconocimiento/recognition_trabajo.reconocer_hoja` (lo de `RecognitionWorker.run`, que sigue igual para las
     pruebas; `start()` va al proceso; señales nuevas `layer` «capa k de m» —`recognize_page(avance=)`— y `partial`
-    con los trazos de cada utilidad terminada, que `Main._recognition_partial` dibuja bajo un velo más claro),
+    con los trazos de cada utilidad terminada; desde 2026-11-02, ver «Reconocimiento en vivo»),
     `hoja/composite_trabajo.materializar` (`_build_composite_doc`) y `hoja/composicion_trabajo.analizar` (caché de
     fichas EN el trabajador; vuelve sin `Ficha.lineas`). `BusyOverlay.begin(cancel=)` pinta «Cancelar»;
-    `set_veil`. `main.py`: `freeze_support()` y la interfaz se importa solo bajo `__main__` (el hijo importa main
+    `main.py`: `freeze_support()` y la interfaz se importa solo bajo `__main__` (el hijo importa main
     como `__mp_main__`); `OPENBLAS_NUM_THREADS=1` antes de numpy (+361 → +8 MB por proceso; letras igual de
     rápidas). `PDFCAD_PROCESO=0` = todo aquí mismo (conftest; `tests/test_proceso.py` lo enciende).
     **Leyenda tapada en una compuesta** (reporte 2026-10-20, Water North + South, 36 mapas): la caja de la
@@ -1320,6 +1325,29 @@ alcantarillado, drenaje, gas, eléctrico, telecom). Todo en **unidades imperiale
     celdas). Antes las leyendas de una compuesta se juntaban en UNA caja que tapaba parte del mapa (4 hojas de agua:
     282 → 389 tuberías + acometidas). Phoenix agua 36 hojas con estilos asignados: 668 s → 79 s. Foto antes/después
     (7 casos: agua S/N, alcantarillado, DU06 eléctrico/drenaje/telecom): idénticos salvo las acometidas nuevas.
+    **Reconocimiento en vivo** (2026-11-02, `docs/reconocimiento-progresivo.md`): `ui/comun/progreso_reconocimiento.py`
+    = tarjeta sin velo (ventanita Tool; `begin/step/end` como `BusyOverlay`, pausa las acciones y paneles, deja acercar y
+    desplazar con `Canvas._recognition_readonly`; sus filtros de eventos solo viven mientras reconoce) y
+    `ui/comun/trazado_progresivo.py` = líneas provisionales por tandas. `recognize_page(al_trazo=)` →
+    `recognition_trabajo.FlujoTrazos` → señal `strokes`; «hecha» reemplaza las de esa utilidad. **Capas sin esperas**
+    (`docs/capas-incrementales.md`): `_aplicar_capas` solo cambia visibilidad (`_visibilidad_estructuras`,
+    `_actualizar_rotulos_tramos`); una combinación de planos nueva va por `hoja/planos_trabajo.py` (`_lanzar_cambio_plano`,
+    `_planos_objetivo`). OJO: `self._overlay` se modifica EN SITIO fuera del inicio de `_redraw`: `GrupoMarcas.nuevas`
+    guarda esa misma lista. OJO: un trabajo nuevo (`proceso.Tarea("mod:fn")`) suma su módulo a `hiddenimports` de
+    `PDF-a-CAD.spec`, o falla en el .exe (`tests/test_empaquetado_trabajos.py`). **Recorte por lotes**
+    (`docs/aceleracion-hardware.md`): `hoja/recorte_lotes.py`, `hoja/recorte_opencl.py`, `nucleo/hardware.py`.
+    **Velocidad del reconocimiento** (reporte del usuario 2026-11-02, «lo siento más lento»; `tests/test_recognition_velocidad.py`):
+    medido en DU06, 6 utilidades. UN proceso (`RecognitionWorker.PROCESOS`): con 4 hojas 9.8 s contra 12–21 s de cuatro
+    procesos, con 12 hojas 54–80 s contra 75–85 s (antes de acotar lo de abajo); cada proceso volvía a leer vectores y letras, que en uno se comparten. La GPU
+    no ayuda (filtro de 1 ms). El costo crecía mucho más rápido que las hojas por búsquedas todos contra todos, ahora acotadas
+    con el MISMO resultado: `recognition.transformador_mupdf` (= `Point * Matrix` bit a bit, sin PyMuPDF por punto),
+    `kinds_memo` (rol por capa), `recognition_grosor._muros_cerca`, `recognition_geom.merge_overlapping_runs`
+    (`RUNS_MERGE_GAP_PT`) y `classify_paths`, `recognition_grosor_texto._encima`, `leyenda_trazos.capas_visibles` (de cada
+    capa, hasta el primer trazo visible), `_LETRAS_MEMO` (Capas y reconocer no leen dos veces las letras). Foto de 16 hojas
+    × 6 utilidades contra el código anterior: 0 diferencias en todos los campos. Con procesos y máquina libre: 4 piezas 13 → 8.9 s, 12 piezas 58 → 33 s. Inspector:
+    `ventana_diametro_ia._diam_ia_ficha` memorizada y diferida (`_ESPERA_FICHA_MS`): armar la ficha cuesta y una selección la
+    pedía hasta seis veces; `_TarjetaIA` fija su mínimo porque QFormLayout reparte mal las filas con alto según el ancho.
+    **Cierres del programa** (reporte del usuario 2026-11-02, «que nunca se cierre solo»): (1) NUNCA crear un `QListWidgetItem` desde Python: `ui_common.fila_lista` (`tests/test_listas_sin_envoltorio.py` lo exige); dos volcados con la misma firma, al importar: `QListWidget.clear` → destructor del ítem → `Shiboken::Object::destroy` → `releaseWrapper` con el envoltorio ya muerto. No se reprodujo sin pantalla (hay reportes parecidos con `QTableWidgetItem` en el foro de Qt, sin causa confirmada); una fila creada por Qt no pasa por ahí. Los `QTableWidgetItem` y `QTreeWidgetItem` siguen creándose desde Python. (2) Sin consola (.exe, pythonw) `sys.stdout`/`sys.stderr` son None: `main.py` los apunta a `os.devnull` también en los hijos; `proceso_hijo.bucle` moría al terminar CADA trabajo (`sys.stdout.flush()`) y PyInstaller mostraba «Unhandled exception in script». Se reproduce con `pythonw.exe`, sin compilar. Para investigar un cierre: `%LOCALAPPDATA%/pdf-to-cad/diagnosticos/sesion-<pid>.log` (pila de Python) y `%LOCALAPPDATA%/CrashDumps/python.exe.<pid>.dmp` (pila nativa). OJO: `faulthandler` anota «Windows fatal exception» también en excepciones que otro atiende; sin «Current thread» de Python y con el proceso vivo no es un cierre. OJO: `QSettings(org, app)` ignora `setDefaultFormat`: `tests/conftest.py` usa una subclase para que las pruebas no toquen el registro.
     **2.ª vuelta (mismo día)**: `nucleo/avance.py` = avisos de ETAPA desde el código puro (`avisar(texto, i, n)`,
     por hilo, espaciados `CADA_S`); los escuchan `busy()` (todo `with busy(...)` muestra la etapa en el detalle,
     `busy.escuchar_en(ov)`, `detalle_de`), el trabajador (`proceso_hijo.bucle` → («detalle», t, i, n) por la cola) y
@@ -1327,8 +1355,8 @@ alcantarillado, drenaje, gas, eléctrico, telecom). Todo en **unidades imperiale
     `leyenda_mapa_lectura._leer` (leyenda k de n), `pdf_layers.page_layers`, `leyenda_trazos.trazos_visibles`,
     `composite.build_document`/`compute_bridges`, `composite_trabajo`, `fondo_pdf.render_pix`, `recognize_page`
     (trazos, capa con su nombre, bóvedas) y `CompositeView.rebuild`. PARALELO (mismo resultado, verificado):
-    `proceso_hijo.paralelos(n, mb)` (mitad de los núcleos, RAM libre, ≤ `MAX_PARALELOS`=4) → `RecognitionWorker.start`
-    reparte una utilidad por trabajador («principal», «principal-1»…; DU06 h.4 6 utilidades 17 → 10 s) y
+    `proceso_hijo.paralelos(n, mb)` (mitad de los núcleos, RAM libre, ≤ `MAX_PARALELOS`=4; hasta 2026-11-02 también
+    repartía las utilidades de `RecognitionWorker`: desde `lectura_unica` eso era más lento, ver «Velocidad») y
     `composicion_trabajo._fichas_en_paralelo` (ProcessPoolExecutor dentro del trabajador «fondo», encargos de 3
     hojas; 36 mapas 33 → 12 s). Exactos: `pdf_styles.style_name`/`style_label` memorizados (1.5 M `json.dumps`),
     `_Pagina.dibujos` con numpy, `IndiceTramos` por caja en tramos cortos, `trazos_visibles` con el `_rect_poly` de
@@ -1687,6 +1715,50 @@ alcantarillado, drenaje, gas, eléctrico, telecom). Todo en **unidades imperiale
     los bytes fuente ya viajan en `sources/NNN.pdf` del .digproj. Los diámetros de otras zonas son referencias
     sin asignación confirmada. Caché de imágenes de sesión limitada a 8 consultas. Pruebas:
     `test_contexto_original`, integración en `test_diametro_ia_ventana`; DU06 hoja 12 con el modelo real.
+    **Mapas SIN capas** (pedido 2026-11-02, «que aporte en todo»): `reconocimiento/recognition_grosor_mapa_cerca.py`
+    (PURO, en `recognize_page` tras `partir_al_final`, solo con `ley_mapa`) pone `grosor["cerca"]` con el MISMO formato en
+    cada tubería dudosa/sin dato del mapa (rótulos de `recognition_grosor_mapa.rotulos` a ≤ min(`CERCA_PT`, 25 letras),
+    `mapa=True`, `acometida`, caja de su texto); como no hay guías, `guia` = junto (paralelo, pegado y la paralela más
+    cercana) | entre (otra paralela casi igual de cerca al otro lado) | otra (pegado a otra tubería) | lejos (no paralelo o
+    > `DIST_MAX` letras). No cambia estados ni diámetros. `ia/diametro_ia` (`VERSION_PROMPT`=10): el sistema y la ficha
+    explican el mapa (`f["mapa"]`, `f["acometida"]`), «entre»/«lejos» solo con confianza alta y un rótulo de acometida no
+    vale para una tubería. Recorte centrado en los rótulos (no el trayecto entero: letras chicas) y
+    `contexto_diametro.bloques` = texto Type3 leído por la forma (`texto_pdf.corridas`) si `get_text` no da nada.
+    Phoenix Water South h.4: 89 tuberías con evidencia; con qwen3-vl 4 casos revisados, 3 «sin certeza» y 1 sugerencia
+    correcta (12" DIP pegado a la vertical). Tests: `tests/test_diametro_ia_mapa.py`.
+    **Responder a la IA** (pedido 2026-11-03, los dos flujos): `ia/diametro_ia_replica.py` (PURO) — el usuario escribe
+    un retorno y la IA vuelve a decidir eligiendo SOLO un id: rótulo R…, opción normativa N… o diámetro que el usuario
+    ESCRIBIÓ U… (`diametros_del_texto`, la IA nunca pone un número). Un rótulo que el usuario NOMBRÓ (id o texto) vale
+    aunque su guía parezca de otra; varios conductos o fuera de normativa, nunca. Mensaje como dato (`alcance.envolver`,
+    inyección/código no llegan al modelo). UI `ventana_diametro_ia_replica.ReplicaDiametroMixin` (base de
+    `DiametroIAMixin`): campo + Enviar bajo la tarjeta, conversación por clave de ficha (`_diam_ia_conv`), resultado a
+    `_diam_ia` y a la caché; aprobar tras conversar = enseñanza (`DR.aprender`). Tests: `tests/test_diametro_ia_replica.py`,
+    `test_diametro_ia_ventana.py::test_responder_a_la_ia_y_aprobar`.
+    **2.ª vuelta (mismo día, «que sea un chat, que el usuario sienta el apoyo»)**: la IA habla en PRIMERA PERSONA y de
+    tú en todos los textos (prompts `VERSION_PROMPT`=11 y mensajes de la app; nunca «el usuario» / «la IA pregunta»);
+    la réplica devuelve `respuesta` (contesta «¿por qué?» y mantiene su elección: «Tu elección anterior: C1») y una cifra
+    que no está en la ficha ni en lo que dijo el usuario se cambia por el texto de la app (`_conocidos`). Tarjeta =
+    chat: `_diam_ia_hilo` (burbujas de turnos anteriores; la tuya aparece al enviar), `lbl_diam_ia` = la burbuja
+    actual («Propuesta: 18"» + porqué + Criterio/Fuente/Referencia en chico), respuestas rápidas (`RAPIDAS`), campo +
+    botón enviar; el chat NUNCA arma la ficha (`_diam_ia_clave_si_hay`: si no, el panel esperaba). CONTINUIDAD
+    (`nucleo/diametro_continuidad.analizar`, PURO): línea confirmada de la misma capa/estado que sigue de frente
+    (extremo con extremo, ≤35°, sin «Y» ambigua) atravesando hasta `MAX_SALTOS` líneas sin dato → opciones C… (los dos
+    lados iguales o un vecino directo sin buzón visible = «alta»; distintos = dos «media»), ramal ≤ principal
+    (`max_in`, también filtra las N…), principal ≥ ramal (`min_in`). `ficha(continuidad=)`; `sugerir_normativa` pone las
+    C… antes que las N… (una sola C alta = sin modelo, origen «continuidad»). Avisos de normativa del panel en
+    `ui/comun/texto_ajustado.TextoAjustado` (QFormLayout los cortaba). Tests: `tests/test_diametro_continuidad.py`.
+  - **Rótulos del plano / multileaders** (pedido 2026-11-03): `reconocimiento/recognition_anotaciones.py` (PURO) lee TODO
+    bloque MText del que sale una guía (mismas `Guias`, bloques y marcos girados del grosor; no solo los de diámetro) →
+    dicts {tipo multileader|mtext, texto, caja, tam, angulo, guias, puntas, estado leido|ilegible, utilidad, diam_in,
+    material, fuente}; raya con flecha sin texto del PDF (SHX) = «ilegible» con la zona del texto; mapas: `de_mapa`
+    (RotuloMapa → MText). `RecognitionResult.anotaciones` (misma lista por utilidad, memorizada por hoja; en
+    `recognize_page` dentro de try: nunca tumba el reconocimiento). Editor: `Main.anotaciones` (.digproj `anotaciones`,
+    deshacer, `respaldo_editor.CLAVES`, `_reset_model`), `ventana_anotaciones.AnotacionesMixin._guardar_anotaciones`
+    al importar (`nucleo/anotaciones.juntar`, sin repetir); IA → «Leer rótulos ilegibles con la IA…» (`ia/anotaciones_ia`,
+    visión, recorte de `recorte_diametro`, hilo + tarjeta con Cancelar, `releer` con deshacer). DXF:
+    `exportar/dxf_anotaciones` (MULTILEADER con los vértices de la guía / MTEXT, capa `PDFCAD_ANOTACIONES`, XDATA
+    `PDFCAD_ANOT, TIPO, TEXTO, UTILIDAD, DIAMETER, MATERIAL, ESTADO, FUENTE, PIPE_IDX` = `nucleo.anotaciones.senala`).
+    DU06 h.4: 65 multileaders, 2 ilegibles, ~0.3 s. Tests: `tests/test_anotaciones.py`.
   - **Grosor de los mapas sin capas** (pedido del usuario 2026-10-23, «QS Water_Indian School_South»: lo mismo
     que el grosor CAD en los PDF vectoriales SIN capas; reemplaza a `recognition_diametros`, que tomaba la MAYORÍA
     ≥60 % de los rótulos para toda la ruta unida —una de 965 pt con 48" PCCP, 54" PCCP, 8" y 6" quedaba toda de

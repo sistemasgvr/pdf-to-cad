@@ -20,6 +20,13 @@ import sys
 for _v in ("OPENBLAS_NUM_THREADS", "OMP_NUM_THREADS", "MKL_NUM_THREADS"):
     os.environ.setdefault(_v, "1")
 
+# Sin consola (el .exe, pythonw) `sys.stdout` y `sys.stderr` son None y el primer `flush` o `write` de cualquier
+# librería lanza un error; en un proceso hijo, además, PyInstaller lo muestra como «Unhandled exception in script».
+# También corre en los hijos: importan este módulo, o lo arrancan (.exe), antes de empezar a trabajar.
+for _v in ("stdout", "stderr"):
+    if getattr(sys, _v) is None:
+        setattr(sys, _v, open(os.devnull, "w", encoding="utf-8"))
+
 _HERE = os.path.dirname(os.path.abspath(__file__))          # …/app
 _ROOT = os.path.dirname(_HERE)                              # …/ (raíz del proyecto)
 for _p in (_HERE, _ROOT):                                   # app/ para los módulos, raíz para config/pipeline

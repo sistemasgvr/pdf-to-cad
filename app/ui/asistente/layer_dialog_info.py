@@ -219,7 +219,7 @@ class LayerInfoMixin:
         box.setWindowTitle(_tr("Lectura de capas interrumpida"))
         box.setText(_tr("No se pudo leer la leyenda del PDF. Puedes reintentar o continuar revisando las capas."))
         box.setInformativeText(diagnostico.resumen(error))
-        box.setDetailedText(str(error) + (f"\n\nRegistro: {path}" if path else ""))
+        box.setDetailedText(str(error) + ("\n\n" + _tr("Registro: {p}").format(p=path) if path else ""))
         box.setStandardButtons(QtWidgets.QMessageBox.Retry | QtWidgets.QMessageBox.Cancel)
         box.setDefaultButton(QtWidgets.QMessageBox.Cancel)
         if box.exec() == QtWidgets.QMessageBox.Retry:

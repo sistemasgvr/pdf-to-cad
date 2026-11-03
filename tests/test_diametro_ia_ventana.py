@@ -238,7 +238,8 @@ def test_analisis_muestra_captura_y_datos_sin_aplicar(monkeypatch):
     assert not tabs.widget(0).widget().pixmap().isNull()
     assert json.loads(tabs.widget(1).toPlainText())==f
     assert "Interpretación del recorrido" in tabs.widget(2).toPlainText()
-    assert all(t in w.lbl_diam_ia.text() for t in ("Propuesta:","Por qué:","Criterio:","Fuente:","Referencia:"))
+    # chat (2026-11-03): la IA habla en primera persona; los datos de la propuesta van debajo
+    assert all(t in w.lbl_diam_ia.text() for t in ("Propuesta:","Por su recorrido","Criterio:","Fuente:","Referencia:"))
     assert w.pipes[0]["diam"]==12
 
 
@@ -285,3 +286,101 @@ def test_progreso_tardio_no_pisa_otra_seleccion():
     anterior = w.lbl_diam_ia.text()
     w._diam_ia_progreso(7,"Comprobando la propuesta")
     assert w.lbl_diam_ia.text()==anterior
+
+
+def _mostrada(srv):
+    from PySide6 import QtCore, QtWidgets
+    w = _ventana(srv)
+    w.setAttribute(QtCore.Qt.WA_DontShowOnScreen)
+    w.resize(1280, 800)
+    w.show()
+    QtWidgets.QApplication.processEvents()
+    return w
+
+
+def _contar_fichas(w, monkeypatch):
+    armadas = []
+    original = w._diam_ia_armar_ficha
+    monkeypatch.setattr(w, "_diam_ia_armar_ficha", lambda i: (armadas.append(i), original(i))[1])
+    return armadas
+
+
+def test_elegir_muestra_el_panel_ya_y_la_ficha_se_arma_despues(monkeypatch):
+    """Leer los textos y las hojas de origen no hace esperar al panel de propiedades."""
+    with OllamaFalso(lambda c: _resp("R1")) as srv:
+        w = _mostrada(srv)
+        armadas = _contar_fichas(w, monkeypatch)
+        assert w._mostrar_en_panel(0)
+        assert armadas == [] and w.sel_pipe == 0
+        assert w.tarjeta_diam_ia.isVisibleTo(w.gprop) and "Preparando" in w.lbl_diam_ia.text()
+        assert _esperar(w, lambda: armadas == [0] and w.btn_diam_ia_preguntar.isVisibleTo(w.gprop), s=3)
+        w.close()
+
+
+def test_la_ficha_se_arma_una_sola_vez_por_seleccion(monkeypatch):
+    """Una misma selección la pedía hasta seis veces (reporte del usuario 2026-11-02: tarda en aparecer)."""
+    with OllamaFalso(lambda c: _resp("R1")) as srv:
+        w = _ventana(srv)
+        armadas = _contar_fichas(w, monkeypatch)
+        _elegir(w, 0)
+        for _ in range(4):
+            w._diam_ia_refrescar()
+            w._diam_ia_sug(0)
+            w._diam_ia_ficha(0)
+        assert armadas == [0]
+
+
+def test_la_ficha_cambia_si_cambia_su_utilidad(monkeypatch):
+    with OllamaFalso(lambda c: _resp("R1")) as srv:
+        w = _ventana(srv)
+        armadas = _contar_fichas(w, monkeypatch)
+        w._diam_ia_ficha(0)
+        w.pipes[0]["tipo"] = "COLECTOR PRINCIPAL"
+        w._diam_ia_ficha(0)
+        assert armadas == [0, 0]
+
+
+def test_pasar_rapido_por_varias_lineas_solo_arma_la_ultima(monkeypatch):
+    with OllamaFalso(lambda c: _resp("R1")) as srv:
+        w = _mostrada(srv)
+        armadas = _contar_fichas(w, monkeypatch)
+        w._mostrar_en_panel(0)
+        w._mostrar_en_panel(1)
+        assert _esperar(w, lambda: bool(armadas), s=3)
+        assert armadas == [1]
+        w.close()
+
+
+def test_responder_a_la_ia_y_aprobar():
+    """Pedido 2026-11-03: «no encuentro el diámetro con certeza» → el usuario le responde y la IA vuelve a decidir
+    con ese dato; aprobar tras conversar enseña y se deshace."""
+    def responder(c):
+        texto = json.dumps(c.get("messages") or [], ensure_ascii=False)
+        if "PREGUNTA_DEL_USUARIO" in texto:
+            return json.dumps({"eleccion": "U1", "confianza": "alta", "motivo": "lo dice el equipo", "pregunta": None})
+        if "opciones" in texto:
+            return json.dumps({"opcion": None, "evidencias": [], "motivo": "sin datos"})
+        return _resp(None)
+    with OllamaFalso(responder) as srv:
+        w = _ventana(srv)
+        _elegir(w, 0)
+        w.preguntar_diametro_ia()
+        assert _esperar(w, lambda: w._diam_ia_pedido is None and w._diam_ia_sug(0) is not None)
+        assert w._diam_ia_sug(0).diam_in is None
+        assert w._diam_ia_fila_resp.isVisibleTo(w.gprop)
+        w.ed_diam_ia_resp.setText('Es un lateral de 15"')
+        w.responder_diametro_ia()
+        assert _esperar(w, lambda: w._diam_ia_pedido is None and (w._diam_ia_sug(0) or None)
+                        and w._diam_ia_sug(0).diam_in == 15.0)
+        assert w._diam_ia_sug(0).origen == "usuario" and "15" in w.btn_diam_ia_usar.text()
+        from PySide6 import QtWidgets
+        burbujas = [l.text() for l in w._diam_ia_hilo.findChildren(QtWidgets.QLabel) if not l.isHidden()]
+        assert any("Es un lateral" in b for b in burbujas)              # tu mensaje, como burbuja
+        assert any("No encontré" in b for b in burbujas)                # lo que la IA te había dicho
+        assert "Propuesta: 15" in w.lbl_diam_ia.text() and "La IA" not in w.lbl_diam_ia.text()
+        n = len(w._ia_memoria().registros("ensenanzas"))
+        w.usar_diametro_ia()
+        assert w.pipes[0]["diam"] == 15.0
+        assert len(w._ia_memoria().registros("ensenanzas")) == n + 1
+        w.undo()
+        assert w.pipes[0]["diam"] == 12.0

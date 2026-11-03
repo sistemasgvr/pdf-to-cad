@@ -12,6 +12,8 @@ from __future__ import annotations
 
 import math
 import re
+
+import numpy as np
 from collections import defaultdict
 from dataclasses import dataclass
 from typing import Callable, Dict, List, Sequence, Tuple
@@ -224,21 +226,24 @@ def _encima(lineas, horiz) -> Dict[int, int]:
     """{línea: la de ARRIBA alineada (izquierda, derecha o centro), del mismo tamaño de letra y a
     menos de `BLOQUE_SALTO`}: la que podría ser la anterior del mismo MText."""
     out = {}
+    if not horiz:
+        return out
+    caja = np.array([lineas[i][1][:4] for i in horiz], dtype=float)
+    tams = np.array([lineas[i][2] for i in horiz], dtype=float)
     for k, i in enumerate(horiz):
         bb, tam = lineas[i][1], lineas[i][2]
-        for j in reversed(horiz[:k]):
-            bj, tj = lineas[j][1], lineas[j][2]
-            if bb[1] - bj[3] > BLOQUE_SALTO * max(tam, tj):
-                continue
-            if bb[1] - bj[1] <= 0.1 * tam:            # en la misma fila: otro texto
-                continue
-            if abs(tam - tj) > 0.02 * max(tam, tj):   # otro estilo de texto (DU08 h.21: 12.57 / 12.95)
-                continue
-            al = BLOQUE_ALINEADO * max(tam, tj)
-            if abs(bb[0] - bj[0]) <= al or abs(bb[2] - bj[2]) <= al \
-                    or abs((bb[0] + bb[2]) - (bj[0] + bj[2])) <= 2 * al:
-                out[i] = j
-                break
+        # las mismas condiciones sobre todas las anteriores a la vez; gana la más cercana en la lista
+        c, t = caja[:k], tams[:k]
+        mayor = np.maximum(t, tam)
+        al = BLOQUE_ALINEADO * mayor
+        ok = ((bb[1] - c[:, 3] <= BLOQUE_SALTO * mayor)
+              & (bb[1] - c[:, 1] > 0.1 * tam)         # en la misma fila: otro texto
+              & (np.abs(tam - t) <= 0.02 * mayor)     # otro estilo de texto (DU08 h.21: 12.57 / 12.95)
+              & ((np.abs(bb[0] - c[:, 0]) <= al) | (np.abs(bb[2] - c[:, 2]) <= al)
+                 | (np.abs((bb[0] + bb[2]) - (c[:, 0] + c[:, 2])) <= 2 * al)))
+        cuales = np.nonzero(ok)[0]
+        if len(cuales):
+            out[i] = horiz[int(cuales[-1])]
     return out
 
 

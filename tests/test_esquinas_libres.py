@@ -121,6 +121,7 @@ def test_rectangulo_sigue_igual_con_la_casilla_encendida(app):
 def test_apagar_la_casilla_vuelve_al_rectangulo(app):
     dlg = _dialog(_sheet())
     try:
+        dlg._pick_page()
         dlg.chk_corners.setChecked(True)
         _quad_area(dlg)
         dlg._apply_crop_edit()

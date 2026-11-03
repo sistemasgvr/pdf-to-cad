@@ -190,17 +190,20 @@ pasos anteriores se pueden pulsar para <b>volver atrás</b> sin perder lo hecho.
 ancho, están las opciones de la vista (como <b>Opacidad</b>) y los botones
 <span class="btn">Cancelar</span> y <span class="btn">Continuar</span>. La tecla <b>Esc</b> no
 cierra estas ventanas (solo quita un resaltado): para salir usa <span class="btn">Cancelar</span>.</p>
-<p>Cuando un paso tarda unos segundos (hojas grandes, varias piezas, muchas utilidades), la
-ventana o el panel que se está actualizando se atenúa y aparece una tarjeta <b>«Cargando…»</b>
-con un indicador que gira y lo que la app está haciendo (por ejemplo «Reconociendo… · Drenaje
-(3 de 6)»). No hace falta hacer clic: la tarjeta se va sola al terminar.</p>
+<p>Cuando un paso tarda unos segundos (hojas grandes, varias piezas, muchas utilidades), aparece una
+<b>tarjeta en la esquina inferior derecha</b> con lo que la app está haciendo, la etapa y una barra de
+avance (por ejemplo «Armando la hoja compuesta… · Pieza 3 de 12»). El plano se sigue viendo debajo y,
+mientras dure, esa ventana no responde a los clics. No hace falta hacer clic: la tarjeta se va sola al
+terminar.</p>
 <p>Lo más pesado (reconocer, armar una hoja compuesta y la composición sugerida) corre en un
 <b>proceso aparte</b>, con prioridad baja: el equipo y la ventana siguen respondiendo, y al
-terminar la memoria vuelve al sistema. Al reconocer, la tarjeta dice la utilidad y la capa que
-va leyendo («Agua (1 de 2) · capa 3 de 8»), lo ya reconocido se va dibujando sobre la hoja y
-<span class="btn">Cancelar</span> lo corta al instante. Si una hoja necesita más memoria de la
-que hay libre, la app lo avisa: compón menos hojas o reconoce menos utilidades a la vez. Con varias
-utilidades, cada una se reconoce en su propio proceso a la vez (según los núcleos y la RAM libre).
+terminar la memoria vuelve al sistema. Al reconocer, el avance va en una tarjeta en la esquina del
+plano, sin atenuar la ventana: dice la utilidad y la capa que va leyendo («Agua (1 de 2) · capa 3 de
+8»), las líneas se van trazando sobre la hoja (son provisionales: lo que se importa es lo de la vista
+previa) y se puede acercar y desplazar el plano; lo demás queda en pausa hasta que termina.
+<span class="btn">Cancelar</span> o <b>Esc</b> lo cortan al instante. Si una hoja necesita más memoria de la
+que hay libre, la app lo avisa: compón menos hojas o reconoce menos utilidades a la vez. Todas las
+utilidades se reconocen en el mismo proceso, que lee la hoja una sola vez.
 En todos los pasos la tarjeta dice la etapa exacta: leer los vectores, la leyenda de cada hoja
 («12 de 36»), copiar cada hoja, dibujar la hoja en pantalla…</p>
 <p>La barra de pasos de arriba marca los pasos ya hechos con ✓: son botones, un clic vuelve a ese
@@ -242,8 +245,8 @@ pregunta antes de agregarlo. Los PDF escaneados no tienen sugerencia: se compone
     hojas en la galería de miniaturas. Cada hoja lleva una <b>casilla</b> abajo a la derecha: <b>las
     hojas marcadas forman la hoja compuesta</b>. Marcar una la agrega entera (además de las que ya
     están) y desmarcarla la quita; si tenía un área tomada, la app pregunta antes. Un clic en la
-    miniatura solo te muestra la hoja. Al abrir un PDF nuevo viene marcada la hoja que estaba abierta
-    (suele ser la carátula; desmárcala si no la necesitas). Debajo de cada hoja marcada dice
+    miniatura solo te muestra la hoja. Al abrir un PDF nuevo <b>ninguna hoja viene elegida</b>: el área
+    de la hoja dice «Selecciona una hoja» hasta que elijas una en la lista. Debajo de cada hoja marcada dice
     <b>«Hoja completa»</b> o <b>«Área tomada»</b>, y abajo cuántas hojas hay marcadas. Con el teclado,
     las flechas pasan de hoja y Espacio o Enter marcan o desmarcan. Una hoja que dice «sin capas» es un plano aplanado: se puede usar, pero
     el reconocimiento no encontrará utilidades en ella. Doble clic en una hoja, o
@@ -408,6 +411,29 @@ imagen/escaneo…</b>), pero sin capas ni reconocimiento: al final,
     dos tuberías pegadas (no se sabe de cuál es), rótulos distintos en el mismo tramo o un tramo sin rótulo
     entre dos diámetros distintos (no se sabe dónde cambia) quedan con el diámetro por defecto y su
     <b>aviso</b>, igual que las tuberías sin rótulo (los tramitos a los hidrantes suelen no tenerlo).</li>
+<li><b>Conversar con la IA del diámetro:</b> con la IA configurada, la tarjeta <b>Diámetro según la IA</b>
+    del panel de la utilidad es un <b>chat</b>: la IA te habla en primera persona y cada mensaje va en
+    una burbuja. Si no encontró el diámetro con certeza, o propone uno que no es, escríbele lo que sabes
+    («R2 sí es de esta línea», «es un lateral de 8"», «mira el perfil de la hoja 4») o pregúntale
+    («¿por qué?»), con <b>Enter</b> o el botón de enviar; también hay respuestas rápidas como
+    <b>¿Por qué?</b> y <b>Revisa las líneas vecinas</b>. Vuelve a revisar con ese dato y te da una nueva
+    propuesta, te explica la anterior o te pide el dato que le falta. Vale igual en los PDF con capas y en
+    los mapas sin capas. Nada se aplica sin <b>Aprobar</b> (con Ctrl+Z); al aprobar, lo que aclaraste se
+    aprende para líneas parecidas.</li>
+<li><b>Continuidad de la red:</b> si no hay un rótulo seguro, la IA mira las líneas de la misma
+    utilidad que siguen de frente a la tuya. Si una tiene el diámetro confirmado y entre ellas no hay un
+    buzón, una caja ni una reducción, te propone ese mismo diámetro y te dice de qué línea viene y a qué
+    distancia (una tubería no cambia de diámetro a mitad de un tramo). Si los dos lados dicen lo mismo, la
+    propuesta es firme; si dicen distinto, te da las dos opciones. Un ramal nunca sale mayor que su
+    principal.</li>
+<li><b>Rótulos del plano (multileaders):</b> al reconocer, la app lee <b>todos</b> los rótulos que
+    llegan a una línea con su guía (flecha), digan lo que digan («EX 8" VCP SEWER», «JOIN EX. 84" RCP SD /
+    STA 549+55.37», «CB-208»…), también los girados; en los mapas sin capas, los rótulos de cada tubería.
+    Se guardan en el proyecto y al <b>exportar</b> salen en el DXF como MULTILEADER (o MTEXT en los
+    mapas) en la capa <b>PDFCAD_ANOTACIONES</b>, con su texto, utilidad, diámetro y la utilidad a la que
+    señalan. Si un rótulo tiene su guía pero su texto no se puede leer del PDF (letras dibujadas con
+    trazos), queda <i>ilegible</i>: <b>IA → Leer rótulos ilegibles con la IA…</b> los lee mirando la imagen
+    (hace falta un modelo con visión); lo que no lee con certeza sigue ilegible.</li>
 <li><b>Por las letras de la línea:</b> la app no solo mira el nombre de la capa; también lee las
     letras que lleva cada línea (—TE—, —SC—, —W—, —G—, —ss—…). Una capa cuyo nombre no es de
     ninguna utilidad, pero cuyas líneas sí lo dicen, aparece en su utilidad con las letras al lado,

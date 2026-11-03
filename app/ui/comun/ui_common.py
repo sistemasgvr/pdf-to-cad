@@ -15,6 +15,19 @@ from nucleo.model import ACI_RGB
 
 DOWNLOADS = os.path.join(os.path.expanduser("~"), "Downloads")
 
+def fila_lista(lista, texto="", icono=None):
+    """Agrega una fila a un QListWidget y devuelve su ítem. Siempre así, nunca creando el ítem desde Python: esos
+    ítems llevan un envoltorio de Shiboken que se destruye junto con el de C++, y ahí se cerraba la app (reporte
+    2026-11-02, al importar; volcados: `QListWidget.clear` → `Object::destroy` → `releaseWrapper` con el envoltorio ya
+    muerto). Creada por Qt, la fila no pasa por Shiboken al borrarse y además vaciar la lista es mucho más rápido.
+    El ítem devuelto es un acceso temporal: no guardarlo más allá de la función que lo usa."""
+    lista.addItem(texto)
+    it = lista.item(lista.count() - 1)
+    if icono is not None:
+        it.setIcon(icono)
+    return it
+
+
 ICON_SM = 18
 ICON_MD = 22
 ICON_LG = 28

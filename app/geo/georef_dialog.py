@@ -1201,7 +1201,6 @@ class GeorefDialog(QtWidgets.QDialog):
         for i, p in enumerate(self.pairs, 1):
             x, y = p["px"]; X, Y = p["world"]
             tag = f"  [{p['label']}]" if p.get("label") else ""
-            self.lst.addItem(QtWidgets.QListWidgetItem(
-                _tr("{i}   plano({x},{y})  →  calle({X},{Y}) ft{etiqueta}").format(
-                    i=i, x=f"{x:.0f}", y=f"{y:.0f}", X=f"{X:.2f}", Y=f"{Y:.2f}", etiqueta=tag)))
+            self.lst.addItem(_tr("{i}   plano({x},{y})  →  calle({X},{Y}) ft{etiqueta}").format(
+                i=i, x=f"{x:.0f}", y=f"{y:.0f}", X=f"{X:.2f}", Y=f"{Y:.2f}", etiqueta=tag))
         self._actualizar_pasos()

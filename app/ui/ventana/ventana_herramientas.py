@@ -288,9 +288,19 @@ class HerramientasMixin:
         lbl = getattr(self, "lbl_normas_pipe", None)
         if lbl is None:
             return
+        import html as _html
+        t = _theme.tokens()
         suyos = [a for a in getattr(self, "_normas_avisos", []) or [] if a.pipe == self.sel_pipe]
-        lbl.setText("\n".join(("✔ " + _tr("Aprobado:") + " " if a.aprobado else ("ⓘ " if a.info else "⚠ "))
-                              + a.mensaje for a in suyos[:4]))
+        # un párrafo por aviso, con el color de su clase (texto con salto: `TextoAjustado` no se corta)
+        filas = []
+        for a in suyos[:4]:
+            color = t.success if a.aprobado else (t.text_muted if a.info else t.warning)
+            marca = "✔ " + _tr("Aprobado:") + " " if a.aprobado else ("ⓘ " if a.info else "⚠ ")
+            filas.append(f"<p style='margin:0 0 4px 0; color:{color}'>{_html.escape(marca + a.mensaje, quote=False)}</p>")
+        if len(suyos) > 4:
+            filas.append(f"<p style='margin:0; color:{t.text_muted}'>"
+                         + _html.escape(_tr("… y {n} avisos más").format(n=len(suyos) - 4)) + "</p>")
+        lbl.setText("".join(filas))
         lbl.setVisible(bool(suyos))
         self._mostrar_pendiente()
 

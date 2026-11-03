@@ -289,8 +289,7 @@ class ListasMixin:
             icono = iconos.get(p["layer"])
             if icono is None:
                 icono = iconos[p["layer"]] = swatch_icon(layer_qcolor(p["layer"]))
-            it = QtWidgets.QListWidgetItem(icono, f"{i}. {self._tipo(p['layer'])}{tag}{nm} ({info})")
-            self.pipe_list.addItem(it)
+            fila_lista(self.pipe_list, f"{i}. {self._tipo(p['layer'])}{tag}{nm} ({info})", icono)
         self._atenuar_lista_utilidades()            # apagadas en «Capas»: en gris (ventana_capas)
         if hasattr(self, "_filtrar_inventario"):    # buscador y filtros del Inventario (2.0.0)
             self._filtrar_inventario()
@@ -300,18 +299,17 @@ class ListasMixin:
         for i, ld in enumerate(self.leaders):
             ns += 1
             o = next((_tr(lbl) for oid, lbl in LEADER_ORIENT if oid == ld.get("orient", "d")), "")
-            it = QtWidgets.QListWidgetItem(_tr("{n}. Leader {orientacion}").format(n=ns, orientacion=o.lower()).rstrip())
-            it.setData(QtCore.Qt.UserRole, i); self.sleader_list.addItem(it)
+            it = fila_lista(self.sleader_list, _tr("{n}. Leader {orientacion}").format(n=ns, orientacion=o.lower()).rstrip())
+            it.setData(QtCore.Qt.UserRole, i)
         self.sleader_list.blockSignals(False)
         self.txt_marks_list.blockSignals(True); self.txt_marks_list.clear()
         for i, tm in enumerate(self.text_marks, 1): self.txt_marks_list.addItem(f"{i}. {tm['text'][:28].replace(chr(10), ' / ')}")
         self.txt_marks_list.blockSignals(False)
         self.region_list.blockSignals(True); self.region_list.clear()
         for i, rg in enumerate(self.erase_regions, 1):
-            it = QtWidgets.QListWidgetItem(_tr("Zona {i} ({n} vértices)").format(i=i, n=len(rg['pts'])))
+            it = fila_lista(self.region_list, _tr("Zona {i} ({n} vértices)").format(i=i, n=len(rg['pts'])))
             it.setFlags(it.flags() | QtCore.Qt.ItemIsUserCheckable)
             it.setCheckState(QtCore.Qt.Checked if rg.get("enabled", True) else QtCore.Qt.Unchecked)
-            self.region_list.addItem(it)
         self.region_list.blockSignals(False)
         # Refrescar tabs Buzones/Curvas (vistas filtradas de self.structures según
         # 'curve') + paneles de propiedades del elemento seleccionado en cada una.
@@ -346,21 +344,20 @@ class ListasMixin:
                         item_icon = ico("mdi:circle-medium", "#f97316")   # conducto = naranja
                     else:
                         item_icon = ico("mdi:circle-medium", "#3b82f6")   # buzón = azul
-                it = QtWidgets.QListWidgetItem(item_icon, self._solid_label(s) if s.get("solid") and not is_curve
-                                               else f"{s.get('cod', '?')}  ·  {fam}{sz}")
+                it = fila_lista(self.curve_list if is_curve else self.bz_list,
+                                self._solid_label(s) if s.get("solid") and not is_curve
+                                else f"{s.get('cod', '?')}  ·  {fam}{sz}", item_icon)
                 if not is_curve and s.get("hidden"):
                     it.setForeground(QtGui.QColor(_theme.tokens().text_muted))
                     it.setToolTip(_tr("Oculto — no se dibuja ni se crea en Civil3D como buzón real."))
-                if is_curve: self.curve_list.addItem(it); self._curve_rows.append(i)
-                else: self.bz_list.addItem(it); self._bz_rows.append(i)
+                if is_curve: self._curve_rows.append(i)
+                else: self._bz_rows.append(i)
         self.bz_list.blockSignals(False); self.curve_list.blockSignals(False)
         self._sync_bz_panel(); self._sync_curve_panel()
         self.cl_list.blockSignals(True); self.cl_list.clear()
         for c in self.ref_centerlines:
-            _it_cl = QtWidgets.QListWidgetItem(
-                _icon("mdi:vector-line", color="#22c55e"),
-                _tr("{cod}  ·  {n} vértices").format(cod=c.get('cod', '?'), n=len(c.get('pts') or [])))
-            self.cl_list.addItem(_it_cl)
+            fila_lista(self.cl_list, _tr("{cod}  ·  {n} vértices").format(cod=c.get('cod', '?'), n=len(c.get('pts') or [])),
+                       _icon("mdi:vector-line", color="#22c55e"))
         self.cl_list.blockSignals(False)
         self._sync_cl_panel()
         self._refresh_db_list()

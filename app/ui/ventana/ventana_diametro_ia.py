@@ -19,6 +19,12 @@ import time
 
 from ui.ventana.ventana_comun import *  # noqa: F401,F403
 from ui.comun import rediseno as R
+from ui.ventana.ventana_diametro_ia_replica import ReplicaDiametroMixin
+
+
+_ESPERA_FICHA_MS = 150                               # si se sigue eligiendo líneas, no se arma la de cada una
+_MAX_FICHAS = 64
+_ESPERA_REVELAR_MS = 40
 
 
 class _Senales(QtCore.QObject):
@@ -53,7 +59,28 @@ class _TextoAnalisis(QtWidgets.QLabel):
             self._ajustar_alto()
 
 
-class DiametroIAMixin:
+class _TarjetaIA(QtWidgets.QFrame):
+    """El QFormLayout del inspector reparte mal el alto de una fila que depende de su ancho: a esta le daba
+    12–20 px de menos y el botón quedaba encima del texto. Su mínimo es siempre lo que pide su contenido."""
+
+    def _ajustar_minimo(self):
+        lay = self.layout()
+        if lay is not None and self.width() > 0:
+            alto = lay.totalHeightForWidth(self.width())
+            if alto != self.minimumHeight():
+                self.setMinimumHeight(alto)
+
+    def event(self, evento):
+        if evento.type() == QtCore.QEvent.LayoutRequest:
+            self._ajustar_minimo()
+        return super().event(evento)
+
+    def resizeEvent(self, evento):  # noqa: N802
+        super().resizeEvent(evento)
+        self._ajustar_minimo()
+
+
+class DiametroIAMixin(ReplicaDiametroMixin):
     # ── la tarjeta ──
     def _diam_ia_construir(self):
         """La tarjeta (la pone `ventana_inspector_campos.reorganizar` en la sección Normativa)."""
@@ -72,7 +99,12 @@ class DiametroIAMixin:
         self._diam_ia_reloj = QtCore.QTimer(self)
         self._diam_ia_reloj.setInterval(500)
         self._diam_ia_reloj.timeout.connect(self._diam_ia_tic)
-        f = self.tarjeta_diam_ia = QtWidgets.QFrame()
+        self._diam_ia_fichas = {}
+        self._diam_ia_carga = QtCore.QTimer(self)
+        self._diam_ia_carga.setSingleShot(True)
+        self._diam_ia_carga.setInterval(_ESPERA_FICHA_MS)
+        self._diam_ia_carga.timeout.connect(self._diam_ia_cargar)
+        f = self.tarjeta_diam_ia = _TarjetaIA()
         f.setObjectName("tarjetaSuave")
         f.setSizePolicy(QtWidgets.QSizePolicy.Expanding, QtWidgets.QSizePolicy.Minimum)
         sl = QtWidgets.QVBoxLayout(f)
@@ -82,26 +114,35 @@ class DiametroIAMixin:
         self._ic_diam_ia = QtWidgets.QLabel()
         cab.addWidget(self._ic_diam_ia)
         cab.addWidget(R.texto("Diámetro según la IA", "h3", True), 1)
+        # 2.ª vuelta (2026-11-03): la tarjeta es un CHAT; «Ver análisis» va arriba, discreto
+        self.btn_diam_ia_detalles = self._diam_ia_boton("Ver análisis", "ghost", self.ver_analisis_diametro_ia)
+        self.btn_diam_ia_detalles.setIcon(_icon("mdi:selection-search"))
+        cab.addWidget(self.btn_diam_ia_detalles)
+        self.btn_diam_ia_detalles.hide()
         sl.addLayout(cab)
+        # turnos anteriores de la conversación (burbujas: ventana_diametro_ia_replica)
+        self._diam_ia_hilo = R.transparente(QtWidgets.QWidget())
+        hl = QtWidgets.QVBoxLayout(self._diam_ia_hilo)
+        hl.setContentsMargins(0, 0, 0, 0)
+        hl.setSpacing(6)
+        sl.addWidget(self._diam_ia_hilo)
         self.lbl_diam_ia = _TextoAnalisis()
-        self.lbl_diam_ia.setProperty("rol", "t2")
         self.lbl_diam_ia.setWordWrap(True)
         self.lbl_diam_ia.setTextFormat(QtCore.Qt.RichText)
         self.lbl_diam_ia.setSizePolicy(QtWidgets.QSizePolicy.Expanding, QtWidgets.QSizePolicy.Minimum)
         self.lbl_diam_ia.setTextInteractionFlags(QtCore.Qt.TextSelectableByMouse)
-        sl.addWidget(self.lbl_diam_ia)
-        self.btn_diam_ia_detalles = self._diam_ia_boton("Ver análisis", "ghost", self.ver_analisis_diametro_ia)
-        sl.addWidget(self.btn_diam_ia_detalles, 0, QtCore.Qt.AlignLeft)
-        self.btn_diam_ia_detalles.hide()
+        sl.addWidget(self._diam_ia_burbuja(self.lbl_diam_ia, ia=True))   # el mensaje actual de la IA
         self._diam_ia_acciones = R.transparente(QtWidgets.QWidget())
         bt = GridAdaptable(self._diam_ia_acciones, max_cols=2, spacing=6)
-        self.btn_diam_ia_preguntar = self._diam_ia_boton("Preguntar a la IA", "primary", self.preguntar_diametro_ia)
+        self.btn_diam_ia_preguntar = self._diam_ia_boton("Revisar con la IA", "primary", self.preguntar_diametro_ia)
+        self.btn_diam_ia_preguntar.setIcon(_icon("mdi:refresh", color=_theme.tokens().text_on_accent))
         self.btn_diam_ia_usar = self._diam_ia_boton("", "primary", self.usar_diametro_ia)
         self.btn_diam_ia_no = self._diam_ia_boton("Otro diámetro…", "ghost", self.cambiar_diametro_ia)
         self.btn_diam_ia_detener = self._diam_ia_boton("Detener", "ghost", self._diam_ia_detener)
         for b in (self.btn_diam_ia_preguntar, self.btn_diam_ia_usar, self.btn_diam_ia_no, self.btn_diam_ia_detener):
             bt.addWidget(b)
         sl.addWidget(self._diam_ia_acciones)
+        self._diam_ia_replica_construir(sl)          # «Responder a la IA» (ventana_diametro_ia_replica)
         f.setVisible(False)
         return f
 
@@ -129,7 +170,25 @@ class DiametroIAMixin:
         cfg = P.Config.de(self._config_ia())
         return P.crear(cfg) if cfg.con_ia else None
 
+    def _diam_ia_clave_ficha(self, i):
+        """Lo que decide la ficha de `i`: su utilidad, el modelo del último redibujo y la hoja."""
+        import pickle
+        m = getattr(self, "_memo_redibujo", None)
+        return (i, pickle.dumps(self.pipes[i], protocol=4), getattr(m, "firma", None), id(getattr(self, "doc", None)),
+                getattr(self, "page_idx", 0), self.zoom)
+
     def _diam_ia_ficha(self, i):
+        """La ficha de `i`, armada una sola vez: leer los textos y las hojas de origen cuesta, y una misma
+        selección la pedía hasta seis veces."""
+        clave = self._diam_ia_clave_ficha(i)
+        f = self._diam_ia_fichas.get(clave)
+        if f is None:
+            f = self._diam_ia_fichas[clave] = self._diam_ia_armar_ficha(i)
+            if len(self._diam_ia_fichas) > _MAX_FICHAS:
+                self._diam_ia_fichas.pop(next(iter(self._diam_ia_fichas)))
+        return f
+
+    def _diam_ia_armar_ficha(self, i):
         from ia import diametro_ia as DI
         from nucleo import diametro_plano, diametro_contexto
         from reconocimiento.recognition import utility_label
@@ -151,7 +210,7 @@ class DiametroIAMixin:
                 page = doc[idx]
                 clave = (id(doc), idx)
                 if clave not in self._diam_ia_textos:
-                    self._diam_ia_textos = {clave:page.get_text("blocks")}
+                    self._diam_ia_textos = {clave:contexto_diametro.bloques(page)}
                 contexto["textos_pdf"] = contexto_diametro.textos(
                     page, [(x/self.zoom,y/self.zoom) for x,y in pts], self._diam_ia_textos[clave])
                 documento = dict(nombre=doc.name or "hoja de trabajo", pagina=idx+1,
@@ -174,7 +233,16 @@ class DiametroIAMixin:
                     contexto["evidencias"].append(dict(id=f'E{len(contexto["evidencias"])+1}',clase="hoja_original",
                         diam_in=ref["diam_in"],texto=ref["texto"],documento=hoja["documento"],pagina=hoja["pagina"],
                         asociacion="Referencia de la misma utilidad en la hoja original; no asignada a esta línea"))
-        f = DI.ficha(p, utility_label(p.get("layer") or ""), permit, largo, catalogo=cat, contexto=contexto)
+        # continuidad con la red: líneas confirmadas que siguen de frente, ramal/principal (ingeniería)
+        from nucleo import diametro_continuidad
+        try:
+            cont = diametro_continuidad.analizar(i, self.pipes, ft_px or None, getattr(self, "structures", ()))
+            for o in cont["opciones"]:
+                o["normativa"] = diametro_plano.permitido(cat, p, o["diam_in"])
+        except Exception:                             # noqa: BLE001 (complemento: sin ella se revisa igual)
+            cont = None
+        f = DI.ficha(p, utility_label(p.get("layer") or ""), permit, largo, catalogo=cat, contexto=contexto,
+                     continuidad=cont)
         f["documento"] = documento
         self._diam_ia_origenes[self._diam_ia_clave(f)] = dict(planes=planes,originales=originales)
         if len(self._diam_ia_origenes)>64:
@@ -219,18 +287,25 @@ class DiametroIAMixin:
         self.btn_diam_ia_detalles.setVisible(False)
         for b in (self.btn_diam_ia_preguntar, self.btn_diam_ia_usar, self.btn_diam_ia_no, self.btn_diam_ia_detener):
             b.setVisible(False)
+        self._diam_ia_replica_mostrar(i, False)
         if getattr(self, "_diam_ia_pedido", None) is not None:
             self._diam_ia_tic()
             self.btn_diam_ia_detener.setVisible(True)
             return
         if "cerca" not in (self.pipes[i].get("diam_plano") or {}):
-            self.lbl_diam_ia.setText(html.escape(_tr("Vuelve a reconocer la hoja para que la IA pueda revisar "
-                                                   "esta línea.")))
+            self.lbl_diam_ia.setText(html.escape(_tr("Vuelve a reconocer la hoja para que pueda revisar esta "
+                                                   "línea con lo que dice el plano.")))
+            return
+        if self.isVisible() and self._diam_ia_clave_ficha(i) not in self._diam_ia_fichas:
+            # La selección se muestra ya; la ficha se arma después, sin hacer esperar al panel.
+            self.lbl_diam_ia.setText(html.escape(_tr("Preparando la revisión de esta línea…")))
+            self._diam_ia_carga.start()
             return
         s = self._diam_ia_sug(i)
         if s is None:
-            self.lbl_diam_ia.setText(html.escape(_tr("La IA revisará los rótulos y, si no hay una lectura segura, "
-                                                   "propondrá un diámetro según tu normativa.")))
+            self.lbl_diam_ia.setText(html.escape(_tr("Voy a revisar los rótulos y las líneas vecinas; si no hay una "
+                                                   "lectura segura, te propongo un diámetro según la continuidad de la "
+                                                   "red y tu normativa.")))
             self.btn_diam_ia_preguntar.setVisible(True)
             f = self._diam_ia_ficha(i)
             clave = self._diam_ia_clave(f)
@@ -244,6 +319,14 @@ class DiametroIAMixin:
             return
         self._diam_ia_mostrar(i, s)
 
+    def _diam_ia_cargar(self):
+        i = self._diam_ia_actual() if self._diam_ia_proveedor() is not None else None
+        if i is None or i != getattr(self, "_diam_ia_pipe", None):
+            return
+        self._diam_ia_ficha(i)
+        self._diam_ia_refrescar()
+        self._diam_ia_revelar(i)                     # creció: que su botón siga a la vista
+
     def _diam_ia_mostrar(self, i, s):
         from nucleo import normas_catalogo as nc
         self.btn_diam_ia_detalles.setVisible(bool(s.analisis))
@@ -256,15 +339,23 @@ class DiametroIAMixin:
                 return html.escape(txt if len(txt) <= n else txt[:n-1].rsplit(" ",1)[0]+"…")
             def fila(nombre, valor, n=110):
                 return "<br><b>" + html.escape(_tr(nombre)) + "</b> " + breve(valor, n)
-            txt = "<b>" + html.escape(_tr("Propuesta: {d}").format(d=nc.texto_pulgadas(s.diam_in))) + "</b>"
-            txt += fila("Por qué:", motivo, 160)
+            t = _theme.tokens()
+            # chat (2.ª vuelta 2026-11-03): la IA habla en primera persona; los datos van abajo, en chico
+            txt = (f"<span style='color:{t.accent}; font-size:15px'><b>"
+                   + html.escape(_tr("Propuesta: {d}").format(d=nc.texto_pulgadas(s.diam_in))) + "</b></span>")
+            if motivo:
+                txt += "<br>" + breve(motivo, 320)
+            txt += f"<div style='margin-top:6px; color:{t.text_muted}; font-size:11px'>"
             norma = s.analisis.get("opcion") or {}
             if norma:
-                txt += fila("Criterio:", norma.get("criterio"))
+                if norma.get("criterio") and " ".join(str(norma["criterio"]).split()) != motivo:
+                    txt += fila("Criterio:", norma.get("criterio"))
                 txt += fila("Fuente:", norma.get("fuente"), 75)
             elif s.rotulo:
                 txt += fila("Criterio:", _tr("Rótulo asociado a esta línea"))
                 txt += fila("Fuente:", _tr("Plano PDF"))
+            elif s.origen == "usuario":
+                txt += fila("Criterio:", _tr("Diámetro que indicaste en la conversación"))
             entrada = s.analisis.get("entrada") or {}
             contexto = entrada.get("contexto") or {}
             ruta = contexto.get("trayecto") or {}
@@ -285,22 +376,27 @@ class DiametroIAMixin:
                 txt += fila("Referencia:", " · ".join(referencias))
             if norma.get("tipo_supuesto"):
                 txt += fila("Por confirmar:", norma.get("tipo"))
+            txt += "</div>"
             cambia_texto = self.lbl_diam_ia.text() != txt
             self.lbl_diam_ia.setText(txt)
             self.btn_diam_ia_usar.setText(_tr("Aprobar {d}").format(d=nc.texto_pulgadas(s.diam_in)))
             self.btn_diam_ia_usar.setVisible(True)
             self.btn_diam_ia_no.setVisible(True)
+            self._diam_ia_replica_mostrar(i, True)
             if cambia_texto:
                 self._diam_ia_revelar(i)
             return
-        txt = "<b>" + html.escape(_tr("La IA no encontró el diámetro de esta línea con certeza.")) + "</b> "
+        conv = self._diam_ia_conv_de(i)
+        txt = "" if conv else "<b>" + html.escape(_tr("No encontré el diámetro de esta línea con certeza.")) + "</b><br>"
         txt += html.escape(motivo)
         if s.pista:
-            txt += "<br>" + html.escape(_tr("Pista: {p}").format(p=s.pista))
+            # en la conversación, la pista es la pregunta que la IA te hace a ti (sin intermediarios)
+            txt += "<br><br>" + (html.escape(s.pista) if conv else html.escape(_tr("Una pista: {p}").format(p=s.pista)))
         cambia_texto = self.lbl_diam_ia.text() != txt
         self.lbl_diam_ia.setText(txt)
         self.btn_diam_ia_no.setVisible(True)
         self.btn_diam_ia_preguntar.setVisible(True)
+        self._diam_ia_replica_mostrar(i, True)
         if cambia_texto:
             self._diam_ia_revelar(i)
 
@@ -322,13 +418,14 @@ class DiametroIAMixin:
                 # aplicarla debe poder alcanzarse incluso en ventanas pequeñas.
                 destino = self._diam_ia_acciones
             area.ensureWidgetVisible(destino, 0, 12)
-        QtCore.QTimer.singleShot(0, revelar)
+        QtCore.QTimer.singleShot(_ESPERA_REVELAR_MS, self, revelar)   # cuando el panel ya tomó su nuevo alto
 
     def _diam_ia_tic(self):
         if getattr(self, "_diam_ia_pedido", None) is not None:
             etapa = getattr(self,"_diam_ia_etapa",None) or _tr("Revisando con la IA")
-            self.lbl_diam_ia.setText(html.escape(_tr("{etapa}… {s} s").format(
-                etapa=etapa, s=int(time.monotonic() - self._diam_ia_t0))))
+            t = _theme.tokens()
+            self.lbl_diam_ia.setText(f"<i style='color:{t.text_muted}'>" + html.escape(_tr("Pensando… {etapa} · {s} s").format(
+                etapa=etapa, s=int(time.monotonic() - self._diam_ia_t0))) + "</i>")
 
     def _diam_ia_progreso(self, tok, etapa):
         pedido = getattr(self,"_diam_ia_pedido",None)
@@ -395,7 +492,9 @@ class DiametroIAMixin:
             cajas = {e["id"]: tuple(v / z for v in e["caja"]) for e in orden}
             puntas = [(q[0] / z, q[1] / z) for e in f["rotulos"] for q in e.get("puntas") or ()]
             return base64.b64encode(recorte_diametro.recorte(
-                page, pts, cajas, puntos=puntas, trayecto_completo=True)).decode("ascii")
+                # mapa sin capas: letras chicas, la zona de sus rótulos (el trayecto entero las dejaba ilegibles)
+                page, pts, cajas, puntos=puntas,
+                trayecto_completo=not (f.get("mapa") and cajas))).decode("ascii")
         except Exception:                             # noqa: BLE001 (sin imagen se pregunta igual)
             return None
 
@@ -485,9 +584,10 @@ class DiametroIAMixin:
             return                                    # cancelado: no deja resultado ni pisa la tarjeta
         self._diam_ia_pedido = None
         self._diam_ia_reloj.stop()
+        self._diam_ia_replica_lista(pedido[2], r)    # era una réplica: se anota el turno
         if isinstance(r, str):
             self._diam_ia_refrescar()
-            self.lbl_diam_ia.setText(html.escape(_tr("La IA no respondió: {e}").format(e=r)))
+            self.lbl_diam_ia.setText(html.escape(_tr("No pude responderte: {e}").format(e=r)))
             self._diam_ia_revelar(pedido[1])
             return
         self._diam_ia[pedido[2]] = r
@@ -496,6 +596,7 @@ class DiametroIAMixin:
     def _diam_ia_detener(self):
         self._diam_ia_tok += 1
         self._diam_ia_pedido = None
+        self._diam_ia_replica_pendiente = None
         self._diam_ia_reloj.stop()
         if getattr(self, "_diam_ia_pipe", None) is not None:
             self._diam_ia_refrescar()
@@ -506,7 +607,11 @@ class DiametroIAMixin:
         s = self._diam_ia_sug(i) if i is not None else None
         if s is None or not s.diam_in:
             return
-        self._diam_ia_aplicar(i, s.diam_in)
+        f = self._diam_ia_ficha(i)                    # antes de aplicar: después la ficha cambia
+        conv = self._diam_ia_conv_de(i)
+        if self._diam_ia_aplicar(i, s.diam_in) and conv:
+            from ia import diametro_ia_replica as DR
+            DR.aprender(self._ia_memoria(), f, conv, s.diam_in)
 
     def _diam_ia_aplicar(self, i, diam):
         from nucleo import edicion3d, edicion_bloque

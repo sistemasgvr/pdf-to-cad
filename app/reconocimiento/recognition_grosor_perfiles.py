@@ -202,7 +202,8 @@ def de_hojas(fuentes: Sequence[Tuple[str, int]]) -> List[PerfilLateral]:
             with fitz.open(path) as doc, pdf_styles.lectura_unica(doc):
                 page = doc[pagina]
                 m = page.rotation_matrix
-                px = (lambda q, m=m: (float((fitz.Point(q) * m).x), float((fitz.Point(q) * m).y)))
+                girar = rec.transformador_mupdf(m)
+                px = (lambda q: girar(q[0], q[1]))
                 regiones = []
                 for x0, y0, x1, y1 in rec.profile_view_regions(page, None):
                     cs = [px((x0, y0)), px((x1, y0)), px((x1, y1)), px((x0, y1))]
