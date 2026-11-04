@@ -80,7 +80,7 @@ class HojasEditorMixin:
             QtCore.QSettings(*_AJUSTES).setValue(clave, bool(on))
         except Exception:
             pass
-        self._redraw()
+        self._refrescar_hojas()
 
     # ── esquema de las hojas ──────────────────────────────────────────────
     def _layout_minimapa(self):
@@ -126,13 +126,29 @@ class HojasEditorMixin:
                 for ((x0, y0, x1, y1), label), corta in zip(lay, etiquetas_cortas(labels))]
 
     # ── al redibujar ──────────────────────────────────────────────────────
+    def _refrescar_hojas(self):
+        """Minimapa y marcas de agua de las hojas, sin tocar utilidades, estructuras ni cálculos."""
+        viejas = getattr(self, "_items_marcas_hojas", ())
+        ids = {id(it) for it in viejas}
+        for it in viejas:
+            try:
+                if it.scene() is self.canvas.scene():
+                    self.canvas.scene().removeItem(it)
+            except RuntimeError:
+                pass
+        if ids:
+            self._overlay[:] = [it for it in self._overlay if id(it) not in ids]   # EN SITIO: `GrupoMarcas` guarda esta lista
+        self._dibujar_hojas()
+
     def _dibujar_hojas(self):
         """Minimapa, marcas de agua y el botón «Capas» (lo llama `_redraw` al final)."""
         self._sync_boton_capas()
         hojas = self._hojas_px()
         self._minimapa_editor(hojas)
+        self._items_marcas_hojas = []
         if hojas and getattr(self, "act_marcas_hojas", None) is not None and self.act_marcas_hojas.isChecked():
-            self._overlay += marcas_de_agua(self.canvas.scene(), hojas)
+            self._items_marcas_hojas = marcas_de_agua(self.canvas.scene(), hojas)
+            self._overlay += self._items_marcas_hojas
 
     def _minimapa_editor(self, hojas):
         """Hoja compuesta: el esquema de sus hojas. UNA sola hoja (pedido 2026-10-28): sin zonas, la

@@ -52,6 +52,8 @@ class RecognitionWorker(QtCore.QThread):
     progress = QtCore.Signal(int, int, str)
     layer = QtCore.Signal(int, int, str, int, int)
     partial = QtCore.Signal(str, object)
+    strokes = QtCore.Signal(str, object)  # lotes provisionales, antes de terminar la utilidad
+    PROCESOS = 1
     stage = QtCore.Signal(str, object, object)        # etapa (`nucleo.avance`): texto, i, n
 
     def __init__(self, pdf_path, page_index, zoom=1.0, utility="ELECTRICO",
@@ -93,18 +95,20 @@ class RecognitionWorker(QtCore.QThread):
             self.layer.emit(a[1], a[2], a[3], a[4], a[5])
         elif a[0] == "hecha":
             self.partial.emit(a[3], a[4])
+        elif a[0] == "trazos":
+            self.strokes.emit(a[3], a[4])
         elif a[0] == "detalle":
             self.stage.emit(a[1], a[2], a[3])
 
     def start(self, *args):
-        """Al proceso trabajador. Con varias utilidades, cada una en su proceso a la vez
-        (`proceso_hijo.paralelos`: la mitad de los núcleos y lo que deje la RAM libre); los
-        resultados vuelven en el orden de siempre y son los mismos (cada utilidad se
-        reconoce sola, como en la vuelta de siempre)."""
-        from ui.comun import proceso, proceso_hijo
+        """Al proceso trabajador, UN proceso para todas las utilidades: comparten la lectura de los vectores y
+        las letras de la hoja (`recognition_trabajo`). Medido 2026-11-02 (DU06, 6 utilidades): con 4 hojas, un
+        proceso 9.8 s y cuatro 12–21 s; con 12 hojas, 54–80 s y 75–85 s, con cuatro veces más memoria: repartirlas
+        obligaba a cada proceso a leer la hoja otra vez."""
+        from ui.comun import proceso
         if not proceso.activo():
             return super().start(*args)
-        n_par = proceso_hijo.paralelos(len(self.utilities))
+        n_par = self.PROCESOS
         grupos = ([tuple(self.utilities)] if n_par <= 1
                   else [(u,) for u in self.utilities])
         self._partes = [None] * len(grupos)
@@ -120,6 +124,8 @@ class RecognitionWorker(QtCore.QThread):
             t.terminado.connect(lambda r, e, k=k: self._fin_parte(k, r, e))
             self._tareas.append(t)
             proceso.trabajador("principal" if k % n_par == 0 else f"principal-{k % n_par}").enviar(t)
+            if self._partes is None:
+                return  # un fallo de arranque puede haber terminado antes de enviar el resto
         self._tarea = self._tareas[0]
 
     def _avance_parte(self, k, a):
@@ -131,6 +137,8 @@ class RecognitionWorker(QtCore.QThread):
             self.layer.emit(k, n, a[3], a[4], a[5])
         elif a[0] == "hecha":
             self.partial.emit(a[3], a[4])
+        elif a[0] == "trazos":
+            self.strokes.emit(a[3], a[4])
         elif a[0] == "detalle":
             self.stage.emit(a[1], a[2], a[3])
 
@@ -138,10 +146,10 @@ class RecognitionWorker(QtCore.QThread):
         if self._partes is None:
             return                                    # ya terminó (error o cancelado)
         if err:
+            self._partes = None  # cancelar emite terminado de forma síncrona
             for t in self._tareas:
                 if not t.hecha:
                     t.cancelar()
-            self._partes = None
             self._fin_proceso(None, err)
             return
         self._partes[k] = res
@@ -154,7 +162,12 @@ class RecognitionWorker(QtCore.QThread):
         if len(partes) > 1:
             # cada utilidad vino de su proceso: los cruces de los perfiles, con todas juntas
             from reconocimiento import recognition_grosor_cruces
-            recognition_grosor_cruces.aplicar(todos)
+            try:
+                recognition_grosor_cruces.aplicar(todos)
+            except Exception:
+                import traceback
+                self._fin_proceso(None, traceback.format_exc())
+                return
         self._fin_proceso(todos, "")
 
     def _fin_proceso(self, res, err):
@@ -170,6 +183,8 @@ class RecognitionWorker(QtCore.QThread):
             self.done.emit(res, err)
 
     def cancel(self):
+        if self.isRunning():
+            self.requestInterruption()
         for t in list(getattr(self, "_tareas", None) or ([self._tarea] if self._tarea else [])):
             if t is not None and not t.hecha:
                 t.cancelar()
@@ -178,11 +193,18 @@ class RecognitionWorker(QtCore.QThread):
         try:
             from nucleo import avance
             from reconocimiento import recognition_trabajo
-            with avance.escuchar(lambda t, i, n: self._avance(("detalle", t, i, n))):
+            def publicar(*a):
+                if self.isInterruptionRequested():
+                    raise InterruptedError("recognition cancelled")
+                self._avance(a)
+            with avance.escuchar(lambda t, i, n: publicar("detalle", t, i, n)):
                 results = recognition_trabajo.reconocer_hoja(
-                    progreso=lambda *a: self._avance(a), **self._kwargs())
-            self.done.emit(results, "")
+                    progreso=publicar, **self._kwargs())
+            self.done.emit(None if self.isInterruptionRequested() else results, "")
         except Exception as e:
+            if self.isInterruptionRequested():
+                self.done.emit(None, "")
+                return
             import traceback
             self.done.emit(None, f"{e}\n\n{traceback.format_exc()}")
 

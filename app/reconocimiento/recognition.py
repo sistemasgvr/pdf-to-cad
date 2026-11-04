@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import math
 import re
+import struct
 import sys
 from collections import Counter, defaultdict
 from dataclasses import dataclass, field, replace
@@ -48,6 +49,7 @@ from reconocimiento import recognition_taps as taps_mod
 from reconocimiento import recognition_indice as indice_mod
 from reconocimiento import recognition_grosor_mapa as grosor_mapa_mod
 from reconocimiento import recognition_grosor_mapa_hoja as grosor_hoja_mod
+from reconocimiento import recognition_grosor_registros as grosor_registros_mod
 from reconocimiento import recognition_grosor as grosor_mod
 from reconocimiento import recognition_walls as walls_mod
 from reconocimiento import recognition_angulos as angulos_mod
@@ -259,6 +261,9 @@ class RecognitionResult:
     # Perfiles de los laterales de la hoja (`recognition_grosor_perfiles`, la misma lista en cada
     # utilidad): sus cruces se llevan a la planta con TODAS las utilidades (`recognition_grosor_cruces`).
     perfiles: list = field(default_factory=list)
+    # Rótulos del plano con su guía (MLeader) o MText de los mapas (`recognition_anotaciones`, pedido
+    # 2026-11-03): la MISMA lista de la hoja en cada utilidad; el editor la guarda y el DXF la exporta.
+    anotaciones: list = field(default_factory=list)
 
     @property
     def drawable(self) -> List[RecognizedPolyline]:
@@ -558,10 +563,41 @@ def roles_from_suggestions(ocg_names: Sequence[str], utility: str = UTILITY_HINT
 
 
 # ───────────── utilidad por las LETRAS del linetype (`recognition_letters`) ─────────────
+_LETRAS_MEMO: dict = {}                # la(s) última(s) hoja(s) de este proceso
+_LETRAS_MEMO_MAX = 2
+
+
+def _clave_letras(page):
+    """Lo que decide las letras de una hoja: su PDF en disco y qué capas están encendidas. None = sin archivo."""
+    import os
+    from hoja import pdf_layers
+    doc = page.parent
+    ruta = getattr(doc, "name", "") or ""
+    try:
+        est = os.stat(ruta)
+    except OSError:
+        return None
+    return (os.path.abspath(ruta), est.st_mtime_ns, est.st_size, page.number, pdf_layers.encendidas(doc),
+            frozenset(getattr(doc, "_pdf_style_hidden", None) or ()))
+
+
 def page_letters(page, drawings=None) -> Dict[str, "letters_mod.LayerLetters"]:
     """Lo que dicen las letras de cada capa de la hoja ({capa: LayerLetters}). Se
     leen todas las capas con trazos salvo anotación, cajetín y aéreas
-    (`letters_mod.letters_candidate`); ~1 s por hoja en los PDF de prueba."""
+    (`letters_mod.letters_candidate`); ~1 s por hoja en los PDF de prueba. «Capas de la hoja» y el
+    reconocimiento corren en el mismo proceso: la misma hoja no se vuelve a leer."""
+    clave = _clave_letras(page)
+    if clave is not None and clave in _LETRAS_MEMO:
+        return _LETRAS_MEMO[clave]
+    out = _leer_letras(page, drawings)
+    if clave is not None:
+        _LETRAS_MEMO[clave] = out
+        while len(_LETRAS_MEMO) > _LETRAS_MEMO_MAX:
+            _LETRAS_MEMO.pop(next(iter(_LETRAS_MEMO)))
+    return out
+
+
+def _leer_letras(page, drawings=None) -> Dict[str, "letters_mod.LayerLetters"]:
     if drawings is None:
         drawings = pdf_styles.drawings(page)
     by_layer: dict = defaultdict(list)
@@ -982,6 +1018,26 @@ def _profile_view_regions(page, crop_polygon=None) -> List[Tuple[float, float, f
     return _merge_close_boxes(boxes, PROFILE_REGION_PAD_PT)
 
 
+CELDA_PUNTAS_PX = 96.0
+
+
+def transformador_mupdf(m):
+    """`fn(x, y)` = `fitz.Point(x, y) * m`, bit a bit y sin pasar por PyMuPDF en cada punto (~20 µs por punto,
+    y una hoja compuesta convierte cientos de miles). MuPDF (`fz_transform_point`) trabaja en precisión simple
+    y redondea en cada operación; aquí, igual."""
+    empaque = struct.Struct("<f")
+    pack, unpack = empaque.pack, empaque.unpack
+
+    def f32(v):
+        return unpack(pack(v))[0]
+    a, b, c, d, e, f = (f32(v) for v in m)
+
+    def girar(x, y):
+        x, y = f32(x), f32(y)
+        return (f32(f32(f32(x * a) + f32(y * c)) + e), f32(f32(f32(x * b) + f32(y * d)) + f))
+    return girar
+
+
 def _region_hit(bb, regions) -> bool:
     if bb is None or not regions:
         return False
@@ -1179,6 +1235,7 @@ def recognize_page(
     scale_ft_per_pt: Optional[float] = None,
     letters: Optional[dict] = None,
     avance=None,
+    al_trazo=None,
 ) -> RecognitionResult:
     """Reconoce una utilidad vectorial en una hoja. Abre el PDF si `doc` es None.
 
@@ -1234,14 +1291,17 @@ def recognize_page(
             letter_use = letter_uses(page_letters(page) if letters is None else letters)
         _by_name_or_letters, _keep = line_selectors(utility, letter_use)
 
+        kinds_memo: dict = {}                 # por capa, no por trazo: `gather_paths` pregunta en cada uno
+
         def _kind_for(ocg: str) -> Optional[str]:
+            if ocg in kinds_memo:
+                return kinds_memo[ocg]
             if use_roles:
-                if ocg in lineas_set:
-                    return line_kind
-                if ocg in buzones_set:
-                    return "structure"
-                return None
-            return _by_name_or_letters(ocg)
+                kind = line_kind if ocg in lineas_set else "structure" if ocg in buzones_set else None
+            else:
+                kind = _by_name_or_letters(ocg)
+            kinds_memo[ocg] = kind
+            return kind
 
         gather_stats: dict = {}
         avance_mod.avisar(_tr("Leyendo los trazos de las capas de {u}…").format(u=_tr(utility_label(utility))))
@@ -1264,16 +1324,18 @@ def recognize_page(
         # la matriz de giro de la hoja UNA vez y cada punto una vez: pedirla a PyMuPDF en
         # cada punto costaba 20 s en un mapa SIG de 180 trazos (`_through_dirs` convierte
         # todas las polilíneas por cada punta). Misma cuenta, mismo resultado.
-        rot_m = page.rotation_matrix
+        girar = transformador_mupdf(page.rotation_matrix)
+        crop_x, crop_y = visual_crop.x0 * zoom, visual_crop.y0 * zoom
         px_cache: dict = {}
 
         def px(point):
             key = (point[0], point[1])
             got = px_cache.get(key)
             if got is None:
-                p = fitz.Point(point[0], point[1]) * rot_m
-                got = px_cache[key] = (p.x * zoom - visual_crop.x0 * zoom, p.y * zoom - visual_crop.y0 * zoom)
+                x, y = girar(point[0], point[1])
+                got = px_cache[key] = (x * zoom - crop_x, y * zoom - crop_y)
             return got
+        al_polilinea = (lambda pl: al_trazo([px(p) for p in pl.pts])) if al_trazo is not None else None
         by_ocg: dict[str, List[dict]] = defaultdict(list)
         # Hoja COMPUESTA de mapas: la misma línea de la leyenda con otro estilo en cada pieza
         # (grosores del SIG y escala de la pieza) es UNA capa; si no, se cortaba en cada
@@ -1388,9 +1450,10 @@ def recognize_page(
                 n_ink_layers += 1
                 ink_ocgs.add(ocg)
                 results.append((False, ocg, ink_lines_mod.ink_reconstruct(paths, vault_paths, opts, stats=ink_stats,
-                                                                       inicios=piezas_inicio)))
+                                                                       inicios=piezas_inicio, on_polyline=al_polilinea)))
                 continue
-            results.append((is_abandoned_ocg(ocg), ocg, geom.reconstruct(paths, vault_paths, opts)))
+            results.append((is_abandoned_ocg(ocg), ocg, geom.reconstruct(paths, vault_paths, opts,
+                                                                         on_polyline=al_polilinea)))
         if n_ink_layers:
             warnings.append(_tr("Capas por estilo de trazo continuo: {n} — cada trazo del plano es el eje de "
                                 "la tubería, sin unir ni mover nada.").format(n=n_ink_layers))
@@ -1446,7 +1509,9 @@ def recognize_page(
                      for op in all_opts]
             # …y por celdas: solo las polilíneas con un tramo a ≤ tol de la punta (la que pasa
             # está así de cerca: por el interior de un tramo o por un vértice); mismo orden
-            indice = indice_mod.IndiceTramos([list(zip(op, op[1:])) for op in all_opts], tol)
+            # (celda grande: armar el índice con celdas de 8 px era lo más caro de esta función; las
+            # candidatas se comprueban una a una abajo, así que el resultado no cambia)
+            indice = indice_mod.IndiceTramos([list(zip(op, op[1:])) for op in all_opts], tol, celda=CELDA_PUNTAS_PX)
             for i, q in ends:
                 key = (round(q[0], 1), round(q[1], 1))
                 if key in out:
@@ -1729,6 +1794,8 @@ def recognize_page(
                 warnings.append(_tr("Codos en el extremo de una tubería del mapa: {n} — revisa si ahí hay "
                                     "un buzón.").format(n=marked["fillet"]))
         grosor_mapa_cuenta = None                      # el grosor de un mapa sin capas (abajo)
+        rotulos_mapa_px = None
+        anotaciones: list = []                         # rótulos del plano (`recognition_anotaciones`)
         # Mapa sin capas: el buzón-SÍMBOLO de la leyenda va en la línea cuyo vértice o punta
         # cae en él o que lo atraviesa (`recognition_map_vaults`); y cada acometida llega
         # a su tubería en una T exacta (`recognition_taps`).
@@ -1766,14 +1833,24 @@ def recognize_page(
             # el diámetro que el plano escribe junto a cada tubería («8"», «12" DIP», «278' 2"»):
             # solo lo SEGURO se pone; lo dudoso o sin dato queda por defecto con un aviso en el
             # editor, como el grosor del plano CAD (`recognition_grosor_mapa`, pedido 2026-10-23)
-            if ley_mapa is not None:
+            # (PDF sin capas ni leyenda, con la utilidad puesta a mano a cada estilo: `recognition_grosor_registros`)
+            por_estilos = ley_mapa is None and any(o.startswith(pdf_styles.PREFIX) for o in by_ocg)
+            if ley_mapa is not None or por_estilos:
                 # una ruta que cruza tuberías de distinto diámetro va en piezas partidas entre ellas
                 # AL FINAL (después de los ángulos: la geometría no cambia); los tramos sin unir toman
                 # el de su ruta
+                leidos = grosor_registros_mod.rotulos(page) if por_estilos else grosor_mapa_mod.rotulos(page)
+                rotulos_mapa_px = grosor_mapa_mod.a_px(leidos, px, zoom)
+                from reconocimiento import recognition_anotaciones as anot_mod
+                anotaciones = anot_mod.de_mapa(rotulos_mapa_px)
                 grosor_mapa_cuenta = grosor_hoja_mod.aplicar_variantes(
-                    polylines_joined, polylines_raw, grosor_mapa_mod.a_px(grosor_mapa_mod.rotulos(page), px, zoom),
+                    polylines_joined, polylines_raw, rotulos_mapa_px,
                     lambda p: p.layer_ocg.startswith(pdf_styles.PREFIX), taps_mod.is_tap, zoom,
-                    ley_mapa.diam_acometida_in, join_routes)
+                    ley_mapa.diam_acometida_in if ley_mapa is not None else None, join_routes)
+                if por_estilos:
+                    grosor_hoja_mod.completar_por_largo(polylines_joined, polylines_raw, rotulos_mapa_px,
+                                                        lambda p: p.layer_ocg.startswith(pdf_styles.PREFIX),
+                                                        taps_mod.is_tap, zoom, grosor_mapa_cuenta)
                 warnings += grosor_hoja_mod.avisos(grosor_mapa_cuenta)
         # Grosor del plano CAD (pedido del usuario 2026-10-21, DU06): el diámetro de cada tubería
         # por su rótulo con guía («EX. 84" RCP SD») y por sus paredes dibujadas (`-WALL`), como
@@ -1786,6 +1863,12 @@ def recognize_page(
                 perfiles.append((min(c[0] for c in cs), min(c[1] for c in cs),
                                  max(c[0] for c in cs), max(c[1] for c in cs)))
             hoja_g = grosor_mod.leer_hoja(page, px, zoom, utility, hidden, perfiles=perfiles)
+            # todos los rótulos con guía (MLeader) de la hoja, digan lo que digan: lista aparte
+            try:
+                from reconocimiento import recognition_anotaciones as anot_mod
+                anotaciones = anot_mod.leer_hoja(page, px, zoom, hidden, perfiles)
+            except Exception:                          # noqa: BLE001 (complemento: nunca tumba el reconocimiento)
+                anotaciones = []
             perfiles_lat = [replace(pv, planta_px_por_pie=zoom / scale) for pv in hoja_g.perfiles] if scale else []
             cuenta = None
             for variant in ((polylines_joined, polylines_raw) if join_routes else (polylines_raw, polylines_joined)):
@@ -1837,6 +1920,14 @@ def recognize_page(
         if grosor_mapa_cuenta and grosor_mapa_cuenta.get("partir"):
             grosor_hoja_mod.partir_al_final((polylines_joined, polylines_raw), grosor_mapa_cuenta)
             polylines[:] = list(polylines_joined if join_routes else polylines_raw)
+        if rotulos_mapa_px is not None:
+            # los rótulos junto a cada tubería dudosa o sin dato, para la IA del diámetro en el editor
+            # (`recognition_grosor_mapa_cerca`, pedido 2026-11-02): solo agrega `grosor["cerca"]`
+            from reconocimiento import recognition_grosor_mapa_cerca as grosor_cerca_mapa
+            grosor_cerca_mapa.poner_en_variantes(
+                (polylines_joined, polylines_raw), rotulos_mapa_px,
+                lambda p: p.layer_ocg.startswith(pdf_styles.PREFIX), taps_mod.is_tap, zoom,
+                ley_mapa.diam_acometida_in if ley_mapa is not None else None)
 
         stubs = []
         for ocg, kind in kind_by_ocg.items():          # stubs informativos (no dibujables)
@@ -1979,6 +2070,7 @@ def recognize_page(
             walls_px=[[px(q) for q in c["mid"]] for c in wall_changes],
             n_routes=n_routes, n_segments_total=n_segments_total,
             polylines_joined=polylines_joined, polylines_raw=polylines_raw, perfiles=perfiles_lat,
+            anotaciones=anotaciones,
         )
     finally:
         lectura.__exit__(None, None, None)

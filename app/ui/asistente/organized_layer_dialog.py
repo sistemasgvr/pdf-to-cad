@@ -17,7 +17,7 @@ from hoja.organized_layers import aggregate_layers, hidden_from_states, selected
 from ui.asistente.pdf_view_quality import FocusedPageQuality
 from hoja.sheet_crops import normalize as normalize_crops, page_rect
 from ui.asistente.sheet_crop_dialog import choose_sheet_crop
-from ui.comun.ui_common import swatch_icon
+from ui.comun.ui_common import fila_lista, swatch_icon
 from ui.comun.widgets import ZoomPanView
 from ui.comun import theme as _theme
 
@@ -206,18 +206,16 @@ class OrganizedLayersDialog(QtWidgets.QDialog):
             if not entries:
                 continue
             color = utility_qcolor(utility)
-            header = QtWidgets.QListWidgetItem(
-                swatch_icon(color, 12), f"{_tr(label)} — {len(entries)}")
+            header = fila_lista(self.lst, f"{_tr(label)} — {len(entries)}", swatch_icon(color, 12))
             header.setFlags(QtCore.Qt.ItemIsEnabled)
             header.setForeground(color)
             font = header.font(); font.setBold(True); header.setFont(font)
             header.setData(_ROLE_GROUP, None)
             header.setData(_ROLE_UTILITY, utility)
-            self.lst.addItem(header)
             for index, layer in entries:
                 text = (f'{layer["short"]}  ({layer["path_count"]} · '
                         f'{len(layer["sheets_with_paths"])}/{n_sheets} hojas)')
-                item = QtWidgets.QListWidgetItem(text)
+                item = fila_lista(self.lst, text)
                 item.setFlags(item.flags() | QtCore.Qt.ItemIsUserCheckable)
                 values = set(layer["bindings"].values())
                 state = (QtCore.Qt.Checked if values == {True} else
@@ -229,7 +227,6 @@ class OrganizedLayersDialog(QtWidgets.QDialog):
                 bindings = sorted(layer["bindings"])
                 item.setToolTip("\n".join(
                     f'PDF {source + 1}: {name}' for source, name in bindings))
-                self.lst.addItem(item)
         self.lst.blockSignals(False)
         self._apply_filter()
         self._update_count()

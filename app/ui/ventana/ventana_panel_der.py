@@ -142,9 +142,10 @@ class PanelDerechoMixin:
         self.lbl_prop_amp = _bind(QtWidgets.QLabel(), "setText", "Amperaje:")
         fpr.addRow(self.lbl_prop_amp, self.prop_amp)
         # Avisos de normativa de ESTA utilidad (texto discreto; vacío si cumple).
-        self.lbl_normas_pipe = QtWidgets.QLabel("")
+        from ui.comun.texto_ajustado import TextoAjustado
+        self.lbl_normas_pipe = TextoAjustado("")       # nunca cortado por la fila de abajo (2026-11-03)
         self.lbl_normas_pipe.setWordWrap(True)
-        self.lbl_normas_pipe.setStyleSheet("color:#c98a00;")
+        self.lbl_normas_pipe.setTextFormat(QtCore.Qt.RichText)
         self.lbl_normas_pipe.setVisible(False)
         fpr.addRow(self.lbl_normas_pipe)
         # Campos de la utilidad usados por el JSON de red 3.0 y por el DXF:

@@ -6,8 +6,8 @@ la barra (`ui/comun/capas_popup`) lista:
 
 - UTILIDADES (lo dibujado): una fila por capa de utilidad del proyecto (Agua, Alcantarillado…).
   Apagada (`Main.capas_apagadas`): sus líneas, sus buzones y curvas y sus marcas (cruces, accesorios,
-  avisos, C-n de las que solo tienen utilidades apagadas cerca) no se pintan y en el lienzo no se
-  eligen ni enganchan. En el Inventario sigue en la lista, atenuada; elegida desde ahí se ve.
+  avisos, C-n cuyas utilidades dueñas están todas apagadas; las que no saben de quién son, por las
+  utilidades cercanas) no se pintan y en el lienzo no se eligen ni enganchan. En el Inventario sigue en la lista, atenuada; elegida desde ahí se ve.
 - PLANOS DEL PDF (fondo): un plano por grupo de hojas (`ventana_planos._poner_planos`).
 
 Solo cambia lo que se VE: el modelo, los cálculos, la Tabla de datos y el DXF no cambian. Apagar o
@@ -26,7 +26,7 @@ from ui.comun import capas_popup as CP
 from ui.comun.ui_common import layer_qcolor
 import geometry as G
 
-# Una marca (cruce, accesorio, aviso…) es de las utilidades que pasan a ≤ esto de su punto
+# Una marca sin dueñas conocidas (`capa_marcas.duenas`) es de las utilidades que pasan a ≤ esto de su punto
 MARCA_FT = 2.0
 
 
@@ -104,13 +104,32 @@ class CapasMixin:
         self.capas_apagadas = set()
         gs = self._grupos_planos()
         if gs and len(self._planos_encendidos()) != len(gs):
-            self._poner_planos(gs)                         # (redibuja)
+            self._poner_planos(gs)
         self._aplicar_capas()
         self._info(_tr("Todas las capas encendidas."))
 
     def _aplicar_capas(self):
-        """Mismo modelo: el redibujo reusa líneas y marcas y solo cambia qué se pinta."""
-        self._redraw()
+        """Encender o apagar no rehace la geometría: solo cambia qué se pinta de lo que ya está en la escena."""
+        previa = getattr(self, "_capa_lineas", None)
+        try:
+            lista = (previa is not None and previa[1].scene() is self.canvas.scene()
+                     and hasattr(self, "_estructuras_vista")
+                     and not getattr(self, "_provisional", False))
+        except RuntimeError:
+            lista = False
+        if lista:
+            elegidas = previa[2]
+            apagadas = self.capas_apagadas
+            previa[1].fijar_ocultas({i for i, p in enumerate(self.pipes)
+                                   if p.get("layer") in apagadas} - elegidas if apagadas else ())
+            self._visibilidad_estructuras()
+            if previa[3]:
+                self._actualizar_rotulos_tramos(elegidas, previa[3])
+            self._ocultar_marcas_apagadas()
+            self._sync_boton_capas()
+        else:
+            # Escena inicial o provisional: aún hace falta su primer dibujo completo.
+            self._redraw()
         self._atenuar_lista_utilidades()
 
     # ── qué está apagado ──────────────────────────────────────────────────
@@ -118,6 +137,15 @@ class CapasMixin:
         """La utilidad i está en una capa apagada (no se pinta ni se elige en el lienzo)."""
         ap = getattr(self, "capas_apagadas", None)
         return bool(ap) and self.pipes[i].get("layer") in ap
+
+    def _capa_de_utilidad(self, i):
+        """La capa de la utilidad i (dueña de una marca), o None si no se sabe."""
+        return (self.pipes[i].get("layer") or None) if i is not None and 0 <= i < len(self.pipes) else None
+
+    def _capas_de_utilidades(self, indices):
+        """Las capas dueñas de una marca de esas utilidades, o None si alguna no se sabe (`capa_marcas.duenas`)."""
+        capas = [self._capa_de_utilidad(i) for i in indices]
+        return frozenset(capas) if capas and all(capas) else None
 
     def _capas_en(self, x, y, cerca=None):
         """Las capas de las utilidades que pasan a ≤ `MARCA_FT` del punto (dueñas de una marca).
@@ -185,5 +213,6 @@ class CapasMixin:
         for row in range(min(lst.count(), len(self.pipes))):
             it = lst.item(row)
             apagada = bool(ap) and self.pipes[row].get("layer") in ap
-            if apagada or it.foreground() != normal:
-                it.setForeground(tenue if apagada else normal)
+            deseada = tenue if apagada else normal
+            if it.foreground() != deseada:
+                it.setForeground(deseada)

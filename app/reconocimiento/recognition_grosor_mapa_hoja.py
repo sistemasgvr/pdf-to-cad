@@ -50,6 +50,18 @@ def aplicar_variantes(unidas: list, sueltas: list, rots: Sequence, del_mapa: Cal
     return cuenta
 
 
+def completar_por_largo(unidas: list, sueltas: list, rots: Sequence, del_mapa: Callable[[object], bool],
+                        es_acometida: Callable[[object], bool], zoom: float, cuenta: dict) -> None:
+    """`recognition_grosor_registros.por_largo` en las rutas; los tramos sin unir lo heredan."""
+    from reconocimiento import recognition_grosor_registros as R
+    red = [p for p in unidas if del_mapa(p)]
+    n = R.por_largo(red, rots, es_acometida, cuenta.get("partir") or ())
+    if n:
+        heredar([p for p in sueltas if del_mapa(p)], red, es_acometida, zoom, cuenta.get("partir"))
+        cuenta["con"] += n
+        cuenta["sin"] = max(0, cuenta["sin"] - n)
+
+
 def partir_al_final(variantes: Sequence[list], cuenta: Optional[dict]) -> None:
     """Parte en cada lista las rutas pendientes (`aplicar_variantes`)."""
     for v in variantes:

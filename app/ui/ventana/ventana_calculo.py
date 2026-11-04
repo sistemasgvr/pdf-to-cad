@@ -87,10 +87,11 @@ class CalculoPlanoMixin:
         # se reusa entre redibujos (con miles de cruces se rehacía en cada uno, 2026-10-17).
         def _clasificar():
             n_conf = n_sug = n_ap = 0
-            filas = []                              # (x, y, estado, globo) de cada marca de cruce
+            filas = []                              # (x, y, estado, globo, capas dueñas) de cada marca de cruce
             for a, b, cp in self._memo(("cruces_presion",), _cruces, copiar=False):
                 ia, ka, a1, a2, la = segs[a]
                 ib, kb, b1, b2, lb = segs[b]
+                capas = frozenset(c for c in (la, lb) if c)
                 cx, cy = cp
                 if _en_exceso(cx, cy): continue
                 za = self._pipe_z_at(ia, ka, cx, cy)
@@ -140,7 +141,7 @@ class CalculoPlanoMixin:
                     z_desc = "\n" + _tr("(sin cotas en ninguna — no se puede confirmar Δ)")
                 union = self._union_civil(ia, ib, cx, cy, za, zb)
                 if union:
-                    filas.append((cx, cy, estado, tooltip_bloque(union)))
+                    filas.append((cx, cy, estado, tooltip_bloque(union), capas))
                     continue
                 if estado == "conflicto":
                     tip = "⚠ " + _tr("CONFLICTO — cruce con la misma cota (las tuberías chocan). "
@@ -154,7 +155,7 @@ class CalculoPlanoMixin:
                 ea, eb = self._etq(self.pipes[ia]), self._etq(self.pipes[ib])
                 pair = (_tr("Dos tramos de «{capa}»").format(capa=ea) if ea == eb
                         else f"«{ea}» × «{eb}»")
-                filas.append((cx, cy, estado, tooltip_bloque(f"{tip}\n{pair}{z_desc}")))
+                filas.append((cx, cy, estado, tooltip_bloque(f"{tip}\n{pair}{z_desc}"), capas))
             return (self._conflict_hits, self._pendiente_hits, self._redes_hits, filas, n_conf, n_sug, n_ap)
         (self._conflict_hits, self._pendiente_hits, self._redes_hits, filas,
          n_conf, n_sug, n_ap) = self._memo(("clasificar_cruces", tol_junta), _clasificar)
@@ -195,10 +196,12 @@ class CalculoPlanoMixin:
             accs = _sa.filtrar(accs, self.sin_accesorio, _sa.tol_px(ft_px))
         con_db = {i for db in getattr(self, "duct_banks", []) or [] for i in db.assigned()}
         # + el diámetro que el plano no dijo con certeza (`diametro_plano`, 2026-10-22): mismos avisos
-        from nucleo import diametro_plano
-        normas = self._memo(("normas", ft_px), lambda: normas_validar.validar(
+        # y cada aviso sobre la línea que se dibuja, no sobre sus vértices (`avisos_lugar`, 2026-11-03)
+        from nucleo import avisos_lugar, diametro_plano
+        normas = self._memo(("normas", ft_px), lambda: avisos_lugar.sobre_lo_dibujado(normas_validar.validar(
             self.normas_cat, self.pipes, accs, ft_px, con_db, self.structures,
-            getattr(self, "cross_connections", None) or ()) + diametro_plano.avisos(self.pipes))
+            getattr(self, "cross_connections", None) or ()) + diametro_plano.avisos(self.pipes),
+            self.pipes, self.structures, ft_px))
         # Ángulos en pasos de 0.25°: se validan pero NO se muestran (pedido del usuario 2026-10-16:
         # el dibujo a mano ya los deja en el paso; no van a los avisos ni al plano).
         from nucleo import angulos

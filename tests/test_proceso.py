@@ -6,14 +6,15 @@ import pytest
 
 sys.path[:0] = [os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "app")]
 
-from PySide6 import QtCore  # noqa: E402
+os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+from PySide6 import QtCore, QtWidgets  # noqa: E402
 
 from ui.comun import proceso  # noqa: E402
 
 
 @pytest.fixture
 def con_proceso(monkeypatch):
-    QtCore.QCoreApplication.instance() or QtCore.QCoreApplication([])
+    QtWidgets.QApplication.instance() or QtWidgets.QApplication([])
     monkeypatch.setenv("PDFCAD_PROCESO", "1")
     t = proceso.Trabajador("prueba")
     yield t
@@ -54,6 +55,60 @@ def test_error_y_cancelar(con_proceso):
     con_proceso.enviar(t2)
     t2.cancelar()
     assert out["e2"] == "cancelado" and out["r2"] is None
+
+
+def test_caida_del_proceso_no_cierra_la_app_y_se_puede_reintentar(con_proceso):
+    t = proceso.Tarea("ui.comun.proceso_hijo:eco", ("primero",))
+    out = []
+    lazo = QtCore.QEventLoop()
+    t.terminado.connect(lambda r, e: (out.append((r, e)), lazo.quit()))
+    con_proceso.enviar(t)
+    con_proceso._proc.terminate()
+    con_proceso._proc.join(5)
+    timeout = QtCore.QTimer()
+    timeout.setSingleShot(True)
+    timeout.timeout.connect(lazo.quit)
+    timeout.start(15000)
+    lazo.exec()
+    assert len(out) == 1 and out[0][0] is None
+    assert "Código de salida:" in out[0][1]
+    nuevo = proceso.Tarea("ui.comun.proceso_hijo:eco", ("reintento",))
+    nuevo.terminado.connect(lambda r, e: (out.append((r, e)), lazo.quit()))
+    con_proceso.enviar(nuevo)
+    timeout.start(15000)
+    lazo.exec()
+    timeout.stop()
+    assert len(out) == 2 and out[1][1] == ""
+    assert out[1][0][0] == "reintento"
+
+
+def test_leyenda_corre_aislada_y_devuelve_error_recuperable(con_proceso):
+    import fitz
+    from ui.asistente.layer_info_panel import LegendWorker
+    with fitz.open() as doc:
+        doc.new_page().insert_text((30, 30), "Hoja sin leyenda")
+        data = doc.tobytes()
+    lazo = QtCore.QEventLoop()
+    timeout = QtCore.QTimer()
+    timeout.setSingleShot(True)
+    timeout.timeout.connect(lazo.quit)
+    res, errores = [], []
+    try:
+        for contenido in (b"PDF invalido", data):
+            worker = LegendWorker([{"name": "plano.pdf", "data": contenido}])
+            worker.done.connect(res.append)
+            worker.failed.connect(errores.append)
+            worker.finished.connect(lazo.quit)
+            worker.start()
+            assert not worker.isRunning()  # no se usa un QThread con MuPDF dentro de la app
+            timeout.start(15000)
+            lazo.exec()
+            assert worker._tarea is None
+        assert len(errores) == 1 and "Traceback" in errores[0]
+        assert res == [[{"name": "plano.pdf", "rows": [], "images": {}}]]
+    finally:
+        timeout.stop()
+        proceso.trabajador("leyenda").parar()
 
 
 def _vivo(pid: int) -> bool:

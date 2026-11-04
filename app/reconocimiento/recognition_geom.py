@@ -29,6 +29,8 @@ from collections import Counter, defaultdict
 from dataclasses import dataclass, field
 from typing import Dict, List, Optional, Sequence, Set, Tuple
 
+import numpy as np
+
 Pt = Tuple[float, float]
 Line = Tuple[float, float, float, float]      # (px, py, ux, uy)
 
@@ -852,9 +854,15 @@ def classify_paths(paths: Sequence[dict], keep_line_strokes: bool = False,
     # uno aislado.
     if dashes and glyphs:
         cand: List[Tuple[int, float]] = []
+        gx = np.array([g.bbox for g in glyphs], dtype=float)
         for i, d in enumerate(dashes):
-            if d.length <= GLYPH_MAX_DIM_PT and any(
-                    _bbox_gap(d.bbox, g.bbox) <= GLYPH_STROKE_GAP_PT for g in glyphs):
+            if d.length > GLYPH_MAX_DIM_PT:
+                continue
+            db = d.bbox
+            # solo las letras a tiro por cada eje (la distancia entre cajas no puede ser menor)
+            cerca = np.nonzero((db[0] - gx[:, 2] <= GLYPH_STROKE_GAP_PT) & (gx[:, 0] - db[2] <= GLYPH_STROKE_GAP_PT)
+                               & (db[1] - gx[:, 3] <= GLYPH_STROKE_GAP_PT) & (gx[:, 1] - db[3] <= GLYPH_STROKE_GAP_PT))[0]
+            if any(_bbox_gap(db, glyphs[k].bbox) <= GLYPH_STROKE_GAP_PT for k in cerca.tolist()):
                 cand.append((i, d.length))
         swallow = {i for i, L in cand
                    if sum(1 for _, L2 in cand if abs(L2 - L) <= 1.0) >= GLYPH_STROKE_MIN_REPEAT}
@@ -1520,6 +1528,7 @@ def build_runs(groups: List[_Group], pat: Pattern, glyphs: Sequence[Glyph],
 
 
 INSIDE_RUN_ANG_DEG = 3.0     # guión corto DENTRO de otra corrida: su rumbo medido es ruidoso
+RUNS_MERGE_GAP_PT = 2.2      # > √2 · COLLINEAR_PERP_PT: lo más lejos que quedan dos corridas que se funden
 
 
 def _run_inside(big: Run, small: Run, tol: float = COLLINEAR_PERP_PT) -> bool:
@@ -1570,12 +1579,20 @@ def merge_overlapping_runs(runs: List[Run], pat: Pattern, absorb_inside: bool = 
     changed = True
     while changed:
         changed = False
+        # Un par se funde solo si sus cajas quedan a ≤ RUNS_MERGE_GAP_PT (dentro o solapadas, a ≤1.5 pt de la
+        # recta): el resto de los pares ni se mira. Antes era todas contra todas, con cálculos en cada par.
+        cajas = np.array([(min(r.a[0], r.b[0]), min(r.a[1], r.b[1]), max(r.a[0], r.b[0]), max(r.a[1], r.b[1]))
+                          for r in runs], dtype=float).reshape(-1, 4)
         for i in range(len(runs)):
             ri = runs[i]
             if ri.is_curve:
                 continue
             Li = ri.line("a")
-            for j in range(i + 1, len(runs)):
+            x0, y0, x1, y1 = cajas[i]
+            resto = cajas[i + 1:]
+            for j in (np.nonzero((resto[:, 0] <= x1 + RUNS_MERGE_GAP_PT) & (resto[:, 2] >= x0 - RUNS_MERGE_GAP_PT)
+                                 & (resto[:, 1] <= y1 + RUNS_MERGE_GAP_PT) & (resto[:, 3] >= y0 - RUNS_MERGE_GAP_PT))[0]
+                      + i + 1).tolist():
                 rj = runs[j]
                 if rj.is_curve:
                     continue
@@ -3521,7 +3538,7 @@ def _polylines_from_uncovered(
 
 # ─────────────────────────── orquestación ───────────────────────────
 def reconstruct(line_paths: Sequence[dict], vault_paths: Sequence[dict] = (),
-                opts: GeomOptions = GeomOptions()) -> GeomResult:
+                opts: GeomOptions = GeomOptions(), on_polyline=None) -> GeomResult:
     dashes, glyphs, curves = classify_paths(line_paths, opts.precise_junctions, opts.glyph_hooks,
                                             opts.stroke_letters)
     dashes, markers = strip_crossing_markers(            # «/» del linetype abandonado
@@ -3597,6 +3614,8 @@ def reconstruct(line_paths: Sequence[dict], vault_paths: Sequence[dict] = (),
         if pl.length >= pat.dash_long - 0.5:
             is_noise = False
         (noise_polys if is_noise else keep).append(pl)
+        if not is_noise and on_polyline is not None:
+            on_polyline(pl)
     noise = len(noise_polys)
     # Cobertura solo sobre los guiones que SÍ son utilidad: se descuentan los
     # cubiertos por trazos off-pattern y por el ruido descartado.
@@ -3633,6 +3652,9 @@ def reconstruct(line_paths: Sequence[dict], vault_paths: Sequence[dict] = (),
     extra = _polylines_from_uncovered(missing, keep, pat)
     if extra:
         keep.extend(extra)
+        if on_polyline is not None:
+            for pl in extra:
+                on_polyline(pl)
         cov, missing = coverage(pattern_dashes, keep)
     return GeomResult(keep, nodes, vaults, pat, cov, missing, orphans, offpattern,
                       len(dashes), len(glyphs), len(curves), noise, markers=list(markers),

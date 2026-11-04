@@ -73,6 +73,9 @@ def build_model_dict(win):
         model["fondo_apagado"] = True
     if getattr(win, "capas_apagadas", None):
         model["capas_apagadas"] = sorted(win.capas_apagadas)
+    # rótulos del plano reconocidos (MLeader / MText, `recognition_anotaciones`; px de la vista)
+    if getattr(win, "anotaciones", None):
+        model["anotaciones"] = list(win.anotaciones)
     canvas = getattr(win, "canvas", None)
     escala = float(getattr(canvas, "fondo_escala", 1.0) or 1.0)
     if escala < 1.0:
@@ -153,4 +156,18 @@ def parse_model(model):
                      else None),
         fondo_apagado=bool(model.get("fondo_apagado", False)),
         capas_apagadas=[str(c) for c in model.get("capas_apagadas") or ()],
+        anotaciones=_anotaciones(model.get("anotaciones")),   # retrocompat: sin rótulos reconocidos
     )
+
+
+def _anotaciones(lista):
+    """Rótulos guardados: los puntos vuelven como tuplas (json los deja en listas)."""
+    out = []
+    for a in lista or ():
+        if not isinstance(a, dict):
+            continue
+        a = dict(a)
+        a["guias"] = [[tuple(p) for p in g] for g in a.get("guias") or ()]
+        a["puntas"] = [tuple(p) for p in a.get("puntas") or ()]
+        out.append(a)
+    return out

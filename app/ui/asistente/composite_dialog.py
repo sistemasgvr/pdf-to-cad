@@ -174,7 +174,10 @@ class CompositeDialog(NoEscapeClose, ChosenSheetMixin, SourcePageMixin, ScanTool
         # tener nada que tomar (usuario: «la página 3 no me muestra capas»).
         self.hidden_by_source = {k: list(v) for k, v in (hidden_by_source or {}).items()}
         self.comp = C.Composite.from_dict(comp.to_dict()) if comp else C.Composite()
-        self.comp.manual = manual or self.comp.manual
+        # El modo lo decide la entrada al asistente. Una composición guardada en
+        # modo escaneo no debe saltarse Capas y Reconocimiento al abrir la acción
+        # normal «Componer hoja de trabajo» (también permite añadir PDF vectoriales).
+        self.comp.manual = bool(manual)
         if self.comp.manual:
             self.comp.bridges = False
         self.docs: List[fitz.Document] = []
@@ -209,14 +212,15 @@ class CompositeDialog(NoEscapeClose, ChosenSheetMixin, SourcePageMixin, ScanTool
         self.resize(1500, 880)
         maximize_on_show(self)
         self._build_ui()
-        start = self._start_tab()          # antes de que la hoja a la vista entre sola
+        start = self._start_tab()
+        # sin piezas, ninguna hoja queda elegida sola (pedido 2026-11-03): aviso «Selecciona
+        # una hoja» hasta que el usuario elija una (composite_choice)
+        self._sin_hoja_init()
         self._fill_sources()
         self.view.rebuild()
         self._refresh_scale_combo()
         self._refresh_summary()
-        if not self.comp.pieces:
-            self._choose_provisional()     # la hoja a la vista ya es la hoja compuesta
-        elif self._simple():
+        if self.comp.pieces and self._simple():
             self._choose_page()            # la hoja entera del editor: la hoja del editor
         self._go_tab(start)
         self._sug_iniciar()                # composición sugerida: aparte, en otro hilo
@@ -413,6 +417,10 @@ class CompositeDialog(NoEscapeClose, ChosenSheetMixin, SourcePageMixin, ScanTool
             link, label = "take", _tr("Tomarla")
         elif first.code == "pending_page":
             link, label = "take", _tr("Tomar la hoja {n}").format(n=first.page)
+        elif first.code == "no_pieces" and getattr(self, "_sin_hoja", False):
+            self.lbl_check.setText(f"<span style='color:{t.text}'>→ {_tr('Selecciona una hoja en la lista')}</span>")
+            self.lbl_check.setToolTip("")
+            return
         elif first.code == "no_pieces":
             link, label = "pick", _tr("Usar la hoja {n}").format(n=self._cur_page + 1)
         else:
@@ -597,7 +605,11 @@ class CompositeDialog(NoEscapeClose, ChosenSheetMixin, SourcePageMixin, ScanTool
         self.lbl_page_info.setToolTip(self.sources[self._cur_source]["name"])
         self.btn_prev_page.setEnabled(self._cur_page > 0)
         self.btn_next_page.setEnabled(self._cur_page < total - 1)
+        if getattr(self, "_sin_hoja", False):
+            self.lbl_page.setText(_tr("Selecciona una hoja"))
+            self.lbl_page_info.setText(self.sources[self._cur_source]["name"])
         self._refresh_source_selection()
+        self._refrescar_sin_hoja()
 
     def _notify_taken(self, piece: "C.Piece", idx: int):
         """Muestra unos segundos «✔ Área tomada como pieza N» en «Área a tomar»."""
@@ -728,6 +740,8 @@ class CompositeDialog(NoEscapeClose, ChosenSheetMixin, SourcePageMixin, ScanTool
     # ── hojas ───────────────────────────────────────────────────────────
     def _on_pieces_changed(self):
         """Tras tomar o quitar piezas: marcas de la lista y aviso de hoja sin tomar."""
+        if self.comp.pieces:
+            self._hoja_elegida()          # p. ej. «Usar sugerencia»: ya hay hojas elegidas
         for i in range(self.lst_pages.count()):
             self._label_page_item(self.lst_pages.item(i), i)
         self._refresh_pending()
@@ -775,10 +789,15 @@ class CompositeDialog(NoEscapeClose, ChosenSheetMixin, SourcePageMixin, ScanTool
                 self._scale_cache[key] = 20 / 72.0
         return self._scale_cache[key]
 
-    def _on_page_changed(self, row: int):
+    def _on_page_changed(self, row: int, _codigo: bool = False):
         if row < 0:
             return
         self._cur_page = row
+        if not _codigo and getattr(self, "_sin_hoja", False):
+            self._sin_hoja = False        # la eligió el usuario (clic, flechas, casilla)
+            self._aviso_area.hide()
+            self.btn_go_area.setEnabled(True)
+            self.btn_take_full.setEnabled(True)
         if self.comp.manual or self._uses_layers(self._cur_source, row):
             self.nolayers_box.hide()
         else:
@@ -805,7 +824,8 @@ class CompositeDialog(NoEscapeClose, ChosenSheetMixin, SourcePageMixin, ScanTool
         if keeps and not self._syncing_crop:
             self._select_page_piece()
         self._refresh_pending()
-        self._area_pedir()                 # el área que conviene tomar, aparte (otro proceso)
+        if not getattr(self, "_sin_hoja", False):
+            self._area_pedir()             # el área que conviene tomar, aparte (otro proceso)
 
     def _render_current_page(self, first: bool = False):
         page = self.docs[self._cur_source][self._cur_page]
@@ -1227,7 +1247,7 @@ class CompositeDialog(NoEscapeClose, ChosenSheetMixin, SourcePageMixin, ScanTool
         """¿Recibe lo mismo que dejó? (mismos PDF, misma hoja compuesta, mismo modo). Las capas
         apagadas no cuentan: aquí solo pasan de largo (se toman las nuevas en `reabrir`)."""
         from reconocimiento import recognition_cache as RC
-        if not self.docs or bool(self._sugerir) != bool(sugerencia) or bool(self.comp.manual) != bool(manual or (comp and comp.manual)):
+        if not self.docs or bool(self._sugerir) != bool(sugerencia) or bool(self.comp.manual) != bool(manual):
             return False
         if len(sources) != len(self.sources) or any(
                 a.get("data") is not b.get("data") and a.get("data") != b.get("data")

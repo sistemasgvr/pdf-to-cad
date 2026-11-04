@@ -53,7 +53,7 @@ from nucleo.model import (VERSION, TIPOS, ACI_RGB, LEADER_TEXT_FT, LEADER_ORIENT
 
 # Constantes y helpers de UI compartidos (antes definidos aquí) → ui_common.py.
 from ui.comun.ui_common import (DOWNLOADS, btn_on_style, btn_off_style, aci_qcolor, layer_qcolor,
-                       _extract_diam_from_size, swatch_icon, tooltip_bloque)
+                       _extract_diam_from_size, swatch_icon, tooltip_bloque, fila_lista)
 from ui.comun import theme as _theme
 from traduccion import i18n as _i18n
 from traduccion.i18n import t as _tr, bind as _bind, bind_item as _bind_item, N_

@@ -12,7 +12,7 @@ cada una de esas capas». Dos secciones:
     desmarcada, la capa vuelve a su grupo por nombre y no se reconoce por sus letras.
   · «Leyenda de esta hoja» (`layer_std_legend`, pedidos del usuario 2026-10-07): POR
     UTILIDAD, cada tipo de línea que hay en la hoja con la descripción de la leyenda
-    del propio PDF (`pdf_legend`, leída en otro hilo: `LegendWorker`, ~4 s por PDF) o,
+    del propio PDF (`pdf_legend`, leída en otro proceso: `LegendWorker`, ~4 s por PDF) o,
     si no trae (DU06), la del estándar BOE; y debajo, plegada, la «Leyenda completa del
     PDF» (en negrita las filas que hay en esta hoja; clic = sus líneas).
 Lo que se ve en la hoja se ELIGE con casillas y clics que se SUMAN (3.er pedido, 2026-10-07:
@@ -43,42 +43,46 @@ SAMPLE_W = 132           # …y ancho máximo
 
 
 class LegendWorker(QtCore.QThread):
-    """Lee la leyenda de cada PDF de origen en segundo plano. `done(list)`: por PDF
+    """Lee la leyenda de cada PDF en un proceso aislado (hilo solo con PDFCAD_PROCESO=0).
+    `done(list)`: por PDF
     {"name", "rows": [pdf_legend.LegendRow], "images": {hoja: (png, (x0, y0, x1, y1))}}."""
     done = QtCore.Signal(object)
+    failed = QtCore.Signal(str)
 
     def __init__(self, sources, parent=None):
         super().__init__(parent)
         self._sources = list(sources or [])
+        self._tarea = None
+
+    def start(self, *args):
+        from ui.comun import proceso
+        if not proceso.activo():
+            return super().start(*args)
+        self._tarea = proceso.Tarea("hoja.leyenda_trabajo:leer", (self._sources,))
+        self._tarea.terminado.connect(self._fin)
+        proceso.trabajador("leyenda").enviar(self._tarea)
+
+    def _fin(self, res, err):
+        self._tarea = None
+        if err and err != "cancelado":
+            self.failed.emit(err)
+        elif not err:
+            self.done.emit(res)
+        self.finished.emit()
+
+    def requestInterruption(self):
+        if self._tarea is not None:
+            self._tarea.cancelar()
+        else:
+            super().requestInterruption()
 
     def run(self):
-        import fitz
-        from hoja import pdf_legend
-        out = []
-        stop = self.isInterruptionRequested
-        for src in self._sources:
-            if stop():
-                break
-            try:
-                doc = (fitz.open(stream=src["data"], filetype="pdf") if src.get("data")
-                       else fitz.open(src["path"]))
-            except Exception:
-                continue
-            try:
-                rows = pdf_legend.document_legend(doc, stop)
-                images = {}
-                for page in sorted({r.page for r in rows}):
-                    mine = [r.sample for r in rows if r.page == page]
-                    region = (min(s[0] for s in mine) - 2, min(s[1] for s in mine) - 2,
-                              max(s[2] for s in mine) + 2, max(s[3] for s in mine) + 2)
-                    pix = doc[page].get_pixmap(matrix=fitz.Matrix(3, 3), clip=fitz.Rect(*region), alpha=False)
-                    images[page] = (pix.tobytes("png"), region)
-                out.append({"name": src.get("name", ""), "rows": rows, "images": images})
-            except Exception:
-                continue
-            finally:
-                doc.close()
-        self.done.emit(out)
+        from hoja import leyenda_trabajo
+        try:
+            self.done.emit(leyenda_trabajo.leer(self._sources, detener=self.isInterruptionRequested))
+        except Exception:
+            import traceback
+            self.failed.emit(traceback.format_exc())
 
 
 def _utility_name(key: str) -> str:

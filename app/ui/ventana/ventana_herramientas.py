@@ -169,7 +169,8 @@ class HerramientasMixin:
                          if (ver_rec if a.clase == diametro_plano.CLASE else ver_nor)]
                 self._poner_marcas(avisos_view.dibujar_iter(self.canvas.scene(), a_ver, tol * 2, ver_acc,
                                                             poner=self._marca, reusar=self._reusar_marca,
-                                                            guardar=self._guardar_marca), len(a_ver))
+                                                            guardar=self._guardar_marca,
+                                                            capa_de=self._capa_de_utilidad), len(a_ver))
         pendientes = normas_aprobacion.pendientes(self._normas_avisos)
         n = len(pendientes)
         n_rec = sum(1 for a in pendientes if a.clase == diametro_plano.CLASE)
@@ -234,17 +235,24 @@ class HerramientasMixin:
 
     def _ir_a_elemento(self, x, y, objeto=None, indice=-1, activar=True):
         """Lleva el lienzo a (x, y), selecciona el elemento y lo marca un momento. Con `activar`, además trae
-        la ventana al frente (desde la Vista 3D no: el foco —y su Esc— se quedan allá)."""
+        la ventana al frente (desde la Vista 3D no: el foco —y su Esc— se quedan allá) y, si eligió algo, muestra sus
+        propiedades. Sin `activar` el Asistente sigue abierto: sus enlaces llevan al plano en medio de la charla."""
+        elegido = False
         self._no_center = True
         try:
             if objeto == "pipe" and indice is not None and 0 <= indice < len(self.pipes):
                 self._show_tab(TAB_PIPE); self.pipe_list.clearSelection(); self.pipe_list.setCurrentRow(indice)
+                elegido = True
             elif objeto == "struct" and indice in getattr(self, "_bz_rows", []):
                 self._show_tab(TAB_BZ); self.bz_list.setCurrentRow(self._bz_rows.index(indice))
+                elegido = True
             elif objeto == "curve" and indice in getattr(self, "_curve_rows", []):
                 self._show_tab(TAB_CURVE); self.curve_list.setCurrentRow(self._curve_rows.index(indice))
+                elegido = True
         finally:
             self._no_center = False
+        if activar and elegido:
+            self.ver_propiedades()
         self.canvas.centerOn(x, y)
         sc = self.canvas.scene()
         pen = QtGui.QPen(QtGui.QColor(240, 170, 20), 3); pen.setCosmetic(True)
@@ -289,9 +297,19 @@ class HerramientasMixin:
         lbl = getattr(self, "lbl_normas_pipe", None)
         if lbl is None:
             return
+        import html as _html
+        t = _theme.tokens()
         suyos = [a for a in getattr(self, "_normas_avisos", []) or [] if a.pipe == self.sel_pipe]
-        lbl.setText("\n".join(("✔ " + _tr("Aprobado:") + " " if a.aprobado else ("ⓘ " if a.info else "⚠ "))
-                              + a.mensaje for a in suyos[:4]))
+        # un párrafo por aviso, con el color de su clase (texto con salto: `TextoAjustado` no se corta)
+        filas = []
+        for a in suyos[:4]:
+            color = t.success if a.aprobado else (t.text_muted if a.info else t.warning)
+            marca = "✔ " + _tr("Aprobado:") + " " if a.aprobado else ("ⓘ " if a.info else "⚠ ")
+            filas.append(f"<p style='margin:0 0 4px 0; color:{color}'>{_html.escape(marca + a.mensaje, quote=False)}</p>")
+        if len(suyos) > 4:
+            filas.append(f"<p style='margin:0; color:{t.text_muted}'>"
+                         + _html.escape(_tr("… y {n} avisos más").format(n=len(suyos) - 4)) + "</p>")
+        lbl.setText("".join(filas))
         lbl.setVisible(bool(suyos))
         self._mostrar_pendiente()
 

@@ -29,7 +29,7 @@ from ui.asistente.composite_view import _qpixmap
 from ui.asistente.page_gallery import PageGallery, USED_ROLE
 from traduccion.i18n import t as _tr
 from ui.comun.icons import icon as _icon
-from ui.comun.ui_common import DOWNLOADS
+from ui.comun.ui_common import DOWNLOADS, fila_lista
 from ui.comun.busy import busy
 from ui.comun import theme as _theme
 
@@ -115,6 +115,9 @@ class SourcePageMixin:
                        "compuesta. Clic en una hoja = verla; doble clic = tomar solo una parte en "
                        "«Área a tomar».")
         self.lbl_source_hint.setText(hint)
+        if getattr(self, "_sin_hoja", False):
+            self.lbl_source_sel.setText(_tr("Ninguna hoja elegida: selecciona una en la lista."))
+            return
         n = self._cur_page + 1
         taken = self._pieces_on_page(self._cur_source, self._cur_page)
         text = _tr("A la vista: hoja {n} de {total}").format(n=n, total=self.docs[self._cur_source].page_count)
@@ -150,7 +153,7 @@ class SourcePageMixin:
             icon = self._thumb_cache.get(key) or self._thumb_placeholder(doc[i])
             if key not in self._thumb_cache:
                 self._thumb_queue.append(key)
-            item = QtWidgets.QListWidgetItem(icon, "")
+            item = fila_lista(self.lst_pages, "", icon)
             # alto para DOS líneas («Hoja 26» + «✔ Área tomada»): con tamaños uniformes
             # todas toman el de la primera hoja (una línea) y la marca quedaba «Hoja 26…»
             if self.lst_pages.viewMode() == QtWidgets.QListView.ListMode:     # 2.0.0: lista de la izquierda
@@ -158,11 +161,10 @@ class SourcePageMixin:
             else:
                 item.setSizeHint(QtCore.QSize(THUMB_W + 20, int(THUMB_W * 0.72) + 46))
             self._label_page_item(item, i)
-            self.lst_pages.addItem(item)
         row = self._cur_page if 0 <= self._cur_page < doc.page_count else 0
         self.lst_pages.setCurrentRow(row)
         self.lst_pages.blockSignals(False)
-        self._on_page_changed(row)
+        self._on_page_changed(row, _codigo=True)
         if self._thumb_queue:
             self._thumb_timer.start()
 
@@ -342,6 +344,7 @@ class SourcePageMixin:
         self._on_pieces_changed()
         self._fill_sources()
         if not self.comp.pieces:
-            self._choose_provisional()         # como al abrir: la hoja a la vista ya es la hoja compuesta
+            self._sin_hoja = True              # como al abrir: a elegir una hoja
+            self._refresh_pending()
         if hasattr(self, "_sug_pdfs_cambiaron"):
             self._sug_pdfs_cambiaron()

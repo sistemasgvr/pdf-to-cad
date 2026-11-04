@@ -52,6 +52,36 @@ def _two_sheet_pdf():
     return doc.tobytes()
 
 
+def test_reabrir_composicion_manual_en_flujo_completo(app, tmp_path):
+    """La acción normal recupera hojas/áreas y continúa a Capas, aunque antes se usara escaneo."""
+    sources = [{"name": "a.pdf", "data": _two_sheet_pdf()}]
+    comp = C.Composite([C.Piece(0, 0, [0, 0, 1, 1])], manual=True, bridges=False)
+    dlg = composite_dialog.CompositeDialog(None, sources, comp, {}, manual=False)
+    try:
+        dlg.show()
+        app.processEvents()
+        assert not dlg.comp.manual and comp.manual  # editar no modifica la hoja del editor
+        assert dlg.steps.isVisible()
+        assert dlg.columna_hojas.isVisible()
+        assert dlg.lst_pages.count() == 2
+        assert dlg.btn_ok.text() == "Continuar"
+        dlg.lst_pages.setCurrentRow(1)
+        dlg.crop.set_selection(QtCore.QRectF(0, 0, 150, 200))
+        dlg._take(full=False)
+        extra = tmp_path / "extra.pdf"
+        extra.write_bytes(_two_sheet_pdf())
+        dlg._open_extra_pdf(str(extra))
+        dlg._take(full=True)
+        assert len(dlg.sources) == 2
+        assert len(dlg.comp.pieces) == 3
+        assert dlg.comp.pieces[1].clip == pytest.approx([0, 0, 0.5, 1])
+        assert dlg.comp.pieces[2].source == 1
+        assert not dlg.sirve_para(dlg.sources, dlg.comp, {}, True, True)
+    finally:
+        dlg.close_docs()
+        dlg.close()
+
+
 def test_compositor_toma_piezas_iman_y_reconoce(app):
     data = _two_sheet_pdf()
     dlg = composite_dialog.CompositeDialog(None, [{"name": "a.pdf", "data": data}], None, {}, 0)
@@ -348,6 +378,7 @@ def test_compositor_minimapa_en_tiempo_real(app, manual):
     dlg = composite_dialog.CompositeDialog(None,
         [{"name": "a.pdf", "data": _two_sheet_pdf()}], None, {}, manual=manual)
     try:
+        dlg._pick_page()                                  # el usuario elige la hoja 1
         assert [label for _, label in dlg.view.minimap._layout] == ["Hoja 1"]   # la hoja a la vista
         dlg._take_area(True)
         dlg.lst_pages.setCurrentRow(1)
@@ -462,6 +493,7 @@ def test_pestanas_a_ventana_completa_y_navegacion(app):
     dlg = T.CompositeDialog(None, [{"name": "a.pdf", "data": _two_sheet_pdf()}], None, {}, 0)
     try:
         dlg.resize(1100, 640); dlg.show(); _settle(app)
+        dlg._pick_page(); _settle(app)                    # el usuario elige la hoja 1
         # 2.0.0: la lista de hojas está siempre a la izquierda y se abre en «Área a tomar»
         assert dlg.tabs.current() == T.TAB_AREA and dlg.stack.currentIndex() == T.TAB_AREA
         assert dlg.btn_back.isHidden() and not dlg.btn_next.isHidden()
@@ -914,6 +946,7 @@ def test_valida_lo_pendiente_antes_de_continuar(app, monkeypatch):
     dlg = T.CompositeDialog(None, [{"name": "a.pdf", "data": _two_sheet_pdf()}], None, {}, 0)
     try:
         dlg.show(); dlg._go_tab(T.TAB_AREA); _settle(app)
+        dlg._pick_page(); _settle(app)                    # el usuario elige la hoja 1
         assert dlg.btn_ok.isEnabled() and dlg._editing == 0
         dlg.crop.set_selection(QtCore.QRectF(20, 20, 150, 120)); _settle(app)    # marca: la recorta
         dlg._crop_timer.stop(); dlg._apply_crop_edit()
@@ -940,6 +973,7 @@ def test_valida_lo_pendiente_antes_de_continuar(app, monkeypatch):
     dlg = T.CompositeDialog(None, [{"name": "a.pdf", "data": _two_sheet_pdf()}], None, {}, 0)
     try:
         dlg.show(); _settle(app)
+        dlg._pick_page(); _settle(app)
         dlg.view.select(0); dlg._delete(); _settle(app)
         assert not dlg.comp.pieces and not dlg.btn_ok.isEnabled()
         assert "Para continuar" in dlg.lbl_check.text() and "href='pick'" in dlg.lbl_check.text()
@@ -982,18 +1016,23 @@ def _used(dlg):
 
 @pytest.mark.parametrize("manual", [False, True])
 def test_la_hoja_elegida_es_la_hoja_compuesta(app, manual):
-    """Pedido del usuario 2026-10-05: elegía la hoja, pulsaba «Siguiente» y la hoja
-    compuesta quedaba vacía. Ahora la hoja a la vista viene MARCADA (su casilla) y está en
-    la hoja compuesta; marcar un área la recorta al momento y «Hoja completa» la devuelve.
-    Mirar otra hoja (clic en la miniatura, ‹ ›) solo la MUESTRA."""
+    """Pedido del usuario 2026-11-03: al abrir, NINGUNA hoja queda elegida sola: el área de
+    la hoja muestra «Selecciona una hoja» y no se puede continuar. Marcar la casilla la
+    pone en la hoja compuesta; marcar un área la recorta al momento y «Hoja completa» la
+    devuelve. Mirar otra hoja (clic en la miniatura, ‹ ›) solo la MUESTRA."""
     T = composite_dialog
     dlg = T.CompositeDialog(None, [{"name": "a.pdf", "data": _two_sheet_pdf()}], None, {}, 0, manual=manual)
     try:
         dlg.resize(1100, 700); dlg.show(); _settle(app)
         assert dlg.tabs.current() == T.TAB_AREA                          # 2.0.0: la lista va a la izquierda
+        assert not dlg.comp.pieces and _used(dlg) == [] and not dlg.btn_ok.isEnabled()
+        assert dlg._aviso_area.isVisible() and not dlg._aviso_hoja.isHidden()
+        assert dlg.lst_pages.currentRow() == -1 and not dlg.btn_take_full.isEnabled()
+        assert "Selecciona una hoja" in dlg.lbl_check.text() and dlg.lbl_page.text() == "Selecciona una hoja"
+        _click_check(app, dlg, 0)                    # el usuario marca la 1
+        assert not dlg._aviso_area.isVisible() and dlg._aviso_hoja.isHidden()
         assert [(p.page, p.clip) for p in dlg.comp.pieces] == [(0, [0.0, 0.0, 1.0, 1.0])]
         assert dlg.btn_ok.isEnabled() and _used(dlg) == [0] and "Hoja completa" in dlg.lst_pages.item(0).text()
-        assert "ya viene marcada" in dlg.lbl_source_hint.text()
         _click_page(app, dlg, 1)                     # clic en la miniatura: solo verla
         assert [p.page for p in dlg.comp.pieces] == [0] and _used(dlg) == [0]
         assert dlg.lst_pages.currentRow() == 1 and dlg._page_pending()
@@ -1043,7 +1082,9 @@ def test_casillas_de_las_hojas(app, monkeypatch):
     dlg = T.CompositeDialog(None, [{"name": "a.pdf", "data": data}], None, {}, 0)
     try:
         dlg.resize(1100, 700); dlg.show(); _settle(app)
-        assert _used(dlg) == [0]                                         # la del inicio, marcada
+        assert _used(dlg) == []                                          # ninguna sola (2026-11-03)
+        _click_check(app, dlg, 0)
+        assert _used(dlg) == [0]
         _click_check(app, dlg, 1)                                        # otra hoja: se SUMA
         assert [(p.page, p.clip) for p in dlg.comp.pieces] == [(0, [0.0, 0.0, 1.0, 1.0]),
                                                                 (1, [0.0, 0.0, 1.0, 1.0])]
@@ -1109,7 +1150,7 @@ def test_con_un_area_tomada_otra_hoja_se_agrega(app):
     dlg = T.CompositeDialog(None, [{"name": "a.pdf", "data": _two_sheet_pdf()}], None, {}, 0)
     try:
         dlg.resize(1100, 700); dlg.show(); _settle(app)
-        dlg._go_tab(T.TAB_AREA); _settle(app)
+        dlg._go_tab(T.TAB_AREA); dlg._pick_page(); _settle(app)
         dlg.crop.set_selection(QtCore.QRectF(0, 0, 150, 200)); dlg._crop_timer.stop(); dlg._apply_crop_edit()
         dlg._go_tab(T.TAB_SOURCE); _settle(app)
         assert "Clic en una hoja = verla" in dlg.lbl_source_hint.text()
@@ -1335,6 +1376,7 @@ def test_desmarcar_la_hoja_quita_tambien_su_area(app, monkeypatch):
     rectángulo en «Área a tomar»; al continuar, esa área volvía a la hoja compuesta."""
     dlg = composite_dialog.CompositeDialog(None, [{"name": "a.pdf", "data": _two_sheet_pdf()}], None, {}, 0)
     try:
+        dlg._toggle_page(0)
         dlg._toggle_page(1)
         r = dlg.crop._page_rect
         dlg.crop.set_selection(QtCore.QRectF(0, 0, r.width() / 2, r.height()))

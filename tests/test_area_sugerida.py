@@ -125,6 +125,7 @@ def test_usar_el_area_sugerida_da_la_misma_pieza_que_marcarla_a_mano(app, monkey
     dlg = composite_dialog.CompositeDialog(None, fuente, None, {}, 3)
     try:
         dlg._go_tab(composite_dialog.TAB_AREA)
+        dlg._pick_page()                                  # el usuario elige la hoja
         _esperar(app, lambda: bool(dlg._area_lista))
         assert dlg.area_box.isVisibleTo(dlg) and dlg._area_item.isVisible()
         assert dlg.btn_area_usar.isVisibleTo(dlg)
@@ -141,6 +142,7 @@ def test_usar_el_area_sugerida_da_la_misma_pieza_que_marcarla_a_mano(app, monkey
     dlg = composite_dialog.CompositeDialog(None, fuente, None, {}, 3)
     try:
         dlg._go_tab(composite_dialog.TAB_AREA)
+        dlg._pick_page()
         dlg.crop.set_selection(QtCore.QRectF(rect))
         _esperar(app, lambda: not dlg._crop_timer.isActive(), 5)
         app.processEvents()

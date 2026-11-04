@@ -66,8 +66,6 @@ def en_proceso(doc, hoja, zoom, grises=True, al_avanzar=None):
     """(En la ventana) (QImage, grises o None, escala, ancho, alto) de la hoja dibujada en el
     proceso trabajador, o None (dibujarla aquí, como siempre). Espera sin trabar la ventana
     (`proceso.ejecutar`): quien llama tapa la ventana con la capa «Cargando…»."""
-    import numpy as np
-    from PySide6 import QtGui
     from hoja import pdf_layers
     from ui.comun import fondo_pdf, proceso
     ruta = ruta_de(doc)
@@ -78,6 +76,23 @@ def en_proceso(doc, hoja, zoom, grises=True, al_avanzar=None):
                                 bool(grises), al_avanzar=al_avanzar)
     if err or not res:
         return None
+    return cargar(res)
+
+
+def descartar(res):
+    """Borra los archivos de la imagen, también de un resultado que una petición posterior dejó sin uso."""
+    for k in ("img", "gris"):
+        try:
+            if res.get(k):
+                os.remove(res[k])
+        except OSError:
+            pass
+
+
+def cargar(res):
+    """(QImage, grises, escala, ancho, alto) con los píxeles en memoria, ya sin sus archivos temporales."""
+    import numpy as np
+    from PySide6 import QtGui
     try:
         with open(res["img"], "rb") as fp:
             buf = fp.read()
@@ -89,12 +104,7 @@ def en_proceso(doc, hoja, zoom, grises=True, al_avanzar=None):
     except (OSError, ValueError):
         return None
     finally:
-        for k in ("img", "gris"):
-            try:
-                if res.get(k):
-                    os.remove(res[k])
-            except OSError:
-                pass
+        descartar(res)
 
 
 def aqui(page, zoom, grises=True):

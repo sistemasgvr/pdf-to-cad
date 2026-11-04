@@ -11,14 +11,17 @@ de avisos y en el contador de la barra de estado.
 
 Los avisos del RECONOCIMIENTO (diámetro que el plano no dijo con certeza, `diametro_plano`) van en
 turquesa con «?» (pedido del usuario 2026-10-23: se confundían con los de normativa; el turquesa no es
-de ninguna utilidad ni el morado de las curvas)."""
+de ninguna utilidad ni el morado de las curvas).
+
+Una insignia es de UNA capa de utilidades (2026-11-03): avisos muy juntos de dos capas van cada uno en la suya, así
+que apagar una en «Capas» no deja la marca de la otra corrida, fuera de su línea."""
 from __future__ import annotations
 
 from PySide6 import QtCore, QtGui, QtWidgets
 
 from nucleo import diametro_plano
 from nucleo.model import Z_HANDLE
-from ui.comun.capa_marcas import sello
+from ui.comun.capa_marcas import duenas, sello
 from ui.comun.ui_common import QA_OFFPATTERN, tooltip_bloque
 from traduccion.i18n import t as _tr
 
@@ -59,16 +62,16 @@ class InsigniaAviso(QtWidgets.QGraphicsItem):
         painter.drawText(self.boundingRect(), QtCore.Qt.AlignCenter, self._letra)
 
 
-def dibujar(scene, avisos, tol_px, con_accesorios_visibles, poner=None, reusar=None, guardar=None):
+def dibujar(scene, avisos, tol_px, con_accesorios_visibles, poner=None, reusar=None, guardar=None, capa_de=None):
     """Agrega las insignias a `scene` (o con `poner(item)`: la capa de marcas del lienzo,
     `capa_marcas`) y devuelve los items (van al overlay). `reusar`/`guardar`: como en
-    `accesorios_view.dibujar`."""
-    return list(dibujar_iter(scene, avisos, tol_px, con_accesorios_visibles, poner, reusar, guardar))
+    `accesorios_view.dibujar`. `capa_de(utilidad)` = su capa (dueña de la insignia)."""
+    return list(dibujar_iter(scene, avisos, tol_px, con_accesorios_visibles, poner, reusar, guardar, capa_de))
 
 
-def dibujar_iter(scene, avisos, tol_px, con_accesorios_visibles, poner=None, reusar=None, guardar=None):
+def dibujar_iter(scene, avisos, tol_px, con_accesorios_visibles, poner=None, reusar=None, guardar=None, capa_de=None):
     """Como `dibujar`, entregando cada insignia ya puesta (carga por tandas: `marcas_por_tandas`)."""
-    grupos = []                                       # [[x, y, [avisos]]]
+    grupos = []                                       # [[x, y, [avisos], capa]]
     # Rejilla de celdas de `tol_px`: con cientos de avisos (ángulos de un plano reconocido)
     # comparar cada uno con todos los grupos trababa el redibujo. Mismo resultado: el grupo
     # MÁS ANTIGUO a ≤ tol (el primero de la lista de antes).
@@ -79,24 +82,26 @@ def dibujar_iter(scene, avisos, tol_px, con_accesorios_visibles, poner=None, reu
             continue
         if a.clase == "tipo" or a.aprobado:
             continue          # «sin tipo»: en el panel, la lista y la barra de estado (no llena el plano)
+        capa = capa_de(a.pipe) if capa_de else None
         cx, cy = int(a.x // celda), int(a.y // celda)
-        cerca = [n for dx in (-1, 0, 1) for dy in (-1, 0, 1) for n in rejilla.get((cx + dx, cy + dy), ())
+        cerca = [n for dx in (-1, 0, 1) for dy in (-1, 0, 1) for n in rejilla.get((capa, cx + dx, cy + dy), ())
                  if (grupos[n][0] - a.x) ** 2 + (grupos[n][1] - a.y) ** 2 <= tol_px * tol_px]
         if cerca:
             grupos[min(cerca)][2].append(a)
         else:
-            rejilla.setdefault((cx, cy), []).append(len(grupos))
-            grupos.append([a.x, a.y, [a]])
-    for x, y, lista in grupos:
+            rejilla.setdefault((capa, cx, cy), []).append(len(grupos))
+            grupos.append([a.x, a.y, [a], capa])
+    for x, y, lista, capa in grupos:
         info = (RECONOCIMIENTO if all(a.clase == diametro_plano.CLASE for a in lista)
                 else all(a.info for a in lista))
         error = not info and any(getattr(a, "nivel", "") == "ERROR" for a in lista if not a.info)
-        it = reusar(("aviso", info, error, x, y)) if reusar else None
+        clave = ("aviso", info, error, x, y, capa)
+        it = reusar(clave) if reusar else None
         if it is None:
-            it = sello(InsigniaAviso(info, error), ("aviso", info, error))
+            it = duenas(sello(InsigniaAviso(info, error), ("aviso", info, error)), (capa,) if capa else ())
             it.setPos(x, y)
             if guardar:
-                guardar(("aviso", info, error, x, y), it)
+                guardar(clave, it)
         quien = sorted({a.pipe + 1 for a in lista if a.pipe is not None and a.pipe >= 0})
         cab = _tr("Utilidad {n}").format(n=", ".join(f"#{k}" for k in quien)) if quien else ""
         texto = "\n".join(([cab] if cab else []) + [("ⓘ " if a.info else "⚠ ") + a.mensaje for a in lista])

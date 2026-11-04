@@ -109,9 +109,11 @@ def _xd(e):
     # esquina de 90° de la línea «—TE—» (conduit: no hay caja en el vértice, se crea la CV)
     pytest.param(DU08, 25, "ELECTRICO", (839.2, 532.1),
                  marks=pytest.mark.skipif(not DU08.is_file(), reason="PDF DU08 no disponible")),
-    # quiebre de 62° entre dos buzones (gravedad: el buzón oculto del quiebre pasa a curva)
-    pytest.param(DU06, 3, "DRENAJE", (1359.6, 1156.4),
-                 marks=pytest.mark.skipif(not DU06.is_file(), reason="PDF DU06 no disponible")),
+    # quiebre entre dos buzones (gravedad: el buzón oculto del quiebre pasa a curva). Antes era DU06 h.4 drenaje
+    # (1359.6, 1156.4), pero ahí el plano dice 18" de un lado y 33" del otro: la línea se parte en la esquina
+    # (`recognition_grosor_partir`) y no hay quiebre que curvar.
+    pytest.param(DU10, 4, "ALCANTARILLADO", (960.04, 684.62),
+                 marks=pytest.mark.skipif(not DU10.is_file(), reason="PDF DU10 no disponible")),
     # 2.º reporte (2026-10-07): línea eléctrica dibujada como UN trazo de tres rectas bajo la
     # bóveda; el núcleo marcó sus quiebres «curve» y quedaban como esquinas
     pytest.param(DU06, 4, "ELECTRICO", (906.24, 858.78),

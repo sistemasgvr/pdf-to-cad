@@ -31,5 +31,5 @@ def leer(ruta: str, hoja: int, ons: Sequence = (), estilos_ocultos: Sequence[str
             if any(L.get("source") == "style" for L in layers) and leyenda_mapa.aplica(page):
                 ley = leyenda_mapa.leer(doc, page)
             pdf_layers.set_hidden(doc, ())                       # todas encendidas: `_all_drawings`
-            visibles = {d.get("layer") or "" for d, _s in leyenda_trazos.trazos_visibles(page, None)}
+            visibles = leyenda_trazos.capas_visibles(page)
     return {"layers": layers, "leyenda": ley, "visibles": sorted(visibles)}

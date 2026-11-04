@@ -13,7 +13,7 @@ from traduccion.i18n import t as _tr
 from ui.comun import rediseno as R
 from ui.comun import theme as _theme
 from ui.comun.icons import icon as _icon
-from ui.comun.ui_common import layer_qcolor
+from ui.comun.ui_common import fila_lista, layer_qcolor
 
 _K = {c: i for i, c in enumerate(NR.COLUMNAS)}
 # campos del editor, agrupados como en el prototipo (cuándo aplica · qué revisa · si no se cumple)
@@ -175,7 +175,7 @@ class VistaReglas(QtWidgets.QWidget):
         if self.lista.count() != self.tabla.rowCount():
             self.lista.clear()
             for _r in range(self.tabla.rowCount()):
-                self.lista.addItem(QtWidgets.QListWidgetItem())
+                fila_lista(self.lista)
         for r in range(self.lista.count()):
             self.lista.item(r).setToolTip(NT.frase(self.fila(r)))
         if actual < 0 and self.lista.count():

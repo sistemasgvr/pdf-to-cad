@@ -46,6 +46,7 @@ class Canvas(QtWidgets.QGraphicsView):
         self.setRenderHints(QtGui.QPainter.Antialiasing | QtGui.QPainter.SmoothPixmapTransform)
         self.setTransformationAnchor(QtWidgets.QGraphicsView.AnchorUnderMouse)
         self.setBackgroundBrush(QtGui.QColor(13, 19, 33)); self.setAcceptDrops(True)
+        self._recognition_readonly = False            # reconociendo: solo navegar (`progreso_reconocimiento`)
         self.setFocusPolicy(QtCore.Qt.StrongFocus)
         self.setMouseTracking(True); self.viewport().setMouseTracking(True)
         self.pixmap_item = None; self._pan = False; self._pan0 = None; self._moving = False
@@ -161,6 +162,11 @@ class Canvas(QtWidgets.QGraphicsView):
             self.pdf_bg_item.setBrush(QtGui.QBrush(self.pdf_bg_color))
 
     def keyPressEvent(self, e):
+        if self._recognition_readonly:
+            if e.key() == QtCore.Qt.Key_Escape:
+                self.win._cancel_recognition()
+            e.accept()
+            return
         if e.key() in (QtCore.Qt.Key_Return, QtCore.Qt.Key_Enter):
             self.win._on_enter(); e.accept(); return
         if e.key() == QtCore.Qt.Key_Escape:
@@ -191,8 +197,12 @@ class Canvas(QtWidgets.QGraphicsView):
         return True
 
     def mousePressEvent(self, e):
-        if e.button() == QtCore.Qt.MiddleButton:
+        readonly = self._recognition_readonly
+        if e.button() == QtCore.Qt.MiddleButton or (readonly and e.button() == QtCore.Qt.LeftButton):
+            self.setFocus(QtCore.Qt.MouseFocusReason)
             self._pan = True; self._pan0 = e.position(); self.setCursor(QtCore.Qt.ClosedHandCursor); return
+        if readonly:
+            return
         if not self.pixmap_item: return super().mousePressEvent(e)
         self.setFocus(QtCore.Qt.MouseFocusReason)
         sp = self.mapToScene(e.position().toPoint())
@@ -203,7 +213,7 @@ class Canvas(QtWidgets.QGraphicsView):
         super().mousePressEvent(e)
 
     def mouseMoveEvent(self, e):
-        if self.pixmap_item:
+        if self.pixmap_item and not self._recognition_readonly:
             sp = self.mapToScene(e.position().toPoint()); self.moved.emit(sp.x(), sp.y())
         if self._pan:
             d = e.position() - self._pan0; self._pan0 = e.position()
@@ -214,19 +224,28 @@ class Canvas(QtWidgets.QGraphicsView):
         super().mouseMoveEvent(e)
 
     def mouseReleaseEvent(self, e):
-        if e.button() == QtCore.Qt.MiddleButton:
+        if e.button() == QtCore.Qt.MiddleButton or (self._recognition_readonly
+                                                   and e.button() == QtCore.Qt.LeftButton):
             self._pan = False; self.setCursor(QtCore.Qt.ArrowCursor); return
         if self._moving and e.button() == QtCore.Qt.LeftButton:
             self._moving = False; self.win.end_move(); return
         super().mouseReleaseEvent(e)
 
     def mouseDoubleClickEvent(self, e):
+        if self._recognition_readonly:
+            return
         if self.win.mode == "pipe": self.win.finish_pipe(); return
         sp = self.mapToScene(e.position().toPoint()); self.dbl.emit(sp.x(), sp.y())
 
     def dragEnterEvent(self, e):
+        if self._recognition_readonly:
+            e.ignore()
+            return
         if e.mimeData().hasUrls(): e.acceptProposedAction()
 
     def dropEvent(self, e):
+        if self._recognition_readonly:
+            e.ignore()
+            return
         for u in e.mimeData().urls():
             self.win.open_path(u.toLocalFile()); break

@@ -211,6 +211,9 @@ def _merge_into_modelo(win, doc, marks=True):
     for tm in win.text_marks:
         if tm.get("free"): add_free_text(win, doc, msp, tm)
         else: replace_text(win, doc, msp, tm)
+    # rótulos del plano reconocidos (MLeader / MText del PDF, con su XDATA; pedido 2026-11-03)
+    from exportar import dxf_anotaciones
+    dxf_anotaciones.exportar(win, doc, msp)
 
 
 def apply_erase(win, msp):

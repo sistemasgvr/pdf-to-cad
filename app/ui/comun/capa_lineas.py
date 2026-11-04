@@ -57,6 +57,7 @@ class CapaLineas(QtWidgets.QGraphicsItem):
             x1, y1 = self._np[:, 2].max(), self._np[:, 3].max()
             self.prepareGeometryChange()
             self._caja = QtCore.QRectF(x0, y0, x1 - x0, y1 - y0)
+        self._poner_mascara()
 
     def cambiar_pluma(self, clave, pluma):
         """Otra pluma para la entrada `clave` (la utilidad que se elige o se suelta), en su MISMO lugar del
@@ -78,16 +79,21 @@ class CapaLineas(QtWidgets.QGraphicsItem):
         if claves == self._ocultas:
             return
         self._ocultas = claves
-        if claves:
-            m = np.ones(len(self.entradas), dtype=bool)
-            for c in claves:
-                k = self.de.get(c)
-                if k is not None:
-                    m[k] = False
-            self._mascara = m
-        else:
-            self._mascara = None
+        self._poner_mascara()
         self.update()
+
+    def _poner_mascara(self):
+        """Lo que se pinta, con las entradas de AHORA: el redibujo fija las ocultas antes de agregar las líneas
+        (por eso también lo hace `cerrar`; con la máscara vacía se pintaba todo, reporte 2026-11-03)."""
+        if not self._ocultas:
+            self._mascara = None
+            return
+        m = np.ones(len(self.entradas), dtype=bool)
+        for c in self._ocultas:
+            k = self.de.get(c)
+            if k is not None:
+                m[k] = False
+        self._mascara = m
 
     def boundingRect(self):
         # la pluma es cosmética (px de pantalla): el margen en la escena depende del zoom; uno holgado

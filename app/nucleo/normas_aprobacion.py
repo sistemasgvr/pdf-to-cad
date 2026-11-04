@@ -39,7 +39,8 @@ def huella(p, clase=None):
 
 def clave(aviso, pipes):
     p = pipes[aviso.pipe] if aviso.pipe is not None and 0 <= aviso.pipe < len(pipes or []) else None
-    x, y = (round(aviso.x / LUGAR_PX) * LUGAR_PX, round(aviso.y / LUGAR_PX) * LUGAR_PX)
+    x0, y0 = getattr(aviso, "lugar", None) or (aviso.x, aviso.y)   # donde lo calculó su regla (`avisos_lugar`)
+    x, y = (round(x0 / LUGAR_PX) * LUGAR_PX, round(y0 / LUGAR_PX) * LUGAR_PX)
     return f"{aviso.clase}|{aviso.pipe}|{x:g}|{y:g}|{huella(p, aviso.clase)}"
 
 

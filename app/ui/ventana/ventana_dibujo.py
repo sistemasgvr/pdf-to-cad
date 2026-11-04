@@ -234,7 +234,6 @@ class DibujoMixin:
             if sel and self.mode == "move": self._handles(rg["pts"])
         # utilidades (con selección múltiple se resaltan todas las seleccionadas)
         multi = set(self._selected_pipe_rows()) if hasattr(self, "pipe_list") else set()
-        ocupados = []                                   # etiquetas T1, T2… ya puestas (no se solapan)
         # Todas las utilidades en UNA capa de la escena (`ui/comun/capa_lineas`, 2026-10-18): antes un
         # ítem por segmento (~27 mil con 16 761 utilidades). Mismo orden, plumas y segmentos.
         from ui.comun.capa_lineas import CapaLineas
@@ -283,19 +282,10 @@ class DibujoMixin:
                 dot_pen = QtGui.QPen(QtGui.QColor(20, 20, 20), 1.4); dot_pen.setCosmetic(True)
                 for (vx, vy) in (a, b):
                     self._overlay.append(ML.agregar(sc, vx, vy, 7, dot_pen, QtGui.QColor(255, 50, 220), Z_HANDLE + 1))
-            # Etiquetas T1, T2… encima de cada tramo cuando el pipe tiene
-            # activada la edición por tramo. Se dibujan aunque el pipe no
-            # esté seleccionado, así el usuario ve la numeración en todo
-            # momento. Solo visual — NO se exportan al DXF (dxf_export lee
-            # self.pipes, no la escena Qt).
-            if p.get("seg_edit_enabled") and len(p["pts"]) >= 3 and (sel or not self._capa_apagada(i)):
-                tramos = [(f"T{si + 1}", p["pts"][si], p["pts"][si + 1]) for si in range(len(p["pts"]) - 1)]
-                for texto, mx, my, dx, dy, px in ET.ubicar(tramos, ocupados, evitar=p["pts"]):
-                    it = ET.EtiquetaTramo(texto, layer_qcolor(p["layer"]), px, dx, dy)
-                    it.setPos(mx, my); it.setZValue(Z_MARK + 2); sc.addItem(it); self._overlay.append(it)
         if previa is None:
             capa.cerrar()                               # su caja, ya con todas las utilidades
         self._capa_lineas = (clave_capa, capa, elegidas, con_tramos)
+        self._actualizar_rotulos_tramos(elegidas, con_tramos)
         self._poly(self.cur_pts, layer_qcolor(self._ext_layer or self.active_layer()), 2.0, dots=True, z=Z_MARK)
         # centerlines de referencia (para georreferenciar) — magenta punteado,
         # bien distinto de las utilidades para no confundirlos a simple vista.
@@ -345,6 +335,34 @@ class DibujoMixin:
             if i == self.sel_text and self._current_tab() == TAB_TEXT:
                 br = t.boundingRect(); pen = QtGui.QPen(QtGui.QColor(255, 180, 40)); pen.setCosmetic(True)
                 rit = sc.addRect(tm["pos"][0], tm["pos"][1], br.width(), br.height(), pen); rit.setZValue(Z_MARK); self._overlay.append(rit)
+
+    def _actualizar_rotulos_tramos(self, elegidas, con_tramos):
+        """Rótulos T1, T2… de las utilidades con edición por tramo (solo visual: el DXF lee `pipes`). Se
+        rehacen aparte porque su lugar depende de cuáles están a la vista, sin redibujar la red."""
+        anteriores = getattr(self, "_items_rotulos_tramos", ())
+        ids = {id(it) for it in anteriores}
+        sc = self.canvas.scene()
+        for it in anteriores:
+            try:
+                if it.scene() is sc:
+                    sc.removeItem(it)
+            except RuntimeError:
+                pass
+        if ids:
+            self._overlay[:] = [it for it in self._overlay if id(it) not in ids]   # EN SITIO: `GrupoMarcas` guarda esta lista
+        nuevos, ocupados = [], []
+        for i in sorted(elegidas | con_tramos):
+            p = self.pipes[i]
+            pts = p.get("pts") or []
+            if not p.get("seg_edit_enabled") or len(pts) < 3 or (i not in elegidas and self._capa_apagada(i)):
+                continue
+            tramos = [(f"T{k + 1}", pts[k], pts[k + 1]) for k in range(len(pts) - 1)]
+            for texto, mx, my, dx, dy, px in ET.ubicar(tramos, ocupados, evitar=pts):
+                it = ET.EtiquetaTramo(texto, layer_qcolor(p["layer"]), px, dx, dy)
+                it.setPos(mx, my); it.setZValue(Z_MARK + 2); sc.addItem(it)
+                nuevos.append(it)
+        self._items_rotulos_tramos = nuevos
+        self._overlay.extend(nuevos)
 
     def _reindex_cross_connections_on_pipe_delete(self, deleted_idx):
         """Al borrar una utilidad se corren TODOS los índices posteriores:
@@ -461,6 +479,8 @@ class DibujoMixin:
         pertenece (mismo vértice). Si show_bz_labels está activo, escribe el código
         del buzón al lado del círculo."""
         self._estructuras_ocultas = set()
+        self._estructuras_vista = []
+        self._duenas_memo = {}
         if not self.structures: return
         sc = self.canvas.scene()
         # Precomputa color por buzón: mira los pipes NO importados y toma el layer
@@ -482,14 +502,12 @@ class DibujoMixin:
                 return layer_qcolor(s.get("utility") or "ELECTRICO")
             return QtGui.QColor(180, 180, 180)     # buzón sin pipe cercano (raro)
         # «Capas» (ventana_capas): un buzón/curva cuyas utilidades están TODAS apagadas no se pinta
-        apagadas = getattr(self, "capas_apagadas", None)
-        self._estructuras_ocultas = ocultas = set()
-
-        def _apagada(s):
+        def _duenas(s):
             cerca = indice.en_radio(s["x"], s["y"], 14.0)
             if cerca:
-                return all(self.pipes[vert[k][2]].get("layer") in apagadas for k in cerca)
-            return s.get("standalone") and (s.get("utility") or "ELECTRICO") in apagadas
+                return frozenset(self.pipes[vert[k][2]].get("layer") for k in cerca)
+            return frozenset({s.get("utility") or "ELECTRICO"}) if s.get("standalone") else frozenset()
+        self._duenas_estructura = _duenas
         pen = QtGui.QPen(QtGui.QColor(255, 255, 255), 1.2); pen.setCosmetic(True)
         pen_sel = QtGui.QPen(QtGui.QColor(255, 220, 40), 2.5); pen_sel.setCosmetic(True)
         R = 6.0                                     # radio en px (independiente del zoom por _cosmetic pen)
@@ -499,8 +517,7 @@ class DibujoMixin:
             if s.get("world"): continue             # los importados (Excel) están en coord mundo, no lienzo
             if s.get("hidden"): continue             # ocultado por el usuario — sigue en la lista, no en el lienzo
             is_curve = bool(s.get("curve"))
-            if apagadas and i != getattr(self, "sel_curve" if is_curve else "sel_bz", -1) and _apagada(s):
-                ocultas.add(i); continue
+            inicio = len(self._overlay)
             col = QtGui.QColor(190, 90, 220) if is_curve else _color_for(s); brush = QtGui.QBrush(col)
             selected = i == getattr(self, "sel_curve" if is_curve else "sel_bz", -1)
             use_pen = pen_sel if selected else pen
@@ -577,6 +594,27 @@ class DibujoMixin:
                 # Etiqueta también sigue el marcador (mx, my) — así queda
                 # junto a la curva y no en la esquina teórica.
                 t.setPos(mx + R + 2, my - R - 2); t.setZValue(Z_MARK + 1); self._overlay.append(t)
+            self._estructuras_vista.append((i, is_curve, s, self._overlay[inicio:]))
+        self._visibilidad_estructuras()
+
+    def _visibilidad_estructuras(self):
+        """Solo la visibilidad de los ítems ya creados de cada buzón/curva; no rehace ninguno. Sus utilidades
+        cercanas se miran únicamente si hay algo apagado (una vez por estructura en cada redibujo)."""
+        apagadas = frozenset(getattr(self, "capas_apagadas", ()) or ())
+        ocultas = set()
+        for i, curva, s, items in getattr(self, "_estructuras_vista", ()):
+            visible = not apagadas or i == getattr(self, "sel_curve" if curva else "sel_bz", -1)
+            if not visible:
+                duenas = self._duenas_memo.get(i)
+                if duenas is None:
+                    duenas = self._duenas_memo[i] = self._duenas_estructura(s)
+                visible = not (duenas and duenas <= apagadas)
+            if not visible:
+                ocultas.add(i)
+            for item in items:
+                if item.isVisible() != visible:
+                    item.setVisible(visible)
+        self._estructuras_ocultas = ocultas
 
     def _handles(self, pts):
         sc = self.canvas.scene(); pen = QtGui.QPen(QtGui.QColor(255, 255, 255)); pen.setCosmetic(True)

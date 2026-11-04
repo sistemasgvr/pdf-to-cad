@@ -13,6 +13,7 @@ from ia import proveedor as P, soluciones_ia
 from nucleo import informe_datos
 from nucleo.soluciones import CON_PROPUESTA
 from traduccion.i18n import t as _tr
+from ui.comun.ui_common import fila_lista
 from ui.dialogos import ia_soluciones_vista as V
 
 _ROL = QtCore.Qt.UserRole
@@ -236,19 +237,17 @@ class SolucionesDialog(QtWidgets.QDialog):
             auto = c.clave in CON_PROPUESTA or c.clave == "redes"
             if solo and not auto:
                 continue
-            it = QtWidgets.QListWidgetItem(self._ico_auto if auto else self._ico_vacio, f"{c.id}  {_tr(c.titulo)}")
+            it = fila_lista(self.lista, f"{c.id}  {_tr(c.titulo)}", self._ico_auto if auto else self._ico_vacio)
             it.setData(_ROL, c.id)
             it.setData(_ROL + 1, auto)
-            self.lista.addItem(it)
         # Los resueltos siguen en la lista con su MISMO número (2026-10-29), al final y en gris.
         resueltos = self.win.conflictos_resueltos() if hasattr(self.win, "conflictos_resueltos") else []
         for cid, titulo in resueltos:
-            it = QtWidgets.QListWidgetItem(self._ico_ok, _tr("{c} · {t} (resuelto)").format(c=cid, t=_tr(titulo)))
+            it = fila_lista(self.lista, _tr("{c} · {t} (resuelto)").format(c=cid, t=_tr(titulo)), self._ico_ok)
             it.setData(_ROL, cid)
             it.setData(_ROL + 1, False)
             it.setData(_ROL + 2, True)
             it.setForeground(self.palette().brush(QtGui.QPalette.Disabled, QtGui.QPalette.Text))
-            self.lista.addItem(it)
         self.lista.blockSignals(False)
         self.lbl_total.setText(_tr("{n} totales").format(n=len(vigentes)))
         self.lbl_pie.setText(_tr("{n} resueltos").format(n=len(resueltos)) if resueltos else "")

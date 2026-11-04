@@ -31,6 +31,16 @@ def test_sin_tipo_no_inventa_y_explicita_hipotesis():
     assert DN.opciones({}, pipe(), 50) == []
 
 
+def test_material_desconocido_solo_descarta_lo_que_no_cumpliria():
+    """«8–15" si es PVC»: sin material el 8" vale de todos modos; el 18" no, podría no cumplirla."""
+    cat = {"reglas": [R("ALCANTARILLADO", "COLECTOR", "TUBERIA", "diametro", minimo=8),
+                      R("ALCANTARILLADO", "COLECTOR", "TUBERIA", "diametro", minimo=8, maximo=15, si_material=["PVC"])]}
+    p = pipe("ALCANTARILLADO", "COLECTOR")
+    assert [o["diam_in"] for o in DN.opciones(cat, p, 50, preferidos=(18,))] == [8]
+    p["material"] = "RCP"                                             # con material conocido, la regla no aplica
+    assert [o["diam_in"] for o in DN.opciones(cat, p, 50, preferidos=(18,))] == [8, 18]
+
+
 def test_respeta_grupos_excepciones_y_desactivadas():
     ops = DN.opciones(nc.nuevo(), pipe("AGUA", "DISTRIBUCION PRINCIPAL"), 50)
     assert ops[0]["diam_in"] == 6  # 4 sólo en cul-de-sac
@@ -48,9 +58,15 @@ def test_amperaje_desconocido_no_se_inventa():
     assert DN.opciones(nc.nuevo(), p, 150)[0]["diam_in"] == 4
 
 
+def _una_opcion():
+    """Un catálogo con UN solo tamaño posible (el de fábrica da la lista de 24" a 84": la IA elige entre ellos)."""
+    return dict(nc.nuevo(), reglas=[R("DRENAJE", "COLECTOR PRINCIPAL", "TUBERIA", "diametro", minimo=24,
+                                      fuente="Metro MRDC")])
+
+
 def test_sugerencia_normativa_con_fuente_sin_ia_remota():
     p = pipe()
-    f = DI.ficha(p, "Drenaje", largo_ft=80, catalogo=nc.nuevo())
+    f = DI.ficha(p, "Drenaje", largo_ft=80, catalogo=_una_opcion())
     with OllamaFalso(lambda c: "{}") as srv:
         s = DI.sugerir(_prov(srv), f)
         assert s.diam_in == 24 and s.rotulo is None and s.origen == "normativa"
@@ -63,7 +79,7 @@ def test_sugerencia_normativa_con_fuente_sin_ia_remota():
 def test_lectura_sin_certeza_pasa_a_normativa():
     p = pipe()
     p["diam_plano"]["cerca"] = [dict(id="R1", texto='18" RCP', diam_in=18, guia="esta")]
-    f = DI.ficha(p, "Drenaje", largo_ft=80, catalogo=nc.nuevo())
+    f = DI.ficha(p, "Drenaje", largo_ft=80, catalogo=_una_opcion())
     with OllamaFalso(lambda c: '{"rotulo":null,"confianza":"baja"}') as srv:
         s = DI.sugerir(_prov(srv), f)
         assert s.diam_in == 24 and s.origen == "normativa"

@@ -336,7 +336,7 @@ def _sin_dobles(chs: List[List[Pt]], recortes: list, piezas: list):
 
 def ink_reconstruct(paths: Sequence[dict], vault_paths: Sequence[dict] = (),
                     opts: "geom.GeomOptions" = None, stats: dict = None,
-                    inicios: Sequence[int] = None) -> "geom.GeomResult":
+                    inicios: Sequence[int] = None, on_polyline=None) -> "geom.GeomResult":
     """`GeomResult` con la TINTA como polilíneas (ver el docstring del módulo). `stats` (dict):
     suma en «costuras» las tuberías unidas en la costura de una hoja compuesta. `inicios`: en una
     hoja COMPUESTA, dónde empieza cada pieza en el orden de dibujo (`inicios_de_piezas`)."""
@@ -402,6 +402,8 @@ def ink_reconstruct(paths: Sequence[dict], vault_paths: Sequence[dict] = (),
             else:
                 kinds[j] = "end"
         polylines.append(geom.Polyline(list(ch), kinds))
+        if on_polyline is not None:
+            on_polyline(polylines[-1])
     n = len(chs)
     return geom.GeomResult(polylines=polylines, nodes=base.nodes, vaults=base.vaults, pattern=None,
                            coverage=1.0, uncovered=[], vault_orphans=base.vault_orphans,

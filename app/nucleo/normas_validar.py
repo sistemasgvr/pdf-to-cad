@@ -62,6 +62,7 @@ class Aviso:
     aprobado: object = None          # registro de aprobación (normas_aprobacion) o None = pendiente
     nivel: str = "AVISO"             # ERROR / AVISO / INFO (de la regla)
     fuente: str = ""
+    lugar: tuple = None              # punto de la regla si se muestra en otro (`avisos_lugar`): identifica la aprobación
 
 
 # ─────────────────────────── medir y comparar ───────────────────────────

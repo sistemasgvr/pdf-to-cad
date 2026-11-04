@@ -1045,8 +1045,22 @@ EN: dict[str, str] = {
         "The PDF changed while its sheets were being chosen.",
     "No se pudieron incorporar los PDF:\n\n{e}":
         "The PDFs could not be added:\n\n{e}",
-    "No se pudo reconocer la hoja:\n\n{e}":
-        "The sheet could not be recognized:\n\n{e}",
+    "Pulsa una línea del PDF para identificar y resaltar su capa. Casilla = mostrar · interruptor = reconocer · ▸ = capa por capa":
+        "Click a PDF line to identify and highlight its layer. Checkbox = show · switch = recognize · ▸ = layer by layer",
+    "Clic en una capa para resaltarla y asignar su utilidad y rol abajo. También puedes pulsar una línea del PDF para seleccionar su estilo. Las casillas excluyen estilos del reconocimiento; el PDF conserva su imagen. Calibra la escala antes de importar.":
+        "Click a layer to highlight it and assign its utility and role below. You can also click a PDF line to select its style. The checkboxes exclude styles from recognition; the PDF keeps its image. Calibrate the scale before importing.",
+    "Lectura de capas interrumpida": "Layer reading interrupted",
+    "No se pudo leer la leyenda del PDF. Puedes reintentar o continuar revisando las capas.":
+        "The PDF legend could not be read. You can retry or continue reviewing the layers.",
+    "Acción interrumpida": "Action interrupted",
+    "Ocurrió un error al ejecutar la acción.": "An error occurred while running the action.",
+    "Cierra este aviso y vuelve a intentar la acción. Si se repite, comparte los detalles del error.":
+        "Close this message and try the action again. If it happens again, share the error details.",
+    "Reconocimiento interrumpido": "Recognition interrupted",
+    "No se pudo completar el reconocimiento de las capas.": "The layer recognition could not be completed.",
+    "Puedes volver a intentar esta acción o cancelar para regresar al editor.":
+        "You can try this action again or cancel to return to the editor.",
+    "Registro: {p}": "Log: {p}",
     "Reconocimiento listo, pero no hay imagen de la hoja para la vista previa.":
         "Recognition finished, but there is no sheet image for the preview.",
     "Reconocimiento cancelado — editor vacío.":
@@ -3562,8 +3576,6 @@ EN: dict[str, str] = {
         'Style layers assigned by hand: review lines and symbols before importing. The style does not tell whether a network is abandoned.',
     'Capas por estilo de trazo continuo: {n} — cada trazo del plano es el eje de la tubería, sin unir ni mover nada.':
         'Continuous-stroke style layers: {n} — each stroke of the plan is the pipe centerline, nothing joined or moved.',
-    'Clic en una capa para resaltarla y asignar su utilidad y rol abajo. Las casillas excluyen estilos del reconocimiento; el PDF conserva su imagen. Calibra la escala antes de importar.':
-        'Click a layer to highlight it and assign its utility and role below. The checkboxes exclude styles from recognition; the PDF keeps its image. Calibrate the scale before importing.',
     'Codos en el extremo de una tubería del mapa: {n} — revisa si ahí hay un buzón.':
         'Bends at the end of a map pipe: {n} — check whether there is a manhole there.',
     'Distancia real entre los dos puntos (pies):':
@@ -3747,6 +3759,8 @@ EN: dict[str, str] = {
     'Volviendo a la hoja compuesta anterior…':
         'Going back to the previous composed sheet…',
     'Cancelando…': 'Cancelling…',
+    'Vista provisional': 'Provisional preview',
+    'Preparando la revisión de esta línea…': 'Preparing the review of this line…',
     'Hoja {p} · {u} ({i} de {n}) · capa {k} de {m}': 'Sheet {p} · {u} ({i} of {n}) · layer {k} of {m}',
     'La hoja necesita más memoria de la que hay libre en el equipo. Prueba con menos hojas en la composición, menos utilidades a la vez o cerrando otros programas.':
         'The sheet needs more memory than this computer has free. Try fewer sheets in the composition, '
@@ -3829,6 +3843,18 @@ EN: dict[str, str] = {
     'Ángulo fuera del paso de 0.25°':
         'Angle off the 0.25° step',
     # Diámetro según la IA (ia/diametro_ia.py, ui/ventana/ventana_diametro_ia.py, 2026-10-29)
+    'va paralelo y pegado a ESTA línea (mapa, sin guía)':
+        'runs parallel and next to THIS line (map, no leader)',
+    'va entre esta línea y otra paralela casi igual de cerca (mapa)':
+        'sits between this line and another parallel one almost as close (map)',
+    'va pegado a OTRA tubería del mapa, más cerca que de esta':
+        'sits next to ANOTHER pipe on the map, closer than to this one',
+    'no corre paralelo a esta línea o está lejos de ella (mapa)':
+        'does not run parallel to this line or is far from it (map)',
+    'plano: mapa sin capas (los rótulos van paralelos a su tubería, sin guía)':
+        'drawing: map without layers (labels run parallel to their pipe, no leader)',
+    'es una acometida (servicio a un predio)': 'it is a service tap (service to a lot)',
+    'El rótulo {id} es de una acometida, no de esta tubería.': 'Label {id} belongs to a service tap, not to this pipe.',
     'su guía llega a ESTA línea':
         'its leader reaches THIS line',
     'su guía llega a esta línea y a otra casi igual de cerca':
@@ -3881,8 +3907,6 @@ EN: dict[str, str] = {
         'Team corrections in similar cases (take them into account):',
     'La IA no dio una respuesta que se pueda leer.':
         'The AI did not give a readable answer.',
-    'La IA eligió un rótulo que no existe ({id}).':
-        'The AI chose a label that does not exist ({id}).',
     'El rótulo {id} es de varios conductos, no el diámetro de una tubería.':
         'Label {id} is for several conduits, not the diameter of one pipe.',
     'El rótulo {id} es de otra utilidad.':
@@ -3893,36 +3917,10 @@ EN: dict[str, str] = {
         'The standards do not allow {d} for this utility.',
     'La guía del rótulo {id} llega a esta línea y a otra: no se sabe de cuál es.':
         'The leader of label {id} reaches this line and another one: it is not known which it belongs to.',
-    'La IA no está segura.':
-        'The AI is not sure.',
-    'No hay rótulos con diámetro junto a esta línea en la hoja.':
-        'There are no labels with a diameter next to this line on the sheet.',
-    'Ningún rótulo junto a esta línea puede ser suyo: son de otra utilidad, van a otra línea o son de varios conductos.':
-        'No label next to this line can be its own: they belong to another utility, go to another line or are for several conduits.',
     'Pedido detenido.':
         'Request stopped.',
-    'Las dos revisiones de la IA no eligieron el mismo rótulo.':
-        "The AI's two checks did not choose the same label.",
     'En una línea de {u} (capa {c}) la IA eligió «{r}» y el equipo dijo que NO era su diámetro.':
         'On a {u} line (layer {c}) the AI chose “{r}” and the team said it was NOT its diameter.',
-    'Vuelve a reconocer la hoja para que la IA pueda revisar esta línea.':
-        'Recognize the sheet again so the AI can check this line.',
-    'La IA puede revisar los rótulos junto a esta línea y sugerir su diámetro.':
-        'The AI can check the labels next to this line and suggest its diameter.',
-    'La IA sugiere {d}':
-        'The AI suggests {d}',
-    'confianza {c}':
-        'confidence {c}',
-    'Rótulo {id}: «{texto}»':
-        'Label {id}: “{texto}”',
-    'Usar {d}':
-        'Use {d}',
-    'La IA no encontró el diámetro de esta línea con certeza.':
-        "The AI could not find this line's diameter with certainty.",
-    'Pista: {p}':
-        'Hint: {p}',
-    'Revisando con la IA… {s} s':
-        'Checking with the AI… {s} s',
     'La IA no respondió: {e}':
         'The AI did not respond: {e}',
     'Diámetro según la IA':
@@ -3931,8 +3929,6 @@ EN: dict[str, str] = {
         "This utility's family has no {d} size: choose the size in the panel.",
     'Marcado como incorrecto: el equipo dijo que ese rótulo no es su diámetro.':
         'Marked as incorrect: the team said that label is not its diameter.',
-    'No es correcto':
-        'Not correct',
     # Diámetro del plano en el editor (nucleo/diametro_plano.py, 2026-10-22)
     'Diámetro del plano':
         'Diameter from the plan',
@@ -4574,7 +4570,6 @@ EN: dict[str, str] = {
     'Sistema de coordenadas (Huso)': 'Coordinate system (zone)',
     'Código CS-MAP (EPSG:2229 = CA83VF). Se aplica al dibujo de Civil 3D al importar.': 'CS-MAP code (EPSG:2229 = CA83VF). Applied to the Civil 3D drawing on import.',
     'Pares de puntos': 'Point pairs',
-    'Casilla = mostrar en la hoja · interruptor = reconocer · ▸ = capa por capa': 'Checkbox = show on the sheet · switch = recognize · ▸ = layer by layer',
     'Reconocer {u}': 'Recognize {u}',
     'Tramos unidos': 'Joined runs',
     'Tramos sueltos': 'Separate runs',
@@ -4609,7 +4604,6 @@ EN: dict[str, str] = {
     'Este análisis no usó imagen, o su captura original ya no está disponible.': 'This analysis did not use an image, or its original crop is no longer available.',
     'Las observaciones y la explicación del modelo son interpretaciones pendientes de revisión.': 'The model’s observations and explanation are interpretations awaiting review.',
     'Propuesta: {d}': 'Proposal: {d}',
-    'Por qué:': 'Why:',
     'Criterio:': 'Criterion:',
     'Fuente:': 'Source:',
     'Referencia:': 'Reference:',
@@ -4620,7 +4614,6 @@ EN: dict[str, str] = {
     '{n} giros': '{n} turns',
     '{n} contactos geométricos': '{n} geometric contacts',
     'Revisando con la IA': 'Reviewing with AI',
-    '{etapa}… {s} s': '{etapa}… {s} s',
     'Contexto y captura preparados': 'Context and crop prepared',
     'Contexto preparado': 'Context prepared',
     'Revisando rótulos y recorrido': 'Reviewing labels and route',
@@ -4628,19 +4621,10 @@ EN: dict[str, str] = {
     'Analizando captura y recorrido': 'Analyzing crop and route',
     'Analizando datos del plano': 'Analyzing drawing data',
     'Comprobando la propuesta': 'Checking the proposal',
-    'Propuesta para este recorrido de {l} ft, compatible con las reglas aplicables.': 'Proposal for this {l} ft route, compatible with applicable rules.',
-    'Propuesta compatible con la utilidad y las reglas aplicables.': 'Proposal compatible with the utility and applicable rules.',
     'Tipo supuesto: {tipo}.': 'Assumed type: {tipo}.',
     'Coincide con los {d}" confirmados de una línea de la misma utilidad en contacto; la conexión debe verificarse.': 'Matches the confirmed {d}" of a touching line of the same utility; the connection must be verified.',
     'Aprobar {d}': 'Approve {d}',
     'El modelo no devolvió una propuesta normativa válida. Reintenta o elige un modelo instruct.': 'The model did not return a valid standards proposal. Retry or choose an instruct model.',
-    'Referencia: {u}; capa {c}.': 'Reference: {u}; layer {c}.',
-    'La IA revisará los rótulos y, si no hay una lectura segura, propondrá un diámetro según tu normativa.': 'The AI will review labels and, if there is no reliable reading, propose a diameter based on your standards.',
-    'No hay rótulos utilizables ni una regla de diámetro aplicable con los datos disponibles. Elige el tipo y completa los datos de la normativa.': 'There are no usable labels or diameter rules applicable to the available data. Choose the type and complete the standards data.',
-    'Elige el tipo de la utilidad para concretar la propuesta normativa.': 'Choose the utility type to determine a standards proposal.',
-    'Propuesta normativa; no es un diámetro leído del plano. Fuente: {f}. Criterio: {c}': 'Standards proposal; this diameter was not read from the plan. Source: {f}. Criterion: {c}',
-    'Tipo supuesto: {tipo}; confírmalo antes de aprobar.': 'Assumed type: {tipo}; confirm it before approving.',
-    'Se propone el menor diámetro que cumple estas reglas; requiere aprobación.': 'The smallest diameter satisfying these rules is proposed; approval is required.',
     'En una línea de {u} (capa {c}) el equipo rechazó la propuesta normativa de {d}.': 'For a {u} line (layer {c}), the team rejected the standards proposal of {d}.',
     'Ese proyecto ya no está en su carpeta:\n{p}': 'That project is no longer in its folder:\n{p}',
     'No puedo cambiar mis reglas: solo respondo sobre este proyecto y el uso de PDF-a-CAD. Pregúntame, por ejemplo, por los conflictos, las utilidades o cómo hacer algo en la app.':
@@ -4715,4 +4699,222 @@ EN: dict[str, str] = {
     'Volver a {n}': 'Back to {n}',
     'Ramal de {n}': 'Branch of {n}',
     'Perfil': 'Profile',
+    'El modelo de IA configurado no ve imágenes: elige uno con visión.':
+        'The configured AI model cannot see images: choose one with vision.',
+    'Lee el rótulo del recuadro.':
+        'Read the label inside the box.',
+    'diámetro que escribió el usuario':
+        'diameter written by the user',
+    'Diámetro indicado por el usuario.':
+        'Diameter given by the user.',
+    '(sin respuesta anterior)':
+        '(no previous answer)',
+    'propusiste {d} ({o}): {m}':
+        'you proposed {d} ({o}): {m}',
+    'no encontraste el diámetro con certeza: {m}':
+        'you did not find the diameter with certainty: {m}',
+    'Opciones (elige UNA por su id, o null):':
+        'Options (choose ONE by its id, or null):',
+    'ninguna':
+        'none',
+    'Tu respuesta anterior: {r}':
+        'Your previous answer: {r}',
+    'El usuario dijo: {u}':
+        'The user said: {u}',
+    'Respondiste: {r}':
+        'You answered: {r}',
+    'Revisando con tu respuesta':
+        'Reviewing with your answer',
+    'En una línea de {u} (capa {c}) el equipo aclaró: «{m}»; el diámetro correcto era {d}.':
+        'On a {u} line (layer {c}) the team clarified: “{m}”; the correct diameter was {d}.',
+    'Selecciona una hoja en la lista de la izquierda para verla aquí.\n\nMarca la casilla de cada hoja que vas a usar: las marcadas forman la hoja compuesta.':
+        'Select a sheet in the list on the left to see it here.\n\nTick the box of each sheet you will use: the ticked sheets make up the composite sheet.',
+    'Selecciona una hoja: la hoja compuesta está vacía.\n\nMarca la casilla de una hoja en la lista o toma un área en «Área a tomar».':
+        'Select a sheet: the composite sheet is empty.\n\nTick a sheet in the list or take an area in “Area to take”.',
+    'Selecciona una hoja en la lista':
+        'Select a sheet in the list',
+    'Selecciona una hoja':
+        'Select a sheet',
+    'Ninguna hoja elegida: selecciona una en la lista.':
+        'No sheet chosen: select one in the list.',
+    'Rótulos del plano: {n}.':
+        'Plan labels: {n}.',
+    'Rótulos del plano':
+        'Plan labels',
+    'No hay rótulos ilegibles: todos los rótulos con guía de la hoja se leyeron del PDF.':
+        'There are no unreadable labels: every leader label on the sheet was read from the PDF.',
+    'Para leer los rótulos ilegibles hace falta un modelo de IA con visión (IA → Configurar IA…).':
+        'Reading unreadable labels needs an AI model with vision (AI → Configure AI…).',
+    'Leyendo rótulos con la IA…':
+        'Reading labels with the AI…',
+    'Rótulo {i} de {n}':
+        'Label {i} of {n}',
+    'La IA leyó {n} de {t} rótulos ilegibles; quedan {q} sin leer.':
+        'The AI read {n} of {t} unreadable labels; {q} remain unread.',
+    'Diámetro que indicaste en la conversación':
+        'Diameter you gave in the conversation',
+    'Leer rótulos ilegibles con la IA…':
+        'Read unreadable labels with the AI…',
+    'Aun así no estoy seguro, así que no te lo propongo.':
+        "Even so I'm not sure, so I'm not proposing it.",
+    'Con lo que me dijiste, esta es mi propuesta.':
+        'With what you told me, this is my proposal.',
+    'Continuidad con la red (líneas de la misma utilidad con diámetro confirmado):':
+        'Continuity with the network (lines of the same utility with a confirmed diameter):',
+    'Continuidad de la red':
+        'Network continuity',
+    'Del otro lado sigue con otro diámetro: el cambio está en algún nodo entre las dos.':
+        'On the other side it continues with another diameter: the change is at some node between the two.',
+    'Dime qué rótulo es el suyo, su función (principal, lateral, acometida), dónde está el dato o el diámetro, pídeme que mire una zona («revisa el membrete», «mira arriba») o pregúntame por qué propuse algo. Nada se aplica sin «Aprobar».':
+        'Tell me which label is its own, its function (main, lateral, service), where the data is or the diameter, ask me to look at a zone («check the title block», «look above») or ask me why I proposed something. Nothing is applied without “Approve”.',
+    'El rótulo {id} no va claramente pegado a esta línea y no estoy del todo seguro.':
+        "Label {id} is not clearly next to this line and I'm not fully sure.",
+    'Elegí un rótulo que no existe ({id}); lo descarto.':
+        "I chose a label that does not exist ({id}); I'm discarding it.",
+    'Elegí una opción que no existe ({id}); la descarto.':
+        "I chose an option that does not exist ({id}); I'm discarding it.",
+    'Es un ramal de una principal de {d}": no puede ser mayor.':
+        'It is a branch of a {d}" main: it cannot be larger.',
+    'Escríbeme o pregúntame…':
+        'Write to me or ask me…',
+    'Esta línea sigue de frente a {n} ({donde}), que tiene {d}" confirmados: sin un buzón o una reducción entre ellas, la tubería mantiene su diámetro.':
+        'This line continues straight into {n} ({donde}), which has a confirmed {d}": without a manhole or a reducer between them, the pipe keeps its diameter.',
+    'Las líneas {a} ({da}) y {b} ({db}) siguen de frente a los dos lados de esta con {d}" confirmados: una tubería no cambia de diámetro en un tramo sin estructura, así que esta lleva {d}".':
+        'Lines {a} ({da}) and {b} ({db}) continue straight on both sides of this one with a confirmed {d}": a pipe does not change diameter in a run without a structure, so this one is {d}".',
+    'Necesito el tipo de la utilidad para concretar una propuesta de tu normativa.':
+        'I need the utility type to make a proposal from your standards.',
+    'No encontré el diámetro de esta línea con certeza.':
+        "I couldn't find this line's diameter with certainty.",
+    'No encontré rótulos que pueda usar ni una línea vecina con diámetro confirmado, y ninguna regla de diámetro aplica con los datos que hay. Si eliges el tipo de la utilidad puedo proponerte uno.':
+        'I found no usable labels nor a neighbouring line with a confirmed diameter, and no diameter rule applies with the available data. If you choose the utility type I can propose one.',
+    'No estoy seguro de ese rótulo, así que no te lo propongo.':
+        "I'm not sure about that label, so I'm not proposing it.",
+    'No pude leer mi propia respuesta; vuelve a pedírmelo.':
+        "I couldn't read my own answer; please ask me again.",
+    'No pude responderte: {e}':
+        "I couldn't answer you: {e}",
+    'Pensando… {etapa} · {s} s':
+        'Thinking… {etapa} · {s} s',
+    'Revisé dos veces y no elegí el mismo rótulo: prefiero no proponértelo.':
+        "I checked twice and did not pick the same label: I'd rather not propose it.",
+    'Sigo sin poder asegurarte el diámetro.':
+        "I still can't confirm the diameter for you.",
+    'Te propongo este diámetro para este recorrido de {l} ft: cumple las reglas de tu normativa que aplican.':
+        'I propose this diameter for this {l} ft run: it meets the applicable rules of your standards.',
+    'Te propongo este diámetro: cumple las reglas de tu normativa para esta utilidad.':
+        "I propose this diameter: it meets your standards' rules for this utility.",
+    'Tu elección anterior: {id}':
+        'Your previous choice: {id}',
+    'Una pista: {p}':
+        'A hint: {p}',
+    'Voy a revisar los rótulos y las líneas vecinas; si no hay una lectura segura, te propongo un diámetro según la continuidad de la red y tu normativa.':
+        "I'll check the labels and the neighbouring lines; if there is no reliable reading, I'll propose a diameter based on network continuity and your standards.",
+    'Vuelve a reconocer la hoja para que pueda revisar esta línea con lo que dice el plano.':
+        'Recognize the sheet again so I can check this line against what the plan says.',
+    'a {d} ft siguiendo el trazado':
+        '{d} ft along the route',
+    'justo a continuación':
+        'right next to it',
+    'más adelante en el trazado':
+        'further along the route',
+    '… y {n} avisos más':
+        '… and {n} more warnings',
+    'Revisar con la IA':
+        'Review with the AI',
+    'Revisa las líneas vecinas':
+        'Check the neighbouring lines',
+    'Esta línea':
+        'This line',
+    'a la izquierda de la línea':
+        'to the left of the line',
+    'a la derecha de la línea':
+        'to the right of the line',
+    'arriba de la línea':
+        'above the line',
+    'abajo de la línea':
+        'below the line',
+    'el membrete':
+        'the title block',
+    'la leyenda':
+        'the legend',
+    'las notas':
+        'the notes',
+    'Lo que tengo hasta ahora: {m}':
+        'What I have so far: {m}',
+    'Zonas que puedes mirar:':
+        'Zones you can look at:',
+    'Zona que miraste: {z}':
+        'Zone you looked at: {z}',
+    'Opciones:':
+        'Options:',
+    'Lo encontré en {z}: «{x}».':
+        'I found it in {z}: «{x}».',
+    'También miré {z} y no encontré nada que valga para esta línea.':
+        'I also looked at {z} and found nothing that applies to this line.',
+    'Mirando {z}':
+        'Looking at {z}',
+    'Pensando dónde mirar':
+        'Thinking where to look',
+    'Me lo pediste.':
+        'You asked me to.',
+    'Zonas que puedes pedir en «ver»:':
+        'Zones you can request in «ver»:',
+    'Texto del plano fuera de la línea: confirma que vale para ella':
+        'Plan text away from the line: confirm that it applies to it',
+    'Miré aquí':
+        'I looked here',
+    'Miré:':
+        'I looked at:',
+    'esta línea':
+        'this line',
+    'principal':
+        'main',
+    'ramal':
+        'branch',
+    'sigue de frente':
+        'continues straight',
+    'se toca':
+        'touches',
+    '{d}" confirmados':
+        '{d}" confirmed',
+    'sin diámetro confirmado':
+        'no confirmed diameter',
+    'confirmado':
+        'confirmed',
+    'No encontré líneas de esta utilidad conectadas a esta.':
+        'I found no lines of this utility connected to this one.',
+    'Esta línea es el ramal: llega a {p}.':
+        'This line is the branch: it reaches {p}.',
+    'Los ramales que llegan a esta línea son: {r}.':
+        'The branches reaching this line are: {r}.',
+    'Aquí no hay ningún ramal. Las líneas conectadas son: {l}.':
+        'There is no branch here. The connected lines are: {l}.',
+    'La principal es {p}.':
+        'The main is {p}.',
+    'Esta línea es la principal: a ella llega {r}.':
+        'This line is the main: {r} reaches it.',
+    'La geometría no me dice cuál es la principal. Las líneas conectadas son: {l}.':
+        'The geometry does not tell me which one is the main. The connected lines are: {l}.',
+    'Las líneas conectadas a esta son: {l}.':
+        'The lines connected to this one are: {l}.',
+    'Te las señalé en el plano.':
+        'I marked them on the plan.',
+    'Líneas de esta utilidad conectadas a esta: ninguna.':
+        'Lines of this utility connected to this one: none.',
+    'Líneas de esta utilidad conectadas a esta (cítalas por su id; su papel lo midió la app):':
+        'Lines of this utility connected to this one (cite them by id; the app measured their role):',
+    'Sigue de frente, sin diámetro':
+        'Continues straight, no diameter',
+    'En el plano:':
+        'On the plan:',
+    'Aprobar en esta y {n} más':
+        'Approve here and on {n} more',
+    'También en las líneas marcadas: siguen de frente a esta, sin diámetro confirmado y sin un buzón o caja entre medio. Se deshace con Ctrl+Z.':
+        'Also on the marked lines: they continue straight from this one, with no confirmed diameter and no manhole or box in between. Ctrl+Z undoes it.',
+    '{d} en {n} líneas. Ctrl+Z lo deshace.':
+        '{d} on {n} lines. Ctrl+Z undoes it.',
+    '{n} no cambiaron: su familia no tiene ese tamaño.':
+        '{n} did not change: their family does not have that size.',
+    '¿Por qué?':
+        'Why?',
 }

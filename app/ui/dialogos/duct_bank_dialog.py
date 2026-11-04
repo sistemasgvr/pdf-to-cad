@@ -31,6 +31,7 @@ from nucleo.duct_bank import (DuctBank, Conduit, DEFAULT_SNAP_IN,
                        snap, validate, conduit_fits_envelope, conduits_overlap)
 from ui.comun import theme as _theme
 from ui.comun.icons import icon as _icon, icono_conmutable as _icono_conmutable
+from ui.comun.ui_common import fila_lista
 from traduccion.i18n import t as _tr, N_
 
 
@@ -1500,11 +1501,10 @@ class DuctBankDialog(QtWidgets.QDialog):
             n_pts = len(p.get("pts", []))
             diam = p.get("diam") or "?"
             label = f"#{i+1}  {layer}  —  {diam}\"  ({n_pts} {_vertices_word})"
-            it = QtWidgets.QListWidgetItem(label)
+            it = fila_lista(self.lst_pipes, label)
             it.setData(QtCore.Qt.UserRole, i)
             it.setFlags(it.flags() | QtCore.Qt.ItemIsUserCheckable)
             it.setCheckState(QtCore.Qt.Checked if i in cur else QtCore.Qt.Unchecked)
-            self.lst_pipes.addItem(it)
         from ui.comun.thumbnails import HoverPreview
         self._pipe_hover = HoverPreview(self.lst_pipes, self._pipe_preview)
         self._sort_pipes()                         # las ya asignadas, arriba
@@ -2463,12 +2463,11 @@ class DuctBankDialog(QtWidgets.QDialog):
                                                            n=len(d.conduits))
             if asign:
                 det += " · " + asign
-            it = QtWidgets.QListWidgetItem(_icon("mdi:circle-medium", color=t.danger), f"{nombre}\n{det}")
+            it = fila_lista(lst, f"{nombre}\n{det}", _icon("mdi:circle-medium", color=t.danger))
             it.setData(QtCore.Qt.UserRole, i)
             if i == self._actual:
                 bg = QtGui.QColor(t.accent); bg.setAlpha(36)
                 it.setBackground(bg)
-            lst.addItem(it)
 
     def _huella(self):
         try:

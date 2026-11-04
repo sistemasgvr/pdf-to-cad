@@ -12,7 +12,7 @@ from nucleo import accesorios as acc
 from nucleo.normas_validar import NOMBRE_ACC
 from traduccion.i18n import t as _tr
 from nucleo.model import Z_HANDLE
-from ui.comun.capa_marcas import sello
+from ui.comun.capa_marcas import duenas, sello
 from ui.comun.ui_common import layer_qcolor, tooltip_bloque
 
 _COLORES = {                    # (fondo, texto, borde)
@@ -162,6 +162,7 @@ def dibujar_iter(scene, accesorios, avisos, tol_px, poner=None, reusar=None, gua
             color = layer_qcolor(capa)
             it = EtiquetaAccesorio(texto, color, nivel, medidas)
             sello(it, partes=it.partes_sello())
+            duenas(it, (capa,) if capa else ())
             it.setPos(x, y)
             cajas = medidas.get(("cajas", it._pastilla.width(), it._pastilla.height()))
             if cajas is not None:                    # (misma pastilla = mismas cajas en la capa de marcas)

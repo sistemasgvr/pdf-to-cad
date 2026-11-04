@@ -29,7 +29,7 @@ class BancoductosMixin:
             nc = len(db.conduits)
             unit_c = _tr("conducto(s)")
             txt = f"{pipe_lbl}  ·  {nm}  ·  {nc} {unit_c}"
-            it = QtWidgets.QListWidgetItem(_icon("mdi:grid"), txt)
+            it = fila_lista(self.db_list, txt, _icon("mdi:grid"))
             it.setToolTip(f"{_tr('Bancoducto')} «{nm}»\n"
                           f"{_tr('Envolvente')}: {db.width_in:g}\" × {db.height_in:g}\"\n"
                           f"{_tr('Conductos')}: {nc}\n"
@@ -47,15 +47,12 @@ class BancoductosMixin:
                 # oscuro sin cambiar el color del texto.
                 bg = QtGui.QColor(t.accent); bg.setAlpha(45)
                 it.setBackground(bg)
-            self.db_list.addItem(it)
         # Estado vacío: mensaje placeholder cuando no hay filas.
         if not dbs:
-            hint = QtWidgets.QListWidgetItem(
-                _tr("Aún no hay bancoductos.\n"
-                    "Crea uno con «+ Nuevo» arriba, o click derecho en una tubería."))
+            hint = fila_lista(self.db_list, _tr("Aún no hay bancoductos.\n"
+                                                "Crea uno con «+ Nuevo» arriba, o click derecho en una tubería."))
             hint.setFlags(QtCore.Qt.NoItemFlags)   # no seleccionable
             hint.setForeground(QtGui.QColor(_theme.tokens().text_muted))
-            self.db_list.addItem(hint)
         # Restaurar selección si sigue siendo válida.
         if 0 <= self.sel_db < len(dbs):
             self.db_list.setCurrentRow(self.sel_db)
