@@ -48,7 +48,8 @@ class ClicsMixin:
         elif self.mode == "insert_bz":
             self._do_insert_manhole(x, y)
         elif self.mode == "idle":
-            self._pick(x, y)
+            if self._pick(x, y):
+                self.ver_propiedades()
 
     def _add_simple_leader(self, head, tail, orient, landing=None):
         """Coloca un Leader simple (solo flecha, sin texto) y queda listo para el siguiente.
@@ -84,6 +85,7 @@ class ClicsMixin:
         px, py = tm["pos"]; return px - 6 <= x <= px + w + 6 and py - 6 <= y <= py + th + 6
 
     def _pick(self, x, y):
+        """Elige lo que hay bajo el clic. Devuelve True si había algo."""
         thr = 10.0 / max(1e-6, self.canvas.transform().m11())
         bz_thr = 18.0 / max(1e-6, self.canvas.transform().m11())
         curve_thr = 22.0 / max(1e-6, self.canvas.transform().m11())
@@ -118,11 +120,11 @@ class ClicsMixin:
                 self._show_tab(TAB_CURVE); self.curve_list.setCurrentRow(self._curve_rows.index(best_bz))
             else:
                 self._show_tab(TAB_BZ); self.bz_list.setCurrentRow(self._bz_rows.index(best_bz))
-            self._no_center = False; return
+            self._no_center = False; return True
         for i, tm in enumerate(self.text_marks):        # textos primero (blancos pequeños)
             if self._text_hit(tm, x, y):
                 self._no_center = True; self._show_tab(TAB_TEXT); self.txt_marks_list.setCurrentRow(i)
-                self._no_center = False; return
+                self._no_center = False; return True
         for i, ld in enumerate(self.leaders):           # leaders: por la línea o el texto
             if not (ld.get("arrow") and ld.get("tp")): continue
             geo = self._leader_geo(ld); hit = False
@@ -134,7 +136,7 @@ class ClicsMixin:
             tw = max((len(t) for t in ld["text"].split("\n")), default=1) * H * 0.6; tt = ld["text"].count("\n") + 1
             if not hit and lx - 8 <= x <= lx + tw + 8 and ly - 8 <= y <= ly + tt * H + 8: hit = True
             if hit:
-                self._select_leader(i); return
+                self._select_leader(i); return True
         best_cl, bd_cl = -1, thr
         for i, c in enumerate(self.ref_centerlines):
             pts = c.get("pts") or []
@@ -143,23 +145,25 @@ class ClicsMixin:
                 if d < bd_cl: bd_cl, best_cl = d, i
         if best_cl >= 0:
             self._no_center = True; self._show_tab(TAB_CL); self.cl_list.setCurrentRow(best_cl)
-            self._no_center = False; return
+            self._no_center = False; return True
         ctrl = QtWidgets.QApplication.keyboardModifiers() & QtCore.Qt.ControlModifier
         if not ctrl:                                    # vértice de eléctrico/telecom → «Cambiar a curva»
             hv = self._vertice_bajo_clic(x, y)
             if hv is not None:
-                self._elegir_vertice(*hv); return
+                self._elegir_vertice(*hv); return True
         habia = getattr(self, "_vertice_sel", None) is not None
         self._vertice_sel = None
         best = self._pipe_at(x, y)
         if best >= 0 and ctrl:
-            self._toggle_pipe_selection(best); return
+            self._toggle_pipe_selection(best); return True
         if best >= 0:
             self._no_center = True; self._show_tab(TAB_PIPE); self.pipe_list.clearSelection(); self.pipe_list.setCurrentRow(best)
             self._no_center = False
             if habia:                                   # misma utilidad: quitar el vértice elegido
                 self._update_ui(); self._redraw()
             self._scroll_pipe_list_to(best)
+            return True
+        return False
 
     def _scroll_pipe_list_to(self, row):
         """Lleva la lista «Utilidades» hasta la fila `row` (centrada). Diferido: el

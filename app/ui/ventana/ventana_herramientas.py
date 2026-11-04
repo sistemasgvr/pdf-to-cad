@@ -234,17 +234,24 @@ class HerramientasMixin:
 
     def _ir_a_elemento(self, x, y, objeto=None, indice=-1, activar=True):
         """Lleva el lienzo a (x, y), selecciona el elemento y lo marca un momento. Con `activar`, además trae
-        la ventana al frente (desde la Vista 3D no: el foco —y su Esc— se quedan allá)."""
+        la ventana al frente (desde la Vista 3D no: el foco —y su Esc— se quedan allá) y, si eligió algo, muestra sus
+        propiedades. Sin `activar` el Asistente sigue abierto: sus enlaces llevan al plano en medio de la charla."""
+        elegido = False
         self._no_center = True
         try:
             if objeto == "pipe" and indice is not None and 0 <= indice < len(self.pipes):
                 self._show_tab(TAB_PIPE); self.pipe_list.clearSelection(); self.pipe_list.setCurrentRow(indice)
+                elegido = True
             elif objeto == "struct" and indice in getattr(self, "_bz_rows", []):
                 self._show_tab(TAB_BZ); self.bz_list.setCurrentRow(self._bz_rows.index(indice))
+                elegido = True
             elif objeto == "curve" and indice in getattr(self, "_curve_rows", []):
                 self._show_tab(TAB_CURVE); self.curve_list.setCurrentRow(self._curve_rows.index(indice))
+                elegido = True
         finally:
             self._no_center = False
+        if activar and elegido:
+            self.ver_propiedades()
         self.canvas.centerOn(x, y)
         sc = self.canvas.scene()
         pen = QtGui.QPen(QtGui.QColor(240, 170, 20), 3); pen.setCosmetic(True)

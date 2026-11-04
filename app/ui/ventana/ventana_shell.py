@@ -133,6 +133,9 @@ class ShellMixin:
         self.asistente = ventana_asistente.PanelAsistente(self)
         self.pila_derecha.addWidget(self.asistente)
         self._rdock.setWidget(self.pila_derecha)
+        for lista in (self.pipe_list, self.bz_list, self.curve_list, self.sleader_list, self.txt_marks_list,
+                      self.region_list, self.cl_list, self.db_list):
+            lista.itemClicked.connect(lambda _it: self.ver_propiedades())   # solo el clic: no al elegir por código
         from ui.ventana import ventana_inspector
         ventana_inspector.poner_cabecera(self)          # cabecera del inspector (color, nombre, acciones)
         # centro: el plano y las vistas que se abren dentro de la ventana
@@ -363,6 +366,13 @@ class ShellMixin:
                 panel.open()
             if not self._rdock.isVisible() and not (panel is not None and panel.autohide):
                 self._rdock.show()
+
+    def ver_propiedades(self):
+        """El usuario eligió algo: el panel derecho deja el Asistente y muestra sus propiedades. La conversación
+        no se pierde: sigue ahí al volver a abrirlo."""
+        pila = getattr(self, "pila_derecha", None)
+        if pila is not None and pila.currentIndex() == 1:
+            self.mostrar_asistente(False)
 
     # ───────────────────────── estado de la barra superior ─────────────────────────
     def _actualizar_barra_superior(self):
