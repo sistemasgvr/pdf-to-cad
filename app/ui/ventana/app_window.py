@@ -118,6 +118,7 @@ from ui.ventana.ventana_planos import PlanosFondoMixin, clave_planos
 from ui.ventana.ventana_capas import CapasMixin
 from ui.ventana.ventana_shell import ShellMixin
 from ui.ventana.ventana_recientes import RecientesMixin
+from ui.ventana.ventana_inicio import InicioMixin
 from ui.ventana.ventana_shell_paneles import RevisionMixin
 from ui.ventana.ventana_inventario import InventarioMixin
 from ui.ventana.ventana_pasos import PasosVivosMixin
@@ -125,7 +126,7 @@ from ui.ventana.ventana_pasos import PasosVivosMixin
 
 class Main(MenuMixin, PanelIzquierdoMixin, PanelDerechoMixin, ModosMixin, ClicsMixin, UtilidadesMixin, CatalogoMixin, SeleccionMixin, ListasMixin, MarcasMixin, DibujoMixin, ConflictosMixin, CoordsMixin, BuzonesMixin, MoverPrecisoMixin, CurvasMixin, HerramientasMixin, BancoductosMixin, EdicionBloqueMixin, InformeMixin, IAMixin, SolucionesMixin, SinAccesorioMixin, PerfilMixin, AccionesIAMixin, Vista3DMixin, Edicion3DMixin, ConflictosListaMixin, HojasEditorMixin,
            VerticesMixin, TrazoMixin, CalculoPlanoMixin, CalculoFondoMixin, EstadosPreviosMixin,
-           AgregarUtilidadMixin, PlanosFondoMixin, CapasMixin, ShellMixin, RevisionMixin, RecientesMixin, InventarioMixin, PasosVivosMixin, DiametroIAMixin, QtWidgets.QMainWindow):
+           AgregarUtilidadMixin, PlanosFondoMixin, CapasMixin, ShellMixin, RevisionMixin, RecientesMixin, InicioMixin, InventarioMixin, PasosVivosMixin, DiametroIAMixin, QtWidgets.QMainWindow):
     def __init__(self):
         super().__init__()
         self._base_title = f"Asistente C3D  (v{VERSION})"

@@ -179,6 +179,22 @@
                     </StackPanel>
                 </Border>
 
+                <!-- ASISTENTE IA (MCP): un solo botón que enciende/apaga la conexión (PDFCAD_IA) -->
+                <Border Style="{StaticResource Tarjeta}">
+                    <StackPanel>
+                        <StackPanel Orientation="Horizontal" Margin="0,0,0,4">
+                            <Border Width="4" CornerRadius="2" Background="{StaticResource brAzul}" Margin="0,1,9,1"/>
+                            <StackPanel>
+                                <TextBlock Text="ASISTENTE IA" Foreground="{StaticResource brTexto}" FontSize="12.5" FontWeight="Bold"/>
+                                <TextBlock Text="Deja que Claude o la IA de la app consulten y propongan cambios en este dibujo"
+                                           Foreground="{StaticResource brTextoTenue}" FontSize="10.5" TextWrapping="Wrap"/>
+                            </StackPanel>
+                        </StackPanel>
+                        <Button x:Name="btnAsistenteIA" Style="{StaticResource Boton}" Background="{StaticResource brAzul}"
+                                Content="Encender conexión de la IA"/>
+                    </StackPanel>
+                </Border>
+
             </StackPanel>
         </ScrollViewer>
     </Border>

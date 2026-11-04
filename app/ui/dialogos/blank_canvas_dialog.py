@@ -15,8 +15,8 @@ unidad en la que trabaja la transformación a coordenadas CAD.
 """
 from PySide6 import QtWidgets, QtCore
 
-from traduccion.i18n import t as _tr
-from ui.comun import theme as _theme, N_
+from traduccion.i18n import t as _tr, N_
+from ui.comun import theme as _theme
 
 # Tamaños de hoja en MILÍMETROS (nombre, ancho, alto) en vertical.
 HOJAS_ISO = [

@@ -1490,8 +1490,12 @@ class DuctBankDialog(QtWidgets.QDialog):
         self.lst_pipes.setHorizontalScrollBarPolicy(QtCore.Qt.ScrollBarAlwaysOff)
         _vertices_word = _tr("vértices")
         cur = set(self.scene.model.assigned())
+        from nucleo.model import network_kind
         for i, p in enumerate(self._pipes):
             if not p.get("pts"): continue
+            # Un bancoducto solo va en eléctrico y telecom (redes de conductos); una ya asignada se
+            # sigue mostrando para poder quitarla.
+            if network_kind(p.get("layer") or "") != "conduit" and i not in cur: continue
             layer = p.get("layer", "?")
             n_pts = len(p.get("pts", []))
             diam = p.get("diam") or "?"

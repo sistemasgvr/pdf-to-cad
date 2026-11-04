@@ -34,6 +34,7 @@ th     { background-color: {{card}}; color: {{text}}; }
 <tr><td bgcolor="{{card}}"><b style="color:{{accent}};font-size:{{fs_h2}}px;">5</b></td>
     <td bgcolor="{{card}}"><b>Export</b> to DXF and open it in Civil 3D with the import button.</td></tr>
 </table>
+<p>When the app opens with nothing loaded, the canvas shows the <b>start screen</b>: <b>New canvas</b>, <b>Open PDF</b> and <b>Open project</b>, and below, the <b>recent projects</b> (one click opens them). You can also drag a PDF or a project there.</p>
 
 <h2>How to use this manual</h2>
 <ul>
@@ -1135,6 +1136,21 @@ models</b> and <b>Test</b>. With <b>No AI (templates)</b> everything works as be
 export to Civil 3D?») and press <span class="key">&nbsp;Enter&nbsp;</span> or <b>Ask the AI</b>. The chapters that
 cover it appear instantly (one click opens them) and the AI answers with the steps, taken only from this manual. The
 same question again comes back instantly, saved. Without an AI configured, the chapters are the answer.</p>
+<h2>Ask the Civil 3D drawing</h2>
+<p>The Assistant's <b>Civil 3D</b> tab talks to the DWG you have open in Civil 3D (not to the app project). First, in
+Civil 3D: <b>PANEL_REDES → «Turn on AI connection»</b> (or the <b>PDFCAD_IA</b> command). The top line says whether it
+is connected (green dot, drawing name and number of networks) and which AI answers; if something is missing, an amber
+notice explains what to do and <b>Retry</b> looks for Civil 3D again. It needs your own AI (Ollama) with a model that
+uses tools.</p>
+<ul>
+<li>Ask about networks, pipes, diameters, elevations, slopes or manholes: the AI queries the drawing («Querying
+    Civil 3D: …») and answers with that data.</li>
+<li>If it proposes a change (start or end invert, layer or description) a <b>card</b> shows before → after, the
+    consequences and, in amber, the warnings. <b>Show in Civil 3D</b> zooms to the element. Nothing changes until you
+    press <b>Apply in Civil 3D</b>; <b>Discard</b> leaves it undone. Each change is undone with <b>U</b> in Civil 3D
+    and is logged next to the DWG («plan.pdfcad-ia.jsonl»).</li>
+<li>The same can be used from Claude (Code or Desktop): see <i>docs/mcp_civil3d.md</i>.</li>
+</ul>
 <h2>Diameter according to the AI</h2>
 <p>In a vector PDF with layers, when the plan does not state a pipe's diameter with certainty (<b>Diameter from the
 plan</b> warning), selecting it opens the <b>Diameter according to the AI</b> card and starts its review.

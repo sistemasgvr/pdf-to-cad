@@ -17,6 +17,12 @@ namespace Civil3DBasico
             btnCotarTuberias.Click += (s, e) => Ejecutar("COTAR_TUBERIAS");
             btnCuadroBuzones.Click += (s, e) => Ejecutar("CUADRO_BUZONES");
             btnPerfilLongitudinal.Click += (s, e) => Ejecutar("CREAR_PERFIL_RED");
+            btnAsistenteIA.Click += (s, e) =>
+            {
+                Ejecutar("PDFCAD_IA");
+                // El comando corre en cola: el texto refleja el estado que tendrá.
+                btnAsistenteIA.Content = Mcp.ComandoIA.Encendido ? "Encender conexión de la IA" : "Apagar conexión de la IA";
+            };
         }
 
         private void Ejecutar(string comando)

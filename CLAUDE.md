@@ -156,6 +156,7 @@ alcantarillado, drenaje, gas, eléctrico, telecom). Todo en **unidades imperiale
     `btn_atras` = `PREVIEW_SHEET_LAYERS` (no se llama `btn_back`: las pruebas lo prohíben). `ventana_recientes.py`
     (`RecientesMixin`, aprobado): «Recientes» en el menú Archivo/«P», lista en `%APPDATA%/pdf-to-cad/recientes.json`
     (`PDFCAD_RECIENTES` en conftest), se anota al abrir/guardar un .digproj (nunca las copias de recuperación).
+    **Pantalla de inicio** (2026-11-03, `ui/ventana/ventana_inicio.py`, `InicioMixin._armar_inicio` al final de `_build_ui`): hijo del lienzo que se ve SOLO con `canvas.pixmap_item is None` (sondeo `SONDEO_MS`; con hoja está oculto: no toca la caché de desplazamiento); tarjetas = `new_blank_canvas`/`open_pdf`/`open_project` de siempre, recientes = `ventana_recientes.leer` → `abrir_reciente`, soltar = `open_path`; márgenes por los paneles flotantes desplegados (`_inicio_tapado`) y una columna si no caben tres. Tests: `tests/test_pantalla_inicio.py`.
     **2026-10-28**: tema al instante (`theme.apply_theme`: `setStyle("Fusion")` solo la 1.ª vez —`app._pdfcad_fusion`—
     y las ventanas con `setUpdatesEnabled(False)` mientras se aplican paleta + hoja + `THEME_BUS`; 0.65 → 0.42 s,
     lo que queda es el re-pulido de Qt de ~740 widgets). Sin cambio de hoja en la barra (`_acc_hoja`) ni en «Hoja y
@@ -2872,6 +2873,15 @@ alcantarillado, drenaje, gas, eléctrico, telecom). Todo en **unidades imperiale
   1"=1'): entonces `EscalaAuto(largo)` (menor de 10/20/30/40/50/60/100… con el recorrido ≤ 24 in) y
   `FactorPlInicial ×= S/SDibujo` (las etiquetas nativas escalan con el dibujo). Con S=1 la VE era 1: perfil
   aplanado (2026-10-06).
+  **IA ↔ Civil 3D por MCP** (2026-11-03, `docs/mcp_civil3d.md`): arquitectura limpia en `proyecto1/Mcp/`
+  (Contratos + Dominio + Aplicación PUROS; Infraestructura = Civil 3D: `HiloAutoCAD` —lee en contexto de
+  aplicación con el doc bloqueado, escribe con `ExecuteInCommandContextAsync` = un paso de U—, lector con foto
+  cacheada por eventos de la Database, editor de lista cerrada, registro `<dwg>.pdfcad-ia.jsonl`, tubería
+  `\\.\pipe\pdfcad-civil3d-<pid>` CurrentUserOnly). Un solo comando/botón: `PDFCAD_IA` (encender/apagar).
+  Host MCP stdio aparte `API-CIVIL/proyecto1/PdfCadMcp` (comparte los Contratos por `Compile Include`),
+  perfiles `completo` (Claude) / `basico` (Qwen); pruebas `API-CIVIL/proyecto1/McpPruebas` (`dotnet run`).
+  Entrada de la app: `app/ia/civil3d_mcp.py` (cliente) + `civil3d_agente.py` (tool calling de Ollama; el
+  modelo nunca confirma); ventana = pestaña «Civil 3D» del Asistente (`ui/dialogos/ia_civil3d.ChatCivil3D` + `ia_civil3d_html`, estilo del chat incrustado, el usuario aplica con el botón de la tarjeta). Regla: proponer → el usuario confirma; contratos solo se AMPLÍAN.
   **Quiebres mínimos** (2026-09-30): `EnderezarQuiebres` (`ImportarRedEnderezar.cs`, antes de agrupar redes)
   quita en gravedad/conduit los vértices con giro ≤2° y ≤0.25 ft de la recta sin nada encima (buzón visible,
   caja, sólido, curva, ANCLA de un codo —vecino de un vértice curvo: mide el tubo del codo—, otra tubería a ≤1 ft,

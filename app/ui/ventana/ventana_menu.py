@@ -24,6 +24,7 @@ class MenuMixin:
         # inicial (esto necesita que self.tabs, self.gprop y self.lbl_mode existan).
         self._on_toolbox_change(self.toolbox.currentIndex())
         self._refresh_unit_labels()                # etiquetas de campo con la unidad activa
+        self._armar_inicio()                       # 2.0.0: pantalla de inicio sobre el lienzo vacío
 
     def _build_menu(self):
         mb = self.menuBar()

@@ -1,0 +1,154 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>PDF a CAD — Diagrama de funciones</title>
+<style>
+  :root {
+    --bg: #ffffff; --text: #1d2a33; --muted: #5d6b75; --line: #8a99a3;
+    --raiz: #e0662f; --rama: #5b6f7c; --modulo: #2f4352; --claro: #fff;
+    --funcion: #c3d5df; --funcion-text: #1d2a33;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg: #11161b; --text: #e6ebef; --muted: #9aa8b2; --line: #5d6b75;
+            --rama: #4d6170; --modulo: #3d5668; --funcion: #2a3a46; --funcion-text: #e6ebef; }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--text);
+         font: 14px/1.4 "Segoe UI", system-ui, -apple-system, sans-serif; }
+  .page { max-width: 1500px; margin: 0 auto; padding: 32px 24px 56px; }
+  .titulo { text-align: center; margin-bottom: 24px; }
+  .titulo h1 { margin: 0 0 4px; font-size: 22px; }
+  .titulo p { margin: 0; color: var(--muted); }
+
+  .nodo { border-radius: 4px; text-align: center; padding: 9px 12px; color: var(--claro); }
+  .nodo b { display: block; font-size: 13.5px; }
+  .nodo span { font-size: 12px; opacity: .85; }
+  .raiz { background: var(--raiz); width: 300px; }
+  .rama { background: var(--rama); width: 300px; }
+  .modulo { background: var(--modulo); min-height: 54px; display: flex; flex-direction: column; justify-content: center; }
+  .linea { width: 2px; height: 24px; background: var(--line); margin: 0 auto; }
+
+  /* ramas: espina vertical a la izquierda, cada fila de módulos cuelga de ella */
+  .seccion { position: relative; padding-left: 30px; margin-top: 8px; }
+  .seccion > .rama { position: relative; z-index: 1; }
+  .arbol { position: relative; padding-left: 30px; margin-top: 24px; }
+  .arbol::before { content: ""; position: absolute; left: 12px; top: -24px; bottom: var(--fin, 0); width: 2px; background: var(--line); }
+  .seccion > .rama::before { content: ""; position: absolute; left: -18px; top: 50%; width: 18px; height: 2px; background: var(--line); }
+  .seccion { padding-left: 0; }
+  .fila { margin-left: 30px; }
+  .seccion::before { content: ""; position: absolute; left: 12px; top: 20px; bottom: var(--fin, 0); width: 2px; background: var(--line); }
+  .fila { display: grid; gap: 18px; margin-top: 26px; margin-left: 30px; position: relative; }
+  .fila.c5 { grid-template-columns: repeat(5, 1fr); }
+  .fila.c4 { grid-template-columns: repeat(4, 1fr); }
+  .col { position: relative; padding-top: 22px; }
+  .col::before { content: ""; position: absolute; top: 0; left: -9px; right: -9px; height: 2px; background: var(--line); }
+  .col:first-child::before { left: -18px; }
+  .col:last-child::before { right: 50%; }
+  .col::after { content: ""; position: absolute; top: 0; left: 50%; width: 2px; height: 22px; background: var(--line); }
+
+  /* funciones colgando del módulo, como en el organigrama */
+  .funciones { list-style: none; margin: 0; padding: 0 0 0 24px; position: relative; }
+  .funciones::before { content: ""; position: absolute; left: 11px; top: 0; bottom: 17px; width: 2px; background: var(--line); }
+  .funciones li { position: relative; margin-top: 10px; background: var(--funcion); color: var(--funcion-text);
+                  border-radius: 4px; padding: 7px 10px; font-size: 12.5px; text-align: center; }
+  .funciones li::before { content: ""; position: absolute; left: -13px; top: 50%; width: 13px; height: 2px; background: var(--line); }
+
+  footer { margin-top: 40px; text-align: center; color: var(--muted); font-size: 12.5px; }
+
+  @media (max-width: 1100px) { .fila.c5, .fila.c4 { grid-template-columns: repeat(2, 1fr); } .col::before { display: none; } }
+  @media (max-width: 640px) { .fila.c5, .fila.c4 { grid-template-columns: 1fr; } .rama { width: auto; } }
+</style>
+</head>
+<body>
+<div class="page">
+  <div class="titulo">
+    <h1>Diagrama de funciones</h1>
+    <p>Del plano en PDF a la red de tuberías 3D en Civil 3D · agua, alcantarillado, drenaje, gas, eléctrico y telecom</p>
+  </div>
+
+  <div class="nodo raiz"><b>PDF a CAD</b><span>Versión 2.0.0</span></div>
+  <div class="arbol">
+
+  <!-- ===================== APLICACIÓN ===================== -->
+  <div class="seccion">
+    <div class="nodo rama"><b>Aplicación PDF a CAD</b><span>Programa de escritorio</span></div>
+    <div class="fila c5">
+      <div class="col"><div class="nodo modulo"><b>Utilidades</b><span>6 tipos de red</span></div><ul class="funciones"><li>Agua (a presión)</li><li>Gas (a presión)</li><li>Alcantarillado (por gravedad)</li><li>Drenaje pluvial (por gravedad)</li><li>Eléctrico (conductos)</li><li>Telecomunicaciones (conductos)</li></ul></div>
+      <div class="col"><div class="nodo modulo"><b>Inicio y proyectos</b></div><ul class="funciones"><li>Pantalla de inicio con accesos rápidos</li><li>Nuevo lienzo con tamaño de hoja y escala</li><li>Abrir PDF o proyecto (también arrastrando)</li><li>Proyectos recientes</li><li>Proyecto en un solo archivo con el PDF</li><li>Copias automáticas y recuperación</li></ul></div>
+      <div class="col"><div class="nodo modulo"><b>Interfaz y navegación</b></div><ul class="funciones"><li>Zoom nítido con la calidad del PDF</li><li>Buscar y ejecutar comandos (Ctrl + K)</li><li>Paneles que se ocultan solos</li><li>Tema claro / oscuro</li><li>Español e inglés al instante</li><li>Barras de avance en procesos largos</li></ul></div>
+      <div class="col"><div class="nodo modulo"><b>Digitalización de la hoja</b><span>Componer hoja</span></div><ul class="funciones"><li>Elegir hojas del PDF</li><li>Área sugerida automáticamente</li><li>Unir hojas con costuras exactas</li><li>Composición sugerida de todo el juego</li><li>Esquinas libres y bordes fundidos</li><li>Hojas giradas y escalas distintas</li></ul></div>
+      <div class="col"><div class="nodo modulo"><b>Planos escaneados</b></div><ul class="funciones"><li>Recortar con cuatro esquinas</li><li>Regla y transportador para alinear</li><li>Enderezar y medir</li><li>Calibrar la escala</li><li>Unir hojas escaneadas</li></ul></div>
+    </div>
+    <div class="fila c5">
+      <div class="col"><div class="nodo modulo"><b>Capas y leyenda del plano</b></div><ul class="funciones"><li>Capas del PDF agrupadas por utilidad</li><li>Mostrar u ocultar capas</li><li>Lectura de la leyenda del plano</li><li>Utilidad por las letras de la línea</li><li>Mapas sin capas: estilos por utilidad</li></ul></div>
+      <div class="col"><div class="nodo modulo"><b>Reconocimiento automático</b></div><ul class="funciones"><li>Líneas de las 6 utilidades</li><li>Buzones, cajas y bóvedas con medidas</li><li>Curvas, quiebres, uniones y cortes</li><li>Tuberías abandonadas</li><li>Diámetros y materiales de rótulos y perfiles</li><li>Acometidas (servicios domiciliarios)</li><li>Diámetro dudoso o sin dato: aviso, nunca inventado</li><li>Vista previa con puntos para verificar</li></ul></div>
+      <div class="col"><div class="nodo modulo"><b>Agregar utilidad y capas</b></div><ul class="funciones"><li>Sumar otra utilidad desde otro PDF</li><li>Ubicación automática sobre el mismo mapa</li><li>Encender / apagar cada utilidad</li><li>Encender / apagar cada plano de fondo</li><li>Minimapa y marcas de las hojas</li></ul></div>
+      <div class="col"><div class="nodo modulo"><b>Dibujo de utilidades</b></div><ul class="funciones"><li>Trazar utilidades clic a clic</li><li>Imán a la tinta del plano</li><li>Ángulos en pasos de 0.25°</li><li>Mover y editar vértices</li><li>Convertir un vértice en curva</li><li>Opacidad y fondo del PDF</li></ul></div>
+      <div class="col"><div class="nodo modulo"><b>Centerlines</b></div><ul class="funciones"><li>Trazar el eje de una calle</li><li>Códigos CL-1, CL-2…</li><li>Lista propia en el inventario</li><li>Apoyo para georreferenciar</li><li>Capa REF_CENTERLINES en el DXF</li></ul></div>
+    </div>
+    <div class="fila c5">
+      <div class="col"><div class="nodo modulo"><b>Anotaciones</b></div><ul class="funciones"><li>Leader (flecha)</li><li>Texto libre</li><li>Borrar zona del plano exportado</li><li>Editar, mover y eliminar</li></ul></div>
+      <div class="col"><div class="nodo modulo"><b>Buzones, cajas y sólidos</b></div><ul class="funciones"><li>Buzones automáticos en gravedad</li><li>Cajas donde el plano tiene bóveda</li><li>Insertar buzón en una línea</li><li>Ocultar buzón inexistente</li><li>Sólidos con largo, ancho y altura</li></ul></div>
+      <div class="col"><div class="nodo modulo"><b>Curvas</b></div><ul class="funciones"><li>Codos leídos del plano</li><li>Quiebres convertidos en curva</li><li>Radio automático o manual</li><li>Una curva en chaflanes</li></ul></div>
+      <div class="col"><div class="nodo modulo"><b>Accesorios</b><span>Redes a presión: agua y gas</span></div><ul class="funciones"><li>Codo (ángulo en pasos estándar)</li><li>Codo por cambio de pendiente</li><li>Tee (ramal a 90°)</li><li>Wye (ramal en ángulo)</li><li>Cruz (4 tuberías, también en X)</li><li>T domiciliaria</li><li>Reducción (cambio de diámetro)</li><li>Codo reductor</li><li>Conexión vertical: codos 90°, Tee o Wye</li><li>Marcar «aquí no va accesorio»</li></ul></div>
+      <div class="col"><div class="nodo modulo"><b>Datos de la utilidad</b></div><ul class="funciones"><li>Tipo, familia y tamaño de Civil 3D</li><li>Diámetro y material</li><li>Cotas por tramo y pendiente</li><li>Tipo y amperaje (eléctrico)</li><li>Nombre de red (por defecto o propio)</li><li>Diámetros sin familia y personalizados</li><li>Abandonada</li><li>Datos extendidos y campos propios</li><li>Agregar tamaños al catálogo (+)</li></ul></div>
+    </div>
+    <div class="fila c5">
+      <div class="col"><div class="nodo modulo"><b>Inventario y edición masiva</b></div><ul class="funciones"><li>Listas de utilidades, buzones, curvas…</li><li>Unir utilidades seleccionadas</li><li>Editar varias a la vez</li><li>Copiar y pegar propiedades</li><li>Ir al elemento en el plano</li></ul></div>
+      <div class="col"><div class="nodo modulo"><b>Duct Bank</b></div><ul class="funciones"><li>Diseñador visual de la sección</li><li>Conductos con validación de reglas</li><li>Un diseño para varias tuberías</li><li>Sólido 3D en Civil 3D</li></ul></div>
+      <div class="col"><div class="nodo modulo"><b>Georreferenciación</b></div><ul class="funciones"><li>Buscar dirección y descargar mapa</li><li>Puntos de control plano ↔ mapa</li><li>Ajuste sin deformar y error (RMSE)</li><li>Sistema de coordenadas (Huso)</li></ul></div>
+      <div class="col"><div class="nodo modulo"><b>Normativas</b></div><ul class="funciones"><li>Reglas por utilidad y tipo</li><li>Diámetros, materiales y accesorios</li><li>Separaciones, pendientes y radios</li><li>Editables en la app o en Excel</li><li>Avisos sobre el plano y aprobación</li></ul></div>
+      <div class="col"><div class="nodo modulo"><b>Conflictos</b></div><ul class="funciones"><li>Cruces, choques y escalones</li><li>Señales de colores en uniones</li><li>Numerados C-1, C-2… fijos</li><li>Conexiones verticales</li><li>Marcar «aquí no va accesorio»</li><li>Soluciones probadas antes de aplicar</li></ul></div>
+    </div>
+    <div class="fila c5">
+      <div class="col"><div class="nodo modulo"><b>Revisar y limpiar</b></div><ul class="funciones"><li>Tramos diminutos</li><li>Puntas casi unidas</li><li>Utilidades repetidas o muy cortas</li><li>Revisión automática al exportar</li></ul></div>
+      <div class="col"><div class="nodo modulo"><b>Vista 3D</b></div><ul class="funciones"><li>Red 3D sin exportar</li><li>Accesorios, buzones y bancoductos</li><li>Ficha y edición de cotas y diámetros</li><li>Resolver conflictos en 3D</li><li>Ángulos y pendientes por tramo</li><li>Abandonadas a trazos</li><li>Cubo de vistas y navegación tipo Civil 3D</li></ul></div>
+      <div class="col"><div class="nodo modulo"><b>Perfil longitudinal</b></div><ul class="funciones"><li>Recorrido de un tramo con un clic</li><li>Rótulos, cruces y recubrimiento</li><li>Alertas en el perfil</li><li>Editar cotas arrastrando</li><li>Ramales y perfiles guardados</li></ul></div>
+      <div class="col"><div class="nodo modulo"><b>Tabla de datos</b></div><ul class="funciones"><li>Todo el proyecto en tablas</li><li>Buscar, filtrar y ordenar</li><li>Exportar a Excel</li><li>Editar en Excel y reimportar</li></ul></div>
+      <div class="col"><div class="nodo modulo"><b>Informe automático</b></div><ul class="funciones"><li>Word con conflictos y avisos por zona</li><li>Capturas 2D y 3D</li><li>Redacción asistida por IA</li><li>En segundo plano sin detener el trabajo</li></ul></div>
+    </div>
+    <div class="fila c4">
+      <div class="col"><div class="nodo modulo"><b>Asistente IA</b></div><ul class="funciones"><li>Preguntas sobre el proyecto</li><li>Ayuda con el manual de usuario</li><li>Órdenes con confirmación</li><li>Explicación de normativas</li><li>Sugerencias de diámetro</li><li>Chat con el dibujo de Civil 3D</li><li>Responde solo sobre el proyecto</li><li>Aprende de las correcciones del equipo</li><li>Pasar a producción lo aprendido</li></ul></div>
+      <div class="col"><div class="nodo modulo"><b>Exportación a Civil 3D</b></div><ul class="funciones"><li>DXF con toda la red y sus datos</li><li>Qué incluir: todo, anotaciones o PDF</li><li>Versión 2025–2027 e idioma</li><li>Reusa el plano ya digitalizado</li><li>Familias personalizadas</li></ul></div>
+      <div class="col"><div class="nodo modulo"><b>Ajustes y ayuda</b></div><ul class="funciones"><li>Instalar / desinstalar familias personalizadas</li><li>Configurar la IA</li><li>Atajos de teclado</li><li>Manual de usuario</li></ul></div>
+    </div>
+  </div>
+
+  <!-- ===================== PLUGIN ===================== -->
+  <div class="seccion" style="margin-top:40px">
+    <div class="nodo rama" style="background:var(--raiz)"><b>Plugin Civil 3D</b><span>Panel «Redes de Tuberías»</span></div>
+    <div class="fila c5">
+      <div class="col"><div class="nodo modulo"><b>Preparar familias</b><span>Familias personalizadas</span></div><ul class="funciones"><li>Regenera el catálogo</li><li>Añade familias a la lista de piezas</li></ul></div>
+      <div class="col"><div class="nodo modulo"><b>Importar red desde DXF</b><span>Importar red</span></div><ul class="funciones"><li>Redes de gravedad y presión</li><li>Buzones, cajas y sólidos</li><li>Codos, Tee, Wye y cruces</li><li>Curvas y bancoductos</li><li>Capa por utilidad</li><li>Tuberías nombradas por red</li><li>Property Sets en tuberías, estructuras, sólidos y accesorios</li><li>Abandonadas a trazos en 3D</li><li>Coordenadas y perfiles guardados</li></ul></div>
+      <div class="col"><div class="nodo modulo"><b>Agregar tubería curva</b><span>Elemento curvo</span></div><ul class="funciones"><li>Curva tangente en la esquina</li><li>Bancos de ductos</li></ul></div>
+      <div class="col"><div class="nodo modulo"><b>Exportar tuberías a Excel</b><span>Property Sets</span></div><ul class="funciones"><li>Excel intermedio por tubería</li><li>Datos a completar</li></ul></div>
+      <div class="col"><div class="nodo modulo"><b>Importar Property Sets</b><span>Property Sets</span></div><ul class="funciones"><li>Asigna los datos del Excel</li><li>Sin duplicar al repetir</li></ul></div>
+    </div>
+    <div class="fila c4">
+      <div class="col"><div class="nodo modulo"><b>Agregar etiquetas</b><span>Anotaciones</span></div><ul class="funciones"><li>Etiquetas de tubería y buzón</li><li>Sentido de flujo</li></ul></div>
+      <div class="col"><div class="nodo modulo"><b>Generar cuadros resumen</b><span>Anotaciones</span></div><ul class="funciones"><li>Cuadros resumen de la red</li></ul></div>
+      <div class="col"><div class="nodo modulo"><b>Generar perfil longitudinal</b><span>Perfil longitudinal</span></div><ul class="funciones"><li>Eje y terreno</li><li>Tuberías y cruces</li><li>Rótulos nativos</li></ul></div>
+      <div class="col"><div class="nodo modulo"><b>Encender conexión de la IA</b><span>Asistente IA</span></div><ul class="funciones"><li>Consultas desde la app o Claude</li><li>Cambios con confirmación</li><li>Registro de cada cambio</li></ul></div>
+    </div>
+  </div>
+  </div>
+  <script>
+    // la espina vertical de cada rama termina en la barra de su última fila
+    function espinas() {
+      const a = document.querySelector(".arbol"), r = a.querySelectorAll(":scope > .seccion > .rama");
+      const ult = r[r.length - 1];
+      a.style.setProperty("--fin", (a.offsetHeight - (ult.parentElement.offsetTop + ult.offsetTop + ult.offsetHeight / 2)) + "px");
+      document.querySelectorAll(".seccion").forEach(s => {
+        const filas = s.querySelectorAll(".fila");
+        const ultima = filas[filas.length - 1];
+        s.style.setProperty("--fin", (s.offsetHeight - ultima.offsetTop) + "px");
+      });
+    }
+    addEventListener("load", espinas); addEventListener("resize", espinas);
+  </script>
+  <footer>PDF a CAD · documento de alto nivel para clientes e interesados</footer>
+</div>
+</body>
+</html>

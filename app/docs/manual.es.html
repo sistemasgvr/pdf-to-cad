@@ -34,6 +34,7 @@ th     { background-color: {{card}}; color: {{text}}; }
 <tr><td bgcolor="{{card}}"><b style="color:{{accent}};font-size:{{fs_h2}}px;">5</b></td>
     <td bgcolor="{{card}}"><b>Exportar</b> a DXF y abrirlo en Civil 3D con el botón de importar.</td></tr>
 </table>
+<p>Al abrir la app sin nada cargado, el lienzo muestra la <b>pantalla de inicio</b>: <b>Nuevo lienzo</b>, <b>Abrir PDF</b> y <b>Abrir proyecto</b>, y debajo los <b>proyectos recientes</b> (un clic para abrirlos). También puedes arrastrar ahí un PDF o un proyecto.</p>
 
 <h2>Cómo usar este manual</h2>
 <ul>
@@ -1130,6 +1131,21 @@ números siempre los pone la app y, si la IA escribe una cifra que no está en l
 Civil 3D?») y pulsa <span class="key">&nbsp;Enter&nbsp;</span> o <b>Preguntar a la IA</b>. Al instante salen los
 capítulos que hablan de eso (un clic los abre) y la IA responde con los pasos, sacados solo de este manual. La misma
 pregunta otra vez sale al momento, guardada. Sin IA configurada, los capítulos son la respuesta.</p>
+<h2>Preguntarle al dibujo de Civil 3D</h2>
+<p>La pestaña <b>Civil 3D</b> del Asistente conversa con el DWG que tienes abierto en Civil 3D (no con el proyecto de
+la app). Antes, en Civil 3D: <b>PANEL_REDES → «Encender conexión de la IA»</b> (o el comando <b>PDFCAD_IA</b>). La
+línea de arriba dice si está conectado (punto verde, nombre del dibujo y número de redes) y qué IA responde; si falta
+algo, un aviso ámbar explica qué hacer y <b>Reintentar</b> vuelve a buscar Civil 3D. Necesita la IA propia (Ollama)
+con un modelo que use herramientas.</p>
+<ul>
+<li>Pregunta por redes, tuberías, diámetros, cotas, pendientes o buzones: la IA consulta el dibujo («Consultando
+    Civil 3D: …») y responde con esos datos.</li>
+<li>Si propone un cambio (rasante de inicio o fin, capa o descripción) aparece una <b>tarjeta</b> con el antes →
+    después, las consecuencias y, en ámbar, las advertencias. <b>Ver en Civil 3D</b> encuadra el elemento. Nada
+    cambia hasta que pulsas <b>Aplicar en Civil 3D</b>; <b>Descartar</b> la deja sin hacer. Cada cambio se deshace
+    con <b>U</b> en Civil 3D y queda anotado junto al DWG («plano.pdfcad-ia.jsonl»).</li>
+<li>Lo mismo se puede usar desde Claude (Code o Desktop): ver <i>docs/mcp_civil3d.md</i>.</li>
+</ul>
 <h2>Diámetro según la IA</h2>
 <p>En un PDF vectorial con capas, cuando el plano no dice con certeza el diámetro de una tubería (aviso
 <b>Diámetro del plano</b>), al elegirla aparece la tarjeta <b>Diámetro según la IA</b> y comienza su revisión.

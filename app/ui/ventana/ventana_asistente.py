@@ -12,7 +12,7 @@ Cada pestaña se crea la primera vez que se abre. Las funciones de siempre (`abr
 from ui.ventana.ventana_comun import *  # noqa: F401,F403
 from ui.comun import rediseno as R
 
-PESTANAS = ["chat", "conflictos"]
+PESTANAS = ["chat", "conflictos", "civil3d"]
 
 
 class PanelAsistente(QtWidgets.QWidget):
@@ -35,7 +35,7 @@ class PanelAsistente(QtWidgets.QWidget):
         sl.setContentsMargins(3, 3, 3, 3)
         sl.setSpacing(2)
         self.grupo = QtWidgets.QButtonGroup(self)
-        for i, clave in enumerate(("Chat", "Conflictos")):
+        for i, clave in enumerate(("Chat", "Conflictos", "Civil 3D")):
             b = QtWidgets.QPushButton()
             _bind(b, "setText", clave)
             b.setProperty("kind", "seg")
@@ -89,6 +89,14 @@ class PanelAsistente(QtWidgets.QWidget):
             dlg = self.win._dlg_soluciones = SolucionesDialog(self.win)
         self._poner("conflictos", dlg)
         return dlg
+
+    def civil3d(self):
+        from ui.dialogos.ia_civil3d import ChatCivil3D
+        w = getattr(self.win, "_ia_civil3d", None)
+        if w is None:
+            w = self.win._ia_civil3d = ChatCivil3D(self.win)
+        self._poner("civil3d", w)
+        return w
 
     def preparar(self, pestana=None):
         """Muestra la pestaña pedida (o la que estaba) creando su contenido si hace falta."""

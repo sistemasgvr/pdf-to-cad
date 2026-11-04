@@ -1,0 +1,18 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- Arnés de pruebas del MCP: Contratos + Dominio + Aplicación + servidor de la tubería (todo PURO,
+       sin Autodesk) con dobles en memoria, y una prueba de punta a punta que lanza PdfCadMcp.exe.
+       Fuera de proyecto1/ para que el glob del plugin no lo compile.  dotnet run -c Release -->
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net8.0</TargetFramework>
+    <ImplicitUsings>disable</ImplicitUsings>
+    <Nullable>disable</Nullable>
+    <LangVersion>latest</LangVersion>
+  </PropertyGroup>
+  <ItemGroup>
+    <Compile Include="..\proyecto1\Mcp\Contratos\*.cs" LinkBase="Contratos" />
+    <Compile Include="..\proyecto1\Mcp\Dominio\*.cs" LinkBase="Dominio" />
+    <Compile Include="..\proyecto1\Mcp\Aplicacion\*.cs" LinkBase="Aplicacion" />
+    <Compile Include="..\proyecto1\Mcp\Infraestructura\ServidorTuberia.cs" Link="Infraestructura\ServidorTuberia.cs" />
+  </ItemGroup>
+</Project>
