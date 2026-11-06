@@ -6,6 +6,7 @@ A partir de un `perfil_recorrido.Recorrido` arma lo que se dibuja, con las MISMA
 - fila de tramos (H.4): rachas con el mismo diámetro, material y estado (y en gravedad la misma pendiente);
 - nodos (H.3): estructura de gravedad (STA · nombre · RIM · INV IN · INV OUT), accesorio (codo/tee/wye/cruz),
   reducción, deflexión de presión ≥1°, quiebre de conduit ≥2°, punta libre (END OF);
+- válvulas (2026-11-05): las del proyecto sobre el recorrido, con su largo y su rótulo (H.3, como en el plugin);
 - cruces (C.7): utilidades que cortan el recorrido a ≥15°, lejos de sus nodos, con el claro entre paredes;
 - terreno: la tapa (RIM) de las estructuras del recorrido (la app no tiene superficie);
 - escalas (F.3): `escala_auto` (horizontal), `elegir_v` (vertical) e `intervalos` de la rejilla.
@@ -78,6 +79,17 @@ class Cruce:
 
 
 @dataclass
+class Valvula:
+    e: float
+    z_solera: float
+    alto_ft: float
+    diam_in: float
+    largo_ft: float
+    paso: int
+    lineas: list
+
+
+@dataclass
 class Celda:
     e0: float
     e1: float
@@ -102,6 +114,7 @@ class Perfil:
     v: float
     intervalos: tuple          # (cota mayor, cota menor, estación mayor, estación menor)
     titulo: list
+    valvulas: list = field(default_factory=list)
 
 
 # ---------------------------------------------------------------- escalas (F.3)
@@ -136,8 +149,9 @@ def intervalos(s, v):
 
 # ---------------------------------------------------------------- armado
 
-def armar(pipes, structures, accs, rec, ft, numero=1, v=None):
-    """`accs` = accesorios del plano (`Main._accs_todos`, o []); `v` = escala vertical forzada (None = auto)."""
+def armar(pipes, structures, accs, rec, ft, numero=1, v=None, valvulas=()):
+    """`accs` = accesorios del plano (`Main._accs_todos`, o []); `v` = escala vertical forzada (None = auto);
+    `valvulas` = las válvulas ubicadas del proyecto (dicts de `nucleo/valvulas.Lugar`)."""
     g = rec.grafo
     tol = PR.TOL_FT / ft if ft else 3.0
     pasos = _pasos(pipes, rec, ft)
@@ -158,7 +172,36 @@ def armar(pipes, structures, accs, rec, ft, numero=1, v=None):
     vv = v or elegir_v(s)
     return Perfil(g.tipo, g.red, pasos, nodos, cruces, celdas, terreno, e_ini, e_fin,
                   min(zs) if zs else 0.0, max(zs) if zs else 1.0, d_pred, s, vv, intervalos(s, vv),
-                  T.lineas_titulo(numero, d_pred, g.tipo, g.red, s, vv))
+                  T.lineas_titulo(numero, d_pred, g.tipo, g.red, s, vv), _valvulas(pasos, valvulas, ft))
+
+
+def _valvulas(pasos, valvulas, ft):
+    """Válvulas del proyecto que caen sobre un paso del recorrido (su utilidad y su tramo, el centro sobre el
+    paso), con la estación y la solera de ese punto. En orden de estación."""
+    out = []
+    for v in valvulas or ():
+        for i, p in enumerate(pasos):
+            if p.pipe != v.get("pipe") or p.tramo != v.get("tramo"):
+                continue
+            ax, ay = p.p0
+            bx, by = p.p1
+            dx, dy = bx - ax, by - ay
+            L2 = dx * dx + dy * dy
+            if L2 <= 0:
+                continue
+            t = ((v["x"] - ax) * dx + (v["y"] - ay) * dy) / L2
+            if t < -1e-6 or t > 1 + 1e-6:
+                continue
+            if math.hypot(ax + dx * t - v["x"], ay + dy * t - v["y"]) * (ft or 1.0) > 0.1:
+                continue
+            e = p.e0 + (p.e1 - p.e0) * t
+            z = p.z0 + (p.z1 - p.z0) * t
+            d = float(v.get("diam_in") or p.diam_in)
+            engranes = (v.get("bloque") or "").endswith("_GEAR")
+            out.append(Valvula(e, z, p.alto_ft, d, float(v.get("largo_ft") or 0.0), i,
+                               T.lineas_valvula(e, d, v.get("union") or "FLG", engranes, z + p.alto_ft)))
+            break
+    return sorted(out, key=lambda x: x.e)
 
 
 def _pasos(pipes, rec, ft):

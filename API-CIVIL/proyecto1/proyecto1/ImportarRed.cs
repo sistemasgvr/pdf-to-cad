@@ -111,6 +111,7 @@ namespace Civil3DBasico
             var perfilesApp = new List<(Point2d Semilla, Point2d? Fin, string Nombre)>();   // PDFCAD_PERFIL (perfiles guardados en la app)
             string csCode = "";        // sistema de coordenadas (Huso) pedido desde Python (PDFCAD_META)
             ComandosPresion.SinAccesorio.Clear();   // «no hay accesorio» de la app (PDFCAD_SIN_ACCESORIO)
+            var valvulasApp = new List<ImportValvula>();   // PDFCAD_VALVULA (válvulas puestas en la app)
 
             using (Transaction trScan = db.TransactionManager.StartTransaction())
             {
@@ -279,6 +280,12 @@ namespace Civil3DBasico
                         ComandosPresion.SinAccesorio.Add(new Point2d(ptSa.Position.X, ptSa.Position.Y));
                         Dbg("XDATA_SIN_ACCESORIO", ("tipo", XdStr(xd, "TIPO", "")),
                             ("x", ptSa.Position.X.ToString("F3")), ("y", ptSa.Position.Y.ToString("F3")));
+                    }
+                    else if (marker == "PDFCAD_VALVULA" && ent is DBPoint ptVa)
+                    {
+                        valvulasApp.Add(LeerValvula(ptVa, xd));
+                        Dbg("XDATA_VALVULA", ("bloque", XdStr(xd, "BLOQUE", "")), ("pipe_idx", XdStr(xd, "PIPE_IDX", "")),
+                            ("x", ptVa.Position.X.ToString("F3")), ("y", ptVa.Position.Y.ToString("F3")));
                     }
                     else if (marker == "PDFCAD_META")
                     {
@@ -1129,6 +1136,10 @@ namespace Civil3DBasico
                     }
                 }
             }
+
+            // ── 5f-bis. Válvulas de la app: parte su tubería y las dibuja como sólidos ──
+            //        (antes de 5g/5h/5i: los tubos partidos reciben capa, datos y nombre como los demás)
+            CrearValvulas(ed, db, redesConOrigen, valvulasApp);
 
             // ── 5g. Cada pieza en la CAPA de su utilidad (ELECTRICO, TELECOM…) ──
             //        Al final: las conexiones verticales (5f) también agregan tuberías.
@@ -4340,7 +4351,7 @@ namespace Civil3DBasico
             {
                 if (tv.TypeCode != 1000) continue;
                 string s = tv.Value?.ToString() ?? "";
-                if (s == "PDFCAD_PIPE" || s == "PDFCAD_STRUCT" || s == "PDFCAD_CURVE" || s == "PDFCAD_META" || s == "PDFCAD_DUCTBANK" || s == "PDFCAD_CROSS_CONNECT" || s == "PDFCAD_SIN_ACCESORIO" || s == "PDFCAD_PERFIL")
+                if (s == "PDFCAD_PIPE" || s == "PDFCAD_STRUCT" || s == "PDFCAD_CURVE" || s == "PDFCAD_META" || s == "PDFCAD_DUCTBANK" || s == "PDFCAD_CROSS_CONNECT" || s == "PDFCAD_SIN_ACCESORIO" || s == "PDFCAD_PERFIL" || s == "PDFCAD_VALVULA")
                 { dict["_MARKER"] = s; continue; }
                 int eq = s.IndexOf('=');
                 if (eq > 0) dict[s.Substring(0, eq)] = s.Substring(eq + 1);

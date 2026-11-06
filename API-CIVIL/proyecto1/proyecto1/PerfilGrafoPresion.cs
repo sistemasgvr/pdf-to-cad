@@ -111,6 +111,8 @@ namespace Civil3DBasico
                     DiamPrincipalIn = PerfilTextos.Num(d, "DIAM_PRINCIPAL_IN"), DiamRamalIn = PerfilTextos.Num(d, "DIAM_RAMAL_IN"),
                     MaterialXData = PerfilTextos.Txt(d, "MATERIAL"), RedXData = PerfilTextos.Txt(d, "RED"),
                     LargoTotalFt = PerfilTextos.Num(d, "LARGO_TOTAL_FT"),
+                    UnionXData = PerfilTextos.Txt(d, "UNION"),
+                    EngranesXData = PerfilTextos.Txt(d, "BLOQUE").EndsWith("_GEAR", StringComparison.OrdinalIgnoreCase),
                 };
                 red.Nodos.Add(n); nodoDeAcc[accId] = n.Id;
             }
@@ -153,6 +155,7 @@ namespace Civil3DBasico
                 case "TEE": return TipoAccesorio.Tee;
                 case "WYE": return TipoAccesorio.Wye;
                 case "CROSS": return TipoAccesorio.Cruz;
+                case "VALVE": return TipoAccesorio.Valvula;      // válvula de compuerta (ImportarRedValvulas)
                 default: return TipoAccesorio.Ninguno;
             }
         }

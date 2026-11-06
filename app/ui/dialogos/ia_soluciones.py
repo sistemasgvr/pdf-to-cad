@@ -4,6 +4,7 @@ la app calculó y PROBÓ en una copia del proyecto (`ventana_soluciones`), la re
 volver al plano. La explicación queda guardada en la memoria del proyecto (no se vuelve a pedir)."""
 from __future__ import annotations
 
+from ia import reporte_error as RE
 import html
 import threading
 
@@ -438,9 +439,10 @@ class SolucionesDialog(QtWidgets.QDialog):
             try:
                 r = soluciones_ia.recomendar(prov, ficha, props, mem,
                                              al_texto=lambda s: self._senales.trozo.emit(pedido, s))
-            except P.ErrorIA as e:
+            except Exception as e:                       # noqa: BLE001 (ErrorIA o lo que sea: la de la app)
                 rec, txt = soluciones_ia.plantilla(ficha, props)
-                r = (rec, txt, _tr("La IA no respondió ({e}): recomendación de la app.").format(e=e))
+                r = (rec, txt, _tr("La IA no respondió ({e}): recomendación de la app.").format(
+                    e=RE.texto_corto(RE.armar(e, "Resolver conflictos"))))
             self._senales.listo.emit(pedido, r)
         threading.Thread(target=correr, name="pdfcad-ia-soluciones", daemon=True).start()
 

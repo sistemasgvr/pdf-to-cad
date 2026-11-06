@@ -9,7 +9,7 @@ resumido») el detalle arranca plegado.
 """
 from __future__ import annotations
 
-from PySide6 import QtCore, QtWidgets
+from PySide6 import QtCore, QtGui, QtWidgets
 
 from nucleo import limpieza
 from traduccion.i18n import N_, t as _tr
@@ -37,6 +37,15 @@ _RESUMEN = {
 _ROL = QtCore.Qt.UserRole
 _ICONOS = {"punta": "mdi:link-variant", "tramo": "mdi:vector-polyline", "corta": "mdi:ruler",
            "duplicada": "mdi:content-copy"}
+
+
+def _ancho_para_texto(btn):
+    """Ancho mínimo para que el texto entre ENTERO: el botón principal va en negrita (QSS `:default`,
+    peso 600) y Qt lo medía con la letra normal → «Arreglar y exporta» cortado."""
+    f = QtGui.QFont(btn.font())
+    f.setWeight(QtGui.QFont.DemiBold)
+    texto = btn.text().replace("&", "")
+    btn.setMinimumWidth(QtGui.QFontMetrics(f).horizontalAdvance(texto) + 2 * 14 + 12)
 
 
 class LimpiezaDialog(QtWidgets.QDialog):
@@ -134,6 +143,8 @@ class LimpiezaDialog(QtWidgets.QDialog):
             c = bb.addButton(_tr("Cerrar"), QtWidgets.QDialogButtonBox.RejectRole)
         c.setMinimumHeight(36); c.setProperty("secondary", True)
         self.btn_ok.setDefault(True); self.btn_ok.setMinimumHeight(36)
+        for btn in bb.buttons():
+            _ancho_para_texto(btn)
         bb.accepted.connect(lambda: self._cerrar("arreglar"))
         bb.rejected.connect(self.reject)
         lay.addWidget(bb)

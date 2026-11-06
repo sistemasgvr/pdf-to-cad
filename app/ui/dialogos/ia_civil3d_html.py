@@ -22,9 +22,28 @@ PASOS = {"estado": N_("estado del dibujo"), "resumen_modelo": N_("resumen de red
          "buscar_tuberias": N_("buscar tuberías"), "buscar_estructuras": N_("buscar estructuras"),
          "buscar_textos": N_("leer textos"),
          "detalle_elemento": N_("detalle de un elemento"), "ir_a": N_("encuadrar"),
-         "proponer_cambio": N_("preparar un cambio"), "historial": N_("historial de cambios")}
+         "proponer_cambio": N_("preparar un cambio"), "historial": N_("historial de cambios"),
+         "buscar_conflictos": N_("buscar choques entre tuberías"), "proponer_solucion": N_("preparar una solución"),
+         "revisar_normativas": N_("revisar las normativas"), "datos_red": N_("leer las redes"),
+         "proponer_pendiente": N_("preparar las pendientes"), "proponer_tamano": N_("preparar el cambio de tamaño"),
+         "crear_perfil": N_("preparar el perfil"), "buscar_accesorios": N_("buscar accesorios"),
+         "revisar_buzones": N_("revisar los buzones"), "metrados": N_("calcular metrados"),
+         "proponer_buzon": N_("preparar el buzón"), "proponer_valvula": N_("preparar la válvula"),
+         "proponer_quitar_accesorio": N_("preparar quitar el accesorio"),
+         "proponer_conexion_vertical": N_("preparar la conexión vertical"),
+         "buscar_choques_3d": N_("buscar choques en 3D"), "proponer_mover_planta": N_("preparar el movimiento en planta"),
+         "exportar_cuadro": N_("guardar el cuadro de datos"), "comparar_con_app": N_("comparar con la app"),
+         "traer_a_la_app": N_("preparar los cambios para la app"), "revisar_plano": N_("revisar el plano"),
+         "buscar_cotas": N_("leer las cotas"), "proponer_arreglo_revision": N_("preparar el arreglo"),
+         "proponer_texto": N_("preparar el cambio de texto"), "proponer_cota": N_("preparar la cota"),
+         "comparar_con_pdf": N_("comparar con el PDF")}
 TIPOS = {"cota_inicio": N_("Rasante de inicio (ft)"), "cota_fin": N_("Rasante de fin (ft)"),
-         "capa": N_("Capa"), "descripcion": N_("Descripción")}
+         "capa": N_("Capa"), "descripcion": N_("Descripción"), "desplazar_vertical": N_("Rasantes (ft)"),
+         "pendiente": N_("Pendiente"), "tamano": N_("Tamaño"), "perfil": N_("Perfil longitudinal"),
+         "buzon": N_("Buzón"), "poner_valvula": N_("Válvula"), "quitar_valvula": N_("Quitar válvula"),
+         "quitar_accesorio": N_("Quitar accesorio"), "conexion_vertical": N_("Conexión vertical"),
+         "mover_planta": N_("Mover en planta"), "traer_app": N_("Traer a la app"), "texto": N_("Texto"),
+         "borrar_anotacion": N_("Borrar"), "cota": N_("Cota")}
 
 
 def paso(nombre):
@@ -45,9 +64,13 @@ def _propuesta(i, k, p, tk):
     tipo = _tr(TIPOS.get(p.get("tipo", ""), p.get("tipo", "")))
     antes = p.get("antes") or "—"
     elem = html.escape(str(p.get("elemento") or ""))
-    filas = [f"<span style='color:{tk.text_muted}; font-size:small'>" + html.escape(_tr("Propuesta de cambio")) +
-             f"</span><br><b>{elem}</b> &nbsp;<a href='ira:{html.escape(str(p.get('handle', '')))}' "
-             f"style='color:{tk.text_info}; font-size:small'>" + html.escape(_tr("Ver en Civil 3D")) + "</a>",
+    en_app = p.get("destino") == "app"
+    ver = ("" if en_app or not p.get("handle") else
+           f" &nbsp;<a href='ira:{html.escape(str(p.get('handle', '')))}' style='color:{tk.text_info}; font-size:small'>"
+           + html.escape(_tr("Ver en Civil 3D")) + "</a>")
+    filas = [f"<span style='color:{tk.text_muted}; font-size:small'>" +
+             html.escape(_tr("Propuesta para la app") if en_app else _tr("Propuesta de cambio")) +
+             f"</span><br><b>{elem}</b>{ver}",
              f"<p style='margin-top:6px; margin-bottom:0'>{html.escape(tipo)}: "
              f"<span style='color:{tk.text_muted}'>{html.escape(str(antes))}</span> &nbsp;→&nbsp; "
              f"<b>{html.escape(str(p.get('despues', '')))}</b></p>"]
@@ -62,7 +85,8 @@ def _propuesta(i, k, p, tk):
     estado = p.get("estado", "pendiente")
     if estado == "pendiente":
         filas.append("<table cellspacing='0' cellpadding='7' style='margin-top:10px'><tr>"
-                     + _boton(f"aplicar:{i}.{k}", _tr("Aplicar en Civil 3D"), tk, True) + "<td width='8'></td>"
+                     + _boton(f"aplicar:{i}.{k}", _tr("Aplicar en la app") if en_app else _tr("Aplicar en Civil 3D"), tk, True)
+                     + "<td width='8'></td>"
                      + _boton(f"descartar:{i}.{k}", _tr("Descartar"), tk, False) + "</tr></table>")
     elif estado == "aplicando":
         filas.append(f"<p style='margin-top:8px; color:{tk.text_muted}'>" + html.escape(_tr("Aplicando en Civil 3D…"))
@@ -77,7 +101,10 @@ def _propuesta(i, k, p, tk):
 
 def _burbuja_ia(i, tu, tk, ahora, ultimo):
     oscuro = tk.name == "dark"
-    if tu["estado"] == "error":
+    if tu["estado"] == "error" and tu.get("reporte") is not None:
+        from ui.comun import error_html
+        cuerpo = error_html.tarjeta(tu["reporte"], tk, f"copiarerror:{i}")
+    elif tu["estado"] == "error":
         cuerpo = f"<span style='color:{H.ERROR_OSCURO if oscuro else tk.danger}'>{tu['error']}</span>"
     elif tu["texto"]:
         cuerpo = H.formato(tu["texto"], lambda _c: False, tk)
@@ -115,9 +142,12 @@ def conversacion(turnos, tk, ahora):
             f"<span style='font-size:large; font-weight:600; color:{tk.text}'>"
             + html.escape(_tr("Pregúntale al dibujo de Civil 3D")) + "</span><br><br>"
             f"<span style='color:{tk.text_muted}'>" + html.escape(_tr(
-                "La IA lee las redes del DWG abierto (tuberías, estructuras, cotas, capas) y puede proponer "
-                "cambios de rasante, capa o descripción. Ningún cambio se aplica sin tu «Aplicar»; cada uno se "
-                "deshace con U en Civil 3D.")) + "</span></td></tr></table>")
+                "La IA lee las redes del DWG abierto (tuberías, estructuras, cotas, capas), lo revisa con tus "
+                "normativas y puede proponer pendientes, diámetros, materiales, buzones, válvulas, conexiones "
+                "verticales, perfiles y la solución de los choques; también saca metrados, guarda un cuadro en Excel o "
+                "Word y compara el dibujo con la app. Ningún cambio se aplica sin tu «Aplicar»; cada uno se deshace "
+                "con U en Civil 3D."))
+            + "</span></td></tr></table>")
     ultimo = len(turnos) - 1
     for i, tu in enumerate(turnos):
         partes.append(H._burbuja_tu(tu, tk))

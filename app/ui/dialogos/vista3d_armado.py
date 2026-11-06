@@ -61,7 +61,22 @@ class ArmadoMixin:
                     avisos=avisos, conflictos=conflictos,
                     ocultas=[c for c, chk in self._capas.items() if not chk.isChecked()],
                     ver=dict({k: c.isChecked() for k, c in self.chk.items()}, rotulos=True), suelo_z=suelo,
-                    sin_accesorio=list(getattr(w, "sin_accesorio", None) or []))
+                    sin_accesorio=list(getattr(w, "sin_accesorio", None) or []),
+                    valvulas=self._valvulas3d(pipes))
+
+    def _valvulas3d(self, pipes):
+        """Las válvulas que caben (`nucleo/valvulas`), ubicadas sobre `pipes`, para `modelo3d.construir`."""
+        w = self.win
+        vs = getattr(w, "valvulas", None) or []
+        ft = w.scale / w.zoom if w.scale and w.zoom else 0.0
+        if not vs or not ft:
+            return []
+        from nucleo import valvulas as _V
+        return [dict(x=l.x, y=l.y, pipe=l.pipe, tramo=l.tramo, bloque=l.bloque, largo_ft=l.largo_ft,
+                     brida_ft=l.brida_ft, diam_in=l.diam_in, union=l.union, material=l.material,
+                     estimada=l.estimada)
+                for l in _V.ubicar_todas(pipes, w.structures, vs, ft,
+                                         cerca=w._cerca_valv if pipes is w.pipes else None) if l.ok]
 
     def programar(self):
         """El plano cambió: actualizar en un momento (agrupa cambios seguidos)."""
@@ -171,7 +186,7 @@ class ArmadoMixin:
         try:
             nueva = MP.parche(self.escena, pipes, d["structures"], d["ft"], set(cambios), d["colores"],
                               d["duct_banks"], d["cruces"], d["ocultas"], d["ver"], cajas=self._cajas_parche,
-                              sin_accesorio=d["sin_accesorio"])
+                              sin_accesorio=d["sin_accesorio"], valvulas=d["valvulas"])
         except Exception as e:                               # el armado completo lo pondrá al día
             print("[vista3d] parche:", e)
             return False

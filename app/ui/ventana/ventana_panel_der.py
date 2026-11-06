@@ -60,6 +60,7 @@ class PanelDerechoMixin:
         _bind(self.tabs, "setTabText", "Leaders", self.tabs.addTab(self.sleader_list, ""))
         _bind(self.tabs, "setTabText", "Textos", self.tabs.addTab(self.txt_marks_list, "")); _bind(self.tabs, "setTabText", "Zonas", self.tabs.addTab(self.region_list, ""))
         _bind(self.tabs, "setTabText", "Buzones", self.tabs.addTab(self.bz_list, "")); _bind(self.tabs, "setTabText", "Curvas", self.tabs.addTab(self.curve_list, ""))
+        _bind(self.tabs, "setTabText", "Accesorios", self.tabs.addTab(self._build_lista_accesorios(), ""))
         _bind(self.tabs, "setTabText", "Centerlines", self.tabs.addTab(self.cl_list, ""))
         _bind(self.tabs, "setTabText", "Bancoductos", self.tabs.addTab(self._db_tab_widget, ""))
         # RESPONSIVO: los textos de los items son largos ("AGUA · 12" · 4
@@ -70,7 +71,7 @@ class PanelDerechoMixin:
         # _refresh_lists). No afecta la selección ni los índices de fila.
         for _lw in (self.pipe_list, self.sleader_list,
                     self.txt_marks_list, self.region_list, self.bz_list,
-                    self.curve_list, self.cl_list, self.db_list):
+                    self.curve_list, self.cl_list, self.db_list, self.acc_list):
             _lw.setTextElideMode(QtCore.Qt.ElideRight)
             _lw.setHorizontalScrollBarPolicy(QtCore.Qt.ScrollBarAlwaysOff)
             _lw.setWordWrap(False)
@@ -90,7 +91,7 @@ class PanelDerechoMixin:
         self.tab_combo.setMaxVisibleItems(self.tabs.count() + 2)
         self.tab_combo.setStyleSheet("QComboBox { combobox-popup: 0; }")
         for key in (N_("Utilidades"), N_("Leaders"), N_("Textos"), N_("Zonas"), N_("Buzones"), N_("Curvas"),
-                    N_("Centerlines"), N_("Bancoductos")):
+                    N_("Accesorios"), N_("Centerlines"), N_("Bancoductos")):
             _bind_item(self.tab_combo, key)
         self.tab_combo.currentIndexChanged.connect(self.tabs.setCurrentIndex)
         self.tabs.currentChanged.connect(self.tab_combo.setCurrentIndex)
@@ -393,6 +394,7 @@ class PanelDerechoMixin:
         # Estilo aplicado por _apply_theme_custom_styles.
         rv.addWidget(self.lbl_cl_hint)
         self.gprop_cl.setVisible(False); self.lbl_cl_hint.setVisible(False)
+        self._build_prop_accesorio(rv)              # accesorio elegido (tab Accesorios, 2026-11-06)
         self._cl_prop_guard = False
         self._bz_prop_guard = False                 # evita reentradas al setear valores desde el modelo
         self._curve_prop_guard = False

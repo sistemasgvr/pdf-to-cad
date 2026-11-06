@@ -17,13 +17,12 @@ from PySide6 import QtCore
 
 from ia import acciones as AC
 from ia import alcance as A
-from ia import proveedor as P
 from traduccion.i18n import t as _tr
 
 
 class _SenalesOrden(QtCore.QObject):
     listo = QtCore.Signal(object, object)            # (turno, interpretación)
-    fallo = QtCore.Signal(object, str)
+    fallo = QtCore.Signal(object, object)            # (turno, ia.reporte_error.Reporte)
 
 
 class OrdenesMixin:
@@ -52,10 +51,9 @@ class OrdenesMixin:
                 interp = AC.interpretar(prov, q, datos, materiales, tipos, anterior=anterior,
                                         cancelado=lambda: estado["cancelado"])
                 self._sen_orden.listo.emit(turno, interp)
-            except P.ErrorIA as e:
-                self._sen_orden.fallo.emit(turno, str(e))
-            except Exception as e:                    # noqa: BLE001 (se muestra en el chat)
-                self._sen_orden.fallo.emit(turno, f"{type(e).__name__}: {e}")
+            except Exception as e:                    # noqa: BLE001 (ErrorIA o lo que sea: reporte en el chat)
+                from ui.dialogos.ia_chat import reporte_de
+                self._sen_orden.fallo.emit(turno, reporte_de(e, "Chat del proyecto · orden", prov, q))
         threading.Thread(target=correr, name="pdfcad-ia-orden", daemon=True).start()
 
     def _al_orden(self, turno, interp):

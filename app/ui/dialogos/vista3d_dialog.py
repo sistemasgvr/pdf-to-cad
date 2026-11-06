@@ -736,6 +736,9 @@ class Vista3DDialog(ArmadoMixin, QtWidgets.QDialog):
         if o["tipo"] == "struct":
             return _tr("{cod} · fondo {a} ft · tapa {b} ft").format(cod=o.get("cod") or "?", a=f"{o['z0']:.2f}",
                                                                      b=f"{o['z1']:.2f}")
+        if o["tipo"] == "accesorio" and o.get("acc_tipo") == "valvula":
+            return _tr("Válvula de compuerta {d}\"").format(d=f"{float(o.get('diam_in') or 0):g}") + " · " + (
+                o.get("bloque") or "")
         if o["tipo"] == "accesorio":
             nombre = _tr(normas_validar.NOMBRE_ACC.get(o.get("acc_tipo"), "Accesorio"))
             ang = o.get("angulo")

@@ -150,6 +150,7 @@ class EdicionBloqueMixin:
         self.canvas.fitInView(QtCore.QRectF(x - r, y - r, 2 * r, 2 * r), QtCore.Qt.KeepAspectRatio)
         self.canvas.centerOn(x, y)
         self._redraw()
+        self._marcar_lugar(x, y)                 # círculo que parpadea 5 s (ventana_herramientas)
 
     def revisar_dibujo(self, exportando=False):
         """Herramientas → «Revisar y limpiar el dibujo…» y, antes de exportar, solo si

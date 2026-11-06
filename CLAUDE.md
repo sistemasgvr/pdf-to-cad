@@ -2401,6 +2401,56 @@ alcantarillado, drenaje, gas, eléctrico, telecom). Todo en **unidades imperiale
     ficha 3D de un accesorio. DXF: punto `PDFCAD_SIN_ACCESORIO` (TIPO) en su capa; plugin: `ComandosPresion.
     SinAccesorio` (lo llena IMPORTAR_RED) y `ProcesarJunturasPresion` salta la juntura a ≤0.5 ft (tubos sin
     conectar). Tests: `tests/test_sin_accesorio.py`.
+    **Inventario → «Accesorios»** (2026-11-05, `ui/ventana/ventana_lista_accesorios.ListaAccesoriosMixin`, `TAB_ACC`=9):
+    codos/Tees/Wyes/cruces (`_accs_lista` = los de `_draw_accesorios`, sin los «no hay accesorio») + válvulas
+    (`_lugares_valvulas`), chips de filtro por tipo (`_acc_pasa_filtro`, desde `_filtrar_inventario`); se arma SOLO
+    con la sección a la vista (`_llenar_lista_accesorios`, al final de `_draw_accesorios` y en `_tab_changed`). Clic →
+    `_ir_a_elemento(activar=False)`; clic derecho: «No hay …» (`marcar_sin_accesorios`, un `_push`) o el menú de la
+    válvula (`quitar_valvulas`). El círculo de «ir a» (`_marcar_lugar`) parpadea `MARCA_LUGAR_MS`=5000. Tests:
+    `tests/test_inventario_accesorios.py`. OJO: `test_capa_marcas::test_capas_se_ven_igual_y_dan_el_mismo_tooltip`
+    falla desde que la cuadrícula de Dibujar tiene «Válvula» (un punto muestreado cae donde dos marcas se tapan).
+    **Dibujar → «Accesorios»** (2026-11-06, reemplaza al botón «Válvula»): desplegable (`ventana_dibujar_acc.llenar_menu`,
+    iconos propios `icons/mdi/acc-*.svg`) con Válvula (= `insertar_valvula`), Codo 11.25/22.5/45/90°, Tee, Wye 45° y Cruz,
+    solo agua y gas. Un accesorio NO es un objeto: sale de la forma (`accesorios.accesorios`), así que se dibuja la FORMA,
+    validada, en `nucleo/dibujar_accesorios.py` (PURO): paso 1 `punta` (codo: punta LIBRE, último tramo recto con sitio) o
+    `en_tramo` (Tee/Wye/cruz: tramo recto con sitio para el cuerpo 1.7·D, se corre como la válvula); paso 2 `propuesta`
+    (ángulo exacto, largo ≥ cuerpo + 1 ft, sin tocar otra tubería de la MISMA red; cruza otra red = aviso; normativas =
+    aviso con `normas_validar_acc.revisar`, nunca bloquea). Codo = la tubería se alarga (`alargar`, la cota nueva con
+    `pendiente_codo`: el ángulo 3D queda exacto); Tee/Wye = utilidad nueva (`ramal_de`: datos de la principal sin los
+    POR VÉRTICE, cota del tramo en ese punto: si no, no se une); cruz = una utilidad nueva que cruza en X. Modo
+    `insert_acc` (`ventana_dibujar_acc.DibujarAccesoriosMixin`: vista previa verde/roja, Esc/clic derecho = paso anterior,
+    un `_push` por accesorio). Clic en un accesorio del plano (modo inactivo, ANTES de las marcas de cruce: en una Tee solo
+    decían «Unión en Civil 3D») → `ventana_seleccion_acc.SeleccionAccesorioMixin._elegir_accesorio_en`: riel Inventario +
+    `TAB_ACC` + su fila elegida sin mover el plano (`_acc_sin_mover`); panel derecho `gprop_acc` (tipo, ángulo, diámetros,
+    red, utilidades; válvula: unión, material, pieza, largo, quitar; codo/Tee/Wye/cruz: «Poner este accesorio» =
+    `marcar_sin_accesorio`). La lista conserva la selección por `Fila.lugar()` (sin el texto). Tests:
+    `tests/test_dibujar_accesorios.py`.
+    **Válvulas en agua y gas** (2026-11-04): `nucleo/valvulas.py` (PURO; catálogo = `ValvulaLogica.cs` del plugin de
+    válvulas del equipo, 3"–54", RG ≤16", ≥18" FLG_GEAR) + `ui/ventana/ventana_valvulas.ValvulasMixin` (modo `insert_valv`,
+    Dibujar → «Válvula», pista verde, clic derecho unión/material/quitar) + `ui/comun/valvula_item.py` (moño real + mínimo
+    `MIN_PX`). SOLO en tramo recto (`limpieza_tramos.rectos`): margen 1.7·D (`ALCANCE_ACC_D`) + `TUBO_MIN_FT` en codo/T/unión,
+    `TUBO_MIN_FT` en tangencia/punta libre; Tee a mitad de tramo, cruz de la misma red y otras válvulas = obstáculos; se corre
+    para caber. `Main.valvulas` = [{x, y, union, material}] sin índices (.digproj, deshacer, `respaldo_editor.CLAVES`); en cada
+    redibujo y al exportar `ubicar_todas(libre=False)`: fuera de lugar = rojo con motivo y NO va al DXF. DXF: punto
+    `PDFCAD_VALVULA` en el centro exacto (PIPE_IDX, TRAMO, DIAMETER, UNION, BLOQUE, MATERIAL, LARGO_IN, BRIDA_OD_IN, DIR_X/Y).
+    RECETA (2026-11-05, pedido del usuario: sin depender del DWG ni de sus tamaños): `nucleo/valvula_receta.py` (PURA) =
+    la forma de los 24 bloques de `Valvulas_AWWA_3D.dwg` medida y escrita como fórmulas de N (cuerpo 0.54N+0.9, campana
+    RG = OD tubo/2+1.35, caja, tapa, vástago, tuerca, caja de engranes, volante con 4 rayos) + `TABLA` de normas
+    interpolada (fuera = `estimada`); 3"–72" (`N_MIN`/`N_MAX`), tipos FLG / RG (≤16") / GEAR (≥18"); la roscada NPT
+    (1"–2") queda pendiente. Envolventes = DWG ±0.08" (`CATALOGO_DWG` en el test; la compuerta interna, oculta, no va).
+    Vista 3D: `nucleo/valvula_malla.py` (triángulos, bridas con agujeros) + `nucleo/valvulas3d.py` (base = `BaseBloque`:
+    X = eje 3D con pendiente, Z = vertical ⊥; capas ACI 5/40), registrada como «accesorio» `acc_tipo=valvula` (el
+    parche la rehace con su tubería), corta el tubo en sus caras. PLUGIN: `ValvulaReceta.cs` (ESPEJO: constantes y tabla
+    comparadas por `test_espejo_de_la_receta_en_el_plugin`; piezas comparadas en `PerfilPruebas` `Valvulas()`) +
+    `ImportarRedValvulas.cs` (paso 5f-bis de IMPORTAR_RED, antes de 5g/5h/5i: tubo a presión de su red por PIPE_IDX y
+    rumbo, partido en A→cara y cara→B con la misma pieza/estilo/descripción/capa, reconecta las piezas de sus puntas;
+    Solid3d unidos por capa V-PRES-VALV-DIA/INT, paso y pernos restados, XDATA `PDFCAD_VALVULA_SOLIDO`). Sin probar
+    dentro de Civil 3D (la consola de AutoCAD no carga DLL fuera de rutas de confianza). PERFIL: el cuerpo lleva además
+    XDATA `PDFCAD_FITTING` `TIPO=VALVE` (`MarcarComoAccesorio`: COORD_X/Y, COTA_EJE_FT, LARGO_TOTAL_FT) → `PerfilGrafoPresion`
+    lo toma como accesorio (`TipoAccesorio.Valvula`) y cruza el hueco; `PerfilTextos.LineasValvula` = `perfil_textos.
+    lineas_valvula` («8" FLG|MJ GATE VALVE [W/ GEAR OP]»). App: `perfil_datos.Valvula` (`armar(valvulas=)`, lista APARTE de
+    `nodos`: sus índices son los del recorrido), `VistaPerfil._valvulas` (moño + vástago) y rótulo arriba; `_firma_perfil`
+    suma las válvulas. Pendientes: `docs/pendientes/plugin-valvulas/pendientes.md`. Tests: `tests/test_valvulas.py`.
     **«¿Qué significa esta regla?»**: `ia/explicar_norma.py` (caché GLOBAL junto al catálogo,
     `dirname(nc.ruta())/ia/redaccion.jsonl`, clave = celdas + idioma + versión, sin el modelo) +
     `ui/dialogos/normas_ia_panel.PanelExplicacion` bajo la tabla de Reglas (guardada = al instante, botón
@@ -2991,6 +3041,38 @@ alcantarillado, drenaje, gas, eléctrico, telecom). Todo en **unidades imperiale
   perfiles `completo` (Claude) / `basico` (Qwen); pruebas `API-CIVIL/proyecto1/McpPruebas` (`dotnet run`).
   Entrada de la app: `app/ia/civil3d_mcp.py` (cliente) + `civil3d_agente.py` (tool calling de Ollama; el
   modelo nunca confirma); ventana = pestaña «Civil 3D» del Asistente (`ui/dialogos/ia_civil3d.ChatCivil3D` + `ia_civil3d_html`, estilo del chat incrustado, el usuario aplica con el botón de la tarjeta). Regla: proponer → el usuario confirma; contratos solo se AMPLÍAN.
+  **Contexto y errores de la IA** (2026-11-06, reporte: «500: no user query found in messages» con el servidor bien):
+  si lo enviado pasa de `CONTEXTO_TOKENS`, Ollama QUITA los mensajes más viejos —también la pregunta— y su plantilla
+  falla. `civil3d_agente.ajustar` (antes de cada pedido) deja una copia que cabe (historial viejo fuera, resultados de
+  herramientas viejos resumidos; sistema y pregunta nunca). Las 28 herramientas + el sistema ocupan ~6 300 tokens.
+  Errores: `ia/reporte_error.armar(error, donde, …)` → `Reporte` (título y explicación por causa conocida, qué hacer,
+  código E-AAMMDD-HHMMSS-XXXX, detalles: versión, modelo, servidor, HTTP, tipo, mensaje, archivo:línea, herramientas,
+  pregunta) y lo escribe en `nucleo/diagnostico` con la pila; `ErrorIA` lleva `codigo_http/detalle/url/modelo`. Chats
+  (Civil 3D, proyecto, órdenes): tarjeta `ui/comun/error_html.tarjeta` con «Copiar detalles» (`copiarerror:i`); los
+  demás lugares, `texto_corto` (con el código). Tests: `tests/test_reporte_error.py`. Mismo día («y las cotas?» → «no
+  puedo»): «cotas» = ELEVACIONES (buscar_tuberias/detalle_elemento/comparar_con_app); `buscar_cotas` = solo ACOTACIONES
+  (su descripción y `SISTEMA` lo dicen; comparar_con_pdf es solo planta). Si un pedido de datos (`pide_datos`) se
+  responde sin llamar ninguna herramienta, el agente insiste UNA vez (`RECORDATORIO`): decía «Comparé…» sin consultar.
+  **Conflictos por MCP** (2026-11-05, pedido del usuario: «que identifique dónde chocan y proponga reubicar según las
+  normativas»): `buscar_conflictos` + `proponer_solucion` (`Mcp/Dominio/ConflictosRed.cs`, `SolucionesRed.cs`,
+  `Aplicacion/DespachadorConflictos.cs`), sobre el DIBUJO de Civil 3D; separaciones = `reglas` que pone el agente
+  desde las normativas de la app (`app/ia/civil3d_reglas.reglas_separacion`, `Agente(reglas=)`; el modelo no las ve).
+  Se mueve una utilidad ENTERA (Property Set `PDFCAD_Utilidad` → `Tuberia.UtilidadNumero`), con sus accesorios (piezas
+  de presión y sólidos `PDFCAD_FITTING`, `Modelo.Accesorios`); tipo `desplazar_vertical` (`Civil3DEditor.Desplazar`,
+  también redes a presión: piezas por `Position`, tubos a su punto final, sólidos `TransformBy`). Sin probar en
+  Civil 3D. Detalle en `docs/mcp_civil3d.md`. Tests: `McpPruebas` (`ConflictosYSoluciones`), `tests/test_civil3d_mcp.py`.
+  **MCP ordenado y ampliado** (2026-11-05, `docs/mcp_civil3d.md`): catálogo por tema en `Mcp/Contratos/Herramientas/`
+  (esquemas con `E`), repartidor con registro (`Despachador*.cs` → `Registrar…`, `Descuadres()`), una CLASE por cambio en
+  `Dominio/Cambios.cs` (`Vigente` + `Efecto`). Normativas SOLO de la app (`app/ia/civil3d_locales.py`: inyecta `reglas` y
+  `objetivos`; `civil3d_normativas_cambios.con_normativa` revisa cada propuesta con `normas_validar`). Herramientas: buzones,
+  válvulas (`ImportarRedMcp.cs` reutiliza `PonerValvula` y `CrearConexionesCruzadas`), quitar accesorio, conexión vertical,
+  choques 3D (`Civil3DChoques.cs`), mover en planta, metrados; de la app: revisar normativas, cuadro Excel/Word
+  (`civil3d_cuadro`), comparar/traer a la app (`civil3d_comparar`). Sin probar en Civil 3D. Tests: `McpPruebas`,
+  `tests/test_civil3d_mcp.py`.
+  **Revisión del plano por MCP** (2026-11-05): `revisar_plano` (Q#), `buscar_cotas`, `proponer_arreglo_revision`,
+  `proponer_texto`, `proponer_cota` (`Dominio/RevisionPlano.cs`, `CambiosTexto.cs`, `Infraestructura/Civil3DAnotaciones.cs`,
+  `Civil3DEditorTexto.cs`; OJO: `Caja` y `Leader` chocan con tipos del plugin, alias DENTRO del namespace) y, de la app,
+  `comparar_con_pdf` (`app/ia/civil3d_pdf.py`, tinta = `win.gray`). Tests: `McpPruebas` (`Plano`).
   **Quiebres mínimos** (2026-09-30): `EnderezarQuiebres` (`ImportarRedEnderezar.cs`, antes de agrupar redes)
   quita en gravedad/conduit los vértices con giro ≤2° y ≤0.25 ft de la recta sin nada encima (buzón visible,
   caja, sólido, curva, ANCLA de un codo —vecino de un vértice curvo: mide el tubo del codo—, otra tubería a ≤1 ft,

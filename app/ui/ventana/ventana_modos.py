@@ -32,7 +32,11 @@ class ModosMixin:
             self._push(); self._cl_pts = []; self._update_ui(); self._redraw(); self._info(_tr("Puntos cancelados"))
         elif self.mode == "insert_bz":
             self.set_mode("idle"); self._info(_tr("Inserción de buzón cancelada"))
-        elif self.sel_pipe >= 0 or self.sel_leader >= 0 or self.sel_region >= 0 or self.sel_text >= 0 or self.sel_bz >= 0 or self.sel_curve >= 0 or self.sel_cl >= 0:
+        elif self.mode == "insert_valv":
+            self.set_mode("idle"); self._pista_valvula(0, 0); self._info(_tr("Inserción de válvula cancelada"))
+        elif self.mode == "insert_acc":
+            self._escape_accesorio()
+        elif self.sel_pipe >= 0 or self.sel_leader >= 0 or self.sel_region >= 0 or self.sel_text >= 0 or self.sel_bz >= 0 or self.sel_curve >= 0 or self.sel_cl >= 0                 or (getattr(self, "acc_list", None) is not None and self.acc_list.selectedItems()):
             self._deselect_all(); self._info(_tr("Selección quitada"))
         else:
             self.set_mode("idle"); self._info(_tr("Salió del modo"))
@@ -40,9 +44,11 @@ class ModosMixin:
     def _deselect_all(self):
         self.sel_pipe = self.sel_leader = self.sel_region = self.sel_text = self.sel_bz = self.sel_curve = self.sel_cl = self.sel_db = -1
         for lst in (self.pipe_list, self.sleader_list, self.txt_marks_list, self.region_list,
-                    getattr(self, "bz_list", None), getattr(self, "curve_list", None), getattr(self, "cl_list", None)):
+                    getattr(self, "bz_list", None), getattr(self, "curve_list", None), getattr(self, "cl_list", None),
+                    getattr(self, "acc_list", None)):
             if lst is None: continue
             lst.blockSignals(True); lst.setCurrentRow(-1); lst.clearSelection(); lst.blockSignals(False)
+        if getattr(self, "acc_list", None) is not None: self._datos_accesorio()
         if self.mode == "move": self.set_mode("idle")
         self._update_ui(); self._redraw()
 
@@ -214,6 +220,8 @@ class ModosMixin:
         self._update_hover_tooltip(x, y)
         self._update_pipe_snap_hint(x, y)
         self._pista_buzon(x, y)
+        self._pista_valvula(x, y)
+        self._pista_accesorio(x, y)
 
     def _update_pipe_snap_hint(self, x, y):
         """Feedback visual del snap suave a utilidades: al mover el mouse en
@@ -379,6 +387,8 @@ class ModosMixin:
             self.gprop_curve.setVisible(ti == TAB_CURVE)
         if hasattr(self, "gprop_cl"):
             self.gprop_cl.setVisible(ti == TAB_CL)
+        if hasattr(self, "gprop_acc"):
+            self._sync_prop_accesorio()
         if hasattr(self, "chk_bz_labels"):
             self.chk_bz_labels.setVisible(ti in (TAB_BZ, TAB_CURVE))
         # "En curso": solo mientras hay puntos en curso. gcur ya fue movido a la
@@ -396,7 +406,7 @@ class ModosMixin:
         # "Eliminar" no aplica en la pestaña Buzones: los buzones se
         # auto-detectan de los vertices de las tuberias, borrarlos no tiene
         # efecto porque _rebuild_structures los repone. Se oculta el boton.
-        self.btn_del.setVisible(ti != TAB_BZ)
+        self.btn_del.setVisible(ti not in (TAB_BZ, TAB_ACC))   # accesorios: clic derecho en la lista
         self.btn_xd.setVisible(ti in (TAB_PIPE, TAB_BZ))
         if getattr(self, "cabecera_inspector", None) is not None:   # cabecera del inspector (2.0.0)
             self.cabecera_inspector.refrescar(desde_ui=True)
@@ -420,6 +430,7 @@ class ModosMixin:
             "text": N_("Modo: texto libre — clic donde escribir · Enter aplica"),
             "erase": N_("Modo: borrar zona — clic para el polígono, Enter cierra"),
             "centerline": N_("Modo: trazar centerline — clic agrega puntos, Enter finaliza"),
+            "insert_acc": N_("Modo: dibujar accesorio — Esc vuelve al paso anterior; otro Esc sale"),
             "move": N_("Modo: editar — arrastra vértice · clic en tramo inserta · clic-en-vértice extiende (F) · clic derecho elimina"),
         }.get(m)
         if clave_modo:
@@ -468,6 +479,7 @@ class ModosMixin:
         if hasattr(self, "curve_list"): m[self.curve_list] = TAB_CURVE
         if hasattr(self, "cl_list"): m[self.cl_list] = TAB_CL
         if hasattr(self, "_db_tab_widget"): m[self._db_tab_widget] = TAB_DB
+        if hasattr(self, "_acc_tab_widget"): m[self._acc_tab_widget] = TAB_ACC
         return m
 
     def _current_tab(self):
@@ -493,6 +505,7 @@ class ModosMixin:
         if ti == TAB_BZ: self._sync_bz_panel()
         elif ti == TAB_CURVE: self._sync_curve_panel()
         elif ti == TAB_CL: self._sync_cl_panel()
+        elif ti == TAB_ACC: self._llenar_lista_accesorios(forzar=True)
         elif ti == TAB_PIPE and 0 <= self.sel_pipe < len(self.pipes):
             self._rebuild_seg_inv_table(self.pipes[self.sel_pipe])
         self._update_ui(); self._redraw()

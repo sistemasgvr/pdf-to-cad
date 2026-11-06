@@ -27,6 +27,10 @@ internal static class Program
         Dominio();
         Despachador_();
         Perfiles();
+        ConflictosYSoluciones();
+        PendientesTamanosPerfiles();
+        Obra();
+        Plano();
         PuntaAPunta();
         Console.WriteLine($"\n{_ok} correctas, {_mal} fallas");
         return _mal == 0 ? 0 : 1;
@@ -42,6 +46,14 @@ internal static class Program
         public Modelo Leer() => M;
         public Dictionary<string, object> Detalle(string h) => M.Tuberias.Any(t => t.Handle == h) ? new Dictionary<string, object> { ["capa"] = "x" } : null;
         public bool CapaExiste(string c) => Capas.Contains(c);
+        public List<TamanoDisponible> T = new List<TamanoDisponible>();
+        public List<TamanoDisponible> Tamanos(string h) => T;
+        public List<Cuerpo> C = new List<Cuerpo>();
+        public List<Interferencia> I = new List<Interferencia>();
+        public List<(string a, string b)> Probados;
+        public List<Cuerpo> Cuerpos() => C;
+        public List<Interferencia> Interferencias(IList<(string a, string b)> pares)
+        { Probados = pares.ToList(); return I.Where(i => pares.Any(p => (p.a == i.A && p.b == i.B) || (p.a == i.B && p.b == i.A))).ToList(); }
     }
 
     internal sealed class EditorFalso : IEditorDibujo
@@ -50,9 +62,28 @@ internal static class Program
         public void Aplicar(CambioPropuesto c)
         {
             Aplicados.Add(c);
-            var t = L.M.Tuberias.First(x => x.Handle == c.Handle);
-            if (c.Tipo == TiposCambio.COTA_INICIO) t.CotaIni = double.Parse(c.Despues, System.Globalization.CultureInfo.InvariantCulture);
-            if (c.Tipo == TiposCambio.CAPA) t.Capa = c.Despues;
+            Tuberia T(string h) => L.M.Tuberias.First(x => x.Handle == h);
+            switch (c)
+            {
+                case CambioMover mv:
+                    foreach (var tt in L.M.Tuberias.Where(x => mv.Handles.Contains(x.Handle)))
+                    { tt.CotaIni += mv.Dz; tt.CotaFin += mv.Dz; tt.XIni += mv.Dx; tt.XFin += mv.Dx; tt.YIni += mv.Dy; tt.YFin += mv.Dy; }
+                    return;
+                case CambioPendiente pe:
+                    foreach (var z in pe.Cotas) { T(z.Handle).CotaIni = z.Ini; T(z.Handle).CotaFin = z.Fin; }
+                    return;
+                case CambioTamano ta:
+                    foreach (var z in ta.Tamanos) { T(z.Handle).Tamano = z.Nombre; T(z.Handle).DiametroIn = z.DiametroIn; }
+                    return;
+                case CambioBuzon bz:
+                    var e = L.M.Estructuras.First(x => x.Handle == bz.Handle);
+                    if (bz.Rim.HasValue) e.Rim = bz.Rim; if (bz.Sump.HasValue) e.Sump = bz.Sump;
+                    return;
+                case CambioSimple si:
+                    if (si.Tipo == TiposCambio.COTA_INICIO) T(si.Handle).CotaIni = double.Parse(si.Despues, System.Globalization.CultureInfo.InvariantCulture);
+                    if (si.Tipo == TiposCambio.CAPA) T(si.Handle).Capa = si.Despues;
+                    return;
+            }
         }
         public int IrA(IReadOnlyList<string> h) => h.Count(x => L.M.Tuberias.Any(t => t.Handle == x));
     }
@@ -205,6 +236,332 @@ internal static class Program
         Es(Catalogo.DelPerfil("basico").Count() < Catalogo.Todas.Count, "perfil básico más chico");
         foreach (var h in Catalogo.Todas)
             Es(JsonNode.Parse(h.Esquema)?["type"]?.GetValue<string>() == "object", "esquema válido: " + h.Nombre);
+    }
+
+    // ------------------------------------------------------------ conflictos
+
+    /// <summary>Agua AGUA-20 (dos tubos de 12" con un codo sólido en medio) cruzada por TELECOM-31 (4"), que
+    /// sigue sin accesorio en TELECOM-32 (unión directa, misma cota).</summary>
+    private static Modelo Cruce()
+    {
+        var m = new Modelo();
+        Tuberia T(string h, string red, TipoRed tr, string capa, string num, double d, double x0, double y0, double x1, double y1, double z) =>
+            new Tuberia { Handle = h, Nombre = $"{red} - ({h})", Red = red, TipoRed = tr, Capa = capa, UtilidadCapa = capa,
+                          UtilidadNumero = num, DiametroIn = d, XIni = x0, YIni = y0, XFin = x1, YFin = y1, CotaIni = z, CotaFin = z,
+                          LargoFt = Math.Sqrt((x1 - x0) * (x1 - x0) + (y1 - y0) * (y1 - y0)) };
+        m.Tuberias.Add(T("W1", "AGUA-7", TipoRed.Presion, "AGUA", "20", 12, 0, 0, 49, 0, -5.0));
+        m.Tuberias.Add(T("W2", "AGUA-7", TipoRed.Presion, "AGUA", "20", 12, 51, 0, 100, 0, -5.0));
+        m.Accesorios.Add(new Accesorio { Handle = "S1", Tipo = "ELBOW", Red = "AGUA-7", X = 50, Y = 0, ZEje = -4.5, RadioFt = 1.5 });
+        m.Tuberias.Add(T("T1", "TELECOM-31", TipoRed.Gravedad, "TELECOM", "31", 4, 30, -20, 30, 20, -4.8));
+        m.Tuberias.Add(T("T2", "TELECOM-31", TipoRed.Gravedad, "TELECOM", "32", 4, 30, 20, 60, 20, -4.8));
+        m.Tuberias.Add(T("A1", "ALCANTARILLADO-34", TipoRed.Gravedad, "ALCANTARILLADO", "34", 8, 0, 200, 100, 200, -9));
+        return m;
+    }
+
+    private const string REGLAS = "[{\"a\":\"AGUA\",\"b\":\"TELECOM\",\"sep_v_ft\":1.0,\"fuente\":\"Normativa X\"}]";
+
+    private static void ConflictosYSoluciones()
+    {
+        Console.WriteLine("Conflictos y soluciones");
+        var m = Cruce();
+        var reglas = new List<ReglaSeparacion> { new ReglaSeparacion { A = "AGUA", B = "TELECOM", SepVFt = 1.0 } };
+        var ks = Conflictos.Buscar(m, reglas, out int sinCota);
+        Es(ks.Count == 1 && ks[0].Id == "K1" && ks[0].Tipo == Conflictos.CHOQUE && sinCota == 0, "un choque agua × telecom");
+        Es(Math.Abs(ks[0].X - 30) < 1e-9 && Math.Abs(ks[0].Y) < 1e-9, "en el cruce");
+        Es(Conflictos.Buscar(m, null, out _).Count == 1, "sin normativa: el choque sigue");
+
+        var ops = SolucionesRed.Opciones(m, ks[0], reglas, ks);
+        Es(ops.Count == 4, "cuatro opciones: bajar/subir cada una");
+        var p1 = ops[0];
+        Es(p1.Valida && p1.Mover == "AGUA-20" && p1.Accion == "subir" && Math.Abs(p1.DeltaFt - 1.54) < 1e-9,
+           "P1 = subir el agua 1.54 ft (telecom separaría su unión directa)");
+        Es(p1.Tuberias.Count == 2 && p1.Accesorios.Count == 1, "el agua se mueve entera, con su codo");
+        var tel = ops.First(o => o.Mover == "TELECOM-31" && o.Accion == "bajar");
+        Es(!tel.Valida && tel.UnionesRotas.Count == 1 && Math.Abs(tel.DeltaFt + 1.54) < 1e-9, "bajar telecom: válida no, separa la unión");
+        // con la opción elegida, ya no hay conflicto y queda justo la separación
+        var dz = p1.Tuberias.ToDictionary(t => t.Handle, t => p1.DeltaFt);
+        var despues = Conflictos.Entre(p1.Tuberias, m.Tuberias.Where(t => !dz.ContainsKey(t.Handle)).ToList(), reglas, dz, out _);
+        Es(despues.Count == 0, "la solución deja la separación de la normativa");
+
+        // «encima»: el agua debe ir arriba → no se propone bajarla ni subir telecom
+        var enc = new List<ReglaSeparacion> { new ReglaSeparacion { A = "AGUA", B = "TELECOM", SepVFt = 1.0, Encima = "AGUA" } };
+        var k2 = Conflictos.Buscar(m, enc, out _)[0];
+        Es(SolucionesRed.Opciones(m, k2, enc).All(o => (o.Mover == "AGUA-20") == (o.Accion == "subir")), "respeta qué va encima");
+        var deb = new List<ReglaSeparacion> { new ReglaSeparacion { A = "TELECOM", B = ReglaSeparacion.CUALQUIERA, SepVFt = 1.0, Debajo = "TELECOM" } };
+        Es(SolucionesRed.Opciones(m, Conflictos.Buscar(m, deb, out _)[0], deb).All(o => (o.Mover == "AGUA-20") == (o.Accion == "subir")),
+           "«telecom por debajo de cualquiera» = lo mismo");
+        // separación (no choque): telecom 1.4 ft más abajo → libre 0.87 < 1
+        foreach (var t in m.Tuberias.Where(t => t.Capa == "TELECOM")) { t.CotaIni -= 1.4; t.CotaFin -= 1.4; }
+        Es(Conflictos.Buscar(m, reglas, out _).Single().Tipo == Conflictos.SEPARACION, "le falta separación");
+        Es(Conflictos.Buscar(m, null, out _).Count == 0, "sin normativa no es conflicto");
+
+        // por el despachador: buscar → proponer → confirmar
+        var (d, l, e, r) = Armar();
+        l.M = Cruce();
+        var x = Pedir(d, "buscar_conflictos", "{\"reglas\":" + REGLAS + "}", "basico");
+        Es(x.Ok && x.Datos["conflictos"]["total"].GetValue<int>() == 1, "buscar_conflictos (básico)");
+        x = Pedir(d, "proponer_solucion", "{\"conflicto\":\"conflicto 1\",\"reglas\":" + REGLAS + "}", "basico");
+        Es(x.Ok && x.Datos["tipo"].GetValue<string>() == TiposCambio.DESPLAZAR && x.Datos["opcion"].GetValue<string>() == "P1"
+           && e.Aplicados.Count == 0, "propone sin aplicar");
+        Es(x.Datos["opciones"]["filas"].AsArray().Count == 4 && x.Datos["antes"].GetValue<string>() == "-5.00"
+           && x.Datos["despues"].GetValue<string>() == "-3.46", "antes/después y las opciones");
+        string id = x.Datos["id"].GetValue<string>();
+        var y = Pedir(d, "proponer_solucion", "{\"conflicto\":\"K1\",\"mover\":\"telecom\",\"reglas\":" + REGLAS + "}");
+        Es(y.Ok && y.Datos["elemento"].GetValue<string>().StartsWith("TELECOM-31") && !y.Datos["valida"].GetValue<bool>()
+           && y.Datos["advertencias"].AsArray().Count > 0, "otra opción a pedido, con su advertencia");
+        Es(Pedir(d, "proponer_solucion", "{\"conflicto\":\"K9\"}").Error.Contains("K1"), "conflicto inexistente: dice cuáles hay");
+        x = Pedir(d, "confirmar_cambio", "{\"id\":\"" + id + "\"}");
+        Es(x.Ok && l.M.Tuberias.Where(t => t.Capa == "AGUA").All(t => Math.Abs(t.CotaIni.Value + 3.46) < 1e-9), "confirmar sube el agua entera");
+        Es(Pedir(d, "buscar_conflictos", "{\"reglas\":" + REGLAS + "}").Datos["conflictos"]["total"].GetValue<int>() == 0, "ya no hay conflictos");
+        // el dibujo cambió entre propuesta y confirmación
+        l.M = Cruce();
+        x = Pedir(d, "proponer_solucion", "{\"conflicto\":\"K1\",\"reglas\":" + REGLAS + "}");
+        l.M.Tuberias[0].CotaIni = -6;
+        Es(!Pedir(d, "confirmar_cambio", "{\"id\":\"" + x.Datos["id"].GetValue<string>() + "\"}").Ok, "rechaza si las cotas cambiaron");
+    }
+
+    // ------------------------------------------------------------ pendientes, tamaños y perfiles
+
+    /// <summary>ALCANTARILLADO-5: MH-1 → P1 → MH-2 → P2 → MH-3 (P1 a 0.1 %, P2 en contrapendiente) y la regla
+    /// «pendiente mínima 0.5 % en 6–10"»; P3 es de DRENAJE-9, sin reglas.</summary>
+    private static Modelo Gravedad()
+    {
+        var m = new Modelo();
+        m.Estructuras.Add(new Estructura { Handle = "M1", Nombre = "MH-1", Red = "SS", Rim = 110, Sump = 99.5 });
+        m.Estructuras.Add(new Estructura { Handle = "M2", Nombre = "MH-2", Red = "SS", Rim = 110, Sump = 99.6 });
+        m.Estructuras.Add(new Estructura { Handle = "M3", Nombre = "MH-3", Red = "SS", Rim = 110, Sump = 98.0 });
+        Tuberia T(string h, string ei, string ef, double zi, double zf, double x0, double x1) => new Tuberia
+        {
+            Handle = h, Nombre = $"SS - ({h})", Red = "SS", TipoRed = TipoRed.Gravedad, Capa = "C-SSWR", UtilidadCapa = "ALCANTARILLADO",
+            UtilidadNumero = "5", TipoApp = "COLECTOR", DiametroIn = 8, Tamano = "8 in", Familia = "PVC Pipe", Descripcion = "PVC",
+            XIni = x0, XFin = x1, LargoFt = x1 - x0, CotaIni = zi, CotaFin = zf, EstructuraIni = ei, EstructuraFin = ef,
+        };
+        m.Tuberias.Add(T("P1", "M1", "M2", 100, 99.9, 0, 100));          // 0.1 %
+        m.Tuberias.Add(T("P2", "M2", "M3", 99.0, 99.2, 100, 200));       // −0.2 %
+        var p3 = T("P3", "", "", 50, 49, 500, 600);
+        p3.UtilidadCapa = "DRENAJE"; p3.UtilidadNumero = "9"; p3.Red = "SD"; p3.Nombre = "SD - (1)";
+        m.Tuberias.Add(p3);
+        return m;
+    }
+
+    /// <summary>La pendiente que la APP calculó con sus normativas (MRDC: 0.5 %) para P1 y P2.</summary>
+    private const string NORMAS = "{\"P1\":{\"min\":0.5,\"fuente\":\"MRDC\"},\"P2\":{\"min\":0.5,\"fuente\":\"MRDC\"}}";
+
+    private static string Id(Respuesta x) => x.Datos["id"].GetValue<string>();
+    private static string Avisos(Respuesta x) => string.Join(" | ", x.Datos["advertencias"].AsArray().Select(a => a.GetValue<string>()));
+
+    private static void PendientesTamanosPerfiles()
+    {
+        Console.WriteLine("Pendientes, tamaños y perfiles");
+        var (d, l, e, _) = Armar();
+        l.M = Gravedad();
+        var x = Pedir(d, "datos_red", "{}", "basico");
+        Es(x.Ok && x.Datos["tuberias"]["filas"].AsArray().Count == 3 && x.Datos["estructuras"]["filas"].AsArray().Count == 3, "datos_red da todo");
+        Es(x.Ok && x.Datos["tuberias"]["filas"][0][6].GetValue<string>() == "COLECTOR", "con el tipo de la app");
+
+        // pendiente según la normativa: toda la utilidad, solo las que no cumplen
+        x = Pedir(d, "proponer_pendiente", "{\"elemento\":\"ALCANTARILLADO-5\",\"objetivos\":" + NORMAS + "}", "basico");
+        Es(x.Ok && x.Datos["tipo"].GetValue<string>() == TiposCambio.PENDIENTE && x.Datos["tuberias"].GetValue<int>() == 2, "propone P1 y P2");
+        Es(x.Ok && x.Datos["despues"].GetValue<string>() == "0.5 %" && x.Datos["antes"].GetValue<string>() == "-0.2 a 0.1 %", "a 0.5 %");
+        Es(x.Ok && x.Datos["consecuencias"].AsArray().Any(c => c.GetValue<string>().Contains("MRDC")), "dice de qué normativa sale");
+        Es(x.Ok && Avisos(x).Contains("bajo el fondo de MH-2"), "P1 queda bajo el fondo de MH-2: avisa");
+        Es(e.Aplicados.Count == 0, "no aplica nada");
+        Pedir(d, "confirmar_cambio", "{\"id\":\"" + Id(x) + "\"}");
+        Es(Math.Abs(l.M.Tuberias[0].CotaFin.Value - 99.5) < 1e-9 && Math.Abs(l.M.Tuberias[1].CotaFin.Value - 98.5) < 1e-9, "rasantes de fin nuevas");
+        Es(!Pedir(d, "proponer_pendiente", "{\"elemento\":\"ALCANTARILLADO-5\",\"objetivos\":" + NORMAS + "}").Ok, "ya cumplen: nada que cambiar");
+        Es(Pedir(d, "proponer_pendiente", "{\"elemento\":\"DRENAJE-9\",\"objetivos\":" + NORMAS + "}").Error.Contains("dime qué pendiente"),
+           "sin regla: pide la pendiente");
+        x = Pedir(d, "proponer_pendiente", "{\"elemento\":\"SS - (P1)\",\"pendiente_pct\":0.2,\"mantener\":\"fin\",\"objetivos\":" + NORMAS + "}");
+        Es(x.Ok && x.Datos["efecto"]["cotas"].AsArray().Count == 1, "devuelve su efecto (la app revisa su normativa)");
+        Es(x.Ok && x.Datos["consecuencias"][0].GetValue<string>().Contains("rasante de inicio"), "mantener el fin mueve el inicio");
+        Es(!Pedir(d, "proponer_pendiente", "{\"elemento\":\"SS - (P1)\",\"pendiente_pct\":-1}").Ok, "pendiente negativa: no");
+        // P2 llega más abajo que la tubería que sale de MH-3
+        l.M = Gravedad();
+        l.M.Tuberias.Add(new Tuberia { Handle = "P4", Nombre = "SS - (P4)", Red = "SS", TipoRed = TipoRed.Gravedad, UtilidadCapa = "ALCANTARILLADO",
+                                       UtilidadNumero = "6", DiametroIn = 8, LargoFt = 50, CotaIni = 98.9, CotaFin = 98.6, EstructuraIni = "M3" });
+        x = Pedir(d, "proponer_pendiente", "{\"elemento\":\"SS - (P2)\",\"objetivos\":" + NORMAS + "}");
+        Es(x.Ok && Avisos(x).Contains("el agua no saldría"), "salto: el agua no sale");
+
+        // tamaño
+        l.M = Gravedad();
+        l.T = new List<TamanoDisponible>
+        {
+            new TamanoDisponible { Clave = "a", Familia = "PVC Pipe", Nombre = "8 in", DiametroIn = 8, Material = "PVC" },
+            new TamanoDisponible { Clave = "b", Familia = "PVC Pipe", Nombre = "10 in", DiametroIn = 10, Material = "PVC" },
+            new TamanoDisponible { Clave = "c", Familia = "Concrete Pipe", Nombre = "10 inch RCP", DiametroIn = 10, Material = "Concrete" },
+            new TamanoDisponible { Clave = "d", Familia = "PVC Pipe", Nombre = "6 in", DiametroIn = 6, Material = "PVC" },
+        };
+        x = Pedir(d, "proponer_tamano", "{\"elemento\":\"SS - (P1)\",\"diametro_in\":10,\"objetivos\":" + NORMAS + "}", "basico");
+        Es(x.Ok && x.Datos["tipo"].GetValue<string>() == TiposCambio.TAMANO && x.Datos["despues"].GetValue<string>() == "10\" PVC",
+           "10\" en la misma familia (PVC)");
+        Es(x.Ok && Avisos(x).Contains("más grande") && Avisos(x).Contains("SS - (P2)"), "más grande que la que sigue: avisa");
+        x = Pedir(d, "proponer_tamano", "{\"elemento\":\"ALCANTARILLADO-5\",\"diametro_in\":10,\"material\":\"concreto\",\"objetivos\":" + NORMAS + "}");
+        Es(x.Ok && x.Datos["tuberias"].GetValue<int>() == 2 && x.Datos["despues"].GetValue<string>() == "10\" Concrete", "concreto = Concrete, toda la utilidad");
+        Pedir(d, "confirmar_cambio", "{\"id\":\"" + Id(x) + "\"}");
+        Es(l.M.Tuberias.Take(2).All(t => t.Tamano == "10 inch RCP"), "confirmar cambia las dos");
+        l.M = Gravedad();
+        x = Pedir(d, "proponer_tamano", "{\"elemento\":\"SS - (P1)\",\"diametro_in\":6,\"objetivos\":" + NORMAS + "}");
+        Es(x.Ok && x.Datos["efecto"]["tamanos"][0]["diam_in"].GetValue<double>() == 6, "6\": el efecto va a la app para su normativa");
+        var y = Pedir(d, "proponer_tamano", "{\"elemento\":\"SS - (P1)\",\"diametro_in\":15}");
+        Es(!y.Ok && y.Error.Contains("Hay:") && y.Error.Contains("10\""), "sin ese tamaño: dice cuáles hay");
+        Es(!Pedir(d, "proponer_tamano", "{\"elemento\":\"SS - (P1)\",\"diametro_in\":8}").Ok, "ya tiene ese tamaño");
+        l.M.Tuberias[0].Tamano = "otro";
+        Es(!Pedir(d, "confirmar_cambio", "{\"id\":\"" + Id(x) + "\"}").Ok, "rechaza si el tamaño cambió");
+        Es(Materiales.Mismo("Ductile Iron Pipe", "Hierro dúctil") && !Materiales.Mismo("PVC Pipe", "Concreto"), "sinónimos de material");
+
+        // perfil
+        l.M = Gravedad();
+        x = Pedir(d, "crear_perfil", "{\"desde\":\"SS - (P1)\",\"hasta\":\"SS - (P2)\"}", "basico");
+        Es(x.Ok && x.Datos["tipo"].GetValue<string>() == TiposCambio.PERFIL && x.Datos["tuberias"].GetValue<int>() == 2, "propone el perfil P1 → P2");
+        Es(!Pedir(d, "crear_perfil", "{\"desde\":\"SS - (P1)\",\"hasta\":\"SD - (1)\"}").Ok, "redes distintas: no");
+        x = Pedir(d, "confirmar_cambio", "{\"id\":\"" + Id(x) + "\"}");
+        var ult = (CambioPerfil)e.Aplicados.Last();
+        Es(x.Ok && ult.Tipo == TiposCambio.PERFIL && Math.Abs(ult.SemillaX - 50) < 1e-9 && Math.Abs(ult.FinX.Value - 150) < 1e-9,
+           "semilla y fin en el medio de cada tramo");
+    }
+
+    // ------------------------------------------------------------ obra: buzones, válvulas, accesorios, planta, 3D
+
+    private static void Obra()
+    {
+        Console.WriteLine("Buzones, metrados, válvulas, accesorios, conexión vertical, planta y 3D");
+        var (d, l, e, _) = Armar();
+        Es(!d.Descuadres().Any(), "catálogo y casos cuadran: " + string.Join(", ", d.Descuadres()));
+
+        // buzones
+        l.M = Gravedad();
+        var x = Pedir(d, "revisar_buzones", "{}", "basico");
+        Es(x.Ok && x.Datos["filas"].AsArray().Any(f => f[0].GetValue<string>() == "MH-2" && f[2].GetValue<string>() == "bajo_fondo"),
+           "P2 sale de MH-2 bajo su fondo");
+        x = Pedir(d, "proponer_buzon", "{\"elemento\":\"MH-2\",\"sumar_fondo\":-1}", "basico");
+        Es(x.Ok && x.Datos["tipo"].GetValue<string>() == TiposCambio.BUZON && !x.Datos["advertencias"].AsArray().Any(a => a.GetValue<string>().Contains("bajo el fondo")),
+           "bajar el fondo 1 ft resuelve el aviso");
+        Pedir(d, "confirmar_cambio", "{\"id\":\"" + Id(x) + "\"}");
+        Es(Math.Abs(l.M.Estructuras[1].Sump.Value - 98.6) < 1e-9, "fondo nuevo aplicado");
+        Es(!Pedir(d, "proponer_buzon", "{\"elemento\":\"MH-2\",\"altura\":-3}").Ok, "altura negativa: no");
+        x = Pedir(d, "proponer_buzon", "{\"elemento\":\"MH-1\",\"altura\":2}");
+        Es(x.Ok && Avisos(x).Contains("bajo el fondo"), "fondo sobre la tubería: avisa");
+
+        // metrados y accesorios
+        l.M = Cruce();
+        l.M.Accesorios.Add(new Accesorio { Handle = "S2", Tipo = "ELBOW", Red = "AGUA-7", X = 50, Y = 0, ZEje = -4.5, RadioFt = 1.5 });
+        x = Pedir(d, "metrados", "{}", "basico");
+        Es(x.Ok && x.Datos["totales"]["accesorios"].GetValue<int>() == 1, "dos sólidos del mismo codo = un accesorio");
+        Es(x.Ok && x.Datos["tuberias"]["filas"].AsArray().Any(f => f[0].GetValue<string>() == "AGUA" && f[4].GetValue<double>() == 98), "98 ft de agua");
+        x = Pedir(d, "buscar_accesorios", "{\"tipo\":\"codo\"}", "basico");
+        Es(x.Ok && x.Datos["total"].GetValue<int>() == 1 && x.Datos["filas"][0][0].GetValue<string>() == "A1", "el codo es A1 (por su nombre en español)");
+
+        // quitar accesorio
+        x = Pedir(d, "proponer_quitar_accesorio", "{\"accesorio\":\"A1\"}", "basico");
+        Es(x.Ok && x.Datos["tipo"].GetValue<string>() == TiposCambio.QUITAR_ACCESORIO && x.Datos["tuberias"].GetValue<int>() == 2, "quita el codo, llegan sus dos tuberías");
+
+        // válvula
+        x = Pedir(d, "proponer_valvula", "{\"elemento\":\"AGUA-7 - (W2)\"}", "basico");
+        Es(x.Ok && x.Datos["tipo"].GetValue<string>() == TiposCambio.PONER_VALVULA, "pone una válvula en el medio de W2");
+        Es(!Pedir(d, "proponer_valvula", "{\"elemento\":\"TELECOM-31 - (T1)\"}").Ok, "en gravedad no");
+        x = Pedir(d, "proponer_valvula", "{\"elemento\":\"AGUA-7 - (W2)\",\"union\":\"RG\",\"distancia_ft\":0}");
+        Es(x.Ok && Avisos(x).Contains("corrió"), "RG en 12\" vale; pegada al codo se corre");
+        l.M.Accesorios.Add(new Accesorio { Handle = "V1", Tipo = "VALVE", Red = "AGUA-7", X = 75, Y = 0, RadioFt = 1.2 });
+        x = Pedir(d, "proponer_valvula", "{\"accion\":\"quitar\",\"elemento\":\"A2\"}");
+        Es(x.Ok && x.Datos["tipo"].GetValue<string>() == TiposCambio.QUITAR_VALVULA, "quita la válvula A2");
+
+        // conexión vertical: telecom (-4.8) toca agua (-5) en planta → de una con el conflicto K1
+        x = Pedir(d, "proponer_conexion_vertical", "{\"elementos\":[\"AGUA-7 - (W1)\",\"TELECOM-31 - (T1)\"]}", "basico");
+        Es(x.Ok && x.Datos["tipo"].GetValue<string>() == TiposCambio.CONEXION_VERTICAL, "conexión vertical agua ↔ telecom");
+        Es(!Pedir(d, "proponer_conexion_vertical", "{\"elementos\":[\"AGUA-7 - (W1)\",\"ALCANTARILLADO-34 - (A1)\"]}").Ok, "si no se tocan: no");
+
+        // mover en planta: telecom 25 ft a la derecha → deja de cruzar el agua
+        l.M = Cruce();
+        x = Pedir(d, "proponer_mover_planta", "{\"elemento\":\"TELECOM-31 - (T1)\",\"solo_tramo\":\"si\",\"dx\":25,\"reglas\":" + REGLAS + "}", "basico");
+        Es(x.Ok && x.Datos["tipo"].GetValue<string>() == TiposCambio.MOVER_PLANTA, "mueve en planta");
+        Es(x.Ok && x.Datos["advertencias"].AsArray().Any(a => a.GetValue<string>().Contains("se separaría")), "T1 se separa de T2: avisa");
+        x = Pedir(d, "proponer_mover_planta", "{\"elemento\":\"AGUA-7 - (W1)\",\"lado\":\"izquierda\",\"distancia\":30,\"reglas\":" + REGLAS + "}");
+        Es(x.Ok && x.Datos["consecuencias"].AsArray().Any(c => c.GetValue<string>().Contains("Deja de chocar")), "el agua 30 ft al norte deja de chocar");
+        Pedir(d, "confirmar_cambio", "{\"id\":\"" + Id(x) + "\"}");
+        Es(l.M.Tuberias.Where(t => t.Capa == "AGUA").All(t => Math.Abs(t.YIni - 30) < 1e-9), "confirmar mueve las dos del agua");
+        Es(!Pedir(d, "proponer_mover_planta", "{\"elemento\":\"AGUA-7 - (W1)\"}").Ok, "sin cuánto: pregunta");
+
+        // choques 3D: solo se prueban los pares que no están unidos a propósito
+        Cuerpo C(string h, string tipo, string util, string red, double x0, double x1, params (double, double)[] puntas)
+        {
+            var c = new Cuerpo { Handle = h, Tipo = tipo, Nombre = h, Utilidad = util, Red = red, Min = new[] { x0, 0, 0.0 }, Max = new[] { x1, 1, 1.0 } };
+            c.Puntas.AddRange(puntas);
+            return c;
+        }
+        l.C = new List<Cuerpo>
+        {
+            C("P1", "tuberia", "AGUA-1", "W", 0, 10, (0, 0.5), (10, 0.5)),
+            C("P2", "tuberia", "AGUA-1", "W", 10, 20, (10, 0.5), (20, 0.5)),       // misma utilidad
+            C("Q1", "tuberia", "GAS-2", "G", 5, 6, (5, 0.5), (6, 0.5)),            // cruza a P1
+            C("B1", "solido", "", "", 19.5, 22),                                    // bancoducto donde llega P2
+            C("Z1", "estructura", "", "X", 100, 101),                               // lejos
+        };
+        l.I = new List<Interferencia> { new Interferencia { A = "P1", B = "Q1", X = 5.5, Y = 0.5, Z = 0.5, VolumenFt3 = 0.1 } };
+        x = Pedir(d, "buscar_choques_3d", "{}", "basico");
+        Es(x.Ok && x.Datos["choques"]["total"].GetValue<int>() == 1 && x.Datos["choques"]["filas"][0][1].GetValue<string>() == "P1", "un choque real P1 × Q1");
+        Es(l.Probados.Count == 1, "solo se probó ese par (lo unido a propósito no)");
+    }
+
+    // ------------------------------------------------------------ revisión del plano
+
+    private static void Plano()
+    {
+        Console.WriteLine("Revisión del plano");
+        var (d, l, e, _) = Armar();
+        var m = new Modelo();
+        TextoDibujo T(string h, string tipo, string c, double x0, double y0, double x1, double y1) =>
+            new TextoDibujo { Handle = h, Tipo = tipo, Contenido = c, Capa = "ANNO", X = x0, Y = y0, Altura = y1 - y0, Caja = new Caja(x0, y0, x1, y1) };
+        m.Textos.Add(T("T1", "MTEXT", "R/W LINE", 0, 0, 10, 1));                     // la guía de la foto lo cruza
+        m.Textos.Add(T("T2", "MLEADER", "PHOTO", 30, 0, 36, 1));
+        m.Textos.Add(T("T3", "MTEXT", "15.0 ft ALONG BW", 50, 0, 60, 1));
+        m.Textos.Add(T("T4", "TEXT", "EX. TREE", 51, 0.2, 58, 1.2));                 // se tapa con T3
+        m.Textos.Add(T("T5", "MTEXT", "DWS", 80, 0, 83, 1));                          // dentro de una trama chica
+        m.Guias.Add(new Guia { Handle = "T2", Tipo = "MLEADER", ConTexto = true, TextoHandle = "T2", Vertices = { (5, -3), (5, 7), (30, 0.5) } });
+        m.Guias.Add(new Guia { Handle = "G2", Tipo = "LEADER", ConTexto = false, Vertices = { (19.6, 16), (25, 20) } });
+        m.Cotas.Add(new Cota { Handle = "D1", Texto = "19.9", Medida = 19.9, Estilo = "PDFCAD", Decimales = 1, AlturaTexto = 1,
+                               CajaTexto = new Caja(1, 5, 4, 6), A = (0, 5.5), B = (20, 5.5) });
+        m.Tramas.Add(new Trama { Handle = "H1", Patron = "ANSI31", Caja = new Caja(78, -2, 86, 3) });
+        l.M = m;
+
+        var x = Pedir(d, "revisar_plano", "{}", "basico");
+        var tipos = x.Datos["revision"]["filas"].AsArray().Select(f => f[1].GetValue<string>()).ToList();
+        Es(x.Ok && tipos.Contains(RevisionPlano.GUIA_TEXTO) && tipos.Contains(RevisionPlano.FLECHA_SUELTA) &&
+           tipos.Contains(RevisionPlano.TEXTO_TEXTO) && tipos.Contains(RevisionPlano.TRAMA) && tipos.Contains(RevisionPlano.GUIA_COTA),
+           "encuentra guía sobre texto, flecha suelta, textos que se tapan, trama y guía sobre cota: " + string.Join(",", tipos));
+        var items = RevisionPlano.Revisar(m);
+        Es(!items.Any(i => i.Tipo == RevisionPlano.GUIA_TEXTO && i.Handles[0] == "T2"), "la guía no cruza su propio texto");
+
+        // arreglos
+        string Q(string tipo) => items.First(i => i.Tipo == tipo).Id;
+        x = Pedir(d, "proponer_arreglo_revision", "{\"punto\":\"" + Q(RevisionPlano.FLECHA_SUELTA) + "\"}", "basico");
+        Es(x.Ok && x.Datos["tipo"].GetValue<string>() == TiposTexto.BORRAR, "flecha suelta → borrarla");
+        var gt = items.First(i => i.Tipo == RevisionPlano.GUIA_TEXTO);
+        var movido = m.Textos.First(t => t.Handle == gt.Mover).Caja.Mover(gt.Dx, gt.Dy);
+        Es(!movido.Encoger(RevisionPlano.ENCOGER).Corta(5, -3, 5, 7), "mover lo justo: el texto deja de tocar la guía");
+        x = Pedir(d, "proponer_arreglo_revision", "{\"punto\":\"" + Q(RevisionPlano.TRAMA) + "\"}");
+        Es(x.Ok && x.Datos["despues"].GetValue<string>() == "con máscara", "en la trama → máscara");
+        var tt = items.First(i => i.Tipo == RevisionPlano.TEXTO_TEXTO);
+        var a = m.Textos.First(t => t.Handle == tt.Mover).Caja.Mover(tt.Dx, tt.Dy);
+        var b = m.Textos.First(t => t.Handle == tt.Handles[1]).Caja;
+        Es(a.Solape(b) == 0, "textos que se tapan → se separan");
+
+        // textos
+        x = Pedir(d, "proponer_texto", "{\"buscar\":\"ALONG BW\",\"reemplazar\":\"ALONG BW\",\"por\":\"\"}", "basico");
+        Es(x.Ok && x.Datos["despues"].GetValue<string>() == "15.0 ft", "quita «ALONG BW» → «15.0 ft»");
+        Es(!Pedir(d, "proponer_texto", "{\"buscar\":\"NADA\",\"reemplazar\":\"NADA\"}").Ok, "si no hay ese texto: no");
+        x = Pedir(d, "proponer_texto", "{\"elemento\":\"EX. TREE\",\"mascara\":\"si\"}");
+        Es(x.Ok && x.Datos["advertencias"].AsArray().Count == 1, "máscara en un TEXT: avisa que no se puede");
+        Pedir(d, "confirmar_cambio", "{\"id\":\"" + Id(Pedir(d, "proponer_texto", "{\"elemento\":\"T3\",\"dy\":2}")) + "\"}");
+        Es(e.Aplicados.Last() is CambioTexto ct && ct.Ediciones[0].Dy == 2, "confirmar mueve el texto");
+
+        // cotas
+        x = Pedir(d, "buscar_cotas", "{}", "basico");
+        Es(x.Ok && x.Datos["total"].GetValue<int>() == 1, "una cota");
+        x = Pedir(d, "proponer_cota", "{\"estilo_actual\":\"PDFCAD\",\"decimales\":2}", "basico");
+        Es(x.Ok && x.Datos["despues"].GetValue<string>() == "decimales 2", "cambia decimales de las de ese estilo");
+        x = Pedir(d, "proponer_cota", "{\"accion\":\"crear\",\"x1\":0,\"y1\":0,\"x2\":3,\"y2\":4}");
+        Es(x.Ok && x.Datos["despues"].GetValue<string>() == "5", "crea una cota de 5");
+        Es(!Pedir(d, "proponer_cota", "{\"accion\":\"crear\",\"x1\":1,\"y1\":1,\"x2\":1,\"y2\":1}").Ok, "dos puntos iguales: no");
     }
 
     // ------------------------------------------------------------ punta a punta

@@ -12,6 +12,7 @@ mientras toma sus capturas, con «Cancelar». Abrir otro proyecto lo cancela (`_
 """
 from __future__ import annotations
 
+from ia import reporte_error as RE
 import datetime as _dt
 import os
 
@@ -122,7 +123,8 @@ class InformeMixin:
             yield ("hilo", trabajo)
         except P.ErrorIA as e:
             redactor.preparar(inf, sin_red=True)          # lo que ya redactó antes (memoria del proyecto) sirve
-            notas.append(_tr("La IA no está disponible ({e}): se usó lo ya redactado y plantillas.").format(e=e))
+            notas.append(_tr("La IA no está disponible ({e}): se usó lo ya redactado y plantillas.").format(
+                e=RE.texto_corto(RE.armar(e, "Informe automático"))))
             if not redactor.cuenta["memoria"]:
                 return RedactorPlantilla()
             notas.append(redactor.nota())

@@ -20,6 +20,7 @@ namespace Civil3DBasico.Mcp.Dominio
         public TipoRed TipoRed;
         public string Capa;
         public string Tamano;          // PartSizeName
+        public string Familia;         // familia de la pieza (gravedad) o descripción del tubo (presión)
         public string Descripcion;
         public double DiametroIn;
         public double LargoFt;         // en planta
@@ -27,6 +28,21 @@ namespace Civil3DBasico.Mcp.Dominio
         public double? CotaIni, CotaFin;   // rasante (solera) en cada extremo
         public double? PendientePct;       // Slope de Civil 3D × 100
         public string EstructuraIni, EstructuraFin;   // handles
+        /// <summary>Utilidad de la app de la que salió (Property Set «PDFCAD_Utilidad»): capa y número
+        /// («AGUA», «20» = la AGUA-20 de la app). Vacío si el dibujo no viene de la app. Las tuberías de una
+        /// misma utilidad se mueven juntas al resolver un conflicto.</summary>
+        public string UtilidadCapa, UtilidadNumero;
+        /// <summary>Tipo de la utilidad en la app (Property Set «PDFCAD_Utilidad», campo TIPO), p. ej.
+        /// «DISTRIBUCION PRINCIPAL». Lo usan las normativas.</summary>
+        public string TipoApp;
+        /// <summary>Material: la importación lo escribe en la Descripción de la tubería.</summary>
+        public string Material() => Descripcion;
+
+        /// <summary>«AGUA-20» (como la nombra la app) o el nombre de la tubería si no viene de la app.</summary>
+        public string Utilidad() => string.IsNullOrEmpty(UtilidadNumero) ? Nombre
+            : $"{(string.IsNullOrEmpty(UtilidadCapa) ? Capa : UtilidadCapa)}-{UtilidadNumero}";
+
+        public Tuberia Copia() => (Tuberia)MemberwiseClone();
 
         /// <summary>Pendiente calculada con las rasantes (la de Civil 3D puede faltar).</summary>
         public double? PendienteCalculada() =>
@@ -44,8 +60,25 @@ namespace Civil3DBasico.Mcp.Dominio
         public double X, Y;
         public double? Rim, Sump;
         public int Conexiones;
+        public bool Nula;             // estructura nula (vértice de conduit/presión), no es un buzón
 
         public double? Profundidad() => Rim.HasValue && Sump.HasValue ? Rim.Value - Sump.Value : (double?)null;
+    }
+
+    /// <summary>Accesorio de una red a presión: pieza de Civil 3D (codo, Tee… del catálogo) o sólido del plugin
+    /// (XDATA PDFCAD_FITTING: codos, Tees, Wyes, cruces, válvulas). Se mueve junto con sus tuberías.</summary>
+    public sealed class Accesorio
+    {
+        public string Handle;
+        public string Tipo;
+        public string Red;            // nombre de la red (vacío = no se sabe)
+        public double X, Y;
+        public double? ZEje;
+        public double RadioFt;        // alcance en planta: las puntas de sus tuberías caen a esta distancia
+        public bool EsPieza;          // pieza de Civil 3D (PressureFitting/Appurtenance); si no, sólido
+        /// <summary>Handles de las tuberías conectadas (piezas de Civil 3D). Vacía en los sólidos: ahí se
+        /// usan las puntas que caen a `RadioFt` de su centro.</summary>
+        public List<string> Conectadas = new List<string>();
     }
 
     public sealed class EstadoDibujo
@@ -63,6 +96,10 @@ namespace Civil3DBasico.Mcp.Dominio
         public List<Tuberia> Tuberias = new List<Tuberia>();
         public List<Estructura> Estructuras = new List<Estructura>();
         public List<TextoDibujo> Textos = new List<TextoDibujo>();    // TEXT y MTEXT del espacio modelo
+        public List<Accesorio> Accesorios = new List<Accesorio>();
+        public List<Guia> Guias = new List<Guia>();                   // LEADER y MLEADER
+        public List<Cota> Cotas = new List<Cota>();
+        public List<Trama> Tramas = new List<Trama>();
     }
 
     // ---------------------------------------------------------------- resúmenes

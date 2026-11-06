@@ -123,7 +123,7 @@ class HerramientasMixin:
         """Revisa las normativas en tablas (normas_validar) y dibuja los accesorios de
         presión con su tipo y ángulo (accesorios_view) y los avisos (avisos_view).
         Deja `_accesorios` y `_normas_avisos` para la ventana y la barra de estado."""
-        self._accesorios = []; self._normas_avisos = []
+        self._accesorios = []; self._normas_avisos = []; accs = []
         if getattr(self, "_provisional", False):        # el hilo los calcula (calculo_fondo)
             self._angulos_fuera = []
             self._mostrar_pendiente()
@@ -147,6 +147,7 @@ class HerramientasMixin:
                 accs, self._normas_avisos, self._angulos_fuera = self._calcular_accesorios(ft_px)   # ventana_calculo
                 self._guardar_resultados("_resultados_acc", clave_res,
                                          (clave_res, (accs, self._normas_avisos, self._angulos_fuera)))
+            self._accs_lista = accs                     # Inventario → «Accesorios»
             tol = 0.5 / ft_px
             ver_acc = getattr(self, "act_show_acc", None) is None or self.act_show_acc.isChecked()
             vigentes = getattr(self, "_marcas_vigentes", False)  # las marcas de antes siguen en su capa
@@ -197,6 +198,10 @@ class HerramientasMixin:
         if getattr(self, "lbl_normas_pipe", None) is not None:
             self._mostrar_avisos_de_la_utilidad()
         self._mostrar_pendiente()
+        if not (ft_px and self.pipes):
+            self._accs_lista = []
+        if hasattr(self, "_llenar_lista_accesorios"):
+            self._llenar_lista_accesorios()
         self._vista3d_al_dia()
         self._perfil_al_dia()
 
@@ -254,19 +259,39 @@ class HerramientasMixin:
         if activar and elegido:
             self.ver_propiedades()
         self.canvas.centerOn(x, y)
+        self._marcar_lugar(x, y)
+        if activar:
+            self.raise_(); self.activateWindow()
+
+    MARCA_LUGAR_MS = 5000          # cuánto dura el círculo que marca el lugar (pedido 2026-11-05)
+    MARCA_PARPADEO_MS = 300        # medio ciclo del parpadeo
+
+    def _marcar_lugar(self, x, y):
+        """Círculo ámbar que PARPADEA en (x, y) durante `MARCA_LUGAR_MS` (conflictos, cruces, avisos,
+        «Ver en el plano» de la limpieza…). Uno a la vez: el anterior se quita."""
+        self._quitar_marca_lugar()
         sc = self.canvas.scene()
         pen = QtGui.QPen(QtGui.QColor(240, 170, 20), 3); pen.setCosmetic(True)
         r = 26.0
         it = sc.addEllipse(-r, -r, 2 * r, 2 * r, pen)
         it.setPos(x, y); it.setFlag(QtWidgets.QGraphicsItem.ItemIgnoresTransformations)
         it.setZValue(Z_HANDLE + 9)
+        reloj = QtCore.QTimer(self)
+        reloj.setInterval(self.MARCA_PARPADEO_MS)
+        reloj.timeout.connect(lambda: it.setOpacity(0.15 if it.opacity() > 0.5 else 1.0))
+        reloj.start()
+        self._marca_lugar = (sc, it, reloj)
+        QtCore.QTimer.singleShot(self.MARCA_LUGAR_MS, self, lambda m=self._marca_lugar: self._quitar_marca_lugar(m))
 
-        def _quitar():
-            try: sc.removeItem(it)
-            except (RuntimeError, ValueError): pass
-        QtCore.QTimer.singleShot(1800, _quitar)
-        if activar:
-            self.raise_(); self.activateWindow()
+    def _quitar_marca_lugar(self, solo=None):
+        m = getattr(self, "_marca_lugar", None)
+        if m is None or (solo is not None and m is not solo):
+            return
+        self._marca_lugar = None
+        sc, it, reloj = m
+        reloj.stop(); reloj.deleteLater()
+        try: sc.removeItem(it)
+        except (RuntimeError, ValueError): pass
 
     # ─────────────────────── tipo y amperaje de la utilidad ───────────────────────
     def _cargar_tipos_panel(self, p):

@@ -34,6 +34,7 @@ def build_model_dict(win):
         cross_connections=list(getattr(win, "cross_connections", None) or []),
         normas_aprobados=list(getattr(win, "normas_aprobados", None) or []),
         sin_accesorio=list(getattr(win, "sin_accesorio", None) or []),
+        valvulas=list(getattr(win, "valvulas", None) or []),
         perfiles=list(getattr(win, "perfiles", None) or []),
         conflictos_registro=(win._conf_registro.a_dict() if getattr(win, "_conf_registro", None) else None),
         georef=win.georef.to_dict(),
@@ -125,6 +126,7 @@ def parse_model(model):
         cross_connections=list(model.get("cross_connections", []) or []),  # retrocompat: sin conexiones aprobadas
         normas_aprobados=list(model.get("normas_aprobados", []) or []),    # retrocompat: sin avisos aprobados
         sin_accesorio=list(model.get("sin_accesorio", []) or []),          # retrocompat: sin puntos sin accesorio
+        valvulas=list(model.get("valvulas", []) or []),                    # retrocompat: sin válvulas
         perfiles=list(model.get("perfiles", []) or []),                    # retrocompat: sin perfiles guardados
         conflictos_registro=model.get("conflictos_registro"),             # números fijos de los conflictos
         normativas_activas={str(k): bool(v) for k, v in (model.get("normativas_activas") or {}).items()},

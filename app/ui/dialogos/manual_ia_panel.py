@@ -8,6 +8,7 @@ servidor que deje el modelo cargado (`Proveedor.calentar`). Sin IA configurada, 
 """
 from __future__ import annotations
 
+from ia import reporte_error as RE
 import html
 import re
 import threading
@@ -158,8 +159,8 @@ class PanelAyudaIA(QtWidgets.QWidget):
             try:
                 r = AM.responder(prov, self.ix, pregunta, al_texto=lambda s: self._senales.trozo.emit(pedido, s),
                                  cancelado=lambda: pedido != self._pedido)
-            except P.ErrorIA as e:
-                r = (None, str(e), None)
+            except Exception as e:                       # noqa: BLE001 (ErrorIA o lo que sea: reporte corto)
+                r = (None, RE.texto_corto(RE.armar(e, "Manual · pregunta a la IA")), None)
             self._senales.listo.emit(pedido, r)
         threading.Thread(target=correr, name="pdfcad-ia-ayuda", daemon=True).start()
 

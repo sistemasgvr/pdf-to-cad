@@ -256,6 +256,14 @@ namespace Civil3DBasico
             return new List<string> { Sta(est), D(dm) + " X " + D(dr) + " TEE", Top(top) };
         }
 
+        /// <summary>Válvula de compuerta (2026-11-05): PIPE STA · {D}" FLG|MJ GATE VALVE [W/ GEAR OP] · TOP ELEV.
+        /// Espejo de perfil_textos.lineas_valvula de la app.</summary>
+        internal static List<string> LineasValvula(double est, double d, string union, bool engranes, double top)
+        {
+            string u = string.Equals((union ?? "").Trim(), "RG", StringComparison.OrdinalIgnoreCase) && !engranes ? "MJ" : "FLG";
+            return new List<string> { Sta(est), Unir(D(d), u, "GATE VALVE", engranes ? "W/ GEAR OP" : ""), Top(top) };
+        }
+
         /// <summary>Wye: PIPE STA · {Dm}" X {Dr}" WYE · {Dr}" BRANCH {LT|RT} {ang} · TOP ELEV. H.3.</summary>
         internal static List<string> LineasWye(double est, double dm, double dr, string lado, double anguloDeg, double top)
         {

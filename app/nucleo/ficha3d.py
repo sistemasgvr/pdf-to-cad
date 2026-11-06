@@ -100,8 +100,27 @@ def de_conflicto(obj):
     return titulo, filas
 
 
+def de_valvula(obj, pipes, nombre_utilidad=lambda c: c):
+    """(título, filas) de una válvula de compuerta (`valvulas3d`): la pieza que pone el plugin."""
+    d = float(obj.get("diam_in") or 0)
+    titulo = t(N_("Válvula de compuerta {d}\"")).format(d=f"{d:g}")
+    une = [i for i in obj.get("pipes") or [] if 0 <= i < len(pipes)]
+    filas = [(N_("Accesorio"), t(N_("Válvula de compuerta"))), (N_("Diámetro"), f'{d:g}"'),
+             (N_("Pieza"), obj.get("bloque") or ""), (N_("Unión"), obj.get("union") or ""),
+             (N_("Material"), obj.get("material") or ""),
+             (N_("Largo (ft)"), _valor(round(float(obj.get("largo_ft") or 0), 3))),
+             (N_("Utilidad"), nombre_utilidad(obj.get("capa") or ""))]
+    if une:
+        filas.append((N_("En la utilidad"), ", ".join(f"#{i + 1}" for i in une)))
+    if obj.get("eje_z") is not None:
+        filas.append((N_("Cota del eje (ft)"), _valor(round(obj["eje_z"], 3))))
+    return titulo, filas
+
+
 def de_accesorio(obj, pipes, avisos, nombre_utilidad=lambda c: c, tol_px=None):
     """(título, [(campo, valor)]) de un accesorio del modelo 3D (`modelo3d.objetos`)."""
+    if obj.get("acc_tipo") == "valvula":
+        return de_valvula(obj, pipes, nombre_utilidad)
     nombre = t(NOMBRE_ACC.get(obj.get("acc_tipo"), N_("Accesorio")))
     ang = obj.get("angulo")
     titulo = f"{nombre} {acc.texto_angulo(ang)}" if ang is not None else nombre

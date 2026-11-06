@@ -230,6 +230,19 @@ def test_edicion_precisa_y_alertas_en_la_ventana(win):
     a = win.perfil_siguiente_alerta()
     assert a is not None and "Diámetro" in win.lbl_perfil_datos.text()
     v.resize(900, 320); v.grab()
+    # pasar el ratón por todo el perfil (nodos y alertas con su globo): antes, sobre un nodo con texto,
+    # «'float' object has no attribute 'globalPosition'» (la estación pisaba al evento)
+    from PySide6 import QtCore, QtGui
+    globos = []
+    for x in range(0, 900, 4):
+        for y in range(0, 320, 8):
+            p = QtCore.QPointF(x, y)
+            ev = QtGui.QMouseEvent(QtCore.QEvent.MouseMove, p, v.mapToGlobal(p), QtCore.Qt.NoButton,
+                                   QtCore.Qt.NoButton, QtCore.Qt.NoModifier)
+            v.mouseMoveEvent(ev)
+            if v._hover >= 0:
+                globos.append(v._hover)
+    assert globos                                          # pasó por algún nodo
 
 
 def test_dxf_lleva_inicio_y_fin(win):

@@ -12,6 +12,7 @@ Al aprobar tras conversar, la aclaración queda como enseñanza para casos parec
 
 Mezcla de `DiametroIAMixin`: usa `_diam_ia_*` de esa clase.
 """
+from ia import reporte_error as RE
 import html
 import json
 import threading
@@ -199,7 +200,7 @@ class ReplicaDiametroMixin:
                                 al_estado=lambda etapa: self._diam_ia_senales.etapa.emit(tok, etapa),
                                 explorador=self._diam_ia_explorador(i, f, tok, prov))
             except Exception as e:                    # noqa: BLE001 (ErrorIA, red)
-                r = str(e)
+                r = RE.texto_corto(RE.armar(e, "Diámetro según la IA · réplica"))
             self._diam_ia_senales.listo.emit(tok, r)
         threading.Thread(target=correr, name="pdfcad-ia-diametro-replica", daemon=True).start()
 

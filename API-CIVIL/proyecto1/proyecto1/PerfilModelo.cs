@@ -23,7 +23,7 @@ namespace Civil3DBasico
 {
     internal enum TipoRed { Gravedad, Conduit, Presion }
     internal enum TipoNodo { Estructura, EstructuraNula, Accesorio, Union, Extremo }
-    internal enum TipoAccesorio { Ninguno, Codo, Tee, Wye, Cruz }
+    internal enum TipoAccesorio { Ninguno, Codo, Tee, Wye, Cruz, Valvula }
 
     /// <summary>Nodo del grafo de la red (estructura, accesorio sólido, unión o extremo libre). B.1.</summary>
     internal sealed class NodoPerfil
@@ -39,6 +39,7 @@ namespace Civil3DBasico
         public double AnguloXData = double.NaN, DiamPrincipalIn = double.NaN, DiamRamalIn = double.NaN;
         public double LargoTotalFt = double.NaN;
         public string MaterialXData = "", RedXData = "";
+        public string UnionXData = ""; public bool EngranesXData;   // válvula: FLG|RG y operador de engranes
         public bool RamalVertical; public string SentidoVertical = "";   // "UP" | "DOWN" | "" (H.3)
         public List<int> Tramos = new List<int>();
     }

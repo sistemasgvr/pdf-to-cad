@@ -7,6 +7,7 @@ Debajo, «¿No quedó claro? Pregúntale…» (pedido del usuario 2026-10-29): p
 elegida (`EN.replicar`); la conversación se ve bajo la explicación y empieza de nuevo al elegir otra regla."""
 from __future__ import annotations
 
+from ia import reporte_error as RE
 import html
 import threading
 
@@ -142,8 +143,8 @@ class PanelExplicacion(QtWidgets.QWidget):
             try:
                 r = EN.explicar(prov, fila, al_texto=lambda s: self._senales.trozo.emit(pedido, s),
                                 cancelado=lambda: pedido != self._pedido)
-            except (P.ErrorIA, ValueError) as e:
-                r = (None, str(e))
+            except Exception as e:                       # noqa: BLE001 (ErrorIA, ValueError…: reporte corto)
+                r = (None, RE.texto_corto(RE.armar(e, "Normativas · explicar regla")))
             self._senales.listo.emit(pedido, (fila, r))
         threading.Thread(target=correr, name="pdfcad-ia-norma", daemon=True).start()
 
@@ -205,8 +206,8 @@ class PanelExplicacion(QtWidgets.QWidget):
                 r = EN.replicar(prov, fila, explicacion, historial, pregunta,
                                 al_texto=lambda s: self._senales.trozo.emit(pedido, s),
                                 cancelado=lambda: pedido != self._pedido)
-            except (P.ErrorIA, ValueError) as e:
-                r = (_tr("La IA no respondió ({e}).").format(e=e), "error")
+            except Exception as e:                       # noqa: BLE001 (ErrorIA, ValueError…: reporte corto)
+                r = (RE.texto_corto(RE.armar(e, "Normativas · réplica")), "error")
             self._senales.listo.emit(pedido, ("replica", r))
         threading.Thread(target=correr, name="pdfcad-ia-norma-replica", daemon=True).start()
 

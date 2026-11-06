@@ -10,7 +10,8 @@
     <LangVersion>latest</LangVersion>
   </PropertyGroup>
   <ItemGroup>
-    <Compile Include="..\proyecto1\Mcp\Contratos\*.cs" LinkBase="Contratos" />
+    <Compile Include="..\proyecto1\Mcp\Contratos\**\*.cs" LinkBase="Contratos" />
+    <Compile Include="..\proyecto1\ValvulaReceta.cs" Link="ValvulaReceta.cs" />
     <Compile Include="..\proyecto1\Mcp\Dominio\*.cs" LinkBase="Dominio" />
     <Compile Include="..\proyecto1\Mcp\Aplicacion\*.cs" LinkBase="Aplicacion" />
     <Compile Include="..\proyecto1\Mcp\Infraestructura\ServidorTuberia.cs" Link="Infraestructura\ServidorTuberia.cs" />

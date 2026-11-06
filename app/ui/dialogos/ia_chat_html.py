@@ -116,7 +116,10 @@ def _orden(i, tu, tk):
 def _burbuja_ia(i, tu, tk, existe, ahora, ultimo):
     oscuro = tk.name == "dark"
     partes = []
-    if tu["estado"] == "error":
+    if tu["estado"] == "error" and tu.get("reporte") is not None:
+        from ui.comun import error_html
+        cuerpo = error_html.tarjeta(tu["reporte"], tk, f"copiarerror:{i}")
+    elif tu["estado"] == "error":
         rojo = ERROR_OSCURO if oscuro else tk.danger      # el «danger» del tema oscuro no llega a 4.5:1
         cuerpo = f"<span style='color:{rojo}'>{tu['error']}</span>"
     elif tu.get("orden"):

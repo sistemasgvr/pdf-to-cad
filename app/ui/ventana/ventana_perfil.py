@@ -351,7 +351,7 @@ class PerfilMixin:
                 elif not self._en_el_recorrido(i, clic):
                     self.perfil_desde(i, clic[0], clic[1])
                     return
-        if forzar or self._perfil_firma != self._firma_modelo():
+        if forzar or self._perfil_firma != self._firma_perfil():
             self._perfil_refrescar()
         else:
             self._perfil_alertas()                    # los avisos pueden llegar después (cálculo de fondo)
@@ -378,7 +378,7 @@ class PerfilMixin:
         """Rearma los datos (la geometría puede haber cambiado: se rehace desde sus dos tramos de punta)."""
         if not self._perfil_visible() and not encuadrar:
             return
-        self._perfil_firma = self._firma_modelo()
+        self._perfil_firma = self._firma_perfil()
         rec = self._perfil_rec
         if rec is not None and self._perfil_anclas is not None and not encuadrar:
             rec = self._rec_de_anclas(*self._perfil_anclas)
@@ -388,7 +388,7 @@ class PerfilMixin:
             numero = self._perfil_numero()
             try:
                 datos = PD.armar(self.pipes, self.structures, getattr(self, "_accs_todos", None) or [],
-                                 rec, self._ft(), numero)
+                                 rec, self._ft(), numero, valvulas=self._valvulas_perfil())
             except Exception:                         # nunca tumbar el redibujo por el perfil
                 import traceback
                 traceback.print_exc()

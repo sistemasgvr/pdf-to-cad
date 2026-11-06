@@ -29,7 +29,12 @@ _PENSAR = re.compile(r"<think>.*?</think>\s*", re.S)
 
 
 class ErrorIA(Exception):
-    """La IA no respondió (red, servidor, modelo): quien llama usa la plantilla."""
+    """La IA no respondió (red, servidor, modelo): quien llama usa la plantilla. Lleva lo que hace falta para el
+    reporte de error (`ia/reporte_error`): `codigo_http`, `detalle` (lo que dijo el servidor), `url`, `modelo`."""
+
+    def __init__(self, mensaje="", codigo_http=None, detalle="", url="", modelo=""):
+        super().__init__(mensaje)
+        self.codigo_http, self.detalle, self.url, self.modelo = codigo_http, detalle, url, modelo
 
 
 @dataclass
@@ -107,10 +112,12 @@ class Ollama(Proveedor):
             return urllib.request.urlopen(req, timeout=espera)   # noqa: S310 (URL de la configuración)
         except urllib.error.HTTPError as e:
             detalle = e.read().decode("utf-8", "replace")[:300]
-            raise ErrorIA(t("El servidor de IA respondió {c}: {d}").format(c=e.code, d=detalle)) from e
+            raise ErrorIA(t("El servidor de IA respondió {c}: {d}").format(c=e.code, d=detalle), codigo_http=e.code,
+                          detalle=detalle, url=self.config.url + ruta, modelo=self.config.modelo) from e
         except (urllib.error.URLError, OSError, TimeoutError) as e:
             raise ErrorIA(t("No se pudo conectar con el servidor de IA ({u}): {e}").format(
-                u=self.config.url, e=getattr(e, "reason", e))) from e
+                u=self.config.url, e=getattr(e, "reason", e)), detalle=str(getattr(e, "reason", e)),
+                url=self.config.url + ruta, modelo=self.config.modelo) from e
 
     def modelos(self):
         with self._pedir("/api/tags", espera=10) as r:

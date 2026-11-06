@@ -35,7 +35,7 @@ TAMANO_DEF = 11
 class _Senales(QtCore.QObject):
     trozo = QtCore.Signal(object, str)
     listo = QtCore.Signal(object, object)
-    fallo = QtCore.Signal(object, str)
+    fallo = QtCore.Signal(object, object)   # turno, ia.reporte_error.Reporte
 
 
 class VistaChat(QtWidgets.QTextBrowser):
@@ -400,10 +400,8 @@ class PreguntaDialog(OrdenesMixin, QtWidgets.QDialog):
                                          al_texto=lambda s: self._senales.trozo.emit(turno, s),
                                          cancelado=lambda: estado["cancelado"], manual=manual)
                 self._senales.listo.emit(turno, res)
-            except P.ErrorIA as e:
-                self._senales.fallo.emit(turno, str(e))
-            except Exception as e:                       # noqa: BLE001 (se muestra en el chat)
-                self._senales.fallo.emit(turno, f"{type(e).__name__}: {e}")
+            except Exception as e:                       # noqa: BLE001 (ErrorIA o lo que sea: reporte en el chat)
+                self._senales.fallo.emit(turno, reporte_de(e, "Chat del proyecto", prov, q))
 
         threading.Thread(target=correr, name="pdfcad-ia-chat", daemon=True).start()
 
@@ -417,8 +415,9 @@ class PreguntaDialog(OrdenesMixin, QtWidgets.QDialog):
         turno["siguientes"] = H.siguientes(res)
         self._terminar()
 
-    def _al_fallo(self, turno, msg):
-        turno["estado"], turno["error"] = "error", html.escape(msg)
+    def _al_fallo(self, turno, rep):
+        turno["estado"], turno["reporte"] = "error", rep
+        turno["error"] = html.escape(rep.texto() if hasattr(rep, "texto") else str(rep))
         self._terminar()
 
     def _terminar(self):
@@ -471,6 +470,11 @@ class PreguntaDialog(OrdenesMixin, QtWidgets.QDialog):
             turno = self._turno(valor)
             if turno is not None:
                 self.enviar(turno["pregunta"])
+        elif tipo == "copiarerror":
+            turno = self._turno(valor)
+            if turno is not None and turno.get("reporte") is not None:
+                QtWidgets.QApplication.clipboard().setText(turno["reporte"].texto())
+                QtWidgets.QToolTip.showText(QtGui.QCursor.pos(), _tr("Copiada"), self.vista)
         elif tipo == "copiar":
             turno = self._turno(valor)
             if turno is not None and turno["texto"]:
@@ -517,3 +521,11 @@ class PreguntaDialog(OrdenesMixin, QtWidgets.QDialog):
         self.vista.setHtml(H.conversacion(self.turnos, theme.tokens(), existe, time.time()))
         barra.setValue(barra.maximum() if al_final else pos)
         self.caja_sug.setVisible(not self.turnos)
+
+
+def reporte_de(error, donde, prov=None, pregunta="", pasos=()):
+    """El reporte del error (`ia/reporte_error`) con el modelo y el servidor del proveedor."""
+    from ia import reporte_error as RE
+    cfg = getattr(prov, "config", None)
+    return RE.armar(error, donde, modelo=getattr(cfg, "modelo", ""), servidor=getattr(cfg, "url", ""),
+                    pregunta=pregunta, pasos=pasos)

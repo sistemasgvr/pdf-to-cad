@@ -73,7 +73,8 @@ class CabeceraInspector(QtWidgets.QFrame):
     def _elegido(self):
         """(tipo, texto de su fila) según el grupo de propiedades que está a la vista."""
         w = self.win
-        for tipo, grupo in (("pipe", "gprop"), ("bz", "gprop_bz"), ("curva", "gprop_curve"), ("cl", "gprop_cl")):
+        for tipo, grupo in (("pipe", "gprop"), ("bz", "gprop_bz"), ("curva", "gprop_curve"), ("cl", "gprop_cl"),
+                             ("acc", "gprop_acc")):
             g = getattr(w, grupo, None)
             if g is not None and not g.isHidden():
                 lista = w.tabs.currentWidget()
@@ -110,6 +111,12 @@ class CabeceraInspector(QtWidgets.QFrame):
             n = (getattr(w, "_avisos_por_utilidad", None) or {}).get(w.sel_pipe, 0)
             if n:
                 partes.append((_tr("{n} avisos").format(n=n) if n > 1 else _tr("1 aviso"), "warn"))
+        elif tipo == "acc" and hasattr(w, "_fila_acc_elegida") and w._fila_acc_elegida() is not None:
+            f = w._fila_acc_elegida()                  # accesorio (2026-11-06): color de su utilidad + su red
+            if f.capa:
+                color = layer_qcolor(f.capa)
+                partes.append((w._tipo(f.capa), "accent"))
+            partes.append((_tr("Válvula") if f.clase == "valv" else _tr("Accesorio"), "neutro"))
         else:
             nombre = re.sub(r"^\d+\.\s*", "", texto)
         pm = QtGui.QPixmap(12, 12)

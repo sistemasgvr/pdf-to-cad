@@ -20,7 +20,7 @@ internal static class Program
     static int Main()
     {
         Formatos(); Metrica(); VVE(); Empaquetado(); Recorrido();
-        M1(); M2(); M2b(); M3(); M4(); M5(); M6(); M7(); M8(); M9(); M10(); M11(); Complementos(); Enderezar();
+        M1(); M2(); M2b(); M3(); M4(); M5(); M6(); M7(); M8(); M9(); M10(); M11(); Complementos(); Enderezar(); Valvulas();
         Console.WriteLine($"\n{total - fallos}/{total} comprobaciones OK" + (fallos > 0 ? $" — {fallos} FALLO(S)" : ""));
         return fallos == 0 ? 0 : 1;
     }
@@ -441,5 +441,51 @@ internal static class Program
         var av = new[] { false, true, false, false, false };
         Igual(L(EnderezarNucleo.VerticesAQuitar(kx, ky, new double[5], new double[5], av, new string[5], 0.25, 0.01, av)), "[3]",
               "Enderezar: junto a un codo solo se quita el que no es ancla");
+    }
+
+    // ------------------------------------------------------------ ValvulaReceta (espejo de app/nucleo/valvula_receta.py)
+    // Valores sacados de la receta de la app (largo, OD del extremo, nº de piezas, suma de todas sus medidas):
+    // la receta del plugin debe dar exactamente lo mismo.
+    static void Valvulas()
+    {
+        void V(double n, string union, string bloque, double largo, double od, int piezas, double suma, bool estimada)
+        {
+            var r = ValvulaReceta.Receta(n, union);
+            string c = $"Válvula {n} {union}";
+            Igual(r.Bloque, bloque, c + " bloque");
+            Num(r.Largo, largo, c + " largo", 1e-9);
+            Num(r.OdExtremo, od, c + " OD extremo", 1e-9);
+            Chequear(r.Piezas.Count == piezas, c + $" piezas {r.Piezas.Count} (esperado {piezas})");
+            Chequear(r.Estimada == estimada, c + " estimada");
+            double s = 0;
+            foreach (var p in r.Piezas)
+            {
+                s += p.Capa;
+                switch (p.Tipo)
+                {
+                    case PiezaValvulaTipo.Tubo: s += p.X0 + p.X1 + p.R + p.Ri; break;
+                    case PiezaValvulaTipo.Brida: s += p.X0 + p.X1 + p.R + p.Ri + p.RPernos + p.NPernos + p.RAgujero; break;
+                    case PiezaValvulaTipo.Caja: s += p.Min.Sum() + p.Max.Sum(); break;
+                    case PiezaValvulaTipo.Cil: s += p.Inicio.Sum() + p.Largo + p.R; break;
+                    default: s += p.Centro.Sum() + p.R + p.Rt; break;
+                }
+            }
+            Num(s, suma, c + " suma de medidas", 1e-5);
+        }
+        V(3, "FLG", "VALV_3_FLG", 8.0, 7.5, 8, 107.12, false);
+        V(8, "FLG", "VALV_8_FLG", 11.5, 13.5, 8, 201.475, false);
+        V(8, "RG", "VALV_8_RG", 15.86, 12.95, 10, 192.05, false);
+        V(5, "RG", "VALV_5_RG", 13.35, 9.75, 10, 137.85, true);
+        V(16, "RG", "VALV_16_RG", 21.72, 21.3, 10, 336.31, false);
+        V(24, "FLG", "VALV_24_FLG_GEAR", 20.0, 32.0, 15, 1073.967, false);
+        V(54, "FLG", "VALV_54_FLG_GEAR", 40.0, 66.25, 15, 2197.132, false);
+        V(60, "FLG", "VALV_60_FLG_GEAR", 44.0, 73.0, 15, 2412.415, true);
+        // rótulo del perfil (espejo de perfil_textos.lineas_valvula)
+        Igual(string.Join(" | ", PerfilTextos.LineasValvula(123.456, 8, "FLG", false, 101.234)),
+              "PIPE STA 1+23.46 | 8\" FLG GATE VALVE | TOP ELEV 101.23'", "Válvula rótulo FLG");
+        Igual(string.Join(" | ", PerfilTextos.LineasValvula(50, 6, "RG", false, 99)),
+              "PIPE STA 0+50.00 | 6\" MJ GATE VALVE | TOP ELEV 99.00'", "Válvula rótulo RG");
+        Igual(string.Join(" | ", PerfilTextos.LineasValvula(1000, 24, "RG", true, 90.5)),
+              "PIPE STA 10+00.00 | 24\" FLG GATE VALVE W/ GEAR OP | TOP ELEV 90.50'", "Válvula rótulo engranes");
     }
 }

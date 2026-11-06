@@ -203,6 +203,7 @@ def _merge_into_modelo(win, doc, marks=True):
     _export_ref_centerlines(win, doc, msp)
     _export_cs_code(win, doc, msp)
     _export_sin_accesorio(win, doc, msp)
+    _export_valvulas(win, doc, msp)
     _export_perfiles(win, doc, msp)
     VP.ensure_layer(doc, "ANOTACION")
     if "CAD_TEXT" not in doc.styles: doc.styles.add("CAD_TEXT", font=C.TEXT_FONT)
@@ -320,6 +321,46 @@ def _export_sin_accesorio(win, doc, msp):
         x, y = win._to_cad(m["x"], m["y"])
         pt = msp.add_point((x, y, 0), dxfattribs={"layer": "PDFCAD_SIN_ACCESORIO"})
         pt.set_xdata("PDFCAD", [(1000, "PDFCAD_SIN_ACCESORIO"), (1000, f"TIPO={m.get('tipo') or ''}")])
+
+
+def _export_valvulas(win, doc, msp):
+    """Válvulas de compuerta en agua/gas (`nucleo/valvulas`, 2026-11-04): un punto en el CENTRO exacto de la
+    válvula, sobre el eje de su tubería, con XDATA PDFCAD_VALVULA en la capa PDFCAD_VALVULA. Se vuelven a ubicar
+    sobre las utilidades que se exportan (las mismas de PDFCAD_PIPE, PIPE_IDX incluido): una válvula que ya no
+    está en un tramo recto donde cabe NO sale (en el plano se ve en rojo con el motivo). El plugin la pone ahí,
+    en esa tubería, con esa pieza, y parte la tubería en ese punto."""
+    vs = getattr(win, "valvulas", None) or []
+    ft = win.scale / win.zoom if getattr(win, "scale", None) and getattr(win, "zoom", None) else 0.0
+    if not vs or not ft:
+        win._valvulas_omitidas = len(vs) if not ft else 0
+        return
+    import math
+    from nucleo import valvulas as _V
+    lugares = _V.ubicar_todas(win.pipes, win.structures, vs, ft)
+    win._valvulas_omitidas = sum(1 for l in lugares if not l.ok)
+    if "PDFCAD" not in doc.appids: doc.appids.add("PDFCAD")
+    VP.ensure_layer(doc, "PDFCAD_VALVULA")
+    for lug in lugares:
+        if not lug.ok:
+            continue
+        x, y = win._to_cad(lug.x, lug.y)
+        x2, y2 = win._to_cad(lug.x + lug.ux, lug.y + lug.uy)        # la dirección del tramo, ya en el DXF
+        n = math.hypot(x2 - x, y2 - y) or 1.0
+        pt = msp.add_point((x, y, 0), dxfattribs={"layer": "PDFCAD_VALVULA"})
+        pt.set_xdata("PDFCAD", [
+            (1000, "PDFCAD_VALVULA"),
+            (1000, f"PIPE_IDX={lug.pipe}"),
+            (1000, f"TRAMO={lug.tramo}"),
+            (1000, f"DIAMETER={lug.diam_in:g}"),
+            (1000, f"UNION={lug.union}"),
+            (1000, f"BLOQUE={lug.bloque}"),
+            (1000, f"MATERIAL={lug.material}"),
+            (1000, f"LARGO_IN={lug.largo_ft * 12.0:.4f}"),
+            (1000, f"BRIDA_OD_IN={lug.brida_ft * 12.0:.4f}"),
+            (1000, f"DIR_X={(x2 - x) / n:.9f}"),
+            (1000, f"DIR_Y={(y2 - y) / n:.9f}"),
+            (1000, f"ESTIMADA={1 if lug.estimada else 0}"),
+        ])
 
 
 def _export_perfiles(win, doc, msp):

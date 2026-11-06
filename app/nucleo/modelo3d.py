@@ -446,7 +446,7 @@ def _z_eje(pipes, i, x, y):
 # ─────────────────────────── escena completa ───────────────────────────
 
 def construir(pipes, structures, ft, colores=None, duct_banks=(), cruces=(), avisos=(), conflictos=(),
-              ocultas=(), ver=None, suelo_z=None, origen=None, solo=None, foco=None, sin_accesorio=()):
+              ocultas=(), ver=None, suelo_z=None, origen=None, solo=None, foco=None, sin_accesorio=(), valvulas=()):
     """Escena 3D. `ft` = pies por px del lienzo; `colores` = {capa: (r, g, b)} 0–1;
     `duct_banks` = [{name, width_in, height_in, conduits, pipes}]; `avisos` =
     [{x, y, clase, mensaje, pipe, info}]; `conflictos` = [{id, titulo, x, y, mensaje, pipes,
@@ -456,7 +456,8 @@ def construir(pipes, structures, ft, colores=None, duct_banks=(), cruces=(), avi
     ella, `modelo3d_parche`; None = el centro de lo dibujado y el suelo); `solo` = índices de las únicas
     utilidades que se arman (las demás ni se miran: como si no tuvieran puntos); `foco` = de ésas, las
     únicas cuyos tubos, accesorios y rótulos se dibujan (las demás solo cuentan para hallar los nodos);
-    `sin_accesorio` = puntos donde el usuario dijo «no hay codo/T/Y/cruz» (`nucleo/sin_accesorio`)."""
+    `sin_accesorio` = puntos donde el usuario dijo «no hay codo/T/Y/cruz» (`nucleo/sin_accesorio`);
+    `valvulas` = las válvulas ubicadas (`nucleo/valvulas.Lugar` como dicts), con la pieza del plugin (`valvulas3d`)."""
     ver = dict(dict(estructuras=True, accesorios=True, avisos=True, rotulos=False), **(ver or {}))
     if not ft or ft <= 0:
         return Escena()
@@ -512,6 +513,14 @@ def construir(pipes, structures, ft, colores=None, duct_banks=(), cruces=(), avi
             n_acc += n_r
             for i, cs in cortes_r.items():
                 cortes.setdefault(i, []).extend(cs)
+            if valvulas:                               # válvulas de compuerta: la pieza del plugin, tubo cortado
+                from nucleo import valvulas3d
+                vs = [v for v in valvulas if foco is None or v.get("pipe") in foco]
+                n_vv, cortes_vv = valvulas3d.dibujar(ar, vis_pipes, vs, ID_ACCESORIO + len(nodos) + n_v + n_r,
+                                                     lambda i, x, y: _z_eje(vis_pipes, i, x, y))
+                n_acc += n_vv
+                for i, cs in cortes_vv.items():
+                    cortes.setdefault(i, []).extend(cs)
         for k, i in enumerate(visibles):
             av.paso("utilidades", k + 1, len(visibles))
             if foco is None or i in foco:

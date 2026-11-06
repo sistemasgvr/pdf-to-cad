@@ -58,7 +58,7 @@ the last change and <span class="key">&nbsp;Ctrl+Shift+Z&nbsp;</span> redoes it.
 <table width="100%" cellspacing="4" cellpadding="10">
 <tr><td bgcolor="{{card}}" width="38%"><b>Top bar</b></td><td bgcolor="{{card}}">The <b>P</b> (File menu: new, open, save, close), the project name (an orange dot = unsaved changes), <b>Search or run a command…</b>, undo and redo, <b>Layers</b>, <b>Assistant</b>, the theme (moon / sun) and <b>Export to Civil 3D</b> (a window: what to include, Civil 3D version and language).</td></tr>
 <tr><td bgcolor="{{card}}" width="38%"><b>Rail (left)</b></td><td bgcolor="{{card}}"><b>Draw</b>, <b>Sheet and PDF</b>, <b>Inventory</b> and <b>Review</b> change the panel next to it; <b>Standards</b>, <b>Data table</b> and <b>Duct Bank</b> open inside the window (closing them takes you back to the drawing); <b>3D view</b> opens its own window. At the bottom: <b>Help</b> and <b>Settings</b>.</td></tr>
-<tr><td bgcolor="{{card}}" width="38%"><b>Rail panel</b></td><td bgcolor="{{card}}">Draw = the tools in a grid (Utility, Leader, Text, Erase, Centerline, Move, Manhole, Duct Bank) and below the options of the chosen one; pressing it again stops it. Sheet and PDF = compose, scans, add utility, opacity, sheets minimap and marks, scale and georeference. Inventory = the lists (utilities, manholes, curves, duct banks…) and the buttons for several at once. Review = how many conflicts and warnings there are, solve, review and clean up, report, standards and what is shown on the drawing.</td></tr>
+<tr><td bgcolor="{{card}}" width="38%"><b>Rail panel</b></td><td bgcolor="{{card}}">Draw = the tools in a grid (Utility, Leader, Text, Erase, Centerline, Move, Manhole, Fittings, Duct Bank) and below the options of the chosen one; pressing it again stops it. Sheet and PDF = compose, scans, add utility, opacity, sheets minimap and marks, scale and georeference. Inventory = the lists (utilities, manholes, curves, fittings, duct banks…) and the buttons for several at once; <b>Fittings</b> holds the bends, Tees, Wyes, crosses and valves with a filter by type: click one and the drawing goes to it (right-click: «No fitting» or the valve options). Review = how many conflicts and warnings there are, solve, review and clean up, report, standards and what is shown on the drawing.</td></tr>
 <tr><td bgcolor="{{card}}" width="38%"><b>Right</b></td><td bgcolor="{{card}}">The <b>properties</b> of the selection (at the top, its color, name, actions and the Properties · Elevations · Data tabs) or, with <b>Assistant</b>, the AI: Chat, Conflicts and «How do I…?».</td></tr>
 <tr><td bgcolor="{{card}}" width="38%"><b>Status bar (bottom)</b></td><td bgcolor="{{card}}">Mode, messages, warnings, coordinates, scale, opacity, georeference and the magnifiers to zoom in and out.</td></tr>
 </table>
@@ -97,7 +97,7 @@ count, and “Sheet N of M” floats over the sheet.</p>
 <tr><td bgcolor="{{card}}" width="38%"><b>File</b></td><td bgcolor="{{card}}">The <b>P</b> at the top left. «Options…» (language) is also in <b>Settings</b>, a window with General (language, theme, panels), Civil 3D, AI assistant, Families, Shortcuts and About.</td></tr>
 <tr><td bgcolor="{{card}}" width="38%"><b>Edit</b></td><td bgcolor="{{card}}">Undo / redo: top bar. Join, bulk edit, copy and paste properties: <b>Inventory</b> (bottom) and right click on the list.</td></tr>
 <tr><td bgcolor="{{card}}" width="38%"><b>View</b></td><td bgcolor="{{card}}">Theme: moon / sun. Warnings: <b>Review → Show on the drawing</b>. 3D view: rail. Sheets minimap and marks: <b>Sheet and PDF</b>. Auto-hide the panels: <b>Settings</b> or their pin.</td></tr>
-<tr><td bgcolor="{{card}}" width="38%"><b>Tools</b></td><td bgcolor="{{card}}">Compose sheet, scans, add utility and georeference: <b>Sheet and PDF</b>. Data table: rail. Report and Review and clean up: <b>Review</b>. Insert manhole in-line: <b>Draw</b> (at the bottom). As you move the mouse, a green circle marks the point on the line where it will go; if it cannot be placed (pressure network or too far from a line), the status bar says why. Install / uninstall family: <b>Settings</b>.</td></tr>
+<tr><td bgcolor="{{card}}" width="38%"><b>Tools</b></td><td bgcolor="{{card}}">Compose sheet, scans, add utility and georeference: <b>Sheet and PDF</b>. Data table: rail. Report and Review and clean up: <b>Review</b>. Insert manhole in-line: <b>Draw</b> (at the bottom). As you move the mouse, a green circle marks the point on the line where it will go; if it cannot be placed (pressure network or too far from a line), the status bar says why. Fittings: <b>Draw</b> → Fittings opens a drop-down with Valve, Elbow (11.25°, 22.5°, 45° or 90°), Tee, Wye and Cross, only on water and gas. The elbow is drawn from the END of a pipe; the Tee, Wye and cross on a straight segment (they shift to leave room for the fitting body). First click = where, second click = which way and how long (green preview, or red with the reason; Esc goes back a step). The new segment leaves at the exact angle, on the same network and at that point's elevation; if the standards do not allow it, the status bar warns. Click a fitting on the plan: it is selected in Inventory → Fittings and the right panel shows its properties (on a valve, the joint and material are changed there). Insert valve: <b>Draw</b> → Fittings → Valve, only on water or gas pipes and on a straight segment (it leaves room for the bend, tee or curve on each side; if it does not fit, the status bar says why); right-click it for the joint (FLG / RG), the material or to remove it. It works for any diameter from 3" to 72" (outside the standards table, with estimated dimensions). The 3D View shows the same part Civil 3D will place: when importing the DXF, IMPORTAR_RED splits the pipe at its faces and draws it as a solid, with no window. The longitudinal profile shows it with its label (“8" FLG GATE VALVE”). Install / uninstall family: <b>Settings</b>.</td></tr>
 <tr><td bgcolor="{{card}}" width="38%"><b>Standards</b></td><td bgcolor="{{card}}">Rail → <b>Standards</b>; show their warnings: <b>Review</b>.</td></tr>
 <tr><td bgcolor="{{card}}" width="38%"><b>AI</b></td><td bgcolor="{{card}}">Ask the project: <b>Assistant</b> (Ctrl+Shift+I). Solve conflicts: <b>Review</b> or Assistant → Conflicts. Configure AI, learning folder and move to production: <b>Settings</b>.</td></tr>
 <tr><td bgcolor="{{card}}" width="38%"><b>Help</b></td><td bgcolor="{{card}}">Rail → <b>Help</b> (the question mark): manual, shortcuts and about.</td></tr>
@@ -1175,6 +1175,31 @@ uses tools.</p>
     consequences and, in amber, the warnings. <b>Show in Civil 3D</b> zooms to the element. Nothing changes until you
     press <b>Apply in Civil 3D</b>; <b>Discard</b> leaves it undone. Each change is undone with <b>U</b> in Civil 3D
     and is logged next to the DWG («plan.pdfcad-ia.jsonl»).</li>
+<li><b>Standards</b>: «does it meet the standards?» or «check the design» checks the drawing with the same rules as
+    the app (diameters, slopes, lengths, materials, manholes, fittings and clearances) and says which pipes fail and
+    why. It checks the pipes that come from the app (each utility, for example <b>AGUA-20</b>, with all its Civil 3D
+    pipes).</li>
+<li><b>Slopes</b>: «fix the slopes of ALCANTARILLADO-5» (or of a network or a pipe) proposes the inverts with the
+    minimum slope of your standard, only on the pipes that fail; if you say the slope («set it to 1 %»), it uses
+    that. It warns if a pipe ends below a manhole's sump or lower than the pipe that leaves it.</li>
+<li><b>Diameter and material</b>: «change AGUA-20 to 8 inch PVC» picks that pipe from the network's parts list in
+    Civil 3D and warns if your standard does not allow it. If it is not in the list, it says which sizes there are.</li>
+<li><b>Clashes</b>: «solve the conflicts between the utilities» proposes raising or lowering a whole utility just
+    enough to meet your standard's clearance.</li>
+<li><b>Longitudinal profile</b>: «create the profile from SS - (1) to SS - (8)» builds the profile of that network
+    below the drawing, with its labels (without «to», the whole run).</li>
+<li><b>More tools</b>: «check the manholes» (pipes below the sump or above the rim) and «lower the sump of MH-2
+    one foot»; «put a valve in AGUA-7 - (3)» or «remove valve A2»; «no elbow here» (lists the fittings with their
+    number A1…); «connect AGUA-20 with GAS-3» (vertical connection); «look for 3D clashes» (also manholes, valves,
+    solids and duct banks); «move TELECOM-31 3 feet to the right»; «quantities»; «save an Excel» or «a Word» with
+    everything (next to the DWG); «what was changed in Civil 3D compared to the app?» and «bring it to the app» (the
+    card says «Apply in the app» and is undone with Ctrl+Z).</li>
+<li><b>Plan review</b>: «check the plan» gives a numbered list (Q1, Q2…) of leaders crossing texts or
+    dimensions, loose arrowheads, overlapping texts and texts inside a hatch; say which to fix («fix Q2 and Q5») and the
+    AI proposes moving them just enough, deleting the arrow or adding a mask. «Remove ALONG BW from the panel dimensions»,
+    «move that text up 2 feet», «set the dimensions of this style to 1 decimal», «compare with the PDF».</li>
+<li>The chat's standards are the app's: each proposal is checked with them before it is shown.</li>
+<li>Everything that changes the drawing comes in a card and is only done with <b>Apply in Civil 3D</b>.</li>
 <li>The same can be used from Claude (Code or Desktop): see <i>docs/mcp_civil3d.md</i>.</li>
 </ul>
 <h2>Diameter according to the AI</h2>

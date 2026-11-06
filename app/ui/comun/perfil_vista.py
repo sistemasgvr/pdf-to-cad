@@ -28,6 +28,7 @@ M_IZQ, M_DER, M_ARR, M_ABA = 70, 70, 10, 72      # márgenes del marco (px): cot
 LETRA_PT = 8
 HUECO = 6
 RADIO_NODO = 5
+VALVULA_MIN_PX = 10.0       # el moño de una válvula nunca más chico que esto en pantalla
 ATRAPAR_PX = 9
 FILAS_BASICO = 2                                  # filas de etiquetas horizontales en el modo básico
 
@@ -243,12 +244,14 @@ class VistaPerfil(QtWidgets.QWidget):
                 filas = []
                 for lado in (True, False):
                     items = [(n.e, self.lineas(n.lineas)) for n in p.nodos if n.lineas and n.arriba == lado]
+                    items += [(v.e, self.lineas(v.lineas)) for v in getattr(p, "valvulas", ()) if lado]
                     items += [(c.e, self.lineas(c.lineas, True)) for c in p.cruces if c.encima == lado]
                     filas.append(_filas_etiquetas([((e - e_lo) * kx0, fm.horizontalAdvance(ls[0]) + 8)
                                                    for e, ls in items]))
                 return (af + (filas[0] * alto_et + 2 * HUECO if filas[0] else HUECO),
                         filas[1] * alto_et + 2 * HUECO if filas[1] else HUECO)
             arriba = [self._bloque(self.lineas(n.lineas), fm)[1] for n in p.nodos if n.lineas and n.arriba]
+            arriba += [self._bloque(self.lineas(v.lineas), fm)[1] for v in getattr(p, "valvulas", ())]
             abajo = [self._bloque(self.lineas(n.lineas), fm)[1] for n in p.nodos if n.lineas and not n.arriba]
             arriba += [self._bloque(self.lineas(c.lineas, True), fm)[1] for c in p.cruces if c.encima]
             abajo += [self._bloque(self.lineas(c.lineas, True), fm)[1] for c in p.cruces if not c.encima]
@@ -557,11 +560,43 @@ class VistaPerfil(QtWidgets.QWidget):
                 pt.setPen(QtGui.QPen(QtGui.QColor(tk.text_on_accent if elegido else tk.text), 1))
                 pt.setBrush(QtGui.QColor(tk.accent if elegido else tk.surface))
                 pt.drawEllipse(QtCore.QPointF(x, self.Z(z)), RADIO_NODO, RADIO_NODO)
+        self._valvulas(pt, tk)
         if self._arrastre:
             k, z = self._arrastre
             s = T.cota(z)
             pt.setPen(QtGui.QColor(tk.text))
             pt.drawText(QtCore.QPointF(self.X(p.nodos[k].e) + 8, self.Z(z) - 8), s)
+
+    def _z_valvula(self, v):
+        """Solera del recorrido en la válvula (sigue al arrastre de un nodo de su paso)."""
+        ps = self.p.pasos[v.paso]
+        z0, z1 = self._z_paso(v.paso)
+        t = (v.e - ps.e0) / max(ps.e1 - ps.e0, 1e-9)
+        return z0 + (z1 - z0) * t
+
+    def _valvulas(self, pt, tk):
+        """Cada válvula como en un plano de perfil: el «moño» a lo largo de la tubería (su largo real, mínimo
+        `VALVULA_MIN_PX`) y el vástago hacia arriba."""
+        for v in getattr(self.p, "valvulas", ()):
+            z = self._z_valvula(v)
+            x = self.X(v.e)
+            medio = max(VALVULA_MIN_PX / 2.0, v.largo_ft / 2.0 * self._geo["kx"] * self._zoom)
+            y0, y1 = self.Z(z), self.Z(z + v.alto_ft)
+            if y0 - y1 < VALVULA_MIN_PX:              # tubería muy fina en pantalla: un moño visible
+                yc = (y0 + y1) / 2.0
+                y0, y1 = yc + VALVULA_MIN_PX / 2.0, yc - VALVULA_MIN_PX / 2.0
+            yc = (y0 + y1) / 2.0
+            relleno = QtGui.QColor(self.color)
+            relleno.setAlpha(170)
+            pt.setPen(QtGui.QPen(QtGui.QColor(tk.text), 1.2))
+            pt.setBrush(relleno)
+            pt.drawPolygon(QtGui.QPolygonF([QtCore.QPointF(x - medio, y0), QtCore.QPointF(x, yc),
+                                            QtCore.QPointF(x - medio, y1)]))
+            pt.drawPolygon(QtGui.QPolygonF([QtCore.QPointF(x + medio, y0), QtCore.QPointF(x, yc),
+                                            QtCore.QPointF(x + medio, y1)]))
+            alto = (y0 - y1) * 0.8
+            pt.drawLine(QtCore.QPointF(x, yc), QtCore.QPointF(x, y1 - alto))
+            pt.drawLine(QtCore.QPointF(x - medio * 0.6, y1 - alto), QtCore.QPointF(x + medio * 0.6, y1 - alto))
 
     def _cruces(self, pt, tk):
         p = self.p
@@ -633,6 +668,9 @@ class VistaPerfil(QtWidgets.QWidget):
             z = c.z_solera + (c.alto_ft if c.encima else 0.0)
             bloques.append((self.X(c.e), self.lineas(c.lineas, True), c.encima,
                             QtCore.QPointF(self.X(c.e), self.Z(z)), -1))
+        for v in getattr(p, "valvulas", ()):           # válvulas: rótulo arriba, a la corona
+            bloques.append((self.X(v.e), self.lineas(v.lineas), True,
+                            QtCore.QPointF(self.X(v.e), self.Z(self._z_valvula(v) + v.alto_ft)), -1))
         texto = QtGui.QColor(tk.text)
         if self._basico_ahora():
             self._etiquetas(pt, tk, g, bloques, tope_arr)
@@ -813,8 +851,8 @@ class VistaPerfil(QtWidgets.QWidget):
             self.update()
             return
         if self._geo and self.p and self.p.pasos and self._geo["vista"].contains(pos):
-            e = self.e_de(pos.x())
-            self.estacionHover.emit(e if self.p.e_ini <= e <= self.p.e_fin else float("nan"))
+            est = self.e_de(pos.x())                 # no `e`: es el evento (su globalPosition va abajo)
+            self.estacionHover.emit(est if self.p.e_ini <= est <= self.p.e_fin else float("nan"))
         k = self._nodo_en(pos)
         kr = self.ramal_en(pos) if k < 0 else -1
         if k != self._hover:

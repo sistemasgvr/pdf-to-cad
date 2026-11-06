@@ -28,6 +28,8 @@ _MODE_CURSORS = {
     "move": QtCore.Qt.SizeAllCursor,
     "idle": QtCore.Qt.ArrowCursor,
     "insert_bz": QtCore.Qt.CrossCursor,
+    "insert_valv": QtCore.Qt.CrossCursor,
+    "insert_acc": QtCore.Qt.CrossCursor,
 }
 
 

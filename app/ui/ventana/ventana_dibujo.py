@@ -313,6 +313,8 @@ class DibujoMixin:
         # Se dibuja por encima de las utilidades (mismo z que MARK). Si show_bz_labels
         # está activo, el código se dibuja al lado con una fuente pequeña blanca.
         self._draw_structures()
+        # válvulas de agua/gas en sus tramos rectos (ventana_valvulas)
+        self._draw_valvulas()
         # Marcas de conflicto: pares de segmentos que se cruzan geométricamente
         # (dos utilidades pasando una por encima de la otra sin ser juntura).
         self._draw_pipe_conflicts()

@@ -11,6 +11,7 @@ propuesta y «Otro diámetro…» permite sustituirla (ambos con Ctrl+Z).
 El resultado NO va a `pipes` (cambiaría la firma del modelo y se recalcularía todo el plano): vive en
 `self._diam_ia` (por ficha) y en la caché de la memoria de la IA.
 """
+from ia import reporte_error as RE
 import base64
 import html
 import json
@@ -500,7 +501,7 @@ class DiametroIAMixin(ReplicaDiametroMixin, SenalesDiametroMixin):
                 if DZ.necesita(r):                    # sin certeza: ella decide dónde más mirar
                     r = DZ.revisar(prov, f, r, self._diam_ia_explorador(i, f, tok, prov), parar, estado)
             except Exception as e:                    # noqa: BLE001 (ErrorIA, red: el aviso queda como está)
-                r = str(e)
+                r = RE.texto_corto(RE.armar(e, "Diámetro según la IA"))
             self._diam_ia_senales.listo.emit(tok, r)
         threading.Thread(target=correr, name="pdfcad-ia-diametro", daemon=True).start()
 

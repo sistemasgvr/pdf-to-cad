@@ -15,6 +15,6 @@
   </PropertyGroup>
   <ItemGroup>
     <Compile Include="..\proyecto1\Mcp\Contratos\McpProtocolo.cs" Link="Contratos\McpProtocolo.cs" />
-    <Compile Include="..\proyecto1\Mcp\Contratos\McpHerramientas.cs" Link="Contratos\McpHerramientas.cs" />
+    <Compile Include="..\proyecto1\Mcp\Contratos\Herramientas\*.cs" LinkBase="Contratos\Herramientas" />
   </ItemGroup>
 </Project>

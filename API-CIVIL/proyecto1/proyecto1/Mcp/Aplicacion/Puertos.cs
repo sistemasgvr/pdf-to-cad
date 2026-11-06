@@ -19,6 +19,12 @@ namespace Civil3DBasico.Mcp.Aplicacion
         /// <summary>Datos extra de un elemento (Property Sets, conexiones…); null si no existe.</summary>
         Dictionary<string, object> Detalle(string handle);
         bool CapaExiste(string capa);
+        /// <summary>Tubos de la lista de piezas de la red de esa tubería (para cambiar su tamaño o material).</summary>
+        List<TamanoDisponible> Tamanos(string handleTuberia);
+        /// <summary>Los cuerpos 3D del dibujo (tuberías, estructuras, accesorios, sólidos) con su caja.</summary>
+        List<Cuerpo> Cuerpos();
+        /// <summary>De esos pares (handles), los que de verdad se interfieren (sólidos de Civil 3D).</summary>
+        List<Interferencia> Interferencias(IList<(string a, string b)> pares);
     }
 
     public interface IEditorDibujo

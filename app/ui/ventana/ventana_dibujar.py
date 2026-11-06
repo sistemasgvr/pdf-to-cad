@@ -7,6 +7,7 @@ ocultan sus cabeceras y cada herramienta abre la suya (`_open_section`) y la arr
 """
 from ui.ventana.ventana_comun import *  # noqa: F401,F403
 from ui.comun import rediseno as R
+from ui.ventana import ventana_valvulas as _valv
 
 # (icono, texto, sección del acordeón | None, método que la arranca | None, ayuda)
 HERRAMIENTAS = [
@@ -17,6 +18,7 @@ HERRAMIENTAS = [
     ("vector-line", "Centerline", "centerline", "toggle_centerline", "Trazar centerline"),
     ("cursor-move", "Mover", "move_precise", None, "Mover con precisión"),
     ("circle-double", "Buzón", None, "insert_manhole", "Insertar buzón en línea…"),
+    ("valve", "Accesorios", None, "menu_accesorios", "Válvula, codo, Tee, Wye o cruz en agua o gas"),
     ("vector-square", "Duct Bank", "ductbank", None, "Duct Bank"),
 ]
 MODOS = {"pipe": ("pipe",), "leader": ("leader1", "leader2", "leader3"), "text": ("text",), "erase": ("erase",),
@@ -44,6 +46,13 @@ class Herramientas(QtWidgets.QWidget):
             b.setCursor(QtCore.Qt.PointingHandCursor)
             b.clicked.connect(lambda _=False, k=i: self._elegir(k))
             b._icono, b._seccion, b._metodo, b._ayuda = ic, seccion, metodo, ayuda
+            if metodo == "menu_accesorios":           # 2026-11-06: desplegable (válvula, codo, Tee, Wye, cruz)
+                from ui.ventana import ventana_dibujar_acc as _acc
+                m = QtWidgets.QMenu(b)
+                m.aboutToShow.connect(lambda m=m: _acc.llenar_menu(self.win, m))
+                b.setMenu(m)
+                b.setPopupMode(QtWidgets.QToolButton.InstantPopup)
+                self.btn_accesorios = b
             self.botones.append(b)
             g.addWidget(b, i // 4, i % 4)
         _theme.THEME_BUS.changed.connect(lambda _n: self.sincronizar())
@@ -53,7 +62,7 @@ class Herramientas(QtWidgets.QWidget):
         w = self.win
         if getattr(self.botones[k], "_bloqueado", False):
             # se ve bloqueado, pero el clic dice POR QUÉ (un botón deshabilitado de Qt no muestra nada)
-            motivo = _MOTIVO_BUZON()
+            motivo = _motivo_bloqueo(self.botones[k]._metodo)
             w._info(motivo)
             QtWidgets.QToolTip.showText(QtGui.QCursor.pos(), motivo, self.botones[k])
             return
@@ -74,13 +83,15 @@ class Herramientas(QtWidgets.QWidget):
         for b in self.botones:
             activa = b._seccion is not None and b._seccion == abierta
             dibujando = (b._seccion in MODOS and w.mode in MODOS[b._seccion]) or (
-                b._metodo == "insert_manhole" and w.mode == "insert_bz")
-            if b._metodo == "insert_manhole":
+                b._metodo == "insert_manhole" and w.mode == "insert_bz") or (
+                b._metodo == "menu_accesorios" and w.mode in ("insert_valv", "insert_acc"))
+            if b._metodo in ("insert_manhole", "menu_accesorios"):
                 # 2026-10-28: sin líneas de gravedad o conduit no hay dónde poner un buzón → bloqueado y con
-                # el motivo en el globo (antes el clic no hacía nada visible)
-                ok = _hay_lineas_para_buzon(w)
+                # el motivo en el globo (antes el clic no hacía nada visible); igual la válvula sin agua/gas
+                ok = (_hay_lineas_para_buzon(w) if b._metodo == "insert_manhole"
+                      else _valv.hay_lineas_para_valvula(w))
                 b._bloqueado = not ok
-                b.setToolTip(_tr(b._ayuda) if ok else _MOTIVO_BUZON())
+                b.setToolTip(_tr(b._ayuda) if ok else _motivo_bloqueo(b._metodo))
             b.setChecked(activa)
             color = t.text_on_accent if dibujando else (t.soft_text if activa else t.text_muted)
             b.setIcon(_icon("mdi:" + b._icono, color=color))
@@ -94,7 +105,16 @@ class Herramientas(QtWidgets.QWidget):
             else:
                 css = f"background:{t.surface}; color:{t.text_muted}; border:1px solid {t.border_soft};"
             b.setStyleSheet(f"QToolButton {{ {css} border-radius:10px; font-size:11px; padding:6px 2px; }}"
-                            f" QToolButton:hover {{ border-color:{t.accent}; }}")
+                            f" QToolButton:hover {{ border-color:{t.accent}; }}"
+                            f" QToolButton::menu-indicator {{ subcontrol-origin: padding; subcontrol-position: bottom right;"
+                            f" right: 4px; bottom: 4px; width: 8px; height: 8px; }}")
+
+
+def _motivo_bloqueo(metodo) -> str:
+    if metodo == "menu_accesorios":
+        from ui.ventana.ventana_dibujar_acc import motivo_sin_presion
+        return motivo_sin_presion()
+    return _MOTIVO_BUZON()
 
 
 def _MOTIVO_BUZON() -> str:

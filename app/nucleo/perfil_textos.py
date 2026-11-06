@@ -132,6 +132,12 @@ def lineas_codo(e, d, ang, vertical, mat, top):
                           abreviar_material(mat), "BEND"), _top(top)]
 
 
+def lineas_valvula(e, d, union, engranes, top):
+    """Válvula de compuerta (2026-11-05). Espejo de `PerfilTextos.LineasValvula` del plugin."""
+    u = "MJ" if (union or "").strip().upper() == "RG" and not engranes else "FLG"
+    return [_sta(e), unir(diametro(d), u, "GATE VALVE", "W/ GEAR OP" if engranes else ""), _top(top)]
+
+
 def lineas_reduccion(e, d1, d2, top):
     return [_sta(e), diametro(d1) + " X " + diametro(d2) + " REDUCER", _top(top)]
 

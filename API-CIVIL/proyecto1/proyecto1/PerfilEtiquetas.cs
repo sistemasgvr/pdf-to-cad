@@ -112,6 +112,9 @@ namespace Civil3DBasico
                                           PerfilTextos.LineasWye(est, dm, dr, lado, ramales.Count > 0 ? ramales[0].AnguloDeg : ang, top)); break;
                             case TipoAccesorio.Cruz:
                                 c = Nuevo(id, "CRUZ", FranjaTipo.Superior, 90, false, true, true, est, estA, top, PerfilTextos.LineasCruz(est, dm, dr, top)); break;
+                            case TipoAccesorio.Valvula:
+                                c = Nuevo(id, "VALVULA", FranjaTipo.Superior, 85, false, true, true, est, estA, top,
+                                          PerfilTextos.LineasValvula(est, dm, n.UnionXData, n.EngranesXData, top)); break;
                             default:                                                  // codo (interior o en el extremo: vertical)
                                 c = Nuevo(id, "CODO", FranjaTipo.Inferior, 70, true, true, true, est, estA, fondo,
                                           PerfilTextos.LineasCodo(est, tref.DiamIn, ang, extremo && ramales.Count == 0 ? true : vertical, tref.MaterialOriginal, top)); break;

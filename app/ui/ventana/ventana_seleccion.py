@@ -274,6 +274,9 @@ class SeleccionMixin:
         conserva; si no, la selecciona sola."""
         best = self._pipe_at(x, y)
         if best < 0:
+            menu = QtWidgets.QMenu(self)            # una válvula fuera de lugar puede quedar lejos de su tubería
+            if self._menu_valvula(menu, x, y):
+                menu.exec(QtGui.QCursor.pos())
             return
         if best not in self._selected_pipe_rows():
             self._no_center = True
@@ -292,6 +295,7 @@ class SeleccionMixin:
         menu = QtWidgets.QMenu(self)
         self._menu_conflicto(menu, x, y)            # junto a una marca C-n: «Resolver C-n…» (ventana_soluciones)
         self._menu_sin_accesorio(menu, x, y)        # junto a un accesorio: «No hay codo/T/Y/cruz» (y al revés)
+        self._menu_valvula(menu, x, y)              # sobre una válvula: unión, material, quitar (ventana_valvulas)
         if len(self._selected_pipe_rows()) > 1:
             self._pipe_bulk_menu(menu)
         else:

@@ -7,6 +7,7 @@ dentro de la tarjeta); si no, la de la app. Elegir una propuesta la muestra YA e
 copia de la utilidad: el proyecto no cambia hasta «Aplicar»). ◀ ▶ (o N / Mayús+N) recorren los pendientes."""
 from __future__ import annotations
 
+from ia import reporte_error as RE
 import copy
 import dataclasses
 import html
@@ -249,9 +250,10 @@ class PanelResolver(QtWidgets.QWidget):
         def correr():
             try:
                 r = soluciones_ia.recomendar(prov, ficha, props, mem)
-            except P.ErrorIA as e:
+            except Exception as e:                       # noqa: BLE001 (ErrorIA o lo que sea: la de la app)
                 rec, txt = soluciones_ia.plantilla(ficha, props)
-                r = (rec, txt, _tr("La IA no respondió ({e}): recomendación de la app.").format(e=e))
+                r = (rec, txt, _tr("La IA no respondió ({e}): recomendación de la app.").format(
+                    e=RE.texto_corto(RE.armar(e, "Vista 3D · Resolver"))))
             self._sen.listo.emit(pedido, r)
         threading.Thread(target=correr, name="pdfcad-ia-resolver-3d", daemon=True).start()
 

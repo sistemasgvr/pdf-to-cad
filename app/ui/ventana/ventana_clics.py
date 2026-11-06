@@ -16,12 +16,17 @@ class ClicsMixin:
             elif self.mode == "erase": self.finish_erase()
             elif self.mode == "centerline": self.finish_centerline()
             elif self.mode == "move": self._delete_vertex(x, y)
+            elif self.mode == "insert_acc": self._escape_accesorio()
             elif self.mode == "idle": self._canvas_context_menu(x, y)
             return
         # Left-click sobre una marca de conflicto (círculo amarillo con !):
         # abre el diálogo de aprobación para conectar con válvula. Tiene
         # prioridad sobre cualquier otro modo — el usuario no debe estar
         # esperando resolver un conflicto y que el click empiece a dibujar.
+        # Clic en un accesorio (codo/Tee/Wye/cruz/válvula) → se elige en Inventario «Accesorios» (2026-11-06). Antes
+        # que las marcas de cruce: en una Tee la marca solo decía «Unión en Civil 3D».
+        if button == QtCore.Qt.LeftButton and self.mode == "idle"                 and not (QtWidgets.QApplication.keyboardModifiers() & QtCore.Qt.ControlModifier)                 and self._elegir_accesorio_en(x, y):
+            return
         if button == QtCore.Qt.LeftButton and self.mode != "pipe":
             if self._try_click_conflict(x, y):
                 return
@@ -47,6 +52,10 @@ class ClicsMixin:
                                     landing=self._pending.get("landing")); return
         elif self.mode == "insert_bz":
             self._do_insert_manhole(x, y)
+        elif self.mode == "insert_valv":
+            self._do_insert_valvula(x, y)
+        elif self.mode == "insert_acc":
+            self._clic_accesorio(x, y)
         elif self.mode == "idle":
             if self._pick(x, y):
                 self.ver_propiedades()

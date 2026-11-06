@@ -7,6 +7,7 @@ dibujado con trazos) se mandan, de a uno, con su recorte a un modelo con visión
 con confianza alta o media queda como texto del rótulo (`fuente="ia"`), con deshacer. Corre en un hilo con la
 tarjeta de avance y «Cancelar»; no traba la ventana.
 """
+from ia import reporte_error as RE
 import base64
 import threading
 
@@ -85,7 +86,7 @@ class AnotacionesMixin:
                 try:
                     r = AI.leer(prov, imagenes.get(k), mem, cancelado=lambda: self._anot_tok is not tok)
                 except Exception as e:                      # noqa: BLE001 (ErrorIA, red)
-                    r = str(e)
+                    r = RE.texto_corto(RE.armar(e, "Leer rótulos con la IA"))
                 self._anot_senales.uno.emit(tok, k, r)
             self._anot_senales.fin.emit(tok)
         threading.Thread(target=correr, name="pdfcad-ia-anotaciones", daemon=True).start()

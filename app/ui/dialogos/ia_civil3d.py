@@ -35,7 +35,7 @@ class _Senales(QtCore.QObject):
     estado = QtCore.Signal(object)            # dict de «estado» del plugin, o str con el error
     paso = QtCore.Signal(object, str)
     listo = QtCore.Signal(object, object)
-    fallo = QtCore.Signal(object, str)
+    fallo = QtCore.Signal(object, object)    # turno, ia.reporte_error.Reporte
     aplicado = QtCore.Signal(object, bool, str)
 
 
@@ -290,16 +290,52 @@ class ChatCivil3D(QtWidgets.QWidget):
             try:
                 cli = self._cliente_vivo()
                 if self._agente is None:
-                    self._agente = A.Agente(cli, A.pedir_ollama(cfg))
+                    self._agente = A.Agente(cli, A.pedir_ollama(cfg), reglas=self._reglas, normas_cat=self._normas_cat,
+                                           proyecto=self._proyecto)
                 res = self._agente.preguntar(q, cancelado=lambda: estado["cancelado"],
                                              al_paso=lambda n: self._sen.paso.emit(turno, n))
                 self._sen.listo.emit(turno, res)
-            except P.ErrorIA as e:
-                self._sen.fallo.emit(turno, str(e))
-            except Exception as e:                       # noqa: BLE001 (se muestra en el chat)
-                self._sen.fallo.emit(turno, f"{type(e).__name__}: {e}")
+            except Exception as e:                       # noqa: BLE001 (ErrorIA, MCP o lo que sea: reporte en el chat)
+                from ia import reporte_error as RE
+                self._sen.fallo.emit(turno, RE.armar(e, "Chat Civil 3D", modelo=cfg.modelo, servidor=cfg.url,
+                                                     pregunta=q, pasos=list(turno["pasos"])))
 
         threading.Thread(target=correr, name="pdfcad-civil3d-chat", daemon=True).start()
+
+    def _proyecto(self):
+        """(pipes, pies por px) del proyecto abierto en la app, para comparar con el dibujo; None sin proyecto."""
+        w = self.win
+        pipes = getattr(w, "pipes", None)
+        if not pipes or not getattr(w, "scale", None) or not getattr(w, "zoom", None):
+            return None
+        ft = w.scale / w.zoom
+        try:                                     # px de la hoja ↔ dibujo: la MISMA transformación que el DXF, invertida
+            from geo import georef as georef_mod
+            muestras = [(0.0, 0.0), (1000.0, 0.0), (0.0, 1000.0)]
+            M, _, _ = georef_mod.fit([w._to_cad(x, y) for x, y in muestras], muestras, "affine")
+            a_px = lambda x, y: (M[0][0] * x + M[0][1] * y + M[0][2], M[1][0] * x + M[1][1] * y + M[1][2])  # noqa: E731
+            a_mundo = w._to_cad
+        except Exception:                        # noqa: BLE001
+            a_px = a_mundo = None
+        gray, esc = getattr(w, "gray", None), getattr(getattr(w, "canvas", None), "fondo_escala", 1.0) or 1.0
+
+        def tinta(x, y, r):
+            """¿Hay tinta del PDF a ≤ r px de (x, y)? (la imagen en grises del imán, como `geometry.snap_point`)."""
+            h, wd = gray.shape[:2]
+            xi, yi, rr = int(x * esc), int(y * esc), max(1, int(round(r * esc)))
+            ven = gray[max(0, yi - rr):min(h, yi + rr + 1), max(0, xi - rr):min(wd, xi + rr + 1)]
+            return bool(ven.size) and bool((ven < 128).any())
+        return {"pipes": pipes, "ft": ft, "a_px": a_px, "a_mundo": a_mundo,
+                "tinta": tinta if gray is not None and a_px is not None else None}
+
+    def _normas_cat(self):
+        """Catálogo de normativas del proyecto abierto en la app (pendientes, diámetros, materiales, revisión)."""
+        return getattr(self.win, "normas_cat", None)
+
+    def _reglas(self):
+        """Separaciones de las normativas del proyecto abierto en la app (para buscar y resolver conflictos)."""
+        from ia.civil3d_reglas import reglas_separacion
+        return reglas_separacion(getattr(self.win, "normas_cat", None))
 
     def _al_paso(self, turno, nombre):
         turno["pasos"].append(nombre)
@@ -317,8 +353,9 @@ class ChatCivil3D(QtWidgets.QWidget):
         if res.sin_conexion is False and not isinstance(self._civil, dict):
             self.reconectar()                            # respondió: Civil 3D está; refrescar la línea de estado
 
-    def _al_fallo(self, turno, msg):
-        turno["estado"], turno["error"] = "error", html.escape(msg)
+    def _al_fallo(self, turno, rep):
+        turno["estado"], turno["reporte"] = "error", rep
+        turno["error"] = html.escape(rep.texto() if hasattr(rep, "texto") else str(rep))
         self._terminar()
 
     def _terminar(self):
@@ -339,6 +376,9 @@ class ChatCivil3D(QtWidgets.QWidget):
         p = self._propuesta(valor)
         if p is None or p.get("estado") != "pendiente" or self._agente is None:
             return
+        if p.get("destino") == "app":            # «traer a la app»: lo aplica la app, no Civil 3D
+            self._decidir_app(p, aplicar)
+            return
         p["estado"] = "aplicando" if aplicar else "descartando"
         self._pintar()
 
@@ -350,6 +390,24 @@ class ChatCivil3D(QtWidgets.QWidget):
             self._sen.aplicado.emit(p, aplicar and ok, txt if not ok else "")
 
         threading.Thread(target=correr, name="pdfcad-civil3d-aplicar", daemon=True).start()
+
+    def _decidir_app(self, p, aplicar):
+        """Lleva a la app lo cambiado en Civil 3D: un paso de Ctrl+Z (`civil3d_comparar.aplicar`)."""
+        if not aplicar:
+            p["estado"], p["resultado"] = "descartado", _tr("Descartada")
+            self._pintar()
+            return
+        from ia import civil3d_comparar
+        w = self.win
+        w._push()
+        tocados = civil3d_comparar.aplicar(w.pipes, p.get("cambios") or [])
+        if not tocados:
+            w._undo.pop()
+            p["estado"], p["resultado"] = "error", _tr("No había nada que cambiar en la app.")
+        else:
+            w._redraw()
+            p["estado"], p["resultado"] = "aplicado", _tr("Aplicado en la app · se deshace con Ctrl+Z")
+        self._pintar()
 
     def _al_aplicado(self, p, aplicado, error):
         if error:
@@ -377,6 +435,11 @@ class ChatCivil3D(QtWidgets.QWidget):
             self.actualizar_estado()
         elif tipo == "reconectar":
             self.reconectar()
+        elif tipo == "copiarerror" and valor.isdigit() and int(valor) < len(self.turnos):
+            rep = self.turnos[int(valor)].get("reporte")
+            if rep is not None:
+                QtWidgets.QApplication.clipboard().setText(rep.texto())
+                QtWidgets.QToolTip.showText(QtGui.QCursor.pos(), _tr("Copiada"), self.vista)
         elif tipo in ("copiar", "repetir") and valor.isdigit() and int(valor) < len(self.turnos):
             tu = self.turnos[int(valor)]
             if tipo == "repetir":

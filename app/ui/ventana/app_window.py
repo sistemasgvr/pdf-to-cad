@@ -54,7 +54,7 @@ from nucleo import normas_catalogo, normas_validar
 from nucleo.model import (VERSION, TIPOS, ACI_RGB, LEADER_TEXT_FT, LEADER_ORIENT,
                    Z_PDF, Z_ERASE, Z_MARK, Z_HANDLE, GRAVITY_LAYERS,
                    TAB_PIPE, TAB_LEADER, TAB_TEXT, TAB_REGION, TAB_BZ, TAB_CURVE, TAB_CL,
-                   TAB_DB,
+                   TAB_DB, TAB_ACC,
                    WORK_UNITS, DEFAULT_WORK_UNIT, CHANGELOG,
                    PIPE_DIAMETERS_IN, PIPE_MATERIALS, DEFAULT_PIPE_MATERIAL, NETWORK_KIND)
 
@@ -103,6 +103,10 @@ from ui.ventana.ventana_informe import InformeMixin
 from ui.ventana.ventana_ia import IAMixin
 from ui.ventana.ventana_soluciones import SolucionesMixin
 from ui.ventana.ventana_sin_accesorio import SinAccesorioMixin
+from ui.ventana.ventana_lista_accesorios import ListaAccesoriosMixin
+from ui.ventana.ventana_valvulas import ValvulasMixin
+from ui.ventana.ventana_dibujar_acc import DibujarAccesoriosMixin
+from ui.ventana.ventana_seleccion_acc import SeleccionAccesorioMixin
 from ui.ventana.ventana_perfil import PerfilMixin
 from ui.ventana.ventana_ia_acciones import AccionesIAMixin
 from ui.ventana.ventana_vista3d import Vista3DMixin
@@ -125,7 +129,7 @@ from ui.ventana.ventana_inventario import InventarioMixin
 from ui.ventana.ventana_pasos import PasosVivosMixin
 
 
-class Main(MenuMixin, PanelIzquierdoMixin, PanelDerechoMixin, ModosMixin, ClicsMixin, UtilidadesMixin, CatalogoMixin, SeleccionMixin, ListasMixin, MarcasMixin, DibujoMixin, ConflictosMixin, CoordsMixin, BuzonesMixin, MoverPrecisoMixin, CurvasMixin, HerramientasMixin, BancoductosMixin, EdicionBloqueMixin, InformeMixin, IAMixin, SolucionesMixin, SinAccesorioMixin, PerfilMixin, AccionesIAMixin, Vista3DMixin, Edicion3DMixin, ConflictosListaMixin, HojasEditorMixin,
+class Main(MenuMixin, PanelIzquierdoMixin, PanelDerechoMixin, ModosMixin, ClicsMixin, UtilidadesMixin, CatalogoMixin, SeleccionMixin, ListasMixin, MarcasMixin, DibujoMixin, ConflictosMixin, CoordsMixin, BuzonesMixin, MoverPrecisoMixin, CurvasMixin, HerramientasMixin, BancoductosMixin, EdicionBloqueMixin, InformeMixin, IAMixin, SolucionesMixin, SinAccesorioMixin, ListaAccesoriosMixin, ValvulasMixin, DibujarAccesoriosMixin, SeleccionAccesorioMixin, PerfilMixin, AccionesIAMixin, Vista3DMixin, Edicion3DMixin, ConflictosListaMixin, HojasEditorMixin,
            VerticesMixin, TrazoMixin, CalculoPlanoMixin, CalculoFondoMixin, EstadosPreviosMixin,
            AgregarUtilidadMixin, PlanosFondoMixin, CapasMixin, ShellMixin, RevisionMixin, RecientesMixin, InicioMixin, InventarioMixin, PasosVivosMixin, DiametroIAMixin, AnotacionesMixin, QtWidgets.QMainWindow):
     def __init__(self):
@@ -186,6 +190,7 @@ class Main(MenuMixin, PanelIzquierdoMixin, PanelDerechoMixin, ModosMixin, ClicsM
         self.cross_connections = []   # conexiones aprobadas en cruces físicos
         self.perfiles = []            # perfiles longitudinales guardados (ventana_perfil)
         self.sin_accesorio = []       # puntos donde el usuario dijo «no hay codo/T/Y/cruz» (nucleo/sin_accesorio)
+        self.valvulas = []            # válvulas de compuerta en agua/gas (nucleo/valvulas)
         self.normas_aprobados = []    # avisos de normativa aprobados (normas_aprobacion)
         # Normativas de diseño en tablas: catálogo GLOBAL (el Excel del usuario, ver
         # normas_catalogo.py) y los avisos del proyecto (normas_validar, en cada redibujo).
@@ -281,6 +286,7 @@ class Main(MenuMixin, PanelIzquierdoMixin, PanelDerechoMixin, ModosMixin, ClicsM
                                cross_connections=getattr(self, "cross_connections", []) or [],
                                normas_aprobados=getattr(self, "normas_aprobados", []) or [],
                                sin_accesorio=getattr(self, "sin_accesorio", []) or [],
+                               valvulas=getattr(self, "valvulas", []) or [],
                                anotaciones=getattr(self, "anotaciones", []) or []),
                           getattr(self, "_ultimo_paso", None))
         self._ultimo_paso = p
@@ -304,6 +310,8 @@ class Main(MenuMixin, PanelIzquierdoMixin, PanelDerechoMixin, ModosMixin, ClicsM
             self.normas_aprobados = s["normas_aprobados"]
         if "sin_accesorio" in s:
             self.sin_accesorio = s["sin_accesorio"]
+        if "valvulas" in s:
+            self.valvulas = s["valvulas"]
         if "anotaciones" in s:
             self.anotaciones = s["anotaciones"]
         if "duct_banks" in s:
@@ -1526,6 +1534,7 @@ class Main(MenuMixin, PanelIzquierdoMixin, PanelDerechoMixin, ModosMixin, ClicsM
         self.cross_connections = []
         self.normas_aprobados = []
         self.sin_accesorio = []                 # puntos sin accesorio (nucleo/sin_accesorio)
+        self.valvulas = []                      # válvulas (nucleo/valvulas)
         self.perfiles = []                      # perfiles guardados (ventana_perfil)
         self._perfil_rec = self._perfil_anclas = None
         self._conf_registro = None              # números de los conflictos (ventana_conflictos_lista)
@@ -1751,6 +1760,7 @@ class Main(MenuMixin, PanelIzquierdoMixin, PanelDerechoMixin, ModosMixin, ClicsM
             self.cross_connections = data.get("cross_connections", []) or []
             self.normas_aprobados = data.get("normas_aprobados", []) or []
             self.sin_accesorio = data.get("sin_accesorio", []) or []
+            self.valvulas = data.get("valvulas", []) or []
             self.perfiles = data.get("perfiles", []) or []
             self._perfil_rec = self._perfil_anclas = None
             from nucleo import conflictos as _conf_mod     # números fijos de los conflictos (None = primera vez)
@@ -1922,6 +1932,7 @@ class Main(MenuMixin, PanelIzquierdoMixin, PanelDerechoMixin, ModosMixin, ClicsM
         self.pipes = []; self.leaders = []; self.text_marks = []; self.erase_regions = []; self.structures = []
         self.duct_banks = []; self.cross_connections = []; self.normas_aprobados = []
         self.sin_accesorio = []
+        self.valvulas = []
         self.perfiles = []
         self._perfil_rec = self._perfil_anclas = None
         self._conf_registro = None
@@ -2045,6 +2056,9 @@ class Main(MenuMixin, PanelIzquierdoMixin, PanelDerechoMixin, ModosMixin, ClicsM
                         m0=m[0], m1=m[1], det=f"{det:.6f}", epsg=self.georef.epsg)
                 elif not self.georef.matrix:
                     geo_msg += "\n\n" + _tr("(Sin georreferenciación configurada.)")
+                if getattr(self, "_valvulas_omitidas", 0):   # fuera de un tramo recto donde quepan (en rojo)
+                    geo_msg += "\n" + _tr("{n} válvula(s) fuera de lugar no se exportaron (en rojo en el plano).").format(
+                        n=self._valvulas_omitidas)
                 if "⚠" in geo_msg:                     # un aviso de georreferencia se lee en un cuadro
                     QtWidgets.QMessageBox.information(self, _tr("Listo"), _tr("Exportado (solo anotaciones):\n{archivo}{georef}").format(
                         archivo=out, georef=geo_msg))
@@ -2231,6 +2245,9 @@ class Main(MenuMixin, PanelIzquierdoMixin, PanelDerechoMixin, ModosMixin, ClicsM
                           "{nl} leaders, {nt} textos, {nz} zonas borradas.").format(
                     georef=geo_tag, archivo=self._out, np=len(self.pipes), nl=len(self.leaders),
                     nt=len(self.text_marks), nz=nreg) + geo_warn
+                if getattr(self, "_valvulas_omitidas", 0):   # fuera de un tramo recto donde quepan (en rojo)
+                    msg += "\n" + _tr("{n} válvula(s) fuera de lugar no se exportaron (en rojo en el plano).").format(
+                        n=self._valvulas_omitidas)
             else:
                 msg = _tr("Exportado (solo el PDF digitalizado){georef}:\n{archivo}").format(
                     georef=geo_tag, archivo=self._out) + geo_warn
@@ -2282,7 +2299,10 @@ def main():
     recuperado = win.iniciar_autoguardado()      # copias automáticas + ofrecer recuperar
     if len(sys.argv) > 1 and not recuperado:
         win.open_path(sys.argv[1])
-    sys.exit(app.exec())
+    codigo = app.exec()
+    from ui.comun import proceso as _proceso   # que no quede ningún proceso hijo tomando %TEMP%\_MEI…
+    _proceso.terminar_descendientes()
+    sys.exit(codigo)
 
 
 if __name__ == "__main__":

@@ -20,7 +20,7 @@ using AecPS = Autodesk.Aec.PropertyData.DatabaseServices;
 
 namespace Civil3DBasico.Mcp.Infraestructura
 {
-    internal sealed class Civil3DLector : IModeloLector
+    internal sealed partial class Civil3DLector : IModeloLector
     {
         private sealed class Cache { public long Version; public long Leida = -1; public Modelo Modelo; }
         private readonly ConditionalWeakTable<Database, Cache> _caches = new ConditionalWeakTable<Database, Cache>();
@@ -58,6 +58,18 @@ namespace Civil3DBasico.Mcp.Infraestructura
             {
                 var lt = (LayerTable)tr.GetObject(d.Database.LayerTableId, OpenMode.ForRead);
                 return lt.Has(capa);
+            }
+        });
+
+        public List<TamanoDisponible> Tamanos(string handle) => HiloAutoCAD.Leer(d =>
+        {
+            ObjectId id = Ids.De(d.Database, handle);
+            if (id.IsNull) return new List<TamanoDisponible>();
+            using (Transaction tr = d.Database.TransactionManager.StartTransaction())
+            {
+                var r = tr.GetObject(id, OpenMode.ForRead) is Entity e ? Civil3DTamanos.De(tr, e) : new List<TamanoDisponible>();
+                tr.Commit();
+                return r;
             }
         });
 
@@ -108,7 +120,7 @@ namespace Civil3DBasico.Mcp.Infraestructura
                 {
                     if (!(tr.GetObject(nid, OpenMode.ForRead) is CivilDB.Network net)) continue;
                     foreach (ObjectId pid in net.GetPipeIds())
-                        try { if (tr.GetObject(pid, OpenMode.ForRead) is CivilDB.Pipe p) m.Tuberias.Add(Gravedad(p, net.Name)); } catch { }
+                        try { if (tr.GetObject(pid, OpenMode.ForRead) is CivilDB.Pipe p) m.Tuberias.Add(Utilidad(tr, p, Gravedad(p, net.Name))); } catch { }
                     foreach (ObjectId sid in net.GetStructureIds())
                         try { if (tr.GetObject(sid, OpenMode.ForRead) is CivilDB.Structure s) m.Estructuras.Add(Estr(s, net.Name)); } catch { }
                 }
@@ -116,38 +128,91 @@ namespace Civil3DBasico.Mcp.Infraestructura
                 {
                     if (!(tr.GetObject(nid, OpenMode.ForRead) is CivilDB.PressurePipeNetwork net)) continue;
                     foreach (ObjectId pid in net.GetPipeIds())
-                        try { if (tr.GetObject(pid, OpenMode.ForRead) is CivilDB.PressurePipe p) m.Tuberias.Add(Presion(p, net.Name)); } catch { }
+                        try { if (tr.GetObject(pid, OpenMode.ForRead) is CivilDB.PressurePipe p) m.Tuberias.Add(Utilidad(tr, p, Presion(p, net.Name))); } catch { }
+                    var piezas = new List<ObjectId>();
+                    try { foreach (ObjectId id in net.GetFittingIds()) piezas.Add(id); } catch { }
+                    try { foreach (ObjectId id in net.GetAppurtenanceIds()) piezas.Add(id); } catch { }
+                    foreach (ObjectId id in piezas)
+                        try { if (tr.GetObject(id, OpenMode.ForRead) is CivilDB.PressurePart pa) m.Accesorios.Add(Pieza(pa, net.Name)); } catch { }
                 }
-                LeerTextos(tr, db, m);
+                LeerAnotaciones(tr, db, m);
                 tr.Commit();
             }
             return m;
         }
 
-        /// <summary>TEXT y MTEXT del espacio modelo, en texto plano (MText.Text ya quita los códigos de formato).</summary>
-        private static void LeerTextos(Transaction tr, Database db, Modelo m)
+        internal const string APP_ACCESORIO = "PDFCAD_FITTING";
+        private static readonly System.Globalization.CultureInfo Inv = System.Globalization.CultureInfo.InvariantCulture;
+
+        /// <summary>Accesorio sólido del plugin, o null si el sólido no lo es (sin XDATA PDFCAD_FITTING o sin COORD).</summary>
+        private static Accesorio Solido(Solid3d so)
         {
-            var ms = (BlockTableRecord)tr.GetObject(SymbolUtilityServices.GetBlockModelSpaceId(db), OpenMode.ForRead);
-            RXClass cTexto = RXObject.GetClass(typeof(DBText)), cMText = RXObject.GetClass(typeof(MText));
-            foreach (ObjectId id in ms)
+            var d = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+            using (ResultBuffer rb = so.GetXDataForApplication(APP_ACCESORIO))
             {
-                try
-                {
-                    if (id.ObjectClass.IsDerivedFrom(cTexto) && tr.GetObject(id, OpenMode.ForRead) is DBText t)
-                        m.Textos.Add(new TextoDibujo
-                        {
-                            Handle = t.Handle.ToString(), Tipo = "TEXT", Contenido = t.TextString, Capa = t.Layer,
-                            X = t.Position.X, Y = t.Position.Y, Altura = t.Height,
-                        });
-                    else if (id.ObjectClass.IsDerivedFrom(cMText) && tr.GetObject(id, OpenMode.ForRead) is MText mt)
-                        m.Textos.Add(new TextoDibujo
-                        {
-                            Handle = mt.Handle.ToString(), Tipo = "MTEXT", Contenido = mt.Text, Capa = mt.Layer,
-                            X = mt.Location.X, Y = mt.Location.Y, Altura = mt.TextHeight,
-                        });
-                }
-                catch { }
+                if (rb == null) return null;
+                foreach (TypedValue tv in rb)
+                    if (tv.TypeCode == (int)DxfCode.ExtendedDataAsciiString && tv.Value is string kv && kv.IndexOf('=') > 0)
+                        d[kv.Substring(0, kv.IndexOf('='))] = kv.Substring(kv.IndexOf('=') + 1);
             }
+            double? x = Num(d, "COORD_X"), y = Num(d, "COORD_Y");
+            if (!x.HasValue || !y.HasValue) return null;
+            double largo = Num(d, "LARGO_TOTAL_FT") ?? 2.0;
+            return new Accesorio
+            {
+                Handle = so.Handle.ToString(), Tipo = d.TryGetValue("TIPO", out string tp) ? tp : "",
+                Red = d.TryGetValue("RED", out string red) ? red : "", X = x.Value, Y = y.Value, ZEje = Num(d, "COTA_EJE_FT"),
+                RadioFt = largo / 2.0 + 0.5,
+            };
+        }
+
+        private static double? Num(Dictionary<string, string> d, string k) =>
+            d.TryGetValue(k, out string v) && double.TryParse((v ?? "").Replace(',', '.'), System.Globalization.NumberStyles.Float, Inv, out double r)
+                ? r : (double?)null;
+
+        /// <summary>Pieza de presión de Civil 3D (codo, Tee… del catálogo, o apurtenencia) con sus tuberías conectadas.</summary>
+        private static Accesorio Pieza(CivilDB.PressurePart pa, string red)
+        {
+            Point3d p = pa.Position;
+            var a = new Accesorio
+            {
+                Handle = pa.Handle.ToString(), Red = red, X = p.X, Y = p.Y, ZEje = p.Z, RadioFt = 1.5, EsPieza = true,
+                Tipo = pa is CivilDB.PressureAppurtenance ? "VALVE" : "",
+            };
+            try { a.Tipo = string.IsNullOrEmpty(a.Tipo) ? pa.PartDescription : a.Tipo; } catch { }
+            try
+            {
+                for (int i = 0; i < pa.ConnectionCount; i++)
+                {
+                    var c = pa.GetConnectionAt(i);
+                    if (c.ConnectedId != ObjectId.Null && c.ConnectedId.IsValid) a.Conectadas.Add(c.ConnectedId.Handle.ToString());
+                }
+            }
+            catch { }
+            return a;
+        }
+
+        /// <summary>La utilidad de la app de la que salió la tubería (Property Set «PDFCAD_Utilidad»).</summary>
+        private static Tuberia Utilidad(Transaction tr, Entity e, Tuberia t)
+        {
+            try
+            {
+                foreach (ObjectId psId in AecPS.PropertyDataServices.GetPropertySets(e))
+                {
+                    var ps = tr.GetObject(psId, OpenMode.ForRead) as AecPS.PropertySet;
+                    if (ps == null || ps.PropertySetDefinitionName != "PDFCAD_Utilidad") continue;
+                    foreach (AecPS.PropertySetData dato in ps.PropertySetData)
+                    {
+                        string nombre = ps.PropertyIdToName(dato.Id);
+                        string v = Convert.ToString(dato.GetData(), Inv);
+                        if (nombre == "Utilidad") t.UtilidadCapa = v;
+                        else if (nombre == "Numero_App" && !string.IsNullOrEmpty(v) && v != "0") t.UtilidadNumero = v;
+                        else if (nombre == "TIPO") t.TipoApp = v;
+                    }
+                }
+            }
+            catch { }
+            return t;
         }
 
         internal static double RadioInterior(CivilDB.Pipe p)
@@ -166,6 +231,7 @@ namespace Civil3DBasico.Mcp.Infraestructura
             try { t.Nombre = p.Name; } catch { t.Nombre = t.Handle; }
             try { t.DiametroIn = p.InnerDiameterOrWidth * 12.0; } catch { }
             try { t.Tamano = p.PartSizeName; } catch { }
+            try { t.Familia = p.PartFamilyName; } catch { }
             try { t.Descripcion = p.Description; } catch { }
             t.CotaIni = a.Z - r; t.CotaFin = b.Z - r;
             try { t.PendientePct = p.Slope * 100.0; } catch { }
@@ -182,6 +248,7 @@ namespace Civil3DBasico.Mcp.Infraestructura
             double r = 0.0;
             try { r = p.NominalDiameter / 2.0; t.DiametroIn = p.NominalDiameter * 12.0; } catch { }   // en pies
             try { t.Tamano = p.PartDescription; } catch { }
+            t.Familia = Civil3DTamanos.SinDiametro(t.Tamano);
             try { t.Descripcion = p.Description; } catch { }
             t.CotaIni = a.Z - r; t.CotaFin = b.Z - r;
             try { t.PendientePct = p.Slope * 100.0; } catch { }
@@ -204,11 +271,16 @@ namespace Civil3DBasico.Mcp.Infraestructura
             var e = new Estructura { Handle = s.Handle.ToString(), Red = red, Capa = s.Layer, X = s.Position.X, Y = s.Position.Y };
             try { e.Nombre = s.Name; } catch { e.Nombre = e.Handle; }
             try { e.Tamano = s.PartSizeName; } catch { }
+            try { e.Nula = EsNula(s.PartFamilyName) || EsNula(e.Tamano); } catch { }
             try { e.Rim = s.RimElevation; } catch { }
             try { e.Sump = s.SumpElevation; } catch { }
             try { e.Conexiones = s.ConnectedPipesCount; } catch { }
             return e;
         }
+
+        private static bool EsNula(string s) =>
+            !string.IsNullOrEmpty(s) && (s.IndexOf("null", StringComparison.OrdinalIgnoreCase) >= 0 ||
+                                         s.IndexOf("nula", StringComparison.OrdinalIgnoreCase) >= 0);
 
         private static Dictionary<string, Dictionary<string, string>> PropertySets(Transaction tr, Entity ent)
         {

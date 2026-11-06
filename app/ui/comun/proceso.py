@@ -264,3 +264,52 @@ def ejecutar(objetivo: str, *args, nombre: str = "principal", al_avanzar=None, *
     if not t.hecha:
         lazo.exec()
     return out.get("r"), out.get("e", "")
+
+
+def terminar_descendientes(espera_s: float = 5.0) -> int:
+    """Al cerrar la app: termina TODOS los procesos que salieron de ésta (trabajadores, teselas y los
+    que ellos lanzaron, p. ej. el `ProcessPoolExecutor` de la composición sugerida) y espera a que
+    salgan. En el .exe de un solo archivo, uno vivo deja tomados los archivos de `%TEMP%\_MEI…` y
+    PyInstaller avisa «Failed to remove temporary directory». Devuelve cuántos terminó."""
+    if os.name != "nt":
+        return 0
+    try:
+        import ctypes
+        import ctypes.wintypes as W
+
+        class PE(ctypes.Structure):
+            _fields_ = [("dwSize", W.DWORD), ("cntUsage", W.DWORD), ("th32ProcessID", W.DWORD),
+                        ("th32DefaultHeapID", ctypes.c_size_t), ("th32ModuleID", W.DWORD),
+                        ("cntThreads", W.DWORD), ("th32ParentProcessID", W.DWORD),
+                        ("pcPriClassBase", ctypes.c_long), ("dwFlags", W.DWORD),
+                        ("szExeFile", ctypes.c_char * 260)]
+        k = ctypes.windll.kernel32
+        k.CreateToolhelp32Snapshot.restype = W.HANDLE
+        k.OpenProcess.restype = W.HANDLE
+        snap = k.CreateToolhelp32Snapshot(0x2, 0)            # TH32CS_SNAPPROCESS
+        if not snap or snap == W.HANDLE(-1).value:
+            return 0
+        hijos: Dict[int, list] = {}
+        e = PE(); e.dwSize = ctypes.sizeof(PE)
+        ok = k.Process32First(snap, ctypes.byref(e))
+        while ok:
+            hijos.setdefault(e.th32ParentProcessID, []).append(e.th32ProcessID)
+            ok = k.Process32Next(snap, ctypes.byref(e))
+        k.CloseHandle(snap)
+        yo, pids, pila = os.getpid(), [], [os.getpid()]
+        while pila:                                           # hijos, nietos…
+            for c in hijos.get(pila.pop(), []):
+                if c != yo and c not in pids:
+                    pids.append(c); pila.append(c)
+        manijas = []
+        for pid in pids:
+            h = k.OpenProcess(0x0001 | 0x00100000, False, pid)   # TERMINATE | SYNCHRONIZE
+            if h:
+                k.TerminateProcess(h, 1)
+                manijas.append(h)
+        for h in manijas:                                     # que de verdad hayan salido
+            k.WaitForSingleObject(h, int(espera_s * 1000))
+            k.CloseHandle(h)
+        return len(manijas)
+    except Exception:
+        return 0

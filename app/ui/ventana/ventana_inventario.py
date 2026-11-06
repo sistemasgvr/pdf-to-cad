@@ -172,5 +172,7 @@ class InventarioMixin:
             if ok and lista is self.pipe_list and filtro:
                 p = self.pipes[fila] if fila < len(self.pipes) else {}
                 ok = (fila in self._utilidades_con_avisos) if filtro == 1 else bool(p.get("ab"))
+            if ok and lista is getattr(self, "acc_list", None):
+                ok = self._acc_pasa_filtro(fila)           # filtro por tipo (ventana_lista_accesorios)
             it.setHidden(not ok)
         lista.viewport().update()
