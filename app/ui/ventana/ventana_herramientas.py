@@ -423,7 +423,9 @@ class HerramientasMixin:
                                  getattr(self, "_normas_avisos", []), self._to_cad, ft_px,
                                  nombre_utilidad=self._tipo, nombre_familia=familia,
                                  conflictos=getattr(self, "_conflictos", []), solo_pipes=solo_pipes,
-                                 solo_estructuras=solo_estructuras)
+                                 solo_estructuras=solo_estructuras,
+                                 valvulas=None if solo_pipes is not None or solo_estructuras is not None
+                                 else self._filas_valvulas())
 
     def _toggle_theme(self):
         # Alterna claro↔oscuro globalmente. El módulo `theme` se encarga de

@@ -21,7 +21,7 @@ class LayerAssignmentsMixin:
         self._automatic_names = set()
         self._touched_utilities = set(self._base_roles)
         for utility, roles in self._base_roles.items():
-            for role in (rec.ROLE_LINEAS, rec.ROLE_BUZONES):
+            for role in (rec.ROLE_LINEAS, rec.ROLE_BUZONES, rec.ROLE_VALVULAS):
                 for name in roles.get(role, ()):
                     self._assignments[name] = (utility, role)
         self._map_legend = None            # (leyenda, asignadas, ambiguas) de un mapa sin capas
@@ -132,6 +132,7 @@ class LayerAssignmentsMixin:
         self.assignment_label.setWordWrap(True)
         layout.addWidget(self.assignment_label)
         form = QtWidgets.QFormLayout()
+        form.setVerticalSpacing(8)
         self.assignment_utility = QtWidgets.QComboBox()
         self.assignment_utility.addItem(_tr("Automática"), "")
         for key, label in pdf_layers.UTILITIES:
@@ -139,6 +140,7 @@ class LayerAssignmentsMixin:
         self.assignment_role = QtWidgets.QComboBox()
         self.assignment_role.addItem(_tr("Líneas"), rec.ROLE_LINEAS)
         self.assignment_role.addItem(_tr("Estructuras"), rec.ROLE_BUZONES)
+        self.assignment_role.addItem(_tr("Válvulas"), rec.ROLE_VALVULAS)
         form.addRow(_tr("Utilidad"), self.assignment_utility)
         form.addRow(_tr("Rol"), self.assignment_role)
         layout.addLayout(form)
@@ -214,7 +216,7 @@ class LayerAssignmentsMixin:
         for utility in rec.SUPPORTED_UTILITIES:
             if utility not in self._touched_utilities:
                 continue
-            roles = {rec.ROLE_LINEAS: [], rec.ROLE_BUZONES: []}
+            roles = {rec.ROLE_LINEAS: [], rec.ROLE_BUZONES: [], rec.ROLE_VALVULAS: []}
             for L in self._layers_raw:
                 name = L['name']
                 if name in self._assignments:

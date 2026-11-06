@@ -1,9 +1,16 @@
-"""Válvulas de compuerta en agua y gas (pedido del usuario 2026-11-04): herramienta «Válvula» de Dibujar, igual
-que el buzón — clic sobre la tubería y la app pone la válvula en un TRAMO RECTO donde cabe (la corre si hace
-falta). La lógica es pura (`nucleo/valvulas`); aquí van el modo, la pista verde, el dibujo, el menú del clic
-derecho y los cambios (un paso de deshacer cada uno). `Main.valvulas` va al .digproj, al deshacer, al respaldo
-del asistente y al DXF (`PDFCAD_VALVULA`)."""
+"""Válvulas en la ventana — UN SOLO MODELO (unión con dev_santos_v2, 2026-11-06; `nucleo/valvulas`).
+
+Las pone el usuario (Dibujar → Accesorios → Válvula, 2026-11-04: clic sobre la tubería y la app la pone en un TRAMO
+RECTO donde cabe, la corre si hace falta) o las lee el reconocimiento del PDF (2026-11-05, `_guardar_valvulas`: se
+pegan a su tubería con `valvulas.pegar`). Aquí van el modo, la pista verde, el dibujo (la pieza real; una reconocida
+«por confirmar», hueca; una que no cabe en su tramo recto, roja «por revisar» con el motivo y fuera del DXF), la capa
+«VALVULAS» de «Capas ▾», el globo, el menú del clic derecho (tipo, unión, material, confirmar, correr al lugar libre,
+quitar) y las filas de la Tabla de datos. Un paso de deshacer por cambio. `Main.valvulas` va al .digproj, al deshacer,
+al respaldo del asistente y al DXF (`PDFCAD_VALVULA`).
+"""
 from __future__ import annotations
+
+import math
 
 from PySide6 import QtGui, QtWidgets
 
@@ -14,6 +21,14 @@ from traduccion.i18n import t as _tr
 from ui.comun import valvula_item
 from ui.comun.ui_common import layer_qcolor
 
+CLIC_PX = 14.0                     # radio del clic y del globo, en pantalla
+# Tipos que el usuario puede elegir ("" = compuerta). Un tipo leído del plano que no esté aquí se conserva.
+TIPOS_MENU = ("", "Mariposa", "Retención", "Retención doble", "Reguladora de presión", "Aire", "Purga")
+
+
+def nombre_tipo(tipo):
+    return _tr("Compuerta") if not tipo or tipo == "Válvula" else _tr(tipo)
+
 
 class ValvulasMixin:
     # ── datos ────────────────────────────────────────────────────────────
@@ -21,7 +36,7 @@ class ValvulasMixin:
         return self.scale / self.zoom if self.scale and self.zoom else 0.0
 
     def _cerca_valv(self, x, y, r):
-        return self._utilidades_cerca(x, y, r, todas=True)
+        return self._utilidades_cerca(x, y, r, todas=True) if self.pipes else []
 
     def _lugares_valvulas(self):
         """[Lugar] de cada válvula guardada (dónde está y si sigue cabiendo)."""
@@ -32,25 +47,75 @@ class ValvulasMixin:
         return V.ubicar_todas(self.pipes, self.structures, vs, ft, cerca=self._cerca_valv)
 
     def _valvulas_perfil(self):
-        """Las válvulas que caben, como dicts, para el perfil longitudinal (`perfil_datos.armar`)."""
+        """Las válvulas que van a Civil 3D, como dicts, para el perfil longitudinal (`perfil_datos.armar`)."""
+        vs = getattr(self, "valvulas", None) or []
         return [dict(x=l.x, y=l.y, pipe=l.pipe, tramo=l.tramo, diam_in=l.diam_in, union=l.union, bloque=l.bloque,
-                     largo_ft=l.largo_ft) for l in self._lugares_valvulas() if l.ok]
+                     largo_ft=l.largo_ft, tipo=v.get("tipo") or "")
+                for v, l in zip(vs, self._lugares_valvulas()) if V.exportable(v, l)]
 
     def _firma_perfil(self):
         """Lo que decide el perfil: el modelo y las válvulas (no van en `_firma_modelo`)."""
         vs = getattr(self, "valvulas", None) or []
-        return (self._firma_modelo(), tuple((round(float(v["x"]), 4), round(float(v["y"]), 4), v.get("union") or "")
-                                            for v in vs))
+        return (self._firma_modelo(), tuple((round(float(v["x"]), 4), round(float(v["y"]), 4), v.get("union") or "",
+                                             v.get("tipo") or "", v.get("certeza") or "") for v in vs))
 
     def _otras_valvulas(self, salvo=-1):
         return [{"x": l.x, "y": l.y, "largo_ft": l.largo_ft}
                 for k, l in enumerate(self._lugares_valvulas()) if l.ok and k != salvo]
 
-    def _valvula_en(self, x, y):
-        """El Lugar de una válvula NUEVA con el cursor en (x, y)."""
-        r = 14.0 / max(self.canvas.transform().m11(), 1e-6)
+    def _lugar_valvula_nueva(self, x, y, salvo=-1):
+        """El Lugar de una válvula NUEVA (o de la `salvo`, al correrla) con el cursor en (x, y)."""
+        r = CLIC_PX / max(self.canvas.transform().m11(), 1e-6)
         return V.ubicar(self.pipes, self.structures, x, y, self._ft_px_valv(), r,
-                        otras=self._otras_valvulas(), cerca=self._cerca_valv)
+                        otras=self._otras_valvulas(salvo), cerca=self._cerca_valv)
+
+    def _valvula_en(self, x, y) -> int:
+        """Índice de la válvula bajo el punto (px de la hoja), o −1. Con la capa «VALVULAS» apagada no se elige."""
+        vs = getattr(self, "valvulas", None) or []
+        if not vs or V.CAPA in (getattr(self, "capas_apagadas", None) or ()):
+            return -1
+        r = CLIC_PX / max(1e-6, self.canvas.transform().m11())
+        return V.en(vs, getattr(self, "_valv_lugares", None), x, y, r)
+
+    def _texto_valvula(self, v, lug=None) -> str:
+        """Una línea para el globo y la barra de estado."""
+        partes = [_tr("Válvula de {t}").format(t=nombre_tipo(v.get("tipo")).lower())]
+        if lug is not None and lug.ok:
+            partes.append(f'{lug.diam_in:g}" {lug.union}')
+        if v.get("utilidad"):
+            partes.append(self._tipo(v["utilidad"]))
+        if v.get("estado"):
+            partes.append(_tr(v["estado"]))
+        if v.get("certeza") == V.POR_CONFIRMAR:
+            partes.append(_tr("por confirmar"))
+        if v.get("origen") and v.get("origen") != V.MANUAL:
+            partes.append(_tr("del plano"))
+        return " · ".join(partes)
+
+    def _filas_valvulas(self):
+        """[(válvula, índice de su tubería o None, diámetro o None, rumbo°)] para la Tabla de datos."""
+        out = []
+        for v, lug in zip(getattr(self, "valvulas", None) or [], self._lugares_valvulas()):
+            if lug.ok:
+                rumbo = math.degrees(math.atan2(-lug.uy, lug.ux)) % 180.0
+                out.append((v, lug.pipe, lug.diam_in, rumbo))
+            else:
+                out.append((v, None, None, 0.0))
+        return out
+
+    # ── reconocimiento ───────────────────────────────────────────────────
+    def _guardar_valvulas(self, results) -> int:
+        """Al importar: las de la hoja (la misma lista en cada utilidad), pegadas a su tubería, se suman a las del
+        proyecto (sin repetir). Devuelve cuántas nuevas."""
+        if not getattr(self, "_reconocer_valvulas", True):
+            return 0
+        nuevas = next((list(r.valvulas) for r in results if getattr(r, "valvulas", None)), [])
+        zoom = float(self.zoom or 1.0)
+        nuevas = [V.pegar(dict(V.nueva(v["x"], v["y"]), **v), self.pipes, V.tol_pt(v) * zoom, self._cerca_valv)
+                  for v in nuevas]
+        antes = len(self.valvulas)
+        self.valvulas = V.juntar(self.valvulas, nuevas)
+        return len(self.valvulas) - antes
 
     # ── herramienta ──────────────────────────────────────────────────────
     def insertar_valvula(self):
@@ -69,7 +134,7 @@ class ValvulasMixin:
         self._pista_valv = []
         if self.mode != "insert_valv":
             return
-        lug = self._valvula_en(x, y)
+        lug = self._lugar_valvula_nueva(x, y)
         if not lug.ok:
             self._info(lug.motivo)
             return
@@ -83,16 +148,18 @@ class ValvulasMixin:
         self._info(texto)
 
     def _do_insert_valvula(self, x, y):
-        lug = self._valvula_en(x, y)
+        lug = self._lugar_valvula_nueva(x, y)
         if not lug.ok:
             self._info(lug.motivo)
             QtWidgets.QToolTip.showText(QtGui.QCursor.pos(), lug.motivo, self.canvas)
             return
         self._push()
-        self.valvulas = list(getattr(self, "valvulas", None) or []) + [V.nueva(lug)]
+        nueva = V.de_lugar(lug, utilidad=self.pipes[lug.pipe].get("layer") or "")
+        self.valvulas = list(getattr(self, "valvulas", None) or []) + [nueva]
         self._dirty = True
         self.set_mode("idle")
         self._pista_valvula(x, y)                   # quita el moño verde
+        self._sync_boton_capas()
         self._info(_tr("Válvula de {d}\" puesta. Clic derecho sobre ella para cambiar la unión o quitarla.").format(
             d=f"{lug.diam_in:g}"))
 
@@ -100,6 +167,7 @@ class ValvulasMixin:
     def _draw_valvulas(self):
         vs = getattr(self, "valvulas", None) or []
         self._valv_lugares = []
+        self._valv_items = []
         if not vs:
             return
         ft = self._ft_px_valv()
@@ -112,25 +180,56 @@ class ValvulasMixin:
                 continue
             if lug.ok and ft:
                 color = layer_qcolor(self.pipes[lug.pipe].get("layer"))
-                globo = globo_valvula(lug)
+                globo = globo_valvula(lug, v)
                 its = valvula_item.agregar(sc, lug.x, lug.y, lug.ux, lug.uy, lug.largo_ft / ft, lug.brida_ft / ft,
-                                           color, True, Z_MARK + 2, globo)
+                                           color, True, Z_MARK + 2, globo,
+                                           hueca=v.get("certeza") == V.POR_CONFIRMAR)
             else:
                 r = 10.0
                 its = valvula_item.agregar(sc, float(v["x"]), float(v["y"]), 1.0, 0.0, 2 * r, 1.4 * r,
                                            QtGui.QColor(230, 40, 40), False, Z_MARK + 2,
-                                           _tr("Válvula fuera de lugar: {m}").format(m=lug.motivo))
+                                           _tr("Válvula por revisar: {m}").format(m=lug.motivo))
             self._overlay += its
+            self._valv_items += its
+        self._sync_capa_valvulas()
+
+    def _sync_capa_valvulas(self):
+        """«Capas ▾» → VALVULAS: encender o apagar sin redibujar."""
+        ver = V.CAPA not in (getattr(self, "capas_apagadas", None) or ())
+        for it in getattr(self, "_valv_items", None) or []:
+            try:
+                it.setVisible(ver)
+            except RuntimeError:
+                pass
+
+    def _elegir_valvula(self, x, y) -> bool:
+        """Clic sobre una válvula: se elige en Inventario → Accesorios (como los demás accesorios)."""
+        hit = self._accesorio_bajo_clic(x, y) if hasattr(self, "_accesorio_bajo_clic") else None
+        if hit is None or hit[0] != "valv" or self._valvula_en(x, y) < 0:
+            return False
+        return self._elegir_accesorio_en(x, y)
 
     # ── clic derecho ─────────────────────────────────────────────────────
     def _menu_valvula(self, menu, x, y):
-        r = 14.0 / max(self.canvas.transform().m11(), 1e-6)
-        k = V.en(getattr(self, "valvulas", None), getattr(self, "_valv_lugares", None), x, y, r)
+        k = self._valvula_en(x, y)
         if k < 0:
             return False
         v = self.valvulas[k]
-        lug = (self._valv_lugares or [None] * (k + 1))[k]
+        lug = (getattr(self, "_valv_lugares", None) or [None] * (k + 1))[k]
         sub = menu.addMenu(_tr("Válvula"))
+        titulo = sub.addAction(self._texto_valvula(v, lug))
+        titulo.setEnabled(False)
+        sub.addSeparator()
+        if v.get("certeza") == V.POR_CONFIRMAR:
+            sub.addAction(_tr("Confirmar válvula"), lambda: self.confirmar_valvula(k))
+        if lug is not None and not lug.ok:
+            sub.addAction(_tr("Correr al lugar libre más cercano"), lambda: self.correr_valvula(k))
+        tipos = sub.addMenu(_tr("Tipo"))
+        actual = "" if (v.get("tipo") or "") == "Válvula" else (v.get("tipo") or "")
+        for tp in TIPOS_MENU + (() if actual in TIPOS_MENU else (actual,)):
+            a = tipos.addAction(nombre_tipo(tp), lambda tp=tp: self.cambiar_valvula(k, tipo=tp))
+            a.setCheckable(True)
+            a.setChecked(actual == tp)
         for u, txt in (("FLG", _tr("Unión con bridas (FLG)")), ("RG", _tr("Junta mecánica (RG)"))):
             a = sub.addAction(txt, lambda u=u: self.cambiar_valvula(k, union=u))
             a.setCheckable(True)
@@ -148,7 +247,7 @@ class ValvulasMixin:
         menu.addSeparator()
         return True
 
-    def cambiar_valvula(self, k, union=None, material=None):
+    def cambiar_valvula(self, k, union=None, material=None, tipo=None):
         vs = list(getattr(self, "valvulas", None) or [])
         if not (0 <= k < len(vs)):
             return False
@@ -157,12 +256,43 @@ class ValvulasMixin:
             v["union"] = union if union in V.UNIONES else "FLG"
         if material is not None:
             v["material"] = material if material in V.MATERIALES else ""
+        if tipo is not None:
+            v["tipo"] = tipo or ""
         if v == vs[k]:
             return False
         self._push()
         vs[k] = v
         self.valvulas = vs
         self._redraw()
+        return True
+
+    def confirmar_valvula(self, k):
+        """Una reconocida «por confirmar» pasa a segura (y entonces va a Civil 3D si cabe)."""
+        vs = list(getattr(self, "valvulas", None) or [])
+        if not (0 <= k < len(vs)) or vs[k].get("certeza") != V.POR_CONFIRMAR:
+            return False
+        self._push()
+        vs[k] = dict(vs[k], certeza=V.SEGURA)
+        self.valvulas = vs
+        self._redraw()
+        return True
+
+    def correr_valvula(self, k):
+        """Una «por revisar» (no cabe donde está) al sitio libre más cercano de su tramo recto."""
+        vs = list(getattr(self, "valvulas", None) or [])
+        if not (0 <= k < len(vs)):
+            return False
+        lug = self._lugar_valvula_nueva(float(vs[k]["x"]), float(vs[k]["y"]), salvo=k)
+        if not lug.ok:
+            self._info(lug.motivo)
+            QtWidgets.QToolTip.showText(QtGui.QCursor.pos(), lug.motivo, self.canvas)
+            return False
+        d = math.hypot(lug.x - float(vs[k]["x"]), lug.y - float(vs[k]["y"])) * self._ft_px_valv()
+        self._push()
+        vs[k] = dict(vs[k], x=float(lug.x), y=float(lug.y))
+        self.valvulas = vs
+        self._redraw()
+        self._info(_tr("Válvula corrida {d} ft al lugar libre de su tramo recto.").format(d=f"{d:.2f}"))
         return True
 
     def quitar_valvula(self, k):
@@ -173,14 +303,29 @@ class ValvulasMixin:
         del vs[k]
         self.valvulas = vs
         self._redraw()
+        self._sync_boton_capas()
         self._info(_tr("Válvula quitada (Ctrl+Z para deshacer)."))
         return True
 
+    # nombres de dev_santos_v2
+    def _confirmar_valvula(self, i):
+        return self.confirmar_valvula(i)
 
-def globo_valvula(lug):
-    t = _tr("Válvula de compuerta {d}\" · {b} · {m} · largo {L} ft").format(
-        d=f"{lug.diam_in:g}", b=lug.bloque, m=lug.material, L=f"{lug.largo_ft:.2f}")
-    return "\n".join([t] + list(lug.avisos))
+    def _borrar_valvula(self, i):
+        return self.quitar_valvula(i)
+
+
+def globo_valvula(lug, v=None):
+    v = v or {}
+    t = _tr("Válvula de {tp} {d}\" · {b} · {m} · largo {L} ft").format(
+        tp=nombre_tipo(v.get("tipo")).lower(), d=f"{lug.diam_in:g}", b=lug.bloque, m=lug.material,
+        L=f"{lug.largo_ft:.2f}")
+    extra = []
+    if v.get("certeza") == V.POR_CONFIRMAR:
+        extra.append(_tr("Reconocida del plano, por confirmar: no va a Civil 3D hasta confirmarla (clic derecho)."))
+    if v.get("estado"):
+        extra.append(_tr("Estado: {e}").format(e=_tr(v["estado"])))
+    return "\n".join([t] + extra + list(lug.avisos))
 
 
 def motivo_sin_lineas():
@@ -189,3 +334,4 @@ def motivo_sin_lineas():
 
 def hay_lineas_para_valvula(w) -> bool:
     return any(len(p.get("pts") or ()) >= 2 and V.es_presion(p) for p in getattr(w, "pipes", ()) or ())
+

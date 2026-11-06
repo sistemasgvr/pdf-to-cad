@@ -11,16 +11,30 @@ diámetro, para CUALQUIER diámetro de `N_MIN` a `N_MAX`; fuera de la tabla de n
 compuerta AWWA C509/C515; RG (junta mecánica) hasta 16"; desde 18" con bridas y operador de engranes. Medidas
 representativas (no certificadas por un fabricante), como dice ese plugin.
 
-Cada válvula del proyecto = {"x", "y" (px del lienzo, centro sobre la tubería), "union" ("FLG"|"RG"),
-"material" ("" = el de la tubería | "DI-A" | "CI" | "PVC")}. Sin índices de utilidades: borrar o unir
-utilidades no las desordena; en cada redibujo y al exportar se vuelve a ubicar sobre su tubería
-(`ubicar(..., libre=False)`) y, si ya no está en un tramo recto donde quepa, queda marcada con el motivo y no
-va al DXF.
+UN SOLO MODELO (unión con dev_santos_v2, 2026-11-06): una válvula la pone el usuario (Dibujar → Accesorios →
+Válvula) o la lee el reconocimiento del PDF (`reconocimiento/recognition_valvulas`). Cada una es un dict:
+
+    x, y        centro (px de la vista), sobre su tubería
+    union       "FLG" | "RG"                      (pieza; las reconocidas empiezan en FLG)
+    material    "" = el de la tubería | "DI-A" | "CI" | "PVC"
+    utilidad    capa de la app («AGUA», «GAS»…) o "" si el plano no lo dice
+    tipo        "" = compuerta; si no, el del plano («Purga», «Retención», «Mariposa»…; `TEXTOS`)
+    estado      "abierta" | "cerrada" | ""
+    origen      capa | leyenda | forma | manual
+    certeza     segura | por_confirmar
+    capa_pdf    capa o símbolo de donde salió
+    x_pdf, y_pdf  (solo reconocidas) dónde estaba el símbolo antes de pegarla a su tubería (`pegar`)
+
+Sin índices de utilidades: borrar o unir utilidades no las desordena; en cada redibujo y al exportar se vuelve a
+ubicar sobre su tubería (`ubicar(..., libre=False)`) y, si ya no está en un tramo recto donde quepa —o una reconocida
+cae junto a un codo, una Tee o una curva—, queda «por revisar» en rojo con el motivo y no va al DXF hasta que el
+usuario la corra o la confirme (`exportable`).
 """
 from __future__ import annotations
 
 import math
 from dataclasses import dataclass, field
+from typing import List, Optional, Sequence, Tuple
 
 from nucleo import limpieza_tramos, model_ops
 from nucleo import valvula_receta as VR
@@ -310,7 +324,113 @@ def en(valvulas, lugares, x, y, tol):
     return mejor[0]
 
 
-def nueva(lug, union="FLG", material=""):
-    """La válvula a guardar en el proyecto para un `Lugar` válido."""
-    return {"x": float(lug.x), "y": float(lug.y), "union": union if union in UNIONES else "FLG",
-            "material": material if material in MATERIALES else ""}
+def de_lugar(lug, union="FLG", material="", utilidad="", tipo=""):
+    """La válvula que pone el usuario en un `Lugar` válido (origen «manual», segura)."""
+    v = nueva(lug.x, lug.y, utilidad=utilidad, tipo=tipo, origen=MANUAL, certeza=SEGURA)
+    v["union"] = union if union in UNIONES else "FLG"
+    v["material"] = material if material in MATERIALES else ""
+    return v
+
+
+def exportable(v, lug):
+    """¿Va al DXF (y al plugin)? Solo si cabe en su tramo recto y no está «por confirmar»."""
+    return bool(lug is not None and lug.ok and (v.get("certeza") or SEGURA) != POR_CONFIRMAR)
+
+
+def pegar(v, pipes, tol_px, cerca=None):
+    """Una válvula RECONOCIDA sobre el eje de su tubería (el pie más cercano a ≤ `tol_px`, de su utilidad si la
+    sabe): el símbolo del plano puede quedar unos puntos al lado (topografía vs. diseño). Guarda dónde estaba
+    (`x_pdf`, `y_pdf`). Sin tubería, queda donde está (y se verá «por revisar»)."""
+    indices = range(len(pipes)) if cerca is None else cerca(v["x"], v["y"], tol_px)
+    mejor = None
+    for i in indices:
+        p = pipes[i]
+        if v.get("utilidad") and p.get("layer") != v["utilidad"]:
+            continue
+        pts = p.get("pts") or ()
+        for a, b in zip(pts, pts[1:]):
+            dx, dy = b[0] - a[0], b[1] - a[1]
+            L2 = dx * dx + dy * dy
+            u = 0.0 if L2 <= 0 else max(0.0, min(1.0, ((v["x"] - a[0]) * dx + (v["y"] - a[1]) * dy) / L2))
+            q = (a[0] + u * dx, a[1] + u * dy)
+            d = math.hypot(q[0] - v["x"], q[1] - v["y"])
+            if d <= tol_px and (mejor is None or d < mejor[0]):
+                mejor = (d, q)
+    out = dict(v)
+    if mejor is not None:
+        out.setdefault("x_pdf", float(v["x"]))
+        out.setdefault("y_pdf", float(v["y"]))
+        out["x"], out["y"] = float(mejor[1][0]), float(mejor[1][1])
+    return out
+
+
+# ── reconocidas del PDF (dev_santos_v2, 2026-11-05) ─────────────────────────────────────────────────────
+CAPA = "VALVULAS"                  # clave en «Capas ▾» (`Main.capas_apagadas`)
+SEGURA, POR_CONFIRMAR = "segura", "por_confirmar"
+CAPA_PDF, LEYENDA, FORMA, MANUAL = "capa", "leyenda", "forma", "manual"
+MISMA_PX = 2.0                     # dos válvulas de la misma utilidad a menos de esto (px) = la misma
+EN_LINEA_PT = 1.5                  # sobre una línea cualquiera: a ≤ esto (pt de la hoja)
+UNIR_PT = 5.0                      # con su utilidad conocida, su tubería puede estar hasta aquí (topografía vs. diseño)
+
+
+def tol_pt(v: dict) -> float:
+    """Sin utilidad, solo vale una línea encima: más lejos podría ser la de otra red."""
+    return UNIR_PT if v.get("utilidad") else EN_LINEA_PT
+
+
+def nueva(x, y, utilidad="", tipo="", estado="", origen=CAPA_PDF, certeza=SEGURA, capa_pdf="") -> dict:
+    """Una válvula con todos sus datos (las del plano: `recognition_valvulas`; las del usuario: `de_lugar`)."""
+    return dict(x=float(x), y=float(y), union="FLG", material="", utilidad=utilidad or "", tipo=tipo or "",
+                estado=estado or "", origen=origen, certeza=certeza, capa_pdf=capa_pdf or "")
+
+
+def juntar(existentes: Sequence[dict], nuevas: Sequence[dict]) -> List[dict]:
+    """Las de antes + las nuevas que no estaban. Reimportar la misma hoja no las repite."""
+    out = list(existentes)
+    for v in nuevas:
+        if not any(a.get("utilidad") == v.get("utilidad")
+                   and math.hypot(a["x"] - v["x"], a["y"] - v["y"]) <= MISMA_PX for a in out):
+            out.append(v)
+    return out
+
+
+def _pie(x, y, a, b) -> Tuple[float, float]:
+    """(distancia al tramo a–b, rumbo del tramo en grados 0–180, con la y hacia arriba)."""
+    ax, ay = a[0], a[1]
+    dx, dy = b[0] - ax, b[1] - ay
+    largo2 = dx * dx + dy * dy
+    t = 0.0 if not largo2 else max(0.0, min(1.0, ((x - ax) * dx + (y - ay) * dy) / largo2))
+    return math.hypot(x - ax - t * dx, y - ay - t * dy), math.degrees(math.atan2(-dy, dx)) % 180.0
+
+
+def mas_cercana(x, y, candidatas, tol, utilidad="") -> Optional[Tuple[int, float, float]]:
+    """(índice, distancia, rumbo) de la línea más cercana a ≤ tol. `candidatas` = [(índice, capa, puntos)]; con
+    `utilidad`, solo las de esa capa."""
+    mejor = None
+    for i, capa, pts in candidatas:
+        if utilidad and capa != utilidad:
+            continue
+        for a, b in zip(pts, pts[1:]):
+            d, rumbo = _pie(x, y, a, b)
+            if d <= tol and (mejor is None or d < mejor[1]):
+                mejor = (i, d, rumbo)
+    return mejor
+
+
+def relacion(v: dict, pipes: Sequence[dict], tol_px: float, cerca=None) -> Optional[Tuple[int, float, float]]:
+    """La tubería de la válvula: (índice, distancia px, rumbo). `cerca(x, y, r)` = índices a revisar (índice de la
+    ventana); sin él, todas."""
+    indices = range(len(pipes)) if cerca is None else cerca(v["x"], v["y"], tol_px)
+    return mas_cercana(v["x"], v["y"], [(i, pipes[i].get("layer"), pipes[i].get("pts") or ()) for i in indices],
+                       tol_px, v.get("utilidad") or "")
+
+
+N_ = lambda s: s          # noqa: E731  (marca para la traducción; los valores son datos)
+TEXTOS = (N_("Válvula"), N_("De línea"), N_("Purga"), N_("Retención"), N_("Retención doble"),
+          N_("Reguladora de presión"), N_("Mariposa"), N_("Aire"), N_("Compuerta"), N_("Riego"), N_("abierta"),
+          N_("cerrada"))
+
+
+def nombre(v: dict) -> str:
+    """Tipo legible en español (el dato; la interfaz lo traduce con `t()`)."""
+    return v.get("tipo") or "Válvula"

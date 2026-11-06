@@ -81,6 +81,7 @@ _ABRIR_EXTRA = ("pdf_path", "project_path", "_tmp_pdf", "sheet_layout", "sheet_r
 from ui.ventana.ventana_menu import MenuMixin
 from ui.ventana.ventana_diametro_ia import DiametroIAMixin
 from ui.ventana.ventana_anotaciones import AnotacionesMixin
+from ui.ventana.ventana_valvulas import ValvulasMixin
 from ui.ventana.ventana_panel_izq import PanelIzquierdoMixin
 from ui.ventana.ventana_panel_der import PanelDerechoMixin
 from ui.ventana.ventana_modos import ModosMixin
@@ -122,6 +123,10 @@ from ui.ventana.ventana_estados import EstadosPreviosMixin
 from ui.ventana.ventana_planos import PlanosFondoMixin, clave_planos
 from ui.ventana.ventana_capas import CapasMixin
 from ui.ventana.ventana_shell import ShellMixin
+from nucleo import bitacora
+from ui.ventana.ventana_copiloto import CopilotoMixin
+from ui.ventana.ventana_agente import AgenteMixin
+from ui.ventana.ventana_copiloto_conflictos import ConflictosTandaMixin
 from ui.ventana.ventana_recientes import RecientesMixin
 from ui.ventana.ventana_inicio import InicioMixin
 from ui.ventana.ventana_shell_paneles import RevisionMixin
@@ -129,9 +134,9 @@ from ui.ventana.ventana_inventario import InventarioMixin
 from ui.ventana.ventana_pasos import PasosVivosMixin
 
 
-class Main(MenuMixin, PanelIzquierdoMixin, PanelDerechoMixin, ModosMixin, ClicsMixin, UtilidadesMixin, CatalogoMixin, SeleccionMixin, ListasMixin, MarcasMixin, DibujoMixin, ConflictosMixin, CoordsMixin, BuzonesMixin, MoverPrecisoMixin, CurvasMixin, HerramientasMixin, BancoductosMixin, EdicionBloqueMixin, InformeMixin, IAMixin, SolucionesMixin, SinAccesorioMixin, ListaAccesoriosMixin, ValvulasMixin, DibujarAccesoriosMixin, SeleccionAccesorioMixin, PerfilMixin, AccionesIAMixin, Vista3DMixin, Edicion3DMixin, ConflictosListaMixin, HojasEditorMixin,
+class Main(AgenteMixin, CopilotoMixin, ConflictosTandaMixin, MenuMixin, PanelIzquierdoMixin, PanelDerechoMixin, ModosMixin, ClicsMixin, UtilidadesMixin, CatalogoMixin, SeleccionMixin, ListasMixin, MarcasMixin, DibujoMixin, ConflictosMixin, CoordsMixin, BuzonesMixin, MoverPrecisoMixin, CurvasMixin, HerramientasMixin, BancoductosMixin, EdicionBloqueMixin, InformeMixin, IAMixin, SolucionesMixin, SinAccesorioMixin, ListaAccesoriosMixin, DibujarAccesoriosMixin, SeleccionAccesorioMixin, PerfilMixin, AccionesIAMixin, Vista3DMixin, Edicion3DMixin, ConflictosListaMixin, HojasEditorMixin,
            VerticesMixin, TrazoMixin, CalculoPlanoMixin, CalculoFondoMixin, EstadosPreviosMixin,
-           AgregarUtilidadMixin, PlanosFondoMixin, CapasMixin, ShellMixin, RevisionMixin, RecientesMixin, InicioMixin, InventarioMixin, PasosVivosMixin, DiametroIAMixin, AnotacionesMixin, QtWidgets.QMainWindow):
+           AgregarUtilidadMixin, PlanosFondoMixin, CapasMixin, ShellMixin, RevisionMixin, RecientesMixin, InicioMixin, InventarioMixin, PasosVivosMixin, DiametroIAMixin, AnotacionesMixin, ValvulasMixin, QtWidgets.QMainWindow):
     def __init__(self):
         super().__init__()
         self._base_title = f"Asistente C3D  (v{VERSION})"
@@ -185,9 +190,12 @@ class Main(MenuMixin, PanelIzquierdoMixin, PanelDerechoMixin, ModosMixin, ClicsM
 
         self.cur_pts = []; self.pipes = []; self.leaders = []; self.text_marks = []
         self.erase_regions = []; self._erase_pts = []; self.structures = []
+        self.valvulas = []; self._valvula_sel = -1
         self.ref_centerlines = []; self._cl_pts = []
         self.duct_banks = []   # colección del proyecto — ver duct_bank.py
         self.cross_connections = []   # conexiones aprobadas en cruces físicos
+        self.bitacora = []            # lo que hizo el Copiloto (nucleo/bitacora): sobrevive a Ctrl+Z
+        self.revision = {"saltados": []}   # revisión guiada de avisos: lo que el usuario dejó para después
         self.perfiles = []            # perfiles longitudinales guardados (ventana_perfil)
         self.sin_accesorio = []       # puntos donde el usuario dijo «no hay codo/T/Y/cruz» (nucleo/sin_accesorio)
         self.valvulas = []            # válvulas de compuerta en agua/gas (nucleo/valvulas)
@@ -286,8 +294,9 @@ class Main(MenuMixin, PanelIzquierdoMixin, PanelDerechoMixin, ModosMixin, ClicsM
                                cross_connections=getattr(self, "cross_connections", []) or [],
                                normas_aprobados=getattr(self, "normas_aprobados", []) or [],
                                sin_accesorio=getattr(self, "sin_accesorio", []) or [],
+                               anotaciones=getattr(self, "anotaciones", []) or [],
                                valvulas=getattr(self, "valvulas", []) or [],
-                               anotaciones=getattr(self, "anotaciones", []) or []),
+                               bitacora_vigentes=bitacora.vigentes(self.bitacora)),
                           getattr(self, "_ultimo_paso", None))
         self._ultimo_paso = p
         return p
@@ -314,6 +323,11 @@ class Main(MenuMixin, PanelIzquierdoMixin, PanelDerechoMixin, ModosMixin, ClicsM
             self.valvulas = s["valvulas"]
         if "anotaciones" in s:
             self.anotaciones = s["anotaciones"]
+        if "valvulas" in s:
+            self.valvulas = s["valvulas"]
+            self._valvula_sel = -1
+        if "bitacora_vigentes" in s:                   # la lista no se restaura: solo qué quedó deshecho
+            bitacora.marcar(self.bitacora, s["bitacora_vigentes"])
         if "duct_banks" in s:
             self.duct_banks = s["duct_banks"]
             if not (0 <= getattr(self, "sel_db", -1) < len(self.duct_banks)):
@@ -1394,6 +1408,12 @@ class Main(MenuMixin, PanelIzquierdoMixin, PanelDerechoMixin, ModosMixin, ClicsM
             if pipes or has_importable_structure:
                 batches.append((result, utility, pipes, snapped, skipped))
         if not batches:
+            n_valv = self._guardar_valvulas(results)      # una hoja puede traer solo válvulas
+            if n_valv:
+                self._redraw()
+                self._sync_boton_capas()
+                self._info(_tr("Válvulas: {n}.").format(n=n_valv))
+                return True
             self._info(_tr("No hay tramos reconocidos para importar."))
             return False
         # Mientras se agrega al modelo, nada lo redibuja ni lo copia a medias: los avisos de avance
@@ -1431,6 +1451,10 @@ class Main(MenuMixin, PanelIzquierdoMixin, PanelDerechoMixin, ModosMixin, ClicsM
         n_anot = self._guardar_anotaciones(results)      # rótulos con guía (ventana_anotaciones)
         if n_anot:
             msg += " " + _tr("Rótulos del plano: {n}.").format(n=n_anot)
+        n_valv = self._guardar_valvulas(results)         # válvulas de la hoja (ventana_valvulas)
+        if n_valv:
+            msg += " " + _tr("Válvulas: {n}.").format(n=n_valv)
+            self._redraw()
         n_ab = sum(1 for _r, _u, pipes, _s, _k in batches for p in pipes if p.get("ab"))
         if n_ab:
             msg += " " + _tr("Abandonadas (AB): {a}.").format(a=n_ab)
@@ -1536,10 +1560,13 @@ class Main(MenuMixin, PanelIzquierdoMixin, PanelDerechoMixin, ModosMixin, ClicsM
         self.sin_accesorio = []                 # puntos sin accesorio (nucleo/sin_accesorio)
         self.valvulas = []                      # válvulas (nucleo/valvulas)
         self.perfiles = []                      # perfiles guardados (ventana_perfil)
+        self.bitacora = []; self.revision = {"saltados": []}
         self._perfil_rec = self._perfil_anclas = None
         self._conf_registro = None              # números de los conflictos (ventana_conflictos_lista)
         self.capas_apagadas = set()             # «Capas»: todas las utilidades encendidas
         self.anotaciones = []                   # rótulos del plano reconocidos (ventana_anotaciones)
+        self.valvulas = []                      # válvulas reconocidas (ventana_valvulas)
+        self._valvula_sel = -1
         self.sel_pipe = self.sel_leader = self.sel_region = self.sel_text = -1
         self.sel_cl = -1
         self._overlay = []; self._close_editor(); self._dirty = False; self._extending = False
@@ -1762,12 +1789,16 @@ class Main(MenuMixin, PanelIzquierdoMixin, PanelDerechoMixin, ModosMixin, ClicsM
             self.sin_accesorio = data.get("sin_accesorio", []) or []
             self.valvulas = data.get("valvulas", []) or []
             self.perfiles = data.get("perfiles", []) or []
+            self.bitacora = bitacora.al_abrir(data.get("bitacora"))
+            self.revision = data.get("revision") or {"saltados": []}
             self._perfil_rec = self._perfil_anclas = None
             from nucleo import conflictos as _conf_mod     # números fijos de los conflictos (None = primera vez)
             _reg = data.get("conflictos_registro")
             self._conf_registro = _conf_mod.Registro.de_dict(_reg) if _reg else None
             self.capas_apagadas = set(data.get("capas_apagadas") or ())   # «Capas» (ventana_capas)
             self.anotaciones = data.get("anotaciones", []) or []            # rótulos del plano (ventana_anotaciones)
+            self.valvulas = data.get("valvulas", []) or []                  # válvulas (ventana_valvulas)
+            self._valvula_sel = -1
             self.georef = data["georef"]
             self.work_unit = data["work_unit"]
             self.cur_pts = []; self._erase_pts = []; self.sel_pipe = self.sel_leader = self.sel_region = self.sel_text = -1
@@ -1934,6 +1965,7 @@ class Main(MenuMixin, PanelIzquierdoMixin, PanelDerechoMixin, ModosMixin, ClicsM
         self.sin_accesorio = []
         self.valvulas = []
         self.perfiles = []
+        self.bitacora = []; self.revision = {"saltados": []}
         self._perfil_rec = self._perfil_anclas = None
         self._conf_registro = None
         self.ref_centerlines = []; self._cl_pts = []

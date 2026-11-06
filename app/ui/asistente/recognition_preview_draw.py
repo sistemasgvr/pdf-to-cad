@@ -158,6 +158,16 @@ def _halo_pen(color) -> QtGui.QPen:
     return pen
 
 
+def _draw_valvula(scene, x, y, color, hueca=False, z=7, r=7.0):
+    """Moño de la válvula; hueco = por confirmar. Sin utilidad, gris."""
+    color = color or QtGui.QColor("#8a8f98")
+    puntos = [(r, r * .62), (r, -r * .62), (-r, r * .62), (-r, -r * .62)]
+    poly = QtGui.QPolygonF([QtCore.QPointF(x + a, y + b) for a, b in puntos])
+    it = scene.addPolygon(poly, QtGui.QPen(color, 1.6), QtGui.QBrush(QtCore.Qt.NoBrush) if hueca else QtGui.QBrush(color))
+    it.setZValue(z)
+    return it
+
+
 def draw_line_halo(scene, pl, color, z=4.5, fillets=None):
     """Halo ancho del color de la utilidad DEBAJO de una línea (tramos + arcos)."""
     pen = _halo_pen(color)

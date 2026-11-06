@@ -65,18 +65,19 @@ class ArmadoMixin:
                     valvulas=self._valvulas3d(pipes))
 
     def _valvulas3d(self, pipes):
-        """Las válvulas que caben (`nucleo/valvulas`), ubicadas sobre `pipes`, para `modelo3d.construir`."""
+        """Las válvulas que van a Civil 3D (`valvulas.exportable`: caben en su tramo recto y no están «por
+        confirmar»), ubicadas sobre `pipes`, con su tipo, para `modelo3d.construir`."""
         w = self.win
         vs = getattr(w, "valvulas", None) or []
         ft = w.scale / w.zoom if w.scale and w.zoom else 0.0
         if not vs or not ft:
             return []
         from nucleo import valvulas as _V
+        lugares = _V.ubicar_todas(pipes, w.structures, vs, ft, cerca=w._cerca_valv if pipes is w.pipes else None)
         return [dict(x=l.x, y=l.y, pipe=l.pipe, tramo=l.tramo, bloque=l.bloque, largo_ft=l.largo_ft,
                      brida_ft=l.brida_ft, diam_in=l.diam_in, union=l.union, material=l.material,
-                     estimada=l.estimada)
-                for l in _V.ubicar_todas(pipes, w.structures, vs, ft,
-                                         cerca=w._cerca_valv if pipes is w.pipes else None) if l.ok]
+                     estimada=l.estimada, tipo=v.get("tipo") or "")
+                for v, l in zip(vs, lugares) if _V.exportable(v, l)]
 
     def programar(self):
         """El plano cambió: actualizar en un momento (agrupa cambios seguidos)."""

@@ -17,6 +17,8 @@ opciones con su explicación (`opciones`, ids C1, C2…) para la tarjeta de la I
 """
 from __future__ import annotations
 
+import numpy as np
+
 import math
 from typing import List, Optional, Sequence, Tuple
 
@@ -105,17 +107,51 @@ def _estructura_en(q: Pt, estructuras, tol: float) -> bool:
     return False
 
 
-def analizar(i: int, pipes: Sequence[dict], ft_px: Optional[float] = None, estructuras=()) -> dict:
+_HOLGURA = 1e-6
+
+
+class Indice:
+    """Las líneas de cada (capa, abandonada) con su recuadro: `analizar` mira solo las que pueden tocarse, en el mismo
+    orden. Con miles de líneas de una capa, revisar todas contra todas tardaría minutos."""
+
+    def __init__(self, pipes):
+        por_grupo = {}
+        for j, o in enumerate(pipes):
+            pts = o.get("pts") or []
+            if len(pts) >= 2 and not o.get("world"):
+                xs, ys = [q[0] for q in pts], [q[1] for q in pts]
+                por_grupo.setdefault(_grupo(o), []).append((j, min(xs), min(ys), max(xs), max(ys)))
+        self._grupos = {k: np.array(v, dtype=float) for k, v in por_grupo.items()}
+
+    def en_caja(self, p, x0, y0, x1, y1):
+        """Las líneas del grupo de `p` cuyo recuadro toca esa caja, en orden."""
+        a = self._grupos.get(_grupo(p))
+        if a is None:
+            return []
+        m = (a[:, 3] >= x0 - _HOLGURA) & (a[:, 1] <= x1 + _HOLGURA) & (a[:, 4] >= y0 - _HOLGURA) & (a[:, 2] <= y1 + _HOLGURA)
+        return [int(j) for j in a[m, 0]]
+
+
+def _grupo(p):
+    return p.get("layer"), bool(p.get("ab"))
+
+
+def indice(pipes) -> Indice:
+    return Indice(pipes)
+
+
+def analizar(i: int, pipes: Sequence[dict], ft_px: Optional[float] = None, estructuras=(), indice=None) -> dict:
     """{"lados": [{extremo, diam_in, linea, nombre, saltos, distancia_ft, estructura}], "max_in", "min_in",
-    "ramales": [...], "opciones": [{id, diam_in, fuerza, texto, lineas}]} de la línea i."""
+    "ramales": [...], "opciones": [{id, diam_in, fuerza, texto, lineas}]} de la línea i. `indice` (de `indice(pipes)`)
+    da el mismo resultado, más rápido si se analizan muchas líneas."""
     p = pipes[i]
     pts = p.get("pts") or []
     vacio = dict(lados=[], max_in=None, min_in=None, ramales=[], opciones=[])
     if len(pts) < 2:
         return vacio
     tol = TOL_FT / ft_px if ft_px else TOL_PX
-    mismas = [j for j, o in enumerate(pipes) if len(o.get("pts") or []) >= 2 and not o.get("world")
-              and o.get("layer") == p.get("layer") and bool(o.get("ab")) == bool(p.get("ab"))]
+    mismas = None if indice is not None else [
+        j for j, o in enumerate(pipes) if len(o.get("pts") or []) >= 2 and not o.get("world") and _grupo(o) == _grupo(p)]
     lados = []
     for extremo in (0, -1):
         actual, e, recorrido, saltos = i, extremo, 0.0, 0
@@ -123,7 +159,8 @@ def analizar(i: int, pipes: Sequence[dict], ft_px: Optional[float] = None, estru
         while saltos <= MAX_SALTOS:
             q0 = pipes[actual]["pts"][0 if e == 0 else -1]
             hubo_estructura |= _estructura_en(q0, estructuras, tol)
-            sig = _sigue(pipes, actual, e, tol, mismas)
+            cerca = mismas if indice is None else indice.en_caja(p, q0[0] - tol, q0[1] - tol, q0[0] + tol, q0[1] + tol)
+            sig = _sigue(pipes, actual, e, tol, cerca)
             if sig is None:
                 break
             j, e2 = sig
@@ -144,7 +181,7 @@ def analizar(i: int, pipes: Sequence[dict], ft_px: Optional[float] = None, estru
     ramales = []
     xs, ys = [q[0] for q in pts], [q[1] for q in pts]
     caja = (min(xs) - tol, min(ys) - tol, max(xs) + tol, max(ys) + tol)
-    for j in mismas:
+    for j in (mismas if indice is None else indice.en_caja(p, *caja)):
         if j == i:
             continue
         op = pipes[j]["pts"]

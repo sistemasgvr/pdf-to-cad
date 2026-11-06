@@ -44,6 +44,7 @@ atajo shortcut ajuste setting zona zone ficha largo longitud length distancia di
 abandonada abandoned existente existing propuesta proposed acometida tap lateral principal main
 calle street parcela georreferenciar calibrar minimapa asistente manual ayuda help tema oscuro dark
 idioma language familia instalar plugin conexion vertical aprobar
+senalar resaltar captura funcion investigar
 """
 VOCAB = frozenset(r for p in _VOCAB.split() for r in raices(p))
 PREFIJO_MIN = 6        # palabras largas: basta el mismo comienzo («georeferenciación» ≈ «georreferencia»)

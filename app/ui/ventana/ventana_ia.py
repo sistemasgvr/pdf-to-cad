@@ -66,6 +66,11 @@ class IAMixin:
         """Otro proyecto: otros datos; un informe a medias se cancela."""
         if getattr(self, "_informe_en_curso", None) is not None:
             self.cancelar_informe()
+        self._cop_sesion += 1                           # las tarjetas del Copiloto ya no aplican nada
+        self._cop_revisando = None
+        self._cop_espera = []
+        if self._agente_mi is not None:
+            self._agente_mi.quitar()
         self._ia_mem = None
         self._ia_cache_datos = None
         dlg = getattr(self, "_ia_chat", None)

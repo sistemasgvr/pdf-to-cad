@@ -128,6 +128,10 @@ _RULES = [
     (r"^Costuras de la hoja compuesta: (\d+)", INFO,
      lambda m: _pl(_n(m), "tubería continúa en la costura entre hojas", "tuberías continúan en la costura entre hojas"),
      ""),
+    (r"^Válvulas por confirmar \(halladas por su forma\): (\d+)", REVIEW,
+     lambda m: _pl(_n(m), "válvula por confirmar", "válvulas por confirmar"), "valvulas_forma"),
+    (r"^Válvulas sin línea cerca: (\d+)", INFO,
+     lambda m: _pl(_n(m), "válvula sin línea cerca", "válvulas sin línea cerca"), "valvulas_sueltas"),
     (r"^Capas por estilo de trazo continuo: (\d+)", INFO,
      lambda m: _pl(_n(m), "capa de trazo continuo: la tinta es el eje", "capas de trazo continuo: la tinta es el eje"), ""),
     (r"^Buzones donde terminan las tuberías del mapa[^:]*: (\d+)", INFO,
@@ -318,6 +322,9 @@ def targets_for(key: str, result) -> List[Rect]:
                             max(r[2] for r in spans), max(r[3] for r in spans)))
     elif key == "uncovered":
         out = [b for a, c in (getattr(result, "uncovered_px", None) or []) if (b := _bbox([a, c]))]
+    elif key in ("valvulas_forma", "valvulas_sueltas"):
+        out = [_around((v["x"], v["y"])) for v in (getattr(result, "valvulas", None) or [])
+               if (v.get("certeza") == "por_confirmar" if key == "valvulas_forma" else not v.get("en_linea"))]
     elif key == "orphans":
         out = [_around(p) for p in (getattr(result, "vault_orphans_px", None) or [])]
     elif key == "vaults":

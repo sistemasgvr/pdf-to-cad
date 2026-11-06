@@ -114,7 +114,7 @@ def test_pide_confirmacion_hace_el_cambio_y_se_deshace(tmp_path):
         # 5) una pregunta normal sigue el camino de siempre
         respuestas.append(json.dumps({"accion": "ninguna"}))
         respuestas.append("Hay varios conflictos.")
-        d.enviar("muestra cuántos conflictos hay")
+        d.enviar("muéstrame qué tipos de utilidad hay")
         _esperar(lambda: d.turnos[-1]["estado"] == "listo" and d.turnos[-1]["res"] is not None)
         assert d.turnos[-1].get("orden") is None
         w._dirty = False

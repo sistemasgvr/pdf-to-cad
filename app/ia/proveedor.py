@@ -89,6 +89,10 @@ class Proveedor:
         """¿El modelo acepta imágenes en los mensajes (`{"images": [png en base64]}`)?"""
         return False
 
+    def herramientas(self):
+        """¿El modelo sabe pedir herramientas (`tools`)?"""
+        return False
+
     def calentar(self):
         """Que el servidor deje el modelo cargado en memoria (la primera respuesta sale sin esperar la carga)."""
 
@@ -123,17 +127,22 @@ class Ollama(Proveedor):
         with self._pedir("/api/tags", espera=10) as r:
             return [m.get("name", "") for m in json.loads(r.read().decode("utf-8")).get("models", [])]
 
-    def vision(self):
-        """Ollama: «vision» en las capacidades del modelo (`/api/show`), una vez por modelo; sin servidor, False."""
-        cache = self.__dict__.setdefault("_vision", {})
+    def _capacidades(self):
+        """Las capacidades del modelo (`/api/show`), una vez por modelo; sin servidor, ninguna."""
+        cache = self.__dict__.setdefault("_caps", {})
         if self.config.modelo not in cache:
             try:
                 with self._pedir("/api/show", {"model": self.config.modelo}, espera=10) as r:
-                    caps = json.loads(r.read().decode("utf-8")).get("capabilities") or []
-                cache[self.config.modelo] = "vision" in caps
+                    cache[self.config.modelo] = json.loads(r.read().decode("utf-8")).get("capabilities") or []
             except (ErrorIA, ValueError):
-                return False
+                return []
         return cache[self.config.modelo]
+
+    def vision(self):
+        return "vision" in self._capacidades()
+
+    def herramientas(self):
+        return "tools" in self._capacidades()
 
     def calentar(self):
         """/api/generate sin texto = solo cargar el modelo (con el mismo `num_ctx`: si cambia, Ollama lo recarga)."""

@@ -12,6 +12,7 @@ próxima vez entran en el pedido (así «aprende» sin reentrenar el modelo).
 from __future__ import annotations
 
 import re
+import threading
 import time
 import uuid
 from dataclasses import dataclass, field
@@ -52,6 +53,13 @@ class Resultado:
     fuera: str = ""                                       # «ajeno» / «codigo» / «inyeccion»: no se respondió
     capitulos: list = field(default_factory=list)         # pregunta de AYUDA: [(n.º, título)] del manual
     origen: str = "proyecto"                              # «proyecto» o «manual» (ia/ayuda_chat)
+    pasos: list = field(default_factory=list)             # lo que hizo el agente, en palabras
+    propuestas: list = field(default_factory=list)        # lo que deja para que decida el usuario
+
+
+MAX_PASOS_HERRAMIENTAS = 8
+SISTEMA_HERRAMIENTAS = """
+Eres un agente: decide tú cómo resolver cada pedido. Si necesita varios pasos, empieza con definir_plan: tu objetivo, tus pasos y cómo sabrás que terminaste serán tus instrucciones. Si los DATOS DEL PROYECTO no alcanzan, consulta y mira el plano en vez de pedirle al usuario lo que puedes ver tú. En las capturas la línea investigada va en MAGENTA. Un rótulo vale para una línea solo si su flecha o guía llega a ella o está escrito sobre ella. Si ves un rótulo cerca, acércate y sigue su flecha antes de descartarlo. No repitas una vista: si dos vistas distintas no dan nada, dilo. Si te piden señalar, abrir o mostrar algo, busca la función y úsala. Tú nunca aplicas cambios: los propones y decide el usuario. Nunca nombres las herramientas al usuario."""
 
 
 def idioma():
@@ -90,7 +98,7 @@ def armar_pedido(pregunta, datos, memoria=None):
 
 
 def preguntar(proveedor, pregunta, datos, memoria=None, historial=(), al_texto=None, cancelado=None,
-              manual=None):
+              manual=None, agente=None, cliente=None, al_paso=None):
     """Responde `pregunta`. `historial` = [(pregunta, respuesta), …] de esta conversación. Con `manual` (el
     `ayuda_manual.Indice` del manual de usuario), una pregunta de cómo usar la app se responde con el MANUAL
     (`ia/ayuda_chat`, 2026-10-30) y el resultado trae sus capítulos.
@@ -107,6 +115,9 @@ def preguntar(proveedor, pregunta, datos, memoria=None, historial=(), al_texto=N
     if motivo != A.OK:
         return _fuera(pregunta, motivo, memoria, al_texto)
     pedido, usadas = armar_pedido(pregunta, datos, memoria)
+    if agente is not None and proveedor.herramientas():
+        return _con_herramientas(proveedor, pregunta, datos, memoria, historial, pedido, usadas, agente, cancelado,
+                                 al_texto, cliente, al_paso)
     msgs = []
     for p, r in list(historial)[-HISTORIAL:]:
         msgs += [{"role": "user", "content": p}, {"role": "assistant", "content": r}]
@@ -114,10 +125,68 @@ def preguntar(proveedor, pregunta, datos, memoria=None, historial=(), al_texto=N
     t0 = time.perf_counter()
     resp = proveedor.chat(msgs, sistema=SISTEMA.format(idioma=idioma()), al_texto=_vigilado(al_texto),
                           cancelado=cancelado)
-    texto = resp.texto.strip()
+    return _resultado(pregunta, resp.texto, resp.modelo, datos, memoria, pedido, usadas, t0, al_texto)
+
+
+def _con_herramientas(proveedor, pregunta, datos, memoria, historial, pedido, usadas, pedir_modelo, cancelado, al_texto,
+                      cliente=None, al_paso=None):
+    """La IA consulta el proyecto con herramientas de solo lectura antes de responder. La respuesta se revisa igual
+    que la de siempre, sumando a los datos lo que devolvieron las herramientas."""
+    from ia import herramientas
+    from ia.civil3d_agente import Agente
+    cliente = cliente or herramientas.ClienteProyecto(datos)
+    ag = Agente(cliente, _cancelable(pedir_modelo, cancelado), max_pasos=MAX_PASOS_HERRAMIENTAS,
+                sistema=SISTEMA.format(idioma=idioma()) + SISTEMA_HERRAMIENTAS, cerrar=True)
+    pasos = []
+
+    def anotar(nombre, args):
+        pasos.append(herramientas.describir(nombre, args))
+        if al_paso is not None:
+            al_paso(pasos[-1])
+    for p, r in list(historial)[-HISTORIAL:]:
+        ag.historial += [{"role": "user", "content": p}, {"role": "assistant", "content": r}]
+    t0 = time.perf_counter()
+    res = ag.preguntar(pedido, cancelado=cancelado, al_llamada=anotar)
+    if cancelado is not None and cancelado():          # «Detener»: no se guarda como respuesta
+        return Resultado(uuid.uuid4().hex[:12], pregunta.strip(), t("Detenido."), segundos=time.perf_counter() - t0,
+                         modelo=proveedor.config.modelo, usadas=usadas, pasos=pasos,
+                         propuestas=list(getattr(cliente, "propuestas", ())))
+    pedido_total = pedido + "\n" + "\n".join(cliente.salidas) + "\n" + "\n".join(getattr(cliente, "textos", ()))
+    r = _resultado(pregunta, res.texto, proveedor.config.modelo, datos, memoria, pedido_total, usadas, t0, al_texto)
+    r.pasos, r.propuestas = pasos, list(getattr(cliente, "propuestas", ()))
+    return r
+
+
+def _cancelable(pedir_modelo, cancelado):
+    """La llamada al modelo no se puede cortar: se espera en otro hilo para que «Detener» responda al momento."""
+    if cancelado is None:
+        return pedir_modelo
+
+    def pedir(mensajes, tools):
+        caja = {}
+
+        def correr():
+            try:
+                caja["r"] = pedir_modelo(mensajes, tools)
+            except Exception as e:                     # noqa: BLE001 (se relanza en quien pidió)
+                caja["e"] = e
+        hilo = threading.Thread(target=correr, name="pdfcad-ia-herramientas", daemon=True)
+        hilo.start()
+        while hilo.is_alive():
+            hilo.join(0.1)
+            if cancelado():
+                return {"content": ""}
+        if "e" in caja:
+            raise caja["e"]
+        return caja["r"]
+    return pedir
+
+
+def _resultado(pregunta, texto, modelo, datos, memoria, pedido, usadas, t0, al_texto):
+    texto = texto.strip()
     motivo = A.salida_valida(texto)
     if motivo != A.OK:
-        return _fuera(pregunta, motivo, memoria, al_texto, modelo=resp.modelo, segundos=time.perf_counter() - t0)
+        return _fuera(pregunta, motivo, memoria, al_texto, modelo=modelo, segundos=time.perf_counter() - t0)
     refs = []
     for m in _REF.finditer(texto):
         c = m.group(1).upper()
@@ -125,7 +194,7 @@ def preguntar(proveedor, pregunta, datos, memoria=None, historial=(), al_texto=N
             refs.append(c)
     res = Resultado(uuid.uuid4().hex[:12], pregunta.strip(), texto, refs,
                     no_respaldados(texto, numeros(pedido) + [len(datos.utilidades), len(datos.lineas_fichas)]),
-                    time.perf_counter() - t0, resp.modelo, usadas)
+                    time.perf_counter() - t0, modelo, usadas)
     if memoria is not None:
         memoria.agregar(M.CONVERSACIONES, id=res.id, pregunta=res.pregunta, respuesta=res.texto,
                         referencias=res.referencias, modelo=res.modelo, segundos=round(res.segundos, 2),

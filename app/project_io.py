@@ -36,6 +36,8 @@ def build_model_dict(win):
         sin_accesorio=list(getattr(win, "sin_accesorio", None) or []),
         valvulas=list(getattr(win, "valvulas", None) or []),
         perfiles=list(getattr(win, "perfiles", None) or []),
+        bitacora=list(getattr(win, "bitacora", None) or []),
+        revision=dict(getattr(win, "revision", None) or {"saltados": []}),
         conflictos_registro=(win._conf_registro.a_dict() if getattr(win, "_conf_registro", None) else None),
         georef=win.georef.to_dict(),
         sheet_layout=getattr(win, "sheet_layout", None),
@@ -126,8 +128,10 @@ def parse_model(model):
         cross_connections=list(model.get("cross_connections", []) or []),  # retrocompat: sin conexiones aprobadas
         normas_aprobados=list(model.get("normas_aprobados", []) or []),    # retrocompat: sin avisos aprobados
         sin_accesorio=list(model.get("sin_accesorio", []) or []),          # retrocompat: sin puntos sin accesorio
-        valvulas=list(model.get("valvulas", []) or []),                    # retrocompat: sin válvulas
+        valvulas=[dict(v) for v in model.get("valvulas") or () if isinstance(v, dict)],   # retrocompat: sin válvulas
         perfiles=list(model.get("perfiles", []) or []),                    # retrocompat: sin perfiles guardados
+        bitacora=list(model.get("bitacora", []) or []),                    # retrocompat: sin bitácora del Copiloto
+        revision=dict(model.get("revision") or {"saltados": []}),          # retrocompat: sin revisión guiada
         conflictos_registro=model.get("conflictos_registro"),             # números fijos de los conflictos
         normativas_activas={str(k): bool(v) for k, v in (model.get("normativas_activas") or {}).items()},
         georef=georef_mod.Georef.from_dict(model.get("georef")),  # retrocompat: sin georref → escala

@@ -153,6 +153,7 @@ OUTLINE_MIN_ASPECT = 6.0      # largo / ancho
 OUTLINE_MIN_LEN_PT = 20.0     # = WALL_MIN_LEN_PT: una barra o un guión no es una tubería
 ROLE_LINEAS = "lineas"
 ROLE_BUZONES = "buzones"
+ROLE_VALVULAS = "valvulas"     # símbolos que son válvulas (`recognition_valvulas`; no entran a la red)
 ROLE_IGNORAR = "ignorar"
 # Longitud mínima de una polilínea dibujable (pt PDF) — compatibilidad de API.
 MIN_CHAIN_LEN_PT = 8.0
@@ -264,6 +265,8 @@ class RecognitionResult:
     # Rótulos del plano con su guía (MLeader) o MText de los mapas (`recognition_anotaciones`, pedido
     # 2026-11-03): la MISMA lista de la hoja en cada utilidad; el editor la guarda y el DXF la exporta.
     anotaciones: list = field(default_factory=list)
+    # Válvulas de la hoja (`recognition_valvulas`): la misma lista en cada utilidad; px de la vista
+    valvulas: list = field(default_factory=list)
 
     @property
     def drawable(self) -> List[RecognizedPolyline]:

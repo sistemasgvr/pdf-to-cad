@@ -324,7 +324,7 @@ class DiametroIAMixin(ReplicaDiametroMixin, SenalesDiametroMixin):
             self.btn_diam_ia_preguntar.setVisible(True)
             f = self._diam_ia_ficha(i)
             clave = self._diam_ia_clave(f)
-            if self._diam_ia_auto and clave not in self._diam_ia_intentadas:
+            if self._diam_ia_auto and self._cop_revisando != i and clave not in self._diam_ia_intentadas:
                 self._diam_ia_intentadas.add(clave)
                 def revisar():
                     if (self._diam_ia_actual() == i and self._diam_ia_clave(self._diam_ia_ficha(i)) == clave
@@ -466,7 +466,36 @@ class DiametroIAMixin(ReplicaDiametroMixin, SenalesDiametroMixin):
         prov = self._diam_ia_proveedor()
         if i is None or prov is None or "cerca" not in (self.pipes[i].get("diam_plano") or {}):
             return
+        f, imagen, capturas = self._diam_ia_insumos(i, prov)
+        mem = self._ia_memoria()
+        self._diam_ia_tok += 1
+        tok = self._diam_ia_tok
+        self._diam_ia_pedido = (tok, i, self._diam_ia_clave(f))
+        self._diam_ia_etapa = _tr("Contexto y captura preparados") if imagen else _tr("Contexto preparado")
+        self._diam_ia_t0 = time.monotonic()
+        self._diam_ia_reloj.start()
+        self._diam_ia_refrescar()
+
+        def correr():
+            try:
+                parar = lambda: self._diam_ia_tok != tok  # noqa: E731
+                estado = lambda etapa: self._diam_ia_senales.etapa.emit(tok, etapa)  # noqa: E731
+                r = self._diam_ia_consultar(prov, f, imagen, capturas, i, tok, mem, parar, estado)
+            except Exception as e:                    # noqa: BLE001 (ErrorIA, red: el aviso queda como está)
+                r = RE.texto_corto(RE.armar(e, "Diámetro según la IA"))
+            self._diam_ia_senales.listo.emit(tok, r)
+        threading.Thread(target=correr, name="pdfcad-ia-diametro", daemon=True).start()
+
+    def _diam_ia_consultar(self, prov, f, imagen, capturas, i, tok, mem, parar, estado):
+        """La revisión de una línea (en un hilo): sus rótulos y, sin certeza, las zonas que ella decida mirar."""
         from ia import diametro_ia as DI, diametro_zonas as DZ
+        r = DI.sugerir(prov, f, imagen, mem, cancelado=parar, al_estado=estado, capturas=capturas)
+        if DZ.necesita(r):                            # sin certeza: ella decide dónde más mirar
+            r = DZ.revisar(prov, f, r, self._diam_ia_explorador(i, f, tok, prov), parar, estado)
+        return r
+
+    def _diam_ia_insumos(self, i, prov):
+        """(ficha, imagen, capturas) de la línea i: se arman en la ventana porque leen la hoja."""
         f = self._diam_ia_ficha(i)
         self._diam_ia_intentadas.add(self._diam_ia_clave(f))
         imagen = self._diam_ia_imagen(i, f)
@@ -484,26 +513,7 @@ class DiametroIAMixin(ReplicaDiametroMixin, SenalesDiametroMixin):
                                                               advertencias=errores_captura,modelo=prov.config.modelo)
         if len(self._diam_ia_evidencias)>8:
             self._diam_ia_evidencias.pop(next(iter(self._diam_ia_evidencias)))
-        mem = self._ia_memoria()
-        self._diam_ia_tok += 1
-        tok = self._diam_ia_tok
-        self._diam_ia_pedido = (tok, i, self._diam_ia_clave(f))
-        self._diam_ia_etapa = _tr("Contexto y captura preparados") if imagen else _tr("Contexto preparado")
-        self._diam_ia_t0 = time.monotonic()
-        self._diam_ia_reloj.start()
-        self._diam_ia_refrescar()
-
-        def correr():
-            try:
-                parar = lambda: self._diam_ia_tok != tok  # noqa: E731
-                estado = lambda etapa: self._diam_ia_senales.etapa.emit(tok, etapa)  # noqa: E731
-                r = DI.sugerir(prov, f, imagen, mem, cancelado=parar, al_estado=estado, capturas=capturas)
-                if DZ.necesita(r):                    # sin certeza: ella decide dónde más mirar
-                    r = DZ.revisar(prov, f, r, self._diam_ia_explorador(i, f, tok, prov), parar, estado)
-            except Exception as e:                    # noqa: BLE001 (ErrorIA, red: el aviso queda como está)
-                r = RE.texto_corto(RE.armar(e, "Diámetro según la IA"))
-            self._diam_ia_senales.listo.emit(tok, r)
-        threading.Thread(target=correr, name="pdfcad-ia-diametro", daemon=True).start()
+        return f, imagen, capturas
 
     def _diam_ia_imagen(self, i, f):
         """PNG (base64) de la zona de los rótulos con la línea marcada, de la hoja de TRABAJO (donde se reconoció)."""

@@ -38,6 +38,18 @@ RESUMEN_MINIMO = 250                     # último recurso
 RECORDATORIO = ("(Recordatorio de la app: no consultaste el dibujo en esta pregunta. Consulta con las herramientas "
                 "antes de responder; no repitas resultados anteriores.)")
 
+CIERRE = "Ya no puedes consultar más. Responde ahora con lo que tienes; si no hay certeza, dilo."
+
+
+class ConImagen(str):
+    """La salida de una herramienta con imágenes (PNG en base64) para que el modelo las vea."""
+
+    def __new__(cls, texto, imagenes=()):
+        o = super().__new__(cls, texto)
+        o.imagenes = list(imagenes)
+        return o
+
+
 SISTEMA = (
     "Eres el asistente de PDF-a-CAD para un dibujo de Civil 3D. Hablas con un ingeniero: responde en español, "
     "breve, en lenguaje simple.\n"
@@ -110,9 +122,11 @@ def herramientas_ollama(tools_mcp):
 
 
 class Agente:
-    def __init__(self, cliente, pedir_modelo, max_pasos=MAX_PASOS, reglas=None, normas_cat=None, proyecto=None):
+    def __init__(self, cliente, pedir_modelo, max_pasos=MAX_PASOS, reglas=None, normas_cat=None, proyecto=None,
+                 sistema=None, cerrar=False):
         """`reglas()` = separaciones de la normativa de la app; `normas_cat()` = su catálogo de normativas;
-        `proyecto()` = (pipes, pies por px) del proyecto abierto en la app, o None."""
+        `proyecto()` = (pipes, pies por px) del proyecto abierto en la app, o None; `sistema` = otras instrucciones
+        (el agente del chat del proyecto); `cerrar` = al agotar los pasos, responder sin herramientas."""
         from ia.civil3d_locales import Locales
         self.cliente = cliente
         self.pedir_modelo = pedir_modelo
@@ -121,10 +135,18 @@ class Agente:
         self.app = Locales(cliente, normas_cat=normas_cat, reglas=reglas, proyecto=proyecto)
         catalogo = cliente.herramientas()
         self._tools = herramientas_ollama(catalogo) + self.app.herramientas(catalogo)
-        self._sistema = SISTEMA + ("\n" + cliente.instrucciones if getattr(cliente, "instrucciones", "") else "")
+        self._base = sistema if sistema is not None else SISTEMA
+        self.cerrar = cerrar                            # al agotar los pasos, responder sin herramientas
 
-    def preguntar(self, texto, cancelado=None, al_paso=None) -> Resultado:
-        """`al_paso(nombre)` antes de cada herramienta (la ventana muestra «Consultando Civil 3D: …»)."""
+    @property
+    def _sistema(self):
+        """Se arma en cada paso: `cliente.instrucciones` puede traer el plan que la propia IA se escribió."""
+        extra = getattr(self.cliente, "instrucciones", "")
+        return self._base + ("\n" + extra if extra else "")
+
+    def preguntar(self, texto, cancelado=None, al_paso=None, al_llamada=None) -> Resultado:
+        """`al_paso(nombre)` antes de cada herramienta (la ventana muestra «Consultando Civil 3D: …»);
+        `al_llamada(nombre, args)` igual, con sus argumentos."""
         self.app.nuevo_turno()
         msgs = [{"role": "system", "content": self._sistema}] + self.historial[-2 * MAX_HISTORIAL:]
         msgs.append({"role": "user", "content": texto})
@@ -134,6 +156,7 @@ class Agente:
             if cancelado and cancelado():
                 res.texto = t("Detenido.")
                 break
+            msgs[0]["content"] = self._sistema
             m = self.pedir_modelo(ajustar(msgs, self._tools), self._tools)
             llamadas = m.get("tool_calls") or []
             msgs.append({"role": "assistant", "content": m.get("content") or "", "tool_calls": llamadas})
@@ -154,6 +177,8 @@ class Agente:
                 else:
                     if al_paso:
                         al_paso(nombre)
+                    if al_llamada:
+                        al_llamada(nombre, args)
                     ok, salida = self.app.llamar(nombre, args)
                 res.llamadas.append((nombre, ok))
                 if not ok and "PDFCAD_IA" in salida:
@@ -163,12 +188,20 @@ class Agente:
                         res.propuestas.append(json.loads(salida))
                     except ValueError:
                         pass
-                msgs.append({"role": "tool", "tool_name": nombre, "content": _recortar(salida)})
+                respuesta = {"role": "tool", "tool_name": nombre, "content": _recortar(salida)}
+                if getattr(salida, "imagenes", None):
+                    for x in msgs:                     # solo la última: cada imagen ocupa mucho contexto
+                        x.pop("images", None)
+                    respuesta["images"] = list(salida.imagenes)
+                msgs.append(respuesta)
             if res.sin_conexion:
                 res.texto = salida
                 break
         else:
-            res.texto = t("No terminé en {n} pasos: pregunta algo más concreto.").format(n=self.max_pasos)
+            if self.cerrar and not (cancelado and cancelado()):
+                m = self.pedir_modelo(msgs + [{"role": "user", "content": CIERRE}], [])
+                res.texto = _PENSAR.sub("", m.get("content") or "").strip()
+            res.texto = res.texto or t("No terminé en {n} pasos: pregunta algo más concreto.").format(n=self.max_pasos)
         self.historial += [{"role": "user", "content": texto}, {"role": "assistant", "content": res.texto}]
         return res
 
@@ -189,8 +222,16 @@ def pide_datos(texto):
     return bool(_PIDE_DATOS.search(texto or ""))
 
 
+IMAGEN_TOKENS = 1300                     # lo que ocupa una captura que ve el modelo (no su base64)
+
+
 def tokens(obj):
-    """Tokens aproximados de lo que se envía (por lo alto)."""
+    """Tokens aproximados de lo que se envía (por lo alto). Las imágenes (`images`, del agente del chat) no cuentan por
+    su base64 sino por `IMAGEN_TOKENS` cada una."""
+    if isinstance(obj, list) and any(isinstance(m, dict) and m.get("images") for m in obj):
+        sin = [{k: v for k, v in m.items() if k != "images"} if isinstance(m, dict) else m for m in obj]
+        n = sum(len(m.get("images") or ()) for m in obj if isinstance(m, dict))
+        return len(json.dumps(sin, ensure_ascii=False)) / CARS_POR_TOKEN + n * IMAGEN_TOKENS
     return len(json.dumps(obj, ensure_ascii=False)) / CARS_POR_TOKEN
 
 
@@ -243,7 +284,7 @@ def pedir_ollama(config):
 
     def pedir(mensajes, herramientas):
         cuerpo = {"model": config.modelo, "messages": mensajes, "tools": herramientas, "stream": False,
-                  "think": False, "options": {"temperature": config.temperatura, "num_ctx": CONTEXTO_TOKENS}}
+                  "think": False, "keep_alive": "30m", "options": {"temperature": config.temperatura, "num_ctx": CONTEXTO_TOKENS}}
         with prov._pedir("/api/chat", cuerpo) as r:
             datos = json.loads(r.read().decode("utf-8"))
         if "message" not in datos:

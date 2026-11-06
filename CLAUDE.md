@@ -709,6 +709,26 @@ alcantarillado, drenaje, gas, eléctrico, telecom). Todo en **unidades imperiale
     (HEAD → nuevo): agua mismas tuberías + acometidas (South h.4: 151 + 404, 0 a >1 pt de la tinta al importar);
     Water North h.1/4/10 de 0 líneas a 145/143/106 (la leyenda ya se lee); alcantarillado mismas líneas, buzones
     sin línea 33→4, 37→4. Tests: `tests/test_mapas_leyenda.py`.
+  - **Paneles del asistente sin amontonar** (reporte 2026-11-04, «Capas de la hoja» sin capas: Utilidad y Rol encimados): Qt no cuenta el alto de un texto partido en líneas, así que un panel sin desplazamiento aplasta sus controles aunque la ventana tenga mínimo. El panel de `SheetLayersDialog` y el de `OrganizedLayersDialog` van en `NaturalHeightScroll` y su lista con alto mínimo (`ARBOL_MIN_PX`); en hoja sin capas, «Reconocer» solo lista las utilidades con estilo. `tests/test_asistente_sin_amontonar.py` abre los pasos a tamaños reales con el tema de verdad y falla si dos hermanos de un layout se pisan o un control queda más bajo de lo que necesita: un panel nuevo del asistente se suma ahí.
+  - **Copiloto del proyecto, Bloque 1** (2026-11-04, `docs/superpowers/specs/2026-11-04-copiloto-bloque1-design.md`): en el
+    Chat del Asistente. `ia/copiloto_intencion` (frase → estado/revision/conflictos, sin modelo; `enviar` pregunta ANTES de
+    exigir proveedor), `nucleo/copiloto_estado`, `nucleo/copiloto_cola.clasificar` (SEGURO lo mide la app: continuidad
+    «alta» o tipo único; PROPUESTA: rótulos elegibles o continuidad; DECISION: lo demás y toda normativa),
+    `nucleo/bitacora` (`Main.bitacora`: .digproj, `respaldo_editor.CLAVES`, FUERA del deshacer; `_snap_state` guarda
+    `bitacora_vigentes` y `_restore` marca `deshecha`), `ui/ventana/ventana_copiloto.py` + `ventana_copiloto_conflictos.py`,
+    `ui/dialogos/ia_chat_copiloto.py` + `_html` (enlaces `cop:`, `tu["cop"]`, `tu["sistema"]` = sin burbuja de pregunta).
+    Toda tanda o decisión compara `_firma_modelo` y `_cop_sesion` (sube en `_ia_soltar`): si cambió, no aplica (los índices
+    pueden ser de otra utilidad) y se reclasifica. `_cop_revisando` apaga la consulta automática del inspector. Preguntas
+    libres: `consulta.preguntar(agente=)` reutiliza `civil3d_agente.Agente` con `ia/herramientas.ClienteProyecto` (solo
+    lectura, 8 pasos) si el modelo tiene `tools`. Tests: `tests/test_copiloto_*.py`.
+  - **El chat como agente** (2026-11-04): `consulta.preguntar(cliente=)` con `ui/ventana/ventana_agente.ClienteVentana`
+    (`ver_plano` con la línea en magenta, `listar_zonas`/`ver_zona`, `senalar`, `ir_a`, `buscar_funcion`/`usar_funcion`,
+    `proponer_diametro`, `proponer_accion`) sobre `ia/herramientas.ClienteProyecto` (`definir_plan`: el plan que se escribe entra en
+    su sistema en cada paso). `civil3d_agente.ConImagen` lleva la captura al modelo (solo la última queda en el contexto);
+    `cerrar=True` da una última vuelta sin herramientas. OJO: lo que toca PyMuPDF o Qt va por `ClienteVentana._en_ventana`, y la
+    señal debe conectarse a un método de `Main` y crearse en su hilo (con una función suelta Qt lo corre en el hilo de la IA).
+    Las propuestas salen en `Resultado.propuestas` → `_cop_tras_agente`. Nunca borrar ni mover (`ACCIONES`). Tests:
+    `tests/test_copiloto_agente.py`.
   - **Reporte DU06 h.4 (2026-09-29, cuatro casos, TODAS las utilidades)**:
     `recognition_dupink.py` (PURO) — la MISMA línea dibujada dos veces en la misma capa
     con el linetype desfasado (banco de ductos `N-COMM-DUCT-BANK-PL`: dos entidades
@@ -1773,6 +1793,7 @@ alcantarillado, drenaje, gas, eléctrico, telecom). Todo en **unidades imperiale
     con la relación pies/largo sacada de las líneas ya leídas, no de la escala de la hoja. `leer_hoja` de anotaciones NO
     sirve aquí (577 «multileaders» falsos: toda raya cerca de un texto). Los mapas con leyenda no cambian. Southwest 37
     (red `#008585` + servicios `#FF6921`): 487 de 545 leídas, 636 rótulos. Tests: `tests/test_grosor_registros.py`.
+  - **Válvulas** (pedido 2026-11-05, spec `docs/superpowers/specs/2026-11-05-valvulas-design.md`): `reconocimiento/recognition_valvulas.py` (PURO) lee al final de `reconocer_hoja`, sin tocar las líneas: capas `V-*-VALV`/`-GV-`, símbolos de la leyenda (`_FILA`; tipo y estado por el texto), moño sobre una línea en hojas sin capas ni leyenda (`es_mono`, «por confirmar») y rol `ROLE_VALVULAS`. El tipo sale solo de un texto del plano, nunca de la forma (DU06 usa un moño, LADWP un punto). `hoja/simbolos_fuente.py`: glifos ESRI como capas virtuales asignables (sin leyenda). `Main.valvulas` (`nucleo/valvulas`, `ventana_valvulas`, `ui/comun/capa_valvulas`): aparte de las estructuras; .digproj, deshacer, `respaldo_editor.CLAVES`; capa `valvulas.CAPA` en `capas_apagadas`. Tubería, rumbo y diámetro se calculan al pedirlos (`relacion`), no se guardan: su utilidad a ≤`UNIR_PT`=5 pt; sin utilidad, y para aceptar un moño, ≤`EN_LINEA_PT`=1.5 pt. DXF: `exportar/dxf_valvulas`. Tests: `tests/test_valvulas.py`.
   - **Rótulos del plano / multileaders** (pedido 2026-11-03): `reconocimiento/recognition_anotaciones.py` (PURO) lee TODO
     bloque MText del que sale una guía (mismas `Guias`, bloques y marcos girados del grosor; no solo los de diámetro) →
     dicts {tipo multileader|mtext, texto, caja, tam, angulo, guias, puntas, estado leido|ilegible, utilidad, diam_in,
@@ -2425,6 +2446,17 @@ alcantarillado, drenaje, gas, eléctrico, telecom). Todo en **unidades imperiale
     red, utilidades; válvula: unión, material, pieza, largo, quitar; codo/Tee/Wye/cruz: «Poner este accesorio» =
     `marcar_sin_accesorio`). La lista conserva la selección por `Fila.lugar()` (sin el texto). Tests:
     `tests/test_dibujar_accesorios.py`.
+    **Válvulas: UN SOLO MODELO** (unión con dev_santos_v2, 2026-11-06, decisión del usuario): las del usuario y las
+    reconocidas del PDF (`recognition_valvulas`) viven en `Main.valvulas` con los mismos campos (`nucleo/valvulas`
+    docstring: x, y, union, material + utilidad, tipo —"" = compuerta—, estado, origen, certeza, capa_pdf, x_pdf/y_pdf).
+    Al importar, `ventana_valvulas._guardar_valvulas` las pega a su tubería (`valvulas.pegar`, ≤ `tol_pt`) y las junta
+    sin repetir. Se dibujan con la pieza real (`valvula_item`, `hueca` = «por confirmar»); la que no cabe en su tramo
+    recto queda «por revisar» en rojo (menú: «Correr al lugar libre más cercano», `correr_valvula`). Van al DXF, a la
+    Vista 3D y al perfil solo las `valvulas.exportable` (caben y no «por confirmar»): un único `PDFCAD_VALVULA` con las
+    claves de antes + TIPO, UTILIDAD, ESTADO, ORIGEN (el `dxf_valvulas.py` y `capa_valvulas.py` de Santos se quitaron).
+    Capa «VALVULAS» de «Capas ▾» (`valvulas.CAPA`, `_sync_capa_valvulas`), Tabla de datos (`_filas_valvulas`), menú con
+    Tipo/Unión/Material/Confirmar/Quitar. `valvulas.nueva(x, y, …)` = la de Santos con todos los campos; `de_lugar(lug)` =
+    la del usuario. Pendiente: la FORMA de cada tipo (hoy todas son compuerta) en `valvula_receta`, `valvulas3d` y el plugin.
     **Válvulas en agua y gas** (2026-11-04): `nucleo/valvulas.py` (PURO; catálogo = `ValvulaLogica.cs` del plugin de
     válvulas del equipo, 3"–54", RG ≤16", ≥18" FLG_GEAR) + `ui/ventana/ventana_valvulas.ValvulasMixin` (modo `insert_valv`,
     Dibujar → «Válvula», pista verde, clic derecho unión/material/quitar) + `ui/comun/valvula_item.py` (moño real + mínimo

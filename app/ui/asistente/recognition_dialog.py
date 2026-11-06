@@ -27,7 +27,7 @@ from reconocimiento import recognition_quiebres
 from ui.asistente.recognition_summary_view import SummaryPanel, separator, utility_swatch
 from ui.asistente.recognition_review_view import ReviewPanel
 from ui.asistente.recognition_layers_view import UsedLayersPanel
-from ui.asistente.recognition_preview_draw import (DIM_OPACITY, _display_runs, _draw_fillet, _draw_orphan,
+from ui.asistente.recognition_preview_draw import (DIM_OPACITY, _display_runs, _draw_fillet, _draw_orphan, _draw_valvula,
                                       _draw_poly, _draw_vault, _draw_vault_outline,
                                       draw_line_halo, draw_vault_halo, vault_points)
 from ui.comun import theme as _theme
@@ -411,6 +411,10 @@ class RecognitionPreviewDialog(NoEscapeClose, QtWidgets.QDialog):
         self.lbl_scale.setStyleSheet(f"color:{t.text_muted};")
         self.lbl_scale.setToolTip(_tr("Escala {s:.6f} pie/pt").format(s=scale))
         head.addWidget(self.lbl_scale, 0, QtCore.Qt.AlignVCenter)
+        if self._valvulas_vista():
+            self.lbl_valvulas = QtWidgets.QLabel(_tr("Válvulas: {n}").format(n=len(self._valvulas_vista())))
+            self.lbl_valvulas.setStyleSheet(f"color:{t.text_muted};")
+            head.addWidget(self.lbl_valvulas, 0, QtCore.Qt.AlignVCenter)
         panel.addLayout(head)
         sub = QtWidgets.QHBoxLayout(); sub.setSpacing(6)
         if len(utilities) == 1:            # con varias, el color de cada una está en sus barras
@@ -581,6 +585,12 @@ class RecognitionPreviewDialog(NoEscapeClose, QtWidgets.QDialog):
                               if getattr(self, "_zoom", None) else {})
         return self._quiebres
 
+    def _valvulas_vista(self):
+        """Las válvulas de la hoja (la misma lista en cada resultado), si se pidieron en «Capas de la hoja»."""
+        if not getattr(self.parent(), "_reconocer_valvulas", True):
+            return []
+        return next((r.valvulas for r in self._results if getattr(r, "valvulas", None)), [])
+
     def _redraw_overlay(self):
         sc = self.view.scene()
         keep = (self._pixmap_item, self.opacity.backdrop)     # el PDF y su fondo (Opacidad)
@@ -634,6 +644,8 @@ class RecognitionPreviewDialog(NoEscapeClose, QtWidgets.QDialog):
                         draw_vault_halo(sc, vg, color)
             for (vx, vy) in (getattr(result, "vault_orphans_px", None) or []):
                 put(_draw_orphan(sc, vx, vy, z=6), self._hit(u, "qa"))
+        for v in self._valvulas_vista():
+            _draw_valvula(sc, v["x"], v["y"], self._colors.get(v.get("utilidad")), v.get("certeza") == "por_confirmar")
         for it in dim:
             it.setOpacity(DIM_OPACITY)
         for rect in getattr(self, "_reviewed", []):

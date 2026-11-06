@@ -28,7 +28,7 @@ class SeleccionAccesorioMixin:
         r = RADIO_CLIC_PX / max(self.canvas.transform().m11(), 1e-6)
         apagadas = getattr(self, "capas_apagadas", None) or ()
         lugares = getattr(self, "_valv_lugares", None)
-        k = _V.en(getattr(self, "valvulas", None), lugares, x, y, r)
+        k = self._valvula_en(x, y)                      # (con la capa «VALVULAS» apagada, −1)
         if k >= 0:
             lug = lugares[k] if lugares and k < len(lugares) else None
             if lug is None or not lug.ok or self.pipes[lug.pipe].get("layer") not in apagadas:

@@ -427,6 +427,11 @@ editor</span> leaves it as the background to draw by hand.</p>
     or reducer between them, it proposes that same diameter and tells you which line it comes from and how
     far (a pipe does not change diameter in the middle of a run). If both sides agree the proposal is firm;
     if they differ, it gives you both options. A branch is never proposed larger than its main.</li>
+<li><b>Valves:</b> they are recognized along with the lines and go on their own layer («Layers» in the top bar). In a
+    PDF with layers they come from the valve layers; in a map with a legend, from its symbols, with the type and state it
+    states; in a plan with no layers or legend, from the bowtie symbol on a line, hollow and <i>to confirm</i>. If nothing
+    explains the symbols, pick one in «Sheet layers» and give it the <b>Valves</b> role. Right-click a valve to confirm or
+    delete it. They take the diameter of their pipe and appear in the Data table and the DXF.</li>
 <li><b>Plan labels (multileaders):</b> when recognizing, the app reads <b>every</b> label that reaches a
     line with its leader (arrow), whatever it says («EX 8" VCP SEWER», «JOIN EX. 84" RCP SD / STA
     549+55.37», «CB-208»…), rotated ones too; in maps without layers, the label of each pipe. They are
@@ -1245,6 +1250,31 @@ references. Geometric contact does not confirm a hydraulic connection.</p>
     manually.</li>
 <li>If the sheet was recognized with an earlier version, the card asks you to recognize it again.</li>
 </ul>
+<h2>Project Copilot</h2>
+<p>Above the Chat text box there are three buttons. It also understands sentences like “tell me how many warnings I have and let's
+start fixing them”. They work even if the AI is not set up, except for the diameter suggestions.</p>
+<ul>
+<li><b>How are we doing?</b> What is left before exporting: conflicts, diameters, types and other warnings, with a link to start.</li>
+<li><b>Review warnings.</b> First what the app measures (network continuity, only possible type): you apply it in a batch.
+Then, one line at a time, what the AI suggests: <i>Approve</i>, <i>Another value</i>, <i>Skip</i> or <i>Pause</i>; while you decide it
+already reviews the next one. Finally, in groups, what you decide: approve with a note or open the case. A standards warning is
+never fixed on its own.</li>
+<li><b>Resolve conflicts.</b> It tests the solutions and lists them unchecked, because they change elevations of existing networks.
+Check the ones you want or use <i>Check all the clean ones</i>. Before applying each one it tests it again on what already changed.</li>
+</ul>
+<p>Nothing changes without your confirmation. One Ctrl+Z undoes each batch, and if the project changed after it was shown, it is
+not applied. <b>See the log</b> shows what changed, why, who approved it and when; it stays in the project.</p>
+
+<h2>The chat as an agent</h2>
+<p>With a model that uses tools, the chat investigates on its own. Ask it “review the diameter of GAS-38”: it decides what to search
+for, asks for plan captures with that line in magenta, changes the zoom, checks the title block, legend, notes and other sheets, and
+compares with the PDF text. Below its answer you see what it did. For long requests it writes its own plan.</p>
+<p>It also uses the app: “mark the water lines with no diameter” marks them on the plan; “this” is whatever you have selected. It finds
+functions by what they do: it uses the viewing ones and asks you about the rest.</p>
+<p>It never applies anything: it suggests with the capture and the evidence, and says whether it read it in the PDF text or only in the
+image. It cannot suggest deleting or moving. After <b>Review warnings</b> it can investigate the lines with no data, one after another;
+<i>Stop</i> ends it. Each capture takes 10 to 50 s.</p>
+
 <h2>Ask the project</h2>
 <p><b>Assistant → Ask the project…</b> (<span class="key">&nbsp;Ctrl+Shift+I&nbsp;</span>, or the chat button on the top
 bar) opens a chat. Ask, for example, «how many conflicts are there and where are they?», «what happens at C-12?»

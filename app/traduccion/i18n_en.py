@@ -255,7 +255,6 @@ EN: dict[str, str] = {
     "Rehacer": "Redo",
     "Eliminar": "Delete",
     "Duplicar": "Duplicate",
-    "Editar": "Edit",
 
     # ── Toolbar y acciones principales ─────────────────────────────────
     "Acercar": "Zoom in",
@@ -265,7 +264,6 @@ EN: dict[str, str] = {
     "Borrar zona": "Erase zone",
 
     # ── Docks / paneles ────────────────────────────────────────────────
-    "Herramientas": "Tools",
     "Inventario": "Inventory",
     "Propiedades de la utilidad": "Utility properties",
     "Utilidades": "Utilities",
@@ -279,8 +277,6 @@ EN: dict[str, str] = {
 
     # ── Bancoductos: pestaña de inventario ─────────────────────────────
     "+ Nuevo": "+ New",
-    "Editar": "Edit",
-    "Duplicar": "Duplicate",
     "Crear un bancoducto nuevo desde cero.": "Create a new duct bank from scratch.",
     "Editar el bancoducto seleccionado.\nTambién doble-click sobre la fila.":
         "Edit the selected duct bank.\nAlso double-click on the row.",
@@ -302,8 +298,6 @@ EN: dict[str, str] = {
     "Conducto\n(Círculo)": "Conduit\n(Circle)",
     "Zoom +": "Zoom +",
     "Zoom −": "Zoom −",
-    "Acercar": "Zoom in",
-    "Alejar": "Zoom out",
     "Centrar la vista sobre la envolvente": "Center the view on the envelope",
     "Identificación": "Identification",
     "Nombre:": "Name:",
@@ -357,7 +351,6 @@ EN: dict[str, str] = {
     "Reglas activas: {rules}": "Active rules: {rules}",
 
     # ── Propiedades de utilidad ────────────────────────────────────────
-    "Nombre:": "Name:",
     "Tipo de red:": "Network type:",
     "Automático (según la capa)": "Automatic (per layer)",
     "Con buzones (pipe)": "With manholes (pipe)",
@@ -370,7 +363,6 @@ EN: dict[str, str] = {
     "Proyecto cerrado.": "Project closed.",
     "Confirmar eliminación": "Confirm deletion",
     "Aceptar": "OK",
-    "Cancelar": "Cancel",
     "Error": "Error",
     "Duct banks guardados: 0": "Duct banks saved: 0",
 
@@ -504,7 +496,6 @@ EN: dict[str, str] = {
     "<i>El Leader es solo flecha, sin texto.</i>":
         "<i>The Leader is just an arrow, no text.</i>",
     "Texto libre": "Free text",
-    "Borrar zona": "Erase zone",
     "<i>Clic para agregar vértices, Enter cierra. "
     "Al exportar borra el plano dentro del polígono.</i>":
         "<i>Click to add vertices, Enter closes. "
@@ -518,7 +509,6 @@ EN: dict[str, str] = {
     "Elev. de rasante inicial (ft):": "Start grade elev. (ft):",
     "Elev. de rasante final (ft):":   "End grade elev. (ft):",
     "Familia (catálogo):": "Family (catalog):",
-    "Tamaño (catálogo):":  "Size (catalog):",
 
     # ── Barra de estado ────────────────────────────────────────────────
     "Modo: inactivo": "Mode: idle",
@@ -546,11 +536,7 @@ EN: dict[str, str] = {
         "Hidden — not drawn or created in Civil3D as a real manhole.",
 
     # ── Toolbox: botones de acción de cada sección ────────────────────
-    "Dibujar utilidad": "Draw utility",
     "Colocar Leader": "Place Leader",
-    "Texto libre": "Free text",
-    "Borrar zona": "Erase zone",
-    "Trazar centerline": "Draw centerline",
     "Abrir diseñador de Duct Bank": "Open Duct Bank Designer",
     "Abandonado": "Abandoned",
     "Marca la utilidad como abandonada: se dibuja con "
@@ -636,8 +622,6 @@ EN: dict[str, str] = {
     "Zona cancelada": "Zone canceled",
     "Arrastra para mover · clic en vértice extiende (F) · clic derecho elimina":
         "Drag to move · click on vertex extends (F) · right-click deletes",
-    "Deshacer": "Undo",
-    "Rehacer": "Redo",
 
     # ── Diálogos QMessageBox comunes ───────────────────────────────────
     "Nada": "Nothing",
@@ -685,7 +669,6 @@ EN: dict[str, str] = {
     "quitada": "removed",
     "corregida": "fixed",
     "cambiada": "changed",
-    "Manual de usuario": "User manual",
     "Quitar la selección; si no hay, salir del modo":
         "Clear selection; if none, exit mode",
     "Doble clic": "Double click",
@@ -694,7 +677,6 @@ EN: dict[str, str] = {
     "Rueda": "Wheel",
     "Zoom · Botón central + arrastrar: desplazar":
         "Zoom · Middle button + drag: pan",
-    "Atajos de teclado": "Keyboard shortcuts",
 
     # ── Ventanas de la app (títulos) ──────────────────────────────────
     "Al extender un extremo de una utilidad existente, los puntos nuevos "
@@ -703,7 +685,6 @@ EN: dict[str, str] = {
         "added to THAT same utility instead of creating a new one.",
 
     # ── Escala / status bar / textos comunes ───────────────────────────
-    "Escala": "Scale",
     "Escala —": "Scale —",
     "Opacidad": "Opacity",
     "Abre o arrastra un PDF/proyecto.": "Open or drag a PDF/project.",
@@ -743,9 +724,6 @@ EN: dict[str, str] = {
     "Inf. Izq.": "Bottom Left",
     "Inf. Der.": "Bottom Right",
     "vértices": "vertices",
-    "Conductos": "Conduits",
-    "Conductos: 0": "Conduits: 0",
-    "Nuevo": "New",
     "¿Descartar el diseño actual y empezar uno nuevo?":
         "Discard current design and start a new one?",
     "Error al abrir": "Error opening",
@@ -783,17 +761,6 @@ EN: dict[str, str] = {
         "Not assigned — the duct bank will not be exported.",
 
     # ── Hints, tooltips y strings dinámicos del diseñador ─────────────
-    "Ej. Duct Bank A – Telecom": "Ex. Duct Bank A – Telecom",
-    "Etiqueta (opcional)": "Label (optional)",
-    "Nivel de zoom actual.\n"
-    "Usa los botones Zoom +/- de la toolbar\n"
-    "o la rueda del ratón.":
-        "Current zoom level.\n"
-        "Use the Zoom +/- buttons on the toolbar\n"
-        "or the mouse wheel.",
-    "Cerrar sin guardar cambios.": "Close without saving changes.",
-    "Guardar el bancoducto en el proyecto y cerrar el diseñador.":
-        "Save the duct bank in the project and close the designer.",
     "Activa las reglas de diseño personalizables abajo.\n\n"
     "Cuando está DESACTIVADO, el diseño puede colocar conductos sin\n"
     "respetar ninguna separación ni resguardo (los chequeos geométricos\n"
@@ -818,24 +785,8 @@ EN: dict[str, str] = {
         "(concrete prism) in addition to the internal conduits.\n\n"
         "Disable if the container already exists in the DWG or if you\n"
         "only need the conduits as pipes.",
-    "Se dibujará el sólido 3D del contenedor + los conductos internos.":
-        "The 3D container solid + internal conduits will be drawn.",
-    "Solo se dibujarán los conductos internos. El sólido 3D del contenedor NO se creará.":
-        "Only internal conduits will be drawn. The 3D container solid will NOT be created.",
-    "Solo se dibujarán los conductos internos. El sólido 3D del "
-    "contenedor NO se creará.":
-        "Only internal conduits will be drawn. The 3D container "
-        "solid will NOT be created.",
-    "Reglas custom desactivadas. Los chequeos geométricos básicos "
-    "(dentro de envolvente, sin colisión) siguen activos.":
-        "Custom rules disabled. Basic geometric checks "
-        "(inside envelope, no collision) still apply.",
     "sep.": "sep.",
     "borde": "edge",
-    "Sin valores puestos — configura arriba para que apliquen.":
-        "No values set — configure above so they apply.",
-    "Regla activa: {rules}": "Active rule: {rules}",
-    "Reglas activas: {rules}": "Active rules: {rules}",
     "Cuando está activado, los clics del ratón se pegan (imán) al retículo\n"
     "de 0.25 pulgadas del fondo del lienzo. Sirve para colocar conductos\n"
     "y medir con precisión ⅟₄ pulgada.\n\n"
@@ -858,8 +809,6 @@ EN: dict[str, str] = {
         "Click on a conduit to select it. Drag it to move it.",
     'Click dentro de la envolvente para colocar un conducto de {d}".':
         'Click inside the envelope to place a {d}" conduit.',
-    "Centrar la vista sobre la envolvente":
-        "Center the view on the envelope",
 
     # ── Toolbox / secciones (dock izquierdo) ───────────────────────────
     "Duct Bank": "Duct Bank",
@@ -1049,6 +998,8 @@ EN: dict[str, str] = {
         "Click a PDF line to identify and highlight its layer. Checkbox = show · switch = recognize · ▸ = layer by layer",
     "Clic en una capa para resaltarla y asignar su utilidad y rol abajo. También puedes pulsar una línea del PDF para seleccionar su estilo. Las casillas excluyen estilos del reconocimiento; el PDF conserva su imagen. Calibra la escala antes de importar.":
         "Click a layer to highlight it and assign its utility and role below. You can also click a PDF line to select its style. The checkboxes exclude styles from recognition; the PDF keeps its image. Calibrate the scale before importing.",
+    "Elige una capa o pulsa una línea del PDF para asignarle utilidad y rol.":
+        "Choose a layer or click a PDF line to assign its utility and role.",
     "Lectura de capas interrumpida": "Layer reading interrupted",
     "No se pudo leer la leyenda del PDF. Puedes reintentar o continuar revisando las capas.":
         "The PDF legend could not be read. You can retry or continue reviewing the layers.",
@@ -3152,7 +3103,6 @@ EN: dict[str, str] = {
     'Conflicto anterior (Mayús+N)': 'Previous conflict (Shift+N)',
     'Siguiente conflicto (N)': 'Next conflict (N)',
     'Resolver': 'Resolve',
-    'Aplicar': 'Apply',
     'En ese punto no va accesorio: deja de marcarse y Civil 3D no lo dibuja': 'No fitting goes at that point: it is no longer flagged and Civil 3D does not draw it',
     '{c}: sin accesorio en ese punto (Ctrl+Z para deshacer).': '{c}: no fitting at that point (Ctrl+Z to undo).',
     'Sin accesorio en ese punto (Ctrl+Z para deshacer).': 'No fitting at that point (Ctrl+Z to undo).',
@@ -3193,9 +3143,6 @@ EN: dict[str, str] = {
     'Normativas importadas: {t} tipos y {r} reglas.': 'Standards imported: {t} types and {r} rules.',
     'Todas las utilidades': 'All utilities',
     'Doble clic en una celda para cambiarla. Pasa el mouse por el título de cada columna para ver qué va ahí, y por una fila para leerla como frase.': 'Double-click a cell to change it. Hover over each column title to see what goes there, and over a row to read it as a sentence.',
-    'Largo': 'Length',
-    'Buzones': 'Manholes',
-    'Error': 'Error',
     'o': 'or',
     'Armando la Tabla de datos…': 'Building the Data table…',
     'Exportando a Excel…': 'Exporting to Excel…',
@@ -3559,8 +3506,6 @@ EN: dict[str, str] = {
     # ── hojas sin capas: capas por estilo, escala (2026-10-10) ──
     'Asigna un estilo a {u} en «Capas del plano» para reconocerla.':
         'Assign a style to {u} in «Plan layers» to recognize it.',
-    'Automática':
-        'Automatic',
     'Buzones donde terminan las tuberías del mapa (capa por estilo): {n} — cada tubería va de buzón a buzón.':
         "Manholes where the map's pipes end (style layer): {n} — each pipe runs from manhole to manhole.",
     'Calibra la escala con una distancia conocida: un PDF reducido puede no coincidir con la escala del rótulo.':
@@ -3601,8 +3546,6 @@ EN: dict[str, str] = {
         'Assigned by their name or by your choices in «Sheet layers». «Adjust layers…» lets you change them.',
     'Selecciona una capa para asignar su utilidad.':
         'Select a layer to assign its utility.',
-    'Utilidad':
-        'Utility',
     'Aprobado:':
         'Approved:',
     'Aprobado':
@@ -4191,7 +4134,6 @@ EN: dict[str, str] = {
     '{u} está en la app pero no en Civil 3D (¿se borró allá o no se importó?).': '{u} is in the app but not in Civil 3D (deleted there, or not imported?).',
     'El dibujo de Civil 3D coincide con el proyecto de la app (diámetros, materiales, rasantes y largos).': 'The Civil 3D drawing matches the app project (diameters, materials, inverts and lengths).',
     'Para no perder lo cambiado en Civil 3D: traer_a_la_app con los ids D# (o «todas»).': 'To keep what was changed in Civil 3D: traer_a_la_app with the ids D# (or «todas»).',
-    'y {n} más': 'and {n} more',
     'proyecto de la app': 'app project',
     'como en Civil 3D': 'as in Civil 3D',
     'Tuberías': 'Pipes',
@@ -4324,6 +4266,14 @@ EN: dict[str, str] = {
     'También quedó guardado en el registro: {r}': 'It was also saved in the log: {r}',
     '(resultado viejo resumido para que quepa en la memoria del modelo)': "(old result summarized so it fits in the model's memory)",
     'Solo planta: las cotas (rasantes) se comparan con comparar_con_app.': 'Plan view only: elevations (inverts) are compared with comparar_con_app.',
+    'Válvula por revisar: {m}': 'Valve to review: {m}',
+    'Válvula de {t}': '{t} valve',
+    'del plano': 'from the plan',
+    'Correr al lugar libre más cercano': 'Move to the nearest free spot',
+    'Válvula corrida {d} ft al lugar libre de su tramo recto.': 'Valve moved {d} ft to the free spot of its straight segment.',
+    'Válvula de {tp} {d}" · {b} · {m} · largo {L} ft': '{tp} valve {d}" · {b} · {m} · length {L} ft',
+    'Reconocida del plano, por confirmar: no va a Civil 3D hasta confirmarla (clic derecho).': 'Recognized from the plan, to confirm: it does not go to Civil 3D until you confirm it (right click).',
+    'Estado: {e}': 'Status: {e}',
     'La revisión de normativas no está disponible aquí.': 'The standards check is not available here.',
     'Esa herramienta no está disponible.': 'That tool is not available.',
     'La app no tiene normativas cargadas.': 'The app has no standards loaded.',
@@ -5101,8 +5051,6 @@ EN: dict[str, str] = {
         'It shifts to fit on the straight segment.',
     'Válvula de {d}" puesta. Clic derecho sobre ella para cambiar la unión o quitarla.':
         '{d}" valve placed. Right-click it to change the joint or remove it.',
-    'Válvula fuera de lugar: {m}':
-        'Misplaced valve: {m}',
     'Válvula':
         'Valve',
     'Unión con bridas (FLG)':
@@ -5115,8 +5063,6 @@ EN: dict[str, str] = {
         'Remove the valve',
     'Válvula quitada (Ctrl+Z para deshacer).':
         'Valve removed (Ctrl+Z to undo).',
-    'Válvula de compuerta {d}" · {b} · {m} · largo {L} ft':
-        'Gate valve {d}" · {b} · {m} · length {L} ft',
     'Válvula: hace falta una tubería de agua o gas (las válvulas van en redes a presión).':
         'Valve: a water or gas pipe is needed (valves go on pressure networks).',
     'Válvula de compuerta {d}"':
@@ -5167,4 +5113,314 @@ EN: dict[str, str] = {
         'prepare a solution',
     'Rasantes (ft)':
         'Inverts (ft)',
+    '¿Cómo vamos?':
+        'How are we doing?',
+    'Revisar avisos':
+        'Review warnings',
+    'Todo listo para exportar: no queda nada pendiente.':
+        'Ready to export: nothing is pending.',
+    '{n} pendiente(s)':
+        '{n} pending',
+    'Esto falta para exportar:':
+        'Still needed before exporting:',
+    'Toca un grupo para empezar a revisarlo.':
+        'Tap a group to start reviewing it.',
+    'Clasificando los avisos…':
+        'Sorting the warnings…',
+    'Clasificando los avisos: {k} de {n}':
+        'Sorting the warnings: {k} of {n}',
+    'No pude clasificar los avisos: {e}':
+        'I could not sort the warnings: {e}',
+    'Avisos clasificados.':
+        'Warnings sorted.',
+    'El proyecto cambió: vuelve a pedir la revisión.':
+        'The project changed: ask for the review again.',
+    'No se pudo aplicar: {e}':
+        'Could not apply: {e}',
+    'Hecho: {n} utilidad(es). Se deshace con un Ctrl+Z.':
+        'Done: {n} utility(ies). One Ctrl+Z undoes it.',
+    'No apliqué nada de esta tanda.':
+        'I applied nothing from this batch.',
+    'Tanda segura: {n} utilidad(es)':
+        'Safe batch: {n} utility(ies)',
+    'Único tipo posible en las normativas':
+        'Only possible type in the standards',
+    'Estos {n} datos los mide la app:':
+        'The app measured these {n} values:',
+    'Aplicar las marcadas ({n})':
+        'Apply the checked ones ({n})',
+    'Ahora no':
+        'Not now',
+    'Vuelve a reconocer la hoja para que la IA pueda revisar esta línea.':
+        'Recognize the sheet again so the AI can review this line.',
+    'Esta línea ya no está.':
+        'This line is gone.',
+    'Lo indicó el usuario':
+        'Stated by the user',
+    '{c}: diámetro {d}':
+        '{c}: diameter {d}',
+    'La IA no respondió.':
+        'The AI did not respond.',
+    'Sin certeza: queda para tu decisión.':
+        'Not certain: left for your decision.',
+    'Esta línea cambió: la dejo aquí.':
+        'This line changed: I am leaving it here.',
+    'La familia de esta utilidad no tiene ese tamaño: elige otro valor.':
+        "This utility's family does not have that size: choose another value.",
+    'La dejé para después.':
+        'I left it for later.',
+    'Hecho. Ctrl+Z lo deshace.':
+        'Done. Ctrl+Z undoes it.',
+    'Otro diámetro':
+        'Another diameter',
+    'Revisión en pausa: «Revisar avisos» la retoma.':
+        'Review paused: “Review warnings” resumes it.',
+    'Revisando esta línea…':
+        'Reviewing this line…',
+    'te propongo {d}':
+        'I suggest {d}',
+    'Aprobar':
+        'Approve',
+    'Otro valor':
+        'Another value',
+    'Saltar':
+        'Skip',
+    'Pausar':
+        'Pause',
+    'Quedan {n} línea(s) por revisar.':
+        '{n} line(s) left to review.',
+    '{n} aviso(s) aprobado(s)':
+        '{n} warning(s) approved',
+    'Aprobar estos avisos':
+        'Approve these warnings',
+    '¿Por qué se aprueban? Queda en la bitácora y en el proyecto.':
+        'Why are they approved? It stays in the log and in the project.',
+    '({n} casos)':
+        '({n} cases)',
+    'Aprobar con nota':
+        'Approve with a note',
+    'Ver el primero':
+        'See the first one',
+    'Esto lo decides tú:':
+        'These are your call:',
+    'Terminé la revisión.':
+        'I finished the review.',
+    'Dejaste {n} para después:':
+        'You left {n} for later:',
+    'volver a verlos':
+        'see them again',
+    'Lo causa un accesorio: solo tú sabes si existe.':
+        'An accessory causes it: only you know whether it exists.',
+    'Sin una solución automática limpia.':
+        'No clean automatic solution.',
+    'Ya se resolvió con otra de esta tanda.':
+        'Already solved by another one in this batch.',
+    'Dejó de quedar limpia tras los cambios anteriores.':
+        'No longer clean after the previous changes.',
+    '{n} conflicto(s) resuelto(s)':
+        '{n} conflict(s) resolved',
+    'La app lo probó: queda limpio.':
+        'The app tested it: it stays clean.',
+    'Probando las soluciones…':
+        'Testing the solutions…',
+    'Probando las soluciones: {k} de {n}':
+        'Testing the solutions: {k} of {n}',
+    'No pude probar las soluciones: {e}':
+        'I could not test the solutions: {e}',
+    'Soluciones probadas.':
+        'Solutions tested.',
+    'El proyecto cambió: vuelve a pedir la prueba.':
+        'The project changed: ask for the test again.',
+    'Apliqué {n}. Se deshace con un Ctrl+Z.':
+        'I applied {n}. One Ctrl+Z undoes it.',
+    'Salté {n}: {m}':
+        'I skipped {n}: {m}',
+    'Probé estas soluciones y quedan limpias:':
+        'I tested these solutions and they stay clean:',
+    'Cambian cotas de redes existentes: revísalas antes de marcarlas.':
+        'They change elevations of existing networks: review them before checking them.',
+    'Estos necesitan tu criterio:':
+        'These need your judgment:',
+    'No hay conflictos.':
+        'No conflicts.',
+    'Marcar todas las limpias':
+        'Check all the clean ones',
+    'Esa herramienta no existe.':
+        'That tool does not exist.',
+    'No hay resultados.':
+        'No results.',
+    'hay {n} más':
+        '{n} more',
+    'No encuentro ese código en el proyecto.':
+        'I cannot find that code in the project.',
+    'Bitácora del Copiloto':
+        'Copilot log',
+    'Ver la bitácora':
+        'See the log',
+    'Todavía no hay nada en la bitácora.':
+        'The log is still empty.',
+    'deshecha':
+        'undone',
+    'Deshacer esta tanda':
+        'Undo this batch',
+    '«Mostrar cruces/conflictos» está apagado: no puedo saber cuántos conflictos hay.':
+        '“Show crossings/conflicts” is off: I cannot tell how many conflicts there are.',
+    'Encenderlo':
+        'Turn it on',
+    'La hoja no tiene escala: sin ella no puedo revisar los avisos.':
+        'The sheet has no scale: without it I cannot review the warnings.',
+    'Usa buscar_lineas con sin_tipo.':
+        'Use buscar_lineas with sin_tipo.',
+    'El proyecto cambió: esta tanda ya no vale.':
+        'The project changed: this batch no longer applies.',
+    'Abrí «{f}».':
+        'I opened “{f}”.',
+    'No lo usé.':
+        'I did not use it.',
+    'Investiga el diámetro de {c}: mira el plano y propón un valor solo si tienes evidencia.':
+        'Investigate the diameter of {c}: look at the plan and suggest a value only if you have evidence.',
+    'Leído en el texto del plano':
+        'Read in the plan text',
+    'Solo lectura visual: revísalo en la captura':
+        'Visual reading only: check it in the capture',
+    '¿Uso «{f}»?':
+        'Shall I use “{f}”?',
+    'Sí, úsala':
+        'Yes, use it',
+    'Investigar {n} línea(s) sin dato: miro el plano por mi cuenta':
+        'Investigate {n} line(s) with no data: I look at the plan on my own',
+    'No se pudo: {e}':
+        'Could not do it: {e}',
+    'Ya viste esta zona con ese zoom. Mira otra zona o termina con lo que tienes.':
+        'You already saw this area at that zoom. Look at another area or finish with what you have.',
+    'No hay PDF en esta hoja: no puedo mirar el plano.':
+        'This sheet has no PDF: I cannot look at the plan.',
+    '(el PDF no da texto cerca de esta línea)':
+        '(the PDF gives no text near this line)',
+    'Captura: la línea va en magenta. Texto cercano del PDF:':
+        'Capture: the line is in magenta. Nearby PDF text:',
+    'No hay otras zonas para esta utilidad.':
+        'There are no other areas for this utility.',
+    'Primero pide las zonas de esa utilidad.':
+        'First ask for the areas of that utility.',
+    'Ya viste esta zona. Mira otra o termina con lo que tienes.':
+        'You already saw this area. Look at another or finish with what you have.',
+    'No pude leer esa zona.':
+        'I could not read that area.',
+    '(sin texto)':
+        '(no text)',
+    'No encuentro: {c}':
+        'I cannot find: {c}',
+    'Señalé {n} en el plano.':
+        'I marked {n} on the plan.',
+    'Listo.':
+        'Done.',
+    'El plano muestra {c}.':
+        'The plan shows {c}.',
+    'No encuentro esa función.':
+        'I cannot find that function.',
+    'Hecho: {f}':
+        'Done: {f}',
+    'Le pregunté al usuario si usa «{f}».':
+        'I asked the user whether to use “{f}”.',
+    'Antes mira esa línea en el plano.':
+        'Look at that line on the plan first.',
+    'Di el diámetro en pulgadas.':
+        'State the diameter in inches.',
+    'La normativa no permite {d} en esa utilidad.':
+        'The standards do not allow {d} on that utility.',
+    'Se lo mostré al usuario para que decida.':
+        'I showed it to the user to decide.',
+    'Esa acción no se puede proponer aquí.':
+        'That action cannot be proposed here.',
+    'El usuario tiene elegido: {c}. «Esto» se refiere a eso.':
+        'The user has selected: {c}. “This” refers to it.',
+    'TU PLAN (lo escribiste tú, síguelo):':
+        'YOUR PLAN (you wrote it, follow it):',
+    'Plan anotado.':
+        'Plan noted.',
+    'Miré el plano: {que_buscar}':
+        'I looked at the plan: {que_buscar}',
+    'Busqué zonas con más datos':
+        'I looked for areas with more data',
+    'Miré la zona {zona}':
+        'I looked at area {zona}',
+    'Señalé en el plano':
+        'I marked it on the plan',
+    'Busqué una función: {texto}':
+        'I searched for a function: {texto}',
+    'Usé: {nombre}':
+        'I used: {nombre}',
+    'Me hice un plan: {objetivo}':
+        'I made a plan: {objetivo}',
+    'Leí la ficha de {codigo}':
+        'I read the record of {codigo}',
+    'Busqué líneas':
+        'I searched for lines',
+    'Revisé los avisos':
+        'I reviewed the warnings',
+    'Revisé los conflictos':
+        'I reviewed the conflicts',
+    'Te llevé a {codigo}':
+        'I took you to {codigo}',
+    'Te propuse un diámetro':
+        'I suggested a diameter',
+    'Te propuse un cambio':
+        'I suggested a change',
+    'Quité las señales':
+        'I removed the marks',
+    'De línea':
+        'Line valve',
+    'Purga':
+        'Blow-off',
+    'Retención':
+        'Check valve',
+    'Retención doble':
+        'Double check valve',
+    'Reguladora de presión':
+        'Pressure regulator',
+    'Mariposa':
+        'Butterfly valve',
+    'Aire':
+        'Air valve',
+    'Compuerta':
+        'Gate valve',
+    'abierta':
+        'open',
+    'cerrada':
+        'closed',
+    'Válvulas: {n}':
+        'Valves: {n}',
+    'Válvulas: {n}.':
+        'Valves: {n}.',
+    '{n} válvulas reconocidas':
+        '{n} valves recognized',
+    'por confirmar':
+        'to confirm',
+    'Confirmar válvula':
+        'Confirm valve',
+    'Reconocer también las válvulas de la hoja. Quedan en su propia capa.':
+        'Also recognize the valves on the sheet. They go on their own layer.',
+    'Capa del PDF':
+        'PDF layer',
+    'Leyenda del plano':
+        'Plan legend',
+    'Forma del símbolo':
+        'Symbol shape',
+    'Asignada a mano':
+        'Assigned by hand',
+    'Segura':
+        'Certain',
+    'Por confirmar':
+        'To confirm',
+    'Certeza':
+        'Certainty',
+    'válvula por confirmar':
+        'valve to confirm',
+    'válvulas por confirmar':
+        'valves to confirm',
+    'válvula sin línea cerca':
+        'valve with no line nearby',
+    'válvulas sin línea cerca':
+        'valves with no line nearby',
 }

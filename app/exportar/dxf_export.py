@@ -337,11 +337,11 @@ def _export_valvulas(win, doc, msp):
     import math
     from nucleo import valvulas as _V
     lugares = _V.ubicar_todas(win.pipes, win.structures, vs, ft)
-    win._valvulas_omitidas = sum(1 for l in lugares if not l.ok)
+    win._valvulas_omitidas = sum(1 for v, l in zip(vs, lugares) if not _V.exportable(v, l))
     if "PDFCAD" not in doc.appids: doc.appids.add("PDFCAD")
     VP.ensure_layer(doc, "PDFCAD_VALVULA")
-    for lug in lugares:
-        if not lug.ok:
+    for v, lug in zip(vs, lugares):
+        if not _V.exportable(v, lug):                 # no cabe en su tramo recto, o reconocida «por confirmar»
             continue
         x, y = win._to_cad(lug.x, lug.y)
         x2, y2 = win._to_cad(lug.x + lug.ux, lug.y + lug.uy)        # la dirección del tramo, ya en el DXF
@@ -360,6 +360,10 @@ def _export_valvulas(win, doc, msp):
             (1000, f"DIR_X={(x2 - x) / n:.9f}"),
             (1000, f"DIR_Y={(y2 - y) / n:.9f}"),
             (1000, f"ESTIMADA={1 if lug.estimada else 0}"),
+            (1000, f"TIPO={v.get('tipo') or ''}"),            # "" = compuerta (unión con dev_santos_v2)
+            (1000, f"UTILIDAD={v.get('utilidad') or ''}"),
+            (1000, f"ESTADO={v.get('estado') or ''}"),
+            (1000, f"ORIGEN={v.get('origen') or ''}"),
         ])
 
 
