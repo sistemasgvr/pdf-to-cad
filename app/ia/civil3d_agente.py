@@ -23,6 +23,18 @@ MAX_HISTORIAL = 10                       # turnos (pregunta + respuesta) que se 
 SOLO_USUARIO = {"confirmar_cambio", "cancelar_cambio"}
 _PENSAR = re.compile(r"<think>.*?</think>\s*", re.S)
 
+CIERRE = "Ya no puedes consultar más. Responde ahora con lo que tienes; si no hay certeza, dilo."
+
+
+class ConImagen(str):
+    """La salida de una herramienta con imágenes (PNG en base64) para que el modelo las vea."""
+
+    def __new__(cls, texto, imagenes=()):
+        o = super().__new__(cls, texto)
+        o.imagenes = list(imagenes)
+        return o
+
+
 SISTEMA = (
     "Eres el asistente de PDF-a-CAD para un dibujo de Civil 3D. Hablas con un ingeniero: responde en español, "
     "breve, en lenguaje simple.\n"
@@ -58,16 +70,24 @@ def herramientas_ollama(tools_mcp):
 
 
 class Agente:
-    def __init__(self, cliente, pedir_modelo, max_pasos=MAX_PASOS):
+    def __init__(self, cliente, pedir_modelo, max_pasos=MAX_PASOS, sistema=None, cerrar=False):
         self.cliente = cliente
         self.pedir_modelo = pedir_modelo
         self.max_pasos = max_pasos
         self.historial = []
         self._tools = herramientas_ollama(cliente.herramientas())
-        self._sistema = SISTEMA + ("\n" + cliente.instrucciones if getattr(cliente, "instrucciones", "") else "")
+        self._base = sistema if sistema is not None else SISTEMA
+        self.cerrar = cerrar                            # al agotar los pasos, responder sin herramientas
 
-    def preguntar(self, texto, cancelado=None, al_paso=None) -> Resultado:
-        """`al_paso(nombre)` antes de cada herramienta (la ventana muestra «Consultando Civil 3D: …»)."""
+    @property
+    def _sistema(self):
+        """Se arma en cada paso: `cliente.instrucciones` puede traer el plan que la propia IA se escribió."""
+        extra = getattr(self.cliente, "instrucciones", "")
+        return self._base + ("\n" + extra if extra else "")
+
+    def preguntar(self, texto, cancelado=None, al_paso=None, al_llamada=None) -> Resultado:
+        """`al_paso(nombre)` antes de cada herramienta (la ventana muestra «Consultando Civil 3D: …»);
+        `al_llamada(nombre, args)` igual, con sus argumentos."""
         msgs = [{"role": "system", "content": self._sistema}] + self.historial[-2 * MAX_HISTORIAL:]
         msgs.append({"role": "user", "content": texto})
         res = Resultado(texto="")
@@ -75,6 +95,7 @@ class Agente:
             if cancelado and cancelado():
                 res.texto = t("Detenido.")
                 break
+            msgs[0]["content"] = self._sistema
             m = self.pedir_modelo(msgs, self._tools)
             llamadas = m.get("tool_calls") or []
             msgs.append({"role": "assistant", "content": m.get("content") or "", "tool_calls": llamadas})
@@ -89,6 +110,8 @@ class Agente:
                 else:
                     if al_paso:
                         al_paso(nombre)
+                    if al_llamada:
+                        al_llamada(nombre, args)
                     ok, salida = self.cliente.llamar(nombre, args)
                 res.llamadas.append((nombre, ok))
                 if not ok and "PDFCAD_IA" in salida:
@@ -98,12 +121,20 @@ class Agente:
                         res.propuestas.append(json.loads(salida))
                     except ValueError:
                         pass
-                msgs.append({"role": "tool", "tool_name": nombre, "content": _recortar(salida)})
+                respuesta = {"role": "tool", "tool_name": nombre, "content": _recortar(salida)}
+                if getattr(salida, "imagenes", None):
+                    for x in msgs:                     # solo la última: cada imagen ocupa mucho contexto
+                        x.pop("images", None)
+                    respuesta["images"] = list(salida.imagenes)
+                msgs.append(respuesta)
             if res.sin_conexion:
                 res.texto = salida
                 break
         else:
-            res.texto = t("No terminé en {n} pasos: pregunta algo más concreto.").format(n=self.max_pasos)
+            if self.cerrar and not (cancelado and cancelado()):
+                m = self.pedir_modelo(msgs + [{"role": "user", "content": CIERRE}], [])
+                res.texto = _PENSAR.sub("", m.get("content") or "").strip()
+            res.texto = res.texto or t("No terminé en {n} pasos: pregunta algo más concreto.").format(n=self.max_pasos)
         self.historial += [{"role": "user", "content": texto}, {"role": "assistant", "content": res.texto}]
         return res
 
@@ -134,7 +165,7 @@ def pedir_ollama(config):
 
     def pedir(mensajes, herramientas):
         cuerpo = {"model": config.modelo, "messages": mensajes, "tools": herramientas, "stream": False,
-                  "think": False, "options": {"temperature": config.temperatura, "num_ctx": CONTEXTO_TOKENS}}
+                  "think": False, "keep_alive": "30m", "options": {"temperature": config.temperatura, "num_ctx": CONTEXTO_TOKENS}}
         with prov._pedir("/api/chat", cuerpo) as r:
             datos = json.loads(r.read().decode("utf-8"))
         if "message" not in datos:

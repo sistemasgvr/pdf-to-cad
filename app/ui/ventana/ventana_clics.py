@@ -87,6 +87,8 @@ class ClicsMixin:
     def _pick(self, x, y):
         """Elige lo que hay bajo el clic. Devuelve True si había algo."""
         self._perfil_clic = (x, y)                     # el perfil arranca en el tramo donde se hizo clic
+        if self._elegir_valvula(x, y):                 # ventana_valvulas
+            return True
         thr = 10.0 / max(1e-6, self.canvas.transform().m11())
         bz_thr = 18.0 / max(1e-6, self.canvas.transform().m11())
         curve_thr = 22.0 / max(1e-6, self.canvas.transform().m11())

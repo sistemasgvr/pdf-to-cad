@@ -66,6 +66,11 @@ class OrdenesMixin:
             self._activo = None
             self._ocupado(False)
             return self._preguntar_normal(turno)
+        if (interp.get("accion") is None and self._orden_pendiente is None and AC.es_de_ver(turno["pregunta"])
+                and self.win.agente_disponible()):     # no está en el catálogo: el agente busca la función
+            self._activo = None
+            self._ocupado(False)
+            return self._preguntar_normal(turno)
         if interp.get("accion") is None:              # falta un dato: la IA pregunta
             self._orden_pendiente = {"pedido": pedido, "entendido": ""}
             turno["texto"], turno["estado"] = interp.get("pregunta") or "", "listo"

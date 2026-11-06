@@ -35,6 +35,8 @@ def build_model_dict(win):
         normas_aprobados=list(getattr(win, "normas_aprobados", None) or []),
         sin_accesorio=list(getattr(win, "sin_accesorio", None) or []),
         perfiles=list(getattr(win, "perfiles", None) or []),
+        bitacora=list(getattr(win, "bitacora", None) or []),
+        revision=dict(getattr(win, "revision", None) or {"saltados": []}),
         conflictos_registro=(win._conf_registro.a_dict() if getattr(win, "_conf_registro", None) else None),
         georef=win.georef.to_dict(),
         sheet_layout=getattr(win, "sheet_layout", None),
@@ -76,6 +78,8 @@ def build_model_dict(win):
     # rótulos del plano reconocidos (MLeader / MText, `recognition_anotaciones`; px de la vista)
     if getattr(win, "anotaciones", None):
         model["anotaciones"] = list(win.anotaciones)
+    if getattr(win, "valvulas", None):                   # válvulas reconocidas (`nucleo/valvulas`; px de la vista)
+        model["valvulas"] = list(win.valvulas)
     canvas = getattr(win, "canvas", None)
     escala = float(getattr(canvas, "fondo_escala", 1.0) or 1.0)
     if escala < 1.0:
@@ -126,6 +130,8 @@ def parse_model(model):
         normas_aprobados=list(model.get("normas_aprobados", []) or []),    # retrocompat: sin avisos aprobados
         sin_accesorio=list(model.get("sin_accesorio", []) or []),          # retrocompat: sin puntos sin accesorio
         perfiles=list(model.get("perfiles", []) or []),                    # retrocompat: sin perfiles guardados
+        bitacora=list(model.get("bitacora", []) or []),                    # retrocompat: sin bitácora del Copiloto
+        revision=dict(model.get("revision") or {"saltados": []}),          # retrocompat: sin revisión guiada
         conflictos_registro=model.get("conflictos_registro"),             # números fijos de los conflictos
         normativas_activas={str(k): bool(v) for k, v in (model.get("normativas_activas") or {}).items()},
         georef=georef_mod.Georef.from_dict(model.get("georef")),  # retrocompat: sin georref → escala
@@ -157,6 +163,7 @@ def parse_model(model):
         fondo_apagado=bool(model.get("fondo_apagado", False)),
         capas_apagadas=[str(c) for c in model.get("capas_apagadas") or ()],
         anotaciones=_anotaciones(model.get("anotaciones")),   # retrocompat: sin rótulos reconocidos
+        valvulas=[dict(v) for v in model.get("valvulas") or () if isinstance(v, dict)],
     )
 
 

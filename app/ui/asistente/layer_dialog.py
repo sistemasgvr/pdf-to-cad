@@ -49,7 +49,8 @@ from hoja import pdf_layers
 from reconocimiento import recognition
 from ui.comun import theme as _theme
 from ui.comun.ui_common import swatch_icon
-from ui.comun.widgets import ZoomPanView, MiniMap, etiquetas_cortas, maximize_on_show, side_panel_width, GripSplitter
+from ui.comun.widgets import (ZoomPanView, MiniMap, NaturalHeightScroll, etiquetas_cortas, maximize_on_show,
+                              side_panel_width, GripSplitter)
 from ui.asistente.layer_dialog_info import LayerInfoMixin, layer_tooltip as _layer_tooltip
 from ui.asistente.layer_dialog_recog import (RecogCardMixin, card as _card, utility_qcolor,  # noqa: F401
                                              _UTILITY_RECOG_LABEL)
@@ -69,6 +70,7 @@ _SLOW_RENDER_S = 0.25
 # Ancho del panel derecho; la vista previa toma el resto (era 440: pedido del usuario
 # 2026-10-09, más angosto; «Reconocer» en dos columnas necesita ~325 px).
 _PANEL_WIDTH = 350
+ARBOL_MIN_PX = 170                         # la lista de capas nunca menos: lo que no cabe se desplaza
 # Roles de datos de las filas del árbol.
 _ROLE_NAME = QtCore.Qt.UserRole            # nombre completo de la capa (None en grupos)
 _ROLE_UTILITY = QtCore.Qt.UserRole + 1     # clave de utilidad de la fila
@@ -145,11 +147,17 @@ class SheetLayersDialog(ScaleCalibrationMixin, LayerAssignmentsMixin, LayerInfoM
         # ancho acorde a la ventana (nunca más del 32 %) y el usuario lo ajusta.
         self.split = GripSplitter(QtCore.Qt.Horizontal)   # tirador visible y arrastrable
         self.split.addWidget(self.view)
+        # El panel se DESPLAZA si no cabe: sin esto, en una laptop los controles se pisaban (Qt no cuenta el alto
+        # de un texto partido en líneas: el mínimo de la ventana no lo protege; `test_asistente_sin_amontonar`)
         side = QtWidgets.QWidget()
         side.setMinimumWidth(320)
-        panel = QtWidgets.QVBoxLayout(side)
+        contenido = QtWidgets.QWidget()
+        panel = QtWidgets.QVBoxLayout(contenido)
         panel.setContentsMargins(0, 0, 10, 0)   # aire entre los controles y el divisor (2.0.0: a la izquierda)
         panel.setSpacing(10)
+        marco = QtWidgets.QVBoxLayout(side)
+        marco.setContentsMargins(0, 0, 0, 0)
+        marco.addWidget(NaturalHeightScroll(contenido))
         self.split.addWidget(side)
         self.split.setStretchFactor(0, 1); self.split.setStretchFactor(1, 0)
         root.addWidget(self.split, 1)
@@ -196,10 +204,11 @@ class SheetLayersDialog(ScaleCalibrationMixin, LayerAssignmentsMixin, LayerInfoM
         hint = QtWidgets.QLabel(_tr("Pulsa una línea del PDF para identificar y resaltar su capa. "
                                    "Casilla = mostrar · interruptor = reconocer · ▸ = capa por capa"))
         if any(L.get("source") == "style" for L in self._layers):
-            hint.setText(_tr("Clic en una capa para resaltarla y asignar su utilidad y rol abajo. "
-                             "También puedes pulsar una línea del PDF para seleccionar su estilo. "
-                             "Las casillas excluyen estilos del reconocimiento; el PDF conserva "
-                             "su imagen. Calibra la escala antes de importar."))
+            hint.setText(_tr("Elige una capa o pulsa una línea del PDF para asignarle utilidad y rol."))
+            hint.setToolTip(_tr("Clic en una capa para resaltarla y asignar su utilidad y rol abajo. "
+                                "También puedes pulsar una línea del PDF para seleccionar su estilo. "
+                                "Las casillas excluyen estilos del reconocimiento; el PDF conserva "
+                                "su imagen. Calibra la escala antes de importar."))
         hint.setWordWrap(True)
         hint.setStyleSheet(f"color:{t.text_muted}; font-size:12px;")
         lay.addWidget(hint)
@@ -217,6 +226,7 @@ class SheetLayersDialog(ScaleCalibrationMixin, LayerAssignmentsMixin, LayerInfoM
         self.tree.header().setSectionResizeMode(0, QtWidgets.QHeaderView.Stretch)
         self.tree.header().setSectionResizeMode(1, QtWidgets.QHeaderView.Fixed)
         self.tree.header().resizeSection(1, 48)
+        self.tree.setMinimumHeight(ARBOL_MIN_PX)
         self.tree.setRootIsDecorated(True)
         self.tree.setUniformRowHeights(True)
         f = self.tree.font(); f.setPointSize(f.pointSize() + 1); self.tree.setFont(f)
@@ -732,5 +742,7 @@ def _resultado_capas(dlg, codigo, vivo, include_roles):
         return LAYERS_BACK if dlg.went_back else None
     if vivo is not None:
         vivo["capas"] = dlg
+    if dlg.parent() is not None:
+        dlg.parent()._reconocer_valvulas = dlg.sw_valvulas.isChecked()
     result = (dlg.hidden_names(), dlg.page_index(), dlg.recognition_utilities(), dlg.letters_off())
     return result + (dlg.roles_by_utility(), dlg.scale_ft_per_pt()) if include_roles else result

@@ -427,6 +427,11 @@ imagen/escaneo…</b>), pero sin capas ni reconocimiento: al final,
     distancia (una tubería no cambia de diámetro a mitad de un tramo). Si los dos lados dicen lo mismo, la
     propuesta es firme; si dicen distinto, te da las dos opciones. Un ramal nunca sale mayor que su
     principal.</li>
+<li><b>Válvulas:</b> se reconocen junto con las líneas y quedan en su propia capa («Capas» de la barra superior). En un
+    PDF con capas salen de las capas de válvulas; en un mapa con leyenda, de sus símbolos, con el tipo y el estado que ella
+    dice; en un plano sin capas ni leyenda, del símbolo de moño sobre una línea, huecas y <i>por confirmar</i>. Si nada
+    explica los símbolos, elige uno en «Capas de la hoja» y dale el rol <b>Válvulas</b>. Clic derecho sobre una válvula
+    para confirmarla o borrarla. Toman el diámetro de su tubería, salen en la Tabla de datos y en el DXF.</li>
 <li><b>Rótulos del plano (multileaders):</b> al reconocer, la app lee <b>todos</b> los rótulos que
     llegan a una línea con su guía (flecha), digan lo que digan («EX 8" VCP SEWER», «JOIN EX. 84" RCP SD /
     STA 549+55.37», «CB-208»…), también los girados; en los mapas sin capas, los rótulos de cada tubería.
@@ -1215,6 +1220,31 @@ textos cercanos y referencias de perfiles. Un contacto geométrico no confirma u
     un diámetro manualmente.</li>
 <li>Si la hoja se reconoció con una versión anterior, la tarjeta pide volver a reconocerla.</li>
 </ul>
+<h2>Copiloto del proyecto</h2>
+<p>Sobre la caja de texto del Chat hay tres botones. También entiende frases como «dime cuántos avisos tengo y empecemos a
+solucionarlos». Funcionan aunque la IA no esté configurada, salvo las propuestas de diámetro.</p>
+<ul>
+<li><b>¿Cómo vamos?</b> Lo que falta para exportar: conflictos, diámetros, tipos y demás avisos, con un enlace para empezar.</li>
+<li><b>Revisar avisos.</b> Primero lo que mide la app (continuidad de la red, único tipo posible): lo aplicas en tanda.
+Luego, una línea a la vez, lo que la IA propone: <i>Aprobar</i>, <i>Otro valor</i>, <i>Saltar</i> o <i>Pausar</i>; mientras decides
+ya revisa la siguiente. Al final, por grupos, lo que decides tú: aprobar con una nota o abrir el caso. Un aviso de normativa nunca
+se corrige solo.</li>
+<li><b>Resolver conflictos.</b> Prueba las soluciones y las lista sin marcar, porque cambian cotas de redes existentes. Marca las
+que quieras o usa <i>Marcar todas las limpias</i>. Antes de aplicar cada una la vuelve a probar sobre lo ya cambiado.</li>
+</ul>
+<p>Nada cambia sin tu confirmación. Cada tanda se deshace con un Ctrl+Z, y si el proyecto cambió después de mostrarla, no se aplica.
+<b>Ver la bitácora</b> muestra qué cambió, por qué, quién lo aprobó y cuándo; queda guardada en el proyecto.</p>
+
+<h2>El chat como agente</h2>
+<p>Con un modelo que usa herramientas, el chat investiga por su cuenta. Pídele «revisa el diámetro de GAS-38»: decide qué buscar,
+pide capturas del plano con esa línea en magenta, cambia el zoom, mira membrete, leyenda, notas y otras hojas, y compara con el
+texto del PDF. Debajo de su respuesta ves lo que hizo. En pedidos largos se escribe su propio plan.</p>
+<p>También usa la app: «señálame las de agua sin diámetro» las marca en el plano; «esto» es lo que tengas elegido. Encuentra funciones
+por lo que hacen: las de ver las usa y las demás te las pregunta.</p>
+<p>Nunca aplica nada: propone con la captura y la evidencia, e indica si lo leyó en el texto del PDF o solo en la imagen. No puede
+proponer borrar ni mover. Al terminar <b>Revisar avisos</b> puede investigar las líneas sin dato, una tras otra; <i>Detener</i> lo corta.
+Cada captura toma de 10 a 50 s.</p>
+
 <h2>Pregúntale al proyecto</h2>
 <p><b>Asistente → Pregúntale al proyecto…</b> (<span class="key">&nbsp;Ctrl+Shift+I&nbsp;</span>, o el botón de chat de
 la barra superior) abre un chat. Pregunta, por ejemplo, «¿cuántos conflictos hay y dónde están?», «¿qué pasa en

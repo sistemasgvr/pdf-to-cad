@@ -20,6 +20,7 @@ from collections import Counter
 
 from PySide6 import QtGui
 
+from nucleo import valvulas as V
 from nucleo.model import TIPOS
 from traduccion.i18n import t as _tr
 from ui.comun import capas_popup as CP
@@ -48,12 +49,19 @@ class CapasMixin:
         for s in self.structures:                       # cajas sueltas de una utilidad sin líneas
             if s.get("standalone") and s.get("utility") and not s.get("world"):
                 n.setdefault(s["utility"], 0)
+        if getattr(self, "valvulas", None):             # una capa más, aparte de las utilidades
+            n[V.CAPA] = len(self.valvulas)
         orden = [lay for _l, lay in TIPOS]
         return {c: n[c] for c in sorted(n, key=lambda c: (orden.index(c) if c in orden else len(orden), c))}
 
+    def _nombre_capa(self, clave):
+        return _tr("Válvulas") if clave == V.CAPA else self._tipo(clave)
+
     def _estado_capas(self) -> CP.Estado:
         apagadas = getattr(self, "capas_apagadas", set())
-        utilidades = [CP.Fila(CP.UTILIDAD, c, self._tipo(c), c not in apagadas, layer_qcolor(c), _miles(k),
+        utilidades = [CP.Fila(CP.UTILIDAD, c, self._nombre_capa(c), c not in apagadas,
+                              None if c == V.CAPA else layer_qcolor(c), _miles(k),
+                              _tr("{n} válvulas reconocidas").format(n=_miles(k)) if c == V.CAPA else
                               _tr("{n} utilidades de {t} dibujadas").format(n=_miles(k), t=self._tipo(c)))
                       for c, k in self._capas_utilidad().items()]
         planos = []
@@ -89,7 +97,7 @@ class CapasMixin:
             return
         (self.capas_apagadas.discard if encendida else self.capas_apagadas.add)(clave)
         self._aplicar_capas()
-        self._info((_tr("Capa encendida: {c}.") if encendida else _tr("Capa apagada: {c}.")).format(c=self._tipo(clave)))
+        self._info((_tr("Capa encendida: {c}.") if encendida else _tr("Capa apagada: {c}.")).format(c=self._nombre_capa(clave)))
 
     def _solo_capa(self, tipo, clave):
         """«Ver solo esta» (LAYISO de AutoCAD): las demás de su sección se apagan."""
@@ -98,7 +106,7 @@ class CapasMixin:
             return
         self.capas_apagadas = set(self._capas_utilidad()) - {clave}
         self._aplicar_capas()
-        self._info(_tr("Solo a la vista: {c}.").format(c=self._tipo(clave)))
+        self._info(_tr("Solo a la vista: {c}.").format(c=self._nombre_capa(clave)))
 
     def _encender_capas(self):
         self.capas_apagadas = set()
@@ -123,6 +131,7 @@ class CapasMixin:
             previa[1].fijar_ocultas({i for i, p in enumerate(self.pipes)
                                    if p.get("layer") in apagadas} - elegidas if apagadas else ())
             self._visibilidad_estructuras()
+            self._sync_capa_valvulas()
             if previa[3]:
                 self._actualizar_rotulos_tramos(elegidas, previa[3])
             self._ocultar_marcas_apagadas()

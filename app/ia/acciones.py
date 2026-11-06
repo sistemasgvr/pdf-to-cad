@@ -69,6 +69,14 @@ _ORDEN = re.compile(
     r"move|lower|raise|change|set|delete|remove|mark|unmark|resolve|apply|open|go\s+to|take\s+me)\b")
 
 
+_VER = re.compile(r"^\s*(por\s+favor\s+|porfa\s+)?(abre|abrir|muestrame|ensename|llevame|lleva|ve\s+a|open|show|go\s+to|take\s+me)\b")
+
+
+def es_de_ver(pregunta):
+    """Un pedido de ver o abrir algo: si no está en el catálogo, el agente puede buscar la función."""
+    return bool(_VER.search(normalizar(pregunta)))
+
+
 def es_orden(pregunta):
     return bool(_ORDEN.search(normalizar(pregunta)))
 

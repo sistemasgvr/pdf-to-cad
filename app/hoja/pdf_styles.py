@@ -89,8 +89,9 @@ def style_label(name):
 
 def _style_label(name):
     if is_symbol(name):
-        glyphs = json.loads(name[len(PREFIX):])[2]
-        return "Símbolo " + "+".join(str(g) for g, _c in glyphs)
+        _s, fuente, glyphs = json.loads(name[len(PREFIX):])
+        marca = fuente.split("+")[-1] + " " if "ESRI" in fuente else ""
+        return "Símbolo " + marca + "+".join(str(g) for g, _c in glyphs)
     from hoja import acometidas_mapa
     if acometidas_mapa.es_capa(name):
         return "Acometidas · " + style_label(acometidas_mapa.estilo_de(name))
@@ -211,6 +212,9 @@ def _drawings(page, extended, cache):
                    else p for p in out]
         avance.avisar(_tr("Ubicando los símbolos de la leyenda (buzones, válvulas…)…"))
         out.extend(dict(p) for p in leyenda_mapa.simbolos_capas(page))
+    else:                                              # sin leyenda: glifos de fuentes de símbolos, para asignar a mano
+        from hoja import simbolos_fuente
+        out.extend(simbolos_fuente.capas(page))
     return out
 
 

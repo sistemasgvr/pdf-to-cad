@@ -50,6 +50,19 @@ class FlujoTrazos:
             self.publicar(batch)
 
 
+def _leer_valvulas(page, zoom, hidden, roles_by_utility, results):
+    """Complemento: una falla aquí nunca tumba el reconocimiento de las líneas."""
+    from reconocimiento import recognition_valvulas as RV
+    try:
+        valvulas = RV.completar(RV.leer_hoja(page, zoom, hidden or (), roles_by_utility), results, zoom)
+    except Exception:                                  # noqa: BLE001
+        return
+    for r in results:
+        r.valvulas = valvulas
+    if results:
+        results[0].warnings = list(results[0].warnings) + RV.avisos(valvulas)
+
+
 def reconocer_hoja(pdf_path, page_index, zoom=1.0, utilities=("ELECTRICO",), hidden_ocgs=(),
                    layer_roles=None, roles_by_utility=None, join_routes=True, scale_ft_per_pt=None,
                    letters_off=(), progreso: Optional[Callable] = None, perfiles_de=()):
@@ -93,6 +106,7 @@ def reconocer_hoja(pdf_path, page_index, zoom=1.0, utilities=("ELECTRICO",), hid
             results.append(res)
             avisar("hecha", i, len(utilities), utility,
                    [[(float(x), float(y)) for x, y in pl.pts_pdf] for pl in res.drawable])
+        _leer_valvulas(doc[page_index], zoom, hidden_ocgs, roles_by_utility, results)
     # los perfiles de los laterales dicen el diámetro de las tuberías que los cruzan: con TODAS las
     # utilidades (si van en procesos aparte, lo hace `RecognitionWorker` al juntarlas). En una hoja
     # compuesta, los perfiles de sus hojas de origen (`perfiles_de`: [(pdf, hoja)])

@@ -253,6 +253,7 @@ class DibujoMixin:
             sc.addItem(capa)
             indices = range(len(self.pipes))
         self._overlay.append(capa)
+        self._dibujar_valvulas(sc)                       # ventana_valvulas
         # «Capas» (ventana_capas): las utilidades apagadas no se pintan (salvo la elegida desde la lista)
         apagadas = getattr(self, "capas_apagadas", None)
         capa.fijar_ocultas({i for i, p in enumerate(self.pipes) if p.get("layer") in apagadas} - elegidas

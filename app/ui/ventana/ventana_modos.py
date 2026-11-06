@@ -307,6 +307,10 @@ class ModosMixin:
         lbl.setText(_tr("⊙ Snap a {q} de «{c}»").format(q=nombre, c=capa))
 
     def _update_hover_tooltip(self, x, y):
+        i_valv = self._valvula_en(x, y)
+        if i_valv >= 0:
+            self.canvas.setToolTip(self._texto_valvula(self.valvulas[i_valv]))
+            return
         thr = self.snap_r * 1.5
         for i in self._utilidades_cerca(x, y, thr):      # solo las que tienen un tramo cerca
             p = self.pipes[i]

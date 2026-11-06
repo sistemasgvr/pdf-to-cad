@@ -1049,6 +1049,8 @@ EN: dict[str, str] = {
         "Click a PDF line to identify and highlight its layer. Checkbox = show · switch = recognize · ▸ = layer by layer",
     "Clic en una capa para resaltarla y asignar su utilidad y rol abajo. También puedes pulsar una línea del PDF para seleccionar su estilo. Las casillas excluyen estilos del reconocimiento; el PDF conserva su imagen. Calibra la escala antes de importar.":
         "Click a layer to highlight it and assign its utility and role below. You can also click a PDF line to select its style. The checkboxes exclude styles from recognition; the PDF keeps its image. Calibrate the scale before importing.",
+    "Elige una capa o pulsa una línea del PDF para asignarle utilidad y rol.":
+        "Choose a layer or click a PDF line to assign its utility and role.",
     "Lectura de capas interrumpida": "Layer reading interrupted",
     "No se pudo leer la leyenda del PDF. Puedes reintentar o continuar revisando las capas.":
         "The PDF legend could not be read. You can retry or continue reviewing the layers.",
@@ -4917,4 +4919,320 @@ EN: dict[str, str] = {
         '{n} did not change: their family does not have that size.',
     '¿Por qué?':
         'Why?',
+    '¿Cómo vamos?':
+        'How are we doing?',
+    'Revisar avisos':
+        'Review warnings',
+    'Todo listo para exportar: no queda nada pendiente.':
+        'Ready to export: nothing is pending.',
+    '{n} pendiente(s)':
+        '{n} pending',
+    'Esto falta para exportar:':
+        'Still needed before exporting:',
+    'Toca un grupo para empezar a revisarlo.':
+        'Tap a group to start reviewing it.',
+    'Clasificando los avisos…':
+        'Sorting the warnings…',
+    'Clasificando los avisos: {k} de {n}':
+        'Sorting the warnings: {k} of {n}',
+    'No pude clasificar los avisos: {e}':
+        'I could not sort the warnings: {e}',
+    'Avisos clasificados.':
+        'Warnings sorted.',
+    'El proyecto cambió: vuelve a pedir la revisión.':
+        'The project changed: ask for the review again.',
+    'No se pudo aplicar: {e}':
+        'Could not apply: {e}',
+    'Hecho: {n} utilidad(es). Se deshace con un Ctrl+Z.':
+        'Done: {n} utility(ies). One Ctrl+Z undoes it.',
+    'No apliqué nada de esta tanda.':
+        'I applied nothing from this batch.',
+    'Tanda segura: {n} utilidad(es)':
+        'Safe batch: {n} utility(ies)',
+    'Único tipo posible en las normativas':
+        'Only possible type in the standards',
+    'Estos {n} datos los mide la app:':
+        'The app measured these {n} values:',
+    'Aplicar las marcadas ({n})':
+        'Apply the checked ones ({n})',
+    'Ahora no':
+        'Not now',
+    'Vuelve a reconocer la hoja para que la IA pueda revisar esta línea.':
+        'Recognize the sheet again so the AI can review this line.',
+    'Esta línea ya no está.':
+        'This line is gone.',
+    'Lo indicó el usuario':
+        'Stated by the user',
+    '{c}: diámetro {d}':
+        '{c}: diameter {d}',
+    'La IA no respondió.':
+        'The AI did not respond.',
+    'Sin certeza: queda para tu decisión.':
+        'Not certain: left for your decision.',
+    'Esta línea cambió: la dejo aquí.':
+        'This line changed: I am leaving it here.',
+    'La familia de esta utilidad no tiene ese tamaño: elige otro valor.':
+        "This utility's family does not have that size: choose another value.",
+    'La dejé para después.':
+        'I left it for later.',
+    'Hecho. Ctrl+Z lo deshace.':
+        'Done. Ctrl+Z undoes it.',
+    'Otro diámetro':
+        'Another diameter',
+    'Revisión en pausa: «Revisar avisos» la retoma.':
+        'Review paused: “Review warnings” resumes it.',
+    'Revisando esta línea…':
+        'Reviewing this line…',
+    'te propongo {d}':
+        'I suggest {d}',
+    'Aprobar':
+        'Approve',
+    'Otro valor':
+        'Another value',
+    'Saltar':
+        'Skip',
+    'Pausar':
+        'Pause',
+    'Quedan {n} línea(s) por revisar.':
+        '{n} line(s) left to review.',
+    '{n} aviso(s) aprobado(s)':
+        '{n} warning(s) approved',
+    'Aprobar estos avisos':
+        'Approve these warnings',
+    '¿Por qué se aprueban? Queda en la bitácora y en el proyecto.':
+        'Why are they approved? It stays in the log and in the project.',
+    '({n} casos)':
+        '({n} cases)',
+    'Aprobar con nota':
+        'Approve with a note',
+    'Ver el primero':
+        'See the first one',
+    'Esto lo decides tú:':
+        'These are your call:',
+    'Terminé la revisión.':
+        'I finished the review.',
+    'Dejaste {n} para después:':
+        'You left {n} for later:',
+    'volver a verlos':
+        'see them again',
+    'Lo causa un accesorio: solo tú sabes si existe.':
+        'An accessory causes it: only you know whether it exists.',
+    'Sin una solución automática limpia.':
+        'No clean automatic solution.',
+    'Ya se resolvió con otra de esta tanda.':
+        'Already solved by another one in this batch.',
+    'Dejó de quedar limpia tras los cambios anteriores.':
+        'No longer clean after the previous changes.',
+    '{n} conflicto(s) resuelto(s)':
+        '{n} conflict(s) resolved',
+    'La app lo probó: queda limpio.':
+        'The app tested it: it stays clean.',
+    'Probando las soluciones…':
+        'Testing the solutions…',
+    'Probando las soluciones: {k} de {n}':
+        'Testing the solutions: {k} of {n}',
+    'No pude probar las soluciones: {e}':
+        'I could not test the solutions: {e}',
+    'Soluciones probadas.':
+        'Solutions tested.',
+    'El proyecto cambió: vuelve a pedir la prueba.':
+        'The project changed: ask for the test again.',
+    'Apliqué {n}. Se deshace con un Ctrl+Z.':
+        'I applied {n}. One Ctrl+Z undoes it.',
+    'Salté {n}: {m}':
+        'I skipped {n}: {m}',
+    'Probé estas soluciones y quedan limpias:':
+        'I tested these solutions and they stay clean:',
+    'Cambian cotas de redes existentes: revísalas antes de marcarlas.':
+        'They change elevations of existing networks: review them before checking them.',
+    'Estos necesitan tu criterio:':
+        'These need your judgment:',
+    'No hay conflictos.':
+        'No conflicts.',
+    'Marcar todas las limpias':
+        'Check all the clean ones',
+    'Esa herramienta no existe.':
+        'That tool does not exist.',
+    'No hay resultados.':
+        'No results.',
+    'hay {n} más':
+        '{n} more',
+    'No encuentro ese código en el proyecto.':
+        'I cannot find that code in the project.',
+    'Bitácora del Copiloto':
+        'Copilot log',
+    'Ver la bitácora':
+        'See the log',
+    'Todavía no hay nada en la bitácora.':
+        'The log is still empty.',
+    'deshecha':
+        'undone',
+    'Deshacer esta tanda':
+        'Undo this batch',
+    '«Mostrar cruces/conflictos» está apagado: no puedo saber cuántos conflictos hay.':
+        '“Show crossings/conflicts” is off: I cannot tell how many conflicts there are.',
+    'Encenderlo':
+        'Turn it on',
+    'La hoja no tiene escala: sin ella no puedo revisar los avisos.':
+        'The sheet has no scale: without it I cannot review the warnings.',
+    'Usa buscar_lineas con sin_tipo.':
+        'Use buscar_lineas with sin_tipo.',
+    'El proyecto cambió: esta tanda ya no vale.':
+        'The project changed: this batch no longer applies.',
+    'Abrí «{f}».':
+        'I opened “{f}”.',
+    'No lo usé.':
+        'I did not use it.',
+    'Investiga el diámetro de {c}: mira el plano y propón un valor solo si tienes evidencia.':
+        'Investigate the diameter of {c}: look at the plan and suggest a value only if you have evidence.',
+    'Leído en el texto del plano':
+        'Read in the plan text',
+    'Solo lectura visual: revísalo en la captura':
+        'Visual reading only: check it in the capture',
+    '¿Uso «{f}»?':
+        'Shall I use “{f}”?',
+    'Sí, úsala':
+        'Yes, use it',
+    'Investigar {n} línea(s) sin dato: miro el plano por mi cuenta':
+        'Investigate {n} line(s) with no data: I look at the plan on my own',
+    'No se pudo: {e}':
+        'Could not do it: {e}',
+    'Ya viste esta zona con ese zoom. Mira otra zona o termina con lo que tienes.':
+        'You already saw this area at that zoom. Look at another area or finish with what you have.',
+    'No hay PDF en esta hoja: no puedo mirar el plano.':
+        'This sheet has no PDF: I cannot look at the plan.',
+    '(el PDF no da texto cerca de esta línea)':
+        '(the PDF gives no text near this line)',
+    'Captura: la línea va en magenta. Texto cercano del PDF:':
+        'Capture: the line is in magenta. Nearby PDF text:',
+    'No hay otras zonas para esta utilidad.':
+        'There are no other areas for this utility.',
+    'Primero pide las zonas de esa utilidad.':
+        'First ask for the areas of that utility.',
+    'Ya viste esta zona. Mira otra o termina con lo que tienes.':
+        'You already saw this area. Look at another or finish with what you have.',
+    'No pude leer esa zona.':
+        'I could not read that area.',
+    '(sin texto)':
+        '(no text)',
+    'No encuentro: {c}':
+        'I cannot find: {c}',
+    'Señalé {n} en el plano.':
+        'I marked {n} on the plan.',
+    'Listo.':
+        'Done.',
+    'El plano muestra {c}.':
+        'The plan shows {c}.',
+    'No encuentro esa función.':
+        'I cannot find that function.',
+    'Hecho: {f}':
+        'Done: {f}',
+    'Le pregunté al usuario si usa «{f}».':
+        'I asked the user whether to use “{f}”.',
+    'Antes mira esa línea en el plano.':
+        'Look at that line on the plan first.',
+    'Di el diámetro en pulgadas.':
+        'State the diameter in inches.',
+    'La normativa no permite {d} en esa utilidad.':
+        'The standards do not allow {d} on that utility.',
+    'Se lo mostré al usuario para que decida.':
+        'I showed it to the user to decide.',
+    'Esa acción no se puede proponer aquí.':
+        'That action cannot be proposed here.',
+    'El usuario tiene elegido: {c}. «Esto» se refiere a eso.':
+        'The user has selected: {c}. “This” refers to it.',
+    'TU PLAN (lo escribiste tú, síguelo):':
+        'YOUR PLAN (you wrote it, follow it):',
+    'Plan anotado.':
+        'Plan noted.',
+    'Miré el plano: {que_buscar}':
+        'I looked at the plan: {que_buscar}',
+    'Busqué zonas con más datos':
+        'I looked for areas with more data',
+    'Miré la zona {zona}':
+        'I looked at area {zona}',
+    'Señalé en el plano':
+        'I marked it on the plan',
+    'Busqué una función: {texto}':
+        'I searched for a function: {texto}',
+    'Usé: {nombre}':
+        'I used: {nombre}',
+    'Me hice un plan: {objetivo}':
+        'I made a plan: {objetivo}',
+    'Leí la ficha de {codigo}':
+        'I read the record of {codigo}',
+    'Busqué líneas':
+        'I searched for lines',
+    'Revisé los avisos':
+        'I reviewed the warnings',
+    'Revisé los conflictos':
+        'I reviewed the conflicts',
+    'Te llevé a {codigo}':
+        'I took you to {codigo}',
+    'Te propuse un diámetro':
+        'I suggested a diameter',
+    'Te propuse un cambio':
+        'I suggested a change',
+    'Quité las señales':
+        'I removed the marks',
+    'Válvula':
+        'Valve',
+    'De línea':
+        'Line valve',
+    'Purga':
+        'Blow-off',
+    'Retención':
+        'Check valve',
+    'Retención doble':
+        'Double check valve',
+    'Reguladora de presión':
+        'Pressure regulator',
+    'Mariposa':
+        'Butterfly valve',
+    'Aire':
+        'Air valve',
+    'Compuerta':
+        'Gate valve',
+    'abierta':
+        'open',
+    'cerrada':
+        'closed',
+    'Válvulas':
+        'Valves',
+    'Válvulas: {n}':
+        'Valves: {n}',
+    'Válvulas: {n}.':
+        'Valves: {n}.',
+    '{n} válvulas reconocidas':
+        '{n} valves recognized',
+    'por confirmar':
+        'to confirm',
+    'Confirmar válvula':
+        'Confirm valve',
+    'Borrar válvula':
+        'Delete valve',
+    'Reconocer también las válvulas de la hoja. Quedan en su propia capa.':
+        'Also recognize the valves on the sheet. They go on their own layer.',
+    'Capa del PDF':
+        'PDF layer',
+    'Leyenda del plano':
+        'Plan legend',
+    'Forma del símbolo':
+        'Symbol shape',
+    'Asignada a mano':
+        'Assigned by hand',
+    'Segura':
+        'Certain',
+    'Por confirmar':
+        'To confirm',
+    'Certeza':
+        'Certainty',
+    'válvula por confirmar':
+        'valve to confirm',
+    'válvulas por confirmar':
+        'valves to confirm',
+    'válvula sin línea cerca':
+        'valve with no line nearby',
+    'válvulas sin línea cerca':
+        'valves with no line nearby',
 }

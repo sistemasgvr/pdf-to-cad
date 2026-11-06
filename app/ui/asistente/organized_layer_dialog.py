@@ -18,7 +18,7 @@ from ui.asistente.pdf_view_quality import FocusedPageQuality
 from hoja.sheet_crops import normalize as normalize_crops, page_rect
 from ui.asistente.sheet_crop_dialog import choose_sheet_crop
 from ui.comun.ui_common import fila_lista, swatch_icon
-from ui.comun.widgets import ZoomPanView
+from ui.comun.widgets import NaturalHeightScroll, ZoomPanView
 from ui.comun import theme as _theme
 
 
@@ -71,9 +71,15 @@ class OrganizedLayersDialog(QtWidgets.QDialog):
 
         side = QtWidgets.QWidget()
         side.setFixedWidth(430)
-        panel = QtWidgets.QVBoxLayout(side)
+        # lo que no cabe se desplaza (los botones de abajo, siempre a la vista): ver `layer_dialog`
+        contenido = QtWidgets.QWidget()
+        panel = QtWidgets.QVBoxLayout(contenido)
         panel.setContentsMargins(0, 0, 0, 0)
         panel.setSpacing(8)
+        marco = QtWidgets.QVBoxLayout(side)
+        marco.setContentsMargins(0, 0, 0, 0)
+        marco.setSpacing(8)
+        marco.addWidget(NaturalHeightScroll(contenido), 1)
         root.addWidget(side)
         intro = QtWidgets.QLabel(_tr(
             "Las hojas aparecen según la organización elegida. Marca las capas "
@@ -113,6 +119,7 @@ class OrganizedLayersDialog(QtWidgets.QDialog):
         self.search.textChanged.connect(self._apply_filter)
         panel.addWidget(self.search)
         self.lst = QtWidgets.QListWidget()
+        self.lst.setMinimumHeight(150)
         self.lst.setAlternatingRowColors(True)
         self.lst.itemChanged.connect(self._on_item_changed)
         panel.addWidget(self.lst, 1)
@@ -136,7 +143,7 @@ class OrganizedLayersDialog(QtWidgets.QDialog):
         btn_cancel.setText(_tr("Cancelar"))
         buttons.accepted.connect(self.accept)
         buttons.rejected.connect(self.reject)
-        panel.addWidget(buttons)
+        marco.addWidget(buttons)
         btn_ok.setDefault(True)
 
         self._timer = QtCore.QTimer(self)

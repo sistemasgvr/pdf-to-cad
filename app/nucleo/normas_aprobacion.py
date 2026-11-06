@@ -111,8 +111,11 @@ def reindexar(aprobados, borrada):
     aprobados[:] = out
 
 
-def _usuario():
+def usuario():
     try:
         return getpass.getuser()
     except Exception:                                  # sin variables de entorno de usuario
         return ""
+
+
+_usuario = usuario                                     # `aprobar` tiene un parámetro con ese nombre

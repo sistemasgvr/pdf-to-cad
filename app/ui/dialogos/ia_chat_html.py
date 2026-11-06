@@ -15,7 +15,8 @@ from traduccion.i18n_core import N_
 
 _COD = re.compile(r"\[?\b([A-Z][A-Z0-9]*-\d+)\b\]?")
 _NEGRITA = re.compile(r"\*\*(.+?)\*\*")
-ICONOS = {"util": "mdi:thumb-up-outline", "noutil": "mdi:thumb-down-outline", "corr": "mdi:pencil-outline",
+ICONOS = {"marcado": "mdi:checkbox-marked-outline", "vacio": "mdi:checkbox-blank-outline",
+          "util": "mdi:thumb-up-outline", "noutil": "mdi:thumb-down-outline", "corr": "mdi:pencil-outline",
           "copiar": "mdi:content-copy", "repetir": "mdi:refresh", "ia": "mdi:robot-outline",
           "aviso": "mdi:alert-outline"}
 # Texto del globo de cada acción (por el esquema del enlace).
@@ -119,6 +120,9 @@ def _burbuja_ia(i, tu, tk, existe, ahora, ultimo):
     if tu["estado"] == "error":
         rojo = ERROR_OSCURO if oscuro else tk.danger      # el «danger» del tema oscuro no llega a 4.5:1
         cuerpo = f"<span style='color:{rojo}'>{tu['error']}</span>"
+    elif tu.get("cop"):
+        from ui.dialogos import ia_chat_copiloto_html as HC
+        cuerpo = HC.tarjeta(i, tu, tk)
     elif tu.get("orden"):
         cuerpo = _orden(i, tu, tk)
     elif tu["texto"]:
@@ -134,6 +138,9 @@ def _burbuja_ia(i, tu, tk, existe, ahora, ultimo):
     elif tu["estado"] == "escribiendo" and tu["texto"]:
         cab += " · " + _tr("escribiendo…")
     partes.append(f"<span style='font-size:small; color:{tk.text_muted}'>{html.escape(cab)}</span><br>{cuerpo}")
+    if res is not None and getattr(res, "pasos", None):
+        partes.append(f"<p style='margin-top:6px; font-size:small; color:{tk.text_muted}'>"
+                      + "<br>".join("· " + html.escape(p) for p in res.pasos) + "</p>")
     if res is not None and res.sin_respaldo:
         fondo, letra = colores_aviso(oscuro)
         cifras = ", ".join(f"{v:g}" for v in res.sin_respaldo)
@@ -189,7 +196,8 @@ def conversacion(turnos, tk, existe, ahora):
             partes.append(f"<p style='margin-top:12px; color:{tk.text_muted}'>✎ " + html.escape(
                 _tr("Anotado para este proyecto: {n}").format(n=tu["nota"])) + "</p>")
             continue
-        partes.append(_burbuja_tu(tu, tk))
+        if not tu.get("sistema"):                        # tarjeta del Copiloto sin pregunta
+            partes.append(_burbuja_tu(tu, tk))
         partes.append(_burbuja_ia(i, tu, tk, existe, ahora, i == ultimo))
     partes.append("</div>")
     return "".join(partes).replace("<a href='config:", f"<a style='color:{tk.text_info}' href='config:")

@@ -15,7 +15,8 @@ import time
 
 from PySide6 import QtCore, QtGui, QtWidgets
 
-from ia import consulta, proveedor as P
+from ia import civil3d_agente, consulta, proveedor as P
+from ui.dialogos.ia_chat_copiloto import CopilotoChatMixin
 from traduccion.i18n import t as _tr
 from traduccion.i18n_core import N_
 from ui.dialogos import ia_chat_html as H
@@ -42,6 +43,9 @@ class VistaChat(QtWidgets.QTextBrowser):
     """El QTextBrowser del chat: iconos `ico:<nombre>` retintados con el tema y globo de ayuda en cada enlace."""
 
     def loadResource(self, tipo, url):                   # noqa: N802
+        if tipo == QtGui.QTextDocument.ImageResource and url.scheme() == "cap":
+            from ui.dialogos import ia_chat_copiloto_html as HC
+            return QtGui.QImage.fromData(HC.CAPTURAS.get(url.path(), b""))
         if tipo == QtGui.QTextDocument.ImageResource and url.scheme() == "ico":
             from ui.comun import icons, theme
             tk = theme.tokens()
@@ -62,7 +66,7 @@ class VistaChat(QtWidgets.QTextBrowser):
         return super().event(ev)
 
 
-class PreguntaDialog(OrdenesMixin, QtWidgets.QDialog):
+class PreguntaDialog(CopilotoChatMixin, OrdenesMixin, QtWidgets.QDialog):
     def __init__(self, win):
         super().__init__(win, QtCore.Qt.Window)
         self.win = win
@@ -121,6 +125,7 @@ class PreguntaDialog(OrdenesMixin, QtWidgets.QDialog):
             sl.addWidget(b)
             self._botones_sug.append(b)
         lay.addWidget(self.caja_sug)
+        lay.addWidget(self._barra_copiloto())
 
         self.entrada = QtWidgets.QPlainTextEdit()
         self.entrada.setFixedHeight(72)
@@ -308,6 +313,7 @@ class PreguntaDialog(OrdenesMixin, QtWidgets.QDialog):
             b.setVisible(hay_conflictos or k >= DE_CONFLICTOS)
 
     def proyecto_cambiado(self):
+        self._copiloto_soltar()
         if self._activo:
             self._activo["cancelado"] = True
         self.turnos = []
@@ -352,6 +358,7 @@ class PreguntaDialog(OrdenesMixin, QtWidgets.QDialog):
     def enviar(self, texto=None):
         if self._activo is not None:                     # «Detener»
             self._activo["cancelado"] = True
+            self._detener_copiloto()
             return
         q = (texto if texto is not None else self.entrada.toPlainText()).strip()
         if not q:
@@ -360,6 +367,8 @@ class PreguntaDialog(OrdenesMixin, QtWidgets.QDialog):
         turno = {"pregunta": q, "texto": "", "estado": "escribiendo", "res": None, "error": "", "valor": 0,
                  "corregido": "", "hora": time.strftime("%H:%M"), "t0": time.time(), "siguientes": []}
         self.turnos.append(turno)
+        if self._turno_copiloto(turno):                  # funciona también sin servidor de IA
+            return
         prov = P.crear(self.win._config_ia())
         if prov is None:
             turno["estado"] = "error"
@@ -391,14 +400,20 @@ class PreguntaDialog(OrdenesMixin, QtWidgets.QDialog):
         turno["texto"], turno["estado"] = "", "escribiendo"
         mem = self.win._ia_memoria()
         historial = [(x["pregunta"], x["texto"]) for x in self.turnos
-                     if x is not turno and "nota" not in x and "orden" not in x and x["estado"] == "listo"]
+                     if x is not turno and "nota" not in x and "orden" not in x and "cop" not in x
+                     and x["estado"] == "listo"]
         manual = self._indice_manual()                 # preguntas de ayuda → el manual (2026-10-30)
+        cancelado = lambda: estado["cancelado"]  # noqa: E731
+        cliente = self.win.agente_cliente(datos, cancelado)   # aquí: su señal debe nacer en el hilo de la ventana
 
         def correr():
             try:
                 res = consulta.preguntar(prov, q, datos, mem, historial,
                                          al_texto=lambda s: self._senales.trozo.emit(turno, s),
-                                         cancelado=lambda: estado["cancelado"], manual=manual)
+                                         cancelado=cancelado, manual=manual,
+                                         agente=civil3d_agente.pedir_ollama(prov.config),
+                                         cliente=cliente,
+                                         al_paso=lambda s: self._senales.trozo.emit(turno, f"· {s}\n"))
                 self._senales.listo.emit(turno, res)
             except P.ErrorIA as e:
                 self._senales.fallo.emit(turno, str(e))
@@ -416,9 +431,11 @@ class PreguntaDialog(OrdenesMixin, QtWidgets.QDialog):
         turno["res"], turno["texto"], turno["estado"] = res, res.texto, "listo"
         turno["siguientes"] = H.siguientes(res)
         self._terminar()
+        self._cop_tras_agente(res)
 
     def _al_fallo(self, turno, msg):
         turno["estado"], turno["error"] = "error", html.escape(msg)
+        self._cop_inv = []
         self._terminar()
 
     def _terminar(self):
@@ -456,6 +473,8 @@ class PreguntaDialog(OrdenesMixin, QtWidgets.QDialog):
         tipo, valor = url.scheme(), url.path()
         if tipo == "ref":
             self.win._ia_ir_a(valor)
+        elif tipo == "cop":                              # tarjetas del Copiloto (ia_chat_copiloto)
+            self._enlace_copiloto(valor)
         elif tipo in ("ordensi", "ordenno"):             # «Sí, hazlo» / «No» de una orden (ia_chat_ordenes)
             if valor.isdigit():
                 self._confirmar_orden(int(valor), tipo == "ordensi")

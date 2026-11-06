@@ -214,6 +214,8 @@ def _merge_into_modelo(win, doc, marks=True):
     # rótulos del plano reconocidos (MLeader / MText del PDF, con su XDATA; pedido 2026-11-03)
     from exportar import dxf_anotaciones
     dxf_anotaciones.exportar(win, doc, msp)
+    from exportar import dxf_valvulas
+    dxf_valvulas.exportar(win, doc, msp)
 
 
 def apply_erase(win, msp):

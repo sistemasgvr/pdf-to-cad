@@ -74,7 +74,7 @@ class RecogCardMixin:
         # INTERRUPTOR; la casilla de siempre sigue siendo el dato (el interruptor la refleja)
         from ui.comun.rediseno import Interruptor
         filas = QtWidgets.QVBoxLayout()
-        filas.setSpacing(2)
+        filas.setSpacing(6)
         self._recog_switches: dict[str, Interruptor] = {}
         self._recog_counts: dict[str, QtWidgets.QLabel] = {}
         self._recog_checks: dict[str, QtWidgets.QCheckBox] = {}
@@ -93,7 +93,7 @@ class RecogCardMixin:
             cuenta = QtWidgets.QLabel()
             cuenta.setProperty("rol", "t3")
             fila = QtWidgets.QHBoxLayout()
-            fila.setContentsMargins(0, 2, 0, 2)
+            fila.setContentsMargins(0, 0, 0, 0)     # filas ocultas = 0 px (el aire va en `filas`)
             fila.addWidget(cb, 1)
             fila.addWidget(cuenta)
             fila.addSpacing(6)
@@ -102,6 +102,15 @@ class RecogCardMixin:
             self._recog_switches[key] = sw
             self._recog_counts[key] = cuenta
         lay.addLayout(filas)
+        fila_v = QtWidgets.QHBoxLayout()
+        fila_v.setContentsMargins(0, 0, 0, 0)
+        lbl_v = QtWidgets.QLabel(_tr("Válvulas"))
+        lbl_v.setToolTip(_tr("Reconocer también las válvulas de la hoja. Quedan en su propia capa."))
+        self.sw_valvulas = Interruptor(bool(getattr(self.parent(), "_reconocer_valvulas", True)), _tr("Válvulas"))
+        fila_v.addWidget(lbl_v, 1)
+        fila_v.addSpacing(6)
+        fila_v.addWidget(self.sw_valvulas)
+        lay.addLayout(fila_v)
         self.lbl_recog_warn = QtWidgets.QLabel(_tr("Marca al menos una utilidad para reconocer."))
         self.lbl_recog_warn.setStyleSheet(f"color:{t.danger}; font-weight:bold;")
         self.lbl_recog_warn.hide()
@@ -155,6 +164,7 @@ class RecogCardMixin:
             QtCore.Qt.Checked if enabled and n_on == len(enabled) else
             QtCore.Qt.PartiallyChecked if n_on else QtCore.Qt.Unchecked)
         self.chk_recog_all.setEnabled(bool(enabled))
+        self.chk_recog_all.setHidden(self._flat_sheet() and not enabled)
         self.chk_recog_all.blockSignals(False)
         flat = self._flat_sheet()
         # hoja sin utilidades: se puede seguir (avisa el preview); sin capas, primero se
@@ -200,8 +210,11 @@ class RecogCardMixin:
             # 2.0.0: si la utilidad ya tiene su interruptor en su fila del árbol, aquí no se repite
             # (en una hoja SIN capas los grupos son por estilo: la fila se queda aquí)
             en_arbol = key in getattr(self, "_interruptores_arbol", {}) and not self._flat_sheet()
+            # hoja sin capas: solo las utilidades con un estilo asignado (seis filas apagadas con «0 capas»
+            # ocupaban medio panel); la casilla sigue siendo el dato
+            sin_estilo = self._flat_sheet() and not cb.isEnabled()
             for w in (cb, sw, self._recog_counts[key]):
-                w.setHidden(en_arbol)
+                w.setHidden(en_arbol or sin_estilo)
 
     def _on_recog_all_clicked(self, _checked=False):
         enabled = self._enabled_recog()

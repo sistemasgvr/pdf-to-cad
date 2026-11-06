@@ -272,6 +272,8 @@ class SeleccionMixin:
         """Clic derecho en el lienzo (sin herramienta activa) sobre una utilidad:
         el mismo menú que en la lista. Si era parte de la selección múltiple, la
         conserva; si no, la selecciona sola."""
+        if self._menu_valvula(x, y):                # ventana_valvulas
+            return
         best = self._pipe_at(x, y)
         if best < 0:
             return

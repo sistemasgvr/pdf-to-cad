@@ -27,6 +27,9 @@ class Tabla:
     lugares: list = field(default_factory=list)   # por fila: (x_px, y_px, objeto, índice) o None
 
 
+ORIGEN_VALVULA = {"capa": N_("Capa del PDF"), "leyenda": N_("Leyenda del plano"), "forma": N_("Forma del símbolo"),
+                  "manual": N_("Asignada a mano")}
+CERTEZA_VALVULA = {"segura": N_("Segura"), "por_confirmar": N_("Por confirmar")}
 RED = {"gravity": N_("Gravedad"), "conduit": N_("Conducto"), "pressure": N_("Presión")}
 
 
@@ -59,7 +62,7 @@ def _registro(a):
 
 def armar(pipes, structures, duct_banks, avisos, a_cad, ft_per_px,
           nombre_utilidad=lambda c: c, nombre_familia=lambda f: f, conflictos=(), solo_pipes=None,
-          solo_estructuras=None):
+          solo_estructuras=None, valvulas=None):
     """Las tablas. Con `solo_pipes` / `solo_estructuras` (índices), solo las filas de esas utilidades y buzones
     (las MISMAS filas; la ficha de la Vista 3D no arma 16 761 filas para mostrar una; sin curvas)."""
     pipes = pipes or []
@@ -160,7 +163,21 @@ def armar(pipes, structures, duct_banks, avisos, a_cad, ft_per_px,
         co.filas.append([c.id, t(c.titulo), ", ".join(f"#{i + 1}" for i in c.pipes), _r(za, 3), _r(zb, 3),
                          _r(c.diferencia, 3), " ".join(c.mensaje.split()), x, y])
         co.lugares.append((c.x, c.y, "pipe" if c.pipes else None, c.pipes[0] if c.pipes else -1))
-    return [ut, bz, cu, bd, av, co]
+    tablas = [ut, bz, cu, bd, av, co]
+    if valvulas:                                  # [(válvula, tubería, diámetro, rumbo)] (`ventana_valvulas`)
+        va = Tabla("valvulas", N_("Válvulas"), [
+            N_("N°"), N_("Tipo"), N_("Utilidad"), N_("Estado"), N_("Diámetro (in)"), N_("Tubería"), N_("Origen"),
+            N_("Certeza"), N_("X"), N_("Y")])
+        for k, (v, pipe, diam, _rumbo) in enumerate(valvulas):
+            x, y = _xy(a_cad, (v["x"], v["y"]))
+            va.filas.append([k + 1, t(v.get("tipo") or "Válvula"),
+                             nombre_utilidad(v["utilidad"]) if v.get("utilidad") else "",
+                             t(v["estado"]) if v.get("estado") else "", diam if diam is not None else "",
+                             f"#{pipe + 1}" if pipe is not None else "", t(ORIGEN_VALVULA.get(v.get("origen"), "")),
+                             t(CERTEZA_VALVULA.get(v.get("certeza"), "")), x, y])
+            va.lugares.append((v["x"], v["y"], "pipe" if pipe is not None else None, pipe if pipe is not None else -1))
+        tablas.append(va)
+    return tablas
 
 
 def exportar_excel(tablas, ruta):
