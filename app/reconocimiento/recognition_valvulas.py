@@ -5,11 +5,12 @@ Cuatro fuentes, de más a menos segura. Ninguna toca las líneas: es una lectura
   · CAPA (hoja con capas): `V-WATR-VALV`, `V-NGAS-VALV`, `C-WATR-GV-E`… Los recortes y las vistas de perfil los quita
     `gather_paths`, como a las líneas. En DU06 el símbolo no da el tipo: el nombre de la capa da solo la utilidad.
   · LEYENDA (mapa sin capas): las filas «Standard Vlv - Open», «Blow-Off Vlv», «Water PRVs» señalan su símbolo.
+  · LEYENDA EN IMAGEN (Southwest Gas): `hoja/leyendas_imagen` la reconoce por su huella y da el glifo de cada fila.
   · FORMA (hoja sin capas ni leyenda; CAD aplanado, DU08 h.4–19): el moño de 4 lados que se cruzan. También lo son
     árboles y otros bloques, así que solo cuenta a ≤ `valvulas.EN_LINEA_PT` de una línea reconocida y queda «por
     confirmar».
-  · MANUAL: lo que el usuario asignó con el rol «Válvulas» en «Capas de la hoja» (la única salida en Southwest Gas: sus
-    símbolos son glifos de fuentes ESRI sin significado escrito).
+  · MANUAL: lo que el usuario asignó con el rol «Válvulas» en «Capas de la hoja» (la única salida con una leyenda en
+    imagen que no está en la tabla: sus símbolos son glifos de fuentes ESRI).
 
 El tipo solo sale de un texto del plano (`tipo_de`, con los nombres del estándar LADWP PC9431); nunca de la forma.
 """
@@ -20,6 +21,8 @@ import math
 import re
 from typing import Dict, List, Optional, Sequence
 
+import fitz
+
 from hoja import pdf_styles
 from nucleo import valvulas as V
 from reconocimiento import recognition as rec
@@ -29,6 +32,7 @@ MIN_PT = 1.2                # más chico = el plano índice de la hoja, a otra e
 TOCA_PT = 0.25              # trazos de la misma capa a menos de esto = un mismo símbolo (DU06 h.13: dos válvulas a 0.6 pt)
 MISMA_PT = 0.5              # el mismo símbolo en dos capas
 ASTILLA_PT = 1.0            # un símbolo recortado que quedó más delgado que esto no se ubica bien
+TINTA_TOL = 150             # suma de diferencias RGB: el suavizado del borde aclara el color del glifo
 RAMAL_PUNTA_PT = 1.0        # las puntas de un ramal: sobre la válvula y sobre su tubería
 RAMAL_MAX_PT = 30.0         # más largo ya no es un ramal que el reconocimiento descartó por corto
 FORMA_MIN_PT, FORMA_MAX_PT = 2.0, 9.0
@@ -212,6 +216,47 @@ def _de_leyenda(page) -> List[dict]:
     return out
 
 
+def _se_dibuja(lista, page, caja, color) -> bool:
+    """¿Se ve tinta del color del glifo en su lugar? El SIG deja glifos fuera del marco del mapa, tapados por su recorte
+    (Southwest 37 (425, 247)): el texto sigue ahí, pero en la hoja no hay nada."""
+    girar = rec.transformador_mupdf(page.rotation_matrix)
+    a, b = girar(caja[0], caja[1]), girar(caja[2], caja[3])
+    pix = lista.get_pixmap(matrix=fitz.Matrix(10, 10), clip=fitz.Rect(min(a[0], b[0]), min(a[1], b[1]), max(a[0], b[0]),
+                                                                    max(a[1], b[1])), alpha=False)
+    rgb = [int(round(c * 255)) for c in (tuple(color) + (0, 0, 0))[:3]] if len(color) == 3 else [0, 0, 0]
+    px = pix.samples
+    n = pix.n
+    return any(abs(px[i] - rgb[0]) + abs(px[i + 1] - rgb[1]) + abs(px[i + 2] - rgb[2]) < TINTA_TOL
+               for i in range(0, len(px) - n + 1, n))
+
+
+def _de_imagen(page, ley) -> List[dict]:
+    """Los glifos que la leyenda en imagen dice que son válvulas (`dir` = cómo va el símbolo, para su estado)."""
+    from hoja import leyenda_mapa_lectura
+    inicios = leyenda_mapa_lectura.inicios_de_piezas(page)
+    recortes = leyenda_mapa_lectura.recortes_de_piezas(page)
+    lista = page.get_displaylist()
+    out: List[dict] = []
+    for sp in page.get_texttrace():
+        fuente = (sp.get("font") or "").split("+")[-1]
+        for ch in sp.get("chars") or ():
+            s = ley.simbolos.get((fuente, ch[0]))
+            if s is None:
+                continue
+            caja = tuple(float(v) for v in ch[3])
+            c = ((caja[0] + caja[2]) / 2.0, (caja[1] + caja[3]) / 2.0)
+            if not _se_ve(c, sp.get("seqno") or 0, inicios, recortes) \
+                    or any(math.dist(c, o["c"]) <= MISMA_PT for o in out) \
+                    or not _se_dibuja(lista, page, caja, sp.get("color") or ()):
+                continue
+            h = dict(c=c, caja=caja, utilidad=ley.utilidad, tipo=s.tipo, capa=s.texto, origen=V.LEYENDA, certeza=V.SEGURA)
+            if s.por_rumbo:
+                d = sp.get("dir") or (1.0, 0.0)
+                h["dir"] = math.degrees(math.atan2(d[1], d[0]))
+            out.append(h)
+    return out
+
+
 def _de_forma(page, hidden) -> List[dict]:
     _l, trazos, _n, _k = rec.gather_paths(
         page, lambda o: "structure" if (o or "").startswith(pdf_styles.PREFIX) else None, hidden,
@@ -233,12 +278,15 @@ def _manuales(page, hidden, roles_by_utility) -> List[dict]:
 
 def leer_hoja(page, zoom, hidden=(), roles_by_utility=None) -> List[dict]:
     """Candidatas de la hoja (px de la vista); `completar` las cruza con las líneas."""
-    from hoja import leyenda_mapa
+    from hoja import leyenda_mapa, leyendas_imagen
     con_capas = any((p.get("layer") or "") and not p["layer"].startswith(pdf_styles.PREFIX)
                     for p in pdf_styles.drawings(page) if p.get("type") not in ("clip", "group"))
     leyenda = not con_capas and leyenda_mapa.aplica(page)
-    hallazgos = _de_capas(page, hidden) if con_capas else _de_leyenda(page) if leyenda else _de_forma(page, hidden)
-    hallazgos += _manuales(page, hidden, roles_by_utility)
+    imagen = None if con_capas or leyenda else leyendas_imagen.conocida(page)
+    hallazgos = _de_capas(page, hidden) if con_capas else _de_leyenda(page) if leyenda else \
+        _de_imagen(page, imagen) if imagen else _de_forma(page, hidden)
+    hallazgos += [m for m in _manuales(page, hidden, roles_by_utility)
+                  if not any(math.dist(m["c"], h["c"]) <= MISMA_PT for h in hallazgos)]
     girar = rec.transformador_mupdf(page.rotation_matrix)
     crop = rec.crop_page_rect(page, None)
     out = []
@@ -248,6 +296,8 @@ def leer_hoja(page, zoom, hidden=(), roles_by_utility=None) -> List[dict]:
                     h.get("estado"), h["origen"], h["certeza"], h.get("capa"))
         a, b = girar(*h["caja"][:2]), girar(*h["caja"][2:])
         v["sim_w"], v["sim_h"] = abs(a[0] - b[0]) * zoom, abs(a[1] - b[1]) * zoom
+        if "dir" in h:
+            v["dir_sim"] = (h["dir"] + page.rotation) % 180.0
         out.append(v)
     return out
 
@@ -313,6 +363,13 @@ def _trazos_cortos(page, utilidad: str, hidden) -> List[dict]:
     return out
 
 
+def _estado_por_rumbo(giro: float, rumbo: float) -> str:
+    """Leyenda de Southwest Gas: abierta = el borde del medio círculo va a lo largo de la tubería, y el `dir` del glifo
+    sale perpendicular a ella. `giro` va con la y hacia abajo y `rumbo` (`valvulas._pie`) con la y hacia arriba."""
+    entre = abs((giro + rumbo + 90.0) % 180.0 - 90.0)
+    return "abierta" if entre > 45.0 else "cerrada"
+
+
 def _lineas(results) -> List[dict]:
     return [dict(layer=r.utility, pts=pl.pts_pdf) for r in results for pl in r.drawable]
 
@@ -335,7 +392,10 @@ def completar(valvulas: Sequence[dict], results: Sequence, zoom: float) -> List[
             v["utilidad"] = lineas[hay[0]]["layer"]
         if v["utilidad"] and v["utilidad"] not in elegidas:
             continue
-        v["en_linea"] = bool(lineas) and V.relacion(v, lineas, V.tol_pt(v) * zoom, indice.cerca) is not None
+        rel = V.relacion(v, lineas, V.tol_pt(v) * zoom, indice.cerca) if lineas else None
+        v["en_linea"] = rel is not None
+        if rel is not None and "dir_sim" in v and not v["estado"]:
+            v["estado"] = _estado_por_rumbo(v["dir_sim"], rel[2])
         out.append(v)
     return out
 

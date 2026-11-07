@@ -427,15 +427,14 @@ def test_aplanado_por_forma_queda_por_confirmar():
 
 
 @_necesita(SOUTHWEST)
-def test_simbolos_sin_significado_solo_a_mano():
+def test_simbolos_asignados_a_mano_se_suman():
     from hoja import pdf_styles
     with fitz.open(SOUTHWEST) as doc:
         page = doc[0]
-        assert RV.leer_hoja(page, 1.0) == []
         capas = {p["layer"] for p in pdf_styles.drawings(page) if pdf_styles.is_symbol(p.get("layer") or "")}
         cruz = next(c for c in capas if "ESRIAMFMGas" in c and '[[14,' in c)
         vs = RV.leer_hoja(page, 1.0, roles_by_utility={"GAS": {rec.ROLE_VALVULAS: [cruz]}})
-    assert vs and all(v["origen"] == V.MANUAL and v["utilidad"] == "GAS" for v in vs)
+    assert any(v["origen"] == V.MANUAL and v["utilidad"] == "GAS" for v in vs)
 
 
 @pytest.fixture
@@ -668,3 +667,102 @@ def test_vista_previa_lista_las_valvulas_por_capa():
     filas = [panel.list.item(i) for i in range(panel.list.count())]
     assert [f.text().strip() for f in filas] == ["Válvulas", "V-WATR-VALV  (2)"]
     assert filas[1].data(FOCUS_ROLE)["kind"] == "valve"
+
+
+# ── leyenda en imagen (Southwest Gas, pedido del usuario 2026-11-07) ───────────────────────────────────────
+SOUTHWEST_36 = IND / "APUNTES ING" / "Southwest Gas Combined 811 Records (1) 36.pdf"
+
+
+def _roles_southwest(page):
+    from hoja import pdf_styles
+    capas = {p.get("layer") for p in pdf_styles.drawings(page) if (p.get("layer") or "").startswith(pdf_styles.PREFIX)}
+    return {"GAS": {rec.ROLE_LINEAS: [c for c in capas if "#008585 0.48" in pdf_styles.style_label(c)
+                                      or "#FF6921 0.24" in pdf_styles.style_label(c)], rec.ROLE_BUZONES: []}}
+
+
+@_necesita(SOUTHWEST)
+def test_southwest_leyenda_en_imagen_da_valvulas_y_exceso_de_flujo():
+    with fitz.open(SOUTHWEST) as doc:
+        vs = RV.leer_hoja(doc[0], 1.0)
+    red = [v for v in vs if v["tipo"] == ""]
+    exceso = [v for v in vs if v["tipo"] == "Exceso de flujo"]
+    assert len(red) == 8 and len(exceso) == 16 and len(vs) == 24
+    assert not any(math.dist((v["x"], v["y"]), (425, 247)) < 5 for v in vs)      # fuera del marco del mapa: tapada
+    assert all(v["origen"] == V.LEYENDA and v["certeza"] == V.SEGURA and v["utilidad"] == "GAS" for v in vs)
+    assert {v["capa_pdf"] for v in vs} == {"VALVE", "EXCESS FLOW VALVE"}
+
+
+@_necesita(SOUTHWEST_36)
+def test_southwest_otra_hoja_misma_leyenda():
+    with fitz.open(SOUTHWEST_36) as doc:
+        vs = RV.leer_hoja(doc[0], 1.0)
+    assert sum(1 for v in vs if v["tipo"] == "") == 2 and sum(1 for v in vs if v["tipo"] == "Exceso de flujo") == 6
+
+
+def test_imagen_desconocida_no_da_nada():
+    from hoja import leyendas_imagen as LI
+    doc = fitz.open()
+    page = doc.new_page()
+    pix = fitz.Pixmap(fitz.csRGB, fitz.IRect(0, 0, 4, 4), False)
+    page.insert_image(fitz.Rect(0, 0, 40, 40), pixmap=pix)
+    assert LI.conocida(page) is None
+
+
+@pytest.mark.parametrize("giro, rumbo, estado", [(90, 0, "abierta"), (1, 93, "abierta"), (0, 0, "cerrada"),
+                                                 (92, 90, "cerrada")])
+def test_estado_por_como_va_el_simbolo_respecto_a_la_tuberia(giro, rumbo, estado):
+    ang = math.radians(rumbo)
+    linea = [(100.0 - 90 * math.cos(ang), 100.0 + 90 * math.sin(ang)), (100.0 + 90 * math.cos(ang), 100.0 - 90 * math.sin(ang))]
+    v = dict(V.nueva(100, 100, "GAS", origen=V.LEYENDA), dir_sim=float(giro))
+    assert RV.completar([v], [_Resultado("GAS", linea)], 1.0)[0]["estado"] == estado
+
+
+def test_sin_pieza_se_ve_sobre_su_tuberia_y_no_va_a_civil3d():
+    servicio = _agua([(0.0, 0.0), (300.0, 0.0)], diam=0.75)
+    v = dict(_del_plano(100, 0), utilidad="AGUA", tipo="Exceso de flujo", sim_w=10.0, sim_h=10.0)
+    lug = V.ubicar_todas([servicio], [], [v], FT)[0]
+    assert lug.ok and not V.exportable(v, lug) and (lug.x, lug.y) == pytest.approx((100, 0)) and lug.motivo
+    assert lug.largo_ft == pytest.approx(1.0)
+    chica = _del_plano(100, 0)                                # una válvula común en una tubería de 3/4"
+    lug = V.ubicar_todas([servicio], [], [chica], FT)[0]
+    assert lug.ok and not V.exportable(chica, lug) and lug.motivo
+
+
+@_necesita(SOUTHWEST)
+def test_southwest_ventana_red_a_civil3d_y_exceso_solo_a_la_vista(win_rec):
+    win = win_rec
+    with fitz.open(SOUTHWEST) as doc:
+        roles = _roles_southwest(doc[0])
+    win._open_pdf_path(str(SOUTHWEST))
+    win._load_page(0)
+    win._scale_override = 2.0 / 72.0 * 100
+    win.scale = win._scale_override
+    res = trabajo.reconocer_hoja(win.work_pdf_path or win.pdf_path, 0, zoom=win.zoom, utilities=("GAS",),
+                                 roles_by_utility=roles)
+    win._import_recognized_pipes(res)
+    assert len(win.valvulas) == 24
+    lugares = win._lugares_valvulas()
+    red = [(v, l) for v, l in zip(win.valvulas, lugares) if v["tipo"] == ""]
+    exceso = [(v, l) for v, l in zip(win.valvulas, lugares) if v["tipo"] == "Exceso de flujo"]
+    assert len(red) == 8 and all(v["estado"] == "abierta" and l.ok for v, l in red)
+    assert sum(1 for v, l in red if V.exportable(v, l)) == 3   # las demás van en tuberías de menos de 3"
+    assert not any(V.exportable(v, l) for v, l in exceso)
+    assert all(l.ok for _v, l in exceso)
+
+
+@_necesita(SOUTHWEST)
+def test_southwest_en_hoja_compuesta_solo_lo_que_se_ve(tmp_path):
+    from hoja import composite as C
+    doc = fitz.open(SOUTHWEST)
+    medio = [0.17, 0.09, 0.5, 0.87]
+    otro = [0.5, 0.09, 0.9, 0.87]
+    w = doc[0].rect.width
+    comp = C.Composite(pieces=[C.Piece(source=0, page=0, clip=medio), C.Piece(source=0, page=0, clip=otro, x=w * 0.33)],
+                       scale_ft_per_pt=1.0, bridges=False)
+    for p in comp.pieces:
+        p.src_scale = 1.0
+    out = tmp_path / "sw.pdf"
+    C.build_document(comp, [doc], {}, []).save(str(out))
+    with fitz.open(out) as d:
+        vs = RV.leer_hoja(d[0], 1.0)
+    assert sum(1 for v in vs if v["tipo"] == "") == 8

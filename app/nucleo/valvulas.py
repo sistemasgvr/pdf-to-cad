@@ -53,6 +53,7 @@ TUBO_MIN_FT = limpieza_tramos.TRAMO_MIN_FT   # tubo libre entre la válvula y lo
 SOBRE_TOL_FT = 0.05            # una válvula guardada sigue «en su lugar» si se corre menos que esto
 PLANO_TUBO_FT = 0.05           # del plano: tubo que queda a cada lado (el plugin no crea tubos de menos de 0.02 ft)
 PLANO_CORRE_FT = 0.5           # del plano: lo más que su centro puede quedar fuera del tramo recto
+SIN_PIEZA = ("Exceso de flujo",)   # del plano, pero sin pieza en el catálogo: van en servicios de 3/4"
 EPS = 1e-9
 
 
@@ -322,6 +323,19 @@ def _tramos_cerca(pipes, x, y, tol, utilidad, cerca):
     return sorted(propios), sorted(ajenos)
 
 
+def _sin_pieza(pipes, i, k, x, y, v, ft, motivo):
+    """Sobre su tubería, en su símbolo, sin pieza del catálogo: se ve y no va a Civil 3D."""
+    p = pipes[i]
+    a, b = p["pts"][k], p["pts"][k + 1]
+    L = max(math.hypot(b[0] - a[0], b[1] - a[1]), EPS)
+    t = max(0.0, min(1.0, ((x - a[0]) * (b[0] - a[0]) + (y - a[1]) * (b[1] - a[1])) / (L * L)))
+    largo_ft = max(v.get("sim_w") or 0.0, v.get("sim_h") or 0.0) * ft or 1.0
+    return Lugar(ok=True, exporta=False, pipe=i, tramo=k, x=a[0] + t * (b[0] - a[0]), y=a[1] + t * (b[1] - a[1]),
+                 ux=(b[0] - a[0]) / L, uy=(b[1] - a[1]) / L, diam_in=float(model_ops.diametro(p)[0]),
+                 material=material_de(v.get("material") or "", p.get("material")), largo_ft=largo_ft,
+                 brida_ft=largo_ft * 0.7, motivo=motivo)
+
+
 def _lugar_de(p, i, k, x, y, ux, uy, n, v, **extra):
     bloque, u_ef, largo_in, od_in, avisos = pieza(n, v.get("union") or "FLG")
     return Lugar(ok=True, pipe=i, tramo=k, x=x, y=y, ux=ux, uy=uy, diam_in=float(n), bloque=bloque, union=u_ef,
@@ -346,14 +360,17 @@ def ubicar_plano(pipes, structures, v, ft, otras=(), cerca=None):
                 u=model_ops.nombre_por_defecto(pipes[ajenos[0][1]], ajenos[0][1])))
         return Lugar(motivo=_tr("El plano marca una válvula aquí, pero no dibuja ninguna tubería que pase por este "
                                 "punto: se deja donde está y no va a Civil 3D."))
+    if v.get("tipo") in SIN_PIEZA:
+        return _sin_pieza(pipes, propios[0][1], propios[0][2], x, y, v, ft, _tr(
+            "Esta válvula no tiene pieza en el catálogo: se ve en el plano y no va a Civil 3D."))
     radio_ft = max(v.get("sim_w") or 0.0, v.get("sim_h") or 0.0) / 2.0 * ft
     mejor = None                                       # (corrimiento, dist, i, k, s, a, ux, uy, n)
-    fuera = None                                       # (i, k, n) de la tubería con un diámetro sin válvula
+    fuera = None                                       # (i, k) de la tubería con un diámetro sin válvula
     for d, i, k in propios:
         p = pipes[i]
         n = diametro_valido(model_ops.diametro(p)[0])
         if n is None:
-            fuera = fuera or i
+            fuera = fuera or (i, k)
             continue
         medio = pieza(n, v.get("union") or "FLG")[2] / 24.0
         try:
@@ -381,9 +398,10 @@ def ubicar_plano(pipes, structures, v, ft, otras=(), cerca=None):
         return _lugar_de(pipes[i], i, k, a[0] + ux * s / ft, a[1] + uy * s / ft, ux, uy, n, v,
                          movida=corrida > SOBRE_TOL_FT)
     if fuera is not None:
-        d_in = model_ops.diametro(pipes[fuera])[0]
-        return Lugar(pipe=fuera, motivo=_tr("{u} es de {d}\": hay válvulas de {a}\" a {b}\".").format(
-            u=model_ops.nombre_por_defecto(pipes[fuera], fuera), d=f"{d_in:g}", a=f"{VR.N_MIN:g}", b=f"{VR.N_MAX:g}"))
+        i, k = fuera
+        return _sin_pieza(pipes, i, k, x, y, v, ft, _tr("{u} es de {d}\": hay válvulas de {a}\" a {b}\".").format(
+            u=model_ops.nombre_por_defecto(pipes[i], i), d=f"{model_ops.diametro(pipes[i])[0]:g}", a=f"{VR.N_MIN:g}",
+            b=f"{VR.N_MAX:g}"))
     _d, i, k = propios[0]                              # sobre su tubería, pero no entra en ningún tubo recto
     p = pipes[i]
     n = diametro_valido(model_ops.diametro(p)[0])
@@ -534,7 +552,7 @@ def relacion(v: dict, pipes: Sequence[dict], tol_px: float, cerca=None) -> Optio
 N_ = lambda s: s          # noqa: E731  (marca para la traducción; los valores son datos)
 TEXTOS = (N_("Válvula"), N_("De línea"), N_("Purga"), N_("Retención"), N_("Retención doble"),
           N_("Reguladora de presión"), N_("Mariposa"), N_("Aire"), N_("Compuerta"), N_("Riego"), N_("abierta"),
-          N_("cerrada"))
+          N_("cerrada"), N_("Exceso de flujo"))
 
 
 def nombre(v: dict) -> str:

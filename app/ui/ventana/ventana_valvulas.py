@@ -341,7 +341,7 @@ def globo_valvula(lug, v=None):
     v = v or {}
     t = _tr("Válvula de {tp} {d}\" · {b} · {m} · largo {L} ft").format(
         tp=nombre_tipo(v.get("tipo")).lower(), d=f"{lug.diam_in:g}", b=lug.bloque, m=lug.material,
-        L=f"{lug.largo_ft:.2f}")
+        L=f"{lug.largo_ft:.2f}") if lug.bloque else _tr("Válvula de {t}").format(t=nombre_tipo(v.get("tipo")).lower())
     extra = []
     if v.get("certeza") == V.POR_CONFIRMAR:
         extra.append(_tr("Reconocida del plano, por confirmar: no va a Civil 3D hasta confirmarla (clic derecho)."))

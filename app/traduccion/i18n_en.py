@@ -5095,6 +5095,10 @@ EN: dict[str, str] = {
         'Crosses',
     'Válvulas':
         'Valves',
+    'Exceso de flujo':
+        'Excess flow',
+    'Esta válvula no tiene pieza en el catálogo: se ve en el plano y no va a Civil 3D.':
+        'This valve has no part in the catalog: it shows on the plan and does not go to Civil 3D.',
     'No se reconocen':
         'Not recognized',
     'Sin utilidad':
