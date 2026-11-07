@@ -254,7 +254,7 @@ class DibujoMixin:
             indices = range(len(self.pipes))
         self._overlay.append(capa)
         # «Capas» (ventana_capas): las utilidades apagadas no se pintan (salvo la elegida desde la lista)
-        apagadas = getattr(self, "capas_apagadas", None)
+        apagadas = self._lineas_apagadas()
         capa.fijar_ocultas({i for i, p in enumerate(self.pipes) if p.get("layer") in apagadas} - elegidas
                            if apagadas else ())
         for i in indices:
@@ -602,7 +602,7 @@ class DibujoMixin:
     def _visibilidad_estructuras(self):
         """Solo la visibilidad de los ítems ya creados de cada buzón/curva; no rehace ninguno. Sus utilidades
         cercanas se miran únicamente si hay algo apagado (una vez por estructura en cada redibujo)."""
-        apagadas = frozenset(getattr(self, "capas_apagadas", ()) or ())
+        apagadas = self._estructuras_apagadas()
         ocultas = set()
         for i, curva, s, items in getattr(self, "_estructuras_vista", ()):
             visible = not apagadas or i == getattr(self, "sel_curve" if curva else "sel_bz", -1)

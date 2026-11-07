@@ -3,7 +3,7 @@
 Las pone el usuario (Dibujar → Accesorios → Válvula, 2026-11-04: clic sobre la tubería y la app la pone en un TRAMO
 RECTO donde cabe, la corre si hace falta) o las lee el reconocimiento del PDF (2026-11-05, `_guardar_valvulas`: se
 pegan a su tubería con `valvulas.pegar`). Aquí van el modo, la pista verde, el dibujo (la pieza real; una reconocida
-«por confirmar», hueca; una que no cabe en su tramo recto, roja «por revisar» con el motivo y fuera del DXF), la capa
+«por confirmar», hueca; una que no cabe en su tramo recto, «por revisar» con el motivo y fuera del DXF), la capa
 «VALVULAS» de «Capas ▾», el globo, el menú del clic derecho (tipo, unión, material, confirmar, correr al lugar libre,
 quitar) y las filas de la Tabla de datos. Un paso de deshacer por cambio. `Main.valvulas` va al .digproj, al deshacer,
 al respaldo del asistente y al DXF (`PDFCAD_VALVULA`).
@@ -14,7 +14,7 @@ import math
 
 from PySide6 import QtGui, QtWidgets
 
-from nucleo import model_ops
+from nucleo import dibujar_accesorios, model_ops
 from nucleo import valvulas as V
 from nucleo.model import Z_MARK
 from traduccion.i18n import t as _tr
@@ -70,12 +70,13 @@ class ValvulasMixin:
                         otras=self._otras_valvulas(salvo), cerca=self._cerca_valv)
 
     def _valvula_en(self, x, y) -> int:
-        """Índice de la válvula bajo el punto (px de la hoja), o −1. Con la capa «VALVULAS» apagada no se elige."""
+        """Índice de la válvula bajo el punto (px de la hoja), o −1. Con su subgrupo apagado no se elige."""
         vs = getattr(self, "valvulas", None) or []
-        if not vs or V.CAPA in (getattr(self, "capas_apagadas", None) or ()):
+        if not vs:
             return -1
         r = CLIC_PX / max(1e-6, self.canvas.transform().m11())
-        return V.en(vs, getattr(self, "_valv_lugares", None), x, y, r)
+        k = V.en(vs, getattr(self, "_valv_lugares", None), x, y, r)
+        return -1 if k >= 0 and self._valvula_apagada(k) else k
 
     def _texto_valvula(self, v, lug=None) -> str:
         """Una línea para el globo y la barra de estado."""
@@ -111,11 +112,28 @@ class ValvulasMixin:
             return 0
         nuevas = next((list(r.valvulas) for r in results if getattr(r, "valvulas", None)), [])
         zoom = float(self.zoom or 1.0)
+        self._poner_ramales(nuevas, zoom)
         nuevas = [V.pegar(dict(V.nueva(v["x"], v["y"]), **v), self.pipes, V.tol_pt(v) * zoom, self._cerca_valv)
                   for v in nuevas]
         antes = len(self.valvulas)
         self.valvulas = V.juntar(self.valvulas, nuevas)
         return len(self.valvulas) - antes
+
+    def _poner_ramales(self, nuevas, zoom):
+        """El ramal corto del plano que lleva a una válvula (`recognition_valvulas.ramales`): una utilidad con los datos
+        de la tubería de la que nace. La válvula se pega después a ella."""
+        for v in nuevas:
+            tramo = v.get("ramal")
+            if not tramo:
+                continue
+            pie = tramo[0]
+            hit = V.relacion(dict(x=pie[0], y=pie[1], utilidad=v.get("utilidad")), self.pipes, 0.5 * zoom,
+                             self._cerca_valv)
+            ya = any(p.get("layer") == v.get("utilidad") and len(p.get("pts") or ()) == 2
+                     and math.dist(p["pts"][1][:2], tramo[1]) <= 0.5 * zoom for p in self.pipes)
+            if hit is not None and not ya:
+                self.pipes.append(dibujar_accesorios.ramal_de(self.pipes[hit[0]], tramo, None))
+                self._refresh_lists()
 
     # ── herramienta ──────────────────────────────────────────────────────
     def insertar_valvula(self):
@@ -168,39 +186,43 @@ class ValvulasMixin:
         vs = getattr(self, "valvulas", None) or []
         self._valv_lugares = []
         self._valv_items = []
+        self._valv_vistas = []                          # (índice, sus ítems)
         if not vs:
             return
         ft = self._ft_px_valv()
         lugares = self._lugares_valvulas()
         self._valv_lugares = lugares
         sc = self.canvas.scene()
-        apagadas = getattr(self, "capas_apagadas", None) or ()
-        for v, lug in zip(vs, lugares):
-            if lug.ok and self.pipes[lug.pipe].get("layer") in apagadas:
-                continue
+        for k, (v, lug) in enumerate(zip(vs, lugares)):
             if lug.ok and ft:
                 color = layer_qcolor(self.pipes[lug.pipe].get("layer"))
                 globo = globo_valvula(lug, v)
+                if not lug.exporta:
+                    globo += "\n" + lug.motivo
                 its = valvula_item.agregar(sc, lug.x, lug.y, lug.ux, lug.uy, lug.largo_ft / ft, lug.brida_ft / ft,
                                            color, True, Z_MARK + 2, globo,
-                                           hueca=v.get("certeza") == V.POR_CONFIRMAR)
+                                           hueca=v.get("certeza") == V.POR_CONFIRMAR or not lug.exporta)
             else:
-                r = 10.0
-                its = valvula_item.agregar(sc, float(v["x"]), float(v["y"]), 1.0, 0.0, 2 * r, 1.4 * r,
-                                           QtGui.QColor(230, 40, 40), False, Z_MARK + 2,
+                # Sin tubería: encima de SU símbolo, con su tamaño y su rumbo (el lado largo); a mano, un moño de 20 px.
+                w, h = float(v.get("sim_w") or 20.0), float(v.get("sim_h") or 14.0)
+                ux, uy = (0.0, 1.0) if h > w else (1.0, 0.0)
+                its = valvula_item.agregar(sc, float(v.get("x_pdf", v["x"])), float(v.get("y_pdf", v["y"])), ux, uy,
+                                           max(w, h), min(w, h), QtGui.QColor(230, 40, 40), False, Z_MARK + 2,
                                            _tr("Válvula por revisar: {m}").format(m=lug.motivo))
             self._overlay += its
             self._valv_items += its
+            self._valv_vistas.append((k, its))
         self._sync_capa_valvulas()
 
     def _sync_capa_valvulas(self):
-        """«Capas ▾» → VALVULAS: encender o apagar sin redibujar."""
-        ver = V.CAPA not in (getattr(self, "capas_apagadas", None) or ())
-        for it in getattr(self, "_valv_items", None) or []:
-            try:
-                it.setVisible(ver)
-            except RuntimeError:
-                pass
+        """«Capas ▾» → Válvulas de cada utilidad: encender o apagar sin redibujar."""
+        for k, its in getattr(self, "_valv_vistas", None) or []:
+            ver = not self._valvula_apagada(k)
+            for it in its:
+                try:
+                    it.setVisible(ver)
+                except RuntimeError:
+                    pass
 
     def _elegir_valvula(self, x, y) -> bool:
         """Clic sobre una válvula: se elige en Inventario → Accesorios (como los demás accesorios)."""

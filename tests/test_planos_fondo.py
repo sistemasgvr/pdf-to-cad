@@ -142,7 +142,7 @@ def test_planos_como_capas_cualquier_combinacion(win, pdfs, monkeypatch, app):
     assert win.composite.utilidades_grupo == {0: ["AGUA"], 1: ["ALCANTARILLADO"]}
     est = win._estado_capas()
     assert [(f.clave, f.nombre, f.encendida) for f in est.planos] == [(0, "Agua", True), (1, "Alcantarillado", True)]
-    assert [(f.clave, f.encendida) for f in est.utilidades] == [("AGUA", True), ("ALCANTARILLADO", True)]
+    assert [(f.clave, f.encendida) for f in est.utilidades if f.padre is None] == [("AGUA", True), ("ALCANTARILLADO", True)]
     assert win._vista_fondo is None
     todos = _img(win)
     assert _azul(_rgb(todos, puntos["agua"])) and _rojo(_rgb(todos, puntos["cloaca"]))

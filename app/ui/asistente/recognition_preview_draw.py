@@ -158,9 +158,11 @@ def _halo_pen(color) -> QtGui.QPen:
     return pen
 
 
-def _draw_valvula(scene, x, y, color, hueca=False, z=7, r=7.0):
-    """Moño de la válvula; hueco = por confirmar. Sin utilidad, gris."""
+def _draw_valvula(scene, x, y, color, hueca=False, z=7, r=7.0, ramal=None):
+    """Moño de la válvula; hueco = por confirmar. Sin utilidad, gris. `ramal` = el tramo corto que la importación agrega."""
     color = color or QtGui.QColor("#8a8f98")
+    if ramal:
+        scene.addLine(ramal[0][0], ramal[0][1], ramal[1][0], ramal[1][1], QtGui.QPen(color, 1.6)).setZValue(z)
     puntos = [(r, r * .62), (r, -r * .62), (-r, r * .62), (-r, -r * .62)]
     poly = QtGui.QPolygonF([QtCore.QPointF(x + a, y + b) for a, b in puntos])
     it = scene.addPolygon(poly, QtGui.QPen(color, 1.6), QtGui.QBrush(QtCore.Qt.NoBrush) if hueca else QtGui.QBrush(color))

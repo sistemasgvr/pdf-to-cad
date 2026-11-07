@@ -55,6 +55,7 @@ def _leer_valvulas(page, zoom, hidden, roles_by_utility, results):
     from reconocimiento import recognition_valvulas as RV
     try:
         valvulas = RV.completar(RV.leer_hoja(page, zoom, hidden or (), roles_by_utility), results, zoom)
+        RV.ramales(page, valvulas, results, zoom, hidden or ())
     except Exception:                                  # noqa: BLE001
         return
     for r in results:

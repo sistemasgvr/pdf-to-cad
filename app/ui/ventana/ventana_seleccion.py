@@ -313,7 +313,7 @@ class SeleccionMixin:
         if getattr(self, "_cache_raton", None) is None:
             self._cache_raton = {}
         out = utilidades_cerca(self._cache_raton, self.pipes, x, y, r)
-        apagadas = getattr(self, "capas_apagadas", None)
+        apagadas = self._lineas_apagadas()
         if apagadas and not todas:
             out = [i for i in out if i == self.sel_pipe or self.pipes[i].get("layer") not in apagadas]
         return out

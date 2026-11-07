@@ -107,7 +107,7 @@ class StylePicker(QtCore.QObject):
         # Un filtro previo no debe impedir encontrar la familia pulsada.
         if item.isHidden():
             dlg.search.clear()
-        item.parent().setExpanded(True)
+        dlg.expandir_hasta(item)
         # Evitar el encuadre automático del clic en el árbol: al buscar desde
         # el plano se conserva exactamente la cámara del usuario.
         blocker = QtCore.QSignalBlocker(dlg.tree)

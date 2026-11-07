@@ -201,7 +201,7 @@ class LayerAssignmentsMixin:
         # Restore selection after regrouping the tree.
         items = self._items_by_name.get(name, ())
         if items:
-            items[0].parent().setExpanded(True)
+            self.expandir_hasta(items[0])
             self.tree.setCurrentItem(items[0])
         self.info.set_layers(self._layers, self._letters_off)
         self._clear_focus()

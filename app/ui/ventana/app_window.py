@@ -2088,8 +2088,8 @@ class Main(AgenteMixin, CopilotoMixin, ConflictosTandaMixin, MenuMixin, PanelIzq
                         m0=m[0], m1=m[1], det=f"{det:.6f}", epsg=self.georef.epsg)
                 elif not self.georef.matrix:
                     geo_msg += "\n\n" + _tr("(Sin georreferenciación configurada.)")
-                if getattr(self, "_valvulas_omitidas", 0):   # fuera de un tramo recto donde quepan (en rojo)
-                    geo_msg += "\n" + _tr("{n} válvula(s) fuera de lugar no se exportaron (en rojo en el plano).").format(
+                if getattr(self, "_valvulas_omitidas", 0):   # fuera de un tramo recto donde quepan (en magenta)
+                    geo_msg += "\n" + _tr("{n} válvula(s) fuera de lugar no se exportaron (en magenta en el plano).").format(
                         n=self._valvulas_omitidas)
                 if "⚠" in geo_msg:                     # un aviso de georreferencia se lee en un cuadro
                     QtWidgets.QMessageBox.information(self, _tr("Listo"), _tr("Exportado (solo anotaciones):\n{archivo}{georef}").format(
@@ -2277,8 +2277,8 @@ class Main(AgenteMixin, CopilotoMixin, ConflictosTandaMixin, MenuMixin, PanelIzq
                           "{nl} leaders, {nt} textos, {nz} zonas borradas.").format(
                     georef=geo_tag, archivo=self._out, np=len(self.pipes), nl=len(self.leaders),
                     nt=len(self.text_marks), nz=nreg) + geo_warn
-                if getattr(self, "_valvulas_omitidas", 0):   # fuera de un tramo recto donde quepan (en rojo)
-                    msg += "\n" + _tr("{n} válvula(s) fuera de lugar no se exportaron (en rojo en el plano).").format(
+                if getattr(self, "_valvulas_omitidas", 0):   # fuera de un tramo recto donde quepan (en magenta)
+                    msg += "\n" + _tr("{n} válvula(s) fuera de lugar no se exportaron (en magenta en el plano).").format(
                         n=self._valvulas_omitidas)
             else:
                 msg = _tr("Exportado (solo el PDF digitalizado){georef}:\n{archivo}").format(

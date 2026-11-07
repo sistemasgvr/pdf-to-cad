@@ -45,7 +45,7 @@ from ui.asistente import capas_previas
 
 from traduccion.i18n import t as _tr
 from ui.comun.icons import icon as _icon
-from hoja import pdf_layers
+from hoja import leyenda_estandar, pdf_layers
 from reconocimiento import recognition
 from ui.comun import theme as _theme
 from ui.comun.ui_common import swatch_icon
@@ -74,6 +74,7 @@ ARBOL_MIN_PX = 170                         # la lista de capas nunca menos: lo q
 # Roles de datos de las filas del árbol.
 _ROLE_NAME = QtCore.Qt.UserRole            # nombre completo de la capa (None en grupos)
 _ROLE_UTILITY = QtCore.Qt.UserRole + 1     # clave de utilidad de la fila
+_ROLE_SUB = QtCore.Qt.UserRole + 2         # subgrupo («lineas», «valvulas»…) en su fila de subgrupo
 
 # `choose_sheet_layers` devuelve esto si el usuario pulsa «◀ Componer hoja».
 LAYERS_BACK = "back"
@@ -320,7 +321,26 @@ class SheetLayersDialog(ScaleCalibrationMixin, LayerAssignmentsMixin, LayerInfoM
             self.tree.addTopLevelItem(hdr)
             self._groups[key] = hdr
             self._poner_interruptor(hdr, key)
+            por_sub: dict[str, list[dict]] = {}
             for L in group:
+                por_sub.setdefault(leyenda_estandar.subgrupo(L, key), []).append(L)
+            filas = []
+            for sub, sub_label in leyenda_estandar.SUBGRUPOS:
+                if sub not in por_sub:
+                    continue
+                padre = hdr
+                if len(por_sub) > 1:                    # de un solo tipo: sin un nivel de más
+                    padre = QtWidgets.QTreeWidgetItem([_tr(sub_label)])
+                    padre.setFlags(QtCore.Qt.ItemIsEnabled | QtCore.Qt.ItemIsUserCheckable)
+                    padre.setData(0, _ROLE_NAME, None)
+                    padre.setData(0, _ROLE_UTILITY, key)
+                    padre.setData(0, _ROLE_SUB, sub)
+                    padre.setForeground(0, QtGui.QBrush(QtGui.QColor(_theme.tokens().text_muted)))
+                    hdr.addChild(padre)
+                    padre.setFirstColumnSpanned(True)   # la 2.ª columna es solo el interruptor de la utilidad
+                    padre.setExpanded(sub != leyenda_estandar.SUB_OTRAS)
+                filas += [(L, padre) for L in por_sub[sub]]
+            for L, padre in filas:
                 shared = [u for u in pdf_layers.layer_groups(L) if u != key]
                 code = (L.get("letter_codes") or {}).get(key) if shared else L.get("letters")
                 text = f"{L['short']}  ({L['path_count']})"
@@ -342,7 +362,8 @@ class SheetLayersDialog(ScaleCalibrationMixin, LayerAssignmentsMixin, LayerInfoM
                 it.setCheckState(0, QtCore.Qt.Checked if L["on"] else QtCore.Qt.Unchecked)
                 it.setData(0, _ROLE_NAME, L["name"])
                 it.setData(0, _ROLE_UTILITY, key)
-                hdr.addChild(it)
+                padre.addChild(it)
+                it.setFirstColumnSpanned(True)
                 self._items_by_name.setdefault(L["name"], []).append(it)
             hdr.setExpanded(False)          # plegados: se ve la hoja por utilidades de un vistazo
         self._syncing = False
@@ -387,9 +408,27 @@ class SheetLayersDialog(ScaleCalibrationMixin, LayerAssignmentsMixin, LayerInfoM
     def _layer_items(self):
         """Filas de capa (sin grupos), en el orden del árbol."""
         for i in range(self.tree.topLevelItemCount()):
-            grp = self.tree.topLevelItem(i)
-            for j in range(grp.childCount()):
-                yield grp.child(j)
+            yield from self._capas_de(self.tree.topLevelItem(i))
+
+    @staticmethod
+    def _subgrupos_de(grp) -> list:
+        return [grp.child(j) for j in range(grp.childCount()) if grp.child(j).data(0, _ROLE_SUB)]
+
+    def _capas_de(self, fila) -> list:
+        """Las filas de capa bajo un grupo o un subgrupo."""
+        out = []
+        for j in range(fila.childCount()):
+            it = fila.child(j)
+            out += self._capas_de(it) if it.data(0, _ROLE_SUB) else [it]
+        return out
+
+    @staticmethod
+    def expandir_hasta(item):
+        """Despliega los grupos que contienen la fila."""
+        padre = item.parent()
+        while padre is not None:
+            padre.setExpanded(True)
+            padre = padre.parent()
 
     def group_item(self, key: str):
         return self._groups.get(key)
@@ -399,10 +438,19 @@ class SheetLayersDialog(ScaleCalibrationMixin, LayerAssignmentsMixin, LayerInfoM
         grp = self._groups.get(key)
         if grp is None:
             return
-        n = grp.childCount()
-        on = sum(1 for j in range(n) if grp.child(j).checkState(0) == QtCore.Qt.Checked)
+        capas = self._capas_de(grp)
+        n = len(capas)
+        on = sum(1 for it in capas if it.checkState(0) == QtCore.Qt.Checked)
         label = dict(pdf_layers.UTILITIES).get(key, key)
+        nombres = dict(leyenda_estandar.SUBGRUPOS)
         self._syncing = True
+        for sub in self._subgrupos_de(grp):
+            hijas = self._capas_de(sub)
+            k = sum(1 for it in hijas if it.checkState(0) == QtCore.Qt.Checked)
+            sub.setCheckState(0, QtCore.Qt.Checked if k == len(hijas) else
+                              QtCore.Qt.Unchecked if k == 0 else QtCore.Qt.PartiallyChecked)
+            nombre = _tr(nombres[sub.data(0, _ROLE_SUB)])
+            sub.setText(0, f"{nombre}   {k}/{len(hijas)}" if 0 < k < len(hijas) else f"{nombre}   {len(hijas)}")
         grp.setCheckState(0, QtCore.Qt.Checked if on == n else
                           QtCore.Qt.Unchecked if on == 0 else QtCore.Qt.PartiallyChecked)
         grp.setText(0, f"{_tr(label)}   {on}/{n}" if 0 < on < n else f"{_tr(label)}   {n}")
@@ -442,10 +490,19 @@ class SheetLayersDialog(ScaleCalibrationMixin, LayerAssignmentsMixin, LayerInfoM
         if self._syncing:
             return
         key = item.data(0, _ROLE_UTILITY)
-        if item.data(0, _ROLE_NAME) is None:           # casilla del grupo = toda la utilidad
+        if item.data(0, _ROLE_SUB):                    # casilla del subgrupo = sus capas
+            estado = QtCore.Qt.Unchecked if item.checkState(0) == QtCore.Qt.Unchecked else QtCore.Qt.Checked
+            hijas = self._capas_de(item)
+            self._syncing = True
+            for it in hijas:
+                it.setCheckState(0, estado)
+            self._syncing = False
+            self._util_memory.pop(key, None)
+            touched = self._sync_twins(hijas)
+        elif item.data(0, _ROLE_NAME) is None:         # casilla del grupo = toda la utilidad
             grp = self._groups[key]
             self._set_utility_visible(key, item.checkState(0) != QtCore.Qt.Unchecked)
-            touched = self._sync_twins([grp.child(j) for j in range(grp.childCount())])
+            touched = self._sync_twins(self._capas_de(grp))
         else:
             self._util_memory.pop(key, None)            # el usuario eligió capa por capa
             touched = self._sync_twins([item])
@@ -468,7 +525,7 @@ class SheetLayersDialog(ScaleCalibrationMixin, LayerAssignmentsMixin, LayerInfoM
         grp = self._groups.get(key)
         if grp is None:
             return
-        items = [grp.child(j) for j in range(grp.childCount())]
+        items = self._capas_de(grp)
         self._syncing = True
         if not on:
             self._util_memory[key] = {it.data(0, _ROLE_NAME): it.checkState(0) == QtCore.Qt.Checked
@@ -504,11 +561,15 @@ class SheetLayersDialog(ScaleCalibrationMixin, LayerAssignmentsMixin, LayerInfoM
         q = (self.search.text() or "").strip().upper()
         for key, grp in self._groups.items():
             shown = 0
-            for j in range(grp.childCount()):
-                it = grp.child(j)
+            for it in self._capas_de(grp):
                 hide = bool(q) and q not in it.text(0).upper() and q not in str(it.data(0, _ROLE_NAME)).upper()
                 it.setHidden(hide)
                 shown += not hide
+            for sub in self._subgrupos_de(grp):
+                hay = any(not it.isHidden() for it in self._capas_de(sub))
+                sub.setHidden(not hay)
+                if q and hay:
+                    sub.setExpanded(True)
             grp.setHidden(shown == 0)
             if q:
                 grp.setExpanded(shown > 0)               # con búsqueda, se ven los resultados

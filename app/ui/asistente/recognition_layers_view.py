@@ -54,7 +54,7 @@ def _focus_of(item) -> dict | None:
 class UsedLayersPanel(QtWidgets.QWidget):
     focusChanged = QtCore.Signal(object)
 
-    def __init__(self, results, colors: dict, parent=None):
+    def __init__(self, results, colors: dict, parent=None, valvulas=()):
         super().__init__(parent)
         t = _theme.tokens()
         self._focus: dict | None = None
@@ -125,11 +125,37 @@ class UsedLayersPanel(QtWidgets.QWidget):
                     it = fila_lista(lst, f"    {short}  ({x.get('path_count', 0)}){tag}")
                     it.setData(FOCUS_ROLE, {"utility": r.utility, "kind": kind, "ocg": x["ocg"], "label": short})
                     it.setToolTip("\n".join((x["ocg"], click_tip)))
+            self._filas_valvulas(lst, r.utility, u_label, multi, valvulas, click_tip, t)
+        if any(not v.get("utilidad") for v in valvulas):
+            self._filas_valvulas(lst, "", _tr("Sin utilidad"), True, valvulas, click_tip, t)
         lst.setMinimumHeight(110)
         lst.setSizePolicy(QtWidgets.QSizePolicy.Expanding, QtWidgets.QSizePolicy.Expanding)
         lst.itemClicked.connect(self._on_clicked)
         self.list = lst
         lay.addWidget(lst, 1)
+
+    @staticmethod
+    def _filas_valvulas(lst, utilidad, u_label, multi, valvulas, click_tip, t):
+        """Subgrupo «Válvulas» de la utilidad: una fila por capa o fila de la leyenda de donde salieron."""
+        por_capa: dict = {}
+        for v in valvulas:
+            if (v.get("utilidad") or "") == utilidad:
+                por_capa[v.get("capa_pdf") or ""] = por_capa.get(v.get("capa_pdf") or "", 0) + 1
+        if not por_capa:
+            return
+        k_label = _tr("Válvulas")
+        kh = fila_lista(lst, k_label)
+        kh.setForeground(QtGui.QColor(t.text_muted))
+        kh.setData(FOCUS_ROLE, {"utility": utilidad, "kind": "valve", "ocg": None,
+                                "label": f"{k_label} · {u_label}" if multi else k_label})
+        kh.setToolTip(click_tip)
+        for capa, n in por_capa.items():
+            short = capa.split("|")[-1] if "|" in capa else capa
+            if short.startswith(pdf_styles.PREFIX):
+                short = pdf_styles.style_label(short)
+            it = fila_lista(lst, f"    {short}  ({n})")
+            it.setData(FOCUS_ROLE, {"utility": utilidad, "kind": "valve", "ocg": capa, "label": short})
+            it.setToolTip("\n".join((capa, click_tip)))
 
     @property
     def focus(self) -> dict | None:

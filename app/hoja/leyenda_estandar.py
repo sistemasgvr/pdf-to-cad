@@ -163,6 +163,21 @@ def rol_capa(L: dict, utilidad: str) -> Tuple[Optional[str], bool]:
     return None, False
 
 
+# Subgrupos de una utilidad en «Capas de la hoja» (pedido del usuario 2026-11-07), en orden
+SUB_LINEAS, SUB_ESTRUCTURAS, SUB_VALVULAS, SUB_OTRAS = "lineas", "estructuras", "valvulas", "otras"
+SUBGRUPOS = ((SUB_LINEAS, N_("Líneas")), (SUB_ESTRUCTURAS, N_("Estructuras")), (SUB_VALVULAS, N_("Válvulas")),
+             (SUB_OTRAS, N_("No se reconocen")))
+
+
+def subgrupo(L: dict, utilidad: str) -> str:
+    """En qué subgrupo va la capa `L` dentro de `utilidad`: lo que el reconocimiento hará con ella."""
+    from reconocimiento import recognition_valvulas
+    if L.get("assigned_role") == recognition.ROLE_VALVULAS or recognition_valvulas.es_capa_valvula(L.get("name")):
+        return SUB_VALVULAS
+    rol = rol_capa(L, utilidad)[0]
+    return SUB_LINEAS if rol == LINE else SUB_ESTRUCTURAS if rol == STRUCTURE else SUB_OTRAS
+
+
 def es_trazo_de(L: dict, utilidad: str, path: dict) -> Optional[str]:
     """Rol del trazo `path` (de `get_drawings`) de la capa `L` para `utilidad`, o None."""
     rol, por_trazo = rol_capa(L, utilidad)

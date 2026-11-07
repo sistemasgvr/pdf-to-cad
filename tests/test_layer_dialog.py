@@ -35,7 +35,7 @@ def _rows(dlg):
     out = []
     for i in range(dlg.tree.topLevelItemCount()):
         grp = dlg.tree.topLevelItem(i)
-        for it in [grp] + [grp.child(j) for j in range(grp.childCount())]:
+        for it in [grp] + dlg._capas_de(grp):
             out.append((it.data(0, layer_dialog._ROLE_UTILITY), it.data(0, layer_dialog._ROLE_NAME),
                         it.isHidden(), it.checkState(0) == QtCore.Qt.Checked))
     return out

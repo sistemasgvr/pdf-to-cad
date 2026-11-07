@@ -5039,8 +5039,12 @@ EN: dict[str, str] = {
         'The straight segment of {u} is {L} ft: the {d}" valve needs {n} ft (its length plus room for the bend, tee or curve on each side).',
     'La válvula ya no cabe aquí: {u} cambió (codo, curva, T o el tramo). Quítala y vuelve a ponerla.':
         'The valve no longer fits here: {u} changed (bend, curve, tee or the segment). Remove it and place it again.',
-    '{n} válvula(s) fuera de lugar no se exportaron (en rojo en el plano).':
-        '{n} misplaced valve(s) were not exported (shown in red on the plan).',
+    'El plano marca una válvula aquí, pero no dibuja ninguna tubería que pase por este punto: se deja donde está y no va a Civil 3D.':
+        'The plan marks a valve here but draws no pipe through this point: it stays where it is and does not go to Civil 3D.',
+    'Ningún tubo recto de {u} contiene la válvula de {d}" ({L} ft): se ve en el plano y no va a Civil 3D.':
+        'No straight pipe of {u} can hold the {d}" valve ({L} ft): it shows on the plan and does not go to Civil 3D.',
+    '{n} válvula(s) fuera de lugar no se exportaron (en magenta en el plano).':
+        '{n} misplaced valve(s) were not exported (shown in magenta on the plan).',
     'Inserción de válvula cancelada':
         'Valve insertion cancelled',
     'Clic sobre una tubería de agua o gas para poner una válvula (Esc para salir).':
@@ -5091,6 +5095,14 @@ EN: dict[str, str] = {
         'Crosses',
     'Válvulas':
         'Valves',
+    'No se reconocen':
+        'Not recognized',
+    'Sin utilidad':
+        'No utility',
+    'Plegar':
+        'Collapse',
+    'Desplegar':
+        'Expand',
     'Clic para verlo en el plano; clic derecho para más opciones.':
         'Click to see it on the plan; right-click for more options.',
     'Clic en un accesorio para verlo en el plano. Ctrl+clic o Mayús+clic para elegir varios.':
