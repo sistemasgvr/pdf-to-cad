@@ -5084,6 +5084,8 @@ EN: dict[str, str] = {
         '{d}" is not in the standards table: estimated (interpolated) dimensions.',
     '{u} no tiene diámetro.':
         '{u} has no diameter.',
+    'Se terminó la utilidad que estabas dibujando.':
+        'The utility you were drawing was finished.',
     'Hoja escaneada':
         'Scanned sheet',
     'Todas las piezas de la hoja compuesta son imágenes o escaneos.':

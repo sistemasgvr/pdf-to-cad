@@ -1576,6 +1576,7 @@ class Main(AgenteMixin, CopilotoMixin, ConflictosTandaMixin, MenuMixin, PanelIzq
 
     # ─────────────────────────── proyecto ───────────────────────────
     def _write_project(self, path):
+        self.terminar_trazo_en_curso()              # una línea a medias también se guarda (2026-11-09)
         # Barra de carga precisa (2026-10-20, `barras_carga`): datos, imagen, PDF y la compresión POR BLOQUES
         # en otro hilo (`nucleo/archivo_zip`, el mismo zip que `writestr`).
         from nucleo import archivo_zip
@@ -2039,6 +2040,7 @@ class Main(AgenteMixin, CopilotoMixin, ConflictosTandaMixin, MenuMixin, PanelIzq
     def run_pipeline(self, mode="todo"):
         """mode: 'todo' = PDF digitalizado + anotaciones · 'pdf' = solo el PDF ·
         'anot' = solo las anotaciones dibujadas en el programa."""
+        self.terminar_trazo_en_curso()              # una línea a medias también se exporta (2026-11-09)
         if self.canvas.pixmap_item is None:
             self.informar(_tr("Nada"), _tr("Abre un PDF o proyecto.")); return
         need_pdf = mode in ("todo", "pdf")

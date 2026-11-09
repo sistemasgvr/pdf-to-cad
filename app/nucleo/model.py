@@ -160,6 +160,8 @@ def default_network_type(layer):
 
 CHANGELOG = [
     ("2.0.0", [
+        ('fix', 'Dibujar utilidad: una tubería a medio dibujar (sin Enter) ya no se pierde. Al guardar, abrir la Vista 3D, exportar o cambiar de herramienta, la app la termina sola, también cuando continúa una tubería reconocida («Extender»). Antes no se guardaba ni pasaba a 3D, y al cambiar de herramienta quedaba colgada. Esc la sigue cancelando.'),
+        ('fix', 'Escala de la hoja: una escala escrita con separador de miles («1 : 3,274», como en los mapas de NavigateLA) se leía como 1:3 y la hoja quedaba diminuta en «Componer hoja» (no se veía al lado de las demás). Ahora se lee bien.'),
         ('fix', 'Componer hoja de trabajo: corregido un cierre del programa al abrirla varias veces seguidas (se cerraba solo, sin aviso).'),
         ('new', 'Componer hoja de trabajo: en la misma hoja compuesta pueden ir hojas vectoriales y escaneadas. Cada pieza sabe de qué tipo es: al tomar una hoja escaneada aparecen la regla, el transportador, Medir y Enderezar, la pieza gira sobre su centro y el imán no la mueve. Las piezas vectoriales se reconocen como siempre y lo escaneado queda de fondo para dibujarlo a mano; si todas las piezas son escaneos, la app pregunta si pasar la hoja al editor o reconocerla de todos modos. Por eso «Hoja y PDF» ya no trae el botón «Componer PDF imagen/escaneo…» aparte (sigue en el menú Herramientas).'),
         ('changed', 'Válvulas: toda válvula, sea del tipo que sea (exceso de flujo, purga, retención, mariposa…), se modela con la misma válvula genérica de compuerta y va a la Vista 3D y a Civil 3D. Las de tuberías de menos de 3" también, con medidas estimadas (desde 1/2"); en tuberías de más de 72" va la de 72".'),

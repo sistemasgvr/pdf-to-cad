@@ -6,6 +6,10 @@ tests/test_i18n.py).
 """
 
 EN_CHANGELOG: dict[str, str] = {
+    'Dibujar utilidad: una tubería a medio dibujar (sin Enter) ya no se pierde. Al guardar, abrir la Vista 3D, exportar o cambiar de herramienta, la app la termina sola, también cuando continúa una tubería reconocida («Extender»). Antes no se guardaba ni pasaba a 3D, y al cambiar de herramienta quedaba colgada. Esc la sigue cancelando.':
+        'Draw utility: a pipe half drawn (without Enter) is no longer lost. When you save, open the 3D View, export or switch tools, the app finishes it on its own, also when it continues a recognized pipe («Extend»). Before, it was not saved nor sent to 3D, and switching tools left it hanging. Esc still cancels it.',
+    'Escala de la hoja: una escala escrita con separador de miles («1 : 3,274», como en los mapas de NavigateLA) se leía como 1:3 y la hoja quedaba diminuta en «Componer hoja» (no se veía al lado de las demás). Ahora se lee bien.':
+        'Sheet scale: a scale written with a thousands separator («1 : 3,274», as in NavigateLA maps) was read as 1:3 and the sheet became tiny in «Compose sheet» (it could not be seen next to the others). It is now read correctly.',
     'Componer hoja de trabajo: corregido un cierre del programa al abrirla varias veces seguidas (se cerraba solo, sin aviso).':
         'Compose work sheet: fixed the program closing when it was opened several times in a row (it closed by itself, with no warning).',
     'Componer hoja de trabajo: en la misma hoja compuesta pueden ir hojas vectoriales y escaneadas. Cada pieza sabe de qué tipo es: al tomar una hoja escaneada aparecen la regla, el transportador, Medir y Enderezar, la pieza gira sobre su centro y el imán no la mueve. Las piezas vectoriales se reconocen como siempre y lo escaneado queda de fondo para dibujarlo a mano; si todas las piezas son escaneos, la app pregunta si pasar la hoja al editor o reconocerla de todos modos. Por eso «Hoja y PDF» ya no trae el botón «Componer PDF imagen/escaneo…» aparte (sigue en el menú Herramientas).':

@@ -457,6 +457,11 @@ class ModosMixin:
         Además REPARENTA el grupo "En curso" (self.gcur) a la sección adecuada
         del acordeón según el modo, para que los botones Finalizar/Deshacer
         aparezcan DENTRO de la sección donde estás trabajando."""
+        if m != "pipe" and getattr(self, "mode", None) == "pipe":
+            # salir de «Dibujar utilidad» con una línea a medias: se termina (antes quedaba colgada y sin
+            # «Extender»); un solo punto no es línea y se suelta. Esc sigue cancelando (borra antes los puntos).
+            if not self.terminar_trazo_en_curso():
+                self.cur_pts = []
         if m not in ("leader1", "leader2", "leader3"): self._pending = None
         if m != "erase": self._erase_pts = []
         if m != "centerline": self._cl_pts = []

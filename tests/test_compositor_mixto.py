@@ -176,3 +176,23 @@ def test_muchos_componer_hoja_seguidos_no_cierran_el_programa(tmp_path):
     r = subprocess.run([sys.executable, str(guion), os.path.join(raiz, "app"), raiz], capture_output=True,
                        text=True, timeout=600)
     assert r.returncode == 0 and "ok" in r.stdout, r.stderr[-2000:]
+
+
+@pytest.mark.parametrize("texto, pies_pulg", [
+    ("SCALE 1 : 3,274", 3274 / 12.0),          # NavigateLA (2026-11-09): se leía 1:3 y la pieza quedaba diminuta
+    ("1\u00a0:\u00a03,274", 3274 / 12.0),
+    ("1:24,000", 24000 / 12.0),
+    ("1:240", 20.0),
+    ('SCALE: 1" = 20\'', 20.0),
+])
+def test_escala_1_a_n_con_separador_de_miles(texto, pies_pulg):
+    import vector_pipeline as VP
+    doc = fitz.open()
+    doc.new_page(width=300, height=200).insert_text((20, 100), texto, fontsize=9)
+    assert VP.detect_scale(doc[0]) * 72.0 == pytest.approx(pies_pulg)
+
+
+def test_escala_enumerada_con_coma_no_se_junta():
+    """«1:200, or 1:500» (manual BOE): la coma seguida de espacio no es separador de miles."""
+    import vector_pipeline as VP
+    assert VP._SCALE_RATIO_RE.search("1:200, or 1:500").group(1) == "200"

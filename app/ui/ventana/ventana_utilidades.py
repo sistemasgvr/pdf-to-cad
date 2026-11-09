@@ -28,6 +28,16 @@ class UtilidadesMixin:
         self.cur_pts = []; self._extending = False; self._ext_layer = None; self._ext_pipe = None; self._ext_at = None
         self._refresh_lists(); self._update_ui(); self._redraw()
 
+    def terminar_trazo_en_curso(self):
+        """Un trazo de «Dibujar utilidad» a medias (2 puntos o más) se TERMINA como con Enter (pedido del usuario
+        2026-11-09: dibujaba sobre un escaneo, guardaba y abría la Vista 3D con la línea aún en curso y se perdía
+        sin aviso). Lo llaman guardar, la Vista 3D, exportar y cambiar de herramienta. Devuelve True si terminó uno."""
+        if getattr(self, "mode", None) == "pipe" and len(getattr(self, "cur_pts", None) or []) >= 2:
+            self.finish_pipe()
+            self._info(_tr("Se terminó la utilidad que estabas dibujando."))
+            return True
+        return False
+
     def _sel_pipe(self, r):
         """Se llama cuando el usuario selecciona una utilidad en el inventario
         (lista derecha). Actualiza el panel de Propiedades con SUS datos.
