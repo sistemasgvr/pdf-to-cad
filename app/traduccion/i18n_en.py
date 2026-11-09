@@ -5083,8 +5083,8 @@ EN: dict[str, str] = {
         'The mechanical joint (RG) only goes up to 16": it uses flanges (FLG).',
     '{d}" no está en la tabla de normas: medidas estimadas (interpoladas).':
         '{d}" is not in the standards table: estimated (interpolated) dimensions.',
-    '{u} es de {d}": hay válvulas de {a}" a {b}".':
-        '{u} is {d}": valves go from {a}" to {b}".',
+    '{u} no tiene diámetro.':
+        '{u} has no diameter.',
     'Accesorios':
         'Fittings',
     'Tees':
@@ -5097,8 +5097,6 @@ EN: dict[str, str] = {
         'Valves',
     'Exceso de flujo':
         'Excess flow',
-    'Esta válvula no tiene pieza en el catálogo: se ve en el plano y no va a Civil 3D.':
-        'This valve has no part in the catalog: it shows on the plan and does not go to Civil 3D.',
     'No se reconocen':
         'Not recognized',
     'Sin utilidad':

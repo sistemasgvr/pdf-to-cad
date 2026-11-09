@@ -9,8 +9,9 @@ import pytest
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 from nucleo import valvulas as V  # noqa: E402
+from nucleo import valvula_receta as VR  # noqa: E402
 
-FT = 0.1                                   # 0.1 ft por px
+FT = 0.1                                  # 0.1 ft por px
 
 
 def _agua(pts, diam=8.0, **k):
@@ -43,15 +44,15 @@ def test_en_el_tramo_recto_y_se_corre_lejos_del_codo():
     assert lug.ok and lug.x == pytest.approx((1.0 + 11.5 / 24) / FT)
 
 
-def test_no_cabe_en_tramo_corto_ni_va_en_gravedad_ni_fuera_del_catalogo():
+def test_no_cabe_en_tramo_corto_ni_va_en_gravedad_y_fuera_del_catalogo_es_la_generica():
     corto = _agua([(0, 0), (30, 0), (30, 300)])           # 3 ft rectos con un codo al final
     lug = V.ubicar([corto], [], 15, 0, FT, 20)
     assert not lug.ok and "3.0 ft" in lug.motivo
     grav = dict(layer="ALCANTARILLADO", pts=[(0, 0), (1000, 0)], diam=8.0, pipe_size="x")
     assert not V.ubicar([grav], [], 500, 0, FT, 20).ok
-    chica = _agua([(0, 0), (1000, 0)], diam=2.0)
+    chica = _agua([(0, 0), (1000, 0)], diam=2.0)          # menos de 3": la válvula genérica, estimada
     lug = V.ubicar([chica], [], 500, 0, FT, 20)
-    assert not lug.ok and "3\" a 72\"" in lug.motivo
+    assert lug.ok and lug.diam_in == 2.0 and lug.estimada and lug.avisos
 
 
 def test_no_encima_de_una_tee_ni_de_otra_valvula():
@@ -717,19 +718,31 @@ def test_estado_por_como_va_el_simbolo_respecto_a_la_tuberia(giro, rumbo, estado
     assert RV.completar([v], [_Resultado("GAS", linea)], 1.0)[0]["estado"] == estado
 
 
-def test_sin_pieza_se_ve_sobre_su_tuberia_y_no_va_a_civil3d():
-    servicio = _agua([(0.0, 0.0), (300.0, 0.0)], diam=0.75)
-    v = dict(_del_plano(100, 0), utilidad="AGUA", tipo="Exceso de flujo", sim_w=10.0, sim_h=10.0)
-    lug = V.ubicar_todas([servicio], [], [v], FT)[0]
-    assert lug.ok and not V.exportable(v, lug) and (lug.x, lug.y) == pytest.approx((100, 0)) and lug.motivo
-    assert lug.largo_ft == pytest.approx(1.0)
-    chica = _del_plano(100, 0)                                # una válvula común en una tubería de 3/4"
-    lug = V.ubicar_todas([servicio], [], [chica], FT)[0]
-    assert lug.ok and not V.exportable(chica, lug) and lug.motivo
+@pytest.mark.parametrize("tipo", ["", "Exceso de flujo", "Purga", "Retención", "Mariposa", "Otra cualquiera"])
+@pytest.mark.parametrize("diam, n", [(0.25, 0.5), (0.75, 0.75), (2.0, 2.0), (8.0, 8.0), (60.0, 60.0), (72.0, 72.0),
+                                     (84.0, 72.0)])
+def test_toda_valvula_es_la_generica_de_cualquier_tipo_y_diametro(tipo, diam, n):
+    tubo = _agua([(0.0, 0.0), (900.0, 0.0)], diam=diam)
+    v = dict(_del_plano(450, 0), utilidad="AGUA", tipo=tipo, sim_w=10.0, sim_h=10.0)
+    lug = V.ubicar_todas([tubo], [], [v], FT)[0]
+    assert lug.ok and V.exportable(v, lug), lug.motivo
+    assert lug.diam_in == pytest.approx(n) and lug.bloque == V.pieza(n)[0]
+    assert lug.estimada == (n not in VR.TABLA)
+    rec = VR.receta(n)                                    # la misma pieza genérica, sana a ese tamaño
+    assert rec.largo > 0 and rec.od_extremo > diam
+    for pz in rec.piezas:
+        assert all(x >= 0 for x in pz[4:6] if pz[0] in ("tubo", "brida"))
+        if pz[0] == "brida":                                  # los agujeros de los pernos caben en la brida
+            _t, _c, _a, _b, r_ext, r_int, r_p, _n, r_ag = pz
+            assert r_int < r_p - r_ag and r_p + r_ag < r_ext
+    import numpy as np
+    from nucleo import valvula_malla as VM
+    pos, _nor, _capa = VM.malla(rec)
+    assert len(pos) and np.isfinite(pos).all()
 
 
 @_necesita(SOUTHWEST)
-def test_southwest_ventana_red_a_civil3d_y_exceso_solo_a_la_vista(win_rec):
+def test_southwest_ventana_red_y_exceso_a_civil3d_con_la_generica(win_rec):
     win = win_rec
     with fitz.open(SOUTHWEST) as doc:
         roles = _roles_southwest(doc[0])
@@ -745,9 +758,8 @@ def test_southwest_ventana_red_a_civil3d_y_exceso_solo_a_la_vista(win_rec):
     red = [(v, l) for v, l in zip(win.valvulas, lugares) if v["tipo"] == ""]
     exceso = [(v, l) for v, l in zip(win.valvulas, lugares) if v["tipo"] == "Exceso de flujo"]
     assert len(red) == 8 and all(v["estado"] == "abierta" and l.ok for v, l in red)
-    assert sum(1 for v, l in red if V.exportable(v, l)) == 3   # las demás van en tuberías de menos de 3"
-    assert not any(V.exportable(v, l) for v, l in exceso)
-    assert all(l.ok for _v, l in exceso)
+    assert all(V.exportable(v, l) for v, l in red)            # también las de tuberías de menos de 3": la genérica
+    assert len(exceso) == 16 and all(V.exportable(v, l) for v, l in exceso)   # cualquier tipo: la genérica
 
 
 @_necesita(SOUTHWEST)

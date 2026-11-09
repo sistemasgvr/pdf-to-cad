@@ -37,7 +37,7 @@ TABLA = {
     54: (66.25, 3.0, 62.75, 44, 2.0, 40.0, 57.10),
 }
 SERIE = tuple(sorted(TABLA))
-N_MIN, N_MAX = 3.0, 72.0          # fuera de esto no hay válvula (menos de 3" = otro tipo: roscada, pendiente)
+N_MIN, N_MAX = 3.0, 72.0          # rango del catálogo; fuera se usa la misma válvula genérica, prolongada («estimada»)
 RG_MAX_IN = 16.0
 ENGRANES_MIN_IN = 18.0
 

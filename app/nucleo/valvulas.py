@@ -18,7 +18,8 @@ Válvula) o la lee el reconocimiento del PDF (`reconocimiento/recognition_valvul
     union       "FLG" | "RG"                      (pieza; las reconocidas empiezan en FLG)
     material    "" = el de la tubería | "DI-A" | "CI" | "PVC"
     utilidad    capa de la app («AGUA», «GAS»…) o "" si el plano no lo dice
-    tipo        "" = compuerta; si no, el del plano («Purga», «Retención», «Mariposa»…; `TEXTOS`)
+    tipo        "" = compuerta; si no, el del plano («Purga», «Retención», «Mariposa»…; `TEXTOS`). Solo es dato:
+                TODAS se modelan con la misma válvula genérica (`diametro_valido`)
     estado      "abierta" | "cerrada" | ""
     origen      capa | leyenda | forma | manual
     certeza     segura | por_confirmar
@@ -53,14 +54,19 @@ TUBO_MIN_FT = limpieza_tramos.TRAMO_MIN_FT   # tubo libre entre la válvula y lo
 SOBRE_TOL_FT = 0.05            # una válvula guardada sigue «en su lugar» si se corre menos que esto
 PLANO_TUBO_FT = 0.05           # del plano: tubo que queda a cada lado (el plugin no crea tubos de menos de 0.02 ft)
 PLANO_CORRE_FT = 0.5           # del plano: lo más que su centro puede quedar fuera del tramo recto
-SIN_PIEZA = ("Exceso de flujo",)   # del plano, pero sin pieza en el catálogo: van en servicios de 3/4"
+GENERICA_MIN_IN = 0.5          # menos: la genérica de 1/2" (la receta prolongada sigue sana hasta aquí)
 EPS = 1e-9
 
 
 def diametro_valido(d_in):
-    """El diámetro (pulgadas, redondeado a 0.01") si hay válvula para él, o None."""
+    """El diámetro de la válvula (pulgadas, redondeado a 0.01"), o None si la tubería no tiene diámetro.
+
+    VÁLVULA GENÉRICA (pedido 2026-11-09): toda válvula, sea del tipo que sea (purga, retención, exceso de flujo…) y
+    del diámetro que sea, se modela con la MISMA pieza disponible, la de compuerta de `valvula_receta`. Por debajo de
+    `N_MIN` la receta se prolonga desde los extremos de la tabla (queda «estimada», con su aviso), hasta
+    `GENERICA_MIN_IN`; por encima de `N_MAX` va la de `N_MAX` (más allá los pernos se salen de la brida)."""
     d = round(float(d_in or 0), 2)
-    return d if VR.N_MIN - 1e-9 <= d <= VR.N_MAX + 1e-9 else None
+    return min(max(d, GENERICA_MIN_IN), VR.N_MAX) if d > 0 else None
 
 
 def pieza(n, union="FLG"):
@@ -260,9 +266,7 @@ def ubicar(pipes, structures, x, y, ft, radio_px, union="FLG", material="", otra
     d_in = model_ops.diametro(p)[0]
     n = diametro_valido(d_in)
     if n is None:
-        return Lugar(pipe=i, tramo=k, motivo=_tr(
-            "{u} es de {d}\": hay válvulas de {a}\" a {b}\".").format(
-            u=nombre, d=f"{d_in:g}", a=f"{VR.N_MIN:g}", b=f"{VR.N_MAX:g}"))
+        return Lugar(pipe=i, tramo=k, motivo=_tr("{u} no tiene diámetro.").format(u=nombre))
     bloque, u_ef, largo_in, od_in, avisos = pieza(n, union)
     largo_ft = largo_in / 12.0
     lug = Lugar(pipe=i, tramo=k, diam_in=float(n), bloque=bloque, union=u_ef,
@@ -360,9 +364,6 @@ def ubicar_plano(pipes, structures, v, ft, otras=(), cerca=None):
                 u=model_ops.nombre_por_defecto(pipes[ajenos[0][1]], ajenos[0][1])))
         return Lugar(motivo=_tr("El plano marca una válvula aquí, pero no dibuja ninguna tubería que pase por este "
                                 "punto: se deja donde está y no va a Civil 3D."))
-    if v.get("tipo") in SIN_PIEZA:
-        return _sin_pieza(pipes, propios[0][1], propios[0][2], x, y, v, ft, _tr(
-            "Esta válvula no tiene pieza en el catálogo: se ve en el plano y no va a Civil 3D."))
     radio_ft = max(v.get("sim_w") or 0.0, v.get("sim_h") or 0.0) / 2.0 * ft
     mejor = None                                       # (corrimiento, dist, i, k, s, a, ux, uy, n)
     fuera = None                                       # (i, k) de la tubería con un diámetro sin válvula
@@ -399,9 +400,8 @@ def ubicar_plano(pipes, structures, v, ft, otras=(), cerca=None):
                          movida=corrida > SOBRE_TOL_FT)
     if fuera is not None:
         i, k = fuera
-        return _sin_pieza(pipes, i, k, x, y, v, ft, _tr("{u} es de {d}\": hay válvulas de {a}\" a {b}\".").format(
-            u=model_ops.nombre_por_defecto(pipes[i], i), d=f"{model_ops.diametro(pipes[i])[0]:g}", a=f"{VR.N_MIN:g}",
-            b=f"{VR.N_MAX:g}"))
+        return _sin_pieza(pipes, i, k, x, y, v, ft, _tr("{u} no tiene diámetro.").format(
+            u=model_ops.nombre_por_defecto(pipes[i], i)))
     _d, i, k = propios[0]                              # sobre su tubería, pero no entra en ningún tubo recto
     p = pipes[i]
     n = diametro_valido(model_ops.diametro(p)[0])
