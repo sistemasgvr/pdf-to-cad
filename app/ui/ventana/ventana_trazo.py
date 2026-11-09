@@ -178,7 +178,7 @@ class TrazoMixin:
         sc.addItem(caja)
         self._trazo_items.append(caja)
 
-    def _ft(self, a, b):
+    def _largo_ft(self, a, b):
         L = math.hypot(b[0] - a[0], b[1] - a[1])
         return L * (self.scale / self.zoom) if self.scale and self.zoom else 0.0
 
@@ -197,7 +197,7 @@ class TrazoMixin:
             self._trazo_items = [linea]
             if math.hypot(pt[0] - p0[0], pt[1] - p0[1]) < 1e-6:
                 return
-            ang, ft = TA.rumbo_deg(p0, pt), self._ft(p0, pt)
+            ang, ft = TA.rumbo_deg(p0, pt), self._largo_ft(p0, pt)
             prev = tuple(self.cur_pts[-2]) if len(self.cur_pts) >= 2 else None
             if prev is not None and prev != p0:       # el giro = el ángulo del quiebre/codo que se crea
                 g = _giro(prev, p0, pt)
@@ -223,7 +223,7 @@ class TrazoMixin:
                      if 0 < j < n - 1 and pts[j] not in (pts[j - 1], pts[j + 1])]
             ok = all(not ANG.fuera_de_paso(g) for _j, g in giros if g > ANG.TOL_DEG)
             v = "✓" if ok else "⚠"
-            largos = [f"{self._ft(pts[j], pts[j + 1]):,.2f}" for j in (k - 1, k) if 0 <= j < n - 1]
+            largos = [f"{self._largo_ft(pts[j], pts[j + 1]):,.2f}" for j in (k - 1, k) if 0 <= j < n - 1]
             propio = next((g for j, g in giros if j == k), None)
             vecino = next((g for j, g in giros if j != k), None)
             if propio is not None:

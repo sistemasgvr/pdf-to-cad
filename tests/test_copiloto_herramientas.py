@@ -92,7 +92,8 @@ def test_pregunta_usa_la_herramienta_y_responde():
 
 
 def test_cifra_inventada_se_marca():
-    respuestas = iter([{"content": "Hay 999 líneas de agua."}])
+    # sin consultar nada, el agente insiste UNA vez (civil3d_agente.RECORDATORIO) y la IA vuelve a inventar
+    respuestas = iter([{"content": "Hay 999 líneas de agua."}] * 2)
     r = consulta.preguntar(_Prov(), "cuántas líneas de agua hay", datos(), agente=lambda m, h: next(respuestas))
     assert 999 in r.sin_respaldo
 

@@ -19,6 +19,14 @@ import sys
 import time
 from concurrent.futures import ThreadPoolExecutor
 
+# Con la salida a un archivo o a otro programa, Windows usa cp1252 y el resumen final (tildes, «»,
+# caracteres de pytest) tumbaba el script con UnicodeEncodeError: se escribe siempre en UTF-8.
+for _f in (sys.stdout, sys.stderr):
+    try:
+        _f.reconfigure(encoding="utf-8", errors="replace")
+    except (AttributeError, ValueError):
+        pass
+
 RAIZ = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 GRUPOS = {

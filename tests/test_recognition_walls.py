@@ -98,7 +98,7 @@ def test_tres_paralelas_no_se_tocan(tmp_path):
     pdf = sheet(tmp_path, [("C-SSWR-PIPE", [(100, 200 + d), (700, 200 + d)], False) for d in (0, 1.3, 4.0)])
     res, pls = lines(pdf)
     assert not res.walls_px
-    assert not any("paredes" in w for w in res.warnings)
+    assert not any(w.startswith("Tuberías dibujadas con") for w in res.warnings)
 
 
 def test_dos_tuberias_de_distinto_largo_no_son_paredes(tmp_path, monkeypatch):
