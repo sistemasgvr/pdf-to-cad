@@ -1,6 +1,6 @@
 """2.0.0 — Panel «Hoja y PDF» del riel (como el prototipo).
 
-Tarjeta del PDF con sus hojas ◀ ▶, «Componer hoja» (la acción principal), escaneos y agregar utilidad, planos de
+Tarjeta del PDF con sus hojas ◀ ▶, «Componer hoja» (la acción principal, también para escaneos) y agregar utilidad, planos de
 fondo (los de «Capas»), vista (opacidad, fondo blanco/negro, minimapa y marcas de las hojas), escala y
 georreferencia. Todo llama a lo de siempre (`win._acc[...]`, `_prev_page`, `canvas.set_pdf_opacity`,
 `_cambiar_capa`, `_prompt_scale`…). `refrescar()` lo llama la barra superior al cambiar de hoja o proyecto.
@@ -55,8 +55,9 @@ class PanelHoja(QtWidgets.QWidget):
         if a is not None:
             componer.clicked.connect(a.trigger)
         cl.addWidget(componer)
-        for ic, clave, det in (("file-image-outline", "Componer PDF imagen/escaneo…", "Regla, transportador y enderezar"),
-                               ("file-plus-outline", "Agregar utilidad desde otro PDF…", "Se ubica sola por el mapa base")):
+        # «Componer PDF imagen/escaneo…» ya no va aquí (2026-11-09): el compositor es uno y las piezas
+        # escaneadas traen solas regla, transportador y enderezar (`composite_mixto`). Sigue en el menú.
+        for ic, clave, det in (("file-plus-outline", "Agregar utilidad desde otro PDF…", "Se ubica sola por el mapa base"),):
             a = win._acc.get(clave)
             if a is not None:
                 cl.addWidget(R.FilaAccion(ic, clave, det, accion=a))

@@ -48,6 +48,7 @@ from traduccion.i18n import t as _tr
 from ui.comun.icons import icon as _icon
 from ui.asistente.scan_crop_view import CornerCropView
 from ui.asistente.composite_scan_ui import ScanToolsMixin
+from ui.asistente.composite_mixto import MixtoMixin
 from ui.asistente.composite_choice import ChosenSheetMixin
 from ui.asistente.composite_suggest import SuggestionMixin
 from ui.asistente.composite_area_suggest import AreaSugeridaMixin
@@ -155,7 +156,7 @@ def _banner(color: str) -> tuple[QtWidgets.QFrame, QtWidgets.QLabel]:
     return box, lbl
 
 
-class CompositeDialog(NoEscapeClose, ChosenSheetMixin, SourcePageMixin, ScanToolsMixin, SuggestionMixin,
+class CompositeDialog(NoEscapeClose, ChosenSheetMixin, SourcePageMixin, ScanToolsMixin, MixtoMixin, SuggestionMixin,
                       AreaSugeridaMixin, QtWidgets.QDialog):
     def __init__(self, parent, sources: List[dict], comp: Optional[C.Composite],
                  hidden_by_source: Optional[Dict[str, List[str]]], current_page: int = 0, manual: bool = False,
@@ -642,10 +643,13 @@ class CompositeDialog(NoEscapeClose, ChosenSheetMixin, SourcePageMixin, ScanTool
         # Con poco ancho los botones quedan en solo icono (`ToolStrip`).
         bar = ToolStrip()
         self.tool_bar = bar
-        if self.comp.manual:
-            self.build_scan_tools(bar, _tool, _spin, _field_action, _check_action)
-        else:
-            self.build_blend_tool(bar, _tool)   # «Fundir bordes» también en el vectorial (2026-10-19)
+        # guías del escaneo en los DOS compositores (2026-11-09): en el vectorial quedan ocultas hasta
+        # que haya una pieza escaneada (`composite_mixto`); «Fundir bordes» va siempre (2026-10-19)
+        self.build_scan_tools(bar, _tool, _spin, _field_action, _check_action)
+        if not self.comp.manual:
+            for w in self.grupo_escaneo:
+                w.hide()
+        self.view.pieza_escaneo = self._es_escaneo_pieza
         bar.add_stretch()
         self.piece_tools = QtWidgets.QWidget()
         pt = QtWidgets.QHBoxLayout(self.piece_tools); pt.setContentsMargins(0, 0, 0, 0); pt.setSpacing(6)
@@ -695,8 +699,7 @@ class CompositeDialog(NoEscapeClose, ChosenSheetMixin, SourcePageMixin, ScanTool
         self.lbl_status.setStyleSheet(f"color:{t.text}; font-size:12px;")
         self.lbl_status.setSizePolicy(QtWidgets.QSizePolicy.Ignored, QtWidgets.QSizePolicy.Preferred)
         srow.addWidget(self.lbl_status, 1)
-        if self.comp.manual:
-            self.build_scan_status(srow)
+        self.build_scan_status(srow)          # «Calibrar escala…»: oculto hasta medir sobre una pieza
         self.lbl_summary = QtWidgets.QLabel()
         self.lbl_summary.setStyleSheet(f"color:{t.text_muted}; font-size:12px;")
         srow.addWidget(self.lbl_summary)
@@ -800,6 +803,11 @@ class CompositeDialog(NoEscapeClose, ChosenSheetMixin, SourcePageMixin, ScanTool
             self.btn_take_full.setEnabled(True)
         if self.comp.manual or self._uses_layers(self._cur_source, row):
             self.nolayers_box.hide()
+        elif self._es_escaneo_hoja(self._cur_source, row):          # composite_mixto
+            self.lbl_nolayers.setText(_tr("Hoja {n} escaneada (imagen): se alinea con la regla, el transportador y "
+                                          "«Enderezar», y sus utilidades se dibujan a mano. Las piezas vectoriales de "
+                                          "la hoja compuesta sí se reconocen.").format(n=row + 1))
+            self.nolayers_box.show()
         else:
             self.lbl_nolayers.setText(_tr("Hoja {n} sin capas originales: sus líneas se agrupan por "
                                           "estilo (color y grosor). En «Capas de la hoja» asigna el "
@@ -1002,7 +1010,7 @@ class CompositeDialog(NoEscapeClose, ChosenSheetMixin, SourcePageMixin, ScanTool
         if idx < 0:
             return
         p = self.comp.pieces[idx]
-        if self.comp.manual:              # escaneo: gira sobre su centro, no se corre
+        if self.comp.manual or self._es_escaneo_pieza(idx):   # escaneo: gira sobre su centro, no se corre
             self._turn_piece(idx, round(p.rotation + delta, 6))
             return
         p.rotation = (p.rotation + delta) % 360.0
@@ -1014,7 +1022,7 @@ class CompositeDialog(NoEscapeClose, ChosenSheetMixin, SourcePageMixin, ScanTool
         idx = self.view.selected_index()
         if idx < 0 or self._syncing_widgets:
             return
-        if self.comp.manual:
+        if self.comp.manual or self._es_escaneo_pieza(idx):
             self._turn_piece(idx, float(value))
             return
         self.comp.pieces[idx].rotation = float(value) % 360.0
@@ -1113,13 +1121,14 @@ class CompositeDialog(NoEscapeClose, ChosenSheetMixin, SourcePageMixin, ScanTool
         w, h, _, _ = C.sheet_geometry(self.comp, self.view.page_size)
         self.lbl_summary.setText(_tr("{n} pieza(s) · hoja compuesta {w:.0f} × {h:.0f} pt · {s}").format(
             n=n, w=w, h=h, s=_scale_label(self.comp.target_scale())))
+        self._sync_mixto()
         self._refresh_checks()
 
     def _refresh_status(self):
         """Línea de estado bajo la hoja: qué hacer con la herramienta activa."""
         if not hasattr(self, "lbl_status"):
             return
-        text = self.scan_status_text() if self.comp.manual else getattr(self, "_flash", "")
+        text = self.scan_status_text() if self._guias_escaneo() else getattr(self, "_flash", "")
         if not text and self.comp.pieces and self.view.selected_index() < 0:
             text = _tr("Haz clic en una pieza para girarla, ajustarla o quitarla.")
         elif not text and not self.comp.pieces:
@@ -1148,6 +1157,8 @@ class CompositeDialog(NoEscapeClose, ChosenSheetMixin, SourcePageMixin, ScanTool
                 return
             if choice == "take":
                 self._take(full=False)
+        if self._decidir_todo_escaneo() == "back":    # todas las piezas escaneadas (composite_mixto)
+            return
         super().accept()
 
     def _has_area(self) -> bool:
@@ -1238,9 +1249,9 @@ class CompositeDialog(NoEscapeClose, ChosenSheetMixin, SourcePageMixin, ScanTool
         if getattr(self, "_vivo", False):
             # el diálogo sigue vivo (volver atrás lo muestra igual): quien llama recibe COPIAS, así
             # lo que se haga después aquí y se cancele no le cambia la hoja de trabajo
-            return (C.Composite.from_dict(self.comp.to_dict()), [dict(s) for s in self.sources],
+            return (self._resultado_mixto(C.Composite.from_dict(self.comp.to_dict())), [dict(s) for s in self.sources],
                     {k: list(v) for k, v in self.hidden_by_source.items()})
-        return self.comp, self.sources, self.hidden_by_source
+        return self._resultado_mixto(self.comp), self.sources, self.hidden_by_source
 
     # ── seguir vivo entre pasos del asistente (pedido del usuario 2026-10-28) ──
     def sirve_para(self, sources, comp, hidden_by_source, manual: bool, sugerencia: bool) -> bool:

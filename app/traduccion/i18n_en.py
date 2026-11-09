@@ -4539,7 +4539,6 @@ EN: dict[str, str] = {
     'Revisión': 'Review',
     'Ayuda: manual, atajos de teclado, acerca de': 'Help: manual, keyboard shortcuts, about',
     'Ajustes: idioma, tema, paneles, asistente IA, familias de Civil 3D': 'Settings: language, theme, panels, AI assistant, Civil 3D families',
-    'Regla, transportador y enderezar': 'Ruler, protractor and straighten',
     'Se ubica sola por el mapa base': 'Placed automatically by the base map',
     'Georreferencia': 'Georeference',
     'Varias utilidades': 'Several utilities',
@@ -5085,6 +5084,18 @@ EN: dict[str, str] = {
         '{d}" is not in the standards table: estimated (interpolated) dimensions.',
     '{u} no tiene diámetro.':
         '{u} has no diameter.',
+    'Hoja escaneada':
+        'Scanned sheet',
+    'Todas las piezas de la hoja compuesta son imágenes o escaneos.':
+        'Every piece of the composite sheet is an image or scan.',
+    'No tienen líneas que reconocer: lo normal es pasarla al editor y dibujar las utilidades a mano.':
+        'They have no lines to recognize: the usual step is to send it to the editor and draw the utilities by hand.',
+    'Dibujar a mano':
+        'Draw by hand',
+    'Reconocer de todos modos':
+        'Recognize anyway',
+    'Hoja {n} escaneada (imagen): se alinea con la regla, el transportador y «Enderezar», y sus utilidades se dibujan a mano. Las piezas vectoriales de la hoja compuesta sí se reconocen.':
+        'Sheet {n} is scanned (image): align it with the ruler, the protractor and «Straighten», and draw its utilities by hand. The vector pieces of the composite sheet are still recognized.',
     'Accesorios':
         'Fittings',
     'Tees':
