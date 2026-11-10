@@ -577,6 +577,12 @@ class DibujoMixin:
             # su contorno real a escala, con el color de la línea y la medida al
             # seleccionarla.
             outline = s.get("outline")
+            anillo = s.get("anillo") if not (outline and len(outline) >= 3) else None
+            if anillo:
+                # buzón REDONDO reconocido: su círculo dibujado (antes solo quedaba el punto)
+                cx, cy, rr = (float(v) for v in anillo)
+                outline = [(cx + rr * math.cos(k * math.pi / 24), cy + rr * math.sin(k * math.pi / 24))
+                           for k in range(48)]
             if outline and len(outline) >= 3:
                 poly = QtGui.QPolygonF([QtCore.QPointF(x, y) for x, y in outline])
                 open_pen = QtGui.QPen(QtGui.QColor(255, 220, 40) if selected else col, 2 if selected else 1.5)

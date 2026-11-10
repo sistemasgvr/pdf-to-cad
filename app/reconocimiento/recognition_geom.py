@@ -768,6 +768,9 @@ def clip_path(path: dict, polygons: Sequence[Sequence[Pt]]) -> Optional[dict]:
         "items": items, "rect": _Rect(min(xs), min(ys), max(xs), max(ys)),
         "layer": path.get("layer"), "fill": path.get("fill"), "color": path.get("color"),
         "closePath": False, "clipped": True, "cut_pts": cuts,
+        # el original era SOLO curvas (círculo de Béziers): el recorte lo aplana a rectas y
+        # `_fill_vault_geometry` lo leía como cuadrado (buzón redondo de V-ELEC-MANH)
+        "solo_curvas": bool(path.get("items")) and all(it[0] == "c" for it in path["items"]),
     }
 
 
@@ -1970,6 +1973,16 @@ def _fill_vault_geometry(v: "Vault", cluster: Sequence[dict], polygon_circles: b
         v.circle = (circ[0], circ[1], circ[2])
         return
     _rect_geometry(v, pts, chains)
+    if path.get("solo_curvas") and not path.get("cut_pts"):
+        # Círculo de Béziers que el recorte de la vista aplanó a rectas (buzón redondo de
+        # V-ELEC-MANH, hoja 13 del «Seg A Sewer»): se informa REDONDO (forma, diámetro y
+        # anillo), pero el núcleo conserva el contorno de antes (`outline`), que decide qué
+        # punta es de qué bóveda: las líneas quedan como estaban.
+        pb = _path_bbox(path)
+        v.shape = "circle"
+        v.width = v.length = (pb[2] - pb[0] + pb[3] - pb[1]) / 2.0
+        v.angle_deg = 0.0
+        v.circle = ((pb[0] + pb[2]) / 2.0, (pb[1] + pb[3]) / 2.0, v.width / 2.0)
 
 
 def _rect_geometry(v: "Vault", pts: List[Pt], chains: Optional[List[List[Pt]]] = None) -> None:
@@ -2560,10 +2573,10 @@ def resolve_nodes(runs: List[Run], pat: Pattern, vaults: Sequence[Vault],
             if oi[0] * ok[0] + oi[1] * ok[1] <= -cos_cont:
                 continued.update(((i, s), (k, sk)))
 
-    def continuation_dist(i: int, s: str) -> Optional[float]:
+    def continuation_dist(i: int, s: str, where: bool = False):
         """(perfil `continuation_before_vault`) Distancia a la punta de OTRA
         corrida que continúa ésta de frente (las mismas condiciones que un
-        quiebre suave de la pasada 5b), o None."""
+        quiebre suave de la pasada 5b), o None. Con `where`, (distancia, k, sk)."""
         pe, oe, L1 = endpoint(i, s), outward(i, s), runs[i].line(s)
         best = None
         for k, sk in loose:
@@ -2579,9 +2592,11 @@ def resolve_nodes(runs: List[Run], pat: Pattern, vaults: Sequence[Vault],
             if ((pf[0] - pe[0]) * oe[0] + (pf[1] - pe[1]) * oe[1] < 0.866 * d
                     or (pe[0] - pf[0]) * of_[0] + (pe[1] - pf[1]) * of_[1] < 0.866 * d):
                 continue
-            if best is None or d < best:
-                best = d
-        return best
+            if best is None or d < best[0]:
+                best = (d, k, sk)
+        if best is None:
+            return None
+        return best if where else best[0]
 
     def letter_continuation(i: int, s: str, where: bool = False):
         """Distancia a la punta de OTRA corrida que continúa ésta de frente con una
@@ -2658,6 +2673,7 @@ def resolve_nodes(runs: List[Run], pat: Pattern, vaults: Sequence[Vault],
         if not ends:
             orphans.append(vi)
             continue
+        ends_set = set(ends)
 
         def entry_point(i: int, s: str):
             """(E, |desplazamiento|) donde la recta del extremo toca el borde, o
@@ -2704,10 +2720,19 @@ def resolve_nodes(runs: List[Run], pat: Pattern, vaults: Sequence[Vault],
                     and not any(_pt_seg_dist((g.cx,g.cy),endpoint(i,s),E) <= g.size/2+1.
                                 for g in glyphs)):
                 continue
-            if continuation_before_vault and not runs[i].split:
-                cd = continuation_dist(i, s)
-                if cd is not None and cd < move - 1.0:
-                    continue              # su continuación está antes que la bóveda
+            if not runs[i].split:
+                ch = continuation_dist(i, s, where=True)
+                if ch is not None and ch[0] < move - 1.0:
+                    if continuation_before_vault:
+                        continue          # su continuación está antes que la bóveda
+                    # En TODAS las utilidades: si esa continuación es la que LLEGA a esta
+                    # bóveda (su otra punta es candidata), estirar ésta hasta el borde daría
+                    # DOS llegadas, una sin tinta encima de la otra (hoja 13 del «Seg A
+                    # Sewer» (622, 855), eléctrico: el último guión antes de la caja quedaba
+                    # aparte y la línea se prolongaba 15 pt hasta el borde). La une la pasada
+                    # de quiebres suaves.
+                    if (ch[1], 'b' if ch[2] == 'a' else 'a') in ends_set:
+                        continue
             # En TODAS las utilidades: la línea sigue por su LETRA hacia una
             # continuación que está antes que la bóveda, DELANTE (DU06 h.10 (744, 1107),
             # «—SC—»: baja en diagonal, «SC» y sigue en curva hasta la caja; se

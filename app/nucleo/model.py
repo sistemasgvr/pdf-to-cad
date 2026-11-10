@@ -160,6 +160,7 @@ def default_network_type(layer):
 
 CHANGELOG = [
     ("2.0.0", [
+        ('fix', 'Reconocimiento de buzones: los buzones redondos se ven como círculo en el editor (antes solo quedaba un punto en su centro). Los dibujados con curvas dentro del recorte de la vista se leían como cuadrados: ahora salen redondos y con su diámetro. Un buzón dibujado dentro de una bóveda más grande ya no desaparece al importar: quedan los dos. Y una línea que llega a una bóveda ya no sale doble cuando su último guión queda suelto junto al borde.'),
         ('fix', 'Dibujar utilidad: una tubería a medio dibujar (sin Enter) ya no se pierde. Al guardar, abrir la Vista 3D, exportar o cambiar de herramienta, la app la termina sola, también cuando continúa una tubería reconocida («Extender»). Antes no se guardaba ni pasaba a 3D, y al cambiar de herramienta quedaba colgada. Esc la sigue cancelando.'),
         ('fix', 'Escala de la hoja: una escala escrita con separador de miles («1 : 3,274», como en los mapas de NavigateLA) se leía como 1:3 y la hoja quedaba diminuta en «Componer hoja» (no se veía al lado de las demás). Ahora se lee bien.'),
         ('fix', 'Componer hoja de trabajo: corregido un cierre del programa al abrirla varias veces seguidas (se cerraba solo, sin aviso).'),

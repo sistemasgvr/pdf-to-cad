@@ -3005,7 +3005,7 @@ def _vaults_geometry(results, px, scale: float, zoom: float, vault_orph: dict, v
             abandoned = ab_layer and v.n_paths >= 4 and v.outline is not None and v.ref is None
             # el "centro" útil es la referencia (manhole) si la hay; si no, el del contorno
             cx, cy = v.reference
-            corners = [px(q) for q in v.outline] if v.outline else None
+            corners = [px(q) for q in v.outline] if (v.outline and v.shape != "circle") else None
             if min(v.width, v.length) * scale < VAULT_MIN_FT:
                 continue                    # caja de paso / poste: no es bóveda (no se mide ni se dibuja)
             orphan = vault_orph.get(key, 0) == vault_seen.get(key, 0)

@@ -112,6 +112,9 @@ def translate_structure(s, dx, dy):
     s["x"] = float(s["x"]) + dx; s["y"] = float(s["y"]) + dy
     if s.get("outline"):
         s["outline"] = [(float(x) + dx, float(y) + dy) for x, y in s["outline"]]
+    if s.get("anillo"):
+        cx, cy, r = s["anillo"]
+        s["anillo"] = (float(cx) + dx, float(cy) + dy, float(r))
 
 
 def curve_vertex_indices(pipe, structures, pipes=(), tol=14.0):
@@ -705,7 +708,9 @@ def bz_segment_count(pipes, s):
 # Campos de geometría real que una estructura puede traer del reconocimiento
 # (contorno del símbolo en el PDF, nada inventado): forma, ancho y largo en
 # pies, giro del lado largo y el contorno en px del lienzo para dibujarlo.
-VAULT_GEO_KEYS = ("shape", "width_ft", "length_ft", "rot_deg", "outline")
+VAULT_GEO_KEYS = ("shape", "width_ft", "length_ft", "rot_deg", "outline", "anillo")
+# `anillo` = (cx, cy, r) px del círculo dibujado de un buzón REDONDO (el editor lo dibuja; antes
+# solo se dibujaba el contorno de los rectangulares y el redondo quedaba como un punto).
 
 
 def attach_vault_geometry(structures, vaults_geo, tol=12.0, net="conduit",
@@ -733,6 +738,7 @@ def attach_vault_geometry(structures, vaults_geo, tol=12.0, net="conduit",
     from nucleo.indice_plano import IndiceEstructuras
     ind = IndiceEstructuras(structures)
     llegadas = _VerticesDeBoveda(pipes) if (net == "conduit" and pipes) else None
+    con_boveda = set()                    # estructuras que ya tomaron otra bóveda en esta pasada
     for k_av, vg in enumerate(vaults_geo or []):
         avance.avisar(_tr("Asociando cada bóveda a su estructura…"), k_av + 1, len(vaults_geo))
         cx, cy = vg.get("center", (None, None))
@@ -752,6 +758,11 @@ def attach_vault_geometry(structures, vaults_geo, tol=12.0, net="conduit",
             # si no, quedaban dos estructuras, la de la punta y otra suelta al centro).
             for s in (structures[k] for k in ind.en_caja(*_caja_de_boveda(vg))):
                 if s.get("world") or s.get("curve") or (s.get("net") or "gravity") != net:
+                    continue
+                if id(s) in con_boveda:
+                    # es la de OTRA bóveda (un buzón dibujado dentro de esta caja): tomarla le
+                    # pisaba su geometría y el buzón de dentro desaparecía (hoja 13 del «Seg A
+                    # Sewer», V-ELEC-MANH dentro de la bóveda abandonada)
                     continue
                 sx, sy = float(s.get("x", 1e9)), float(s.get("y", 1e9))
                 if _dentro_de_boveda(vg, sx, sy):
@@ -789,6 +800,9 @@ def attach_vault_geometry(structures, vaults_geo, tol=12.0, net="conduit",
         st["length_ft"] = float(vg.get("length_ft") or 0.0)
         st["rot_deg"] = float(vg.get("angle_deg") or 0.0)
         st["outline"] = [(float(x), float(y)) for x, y in (vg.get("corners") or [])] or None
+        circ = vg.get("circle") if vg.get("shape") == "circle" else None
+        st["anillo"] = (float(circ[0]), float(circ[1]), float(circ[2])) if circ else None
+        con_boveda.add(id(st))
         st["hidden"] = False                      # una bóveda real siempre se ve
         if vg.get("abandoned"):
             st["abandoned"] = True
