@@ -78,8 +78,10 @@ def _flotantes(dlg, tab_source):
             fila = sub
             break
     if fila is not None:
-        ws = [fila.itemAt(k).widget() for k in range(fila.count()) if fila.itemAt(k).widget() is not None]
-        dlg.pastilla_area = pastilla(ws)
+        # los widgets de la fila, en orden (sin envoltorios de sus QLayoutItem: `pastilla` los quita de la fila)
+        hijos = pagina.findChildren(QtWidgets.QWidget, options=QtCore.Qt.FindDirectChildrenOnly)
+        ws = sorted((w for w in hijos if fila.indexOf(w) >= 0), key=fila.indexOf)
+        dlg.pastilla_area = pastilla(ws, padre=dlg.crop)   # nace sobre la hoja (ver `pastilla`)
         flotar(dlg.crop, dlg.pastilla_area, "abajo")
     i = lay.indexOf(dlg.crop)
     tarjeta = lay.itemAt(i - 1).widget() if i > 0 else None

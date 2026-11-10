@@ -183,7 +183,8 @@ class PieceItem(QtWidgets.QGraphicsPixmapItem):
         pen.setWidth(3 if self.isSelected() else 1)
         # Escaneos: el contorno naranja sobre la costura se leía como un corte
         # (usuario 2026-10-02); solo se ve en la pieza elegida o bajo el ratón.
-        if self.view.comp.manual and not self.isSelected() and not self._hover:
+        if ((self.view.comp.manual or self.view.pieza_escaneo(self.index))
+                and not self.isSelected() and not self._hover):
             pen = QtGui.QPen(QtCore.Qt.NoPen)
         self._outline.setPen(pen)
         self._outline.setBrush(QtCore.Qt.NoBrush)
@@ -256,7 +257,8 @@ class PieceItem(QtWidgets.QGraphicsPixmapItem):
     def itemChange(self, change, value):
         if change == QtWidgets.QGraphicsItem.ItemPositionChange and not getattr(self, "_syncing", False):
             pos = value
-            if self.view.magnet_enabled and self.view.pieces_ready():
+            # una pieza escaneada en el compositor vectorial (composite_mixto): sin vectores, el imán no la mueve
+            if self.view.magnet_enabled and self.view.pieces_ready() and not self.view.pieza_escaneo(self.index):
                 snapped = self.view.snap_position(self.index, (pos.x(), pos.y()))
                 if snapped is not None:
                     pos = QtCore.QPointF(*snapped)
@@ -305,6 +307,7 @@ class CompositeView(ZoomPanView):
         self.docs = docs
         self.magnet_enabled = not comp.manual
         self.show_anchors = not comp.manual
+        self.pieza_escaneo = lambda _i: False     # el compositor la cambia (composite_mixto): pieza de una hoja escaneada
         self.items: List[PieceItem] = []
         self._edge_cache: Dict[tuple, List[C.Anchor]] = {}  # (pdf, hoja, clip) → anclajes (coords hoja origen)
         self._seam_cache: Dict[tuple, object] = {}          # (…, lado) → extremos de la match line
@@ -1024,7 +1027,7 @@ class CompositeView(ZoomPanView):
             event.accept()
             return
         turn = self._ROTATE_KEYS.get(event.key())
-        if turn and index >= 0 and self.comp.manual:
+        if turn and index >= 0 and (self.comp.manual or self.pieza_escaneo(index)):
             mods = event.modifiers()
             if abs(turn) == 10 or mods & QtCore.Qt.ShiftModifier:   # «*» y «_» = Shift en teclado español
                 step = 1.0

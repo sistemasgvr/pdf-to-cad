@@ -1,86 +1,106 @@
-"""Sentido del FLUJO en gravedad y presión (mezcla de `Main`; pedidos del usuario 2026-11-09: «indicar hacia dónde va
-el fluido, de una manera fácil, en las propiedades de la utilidad y en el perfil»; también en presión, nunca en
-eléctrico ni telecom). El dato: `pipe["flujo"]` (`nucleo/flujo`).
+"""Sentido del FLUJO en gravedad y presión (mezcla de `Main`; pedidos del usuario 2026-11-09 y 2026-11-10). Nunca en
+eléctrico ni telecom. El dato: `pipe["flujo"]` / `pipe["flujo_hacia"]` (`nucleo/flujo`).
 
-- Propiedades de una utilidad de GRAVEDAD o PRESIÓN, sección «Cotas»: «Flujo» = segmentado [Auto | ➜ | ➜] — las dos
-  flechas apuntan como se ve la utilidad en el plano (de su inicio a su fin y al revés). «Auto» = en gravedad hacia el
-  extremo más bajo; a presión, sin indicar. Con un sentido indicado, la utilidad elegida lleva flechas en el plano.
-- Perfil: flecha redonda en cada tramo (`ui/comun/perfil_vista_flujo`); clic = invertir esa utilidad, clic derecho =
-  hacia A / hacia B / automático (sin indicar), de esa utilidad o de todo el perfil.
-Cada cambio es UN paso de deshacer. La contrapendiente del perfil (gravedad) se juzga con este sentido
-(`perfil_validar`).
+Se elige con un PUNTO DE LLEGADA (2026-11-10: «ya no todo a la izquierda o a la derecha: puede llegar a un buzón del
+medio»), no con dos flechas:
+- Propiedades de la utilidad, sección «Cotas», fila «Flujo»: [Elegir en el plano] [Auto] … [ojo] y debajo cómo va.
+  «Elegir en el plano» = modo «flujo_punto»: el ratón se pega a un buzón, un vértice, una punta o un punto de la línea
+  de ESA utilidad (diana verde + flechas de vista previa); clic = el fluido llega ahí (un paso de deshacer) y 5 s de
+  flechas que corren hacia ese punto (`ui/comun/flujo_animacion`). Esc o clic derecho = cancelar.
+- El ojo: ver u ocultar en el plano las flechas (y la diana de llegada) de TODAS las utilidades con el sentido
+  indicado (QSettings `flujo/ver_plano`).
+- Perfil: `ventana_flujo_perfil`.
+La contrapendiente y la caída en los buzones se validan con este sentido (`nucleo/flujo_validar`, `normas_validar`).
 """
 from __future__ import annotations
 
 from PySide6 import QtCore, QtGui, QtWidgets
 
-from nucleo import flujo as FL
+from nucleo import flujo as FL, model_ops
 from nucleo.model import Z_MARK, network_kind
 from traduccion.i18n import bind as _bind, t as _tr
+from ui.comun import rediseno as R
 from ui.comun.icons import icon
+from ui.comun.responsive import WrapButton
 from ui.comun.theme import tokens
 from ui.comun.ui_common import layer_qcolor
+from ui.ventana.ventana_flujo_perfil import PerfilFlujoMixin
 
-ICONO_PX = 18
-
-
-def _flecha(angulo, color):
-    """Icono de una flecha girada `angulo` grados (Y hacia abajo, como el lienzo)."""
-    dpr = 2.0
-    pm = QtGui.QPixmap(int(ICONO_PX * dpr), int(ICONO_PX * dpr))
-    pm.setDevicePixelRatio(dpr)
-    pm.fill(QtCore.Qt.transparent)
-    base = icon("mdi:arrow-right", color=color).pixmap(QtCore.QSize(ICONO_PX, ICONO_PX), dpr)
-    p = QtGui.QPainter(pm)
-    p.setRenderHint(QtGui.QPainter.SmoothPixmapTransform)
-    p.translate(ICONO_PX / 2, ICONO_PX / 2)
-    p.rotate(angulo)
-    p.drawPixmap(QtCore.QRectF(-ICONO_PX / 2, -ICONO_PX / 2, ICONO_PX, ICONO_PX), base,
-                 QtCore.QRectF(base.rect()))
-    p.end()
-    return pm
+N_ = lambda s: s          # noqa: E731  (marca para la traducción)
+VER_PLANO = "flujo/ver_plano"
+IMAN_PX = 14.0                                    # radio del imán al elegir (px de pantalla)
+MODO = "flujo_punto"
+QUE = {"buzon": N_("este buzón"), "punta": N_("esta punta"), "vertice": N_("este vértice"),
+       "linea": N_("este punto de la línea")}
 
 
-class FlujoMixin:
+def ajuste(clave, defecto=True):
+    v = QtCore.QSettings("pdf-to-cad", "app").value(clave, defecto)
+    return v not in (False, "false", "False", "0", 0)
+
+
+def guardar_ajuste(clave, valor):
+    QtCore.QSettings("pdf-to-cad", "app").setValue(clave, bool(valor))
+
+
+def texto_estado(p):
+    """Cómo va el fluido en la utilidad, en una frase (debajo de los botones)."""
+    if FL.punto(p) is not None:
+        return _tr("Llega a un punto intermedio: las dos partes van hacia él.")
+    f = FL.fijo(p)
+    if f == FL.ADELANTE:
+        return _tr("Llega al fin de la utilidad (el último vértice que se dibujó).")
+    if f == FL.ATRAS:
+        return _tr("Llega al inicio de la utilidad (el primer vértice que se dibujó).")
+    if network_kind(p.get("layer") or "") == "pressure":
+        return _tr("Sin indicar: a presión la app no deduce hacia dónde va el fluido.")
+    return _tr("Automático: en el perfil, hacia el extremo más bajo del recorrido.")
+
+
+class FlujoMixin(PerfilFlujoMixin):
     # ------------------------------------------------------------------ propiedades de la utilidad
 
     def _flujo_construir(self):
-        """El segmentado «Flujo» (lo pone `ventana_inspector_campos.reorganizar` en la sección Cotas)."""
-        caja = QtWidgets.QFrame()
-        caja.setObjectName("segmentado")
-        lay = QtWidgets.QHBoxLayout(caja)
-        lay.setContentsMargins(3, 3, 3, 3)
-        lay.setSpacing(2)
-        self.btn_flujo = {}
-        grupo = QtWidgets.QButtonGroup(caja)
-        grupo.setExclusive(True)
-        for sentido, texto, tip in (
-                (FL.AUTO, "Auto", ""),                # su globo depende de la red (`_flujo_refrescar`)
-                (FL.ADELANTE, "", "El fluido va del inicio al fin de la utilidad (en el sentido en que se dibujó)"),
-                (FL.ATRAS, "", "El fluido va del fin al inicio de la utilidad")):
-            b = QtWidgets.QPushButton()
-            b.setProperty("kind", "seg")
-            b.setCheckable(True)
-            b.setAutoDefault(False)
-            if texto:
-                _bind(b, "setText", texto)
-            if tip:
-                _bind(b, "setToolTip", tip)
-                _bind(b, "setAccessibleName", tip)
-            b.setIconSize(QtCore.QSize(ICONO_PX, ICONO_PX))
-            b.clicked.connect(lambda _=False, s=sentido: self.poner_flujo([self.sel_pipe], s))
-            grupo.addButton(b)
-            lay.addWidget(b)
-            self.btn_flujo[sentido] = b
-        lay.addStretch(1)
+        """La fila «Flujo» (la pone `ventana_inspector_campos.reorganizar` en la sección Cotas)."""
+        caja = QtWidgets.QWidget()
+        v = QtWidgets.QVBoxLayout(caja)
+        v.setContentsMargins(0, 0, 0, 0)
+        v.setSpacing(4)
+        h = QtWidgets.QHBoxLayout()
+        h.setSpacing(6)
+        b = WrapButton()                                # el texto se parte en líneas si el panel es angosto
+        b.setIcon(icon("mdi:arrow-collapse-horizontal"))
+        _bind(b, "setText", "Elegir en el plano")
+        _bind(b, "setToolTip", "Haz clic en el plano donde llega el fluido: un buzón, un vértice, una punta o un punto "
+                               "de esta utilidad")
+        b.setCheckable(True)
+        b.setAutoDefault(False)
+        b.clicked.connect(lambda _=False: self.flujo_elegir_en_plano())
+        self.btn_flujo_elegir = b
+        h.addWidget(b)
+        a = QtWidgets.QPushButton()
+        a.setProperty("kind", "ghost")
+        _bind(a, "setText", "Auto")
+        a.setAutoDefault(False)
+        a.clicked.connect(lambda _=False: self.poner_flujo([self.sel_pipe], FL.AUTO))
+        self.btn_flujo_auto = a
+        h.addWidget(a)
+        h.addStretch(1)
+        self.btn_flujo_ver = R.boton_icono("eye-outline", "Ocultar el sentido del flujo en el plano",
+                                           lambda: self.ver_flujo_plano())
+        h.addWidget(self.btn_flujo_ver)
+        v.addLayout(h)
+        self.lbl_flujo_estado = QtWidgets.QLabel()
+        self.lbl_flujo_estado.setProperty("rol", "t2")
+        self.lbl_flujo_estado.setWordWrap(True)
+        v.addWidget(self.lbl_flujo_estado)
         self.box_flujo = caja
         self.lbl_flujo = QtWidgets.QLabel()
         _bind(self.lbl_flujo, "setText", "Flujo")
         return self.lbl_flujo, caja
 
     def _flujo_refrescar(self):
-        """Al elegir otra utilidad: la fila solo en gravedad y presión, con su sentido y las flechas como se ve en el
-        plano."""
+        """Al elegir otra utilidad: la fila solo en gravedad y presión, con su estado."""
         caja = getattr(self, "box_flujo", None)
         if caja is None:
             return
@@ -90,31 +110,43 @@ class FlujoMixin:
         form = self.gprop.layout()
         if isinstance(form, QtWidgets.QFormLayout) and form.indexOf(caja) >= 0:
             form.setRowVisible(caja, ver)
+        self._flujo_ojo(self.btn_flujo_ver, self._ver_flujo_plano(), "plano")
         if not ver:
             return
-        tk = tokens()
-        auto = (_tr("Sin indicar: a presión la app no deduce hacia dónde va el fluido")
-                if network_kind(p.get("layer") or "") == "pressure"
-                else _tr("Automático: en el perfil, el fluido va hacia el extremo más bajo del recorrido"))
-        self.btn_flujo[FL.AUTO].setToolTip(auto)
-        self.btn_flujo[FL.AUTO].setAccessibleName(auto)
-        ang = FL.rumbo_pantalla(p.get("pts") or []) or 0.0
-        for sentido, giro in ((FL.ADELANTE, ang), (FL.ATRAS, ang + 180.0)):
-            ico = QtGui.QIcon()
-            ico.addPixmap(_flecha(giro, tk.text_muted), QtGui.QIcon.Normal, QtGui.QIcon.Off)
-            ico.addPixmap(_flecha(giro, tk.accent), QtGui.QIcon.Normal, QtGui.QIcon.On)
-            self.btn_flujo[sentido].setIcon(ico)
-        actual = FL.fijo(p)
-        for sentido, b in self.btn_flujo.items():
-            b.blockSignals(True)
-            b.setChecked(sentido == actual)
-            b.blockSignals(False)
+        eligiendo = self.mode == MODO
+        self.btn_flujo_elegir.blockSignals(True)
+        self.btn_flujo_elegir.setChecked(eligiendo)
+        self.btn_flujo_elegir.blockSignals(False)
+        presion = network_kind(p.get("layer") or "") == "pressure"
+        tip = (_tr("Volver a «sin indicar»") if presion
+               else _tr("Volver a automático: hacia el extremo más bajo del recorrido"))
+        self.btn_flujo_auto.setToolTip(tip)
+        self.btn_flujo_auto.setAccessibleName(tip)
+        self.btn_flujo_auto.setEnabled(FL.tiene(p))
+        self.lbl_flujo_estado.setText(_tr("Haz clic en el plano donde llega el fluido (Esc cancela).") if eligiendo
+                                      else texto_estado(p))
+
+    @staticmethod
+    def _flujo_ojo(boton, visible, donde):
+        """El ojo de ver/ocultar: icono, globo y nombre accesible según el estado."""
+        if boton is None:
+            return
+        boton.setIcon(icon("mdi:eye-outline" if visible else "mdi:eye-off-outline"))
+        if donde == "plano":
+            tip = (_tr("Ocultar el sentido del flujo en el plano") if visible
+                   else _tr("Ver el sentido del flujo en el plano"))
+        else:
+            tip = (_tr("Ocultar el sentido del flujo en el perfil") if visible
+                   else _tr("Ver el sentido del flujo en el perfil"))
+        boton.setToolTip(tip)
+        boton.setAccessibleName(tip)
 
     def poner_flujo(self, indices, sentido):
-        """El sentido (1 / -1 / 0 = automático) en esas utilidades, en UN paso de deshacer. True si cambió algo."""
+        """Toda la utilidad hacia su fin (1) / su inicio (-1) o automático (0), en UN paso de deshacer. True si
+        cambió algo."""
+        meta = ((sentido if sentido in (FL.ADELANTE, FL.ATRAS) else FL.AUTO), None)
         cambios = [j for j in dict.fromkeys(indices) if 0 <= j < len(self.pipes)
-                   and FL.aplica(self.pipes[j])
-                   and FL.fijo(self.pipes[j]) != (sentido if sentido in (FL.ADELANTE, FL.ATRAS) else FL.AUTO)]
+                   and FL.aplica(self.pipes[j]) and FL.estado(self.pipes[j]) != meta]
         if not cambios:
             self._flujo_refrescar()
             return False
@@ -126,40 +158,155 @@ class FlujoMixin:
         self._flujo_refrescar()
         return True
 
-    # ------------------------------------------------------------------ perfil
+    # ------------------------------------------------------------------ elegir el punto en el lienzo
 
-    def perfil_flujo(self, i, hacia, todo=False):
-        """Desde el perfil: el fluido va `hacia` B (1), A (-1) o automático (0) en la utilidad del paso `i` o, con
-        `todo`, en todas las del recorrido (cada una según su sentido en el recorrido). UN paso de deshacer."""
-        d = getattr(self, "_perfil_datos", None)
-        if d is None or d.tipo not in FL.REDES:
+    def flujo_elegir_en_plano(self):
+        """Modo «flujo_punto» para la utilidad elegida (otro clic en el botón lo cancela)."""
+        if self.mode == MODO:
+            self._cancelar_flujo_plano()
             return False
-        pasos = d.pasos if todo else ([d.pasos[i]] if 0 <= i < len(d.pasos) else [])
-        valor = {}
-        for ps in pasos:
-            valor.setdefault(ps.pipe, FL.de_paso(hacia, ps.invertida))
-        cambios = {j: v for j, v in valor.items() if 0 <= j < len(self.pipes) and FL.fijo(self.pipes[j]) != v}
-        if not cambios:
+        i = getattr(self, "sel_pipe", -1)
+        if not (0 <= i < len(self.pipes)) or not FL.aplica(self.pipes[i]) or len(self.pipes[i].get("pts") or []) < 2:
+            self._info(_tr("Elige primero una utilidad de alcantarillado, drenaje, agua o gas."))
+            self._flujo_refrescar()
             return False
-        self._push()
-        for j, v in cambios.items():
-            FL.poner(self.pipes[j], v)
-        self._dirty = True
-        self._redraw()                                # el perfil se rehace solo (cambió el modelo)
+        self._flujo_pipe = i
+        self.set_mode(MODO)
         self._flujo_refrescar()
+        self._info(_tr("Haz clic donde llega el fluido: un buzón, un vértice, una punta o un punto de {u} "
+                       "(Esc cancela).").format(u=model_ops.nombre_por_defecto(self.pipes[i], i)))
         return True
 
-    # ------------------------------------------------------------------ plano
+    def _flujo_iman(self, x, y):
+        """(x, y, tipo) donde llegaría el fluido con el cursor en (x, y), o None si queda lejos de la utilidad."""
+        i = getattr(self, "_flujo_pipe", -1)
+        if not (0 <= i < len(self.pipes)):
+            return None
+        pts = self.pipes[i].get("pts") or []
+        r = IMAN_PX / max(1e-6, self.canvas.transform().m11())
+        tol = model_ops._TOL
+        buzones = [(s["x"], s["y"]) for s in self.structures or ()
+                   if not s.get("hidden") and not s.get("curve") and s.get("x") is not None
+                   and any(abs(s["x"] - q[0]) <= tol and abs(s["y"] - q[1]) <= tol for q in pts)]
+        return FL.iman(pts, x, y, r, buzones)
 
-    def _flujo_en_plano(self, i):
-        """Flechas en el plano de la utilidad elegida, si tiene un sentido indicado (a la mitad de cada tramo)."""
-        p = self.pipes[i]
-        sentido = FL.fijo(p)
-        if not sentido or not FL.aplica(p):
-            return
+    def _quitar_pista_flujo(self):
         sc = self.canvas.scene()
-        col = layer_qcolor(p.get("layer"))
-        # como en el perfil: un círculo del color de la utilidad con la flecha blanca (sobre la línea se lee)
+        for it in getattr(self, "_pista_flujo_items", None) or []:
+            try:
+                sc.removeItem(it)
+            except (RuntimeError, ValueError):
+                pass
+        self._pista_flujo_items = []
+
+    def _pista_flujo(self, x, y):
+        """Al mover el ratón en «flujo_punto»: la diana donde caerá el clic y las flechas de cómo quedará."""
+        self._quitar_pista_flujo()
+        if self.mode != MODO:
+            return
+        iman = self._flujo_iman(x, y)
+        if iman is None:
+            self._info(_tr("Acércate a la utilidad elegida: el punto se pega a sus buzones, vértices y a su línea."))
+            return
+        i = self._flujo_pipe
+        prueba = dict(self.pipes[i])
+        FL.poner_hacia(prueba, iman[0], iman[1], self._flujo_tol())
+        verde = QtGui.QColor(tokens().success)
+        items = self._flechas_flujo_plano(prueba, self._pipe_display_pts(prueba), verde, Z_MARK + 19)
+        items += self._diana_plano(iman[0], iman[1], verde, Z_MARK + 20)
+        self._pista_flujo_items = items
+        self._info(_tr("Clic: el fluido llega a {que} (Esc cancela).").format(que=_tr(QUE[iman[2]])))
+
+    def _flujo_tol(self):
+        """Tolerancia (px) para tomar el punto como una punta de la utilidad: medio pie."""
+        ft = self.scale / self.zoom if self.scale and self.zoom else 0.0
+        return 0.5 / ft if ft else 0.5
+
+    def _clic_flujo_plano(self, x, y):
+        iman = self._flujo_iman(x, y)
+        if iman is None:
+            self._info(_tr("Acércate a la utilidad elegida: el punto se pega a sus buzones, vértices y a su línea."))
+            return False
+        i = self._flujo_pipe
+        prueba = dict(self.pipes[i])
+        cambia = FL.poner_hacia(prueba, iman[0], iman[1], self._flujo_tol())
+        self._quitar_pista_flujo()
+        if cambia:
+            self._push()
+            FL.poner_hacia(self.pipes[i], iman[0], iman[1], self._flujo_tol())
+            self._dirty = True
+        self.set_mode("idle")                           # redibuja (con las flechas, si el ojo está abierto)
+        self._flujo_refrescar()
+        self.animar_flujo(i)
+        self._info(_tr("Listo: el fluido llega a {que}. Las flechas muestran cómo corre.").format(
+            que=_tr(QUE[iman[2]])))
+        return True
+
+    def _cancelar_flujo_plano(self):
+        self._quitar_pista_flujo()
+        if self.mode == MODO:
+            self.set_mode("idle")
+        self._flujo_refrescar()
+        self._info(_tr("Elegir hacia dónde va el fluido: cancelado."))
+
+    def animar_flujo(self, i, duracion_ms=None):
+        """5 s de flechas que corren hacia donde va el fluido en la utilidad i (`ui/comun/flujo_animacion`)."""
+        from ui.comun import flujo_animacion as FA
+        previa = getattr(self, "_flujo_anim", None)
+        if previa is not None and previa.activa():
+            previa.detener()
+        if not (0 <= i < len(self.pipes)):
+            return None
+        p = self.pipes[i]
+        ramas = FL.ramas(p, self._pipe_display_pts(p))
+        if not ramas:
+            return None
+        anim = FA.AnimacionFlujo(self.canvas, ramas, layer_qcolor(p.get("layer")), Z_MARK + 3,
+                                 duracion_ms or FA.DURACION_MS)
+        self._flujo_anim = anim
+        anim.iniciar()
+        return anim
+
+    # ------------------------------------------------------------------ ver / ocultar en el plano
+
+    def _ver_flujo_plano(self):
+        """¿El ojo del plano está abierto? Se lee de QSettings UNA vez (el redibujo lo pregunta cada vez)."""
+        v = getattr(self, "_flujo_ver_plano", None)
+        if v is None:
+            v = self._flujo_ver_plano = ajuste(VER_PLANO)
+        return v
+
+    def ver_flujo_plano(self, on=None):
+        """El ojo: ver u ocultar las flechas del flujo en el plano (todas las utilidades con el sentido indicado)."""
+        on = (not self._ver_flujo_plano()) if on is None else bool(on)
+        self._flujo_ver_plano = on
+        guardar_ajuste(VER_PLANO, on)
+        self._redraw()
+        self._flujo_refrescar()
+        self._info(_tr("Sentido del flujo en el plano: visible.") if on
+                   else _tr("Sentido del flujo en el plano: oculto."))
+        return on
+
+    def _flujo_en_plano_todas(self):
+        """Al final del redibujo: flechas y diana de llegada de cada utilidad con el sentido indicado (ojo abierto)."""
+        if not self._ver_flujo_plano():
+            return
+        apagadas = self._lineas_apagadas() if hasattr(self, "_lineas_apagadas") else set()
+        llegadas = set()
+        for i, p in enumerate(self.pipes):
+            if p.get("world") or not FL.aplica(p) or not FL.tiene(p) or p.get("layer") in apagadas:
+                continue
+            col = layer_qcolor(p.get("layer"))
+            dibujo = self._memo(("dibujo", i), lambda p=p: self._pipe_display_pts(p), copiar=False)
+            self._overlay += self._flechas_flujo_plano(p, dibujo, col, Z_MARK + 2)
+            q = FL.llegada(p)
+            if q is not None and (round(q[0], 1), round(q[1], 1)) not in llegadas:
+                llegadas.add((round(q[0], 1), round(q[1], 1)))
+                self._overlay += self._diana_plano(q[0], q[1], col, Z_MARK + 2)
+
+    def _flechas_flujo_plano(self, p, dibujo, color, z):
+        """Ítems de las flechas (círculo del color con la flecha blanca, de tamaño fijo en pantalla)."""
+        sc = self.canvas.scene()
         circulo = QtGui.QPainterPath()
         circulo.addEllipse(QtCore.QPointF(0, 0), 9, 9)
         punta = QtGui.QPainterPath()
@@ -172,12 +319,35 @@ class FlujoMixin:
         borde.setCosmetic(True)
         sin_borde = QtGui.QPen(QtCore.Qt.NoPen)
         blanco = QtGui.QBrush(QtGui.QColor(255, 255, 255))
-        for x, y, ang in FL.flechas_plano(p.get("pts") or [], sentido):
-            for forma, pluma, relleno in ((circulo, borde, QtGui.QBrush(col)), (punta, sin_borde, blanco)):
+        minimo = 30.0 / max(1e-6, self.canvas.transform().m11())
+        out = []
+        for x, y, ang in FL.flechas(p, dibujo, minimo):
+            for forma, pluma, relleno in ((circulo, borde, QtGui.QBrush(color)), (punta, sin_borde, blanco)):
                 it = sc.addPath(forma, pluma, relleno)
                 it.setFlag(QtWidgets.QGraphicsItem.ItemIgnoresTransformations, True)
                 it.setPos(x, y)
                 it.setRotation(ang)
-                it.setZValue(Z_MARK + 2)
+                it.setZValue(z)
                 it.setAcceptedMouseButtons(QtCore.Qt.NoButton)
-                self._overlay.append(it)
+                out.append(it)
+        return out
+
+    def _diana_plano(self, x, y, color, z):
+        """Diana de LLEGADA (anillo del color con punto al centro, tamaño fijo en pantalla)."""
+        sc = self.canvas.scene()
+        anillo = QtGui.QPainterPath()
+        anillo.addEllipse(QtCore.QPointF(0, 0), 8, 8)
+        centro = QtGui.QPainterPath()
+        centro.addEllipse(QtCore.QPointF(0, 0), 3, 3)
+        pluma = QtGui.QPen(color, 2.5)
+        pluma.setCosmetic(True)
+        out = []
+        for forma, pl, relleno in ((anillo, pluma, QtGui.QBrush(QtGui.QColor(255, 255, 255, 220))),
+                                   (centro, QtGui.QPen(QtCore.Qt.NoPen), QtGui.QBrush(color))):
+            it = sc.addPath(forma, pl, relleno)
+            it.setFlag(QtWidgets.QGraphicsItem.ItemIgnoresTransformations, True)
+            it.setPos(x, y)
+            it.setZValue(z)
+            it.setAcceptedMouseButtons(QtCore.Qt.NoButton)
+            out.append(it)
+        return out

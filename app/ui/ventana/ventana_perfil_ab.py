@@ -32,6 +32,8 @@ GUIAS = {
     "mover_a": N_("Haz clic en el plano donde debe EMPEZAR el perfil (nuevo A)."),
     "mover_b": N_("Haz clic en el plano donde debe TERMINAR el perfil (nuevo B)."),
 }
+GUIA_FLUJO = N_("Haz clic en el perfil donde LLEGA el fluido: un buzón, un vértice o un punto de la tubería. Los dos "
+                "lados irán hacia ese punto.")
 COLOR_A, COLOR_B = "success", "danger"        # tokens del tema
 AGARRE_PX = 14                                # radio para agarrar una bandera A/B (px de pantalla)
 
@@ -83,8 +85,11 @@ class PerfilABMixin:
         paso = self._perfil_paso
         if getattr(self, "lbl_perfil_guia", None) is None:
             return
-        if paso:
-            self.lbl_perfil_guia.setText(_tr(GUIAS[paso]) + "  " + _tr("(Esc = dejarlo así)"))
+        vista = getattr(self, "perfil_vista", None)
+        flujo = vista is not None and vista.eligiendo_flujo()      # elegir hacia dónde va el fluido (ventana_flujo_perfil)
+        if paso or flujo:
+            texto = (_tr(GUIAS[paso]) + "  " + _tr("(Esc = dejarlo así)")) if paso else                 (_tr(GUIA_FLUJO) + "  " + _tr("(Esc = cancelar)"))
+            self.lbl_perfil_guia.setText(texto)
             self.lbl_perfil_guia.setStyleSheet(
                 f"background: {tk.accent_soft}; color: {tk.accent_text}; border-radius: 6px; padding: 6px 10px;"
                 "font-weight: 600;")
@@ -98,6 +103,8 @@ class PerfilABMixin:
         """Pide el siguiente clic en el plano: 'a' (nuevo perfil: A y luego B), 'b', 'mover_a', 'mover_b' o None."""
         if paso in ("mover_a", "mover_b") and getattr(self, "_perfil_rec", None) is None:
             paso = "a"
+        if paso and getattr(self, "perfil_vista", None) is not None:
+            self.perfil_vista.elegir_flujo(False)       # A/B y el punto de llegada del fluido no se eligen a la vez
         self._perfil_paso = paso
         if not paso:
             self._perfil_quitar_pista()

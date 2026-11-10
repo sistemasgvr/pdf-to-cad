@@ -302,9 +302,14 @@ pregunta antes de agregarlo. Los PDF escaneados no tienen sugerencia: se compone
 </ol>
 
 <h2>PDF imagen o escaneo: componer a mano</h2>
-<p>Un escaneo también pasa por <b>Componer hoja de trabajo</b> (o <b>Hoja y PDF → Componer PDF
-imagen/escaneo…</b>), pero sin capas ni reconocimiento: al final,
+<p>Un escaneo también pasa por <b>Componer hoja de trabajo</b>, pero sin capas ni reconocimiento: al final,
 <span class="btn">Importar hoja al editor</span> la deja de fondo para dibujar a mano.</p>
+<p><b>Vectorial y escaneo en la misma hoja.</b> En <b>Componer hoja de trabajo</b> puedes juntar hojas
+vectoriales y escaneadas. Cada pieza sabe de qué tipo es: al tomar una hoja escaneada aparecen en la barra la
+regla, el transportador, <b>Medir</b> y <b>Enderezar</b>, la pieza gira sobre su centro y el imán no la mueve.
+Al continuar, las piezas vectoriales se reconocen como siempre (Capas → vista previa) y lo escaneado queda de
+fondo para dibujarlo a mano. Si <b>todas</b> las piezas son escaneos, la app pregunta si pasar la hoja al
+editor para dibujar a mano o reconocerla de todos modos.</p>
 <ul>
 <li>En <b>Área a tomar</b> arrastras un rectángulo y luego mueves <b>cada esquina por separado</b> para
     seguir un borde torcido del escaneo (aquí <b>Esquinas libres</b> viene encendida; apágala si
@@ -429,9 +434,12 @@ imagen/escaneo…</b>), pero sin capas ni reconocimiento: al final,
     principal.</li>
 <li><b>Válvulas:</b> se reconocen junto con las líneas y quedan en su propia capa («Capas» de la barra superior). En un
     PDF con capas salen de las capas de válvulas; en un mapa con leyenda, de sus símbolos, con el tipo y el estado que ella
-    dice; en un plano sin capas ni leyenda, del símbolo de moño sobre una línea, huecas y <i>por confirmar</i>. Si nada
+    dice (también si la leyenda es una imagen conocida, como la de Southwest Gas); en un plano sin capas ni leyenda, del símbolo de moño sobre una línea, huecas y <i>por confirmar</i>. Si nada
     explica los símbolos, elige uno en «Capas de la hoja» y dale el rol <b>Válvulas</b>. Clic derecho sobre una válvula
-    para confirmarla o borrarla. Toman el diámetro de su tubería, salen en la Tabla de datos y en el DXF.</li>
+    para confirmarla o borrarla. Toman el diámetro de su tubería, salen en la Tabla de datos y en el DXF. Quedan sobre su
+    símbolo aunque estén junto a una T o en un vértice; solo se corren lo justo para entrar en un tubo. La que el plano
+    dibuja sin ninguna tubería se marca en magenta y no va a Civil 3D. En «Capas de la hoja», en la vista previa y en
+    «Capas» del editor cada utilidad se divide en Líneas, Estructuras y Válvulas.</li>
 <li><b>Rótulos del plano (multileaders):</b> al reconocer, la app lee <b>todos</b> los rótulos que
     llegan a una línea con su guía (flecha), digan lo que digan («EX 8" VCP SEWER», «JOIN EX. 84" RCP SD /
     STA 549+55.37», «CB-208»…), también los girados; en los mapas sin capas, los rótulos de cada tubería.
@@ -638,9 +646,11 @@ con la misma hoja, sus líneas, Deshacer y los cambios sin guardar. Solo
 <li>Elige el <b>tipo</b>: agua, alcantarillado, drenaje, gas, eléctrico o telecomunicaciones.</li>
 <li>Haz <b>clic</b> donde empieza la tubería y luego en cada punto por donde pasa: la tubería se va
 estirando hasta el cursor.</li>
-<li>Pulsa <span class="key">&nbsp;Enter&nbsp;</span> (o clic derecho) para terminarla. Otro
+<li>Pulsa <span class="key">&nbsp;Enter&nbsp;</span> (o doble clic o clic derecho) para terminarla. Otro
 <span class="key">&nbsp;Enter&nbsp;</span> sale del modo dibujar.</li>
 </ol>
+<p>Si guardas, abres la Vista 3D, exportas o cambias de herramienta con una tubería a medio dibujar, la app la
+termina sola: lo dibujado no se pierde. Para descartarla, pulsa <span class="key">&nbsp;Esc&nbsp;</span>.</p>
 
 <h2>Ángulos en pasos de 0.25°</h2>
 <p><b>Todo ángulo va en pasos de 0.25°</b> (45°, 45.25°, 45.5°…; nunca 45.684°): los quiebres de una
@@ -1500,14 +1510,23 @@ de esas utilidades (pendiente, separación, diámetro…), que el <b>recubrimien
 mínimo de la utilidad y, en alcantarillado y drenaje, que ningún tramo tenga <b>contrapendiente</b> (que suba hacia
 donde va el fluido) o pendiente nula. En el dibujo el tramo o el punto se marca en rojo (error) o ámbar (aviso), con
 un círculo «!» debajo; el globo dice qué pasa. Solo avisa: no cambia nada.</p>
-<p><b>Sentido del flujo</b> (redes por gravedad y a presión; eléctrico y telecom no lo llevan): en el perfil, cada
-tramo lleva una flecha redonda que apunta hacia donde va el fluido. Con borde es <b>automática</b> (en gravedad, hacia
-el extremo más bajo del recorrido); rellena, la indicaste tú. A presión no hay pendiente que lo diga: sin indicar se ve
-una doble flecha, y un clic la pone hacia B. Clic en la flecha = invertir el sentido de esa utilidad; clic derecho en el tramo → «Sentido del
-flujo» = hacia A, hacia B o automático, para esa utilidad o para todo el perfil. También en las propiedades de la
-utilidad, sección Cotas, fila <span class="btn">Flujo</span>: <span class="btn">Auto</span> o una de las dos flechas,
-que apuntan como se ve la utilidad en el plano; con un sentido indicado, la utilidad elegida muestra flechas en el
-plano. La contrapendiente se revisa con ese sentido, así que no depende de dónde pusiste A. Se deshace con
+<p><b>Sentido del flujo</b> (redes por gravedad y a presión; eléctrico y telecom no lo llevan): se elige
+<b>dónde llega</b> el fluido, que puede ser una punta o un buzón del medio. En el perfil, botón
+<span class="btn">Flujo</span>: una franja dice qué hacer, el ratón se pega a los buzones, los vértices o cualquier
+punto de la tubería, una etiqueta dice dónde caerá («Buzón BZ-2 · 1+00») y las flechas muestran en vivo cómo quedará.
+Haz clic: lo que está antes de ese punto va hacia él y lo que está después también. Esc o clic derecho cancelan. Cada
+tramo lleva una flecha redonda: con borde es <b>automática</b> (en gravedad, hacia el extremo más bajo del recorrido),
+rellena es la que indicaste; a presión, sin indicar, se ve una doble flecha. Donde llega el fluido va una
+<b>diana</b>. Clic en una flecha también empieza a elegir; clic derecho en el tramo → «Sentido del flujo» la vuelve
+automática (esa utilidad o todo el perfil). El ojo de la cabecera muestra u oculta flechas y dianas.</p>
+<p>En las propiedades de la utilidad, sección Cotas, fila <span class="btn">Flujo</span>: <span
+class="btn">Elegir en el plano</span> hace lo mismo directo en el lienzo, sobre esa utilidad (diana verde y flechas
+de vista previa). Al hacer clic, durante <b>5 segundos</b> unas flechas corren hacia el punto para que veas cómo va.
+<span class="btn">Auto</span> lo vuelve automático y el ojo muestra u oculta las flechas del plano de todas las
+utilidades con el sentido indicado. Debajo, una frase dice cómo va («Llega a un punto intermedio…»).</p>
+<p>Las revisiones siguen ese sentido: la <b>contrapendiente</b> (un tramo que sube hacia donde va el fluido) en el
+perfil y, en las utilidades con el sentido indicado, también como aviso en el plano; la <b>caída en el buzón</b> mide
+de la tubería que entra a la que sale (si el fluido llega por los dos lados, no se mide). Todo se deshace con
 <span class="key">&nbsp;Ctrl+Z&nbsp;</span>.</p>
 <p><b>Ramales:</b> un ramal es una tubería que sale hacia un lado desde la principal (en una T, una Y, una cruz o
 un buzón). En el perfil, el rótulo de ese punto se ve en <b>azul, como un enlace</b>. Haz clic en él y el perfil

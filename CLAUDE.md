@@ -1368,7 +1368,7 @@ alcantarillado, drenaje, gas, eléctrico, telecom). Todo en **unidades imperiale
     × 6 utilidades contra el código anterior: 0 diferencias en todos los campos. Con procesos y máquina libre: 4 piezas 13 → 8.9 s, 12 piezas 58 → 33 s. Inspector:
     `ventana_diametro_ia._diam_ia_ficha` memorizada y diferida (`_ESPERA_FICHA_MS`): armar la ficha cuesta y una selección la
     pedía hasta seis veces; `_TarjetaIA` fija su mínimo porque QFormLayout reparte mal las filas con alto según el ancho.
-    **Cierres del programa** (reporte del usuario 2026-11-02, «que nunca se cierre solo»): (1) NUNCA crear un `QListWidgetItem` desde Python: `ui_common.fila_lista` (`tests/test_listas_sin_envoltorio.py` lo exige); dos volcados con la misma firma, al importar: `QListWidget.clear` → destructor del ítem → `Shiboken::Object::destroy` → `releaseWrapper` con el envoltorio ya muerto. No se reprodujo sin pantalla (hay reportes parecidos con `QTableWidgetItem` en el foro de Qt, sin causa confirmada); una fila creada por Qt no pasa por ahí. Los `QTableWidgetItem` y `QTreeWidgetItem` siguen creándose desde Python. (2) Sin consola (.exe, pythonw) `sys.stdout`/`sys.stderr` son None: `main.py` los apunta a `os.devnull` también en los hijos; `proceso_hijo.bucle` moría al terminar CADA trabajo (`sys.stdout.flush()`) y PyInstaller mostraba «Unhandled exception in script». Se reproduce con `pythonw.exe`, sin compilar. Para investigar un cierre: `%LOCALAPPDATA%/pdf-to-cad/diagnosticos/sesion-<pid>.log` (pila de Python) y `%LOCALAPPDATA%/CrashDumps/python.exe.<pid>.dmp` (pila nativa). OJO: `faulthandler` anota «Windows fatal exception» también en excepciones que otro atiende; sin «Current thread» de Python y con el proceso vivo no es un cierre. OJO: `QSettings(org, app)` ignora `setDefaultFormat`: `tests/conftest.py` usa una subclase para que las pruebas no toquen el registro.
+    **Cierres del programa** (reporte del usuario 2026-11-02, «que nunca se cierre solo»): (1) NUNCA crear un `QListWidgetItem` desde Python: `ui_common.fila_lista` (`tests/test_listas_sin_envoltorio.py` lo exige); dos volcados con la misma firma, al importar: `QListWidget.clear` → destructor del ítem → `Shiboken::Object::destroy` → `releaseWrapper` con el envoltorio ya muerto. No se reprodujo sin pantalla (hay reportes parecidos con `QTableWidgetItem` en el foro de Qt, sin causa confirmada); una fila creada por Qt no pasa por ahí. Los `QTableWidgetItem` y `QTreeWidgetItem` siguen creándose desde Python. (2) Sin consola (.exe, pythonw) `sys.stdout`/`sys.stderr` son None: `main.py` los apunta a `os.devnull` también en los hijos; `proceso_hijo.bucle` moría al terminar CADA trabajo (`sys.stdout.flush()`) y PyInstaller mostraba «Unhandled exception in script». Se reproduce con `pythonw.exe`, sin compilar. (3) (2026-11-09) agregar a un layout un widget que YA está en otro dejaba la memoria dañada: «Componer hoja» se cerraba cada ~8 aperturas con access violation en un `QMenu.addAction` cualquiera (las fotos de la pila no señalan la causa). `wizard_widgets.pastilla` ahora lo quita antes (`_sacar_de_su_layout`); se acotó con 150 diálogos seguidos (`tests/test_compositor_mixto.py::test_muchos_componer_hoja_seguidos_no_cierran_el_programa`, falla sin el arreglo). OJO: para mover un widget de layout, `removeWidget` primero. Para investigar un cierre: `%LOCALAPPDATA%/pdf-to-cad/diagnosticos/sesion-<pid>.log` (pila de Python) y `%LOCALAPPDATA%/CrashDumps/python.exe.<pid>.dmp` (pila nativa). OJO: `faulthandler` anota «Windows fatal exception» también en excepciones que otro atiende; sin «Current thread» de Python y con el proceso vivo no es un cierre. OJO: `QSettings(org, app)` ignora `setDefaultFormat`: `tests/conftest.py` usa una subclase para que las pruebas no toquen el registro.
     **2.ª vuelta (mismo día)**: `nucleo/avance.py` = avisos de ETAPA desde el código puro (`avisar(texto, i, n)`,
     por hilo, espaciados `CADA_S`); los escuchan `busy()` (todo `with busy(...)` muestra la etapa en el detalle,
     `busy.escuchar_en(ov)`, `detalle_de`), el trabajador (`proceso_hijo.bucle` → («detalle», t, i, n) por la cola) y
@@ -1865,7 +1865,15 @@ alcantarillado, drenaje, gas, eléctrico, telecom). Todo en **unidades imperiale
     `CompositeView.drawBackground`; bajo el recorte nítido no se pinta la base) y en el PDF
     (`build_document`: `/PdfcadDarken gs` por pieza, ExtGState `/BM /Darken`): el papel de una
     pieza no tapa la tinta de otra y la superposición no oscurece el papel. Tests:
-    `tests/test_scan_composition.py`, `tests/test_scan_tools.py`. **También en el VECTORIAL** (con
+    `tests/test_scan_composition.py`, `tests/test_scan_tools.py`. **Compositor ÚNICO, modo por pieza** (pedido
+    2026-11-09, «componer entre vectorial y escaneo»): en el compositor vectorial (`manual` False) cada pieza decide por
+    su hoja (`hoja/pieza_escaneo.es_escaneo`: sin capas y con imagen ≥60 % o sin texto ni fuentes, como `detect` pero sin
+    `get_drawings`, ≤70 ms; 0 falsos en los PDF de prueba) y `ui/asistente/composite_mixto.MixtoMixin`: con alguna pieza
+    escaneada aparecen regla/transportador/medir/enderezar (`grupo_escaneo`, siempre construidos y ocultos), la pieza gira
+    sobre su centro y el imán no la mueve (`CompositeView.pieza_escaneo`); con TODAS escaneadas, al continuar se pregunta
+    y «Dibujar a mano» devuelve `manual=True` (camino de escaneos). Sin piezas escaneadas todo queda igual. El panel «Hoja
+    y PDF» ya no trae «Componer PDF imagen/escaneo…» (sigue en el menú). Tests: `tests/test_compositor_mixto.py`.
+    **También en el VECTORIAL** (con
     y sin capas, pedido del usuario 2026-10-19; `hoja/composite_fundir.py`, PURO): mismo botón
     (`ScanToolsMixin.build_blend_tool`, solo a la izquierda de la barra) y `Composite.blends()` =
     `seam_blend` en todos los flujos. En el PDF, `blended_pieces`: escaneo = todas (como siempre);
@@ -2446,6 +2454,9 @@ alcantarillado, drenaje, gas, eléctrico, telecom). Todo en **unidades imperiale
     red, utilidades; válvula: unión, material, pieza, largo, quitar; codo/Tee/Wye/cruz: «Poner este accesorio» =
     `marcar_sin_accesorio`). La lista conserva la selección por `Fila.lugar()` (sin el texto). Tests:
     `tests/test_dibujar_accesorios.py`.
+    **Válvulas del plano: precisión** (reporte del usuario 2026-11-07, DU06 h.4 y Phoenix): `valvulas.ubicar_plano` (`del_plano(v)`: `x_pdf` u origen capa/leyenda/forma) deja cada válvula LEÍDA sobre su símbolo sin las reglas de poner a mano (en Phoenix el SIG parte la línea en la válvula: 193 de 200 salían «por revisar»); se corre dentro de su símbolo (`sim_w/h`) si así respeta los espacios, si no lo justo para entrar en UN tubo (`PLANO_TUBO_FT`: el plugin parte tubos); sin tubo que la contenga, `Lugar.exporta=False`. Sin tubería = magenta (`valvula_item.REVISAR`) con su tamaño y rumbo. `recognition_valvulas._valvulas_en`: una válvula encimada con otro glifo (`simbolos` los junta, otra clave) o dos pegadas; `_se_ve`: en una compuesta el texto recortado seguía ahí (52 fantasmas de 645). `ramales`: trazo corto de la capa de línea que une la válvula a su tubería y que el reconocimiento descarta → `v["ramal"]`, tubería agregada al importar (`_poner_ramales`). DU06: de 89, 20 no tienen tubería dibujada (topografía). Sin probar dentro de Civil 3D: un tubo de 0.05 ft junto a un accesorio. Tests: `tests/test_valvulas.py`.
+    **Leyenda en imagen** (pedido del usuario 2026-11-07, Southwest Gas 36/37): la leyenda es una imagen y `leyenda_mapa.aplica` da False. `hoja/leyendas_imagen.py` la reconoce por su sha1 (`CONOCIDAS`: tabla (fuente, carácter) → fila, leída a mano; el gid cambia con el subconjunto) y `recognition_valvulas._de_imagen` lee esos glifos (`_se_dibuja`: el SIG deja glifos fuera del marco, tapados por el recorte). Estado = `dir` del glifo contra el rumbo de la tubería (`_estado_por_rumbo`; en estas hojas todas abiertas: la regla de «cerrada» sale de la leyenda, sin ningún caso real). **Válvula GENÉRICA** (pedido 2026-11-09): toda válvula, del tipo que sea (exceso de flujo, purga, retención…), se modela con la de compuerta de `valvula_receta`; `valvulas.diametro_valido` da la receta prolongada («estimada») por debajo de 3" hasta `GENERICA_MIN_IN`=0.5 y la de 72" por encima (más allá los pernos se salen de la brida). Southwest 37: las 8 de red y las 16 de exceso de flujo van a Civil 3D. `_sin_pieza` queda solo para una tubería sin diámetro. Una leyenda en imagen nueva se suma a `CONOCIDAS`. Tests: `tests/test_valvulas.py`.
+    **Capas por tipo** (pedido del usuario 2026-11-07): `leyenda_estandar.subgrupo` da Líneas/Estructuras/Válvulas/No se reconocen; «Capas de la hoja» anida las capas (`_ROLE_SUB`, `_capas_de`, `expandir_hasta`; nunca `grp.child(j)` para llegar a una capa; un grupo de un solo tipo queda sin el nivel), «Capas usadas» suma Válvulas (`_hit(…, "valve", capa_pdf)`) y en «Capas ▾» cada utilidad se pliega (`Fila.padre/parcial`): `capas_apagadas` = «AGUA» (toda) o «AGUA/valvulas» (`ventana_capas.sub_clave`); leer con `_lineas_apagadas`/`_estructuras_apagadas`/`_valvula_apagada`, no con `in capas_apagadas`. `V.CAPA` queda solo para válvulas sin utilidad.
     **Válvulas: UN SOLO MODELO** (unión con dev_santos_v2, 2026-11-06, decisión del usuario): las del usuario y las
     reconocidas del PDF (`recognition_valvulas`) viven en `Main.valvulas` con los mismos campos (`nucleo/valvulas`
     docstring: x, y, union, material + utilidad, tipo —"" = compuerta—, estado, origen, certeza, capa_pdf, x_pdf/y_pdf).
@@ -2703,14 +2714,27 @@ alcantarillado, drenaje, gas, eléctrico, telecom). Todo en **unidades imperiale
     `_perfil_pista` (desde `_perfil_raton`; roja = otra red). Con un paso A/B activo, `on_click` manda el clic DIRECTO a
     `_perfil_clic_directo` (punto de `_perfil_snap`), antes que accesorios y `_pick`: si no, un clic en un buzón elegía
     el buzón y A/B quedaba pendiente hasta otro redibujo. SENTIDO DEL FLUJO (gravedad y presión, NO conductos —eléctrico,
-    telecom—; 2026-11-09): `pipe["flujo"]` 1/-1/sin clave (`nucleo/flujo.py`: `REDES`, `aplica`; `unir_utilidades.
-    invertir` lo invierte); `perfil_datos.Paso.flujo` (1 = hacia B, 0 = sin indicar) y `flujo_fijo` (automático: en
-    gravedad hacia el extremo más bajo del recorrido, `_z_punta`; a presión 0 = sin indicar, doble flecha); `perfil_validar`
-    juzga la contrapendiente (solo gravedad) con él. UI: `ui/comun/perfil_vista_flujo` (flecha redonda por tramo, clic =
-    invertir —sin indicar → hacia B—, clic derecho = submenú; señal `flujoCambiado(paso, hacia, todo)`) y
-    `ui/ventana/ventana_flujo.FlujoMixin` (fila «Flujo» en Cotas del inspector, solo si `FL.aplica`, flechas giradas como
-    la utilidad en el plano, globo de «Auto» según la red; `poner_flujo`, `perfil_flujo`: un `_push`; flechas en el plano
-    de la utilidad elegida con sentido indicado). No va al DXF todavía.
+    telecom—; 2026-11-09, PUNTO DE LLEGADA 2026-11-10: «ya no todo a la izquierda o a la derecha, puede llegar a un
+    buzón del medio»): `pipe["flujo"]` 1/-1 = toda hacia su fin/inicio, `pipe["flujo_hacia"]` = [x, y] punto intermedio
+    (se guarda el PUNTO, no el tramo: insertar/quitar vértices o dar vuelta la utilidad no lo cambia; `poner_hacia`
+    lo vuelve 1/-1 si cae en una punta), sin las dos = automático (`nucleo/flujo.py`: `REDES`, `aplica`, `tiene`,
+    `partes` = sentido por tramo/parte, `sentido_en`, `en_arista`, `flechas`, `ramas`, `iman`). `perfil_datos.Paso.flujo`
+    (1 = hacia B, 0 = sin indicar), `flujo_fijo` y `flujo_corte` (parámetro de la cuerda donde llega, si cae dentro del
+    paso: antes → B, después → A; `Paso.t0/t1`, `t_en` = inverso de `e_en`); automático: en gravedad hacia el extremo más
+    bajo del recorrido (`_z_punta`), a presión 0. Elegir en el perfil: `nucleo/flujo_perfil` (`objetivo` = vista previa,
+    `asignar` = cada utilidad del recorrido hacia una punta o al punto, `llegadas` = dianas); `ui/comun/perfil_vista_flujo`
+    (modo `elegir_flujo`: imán a nodos ≤`IMAN_PX` o a la tubería, guía + diana + etiqueta + flechas en vivo; señales
+    `flujoPunto(e, nodo)`, `flujoElegir(bool)`, `flujoCambiado` solo para «automático»; ojo = `ver_flujo`) y
+    `ui/ventana/ventana_flujo_perfil.PerfilFlujoMixin` (botón «Flujo» + ojo en la cabecera, franja `GUIA_FLUJO` en
+    `_perfil_ab_fichas`; A/B y flujo no se eligen a la vez). En el plano: `ui/ventana/ventana_flujo.FlujoMixin` (fila
+    «Flujo» del inspector = [Elegir en el plano] [Auto] … ojo + frase; modo «flujo_punto» con `_pista_flujo` desde el
+    ratón, `_clic_flujo_plano`, Esc/clic derecho cancelan; `animar_flujo` = `ui/comun/flujo_animacion` 5 s; ojo =
+    QSettings `flujo/ver_plano` → `_flujo_en_plano_todas` al final del redibujo, flechas + diana de todas las utilidades
+    con el sentido indicado). Validaciones: `perfil_validar` (contrapendiente por parte, `partes_flujo`),
+    `nucleo/flujo_validar` (aviso clase «flujo» ERROR en el plano, solo con el sentido indicado; el perfil no lo repite:
+    `SIN_PERFIL`) y la caída de `normas_validar` (entra → sale según `sentido_en`; si llega o sale por los dos lados, no
+    se mide). `normas_aprobacion.huella` suma el flujo en «buzon»/«flujo» SOLO si se indicó (lo aprobado antes sigue).
+    No va al DXF todavía. Tests: `tests/test_flujo_llegada.py`.
     CURVAS (2026-11-10, el resalte iba por la esquina): `nucleo/perfil_trazo.py` (PURO) da a cada `Paso` su `traza`
     en planta (recto + medio arco de cada curva CV, `limpieza_tramos.curvas` = editor/3D/plugin), `s` (parámetro
     sobre la cuerda) y `acum` (largo exacto, arcos con r·Δ): estaciones por el arco (= eje de Civil 3D), nodo de la

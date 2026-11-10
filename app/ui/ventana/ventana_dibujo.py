@@ -254,7 +254,7 @@ class DibujoMixin:
             indices = range(len(self.pipes))
         self._overlay.append(capa)
         # «Capas» (ventana_capas): las utilidades apagadas no se pintan (salvo la elegida desde la lista)
-        apagadas = getattr(self, "capas_apagadas", None)
+        apagadas = self._lineas_apagadas()
         capa.fijar_ocultas({i for i, p in enumerate(self.pipes) if p.get("layer") in apagadas} - elegidas
                            if apagadas else ())
         for i in indices:
@@ -274,8 +274,6 @@ class DibujoMixin:
             if sel and self.mode == "move": self._handles(p["pts"])
             elif i == self.sel_pipe:
                 self._vertices_libres(p)                # eléctrico/telecom: vértices que pueden ser curva
-            if i == self.sel_pipe:
-                self._flujo_en_plano(i)                 # gravedad con sentido indicado: flechas (ventana_flujo)
             if sel and 0 <= self.sel_seg_idx < len(p["pts"]) - 1:
                 a, b = p["pts"][self.sel_seg_idx], p["pts"][self.sel_seg_idx + 1]
                 pen_hi = QtGui.QPen(QtGui.QColor(255, 50, 220), 6.0); pen_hi.setCosmetic(True)
@@ -288,6 +286,7 @@ class DibujoMixin:
             capa.cerrar()                               # su caja, ya con todas las utilidades
         self._capa_lineas = (clave_capa, capa, elegidas, con_tramos)
         self._actualizar_rotulos_tramos(elegidas, con_tramos)
+        self._flujo_en_plano_todas()                    # sentido del flujo indicado, con el ojo abierto (ventana_flujo)
         self._poly(self.cur_pts, layer_qcolor(self._ext_layer or self.active_layer()), 2.0, dots=True, z=Z_MARK)
         # centerlines de referencia (para georreferenciar) — magenta punteado,
         # bien distinto de las utilidades para no confundirlos a simple vista.
@@ -604,7 +603,7 @@ class DibujoMixin:
     def _visibilidad_estructuras(self):
         """Solo la visibilidad de los ítems ya creados de cada buzón/curva; no rehace ninguno. Sus utilidades
         cercanas se miran únicamente si hay algo apagado (una vez por estructura en cada redibujo)."""
-        apagadas = frozenset(getattr(self, "capas_apagadas", ()) or ())
+        apagadas = self._estructuras_apagadas()
         ocultas = set()
         for i, curva, s, items in getattr(self, "_estructuras_vista", ()):
             visible = not apagadas or i == getattr(self, "sel_curve" if curva else "sel_bz", -1)

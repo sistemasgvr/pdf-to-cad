@@ -24,7 +24,8 @@ LUGAR_PX = 2.0           # redondeo del lugar del aviso (px del lienzo)
 # Lo que además miran las reglas de esas clases (tabla de reglas, 2026-10-21): material, y las cotas para
 # pendientes, caídas y cruces. Las demás clases conservan la huella de siempre (sus aprobaciones siguen).
 _COTAS = ("inv_start", "inv_end", "vertex_inv", "vertex_inv_in")
-_EXTRA = {"material": ("material",), "pendiente": _COTAS, "buzon": _COTAS, "separacion": _COTAS}
+_EXTRA = {"material": ("material",), "pendiente": _COTAS, "buzon": _COTAS, "separacion": _COTAS, "flujo": _COTAS}
+_CON_FLUJO = ("buzon", "flujo")         # la caída y la contrapendiente dependen del sentido del flujo (2026-11-10)
 
 
 def huella(p, clase=None):
@@ -34,7 +35,10 @@ def huella(p, clase=None):
     out = "|".join(str(p.get(k) or "") for k in ("layer", "tipo", "pipe_family", "pipe_size", "amperaje")) \
         + ("|ab" if p.get("ab") else "")
     extra = _EXTRA.get(clase)
-    return out + ("|" + "|".join(str(p.get(k) if p.get(k) is not None else "") for k in extra) if extra else "")
+    out += "|" + "|".join(str(p.get(k) if p.get(k) is not None else "") for k in extra) if extra else ""
+    if clase in _CON_FLUJO and (p.get("flujo") is not None or p.get("flujo_hacia") is not None):
+        out += "|flujo=" + str(p.get("flujo")) + "|" + str(p.get("flujo_hacia"))   # solo si se indicó: lo aprobado
+    return out                                                                     # antes sigue aprobado
 
 
 def clave(aviso, pipes):

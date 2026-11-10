@@ -302,9 +302,14 @@ map names sheets that are in <b>another PDF in the same folder</b> (Phoenix «�
 </ol>
 
 <h2>Image or scanned PDF: composing by hand</h2>
-<p>A scan also goes through <b>Compose work sheet</b> (or <b>Sheet and PDF → Compose image/scanned
-PDF…</b>), but without layers or recognition: at the end, <span class="btn">Import sheet into
-editor</span> leaves it as the background to draw by hand.</p>
+<p>A scan also goes through <b>Compose work sheet</b>, but without layers or recognition: at the end,
+<span class="btn">Import sheet into editor</span> leaves it as the background to draw by hand.</p>
+<p><b>Vector and scan on the same sheet.</b> In <b>Compose work sheet</b> you can combine vector and scanned
+sheets. Each piece knows its kind: when you take a scanned sheet, the ruler, the protractor, <b>Measure</b> and
+<b>Straighten</b> appear in the bar, the piece rotates about its center and the magnet does not move it. When
+you continue, the vector pieces are recognized as usual (Layers → preview) and the scanned part stays as the
+background to draw by hand. If <b>all</b> pieces are scans, the app asks whether to send the sheet to the
+editor to draw by hand or recognize it anyway.</p>
 <ul>
 <li>In <b>Area to take</b> you drag a rectangle and then move <b>each corner separately</b> to follow a
     skewed edge of the scan (here <b>Free corners</b> starts on; turn it off if you prefer a
@@ -431,7 +436,9 @@ editor</span> leaves it as the background to draw by hand.</p>
     PDF with layers they come from the valve layers; in a map with a legend, from its symbols, with the type and state it
     states; in a plan with no layers or legend, from the bowtie symbol on a line, hollow and <i>to confirm</i>. If nothing
     explains the symbols, pick one in «Sheet layers» and give it the <b>Valves</b> role. Right-click a valve to confirm or
-    delete it. They take the diameter of their pipe and appear in the Data table and the DXF.</li>
+    delete it. They take the diameter of their pipe and appear in the Data table and the DXF. They stay on their symbol even next to a tee or on a vertex; they only shift as much as needed to fit in a pipe.
+    A valve the plan draws with no pipe is marked in magenta and does not go to Civil 3D. In «Sheet layers», the preview
+    and the editor «Layers», each utility is split into Lines, Structures and Valves. A legend that comes as a known image, like the Southwest Gas one, also works.</li>
 <li><b>Plan labels (multileaders):</b> when recognizing, the app reads <b>every</b> label that reaches a
     line with its leader (arrow), whatever it says («EX 8" VCP SEWER», «JOIN EX. 84" RCP SD / STA
     549+55.37», «CB-208»…), rotated ones too; in maps without layers, the label of each pipe. They are
@@ -643,9 +650,11 @@ was</b>, with the same sheet, its lines, Undo and unsaved changes. Only
 <li>Choose the <b>type</b>: water, sewer, storm drain, gas, electrical or telecom.</li>
 <li><b>Click</b> where the pipe starts and then at each point it passes through: the pipe stretches to
 the cursor.</li>
-<li>Press <span class="key">&nbsp;Enter&nbsp;</span> (or right-click) to finish it. Another
+<li>Press <span class="key">&nbsp;Enter&nbsp;</span> (or double-click or right-click) to finish it. Another
 <span class="key">&nbsp;Enter&nbsp;</span> leaves drawing mode.</li>
 </ol>
+<p>If you save, open the 3D View, export or switch tools with a pipe half drawn, the app finishes it on its own:
+what you drew is not lost. To discard it, press <span class="key">&nbsp;Esc&nbsp;</span>.</p>
 
 <h2>Angles in 0.25° steps</h2>
 <p><b>Every angle goes in 0.25° steps</b> (45°, 45.25°, 45.5°…; never 45.684°): the bends of a pipe, the joints
@@ -1506,16 +1515,24 @@ warnings of those utilities (slope, separation, diameter…), that the <b>cover<
 utility minimum and, for sewer and storm drain, that no segment has an <b>adverse slope</b> (rising toward where the
 fluid flows) or zero slope. On the drawing the segment or point is marked red (error) or amber (warning), with a «!»
 circle below; the tooltip says what is wrong. It only warns: nothing changes.</p>
-<p><b>Flow direction</b> (gravity and pressure networks; electrical and telecom do not have it): in the profile, each
-segment has a round arrow pointing where the fluid flows. With an outline it is <b>automatic</b> (in gravity, toward
-the lower end of the run); filled, you set it. In pressure networks there is no slope to tell: when not set you see
-a double arrow, and a click sets it toward B. Click
-the arrow = reverse that utility's direction; right click the segment → «Flow direction» = toward A, toward B or
-automatic, for that utility or for the whole profile. Also in the utility properties, Elevations section,
-<span class="btn">Flow</span> row: <span class="btn">Auto</span> or one of the two arrows, which point the way the
-utility looks on the plan; with a direction set, the selected utility shows arrows on the plan. The adverse slope is
-checked with that direction, so it does not depend on where you placed A. Undo with
-<span class="key">&nbsp;Ctrl+Z&nbsp;</span>.</p>
+<p><b>Flow direction</b> (gravity and pressure networks; electrical and telecom do not have it): you choose
+<b>where the fluid arrives</b>, which can be an end or a manhole in the middle. In the profile,
+<span class="btn">Flow</span> button: a strip tells you what to do, the mouse snaps to manholes, vertices or any point
+of the pipe, a label says where it will land («Manhole BZ-2 · 1+00») and the arrows show live how it will be. Click:
+what is before that point flows toward it and what is after it too. Esc or right click cancel. Each segment has a
+round arrow: with an outline it is <b>automatic</b> (in gravity, toward the lower end of the run), filled is the one
+you set; in pressure networks, when not set, you see a double arrow. Where the fluid arrives there is a
+<b>target</b>. Clicking an arrow also starts choosing; right click the segment → «Flow direction» sets it back to
+automatic (that utility or the whole profile). The eye in the header shows or hides arrows and targets.</p>
+<p>In the utility properties, Elevations section, <span class="btn">Flow</span> row: <span class="btn">Pick on the
+plan</span> does the same directly on the canvas, on that utility (green target and preview arrows). When you click,
+for <b>5 seconds</b> arrows run toward the point so you can see how it flows. <span class="btn">Auto</span> sets it
+back to automatic and the eye shows or hides the plan arrows of every utility with a direction set. Below, a sentence
+says how it flows («Arrives at an intermediate point…»).</p>
+<p>The checks follow that direction: the <b>adverse slope</b> (a segment rising toward where the fluid flows) in the
+profile and, on utilities with a direction set, also as a warning on the plan; the <b>drop at the manhole</b> is
+measured from the pipe that comes in to the one that goes out (if the fluid arrives from both sides, it is not
+measured). Undo everything with <span class="key">&nbsp;Ctrl+Z&nbsp;</span>.</p>
 <p><b>Branches:</b> a branch is a pipe that leaves the main one sideways (at a tee, a wye, a cross or a manhole).
 On the profile, the label of that point shows in <b>blue, like a link</b>. Click it and the profile switches to that
 branch's run (if there are several, pick one from a menu). At the top, <span class="btn">← Back to …</span> appears to

@@ -26,7 +26,9 @@ from ui.comun.theme import THEME_BUS, tokens
 
 class VistaPerfil(DibujoPerfilMixin, RatonPerfilMixin, FlujoPerfilMixin, QtWidgets.QWidget):
     cotaCambiada = QtCore.Signal(int, float)      # índice de nodo, solera nueva (ft)
-    flujoCambiado = QtCore.Signal(int, int, bool)  # paso, hacia (1 = B, -1 = A, 0 = automático), todo el perfil
+    flujoCambiado = QtCore.Signal(int, int, bool)  # paso, hacia (0 = automático), todo el perfil
+    flujoPunto = QtCore.Signal(float, int)        # el fluido llega a esta estación (nodo del imán o -1)
+    flujoElegir = QtCore.Signal(bool)             # entra / sale del modo «elegir hacia dónde va el fluido»
     nodoElegido = QtCore.Signal(int)              # -1 = ninguno
     pasoElegido = QtCore.Signal(int)
     estacionHover = QtCore.Signal(float)          # NaN = el ratón salió del dibujo

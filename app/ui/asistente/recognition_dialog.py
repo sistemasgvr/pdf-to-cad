@@ -457,7 +457,7 @@ class RecognitionPreviewDialog(NoEscapeClose, QtWidgets.QDialog):
 
         # ── capas usadas: clic en una = resaltarla en la hoja (pedido del usuario 2026-10-03) ──
         panel.addWidget(separator())
-        self.layers_panel = UsedLayersPanel(self._results, self._colors)
+        self.layers_panel = UsedLayersPanel(self._results, self._colors, valvulas=self._valvulas_vista())
         self.layers_panel.focusChanged.connect(self._on_layer_focus)
         self.used_layers = self.layers_panel.list
         self._focus = None
@@ -645,7 +645,9 @@ class RecognitionPreviewDialog(NoEscapeClose, QtWidgets.QDialog):
             for (vx, vy) in (getattr(result, "vault_orphans_px", None) or []):
                 put(_draw_orphan(sc, vx, vy, z=6), self._hit(u, "qa"))
         for v in self._valvulas_vista():
-            _draw_valvula(sc, v["x"], v["y"], self._colors.get(v.get("utilidad")), v.get("certeza") == "por_confirmar")
+            color = self._colors.get(v.get("utilidad"))
+            put(_draw_valvula(sc, v["x"], v["y"], color, v.get("certeza") == "por_confirmar", ramal=v.get("ramal")),
+                self._hit(v.get("utilidad") or "", "valve", v.get("capa_pdf") or ""))
         for it in dim:
             it.setOpacity(DIM_OPACITY)
         for rect in getattr(self, "_reviewed", []):
@@ -665,6 +667,11 @@ class RecognitionPreviewDialog(NoEscapeClose, QtWidgets.QDialog):
                         self._hit(u, "structure", vg.get("layer")):
                     n_vaults += 1
                     pts += vault_points(vg)
+        self._n_valvulas_foco = 0
+        for v in self._valvulas_vista():
+            if self._hit(v.get("utilidad") or "", "valve", v.get("capa_pdf") or ""):
+                self._n_valvulas_foco += 1
+                pts.append((v["x"], v["y"]))
         return pts, n_lines, n_vaults
 
     def _on_layer_focus(self, focus):
@@ -685,6 +692,8 @@ class RecognitionPreviewDialog(NoEscapeClose, QtWidgets.QDialog):
             parts.append(_tr("1 línea") if n_lines == 1 else _tr("{n} líneas").format(n=n_lines))
         if n_vaults:
             parts.append(_tr("1 bóveda") if n_vaults == 1 else _tr("{n} bóvedas").format(n=n_vaults))
+        if self._n_valvulas_foco:
+            parts.append(_tr("Válvulas: {n}.").format(n=self._n_valvulas_foco).rstrip("."))
         self.layers_panel.set_status(_tr("Resaltado: {what} · {parts}").format(
             what=focus["label"], parts=", ".join(parts)))
         xs = [p[0] for p in pts]; ys = [p[1] for p in pts]

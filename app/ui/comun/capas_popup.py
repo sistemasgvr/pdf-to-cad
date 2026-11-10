@@ -35,6 +35,8 @@ class Fila:
     color: Optional[QtGui.QColor] = None
     detalle: str = ""              # cifra o PDF a la derecha
     globo: str = ""
+    padre: object = None           # clave de la fila de la que cuelga (subgrupo de una utilidad)
+    parcial: bool = False          # grupo con algún subgrupo apagado
 
 
 @dataclass
@@ -43,23 +45,36 @@ class Estado:
     planos: List[Fila] = field(default_factory=list)
 
     def apagadas(self) -> int:
-        return sum(1 for f in self.utilidades + self.planos if not f.encendida)
+        return sum(1 for f in self.utilidades + self.planos if not f.encendida or f.parcial)
 
 
 class _FilaCapa(QtWidgets.QFrame):
     """Bombilla + color + nombre + detalle. Clic (o Espacio) = encender/apagar."""
     conmutar = QtCore.Signal()
     menu = QtCore.Signal(QtCore.QPoint)
+    plegar = QtCore.Signal()
 
-    def __init__(self, fila: Fila, parent=None):
+    def __init__(self, fila: Fila, parent=None, abierta=None):
+        """`abierta`: True/False = grupo con subgrupos (flecha); None = sin ellos."""
         super().__init__(parent)
         self.fila = fila
         self.setObjectName("filaCapa")
         self.setCursor(QtCore.Qt.PointingHandCursor)
         self.setFocusPolicy(QtCore.Qt.StrongFocus)
         h = QtWidgets.QHBoxLayout(self)
-        h.setContentsMargins(6, 3, 8, 3)
+        h.setContentsMargins(46 if fila.padre is not None else 6, 3, 8, 3)
         h.setSpacing(8)
+        if abierta is not None:
+            flecha = QtWidgets.QToolButton()
+            flecha.setAutoRaise(True)
+            flecha.setIcon(_icon("mdi:chevron-down" if abierta else "mdi:chevron-right", color=theme.tokens().text_muted))
+            flecha.setToolTip(_tr("Plegar") if abierta else _tr("Desplegar"))
+            flecha.setFixedWidth(22)
+            flecha.setFocusPolicy(QtCore.Qt.NoFocus)
+            flecha.clicked.connect(self.plegar)
+            h.addWidget(flecha)
+        elif fila.padre is None:
+            h.addSpacing(22)
         self.btn = QtWidgets.QToolButton()
         self.btn.setAutoRaise(True)
         self.btn.setIconSize(QtCore.QSize(18, 18))
@@ -67,7 +82,9 @@ class _FilaCapa(QtWidgets.QFrame):
         self.btn.clicked.connect(self.conmutar)
         h.addWidget(self.btn)
         self.muestra = QtWidgets.QLabel()
-        if fila.color is not None:
+        if fila.padre is not None:
+            self.muestra.hide()
+        elif fila.color is not None:
             self.muestra.setPixmap(swatch_icon(fila.color, 12).pixmap(12, 12))
         else:
             self.muestra.setPixmap(_icon("mdi:file-document-outline", color=theme.tokens().text_muted).pixmap(14, 14))
@@ -84,7 +101,7 @@ class _FilaCapa(QtWidgets.QFrame):
     def pintar(self):
         tk = theme.tokens()
         on = self.fila.encendida
-        self.btn.setIcon(_icon("mdi:lightbulb-on" if on else "mdi:lightbulb-outline",
+        self.btn.setIcon(_icon("mdi:lightbulb-on" if on and not self.fila.parcial else "mdi:lightbulb-outline",
                                color=BOMBILLA_ON if on else tk.text_disabled))
         self.btn.setToolTip(_tr("Apagar") if on else _tr("Encender"))
         self.lbl.setStyleSheet("" if on else f"color: {tk.text_disabled};")
@@ -110,8 +127,9 @@ class _FilaCapa(QtWidgets.QFrame):
 class PanelCapas(QtWidgets.QFrame):
     """La ventana emergente con las filas. Se arma de nuevo tras cada cambio (son pocas filas)."""
 
-    def __init__(self, estado: Callable[[], Estado], al_cambiar, al_solo, al_todas, parent=None):
+    def __init__(self, estado: Callable[[], Estado], al_cambiar, al_solo, al_todas, parent=None, abiertos=None):
         super().__init__(parent, QtCore.Qt.Popup)
+        self.abiertos = abiertos if abiertos is not None else set()    # grupos desplegados
         self.setObjectName("panelCapas")
         self._estado, self._al_cambiar, self._al_solo, self._al_todas = estado, al_cambiar, al_solo, al_todas
         self._v = QtWidgets.QVBoxLayout(self)
@@ -158,8 +176,12 @@ class PanelCapas(QtWidgets.QFrame):
             sec = QtWidgets.QLabel(titulo_sec)
             sec.setObjectName("seccionCapas")
             self._v.addWidget(sec)
+            con_hijas = {f.padre for f in filas if f.padre is not None}
             for fila in filas:
-                w = _FilaCapa(fila)
+                if fila.padre is not None and fila.padre not in self.abiertos:
+                    continue
+                w = _FilaCapa(fila, abierta=(fila.clave in self.abiertos) if fila.clave in con_hijas else None)
+                w.plegar.connect(lambda fila=fila: self._plegar(fila))
                 w.conmutar.connect(lambda fila=fila: self._conmutar(fila))
                 w.menu.connect(lambda pos, fila=fila: self._menu(fila, pos))
                 self._v.addWidget(w)
@@ -177,6 +199,10 @@ class PanelCapas(QtWidgets.QFrame):
             w = self.fila(*clave)
             if w is not None:
                 w.setFocus()
+
+    def _plegar(self, fila: Fila):
+        (self.abiertos.discard if fila.clave in self.abiertos else self.abiertos.add)(fila.clave)
+        self.armar()
 
     def _conmutar(self, fila: Fila):
         self._al_cambiar(fila.tipo, fila.clave, not fila.encendida)
@@ -202,6 +228,7 @@ class BotonCapas(QtWidgets.QToolButton):
         super().__init__(parent)
         self._args = (estado, al_cambiar, al_solo, al_todas)
         self.panel: Optional[PanelCapas] = None
+        self._abiertos: set = set()        # los grupos siguen desplegados al volver a abrir el panel
         self.setToolButtonStyle(QtCore.Qt.ToolButtonTextBesideIcon)
         self.clicked.connect(self.abrir)
         self.resumen()
@@ -221,7 +248,7 @@ class BotonCapas(QtWidgets.QToolButton):
         if self.panel is not None:
             self.panel.close()
             self.panel.deleteLater()
-        self.panel = PanelCapas(*self._args, parent=self)
+        self.panel = PanelCapas(*self._args, parent=self, abiertos=self._abiertos)
         self.panel.adjustSize()
         abajo = self.mapToGlobal(QtCore.QPoint(0, self.height()))
         pantalla = (self.screen() or QtGui.QGuiApplication.primaryScreen()).availableGeometry()

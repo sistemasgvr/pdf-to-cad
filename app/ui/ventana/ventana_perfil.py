@@ -100,7 +100,7 @@ class PerfilMixin(PerfilABMixin, RamalesPerfilMixin, GuardadosPerfilMixin, Plano
               "Arrastra un punto (o ↑ ↓) para cambiar su cota · ← → Inicio Fin = nodos · Ctrl + rueda = acercar · "
               "botón derecho = desplazar · doble clic = tamaño original")
         self.perfil_vista.cotaCambiada.connect(self._perfil_cota)
-        self.perfil_vista.flujoCambiado.connect(self.perfil_flujo)    # flechas del flujo (ventana_flujo)
+        self._perfil_flujo_conectar(self.perfil_vista)                # flujo: elegir el punto, ojo (ventana_flujo_perfil)
         self.perfil_vista.nodoElegido.connect(lambda _k: (self._perfil_resaltar(), self._perfil_barra()))
         self.perfil_vista.pasoElegido.connect(lambda _i: self._perfil_resaltar())
         self.perfil_vista.nodoHover.connect(lambda _k: self._perfil_barra())
@@ -154,6 +154,7 @@ class PerfilMixin(PerfilABMixin, RamalesPerfilMixin, GuardadosPerfilMixin, Plano
         self.btn_perfil_alertas.clicked.connect(lambda: self.perfil_siguiente_alerta())
         self.btn_perfil_alertas.hide()
         h.addWidget(self.btn_perfil_alertas)
+        self._perfil_flujo_cabecera(h)                # [⇥⇤ Flujo] y el ojo (gravedad y presión)
 
 
         b = QtWidgets.QPushButton()
@@ -348,6 +349,7 @@ class PerfilMixin(PerfilABMixin, RamalesPerfilMixin, GuardadosPerfilMixin, Plano
         self._perfil_barra()
         self._perfil_resaltar()
         self._perfil_ab_fichas()
+        self._flujo_perfil_refrescar()
 
 
 

@@ -18,7 +18,8 @@ Válvula) o la lee el reconocimiento del PDF (`reconocimiento/recognition_valvul
     union       "FLG" | "RG"                      (pieza; las reconocidas empiezan en FLG)
     material    "" = el de la tubería | "DI-A" | "CI" | "PVC"
     utilidad    capa de la app («AGUA», «GAS»…) o "" si el plano no lo dice
-    tipo        "" = compuerta; si no, el del plano («Purga», «Retención», «Mariposa»…; `TEXTOS`)
+    tipo        "" = compuerta; si no, el del plano («Purga», «Retención», «Mariposa»…; `TEXTOS`). Solo es dato:
+                TODAS se modelan con la misma válvula genérica (`diametro_valido`)
     estado      "abierta" | "cerrada" | ""
     origen      capa | leyenda | forma | manual
     certeza     segura | por_confirmar
@@ -51,6 +52,9 @@ MATERIALES = ("DI-A", "CI", "PVC")
 ALCANCE_ACC_D = 1.70           # brazo 1.25·D + campana 0.45·D de un codo/Tee/Wye/cruz (`accesorios3d`)
 TUBO_MIN_FT = limpieza_tramos.TRAMO_MIN_FT   # tubo libre entre la válvula y lo que haya a cada lado (1 ft)
 SOBRE_TOL_FT = 0.05            # una válvula guardada sigue «en su lugar» si se corre menos que esto
+PLANO_TUBO_FT = 0.05           # del plano: tubo que queda a cada lado (el plugin no crea tubos de menos de 0.02 ft)
+PLANO_CORRE_FT = 0.5           # del plano: lo más que su centro puede quedar fuera del tramo recto
+GENERICA_MIN_IN = 0.5          # menos: la genérica de 1/2" (la receta prolongada sigue sana hasta aquí)
 EPS = 1e-9
 # Caja de la válvula (valve box, 2026-11-06): el tubo de 5-1/4" que sube de la válvula a la superficie para meter la
 # llave (Tyler 6850 / AWWA). Va de la corona de la tubería hasta el SUELO (`nucleo/terreno`: hoy la cota 0, pedido
@@ -68,9 +72,14 @@ def caja(z_eje, diam_in, capa=None, x=None, y=None):
 
 
 def diametro_valido(d_in):
-    """El diámetro (pulgadas, redondeado a 0.01") si hay válvula para él, o None."""
+    """El diámetro de la válvula (pulgadas, redondeado a 0.01"), o None si la tubería no tiene diámetro.
+
+    VÁLVULA GENÉRICA (pedido 2026-11-09): toda válvula, sea del tipo que sea (purga, retención, exceso de flujo…) y
+    del diámetro que sea, se modela con la MISMA pieza disponible, la de compuerta de `valvula_receta`. Por debajo de
+    `N_MIN` la receta se prolonga desde los extremos de la tabla (queda «estimada», con su aviso), hasta
+    `GENERICA_MIN_IN`; por encima de `N_MAX` va la de `N_MAX` (más allá los pernos se salen de la brida)."""
     d = round(float(d_in or 0), 2)
-    return d if VR.N_MIN - 1e-9 <= d <= VR.N_MAX + 1e-9 else None
+    return min(max(d, GENERICA_MIN_IN), VR.N_MAX) if d > 0 else None
 
 
 def pieza(n, union="FLG"):
@@ -118,6 +127,7 @@ class Lugar:
     brida_ft: float = 0.0
     movida: bool = False           # se corrió para caber
     estimada: bool = False         # diámetro fuera de la tabla de normas
+    exporta: bool = True           # False: del plano y sobre su tubería, pero no entra en un tubo (no va a Civil 3D)
     avisos: list = field(default_factory=list)
 
 
@@ -271,9 +281,7 @@ def ubicar(pipes, structures, x, y, ft, radio_px, union="FLG", material="", otra
     d_in = model_ops.diametro(p)[0]
     n = diametro_valido(d_in)
     if n is None:
-        return Lugar(pipe=i, tramo=k, motivo=_tr(
-            "{u} es de {d}\": hay válvulas de {a}\" a {b}\".").format(
-            u=nombre, d=f"{d_in:g}", a=f"{VR.N_MIN:g}", b=f"{VR.N_MAX:g}"))
+        return Lugar(pipe=i, tramo=k, motivo=_tr("{u} no tiene diámetro.").format(u=nombre))
     bloque, u_ef, largo_in, od_in, avisos = pieza(n, union)
     largo_ft = largo_in / 12.0
     lug = Lugar(pipe=i, tramo=k, diam_in=float(n), bloque=bloque, union=u_ef,
@@ -314,13 +322,124 @@ def ubicar(pipes, structures, x, y, ft, radio_px, union="FLG", material="", otra
     return lug
 
 
+def del_plano(v):
+    """¿La leyó el reconocimiento? Entonces el plano es la prueba de que está ahí (no las reglas de poner a mano)."""
+    return "x_pdf" in v or v.get("origen") in (CAPA_PDF, LEYENDA, FORMA)
+
+
+def _tramos_cerca(pipes, x, y, tol, utilidad, cerca):
+    """([(dist, i, k)] de presión, los demás) a ≤ tol, de su utilidad si la sabe; los más cercanos primero."""
+    propios, ajenos = [], []
+    for i in cerca(x, y, tol):
+        p = pipes[i]
+        pts = p.get("pts") or ()
+        if utilidad and p.get("layer") != utilidad:
+            continue
+        for k in range(len(pts) - 1):
+            d = _dist_seg(x, y, pts[k], pts[k + 1])
+            if d <= tol:
+                (propios if es_presion(p) else ajenos).append((d, i, k))
+    return sorted(propios), sorted(ajenos)
+
+
+def _sin_pieza(pipes, i, k, x, y, v, ft, motivo):
+    """Sobre su tubería, en su símbolo, sin pieza del catálogo: se ve y no va a Civil 3D."""
+    p = pipes[i]
+    a, b = p["pts"][k], p["pts"][k + 1]
+    L = max(math.hypot(b[0] - a[0], b[1] - a[1]), EPS)
+    t = max(0.0, min(1.0, ((x - a[0]) * (b[0] - a[0]) + (y - a[1]) * (b[1] - a[1])) / (L * L)))
+    largo_ft = max(v.get("sim_w") or 0.0, v.get("sim_h") or 0.0) * ft or 1.0
+    return Lugar(ok=True, exporta=False, pipe=i, tramo=k, x=a[0] + t * (b[0] - a[0]), y=a[1] + t * (b[1] - a[1]),
+                 ux=(b[0] - a[0]) / L, uy=(b[1] - a[1]) / L, diam_in=float(model_ops.diametro(p)[0]),
+                 material=material_de(v.get("material") or "", p.get("material")), largo_ft=largo_ft,
+                 brida_ft=largo_ft * 0.7, motivo=motivo)
+
+
+def _lugar_de(p, i, k, x, y, ux, uy, n, v, **extra):
+    bloque, u_ef, largo_in, od_in, avisos = pieza(n, v.get("union") or "FLG")
+    return Lugar(ok=True, pipe=i, tramo=k, x=x, y=y, ux=ux, uy=uy, diam_in=float(n), bloque=bloque, union=u_ef,
+                 material=material_de(v.get("material") or "", p.get("material")), largo_ft=largo_in / 12.0,
+                 brida_ft=od_in / 12.0, avisos=avisos, estimada=n not in VR.TABLA, **extra)
+
+
+def ubicar_plano(pipes, structures, v, ft, otras=(), cerca=None):
+    """El Lugar de una válvula LEÍDA del plano: queda en su símbolo. No se le aplican las reglas de poner a mano (el
+    espacio para el codo o la T): en el plano va bridada a la T, y en un mapa SIG la línea se parte justo en la
+    válvula. Solo se corre lo necesario: dentro de su propio símbolo si así respeta esos espacios; si no, lo justo
+    para que su cuerpo entre en UN tubo recto, que es lo que el plugin parte. Si ningún tubo la contiene, se ve
+    sobre su tubería pero no va a Civil 3D."""
+    cerca = cerca or _todas(pipes)
+    if not ft or ft <= 0:
+        return Lugar(motivo=_tr("Falta la escala de la hoja."))
+    x, y = float(v["x"]), float(v["y"])
+    propios, ajenos = _tramos_cerca(pipes, x, y, TOL_UNION_FT / ft, v.get("utilidad") or "", cerca)
+    if not propios:
+        if ajenos:
+            return Lugar(motivo=_tr("{u} no es de agua ni de gas: las válvulas van en redes a presión.").format(
+                u=model_ops.nombre_por_defecto(pipes[ajenos[0][1]], ajenos[0][1])))
+        return Lugar(motivo=_tr("El plano marca una válvula aquí, pero no dibuja ninguna tubería que pase por este "
+                                "punto: se deja donde está y no va a Civil 3D."))
+    radio_ft = max(v.get("sim_w") or 0.0, v.get("sim_h") or 0.0) / 2.0 * ft
+    mejor = None                                       # (corrimiento, dist, i, k, s, a, ux, uy, n)
+    fuera = None                                       # (i, k) de la tubería con un diámetro sin válvula
+    for d, i, k in propios:
+        p = pipes[i]
+        n = diametro_valido(model_ops.diametro(p)[0])
+        if n is None:
+            fuera = fuera or (i, k)
+            continue
+        medio = pieza(n, v.get("union") or "FLG")[2] / 24.0
+        try:
+            a, b, L, lo, hi, prohibidos = _tramo_libre(pipes, structures, i, k, ft, otras, cerca, n)
+        except (IndexError, KeyError):
+            continue
+        if L <= EPS:
+            continue
+        ux, uy = (b[0] - a[0]) / (L / ft), (b[1] - a[1]) / (L / ft)
+        s0 = ((x - a[0]) * ux + (y - a[1]) * uy) * ft
+        ini, fin = medio + PLANO_TUBO_FT, L - medio - PLANO_TUBO_FT
+        if fin < ini or s0 < -PLANO_CORRE_FT or s0 > L + PLANO_CORRE_FT:
+            continue                                   # no entra, o el tramo recto queda lejos (va en curva)
+        s = min(max(s0, ini), fin)
+        comodos = [min(max(s0, i0), i1) for i0, i1 in _intervalos(lo, hi, prohibidos, medio)]
+        if comodos:
+            c = min(comodos, key=lambda w: abs(w - s0))
+            if abs(c - s0) <= radio_ft:
+                s = c
+        cand = (round(abs(s - s0), 6), d, i, k, s, a, ux, uy, n)
+        if mejor is None or cand[:2] < mejor[:2]:
+            mejor = cand
+    if mejor is not None:
+        corrida, _d, i, k, s, a, ux, uy, n = mejor
+        return _lugar_de(pipes[i], i, k, a[0] + ux * s / ft, a[1] + uy * s / ft, ux, uy, n, v,
+                         movida=corrida > SOBRE_TOL_FT)
+    if fuera is not None:
+        i, k = fuera
+        return _sin_pieza(pipes, i, k, x, y, v, ft, _tr("{u} no tiene diámetro.").format(
+            u=model_ops.nombre_por_defecto(pipes[i], i)))
+    _d, i, k = propios[0]                              # sobre su tubería, pero no entra en ningún tubo recto
+    p = pipes[i]
+    n = diametro_valido(model_ops.diametro(p)[0])
+    a, b = p["pts"][k], p["pts"][k + 1]
+    L = max(math.hypot(b[0] - a[0], b[1] - a[1]), EPS)
+    t = max(0.0, min(1.0, ((x - a[0]) * (b[0] - a[0]) + (y - a[1]) * (b[1] - a[1])) / (L * L)))
+    largo_ft = pieza(n, v.get("union") or "FLG")[2] / 12.0
+    return _lugar_de(p, i, k, a[0] + t * (b[0] - a[0]), a[1] + t * (b[1] - a[1]), (b[0] - a[0]) / L, (b[1] - a[1]) / L,
+                     n, v, exporta=False, motivo=_tr(
+                         "Ningún tubo recto de {u} contiene la válvula de {d}\" ({L} ft): se ve en el plano y no va a "
+                         "Civil 3D.").format(u=model_ops.nombre_por_defecto(p, i), d=f"{n:g}", L=f"{largo_ft:.2f}"))
+
+
 def ubicar_todas(pipes, structures, valvulas, ft, cerca=None):
     """[Lugar] de cada válvula guardada, en orden (cada una con las anteriores ya ubicadas como obstáculo)."""
     tol = TOL_UNION_FT / ft if ft else 3.0
     out, ya = [], []
     for v in valvulas or ():
-        lug = ubicar(pipes, structures, float(v["x"]), float(v["y"]), ft, tol, v.get("union") or "FLG",
-                     v.get("material") or "", ya, libre=False, cerca=cerca)
+        if del_plano(v):
+            lug = ubicar_plano(pipes, structures, v, ft, ya, cerca)
+        else:
+            lug = ubicar(pipes, structures, float(v["x"]), float(v["y"]), ft, tol, v.get("union") or "FLG",
+                         v.get("material") or "", ya, libre=False, cerca=cerca)
         out.append(lug)
         if lug.ok:
             ya.append({"x": lug.x, "y": lug.y, "largo_ft": lug.largo_ft})
@@ -349,7 +468,15 @@ def de_lugar(lug, union="FLG", material="", utilidad="", tipo=""):
 
 def exportable(v, lug):
     """¿Va al DXF (y al plugin)? Solo si cabe en su tramo recto y no está «por confirmar»."""
-    return bool(lug is not None and lug.ok and (v.get("certeza") or SEGURA) != POR_CONFIRMAR)
+    return bool(lug is not None and lug.ok and lug.exporta and (v.get("certeza") or SEGURA) != POR_CONFIRMAR)
+
+
+def pie_en(x, y, a, b):
+    """El punto del tramo a–b más cercano a (x, y)."""
+    dx, dy = b[0] - a[0], b[1] - a[1]
+    L2 = dx * dx + dy * dy
+    u = 0.0 if L2 <= 0 else max(0.0, min(1.0, ((x - a[0]) * dx + (y - a[1]) * dy) / L2))
+    return (a[0] + u * dx, a[1] + u * dy)
 
 
 def pegar(v, pipes, tol_px, cerca=None):
@@ -364,17 +491,14 @@ def pegar(v, pipes, tol_px, cerca=None):
             continue
         pts = p.get("pts") or ()
         for a, b in zip(pts, pts[1:]):
-            dx, dy = b[0] - a[0], b[1] - a[1]
-            L2 = dx * dx + dy * dy
-            u = 0.0 if L2 <= 0 else max(0.0, min(1.0, ((v["x"] - a[0]) * dx + (v["y"] - a[1]) * dy) / L2))
-            q = (a[0] + u * dx, a[1] + u * dy)
+            q = pie_en(v["x"], v["y"], a, b)
             d = math.hypot(q[0] - v["x"], q[1] - v["y"])
             if d <= tol_px and (mejor is None or d < mejor[0]):
                 mejor = (d, q)
     out = dict(v)
+    out.setdefault("x_pdf", float(v["x"]))
+    out.setdefault("y_pdf", float(v["y"]))
     if mejor is not None:
-        out.setdefault("x_pdf", float(v["x"]))
-        out.setdefault("y_pdf", float(v["y"]))
         out["x"], out["y"] = float(mejor[1][0]), float(mejor[1][1])
     return out
 
@@ -443,7 +567,7 @@ def relacion(v: dict, pipes: Sequence[dict], tol_px: float, cerca=None) -> Optio
 N_ = lambda s: s          # noqa: E731  (marca para la traducción; los valores son datos)
 TEXTOS = (N_("Válvula"), N_("De línea"), N_("Purga"), N_("Retención"), N_("Retención doble"),
           N_("Reguladora de presión"), N_("Mariposa"), N_("Aire"), N_("Compuerta"), N_("Riego"), N_("abierta"),
-          N_("cerrada"))
+          N_("cerrada"), N_("Exceso de flujo"))
 
 
 def nombre(v: dict) -> str:

@@ -4,7 +4,9 @@ Pedido del usuario 2026-10-26: los planos de fondo de cada utilidad agregada (an
 del lienzo, `ventana_planos`) y las utilidades dibujadas se manejan como capas. El botón «Capas ▾» de
 la barra (`ui/comun/capas_popup`) lista:
 
-- UTILIDADES (lo dibujado): una fila por capa de utilidad del proyecto (Agua, Alcantarillado…).
+- UTILIDADES (lo dibujado): una fila por capa de utilidad del proyecto (Agua, Alcantarillado…), con sus
+  subgrupos Líneas, Estructuras y Válvulas (pedido 2026-11-07): `capas_apagadas` guarda «AGUA» = toda la utilidad
+  y «AGUA/valvulas» = solo ese subgrupo (`sub_clave`).
   Apagada (`Main.capas_apagadas`): sus líneas, sus buzones y curvas y sus marcas (cruces, accesorios,
   avisos, C-n cuyas utilidades dueñas están todas apagadas; las que no saben de quién son, por las
   utilidades cercanas) no se pintan y en el lienzo no se eligen ni enganchan. En el Inventario sigue en la lista, atenuada; elegida desde ahí se ve.
@@ -22,13 +24,21 @@ from PySide6 import QtGui
 
 from nucleo import valvulas as V
 from nucleo.model import TIPOS
-from traduccion.i18n import t as _tr
+from traduccion.i18n import N_, t as _tr
 from ui.comun import capas_popup as CP
 from ui.comun.ui_common import layer_qcolor
 import geometry as G
 
 # Una marca sin dueñas conocidas (`capa_marcas.duenas`) es de las utilidades que pasan a ≤ esto de su punto
 MARCA_FT = 2.0
+
+
+LINEAS, ESTRUCTURAS, VALVULAS = "lineas", "estructuras", "valvulas"
+NOMBRES_SUB = {LINEAS: N_("Líneas"), ESTRUCTURAS: N_("Estructuras"), VALVULAS: N_("Válvulas")}
+
+
+def sub_clave(utilidad, sub) -> str:
+    return f"{utilidad}/{sub}"
 
 
 def _miles(n) -> str:
@@ -49,21 +59,84 @@ class CapasMixin:
         for s in self.structures:                       # cajas sueltas de una utilidad sin líneas
             if s.get("standalone") and s.get("utility") and not s.get("world"):
                 n.setdefault(s["utility"], 0)
-        if getattr(self, "valvulas", None):             # una capa más, aparte de las utilidades
-            n[V.CAPA] = len(self.valvulas)
+        for k in range(len(getattr(self, "valvulas", None) or ())):
+            u = self._utilidad_valvula(k)
+            if u:
+                n.setdefault(u, 0)                      # subgrupo de su utilidad
+            else:
+                n[V.CAPA] += 1                          # sin utilidad: su propia fila
         orden = [lay for _l, lay in TIPOS]
         return {c: n[c] for c in sorted(n, key=lambda c: (orden.index(c) if c in orden else len(orden), c))}
 
     def _nombre_capa(self, clave):
+        if "/" in str(clave):
+            u, sub = clave.split("/", 1)
+            return f"{self._tipo(u)} · {_tr(NOMBRES_SUB[sub])}"
         return _tr("Válvulas") if clave == V.CAPA else self._tipo(clave)
+
+    def _utilidad_valvula(self, k):
+        """La utilidad de la válvula k: la que leyó el plano o la de su tubería."""
+        vs = self.valvulas
+        lugares = getattr(self, "_valv_lugares", None) or ()
+        lug = lugares[k] if k < len(lugares) else None
+        if vs[k].get("utilidad"):
+            return vs[k]["utilidad"]
+        return (self.pipes[lug.pipe].get("layer") or "") if lug is not None and lug.ok and lug.pipe < len(self.pipes) else ""
+
+    def _subcapas(self):
+        """{utilidad: {subgrupo: cuántos hay}} solo con lo que tiene dibujado."""
+        out = {}
+        for p in self.pipes:
+            if p.get("pts") and p.get("layer"):
+                d = out.setdefault(p["layer"], {})
+                d[LINEAS] = d.get(LINEAS, 0) + 1
+        for i, _curva, s, _items in getattr(self, "_estructuras_vista", ()):
+            duenas = self._duenas_memo.get(i)
+            if duenas is None:
+                duenas = self._duenas_memo[i] = self._duenas_estructura(s)
+            for u in duenas or ():
+                d = out.setdefault(u, {})
+                d[ESTRUCTURAS] = d.get(ESTRUCTURAS, 0) + 1
+        for k in range(len(getattr(self, "valvulas", None) or ())):
+            u = self._utilidad_valvula(k)
+            if u:
+                d = out.setdefault(u, {})
+                d[VALVULAS] = d.get(VALVULAS, 0) + 1
+        return out
+
+    def _lineas_apagadas(self):
+        """Las utilidades con sus líneas (y sus marcas) apagadas."""
+        ap = getattr(self, "capas_apagadas", None) or ()
+        return {c.split("/")[0] for c in ap if "/" not in c or c.endswith("/" + LINEAS)}
+
+    def _estructuras_apagadas(self):
+        ap = getattr(self, "capas_apagadas", None) or ()
+        return frozenset(c.split("/")[0] for c in ap if "/" not in c or c.endswith("/" + ESTRUCTURAS))
+
+    def _valvula_apagada(self, k) -> bool:
+        ap = getattr(self, "capas_apagadas", None) or ()
+        if not ap:
+            return False
+        u = self._utilidad_valvula(k)
+        return (u in ap or sub_clave(u, VALVULAS) in ap) if u else V.CAPA in ap
 
     def _estado_capas(self) -> CP.Estado:
         apagadas = getattr(self, "capas_apagadas", set())
-        utilidades = [CP.Fila(CP.UTILIDAD, c, self._nombre_capa(c), c not in apagadas,
-                              None if c == V.CAPA else layer_qcolor(c), _miles(k),
-                              _tr("{n} válvulas reconocidas").format(n=_miles(k)) if c == V.CAPA else
-                              _tr("{n} utilidades de {t} dibujadas").format(n=_miles(k), t=self._tipo(c)))
-                      for c, k in self._capas_utilidad().items()]
+        subcapas = self._subcapas()
+        utilidades = []
+        for c, k in self._capas_utilidad().items():
+            subs = subcapas.get(c, {})
+            apagados = [s for s in subs if sub_clave(c, s) in apagadas]
+            utilidades.append(CP.Fila(CP.UTILIDAD, c, self._nombre_capa(c), c not in apagadas,
+                                      None if c == V.CAPA else layer_qcolor(c), _miles(k),
+                                      _tr("{n} válvulas reconocidas").format(n=_miles(k)) if c == V.CAPA else
+                                      _tr("{n} utilidades de {t} dibujadas").format(n=_miles(k), t=self._tipo(c)),
+                                      parcial=c not in apagadas and bool(apagados)))
+            if len(subs) > 1:                           # de un solo tipo, el grupo ya lo dice todo
+                utilidades += [CP.Fila(CP.UTILIDAD, sub_clave(c, s), _tr(NOMBRES_SUB[s]),
+                                       c not in apagadas and s not in apagados, None, _miles(subs[s]),
+                                       self._nombre_capa(sub_clave(c, s)), padre=c)
+                               for s in (LINEAS, ESTRUCTURAS, VALVULAS) if s in subs]
         planos = []
         encendidos = set(self._planos_encendidos())
         comp = self.composite
@@ -82,7 +155,7 @@ class CapasMixin:
         if btn is None:
             return
         presentes = set(self._capas_utilidad())
-        n = len(set(getattr(self, "capas_apagadas", ())) & presentes)
+        n = sum(1 for c in getattr(self, "capas_apagadas", ()) if c.split("/")[0] in presentes)
         gs = self._grupos_planos()
         if gs:
             n += len(gs) - len(self._planos_encendidos())
@@ -95,16 +168,37 @@ class CapasMixin:
             (vis.add if encendida else vis.discard)(int(clave))
             self._poner_planos(vis)
             return
-        (self.capas_apagadas.discard if encendida else self.capas_apagadas.add)(clave)
+        if "/" in str(clave):
+            self._cambiar_subcapa(clave, encendida)
+        else:
+            self.capas_apagadas = {c for c in self.capas_apagadas if c.split("/")[0] != clave}
+            if not encendida:
+                self.capas_apagadas.add(clave)
         self._aplicar_capas()
         self._info((_tr("Capa encendida: {c}.") if encendida else _tr("Capa apagada: {c}.")).format(c=self._nombre_capa(clave)))
+
+    def _cambiar_subcapa(self, clave, encendida):
+        """Un subgrupo. Si todos quedan apagados vale por la utilidad entera; encender uno con la utilidad apagada
+        deja apagados los otros."""
+        u = clave.split("/")[0]
+        todas = {sub_clave(u, s) for s in self._subcapas().get(u, {})}
+        if u in self.capas_apagadas:
+            self.capas_apagadas.discard(u)
+            self.capas_apagadas |= todas
+        (self.capas_apagadas.discard if encendida else self.capas_apagadas.add)(clave)
+        if todas <= self.capas_apagadas:
+            self.capas_apagadas -= todas
+            self.capas_apagadas.add(u)
 
     def _solo_capa(self, tipo, clave):
         """«Ver solo esta» (LAYISO de AutoCAD): las demás de su sección se apagan."""
         if tipo == CP.PLANO:
             self._poner_planos({int(clave)})
             return
-        self.capas_apagadas = set(self._capas_utilidad()) - {clave}
+        u = str(clave).split("/")[0]
+        self.capas_apagadas = set(self._capas_utilidad()) - {u}
+        if "/" in str(clave):
+            self.capas_apagadas |= {sub_clave(u, s) for s in self._subcapas().get(u, {})} - {clave}
         self._aplicar_capas()
         self._info(_tr("Solo a la vista: {c}.").format(c=self._nombre_capa(clave)))
 
@@ -127,7 +221,7 @@ class CapasMixin:
             lista = False
         if lista:
             elegidas = previa[2]
-            apagadas = self.capas_apagadas
+            apagadas = self._lineas_apagadas()
             previa[1].fijar_ocultas({i for i, p in enumerate(self.pipes)
                                    if p.get("layer") in apagadas} - elegidas if apagadas else ())
             self._visibilidad_estructuras()
@@ -144,8 +238,7 @@ class CapasMixin:
     # ── qué está apagado ──────────────────────────────────────────────────
     def _capa_apagada(self, i) -> bool:
         """La utilidad i está en una capa apagada (no se pinta ni se elige en el lienzo)."""
-        ap = getattr(self, "capas_apagadas", None)
-        return bool(ap) and self.pipes[i].get("layer") in ap
+        return self.pipes[i].get("layer") in self._lineas_apagadas()
 
     def _capa_de_utilidad(self, i):
         """La capa de la utilidad i (dueña de una marca), o None si no se sabe."""
@@ -202,7 +295,7 @@ class CapasMixin:
         grupo = getattr(self, "_marcas", None)
         if grupo is None:
             return
-        apagadas = getattr(self, "capas_apagadas", ())
+        apagadas = self._lineas_apagadas()
         perezosa = []                                       # el índice solo si alguna capa lo necesita
 
         def capas_en(x, y):
@@ -216,7 +309,7 @@ class CapasMixin:
         lst = getattr(self, "pipe_list", None)
         if lst is None:
             return
-        ap = getattr(self, "capas_apagadas", set())
+        ap = self._lineas_apagadas()
         tenue = QtGui.QBrush(QtGui.QColor(lst.palette().color(QtGui.QPalette.Disabled, QtGui.QPalette.Text)))
         normal = QtGui.QBrush()
         for row in range(min(lst.count(), len(self.pipes))):

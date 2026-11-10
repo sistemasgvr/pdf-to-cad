@@ -14,6 +14,7 @@ from traduccion.i18n import t as _tr
 class Vista3DMixin:
     def abrir_vista3d(self):
         from ui.dialogos import vista3d_dialog
+        self.terminar_trazo_en_curso()              # la línea a medias también pasa a 3D (2026-11-09)
         if getattr(self, "_provisional", False):        # calculo_fondo: nada a medio calcular (con aviso)
             from ui.comun import busy
             with busy.busy(self, _tr("Actualizando conflictos y avisos…")):
@@ -26,6 +27,7 @@ class Vista3DMixin:
     def ver_en_3d(self):
         """Clic derecho → «Ver en 3D»: abre la vista y encuadra la utilidad elegida."""
         from ui.dialogos import vista3d_dialog
+        self.terminar_trazo_en_curso()
         self._guardar_antes_de_3d()
         if 0 <= getattr(self, "sel_pipe", -1) < len(self.pipes):
             return vista3d_dialog.abrir(self, ver=self.sel_pipe + 1)

@@ -230,6 +230,7 @@ class AgregarUtilidadMixin:
             self._reponer_respaldo(_tr("No hay tramos reconocidos para importar — el editor queda como estaba."))
             return False
         self._soltar_respaldo()
+        self.capas_apagadas = {c for c in self.capas_apagadas if "/" not in c or c.split("/")[0] not in utils}
         if self.capas_apagadas & set(utils):               # lo agregado se ve («Capas», ventana_capas)
             self.capas_apagadas -= set(utils)
             self._aplicar_capas()

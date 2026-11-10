@@ -49,7 +49,11 @@ class Paso:
     p1: tuple
     invertida: bool = False    # el paso recorre su utilidad del fin al inicio
     flujo: int = 0             # 1 = el fluido va hacia B (estaciones mayores), -1 = hacia A, 0 = no aplica o sin indicar
-    flujo_fijo: bool = False   # True = lo indicó el usuario (`pipe["flujo"]`); False = automático
+    flujo_fijo: bool = False   # True = lo indicó el usuario (`pipe["flujo"]`/`["flujo_hacia"]`); False = automático
+    flujo_corte: float = None  # parámetro sobre la cuerda p0→p1 donde LLEGA el fluido, si cae dentro del paso: la
+                               # parte de antes va hacia B y la de después hacia A (`flujo` = 1); None = todo `flujo`
+    t0: float = 0.0            # la parte [t0, t1] del tramo de la utilidad que recorre el paso (en su sentido)
+    t1: float = 1.0
     traza: tuple = ()          # en planta, tal como se dibuja (con las curvas; `perfil_trazo`); () = la cuerda p0→p1
     s: tuple = ()              # parámetro de cada punto de `traza` sobre la cuerda p0→p1
     acum: tuple = ()           # largo exacto (px) desde el inicio del paso hasta cada punto de `traza`
@@ -83,6 +87,23 @@ class Paso:
                 f = 0.0 if ss[k + 1] - ss[k] <= 1e-12 else (t - ss[k]) / (ss[k + 1] - ss[k])
                 return self.e0 + (self.e1 - self.e0) * (acum[k] + (acum[k + 1] - acum[k]) * f) / tot
         return self.e0 if t <= ss[0] else self.e1
+
+    def t_en(self, e):
+        """Lo inverso de `e_en`: el parámetro sobre la cuerda p0→p1 del punto de la estación e."""
+        f = max(0.0, min(1.0, (e - self.e0) / max(self.e1 - self.e0, 1e-12)))
+        if not self.traza:
+            return f
+        acum, ss = self._acum(), self.s
+        meta = f * acum[-1]
+        for k in range(len(ss) - 1):
+            if meta <= acum[k + 1] + 1e-12 or k == len(ss) - 2:
+                g = 0.0 if acum[k + 1] - acum[k] <= 1e-12 else (meta - acum[k]) / (acum[k + 1] - acum[k])
+                return ss[k] + (ss[k + 1] - ss[k]) * max(0.0, min(1.0, g))
+        return f
+
+    def punto_cuerda(self, t):
+        """Punto de la cuerda p0→p1 (sobre la polilínea de la utilidad) en su parámetro t."""
+        return (self.p0[0] + (self.p1[0] - self.p0[0]) * t, self.p0[1] + (self.p1[1] - self.p0[1]) * t)
 
     def punto_en(self, e):
         """Punto en planta de la estación e (dentro del paso)."""
@@ -299,7 +320,7 @@ def _pasos(pipes, rec, ft, structures=()):
         largos.append((acum[-1] if acum else ar.largo_px) * ft)   # por la curva (arco exacto), como el eje de C3D
         out.append(Paso(0.0, 0.0, za, zb, model_ops.diametro(p)[0], model_ops.alto_interior_ft(p),
                         p.get("material") or "", bool(p.get("ab")), ar.pipe, ar.tramo, la, lb, pa, pb,
-                        bool(paso.invertida), traza=traza, s=ss, acum=acum))
+                        bool(paso.invertida), traza=traza, s=ss, acum=acum, t0=ar.t0, t1=ar.t1))
     PR.estaciones(rec, ft, largos)
     for k, p in enumerate(out):
         p.e0, p.e1 = rec.estaciones[k], rec.estaciones[k + 1]
@@ -309,9 +330,10 @@ def _pasos(pipes, rec, ft, structures=()):
 
 
 def _flujo(pipes, rec, pasos, tipo="gravity"):
-    """Hacia dónde va el fluido en cada paso: el que indicó el usuario en la utilidad o, si es automático, en
-    gravedad hacia el extremo más bajo del recorrido (empate = hacia A, la regla de siempre: las estaciones
-    automáticas empiezan en la solera más baja); a presión, sin indicar (0)."""
+    """Hacia dónde va el fluido en cada paso: el que indicó el usuario en la utilidad (a una punta o a un punto
+    intermedio: `flujo_corte` si cae dentro del paso) o, si es automático, en gravedad hacia el extremo más bajo del
+    recorrido (empate = hacia A, la regla de siempre: las estaciones automáticas empiezan en la solera más baja); a
+    presión, sin indicar (0)."""
     if not pasos:
         return
     tendencia = FL.AUTO
@@ -322,9 +344,10 @@ def _flujo(pipes, rec, pasos, tipo="gravity"):
             za, zb = pasos[0].z0, pasos[-1].z1
         tendencia = FL.ADELANTE if zb < za - 1e-6 else FL.ATRAS
     for p in pasos:
-        f = FL.en_paso(pipes[p.pipe], p.invertida)
-        p.flujo_fijo = bool(f)
+        f, corte = FL.en_arista(pipes[p.pipe], p.tramo, p.t0, p.t1, p.invertida)
+        p.flujo_fijo = FL.tiene(pipes[p.pipe])
         p.flujo = f or tendencia
+        p.flujo_corte = corte
 
 
 def _rumbo(a, b):

@@ -7,7 +7,8 @@ Junta, sobre las estaciones del recorrido, lo que conviene ver en el perfil:
 - el RECUBRIMIENTO en cada nodo con tapa: tapa − corona < el mínimo de su utilidad (`model.COVER_MIN_FT`);
 - en gravedad, la CONTRAPENDIENTE (un tramo que SUBE hacia donde va el fluido: el sentido de cada paso lo da
   `perfil_datos.Paso.flujo` —el que indicó el usuario en la utilidad o, automático, hacia el extremo más bajo del
-  recorrido—, así que no depende de dónde se puso A) y la pendiente nula (2026-11-09).
+  recorrido—, así que no depende de dónde se puso A) y la pendiente nula (2026-11-09). Si el punto de llegada del
+  fluido cae dentro de un paso (`Paso.flujo_corte`), cada parte se revisa con su sentido (2026-11-10).
 Solo avisa: nada se mueve.
 """
 from __future__ import annotations
@@ -17,7 +18,8 @@ from dataclasses import dataclass
 from traduccion.i18n_core import t
 
 PENDIENTE_CERO = 1e-4
-SIN_PERFIL = {"tipo"}                    # «sin tipo»: tampoco se dibuja en el plano (ruido)
+SIN_PERFIL = {"tipo", "flujo"}           # «sin tipo»: tampoco se dibuja en el plano (ruido); «flujo»: la
+                                         # contrapendiente la revisa el perfil por paso (abajo)
 CRUCE_FT = 5.0                           # una «separación» a ≤ esto de un cruce es de ese cruce
 
 
@@ -94,14 +96,24 @@ def validar(perfil, avisos, cover_min_ft, tol_px):
     if perfil.tipo == "gravity":
         for i, p in enumerate(perfil.pasos):
             s = p.pendiente
-            hacia = getattr(p, "flujo", 0) or -1          # sin dato: hacia A (la regla de siempre)
-            if s * hacia > PENDIENTE_CERO:
-                msg = t("Contrapendiente {p}: el tramo sube hacia donde va el fluido ({x}).").format(
-                    p=f"{abs(s) * 100:.2f} %", x="A" if hacia < 0 else "B")
-                if not getattr(p, "flujo_fijo", False):
-                    msg += " " + t("Si el fluido va al revés, haz clic en la flecha del tramo.")
-                out.append(Alerta((p.e0 + p.e1) / 2, "contrapendiente", msg, "ERROR", paso=i))
-            elif abs(s) <= PENDIENTE_CERO:
+            for e0, e1, hacia in partes_flujo(p):
+                if s * hacia > PENDIENTE_CERO:
+                    msg = t("Contrapendiente {p}: el tramo sube hacia donde va el fluido ({x}).").format(
+                        p=f"{abs(s) * 100:.2f} %", x="A" if hacia < 0 else "B")
+                    if not getattr(p, "flujo_fijo", False):
+                        msg += " " + t("Si el fluido va a otro lado, elige hacia dónde va con «Flujo».")
+                    out.append(Alerta((e0 + e1) / 2, "contrapendiente", msg, "ERROR", paso=i))
+            if abs(s) <= PENDIENTE_CERO:
                 out.append(Alerta((p.e0 + p.e1) / 2, "pendiente", t("Pendiente nula: el fluido no corre"), paso=i))
     out.sort(key=lambda a: a.e)
     return out
+
+
+def partes_flujo(p):
+    """[(e0, e1, hacia)] del paso: una parte (hacia 1 = B, -1 = A; sin dato, hacia A: la regla de siempre) o dos,
+    si el fluido llega a un punto dentro del paso (`flujo_corte`): la de antes va hacia B y la de después hacia A."""
+    corte = getattr(p, "flujo_corte", None)
+    if corte is None:
+        return [(p.e0, p.e1, getattr(p, "flujo", 0) or -1)]
+    ec = p.e_en(corte)
+    return [(p.e0, ec, 1), (ec, p.e1, -1)]

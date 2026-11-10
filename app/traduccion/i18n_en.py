@@ -4565,7 +4565,6 @@ EN: dict[str, str] = {
     'Revisión': 'Review',
     'Ayuda: manual, atajos de teclado, acerca de': 'Help: manual, keyboard shortcuts, about',
     'Ajustes: idioma, tema, paneles, asistente IA, familias de Civil 3D': 'Settings: language, theme, panels, AI assistant, Civil 3D families',
-    'Regla, transportador y enderezar': 'Ruler, protractor and straighten',
     'Se ubica sola por el mapa base': 'Placed automatically by the base map',
     'Georreferencia': 'Georeference',
     'Varias utilidades': 'Several utilities',
@@ -4800,29 +4799,58 @@ EN: dict[str, str] = {
     'Perfiles guardados, guardar y encuadrar': 'Saved profiles, save and fit',
     'Recubrimiento {c} ft, menor que el mínimo de {m} ft': 'Cover {c} ft, less than the minimum of {m} ft',
     'Contrapendiente {p}: el tramo sube hacia donde va el fluido ({x}).': 'Adverse slope {p}: the segment rises toward where the fluid flows ({x}).',
-    'Si el fluido va al revés, haz clic en la flecha del tramo.': 'If the fluid flows the other way, click the segment arrow.',
     'Pendiente nula: el fluido no corre': 'Zero slope: fluid does not flow',
     'indicado': 'set',
     'automático: hacia el extremo más bajo': 'automatic: toward the lower end',
     'El fluido va hacia {x} ({m}).': 'The fluid flows toward {x} ({m}).',
-    'Clic: invertir el sentido · Clic derecho: más opciones': 'Click: reverse the direction · Right click: more options',
     'Sentido del flujo': 'Flow direction',
-    'Esta utilidad: hacia A': 'This utility: toward A',
-    'Esta utilidad: hacia B': 'This utility: toward B',
     'Esta utilidad: automático': 'This utility: automatic',
-    'Todo el perfil: hacia A': 'Whole profile: toward A',
-    'Todo el perfil: hacia B': 'Whole profile: toward B',
     'Todo el perfil: automático': 'Whole profile: automatic',
     'Esta utilidad: sin indicar': 'This utility: not set',
     'Todo el perfil: sin indicar': 'Whole profile: not set',
     'Sentido del flujo sin indicar.': 'Flow direction not set.',
-    'Clic: el fluido va hacia B · Clic derecho: más opciones': 'Click: the fluid flows toward B · Right click: more options',
-    'Sin indicar: a presión la app no deduce hacia dónde va el fluido': 'Not set: in pressure networks the app does not infer where the fluid flows',
+    'Contrapendiente {p} en T{n}: el tramo sube hacia donde va el fluido.': 'Adverse slope {p} on S{n}: the segment rises toward where the fluid flows.',
+    'Si el fluido va a otro lado, elige hacia dónde va con «Flujo».': 'If the fluid flows elsewhere, choose where it goes with «Flow».',
+    'Clic: elegir hacia dónde va el fluido · Clic derecho: más opciones': 'Click: choose where the fluid flows · Right click: more options',
+    'El fluido llega a {e} desde los dos lados.': 'The fluid reaches {e} from both sides.',
+    'Elegir hacia dónde va el fluido…': 'Choose where the fluid flows…',
+    'Clic: el fluido llega aquí · Esc: cancelar': 'Click: the fluid arrives here · Esc: cancel',
+    'este buzón': 'this manhole',
+    'esta punta': 'this end',
+    'este vértice': 'this vertex',
+    'este punto de la línea': 'this point of the line',
+    'Llega a un punto intermedio: las dos partes van hacia él.': 'Arrives at an intermediate point: both parts flow toward it.',
+    'Llega al fin de la utilidad (el último vértice que se dibujó).': 'Arrives at the end of the utility (the last vertex drawn).',
+    'Llega al inicio de la utilidad (el primer vértice que se dibujó).': 'Arrives at the start of the utility (the first vertex drawn).',
+    'Sin indicar: a presión la app no deduce hacia dónde va el fluido.': 'Not set: in pressure networks the app does not infer where the fluid flows.',
+    'Automático: en el perfil, hacia el extremo más bajo del recorrido.': 'Automatic: in the profile, toward the lower end of the run.',
+    'Elegir en el plano': 'Pick on the plan',
+    'Haz clic en el plano donde llega el fluido: un buzón, un vértice, una punta o un punto de esta utilidad': 'Click on the plan where the fluid arrives: a manhole, a vertex, an end or a point of this utility',
+    'Volver a «sin indicar»': 'Back to «not set»',
+    'Volver a automático: hacia el extremo más bajo del recorrido': 'Back to automatic: toward the lower end of the run',
+    'Haz clic en el plano donde llega el fluido (Esc cancela).': 'Click on the plan where the fluid arrives (Esc cancels).',
+    'Ocultar el sentido del flujo en el plano': 'Hide the flow direction on the plan',
+    'Ver el sentido del flujo en el plano': 'Show the flow direction on the plan',
+    'Ocultar el sentido del flujo en el perfil': 'Hide the flow direction in the profile',
+    'Ver el sentido del flujo en el perfil': 'Show the flow direction in the profile',
+    'Elige primero una utilidad de alcantarillado, drenaje, agua o gas.': 'First select a sewer, storm drain, water or gas utility.',
+    'Haz clic donde llega el fluido: un buzón, un vértice, una punta o un punto de {u} (Esc cancela).': 'Click where the fluid arrives: a manhole, a vertex, an end or a point of {u} (Esc cancels).',
+    'Acércate a la utilidad elegida: el punto se pega a sus buzones, vértices y a su línea.': 'Move closer to the selected utility: the point snaps to its manholes, vertices and line.',
+    'Clic: el fluido llega a {que} (Esc cancela).': 'Click: the fluid arrives at {que} (Esc cancels).',
+    'Listo: el fluido llega a {que}. Las flechas muestran cómo corre.': 'Done: the fluid arrives at {que}. The arrows show how it flows.',
+    'Elegir hacia dónde va el fluido: cancelado.': 'Choose where the fluid flows: canceled.',
+    'Sentido del flujo en el plano: visible.': 'Flow direction on the plan: visible.',
+    'Sentido del flujo en el plano: oculto.': 'Flow direction on the plan: hidden.',
+    'Elegir hacia dónde va el fluido: clic en un buzón, un vértice o un punto de la tubería': 'Choose where the fluid flows: click a manhole, a vertex or a point of the pipe',
+    'Haz clic en el perfil donde llega el fluido (Esc cancela).': 'Click in the profile where the fluid arrives (Esc cancels).',
+    'El fluido ya llegaba a {x}.': 'The fluid already arrived at {x}.',
+    'Listo: el fluido llega a {x} ({n} utilidades cambiadas).': 'Done: the fluid arrives at {x} ({n} utilities changed).',
+    'Modo: sentido del flujo — clic donde llega el fluido · Esc cancela': 'Mode: flow direction — click where the fluid arrives · Esc cancels',
+    'Haz clic en el perfil donde LLEGA el fluido: un buzón, un vértice o un punto de la tubería. Los dos lados irán hacia ese punto.': 'Click in the profile where the fluid ARRIVES: a manhole, a vertex or a point of the pipe. Both sides will flow toward that point.',
+    '(Esc = cancelar)': '(Esc = cancel)',
+    'Punta': 'End',
     'Flujo': 'Flow',
     'Auto': 'Auto',
-    'Automático: en el perfil, el fluido va hacia el extremo más bajo del recorrido': 'Automatic: in the profile, the fluid flows toward the lower end of the run',
-    'El fluido va del inicio al fin de la utilidad (en el sentido en que se dibujó)': 'The fluid flows from the start to the end of the utility (the direction it was drawn)',
-    'El fluido va del fin al inicio de la utilidad': 'The fluid flows from the end to the start of the utility',
     'Cota del punto': 'Point elevation',
     'Solera (invert) en {e}, ft:': 'Invert at {e}, ft:',
     'Pendiente del tramo': 'Segment slope',
@@ -5072,8 +5100,12 @@ EN: dict[str, str] = {
         'The straight segment of {u} is {L} ft: the {d}" valve needs {n} ft (its length plus room for the bend, tee or curve on each side).',
     'La válvula ya no cabe aquí: {u} cambió (codo, curva, T o el tramo). Quítala y vuelve a ponerla.':
         'The valve no longer fits here: {u} changed (bend, curve, tee or the segment). Remove it and place it again.',
-    '{n} válvula(s) fuera de lugar no se exportaron (en rojo en el plano).':
-        '{n} misplaced valve(s) were not exported (shown in red on the plan).',
+    'El plano marca una válvula aquí, pero no dibuja ninguna tubería que pase por este punto: se deja donde está y no va a Civil 3D.':
+        'The plan marks a valve here but draws no pipe through this point: it stays where it is and does not go to Civil 3D.',
+    'Ningún tubo recto de {u} contiene la válvula de {d}" ({L} ft): se ve en el plano y no va a Civil 3D.':
+        'No straight pipe of {u} can hold the {d}" valve ({L} ft): it shows on the plan and does not go to Civil 3D.',
+    '{n} válvula(s) fuera de lugar no se exportaron (en magenta en el plano).':
+        '{n} misplaced valve(s) were not exported (shown in magenta on the plan).',
     'Inserción de válvula cancelada':
         'Valve insertion cancelled',
     'Clic sobre una tubería de agua o gas para poner una válvula (Esc para salir).':
@@ -5110,8 +5142,22 @@ EN: dict[str, str] = {
         'The mechanical joint (RG) only goes up to 16": it uses flanges (FLG).',
     '{d}" no está en la tabla de normas: medidas estimadas (interpoladas).':
         '{d}" is not in the standards table: estimated (interpolated) dimensions.',
-    '{u} es de {d}": hay válvulas de {a}" a {b}".':
-        '{u} is {d}": valves go from {a}" to {b}".',
+    '{u} no tiene diámetro.':
+        '{u} has no diameter.',
+    'Se terminó la utilidad que estabas dibujando.':
+        'The utility you were drawing was finished.',
+    'Hoja escaneada':
+        'Scanned sheet',
+    'Todas las piezas de la hoja compuesta son imágenes o escaneos.':
+        'Every piece of the composite sheet is an image or scan.',
+    'No tienen líneas que reconocer: lo normal es pasarla al editor y dibujar las utilidades a mano.':
+        'They have no lines to recognize: the usual step is to send it to the editor and draw the utilities by hand.',
+    'Dibujar a mano':
+        'Draw by hand',
+    'Reconocer de todos modos':
+        'Recognize anyway',
+    'Hoja {n} escaneada (imagen): se alinea con la regla, el transportador y «Enderezar», y sus utilidades se dibujan a mano. Las piezas vectoriales de la hoja compuesta sí se reconocen.':
+        'Sheet {n} is scanned (image): align it with the ruler, the protractor and «Straighten», and draw its utilities by hand. The vector pieces of the composite sheet are still recognized.',
     'Accesorios':
         'Fittings',
     'Tees':
@@ -5122,6 +5168,16 @@ EN: dict[str, str] = {
         'Crosses',
     'Válvulas':
         'Valves',
+    'Exceso de flujo':
+        'Excess flow',
+    'No se reconocen':
+        'Not recognized',
+    'Sin utilidad':
+        'No utility',
+    'Plegar':
+        'Collapse',
+    'Desplegar':
+        'Expand',
     'Clic para verlo en el plano; clic derecho para más opciones.':
         'Click to see it on the plan; right-click for more options.',
     'Clic en un accesorio para verlo en el plano. Ctrl+clic o Mayús+clic para elegir varios.':

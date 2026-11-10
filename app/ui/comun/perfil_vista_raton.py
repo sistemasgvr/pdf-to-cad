@@ -100,6 +100,8 @@ class RatonPerfilMixin:
 
     def mousePressEvent(self, e):
         pos = e.position()
+        if e.button() in (QtCore.Qt.LeftButton, QtCore.Qt.RightButton) and self._clic_eligiendo(pos, e.button()):
+            return                                    # eligiendo hacia dónde va el fluido (`perfil_vista_flujo`)
         if e.button() in (QtCore.Qt.MiddleButton, QtCore.Qt.RightButton):
             area = self._area()
             self._desplazando = (e.globalPosition(), (area.horizontalScrollBar().value(),
@@ -150,6 +152,11 @@ class RatonPerfilMixin:
         if self._geo and self.p and self.p.pasos and self._geo["vista"].contains(pos):
             est = self.e_de(pos.x())                 # no `e`: es el evento (su globalPosition va abajo)
             self.estacionHover.emit(est if self.p.e_ini <= est <= self.p.e_fin else float("nan"))
+        if self._eligiendo_flujo:                    # la diana y las flechas siguen al ratón; sin globos
+            pista = self._mover_eligiendo(pos)
+            if pista is not None:
+                self.estacionHover.emit(float(pista["e"]))
+            return
         k = self._nodo_en(pos)
         kr = self.ramal_en(pos) if k < 0 else -1
         kf = self._hover_flecha(pos) if k < 0 else -1
@@ -169,6 +176,8 @@ class RatonPerfilMixin:
         y el globo saltaba entre la alerta y «Arrastra un punto…» (2026-11-08)."""
         if not self.p:
             return ""
+        if self._eligiendo_flujo:
+            return t("Clic: el fluido llega aquí · Esc: cancelar")
         al = self.alertas_en(pos)
         if al:
             return "\n".join("• " + a.mensaje for a in al)
@@ -237,6 +246,9 @@ class RatonPerfilMixin:
         e.accept()
 
     def keyPressEvent(self, e):
+        if self._eligiendo_flujo and e.key() == QtCore.Qt.Key_Escape:
+            self.elegir_flujo(False)
+            return
         k = self._sel_nodo
         if k >= 0 and e.key() in (QtCore.Qt.Key_Up, QtCore.Qt.Key_Down) and self.p.nodos[k].editable:
             paso = 1.0 if e.modifiers() & QtCore.Qt.ShiftModifier else 0.10

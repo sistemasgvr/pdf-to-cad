@@ -2,13 +2,16 @@
 en tramos rectos, con espacio para el codo/T/curva de cada lado; deshacer, .digproj y DXF (PDFCAD_VALVULA)."""
 import os
 
+import math
+
 import pytest
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 from nucleo import valvulas as V  # noqa: E402
+from nucleo import valvula_receta as VR  # noqa: E402
 
-FT = 0.1                                   # 0.1 ft por px
+FT = 0.1                                  # 0.1 ft por px
 
 
 def _agua(pts, diam=8.0, **k):
@@ -41,15 +44,15 @@ def test_en_el_tramo_recto_y_se_corre_lejos_del_codo():
     assert lug.ok and lug.x == pytest.approx((1.0 + 11.5 / 24) / FT)
 
 
-def test_no_cabe_en_tramo_corto_ni_va_en_gravedad_ni_fuera_del_catalogo():
+def test_no_cabe_en_tramo_corto_ni_va_en_gravedad_y_fuera_del_catalogo_es_la_generica():
     corto = _agua([(0, 0), (30, 0), (30, 300)])           # 3 ft rectos con un codo al final
     lug = V.ubicar([corto], [], 15, 0, FT, 20)
     assert not lug.ok and "3.0 ft" in lug.motivo
     grav = dict(layer="ALCANTARILLADO", pts=[(0, 0), (1000, 0)], diam=8.0, pipe_size="x")
     assert not V.ubicar([grav], [], 500, 0, FT, 20).ok
-    chica = _agua([(0, 0), (1000, 0)], diam=2.0)
+    chica = _agua([(0, 0), (1000, 0)], diam=2.0)          # menos de 3": la válvula genérica, estimada
     lug = V.ubicar([chica], [], 500, 0, FT, 20)
-    assert not lug.ok and "3\" a 72\"" in lug.motivo
+    assert lug.ok and lug.diam_in == 2.0 and lug.estimada and lug.avisos
 
 
 def test_no_encima_de_una_tee_ni_de_otra_valvula():
@@ -435,15 +438,14 @@ def test_aplanado_por_forma_queda_por_confirmar():
 
 
 @_necesita(SOUTHWEST)
-def test_simbolos_sin_significado_solo_a_mano():
+def test_simbolos_asignados_a_mano_se_suman():
     from hoja import pdf_styles
     with fitz.open(SOUTHWEST) as doc:
         page = doc[0]
-        assert RV.leer_hoja(page, 1.0) == []
         capas = {p["layer"] for p in pdf_styles.drawings(page) if pdf_styles.is_symbol(p.get("layer") or "")}
         cruz = next(c for c in capas if "ESRIAMFMGas" in c and '[[14,' in c)
         vs = RV.leer_hoja(page, 1.0, roles_by_utility={"GAS": {rec.ROLE_VALVULAS: [cruz]}})
-    assert vs and all(v["origen"] == V.MANUAL and v["utilidad"] == "GAS" for v in vs)
+    assert any(v["origen"] == V.MANUAL and v["utilidad"] == "GAS" for v in vs)
 
 
 @pytest.fixture
@@ -477,13 +479,15 @@ def test_ventana_capa_deshacer_guardar_y_dxf(win_rec, tmp_path):
     res = trabajo.reconocer_hoja(win.work_pdf_path or win.pdf_path, 11, zoom=win.zoom, utilities=("AGUA", "GAS"))
     win._import_recognized_pipes(res)
     n = len(win.valvulas)
-    assert n == 5 and V.CAPA in win._capas_utilidad()
-    assert any(f.clave == V.CAPA for f in win._estado_capas().utilidades)
+    assert n == 5 and "AGUA" in win._capas_utilidad()
+    sub = "AGUA/valvulas"
+    assert any(f.clave == sub and f.padre == "AGUA" for f in win._estado_capas().utilidades)
 
-    win._cambiar_capa("utilidad", V.CAPA, False)
+    win._cambiar_capa("utilidad", sub, False)
     assert not any(it.isVisible() for it in win._valv_items)
     assert win._valvula_en(win.valvulas[0]["x"], win.valvulas[0]["y"]) < 0
-    win._cambiar_capa("utilidad", V.CAPA, True)
+    assert win.pipes and win._pipe_at(*win.pipes[0]["pts"][0]) >= 0            # las líneas siguen encendidas
+    win._cambiar_capa("utilidad", sub, True)
     assert all(it.isVisible() for it in win._valv_items)
 
     win._borrar_valvula(0)
@@ -521,3 +525,279 @@ def test_la_caja_de_la_valvula_llega_al_terreno_del_proyecto():
     finally:
         terreno.usar(anterior)
     assert terreno.cota_en(1, 2) == 0.0
+
+
+# ── precisión de las reconocidas (reporte del usuario 2026-11-07, DU06 h.4 y Phoenix) ──────────────────────
+def _red(*pts):
+    return _agua([tuple(map(float, p)) for p in pts], diam=12.0)
+
+
+def _del_plano(x, y, **k):
+    return dict(V.nueva(x, y, "AGUA", origen=V.LEYENDA), x_pdf=float(x), y_pdf=float(y), **k)
+
+
+def test_la_del_plano_no_se_rechaza_junto_a_una_t_y_queda_en_su_simbolo():
+    pipes = [_red((0, 0), (0, 200)), _red((0, 100), (60, 100))]     # lateral de 6 ft que nace en una T
+    v = _del_plano(25, 100)                                           # a 2.5 ft de la T: a mano no cabría
+    lug = V.ubicar_todas(pipes, [], [v], FT)[0]
+    assert lug.ok and V.exportable(v, lug)
+    assert (lug.x, lug.y) == pytest.approx((25, 100))
+
+
+def test_la_del_plano_en_un_vertice_se_corre_lo_justo_para_entrar_en_un_tubo():
+    pipes = [_red((0, 0), (100, 0), (300, 0))]                       # el SIG parte la línea en la válvula
+    v = _del_plano(100, 0)
+    lug = V.ubicar_todas(pipes, [], [v], FT)[0]
+    assert lug.ok and V.exportable(v, lug)
+    medio_px = lug.largo_ft / 2 / FT
+    assert abs(lug.x - 100) == pytest.approx(medio_px + V.PLANO_TUBO_FT / FT, abs=1e-6)
+
+
+def test_la_del_plano_en_la_punta_entre_dos_tuberias():
+    pipes = [_red((0, 0), (100, 0)), _red((100, 0), (300, 0))]
+    v = _del_plano(100, 0)
+    lug = V.ubicar_todas(pipes, [], [v], FT)[0]
+    assert lug.ok and V.exportable(v, lug)
+
+
+def test_tubo_mas_corto_que_la_valvula_se_ve_pero_no_va_a_civil3d():
+    pipes = [_red((0, 0), (0, 200)), _red((0, 100), (8, 100))]      # lateral de 0.8 ft, válvula de 1.17 ft
+    v = _del_plano(8, 100)
+    lug = V.ubicar_todas(pipes, [], [v], FT)[0]
+    assert lug.ok and not V.exportable(v, lug) and lug.motivo
+
+
+def test_sin_tuberia_dice_que_el_plano_no_la_dibuja():
+    v = _del_plano(50, 50)
+    lug = V.ubicar_todas([_red((0, 0), (0, 200))], [], [v], FT)[0]
+    assert not lug.ok and "plano" in lug.motivo.lower()
+
+
+def test_la_manual_sigue_con_las_reglas_de_siempre():
+    pipes = [_red((0, 0), (0, 200)), _red((0, 100), (60, 100))]
+    v = V.de_lugar(V.Lugar(x=25, y=100), utilidad="AGUA")
+    assert not V.ubicar_todas(pipes, [], [v], FT)[0].ok
+
+
+def test_pegar_anota_el_simbolo_aunque_no_haya_tuberia():
+    assert V.pegar(V.nueva(50, 50, "AGUA"), [], 5.0)["x_pdf"] == 50.0
+
+
+def test_simbolo_encimado_con_otro_glifo_es_la_valvula_y_su_centro_es_el_de_ella():
+    from types import SimpleNamespace as N
+
+    def g(gid, color, x0):
+        return N(gid=gid, color=color, tinta=(x0, 0.0, x0 + 2.0, 2.0), origen=(x0, 2.0), seqno=1, fuente="T")
+    valvula = (g(50, 1, 10.0), g(51, 0, 10.0))
+    s = N(clave=((50, 1), (51, 0), (56, 0)), fuente="T", glifos=[*valvula, g(56, 0, 8.5)])
+    claves = {("T", ((50, 1), (51, 0))): "fila"}
+    assert [(f, c) for f, c, _caja in RV._valvulas_en(s, claves)] == [("fila", (11.0, 1.0))]
+    dos = N(clave=((50, 1), (51, 0)), fuente="T", glifos=[*valvula, g(50, 1, 11.0), g(51, 0, 11.0)])
+    assert sorted(c for _f, c, _caja in RV._valvulas_en(dos, claves)) == [(11.0, 1.0), (12.0, 1.0)]
+
+
+@_necesita(WATER_S)
+def test_phoenix_las_valvulas_quedan_en_su_linea_y_van_a_civil3d():
+    res = trabajo.reconocer_hoja(str(WATER_S), 3, zoom=3.5, utilities=("AGUA",))
+    vs = res[0].valvulas
+    assert len(vs) >= 215                               # 200 + las que iban encimadas a un reductor o una marca
+    pipes_pts = [dict(layer="AGUA", pts=list(pl.pts_pdf)) for pl in res[0].drawable]
+    ft = 100.0 / 72.0 / 3.5
+    pegadas = [V.pegar(v, pipes_pts, V.tol_pt(v) * 3.5) for v in vs]
+    lugares = V.ubicar_todas(pipes_pts, [], pegadas, ft)
+    assert sum(1 for v, l in zip(pegadas, lugares) if V.exportable(v, l)) >= 0.9 * len(vs)
+    corridas = [math.hypot(l.x - v["x_pdf"], l.y - v["y_pdf"]) * ft for v, l in zip(pegadas, lugares) if l.ok]
+    assert max(corridas) <= 3.0                         # ~2 pt de un símbolo de 3 pt: lo justo para entrar en un tubo
+
+
+@_necesita(DU06)
+def test_du06_ramal_corto_del_plano_lleva_la_valvula():
+    res = trabajo.reconocer_hoja(str(DU06), 3, zoom=3.5, utilities=("AGUA",))
+    v = min(res[0].valvulas, key=lambda q: math.hypot(q["x"] / 3.5 - 374.6, q["y"] / 3.5 - 1333.3))
+    assert v.get("ramal")
+    (ax, ay), (bx, by) = v["ramal"]
+    assert (bx / 3.5, by / 3.5) == pytest.approx((374.7, 1333.3), abs=0.3)
+    assert ay / 3.5 == pytest.approx(1327.0, abs=0.5)
+
+
+# ── capas por tipo (pedido del usuario 2026-11-07) ─────────────────────────────────────────────────────────
+@pytest.mark.parametrize("capa, sub", [
+    ("x|C-WATR-UNGD-E", "lineas"), ("x|V-WATR-VALT", "estructuras"), ("x|V-WATR-VALV", "valvulas"),
+    ("x|V-WATR-METR", "otras"), ("x|C-WATER-FH", "otras")])
+def test_subgrupo_de_cada_capa(capa, sub):
+    from hoja import leyenda_estandar as LE
+    assert LE.subgrupo({"name": capa}, "AGUA") == sub
+
+
+def test_subgrupo_por_rol_asignado_a_mano():
+    from hoja import leyenda_estandar as LE
+    assert LE.subgrupo({"name": "s", "utility": "GAS", "assigned_role": rec.ROLE_VALVULAS}, "GAS") == "valvulas"
+    assert LE.subgrupo({"name": "s", "utility": "GAS", "assigned_role": rec.ROLE_LINEAS}, "GAS") == "lineas"
+
+
+@_necesita(DU06)
+def test_capas_de_la_hoja_con_subgrupos(win_rec):
+    from PySide6 import QtCore
+    from ui.asistente import layer_dialog
+    with fitz.open(DU06) as doc:
+        dlg = layer_dialog.SheetLayersDialog(None, doc, 10)
+        try:
+            agua = dlg.group_item("AGUA")
+            subs = {s.data(0, layer_dialog._ROLE_SUB): s for s in dlg._subgrupos_de(agua)}
+            assert list(subs) == ["lineas", "estructuras", "valvulas", "otras"]
+            valv = subs["valvulas"]
+            assert valv.text(0).endswith(" 3")
+            assert all("VALV" in it.data(0, layer_dialog._ROLE_NAME) for it in dlg._capas_de(valv))
+            antes = len(dlg.hidden_names())
+            valv.setCheckState(0, QtCore.Qt.Unchecked)         # la casilla del subgrupo apaga solo sus capas
+            assert len(dlg.hidden_names()) == antes + 3
+            assert agua.checkState(0) == QtCore.Qt.PartiallyChecked
+            dlg.search.setText("V-IRRG")
+            assert not valv.isHidden() and subs["lineas"].isHidden()
+        finally:
+            dlg.reject()
+            dlg.deleteLater()
+
+
+def test_capas_del_editor_por_subgrupo(win_rec):
+    w = win_rec
+    w.pipes = [dict(layer="AGUA", pts=[(0.0, 0.0), (500.0, 0.0)], diam=12.0)]
+    w.valvulas = [dict(V.nueva(200, 0, "AGUA"), x_pdf=200.0, y_pdf=0.0)]
+    w.scale, w.zoom = 0.2777, 3.5
+    w._redraw()
+    filas = w._estado_capas().utilidades
+    assert [f.clave for f in filas] == ["AGUA", "AGUA/lineas", "AGUA/valvulas"]
+    w._cambiar_capa("utilidad", "AGUA/lineas", False)
+    assert w._capa_apagada(0) and not w._valvula_apagada(0)
+    assert w._estado_capas().utilidades[0].parcial
+    w._cambiar_capa("utilidad", "AGUA/valvulas", False)         # todos apagados = la utilidad entera
+    assert w.capas_apagadas == {"AGUA"}
+    w._cambiar_capa("utilidad", "AGUA/valvulas", True)          # encender uno deja apagado el otro
+    assert w.capas_apagadas == {"AGUA/lineas"} and not w._valvula_apagada(0)
+    w._solo_capa("utilidad", "AGUA/valvulas")
+    assert w.capas_apagadas == {"AGUA/lineas"}
+    w._cambiar_capa("utilidad", "AGUA", True)
+    assert not w.capas_apagadas
+
+
+def test_vista_previa_lista_las_valvulas_por_capa():
+    from PySide6 import QtGui, QtWidgets
+    QtWidgets.QApplication.instance() or QtWidgets.QApplication([])
+    from ui.asistente.recognition_layers_view import FOCUS_ROLE, UsedLayersPanel
+    r = _Resultado("AGUA")
+    r.ocg_summary = []
+    vs = [V.nueva(1, 1, "AGUA", capa_pdf="x|V-WATR-VALV"), V.nueva(2, 2, "AGUA", capa_pdf="x|V-WATR-VALV")]
+    panel = UsedLayersPanel([r], {"AGUA": QtGui.QColor("blue")}, valvulas=vs)
+    filas = [panel.list.item(i) for i in range(panel.list.count())]
+    assert [f.text().strip() for f in filas] == ["Válvulas", "V-WATR-VALV  (2)"]
+    assert filas[1].data(FOCUS_ROLE)["kind"] == "valve"
+
+
+# ── leyenda en imagen (Southwest Gas, pedido del usuario 2026-11-07) ───────────────────────────────────────
+SOUTHWEST_36 = IND / "APUNTES ING" / "Southwest Gas Combined 811 Records (1) 36.pdf"
+
+
+def _roles_southwest(page):
+    from hoja import pdf_styles
+    capas = {p.get("layer") for p in pdf_styles.drawings(page) if (p.get("layer") or "").startswith(pdf_styles.PREFIX)}
+    return {"GAS": {rec.ROLE_LINEAS: [c for c in capas if "#008585 0.48" in pdf_styles.style_label(c)
+                                      or "#FF6921 0.24" in pdf_styles.style_label(c)], rec.ROLE_BUZONES: []}}
+
+
+@_necesita(SOUTHWEST)
+def test_southwest_leyenda_en_imagen_da_valvulas_y_exceso_de_flujo():
+    with fitz.open(SOUTHWEST) as doc:
+        vs = RV.leer_hoja(doc[0], 1.0)
+    red = [v for v in vs if v["tipo"] == ""]
+    exceso = [v for v in vs if v["tipo"] == "Exceso de flujo"]
+    assert len(red) == 8 and len(exceso) == 16 and len(vs) == 24
+    assert not any(math.dist((v["x"], v["y"]), (425, 247)) < 5 for v in vs)      # fuera del marco del mapa: tapada
+    assert all(v["origen"] == V.LEYENDA and v["certeza"] == V.SEGURA and v["utilidad"] == "GAS" for v in vs)
+    assert {v["capa_pdf"] for v in vs} == {"VALVE", "EXCESS FLOW VALVE"}
+
+
+@_necesita(SOUTHWEST_36)
+def test_southwest_otra_hoja_misma_leyenda():
+    with fitz.open(SOUTHWEST_36) as doc:
+        vs = RV.leer_hoja(doc[0], 1.0)
+    assert sum(1 for v in vs if v["tipo"] == "") == 2 and sum(1 for v in vs if v["tipo"] == "Exceso de flujo") == 6
+
+
+def test_imagen_desconocida_no_da_nada():
+    from hoja import leyendas_imagen as LI
+    doc = fitz.open()
+    page = doc.new_page()
+    pix = fitz.Pixmap(fitz.csRGB, fitz.IRect(0, 0, 4, 4), False)
+    page.insert_image(fitz.Rect(0, 0, 40, 40), pixmap=pix)
+    assert LI.conocida(page) is None
+
+
+@pytest.mark.parametrize("giro, rumbo, estado", [(90, 0, "abierta"), (1, 93, "abierta"), (0, 0, "cerrada"),
+                                                 (92, 90, "cerrada")])
+def test_estado_por_como_va_el_simbolo_respecto_a_la_tuberia(giro, rumbo, estado):
+    ang = math.radians(rumbo)
+    linea = [(100.0 - 90 * math.cos(ang), 100.0 + 90 * math.sin(ang)), (100.0 + 90 * math.cos(ang), 100.0 - 90 * math.sin(ang))]
+    v = dict(V.nueva(100, 100, "GAS", origen=V.LEYENDA), dir_sim=float(giro))
+    assert RV.completar([v], [_Resultado("GAS", linea)], 1.0)[0]["estado"] == estado
+
+
+@pytest.mark.parametrize("tipo", ["", "Exceso de flujo", "Purga", "Retención", "Mariposa", "Otra cualquiera"])
+@pytest.mark.parametrize("diam, n", [(0.25, 0.5), (0.75, 0.75), (2.0, 2.0), (8.0, 8.0), (60.0, 60.0), (72.0, 72.0),
+                                     (84.0, 72.0)])
+def test_toda_valvula_es_la_generica_de_cualquier_tipo_y_diametro(tipo, diam, n):
+    tubo = _agua([(0.0, 0.0), (900.0, 0.0)], diam=diam)
+    v = dict(_del_plano(450, 0), utilidad="AGUA", tipo=tipo, sim_w=10.0, sim_h=10.0)
+    lug = V.ubicar_todas([tubo], [], [v], FT)[0]
+    assert lug.ok and V.exportable(v, lug), lug.motivo
+    assert lug.diam_in == pytest.approx(n) and lug.bloque == V.pieza(n)[0]
+    assert lug.estimada == (n not in VR.TABLA)
+    rec = VR.receta(n)                                    # la misma pieza genérica, sana a ese tamaño
+    assert rec.largo > 0 and rec.od_extremo > diam
+    for pz in rec.piezas:
+        assert all(x >= 0 for x in pz[4:6] if pz[0] in ("tubo", "brida"))
+        if pz[0] == "brida":                                  # los agujeros de los pernos caben en la brida
+            _t, _c, _a, _b, r_ext, r_int, r_p, _n, r_ag = pz
+            assert r_int < r_p - r_ag and r_p + r_ag < r_ext
+    import numpy as np
+    from nucleo import valvula_malla as VM
+    pos, _nor, _capa = VM.malla(rec)
+    assert len(pos) and np.isfinite(pos).all()
+
+
+@_necesita(SOUTHWEST)
+def test_southwest_ventana_red_y_exceso_a_civil3d_con_la_generica(win_rec):
+    win = win_rec
+    with fitz.open(SOUTHWEST) as doc:
+        roles = _roles_southwest(doc[0])
+    win._open_pdf_path(str(SOUTHWEST))
+    win._load_page(0)
+    win._scale_override = 2.0 / 72.0 * 100
+    win.scale = win._scale_override
+    res = trabajo.reconocer_hoja(win.work_pdf_path or win.pdf_path, 0, zoom=win.zoom, utilities=("GAS",),
+                                 roles_by_utility=roles)
+    win._import_recognized_pipes(res)
+    assert len(win.valvulas) == 24
+    lugares = win._lugares_valvulas()
+    red = [(v, l) for v, l in zip(win.valvulas, lugares) if v["tipo"] == ""]
+    exceso = [(v, l) for v, l in zip(win.valvulas, lugares) if v["tipo"] == "Exceso de flujo"]
+    assert len(red) == 8 and all(v["estado"] == "abierta" and l.ok for v, l in red)
+    assert all(V.exportable(v, l) for v, l in red)            # también las de tuberías de menos de 3": la genérica
+    assert len(exceso) == 16 and all(V.exportable(v, l) for v, l in exceso)   # cualquier tipo: la genérica
+
+
+@_necesita(SOUTHWEST)
+def test_southwest_en_hoja_compuesta_solo_lo_que_se_ve(tmp_path):
+    from hoja import composite as C
+    doc = fitz.open(SOUTHWEST)
+    medio = [0.17, 0.09, 0.5, 0.87]
+    otro = [0.5, 0.09, 0.9, 0.87]
+    w = doc[0].rect.width
+    comp = C.Composite(pieces=[C.Piece(source=0, page=0, clip=medio), C.Piece(source=0, page=0, clip=otro, x=w * 0.33)],
+                       scale_ft_per_pt=1.0, bridges=False)
+    for p in comp.pieces:
+        p.src_scale = 1.0
+    out = tmp_path / "sw.pdf"
+    C.build_document(comp, [doc], {}, []).save(str(out))
+    with fitz.open(out) as d:
+        vs = RV.leer_hoja(d[0], 1.0)
+    assert sum(1 for v in vs if v["tipo"] == "") == 8

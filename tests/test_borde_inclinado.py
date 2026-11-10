@@ -146,6 +146,7 @@ def test_usar_area_inclinada_da_la_misma_pieza_que_marcar_las_esquinas_a_mano(ap
         assert cond()
     dlg = composite_dialog.CompositeDialog(None, fuente, None, {}, 0)
     try:
+        dlg._toggle_page(0)          # el usuario marca la casilla de la hoja (el compositor abre sin ninguna)
         dlg._go_tab(composite_dialog.TAB_AREA)
         esperar(lambda: bool(dlg._area_lista))
         assert dlg._area_lista[0].poligono
@@ -162,6 +163,7 @@ def test_usar_area_inclinada_da_la_misma_pieza_que_marcar_las_esquinas_a_mano(ap
     monkeypatch.setenv("PDFCAD_AREA_SUGERIDA", "0")
     dlg = composite_dialog.CompositeDialog(None, fuente, None, {}, 0)
     try:
+        dlg._toggle_page(0)          # el usuario marca la casilla de la hoja (el compositor abre sin ninguna)
         dlg._go_tab(composite_dialog.TAB_AREA)
         dlg.chk_corners.setChecked(True)
         dlg.crop.set_polygon(esquinas)                    # el usuario mueve las esquinas ahí

@@ -197,9 +197,10 @@ def test_du06_h4_drenaje_curva_abierta_es_un_solo_codo():
     assert kinds.count("fillet") == 1 and "bend" not in kinds and "curve" not in kinds, kinds
     f = next(iter(pl.fillets.values()))
     assert f["r_px"] / Z == pytest.approx(144.5, abs=1.0) and not f["loose"]
-    # el arco llega hasta la bóveda de la derecha (antes paraba en x≈886.8)
+    # el arco llega hasta la bóveda de la derecha (antes paraba en x≈886.8); desde el imán de puntas a
+    # bóvedas (2026-10-01) la punta queda SOBRE el borde de la caja: x≈941.3
     ends = [(f["a"][0] / Z, f["a"][1] / Z), (f["b"][0] / Z, f["b"][1] / Z)]
-    assert max(q[0] for q in ends) == pytest.approx(940.3, abs=0.5)
+    assert max(q[0] for q in ends) == pytest.approx(941.3, abs=0.5)
 
 
 @needs_du06

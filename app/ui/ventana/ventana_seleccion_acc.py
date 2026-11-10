@@ -26,13 +26,10 @@ class SeleccionAccesorioMixin:
     def _accesorio_bajo_clic(self, x, y):
         """("valv", índice) | ("acc", dict) del accesorio a ≤ RADIO_CLIC_PX del clic, o None."""
         r = RADIO_CLIC_PX / max(self.canvas.transform().m11(), 1e-6)
-        apagadas = getattr(self, "capas_apagadas", None) or ()
-        lugares = getattr(self, "_valv_lugares", None)
-        k = self._valvula_en(x, y)                      # (con la capa «VALVULAS» apagada, −1)
+        apagadas = self._lineas_apagadas()
+        k = self._valvula_en(x, y)                      # (con su subgrupo apagado, −1)
         if k >= 0:
-            lug = lugares[k] if lugares and k < len(lugares) else None
-            if lug is None or not lug.ok or self.pipes[lug.pipe].get("layer") not in apagadas:
-                return ("valv", k)
+            return ("valv", k)
         ver = getattr(self, "act_show_acc", None)
         if ver is not None and not ver.isChecked():
             return None                                 # accesorios ocultos en el plano: no se eligen

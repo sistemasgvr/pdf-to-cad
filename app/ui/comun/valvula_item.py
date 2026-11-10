@@ -9,6 +9,7 @@ import math
 from PySide6 import QtCore, QtGui, QtWidgets
 
 MIN_PX = 14.0                  # largo mínimo en pantalla
+REVISAR = QtGui.QColor(217, 30, 170)   # «por revisar»: magenta, ningún color de utilidad (el rojo es el eléctrico)
 
 
 def _escala_vista(item):
@@ -20,7 +21,7 @@ def _escala_vista(item):
 def _moño(painter, L, H, color, ok, hueca=False):
     """`hueca` = reconocida «por confirmar» (sin relleno, borde de su color a trazos)."""
     painter.setRenderHint(QtGui.QPainter.Antialiasing)
-    pen = QtGui.QPen(QtGui.QColor(20, 20, 20) if ok else QtGui.QColor(230, 40, 40), 1.6)
+    pen = QtGui.QPen(QtGui.QColor(20, 20, 20) if ok else REVISAR, 1.6)
     if ok and hueca:
         pen = QtGui.QPen(QtGui.QColor(color), 1.8, QtCore.Qt.DashLine)
     pen.setCosmetic(True)
@@ -28,7 +29,9 @@ def _moño(painter, L, H, color, ok, hueca=False):
     relleno = QtGui.QColor(color)
     if hueca:
         relleno.setAlpha(40)
-    painter.setBrush(relleno if ok else QtGui.QColor(230, 40, 40, 90))
+    fondo = QtGui.QColor(REVISAR)
+    fondo.setAlpha(70)
+    painter.setBrush(relleno if ok else fondo)
     a, h = L / 2, H / 2
     painter.drawPolygon(QtGui.QPolygonF([QtCore.QPointF(-a, -h), QtCore.QPointF(0, 0), QtCore.QPointF(-a, h)]))
     painter.drawPolygon(QtGui.QPolygonF([QtCore.QPointF(a, -h), QtCore.QPointF(0, 0), QtCore.QPointF(a, h)]))

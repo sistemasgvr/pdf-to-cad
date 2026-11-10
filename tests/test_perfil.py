@@ -449,8 +449,9 @@ def test_flujo_al_unir_utilidades_sigue_igual():
 
 
 def test_flujo_en_propiedades_plano_y_perfil(win):
-    """La fila «Flujo» (solo gravedad) cambia el sentido con un paso de deshacer y pone flechas en el plano; en el
-    perfil, clic en la flecha = invertir esa utilidad y el menú lo hace con todo el perfil."""
+    """La fila «Flujo» (gravedad y presión) dice cómo va, «Auto» lo vuelve automático en un paso de deshacer y, con el
+    sentido indicado, el plano lleva flechas y la diana de llegada. En el perfil, clic en una flecha = elegir hacia
+    dónde va el fluido (2026-11-10: ya no invierte) y el menú vuelve todo el perfil a automático."""
     from PySide6 import QtCore, QtWidgets
     from nucleo import flujo as FL
     win.pipes = _alcantarillado() + [dict(layer="AGUA", pts=[(200, 900), (1200, 900)], diam=8.0),
@@ -462,15 +463,19 @@ def test_flujo_en_propiedades_plano_y_perfil(win):
     assert not win.poner_flujo([3], FL.ADELANTE) and "flujo" not in win.pipes[3]
     win.pipe_list.setCurrentRow(2)
     assert form.isRowVisible(win.box_flujo)                    # agua (presión): sí
-    assert "presión" in win.btn_flujo[FL.AUTO].toolTip()
+    assert "presión" in win.lbl_flujo_estado.text()
     win.pipe_list.setCurrentRow(0)
-    assert form.isRowVisible(win.box_flujo) and win.btn_flujo[FL.AUTO].isChecked()
-    win.btn_flujo[FL.ATRAS].click()
-    assert win.pipes[0]["flujo"] == FL.ATRAS and win.btn_flujo[FL.ATRAS].isChecked()
+    assert form.isRowVisible(win.box_flujo) and not win.btn_flujo_auto.isEnabled()
+    assert win.poner_flujo([0], FL.ATRAS)
+    assert win.pipes[0]["flujo"] == FL.ATRAS and win.btn_flujo_auto.isEnabled()
     flechas = [it for it in win._overlay if isinstance(it, QtWidgets.QGraphicsPathItem)
-               and it.flags() & QtWidgets.QGraphicsItem.ItemIgnoresTransformations]
+               and it.flags() & QtWidgets.QGraphicsItem.ItemIgnoresTransformations and it.rotation()]
     assert len(flechas) == 2 and all(f.rotation() == pytest.approx(180.0) for f in flechas)   # círculo + flecha,
     #                                                                              hacia el oeste
+    win.btn_flujo_auto.click()
+    assert "flujo" not in win.pipes[0]
+    win.undo()
+    assert win.pipes[0]["flujo"] == FL.ATRAS
     win.undo()
     assert "flujo" not in win.pipes[0]
     # perfil: A al oeste (punta alta), B al este
@@ -482,15 +487,15 @@ def test_flujo_en_propiedades_plano_y_perfil(win):
     assert [p.flujo for p in d.pasos] == [1, 1] and not win.perfil_vista.alertas
     v = win.perfil_vista
     v.resize(1200, 500); v._calcular()
-    (i, c, _a), = [f for f in v._flechas_flujo() if f[0] == 0]
+    (i, c, *_r), = [f for f in v._flechas_flujo() if f[0] == 0]
     assert "hacia B" in v._texto_globo(c)
-    v._clic_flujo(c)                                           # invertir la 1.ª utilidad
-    assert win.pipes[0]["flujo"] == FL.ATRAS and win._perfil_datos.pasos[0].flujo == -1
+    v._clic_flujo(c)                                           # elegir hacia dónde va el fluido
+    assert v.eligiendo_flujo() and win.btn_perfil_flujo.isChecked()
+    v.elegir_flujo(False)
+    win.perfil_flujo(0, -1, True)                              # todo el perfil hacia A (sigue disponible por código)
     assert any(a.clase == "contrapendiente" for a in win.perfil_vista.alertas)
     v.flujoCambiado.emit(0, 0, True)                           # «Todo el perfil: automático»
     assert all("flujo" not in p for p in win.pipes)
-    v.flujoCambiado.emit(0, 1, True)                           # «Todo el perfil: hacia B»
-    assert [win.pipes[j].get("flujo") for j in (0, 1)] == [FL.ADELANTE, FL.ADELANTE]
 
 
 def test_menu_del_perfil_sin_extender_ni_acortar(win):
@@ -503,7 +508,7 @@ def test_menu_del_perfil_sin_extender_ni_acortar(win):
 
 def test_flujo_en_presion_sin_indicar_y_con_un_clic(win):
     """Pedido 2026-11-09: el sentido del flujo también en presión (agua, gas). Sin pendiente que lo diga, el
-    automático es «sin indicar» (doble flecha) y no hay contrapendiente; un clic lo pone hacia B."""
+    automático es «sin indicar» (doble flecha) y no hay contrapendiente; elegir B como punto de llegada = todo hacia B."""
     from PySide6 import QtCore
     from nucleo import flujo as FL
     win.pipes = [dict(layer="AGUA", pts=[(200, 500), (1200, 500)], diam=8.0, inv_start=-4.0, inv_end=-3.0),
@@ -518,14 +523,16 @@ def test_flujo_en_presion_sin_indicar_y_con_un_clic(win):
     assert not any(a.clase == "contrapendiente" for a in win.perfil_vista.alertas)
     v = win.perfil_vista
     v.resize(1200, 500); v._calcular()
-    (i, c, _a), = [f for f in v._flechas_flujo() if f[0] == 0]
+    (i, c, *_r), = [f for f in v._flechas_flujo() if f[0] == 0]
     assert "sin indicar" in v._texto_globo(c)
-    v._clic_flujo(c)                                           # sin indicar → hacia B
-    paso = win._perfil_datos.pasos[0]
-    assert paso.flujo == 1 and paso.flujo_fijo
-    assert win.pipes[0]["flujo"] == FL.de_paso(1, paso.invertida)
+    v._clic_flujo(c)                                           # elegir: B (la punta del recorrido)
+    pos = QtCore.QPointF(v.X(d.e_fin) - 3, v.Z(d.pasos[-1].z1))
+    v._clic_eligiendo(pos, QtCore.Qt.LeftButton)
+    pasos = win._perfil_datos.pasos
+    assert [p.flujo for p in pasos] == [1, 1] and all(p.flujo_fijo for p in pasos)
+    assert win.pipes[0]["flujo"] == FL.de_paso(1, pasos[0].invertida)
     v.flujoCambiado.emit(0, 0, True)                           # «Todo el perfil: sin indicar»
-    assert all("flujo" not in p for p in win.pipes)
+    assert all(not FL.tiene(p) for p in win.pipes)
 
 
 def _con_curva(x0=0.0, y0=0.0):

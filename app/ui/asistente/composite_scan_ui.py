@@ -84,7 +84,7 @@ class ScanToolsMixin:
             checkable=True)
         self.btn_protractor.toggled.connect(self._on_protractor_toggled)
         bar.add(self.btn_protractor, compact=True)
-        bar.add_separator()
+        sep1 = bar.add_separator()
 
         self.btn_measure = tool("mdi:tape-measure", _tr("Medir"), _tr(
             "Clic en dos puntos: distancia en pies y rumbo. Shift = horizontal/vertical. "
@@ -97,7 +97,10 @@ class ScanToolsMixin:
         self.btn_straighten.toggled.connect(lambda on: self._set_tool("straighten", on))
         bar.add(self.btn_measure, compact=True)
         bar.add(self.btn_straighten, compact=True)
-        bar.add_separator()
+        sep2 = bar.add_separator()
+        # las guías del escaneo: en el compositor vectorial solo se ven con alguna pieza escaneada
+        # (`composite_mixto`); en el de escaneos, siempre
+        self.grupo_escaneo = [self.btn_rule, self.btn_protractor, sep1, self.btn_measure, self.btn_straighten, sep2]
 
         self.build_blend_tool(bar, tool)
 
@@ -159,7 +162,7 @@ class ScanToolsMixin:
             return (_tr("Transportador: arrastra el punto verde · imán a 0°/90° · Ctrl = fino · "
                         "Shift = 15° · doble clic = 0°") if has else
                     _tr("Transportador: elige una pieza para ver sus grados"))
-        if has:
+        if has and (self.comp.manual or self._es_escaneo_pieza(self.view.selected_index())):
             return _tr("Flechas = mover · + / − = girar 0.1° · Ctrl = ajuste fino · Shift = paso grande")
         if self.btn_rule.isChecked():
             return _tr("Regla: arrástrala hasta una línea; su borde inferior es la guía · "

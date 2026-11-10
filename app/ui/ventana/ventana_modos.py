@@ -25,6 +25,8 @@ class ModosMixin:
             self.set_mode("idle"); self._info(_tr("Edición terminada (Enter)"))
 
     def _on_escape(self):
+        if self._perfil_flujo_esc():                    # eligiendo en el perfil hacia dónde va el fluido
+            return
         if self._perfil_ab_tecla(False):
             return
         if self.mode == "pipe" and self.cur_pts:
@@ -40,6 +42,8 @@ class ModosMixin:
             self.set_mode("idle"); self._pista_valvula(0, 0); self._info(_tr("Inserción de válvula cancelada"))
         elif self.mode == "insert_acc":
             self._escape_accesorio()
+        elif self.mode == "flujo_punto":
+            self._cancelar_flujo_plano()
         elif self.sel_pipe >= 0 or self.sel_leader >= 0 or self.sel_region >= 0 or self.sel_text >= 0 or self.sel_bz >= 0 or self.sel_curve >= 0 or self.sel_cl >= 0                 or (getattr(self, "acc_list", None) is not None and self.acc_list.selectedItems()):
             self._deselect_all(); self._info(_tr("Selección quitada"))
         else:
@@ -226,6 +230,7 @@ class ModosMixin:
         self._pista_buzon(x, y)
         self._pista_valvula(x, y)
         self._pista_accesorio(x, y)
+        self._pista_flujo(x, y)                         # elegir hacia dónde va el fluido (ventana_flujo)
 
     def _update_pipe_snap_hint(self, x, y):
         """Feedback visual del snap suave a utilidades: al mover el mouse en
@@ -441,6 +446,7 @@ class ModosMixin:
             "erase": N_("Modo: borrar zona — clic para el polígono, Enter cierra"),
             "centerline": N_("Modo: trazar centerline — clic agrega puntos, Enter finaliza"),
             "insert_acc": N_("Modo: dibujar accesorio — Esc vuelve al paso anterior; otro Esc sale"),
+            "flujo_punto": N_("Modo: sentido del flujo — clic donde llega el fluido · Esc cancela"),
             "move": N_("Modo: editar — arrastra vértice · clic en tramo inserta · clic-en-vértice extiende (F) · clic derecho elimina"),
         }.get(m)
         if clave_modo:
@@ -461,6 +467,11 @@ class ModosMixin:
         Además REPARENTA el grupo "En curso" (self.gcur) a la sección adecuada
         del acordeón según el modo, para que los botones Finalizar/Deshacer
         aparezcan DENTRO de la sección donde estás trabajando."""
+        if m != "pipe" and getattr(self, "mode", None) == "pipe":
+            # salir de «Dibujar utilidad» con una línea a medias: se termina (antes quedaba colgada y sin
+            # «Extender»); un solo punto no es línea y se suelta. Esc sigue cancelando (borra antes los puntos).
+            if not self.terminar_trazo_en_curso():
+                self.cur_pts = []
         if m not in ("leader1", "leader2", "leader3"): self._pending = None
         if m != "erase": self._erase_pts = []
         if m != "centerline": self._cl_pts = []

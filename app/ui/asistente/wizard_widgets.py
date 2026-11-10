@@ -258,7 +258,9 @@ class _Flotador(QtCore.QObject):
 
     def eventFilter(self, obj, ev):
         if ev.type() in (QtCore.QEvent.Resize, QtCore.QEvent.Show, QtCore.QEvent.LayoutRequest):
-            QtCore.QTimer.singleShot(0, self.colocar)
+            # CON contexto (self): sin él Qt llama aunque el objeto ya no exista y PySide 6.11 termina
+            # cerrando el programa (access violation al armar otro «Componer hoja», 2026-11-09)
+            QtCore.QTimer.singleShot(0, self, self.colocar)
         return False
 
     def colocar(self):
@@ -295,10 +297,15 @@ def flotar(vista: QtWidgets.QWidget, widget: QtWidgets.QWidget, donde: str = "ab
     return f
 
 
-def pastilla(widgets) -> QtWidgets.QFrame:
-    """Una pastilla flotante (QFrame#flotante) con esos widgets en fila."""
+def pastilla(widgets, padre: QtWidgets.QWidget = None) -> QtWidgets.QFrame:
+    """Una pastilla flotante (QFrame#flotante) con esos widgets en fila.
+
+    Cada widget se QUITA antes de su layout (`removeWidget`). Si se agregaba estando en otro, Qt lo «movía» solo
+    (`addChildWidget`) y la memoria quedaba dañada: el programa se cerraba al armar otro «Componer hoja» (access
+    violation en un `QMenu.addAction` cualquiera, cada ~8 diálogos; 2026-11-09, reproducido y verificado con 150
+    diálogos seguidos). `padre` = la vista sobre la que va a flotar (nace ya dentro de ella)."""
     t = _theme.tokens()
-    f = QtWidgets.QFrame()
+    f = QtWidgets.QFrame(padre)
     f.setObjectName("flotante")
     f.setStyleSheet(f"QFrame#flotante {{ background:{t.surface}; border:1px solid {t.border}; border-radius:12px; }}")
     lay = QtWidgets.QHBoxLayout(f)
@@ -307,5 +314,21 @@ def pastilla(widgets) -> QtWidgets.QFrame:
     for w in widgets:
         if isinstance(w, QtWidgets.QLayoutItem):
             continue
+        _sacar_de_su_layout(w)
         lay.addWidget(w)
     return f
+
+
+def _sacar_de_su_layout(w: QtWidgets.QWidget):
+    """Quita `w` del layout (o sub-layout) de su padre donde esté, sin borrar el widget."""
+    padre = w.parentWidget()
+    pendientes = [padre.layout()] if padre is not None and padre.layout() is not None else []
+    while pendientes:
+        lay = pendientes.pop()
+        if lay.indexOf(w) >= 0:
+            lay.removeWidget(w)
+            return
+        for k in range(lay.count()):
+            sub = lay.itemAt(k).layout()
+            if sub is not None:
+                pendientes.append(sub)

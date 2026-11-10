@@ -21,6 +21,7 @@ import math
 import re
 from dataclasses import dataclass
 
+from nucleo import flujo as FL
 from nucleo import model_ops
 from nucleo import normas_catalogo as nc
 from nucleo import normas_reglas as NR
@@ -45,6 +46,7 @@ CLASES = {
     "buzon": N_("Buzones"),
     "separacion": N_("Separación con otra utilidad"),
     "grosor": N_("Diámetro del plano"),          # nucleo/diametro_plano: no se encontró o es dudoso
+    "flujo": N_("Sentido del flujo"),            # nucleo/flujo_validar: contrapendiente con el sentido indicado
 }
 NOMBRE_ACC = {"codo": N_("Codo"), "tee": N_("Tee"), "wye": N_("Wye"), "cruz": N_("Cruz"),
               "tee_dom": N_("T domiciliaria"), "reduccion": N_("Reducción")}
@@ -400,7 +402,12 @@ def _revisar_tuberia(reglas, todas, dt, xy, ft_px, sin_bd, curvas, buzones, out,
                     a, b = model_ops.cotas_tramo(dt.p, k - 1), model_ops.cotas_tramo(dt.p, k)
                     if a is None or b is None:
                         continue
-                    caida = a[1] - b[0]
+                    # con el sentido del flujo indicado (`nucleo/flujo`): entra por el tramo de donde VIENE el fluido;
+                    # si llega (o sale) por los dos lados, en esta utilidad no hay «entra → sale»
+                    llega, sale = FL.sentido_en(dt.p, k - 1, 1.0), FL.sentido_en(dt.p, k, 0.0)
+                    if llega and sale and llega != sale:
+                        continue
+                    caida = b[0] - a[1] if llega == FL.ATRAS else a[1] - b[0]
                     if not cumple_grupo(grupo, caida):
                         msg = t("Caída en el buzón {v}: {req}").format(v=unidad("caida", caida),
                                                                        req=requisito_grupo(grupo))

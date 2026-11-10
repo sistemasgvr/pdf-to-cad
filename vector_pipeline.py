@@ -282,7 +282,8 @@ def ensure_layer(dxf, name):
 # Escala
 # ─────────────────────────────────────────────────────────────────────────────
 _SCALE_EQ_RE = re.compile(r'1\s*["\']?\s*=\s*(\d+(?:\.\d+)?)\s*[\'`]?', re.I)
-_SCALE_RATIO_RE = re.compile(r'1\s*:\s*(\d+)')
+# 1:N con separador de miles (2026-11-09: «1 : 3,274» de NavigateLA se leía 1:3 y la hoja quedaba 1000× chica)
+_SCALE_RATIO_RE = re.compile(r'1\s*:\s*(\d{1,3}(?:,\d{3})+|\d+)(?!\d|,\d)')
 
 
 def _scale_texts(page):
@@ -327,7 +328,7 @@ def detect_scale(page):
             continue
         m = _SCALE_RATIO_RE.search(txt)
         if m:
-            found.append(float(m.group(1)) / 12.0)   # 1:N -> N/12 pie/pulg
+            found.append(float(m.group(1).replace(",", "")) / 12.0)   # 1:N -> N/12 pie/pulg
     if not found:
         return C.DEFAULT_SCALE_FT_PER_PT
 

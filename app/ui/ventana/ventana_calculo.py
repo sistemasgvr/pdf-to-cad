@@ -197,10 +197,12 @@ class CalculoPlanoMixin:
         con_db = {i for db in getattr(self, "duct_banks", []) or [] for i in db.assigned()}
         # + el diámetro que el plano no dijo con certeza (`diametro_plano`, 2026-10-22): mismos avisos
         # y cada aviso sobre la línea que se dibuja, no sobre sus vértices (`avisos_lugar`, 2026-11-03)
-        from nucleo import avisos_lugar, diametro_plano
+        # + la contrapendiente con el sentido del flujo que indicó el usuario (`flujo_validar`, 2026-11-10)
+        from nucleo import avisos_lugar, diametro_plano, flujo_validar
         normas = self._memo(("normas", ft_px), lambda: avisos_lugar.sobre_lo_dibujado(normas_validar.validar(
             self.normas_cat, self.pipes, accs, ft_px, con_db, self.structures,
-            getattr(self, "cross_connections", None) or ()) + diametro_plano.avisos(self.pipes),
+            getattr(self, "cross_connections", None) or ()) + diametro_plano.avisos(self.pipes)
+            + flujo_validar.avisos(self.pipes, ft_px),
             self.pipes, self.structures, ft_px))
         # Ángulos en pasos de 0.25°: se validan pero NO se muestran (pedido del usuario 2026-10-16:
         # el dibujo a mano ya los deja en el paso; no van a los avisos ni al plano).
