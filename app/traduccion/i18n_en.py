@@ -4121,6 +4121,17 @@ EN: dict[str, str] = {
     'Consultando Civil 3D: {p}…': 'Querying Civil 3D: {p}…',
     'Según el dibujo de Civil 3D · consultó: {p}': 'From the Civil 3D drawing · queried: {p}',
     'Sin consultar el dibujo': 'Without querying the drawing',
+    'Respuesta de la app': 'Answer from the app',
+    'App': 'App',
+    'Reemplazada por tu corrección': 'Replaced by your correction',
+    'Aplico la propuesta pendiente; el resultado aparece en su tarjeta.':
+        'Applying the pending proposal; the result shows on its card.',
+    'Aplico las {n} propuestas pendientes; el resultado aparece en cada tarjeta.':
+        'Applying the {n} pending proposals; the result shows on each card.',
+    'Descarté la propuesta pendiente.': 'I discarded the pending proposal.',
+    'Descarté las {n} propuestas pendientes.': 'I discarded the {n} pending proposals.',
+    '(Nota de la app: en Civil 3D no se cambió nada. Los cambios se aplican solo con el botón «Aplicar» de una propuesta.)':
+        '(App note: nothing was changed in Civil 3D. Changes are applied only with the «Apply» button of a proposal.)',
     'Pregúntale al dibujo de Civil 3D': 'Ask the Civil 3D drawing',
     'La IA lee las redes del DWG abierto (tuberías, estructuras, cotas, capas), lo revisa con tus normativas y puede proponer pendientes, diámetros, materiales, buzones, válvulas, conexiones verticales, perfiles y la solución de los choques; también saca metrados, guarda un cuadro en Excel o Word y compara el dibujo con la app. Ningún cambio se aplica sin tu «Aplicar»; cada uno se deshace con U en Civil 3D.': 'The AI reads the networks of the open DWG (pipes, structures, elevations, layers), checks it against your standards and can propose slopes, diameters, materials, manholes, valves, vertical connections, profiles and the solution of clashes; it also computes quantities, saves a data table in Excel or Word and compares the drawing with the app. No change is applied without your «Apply»; each one is undone with U in Civil 3D.',
     '{u} está en Civil 3D pero no en la app (o se borró).': '{u} is in Civil 3D but not in the app (or it was deleted).',

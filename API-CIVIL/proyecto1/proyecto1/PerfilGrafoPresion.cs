@@ -163,6 +163,7 @@ namespace Civil3DBasico
                 case "WYE": return TipoAccesorio.Wye;
                 case "CROSS": return TipoAccesorio.Cruz;
                 case "VALVE": return TipoAccesorio.Valvula;      // válvula de compuerta (ImportarRedValvulas)
+                case "REDUCER": return TipoAccesorio.Reduccion;  // reducción sólida (ReduccionSolida.cs)
                 default: return TipoAccesorio.Ninguno;
             }
         }

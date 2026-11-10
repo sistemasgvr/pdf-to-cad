@@ -113,7 +113,7 @@ def _burbuja_ia(i, tu, tk, ahora, ultimo):
         que = (_tr("Consultando Civil 3D: {p}…").format(p=paso(tu["pasos"][-1])) if tu.get("pasos")
                else _tr("Pensando… {s} s").format(s=seg))
         cuerpo = f"<span style='color:{tk.text_muted}'>{H.PUNTOS[seg % 3]}&nbsp; {html.escape(que)}</span>"
-    cab = _tr("IA")
+    cab = _tr("App") if tu.get("local") else _tr("IA")
     if tu.get("segundos") is not None:
         cab += " · " + _tr("{m} · {s} s").format(m=tu.get("modelo", ""), s=f"{tu['segundos']:.1f}")
     partes = [f"<span style='font-size:small; color:{tk.text_muted}'>{html.escape(cab)}</span><br>{cuerpo}"]
@@ -122,7 +122,7 @@ def _burbuja_ia(i, tu, tk, ahora, ultimo):
     if tu["estado"] == "listo":
         usados = list(dict.fromkeys(tu.get("pasos") or []))
         fuente = (_tr("Según el dibujo de Civil 3D · consultó: {p}").format(p=", ".join(paso(x) for x in usados))
-                  if usados else _tr("Sin consultar el dibujo"))
+                  if usados else _tr("Respuesta de la app") if tu.get("local") else _tr("Sin consultar el dibujo"))
         iconos = "&nbsp;&nbsp;".join(f"<a href='{k}:{i}'><img src='ico:{k}' width='18' height='18'></a>"
                                      for k in ("copiar", "repetir"))
         partes.append(f"<p style='margin-top:8px; font-size:small; color:{tk.text_muted}'>"

@@ -23,7 +23,7 @@ namespace Civil3DBasico
 {
     internal enum TipoRed { Gravedad, Conduit, Presion }
     internal enum TipoNodo { Estructura, EstructuraNula, Accesorio, Union, Extremo }
-    internal enum TipoAccesorio { Ninguno, Codo, Tee, Wye, Cruz, Valvula }
+    internal enum TipoAccesorio { Ninguno, Codo, Tee, Wye, Cruz, Valvula, Reduccion }
 
     /// <summary>Nodo del grafo de la red (estructura, accesorio sólido, unión o extremo libre). B.1.</summary>
     internal sealed class NodoPerfil

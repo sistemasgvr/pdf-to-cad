@@ -98,3 +98,30 @@ def test_sin_civil3d_avisa_como_encenderlo(qapp, monkeypatch):
     assert _esperar(qapp, lambda: ch._civil is not None)
     assert not ch.aviso.isHidden() and "PDFCAD_IA" in ch.aviso.text()
     assert "sin conectar" in ch.lbl_estado.text()
+
+
+def test_responder_si_no_o_corregir_una_propuesta(qapp, monkeypatch):
+    """Reporte 2026-11-10: «sí, aplícalo» la aplica la app (como el botón); «no, cámbialo a -10» descarta la vieja y
+    el modelo tiene que proponer la nueva; «no» la descarta."""
+    cli = Cli()
+    pasos = [_llamada("proponer_cambio"), {"content": "Propuse -20."},
+             _llamada("proponer_cambio"), {"content": "Propuse -10."},
+             _llamada("proponer_cambio"), {"content": "Propuse otra."}]
+    ch = _chat(monkeypatch, cli, pasos)
+    ch.enviar("cambia la cota a -20")
+    assert _esperar(qapp, lambda: ch._activo is None)
+    ch.enviar("No, cámbialo a -10")                                # corrección: la vieja se descarta
+    assert _esperar(qapp, lambda: ch._activo is None)
+    assert _esperar(qapp, lambda: ch.turnos[0]["propuestas"][0]["estado"] == "descartado")
+    assert ch.turnos[0]["propuestas"][0]["resultado"] == "Reemplazada por tu corrección"
+    assert ch.turnos[1]["propuestas"][0]["estado"] == "pendiente"
+    n = len(pasos)
+    ch.enviar("sí, aplícalo")                                      # lo hace la app, sin preguntarle al modelo
+    assert len(pasos) == n and ch.turnos[2].get("local")
+    assert _esperar(qapp, lambda: ch.turnos[1]["propuestas"][0]["estado"] == "aplicado")
+    assert cli.llamadas.count("confirmar_cambio") == 1
+    ch.enviar("baja la cota")
+    assert _esperar(qapp, lambda: ch._activo is None)
+    ch.enviar("no")
+    assert _esperar(qapp, lambda: ch.turnos[3]["propuestas"][0]["estado"] == "descartado")
+    assert cli.llamadas.count("confirmar_cambio") == 1

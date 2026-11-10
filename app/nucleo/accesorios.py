@@ -44,6 +44,9 @@ RAMAL_TEE_MIN_DEG = 70.0    # ramal a 90° ±20° → Tee
 TIPOS = ("codo", "tee", "wye", "cruz")
 
 
+_AB = " (abandonada)"   # marca interna: la red de una abandonada es otra (no sale en los nodos)
+
+
 def red_de(pipe):
     """Red de Civil 3D de la utilidad: nombre de red o, si no hay, la capa."""
     return (pipe.get("name") or "").strip() or (pipe.get("layer") or "")
@@ -183,7 +186,8 @@ def accesorios(pipes, z_at, ft_per_px, rectos=None, avance=None):
             pipes[i] = dict(pipes[i], pts=pts)
             fundidos += nuevos
 
-    redes = {i: red_de(pipes[i]) for i in presion}      # (antes: `red_de` cientos de miles de veces)
+    # Una abandonada y una activa nunca se unen (2026-11-10, como el plugin): cada una sigue entera.
+    redes = {i: red_de(pipes[i]) + (_AB if pipes[i].get("ab") else "") for i in presion}   # (antes: `red_de` cientos de miles de veces)
 
     def _pend(za, zb, a, b):
         """Subida de a hacia b, en pies por pie en planta."""
@@ -356,14 +360,14 @@ def accesorios(pipes, z_at, ft_per_px, rectos=None, avance=None):
                 if rectos is not None and len(miembros) == 2:
                     ids = sorted({ext[e][3] for e in miembros})
                     rectos.append({"x": sum(ext[e][0] for e in miembros) / 2.0,
-                                   "y": sum(ext[e][1] for e in miembros) / 2.0, "red": ext[miembros[0]][2],
+                                   "y": sum(ext[e][1] for e in miembros) / 2.0, "red": ext[miembros[0]][2].replace(_AB, ""),
                                    "capa": pipes[ids[0]].get("layer") or "", "pipes": ids})
                 continue
             tipo, ang = r
             ids = sorted({ext[e][3] for e in miembros})
             x = sum(ext[e][0] for e in miembros) / len(miembros)
             y = sum(ext[e][1] for e in miembros) / len(miembros)
-            nodo = {"x": x, "y": y, "tipo": tipo, "angulo": ang, "red": ext[miembros[0]][2],
+            nodo = {"x": x, "y": y, "tipo": tipo, "angulo": ang, "red": ext[miembros[0]][2].replace(_AB, ""),
                     "giro": ang if tipo == "codo" else None,
                     "capa": pipes[ids[0]].get("layer") or "", "pipes": ids, "n": len(miembros)}
             tr = tronco_y_ramal([ext[e][5] for e in miembros])

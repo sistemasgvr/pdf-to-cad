@@ -2774,7 +2774,11 @@ alcantarillado, drenaje, gas, eléctrico, telecom). Todo en **unidades imperiale
     1.25·D mayor + campana del chico, tubo chico recortado) donde cambia el diámetro; codo REDUCTOR
     (`modelo3d._accesorios`): codo uniforme del diámetro MAYOR (`chico.d` = mayor) + `codo_reductor` (cono desde
     donde moriría un tubo mayor en la campana del codo hasta el eje del chico); si el tubo chico no alcanza, codo
-    solo. Ficha «Reducción» (`NOMBRE_ACC`). Pendiente: `lbl_pendiente` en el panel de la utilidad
+    solo. REDUCCIÓN RECTA en el plugin (2026-11-10: la Parts List no trae Reducer y quedaba «Se conecta directo»):
+    `ReduccionSolida.CrearReduccionRecta` (desde `RedesPresionJunturas`, antes del catálogo) = espejo de
+    `reducciones3d.recta`; tubo chico más corto que el cono → el cono del lado del GRANDE (`recta(u_grande=,
+    largo_grande=)` en la app); ninguno alcanza → conexión directa como antes. Perfil: `TipoAccesorio.Reduccion`
+    («REDUCER» del XDATA) → rótulo `LineasReduccion`. Sin probar dentro de Civil 3D. Ficha «Reducción» (`NOMBRE_ACC`). Pendiente: `lbl_pendiente` en el panel de la utilidad
     (`_mostrar_pendiente`: una si un tramo o todas iguales, si no «T1 … · T2 …»); la ficha 3D igual (la de cada
     tramo REEMPLAZA a la de punta a punta). Vista 3D «Ángulos y pendientes por tramo» (`ver["rotulos"]`, apagada):
     `nucleo/rotulos3d.py` → `Escena.rotulos` (pendiente en el medio de cada tramo, giro en cada vértice interior,
@@ -3161,6 +3165,12 @@ alcantarillado, drenaje, gas, eléctrico, telecom). Todo en **unidades imperiale
   puedo»): «cotas» = ELEVACIONES (buscar_tuberias/detalle_elemento/comparar_con_app); `buscar_cotas` = solo ACOTACIONES
   (su descripción y `SISTEMA` lo dicen; comparar_con_pdf es solo planta). Si un pedido de datos (`pide_datos`) se
   responde sin llamar ninguna herramienta, el agente insiste UNA vez (`RECORDATORIO`): decía «Comparé…» sin consultar.
+  **Responder a una propuesta** (2026-11-10, «sí, aplícalo» no aplicaba y la IA decía «Cambio aplicado»):
+  `ia/civil3d_respuesta.py` (PURO: `clasificar` sí/no, `pide_cambio`, `dice_aplicado`). `ChatCivil3D.enviar`: con
+  propuestas pendientes, «sí»/«no» los hace la APP (`_responder_pendientes` = el botón; el modelo no se llama) y una
+  corrección descarta las pendientes antes de preguntar; `_al_aplicado` anota en el historial del agente qué decidió el
+  usuario. Agente: pedido de cambio sin `proponer_…` → `RECORDATORIO_CAMBIO` una vez; «aplicado» sin aplicar →
+  `NADA_APLICADO`. Tests: `tests/test_civil3d_respuesta.py`, `test_civil3d_chat.py`.
   **Conflictos por MCP** (2026-11-05, pedido del usuario: «que identifique dónde chocan y proponga reubicar según las
   normativas»): `buscar_conflictos` + `proponer_solucion` (`Mcp/Dominio/ConflictosRed.cs`, `SolucionesRed.cs`,
   `Aplicacion/DespachadorConflictos.cs`), sobre el DIBUJO de Civil 3D; separaciones = `reglas` que pone el agente

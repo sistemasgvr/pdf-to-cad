@@ -271,6 +271,22 @@ class ChatCivil3D(QtWidgets.QWidget):
         if not q:
             return
         self.entrada.clear()
+        # Respuestas a una propuesta pendiente (reporte 2026-11-10): «sí, aplícalo» la aplica la APP (como el botón;
+        # el modelo no puede y decía «Cambio aplicado» sin cambiar nada), «no» la descarta y una corrección
+        # («no, mejor a -10») la descarta y le pide al modelo la propuesta nueva.
+        from ia import civil3d_respuesta as R
+        pendientes = self._pendientes()
+        clase = R.clasificar(q)
+        if pendientes and clase in ("si", "no"):
+            return self._responder_pendientes(q, pendientes, clase == "si")
+        pregunta_ia = q
+        if pendientes and R.pide_cambio(q):
+            for valor, p in pendientes:
+                self._decidir(valor, False, motivo=_tr("Reemplazada por tu corrección"))
+        elif clase == "si" and self._agente is not None:
+            # Sin tarjeta pendiente: la IA describió un cambio sin proponerlo; que lo proponga ahora.
+            pregunta_ia = q + " " + ("(La app: el usuario acepta el cambio del que hablaban y todavía no hay ninguna "
+                                     "propuesta. Propón ese cambio ahora con la herramienta.)")
         turno = {"pregunta": q, "texto": "", "estado": "escribiendo", "error": "", "pasos": [], "propuestas": [],
                  "hora": time.strftime("%H:%M"), "t0": time.time(), "segundos": None, "modelo": ""}
         self.turnos.append(turno)
@@ -292,7 +308,7 @@ class ChatCivil3D(QtWidgets.QWidget):
                 if self._agente is None:
                     self._agente = A.Agente(cli, A.pedir_ollama(cfg), reglas=self._reglas, normas_cat=self._normas_cat,
                                            proyecto=self._proyecto)
-                res = self._agente.preguntar(q, cancelado=lambda: estado["cancelado"],
+                res = self._agente.preguntar(pregunta_ia, cancelado=lambda: estado["cancelado"],
                                              al_paso=lambda n: self._sen.paso.emit(turno, n))
                 self._sen.listo.emit(turno, res)
             except Exception as e:                       # noqa: BLE001 (ErrorIA, MCP o lo que sea: reporte en el chat)
@@ -372,10 +388,39 @@ class ChatCivil3D(QtWidgets.QWidget):
         except (ValueError, IndexError, KeyError):
             return None
 
-    def _decidir(self, valor, aplicar):
+    def _pendientes(self):
+        """[(«i.k», propuesta)] de las propuestas que esperan Aplicar/Descartar (la última tanda que tenga alguna)."""
+        for i in range(len(self.turnos) - 1, -1, -1):
+            ps = [(f"{i}.{k}", p) for k, p in enumerate(self.turnos[i].get("propuestas") or [])
+                  if p.get("estado") == "pendiente"]
+            if ps:
+                return ps
+        return []
+
+    def _responder_pendientes(self, q, pendientes, aplicar):
+        """«Sí, aplícalo» / «no» con propuestas pendientes: lo hace la app, como el botón de cada tarjeta."""
+        n = len(pendientes)
+        if aplicar:
+            texto = (_tr("Aplico la propuesta pendiente; el resultado aparece en su tarjeta.") if n == 1 else
+                     _tr("Aplico las {n} propuestas pendientes; el resultado aparece en cada tarjeta.").format(n=n))
+        else:
+            texto = (_tr("Descarté la propuesta pendiente.") if n == 1 else
+                     _tr("Descarté las {n} propuestas pendientes.").format(n=n))
+        self.turnos.append({"pregunta": q, "texto": texto, "estado": "listo", "error": "", "pasos": [],
+                            "propuestas": [], "hora": time.strftime("%H:%M"), "t0": time.time(), "segundos": None,
+                            "modelo": "", "local": True})
+        if self._agente is not None:
+            self._agente.historial += [{"role": "user", "content": q}, {"role": "assistant", "content": texto}]
+        for valor, _p in pendientes:
+            self._decidir(valor, aplicar)
+        self._pintar(abajo=True)
+
+    def _decidir(self, valor, aplicar, motivo=None):
         p = self._propuesta(valor)
         if p is None or p.get("estado") != "pendiente" or self._agente is None:
             return
+        if motivo:
+            p["motivo"] = motivo
         if p.get("destino") == "app":            # «traer a la app»: lo aplica la app, no Civil 3D
             self._decidir_app(p, aplicar)
             return
@@ -394,7 +439,7 @@ class ChatCivil3D(QtWidgets.QWidget):
     def _decidir_app(self, p, aplicar):
         """Lleva a la app lo cambiado en Civil 3D: un paso de Ctrl+Z (`civil3d_comparar.aplicar`)."""
         if not aplicar:
-            p["estado"], p["resultado"] = "descartado", _tr("Descartada")
+            p["estado"], p["resultado"] = "descartado", p.get("motivo") or _tr("Descartada")
             self._pintar()
             return
         from ia import civil3d_comparar
@@ -415,7 +460,13 @@ class ChatCivil3D(QtWidgets.QWidget):
         elif aplicado:
             p["estado"], p["resultado"] = "aplicado", _tr("Aplicado en Civil 3D · se deshace con U")
         else:
-            p["estado"], p["resultado"] = "descartado", _tr("Descartada")
+            p["estado"], p["resultado"] = "descartado", p.get("motivo") or _tr("Descartada")
+        if self._agente is not None:              # que la IA sepa qué pasó (si no, inventa «Cambio aplicado»)
+            que = ("aplicó" if p["estado"] == "aplicado" else "descartó" if p["estado"] == "descartado"
+                   else "intentó aplicar, con error,")
+            self._agente.historial.append({"role": "assistant", "content": (
+                f"(La app: el usuario {que} la propuesta de {p.get('tipo', '')} para {p.get('elemento', '')}: "
+                f"{p.get('antes', '')} → {p.get('despues', '')}.)")})
         self._pintar()
 
     # ── enlaces ──

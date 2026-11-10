@@ -17,8 +17,9 @@ import json
 import re
 from dataclasses import dataclass, field
 
+from ia import civil3d_respuesta as R
 from ia.proveedor import CONTEXTO_TOKENS, ErrorIA, Ollama
-from traduccion.i18n_core import t
+from traduccion.i18n_core import N_, t
 
 MAX_PASOS = 14                           # con conflictos: buscar + una propuesta por conflicto
 MAX_RESULTADO = 6000                     # caracteres de cada resultado que ve el modelo
@@ -37,6 +38,15 @@ RESUMEN_HERRAMIENTA = 700                # caracteres que conserva un resultado 
 RESUMEN_MINIMO = 250                     # último recurso
 RECORDATORIO = ("(Recordatorio de la app: no consultaste el dibujo en esta pregunta. Consulta con las herramientas "
                 "antes de responder; no repitas resultados anteriores.)")
+
+# Reporte 2026-11-10: «No, cámbialo a -10» → la IA solo escribió el cambio (sin tarjeta) y, tras «sí, aplícalo»,
+# dijo «Cambio aplicado» sin que nada cambiara. Pedido de cambio sin propuesta = se le insiste una vez; y nunca
+# puede decir que aplicó algo (solo el botón del usuario).
+RECORDATORIO_CAMBIO = ("(Recordatorio de la app: el usuario pide un CAMBIO y no llamaste ninguna herramienta "
+                       "proponer_…. Llámala ahora con el valor que pide (si corrige una propuesta anterior, esa ya no "
+                       "vale: propón de nuevo). Tú no aplicas nada: el usuario lo aplica con el botón de la tarjeta.)")
+NADA_APLICADO = N_("(Nota de la app: en Civil 3D no se cambió nada. Los cambios se aplican solo con el botón "
+                    "«Aplicar» de una propuesta.)")
 
 CIERRE = "Ya no puedes consultar más. Responde ahora con lo que tienes; si no hay certeza, dilo."
 
@@ -63,6 +73,9 @@ SISTEMA = (
     "o cota_fin y sumar=10 («bájala» = negativo; sin decir el extremo, el inicio). «Ponla en 100.5» = valor.\n"
     "Para cambiar algo usa proponer_cambio: el usuario lo aplica con el botón de la tarjeta (tú no puedes). "
     "Después de proponer, di en una o dos frases qué cambia y si hay advertencias.\n"
+    "Si el usuario corrige una propuesta («no, mejor a -10»), vuelve a llamar la herramienta con el valor nuevo: "
+    "la anterior ya no vale. Nunca digas que un cambio quedó aplicado o que algo «ahora es» otro valor: solo el "
+    "usuario lo aplica con el botón, y la app te avisa cuando lo hace.\n"
     "Choques, cruces o conflictos entre tuberías: buscar_conflictos (ya usa las normativas de la app) y luego "
     "proponer_solucion con el id de cada conflicto (K1, K2…), empezando por los choques. El plugin calcula cuánto "
     "subir o bajar cada utilidad y prueba que no cree otros conflictos: tú no calculas cotas. Si una propuesta dice "
@@ -154,7 +167,7 @@ class Agente:
         msgs = [{"role": "system", "content": self._sistema}] + self.historial[-2 * MAX_HISTORIAL:]
         msgs.append({"role": "user", "content": texto})
         res = Resultado(texto="")
-        insistio = False
+        insistio = insistio_cambio = False
         for _ in range(self.max_pasos):
             if cancelado and cancelado():
                 res.texto = t("Detenido.")
@@ -164,6 +177,11 @@ class Agente:
             llamadas = m.get("tool_calls") or []
             msgs.append({"role": "assistant", "content": m.get("content") or "", "tool_calls": llamadas})
             if not llamadas:
+                propuso = any(n in PROPONEN for n, _ok in res.llamadas)
+                if self.insistir and not propuso and not insistio_cambio and R.pide_cambio(texto):
+                    insistio_cambio = True
+                    msgs.append({"role": "user", "content": RECORDATORIO_CAMBIO + " " + texto})
+                    continue
                 if self.insistir and not res.llamadas and not insistio and pide_datos(texto):
                     # Respondió un pedido de datos SIN consultar el dibujo (reporte 2026-11-06: «Comparé…» con
                     # «Sin consultar el dibujo»): una vez más, pidiéndole que consulte.
@@ -205,6 +223,9 @@ class Agente:
                 m = self.pedir_modelo(msgs + [{"role": "user", "content": CIERRE}], [])
                 res.texto = _PENSAR.sub("", m.get("content") or "").strip()
             res.texto = res.texto or t("No terminé en {n} pasos: pregunta algo más concreto.").format(n=self.max_pasos)
+        if self.insistir and not res.sin_conexion and R.dice_aplicado(res.texto) and not any(
+                n in PROPONEN and ok for n, ok in res.llamadas):
+            res.texto = res.texto + "\n\n" + t(NADA_APLICADO)
         self.historial += [{"role": "user", "content": texto}, {"role": "assistant", "content": res.texto}]
         return res
 

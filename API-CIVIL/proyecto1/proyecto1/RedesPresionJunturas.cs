@@ -768,6 +768,27 @@ namespace Civil3DBasico
                         continue;
                     }
                 }
+                // Reducción RECTA (2026-11-10): la Parts List no trae Reducer y se
+                // conectaban directo, con un escalón seco. Como la app (`reducciones3d`).
+                if (FITTING_COMO_SOLIDO && tipo == CivilDB.PressurePartType.Reducer && j.Miembros.Count == 2)
+                {
+                    var tubos = pipesInfo.Select(p => new WyeSolido.TuboJuntura
+                    {
+                        PipeId = p.PipeId, Port = p.Port,
+                        Cerca = p.Port == 0 ? p.pp.StartPoint : p.pp.EndPoint,
+                        Lejos = p.Port == 0 ? p.pp.EndPoint : p.pp.StartPoint,
+                        DiamFt = p.pp.NominalDiameter,
+                    }).OrderByDescending(t => t.DiamFt).ToList();
+                    ObjectId sidRec = WyeSolido.CrearReduccionRecta(net.Database, tr, tubos[0], tubos[1],
+                        SeguroMaterial(pipesInfo[0].pp), SeguroNombreRed(net), ed);
+                    if (sidRec != ObjectId.Null)
+                    {
+                        ComandosRedes.Dl(ed, $"\n  · [FITTING-SOLIDO] Reducción recta {tubos[0].DiamFt * 12:F0}×" +
+                            $"{tubos[1].DiamFt * 12:F0}\" en ({j.Ubicacion.X:F2},{j.Ubicacion.Y:F2}).");
+                        nFit++;
+                        continue;
+                    }
+                }
                 if (FITTING_COMO_SOLIDO && tipoSolido)
                 {
                     var brazos = pipesInfo.Select(p =>

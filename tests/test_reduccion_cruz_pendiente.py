@@ -36,6 +36,17 @@ def test_cruz_en_x_a_mitad_de_tramo_con_diametros_distintos():
     assert all(n["tipo"] != "cruz" for n in acc.accesorios(pipes, _z(pipes), FT))   # solo la toca: sin cruz
 
 
+def test_abandonada_y_activa_no_se_unen():
+    """2026-11-10 (OF_proyecto_prueba, AGUA-7 y la abandonada 14 nacían en el mismo punto): como el plugin,
+    una abandonada nunca forma accesorio con una activa; las activas siguen uniéndose entre sí."""
+    pipes = [_p([(0, 0), (100, 0)], 12.0), _p([(100, 0), (160, 0), (200, 40)], 12.0),
+             dict(_p([(100, 0), (300, 0)], 12.0), ab=True)]
+    nodos = acc.accesorios(pipes, _z(pipes), FT)
+    assert [(n["tipo"], n["pipes"], n["red"]) for n in nodos] == [("codo", [1], "AGUA")]
+    pipes[2]["ab"] = False
+    assert any(n["tipo"] in ("tee", "wye") for n in acc.accesorios(pipes, _z(pipes), FT))
+
+
 def test_uniones_rectas_para_la_reduccion():
     pipes = [_p([(0, 0), (300, 0)], 12.0), _p([(300, 0), (600, 0)], 8.0)]
     rectos = []
@@ -52,6 +63,23 @@ def test_reduccion_como_el_plugin():
     # ReduccionSolida.cs: r1 = cerca + u·(s0 + 1.25·d1); punta = r1 + u·(0.45·d2·0.75 − 0.12)
     assert recorte == pytest.approx(0.5 + 1.25 + 0.45 * d2 * 0.75 - 0.12)
     assert R3.reduccion((0.5, 0, 0), (0, 0, 0), u, d1, d2, 1.0, (1, 1, 1, 1), 7) is None   # tubo chico corto
+
+
+def test_reduccion_recta_con_tubo_chico_corto_va_del_lado_del_grande():
+    """2026-11-10 (como `CrearReduccionRecta` del plugin): si el tubo chico no alcanza para el cono, la
+    reducción entra en el tubo grande; si ninguno alcanza, no hay reducción."""
+    u = np.array([1.0, 0.0, 0.0])
+    d1, d2 = 42 / 12.0, 36 / 12.0
+    c = np.zeros(3)
+    assert R3.recta(c, u, d1, d2, c, 50.0, (1, 1, 1, 1), 7, u_grande=-u, largo_grande=50.0)[2] > d1 * 1.25
+    malla, alc_g, rec_c = R3.recta(c, u, d1, d2, c, 3.0, (1, 1, 1, 1), 7, u_grande=-u, largo_grande=50.0)
+    alc = lambda d: d * 0.45 * 0.75 - 0.12                    # noqa: E731  (AlcanceTuboFt sin cuerpo)
+    assert len(malla) and rec_c == pytest.approx(alc(d2)) and alc_g == pytest.approx(d1 * 1.25 + alc(d1))
+    assert R3.recta(c, u, d1, d2, c, 3.0, (1, 1, 1, 1), 7, u_grande=-u, largo_grande=4.0) is None
+    assert R3.recta(c, u, d1, d2, c, 3.0, (1, 1, 1, 1), 7) is None          # sin el largo del grande: como antes
+    # en la escena: tubo chico de 3 ft (12 px a 0.25 ft/px) junto a uno grande largo
+    esc = _escena([_p([(0, 0), (400, 0)], 42.0), _p([(400, 0), (412, 0)], 36.0)])
+    assert [o["acc_tipo"] for o in esc.objetos.values() if o["tipo"] == "accesorio"] == ["reduccion"]
 
 
 def _escena(pipes):

@@ -1966,6 +1966,24 @@ namespace Civil3DBasico
                             }
                         }
                         CivilDB.Structure st = (CivilDB.Structure)tr.GetObject(sid, OpenMode.ForWrite);
+                        // Altura dentro del rango «Rim to Sump Height» de la pieza (2026-11-10): si no,
+                        // Civil 3D la cambia sola y avisa en el Event Viewer. El fondo sigue en la rasante
+                        // de la tubería; lo que se corre es la TAPA.
+                        var rango = RangoAlturaEstructura(st);
+                        if (rango.HasValue)
+                        {
+                            double h = rim - sump, hc = Math.Min(Math.Max(h, rango.Value.min), rango.Value.max);
+                            if (Math.Abs(hc - h) > 1e-4)
+                            {
+                                ed.WriteMessage($"\n  · Buzón {(string.IsNullOrWhiteSpace(match?.Id) ? $"({v.X:F2},{v.Y:F2})" : match.Id)}: " +
+                                    $"altura {h:F2} ft fuera del rango de la pieza ({rango.Value.min:F2}–{rango.Value.max:F2} ft): " +
+                                    $"tapa a {sump + hc:F2} ft (fondo sin cambios).");
+                                rim = sump + hc;
+                            }
+                        }
+                        else if (_avisoSinRango.Add(sSize.ToString()))
+                            ed.WriteMessage($"\n  · [BUZON] No se pudo leer el rango «Rim to Sump Height» de la pieza " +
+                                $"(altura {rim - sump:F2} ft); si Civil 3D avisa que la cambió, avísame con esta línea.");
                         // Sump por ELEVACIÓN (si queda por profundidad, sump=rim−sumpDepth pisa lo nuestro).
                         SetSumpControlByElevation(st);
                         // ¿Tenemos rim explícito? (siempre que no dependamos de una superficie).
@@ -2288,6 +2306,18 @@ namespace Civil3DBasico
                     //    hace en algunas familias), sump quedaría pisado por
                     //    rim−SumpDepth (típico desfase fijo, ej. 0.5 ft) si sump se
                     //    fijara antes. Por eso rim va primero.
+                    //    Salvo que, con el fondo que dejó la conexión, esa tapa quede FUERA del rango
+                    //    «Rim to Sump Height» de la pieza (Civil 3D la corrige y avisa en el Event
+                    //    Viewer, 2026-11-10): entonces primero el fondo.
+                    var rangoRe = RangoAlturaEstructura(st);
+                    bool FueraDeRango(double h) => rangoRe.HasValue && (h < rangoRe.Value.min - 1e-4 || h > rangoRe.Value.max + 1e-4);
+                    bool fondoPrimero = false;
+                    try { fondoPrimero = FueraDeRango(kv.Value.rim - st.SumpElevation) && !FueraDeRango(st.RimElevation - kv.Value.sump); } catch { }
+                    if (fondoPrimero)
+                    {
+                        { string err = SetSumpControlByElevation(st); if (err != null && stMsg == "") stMsg = "ctrlSump→" + err; }
+                        try { st.SumpElevation = kv.Value.sump; } catch (Exception e3) { if (stMsg == "") stMsg = "sump→" + e3.Message; }
+                    }
                     try { st.RimElevation = kv.Value.rim; } catch (Exception e2) { if (stMsg == "") stMsg = "rim→" + e2.Message; }
                     // 3) Reconfirmar POR ELEVACIÓN (por si el paso anterior lo reinició)
                     //    y recién ahí fijar sump — así queda como la ÚLTIMA escritura,
@@ -2790,14 +2820,22 @@ namespace Civil3DBasico
                         }
                     }
 
-                    // 3) Utilidades distintas: juntas solo si están a la misma cota.
+                    // 3) Utilidades distintas: juntas solo si están a la misma cota. Una ABANDONADA y una
+                    //    activa nunca se unen (2026-11-10, OF_proyecto_prueba: AGUA-7 nacía en el mismo punto
+                    //    que la abandonada 14 y corría encima de ella → Wye de dos tubos superpuestos y AGUA-7
+                    //    recortada); cada una sigue entera, como dos tuberías que se tocan sin conexión.
+                    bool Ab(int ix) => fuenteTubo.TryGetValue(pts[ix].id, out int sAb) && sAb >= 0 && sAb < pipes.Count && pipes[sAb].Abandoned;
                     var grupos = new List<List<(List<int> idxs, double z)>>();
-                    foreach (var sg in subgrupos)
+                    foreach (bool ab in new[] { false, true })
                     {
-                        if (grupos.Count > 0 && Math.Abs(sg.z - grupos[grupos.Count - 1].Last().z) <= Z_TOL_JUNTA)
-                            grupos[grupos.Count - 1].Add(sg);
-                        else
-                            grupos.Add(new List<(List<int> idxs, double z)> { sg });
+                        int desde = grupos.Count;
+                        foreach (var sg in subgrupos.Where(sg => Ab(sg.idxs[0]) == ab))
+                        {
+                            if (grupos.Count > desde && Math.Abs(sg.z - grupos[grupos.Count - 1].Last().z) <= Z_TOL_JUNTA)
+                                grupos[grupos.Count - 1].Add(sg);
+                            else
+                                grupos.Add(new List<(List<int> idxs, double z)> { sg });
+                        }
                     }
 
                     foreach (var g in grupos)
@@ -2825,10 +2863,15 @@ namespace Civil3DBasico
                         nSeparadas++;
                         string detalle = string.Join(" | ", grupos.Select(g =>
                             string.Join(", ", g.Select(sg => Nombre((pts[sg.idxs[0]].id, pts[sg.idxs[0]].port)))) +
-                            $" a {g.Average(sg => sg.z):F2} ft"));
-                        ed.WriteMessage($"\n  · [COTAS] ({cx:F2},{cy:F2}): se tocan en planta pero a DISTINTA cota — " +
-                            $"NO se unen, cada una conserva la suya: {detalle}. " +
-                            "Para unirlas, aprueba una conexión vertical en la app.");
+                            $" a {g.Average(sg => sg.z):F2} ft" + (Ab(g[0].idxs[0]) ? " (abandonada)" : "")));
+                        bool porCota = grupos.Select(g => Ab(g[0].idxs[0])).Distinct().Count() < grupos.Count;
+                        if (porCota)
+                            ed.WriteMessage($"\n  · [COTAS] ({cx:F2},{cy:F2}): se tocan en planta pero a DISTINTA cota — " +
+                                $"NO se unen, cada una conserva la suya: {detalle}. " +
+                                "Para unirlas, aprueba una conexión vertical en la app.");
+                        else
+                            ed.WriteMessage($"\n  · [ABANDONADA] ({cx:F2},{cy:F2}): una tubería abandonada y una activa se tocan — " +
+                                $"NO se unen, cada una sigue entera: {detalle}.");
                     }
                 }
 
@@ -3272,6 +3315,59 @@ namespace Civil3DBasico
         // Setea Structure.ControlSumpBy = "ByElevation" por reflexión (el enum
         // vive en un namespace de Civil que cambia por versión; así no lo hardcodeamos).
         // Devuelve null si OK, o un mensaje de error corto si falló.
+        // Rango «Rim to Sump Height» de la pieza (en pies) o null si la pieza no lo limita.
+        // Se lee por reflexión (PartData → GetDataFieldBy(StructRimToSumpHeight) → ValueRange
+        // RangeMin/RangeMax): la API cambia entre versiones. Las unidades del catálogo pueden ser
+        // pulgadas: se deducen comparando el valor del campo con la altura actual de la estructura.
+        private static readonly HashSet<string> _avisoSinRango = new HashSet<string>();   // un aviso por pieza y sesión
+
+        private static (double min, double max)? RangoAlturaEstructura(CivilDB.Structure st)
+        {
+            try
+            {
+                object datos = st.GetType().GetProperty("PartData")?.GetValue(st);
+                if (datos == null) return null;
+                var get = datos.GetType().GetMethod("GetDataFieldBy", new[] { typeof(CivilDB.PartContextType) });
+                if (get == null) return null;
+                object campo = get.Invoke(datos, new object[] { CivilDB.PartContextType.StructRimToSumpHeight });
+                if (campo == null) return null;
+                var tc = campo.GetType();
+                object desdeRango = tc.GetProperty("IsFromRange")?.GetValue(campo);
+                if (desdeRango is bool b && !b) return null;
+                object rango = tc.GetProperty("ValueRange")?.GetValue(campo);
+                if (rango == null) return null;
+                var tr = rango.GetType();
+                double? Leer(string n)
+                {
+                    object o = tr.GetProperty(n)?.GetValue(rango);
+                    try { return o == null ? (double?)null : Convert.ToDouble(o, System.Globalization.CultureInfo.InvariantCulture); }
+                    catch { return null; }
+                }
+                double? mn = Leer("RangeMin"), mx = Leer("RangeMax");
+                if (!mn.HasValue || !mx.HasValue || mx.Value <= 0 || mx.Value < mn.Value) return null;
+                // Unidades: valor del campo vs. altura actual (pies).
+                double factor = 1.0;
+                double hAct = st.RimElevation - st.SumpElevation;
+                object val = tc.GetProperty("Value")?.GetValue(campo);
+                double v;
+                if (val != null && hAct > 1e-6 &&
+                    double.TryParse(Convert.ToString(val, System.Globalization.CultureInfo.InvariantCulture),
+                        System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out v) && v > 0)
+                {
+                    double r = v / hAct;
+                    if (Math.Abs(r - 12.0) < 0.6) factor = 1.0 / 12.0;
+                    else if (Math.Abs(r - 1.0) > 0.05) return null;    // unidades desconocidas: no tocar
+                }
+                else
+                {
+                    string u = Convert.ToString(tc.GetProperty("Units")?.GetValue(campo)) ?? "";
+                    if (u.IndexOf("in", StringComparison.OrdinalIgnoreCase) >= 0) factor = 1.0 / 12.0;
+                }
+                return (mn.Value * factor, mx.Value * factor);
+            }
+            catch { return null; }
+        }
+
         private static string SetSumpControlByElevation(CivilDB.Structure st)
         {
             try
@@ -3789,6 +3885,7 @@ namespace Civil3DBasico
                         {
                             int na = a.Vertices?.Count ?? 0;
                             if (ReferenceEquals(a, b) || na < 2) continue;
+                            if (a.Abandoned != b.Abandoned) continue;   // abandonada con activa: no se unen
                             double[] zaOut = InterpolateZ(a, na, a.VertexInv);
                             double[] zaIn = InterpolateZ(a, na, a.VertexInvIn);
                             for (int k = 0; k < na - 1; k++)

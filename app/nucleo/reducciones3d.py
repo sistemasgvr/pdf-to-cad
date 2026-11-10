@@ -10,7 +10,9 @@ Civil 3D. Espejo del plugin:
     D mayor → D menor + campana del menor. El tubo chico muere dentro de esa campana. Si el
     tubo chico no alcanza, queda el codo solo (como el plugin).
   • Unión recta: la misma reducción, desde la junta (eje del tubo grande, con su campana)
-    hacia el tubo chico.
+    hacia el tubo chico. Si el tubo chico es más corto que el cono (2026-11-10), la reducción
+    va del lado del GRANDE: el cono termina en la junta y el grande se recorta hasta su campana
+    (`CrearReduccionRecta`).
 """
 from __future__ import annotations
 
@@ -43,17 +45,29 @@ def reduccion(r0, cerca, u, d1, d2, largo_chico, color, ident):
     return malla, recorte
 
 
-def recta(centro, u, d1, d2, cerca_chico, largo_chico, color, ident):
-    """Reducción en una unión RECTA: campana del tubo grande en la junta (hacia −u) + cono
-    hacia el chico. (malla, alcance del grande, recorte del chico) o None."""
+def recta(centro, u, d1, d2, cerca_chico, largo_chico, color, ident, u_grande=None, largo_grande=None):
+    """Reducción en una unión RECTA: campana del tubo grande en la junta + cono hacia el chico; si el
+    chico es corto, el cono del lado del grande (`u_grande` = hacia su tubo, `largo_grande` = lo que mide).
+    (malla, alcance del grande, recorte del chico) o None."""
     u = np.asarray(u, float) / np.linalg.norm(u)
     c = np.asarray(centro, float)
+    ug = -u if u_grande is None else np.asarray(u_grande, float) / np.linalg.norm(u_grande)
     r = reduccion(c, cerca_chico, u, d1, d2, largo_chico, color, ident)
-    if r is None:
+    if r is not None:
+        malla, recorte = r
+        grande = A3.Brazo(dir=ug, d=d1)               # sin cuerpo: solo la campana del grande
+        return M.juntar([malla, A3._campana(c, ug, grande, color, ident)]), max(grande.alcance, 0.0), recorte
+    if largo_grande is None:
         return None
-    malla, recorte = r
-    grande = A3.Brazo(dir=-u, d=d1)                   # sin cuerpo: solo la campana del grande
-    return M.juntar([malla, A3._campana(c, -u, grande, color, ident)]), max(grande.alcance, 0.0), recorte
+    largo_red = d1 * LARGO_REDUCCION_D                # chico corto: el cono entra en el tubo grande
+    grande, chico = A3.Brazo(dir=ug, d=d1), A3.Brazo(dir=u, d=d2)
+    if (chico.alcance > largo_chico - LARGO_MIN_LIBRE_FT
+            or largo_red + grande.alcance > largo_grande - LARGO_MIN_LIBRE_FT):
+        return None
+    r0, r1 = c + ug * largo_red, np.asarray(cerca_chico, float)
+    malla = M.juntar([M.tronco(r0, r1, u, d1 / 2.0, d2 / 2.0, color, ident, A3.LADOS),
+                      A3._campana(r1, u, chico, color, ident), A3._campana(r0, ug, grande, color, ident)])
+    return malla, largo_red + max(grande.alcance, 0.0), max(chico.alcance, 0.0)
 
 
 def codo_reductor(ar, pipes, nodo, centro, chico, d1, d2, ident):
@@ -97,16 +111,20 @@ def rectas(ar, pipes, rectos, base, direcciones, seccion, diametro_ft, z_en_tram
         cerca = np.array([*xy, chico["z"]])
         largo = largo_hasta_fin(pipes[chico["pipe"]]["pts"], chico["k"], r["x"], r["y"], *chico["pxy"], ar.ft,
                                 chico["u"])
+        largo_g = largo_hasta_fin(pipes[grande["pipe"]]["pts"], grande["k"], r["x"], r["y"], *grande["pxy"], ar.ft,
+                                  grande["u"])
         n += 1
         ident = base + n
-        res = recta(c, chico["u"], grande["d"], chico["d"], cerca, largo, ar.claro(r.get("capa")), ident)
+        res = recta(c, chico["u"], grande["d"], chico["d"], cerca, largo, ar.claro(r.get("capa")), ident,
+                    u_grande=grande["u"], largo_grande=largo_g)
         if res is None:
             n -= 1
             continue
         malla, alc_g, rec_c = res
         ar.op.append(malla)
         fin = cerca + chico["u"] * rec_c
-        ar.picks.capsula(tuple(c), tuple(fin), chico["d"] / 2.0 + A3.HOLGURA_FT + A3.PARED_FT, ident)
+        ini = c + grande["u"] * alc_g                  # del lado del grande, si el cono quedó ahí
+        ar.picks.capsula(tuple(ini), tuple(fin), grande["d"] / 2.0 + A3.HOLGURA_FT + A3.PARED_FT, ident)
         for s, alc in ((grande, alc_g), (chico, rec_c)):
             u_mundo = (s["pxy"][0], -s["pxy"][1])
             cortes.setdefault(s["pipe"], []).append((xy, u_mundo, alc * math.hypot(s["u"][0], s["u"][1])))
