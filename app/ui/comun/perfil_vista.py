@@ -29,6 +29,8 @@ class VistaPerfil(DibujoPerfilMixin, RatonPerfilMixin, FlujoPerfilMixin, QtWidge
     flujoCambiado = QtCore.Signal(int, int, bool)  # paso, hacia (0 = automático), todo el perfil
     flujoPunto = QtCore.Signal(float, int)        # el fluido llega a esta estación (nodo del imán o -1)
     flujoElegir = QtCore.Signal(bool)             # entra / sale del modo «elegir hacia dónde va el fluido»
+    flujoTramo = QtCore.Signal(int)               # cambiar el sentido del tramo de este paso (modo por tramos)
+    flujoTramos = QtCore.Signal(bool)             # entra / sale del modo «personalizado por tramos»
     nodoElegido = QtCore.Signal(int)              # -1 = ninguno
     pasoElegido = QtCore.Signal(int)
     estacionHover = QtCore.Signal(float)          # NaN = el ratón salió del dibujo

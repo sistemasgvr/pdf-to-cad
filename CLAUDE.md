@@ -2734,7 +2734,17 @@ alcantarillado, drenaje, gas, eléctrico, telecom). Todo en **unidades imperiale
     `nucleo/flujo_validar` (aviso clase «flujo» ERROR en el plano, solo con el sentido indicado; el perfil no lo repite:
     `SIN_PERFIL`) y la caída de `normas_validar` (entra → sale según `sentido_en`; si llega o sale por los dos lados, no
     se mide). `normas_aprobacion.huella` suma el flujo en «buzon»/«flujo» SOLO si se indicó (lo aprobado antes sigue).
-    No va al DXF todavía. Tests: `tests/test_flujo_llegada.py`.
+    POR TRAMOS (2026-11-10, «personalizado por tramos… cada tramo por separado»): `pipe["flujo_tramos"]` =
+    [[mx, my, dx, dy]] una entrada por tramo (punto medio + dirección del fluido; cero = automático); el tramo k toma
+    la entrada más cercana (`sentidos_tramos`), así insertar/quitar vértices o dar vuelta la utilidad no lo corre.
+    Excluye a `flujo`/`flujo_hacia` (`poner`/`poner_hacia` lo quitan). `poner_tramo`, `vista_tramos` (automático en
+    gravedad = hacia la solera más baja del tramo) y `alternar_tramo` (automático → fijo como se ve; indicado → al
+    revés). Lienzo/propiedades: `ui/ventana/ventana_flujo_tramos.TramosFlujoMixin` (botón «Por tramos», modo
+    «flujo_tramos», fichas T1… en `GridAdaptable`, tramo resaltado bajo el ratón, flechas por tramo); la caja de la
+    fila «Flujo» es `_CajaFlujo` (fija su mínimo: el QFormLayout reparte mal el alto que depende del ancho) y ocupa todo
+    el ancho. Perfil: `elegir_tramos` en `perfil_vista_flujo` (`flujoTramo(paso)`, `flujoTramos(bool)`) y
+    `perfil_flujo_tramo` en `ventana_flujo_perfil`; `Paso.flujo_fijo` = el paso tiene sentido indicado (un tramo
+    automático en el modo por tramos sigue automático). No va al DXF todavía. Tests: `tests/test_flujo_llegada.py`.
     CURVAS (2026-11-10, el resalte iba por la esquina): `nucleo/perfil_trazo.py` (PURO) da a cada `Paso` su `traza`
     en planta (recto + medio arco de cada curva CV, `limpieza_tramos.curvas` = editor/3D/plugin), `s` (parámetro
     sobre la cuerda) y `acum` (largo exacto, arcos con r·Δ): estaciones por el arco (= eje de Civil 3D), nodo de la

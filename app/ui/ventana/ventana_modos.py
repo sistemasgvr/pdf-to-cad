@@ -12,6 +12,9 @@ class ModosMixin:
     def _on_enter(self):
         if self._perfil_ab_tecla(True):                # eligiendo A/B del perfil: se queda el recorrido de ahora
             return
+        if self.mode == "flujo_tramos":                 # sentido por tramos: Enter termina
+            self._terminar_tramos_plano()
+            return
         # Enter termina lo que se está dibujando; sin nada en curso (otro Enter), sale del modo.
         en_curso = {"pipe": self.cur_pts, "erase": self._erase_pts, "centerline": self._cl_pts}
         if self.mode in en_curso and not en_curso[self.mode]:
@@ -44,6 +47,8 @@ class ModosMixin:
             self._escape_accesorio()
         elif self.mode == "flujo_punto":
             self._cancelar_flujo_plano()
+        elif self.mode == "flujo_tramos":
+            self._terminar_tramos_plano()
         elif self.sel_pipe >= 0 or self.sel_leader >= 0 or self.sel_region >= 0 or self.sel_text >= 0 or self.sel_bz >= 0 or self.sel_curve >= 0 or self.sel_cl >= 0                 or (getattr(self, "acc_list", None) is not None and self.acc_list.selectedItems()):
             self._deselect_all(); self._info(_tr("Selección quitada"))
         else:
@@ -447,6 +452,7 @@ class ModosMixin:
             "centerline": N_("Modo: trazar centerline — clic agrega puntos, Enter finaliza"),
             "insert_acc": N_("Modo: dibujar accesorio — Esc vuelve al paso anterior; otro Esc sale"),
             "flujo_punto": N_("Modo: sentido del flujo — clic donde llega el fluido · Esc cancela"),
+            "flujo_tramos": N_("Modo: sentido por tramos — clic en cada tramo para cambiarlo · Esc o Enter terminan"),
             "move": N_("Modo: editar — arrastra vértice · clic en tramo inserta · clic-en-vértice extiende (F) · clic derecho elimina"),
         }.get(m)
         if clave_modo:

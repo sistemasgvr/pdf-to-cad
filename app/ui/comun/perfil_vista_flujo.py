@@ -9,6 +9,10 @@
   El ratón se pega a los nodos (buzones, vértices, uniones: a ≤ `IMAN_PX`) o a cualquier punto de la tubería; una
   línea guía, la diana y una etiqueta («Buzón MH-3 · 2+35») dicen dónde caerá, y las flechas muestran en vivo cómo
   quedará el flujo. Clic = `flujoPunto(estación, nodo o -1)`; Esc o clic derecho = cancelar (`flujoElegir(False)`).
+- PERSONALIZADO POR TRAMOS (pedido 2026-11-10: «cambiar de manera fácil y visual el sentido de cada tramo por
+  separado»): `elegir_tramos(True)` (botón «Por tramos» de la cabecera). Clic en la flecha (o en la tubería) de un
+  tramo = `flujoTramo(paso)`: si es automático queda fijo tal como se ve, si ya está indicado se invierte. Sigue en el
+  modo para cambiar otros; Esc o clic derecho = terminar (`flujoTramos(False)`).
 - `ver_flujo` (ojo de la cabecera): ver u ocultar flechas y marcas (mientras se elige, se ven siempre).
 La vista solo avisa; el cambio lo hace la ventana (`ventana_flujo`).
 """
@@ -34,6 +38,7 @@ _NOMBRE_NODO = {"estructura": N_("Buzón"), "extremo": N_("Punta"), "codo": N_("
 class FlujoPerfilMixin:
     ver_flujo = True
     _eligiendo_flujo = False
+    _tramos_flujo = False
     _pista_flujo = None               # {"e", "nodo", "texto"} donde caería el clic
 
     def _con_flujo(self):
@@ -46,6 +51,8 @@ class FlujoPerfilMixin:
         on = bool(on) and self._con_flujo()
         if on == self._eligiendo_flujo:
             return
+        if on:
+            self.elegir_tramos(False)                 # un modo a la vez
         self._eligiendo_flujo = on
         self._pista_flujo = None
         self.setCursor(QtCore.Qt.CrossCursor if on else QtCore.Qt.ArrowCursor)
@@ -56,6 +63,57 @@ class FlujoPerfilMixin:
 
     def eligiendo_flujo(self):
         return self._eligiendo_flujo
+
+    # ------------------------------------------------------------------ personalizado por tramos
+
+    def elegir_tramos(self, on=True):
+        """Entra (o sale) del modo «personalizado por tramos». Avisa con `flujoTramos`."""
+        on = bool(on) and self._con_flujo()
+        if on == self._tramos_flujo:
+            return
+        if on:
+            self.elegir_flujo(False)
+        self._tramos_flujo = on
+        self.setCursor(QtCore.Qt.PointingHandCursor if on else QtCore.Qt.ArrowCursor)
+        if on:
+            self.setFocus()
+        self.update()
+        self.flujoTramos.emit(on)
+
+    def tramos_flujo(self):
+        return self._tramos_flujo
+
+    def _tramo_en(self, pos):
+        """Paso bajo el ratón en el modo por tramos: su flecha o su tubería (o -1)."""
+        i = self.flujo_en(pos)
+        return i if i >= 0 else self._paso_en(pos)
+
+    def _clic_tramos(self, pos, boton):
+        """Clic en el modo por tramos: izquierdo = cambiar ese tramo; derecho = terminar. True si lo atendió."""
+        if not self._tramos_flujo:
+            return False
+        if boton == QtCore.Qt.LeftButton:
+            i = self._tramo_en(pos)
+            if i >= 0:
+                self.flujoTramo.emit(i)
+        else:
+            self.elegir_tramos(False)
+        return True
+
+    def _mover_tramos(self, pos):
+        i = self._tramo_en(pos)
+        if i != getattr(self, "_hover_flujo", -1):
+            self._hover_flujo = i
+            self.update()
+        return i
+
+    def _globo_tramo(self, i):
+        if i < 0:
+            return t("Haz clic en un tramo para cambiar su sentido · Esc: terminar")
+        ps = self.p.pasos[i]
+        if ps.flujo_fijo:
+            return t("Clic: invertir el sentido de este tramo · Esc: terminar")
+        return t("Automático. Clic: dejar este tramo fijo así · Esc: terminar")
 
     def _pista_en(self, pos):
         """Dónde llegaría el fluido con el ratón en `pos`: un nodo (imán) o el punto de la tubería en esa estación."""
@@ -116,7 +174,8 @@ class FlujoPerfilMixin:
         """[(paso, centro, ángulo en radianes, sentido, indicado)] de las flechas a la vista. Sin indicar, el ángulo
         es el del tramo (la doble flecha va a lo largo de él)."""
         p = self.p
-        if not self._con_flujo() or not self._geo or not (self.ver_flujo or self._eligiendo_flujo):
+        if not self._con_flujo() or not self._geo or not (self.ver_flujo or self._eligiendo_flujo
+                                                             or self._tramos_flujo):
             return []
         out = []
         for i, (ps, (f, corte, fijo)) in enumerate(zip(p.pasos, self._flujos())):
@@ -146,8 +205,10 @@ class FlujoPerfilMixin:
             return
         hover = getattr(self, "_hover_flujo", -1)
         acento = QtGui.QColor(tk.accent)
+        if self._tramos_flujo and 0 <= hover < len(self.p.pasos):
+            self._resaltar_paso(pt, tk, hover)
         for i, c, ang, hacia, fijo in self._flechas_flujo():
-            r = R_FLECHA + (1.5 if i == hover else 0.0)
+            r = R_FLECHA + (1.5 if i == hover else 0.0) + (1.0 if self._tramos_flujo else 0.0)
             pt.setPen(QtGui.QPen(acento, 1.4))
             pt.setBrush(acento if fijo else QtGui.QColor(tk.surface))
             pt.drawEllipse(c, r, r)
@@ -165,6 +226,20 @@ class FlujoPerfilMixin:
             pt.drawPolygon(QtGui.QPolygonF([q(5.0, 0.0), q(-3.5, -4.5), q(-1.5, 0.0), q(-3.5, 4.5)]))
         self._llegadas(pt, tk)
         self._pista(pt, tk)
+
+    def _resaltar_paso(self, pt, tk, i):
+        """Modo por tramos: el paso bajo el ratón con un contorno del acento."""
+        ps = self.p.pasos[i]
+        z0, z1 = self._z_paso(i)
+        poli = QtGui.QPolygonF([QtCore.QPointF(self.X(ps.e0), self.Z(z0) + 4),
+                                QtCore.QPointF(self.X(ps.e1), self.Z(z1) + 4),
+                                QtCore.QPointF(self.X(ps.e1), self.Z(z1 + ps.alto_ft) - 4),
+                                QtCore.QPointF(self.X(ps.e0), self.Z(z0 + ps.alto_ft) - 4)])
+        col = QtGui.QColor(tk.accent)
+        pt.setPen(QtGui.QPen(col, 2.0, QtCore.Qt.DashLine))
+        col.setAlpha(40)
+        pt.setBrush(col)
+        pt.drawPolygon(poli)
 
     def _punto_tuberia(self, e):
         """(x, y) en pantalla del eje de la tubería en la estación e."""
@@ -243,6 +318,8 @@ class FlujoPerfilMixin:
         presion = self.p.tipo == "pressure"
         sub = m.addMenu(t("Sentido del flujo"))
         sub.addAction(t("Elegir hacia dónde va el fluido…"), lambda: self.elegir_flujo(True))
+        sub.addAction(t("Cambiar el sentido de este tramo"), lambda: self.flujoTramo.emit(i))
+        sub.addAction(t("Personalizar por tramos…"), lambda: self.elegir_tramos(True))
         sub.addSeparator()
         a = sub.addAction(t("Esta utilidad: sin indicar") if presion else t("Esta utilidad: automático"),
                           lambda: self.flujoCambiado.emit(i, 0, False))

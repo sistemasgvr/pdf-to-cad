@@ -9,6 +9,7 @@ medio»), no con dos flechas:
   flechas que corren hacia ese punto (`ui/comun/flujo_animacion`). Esc o clic derecho = cancelar.
 - El ojo: ver u ocultar en el plano las flechas (y la diana de llegada) de TODAS las utilidades con el sentido
   indicado (QSettings `flujo/ver_plano`).
+- [⇄ Por tramos]: personalizado tramo por tramo, en el lienzo y con una ficha por tramo (`ventana_flujo_tramos`).
 - Perfil: `ventana_flujo_perfil`.
 La contrapendiente y la caída en los buzones se validan con este sentido (`nucleo/flujo_validar`, `normas_validar`).
 """
@@ -21,10 +22,11 @@ from nucleo.model import Z_MARK, network_kind
 from traduccion.i18n import bind as _bind, t as _tr
 from ui.comun import rediseno as R
 from ui.comun.icons import icon
-from ui.comun.responsive import WrapButton
+from ui.comun.responsive import GridAdaptable, WrapButton
 from ui.comun.theme import tokens
 from ui.comun.ui_common import layer_qcolor
 from ui.ventana.ventana_flujo_perfil import PerfilFlujoMixin
+from ui.ventana.ventana_flujo_tramos import MODO_TRAMOS, TramosFlujoMixin
 
 N_ = lambda s: s          # noqa: E731  (marca para la traducción)
 VER_PLANO = "flujo/ver_plano"
@@ -45,6 +47,10 @@ def guardar_ajuste(clave, valor):
 
 def texto_estado(p):
     """Cómo va el fluido en la utilidad, en una frase (debajo de los botones)."""
+    if FL.por_tramos(p):
+        st = FL.sentidos_tramos(p)
+        return _tr("Personalizado por tramos: {a} hacia el fin del tramo, {b} hacia el inicio, {c} automáticos.").format(
+            a=st.count(FL.ADELANTE), b=st.count(FL.ATRAS), c=st.count(FL.AUTO))
     if FL.punto(p) is not None:
         return _tr("Llega a un punto intermedio: las dos partes van hacia él.")
     f = FL.fijo(p)
@@ -57,17 +63,41 @@ def texto_estado(p):
     return _tr("Automático: en el perfil, hacia el extremo más bajo del recorrido.")
 
 
-class FlujoMixin(PerfilFlujoMixin):
+class _CajaFlujo(QtWidgets.QWidget):
+    """El QFormLayout del inspector reparte mal el alto de una fila que depende de su ancho (botones que parten su texto,
+    fichas en rejilla): su mínimo es siempre lo que pide su contenido (como `ventana_diametro_ia._TarjetaIA`)."""
+
+    def _ajustar_minimo(self):
+        lay = self.layout()
+        if lay is not None and self.width() > 0:
+            alto = lay.totalHeightForWidth(self.width())
+            if alto > 0 and alto != self.minimumHeight():
+                self.setMinimumHeight(alto)
+
+    def event(self, evento):
+        if evento.type() == QtCore.QEvent.LayoutRequest:
+            self._ajustar_minimo()
+        return super().event(evento)
+
+    def resizeEvent(self, evento):  # noqa: N802
+        super().resizeEvent(evento)
+        self._ajustar_minimo()
+
+
+class FlujoMixin(PerfilFlujoMixin, TramosFlujoMixin):
     # ------------------------------------------------------------------ propiedades de la utilidad
 
     def _flujo_construir(self):
         """La fila «Flujo» (la pone `ventana_inspector_campos.reorganizar` en la sección Cotas)."""
-        caja = QtWidgets.QWidget()
+        caja = _CajaFlujo()
         v = QtWidgets.QVBoxLayout(caja)
         v.setContentsMargins(0, 0, 0, 0)
         v.setSpacing(4)
-        h = QtWidgets.QHBoxLayout()
-        h.setSpacing(6)
+        self.lbl_flujo = QtWidgets.QLabel()             # la fila ocupa todo el ancho: el título va adentro
+        _bind(self.lbl_flujo, "setText", "Flujo")
+        v.addWidget(self.lbl_flujo)
+        fila = QtWidgets.QWidget()                      # [Elegir en el plano] [Por tramos]: 2 columnas o 1 si no caben
+        h = GridAdaptable(fila, max_cols=2, spacing=6)
         b = WrapButton()                                # el texto se parte en líneas si el panel es angosto
         b.setIcon(icon("mdi:arrow-collapse-horizontal"))
         _bind(b, "setText", "Elegir en el plano")
@@ -78,6 +108,19 @@ class FlujoMixin(PerfilFlujoMixin):
         b.clicked.connect(lambda _=False: self.flujo_elegir_en_plano())
         self.btn_flujo_elegir = b
         h.addWidget(b)
+        tb = WrapButton()
+        tb.setIcon(icon("mdi:swap-horizontal"))
+        _bind(tb, "setText", "Por tramos")
+        _bind(tb, "setToolTip", "Personalizar el sentido tramo por tramo: clic en cada tramo (o en su ficha) para "
+                                "cambiarlo")
+        tb.setCheckable(True)
+        tb.setAutoDefault(False)
+        tb.clicked.connect(lambda _=False: self.flujo_tramos_en_plano())
+        self.btn_flujo_tramos = tb
+        h.addWidget(tb)
+        v.addWidget(fila)
+        h = QtWidgets.QHBoxLayout()
+        h.setSpacing(6)
         a = QtWidgets.QPushButton()
         a.setProperty("kind", "ghost")
         _bind(a, "setText", "Auto")
@@ -94,10 +137,9 @@ class FlujoMixin(PerfilFlujoMixin):
         self.lbl_flujo_estado.setProperty("rol", "t2")
         self.lbl_flujo_estado.setWordWrap(True)
         v.addWidget(self.lbl_flujo_estado)
+        self._flujo_tramos_construir(v)                 # una ficha por tramo (ventana_flujo_tramos)
         self.box_flujo = caja
-        self.lbl_flujo = QtWidgets.QLabel()
-        _bind(self.lbl_flujo, "setText", "Flujo")
-        return self.lbl_flujo, caja
+        return None, caja
 
     def _flujo_refrescar(self):
         """Al elegir otra utilidad: la fila solo en gravedad y presión, con su estado."""
@@ -114,17 +156,22 @@ class FlujoMixin(PerfilFlujoMixin):
         if not ver:
             return
         eligiendo = self.mode == MODO
-        self.btn_flujo_elegir.blockSignals(True)
-        self.btn_flujo_elegir.setChecked(eligiendo)
-        self.btn_flujo_elegir.blockSignals(False)
+        tramos = self.mode == MODO_TRAMOS
+        for b, on in ((self.btn_flujo_elegir, eligiendo), (self.btn_flujo_tramos, tramos)):
+            b.blockSignals(True)
+            b.setChecked(on)
+            b.blockSignals(False)
         presion = network_kind(p.get("layer") or "") == "pressure"
         tip = (_tr("Volver a «sin indicar»") if presion
                else _tr("Volver a automático: hacia el extremo más bajo del recorrido"))
         self.btn_flujo_auto.setToolTip(tip)
         self.btn_flujo_auto.setAccessibleName(tip)
         self.btn_flujo_auto.setEnabled(FL.tiene(p))
-        self.lbl_flujo_estado.setText(_tr("Haz clic en el plano donde llega el fluido (Esc cancela).") if eligiendo
-                                      else texto_estado(p))
+        self.lbl_flujo_estado.setText(
+            _tr("Haz clic en el plano donde llega el fluido (Esc cancela).") if eligiendo else
+            _tr("Haz clic en cada tramo (o en su ficha) para cambiar su sentido. Esc o Enter terminan.") if tramos
+            else texto_estado(p))
+        self._flujo_fichas_refrescar(i, p)
 
     @staticmethod
     def _flujo_ojo(boton, visible, donde):
@@ -202,6 +249,9 @@ class FlujoMixin(PerfilFlujoMixin):
     def _pista_flujo(self, x, y):
         """Al mover el ratón en «flujo_punto»: la diana donde caerá el clic y las flechas de cómo quedará."""
         self._quitar_pista_flujo()
+        if self.mode == MODO_TRAMOS:
+            self._pista_tramos(x, y)                    # personalizado por tramos (ventana_flujo_tramos)
+            return
         if self.mode != MODO:
             return
         iman = self._flujo_iman(x, y)
@@ -289,12 +339,15 @@ class FlujoMixin(PerfilFlujoMixin):
 
     def _flujo_en_plano_todas(self):
         """Al final del redibujo: flechas y diana de llegada de cada utilidad con el sentido indicado (ojo abierto)."""
+        en_tramos = getattr(self, "_flujo_pipe", -1) if self.mode == MODO_TRAMOS else -1
+        if 0 <= en_tramos < len(self.pipes):                # por tramos: la utilidad con una flecha en cada tramo
+            self._overlay += self._flujo_tramos_dibujar(en_tramos)
         if not self._ver_flujo_plano():
             return
         apagadas = self._lineas_apagadas() if hasattr(self, "_lineas_apagadas") else set()
         llegadas = set()
         for i, p in enumerate(self.pipes):
-            if p.get("world") or not FL.aplica(p) or not FL.tiene(p) or p.get("layer") in apagadas:
+            if p.get("world") or not FL.aplica(p) or not FL.tiene(p) or p.get("layer") in apagadas or i == en_tramos:
                 continue
             col = layer_qcolor(p.get("layer"))
             dibujo = self._memo(("dibujo", i), lambda p=p: self._pipe_display_pts(p), copiar=False)

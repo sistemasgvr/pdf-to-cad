@@ -249,3 +249,99 @@ def test_elegir_en_el_perfil_con_vista_previa(win):
     win.undo()
     assert all(not FL.tiene(p) for p in win.pipes)
     assert math.isfinite(win._perfil_datos.e_fin)
+
+
+# ---------------------------------------------------------------- personalizado por tramos (pedido 2026-11-10)
+
+def test_por_tramos_cada_tramo_por_separado():
+    from nucleo import unir_utilidades as UU
+    p = _colector()                                            # 2 tramos que bajan al este
+    cotas = lambda k: __import__("nucleo.model_ops", fromlist=["x"]).cotas_tramo(p, k)   # noqa: E731
+    assert FL.vista_tramos(p, cotas) == [(FL.ADELANTE, False), (FL.ADELANTE, False)]   # automático: bajando
+    assert FL.alternar_tramo(p, 1, cotas)                     # automático → fijo tal como se ve
+    assert FL.sentidos_tramos(p) == [FL.AUTO, FL.ADELANTE] and FL.por_tramos(p) and FL.tiene(p)
+    assert FL.alternar_tramo(p, 1, cotas)                     # indicado → al revés
+    assert FL.sentidos_tramos(p) == [FL.AUTO, FL.ATRAS]
+    assert FV.avisos([p], FT)[0].pipe == 0                    # el 2.º tramo sube hacia donde va: contrapendiente
+    assert FL.partes(p) == [(0, 0.0, 1.0, FL.AUTO), (1, 0.0, 1.0, FL.ATRAS)]
+    # dar vuelta la utilidad o insertar un vértice no cambia hacia dónde va cada tramo
+    q = UU.invertir(p)
+    assert FL.sentidos_tramos(q) == [FL.ADELANTE, FL.AUTO]
+    p["pts"].insert(2, (1700, 500))
+    assert FL.sentidos_tramos(p) == [FL.AUTO, FL.ATRAS, FL.ATRAS]
+    # elegir un punto de llegada vuelve a la otra forma (se excluyen)
+    FL.poner_hacia(p, 1200, 500)
+    assert not FL.por_tramos(p) and FL.punto(p) is not None
+
+
+def test_por_tramos_en_el_perfil_y_la_caida():
+    from nucleo import normas_catalogo as nc, normas_reglas as NR, normas_validar as NV
+    p = _colector()
+    FL.poner_tramo(p, 0, FL.ADELANTE)
+    FL.poner_tramo(p, 1, FL.ATRAS)                            # los dos llegan al buzón del medio
+    perfil = _perfil([p])
+    assert sorted(ps.flujo_fijo for ps in perfil.pasos) == [True, True]
+    al = [a for a in PV.validar(perfil, [], None, 3.0) if a.clase == "contrapendiente"]
+    assert len(al) == 1                                       # el 2.º tramo baja al este y el fluido va al oeste
+    cat = nc.normalizar({"tipos": [], "reglas": [NR.regla_vacia(utilidad="ALCANTARILLADO", elemento="BUZON",
+                                                                  revisar="caida", max=0.0)]})
+    estr = [dict(x=200.0, y=500.0), dict(x=1200.0, y=500.0), dict(x=2200.0, y=500.0)]
+    q = dict(p, inv_start=-9.0, inv_end=-11.0, vertex_inv_out={"1": -10.5}, vertex_inv_in={"1": -10.0})
+    assert not [a for a in NV.validar(cat, [q], [], FT, (), estr, ()) if a.mensaje.startswith("Caída")]
+
+
+def test_por_tramos_en_propiedades_y_lienzo(win):
+    from PySide6 import QtCore
+    win.pipe_list.setCurrentRow(0)
+    win.btn_flujo_tramos.click()
+    assert win.mode == "flujo_tramos" and win.btn_flujo_tramos.isChecked()
+    assert win.box_flujo_tramos.isVisibleTo(win) and [b.text() for b in win._flujo_fichas] == ["T1", "T2"]
+    assert len(win._overlay) and win._flujo_tramos_dibujar(0)            # una flecha por tramo en el modo
+    win._flujo_fichas[1].click()                              # ficha T2: automático → fijo como se ve (al este)
+    assert FL.sentidos_tramos(win.pipes[0]) == [FL.AUTO, FL.ADELANTE]
+    assert "T2" in win._flujo_fichas[1].text() and "invertir" in win._flujo_fichas[1].toolTip()
+    win._pista_flujo(700, 505)                                # el tramo bajo el ratón se resalta
+    assert win._pista_flujo_items
+    win.on_click(700, 505, QtCore.Qt.LeftButton)              # clic en el lienzo, T1: fijo como se ve
+    win.on_click(700, 505, QtCore.Qt.LeftButton)              # otro clic: al revés
+    assert FL.sentidos_tramos(win.pipes[0]) == [FL.ATRAS, FL.ADELANTE]
+    assert win.mode == "flujo_tramos" and "Personalizado" not in win.lbl_flujo_estado.text()
+    win._on_enter()
+    assert win.mode == "idle" and "Personalizado por tramos" in win.lbl_flujo_estado.text()
+    assert win.box_flujo_tramos.isVisibleTo(win)               # con el sentido por tramos, las fichas siguen
+    win.undo()
+    assert FL.sentidos_tramos(win.pipes[0]) == [FL.ADELANTE, FL.ADELANTE]   # deshace solo el último clic
+    win.btn_flujo_auto.click()
+    assert not FL.tiene(win.pipes[0]) and not win.box_flujo_tramos.isVisibleTo(win)
+
+
+def test_por_tramos_en_el_perfil_con_la_ventana(win):
+    from PySide6 import QtCore
+    win.pipes = [dict(layer="ALCANTARILLADO", pts=[(200, 500), (1200, 500)], diam=8.0, inv_start=-9.0, inv_end=-10.0),
+                 dict(layer="ALCANTARILLADO", pts=[(1200, 500), (2200, 500)], diam=8.0, inv_start=-10.0,
+                      inv_end=-11.0)]
+    win._refresh_lists()
+    win._redraw()
+    win.abrir_perfil()
+    win.perfil_nuevo()
+    win.on_click(300, 500, QtCore.Qt.LeftButton)
+    win.on_click(2100, 500, QtCore.Qt.LeftButton)
+    v = win.perfil_vista
+    v.resize(1400, 500)
+    v._calcular()
+    win.btn_perfil_tramos.click()
+    assert v.tramos_flujo() and "cada tramo" in win.lbl_perfil_guia.text()
+    d = win._perfil_datos
+    pos = QtCore.QPointF((v.X(d.pasos[1].e0) + v.X(d.pasos[1].e1)) / 2, v.Z(d.pasos[1].z0 + d.pasos[1].alto_ft / 2))
+    assert v._mover_tramos(pos) == 1
+    v._clic_tramos(pos, QtCore.Qt.LeftButton)                 # automático (hacia B, bajando) → fijo
+    assert win._perfil_datos.pasos[1].flujo == 1 and win._perfil_datos.pasos[1].flujo_fijo
+    v._clic_tramos(pos, QtCore.Qt.LeftButton)                 # → al revés: contrapendiente
+    assert win._perfil_datos.pasos[1].flujo == -1
+    assert not win._perfil_datos.pasos[0].flujo_fijo           # el otro tramo sigue automático
+    assert any(a.clase == "contrapendiente" for a in v.alertas)
+    assert v.tramos_flujo()                                   # sigue en el modo para cambiar otros
+    win._on_escape()
+    assert not v.tramos_flujo() and not win.btn_perfil_tramos.isChecked()
+    win.undo()
+    assert win._perfil_datos.pasos[1].flujo == 1

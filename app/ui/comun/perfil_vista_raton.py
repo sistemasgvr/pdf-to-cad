@@ -100,8 +100,9 @@ class RatonPerfilMixin:
 
     def mousePressEvent(self, e):
         pos = e.position()
-        if e.button() in (QtCore.Qt.LeftButton, QtCore.Qt.RightButton) and self._clic_eligiendo(pos, e.button()):
-            return                                    # eligiendo hacia dónde va el fluido (`perfil_vista_flujo`)
+        if e.button() in (QtCore.Qt.LeftButton, QtCore.Qt.RightButton) and (
+                self._clic_eligiendo(pos, e.button()) or self._clic_tramos(pos, e.button())):
+            return                                    # eligiendo el flujo: un punto o por tramos (`perfil_vista_flujo`)
         if e.button() in (QtCore.Qt.MiddleButton, QtCore.Qt.RightButton):
             area = self._area()
             self._desplazando = (e.globalPosition(), (area.horizontalScrollBar().value(),
@@ -157,6 +158,10 @@ class RatonPerfilMixin:
             if pista is not None:
                 self.estacionHover.emit(float(pista["e"]))
             return
+        if self._tramos_flujo:                       # por tramos: se resalta el tramo bajo el ratón
+            i = self._mover_tramos(pos)
+            QtWidgets.QToolTip.showText(e.globalPosition().toPoint(), self._globo_tramo(i), self)
+            return
         k = self._nodo_en(pos)
         kr = self.ramal_en(pos) if k < 0 else -1
         kf = self._hover_flecha(pos) if k < 0 else -1
@@ -178,6 +183,8 @@ class RatonPerfilMixin:
             return ""
         if self._eligiendo_flujo:
             return t("Clic: el fluido llega aquí · Esc: cancelar")
+        if self._tramos_flujo:
+            return self._globo_tramo(self._tramo_en(pos))
         al = self.alertas_en(pos)
         if al:
             return "\n".join("• " + a.mensaje for a in al)
@@ -248,6 +255,9 @@ class RatonPerfilMixin:
     def keyPressEvent(self, e):
         if self._eligiendo_flujo and e.key() == QtCore.Qt.Key_Escape:
             self.elegir_flujo(False)
+            return
+        if self._tramos_flujo and e.key() in (QtCore.Qt.Key_Escape, QtCore.Qt.Key_Return, QtCore.Qt.Key_Enter):
+            self.elegir_tramos(False)
             return
         k = self._sel_nodo
         if k >= 0 and e.key() in (QtCore.Qt.Key_Up, QtCore.Qt.Key_Down) and self.p.nodos[k].editable:

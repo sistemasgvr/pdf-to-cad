@@ -345,7 +345,7 @@ def _flujo(pipes, rec, pasos, tipo="gravity"):
         tendencia = FL.ADELANTE if zb < za - 1e-6 else FL.ATRAS
     for p in pasos:
         f, corte = FL.en_arista(pipes[p.pipe], p.tramo, p.t0, p.t1, p.invertida)
-        p.flujo_fijo = FL.tiene(pipes[p.pipe])
+        p.flujo_fijo = bool(f)                        # por tramos, un tramo sin indicar sigue automático
         p.flujo = f or tendencia
         p.flujo_corte = corte
 

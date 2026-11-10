@@ -8,7 +8,11 @@ va el fluido, con snap a buzones, vértices y tuberías»).
   y las flechas en vivo (`ui/comun/perfil_vista_flujo`). Clic → `perfil_flujo_punto`: todo lo de antes del punto va
   hacia B y lo de después hacia A (`nucleo/flujo_perfil.asignar`): cada utilidad del recorrido toda hacia una punta
   o, si el punto cae dentro de ella, hacia ese punto. UN paso de deshacer. Esc o clic derecho = cancelar.
-- Clic derecho en un tramo → «Sentido del flujo»: elegir, o volver a automático esa utilidad o todo el perfil.
+- PERSONALIZADO POR TRAMOS (2026-11-10): botón [⇄ Por tramos]: clic en cada tramo = su sentido, por separado
+  (`perfil_flujo_tramo` → `nucleo/flujo.poner_tramo`): si era automático queda fijo tal como se ve, si no se invierte.
+  Un paso de deshacer por clic; Esc, Enter o clic derecho terminan.
+- Clic derecho en un tramo → «Sentido del flujo»: elegir el punto, cambiar ese tramo, personalizar por tramos, o
+  volver a automático esa utilidad o todo el perfil.
 """
 from __future__ import annotations
 
@@ -36,6 +40,16 @@ class PerfilFlujoMixin:
         b.hide()
         self.btn_perfil_flujo = b
         h.addWidget(b)
+        t = QtWidgets.QPushButton()
+        t.setIcon(icon("mdi:swap-horizontal"))
+        _bind(t, "setText", "Por tramos")
+        _bind(t, "setToolTip", "Personalizar el sentido del flujo tramo por tramo: clic en cada tramo para cambiarlo")
+        t.setCheckable(True)
+        t.setAutoDefault(False)
+        t.clicked.connect(lambda on: self.perfil_flujo_tramos(on))
+        t.hide()
+        self.btn_perfil_tramos = t
+        h.addWidget(t)
         self.btn_perfil_ver_flujo = R.boton_icono("eye-outline", "Ocultar el sentido del flujo en el perfil",
                                                   lambda: self.perfil_ver_flujo())
         self.btn_perfil_ver_flujo.hide()
@@ -47,6 +61,8 @@ class PerfilFlujoMixin:
         vista.flujoCambiado.connect(self.perfil_flujo)          # «automático» desde el clic derecho
         vista.flujoPunto.connect(self.perfil_flujo_punto)
         vista.flujoElegir.connect(self._perfil_flujo_modo)
+        vista.flujoTramo.connect(self.perfil_flujo_tramo)
+        vista.flujoTramos.connect(self._perfil_flujo_modo)
 
     def _flujo_perfil_refrescar(self):
         """Tras rearmar el perfil: los botones solo en gravedad y presión."""
@@ -56,10 +72,13 @@ class PerfilFlujoMixin:
         d = getattr(self, "_perfil_datos", None)
         ver = d is not None and d.tipo in FL.REDES
         b.setVisible(ver)
+        self.btn_perfil_tramos.setVisible(ver)
         self.btn_perfil_ver_flujo.setVisible(ver)
         vista = self.perfil_vista
         if not ver and vista.eligiendo_flujo():
             vista.elegir_flujo(False)
+        if not ver and vista.tramos_flujo():
+            vista.elegir_tramos(False)
         self._flujo_ojo(self.btn_perfil_ver_flujo, vista.ver_flujo, "perfil")
 
     def perfil_flujo_elegir(self, on=True):
@@ -73,19 +92,35 @@ class PerfilFlujoMixin:
         vista.elegir_flujo(bool(on))
         return vista.eligiendo_flujo()
 
-    def _perfil_flujo_modo(self, on):
-        """La vista entró o salió del modo: botón, franja guía y A/B (no se eligen a la vez)."""
-        b = getattr(self, "btn_perfil_flujo", None)
-        if b is not None:
-            b.blockSignals(True)
-            b.setChecked(bool(on))
-            b.blockSignals(False)
-        if on and getattr(self, "_perfil_paso", None):
+    def perfil_flujo_tramos(self, on=True):
+        """Entra (o sale) del modo «personalizado por tramos» en el perfil."""
+        vista = getattr(self, "perfil_vista", None)
+        d = getattr(self, "_perfil_datos", None)
+        if vista is None or d is None or d.tipo not in FL.REDES:
+            if getattr(self, "btn_perfil_tramos", None) is not None:
+                self.btn_perfil_tramos.setChecked(False)
+            return False
+        vista.elegir_tramos(bool(on))
+        return vista.tramos_flujo()
+
+    def _perfil_flujo_modo(self, _on=None):
+        """La vista entró o salió de un modo del flujo: botones, franja guía y A/B (no se eligen a la vez)."""
+        vista = self.perfil_vista
+        punto, tramos = vista.eligiendo_flujo(), vista.tramos_flujo()
+        for b, on in ((getattr(self, "btn_perfil_flujo", None), punto),
+                      (getattr(self, "btn_perfil_tramos", None), tramos)):
+            if b is not None:
+                b.blockSignals(True)
+                b.setChecked(on)
+                b.blockSignals(False)
+        if (punto or tramos) and getattr(self, "_perfil_paso", None):
             self._perfil_paso = None
             self._perfil_quitar_pista()
         self._perfil_ab_fichas()
-        if on:
+        if punto:
             self._info(_tr("Haz clic en el perfil donde llega el fluido (Esc cancela)."))
+        elif tramos:
+            self._info(_tr("Haz clic en cada tramo del perfil para cambiar su sentido (Esc termina)."))
 
     def _perfil_flujo_esc(self):
         """Esc en la ventana mientras se elige en el perfil: cancelar. True si lo atendió."""
@@ -93,7 +128,32 @@ class PerfilFlujoMixin:
         if vista is not None and vista.eligiendo_flujo():
             vista.elegir_flujo(False)
             return True
+        if vista is not None and vista.tramos_flujo():
+            vista.elegir_tramos(False)
+            return True
         return False
+
+    def perfil_flujo_tramo(self, i):
+        """Modo por tramos: cambia el sentido del tramo de la utilidad que recorre el paso `i` (automático → fijo tal
+        como se ve; indicado → al revés). UN paso de deshacer. True si cambió."""
+        d = getattr(self, "_perfil_datos", None)
+        if d is None or d.tipo not in FL.REDES or not (0 <= i < len(d.pasos)):
+            return False
+        ps = d.pasos[i]
+        if not (0 <= ps.pipe < len(self.pipes)) or not FL.aplica(self.pipes[ps.pipe]):
+            return False
+        hacia = -ps.flujo if ps.flujo_fijo else (ps.flujo or 1)
+        valor = FL.de_paso(hacia, ps.invertida)
+        prueba = dict(self.pipes[ps.pipe])
+        if not FL.poner_tramo(prueba, ps.tramo, valor):
+            return False
+        self._push()
+        FL.poner_tramo(self.pipes[ps.pipe], ps.tramo, valor)
+        self._dirty = True
+        self._redraw()                                # el perfil se rehace solo (cambió el modelo)
+        self._flujo_refrescar()
+        self._info(_tr("Tramo T{n}: el fluido va hacia {x}.").format(n=ps.tramo + 1, x="B" if hacia > 0 else "A"))
+        return True
 
     def perfil_flujo_punto(self, e, nodo=-1):
         """El fluido llega a la estación `e` del perfil (en el nodo `nodo` si el imán lo tomó): lo de antes va hacia B

@@ -18,6 +18,7 @@ class ClicsMixin:
             elif self.mode == "move": self._delete_vertex(x, y)
             elif self.mode == "insert_acc": self._escape_accesorio()
             elif self.mode == "flujo_punto": self._cancelar_flujo_plano()
+            elif self.mode == "flujo_tramos": self._terminar_tramos_plano()
             elif self.mode == "idle": self._canvas_context_menu(x, y)
             return
         # Left-click sobre una marca de conflicto (círculo amarillo con !):
@@ -32,7 +33,7 @@ class ClicsMixin:
         # que las marcas de cruce: en una Tee la marca solo decía «Unión en Civil 3D».
         if button == QtCore.Qt.LeftButton and self.mode == "idle"                 and not (QtWidgets.QApplication.keyboardModifiers() & QtCore.Qt.ControlModifier)                 and self._elegir_accesorio_en(x, y):
             return
-        if button == QtCore.Qt.LeftButton and self.mode not in ("pipe", "flujo_punto"):
+        if button == QtCore.Qt.LeftButton and self.mode not in ("pipe", "flujo_punto", "flujo_tramos"):
             if self._try_click_conflict(x, y):
                 return
         if self.mode == "pipe":
@@ -63,6 +64,8 @@ class ClicsMixin:
             self._clic_accesorio(x, y)
         elif self.mode == "flujo_punto":
             self._clic_flujo_plano(x, y)                # hacia dónde va el fluido (ventana_flujo)
+        elif self.mode == "flujo_tramos":
+            self._clic_tramo_plano(x, y)                # sentido por tramos (ventana_flujo_tramos)
         elif self.mode == "idle":
             if self._pick(x, y):
                 self.ver_propiedades()

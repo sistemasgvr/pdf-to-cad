@@ -9,8 +9,14 @@ todo a la derecha: puede llegar a un buzón del medio»). Lo que se guarda en la
 - `pipe["flujo_hacia"]` = [x, y]: llega a un punto INTERMEDIO de la utilidad (un buzón, un vértice o un punto de la
   línea): las dos partes van hacia él. Se guarda el punto (px de la hoja), no el número de tramo: insertar o quitar
   vértices no lo corre, y al dar vuelta la utilidad sigue igual;
-- sin ninguna de las dos = AUTOMÁTICO. En gravedad: en el perfil, hacia el extremo más bajo del recorrido. A presión
+- `pipe["flujo_tramos"]` = [[mx, my, dx, dy], …]: PERSONALIZADO POR TRAMOS (pedido 2026-11-10: «cambiar de manera
+  fácil y visual el sentido de cada tramo por separado»). Una entrada por tramo: su punto medio y la dirección del
+  fluido (vector unitario; cero = ese tramo sigue automático). El tramo k toma la entrada más cercana a él y su
+  sentido es el signo de esa dirección contra el tramo: insertar o quitar vértices, o dar vuelta la utilidad, no lo
+  cambia;
+- sin ninguna = AUTOMÁTICO. En gravedad: en el perfil, hacia el extremo más bajo del recorrido. A presión
   no hay pendiente que lo diga: queda SIN INDICAR.
+Las tres formas se excluyen: indicar una quita las otras.
 Se usa para validar (contrapendiente en el perfil y en el plano, caída en los buzones: `flujo_validar`) y para
 dibujar las flechas: nada se mueve.
 """
@@ -23,6 +29,7 @@ from nucleo.model import network_kind
 ADELANTE, ATRAS, AUTO = 1, -1, 0
 REDES = ("gravity", "pressure")          # las de conductos (eléctrico, telecom) no llevan sentido del flujo
 HACIA = "flujo_hacia"
+TRAMOS = "flujo_tramos"
 EPS_T = 1e-9
 
 
@@ -48,19 +55,60 @@ def punto(p):
         return None
 
 
+def _entradas(p):
+    v = p.get(TRAMOS) if isinstance(p, dict) else None
+    out = []
+    for e in v or ():
+        try:
+            mx, my, dx, dy = (float(c) for c in e[:4])
+        except (TypeError, ValueError):
+            continue
+        out.append((mx, my, dx, dy))
+    return out
+
+
+def por_tramos(p):
+    """True si el sentido está personalizado por tramos."""
+    return bool(_entradas(p))
+
+
+def _dist_seg(x, y, a, b):
+    dx, dy = b[0] - a[0], b[1] - a[1]
+    L2 = dx * dx + dy * dy
+    t = 0.0 if L2 <= 1e-18 else max(0.0, min(1.0, ((x - a[0]) * dx + (y - a[1]) * dy) / L2))
+    return math.hypot(a[0] + dx * t - x, a[1] + dy * t - y)
+
+
+def sentidos_tramos(p):
+    """[1 / -1 / 0] de cada tramo en el modo por tramos (0 = ese tramo sigue automático)."""
+    pts = (p.get("pts") or []) if isinstance(p, dict) else []
+    ents = _entradas(p)
+    out = []
+    for k in range(len(pts) - 1):
+        a, b = pts[k][:2], pts[k + 1][:2]
+        if not ents:
+            out.append(AUTO)
+            continue
+        mx, my, dx, dy = min(ents, key=lambda e: _dist_seg(e[0], e[1], a, b))
+        d = dx * (b[0] - a[0]) + dy * (b[1] - a[1])
+        out.append(ADELANTE if d > 1e-12 else ATRAS if d < -1e-12 else AUTO)
+    return out
+
+
 def tiene(p):
-    """True si el usuario indicó hacia dónde va el fluido (a una punta o a un punto intermedio)."""
-    return bool(fijo(p)) or punto(p) is not None
+    """True si el usuario indicó hacia dónde va el fluido (a una punta, a un punto intermedio o por tramos)."""
+    return bool(fijo(p)) or punto(p) is not None or any(sentidos_tramos(p))
 
 
 def estado(p):
-    return fijo(p), punto(p)
+    return fijo(p), punto(p), tuple(sentidos_tramos(p)) if por_tramos(p) else ()
 
 
 def poner(p, sentido):
     """Toda la utilidad hacia su fin (1) o su inicio (-1), o automático (0). True si cambió."""
     antes = estado(p)
     p.pop(HACIA, None)
+    p.pop(TRAMOS, None)
     if sentido in (ADELANTE, ATRAS):
         p["flujo"] = int(sentido)
     else:
@@ -101,15 +149,81 @@ def poner_hacia(p, x, y, tol_px=0.5):
         return poner(p, ADELANTE)
     antes = estado(p)
     p.pop("flujo", None)
+    p.pop(TRAMOS, None)
     p[HACIA] = [q[0], q[1]]
     return estado(p) != antes
+
+
+def por_tramo_actual(p):
+    """[1 / -1 / 0] de cada tramo con el sentido de ahora (un tramo con el punto de llegada adentro toma el de su
+    parte más larga)."""
+    pts = p.get("pts") or []
+    out = [AUTO] * max(0, len(pts) - 1)
+    largo = [0.0] * len(out)
+    for k, t0, t1, s in partes(p):
+        if t1 - t0 > largo[k]:
+            out[k], largo[k] = s, t1 - t0
+    return out
+
+
+def poner_tramo(p, k, sentido):
+    """Personaliza por tramos: el tramo k va hacia el fin del tramo (1), hacia su inicio (-1) o automático (0); los
+    demás tramos quedan como van ahora. True si cambió."""
+    pts = p.get("pts") or []
+    if not (0 <= k < len(pts) - 1):
+        return False
+    s = por_tramo_actual(p)
+    s[k] = sentido if sentido in (ADELANTE, ATRAS) else AUTO
+    antes = estado(p)
+    p.pop("flujo", None)
+    p.pop(HACIA, None)
+    ents = []
+    for j, sj in enumerate(s):
+        (ax, ay), (bx, by) = pts[j][:2], pts[j + 1][:2]
+        L = math.hypot(bx - ax, by - ay)
+        if L <= 1e-12:
+            continue
+        # también los automáticos (dirección cero): cada tramo con su entrada, así ninguno toma la del vecino
+        ents.append([(ax + bx) / 2, (ay + by) / 2, (bx - ax) / L * sj, (by - ay) / L * sj])
+    if any(s):
+        p[TRAMOS] = ents
+    else:
+        p.pop(TRAMOS, None)
+    return estado(p) != antes
+
+
+def vista_tramos(p, cotas=None):
+    """[(sentido, indicado)] de cada tramo como se muestra al personalizar: el indicado o, si es automático, en
+    gravedad hacia la solera más baja del tramo (`cotas(k)` = (z inicio, z fin) o None) y a presión 0 (sin indicar)."""
+    gravedad = network_kind(p.get("layer") or "") == "gravity"
+    out = []
+    for k, s in enumerate(por_tramo_actual(p)):
+        if s:
+            out.append((s, True))
+            continue
+        c = cotas(k) if (cotas and gravedad) else None
+        if c and c[0] is not None and c[1] is not None and abs(c[0] - c[1]) > 1e-9:
+            out.append((ADELANTE if c[1] < c[0] else ATRAS, False))
+        else:
+            out.append((AUTO, False))
+    return out
+
+
+def alternar_tramo(p, k, cotas=None):
+    """Un clic sobre el tramo k: si es automático, queda FIJO tal como se ve (a presión, hacia el fin del tramo); si
+    ya está indicado, se invierte. True si cambió."""
+    vista = vista_tramos(p, cotas)
+    if not (0 <= k < len(vista)):
+        return False
+    s, indicado = vista[k]
+    return poner_tramo(p, k, -s if indicado else (s or ADELANTE))
 
 
 def corte(p):
     """(tramo, t) donde llega el fluido si va a un punto intermedio, o None."""
     pt = punto(p)
     pts = (p.get("pts") or []) if isinstance(p, dict) else []
-    if pt is None or len(pts) < 2:
+    if pt is None or len(pts) < 2 or por_tramos(p):
         return None
     r = proyectar(pts, *pt)
     return (r[0], r[1]) if r else None
@@ -119,6 +233,8 @@ def partes(p):
     """[(tramo, t0, t1, sentido)] de toda la utilidad: 1 = va hacia su fin, -1 = hacia su inicio, 0 = automático. Un
     tramo con el punto de llegada adentro va en dos partes."""
     pts = p.get("pts") or []
+    if por_tramos(p):
+        return [(k, 0.0, 1.0, s) for k, s in enumerate(sentidos_tramos(p))]
     c = corte(p)
     f = fijo(p)
     out = []
@@ -151,8 +267,8 @@ def sentido_en(p, k, t):
 def llegada(p):
     """(x, y) donde llega el fluido de la utilidad (su punta o el punto intermedio), o None si es automático."""
     pts = p.get("pts") or []
-    if len(pts) < 2:
-        return None
+    if len(pts) < 2 or por_tramos(p):
+        return None                                   # por tramos puede llegar a varios lados: sin una sola diana
     c = corte(p)
     if c is not None:
         k, t = c
@@ -177,6 +293,10 @@ def en_arista(p, tramo, t0, t1, invertida):
     """(sentido, corte) de un paso del perfil que recorre la parte [t0, t1] del tramo `tramo` de la utilidad:
     sentido 1 = hacia B, -1 = hacia A, 0 = automático; `corte` = parámetro sobre el paso (0 = su inicio) donde
     llega el fluido si el punto de llegada cae dentro (entonces las dos partes van hacia él), o None."""
+    if por_tramos(p):
+        st = sentidos_tramos(p)
+        s = st[tramo] if 0 <= tramo < len(st) else AUTO
+        return (-s if invertida else s), None
     c = corte(p)
     if c is None:
         return en_paso(p, invertida), None
@@ -270,6 +390,8 @@ def ramas(p, dibujo=None):
     dib = [tuple(q[:2]) for q in (dibujo if dibujo and len(dibujo) >= 2 else pts)]
     if len(dib) < 2:
         return []
+    if por_tramos(p):
+        return _ramas_tramos(pts, dib, sentidos_tramos(p))
     pt = punto(p)
     if pt is not None:
         c = proyectar(pts, *pt)
@@ -287,6 +409,61 @@ def ramas(p, dibujo=None):
     if f == ATRAS:
         return [list(reversed(dib))]
     return []
+
+
+def _tramo_en(dib, a, b):
+    """La parte de la línea dibujada entre las proyecciones de a y b (de a hacia b)."""
+    ra, rb = proyectar(dib, *a[:2]), proyectar(dib, *b[:2])
+    if ra is None or rb is None:
+        return [tuple(a[:2]), tuple(b[:2])]
+    ja, qa, sa = ra[0], ra[2], ra[4]
+    jb, qb, sb = rb[0], rb[2], rb[4]
+    if sb < sa:
+        return list(reversed(_tramo_en(dib, b, a)))
+    return [qa] + list(dib[ja + 1:jb + 1]) + [qb]
+
+
+def _ramas_tramos(pts, dib, sentidos):
+    """Ramas del modo por tramos: tramos seguidos con el mismo sentido van juntos."""
+    out, actual, s_act = [], [], 0
+    for k, s in enumerate(sentidos):
+        if not s:
+            if actual:
+                out.append(actual if s_act > 0 else list(reversed(actual)))
+            actual, s_act = [], 0
+            continue
+        seg = _tramo_en(dib, pts[k], pts[k + 1])
+        if s == s_act and actual:
+            actual += seg[1:]
+        else:
+            if actual:
+                out.append(actual if s_act > 0 else list(reversed(actual)))
+            actual, s_act = list(seg), s
+    if actual:
+        out.append(actual if s_act > 0 else list(reversed(actual)))
+    return [r for r in out if _largo(r) > 1e-9]
+
+
+def flechas_vista(p, vista, dibujo=None):
+    """[(tramo, x, y, ángulo, sentido, indicado)] de una flecha a la mitad de cada tramo según `vista`
+    (`vista_tramos`): la que se muestra al personalizar por tramos (sentido 0 = a lo largo del tramo)."""
+    pts = p.get("pts") or []
+    dib = dibujo if dibujo and len(dibujo) >= 2 else pts
+    out = []
+    for k, (s, indicado) in enumerate(vista):
+        (ax, ay), (bx, by) = pts[k][:2], pts[k + 1][:2]
+        if math.hypot(bx - ax, by - ay) <= 1e-9:
+            continue
+        r = proyectar(dib, (ax + bx) / 2, (ay + by) / 2)
+        j, q = r[0], r[2]
+        (cx, cy), (ex, ey) = dib[j][:2], dib[j + 1][:2]
+        dx, dy = ex - cx, ey - cy
+        if math.hypot(dx, dy) < 1e-9:
+            dx, dy = bx - ax, by - ay
+        if s == ATRAS:
+            dx, dy = -dx, -dy
+        out.append((k, q[0], q[1], math.degrees(math.atan2(dy, dx)), s, indicado))
+    return out
 
 
 def _largo(pts):

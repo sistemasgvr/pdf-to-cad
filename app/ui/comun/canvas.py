@@ -31,6 +31,7 @@ _MODE_CURSORS = {
     "insert_valv": QtCore.Qt.CrossCursor,
     "insert_acc": QtCore.Qt.CrossCursor,
     "flujo_punto": QtCore.Qt.CrossCursor,
+    "flujo_tramos": QtCore.Qt.PointingHandCursor,
 }
 
 
